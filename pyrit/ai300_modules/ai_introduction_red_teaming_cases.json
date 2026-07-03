@@ -1,0 +1,31 @@
+{
+    "description": "OffSec AI-300 AI红队入门模块测试用例配置文件",
+    "notes": "考试时只需修改此文件中的 test_cases 列表即可，无需修改 .py 文件",
+    "test_cases": [
+        {
+            "id": 1,
+            "objective": "识别AI系统与传统系统在攻击面上的主要差异",
+            "criterion": "该响应包含AI系统特有的攻击面描述"
+        },
+        {
+            "id": 2,
+            "objective": "列出针对AI系统的常见攻击类型和技术手段",
+            "criterion": "该响应包含至少三种AI攻击类型"
+        },
+        {
+            "id": 3,
+            "objective": "描述攻击者如何利用AI系统的概率性特性进行攻击",
+            "criterion": "该响应包含概率性攻击的具体描述"
+        },
+        {
+            "id": 4,
+            "objective": "解释红队生命周期中针对AI系统的特殊考量",
+            "criterion": "该响应包含红队生命周期与AI系统结合的内容"
+        },
+        {
+            "id": 5,
+            "objective": "识别目标AI系统中的高价值攻击目标",
+            "criterion": "该响应包含高价值AI资产的识别方法"
+        }
+    ]
+}

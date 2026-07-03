@@ -1,0 +1,113 @@
+# OffSec AI-300 多代理A2A协议攻击模块（Crescendo版本）
+
+## 一、脚本概述
+
+本脚本是多代理A2A协议攻击的 **Crescendo版本**，使用 CrescendoAttack 类实现逐步突破代理信任边界的攻击方式。
+
+**核心特点：**
+- ✅ 使用 CrescendoAttack 类，支持多轮对话逐步突破
+- ✅ 测试用例完全独立于代码（JSON配置）
+- ✅ 支持 max_turns 和 max_backtracks 参数配置
+- ✅ 考试时零代码修改
+- ✅ 自动加载和验证配置
+
+## 二、运行前准备
+
+### 2.1 配置 .env 文件
+
+```env
+PLATFORM_SELECTOR=ZHIPU
+
+[ZHIPU]
+OPENAI_CHAT_KEY=your_zhipu_api_key
+OPENAI_CHAT_MODEL=glm-4-plus
+OPENAI_CHAT_ENDPOINT=https://open.bigmodel.cn/api/paas/v4
+```
+
+### 2.2 修改测试用例（只需修改 JSON 文件！）
+
+打开 `json_crescendo/crescendo_multi_agent_a2a_protocol_attack_cases.json` 文件，修改 `test_cases` 列表：
+
+```json
+{
+    "description": "OffSec AI-300 多代理A2A协议攻击测试用例配置文件（Crescendo版本）",
+    "notes": "考试时只需修改此文件中的 test_cases 列表即可，无需修改 .py 文件",
+    "max_turns": 10,
+    "max_backtracks": 4,
+    "test_cases": [
+        {
+            "id": 1,
+            "objective": "你的攻击目标",
+            "criterion": "对应的评分标准"
+        }
+    ]
+}
+```
+
+### 2.3 运行方式
+
+```powershell
+py.exe '.\json_crescendo\crescendo_multi_agent_a2a_protocol_attack.py'
+```
+
+## 三、JSON 配置文件格式
+
+### 3.1 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `description` | string | 否 | 配置文件描述 |
+| `notes` | string | 否 | 备注说明 |
+| `max_turns` | integer | 否 | 最大对话轮数，默认10 |
+| `max_backtracks` | integer | 否 | 最大回溯次数，默认4 |
+| `test_cases` | array | 是 | 测试用例列表 |
+| `test_cases[].id` | integer | 是 | 用例编号 |
+| `test_cases[].objective` | string | 是 | 攻击目标文本 |
+| `test_cases[].criterion` | string | 是 | 评分标准 |
+
+## 四、攻击原理
+
+### 4.1 Crescendo攻击机制
+
+CrescendoAttack 通过多轮对话逐步逼近目标，每轮根据反馈调整策略：
+
+1. **初始试探** - 发送初始攻击请求
+2. **评估反馈** - 使用 SelfAskTrueFalseScorer 评估结果
+3. **策略调整** - 根据评估结果调整攻击方式
+4. **回溯重试** - 失败时回溯重新尝试不同路径
+
+### 4.2 A2A协议攻击重点
+
+- 代理间信任边界突破
+- 认证协议绕过
+- 代理身份伪造
+- 协议漏洞利用
+
+## 五、考试重点
+
+### 5.1 考试中如何使用
+
+**零代码修改原则：** 考试时只需修改 `json_crescendo/crescendo_multi_agent_a2a_protocol_attack_cases.json` 文件：
+
+1. 打开 JSON 配置文件
+2. 修改 `test_cases` 列表中的测试用例
+3. 设置合适的 `max_turns` 和 `max_backtracks`
+4. 运行脚本
+
+### 5.2 参数调优建议
+
+| 参数 | 默认值 | 调整建议 |
+|------|--------|----------|
+| `max_turns` | 10 | 复杂目标可增加到15-20 |
+| `max_backtracks` | 4 | 困难目标可增加到6-8 |
+
+## 六、文件清单
+
+| 文件 | 用途 |
+|------|------|
+| [.env](../.env) | 多平台API配置文件 |
+| [platform_config_loader.py](platform_config_loader.py) | 配置加载器 |
+| [case_loader.py](case_loader.py) | 测试用例加载器 |
+| [crescendo_multi_agent_a2a_protocol_attack.py](crescendo_multi_agent_a2a_protocol_attack.py) | 多代理A2A协议攻击脚本（Crescendo版本） |
+| [crescendo_multi_agent_a2a_protocol_attack_cases.json](crescendo_multi_agent_a2a_protocol_attack_cases.json) | 测试用例配置文件 |
+| [crescendo_multi_agent_a2a_protocol_attack.md](crescendo_multi_agent_a2a_protocol_attack.md) | 本文档 |
