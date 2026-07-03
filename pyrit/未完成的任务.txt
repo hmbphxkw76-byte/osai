@@ -1,0 +1,3 @@
+`d:\文档\GitHub\osai\pyrit\ai300_modules` 根据最佳实践原则，在此目录下，新增特别适合用multi-turn或crescendo攻击策略来实现的代码，对应的文件名后面增加_multi_turn 或_crescendo来做区分，如果multi-turn或crescendo攻击都适合，则都全部写上对应实现代码。要求仍然是：1.最小化代码修改原则，确保考试期间改动最小，就能实现攻击的目的。2.采取用json数据和逻辑分离的框架设计。3.其他目录和文件和文件夹保持不变，切勿删除操作。
+
+ 
