@@ -13,7 +13,6 @@ pyrit>=0.14.0,<1.0.0          # PyRIT 红队框架（含 PromptTarget/Scorer/Nor
 # HTTP 客户端
 # ─────────────────────────────────────────────
 httpx>=0.27,<1.0               # 现代 HTTP 客户端（http_target / model_probe 依赖，支持异步和重试）
-aiohttp>=3.9,<4.0              # 异步 HTTP 客户端（MCP/A2A/RAG Target 依赖，支持 JSON-RPC 和 SSE）
 
 # ─────────────────────────────────────────────
 # 环境变量管理
