@@ -1,307 +1,215 @@
 """
-build_payloads.py — 从统一的 data/payloads.py 主文件自动生成语言版本
+===============================================================================
+OffSec AI-300 — Payload 构建脚本 (Build Script)
+===============================================================================
+用途: 
+  1. 验证 datasets/payloads/ 下所有 YAML 文件的格式和完整性
+  2. 统计各模块 payload 覆盖度
+  3. 生成 payload 覆盖率报告
+  4. 检查 manifest.yaml 与实际 YAML 文件的一致性
 
-用法:
-    python scripts/build_payloads.py
+执行: python scripts/build_payloads.py
 
-输出:
-    - data/payloads_cn.py  (从主文件中提取 zh 字段)
-    - data/payloads_en.py  (从主文件中提取 en 字段)
-
-生成规则:
-    - 两个输出文件的 PRESET_NAMES 顺序强制一致: stealth / bruteforce / redteam / academic / minimal
-    - 如果某个 preset 在目标语言中缺失，自动 fallback 到 base
-    - _EXTRA_VARIANTS 直接复制（变体代码片段中英通用）
+考试期间无需运行此脚本 — 它仅用于开发维护和 CI 流程。
+===============================================================================
 """
-
 import os
 import sys
-from datetime import datetime
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from data.payloads import PAYLOADS, _EXTRA_VARIANTS
-
-PRESET_NAMES = ['stealth', 'bruteforce', 'redteam', 'academic', 'minimal']
-
-# ── 验证：确保每个 payload 都有 zh/en 字段 ──
-missing_zh = [k for k, v in PAYLOADS.items() if 'zh' not in v]
-missing_en = [k for k, v in PAYLOADS.items() if 'en' not in v]
-if missing_zh:
-    print(f"[WARN] 以下 payload 缺少 zh 字段: {missing_zh}")
-if missing_en:
-    print(f"[WARN] 以下 payload 缺少 en 字段: {missing_en}")
-
-# ═══════════════════════════════════════
-# 模板（使用 $$PLACEHOLDER$$ 避免与 payload 内容中的 {} 冲突）
-# ═══════════════════════════════════════
-
-CN_HEADER = '''"""
-OffSec AI-300 — Payload 变量定义 (中文)
-来源: data/payloads.py (统一主文件)
-用途: 提供 {{key}} 模板占位符的替换值
-自动生成于: $$TIMESTAMP$$
-
-⚠️  此文件由 scripts/build_payloads.py 自动生成，请勿手动编辑！
-   如需修改，请编辑 data/payloads.py 主文件，然后重新运行构建脚本。
-
-使用方式:
-    from data.payloads_cn import get_payloads, get_variants
-    vars_dict, presets_dict = get_payloads()
-"""
-from __future__ import annotations
+from datasets.payload_loader import (
+    load_classic_payloads,
+    load_all_module_payloads,
+    load_exam_module_yaml,
+    MODULE_FILE_MAP,
+    PRESET_NAMES,
+)
 
 
-# ═══════════════════════════════════════════════════
-# 预设名称列表（用于行列转置）
-# ═══════════════════════════════════════════════════
+def validate_classic_payloads():
+    """验证经典载荷 YAML 文件的完整性。"""
+    print("\n" + "=" * 60)
+    print("  经典攻击载荷验证 (core/)")
+    print("=" * 60)
 
-PRESET_NAMES = $$PRESET_NAMES$$
+    all_ok = True
+    for lang_label, lang_key in [("中文 (zh)", "cn"), ("英文 (en)", "en")]:
+        vars_dict, presets = load_classic_payloads(lang_key)
+        count = len(vars_dict)
+        preset_count = len(presets)
+        status = "[OK]" if count > 0 else "[FAIL]"
+        print(f"  {status} {lang_label}: {count} 变量, {preset_count} 预设 ({', '.join(presets.keys())})")
 
+        # 检查空值（忽略运行时占位符 ctx_hm_prompt）
+        ignored_empty = {"ctx_hm_prompt"}
+        empty_vars = [k for k, v in vars_dict.items() if not v and k not in ignored_empty]
+        if empty_vars:
+            print(f"  [WARN] 非预期空值变量 ({len(empty_vars)}): {', '.join(empty_vars[:5])}...")
+            all_ok = False
 
-# ═══════════════════════════════════════════════════
-# Payload 定义（行式结构 — 每个 payload 一行，自包含 base + 5 套 preset 值）
-# 新增变量只需在此添加一个 block，无需修改多处
-# ═══════════════════════════════════════════════════
-
-PAYLOADS: dict[str, dict] = {
-$$CN_PAYLOADS$$
-}
-
-
-_EXTRA_VARIANTS: dict[str, dict[str, str]] = {
-$$EXTRA_VARIANTS$$
-}
-
-
-# ═══════════════════════════════════════════════════
-# API: 行列转置（对外接口不变）
-# ═══════════════════════════════════════════════════
-
-def get_payloads() -> "tuple[dict[str, str], dict[str, dict[str, str]]]":
-    """返回 (base_vars, presets)。
-
-    内部将行式 PAYLOADS 转置为列式 VARS + PRESETS。
-    """
-    vars_dict: dict[str, str] = {}
-    presets_dict: dict[str, dict[str, str]] = {pn: {} for pn in PRESET_NAMES}
-
-    for payload_name, row in PAYLOADS.items():
-        vars_dict[payload_name] = row.get("base", "")
+        # 检查 preset 完整度（忽略运行时占位符）
         for pn in PRESET_NAMES:
-            presets_dict[pn][payload_name] = row.get(pn, row.get("base", ""))
+            if pn in presets:
+                pn_count = sum(1 for k, v in presets[pn].items() if v and k not in ignored_empty)
+                expected = count - len(ignored_empty)
+                if pn_count < expected:
+                    print(f"  [WARN] 预设 '{pn}' 覆盖: {pn_count}/{expected} (忽略 {len(ignored_empty)} 个占位符)")
+                    all_ok = False
 
-    return vars_dict, presets_dict
-
-
-def get_variants() -> "dict[str, dict[str, str]]":
-    """返回变体字典（每种攻击类型 2-5 套备选载荷）。"""
-    variants: dict[str, dict[str, str]] = dict(_EXTRA_VARIANTS)
-    for payload_name, row in PAYLOADS.items():
-        if "variants" in row:
-            variants[payload_name] = dict(row["variants"])
-    return variants
-'''
-
-EN_HEADER = '''"""
-OffSec AI-300 — Payload Variable Definitions (English)
-Source: data/payloads.py (unified master file)
-Purpose: Provide replacement values for {{key}} template placeholders
-Auto-generated at: $$TIMESTAMP$$
-
-⚠️  This file is auto-generated by scripts/build_payloads.py — DO NOT EDIT!
-   To make changes, edit data/payloads.py (the master file) and re-run the build script.
-
-Usage:
-    from data.payloads_en import get_payloads, get_variants
-    vars_dict, presets_dict = get_payloads()
-"""
-from __future__ import annotations
+    return all_ok
 
 
-# ═══════════════════════════════════════════════════
-# Preset name list (used for row-to-column transpose)
-# ═══════════════════════════════════════════════════
+def validate_module_payloads():
+    """验证 AI 模块载荷 YAML 文件的完整性。"""
+    print("\n" + "=" * 60)
+    print("  AI 模块载荷验证")
+    print("=" * 60)
 
-PRESET_NAMES = $$PRESET_NAMES$$
+    all_modules = load_all_module_payloads()
+    all_ok = True
 
+    seen_files = set()
+    for module_key, filename in MODULE_FILE_MAP.items():
+        if filename in seen_files:
+            continue
+        seen_files.add(filename)
 
-# ═══════════════════════════════════════════════════
-# Payload definitions (row-based structure — each payload is one row,
-# self-contained with base + 5 preset values)
-# To add a new variable, just add one block here — no need to modify anything else
-# ═══════════════════════════════════════════════════
+        base_name = os.path.splitext(filename)[0]
+        data = load_exam_module_yaml(filename, module_key)
 
-PAYLOADS: dict[str, dict] = {
-$$EN_PAYLOADS$$
-}
-
-
-_EXTRA_VARIANTS: dict[str, dict[str, str]] = {
-$$EXTRA_VARIANTS$$
-}
-
-
-# ═══════════════════════════════════════════════════
-# API: Row-to-column transpose (public interface unchanged)
-# ═══════════════════════════════════════════════════
-
-def get_payloads() -> "tuple[dict[str, str], dict[str, dict[str, str]]]":
-    """Return (base_vars, presets).
-
-    Internally transposes row-based PAYLOADS into column-based VARS + PRESETS.
-    """
-    vars_dict: dict[str, str] = {}
-    presets_dict: dict[str, dict[str, str]] = {pn: {} for pn in PRESET_NAMES}
-
-    for payload_name, row in PAYLOADS.items():
-        vars_dict[payload_name] = row.get("base", "")
-        for pn in PRESET_NAMES:
-            presets_dict[pn][payload_name] = row.get(pn, row.get("base", ""))
-
-    return vars_dict, presets_dict
-
-
-def get_variants() -> "dict[str, dict[str, str]]":
-    """Return variants dict (2-5 alternative payloads per attack type)."""
-    variants: dict[str, dict[str, str]] = dict(_EXTRA_VARIANTS)
-    for payload_name, row in PAYLOADS.items():
-        if "variants" in row:
-            variants[payload_name] = dict(row["variants"])
-    return variants
-'''
-
-
-def format_payload_block(lang_data: dict) -> str:
-    """将 payload 的行式数据格式化为 Python 字典字符串。"""
-    lines = []
-    lines.append(f'        "base": {lang_data.get("base", "")!r},')
-    for pn in PRESET_NAMES:
-        val = lang_data.get(pn, lang_data.get('base', ''))
-        lines.append(f'        {pn!r}: {val!r},')
-    if 'variants' in lang_data:
-        variants_str = _format_variants(lang_data['variants'])
-        lines.append(f'        "variants": {variants_str},')
-    return '\n'.join(lines)
-
-
-def _format_variants(variants: dict) -> str:
-    """格式化 variants 子字典。"""
-    items = ['            ' + f'{k!r}: {v!r},' for k, v in variants.items()]
-    return '{\n' + '\n'.join(items) + '\n        }'
-
-
-def format_payloads_for_lang(lang: str) -> str:
-    """为指定语言生成所有 payload 的格式化字符串。"""
-    blocks = []
-    for name in sorted(PAYLOADS.keys()):
-        row = PAYLOADS[name]
-        lang_data = dict(row.get(lang, row.get('zh', row.get('en', {}))))
-
-        # 确保所有 preset 都有值（fallback 到 base）
-        base = lang_data.get('base', '')
-        for pn in PRESET_NAMES:
-            if pn not in lang_data:
-                lang_data[pn] = base
-
-        block = format_payload_block(lang_data)
-        blocks.append(f"    {name!r}: {{\n{block}\n    }},")
-    return '\n\n'.join(blocks)
-
-
-def format_extra_variants() -> str:
-    """格式化 _EXTRA_VARIANTS。"""
-    items = []
-    for k, v in _EXTRA_VARIANTS.items():
-        inner = ['            ' + f'{vk!r}: {vv!r},' for vk, vv in v.items()]
-        items.append(f"        {k!r}: {{\n" + '\n'.join(inner) + '\n        },')
-    return '\n'.join(items)
-
-
-def build():
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    preset_names_repr = repr(PRESET_NAMES)
-
-    cn_payloads = format_payloads_for_lang('zh')
-    en_payloads = format_payloads_for_lang('en')
-    extra_variants = format_extra_variants()
-
-    # 使用 $$PLACEHOLDER$$ 替换（避免与 payload 内容中的 {} 冲突）
-    def render(template: str, **replacements) -> str:
-        result = template
-        for key, value in replacements.items():
-            result = result.replace(f'$${key}$$', value)
-        return result
-
-    # 生成 CN 文件
-    cn_content = render(
-        CN_HEADER,
-        TIMESTAMP=timestamp,
-        PRESET_NAMES=preset_names_repr,
-        CN_PAYLOADS=cn_payloads,
-        EXTRA_VARIANTS=extra_variants,
-    )
-    cn_path = os.path.join(PROJECT_ROOT, 'data', 'payloads_cn.py')
-    with open(cn_path, 'w', encoding='utf-8') as f:
-        f.write(cn_content)
-    print(f"[OK] 已生成: {cn_path}")
-
-    # 生成 EN 文件
-    en_content = render(
-        EN_HEADER,
-        TIMESTAMP=timestamp,
-        PRESET_NAMES=preset_names_repr,
-        EN_PAYLOADS=en_payloads,
-        EXTRA_VARIANTS=extra_variants,
-    )
-    en_path = os.path.join(PROJECT_ROOT, 'data', 'payloads_en.py')
-    with open(en_path, 'w', encoding='utf-8') as f:
-        f.write(en_content)
-    print(f"[OK] 已生成: {en_path}")
-
-    # 验证生成的文件可导入
-    print("\n[验证] 测试导入...")
-    try:
-        from data.payloads_cn import get_payloads as cn_get
-        cn_vars, cn_presets = cn_get()
-        print(f"  CN: {len(cn_vars)} 变量, {len(cn_presets)} 预设 — OK")
-
-        from data.payloads_en import get_payloads as en_get
-        en_vars, en_presets = en_get()
-        print(f"  EN: {len(en_vars)} 变量, {len(en_presets)} 预设 — OK")
-
-        # 检查键集一致
-        if cn_vars.keys() == en_vars.keys():
-            print(f"  键集一致: {len(cn_vars)} 个 payload — OK")
+        if base_name in all_modules:
+            sections = all_modules[base_name]
+            total_entries = sum(len(v) for v in sections.values())
+            section_names = list(sections.keys())
+            print(f"  [OK] {filename}: {len(sections)} sections, {total_entries} entries")
+            print(f"       {', '.join(section_names)}")
+        elif data:
+            total = sum(len(v) for v in data.values())
+            print(f"  [OK] {filename}: {len(data)} sections, {total} entries")
         else:
-            cn_only = set(cn_vars) - set(en_vars)
-            en_only = set(en_vars) - set(cn_vars)
-            if cn_only:
-                print(f"  [WARN] CN 独有: {cn_only}")
-            if en_only:
-                print(f"  [WARN] EN 独有: {en_only}")
+            print(f"  [FAIL] {filename}: 加载失败或为空")
+            all_ok = False
 
-        # 检查 PRESET_NAMES 是否一致
-        from data.payloads_cn import PRESET_NAMES as cn_pn
-        from data.payloads_en import PRESET_NAMES as en_pn
-        if cn_pn == en_pn:
-            print(f"  PRESET_NAMES 一致: {cn_pn} — OK")
-        else:
-            print(f"  [WARN] PRESET_NAMES 不一致!")
-            print(f"    CN: {cn_pn}")
-            print(f"    EN: {en_pn}")
+    # 检查 manifest.yaml 中声明但未成功加载的模块
+    unloaded = [f for f in seen_files
+                if os.path.splitext(f)[0] not in all_modules
+                and load_exam_module_yaml(f, "check") is None]
+    if unloaded:
+        print(f"\n  [WARN] 以下文件未成功加载: {unloaded}")
+        all_ok = False
 
-    except Exception as e:
-        print(f"  [FAIL] 导入验证失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-    print("\n[DONE] 构建完成！")
-    return True
+    return all_ok
 
 
-if __name__ == '__main__':
-    build()
+def check_manifest_consistency():
+    """检查 manifest.yaml 与实际 YAML 文件列表的一致性。"""
+    print("\n" + "=" * 60)
+    print("  Manifest 一致性检查")
+    print("=" * 60)
+
+    payloads_dir = os.path.join(PROJECT_ROOT, "datasets", "payloads")
+    manifest_path = os.path.join(payloads_dir, "manifest.yaml")
+
+    if not os.path.exists(manifest_path):
+        print("  [WARN] manifest.yaml 不存在，跳过检查")
+        return True
+
+    # 加载 manifest
+    import yaml
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = yaml.safe_load(f)
+
+    # 收集 manifest 中声明的所有 YAML 文件名
+    manifest_files = set()
+    for classic in manifest.get("manifest", {}).get("classic", manifest.get("classic", [])):
+        manifest_files.add(os.path.basename(classic["file"]))
+
+    for mod in manifest.get("manifest", {}).get("modules", manifest.get("modules", [])):
+        manifest_files.add(mod["file"])
+
+    # 收集实际存在的 YAML 文件
+    actual_yaml = set()
+    for root, _, files in os.walk(payloads_dir):
+        for f in files:
+            if f.endswith(".yaml") and f != "manifest.yaml":
+                actual_yaml.add(f)
+
+    # 比较
+    only_in_manifest = manifest_files - actual_yaml
+    only_on_disk = actual_yaml - manifest_files
+
+    all_ok = True
+    if only_in_manifest:
+        print(f"  [WARN] manifest 声明但文件不存在: {only_in_manifest}")
+        all_ok = False
+    if only_on_disk:
+        print(f"  [WARN] 文件存在但 manifest 未声明: {only_on_disk}")
+        all_ok = False
+    if not only_in_manifest and not only_on_disk:
+        print(f"  [OK] manifest 与实际文件完全一致 ({len(actual_yaml)} YAML 文件)")
+
+    return all_ok
+
+
+def generate_coverage_report():
+    """生成 payload 覆盖率摘要报告。"""
+    print("\n" + "=" * 60)
+    print("  Payload 覆盖率摘要")
+    print("=" * 60)
+
+    # 经典载荷
+    cn_vars, _ = load_classic_payloads("cn")
+    en_vars, _ = load_classic_payloads("en")
+    print(f"  经典载荷: CN={len(cn_vars)}, EN={len(en_vars)}")
+
+    # AI 模块
+    all_modules = load_all_module_payloads()
+    total_sections = sum(len(sections) for sections in all_modules.values())
+    total_entries = sum(
+        sum(len(entries) for entries in sections.values())
+        for sections in all_modules.values()
+    )
+    print(f"  AI 模块: {len(all_modules)} 文件, {total_sections} sections, {total_entries} entries")
+
+    # 按模块展示
+    print()
+    for module_name, sections in sorted(all_modules.items()):
+        entries = sum(len(e) for e in sections.values())
+        print(f"  {module_name:40s} {len(sections):2d} sections, {entries:3d} entries")
+
+
+def main():
+    print("=" * 60)
+    print("  AI-300 Payload 构建与验证工具")
+    print("=" * 60)
+
+    results = {
+        "classic": validate_classic_payloads(),
+        "modules": validate_module_payloads(),
+        "manifest": check_manifest_consistency(),
+    }
+
+    all_pass = all(results.values())
+
+    print("\n" + "=" * 60)
+    print(f"  构建结果: {'ALL PASS' if all_pass else 'SOME CHECKS FAILED'}")
+    print("=" * 60)
+
+    for name, ok in results.items():
+        status = "[OK]" if ok else "[FAIL]"
+        print(f"  {status} {name}")
+
+    if not all_pass:
+        print("\n  请修复以上问题后重新运行。")
+        sys.exit(1)
+
+    # 生成覆盖率报告
+    generate_coverage_report()
+
+    print("\n[OK] 构建完成。所有 YAML 文件通过验证。")
+
+
+if __name__ == "__main__":
+    main()

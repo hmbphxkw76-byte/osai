@@ -37,7 +37,7 @@ class NewestJailbreak2025(PromptConverter):
 
 ### 2.2 当前已有的转换器阵容
 
-本项目已有 **14 个自定义转换器 + 10 个 PyRIT 编码转换器**，覆盖从 2023 到 2024 的前沿攻击手法：
+本项目已有 **14 个自定义转换器 + 10 个 PyRIT 编码转换器**，覆盖从 2023 到 2026 的前沿攻击手法：
 
 **自定义越狱转换器（14 个）：**
 
@@ -54,6 +54,9 @@ class NewestJailbreak2025(PromptConverter):
 | `TranslationBypassConverter` | 跨语言安全训练绕过 | 翻译绕过 |
 | `DeepInceptionConverter` | Li et al., 2024 | 多层嵌套场景 |
 | `FewShotPrimingConverter` | ICL 上下文学习利用 | Few-Shot 引导 |
+| `CoTReasoningExtractionConverter` | 推理模型 Thinking Trace 提取 | 2026 前沿 |
+| `ConstitutionJailbreakConverter` | 宪法矛盾越狱 (Anthropic-style) | 2026 前沿 |
+| `JSONStructuredOutputHijackConverter` | 结构化输出劫持 | 2026 前沿 |
 
 **PyRIT 编码混淆转换器（10 个）：**
 `Base64`, `ROT13`, `Caesar`, `Leetspeak`, `UnicodeConfusable`, `ZeroWidth`, `Morse`, `AsciiArt`, `CharSwap`, `StringJoin`
@@ -74,7 +77,7 @@ class NewestJailbreak2025(PromptConverter):
 | 跨类别混合 | `FewShot + Translation` |
 | 双学术包装叠加 | `Double_Academic` |
 
-### 3.2 当前组合清单（30 组）
+### 3.2 当前组合清单（67 组）
 
 ```
 纯越狱前缀类 (7):
@@ -229,6 +232,8 @@ AI-300 只负责：① 构造 prompt、② HTTP 收发、③ 评分编排。**�
 ### 5.3 GPU 何时有用
 
 **只有一种场景**：自己在本机跑目标 LLM（如 Ollama/vLLM），用 `--target-url http://localhost:11434/...` 攻击时，GPU 加速的是**目标模型的推理响应**。AI-300 自身代码完全不涉及 GPU 计算（无 torch/CUDA 依赖）。
+
+> ⚠️ **Ollama 并发警告**：Ollama 是单 GPU 串行推理，高并发不会触发 429 而是直接 OOM 崩溃。攻击 Ollama 目标时必须 `--concurrent 1`。详见 [README.md](../README.md#️-ollama-本地模型速率限制重要)。
 
 ---
 

@@ -27,6 +27,24 @@ python main.py --lang cn --phase probe \
 
 ---
 
+## ⚠️ Ollama 本地模型速率限制（重要）
+
+**Ollama 是本地单 GPU 串行推理，无内置速率限制。高并发不会触发 429，而是直接导致 GPU OOM 或进程崩溃。**
+
+攻击 Ollama 目标时，**必须**显式设置 `--concurrent 1`：
+
+```bash
+# ✅ 正确：攻击 Ollama 模型
+python main.py --target-url http://192.168.40.198:11434/v1 --concurrent 1
+
+# ❌ 错误：不设 --concurrent 或使用默认值，可能压垮 Ollama
+python main.py --target-url http://192.168.40.198:11434/v1
+```
+
+> **原因**：Ollama 不返回 HTTP 429，model_probe 的自适应限流探测无法感知过载，会误判为"无限流"，从而推荐高并发。只有显式 `--concurrent 1`（或最多 2）才能安全运行。
+
+---
+
 ## CustomHttpChatTarget 使用场景
 
 | # | 场景 | 关键参数 |
@@ -113,7 +131,7 @@ python main.py --lang cn --phase probe \
 |------|------|--------|
 | `--lang` | 测试用例语言 cn/en | `cn` |
 | `--phase` | 攻击阶段 probe/single/crescendo/all | `probe` |
-| `--concurrent` | 并发数 | `1` |
+| `--concurrent` | 并发数（Ollama 必须设为 1） | `1` |
 | `--auto-gate` | 自动门控（低成功率跳过当前阶段） | 关闭 |
 | `--gate-threshold` | 门控阈值 0.0-1.0 | `0.10` |
 | `--target-url` | 自定义攻击目标 URL | — |
@@ -127,12 +145,36 @@ python main.py --lang cn --phase probe \
 | `--target-no-ssl` | 跳过 SSL 证书验证 | 启用 |
 | `--target-user-agent` | 自定义 User-Agent | Chrome/131 |
 | `--payload-preset` | 载荷预设 stealth/bruteforce/redteam/academic/minimal | — |
-| `--case` | 仅测试指定用例 ID（逗号分隔） | — |
-| `--exclude-case` | 排除指定用例 ID（逗号分隔） | — |
+| `--case` | 用例 ID 或快捷别名: `all-probe` / `all-single` / `all-crescendo` / `all-error` | — |
+| `--exclude-case` | 排除指定用例 ID，可配合快捷别名使用 | — |
 
 ---
 
 ## 跳过/筛选用例
+
+### 快捷别名（一键覆盖整个阶段）
+
+```bash
+# 一键运行全部单轮用例
+python main.py --lang cn --case all-single
+
+# 一键运行全部多轮用例
+python main.py --lang cn --case all-crescendo
+
+# 一键运行全部探测用例
+python main.py --lang cn --case all-probe
+
+# 一键重跑上次所有 ERROR 用例（精确到 case+combo 对）
+python main.py --lang cn --case all-error
+
+# 快捷别名 + 排除高危用例
+python main.py --lang cn --case all-crescendo \
+  --exclude-case multi_crescendo_reverse_shell
+
+# all-error 也支持排除
+python main.py --lang cn --case all-error \
+  --exclude-case multi_crescendo_CAP_009_explosive_device
+```
 
 ### 仅测试特定用例（`--case`）
 
@@ -227,20 +269,64 @@ python main.py --lang cn --phase probe \
 
 ---
 
-## 项目结构
+## 项目结构 (PyRIT 最佳实践)
 
 ```
-├── main.py                    # CLI 入口 & 任务编排
-├── targets.py                 # .env 配置加载 & HTTP Target 工厂
-├── engines.py                 # 核心攻击引擎 & 仪表盘
-├── converters.py              # 攻击策略转换器
-├── reporter.py                # 结果分析与报告生成
-├── validator.py               # 测试用例校验
-├── requirements.txt           # Python 依赖
-├── data/                      # 测试用例 & Payload 定义
-│   ├── multi_stage_capstone_cases_cn.json
-│   ├── multi_stage_capstone_cases_en.json
-│   ├── payloads_cn.yaml        # CN Payload 变量注册表
-│   └── payloads_en.yaml        # EN Payload 变量注册表
-└── results/                   # 输出目录（日志/热力图/报告）
+├── config/                    # 配置文件目录
+├── templates/                 # 模板目录
+│   └── datasets/              # Prompt 素材库 (payload YAML)
+│       ├── core/              # 经典载荷（双语 + 五档预设）
+│       ├── manifest.yaml      # 模块↔文件索引
+│       └── *_payloads.yaml    # 各 AI 模块的载荷列表
+├── scenarios/                 # 🆕 场景模块 (PyRIT 对齐) — 考试期间仅需修改此处
+│   ├── templates/             # YAML 场景模板定义 (11 个场景)
+│   ├── schema.py              # 模板 Pydantic Schema
+│   ├── orchestrator.py        # ExamAutoOrchestrator 场景编排引擎
+│   ├── variant_generator.py   # 提示词变体生成器 (10+ 种策略)
+│   ├── rag_attacks.py         # RAG 管道攻击 Payload
+│   ├── agent_attacks.py       # 多智能体攻击 Payload
+│   ├── infra_attacks.py       # 基础设施攻击 Payload
+│   ├── reporter.py            # 综合安全评估报告
+│   └── target_presets.py      # HTTP 连接场景预设
+├── prompt_converters/         # 存放自定义转换器
+│   ├── registry.py            # 转换器注册表 & 攻击组合
+│   ├── jailbreak.py           # 越狱前缀类 (DAN/PAIR/AIM/...)
+│   ├── injection.py           # 注入类 (Suffix/JSON Hijack)
+│   ├── bypass.py              # 绕过类 (Translation/DeepInception/...)
+│   ├── reasoning.py           # 推理/宪法类 (CoT/Constitution)
+│   ├── rag_poisoning.py       # RAG 知识库投毒
+│   └── embedding_attack.py    # Embedding 对抗攻击
+├── attack_executor/           # 存放攻击执行器
+│   ├── single.py              # 单轮攻击引擎
+│   ├── crescendo.py           # Crescendo 多轮渐进式引擎
+│   ├── sequence_attack.py     # 策略管道引擎
+│   ├── scorer.py              # 评分器 (Judge LLM)
+│   ├── dashboard.py           # 仪表盘状态
+│   ├── template.py            # Payload 模板变量
+│   └── utils.py               # 引擎工具函数
+├── targets/                   # 定义和封装不同的攻击目标
+│   ├── config.py              # .env 配置加载
+│   ├── http_target.py         # 自定义 HTTP Chat Target
+│   ├── factories.py           # Target 工厂函数
+│   ├── scenarios.py           # 场景预设配置
+│   └── model_probe.py         # 模型自动探测
+├── scoring/                   # 评分引擎相关逻辑
+├── orchestrators/             # 编排层，定义攻击工作流
+│   ├── pyrit_orchestrator.py  # AI300Orchestrator 统一调度器
+│   └── scenario_runner.py     # A300ScenarioRunner 场景集成
+├── exam_mode/                 # 考试模式 (向后兼容桥接 → scenarios/)
+├── reporting/                 # 结果分析与报告生成
+├── data/                      # 测试用例 & Payload 数据模型
+├── utils/                     # 通用工具函数
+│   ├── helpers.py             # 路径工具
+│   └── retry.py               # 重试逻辑
+├── outputs/                   # 攻击结果和日志输出
+│   ├── logs/                  # 日志文件
+│   └── results/               # 攻击结果
+├── scripts/                   # 脚本目录
+├── docs/                      # 文档目录
+├── tests/                     # 测试目录
+├── requirements.txt           # 项目依赖
+├── run_redteam.py             # 项目主入口
+└── main.py                    # CLI 入口 (向后兼容)
 ```

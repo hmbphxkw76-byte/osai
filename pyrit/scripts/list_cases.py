@@ -1,6 +1,6 @@
 """列出所有测试用例 ID 和 objective 摘要"""
 import json, os
-fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "multi_stage_capstone_cases_cn.json")
+fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "datasets", "test_cases_cn.json")
 with open(fpath, "r", encoding="utf-8") as f:
     data = json.load(f)
 

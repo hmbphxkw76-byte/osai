@@ -13,16 +13,15 @@ OffSec AI-300 — Payload 自动生成器 (LLM Few-shot + Pydantic 校验)
 
 步骤 4~5 后续手动执行：
   - 生成后运行 main.py --phase probe 验证
-  - 审核通过后，Python 代码块手动合并到 payloads_cn.py / payloads_en.py
+  - 审核通过后，将 Python 代码块手动合并到 data/payloads.py（唯一真相源）
 
-数据流回顾（Payload 不走 JSON，直接 Python 模块）:
+数据流回顾（直接走 payloads.py 唯一真相源）:
 
-  payloads_cn.py (行式字典)
-    → loader.py :: load_payloads_module()
-      → get_payloads() 行列转置
-        → PayloadRegistry.model_validate()
-          → main.py :: _load_payload_vars()
-            → engines.PAYLOAD_VARS (全局变量注入)
+  data/payloads.py (双语行式字典)
+    → loader.py :: _extract_payloads_from_master()
+      → PayloadRegistry.model_validate()
+        → main.py :: _load_payload_vars()
+          → engines.PAYLOAD_VARS (全局变量注入)
 
 使用方式:
   # 基于新攻击技术生成 3 个 payload
@@ -31,7 +30,7 @@ OffSec AI-300 — Payload 自动生成器 (LLM Few-shot + Pydantic 校验)
   # 输出到指定文件
   python scripts/payload_generator.py --topic "GraphQL注入" --count 2 --output results/my_payloads.py
 
-  # 自动合并到 payloads_cn.py（需确认）
+  # 自动合并到 data/payloads.py（需确认）
   python scripts/payload_generator.py --topic "API密钥泄露" --count 1 --merge --lang cn
 
   # 仅校验已有 JSON（不调用 LLM）
@@ -61,7 +60,7 @@ from typing import Optional
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from data.models import PayloadRow, PayloadBatch, _PRESET_DESCRIPTIONS
+from datasets.models import PayloadRow, PayloadBatch, _PRESET_DESCRIPTIONS
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -106,7 +105,7 @@ PRESET_DEFINITIONS_EN = """
 - **minimal**: Most concise version, only core payload/command/technique name, no extra explanation.
 """
 
-# Few-shot 示例（从 payloads_cn.py 精选 3 个代表性 payload）
+# Few-shot 示例（从 data/payloads.py 精选 3 个代表性 payload）
 FEWSHOT_PAYLOADS_CN = [
     {
         "name": "jwt_forgery_exploit",
@@ -268,7 +267,7 @@ def _build_user_prompt(topic: str, count: int, lang: str = "cn") -> str:
         lines.append("- base 需包含关键技术要点、攻击链步骤、代表性代码片段")
         lines.append("- 5 套变体需有明显风格差异（见 system prompt 中的定义）")
         lines.append("- 若攻击技术有多种典型实现方式，请在 variants 中提供子变体")
-        lines.append("- stealth 版务必避免"攻击""漏洞利用""后门"等敏感词")
+        lines.append('- stealth 版务必避免"攻击""漏洞利用""后门"等敏感词')
         lines.append("- minimal 版控制在 5-15 字")
         return "\n".join(lines)
     else:
@@ -514,7 +513,7 @@ def merge_to_module(
     Returns:
         True 表示成功（或 dry_run 预览成功）
     """
-    target_file = os.path.join(PROJECT_ROOT, "data", f"payloads_{lang}.py")
+    target_file = os.path.join(PROJECT_ROOT, "datasets", f"payloads_{lang}.py")
 
     if not os.path.exists(target_file):
         print(f"[FAIL] 目标文件不存在: {target_file}")
@@ -524,13 +523,11 @@ def merge_to_module(
     with open(target_file, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 检查冲突：是否有同名 payload
-    import importlib
+    # 检查冲突：是否有同名 payload（从 YAML 源加载现有 key 列表）
     try:
-        if lang == "en":
-            from data.payloads_en import PAYLOADS as existing_payloads
-        else:
-            from data.payloads_cn import PAYLOADS as existing_payloads
+        from datasets.payload_loader import load_classic_payloads
+        existing_vars, _ = load_classic_payloads(lang)
+        existing_payloads = existing_vars  # load_classic_payloads 返回 {name: base_value}
     except Exception:
         existing_payloads = {}
 
@@ -651,7 +648,7 @@ async def main():
   # 生成并预览合并（不实际写入）
   python scripts/payload_generator.py --topic "GraphQL注入" --count 2 --merge --lang cn
 
-  # 生成并确认写入 payloads_cn.py
+  # 生成并确认写入 data/payloads.py
   python scripts/payload_generator.py --topic "API密钥泄露" --count 1 --merge --no-dry-run --lang cn
 
   # 仅校验已有 JSON

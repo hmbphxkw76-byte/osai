@@ -40,7 +40,7 @@ from typing import Optional
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from data.models import TestCase, TestCaseSet, CaseBatch, SyllabusMapping, AttackCombo
+from datasets.models import TestCase, TestCaseSet, CaseBatch, SyllabusMapping, AttackCombo
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -480,7 +480,7 @@ async def main():
   python scripts/generate_cases.py --count 3 --append
 
   # 仅校验已有文件格式
-  python scripts/generate_cases.py --validate-only data/multi_stage_capstone_cases_cn.json
+  python scripts/generate_cases.py --validate-only data/test_cases_cn.json
         """,
     )
     parser.add_argument("--count", type=int, default=5, help="生成用例数量（默认 5）")
@@ -524,10 +524,10 @@ async def main():
     # 确定追加目标
     append_target = ""
     if args.append:
-        DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+        DATA_DIR = os.path.join(PROJECT_ROOT, "datasets")
         append_target = os.path.join(
             DATA_DIR,
-            "multi_stage_capstone_cases_en.json" if args.lang == "en" else "multi_stage_capstone_cases_cn.json"
+            "test_cases_en.json" if args.lang == "en" else "test_cases_cn.json"
         )
 
     # 保存
