@@ -570,7 +570,7 @@ async def probe_target_type(
                 "max_tokens": 300,
                 "temperature": 0,
             }
-            with asyncio.timeout(timeout):
+            async with asyncio.timeout(timeout):
                 status, resp_text, _ = await _http_post_json(
                     working_endpoint, payload, timeout=timeout,
                     verify_ssl=verify_ssl, extra_headers=extra_headers,

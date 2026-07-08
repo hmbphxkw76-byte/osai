@@ -15,6 +15,9 @@ import 兼容: from targets import load_env_config, CustomHttpChatTarget, ...
 """
 from targets.config import load_env_config, load_target_preset, load_recon_preset
 from targets.http_target import CustomHttpChatTarget
+from targets.openai_sdk_target import OpenAICompatibleTarget
+from targets.gemini_target import GeminiTarget
+from targets.claude_target import ClaudeTarget
 from targets.factories import (
     create_scorer_target, create_attack_target,
 )
@@ -33,6 +36,9 @@ __all__ = [
     "load_target_preset",
     "load_recon_preset",
     "CustomHttpChatTarget",
+    "OpenAICompatibleTarget",
+    "GeminiTarget",
+    "ClaudeTarget",
     "create_scorer_target",
     "create_attack_target",
     "SCENARIO_PRESETS",

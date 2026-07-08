@@ -22,6 +22,9 @@ from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from rich.console import Console
 
 from targets.http_target import CustomHttpChatTarget
+from targets.openai_sdk_target import OpenAICompatibleTarget
+from targets.gemini_target import GeminiTarget
+from targets.claude_target import ClaudeTarget
 from utils import DEFAULT_MODEL_NAME
 
 console = Console()
@@ -68,13 +71,13 @@ def create_attack_target(custom_target_url: str = "", env_config: dict = None, a
     │   支持: OPENAI, ZHIPU, QWEN, DEEPSEEK, OLLAMA, MISTRAL 等        │
     ├──────────────────────────────────────────────────────────────────┤
     │ 模式 B: 指定 --target-url + api_format → 探测自定义 Chat API     │
-    │   支持: "openai"(默认) / "gemini" / "claude" / "raw"(万能回退)    │
-    │   Gemini: 自动追加 API Key 到 URL query param                     │
-    │   Claude: 自动使用 x-api-key + anthropic-version 头              │
-    │   raw: {"prompt": text} → 返回完整 JSON 文本 — 适配任意非标准 API │
+    │   openai/ollama → OpenAICompatibleTarget (openai SDK)             │
+    │   gemini         → GeminiTarget (google-genai SDK)                │
+    │   claude         → ClaudeTarget (anthropic SDK)                   │
+    │   raw            → CustomHttpChatTarget (仅非标准 API 兜底)        │
     ├──────────────────────────────────────────────────────────────────┤
-    │ 模式 C: .env 配置 Gemini/Claude → 自动选择 CustomHttpChatTarget  │
-    │   .env [GOOGLE_GEMINI] / [ANTHROPIC] → 自动构造端点 + 格式      │
+    │ 模式 C: .env 配置 Gemini/Claude → 自动选择对应 SDK Target       │
+    │   .env [GOOGLE_GEMINI] / [ANTHROPIC] → GeminiTarget / ClaudeTarget │
     └──────────────────────────────────────────────────────────────────┘
 
     无论哪种模式，评分器 (Judge) 始终使用 .env 中配置的 LLM API 进行判定。
@@ -82,16 +85,66 @@ def create_attack_target(custom_target_url: str = "", env_config: dict = None, a
     # ── 模式 B: --target-url 指定自定义 API ──
     if custom_target_url:
         af = api_format or (env_config.get("api_format", "openai") if env_config else "openai")
-        # 协议检测: HTTP 自动跳过 SSL (verify_ssl=False 无意义)
         is_http = custom_target_url.lower().startswith("http://")
         effective_verify_ssl = False if is_http else verify_ssl
         proto = "HTTP" if is_http else "HTTPS"
         ssl_info = "N/A" if is_http else ("verify" if effective_verify_ssl else "skip")
-        console.print(f"[bold magenta]🎯 攻击目标: {custom_target_url} ({af}, {proto}, SSL={ssl_info})[/bold magenta]")
+        model = env_config.get("model", DEFAULT_MODEL_NAME) if env_config else DEFAULT_MODEL_NAME
+        api_key_val = env_config.get("api_key", "") if env_config else ""
+
+        # OpenAI 兼容格式 → 使用 OpenAI SDK 驱动的稳健 Target
+        if af in ("openai", "ollama"):
+            base_url = _to_openai_base_url(custom_target_url, af)
+            console.print(
+                f"[bold magenta]🎯 攻击目标 (OpenAI SDK): {base_url} "
+                f"({af}, {proto}, SSL={ssl_info})[/bold magenta]"
+            )
+            return OpenAICompatibleTarget(
+                base_url=base_url,
+                api_key=api_key_val,
+                model=model,
+                temperature=0.9,
+                timeout=env_config.get("timeout", 60) if env_config else 60,
+                verify_ssl=effective_verify_ssl,
+                extra_headers=extra_headers,
+            )
+
+        # Gemini → Google Generative AI SDK
+        if af == "gemini":
+            console.print(
+                f"[bold magenta]🎯 攻击目标 (Gemini SDK): {model} "
+                f"({proto}, SSL={ssl_info})[/bold magenta]"
+            )
+            return GeminiTarget(
+                api_key=api_key_val,
+                model=model,
+                temperature=0.9,
+                timeout=env_config.get("timeout", 60) if env_config else 60,
+            )
+
+        # Claude → Anthropic SDK
+        if af == "claude":
+            console.print(
+                f"[bold magenta]🎯 攻击目标 (Claude SDK): {model} "
+                f"({proto}, SSL={ssl_info})[/bold magenta]"
+            )
+            return ClaudeTarget(
+                api_key=api_key_val,
+                model=model,
+                temperature=0.9,
+                timeout=env_config.get("timeout", 60) if env_config else 60,
+                verify_ssl=effective_verify_ssl,
+            )
+
+        # raw → 保留 CustomHttpChatTarget（仅非标准 API 兜底）
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (HTTP): {custom_target_url} "
+            f"({af}, {proto}, SSL={ssl_info})[/bold magenta]"
+        )
         return CustomHttpChatTarget(
             endpoint=custom_target_url,
-            api_key=env_config.get("api_key", "") if env_config else "",
-            model=env_config.get("model", DEFAULT_MODEL_NAME) if env_config else DEFAULT_MODEL_NAME,
+            api_key=api_key_val,
+            model=model,
             temperature=0.9,
             timeout=env_config.get("timeout", 60) if env_config else 60,
             verify_ssl=effective_verify_ssl,
@@ -108,22 +161,23 @@ def create_attack_target(custom_target_url: str = "", env_config: dict = None, a
         model = env_config.get("model", "")
 
         # ── 模式 C: .env 非 OpenAI 格式（Gemini / Claude） ──
-        if af in ("gemini", "claude"):
-            if not endpoint:
-                # 自动构造非 OpenAI 格式端点
-                if af == "gemini":
-                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-                elif af == "claude":
-                    endpoint = "https://api.anthropic.com/v1/messages"
-            console.print(f"[bold magenta]🎯 攻击目标: [{env_config['platform']}] {model} ({af})[/bold magenta]")
-            return CustomHttpChatTarget(
-                endpoint=endpoint,
+        if af == "gemini":
+            console.print(f"[bold magenta]🎯 攻击目标 (Gemini SDK): [{env_config['platform']}] {model}[/bold magenta]")
+            return GeminiTarget(
+                api_key=env_config["api_key"],
+                model=model,
+                temperature=0.9,
+                timeout=env_config.get("timeout", 60),
+            )
+
+        if af == "claude":
+            console.print(f"[bold magenta]🎯 攻击目标 (Claude SDK): [{env_config['platform']}] {model}[/bold magenta]")
+            return ClaudeTarget(
                 api_key=env_config["api_key"],
                 model=model,
                 temperature=0.9,
                 timeout=env_config.get("timeout", 60),
                 verify_ssl=True,
-                api_format=af,
             )
 
         # ── 模式 A: .env OpenAI 兼容格式 ──
@@ -138,6 +192,40 @@ def create_attack_target(custom_target_url: str = "", env_config: dict = None, a
         console.print("[bold cyan]🎯 攻击目标: PyRIT 默认环境变量[/bold cyan]")
     
     return OpenAIChatTarget(temperature=0.9)
+
+
+# ── 内部辅助 ──────────────────────────────────────────────────────────────────
+
+def _to_openai_base_url(raw_url: str, api_format: str) -> str:
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。
+
+    OpenAI SDK 期望 base_url 在构造时指定，后续 chat.completions.create()
+    会自动拼接 /chat/completions 路径。因此 base_url 应为 /v1 级别。
+
+    转换规则:
+      openai:  https://api.openai.com            → https://api.openai.com/v1
+      ollama:  http://host:11434                 → http://host:11434/v1
+               http://host:11434/api/chat        → http://host:11434/v1
+               http://host:11434/v1              → http://host:11434/v1 (不变)
+    """
+    from urllib.parse import urlparse, urlunparse
+    import re
+
+    url = raw_url.rstrip("/")
+    parsed = urlparse(url)
+
+    if api_format == "ollama":
+        # Ollama: 提取 host:port，拼接 /v1
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{base}/v1"
+
+    # openai / 其他: base_url 应指向 /v1
+    if not url.endswith("/v1"):
+        # 去掉已有的 /chat/completions 后缀
+        url = re.sub(r'/(chat/completions|completions)$', '', url)
+        if not url.endswith("/v1"):
+            url = url.rstrip("/") + "/v1"
+    return url
 
 
 

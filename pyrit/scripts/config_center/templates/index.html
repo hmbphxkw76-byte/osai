@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyRIT Config Center</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- ── 侧边栏 ── -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <span class="logo">🔧</span>
+    <h1>Config Center</h1>
+  </div>
+
+  <!-- ── 状态摘要 ── -->
+  <div class="readiness-bar" id="readiness-bar">
+    <span class="dot" id="readiness-dot"></span>
+    <span id="readiness-text">检查中...</span>
+  </div>
+
+  <div class="sidebar-section-header">📁 平台配置</div>
+  <div class="module-list" id="file-list">
+    <div style="padding:12px 20px;text-align:center;color:var(--text-dim);">加载中...</div>
+  </div>
+
+  <div class="sidebar-section-header">🔑 凭证管理</div>
+  <div class="module-list" id="token-list">
+    <div style="padding:12px 20px;text-align:center;color:var(--text-dim);">加载中...</div>
+  </div>
+</aside>
+
+<!-- ── 主内容 ── -->
+<main class="main">
+  <div class="toolbar">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('preview')">📋 变量预览</button>
+      <button class="tab" onclick="switchTab('edit')">✏️ 编辑器</button>
+      <button class="tab" onclick="switchTab('probe')">🔌 探测</button>
+    </div>
+    <span class="file-info">当前文件: <span class="current-file" id="current-file">-</span></span>
+    <button class="action-btn" id="save-btn" onclick="saveEnvFile()" style="display:none;">💾 保存</button>
+  </div>
+
+  <!-- ── Tab: 预览 ── -->
+  <div class="content" id="content-preview">
+    <div class="empty-state">
+      <div class="icon">📂</div>
+      <h2>选择一个配置文件开始浏览</h2>
+      <p>在左侧选择任意 .env 文件，查看其变量结构</p>
+    </div>
+  </div>
+
+  <!-- ── Tab: 编辑 ── -->
+  <div class="content hidden" id="content-edit">
+    <div class="empty-state">
+      <div class="icon">✏️</div>
+      <h2>选择一个配置文件开始编辑</h2>
+      <p>在左侧选择 .env 文件，编辑其原始内容并保存</p>
+    </div>
+  </div>
+
+  <!-- ── Tab: 探测 ── -->
+  <div class="content hidden" id="content-probe">
+    <div class="probe-panel">
+      <div class="probe-section">
+        <h3>🎯 目标探测</h3>
+        <div class="probe-form">
+          <label>目标 URL</label>
+          <input type="text" id="probe-url" placeholder="例如: http://192.168.0.20:11434/">
+          <label>API Key（可选）</label>
+          <input type="text" id="probe-apikey" placeholder="留空表示无认证">
+          <label>超时（秒）</label>
+          <input type="number" id="probe-timeout" value="10" min="3" max="60">
+        </div>
+        <div class="probe-actions">
+          <button class="probe-btn" onclick="runProbe('connectivity')">🔍 连通性测试</button>
+          <button class="probe-btn" onclick="runProbe('api_type')">💡 API 类型识别</button>
+          <button class="probe-btn" onclick="runProbe('models')">📋 模型枚举</button>
+        </div>
+        <div id="probe-result" class="probe-result hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 就绪检查面板 ── -->
+  <div class="readiness-panel" id="readiness-panel" style="display:none;">
+    <div class="readiness-header" onclick="toggleReadinessPanel()">
+      <span id="readiness-panel-title">✅ 就绪检查</span>
+      <span id="readiness-panel-score">-/-</span>
+    </div>
+    <div class="readiness-body hidden" id="readiness-body"></div>
+  </div>
+</main>
+
+<!-- ── Toast 通知容器 ── -->
+<div id="toast-container"></div>
+
+<script>
+// ============================================================================
+// 全局状态
+// ============================================================================
+let state = {
+  files: [],
+  tokens: [],
+  currentFilename: null,
+  currentRaw: '',
+  activeTab: 'preview',
+  readinessResult: null,
+};
+
+// ============================================================================
+// 初始化
+// ============================================================================
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadData();
+  await checkReadiness();
+});
+
+async function loadData() {
+  try {
+    const resp = await fetch('/api/files');
+    const data = await resp.json();
+    state.files = data.files || [];
+    state.tokens = data.tokens || [];
+    renderFileList();
+    renderTokenList();
+  } catch (e) {
+    document.getElementById('file-list').innerHTML =
+      '<div style="padding:12px 20px;color:var(--red);text-align:center;">加载失败</div>';
+  }
+}
+
+async function checkReadiness() {
+  try {
+    const resp = await fetch('/api/probe/check');
+    state.readinessResult = await resp.json();
+    updateReadinessBar();
+    updateReadinessPanel();
+  } catch (e) {
+    state.readinessResult = null;
+  }
+}
+
+// ============================================================================
+// 侧边栏渲染
+// ============================================================================
+function renderFileList() {
+  const container = document.getElementById('file-list');
+  const sorted = [...state.files].sort((a, b) => {
+    if (a.name === 'shared.env') return -1;
+    if (b.name === 'shared.env') return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  container.innerHTML = sorted.map(f => {
+    const icon = f.name === 'shared.env' ? '⭐' : '📄';
+    const vars = f.variable_count != null ? `${f.variable_count} 变量` :
+                 f.section_count != null ? `${f.section_count} 节` : '';
+    return `
+    <div class="module-item ${!f.exists ? 'missing' : ''}"
+         onclick="selectFile('${escapeAttr(f.name)}')">
+      <div class="info">
+        <div class="title">${icon} ${escapeHtml(f.name)}</div>
+        <div class="desc">${vars} · ${f.size_kb || 0} KB</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTokenList() {
+  const container = document.getElementById('token-list');
+  if (state.tokens.length === 0) {
+    container.innerHTML = '<div style="padding:12px 20px;text-align:center;color:var(--text-dim);">暂无凭证文件</div>';
+    return;
+  }
+
+  container.innerHTML = state.tokens.map(t => {
+    const icon = t.name.includes('jwt') ? '🎟' : t.name.includes('cookie') ? '🍪' : '🔑';
+    return `
+    <div class="module-item" onclick="selectToken('${escapeAttr(t.name)}')">
+      <div class="info">
+        <div class="title">${icon} ${escapeHtml(t.name)}</div>
+        <div class="desc">${t.size_kb} KB</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================================
+// 文件选择 & 数据加载
+// ============================================================================
+async function selectFile(filename) {
+  document.querySelectorAll('#file-list .module-item').forEach(el => el.classList.remove('active'));
+
+  state.currentFilename = filename;
+  document.getElementById('current-file').textContent = filename;
+
+  try {
+    const resp = await fetch(`/api/files/${encodeURIComponent(filename)}`);
+    const data = await resp.json();
+    state.currentFile = data;
+    state.currentRaw = data.raw;
+
+    if (state.activeTab === 'preview') {
+      renderPreview(data);
+    } else {
+      renderEditor(data);
+    }
+
+    updateSaveButton();
+  } catch (e) {
+    showContent(state.activeTab, `<div class="empty-state"><div class="icon">❌</div><h2>加载失败</h2><p>${escapeHtml(String(e))}</p></div>`);
+  }
+}
+
+async function selectToken(name) {
+  state.currentFilename = name;
+  document.getElementById('current-file').textContent = name;
+
+  try {
+    const resp = await fetch(`/api/tokens/${encodeURIComponent(name)}`);
+    const data = await resp.json();
+    state.currentRaw = data.content;
+    state.currentFile = { name: name, raw: data.content, sections: {}, stats: {size_bytes: data.size_bytes}, is_shared: false, is_token: true };
+
+    if (state.activeTab === 'preview') {
+      renderTokenPreview(data);
+    } else {
+      renderEditor(state.currentFile);
+    }
+
+    updateSaveButton();
+  } catch (e) {
+    showContent(state.activeTab, `<div class="empty-state"><div class="icon">❌</div><h2>加载失败</h2><p>${escapeHtml(String(e))}</p></div>`);
+  }
+}
+
+// ============================================================================
+// 预览模式
+// ============================================================================
+function renderPreview(data) {
+  let html = '';
+
+  if (data.is_shared) {
+    // shared.env — 显示为变量池
+    html += '<div class="section-card"><div class="header"><span class="name">⭐ 全局变量池 (shared.env)</span><span class="count">' + Object.keys(data.sections).length + ' 个变量</span></div>';
+    for (const [key, value] of Object.entries(data.sections)) {
+      const isEmptyOrNone = !value || value === 'None';
+      html += `<div class="payload-item">
+        <span class="num">${escapeHtml(key)}</span>
+        <span class="text ${isEmptyOrNone ? 'dim-value' : ''}">${escapeHtml(value || '(空)')}</span>
+        <span class="status-dot" style="background:${isEmptyOrNone ? '#d4a047' : '#4caf50'};" title="${isEmptyOrNone ? '未配置' : '已配置'}"></span>
+      </div>`;
+    }
+    html += '</div>';
+  } else if (data.sections && Object.keys(data.sections).length > 0) {
+    // 其他 .env — 显示 section 树
+    const totalVars = Object.values(data.sections).reduce((s, v) => s + Object.keys(v).length, 0);
+    html += `<div style="margin-bottom:12px;font-size:12px;color:var(--text-dim);">${Object.keys(data.sections).length} 个节 · ${totalVars} 个变量 · ${data.stats?.size_kb || 0} KB</div>`;
+
+    for (const [sectionName, vars] of Object.entries(data.sections)) {
+      html += `<div class="section-card">
+        <div class="header">
+          <span class="name">[${escapeHtml(sectionName)}]</span>
+          <span class="count">${Object.keys(vars).length} 变量</span>
+        </div>`;
+
+      for (const [key, value] of Object.entries(vars)) {
+        const hasInterp = typeof value === 'string' && value.includes('%(');
+        html += `<div class="payload-item">
+          <span class="num">${escapeHtml(key)}</span>
+          <span class="text ${hasInterp ? 'interpolated' : ''}">${escapeHtml(String(value))}</span>
+          ${hasInterp ? '<span class="hint" title="该值引用 shared.env 变量">⛓</span>' : ''}
+        </div>`;
+      }
+      html += '</div>';
+    }
+  } else {
+    html = '<div class="empty-state"><div class="icon">📭</div><h2>该文件没有 section 数据</h2></div>';
+  }
+
+  // 敏感信息提示
+  if (data.sensitive_lines && data.sensitive_lines.length > 0) {
+    html += `<div class="sensitive-warning">
+      ⚠️ 检测到 ${data.sensitive_lines.length} 处可能的凭据:
+      ${data.sensitive_lines.map(s => `<div>第${s.line}行: ${escapeHtml(s.type)} — ${escapeHtml(s.preview)}</div>`).join('')}
+    </div>`;
+  }
+
+  showContent('preview', html);
+}
+
+function renderTokenPreview(data) {
+  let html = `<div class="section-card">
+    <div class="header"><span class="name">🔑 ${escapeHtml(data.name)}</span><span class="count">${data.size_bytes || 0} 字节</span></div>
+    <div class="payload-item">
+      <pre class="token-content">${escapeHtml(data.content || '(空文件)')}</pre>
+    </div>
+  </div>`;
+  showContent('preview', html);
+}
+
+// ============================================================================
+// 编辑模式
+// ============================================================================
+function renderEditor(data) {
+  const isToken = data.is_token || false;
+  const container = document.getElementById('content-edit');
+
+  container.innerHTML = `
+    <div class="editor-container">
+      <textarea id="editor-textarea" class="env-editor">${escapeHtml(data.raw)}</textarea>
+    </div>
+    <div class="editor-footer">
+      <span class="editor-info">${data.raw.split('\\n').length} 行 · ${new Blob([data.raw]).size} 字节</span>
+      <span class="editor-hint">Ctrl+S 保存</span>
+    </div>
+  `;
+
+  // Ctrl+S 快捷键
+  const ta = document.getElementById('editor-textarea');
+  ta.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveEnvFile();
+    }
+  });
+
+  // 实时行数
+  ta.addEventListener('input', function() {
+    const lines = ta.value.split('\n').length;
+    const bytes = new Blob([ta.value]).size;
+    const info = container.querySelector('.editor-info');
+    if (info) info.textContent = `${lines} 行 · ${bytes} 字节`;
+  });
+}
+
+// ============================================================================
+// Tab 切换
+// ============================================================================
+window.switchTab = function(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => {
+    const tabText = t.textContent.replace(/[📋✏️🔌]/g, '').trim();
+    const targetText = tab === 'preview' ? '变量预览' : tab === 'edit' ? '编辑器' : '探测';
+    if (tabText === targetText) t.classList.add('active');
+  });
+  updateSaveButton();
+
+  // 显示/隐藏对应内容区
+  document.getElementById('content-preview').classList.toggle('hidden', tab !== 'preview');
+  document.getElementById('content-edit').classList.toggle('hidden', tab !== 'edit');
+  document.getElementById('content-probe').classList.toggle('hidden', tab !== 'probe');
+
+  // 刷新当前文件的内容
+  if (state.currentFile && state.currentFilename) {
+    if (tab === 'preview') {
+      if (state.currentFile.is_token) {
+        renderTokenPreview(state.currentFile);
+      } else {
+        renderPreview(state.currentFile);
+      }
+    } else if (tab === 'edit') {
+      renderEditor(state.currentFile);
+    }
+  }
+};
+
+function showContent(tab, html) {
+  const id = tab === 'preview' ? 'content-preview' : tab === 'edit' ? 'content-edit' : 'content-probe';
+  document.getElementById(id).innerHTML = html;
+}
+
+function updateSaveButton() {
+  const btn = document.getElementById('save-btn');
+  btn.style.display = (state.activeTab === 'edit' && state.currentFilename) ? 'inline-flex' : 'none';
+}
+
+// ============================================================================
+// 保存
+// ============================================================================
+window.saveEnvFile = async function() {
+  if (!state.currentFilename) return;
+
+  let content, isToken;
+  if (state.activeTab === 'edit') {
+    const ta = document.getElementById('editor-textarea');
+    if (!ta) return;
+    content = ta.value;
+    isToken = state.currentFile?.is_token || false;
+  } else {
+    content = state.currentRaw;
+    isToken = false;
+  }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    const url = isToken
+      ? `/api/tokens/${encodeURIComponent(state.currentFilename)}`
+      : `/api/files/${encodeURIComponent(state.currentFilename)}`;
+
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, force: false }),
+    });
+
+    const result = await resp.json();
+
+    if (resp.status === 409 && result.requires_confirmation) {
+      // 需要二次确认
+      if (confirm(`⚠️ 检测到 ${result.sensitive_lines.length} 处可能的凭据信息，确认保存？`)) {
+        const resp2 = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content, force: true }),
+        });
+        const result2 = await resp2.json();
+        if (resp2.ok && result2.ok) {
+          state.currentRaw = content;
+          showToast('success', '✅ 已保存');
+          await loadData();
+        } else {
+          showToast('error', '❌ ' + (result2.error || '保存失败'));
+        }
+      } else {
+        showToast('info', '已取消保存');
+      }
+    } else if (resp.ok && result.ok) {
+      state.currentRaw = content;
+      showToast('success', '✅ ' + result.message);
+      await loadData();
+      await checkReadiness();
+    } else {
+      showToast('error', '❌ ' + (result.error || '保存失败'));
+    }
+  } catch (e) {
+    showToast('error', '❌ 网络错误: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 保存';
+  }
+};
+
+// ============================================================================
+// 探测
+// ============================================================================
+window.runProbe = async function(probeType) {
+  const url = document.getElementById('probe-url').value.trim();
+  if (!url) {
+    showToast('error', '请输入目标 URL');
+    return;
+  }
+
+  const apiKey = document.getElementById('probe-apikey').value.trim();
+  const timeout = parseInt(document.getElementById('probe-timeout').value) || 10;
+
+  const resultDiv = document.getElementById('probe-result');
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="probe-loading">⏳ 探测中...</div>';
+
+  let endpoint;
+  switch (probeType) {
+    case 'connectivity': endpoint = '/api/probe/connectivity'; break;
+    case 'api_type':     endpoint = '/api/probe/api_type';     break;
+    case 'models':       endpoint = '/api/probe/models';       break;
+  }
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout }),
+    });
+    const data = await resp.json();
+    renderProbeResult(probeType, data);
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="probe-error">❌ 网络错误: ${escapeHtml(String(e))}</div>`;
+  }
+};
+
+function renderProbeResult(probeType, data) {
+  const resultDiv = document.getElementById('probe-result');
+
+  if (probeType === 'connectivity') {
+    const icon = data.reachable ? '✅' : '❌';
+    const color = data.reachable ? 'var(--green)' : 'var(--red)';
+    resultDiv.innerHTML = `
+      <div class="probe-card" style="border-left-color: ${color};">
+        <h4>${icon} 连通性测试</h4>
+        <div class="probe-metric">
+          <span>状态码</span><span class="val">${data.status_code || 'N/A'}</span>
+        </div>
+        <div class="probe-metric">
+          <span>延迟</span><span class="val">${data.latency_ms}ms</span>
+        </div>
+        <div class="probe-metric">
+          <span>Server</span><span class="val">${escapeHtml(data.headers?.server || '-')}</span>
+        </div>
+        <div class="probe-metric">
+          <span>Content-Type</span><span class="val">${escapeHtml(data.headers?.content_type || '-')}</span>
+        </div>
+        ${data.error ? `<div class="probe-error">${escapeHtml(data.error)}</div>` : ''}
+      </div>`;
+  } else if (probeType === 'api_type') {
+    const confidence = (data.confidence * 100).toFixed(0);
+    resultDiv.innerHTML = `
+      <div class="probe-card" style="border-left-color: ${data.api_type === 'unknown' ? 'var(--yellow)' : 'var(--green)'};">
+        <h4>💡 API 类型识别</h4>
+        <div class="probe-metric">
+          <span>API 类型</span><span class="val highlight">${escapeHtml(data.api_type)}</span>
+        </div>
+        <div class="probe-metric">
+          <span>模型名称</span><span class="val">${escapeHtml(data.model_name || '未识别')}</span>
+        </div>
+        <div class="probe-metric">
+          <span>置信度</span><span class="val">${confidence}%</span>
+        </div>
+        ${data.models.length > 0 ? `<div class="probe-metric"><span>可用模型</span><span class="val">${data.models.slice(0, 5).map(m => escapeHtml(m)).join(', ')}${data.models.length > 5 ? '...' : ''}</span></div>` : ''}
+        ${data.details.map(d => `<div class="probe-step"><span class="strategy">${escapeHtml(d.strategy)}</span> <span class="status ${d.status}">${d.status}</span></div>`).join('')}
+      </div>`;
+  } else if (probeType === 'models') {
+    resultDiv.innerHTML = `
+      <div class="probe-card" style="border-left-color: ${data.models.length > 0 ? 'var(--green)' : 'var(--yellow)'};">
+        <h4>📋 模型枚举</h4>
+        <div class="probe-metric"><span>来源</span><span class="val">${escapeHtml(data.source || '未知')}</span></div>
+        <div class="probe-metric"><span>数量</span><span class="val">${data.count}</span></div>
+        ${data.models.length > 0 ? `
+          <div class="model-list">
+            ${data.models.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}
+          </div>
+        ` : `<div class="probe-error">${escapeHtml(data.error || '')}</div>`}
+      </div>`;
+  }
+}
+
+// ============================================================================
+// 就绪检查
+// ============================================================================
+function updateReadinessBar() {
+  if (!state.readinessResult) {
+    document.getElementById('readiness-dot').className = 'dot warn';
+    document.getElementById('readiness-text').textContent = '无法检查';
+    return;
+  }
+
+  const r = state.readinessResult;
+  const dot = document.getElementById('readiness-dot');
+  const text = document.getElementById('readiness-text');
+
+  if (r.overall_ready) {
+    dot.className = 'dot pass';
+    text.textContent = `全部就绪 (${r.passed_count}/${r.total_count})`;
+  } else {
+    dot.className = 'dot fail';
+    text.textContent = `${r.fail_count} 项未通过`;
+  }
+}
+
+function updateReadinessPanel() {
+  if (!state.readinessResult) return;
+  const panel = document.getElementById('readiness-panel');
+  panel.style.display = 'block';
+
+  const r = state.readinessResult;
+  document.getElementById('readiness-panel-title').textContent =
+    r.overall_ready ? '✅ 就绪检查' : '⚠️ 就绪检查';
+  document.getElementById('readiness-panel-score').textContent =
+    `${r.passed_count}/${r.total_count}`;
+
+  const body = document.getElementById('readiness-body');
+  body.innerHTML = r.checks.map(c => {
+    const icon = c.status === 'pass' ? '✅' : c.status === 'warn' ? '⚠️' : '❌';
+    return `<div class="readiness-item ${c.status}"><span>${icon} ${escapeHtml(c.name)}</span><span class="detail">${escapeHtml(c.detail)}</span></div>`;
+  }).join('');
+
+  if (r.warnings && r.warnings.length > 0) {
+    body.innerHTML += r.warnings.map(w => `<div class="readiness-item warn"><span>⚠️</span><span class="detail">${escapeHtml(w)}</span></div>`).join('');
+  }
+}
+
+window.toggleReadinessPanel = function() {
+  const body = document.getElementById('readiness-body');
+  body.classList.toggle('hidden');
+};
+
+// ============================================================================
+// Toast 通知
+// ============================================================================
+function showToast(type, message) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>

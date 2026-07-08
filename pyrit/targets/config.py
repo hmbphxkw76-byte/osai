@@ -41,7 +41,7 @@ def load_env_config(env_path: str = ".env", platforms_path: str = "configs/platf
     加载配置文件，返回攻击者配置和评分器配置。
 
     配置拆分:
-      .env                  → 通用参数 + PLATFORM_SELECTOR (dotenv 加载)
+      .env                  → 通用参数 + PLATFORM_SELECTOR + SCORE_SELECTOR (dotenv)
       configs/platforms.env → DEFAULT 变量 + 预设节 (configparser 读取)
 
     用法:
@@ -55,18 +55,24 @@ def load_env_config(env_path: str = ".env", platforms_path: str = "configs/platf
         SCORE_BASE_API  = xxx
         SCORE_BASE_MODEL = GLM-5.1
 
-      ── 三种预设节（.env 用 PLATFORM_SELECTOR 选择）──
+      ── 四种预设节 ──
 
-        [ATTACK_with_SCORE]    ← 攻击 + 评分
-        [Only_SCORE]           ← 只要评分（--target-url 模式）
+        [ATTACK_with_SCORE]    ← 攻击 + 评分（默认推荐）
+        [Only_SCORE]           ← 只要评分（配合 --target-url + SCORE_SELECTOR 使用）
         [ONLY_ATTACK]          ← 只要攻击
-
-      每个节内包含对应的 ATTACK_URL/API/MODEL 和/或 SCORE_URL/API/MODEL。
+        [SCORE]                ← 独立评分节（配合 SCORE_SELECTOR 使用）
 
       .env 设置:
-        PLATFORM_SELECTOR=ATTACK_with_SCORE
+        PLATFORM_SELECTOR=ATTACK_with_SCORE    ← 攻击+评分双选（默认）
+        SCORE_SELECTOR=                       ← 独立评分选择器（可选，覆盖 PLATFORM_SELECTOR 的评分部分）
 
-    优先级: PLATFORM_SELECTOR 指向的节 > DEFAULT 平铺变量
+      当 SCORE_SELECTOR 设置后:
+        - 攻击配置仍从 PLATFORM_SELECTOR 节读取
+        - 评分配置从 SCORE_SELECTOR 指向的独立节读取
+        - 典型场景: PLATFORM_SELECTOR 留空 + SCORE_SELECTOR=Only_SCORE
+          → 只加载评分器，不加载攻击模型（适用于自定义 AI 应用侦察）
+
+    优先级: 节显式定义的键 > DEFAULT 平铺变量
 
     Args:
         env_path: .env 文件路径
@@ -86,6 +92,7 @@ def load_env_config(env_path: str = ".env", platforms_path: str = "configs/platf
     max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
     timeout = int(os.getenv("REQUEST_TIMEOUT", "60"))
     platform_selector = os.getenv("PLATFORM_SELECTOR", "").strip()
+    score_selector = os.getenv("SCORE_SELECTOR", "").strip()
 
     # Step 3: 使用 configparser 读取 platforms.env（前置 shared.env 公共变量）
     if not os.path.exists(platforms_path):
@@ -116,14 +123,27 @@ def load_env_config(env_path: str = ".env", platforms_path: str = "configs/platf
             _explicit_keys[current_section].add(key)
 
     # ── 确定数据来源 ──
+    # 攻击配置节: PLATFORM_SELECTOR → 对应节 → DEFAULT 回退
     section = config[platform_selector] if platform_selector and platform_selector in config else None
 
+    # 🆕 评分配置节: SCORE_SELECTOR 独立于 PLATFORM_SELECTOR
+    #   - 设置后: 评分从独立节读取（攻击配置不受影响）
+    #   - 未设置: 评分和攻击共用同一个 section（向后兼容）
+    score_section = None
+    if score_selector and score_selector in config:
+        score_section = config[score_selector]
+    elif section:
+        score_section = section  # 向后兼容: 无 SCORE_SELECTOR 时共用
+
     if section:
-        console.print(f"[bold cyan]📋 平台模式: {platform_selector}[/bold cyan]")
+        console.print(f"[bold cyan]📋 攻击平台: {platform_selector}[/bold cyan]")
+    elif platform_selector:
+        console.print(f"[yellow]⚠️ PLATFORM_SELECTOR={platform_selector} 但节未找到，回退 DEFAULT[/yellow]")
     else:
-        if platform_selector:
-            console.print(f"[yellow]⚠️ PLATFORM_SELECTOR={platform_selector} 但节未找到，回退 DEFAULT[/yellow]")
-        console.print("[dim]📋 平台模式: DEFAULT（无选择器）[/dim]")
+        console.print("[dim]📋 攻击平台: DEFAULT（无选择器）[/dim]")
+
+    if score_selector:
+        console.print(f"[bold cyan]🔍 评分平台 (独立): {score_selector}[/bold cyan]")
 
     def _resolve(section_obj, section_name, key, default_key) -> str:
         """从节或 DEFAULT 解析值，支持变量名引用。
@@ -167,13 +187,16 @@ def load_env_config(env_path: str = ".env", platforms_path: str = "configs/platf
 
     # ── 评分器配置 ──
     scorer_config = {}
-    score_model = _resolve(section, platform_selector, "SCORE_MODEL", "SCORE_BASE_MODEL")
+    # 🆕 当 SCORE_SELECTOR 独立设置时，使用 score_section/score_selector 解析
+    _score_sec = score_section
+    _score_sel = score_selector if score_selector else platform_selector
+    score_model = _resolve(_score_sec, _score_sel, "SCORE_MODEL", "SCORE_BASE_MODEL")
     if score_model:
         scorer_config = {
-            "platform": platform_selector or "SCORE",
-            "endpoint": _resolve(section, platform_selector, "SCORE_URL", "SCORE_BASE_URL"),
+            "platform": score_selector or platform_selector or "SCORE",
+            "endpoint": _resolve(_score_sec, _score_sel, "SCORE_URL", "SCORE_BASE_URL"),
             "model": score_model,
-            "api_key": _resolve(section, platform_selector, "SCORE_API", "SCORE_BASE_API"),
+            "api_key": _resolve(_score_sec, _score_sel, "SCORE_API", "SCORE_BASE_API"),
             "api_format": "openai",
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -259,6 +282,8 @@ def load_target_preset(targets_path: str = "configs/targets.env") -> dict:
         "TARGET_CONTENT_TYPE": "target_content_type",
         "TARGET_HTTP_METHOD": "target_http_method",
         "TARGET_NO_SSL": "target_no_ssl",
+        "TARGET_SSL_SKIP": "target_ssl_skip",    # 🆕 v11.0: 替代 TARGET_NO_SSL
+        "TARGET_AUTH": "target_auth",             # 🆕 v11.0: 统一认证凭证
         "SCENARIO": "scenario",
     }
 
@@ -268,6 +293,8 @@ def load_target_preset(targets_path: str = "configs/targets.env") -> dict:
         if value:
             # 特殊处理布尔型
             if raw_key == "TARGET_NO_SSL":
+                result[mapped_key] = value.lower() in ("1", "true", "yes", "on")
+            elif raw_key == "TARGET_SSL_SKIP":    # 🆕
                 result[mapped_key] = value.lower() in ("1", "true", "yes", "on")
             else:
                 result[mapped_key] = value
@@ -332,6 +359,8 @@ def load_recon_preset(recons_path: str = "configs/recons.env") -> dict:
         "TARGET_CONTENT_TYPE": "target_content_type",
         "TARGET_HTTP_METHOD": "target_http_method",
         "TARGET_NO_SSL": "target_no_ssl",
+        "TARGET_SSL_SKIP": "target_ssl_skip",    # 🆕 v11.0
+        "TARGET_AUTH": "target_auth",             # 🆕 v11.0
         "SCENARIO": "scenario",
     }
 

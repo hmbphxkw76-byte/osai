@@ -1,0 +1,4 @@
+# 忽略所有 token 文件，防止凭证泄露
+*
+!.gitignore
+!.gitkeep

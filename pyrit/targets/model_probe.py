@@ -344,32 +344,52 @@ async def _probe_raw_self_identify(base_url: str, verify_ssl: bool = False) -> O
 
 
 async def _probe_ollama_tags(base_url: str, verify_ssl: bool = False) -> Optional[dict]:
-    """策略 4: Ollama /api/tags 端点"""
-    paths_to_try = ["/api/tags", "/api/ps"]
-    
+    """策略 4: Ollama /api/tags + /api/version 端点"""
+    paths_to_try = ["/api/tags", "/api/ps", "/api/version"]
+
     for path in paths_to_try:
         url = urljoin(base_url, path)
         status, data = await _http_get(url, timeout=10, verify_ssl=verify_ssl)
-        
+
         if status == 200 and isinstance(data, dict):
             # /api/tags 返回 {"models": [{"name": "llama3:latest", ...}, ...]}
-            models_field = data.get("models", [])
-            if isinstance(models_field, list) and len(models_field) > 0:
-                names = []
-                for m in models_field:
-                    if isinstance(m, dict):
-                        name = m.get("name") or m.get("model") or ""
-                        if name:
-                            names.append(name)
-                if names:
+            if path in ("/api/tags", "/api/ps"):
+                models_field = data.get("models", [])
+                if isinstance(models_field, list):
+                    names = []
+                    for m in models_field:
+                        if isinstance(m, dict):
+                            name = m.get("name") or m.get("model") or ""
+                            if name:
+                                names.append(name)
+                    if names:
+                        return {
+                            "model_name": names[0],
+                            "all_models": names,
+                            "confidence": 0.95,
+                            "endpoint_type": "ollama",
+                            "source_path": url,
+                        }
+                    # 即使模型列表为空，也确认了 Ollama 服务存在
                     return {
-                        "model_name": names[0],
-                        "all_models": names,
-                        "confidence": 0.95,
+                        "model_name": None,
+                        "all_models": [],
+                        "confidence": 0.90,
                         "endpoint_type": "ollama",
                         "source_path": url,
+                        "note": "Ollama detected but no models pulled yet",
                     }
-    
+            # /api/version 返回 Ollama 版本信息
+            if path == "/api/version" and "version" in data:
+                return {
+                    "model_name": None,
+                    "confidence": 0.90,
+                    "endpoint_type": "ollama",
+                    "source_path": url,
+                    "version": data.get("version", ""),
+                    "note": f"Ollama v{data.get('version', '?')} detected",
+                }
+
     return None
 
 
@@ -386,20 +406,23 @@ async def _probe_get_info_page(base_url: str, verify_ssl: bool = False) -> Optio
         "/docs",
         "/openapi.json",
     ]
-    
+
     # 智能路径处理
     parsed = urlparse(base_url)
     if not parsed.path or parsed.path == "/":
         paths_to_try = ["/"] + [p for p in paths_to_try if p != "/"]
-    
+
+    first_200_result: Optional[dict] = None  # 记录第一个 200 响应（用于兜底）
+
     for path in paths_to_try:
         url = urljoin(base_url, path)
         status, data = await _http_get(url, timeout=8, verify_ssl=verify_ssl)
-        
+
         if status != 200:
             continue
-        
+
         text = ""
+        service_hint = ""  # 尝试从文本识别 LLM 服务品牌
         if isinstance(data, dict):
             text = json.dumps(data, ensure_ascii=False)
             # 尝试从 JSON 中提取 model 字段
@@ -416,8 +439,20 @@ async def _probe_get_info_page(base_url: str, verify_ssl: bool = False) -> Optio
                         }
         else:
             text = str(data)
-        
-        # 正则提取
+            # 检测已知服务的特征字符串
+            text_lower = text.lower()
+            if "ollama" in text_lower:
+                service_hint = "ollama"
+            elif "vllm" in text_lower:
+                service_hint = "vllm"
+            elif "text-generation-webui" in text_lower or "oobabooga" in text_lower:
+                service_hint = "text-generation-webui"
+            elif "claude" in text_lower or "anthropic" in text_lower:
+                service_hint = "anthropic"
+            elif "gemini" in text_lower or "generativelanguage" in text_lower:
+                service_hint = "gemini"
+
+        # 正则提取模型名
         extracted = _extract_model_from_text(text)
         if extracted:
             return {
@@ -426,8 +461,24 @@ async def _probe_get_info_page(base_url: str, verify_ssl: bool = False) -> Optio
                 "endpoint_type": "html_info",
                 "source_path": url,
                 "raw_snippet": text[:200],
+                "service_hint": service_hint,
             }
-    
+
+        # 未提取到模型名但拿到了 200 响应 → 记录为兜底（目标可达但模型未识别）
+        if first_200_result is None:
+            first_200_result = {
+                "model_name": None,
+                "confidence": 0.30,
+                "endpoint_type": "html_info" if not isinstance(data, dict) else "json_info",
+                "source_path": url,
+                "raw_snippet": text[:200],
+                "service_hint": service_hint,
+                "note": f"HTTP 200 but no model name found in response",
+            }
+
+    # 所有路径遍历完毕，返回第一个 200 的兜底结果（确认目标可达）
+    if first_200_result is not None:
+        return first_200_result
     return None
 
 
@@ -479,6 +530,11 @@ def _normalize_base_url(url: str) -> tuple[str, bool]:
 # 排序原则: AI 核心功能路径优先 → 管理/信息路径 → 认证路径
 
 _LLM_COMMON_PATHS = [
+    # ═══════════════════════════════════════════════════════════════
+    # P0: 根路径（检测服务是否在线，如 Ollama 返回 "Ollama is running"）
+    # ═══════════════════════════════════════════════════════════════
+    "/",
+
     # ═══════════════════════════════════════════════════════════════
     # P0: AI 对话核心 — Chat / Completions（最先探测，最高优先级）
     # ═══════════════════════════════════════════════════════════════
@@ -699,6 +755,72 @@ _LLM_COMMON_PATHS = [
     "/api/token",
     "/oauth",
     "/api/oauth",
+
+    # ═══════════════════════════════════════════════════════════════
+    # P2: 低代码 AI 编排平台 — Flowise / Langflow
+    # ═══════════════════════════════════════════════════════════════
+    "/api/v1/chatflows",
+    "/api/v1/components",
+    "/api/v1/marketplaces",
+    "/api/v1/vectors",
+    "/api/v1/credentials",
+    "/api/v1/internal-predictions",
+    "/api/v1/config",
+    "/api/v1/health",
+    "/api/v1/version",
+    "/api/v1/flows",
+    "/api/v1/custom_components",
+    "/api/v1/validate",
+    "/api/v1/starter-projects",
+
+    # ═══════════════════════════════════════════════════════════════
+    # P2: 向量数据库 — Qdrant / Milvus / Weaviate / Chroma
+    # ═══════════════════════════════════════════════════════════════
+    "/collections",
+    "/telemetry",
+    "/cluster",
+    "/v1/schema",
+    "/v1/nodes",
+    "/v1/meta",
+    "/v1/graphql",
+    "/v1/explore",
+    "/api/v1/collections",
+    "/api/v1/points",
+    "/api/v1/cluster",
+    "/api/v1/snapshot",
+
+    # ═══════════════════════════════════════════════════════════════
+    # P2: MCP 协议 / Agent 端点 / AI Plugin 标准
+    # ═══════════════════════════════════════════════════════════════
+    "/.well-known/ai-plugin.json",
+    "/ai-plugin.json",
+    "/.well-known/security.txt",
+    "/mcp/sse",
+    "/mcp/chat",
+    "/mcp/tools",
+    "/mcp/prompts",
+    "/mcp/resources",
+    "/api/agent/run",
+    "/api/agent/session",
+    "/api/agent/tasks",
+    "/api/agent/execute",
+    "/plugins",
+
+    # ═══════════════════════════════════════════════════════════════
+    # P2: AI 遥测/可观测性 — Langfuse / Arize Phoenix / LiteLLM
+    # ═══════════════════════════════════════════════════════════════
+    "/api/public/health",
+    "/api/v1/traces",
+    "/api/v1/sessions",
+    "/api/v1/scores",
+    "/api/v1/projects",
+    "/api/v1/keys",
+    "/admin/config",
+    "/routes",
+    "/user/new",
+    "/key/generate",
+    "/api/public/keys",
+    "/api/public/projects",
 ]
 
 # 去重并保持优先级顺序（首次出现优先）
@@ -747,6 +869,62 @@ _FRAMEWORK_FINGERPRINTS = {
     "fastchat": {
         "paths": ["/v1/models", "/v1/chat/completions"],
         "body_patterns": [r'"vicuna"', r'"fastchat"'],
+    },
+    # ── 低代码 AI 编排 ──
+    "flowise": {
+        "paths": ["/api/v1/chatflows", "/api/v1/components", "/api/v1/flows"],
+        "body_patterns": [r'"flowise"', r'"flowise-ui"'],
+    },
+    "langflow": {
+        "paths": ["/api/v1/chat/completions", "/api/v1/process", "/api/v1/flows", "/api/v1/components"],
+        "body_patterns": [r'"langflow"'],
+    },
+    # ── 向量数据库 ──
+    "qdrant": {
+        "paths": ["/collections", "/cluster", "/telemetry", "/v1/schema"],
+        "body_patterns": [r'"qdrant"', r'"vector_size"', r'"collection_name"'],
+    },
+    "milvus": {
+        "paths": ["/api/v1/collections", "/api/v1/health", "/metrics"],
+        "body_patterns": [r'"milvus"', r'"pymilvus"'],
+    },
+    "weaviate": {
+        "paths": ["/v1/schema", "/v1/nodes", "/v1/meta", "/v1/graphql", "/v1/explore"],
+        "body_patterns": [r'"weaviate"', r'"graphql"'],
+    },
+    "chromadb": {
+        "paths": ["/api/v1/collections", "/api/v1/heartbeat"],
+        "body_patterns": [r'"chroma"'],
+    },
+    # ── MCP 协议 / Agent ──
+    "mcp-server": {
+        "paths": ["/mcp/sse", "/mcp/chat", "/mcp/tools", "/mcp/prompts", "/mcp/resources"],
+        "body_patterns": [r'"mcp"', r'"model-context-protocol"', r'"server_info"'],
+    },
+    "openai-plugin": {
+        "paths": ["/.well-known/ai-plugin.json", "/ai-plugin.json"],
+        "body_patterns": [r'"ai-plugin"', r'"openapi"'],
+    },
+    "crewai": {
+        "paths": ["/api/agent/run", "/api/agent/session", "/api/agent/tasks"],
+        "body_patterns": [r'"crewai"', r'"crew_ai"'],
+    },
+    "autogpt": {
+        "paths": ["/api/agent/run", "/api/agent/execute"],
+        "body_patterns": [r'"autogpt"', r'"auto-gpt"'],
+    },
+    # ── AI 遥测/可观测性 ──
+    "langfuse": {
+        "paths": ["/api/public/health", "/api/v1/traces", "/api/v1/sessions", "/api/v1/scores"],
+        "body_patterns": [r'"langfuse"'],
+    },
+    "arize-phoenix": {
+        "paths": ["/api/v1/traces", "/api/v1/sessions"],
+        "body_patterns": [r'"phoenix"', r'"arize"'],
+    },
+    "litellm": {
+        "paths": ["/routes", "/user/new", "/key/generate", "/api/v1/keys"],
+        "body_patterns": [r'"litellm"', r'"lite-llm"'],
     },
 }
 
@@ -933,6 +1111,7 @@ async def _discover_endpoints(
     min_concurrency: int = 2,
     timeout: float = 5.0,
     batch_delay: float = 0.3,
+    extra_auth_headers: dict | None = None,
 ) -> tuple[list[DiscoveredEndpoint], dict]:
     """分批并发枚举目标 URL 下所有 LLM 相关端点（自适应限流感知）。
 
@@ -967,10 +1146,14 @@ async def _discover_endpoints(
         max_keepalive_connections=initial_concurrency,
         max_connections=initial_concurrency,
     )
+    # 🆕 合并认证头到浏览器头
+    client_headers = dict(_BROWSER_HEADERS)
+    if extra_auth_headers:
+        client_headers.update(extra_auth_headers)
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(timeout),
         verify=verify_ssl,
-        headers=_BROWSER_HEADERS,
+        headers=client_headers,
         limits=limits,
         follow_redirects=True,
     ) as client:
@@ -1393,6 +1576,7 @@ async def probe_model_info(
     target_url: str,
     api_key: str = "",
     timeout: int = 15,
+    extra_auth_headers: dict | None = None,
 ) -> ModelProbeResult:
     """自动探测目标 URL 的 LLM 模型信息。
 
@@ -1402,6 +1586,7 @@ async def probe_model_info(
         target_url: 目标 Chat API URL
         api_key: API Key（可选，用于需要认证的端点）
         timeout: 单次探测超时（秒）
+        extra_auth_headers: 🆕 额外认证头（从 --auth 归一化提取）
 
     Returns:
         ModelProbeResult: 包含模型名称、策略、置信度等信息
@@ -1425,8 +1610,10 @@ async def probe_model_info(
     # ── 🆕 Step 0: 端点枚举（始终对 base origin 执行，发现目标下所有可用 API 端点） ──
     console.print(f"[bold]📡 Step 0: 端点枚举 — 发现 {base_origin} 下所有可用 API 端点...[/bold]")
     try:
-        with asyncio.timeout(30):
-            discovered, summary = await _discover_endpoints(base_origin, verify_ssl)
+        async with asyncio.timeout(30):
+            discovered, summary = await _discover_endpoints(
+                base_origin, verify_ssl, extra_auth_headers=extra_auth_headers
+            )
         result.discovered_endpoints = discovered
         result.discovery_summary = summary
         _render_endpoint_table(discovered, summary, base_origin)
@@ -1459,7 +1646,7 @@ async def probe_model_info(
             console.print(f"  [dim]→ 尝试策略: {strategy_name}...[/dim]")
 
             try:
-                with asyncio.timeout(timeout):
+                async with asyncio.timeout(timeout):
                     probe_data = await probe_fn(probe_url, verify_ssl)
             except asyncio.TimeoutError:
                 result.all_attempts.append({
@@ -1510,11 +1697,27 @@ async def probe_model_info(
             if probe_data:
                 console.print(f"    [dim]  端点响应正常但无法提取模型名[/dim]")
 
-    # 所有策略耗尽，记录端点类型（从最后一次成功响应推断）
+    # 所有策略耗尽，记录端点类型（从所有成功响应中综合推断）
+    best_endpoint_type = "unknown"
+    best_service_hint = ""
     for attempt in result.all_attempts:
         if attempt["status"] == "success" and attempt["detail"]:
-            result.endpoint_type = attempt["detail"].get("endpoint_type", "unknown")
-            break
+            detail = attempt["detail"]
+            et = detail.get("endpoint_type", "")
+            sh = detail.get("service_hint", "")
+            # 收集所有线索
+            if et and et != "unknown":
+                best_endpoint_type = et
+            if sh and not best_service_hint:
+                best_service_hint = sh
+
+    # 🆕 优先使用精确的 service_hint（如 "ollama"/"vllm"）覆盖泛型 endpoint_type
+    _SPECIFIC_HINTS = {"ollama", "vllm", "text-generation-webui", "anthropic", "gemini"}
+    if best_service_hint and best_endpoint_type in ("unknown", "html_info", "json_info"):
+        best_endpoint_type = best_service_hint
+    elif best_service_hint in _SPECIFIC_HINTS:
+        best_endpoint_type = best_service_hint  # 即使已有 endpoint_type，精确 hint 更可靠
+    result.endpoint_type = best_endpoint_type
 
     _print_fallback_strategy(result, base_url, base_origin, check_target_reachable(result))
     return result

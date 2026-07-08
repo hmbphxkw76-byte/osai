@@ -304,30 +304,36 @@ async def run_exploring_mode(args) -> None:
     scorer_target = create_scorer_target(scorer_config) if scorer_config else OpenAIChatTarget(temperature=0)
 
     if args.target_url:
-        extra_headers = {}
-        if args.target_extra_headers:
-            try:
-                extra_headers = json.loads(args.target_extra_headers)
-            except json.JSONDecodeError:
-                console.print("[yellow]⚠️ --target-extra-headers JSON 解析失败[/yellow]")
+        # 🆕 归一化认证
+        auth_raw = getattr(args, 'auth', '')
+        normalized_auth = {}
+        if auth_raw:
+            from entrypoint.bootstrap import normalize_auth_value
+            normalized_auth = normalize_auth_value(auth_raw)
+
+        extra_headers = dict(normalized_auth.get("extra_headers", {}))
+        effective_api_key = normalized_auth.get("api_key", "") or getattr(args, 'target_api_key', '')
+
         is_http_target = args.target_url.lower().startswith("http://")
-        verify_ssl = (args.target_verify_ssl or not args.target_no_ssl) and not is_http_target
+        verify_ssl = not is_http_target and not getattr(args, 'ssl_skip', False)
 
         args.target_model, target_reachable = await auto_probe_target_model(
-            args, args.target_url, args.target_api_key
+            args, args.target_url, effective_api_key,
+            normalized_auth=normalized_auth,
         )
         if not target_reachable:
             return
 
-        await auto_probe_target_type(args, args.target_url, args.target_api_key)
+        await auto_probe_target_type(args, args.target_url, effective_api_key)
 
         attack_target = build_custom_target(
             endpoint=args.target_url, scenario=args.scenario or "",
-            api_key=args.target_api_key or "", model=args.target_model or DEFAULT_MODEL_NAME,
-            api_format=args.target_api_format, http_method=args.target_http_method,
-            content_type=args.target_content_type, verify_ssl=verify_ssl,
-            cookie=args.target_cookie or "", jwt_token=args.target_jwt or "",
-            user_agent=args.target_user_agent or "",
+            api_key=effective_api_key or "", model=args.target_model or DEFAULT_MODEL_NAME,
+            api_format="openai", http_method="POST",
+            content_type="application/json", verify_ssl=verify_ssl,
+            cookie=normalized_auth.get("cookie", "") or "",
+            jwt_token=normalized_auth.get("jwt_token", "") or "",
+            user_agent="",
             extra_headers=extra_headers if extra_headers else None,
         )
     else:

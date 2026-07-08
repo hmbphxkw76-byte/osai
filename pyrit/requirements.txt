@@ -24,6 +24,9 @@ pyrit>=0.14.0,<1.0.0          # PyRIT 红队框架（含 PromptTarget/Scorer/Nor
 # HTTP 客户端
 # ─────────────────────────────────────────────
 httpx>=0.27,<1.0               # 现代 HTTP 客户端（http_target / model_probe 依赖，支持异步和重试）
+openai>=1.0,<3.0               # OpenAI Python SDK（OpenAICompatibleTarget 核心：原生重试、流控、错误分类）
+google-genai>=1.0,<2.0          # Google GenAI SDK（GeminiTarget 核心，替代已弃用的 google-generativeai）
+anthropic>=0.40,<1.0           # Anthropic SDK（ClaudeTarget 核心）
 
 # ─────────────────────────────────────────────
 # 环境变量管理

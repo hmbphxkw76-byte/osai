@@ -31,11 +31,15 @@ entrypoint/       ← CLI 层（解析→回显→引导→路由）
   │      reasoning.py      推理/宪法
   │
   ├──→ targets/        ← 目标抽象层
-  │      config.py         .env 配置加载
-  │      factories.py      Target 工厂
-  │      http_target.py    CustomHttpChatTarget
-  │      model_probe.py    模型探测
-  │      auto_probe.py     自动探测
+  │      config.py              .env 配置加载
+  │      factories.py           Target 工厂
+  │      openai_sdk_target.py   OpenAICompatibleTarget (openai SDK)
+  │      gemini_target.py       GeminiTarget (google-genai SDK)
+  │      claude_target.py       ClaudeTarget (anthropic SDK)
+  │      http_target.py         CustomHttpChatTarget (raw 格式兜底)
+  │      model_probe.py         模型探测
+  │      auto_probe.py          自动探测
+  │      target_builder.py      统一 Target 构建工厂
   │
   ├──→ datasets/       ← 数据层（只读 YAML）
   │      loader.py         Payload 加载器
@@ -75,6 +79,21 @@ CLI args ──→ parser ──→ BootstrapContext ──→ router ──→ 
 
 `create_scorer_target()` / `create_attack_target()` / `build_custom_target()` 三个工厂函数
 统一所有 Target 创建逻辑，调用方不直接实例化 Target 类。
+
+**Target 选型标准（SDK 优先，不重复造轮子）：**
+
+| API 类型 | Target 类 | SDK | 文件 |
+|---|---|---|---|
+| OpenAI / Ollama / vLLM 等 | `OpenAICompatibleTarget` | `openai` | `targets/openai_sdk_target.py` |
+| Google Gemini | `GeminiTarget` | `google-genai` | `targets/gemini_target.py` |
+| Anthropic Claude | `ClaudeTarget` | `anthropic` | `targets/claude_target.py` |
+| 非标准 Web Chat API | `CustomHttpChatTarget` | `httpx` (手工) | `targets/http_target.py` |
+
+**选型规则**：
+1. 所有主流 LLM API 必须使用对应官方 SDK 实现，禁止手工构造 HTTP 请求
+2. `CustomHttpChatTarget` 仅作为非标准 API 的兜底方案，**禁止向其添加新 API 格式**
+3. 新增 API 接入时，优先使用已有 SDK；若无对应 SDK，在 `contributing/` 中补充理由
+4. `CustomHttpChatTarget` 代码保持最小化：`{"prompt": text}` 固定格式，不做字段级解析
 
 ### Router 模式（Command Dispatch）
 

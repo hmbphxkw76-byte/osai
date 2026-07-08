@@ -31,3 +31,4 @@ Thumbs.db
 # ── 密钥/配置（仅提交模板） ──
 *.key
 *.pem
+configs/tokens/*

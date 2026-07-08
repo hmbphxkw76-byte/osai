@@ -4,9 +4,12 @@ PyRIT Red Team — 攻击场景预设（Scenario Presets）
 ===============================================================================
 将常见的认证/传输/格式组合封装为命名预设，消除 CLI 参数记忆负担。
 
+⚠️ 注意: 本模块由 scenarios/__init__.py 懒加载。
+         主入口请使用 targets/scenarios.py（已被 targets.factories 和 target_builder 引用）。
+
 使用方式:
   CLI:  python main.py --scenario jwt-bearer --target-url https://...
-  Code: from targets.scenarios import get_scenario_preset, build_custom_target
+  Code: from targets.scenarios import SCENARIO_PRESETS, build_custom_target, register_scenario
 
 扩展模式（渗透场景零改动原则）:
   from targets.scenarios import register_scenario
@@ -20,6 +23,12 @@ PyRIT Red Team — 攻击场景预设（Scenario Presets）
   - 每个场景是纯数据的 dict，不包含业务逻辑
   - CLI 参数始终可覆盖场景默认值（开闭原则）
   - requires 字段用于启动时校验，防止静默错误
+
+Target 选型标准（SDK 优先，不重复造轮子）:
+  openai/ollama → OpenAICompatibleTarget (openai SDK)
+  gemini         → GeminiTarget (google-genai SDK)
+  claude         → ClaudeTarget (anthropic SDK)
+  raw            → CustomHttpChatTarget (仅非标准 API 兜底)
 ===============================================================================
 """
 from __future__ import annotations
@@ -29,6 +38,9 @@ from typing import Optional
 from rich.console import Console
 
 from targets.http_target import CustomHttpChatTarget
+from targets.openai_sdk_target import OpenAICompatibleTarget
+from targets.gemini_target import GeminiTarget
+from targets.claude_target import ClaudeTarget
 from utils import DEFAULT_MODEL_NAME
 
 console = Console()
@@ -123,15 +135,16 @@ def build_custom_target(
     jwt_token: str = "",
     user_agent: str = "",
     extra_headers: Optional[dict] = None,
-) -> CustomHttpChatTarget:
-    """根据场景预设 + CLI 覆盖参数构建 CustomHttpChatTarget。
+) -> CustomHttpChatTarget | OpenAICompatibleTarget | GeminiTarget | ClaudeTarget:
+    """根据场景预设 + CLI 覆盖参数构建 Target（SDK 优先，不重复造轮子）。
 
     优先级: CLI 显式参数 > 场景预设 > 函数默认值
 
-    Args:
-        endpoint: 目标 URL（必填）
-        scenario: 场景预设 ID（可选，如 "jwt-bearer"）
-        其余参数与 CustomHttpChatTarget 构造函数一致
+    Target 选型:
+      openai/ollama → OpenAICompatibleTarget (openai SDK)
+      gemini         → GeminiTarget (google-genai SDK)
+      claude         → ClaudeTarget (anthropic SDK)
+      raw            → CustomHttpChatTarget (仅非标准 API 兜底)
     """
     extra_headers = dict(extra_headers or {})
 
@@ -139,17 +152,12 @@ def build_custom_target(
     preset = SCENARIO_PRESETS.get(scenario) if scenario else None
     if scenario and not preset:
         available = ", ".join(SCENARIO_PRESETS.keys())
-        raise ValueError(
-            f"未知场景 '{scenario}'。可用场景: {available}"
-        )
+        raise ValueError(f"未知场景 '{scenario}'。可用场景: {available}")
 
     if preset:
-        console.print(
-            f"[bold cyan]🎬 场景预设: {preset['name']}[/bold cyan]"
-        )
+        console.print(f"[bold cyan]🎬 场景预设: {preset['name']}[/bold cyan]")
 
     # ── 2. 合并参数: 预设为底，CLI 显式传入覆盖 ──
-    # 注意: 只覆盖用户未显式指定的值（None / 空字符串 / 默认值视为"未指定"）
     effective = {
         "api_format": api_format,
         "http_method": http_method,
@@ -158,7 +166,6 @@ def build_custom_target(
     }
 
     if preset:
-        # 预设底值：只覆盖仍为默认值的字段
         if api_format == "openai":
             effective["api_format"] = preset.get("api_format", api_format)
         if http_method == "POST":
@@ -170,27 +177,15 @@ def build_custom_target(
 
     # ── 3. 组装 headers ──
     final_headers: dict = {}
-
-    # User-Agent: 场景预设浏览器 UA 或 CLI 自定义
     if preset and preset.get("browser_ua") and not user_agent:
-        user_agent = CustomHttpChatTarget._BROWSER_HEADERS.get(
-            "User-Agent", ""
-        )
-
-    # 自定义 headers（JSON 解析的）
+        user_agent = CustomHttpChatTarget._BROWSER_HEADERS.get("User-Agent", "")
     final_headers.update(extra_headers)
-
-    # Cookie: CLI --target-cookie 合并到 headers
     if cookie:
         existing_cookie = final_headers.get("Cookie", "")
         merged_cookie = f"{existing_cookie}; {cookie}".strip("; ")
         final_headers["Cookie"] = merged_cookie
-
-    # User-Agent: 覆盖
     if user_agent:
         final_headers["User-Agent"] = user_agent
-
-    # Content-Type: extra_headers 中显式指定的优先
     if "Content-Type" not in final_headers and effective["content_type"]:
         final_headers["Content-Type"] = effective["content_type"]
 
@@ -203,16 +198,64 @@ def build_custom_target(
                 f"[bold yellow]⚠️ 场景 '{preset['name']}' 需要以下参数但未提供: "
                 f"{required_list}[/bold yellow]"
             )
-            console.print(
-                f"[dim]   提示: {_requirement_hints(missing)}[/dim]"
-            )
+            console.print(f"[dim]   提示: {_requirement_hints(missing)}[/dim]")
 
     # ── 5. SSL 协议校验 ──
     is_http = endpoint.lower().startswith("http://")
     if is_http:
         effective["verify_ssl"] = False
 
-    # ── 6. 构建 Target ──
+    # ── 6. 构建 Target（SDK 优先） ──
+    scenario_name = preset["name"] if preset else "手动配置"
+
+    # OpenAI 兼容格式 → OpenAI SDK
+    if effective["api_format"] in ("openai", "ollama"):
+        base_url = _to_openai_base_url(endpoint, effective["api_format"])
+        ssl_status = "skip" if not effective["verify_ssl"] else "verify"
+        proto = "HTTP" if endpoint.lower().startswith("http://") else "HTTPS"
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (OpenAI SDK): {base_url} "
+            f"({proto}, SSL={ssl_status}, 格式: {effective['api_format']}, "
+            f"场景: {scenario_name})[/bold magenta]"
+        )
+        return OpenAICompatibleTarget(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+            verify_ssl=effective["verify_ssl"],
+            extra_headers=final_headers if final_headers else None,
+        )
+
+    # Gemini → Google Generative AI SDK
+    if effective["api_format"] == "gemini":
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (Gemini SDK): {model} "
+            f"(场景: {scenario_name})[/bold magenta]"
+        )
+        return GeminiTarget(
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+        )
+
+    # Claude → Anthropic SDK
+    if effective["api_format"] == "claude":
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (Claude SDK): {model} "
+            f"(场景: {scenario_name})[/bold magenta]"
+        )
+        return ClaudeTarget(
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+            verify_ssl=effective["verify_ssl"],
+        )
+
+    # raw → CustomHttpChatTarget（仅非标准 API 兜底）
     target = CustomHttpChatTarget(
         endpoint=endpoint,
         api_key=api_key,
@@ -228,20 +271,15 @@ def build_custom_target(
     )
 
     _log_target_summary(target, preset)
-
     return target
 
 
 # ── 内部辅助 ──────────────────────────────────────────────────────────────────
 
-def _validate_requirements(
-    preset: dict, cookie: str, jwt_token: str, extra_headers: dict
-) -> list[str]:
-    """校验场景必须参数是否提供。返回缺失项列表。"""
+def _validate_requirements(preset: dict, cookie: str, jwt_token: str, extra_headers: dict) -> list[str]:
     missing = []
     for req in preset.get("requires", []):
         if req == "cookie" and not cookie:
-            # 也检查 extra_headers 中的 Cookie 头
             if not extra_headers or "Cookie" not in extra_headers:
                 missing.append("cookie (--target-cookie)")
         elif req == "jwt" and not jwt_token:
@@ -252,7 +290,6 @@ def _validate_requirements(
 
 
 def _requirement_hints(missing: list[str]) -> str:
-    """生成缺失参数的 CLI 提示。"""
     hints = {
         "cookie": "--target-cookie 'session_id=abc; csrf=xyz'",
         "jwt": "--target-jwt 'eyJhbGciOi...'",
@@ -262,7 +299,6 @@ def _requirement_hints(missing: list[str]) -> str:
 
 
 def _log_target_summary(target: CustomHttpChatTarget, preset: Optional[dict]) -> None:
-    """打印目标配置摘要。"""
     scenario_name = preset["name"] if preset else "手动配置"
     auth_methods = []
     if target._jwt_token:
@@ -284,3 +320,22 @@ def _log_target_summary(target: CustomHttpChatTarget, preset: Optional[dict]) ->
         f"格式: {target._api_format}, 方法: {target._http_method}, "
         f"场景: {scenario_name})[/bold magenta]"
     )
+
+
+def _to_openai_base_url(raw_url: str, api_format: str) -> str:
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。"""
+    from urllib.parse import urlparse
+    import re
+
+    url = raw_url.rstrip("/")
+    parsed = urlparse(url)
+
+    if api_format == "ollama":
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{base}/v1"
+
+    if not url.endswith("/v1"):
+        url = re.sub(r'/(chat/completions|completions)$', '', url)
+        if not url.endswith("/v1"):
+            url = url.rstrip("/") + "/v1"
+    return url

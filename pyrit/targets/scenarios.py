@@ -29,6 +29,9 @@ from typing import Optional
 from rich.console import Console
 
 from targets.http_target import CustomHttpChatTarget
+from targets.openai_sdk_target import OpenAICompatibleTarget
+from targets.gemini_target import GeminiTarget
+from targets.claude_target import ClaudeTarget
 from utils import DEFAULT_MODEL_NAME
 
 console = Console()
@@ -123,7 +126,7 @@ def build_custom_target(
     jwt_token: str = "",
     user_agent: str = "",
     extra_headers: Optional[dict] = None,
-) -> CustomHttpChatTarget:
+) -> CustomHttpChatTarget | OpenAICompatibleTarget | GeminiTarget | ClaudeTarget:
     """根据场景预设 + CLI 覆盖参数构建 CustomHttpChatTarget。
 
     优先级: CLI 显式参数 > 场景预设 > 函数默认值
@@ -213,6 +216,56 @@ def build_custom_target(
         effective["verify_ssl"] = False
 
     # ── 6. 构建 Target ──
+    scenario_name = preset["name"] if preset else "手动配置"
+
+    # OpenAI 兼容格式 → OpenAI SDK
+    if effective["api_format"] in ("openai", "ollama"):
+        base_url = _to_openai_base_url(endpoint, effective["api_format"])
+        ssl_status = "skip" if not effective["verify_ssl"] else "verify"
+        proto = "HTTP" if endpoint.lower().startswith("http://") else "HTTPS"
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (OpenAI SDK): {base_url} "
+            f"({proto}, SSL={ssl_status}, 格式: {effective['api_format']}, "
+            f"场景: {scenario_name})[/bold magenta]"
+        )
+        return OpenAICompatibleTarget(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+            verify_ssl=effective["verify_ssl"],
+            extra_headers=final_headers if final_headers else None,
+        )
+
+    # Gemini → Google Generative AI SDK
+    if effective["api_format"] == "gemini":
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (Gemini SDK): {model} "
+            f"(场景: {scenario_name})[/bold magenta]"
+        )
+        return GeminiTarget(
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+        )
+
+    # Claude → Anthropic SDK
+    if effective["api_format"] == "claude":
+        console.print(
+            f"[bold magenta]🎯 攻击目标 (Claude SDK): {model} "
+            f"(场景: {scenario_name})[/bold magenta]"
+        )
+        return ClaudeTarget(
+            api_key=api_key,
+            model=model,
+            temperature=0.9,
+            timeout=60,
+            verify_ssl=effective["verify_ssl"],
+        )
+
+    # raw → CustomHttpChatTarget（仅非标准 API 兜底）
     target = CustomHttpChatTarget(
         endpoint=endpoint,
         api_key=api_key,
@@ -284,3 +337,25 @@ def _log_target_summary(target: CustomHttpChatTarget, preset: Optional[dict]) ->
         f"格式: {target._api_format}, 方法: {target._http_method}, "
         f"场景: {scenario_name})[/bold magenta]"
     )
+
+
+def _to_openai_base_url(raw_url: str, api_format: str) -> str:
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。
+
+    参见 targets.factories._to_openai_base_url 的完整文档。
+    """
+    from urllib.parse import urlparse
+    import re
+
+    url = raw_url.rstrip("/")
+    parsed = urlparse(url)
+
+    if api_format == "ollama":
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{base}/v1"
+
+    if not url.endswith("/v1"):
+        url = re.sub(r'/(chat/completions|completions)$', '', url)
+        if not url.endswith("/v1"):
+            url = url.rstrip("/") + "/v1"
+    return url

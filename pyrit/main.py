@@ -1,6 +1,6 @@
 """
 ===============================================================================
-PyRIT Red Team — 统一红队演练平台 (v10.0 — PyRIT Native Orchestrator)
+PyRIT Red Team — 统一红队演练平台 (v11.0 Streamlined — PyRIT Native Orchestrator)
 ===============================================================================
 核心升级:
 1. ✅ PyRIT 原生 Memory: SQLiteMemory + CentralMemory 全局单例（最佳实践）
@@ -28,26 +28,37 @@ PyRIT Red Team — 统一红队演练平台 (v10.0 — PyRIT Native Orchestrator
 - main.py       → CLI 入口 & 顶层编排 (精简版)
 
 ===============================================================================
-快速使用指南 (Quick Reference)
+快速使用指南 (Quick Reference) v11.0 Streamlined
 ===============================================================================
-  模式 A: 不指定 --target-url → 攻击 .env 中配置的 LLM API:
-    python main.py --lang cn --phase probe              # 仅 PROBE 快速探测
-    python main.py --lang cn --phase single             # 仅单轮主力突破
-    python main.py --lang cn --phase crescendo          # 仅 Crescendo 多轮攻坚
-    python main.py --lang cn --auto-gate                # 自动门控 (阈值 10%)
+  默认语言: 中文 (--lang cn)，无需显式指定；英文用 --lang en
+  核心参数: --target-url + --auth + --phase（probe 自动探测定模型/格式/并发）
 
-  模式 B: 指定 --target-url → 攻击自定义 Chat API:
-    python main.py --lang cn --target-url http://192.168.2.199:8501/ --phase probe
+  # ── [1] 已知模型 API: 只需 URL + API Key ──
+  python main.py --target-url https://api.openai.com/v1 --auth sk-xxx --phase probe
+  # → 自动: format=openai, model=gpt-4, SSL=verify, concurrent=auto
 
-  模式 C: --target-url + --target-api-format → 攻击非 OpenAI 格式 API:
-    python main.py --lang cn --phase probe --target-url https://api.anthropic.com/v1/messages --target-api-key YOUR_KEY --target-api-format claude --target-model claude-3-sonnet-20240229
+  # ── [2] 内网自部署模型 (vLLM/Ollama) ──
+  python main.py --target-url http://192.168.2.199:8501/ --target-type model --auth sk-xxx --phase probe
+  # → 自动: format=openai, model=auto-probe, concurrent=auto
 
-  模式 D: --target-url + --target-api-format raw → 攻击非标准内部 Web 应用:
-    python main.py --lang cn --phase probe --target-url http://192.168.1.100/internal/chat --target-api-format raw --target-cookie "session_id=abc123"
+  # ── [3] 自定义 AI 应用 (Web Chat UI) ──
+  python main.py --target-url http://192.168.1.100/api/chat --auth "session=abc123" --phase probe
+  # → 自动: 端点枚举 → 架构探测 → 策略推荐
+
+  # ── [4] HTTPS 自签证书 + 自定义 Header 认证 ──
+  python main.py --target-url https://internal-app/api/v1/query --ssl-skip --auth '{"X-API-Key":"sk-secret"}' --phase probe
+
+  # ── [5] Cookie 认证 ──
+  python main.py --target-url http://192.168.1.100/api/chat --auth "session_id=abc;token=xyz" --phase probe
+
+  # ── [6] JWT 认证 ──
+  python main.py --target-url https://api.internal.com/v1/chat --auth eyJhbGciOi... --phase probe
+
+  # ── [7] 自适应攻击引擎 ──
+  python main.py --target-url http://192.168.2.199:8501/v1/chat --auth sk-xxx --adaptive --phase single
 
   探索模式: python main.py --exploring-template tech_mode.yaml
   渗透模式: python main.py --penetrating-mode --penetrating-template penetrating_prompts.yaml
-
   回退旧版引擎: 添加 --orch legacy 回到旧版引擎
 
   报告输出: 所有攻击模式完成后自动生成 10 章标准渗透报告（TLP:AMBER 封面 + 执行摘要 + 方法论 + RCA + 修复时间线）

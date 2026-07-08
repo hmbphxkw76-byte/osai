@@ -97,9 +97,23 @@ class BootstrapContext:
 ```python
 # targets/factories.py 统一创建入口
 create_scorer_target(config)     → AzureOpenAIChatTarget / OpenAIChatTarget
-create_attack_target(config)     → OpenAIChatTarget
-build_custom_target(endpoint, ..) → CustomHttpChatTarget
+create_attack_target(config)     → OpenAIChatTarget / OpenAICompatibleTarget / GeminiTarget / ClaudeTarget
+build_custom_target(endpoint, ..) → OpenAICompatibleTarget / GeminiTarget / ClaudeTarget / CustomHttpChatTarget
 ```
+
+**Target SDK 选型标准（SDK 优先，不重复造轮子）：**
+
+| API 类型 | Target 类 | SDK | 说明 |
+|---|---|---|---|
+| OpenAI / Ollama / vLLM 等 | `OpenAICompatibleTarget` | `openai` | `/v1/chat/completions` 兼容端点 |
+| Google Gemini | `GeminiTarget` | `google-genai` | Gemini API（generateContent） |
+| Anthropic Claude | `ClaudeTarget` | `anthropic` | Claude Messages API |
+| 非标准 Web Chat API | `CustomHttpChatTarget` | `httpx` | form-urlencoded、GET 探测等兜底 |
+
+**选型规则**：
+1. 所有主流 LLM API 必须使用对应官方 SDK 实现，禁止手工构造 HTTP 请求
+2. `CustomHttpChatTarget` 仅作为非标准 API 的兜底方案
+3. 新增 API 接入时，优先使用已有 SDK；若无对应 SDK，在 `contributing/` 中补充理由
 
 新增目标类型时在 factories 中添加工厂函数。
 
@@ -317,12 +331,15 @@ git config core.autocrlf input
 ### 7.1 版本约束
 
 ```
-pyrit>=0.14.0,<1.0.0      # 主框架：下限+上限
-httpx>=0.27,<1.0           # HTTP 客户端
-python-dotenv>=1.0,<2.0   # 环境变量
-pyyaml>=6.0,<7.0           # YAML 解析
-pydantic>=2.0,<3.0         # 数据验证
-rich>=13.0,<15.0           # 终端 UI
+pyrit>=0.14.0,<1.0.0          # 主框架：下限+上限
+httpx>=0.27,<1.0               # HTTP 客户端
+openai>=1.0,<3.0               # OpenAI SDK
+google-genai>=1.0,<2.0          # Google Gemini SDK
+anthropic>=0.40,<1.0           # Anthropic Claude SDK
+python-dotenv>=1.0,<2.0       # 环境变量
+pyyaml>=6.0,<7.0               # YAML 解析
+pydantic>=2.0,<3.0             # 数据验证
+rich>=13.0,<15.0               # 终端 UI
 ```
 
 所有依赖必须锁定上限版本，禁止 `>=X` 无上限约束。
@@ -334,17 +351,70 @@ rich>=13.0,<15.0           # 终端 UI
 2. 是否纯 Python（C 扩展需要跨平台编译）
 3. 许可证是否兼容
 
+### 7.3 Target SDK 依赖（核心依赖）
+
+项目使用以下官方 SDK 对接各大 LLM API，**禁止手工构造 HTTP 请求替代**：
+
+| 依赖 | 版本 | 对接 API | 文件 |
+|---|---|---|---|
+| `openai` | `>=1.0,<3.0` | OpenAI / Ollama / vLLM / ZHIPU / DeepSeek 等 | `targets/openai_sdk_target.py` |
+| `google-genai` | `>=1.0,<2.0` | Google Gemini | `targets/gemini_target.py` |
+| `anthropic` | `>=0.40,<1.0` | Anthropic Claude | `targets/claude_target.py` |
+| `httpx` | `>=0.27,<1.0` | 非标准 API 兜底（raw 格式） | `targets/http_target.py` |
+
+**选型原则（SDK 优先，不重复造轮子）：**
+1. 所有主流 LLM API 必须使用对应官方 SDK 实现
+2. SDK 自动处理：重试、流控、错误分类、响应反序列化
+3. `CustomHttpChatTarget` 仅作为非标准 API 兜底，**禁止向其添加新格式支持**
+4. 新增 API 接入时，优先使用已有 SDK；若无对应 SDK，在此文档中补充理由
+
+**`CustomHttpChatTarget` 最小化原则：**
+- `api_format` 始终为 `"raw"`，不针对任何特定 API 做格式适配
+- 请求体固定为 `{"prompt": text}`，复杂格式通过 `extra_headers` + `content_type` 覆盖
+- 响应直接返回原始文本或 JSON 字符串，不做字段级解析
+- 新增 API 格式 → 新建 SDK Target 文件，禁止在 `http_target.py` 中添加 `_build_xxx_payload` / `_parse_xxx_response` 方法
+
 ---
 
 ## 八、执行期专家指导规范
 
-### 8.1 三阶段指导模型
+### 8.1 四阶段指导模型
 
 ```
-Stage 1: 探测后 (Pre-Execution)  → targets/target_type_probe.py
-Stage 2: 执行中 (In-Execution)   → executor/dashboard.py + utils/guidance.py
-Stage 3: 执行后 (Post-Execution) → reporting/engine.py + reporting/terminal.py
+Stage 0: 配置就绪 (Readiness Gate) → scripts/config_center.py (Web GUI)
+Stage 1: 探测后 (Pre-Execution)     → targets/target_type_probe.py
+Stage 2: 执行中 (In-Execution)      → executor/dashboard.py + utils/guidance.py
+Stage 3: 执行后 (Post-Execution)    → reporting/engine.py + reporting/terminal.py
 ```
+
+### 8.0 Stage 0 — 配置就绪门禁 (Readiness Gate)
+
+攻击前通过 Web 界面完成配置准备和就绪检查：
+
+```
+python scripts/config_center.py              # http://127.0.0.1:5051
+python scripts/config_center.py --port 8080  # 自定义端口
+```
+
+功能:
+- **配置浏览/编辑**: 管理 `configs/shared.env`、`platforms.env`、`targets.env`、`recons.env`
+- **凭证管理**: 管理 `configs/tokens/` 下的 JWT/Cookie/API Key
+- **语法校验**: 保存时自动校验 configparser 语法 + `%(VAR)s` 插值完整性
+- **目标探测**: 连通性测试、API 类型识别、模型列表枚举
+- **就绪检查**: 汇总所有配置完整性，确认通过后方可进入攻击阶段
+
+架构:
+```
+scripts/config_center/          ← Web 框架包
+├── __init__.py                  ← create_app() 工厂
+├── routes.py                    ← API 路由 (Blueprint)
+├── utils.py                     ← 配置读写与校验
+├── readiness_probe.py           ← 目标探测聚合层（委托 targets/ 层）
+├── templates/index.html         ← 前端页面
+└── static/style.css             ← 样式
+```
+
+探测功能全部委托给 `targets/` 层已有函数，零新增探测逻辑。
 
 ### 8.2 Stage 2 执行中指导设计要求
 

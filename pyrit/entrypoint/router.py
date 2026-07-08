@@ -1,22 +1,10 @@
 """
 ===============================================================================
-PyRIT Red Team — 命令路由器
+PyRIT Red Team — 命令路由器 v11.0 (Streamlined)
 ===============================================================================
-从 main.py 提取命令分发逻辑，遵循:
-  ✅ 单一职责 — 仅负责模式分发，不涉及细节实现
-  ✅ 早返回模式 — 探索/渗透/legacy 均为早返回路径
-  ✅ 薄封装 — 原生路径直接委托给 PyRITNativeOrchestrator
-
-路由决策树:
-  1. --exploring-template  → 探索模式（executor/exploring.py）
-  2. --penetrating-mode     → 渗透模式（scenarios/ 模块）
-  3. --orch legacy          → Legacy 兼容模式
-  4. 其他                   → PyRIT 原生调度模式
-
-使用方式:
-  from entrypoint.router import route_command
-
-  await route_command(args, ctx)
+精简变化:
+  ✅ 并发使用 BootstrapContext.recommended_concurrency（probe 自动推算）
+  ✅ 用户手动 --concurrent 仍可覆盖
 ===============================================================================
 """
 from __future__ import annotations
@@ -32,12 +20,7 @@ console = Console()
 
 
 async def route_command(args, ctx: BootstrapContext | None) -> None:
-    """根据 CLI 参数路由到对应的执行模式。
-
-    Args:
-        args: argparse.Namespace CLI 解析结果
-        ctx: 环境初始化上下文（bootstrap 结果）
-    """
+    """根据 CLI 参数路由到对应的执行模式。"""
     # ── 早返回路径 A: 探索模板模式 ──
     if args.exploring_template:
         from executor.exploring import run_exploring_mode
@@ -58,7 +41,6 @@ async def route_command(args, ctx: BootstrapContext | None) -> None:
         await _run_penetrating_mode_router(args)
         return
 
-    # ── 环境初始化失败，不执行攻击 ──
     if ctx is None:
         return
 
@@ -79,7 +61,17 @@ async def route_command(args, ctx: BootstrapContext | None) -> None:
             await ctx.attack_target.close()
 
 
-# ── 原生模式内部实现 ──
+# ── 并发数解析（auto → probe 推算） ──
+
+def _resolve_concurrency(args, ctx: BootstrapContext) -> int:
+    """解析并发数：用户手动 > probe 推算 > 默认 1。"""
+    cli_val = getattr(args, 'concurrent', 0)
+    if cli_val > 0:
+        return cli_val
+    return max(1, getattr(ctx, 'recommended_concurrency', 5))
+
+
+# ── 原生模式 ──
 
 async def _run_native_single_phase(args, ctx: BootstrapContext) -> None:
     """PyRIT 原生单阶段/全量执行。"""
@@ -114,9 +106,11 @@ async def _run_native_single_phase(args, ctx: BootstrapContext) -> None:
     }
     label = phase_labels.get(ctx.effective_phase, ctx.effective_phase.replace('_', ' ').title())
 
+    max_concurrent = _resolve_concurrency(args, ctx)
+
     orch = PyRITNativeOrchestrator(
         scorer_target=ctx.scorer_target or OpenAIChatTarget(temperature=0),
-        max_concurrent=args.concurrent,
+        max_concurrent=max_concurrent,
     )
 
     from datasets.loader import load_test_cases
@@ -149,7 +143,6 @@ async def _run_native_single_phase(args, ctx: BootstrapContext) -> None:
         enable_early_stop=getattr(args, 'enable_early_stop', False),
     )
 
-    # 结果导出
     campaign_name = f"PyRIT_RedTeam_{label.replace(' ', '_')}"
     orch.export_results(results, campaign_name)
 
@@ -185,9 +178,11 @@ async def _run_native_phased(args, ctx: BootstrapContext) -> None:
         console.print("[yellow]⚠️ 无匹配的测试用例，跳过[/yellow]")
         return
 
+    max_concurrent = _resolve_concurrency(args, ctx)
+
     orch = PyRITNativeOrchestrator(
         scorer_target=ctx.scorer_target or OpenAIChatTarget(temperature=0),
-        max_concurrent=args.concurrent,
+        max_concurrent=max_concurrent,
     )
 
     results = await orch.run_phased_campaign(
@@ -212,12 +207,7 @@ async def _run_native_phased(args, ctx: BootstrapContext) -> None:
 # ── 渗透模式路由 ──
 
 async def _run_penetrating_mode_router(args) -> None:
-    """渗透模式路由 — 复用现有 scenarios/ 模块。
-
-    遵循 PYrit 专家设计原则:
-      ✅ 渗透期间仅修改 YAML 模板文件
-      ✅ 攻击编排、提示词变体、目标调用、结果评分、报告生成全部预固化
-    """
+    """渗透模式路由。"""
     from scenarios.schema import PenetratingPromptSet
     from scenarios.orchestrator import PenetratingOrchestrator
     from scenarios.reporter import PenetratingSecurityReporter
@@ -228,6 +218,7 @@ async def _run_penetrating_mode_router(args) -> None:
     from utils import DEFAULT_MODEL_NAME, ensure_results_dir, results_path
     from pyrit.memory import SQLiteMemory, CentralMemory
     from pyrit.prompt_target import OpenAIChatTarget
+    from entrypoint.bootstrap import normalize_auth_value
     from datetime import datetime
     import json
 
@@ -263,12 +254,18 @@ async def _run_penetrating_mode_router(args) -> None:
     target_type_result = None
 
     if args.target_url:
+        # 🆕 归一化认证
+        auth_raw = getattr(args, 'auth', '')
+        normalized_auth = normalize_auth_value(auth_raw) if auth_raw else {}
+        effective_api_key = normalized_auth.get("api_key", "")
+
         from targets.target_builder import build_attack_target_from_args
-        attack_target = await build_attack_target_from_args(args, attacker_config, enable_probe=True)
+        attack_target = await build_attack_target_from_args(
+            args, attacker_config, enable_probe=True, normalized_auth=normalized_auth
+        )
         if attack_target is None:
             return
-        # 架构类型探测
-        target_type_result = await auto_probe_target_type(args, args.target_url, args.target_api_key)
+        target_type_result = await auto_probe_target_type(args, args.target_url, effective_api_key)
     else:
         if not attacker_config or not attacker_config.get("model"):
             console.print("[bold red]❌ 攻击者模型未配置！[/bold red]")
