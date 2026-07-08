@@ -1,10 +1,10 @@
 """
 ===============================================================================
-OffSec AI-300 — 单轮攻击引擎
+PyRIT Red Team — 单轮攻击引擎
 ===============================================================================
 execute_single_attack(): 单轮攻击 → 应用转换器 → 投送 → 评分 → 重试
 
-P0 重构：优先委托给 AI300Orchestrator._execute_prompt_sending_attack()。
+P0 重构：优先委托给 PyRITNativeOrchestrator._execute_prompt_sending_attack()。
   当 orchestrator 参数提供时，使用 PyRIT 原生 PromptSendingAttack 管道；
   否则回退到旧版手动管道（向后兼容 --orch legacy）。
 ===============================================================================
@@ -25,7 +25,7 @@ from executor.template import _resolve_template
 from utils import is_retryable_error, backoff_delay
 
 if TYPE_CHECKING:
-    from orchestrators.pyrit_orchestrator import AI300Orchestrator
+    from orchestrators.pyrit_orchestrator import PyRITNativeOrchestrator
 
 
 async def execute_single_attack(
@@ -35,7 +35,7 @@ async def execute_single_attack(
     base_target,
     scorer_target,
     dashboard: DashboardState,
-    orchestrator: "AI300Orchestrator | None" = None,
+    orchestrator: "PyRITNativeOrchestrator | None" = None,
 ):
     """执行单轮攻击 — 优先使用 PyRIT 原生 PromptSendingAttack 管道。
 
@@ -46,7 +46,7 @@ async def execute_single_attack(
         base_target: 攻击目标 PromptTarget
         scorer_target: 评分器 LLM 目标
         dashboard: 仪表盘状态
-        orchestrator: 🆕 AI300Orchestrator 实例。提供时委托给 PyRIT 原生管道；
+        orchestrator: 🆕 PyRITNativeOrchestrator 实例。提供时委托给 PyRIT 原生管道；
                       不提供时使用旧版手动管道（向后兼容）。
 
     Returns:
@@ -62,7 +62,7 @@ async def execute_single_attack(
     import warnings
     warnings.warn(
         "execute_single_attack() is using legacy pipeline. "
-        "Provide an AI300Orchestrator instance for PyRIT native execution.",
+        "Provide an PyRITNativeOrchestrator instance for PyRIT native execution.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -73,9 +73,9 @@ async def execute_single_attack(
 
 async def _delegate_to_orchestrator(
     semaphore, case, combo, base_target, dashboard: DashboardState,
-    orchestrator: "AI300Orchestrator",
+    orchestrator: "PyRITNativeOrchestrator",
 ) -> dict:
-    """委托给 AI300Orchestrator._execute_prompt_sending_attack() (PyRIT 原生)。"""
+    """委托给 PyRITNativeOrchestrator._execute_prompt_sending_attack() (PyRIT 原生)。"""
     async with semaphore:
         case_id = case["id"]
         dashboard.update("RUNNING", f"[{case_id}] {combo['name']} (单轮·PyRIT) -> 执行中...")

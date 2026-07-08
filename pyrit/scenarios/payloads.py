@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 统一 Payload 提供层 (PyRIT-aligned)
+PyRIT Red Team — 统一 Payload 提供层 (PyRIT-aligned)
 ===============================================================================
 PyRIT 对齐: 本模块 = SeedPromptDataset.from_yaml_file() + converter selection。
 
@@ -17,7 +17,7 @@ PyRIT 对齐: 本模块 = SeedPromptDataset.from_yaml_file() + converter selecti
        ↓
   scenarios/payloads.py (ModulePayloadProvider)  ← 本模块
        ↓
-  scenarios/orchestrator.py (ExamAutoOrchestrator)
+  scenarios/orchestrator.py (PenetratingOrchestrator)
 
 使用:
   from scenarios.payloads import ModulePayloadProvider, get_payloads
@@ -72,6 +72,8 @@ class ModulePayloadProvider:
         "supply_chain":       "supply_chain_payloads.yaml",
         "model_extract":      "model_extraction_payloads.yaml",
         "data_poison":        "data_poison_payloads.yaml",
+        # 🆕 前沿漏洞
+        "frontier":           "frontier_payloads_placeholder.yaml",
     }
 
     def __init__(self, lang: str = "zh"):
@@ -149,6 +151,7 @@ class ModulePayloadProvider:
             "rag":              lambda: RAGPayloadGenerator(self),
             "agent":            lambda: AgentPayloadGenerator(self),
             "infra":            lambda: InfraPayloadGenerator(self),
+            "frontier":         lambda: FrontierPayloadGenerator(self),
         }
         gen = generators.get(module_key)
         if gen is None:
@@ -441,6 +444,112 @@ class InfraPayloadGenerator:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 🆕 前沿漏洞 Payload 生成器（Frontier 模块）
+# ═══════════════════════════════════════════════════════════════════
+
+class FrontierPayloadGenerator:
+    """前沿漏洞 Payload 生成器 — 通过 FrontierRegistry 动态加载。
+
+    与现有 RAG/Agent/Infra Generator 不同，本生成器不依赖 dataclass 成员属性
+    （如 .rag_type / .attack_type），因为前沿漏洞的 payload 结构由 YAML 定义，
+    Generator 仅负责从 Registry 加载文本并包装为 GenericPayload。
+
+    设计原则:
+      ✅ 零硬编码 — 所有数据来自 vulns/*/payloads.yaml
+      ✅ 策略驱动 — 根据 strategy_name 路由到对应 vuln 的 payload
+      ✅ 向后兼容 — 实现与 PromptInjectionPayloadGenerator 相同的接口
+    """
+
+    def __init__(self, provider: ModulePayloadProvider | None = None):
+        self._provider = provider or get_provider()
+        self._registry = None
+
+    @property
+    def registry(self):
+        """延迟获取 FrontierRegistry 单例"""
+        if self._registry is None:
+            from scenarios.frontier.registry import get_registry
+            self._registry = get_registry(auto_discover=True)
+        return self._registry
+
+    def generate(
+        self, category: str = "", objective: str = "",
+        *, max_payloads: int = 8,
+    ) -> list[GenericPayload]:
+        """生成前沿漏洞 payload 列表。
+
+        按 category（对应 prompt 的前沿类别）从 Registry 获取所有活跃漏洞的 payload，
+        优先从 basic section 取，不足时从 advanced/stealth 补充。
+
+        Args:
+            category: 漏洞类别标识（对应 PromptCategory.FRONTIER.value）
+            objective: 攻击目标（保留参数，兼容现有接口）
+            max_payloads: 最大 payload 数
+
+        Returns:
+            GenericPayload 列表（实现相同的接口，方便 orchestrator 统一处理）
+        """
+        payloads: list[GenericPayload] = []
+        active_vulns = self.registry.get_active()
+
+        if not active_vulns:
+            logger.debug("FrontierPayloadGenerator: 无活跃前沿漏洞")
+            return payloads
+
+        # 按置信度降序排列（高置信度漏洞优先）
+        sorted_vulns = sorted(active_vulns, key=lambda v: v.confidence, reverse=True)
+
+        for vuln in sorted_vulns:
+            # 从每个 vuln 各取若干条 payload，按 section 优先级: basic → advanced → stealth
+            for section_key in ("basic", "advanced", "stealth"):
+                texts = self.registry.get_payloads(vuln.id, section_key)
+                for text in texts[:3]:  # 每 section 最多取 3 条
+                    # 变量替换: {objective} → 实际目标
+                    resolved = text.replace("{objective}", objective) if objective else text
+                    payloads.append(GenericPayload(
+                        text=resolved,
+                        section_key=section_key,
+                        module_key="frontier",
+                        description=f"前沿-{vuln.id}-{section_key}",
+                    ))
+                    if len(payloads) >= max_payloads:
+                        return payloads
+
+            if len(payloads) >= max_payloads:
+                break
+
+        return payloads
+
+    def generate_for_strategy(
+        self, strategy_name: str, objective: str = "",
+        *, max_payloads: int = 6,
+    ) -> list[GenericPayload]:
+        """按具体策略名称生成 payload（非 category，而是 vuln 的 attack_strategy）。
+
+        用于 orchestrator 中按前沿策略精确路由时使用。
+        """
+        payloads: list[GenericPayload] = []
+        frontier_payloads = self.registry.get_payload_for_strategy(strategy_name, max_payloads)
+        for fp in frontier_payloads:
+            resolved = fp.text.replace("{objective}", objective) if objective else fp.text
+            payloads.append(GenericPayload(
+                text=resolved,
+                section_key=fp.section_key,
+                module_key="frontier",
+                description=f"前沿-{fp.vuln_id}-{fp.section_key}",
+            ))
+        return payloads[:max_payloads]
+
+    @staticmethod
+    def get_strategy_payloads(strategy_name: str) -> list[str]:
+        """静态方法：按策略名获取 payload 文本列表（兼容 RAG/Agent/Infra 接口）"""
+        from scenarios.frontier.registry import get_registry
+        registry = get_registry(auto_discover=True)
+        frontier_payloads = registry.get_payload_for_strategy(strategy_name, max_payloads=10)
+        return [fp.text for fp in frontier_payloads]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 5. 生成器工厂 — 按 category 字符串路由
 # ═══════════════════════════════════════════════════════════════════
 
@@ -463,6 +572,8 @@ GENERATOR_MAP: dict[str, type] = {
     "supply_chain":      InfraPayloadGenerator,
     "model_extract":     InfraPayloadGenerator,
     "data_poison":       InfraPayloadGenerator,
+    # 🆕 Frontier: 前沿漏洞
+    "frontier":          FrontierPayloadGenerator,
 }
 
 

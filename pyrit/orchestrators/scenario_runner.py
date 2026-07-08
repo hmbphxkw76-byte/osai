@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — PyRIT Scenarios 集成层
+PyRIT Native — 场景集成层
 ===============================================================================
 PyRIT 0.14.0 Scenarios 最佳实践:
 
@@ -17,8 +17,8 @@ PyRIT 0.14.0 Scenarios 最佳实践:
     新: Scenario 声明式组合 + ScenarioCompositeStrategy 自动多阶段编排
 
   使用方式:
-    from orchestrator.scenario_runner import A300ScenarioRunner
-    runner = A300ScenarioRunner(attack_target, scorer_target, memory)
+    from orchestrator.scenario_runner import PyRITScenarioRunner
+    runner = PyRITScenarioRunner(attack_target, scorer_target, memory)
     results = await runner.run(cases, gate_threshold=0.10)
 ===============================================================================
 """
@@ -35,23 +35,23 @@ from rich.panel import Panel
 
 from executor.scorer import CleanedSelfAskTrueFalseScorer
 from executor.template import _resolve_template
-from orchestrators.pyrit_orchestrator import AI300Orchestrator, AttackPhase, AttackConfig
+from orchestrators.pyrit_orchestrator import PyRITNativeOrchestrator, AttackPhase, AttackConfig
 
 console = Console()
 
 
-class A300ScenarioRunner:
+class PyRITScenarioRunner:
     """
     PyRIT Scenarios 集成运行器。
 
-    将 AI-300 的测试用例映射为 PyRIT Scenario 概念:
+    将测试用例映射为 PyRIT Scenario 概念:
       - 每个测试用例 → 一个 SeedPrompt（PyRIT Seed）
       - 每个阶段 (PROBE/SINGLE/CRESCENDO) → 一组 AttackStrategy 实例
       - 阶梯式门控 → ScenarioCompositeStrategy 串联多个 Scenario
 
     PyRIT 0.14.0 的 Scenario API:
       Scenario(
-          name="AI300_PROBE",
+          name="RedTeam_PROBE",
           version=1,
           strategy_class=...,      # PromptSendingAttack 等
           default_strategy=...,    # 策略实例
@@ -76,7 +76,7 @@ class A300ScenarioRunner:
         self.max_concurrent = max_concurrent
 
         # 基础编排器（用于回退场景：PyRIT Scenario 不支持的场景走此通道）
-        self._orchestrator = AI300Orchestrator(
+        self._orchestrator = PyRITNativeOrchestrator(
             scorer_target=scorer_target,
             max_concurrent=max_concurrent,
             attack_config=attack_config,  # 🆕 场景化参数透传
@@ -92,7 +92,7 @@ class A300ScenarioRunner:
     def case_to_seed_prompts(
         case: dict,
     ) -> list:
-        """将 AI-300 测试用例转换为 PyRIT SeedPrompt 列表。
+        """将测试用例转换为 PyRIT SeedPrompt 列表。
 
         单轮用例: 1 个 SeedPrompt（objective）
         多轮用例: N 个 SeedPrompt（每轮一个 multi_turn_objective）
@@ -118,7 +118,7 @@ class A300ScenarioRunner:
                         "turn_index": i,
                         "mode": "crescendo",
                     },
-                    source="OffSec_AI300_TestCase",
+                    source="PyRIT_RedTeam_TestCase",
                 )
                 for i, obj in enumerate(case.get("multi_turn_objectives", []))
             ]
@@ -134,7 +134,7 @@ class A300ScenarioRunner:
                         "criterion": case.get("criterion", ""),
                         "mode": "single",
                     },
-                    source="OffSec_AI300_TestCase",
+                    source="PyRIT_RedTeam_TestCase",
                 )
             ]
 
@@ -174,7 +174,7 @@ class A300ScenarioRunner:
           - Scenario.run_async() → ScenarioResult（含所有攻击结果）
 
         当前实现:
-          使用 AI300Orchestrator 作为 Scene 的执行引擎，
+          使用 PyRITNativeOrchestrator 作为 Scene 的执行引擎，
           同时暴露 PyRIT Scenario 的 SeedPrompt 转换能力
           供未来完全迁移到 Scenario.run_async() 模式。
 
@@ -205,7 +205,7 @@ class A300ScenarioRunner:
             f"[dim]📊 已生成 {total_seeds} 个 PyRIT SeedPrompt（兼容 Scenario API）[/dim]"
         )
 
-        # ── 阶梯式执行（委托给 AI300Orchestrator） ──
+        # ── 阶梯式执行（委托给 PyRITNativeOrchestrator） ──
         return await self._orchestrator.run_phased_campaign(
             cases=cases,
             attack_target=self.attack_target,

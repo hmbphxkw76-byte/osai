@@ -1,0 +1,19 @@
+# ============================================================
+# 聊天完成提示词模板（Nunjucks/Jinja2 格式）
+# 用途: 多轮对话场景的提示词模板
+# 变量: {{ user_message }}, {{ system_prompt }}, {{ history }}
+# ============================================================
+
+{% if system_prompt %}
+{{ system_prompt }}
+{% endif %}
+
+{% if history %}
+{% for msg in history %}
+{{ msg.role }}: {{ msg.content }}
+{% endfor %}
+{% endif %}
+
+用户: {{ user_message }}
+
+助手:

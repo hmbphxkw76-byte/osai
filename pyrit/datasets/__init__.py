@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 数据层 (PyRIT 对齐架构 v2.0)
+PyRIT Red Team — 数据层 (PyRIT 对齐架构 v2.0)
 ===============================================================================
 PyRIT 框架使用策略:
   ✅ models.py: Pydantic v2 → 等价 PyRIT SeedPrompt 的类型安全层
@@ -12,16 +12,16 @@ PyRIT 框架使用策略:
      - load_payloads_module() → 等价 SeedPromptGroup.from_yaml() 的 Python 模块版本
   ✅ payloads.py: 统一双语载荷 → 等价 PyRIT SeedPrompt 参数的 YAML 源
 
-架构决策（考试场景零改动原则）:
+架构决策（渗透场景零改动原则）:
   1. JSON/YAML 文件格式保持不变 — main.py / engines / reporter 零改动
   2. Pydantic 作为数据校验层 — 等价 PyRIT 的 SeedPrompt 类型系统
-  3. 不强制使用 PyRIT SeedPrompt 运行时 — 考试离线环境无需 DuckDB 存储
+  3. 不强制使用 PyRIT SeedPrompt 运行时 — 渗透离线环境无需 DuckDB 存储
   4. SeedPrompt 桥接方法是可选的增值 API — 仅在需要 PyRIT 原生管道时使用
 
 ───────────────────────────────────────────────────────────────────────────────
 动态扩展机制（与 converters/registry.py 对称）
 
-  场景 1: 考试时添加新 Payload（不改任何现有文件）
+  场景 1: 渗透时添加新 Payload（不改任何现有文件）
   ─────────────────────────────────────────────
     from datasets import register_payload
     register_payload("new_cve_2026_exploit", {
@@ -44,7 +44,7 @@ PyRIT 框架使用策略:
     register_test_case("PROBE_NEW", objective="...", criterion="...", ...)
 
   ✅ 以上操作均不需要修改 datasets/ 目录中任何现有文件
-  ✅ 考试时在 main.py 或临时脚本开头调用即可
+  ✅ 渗透时在 main.py 或临时脚本开头调用即可
 ───────────────────────────────────────────────────────────────────────────────
 
 统一对外接口:

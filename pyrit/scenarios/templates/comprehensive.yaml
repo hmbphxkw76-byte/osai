@@ -1,7 +1,7 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：全场景综合攻击 (Exam Template)
+# 🅱 渗透模板：全场景综合攻击 (Exam Template)
 # ===============================================================================
-# 覆盖 AI-300 考试考纲的全部高级攻击面：
+# 覆盖 红队渗透考纲的全部高级攻击面：
 #   Module 8  — RAG 管道攻击
 #   Module 9  — Agent 工具安全
 #   Module 10 — 多智能体系统
@@ -12,20 +12,20 @@
 #   Module 15 — API 与端点攻击
 #   Module 16 — 模型服务利用
 #
-# 与技术模板 (scenarios/, mode: tech) 的区别：
-#   - 考试模板关注"攻击面覆盖度 + 纵深突破深度" — 多目标、多策略、综合报告
-#   - 技术模板关注"哪个 converter 链绕过了？" — 轻量、快速、单一目标
+# 与探索模板 (scenarios/, mode: exploring) 的区别：
+#   - 渗透模板关注"攻击面覆盖度 + 纵深突破深度" — 多目标、多策略、综合报告
+#   - 探索模板关注"哪个 converter 链绕过了？" — 轻量、快速、单一目标
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/comprehensive.yaml
-#   python main.py --exam-mode --exam-template templates/scenarios/comprehensive.yaml --target-url https://rag-system/api/chat
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/comprehensive.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/comprehensive.yaml --target-url https://rag-system/api/chat
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
-  description: "OffSec AI-300 全场景综合攻击 — 覆盖 RAG/Agent/MCP/SupplyChain/Infra 全部攻击面"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
+  description: "PyRIT Red Team 全场景综合攻击 — 覆盖 RAG/Agent/MCP/SupplyChain/Infra 全部攻击面"
 
 config:
   max_concurrent: 3

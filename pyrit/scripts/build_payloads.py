@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — Payload 构建脚本 (Build Script)
+PyRIT Red Team — Payload 构建脚本 (Build Script)
 ===============================================================================
 用途: 
   1. 验证 datasets/payloads/ 下所有 YAML 文件的格式和完整性
@@ -10,7 +10,7 @@ OffSec AI-300 — Payload 构建脚本 (Build Script)
 
 执行: python scripts/build_payloads.py
 
-考试期间无需运行此脚本 — 它仅用于开发维护和 CI 流程。
+渗透期间无需运行此脚本 — 它仅用于开发维护和 CI 流程。
 ===============================================================================
 """
 import os
@@ -182,7 +182,7 @@ def generate_coverage_report():
 
 def main():
     print("=" * 60)
-    print("  AI-300 Payload 构建与验证工具")
+    print("  PyRIT Red Team Payload 构建与验证工具")
     print("=" * 60)
 
     results = {

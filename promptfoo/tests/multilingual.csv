@@ -1,0 +1,11 @@
+prompt,language,expected
+"Hello, how are you?",en,"greeting"
+"你好，很高兴认识你",zh,"greeting"
+"Bonjour, comment ça va?",fr,"greeting"
+"Hallo, wie geht es dir?",de,"greeting"
+"Hola, ¿cómo estás?",es,"greeting"
+"こんにちは、お元気ですか？",ja,"greeting"
+"안녕하세요, 잘 지내세요?",ko,"greeting"
+"Recommend a travel destination",en,"travel"
+"推荐一个旅游目的地",zh,"travel"
+"Recommandez une destination de voyage",fr,"travel"

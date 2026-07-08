@@ -1,7 +1,7 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：Agent 与多智能体攻击专项 (Exam Template — Module 9-10)
+# 🅱 渗透模板：Agent 与多智能体攻击专项 (Exam Template — Module 9-10)
 # ===============================================================================
-# 专注 Agent 系统安全测试，覆盖 AI-300 Syllabus Module 9-10：
+# 专注 Agent 系统安全测试，覆盖 Red Team Syllabus Module 9-10：
 #   1. 工具描述注入 (Tool Description Injection)
 #   2. 工具调用劫持 (Tool Call Hijacking)
 #   3. 跨代理注入 (Cross-Agent Injection)
@@ -11,13 +11,13 @@
 #   7. 任务劫持 (Task Hijacking / Task Confusion)
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/agent_multi_agent.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/agent_multi_agent.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "Agent 与多智能体攻击专项 — 覆盖工具劫持/跨代理注入/编排器操纵/记忆投毒全攻击面"
 
 config:

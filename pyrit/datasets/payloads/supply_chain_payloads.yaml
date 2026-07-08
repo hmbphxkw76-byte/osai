@@ -4,7 +4,7 @@
 # 涵盖：模型文件投毒、依赖链攻击、HuggingFace 仓库安全、Docker 镜像投毒、
 #       CI/CD 注入、模型注册表攻击、GGUF/SafeTensors 篡改、Tokenizer 劫持、
 #       ONNX 模型后门、License 欺诈等
-# 考试期间可在此文件中添加/修改/删除 payload，无需修改 Python 代码。
+# 渗透期间可在此文件中添加/修改/删除 payload，无需修改 Python 代码。
 #
 # PyRIT 红队最佳实践：
 #   AI 供应链攻击是整个 AI 系统中最难检测的攻击面之一。

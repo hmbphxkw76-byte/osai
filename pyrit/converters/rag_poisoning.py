@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 - RAG 知识库投毒 (PoisonedRAG) Converter (P0-3)
+PyRIT Red Team — RAG 知识库投毒 (PoisonedRAG) Converter (P0-3)
 ===============================================================================
 基于 USENIX Security 2025: PoisonedRAG - Knowledge Corruption Attacks
 

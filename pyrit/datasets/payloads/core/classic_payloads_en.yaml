@@ -1,5 +1,5 @@
 _meta:
-  description: AI-300 经典攻击载荷 — EN 版本
+  description: PyRIT Red Team 经典攻击载荷 — EN 版本
   presets:
   - stealth
   - bruteforce

@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 - Embedding 对抗攻击 Converter (P1-1)
+PyRIT Red Team — Embedding 对抗攻击 Converter (P1-1)
 ===============================================================================
 OWASP LLM08:2025 — Vector & Embedding Weaknesses.
 

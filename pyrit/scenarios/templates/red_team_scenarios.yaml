@@ -1,5 +1,5 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：红队实战场景综合 (Exam Template — Module 18)
+# 🅱 渗透模板：红队实战场景综合 (Exam Template — Module 18)
 # ===============================================================================
 # 模拟真实 AI 红队攻击场景，组合多个攻击面进行纵深突破测试：
 #   1. 场景A: RAG + Agent 串联攻击链（文档投毒 → 工具劫持 → 数据泄露）
@@ -9,13 +9,13 @@
 #   5. 场景E: 多智能体渗透链（跨代理注入 → 编排器操纵 → 记忆投毒 → 全接管）
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/red_team_scenarios.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/red_team_scenarios.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "AI 红队实战场景综合 — 组合攻击面纵深突破"
 
 config:

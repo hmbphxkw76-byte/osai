@@ -1,5 +1,5 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：MCP 协议安全测试专项 (Exam Template)
+# 🅱 渗透模板：MCP 协议安全测试专项 (Exam Template)
 # ===============================================================================
 # 专注 MCP (Model Context Protocol) 安全测试：
 #   1. Tool Poisoning Attack (TPA) — 工具描述/参数投毒
@@ -12,13 +12,13 @@
 #   8. Rug Pull — 供应链退出攻击
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/mcp_protocol.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/mcp_protocol.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "MCP 协议安全测试专项 — 覆盖工具投毒/命令注入/配置投毒/工具影子注册全攻击面"
 
 config:

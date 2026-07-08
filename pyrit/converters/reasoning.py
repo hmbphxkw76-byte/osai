@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 推理/宪法类转换器（2026 最热点）
+PyRIT Red Team — 推理/宪法类转换器（2026 最热点）
 ===============================================================================
 包含:
 - CoTReasoningExtractionConverter: 推理模型 CoT 思维链提取
@@ -13,7 +13,7 @@ from pyrit.prompt_converter import PromptConverter, ConverterResult
 class CoTReasoningExtractionConverter(PromptConverter):
     """CoT（Chain-of-Thought）推理提取攻击：针对 DeepSeek-R1 / o1 / o3 等推理模型。
     迫使模型输出思考流程（thinking trace），从中提取内部推理逻辑或隐藏的系统指令。
-    2026 年最热点攻击向量，OffSec AI-300 考试高发考点。"""
+    2026 年最热点攻击向量，PyRIT 红队渗透高发考点。"""
     SUPPORTED_INPUT_TYPES = ("text",)
     SUPPORTED_OUTPUT_TYPES = ("text",)
     def __init__(self):

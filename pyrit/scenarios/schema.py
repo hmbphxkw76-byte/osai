@@ -1,15 +1,15 @@
 """
 ===============================================================================
-OffSec AI-300 — 考试提示词模板 Schema (Pydantic v2)
+PyRIT Red Team — 渗透测试提示词模板 Schema (Pydantic v2)
 ===============================================================================
-标准化 YAML/JSON 模板格式：考试期间仅需编辑此格式的模板文件，
+标准化 YAML/JSON 模板格式：渗透期间仅需编辑此格式的模板文件，
 其余所有攻击编排、提示词变体、目标交互、结果评分均由系统自动完成。
 
 模板结构：
-  exam_prompts.yaml
-  ├── metadata        — 考试元信息
+  penetrating_prompts.yaml
+  ├── metadata        — 渗透元信息
   ├── config          — 执行参数（并发/策略选择/深度等）
-  └── prompts[]       — 提示词列表（核心：考试期间仅修改此项）
+  └── prompts[]       — 提示词列表（核心：渗透期间仅修改此项）
 
 提示词字段说明：
   id                 — 唯一标识（如 P001）
@@ -35,9 +35,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ═══════════════════════════════════════════════════════════════════
 
 class TemplateMode(str, Enum):
-    """模板模式 — 区分 tech（技术模板）和 exam（考试模板）"""
-    TECH = "tech"    # 🅰 技术模板：关注 converter 链突破效果
-    EXAM = "exam"    # 🅱 考试模板：关注攻击面覆盖 + 纵深突破
+    """模板模式 — 区分 exploring（探索模板）、penetrating（渗透模板）、preset（预设攻击组合模板）"""
+    EXPLORING = "exploring"    # 🅰 探索模板：关注 converter 链突破效果
+    PENETRATING = "penetrating"  # 🅱 渗透模板：关注攻击面覆盖 + 纵深突破
+    PRESET = "preset"          # 🅲 预设攻击组合模板：手动指定 converter 链，无自动变体/策略匹配
 
 
 class PromptCategory(str, Enum):
@@ -61,7 +62,8 @@ class PromptCategory(str, Enum):
     DATA_POISON = "data_poison"       # 训练数据投毒（Module 12）
     SUPPLY_CHAIN = "supply_chain"     # AI 供应链攻击（Module 13）
     INFRA_ATTACK = "infra_attack"     # AI 基础设施攻击（Module 14-16）
-    CUSTOM = "custom"                 # 自定义（考试不限类别）
+    FRONTIER = "frontier"             # 🆕 前沿漏洞（由 FrontierRegistry 动态注入具体策略）
+    CUSTOM = "custom"                 # 自定义（不限类别）
 
 
 class DifficultyLevel(str, Enum):
@@ -89,11 +91,11 @@ class OWASPCategory(str, Enum):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 攻击策略枚举（系统内置，考试期间不可修改）
+# 攻击策略枚举（系统内置，渗透期间不可修改）
 # ═══════════════════════════════════════════════════════════════════
 
 class AttackStrategy(str, Enum):
-    """系统内置攻击策略 — 考试期间不可修改"""
+    """系统内置攻击策略 — 渗透期间不可修改"""
     # ── 对话型攻击策略（原 19 个）──
     PROBE = "probe"                    # 基础探测
     BASE64 = "base64"                  # Base64 编码混淆
@@ -128,13 +130,15 @@ class AttackStrategy(str, Enum):
     API_FUZZ = "api_fuzz"                        # AI API 模糊测试
     MODEL_SERVING_EXPLOIT = "model_serving_exploit"  # 模型服务利用
     SUPPLY_CHAIN_SCAN = "supply_chain_scan"       # 供应链扫描探测
+    # ── 🆕 前沿漏洞策略（动态注册，此为 fallback 占位符）──
+    FRONTIER = "frontier"            # 前沿漏洞（具体子策略由 FrontierRegistry 提供）
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 转换器映射（考试期间预固化）
+# 转换器映射（渗透期间预固化）
 # ═══════════════════════════════════════════════════════════════════
 
-# 策略 → 转换器名称映射（预固化，考试不修改）
+# 策略 → 转换器名称映射（预固化，渗透不修改）
 STRATEGY_CONVERTER_MAP: dict[AttackStrategy, str] = {
     AttackStrategy.BASE64: "Base64Converter",
     AttackStrategy.ROT13: "ROT13Converter",
@@ -181,9 +185,12 @@ STRATEGY_CATEGORIES: dict[str, list[AttackStrategy]] = {
     "infra": [
         AttackStrategy.API_FUZZ, AttackStrategy.MODEL_SERVING_EXPLOIT, AttackStrategy.SUPPLY_CHAIN_SCAN,
     ],
+    "frontier": [
+        AttackStrategy.FRONTIER,
+    ],
 }
 
-# 默认全策略覆盖（考试期间自动选择最优策略组合）
+# 默认全策略覆盖（渗透期间自动选择最优策略组合）
 DEFAULT_FULL_STRATEGIES: list[AttackStrategy] = [
     AttackStrategy.PROBE,
     AttackStrategy.BASE64,
@@ -211,11 +218,11 @@ MULTI_TURN_STRATEGIES: list[AttackStrategy] = [
 # Pydantic 模型
 # ═══════════════════════════════════════════════════════════════════
 
-class ExamModeConfig(BaseModel):
-    """考试模式全局配置 — 考试期间可少量调整"""
-    # 🆕 模板模式（tech vs exam）
-    mode: TemplateMode = Field(default=TemplateMode.EXAM,
-        description="模板模式: tech（技术模板）或 exam（考试模板）")
+class PenetratingModeConfig(BaseModel):
+    """渗透模式全局配置 — 渗透期间可少量调整"""
+    # 🆕 模板模式（exploring vs penetrating）
+    mode: TemplateMode = Field(default=TemplateMode.PENETRATING,
+        description="模板模式: exploring（探索模板）或 penetrating（渗透模板）")
     # 并发数
     max_concurrent: int = Field(default=3, ge=1, le=9,
         description="最大并发攻击数")
@@ -229,7 +236,7 @@ class ExamModeConfig(BaseModel):
     language: Literal["cn", "en"] = "cn"
     # 是否包含高级策略（PAIR/TAP/FLIP等）
     enable_advanced: bool = Field(default=True,
-        description="启用高级攻击策略（考试时间充裕时推荐开启）")
+        description="启用高级攻击策略（渗透时间充裕时推荐开启）")
     # 是否包含多轮策略
     enable_multiturn: bool = Field(default=True,
         description="启用多轮渐进式攻击")
@@ -238,8 +245,8 @@ class ExamModeConfig(BaseModel):
         description="单次攻击超时秒数")
 
 
-class ExamPrompt(BaseModel):
-    """单个考试提示词 — 考试期间仅需填写此结构"""
+class PenetratingPrompt(BaseModel):
+    """单个渗透测试提示词 — 渗透期间仅需填写此结构"""
     id: str = Field(..., min_length=1,
         description="提示词唯一标识（如 P001_jailbreak_system）")
     objective: str = Field(..., min_length=1,
@@ -258,15 +265,20 @@ class ExamPrompt(BaseModel):
     multi_turn_stages: Optional[list[str]] = Field(default=None,
         description="多轮各阶段子目标（multi_turn=true 时必填）")
 
-    # ── 策略覆盖（考试期间可选，用于微调）──
+    # ── 策略覆盖（渗透期间可选，用于微调）──
     strategy_overrides: Optional[list[str]] = Field(default=None,
         description="强制指定攻击策略列表（留空=全策略自动覆盖）")
     exclude_strategies: Optional[list[str]] = Field(default=None,
         description="排除的攻击策略列表")
 
-    # ── 模板变量注入（{key} → 值替换，考试期间可选）──
+    # ── 模板变量注入（{key} → 值替换，渗透期间可选）──
     template_vars: Optional[dict[str, str]] = Field(default=None,
         description="模板变量（{key} 自动替换为对应值）")
+
+    # ── 预设攻击组合：直接指定转换器类名（preset 模式专用）──
+    converter_names: Optional[list[str]] = Field(default=None,
+        description="直接指定转换器类名列表（如 ['RoleplayJailbreakConverter','Base64Converter']），"
+                    "仅在 config.mode=preset 时生效，跳过自动变体和策略匹配")
 
     @field_validator("id")
     @classmethod
@@ -278,17 +290,17 @@ class ExamPrompt(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _validate_multi_turn(self) -> "ExamPrompt":
+    def _validate_multi_turn(self) -> "PenetratingPrompt":
         if self.multi_turn and not self.multi_turn_stages:
             raise ValueError(
                 f"多轮提示词 {self.id} 必须提供 multi_turn_stages"
             )
         return self
 
-    def resolve_strategies(self, config: ExamModeConfig) -> list[AttackStrategy]:
+    def resolve_strategies(self, config: PenetratingModeConfig) -> list[AttackStrategy]:
         """根据配置和提示词属性自动选择最优攻击策略组合。
 
-        选择逻辑（预固化，考试期间不修改）：
+        选择逻辑（预固化，渗透期间不修改）：
           1. 若有 strategy_overrides → 使用指定策略
           2. 若有 exclude_strategies → 排除指定策略
           3. multi_turn → 优先多轮策略 + 编码策略
@@ -398,6 +410,9 @@ class ExamPrompt(BaseModel):
                 AttackStrategy.SUPPLY_CHAIN_SCAN,
                 AttackStrategy.CHUNKED,
             ],
+            PromptCategory.FRONTIER: [
+                AttackStrategy.FRONTIER,
+            ],
         }
         for s in category_extras.get(self.category, []):
             if s not in strategies:
@@ -440,19 +455,19 @@ class ExamPrompt(BaseModel):
         return unique
 
 
-class ExamPromptSet(BaseModel):
-    """完整考试提示词模板集 — YAML/JSON 顶层结构"""
+class PenetratingPromptSet(BaseModel):
+    """渗透测试提示词模板集 — YAML/JSON 顶层结构"""
     metadata: dict = Field(default_factory=lambda: {
         "version": "1.0",
-        "framework_version": "AI-300 v10.0",
-        "description": "OffSec AI-300 考试提示词模板",
+        "framework_version": "PyRIT Red Team v10.0",
+        "description": "PyRIT Red Team 渗透测试提示词模板",
     })
-    config: ExamModeConfig = Field(default_factory=ExamModeConfig)
-    prompts: list[ExamPrompt] = Field(..., min_length=1)
+    config: PenetratingModeConfig = Field(default_factory=PenetratingModeConfig)
+    prompts: list[PenetratingPrompt] = Field(..., min_length=1)
 
     @classmethod
-    def from_yaml_file(cls, filepath: str) -> "ExamPromptSet":
-        """从 YAML 文件加载考试模板"""
+    def from_yaml_file(cls, filepath: str) -> "PenetratingPromptSet":
+        """从 YAML 文件加载渗透模板"""
         import yaml
         with open(filepath, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -461,8 +476,8 @@ class ExamPromptSet(BaseModel):
         return cls.model_validate(data)
 
     @classmethod
-    def from_json_file(cls, filepath: str) -> "ExamPromptSet":
-        """从 JSON 文件加载考试模板"""
+    def from_json_file(cls, filepath: str) -> "PenetratingPromptSet":
+        """从 JSON 文件加载渗透模板"""
         import json
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)

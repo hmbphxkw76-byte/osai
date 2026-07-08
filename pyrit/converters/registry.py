@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 转换器注册表 & 攻击组合配置
+PyRIT Red Team — 转换器注册表 & 攻击组合配置
 ===============================================================================
 PyRIT 框架使用策略:
   ✅ 所有自定义转换器继承 pyrit.prompt_converter.PromptConverter
@@ -9,7 +9,7 @@ PyRIT 框架使用策略:
   ✅ 转换器实例化通过 CONVERTER_REGISTRY → resolve_converters() 统一管理
   ✅ CONVERTER_MAP 保持向后兼容（代理到 CONVERTER_REGISTRY）
 
-扩展机制（考试场景最小化改动原则）:
+扩展机制（渗透场景最小化改动原则）:
   1. 运行时注册: register_converter("名称", 工厂函数) — 不改任何现有文件
   2. 组合注册:   register_combo({"name": "...", "converters": [...]})
   3. 自动发现:   discover_converters("converters/") — 扫描 package 下 PromptConverter 子类
@@ -325,7 +325,7 @@ def register_converter(name: str, factory: Callable[[], PromptConverter],
                        category: str = CATEGORY_CUSTOM,
                        requires_llm: bool = False,
                        description: str = "") -> None:
-    """运行时动态注册新转换器（考试场景无需修改任何现有文件）。
+    """运行时动态注册新转换器（渗透场景无需修改任何现有文件）。
 
     Args:
         name: 转换器名称（与 GLOBAL_ATTACK_COMBINATIONS / JSON 用例中保持一致）
@@ -374,7 +374,7 @@ def discover_converters(package_path: str = "converters",
         新发现的转换器数量
 
     Example:
-        >>> # 考试场景：把 custom_jailbreaks.py 放到 converters/ 目录
+        >>> # 渗透场景：把 custom_jailbreaks.py 放到 converters/ 目录
         >>> discover_converters("converters")  # 自动发现并注册
     """
     discovered = 0
@@ -409,7 +409,7 @@ def discover_converters_from_path(dir_path: str,
     """自动发现文件系统任意路径下的 PromptConverter 子类并注册。
 
     不要求目录是 Python package —— 通过 importlib.util 直接加载 .py 文件。
-    考试场景下，从 U 盘/网络路径加载转换器无需修改 PYTHONPATH。
+    渗透场景下，从 U 盘/网络路径加载转换器无需修改 PYTHONPATH。
 
     Args:
         dir_path: 文件系统路径（如 "./my_converters/" 或 "/tmp/exam_plugins/"）
@@ -435,7 +435,7 @@ def discover_converters_from_path(dir_path: str,
         filepath = os.path.join(dir_path, fname)
         try:
             spec = importlib.util.spec_from_file_location(
-                f"a300_dynamic_converters.{mod_name}", filepath
+                f"redteam_dynamic_converters.{mod_name}", filepath
             )
             if spec is None or spec.loader is None:
                 continue
@@ -585,7 +585,7 @@ GLOBAL_ATTACK_COMBINATIONS = [
     {"name": "FewShot + Translation", "converters": ["FewShotPrimingConverter", "TranslationBypassConverter"]},
     {"name": "DAN6 + Suffix + Base64", "converters": ["DAN6FullJailbreakConverter", "SuffixAppendConverter", "Base64Converter"]},
 
-    # ---------- AI-300 考试专项 — Morse + AsciiArt + CharSwap + StringJoin ----------
+    # ---------- 红队渗透专项 — Morse + AsciiArt + CharSwap + StringJoin ----------
     {"name": "PAIR + Morse", "converters": ["PAIRJailbreakConverter", "MorseConverter"]},
     {"name": "DAN6 + AsciiArt", "converters": ["DAN6FullJailbreakConverter", "AsciiArtConverter"]},
     {"name": "AIM + CharSwap", "converters": ["AIMJailbreakConverter", "CharSwapConverter"]},
@@ -600,7 +600,7 @@ GLOBAL_ATTACK_COMBINATIONS = [
     {"name": "Contextual + Suffix", "converters": ["ContextualPrimingConverter", "SuffixAppendConverter"]},
     {"name": "Double_Academic", "converters": ["AcademicResearchConverter", "ContextualPrimingConverter"]},
 
-    # ── 三层高强度编码链（攻坚高防御/考试重点模型） ──
+    # ── 三层高强度编码链（攻坚高防御/渗透重点模型） ──
     {"name": "DAN6 + ROT13 + ZeroWidth", "converters": ["DAN6FullJailbreakConverter", "ROT13Converter", "ZeroWidthConverter"]},
     {"name": "AIM + Morse + Suffix", "converters": ["AIMJailbreakConverter", "MorseConverter", "SuffixAppendConverter"]},
     {"name": "Academic + Leetspeak + Unicode", "converters": ["AcademicResearchConverter", "LeetspeakConverter", "UnicodeConfusableConverter"]},
@@ -663,7 +663,7 @@ def resolve_converters(converter_names: list) -> list:
     """将转换器名称字符串列表解析为实例列表。
 
     查找优先级: CONVERTER_REGISTRY（含动态注册）→ 警告跳过未找到的名称。
-    考试场景下，动态注册的转换器无需修改任何现有代码即可被 resolve。
+    渗透场景下，动态注册的转换器无需修改任何现有代码即可被 resolve。
 
     向后兼容: 同时检查 CONVERTER_MAP 代理和 CONVERTER_REGISTRY。
     """

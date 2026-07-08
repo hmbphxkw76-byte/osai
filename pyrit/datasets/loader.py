@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 数据加载器（Pydantic 验证 + PyRIT 对齐 + 向后兼容）
+PyRIT Red Team — 数据加载器（Pydantic 验证 + PyRIT 对齐 + 向后兼容）
 ===============================================================================
 PyRIT 框架对齐:
   ✅ load_test_cases() → 等价 PyRIT SeedPromptDataset.from_json() 的离线版本
@@ -9,7 +9,7 @@ PyRIT 框架对齐:
   ✅ load_payloads_module() → 从 datasets/payloads/core/*.yaml 加载（唯一源）
      - 自动合并 Pending JSON + 动态注册载荷（三级优先级）
      - 与 converters/registry.py 对称的扩展机制
-  🔧 自定义实现理由: PyRIT SeedPrompt 的运行时管理需要 DuckDB，考试离线
+  🔧 自定义实现理由: PyRIT SeedPrompt 的运行时管理需要 DuckDB，渗透离线
      场景不需要完整 SeedPrompt 管道。Pydantic 提供等效类型安全，且与
      engines/reporter 的 dict-based API 完全兼容。
 
@@ -26,7 +26,7 @@ PyRIT 框架对齐:
 加载优先级（由低到高，后者覆盖前者）:
   1. datasets/payloads/core/*.yaml (YAML 唯源)   →  经典攻击载荷主数据源
   2. results/ 下的 Pending JSON                   →  生成后尚未入库的载荷（兜底，不覆盖已入库）
-  3. 运行时动态注册 (_DYNAMIC_PAYLOADS)             →  考试临时注入（最高优先级，覆盖同名键）
+  3. 运行时动态注册 (_DYNAMIC_PAYLOADS)             →  渗透临时注入（最高优先级，覆盖同名键）
 
 使用方式（在 main.py 中）:
     from datasets.loader import load_test_cases, load_payloads_module, apply_preset
@@ -146,7 +146,7 @@ def load_payloads_module(
     加载优先级（由低到高，后者覆盖前者）:
       1. datasets/payloads/core/classic_payloads_{lang}.yaml (YAML 唯源)
       2. results/ 下的 Pending JSON           →  生成后尚未入库的载荷
-      3. 运行时动态注册 (_DYNAMIC_PAYLOADS)    →  考试临时注入（最高优先级）
+      3. 运行时动态注册 (_DYNAMIC_PAYLOADS)    →  渗透临时注入（最高优先级）
 
     Args:
         lang: 语言代码 'cn' (zh) / 'en'
@@ -381,7 +381,7 @@ def _merge_dynamic_payloads(
 ) -> int:
     """将 datasets.models._DYNAMIC_PAYLOADS 合并到已加载的 vars/presets。
 
-    动态注册的载荷会覆盖同名键（最高优先级），用于考试时临时注入。
+    动态注册的载荷会覆盖同名键（最高优先级），用于渗透时临时注入。
     这是 _merge_dynamic_payloads + _DYNAMIC_COUNT 的内部实现，
     直接读取 datasets.models 模块级变量避免循环导入。
 

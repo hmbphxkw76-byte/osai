@@ -1,15 +1,15 @@
 ﻿# ===============================================================================
-# 🅰 技术模板：Prompt Injection 快速测试 (Tech Template)
+# 🅰 探索模板：Prompt Injection 快速测试 (Tech Template)
 # ===============================================================================
 # 设计理念："换个 payload 就能打" — PyRIT PromptConverter 管道直接测试
 #
 # 使用方式：
-#   python main.py --tech-template templates/scenarios/prompt_injection.yaml
-#   python main.py --tech-template templates/scenarios/prompt_injection.yaml --target-url https://target/chat
+#   python main.py --exploring-template templates/scenarios/prompt_injection.yaml
+#   python main.py --exploring-template templates/scenarios/prompt_injection.yaml --target-url https://target/chat
 #
-# 与考试模板 (scenarios/, mode: exam) 的区别：
-#   - 技术模板关注"哪个 converter 链绕过了？" — 轻量、快速、单一目标
-#   - 考试模板关注"攻击面覆盖度 + 纵深突破深度" — 多目标、多策略、综合报告
+# 与渗透模板 (scenarios/, mode: penetrating) 的区别：
+#   - 探索模板关注"哪个 converter 链绕过了？" — 轻量、快速、单一目标
+#   - 渗透模板关注"攻击面覆盖度 + 纵深突破深度" — 多目标、多策略、综合报告
 #
 # 字段说明:
 #   id              - 提示词唯一标识
@@ -21,15 +21,15 @@
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "tech"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "exploring"
   description: "Prompt Injection 快速测试 — 直接修改 payload + 选 converter 链即可攻击"
 
 config:
   max_concurrent: 3
   language: cn
   prompt_timeout: 60
-  # 🆕 技术模板特有：预设 converter 链列表（每个 prompt 会依次尝试所有链）
+  # 🆕 探索模板特有：预设 converter 链列表（每个 prompt 会依次尝试所有链）
   converter_presets:
     - ["base64"]                      # 纯 Base64 编码绕过
     - ["rot13"]                       # ROT13 字符旋转绕过

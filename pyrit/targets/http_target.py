@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 自定义 HTTP Chat Target (PyRIT 0.14.0 原生 httpx 后端)
+PyRIT Red Team — 自定义 HTTP Chat Target (PyRIT 0.14.0 原生 httpx 后端)
 ===============================================================================
 PyRIT 框架集成:
   ✅ 继承 pyrit.prompt_target.PromptTarget（PyRIT 原生抽象基类）

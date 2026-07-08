@@ -1,11 +1,12 @@
 """
 ===============================================================================
-OffSec AI-300 — 攻击引擎模块
+PyRIT Red Team — 攻击引擎模块
 ===============================================================================
 统一对外接口: PAYLOAD_VARS, CleanedSelfAskTrueFalseScorer, DashboardState,
               classify_case, _calc_success_rate,
               execute_single_attack, execute_crescendo_attack,
-              MultimodalAttackConverter, TrainingPoisoningConverter
+              MultimodalAttackConverter, TrainingPoisoningConverter,
+              run_exploring_mode
 
 import: from executor import DashboardState, classify_case, ...
 ===============================================================================
@@ -20,6 +21,7 @@ from executor.sequence_attack import (
     MultimodalAttackConverter,
     TrainingPoisoningConverter,
 )
+from executor.exploring import run_exploring_mode
 
 __all__ = [
     "PAYLOAD_VARS",
@@ -32,4 +34,5 @@ __all__ = [
     "execute_crescendo_attack",
     "MultimodalAttackConverter",
     "TrainingPoisoningConverter",
+    "run_exploring_mode",
 ]

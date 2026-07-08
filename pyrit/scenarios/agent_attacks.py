@@ -1,10 +1,10 @@
 """
 ===============================================================================
-OffSec AI-300 — 多智能体攻击模块 (Module 9-10: Agent Hijacking & Multi-Agent)
+PyRIT Red Team — 多智能体攻击模块 (Module 9-10: Agent Hijacking & Multi-Agent)
 ===============================================================================
 预固化攻击 payload 生成器：覆盖 AI Agent 和多智能体系统的核心攻击面。
 
-覆盖 AI-300 Syllabus：
+覆盖 Red Team Syllabus：
   Module 9  — Agent & Tool Hijacking (工具调用劫持)
   Module 10 — Multi-Agent Exploitation (跨代理注入/编排器操纵/记忆投毒)
 

@@ -1,17 +1,17 @@
 ﻿# ===============================================================================
-# 🅰 技术模板：编码绕过专项测试 (Tech Template)
+# 🅰 探索模板：编码绕过专项测试 (Tech Template)
 # ===============================================================================
 # 专注测试目标模型对各种编码/混淆技术的防护能力。
-# 考试场景：快速判断目标模型对编码绕过类攻击的抵抗水平。
+# 渗透场景：快速判断目标模型对编码绕过类攻击的抵抗水平。
 #
 # 使用方式：
-#   python main.py --tech-template templates/scenarios/encoding_bypass.yaml
+#   python main.py --exploring-template templates/scenarios/encoding_bypass.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "tech"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "exploring"
   description: "编码绕过专项测试 — 判断目标模型对不同编码技术的防护水平"
 
 config:

@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 考试模式综合安全评估报告
+PyRIT Red Team — 渗透模式综合安全评估报告
 ===============================================================================
 从 AttackResult 自动生成包含以下内容的完整报告：
   1. 执行摘要（总分、风险等级）
@@ -28,7 +28,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from scenarios.schema import ExamPromptSet, AttackStrategy, OWASPCategory, PromptCategory
+from scenarios.schema import PenetratingPromptSet, AttackStrategy, OWASPCategory, PromptCategory
 from scenarios.orchestrator import AttackResult
 from utils import results_path, ensure_results_dir, RESULTS_DIR
 
@@ -190,15 +190,15 @@ _GENERAL_REMEDIATIONS = [
 ]
 
 
-class ExamSecurityReporter:
+class PenetratingSecurityReporter:
     """
-    考试模式综合安全评估报告生成器。
+    渗透模式综合安全评估报告生成器。
 
     预固化分析流程：
       Result → 分类 → 统计 → 风险等级 → 修复方案 → 报告输出
     """
 
-    def __init__(self, template: ExamPromptSet):
+    def __init__(self, template: PenetratingPromptSet):
         self.template = template
         self._report_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -209,7 +209,7 @@ class ExamSecurityReporter:
     def generate_all(
         self,
         results: list[AttackResult],
-        campaign_name: str = "AI-300_Exam_Mode",
+        campaign_name: str = "RedTeam_Penetrating_Mode",
     ) -> dict[str, str]:
         """生成全部报告格式。
 
@@ -282,7 +282,7 @@ class ExamSecurityReporter:
         rate = len(successes) / total * 100 if total > 0 else 0
 
         # ── 标题 ──
-        lines.append(f"# OffSec AI-300 综合安全评估报告")
+        lines.append(f"# PyRIT Red Team 综合安全评估报告")
         lines.append(f"")
         lines.append(f"| 项目 | 内容 |")
         lines.append(f"|------|------|")

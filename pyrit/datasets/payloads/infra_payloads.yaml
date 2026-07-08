@@ -3,7 +3,7 @@
 # ===============================================================================
 # 涵盖 Module 14 (AI Infra Recon)、Module 15 (API & Endpoint Attacks)、
 #       Module 16 (Model Serving Exploits)
-# 考试期间可在此文件中添加/修改/删除 payload，无需修改 Python 代码。
+# 渗透期间可在此文件中添加/修改/删除 payload，无需修改 Python 代码。
 # 运行时 infra_attacks.py 会优先加载此 YAML，找不到则回退到 Python 硬编码版本。
 #
 # 其他模块的 payload 已拆分为独立文件：

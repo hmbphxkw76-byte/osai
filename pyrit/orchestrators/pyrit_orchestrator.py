@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — PyRIT 原生 Orchestrator（统一调度器）
+PyRIT Native — 红队渗透原生编排器（统一调度器）
 ===============================================================================
 PyRIT 0.14.0 最佳实践:
 
@@ -69,17 +69,17 @@ from pyrit.executor.attack import (
 # ═══════════════════════════════════════════════════════════════
 #
 # PyRIT 没有标准 Orchestrator 类，只提供独立的 Attack 策略类。
-# AI300Orchestrator 是一个 Facade，将 9 种 PyRIT 原生攻击策略
-# 整合为统一入口，并支持通过 AttackConfig 按考试场景动态调参。
+# PyRITNativeOrchestrator 是一个 Facade，将 9 种 PyRIT 原生攻击策略
+# 整合为统一入口，并支持通过 AttackConfig 按渗透场景动态调参。
 #
 # 设计原则：
 #   - 每种攻击策略的 tunable 参数集中在一个 dataclass 中
-#   - 预置 5 套考试场景 profile（probe/standard/deep/large_context/limited_context）
+#   - 预置 5 套渗透场景 profile（probe/standard/deep/large_context/limited_context）
 #   - 向后兼容：默认值 = 当前硬编码值，老代码无需修改
 
 @dataclass
 class AttackConfig:
-    """攻击策略参数配置 — 按考试场景动态调参。
+    """攻击策略参数配置 — 按渗透场景动态调参。
 
     所有参数均有默认值（与当前硬编码值一致），向后兼容。
     使用 AttackConfig.presets.* 获取预置场景配置。
@@ -112,12 +112,12 @@ class AttackConfig:
     """Many-shot 攻击中填充的合规 Q&A 示例数量"""
 
     # ═══════════════════════════════════════════════════════════════
-    # 考试场景预设
+    # 渗透场景预设
     # ═══════════════════════════════════════════════════════════════
 
     @staticmethod
     def presets() -> dict[str, "AttackConfig"]:
-        """返回预置考试场景配置字典。
+        """返回预置渗透场景配置字典。
 
         Returns:
             {
@@ -240,13 +240,13 @@ class AttackPhase(Enum):
     ALL = "all"               # 全量（PROBE + SINGLE + CRESCENDO + PAIR + TAP）
 
 
-class AI300Orchestrator:
+class PyRITNativeOrchestrator:
     """
-    PyRIT 原生 AI-300 红队编排器（Facade — 统一 9 种 PyRIT 攻击策略）。
+    PyRIT 原生红队编排器（Facade — 统一 9 种 PyRIT 攻击策略）。
 
     PyRIT 0.14.x 没有统一的 Orchestrator 基类，只提供独立的 Attack 策略类
     （PromptSendingAttack / CrescendoAttack / PAIRAttack 等）。
-    AI300Orchestrator 是一个 Facade，将分散的攻击策略封装为统一入口，
+    PyRITNativeOrchestrator 是一个 Facade，将分散的攻击策略封装为统一入口，
     并提供 Memory 管理、阶段门控、战役调度、结果归一化等编排层能力。
 
     职责:
@@ -254,21 +254,21 @@ class AI300Orchestrator:
       - 单轮攻击: PromptSendingAttack（自动管道: converters → target → scorer → memory）
       - 多轮自适应攻击: CrescendoAttack / PAIRAttack / TAPAttack / 等 8 种高级策略
       - 🆕 场景化参数: AttackConfig 支持 5 套预置 + 自定义覆盖
-      - 结果收集: 从 Memory 查询 + 导出为考试报告格式
+      - 结果收集: 从 Memory 查询 + 导出为渗透报告格式
 
     使用示例:
-        # 标准考试
-        orch = AI300Orchestrator(scorer_target=scorer_target)
+        # 标准渗透
+        orch = PyRITNativeOrchestrator(scorer_target=scorer_target)
         results = await orch.run_campaign(cases, attack_target, phase=AttackPhase.ALL)
 
         # 深度攻坚场景（强防线目标）
-        orch = AI300Orchestrator(
+        orch = PyRITNativeOrchestrator(
             scorer_target=scorer_target,
             attack_config=AttackConfig.from_preset("deep"),
         )
 
         # 快速探测 + 自定义调参
-        orch = AI300Orchestrator(
+        orch = PyRITNativeOrchestrator(
             scorer_target=scorer_target,
             attack_config=AttackConfig.merge("probe", tap_tree_width=3),
         )
@@ -315,7 +315,7 @@ class AI300Orchestrator:
         """生成带时间戳的默认 SQLite 路径"""
         ensure_results_dir()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return results_path(f"ai300_pyrit_memory_{ts}.db")
+        return results_path(f"pyrit_redteam_memory_{ts}.db")
 
     def _ensure_memory(self) -> SQLiteMemory:
         """确保 Memory 已可用，优先复用 CentralMemory 全局单例。
@@ -1136,7 +1136,7 @@ class AI300Orchestrator:
 
         console.print(
             Panel(
-                f"[bold]🚀 AI-300 阶梯式门控攻击 (阈值: {gate_threshold:.0%})[/bold]\n"
+                f"[bold]🚀 Red Team 阶梯式门控攻击 (阈值: {gate_threshold:.0%})[/bold]\n"
                 "[dim]STAGE 1: PROBE → STAGE 2: 单轮突破 → STAGE 3: Crescendo 攻坚[/dim]",
                 style="bold blue",
             )

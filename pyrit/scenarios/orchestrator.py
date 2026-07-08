@@ -1,11 +1,11 @@
 """
 ===============================================================================
-OffSec AI-300 — 考试模式全自动编排引擎
+PyRIT Red Team — 渗透模式全自动编排引擎
 ===============================================================================
-PyRIT 专家级设计：考试期间零代码改动。
+PyRIT 专家级设计：渗透期间零代码改动。
 
 执行流程（预固化）：
-  1. 读取 YAML 模板 → ExamPromptSet
+  1. 读取 YAML 模板 → PenetratingPromptSet
   2. 为每个提示词生成 5+ 种变体（PromptVariantGenerator）
   3. 根据 category/difficulty 自动选择攻击策略
   4. 并行执行全部攻击（PromptSendingAttack / CrescendoAttack / PAIR / TAP / ...）
@@ -14,13 +14,13 @@ PyRIT 专家级设计：考试期间零代码改动。
   7. 生成综合安全评估报告
 
 PyRIT 集成：
-  ✅ 复用 AI300Orchestrator 全部攻击策略
+  ✅ 复用 PyRITNativeOrchestrator 全部攻击策略
   ✅ 复用 CleanedSelfAskTrueFalseScorer 防假阴性评分
   ✅ 复用 SQLiteMemory + CentralMemory 持久化
   ✅ 输出格式与现有 reporting 模块完全兼容
 
-考试期间操作：
-  仅需修改 exam_prompts.yaml → python main.py --exam-mode --exam-template exam_prompts.yaml
+渗透期间操作：
+  仅需修改 penetrating_prompts.yaml → python main.py --penetrating-mode --penetrating-template penetrating_prompts.yaml
 ===============================================================================
 """
 from __future__ import annotations
@@ -50,16 +50,21 @@ from rich.live import Live
 from rich.table import Table
 
 from scenarios.schema import (
-    ExamPromptSet, ExamPrompt, ExamModeConfig,
+    PenetratingPromptSet, PenetratingPrompt, PenetratingModeConfig,
     AttackStrategy, STRATEGY_CONVERTER_MAP,
+    TemplateMode,
 )
 from scenarios.variant_generator import PromptVariantGenerator, PromptVariant
 from scenarios.rag_attacks import RAGPayloadGenerator
 from scenarios.agent_attacks import AgentPayloadGenerator
 from scenarios.infra_attacks import InfraPayloadGenerator
 
-# 🆕 P2 重构: 组合 AI300Orchestrator 消除 ~200 行重复攻击执行器代码
-from orchestrators.pyrit_orchestrator import AI300Orchestrator
+# 🆕 前沿漏洞追踪
+from scenarios.payloads import FrontierPayloadGenerator
+from scenarios.frontier.registry import get_registry as get_frontier_registry
+
+# 🆕 P2 重构: 组合 PyRITNativeOrchestrator 消除 ~200 行重复攻击执行器代码
+from orchestrators.pyrit_orchestrator import PyRITNativeOrchestrator
 
 from executor.scorer import (
     CleanedSelfAskTrueFalseScorer,
@@ -139,22 +144,22 @@ class AttackResult:
 # 全自动编排引擎
 # ═══════════════════════════════════════════════════════════════════
 
-class ExamAutoOrchestrator:
+class PenetratingOrchestrator:
     """
-    考试模式全自动编排引擎。
+    渗透模式全自动编排引擎。
 
     预固化攻击流水线：
       Prompt模板 → 变体生成 → 策略匹配 → 并发执行 → 自动评分 → 结果聚合
 
-    考试期间：无需修改任何代码，仅需提供 YAML 模板文件。
+    渗透期间：无需修改任何代码，仅需提供 YAML 模板文件。
 
-    P2 重构: 组合 AI300Orchestrator 消除重复的 _run_pair/_run_tap/_run_flip/...
+    P2 重构: 组合 PyRITNativeOrchestrator 消除重复的 _run_pair/_run_tap/_run_flip/...
     等 ~200 行高级攻击执行器代码，统一委托给 PyRIT 原生管道。
     """
 
     def __init__(
         self,
-        template: ExamPromptSet,
+        template: PenetratingPromptSet,
         attack_target: PromptTarget,
         scorer_target: PromptTarget | None = None,
         *,
@@ -162,7 +167,7 @@ class ExamAutoOrchestrator:
     ):
         """
         Args:
-            template: 考试提示词模板集
+            template: 渗透提示词模板集
             attack_target: 攻击目标
             scorer_target: 评分器 LLM（None 则复用 attack_target 安全模式实例）
             max_concurrent: 最大并发数（None 则使用模板配置）
@@ -177,11 +182,11 @@ class ExamAutoOrchestrator:
         # 变体生成器
         self.variant_gen = PromptVariantGenerator(self.config)
 
-        # 🆕 P2 重构: 组合 AI300Orchestrator 消除重复代码
-        # ExamAutoOrchestrator 的 _run_pair / _run_tap / _run_flip / _run_chunked /
-        # _run_manyshot / _run_skeleton_key 等方法与 AI300Orchestrator 高度重复。
+        # 🆕 P2 重构: 组合 PyRITNativeOrchestrator 消除重复代码
+        # PenetratingOrchestrator 的 _run_pair / _run_tap / _run_flip / _run_chunked /
+        # _run_manyshot / _run_skeleton_key 等方法与 PyRITNativeOrchestrator 高度重复。
         # 现通过组合 _pyrit_orch 统一委托，消除约 200 行重复代码。
-        self._pyrit_orch = AI300Orchestrator(
+        self._pyrit_orch = PyRITNativeOrchestrator(
             scorer_target=self.scorer_target,
             max_concurrent=self.max_concurrent,
         )
@@ -195,7 +200,7 @@ class ExamAutoOrchestrator:
     # ═══════════════════════════════════════════════════════════════
 
     async def run(self) -> list[AttackResult]:
-        """主入口：一键执行全部考试提示词的攻击编排。
+        """主入口：一键执行全部渗透提示词的攻击编排。
 
         执行流程（预固化）：
           Phase 1: 变体生成 + 策略匹配
@@ -206,17 +211,21 @@ class ExamAutoOrchestrator:
           Phase 6: 结果聚合 + 评分
         """
         self._start_time = time.time()
+        is_preset = self.config.mode == TemplateMode.PRESET
         console.print(Panel(
-            f"[bold cyan]🚀 AI-300 考试模式 — 全自动攻击编排[/bold cyan]\n"
+            f"[bold cyan]🚀 渗透模式 — {'预设攻击组合' if is_preset else '全自动攻击编排'}[/bold cyan]\n"
             f"[dim]提示词: {len(self.template.prompts)} 个 | "
-            f"变体: {self.config.variants_per_prompt}/个 | "
+            f"{'转换器链: 手动指定' if is_preset else f'变体: {self.config.variants_per_prompt}/个'} | "
             f"并发: {self.max_concurrent} | "
             f"语言: {self.config.language}[/dim]",
             style="bold blue",
         ))
 
         # ── Phase 1: 生成变体 + 匹配策略 ──
-        console.print("\n[bold]Phase 1: 变体生成 + 策略匹配...[/bold]")
+        if is_preset:
+            console.print("\n[bold]Phase 1: 构建预设攻击任务（使用 converter_names 直接指定转换器链）...[/bold]")
+        else:
+            console.print("\n[bold]Phase 1: 变体生成 + 策略匹配...[/bold]")
         attack_tasks = self._build_attack_tasks()
         console.print(f"  [dim]✅ 生成 {sum(len(t) for t in attack_tasks.values())} 个攻击任务[/dim]")
 
@@ -264,12 +273,13 @@ class ExamAutoOrchestrator:
     # 任务构建（预固化）
     # ═══════════════════════════════════════════════════════════════
 
-    def _build_attack_tasks(self) -> dict[str, list[tuple[ExamPrompt, PromptVariant, AttackStrategy]]]:
+    def _build_attack_tasks(self) -> dict[str, list[tuple[PenetratingPrompt, PromptVariant, AttackStrategy]]]:
         """构建攻击任务列表。
 
-        返回: {"phase_name": [(ExamPrompt, PromptVariant, AttackStrategy), ...]}
+        返回: {"phase_name": [(PenetratingPrompt, PromptVariant, AttackStrategy), ...]}
 
         分阶段构建：
+          - preset: 预设攻击组合（config.mode=preset 时，直接使用 converter_names）
           - probe: RAW提示词 + PROBE策略
           - single_encoding: 编码变体 + 编码策略
           - single_semantic: 语义变体 + 语义策略
@@ -277,6 +287,7 @@ class ExamAutoOrchestrator:
           - multiturn: CRESCENDO 多轮策略
         """
         tasks: dict[str, list] = {
+            "preset": [],
             "probe": [],
             "single_encoding": [],
             "single_semantic": [],
@@ -286,12 +297,27 @@ class ExamAutoOrchestrator:
             "rag": [],
             "agent": [],
             "infra": [],
+            # ── 🆕 前沿漏洞攻击阶段 ──
+            "frontier": [],
         }
+
+        # ── 🆕 Preset 模式：跳过变体生成 + 策略匹配，直接使用 converter_names ──
+        if self.config.mode == TemplateMode.PRESET:
+            for prompt in self.template.prompts:
+                if prompt.converter_names:
+                    variant = {
+                        "type": "raw",
+                        "prompt": prompt.objective,
+                        "converter_name": "",
+                    }
+                    tasks["preset"].append((prompt, variant, AttackStrategy.NONE))
+            return tasks
 
         # ── Payload 生成器 ──
         rag_gen = RAGPayloadGenerator()
         agent_gen = AgentPayloadGenerator()
         infra_gen = InfraPayloadGenerator()
+        frontier_gen = FrontierPayloadGenerator()
 
         for prompt in self.template.prompts:
             variants = self.variant_gen.generate(prompt)
@@ -424,6 +450,29 @@ class ExamAutoOrchestrator:
                     assigned = infra_strategies[idx % len(infra_strategies)]
                     tasks["infra"].append((prompt, infra_variant, assigned))
 
+        # ── 🆕 前沿漏洞攻击阶段（独立于 prompt category，有活跃漏洞即参与）──
+        if self.config.enable_advanced:
+            frontier_registry = get_frontier_registry(auto_discover=True)
+            active_vulns = frontier_registry.get_active()
+            if active_vulns:
+                for prompt in self.template.prompts:
+                    for vuln in active_vulns:
+                        vuln_payloads = frontier_gen.generate_for_strategy(
+                            vuln.attack_strategy,
+                            prompt.objective,
+                            max_payloads=6,
+                        )
+                        for payload in vuln_payloads:
+                            frontier_variant = {
+                                "type": f"frontier_{vuln.attack_strategy}",
+                                "prompt": payload.text,
+                                "converter_name": vuln.converter or "",
+                                "description": payload.description,
+                            }
+                            tasks["frontier"].append(
+                                (prompt, frontier_variant, AttackStrategy.FRONTIER)
+                            )
+
         return tasks
 
     # ═══════════════════════════════════════════════════════════════
@@ -432,17 +481,17 @@ class ExamAutoOrchestrator:
 
     async def _execute_single_attack(
         self,
-        exam_prompt: ExamPrompt,
+        penetrating_prompt: PenetratingPrompt,
         variant: PromptVariant,
         strategy: AttackStrategy,
     ) -> AttackResult:
-        """执行单次攻击 — P2 重构: 高级策略委托给 AI300Orchestrator。
+        """执行单次攻击 — P2 重构: 高级策略委托给 PyRITNativeOrchestrator。
 
         管道: variant.prompt → (可选 PyRIT Converter) → target → scorer → result
 
         P2 策略路由:
           - PROBE/编码/语义策略 → 本地 _run_prompt_sending（单轮）
-          - PAIR/TAP/FLIP/CHUNKED/MANYSHOT/SKELETON_KEY → AI300Orchestrator._execute_*_attack
+          - PAIR/TAP/FLIP/CHUNKED/MANYSHOT/SKELETON_KEY → PyRITNativeOrchestrator._execute_*_attack
           - CRESCENDO → 本地 _run_crescendo
           - RAG/Agent/Infra → 本地 _run_prompt_sending
         """
@@ -451,15 +500,22 @@ class ExamAutoOrchestrator:
             try:
                 prompt_text = _resolve_template(
                     variant["prompt"],
-                    extra_vars=exam_prompt.template_vars,
+                    extra_vars=penetrating_prompt.template_vars,
                 )
                 converter_name = variant.get("converter_name", "")
                 strategy_name = strategy.value
 
                 # ── 策略路由 ──
-                if strategy == AttackStrategy.PROBE:
+                # 🆕 Preset 模式：prompt.converter_names 直接指定转换器链
+                if penetrating_prompt.converter_names:
+                    result_dict = await self._run_prompt_sending_with_converters(
+                        prompt_text, penetrating_prompt,
+                        converter_name_list=penetrating_prompt.converter_names,
+                        strategy_name=strategy_name,
+                    )
+                elif strategy == AttackStrategy.PROBE:
                     result_dict = await self._run_prompt_sending(
-                        prompt_text, exam_prompt, converter_name, strategy_name
+                        prompt_text, penetrating_prompt, converter_name, strategy_name
                     )
                 elif strategy in (AttackStrategy.BASE64, AttackStrategy.ROT13,
                                   AttackStrategy.ROLEPLAY, AttackStrategy.ACADEMIC,
@@ -468,35 +524,35 @@ class ExamAutoOrchestrator:
                                   AttackStrategy.DEEPINCEPTION, AttackStrategy.FEWSHOT,
                                   AttackStrategy.JSON_HIJACK):
                     result_dict = await self._run_prompt_sending(
-                        prompt_text, exam_prompt, converter_name, strategy_name
+                        prompt_text, penetrating_prompt, converter_name, strategy_name
                     )
-                # 🆕 P2: 高级策略委托给 AI300Orchestrator
+                # 🆕 P2: 高级策略委托给 PyRITNativeOrchestrator
                 elif strategy == AttackStrategy.PAIR:
                     result_dict = await self._delegate_to_orch(
-                        "pair", exam_prompt, prompt_text, strategy_name
+                        "pair", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.TAP:
                     result_dict = await self._delegate_to_orch(
-                        "tap", exam_prompt, prompt_text, strategy_name
+                        "tap", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.FLIP:
                     result_dict = await self._delegate_to_orch(
-                        "flip", exam_prompt, prompt_text, strategy_name
+                        "flip", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.CHUNKED:
                     result_dict = await self._delegate_to_orch(
-                        "chunked", exam_prompt, prompt_text, strategy_name
+                        "chunked", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.MANYSHOT:
                     result_dict = await self._delegate_to_orch(
-                        "manyshot", exam_prompt, prompt_text, strategy_name
+                        "manyshot", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.SKELETON_KEY:
                     result_dict = await self._delegate_to_orch(
-                        "skeleton_key", exam_prompt, prompt_text, strategy_name
+                        "skeleton_key", penetrating_prompt, prompt_text, strategy_name
                     )
                 elif strategy == AttackStrategy.CRESCENDO:
-                    result_dict = await self._run_crescendo(exam_prompt, variant, strategy_name)
+                    result_dict = await self._run_crescendo(penetrating_prompt, variant, strategy_name)
                 elif strategy in (
                     AttackStrategy.RAG_POISON_DOC, AttackStrategy.RAG_RETRIEVAL, AttackStrategy.RAG_LEAK,
                     AttackStrategy.CROSS_AGENT_INJECT, AttackStrategy.TOOL_CALL_HIJACK,
@@ -504,64 +560,69 @@ class ExamAutoOrchestrator:
                     AttackStrategy.API_FUZZ, AttackStrategy.MODEL_SERVING_EXPLOIT, AttackStrategy.SUPPLY_CHAIN_SCAN,
                 ):
                     result_dict = await self._run_prompt_sending(
-                        prompt_text, exam_prompt, converter_name, strategy_name
+                        prompt_text, penetrating_prompt, converter_name, strategy_name
+                    )
+                # 🆕 前沿漏洞攻击 — 使用标准 PromptSending 管道
+                elif strategy == AttackStrategy.FRONTIER:
+                    result_dict = await self._run_prompt_sending(
+                        prompt_text, penetrating_prompt, converter_name, strategy_name
                     )
                 else:
                     result_dict = await self._run_prompt_sending(
-                        prompt_text, exam_prompt, converter_name, strategy_name
+                        prompt_text, penetrating_prompt, converter_name, strategy_name
                     )
 
                 latency = time.time() - start
                 return AttackResult(
-                    prompt_id=exam_prompt.id,
+                    prompt_id=penetrating_prompt.id,
                     strategy=strategy_name,
                     variant_type=variant["type"].value if hasattr(variant["type"], "value") else str(variant["type"]),
                     status=result_dict.get("status", "ERROR"),
-                    original_prompt=exam_prompt.objective,
+                    original_prompt=penetrating_prompt.objective,
                     converted_prompt=result_dict.get("converted_prompt", prompt_text),
                     response_text=result_dict.get("response_text", ""),
                     score_value=result_dict.get("score_value", ""),
                     score_reason=result_dict.get("score_reason", ""),
                     latency_seconds=latency,
-                    criterion=exam_prompt.criterion,
-                    category=exam_prompt.category.value if hasattr(exam_prompt.category, "value") else str(exam_prompt.category),
-                    difficulty=exam_prompt.difficulty.value if hasattr(exam_prompt.difficulty, "value") else str(exam_prompt.difficulty),
+                    criterion=penetrating_prompt.criterion,
+                    category=penetrating_prompt.category.value if hasattr(penetrating_prompt.category, "value") else str(penetrating_prompt.category),
+                    difficulty=penetrating_prompt.difficulty.value if hasattr(penetrating_prompt.difficulty, "value") else str(penetrating_prompt.difficulty),
                 )
 
             except Exception as e:
                 latency = time.time() - start
-                logger.error(f"[{exam_prompt.id}] {strategy.value} FAILED: {e}")
+                logger.error(f"[{penetrating_prompt.id}] {strategy.value} FAILED: {e}")
                 return AttackResult(
-                    prompt_id=exam_prompt.id,
+                    prompt_id=penetrating_prompt.id,
                     strategy=strategy.value,
                     variant_type=variant["type"].value if hasattr(variant["type"], "value") else str(variant["type"]),
                     status="ERROR",
-                    original_prompt=exam_prompt.objective,
+                    original_prompt=penetrating_prompt.objective,
                     converted_prompt=variant["prompt"],
                     response_text="",
                     score_value="",
                     score_reason=str(e)[:500],
                     latency_seconds=latency,
-                    criterion=exam_prompt.criterion,
-                    category=exam_prompt.category.value if hasattr(exam_prompt.category, "value") else str(exam_prompt.category),
-                    difficulty=exam_prompt.difficulty.value if hasattr(exam_prompt.difficulty, "value") else str(exam_prompt.difficulty),
+                    criterion=penetrating_prompt.criterion,
+                    category=penetrating_prompt.category.value if hasattr(penetrating_prompt.category, "value") else str(penetrating_prompt.category),
+                    difficulty=penetrating_prompt.difficulty.value if hasattr(penetrating_prompt.difficulty, "value") else str(penetrating_prompt.difficulty),
                 )
 
     # ═══════════════════════════════════════════════════════════════
-    # 🆕 P2: AI300Orchestrator 委托方法（消除 _run_pair/_run_tap/_run_flip 重复）
+    # 🆕 P2: PyRITNativeOrchestrator 委托方法（消除 _run_pair/_run_tap/_run_flip 重复）
     # ═══════════════════════════════════════════════════════════════
 
     async def _delegate_to_orch(
         self, attack_mode: str,
-        exam_prompt: ExamPrompt,
+        penetrating_prompt: PenetratingPrompt,
         prompt_text: str,
         strategy_name: str,
     ) -> dict:
-        """将高级攻击策略委托给 AI300Orchestrator._execute_*_attack()。
+        """将高级攻击策略委托给 PyRITNativeOrchestrator._execute_*_attack()。
 
         Args:
             attack_mode: "pair"|"tap"|"flip"|"chunked"|"manyshot"|"skeleton_key"
-            exam_prompt: 考试提示词
+            penetrating_prompt: 渗透提示词
             prompt_text: 已解析模板变量的提示词文本
             strategy_name: 策略名称（用于日志标签）
 
@@ -569,11 +630,11 @@ class ExamAutoOrchestrator:
             统一格式的 {"status", "converted_prompt", "response_text", "score_value", "score_reason"} dict
         """
         try:
-            # 构建与 AI300Orchestrator 兼容的 case/combo 结构
+            # 构建与 PyRITNativeOrchestrator 兼容的 case/combo 结构
             case = {
-                "id": exam_prompt.id,
+                "id": penetrating_prompt.id,
                 "objective": prompt_text,
-                "criterion": exam_prompt.criterion,
+                "criterion": penetrating_prompt.criterion,
             }
             combo = {"name": strategy_name, "converters": []}
 
@@ -609,11 +670,11 @@ class ExamAutoOrchestrator:
     # ═══════════════════════════════════════════════════════════════
 
     async def _run_prompt_sending(
-        self, prompt_text: str, exam_prompt: ExamPrompt,
+        self, prompt_text: str, penetrating_prompt: PenetratingPrompt,
         converter_name: str, strategy_name: str,
     ) -> dict:
         """PyRIT PromptSendingAttack 单轮攻击"""
-        scoring_config = self._build_scoring_config(exam_prompt)
+        scoring_config = self._build_scoring_config(penetrating_prompt)
         converter_config = self._build_converter_config(converter_name)
 
         # 预应用转换器获取实际投送 prompt（取证用）
@@ -641,9 +702,86 @@ class ExamAutoOrchestrator:
             result = await attack.execute_async(
                 objective=prompt_text,
                 memory_labels={
-                    "exam_prompt_id": exam_prompt.id,
+                    "penetrating_prompt_id": penetrating_prompt.id,
                     "strategy": strategy_name,
-                    "mode": "exam_mode",
+                    "mode": "penetrating_mode",
+                },
+            )
+
+            # 提取结果
+            score_value = ""
+            score_reason = ""
+            response_text = ""
+            if hasattr(result, "results") and result.results:
+                results_list = result.results if isinstance(result.results, list) else [result.results]
+                for res in results_list:
+                    if hasattr(res, "scores") and res.scores:
+                        score_value = str(getattr(res.scores[0], "score_value", ""))
+                        score_reason = getattr(res.scores[0], "score_description", "")
+                        if score_value.lower() == "true":
+                            break
+                    if hasattr(res, "response") and res.response:
+                        response_text = getattr(res.response, "converted_value", "") or response_text
+
+            is_success = score_value.lower() == "true"
+            return {
+                "status": "SUCCESS" if is_success else "FAILURE",
+                "converted_prompt": converted_prompt,
+                "response_text": response_text,
+                "score_value": score_value,
+                "score_reason": score_reason,
+            }
+        except Exception as e:
+            return {
+                "status": "ERROR",
+                "converted_prompt": converted_prompt,
+                "response_text": "",
+                "score_value": "",
+                "score_reason": str(e),
+            }
+
+    async def _run_prompt_sending_with_converters(
+        self, prompt_text: str, penetrating_prompt: PenetratingPrompt,
+        converter_name_list: list[str], strategy_name: str,
+    ) -> dict:
+        """Preset 模式专用：直接使用 converter 名称列表构建转换器链。
+
+        与 _run_prompt_sending() 的区别：
+          - 接受 converter 名称列表（而非 variant.converter_name 单个字符串）
+          - 直接 resolve + 构建完整转换器配置
+          - 适用于 preset 模式中手动指定的攻击组合
+        """
+        scoring_config = self._build_scoring_config(penetrating_prompt)
+        converter_config = self._build_converter_config_from_list(converter_name_list)
+
+        # 预应用转换器获取实际投送 prompt（取证用）
+        converted_prompt = prompt_text
+        if converter_config and converter_config.request_converters:
+            for cc in converter_config.request_converters:
+                for conv in cc.converters:
+                    try:
+                        result = await conv.convert_async(prompt=converted_prompt)
+                        converted_prompt = (
+                            result.output_text
+                            if hasattr(result, "output_text")
+                            else str(result)
+                        )
+                    except Exception:
+                        pass
+
+        try:
+            attack = PromptSendingAttack(
+                objective_target=self.attack_target,
+                attack_converter_config=converter_config,
+                attack_scoring_config=scoring_config,
+                max_attempts_on_failure=3,
+            )
+            result = await attack.execute_async(
+                objective=prompt_text,
+                memory_labels={
+                    "penetrating_prompt_id": penetrating_prompt.id,
+                    "strategy": strategy_name,
+                    "mode": "preset_mode",
                 },
             )
 
@@ -680,24 +818,24 @@ class ExamAutoOrchestrator:
             }
 
     async def _run_crescendo(
-        self, exam_prompt: ExamPrompt, variant: PromptVariant,
+        self, penetrating_prompt: PenetratingPrompt, variant: PromptVariant,
         strategy_name: str,
     ) -> dict:
         """CrescendoAttack 多轮渐进式攻击"""
         stages = variant.get("multi_turn_stages", [])
         if not stages:
-            stages = exam_prompt.multi_turn_stages or []
+            stages = penetrating_prompt.multi_turn_stages or []
         if not stages:
             return {
                 "status": "ERROR",
-                "converted_prompt": exam_prompt.objective,
+                "converted_prompt": penetrating_prompt.objective,
                 "response_text": "无多轮阶段",
                 "score_value": "",
                 "score_reason": "multi_turn_stages 为空",
             }
 
         try:
-            scoring_config = self._build_scoring_config(exam_prompt)
+            scoring_config = self._build_scoring_config(penetrating_prompt)
             adversarial_config = AttackAdversarialConfig(target=self.attack_target)
             attack = CrescendoAttack(
                 objective_target=self.attack_target,
@@ -709,9 +847,9 @@ class ExamAutoOrchestrator:
             result = await attack.execute_async(
                 objective=stages[0],
                 memory_labels={
-                    "exam_prompt_id": exam_prompt.id,
+                    "penetrating_prompt_id": penetrating_prompt.id,
                     "strategy": strategy_name,
-                    "mode": "exam_mode_crescendo",
+                    "mode": "penetrating_mode_crescendo",
                     "multi_turn_count": str(len(stages)),
                 },
             )
@@ -728,12 +866,12 @@ class ExamAutoOrchestrator:
     # 辅助方法（预固化）
     # ═══════════════════════════════════════════════════════════════
 
-    def _build_scoring_config(self, exam_prompt: ExamPrompt) -> AttackScoringConfig:
+    def _build_scoring_config(self, penetrating_prompt: PenetratingPrompt) -> AttackScoringConfig:
         """构建评分配置（自动根据 category 选择最优评分器）"""
         scorer = create_best_scorer(
             chat_target=self.scorer_target,
-            objective=exam_prompt.objective,
-            criterion=exam_prompt.criterion,
+            objective=penetrating_prompt.objective,
+            criterion=penetrating_prompt.criterion,
         )
         return AttackScoringConfig(objective_scorer=scorer)
 
@@ -743,6 +881,26 @@ class ExamAutoOrchestrator:
             return None
         try:
             converters = resolve_converters([converter_name])
+            if converters:
+                return AttackConverterConfig(
+                    request_converters=[
+                        PromptConverterConfiguration(converters=converters)
+                    ]
+                )
+        except Exception:
+            pass
+        return None
+
+    def _build_converter_config_from_list(self, converter_names: list[str]) -> AttackConverterConfig | None:
+        """Preset 模式专用：从转换器名称列表构建转换器配置。
+
+        按顺序解析每个名称，构建完整的转换器链。
+        与 _build_converter_config 的区别：接受列表而非单个名称。
+        """
+        if not converter_names:
+            return None
+        try:
+            converters = resolve_converters(converter_names)
             if converters:
                 return AttackConverterConfig(
                     request_converters=[

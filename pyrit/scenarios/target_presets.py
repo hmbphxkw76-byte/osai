@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 攻击场景预设（Scenario Presets）
+PyRIT Red Team — 攻击场景预设（Scenario Presets）
 ===============================================================================
 将常见的认证/传输/格式组合封装为命名预设，消除 CLI 参数记忆负担。
 
@@ -8,7 +8,7 @@ OffSec AI-300 — 攻击场景预设（Scenario Presets）
   CLI:  python main.py --scenario jwt-bearer --target-url https://...
   Code: from targets.scenarios import get_scenario_preset, build_custom_target
 
-扩展模式（考试场景零改动原则）:
+扩展模式（渗透场景零改动原则）:
   from targets.scenarios import register_scenario
   register_scenario("my-scenario", {
       "name": "My Custom Scenario",
@@ -102,7 +102,7 @@ SCENARIO_PRESETS: dict = {
 # ── 公共 API ──────────────────────────────────────────────────────────────────
 
 def register_scenario(scenario_id: str, config: dict) -> None:
-    """动态注册新场景预设（考试场景零改动原则）。"""
+    """动态注册新场景预设（渗透场景零改动原则）。"""
     SCENARIO_PRESETS[scenario_id] = config
     console.print(f"[dim]📋 已注册场景预设: {scenario_id} ({config.get('name', 'unnamed')})[/dim]")
 

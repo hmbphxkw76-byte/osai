@@ -1,6 +1,6 @@
-# OffSec AI-300 — 统一红队演练平台
+# PyRIT 统一红队演练平台
 
-基于 [PyRIT](https://github.com/Azure/PyRIT) 的 LLM 安全测试平台，覆盖 AI-300 考试所需的核心攻击面。
+基于 [PyRIT](https://github.com/Azure/PyRIT) 的 LLM 安全测试平台，覆盖 LLM 安全测试所需的核心攻击面。
 
 ## 快速开始
 
@@ -278,10 +278,10 @@ python main.py --lang cn --phase probe \
 │       ├── core/              # 经典载荷（双语 + 五档预设）
 │       ├── manifest.yaml      # 模块↔文件索引
 │       └── *_payloads.yaml    # 各 AI 模块的载荷列表
-├── scenarios/                 # 🆕 场景模块 (PyRIT 对齐) — 考试期间仅需修改此处
+├── scenarios/                 # 🆕 场景模块 (PyRIT 对齐) — 渗透期间仅需修改此处
 │   ├── templates/             # YAML 场景模板定义 (11 个场景)
 │   ├── schema.py              # 模板 Pydantic Schema
-│   ├── orchestrator.py        # ExamAutoOrchestrator 场景编排引擎
+│   ├── orchestrator.py        # PenetratingOrchestrator 场景编排引擎
 │   ├── variant_generator.py   # 提示词变体生成器 (10+ 种策略)
 │   ├── rag_attacks.py         # RAG 管道攻击 Payload
 │   ├── agent_attacks.py       # 多智能体攻击 Payload
@@ -312,9 +312,9 @@ python main.py --lang cn --phase probe \
 │   └── model_probe.py         # 模型自动探测
 ├── scoring/                   # 评分引擎相关逻辑
 ├── orchestrators/             # 编排层，定义攻击工作流
-│   ├── pyrit_orchestrator.py  # AI300Orchestrator 统一调度器
-│   └── scenario_runner.py     # A300ScenarioRunner 场景集成
-├── exam_mode/                 # 考试模式 (向后兼容桥接 → scenarios/)
+│   ├── pyrit_orchestrator.py  # PyRITNativeOrchestrator 统一调度器
+│   └── scenario_runner.py     # PyRITScenarioRunner 场景集成
+├── penetrating_mode/                 # 渗透模式 (向后兼容桥接 → scenarios/)
 ├── reporting/                 # 结果分析与报告生成
 ├── data/                      # 测试用例 & Payload 数据模型
 ├── utils/                     # 通用工具函数

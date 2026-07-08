@@ -1,8 +1,8 @@
 """
 ===============================================================================
-OffSec AI-300 — 基础设施与供应链攻击模块 (Module 11-16)
+PyRIT Red Team — 基础设施与供应链攻击模块 (Module 11-16)
 ===============================================================================
-覆盖 AI-300 Syllabus：
+覆盖 Red Team Syllabus：
   Module 11 — Model Extraction (模型提取)
   Module 12 — Data Poisoning (训练数据投毒)
   Module 13 — AI Supply Chain Attacks (AI 供应链攻击)

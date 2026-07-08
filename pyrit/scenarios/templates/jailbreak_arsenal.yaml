@@ -1,19 +1,19 @@
 ﻿# ===============================================================================
-# 🅰 技术模板：越狱前缀对比测试 (Tech Template)
+# 🅰 探索模板：越狱前缀对比测试 (Tech Template)
 # ===============================================================================
 # 专注对比不同越狱前缀对目标模型的突破效果。
 # 使用 JailbreakBench Top 级越狱模板 + PyRIT 原生 Converter 管道。
 #
 # 使用方式：
-#   python main.py --tech-template templates/scenarios/jailbreak_arsenal.yaml
+#   python main.py --exploring-template templates/scenarios/jailbreak_arsenal.yaml
 #
-# 考试价值：快速找出目标模型最薄弱的越狱入口点，为后续深度攻击选择最佳策略。
+# 渗透价值：快速找出目标模型最薄弱的越狱入口点，为后续深度攻击选择最佳策略。
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "tech"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "exploring"
   description: "越狱前缀对比测试 — 找出目标模型最薄弱的越狱入口点"
 
 config:

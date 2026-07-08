@@ -1,7 +1,7 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：RAG 管道攻击专项 (Exam Template — Module 8)
+# 🅱 渗透模板：RAG 管道攻击专项 (Exam Template — Module 8)
 # ===============================================================================
-# 专注 RAG Pipeline 安全测试，覆盖 AI-300 Syllabus Module 8：
+# 专注 RAG Pipeline 安全测试，覆盖 Red Team Syllabus Module 8：
 #   1. 文档投毒注入 (Document Poisoning via Knowledge Base)
 #   2. 检索结果操纵 (Retrieval Manipulation)
 #   3. 跨用户数据泄露 (Cross-User Data Leakage)
@@ -10,14 +10,14 @@
 #   6. 排序操纵 (Ranking Manipulation)
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/rag_pipeline.yaml
-#   python main.py --exam-mode --exam-template templates/scenarios/rag_pipeline.yaml --target-url https://rag-system/query
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/rag_pipeline.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/rag_pipeline.yaml --target-url https://rag-system/query
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "RAG 管道攻击专项 — 覆盖文档投毒/检索操纵/数据泄露/嵌入攻击全攻击面"
 
 config:

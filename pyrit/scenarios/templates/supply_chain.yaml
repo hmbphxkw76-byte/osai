@@ -1,7 +1,7 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：AI 供应链攻击专项 (Exam Template — Module 13)
+# 🅱 渗透模板：AI 供应链攻击专项 (Exam Template — Module 13)
 # ===============================================================================
-# 专注 AI 供应链安全测试，覆盖 AI-300 Syllabus Module 13：
+# 专注 AI 供应链安全测试，覆盖 Red Team Syllabus Module 13：
 #   1. 恶意模型检测 (Malicious Model Detection)
 #   2. 依赖投毒 (Dependency Poisoning)
 #   3. 模型文件篡改 (Model File Tampering)
@@ -11,13 +11,13 @@
 #   7. CI/CD 管道攻击 (CI/CD Pipeline Attacks)
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/supply_chain.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/supply_chain.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "AI 供应链攻击专项 — 覆盖恶意模型/依赖投毒/管道后门/注册表攻击全攻击面"
 
 config:

@@ -1,5 +1,5 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：数据泄露攻击专项 (Exam Template — Module 06)
+# 🅱 渗透模板：数据泄露攻击专项 (Exam Template — Module 06)
 # ===============================================================================
 # 专注 LLM 数据泄露 (Data Exfiltration via LLM) 安全测试：
 #   1. 系统提示词窃取 (System Prompt Leakage)
@@ -10,13 +10,13 @@
 #   6. 用户数据聚合泄露 (User Data Aggregation)
 #
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/data_exfiltration.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/data_exfiltration.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "数据泄露攻击专项 — 覆盖系统提示词窃取/训练数据提取/记忆泄露/凭证发现"
 
 config:

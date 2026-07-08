@@ -1,10 +1,10 @@
 """
 ===============================================================================
-OffSec AI-300 — RAG 管道攻击模块 (Module 8: RAG Pipeline Attacks)
+PyRIT Red Team — RAG 管道攻击模块 (Module 8: RAG Pipeline Attacks)
 ===============================================================================
-预固化攻击 payload 生成器：考试期间无需修改代码，系统根据 category 自动选择。
+预固化攻击 payload 生成器：渗透期间无需修改代码，系统根据 category 自动选择。
 
-覆盖 AI-300 Syllabus Module 8 的子主题：
+覆盖 Red Team Syllabus Module 8 的子主题：
   1. 文档投毒注入 (Document Poisoning)
   2. 检索结果操纵 (Retrieval Manipulation)
   3. 嵌入向量攻击 (Embedding Attacks)

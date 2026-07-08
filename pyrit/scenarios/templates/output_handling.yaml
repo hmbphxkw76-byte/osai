@@ -1,5 +1,5 @@
 ﻿# ===============================================================================
-# 🅱 考试模板：不安全输出处理专项 (Exam Template — Module 07)
+# 🅱 渗透模板：不安全输出处理专项 (Exam Template — Module 07)
 # ===============================================================================
 # 专注 LLM 不安全输出处理 (Insecure Output Handling) 安全测试：
 #   1. XSS 输出注入 (Cross-Site Scripting via LLM Output)
@@ -11,13 +11,13 @@
 #
 # OWASP LLM02:2025 — Insecure Output Handling
 # 使用方式：
-#   python main.py --exam-mode --exam-template templates/scenarios/output_handling.yaml
+#   python main.py --penetrating-mode --penetrating-template templates/scenarios/output_handling.yaml
 # ===============================================================================
 
 metadata:
   version: "1.0"
-  framework_version: "AI-300 v10.0"
-  mode: "exam"
+  framework_version: "PyRIT Red Team v10.0"
+  mode: "penetrating"
   description: "不安全输出处理专项 — 覆盖XSS/SQL注入/命令注入/路径遍历/模板注入"
 
 config:

@@ -1,10 +1,10 @@
 """
 ===============================================================================
-OffSec AI-300 — Crescendo 多轮渐进式攻击引擎
+PyRIT Red Team — Crescendo 多轮渐进式攻击引擎
 ===============================================================================
 execute_crescendo_attack(): 多轮渐进式攻击 → 逐轮投送 → 逐轮评估 → 重试与早停
 
-P0 重构：优先委托给 AI300Orchestrator._execute_crescendo_attack()。
+P0 重构：优先委托给 PyRITNativeOrchestrator._execute_crescendo_attack()。
   当 orchestrator 参数提供时，使用 PyRIT 原生 CrescendoAttack 管道；
   否则回退到旧版手动管道（向后兼容 --orch legacy）。
 ===============================================================================
@@ -24,7 +24,7 @@ from executor.template import _resolve_template
 from utils import is_retryable_error, backoff_delay
 
 if TYPE_CHECKING:
-    from orchestrators.pyrit_orchestrator import AI300Orchestrator
+    from orchestrators.pyrit_orchestrator import PyRITNativeOrchestrator
 
 
 async def execute_crescendo_attack(
@@ -34,7 +34,7 @@ async def execute_crescendo_attack(
     base_target,
     scorer_target,
     dashboard: DashboardState,
-    orchestrator: "AI300Orchestrator | None" = None,
+    orchestrator: "PyRITNativeOrchestrator | None" = None,
 ):
     """执行 Crescendo 多轮渐进式攻击 — 优先使用 PyRIT 原生管道。
 
@@ -45,7 +45,7 @@ async def execute_crescendo_attack(
         base_target: 攻击目标 PromptTarget
         scorer_target: 评分器 LLM 目标
         dashboard: 仪表盘状态
-        orchestrator: 🆕 AI300Orchestrator 实例。提供时委托给 PyRIT 原生 CrescendoAttack 管道；
+        orchestrator: 🆕 PyRITNativeOrchestrator 实例。提供时委托给 PyRIT 原生 CrescendoAttack 管道；
                       不提供时使用旧版手动管道（向后兼容）。
 
     Returns:
@@ -61,7 +61,7 @@ async def execute_crescendo_attack(
     import warnings
     warnings.warn(
         "execute_crescendo_attack() is using legacy pipeline. "
-        "Provide an AI300Orchestrator instance for PyRIT native execution.",
+        "Provide an PyRITNativeOrchestrator instance for PyRIT native execution.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -72,9 +72,9 @@ async def execute_crescendo_attack(
 
 async def _delegate_to_orchestrator(
     semaphore, case, combo, base_target, dashboard: DashboardState,
-    orchestrator: "AI300Orchestrator",
+    orchestrator: "PyRITNativeOrchestrator",
 ) -> dict:
-    """委托给 AI300Orchestrator._execute_crescendo_attack() (PyRIT 原生)。"""
+    """委托给 PyRITNativeOrchestrator._execute_crescendo_attack() (PyRIT 原生)。"""
     async with semaphore:
         case_id = case["id"]
         turn_prompts = [_resolve_template(p) for p in case.get("multi_turn_objectives", [])]

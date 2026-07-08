@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — 实时仪表盘状态管理器
+PyRIT Red Team — 实时仪表盘状态管理器
 ===============================================================================
 包含:
 - DashboardState: 攻击进度追踪、成功/失败计数、Rich 实时布局
@@ -58,7 +58,7 @@ class DashboardState:
             f"[bold yellow]⚠️ 错误: {self.error}[/]"
         )
 
-        layout["header"].update(Panel(f"[bold]🚀 OffSec AI-300 实时战术仪表盘[/] | 总任务: {self.total}", style="bold blue"))
+        layout["header"].update(Panel(f"[bold]🚀 PyRIT Red Team 实时战术仪表盘[/] | 总任务: {self.total}", style="bold blue"))
         layout["progress"].update(progress)
         layout["stats"].update(Panel(stats_table, title="实时战况", border_style="green"))
         layout["log"].update(Panel(self.latest_log, title="最新攻击流", border_style="cyan"))

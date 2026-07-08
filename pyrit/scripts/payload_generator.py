@@ -1,6 +1,6 @@
 """
 ===============================================================================
-OffSec AI-300 — Payload 自动生成器 (LLM Few-shot + Pydantic 校验)
+PyRIT Red Team — Payload 自动生成器 (LLM Few-shot + Pydantic 校验)
 ===============================================================================
 完整的 Payload 管理自动化工序:
 
@@ -638,7 +638,7 @@ def validate_json_file(filepath: str) -> bool:
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="OffSec AI-300 Payload 自动生成器",
+        description="PyRIT Red Team Payload 自动生成器",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
