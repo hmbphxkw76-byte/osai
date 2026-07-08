@@ -269,64 +269,81 @@ python main.py --lang cn --phase probe \
 
 ---
 
-## 项目结构 (PyRIT 最佳实践)
+## 项目结构
 
 ```
-├── config/                    # 配置文件目录
-├── templates/                 # 模板目录
-│   └── datasets/              # Prompt 素材库 (payload YAML)
-│       ├── core/              # 经典载荷（双语 + 五档预设）
-│       ├── manifest.yaml      # 模块↔文件索引
-│       └── *_payloads.yaml    # 各 AI 模块的载荷列表
-├── scenarios/                 # 🆕 场景模块 (PyRIT 对齐) — 渗透期间仅需修改此处
-│   ├── templates/             # YAML 场景模板定义 (11 个场景)
-│   ├── schema.py              # 模板 Pydantic Schema
-│   ├── orchestrator.py        # PenetratingOrchestrator 场景编排引擎
-│   ├── variant_generator.py   # 提示词变体生成器 (10+ 种策略)
-│   ├── rag_attacks.py         # RAG 管道攻击 Payload
-│   ├── agent_attacks.py       # 多智能体攻击 Payload
-│   ├── infra_attacks.py       # 基础设施攻击 Payload
-│   ├── reporter.py            # 综合安全评估报告
-│   └── target_presets.py      # HTTP 连接场景预设
-├── prompt_converters/         # 存放自定义转换器
+├── configs/                   # 配置文件（平台/目标预设 .env）
+├── contributing/              # 研发规范文档（架构/配置/YAML/编码）
+├── converters/                # 攻击策略转换器
 │   ├── registry.py            # 转换器注册表 & 攻击组合
 │   ├── jailbreak.py           # 越狱前缀类 (DAN/PAIR/AIM/...)
 │   ├── injection.py           # 注入类 (Suffix/JSON Hijack)
 │   ├── bypass.py              # 绕过类 (Translation/DeepInception/...)
 │   ├── reasoning.py           # 推理/宪法类 (CoT/Constitution)
 │   ├── rag_poisoning.py       # RAG 知识库投毒
-│   └── embedding_attack.py    # Embedding 对抗攻击
-├── attack_executor/           # 存放攻击执行器
+│   ├── embedding_attack.py    # Embedding 对抗攻击
+│   ├── adaptive.py            # 自适应转换器
+│   ├── gcg_suffix.py          # GCG 后缀攻击
+│   └── multimodal_attack.py   # 多模态攻击
+├── datasets/                  # Prompt 素材库与数据加载
+│   ├── payloads/              # Prompt 载荷（YAML）
+│   │   ├── core/              # 经典载荷（双语 + 五档预设）
+│   │   ├── manifest.yaml      # 模块↔文件索引
+│   │   └── *_payloads.yaml    # 各 AI 模块的载荷列表
+│   └── loaders.py             # YAML 加载器
+├── docs/                      # 用户文档
+├── entrypoint/                # CLI 入口层
+│   ├── parser.py              # argparse 参数解析
+│   ├── bootstrap.py           # 环境初始化 (BootstrapContext)
+│   ├── display.py             # 控制台回显
+│   └── router.py              # 命令路由分发
+├── executor/                  # 攻击执行引擎
 │   ├── single.py              # 单轮攻击引擎
 │   ├── crescendo.py           # Crescendo 多轮渐进式引擎
 │   ├── sequence_attack.py     # 策略管道引擎
+│   ├── exploring.py           # 探索模式引擎
 │   ├── scorer.py              # 评分器 (Judge LLM)
 │   ├── dashboard.py           # 仪表盘状态
 │   ├── template.py            # Payload 模板变量
+│   ├── adaptive_selector.py   # 自适应攻击策略选择器
+│   ├── dedup_cache.py         # 请求去重缓存
+│   ├── dynamic_combo.py       # 动态组合生成引擎
 │   └── utils.py               # 引擎工具函数
-├── targets/                   # 定义和封装不同的攻击目标
-│   ├── config.py              # .env 配置加载
-│   ├── http_target.py         # 自定义 HTTP Chat Target
-│   ├── factories.py           # Target 工厂函数
-│   ├── scenarios.py           # 场景预设配置
-│   └── model_probe.py         # 模型自动探测
-├── scoring/                   # 评分引擎相关逻辑
 ├── orchestrators/             # 编排层，定义攻击工作流
 │   ├── pyrit_orchestrator.py  # PyRITNativeOrchestrator 统一调度器
 │   └── scenario_runner.py     # PyRITScenarioRunner 场景集成
-├── penetrating_mode/                 # 渗透模式 (向后兼容桥接 → scenarios/)
-├── reporting/                 # 结果分析与报告生成
-├── data/                      # 测试用例 & Payload 数据模型
-├── utils/                     # 通用工具函数
-│   ├── helpers.py             # 路径工具
-│   └── retry.py               # 重试逻辑
 ├── outputs/                   # 攻击结果和日志输出
-│   ├── logs/                  # 日志文件
-│   └── results/               # 攻击结果
-├── scripts/                   # 脚本目录
-├── docs/                      # 文档目录
-├── tests/                     # 测试目录
+├── reporting/                 # 结果分析与报告生成
+├── scenarios/                 # 场景模块 — 渗透期间仅需修改此处
+│   ├── templates/             # YAML 场景模板 (15 个场景)
+│   ├── schema.py              # Pydantic Schema 数据模型
+│   ├── orchestrator.py        # PenetratingOrchestrator 场景编排引擎
+│   ├── variant_generator.py   # 提示词变体生成器 (10+ 种策略)
+│   ├── rag_attacks.py         # RAG 管道攻击 Payload
+│   ├── agent_attacks.py       # 多智能体攻击 Payload
+│   ├── infra_attacks.py       # 基础设施攻击 Payload
+│   ├── mcp_attacks.py         # MCP 协议攻击 Payload
+│   ├── a2a_attacks.py         # A2A 协议攻击 Payload
+│   ├── embedding_attacks.py   # Embedding 模型攻击 Payload
+│   ├── payloads.py            # 统一 Payload 定义
+│   ├── reporter.py            # 综合安全评估报告
+│   ├── target_presets.py      # HTTP 连接场景预设
+│   └── frontier/              # 前沿漏洞体系
+│       ├── index.yaml         # 漏洞索引（8 个前沿漏洞）
+│       ├── registry.py        # 漏洞注册表
+│       └── vulns/             # FRONTIER-YYYY-NNN 漏洞定义
+├── scoring/                   # 评分引擎
+├── scripts/                   # 独立工具脚本 (Payload Browser 等)
+├── targets/                   # 目标抽象层
+│   ├── config.py              # .env 配置加载
+│   ├── http_target.py         # CustomHttpChatTarget
+│   ├── factories.py           # Target 工厂函数
+│   ├── scenarios.py           # 场景预设配置
+│   ├── model_probe.py         # 模型自动探测
+│   ├── auto_probe.py          # 自动目标探测
+│   ├── target_builder.py      # Target 构建器
+│   └── target_type_probe.py   # 目标类型探测
+├── utils/                     # 通用工具函数
 ├── requirements.txt           # 项目依赖
-├── run_redteam.py             # 项目主入口
-└── main.py                    # CLI 入口 (向后兼容)
+└── main.py                    # CLI 入口（<100 行精简版）
 ```
