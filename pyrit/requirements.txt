@@ -1,7 +1,18 @@
 ##############################################################################
-# OffSec AI-300 终极红队演练平台 — Python 依赖清单
-# 安装方式: pip install -r requirements.txt
-# Python 版本要求: >= 3.10
+# PyRIT 红队演练平台 — Python 依赖清单
+#
+# 安装方式 :
+#   方式一（推荐，永久切换国内源）:
+#    pip config set global.index-url https://mirrors.aliyun.com/pypi/simple
+#    pip config set install.trusted-host mirrors.aliyun.com
+#
+#    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
+#    pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
+#
+#   方式二（临时指定官方源）:
+#     pip install -r requirements.txt -i https://pypi.org/simple/
+#
+#  
 ##############################################################################
 
 # ─────────────────────────────────────────────

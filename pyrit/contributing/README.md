@@ -262,6 +262,54 @@ from entrypoint.parser import build_parser
   - `❌ 错误: 具体原因`
   - `⚠️ 警告: 具体原因`
 
+### 6.5 文件编码规范
+
+**所有项目文本文件必须遵循统一的编码标准，确保跨平台、跨工具兼容。**
+
+| 规范项 | 要求 | 说明 |
+|--------|------|------|
+| **字符编码** | UTF-8 without BOM | 禁止 UTF-8 with BOM、UTF-16、GBK 等其他编码 |
+| **换行符** | LF (`\n`) | 统一 Unix 风格，禁止 CRLF（Windows）混用 |
+| **缩进** | 空格（4 空格） | 禁止 Tab 字符 |
+| **行尾空格** | 无 | 每行末尾不允许存在空白字符 |
+| **文件末尾** | 单个空行结尾 | 最后一行后恰好一个换行符 |
+
+**编码适用文件范围**：
+
+| 文件类型 | 示例 | 关键约束 |
+|----------|------|----------|
+| Python 源码 | `*.py` | 所有字符串字面量使用标准 ASCII + UTF-8 多字节序列 |
+| YAML 配置 | `*.yaml`, `*.yml` | 中文注释使用 UTF-8 编码，分隔线用标准 Unicode 字符（如 `─` U+2500） |
+| 环境变量 | `.env`, `*.env` | 纯 ASCII，不包含非 ASCII 注释 |
+| 依赖清单 | `requirements.txt` | 纯 ASCII，版本运算符 `>=`, `<`, `,` 均为标准 ASCII |
+| Markdown 文档 | `*.md` | UTF-8 without BOM，中文标点使用全角形式 |
+
+**检查与修复命令**：
+
+```bash
+# 检测文件编码（PowerShell）
+Get-Content -Path <file> -Encoding UTF8 | Out-Null
+
+# 检测 BOM 头
+[System.IO.File]::ReadAllBytes("<file>")[0..2] -eq @(0xEF, 0xBB, 0xBF)
+
+# 转换 CRLF → LF（Git）
+git config core.autocrlf input
+
+# 批量移除行尾空格（PowerShell）
+(Get-Content <file>) -replace '\s+$', '' | Set-Content <file> -Encoding UTF8
+```
+
+**反例警示**：
+
+| ❌ 禁止 | 后果 |
+|---------|------|
+| 文件包含 BOM (0xEF 0xBB 0xBF) | pip/解析器将 BOM 视为有效字符，导致语法错误 |
+| 全角 ASCII 运算符（如 `＞＝` 代替 `>=`） | pip 等工具无法识别，报 `Invalid requirement` |
+| CRLF 与 LF 混用 | Git diff 显示全文件变更，代码审查困难 |
+| Tab 与空格混用 | Python 解释器报 `IndentationError` |
+| 非 UTF-8 编码（GBK/Shift-JIS） | 跨平台打开乱码，CI/CD 解析失败 |
+
 ---
 
 ## 七、依赖管理
