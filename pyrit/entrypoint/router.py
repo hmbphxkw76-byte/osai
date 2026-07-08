@@ -143,6 +143,10 @@ async def _run_native_single_phase(args, ctx: BootstrapContext) -> None:
         case_filter=set(ctx.case_filter) if ctx.case_filter else None,
         exclude_filter=set(ctx.exclude_filter) if ctx.exclude_filter else None,
         combo_filter=set(ctx.combo_filter) if ctx.combo_filter else None,
+        use_adaptive_engine=ctx.use_adaptive_engine,
+        use_dedup_cache=getattr(args, 'use_dedup_cache', False),
+        target_vendor=ctx.target_vendor,
+        enable_early_stop=getattr(args, 'enable_early_stop', False),
     )
 
     # 结果导出
@@ -155,7 +159,8 @@ async def _run_native_single_phase(args, ctx: BootstrapContext) -> None:
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     heatmap_file = results_path(f"pyrit_redteam_{ctx.effective_phase}_heatmap_{ts}.png")
     analyze_and_visualize(results, f"PyRIT Red Team {label} Success Matrix", heatmap_file)
-    print_detailed_report(results, campaign_name)
+    print_detailed_report(results, campaign_name, current_phase=ctx.effective_phase,
+                          target_url=getattr(args, 'target_url', '') or '')
     generate_penetrating_report(results, campaign_name, output_dir=RESULTS_DIR)
 
 
@@ -192,10 +197,15 @@ async def _run_native_phased(args, ctx: BootstrapContext) -> None:
         case_filter=set(ctx.case_filter) if ctx.case_filter else None,
         exclude_filter=set(ctx.exclude_filter) if ctx.exclude_filter else None,
         combo_filter=set(ctx.combo_filter) if ctx.combo_filter else None,
+        use_adaptive_engine=ctx.use_adaptive_engine,
+        use_dedup_cache=getattr(args, 'use_dedup_cache', False),
+        target_vendor=ctx.target_vendor,
+        enable_early_stop=getattr(args, 'enable_early_stop', False),
     )
 
     if results:
-        print_detailed_report(results, "Red Team 阶梯式门控总战报")
+        print_detailed_report(results, "Red Team 阶梯式门控总战报",
+                              current_phase="auto-gate", target_url=getattr(args, 'target_url', '') or '')
         generate_penetrating_report(results, "PyRIT_RedTeam_Combined_All_Phases", output_dir=RESULTS_DIR)
 
 

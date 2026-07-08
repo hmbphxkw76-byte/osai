@@ -642,8 +642,7 @@ targets/
 ├── config.py             # 环境变量配置加载 (dotenv)
 ├── factories.py          # 目标构造工厂函数
 ├── http_target.py        # 自定义 HTTP Chat API 目标
-├── target_type_probe.py  # 模型架构探测 + 速率限制自适应探测
-└── ollama_detector.py    # Ollama 本地部署检测
+└── target_type_probe.py  # 模型架构探测 + 速率限制自适应探测（含 Ollama 本地部署检测）
 ```
 
 ### 8.2 环境配置：config.py
@@ -710,7 +709,7 @@ target = OpenAIChatTarget(
 1. **模型类型探测** — 发送轻量测试请求识别目标模型名称和版本
 2. **API 格式检测** — 自动识别 OpenAI/Gemini/Claude/原始格式
 3. **速率限制自适应探测** — 渐进式增加并发数，观察 429 响应或延迟飙升
-4. **架构指纹识别** — 识别 Ollama 本地部署 (`ollama_detector.py`)
+4. **架构指纹识别** — 识别 Ollama 本地部署（通过 `/api/tags` 端点 + IP 推断，内置于 `target_type_probe.py`）
 5. **安全配置评估** — 检测目标 API 的安全防护措施
 
 **速率限制自适应算法**：
@@ -720,7 +719,7 @@ target = OpenAIChatTarget(
                                           推荐并发数: 4
 ```
 
-**⚠️ Ollama 特例**：Ollama 是本地单 GPU 串行推理，无内置速率限制，高并发不会返回 429 而是直接导致 GPU OOM。`ollama_detector.py` 自动识别 Ollama 实例并强制设置 `concurrent=1`。
+**⚠️ Ollama 特例**：Ollama 是本地单 GPU 串行推理，无内置速率限制，高并发不会返回 429 而是直接导致 GPU OOM。模型探测模块（`target_type_probe.py`）会自动识别 Ollama 实例；手动使用时务必显式设置 `--concurrent 1`。
 
 ### 8.6 目标重试与容错
 

@@ -72,6 +72,19 @@ class ModulePayloadProvider:
         "supply_chain":       "supply_chain_payloads.yaml",
         "model_extract":      "model_extraction_payloads.yaml",
         "data_poison":        "data_poison_payloads.yaml",
+        # 🆕 A2A 通信攻击
+        "a2a":                "a2a_payloads.yaml",
+        "a2a_security":       "a2a_payloads.yaml",
+        "a2a_exploit":        "a2a_payloads.yaml",
+        # 🆕 Embedding/向量数据库攻击
+        "embedding":          "embedding_payloads.yaml",
+        "embedding_attack":   "embedding_payloads.yaml",
+        "embedding_exploit":  "embedding_payloads.yaml",
+        # 🆕 MCP 协议攻击
+        "mcp":                "mcp_payloads.yaml",
+        "mcp_abuse":          "mcp_payloads.yaml",
+        "mcp_security":       "mcp_payloads.yaml",
+        "mcp_exploit":        "mcp_payloads.yaml",
         # 🆕 前沿漏洞
         "frontier":           "frontier_payloads_placeholder.yaml",
     }
@@ -447,6 +460,72 @@ class InfraPayloadGenerator:
 # 🆕 前沿漏洞 Payload 生成器（Frontier 模块）
 # ═══════════════════════════════════════════════════════════════════
 
+class A2APayloadGenerator:
+    """A2A 通信攻击 Payload 生成器 (Module: A2A) — 延迟委托。"""
+
+    def __init__(self, provider: ModulePayloadProvider | None = None):
+        self.provider = provider or get_provider()
+        self._gen = None
+
+    def _ensure_gen(self):
+        if self._gen is None:
+            from scenarios.a2a_attacks import A2APayloadGenerator as _A2AGen
+            self._gen = _A2AGen()
+        return self._gen
+
+    def generate(self, category: str, objective: str = "", *, max_payloads: int = 8):
+        return self._ensure_gen().generate(category, objective, max_payloads=max_payloads)
+
+    @staticmethod
+    def get_strategy_payloads(strategy_name: str) -> list[str]:
+        from scenarios.a2a_attacks import A2APayloadGenerator as _A2AGen
+        return _A2AGen.get_strategy_payloads(strategy_name)
+
+
+class EmbeddingPayloadGenerator:
+    """Embedding/向量数据库攻击 Payload 生成器 — 延迟委托。"""
+
+    def __init__(self, provider: ModulePayloadProvider | None = None):
+        self.provider = provider or get_provider()
+        self._gen = None
+
+    def _ensure_gen(self):
+        if self._gen is None:
+            from scenarios.embedding_attacks import EmbeddingPayloadGenerator as _EmbGen
+            self._gen = _EmbGen()
+        return self._gen
+
+    def generate(self, category: str, objective: str = "", *, max_payloads: int = 8):
+        return self._ensure_gen().generate(category, objective, max_payloads=max_payloads)
+
+    @staticmethod
+    def get_strategy_payloads(strategy_name: str) -> list[str]:
+        from scenarios.embedding_attacks import EmbeddingPayloadGenerator as _EmbGen
+        return _EmbGen.get_strategy_payloads(strategy_name)
+
+
+class MCPPayloadGenerator:
+    """MCP 协议安全攻击 Payload 生成器 — 延迟委托。"""
+
+    def __init__(self, provider: ModulePayloadProvider | None = None):
+        self.provider = provider or get_provider()
+        self._gen = None
+
+    def _ensure_gen(self):
+        if self._gen is None:
+            from scenarios.mcp_attacks import MCPPayloadGenerator as _MCPGen
+            self._gen = _MCPGen()
+        return self._gen
+
+    def generate(self, category: str, objective: str = "", *, max_payloads: int = 10):
+        return self._ensure_gen().generate(category, objective, max_payloads=max_payloads)
+
+    @staticmethod
+    def get_strategy_payloads(strategy_name: str) -> list[str]:
+        from scenarios.mcp_attacks import MCPPayloadGenerator as _MCPGen
+        return _MCPGen.get_strategy_payloads(strategy_name)
+
+
 class FrontierPayloadGenerator:
     """前沿漏洞 Payload 生成器 — 通过 FrontierRegistry 动态加载。
 
@@ -572,6 +651,19 @@ GENERATOR_MAP: dict[str, type] = {
     "supply_chain":      InfraPayloadGenerator,
     "model_extract":     InfraPayloadGenerator,
     "data_poison":       InfraPayloadGenerator,
+    # 🆕 A2A 通信攻击
+    "a2a_security":      A2APayloadGenerator,
+    "a2a_exploit":       A2APayloadGenerator,
+    "a2a":               A2APayloadGenerator,
+    # 🆕 Embedding/向量数据库攻击
+    "embedding_attack":  EmbeddingPayloadGenerator,
+    "embedding_exploit": EmbeddingPayloadGenerator,
+    "embedding":         EmbeddingPayloadGenerator,
+    # 🆕 MCP 协议攻击
+    "mcp_security":      MCPPayloadGenerator,
+    "mcp_abuse":         MCPPayloadGenerator,
+    "mcp_exploit":       MCPPayloadGenerator,
+    "mcp":               MCPPayloadGenerator,
     # 🆕 Frontier: 前沿漏洞
     "frontier":          FrontierPayloadGenerator,
 }

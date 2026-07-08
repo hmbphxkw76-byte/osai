@@ -11,7 +11,7 @@ from reporting.engine import build_followup_suggestions
 console = Console()
 
 
-def print_detailed_report(results: list, campaign_name: str = ""):
+def print_detailed_report(results: list, campaign_name: str = "", current_phase: str = "", target_url: str = ""):
     """执行后打印详细攻击报告，展示所有发现的漏洞详情。"""
     if not results:
         console.print("[yellow]⚠️ 无结果数据[/yellow]")
@@ -74,7 +74,7 @@ def print_detailed_report(results: list, campaign_name: str = ""):
             console.print(f"  [red]✗[/red] {case_id}: 被 {len(combos)} 种攻击手法成功防御")
 
     # ── 下一步攻击命令 ──
-    _render_followup_terminal(results)
+    _render_followup_terminal(results, current_phase=current_phase, target_url=target_url)
 
     console.print("=" * 70)
 
@@ -83,9 +83,9 @@ def print_detailed_report(results: list, campaign_name: str = ""):
 # 终端版后续攻击命令渲染
 # ═══════════════════════════════════════════════════════════════════
 
-def _render_followup_terminal(results: list):
+def _render_followup_terminal(results: list, current_phase: str = "", target_url: str = ""):
     """终端输出：基于引擎推荐数据渲染 Rich 格式的下一步攻击命令。"""
-    suggestions = build_followup_suggestions(results)
+    suggestions = build_followup_suggestions(results, current_phase=current_phase, current_target_url=target_url)
     if suggestions is None:
         return
 
@@ -130,6 +130,21 @@ def _render_followup_terminal(results: list):
                 cmd_counter += 1
                 console.print(f"     [bold green]第 {cmd_counter} 条[/bold green]: [yellow]用 {cd['combo']} 横扫「{entry['category']}」类其他用例[/yellow]")
                 console.print(f"       [bold]python main.py --lang cn --phase crescendo --case {','.join(entry['other_ids'])}[/bold]")
+
+    # ═══ PART 4: 🆕 Phase 级别进阶推荐 — 下一阶段攻击命令 ═══
+    phase_prog = suggestions.get("phase_progression")
+    if phase_prog:
+        console.print("  [bold magenta]━━ 🎯 阶段进阶推荐 — 下一阶段攻击计划 ━━[/bold magenta]")
+        console.print(f"  [dim]当前阶段: {phase_prog['current_phase']}  |  成功率: {phase_prog['phase_success_rate']:.0%}[/dim]")
+        console.print(f"  [bold yellow]{phase_prog['title']}[/bold yellow]")
+        console.print(f"  [dim]{phase_prog['description']}[/dim]")
+        for ns in phase_prog["next_steps"]:
+            cmd_counter += 1
+            console.print(f"     [bold green]━━ 第 {cmd_counter} 条: {ns['title']} ━━[/bold green]")
+            if ns.get("desc"):
+                console.print(f"     [dim]💡 {ns['desc']}[/dim]")
+            console.print(f"       [bold cyan]$ {ns['command']}[/bold cyan]")
+            console.print("")
 
     # ═══ 最快聚合路径 ═══
     merged_s = suggestions["merged_single_ids"]

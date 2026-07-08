@@ -1,7 +1,8 @@
 """
 ===============================================================================
-PyRIT Red Team — Markdown 渗透漏洞报告生成
+PyRIT Red Team — Markdown 渗透漏洞报告（CLI Phase 路径）
 ===============================================================================
+对齐 OSCP 报告标准：执行摘要 → 方法论 → 漏洞详情 → 根因分析 → 修复建议 → 后续命令 → 结论
 """
 import os
 from datetime import datetime
@@ -9,17 +10,34 @@ from datetime import datetime
 from rich.console import Console
 
 from reporting.engine import build_followup_suggestions
+from reporting.data import CASE_CATEGORY, CRESCENDO_CATEGORY
 
 console = Console()
 
+# ═══════════════════════════════════════════════════════════════════
+# 根因分析映射（CLI 路径轻量版）
+# ═══════════════════════════════════════════════════════════════════
 
-def generate_penetrating_report(results: list, campaign_name: str, output_dir: str = "."):
-    """生成 PyRIT Red Team 红队渗透漏洞报告（Markdown 格式）。"""
+_ROOT_CAUSE_HINTS = {
+    "roleplay": "角色扮演场景下安全护栏被上下文覆盖，模型优先满足角色设定而非安全约束",
+    "encoding": "输入预处理管道未对编码输入做解码检测",
+    "academic": "学术研究框架下模型优先提供知识而非执行安全约束",
+    "jailbreak": "安全对齐训练对抗样本多样性不足",
+    "extraction": "输出过滤规则不足以覆盖侧信道提取方式",
+    "tool_use": "工具调用参数缺乏严格的白名单校验",
+    "default": "目标模型在此攻击维度缺乏有效的安全护栏",
+}
+
+
+def generate_penetrating_report(results: list, campaign_name: str, output_dir: str = ".",
+                                target_info: dict | None = None):
+    """生成 PyRIT Red Team 红队渗透漏洞报告（Markdown 格式，对齐 OSCP 标准）。"""
     if not results:
         return None
 
     successes = [r for r in results if r.get("status") == "SUCCESS"]
     failures = [r for r in results if r.get("status") == "FAILURE"]
+    errors = [r for r in results if r.get("status") == "ERROR"]
     total = len(results)
     rate = len(successes) / total * 100 if total > 0 else 0
 
@@ -28,25 +46,61 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)
 
+    target_info = target_info or {}
+
     lines = []
-    lines.append(f"# PyRIT Red Team 红队漏洞测试报告")
+    # ── 封面 / 文档控制 ──
+    lines.append(f"# PyRIT Red Team — AI 渗透漏洞测试报告")
     lines.append(f"")
-    lines.append(f"**生成时间**: {timestamp}")
-    lines.append(f"**测试类型**: {campaign_name}")
-    lines.append(f"**总攻击次数**: {total}")
-    lines.append(f"**成功突破**: {len(successes)} ({rate:.1f}%)")
-    lines.append(f"**防御成功**: {len(failures)}")
+    lines.append(f"**TLP:AMBER** — 本报告仅限内部使用，不得对外公开。")
     lines.append(f"")
-    lines.append(f"---")
+    lines.append(f"| 属性 | 内容 |")
+    lines.append(f"|------|------|")
+    lines.append(f"| 生成时间 | {timestamp} |")
+    lines.append(f"| 测试类型 | {campaign_name} |")
+    lines.append(f"| 总攻击次数 | {total} |")
+    lines.append(f"| 成功突破 | {len(successes)} ({rate:.1f}%) |")
+    lines.append(f"| 防御成功 | {len(failures)} |")
+    lines.append(f"| 执行错误 | {len(errors)} |")
+    lines.append(f"| 测试工具 | PyRIT Red Team Framework |")
     lines.append(f"")
 
-    # ── 执行摘要 ──
-    lines.append(f"## 1. 执行摘要")
+    # ── Section 1: 测试方法论 ──
+    lines.append(f"## 1. 测试方法论")
+    lines.append(f"")
+    lines.append(f"本次评估遵循标准化 AI 红队测试流程：")
+    lines.append(f"")
+    lines.append(f"1. **侦察** — 探测目标模型架构、认证方式、速率限制")
+    lines.append(f"2. **攻击面枚举** — 加载 YAML 内置用例库，覆盖越狱/注入/提取/工具滥用等维度")
+    lines.append(f"3. **策略变体生成** — 通过 Converter 引擎对每个 Prompt 应用编码/角色扮演/语义包装等攻击手法")
+    lines.append(f"4. **执行与评分** — 并发投送 + CleanedSelfAskTrueFalseScorer 双重判定")
+    lines.append(f"5. **结果分析** — 防御性剥离后评分，降低假阴性")
+    lines.append(f"")
+    lines.append(f"**工具链**: PyRIT Framework (Orchestrator + Converter + Scorer) | SQLiteMemory | Rich Console")
+    lines.append(f"")
+
+    # ── Section 2: 执行摘要 ──
+    lines.append(f"## 2. 执行摘要")
     lines.append(f"")
     if successes:
         lines.append(f"本次测试共执行 {total} 次攻击，成功突破 {len(successes)} 次，命中率 {rate:.1f}%。")
         lines.append(f"共发现 **{len(set(r['case_id'] for r in successes))}** 个不同维度的安全漏洞。")
         lines.append(f"")
+
+        # 按类别统计 ASR
+        lines.append(f"### 攻击成功率按类别分布 (ASR by Category)")
+        lines.append(f"")
+        lines.append(f"| 类别 | 漏洞数 |")
+        lines.append(f"|------|--------|")
+        cat_count: dict[str, int] = {}
+        for r in successes:
+            for cat_name in CASE_CATEGORY:
+                if r["case_id"] in CASE_CATEGORY[cat_name]:
+                    cat_count[cat_name] = cat_count.get(cat_name, 0) + 1
+        for cat_name, cnt in sorted(cat_count.items(), key=lambda x: -x[1]):
+            lines.append(f"| {cat_name} | {cnt} |")
+        lines.append(f"")
+
         lines.append(f"### 漏洞概览")
         lines.append(f"")
         lines.append(f"| # | 用例 ID | 突破手法 | 成功次数 |")
@@ -56,24 +110,32 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
             vuln_map.setdefault(r["case_id"], []).append(r["combo_name"])
         for idx, (case_id, combos) in enumerate(vuln_map.items(), 1):
             lines.append(f"| {idx} | `{case_id}` | {', '.join(combos)} | {len(combos)} |")
+        lines.append(f"")
     else:
         lines.append(f"本次测试共执行 {total} 次攻击，未发现可突破的安全漏洞。目标模型安全防御较强。")
-    lines.append(f"")
+        lines.append(f"")
 
-    # ── 漏洞详情 ──
+    # ── Section 3: 漏洞详情与攻击证据 ──
     if successes:
-        lines.append(f"## 2. 漏洞详情与攻击证据")
+        lines.append(f"## 3. 漏洞详情与攻击证据")
         lines.append(f"")
 
         vuln_grouped: dict[str, list] = {}
         for r in successes:
             vuln_grouped.setdefault(r["case_id"], []).append(r)
 
+        _section_idx = 3
         for idx, (case_id, entries) in enumerate(vuln_grouped.items(), 1):
-            lines.append(f"### 2.{idx}. {case_id}")
+            lines.append(f"### 3.{idx}. {case_id}")
             lines.append(f"")
-            lines.append(f"**判定标准**: {entries[0].get('criterion', 'N/A')}")
-            lines.append(f"**漏洞类型**: {'多轮渐进式攻击' if entries[0].get('mode') == 'crescendo' else '单轮越狱攻击'}")
+            lines.append(f"| 属性 | 值 |")
+            lines.append(f"|------|----|")
+            lines.append(f"| 判定标准 | {entries[0].get('criterion', 'N/A')} |")
+            lines.append(f"| 漏洞类型 | {'多轮渐进式攻击' if entries[0].get('mode') == 'crescendo' else '单轮越狱攻击'} |")
+            lines.append(f"| 突破次数 | {len(entries)} |")
+
+            # 根因分析
+            _infer_rca(lines, case_id, entries)
             lines.append(f"")
 
             for j, entry in enumerate(entries, 1):
@@ -102,11 +164,12 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
 
                 lines.append(f"---")
                 lines.append(f"")
+            _section_idx += 1
 
-    # ── 防御统计 ──
-    _next_section = 3
+    # ── Section 4: 防御统计 ──
+    _next_section = 4 if successes else 3
     if failures:
-        lines.append(f"## 3. 成功防御的攻击向量")
+        lines.append(f"## {_next_section}. 成功防御的攻击向量")
         lines.append(f"")
         fail_by_case: dict[str, set] = {}
         for r in failures:
@@ -114,9 +177,9 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
         for case_id, combos in sorted(fail_by_case.items()):
             lines.append(f"- **{case_id}**: 成功防御 {len(combos)} 种攻击手法")
         lines.append(f"")
-        _next_section = 4
+        _next_section += 1
 
-    # ── 下一步攻击命令（Markdown 版） ──
+    # ── Section 5/6: 下一步攻击命令 ──
     _next_section = _render_followup_markdown(lines, results, section_num=_next_section)
 
     # ── 修复建议 ──
@@ -134,10 +197,31 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
             lines.append(f"- **学术伪装攻击**: 增强对以研究/教育为借口的恶意请求的识别")
         if any("tool" in v.lower() for v in vuln_types):
             lines.append(f"- **工具调用注入**: 对工具调用参数进行安全校验，限制工具执行权限")
-        if not vuln_types.intersection({"PROBE_01", "PROBE_02", "PROBE_03", "PROBE_04", "PROBE_05"}):
-            lines.append(f"- 建议根据具体漏洞案例针对性加强对应维度的安全防护")
     else:
         lines.append(f"- 当前安全防御能力较强，建议保持安全监控和定期红队测试")
+    lines.append(f"")
+
+    # ── 结论 ──
+    _next_section += 1
+    lines.append(f"## {_next_section}. 结论与经验教训")
+    lines.append(f"")
+    if successes:
+        top_case = max(vuln_map.items(), key=lambda x: len(x[1])) if 'vuln_map' in dir() and vuln_map else (None, [])
+        lines.append(f"### 关键发现")
+        lines.append(f"")
+        lines.append(f"1. 目标模型在本次评估中综合突破率 **{rate:.1f}%**，共发现 **{len(vuln_map)}** 个漏洞维度。")
+        lines.append(f"2. 最脆弱的攻击面: `{', '.join(list(vuln_map.keys())[:5])}` 等极易被突破。")
+        lines.append(f"3. 建议将本次发现的所有漏洞纳入修复跟踪，并在修复后重新测试验证。")
+    else:
+        lines.append(f"### 关键发现")
+        lines.append(f"")
+        lines.append(f"1. 目标模型的防御能力较强，在本次评估范围内未被突破。")
+    lines.append(f"")
+    lines.append(f"### 后续建议")
+    lines.append(f"")
+    lines.append(f"- 建立周期性 AI 红队测试机制（建议每季度一次）")
+    lines.append(f"- 将本次有效的攻击策略加入模型安全对齐训练的对抗样本集")
+    lines.append(f"- 定期关注前沿漏洞（Frontier Registry），保持防御能力持续演进")
     lines.append(f"")
 
     with open(filepath, 'w', encoding='utf-8') as f:
@@ -145,6 +229,25 @@ def generate_penetrating_report(results: list, campaign_name: str, output_dir: s
 
     console.print(f"[bold green]📄 渗透漏洞报告已生成: {filepath}[/bold green]")
     return filepath
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 辅助：根因推断（CLI 路径）
+# ═══════════════════════════════════════════════════════════════════
+
+def _infer_rca(lines: list, case_id: str, entries: list):
+    """根据 case_id 和 combo_name 推断失效根因。"""
+    root_cause = _ROOT_CAUSE_HINTS.get("default", "待进一步分析")
+    for hint_key, hint_text in _ROOT_CAUSE_HINTS.items():
+        if hint_key in case_id.lower():
+            root_cause = hint_text
+            break
+        for entry in entries:
+            if hint_key in entry.get("combo_name", "").lower():
+                root_cause = hint_text
+                break
+
+    lines.append(f"| **失效根因** | {root_cause} |")
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -10,43 +10,40 @@ from reporting.data import (
     CASE_CATEGORY, CRESCENDO_CATEGORY,
     get_case_category, get_crescendo_category,
     PROBE_FOLLOWUP_MAP,
+    PHASE_PROGRESSION_MAP, APPLICATION_PHASE_PROGRESSION,
 )
 
 
-def build_followup_suggestions(results: list) -> dict | None:
+def build_followup_suggestions(results: list, current_phase: str = "", current_target_url: str = "") -> dict | None:
     """基于攻击结果生成后续攻击推荐（纯数据，不含渲染逻辑）。
 
     Args:
-        results: 攻击结果列表（每条含 case_id / status / combo_name / mode）
+        results: 攻击结果列表（每条含 case_id / status / combo_name / mode / phase）
+        current_phase: 刚完成的攻击阶段名（用于生成 phase 级别进阶推荐）
+        current_target_url: 目标 URL（用于填充命令中的 <TARGET_URL>）
 
     Returns:
         结构化推荐 dict，供终端和 Markdown 渲染器消费；无可用推荐时返回 None。
 
         返回结构:
         {
-            "probe_followups": [
-                {
-                    "probe_id": "PROBE_01_...",
-                    "combos": ["Roleplay_Jailbreak", ...],
-                    "title": "...",
-                    "breakthrough": "...",
-                    "single": [(描述, case_ids_comma_sep), ...],
-                    "probe": [...],
-                    "crescendo": [...],
-                }, ...
-            ],
-            "single_diffusions": [
-                {"combo": "...", "entries": [{"category": "...", "other_ids": [...]}]}, ...
-            ],
-            "cresc_diffusions": [
-                {"combo": "...", "entries": [{"category": "...", "other_ids": [...]}]}, ...
-            ],
-            "merged_single_ids": ["case_1", "case_2", ...],
-            "merged_crescendo_ids": ["case_3", ...],
+            "probe_followups": [...],
+            "single_diffusions": [...],
+            "cresc_diffusions": [...],
+            "merged_single_ids": [...],
+            "merged_crescendo_ids": [...],
+            "phase_progression": {         # 🆕 Phase 级别进阶推荐
+                "current_phase": "...",
+                "phase_success_rate": 0.0,
+                "title": "...",
+                "description": "...",
+                "next_steps": [{"step": N, "title": "...", "desc": "...", "command": "...", "phase": "..."}],
+            },
         }
     """
+    total_count = len(results) if results else 0
     successes = [r for r in results if r.get("status") == "SUCCESS"]
-    if not successes:
+    if not successes and current_phase not in PHASE_PROGRESSION_MAP:
         return None
 
     # ── 分类提取 ──
@@ -140,10 +137,44 @@ def build_followup_suggestions(results: list) -> dict | None:
     merged_single = list(dict.fromkeys(probe_single_ids + single_diff_ids))
     merged_cresc = list(dict.fromkeys(probe_cresc_ids + cresc_diff_ids))
 
+    # ═══ PART 4: 🆕 Phase 级别进阶推荐 ═══
+    phase_progression = None
+    if current_phase:
+        # 获取当前阶段的攻击成功率
+        phase_results = [r for r in results if r.get("phase", "") == current_phase] if results else []
+        phase_success = [r for r in phase_results if r.get("status") == "SUCCESS"]
+        phase_success_rate = len(phase_success) / len(phase_results) if phase_results else 0.0
+
+        # 查找当前 phase 的进阶映射
+        prog_map = PHASE_PROGRESSION_MAP.get(current_phase)
+        if not prog_map:
+            prog_map = APPLICATION_PHASE_PROGRESSION.get(current_phase)
+
+        if prog_map:
+            threshold = prog_map.get("success_threshold", 0.0)
+            # 即使没有成功也推荐（渐进降级），只要满足阈值条件
+            phase_progression = {
+                "current_phase": current_phase,
+                "phase_success_rate": phase_success_rate,
+                "title": prog_map["title"],
+                "description": prog_map["description"],
+                "next_steps": [
+                    {
+                        "step": ns["step"],
+                        "title": ns["title"],
+                        "desc": ns.get("desc", ""),
+                        "command": ns["command"].replace("<TARGET_URL>", current_target_url or "<TARGET_URL>"),
+                        "phase": ns.get("phase", ""),
+                    }
+                    for ns in prog_map["next_steps"]
+                ],
+            }
+
     return {
         "probe_followups": probe_followups,
         "single_diffusions": single_diffusions,
         "cresc_diffusions": cresc_diffusions,
         "merged_single_ids": merged_single,
         "merged_crescendo_ids": merged_cresc,
+        "phase_progression": phase_progression,
     }

@@ -261,6 +261,14 @@ _register(
     description="多模态攻击 - 图片描述注入 (VLGuard)"
 )
 
+_register(
+    "RealMultimodalConverter",
+    _lazy_factory("converters.multimodal_attack", "RealMultimodalConverter",
+                  modality="image", technique="auto"),
+    CATEGORY_MULTIMODAL,
+    description="真实多模态攻击 - 图片/音频注入 (P1)"
+)
+
 # ── 🆕 训练数据投毒转换器 ──
 _register(
     "TrainingPoisoningConverter",
@@ -268,6 +276,97 @@ _register(
                   technique="backdoor"),
     CATEGORY_TRAINING,
     description="训练数据投毒 - Backdoor Trigger (OWASP LLM03)"
+)
+
+# ═══════════════════════════════════════════════════════════════
+# 🆕 P0+P1+P2 新增自适应转换器
+# ═══════════════════════════════════════════════════════════════
+
+# ── P0: LLM 驱动自适应越狱 ──
+_register(
+    "LLMGuidedJailbreakConverter",
+    _lazy_factory("converters.adaptive", "LLMGuidedJailbreakConverter"),
+    CATEGORY_JAILBREAK,
+    description="LLM 驱动自适应越狱 - 动态策略选择 (P0)"
+)
+
+# ── P0: GCG 对抗性后缀 ──
+_register(
+    "GCGSuffixAppendConverter",
+    _lazy_factory("converters.gcg_suffix", "GCGSuffixAppendConverter"),
+    CATEGORY_JAILBREAK,
+    description="GCG 对抗性后缀优化 - 突破高对齐模型 (P0)"
+)
+
+_register(
+    "GCGAdaptiveSuffixConverter",
+    _lazy_factory("converters.gcg_suffix", "GCGAdaptiveSuffixConverter"),
+    CATEGORY_JAILBREAK,
+    description="GCG 自适应后缀 - 厂商特化 (P0)"
+)
+
+# ── P1: 注意力转移攻击 ──
+_register(
+    "PayattentionAttackConverter",
+    _lazy_factory("converters.adaptive", "PayattentionAttackConverter"),
+    CATEGORY_INJECTION,
+    description="Payattention 注意力转移攻击 (P1)"
+)
+
+# ── P1: 代码嵌套绕过 ──
+_register(
+    "CodeNestingBypassConverter",
+    _lazy_factory("converters.adaptive", "CodeNestingBypassConverter"),
+    CATEGORY_BYPASS,
+    description="CodeNesting 代码嵌套绕过 (P1)"
+)
+
+# ── P1: 人格分裂绕过 ──
+_register(
+    "PersonaSplitConverter",
+    _lazy_factory("converters.adaptive", "PersonaSplitConverter"),
+    CATEGORY_JAILBREAK,
+    description="PersonaSplit 双人格绕过 (P1)"
+)
+
+# ── P1: 间接提示注入 ──
+_register(
+    "IndirectPromptInjectionConverter",
+    _lazy_factory("converters.adaptive", "IndirectPromptInjectionConverter"),
+    CATEGORY_INJECTION,
+    description="间接提示注入 - 外部数据源模拟 (P1)"
+)
+
+# ── P1: 多轮状态操纵 ──
+_register(
+    "MultiTurnStateManipulationConverter",
+    _lazy_factory("converters.adaptive", "MultiTurnStateManipulationConverter"),
+    CATEGORY_BYPASS,
+    description="多轮状态操纵 - 渐进信任构建 (P1)"
+)
+
+# ── P2: Token 隐写 ──
+_register(
+    "TokenSmugglingConverter",
+    _lazy_factory("converters.adaptive", "TokenSmugglingConverter"),
+    CATEGORY_OBFUSCATION,
+    description="Token Smuggling 隐写注入 (P2)"
+)
+
+# ── P2: Prompt 压缩绕过 ──
+_register(
+    "PromptCompressionBypassConverter",
+    _lazy_factory("converters.adaptive", "PromptCompressionBypassConverter"),
+    CATEGORY_BYPASS,
+    description="Prompt 压缩绕过 - LLMLingua 攻击 (P2)"
+)
+
+# ── P2: 递归自改进 ──
+_register(
+    "RecursiveSelfImprovementConverter",
+    _lazy_factory("converters.adaptive", "RecursiveSelfImprovementConverter"),
+    CATEGORY_REASONING,
+    description="递归自改进绕过 - 模型自优化伪装 (P2)"
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -652,6 +751,74 @@ GLOBAL_ATTACK_COMBINATIONS = [
     {"name": "Multimodal + Base64", "converters": ["MultimodalAttackConverter", "Base64Converter"]},
     {"name": "Training_Poison_Backdoor", "converters": ["TrainingPoisoningConverter"]},
     {"name": "Training_Poison + RAG", "converters": ["TrainingPoisoningConverter", "RAGPoisoningConverter"]},
+
+    # ── 🆕 P0+P1+P2 新增攻击组合 ──
+
+    # P0: LLM 驱动自适应越狱
+    {"name": "LLM_Guided_Jailbreak", "converters": ["LLMGuidedJailbreakConverter"]},
+    {"name": "LLM_Guided + Base64", "converters": ["LLMGuidedJailbreakConverter", "Base64Converter"]},
+    {"name": "LLM_Guided + ZeroWidth", "converters": ["LLMGuidedJailbreakConverter", "ZeroWidthConverter"]},
+    {"name": "LLM_Guided + ROT13 + ZeroWidth", "converters": ["LLMGuidedJailbreakConverter", "ROT13Converter", "ZeroWidthConverter"]},
+
+    # P0: GCG 对抗性后缀
+    {"name": "GCG_Suffix_Attack", "converters": ["GCGSuffixAppendConverter"]},
+    {"name": "GCG_Suffix + Base64", "converters": ["GCGSuffixAppendConverter", "Base64Converter"]},
+    {"name": "GCG_Suffix + ZeroWidth", "converters": ["GCGSuffixAppendConverter", "ZeroWidthConverter"]},
+    {"name": "GCG_Suffix + PAIR + Base64", "converters": ["GCGSuffixAppendConverter", "PAIRJailbreakConverter", "Base64Converter"]},
+    {"name": "GCG_Adaptive_Suffix", "converters": ["GCGAdaptiveSuffixConverter"]},
+    {"name": "GCG_Adaptive + Encoding", "converters": ["GCGAdaptiveSuffixConverter", "Base64Converter"]},
+
+    # P1: Payattention 注意力转移
+    {"name": "Payattention_Attack", "converters": ["PayattentionAttackConverter"]},
+    {"name": "Payattention + Base64", "converters": ["PayattentionAttackConverter", "Base64Converter"]},
+    {"name": "Payattention + ZeroWidth", "converters": ["PayattentionAttackConverter", "ZeroWidthConverter"]},
+    {"name": "Payattention + GCG", "converters": ["PayattentionAttackConverter", "GCGSuffixAppendConverter"]},
+
+    # P1: CodeNesting 代码嵌套绕过
+    {"name": "CodeNesting_Bypass", "converters": ["CodeNestingBypassConverter"]},
+    {"name": "CodeNesting + Base64", "converters": ["CodeNestingBypassConverter", "Base64Converter"]},
+    {"name": "CodeNesting + JSON_Hijack", "converters": ["CodeNestingBypassConverter", "JSONStructuredOutputHijackConverter"]},
+    {"name": "CodeNesting + Unicode", "converters": ["CodeNestingBypassConverter", "UnicodeConfusableConverter"]},
+
+    # P1: PersonaSplit 双人格绕过
+    {"name": "PersonaSplit", "converters": ["PersonaSplitConverter"]},
+    {"name": "PersonaSplit + Base64", "converters": ["PersonaSplitConverter", "Base64Converter"]},
+    {"name": "PersonaSplit + ZeroWidth", "converters": ["PersonaSplitConverter", "ZeroWidthConverter"]},
+
+    # P1: 间接提示注入
+    {"name": "Indirect_Injection", "converters": ["IndirectPromptInjectionConverter"]},
+    {"name": "Indirect_Injection + Base64", "converters": ["IndirectPromptInjectionConverter", "Base64Converter"]},
+    {"name": "Indirect_Injection + RAG", "converters": ["IndirectPromptInjectionConverter", "RAGPoisoningConverter"]},
+
+    # P1: 多轮状态操纵
+    {"name": "MultiTurn_State_Manip", "converters": ["MultiTurnStateManipulationConverter"]},
+    {"name": "MultiTurn + Base64", "converters": ["MultiTurnStateManipulationConverter", "Base64Converter"]},
+
+    # P1: 真实多模态攻击
+    {"name": "Real_Multimodal_Image", "converters": ["RealMultimodalConverter"]},
+    {"name": "Real_Multimodal + Base64", "converters": ["RealMultimodalConverter", "Base64Converter"]},
+    {"name": "Real_Multimodal + ZeroWidth", "converters": ["RealMultimodalConverter", "ZeroWidthConverter"]},
+
+    # P2: Token 隐写
+    {"name": "Token_Smuggling", "converters": ["TokenSmugglingConverter"]},
+    {"name": "Token_Smug + Base64", "converters": ["TokenSmugglingConverter", "Base64Converter"]},
+    {"name": "Token_Smug + PAIR", "converters": ["TokenSmugglingConverter", "PAIRJailbreakConverter"]},
+
+    # P2: Prompt 压缩绕过
+    {"name": "Prompt_Compression", "converters": ["PromptCompressionBypassConverter"]},
+    {"name": "Prompt_Comp + Base64", "converters": ["PromptCompressionBypassConverter", "Base64Converter"]},
+
+    # P2: 递归自改进
+    {"name": "Recursive_Self_Improve", "converters": ["RecursiveSelfImprovementConverter"]},
+    {"name": "Recursive_SI + Base64", "converters": ["RecursiveSelfImprovementConverter", "Base64Converter"]},
+
+    # ── P0-P2 跨层组合拳（高对抗）：自适应越狱 × GCG × 编码 × 绕过 ──
+    {"name": "LLM_Guided + GCG + Base64", "converters": ["LLMGuidedJailbreakConverter", "GCGSuffixAppendConverter", "Base64Converter"]},
+    {"name": "PersonaSplit + GCG + ZeroWidth", "converters": ["PersonaSplitConverter", "GCGSuffixAppendConverter", "ZeroWidthConverter"]},
+    {"name": "CodeNesting + LLM_Guided + Base64", "converters": ["CodeNestingBypassConverter", "LLMGuidedJailbreakConverter", "Base64Converter"]},
+    {"name": "Indirect_Inj + GCG + ROT13", "converters": ["IndirectPromptInjectionConverter", "GCGSuffixAppendConverter", "ROT13Converter"]},
+    {"name": "Payattention + PersonaSplit + ZeroWidth", "converters": ["PayattentionAttackConverter", "PersonaSplitConverter", "ZeroWidthConverter"]},
+    {"name": "MultiTurn + LLM_Guided + GCG", "converters": ["MultiTurnStateManipulationConverter", "LLMGuidedJailbreakConverter", "GCGSuffixAppendConverter"]},
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════

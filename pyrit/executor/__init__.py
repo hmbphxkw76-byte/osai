@@ -8,6 +8,11 @@ PyRIT Red Team — 攻击引擎模块
               MultimodalAttackConverter, TrainingPoisoningConverter,
               run_exploring_mode
 
+🆕 P0-P2 新模块:
+  - DynamicComboEngine: 动态组合生成引擎
+  - AdaptiveComboSelector: 自适应攻击策略选择器
+  - AttackDeduplicator: 请求级去重缓存
+
 import: from executor import DashboardState, classify_case, ...
 ===============================================================================
 """
@@ -23,6 +28,23 @@ from executor.sequence_attack import (
 )
 from executor.exploring import run_exploring_mode
 
+# 🆕 P0-P2 动态引擎模块
+from executor.dynamic_combo import (
+    DynamicComboEngine,
+    get_combo_engine,
+)
+from executor.adaptive_selector import (
+    AdaptiveComboSelector,
+    create_selector_from_probe,
+    ReconResult,
+    TargetArchitecture,
+    BanditScheduler,
+)
+from executor.dedup_cache import (
+    AttackDeduplicator,
+    get_deduplicator,
+)
+
 __all__ = [
     "PAYLOAD_VARS",
     "_resolve_template",
@@ -35,4 +57,14 @@ __all__ = [
     "MultimodalAttackConverter",
     "TrainingPoisoningConverter",
     "run_exploring_mode",
+    # 🆕 P0-P2
+    "DynamicComboEngine",
+    "get_combo_engine",
+    "AdaptiveComboSelector",
+    "create_selector_from_probe",
+    "ReconResult",
+    "TargetArchitecture",
+    "BanditScheduler",
+    "AttackDeduplicator",
+    "get_deduplicator",
 ]

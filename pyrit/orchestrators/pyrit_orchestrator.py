@@ -62,6 +62,9 @@ from pyrit.executor.attack import (
     AttackConverterConfig,
     AttackAdversarialConfig,
 )
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -209,16 +212,13 @@ class AttackConfig:
                 setattr(cfg, key, val)
         return cfg
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-
 # ── 项目内部模块 ──
 from executor.scorer import (
     CleanedSelfAskTrueFalseScorer,
     create_best_scorer,       # 🆕 智能评分器选择
     is_likely_refusal,        # 🆕 拒绝快速检测
 )
+from scoring.hybrid import HybridScorer, FastGrayscaleScorer, GrayscaleLevel  # 🆕 P0+P1 混合评分器
 from executor.template import _resolve_template
 from utils import ensure_results_dir, results_path, RESULTS_DIR
 
@@ -873,7 +873,24 @@ class PyRITNativeOrchestrator:
     # ═══════════════════════════════════════════════════════════════
 
     def _build_scoring_config(self, criterion: str, objective: str = "") -> AttackScoringConfig:
-        """构建评分器配置 — 🆕 根据攻击类型自动选择最优评分器。"""
+        """构建评分器配置 — 🆕 根据攻击类型自动选择最优评分器。
+
+        P0-P1 升级: 优先使用 HybridScorer 进行多维度交叉验证，
+        降级到 create_best_scorer 作为后备。
+        """
+        try:
+            # P0: 尝试使用混合评分器
+            from scoring.hybrid import HybridScorer
+            scorer = HybridScorer(
+                chat_target=self.scorer_target,
+                enable_llm_judge=True,
+                success_threshold=0.50,
+            )
+            return AttackScoringConfig(objective_scorer=scorer)
+        except Exception:
+            pass
+
+        # 降级: 使用原有的智能评分器
         scorer = create_best_scorer(
             chat_target=self.scorer_target,
             objective=objective,
@@ -955,6 +972,10 @@ class PyRITNativeOrchestrator:
         case_filter: set | None = None,
         exclude_filter: set | None = None,
         combo_filter: set | None = None,
+        use_adaptive_engine: bool = False,    # 🆕 P0: 是否启用自适应引擎
+        use_dedup_cache: bool = True,          # 🆕 P1: 是否启用去重缓存
+        target_vendor: str = "",               # 🆕 P0: 目标厂商（用于自适应优化）
+        enable_early_stop: bool = False,       # 🆕 P0: 是否启用早停
     ) -> list[dict]:
         """执行攻击战役。
 
@@ -965,6 +986,10 @@ class PyRITNativeOrchestrator:
             case_filter: 用例白名单（ID 集合）
             exclude_filter: 排除列表（ID 集合）
             combo_filter: (case_id, combo_name) 精确对过滤
+            use_adaptive_engine: 🆕 启用动态组合生成 + Bandit 调度
+            use_dedup_cache: 🆕 启用请求级去重
+            target_vendor: 🆕 目标厂商（openai/anthropic/google/deepseek/qwen/zhipu）
+            enable_early_stop: 🆕 启用 Greedy Early Stop
 
         Returns:
             攻击结果列表（与旧 engines 格式兼容）
@@ -1009,13 +1034,64 @@ class PyRITNativeOrchestrator:
                 return []
             console.print(f"[dim]🚫 已排除 {skipped} 个用例，剩余 {len(cases)} 个[/dim]")
 
+        # ── 🆕 P0: 自适应引擎初始化 ──
+        adaptive_selector = None
+        dedup = None
+
+        if use_adaptive_engine:
+            from executor.adaptive_selector import (
+                AdaptiveComboSelector, ReconResult, TargetArchitecture, create_selector_from_probe,
+            )
+            from executor.dynamic_combo import DynamicComboEngine, get_combo_engine
+
+            combo_engine = get_combo_engine()
+            adaptive_selector = AdaptiveComboSelector(
+                enable_bandit=True,
+                enable_early_stop=enable_early_stop,
+                enable_cross_case_share=True,
+            )
+            console.print(
+                Panel(
+                    f"[bold cyan]🧠 自适应引擎已启用[/bold cyan]\n"
+                    f"[dim]动态组合生成 + Bandit 调度 + 跨用例策略共享 + "
+                    f"{'早停' if enable_early_stop else '无早停'}[/dim]",
+                    style="bold cyan",
+                )
+            )
+
+        if use_dedup_cache:
+            from executor.dedup_cache import get_deduplicator
+            dedup = get_deduplicator()
+            console.print("[dim]🗄️  请求去重缓存已启用[/dim]")
+
         # ── 构建任务列表 ──
         from converters import GLOBAL_ATTACK_COMBINATIONS, resolve_converters
 
         _cf = set(combo_filter) if combo_filter else None
         tasks = []
         for case in cases:
-            raw_combos = case.get("attack_combos", GLOBAL_ATTACK_COMBINATIONS)
+            # 🆕 P0: 动态组合生成
+            if use_adaptive_engine and adaptive_selector:
+                from executor.dynamic_combo import get_combo_engine
+                engine = get_combo_engine()
+                dynamic_combos = engine.generate_combinations(
+                    target_vendor=target_vendor,
+                    max_depth=3,
+                )
+                # 架构过滤 + 排序
+                dynamic_combos = adaptive_selector.filter_by_architecture(dynamic_combos)
+                dynamic_combos = adaptive_selector.rank_combos(dynamic_combos)
+
+                # 取 Top-N 组合（平衡覆盖率和效率）
+                top_n = min(len(dynamic_combos), 50)
+                raw_combos = dynamic_combos[:top_n]
+                console.print(
+                    f"[dim]🎯 {case.get('id', '?')}: 动态生成 {len(raw_combos)} 个组合 "
+                    f"(top-{top_n} 已选择)[/dim]"
+                )
+            else:
+                raw_combos = case.get("attack_combos", GLOBAL_ATTACK_COMBINATIONS)
+
             combos = [
                 {
                     "name": c["name"],
@@ -1054,7 +1130,7 @@ class PyRITNativeOrchestrator:
         all_results = []
         total = len(tasks)
         console.print(
-            Panel(f"[bold]⚔️ 启动 PyRIT 原生攻击引擎 — {total} 个任务[/bold]", style="bold blue")
+            Panel(f"[bold]⚔️ 启动 PyRIT 原生攻击引擎 — {total} 个任务[/bold]{' [自适应引擎]' if use_adaptive_engine else ''}", style="bold blue")
         )
 
         progress = Progress(
@@ -1080,12 +1156,26 @@ class PyRITNativeOrchestrator:
                 "manyshot":     self._execute_manyshot_attack,
                 "skeleton_key": self._execute_skeleton_key_attack,
             }
+
+            # 🆕 P1: 去重检查
+            if dedup:
+                case_id = case.get("id", "")
+                objective = _resolve_template(case.get("objective", ""))
+                # 快速去重: 在调度级别检查
+                # 实际去重在 execute 方法中执行（需要完整的 converted_prompt）
+                pass
+
             coros.append(executor_map[task_type](case, combo, attack_target))
 
         from rich.live import Live
         from executor.dashboard import DashboardState
 
-        dashboard = DashboardState(total)
+        target_endpoint = getattr(attack_target, '_endpoint', '') or getattr(attack_target, 'endpoint', '') or ''
+        dashboard = DashboardState(
+            total,
+            target_url=target_endpoint,
+            current_phase=phase.value if isinstance(phase, AttackPhase) else str(phase),
+        )
 
         with Live(
             dashboard.get_layout(progress, task_id),
@@ -1100,11 +1190,48 @@ class PyRITNativeOrchestrator:
                 case_id = result.get("case_id", "?")
                 combo_name = result.get("combo_name", "?")
                 mode = result.get("mode", "?")
+
+                # 🆕 P0: 反馈给自适应引擎
+                if adaptive_selector:
+                    is_success = status == "SUCCESS"
+                    adaptive_selector.report_result(
+                        combo_name=combo_name,
+                        success=is_success,
+                        case_id=case_id,
+                    )
+                    # 跨用例推广
+                    if is_success:
+                        other_case_ids = [
+                            c.get("id", "") for c in cases
+                            if c.get("id", "") != case_id
+                        ]
+                        if other_case_ids:
+                            adaptive_selector.propagate_success(
+                                combo_name, other_case_ids[:5]
+                            )
+
                 dashboard.update(
                     status,
                     f"[{case_id}] {combo_name} ({mode}) -> {status}",
+                    result_data=result,
                 )
+                # 🆕 P0: 刷新实时专家指导
+                if dashboard.completed % 3 == 0 or status == "SUCCESS":
+                    dashboard.refresh_guidance()
                 live.update(dashboard.get_layout(progress, task_id))
+
+        # 🆕 P0: 自适应引擎统计
+        if adaptive_selector:
+            stats = adaptive_selector.get_stats()
+            console.print(
+                Panel(
+                    f"[bold cyan]🧠 自适应引擎统计[/bold cyan]\n"
+                    f"总体成功率: {stats['overall_success_rate']:.1%}\n"
+                    f"跨用例共享成功组合: {stats['global_success_combos']}\n"
+                    f"Top combos: {', '.join(f'{name}({score:.2f})' for name, score in stats['top_combos'][:5])}",
+                    style="bold cyan",
+                )
+            )
 
         console.print(
             f"\n[bold green]✅ PyRIT 战役完成: {len(all_results)} 个结果[/bold green]"
@@ -1124,6 +1251,10 @@ class PyRITNativeOrchestrator:
         case_filter: set | None = None,
         exclude_filter: set | None = None,
         combo_filter: set | None = None,
+        use_adaptive_engine: bool = False,
+        use_dedup_cache: bool = True,
+        target_vendor: str = "",
+        enable_early_stop: bool = False,
     ) -> list[dict]:
         """阶梯式门控攻击（替代旧 run_phased_campaign）。
 
@@ -1155,6 +1286,10 @@ class PyRITNativeOrchestrator:
             case_filter=case_filter,
             exclude_filter=exclude_filter,
             combo_filter=combo_filter,
+            use_adaptive_engine=use_adaptive_engine,
+            use_dedup_cache=use_dedup_cache,
+            target_vendor=target_vendor,
+            enable_early_stop=enable_early_stop,
         )
         probe_rate = _calc_success_rate(results_p)
         console.print(f"[bold]PROBE 阶段成功率: {probe_rate:.1%}[/bold]")
@@ -1178,6 +1313,10 @@ class PyRITNativeOrchestrator:
                 case_filter=case_filter,
                 exclude_filter=exclude_filter,
                 combo_filter=combo_filter,
+                use_adaptive_engine=use_adaptive_engine,
+                use_dedup_cache=use_dedup_cache,
+                target_vendor=target_vendor,
+                enable_early_stop=enable_early_stop,
             )
             single_rate = _calc_success_rate(results_s)
             console.print(f"[bold]单轮阶段成功率: {single_rate:.1%}[/bold]")
@@ -1208,6 +1347,10 @@ class PyRITNativeOrchestrator:
                 case_filter=case_filter,
                 exclude_filter=exclude_filter,
                 combo_filter=combo_filter,
+                use_adaptive_engine=use_adaptive_engine,
+                use_dedup_cache=use_dedup_cache,
+                target_vendor=target_vendor,
+                enable_early_stop=enable_early_stop,
             )
 
         console.print("\n[bold green]✅ 阶梯式门控攻击完成！[/bold green]")

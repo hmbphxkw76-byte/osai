@@ -6,7 +6,6 @@ PyRIT Red Team — 通用工具函数包 (Utils)
 
 子模块:
   helpers.py  — 路径工具 (ensure_results_dir, results_path, RESULTS_DIR)
-  logger.py   — 日志配置和初始化
   retry.py    — 重试逻辑 (is_retryable_error, backoff_delay)
 
 使用方式:

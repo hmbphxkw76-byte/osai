@@ -36,3 +36,8 @@ rich>=13.0,<15.0              # Rich 终端美化（Live/Table/Panel/Progress �
 pandas>=2.0,<3.0              # 数据处理与矩阵分析
 matplotlib>=3.7,<4.0          # 图表基础框架
 seaborn>=0.12,<1.0            # 热力图美化（success matrix heatmap）
+
+# ─────────────────────────────────────────────
+# Payload Web 管理界面
+# ─────────────────────────────────────────────
+flask>=3.0,<4.0               # Payload Browser (scripts/payload_browser.py)

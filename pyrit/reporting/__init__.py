@@ -10,18 +10,41 @@ PyRIT Red Team — 结果分析与报告生成（reporting 包）
   reporting/heatmap.py     — 热力图可视化（依赖 seaborn/matplotlib）
   reporting/terminal.py    — 终端 Rich 战报
   reporting/penetrating.py  — Markdown 渗透漏洞报告
+  reporting/standards_mapping.py — 🆕 P2: MITRE ATLAS / OWASP 标准对齐
 
 使用方式:
-  from reporting import analyze_and_visualize, print_detailed_report, generate_penetrating_report
+  from reporting import (
+      analyze_and_visualize, print_detailed_report, generate_penetrating_report,
+      get_standard_mapping, get_standards_for_attack_result, generate_standards_summary,
+  )
 ===============================================================================
 """
 from reporting.terminal import print_detailed_report
 from reporting.penetrating import generate_penetrating_report
+from reporting.standards_mapping import (
+    get_standard_mapping,
+    get_standards_for_attack_result,
+    generate_standards_summary,
+    CONVERTER_STANDARDS,
+    MITRE_ATLAS_TECHNIQUES,
+    OWASP_LLM_TOP10,
+    NIST_AI_RMF_MAPPING,
+    ATTACK_TO_NIST_RMF,
+)
 
 __all__ = [
     "analyze_and_visualize",
     "print_detailed_report",
     "generate_penetrating_report",
+    # 🆕 P2: 标准对齐
+    "get_standard_mapping",
+    "get_standards_for_attack_result",
+    "generate_standards_summary",
+    "CONVERTER_STANDARDS",
+    "MITRE_ATLAS_TECHNIQUES",
+    "OWASP_LLM_TOP10",
+    "NIST_AI_RMF_MAPPING",
+    "ATTACK_TO_NIST_RMF",
 ]
 
 

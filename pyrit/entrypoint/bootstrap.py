@@ -40,6 +40,9 @@ from targets.auto_probe import auto_probe_target_model, auto_probe_target_type
 from targets.target_type_probe import TargetTypeResult
 from converters import discover_converters, sync_pyrit_converters, GLOBAL_ATTACK_COMBINATIONS, CONVERTER_MAP
 from datasets.loader import load_payloads_module, apply_preset
+from datasets.vendor_payloads import (
+    detect_vendor_from_model_name, get_vendor_payloads, get_vendor_specific_vars,
+)  # 🆕 P0
 from executor import PAYLOAD_VARS
 from utils import ensure_results_dir, results_path
 
@@ -62,6 +65,8 @@ class BootstrapContext:
     exclude_filter: list[str] | None = None
     combo_filter: list | None = None
     effective_phase: str = "probe"
+    target_vendor: str = ""  # 🆕 P0: 目标厂商检测结果
+    use_adaptive_engine: bool = False  # 🆕 P0: 是否启用自适应引擎
 
 
 async def bootstrap_environment(args) -> BootstrapContext | None:
@@ -141,6 +146,55 @@ async def bootstrap_environment(args) -> BootstrapContext | None:
     # ── 8. 用例过滤 ──
     ctx.case_filter, ctx.exclude_filter, ctx.combo_filter, ctx.effective_phase = \
         _resolve_case_filters(args)
+
+    # ── 9. 🆕 P0: 自适应引擎 + 厂商检测 ──
+    ctx.use_adaptive_engine = getattr(args, 'adaptive', False)
+
+    if ctx.use_adaptive_engine:
+        console.print(
+            Panel(
+                "[bold cyan]🧠 自适应攻击引擎已启用[/bold cyan]\n"
+                "[dim]动态组合生成(300+) + Bandit 调度 + 厂商载荷 + 混合评分(0-1)[/dim]",
+                style="bold cyan",
+            )
+        )
+
+    model_name = ""
+    if ctx.attacker_config and ctx.attacker_config.get("model"):
+        model_name = ctx.attacker_config["model"]
+    elif ctx.target_type_result and ctx.target_type_result.model_name:
+        model_name = ctx.target_type_result.model_name
+    elif hasattr(args, 'target_model') and args.target_model:
+        model_name = args.target_model
+
+    # 厂商检测：CLI 显式指定优先，否则自动检测
+    vendor_from_cli = getattr(args, 'target_vendor', 'auto')
+    if vendor_from_cli and vendor_from_cli != "auto":
+        ctx.target_vendor = vendor_from_cli
+        console.print(
+            f"[bold cyan]🎯 目标厂商 (CLI 指定): {ctx.target_vendor.upper()}[/bold cyan]"
+        )
+    elif model_name:
+        ctx.target_vendor = detect_vendor_from_model_name(model_name)
+
+    if ctx.target_vendor and ctx.target_vendor != "unknown":
+        vendor_payloads = get_vendor_payloads(ctx.target_vendor)
+        if vendor_payloads:
+            console.print(
+                f"[bold cyan]🎯 目标厂商检测: {ctx.target_vendor.upper()} "
+                f"({vendor_payloads.get('model_family', '')})[/bold cyan]"
+            )
+            console.print(
+                f"   [dim]已知弱点: {', '.join(vendor_payloads.get('known_weaknesses', [])[:3])}...[/dim]"
+            )
+            console.print(
+                f"   [dim]推荐转换器: {', '.join(vendor_payloads.get('recommended_converters', [])[:5])}[/dim]"
+            )
+
+        # 注入厂商特定 payload 变量
+        vendor_vars = get_vendor_specific_vars(ctx.target_vendor)
+        if vendor_vars:
+            PAYLOAD_VARS.update(vendor_vars)
 
     return ctx
 

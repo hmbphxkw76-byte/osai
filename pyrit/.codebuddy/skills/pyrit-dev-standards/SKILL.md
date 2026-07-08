@@ -8,15 +8,15 @@ description: >
 
 # PyRIT 研发规范（CodeBuddy Skill）
 
-> **唯一真实来源**: 框架级规范目录 `docs/dev-standards/`（入口: `README.md`）。
-> 此 skill 是 CodeBuddy 入口层，实际规范内容以 `docs/dev-standards/` 为准，兼容所有 IDE。
+> **唯一真实来源**: 框架级规范目录 `contributing/`（入口: `README.md`）。
+> 此 skill 是 CodeBuddy 入口层，实际规范内容以 `contributing/` 为准，兼容所有 IDE。
 
 ## 使用方式
 
 当触发此 skill 时，CodeBuddy 应：
 
-1. **读取** `docs/dev-standards/README.md` — 七章核心规范（核心理念、代码组织、命名、配置、YAML、Python 规范、依赖管理）
-2. **按需读取** `docs/dev-standards/` 下的参考资料：
+1. **读取** `contributing/README.md` — 七章核心规范（核心理念、代码组织、命名、配置、YAML、Python 规范、依赖管理）
+2. **按需读取** `contributing/` 下的参考资料：
    - `architecture-design.md` — 架构分层与 5 种设计模式
    - `config-patterns.md` — 配置管理模式与实战示例
    - `yaml-patterns.md` — YAML 三层体系与加载器模式

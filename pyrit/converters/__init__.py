@@ -79,6 +79,24 @@ from converters.reasoning import CoTReasoningExtractionConverter, ConstitutionJa
 # ── 🆕 P0+P1+P2 新增转换器 ──
 from converters.rag_poisoning import RAGPoisoningConverter
 from converters.embedding_attack import EmbeddingAdversarialAttack
+from converters.jailbreak import ManyShotJailbreakConverter, FlipAttackConverter
+
+# P0: 自适应 + GCG
+from converters.adaptive import (
+    LLMGuidedJailbreakConverter,
+    PayattentionAttackConverter,
+    CodeNestingBypassConverter,
+    PersonaSplitConverter,
+    IndirectPromptInjectionConverter,
+    MultiTurnStateManipulationConverter,
+    TokenSmugglingConverter,
+    PromptCompressionBypassConverter,
+    RecursiveSelfImprovementConverter,
+)
+from converters.gcg_suffix import GCGSuffixAppendConverter, GCGAdaptiveSuffixConverter
+
+# P1: 真实多模态
+from converters.multimodal_attack import RealMultimodalConverter
 
 __all__ = [
     # ── 全局注册表（main.py 主要 import） ──
@@ -102,6 +120,8 @@ __all__ = [
     "AIMJailbreakConverter",
     "AcademicResearchConverter",
     "DeveloperModeConverter",
+    "ManyShotJailbreakConverter",
+    "FlipAttackConverter",
     # ── 注入类 ──
     "SuffixAppendConverter",
     "JSONStructuredOutputHijackConverter",
@@ -112,7 +132,22 @@ __all__ = [
     # ── 推理/宪法类 ──
     "CoTReasoningExtractionConverter",
     "ConstitutionJailbreakConverter",
-    # ── 🆕 P0+P1+P2 ──
+    # ── 🆕 P0: 自适应 + GCG ──
+    "LLMGuidedJailbreakConverter",
+    "GCGSuffixAppendConverter",
+    "GCGAdaptiveSuffixConverter",
+    # ── 🆕 P1: 新绕过器 ──
+    "PayattentionAttackConverter",
+    "CodeNestingBypassConverter",
+    "PersonaSplitConverter",
+    "IndirectPromptInjectionConverter",
+    "MultiTurnStateManipulationConverter",
+    "RealMultimodalConverter",
+    # ── 🆕 P2: 高级绕过 ──
+    "TokenSmugglingConverter",
+    "PromptCompressionBypassConverter",
+    "RecursiveSelfImprovementConverter",
+    # ── 已有 P0-P2 ──
     "RAGPoisoningConverter",
     "EmbeddingAdversarialAttack",
 ]

@@ -104,6 +104,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=["multi", "capstone", "all"], default="capstone",
                         help="[Deprecated] Legacy mode flag, use --phase instead")
 
+    # ── 🆕 P0-P2: 自适应攻击引擎参数 ──
+    parser.add_argument("--adaptive", action="store_true", default=False,
+                        help="启用自适应攻击引擎（动态组合生成 + Bandit 调度 + 厂商载荷 + 混合评分）")
+    parser.add_argument("--target-vendor", type=str, default="auto",
+                        choices=["auto", "openai", "anthropic", "google", "deepseek", "qwen", "zhipu"],
+                        help="目标模型厂商: auto(自动检测)/openai/anthropic/google/deepseek/qwen/zhipu")
+    parser.add_argument("--use-dedup-cache", action="store_true", default=False,
+                        help="启用请求去重缓存（节省 Token，加速批量测试）")
+    parser.add_argument("--enable-early-stop", action="store_true", default=False,
+                        help="启用贪婪提前终止（连续成功即停止当前用例）")
+
     # ── 模板模式参数 ──
     parser.add_argument("--exploring-template", type=str, default="",
                         help="[探索模板] 指定 YAML 模板文件，快速测试 converter 链的突破效果")
@@ -136,5 +147,11 @@ def _build_epilog() -> str:
         "  # [8] 攻击 Claude API (非 OpenAI 格式)\n"
         "  python main.py --lang cn --target-url https://api.anthropic.com/v1/messages --target-api-key YOUR_KEY --target-api-format claude --target-model claude-3-sonnet-20240229 --phase probe\n\n"
         "  # [9] 原方式：不指定 --target-url → 探测 .env 中配置的 LLM API\n"
-        "  python main.py --lang cn --phase all"
+        "  python main.py --lang cn --phase all\n\n"
+        "  # [10] [NEW] 自适应攻击引擎：动态组合 + Bandit 调度 + 厂商载荷\n"
+        "  python main.py --lang cn --target-url http://192.168.2.199:8501/v1/chat/completions --adaptive --phase single\n\n"
+        "  # [11] [NEW] 自适应 + 去重缓存 + 提前终止 + 指定厂商\n"
+        "  python main.py --lang cn --target-url http://192.168.2.199:8501/v1/chat/completions --adaptive --target-vendor openai --use-dedup-cache --enable-early-stop --phase all\n\n"
+        "  # [12] [NEW] 自适应门控攻击\n"
+        "  python main.py --lang cn --target-url http://192.168.2.199:8501/v1/chat/completions --adaptive --auto-gate --phase all"
     )

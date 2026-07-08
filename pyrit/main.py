@@ -49,6 +49,9 @@ PyRIT Red Team — 统一红队演练平台 (v10.0 — PyRIT Native Orchestrator
   渗透模式: python main.py --penetrating-mode --penetrating-template penetrating_prompts.yaml
 
   回退旧版引擎: 添加 --orch legacy 回到旧版引擎
+
+  报告输出: 所有攻击模式完成后自动生成 10 章标准渗透报告（TLP:AMBER 封面 + 执行摘要 + 方法论 + RCA + 修复时间线）
+    产物路径: outputs/results/PyRIT_RedTeam_*_Report_*.md / *_Exam_Report_*.md / *_log_*.json
 ===============================================================================
 """
 import asyncio

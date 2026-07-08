@@ -234,29 +234,101 @@ STAGE 3: Crescendo 多轮攻坚
 
 ## 5. 输出产物
 
-渗透结束后自动生成：
+渗透结束后自动生成（两种路径均自动触发报告生成）：
 
 ```
-outputs/
-├── pyrit_redteam_penetrating_memory_20260707_223000.db    # PyRIT Memory (SQLite)
-├── reports/
-│   ├── PyRIT_RedTeam_Penetrating_Mode_report.md           # 综合安全评估报告
-│   └── PyRIT_RedTeam_Penetrating_Mode_log.json            # 完整攻击日志
-└── heatmaps/
-    ├── pyrit_redteam_probe_heatmap.png                     # PROBE 阶段热力图
-    ├── pyrit_redteam_single_heatmap.png                    # 单轮攻击热力图
-    └── pyrit_redteam_crescendo_heatmap.png                 # Crescendo 热力图
+outputs/results/
+├── pyrit_redteam_memory_{timestamp}.db                    # PyRIT Memory (SQLite)
+├── PyRIT_RedTeam_Penetrating_Mode_log_{timestamp}.json    # 完整攻击日志
+└── PyRIT_RedTeam_Penetrating_Mode_Report_{timestamp}.md   # 综合安全评估报告（10 章完整结构）
 ```
 
-### 5.1 报告内容
+> 热力图仅在使用 `--phase` 的原生攻击路径中生成，输出到 `outputs/results/pyrit_redteam_{phase}_heatmap_{timestamp}.png`。
 
-Markdown 报告包含：
-- **执行摘要**：成功率、命中率、漏洞严重性分布
-- **漏洞详情与攻击证据**：每个成功攻击的 Payload → Response → Score 完整链路
-- **防御统计**：成功防御的攻击向量列表
-- **下一步攻击命令**：基于已发现漏洞的自动后续攻击建议
-- **修复建议**：按 OWASP LLM Top 10 分类的加固建议
-- **前沿漏洞攻击统计**：Frontier 路径的攻击效果
+### 5.1 报告内容（对齐 OSCP + AI Red Team 行业标准）
+
+Markdown 报告为 10 章完整结构，满足专业渗透测试报告交付要求：
+
+| 章节 | 标题 | 内容 |
+|------|------|------|
+| §0 | **封面页 / 文档控制** | TLP:AMBER 标记、报告编号、评估员、保密声明、版本号 |
+| §1 | **执行摘要** | 总体态势面板 + ASR by Category Dashboard + 严重度分布 + 测试范围 |
+| §2 | **测试方法论** | 6 阶段标准化流程说明 + 工具链矩阵（PyRIT/SQLiteMemory/Seaborn/Rich） |
+| §3 | **攻击策略效果矩阵** | 策略 × 命中率矩阵 + 变体类型 × 命中率矩阵 |
+| §4 | **漏洞详情与攻击证据** | 每个突破漏洞的：Prompt → Response → Score 完整链路 + **AI 专项严重度**（Blast Radius / Autonomy / Recoverability） |
+| §5 | **攻击链叙事** | 按策略分组展示攻击链路、关键突破节点、证据置信度评估 |
+| §6 | **根因分析 (RCA)** | 被突破类别 → 失效根因 → 目标防护机制 → 失效原因 → CWE 映射 |
+| §7 | **防御统计** | 成功防御的攻击向量清单（按提示词分组） |
+| §8 | **修复方案** | OWASP LLM Top 10 分类加固 + 针对性专项修复 + P0-P3 分级时间线 |
+| §9 | **结论与经验教训** | 关键发现总结 + 最有效攻击向量 + 后续建议 |
+| §10 | **附录** | 模板概览（JSON） + 测试配置 + 载荷清单（含 OWASP 映射） |
+
+### 5.2 TLP 标记
+
+报告默认使用 **TLP:AMBER** （FIRST Traffic Light Protocol），仅限接收方组织内部共享，不得对外公开。报告封面页会显著显示此标记。
+
+### 5.3 AI 专项严重度指标（§4 漏洞详情中）
+
+每个被突破的漏洞包含三项 AI 红队特有严重度指标：
+
+| 指标 | 含义 | 取值示例 |
+|------|------|----------|
+| **Blast Radius** (影响范围) | 攻击影响可扩散的范围 | Single-user / Multi-user / Tenant-wide |
+| **Autonomy** (自主程度) | 攻击自动化程度 | Human-in-the-loop / Agent-mediated / Full Autonomous |
+| **Recoverability** (恢复代价) | 修复需要的投入 | Low effort / Moderate effort / High effort |
+
+### 5.4 根因分析 (RCA) 知识库（§6）
+
+系统内置 9 类攻击的预固化根因分析映射，包括：
+- `jailbreak` / `extraction` / `encoding` / `roleplay` — 语义/编码绕过
+- `rag_exploit` / `rag_poison` — RAG 管道缺陷
+- `agent_hijack` / `multi_agent` — 多智能体通信安全
+- `tool_use` / `infra_attack` / `supply_chain` — 基础设施与供应链
+
+每条 RCA 包含**失效根因 → 目标防护 → 失效原因**三段式结构，并映射到 CWE-840 等标准分类。
+
+### 5.5 报告生成命令
+
+报告生成已深度集成到攻击流程中，**攻击完成后自动生成**，无需额外命令：
+
+```bash
+# 渗透模式 — 攻击完成自动输出 10 章报告
+python main.py --penetrating-mode --penetrating-template penetrating_prompts.yaml
+
+# 原生 Phase 模式 — 攻击完成自动输出报告（Markdown + 热力图 + JSON）
+python main.py --lang cn --target-url http://192.168.2.199:8501/v1/chat/completions --phase single
+
+# 自动门控模式 — 阶梯式攻击完成后自动生成报告
+python main.py --lang cn --target-url http://192.168.2.199:8501/v1/chat/completions --auto-gate
+```
+
+### 5.6 编程接口（高级用法）
+
+如需程序化生成报告（例如从已有 JSON 日志重建），可使用以下 API：
+
+```python
+from scenarios.reporter import PenetratingSecurityReporter
+from scenarios.schema import PenetratingPromptSet
+
+# 从模板重建
+template = PenetratingPromptSet.from_yaml_file("scenarios/templates/penetrating_prompts.yaml")
+reporter = PenetratingSecurityReporter(template)
+
+# 生成报告（可选传入 engagement_meta 填充目标信息）
+report_paths = reporter.generate_all(
+    results,
+    campaign_name="My_Custom_Campaign",
+    engagement_meta={
+        "target_url": "https://api.example.com/v1/chat",
+        "target_model": "gpt-4-turbo",
+        "assessor": "Red Team Operator",
+        "days": 5,
+    },
+)
+# → {"markdown": "outputs/results/...", "json": "outputs/results/...", "terminal_printed": True}
+```
+
+> `engagement_meta` 的字段会填入报告封面页（评估员、目标端点、目标模型等元数据），未传入则使用默认值。
 
 ### 5.2 SQLite Memory 持久化
 
@@ -318,4 +390,4 @@ Ollama 是本地单 GPU 串行推理，**必须**设置 `max_concurrent: 1`：
 ```bash
 python main.py --penetrating-mode --target-url http://192.168.40.198:11434/v1 --concurrent 1
 ```
-`ollama_detector.py` 会自动识别 Ollama 实例并强制单并发。
+Ollama 检测内置于 `targets/model_probe.py` 的模型探测流程中（通过 `/api/tags` 端点 + IP 地址推断），会自动识别 Ollama 实例；手动使用时仍需显式设置 `--concurrent 1`。

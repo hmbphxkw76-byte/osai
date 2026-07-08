@@ -288,9 +288,32 @@ rich>=13.0,<15.0           # 终端 UI
 
 ---
 
-## 八、参考资料
+## 八、执行期专家指导规范
+
+### 8.1 三阶段指导模型
+
+```
+Stage 1: 探测后 (Pre-Execution)  → targets/target_type_probe.py
+Stage 2: 执行中 (In-Execution)   → executor/dashboard.py + utils/guidance.py
+Stage 3: 执行后 (Post-Execution) → reporting/engine.py + reporting/terminal.py
+```
+
+### 8.2 Stage 2 执行中指导设计要求
+
+- **实时仪表盘集成**: Dashboard 新增 `guidance` 面板，每次攻击完成后刷新
+- **纯函数生成**: 指导逻辑放在 `utils/guidance.py` 独立纯函数，不耦合 UI
+- **数据驱动**: 基于已完成攻击结果（成功率、突破组合、失败模式）动态生成
+- **可复制命令**: 所有推荐必须是可直接 `复制粘贴` 执行的 CLI 命令
+- **渐进降级**: 即使无有效结果也显示通用建议，不出现空面板
+
+详细参见: `execution-guidance.md`
+
+---
+
+## 九、参考资料
 
 详细模式说明和示例参见：
 - `architecture-design.md` — 架构分层与数据流详解
 - `config-patterns.md` — 配置管理模式与实战示例
 - `yaml-patterns.md` — YAML 驱动开发完整模式
+- `execution-guidance.md` — 执行期专家指导规范（三阶段模型、仪表盘集成）
