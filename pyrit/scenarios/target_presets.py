@@ -323,19 +323,9 @@ def _log_target_summary(target: CustomHttpChatTarget, preset: Optional[dict]) ->
 
 
 def _to_openai_base_url(raw_url: str, api_format: str) -> str:
-    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。"""
-    from urllib.parse import urlparse
-    import re
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url。
 
-    url = raw_url.rstrip("/")
-    parsed = urlparse(url)
-
-    if api_format == "ollama":
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        return f"{base}/v1"
-
-    if not url.endswith("/v1"):
-        url = re.sub(r'/(chat/completions|completions)$', '', url)
-        if not url.endswith("/v1"):
-            url = url.rstrip("/") + "/v1"
-    return url
+    委托给 utils.target_url.to_openai_base_url()。
+    """
+    from utils.target_url import to_openai_base_url as _impl
+    return _impl(raw_url, api_format)

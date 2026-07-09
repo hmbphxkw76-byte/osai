@@ -84,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "优先级: --auth > --auth-file > PYRIT_AUTH 环境变量")
     parser.add_argument("--ssl-skip", action="store_true", default=False,
                         help="跳过 SSL 证书验证（https:// 目标自动启用，无需手动指定）")
+    parser.add_argument("--tls-impersonate", type=str, default="",
+                        choices=["", "chrome110", "chrome120", "chrome124",
+                                 "safari17_0", "firefox120", "edge110"],
+                        help="TLS 指纹伪装 (curl_cffi)，绕过 WAF/反爬的 JA3/JA4 检测。\n"
+                             "可选: chrome124(推荐)/chrome120/chrome110/safari17_0/firefox120/edge110\n"
+                             "需要: pip install curl_cffi")
     parser.add_argument("--no-probe", action="store_true", default=False,
                         help="跳过模型自动探测 + 端点枚举 + 架构识别")
     parser.add_argument("--scenario", type=str, default="",

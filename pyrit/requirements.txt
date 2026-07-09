@@ -27,6 +27,8 @@ httpx>=0.27,<1.0               # 现代 HTTP 客户端（http_target / model_pro
 openai>=1.0,<3.0               # OpenAI Python SDK（OpenAICompatibleTarget 核心：原生重试、流控、错误分类）
 google-genai>=1.0,<2.0          # Google GenAI SDK（GeminiTarget 核心，替代已弃用的 google-generativeai）
 anthropic>=0.40,<1.0           # Anthropic SDK（ClaudeTarget 核心）
+curl_cffi>=0.7,<1.0            # TLS 指纹伪装（可选。被 WAF/反爬拦截时自动切换，绕过 JA3/JA4 指纹检测）
+PyJWT>=2.8,<3.0                # JWT 解析（可选。自动检测 Token 有效期，攻击前过期预警）
 
 # ─────────────────────────────────────────────
 # 环境变量管理

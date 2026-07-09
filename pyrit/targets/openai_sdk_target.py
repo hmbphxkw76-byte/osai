@@ -42,7 +42,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-import httpx
 from openai import AsyncOpenAI
 from rich.console import Console
 
@@ -51,6 +50,7 @@ from pyrit.models import MessagePiece
 from pyrit.models.messages.message import Message
 
 from utils import DEFAULT_MODEL_NAME
+from utils.http_transport import create_http_client
 
 console = Console()
 
@@ -80,6 +80,7 @@ class OpenAICompatibleTarget(PromptTarget):
         verify_ssl: bool = True,
         extra_headers: Optional[dict] = None,
         max_retries: int = 2,
+        tls_impersonate: Optional[str] = None,
     ):
         """初始化 OpenAI 兼容 Target。
 
@@ -93,6 +94,7 @@ class OpenAICompatibleTarget(PromptTarget):
             verify_ssl: HTTPS 证书校验（内网自签证书设为 False）
             extra_headers: 额外 HTTP 请求头
             max_retries: SDK 自动重试次数（0 为不重试）
+            tls_impersonate: TLS 指纹伪装 profile (chrome124/safari17_0/...)
         """
         super().__init__(
             endpoint=base_url.rstrip("/"),
@@ -103,12 +105,12 @@ class OpenAICompatibleTarget(PromptTarget):
         self._max_tokens = max_tokens
         self._base_url = base_url.rstrip("/")
 
-        # 构建 httpx 客户端（用于 SSL 跳过等渗透场景参数）
-        httpx_kwargs: dict = {"timeout": httpx.Timeout(timeout)}
-        if not verify_ssl:
-            httpx_kwargs["verify"] = False
-
-        self._async_http_client = httpx.AsyncClient(**httpx_kwargs)
+        # 构建 httpx 客户端（httpx 核心 + 可选 curl_cffi TLS 伪装）
+        self._async_http_client = create_http_client(
+            verify_ssl=verify_ssl,
+            tls_impersonate=tls_impersonate,
+            timeout=timeout,
+        )
 
         self._client = AsyncOpenAI(
             base_url=self._base_url,

@@ -4,25 +4,25 @@
 
 /* ── 变量 ── */
 :root {
-  --bg: #0f1923;
-  --bg-sidebar: #162231;
-  --bg-card: #1a2d3d;
-  --bg-card-hover: #1f3548;
-  --bg-input: #12202d;
-  --text: #e0e6ed;
-  --text-dim: #7b8ea1;
-  --text-muted: #556677;
-  --green: #43d18c;
-  --red: #f0616d;
-  --yellow: #e2b93b;
-  --blue: #4da6ff;
-  --cyan: #3dd6d0;
-  --purple: #b388ff;
-  --border: #243447;
-  --border-light: #2a4055;
+  --bg: #f5f6f8;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #eef1f5;
+  --bg-input: #ffffff;
+  --text: #1a1a2e;
+  --text-dim: #6b7280;
+  --text-muted: #9ca3af;
+  --green: #16a34a;
+  --red: #dc2626;
+  --yellow: #d97706;
+  --blue: #2563eb;
+  --cyan: #0891b2;
+  --purple: #7c3aed;
+  --border: #e5e7eb;
+  --border-light: #d1d5db;
   --radius: 8px;
   --radius-sm: 4px;
-  --shadow: 0 2px 8px rgba(0,0,0,0.25);
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
   --mono: "SF Mono", Consolas, "Courier New", monospace;
 }
@@ -154,7 +154,7 @@ body {
 .action-btn {
   padding: 6px 14px;
   background: var(--green);
-  color: #0f1923;
+  color: #ffffff;
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -260,8 +260,8 @@ body {
 .sensitive-warning {
   margin-top: 12px;
   padding: 12px 16px;
-  background: rgba(226, 185, 59, 0.1);
-  border: 1px solid rgba(226, 185, 59, 0.3);
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.2);
   border-radius: var(--radius);
   font-size: 12px;
   color: var(--yellow);
@@ -379,10 +379,33 @@ body {
 .probe-error {
   margin-top: 8px;
   padding: 8px 12px;
-  background: rgba(240, 97, 109, 0.1);
+  background: rgba(220, 38, 38, 0.08);
   border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--red);
+}
+.probe-hint {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--blue);
+  line-height: 1.5;
+}
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+}
+.checkbox-label input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: var(--cyan);
 }
 .probe-step {
   display: flex;
@@ -400,7 +423,7 @@ body {
 .model-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .model-tag {
   padding: 3px 10px;
-  background: rgba(61, 214, 208, 0.12);
+  background: rgba(8, 145, 178, 0.1);
   color: var(--cyan);
   border-radius: 12px;
   font-size: 11px;
@@ -463,9 +486,9 @@ body {
   animation: slideIn 0.25s;
   max-width: 360px;
 }
-.toast.success { background: #1b5e37; color: #a5d6a7; }
-.toast.error   { background: #5e1b2a; color: #ef9a9a; }
-.toast.info    { background: #1b3a5e; color: #90caf9; }
+.toast.success { background: #dcfce7; color: #166534; }
+.toast.error   { background: #fef2f2; color: #991b1b; }
+.toast.info    { background: #eff6ff; color: #1e40af; }
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
@@ -474,8 +497,8 @@ body {
 /* ── 滚动条 ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
 /* ── 响应式 ── */
 @media (max-width: 768px) {
@@ -483,4 +506,117 @@ body {
   .sidebar { width: 100%; min-width: 100%; height: auto; max-height: 35vh; }
   .main { height: 65vh; }
   .toolbar { flex-wrap: wrap; }
+}
+
+/* ==========================================================================
+   目标配置向导样式
+   ========================================================================== */
+.target-config-card {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.target-config-card h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.target-config-hint {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 18px;
+}
+.target-config-hint code {
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.target-form-row {
+  margin-bottom: 14px;
+}
+.target-form-row label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+.target-form-row input[type=text],
+.target-form-row select {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+}
+.target-form-row input[type=text]:focus,
+.target-form-row select:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+.target-section {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.target-section h4 {
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+.target-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.target-actions.footer {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.test-result .success {
+  color: var(--green);
+}
+.test-result .error {
+  color: var(--red);
+}
+/* 自动探测结果区域 */
+.auto-detect-result .success { color: var(--green); }
+.auto-detect-result .error  { color: var(--red); }
+.auto-detect-result .warn   { color: var(--yellow); }
+.model-tags {
+  margin-top: 8px;
+}
+.endpoint-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.endpoint-table th,
+.endpoint-table td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.endpoint-table th {
+  background: var(--bg-input);
+  color: var(--text-dim);
+}
+.small-btn {
+  padding: 4px 10px;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+}
+.small-btn:hover {
+  background: var(--border-light);
 }

@@ -1,43 +1,66 @@
 """
 ===============================================================================
-PyRIT Config Center — 入口脚本
+PyRIT Config Center — Flask 应用工厂 + CLI 入口
 ===============================================================================
 基于 Flask，提供 Web 界面管理 configs/ 目录下的所有环境变量配置文件。
-功能：
-  1. 浏览并编辑 shared.env / platforms.env / targets.env / recons.env
-  2. 管理 configs/tokens/ 下的临时凭证文件
-  3. 语法校验 + %(VAR)s 插值完整性检查
-  4. 目标端点连通性探测 + API 类型识别 + 模型枚举
-  5. 就绪检查 — 确保所有配置完整后再进入攻击阶段
 
 启动方式:
-  python scripts/config_center.py              # 默认 http://127.0.0.1:5051
-  python scripts/config_center.py --port 8080  # 自定义端口
-  python scripts/config_center.py --debug      # 调试模式
+  python -m configs.server                    # http://127.0.0.1:5051
+  python -m configs.server --port 8080        # 自定义端口
+  python run_config_center.py                 # 根目录快捷启动（同效）
 
 目录结构:
-  scripts/config_center/          ← Web 框架包
-  ├── __init__.py                  ← create_app() 工厂
-  ├── routes.py                    ← API 路由 (Blueprint)
+  configs/server/                 ← Web 框架包
+  ├── __init__.py                  ← create_app() + main() 入口（本文件）
+  ├── routes.py                    ← API 路由 (Blueprint) + 探测逻辑 + auto-configure
   ├── utils.py                     ← 配置读写与校验
-  ├── readiness_probe.py           ← 目标探测聚合层（委托 targets/ 层）
-  ├── templates/index.html         ← 前端页面
+  ├── target_config.py             ← 目标配置 & SDK 连接测试
+  ├── templates/index.html         ← 前端 SPA
   └── static/style.css             ← 样式
 
-依赖: flask, httpx, configparser (全部已在 requirements.txt 中，零新增)
+依赖: flask, httpx, configparser（全部已在 requirements.txt 中）
 ===============================================================================
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
-# 确保项目根目录在 sys.path 中
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_PROJECT_ROOT))
+from flask import Flask
 
-from scripts.config_center import create_app
+_PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def create_app() -> Flask:
+    """创建并配置 Flask 应用"""
+    app = Flask(
+        __name__,
+        template_folder=str(_PACKAGE_DIR / "templates"),
+        static_folder=str(_PACKAGE_DIR / "static"),
+    )
+
+    from .routes import bp
+    app.register_blueprint(bp)
+
+    return app
+
+
+def run_async(coro):
+    """同步包装器 — 在 Flask 同步路由中运行异步协程"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+            except ImportError:
+                pass
+            return loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 def main():
@@ -54,7 +77,6 @@ def main():
                         help="不自动打开浏览器 (默认自动打开)")
     args = parser.parse_args()
 
-    # 安全检查：绑定 0.0.0.0 时显式警告
     if args.host in ("0.0.0.0", "::"):
         print("\n" + "=" * 60)
         print("  ⚠️  安全警告: 正在监听所有网络接口 (0.0.0.0)")
@@ -68,10 +90,9 @@ def main():
     if args.host == "0.0.0.0":
         url = f"http://localhost:{args.port}"
 
-    # 使用 ANSI 兼容字符，避免 Windows GBK 编码错误
     banner = f"""
 ╔══════════════════════════════════════════════════════════╗
-║        PyRIT Config Center v1.0                         ║
+║        PyRIT Config Center v2.0                         ║
 ║                                                          ║
 ║  打开浏览器访问: {url:<40} ║
 ║                                                          ║
@@ -81,6 +102,7 @@ def main():
 ║    [#] 凭证管理 -- api_key / jwt / cookie 文件           ║
 ║    [~] 目标探测 -- 连通性 / API 类型 / 模型枚举         ║
 ║    [=] 就绪检查 -- 配置完整性 + 目标可达性               ║
+║    [>>] 一键配置 -- URL → 探测 → 自动填充（端到端）     ║
 ║                                                          ║
 ║  按 Ctrl+C 停止服务                                      ║
 ╚══════════════════════════════════════════════════════════╝

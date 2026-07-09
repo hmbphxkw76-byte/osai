@@ -126,14 +126,16 @@ def build_custom_target(
     jwt_token: str = "",
     user_agent: str = "",
     extra_headers: Optional[dict] = None,
+    tls_impersonate: Optional[str] = None,
 ) -> CustomHttpChatTarget | OpenAICompatibleTarget | GeminiTarget | ClaudeTarget:
-    """根据场景预设 + CLI 覆盖参数构建 CustomHttpChatTarget。
+    """根据场景预设 + CLI 覆盖参数构建 Target。
 
     优先级: CLI 显式参数 > 场景预设 > 函数默认值
 
     Args:
         endpoint: 目标 URL（必填）
         scenario: 场景预设 ID（可选，如 "jwt-bearer"）
+        tls_impersonate: TLS 指纹伪装 profile (chrome124/safari17_0/...)
         其余参数与 CustomHttpChatTarget 构造函数一致
     """
     extra_headers = dict(extra_headers or {})
@@ -233,9 +235,11 @@ def build_custom_target(
             api_key=api_key,
             model=model,
             temperature=0.9,
-            timeout=60,
+            max_tokens=1024,
+            timeout=120,
             verify_ssl=effective["verify_ssl"],
             extra_headers=final_headers if final_headers else None,
+            tls_impersonate=tls_impersonate,
         )
 
     # Gemini → Google Generative AI SDK
@@ -248,7 +252,7 @@ def build_custom_target(
             api_key=api_key,
             model=model,
             temperature=0.9,
-            timeout=60,
+            timeout=120,
         )
 
     # Claude → Anthropic SDK
@@ -261,8 +265,9 @@ def build_custom_target(
             api_key=api_key,
             model=model,
             temperature=0.9,
-            timeout=60,
+            timeout=120,
             verify_ssl=effective["verify_ssl"],
+            tls_impersonate=tls_impersonate,
         )
 
     # raw → CustomHttpChatTarget（仅非标准 API 兜底）
@@ -271,13 +276,14 @@ def build_custom_target(
         api_key=api_key,
         model=model,
         temperature=0.9,
-        timeout=60,
+        timeout=120,
         verify_ssl=effective["verify_ssl"],
         api_format=effective["api_format"],
         extra_headers=final_headers if final_headers else None,
         content_type=effective["content_type"],
         http_method=effective["http_method"],
         jwt_token=jwt_token,
+        tls_impersonate=tls_impersonate,
     )
 
     _log_target_summary(target, preset)
@@ -340,22 +346,9 @@ def _log_target_summary(target: CustomHttpChatTarget, preset: Optional[dict]) ->
 
 
 def _to_openai_base_url(raw_url: str, api_format: str) -> str:
-    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url。
 
-    参见 targets.factories._to_openai_base_url 的完整文档。
+    委托给 utils.target_url.to_openai_base_url()。
     """
-    from urllib.parse import urlparse
-    import re
-
-    url = raw_url.rstrip("/")
-    parsed = urlparse(url)
-
-    if api_format == "ollama":
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        return f"{base}/v1"
-
-    if not url.endswith("/v1"):
-        url = re.sub(r'/(chat/completions|completions)$', '', url)
-        if not url.endswith("/v1"):
-            url = url.rstrip("/") + "/v1"
-    return url
+    from utils.target_url import to_openai_base_url as _impl
+    return _impl(raw_url, api_format)

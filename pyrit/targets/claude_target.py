@@ -28,7 +28,6 @@ PyRIT Red Team — Anthropic Claude SDK 驱动的稳健 Target
 """
 from __future__ import annotations
 
-import httpx
 from typing import Optional
 
 from anthropic import AsyncAnthropic
@@ -39,6 +38,7 @@ from pyrit.models import MessagePiece
 from pyrit.models.messages.message import Message
 
 from utils import DEFAULT_MODEL_NAME
+from utils.http_transport import create_http_client
 
 console = Console()
 
@@ -66,6 +66,7 @@ class ClaudeTarget(PromptTarget):
         timeout: int = 60,
         verify_ssl: bool = True,
         max_retries: int = 2,
+        tls_impersonate: Optional[str] = None,
     ):
         """初始化 Claude Target。
 
@@ -77,6 +78,7 @@ class ClaudeTarget(PromptTarget):
             timeout: 请求超时秒数
             verify_ssl: HTTPS 证书校验
             max_retries: SDK 自动重试次数
+            tls_impersonate: TLS 指纹伪装 profile (chrome124/safari17_0/...)
         """
         super().__init__(
             endpoint="api.anthropic.com",
@@ -86,12 +88,12 @@ class ClaudeTarget(PromptTarget):
         self._temperature = temperature
         self._max_tokens = max_tokens
 
-        # 构建 httpx 客户端
-        httpx_kwargs: dict = {"timeout": httpx.Timeout(timeout)}
-        if not verify_ssl:
-            httpx_kwargs["verify"] = False
-
-        self._async_http_client = httpx.AsyncClient(**httpx_kwargs)
+        # 构建 httpx 客户端（httpx 核心 + 可选 curl_cffi TLS 伪装）
+        self._async_http_client = create_http_client(
+            verify_ssl=verify_ssl,
+            tls_impersonate=tls_impersonate,
+            timeout=timeout,
+        )
 
         self._client = AsyncAnthropic(
             api_key=api_key,

@@ -40,6 +40,7 @@
       <button class="tab active" onclick="switchTab('preview')">📋 变量预览</button>
       <button class="tab" onclick="switchTab('edit')">✏️ 编辑器</button>
       <button class="tab" onclick="switchTab('probe')">🔌 探测</button>
+      <button class="tab" onclick="switchTab('target')">🎯 目标配置</button>
     </div>
     <span class="file-info">当前文件: <span class="current-file" id="current-file">-</span></span>
     <button class="action-btn" id="save-btn" onclick="saveEnvFile()" style="display:none;">💾 保存</button>
@@ -75,6 +76,10 @@
           <input type="text" id="probe-apikey" placeholder="留空表示无认证">
           <label>超时（秒）</label>
           <input type="number" id="probe-timeout" value="10" min="3" max="60">
+          <label class="checkbox-label">
+            <input type="checkbox" id="probe-verify-ssl" style="width:auto;margin-right:6px;">
+            验证 SSL 证书（自签名证书请取消勾选）
+          </label>
         </div>
         <div class="probe-actions">
           <button class="probe-btn" onclick="runProbe('connectivity')">🔍 连通性测试</button>
@@ -83,6 +88,13 @@
         </div>
         <div id="probe-result" class="probe-result hidden"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: 目标配置 ── -->
+  <div class="content hidden" id="content-target">
+    <div class="target-config-panel" id="target-config-panel">
+      <!-- 初始由 JS 渲染 -->
     </div>
   </div>
 
@@ -347,7 +359,7 @@ window.switchTab = function(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => {
     const tabText = t.textContent.replace(/[📋✏️🔌]/g, '').trim();
-    const targetText = tab === 'preview' ? '变量预览' : tab === 'edit' ? '编辑器' : '探测';
+    const targetText = tab === 'preview' ? '变量预览' : tab === 'edit' ? '编辑器' : tab === 'target' ? '目标配置' : '探测';
     if (tabText === targetText) t.classList.add('active');
   });
   updateSaveButton();
@@ -356,6 +368,8 @@ window.switchTab = function(tab) {
   document.getElementById('content-preview').classList.toggle('hidden', tab !== 'preview');
   document.getElementById('content-edit').classList.toggle('hidden', tab !== 'edit');
   document.getElementById('content-probe').classList.toggle('hidden', tab !== 'probe');
+  document.getElementById('content-target').classList.toggle('hidden', tab !== 'target');
+  if (tab === 'target') renderTargetConfig();
 
   // 刷新当前文件的内容
   if (state.currentFile && state.currentFilename) {
@@ -372,7 +386,7 @@ window.switchTab = function(tab) {
 };
 
 function showContent(tab, html) {
-  const id = tab === 'preview' ? 'content-preview' : tab === 'edit' ? 'content-edit' : 'content-probe';
+  const id = tab === 'preview' ? 'content-preview' : tab === 'edit' ? 'content-edit' : tab === 'target' ? 'content-target' : 'content-probe';
   document.getElementById(id).innerHTML = html;
 }
 
@@ -462,6 +476,7 @@ window.runProbe = async function(probeType) {
 
   const apiKey = document.getElementById('probe-apikey').value.trim();
   const timeout = parseInt(document.getElementById('probe-timeout').value) || 10;
+  const verifySsl = document.getElementById('probe-verify-ssl').checked;
 
   const resultDiv = document.getElementById('probe-result');
   resultDiv.classList.remove('hidden');
@@ -478,21 +493,54 @@ window.runProbe = async function(probeType) {
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout }),
+      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout, verify_ssl: verifySsl }),
     });
     const data = await resp.json();
-    renderProbeResult(probeType, data);
+    renderProbeResult(resultDiv, probeType, data);
   } catch (e) {
     resultDiv.innerHTML = `<div class="probe-error">❌ 网络错误: ${escapeHtml(String(e))}</div>`;
   }
 };
 
-function renderProbeResult(probeType, data) {
-  const resultDiv = document.getElementById('probe-result');
+window.runAppProbe = async function(probeType) {
+  const url = document.getElementById('app-url').value.trim();
+  if (!url) {
+    showToast('error', '请输入 AI 应用根 URL');
+    return;
+  }
+  const verifySsl = document.getElementById('app-verify-ssl').checked;
+  const resultDiv = document.getElementById('app-probe-result');
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="probe-loading">⏳ 探测中...</div>';
 
+  let endpoint;
+  switch (probeType) {
+    case 'connectivity': endpoint = '/api/probe/connectivity'; break;
+    case 'api_type':     endpoint = '/api/probe/api_type';     break;
+    case 'models':       endpoint = '/api/probe/models';       break;
+  }
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: url, timeout: 15, verify_ssl: verifySsl }),
+    });
+    const data = await resp.json();
+    renderProbeResult(resultDiv, probeType, data);
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="probe-error">❌ 网络错误: ${escapeHtml(String(e))}</div>`;
+  }
+};
+
+function renderProbeResult(resultDiv, probeType, data) {
   if (probeType === 'connectivity') {
     const icon = data.reachable ? '✅' : '❌';
     const color = data.reachable ? 'var(--green)' : 'var(--red)';
+    let sslHint = '';
+    if (data.error_type === 'ssl_certificate') {
+      sslHint = `<div class="probe-hint">💡 目标使用了自签名证书，请取消勾选「验证 SSL 证书」后重新测试</div>`;
+    }
     resultDiv.innerHTML = `
       <div class="probe-card" style="border-left-color: ${color};">
         <h4>${icon} 连通性测试</h4>
@@ -508,7 +556,9 @@ function renderProbeResult(probeType, data) {
         <div class="probe-metric">
           <span>Content-Type</span><span class="val">${escapeHtml(data.headers?.content_type || '-')}</span>
         </div>
+        ${data.ssl_verified !== undefined ? `<div class="probe-metric"><span>SSL 验证</span><span class="val">${data.ssl_verified ? '✅ 已开启' : '⏭ 已跳过'}</span></div>` : ''}
         ${data.error ? `<div class="probe-error">${escapeHtml(data.error)}</div>` : ''}
+        ${sslHint}
       </div>`;
   } else if (probeType === 'api_type') {
     const confidence = (data.confidence * 100).toFixed(0);
@@ -618,6 +668,299 @@ function escapeAttr(str) {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ============================================================================
+// 目标配置向导
+// ============================================================================
+async function renderTargetConfig() {
+  const panel = document.getElementById('target-config-panel');
+  panel.innerHTML = '<div class="probe-loading">⏳ 加载当前配置...</div>';
+  try {
+    const resp = await fetch('/api/target-config');
+    const cfg = await resp.json();
+    panel.innerHTML = buildTargetConfigHtml(cfg);
+    onTargetTypeChange();
+  } catch (e) {
+    panel.innerHTML = '<div class="probe-error">❌ 加载失败: ' + escapeHtml(String(e)) + '</div>';
+  }
+}
+
+function buildTargetConfigHtml(cfg) {
+  return `
+  <div class="target-config-card">
+    <h3>🎯 目标配置向导</h3>
+    <p class="target-config-hint">配置攻击目标与评分模型，所有字段最终保存到 <code>configs/shared.env</code></p>
+    <div class="target-form-row">
+      <label>目标类型</label>
+      <select id="target-type" onchange="onTargetTypeChange()">
+        <option value="openai">OpenAI 兼容 API</option>
+        <option value="ollama">Ollama 本地部署</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="claude">Anthropic Claude</option>
+        <option value="app">AI 应用（目录枚举）</option>
+      </select>
+    </div>
+    <div id="app-enumerate-section" class="hidden">
+      <div class="target-form-row">
+        <label>AI 应用根 URL</label>
+        <input type="text" id="app-url" placeholder="例如: http://192.168.0.20:8501/">
+      </div>
+      <div class="target-form-row">
+        <label><input type="checkbox" id="app-verify-ssl" style="width:auto;margin-right:6px;"> 验证 SSL 证书</label>
+      </div>
+      <div class="target-actions">
+        <button class="probe-btn" onclick="runAppProbe('connectivity')">🔌 连通性测试</button>
+        <button class="probe-btn" onclick="runAppProbe('api_type')">💡 API 类型识别</button>
+        <button class="probe-btn" onclick="enumerateApp()">🔍 开始枚举端点</button>
+      </div>
+      <div id="app-probe-result" class="probe-result hidden" style="margin-top:12px;"></div>
+      <div id="app-enumerate-result" class="hidden" style="margin-top:12px;"></div>
+    </div>
+    <div class="target-section">
+      <h4>⚔️ 攻击目标</h4>
+      <div id="attack-url-row" class="target-form-row">
+        <label>URL</label>
+        <input type="text" id="attack-url" value="${escapeAttr(cfg.attack_url || '')}" placeholder="例如: http://192.168.0.20:11434/">
+      </div>
+      <div class="target-form-row">
+        <label>API Key</label>
+        <input type="text" id="attack-api" value="${escapeAttr(cfg.attack_api || '')}" placeholder="留空表示无认证">
+      </div>
+      <div class="target-form-row">
+        <label>模型名称</label>
+        <input type="text" id="attack-model" value="${escapeAttr(cfg.attack_model || '')}" placeholder="例如: qwen3:8b / gpt-4o">
+      </div>
+      <div class="target-actions">
+        <button class="probe-btn" onclick="testTargetConnection('attack')">🔌 测试连接</button>
+        <span id="attack-test-result" class="test-result"></span>
+      </div>
+      <div id="attack-auto-detect" class="hidden auto-detect-result" style="margin-top:8px;"></div>
+    </div>
+    <div class="target-form-row">
+      <label class="checkbox-label">
+        <input type="checkbox" id="target-verify-ssl" style="width:auto;margin-right:6px;">
+        验证 SSL 证书（自签名证书请取消勾选）
+      </label>
+    </div>
+    <div class="target-section">
+      <h4>🧑‍⚖️ 评分模型</h4>
+      <div class="target-form-row">
+        <label>URL</label>
+        <input type="text" id="score-url" value="${escapeAttr(cfg.score_url || '')}" placeholder="例如: http://192.168.0.20:11434/v1">
+      </div>
+      <div class="target-form-row">
+        <label>API Key</label>
+        <input type="text" id="score-api" value="${escapeAttr(cfg.score_api || '')}" placeholder="留空表示无认证">
+      </div>
+      <div class="target-form-row">
+        <label>模型名称</label>
+        <input type="text" id="score-model" value="${escapeAttr(cfg.score_model || '')}" placeholder="例如: qwen3:8b / gpt-4o">
+      </div>
+      <div class="target-actions">
+        <button class="probe-btn" onclick="testTargetConnection('score')">🔌 测试连接</button>
+        <span id="score-test-result" class="test-result"></span>
+      </div>
+      <div id="score-auto-detect" class="hidden auto-detect-result" style="margin-top:8px;"></div>
+    </div>
+    <div class="target-actions footer">
+      <button class="action-btn" onclick="saveTargetConfig()">💾 保存到 shared.env</button>
+      <span id="target-save-result"></span>
+    </div>
+  </div>`;
+}
+
+function onTargetTypeChange() {
+  const type = document.getElementById('target-type').value;
+  const appSection = document.getElementById('app-enumerate-section');
+  const attackUrlRow = document.getElementById('attack-url-row');
+  appSection.classList.toggle('hidden', type !== 'app');
+  if (type === 'gemini' || type === 'claude') {
+    attackUrlRow.classList.add('hidden');
+  } else {
+    attackUrlRow.classList.remove('hidden');
+  }
+  if (type === 'ollama') {
+    const api = document.getElementById('attack-api');
+    if (api && !api.value) api.value = 'ollama';
+  }
+}
+
+async function enumerateApp() {
+  const url = document.getElementById('app-url').value.trim();
+  if (!url) {
+    showToast('error', '请输入 AI 应用根 URL');
+    return;
+  }
+  const resultDiv = document.getElementById('app-enumerate-result');
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="probe-loading">⏳ 枚举端点中...</div>';
+  try {
+    const resp = await fetch('/api/target-config/enumerate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, verify_ssl: document.getElementById('app-verify-ssl').checked})
+    });
+    const data = await resp.json();
+    renderEnumerateResult(data);
+  } catch (e) {
+    resultDiv.innerHTML = '<div class="probe-error">❌ 网络错误: ' + escapeHtml(String(e)) + '</div>';
+  }
+}
+
+function renderEnumerateResult(data) {
+  const resultDiv = document.getElementById('app-enumerate-result');
+  if (!data.ok) {
+    resultDiv.innerHTML = '<div class="probe-error">❌ 枚举失败: ' + escapeHtml(data.error || '') + '</div>';
+    return;
+  }
+  const eps = (data.endpoints || []).filter(e => e.status === 200 || e.status === 401 || e.status === 403);
+  if (eps.length === 0) {
+    resultDiv.innerHTML = '<div class="probe-card">ℹ️ 未发现可识别端点</div>';
+    return;
+  }
+  let html = '<div class="probe-card"><h4>📍 发现端点</h4><table class="endpoint-table"><thead><tr><th>路径</th><th>状态</th><th>框架</th><th>操作</th></tr></thead><tbody>';
+  eps.forEach(e => {
+    html += '<tr><td>' + escapeHtml(e.path) + '</td><td>' + escapeHtml(String(e.status)) + '</td><td>' + escapeHtml(e.framework_hint || '-') + '</td>';
+    html += '<td><button class="small-btn" onclick=\'useEndpointAsAttack(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为攻击</button> ';
+    html += '<button class="small-btn" onclick=\'useEndpointAsScore(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为评分</button></td></tr>';
+  });
+  html += '</tbody></table></div>';
+  resultDiv.innerHTML = html;
+}
+
+function useEndpointAsAttack(path, frameworkHint) {
+  const baseUrl = document.getElementById('app-url').value.trim().replace(/\/$/, '');
+  const fullUrl = baseUrl + path;
+  document.getElementById('attack-url').value = fullUrl;
+  // 根据框架提示预选目标类型
+  if (frameworkHint === 'ollama') {
+    document.getElementById('target-type').value = 'ollama';
+  } else {
+    document.getElementById('target-type').value = 'openai';
+  }
+  onTargetTypeChange();
+  showToast('success', '已填充攻击目标');
+  // 自动探测 API 类型和模型
+  autoDetectEndpoint(fullUrl, 'attack');
+}
+
+function useEndpointAsScore(path, frameworkHint) {
+  const baseUrl = document.getElementById('app-url').value.trim().replace(/\/$/, '');
+  const fullUrl = baseUrl + path;
+  document.getElementById('score-url').value = fullUrl;
+  showToast('success', '已填充评分模型');
+  autoDetectEndpoint(fullUrl, 'score');
+}
+
+async function autoDetectEndpoint(url, target) {
+  const resultEl = document.getElementById(target + '-auto-detect');
+  if (!resultEl) return;
+  resultEl.innerHTML = '<span class="probe-loading">🔍 自动识别 API 类型...</span>';
+  resultEl.classList.remove('hidden');
+
+  const verifySsl = document.getElementById('app-verify-ssl').checked;
+  try {
+    const resp = await fetch('/api/probe/api_type', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: url, timeout: 15, verify_ssl: verifySsl }),
+    });
+    const data = await resp.json();
+
+    let html = '';
+    if (data.api_type && data.api_type !== 'unknown') {
+      html += `<span class="success">✅ 识别为 <strong>${escapeHtml(data.api_type)}</strong></span>`;
+
+      // 自动调整目标类型下拉框
+      if (target === 'attack' && data.api_type === 'ollama') {
+        document.getElementById('target-type').value = 'ollama';
+      }
+      if (target === 'attack' && data.api_type === 'openai') {
+        document.getElementById('target-type').value = 'openai';
+      }
+
+      // 自动填充模型名
+      if (data.model_name) {
+        document.getElementById(target + '-model').value = data.model_name;
+        html += ` · 模型: <strong>${escapeHtml(data.model_name)}</strong>`;
+      }
+
+      // 显示前几个可用模型
+      if (data.models && data.models.length > 0) {
+        html += '<div class="model-tags" style="margin-top:4px;">';
+        html += data.models.slice(0, 8).map(m => '<span class="model-tag" onclick="document.getElementById(\'' + target + '-model\').value=\'' + escapeAttr(m) + '\'" title="点击选择此模型" style="cursor:pointer;">' + escapeHtml(m) + '</span>').join('');
+        if (data.models.length > 8) {
+          html += `<span class="model-tag">+${data.models.length - 8} 更多</span>`;
+        }
+        html += '</div>';
+      }
+    } else {
+      html += '<span class="warn">⚠️ 未能自动识别 API 类型</span>';
+    }
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = '<span class="error">❌ 探测失败: ' + escapeHtml(String(e)) + '</span>';
+  }
+}
+
+async function testTargetConnection(target) {
+  const type = document.getElementById('target-type').value;
+  const url = document.getElementById(target + '-url').value.trim();
+  const apiKey = document.getElementById(target + '-api').value.trim();
+  const model = document.getElementById(target + '-model').value.trim();
+  const verifySsl = document.getElementById('target-verify-ssl').checked;
+  const resultSpan = document.getElementById(target + '-test-result');
+  resultSpan.innerHTML = '<span class="probe-loading">测试中...</span>';
+  try {
+    const resp = await fetch('/api/target-config/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({target, api_format: type, url, api_key: apiKey, model, timeout: 30, verify_ssl: verifySsl})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      resultSpan.innerHTML = '<span class="success">✅ ' + escapeHtml(data.message || '连接成功') + '</span>';
+      if (data.models && data.models.length > 0) {
+        resultSpan.innerHTML += '<div class="model-tags">' + data.models.slice(0, 5).map(m => '<span class="model-tag">' + escapeHtml(m) + '</span>').join('') + '</div>';
+      }
+    } else {
+      resultSpan.innerHTML = '<span class="error">❌ ' + escapeHtml(data.error || '连接失败') + '</span>';
+    }
+  } catch (e) {
+    resultSpan.innerHTML = '<span class="error">❌ 网络错误</span>';
+  }
+}
+
+async function saveTargetConfig() {
+  const payload = {
+    attack_url: document.getElementById('attack-url').value.trim(),
+    attack_api: document.getElementById('attack-api').value.trim(),
+    attack_model: document.getElementById('attack-model').value.trim(),
+    score_url: document.getElementById('score-url').value.trim(),
+    score_api: document.getElementById('score-api').value.trim(),
+    score_model: document.getElementById('score-model').value.trim(),
+  };
+  const resultSpan = document.getElementById('target-save-result');
+  resultSpan.innerHTML = '保存中...';
+  try {
+    const resp = await fetch('/api/target-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (resp.ok && data.ok) {
+      resultSpan.innerHTML = '<span class="success">✅ ' + escapeHtml(data.message) + '</span>';
+      await loadData();
+      await checkReadiness();
+    } else {
+      resultSpan.innerHTML = '<span class="error">❌ ' + escapeHtml(data.error || '保存失败') + '</span>';
+    }
+  } catch (e) {
+    resultSpan.innerHTML = '<span class="error">❌ 网络错误</span>';
+  }
+}
+
 </script>
 </body>
 </html>

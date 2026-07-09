@@ -51,19 +51,20 @@ from rich.panel import Panel
 from rich.table import Table
 
 from utils import DEFAULT_MODEL_NAME
+from utils.target_url import (
+    normalize_target_url,
+    join_target_path,
+    extract_base_origin,
+    DEFAULT_OPEN_TIMEOUT,
+    DEFAULT_READ_TIMEOUT,
+    DEFAULT_MAX_REDIRECTS,
+)
+from utils.http_transport import create_http_client, API_HEADERS
 
 console = Console()
 
-# ── 浏览器 UA 伪装（与 CustomHttpChatTarget 保持一致） ──
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/html, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+# ── 浏览器 UA 伪装（与 API_HEADERS 对齐，从 http_transport 统一导入） ──
+_BROWSER_HEADERS = dict(API_HEADERS)
 
 # ── 已知模型名称模式（用于从文本中提取） ──
 _KNOWN_MODEL_PATTERNS = [
@@ -155,9 +156,8 @@ class ModelProbeResult:
 async def _http_get(url: str, timeout: int = 10, verify_ssl: bool = False) -> tuple[int, any]:
     """发送 GET 请求，返回 (status_code, response_data)"""
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout), verify=verify_ssl,
-            headers=_BROWSER_HEADERS,
+        async with create_http_client(
+            verify_ssl=verify_ssl, timeout=timeout, headers=dict(_BROWSER_HEADERS),
         ) as client:
             resp = await client.get(url)
             try:
@@ -176,9 +176,8 @@ async def _http_post(url: str, payload: dict, timeout: int = 15, verify_ssl: boo
     if extra_headers:
         headers.update(extra_headers)
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout), verify=verify_ssl,
-            headers=headers,
+        async with create_http_client(
+            verify_ssl=verify_ssl, timeout=timeout, headers=headers,
         ) as client:
             resp = await client.post(url, json=payload)
             try:
@@ -515,15 +514,12 @@ def _extract_model_from_text(text: str) -> Optional[str]:
 
 
 def _normalize_base_url(url: str) -> tuple[str, bool]:
-    """标准化目标 URL，返回 (normalized_url, is_ssl)"""
-    url = url.strip().rstrip("/")
-    if "://" not in url:
-        url = f"http://{url}"
-    
-    is_https = url.lower().startswith("https://")
-    verify_ssl = not url.lower().startswith("http://")  # HTTPS 默认开启校验
-    
-    return url, verify_ssl
+    """标准化目标 URL，返回 (normalized_url, verify_ssl)。
+
+    委托给 utils.target_url.normalize_target_url()，作为遗留兼容包装器。
+    """
+    result = normalize_target_url(url)
+    return result.full_url, result.verify_ssl
 
 
 # ── LLM API 端点字典（PyRIT 红队最佳实践词表） ──
@@ -832,6 +828,89 @@ for p in _LLM_COMMON_PATHS:
         _deduped.append(p)
 _LLM_COMMON_PATHS = _deduped
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 传统 Web 应用常见路径（用于目录遍历 / 发现 Web UI 后端 API）
+# ═══════════════════════════════════════════════════════════════════════════
+_WEB_COMMON_PATHS = [
+    # 根与入口
+    "/",
+    "/index.html",
+    "/app",
+    "/web",
+    "/portal",
+    "/console",
+    "/dashboard",
+    "/admin",
+    "/manage",
+    "/login",
+    "/auth",
+    "/logout",
+    "/register",
+    "/api",
+    "/api/v1",
+    "/api/v2",
+    "/api/v3",
+    "/api/auth",
+    "/api/login",
+    "/api/logout",
+    "/api/user",
+    "/api/users",
+    "/api/me",
+    "/api/profile",
+    "/api/config",
+    "/api/settings",
+    "/api/health",
+    "/api/status",
+    "/api/info",
+    "/api/docs",
+    "/api/swagger",
+    "/api/openapi.json",
+    "/swagger.json",
+    "/openapi.json",
+    # AI Web 应用常见自定义后端
+    "/ai",
+    "/ai/chat",
+    "/ai/chats",
+    "/ai/models",
+    "/ai/completion",
+    "/ai/message",
+    "/ai/messages",
+    "/ai/conversation",
+    "/ai/conversations",
+    "/api/chat",
+    "/api/chats",
+    "/api/message",
+    "/api/messages",
+    "/api/conversation",
+    "/api/conversations",
+    "/api/completion",
+    "/api/completions",
+    "/api/generate",
+    "/api/prompt",
+    "/api/ask",
+    "/api/query",
+    "/api/model",
+    "/api/models",
+    "/api/tags",
+    "/api/version",
+    "/api/upload",
+    "/api/files",
+    "/api/search",
+    "/api/rag",
+    "/api/retrieval",
+    "/api/knowledge",
+    "/v1/api",
+    "/v1/chat",
+    "/v1/messages",
+    "/v1/conversations",
+    # 静态资源与 JS（用于推断前端框架）
+    "/static/js",
+    "/assets",
+    "/js",
+    "/_next/static",
+]
+
 # 框架指纹特征（用于自动识别 LLM 服务框架）
 _FRAMEWORK_FINGERPRINTS = {
     "openai": {
@@ -1112,14 +1191,19 @@ async def _discover_endpoints(
     timeout: float = 5.0,
     batch_delay: float = 0.3,
     extra_auth_headers: dict | None = None,
+    enable_js_extraction: bool = True,
+    api_key: str = "",
 ) -> tuple[list[DiscoveredEndpoint], dict]:
-    """分批并发枚举目标 URL 下所有 LLM 相关端点（自适应限流感知）。
+    """分批并发枚举目标 URL 下所有 Web / LLM 相关端点（自适应限流感知）。
 
     设计理念（PyRIT 红队最佳实践）：
-      1. 分批探测 — 每批 initial_concurrency 个请求，批次间留有间隔
-      2. 实时感知 429 — 若某批次 429 比例过高，自动降低并发 + 增加延迟
-      3. 收集限流头 — 每笔响应均解析 X-RateLimit-* / RateLimit-* / Retry-After
-      4. 最终分析 — 汇总所有限流信息，推算目标 API 的合理并发建议
+      1. 首页先行 — 主动拉取根路径 HTML，提取 JS 中隐藏的动态 API 端点
+      2. 双轨字典 — 同时扫描传统 Web 目录路径与 AI 专用端点路径
+      3. 分批探测 — 每批 initial_concurrency 个请求，批次间留有间隔
+      4. 实时感知 429 — 若某批次 429 比例过高，自动降低并发 + 增加延迟
+      5. 收集限流头 — 每笔响应均解析 X-RateLimit-* / RateLimit-* / Retry-After
+      6. JS 端点提取 — 对返回 HTML 的页面，自动提取 <script src> 并解析
+      7. 最终分析 — 汇总所有限流信息，推算目标 API 的合理并发建议
 
     Args:
         base_url: 目标基础 URL（如 http://192.168.2.199:8501）
@@ -1128,11 +1212,13 @@ async def _discover_endpoints(
         min_concurrency: 最小并发数（降级底线）
         timeout: 单次请求超时（秒）
         batch_delay: 批次间延迟（秒）
+        enable_js_extraction: 是否启用 JS 端点提取（默认 True）
+        api_key: 可选认证令牌，将添加为 Authorization: Bearer <api_key>
 
     Returns:
         (DiscoveredEndpoint 列表, 限流汇总 dict)
     """
-    paths = _LLM_COMMON_PATHS
+    paths = list(dict.fromkeys(_WEB_COMMON_PATHS + _LLM_COMMON_PATHS))
     current_concurrency = initial_concurrency
     all_results: list[DiscoveredEndpoint] = []
     rate_limit_infos: list[RateLimitInfo] = []
@@ -1148,15 +1234,75 @@ async def _discover_endpoints(
     )
     # 🆕 合并认证头到浏览器头
     client_headers = dict(_BROWSER_HEADERS)
+    if api_key:
+        client_headers["Authorization"] = f"Bearer {api_key}"
     if extra_auth_headers:
         client_headers.update(extra_auth_headers)
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(timeout),
-        verify=verify_ssl,
+
+    homepage_info = {"fetched": False, "status": 0, "is_html": False, "error": ""}
+    js_pre_extracted_paths: list[str] = []
+
+    async with create_http_client(
+        verify_ssl=verify_ssl,
+        timeout=timeout,
+        connect_timeout=DEFAULT_OPEN_TIMEOUT,
         headers=client_headers,
         limits=limits,
         follow_redirects=True,
+        max_redirects=DEFAULT_MAX_REDIRECTS,
     ) as client:
+
+        # ── 🆕 阶段 0: 主动拉取首页 HTML 并提取 JS 端点 ──
+        if enable_js_extraction:
+            try:
+                homepage_resp = await client.get(base_url, timeout=max(timeout, 5.0))
+                homepage_info["fetched"] = True
+                homepage_info["status"] = homepage_resp.status_code
+                ct = homepage_resp.headers.get("content-type", "")
+                homepage_info["is_html"] = "text/html" in ct.lower()
+
+                if homepage_resp.status_code in (200, 401, 403) and (
+                    homepage_info["is_html"] or (
+                        not ct and homepage_resp.text.strip().startswith("<")
+                    )
+                ):
+                    html_text = homepage_resp.text if homepage_resp.status_code == 200 else ""
+                    # 401/403 时也可能返回 HTML 登录页，尝试读取
+                    if not html_text and homepage_resp.status_code in (401, 403):
+                        html_text = homepage_resp.text
+
+                    if html_text and "<" in html_text:
+                        try:
+                            from utils.js_endpoint_extractor import (
+                                crawl_js_endpoints,
+                                normalize_js_endpoint_to_paths,
+                            )
+
+                            js_result = await crawl_js_endpoints(
+                                [(html_text, base_url)],
+                                client=client,
+                                verify_ssl=verify_ssl,
+                                timeout=max(timeout * 2, 15.0),
+                                api_only=True,
+                            )
+                            if js_result.endpoints:
+                                js_pre_extracted_paths = normalize_js_endpoint_to_paths(
+                                    js_result.endpoints, base_url
+                                )
+                                # 合并到扫描路径，去重
+                                for p in js_pre_extracted_paths:
+                                    if p not in paths:
+                                        paths.append(p)
+                                console.print(
+                                    f"  [cyan]📜 首页 JS 预提取新增 {len(js_pre_extracted_paths)} 个候选端点[/cyan]"
+                                )
+                        except Exception as e:
+                            homepage_info["error"] = f"js_extract: {str(e)[:100]}"
+            except Exception as e:
+                homepage_info["error"] = str(e)[:100]
+
+        # 重新分批（路径可能因 JS 提取而增加）
+        batches = [paths[i:i + current_concurrency] for i in range(0, len(paths), current_concurrency)]
 
         for batch_idx, batch_paths in enumerate(batches):
             batch_results = await _scan_batch(
@@ -1207,8 +1353,88 @@ async def _discover_endpoints(
             if batch_idx < len(batches) - 1:
                 await asyncio.sleep(batch_delay)
 
+    # ── 🆕 阶段 2: JS 端点提取（LinkFinder 风格） ──
+    js_stats = {"discovered": 0, "probed": 0, "error": ""}
+    if enable_js_extraction:
+        # 收集返回 HTML 的端点（可能包含 <script src> 标签）
+        html_pages: list[tuple[str, str]] = []
+        for ep in all_results:
+            if ep.status == 200 and ep.content_type and "text/html" in ep.content_type.lower():
+                # body_snippet 只有 300 字符，重新获取完整 HTML
+                try:
+                    full_url = urljoin(base_url, ep.path)
+                    page_resp = await client.get(full_url)
+                    if page_resp.status_code == 200:
+                        html_pages.append((page_resp.text, full_url))
+                except Exception:
+                    pass
+
+        if html_pages:
+            console.print(
+                f"  [dim]🔍 检测到 {len(html_pages)} 个 HTML 页面，启动 JS 端点提取 (LinkFinder-style)...[/dim]"
+            )
+            try:
+                from utils.js_endpoint_extractor import (
+                    crawl_js_endpoints,
+                    normalize_js_endpoint_to_paths,
+                )
+
+                js_result = await crawl_js_endpoints(
+                    html_pages,
+                    client=client,
+                    verify_ssl=verify_ssl,
+                    timeout=15.0,
+                    api_only=True,
+                )
+                js_stats["error"] = js_result.error or ""
+
+                if js_result.endpoints:
+                    # 标准化为路径列表
+                    js_paths = normalize_js_endpoint_to_paths(js_result.endpoints, base_url)
+                    js_stats["discovered"] = len(js_paths)
+
+                    # 排除已在静态扫描中探测过的路径
+                    already_probed = {ep.path for ep in all_results}
+                    new_paths = [p for p in js_paths if p not in already_probed]
+
+                    if new_paths:
+                        js_stats["probed"] = len(new_paths)
+                        console.print(
+                            f"  [cyan]📜 JS 提取新增 {len(new_paths)} 个候选端点"
+                            f" (发现 {js_result.js_sources_found} 个 JS 源, "
+                            f"解析 {js_result.js_sources_parsed} 个, "
+                            f"耗时 {js_result.elapsed_ms:.0f}ms)[/cyan]"
+                        )
+                        # 用低并发探测这些新路径
+                        new_batch_results = await _scan_batch(
+                            client, base_url, new_paths, max(1, current_concurrency // 2)
+                        )
+                        all_results.extend(new_batch_results)
+                        total_requests += len(new_batch_results)
+
+                        # 收集新响应的限流头
+                        for ep in new_batch_results:
+                            if ep.rate_limit_info is not None:
+                                rate_limit_infos.append(ep.rate_limit_info)
+                            if ep.status == 429:
+                                total_429s += 1
+                    else:
+                        console.print(
+                            f"  [dim]JS 提取发现 {len(js_paths)} 个端点，均已覆盖[/dim]"
+                        )
+            except ImportError:
+                console.print("  [dim]JS 端点提取未启用（缺少 utils.js_endpoint_extractor）[/dim]")
+                js_stats["error"] = "module not available"
+            except Exception as e:
+                console.print(f"  [dim]JS 端点提取跳过: {e}[/dim]")
+                js_stats["error"] = str(e)[:100]
+
     # ── 汇总分析 ──
     summary = _analyze_rate_limits(rate_limit_infos, total_requests, total_429s, all_results, initial_concurrency)
+    summary["js_extraction"] = js_stats
+    summary["homepage"] = homepage_info
+    summary["js_pre_extracted_paths"] = js_pre_extracted_paths
+    summary["total_paths_probed"] = len(paths)
 
     # 排序：200 优先，按路径字母序
     all_results.sort(key=lambda e: (0 if e.status == 200 else 1 if e.status > 0 else 2, e.path))

@@ -32,3 +32,4 @@ Thumbs.db
 *.key
 *.pem
 configs/tokens/*
+shared.env

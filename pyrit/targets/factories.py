@@ -197,35 +197,12 @@ def create_attack_target(custom_target_url: str = "", env_config: dict = None, a
 # ── 内部辅助 ──────────────────────────────────────────────────────────────────
 
 def _to_openai_base_url(raw_url: str, api_format: str) -> str:
-    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url（供 AsyncOpenAI 使用）。
+    """将用户输入的 URL 标准化为 OpenAI 兼容 base_url。
 
-    OpenAI SDK 期望 base_url 在构造时指定，后续 chat.completions.create()
-    会自动拼接 /chat/completions 路径。因此 base_url 应为 /v1 级别。
-
-    转换规则:
-      openai:  https://api.openai.com            → https://api.openai.com/v1
-      ollama:  http://host:11434                 → http://host:11434/v1
-               http://host:11434/api/chat        → http://host:11434/v1
-               http://host:11434/v1              → http://host:11434/v1 (不变)
+    委托给 utils.target_url.to_openai_base_url()。
     """
-    from urllib.parse import urlparse, urlunparse
-    import re
-
-    url = raw_url.rstrip("/")
-    parsed = urlparse(url)
-
-    if api_format == "ollama":
-        # Ollama: 提取 host:port，拼接 /v1
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        return f"{base}/v1"
-
-    # openai / 其他: base_url 应指向 /v1
-    if not url.endswith("/v1"):
-        # 去掉已有的 /chat/completions 后缀
-        url = re.sub(r'/(chat/completions|completions)$', '', url)
-        if not url.endswith("/v1"):
-            url = url.rstrip("/") + "/v1"
-    return url
+    from utils.target_url import to_openai_base_url as _impl
+    return _impl(raw_url, api_format)
 
 
 

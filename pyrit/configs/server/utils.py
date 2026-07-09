@@ -1,6 +1,6 @@
 """
 ===============================================================================
-Config Center — 配置读写与校验工具
+PyRIT Config Center — 配置读写与校验工具 (v2.0)
 ===============================================================================
 核心原则:
   - 所有 .env 文件使用原始文本读写，禁止 configparser.write() 序列化
@@ -19,6 +19,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # ── 路径常量 ──
+# _PACKAGE_DIR = configs/server/ → _PROJECT_ROOT = pyrit/
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _PACKAGE_DIR.parent.parent
 _CONFIGS_DIR = _PROJECT_ROOT / "configs"
@@ -107,7 +108,6 @@ def read_env_file(filename: str) -> dict | None:
 
 def read_token_file(name: str) -> dict | None:
     """读取 token 文件内容"""
-    # 安全检查：禁止路径遍历
     if ".." in name or "/" in name or "\\" in name:
         return None
     filepath = (_TOKENS_DIR / name).resolve()
@@ -233,18 +233,13 @@ def check_readiness() -> dict:
             "status": "fail" if missing else "pass",
             "detail": f"已配置 {len(shared_vars)} 个变量" if not missing else f"缺少: {', '.join(missing)}",
         })
-        # 检查 URL 格式
         url_vars = {"BASE_URL", "SCORE_BASE_URL"}
         for v in url_vars:
             val = shared_vars.get(v, "")
             if val and val not in ("None", "") and not val.startswith(("http://", "https://")):
                 warnings.append(f"{v} 不是标准 URL 格式: {val}")
     else:
-        checks.append({
-            "name": "shared.env",
-            "status": "fail",
-            "detail": "文件不存在",
-        })
+        checks.append({"name": "shared.env", "status": "fail", "detail": "文件不存在"})
 
     # 检查 platforms.env
     platforms_path = _CONFIGS_DIR / "platforms.env"
@@ -312,9 +307,7 @@ def check_readiness() -> dict:
 
 # ── 私有辅助函数 ──
 
-
 def _get_env_file_stats(filepath: Path) -> dict:
-    """获取 .env 文件的统计信息"""
     with open(filepath, "r", encoding="utf-8") as f:
         raw = f.read()
     is_shared = filepath.name == "shared.env"
@@ -323,7 +316,6 @@ def _get_env_file_stats(filepath: Path) -> dict:
 
 
 def _compute_env_stats(raw: str, sections: dict, is_shared: bool) -> dict:
-    """计算 .env 文件的统计指标"""
     line_count = len([l for l in raw.split("\n") if l.strip() and not l.strip().startswith("#")])
     if is_shared:
         var_count = len(sections)
@@ -346,20 +338,14 @@ def _compute_env_stats(raw: str, sections: dict, is_shared: bool) -> dict:
 
 
 def _parse_env_sections(raw: str, is_shared: bool) -> dict:
-    """从 .env 原始文本解析节 → 变量树。
-
-    - shared.env: 返回 {"_shared": {"KEY": "value", ...}}
-    - 其他: 返回 {"SECTION_NAME": {"KEY": "value", ...}}
-    """
     if is_shared:
         variables = _parse_shared_variables(raw)
-        return variables  # key=value dict directly
+        return variables
     else:
         return _parse_env_sections_with_configparser(raw)
 
 
 def _parse_shared_variables(raw: str) -> dict[str, str]:
-    """解析 shared.env 的 key=value 变量"""
     variables = {}
     for line in raw.split("\n"):
         stripped = line.strip()
@@ -368,7 +354,6 @@ def _parse_shared_variables(raw: str) -> dict[str, str]:
         if "=" in stripped:
             key, _, value = stripped.partition("=")
             key = key.strip()
-            # 处理行尾注释
             value_parts = value.split("#", 1)
             val = value_parts[0].strip()
             if key:
@@ -377,20 +362,13 @@ def _parse_shared_variables(raw: str) -> dict[str, str]:
 
 
 def _parse_env_sections_with_configparser(raw: str) -> dict[str, dict[str, str]]:
-    """使用 configparser 解析带 [SECTION] 的 .env 文件
-
-    注意: 使用 interpolation=None 避免 configparser.items() 触发 %(VAR)s
-          插值解析时因 DEFAULT 节缺失变量而抛出 InterpolationMissingOptionError。
-          此函数仅用于前端展示，不需要插值解析。
-    """
     config = configparser.ConfigParser(
         inline_comment_prefixes=('#',),
-        interpolation=None,  # 禁用插值 — 仅展示，不做 %(VAR)s 解析
+        interpolation=None,
     )
     config.optionxform = lambda option: option
 
     try:
-        # 仍拼接 shared.env 作为 [DEFAULT]，使变量在 key 层面可被读取
         shared_text = ""
         shared_path = _CONFIGS_DIR / "shared.env"
         if shared_path.exists():
@@ -407,16 +385,14 @@ def _parse_env_sections_with_configparser(raw: str) -> dict[str, dict[str, str]]
             continue
         items = {}
         for key, value in config.items(section_name):
-            if key not in items:  # 避免 DEFAULT 节的重复键
+            if key not in items:
                 items[key] = value
         if items:
             sections[section_name] = items
-
     return sections
 
 
 def _parse_env_sections_by_file(filepath: Path) -> dict[str, dict[str, str]]:
-    """读取文件并用 configparser 解析节"""
     if not filepath.exists():
         return {}
     with open(filepath, "r", encoding="utf-8") as f:
@@ -425,8 +401,6 @@ def _parse_env_sections_by_file(filepath: Path) -> dict[str, dict[str, str]]:
 
 
 def _validate_env_syntax(raw: str, is_shared: bool) -> tuple[bool, str]:
-    """校验 .env 文件的 configparser 语法"""
-    # shared.env 额外校验: 每行必须是注释/空行/KEY=VALUE 格式
     if is_shared:
         for lineno, line in enumerate(raw.split("\n"), 1):
             stripped = line.strip()
@@ -450,13 +424,11 @@ def _validate_env_syntax(raw: str, is_shared: bool) -> tuple[bool, str]:
 
     try:
         if is_shared:
-            # shared.env 没有 [section]，包装为 [DEFAULT]
             config_string = "[DEFAULT]\n" + raw
         else:
             config_string = "[DEFAULT]\n" + shared_text + "\n" + raw
         config.read_file(io.StringIO(config_string))
     except configparser.Error as e:
-        # 提取行号信息
         line_hint = ""
         if hasattr(e, 'lineno') and e.lineno:
             line_hint = f" (第 {e.lineno} 行)"
@@ -468,7 +440,6 @@ def _validate_env_syntax(raw: str, is_shared: bool) -> tuple[bool, str]:
 
 
 def _validate_interpolation_references(raw: str) -> tuple[bool, str]:
-    """检查 .env 文件中所有 %(VAR)s 引用是否在 shared.env 中定义"""
     shared_path = _CONFIGS_DIR / "shared.env"
     if not shared_path.exists():
         return True, "shared.env 不存在，跳过插值检查"
@@ -476,9 +447,7 @@ def _validate_interpolation_references(raw: str) -> tuple[bool, str]:
     with open(shared_path, "r", encoding="utf-8") as f:
         shared_vars = _parse_shared_variables(f.read())
 
-    # 查找所有 %(VAR_NAME)s 引用
     refs = set(re.findall(r"%\((\w+)\)s", raw))
-
     undefined = refs - set(shared_vars.keys())
     if undefined:
         return False, f"未定义的变量引用: {', '.join(sorted(undefined))}（必须在 shared.env 中定义）"
@@ -495,13 +464,83 @@ _SENSITIVE_PATTERNS = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 更新 shared.env 变量（Web 端目标配置入口）
+# ═══════════════════════════════════════════════════════════════════════════
+
+_TARGET_CONFIG_VARS = [
+    "BASE_URL", "BASE_API", "BASE_MODEL",
+    "SCORE_BASE_URL", "SCORE_BASE_API", "SCORE_BASE_MODEL",
+]
+
+
+def update_shared_env_variables(updates: dict) -> tuple[bool, str]:
+    """更新 shared.env 中的指定变量，保留文件结构和注释。
+
+    Args:
+        updates: {VAR_NAME: new_value}，只有非空值才会更新。
+
+    Returns:
+        (ok, message)
+    """
+    shared_path = _CONFIGS_DIR / "shared.env"
+    if not shared_path.exists():
+        return False, "shared.env 不存在"
+
+    with open(shared_path, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    lines = raw.split("\n")
+    updated = set()
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in updates and updates[key] is not None:
+            comment = ""
+            if "#" in stripped:
+                comment = " #" + stripped.split("#", 1)[1]
+            lines[i] = f"{key} = {updates[key]}{comment}"
+            updated.add(key)
+
+    missing = [k for k in updates if k not in updated and updates[k] is not None]
+    if missing:
+        lines.append("\n# 由 Web 目标配置追加")
+        for k in missing:
+            lines.append(f"{k} = {updates[k]}")
+
+    new_content = "\n".join(lines)
+    ok, msg = validate_and_save_env_file("shared.env", new_content)
+    if not ok:
+        return False, msg
+
+    return True, f"已更新 {len(updated | set(missing))} 个变量"
+
+
+def get_target_config_from_shared() -> dict:
+    """读取当前 shared.env 中的目标配置变量。"""
+    shared = read_env_file("shared.env")
+    if not shared:
+        return {}
+    vars = shared["sections"]
+    return {
+        "attack_url": vars.get("BASE_URL", ""),
+        "attack_api": vars.get("BASE_API", ""),
+        "attack_model": vars.get("BASE_MODEL", ""),
+        "score_url": vars.get("SCORE_BASE_URL", ""),
+        "score_api": vars.get("SCORE_BASE_API", ""),
+        "score_model": vars.get("SCORE_BASE_MODEL", ""),
+    }
+
+
 def detect_sensitive_lines(raw: str) -> list[dict]:
     """检测原始文本中可能包含敏感凭证的行"""
     findings = []
     for lineno, line in enumerate(raw.split("\n"), 1):
         for label, pattern in _SENSITIVE_PATTERNS.items():
             if re.search(pattern, line):
-                # 脱敏显示
                 masked = re.sub(pattern, lambda m: m.group()[:8] + "****" + m.group()[-4:], line)
                 findings.append({
                     "line": lineno,

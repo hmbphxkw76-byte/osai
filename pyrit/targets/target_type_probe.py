@@ -48,18 +48,12 @@ import httpx
 from rich.console import Console
 from rich.panel import Panel
 
+from utils.http_transport import create_http_client, API_HEADERS
+
 console = Console()
 
-# ── 浏览器 UA 伪装（与 model_probe 保持一致） ──
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/html, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+# ── 浏览器 UA 伪装（与 API_HEADERS 对齐，从 http_transport 统一导入） ──
+_BROWSER_HEADERS = dict(API_HEADERS)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -280,9 +274,9 @@ async def _http_post_json(
     if extra_headers:
         headers.update(extra_headers)
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout),
-            verify=verify_ssl,
+        async with create_http_client(
+            verify_ssl=verify_ssl,
+            timeout=timeout,
             headers=headers,
         ) as client:
             resp = await client.post(url, json=payload)
@@ -331,9 +325,9 @@ async def _http_post_raw(
     headers = dict(_BROWSER_HEADERS)
     headers["Content-Type"] = "application/json"
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout),
-            verify=verify_ssl,
+        async with create_http_client(
+            verify_ssl=verify_ssl,
+            timeout=timeout,
             headers=headers,
         ) as client:
             resp = await client.post(url, json=payload)

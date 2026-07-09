@@ -162,8 +162,8 @@ def normalize_payload_spec(payload_raw: str) -> dict:
 
 async def _classify_target_type(target_url: str) -> str:
     """智能分类目标类型：已知模型 API vs 自定义 AI 应用。"""
-    import httpx
     from urllib.parse import urlparse
+    from utils.http_transport import create_http_client
 
     KNOWN_API_HOSTS = {
         "api.openai.com", "api.anthropic.com",
@@ -198,7 +198,7 @@ async def _classify_target_type(target_url: str) -> str:
                     or "/api/chat" in probe_url or "/api/generate" in probe_url)
 
     try:
-        async with httpx.AsyncClient(timeout=5, verify=False) as client:
+        async with create_http_client(verify_ssl=False, timeout=5) as client:
             # ── 先探测 Ollama 特征端点 ──
             ollama_check = await client.get(probe_url + "/api/tags")
             if ollama_check.status_code == 200:
@@ -482,6 +482,8 @@ def _resolve_auth(args) -> dict:
     labels = []
     if result.get("jwt_token"):
         labels.append("JWT Token")
+        # 🆕 PyJWT 检查：显示 Token 有效期信息
+        _inspect_and_warn_jwt(result["jwt_token"])
     if result.get("cookie"):
         labels.append(f"Cookie ({_truncate_auth(result['cookie'])})")
     if result.get("api_key"):
@@ -504,6 +506,26 @@ def _truncate_auth(value: str, max_len: int = 12) -> str:
     if len(value) <= max_len:
         return value
     return value[:8] + "..." + value[-4:]
+
+
+def _inspect_and_warn_jwt(token: str) -> None:
+    """使用 PyJWT 检查 JWT Token 有效期并预警。"""
+    try:
+        from utils.token_manager import TokenInspector
+        inspector = TokenInspector(token)
+        warning = inspector.get_expiry_warning(warn_before_minutes=60)
+        # 避免重复显示"Token 有效"（仅在有问题时显示）
+        if "过期" in warning or "即将过期" in warning:
+            console.print(f"   {warning}")
+        elif inspector.info.is_valid and inspector.info.ttl_minutes is not None:
+            console.print(
+                f"   [dim]JWT 有效期至 {inspector.info.expires_at_str} "
+                f"(剩余 {inspector.info.ttl_minutes:.0f} 分钟)[/dim]"
+            )
+    except ImportError:
+        pass  # PyJWT 未安装，静默跳过
+    except Exception:
+        pass  # 解析失败不影响主流程
 
 
 def _apply_auto_concurrent(args, ctx: BootstrapContext) -> None:
@@ -614,17 +636,19 @@ async def _build_custom_target(args, target_preset: dict | None = None,
     auth_extra_headers = normalized_auth.get("extra_headers", {}) or {}
 
     # 🆕 SSL: https:// 目标自动跳过验证（红队场景多自签/内网证书）
-    #          显式 --ssl-skip 或 preset TARGET_SSL_SKIP=1 也生效（向后兼容）
-    is_https_target = effective_url.lower().startswith("https://")
-    is_http_target = effective_url.lower().startswith("http://") or effective_url.lower().startswith("ws://")
+    is_https = effective_url.lower().startswith("https://")
     ssl_skip = getattr(args, 'ssl_skip', False) or _resolve("target_ssl_skip", False)
-    if is_https_target and not ssl_skip:
+    if is_https and not ssl_skip:
         ssl_skip = True
         console.print(f"[dim]🔓 SSL 验证已自动跳过 ({effective_url} 为 HTTPS 目标)[/dim]")
-    verify_ssl = not is_http_target and not ssl_skip
-
-    if ssl_skip and not is_http_target:
+    if ssl_skip and is_https:
         console.print("[yellow]⚠️ --ssl-skip: 跳过 SSL 证书验证（自签证书场景）[/yellow]")
+    verify_ssl = not ssl_skip
+
+    # 🆕 TLS 指纹伪装
+    effective_tls = getattr(args, 'tls_impersonate', '') or ""
+    if effective_tls:
+        console.print(f"[bold cyan]🔐 TLS 指纹伪装: {effective_tls}[/bold cyan]")
 
     # 🆕 API 格式: 根据目标类型自动推断
     cli_target_type = getattr(args, 'target_type', 'auto')
@@ -687,6 +711,7 @@ async def _build_custom_target(args, target_preset: dict | None = None,
         jwt_token=effective_jwt,
         user_agent="",
         extra_headers=extra_headers if extra_headers else None,
+        tls_impersonate=effective_tls or None,
     )
 
 

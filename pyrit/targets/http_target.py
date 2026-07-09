@@ -35,6 +35,8 @@ from pyrit.models import MessagePiece
 from pyrit.models.messages.message import Message
 
 from utils import DEFAULT_MODEL_NAME, backoff_delay
+from utils.target_url import normalize_target_url, DEFAULT_OPEN_TIMEOUT, DEFAULT_READ_TIMEOUT
+from utils.http_transport import create_http_client, is_tls_block_error, BROWSER_HEADERS
 
 console = Console()
 
@@ -55,20 +57,6 @@ class CustomHttpChatTarget(PromptTarget):
     - 非标准请求/响应格式的 Chat API
     """
 
-    _BROWSER_HEADERS: dict = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Priority": "u=0, i",
-    }
-
     def __init__(
         self,
         endpoint: str,
@@ -83,6 +71,7 @@ class CustomHttpChatTarget(PromptTarget):
         content_type: str = "application/json",
         http_method: str = "POST",
         jwt_token: str = "",
+        tls_impersonate: Optional[str] = None,
     ):
         """
         Args:
@@ -98,6 +87,7 @@ class CustomHttpChatTarget(PromptTarget):
             content_type: POST Content-Type: json / form-urlencoded / text
             http_method: HTTP 方法: POST(默认) / GET
             jwt_token: JWT Token — 快捷方式，自动转为 Authorization: Bearer <jwt>
+            tls_impersonate: TLS 指纹伪装 profile (chrome124/safari17_0/...)
         """
         super().__init__(
             endpoint=endpoint.rstrip("/"),
@@ -113,8 +103,15 @@ class CustomHttpChatTarget(PromptTarget):
         self._content_type = self._extra_headers.get("Content-Type", content_type)
         self._http_method = http_method.upper()
         self._jwt_token = jwt_token
-        self._verify_ssl = False if endpoint.lower().startswith("http://") else verify_ssl
+        self._tls_impersonate = tls_impersonate
+        # SSL 策略：委托 normalize_target_url 判断（HTTP=不验证，HTTPS=验证）
+        try:
+            nurl = normalize_target_url(endpoint)
+            self._verify_ssl = verify_ssl if verify_ssl is not None else nurl.verify_ssl
+        except ValueError:
+            self._verify_ssl = False
         self._client: httpx.AsyncClient | None = None
+        self._tls_fallback_attempted: bool = False
 
     # ── Payload 构建 ──
 
@@ -126,7 +123,7 @@ class CustomHttpChatTarget(PromptTarget):
 
     def _build_headers(self) -> dict:
         """组装请求头: 默认浏览器头 ⊂ extra_headers ⊂ 认证头（JWT 优先于 api_key）。"""
-        headers = dict(self._BROWSER_HEADERS)
+        headers = dict(BROWSER_HEADERS)
         headers.update(self._extra_headers)
         if "Content-Type" not in headers:
             headers["Content-Type"] = self._content_type
@@ -167,11 +164,12 @@ class CustomHttpChatTarget(PromptTarget):
     # ── 核心: 原生 async HTTP ──
 
     def _ensure_client(self) -> httpx.AsyncClient:
-        """延迟创建 httpx.AsyncClient。"""
+        """延迟创建 HTTP 客户端（httpx 核心 + 可选 curl_cffi TLS 伪装）。"""
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self._timeout),
-                verify=self._verify_ssl,
+            self._client = create_http_client(
+                verify_ssl=self._verify_ssl,
+                tls_impersonate=self._tls_impersonate,
+                timeout=self._timeout,
             )
         return self._client
 
@@ -241,6 +239,22 @@ class CustomHttpChatTarget(PromptTarget):
 
             except (httpx.HTTPError, httpx.RequestError, OSError) as e:
                 last_error = e
+                # 🆕 TLS 指纹拦截检测 + 自动降级到 curl_cffi
+                if (is_tls_block_error(e) and not self._tls_fallback_attempted
+                        and not self._tls_impersonate):
+                    self._tls_fallback_attempted = True
+                    console.print(
+                        "[bold yellow]⚠️ 检测到 TLS 指纹可能被拦截，"
+                        "自动切换到 curl_cffi 伪装 (chrome124)...[/bold yellow]"
+                    )
+                    # 销毁当前 httpx client，创建 curl_cffi 伪装 client
+                    if self._client:
+                        await self._client.aclose()
+                        self._client = None
+                    self._tls_impersonate = "chrome124"
+                    self._client = self._ensure_client()
+                    continue  # 用新 client 重试本次 attempt
+
                 if attempt < max_retries - 1:
                     wait_time = backoff_delay(attempt)
                     console.print(

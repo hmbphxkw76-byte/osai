@@ -381,7 +381,7 @@ rich>=13.0,<15.0               # 终端 UI
 ### 8.1 四阶段指导模型
 
 ```
-Stage 0: 配置就绪 (Readiness Gate) → scripts/config_center.py (Web GUI)
+Stage 0: 配置就绪 (Readiness Gate) → configs/server/ (Web GUI)
 Stage 1: 探测后 (Pre-Execution)     → targets/target_type_probe.py
 Stage 2: 执行中 (In-Execution)      → executor/dashboard.py + utils/guidance.py
 Stage 3: 执行后 (Post-Execution)    → reporting/engine.py + reporting/terminal.py
@@ -392,8 +392,9 @@ Stage 3: 执行后 (Post-Execution)    → reporting/engine.py + reporting/termi
 攻击前通过 Web 界面完成配置准备和就绪检查：
 
 ```
-python scripts/config_center.py              # http://127.0.0.1:5051
-python scripts/config_center.py --port 8080  # 自定义端口
+python -m configs.server              # http://127.0.0.1:5051
+python -m configs.server --port 8080  # 自定义端口
+python run_config_center.py            # 根目录快捷启动（同效）
 ```
 
 功能:
@@ -405,16 +406,18 @@ python scripts/config_center.py --port 8080  # 自定义端口
 
 架构:
 ```
-scripts/config_center/          ← Web 框架包
-├── __init__.py                  ← create_app() 工厂
-├── routes.py                    ← API 路由 (Blueprint)
+configs/server/                  ← Web 框架包（配置与服务器同目录，维护更方便）
+├── __init__.py                  ← create_app() 工厂 + CLI 入口 + run_async 同步封装
+├── routes.py                    ← API 路由 + 探测逻辑 + 一键自动配置
 ├── utils.py                     ← 配置读写与校验
-├── readiness_probe.py           ← 目标探测聚合层（委托 targets/ 层）
-├── templates/index.html         ← 前端页面
+├── target_config.py             ← 目标配置 & SDK 连接测试
+├── templates/index.html         ← 前端 SPA
 └── static/style.css             ← 样式
 ```
 
 探测功能全部委托给 `targets/` 层已有函数，零新增探测逻辑。
+
+一键自动配置: `POST /api/auto-configure` — 输入 URL → 连通性测试 → API 识别 → 模型枚举 → 自动填充 shared.env → 就绪检查（端到端全自动）。
 
 ### 8.2 Stage 2 执行中指导设计要求
 
