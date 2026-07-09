@@ -1193,6 +1193,7 @@ async def _discover_endpoints(
     extra_auth_headers: dict | None = None,
     enable_js_extraction: bool = True,
     api_key: str = "",
+    api_type: str | None = None,
 ) -> tuple[list[DiscoveredEndpoint], dict]:
     """分批并发枚举目标 URL 下所有 Web / LLM 相关端点（自适应限流感知）。
 
@@ -1214,11 +1215,32 @@ async def _discover_endpoints(
         batch_delay: 批次间延迟（秒）
         enable_js_extraction: 是否启用 JS 端点提取（默认 True）
         api_key: 可选认证令牌，将添加为 Authorization: Bearer <api_key>
+        api_type: 已知 API 类型（openai/ollama/custom）。若提供，对应路径将排到最前优先探测。
 
     Returns:
         (DiscoveredEndpoint 列表, 限流汇总 dict)
     """
-    paths = list(dict.fromkeys(_WEB_COMMON_PATHS + _LLM_COMMON_PATHS))
+    # 基础路径（保持去重 + 优先级）
+    combined = list(dict.fromkeys(_WEB_COMMON_PATHS + _LLM_COMMON_PATHS))
+
+    # 若已知 API 类型，将对应特征路径提到最前面优先探测
+    if api_type == "ollama":
+        _OLLAMA_TOP = [
+            "/", "/api/tags", "/api/ps", "/api/show", "/api/generate",
+            "/api/chat", "/api/embeddings", "/api/version",
+            "/api/create", "/api/copy", "/api/delete", "/api/pull", "/api/push", "/api/blobs",
+        ]
+        paths = list(dict.fromkeys(_OLLAMA_TOP + combined))
+    elif api_type == "openai":
+        _OPENAI_TOP = [
+            "/v1/models", "/v1/chat/completions", "/v1/completions",
+            "/v1/embeddings", "/v1/audio/transcriptions", "/v1/audio/translations",
+            "/v1/images/generations", "/v1/assistants", "/v1/threads",
+            "/models", "/chat/completions",
+        ]
+        paths = list(dict.fromkeys(_OPENAI_TOP + combined))
+    else:
+        paths = combined
     current_concurrency = initial_concurrency
     all_results: list[DiscoveredEndpoint] = []
     rate_limit_infos: list[RateLimitInfo] = []

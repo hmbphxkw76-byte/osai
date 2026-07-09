@@ -39,11 +39,17 @@ async def enumerate_ai_app_endpoints(
     verify_ssl: bool = False,
     timeout: float = 5.0,
     api_key: str = "",
+    cookies: str = "",
+    extra_headers: dict[str, str] | None = None,
+    api_type: str | None = None,
 ) -> dict:
     """枚举 AI 应用常见端点，返回结构化结果供 Web UI 展示。
 
     Args:
         api_key: 可选认证令牌，部分 Web AI 应用首页/API 需要认证才返回有效信息。
+        cookies: 可选 Cookie 字符串（如 lab_session=xxx）。
+        extra_headers: 额外请求头，与 api_key/cookies 合并后发送。
+        api_type: 已知 API 类型（如 openai/ollama），来自探测缓存。传入后优先探测对应路径。
 
     Returns:
         {
@@ -56,12 +62,21 @@ async def enumerate_ai_app_endpoints(
     try:
         from targets.model_probe import _discover_endpoints  # noqa: E402 — 延迟导入
         normalized = normalize_target_url(base_url)
+
+        auth_headers: dict[str, str] = dict(extra_headers) if extra_headers else {}
+        if api_key:
+            auth_headers["Authorization"] = f"Bearer {api_key}"
+        if cookies:
+            auth_headers["Cookie"] = cookies
+
         discovered, summary = await _discover_endpoints(
             normalized.full_url,
             verify_ssl=verify_ssl or normalized.verify_ssl,
             timeout=timeout,
             initial_concurrency=3,
             api_key=api_key,
+            extra_auth_headers=auth_headers if auth_headers else None,
+            api_type=api_type,
         )
         return {
             "ok": True,
@@ -74,6 +89,7 @@ async def enumerate_ai_app_endpoints(
         return {"ok": False, "endpoints": [], "summary": {}, "error": str(e)[:400]}
 
 
+
 # ── API Key 侦察 ──────────────────────────────────────────────────────────────
 
 async def scan_app_secrets(
@@ -81,14 +97,20 @@ async def scan_app_secrets(
     verify_ssl: bool = False,
     timeout: float = 20.0,
     api_key: str = "",
+    do_verify: bool = True,
+    cookies: str = "",
+    extra_headers: dict[str, str] | None = None,
 ) -> dict:
-    """一站式 API Key 侦察：获取首页 → 解析 JS → 扫描密钥。
+    """一站式 API Key 侦察：获取首页 → 解析 JS → 扫描密钥 → 验证凭证。
 
     Args:
         base_url: 目标根 URL
         verify_ssl: SSL 验证
         timeout: 总超时
         api_key: 可选认证头
+        do_verify: 是否对发现的凭据执行远程验证（TruffleHog 核心功能）
+        cookies: 可选 Cookie 字符串。
+        extra_headers: 额外请求头。
 
     Returns:
         {"ok": bool, "findings": [dict, ...], "summary": dict, "error": str|None}
@@ -96,11 +118,18 @@ async def scan_app_secrets(
     try:
         from utils.secret_finder import run_secret_recon  # noqa: E402 延迟导入
         normalized = normalize_target_url(base_url)
+
+        headers: dict[str, str] = dict(extra_headers) if extra_headers else {}
+        if cookies:
+            headers["Cookie"] = cookies
+
         result = await run_secret_recon(
             normalized.full_url,
             verify_ssl=verify_ssl or normalized.verify_ssl,
             timeout=timeout,
             api_key=api_key,
+            do_verify=do_verify,
+            extra_headers=headers if headers else None,
         )
         return result
     except ImportError as e:
@@ -108,6 +137,7 @@ async def scan_app_secrets(
     except Exception as e:
         logger.exception("API Key 侦察失败")
         return {"ok": False, "findings": [], "summary": {}, "error": str(e)[:400]}
+
 
 
 def _endpoint_to_dict(e) -> dict:

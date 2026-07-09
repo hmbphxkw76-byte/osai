@@ -4,107 +4,535 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PyRIT Config Center</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
-<!-- ── 侧边栏 ── -->
+<!-- ── 侧边栏（向导导航）── -->
 <aside class="sidebar">
   <div class="sidebar-header">
-    <span class="logo">🔧</span>
-    <h1>Config Center</h1>
+    <span class="logo">🎯</span>
+    <div>
+      <h1>Config Center</h1>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">目标侦察向导</div>
+    </div>
   </div>
 
-  <!-- ── 状态摘要 ── -->
+  <!-- ── 实时认证状态（顶部状态条）── -->
   <div class="readiness-bar" id="readiness-bar">
     <span class="dot" id="readiness-dot"></span>
-    <span id="readiness-text">检查中...</span>
+    <span id="readiness-text">就绪检查中...</span>
   </div>
 
-  <div class="sidebar-section-header">📁 平台配置</div>
-  <div class="module-list" id="file-list">
-    <div style="padding:12px 20px;text-align:center;color:var(--text-dim);">加载中...</div>
+  <!-- ── 已保存凭据摘要（仅显示有/无）── -->
+  <div class="creds-summary" id="creds-summary">
+    <div class="title">
+      <span>🔑 已保存凭据</span>
+      <a class="manage-link" onclick="goToStep(2)">管理</a>
+    </div>
+    <div class="cred-row">
+      <span class="name">🍪 Cookie</span>
+      <span class="value empty" id="cred-cookie">未配置</span>
+    </div>
+    <div class="cred-row">
+      <span class="name">🎟 JWT</span>
+      <span class="value empty" id="cred-jwt">未配置</span>
+    </div>
+    <div class="cred-row">
+      <span class="name">🔑 API Key</span>
+      <span class="value empty" id="cred-apikey">未配置</span>
+    </div>
   </div>
 
-  <div class="sidebar-section-header">🔑 凭证管理</div>
-  <div class="module-list" id="token-list">
-    <div style="padding:12px 20px;text-align:center;color:var(--text-dim);">加载中...</div>
+  <div class="sidebar-section-header">📋 侦察流程</div>
+  <div class="wizard-steps" id="wizard-steps">
+    <div class="wizard-step active" data-step="1" onclick="goToStep(1)">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">🎯 设定目标 URL</div>
+        <div class="step-desc">填写待侦察的 AI 服务地址</div>
+      </div>
+      <span class="step-status todo" id="step1-status">○</span>
+    </div>
+    <div class="wizard-step" data-step="2" onclick="goToStep(2)">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">🔐 配置认证</div>
+        <div class="step-desc">Cookie / JWT / API Key</div>
+      </div>
+      <span class="step-status todo" id="step2-status">○</span>
+    </div>
+    <div class="wizard-step" data-step="3" onclick="goToStep(3)">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">🔍 端点探测</div>
+        <div class="step-desc">连通性 + 类型识别 + 枚举</div>
+      </div>
+      <span class="step-status todo" id="step3-status">○</span>
+    </div>
+    <div class="wizard-step" data-step="4" onclick="goToStep(4)">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">⚔️ 选择攻击目标</div>
+        <div class="step-desc">模型与评分服务</div>
+      </div>
+      <span class="step-status todo" id="step4-status">○</span>
+    </div>
   </div>
 </aside>
 
 <!-- ── 主内容 ── -->
 <main class="main">
   <div class="toolbar">
-    <div class="tabs">
-      <button class="tab active" onclick="switchTab('preview')">📋 变量预览</button>
-      <button class="tab" onclick="switchTab('edit')">✏️ 编辑器</button>
-      <button class="tab" onclick="switchTab('probe')">🔌 探测</button>
-      <button class="tab" onclick="switchTab('target')">🎯 目标配置</button>
+    <div>
+      <div class="page-title" id="page-title">🎯 目标侦察向导</div>
+      <div class="page-subtitle" id="page-subtitle">分步引导 · 自动保存 · 无需关注配置文件</div>
     </div>
-    <span class="file-info">当前文件: <span class="current-file" id="current-file">-</span></span>
-    <button class="action-btn" id="save-btn" onclick="saveEnvFile()" style="display:none;">💾 保存</button>
-  </div>
-
-  <!-- ── Tab: 预览 ── -->
-  <div class="content" id="content-preview">
-    <div class="empty-state">
-      <div class="icon">📂</div>
-      <h2>选择一个配置文件开始浏览</h2>
-      <p>在左侧选择任意 .env 文件，查看其变量结构</p>
-    </div>
-  </div>
-
-  <!-- ── Tab: 编辑 ── -->
-  <div class="content hidden" id="content-edit">
-    <div class="empty-state">
-      <div class="icon">✏️</div>
-      <h2>选择一个配置文件开始编辑</h2>
-      <p>在左侧选择 .env 文件，编辑其原始内容并保存</p>
-    </div>
-  </div>
-
-  <!-- ── Tab: 探测 ── -->
-  <div class="content hidden" id="content-probe">
-    <div class="probe-panel">
-      <div class="probe-section">
-        <h3>🎯 目标探测</h3>
-        <div class="probe-form">
-          <label>目标 URL</label>
-          <input type="text" id="probe-url" placeholder="例如: http://192.168.0.20:11434/">
-          <label>API Key（可选）</label>
-          <input type="text" id="probe-apikey" placeholder="留空表示无认证">
-          <label>超时（秒）</label>
-          <input type="number" id="probe-timeout" value="10" min="3" max="60">
-          <label class="checkbox-label">
-            <input type="checkbox" id="probe-verify-ssl" style="width:auto;margin-right:6px;">
-            验证 SSL 证书（自签名证书请取消勾选）
-          </label>
-        </div>
-        <div class="probe-actions">
-          <button class="probe-btn" onclick="runProbe('connectivity')">🔍 连通性测试</button>
-          <button class="probe-btn" onclick="runProbe('api_type')">💡 API 类型识别</button>
-          <button class="probe-btn" onclick="runProbe('models')">📋 模型枚举</button>
-        </div>
-        <div id="probe-result" class="probe-result hidden"></div>
+    <div class="toolbar-right">
+      <div class="auth-state-banner no-auth" id="auth-state-banner">
+        <span class="pulse"></span>
+        <span id="auth-banner-text">未配置认证</span>
       </div>
     </div>
   </div>
 
-  <!-- ── Tab: 目标配置 ── -->
-  <div class="content hidden" id="content-target">
-    <div class="target-config-panel" id="target-config-panel">
-      <!-- 初始由 JS 渲染 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 步骤 1：设定目标 URL -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="content" id="step-1">
+    <div class="wizard-card">
+      <div class="card-header">
+        <span class="icon">🎯</span>
+        <h2>第一步 · 设定侦察目标</h2>
+        <span class="step-badge">1 / 4</span>
+      </div>
+      <div class="card-desc">
+        填写待侦察的 AI 服务根 URL。系统将自动识别协议、补全路径，并按顺序引导你完成认证配置 → 端点探测 → 攻击目标选择。
+      </div>
+
+      <div class="form-row">
+        <label>目标 URL <span class="required">*</span>
+          <span class="hint">例如 OpenAI 兼容服务、Ollama、Gradio、Streamlit、内网 AI 平台等</span>
+        </label>
+        <input type="text" id="target-url" placeholder="例如: http://192.168.0.20:8501/">
+        <div class="field-hint">
+          支持格式: <code>http://host:port/</code>、<code>https://api.example.com/v1</code>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>目标类型 <span class="hint">影响后续探测策略</span></label>
+        <select id="target-type">
+          <option value="openai">OpenAI 兼容 API（/v1/chat/completions）</option>
+          <option value="ollama">Ollama 本地部署（/api/chat）</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="claude">Anthropic Claude</option>
+          <option value="app">AI 应用 / Web 服务（需枚举端点）</option>
+        </select>
+        <div class="field-hint">
+          不确定？选择「AI 应用 / Web 服务」后系统会自动识别。
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="checkbox-label">
+          <input type="checkbox" id="target-verify-ssl">
+          验证 SSL 证书 <span class="hint" style="color:var(--text-dim);font-weight:normal;">· 内网/自签证书<strong style="color:var(--orange);">默认不勾选</strong>，公网严格环境再勾上</span>
+        </label>
+      </div>
+
+      <div id="step1-result"></div>
+
+      <div class="btn-row">
+        <button class="btn" onclick="probeStep1()">🔌 连通性测试</button>
+        <button class="btn secondary" onclick="goToStep(2)" id="step1-next-btn">下一步：配置认证 →</button>
+      </div>
     </div>
   </div>
 
-  <!-- ── 就绪检查面板 ── -->
-  <div class="readiness-panel" id="readiness-panel" style="display:none;">
-    <div class="readiness-header" onclick="toggleReadinessPanel()">
-      <span id="readiness-panel-title">✅ 就绪检查</span>
-      <span id="readiness-panel-score">-/-</span>
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 步骤 2：配置认证 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="content hidden" id="step-2">
+    <div class="wizard-card">
+      <div class="card-header">
+        <span class="icon">🔐</span>
+        <h2>第二步 · 配置认证</h2>
+        <span class="step-badge">2 / 4</span>
+      </div>
+      <div class="card-desc">
+        系统将先自动检测目标是否需要认证。<strong>请勿进行账户爆破</strong> — 通过浏览器登录后在开发者工具复制对应字段即可。所有字段值会自动保存到 <code>configs/tokens/</code>，后续步骤自动读取最新值。
+      </div>
+
+      <div class="form-row">
+        <label>目标 URL <span class="required">*</span></label>
+        <input type="text" id="auth-target-url" placeholder="例如: http://192.168.0.20/">
+        <div class="field-hint">
+          通常与步骤 1 一致。如登录页是单独子路径（如 <code>/login</code>），可填写登录页地址。
+        </div>
+      </div>
+
+      <div class="btn-row" style="border-top:none; padding-top:0; margin-top:0;">
+        <button class="btn" onclick="detectAuth()">🔍 检测是否需要认证</button>
+        <span id="auth-detect-loading"></span>
+      </div>
+
+      <div id="auth-detect-result"></div>
+
+      <div id="auth-form-section" style="display:none; margin-top:20px;">
+        <div class="auth-mode-tabs">
+          <button class="auth-mode-tab active" data-mode="cookie" onclick="switchAuthMode('cookie')">🍪 Cookie（最常见）</button>
+          <button class="auth-mode-tab" data-mode="login" onclick="switchAuthMode('login')">👤 账号密码登录</button>
+          <button class="auth-mode-tab" data-mode="jwt" onclick="switchAuthMode('jwt')">🎟 JWT</button>
+          <button class="auth-mode-tab" data-mode="apikey" onclick="switchAuthMode('apikey')">🔑 API Key</button>
+        </div>
+
+        <!-- Cookie 模式 -->
+        <div class="auth-mode-panel active" data-panel="cookie">
+          <div class="form-row">
+            <label>Cookie 字符串 <span class="required">*</span> <span class="hint">格式: name=value; name2=value2</span></label>
+            <textarea id="auth-cookie" rows="4" placeholder="lab_session=gAAAAABqTxfepOgzhajjg-xQZdQ2liCzcTUnTJLdcAvxHEYe85Yt6_FBgkuvWONQFnabcHZqbNcCr6a1Un32P-XTxj8xKHczhElg2VlXH29yjV1E7NBwwyML8yPZ-ro0DOYLX8JaYQaticHZzLP31l6oQfUf1QERDw=="></textarea>
+            <div class="field-hint">系统将直接以 <code>name=value; name=value</code> 格式作为 HTTP <code>Cookie</code> 请求头原样发送</div>
+          </div>
+          <div class="auth-guide">
+            <div class="guide-title">📋 从哪里获取</div>
+            <ol class="steps">
+              <li>浏览器打开目标网站并<strong>登录</strong></li>
+              <li>按 <code>F12</code> → <strong>Network（网络）</strong> 标签</li>
+              <li>刷新页面，点击任意一个请求</li>
+              <li>右侧 <strong>Request Headers</strong> 中找到 <code>Cookie:</code> 一行</li>
+              <li>复制冒号后面的<strong>全部内容</strong></li>
+            </ol>
+            <div class="guide-row" style="margin-top:8px;">
+              <span class="tag good">✅ 正确</span>
+              <code>lab_session=gAAAAABqTxfepOgzhajjg-xQZdQ...</code>
+            </div>
+            <div class="guide-row">
+              <span class="tag good">✅ 正确</span>
+              <code>lab_session=xxx; user_role=admin; token=abc</code>
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>"lab_session=xxx"</code> — <strong>不要</strong>加引号，<code>"</code> 只是 Python/JS 的字符串定界符
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>gAAAAABqTxfepOgzhajjg-xQ...</code> — 缺少 <code>lab_session=</code> 键名，服务器无法识别
+            </div>
+            <div class="guide-row" style="margin-top:6px;">
+              <span class="tag tip">💡 技巧</span>
+              多个 Cookie 用分号空格分隔：<code>; </code>（不要用逗号或换行）
+            </div>
+          </div>
+          <button class="btn" onclick="saveAuth('cookie')">💾 保存 Cookie</button>
+        </div>
+
+        <!-- 账号密码登录模式 -->
+        <div class="auth-mode-panel" data-panel="login">
+          <div class="form-row">
+            <label>登录页 URL <span class="required">*</span> <span class="hint">系统已自动解析表单字段</span></label>
+            <input type="text" id="login-url" placeholder="例如: http://192.168.0.20/login">
+          </div>
+          <div class="form-row">
+            <label>用户名 <span class="required">*</span></label>
+            <input type="text" id="login-username" placeholder="admin">
+          </div>
+          <div class="form-row">
+            <label>密码 <span class="required">*</span> <span class="hint">密码仅用于本次登录，<strong>绝不会</strong>保存到任何文件</span></label>
+            <input type="password" id="login-password" placeholder="请输入正确密码">
+          </div>
+          <div class="auth-guide">
+            <div class="guide-title">📋 适用场景</div>
+            <p>目标首页是登录页面（如 Gradio 应用、内网 AI 平台），系统会自动：</p>
+            <ol class="steps">
+              <li>解析登录表单的用户名/密码字段</li>
+              <li>提交登录请求（密码仅存在于内存，不落盘）</li>
+              <li>捕获登录成功后返回的 <code>Set-Cookie</code>、<code>Authorization</code> 等凭证</li>
+              <li>自动保存为 Cookie / JWT / API Key</li>
+            </ol>
+            <div class="guide-row" style="margin-top:6px;">
+              <span class="tag tip">💡 建议</span>
+              如果已知 Cookie/Token，直接用左侧 <strong>Cookie</strong> 或 <strong>JWT</strong> 模式粘贴更快
+            </div>
+          </div>
+          <div class="advanced-toggle" onclick="toggleAdvanced('login-advanced')">⚙️ 高级字段（已自动填充）▾</div>
+          <div class="advanced-content" id="login-advanced">
+            <div class="form-row inline">
+              <label>用户名字段名</label>
+              <input type="text" id="login-username-field" value="username" placeholder="username">
+            </div>
+            <div class="form-row inline">
+              <label>密码字段名</label>
+              <input type="text" id="login-password-field" value="password" placeholder="password">
+            </div>
+            <div class="form-row">
+              <label>提交地址 <span class="hint">留空自动探测</span></label>
+              <input type="text" id="login-action" placeholder="例如: /login">
+            </div>
+          </div>
+          <div style="margin-top:16px;">
+            <button class="btn" onclick="performLogin()">🔑 登录并自动捕获凭证</button>
+          </div>
+        </div>
+
+        <!-- JWT 模式 -->
+        <div class="auth-mode-panel" data-panel="jwt">
+          <div class="form-row">
+            <label>JWT Token <span class="required">*</span> <span class="hint">纯 Token 字符串，不含 Bearer 前缀</span></label>
+            <textarea id="auth-jwt" rows="3" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"></textarea>
+            <div class="field-hint">系统会自动添加 <code>Authorization: Bearer &lt;你的JWT&gt;</code> 请求头</div>
+          </div>
+          <div class="auth-guide">
+            <div class="guide-title">📋 从哪里获取</div>
+            <ol class="steps">
+              <li>浏览器 DevTools → <strong>Application（应用）</strong> → Local Storage / Session Storage，搜索 <code>token</code> / <code>jwt</code> / <code>access_token</code></li>
+              <li>或者 Network → 任意请求 → <strong>Request Headers</strong> → <code>Authorization: Bearer eyJ...</code>，复制 <code>Bearer </code> <strong>后面的</strong> 部分</li>
+            </ol>
+            <div class="guide-row" style="margin-top:8px;">
+              <span class="tag good">✅ 正确</span>
+              <code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0...</code>
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>Bearer eyJhbGciOiJIUzI1NiIs...</code> — 不要包含 <code>Bearer </code> 前缀，系统会替你加
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>"eyJhbGciOiJIUzI..."</code> — 不要加引号
+            </div>
+            <div class="guide-row" style="margin-top:6px;">
+              <span class="tag tip">💡 注意事项</span>
+              JWT 由 3 段 base64 组成，以 <code>.</code> 分隔。如果只有 2 段或包含空格/换行，说明复制不完整
+            </div>
+          </div>
+          <button class="btn" onclick="saveAuth('jwt')">💾 保存 JWT</button>
+        </div>
+
+        <!-- API Key 模式 -->
+        <div class="auth-mode-panel" data-panel="apikey">
+          <div class="form-row">
+            <label>API Key <span class="required">*</span> <span class="hint">纯密钥字符串，不含 Bearer 前缀</span></label>
+            <input type="text" id="auth-apikey" placeholder="sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            <div class="field-hint">系统会自动添加 <code>Authorization: Bearer &lt;你的API Key&gt;</code> 请求头</div>
+          </div>
+          <div class="auth-guide">
+            <div class="guide-title">📋 从哪里获取</div>
+            <ol class="steps">
+              <li>服务方提供的管理后台 / API Keys 页面</li>
+              <li>浏览器 DevTools → Network → 任意 API 请求 → <strong>Request Headers</strong> → <code>Authorization: Bearer sk-xxx</code>，复制 <code>Bearer </code> <strong>后面的</strong> 部分</li>
+            </ol>
+            <div class="guide-row" style="margin-top:8px;">
+              <span class="tag good">✅ 正确</span>
+              <code>sk-proj-AbCdEf1234567890abcdef</code>
+            </div>
+            <div class="guide-row">
+              <span class="tag good">✅ 正确</span>
+              <code>gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxx</code>
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>Bearer sk-xxx</code> — 不要含 <code>Bearer </code> 前缀
+            </div>
+            <div class="guide-row">
+              <span class="tag bad">❌ 错误</span>
+              <code>Authorization: Bearer sk-xxx</code> — 不要含整个 Authorization 字段
+            </div>
+            <div class="guide-row" style="margin-top:6px;">
+              <span class="tag tip">💡 常见格式</span>
+              OpenAI: <code>sk-proj-xxx</code> · Google: <code>AIzaSy...</code> · GitHub: <code>ghp_xxx</code> · 其他服务通常为随机字符串
+            </div>
+          </div>
+          <button class="btn" onclick="saveAuth('apikey')">💾 保存 API Key</button>
+        </div>
+      </div>
+
+      <div id="step2-result"></div>
+
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goToStep(1)">← 上一步</button>
+        <button class="btn secondary" onclick="verifyAuth()" id="btn-verify-auth">🧪 验证已保存的认证</button>
+        <button class="btn secondary" onclick="clearAuth()">🗑 清空已保存认证</button>
+        <button class="btn" onclick="goToStep(3)">下一步：端点探测 →</button>
+      </div>
     </div>
-    <div class="readiness-body hidden" id="readiness-body"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 步骤 3：端点探测 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="content hidden" id="step-3">
+    <div class="wizard-card">
+      <div class="card-header">
+        <span class="icon">🔍</span>
+        <h2>第三步 · 端点探测</h2>
+        <span class="step-badge">3 / 4</span>
+      </div>
+      <div class="card-desc">
+        系统会<strong>自动携带</strong>第二步保存的 Cookie / JWT / API Key 进行探测。先做连通性测试，再做 API 类型识别，最后枚举可访问的端点。
+      </div>
+
+      <div class="form-row">
+        <label>目标 URL <span class="hint">已自动从步骤 1 同步</span></label>
+        <input type="text" id="probe-target-url" placeholder="例如: http://192.168.0.20:8501/">
+      </div>
+
+      <div class="form-row">
+        <label class="checkbox-label">
+          <input type="checkbox" id="probe-verify-ssl">
+          验证 SSL 证书 <span class="hint" style="color:var(--text-dim);font-weight:normal;">· 默认不勾选（适配内网自签证书）</span>
+        </label>
+      </div>
+
+      <div id="probe-auth-status" class="auth-detect-card">
+        <div class="verdict"><span class="icon">⏳</span><span>正在加载认证状态...</span></div>
+      </div>
+
+      <div class="btn-row" style="border-top:none; padding-top:0; margin-top:0;">
+        <button class="btn" onclick="runProbe('connectivity')" title="第 1 步：确认目标可达">① 🔌 连通性测试</button>
+        <button class="btn" onclick="runProbe('api_type')" title="第 2 步：识别 OpenAI/Ollama/LangChain 等接口类型">② 💡 API 类型识别</button>
+        <button class="btn highlight" onclick="runProbe('smart-discover')" title="第 3 步：从首页 HTML 智能嗅探内嵌 LLM 端点">③ 🕷 智能发现端点</button>
+        <button class="btn warn" onclick="runProbe('enumerate')" title="第 4 步：深度枚举全部端点（耗时较长）">④ 🔍 枚举端点</button>
+        <button class="btn" onclick="runProbe('models')" title="第 5 步：基于已发现端点列出可用模型">⑤ 📋 模型枚举</button>
+      </div>
+
+      <div class="btn-row" style="border-top:none; padding-top:4px; margin-top:0;">
+        <button class="btn" onclick="runProbe('secret-scan')" title="第 6 步：扫描 JS 文件中的泄露 API Key（SecretFinder + TruffleHog）">⑥ 🔑 API Key 侦察</button>
+        <button class="btn warn" onclick="runProbe('guardrail')" title="第 7 步：探测目标安全护栏强度，决定攻击策略">⑦ 🛡 安全护栏探测</button>
+      </div>
+
+      <div id="probe-result"></div>
+      <div id="enumerate-result" style="display:none;"></div>
+      <div id="models-result" style="display:none;"></div>
+      <div id="smartdiscover-result" style="display:none;"></div>
+      <div id="secretscan-result" style="display:none;"></div>
+      <div id="guardrail-result" style="display:none;"></div>
+
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goToStep(2)">← 上一步</button>
+        <button class="btn" onclick="goToStep(4)">下一步：选择攻击目标 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 步骤 4：攻击配置 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="content hidden" id="step-4">
+    <div class="wizard-card">
+      <div class="card-header">
+        <span class="icon">⚔️</span>
+        <h2>第四步 · 攻击配置</h2>
+        <span class="step-badge">4 / 4</span>
+      </div>
+      <div class="card-desc">
+        配置攻击模式、目标连接和评分服务。所有修改自动保存，PyRIT 启动时自动读取。
+      </div>
+
+      <!-- ── 策略选择区 ── -->
+      <div class="section-title">📋 攻击策略</div>
+
+      <div class="form-row">
+        <label>攻击模式 <span class="required">*</span></label>
+        <select id="dotenv-attack-mode" class="big-select">
+          <option value="ATTACK_with_SCORE">攻击 + 评分（默认推荐）</option>
+          <option value="ONLY_ATTACK">仅攻击（跳过评分，快速压测）</option>
+          <option value="Only_SCORE">仅评分（评估模型安全性）</option>
+          <option value="">不预设（手动指定）</option>
+        </select>
+        <div class="field-hint">决定 PyRIT 是否在攻击后自动评分验证攻击效果。选「攻击+评分」可全面评估 AI 模型安全性。</div>
+      </div>
+
+      <div class="form-row" id="row-score-selector" style="display:none;">
+        <label>独立评分器</label>
+        <select id="dotenv-score-selector" class="big-select">
+          <option value="">与攻击共用（默认）</option>
+          <option value="SCORE">独立评分服务</option>
+        </select>
+        <div class="field-hint">攻击目标与评分模型不同时（如攻击内网 AI、评分为云服务），可独立指定评分器。</div>
+      </div>
+
+      <div class="form-row">
+        <label>攻击场景 <span class="required">*</span></label>
+        <select id="dotenv-target-preset" class="big-select">
+          <option value="OLLAMA">Ollama 本地部署</option>
+          <option value="API_KEY">OpenAI 兼容 API（API Key 认证）</option>
+          <option value="NO_AUTH">无认证（本地 vLLM / TGI 等）</option>
+          <option value="INTERNAL_JWT">JWT 认证（内网自部署）</option>
+          <option value="WEB_COOKIE">Web Cookie 认证</option>
+          <option value="SELF_SIGNED">HTTPS 自签证书</option>
+          <option value="LAB">内网 Lab 应用</option>
+        </select>
+        <div class="field-hint">选择与目标认证方式匹配的场景，系统会自动配置正确的攻击端点。当前已探测到的端点将自动填充下方。</div>
+      </div>
+
+      <div class="form-row">
+        <label>侦查范围</label>
+        <select id="dotenv-recon-preset" class="big-select">
+          <option value="OLLAMA_RECON">完整侦查（模型列表 + 健康检查 + API 标签）</option>
+          <option value="MODELS_RECON">仅模型列表</option>
+          <option value="HEALTH_RECON">仅健康检查</option>
+          <option value="LAB_RECON">内网 Lab 首页探测</option>
+        </select>
+        <div class="field-hint">系统启动时的默认侦查行为。Web 向导第三步可独立触发每种探测。</div>
+      </div>
+
+      <!-- ── 连接配置区 ── -->
+      <div class="section-title" style="margin-top:28px;">⚔️ 攻击目标连接</div>
+
+      <div class="form-row">
+        <label>攻击端点 URL <span class="required">*</span></label>
+        <input type="text" id="attack-url" placeholder="例如: http://192.168.0.20:11434/v1/chat/completions">
+        <div class="field-hint">可从步骤 3 的端点列表点击「选为攻击」自动填充</div>
+      </div>
+
+      <div class="form-row">
+        <label>攻击 API Key <span class="hint">Bearer Token；Cookie/JWT 已在步骤 2 配置并自动携带</span></label>
+        <input type="text" id="attack-api" placeholder="例如: ollama">
+      </div>
+
+      <div class="form-row">
+        <label>攻击模型 <span class="hint">从步骤 3 探测到的模型中选择</span></label>
+        <input type="text" id="attack-model" placeholder="例如: qwen3:8b">
+        <div id="attack-model-chips" class="model-chips"></div>
+      </div>
+
+      <div class="btn-row" style="border-top:none; padding-top:0; margin-top:0;">
+        <button class="btn secondary" onclick="testConnection('attack')">🔌 测试连接</button>
+        <span id="attack-test-result"></span>
+      </div>
+
+      <div class="section-title" style="margin-top:28px;">🧑‍⚖️ 评分模型连接</div>
+
+      <div class="form-row">
+        <label>评分模型 URL <span class="hint">与攻击目标相同时可留空使用同一服务</span></label>
+        <input type="text" id="score-url" placeholder="例如: http://192.168.0.20:11434/v1">
+      </div>
+
+      <div class="form-row">
+        <label>评分 API Key</label>
+        <input type="text" id="score-api" placeholder="留空表示无认证">
+      </div>
+
+      <div class="form-row">
+        <label>评分模型</label>
+        <input type="text" id="score-model" placeholder="例如: qwen3:8b">
+        <div id="score-model-chips" class="model-chips"></div>
+      </div>
+
+      <div class="btn-row" style="border-top:none; padding-top:0; margin-top:0;">
+        <button class="btn secondary" onclick="testConnection('score')">🔌 测试连接</button>
+        <span id="score-test-result"></span>
+      </div>
+
+      <div id="step4-result"></div>
+
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goToStep(3)">← 上一步</button>
+        <button class="btn" onclick="autoConfigure()">🚀 一键自动配置</button>
+        <button class="btn" onclick="saveFinalConfig()">💾 保存并完成配置</button>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -116,33 +544,242 @@
 // 全局状态
 // ============================================================================
 let state = {
-  files: [],
-  tokens: [],
-  currentFilename: null,
-  currentRaw: '',
-  activeTab: 'preview',
+  currentStep: 1,
+  targetUrl: '',
+  targetType: 'openai',
+  verifySsl: false,
+  discoveredEndpoints: [],
+  discoveredModels: [],
+  apiType: 'unknown',
+  authState: { has_auth: false },
   readinessResult: null,
 };
+
+const SAVED_INDICATOR_TIMEOUT = 1500;
 
 // ============================================================================
 // 初始化
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadData();
+  await loadAuthState();
+  await loadTargetConfig();
+  await loadDotenvConfig();
   await checkReadiness();
+  refreshCredsSummary();
+  setupAutoSync();
 });
 
-async function loadData() {
+function setupAutoSync() {
+  // 步骤 1：URL/类型变更时同步到步骤 2/3
+  const targetUrlInput = document.getElementById('target-url');
+  targetUrlInput.addEventListener('input', () => {
+    state.targetUrl = targetUrlInput.value.trim();
+    document.getElementById('auth-target-url').value = state.targetUrl;
+    document.getElementById('probe-target-url').value = state.targetUrl;
+    if (state.targetUrl) {
+      markStepDone(1);
+    } else {
+      markStepTodo(1);
+    }
+  });
+  document.getElementById('target-type').addEventListener('change', (e) => {
+    state.targetType = e.target.value;
+  });
+  document.getElementById('target-verify-ssl').addEventListener('change', (e) => {
+    state.verifySsl = e.target.checked;
+  });
+
+  // 步骤 2：URL 变更时自动保存到目标（仅作为参考，不写入 shared.env）
+  document.getElementById('auth-target-url').addEventListener('input', (e) => {
+    if (!state.targetUrl) state.targetUrl = e.target.value.trim();
+  });
+
+  // 步骤 3：URL 同步
+  document.getElementById('probe-target-url').addEventListener('input', (e) => {
+    document.getElementById('attack-url').value = e.target.value.trim();
+  });
+
+  // 步骤 4：输入即保存到 shared.env（自动保存）
+  ['attack-url', 'attack-api', 'attack-model', 'score-url', 'score-api', 'score-model'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('blur', debounce(autoSaveSharedConfig, 400));
+    }
+  });
+
+  // 步骤 4：.env 下拉框变更时自动保存（立即保存，无需 debounce）
+  ['dotenv-attack-mode', 'dotenv-score-selector', 'dotenv-target-preset', 'dotenv-recon-preset'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', autoSaveDotenv);
+    }
+  });
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+// ============================================================================
+// 步骤导航
+// ============================================================================
+window.goToStep = function(step) {
+  state.currentStep = step;
+  document.querySelectorAll('.content').forEach(el => el.classList.add('hidden'));
+  document.getElementById('step-' + step).classList.remove('hidden');
+  document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.wizard-step[data-step="${step}"]`).classList.add('active');
+
+  const titles = {
+    1: { t: '🎯 目标侦察向导', s: '分步引导 · 自动保存 · 无需关注配置文件' },
+    2: { t: '🔐 认证配置', s: '根据目标反馈指导填写' },
+    3: { t: '🔍 端点探测', s: '自动携带已保存的认证' },
+    4: { t: '⚔️ 攻击目标配置', s: '保存到 shared.env' },
+  };
+  document.getElementById('page-title').textContent = titles[step].t;
+  document.getElementById('page-subtitle').textContent = titles[step].s;
+
+  // 步骤切换时自动加载
+  if (step === 2) {
+    document.getElementById('auth-target-url').value = state.targetUrl || '';
+    loadAuthFormLatest();
+  } else if (step === 3) {
+    document.getElementById('probe-target-url').value = state.targetUrl || '';
+    refreshProbeAuthStatus();
+  } else if (step === 4) {
+    loadTargetConfig();
+    loadDotenvConfig();
+  }
+};
+
+function markStepDone(step) {
+  const el = document.getElementById('step' + step + '-status');
+  if (el) {
+    el.textContent = '✓';
+    el.className = 'step-status done';
+  }
+  const stepEl = document.querySelector(`.wizard-step[data-step="${step}"]`);
+  if (stepEl) stepEl.classList.add('done');
+}
+function markStepTodo(step) {
+  const el = document.getElementById('step' + step + '-status');
+  if (el) {
+    el.textContent = '○';
+    el.className = 'step-status todo';
+  }
+  const stepEl = document.querySelector(`.wizard-step[data-step="${step}"]`);
+  if (stepEl) stepEl.classList.remove('done');
+}
+function markStepWarn(step, msg) {
+  const el = document.getElementById('step' + step + '-status');
+  if (el) {
+    el.textContent = '!';
+    el.className = 'step-status warn';
+    el.title = msg || '';
+  }
+}
+
+// ============================================================================
+// 认证状态加载
+// ============================================================================
+async function loadAuthState() {
   try {
-    const resp = await fetch('/api/files');
-    const data = await resp.json();
-    state.files = data.files || [];
-    state.tokens = data.tokens || [];
-    renderFileList();
-    renderTokenList();
+    const resp = await fetch('/api/auth/state');
+    state.authState = await resp.json();
+    refreshAuthBanner();
+    refreshCredsSummary();
+    if (state.authState.has_auth) markStepDone(2);
+    else markStepTodo(2);
   } catch (e) {
-    document.getElementById('file-list').innerHTML =
-      '<div style="padding:12px 20px;color:var(--red);text-align:center;">加载失败</div>';
+    console.error('loadAuthState failed', e);
+  }
+}
+
+// 自动回填最新 Cookie / JWT / API Key 到对应输入框
+// 设计意图：避免用户每次都重新粘贴凭证。
+// 如果文件为空，对应输入框保持空白（与当前 placeholder 风格一致）。
+let _authLatestLoaded = false;
+async function loadAuthFormLatest(force = false) {
+  // 默认仅在首次进入步骤 2 时回填一次；用户清空后若不强制刷新则尊重其输入
+  if (_authLatestLoaded && !force) return;
+  try {
+    const resp = await fetch('/api/auth/latest');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const cookieEl = document.getElementById('auth-cookie');
+    const jwtEl = document.getElementById('auth-jwt');
+    const apiKeyEl = document.getElementById('auth-apikey');
+
+    if (cookieEl && data.cookie && !cookieEl.value) cookieEl.value = data.cookie;
+    if (jwtEl && data.jwt && !jwtEl.value) jwtEl.value = data.jwt;
+    if (apiKeyEl && data.api_key && !apiKeyEl.value) apiKeyEl.value = data.api_key;
+
+    // 若回填了内容,给出轻量提示
+    const filled = [];
+    if (cookieEl && data.cookie) filled.push('Cookie');
+    if (jwtEl && data.jwt) filled.push('JWT');
+    if (apiKeyEl && data.api_key) filled.push('API Key');
+    if (filled.length > 0 && !force) {
+      const t = showToast;
+      // 静默回填,只在控制台留痕(避免每次进入都弹提示打扰用户)
+      console.log(`[auth] 自动回填: ${filled.join(' / ')}`);
+    }
+    _authLatestLoaded = true;
+  } catch (e) {
+    console.error('loadAuthFormLatest failed', e);
+  }
+}
+
+function refreshAuthBanner() {
+  const banner = document.getElementById('auth-state-banner');
+  const text = document.getElementById('auth-banner-text');
+  if (state.authState.has_auth) {
+    banner.classList.remove('no-auth');
+    const tags = [];
+    if (state.authState.cookie_present) tags.push('Cookie');
+    if (state.authState.jwt_present) tags.push('JWT');
+    if (state.authState.api_key_present) tags.push('API Key');
+    text.textContent = `已配置: ${tags.join(' + ')}`;
+  } else {
+    banner.classList.add('no-auth');
+    text.textContent = '未配置认证';
+  }
+}
+
+function refreshCredsSummary() {
+  const fmt = (present) => {
+    if (present) return { text: '● 已配置', cls: 'value set' };
+    return { text: '○ 未配置', cls: 'value empty' };
+  };
+  const c = fmt(state.authState.cookie_present);
+  document.getElementById('cred-cookie').textContent = c.text;
+  document.getElementById('cred-cookie').className = c.cls;
+  const j = fmt(state.authState.jwt_present);
+  document.getElementById('cred-jwt').textContent = j.text;
+  document.getElementById('cred-jwt').className = j.cls;
+  const k = fmt(state.authState.api_key_present);
+  document.getElementById('cred-apikey').textContent = k.text;
+  document.getElementById('cred-apikey').className = k.cls;
+}
+
+async function refreshProbeAuthStatus() {
+  const el = document.getElementById('probe-auth-status');
+  if (state.authState.has_auth) {
+    const tags = [];
+    if (state.authState.cookie_present) tags.push('🍪 Cookie');
+    if (state.authState.jwt_present) tags.push('🎟 JWT');
+    if (state.authState.api_key_present) tags.push('🔑 API Key');
+    el.className = 'auth-detect-card no-auth';
+    el.innerHTML = `<div class="verdict no-auth"><span class="icon">🔒</span><span>已自动携带认证信息: ${tags.join(' · ')}</span></div>
+                    <div class="details">后续所有探测请求都会自动附带已保存的 Cookie / JWT / API Key</div>`;
+  } else {
+    el.className = 'auth-detect-card requires';
+    el.innerHTML = `<div class="verdict requires"><span class="icon">🔓</span><span>当前未配置认证</span></div>
+                    <div class="details">若目标需要登录，请先返回 <a href="javascript:goToStep(2)" style="color:var(--blue);">第二步</a> 配置</div>`;
   }
 }
 
@@ -151,462 +788,20 @@ async function checkReadiness() {
     const resp = await fetch('/api/probe/check');
     state.readinessResult = await resp.json();
     updateReadinessBar();
-    updateReadinessPanel();
   } catch (e) {
     state.readinessResult = null;
   }
 }
 
-// ============================================================================
-// 侧边栏渲染
-// ============================================================================
-function renderFileList() {
-  const container = document.getElementById('file-list');
-  const sorted = [...state.files].sort((a, b) => {
-    if (a.name === 'shared.env') return -1;
-    if (b.name === 'shared.env') return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  container.innerHTML = sorted.map(f => {
-    const icon = f.name === 'shared.env' ? '⭐' : '📄';
-    const vars = f.variable_count != null ? `${f.variable_count} 变量` :
-                 f.section_count != null ? `${f.section_count} 节` : '';
-    return `
-    <div class="module-item ${!f.exists ? 'missing' : ''}"
-         onclick="selectFile('${escapeAttr(f.name)}')">
-      <div class="info">
-        <div class="title">${icon} ${escapeHtml(f.name)}</div>
-        <div class="desc">${vars} · ${f.size_kb || 0} KB</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderTokenList() {
-  const container = document.getElementById('token-list');
-  if (state.tokens.length === 0) {
-    container.innerHTML = '<div style="padding:12px 20px;text-align:center;color:var(--text-dim);">暂无凭证文件</div>';
-    return;
-  }
-
-  container.innerHTML = state.tokens.map(t => {
-    const icon = t.name.includes('jwt') ? '🎟' : t.name.includes('cookie') ? '🍪' : '🔑';
-    return `
-    <div class="module-item" onclick="selectToken('${escapeAttr(t.name)}')">
-      <div class="info">
-        <div class="title">${icon} ${escapeHtml(t.name)}</div>
-        <div class="desc">${t.size_kb} KB</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-// ============================================================================
-// 文件选择 & 数据加载
-// ============================================================================
-async function selectFile(filename) {
-  document.querySelectorAll('#file-list .module-item').forEach(el => el.classList.remove('active'));
-
-  state.currentFilename = filename;
-  document.getElementById('current-file').textContent = filename;
-
-  try {
-    const resp = await fetch(`/api/files/${encodeURIComponent(filename)}`);
-    const data = await resp.json();
-    state.currentFile = data;
-    state.currentRaw = data.raw;
-
-    if (state.activeTab === 'preview') {
-      renderPreview(data);
-    } else {
-      renderEditor(data);
-    }
-
-    updateSaveButton();
-  } catch (e) {
-    showContent(state.activeTab, `<div class="empty-state"><div class="icon">❌</div><h2>加载失败</h2><p>${escapeHtml(String(e))}</p></div>`);
-  }
-}
-
-async function selectToken(name) {
-  state.currentFilename = name;
-  document.getElementById('current-file').textContent = name;
-
-  try {
-    const resp = await fetch(`/api/tokens/${encodeURIComponent(name)}`);
-    const data = await resp.json();
-    state.currentRaw = data.content;
-    state.currentFile = { name: name, raw: data.content, sections: {}, stats: {size_bytes: data.size_bytes}, is_shared: false, is_token: true };
-
-    if (state.activeTab === 'preview') {
-      renderTokenPreview(data);
-    } else {
-      renderEditor(state.currentFile);
-    }
-
-    updateSaveButton();
-  } catch (e) {
-    showContent(state.activeTab, `<div class="empty-state"><div class="icon">❌</div><h2>加载失败</h2><p>${escapeHtml(String(e))}</p></div>`);
-  }
-}
-
-// ============================================================================
-// 预览模式
-// ============================================================================
-function renderPreview(data) {
-  let html = '';
-
-  if (data.is_shared) {
-    // shared.env — 显示为变量池
-    html += '<div class="section-card"><div class="header"><span class="name">⭐ 全局变量池 (shared.env)</span><span class="count">' + Object.keys(data.sections).length + ' 个变量</span></div>';
-    for (const [key, value] of Object.entries(data.sections)) {
-      const isEmptyOrNone = !value || value === 'None';
-      html += `<div class="payload-item">
-        <span class="num">${escapeHtml(key)}</span>
-        <span class="text ${isEmptyOrNone ? 'dim-value' : ''}">${escapeHtml(value || '(空)')}</span>
-        <span class="status-dot" style="background:${isEmptyOrNone ? '#d4a047' : '#4caf50'};" title="${isEmptyOrNone ? '未配置' : '已配置'}"></span>
-      </div>`;
-    }
-    html += '</div>';
-  } else if (data.sections && Object.keys(data.sections).length > 0) {
-    // 其他 .env — 显示 section 树
-    const totalVars = Object.values(data.sections).reduce((s, v) => s + Object.keys(v).length, 0);
-    html += `<div style="margin-bottom:12px;font-size:12px;color:var(--text-dim);">${Object.keys(data.sections).length} 个节 · ${totalVars} 个变量 · ${data.stats?.size_kb || 0} KB</div>`;
-
-    for (const [sectionName, vars] of Object.entries(data.sections)) {
-      html += `<div class="section-card">
-        <div class="header">
-          <span class="name">[${escapeHtml(sectionName)}]</span>
-          <span class="count">${Object.keys(vars).length} 变量</span>
-        </div>`;
-
-      for (const [key, value] of Object.entries(vars)) {
-        const hasInterp = typeof value === 'string' && value.includes('%(');
-        html += `<div class="payload-item">
-          <span class="num">${escapeHtml(key)}</span>
-          <span class="text ${hasInterp ? 'interpolated' : ''}">${escapeHtml(String(value))}</span>
-          ${hasInterp ? '<span class="hint" title="该值引用 shared.env 变量">⛓</span>' : ''}
-        </div>`;
-      }
-      html += '</div>';
-    }
-  } else {
-    html = '<div class="empty-state"><div class="icon">📭</div><h2>该文件没有 section 数据</h2></div>';
-  }
-
-  // 敏感信息提示
-  if (data.sensitive_lines && data.sensitive_lines.length > 0) {
-    html += `<div class="sensitive-warning">
-      ⚠️ 检测到 ${data.sensitive_lines.length} 处可能的凭据:
-      ${data.sensitive_lines.map(s => `<div>第${s.line}行: ${escapeHtml(s.type)} — ${escapeHtml(s.preview)}</div>`).join('')}
-    </div>`;
-  }
-
-  showContent('preview', html);
-}
-
-function renderTokenPreview(data) {
-  let html = `<div class="section-card">
-    <div class="header"><span class="name">🔑 ${escapeHtml(data.name)}</span><span class="count">${data.size_bytes || 0} 字节</span></div>
-    <div class="payload-item">
-      <pre class="token-content">${escapeHtml(data.content || '(空文件)')}</pre>
-    </div>
-  </div>`;
-  showContent('preview', html);
-}
-
-// ============================================================================
-// 编辑模式
-// ============================================================================
-function renderEditor(data) {
-  const isToken = data.is_token || false;
-  const container = document.getElementById('content-edit');
-
-  container.innerHTML = `
-    <div class="editor-container">
-      <textarea id="editor-textarea" class="env-editor">${escapeHtml(data.raw)}</textarea>
-    </div>
-    <div class="editor-footer">
-      <span class="editor-info">${data.raw.split('\\n').length} 行 · ${new Blob([data.raw]).size} 字节</span>
-      <span class="editor-hint">Ctrl+S 保存</span>
-    </div>
-  `;
-
-  // Ctrl+S 快捷键
-  const ta = document.getElementById('editor-textarea');
-  ta.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      saveEnvFile();
-    }
-  });
-
-  // 实时行数
-  ta.addEventListener('input', function() {
-    const lines = ta.value.split('\n').length;
-    const bytes = new Blob([ta.value]).size;
-    const info = container.querySelector('.editor-info');
-    if (info) info.textContent = `${lines} 行 · ${bytes} 字节`;
-  });
-}
-
-// ============================================================================
-// Tab 切换
-// ============================================================================
-window.switchTab = function(tab) {
-  state.activeTab = tab;
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => {
-    const tabText = t.textContent.replace(/[📋✏️🔌]/g, '').trim();
-    const targetText = tab === 'preview' ? '变量预览' : tab === 'edit' ? '编辑器' : tab === 'target' ? '目标配置' : '探测';
-    if (tabText === targetText) t.classList.add('active');
-  });
-  updateSaveButton();
-
-  // 显示/隐藏对应内容区
-  document.getElementById('content-preview').classList.toggle('hidden', tab !== 'preview');
-  document.getElementById('content-edit').classList.toggle('hidden', tab !== 'edit');
-  document.getElementById('content-probe').classList.toggle('hidden', tab !== 'probe');
-  document.getElementById('content-target').classList.toggle('hidden', tab !== 'target');
-  if (tab === 'target') renderTargetConfig();
-
-  // 刷新当前文件的内容
-  if (state.currentFile && state.currentFilename) {
-    if (tab === 'preview') {
-      if (state.currentFile.is_token) {
-        renderTokenPreview(state.currentFile);
-      } else {
-        renderPreview(state.currentFile);
-      }
-    } else if (tab === 'edit') {
-      renderEditor(state.currentFile);
-    }
-  }
-};
-
-function showContent(tab, html) {
-  const id = tab === 'preview' ? 'content-preview' : tab === 'edit' ? 'content-edit' : tab === 'target' ? 'content-target' : 'content-probe';
-  document.getElementById(id).innerHTML = html;
-}
-
-function updateSaveButton() {
-  const btn = document.getElementById('save-btn');
-  btn.style.display = (state.activeTab === 'edit' && state.currentFilename) ? 'inline-flex' : 'none';
-}
-
-// ============================================================================
-// 保存
-// ============================================================================
-window.saveEnvFile = async function() {
-  if (!state.currentFilename) return;
-
-  let content, isToken;
-  if (state.activeTab === 'edit') {
-    const ta = document.getElementById('editor-textarea');
-    if (!ta) return;
-    content = ta.value;
-    isToken = state.currentFile?.is_token || false;
-  } else {
-    content = state.currentRaw;
-    isToken = false;
-  }
-
-  const btn = document.getElementById('save-btn');
-  btn.disabled = true;
-  btn.textContent = '保存中...';
-
-  try {
-    const url = isToken
-      ? `/api/tokens/${encodeURIComponent(state.currentFilename)}`
-      : `/api/files/${encodeURIComponent(state.currentFilename)}`;
-
-    const resp = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, force: false }),
-    });
-
-    const result = await resp.json();
-
-    if (resp.status === 409 && result.requires_confirmation) {
-      // 需要二次确认
-      if (confirm(`⚠️ 检测到 ${result.sensitive_lines.length} 处可能的凭据信息，确认保存？`)) {
-        const resp2 = await fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, force: true }),
-        });
-        const result2 = await resp2.json();
-        if (resp2.ok && result2.ok) {
-          state.currentRaw = content;
-          showToast('success', '✅ 已保存');
-          await loadData();
-        } else {
-          showToast('error', '❌ ' + (result2.error || '保存失败'));
-        }
-      } else {
-        showToast('info', '已取消保存');
-      }
-    } else if (resp.ok && result.ok) {
-      state.currentRaw = content;
-      showToast('success', '✅ ' + result.message);
-      await loadData();
-      await checkReadiness();
-    } else {
-      showToast('error', '❌ ' + (result.error || '保存失败'));
-    }
-  } catch (e) {
-    showToast('error', '❌ 网络错误: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '💾 保存';
-  }
-};
-
-// ============================================================================
-// 探测
-// ============================================================================
-window.runProbe = async function(probeType) {
-  const url = document.getElementById('probe-url').value.trim();
-  if (!url) {
-    showToast('error', '请输入目标 URL');
-    return;
-  }
-
-  const apiKey = document.getElementById('probe-apikey').value.trim();
-  const timeout = parseInt(document.getElementById('probe-timeout').value) || 10;
-  const verifySsl = document.getElementById('probe-verify-ssl').checked;
-
-  const resultDiv = document.getElementById('probe-result');
-  resultDiv.classList.remove('hidden');
-  resultDiv.innerHTML = '<div class="probe-loading">⏳ 探测中...</div>';
-
-  let endpoint;
-  switch (probeType) {
-    case 'connectivity': endpoint = '/api/probe/connectivity'; break;
-    case 'api_type':     endpoint = '/api/probe/api_type';     break;
-    case 'models':       endpoint = '/api/probe/models';       break;
-  }
-
-  try {
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout, verify_ssl: verifySsl }),
-    });
-    const data = await resp.json();
-    renderProbeResult(resultDiv, probeType, data);
-  } catch (e) {
-    resultDiv.innerHTML = `<div class="probe-error">❌ 网络错误: ${escapeHtml(String(e))}</div>`;
-  }
-};
-
-window.runAppProbe = async function(probeType) {
-  const url = document.getElementById('app-url').value.trim();
-  if (!url) {
-    showToast('error', '请输入 AI 应用根 URL');
-    return;
-  }
-  const verifySsl = document.getElementById('app-verify-ssl').checked;
-  const apiKey = document.getElementById('app-api-key').value.trim();
-  const resultDiv = document.getElementById('app-probe-result');
-  resultDiv.classList.remove('hidden');
-  resultDiv.innerHTML = '<div class="probe-loading">⏳ 探测中...</div>';
-
-  let endpoint;
-  switch (probeType) {
-    case 'connectivity': endpoint = '/api/probe/connectivity'; break;
-    case 'api_type':     endpoint = '/api/probe/api_type';     break;
-    case 'models':       endpoint = '/api/probe/models';       break;
-  }
-
-  try {
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout: 15, verify_ssl: verifySsl }),
-    });
-    const data = await resp.json();
-    renderProbeResult(resultDiv, probeType, data);
-  } catch (e) {
-    resultDiv.innerHTML = `<div class="probe-error">❌ 网络错误: ${escapeHtml(String(e))}</div>`;
-  }
-};
-
-function renderProbeResult(resultDiv, probeType, data) {
-  if (probeType === 'connectivity') {
-    const icon = data.reachable ? '✅' : '❌';
-    const color = data.reachable ? 'var(--green)' : 'var(--red)';
-    let sslHint = '';
-    if (data.error_type === 'ssl_certificate') {
-      sslHint = `<div class="probe-hint">💡 目标使用了自签名证书，请取消勾选「验证 SSL 证书」后重新测试</div>`;
-    }
-    resultDiv.innerHTML = `
-      <div class="probe-card" style="border-left-color: ${color};">
-        <h4>${icon} 连通性测试</h4>
-        <div class="probe-metric">
-          <span>状态码</span><span class="val">${data.status_code || 'N/A'}</span>
-        </div>
-        <div class="probe-metric">
-          <span>延迟</span><span class="val">${data.latency_ms}ms</span>
-        </div>
-        <div class="probe-metric">
-          <span>Server</span><span class="val">${escapeHtml(data.headers?.server || '-')}</span>
-        </div>
-        <div class="probe-metric">
-          <span>Content-Type</span><span class="val">${escapeHtml(data.headers?.content_type || '-')}</span>
-        </div>
-        ${data.ssl_verified !== undefined ? `<div class="probe-metric"><span>SSL 验证</span><span class="val">${data.ssl_verified ? '✅ 已开启' : '⏭ 已跳过'}</span></div>` : ''}
-        ${data.error ? `<div class="probe-error">${escapeHtml(data.error)}</div>` : ''}
-        ${sslHint}
-      </div>`;
-  } else if (probeType === 'api_type') {
-    const confidence = (data.confidence * 100).toFixed(0);
-    resultDiv.innerHTML = `
-      <div class="probe-card" style="border-left-color: ${data.api_type === 'unknown' ? 'var(--yellow)' : 'var(--green)'};">
-        <h4>💡 API 类型识别</h4>
-        <div class="probe-metric">
-          <span>API 类型</span><span class="val highlight">${escapeHtml(data.api_type)}</span>
-        </div>
-        <div class="probe-metric">
-          <span>模型名称</span><span class="val">${escapeHtml(data.model_name || '未识别')}</span>
-        </div>
-        <div class="probe-metric">
-          <span>置信度</span><span class="val">${confidence}%</span>
-        </div>
-        ${data.models.length > 0 ? `<div class="probe-metric"><span>可用模型</span><span class="val">${data.models.slice(0, 5).map(m => escapeHtml(m)).join(', ')}${data.models.length > 5 ? '...' : ''}</span></div>` : ''}
-        ${data.details.map(d => `<div class="probe-step"><span class="strategy">${escapeHtml(d.strategy)}</span> <span class="status ${d.status}">${d.status}</span></div>`).join('')}
-      </div>`;
-  } else if (probeType === 'models') {
-    resultDiv.innerHTML = `
-      <div class="probe-card" style="border-left-color: ${data.models.length > 0 ? 'var(--green)' : 'var(--yellow)'};">
-        <h4>📋 模型枚举</h4>
-        <div class="probe-metric"><span>来源</span><span class="val">${escapeHtml(data.source || '未知')}</span></div>
-        <div class="probe-metric"><span>数量</span><span class="val">${data.count}</span></div>
-        ${data.models.length > 0 ? `
-          <div class="model-list">
-            ${data.models.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}
-          </div>
-        ` : `<div class="probe-error">${escapeHtml(data.error || '')}</div>`}
-      </div>`;
-  }
-}
-
-// ============================================================================
-// 就绪检查
-// ============================================================================
 function updateReadinessBar() {
   if (!state.readinessResult) {
     document.getElementById('readiness-dot').className = 'dot warn';
-    document.getElementById('readiness-text').textContent = '无法检查';
+    document.getElementById('readiness-text').textContent = '就绪检查不可用';
     return;
   }
-
   const r = state.readinessResult;
   const dot = document.getElementById('readiness-dot');
   const text = document.getElementById('readiness-text');
-
   if (r.overall_ready) {
     dot.className = 'dot pass';
     text.textContent = `全部就绪 (${r.passed_count}/${r.total_count})`;
@@ -616,470 +811,1154 @@ function updateReadinessBar() {
   }
 }
 
-function updateReadinessPanel() {
-  if (!state.readinessResult) return;
-  const panel = document.getElementById('readiness-panel');
-  panel.style.display = 'block';
-
-  const r = state.readinessResult;
-  document.getElementById('readiness-panel-title').textContent =
-    r.overall_ready ? '✅ 就绪检查' : '⚠️ 就绪检查';
-  document.getElementById('readiness-panel-score').textContent =
-    `${r.passed_count}/${r.total_count}`;
-
-  const body = document.getElementById('readiness-body');
-  body.innerHTML = r.checks.map(c => {
-    const icon = c.status === 'pass' ? '✅' : c.status === 'warn' ? '⚠️' : '❌';
-    return `<div class="readiness-item ${c.status}"><span>${icon} ${escapeHtml(c.name)}</span><span class="detail">${escapeHtml(c.detail)}</span></div>`;
-  }).join('');
-
-  if (r.warnings && r.warnings.length > 0) {
-    body.innerHTML += r.warnings.map(w => `<div class="readiness-item warn"><span>⚠️</span><span class="detail">${escapeHtml(w)}</span></div>`).join('');
+// ============================================================================
+// 步骤 1：连通性测试
+// ============================================================================
+window.probeStep1 = async function() {
+  const url = document.getElementById('target-url').value.trim();
+  if (!url) {
+    showToast('error', '请先填写目标 URL');
+    return;
   }
-}
+  state.targetUrl = url;
+  state.targetType = document.getElementById('target-type').value;
+  state.verifySsl = document.getElementById('target-verify-ssl').checked;
 
-window.toggleReadinessPanel = function() {
-  const body = document.getElementById('readiness-body');
-  body.classList.toggle('hidden');
+  const result = document.getElementById('step1-result');
+  result.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 正在测试连通性...</div></div>';
+
+  try {
+    const resp = await fetch('/api/probe/connectivity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: url, timeout: 10, verify_ssl: state.verifySsl }),
+    });
+    const data = await resp.json();
+    if (data.reachable) {
+      markStepDone(1);
+      result.innerHTML = `<div class="result-card success">
+        <h4>✅ 目标可达</h4>
+        <div class="metric-row"><span class="key">URL</span><span class="val">${escapeHtml(url)}</span></div>
+        <div class="metric-row"><span class="key">状态码</span><span class="val success">${data.status_code}</span></div>
+        <div class="metric-row"><span class="key">延迟</span><span class="val">${data.latency_ms}ms</span></div>
+        ${data.headers?.server ? `<div class="metric-row"><span class="key">Server</span><span class="val">${escapeHtml(data.headers.server)}</span></div>` : ''}
+        <div class="hint-block">💡 下一步：点击「下一步：配置认证」进入认证配置；如已知目标需认证，可直接进入。</div>
+      </div>`;
+    } else {
+      result.innerHTML = `<div class="result-card error">
+        <h4>❌ 目标不可达</h4>
+        <div class="error-block">${escapeHtml(data.error || '未知错误')}</div>
+        ${data.error_type === 'ssl_certificate' ? '<div class="warn-block">💡 目标使用了自签名证书，请取消勾选「验证 SSL 证书」后重试</div>' : ''}
+      </div>`;
+    }
+  } catch (e) {
+    result.innerHTML = `<div class="result-card error"><div class="error-block">❌ 网络错误: ${escapeHtml(String(e))}</div></div>`;
+  }
 };
 
 // ============================================================================
-// Toast 通知
+// 步骤 2：认证检测与保存
 // ============================================================================
-function showToast(type, message) {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = 'toast ' + type;
-  toast.textContent = message;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
-}
-
-// ============================================================================
-// 工具函数
-// ============================================================================
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ============================================================================
-// 目标配置向导
-// ============================================================================
-async function renderTargetConfig() {
-  const panel = document.getElementById('target-config-panel');
-  panel.innerHTML = '<div class="probe-loading">⏳ 加载当前配置...</div>';
+window.detectAuth = async function() {
+  const url = document.getElementById('auth-target-url').value.trim();
+  if (!url) {
+    showToast('error', '请先填写目标 URL');
+    return;
+  }
+  document.getElementById('auth-detect-loading').innerHTML = '<span class="loading-spinner"></span>';
   try {
-    const resp = await fetch('/api/target-config');
-    const cfg = await resp.json();
-    panel.innerHTML = buildTargetConfigHtml(cfg);
-    onTargetTypeChange();
+    const resp = await fetch('/api/auth/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, verify_ssl: state.verifySsl }),
+    });
+    const data = await resp.json();
+    renderAuthDetectResult(data);
+
+    // 自动填入登录表单字段
+    if (data.requires_auth && data.login_form && data.login_form.found) {
+      document.getElementById('login-url').value = data.redirect_url || url;
+      document.getElementById('login-username-field').value = data.login_form.username_field || 'username';
+      document.getElementById('login-password-field').value = data.login_form.password_field || 'password';
+      if (data.login_form.action) document.getElementById('login-action').value = data.login_form.action;
+    }
   } catch (e) {
-    panel.innerHTML = '<div class="probe-error">❌ 加载失败: ' + escapeHtml(String(e)) + '</div>';
+    showToast('error', '检测失败: ' + e.message);
+  } finally {
+    document.getElementById('auth-detect-loading').innerHTML = '';
+  }
+};
+
+function renderAuthDetectResult(data) {
+  const container = document.getElementById('auth-detect-result');
+  const formSection = document.getElementById('auth-form-section');
+  if (data.requires_auth) {
+    container.innerHTML = `<div class="auth-detect-card requires">
+      <div class="verdict requires"><span class="icon">🔒</span><span>目标需要认证</span></div>
+      <div class="details">
+        状态码: <code>${data.status_code}</code> · 类型: <code>${escapeHtml(data.auth_type)}</code><br>
+        ${data.login_form && data.login_form.found ? `已自动解析登录表单: action=<code>${escapeHtml(data.login_form.action)}</code>, 用户名字段=<code>${escapeHtml(data.login_form.username_field)}</code>, 密码字段=<code>${escapeHtml(data.login_form.password_field)}</code>` : ''}
+        ${data.hints && data.hints.length > 0 ? '<br>提示: ' + data.hints.map(h => escapeHtml(h)).join('；') : ''}
+      </div>
+    </div>`;
+    formSection.style.display = 'block';
+  } else {
+    container.innerHTML = `<div class="auth-detect-card no-auth">
+      <div class="verdict no-auth"><span class="icon">🔓</span><span>目标无需认证</span></div>
+      <div class="details">${data.hints ? data.hints.map(h => escapeHtml(h)).join('；') : '可跳过认证配置直接进行探测'}</div>
+    </div>`;
+    formSection.style.display = 'block';
   }
 }
 
-function buildTargetConfigHtml(cfg) {
-  return `
-  <div class="target-config-card">
-    <h3>🎯 目标配置向导</h3>
-    <p class="target-config-hint">配置攻击目标与评分模型，所有字段最终保存到 <code>configs/shared.env</code></p>
-    <div class="target-form-row">
-      <label>目标类型</label>
-      <select id="target-type" onchange="onTargetTypeChange()">
-        <option value="openai">OpenAI 兼容 API</option>
-        <option value="ollama">Ollama 本地部署</option>
-        <option value="gemini">Google Gemini</option>
-        <option value="claude">Anthropic Claude</option>
-        <option value="app">AI 应用（目录枚举）</option>
-      </select>
-    </div>
-    <div id="app-enumerate-section" class="hidden">
-      <div class="target-form-row">
-        <label>AI 应用根 URL</label>
-        <input type="text" id="app-url" placeholder="例如: http://192.168.0.20:8501/">
+window.switchAuthMode = function(mode) {
+  document.querySelectorAll('.auth-mode-tab').forEach(el => el.classList.toggle('active', el.dataset.mode === mode));
+  document.querySelectorAll('.auth-mode-panel').forEach(el => el.classList.toggle('active', el.dataset.panel === mode));
+};
+
+window.saveAuth = async function(mode) {
+  const targetUrl = document.getElementById('auth-target-url').value.trim();
+  if (!targetUrl) {
+    showToast('error', '请先填写目标 URL');
+    return;
+  }
+  let payload = { target_url: targetUrl };
+  let label = '';
+  if (mode === 'cookie') {
+    const cookie = document.getElementById('auth-cookie').value.trim().replace(/^["']|["']$/g, '');
+    if (!cookie) { showToast('error', '请填写 Cookie'); return; }
+    payload.cookie = cookie;
+    label = 'Cookie';
+  } else if (mode === 'jwt') {
+    const jwt = document.getElementById('auth-jwt').value.trim().replace(/^["']|["']$/g, '');
+    if (!jwt) { showToast('error', '请填写 JWT'); return; }
+    payload.jwt = jwt;
+    label = 'JWT';
+  } else if (mode === 'apikey') {
+    const apikey = document.getElementById('auth-apikey').value.trim().replace(/^["']|["']$/g, '');
+    if (!apikey) { showToast('error', '请填写 API Key'); return; }
+    payload.api_key = apikey;
+    label = 'API Key';
+  }
+  const result = document.getElementById('step2-result');
+  result.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 保存中...</div></div>';
+  try {
+    const resp = await fetch('/api/auth/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<div class="result-card success">
+        <h4>✅ ${label} 已保存</h4>
+        <div class="hint-block success">🔒 凭证已写入 <code>configs/tokens/</code>,下方将自动验证</div>
+      </div>`;
+      showToast('success', `${label} 已保存`);
+      await loadAuthState();
+      markStepDone(2);
+      // 保存成功后自动触发一次验证
+      await verifyAuth();
+    } else {
+      result.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '保存失败')}</div></div>`;
+    }
+  } catch (e) {
+    result.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
+  }
+};
+
+window.performLogin = async function() {
+  const url = document.getElementById('login-url').value.trim();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!url || !username || !password) {
+    showToast('error', '请填写登录页 URL、用户名和密码');
+    return;
+  }
+  const result = document.getElementById('step2-result');
+  result.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 正在登录并捕获凭证...</div></div>';
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        username,
+        password,
+        username_field: document.getElementById('login-username-field').value.trim(),
+        password_field: document.getElementById('login-password-field').value.trim(),
+        login_url: document.getElementById('login-action').value.trim(),
+        login_method: 'POST',
+        verify_ssl: state.verifySsl,
+        timeout: 15,
+      }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const snap = data.snapshot || {};
+      result.innerHTML = `<div class="result-card success">
+        <h4>✅ 登录成功，凭证已捕获</h4>
+        <div class="hint-block success">🔒 凭证已写入 <code>configs/tokens/</code>,下方将自动验证</div>
+      </div>`;
+      showToast('success', '登录成功，凭证已保存');
+      await loadAuthState();
+      markStepDone(2);
+      // 登录成功后自动验证一次
+      await verifyAuth();
+    } else {
+      result.innerHTML = `<div class="result-card error">
+        <h4>❌ 登录失败</h4>
+        <div class="error-block">${escapeHtml(data.error || '未知错误')}</div>
+        <div class="warn-block">💡 提示：账号密码不会保存到任何文件。如需手动粘贴 Cookie，请切换到「Cookie」标签页</div>
+      </div>`;
+    }
+  } catch (e) {
+    result.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
+  }
+};
+
+window.clearAuth = async function() {
+  if (!confirm('确定要清空已保存的所有认证信息吗？')) return;
+  try {
+    const resp = await fetch('/api/auth/clear', { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('success', '已清空认证信息');
+      document.getElementById('auth-cookie').value = '';
+      document.getElementById('auth-jwt').value = '';
+      document.getElementById('auth-apikey').value = '';
+      document.getElementById('login-username').value = '';
+      document.getElementById('login-password').value = '';
+      _authLatestLoaded = false;  // 清空后允许重新自动回填(若有新凭据)
+      await loadAuthState();
+      markStepTodo(2);
+    }
+  } catch (e) {
+    showToast('error', '清空失败');
+  }
+};
+
+/**
+ * 验证已保存的认证信息
+ * 流程：先做一次无认证请求，再用已保存 Cookie/JWT/API Key 做一次，
+ *      对比两次结果给出明确结论。
+ */
+window.verifyAuth = async function() {
+  const targetUrl = document.getElementById('auth-target-url').value.trim() || state.targetUrl;
+  if (!targetUrl) {
+    showToast('error', '请先填写目标 URL');
+    goToStep(1);
+    return;
+  }
+  const result = document.getElementById('step2-result');
+  const btn = document.getElementById('btn-verify-auth');
+  const originalText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> 验证中...'; }
+
+  // 保留之前的结果卡片，在下方追加验证结果
+  const verifyPanelId = 'auth-verify-panel';
+  let panel = document.getElementById(verifyPanelId);
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = verifyPanelId;
+    panel.style.marginTop = '16px';
+    result.appendChild(panel);
+  }
+  panel.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 正在对比「无认证 vs 带认证」两次请求...</div></div>';
+
+  try {
+    const resp = await fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_url: targetUrl,
+        verify_ssl: state.verifySsl,
+        timeout: 10,
+      }),
+    });
+    const data = await resp.json();
+    panel.innerHTML = renderVerifyAuthResult(data);
+    await loadAuthState();
+  } catch (e) {
+    panel.innerHTML = `<div class="result-card error"><div class="error-block">❌ 验证请求失败: ${escapeHtml(String(e))}</div></div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = originalText; }
+  }
+};
+
+function renderVerifyAuthResult(data) {
+  if (!data || data.error) {
+    return `<div class="result-card error">
+      <h4>❌ 验证失败</h4>
+      <div class="error-block">${escapeHtml(data?.error || '未知错误')}</div>
+    </div>`;
+  }
+
+  // 尚未保存任何认证
+  if (!data.has_auth) {
+    return `<div class="result-card" style="border-left:4px solid #f59e0b;">
+      <h4>${escapeHtml(data.verdict_label)}</h4>
+      <div class="next-step-cta">
+        <div class="cta-title">👉 下一步</div>
+        <p>${escapeHtml(data.suggestion || '请先在左侧填写并保存 Cookie / JWT / API Key')}</p>
+        <button class="btn-cta" onclick="goToStep(3)">→ 前往端点探测</button>
       </div>
-      <div class="target-form-row">
-        <label>应用认证 Token / API Key（可选）</label>
-        <input type="text" id="app-api-key" placeholder="如应用需要登录/Token 才返回页面，可在此填写；将作为 Bearer Token 发送">
+    </div>`;
+  }
+
+  // 成功(认证生效)
+  if (data.verdict === 'pass') {
+    const w = data.with_auth || {};
+    const s2 = w.status_code || 0;
+    return `<div class="result-card success">
+      <h4>${escapeHtml(data.verdict_label)}</h4>
+      <div class="hint-block success">✅ 程序可正常读取并使用你保存的 ${escapeHtml(_authTypeLabel(data.auth_type))},服务端返回 <code>${s2}</code></div>
+      <div class="next-step-cta">
+        <div class="cta-title">👉 下一步：端点探测</div>
+        <p>认证已就绪,继续自动发现目标的 API 端点与模型列表</p>
+        <button class="btn-cta" onclick="goToStep(3)">→ 前往端点探测</button>
       </div>
-      <div class="target-form-row">
-        <label><input type="checkbox" id="app-verify-ssl" style="width:auto;margin-right:6px;"> 验证 SSL 证书</label>
+    </div>`;
+  }
+
+  // 目标无需认证
+  if (data.verdict === 'no_auth_needed') {
+    return `<div class="result-card" style="border-left:4px solid #f59e0b;">
+      <h4>${escapeHtml(data.verdict_label)}</h4>
+      <div class="next-step-cta">
+        <div class="cta-title">👉 下一步</div>
+        <p>目标当前页面是公开的,可直接进行端点探测;若要验证受保护路径,在步骤 1 把 URL 改为受保护路径(如 <code>/api/users</code>、<code>/admin</code>)再重新验证。</p>
+        <button class="btn-cta" onclick="goToStep(3)">→ 前往端点探测</button>
       </div>
-      <div class="target-actions">
-        <button class="probe-btn" onclick="runAppProbe('connectivity')">🔌 连通性测试</button>
-        <button class="probe-btn" onclick="runAppProbe('api_type')">💡 API 类型识别</button>
-        <button class="probe-btn" onclick="enumerateApp()">🔍 开始枚举端点</button>
-        <button class="probe-btn probe-btn-scan" onclick="runSecretScan()">🔑 API Key 侦察</button>
-      </div>
-      <div id="app-probe-result" class="probe-result hidden" style="margin-top:12px;"></div>
-      <div id="app-enumerate-result" class="hidden" style="margin-top:12px;"></div>
-      <div id="app-secret-result" class="hidden" style="margin-top:12px;"></div>
-    </div>
-    <div class="target-section">
-      <h4>⚔️ 攻击目标</h4>
-      <div id="attack-url-row" class="target-form-row">
-        <label>URL</label>
-        <input type="text" id="attack-url" value="${escapeAttr(cfg.attack_url || '')}" placeholder="例如: http://192.168.0.20:11434/">
-      </div>
-      <div class="target-form-row">
-        <label>API Key</label>
-        <input type="text" id="attack-api" value="${escapeAttr(cfg.attack_api || '')}" placeholder="留空表示无认证">
-      </div>
-      <div class="target-form-row">
-        <label>模型名称</label>
-        <input type="text" id="attack-model" value="${escapeAttr(cfg.attack_model || '')}" placeholder="例如: qwen3:8b / gpt-4o">
-      </div>
-      <div class="target-actions">
-        <button class="probe-btn" onclick="testTargetConnection('attack')">🔌 测试连接</button>
-        <span id="attack-test-result" class="test-result"></span>
-      </div>
-      <div id="attack-auto-detect" class="hidden auto-detect-result" style="margin-top:8px;"></div>
-    </div>
-    <div class="target-form-row">
-      <label class="checkbox-label">
-        <input type="checkbox" id="target-verify-ssl" style="width:auto;margin-right:6px;">
-        验证 SSL 证书（自签名证书请取消勾选）
-      </label>
-    </div>
-    <div class="target-section">
-      <h4>🧑‍⚖️ 评分模型</h4>
-      <div class="target-form-row">
-        <label>URL</label>
-        <input type="text" id="score-url" value="${escapeAttr(cfg.score_url || '')}" placeholder="例如: http://192.168.0.20:11434/v1">
-      </div>
-      <div class="target-form-row">
-        <label>API Key</label>
-        <input type="text" id="score-api" value="${escapeAttr(cfg.score_api || '')}" placeholder="留空表示无认证">
-      </div>
-      <div class="target-form-row">
-        <label>模型名称</label>
-        <input type="text" id="score-model" value="${escapeAttr(cfg.score_model || '')}" placeholder="例如: qwen3:8b / gpt-4o">
-      </div>
-      <div class="target-actions">
-        <button class="probe-btn" onclick="testTargetConnection('score')">🔌 测试连接</button>
-        <span id="score-test-result" class="test-result"></span>
-      </div>
-      <div id="score-auto-detect" class="hidden auto-detect-result" style="margin-top:8px;"></div>
-    </div>
-    <div class="target-actions footer">
-      <button class="action-btn" onclick="saveTargetConfig()">💾 保存到 shared.env</button>
-      <span id="target-save-result"></span>
-    </div>
+    </div>`;
+  }
+
+  // 失败 / 部分生效:专家诊断
+  return `<div class="result-card error">
+    <h4>${escapeHtml(data.verdict_label || '❌ 认证未生效')}</h4>
+    ${_renderAuthExpertAdvice(data)}
   </div>`;
 }
 
-function onTargetTypeChange() {
-  const type = document.getElementById('target-type').value;
-  const appSection = document.getElementById('app-enumerate-section');
-  const attackUrlRow = document.getElementById('attack-url-row');
-  appSection.classList.toggle('hidden', type !== 'app');
-  if (type === 'gemini' || type === 'claude') {
-    attackUrlRow.classList.add('hidden');
-  } else {
-    attackUrlRow.classList.remove('hidden');
-  }
-  if (type === 'ollama') {
-    const api = document.getElementById('attack-api');
-    if (api && !api.value) api.value = 'ollama';
-  }
+// 认证类型的中文标签
+function _authTypeLabel(t) {
+  const map = { cookie: 'Cookie', jwt: 'JWT', api_key: 'API Key', session: 'Session', mixed: '混合认证' };
+  return map[t] || (t || '认证');
 }
 
-async function enumerateApp() {
-  const url = document.getElementById('app-url').value.trim();
+// 根据 with_auth/no_auth 结果给出专家诊断意见
+function _renderAuthExpertAdvice(data) {
+  const w = data.with_auth || {};
+  const n = data.no_auth || {};
+  const s1 = n.status_code || 0;
+  const s2 = w.status_code || 0;
+  const redir2 = w.redirected_to_login;
+  const form2 = w.has_login_form;
+  const err2 = w.error;
+  const err1 = n.error;
+
+  // 异常类
+  if (err2) {
+    return `
+      <div class="hint-block error">🔧 <strong>请求异常</strong>:${escapeHtml(err2)}</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 排查建议</div>
+        <ol>
+          <li>检查目标 URL 是否可访问(浏览器直接打开试试)</li>
+          <li>检查代理/网络是否可达(目标可能在内网)</li>
+          <li>认证头可能被服务端拒绝,尝试刷新 Cookie/JWT/API Key 后重新验证</li>
+        </ol>
+      </div>`;
+  }
+  if (err1 && !err2) {
+    return `
+      <div class="hint-block error">🔧 <strong>无认证请求异常</strong>:${escapeHtml(err1)}</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 排查建议</div>
+        <ol>
+          <li>目标 URL 可能填写错误,请先确认浏览器能正常打开</li>
+          <li>内网目标需要确认本地网络/代理可达</li>
+          <li>HTTPS 自签证书请勾选「验证 SSL」或使用 HTTP 地址</li>
+        </ol>
+      </div>`;
+  }
+
+  // 401/403
+  if (s2 === 401) {
+    return `
+      <div class="hint-block error">🔐 服务端返回 <code>401 Unauthorized</code> —— 认证值被拒绝</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 专家诊断</div>
+        <ol>
+          <li><strong>Cookie 模式</strong>:Cookie 可能已过期(浏览器中重新登录后再抓一次);确认字段名拼写正确(如 <code>session</code>、<code>token</code>、<code>JSESSIONID</code>)</li>
+          <li><strong>JWT 模式</strong>:确认 JWT 未过期(可在 jwt.io 粘贴查看 exp);确认目标使用 <code>Authorization: Bearer</code> 头</li>
+          <li><strong>API Key 模式</strong>:确认 Key 类型正确(OpenAI <code>sk-</code>、Anthropic <code>sk-ant-</code> 等);有些服务要求放在 <code>X-API-Key</code> 而非 Bearer</li>
+          <li>有些目标会同时校验多个字段(cookie + CSRF token),单纯填一个可能不够 —— 重新抓包复制完整 Cookie 字符串</li>
+          <li>如反复失败,可切换「账号密码登录」模式让系统自动捕获</li>
+        </ol>
+      </div>`;
+  }
+  if (s2 === 403) {
+    return `
+      <div class="hint-block error">🚫 服务端返回 <code>403 Forbidden</code> —— 认证通过但权限不足,或被风控拦截</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 专家诊断</div>
+        <ol>
+          <li>认证值有效但当前账号没有访问该 URL 的权限 —— 换一个受保护路径试试</li>
+          <li>服务端开启了风控(WAF/速率限制),可稍后再试</li>
+          <li>确认目标 URL 拼写正确,没把登录页 URL 误填成了受保护 URL</li>
+        </ol>
+      </div>`;
+  }
+
+  // 仍重定向到登录页
+  if (redir2 || form2) {
+    return `
+      <div class="hint-block error">↩️ 服务端仍将请求重定向到登录页(认证未生效)</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 专家诊断</div>
+        <ol>
+          <li>Cookie 中可能缺少 <code>HttpOnly</code> 标识或特定字段 —— 浏览器 DevTools → Application → Cookies 完整复制</li>
+          <li>可能缺少 CSRF/XSRF Token —— 该类目标需要同时携带 cookie + csrf token,建议用「账号密码登录」模式自动捕获</li>
+          <li>目标可能使用 SameSite 严格模式 + 自定义会话 —— 重新登录并立刻抓包</li>
+        </ol>
+      </div>`;
+  }
+
+  // 5xx
+  if (s2 >= 500) {
+    return `
+      <div class="hint-block error">💥 服务端返回 <code>${s2}</code> —— 目标服务器内部错误</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 排查建议</div>
+        <ol>
+          <li>与服务端认证无关,可能是目标本身异常</li>
+          <li>稍后重试,或换一个 URL 路径测试</li>
+        </ol>
+      </div>`;
+  }
+
+  // 部分生效
+  if (data.verdict === 'partial') {
+    return `
+      <div class="hint-block">⚠️ 状态码变化 <code>${s1} → ${s2}</code>,但内容可能未真正改变</div>
+      <div class="expert-advice">
+        <div class="advice-title">🛠 排查建议</div>
+        <ol>
+          <li>在浏览器中粘贴该 Cookie/JWT/API Key,人工对比页面是否一致</li>
+          <li>若浏览器能正常访问受保护内容,说明认证正确,可继续后续步骤</li>
+        </ol>
+      </div>`;
+  }
+
+  // 兜底
+  return `<div class="hint-block">💡 ${escapeHtml(data.suggestion || '请检查 Cookie / JWT / API Key 是否正确')}</div>`;
+}
+
+
+window.toggleAdvanced = function(id) {
+  document.getElementById(id).classList.toggle('open');
+};
+
+// ============================================================================
+// 步骤 3：端点探测
+// ============================================================================
+// 探测控制器（支持停止/取消）
+let _probeController = null;
+let _probeRunning = false;
+let _probeStartTs = 0;
+let _probeTimer = null;
+
+function fmtElapsed(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  const s = (ms / 1000).toFixed(1);
+  return `${s}s`;
+}
+
+window.stopProbe = function() {
+  if (_probeController) {
+    try { _probeController.abort(); } catch (e) {}
+    _probeController = null;
+  }
+  if (_probeTimer) { clearInterval(_probeTimer); _probeTimer = null; }
+  _probeRunning = false;
+  const resultDiv = document.getElementById('probe-result');
+  if (resultDiv) {
+    resultDiv.innerHTML = `<div class="result-card" style="border-left:4px solid #f59e0b;">
+      <h4>⏹ 探测已停止</h4>
+      <div class="hint-block">用户主动取消了本次探测。可重新点击按钮再次尝试，或调整目标 URL/认证后重试</div>
+    </div>`;
+  }
+  showToast('warn', '探测已停止');
+};
+
+// 全局 fetch 兜底：30s 内未响应则自动中止（防止后端无返回导致永久转圈）
+const _origFetch = window.fetch.bind(window);
+window.fetch = function(input, init) {
+  init = init || {};
+  if (init.signal) return _origFetch(input, init);
+  const ctl = new AbortController();
+  const t = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, 30000);
+  return _origFetch(input, Object.assign({}, init, { signal: ctl.signal }))
+    .finally(() => clearTimeout(t));
+};
+
+// 探测类型 → 配置表
+//   hardTimeoutMs: 硬超时（绝对兜底，防止后端彻底卡死）
+//   silentTimeoutMs: 静默超时（若服务端有进度接口可读进度，则用进度心跳续命；否则按此静默时长强制停止）
+//   silentPollUrl: 进度查询接口（可为空）；为空时硬超时 = 静默超时
+const PROBE_TIMEOUTS = {
+  connectivity:   { hardTimeoutMs:  15000, silentTimeoutMs: 12000, silentPollUrl: null },
+  api_type:       { hardTimeoutMs:  30000, silentTimeoutMs: 25000, silentPollUrl: '/api/probe/progress' },
+  models:         { hardTimeoutMs:  30000, silentTimeoutMs: 25000, silentPollUrl: '/api/probe/progress' },
+  'smart-discover':{ hardTimeoutMs:  90000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
+  enumerate:      { hardTimeoutMs: 180000, silentTimeoutMs: 90000, silentPollUrl: '/api/probe/progress' },
+  'secret-scan':  { hardTimeoutMs: 120000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
+  guardrail:      { hardTimeoutMs: 120000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
+};
+
+// 探测进度上下文（每个探测类型独立的 lastSeen 时刻，供 silent watchdog 判定）
+const _probeProgress = {}; // { [probeType]: { lastSeen: number, jobId: string, detail: string } }
+
+window.runProbe = async function(probeType) {
+  const url = document.getElementById('probe-target-url').value.trim();
   if (!url) {
-    showToast('error', '请输入 AI 应用根 URL');
+    showToast('error', '请填写目标 URL');
     return;
   }
-  const resultDiv = document.getElementById('app-enumerate-result');
-  resultDiv.classList.remove('hidden');
-  resultDiv.innerHTML = '<div class="probe-loading">⏳ 枚举端点中...</div>';
+  // 防止重复点击：如有探测在进行，先停止
+  if (_probeRunning) {
+    stopProbe();
+    // 等待 100ms 让旧请求真正取消
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  const cfg = PROBE_TIMEOUTS[probeType] || PROBE_TIMEOUTS.connectivity;
+
+  const resultDiv = document.getElementById('probe-result');
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = `<div class="result-card">
+    <div class="probe-status">
+      <div class="probe-loading"><span class="loading-spinner"></span> 探测中... <span id="probe-elapsed" style="color:var(--text-dim);font-size:11px;margin-left:6px;">0s</span> <span id="probe-progress" style="color:var(--text-dim);font-size:11px;margin-left:6px;"></span></div>
+      <button class="btn-stop" onclick="stopProbe()">⏹ 停止</button>
+    </div>
+    <div class="hint-block">💡 探测超过 ${Math.round(cfg.hardTimeoutMs/1000)}s 仍在转圈？点击「停止」后调整 URL 或认证再试</div>
+  </div>`;
+
+  // 启动计时器
+  _probeStartTs = Date.now();
+  const elapsedEl = document.getElementById('probe-elapsed');
+  const progressEl = document.getElementById('probe-progress');
+  if (_probeTimer) clearInterval(_probeTimer);
+  _probeTimer = setInterval(() => {
+    if (elapsedEl) elapsedEl.textContent = fmtElapsed(Date.now() - _probeStartTs);
+  }, 200);
+
+  // 创建 AbortController（含分级硬超时 + 静默 watchdog）
+  _probeController = new AbortController();
+  const hardTimer = setTimeout(() => {
+    if (_probeController) {
+      try { _probeController.abort(); } catch (e) {}
+      showToast('warn', `探测超过 ${Math.round(cfg.hardTimeoutMs/1000)}s 仍未返回，已自动停止`);
+    }
+  }, cfg.hardTimeoutMs);
+
+  // 静默 watchdog：定期轮询进度接口，若 silentTimeoutMs 内无任何更新则中止
+  const probeJobId = `${probeType}_${Date.now()}`;
+  _probeProgress[probeType] = { lastSeen: Date.now(), jobId: probeJobId, detail: '已发送请求...' };
+  let silentTimer = null;
+  if (cfg.silentPollUrl) {
+    silentTimer = setInterval(async () => {
+      const ctx = _probeProgress[probeType];
+      if (!ctx || ctx.jobId !== probeJobId) return; // 已被新任务覆盖
+      try {
+        const r = await fetch(`${cfg.silentPollUrl}?probe=${probeType}&job=${probeJobId}`, { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (j.last_ts && j.last_ts > ctx.lastSeen) {
+            ctx.lastSeen = j.last_ts;
+            ctx.detail = j.detail || ctx.detail;
+            if (progressEl && j.detail) progressEl.textContent = `· ${j.detail}`;
+          }
+        }
+      } catch (_) { /* 网络抖动忽略 */ }
+      if (Date.now() - ctx.lastSeen > cfg.silentTimeoutMs) {
+        if (_probeController) {
+          try { _probeController.abort(); } catch (e) {}
+          showToast('warn', `目标无响应（静默 ${Math.round(cfg.silentTimeoutMs/1000)}s），已自动停止`);
+        }
+      }
+    }, 3000);
+  }
+  _probeRunning = true;
+
+  let endpoint = '';
+  let body = { target_url: url, timeout: 15, verify_ssl: state.verifySsl };
+  if (probeType === 'connectivity') {
+    endpoint = '/api/probe/connectivity';
+    body.timeout = 10;
+  } else if (probeType === 'api_type') {
+    endpoint = '/api/probe/api_type';
+  } else if (probeType === 'models') {
+    endpoint = '/api/probe/models';
+  } else if (probeType === 'enumerate') {
+    endpoint = '/api/target-config/enumerate';
+    body.verify_ssl = state.verifySsl;
+    // 该路由读取 body.url，与其他探测的 target_url 不一致
+    body.url = url;
+    delete body.target_url;
+    body.timeout = 60;       // 枚举单路径探测给宽松时间
+    body.job_id = probeJobId; // 传给后端用于进度上报
+    // 由后端自动合并已保存的认证
+  } else if (probeType === 'smart-discover') {
+    endpoint = '/api/target-config/smart-discover';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 15;
+    // 该路由同样读取 body.url
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
+  } else if (probeType === 'secret-scan') {
+    endpoint = '/api/target-config/secret-scan';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 30;
+    body.do_verify = true;
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
+  } else if (probeType === 'guardrail') {
+    endpoint = '/api/probe/guardrail';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 30;
+    body.model = document.getElementById('attack-model')?.value || '';
+    body.job_id = probeJobId;
+  }
+
   try {
-    const resp = await fetch('/api/target-config/enumerate', {
+    const resp = await fetch(endpoint, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        url,
-        api_key: document.getElementById('app-api-key').value.trim(),
-        verify_ssl: document.getElementById('app-verify-ssl').checked
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: _probeController.signal,
     });
-    const data = await resp.json();
-    renderEnumerateResult(data);
+    let data = null;
+    try { data = await resp.json(); } catch (_) { data = { error: `HTTP ${resp.status} 响应非 JSON` }; }
+    // 任何非 2xx 都视为失败，渲染错误并停止转圈
+    if (!resp.ok) {
+      const msg = (data && (data.error || data.detail)) ? (data.error || data.detail) : `HTTP ${resp.status}`;
+      resultDiv.innerHTML = `<div class="result-card error">
+        <div class="error-block">❌ ${escapeHtml(msg)}</div>
+        <div class="hint-block">请检查目标 URL / 认证信息后重试</div>
+      </div>`;
+      return;
+    }
+    if (probeType === 'connectivity') renderConnectivityResult(data);
+    else if (probeType === 'api_type') renderApiTypeResult(data);
+    else if (probeType === 'models') renderModelsResult(data);
+    else if (probeType === 'enumerate') renderEnumerateResult(data);
+    else if (probeType === 'smart-discover') renderSmartDiscoverResult(data);
+    else if (probeType === 'secret-scan') renderSecretScanResult(data);
+    else if (probeType === 'guardrail') renderGuardrailResult(data);
   } catch (e) {
-    resultDiv.innerHTML = '<div class="probe-error">❌ 网络错误: ' + escapeHtml(String(e)) + '</div>';
+    if (e.name === 'AbortError') {
+      // 已被静默/硬超时/用户主动停止 — stopProbe 中已渲染或在 watchdog 中提示
+      return;
+    }
+    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
+  } finally {
+    clearTimeout(hardTimer);
+    if (silentTimer) { clearInterval(silentTimer); silentTimer = null; }
+    if (_probeTimer) { clearInterval(_probeTimer); _probeTimer = null; }
+    _probeController = null;
+    _probeRunning = false;
+    delete _probeProgress[probeType];
+  }
+};
+
+function renderConnectivityResult(data) {
+  const resultDiv = document.getElementById('probe-result');
+  if (data.reachable) {
+    markStepDone(3);
+    resultDiv.innerHTML = `<div class="result-card success">
+      <h4>✅ 连通性测试通过</h4>
+      <div class="metric-row"><span class="key">状态码</span><span class="val success">${data.status_code}</span></div>
+      <div class="metric-row"><span class="key">延迟</span><span class="val">${data.latency_ms}ms</span></div>
+      ${data.headers?.server ? `<div class="metric-row"><span class="key">Server</span><span class="val">${escapeHtml(data.headers.server)}</span></div>` : ''}
+      ${data.headers?.content_type ? `<div class="metric-row"><span class="key">Content-Type</span><span class="val">${escapeHtml(data.headers.content_type)}</span></div>` : ''}
+    </div>`;
+  } else {
+    resultDiv.innerHTML = `<div class="result-card error">
+      <h4>❌ 连通性测试失败</h4>
+      <div class="error-block">${escapeHtml(data.error || '未知错误')}</div>
+      ${data.error_type === 'ssl_certificate' ? '<div class="warn-block">💡 自签名证书错误，请取消勾选「验证 SSL 证书」</div>' : ''}
+    </div>`;
   }
 }
 
-function classifyEndpoint(path) {
-  const lower = path.toLowerCase();
-  const aiMarkers = ['chat', 'completion', 'models', 'generate', 'tags', 'embedding', 'tokenize', 'ollama', 'v1/', 'openai', 'llm', 'predict', 'infer'];
-  if (aiMarkers.some(m => lower.includes(m))) return 'AI';
-  return 'Web';
+function renderApiTypeResult(data) {
+  const resultDiv = document.getElementById('probe-result');
+  const conf = ((data.confidence || 0) * 100).toFixed(0);
+  const apiTypeText = data.api_type || 'unknown';
+  const success = apiTypeText !== 'unknown';
+  if (success) {
+    state.apiType = apiTypeText;
+    markStepDone(3);
+  }
+  resultDiv.innerHTML = `<div class="result-card ${success ? 'success' : 'warning'}">
+    <h4>${success ? '✅' : '⚠️'} API 类型识别</h4>
+    <div class="metric-row"><span class="key">API 类型</span><span class="val highlight">${escapeHtml(apiTypeText)}</span></div>
+    <div class="metric-row"><span class="key">模型</span><span class="val">${escapeHtml(data.model_name || '未识别')}</span></div>
+    <div class="metric-row"><span class="key">置信度</span><span class="val">${conf}%</span></div>
+    ${data.models && data.models.length > 0 ? `<div class="metric-row"><span class="key">可用模型</span><span class="val">${data.models.slice(0, 5).map(m => escapeHtml(m)).join(', ')}</span></div>` : ''}
+  </div>`;
+  // 自动填充攻击模型
+  if (data.model_name) {
+    document.getElementById('attack-model').value = data.model_name;
+  }
+  if (data.models && data.models.length > 0) {
+    state.discoveredModels = data.models;
+    renderModelChips('attack-model-chips', data.models, 'attack-model');
+    renderModelChips('score-model-chips', data.models, 'score-model');
+  }
+  // 自动同步到攻击 URL
+  if (apiTypeText === 'ollama' || apiTypeText === 'openai') {
+    const baseUrl = document.getElementById('probe-target-url').value.trim().replace(/\/$/, '');
+    if (baseUrl) {
+      document.getElementById('attack-url').value = baseUrl;
+    }
+  }
+}
+
+function renderModelsResult(data) {
+  const resultDiv = document.getElementById('models-result');
+  resultDiv.style.display = 'block';
+  if (data.models && data.models.length > 0) {
+    markStepDone(3);
+    state.discoveredModels = data.models;
+    resultDiv.innerHTML = `<div class="result-card success">
+      <h4>📋 模型枚举结果</h4>
+      <div class="metric-row"><span class="key">来源</span><span class="val">${escapeHtml(data.source || '未知')}</span></div>
+      <div class="metric-row"><span class="key">数量</span><span class="val">${data.count}</span></div>
+      <div class="model-chips">${data.models.map(m => `<span class="model-chip" onclick="useModel('${escapeAttr(m)}', 'attack')">${escapeHtml(m)}</span>`).join('')}</div>
+    </div>`;
+    renderModelChips('attack-model-chips', data.models, 'attack-model');
+    renderModelChips('score-model-chips', data.models, 'score-model');
+  } else {
+    resultDiv.innerHTML = `<div class="result-card warning">
+      <h4>⚠️ 未发现模型</h4>
+      <div class="warn-block">${escapeHtml(data.error || '目标不支持 /v1/models 或 /api/tags')}</div>
+    </div>`;
+  }
+}
+
+window.useModel = function(model, target) {
+  document.getElementById(target + '-model').value = model;
+  showToast('success', `已选择模型: ${model}`);
+};
+
+function renderModelChips(containerId, models, targetInput) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = models.slice(0, 12).map(m =>
+    `<span class="model-chip" onclick="document.getElementById('${targetInput}').value='${escapeAttr(m)}'">${escapeHtml(m)}</span>`
+  ).join('');
+  if (models.length > 12) {
+    container.innerHTML += `<span class="model-chip">+${models.length - 12}</span>`;
+  }
 }
 
 function renderEnumerateResult(data) {
-  const resultDiv = document.getElementById('app-enumerate-result');
+  const resultDiv = document.getElementById('enumerate-result');
+  resultDiv.style.display = 'block';
   if (!data.ok) {
-    resultDiv.innerHTML = '<div class="probe-error">❌ 枚举失败: ' + escapeHtml(data.error || '') + '</div>';
+    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '枚举失败')}</div></div>`;
     return;
   }
   const eps = (data.endpoints || []).filter(e => e.status === 200 || e.status === 401 || e.status === 403);
   if (eps.length === 0) {
-    let hint = 'ℹ️ 未发现可识别端点';
-    const home = data.summary?.homepage;
-    if (home && home.status === 401) {
-      hint += '<div class="probe-hint">💡 首页返回 401，可能需要在上方「应用认证 Token / API Key」中填写凭证后重试</div>';
-    } else if (home && !home.is_html && home.status === 200) {
-      hint += '<div class="probe-hint">💡 首页返回非 HTML 内容，目标可能是纯 API 服务，建议直接选择「OpenAI 兼容 API」或「Ollama 本地部署」</div>';
+    resultDiv.innerHTML = `<div class="result-card warning">
+      <h4>⚠️ 未发现可访问端点</h4>
+      <div class="warn-block">
+        ${data.summary?.homepage?.status === 401 ? '目标返回 401，请先在第二步配置认证' : '目标可能不支持路径枚举，尝试直接调用 API'}
+      </div>
+    </div>`;
+    return;
+  }
+  markStepDone(3);
+  state.discoveredEndpoints = eps;
+  const authBadge = data.auth_used ? '<span class="hint-block">🔒 本次探测已自动携带第二步保存的认证</span>' : '';
+
+  // ── 速率限制画像面板 ──
+  let rlHtml = '';
+  const s = data.summary || {};
+  const hasRl = s.has_rate_limit || (s.total_429s || 0) > 0;
+  if (hasRl) {
+    const typeLabel = s.rate_limit_type === 'explicit' ? '显式限流头' : s.rate_limit_type === 'implicit' ? '经验推断' : '未知';
+    const icon = s.rate_limit_type === 'explicit' ? '⏱' : '⚡';
+    rlHtml = `<div class="hint-block" style="margin-top:8px;border-left:3px solid var(--yellow);padding:6px 10px;background:rgba(245,158,11,.06);">
+      ${icon} <strong>速率限制画像</strong>
+      <span style="margin-left:6px;font-size:12px;">${typeLabel}</span>`;
+
+    if (s.recommended_concurrency != null) {
+      rlHtml += `<span style="margin-left:12px;">推荐并发: <code>${s.recommended_concurrency}</code></span>`;
     }
-    resultDiv.innerHTML = '<div class="probe-card">' + hint + '</div>';
-    return;
+    if (s.recommended_rpm != null) {
+      rlHtml += `<span style="margin-left:12px;">推荐 RPM: <code>${s.recommended_rpm}</code></span>`;
+    }
+    if (s.estimated_window_sec != null) {
+      rlHtml += `<span style="margin-left:12px;">估算窗口: <code>${s.estimated_window_sec}s</code></span>`;
+    }
+    if ((s.total_429s || 0) > 0) {
+      rlHtml += `<br><span style="color:#d97706;font-size:12px;">⚠ 探测中触发 ${s.total_429s} 次 HTTP 429（限流响应），攻击时请降低并发</span>`;
+    }
+    rlHtml += `</div>`;
   }
 
-  const summary = data.summary || {};
-  const home = summary.homepage || {};
-  const jsExtracted = summary.js_pre_extracted_paths || [];
-
-  let html = '<div class="probe-card">';
-  html += '<h4>📍 发现端点</h4>';
-  html += '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">';
-  html += '首页状态: <strong>' + (home.status || 'N/A') + '</strong> · ';
-  html += 'HTML: <strong>' + (home.is_html ? '是' : '否') + '</strong> · ';
-  html += '扫描路径: <strong>' + (summary.total_paths_probed || eps.length) + '</strong> · ';
-  html += 'JS 预提取: <strong>' + jsExtracted.length + '</strong>';
-  html += '</div>';
-
-  html += '<table class="endpoint-table"><thead><tr><th>类别</th><th>路径</th><th>状态</th><th>框架</th><th>操作</th></tr></thead><tbody>';
-  eps.forEach(e => {
-    const category = classifyEndpoint(e.path);
-    const statusText = e.status === 401 || e.status === 403 ? (e.status + ' <span class="auth-hint">需认证</span>') : String(e.status);
-    html += '<tr><td><span class="endpoint-category ' + category.toLowerCase() + '">' + category + '</span></td>';
-    html += '<td>' + escapeHtml(e.path) + '</td>';
-    html += '<td>' + statusText + '</td>';
-    html += '<td>' + escapeHtml(e.framework_hint || '-') + '</td>';
-    html += '<td><button class="small-btn" onclick=\'useEndpointAsAttack(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为攻击</button> ';
-    html += '<button class="small-btn" onclick=\'useEndpointAsScore(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为评分</button></td></tr>';
-  });
-  html += '</tbody></table></div>';
-  resultDiv.innerHTML = html;
+  resultDiv.innerHTML = `<div class="result-card success">
+    <h4>🔍 发现 ${eps.length} 个端点</h4>
+    ${authBadge}
+    ${rlHtml}
+    <div class="endpoint-list">${eps.map(e => {
+      const isAI = /chat|completion|models|generate|embed|v1\//i.test(e.path);
+      const statusClass = e.status === 200 ? 's200' : 's401';
+      return `<div class="endpoint-item">
+        <span class="status-code ${statusClass}">${e.status}</span>
+        <span class="path">${escapeHtml(e.path)}</span>
+        <span class="framework">${escapeHtml(e.framework_hint || '')}</span>
+        <button class="pick-btn" onclick="pickEndpoint('${escapeAttr(e.path)}')">选为攻击</button>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
 }
 
-function useEndpointAsAttack(path, frameworkHint) {
-  const baseUrl = document.getElementById('app-url').value.trim().replace(/\/$/, '');
-  const fullUrl = baseUrl + path;
-  document.getElementById('attack-url').value = fullUrl;
-  // 根据框架提示预选目标类型
-  if (frameworkHint === 'ollama') {
-    document.getElementById('target-type').value = 'ollama';
-  } else {
-    document.getElementById('target-type').value = 'openai';
-  }
-  onTargetTypeChange();
-  showToast('success', '已填充攻击目标');
-  // 自动探测 API 类型和模型
-  autoDetectEndpoint(fullUrl, 'attack');
-}
-
-// ── 🔑 API Key 侦察 ──
-async function runSecretScan() {
-  const url = document.getElementById('app-url').value.trim();
-  if (!url) {
-    showToast('error', '请输入 AI 应用根 URL');
-    return;
-  }
-  const resultDiv = document.getElementById('app-secret-result');
-  resultDiv.classList.remove('hidden');
-  resultDiv.innerHTML = '<div class="probe-loading">🔑 正在扫描 JS 文件中的 API Key / Token / 凭据...</div>';
-  try {
-    const resp = await fetch('/api/target-config/secret-scan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        url,
-        api_key: document.getElementById('app-api-key').value.trim(),
-        verify_ssl: document.getElementById('app-verify-ssl').checked,
-        timeout: 25
-      })
-    });
-    const data = await resp.json();
-    renderSecretScanResult(data);
-  } catch (e) {
-    resultDiv.innerHTML = '<div class="probe-error">❌ 网络错误: ' + escapeHtml(String(e)) + '</div>';
-  }
-}
-
-function renderSecretScanResult(data) {
-  const resultDiv = document.getElementById('app-secret-result');
+// ── 智能发现结果渲染 ──
+function renderSmartDiscoverResult(data) {
+  const resultDiv = document.getElementById('smartdiscover-result');
+  resultDiv.style.display = 'block';
   if (!data.ok) {
-    resultDiv.innerHTML = '<div class="probe-error">❌ 扫描失败: ' + escapeHtml(data.error || '') + '</div>';
+    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '智能发现失败')}</div><div class="hint-block">${escapeHtml(data.suggestion || '')}</div></div>`;
+    return;
+  }
+
+  const llmCount = (data.llm_endpoints || []).length;
+  const baseCount = (data.embedded_api_bases || []).length;
+  const routeCount = (data.chat_routes || []).length;
+  const totalUrls = (data.discovered_urls || []).length;
+
+  // 分类统计
+  const apiUrls = (data.discovered_urls || []).filter(u => u.category === 'api' || u.category === 'api_base');
+  const chatUrls = (data.discovered_urls || []).filter(u => u.category === 'chat_route');
+  const linkUrls = (data.discovered_urls || []).filter(u => u.category === 'link' || u.category === 'page');
+
+  let html = `<div class="result-card success">
+    <h4>🕷 智能发现完成 — 首页 ${data.homepage_status} · ${escapeHtml(data.homepage_title || '(无标题)')}</h4>
+    <div class="hint-block">📊 抓取 ${(data.pages_crawled||[]).length} 个页面，提取 ${totalUrls} 个 URL</div>`;
+
+  // 嵌入 API Base（重点突出）
+  if (baseCount > 0) {
+    html += `<div class="metric-row" style="margin-top:10px;">
+      <span class="key">🔑 内嵌 API Base</span>
+      <span class="val">${data.embedded_api_bases.map(b => {
+        const label = b.length > 60 ? b.substring(0, 57) + '...' : b;
+        return `<code class="api-base-code" style="cursor:pointer;font-size:12px;" onclick="pickSmartUrl('${escapeAttr(b)}')" title="点击设为攻击目标">${escapeHtml(label)}</code>`;
+      }).join('<br>')}</span>
+    </div>`;
+  }
+
+  // LLM 端点
+  if (llmCount > 0) {
+    html += `<div class="metric-row" style="margin-top:10px;">
+      <span class="key">🎯 LLM 端点</span>
+      <span class="val">${data.llm_endpoints.map(e => {
+        const label = e.url.length > 60 ? e.url.substring(0, 57) + '...' : e.url;
+        return `<code class="llm-ep-code" style="cursor:pointer;font-size:12px;color:var(--green);" onclick="pickSmartUrl('${escapeAttr(e.url)}')" title="点击设为攻击目标">${escapeHtml(e.status)} ${escapeHtml(label)}</code>`;
+      }).join('<br>')}</span>
+    </div>`;
+  }
+
+  // 聊天路由
+  if (routeCount > 0) {
+    html += `<div class="metric-row" style="margin-top:8px;">
+      <span class="key">💬 聊天路由</span>
+      <span class="val">${data.chat_routes.map(r => '<code>' + escapeHtml(r) + '</code>').join(' ')}</span>
+    </div>`;
+  }
+
+  // 建议
+  if (data.suggestion) {
+    html += `<div class="hint-block" style="white-space:pre-line;">💡 ${escapeHtml(data.suggestion)}</div>`;
+  }
+
+  // 全部发现的 URL 列表（可折叠）
+  if (totalUrls > 0) {
+    html += `<div class="advanced-block" id="sd-all-urls-block" style="margin-top:12px;">
+      <button class="advanced-toggle" onclick="toggleAdvanced('sd-all-urls')">📋 全部 ${totalUrls} 个 URL (点击展开)</button>
+      <div id="sd-all-urls" class="advanced-content">`;
+    const cats = {api: 'API', chat_route: '聊天', link: '链接', static: '静态', page: '页面', auth: '认证', llm_endpoint: 'LLM', unknown: '其他'};
+    for (const [cat, label] of Object.entries(cats)) {
+      const items = (data.discovered_urls || []).filter(u => u.category === cat);
+      if (items.length === 0) continue;
+      html += `<div style="margin-bottom:4px;"><strong>${label} (${items.length})</strong></div><div style="margin-left:12px;margin-bottom:12px;">`;
+      for (const u of items.slice(0, 20)) {
+        const short = u.url.length > 70 ? u.url.substring(0, 67) + '...' : u.url;
+        html += `<div style="font-size:11px;color:var(--text-dim);margin:2px 0;">
+          <code style="cursor:pointer;font-size:11px;" onclick="pickSmartUrl('${escapeAttr(u.url)}')" title="点击设为攻击目标">${escapeHtml(short)}</code>
+          <span style="font-size:10px;color:var(--text-dim);margin-left:4px;">(${escapeHtml(u.source)})</span>
+        </div>`;
+      }
+      if (items.length > 20) html += `<div style="font-size:10px;color:var(--text-dim);">... 还有 ${items.length - 20} 条</div>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+
+  // 清空其他探测结果区域避免干扰
+  document.getElementById('probe-result').innerHTML = '';
+  document.getElementById('enumerate-result').style.display = 'none';
+}
+
+// ── API Key 侦察结果渲染 ──
+function renderSecretScanResult(data) {
+  const resultDiv = document.getElementById('secretscan-result');
+  resultDiv.style.display = 'block';
+  if (!data.ok) {
+    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '扫描失败')}</div></div>`;
     return;
   }
   const findings = data.findings || [];
+  const verified = findings.filter(f => f.verified);
   const summary = data.summary || {};
+  let html = `<div class="result-card ${verified.length > 0 ? 'warning' : 'success'}">
+    <h4>${verified.length > 0 ? '⚠️' : '✅'} API Key 侦察 — 发现 ${findings.length} 个疑似凭据${verified.length > 0 ? '，其中 ' + verified.length + ' 个已远程验证' : ''}</h4>`;
 
-  let html = '<div class="probe-card">';
-  html += '<h4>🔑 API Key 侦察结果</h4>';
-  // 汇总统计
-  html += '<div class="secret-summary">';
-  html += '<span class="secret-stat total">发现 <strong>' + summary.total + '</strong> 条敏感信息</span>';
-  const sev = summary.by_severity || {};
-  if (sev.CRITICAL) html += '<span class="secret-stat critical">⚠ 严重: ' + sev.CRITICAL + '</span>';
-  if (sev.HIGH) html += '<span class="secret-stat high">🔴 高危: ' + sev.HIGH + '</span>';
-  if (sev.MEDIUM) html += '<span class="secret-stat medium">🟡 中危: ' + sev.MEDIUM + '</span>';
-  if (sev.LOW) html += '<span class="secret-stat low">🔵 低危: ' + sev.LOW + '</span>';
-  html += '<span class="secret-stat js">JS 源: ' + (summary.js_sources_parsed || 0) + '/' + (summary.js_sources_found || 0) + '</span>';
-  html += '<span class="secret-stat time">耗时: ' + ((summary.elapsed_ms || 0) / 1000).toFixed(1) + 's</span>';
-  html += '</div>';
-
-  if (findings.length === 0) {
-    html += '<div class="probe-hint">ℹ️ 未发现可识别的 API Key 或凭据（正面信号 — 目标前端未硬编码敏感信息）</div>';
-    html += '</div>';
-    resultDiv.innerHTML = html;
-    return;
+  if (summary.total_js_files != null) {
+    html += `<div class="metric-row"><span class="key">扫描 JS 文件</span><span class="val">${summary.total_js_files}</span></div>`;
+  }
+  if (summary.total_pages != null) {
+    html += `<div class="metric-row"><span class="key">扫描页面</span><span class="val">${summary.total_pages}</span></div>`;
   }
 
-  // 按 severity 分组展示
-  const groups = {CRITICAL: '⚠ 严重', HIGH: '🔴 高危', MEDIUM: '🟡 中危', LOW: '🔵 低危'};
-  for (const [sev, label] of Object.entries(groups)) {
-    const items = findings.filter(f => f.severity === sev);
-    if (items.length === 0) continue;
-    html += '<div class="secret-group">';
-    html += '<h5 class="secret-group-title ' + sev.toLowerCase() + '">' + label + ' (' + items.length + ')</h5>';
-    html += '<table class="secret-table"><thead><tr><th>类型</th><th>脱敏值</th><th>来源</th><th>操作</th></tr></thead><tbody>';
-    items.forEach(f => {
-      const safeSource = f.source_file || '-';
-      html += '<tr>';
-      html += '<td><span class="secret-type-tag ' + f.severity.toLowerCase() + '">' + escapeHtml(f.description || f.rule_name) + '</span></td>';
-      html += '<td><code class="secret-value">' + escapeHtml(f.redacted_value) + '</code></td>';
-      html += '<td class="secret-source" title="' + escapeAttr(safeSource) + '">' + escapeHtml(safeSource.length > 50 ? safeSource.substring(0, 47) + '...' : safeSource) + '</td>';
-      html += '<td>';
-      html += '<button class="small-btn" onclick=\'copySecretValue(' + JSON.stringify(f.redacted_value) + ')\' title="复制脱敏值">📋</button> ';
-      html += '<button class="small-btn" onclick=\'useSecretAsApiKey(' + JSON.stringify(f.rule_name) + ')\' title="尝试设为攻击目标 API Key">🔧</button>';
-      html += '</td>';
-      html += '</tr>';
-      // 上下文
-      if (f.context) {
-        html += '<tr class="secret-context-row"><td colspan="4"><div class="secret-context"><span class="context-label">上下文:</span> ' + escapeHtml(f.context) + '</div></td></tr>';
-      }
-    });
-    html += '</tbody></table></div>';
+  if (findings.length > 0) {
+    html += `<div class="endpoint-list" style="margin-top:8px;">`;
+    for (const f of findings.slice(0, 15)) {
+      const typeLabel = f.type || 'unknown';
+      const mask = (f.value || '').length > 30 ? (f.value || '').substring(0, 27) + '...' : (f.value || '');
+      const verifiedBadge = f.verified ? '<span style="color:#dc2626;font-weight:700;">✔ 已验证</span>' : '<span style="color:#9ca3af;">未验证</span>';
+      const riskColor = f.verified ? '#dc2626' : (f.severity === 'high' ? '#f59e0b' : '#6b7280');
+      html += `<div class="endpoint-item" style="border-left:3px solid ${riskColor};">
+        <span class="status-code" style="background:${riskColor};color:#fff;">${escapeHtml(typeLabel)}</span>
+        <span class="path" style="font-family:monospace;font-size:11px;">${escapeHtml(mask)}</span>
+        <span style="font-size:10px;">${verifiedBadge}</span>
+      </div>`;
+    }
+    if (findings.length > 15) html += `<div class="hint-block">还有 ${findings.length - 15} 条，请在服务器日志中查看完整列表</div>`;
+    html += `</div>`;
+  } else {
+    html += `<div class="hint-block">未发现疑似 API Key / Token 泄露 ✅</div>`;
   }
-  html += '</div>';
+
+  if (data.summary?.hint) {
+    html += `<div class="hint-block">💡 ${escapeHtml(data.summary.hint)}</div>`;
+  }
+
+  html += `</div>`;
   resultDiv.innerHTML = html;
 }
 
-function copySecretValue(value) {
-  navigator.clipboard.writeText(value).then(() => showToast('success', '已复制到剪贴板')).catch(() => showToast('error', '复制失败'));
-}
+// ── 安全护栏探测结果渲染 ──
+function renderGuardrailResult(data) {
+  const resultDiv = document.getElementById('guardrail-result');
+  resultDiv.style.display = 'block';
+  if (!data.ok) {
+    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '护栏探测失败')}</div></div>`;
+    return;
+  }
 
-function useSecretAsApiKey(ruleName) {
-  // 引导用户在探测 Tab 或手动填写 API Key
-  const hint = '请在「攻击目标 → API Key」字段中填入提取到的凭据。点击 🔌 连通性测试 / 💡 API 类型识别 可验证凭据有效性。';
-  showToast('info', hint);
-  // 自动切换到攻击目标配置区的焦点
-  const apiInput = document.getElementById('attack-api');
-  if (apiInput) {
-    apiInput.focus();
-    apiInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const s = data.summary || {};
+  let strengthColor, strengthEmoji;
+  switch (s.guardrail_strength) {
+    case 'strong': strengthColor = '#dc2626'; strengthEmoji = '🛡🛡🛡'; break;
+    case 'moderate': strengthColor = '#f59e0b'; strengthEmoji = '🛡🛡'; break;
+    case 'weak': strengthColor = '#10b981'; strengthEmoji = '🛡'; break;
+    case 'none': strengthColor = '#6b7280'; strengthEmoji = '❌'; break;
+    default: strengthColor = '#6366f1'; strengthEmoji = '❓'; break;
+  }
+
+  const patternLabels = {
+    http_403: 'HTTP 403 拒绝', content_filter: '内容过滤短语', silent_drop: '静默丢弃',
+    safe_word: '安全词拒绝', none: '无拒绝', error: '探测错误', mixed: '混合模式'
+  };
+
+  let html = `<div class="result-card" style="border-left:4px solid ${strengthColor};">
+    <h4>🛡 安全护栏探测结果</h4>
+    <div class="metric-row"><span class="key">探测端点</span><span class="val"><code style="font-size:11px;">${escapeHtml(data.endpoint || '')}</code></span></div>
+    <div class="metric-row"><span class="key">护栏强度</span><span class="val" style="color:${strengthColor};font-weight:700;font-size:16px;">${strengthEmoji} ${(s.guardrail_strength||'').toUpperCase()}</span></div>
+    <div class="metric-row"><span class="key">拒绝模式</span><span class="val">${escapeHtml(patternLabels[s.refusal_pattern] || s.refusal_pattern || '未知')}</span></div>
+    ${s.sysprompt_leaked ? `<div class="metric-row"><span class="key">系统提示词</span><span class="val" style="color:#dc2626;">⚠️ 疑似泄露！prompt injection 攻击面存在</span></div>` : ''}`;
+
+  // 探测明细
+  html += `<div class="metric-row" style="margin-top:10px;">
+    <span class="key">探测明细</span>
+    <span class="val" style="font-size:12px;">
+      通过 ${s.passed}/${s.total} ·
+      拒绝 ${s.refused} ·
+      过滤 ${s.filtered} ·
+      ${s.empty ? '空响应 ' + s.empty + ' · ' : ''}
+      错误 ${s.error}
+    </span>
+  </div>`;
+
+  // 各探测结果
+  const probes = data.probes || [];
+  html += `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;">
+    <thead><tr style="background:#f3f4f6;text-align:left;">
+      <th style="padding:4px 6px;">#</th><th style="padding:4px 6px;">探测项</th><th style="padding:4px 6px;">分类</th><th style="padding:4px 6px;">结果</th><th style="padding:4px 6px;">延迟</th>
+    </tr></thead><tbody>`;
+
+  for (const p of probes) {
+    let statusIcon, statusColor;
+    switch (p.status) {
+      case 'pass': statusIcon = '✅ 通过'; statusColor = '#10b981'; break;
+      case 'refused': statusIcon = '🚫 拒绝'; statusColor = '#dc2626'; break;
+      case 'filtered': statusIcon = '⏳ 限流'; statusColor = '#f59e0b'; break;
+      case 'empty': statusIcon = '🫥 空'; statusColor = '#6366f1'; break;
+      default: statusIcon = '❌ 错误'; statusColor = '#6b7280';
+    }
+    html += `<tr>
+      <td style="padding:4px 6px;">${escapeHtml(p.id)}</td>
+      <td style="padding:4px 6px;">${escapeHtml(p.label)}</td>
+      <td style="padding:4px 6px;"><span style="background:#e5e7eb;padding:1px 5px;border-radius:3px;font-size:10px;">${escapeHtml(p.category)}</span></td>
+      <td style="padding:4px 6px;color:${statusColor};font-weight:600;">${statusIcon}</td>
+      <td style="padding:4px 6px;font-size:11px;">${p.latency_ms}ms</td>
+    </tr>`;
+    if (p.refusal_reason) {
+      html += `<tr><td></td><td colspan="4" style="padding:2px 6px 6px;font-size:10px;color:#6b7280;">${escapeHtml(p.refusal_reason)}</td></tr>`;
+    }
+  }
+  html += `</tbody></table>`;
+
+  // 策略推荐
+  if (s.recommendation) {
+    html += `<div class="hint-block" style="margin-top:8px;white-space:pre-line;">💡 <strong>策略推荐：</strong>${escapeHtml(s.recommendation)}</div>`;
+  }
+
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+
+  // 自动回填攻击策略建议到步骤 4
+  if (s.guardrail_strength && s.recommendation) {
+    const hintEl = document.getElementById('step4-guardrail-hint');
+    if (!hintEl) {
+      const step4Card = document.querySelector('#step-4 .card-desc');
+      if (step4Card) {
+        const div = document.createElement('div');
+        div.id = 'step4-guardrail-hint';
+        div.className = 'hint-block';
+        div.style.cssText = 'margin-top:8px;border-left:3px solid ' + strengthColor + ';';
+        div.innerHTML = `🛡 护栏探测建议：<strong>${escapeHtml(s.guardrail_strength.toUpperCase())}</strong> 防护 — ${escapeHtml(s.recommendation.substring(0, 100))}`;
+        step4Card.insertAdjacentElement('afterend', div);
+      }
+    }
   }
 }
 
-function useEndpointAsScore(path, frameworkHint) {
-  const baseUrl = document.getElementById('app-url').value.trim().replace(/\/$/, '');
-  const fullUrl = baseUrl + path;
-  document.getElementById('score-url').value = fullUrl;
-  showToast('success', '已填充评分模型');
-  autoDetectEndpoint(fullUrl, 'score');
-}
+window.pickSmartUrl = function(url) {
+  document.getElementById('probe-target-url').value = url;
+  state.targetUrl = url;
+  showToast('success', '已填充目标 URL：' + (url.length > 50 ? url.substring(0, 47) + '...' : url));
+  // 滚动到步骤 3 顶部
+  document.getElementById('step-3').scrollIntoView({ behavior: 'smooth' });
+};
 
-async function autoDetectEndpoint(url, target) {
-  const resultEl = document.getElementById(target + '-auto-detect');
-  if (!resultEl) return;
-  resultEl.innerHTML = '<span class="probe-loading">🔍 自动识别 API 类型...</span>';
-  resultEl.classList.remove('hidden');
+window.pickEndpoint = function(path) {
+  const base = document.getElementById('probe-target-url').value.trim().replace(/\/$/, '');
+  document.getElementById('attack-url').value = base + path;
+  // 自动尝试识别
+  autoDetectEndpoint(base + path);
+  showToast('success', '已填充攻击 URL');
+  goToStep(4);
+};
 
-  const verifySsl = document.getElementById('app-verify-ssl').checked;
+window.autoDetectEndpoint = async function(url) {
   try {
     const resp = await fetch('/api/probe/api_type', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_url: url, timeout: 15, verify_ssl: verifySsl }),
+      body: JSON.stringify({ target_url: url, timeout: 10, verify_ssl: state.verifySsl }),
     });
     const data = await resp.json();
-
-    let html = '';
-    if (data.api_type && data.api_type !== 'unknown') {
-      html += `<span class="success">✅ 识别为 <strong>${escapeHtml(data.api_type)}</strong></span>`;
-
-      // 自动调整目标类型下拉框
-      if (target === 'attack' && data.api_type === 'ollama') {
-        document.getElementById('target-type').value = 'ollama';
-      }
-      if (target === 'attack' && data.api_type === 'openai') {
-        document.getElementById('target-type').value = 'openai';
-      }
-
-      // 自动填充模型名
-      if (data.model_name) {
-        document.getElementById(target + '-model').value = data.model_name;
-        html += ` · 模型: <strong>${escapeHtml(data.model_name)}</strong>`;
-      }
-
-      // 显示前几个可用模型
-      if (data.models && data.models.length > 0) {
-        html += '<div class="model-tags" style="margin-top:4px;">';
-        html += data.models.slice(0, 8).map(m => '<span class="model-tag" onclick="document.getElementById(\'' + target + '-model\').value=\'' + escapeAttr(m) + '\'" title="点击选择此模型" style="cursor:pointer;">' + escapeHtml(m) + '</span>').join('');
-        if (data.models.length > 8) {
-          html += `<span class="model-tag">+${data.models.length - 8} 更多</span>`;
-        }
-        html += '</div>';
-      }
-    } else {
-      html += '<span class="warn">⚠️ 未能自动识别 API 类型</span>';
+    if (data.api_type === 'ollama') {
+      document.getElementById('target-type').value = 'ollama';
+      state.targetType = 'ollama';
+    } else if (data.api_type === 'openai') {
+      document.getElementById('target-type').value = 'openai';
+      state.targetType = 'openai';
     }
-    resultEl.innerHTML = html;
+    if (data.model_name) {
+      document.getElementById('attack-model').value = data.model_name;
+    }
+    if (data.models && data.models.length > 0) {
+      state.discoveredModels = data.models;
+      renderModelChips('attack-model-chips', data.models, 'attack-model');
+      renderModelChips('score-model-chips', data.models, 'score-model');
+    }
   } catch (e) {
-    resultEl.innerHTML = '<span class="error">❌ 探测失败: ' + escapeHtml(String(e)) + '</span>';
+    console.error('autoDetectEndpoint failed', e);
+  }
+};
+
+// ============================================================================
+// 步骤 4：保存最终配置
+// ============================================================================
+async function loadTargetConfig() {
+  try {
+    const resp = await fetch('/api/target-config');
+    const cfg = await resp.json();
+    if (cfg.attack_url) document.getElementById('attack-url').value = cfg.attack_url;
+    if (cfg.attack_api) document.getElementById('attack-api').value = cfg.attack_api;
+    if (cfg.attack_model) document.getElementById('attack-model').value = cfg.attack_model;
+    if (cfg.score_url) document.getElementById('score-url').value = cfg.score_url;
+    if (cfg.score_api) document.getElementById('score-api').value = cfg.score_api;
+    if (cfg.score_model) document.getElementById('score-model').value = cfg.score_model;
+  } catch (e) {
+    console.error('loadTargetConfig failed', e);
   }
 }
 
-async function testTargetConnection(target) {
-  const type = document.getElementById('target-type').value;
+window.testConnection = async function(target) {
   const url = document.getElementById(target + '-url').value.trim();
   const apiKey = document.getElementById(target + '-api').value.trim();
   const model = document.getElementById(target + '-model').value.trim();
-  const verifySsl = document.getElementById('target-verify-ssl').checked;
   const resultSpan = document.getElementById(target + '-test-result');
-  resultSpan.innerHTML = '<span class="probe-loading">测试中...</span>';
+  if (!url) {
+    showToast('error', '请先填写 URL');
+    return;
+  }
+  resultSpan.innerHTML = '<span class="loading-spinner"></span>';
   try {
     const resp = await fetch('/api/target-config/test', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({target, api_format: type, url, api_key: apiKey, model, timeout: 30, verify_ssl: verifySsl})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target, api_format: state.targetType, url, api_key: apiKey, model,
+        timeout: 30, verify_ssl: state.verifySsl,
+      }),
     });
     const data = await resp.json();
     if (data.ok) {
-      resultSpan.innerHTML = '<span class="success">✅ ' + escapeHtml(data.message || '连接成功') + '</span>';
-      if (data.models && data.models.length > 0) {
-        resultSpan.innerHTML += '<div class="model-tags">' + data.models.slice(0, 5).map(m => '<span class="model-tag">' + escapeHtml(m) + '</span>').join('') + '</div>';
-      }
+      resultSpan.innerHTML = `<span style="color:var(--green);">✅ ${escapeHtml(data.message || '连接成功')}</span>`;
     } else {
-      resultSpan.innerHTML = '<span class="error">❌ ' + escapeHtml(data.error || '连接失败') + '</span>';
+      resultSpan.innerHTML = `<span style="color:var(--red);">❌ ${escapeHtml(data.error || '连接失败')}</span>`;
     }
   } catch (e) {
-    resultSpan.innerHTML = '<span class="error">❌ 网络错误</span>';
+    resultSpan.innerHTML = `<span style="color:var(--red);">❌ 网络错误</span>`;
   }
-}
+};
 
-async function saveTargetConfig() {
+async function autoSaveSharedConfig() {
   const payload = {
     attack_url: document.getElementById('attack-url').value.trim(),
     attack_api: document.getElementById('attack-api').value.trim(),
@@ -1088,27 +1967,228 @@ async function saveTargetConfig() {
     score_api: document.getElementById('score-api').value.trim(),
     score_model: document.getElementById('score-model').value.trim(),
   };
-  const resultSpan = document.getElementById('target-save-result');
-  resultSpan.innerHTML = '保存中...';
+  // 仅在至少有一个值时保存
+  if (!Object.values(payload).some(v => v)) return;
   try {
-    const resp = await fetch('/api/target-config', {
+    await fetch('/api/target-config', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
-    const data = await resp.json();
-    if (resp.ok && data.ok) {
-      resultSpan.innerHTML = '<span class="success">✅ ' + escapeHtml(data.message) + '</span>';
-      await loadData();
-      await checkReadiness();
-    } else {
-      resultSpan.innerHTML = '<span class="error">❌ ' + escapeHtml(data.error || '保存失败') + '</span>';
-    }
   } catch (e) {
-    resultSpan.innerHTML = '<span class="error">❌ 网络错误</span>';
+    console.error('autoSaveSharedConfig failed', e);
   }
 }
 
+// ============================================================================
+// .env 主选择器管理（攻击模式 / 场景 / 侦查范围）
+// ============================================================================
+async function loadDotenvConfig() {
+  try {
+    const resp = await fetch('/api/dotenv');
+    const data = await resp.json();
+    if (!data.exists) return;
+    const vars = data.variables;
+    if (vars.PLATFORM_SELECTOR) {
+      const el = document.getElementById('dotenv-attack-mode');
+      if (el && vars.PLATFORM_SELECTOR.value) el.value = vars.PLATFORM_SELECTOR.value;
+    }
+    if (vars.SCORE_SELECTOR) {
+      const el = document.getElementById('dotenv-score-selector');
+      if (el && vars.SCORE_SELECTOR.value) el.value = vars.SCORE_SELECTOR.value;
+    }
+    if (vars.TARGET_PRESET) {
+      const el = document.getElementById('dotenv-target-preset');
+      if (el && vars.TARGET_PRESET.value) el.value = vars.TARGET_PRESET.value;
+    }
+    if (vars.RECON_PRESET) {
+      const el = document.getElementById('dotenv-recon-preset');
+      if (el && vars.RECON_PRESET.value) el.value = vars.RECON_PRESET.value;
+    }
+    // 根据 PLATFORM_SELECTOR 显示/隐藏独立评分器
+    toggleScoreSelector();
+  } catch (e) {
+    console.error('loadDotenvConfig failed', e);
+  }
+}
+
+function toggleScoreSelector() {
+  const mode = document.getElementById('dotenv-attack-mode');
+  const row = document.getElementById('row-score-selector');
+  if (mode && row) {
+    row.style.display = (mode.value === 'Only_SCORE' || mode.value === '') ? 'block' : 'none';
+  }
+}
+// 监听模式切换以显示/隐藏评分器
+document.getElementById('dotenv-attack-mode')?.addEventListener('change', toggleScoreSelector);
+
+async function autoSaveDotenv() {
+  const payload = {};
+  const mode = document.getElementById('dotenv-attack-mode');
+  const score = document.getElementById('dotenv-score-selector');
+  const preset = document.getElementById('dotenv-target-preset');
+  const recon = document.getElementById('dotenv-recon-preset');
+  if (mode) payload.PLATFORM_SELECTOR = mode.value;
+  if (score) payload.SCORE_SELECTOR = score.value;
+  if (preset) payload.TARGET_PRESET = preset.value;
+  if (recon) payload.RECON_PRESET = recon.value;
+  try {
+    await fetch('/api/dotenv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    markStepDone(4);
+  } catch (e) {
+    console.error('autoSaveDotenv failed', e);
+  }
+}
+
+window.autoConfigure = async function() {
+  const targetUrl = document.getElementById('attack-url').value.trim() || state.targetUrl;
+  if (!targetUrl) {
+    showToast('error', '请先填写攻击目标 URL');
+    return;
+  }
+  const result = document.getElementById('step4-result');
+  result.innerHTML = '<div class="result-card"><div class="probe-status"><div class="probe-loading"><span class="loading-spinner"></span> 自动配置中（连通性 → API 类型 → 模型枚举 → 保存 → 就绪检查）...</div></div></div>';
+  showToast('info', '正在自动配置，请稍候...');
+
+  try {
+    const resp = await fetch('/api/auto-configure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_url: targetUrl,
+        api_key: document.getElementById('attack-api').value.trim(),
+        score_url: document.getElementById('score-url').value.trim(),
+        score_api_key: document.getElementById('score-api').value.trim(),
+        score_model: document.getElementById('score-model').value.trim(),
+        verify_ssl: state.verifySsl,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      result.innerHTML = `<div class="result-card error"><div class="error-block">❌ 自动配置失败：${escapeHtml(data.error || '未知错误')}</div></div>`;
+      return;
+    }
+
+    // 渲染步骤结果
+    const icon = {pass: '✅', fail: '❌', warn: '⚠️'};
+    let html = '<div class="result-card success"><h4>🚀 一键自动配置完成</h4><div class="endpoint-list">';
+    for (const step of (data.steps || [])) {
+      html += `<div class="endpoint-item">
+        <span>${icon[step.status] || '⏳'}</span>
+        <span>${escapeHtml(step.step)}</span>
+        <span style="font-size:11px;color:var(--text-dim);">${step.status}</span>
+      </div>`;
+    }
+    html += '</div>';
+
+    if (data.summary) {
+      html += `<div class="metric-row"><span class="key">目标类型</span><span class="val">${escapeHtml(data.summary.api_type || 'unknown')}</span></div>
+        <div class="metric-row"><span class="key">攻击模型</span><span class="val">${escapeHtml(data.summary.attack_model || '')}</span></div>
+        <div class="metric-row"><span class="key">发现模型数</span><span class="val">${data.summary.models_found || 0}</span></div>`;
+    }
+
+    html += '</div>';
+    result.innerHTML = html;
+
+    // 自动回填配置字段
+    if (data.config) {
+      const c = data.config;
+      if (c.BASE_MODEL) document.getElementById('attack-model').value = c.BASE_MODEL;
+      if (c.SCORE_BASE_MODEL) document.getElementById('score-model').value = c.SCORE_BASE_MODEL;
+      if (c.SCORE_BASE_URL) document.getElementById('score-url').value = c.SCORE_BASE_URL;
+    }
+
+    showToast('success', '自动配置完成！');
+    // 刷新 readiness 检查
+    await checkReadiness();
+  } catch (e) {
+    result.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
+  }
+};
+
+window.saveFinalConfig = async function() {
+  const result = document.getElementById('step4-result');
+  const url = document.getElementById('attack-url').value.trim();
+  if (!url) {
+    showToast('error', '请填写攻击目标 URL');
+    return;
+  }
+  result.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 保存所有配置...</div></div>';
+  try {
+    // 1. 保存 shared.env（攻击目标 + 评分）
+    const payload = {
+      attack_url: url,
+      attack_api: document.getElementById('attack-api').value.trim(),
+      attack_model: document.getElementById('attack-model').value.trim(),
+      score_url: document.getElementById('score-url').value.trim(),
+      score_api: document.getElementById('score-api').value.trim(),
+      score_model: document.getElementById('score-model').value.trim(),
+    };
+    const resp = await fetch('/api/target-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      result.innerHTML = `<div class="result-card error"><div class="error-block">❌ shared.env 保存失败: ${escapeHtml(data.error || '未知')}</div></div>`;
+      return;
+    }
+    // 2. 保存 .env（攻击模式 / 场景 / 侦查范围）
+    const dotenvPayload = {};
+    const mode = document.getElementById('dotenv-attack-mode');
+    const score = document.getElementById('dotenv-score-selector');
+    const preset = document.getElementById('dotenv-target-preset');
+    const recon = document.getElementById('dotenv-recon-preset');
+    if (mode) dotenvPayload.PLATFORM_SELECTOR = mode.value;
+    if (score) dotenvPayload.SCORE_SELECTOR = score.value;
+    if (preset) dotenvPayload.TARGET_PRESET = preset.value;
+    if (recon) dotenvPayload.RECON_PRESET = recon.value;
+    await fetch('/api/dotenv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dotenvPayload),
+    });
+
+    markStepDone(4);
+    result.innerHTML = `<div class="complete-banner">
+      <div class="check">🎉</div>
+      <h3>配置完成！</h3>
+      <p>所有配置已保存 — 攻击目标/评分到 <code>configs/shared.env</code>，攻击策略到 <code>.env</code>，认证凭据到 <code>configs/tokens/</code></p>
+      <p style="margin-top:8px;">现在可执行 <code>python main.py</code> 启动 PyRIT 进行攻击测试</p>
+    </div>`;
+    showToast('success', '✅ 全部配置已保存');
+    await checkReadiness();
+  } catch (e) {
+    result.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
+  }
+};
+
+// ============================================================================
+// 工具
+// ============================================================================
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+function escapeAttr(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function showToast(type, message) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
 </script>
 </body>
 </html>

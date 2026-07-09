@@ -549,3 +549,171 @@ def detect_sensitive_lines(raw: str) -> list[dict]:
                 })
                 break
     return findings
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# .env 文件管理（项目根目录的主选择器文件）
+# ═══════════════════════════════════════════════════════════════════════════
+
+_DOTENV_PATH = _PROJECT_ROOT / ".env"
+
+# .env 中可管理的变量及其友好标签和可选项
+_DOTENV_DEFINITIONS = {
+    "PLATFORM_SELECTOR": {
+        "label": "攻击模式",
+        "type": "select",
+        "options": [
+            {"value": "ATTACK_with_SCORE", "label": "攻击 + 评分（默认推荐）"},
+            {"value": "ONLY_ATTACK", "label": "仅攻击（跳过评分，快速压测）"},
+            {"value": "Only_SCORE", "label": "仅评分（评估模型安全性）"},
+            {"value": "", "label": "不预设（手动指定）"},
+        ],
+        "help": "决定 PyRIT 是否在攻击后自动评分验证。选「攻击+评分」可自动评估攻击效果。",
+    },
+    "SCORE_SELECTOR": {
+        "label": "独立评分器",
+        "type": "select",
+        "options": [
+            {"value": "", "label": "与攻击共用（默认）"},
+            {"value": "SCORE", "label": "独立评分服务"},
+        ],
+        "help": "攻击目标与评分模型不同时（如攻击内网 AI、评分为云服务），可独立指定评分器。",
+    },
+    "TARGET_PRESET": {
+        "label": "攻击场景",
+        "type": "select",
+        "options": [
+            {"value": "OLLAMA", "label": "Ollama 本地部署"},
+            {"value": "API_KEY", "label": "OpenAI 兼容 API（API Key 认证）"},
+            {"value": "NO_AUTH", "label": "无认证（本地 vLLM/TGI 等）"},
+            {"value": "INTERNAL_JWT", "label": "JWT 认证（内网自部署）"},
+            {"value": "WEB_COOKIE", "label": "Web Cookie 认证"},
+            {"value": "SELF_SIGNED", "label": "HTTPS 自签证书"},
+            {"value": "LAB", "label": "内网 Lab 应用"},
+        ],
+        "help": "选择与目标认证方式匹配的场景模板，系统会自动配置正确的攻击端点。",
+    },
+    "RECON_PRESET": {
+        "label": "侦查范围",
+        "type": "select",
+        "options": [
+            {"value": "OLLAMA_RECON", "label": "完整侦查（模型列表 + 健康检查）"},
+            {"value": "MODELS_RECON", "label": "仅模型列表"},
+            {"value": "HEALTH_RECON", "label": "仅健康检查"},
+            {"value": "LAB_RECON", "label": "内网 Lab 首页探测"},
+        ],
+        "help": "系统启动时的默认侦查行为。Web 向导中第三步可独立触发每种探测。",
+    },
+    "REQUEST_TIMEOUT": {
+        "label": "请求超时（秒）",
+        "type": "number",
+        "default": "60",
+        "help": "单次 HTTP 请求的最大等待时间。",
+    },
+    "TEMPERATURE": {
+        "label": "攻击模型温度",
+        "type": "number",
+        "default": "0.7",
+        "help": "攻击模型的创造性参数，0=确定性，1=高随机性。",
+    },
+    "MAX_TOKENS": {
+        "label": "最大 Token 数",
+        "type": "number",
+        "default": "4096",
+        "help": "每次攻击调用生成的最大 Token 数。",
+    },
+}
+
+
+def get_dotenv_path() -> Path:
+    return _DOTENV_PATH
+
+
+def read_dotenv_file() -> dict:
+    """读取 .env 文件，返回解析后的变量字典和原始内容。"""
+    result = {"exists": False, "path": str(_DOTENV_PATH), "variables": {}, "raw": ""}
+    if not _DOTENV_PATH.exists():
+        return result
+    result["exists"] = True
+    with open(_DOTENV_PATH, "r", encoding="utf-8") as f:
+        raw = f.read()
+    result["raw"] = raw
+
+    for line in raw.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        if key:
+            # 去除行内注释
+            val = value.strip()
+            if "#" in val and '"' not in val and "'" not in val:
+                val = val.split("#", 1)[0].strip()
+            result["variables"][key] = val
+
+    return result
+
+
+def update_dotenv_variables(updates: dict) -> tuple[bool, str]:
+    """更新 .env 文件中的指定变量，保留注释和结构。
+
+    Args:
+        updates: {VAR_NAME: new_value}，只有提供的才会更新。
+
+    Returns:
+        (ok, message)
+    """
+    if not _DOTENV_PATH.exists():
+        return False, ".env 文件不存在"
+
+    with open(_DOTENV_PATH, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    lines = raw.split("\n")
+    updated = set()
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in updates:
+            new_val = updates[key]
+            # 保留行内注释
+            comment_part = ""
+            eq_pos = line.index("=")
+            rest = line[eq_pos + 1:]
+            if "#" in rest:
+                comment_part = " #" + rest.split("#", 1)[1]
+            # 重建该行：key = value[ # comment]
+            old_padding = ""
+            if line.startswith(key):
+                indent = line[:len(line) - len(line.lstrip())]
+                lines[i] = f"{indent}{key}={new_val}{comment_part}"
+            else:
+                lines[i] = f"{key}={new_val}{comment_part}"
+            updated.add(key)
+
+    # 追加 .env 中不存在的新变量
+    missing = [k for k in updates if k not in updated]
+    if missing:
+        lines.append("")
+        lines.append("# 由 Web 配置中心追加")
+        for k in missing:
+            lines.append(f"{k}={updates[k]}")
+
+    new_content = "\n".join(lines)
+    try:
+        with open(_DOTENV_PATH, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    except IOError as e:
+        return False, f"写入 .env 失败: {e}"
+
+    logger.info(f".env 已更新: {list(updated) + missing}")
+    return True, f"已更新 {len(updated | set(missing))} 个设置"
+
+
+def get_dotenv_definitions() -> dict:
+    """返回 .env 变量的业务友好定义。"""
+    return _DOTENV_DEFINITIONS

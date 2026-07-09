@@ -5,7 +5,7 @@ PyRIT Config Center — Flask 应用工厂 + CLI 入口
 基于 Flask，提供 Web 界面管理 configs/ 目录下的所有环境变量配置文件。
 
 启动方式:
-  python -m configs.server                    # http://127.0.0.1:5051
+  python -m configs.server                    # http://127.0.0.1:80
   python -m configs.server --port 8080        # 自定义端口
   python run_config_center.py                 # 根目录快捷启动（同效）
 
@@ -69,8 +69,8 @@ def main():
     )
     parser.add_argument("--host", default="127.0.0.1",
                         help="监听地址 (默认 127.0.0.1，设为 0.0.0.0 将暴露到所有网络接口)")
-    parser.add_argument("--port", type=int, default=5051,
-                        help="监听端口 (默认 5051)")
+    parser.add_argument("--port", type=int, default=80,
+                        help="监听端口 (默认 80)")
     parser.add_argument("--debug", action="store_true",
                         help="调试模式 (生产环境禁止开启)")
     parser.add_argument("--no-open", action="store_true",
