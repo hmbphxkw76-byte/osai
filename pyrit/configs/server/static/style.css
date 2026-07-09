@@ -202,6 +202,52 @@ body {
 .cred-row .value.empty { color: var(--text-muted); }
 .cred-row .value.set::after { content: " ●"; color: var(--green); }
 
+/* ── 工具入口（Payload Browser）── */
+.tools-section {
+  margin: 4px 16px 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tool-icon { font-size: 14px; }
+.tool-body { flex: 1; display: flex; align-items: center; justify-content: space-between; }
+.tool-name { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.tool-status { font-size: 10px; padding: 2px 6px; border-radius: 3px; }
+.tool-status.online { background: rgba(34,197,94,0.12); color: var(--green); }
+.tool-status.offline { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+.tool-status.checking { color: var(--text-muted); }
+.tool-action { margin-top: 8px; }
+.tool-hint { font-size: 10px; color: var(--text-muted); }
+.tool-btn {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all .15s;
+}
+.tool-btn.launch {
+  background: rgba(59,130,246,0.15);
+  color: var(--blue);
+  border: 1px solid rgba(59,130,246,0.25);
+}
+.tool-btn.launch:hover { background: rgba(59,130,246,0.25); }
+.tool-btn.launch:disabled { opacity: .5; cursor: not-allowed; }
+.tool-btn.open {
+  background: rgba(34,197,94,0.12);
+  color: var(--green);
+  border: 1px solid rgba(34,197,94,0.2);
+}
+.tool-btn.open:hover { background: rgba(34,197,94,0.22); }
+
 /* ── 主区域 ── */
 .main {
   flex: 1;
@@ -582,6 +628,27 @@ body {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ── 并行探测：多个结果块竖向排列 ── */
+.probe-results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.probe-result-block {
+  width: 100%;
+}
+
+/* ── 探测按钮运行中动画 ── */
+.btn.probe-active {
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
+  border-color: transparent;
+  animation: probe-pulse 1.5s ease-in-out infinite;
+}
+@keyframes probe-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.3); }
+  50%      { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+}
 .warn-block {
   margin-top: 10px;
   padding: 8px 12px;
@@ -662,6 +729,25 @@ body {
   background: var(--cyan);
   color: #ffffff;
   font-weight: 600;
+}
+/* Cookie tab 组合模式：Cookie 可与 JWT/API Key 叠加 */
+.auth-mode-tab[data-mode="cookie"].active.combo {
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--blue) 100%);
+  color: #ffffff;
+  font-weight: 700;
+}
+.auth-mode-tab[data-mode="cookie"]::after {
+  content: " ⬚";
+  font-size: 10px;
+  opacity: 0.6;
+}
+.auth-mode-tab[data-mode="cookie"].active::after {
+  content: " ✅";
+  opacity: 1;
+}
+.auth-mode-tab[data-mode="cookie"].active.combo::after {
+  content: " 🔗";
+  opacity: 1;
 }
 .auth-mode-panel { display: none; }
 .auth-mode-panel.active { display: block; }
@@ -979,4 +1065,240 @@ body {
 }
 .auth-guide .steps li {
   margin-top: 3px;
+}
+
+/* ── 准备指南面板 ── */
+.prep-guide {
+  margin-top: 16px;
+  border: 1px solid rgba(8, 145, 178, 0.2);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.prep-guide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(8, 145, 178, 0.05);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--cyan);
+  user-select: none;
+}
+.prep-guide-header:hover { background: rgba(8, 145, 178, 0.08); }
+.prep-guide-body {
+  padding: 12px 14px 14px;
+  background: var(--bg-card);
+}
+.prep-intro {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.prep-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.prep-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.prep-item .prep-check {
+  margin-top: 2px;
+  accent-color: var(--cyan);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.prep-item label {
+  color: var(--text-dim);
+}
+.prep-item label strong { color: var(--text); }
+.prep-item code {
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.prep-progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.prep-progress-fill {
+  height: 100%;
+  background: var(--red);
+  width: 0;
+  transition: width 0.4s, background 0.4s;
+  border-radius: 3px;
+}
+.prep-progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+.prep-tips {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.prep-tip-title {
+  font-weight: 600;
+  color: var(--yellow);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.prep-tips ul {
+  padding-left: 16px;
+  list-style: disc;
+}
+.prep-tips li {
+  margin-bottom: 4px;
+  color: var(--text-dim);
+}
+.prep-tips li strong { color: var(--text); }
+.prep-tips code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* ── 深度侦察按钮样式 ── */
+.btn.deep {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+.btn.deep:hover {
+  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  color: #f8fafc;
+}
+.btn.deep.probe-active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(8, 145, 178, 0.5);
+}
+.btn.highlight.deep {
+  background: linear-gradient(135deg, var(--cyan) 0%, #0e7490 100%);
+  color: #fff;
+  border-color: var(--cyan);
+}
+
+/* ── 多格式探测芯片 ── */
+.format-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.format-chip.found {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(22, 163, 74, 0.2);
+}
+.format-chip.not-found {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+.fmt-status { font-size: 12px; }
+.fmt-status.ok { color: var(--green); }
+
+/* ── 度量网格 ── */
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.metric-item {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.m-key {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.m-val {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+/* ── 侧边栏：攻击作战室入口 ── */
+.sidebar-attack-entry {
+  margin: 8px 16px;
+  padding: 2px 0;
+}
+.attack-entry-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.06), rgba(217, 119, 6, 0.04));
+  border: 1px solid rgba(220, 38, 38, 0.15);
+  text-decoration: none;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.attack-entry-link:hover {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.1), rgba(217, 119, 6, 0.08));
+  border-color: rgba(220, 38, 38, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.1);
+}
+.attack-entry-link::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, transparent 60%, rgba(220, 38, 38, 0.03));
+  border-radius: var(--radius);
+}
+.attack-entry-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  filter: grayscale(0.1);
+}
+.attack-entry-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.attack-entry-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--red);
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
 }

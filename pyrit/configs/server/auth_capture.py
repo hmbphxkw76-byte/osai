@@ -115,7 +115,8 @@ def _token_path(name: str) -> Path:
 def save_auth_snapshot(snapshot: AuthSnapshot) -> dict:
     """将认证快照保存到 configs/tokens/ 下多个文件。
 
-    会先清空旧的认证 token 文件，避免不同目标/不同凭据混用。
+    按字段条件写入：字段有值则写入文件，字段为空则删除旧文件。
+    支持多认证组合保存（如 Cookie + JWT、Cookie + API Key）。
 
     Returns:
         {"ok": bool, "saved": [文件名列表], "error": str|None}
@@ -124,14 +125,22 @@ def save_auth_snapshot(snapshot: AuthSnapshot) -> dict:
         _ensure_tokens_dir()
         saved: list[str] = []
 
-        # 先清空旧 token 文件，避免旧凭据干扰
-        for name in ("cookie.txt", "jwt.txt", "api_key.txt"):
-            p = _token_path(name)
-            if p.exists():
+        # 按字段条件写入（不再全量清空，支持组合保存）
+        def _write_or_clear(filename: str, value: str) -> None:
+            p = _token_path(filename)
+            if value:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(value)
+                saved.append(filename)
+            elif p.exists():
                 try:
                     p.unlink()
                 except Exception:
                     pass
+
+        _write_or_clear("cookie.txt", snapshot.cookie_string)
+        _write_or_clear("jwt.txt", snapshot.jwt_token)
+        _write_or_clear("api_key.txt", snapshot.api_key)
 
         # 结构化元数据
         meta = {
@@ -148,21 +157,6 @@ def save_auth_snapshot(snapshot: AuthSnapshot) -> dict:
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
         saved.append("auth_state.json")
-
-        if snapshot.cookie_string:
-            with open(_token_path("cookie.txt"), "w", encoding="utf-8") as f:
-                f.write(snapshot.cookie_string)
-            saved.append("cookie.txt")
-
-        if snapshot.jwt_token:
-            with open(_token_path("jwt.txt"), "w", encoding="utf-8") as f:
-                f.write(snapshot.jwt_token)
-            saved.append("jwt.txt")
-
-        if snapshot.api_key:
-            with open(_token_path("api_key.txt"), "w", encoding="utf-8") as f:
-                f.write(snapshot.api_key)
-            saved.append("api_key.txt")
 
         logger.info(f"认证快照已保存: {saved}")
         return {"ok": True, "saved": saved, "error": None}

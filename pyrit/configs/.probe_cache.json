@@ -1,12 +1,12 @@
 {
   "https://192.168.0.20/": {
     "api_type": {
-      "api_type": "custom",
+      "api_type": "anthropic",
       "model_name": null,
       "models": [],
-      "confidence": 0.0
+      "confidence": 0.7
     },
-    "cached_at": "2026-07-09T05:53:13.705278+00:00"
+    "cached_at": "2026-07-09T08:24:31.585365+00:00"
   },
   "http://192.168.0.20:11434/": {
     "api_type": {
@@ -17,7 +17,7 @@
       ],
       "confidence": 0.95
     },
-    "cached_at": "2026-07-09T05:57:50.161157+00:00",
+    "cached_at": "2026-07-09T06:47:32.644864+00:00",
     "models": {
       "models": [
         "qwen3:0.6b"

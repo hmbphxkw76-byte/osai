@@ -6,12 +6,13 @@ Config Center — 路由 (Blueprint) + 目标探测 + 一键自动配置
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
 
 import httpx
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, Response
 
 from . import run_async as _run_async
 
@@ -35,6 +36,14 @@ from .target_config import (
     scan_app_secrets,
 )
 from .smart_discovery import smart_discover, smart_discovery_to_dict
+from .deep_recon import (
+    run_deep_recon,
+    parse_robots_txt,
+    probe_debug_endpoints,
+    analyze_security_headers,
+    probe_multi_format,
+    probe_knowledge_base,
+)
 from .auth_capture import (
     detect_auth_requirement,
     perform_login,
@@ -81,26 +90,61 @@ _PROGRESS_MAX = 32
 _PROGRESS_LOCK = threading.Lock()
 
 
-def _heartbeat_loop(probe_type: str, job_id: str, target: str, detail: str, stop_evt: threading.Event, interval: float = 2.0) -> None:
-    """心跳守护线程：周期性调用 report_progress，给前端 watchdog 续命。
+def _heartbeat_loop(probe_type: str, job_id: str, target: str, detail: str, stop_evt: threading.Event, interval: float = 2.0, is_alive_fn=None) -> None:
+    """心跳守护线程：周期性更新 elapsed 显示 + 仅当 is_alive_fn() 为真时才更新 last_ts。
+
+    这是关键修复：原版心跳无脑每 2s 把 last_ts 推后，导致即使对端
+    服务器已经 crashed/broken pipe，silent watchdog 也永远不触发。
+    现要求调用方传入 is_alive_fn — 一个返回"探测任务是否仍在真
+    正在做实事"的回调（例如后台 future 是否 still pending）。
+    心跳只在前者返回 True 时才更新 last_ts；返回 False 时只更新
+    detail（UI 文本），让 last_ts 真正反映"最后一次有意义的活动"。
 
     Args:
-        probe_type: 探测类型（enumerate / smart-discover / secret-scan / guardrail）
-        job_id: 本次任务的 job id（前端在 URL 中传入）
-        target: 目标 URL（仅用于日志）
+        probe_type: 探测类型
+        job_id: 本次任务的 job id
+        target: 目标 URL
         detail: 心跳时附带的中文进度描述
         stop_evt: 外部控制停止的事件
-        interval: 心跳间隔（秒，默认 2s）
+        interval: 心跳间隔（秒）
+        is_alive_fn: 可选可调用对象，返回 bool。如果为 None，则与
+                     旧版兼容（仍然每轮更新 last_ts）。
     """
     start = time.time()
     try:
         while not stop_evt.is_set():
             elapsed = int(time.time() - start)
-            report_progress(probe_type, job_id, f"{detail} ({elapsed}s)", target=target)
+            alive = True if is_alive_fn is None else bool(is_alive_fn())
+            if alive:
+                # 探测任务仍在真活动 → 推 last_ts（给 watchdog 续命）
+                report_progress(probe_type, job_id, f"{detail} ({elapsed}s)", target=target)
+            else:
+                # 探测任务已死/挂起 → 只更新 detail（UI 显示），**不**推 last_ts
+                # 这样 watchdog 会在 silentTimeoutMs 后正确触发
+                _report_ui_only(probe_type, job_id, f"{detail} ({elapsed}s) [待回收]", target=target)
             if stop_evt.wait(interval):
                 break
     except Exception as e:  # noqa: BLE001
         logger.debug("heartbeat loop ended: %s", e)
+
+
+def _report_ui_only(probe_type: str, job_id: str, detail: str, target: str = "") -> None:
+    """只更新 _PROGRESS 中条目的 detail 与 elapsed 文本，**不**触碰 last_ts。
+
+    与 report_progress() 的区别：
+      - report_progress()：会同时更新 last_ts（被前端 watchdog 用来判定目标是否存活）
+      - _report_ui_only()：仅刷新 detail（被前端用于显示"已运行 Xs"）
+    """
+    if not probe_type or not job_id:
+        return
+    key = (probe_type, job_id)
+    with _PROGRESS_LOCK:
+        entry = _PROGRESS.get(key)
+        if entry is None:
+            return
+        # 只改 detail，保留 last_ts 不变
+        entry["detail"] = (detail or "")[:200]
+        entry["target"] = target
 
 
 def report_progress(probe_type: str, job_id: str, detail: str, target: str = "") -> None:
@@ -118,6 +162,70 @@ def report_progress(probe_type: str, job_id: str, detail: str, target: str = "")
         if len(_PROGRESS) > _PROGRESS_MAX:
             oldest_key = min(_PROGRESS, key=lambda k: _PROGRESS[k]["last_ts"])
             _PROGRESS.pop(oldest_key, None)
+
+
+def _run_probe_with_resilience(
+    coro_factory,
+    probe_type: str,
+    context: str,
+    default_timeout: float = 15.0,
+):
+    """运行异步探测协程，统一捕获对端崩溃/超时/限流等异常并返回结构化错误响应。
+
+    用途：在 Flask 同步路由中运行耗时的异步探测，避免单一协程被 broken pipe 挂住
+    导致前端 watchdog 误判，也避免把异常裸抛成 500。
+
+    Args:
+        coro_factory: 返回协程的可调用对象 (lambda: smart_discover(...))
+        probe_type: 探测类型字符串（用于日志）
+        context: 用户可见的探测上下文（用于错误消息）
+        default_timeout: 默认超时（仅在异常信息中显示）
+
+    Returns:
+        (result_dict, http_status)
+        - 成功：(result, 200)
+        - 失败：(structured_error_dict, 200)  # 用 200 便于前端统一处理
+    """
+    from .probe_resilience import classify_exception
+    try:
+        return coro_factory(), 200
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        info = classify_exception(e, context=context)
+        logger.warning("[%s] 对端连接中断: %s", probe_type, info.detail)
+        return {
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limited": False,
+            "retry_after": None,
+        }, 200
+    except httpx.TimeoutException as e:
+        info = classify_exception(e, context=context)
+        logger.warning("[%s] 超时: %s", probe_type, info.detail)
+        return {
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limited": False,
+            "retry_after": None,
+        }, 200
+    except Exception as e:  # noqa: BLE001
+        info = classify_exception(e, context=context)
+        logger.exception("[%s] 探测异常", probe_type)
+        return {
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limited": False,
+            "retry_after": None,
+        }, 200
 
 
 @bp.route("/api/probe/progress", methods=["GET"])
@@ -145,6 +253,12 @@ def api_probe_progress():
 @bp.route("/")
 def index():
     return render_template("index.html")
+
+
+@bp.route("/attack")
+def attack_page():
+    """攻击作战室页面。"""
+    return render_template("attack.html")
 
 
 # ============================================================================
@@ -388,18 +502,51 @@ def api_probe_guardrail():
     api_key_merged, cookie, extra_headers = _merge_auth_from_request(body)
     job_id = (body.get("job_id") or "").strip()
     _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
     if job_id:
         threading.Thread(
             target=_heartbeat_loop,
             args=("guardrail", job_id, target_url, "护栏探测中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
             daemon=True,
         ).start()
     try:
-        result = _run_async(_probe_guardrail(
-            target_url, api_key=api_key_merged or api_key, timeout=timeout,
-            verify_ssl=verify_ssl, model=model,
-            extra_auth_headers=extra_headers,
-        ))
+        try:
+            result = _run_async(_probe_guardrail(
+                target_url, api_key=api_key_merged or api_key, timeout=timeout,
+                verify_ssl=verify_ssl, model=model,
+                extra_auth_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="护栏探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key_merged or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="护栏探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key_merged or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="护栏探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key_merged or cookie),
+        }), 200
     finally:
         _hb_stop.set()
     result["auth_used"] = bool(api_key_merged or cookie)
@@ -509,22 +656,61 @@ def api_enumerate_app():
     # 读取缓存的 API 类型，端点枚举时优先探测对应路径
     cached_type = get_api_type(url)
     job_id = (body.get("job_id") or "").strip()
-    # 启动心跳线程：每 2s 上报"枚举中"，让前端 watchdog 不会误判静默超时
+    # 启动心跳线程：每 2s 上报"枚举中"，但仅在探测协程真活着时推 last_ts
     _hb_stop = threading.Event()
     _hb_thread = None
+    _inner_alive_evt = threading.Event()
     if job_id:
         _hb_thread = threading.Thread(
             target=_heartbeat_loop,
             args=("enumerate", job_id, url, "枚举进行中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
             daemon=True,
         )
         _hb_thread.start()
     try:
-        result = _run_async(enumerate_ai_app_endpoints(
-            url, verify_ssl=verify_ssl, timeout=timeout,
-            api_key=api_key, cookies=cookie, extra_headers=extra_headers,
-            api_type=cached_type,
-        ))
+        try:
+            result = _run_async(enumerate_ai_app_endpoints(
+                url, verify_ssl=verify_ssl, timeout=timeout,
+                api_key=api_key, cookies=cookie, extra_headers=extra_headers,
+                api_type=cached_type,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="端点枚举")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "summary": {},
+            "auth_used": bool(api_key or cookie),
+            "cached_api_type": cached_type,
+        }), 200
+    except httpx.TimeoutException as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="端点枚举")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "summary": {},
+            "auth_used": bool(api_key or cookie),
+            "cached_api_type": cached_type,
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="端点枚举")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "summary": {},
+            "auth_used": bool(api_key or cookie),
+            "cached_api_type": cached_type,
+        }), 200
     finally:
         _hb_stop.set()
     result["auth_used"] = bool(api_key or cookie)
@@ -555,17 +741,78 @@ def api_smart_discover():
     api_key, cookie, extra_headers = _merge_auth_from_request(body)
     job_id = (body.get("job_id") or "").strip()
     _hb_stop = threading.Event()
+    # inner_alive: 探测协程在跑时为 False（未设置），跑完/抛异常后置 True
+    # 心跳线程每 2s 检查一次这个事件，未设置就推 last_ts（任务真在跑），
+    # 已设置就停止推 last_ts（让 watchdog 触发超时）
+    _inner_alive_evt = threading.Event()
     if job_id:
         threading.Thread(
             target=_heartbeat_loop,
             args=("smart-discover", job_id, url, "智能嗅探中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
             daemon=True,
         ).start()
     try:
-        result = _run_async(smart_discover(
-            url, verify_ssl=verify_ssl, timeout=timeout,
-            api_key=api_key, cookies=cookie, extra_headers=extra_headers,
-        ))
+        try:
+            result = _run_async(smart_discover(
+                url, verify_ssl=verify_ssl, timeout=timeout,
+                api_key=api_key, cookies=cookie, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()  # 标记探测协程已结束
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        # 对端在请求过程中崩溃/断开连接 — 给出明确提示
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="智能发现")
+        return jsonify({
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limit_info": {},
+            "adaptive_timeout": float(timeout),
+            "embedded_api_bases": [],
+            "discovered_urls": [],
+            "llm_endpoints": [],
+            "chat_routes": [],
+            "pages_crawled": [],
+        }), 200  # 用 200 返回结构化错误，便于前端统一处理
+    except httpx.TimeoutException as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="智能发现")
+        return jsonify({
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limit_info": {},
+            "adaptive_timeout": float(timeout),
+            "embedded_api_bases": [],
+            "discovered_urls": [],
+            "llm_endpoints": [],
+            "chat_routes": [],
+            "pages_crawled": [],
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="智能发现")
+        return jsonify({
+            "ok": False,
+            "error": info.error_message,
+            "error_type": info.error_type,
+            "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "rate_limit_info": {},
+            "adaptive_timeout": float(timeout),
+            "embedded_api_bases": [],
+            "discovered_urls": [],
+            "llm_endpoints": [],
+            "chat_routes": [],
+            "pages_crawled": [],
+        }), 200
     finally:
         _hb_stop.set()
     return jsonify(smart_discovery_to_dict(result))
@@ -592,22 +839,506 @@ def api_secret_scan():
     api_key, cookie, extra_headers = _merge_auth_from_request(body)
     job_id = (body.get("job_id") or "").strip()
     _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
     if job_id:
         threading.Thread(
             target=_heartbeat_loop,
             args=("secret-scan", job_id, url, "API Key 扫描中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
             daemon=True,
         ).start()
     try:
-        result = _run_async(scan_app_secrets(
-            url, verify_ssl=verify_ssl, timeout=timeout,
-            api_key=api_key, do_verify=do_verify,
-            cookies=cookie, extra_headers=extra_headers,
-        ))
+        try:
+            result = _run_async(scan_app_secrets(
+                url, verify_ssl=verify_ssl, timeout=timeout,
+                api_key=api_key, do_verify=do_verify,
+                cookies=cookie, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="API Key 扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="API Key 扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="API Key 扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "auth_used": bool(api_key or cookie),
+        }), 200
     finally:
         _hb_stop.set()
     result["auth_used"] = bool(api_key or cookie)
     return jsonify(result)
+
+
+# ============================================================================
+# 🔬 深度侦察 API（robots.txt / debug / 安全头 / 多格式 / 知识库）
+# ============================================================================
+
+@bp.route("/api/target-config/robots-txt", methods=["POST"])
+def api_robots_txt():
+    """解析目标站点的 robots.txt，提取暴露的内部路径。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 8)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    result = _run_async(parse_robots_txt(
+        url, timeout=timeout, verify_ssl=verify_ssl,
+        api_key=api_key, extra_headers=extra_headers,
+    ))
+    return jsonify(_robots_to_dict(result))
+
+
+@bp.route("/api/target-config/debug-scan", methods=["POST"])
+def api_debug_scan():
+    """扫描目标 debug/admin 端点，识别敏感信息泄露。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 5)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    job_id = (body.get("job_id") or "").strip()
+    _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
+    if job_id:
+        threading.Thread(
+            target=_heartbeat_loop,
+            args=("debug-scan", job_id, url, "Debug 端点扫描中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
+            daemon=True,
+        ).start()
+    try:
+        try:
+            result = _run_async(probe_debug_endpoints(
+                url, timeout=timeout, verify_ssl=verify_ssl,
+                api_key=api_key, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="Debug 端点扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "total": 0, "accessible": 0, "has_sensitive": 0,
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="Debug 端点扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "total": 0, "accessible": 0, "has_sensitive": 0,
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="Debug 端点扫描")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "endpoints": [], "total": 0, "accessible": 0, "has_sensitive": 0,
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    finally:
+        _hb_stop.set()
+    return jsonify({
+        "ok": True,
+        "endpoints": [
+            {
+                "url": d.url,
+                "status": d.status,
+                "content_type": d.content_type,
+                "body_preview": d.body_preview,
+                "sensitive_info": d.sensitive_info,
+            }
+            for d in result
+        ],
+        "total": len(result),
+        "accessible": len([d for d in result if d.status == 200]),
+        "has_sensitive": len([d for d in result if d.sensitive_info]),
+        "auth_used": bool(api_key or cookie),
+    })
+
+
+@bp.route("/api/target-config/security-headers", methods=["POST"])
+def api_security_headers():
+    """分析目标安全响应头配置。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 8)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    result = _run_async(analyze_security_headers(
+        url, timeout=timeout, verify_ssl=verify_ssl,
+        api_key=api_key, extra_headers=extra_headers,
+    ))
+    return jsonify({
+        "ok": True,
+        "headers": result.headers,
+        "csp": result.csp,
+        "hsts": result.hsts,
+        "x_frame_options": result.x_frame_options,
+        "x_content_type_options": result.x_content_type_options,
+        "cors_headers": result.cors_headers,
+        "server": result.server,
+        "powered_by": result.powered_by,
+        "risk_level": result.risk_level,
+        "findings": result.findings,
+    })
+
+
+@bp.route("/api/target-config/multi-format", methods=["POST"])
+def api_multi_format():
+    """多格式 API 探测：同时测试 OpenAI / Anthropic / Gemini / Ollama。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 10)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    job_id = (body.get("job_id") or "").strip()
+    _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
+    if job_id:
+        threading.Thread(
+            target=_heartbeat_loop,
+            args=("multi-format", job_id, url, "多格式 API 探测中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
+            daemon=True,
+        ).start()
+    try:
+        try:
+            result = _run_async(probe_multi_format(
+                url, timeout=timeout, verify_ssl=verify_ssl,
+                api_key=api_key, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="多格式 API 探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "best_format": "unknown", "suggestion": info.suggestion,
+            "formats": {"openai": None, "anthropic": None, "gemini": None, "ollama": None},
+            "rate_limit_info": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="多格式 API 探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "best_format": "unknown", "suggestion": info.suggestion,
+            "formats": {"openai": None, "anthropic": None, "gemini": None, "ollama": None},
+            "rate_limit_info": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="多格式 API 探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "best_format": "unknown", "suggestion": info.suggestion,
+            "formats": {"openai": None, "anthropic": None, "gemini": None, "ollama": None},
+            "rate_limit_info": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    finally:
+        _hb_stop.set()
+    return jsonify({
+        "ok": True,
+        "best_format": result.best_format,
+        "suggestion": result.suggestion,
+        "formats": {
+            "openai": result.openai,
+            "anthropic": result.anthropic,
+            "gemini": result.gemini,
+            "ollama": result.ollama,
+        },
+        "rate_limit_info": result.rate_limit_info,
+        "auth_used": bool(api_key or cookie),
+    })
+
+
+@bp.route("/api/target-config/knowledge-base", methods=["POST"])
+def api_knowledge_base():
+    """探测目标的知识库/RAG/向量数据库端点。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 6)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    job_id = (body.get("job_id") or "").strip()
+    _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
+    if job_id:
+        threading.Thread(
+            target=_heartbeat_loop,
+            args=("knowledge-base", job_id, url, "知识库探测中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
+            daemon=True,
+        ).start()
+    try:
+        try:
+            result = _run_async(probe_knowledge_base(
+                url, timeout=timeout, verify_ssl=verify_ssl,
+                api_key=api_key, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="知识库探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "found_endpoints": [], "chromadb_detected": False, "rag_detected": False,
+            "vector_db_type": "unknown", "document_count": None, "collection_names": [],
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="知识库探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "found_endpoints": [], "chromadb_detected": False, "rag_detected": False,
+            "vector_db_type": "unknown", "document_count": None, "collection_names": [],
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="知识库探测")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "found_endpoints": [], "chromadb_detected": False, "rag_detected": False,
+            "vector_db_type": "unknown", "document_count": None, "collection_names": [],
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    finally:
+        _hb_stop.set()
+    return jsonify({
+        "ok": True,
+        "found_endpoints": result.found_endpoints,
+        "chromadb_detected": result.chromadb_detected,
+        "rag_detected": result.rag_detected,
+        "vector_db_type": result.vector_db_type,
+        "document_count": result.document_count,
+        "collection_names": result.collection_names,
+        "auth_used": bool(api_key or cookie),
+    })
+
+
+@bp.route("/api/target-config/deep-recon", methods=["POST"])
+def api_deep_recon():
+    """🔥 一键深度侦察：并行执行 robots.txt + debug + 安全头 + 多格式 + 知识库。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - verify_ssl: SSL 验证
+      - timeout: 超时
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 8)
+    api_key, cookie, extra_headers = _merge_auth_from_request(body)
+    job_id = (body.get("job_id") or "").strip()
+    _hb_stop = threading.Event()
+    _inner_alive_evt = threading.Event()
+    if job_id:
+        threading.Thread(
+            target=_heartbeat_loop,
+            args=("deep-recon", job_id, url, "深度侦察中...", _hb_stop),
+            kwargs={"is_alive_fn": lambda: not _inner_alive_evt.is_set()},
+            daemon=True,
+        ).start()
+    try:
+        try:
+            result = _run_async(run_deep_recon(
+                url, timeout=timeout, verify_ssl=verify_ssl,
+                api_key=api_key, extra_headers=extra_headers,
+            ))
+        finally:
+            _inner_alive_evt.set()
+    except (httpx.ReadError, httpx.RemoteProtocolError, httpx.CloseError,
+            ConnectionResetError, BrokenPipeError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="深度侦察")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "robots": None, "debug_endpoints": [], "security_headers": None,
+            "multi_format": None, "knowledge_base": None, "summary": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="深度侦察")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "robots": None, "debug_endpoints": [], "security_headers": None,
+            "multi_format": None, "knowledge_base": None, "summary": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    except Exception as e:  # noqa: BLE001
+        from .probe_resilience import classify_exception
+        info = classify_exception(e, context="深度侦察")
+        return jsonify({
+            "ok": False, "error": info.error_message,
+            "error_type": info.error_type, "error_detail": info.detail,
+            "suggestion": info.suggestion,
+            "robots": None, "debug_endpoints": [], "security_headers": None,
+            "multi_format": None, "knowledge_base": None, "summary": {},
+            "auth_used": bool(api_key or cookie),
+        }), 200
+    finally:
+        _hb_stop.set()
+    return jsonify(_deep_recon_to_dict(result, bool(api_key or cookie)))
+
+
+def _robots_to_dict(r) -> dict:
+    """将 RobotsResult 转为 JSON 可序列化字典。"""
+    return {
+        "ok": r.ok,
+        "disallowed_paths": r.disallowed_paths,
+        "allowed_paths": r.allowed_paths,
+        "raw_rules": r.raw_rules,
+        "error": r.error,
+    }
+
+
+def _deep_recon_to_dict(result, auth_used: bool) -> dict:
+    """将 DeepReconResult 转为 JSON 可序列化字典。"""
+    return {
+        "ok": result.ok,
+        "robots": _robots_to_dict(result.robots) if result.robots else None,
+        "debug_endpoints": [
+            {
+                "url": d.url,
+                "status": d.status,
+                "content_type": d.content_type,
+                "body_preview": d.body_preview,
+                "sensitive_info": d.sensitive_info,
+            }
+            for d in result.debug_endpoints
+        ] if result.debug_endpoints else [],
+        "security_headers": {
+            "csp": result.security_headers.csp if result.security_headers else None,
+            "hsts": result.security_headers.hsts if result.security_headers else None,
+            "x_frame_options": result.security_headers.x_frame_options if result.security_headers else None,
+            "cors_headers": result.security_headers.cors_headers if result.security_headers else {},
+            "server": result.security_headers.server if result.security_headers else "",
+            "risk_level": result.security_headers.risk_level if result.security_headers else "info",
+            "findings": result.security_headers.findings if result.security_headers else [],
+        } if result.security_headers else None,
+        "multi_format": {
+            "best_format": result.multi_format.best_format if result.multi_format else "unknown",
+            "suggestion": result.multi_format.suggestion if result.multi_format else "",
+            "formats": {
+                "openai": result.multi_format.openai if result.multi_format else None,
+                "anthropic": result.multi_format.anthropic if result.multi_format else None,
+                "gemini": result.multi_format.gemini if result.multi_format else None,
+                "ollama": result.multi_format.ollama if result.multi_format else None,
+            },
+            "rate_limit_info": result.multi_format.rate_limit_info if result.multi_format else {},
+        } if result.multi_format else None,
+        "knowledge_base": {
+            "found_endpoints": result.knowledge_base.found_endpoints if result.knowledge_base else [],
+            "chromadb_detected": result.knowledge_base.chromadb_detected if result.knowledge_base else False,
+            "rag_detected": result.knowledge_base.rag_detected if result.knowledge_base else False,
+            "vector_db_type": result.knowledge_base.vector_db_type if result.knowledge_base else "unknown",
+            "document_count": result.knowledge_base.document_count if result.knowledge_base else None,
+            "collection_names": result.knowledge_base.collection_names if result.knowledge_base else [],
+        } if result.knowledge_base else None,
+        "summary": result.summary,
+        "error": result.error,
+        "auth_used": auth_used,
+    }
 
 
 # ============================================================================
@@ -756,6 +1487,205 @@ def api_auth_clear():
     return jsonify(clear_auth_snapshot())
 
 
+# ============================================================================
+# ⚔️ 攻击战役 API (Campaign — 实时攻击执行)
+# ============================================================================
+
+from .campaign_manager import CampaignManager
+
+
+def _get_campaign_mgr() -> CampaignManager:
+    """获取 CampaignManager 全局单例。"""
+    return CampaignManager.get_instance()
+
+
+@bp.route("/api/campaign/start", methods=["POST"])
+def api_campaign_start():
+    """启动新的攻击战役。
+
+    Body:
+      - target_url: 目标 URL（必填）
+      - phase: 攻击阶段 (probe/single/crescendo/pair/tap/flip/chunked/manyshot/skeleton_key/all)
+      - scenario_preset: 场景预设 (probe/standard/deep/large_context/limited_context)
+      - max_concurrent: 最大并发数 (默认 5)
+      - case_ids: 用例白名单，逗号分隔（可选）
+      - combo_filter: 组合过滤 (可选)
+      - use_adaptive: 启用自适应引擎 (默认 false)
+      - enable_early_stop: 启用早停 (默认 false)
+      - target_vendor: 目标厂商 (openai/anthropic/google/deepseek/qwen/zhipu)
+      - lang: 语言 (cn/en)
+      - api_key: API Key (可选)
+      - cookie: Cookie (可选)
+      - jwt: JWT Token (可选)
+    """
+    body = request.get_json(silent=True) or {}
+    target_url = body.get("target_url", "").strip()
+    if not target_url:
+        return jsonify({"ok": False, "error": "缺少 target_url 参数"}), 400
+
+    phase = body.get("phase", "all").strip()
+    valid_phases = {"probe", "single", "crescendo", "pair", "tap", "flip",
+                    "chunked", "manyshot", "skeleton_key", "all"}
+    if phase not in valid_phases:
+        return jsonify({"ok": False, "error": f"无效的 phase: {phase}，有效值: {valid_phases}"}), 400
+
+    # 合并 saved auth
+    api_key_merged, cookie_merged, _ = _merge_auth_from_request(body)
+
+    mgr = _get_campaign_mgr()
+    result = mgr.start_campaign(
+        target_url=target_url,
+        api_key=body.get("api_key", api_key_merged),
+        cookie=body.get("cookie", cookie_merged),
+        jwt_token=body.get("jwt", ""),
+        phase=phase,
+        scenario_preset=body.get("scenario_preset", "standard").strip(),
+        max_concurrent=int(body.get("max_concurrent", 5)),
+        case_ids=body.get("case_ids", "").strip(),
+        combo_filter=body.get("combo_filter", "").strip(),
+        use_adaptive=bool(body.get("use_adaptive", False)),
+        enable_early_stop=bool(body.get("enable_early_stop", False)),
+        target_vendor=body.get("target_vendor", "").strip(),
+        lang=body.get("lang", "cn").strip(),
+    )
+    status_code = 200 if result.get("ok") else 409
+    return jsonify(result), status_code
+
+
+@bp.route("/api/campaign/status")
+def api_campaign_status():
+    """获取当前战役的状态快照。"""
+    mgr = _get_campaign_mgr()
+    return jsonify(mgr.get_status())
+
+
+@bp.route("/api/campaign/cancel", methods=["POST"])
+def api_campaign_cancel():
+    """取消正在运行的攻击战役。"""
+    mgr = _get_campaign_mgr()
+    return jsonify(mgr.cancel_campaign())
+
+
+@bp.route("/api/campaign/stream")
+def api_campaign_stream():
+    """SSE 端点 — 实时推送攻击进度事件。
+
+    浏览器通过 EventSource 连接，服务器持续推送如下事件类型:
+      - started:   战役已启动
+      - info:      信息消息
+      - progress:  实时攻击进度
+      - warning:   警告
+      - error:     错误
+      - completed: 战役完成
+      - report_ready: 报告已生成
+      - heartbeat: 心跳 (保持连接)
+
+    格式: text/event-stream
+    """
+    import time as _time
+
+    mgr = _get_campaign_mgr()
+
+    def generate_events():
+        """SSE 事件生成器。"""
+        heartbeat_interval = 15
+        last_heartbeat = _time.time()
+        event_count = 0
+
+        while True:
+            event = mgr.get_events(timeout=1.0)
+
+            if event is not None:
+                event_type = event.get("type", "message")
+                event_data = json.dumps(event, ensure_ascii=False, default=str)
+                yield f"event: {event_type}\ndata: {event_data}\n\n"
+                event_count += 1
+
+            # 心跳保持连接
+            now = _time.time()
+            if now - last_heartbeat >= heartbeat_interval:
+                yield f"event: heartbeat\ndata: {{\"ts\": {now}}}\n\n"
+                last_heartbeat = now
+
+            # 停止条件
+            status = mgr.state.snapshot().get("status", "")
+            if status in ("completed", "cancelled", "error", "idle"):
+                if event_count > 0:
+                    # 发最后一条完成事件后结束流
+                    final = mgr.state.snapshot()
+                    final["type"] = "stream_end"
+                    yield f"event: stream_end\ndata: {json.dumps(final, ensure_ascii=False, default=str)}\n\n"
+                break
+
+    return Response(
+        generate_events(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@bp.route("/api/campaign/results")
+def api_campaign_results():
+    """获取当前战役的攻击结果摘要。"""
+    mgr = _get_campaign_mgr()
+    return jsonify(mgr.get_results_summary())
+
+
+@bp.route("/api/campaign/history")
+def api_campaign_history():
+    """获取历史战役记录。"""
+    mgr = _get_campaign_mgr()
+    history = mgr.get_history()
+    return jsonify({"ok": True, "history": history})
+
+
+@bp.route("/api/campaign/report")
+def api_campaign_report():
+    """获取最新报告内容 (Markdown 格式)。"""
+    mgr = _get_campaign_mgr()
+    state = mgr.get_status()
+    report_file = state.get("report_file", "")
+    if not report_file:
+        return jsonify({"ok": False, "error": "报告尚未生成或不存在"}), 404
+
+    try:
+        with open(report_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({"ok": True, "report_file": report_file, "content": content})
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": f"报告文件不存在: {report_file}"}), 404
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/campaign/results/download")
+def api_campaign_results_download():
+    """下载 JSON 结果日志。"""
+    mgr = _get_campaign_mgr()
+    state = mgr.get_status()
+    log_file = state.get("log_file", "")
+    if not log_file:
+        return jsonify({"ok": False, "error": "无可用日志文件"}), 404
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({
+            "ok": True,
+            "log_file": log_file,
+            "content": content,
+            "results": json.loads(content) if content else [],
+        })
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": f"日志文件不存在: {log_file}"}), 404
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/auth/verify", methods=["POST"])
 def api_auth_verify():
     """使用已保存的认证信息主动访问目标，验证「程序能否正常读取并通过认证」。
@@ -889,6 +1819,45 @@ def api_auto_configure():
             "ready": readiness.get("overall_ready", False),
         },
     })
+
+
+# ============================================================================
+# Payload Browser — 健康检查 + 一键启动
+# ============================================================================
+
+@bp.route("/api/payload-browser/status")
+def api_payload_browser_status():
+    """检查 Payload Browser 是否在运行（端口 5050）"""
+    try:
+        r = httpx.get("http://127.0.0.1:5050/api/manifest", timeout=2.0)
+        return jsonify({"running": r.status_code == 200, "url": "http://127.0.0.1:5050"})
+    except Exception:
+        return jsonify({"running": False, "url": "http://127.0.0.1:5050"})
+
+
+@bp.route("/api/payload-browser/start", methods=["POST"])
+def api_payload_browser_start():
+    """一键启动 Payload Browser 子进程（port 5050, --no-open）"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    entry = project_root / "scripts" / "payload_browser.py"
+
+    if not entry.exists():
+        return jsonify({"success": False, "error": f"入口脚本不存在: {entry}"}), 404
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(entry), "--no-open"],
+            cwd=str(project_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return jsonify({"success": True, "pid": proc.pid, "url": "http://127.0.0.1:5050"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============================================================================
@@ -1043,7 +2012,40 @@ async def _probe_api_type(target_url: str, api_key: str = "", timeout: int = _DE
     except Exception as e:
         results["details"].append({"strategy": "Ollama /api/tags", "status": "error", "error": str(e)[:200]})
 
-    # 策略 4: 简单 GET 连通性（兜底）
+    # 策略 4: Anthropic /v1/messages
+    try:
+        async with asyncio.timeout(timeout):
+            anthropic_result = await mp._probe_anthropic_messages(base_url, verify_ssl)
+        if anthropic_result:
+            results["api_type"] = anthropic_result.get("endpoint_type", "anthropic")
+            results["model_name"] = anthropic_result.get("model_name")
+            results["confidence"] = anthropic_result.get("confidence", 0.8)
+            results["reachable"] = True
+            results["details"].append({"strategy": "Anthropic /v1/messages", "status": "success", "data": anthropic_result})
+            return results
+    except asyncio.TimeoutError:
+        results["details"].append({"strategy": "Anthropic /v1/messages", "status": "timeout"})
+    except Exception as e:
+        results["details"].append({"strategy": "Anthropic /v1/messages", "status": "error", "error": str(e)[:200]})
+
+    # 策略 5: Gemini /v1/models
+    try:
+        async with asyncio.timeout(timeout):
+            gemini_result = await mp._probe_gemini_models(base_url, verify_ssl)
+        if gemini_result:
+            results["api_type"] = gemini_result.get("endpoint_type", "gemini")
+            results["model_name"] = gemini_result.get("model_name")
+            results["confidence"] = gemini_result.get("confidence", 0.9)
+            results["models"] = gemini_result.get("all_models", [])
+            results["reachable"] = True
+            results["details"].append({"strategy": "Gemini /v1/models", "status": "success", "data": gemini_result})
+            return results
+    except asyncio.TimeoutError:
+        results["details"].append({"strategy": "Gemini /v1/models", "status": "timeout"})
+    except Exception as e:
+        results["details"].append({"strategy": "Gemini /v1/models", "status": "error", "error": str(e)[:200]})
+
+    # 策略 6: 简单 GET 连通性（兜底）
     try:
         async with asyncio.timeout(timeout // 2):
             status, _ = await mp._http_get(base_url, timeout=timeout // 2, verify_ssl=verify_ssl)

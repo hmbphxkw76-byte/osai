@@ -6,6 +6,11 @@
 <title>PyRIT Config Center</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  .btn-copy:hover { background: rgba(255,255,255,0.16) !important; color: #fff !important; }
+  .btn-copy:active { background: rgba(255,255,255,0.24) !important; }
+  .cli-command-box { border: 1px solid rgba(255,255,255,0.06); }
+</style>
 </head>
 <body>
 
@@ -45,6 +50,15 @@
     </div>
   </div>
 
+  <!-- ── 🆕 攻击作战室入口 ── -->
+  <div class="sidebar-attack-entry">
+    <a href="/attack" class="attack-entry-link">
+      <span class="attack-entry-icon">⚔️</span>
+      <span class="attack-entry-text">攻击作战室</span>
+      <span class="attack-entry-badge">NEW</span>
+    </a>
+  </div>
+
   <div class="sidebar-section-header">📋 侦察流程</div>
   <div class="wizard-steps" id="wizard-steps">
     <div class="wizard-step active" data-step="1" onclick="goToStep(1)">
@@ -78,6 +92,21 @@
         <div class="step-desc">模型与评分服务</div>
       </div>
       <span class="step-status todo" id="step4-status">○</span>
+    </div>
+  </div>
+
+  <!-- ── 工具入口 ── -->
+  <div class="sidebar-section-header">🔧 工具</div>
+  <div class="tools-section">
+    <div class="tool-row">
+      <span class="tool-icon">📋</span>
+      <div class="tool-body">
+        <span class="tool-name">Payload Browser</span>
+        <span class="tool-status" id="pb-status">检测中…</span>
+      </div>
+    </div>
+    <div class="tool-action" id="pb-action">
+      <span class="tool-hint" id="pb-hint">检查中…</span>
     </div>
   </div>
 </aside>
@@ -140,6 +169,63 @@
           <input type="checkbox" id="target-verify-ssl">
           验证 SSL 证书 <span class="hint" style="color:var(--text-dim);font-weight:normal;">· 内网/自签证书<strong style="color:var(--orange);">默认不勾选</strong>，公网严格环境再勾上</span>
         </label>
+      </div>
+
+      <!-- 🆕 专家准备指南面板 -->
+      <div class="prep-guide" id="prep-guide">
+        <div class="prep-guide-header" onclick="togglePrepGuide()">
+          <span>🧭 AI 侦察前期准备指南</span>
+          <span class="prep-toggle-icon" id="prep-toggle-icon">▼</span>
+        </div>
+        <div class="prep-guide-body" id="prep-guide-body">
+          <p class="prep-intro">以下清单帮助你在开始侦察之前完成必要准备工作，提升成功率。</p>
+          <div class="prep-checklist">
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-1" onchange="updatePrepProgress()">
+              <label for="prep-chk-1"><strong>目标可达性确认</strong>：确认目标 URL 格式正确（含协议和端口），网络可达。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-2" onchange="updatePrepProgress()">
+              <label for="prep-chk-2"><strong>浏览器访问验证</strong>：在浏览器中打开目标 URL，确认页面正常加载。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-3" onchange="updatePrepProgress()">
+              <label for="prep-chk-3"><strong>获取 Cookie</strong>：通过浏览器 F12 → Network → Request Headers 复制 <code>Cookie</code> 头的值。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-4" onchange="updatePrepProgress()">
+              <label for="prep-chk-4"><strong>获取 API Key / JWT</strong>：从浏览器 Application → Local Storage 或 Network 中找到认证令牌。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-5" onchange="updatePrepProgress()">
+              <label for="prep-chk-5"><strong>确认目标类型</strong>：了解目标是否为 AI 应用/API/Ollama/OpenAI 兼容服务。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-6" onchange="updatePrepProgress()">
+              <label for="prep-chk-6"><strong>SSL 证书策略</strong>：内网自签证书不需要勾选「验证 SSL」。公网 HTTPS 建议勾选。</label>
+            </div>
+            <div class="prep-item">
+              <input type="checkbox" class="prep-check" id="prep-chk-7" onchange="updatePrepProgress()">
+              <label for="prep-chk-7"><strong>多端点准备</strong>：了解目标是否有多个服务端口（如前端 8501 + LLM 11434 + MCP 8080）。</label>
+            </div>
+          </div>
+          <div class="prep-progress-bar">
+            <div class="prep-progress-fill" id="prep-progress-fill"></div>
+          </div>
+          <div class="prep-progress-text" id="prep-progress-text">准备进度: 0 / 7</div>
+
+          <div class="prep-tips">
+            <div class="prep-tip-title">💡 专家提示</div>
+            <ul>
+              <li><strong>AI 安全训练靶机 (AISecLab)</strong>：通常默认密码为 <code>training-admin</code> / <code>training-key</code>，登录后 Cookie 格式为 <code>lab_session=...</code>。</li>
+              <li><strong>多格式 API 兼容</strong>：部分靶机同时支持 OpenAI + Anthropic + Gemini 格式，建议使用「多格式探测」发现所有攻击面。</li>
+              <li><strong>Debug 端点</strong>：靶机常故意暴露 <code>/debug/info</code>、<code>/debug/config</code> 等端点，可用于信息收集。</li>
+              <li><strong>robots.txt</strong>：AI 训练平台常在 <code>robots.txt</code> 中列出内部路径（如 <code>/internal</code>、<code>/admin</code>），是重要的侦察信息源。</li>
+              <li><strong>限速处理</strong>：大部分 AI 服务的 API 有请求频率限制（常见 30/min），后续攻击需控制并发。</li>
+              <li><strong>先认证后探测</strong>：认证后的探测能发现更多端点（401/403 会误报为不存在），建议先完成步骤 2 再开始步骤 3。</li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <div id="step1-result"></div>
@@ -401,6 +487,19 @@
         <button class="btn warn" id="probe-btn-guardrail" onclick="runProbe('guardrail')" title="第 7 步：探测目标安全护栏强度（点击运行/停止）">⑦ 🛡 安全护栏探测</button>
       </div>
 
+      <!-- 🆕 深度侦察工具行 -->
+      <div class="section-title" style="margin-top:16px;">🔬 深度侦察工具</div>
+      <div class="btn-row" style="border-top:none; padding-top:4px; margin-top:4px;">
+        <button class="btn deep" id="probe-btn-multi-format" onclick="runProbe('multi-format')" title="同时探测 OpenAI + Anthropic + Gemini + Ollama 格式">🔀 多格式 API 探测</button>
+        <button class="btn deep" id="probe-btn-security-headers" onclick="runProbe('security-headers')" title="分析 CSP/HSTS/CORS 等安全响应头配置">🛡 安全头分析</button>
+        <button class="btn deep" id="probe-btn-robots-txt" onclick="runProbe('robots-txt')" title="解析 robots.txt 暴露的内部路径">🤖 robots.txt 解析</button>
+        <button class="btn deep" id="probe-btn-debug-scan" onclick="runProbe('debug-scan')" title="扫描 /debug/* 等敏感端点">🐛 Debug 端点扫描</button>
+      </div>
+      <div class="btn-row" style="border-top:none; padding-top:4px; margin-top:0;">
+        <button class="btn deep" id="probe-btn-knowledge-base" onclick="runProbe('knowledge-base')" title="探测 RAG/ChromaDB/向量数据库端点">📚 知识库探测</button>
+        <button class="btn highlight deep" id="probe-btn-deep-recon" onclick="runProbe('deep-recon')" title="一键并行执行全部深度侦察任务">🔥 一键深度侦察</button>
+      </div>
+
       <div id="probe-results" class="probe-results-container"></div>
 
       <div class="btn-row">
@@ -562,6 +661,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkReadiness();
   refreshCredsSummary();
   setupAutoSync();
+  initPayloadBrowserStatus();
 });
 
 function setupAutoSync() {
@@ -719,10 +819,22 @@ async function loadAuthFormLatest(force = false) {
     if (jwtEl && data.jwt) filled.push('JWT');
     if (apiKeyEl && data.api_key) filled.push('API Key');
     if (filled.length > 0 && !force) {
-      const t = showToast;
       // 静默回填,只在控制台留痕(避免每次进入都弹提示打扰用户)
       console.log(`[auth] 自动回填: ${filled.join(' / ')}`);
     }
+    // 根据已保存的凭据自动激活对应面板
+    if (data.cookie) {
+      document.querySelector('[data-mode="cookie"]')?.classList.add('active');
+      document.querySelector('[data-panel="cookie"]')?.classList.add('active');
+    }
+    if (data.jwt) {
+      document.querySelector('[data-mode="jwt"]')?.classList.add('active');
+      document.querySelector('[data-panel="jwt"]')?.classList.add('active');
+    } else if (data.api_key) {
+      document.querySelector('[data-mode="apikey"]')?.classList.add('active');
+      document.querySelector('[data-panel="apikey"]')?.classList.add('active');
+    }
+    _updateCookieTabStyle();
     _authLatestLoaded = true;
   } catch (e) {
     console.error('loadAuthFormLatest failed', e);
@@ -759,6 +871,88 @@ function refreshCredsSummary() {
   const k = fmt(state.authState.api_key_present);
   document.getElementById('cred-apikey').textContent = k.text;
   document.getElementById('cred-apikey').className = k.cls;
+}
+
+// ============================================================================
+// Payload Browser 状态检查（健康检查 + 一键启动）
+// ============================================================================
+let _pbCheckTimer = null;
+let _pbStartRetries = 0;
+
+async function checkPayloadBrowserStatus() {
+  const statusEl = document.getElementById('pb-status');
+  const actionEl = document.getElementById('pb-action');
+  if (!statusEl || !actionEl) return;
+  try {
+    const r = await fetch('/api/payload-browser/status');
+    const data = await r.json();
+    if (data.running) {
+      _pbStartRetries = 0;
+      statusEl.textContent = '🟢 运行中';
+      statusEl.className = 'tool-status online';
+      actionEl.innerHTML =
+        '<a class="tool-btn open" href="' + data.url + '" target="_blank" rel="noopener">🔗 打开 Payload Browser</a>';
+    } else {
+      statusEl.textContent = '🔴 未启动';
+      statusEl.className = 'tool-status offline';
+      actionEl.innerHTML =
+        '<button class="tool-btn launch" id="pb-launch-btn" onclick="startPayloadBrowser()">▶ 一键启动</button>';
+    }
+  } catch (e) {
+    console.warn('Payload Browser 状态检测失败:', e);
+    statusEl.textContent = '⚠ 检测失败';
+    statusEl.className = 'tool-status offline';
+    actionEl.innerHTML = '<span class="tool-hint">无法检测 Payload Browser 状态</span>';
+  }
+}
+
+function initPayloadBrowserStatus() {
+  console.log('Payload Browser 状态检测已启动');
+  checkPayloadBrowserStatus();
+  _pbCheckTimer = setInterval(checkPayloadBrowserStatus, 8000);
+}
+
+async function startPayloadBrowser() {
+  console.log('正在启动 Payload Browser...');
+  const btn = document.getElementById('pb-launch-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 启动中…'; }
+  try {
+    const r = await fetch('/api/payload-browser/start', { method: 'POST' });
+    const data = await r.json();
+    console.log('Payload Browser 启动响应:', data);
+    if (data.success) {
+      _pbStartRetries = 0;
+      // 重试检查：2s → 4s → 6s，给启动留足时间
+      _retryPbStatusCheck();
+    } else {
+      const actionEl = document.getElementById('pb-action');
+      actionEl.innerHTML = '<span class="tool-hint" style="color:#f87171;">启动失败: ' + escapeHtml(data.error || '未知错误') + '</span>';
+    }
+  } catch (e) {
+    console.error('Payload Browser 启动请求失败:', e);
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 一键启动'; }
+    const actionEl = document.getElementById('pb-action');
+    actionEl.innerHTML = '<span class="tool-hint" style="color:#f87171;">请求失败，请手动运行: python scripts/payload_browser.py</span>';
+  }
+}
+
+function _retryPbStatusCheck() {
+  _pbStartRetries++;
+  setTimeout(async () => {
+    try {
+      const r = await fetch('/api/payload-browser/status');
+      const data = await r.json();
+      if (data.running) {
+        await checkPayloadBrowserStatus();  // 更新 UI
+        return;
+      }
+    } catch { /* ignore probe errors */ }
+    if (_pbStartRetries < 4) {
+      _retryPbStatusCheck();  // 2s, 4s, 6s, 8s 共 4 次
+    } else {
+      await checkPayloadBrowserStatus();  // 最终回退到标准检查
+    }
+  }, 2000);
 }
 
 async function refreshProbeAuthStatus() {
@@ -907,34 +1101,86 @@ function renderAuthDetectResult(data) {
 }
 
 window.switchAuthMode = function(mode) {
-  document.querySelectorAll('.auth-mode-tab').forEach(el => el.classList.toggle('active', el.dataset.mode === mode));
-  document.querySelectorAll('.auth-mode-panel').forEach(el => el.classList.toggle('active', el.dataset.panel === mode));
+  const cookieTab = document.querySelector('[data-mode="cookie"]');
+  const cookiePanel = document.querySelector('[data-panel="cookie"]');
+  const tokenTabs = document.querySelectorAll('[data-mode="jwt"], [data-mode="apikey"]');
+  const tokenPanels = document.querySelectorAll('[data-panel="jwt"], [data-panel="apikey"]');
+  const loginTab = document.querySelector('[data-mode="login"]');
+  const loginPanel = document.querySelector('[data-panel="login"]');
+
+  if (mode === 'cookie') {
+    // Cookie 独立切换（可与 JWT 或 API Key 组合）
+    const isActive = cookieTab.classList.toggle('active');
+    cookiePanel.classList.toggle('active', isActive);
+    // 如果没有任何 token 面板激活且 cookie 刚被关闭，默认激活 jwt
+    if (!isActive && !document.querySelector('[data-panel="jwt"].active') && !document.querySelector('[data-panel="apikey"].active') && !loginPanel.classList.contains('active')) {
+      tokenTabs.forEach(el => el.classList.add('active'));
+      document.querySelector('[data-panel="jwt"]').classList.add('active');
+    }
+    return;
+  }
+
+  if (mode === 'login') {
+    // 账号密码登录：独立模式，隐藏 cookie 和 token 面板
+    cookieTab.classList.remove('active');
+    cookiePanel.classList.remove('active');
+    tokenTabs.forEach(el => el.classList.remove('active'));
+    tokenPanels.forEach(el => el.classList.remove('active'));
+    loginTab.classList.add('active');
+    loginPanel.classList.add('active');
+    return;
+  }
+
+  // jwt / apikey：单选（互斥）
+  loginTab.classList.remove('active');
+  loginPanel.classList.remove('active');
+  tokenTabs.forEach(el => el.classList.toggle('active', el.dataset.mode === mode));
+  tokenPanels.forEach(el => el.classList.toggle('active', el.dataset.panel === mode));
+  // Cookie 面板状态保持不变（已在独立切换中管理）
+  // 更新 cookie tab 样式为"叠加"状态
+  _updateCookieTabStyle();
 };
 
+/** 更新 Cookie Tab 的视觉状态，反映是否正在与 token 组合使用 */
+function _updateCookieTabStyle() {
+  const cookieTab = document.querySelector('[data-mode="cookie"]');
+  const tokenActive = document.querySelector('[data-panel="jwt"].active') || document.querySelector('[data-panel="apikey"].active');
+  if (cookieTab.classList.contains('active') && tokenActive) {
+    cookieTab.classList.add('combo');
+  } else {
+    cookieTab.classList.remove('combo');
+  }
+}
+
 window.saveAuth = async function(mode) {
-  const targetUrl = document.getElementById('auth-target-url').value.trim();
+  const targetUrlEl = document.getElementById('auth-target-url');
+  const targetUrl = (targetUrlEl ? targetUrlEl.value : '').trim();
   if (!targetUrl) {
     showToast('error', '请先填写目标 URL');
     return;
   }
-  let payload = { target_url: targetUrl };
-  let label = '';
-  if (mode === 'cookie') {
-    const cookie = document.getElementById('auth-cookie').value.trim().replace(/^["']|["']$/g, '');
-    if (!cookie) { showToast('error', '请填写 Cookie'); return; }
-    payload.cookie = cookie;
-    label = 'Cookie';
-  } else if (mode === 'jwt') {
-    const jwt = document.getElementById('auth-jwt').value.trim().replace(/^["']|["']$/g, '');
-    if (!jwt) { showToast('error', '请填写 JWT'); return; }
-    payload.jwt = jwt;
-    label = 'JWT';
-  } else if (mode === 'apikey') {
-    const apikey = document.getElementById('auth-apikey').value.trim().replace(/^["']|["']$/g, '');
-    if (!apikey) { showToast('error', '请填写 API Key'); return; }
-    payload.api_key = apikey;
-    label = 'API Key';
+
+  // 始终收集所有文本框的值（支持 Cookie + JWT/API Key 组合）
+  const cookieEl = document.getElementById('auth-cookie');
+  const jwtEl = document.getElementById('auth-jwt');
+  const apikeyEl = document.getElementById('auth-apikey');
+  const cookie = (cookieEl ? cookieEl.value.trim().replace(/^["']|["']$/g, '') : '');
+  const jwt = (jwtEl ? jwtEl.value.trim().replace(/^["']|["']$/g, '') : '');
+  const apikey = (apikeyEl ? apikeyEl.value.trim().replace(/^["']|["']$/g, '') : '');
+
+  if (!cookie && !jwt && !apikey) {
+    showToast('error', '请至少填写一个认证字段');
+    return;
   }
+
+  let payload = { target_url: targetUrl, cookie: cookie, jwt: jwt, api_key: apikey };
+
+  // 构建标签
+  let parts = [];
+  if (cookie) parts.push('Cookie');
+  if (jwt) parts.push('JWT');
+  if (apikey) parts.push('API Key');
+  let label = parts.join(' + ');
   const result = document.getElementById('step2-result');
   result.innerHTML = '<div class="result-card"><div class="probe-loading"><span class="loading-spinner"></span> 保存中...</div></div>';
   try {
@@ -1255,6 +1501,34 @@ window.toggleAdvanced = function(id) {
   document.getElementById(id).classList.toggle('open');
 };
 
+// 🆕 准备指南折叠/展开
+window.togglePrepGuide = function() {
+  const body = document.getElementById('prep-guide-body');
+  const icon = document.getElementById('prep-toggle-icon');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.textContent = '▲';
+  } else {
+    body.style.display = 'none';
+    icon.textContent = '▼';
+  }
+};
+
+// 🆕 准备清单进度更新
+window.updatePrepProgress = function() {
+  const checks = document.querySelectorAll('.prep-check');
+  let done = 0;
+  checks.forEach(c => { if (c.checked) done++; });
+  const pct = Math.round((done / checks.length) * 100);
+  const fill = document.getElementById('prep-progress-fill');
+  const text = document.getElementById('prep-progress-text');
+  if (fill) { fill.style.width = pct + '%'; }
+  if (text) { text.textContent = `准备进度: ${done} / ${checks.length}`; }
+  if (pct >= 70) { fill.style.background = 'var(--green)'; }
+  else if (pct >= 30) { fill.style.background = 'var(--yellow)'; }
+  else { fill.style.background = 'var(--red)'; }
+};
+
 // ============================================================================
 // 步骤 3：端点探测（并行模式 — 各探测独立运行、互不阻塞）
 // ============================================================================
@@ -1274,11 +1548,64 @@ function fmtElapsed(ms) {
 }
 
 function _probeLabel(probeType) {
-  const m = { connectivity:'连通性测试', api_type:'API 类型识别', models:'模型枚举', enumerate:'端点枚举', 'smart-discover':'智能发现', 'secret-scan':'API Key 侦察', guardrail:'护栏探测' };
+  const m = { connectivity:'连通性测试', api_type:'API 类型识别', models:'模型枚举', enumerate:'端点枚举', 'smart-discover':'智能发现', 'secret-scan':'API Key 侦察', guardrail:'护栏探测', 'multi-format':'多格式 API 探测', 'security-headers':'安全头分析', 'robots-txt':'robots.txt 解析', 'debug-scan':'Debug 端点扫描', 'knowledge-base':'知识库探测', 'deep-recon':'一键深度侦察' };
   return m[probeType] || probeType;
 }
 
 function _probeResultDivId(probeType) { return `probe-result-${probeType}`; }
+
+// 通用探测错误块渲染：按 error_type 给出差异化提示
+// 适用所有探测类型（smart-discover / enumerate / deep-recon / multi-format / ...）
+function _renderProbeErrorBlock(data, probeLabel) {
+  // 错误类型 → 图标 + 文案
+  const TYPE_META = {
+    server_crash:       { icon: '💥', title: '对端程序异常中断', cls: 'error' },
+    timeout:            { icon: '⏱',  title: '探测超时',         cls: 'warning' },
+    connect_error:      { icon: '🚫', title: '目标不可达',       cls: 'error' },
+    rate_limited:       { icon: '🐢', title: '目标已限流 (HTTP 429)', cls: 'warning' },
+    server_unavailable: { icon: '🔧', title: '目标服务暂不可用', cls: 'warning' },
+    server_error:       { icon: '🔥', title: '目标服务器内部错误', cls: 'error' },
+    ssl:                { icon: '🔒', title: 'SSL 证书错误',      cls: 'warning' },
+    unknown:            { icon: '❌', title: '探测失败',          cls: 'error' },
+  };
+  const meta = TYPE_META[data.error_type] || TYPE_META.unknown;
+  const errMsg = data.error || '未知错误';
+  const suggestion = data.suggestion || '请稍后重试或检查目标可达性';
+  const detail = data.error_detail || '';
+  const retryAfter = data.rate_limit_info?.max_retry_after
+                   || (data.error_type === 'rate_limited' ? data.retry_after : null);
+
+  // 自适应超时提示（后端已自动放大）
+  const adaptiveNote = data.adaptive_timeout && data.adaptive_timeout > 0
+    ? `<div class="hint-block" style="margin-top:6px;">⏱ 后端已将探测超时自动调整至 <strong>${data.adaptive_timeout.toFixed(1)}s</strong>，下次探测会沿用</div>`
+    : '';
+
+  // 限速专属提示
+  let rateNote = '';
+  const rl = data.rate_limit_info || {};
+  if (rl.hit_count > 0) {
+    const sample = (rl.sample_responses || [])[0];
+    const sampleTxt = sample
+      ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;">首次限流 URL: <code>${escapeHtml(sample.url || '')}</code>${sample.retry_after ? ` · Retry-After=${sample.retry_after}s` : ''}</div>`
+      : '';
+    rateNote = `<div class="warn-block" style="margin-top:6px;border-left:3px solid var(--yellow);">
+      🐢 <strong>目标在本次探测中触发了 ${rl.hit_count} 次速率限制 (HTTP 429)</strong>${sampleTxt}
+      <div style="font-size:12px;margin-top:4px;">建议：在步骤 1 适当增大「超时」并降低后续探测并发度；${retryAfter ? `等待 ${retryAfter.toFixed(1)}s 后重试` : '稍后重试'}。</div>
+    </div>`;
+  }
+
+  return `<div class="result-card ${meta.cls}">
+    <h4>${meta.icon} ${escapeHtml(meta.title)}</h4>
+    <div class="error-block">${escapeHtml(errMsg)}</div>
+    <div class="hint-block" style="white-space:pre-line;">${escapeHtml(suggestion)}</div>
+    ${detail ? `<div class="advanced-block" style="margin-top:6px;">
+      <button class="advanced-toggle" onclick="toggleAdvanced('err-detail-${probeLabel}')">🔍 异常详情 (点击展开)</button>
+      <div id="err-detail-${probeLabel}" class="advanced-content"><pre style="font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all;">${escapeHtml(detail)}</pre></div>
+    </div>` : ''}
+    ${adaptiveNote}
+    ${rateNote}
+  </div>`;
+}
 
 // 按钮 visual state: active = 有脉冲动画 + 虚线边框
 function _updateProbeBtn(probeType) {
@@ -1327,16 +1654,25 @@ window.fetch = function(input, init) {
 
 // 探测类型 → 配置表
 //   hardTimeoutMs: 硬超时（绝对兜底，防止后端彻底卡死）
-//   silentTimeoutMs: 静默超时（若服务端有进度接口可读进度，则用进度心跳续命；否则按此静默时长强制停止）
+//   silentTimeoutMs: 静默超时（基于服务端真实进度心跳计算；后端现在只在
+//                    探测任务真活动时推 last_ts，因此对端崩溃时 watchdog
+//                    能在 silentTimeoutMs 内正确触发）
 //   silentPollUrl: 进度查询接口（可为空）；为空时硬超时 = 静默超时
 const PROBE_TIMEOUTS = {
-  connectivity:   { hardTimeoutMs:  15000, silentTimeoutMs: 12000, silentPollUrl: null },
-  api_type:       { hardTimeoutMs:  30000, silentTimeoutMs: 25000, silentPollUrl: '/api/probe/progress' },
-  models:         { hardTimeoutMs:  30000, silentTimeoutMs: 25000, silentPollUrl: '/api/probe/progress' },
-  'smart-discover':{ hardTimeoutMs:  90000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
-  enumerate:      { hardTimeoutMs: 180000, silentTimeoutMs: 90000, silentPollUrl: '/api/probe/progress' },
-  'secret-scan':  { hardTimeoutMs: 120000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
-  guardrail:      { hardTimeoutMs: 120000, silentTimeoutMs: 60000, silentPollUrl: '/api/probe/progress' },
+  connectivity:   { hardTimeoutMs:  15000, silentTimeoutMs: 10000, silentPollUrl: null },
+  api_type:       { hardTimeoutMs:  30000, silentTimeoutMs: 18000, silentPollUrl: '/api/probe/progress' },
+  models:         { hardTimeoutMs:  30000, silentTimeoutMs: 18000, silentPollUrl: '/api/probe/progress' },
+  'smart-discover':{ hardTimeoutMs: 120000, silentTimeoutMs: 50000, silentPollUrl: '/api/probe/progress' },
+  enumerate:      { hardTimeoutMs: 120000, silentTimeoutMs: 45000, silentPollUrl: '/api/probe/progress' },
+  'secret-scan':  { hardTimeoutMs:  90000, silentTimeoutMs: 35000, silentPollUrl: '/api/probe/progress' },
+  guardrail:      { hardTimeoutMs:  90000, silentTimeoutMs: 35000, silentPollUrl: '/api/probe/progress' },
+  // 🆕 深度侦察探测
+  'multi-format':   { hardTimeoutMs: 45000, silentTimeoutMs: 20000, silentPollUrl: '/api/probe/progress' },
+  'security-headers':{ hardTimeoutMs: 15000, silentTimeoutMs: 10000, silentPollUrl: null },
+  'robots-txt':     { hardTimeoutMs: 15000, silentTimeoutMs: 10000, silentPollUrl: null },
+  'debug-scan':     { hardTimeoutMs: 60000, silentTimeoutMs: 25000, silentPollUrl: '/api/probe/progress' },
+  'knowledge-base': { hardTimeoutMs: 45000, silentTimeoutMs: 20000, silentPollUrl: '/api/probe/progress' },
+  'deep-recon':     { hardTimeoutMs: 90000, silentTimeoutMs: 35000, silentPollUrl: '/api/probe/progress' },
 };
 
 // 探测进度上下文（每个探测类型独立的 lastSeen 时刻，供 silent watchdog 判定）
@@ -1451,6 +1787,46 @@ window.runProbe = async function(probeType) {
     body.timeout = 30;
     body.model = document.getElementById('attack-model')?.value || '';
     body.job_id = probeJobId;
+  } else if (probeType === 'multi-format') {
+    endpoint = '/api/target-config/multi-format';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 15;
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
+  } else if (probeType === 'security-headers') {
+    endpoint = '/api/target-config/security-headers';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 8;
+    body.url = url;
+    delete body.target_url;
+  } else if (probeType === 'robots-txt') {
+    endpoint = '/api/target-config/robots-txt';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 8;
+    body.url = url;
+    delete body.target_url;
+  } else if (probeType === 'debug-scan') {
+    endpoint = '/api/target-config/debug-scan';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 10;
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
+  } else if (probeType === 'knowledge-base') {
+    endpoint = '/api/target-config/knowledge-base';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 10;
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
+  } else if (probeType === 'deep-recon') {
+    endpoint = '/api/target-config/deep-recon';
+    body.verify_ssl = state.verifySsl;
+    body.timeout = 15;
+    body.url = url;
+    delete body.target_url;
+    body.job_id = probeJobId;
   }
 
   try {
@@ -1464,10 +1840,15 @@ window.runProbe = async function(probeType) {
     try { data = await resp.json(); } catch (_) { data = { error: `HTTP ${resp.status} 响应非 JSON` }; }
     if (!resp.ok) {
       const msg = (data && (data.error || data.detail)) ? (data.error || data.detail) : `HTTP ${resp.status}`;
-      resultDiv.innerHTML = `<div class="result-card error">
-        <div class="error-block">❌ ${escapeHtml(msg)}</div>
-        <div class="hint-block">请检查目标 URL / 认证信息后重试</div>
-      </div>`;
+      // 优先用结构化错误块（如果有 error_type）
+      if (data && data.error_type) {
+        resultDiv.innerHTML = _renderProbeErrorBlock(data, _probeLabel(probeType));
+      } else {
+        resultDiv.innerHTML = `<div class="result-card error">
+          <div class="error-block">❌ ${escapeHtml(msg)}</div>
+          <div class="hint-block">请检查目标 URL / 认证信息后重试</div>
+        </div>`;
+      }
       return;
     }
     if (probeType === 'connectivity') renderConnectivityResult(data);
@@ -1477,8 +1858,28 @@ window.runProbe = async function(probeType) {
     else if (probeType === 'smart-discover') renderSmartDiscoverResult(data);
     else if (probeType === 'secret-scan') renderSecretScanResult(data);
     else if (probeType === 'guardrail') renderGuardrailResult(data);
+    else if (probeType === 'multi-format') renderMultiFormatResult(data);
+    else if (probeType === 'security-headers') renderSecurityHeadersResult(data);
+    else if (probeType === 'robots-txt') renderRobotsTxtResult(data);
+    else if (probeType === 'debug-scan') renderDebugScanResult(data);
+    else if (probeType === 'knowledge-base') renderKnowledgeBaseResult(data);
+    else if (probeType === 'deep-recon') renderDeepReconResult(data);
   } catch (e) {
-    if (e.name === 'AbortError') return;
+    if (e.name === 'AbortError') {
+      // 🆕 主动中止时清理 loading 状态，给出明确提示
+      const abortMsg = s.hardTimer === null && s.silentTimer === null
+        ? '用户手动停止'
+        : (cfg.silentPollUrl ? `检测超时（无数据更新超过 ${Math.round(cfg.silentTimeoutMs/1000)}s）` : `探测超时（超过 ${Math.round(cfg.hardTimeoutMs/1000)}s）`);
+      resultDiv.innerHTML = `<div class="result-card warning">
+        <h4>⏱ ${escapeHtml(_probeLabel(probeType))} 已停止</h4>
+        <div class="warn-block">${escapeHtml(abortMsg)}</div>
+        <div class="hint-block">
+          💡 建议：目标响应较慢或探测范围较大时，可<br>
+          ① 增大「超时」参数 &nbsp; ② 先通过连通性测试确认可达 &nbsp; ③ 重试
+        </div>
+      </div>`;
+      return;
+    }
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
   } finally {
     clearTimeout(s.hardTimer); s.hardTimer = null;
@@ -1652,7 +2053,7 @@ function renderSmartDiscoverResult(data) {
   const resultDiv = document.getElementById(_probeResultDivId('smart-discover'));
   resultDiv.style.display = 'block';
   if (!data.ok) {
-    resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '智能发现失败')}</div><div class="hint-block">${escapeHtml(data.suggestion || '')}</div></div>`;
+    resultDiv.innerHTML = _renderProbeErrorBlock(data, '智能发现');
     return;
   }
 
@@ -1705,6 +2106,18 @@ function renderSmartDiscoverResult(data) {
     html += `<div class="hint-block" style="white-space:pre-line;">💡 ${escapeHtml(data.suggestion)}</div>`;
   }
 
+  // 🆕 限速提示（探测过程中触发了 429）
+  const _rl = data.rate_limit_info || {};
+  if (_rl.hit_count > 0) {
+    const _sample = (_rl.sample_responses || [])[0];
+    html += `<div class="warn-block" style="margin-top:8px;border-left:3px solid var(--yellow);">
+      🐢 <strong>目标在本次探测中触发了 ${_rl.hit_count} 次速率限制 (HTTP 429)</strong>
+      ${_sample ? `<div style="font-size:11px;margin-top:4px;color:var(--text-dim);">首次限流 URL: <code>${escapeHtml(_sample.url || '')}</code>${_sample.retry_after ? ` · Retry-After=${_sample.retry_after}s` : ''}</div>` : ''}
+      <div style="font-size:12px;margin-top:4px;">建议：步骤 1 适当增大「超时」并降低后续探测并发度；${_rl.max_retry_after > 0 ? `等待 ${_rl.max_retry_after.toFixed(1)}s 后重试` : '稍后重试'}。</div>
+    </div>`;
+    showToast('warn', `智能发现触发限流 ${_rl.hit_count} 次`);
+  }
+
   // 全部发现的 URL 列表（可折叠）
   if (totalUrls > 0) {
     html += `<div class="advanced-block" id="sd-all-urls-block" style="margin-top:12px;">
@@ -1730,10 +2143,6 @@ function renderSmartDiscoverResult(data) {
 
   html += `</div>`;
   resultDiv.innerHTML = html;
-
-  // 清空其他探测结果区域避免干扰
-  document.getElementById('probe-result').innerHTML = '';
-  document.getElementById('enumerate-result').style.display = 'none';
 }
 
 // ── API Key 侦察结果渲染 ──
@@ -1880,6 +2289,264 @@ function renderGuardrailResult(data) {
     }
   }
 }
+
+// ── 🆕 深度侦察渲染函数 ──
+
+function renderMultiFormatResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('multi-format'));
+  resultDiv.style.display = 'block';
+  // 失败时走通用错误块
+  if (data.ok === false) {
+    resultDiv.innerHTML = _renderProbeErrorBlock(data, '多格式 API');
+    return;
+  }
+  const formats = data.formats || {};
+  const detected = Object.entries(formats).filter(([_, v]) => v && v.status >= 200 && v.status < 500);
+  let html = `<div class="result-card ${detected.length > 0 ? 'success' : 'warning'}">
+    <h4>🔀 多格式 API 探测结果</h4>
+    <div class="metric-row"><span class="key">最佳格式</span><span class="val highlight">${data.best_format?.toUpperCase() || '未识别'}</span></div>
+    <div class="hint-block">${escapeHtml(data.suggestion || '')}</div>
+    <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;">`;
+  for (const [fmt, info] of Object.entries(formats)) {
+    const ok = info && (info.status === 200 || info.status === 401 || info.status === 403);
+    const icons = { openai: '🤖', anthropic: '🧠', gemini: '🌐', ollama: '🐫' };
+    html += `<div class="format-chip ${ok ? 'found' : 'not-found'}">
+      <span>${icons[fmt] || ''} ${fmt.toUpperCase()}</span>
+      <span class="fmt-status ${ok ? 'ok' : ''}">${info ? (info.status === 200 ? '✅' : info.status === 401 ? '🔒' : '⚠') : '❌'}</span>
+    </div>`;
+  }
+  html += `</div>`;
+  // 🆕 限速提示（探测过程中触发了 429）
+  const rl = data.rate_limit_info || {};
+  if (rl.hit_count > 0) {
+    const sample = (rl.sample_responses || [])[0];
+    html += `<div class="warn-block" style="margin-top:8px;border-left:3px solid var(--yellow);">
+      🐢 <strong>目标在本次探测中触发了 ${rl.hit_count} 次速率限制 (HTTP 429)</strong>
+      ${sample ? `<div style="font-size:11px;margin-top:4px;color:var(--text-dim);">首次限流 URL: <code>${escapeHtml(sample.url || '')}</code>${sample.retry_after ? ` · Retry-After=${sample.retry_after}s` : ''}</div>` : ''}
+      <div style="font-size:12px;margin-top:4px;">建议：步骤 1 适当增大「超时」并降低后续探测并发度；${rl.max_retry_after > 0 ? `等待 ${rl.max_retry_after.toFixed(1)}s 后重试` : '稍后重试'}。</div>
+    </div>`;
+    showToast('warn', `多格式 API 探测触发限流 ${rl.hit_count} 次`);
+  }
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+  if (detected.length > 0) markStepDone(3);
+}
+
+function renderSecurityHeadersResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('security-headers'));
+  resultDiv.style.display = 'block';
+  const riskColors = { high: 'var(--red)', medium: 'var(--yellow)', low: 'var(--green)', info: 'var(--blue)' };
+  const riskLabels = { high: '🔴 高风险', medium: '🟡 中风险', low: '🟢 低风险', info: '🔵 信息' };
+  markStepDone(3);
+  let html = `<div class="result-card success">
+    <h4>&#128737; 安全响应头分析 <span style="color:${riskColors[data.risk_level] || 'var(--text-dim)'};font-size:12px;">${riskLabels[data.risk_level] || ''}</span></h4>
+    <div class="metric-grid">`;
+  if (data.csp) html += `<div class="metric-item"><span class="m-key">CSP</span><span class="m-val">✅ 已设置</span></div>`;
+  else html += `<div class="metric-item"><span class="m-key">CSP</span><span class="m-val" style="color:var(--red)">❌ 缺失</span></div>`;
+  if (data.hsts) html += `<div class="metric-item"><span class="m-key">HSTS</span><span class="m-val">✅</span></div>`;
+  else html += `<div class="metric-item"><span class="m-key">HSTS</span><span class="m-val" style="color:var(--red)">❌ 缺失</span></div>`;
+  if (data.x_frame_options) html += `<div class="metric-item"><span class="m-key">X-Frame-Options</span><span class="m-val">✅ ${escapeHtml(data.x_frame_options)}</span></div>`;
+  else html += `<div class="metric-item"><span class="m-key">X-Frame-Options</span><span class="m-val" style="color:var(--red)">❌ 缺失</span></div>`;
+  if (data.x_content_type_options) html += `<div class="metric-item"><span class="m-key">X-Content-Type</span><span class="m-val">✅</span></div>`;
+  else html += `<div class="metric-item"><span class="m-key">X-Content-Type</span><span class="m-val" style="color:var(--red)">❌ 缺失</span></div>`;
+  html += `</div>`;
+
+  if (data.cors_headers && Object.keys(data.cors_headers).length > 0) {
+    html += `<div style="margin-top:8px;"><strong style="font-size:12px;">🌐 CORS 配置:</strong>`;
+    for (const [k, v] of Object.entries(data.cors_headers)) {
+      if (v) html += `<code style="margin-left:6px;font-size:11px;background:#eef1f5;padding:2px 6px;border-radius:3px;">${escapeHtml(k)}: ${escapeHtml(v)}</code>`;
+    }
+    html += `</div>`;
+  }
+
+  if (data.server) html += `<div class="metric-row"><span class="key">Server</span><span class="val">${escapeHtml(data.server)}</span></div>`;
+  if (data.powered_by) html += `<div class="metric-row"><span class="key">X-Powered-By</span><span class="val">${escapeHtml(data.powered_by)}</span></div>`;
+
+  if (data.findings && data.findings.length > 0) {
+    html += `<div style="margin-top:10px;"><strong style="font-size:12px;">🔍 发现:</strong></div>`;
+    for (const f of data.findings) {
+      html += `<div class="hint-block" style="margin:4px 0;font-size:11px;">${escapeHtml(f)}</div>`;
+    }
+  }
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+}
+
+function renderRobotsTxtResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('robots-txt'));
+  resultDiv.style.display = 'block';
+  if (!data.ok) {
+    resultDiv.innerHTML = `<div class="result-card warning">
+      <h4>🤖 robots.txt</h4>
+      <div class="warn-block">${escapeHtml(data.error || '无法获取')}</div>
+    </div>`;
+    return;
+  }
+  markStepDone(3);
+  const disallowCount = (data.disallowed_paths || []).length;
+  let html = `<div class="result-card ${disallowCount > 0 ? 'success' : 'info'}">
+    <h4>🤖 robots.txt 解析完成</h4>`;
+  if (disallowCount > 0) {
+    html += `<div class="metric-row"><span class="key">Disallow 路径</span><span class="val highlight">${disallowCount} 条</span></div>
+    <div class="path-list" style="max-height:200px;overflow-y:auto;background:#f3f4f6;padding:8px;border-radius:4px;margin-top:6px;">`;
+    for (const p of data.disallowed_paths) {
+      html += `<code style="display:block;padding:2px 0;font-size:11px;">🚫 ${escapeHtml(p)}</code>`;
+    }
+    html += `</div>`;
+  } else {
+    html += `<div class="hint-block">robots.txt 未设置任何 Disallow 规则</div>`;
+  }
+  if (data.allowed_paths && data.allowed_paths.length > 0) {
+    html += `<div class="metric-row" style="margin-top:8px;"><span class="key">Allow 路径</span><span class="val">${data.allowed_paths.length} 条</span></div>`;
+  }
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+}
+
+function renderDebugScanResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('debug-scan'));
+  resultDiv.style.display = 'block';
+  const eps = (data.endpoints || []).filter(e => e.status >= 200 && e.status < 500);
+  const sensitive = eps.filter(e => e.sensitive_info && e.sensitive_info.length > 0);
+  if (eps.length === 0) {
+    resultDiv.innerHTML = `<div class="result-card info">
+      <h4>🐛 Debug 端点扫描</h4>
+      <div class="hint-block">未发现可访问的 debug 端点</div>
+    </div>`;
+    return;
+  }
+  markStepDone(3);
+  let html = `<div class="result-card ${sensitive.length > 0 ? 'error' : 'success'}">
+    <h4>🐛 Debug 端点扫描 — 发现 ${eps.length} 个端点</h4>
+    ${data.has_sensitive ? `<div class="warn-block">⚠️ ${data.has_sensitive} 个端点包含敏感信息！</div>` : ''}
+    <div class="ep-mini-list" style="max-height:300px;overflow-y:auto;">`;
+  for (const ep of eps) {
+    const cls = ep.status === 200 ? 's200' : 's401';
+    html += `<div class="ep-mini-item" style="padding:6px 0;border-bottom:1px solid var(--border-subtle);">
+      <span class="status-code ${cls}">${ep.status}</span>
+      <span style="font-family:var(--mono);font-size:11px;">${escapeHtml(ep.url)}</span>
+      ${ep.sensitive_info && ep.sensitive_info.length > 0 ? `<span style="color:var(--red);font-size:10px;margin-left:6px;">⚠ ${ep.sensitive_info.join(', ')}</span>` : ''}
+    </div>`;
+  }
+  html += `</div></div>`;
+  resultDiv.innerHTML = html;
+}
+
+function renderKnowledgeBaseResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('knowledge-base'));
+  resultDiv.style.display = 'block';
+  const eps = (data.found_endpoints || []);
+  if (eps.length === 0) {
+    resultDiv.innerHTML = `<div class="result-card info">
+      <h4>📚 知识库探测</h4>
+      <div class="hint-block">未发现知识库/RAG/向量数据库端点</div>
+    </div>`;
+    return;
+  }
+  markStepDone(3);
+  let html = `<div class="result-card success">
+    <h4>📚 知识库探测 — 发现 ${eps.length} 个端点</h4>`;
+  if (data.rag_detected) html += `<div class="metric-row"><span class="key">RAG 系统</span><span class="val highlight">✅ 已识别</span></div>`;
+  if (data.chromadb_detected) html += `<div class="metric-row"><span class="key">ChromaDB</span><span class="val highlight">✅ 已识别</span></div>`;
+  if (data.vector_db_type && data.vector_db_type !== 'unknown') html += `<div class="metric-row"><span class="key">向量数据库</span><span class="val">${escapeHtml(data.vector_db_type)}</span></div>`;
+  if (data.document_count != null) html += `<div class="metric-row"><span class="key">文档数量</span><span class="val">${data.document_count}</span></div>`;
+  if (data.collection_names && data.collection_names.length > 0) {
+    html += `<div class="metric-row"><span class="key">Collections</span><span class="val">${data.collection_names.map(c => `<code style="font-size:11px;">${escapeHtml(c)}</code>`).join(', ')}</span></div>`;
+  }
+  html += `<div class="ep-mini-list" style="max-height:200px;overflow-y:auto;margin-top:8px;">`;
+  for (const ep of eps) {
+    html += `<div class="ep-mini-item" style="padding:4px 0;border-bottom:1px solid var(--border-subtle);">
+      <span class="status-code ${ep.status === 200 ? 's200' : 's401'}">${ep.status}</span>
+      <span style="font-family:var(--mono);font-size:11px;">${escapeHtml(ep.url || ep.path)}</span>
+    </div>`;
+  }
+  html += `</div></div>`;
+  resultDiv.innerHTML = html;
+}
+
+function renderDeepReconResult(data) {
+  const resultDiv = document.getElementById(_probeResultDivId('deep-recon'));
+  resultDiv.style.display = 'block';
+  if (!data.ok) {
+    resultDiv.innerHTML = `<div class="result-card error">
+      <h4>🔥 深度侦察</h4>
+      <div class="error-block">${escapeHtml(data.error || '侦察失败')}</div>
+    </div>`;
+    return;
+  }
+  markStepDone(3);
+  const s = data.summary || {};
+  let html = `<div class="result-card success">
+    <h4>🔥 深度侦察完成</h4>
+    <div class="hint-block">并行分析了 robots.txt · Debug端点 · 安全头 · 多API格式 · 知识库</div>
+    <div class="metric-grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0;">
+      <div class="metric-item" style="text-align:center;padding:8px;background:#f0fdf4;border-radius:4px;">
+        <div style="font-size:20px;font-weight:700;color:var(--red);">${s.high_findings || 0}</div>
+        <div style="font-size:10px;color:var(--text-dim);">高危发现</div>
+      </div>
+      <div class="metric-item" style="text-align:center;padding:8px;background:#fef3c7;border-radius:4px;">
+        <div style="font-size:20px;font-weight:700;color:var(--yellow);">${s.medium_findings || 0}</div>
+        <div style="font-size:10px;color:var(--text-dim);">中危发现</div>
+      </div>
+      <div class="metric-item" style="text-align:center;padding:8px;background:#eff6ff;border-radius:4px;">
+        <div style="font-size:20px;font-weight:700;color:var(--blue);">${s.low_findings || 0}</div>
+        <div style="font-size:10px;color:var(--text-dim);">低危发现</div>
+      </div>
+    </div>`;
+
+  if (s.key_recommendations && s.key_recommendations.length > 0) {
+    html += `<div style="margin-top:10px;"><strong style="font-size:12px;">💡 关键建议:</strong></div>`;
+    for (const r of s.key_recommendations) {
+      html += `<div class="hint-block" style="margin:4px 0;font-size:11px;">${escapeHtml(r)}</div>`;
+    }
+  }
+
+  if (data.robots && data.robots.ok) {
+    const r = data.robots;
+    if (r.disallowed_paths && r.disallowed_paths.length > 0) {
+      html += `<details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:600;font-size:12px;">🤖 robots.txt (${r.disallowed_paths.length} 条禁止路径)</summary>
+        <div style="background:#f3f4f6;padding:8px;border-radius:4px;max-height:150px;overflow-y:auto;font-family:var(--mono);font-size:11px;">`;
+      for (const p of r.disallowed_paths) html += `${escapeHtml(p)}\n`;
+      html += `</div></details>`;
+    }
+  }
+
+  if (data.debug_endpoints && data.debug_endpoints.length > 0) {
+    const accessible = data.debug_endpoints.filter(d => d.status === 200);
+    html += `<details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;font-size:12px;">🐛 Debug 端点 (${accessible.length}/${data.debug_endpoints.length} 可访问)</summary>
+      <div style="background:#f3f4f6;padding:6px;border-radius:4px;max-height:200px;overflow-y:auto;">`;
+    for (const d of data.debug_endpoints) {
+      const hasSensitive = d.sensitive_info && d.sensitive_info.length > 0;
+      html += `<div style="padding:2px 0;font-size:11px;">
+        <span style="color:${d.status === 200 ? 'var(--green)' : 'var(--text-dim)'};">${d.status}</span>
+        ${escapeHtml(d.url)}
+        ${hasSensitive ? `<span style="color:var(--red);">&#9888; ${d.sensitive_info.join(', ')}</span>` : ''}
+      </div>`;
+    }
+    html += `</div></details>`;
+  }
+
+  if (data.security_headers) {
+    const sh = data.security_headers;
+    const riskColor = { high: 'var(--red)', medium: 'var(--yellow)', low: 'var(--green)', info: 'var(--blue)' };
+    html += `<details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;font-size:12px;">&#128737; 安全响应头 <span style="color:${riskColor[sh.risk_level] || 'var(--text-dim)'};">(${sh.risk_level?.toUpperCase()})</span></summary>
+      <div style="background:#f3f4f6;padding:6px;border-radius:4px;font-size:11px;">`;
+    for (const f of (sh.findings || [])) {
+      html += `<div style="padding:2px 0;">${escapeHtml(f)}</div>`;
+    }
+    html += `</div></details>`;
+  }
+
+  if (data.multi_format && data.multi_format.best_format !== 'unknown') {
+    html += `<div class="hint-block" style="margin-top:8px;">
+      &#128256; 多格式 API: 最佳格式 <strong>${data.multi_format.best_format?.toUpperCase()}</strong> · ${escapeHtml(data.multi_format.suggestion || '')}
+    </div>`;
+  }
+
+  html += `</div>`;
+  resultDiv.innerHTML = html;
+}
+
 
 window.pickSmartUrl = function(url) {
   document.getElementById('probe-target-url').value = url;
@@ -2171,11 +2838,39 @@ window.saveFinalConfig = async function() {
     });
 
     markStepDone(4);
+
+    // ── 🆕 拼出实际 CLI 命令 ──
+    const cmdParts = ['python main.py'];
+    const tgtUrl = url;
+    if (tgtUrl) cmdParts.push(`--target-url ${tgtUrl}`);
+    // API Key（若已填攻击 API Key 则用 --auth，否则读 tokens 目录文件）
+    const apiKey = document.getElementById('attack-api').value.trim();
+    if (apiKey) {
+      cmdParts.push(`--auth ${apiKey}`);
+    } else {
+      const tokensInfo = await fetch('/api/auth/latest').then(r => r.json()).catch(() => ({}));
+      if (tokensInfo.jwt) cmdParts.push(`--auth-file configs/tokens/jwt.txt`);
+      else if (tokensInfo.cookie) cmdParts.push(`--auth-file configs/tokens/cookie.txt`);
+      else if (tokensInfo.api_key) cmdParts.push(`--auth-file configs/tokens/api_key.txt`);
+    }
+    if (!state.verifySsl) cmdParts.push('--ssl-skip');
+    if (state.targetType && state.targetType !== 'openai') cmdParts.push(`--target-type ${state.targetType}`);
+    cmdParts.push('--phase probe');
+    const cliCmd = cmdParts.join(' \\\n  ');
+
     result.innerHTML = `<div class="complete-banner">
       <div class="check">🎉</div>
       <h3>配置完成！</h3>
       <p>所有配置已保存 — 攻击目标/评分到 <code>configs/shared.env</code>，攻击策略到 <code>.env</code>，认证凭据到 <code>configs/tokens/</code></p>
-      <p style="margin-top:8px;">现在可执行 <code>python main.py</code> 启动 PyRIT 进行攻击测试</p>
+      <div class="cli-command-box" style="margin-top:12px;background:#1e1e1e;border-radius:8px;padding:14px 16px;text-align:left;position:relative;">
+        <div style="color:#888;font-size:11px;margin-bottom:4px;">📋 推荐执行命令（可直接复制）</div>
+        <pre class="copy-cmd" style="margin:0;color:#d4d4d4;font-size:12px;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);">${escapeHtml(cliCmd)}</pre>
+        <button class="btn-copy" onclick="copyCliCommand(this)" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.08);color:var(--text-dim);border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer;">📋 复制</button>
+      </div>
+      <div class="cli-note" style="margin-top:10px;font-size:12px;color:var(--text-dim);text-align:left;line-height:1.7;">
+        <div>💡 <strong>向后如需修改配置：</strong>回到本页面的步骤 4，修改任何字段后 <strong>blur 失焦即自动保存</strong>到 <code>shared.env</code> / <code>.env</code>。</div>
+        <div style="margin-top:2px;">配置文件是 <strong>即时生效</strong>的（文件级读写，不依赖进程重启）— 下次执行 <code>python main.py</code> 会自动读取最新值。</div>
+      </div>
     </div>`;
     showToast('success', '✅ 全部配置已保存');
     await checkReadiness();
@@ -2192,6 +2887,25 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function copyCliCommand(btn) {
+  const pre = btn.parentElement.querySelector('pre.copy-cmd');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ 已复制';
+    btn.style.color = '#4ade80';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+  }).catch(() => {
+    // fallback: select manually
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    showToast('info', '已选中命令，请 Ctrl+C 复制');
+  });
 }
 function escapeAttr(str) {
   if (!str) return '';

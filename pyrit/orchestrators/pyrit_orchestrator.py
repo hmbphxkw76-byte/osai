@@ -976,6 +976,7 @@ class PyRITNativeOrchestrator:
         use_dedup_cache: bool = True,          # 🆕 P1: 是否启用去重缓存
         target_vendor: str = "",               # 🆕 P0: 目标厂商（用于自适应优化）
         enable_early_stop: bool = False,       # 🆕 P0: 是否启用早停
+        progress_callback=None,                # 🆕 Web: 进度回调 (callable receiving dict)
     ) -> list[dict]:
         """执行攻击战役。
 
@@ -990,6 +991,9 @@ class PyRITNativeOrchestrator:
             use_dedup_cache: 🆕 启用请求级去重
             target_vendor: 🆕 目标厂商（openai/anthropic/google/deepseek/qwen/zhipu）
             enable_early_stop: 🆕 启用 Greedy Early Stop
+            progress_callback: 🆕 Web 模式进度回调。
+                async def callback(event: dict) -> None
+                当提供时，每次攻击完成后调用，替代 Rich Live 仪表盘更新。
 
         Returns:
             攻击结果列表（与旧 engines 格式兼容）
@@ -1176,12 +1180,11 @@ class PyRITNativeOrchestrator:
             target_url=target_endpoint,
             current_phase=phase.value if isinstance(phase, AttackPhase) else str(phase),
         )
+        dashboard.mark_start()
 
-        with Live(
-            dashboard.get_layout(progress, task_id),
-            console=console,
-            refresh_per_second=4,
-        ) as live:
+        # 🆕 Web 模式 vs CLI 模式
+        if progress_callback is not None:
+            # Web 模式：通过回调推送进度，不使用 Rich Live
             for coro in asyncio.as_completed(coros):
                 result = await coro
                 all_results.append(result)
@@ -1191,7 +1194,6 @@ class PyRITNativeOrchestrator:
                 combo_name = result.get("combo_name", "?")
                 mode = result.get("mode", "?")
 
-                # 🆕 P0: 反馈给自适应引擎
                 if adaptive_selector:
                     is_success = status == "SUCCESS"
                     adaptive_selector.report_result(
@@ -1199,7 +1201,6 @@ class PyRITNativeOrchestrator:
                         success=is_success,
                         case_id=case_id,
                     )
-                    # 跨用例推广
                     if is_success:
                         other_case_ids = [
                             c.get("id", "") for c in cases
@@ -1215,10 +1216,67 @@ class PyRITNativeOrchestrator:
                     f"[{case_id}] {combo_name} ({mode}) -> {status}",
                     result_data=result,
                 )
-                # 🆕 P0: 刷新实时专家指导
                 if dashboard.completed % 3 == 0 or status == "SUCCESS":
                     dashboard.refresh_guidance()
-                live.update(dashboard.get_layout(progress, task_id))
+
+                # 推送进度事件
+                event = dashboard.get_progress_event(
+                    result_data=result,
+                    case_id=case_id,
+                    combo_name=combo_name,
+                    status=status,
+                    mode=mode,
+                )
+                try:
+                    await progress_callback(event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass  # 回调异常不影响攻击流程
+        else:
+            # CLI 模式：Rich Live 终端仪表盘
+            with Live(
+                dashboard.get_layout(progress, task_id),
+                console=console,
+                refresh_per_second=4,
+            ) as live:
+                for coro in asyncio.as_completed(coros):
+                    result = await coro
+                    all_results.append(result)
+                    progress.advance(task_id)
+                    status = result.get("status", "ERROR")
+                    case_id = result.get("case_id", "?")
+                    combo_name = result.get("combo_name", "?")
+                    mode = result.get("mode", "?")
+
+                    # 🆕 P0: 反馈给自适应引擎
+                    if adaptive_selector:
+                        is_success = status == "SUCCESS"
+                        adaptive_selector.report_result(
+                            combo_name=combo_name,
+                            success=is_success,
+                            case_id=case_id,
+                        )
+                        # 跨用例推广
+                        if is_success:
+                            other_case_ids = [
+                                c.get("id", "") for c in cases
+                                if c.get("id", "") != case_id
+                            ]
+                            if other_case_ids:
+                                adaptive_selector.propagate_success(
+                                    combo_name, other_case_ids[:5]
+                                )
+
+                    dashboard.update(
+                        status,
+                        f"[{case_id}] {combo_name} ({mode}) -> {status}",
+                        result_data=result,
+                    )
+                    # 🆕 P0: 刷新实时专家指导
+                    if dashboard.completed % 3 == 0 or status == "SUCCESS":
+                        dashboard.refresh_guidance()
+                    live.update(dashboard.get_layout(progress, task_id))
 
         # 🆕 P0: 自适应引擎统计
         if adaptive_selector:

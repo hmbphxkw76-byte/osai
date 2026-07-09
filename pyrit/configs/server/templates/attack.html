@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyRIT ⚔️ Attack War Room</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/attack.css">
+</head>
+<body class="attack-page">
+    <!-- ═══════════════ SIDEBAR ═══════════════ -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand" onclick="location.href='/'">
+            <span class="brand-icon">🔥</span>
+            <span class="brand-text">PyRIT</span>
+            <span class="brand-sub">Config Center</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="sidebar-item">
+                <span class="nav-icon">🏠</span> 配置中心
+            </a>
+            <a href="/attack" class="sidebar-item active">
+                <span class="nav-icon">⚔️</span> 攻击作战室
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div id="auth-banner" class="auth-banner" style="display:none;"></div>
+        </div>
+    </aside>
+
+    <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
+    <main class="main-content attack-layout">
+
+        <!-- ── LEFT PANEL: Attack Config ── -->
+        <section class="attack-panel config-panel">
+            <div class="panel-header">
+                <h2>📋 攻击配置</h2>
+                <span id="campaign-status-badge" class="status-badge idle">待命</span>
+            </div>
+
+            <div class="panel-body">
+                <!-- Target URL -->
+                <div class="form-group">
+                    <label for="attack-target-url">🎯 目标 URL</label>
+                    <input type="text" id="attack-target-url" placeholder="http(s)://target-api/v1" autocomplete="off">
+                </div>
+
+                <!-- Phase Selector -->
+                <div class="form-group">
+                    <label for="attack-phase">⚡ 攻击阶段</label>
+                    <select id="attack-phase">
+                        <option value="all" selected>ALL — 全量攻击 (9种策略)</option>
+                        <option value="probe">PROBE — 快速探测</option>
+                        <option value="single">SINGLE — 单轮突破</option>
+                        <option value="crescendo">CRESCENDO — 多轮渐进</option>
+                        <option value="pair">PAIR — 迭代反驳式越狱</option>
+                        <option value="tap">TAP — 树搜索自适应越狱</option>
+                        <option value="flip">FLIP — 对话翻转攻击</option>
+                        <option value="chunked">CHUNKED — 分块请求绕过</option>
+                        <option value="manyshot">MANYSHOT — 上下文淹没</option>
+                        <option value="skeleton_key">SKELETON KEY — 直接越狱</option>
+                    </select>
+                </div>
+
+                <!-- Scenario Preset -->
+                <div class="form-group">
+                    <label for="attack-preset">📐 攻击预设</label>
+                    <select id="attack-preset">
+                        <option value="standard" selected>Standard — 标准评估</option>
+                        <option value="probe">Probe — 快速探测</option>
+                        <option value="deep">Deep — 深度攻坚</option>
+                        <option value="large_context">Large Context — 大上下文窗口</option>
+                        <option value="limited_context">Limited Context — 小上下文窗口</option>
+                    </select>
+                </div>
+
+                <!-- Concurrency -->
+                <div class="form-group">
+                    <label for="attack-concurrent">🔢 并发数</label>
+                    <input type="number" id="attack-concurrent" value="5" min="1" max="20">
+                </div>
+
+                <!-- Case Filter -->
+                <div class="form-group">
+                    <label for="attack-case-ids">🔍 用例过滤 (选填, 逗号分隔)</label>
+                    <input type="text" id="attack-case-ids" placeholder="如: id_001,id_002">
+                </div>
+
+                <!-- Advanced Options -->
+                <details class="advanced-options">
+                    <summary>⚙️ 高级选项</summary>
+                    <div class="advanced-body">
+                        <div class="form-group">
+                            <label for="attack-vendor">🏭 目标厂商</label>
+                            <select id="attack-vendor">
+                                <option value="">自动检测</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="google">Google</option>
+                                <option value="deepseek">DeepSeek</option>
+                                <option value="qwen">Qwen</option>
+                                <option value="zhipu">Zhipu</option>
+                            </select>
+                        </div>
+                        <div class="checkbox-group">
+                            <label>
+                                <input type="checkbox" id="attack-adaptive"> 🧠 自适应引擎
+                            </label>
+                            <label>
+                                <input type="checkbox" id="attack-early-stop"> ⏱️ 早停
+                            </label>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- 🔐 Auth Quick Info -->
+                <div class="auth-quick-info" id="auth-quick-info">
+                    <span>🔐 认证: 从配置中心自动读取</span>
+                    <span id="auth-quick-status">检查中...</span>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="config-actions">
+                    <button id="btn-start" class="btn btn-danger" onclick="startCampaign()">
+                        ▶ 开始攻击
+                    </button>
+                    <button id="btn-cancel" class="btn btn-outline" onclick="cancelCampaign()" disabled>
+                        ⏹ 停止
+                    </button>
+                </div>
+
+                <!-- History -->
+                <div class="history-section" id="history-section">
+                    <h3>📚 历史记录</h3>
+                    <div id="history-list" class="history-list">
+                        <div class="history-empty">暂无历史记录</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── RIGHT PANEL: Live Dashboard ── -->
+        <section class="attack-panel dashboard-panel">
+            <div class="panel-header">
+                <h2>📊 实时仪表盘</h2>
+                <span id="campaign-elapsed" class="elapsed-time">--:--</span>
+            </div>
+
+            <div class="panel-body dashboard-body">
+                <!-- Progress Bar -->
+                <div class="progress-section">
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progress-percent">0%</span>
+                        <span id="progress-count">0/0</span>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card success">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-value" id="stat-success">0</div>
+                        <div class="stat-label">成功</div>
+                    </div>
+                    <div class="stat-card failure">
+                        <div class="stat-icon">❌</div>
+                        <div class="stat-value" id="stat-failure">0</div>
+                        <div class="stat-label">失败</div>
+                    </div>
+                    <div class="stat-card error">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-value" id="stat-error">0</div>
+                        <div class="stat-label">错误</div>
+                    </div>
+                </div>
+
+                <!-- Top Combos -->
+                <div class="guidance-section" id="guidance-section" style="display:none;">
+                    <div class="section-header">
+                        <span>🧠 PyRIT 实时专家指导</span>
+                    </div>
+                    <div class="guidance-content" id="guidance-content"></div>
+                </div>
+
+                <!-- Attack Log -->
+                <div class="log-section">
+                    <div class="section-header">
+                        <span>📜 攻击日志</span>
+                        <span id="log-count">0</span>
+                    </div>
+                    <div class="log-container" id="log-container">
+                        <div class="log-entry log-placeholder">
+                            <span class="log-time">--:--:--</span>
+                            <span class="log-msg">等待攻击启动...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Section (shown after completion) -->
+                <div class="report-section" id="report-section" style="display:none;">
+                    <div class="section-header">
+                        <span>📄 渗透报告</span>
+                    </div>
+                    <div class="report-actions" id="report-actions">
+                        <button class="btn btn-sm" onclick="viewReport()">📖 查看报告</button>
+                        <button class="btn btn-sm" onclick="downloadResults()">📥 下载 JSON</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ═══════════════ REPORT MODAL ═══════════════ -->
+    <div class="modal-overlay" id="report-modal" style="display:none;">
+        <div class="modal-content report-modal">
+            <div class="modal-header">
+                <h3>📄 专业渗透测试报告</h3>
+                <button class="modal-close" onclick="closeReport()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="report-content" class="markdown-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+    // ═══════════════════════════════════════════════════════════════
+    // State
+    // ═══════════════════════════════════════════════════════════════
+    let eventSource = null;
+    let isRunning = false;
+    let logEntries = [];
+
+    // ═══════════════════════════════════════════════════════════════
+    // Init
+    // ═══════════════════════════════════════════════════════════════
+    document.addEventListener('DOMContentLoaded', function() {
+        loadAuthState();
+        loadHistory();
+        loadTargetUrl();
+    });
+
+    async function loadAuthState() {
+        try {
+            const r = await fetch('/api/auth/state');
+            const state = await r.json();
+            const tags = [];
+            if (state.cookie_present) tags.push('Cookie');
+            if (state.jwt_present) tags.push('JWT');
+            if (state.api_key_present) tags.push('API Key');
+            const el = document.getElementById('auth-quick-status');
+            const banner = document.getElementById('auth-banner');
+            if (tags.length) {
+                const txt = '已配置: ' + tags.join(' + ');
+                el.textContent = txt;
+                el.style.color = '#4ade80';
+                if (banner) {
+                    banner.textContent = '🔐 ' + txt;
+                    banner.style.display = 'block';
+                }
+            } else {
+                el.textContent = '未配置 (可选)';
+                el.style.color = '#fbbf24';
+            }
+        } catch(e) {
+            document.getElementById('auth-quick-status').textContent = '读取失败';
+            document.getElementById('auth-quick-status').style.color = '#f87171';
+        }
+    }
+
+    function loadTargetUrl() {
+        fetch('/api/target-config')
+            .then(r => r.json())
+            .then(cfg => {
+                const url = cfg.BASE_URL || cfg.base_url || '';
+                if (url) document.getElementById('attack-target-url').value = url;
+            }).catch(() => {});
+    }
+
+    async function loadHistory() {
+        try {
+            const r = await fetch('/api/campaign/history');
+            const data = await r.json();
+            renderHistory(data.history || []);
+        } catch(e) { /* no history yet */ }
+    }
+
+    function renderHistory(history) {
+        const list = document.getElementById('history-list');
+        if (!history.length) {
+            list.innerHTML = '<div class="history-empty">暂无历史记录</div>';
+            return;
+        }
+        list.innerHTML = history.slice().reverse().map(h => {
+            const cls = h.status === 'completed' ? 'success' : h.status === 'error' ? 'error' : 'cancelled';
+            return `<div class="history-item">
+                <span class="history-status ${cls}">${h.status}</span>
+                <span class="history-phase">${h.phase}</span>
+                <span class="history-url" title="${h.target_url}">${truncate(h.target_url, 30)}</span>
+                <span class="history-asr">${h.percent}%</span>
+                <span class="history-time">${h.started_at || ''}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Campaign Control
+    // ═══════════════════════════════════════════════════════════════
+
+    async function startCampaign() {
+        const targetUrl = document.getElementById('attack-target-url').value.trim();
+        if (!targetUrl) {
+            alert('请输入目标 URL');
+            return;
+        }
+
+        if (isRunning) {
+            alert('已有攻击战役运行中');
+            return;
+        }
+
+        const phase = document.getElementById('attack-phase').value;
+        if (!confirm(`确认启动攻击战役？\n\n目标: ${targetUrl}\n阶段: ${phase.toUpperCase()}\n\n攻击过程可能需要数分钟至数十分钟。`)) {
+            return;
+        }
+
+        // UI state
+        isRunning = true;
+        logEntries = [];
+        document.getElementById('btn-start').disabled = true;
+        document.getElementById('btn-start').textContent = '⏳ 启动中...';
+        document.getElementById('btn-cancel').disabled = false;
+        document.getElementById('campaign-status-badge').textContent = '运行中';
+        document.getElementById('campaign-status-badge').className = 'status-badge running';
+        document.getElementById('log-container').innerHTML = '';
+        document.getElementById('report-section').style.display = 'none';
+        document.getElementById('guidance-section').style.display = 'none';
+        resetStats();
+
+        const body = {
+            target_url: targetUrl,
+            phase: phase,
+            scenario_preset: document.getElementById('attack-preset').value,
+            max_concurrent: parseInt(document.getElementById('attack-concurrent').value) || 5,
+            case_ids: document.getElementById('attack-case-ids').value.trim(),
+            use_adaptive: document.getElementById('attack-adaptive').checked,
+            enable_early_stop: document.getElementById('attack-early-stop').checked,
+            target_vendor: document.getElementById('attack-vendor').value,
+            lang: 'cn',
+        };
+
+        try {
+            const r = await fetch('/api/campaign/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await r.json();
+            if (!data.ok) {
+                alert('启动失败: ' + (data.error || '未知错误'));
+                resetUI();
+                return;
+            }
+            document.getElementById('btn-start').textContent = '▶ 正在攻击...';
+            connectSSE();
+        } catch(e) {
+            alert('启动异常: ' + e.message);
+            resetUI();
+        }
+    }
+
+    async function cancelCampaign() {
+        if (!confirm('确认停止攻击战役？已完成的结果将被保留。')) return;
+        try {
+            const r = await fetch('/api/campaign/cancel', {method: 'POST'});
+            const data = await r.json();
+            if (data.ok) {
+                addLogEntry('system', '⚠️ 发送取消请求...');
+                document.getElementById('btn-cancel').disabled = true;
+                document.getElementById('btn-cancel').textContent = '⏳ 取消中...';
+            }
+        } catch(e) {
+            alert('取消失败: ' + e.message);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SSE Connection
+    // ═══════════════════════════════════════════════════════════════
+
+    function connectSSE() {
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        eventSource = new EventSource('/api/campaign/stream');
+
+        eventSource.addEventListener('started', function(e) {
+            const data = JSON.parse(e.data);
+            addLogEntry('system', '🚀 ' + data.message);
+            document.getElementById('campaign-status-badge').textContent = '运行中';
+            document.getElementById('campaign-status-badge').className = 'status-badge running';
+        });
+
+        eventSource.addEventListener('info', function(e) {
+            const data = JSON.parse(e.data);
+            addLogEntry('system', 'ℹ️ ' + data.message);
+            if (data.total_tasks) {
+                updateProgress(0, data.total_tasks);
+            }
+        });
+
+        eventSource.addEventListener('progress', function(e) {
+            const data = JSON.parse(e.data);
+            handleProgress(data);
+        });
+
+        eventSource.addEventListener('warning', function(e) {
+            const data = JSON.parse(e.data);
+            addLogEntry('system', '⚠️ ' + data.message);
+        });
+
+        eventSource.addEventListener('error', function(e) {
+            if (e.data) {
+                try {
+                    const data = JSON.parse(e.data);
+                    addLogEntry('error', '❌ ' + data.message);
+                } catch(_) {}
+                return;
+            }
+            // Connection error
+            if (!isRunning) return;
+            addLogEntry('system', '🔌 SSE 连接中断，尝试重连...');
+        });
+
+        eventSource.addEventListener('completed', function(e) {
+            const data = JSON.parse(e.data);
+            handleCompleted(data);
+        });
+
+        eventSource.addEventListener('stream_end', function(e) {
+            const data = JSON.parse(e.data);
+            handleFinal(data);
+        });
+
+        eventSource.addEventListener('report_ready', function(e) {
+            const data = JSON.parse(e.data);
+            addLogEntry('system', '📄 ' + data.message);
+            document.getElementById('report-section').style.display = 'block';
+        });
+
+        eventSource.addEventListener('heartbeat', function(e) {
+            // keep-alive, nothing to do
+        });
+
+        eventSource.onopen = function() {
+            addLogEntry('system', '🔗 SSE 已连接');
+        };
+    }
+
+    function handleProgress(data) {
+        updateProgress(data.completed, data.total);
+        updateStats(data.success || 0, data.failure || 0, data.error_count || 0);
+
+        const status = data.status || '?';
+        const icon = status === 'SUCCESS' ? '✅' : status === 'FAILURE' ? '❌' : '⚠️';
+        const caseId = data.case_id || '?';
+        const combo = data.combo_name || '?';
+        const mode = data.mode || '?';
+
+        addLogEntry(status.toLowerCase(), `${icon} [${caseId}] ${combo} (${mode}) → ${status}`,
+            data.response_preview, data.score_reason);
+
+        // Update guidance
+        if (data.guidance) {
+            updateGuidance(data.guidance);
+        }
+
+        // Update elapsed
+        if (data.elapsed_seconds) {
+            document.getElementById('campaign-elapsed').textContent =
+                formatElapsed(data.elapsed_seconds);
+        }
+    }
+
+    function handleCompleted(data) {
+        addLogEntry('system', '🏁 ' + data.message);
+        addLogEntry('system', `📊 共完成 ${data.results_count || 0} 个攻击任务`);
+        if (data.report_file) {
+            addLogEntry('system', `📄 报告: ${data.report_file}`);
+        }
+        document.getElementById('report-section').style.display = 'block';
+        document.getElementById('campaign-status-badge').textContent = '完成';
+        document.getElementById('campaign-status-badge').className = 'status-badge completed';
+    }
+
+    function handleFinal(data) {
+        isRunning = false;
+        resetUI();
+        loadHistory();  // refresh history
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // UI Updates
+    // ═══════════════════════════════════════════════════════════════
+
+    function updateProgress(completed, total) {
+        const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+        document.getElementById('progress-bar').style.width = pct + '%';
+        document.getElementById('progress-percent').textContent = pct + '%';
+        document.getElementById('progress-count').textContent = `${completed}/${total}`;
+    }
+
+    function updateStats(success, failure, errorCount) {
+        document.getElementById('stat-success').textContent = success;
+        document.getElementById('stat-failure').textContent = failure;
+        document.getElementById('stat-error').textContent = errorCount;
+    }
+
+    function resetStats() {
+        updateStats(0, 0, 0);
+        updateProgress(0, 1);
+        document.getElementById('campaign-elapsed').textContent = '00:00';
+    }
+
+    function addLogEntry(type, message, preview, scoreReason) {
+        const now = new Date();
+        const time = now.toTimeString().slice(0, 8);
+        const entry = {type, time, message, preview, scoreReason, ts: now.getTime()};
+        logEntries.push(entry);
+
+        const container = document.getElementById('log-container');
+        // Remove placeholder
+        const placeholder = container.querySelector('.log-placeholder');
+        if (placeholder) placeholder.remove();
+
+        const el = document.createElement('div');
+        el.className = `log-entry log-${type}`;
+        el.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${escapeHtml(message)}</span>`;
+        if (preview) {
+            el.innerHTML += `<div class="log-detail">${escapeHtml(preview).slice(0, 200)}</div>`;
+        }
+        if (scoreReason) {
+            el.innerHTML += `<div class="log-score">📋 ${escapeHtml(scoreReason).slice(0, 200)}</div>`;
+        }
+
+        container.appendChild(el);
+        container.scrollTop = container.scrollHeight;
+        document.getElementById('log-count').textContent = logEntries.length;
+
+        // Limit to 200 entries
+        while (logEntries.length > 200) {
+            logEntries.shift();
+            const firstChild = container.firstChild;
+            if (firstChild && !firstChild.classList.contains('log-placeholder')) {
+                firstChild.remove();
+            }
+        }
+    }
+
+    function updateGuidance(guidance) {
+        const section = document.getElementById('guidance-section');
+        const content = document.getElementById('guidance-content');
+        if (!guidance) return;
+
+        section.style.display = 'block';
+        let html = '';
+
+        if (guidance.summary) {
+            html += `<div class="guidance-summary">${escapeHtml(guidance.summary)}</div>`;
+        }
+
+        if (guidance.top_combos && guidance.top_combos.length) {
+            html += '<div class="guidance-combos">';
+            html += '<div class="guidance-subtitle">🏆 最有效手法</div>';
+            guidance.top_combos.slice(0, 3).forEach(tc => {
+                const barLen = Math.min(Math.round(tc.rate * 20), 20);
+                const bar = '█'.repeat(barLen) + '░'.repeat(20 - barLen);
+                html += `<div class="combo-row">
+                    <span class="combo-name">${escapeHtml(tc.combo)}</span>
+                    <span class="combo-bar">${bar}</span>
+                    <span class="combo-rate">${(tc.rate * 100).toFixed(0)}%</span>
+                    <span class="combo-hits">(${tc.hits}次)</span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+
+        if (guidance.phase_advice) {
+            html += `<div class="guidance-advice">💡 ${escapeHtml(guidance.phase_advice)}</div>`;
+        }
+
+        if (guidance.next_command) {
+            html += `<div class="guidance-command">
+                <div class="guidance-subtitle">🚀 建议下一步</div>
+                <code>${escapeHtml(guidance.next_command)}</code>
+                <div class="guidance-cmd-desc">${escapeHtml(guidance.next_command_desc || '')}</div>
+            </div>`;
+        }
+
+        if (guidance.warnings && guidance.warnings.length) {
+            html += '<div class="guidance-warnings">';
+            guidance.warnings.forEach(w => {
+                html += `<div class="guidance-warning">${escapeHtml(w)}</div>`;
+            });
+            html += '</div>';
+        }
+
+        if (guidance.progress_hint) {
+            html += `<div class="guidance-progress">${escapeHtml(guidance.progress_hint)}</div>`;
+        }
+
+        content.innerHTML = html;
+    }
+
+    function resetUI() {
+        isRunning = false;
+        document.getElementById('btn-start').disabled = false;
+        document.getElementById('btn-start').textContent = '▶ 开始攻击';
+        document.getElementById('btn-cancel').disabled = true;
+        document.getElementById('btn-cancel').textContent = '⏹ 停止';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Report View
+    // ═══════════════════════════════════════════════════════════════
+
+    async function viewReport() {
+        try {
+            const r = await fetch('/api/campaign/report');
+            const data = await r.json();
+            if (!data.ok) {
+                alert('报告加载失败: ' + (data.error || ''));
+                return;
+            }
+            const modal = document.getElementById('report-modal');
+            const content = document.getElementById('report-content');
+            content.innerHTML = marked.parse(data.content);
+            modal.style.display = 'flex';
+        } catch(e) {
+            alert('报告加载异常: ' + e.message);
+        }
+    }
+
+    function closeReport() {
+        document.getElementById('report-modal').style.display = 'none';
+    }
+
+    async function downloadResults() {
+        try {
+            const r = await fetch('/api/campaign/results/download');
+            const data = await r.json();
+            if (!data.ok) {
+                alert('下载失败: ' + (data.error || ''));
+                return;
+            }
+            // Download as file
+            const blob = new Blob([JSON.stringify(data.content, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = data.log_file.split('/').pop() || 'results.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch(e) {
+            alert('下载异常: ' + e.message);
+        }
+    }
+
+    // Close modal on overlay click
+    document.addEventListener('click', function(e) {
+        if (e.target.id === 'report-modal') {
+            closeReport();
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function truncate(str, len) {
+        if (!str) return '';
+        return str.length > len ? str.slice(0, len) + '...' : str;
+    }
+
+    function formatElapsed(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    </script>
+</body>
+</html>

@@ -35,6 +35,12 @@ import httpx
 from bs4 import BeautifulSoup
 
 from utils.http_transport import create_http_client
+from .probe_resilience import (
+    AdaptiveTimeout,
+    RateLimitTracker,
+    classify_exception,
+    classify_response_for_rate_limit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +74,11 @@ class SmartDiscoveryResult:
     pages_crawled: list[str] = field(default_factory=list)
     error: str | None = None
     suggestion: str = ""
+    # 🆕 异常分类 / 限速 / 自适应超时（前端可据此展示）
+    error_type: str = ""              # 失败时的错误类型（与 ProbeErrorInfo.error_type 对齐）
+    error_detail: str = ""            # 原始异常（已脱敏）
+    rate_limit_info: dict = field(default_factory=dict)  # {"hit_count": N, "max_retry_after": X, ...}
+    adaptive_timeout: float = 0.0     # 当前推荐的自适应超时（秒）
 
 
 # ── 常量和特征模式 ──────────────────────────────────────────────────────────
@@ -98,6 +109,13 @@ _LLM_PROBE_PATHS = [
     "/api/models",
     "/models",
     "/v2/models",
+    # 🆕 Anthropic 端点
+    "/v1/messages",
+    "/api/v1/messages",
+    "/v1/complete",
+    # 🆕 Gemini 端点
+    "/v1beta/models",
+    "/api/v1beta/models",
 ]
 
 # 聊天路由模式
@@ -112,12 +130,21 @@ _CHAT_ROUTE_PATTERNS = [
 # ── BeautifulSoup 为核心的 HTML 解析 ────────────────────────────────────────
 
 def _classify_url(url: str) -> tuple[str, str]:
-    """用 URL 特征分类：link / static / api / api_base / chat_route / auth / page / unknown。"""
+    """用 URL 特征分类：link / static / api / api_base / chat_route / auth / page / debug / kb / unknown。"""
     u = url.lower()
     if u.endswith(_STATIC_EXTS):
         if 'api' in u or 'route' in u or 'config' in u:
             return ('api', '静态 API 配置')
         return ('static', '静态资源')
+    # 🆕 Debug / 敏感端点
+    if '/debug' in u or '/actuator' in u or '/phpinfo' in u or '/.debug' in u:
+        return ('debug', 'Debug/诊断端点（高敏感）')
+    # 🆕 知识库 / RAG / 向量数据库
+    if any(kw in u for kw in ('/knowledge', '/rag/', '/retrieval', '/semantic-search', '/hybrid-search', '/collections', '/vector')):
+        return ('kb', '知识库/向量存储端点')
+    # 🆕 Admin / 管理端点
+    if '/admin' in u or '/observability' in u or '/monitoring' in u:
+        return ('admin', '管理/可观测性端点')
     if re.search(r'/v\d+/', u) or '/api/' in u or '/openapi' in u or '/swagger' in u or '/graphql' in u:
         return ('api', 'API 端点')
     if re.search(r'/ai/chat/|/chat/|/conversation/', u):
@@ -328,6 +355,9 @@ async def smart_discover(
         extra_headers: 额外 HTTP 头
     """
     result = SmartDiscoveryResult(ok=True, base_url=base_url)
+    adaptive = AdaptiveTimeout(base=timeout, max_=max(timeout * 3, 30.0))
+    rate_tracker = RateLimitTracker()
+    result.adaptive_timeout = adaptive.current()
 
     client_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -461,11 +491,22 @@ async def smart_discover(
                     for sub in _LLM_PROBE_PATHS:
                         try:
                             test_url = f"{target}{sub}"
+                            current_timeout = min(adaptive.current(), 5.0)
                             test_resp = await client.get(
                                 test_url,
                                 headers={"Cookie": cookies} if cookies else {},
-                                timeout=min(timeout, 5.0),
+                                timeout=current_timeout,
                             )
+                            # 检测限流
+                            if rate_tracker.record(test_resp):
+                                adaptive.on_rate_limited(retry_after=rate_tracker.max_retry_after)
+                                logger.warning(
+                                    "智能发现: 目标 %s 返回 429，已调整 timeout 至 %.1fs",
+                                    target, adaptive.current(),
+                                )
+                                # 限流时跳过本候选剩余路径，避免持续触发
+                                break
+                            adaptive.on_success()
                             if test_resp.status_code == 200:
                                 test_ct = test_resp.headers.get("content-type", "")
                                 body_start = test_resp.text.strip()[:1]
@@ -484,8 +525,23 @@ async def smart_discover(
                                     result.llm_endpoints.append(ep)
                                     if not any(d.url == test_url for d in result.discovered_urls):
                                         result.discovered_urls.append(ep)
-                        except Exception:
-                            pass
+                        except (httpx.ReadError, httpx.RemoteProtocolError,
+                                httpx.CloseError, ConnectionResetError, BrokenPipeError) as e:
+                            # 对端崩溃/中断 — 跳出当前 target 的探测
+                            adaptive.on_server_crash()
+                            logger.warning(
+                                "智能发现: 探测 %s 时对端连接中断 (%s)，跳过剩余路径",
+                                target, type(e).__name__,
+                            )
+                            break
+                        except (httpx.TimeoutException, httpx.ConnectError) as e:
+                            info = classify_exception(e, context=f"探测 {test_url}")
+                            logger.debug("智能发现: %s 失败 (%s)", test_url, info.error_type)
+                            # 继续探测其他路径
+                            continue
+                        except Exception as e:  # noqa: BLE001
+                            logger.debug("智能发现: 探测 %s 异常: %s", test_url, type(e).__name__)
+                            continue
 
                 # ── 8. 总结建议 ──
                 if result.llm_endpoints:
@@ -514,21 +570,57 @@ async def smart_discover(
                         "  • 需要 Cookie/JWT 认证才能访问配置页面"
                     )
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
+                info = classify_exception(e, context="智能发现首页抓取")
                 result.ok = False
-                result.error = f"首页请求超时（{timeout}s），请检查目标可达性"
+                result.error = info.error_message
+                result.error_type = info.error_type
+                result.error_detail = info.detail
+                result.suggestion = info.suggestion
             except httpx.ConnectError as e:
+                info = classify_exception(e, context="智能发现首页抓取")
                 result.ok = False
-                result.error = f"连接失败: {str(e)[:200]}"
+                result.error = info.error_message
+                result.error_type = info.error_type
+                result.error_detail = info.detail
+                result.suggestion = info.suggestion
+            except (httpx.ReadError, httpx.RemoteProtocolError,
+                    httpx.CloseError, ConnectionResetError, BrokenPipeError) as e:
+                # 对端服务器在响应过程中崩溃/断开
+                info = classify_exception(e, context="智能发现首页抓取")
+                result.ok = False
+                result.error = info.error_message
+                result.error_type = info.error_type
+                result.error_detail = info.detail
+                result.suggestion = info.suggestion
             except Exception as e:
                 logger.exception("智能发现首页抓取异常")
+                info = classify_exception(e, context="智能发现首页抓取")
                 result.ok = False
-                result.error = f"首页抓取失败: {str(e)[:200]}"
+                result.error = info.error_message
+                result.error_type = info.error_type
+                result.error_detail = info.detail
+                result.suggestion = info.suggestion
 
     except Exception as e:
         logger.exception("智能发现整体失败")
+        info = classify_exception(e, context="智能发现")
         result.ok = False
-        result.error = f"智能发现失败: {str(e)[:200]}"
+        result.error = info.error_message
+        result.error_type = info.error_type
+        result.error_detail = info.detail
+        result.suggestion = info.suggestion
+
+    # 始终输出限流统计 + 自适应超时，供前端展示
+    result.rate_limit_info = rate_tracker.to_dict()
+    result.adaptive_timeout = adaptive.current()
+    if rate_tracker.hit_count > 0 and result.ok:
+        # 探测成功但过程中触发了限流，给用户提示
+        if not result.suggestion:
+            result.suggestion = (
+                f"⚠️ 探测过程中目标触发了 {rate_tracker.hit_count} 次限流 (HTTP 429)。"
+                f"建议在步骤 1 适当增大「超时」并降低后续探测的并发度。"
+            )
 
     return result
 
@@ -569,4 +661,9 @@ def smart_discovery_to_dict(r: SmartDiscoveryResult) -> dict:
         "pages_crawled": r.pages_crawled,
         "error": r.error,
         "suggestion": r.suggestion,
+        # 🆕 异常分类 / 限流 / 自适应超时
+        "error_type": r.error_type,
+        "error_detail": r.error_detail,
+        "rate_limit_info": r.rate_limit_info,
+        "adaptive_timeout": r.adaptive_timeout,
     }

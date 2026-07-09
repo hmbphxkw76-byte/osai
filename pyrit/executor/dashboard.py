@@ -8,6 +8,11 @@ PyRIT Red Team — 实时仪表盘状态管理器
 - console: Rich Console 实例（供模块内使用）
 ===============================================================================
 """
+from __future__ import annotations
+
+import json
+import time
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -161,3 +166,80 @@ class DashboardState:
 
         layout["log"].update(Panel(self.latest_log, title="最新攻击流", border_style="cyan"))
         return layout
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 Web SSE 序列化
+    # ═══════════════════════════════════════════════════════════════
+
+    def to_sse_event(self, result_data: dict | None = None) -> str:
+        """将当前仪表盘状态序列化为 JSON（供 Web SSE 推送）。
+
+        Args:
+            result_data: 最近一次攻击结果 dict
+
+        Returns:
+            JSON 字符串，包含完整的进度信息
+        """
+        payload = {
+            "type": "progress",
+            "completed": self.completed,
+            "total": self.total,
+            "success": self.success,
+            "failure": self.failure,
+            "error_count": self.error,
+            "percent": round(self.completed / max(self.total, 1) * 100, 1),
+            "elapsed_seconds": round(time.time() - self._start_time, 1) if hasattr(self, "_start_time") else 0,
+            "log_msg": str(self.latest_log) if self.latest_log else "",
+            "guidance": self.guidance_result,
+        }
+        if result_data:
+            payload.update(self._extract_result_fields(result_data))
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+    def get_progress_event(
+        self,
+        result_data: dict | None = None,
+        case_id: str = "",
+        combo_name: str = "",
+        status: str = "",
+        mode: str = "",
+    ) -> dict:
+        """生成完整进度事件 dict（供 Web callback 消费）。
+
+        Returns:
+            包含所有进度字段 + 攻击详情 + 实时指导的 dict
+        """
+        event = {
+            "completed": self.completed,
+            "total": self.total,
+            "success": self.success,
+            "failure": self.failure,
+            "error_count": self.error,
+            "percent": round(self.completed / max(self.total, 1) * 100, 1),
+            "elapsed_seconds": round(time.time() - self._start_time, 1) if hasattr(self, "_start_time") else 0,
+            "case_id": case_id,
+            "combo_name": combo_name,
+            "status": status,
+            "mode": mode,
+            "log_msg": (str(self.latest_log) if self.latest_log else f"[{case_id}] {combo_name} ({mode}) -> {status}"),
+            "guidance": self.guidance_result,
+        }
+        if result_data:
+            event.update(self._extract_result_fields(result_data))
+        return event
+
+    @staticmethod
+    def _extract_result_fields(result_data: dict) -> dict:
+        """从攻击结果中提取需要在 Web UI 显示的字段。"""
+        return {
+            "response_text": (result_data.get("response_text", "") or "")[:500],
+            "objective": (result_data.get("objective", "") or "")[:300],
+            "converted_prompt": (result_data.get("converted_prompt", "") or "")[:300],
+            "criterion": (result_data.get("criterion", "") or "")[:300],
+            "score_reason": (result_data.get("score_reason", "") or "")[:300],
+            "turns": result_data.get("turns", 0),
+        }
+
+    def mark_start(self):
+        """标记开始时间（供 elapsed 计算）。"""
+        self._start_time = time.time()

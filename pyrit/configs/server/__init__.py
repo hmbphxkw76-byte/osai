@@ -92,7 +92,7 @@ def main():
 
     banner = f"""
 ╔══════════════════════════════════════════════════════════╗
-║        PyRIT Config Center v2.0                         ║
+║        PyRIT Config Center v3.0                         ║
 ║                                                          ║
 ║  打开浏览器访问: {url:<40} ║
 ║                                                          ║
@@ -103,10 +103,16 @@ def main():
 ║    [~] 目标探测 -- 连通性 / API 类型 / 模型枚举         ║
 ║    [=] 就绪检查 -- 配置完整性 + 目标可达性               ║
 ║    [>>] 一键配置 -- URL → 探测 → 自动填充（端到端）     ║
+║    [⚔] 攻击作战室 -- 实时攻击 + SSE 仪表盘             ║
 ║                                                          ║
 ║  按 Ctrl+C 停止服务                                      ║
 ╚══════════════════════════════════════════════════════════╝
 """
+    # 🆕 初始化 CampaignManager 单例
+    from .campaign_manager import CampaignManager
+    CampaignManager.get_instance()
+    print("  [⚔] CampaignManager 已就绪")
+
     print(banner)
 
     if not args.no_open:

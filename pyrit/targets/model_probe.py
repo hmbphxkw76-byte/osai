@@ -392,8 +392,111 @@ async def _probe_ollama_tags(base_url: str, verify_ssl: bool = False) -> Optiona
     return None
 
 
+async def _probe_anthropic_messages(base_url: str, verify_ssl: bool = False) -> Optional[dict]:
+    """策略 5: Anthropic Messages API 探测 (/v1/messages)。"""
+    paths_to_try = [
+        "/v1/messages",
+        "/api/v1/messages",
+        "/api/messages",
+        "/messages",
+    ]
+
+    body = {
+        "model": "claude-3-haiku-20240307",
+        "max_tokens": 10,
+        "messages": [{"role": "user", "content": "Hi"}],
+    }
+
+    for path in paths_to_try:
+        url = urljoin(base_url, path)
+        status, data = await _http_post(url, body, timeout=10, verify_ssl=verify_ssl)
+
+        if status in (200, 401, 403):
+            # Anthropic 格式确认
+            if status == 200 and isinstance(data, dict):
+                # 检查响应是否为 Anthropic 格式
+                if "content" in data or "type" in data:
+                    model_from_response = data.get("model", "")
+                    return {
+                        "model_name": model_from_response or None,
+                        "confidence": 0.90 if model_from_response else 0.85,
+                        "endpoint_type": "anthropic",
+                        "source_path": url,
+                        "note": "Anthropic Messages API detected",
+                    }
+                return {
+                    "model_name": None,
+                    "confidence": 0.80,
+                    "endpoint_type": "anthropic",
+                    "source_path": url,
+                    "note": "Anthropic-compatible endpoint (200 but non-standard response)",
+                }
+            elif status in (401, 403):
+                return {
+                    "model_name": None,
+                    "confidence": 0.70,
+                    "endpoint_type": "anthropic",
+                    "source_path": url,
+                    "note": f"Anthropic endpoint requires auth (HTTP {status})",
+                }
+
+    return None
+
+
+async def _probe_gemini_models(base_url: str, verify_ssl: bool = False) -> Optional[dict]:
+    """策略 6: Gemini API 探测 (/v1/models 或 /v1beta/models)。"""
+    paths_to_try = [
+        "/v1/models",
+        "/v1beta/models",
+        "/api/v1/models",
+        "/api/v1beta/models",
+    ]
+
+    for path in paths_to_try:
+        url = urljoin(base_url, path)
+        status, data = await _http_get(url, timeout=10, verify_ssl=verify_ssl)
+
+        if status == 200 and isinstance(data, dict):
+            # Gemini 格式: {"models": [{"name": "models/gemini-2.0-flash", ...}, ...]}
+            if "models" in data and isinstance(data["models"], list) and len(data["models"]) > 0:
+                model_names = []
+                for item in data["models"]:
+                    if isinstance(item, dict) and "name" in item:
+                        name = item["name"]
+                        # 剥离 "models/" 前缀
+                        if name.startswith("models/"):
+                            name = name[7:]
+                        model_names.append(name)
+                if model_names:
+                    return {
+                        "model_name": model_names[0],
+                        "all_models": model_names,
+                        "confidence": 0.95,
+                        "endpoint_type": "gemini",
+                        "source_path": url,
+                    }
+                return {
+                    "model_name": None,
+                    "all_models": model_names,
+                    "confidence": 0.90,
+                    "endpoint_type": "gemini",
+                    "source_path": url,
+                    "note": "Gemini API detected but no models listed",
+                }
+        elif status in (401, 403):
+            return {
+                "model_name": None,
+                "confidence": 0.70,
+                "endpoint_type": "gemini",
+                "source_path": url,
+                "note": f"Gemini API endpoint requires auth (HTTP {status})",
+            }
+
+    return None
+
+
 async def _probe_get_info_page(base_url: str, verify_ssl: bool = False) -> Optional[dict]:
-    """策略 5: GET 根页面 + 信息端点，正则提取模型信息"""
+    """策略 7: GET 根页面 + 信息端点，正则提取模型信息"""
     paths_to_try = [
         "/",
         "/info",
@@ -817,6 +920,116 @@ _LLM_COMMON_PATHS = [
     "/key/generate",
     "/api/public/keys",
     "/api/public/projects",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P1: Debug 端点（AI 安全训练平台常见暴露路径）
+    # ═══════════════════════════════════════════════════════════════
+    "/debug",
+    "/debug/info",
+    "/debug/config",
+    "/debug/health",
+    "/debug/status",
+    "/debug/logs",
+    "/debug/env",
+    "/debug/routes",
+    "/debug/tokens",
+    "/debug/sessions",
+    "/debug/users",
+    "/admin/debug",
+    "/api/debug",
+    "/.debug",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P1: robots.txt（靶机常暴露内部路径）
+    # ═══════════════════════════════════════════════════════════════
+    "/robots.txt",
+    "/security.txt",
+    "/.well-known/robots.txt",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P1: Anthropic Messages API 端点
+    # ═══════════════════════════════════════════════════════════════
+    "/v1/messages",
+    "/api/v1/messages",
+    "/api/messages",
+    "/v1/complete",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P1: Gemini API 端点
+    # ═══════════════════════════════════════════════════════════════
+    "/v1beta/models",
+    "/api/v1beta/models",
+    "/v1beta/chat",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P1: 知识库 / RAG / 向量存储端点
+    # ═══════════════════════════════════════════════════════════════
+    "/api/v1/knowledge-base",
+    "/api/v1/knowledge-base/search",
+    "/api/v1/knowledge-base/query",
+    "/api/v1/knowledge-base/documents",
+    "/api/v1/knowledge-base/stats",
+    "/api/knowledge/search",
+    "/api/knowledge/query",
+    "/api/rag/search",
+    "/api/rag/query",
+    "/api/v1/semantic-search",
+    "/api/v1/hybrid-search",
+    "/api/v1/collections",
+    "/api/v1/collections/names",
+    "/api/v1/heartbeat",
+    "/api/v1/pre-flight-checks",
+    "/api/v1/retrieval",
+    "/v1/schema",
+    "/v1/nodes",
+    "/v1/meta",
+    "/v1/graphql",
+    "/v1/explore",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P2: Admin / 可观测性 / Dashboard 端点
+    # ═══════════════════════════════════════════════════════════════
+    "/ai/admin",
+    "/ai/admin/dashboard",
+    "/ai/admin/observability",
+    "/ai/admin/logs",
+    "/ai/admin/config",
+    "/api/v1/admin",
+    "/api/v1/admin/logs",
+    "/api/v1/admin/dashboard",
+    "/api/v1/admin/config",
+    "/api/v1/admin/users",
+    "/api/v1/admin/observability",
+    "/api/observability",
+    "/api/v1/observability",
+    "/observability",
+    "/monitoring",
+    "/api/v1/metrics",
+    "/api/logs",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P2: 业务端点（AI 平台特有）
+    # ═══════════════════════════════════════════════════════════════
+    "/api/v1/tickets",
+    "/api/v1/tickets/stats",
+    "/api/v1/products",
+    "/api/v1/products/catalog",
+    "/api/v1/labs",
+    "/api/v1/labs/modules",
+    "/api/v1/scenarios",
+    "/api/v1/courses",
+    "/api/v1/users/profile",
+    "/api/v1/users/role",
+    "/api/v1/dashboard/stats",
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🆕 P2: AI 安全过滤等级探测
+    # ═══════════════════════════════════════════════════════════════
+    "/api/v1/security/filter-level",
+    "/api/v1/security/config",
+    "/api/v1/security/policy",
+    "/api/v1/guardrails",
+    "/api/v1/guardrails/config",
 ]
 
 # 去重并保持优先级顺序（首次出现优先）
@@ -909,6 +1122,31 @@ _WEB_COMMON_PATHS = [
     "/assets",
     "/js",
     "/_next/static",
+    # 🆕 Debug 和 robots
+    "/debug",
+    "/debug/info",
+    "/debug/config",
+    "/debug/health",
+    "/robots.txt",
+    "/.well-known/robots.txt",
+    # 🆕 知识库 / RAG
+    "/api/v1/knowledge-base",
+    "/api/v1/knowledge-base/search",
+    "/api/v1/knowledge-base/query",
+    "/api/v1/knowledge-base/documents",
+    "/api/v1/knowledge-base/stats",
+    "/api/v1/security/filter-level",
+    "/api/v1/security/config",
+    # 🆕 管理/可观测性
+    "/ai/admin",
+    "/ai/admin/dashboard",
+    "/ai/admin/observability",
+    "/ai/admin/logs",
+    "/api/v1/admin",
+    "/api/v1/admin/logs",
+    "/api/v1/tickets",
+    "/api/v1/products",
+    "/api/v1/labs",
 ]
 
 # 框架指纹特征（用于自动识别 LLM 服务框架）
@@ -975,10 +1213,24 @@ _FRAMEWORK_FINGERPRINTS = {
         "paths": ["/api/v1/collections", "/api/v1/heartbeat"],
         "body_patterns": [r'"chroma"'],
     },
+    "aiselab": {
+        "paths": ["/ai/admin", "/debug/info", "/api/v1/knowledge-base", "/api/v1/tickets", "/mcp/sse"],
+        "body_patterns": [r'"aiselab"', r'"ai-security-lab"', r'"filter_level"', r'"knowledge_base"'],
+    },
     # ── MCP 协议 / Agent ──
     "mcp-server": {
         "paths": ["/mcp/sse", "/mcp/chat", "/mcp/tools", "/mcp/prompts", "/mcp/resources"],
         "body_patterns": [r'"mcp"', r'"model-context-protocol"', r'"server_info"'],
+    },
+    # 🆕 Anthropic API ──
+    "anthropic": {
+        "paths": ["/v1/messages", "/api/v1/messages", "/v1/complete"],
+        "body_patterns": [r'"type"\s*:\s*"message"', r'"anthropic"', r'"claude"'],
+    },
+    # 🆕 Gemini API ──
+    "gemini": {
+        "paths": ["/v1/models", "/v1beta/models", "/v1beta/chat"],
+        "body_patterns": [r'"gemini"', r'"generativeai"', r'"generativelanguage"'],
     },
     "openai-plugin": {
         "paths": ["/.well-known/ai-plugin.json", "/ai-plugin.json"],
