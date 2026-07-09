@@ -1,0 +1,11 @@
+{
+  "https://192.168.0.20/": {
+    "api_type": {
+      "api_type": "custom",
+      "model_name": null,
+      "models": [],
+      "confidence": 0.0
+    },
+    "cached_at": "2026-07-09T05:53:13.705278+00:00"
+  }
+}
