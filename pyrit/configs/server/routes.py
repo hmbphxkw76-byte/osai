@@ -31,6 +31,7 @@ from .utils import (
 from .target_config import (
     enumerate_ai_app_endpoints,
     test_target_connection,
+    scan_app_secrets,
 )
 
 # 延迟导入 targets 层探测函数（避免触发 SDK 依赖链）
@@ -321,6 +322,27 @@ def api_enumerate_app():
     timeout = body.get("timeout", 5)
     api_key = body.get("api_key", "").strip()
     result = _run_async(enumerate_ai_app_endpoints(url, verify_ssl=verify_ssl, timeout=timeout, api_key=api_key))
+    return jsonify(result)
+
+
+@bp.route("/api/target-config/secret-scan", methods=["POST"])
+def api_secret_scan():
+    """API Key 侦察 — SecretFinder-style 敏感信息扫描。
+
+    Body:
+      - url: 目标根 URL（必填）
+      - api_key: 可选认证令牌
+      - verify_ssl: SSL 验证
+      - timeout: 超时（秒）
+    """
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url 参数"}), 400
+    verify_ssl = bool(body.get("verify_ssl", False))
+    timeout = body.get("timeout", 20)
+    api_key = body.get("api_key", "").strip()
+    result = _run_async(scan_app_secrets(url, verify_ssl=verify_ssl, timeout=timeout, api_key=api_key))
     return jsonify(result)
 
 

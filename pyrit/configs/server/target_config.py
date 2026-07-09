@@ -74,6 +74,42 @@ async def enumerate_ai_app_endpoints(
         return {"ok": False, "endpoints": [], "summary": {}, "error": str(e)[:400]}
 
 
+# ── API Key 侦察 ──────────────────────────────────────────────────────────────
+
+async def scan_app_secrets(
+    base_url: str,
+    verify_ssl: bool = False,
+    timeout: float = 20.0,
+    api_key: str = "",
+) -> dict:
+    """一站式 API Key 侦察：获取首页 → 解析 JS → 扫描密钥。
+
+    Args:
+        base_url: 目标根 URL
+        verify_ssl: SSL 验证
+        timeout: 总超时
+        api_key: 可选认证头
+
+    Returns:
+        {"ok": bool, "findings": [dict, ...], "summary": dict, "error": str|None}
+    """
+    try:
+        from utils.secret_finder import run_secret_recon  # noqa: E402 延迟导入
+        normalized = normalize_target_url(base_url)
+        result = await run_secret_recon(
+            normalized.full_url,
+            verify_ssl=verify_ssl or normalized.verify_ssl,
+            timeout=timeout,
+            api_key=api_key,
+        )
+        return result
+    except ImportError as e:
+        return {"ok": False, "findings": [], "summary": {}, "error": f"模块不可用: {e}"}
+    except Exception as e:
+        logger.exception("API Key 侦察失败")
+        return {"ok": False, "findings": [], "summary": {}, "error": str(e)[:400]}
+
+
 def _endpoint_to_dict(e) -> dict:
     """DiscoveredEndpoint dataclass → JSON 安全 dict。"""
     data = asdict(e)
