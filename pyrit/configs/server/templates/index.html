@@ -509,6 +509,7 @@ window.runAppProbe = async function(probeType) {
     return;
   }
   const verifySsl = document.getElementById('app-verify-ssl').checked;
+  const apiKey = document.getElementById('app-api-key').value.trim();
   const resultDiv = document.getElementById('app-probe-result');
   resultDiv.classList.remove('hidden');
   resultDiv.innerHTML = '<div class="probe-loading">⏳ 探测中...</div>';
@@ -524,7 +525,7 @@ window.runAppProbe = async function(probeType) {
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_url: url, timeout: 15, verify_ssl: verifySsl }),
+      body: JSON.stringify({ target_url: url, api_key: apiKey, timeout: 15, verify_ssl: verifySsl }),
     });
     const data = await resp.json();
     renderProbeResult(resultDiv, probeType, data);
@@ -704,6 +705,10 @@ function buildTargetConfigHtml(cfg) {
       <div class="target-form-row">
         <label>AI 应用根 URL</label>
         <input type="text" id="app-url" placeholder="例如: http://192.168.0.20:8501/">
+      </div>
+      <div class="target-form-row">
+        <label>应用认证 Token / API Key（可选）</label>
+        <input type="text" id="app-api-key" placeholder="如应用需要登录/Token 才返回页面，可在此填写；将作为 Bearer Token 发送">
       </div>
       <div class="target-form-row">
         <label><input type="checkbox" id="app-verify-ssl" style="width:auto;margin-right:6px;"> 验证 SSL 证书</label>
