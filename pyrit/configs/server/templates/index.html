@@ -389,24 +389,19 @@
       </div>
 
       <div class="btn-row" style="border-top:none; padding-top:0; margin-top:0;">
-        <button class="btn" onclick="runProbe('connectivity')" title="第 1 步：确认目标可达">① 🔌 连通性测试</button>
-        <button class="btn" onclick="runProbe('api_type')" title="第 2 步：识别 OpenAI/Ollama/LangChain 等接口类型">② 💡 API 类型识别</button>
-        <button class="btn highlight" onclick="runProbe('smart-discover')" title="第 3 步：从首页 HTML 智能嗅探内嵌 LLM 端点">③ 🕷 智能发现端点</button>
-        <button class="btn warn" onclick="runProbe('enumerate')" title="第 4 步：深度枚举全部端点（耗时较长）">④ 🔍 枚举端点</button>
-        <button class="btn" onclick="runProbe('models')" title="第 5 步：基于已发现端点列出可用模型">⑤ 📋 模型枚举</button>
+        <button class="btn" id="probe-btn-connectivity" onclick="runProbe('connectivity')" title="第 1 步：确认目标可达（点击运行/停止）">① 🔌 连通性测试</button>
+        <button class="btn" id="probe-btn-api_type" onclick="runProbe('api_type')" title="第 2 步：识别 OpenAI/Ollama/LangChain 等接口类型（点击运行/停止）">② 💡 API 类型识别</button>
+        <button class="btn highlight" id="probe-btn-smart-discover" onclick="runProbe('smart-discover')" title="第 3 步：从首页 HTML 智能嗅探内嵌 LLM 端点（点击运行/停止）">③ 🕷 智能发现端点</button>
+        <button class="btn warn" id="probe-btn-enumerate" onclick="runProbe('enumerate')" title="第 4 步：深度枚举全部端点（点击运行/停止）">④ 🔍 枚举端点</button>
+        <button class="btn" id="probe-btn-models" onclick="runProbe('models')" title="第 5 步：基于已发现端点列出可用模型（点击运行/停止）">⑤ 📋 模型枚举</button>
       </div>
 
       <div class="btn-row" style="border-top:none; padding-top:4px; margin-top:0;">
-        <button class="btn" onclick="runProbe('secret-scan')" title="第 6 步：扫描 JS 文件中的泄露 API Key（SecretFinder + TruffleHog）">⑥ 🔑 API Key 侦察</button>
-        <button class="btn warn" onclick="runProbe('guardrail')" title="第 7 步：探测目标安全护栏强度，决定攻击策略">⑦ 🛡 安全护栏探测</button>
+        <button class="btn" id="probe-btn-secret-scan" onclick="runProbe('secret-scan')" title="第 6 步：扫描 JS 文件中的泄露 API Key（点击运行/停止）">⑥ 🔑 API Key 侦察</button>
+        <button class="btn warn" id="probe-btn-guardrail" onclick="runProbe('guardrail')" title="第 7 步：探测目标安全护栏强度（点击运行/停止）">⑦ 🛡 安全护栏探测</button>
       </div>
 
-      <div id="probe-result"></div>
-      <div id="enumerate-result" style="display:none;"></div>
-      <div id="models-result" style="display:none;"></div>
-      <div id="smartdiscover-result" style="display:none;"></div>
-      <div id="secretscan-result" style="display:none;"></div>
-      <div id="guardrail-result" style="display:none;"></div>
+      <div id="probe-results" class="probe-results-container"></div>
 
       <div class="btn-row">
         <button class="btn secondary" onclick="goToStep(2)">← 上一步</button>
@@ -1261,13 +1256,16 @@ window.toggleAdvanced = function(id) {
 };
 
 // ============================================================================
-// 步骤 3：端点探测
+// 步骤 3：端点探测（并行模式 — 各探测独立运行、互不阻塞）
 // ============================================================================
-// 探测控制器（支持停止/取消）
-let _probeController = null;
-let _probeRunning = false;
-let _probeStartTs = 0;
-let _probeTimer = null;
+// 每个探测类型独立的会话状态
+const _probeSessions = {};
+function _getSession(probeType) {
+  if (!_probeSessions[probeType]) {
+    _probeSessions[probeType] = { controller: null, running: false, startTs: 0, timer: null, silentTimer: null, hardTimer: null, jobId: '' };
+  }
+  return _probeSessions[probeType];
+}
 
 function fmtElapsed(ms) {
   if (ms < 1000) return `${ms}ms`;
@@ -1275,21 +1273,45 @@ function fmtElapsed(ms) {
   return `${s}s`;
 }
 
-window.stopProbe = function() {
-  if (_probeController) {
-    try { _probeController.abort(); } catch (e) {}
-    _probeController = null;
+function _probeLabel(probeType) {
+  const m = { connectivity:'连通性测试', api_type:'API 类型识别', models:'模型枚举', enumerate:'端点枚举', 'smart-discover':'智能发现', 'secret-scan':'API Key 侦察', guardrail:'护栏探测' };
+  return m[probeType] || probeType;
+}
+
+function _probeResultDivId(probeType) { return `probe-result-${probeType}`; }
+
+// 按钮 visual state: active = 有脉冲动画 + 虚线边框
+function _updateProbeBtn(probeType) {
+  const btn = document.getElementById(`probe-btn-${probeType}`);
+  if (!btn) return;
+  const s = _getSession(probeType);
+  if (s.running) { btn.classList.add('probe-active'); }
+  else { btn.classList.remove('probe-active'); }
+}
+
+// 确保结果区 div 存在
+function _ensureResultDiv(probeType) {
+  let div = document.getElementById(_probeResultDivId(probeType));
+  if (!div) {
+    div = document.createElement('div');
+    div.id = _probeResultDivId(probeType);
+    div.className = 'probe-result-block';
+    document.getElementById('probe-results').appendChild(div);
   }
-  if (_probeTimer) { clearInterval(_probeTimer); _probeTimer = null; }
-  _probeRunning = false;
-  const resultDiv = document.getElementById('probe-result');
-  if (resultDiv) {
-    resultDiv.innerHTML = `<div class="result-card" style="border-left:4px solid #f59e0b;">
-      <h4>⏹ 探测已停止</h4>
-      <div class="hint-block">用户主动取消了本次探测。可重新点击按钮再次尝试，或调整目标 URL/认证后重试</div>
-    </div>`;
-  }
-  showToast('warn', '探测已停止');
+  return div;
+}
+
+window.stopProbe = function(probeType) {
+  if (!probeType) return;
+  const s = _getSession(probeType);
+  if (s.hardTimer) { clearTimeout(s.hardTimer); s.hardTimer = null; }
+  if (s.controller) { try { s.controller.abort(); } catch (e) {} s.controller = null; }
+  if (s.timer) { clearInterval(s.timer); s.timer = null; }
+  if (s.silentTimer) { clearInterval(s.silentTimer); s.silentTimer = null; }
+  s.running = false;
+  _updateProbeBtn(probeType);
+  const div = document.getElementById(_probeResultDivId(probeType));
+  if (div) { div.innerHTML = ''; }
 };
 
 // 全局 fetch 兜底：30s 内未响应则自动中止（防止后端无返回导致永久转圈）
@@ -1321,56 +1343,54 @@ const PROBE_TIMEOUTS = {
 const _probeProgress = {}; // { [probeType]: { lastSeen: number, jobId: string, detail: string } }
 
 window.runProbe = async function(probeType) {
+  const s = _getSession(probeType);
+
+  // Toggle：点击运行中的按钮 → 停止该探测
+  if (s.running) {
+    stopProbe(probeType);
+    return;
+  }
+
   const url = document.getElementById('probe-target-url').value.trim();
   if (!url) {
     showToast('error', '请填写目标 URL');
     return;
   }
-  // 防止重复点击：如有探测在进行，先停止
-  if (_probeRunning) {
-    stopProbe();
-    // 等待 100ms 让旧请求真正取消
-    await new Promise(r => setTimeout(r, 100));
-  }
 
   const cfg = PROBE_TIMEOUTS[probeType] || PROBE_TIMEOUTS.connectivity;
-
-  const resultDiv = document.getElementById('probe-result');
+  const resultDiv = _ensureResultDiv(probeType);
   resultDiv.style.display = 'block';
   resultDiv.innerHTML = `<div class="result-card">
     <div class="probe-status">
-      <div class="probe-loading"><span class="loading-spinner"></span> 探测中... <span id="probe-elapsed" style="color:var(--text-dim);font-size:11px;margin-left:6px;">0s</span> <span id="probe-progress" style="color:var(--text-dim);font-size:11px;margin-left:6px;"></span></div>
-      <button class="btn-stop" onclick="stopProbe()">⏹ 停止</button>
+      <div class="probe-loading"><span class="loading-spinner"></span> ${_probeLabel(probeType)}... <span id="probe-elapsed-${probeType}" style="color:var(--text-dim);font-size:11px;margin-left:6px;">0s</span> <span id="probe-progress-${probeType}" style="color:var(--text-dim);font-size:11px;margin-left:6px;"></span></div>
+      <button class="btn-stop" onclick="stopProbe('${probeType}')">⏹ 停止</button>
     </div>
-    <div class="hint-block">💡 探测超过 ${Math.round(cfg.hardTimeoutMs/1000)}s 仍在转圈？点击「停止」后调整 URL 或认证再试</div>
+    <div class="hint-block">⚠️ 超过 ${Math.round(cfg.hardTimeoutMs/1000)}s 将自动停止</div>
   </div>`;
 
-  // 启动计时器
-  _probeStartTs = Date.now();
-  const elapsedEl = document.getElementById('probe-elapsed');
-  const progressEl = document.getElementById('probe-progress');
-  if (_probeTimer) clearInterval(_probeTimer);
-  _probeTimer = setInterval(() => {
-    if (elapsedEl) elapsedEl.textContent = fmtElapsed(Date.now() - _probeStartTs);
+  s.startTs = Date.now();
+  const elapsedEl = document.getElementById(`probe-elapsed-${probeType}`);
+  const progressEl = document.getElementById(`probe-progress-${probeType}`);
+  if (s.timer) clearInterval(s.timer);
+  s.timer = setInterval(() => {
+    if (elapsedEl) elapsedEl.textContent = fmtElapsed(Date.now() - s.startTs);
   }, 200);
 
-  // 创建 AbortController（含分级硬超时 + 静默 watchdog）
-  _probeController = new AbortController();
-  const hardTimer = setTimeout(() => {
-    if (_probeController) {
-      try { _probeController.abort(); } catch (e) {}
-      showToast('warn', `探测超过 ${Math.round(cfg.hardTimeoutMs/1000)}s 仍未返回，已自动停止`);
+  s.controller = new AbortController();
+  s.hardTimer = setTimeout(() => {
+    if (s.controller) {
+      try { s.controller.abort(); } catch (e) {}
+      showToast('warn', `${_probeLabel(probeType)} 超时 ${Math.round(cfg.hardTimeoutMs/1000)}s，已自动停止`);
     }
   }, cfg.hardTimeoutMs);
 
-  // 静默 watchdog：定期轮询进度接口，若 silentTimeoutMs 内无任何更新则中止
   const probeJobId = `${probeType}_${Date.now()}`;
+  s.jobId = probeJobId;
   _probeProgress[probeType] = { lastSeen: Date.now(), jobId: probeJobId, detail: '已发送请求...' };
-  let silentTimer = null;
   if (cfg.silentPollUrl) {
-    silentTimer = setInterval(async () => {
+    s.silentTimer = setInterval(async () => {
       const ctx = _probeProgress[probeType];
-      if (!ctx || ctx.jobId !== probeJobId) return; // 已被新任务覆盖
+      if (!ctx || ctx.jobId !== probeJobId) return;
       try {
         const r = await fetch(`${cfg.silentPollUrl}?probe=${probeType}&job=${probeJobId}`, { cache: 'no-store' });
         if (r.ok) {
@@ -1381,16 +1401,18 @@ window.runProbe = async function(probeType) {
             if (progressEl && j.detail) progressEl.textContent = `· ${j.detail}`;
           }
         }
-      } catch (_) { /* 网络抖动忽略 */ }
+      } catch (_) {}
       if (Date.now() - ctx.lastSeen > cfg.silentTimeoutMs) {
-        if (_probeController) {
-          try { _probeController.abort(); } catch (e) {}
-          showToast('warn', `目标无响应（静默 ${Math.round(cfg.silentTimeoutMs/1000)}s），已自动停止`);
+        if (s.controller) {
+          try { s.controller.abort(); } catch (e) {}
+          showToast('warn', `${_probeLabel(probeType)} 目标无响应（静默 ${Math.round(cfg.silentTimeoutMs/1000)}s），已自动停止`);
         }
       }
     }, 3000);
   }
-  _probeRunning = true;
+
+  s.running = true;
+  _updateProbeBtn(probeType);
 
   let endpoint = '';
   let body = { target_url: url, timeout: 15, verify_ssl: state.verifySsl };
@@ -1404,17 +1426,14 @@ window.runProbe = async function(probeType) {
   } else if (probeType === 'enumerate') {
     endpoint = '/api/target-config/enumerate';
     body.verify_ssl = state.verifySsl;
-    // 该路由读取 body.url，与其他探测的 target_url 不一致
     body.url = url;
     delete body.target_url;
-    body.timeout = 60;       // 枚举单路径探测给宽松时间
-    body.job_id = probeJobId; // 传给后端用于进度上报
-    // 由后端自动合并已保存的认证
+    body.timeout = 60;
+    body.job_id = probeJobId;
   } else if (probeType === 'smart-discover') {
     endpoint = '/api/target-config/smart-discover';
     body.verify_ssl = state.verifySsl;
     body.timeout = 15;
-    // 该路由同样读取 body.url
     body.url = url;
     delete body.target_url;
     body.job_id = probeJobId;
@@ -1439,11 +1458,10 @@ window.runProbe = async function(probeType) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: _probeController.signal,
+      signal: s.controller.signal,
     });
     let data = null;
     try { data = await resp.json(); } catch (_) { data = { error: `HTTP ${resp.status} 响应非 JSON` }; }
-    // 任何非 2xx 都视为失败，渲染错误并停止转圈
     if (!resp.ok) {
       const msg = (data && (data.error || data.detail)) ? (data.error || data.detail) : `HTTP ${resp.status}`;
       resultDiv.innerHTML = `<div class="result-card error">
@@ -1460,23 +1478,21 @@ window.runProbe = async function(probeType) {
     else if (probeType === 'secret-scan') renderSecretScanResult(data);
     else if (probeType === 'guardrail') renderGuardrailResult(data);
   } catch (e) {
-    if (e.name === 'AbortError') {
-      // 已被静默/硬超时/用户主动停止 — stopProbe 中已渲染或在 watchdog 中提示
-      return;
-    }
+    if (e.name === 'AbortError') return;
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(String(e))}</div></div>`;
   } finally {
-    clearTimeout(hardTimer);
-    if (silentTimer) { clearInterval(silentTimer); silentTimer = null; }
-    if (_probeTimer) { clearInterval(_probeTimer); _probeTimer = null; }
-    _probeController = null;
-    _probeRunning = false;
+    clearTimeout(s.hardTimer); s.hardTimer = null;
+    if (s.silentTimer) { clearInterval(s.silentTimer); s.silentTimer = null; }
+    if (s.timer) { clearInterval(s.timer); s.timer = null; }
+    s.controller = null;
+    s.running = false;
+    _updateProbeBtn(probeType);
     delete _probeProgress[probeType];
   }
 };
 
 function renderConnectivityResult(data) {
-  const resultDiv = document.getElementById('probe-result');
+  const resultDiv = document.getElementById(_probeResultDivId('connectivity'));
   if (data.reachable) {
     markStepDone(3);
     resultDiv.innerHTML = `<div class="result-card success">
