@@ -1512,7 +1512,7 @@ function renderConnectivityResult(data) {
 }
 
 function renderApiTypeResult(data) {
-  const resultDiv = document.getElementById('probe-result');
+  const resultDiv = document.getElementById(_probeResultDivId('api_type'));
   const conf = ((data.confidence || 0) * 100).toFixed(0);
   const apiTypeText = data.api_type || 'unknown';
   const success = apiTypeText !== 'unknown';
@@ -1546,7 +1546,7 @@ function renderApiTypeResult(data) {
 }
 
 function renderModelsResult(data) {
-  const resultDiv = document.getElementById('models-result');
+  const resultDiv = document.getElementById(_probeResultDivId('models'));
   resultDiv.style.display = 'block';
   if (data.models && data.models.length > 0) {
     markStepDone(3);
@@ -1584,7 +1584,7 @@ function renderModelChips(containerId, models, targetInput) {
 }
 
 function renderEnumerateResult(data) {
-  const resultDiv = document.getElementById('enumerate-result');
+  const resultDiv = document.getElementById(_probeResultDivId('enumerate'));
   resultDiv.style.display = 'block';
   if (!data.ok) {
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '枚举失败')}</div></div>`;
@@ -1649,7 +1649,7 @@ function renderEnumerateResult(data) {
 
 // ── 智能发现结果渲染 ──
 function renderSmartDiscoverResult(data) {
-  const resultDiv = document.getElementById('smartdiscover-result');
+  const resultDiv = document.getElementById(_probeResultDivId('smart-discover'));
   resultDiv.style.display = 'block';
   if (!data.ok) {
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '智能发现失败')}</div><div class="hint-block">${escapeHtml(data.suggestion || '')}</div></div>`;
@@ -1738,7 +1738,7 @@ function renderSmartDiscoverResult(data) {
 
 // ── API Key 侦察结果渲染 ──
 function renderSecretScanResult(data) {
-  const resultDiv = document.getElementById('secretscan-result');
+  const resultDiv = document.getElementById(_probeResultDivId('secret-scan'));
   resultDiv.style.display = 'block';
   if (!data.ok) {
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '扫描失败')}</div></div>`;
@@ -1786,7 +1786,7 @@ function renderSecretScanResult(data) {
 
 // ── 安全护栏探测结果渲染 ──
 function renderGuardrailResult(data) {
-  const resultDiv = document.getElementById('guardrail-result');
+  const resultDiv = document.getElementById(_probeResultDivId('guardrail'));
   resultDiv.style.display = 'block';
   if (!data.ok) {
     resultDiv.innerHTML = `<div class="result-card error"><div class="error-block">❌ ${escapeHtml(data.error || '护栏探测失败')}</div></div>`;
