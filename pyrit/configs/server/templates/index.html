@@ -803,13 +803,24 @@ async function enumerateApp() {
     const resp = await fetch('/api/target-config/enumerate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, verify_ssl: document.getElementById('app-verify-ssl').checked})
+      body: JSON.stringify({
+        url,
+        api_key: document.getElementById('app-api-key').value.trim(),
+        verify_ssl: document.getElementById('app-verify-ssl').checked
+      })
     });
     const data = await resp.json();
     renderEnumerateResult(data);
   } catch (e) {
     resultDiv.innerHTML = '<div class="probe-error">❌ 网络错误: ' + escapeHtml(String(e)) + '</div>';
   }
+}
+
+function classifyEndpoint(path) {
+  const lower = path.toLowerCase();
+  const aiMarkers = ['chat', 'completion', 'models', 'generate', 'tags', 'embedding', 'tokenize', 'ollama', 'v1/', 'openai', 'llm', 'predict', 'infer'];
+  if (aiMarkers.some(m => lower.includes(m))) return 'AI';
+  return 'Web';
 }
 
 function renderEnumerateResult(data) {
@@ -820,12 +831,38 @@ function renderEnumerateResult(data) {
   }
   const eps = (data.endpoints || []).filter(e => e.status === 200 || e.status === 401 || e.status === 403);
   if (eps.length === 0) {
-    resultDiv.innerHTML = '<div class="probe-card">ℹ️ 未发现可识别端点</div>';
+    let hint = 'ℹ️ 未发现可识别端点';
+    const home = data.summary?.homepage;
+    if (home && home.status === 401) {
+      hint += '<div class="probe-hint">💡 首页返回 401，可能需要在上方「应用认证 Token / API Key」中填写凭证后重试</div>';
+    } else if (home && !home.is_html && home.status === 200) {
+      hint += '<div class="probe-hint">💡 首页返回非 HTML 内容，目标可能是纯 API 服务，建议直接选择「OpenAI 兼容 API」或「Ollama 本地部署」</div>';
+    }
+    resultDiv.innerHTML = '<div class="probe-card">' + hint + '</div>';
     return;
   }
-  let html = '<div class="probe-card"><h4>📍 发现端点</h4><table class="endpoint-table"><thead><tr><th>路径</th><th>状态</th><th>框架</th><th>操作</th></tr></thead><tbody>';
+
+  const summary = data.summary || {};
+  const home = summary.homepage || {};
+  const jsExtracted = summary.js_pre_extracted_paths || [];
+
+  let html = '<div class="probe-card">';
+  html += '<h4>📍 发现端点</h4>';
+  html += '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">';
+  html += '首页状态: <strong>' + (home.status || 'N/A') + '</strong> · ';
+  html += 'HTML: <strong>' + (home.is_html ? '是' : '否') + '</strong> · ';
+  html += '扫描路径: <strong>' + (summary.total_paths_probed || eps.length) + '</strong> · ';
+  html += 'JS 预提取: <strong>' + jsExtracted.length + '</strong>';
+  html += '</div>';
+
+  html += '<table class="endpoint-table"><thead><tr><th>类别</th><th>路径</th><th>状态</th><th>框架</th><th>操作</th></tr></thead><tbody>';
   eps.forEach(e => {
-    html += '<tr><td>' + escapeHtml(e.path) + '</td><td>' + escapeHtml(String(e.status)) + '</td><td>' + escapeHtml(e.framework_hint || '-') + '</td>';
+    const category = classifyEndpoint(e.path);
+    const statusText = e.status === 401 || e.status === 403 ? (e.status + ' <span class="auth-hint">需认证</span>') : String(e.status);
+    html += '<tr><td><span class="endpoint-category ' + category.toLowerCase() + '">' + category + '</span></td>';
+    html += '<td>' + escapeHtml(e.path) + '</td>';
+    html += '<td>' + statusText + '</td>';
+    html += '<td>' + escapeHtml(e.framework_hint || '-') + '</td>';
     html += '<td><button class="small-btn" onclick=\'useEndpointAsAttack(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为攻击</button> ';
     html += '<button class="small-btn" onclick=\'useEndpointAsScore(' + JSON.stringify(e.path) + ', ' + JSON.stringify(e.framework_hint || '') + ')\'>设为评分</button></td></tr>';
   });
