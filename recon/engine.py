@@ -63,6 +63,9 @@ class ReconEngine:
         verify_ssl: bool = False,
         ca_cert: Optional[str] = None,
         rate_profile: str = "stealth",
+        interactive_login: bool = False,
+        manual_login: bool = False,
+        manual_login_timeout: int = 120,
     ):
         self.target_url = target_url.rstrip("/")
         self.login_url = login_url
@@ -82,6 +85,9 @@ class ReconEngine:
         self.ca_cert = ca_cert
         self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
         self.rate_profile = rate_profile
+        self.interactive_login = interactive_login
+        self.manual_login = manual_login
+        self.manual_login_timeout = manual_login_timeout
 
         self.profile = TargetProfile()
         self._setup_meta()
@@ -341,23 +347,54 @@ class ReconEngine:
             console.print(f"  [yellow]⚠ HTTP 基线探测失败: {e}[/yellow]")
 
     async def _phase2_auth(self):
-        """Phase 2: 认证流程自动化。"""
+        """Phase 2: 认证流程自动化。
+
+        支持四种模式（按优先级）:
+        1. 参数自动登录 (--login-cred): JSON 凭据
+        2. CLI 安全输入 (--interactive-login): 终端提示输入密码
+        3. 手动登录捕获 (--manual-login): headed 浏览器手动登录
+        4. Cookie/Bearer 注入: 直接跳过登录
+        """
+        # 如果没有浏览器，只处理 Bearer/Cookie 注入
         if not self._browser or not self._login:
             return
-        if not self.login_url and not self.login_cred:
-            return
+
+        # 决定使用哪种登录模式
+        login_mode = None  # "auto" / "interactive" / "manual"
+        if self.manual_login:
+            login_mode = "manual"
+        elif self.interactive_login:
+            login_mode = "interactive"
+        elif self.login_cred:
+            login_mode = "auto"
+        else:
+            return  # 无登录需求
 
         console.print()
         console.print("[bold cyan]🔐 Phase 2: 认证流程[/bold cyan]")
 
+        login_url = self.login_url or self.target_url
+
         try:
-            result = await self._login.auto_login(
-                login_url=self.login_url or self.target_url,
-                credentials=self.login_cred,
-            )
+            if login_mode == "manual":
+                result = await self._login.manual_login(
+                    login_url=login_url,
+                    wait_timeout=self.manual_login_timeout,
+                )
+            elif login_mode == "interactive":
+                result = await self._login.interactive_login(
+                    login_url=login_url,
+                    timeout=self.timeout,
+                )
+            else:
+                result = await self._login.auto_login(
+                    login_url=login_url,
+                    credentials=self.login_cred,
+                )
+
             if result.success:
                 self.profile.auth = result.to_auth_info()
-                # 回填到 traffic capture 的 cookies
+                # 回填到 traffic capture
                 if self._traffic and result.cookies:
                     self._traffic.set_cookies(result.cookies)
                 console.print(

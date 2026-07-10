@@ -9,10 +9,20 @@ Playwright 驱动的 SPA 渲染 + API 端点发现 + 认证流程自动化。
   # 基础扫描
   python main.py --target https://192.168.0.20
 
-  # 完整 SPA 侦察 + 登录
+  # 完整 SPA 侦察 + JSON 凭据登录
   python main.py --target https://192.168.0.20 \\
     --login-url https://192.168.0.20/login \\
     --login-cred '{"username":"admin","password":"password"}'
+
+  # CLI 安全输入登录（密码不回显，不保存密码）
+  python main.py --target https://192.168.0.20 \\
+    --login-url https://192.168.0.20/login \\
+    --interactive-login
+
+  # 手动登录 + 自动捕获 Cookie（支持 MFA/验证码等）
+  python main.py --target https://192.168.0.20 \\
+    --login-url https://192.168.0.20/login \\
+    --manual-login
 
   # 仅 HTTP 模式（无浏览器）
   python main.py --target https://192.168.0.20 --no-spa --dict-scan
@@ -46,6 +56,8 @@ async def main():
 示例:
   python main.py --target https://192.168.0.20
   python main.py --target https://192.168.0.20 --login-cred '{"username":"admin","password":"pass"}'
+  python main.py --target https://192.168.0.20 --login-url https://192.168.0.20/login --interactive-login
+  python main.py --target https://192.168.0.20 --login-url https://192.168.0.20/login --manual-login
   python main.py --target https://192.168.0.20 --no-spa --dict-scan
   python main.py --target https://api.example.com --auth-bearer "sk-xxx"
         """,
@@ -63,6 +75,12 @@ async def main():
                             help="登录页面 URL (如 https://target.com/login)")
     auth_group.add_argument("--login-cred",
                             help='登录凭据 JSON (如 \'{"username":"admin","password":"pass"}\')')
+    auth_group.add_argument("--interactive-login", action="store_true",
+                            help="CLI 安全输入模式 — 终端提示输入用户名和密码（密码不回显）")
+    auth_group.add_argument("--manual-login", action="store_true",
+                            help="手动登录模式 — 启动 headed 浏览器，用户手动完成登录后自动捕获 Cookie")
+    auth_group.add_argument("--manual-login-timeout", type=int, default=120,
+                            help="手动登录最长等待秒数 (默认: 120)")
     auth_group.add_argument("--auth-cookie",
                             help="直接注入的 Cookie (如 'session=abc123')")
     auth_group.add_argument("--auth-bearer",
@@ -163,12 +181,15 @@ async def main():
         enable_js_extraction=not args.no_js_extract,
         enable_traffic_capture=not args.no_traffic,
         enable_dict_scan=args.dict_scan,
-        headless=not args.headed,
+        headless=not (args.headed or args.manual_login),  # manual-login 强制 headed
         output_dir=args.output,
         concurrency=args.concurrency,
         timeout=args.timeout,
         verify_ssl=args.verify_ssl,
         rate_profile=args.rate_profile,
+        interactive_login=args.interactive_login,
+        manual_login=args.manual_login,
+        manual_login_timeout=args.manual_login_timeout,
     )
 
     try:

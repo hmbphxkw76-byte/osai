@@ -18,8 +18,10 @@ from recon.schema import (
 
 _CATEGORY_RULES = [
     # (路径正则, HTTP方法, 响应Content-Type正则, 分类)
-    (r"(?:/chat|/completion|/message|/ask|/query|/generate|/conversation)", None, r"application/json", EndpointCategory.CHAT),
+    # Chat 类: 覆盖单复数形式的对话/会话/线程端点
+    (r"(?:/chat|/chats|/completion|/message|/messages|/ask|/query|/generate|/conversation|/conversations|/thread|/threads)", None, r"application/json", EndpointCategory.CHAT),
     (r"(?:/login|/auth|/token|/signin|/signup|/register|/oauth)", None, None, EndpointCategory.AUTH),
+    (r"(?:/login|/auth|/token|/signin|/signup|/register|/oauth)", None, r"application/json", EndpointCategory.AUTH),
     (r"(?:/rag|/retriev|/knowledge|/vector|/search|/embedding|/semantic)", None, None, EndpointCategory.RAG),
     (r"(?:/upload|/file|/import|/attachment)", "POST", None, EndpointCategory.UPLOAD),
     (r"(?:/admin|/manage|/dashboard|/panel)", None, None, EndpointCategory.ADMIN),
@@ -31,6 +33,20 @@ _CATEGORY_RULES = [
     (r"(?:/stream|/sse|/events)", None, None, EndpointCategory.STREAM),
     (r"(?:/debug|/console|/inspect|/trace)", None, None, EndpointCategory.DEBUG),
     (r"\.(?:js|css|png|jpg|svg|ico|woff|ttf|map)$", None, None, EndpointCategory.STATIC),
+]
+
+# RESTful Chat 资源模式 — POST 创建 + GET 获取的复合端点
+_RESTFUL_CHAT_PATTERNS = [
+    # (API格式, 集合路径正则, 单项路径正则, 置信度加成)
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/conversations?$",     r"/api/v\d+/conversations?/\w+$",                  0.35),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/chats?$",            r"/api/v\d+/chats?/\w+$",                         0.35),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/threads?$",          r"/api/v\d+/threads?/\w+$",                       0.35),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/sessions?$",         r"/api/v\d+/sessions?/\w+$",                      0.30),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/messages?$",         r"/api/v\d+/messages?/\w+$",                      0.30),
+    (ApiFormat.RAW_JSON.value, r"/api/conversations?$",         r"/api/conversations?/\w+$",                       0.30),
+    (ApiFormat.RAW_JSON.value, r"/api/chats?$",                 r"/api/chats?/\w+$",                               0.30),
+    (ApiFormat.RAW_JSON.value, r"/api/threads?$",               r"/api/threads?/\w+$",                             0.30),
+    (ApiFormat.RAW_JSON.value, r"/api/sessions?$",              r"/api/sessions?/\w+$",                            0.25),
 ]
 
 
@@ -52,6 +68,16 @@ _CHAT_ENDPOINT_PATTERNS = [
     (ApiFormat.RAW_JSON.value,        r"/query$",                0.15),
     (ApiFormat.RAW_JSON.value,        r"/message$",              0.15),
     (ApiFormat.RAW_JSON.value,        r"/conversation$",         0.10),
+    # RESTful 资源模式
+    (ApiFormat.RAW_JSON.value,        r"/api/v\d+/conversations?$",  0.28),
+    (ApiFormat.RAW_JSON.value,        r"/api/v\d+/chats?$",         0.28),
+    (ApiFormat.RAW_JSON.value,        r"/api/v\d+/threads?$",       0.28),
+    (ApiFormat.RAW_JSON.value,        r"/api/v\d+/messages?$",      0.25),
+    (ApiFormat.RAW_JSON.value,        r"/api/v\d+/sessions?$",      0.22),
+    (ApiFormat.RAW_JSON.value,        r"/api/conversations?$",      0.25),
+    (ApiFormat.RAW_JSON.value,        r"/api/chats?$",              0.25),
+    (ApiFormat.RAW_JSON.value,        r"/api/threads?$",            0.25),
+    (ApiFormat.RAW_JSON.value,        r"/api/messages?$",           0.22),
 ]
 
 
@@ -100,8 +126,8 @@ class EndpointInferrer:
         else:
             confidence = Confidence.LOW.value
 
-        # 判断是否为 chat 端点
-        is_chat = category == EndpointCategory.CHAT.value and method.upper() == "POST"
+        # 判断是否为 chat 端点（放宽到 GET/POST，覆盖 RESTful 资源模式）
+        is_chat = self._is_chat_endpoint(path, method, category, status, content_type)
 
         # 判断是否需要认证
         requires_auth = status in (401, 403)
@@ -120,6 +146,43 @@ class EndpointInferrer:
             body_snippet=network_entry.get("body_snippet", "") or network_entry.get("body", "")[:300],
         )
 
+    @staticmethod
+    def _is_chat_endpoint(path: str, method: str, category: str, status: int, content_type: str) -> bool:
+        """智能判断端点是否为 AI Chat 端点。
+
+        覆盖两种模式：
+        A. 经典 Chat API: POST + 固定路径 (如 /v1/chat/completions)
+        B. RESTful Chat API: POST 创建资源 + GET 获取会话/消息
+           (如 POST /api/v1/conversations + GET /api/v1/conversations/{id})
+
+        判定规则：
+        1. 分类为 CHAT 且状态码 200 的方法（GET/POST 均可）
+        2. RESTful 资源模式匹配（POST 集合 + GET 单个资源）
+        3. 有 JSON 响应体的会话/消息/线程相关端点
+        """
+        if status != 200:
+            return False
+
+        # 规则 1: 分类器已识别为 CHAT 类别
+        if category == EndpointCategory.CHAT.value:
+            return True
+
+        # 规则 2: RESTful 资源模式检测
+        for _, collection_pat, item_pat, _ in _RESTFUL_CHAT_PATTERNS:
+            if re.search(collection_pat, path, re.IGNORECASE) and method.upper() == "POST":
+                return True
+            if re.search(item_pat, path, re.IGNORECASE) and method.upper() in ("GET", "POST"):
+                return True
+
+        # 规则 3: 包含对话关键路径 + JSON 响应（捕获未被规则1命中的端点）
+        chat_keywords = ["conversation", "chat", "thread", "message", "session"]
+        path_lower = path.lower()
+        if any(kw in path_lower for kw in chat_keywords):
+            if "json" in content_type.lower():
+                return True
+
+        return False
+
     def infer_chat_endpoint(
         self,
         endpoints: list[ApiEndpoint],
@@ -127,25 +190,39 @@ class EndpointInferrer:
     ) -> InferenceResult:
         """从已发现的端点列表中推断最可能的 Chat API 端点。
 
-        策略：
-        1. 优先选择已标记 is_chat_endpoint=True 且返回 200 的
-        2. 按 _CHAT_ENDPOINT_PATTERNS 路径模式匹配评分
-        3. 降级到选择第一个返回 200 的 POST JSON 端点
-        4. 兜底到 base_url + /v1/chat/completions
+        策略（按优先级降序）：
+        1. 优先选择已标记 is_chat_endpoint=True 且 POST 的（直接可攻击）
+        2. RESTful 资源模式的 POST 集合端点（如 POST /api/v1/conversations）
+        3. 按 _CHAT_ENDPOINT_PATTERNS 路径模式匹配评分
+        4. 降级到选择第一个返回 200 的 POST JSON 端点
+        5. 兜底到 base_url + /v1/chat/completions
         """
         result = InferenceResult()
 
-        # 策略 1: 已有的 chat 端点
+        # 策略 1: 已有的 chat 端点（POST 优先）
         chat_eps = [ep for ep in endpoints if ep.is_chat_endpoint and ep.status == 200]
-        if chat_eps:
-            best = chat_eps[0]
+        post_chat = [ep for ep in chat_eps if ep.method.upper() == "POST"]
+        if post_chat:
+            best = post_chat[0]
             result.chat_api_url = best.full_url
             result.api_format = self._guess_api_format(best.path, best.content_type)
             result.confidence = 0.90
-            result.evidence = [f"chat endpoint (status=200): {best.path}"]
+            result.evidence = [f"chat endpoint POST (status=200): {best.path}"]
             return result
 
-        # 策略 2: 路径模式评分
+        # 策略 2: RESTful 资源模式的 POST 集合端点
+        for ep in endpoints:
+            if ep.status != 200 or ep.method.upper() != "POST":
+                continue
+            for _, collection_pat, _, _ in _RESTFUL_CHAT_PATTERNS:
+                if re.search(collection_pat, ep.path, re.IGNORECASE):
+                    result.chat_api_url = ep.full_url
+                    result.api_format = ApiFormat.RAW_JSON.value
+                    result.confidence = 0.75
+                    result.evidence = [f"RESTful chat collection POST: {ep.path}"]
+                    return result
+
+        # 策略 3: 路径模式评分
         scored = []
         for ep in endpoints:
             if ep.status != 200:
@@ -163,7 +240,7 @@ class EndpointInferrer:
             result.evidence = [f"pattern match: {best_ep.path} → {api_fmt} (score={score:.2f})"]
             return result
 
-        # 策略 3: 第一个返回 200 的 POST JSON 端点
+        # 策略 4: 第一个返回 200 的 POST JSON 端点
         for ep in endpoints:
             if ep.status == 200 and ep.method.upper() == "POST" and "json" in ep.content_type.lower():
                 result.chat_api_url = ep.full_url
@@ -172,7 +249,7 @@ class EndpointInferrer:
                 result.evidence = [f"first 200 POST JSON: {ep.path}"]
                 return result
 
-        # 策略 4: 兜底猜测
+        # 策略 5: 兜底猜测
         result.chat_api_url = f"{base_url}/v1/chat/completions"
         result.api_format = ApiFormat.OPENAI_CHAT.value
         result.confidence = 0.10
@@ -188,6 +265,10 @@ class EndpointInferrer:
 
         识别路径中的参数占位符（如 hex ID、UUID、数字 ID），
         生成可供字典攻击使用的路由模式。
+
+        增加 RESTful 资源模式推断:
+        - 当同时发现 POST /api/v1/conversations 和 GET /api/v1/conversations/{id}
+          时，推断为标准的 RESTful CRUD 资源
         """
         routes = []
         seen_patterns = set()
@@ -197,16 +278,18 @@ class EndpointInferrer:
             if not path or path == "/":
                 continue
 
-            # 检测 hex ID 段 (12/16/24/32位)
-            hex_match = re.search(r"/([0-9a-fA-F]{12})(?:/|$)", path)
+            # 检测 hex ID 段 (8/12/16/24/32位)
+            hex_match = re.search(r"/([0-9a-fA-F]{8,32})(?:/|$)", path)
             if hex_match:
-                pattern = path.replace(hex_match.group(1), "{hex_id:12}")
+                hex_val = hex_match.group(1)
+                hex_len = len(hex_val)
+                pattern = path.replace(hex_val, f"{{hex_id:{hex_len}}}")
                 if pattern not in seen_patterns:
                     seen_patterns.add(pattern)
                     routes.append(DynamicRoute(
                         pattern=pattern,
                         method=ep.method,
-                        sample_value=hex_match.group(1),
+                        sample_value=hex_val,
                         inferred_from=f"hex segment in {ep.path}",
                         confidence=Confidence.HIGH.value,
                     ))
@@ -242,7 +325,63 @@ class EndpointInferrer:
                         confidence=Confidence.MEDIUM.value,
                     ))
 
+        # ── RESTful 资源模式推断 ──
+        # 当存在 POST /api/v1/X 和 GET /api/v1/X/{id} 时，标记为 RESTful 资源
+        resource_patterns = self._infer_restful_resources(endpoints, routes)
+        for rp in resource_patterns:
+            if rp.pattern not in seen_patterns:
+                seen_patterns.add(rp.pattern)
+                routes.append(rp)
+
         return routes
+
+    @staticmethod
+    def _infer_restful_resources(
+        endpoints: list[ApiEndpoint],
+        existing_routes: list[DynamicRoute],
+    ) -> list[DynamicRoute]:
+        """推断 RESTful 资源模式 — 匹配 POST 集合 + GET/GET by ID 的组合。
+
+        例如:
+          POST /api/v1/conversations        (创建)
+          GET  /api/v1/conversations/{id}   (获取单个)
+        → 推断这是一个 RESTful 资源，PyRIT 可以用 CRUD 模式攻击
+        """
+        resources = []
+
+        # 先收集 POST 端点路径（集合端点）
+        collection_paths = set()
+        for ep in endpoints:
+            if ep.method.upper() == "POST" and ep.status in (200, 201):
+                path = ep.path.rstrip("/")
+                if path and path != "/":
+                    collection_paths.add(path)
+
+        # 查看是否存在对应的 GET by ID 端点
+        for coll_path in collection_paths:
+            for route in existing_routes:
+                route_prefix = route.pattern.split("{")[0].rstrip("/")
+                if route_prefix == coll_path:
+                    # 找到匹配的集合+单项配对
+                    resources.append(DynamicRoute(
+                        pattern=f"{coll_path}/{{resource_id}}",
+                        method="GET",
+                        sample_value=route.sample_value,
+                        inferred_from=(
+                            f"RESTful resource: POST {coll_path} + "
+                            f"GET {route.pattern} (from {route.inferred_from})"
+                        ),
+                        confidence=Confidence.HIGH.value,
+                    ))
+
+        # 去重
+        seen = set()
+        unique = []
+        for r in resources:
+            if r.pattern not in seen:
+                seen.add(r.pattern)
+                unique.append(r)
+        return unique
 
     # ── 辅助方法 ──
 
