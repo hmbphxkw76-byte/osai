@@ -1,61 +1,48 @@
-##############################################################################
-# PyRIT 红队演练平台 — Python 依赖清单
-#
-# 安装方式 :
-#   方式一（推荐，永久切换国内源）:
-#    pip config set global.index-url https://mirrors.aliyun.com/pypi/simple
-#    pip config set install.trusted-host mirrors.aliyun.com
-#
-#    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
-#    pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
-#
-#   方式二（临时指定官方源）:
-#     pip install -r requirements.txt -i https://pypi.org/simple/
-#
-#  
-##############################################################################
+# ============================================================
+# PyRIT Red Team AI Platform - Dependencies
+# ============================================================
+# Core
+pyrit>=1.0.0
+openai>=1.0.0
+httpx>=0.27.0
+pydantic>=2.0.0
+pyyaml>=6.0
 
-# ─────────────────────────────────────────────
-# AI 红队核心框架
-# ─────────────────────────────────────────────
-pyrit>=0.14.0,<1.0.0          # PyRIT 红队框架（含 PromptTarget/Scorer/Normalizer 等）
+# Orchestration & Scheduling
+apscheduler>=3.10.0
+tenacity>=8.0.0
 
-# ─────────────────────────────────────────────
-# HTTP 客户端
-# ─────────────────────────────────────────────
-httpx>=0.27,<1.0               # 现代 HTTP 客户端（http_target / model_probe 依赖，支持异步和重试）
-beautifulsoup4>=4.12,<5.0      # HTML 解析（智能端点发现，配合 lxml 解析引擎）
-lxml>=5.0,<7.0                 # 高性能 XML/HTML 解析引擎（beautifulsoup4 解析器 + html_diff 对比）
-openai>=1.0,<3.0               # OpenAI Python SDK（OpenAICompatibleTarget 核心：原生重试、流控、错误分类）
-google-genai>=1.0,<2.0          # Google GenAI SDK（GeminiTarget 核心，替代已弃用的 google-generativeai）
-anthropic>=0.40,<1.0           # Anthropic SDK（ClaudeTarget 核心）
-curl_cffi>=0.7,<1.0            # TLS 指纹伪装（可选。被 WAF/反爬拦截时自动切换，绕过 JA3/JA4 指纹检测）
-PyJWT>=2.8,<3.0                # JWT 解析（可选。自动检测 Token 有效期，攻击前过期预警）
+# Async & Networking
+aiohttp>=3.9.0
+anyio>=4.0.0
 
-# ─────────────────────────────────────────────
-# 环境变量管理
-# ─────────────────────────────────────────────
-python-dotenv>=1.0,<2.0       # .env 环境变量加载（平铺 KEY=VALUE 变量 + os.getenv 读取）
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
 
-# ─────────────────────────────────────────────
-# 配置文件解析
-# ─────────────────────────────────────────────
-pyyaml>=6.0,<7.0              # YAML (.yaml/.yml) Payload 变量文件解析（支持多行字符串和注释）
-pydantic>=2.0,<3.0             # 数据模型验证（用例 & Payload Schema 校验 + LLM Few-shot 生成结构保证）
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
 
-# ─────────────────────────────────────────────
-# 终端 UI 与进度追踪
-# ─────────────────────────────────────────────
-rich>=13.0,<15.0              # Rich 终端美化（Live/Table/Panel/Progress 仪表盘）
+# Reporting
+jinja2>=3.1.0
+markdown>=3.5.0
 
-# ─────────────────────────────────────────────
-# 数据分析与可视化
-# ─────────────────────────────────────────────
-pandas>=2.0,<3.0              # 数据处理与矩阵分析
-matplotlib>=3.7,<4.0          # 图表基础框架
-seaborn>=0.12,<1.0            # 热力图美化（success matrix heatmap）
+# Evaluation
+scikit-learn>=1.3.0
 
-# ─────────────────────────────────────────────
-# Payload Web 管理界面
-# ─────────────────────────────────────────────
-flask>=3.0,<4.0               # Payload Browser (scripts/payload_browser.py)
+# Utilities
+python-dotenv>=1.0.0
+rich>=13.0.0
+tqdm>=4.65.0
+
+# Image / Document Processing (for XPIA)
+Pillow>=10.0.0
+python-docx>=0.8.11
+pypdf>=3.0.0
+
+# Garak integration (model extraction)
+# garak installed separately via pip
+
+# Promptfoo integration
+# promptfoo CLI required separately via npm
