@@ -190,10 +190,13 @@ class PromptExtractor:
         self,
         timeout: int = 30,
         verify_ssl: bool = False,
+        ca_cert: Optional[str] = None,
         max_probes: int = 20,
     ):
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.ca_cert = ca_cert
+        self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
         self.max_probes = max_probes
 
     # ═══════════════════════════════════════════════════════════════
@@ -221,7 +224,7 @@ class PromptExtractor:
 
         try:
             async with httpx.AsyncClient(
-                verify=self.verify_ssl,
+                verify=self.verify,
                 timeout=httpx.Timeout(self.timeout),
                 follow_redirects=False,
                 headers=headers,

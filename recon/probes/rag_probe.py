@@ -191,9 +191,11 @@ class RagProber:
         ],
     }
 
-    def __init__(self, timeout: int = 30, verify_ssl: bool = False):
+    def __init__(self, timeout: int = 30, verify_ssl: bool = False, ca_cert: Optional[str] = None):
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.ca_cert = ca_cert
+        self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
 
     async def probe(self, chat_url: str, model_name: str = "",
                     extra_headers: dict | None = None) -> RagProbeResult:
@@ -260,7 +262,7 @@ class RagProber:
         base = base_url.rstrip("/")
 
         async with httpx.AsyncClient(
-            verify=self.verify_ssl,
+            verify=self.verify,
             timeout=httpx.Timeout(min(10, self.timeout)),
             follow_redirects=True,
             headers=headers,
@@ -294,7 +296,7 @@ class RagProber:
         results = []
 
         async with httpx.AsyncClient(
-            verify=self.verify_ssl,
+            verify=self.verify,
             timeout=httpx.Timeout(self.timeout),
             headers=headers,
         ) as client:

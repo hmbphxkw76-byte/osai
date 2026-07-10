@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Recon — AI 侦测引擎</title>
+<title>RedTeam_AI — AI 红队作战平台</title>
 <style>
   :root {
     --bg: #f0f2f5;
@@ -648,16 +648,33 @@
 <!-- Sidebar -->
 <aside class="sidebar">
   <div class="logo">
-    <h1>AI Recon</h1>
-    <span>AI 目标侦测引擎 v1.3</span>
+    <h1>RedTeam_AI</h1>
+    <span>六阶段 AI 红队攻击平台 v4.0</span>
   </div>
   <nav class="nav">
     <a href="#dashboard" class="active" data-page="dashboard">
       <span class="icon">📊</span> <span>仪表盘</span>
     </a>
+    <div class="nav-divider">六阶段管道</div>
     <a href="#scan" data-page="scan">
-      <span class="icon">🎯</span> <span>新建扫描</span>
+      <span class="icon">🔍</span> <span>L0 — 目标侦察</span>
     </a>
+    <a href="#coming-soon" data-page="coming-soon" class="nav-sub">
+      <span class="icon">🤖</span> <span>L1 — Garak 模型侦查</span>
+    </a>
+    <a href="#coming-soon" data-page="coming-soon" class="nav-sub">
+      <span class="icon">🔗</span> <span>L2 — 桥接映射</span>
+    </a>
+    <a href="#coming-soon" data-page="coming-soon" class="nav-sub">
+      <span class="icon">📝</span> <span>L3 — Promptfoo</span>
+    </a>
+    <a href="#coming-soon" data-page="coming-soon" class="nav-sub">
+      <span class="icon">⚔️</span> <span>L4 — PyRIT 攻击</span>
+    </a>
+    <a href="#coming-soon" data-page="coming-soon" class="nav-sub">
+      <span class="icon">📄</span> <span>L5 — 报告生成</span>
+    </a>
+    <div class="nav-divider">工具</div>
     <a href="#history" data-page="history">
       <span class="icon">📋</span> <span>扫描历史</span>
     </a>
@@ -666,7 +683,7 @@
     </a>
   </nav>
   <div class="sidebar-footer">
-    Playwright + Flask | Phase 1
+    L0 Recon ✓ | L1–L5 陆续上线
   </div>
 </aside>
 
@@ -699,9 +716,25 @@
     </div>
 
     <div class="section">
-      <div class="section-header">🚀 快速开始</div>
+      <div class="section-header">🚀 六阶段管道概览</div>
       <div class="section-body" style="line-height:1.8;font-size:13px;">
-        <p style="margin-bottom:12px;">AI Recon 使用 <strong>Playwright 驱动浏览器</strong>，对目标 Web/AI 应用进行全自动侦测，生成 <code style="background:#e8ecf4;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12px;border:1px solid #dde0e7;">target_profile.json</code> 文件，供 PyRIT Phase 2 攻击框架使用。</p>
+        <p style="margin-bottom:16px;">
+          <strong>RedTeam_AI</strong> 是一套完整的 AI 红队自动化攻击管道，覆盖从目标侦察到报告生成的全流程：
+        </p>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:12px;">
+          <span style="background:#dbeafe;color:#1e40af;padding:4px 10px;border-radius:4px;font-weight:600;">L0 目标侦察</span>
+          <span style="color:var(--text2);">→</span>
+          <span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:4px;font-weight:600;">L1 Garak</span>
+          <span style="color:var(--text2);">→</span>
+          <span style="background:#fef3c7;color:#92400e;padding:4px 10px;border-radius:4px;font-weight:600;">L2 桥接映射</span>
+          <span style="color:var(--text2);">→</span>
+          <span style="background:#fef2f2;color:#991b1b;padding:4px 10px;border-radius:4px;font-weight:600;">L3 Promptfoo</span>
+          <span style="color:var(--text2);">→</span>
+          <span style="background:#fae8ff;color:#6b21a8;padding:4px 10px;border-radius:4px;font-weight:600;">L4 PyRIT</span>
+          <span style="color:var(--text2);">→</span>
+          <span style="background:#f3f4f6;color:#374151;padding:4px 10px;border-radius:4px;font-weight:600;">L5 报告</span>
+        </div>
+        <p style="margin-bottom:12px;">当前已实现 <strong>L0 前置侦察</strong>：使用 <strong>Playwright 驱动浏览器</strong>，对目标 Web/AI 应用进行全自动侦测，生成 <code style="background:#e8ecf4;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12px;border:1px solid #dde0e7;">target_profile.json</code> 文件。</p>
         <p style="color:var(--text2);">支持：SPA 渲染 · API 端点发现 · 认证流程自动化 · Chat 端点推断 · 字典扫描</p>
       </div>
     </div>
@@ -717,7 +750,7 @@
   <!-- ========== New Scan Page ========== -->
   <div class="page" id="page-scan">
     <div class="page-header">
-      <h2>新建扫描</h2>
+      <h2>L0 — 目标侦察</h2>
       <p>配置目标参数，启动 AI 侦测</p>
     </div>
 
@@ -918,7 +951,18 @@
             <label class="toggle"><input type="checkbox" name="no_spa"> 禁用 SPA 渲染</label>
             <label class="toggle"><input type="checkbox" name="no_js_extract"> 禁用 JS 提取</label>
             <label class="toggle"><input type="checkbox" name="no_traffic"> 禁用流量捕获</label>
-            <label class="toggle"><input type="checkbox" name="verify_ssl"> 验证 SSL 证书</label>
+            <label class="toggle"><input type="checkbox" name="verify_ssl" id="verify_ssl_toggle"> 验证 SSL 证书</label>
+          </div>
+
+          <!-- 证书上传区域 -->
+          <div id="cert-upload-area" style="display:none; margin-top:16px; padding:14px 16px; background:#f0f7ff; border:1px dashed #93c5fd; border-radius:6px;">
+            <div class="form-group full" style="margin:0;">
+              <label style="margin-bottom:6px;">上传 CA / 自签名证书（可选）</label>
+              <input type="file" name="ca_cert_file" accept=".pem,.crt,.cer,.key" style="padding:8px 0; background:transparent; border:none; font-size:13px;">
+              <div style="font-size:11px; color:var(--text2); margin-top:6px;">
+                支持 .pem / .crt / .cer / .key。留空则使用系统默认 CA 证书库。
+              </div>
+            </div>
           </div>
 
           <div class="hint-body">
@@ -1024,6 +1068,44 @@
     </div>
   </div>
 
+  <!-- ========== Coming Soon Page ========== -->
+  <div class="page" id="page-coming-soon">
+    <div class="page-header">
+      <h2>🚧 管道阶段 — 即将上线</h2>
+      <p>六阶段完整管道正在开发中</p>
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">L1 Garak 模型侦查</div>
+            <div class="info-value" style="color:var(--orange);">即将上线 — AI 模型漏洞基线扫描</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">L2 桥接映射</div>
+            <div class="info-value" style="color:var(--orange);">即将上线 — Garak 结果转攻击种子</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">L3 Promptfoo</div>
+            <div class="info-value" style="color:var(--orange);">即将上线 — 提示词模板与断言验证</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">L4 PyRIT 深度攻击</div>
+            <div class="info-value" style="color:var(--orange);">即将上线 — 多轮越狱与自适应攻击</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">L5 统一报告</div>
+            <div class="info-value" style="color:var(--orange);">即将上线 — OffSec 规范报告生成</div>
+          </div>
+        </div>
+        <div style="margin-top:20px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;">
+          <strong>💡 提示：</strong>L1-L5 阶段目前建议通过命令行 <code style="background:#dcfce7;padding:2px 6px;border-radius:3px;">make pipeline TARGET=&lt;url&gt;</code> 执行。
+          Web 界面将逐步集成所有管道阶段。
+        </div>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- Detail Modal -->
@@ -1052,7 +1134,7 @@ const API = {
   stats: '/api/stats',
 };
 
-const PAGES = ['dashboard', 'scan', 'history', 'outputs'];
+const PAGES = ['dashboard', 'scan', 'history', 'outputs', 'coming-soon'];
 
 // ── Navigation ──
 function navigate(page) {
@@ -1064,6 +1146,7 @@ function navigate(page) {
   if (page === 'dashboard') { refreshDashboard(); }
   else if (page === 'history') { refreshHistory(); }
   else if (page === 'outputs') { refreshOutputs(); }
+  else if (page === 'coming-soon') { /* 管道阶段 — 即将上线 */ }
 }
 
 document.querySelectorAll('.nav a').forEach(a => {
@@ -1155,6 +1238,15 @@ function renderScanTable(scans, compact = false) {
   return `<div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+// ── SSL 证书上传区域显隐控制 ──
+const verifySslToggle = document.getElementById('verify_ssl_toggle');
+const certUploadArea = document.getElementById('cert-upload-area');
+if (verifySslToggle && certUploadArea) {
+  verifySslToggle.addEventListener('change', () => {
+    certUploadArea.style.display = verifySslToggle.checked ? 'block' : 'none';
+  });
+}
+
 // ── Start Scan ──
 document.getElementById('scan-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1192,26 +1284,41 @@ document.getElementById('scan-form').addEventListener('submit', async (e) => {
     extraHeaders.push({ key: headerName, value: headerValue });
   }
 
-  const data = {
-    target_url: form.target_url.value.trim(),
-    login_url: form.login_url.value.trim(),
-    login_cred: form.login_cred.value.trim(),
-    auth_cookie: form.auth_cookie.value.trim(),
-    auth_bearer: form.auth_bearer.value.trim(),
-    auth_headers: extraHeaders.length > 0 ? extraHeaders : undefined,
-    dict_scan: form.dict_scan.checked,
-    headed: form.headed.checked,
-    no_spa: form.no_spa.checked,
-    no_js_extract: form.no_js_extract.checked,
-    no_traffic: form.no_traffic.checked,
-    verify_ssl: form.verify_ssl.checked,
-    concurrency: parseInt(form.concurrency?.value) || 2,
-    timeout: parseInt(form.timeout.value) || 30,
-    rate_profile: form.rate_profile?.value || 'stealth',
-  };
+  // 构建 FormData（支持证书文件上传）
+  const formData = new FormData();
+  formData.append('target_url', form.target_url.value.trim());
+  formData.append('login_url', form.login_url.value.trim());
+  formData.append('login_cred', form.login_cred.value.trim());
+  formData.append('auth_cookie', form.auth_cookie.value.trim());
+  formData.append('auth_bearer', form.auth_bearer.value.trim());
+  formData.append('extra_headers_json', form.extra_headers_json.value.trim());
+  formData.append('api_key', form.api_key.value.trim());
+  formData.append('api_key_header', form.api_key_header.value);
+  formData.append('dict_scan', form.dict_scan.checked ? 'true' : 'false');
+  formData.append('headed', form.headed.checked ? 'true' : 'false');
+  formData.append('no_spa', form.no_spa.checked ? 'true' : 'false');
+  formData.append('no_js_extract', form.no_js_extract.checked ? 'true' : 'false');
+  formData.append('no_traffic', form.no_traffic.checked ? 'true' : 'false');
+  formData.append('verify_ssl', form.verify_ssl.checked ? 'true' : 'false');
+  formData.append('timeout', form.timeout.value);
+  formData.append('rate_profile', form.rate_profile.value);
+  if (form.concurrency) {
+    formData.append('concurrency', form.concurrency.value);
+  }
+
+  // 附加证书文件（仅在开启 SSL 校验时上传）
+  const certFile = form.ca_cert_file.files[0];
+  if (form.verify_ssl.checked && certFile) {
+    formData.append('ca_cert_file', certFile);
+  }
 
   try {
-    const result = await apiPost(API.startScan, data);
+    const res = await fetch(API.startScan, {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || `${res.status}`);
     const scanId = result.scan_id;
 
     // Show progress area

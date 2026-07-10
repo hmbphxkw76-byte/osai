@@ -332,6 +332,7 @@ class DictScanner:
         concurrency: int = 5,
         timeout: int = 10,
         verify_ssl: bool = False,
+        ca_cert: Optional[str] = None,
         llm_paths: Optional[list[str]] = None,
         web_paths: Optional[list[str]] = None,
         rate_profile: str = "stealth",
@@ -345,6 +346,8 @@ class DictScanner:
         self.rate_profile = rate_profile
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.ca_cert = ca_cert
+        self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
 
         # 429 退避状态
         self._consecutive_429s = 0
@@ -450,7 +453,7 @@ class DictScanner:
             async with semaphore:
                 try:
                     async with httpx.AsyncClient(
-                        verify=self.verify_ssl,
+                        verify=self.verify,
                         timeout=httpx.Timeout(self.timeout),
                         follow_redirects=True,
                         headers=headers,

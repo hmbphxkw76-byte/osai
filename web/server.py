@@ -30,6 +30,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 _RECON_ROOT = _PROJECT_ROOT / "recon"
 
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory
+from werkzeug.utils import secure_filename
 
 _WEB_ROOT = Path(__file__).resolve().parent
 app = Flask(__name__, template_folder=str(_WEB_ROOT / "templates"), static_folder=str(_WEB_ROOT / "static"))
@@ -41,6 +42,10 @@ _scans_lock = threading.Lock()
 
 OUTPUT_DIR = _RECON_ROOT / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
+CERTS_DIR = _WEB_ROOT / "certs"
+CERTS_DIR.mkdir(exist_ok=True)
+
+_ALLOWED_CERT_EXTENSIONS = {".pem", ".crt", ".cer", ".key"}
 
 
 def _run_scan_in_thread(scan_id: str, params: dict):
@@ -93,6 +98,7 @@ def _run_scan_in_thread(scan_id: str, params: dict):
             concurrency=params.get("concurrency", 2),
             timeout=params.get("timeout", 30),
             verify_ssl=params.get("verify_ssl", False),
+            ca_cert=params.get("ca_cert"),
             rate_profile=params.get("rate_profile", "stealth"),
         )
 
@@ -185,7 +191,21 @@ def list_scans():
 @app.route("/api/scans/start", methods=["POST"])
 def start_scan():
     """启动新的 L0 侦测扫描。"""
-    data = request.get_json(silent=True) or {}
+    # 支持 multipart/form-data（证书上传）或纯 JSON
+    is_multipart = request.content_type and request.content_type.startswith("multipart/form-data")
+    if is_multipart:
+        data = request.form.to_dict()
+        # 布尔字段从字符串还原
+        for key in ["dict_scan", "headed", "no_spa", "no_js_extract", "no_traffic", "verify_ssl"]:
+            data[key] = data.get(key) in ("true", "on", "1")
+        for key in ["concurrency", "timeout"]:
+            if data.get(key):
+                try:
+                    data[key] = int(data[key])
+                except ValueError:
+                    pass
+    else:
+        data = request.get_json(silent=True) or {}
 
     target_url = (data.get("target_url") or "").strip()
     if not target_url:
@@ -206,19 +226,60 @@ def start_scan():
         login_cred = None
 
     # 解析 auth_headers
-    auth_headers = data.get("auth_headers")
-    if isinstance(auth_headers, list) and auth_headers:
-        headers = {}
-        for h in auth_headers:
-            val = h.get("value", "")
-            key = h.get("key", "")
-            if key:
-                headers[key] = val
-        auth_headers = headers if headers else None
-    elif isinstance(auth_headers, dict):
+    if is_multipart:
+        auth_headers = {}
+        extra_headers_json = (data.get("extra_headers_json") or "").strip()
+        if extra_headers_json:
+            try:
+                parsed = json.loads(extra_headers_json)
+                if isinstance(parsed, dict):
+                    auth_headers.update({k: str(v) for k, v in parsed.items()})
+                else:
+                    return jsonify({"error": "额外请求头 JSON 必须是对象"}), 400
+            except json.JSONDecodeError:
+                return jsonify({"error": "额外请求头 JSON 格式无效"}), 400
+        api_key = (data.get("api_key") or "").strip()
+        api_key_header = data.get("api_key_header", "Authorization")
+        if api_key:
+            header_name = api_key_header or "Authorization"
+            header_value = (
+                f"Bearer {api_key}"
+                if header_name == "Authorization" and not api_key.lower().startswith("bearer ")
+                else api_key
+            )
+            auth_headers[header_name] = header_value
         auth_headers = auth_headers if auth_headers else None
     else:
-        auth_headers = None
+        auth_headers = data.get("auth_headers")
+        if isinstance(auth_headers, list) and auth_headers:
+            headers = {}
+            for h in auth_headers:
+                val = h.get("value", "")
+                key = h.get("key", "")
+                if key:
+                    headers[key] = val
+            auth_headers = headers if headers else None
+        elif isinstance(auth_headers, dict):
+            auth_headers = auth_headers if auth_headers else None
+        else:
+            auth_headers = None
+
+    # 处理上传的证书文件
+    ca_cert_path: str | None = None
+    cert_file = request.files.get("ca_cert_file") if is_multipart else None
+    if cert_file and cert_file.filename:
+        filename = secure_filename(cert_file.filename)
+        ext = Path(filename).suffix.lower()
+        if ext not in _ALLOWED_CERT_EXTENSIONS:
+            return jsonify({"error": f"不支持的证书格式: {ext}。请上传 .pem/.crt/.cer/.key 文件"}), 400
+        # 使用唯一文件名避免冲突
+        saved_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+        cert_save_path = CERTS_DIR / saved_name
+        try:
+            cert_file.save(str(cert_save_path))
+            ca_cert_path = str(cert_save_path)
+        except Exception as e:
+            return jsonify({"error": f"证书保存失败: {e}"}), 500
 
     scan_id = str(uuid.uuid4())[:8]
     job = {
@@ -251,6 +312,7 @@ def start_scan():
         "concurrency": data.get("concurrency", 5),
         "timeout": data.get("timeout", 30),
         "verify_ssl": data.get("verify_ssl", False),
+        "ca_cert": ca_cert_path,
     }
 
     with _scans_lock:
@@ -260,6 +322,7 @@ def start_scan():
     thread.start()
 
     return jsonify({"scan_id": scan_id, "status": "pending"}), 201
+
 
 
 @app.route("/api/scans/<scan_id>", methods=["GET"])

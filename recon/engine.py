@@ -61,6 +61,7 @@ class ReconEngine:
         concurrency: int = 2,
         timeout: int = 30,
         verify_ssl: bool = False,
+        ca_cert: Optional[str] = None,
         rate_profile: str = "stealth",
     ):
         self.target_url = target_url.rstrip("/")
@@ -78,6 +79,8 @@ class ReconEngine:
         self.concurrency = concurrency
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.ca_cert = ca_cert
+        self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
         self.rate_profile = rate_profile
 
         self.profile = TargetProfile()
@@ -247,6 +250,7 @@ class ReconEngine:
             concurrency=self.concurrency,
             timeout=self.timeout,
             verify_ssl=self.verify_ssl,
+            ca_cert=self.ca_cert,
             rate_profile=self.rate_profile,
         )
         self._js_sdk_scanner = JsSdkScanner()
@@ -255,10 +259,12 @@ class ReconEngine:
         self._rag_prober = RagProber(
             timeout=self.timeout,
             verify_ssl=self.verify_ssl,
+            ca_cert=self.ca_cert,
         )
         self._prompt_extractor = PromptExtractor(
             timeout=self.timeout,
             verify_ssl=self.verify_ssl,
+            ca_cert=self.ca_cert,
         )
         self._behavior_mapper = BehaviorMapper()
         self._builder = ProfileBuilder(self.profile)
@@ -275,7 +281,7 @@ class ReconEngine:
         import httpx
         try:
             client_kwargs = {
-                "verify": self.verify_ssl,
+                "verify": self.verify,
                 "timeout": httpx.Timeout(self.timeout),
                 "follow_redirects": True,
             }
@@ -640,6 +646,7 @@ class ReconEngine:
                 target_url=self.target_url,
                 timeout=self.timeout,
                 verify_ssl=self.verify_ssl,
+                ca_cert=self.ca_cert,
                 extra_auth_headers=self.auth_headers if self.auth_headers else None,
                 rate_profile=self.rate_profile,
             )

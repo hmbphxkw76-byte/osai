@@ -318,15 +318,17 @@ async def _http_get(
     url: str,
     timeout: int = 10,
     verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
     extra_headers: Optional[dict] = None,
 ) -> tuple[int, any, dict]:
     """发送 GET 请求，返回 (status_code, response_data, headers)"""
+    verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
     headers = dict(_BROWSER_HEADERS)
     if extra_headers:
         headers.update(extra_headers)
     try:
         async with httpx.AsyncClient(
-            verify=verify_ssl,
+            verify=verify,
             timeout=httpx.Timeout(timeout),
             follow_redirects=True,
             headers=headers,
@@ -347,16 +349,18 @@ async def _http_post(
     payload: dict,
     timeout: int = 15,
     verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
     extra_headers: Optional[dict] = None,
 ) -> tuple[int, any, dict]:
     """发送 POST JSON 请求，返回 (status_code, response_data, headers)"""
+    verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
     headers = dict(_BROWSER_HEADERS)
     headers["Content-Type"] = "application/json"
     if extra_headers:
         headers.update(extra_headers)
     try:
         async with httpx.AsyncClient(
-            verify=verify_ssl,
+            verify=verify,
             timeout=httpx.Timeout(timeout),
             follow_redirects=False,
             headers=headers,
@@ -377,7 +381,7 @@ async def _http_post(
 # ═══════════════════════════════════════════════════════════════
 
 async def _probe_openai_models(
-    base_url: str, verify_ssl: bool = False
+    base_url: str, verify_ssl: bool = False, ca_cert: Optional[str] = None
 ) -> Optional[dict]:
     """策略 1: GET /v1/models（OpenAI 兼容端点）"""
     paths_to_try = ["/v1/models", "/models", "/api/models"]
@@ -388,7 +392,7 @@ async def _probe_openai_models(
 
     for path in paths_to_try:
         url = urljoin(base_url, path)
-        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl)
+        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl, ca_cert=ca_cert)
 
         if status == 200 and isinstance(data, dict):
             model_ids = []
@@ -416,7 +420,7 @@ async def _probe_openai_models(
 
 
 async def _probe_openai_post(
-    base_url: str, verify_ssl: bool = False
+    base_url: str, verify_ssl: bool = False, ca_cert: Optional[str] = None
 ) -> Optional[dict]:
     """策略 2: POST 发送 chat message，从响应提取模型名"""
     payload = {
@@ -435,7 +439,7 @@ async def _probe_openai_post(
         ]
 
     for url in candidates:
-        status, data, headers = await _http_post(url, payload, timeout=15, verify_ssl=verify_ssl)
+        status, data, headers = await _http_post(url, payload, timeout=15, verify_ssl=verify_ssl, ca_cert=ca_cert)
 
         if status == 200 and isinstance(data, dict):
             model_name = None
@@ -469,14 +473,14 @@ async def _probe_openai_post(
 
 
 async def _probe_ollama_tags(
-    base_url: str, verify_ssl: bool = False
+    base_url: str, verify_ssl: bool = False, ca_cert: Optional[str] = None
 ) -> Optional[dict]:
     """策略 3: GET /api/tags（Ollama 端点）"""
     paths = ["/api/tags", "/api/ps", "/api/version"]
 
     for path in paths:
         url = urljoin(base_url, path)
-        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl)
+        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl, ca_cert=ca_cert)
 
         if status == 200:
             if isinstance(data, dict):
@@ -525,7 +529,7 @@ async def _probe_ollama_tags(
 
 
 async def _probe_raw_self_identify(
-    base_url: str, verify_ssl: bool = False
+    base_url: str, verify_ssl: bool = False, ca_cert: Optional[str] = None
 ) -> Optional[dict]:
     """策略 4: POST 发送 "What model are you?" 自我识别"""
     prompts = [
@@ -553,7 +557,7 @@ async def _probe_raw_self_identify(
 
             for pld in [payload, ollama_payload]:
                 status, data, headers = await _http_post(
-                    url, pld, timeout=15, verify_ssl=verify_ssl
+                    url, pld, timeout=15, verify_ssl=verify_ssl, ca_cert=ca_cert
                 )
 
                 if status == 200:
@@ -589,14 +593,14 @@ async def _probe_raw_self_identify(
 
 
 async def _probe_get_info_page(
-    base_url: str, verify_ssl: bool = False
+    base_url: str, verify_ssl: bool = False, ca_cert: Optional[str] = None
 ) -> Optional[dict]:
     """策略 5: GET 根路径 / /info /api 抓取页面文本提取模型信息"""
     paths = ["/", "/info", "/api", "/health", "/version", "/status"]
 
     for path in paths:
         url = urljoin(base_url, path)
-        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl)
+        status, data, headers = await _http_get(url, timeout=10, verify_ssl=verify_ssl, ca_cert=ca_cert)
 
         if status == 200:
             text = ""
@@ -757,6 +761,7 @@ def _parse_rate_limit_headers(headers: dict) -> Optional[ProbeRateLimitInfo]:
 async def _discover_endpoints(
     base_url: str,
     verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
     timeout: int = 10,
     concurrency: int = 8,
     min_delay: float = 0.0,
@@ -790,7 +795,7 @@ async def _discover_endpoints(
         async with semaphore:
             url = f"{base}{path}"
             t0 = time.monotonic()
-            status, data, headers = await _http_get(url, timeout=timeout, verify_ssl=verify_ssl)
+            status, data, headers = await _http_get(url, timeout=timeout, verify_ssl=verify_ssl, ca_cert=ca_cert)
             elapsed_ms = (time.monotonic() - t0) * 1000
 
             # ── 429 指数退避 ──
@@ -839,6 +844,7 @@ async def probe_model_info(
     api_key: str = "",
     timeout: int = 15,
     verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
     extra_auth_headers: Optional[dict] = None,
     enable_discovery: bool = True,
     discovery_concurrency: int = 8,
@@ -880,6 +886,7 @@ async def probe_model_info(
         result.discovered_endpoints = await _discover_endpoints(
             base_url,
             verify_ssl=verify_ssl,
+            ca_cert=ca_cert,
             timeout=timeout,
             concurrency=eff_concurrency,
             min_delay=eff_min_delay,
@@ -895,7 +902,7 @@ async def probe_model_info(
         ("GET 页面信息抓取", _probe_get_info_page),
     ]
 
-    probe_args = {"verify_ssl": verify_ssl}
+    probe_args = {"verify_ssl": verify_ssl, "ca_cert": ca_cert}
 
     for strategy_name, strategy_fn in strategies:
         try:
