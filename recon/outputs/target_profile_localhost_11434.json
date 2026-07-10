@@ -1,0 +1,607 @@
+{
+  "meta": {
+    "version": "1.0",
+    "generated_at": "2026-07-09T16:12:54.526982+00:00",
+    "tool": "ai-recon",
+    "target_url": "http://localhost:11434",
+    "probe_duration_ms": 1889,
+    "notes": ""
+  },
+  "target": {
+    "base_url": "http://localhost:11434",
+    "chat_api_url": "http://localhost:11434/v1/chat/completions",
+    "model_name": "qwen2:0.5b",
+    "endpoint_type": "unknown",
+    "api_format": "openai_chat",
+    "target_type": "unknown",
+    "verify_ssl": false,
+    "custom_headers": {},
+    "request_timeout": 30,
+    "http_method": "POST",
+    "content_type": "application/json",
+    "framework": "openai",
+    "framework_confidence": "high"
+  },
+  "auth": {
+    "type": "none",
+    "login_url": "",
+    "login_method": "POST",
+    "login_payload": {},
+    "session_cookie": "",
+    "cookies": {},
+    "custom_headers": {},
+    "csrf_token": "",
+    "bearer_token": "",
+    "token_refresh_url": "",
+    "notes": ""
+  },
+  "api_endpoints": [
+    {
+      "path": "/",
+      "full_url": "http://localhost:11434/",
+      "method": "GET",
+      "status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "category": "other",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "low",
+      "response_time_ms": 0.0,
+      "body_snippet": "Ollama is running"
+    },
+    {
+      "path": "/v1/models",
+      "full_url": "http://localhost:11434/v1/models",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json",
+      "category": "models",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "medium",
+      "response_time_ms": 0.0,
+      "body_snippet": "{\"object\":\"list\",\"data\":[{\"id\":\"qwen2:0.5b\",\"object\":\"model\",\"created\":1783229830,\"owned_by\":\"library\"},{\"id\":\"qwen3:0.6b\",\"object\":\"model\",\"created\":1783229424,\"owned_by\":\"library\"},{\"id\":\"qwen3:1.7b\",\"object\":\"model\",\"created\":1783150040,\"owned_by\":\"library\"},{\"id\":\"tinyllama:latest\",\"object\":\"mod"
+    },
+    {
+      "path": "/api/tags",
+      "full_url": "http://localhost:11434/api/tags",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "category": "models",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "medium",
+      "response_time_ms": 0.0,
+      "body_snippet": "{\"models\":[{\"name\":\"qwen2:0.5b\",\"model\":\"qwen2:0.5b\",\"modified_at\":\"2026-07-05T13:37:10.3892295+08:00\",\"size\":352164041,\"digest\":\"6f48b936a09f7743c7dd30e72fdb14cba296bc5861902e4d0c387e8fb5050b39\",\"details\":{\"parent_model\":\"\",\"format\":\"gguf\",\"family\":\"qwen2\",\"families\":[\"qwen2\"],\"parameter_size\":\"494"
+    },
+    {
+      "path": "/api/ps",
+      "full_url": "http://localhost:11434/api/ps",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "category": "other",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "low",
+      "response_time_ms": 0.0,
+      "body_snippet": "{\"models\":[]}"
+    },
+    {
+      "path": "/api/status",
+      "full_url": "http://localhost:11434/api/status",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "category": "health",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "medium",
+      "response_time_ms": 0.0,
+      "body_snippet": "{\"cloud\":{\"disabled\":false,\"source\":\"none\"}}"
+    },
+    {
+      "path": "/api/version",
+      "full_url": "http://localhost:11434/api/version",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "category": "info",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {},
+      "is_chat_endpoint": false,
+      "is_streaming": false,
+      "requires_auth": false,
+      "confidence": "medium",
+      "response_time_ms": 0.0,
+      "body_snippet": "{\"version\":\"0.31.1\"}"
+    }
+  ],
+  "spa_info": {
+    "is_spa": false,
+    "framework": "unknown",
+    "router_mode": "unknown",
+    "js_bundle_urls": [],
+    "api_base_url": "",
+    "extracted_routes_count": 0,
+    "extracted_endpoints_count": 0,
+    "notes": ""
+  },
+  "rate_limit": {
+    "has_rate_limit": false,
+    "rate_limit_type": "none",
+    "recommended_concurrency": 5,
+    "recommended_rpm": 30,
+    "avg_response_ms": 59.0,
+    "p95_response_ms": 0.0,
+    "total_429s": 0,
+    "details": ""
+  },
+  "raw_probe_data": {
+    "dns_records": {},
+    "ssl_certificate": {},
+    "http_headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "date": "Thu, 09 Jul 2026 16:12:54 GMT",
+      "content-length": "17"
+    },
+    "robots_txt": "",
+    "favicon_hash": "",
+    "waf_detected": "",
+    "server_header": "",
+    "powered_by": "",
+    "fingerprint_matches": [],
+    "homepage_title": "",
+    "homepage_text_snippet": ""
+  },
+  "artifacts": {
+    "har_file": "",
+    "screenshots": [],
+    "js_files_saved": [],
+    "login_flow_trace": "",
+    "errors": [],
+    "warnings": [
+      "api_endpoints 中发现端点但未标记任何 is_chat_endpoint=True"
+    ]
+  },
+  "model_probe": {
+    "model_name": "qwen2:0.5b",
+    "strategy": "OpenAI /v1/models 端点",
+    "confidence": 0.95,
+    "framework": "openai",
+    "framework_confidence": "high",
+    "endpoint_type": "openai",
+    "recommended_concurrency": 5,
+    "recommended_rpm": 30,
+    "avg_response_ms": 59.0,
+    "total_429s": 0,
+    "discovered_endpoints": [
+      {
+        "path": "/v1/chat/completions",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 48.9,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/v1/completions",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 47.5,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/v1/messages",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 46.0,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/v1/embeddings",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 44.5,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/models",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 43.0,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/models",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 41.6,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/v1/models",
+        "status": 200,
+        "content_type": "application/json",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 74.2,
+        "body_snippet": "{\"object\": \"list\", \"data\": [{\"id\": \"qwen2:0.5b\", \"object\": \"model\", \"created\": 1783229830, \"owned_by"
+      },
+      {
+        "path": "/api/tags",
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 71.2,
+        "body_snippet": "{\"models\": [{\"name\": \"qwen2:0.5b\", \"model\": \"qwen2:0.5b\", \"modified_at\": \"2026-07-05T13:37:10.389229"
+      },
+      {
+        "path": "/api/ps",
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 75.7,
+        "body_snippet": "{\"models\": []}"
+      },
+      {
+        "path": "/api/version",
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 73.6,
+        "body_snippet": "{\"version\": \"0.31.1\"}"
+      },
+      {
+        "path": "/api/chat",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 71.9,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/api/chat/completions",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 70.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/generate",
+        "status": 405,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 68.9,
+        "body_snippet": "405 method not allowed"
+      },
+      {
+        "path": "/api/v1/chat/completions",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 66.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1/chat",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 85.7,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1/model",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 82.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1/models",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 69.8,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/chat/completions",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 65.2,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/chat",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 61.7,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/completions",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 58.2,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/info",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 54.5,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/health",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 50.8,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/healthz",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 60.9,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/ready",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 61.1,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/status",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 62.9,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/version",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 59.6,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/ping",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 57.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/docs",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 54.0,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/openapi.json",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 51.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/swagger.json",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 48.4,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 58.0,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/v1",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 62.8,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 72.2,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/.well-known/ai-plugin.json",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 70.6,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/debug/info",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 68.2,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/debug/config",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 65.9,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/debug/status",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 63.7,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/mcp/sse",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 61.3,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/mcp/chat",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 63.1,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/mcp/tools",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 59.6,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/agent/run",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 34.4,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/agent/session",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 32.5,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1/knowledge-base",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 29.2,
+        "body_snippet": "404 page not found"
+      },
+      {
+        "path": "/api/v1/collections",
+        "status": 404,
+        "content_type": "text/plain",
+        "framework_hint": "",
+        "rate_limited": false,
+        "response_time_ms": 28.1,
+        "body_snippet": "404 page not found"
+      }
+    ],
+    "all_attempts": [
+      {
+        "strategy": "OpenAI /v1/models 端点",
+        "result": "qwen2:0.5b",
+        "confidence": 0.95
+      }
+    ],
+    "errors": []
+  }
+}

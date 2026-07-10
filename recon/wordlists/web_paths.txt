@@ -1,0 +1,119 @@
+# AI Recon — Web Paths Wordlist
+# 传统 Web 应用常见路径（用于目录遍历 / 发现 Web UI 后端 API）
+# 从 PyRIT model_probe.py _WEB_COMMON_PATHS 导出
+
+# Root
+/
+/index.html
+/app
+/web
+/portal
+/console
+/dashboard
+/admin
+/manage
+/login
+/auth
+/logout
+/register
+
+# API Base
+/api
+/api/v1
+/api/v2
+/api/v3
+/api/auth
+/api/login
+/api/logout
+/api/user
+/api/users
+/api/me
+/api/profile
+/api/config
+/api/settings
+/api/health
+/api/status
+/api/info
+/api/docs
+/api/swagger
+/api/openapi.json
+/swagger.json
+/openapi.json
+
+# AI Web App Backend
+/ai
+/ai/chat
+/ai/chats
+/ai/models
+/ai/completion
+/ai/message
+/ai/messages
+/ai/conversation
+/ai/conversations
+/api/chat
+/api/chats
+/api/message
+/api/messages
+/api/conversation
+/api/conversations
+/api/completion
+/api/completions
+/api/generate
+/api/prompt
+/api/ask
+/api/query
+/api/model
+/api/models
+/api/tags
+/api/version
+/api/upload
+/api/files
+/api/search
+/api/rag
+/api/retrieval
+/api/knowledge
+/v1/api
+/v1/chat
+/v1/messages
+/v1/conversations
+
+# Static Resources
+/static/js
+/assets
+/js
+/_next/static
+
+# Debug & Robots
+/debug
+/debug/info
+/debug/config
+/debug/health
+/robots.txt
+/.well-known/robots.txt
+
+# Knowledge Base / RAG
+/api/v1/knowledge-base
+/api/v1/knowledge-base/search
+/api/v1/knowledge-base/query
+/api/v1/knowledge-base/documents
+/api/v1/knowledge-base/stats
+
+# Security
+/api/v1/security/filter-level
+/api/v1/security/config
+
+# Admin / Observability
+/ai/admin
+/ai/admin/dashboard
+/ai/admin/observability
+/ai/admin/logs
+/api/v1/admin
+/api/v1/admin/logs
+/api/v1/tickets
+/api/v1/products
+/api/v1/labs
+
+# MCP
+/mcp/sse
+/mcp/chat
+/mcp/tools
