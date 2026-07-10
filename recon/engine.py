@@ -27,6 +27,7 @@ from recon.scanners.browser import BrowserManager
 from recon.auth.login import LoginAutomator
 from recon.scanners.traffic_capture import TrafficCapture
 from recon.scanners.spa_router import SpaRouterAnalyzer
+from recon.scanners.spa_interactor import SpaInteractor, InteractionResult
 from recon.analysis.endpoint_infer import EndpointInferrer
 from recon.scanners.dict_scan import DictScanner
 from recon.probes.model_probe import probe_model_info, probe_to_summary
@@ -98,6 +99,7 @@ class ReconEngine:
         self._login: Optional[LoginAutomator] = None
         self._traffic: Optional[TrafficCapture] = None
         self._spa: Optional[SpaRouterAnalyzer] = None
+        self._interactor: Optional[SpaInteractor] = None
         self._inferrer: Optional[EndpointInferrer] = None
         self._dict_scanner: Optional[DictScanner] = None
         self._builder: Optional[ProfileBuilder] = None
@@ -250,6 +252,7 @@ class ReconEngine:
             self._login = LoginAutomator(self._browser)
             self._traffic = TrafficCapture(self._browser)
             self._spa = SpaRouterAnalyzer(self._browser)
+            self._interactor = SpaInteractor(self._browser)
 
         self._inferrer = EndpointInferrer()
         self._dict_scanner = DictScanner(
