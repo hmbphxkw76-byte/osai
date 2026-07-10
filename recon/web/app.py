@@ -21,20 +21,23 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-# 添加 recon 根目录到 sys.path（本文件在 recon/web/ 下）
-_sys_path = Path(__file__).parent.parent
-sys.path.insert(0, str(_sys_path))
+# 添加项目根目录到 sys.path（本文件在 recon/web/ 下）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+# recon 根目录（用于模板/静态资源）
+_RECON_ROOT = Path(__file__).resolve().parent.parent
 
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory
 
-app = Flask(__name__, template_folder=str(_sys_path / "templates"), static_folder="static")
+app = Flask(__name__, template_folder=str(_RECON_ROOT / "templates"), static_folder="static")
 app.config["JSON_AS_ASCII"] = False
 
 # ── 全局状态 ──
 _scan_jobs: dict[str, dict] = {}
 _scans_lock = threading.Lock()
 
-OUTPUT_DIR = _sys_path / "outputs"
+OUTPUT_DIR = _RECON_ROOT / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

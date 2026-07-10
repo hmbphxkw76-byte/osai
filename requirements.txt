@@ -1,0 +1,58 @@
+# RedTeam_AI — 完整 AI 红队六阶段自动化攻击流水线
+# 安装: pip install -r requirements.txt
+#
+# 组件:
+#   recon/     L0 前置侦察 (Playwright + Flask)
+#   garak/     L1 AI 模型侦查 (Garak)
+#   bridge/    L2 桥接映射 (Seeds Mapper)
+#   promptfoo/ L3 提示词模板 (Promptfoo Manager)
+#   pyrit/     L4 深度攻击 (PyRIT)
+#   pipeline.py 统一编排入口
+
+# Core
+pyyaml>=6.0
+rich>=13.0.0
+httpx>=0.27.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# Recon (L0)
+playwright>=1.40.0
+jsonschema>=4.20.0
+aiofiles>=23.0.0
+flask>=3.0.0
+pyjwt>=2.8.0
+cryptography>=41.0.0
+
+# PyRIT (L4) — 攻击引擎
+openai>=1.0.0
+apscheduler>=3.10.0
+tenacity>=8.0.0
+aiohttp>=3.9.0
+anyio>=4.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# Reporting
+jinja2>=3.1.0
+markdown>=3.5.0
+
+# Utilities
+tqdm>=4.65.0
+
+# Image / Document Processing (for XPIA)
+Pillow>=10.0.0
+python-docx>=0.8.11
+pypdf>=3.0.0
+
+# Optional — install separately
+# garak>=0.10.0          # Garak 模型侦查 (L1): pip install garak
+# promptfoo              # Promptfoo 模板管理 (L3): npm install -g promptfoo
+# neo4j>=5.0.0           # Neo4j 图数据库: pip install neo4j

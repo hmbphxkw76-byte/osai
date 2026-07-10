@@ -1,7 +1,7 @@
 # OffSec AI 红队平台 — 七层架构设计
 
 > **定位**: 本文档定义 7 层架构的完整设计、模块映射、数据流和接口规范。
-> 严格遵循 `contributing/README.md` 中的所有研发规范。
+> 严格遵循 `contributing/DEVELOPMENT_STANDARDS.md` 中的所有研发规范。
 
 ---
 
@@ -63,11 +63,11 @@
 | 层级 | 核心包/文件 | 职责 | 依赖方向 |
 |------|------------|------|---------|
 | **L0** | `recon/` + `pyrit/recon_adapter.py` + `pyrit/targets/_recon_bridge.py` | 前置侦察 → 标准化 Profile 输出 | 无内部依赖 |
-| **L1** | `pyrit/executor/garak_scanner.py` + `pyrit/scenarios/frontier/` | AI 安全侦查 → 结构化安全画像 | → datasets, targets |
+| **L1** | `pyrit/executor/garak_scanner.py` | AI 安全侦查 → 结构化安全画像 | → targets |
 | **L2** | `pyrit/orchestrators/pyrit_orchestrator.py` + `pyrit/executor/adaptive_selector.py` | 攻击指挥中枢 → 动态反馈闭环 | → executor, converters, reporting |
 | **L3a** | `pyrit/converters/jailbreak.py` + `pyrit/converters/injection.py` | 直接注入 + 越狱 | → 外部 PyRIT 框架 |
 | **L3b** | `pyrit/converters/multimodal_attack.py` + `pyrit/converters/xpia_injection.py` | 间接注入 XPIA | → 外部 PyRIT 框架 |
-| **L3c** | `pyrit/executor/rag_attack.py` + `pyrit/datasets/payloads/rag_payloads.yaml` | RAG 专项攻击（Promptfoo） | → targets, datasets |
+| **L3c** | `pyrit/executor/rag_attack.py` + `promptfoo/templates/rag_payloads.yaml` | RAG 专项攻击（Promptfoo） | → targets, promptfoo |
 | **L3d** | `pyrit/executor/agent_abuse.py` + `pyrit/converters/agent_abuse.py` | Agent 工具滥用 | → targets, datasets |
 | **L3e** | `pyrit/executor/model_extraction.py` + `pyrit/executor/garak_scanner.py` | 模型提取 / 反演 | → targets, datasets |
 | **L4** | `pyrit/executor/multi_agent_attack.py` | 多 Agent 系统攻击 | → targets, datasets |
@@ -93,11 +93,11 @@ L6 (reporting) ← L5 (scoring) ← L3-4 (executor) ← L2 (orchestrators) ← L
 
 **现有实现**:
 - `recon/main.py` → Playwright 驱动的前置侦察引擎
-- `recon/recon/engine.py` → ReconEngine 核心编排
+- `recon/engine.py` → ReconEngine 核心编排
 - `pyrit/recon_adapter.py` → 桥接 recon Profile → PyRIT 攻击目标
 - `pyrit/targets/_recon_bridge.py` → Profile 解析与 Target 构建
 
-**标准化输出**: `target_profile.json`（JSON Schema 定义在 `recon/recon/schema.py`）
+**标准化输出**: `target_profile.json`（JSON Schema 定义在 `recon/schema.py`）
 
 **CLI 入口**:
 ```bash

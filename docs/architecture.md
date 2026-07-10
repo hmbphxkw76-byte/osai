@@ -1,7 +1,7 @@
 # RedTeam_AI 七层架构设计
 
 > **定位**: 本文档定义项目 7 层架构的完整设计、模块映射、数据流和接口规范。
-> 详细开发规范见 [pyrit/contributing/](../pyrit/contributing/README.md)
+> 详细开发规范见 [docs/contributing/DEVELOPMENT_STANDARDS.md](contributing/DEVELOPMENT_STANDARDS.md)
 
 ---
 
@@ -60,13 +60,13 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| 核心引擎 | `recon/recon/engine.py` | 侦察流程编排 |
-| 浏览器驱动 | `recon/recon/browser.py` | Playwright 自动化 |
-| 模型探测 | `recon/recon/model_probe.py` | LLM 指纹识别 |
-| 端点推断 | `recon/recon/endpoint_infer.py` | API/聊天端点分类 |
-| 字典扫描 | `recon/recon/dict_scan.py` | 路径爆破 |
-| WAF 检测 | `recon/recon/waf_detector.py` | 防护中间件探查 |
-| 认证自动化 | `recon/recon/login.py` | Cookie/Token 获取 |
+| 核心引擎 | `recon/engine.py` | 侦察流程编排 |
+| 浏览器驱动 | `recon/scanners/browser.py` | Playwright 自动化 |
+| 模型探测 | `recon/probes/model_probe.py` | LLM 指纹识别 |
+| 端点推断 | `recon/analysis/endpoint_infer.py` | API/聊天端点分类 |
+| 字典扫描 | `recon/scanners/dict_scan.py` | 路径爆破 |
+| WAF 检测 | `recon/scanners/waf_detector.py` | 防护中间件探查 |
+| 认证自动化 | `recon/auth/login.py` | Cookie/Token 获取 |
 | 侦察适配器 | `pyrit/recon_adapter.py` | Profile → PyRIT 目标配置 |
 | 侦察桥接 | `pyrit/targets/_recon_bridge.py` | 目标构建器集成 |
 
@@ -105,7 +105,8 @@
 |------|------|------|
 | XPIA 转换器 | `pyrit/converters/xpia_injection.py` | 多模态载体注入 |
 | 多模态攻击 | `pyrit/converters/multimodal_attack.py` | 图片/音频注入 |
-| XPIA Payloads | `pyrit/datasets/payloads/xpia_payloads.yaml` | 18+ XPIA 载荷 |
+| XPIA Payloads | `promptfoo/templates/xpia_payloads.yaml` | 18+ XPIA 载荷 |
+
 
 ### L3c — RAG 专项攻击 (Promptfoo)
 
@@ -114,7 +115,8 @@
 | RAG 执行器 | `pyrit/executor/rag_attack.py` | RAG 攻击编排 |
 | RAG 投毒 | `pyrit/converters/rag_poisoning.py` | 文档/检索投毒 |
 | Promptfoo 配置 | `pyrit/configs/promptfoo.env` | 评估引擎配置 |
-| RAG Payloads | `pyrit/datasets/payloads/rag_payloads.yaml` | RAG 攻击载荷 |
+| RAG Payloads | `promptfoo/templates/rag_payloads.yaml` | RAG 攻击载荷 |
+
 
 ### L3d — Agent 工具滥用
 
@@ -122,7 +124,8 @@
 |------|------|------|
 | Agent 执行器 | `pyrit/executor/agent_abuse.py` | 工具滥用编排 |
 | Agent 转换器 | `pyrit/converters/agent_abuse.py` | Function Call 注入 |
-| Agent Payloads | `pyrit/datasets/payloads/agent_abuse_payloads.yaml` | 工具劫持载荷 |
+| Agent Payloads | `promptfoo/templates/agent_abuse_payloads.yaml` | 工具劫持载荷 |
+
 
 ### L3e — 模型提取
 
@@ -130,14 +133,16 @@
 |------|------|------|
 | 提取执行器 | `pyrit/executor/model_extraction.py` | 模型提取编排 |
 | Embedding 攻击 | `pyrit/converters/embedding_attack.py` | 嵌入向量反演 |
-| 提取 Payloads | `pyrit/datasets/payloads/model_extraction_payloads.yaml` | 提取类载荷 |
+| 提取 Payloads | `promptfoo/templates/model_extraction_payloads.yaml` | 提取类载荷 |
+
 
 ### L4 — 多 Agent 系统攻击
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | 多Agent执行器 | `pyrit/executor/multi_agent_attack.py` | 编排多Agent攻击 |
-| 多Agent Payloads | `pyrit/datasets/payloads/multi_agent_payloads.yaml` | Agent间攻击载荷 |
+| 多Agent Payloads | `promptfoo/templates/multi_agent_payloads.yaml` | Agent间攻击载荷 |
+
 
 ### L5 — 统一评估判定
 
@@ -153,7 +158,8 @@
 |------|------|------|
 | 专业报告 | `pyrit/reporting/professional_report.py` | OffSec 风格报告 |
 | 标准映射 | `pyrit/reporting/standards_mapping.py` | MITRE ATLAS 映射 |
-| 报告模板 | `pyrit/scenarios/templates/report_config.yaml` | 报告配置模板 |
+| 报告模板 | `pyrit/reporting/` | 报告配置模板 |
+
 
 ## 三、数据流
 
@@ -203,7 +209,7 @@
 
 ## 五、开发规范
 
-严格遵循 `pyrit/contributing/README.md` 中的所有规范：
+严格遵循 `docs/contributing/DEVELOPMENT_STANDARDS.md` 中的所有规范：
 
 1. **YAML 唯一真实来源** — 所有 payloads 存储在 `datasets/payloads/`，通过 `manifest.yaml` 注册
 2. **配置分离** — 各层独立 `.env`，不跨层引用
