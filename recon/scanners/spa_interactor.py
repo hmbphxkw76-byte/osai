@@ -3,6 +3,12 @@ SPA 交互模块 — 模拟用户在浏览器中的操作以触发真实 API 调
 
 解决核心问题：仅加载页面（Phase 3）不会触发 AI Chat 的 POST/GET 请求，
 必须模拟用户在对话框中输入消息并发送，才能捕获到真实的 AI API 端点。
+
+支持多层反检测：
+- 贝塞尔曲线鼠标移动（ghost-cursor 算法）
+- 拟人化打字节奏（随机延迟 + 思考停顿）
+- 随机滚动行为
+- 随机动作间延迟
 """
 
 from __future__ import annotations
@@ -40,11 +46,13 @@ class SpaInteractor:
     - textarea / input[type="text"] — 消息输入框
     - button[type="submit"] / 发送按钮 — 各种变体
     - contenteditable div — 富文本编辑区
+
+    使用 BrowserManager 的 humanize 方法实现拟人操作，避免被反爬系统检测。
     """
 
     # ── Chat 输入选择器（按优先级） ──
     _INPUT_SELECTORS = [
-        # textarea（最常见）
+        # textarea 中文/英文常见占位符
         'textarea[placeholder*="消息" i]',
         'textarea[placeholder*="message" i]',
         'textarea[placeholder*="chat" i]',
@@ -54,12 +62,28 @@ class SpaInteractor:
         'textarea[placeholder*="type" i]',
         'textarea[placeholder*="问题" i]',
         'textarea[placeholder*="question" i]',
+        'textarea[placeholder*="提问" i]',
+        'textarea[placeholder*="您的问题" i]',
+        'textarea[placeholder*="说点什么" i]',
+        'textarea[placeholder*="请输入" i]',
+        'textarea[placeholder*="send a message" i]',
+        'textarea[placeholder*="type a message" i]',
+        'textarea[placeholder*="what can i help" i]',
+        'textarea[placeholder*="start a conversation" i]',
+        'textarea[placeholder*="tell me" i]',
+        'textarea[placeholder*="how can i" i]',
         # 通用 textarea
         'textarea:not([hidden]):not([disabled])',
-        # input
+        # input 中文/英文占位符
         'input[type="text"][placeholder*="消息" i]',
         'input[type="text"][placeholder*="message" i]',
         'input[type="text"][placeholder*="chat" i]',
+        'input[type="text"][placeholder*="输入" i]',
+        'input[type="text"][placeholder*="ask" i]',
+        'input[type="text"][placeholder*="问题" i]',
+        'input[type="text"][placeholder*="提问" i]',
+        'input[type="text"][placeholder*="您的问题" i]',
+        'input[type="text"][placeholder*="请输入" i]',
         'input[type="text"]:not([hidden]):not([disabled])',
         # contenteditable
         'div[contenteditable="true"]:not([hidden])',
@@ -74,13 +98,24 @@ class SpaInteractor:
         'button[title*="发送" i]',
         'button[title*="send" i]',
         'button:has(svg):not([hidden])',  # SVG 图标发送按钮常见
+        # 常见 SVG 箭头/飞机图标按钮
+        'button svg[class*="send"]',
+        'button svg[class*="arrow"]',
+        'button svg[class*="paper-plane"]',
+        'button svg[class*="plane"]',
+        '[class*="send-btn"]',
+        '[class*="send-button"]',
+        '[class*="submit-btn"]',
         # 具体 class/variant 匹配
         'button.send-btn',
         'button[class*="send"]',
         'button[class*="submit"]',
-        'button svg[class*="send"]',
+        'button[class*="arrow"]',
         # 兜底: 输入框旁边的最后一个 button
         'form button:last-of-type:not([hidden])',
+        # 如果 Chat 组件在父容器内，找同级的最后一个 button
+        '.chat-input-area button:last-of-type:not([hidden])',
+        '[class*="chat-input"] button:last-of-type:not([hidden])',
     ]
 
     _TEST_MESSAGE = (
@@ -88,6 +123,7 @@ class SpaInteractor:
         "Please respond with a brief greeting in JSON format: {\"greeting\": \"Hello!\"}"
     )
     _WAIT_AFTER_SEND = 4  # 等待 AI 回复的秒数
+    _MAX_RESPONSE_POLLS = 8  # 4 秒内轮询 8 次
 
     def __init__(self, browser_manager):
         self._browser = browser_manager
@@ -121,6 +157,10 @@ class SpaInteractor:
 
         console.print()
         console.print("[bold magenta]💬 SPA Chat 交互探测[/bold magenta]")
+
+        # ── Step 0: 模拟浏览行为（滚动、鼠标移动） ──
+        await self._browser.random_delay(0.5, 1.5)
+        await self._browser.human_scroll(page, distance=300)
 
         # ── Step 1: 查找输入框 ──
         input_elem = None
@@ -159,20 +199,22 @@ class SpaInteractor:
         # ── Step 2: 输入测试消息 ──
         try:
             # 聚焦并清空输入框
-            await input_elem.click()
-            await asyncio.sleep(0.3)
+            await self._browser.human_click(page, input_elem)
+            await self._browser.random_delay(0.3, 0.8)
 
-            # contenteditable 用 evaluate，否则用 fill
-            if result.input_type == "div" or await input_elem.evaluate(
+            # contenteditable 用 evaluate，否则用 human_type
+            is_contenteditable = result.input_type == "div" or await input_elem.evaluate(
                 "el => el.getAttribute('contenteditable') === 'true'"
-            ):
+            )
+
+            if is_contenteditable:
                 await input_elem.evaluate(
-                    f"el => {{ el.textContent = ''; el.focus(); }}"
+                    "el => { el.textContent = ''; el.focus(); }"
                 )
-                await page.keyboard.type(self._TEST_MESSAGE, delay=30)
+                await self._browser.human_type(page, self._TEST_MESSAGE)
             else:
                 await input_elem.fill("")
-                await input_elem.fill(self._TEST_MESSAGE)
+                await self._browser.human_type(page, self._TEST_MESSAGE, field=input_elem)
 
             console.print(
                 f"  [dim]  已输入测试消息 ({len(self._TEST_MESSAGE)} 字符)[/dim]"
@@ -188,7 +230,9 @@ class SpaInteractor:
             result.trace_log = "\n".join(trace_lines)
             return result
 
-        # ── Step 3: 查找并点击发送按钮 ──
+        # ── Step 3: 延迟后查找并点击发送按钮 ──
+        await self._browser.random_delay(0.3, 1.0)
+
         send_btn = None
         send_found_by = ""
         for selector in self._SEND_BUTTON_SELECTORS:
@@ -206,6 +250,7 @@ class SpaInteractor:
             trace_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
             console.print(f"  [dim]  ⚡ {msg}[/dim]")
             try:
+                await self._browser.random_delay(0.1, 0.3)
                 await page.keyboard.press("Enter")
                 result.send_clicked = True
             except Exception as e:
@@ -221,7 +266,7 @@ class SpaInteractor:
             )
 
             try:
-                await send_btn.click()
+                await self._browser.human_click(page, send_btn)
             except Exception:
                 # 点击失败，尝试 Enter
                 await page.keyboard.press("Enter")
@@ -239,7 +284,7 @@ class SpaInteractor:
         response_text = ""
         try:
             # 轮询检测页面上是否出现 AI 回复内容
-            for i in range(self._WAIT_AFTER_SEND * 2):
+            for i in range(self._MAX_RESPONSE_POLLS):
                 await asyncio.sleep(0.5)
 
                 # 检测是否有新消息出现（常见选择器）
@@ -253,6 +298,8 @@ class SpaInteractor:
                             'div[class*="message"]:last-child',
                             'div[class*="response"]:last-child',
                             'div[class*="answer"]:last-child',
+                            'div[class*="assistant"]:last-child',
+                            'div[class*="ai"]:last-child',
                         ];
                         for (const sel of selectors) {
                             try {
@@ -268,9 +315,12 @@ class SpaInteractor:
                 if response_text:
                     break
 
-                # 也用 network idle 作为代理指标
-                if i == self._WAIT_AFTER_SEND:
-                    await page.wait_for_load_state("networkidle", timeout=5000).__await__()
+                # 中间点检查 network idle
+                if i == self._MAX_RESPONSE_POLLS // 2:
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
 
         except Exception as e:
             trace_lines.append(

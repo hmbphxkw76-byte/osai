@@ -67,6 +67,11 @@ class ReconEngine:
         interactive_login: bool = False,
         manual_login: bool = False,
         manual_login_timeout: int = 120,
+        stealth_mode: str = "auto",
+        chrome_path: Optional[str] = None,
+        humanize: bool = True,
+        storage_state_path: Optional[str] = None,
+        har_output_path: Optional[str] = None,
     ):
         self.target_url = target_url.rstrip("/")
         self.login_url = login_url
@@ -89,6 +94,11 @@ class ReconEngine:
         self.interactive_login = interactive_login
         self.manual_login = manual_login
         self.manual_login_timeout = manual_login_timeout
+        self.stealth_mode = stealth_mode
+        self.chrome_path = chrome_path
+        self.humanize = humanize
+        self.storage_state_path = storage_state_path
+        self.har_output_path = har_output_path
 
         self.profile = TargetProfile()
         self._setup_meta()
@@ -185,6 +195,9 @@ class ReconEngine:
         # Phase 3: SPA 渲染 + 流量捕获（浏览器）
         await self._phase3_spa_render()
 
+        # Phase 3.1: SPA Chat 交互 — 模拟用户在对话框中发送消息触发真实 API
+        await self._phase3_1_spa_interaction()
+
         # Phase 3.5: JS SDK 指纹扫描（静态分析 JS bundles）
         await self._phase3_5_js_sdk_scan()
 
@@ -247,10 +260,18 @@ class ReconEngine:
             self._browser = BrowserManager(
                 headless=self.headless,
                 output_dir=str(self.output_dir),
+                stealth_mode=self.stealth_mode,
+                executable_path=self.chrome_path,
+                humanize=self.humanize,
+                storage_state=self.storage_state_path,
+                record_har_path=self.har_output_path,
             )
             await self._browser.start()
             self._login = LoginAutomator(self._browser)
-            self._traffic = TrafficCapture(self._browser)
+            self._traffic = TrafficCapture(
+                browser_manager=self._browser,
+                har_output_dir=str(self.output_dir),
+            )
             self._spa = SpaRouterAnalyzer(self._browser)
             self._interactor = SpaInteractor(self._browser)
 
@@ -506,6 +527,170 @@ class ReconEngine:
         except Exception as e:
             console.print(f"  [yellow]⚠ SPA 渲染异常: {e}[/yellow]")
             self.profile.artifacts.errors.append(f"Phase3 spa_render: {e}")
+
+    async def _phase3_1_spa_interaction(self):
+        """Phase 3.1: SPA Chat 交互 — 模拟用户发送消息触发真实 API 调用。
+
+        这是发现 RESTful Chat API 的关键步骤。
+        仅加载页面（Phase 3）不会触发 POST /api/v1/conversations 等操作，
+        必须模拟用户在对话框中输入消息并发送，才能捕获：
+
+        - POST /api/v1/conversations       (创建会话)
+        - GET  /api/v1/conversations/{id}  (获取会话)
+        - POST /api/v1/conversations/{id}/messages (发送消息)
+        - 等 RESTful 资源端点
+
+        这些端点才是 PyRIT 攻击阶段的真实入口。
+        """
+        if not self._browser or not self._interactor:
+            return
+
+        console.print()
+        console.print("[bold magenta]💬 Phase 3.1: SPA Chat 交互探测[/bold magenta]")
+
+        try:
+            # 打开新页面（复用已有 context 含 cookies）
+            page = await self._browser.new_page()
+
+            # 导航到目标（可能已经是登录后的状态，如果 Phase 2 已执行）
+            await page.goto(self.target_url, wait_until="networkidle", timeout=self.timeout * 1000)
+            await asyncio.sleep(2)
+
+            # 先检测 Chat UI 结构
+            ui_info = await self._interactor.extract_chat_ui_info(page)
+            has_chat_ui = (
+                ui_info.get("has_textarea")
+                or ui_info.get("has_input")
+                or ui_info.get("has_contenteditable")
+            )
+
+            if not has_chat_ui:
+                console.print(
+                    "  [dim]⏭ 未检测到 Chat UI 组件 "
+                    f"(textarea={ui_info.get('has_textarea')}, "
+                    f"input={ui_info.get('has_input')}, "
+                    f"contenteditable={ui_info.get('has_contenteditable')})[/dim]"
+                )
+                console.print(
+                    "  [dim]  提示: 目标可能不是 Chat 应用，或 Chat UI 使用了自定义组件[/dim]"
+                )
+                await self._browser.close_page(page)
+                return
+
+            console.print(
+                f"  [green]✅ 检测到 Chat UI: "
+                f"textarea={ui_info.get('has_textarea')}, "
+                f"input={ui_info.get('has_input')}, "
+                f"placeholder='{ui_info.get('input_placeholder', '')}'[/green]"
+            )
+            self.add_finding(
+                "Phase 3.1 · Chat 交互",
+                "info",
+                "Chat UI 已检测",
+                f"textarea={ui_info.get('has_textarea')}, "
+                f"input={ui_info.get('has_input')}, "
+                f"contenteditable={ui_info.get('has_contenteditable')}",
+                ui_info,
+            )
+
+            # 启动流量捕获（专门捕获交互期间的新 API 请求）
+            if self.enable_traffic_capture and self._traffic:
+                self._traffic.start_capture(page)
+                console.print("  [dim]📡 交互流量捕获已启动[/dim]")
+
+            # 执行交互
+            interaction_result = await self._interactor.interact_with_chat(
+                page=page,
+                traffic_capture=self._traffic,
+                target_url=self.target_url,
+            )
+
+            if interaction_result.interaction_performed:
+                # 截图交互后的状态
+                screenshot_path = str(self.output_dir / "screenshot_interaction.png")
+                await page.screenshot(path=screenshot_path, full_page=True)
+                self.profile.artifacts.screenshots.append(screenshot_path)
+
+                self.add_finding(
+                    "Phase 3.1 · Chat 交互",
+                    "high" if interaction_result.response_received else "medium",
+                    "💬 Chat 交互探测完成",
+                    f"输入框: {interaction_result.input_type or 'N/A'}; "
+                    f"发送: {'成功' if interaction_result.send_clicked else '失败'}; "
+                    f"回复: {'收到' if interaction_result.response_received else '未检测到'} "
+                    f"({len(interaction_result.response_snippet)} 字符)",
+                    {
+                        "input_type": interaction_result.input_type,
+                        "send_clicked": interaction_result.send_clicked,
+                        "response_received": interaction_result.response_received,
+                        "response_snippet": interaction_result.response_snippet[:200],
+                    },
+                )
+
+            # 停止交互期间的流量捕获，提取新端点
+            if self._traffic:
+                interaction_endpoints = await self._traffic.stop_capture()
+                console.print(
+                    f"  [dim]📡 交互阶段捕获到 {len(interaction_endpoints)} 个额外 API 请求[/dim]"
+                )
+
+                # 去重合并到 profile（排除已存在的）
+                existing_keys = {(ep.path, ep.method) for ep in self.profile.api_endpoints}
+                new_ep_count = 0
+                for ep_data in interaction_endpoints:
+                    api_ep = self._inferrer.classify_endpoint(ep_data)
+                    key = (api_ep.path, api_ep.method)
+                    if key not in existing_keys:
+                        existing_keys.add(key)
+                        self.profile.api_endpoints.append(api_ep)
+                        new_ep_count += 1
+
+                interaction_result.new_endpoints_found = new_ep_count
+                interaction_result.captured_requests = len(interaction_endpoints)
+
+                if new_ep_count > 0:
+                    console.print(
+                        f"  [green]✅ 交互阶段新增 {new_ep_count} 个端点[/green]"
+                    )
+                    # 列出新增的端点
+                    new_chat_eps = [
+                        ep for ep in self.profile.api_endpoints
+                        if (ep.path, ep.method) not in existing_keys
+                        and ep.is_chat_endpoint
+                    ]
+                    for ep in sorted(self.profile.api_endpoints, key=lambda x: x.method)[-new_ep_count:]:
+                        method_color = "cyan" if ep.method.upper() == "POST" else "dim"
+                        chat_tag = " [yellow]🎯[/yellow]" if ep.is_chat_endpoint else ""
+                        console.print(
+                            f"    [{method_color}]{ep.method:6s}[/{method_color}] "
+                            f"[dim]{ep.path}{chat_tag}[/dim]"
+                        )
+
+                    self.add_finding(
+                        "Phase 3.1 · Chat 交互",
+                        "high" if any(ep.is_chat_endpoint for ep in self.profile.api_endpoints[-new_ep_count:]) else "medium",
+                        f"📡 交互阶段发现 {new_ep_count} 个新端点",
+                        f"捕获到 {len(interaction_endpoints)} 个请求, "
+                        f"去重后新增 {new_ep_count} 个唯一端点",
+                        {
+                            "total_requests": len(interaction_endpoints),
+                            "new_endpoints": new_ep_count,
+                        },
+                    )
+                else:
+                    console.print(
+                        f"  [dim]  与初始流量完全重复，未发现新端点[/dim]"
+                    )
+
+            if interaction_result.errors:
+                for err in interaction_result.errors:
+                    self.profile.artifacts.warnings.append(f"Phase3.1 interact: {err}")
+
+            await self._browser.close_page(page)
+
+        except Exception as e:
+            console.print(f"  [yellow]⚠ Chat 交互异常: {e}[/yellow]")
+            self.profile.artifacts.errors.append(f"Phase3.1 spa_interaction: {e}")
 
     async def _phase3_5_js_sdk_scan(self):
         """Phase 3.5: JS SDK 指纹扫描 — 从 JS bundles 识别 AI SDK 引用。

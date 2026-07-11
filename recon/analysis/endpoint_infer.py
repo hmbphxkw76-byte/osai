@@ -18,8 +18,9 @@ from recon.schema import (
 
 _CATEGORY_RULES = [
     # (路径正则, HTTP方法, 响应Content-Type正则, 分类)
-    # Chat 类: 覆盖单复数形式的对话/会话/线程端点
-    (r"(?:/chat|/chats|/completion|/message|/messages|/ask|/query|/generate|/conversation|/conversations|/thread|/threads)", None, r"application/json", EndpointCategory.CHAT),
+    # Chat 类: 覆盖单复数形式的对话/会话/线程端点，以及聊天机器人/助手端点
+    # 支持标准 JSON 响应和 SSE 流式响应（如 SSA /api/chat?token=...）
+    (r"(?:/chat|/chats|/chatbot|/chatbots|/assistant|/assistants|/completion|/message|/messages|/ask|/query|/generate|/conversation|/conversations|/thread|/threads|/ai)", None, r"application/json|text/event-stream", EndpointCategory.CHAT),
     (r"(?:/login|/auth|/token|/signin|/signup|/register|/oauth)", None, None, EndpointCategory.AUTH),
     (r"(?:/login|/auth|/token|/signin|/signup|/register|/oauth)", None, r"application/json", EndpointCategory.AUTH),
     (r"(?:/rag|/retriev|/knowledge|/vector|/search|/embedding|/semantic)", None, None, EndpointCategory.RAG),
@@ -47,6 +48,8 @@ _RESTFUL_CHAT_PATTERNS = [
     (ApiFormat.RAW_JSON.value, r"/api/chats?$",                 r"/api/chats?/\w+$",                               0.30),
     (ApiFormat.RAW_JSON.value, r"/api/threads?$",               r"/api/threads?/\w+$",                             0.30),
     (ApiFormat.RAW_JSON.value, r"/api/sessions?$",              r"/api/sessions?/\w+$",                            0.25),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/chatbot",            r"/api/v\d+/chatbot/\w+",                          0.28),
+    (ApiFormat.RAW_JSON.value, r"/api/v\d+/assistant",          r"/api/v\d+/assistant/\w+",                        0.28),
 ]
 
 
@@ -68,6 +71,10 @@ _CHAT_ENDPOINT_PATTERNS = [
     (ApiFormat.RAW_JSON.value,        r"/query$",                0.15),
     (ApiFormat.RAW_JSON.value,        r"/message$",              0.15),
     (ApiFormat.RAW_JSON.value,        r"/conversation$",         0.10),
+    # SSA / 数据分析型 Chat 组件
+    (ApiFormat.RAW_JSON.value,        r"/chatbot",                0.22),
+    (ApiFormat.RAW_JSON.value,        r"/assistant",              0.22),
+    (ApiFormat.RAW_JSON.value,        r"/ai/",                    0.18),
     # RESTful 资源模式
     (ApiFormat.RAW_JSON.value,        r"/api/v\d+/conversations?$",  0.28),
     (ApiFormat.RAW_JSON.value,        r"/api/v\d+/chats?$",         0.28),
@@ -132,6 +139,12 @@ class EndpointInferrer:
         # 判断是否需要认证
         requires_auth = status in (401, 403)
 
+        # 提取 URL 参数模式（如 ?token=...）
+        param_patterns = self._extract_param_patterns(url)
+
+        # SSE 流式判定
+        is_streaming = "event-stream" in content_type.lower()
+
         return ApiEndpoint(
             path=path,
             full_url=url,
@@ -140,10 +153,12 @@ class EndpointInferrer:
             content_type=content_type,
             category=category,
             is_chat_endpoint=is_chat,
+            is_streaming=is_streaming,
             requires_auth=requires_auth,
             confidence=confidence,
             response_time_ms=network_entry.get("response_time_ms", 0.0),
             body_snippet=network_entry.get("body_snippet", "") or network_entry.get("body", "")[:300],
+            param_patterns=param_patterns,
         )
 
     @staticmethod
@@ -160,7 +175,7 @@ class EndpointInferrer:
         2. RESTful 资源模式匹配（POST 集合 + GET 单个资源）
         3. 有 JSON 响应体的会话/消息/线程相关端点
         """
-        if status != 200:
+        if status not in (200, 201):
             return False
 
         # 规则 1: 分类器已识别为 CHAT 类别
@@ -174,11 +189,12 @@ class EndpointInferrer:
             if re.search(item_pat, path, re.IGNORECASE) and method.upper() in ("GET", "POST"):
                 return True
 
-        # 规则 3: 包含对话关键路径 + JSON 响应（捕获未被规则1命中的端点）
-        chat_keywords = ["conversation", "chat", "thread", "message", "session"]
+        # 规则 3: 包含对话关键路径 + JSON/SSE 响应（捕获未被规则1命中的端点）
+        chat_keywords = ["conversation", "chat", "chatbot", "assistant", "thread", "message", "session"]
         path_lower = path.lower()
         if any(kw in path_lower for kw in chat_keywords):
-            if "json" in content_type.lower():
+            ct_lower = content_type.lower()
+            if "json" in ct_lower or "event-stream" in ct_lower or "text/plain" in ct_lower:
                 return True
 
         return False
@@ -200,7 +216,7 @@ class EndpointInferrer:
         result = InferenceResult()
 
         # 策略 1: 已有的 chat 端点（POST 优先）
-        chat_eps = [ep for ep in endpoints if ep.is_chat_endpoint and ep.status == 200]
+        chat_eps = [ep for ep in endpoints if ep.is_chat_endpoint and ep.status in (200, 201)]
         post_chat = [ep for ep in chat_eps if ep.method.upper() == "POST"]
         if post_chat:
             best = post_chat[0]
@@ -212,7 +228,7 @@ class EndpointInferrer:
 
         # 策略 2: RESTful 资源模式的 POST 集合端点
         for ep in endpoints:
-            if ep.status != 200 or ep.method.upper() != "POST":
+            if ep.status not in (200, 201) or ep.method.upper() != "POST":
                 continue
             for _, collection_pat, _, _ in _RESTFUL_CHAT_PATTERNS:
                 if re.search(collection_pat, ep.path, re.IGNORECASE):
@@ -225,10 +241,11 @@ class EndpointInferrer:
         # 策略 3: 路径模式评分
         scored = []
         for ep in endpoints:
-            if ep.status != 200:
+            if ep.status not in (200, 201):
                 continue
             for api_fmt, pattern, score in _CHAT_ENDPOINT_PATTERNS:
                 if re.search(pattern, ep.path, re.IGNORECASE):
+                    api_fmt = EndpointInferrer._guess_api_format(ep.path, ep.content_type)
                     scored.append((ep, api_fmt, score))
 
         if scored:
@@ -240,13 +257,16 @@ class EndpointInferrer:
             result.evidence = [f"pattern match: {best_ep.path} → {api_fmt} (score={score:.2f})"]
             return result
 
-        # 策略 4: 第一个返回 200 的 POST JSON 端点
+        # 策略 4: 第一个返回 200 的 POST JSON/SSE 端点
         for ep in endpoints:
-            if ep.status == 200 and ep.method.upper() == "POST" and "json" in ep.content_type.lower():
+            if ep.status not in (200, 201) or ep.method.upper() != "POST":
+                continue
+            ct_lower = ep.content_type.lower()
+            if "json" in ct_lower or "event-stream" in ct_lower or "text/plain" in ct_lower:
                 result.chat_api_url = ep.full_url
-                result.api_format = ApiFormat.RAW_JSON.value
+                result.api_format = EndpointInferrer._guess_api_format(ep.path, ep.content_type)
                 result.confidence = 0.50
-                result.evidence = [f"first 200 POST JSON: {ep.path}"]
+                result.evidence = [f"first 200 POST {result.api_format}: {ep.path}"]
                 return result
 
         # 策略 5: 兜底猜测
@@ -394,9 +414,37 @@ class EndpointInferrer:
         return url if url.startswith("/") else f"/{url}"
 
     @staticmethod
+    def _extract_param_patterns(url: str) -> dict:
+        """提取 URL 中的参数模式，用于发现 token/api_key 等认证参数。"""
+        patterns = {}
+        try:
+            query = url.split("?", 1)[1] if "?" in url else ""
+            if not query:
+                return patterns
+            for part in query.split("&"):
+                if "=" not in part:
+                    continue
+                key, value = part.split("=", 1)
+                if not value:
+                    continue
+                if re.match(r"^[A-Za-z0-9_-]{20,}$", value):
+                    patterns[key] = {"type": "high_entropy_token", "sample": value[:8] + "..."}
+                elif key.lower() in ("token", "api_key", "apikey", "key", "auth"):
+                    patterns[key] = {"type": "auth_param", "sample": value[:8] + "..."}
+        except Exception:
+            pass
+        return patterns
+
+    @staticmethod
     def _guess_api_format(path: str, content_type: str) -> str:
         """根据路径和 Content-Type 推测 API 格式。"""
         path_lower = path.lower()
+        ct_lower = content_type.lower()
+
+        # SSE 流式 Chat 响应（如 SSA /api/chat?token=...）
+        if "event-stream" in ct_lower:
+            return ApiFormat.SSE.value
+
         if "/v1/chat/completions" in path_lower:
             return ApiFormat.OPENAI_CHAT.value
         if "/v1/completions" in path_lower:
@@ -404,7 +452,7 @@ class EndpointInferrer:
         if "/v1/messages" in path_lower:
             return ApiFormat.ANTHROPIC_MESSAGES.value
         if "/api/chat" in path_lower or "/api/generate" in path_lower:
-            if "application/json" in content_type:
+            if "application/json" in ct_lower:
                 return ApiFormat.RAW_JSON.value
             return ApiFormat.RAW_FORM.value
         if "/chat" in path_lower:

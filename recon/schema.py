@@ -53,6 +53,7 @@ class AuthType(str, Enum):
     BEARER = "bearer"
     BASIC = "basic"
     API_KEY = "api_key"
+    QUERY_TOKEN = "query_token"
     CUSTOM_HEADER = "custom_header"
 
 
@@ -87,6 +88,7 @@ class ApiFormat(str, Enum):
     RAW_JSON = "raw_json"
     RAW_FORM = "raw_form"
     RAW_TEXT = "raw_text"
+    SSE = "sse"                 # Server-Sent Events 流式响应
 
 
 class SpaFramework(str, Enum):
@@ -151,6 +153,7 @@ class AuthInfo:
     custom_headers: dict = field(default_factory=dict)  # 自定义认证头
     csrf_token: str = ""                         # CSRF token
     bearer_token: str = ""                       # Bearer token
+    query_token: str = ""                        # URL Query Token（如 ?token=xxx）
     token_refresh_url: str = ""                  # Token 刷新端点
     notes: str = ""                              # 认证相关备注
 
@@ -187,6 +190,7 @@ class TargetInfo:
     request_timeout: int = 60                    # 请求超时（秒）
     http_method: str = "POST"
     content_type: str = "application/json"
+    stream: bool = False                         # 是否 SSE 流式响应
     framework: str = "unknown"                   # AI 框架/服务名称
     framework_confidence: str = "low"            # 框架识别置信度
 

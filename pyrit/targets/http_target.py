@@ -71,6 +71,8 @@ class CustomHttpChatTarget(PromptTarget):
         content_type: str = "application/json",
         http_method: str = "POST",
         jwt_token: str = "",
+        query_token: str = "",
+        stream: bool = False,
         tls_impersonate: Optional[str] = None,
     ):
         """
@@ -83,10 +85,12 @@ class CustomHttpChatTarget(PromptTarget):
             timeout: 请求超时（秒）
             verify_ssl: HTTPS 证书校验（内网自签证书设为 False）
             extra_headers: 额外的 HTTP 请求头（覆盖默认浏览器头）
-            api_format: API 格式 — 仅 "raw"（标准格式请用 SDK Target）
+            api_format: API 格式 — raw / sse / ollama / openai / etc
             content_type: POST Content-Type: json / form-urlencoded / text
             http_method: HTTP 方法: POST(默认) / GET
             jwt_token: JWT Token — 快捷方式，自动转为 Authorization: Bearer <jwt>
+            query_token: URL Query Token — 拼接到 URL ?token=xxx（SSA 等 Chat 组件常用）
+            stream: 是否启用 SSE 流式响应解析
             tls_impersonate: TLS 指纹伪装 profile (chrome124/safari17_0/...)
         """
         super().__init__(
@@ -103,6 +107,8 @@ class CustomHttpChatTarget(PromptTarget):
         self._content_type = self._extra_headers.get("Content-Type", content_type)
         self._http_method = http_method.upper()
         self._jwt_token = jwt_token
+        self._query_token = query_token
+        self._stream = stream
         self._tls_impersonate = tls_impersonate
         # SSL 策略：委托 normalize_target_url 判断（HTTP=不验证，HTTPS=验证）
         try:
@@ -116,8 +122,59 @@ class CustomHttpChatTarget(PromptTarget):
     # ── Payload 构建 ──
 
     def _build_request_payload(self, prompt: str) -> dict:
-        """通用 Chat API payload。"""
-        return {"prompt": prompt}
+        """通用 Chat API payload。SSE 格式支持 stream=true 参数。"""
+        payload = {"prompt": prompt}
+        if self._stream:
+            payload["stream"] = True
+        return payload
+
+    def _build_url_with_auth(self, base_url: str) -> str:
+        """将 query_token 拼接到 URL（如 ?token=xxx）。"""
+        if not self._query_token:
+            return base_url
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}token={self._query_token}"
+
+    @staticmethod
+    def _parse_sse_response(text: str) -> str:
+        """解析 SSE (Server-Sent Events) 响应体，提取并组装 content 文本。
+
+        支持格式:
+            data:{"data":{"messageType":"continue","content":"你好"}}
+            data:DONE
+            data:{"choices":[{"delta":{"content":"你好"}}]}  (OpenAI stream)
+        """
+        parts = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "DONE" or payload == "[DONE]":
+                continue
+            try:
+                obj = json.loads(payload)
+                # SSA 风格: {"data":{"messageType":"continue","content":"..."}}
+                if "data" in obj and isinstance(obj["data"], dict):
+                    inner = obj["data"]
+                    content = inner.get("content", "")
+                    if content:
+                        parts.append(content)
+                # OpenAI 流式风格: {"choices":[{"delta":{"content":"..."}}]}
+                elif "choices" in obj and isinstance(obj["choices"], list) and obj["choices"]:
+                    delta = obj["choices"][0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        parts.append(content)
+                # 直接 content 字段
+                elif "content" in obj:
+                    parts.append(obj["content"])
+                # 纯文本回退
+                else:
+                    parts.append(payload[:500])
+            except (json.JSONDecodeError, KeyError):
+                parts.append(payload[:500])
+        return "".join(parts)
 
     # ── Headers 组装 & POST body 编码 ──
 
@@ -127,6 +184,9 @@ class CustomHttpChatTarget(PromptTarget):
         headers.update(self._extra_headers)
         if "Content-Type" not in headers:
             headers["Content-Type"] = self._content_type
+        # SSE 流式请求需要 Accept header
+        if self._stream or self._api_format == "sse":
+            headers["Accept"] = "text/event-stream"
         effective_key = self._jwt_token or self._api_key
         if effective_key:
             headers["Authorization"] = f"Bearer {effective_key}"
@@ -180,6 +240,7 @@ class CustomHttpChatTarget(PromptTarget):
         """PyRIT 0.14.0 abstract method — 核心 HTTP 发送逻辑（httpx 原生 async）。
 
         支持 POST (Chat API) / GET (信息收集/探测)。
+        支持 SSE 流式响应（api_format=sse）和 Query Token 认证。
         业务层: 3 次重试 + 指数退避。
         """
         last_msg = normalized_conversation[-1] if normalized_conversation else None
@@ -189,7 +250,7 @@ class CustomHttpChatTarget(PromptTarget):
         user_text = last_msg.message_pieces[-1].converted_value or last_msg.message_pieces[-1].original_value
 
         headers = self._build_headers()
-        target_url = self._endpoint
+        target_url = self._build_url_with_auth(self._endpoint)
         max_retries = 3
         last_error = None
 
@@ -213,21 +274,21 @@ class CustomHttpChatTarget(PromptTarget):
                             self._http_method, target_url, headers=headers, content=body_content
                         )
 
-                response_data = self._safe_read_response(resp)
+                # ── SSE 流式响应解析 ──
+                ct = (resp.headers.get("content-type") or "").lower()
+                if self._stream or "event-stream" in ct:
+                    response_text = self._parse_sse_response(resp.text)
+                else:
+                    response_data = self._safe_read_response(resp)
+                    response_text = self._parse_response(response_data)
 
                 if resp.status_code >= 400:
-                    error_detail = (
-                        json.dumps(response_data, ensure_ascii=False)[:300]
-                        if isinstance(response_data, dict)
-                        else str(response_data)[:300]
-                    )
+                    error_detail = response_text[:300]
                     raise httpx.HTTPStatusError(
                         f"HTTP {resp.status_code}: {error_detail}",
                         request=resp.request,
                         response=resp,
                     )
-
-                response_text = self._parse_response(response_data)
 
                 resp_piece = MessagePiece(
                     role="assistant",

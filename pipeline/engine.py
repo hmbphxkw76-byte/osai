@@ -229,8 +229,10 @@ class RedTeamPipeline:
                 parallel_workers=4,
             )
 
-            profile = await scanner.run()
             results = await scanner.run_baseline()
+            # 需要深度扫描时再调用 scanner.run()
+            if self.stage == PipelineStage.GARAK:
+                profile = await scanner.run()
 
             self.state.garak_profile = results
             self.state.garak_output_dir = str(_PROJECT_ROOT / "garak" / "outputs")

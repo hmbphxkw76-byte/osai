@@ -534,7 +534,335 @@
   }
   .auth-ref-table td:first-child { white-space: nowrap; }
 
-  /* ── 实时发现流 ── */
+  /* ── 多 URL 输入提示 ── */
+  .multi-url-hint {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .multi-url-hint .badge {
+    background: var(--bg3);
+    color: var(--text2);
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  /* ── 批次总览条 ── */
+  .batch-summary {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 16px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .batch-summary .batch-stat {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .batch-summary .batch-stat.completed { color: var(--green); }
+  .batch-summary .batch-stat.running { color: var(--yellow); }
+  .batch-summary .batch-stat.pending { color: var(--text2); }
+  .batch-summary .batch-stat.failed { color: var(--accent); }
+
+  /* ── 批次表格 ── */
+  .batch-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .batch-table th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text2);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    background: var(--bg3);
+  }
+  .batch-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .batch-table tr:not(.batch-detail-row):hover td {
+    background: #fafbff;
+  }
+  .batch-table .url-row {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .batch-table .url-row.expanded td {
+    background: #eff6ff;
+    border-bottom-color: #bfdbfe;
+  }
+  .batch-table .collapse-icon {
+    display: inline-block;
+    width: 16px;
+    text-align: center;
+    font-size: 10px;
+    transition: transform 0.2s;
+  }
+  .batch-table .url-row.expanded .collapse-icon {
+    transform: rotate(90deg);
+  }
+  .batch-table .url-cell {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .batch-table .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .batch-table .status-dot.completed { background: var(--green); }
+  .batch-table .status-dot.running { background: var(--yellow); animation: pulse 1.4s ease-in-out infinite; }
+  .batch-table .status-dot.pending { background: #94a3b8; }
+  .batch-table .status-dot.failed { background: var(--accent); }
+
+  /* ── 批次展开详情行 ── */
+  .batch-detail-row td {
+    padding: 0 !important;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafc;
+  }
+  .batch-detail-inner {
+    padding: 16px 20px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .batch-detail-inner .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .batch-detail-inner .mini-item {
+    background: var(--bg2);
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .batch-detail-inner .mini-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text2);
+    letter-spacing: 0.3px;
+    margin-bottom: 3px;
+  }
+  .batch-detail-inner .mini-value {
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .batch-detail-inner .mini-value.code {
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  /* ── 快速探测向导 ── */
+  .wizard-intro {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+  .wizard-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .wizard-toggle {
+    font-size: 12px;
+    color: var(--text2);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .wizard-toggle:hover { color: var(--accent); }
+
+  .basic-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    color: var(--blue);
+    font-size: 13px;
+  }
+
+  .basic-target-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .basic-target-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .basic-target-title {
+    font-weight: 700;
+    font-size: 14px;
+    word-break: break-all;
+  }
+  .basic-target-meta {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+  .basic-target-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .basic-target-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .basic-endpoints-header {
+    padding: 10px 16px;
+    background: var(--bg3);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    display: flex;
+    justify-content: space-between;
+  }
+  .basic-endpoints-list {
+    padding: 8px 16px 12px;
+  }
+  .basic-endpoint-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .basic-endpoint-item:last-child { border-bottom: none; }
+  .basic-endpoint-status {
+    flex-shrink: 0;
+    min-width: 64px;
+    text-align: center;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .basic-endpoint-status.ok { background: #dcfce7; color: #166534; }
+  .basic-endpoint-status.auth { background: #fef3c7; color: #92400e; }
+  .basic-endpoint-status.error { background: #fee2e2; color: #991b1b; }
+  .basic-endpoint-status.unknown { background: #f1f5f9; color: #64748b; }
+  .basic-endpoint-path {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .basic-endpoint-ct {
+    font-size: 11px;
+    color: var(--text2);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .basic-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text2);
+    font-size: 13px;
+  }
+  .basic-notice {
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+  .basic-notice.info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+  .basic-notice.warn { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+  .basic-notice.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+
+  .badge-auth { background: #fef3c7; color: #92400e; }
+  .badge-waf { background: #fee2e2; color: #991b1b; }
+  .badge-safe { background: #dcfce7; color: #166534; }
+
+  /* ── 侦察配置弹窗 ── */
+  .recon-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .recon-form-grid .full { grid-column: 1 / -1; }
+  .recon-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .recon-form-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+  }
+  .recon-form-group input,
+  .recon-form-group textarea,
+  .recon-form-group select,
+  .recon-form-group file {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 11px;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+  }
+  .recon-form-group input:focus,
+  .recon-form-group textarea:focus,
+  .recon-form-group select:focus { border-color: var(--accent); }
+  .recon-form-group textarea { resize: vertical; min-height: 60px; font-family: var(--mono); font-size: 12px; }
+  .recon-toggle-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .recon-toggle-group label {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+
   .findings-stream {
     background: linear-gradient(180deg, #fafbff 0%, #f3f6fc 100%);
     border: 1px solid #d6deea;
@@ -629,6 +957,74 @@
     font-size: 12px;
     text-align: center;
     padding: 20px 0;
+  }
+
+  /* ── Workflow Steps ── */
+  .workflow-step {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: var(--bg3);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .wf-step-num {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .wf-step-body { flex: 1; }
+  .wf-step-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .wf-step-desc {
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.7;
+  }
+  .wf-step-desc p { margin-bottom: 6px; }
+  .wf-step-desc code {
+    background: #e8ecf4;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border: 1px solid #dde0e7;
+  }
+  .wf-cmd {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin: 6px 0;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .wf-warning {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #92400e;
+    line-height: 1.5;
   }
 
   /* ── Responsive ── */
@@ -751,10 +1147,88 @@
   <div class="page" id="page-scan">
     <div class="page-header">
       <h2>L0 — 目标侦察</h2>
-      <p>配置目标参数，启动 AI 侦测</p>
+      <p>简化两步走：先快速探测，再针对性深度侦察</p>
     </div>
 
-    <form id="scan-form">
+    <!-- 快速探测向导 -->
+    <div id="scan-wizard">
+      <div class="section" id="wizard-step1">
+        <div class="section-header">
+          <span>🚀 第一步：快速探测目标</span>
+          <button type="button" class="hint-toggle" onclick="toggleHint(this)">
+            专家提示 <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="section-body">
+          <p class="wizard-intro">
+            输入一个或多个目标 URL，系统会先执行轻量 HTTP 探测，列出存活端点和认证需求，再决定下一步侦察策略。
+          </p>
+          <div class="form-grid">
+            <div class="form-group full">
+              <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
+              <textarea id="basic-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn&#10;https://www.qianwen.com"></textarea>
+            </div>
+          </div>
+
+          <div class="wizard-actions">
+            <button type="button" class="btn btn-primary" id="btn-basic-scan" onclick="startBasicScan()">
+              🔍 开始快速探测
+            </button>
+            <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="basic-verify-ssl"> 验证 SSL 证书
+            </label>
+            <button type="button" class="wizard-toggle" onclick="toggleAdvancedConfig()">⚙️ 显示高级配置</button>
+          </div>
+
+          <div class="hint-body">
+            <strong>🚀 快速探测说明</strong><br>
+            该阶段不携带认证信息，仅对常见 AI/Web 端点（如 <code>/login</code>、<code>/v1/chat/completions</code>、<code>/api/tags</code> 等）执行轻量 GET/POST 探测，返回状态码与响应摘要。<br><br>
+            <strong>三种后续分支：</strong>
+            <ul>
+              <li><strong>需要认证：</strong>探测到 <code>/login</code>、<code>401/403</code> 等，将提示填写 Cookie / API Key / JWT。</li>
+              <li><strong>无需认证：</strong>可直接启动深度侦察，无需额外认证参数。</li>
+              <li><strong>结果为空 / 反爬：</strong>将切换到高级探测模式，提供 stealth、手动登录、storageState 等参数。</li>
+            </ul>
+            <div class="hint-rec">💡 商业 AI 平台（千问、Kimi、ChatGPT 等）通常需要先获取 Cookie 再执行深度侦察。</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="basic-scan-progress" class="section" style="display:none;">
+        <div class="section-header">
+          <span>⏳ 快速探测进行中</span>
+        </div>
+        <div class="section-body">
+          <div class="basic-progress">
+            <span class="spinner"></span>
+            <span id="basic-progress-text">正在探测目标，请稍候...</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="basic-scan-results" class="section" style="display:none;">
+        <div class="section-header">
+          <span>📋 第二步：探测结果</span>
+          <button type="button" class="hint-toggle" onclick="toggleHint(this)">
+            专家提示 <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="section-body">
+          <div class="hint-body">
+            <strong>📋 结果解读</strong>
+            <ul>
+              <li><strong>状态码 200/201：</strong>端点可访问，可点击「选择此目标」进行深度侦察。</li>
+              <li><strong>状态码 401/403：</strong>端点需要认证，系统会提示填写 Cookie / API Key / JWT。</li>
+              <li><strong>未发现端点 / 全部 4xx：</strong>可能存在反爬、WAF 或目标不可达，需启用高级探测。</li>
+            </ul>
+          </div>
+          <div id="basic-results-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <form id="scan-form" style="display:none;">
+
       <!-- 目标参数 -->
       <div class="section">
         <div class="section-header">
@@ -766,8 +1240,8 @@
         <div class="section-body">
           <div class="form-grid">
             <div class="form-group full">
-              <label>目标 URL *</label>
-              <input type="text" name="target_url" placeholder="https://192.168.0.20 或 http://localhost:11434" required>
+              <label>目标 URL * <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多 URL（每行一个，或用逗号/分号分隔）</span></label>
+              <textarea name="target_url" placeholder="https://192.168.0.20&#10;https://open.bigmodel.cn&#10;https://api.moonshot.cn" rows="3" required></textarea>
             </div>
           </div>
           <div class="hint-body">
@@ -825,6 +1299,13 @@
                 <option value="X-Access-Token">X-Access-Token</option>
                 <option value="Ocp-Apim-Subscription-Key">Ocp-Apim-Subscription-Key (Azure)</option>
               </select>
+            </div>
+            <div class="form-group full">
+              <label>storageState 会话文件（可选）</label>
+              <input type="file" name="storage_state_file" accept=".json,.txt" style="padding:8px 0; background:transparent; border:none; font-size:13px;">
+              <div style="font-size:11px; color:var(--text2); margin-top:6px;">
+                支持 Playwright storageState.json / 纯 Cookie 字符串 / Netscape cookies.txt。上传后会自动恢复 cookies + localStorage + sessionStorage。
+              </div>
             </div>
             <div class="form-group full">
               <label>额外请求头 (JSON)</label>
@@ -946,6 +1427,7 @@
         </div>
         <div class="section-body">
           <div class="toggle-group">
+            <label class="toggle"><input type="checkbox" name="har_output" checked> 启用 HAR 流量录制</label>
             <label class="toggle"><input type="checkbox" name="dict_scan"> 启用字典扫描</label>
             <label class="toggle"><input type="checkbox" name="headed"> 显示浏览器窗口</label>
             <label class="toggle"><input type="checkbox" name="no_spa"> 禁用 SPA 渲染</label>
@@ -1028,6 +1510,159 @@
       <button type="submit" class="btn btn-primary" id="btn-start-scan">🚀 启动扫描</button>
     </form>
 
+    <!-- 实战建议工作流 -->
+    <div class="section" style="display:none; margin-top:24px;">
+      <div class="section-header">
+        <span>🧭 实战工作流：从登录到深度攻击</span>
+        <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看完整实战流程">
+          展开流程 <span class="arrow">▶</span>
+        </button>
+      </div>
+      <div class="section-body">
+        <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+          针对需要登录认证的 AI Web 应用（如千问、Kimi、Dify、企业内网 AI 助手），推荐以下四步实战流程。点击上方按钮查看完整步骤。
+        </p>
+        <div class="hint-body">
+          <div style="margin-bottom:24px;">
+            <strong style="font-size:14px;">📋 四步完整工作流</strong>
+          </div>
+
+          <!-- Step 1 -->
+          <div class="workflow-step">
+            <div class="wf-step-num">1</div>
+            <div class="wf-step-body">
+              <div class="wf-step-title">获取 Cookie → 转换为 storageState</div>
+              <div class="wf-step-desc">
+                <p>在浏览器中登录目标 AI 应用后，打开 DevTools (F12) → Network 标签，找到任一 API 请求，右键选择 <code>Copy as cURL (bash)</code>，然后使用工具转换：</p>
+                <div class="wf-cmd">python tools/cookie_to_authfile.py -o qianwen_auth.txt</div>
+                <p style="font-size:11px;color:var(--text2);margin-top:4px;">💡 交互式粘贴，支持 Copy as cURL / Copy request headers / 纯 Cookie 字符串三种格式自动识别。--storage-state 会自动识别为 Playwright storageState / 纯 Cookie / Netscape cookies.txt。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="workflow-step">
+            <div class="wf-step-num">2</div>
+            <div class="wf-step-body">
+              <div class="wf-step-title">L0 前置侦察（带 Cookie 认证）</div>
+              <div class="wf-step-desc">
+                <p>在 Web UI 的 <strong>storageState 会话文件</strong> 区域上传生成的文件，或通过命令行执行：</p>
+                <div class="wf-cmd">python recon/main.py --target https://www.qianwen.com --storage-state qianwen_auth.txt --har-output outputs/traffic.har</div>
+                <p style="font-size:11px;color:var(--text2);margin-top:4px;">
+                  引擎将自动：① 浏览器渲染 SPA → ② 捕获 XHR/fetch 请求 → ③ 识别 Chat API 端点 → ④ 推断认证机制 → ⑤ 生成 target_profile.json
+                </p>
+                <div class="wf-warning">
+                  ⚠️ <strong>如遇反爬（滑块/Cloudflare）：</strong>评估是否使用 --stealth patchright 或 --stealth playwright_stealth。
+                  商业 AI 平台通常有 Bot 检测，可能需要手动处理验证码后再导出 Cookie。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="workflow-step">
+            <div class="wf-step-num">3</div>
+            <div class="wf-step-body">
+              <div class="wf-step-title">Cookie 过期处理 — 自动登录（可选）</div>
+              <div class="wf-step-desc">
+                <p>如果 Cookie 频繁过期（通常 15-30 分钟），可在 Web UI 填写登录凭据实现自动登录：</p>
+                <div class="wf-cmd">登录页面 URL: https://www.qianwen.com/login<br>登录凭据: {"username":"your_account","password":"your_pwd"}</div>
+                <p style="font-size:11px;color:var(--text2);margin-top:4px;">
+                  引擎将在每次扫描前自动执行登录流程，无需手动刷新 Cookie。支持表单登录和 SSO 跳转识别。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="workflow-step">
+            <div class="wf-step-num">4</div>
+            <div class="wf-step-body">
+              <div class="wf-step-title">L1-L4 全流程攻击（从侦察结果到深度对抗）</div>
+              <div class="wf-step-desc">
+                <p>获取 target_profile.json 后，执行完整攻击管道：</p>
+                <div class="wf-cmd">python pipeline.py --target https://www.qianwen.com --stage recon<br>python pipeline.py --target https://www.qianwen.com --stage garak<br>python pipeline.py --target https://www.qianwen.com --stage pyrit</div>
+                <p style="font-size:11px;color:var(--text2);margin-top:4px;">
+                  管道自动执行：L1 Garak 模型漏洞探测 → L2 Bridge 攻击种子映射 → L3 Promptfoo 模板生成 → L4 PyRIT 深度攻击（Crescendo 多轮越狱 + 编码绕过 + 自适应攻击）→ L5 统一报告
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="hint-rec" style="margin-top:16px;">
+            <strong>💡 最佳实践：</strong>
+            ① 首次侦察用 stealth 速率避免触发 WAF ② 侦察结果中的 chat_api_url 是后续攻击的入口 ③ 国内商业 AI 平台建议先手动登录获取 Cookie 再执行自动侦察 ④ 自建/内网 AI 应用可直接填登录凭据实现全自动流程
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 常见问题速查 -->
+    <div class="section" style="display:none; margin-top:16px;">
+      <div class="section-header">
+        <span>❓ 常见问题速查</span>
+        <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看常见问题">
+          展开 <span class="arrow">▶</span>
+        </button>
+      </div>
+      <div class="section-body">
+        <div class="hint-body">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;line-height:1.8;">
+            <thead>
+              <tr style="background:#f3f4f6;">
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #d1d5db;">问题</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #d1d5db;">原因</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #d1d5db;">解决方案</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">Cookie 太长命令行报错</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">Windows CMD/PowerShell 命令长度上限 ~8191 字符</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">使用 <code>cookie_to_authfile.py</code> 转换后，通过 <strong>storageState 文件</strong>传入（CLI 用 <code>--storage-state</code>，Web UI 上传文件），避免在命令行或 Cookie 注入框粘贴长字符串</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">侦察 401/403 未授权</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">Cookie 过期，或缺少 CSRF Token / localStorage / sessionStorage</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">重新登录后导出完整浏览器状态，使用 <code>--storage-state</code> 恢复 cookies + localStorage + sessionStorage；或用 <code>--manual-login</code> 在 headed 模式下手动完成 MFA/验证码后自动保存 storageState</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">storageState 加载失败 / 格式错误</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">文件路径不存在、格式不被识别，或 Playwright 版本与 storageState 不兼容</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">确保文件为 <code>storageState.json</code> / 纯 Cookie 字符串 / Netscape <code>cookies.txt</code> 之一；检查文件是否已上传/存在；必要时用 <code>--manual-login</code> 重新导出</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">HAR 文件为空 / 未生成</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">禁用了流量捕获，或浏览器上下文关闭前未刷新/导航页面</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">不要勾选 <strong>禁用流量捕获</strong>；确保目标页面已加载并触发 XHR/fetch 请求；HAR 在扫描正常结束时自动写入 <code>outputs/traffic_*.har</code></td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">浏览器自动化触发验证码</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">目标站点有反爬/Bot 检测机制</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">勾选 <strong>显示浏览器窗口</strong> + <strong>手动登录</strong>，完成验证后自动保存 storageState；或在 CLI 使用 <code>--stealth patchright</code> / <code>--stealth playwright_stealth</code></td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">Chat API 端点未发现</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">SPA 渲染或流量捕获未生效</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">确保未勾选 <strong>禁用 SPA 渲染</strong> 和 <strong>禁用流量捕获</strong>；开启 <strong>HAR 录制</strong> 后手动在 Chrome DevTools 中打开 HAR 文件查找 /chat 或 /api/ 请求</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">haralyzer 离线分析报错</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">可选依赖未安装</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">安装分析库：<code>pip install haralyzer</code>；也可直接用 Chrome DevTools / harviewer 查看 HAR</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 10px;font-weight:600;">SSL 证书错误</td>
+                <td style="padding:8px 10px;">内网自签名证书未信任</td>
+                <td style="padding:8px 10px;">不勾选 <strong>验证 SSL 证书</strong>，或上传企业 CA 证书 .pem 文件</td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- Scan progress area (hidden by default) -->
     <div class="section" id="scan-progress" style="display:none;margin-top:24px;">
       <div class="section-header">
@@ -1038,6 +1673,18 @@
         <div id="progress-status" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
         <div id="findings-stream" style="margin-bottom:16px;"></div>
         <div id="result-container"></div>
+      </div>
+    </div>
+
+    <!-- Batch progress area (hidden by default) -->
+    <div class="section" id="batch-progress" style="display:none;margin-top:24px;">
+      <div class="section-header">
+        <span class="spinner"></span>
+        <span id="batch-progress-title">批次扫描进行中...</span>
+      </div>
+      <div class="section-body">
+        <div id="batch-summary-container"></div>
+        <div id="batch-table-container" class="table-wrap"></div>
       </div>
     </div>
   </div>
@@ -1119,6 +1766,21 @@
   </div>
 </div>
 
+<!-- Recon Launch Modal -->
+<div class="modal-overlay" id="recon-modal" style="display:none;">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <h3 id="recon-modal-title">下一步侦察</h3>
+      <button class="modal-close" onclick="closeReconModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="recon-modal-body"></div>
+    <div style="padding:16px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-secondary" onclick="closeReconModal()">取消</button>
+      <button class="btn btn-primary" id="btn-launch-recon" onclick="launchReconFromModal()">🚀 启动深度侦察</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast Container -->
 <div id="toast-container"></div>
 
@@ -1132,6 +1794,10 @@ const API = {
   scanProfile: (id) => `/api/scans/${id}/profile`,
   outputs: '/api/outputs',
   stats: '/api/stats',
+  batches: '/api/batches',
+  batch: (id) => `/api/batches/${id}`,
+  basicScan: '/api/basic_scan',
+  basicScanDetail: (id) => `/api/basic_scan/${id}`,
 };
 
 const PAGES = ['dashboard', 'scan', 'history', 'outputs', 'coming-soon'];
@@ -1163,6 +1829,209 @@ function toast(msg, type = 'success') {
   el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => el.remove(), 3000);
+}
+
+// ── URL 解析 ──
+function parseTargetUrls(raw) {
+  // 支持换行、分号（中英文）、逗号分隔
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const urls = [];
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+    // 先按分号拆
+    const semiParts = line.replace(/；/g, ';').split(';');
+    for (let part of semiParts) {
+      part = part.trim();
+      if (!part) continue;
+      // 按逗号拆
+      const commaParts = part.split(',');
+      for (let cp of commaParts) {
+        cp = cp.trim();
+        if (cp) urls.push(cp);
+      }
+    }
+  }
+  return urls;
+}
+
+// ── 批次轮询 ──
+let _batchInterval = null;
+
+function startBatchPolling(batchId, scanIds) {
+  if (_batchInterval) clearInterval(_batchInterval);
+
+  _batchInterval = setInterval(async () => {
+    try {
+      const data = await apiGet(API.batch(batchId));
+      renderBatchSummary(data);
+      renderBatchTable(data, batchId);
+
+      if (data.status === 'completed') {
+        clearInterval(_batchInterval);
+        _batchInterval = null;
+        const spinner = document.querySelector('#batch-progress .section-header .spinner');
+        if (spinner) spinner.style.display = 'none';
+        document.getElementById('batch-progress-title').textContent =
+          `✅ 批次 #${batchId} 完成 — ${data.completed}/${data.total} 成功, ${data.failed} 失败`;
+        toast('批次扫描全部完成！');
+        refreshDashboard();
+      }
+    } catch (e) {
+      console.error('Batch poll error:', e);
+    }
+  }, 2000);
+}
+
+function renderBatchSummary(data) {
+  document.getElementById('batch-summary-container').innerHTML = `
+    <div class="batch-summary">
+      <div class="batch-stat completed">🟢 ${data.completed} 完成</div>
+      <div class="batch-stat running">🔵 ${data.running} 运行中</div>
+      <div class="batch-stat pending">⚪ ${data.pending} 等待</div>
+      <div class="batch-stat failed">🔴 ${data.failed} 失败</div>
+      <div style="margin-left:auto;font-size:12px;color:var(--text2);">
+        共 ${data.total} 个目标
+        ${data.status === 'running' ? '&nbsp;<span class="spinner" style="vertical-align:middle;"></span>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderBatchTable(data, batchId) {
+  const scans = data.scans || [];
+  let html = `<table class="batch-table">
+    <thead><tr>
+      <th style="width:28px;"></th>
+      <th>目标 URL</th>
+      <th>状态</th>
+      <th>端点</th>
+      <th>API 格式</th>
+      <th>模型</th>
+      <th>耗时</th>
+    </tr></thead><tbody>`;
+
+  for (const s of scans) {
+    const profile = s.profile;
+    const target = profile?.target || {};
+    const endpoints = profile?.api_endpoints || [];
+    const duration = s.duration_ms ? (s.duration_ms / 1000).toFixed(1) + 's' : (s.status === 'running' ? '⏳' : s.status === 'pending' ? '—' : '—');
+
+    let statusText = s.status;
+    const statusDotClass = s.status || 'pending';
+
+    let endpointCount = s.status === 'completed' ? endpoints.length : (s.status === 'running' ? '...' : '—');
+    let apiFormat = target.api_format || (s.status === 'completed' ? 'N/A' : (s.status === 'running' ? '...' : '—'));
+    let modelName = target.model_name || (s.status === 'completed' ? '未识别' : (s.status === 'running' ? '...' : '—'));
+
+    html += `<tr class="url-row" id="row-${s.id}" data-scan-id="${s.id}" onclick="toggleBatchRow('${s.id}', '${batchId}')">
+      <td><span class="collapse-icon">▶</span></td>
+      <td><div class="url-cell" title="${escapeHtml(s.target_url)}">${escapeHtml(s.target_url)}</div></td>
+      <td><span class="status-dot ${statusDotClass}"></span>${statusText}</td>
+      <td>${endpointCount}</td>
+      <td>${escapeHtml(apiFormat)}</td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(modelName)}">${escapeHtml(modelName)}</td>
+      <td>${duration}</td>
+    </tr>`;
+
+    // 展开详情行（默认隐藏）
+    const expandedContent = s.status === 'completed' && profile
+      ? renderBatchDetailRow(s, profile)
+      : s.status === 'failed'
+        ? `<div style="color:var(--accent);padding:8px 0;">${escapeHtml(s.error || '未知错误')}</div>`
+        : `<div style="color:var(--text2);padding:8px 0;">⏳ 扫描进行中，详情待完成...</div>`;
+
+    html += `<tr class="batch-detail-row" id="detail-${s.id}" style="display:none;" data-scan-id="${s.id}">
+      <td colspan="7"><div class="batch-detail-inner">${expandedContent}</div></td>
+    </tr>`;
+  }
+
+  html += `</tbody></table>`;
+  document.getElementById('batch-table-container').innerHTML = html;
+}
+
+function renderBatchDetailRow(scan, profile) {
+  const t = profile.target || {};
+  const auth = profile.auth || {};
+  const endpoints = profile.api_endpoints || [];
+  const routes = profile.dynamic_routes || [];
+  const modelProbe = profile.model_probe || {};
+
+  let html = '<div class="mini-grid">';
+  html += `<div class="mini-item"><div class="mini-label">Chat API</div><div class="mini-value code">${escapeHtml(t.chat_api_url || '未发现')}</div></div>`;
+  html += `<div class="mini-item"><div class="mini-label">API 格式</div><div class="mini-value">${escapeHtml(t.api_format || '-')}</div></div>`;
+  html += `<div class="mini-item"><div class="mini-label">模型</div><div class="mini-value">${escapeHtml(t.model_name || '未识别')} ${modelProbe.confidence ? `(${(modelProbe.confidence*100).toFixed(0)}%)` : ''}</div></div>`;
+  html += `<div class="mini-item"><div class="mini-label">认证方式</div><div class="mini-value">${escapeHtml(auth.type || '无')}</div></div>`;
+  html += `<div class="mini-item"><div class="mini-label">端点数量</div><div class="mini-value">${endpoints.length} 个 · ${routes.length} 路由</div></div>`;
+  html += `<div class="mini-item"><div class="mini-label">SPA 框架</div><div class="mini-value">${escapeHtml((profile.spa_info || {}).framework || 'N/A')}</div></div>`;
+  html += '</div>';
+
+  // 操作按钮
+  html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();viewScanDetail('${scan.id}')">📋 完整报告</button>
+    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();downloadProfile('${scan.id}')">⬇ 下载 Profile</button>
+  </div>`;
+
+  // 端点快速预览（最多 5 个 Chat 端点）
+  const chatEndpoints = endpoints.filter(ep => ep.is_chat_endpoint);
+  if (chatEndpoints.length > 0 || endpoints.length > 0) {
+    const displayEps = (chatEndpoints.length > 0 ? chatEndpoints : endpoints).slice(0, 5);
+    html += '<div style="margin-top:10px;font-size:11px;color:var(--text2);">🔗 关键端点:</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
+    for (const ep of displayEps) {
+      const color = ep.is_chat_endpoint ? 'var(--green)' : 'var(--blue)';
+      html += `<span style="font-family:var(--mono);font-size:11px;padding:2px 8px;background:var(--bg3);border-radius:4px;color:${color};border:1px solid var(--border);">${escapeHtml(ep.method || 'GET')} ${escapeHtml((ep.path || '').substring(0,40))}</span>`;
+    }
+    if (endpoints.length > 5) {
+      html += `<span style="font-size:11px;color:var(--text2);padding:2px 8px;">+${endpoints.length - 5} 更多</span>`;
+    }
+    html += '</div>';
+  }
+
+  return html;
+}
+
+async function toggleBatchRow(scanId, batchId) {
+  const detailRow = document.getElementById(`detail-${scanId}`);
+  const urlRow = document.getElementById(`row-${scanId}`);
+  if (!detailRow) return;
+
+  const isHidden = detailRow.style.display === 'none';
+  if (isHidden) {
+    // 如果尚未加载详情，先 fetch
+    const existing = detailRow.querySelector('.batch-detail-inner');
+    const hasContent = existing && existing.textContent.replace(/\s/g, '').length > 30;
+    if (!hasContent) {
+      try {
+        const data = await apiGet(API.scan(scanId));
+        if (data.profile) {
+          detailRow.querySelector('.batch-detail-inner').innerHTML = renderBatchDetailRow(data, data.profile);
+        }
+      } catch (e) {
+        detailRow.querySelector('.batch-detail-inner').innerHTML = '<div style="color:var(--accent);">加载详情失败</div>';
+      }
+    }
+    detailRow.style.display = '';
+    if (urlRow) urlRow.classList.add('expanded');
+  } else {
+    detailRow.style.display = 'none';
+    if (urlRow) urlRow.classList.remove('expanded');
+  }
+}
+
+async function viewScanDetail(scanId) {
+  try {
+    const data = await apiGet(API.scan(scanId));
+    // 滚动到单结果区域
+    document.getElementById('scan-progress').style.display = 'block';
+    document.getElementById('progress-title').textContent = `📋 扫描 #${scanId} 详情`;
+    document.getElementById('progress-status').textContent = '';
+    document.getElementById('findings-stream').innerHTML = '';
+    showScanResult(scanId, data);
+    document.getElementById('scan-progress').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    toast('获取详情失败', 'error');
+  }
 }
 
 // ── Fetch Helpers ──
@@ -1247,7 +2116,7 @@ if (verifySslToggle && certUploadArea) {
   });
 }
 
-// ── Start Scan ──
+// ── Start Scan / Batch ──
 document.getElementById('scan-form').addEventListener('submit', async (e) => {
   e.preventDefault();
 
@@ -1284,17 +2153,42 @@ document.getElementById('scan-form').addEventListener('submit', async (e) => {
     extraHeaders.push({ key: headerName, value: headerValue });
   }
 
+  // 解析目标 URL（支持多 URL）
+  const rawTarget = form.target_url.value.trim();
+  const targetUrls = parseTargetUrls(rawTarget);
+  if (targetUrls.length === 0) {
+    toast('请至少输入一个目标 URL', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '🚀 启动扫描';
+    return;
+  }
+
   // 构建 FormData（支持证书文件上传）
   const formData = new FormData();
-  formData.append('target_url', form.target_url.value.trim());
+
+  if (targetUrls.length >= 2) {
+    // ── 批次模式：提交 URL 列表 ──
+    targetUrls.forEach(url => formData.append('target_urls', url));
+  } else {
+    // ── 单 URL 模式：兼容原有逻辑 ──
+    formData.append('target_url', targetUrls[0]);
+  }
+
   formData.append('login_url', form.login_url.value.trim());
   formData.append('login_cred', form.login_cred.value.trim());
   formData.append('auth_cookie', form.auth_cookie.value.trim());
   formData.append('auth_bearer', form.auth_bearer.value.trim());
   formData.append('extra_headers_json', form.extra_headers_json.value.trim());
+  // 上传 storageState 会话文件
+  const storageStateFile = form.storage_state_file.files[0];
+  if (storageStateFile) {
+    formData.append('storage_state_file', storageStateFile);
+  }
   formData.append('api_key', form.api_key.value.trim());
   formData.append('api_key_header', form.api_key_header.value);
+  formData.append('har_output', form.har_output.checked ? 'true' : 'false');
   formData.append('dict_scan', form.dict_scan.checked ? 'true' : 'false');
+
   formData.append('headed', form.headed.checked ? 'true' : 'false');
   formData.append('no_spa', form.no_spa.checked ? 'true' : 'false');
   formData.append('no_js_extract', form.no_js_extract.checked ? 'true' : 'false');
@@ -1312,25 +2206,37 @@ document.getElementById('scan-form').addEventListener('submit', async (e) => {
     formData.append('ca_cert_file', certFile);
   }
 
+  const isBatch = targetUrls.length >= 2;
+  const endpoint = isBatch ? API.batches : API.startScan;
+
   try {
-    const res = await fetch(API.startScan, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       body: formData,
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || `${res.status}`);
-    const scanId = result.scan_id;
 
-    // Show progress area
-    document.getElementById('scan-progress').style.display = 'block';
-    document.getElementById('progress-title').textContent = `扫描 #${scanId} 进行中...`;
-    document.getElementById('progress-status').textContent = '正在启动侦察引擎...';
-    document.getElementById('result-container').innerHTML = '';
-    document.getElementById('findings-stream').innerHTML = renderFindingsStreamHeader(0);
-
-    // Poll for results
-    pollScan(scanId);
-    toast(`扫描 #${scanId} 已启动`);
+    if (isBatch) {
+      // ── 批次模式 ──
+      const batchId = result.batch_id;
+      document.getElementById('scan-progress').style.display = 'none';
+      document.getElementById('batch-progress').style.display = 'block';
+      document.getElementById('batch-progress-title').textContent = `批次 #${batchId} — ${result.total} 个目标扫描中...`;
+      startBatchPolling(batchId, result.scan_ids);
+      toast(`批次 #${batchId} 已启动 (${result.total} 个目标)`);
+    } else {
+      // ── 单 URL 模式（原有逻辑）──
+      const scanId = result.scan_id;
+      document.getElementById('batch-progress').style.display = 'none';
+      document.getElementById('scan-progress').style.display = 'block';
+      document.getElementById('progress-title').textContent = `扫描 #${scanId} 进行中...`;
+      document.getElementById('progress-status').textContent = '正在启动侦察引擎...';
+      document.getElementById('result-container').innerHTML = '';
+      document.getElementById('findings-stream').innerHTML = renderFindingsStreamHeader(0);
+      pollScan(scanId);
+      toast(`扫描 #${scanId} 已启动`);
+    }
   } catch (e) {
     toast(`启动失败: ${e.message}`, 'error');
   } finally {
@@ -1413,8 +2319,12 @@ function pollScan(scanId) {
         showScanResult(scanId, data);
         document.getElementById('progress-title').textContent = `✅ 扫描 #${scanId} 完成`;
         const fCount = (data.findings || []).length;
+        const durationSec = data.duration_ms ? (data.duration_ms / 1000).toFixed(1) : '—';
         document.getElementById('progress-status').textContent =
-          `耗时: ${(data.duration_ms / 1000).toFixed(1)}s | 共 ${fCount} 条重要发现`;
+          `⏱ 耗时: ${durationSec}s | 共 ${fCount} 条重要发现`;
+        // 隐藏转圈
+        const spinner = document.querySelector('#scan-progress .section-header .spinner');
+        if (spinner) spinner.style.display = 'none';
         // 停止 pulse
         const stream = document.getElementById('findings-stream');
         if (stream) {
@@ -1432,6 +2342,8 @@ function pollScan(scanId) {
         clearInterval(interval);
         document.getElementById('progress-title').textContent = `❌ 扫描 #${scanId} 失败`;
         document.getElementById('progress-status').textContent = `错误: ${data.error || '未知错误'}`;
+        const spinner = document.querySelector('#scan-progress .section-header .spinner');
+        if (spinner) spinner.style.display = 'none';
         document.getElementById('result-container').innerHTML = `
           <div style="color:var(--accent);margin-bottom:12px;">${data.error || '未知错误'}</div>
           <div class="log-viewer">${escapeHtml(data.log || '')}</div>
@@ -1439,6 +2351,7 @@ function pollScan(scanId) {
         toast('扫描失败', 'error');
         return;
       }
+
 
       // Still running — show live status
       const fCount = (data.findings || []).length;
@@ -1579,7 +2492,7 @@ function renderPhaseReports(profile, data) {
   html += `<div class="info-item"><div class="info-label">Chat API</div><div class="info-value code">${escapeHtml(t.chat_api_url || '未发现')}</div></div>`;
   html += `<div class="info-item"><div class="info-label">框架</div><div class="info-value">${escapeHtml(t.framework || 'N/A')}</div></div>`;
   html += `<div class="info-item"><div class="info-label">端点数量</div><div class="info-value">${(profile.api_endpoints || []).length} 个</div></div>`;
-  html += `<div class="info-item"><div class="info-label">扫描耗时</div><div class="info-value">${(data.duration_ms / 1000).toFixed(1)}s</div></div>`;
+  html += `<div class="info-item"><div class="info-label">扫描耗时</div><div class="info-value">${data.duration_ms ? (data.duration_ms / 1000).toFixed(1) : '—'}s</div></div>`;
   html += `</div>`;
 
   // ── Phase flow visualization ──
@@ -2172,6 +3085,423 @@ function toggleAuthRef(btn) {
   btn.classList.toggle('open');
   btn.querySelector('.arrow').textContent = show ? '▼' : '▶';
 }
+
+// ── 基本扫描 ──
+let _basicPollInterval = null;
+let _basicScanData = null;
+
+async function startBasicScan() {
+  const raw = document.getElementById('basic-target-urls').value.trim();
+  if (!raw) { toast('请至少输入一个目标 URL', 'error'); return; }
+
+  const urls = parseTargetUrls(raw);
+  if (urls.length === 0) { toast('未识别到有效 URL', 'error'); return; }
+
+  const btn = document.getElementById('btn-basic-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 探测中...';
+
+  // 显示进度
+  document.getElementById('basic-scan-progress').style.display = 'block';
+  document.getElementById('basic-scan-results').style.display = 'none';
+  document.getElementById('basic-progress-text').textContent = '正在探测目标，请稍候...';
+
+  try {
+    const data = await apiPost(API.basicScan, {
+      target_urls: urls.join('\n'),
+      verify_ssl: document.getElementById('basic-verify-ssl').checked,
+      timeout: 10,
+      concurrency: 3,
+    });
+    pollBasicScan(data.basic_id);
+  } catch (e) {
+    toast(`快速探测启动失败: ${e.message}`, 'error');
+    document.getElementById('basic-scan-progress').style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = '🔍 开始快速探测';
+  }
+}
+
+async function pollBasicScan(basicId) {
+  if (_basicPollInterval) clearInterval(_basicPollInterval);
+
+  _basicPollInterval = setInterval(async () => {
+    try {
+      const data = await apiGet(API.basicScanDetail(basicId));
+      const progressEl = document.getElementById('basic-progress-text');
+      const btn = document.getElementById('btn-basic-scan');
+
+      if (data.status === 'running' && data.results) {
+        const done = data.results.filter(r => r.endpoints !== undefined || r.error).length;
+        progressEl.textContent = `正在探测目标 (${done}/${data.results.length})...`;
+        return;
+      }
+
+      if (data.status === 'completed') {
+        clearInterval(_basicPollInterval);
+        _basicPollInterval = null;
+        _basicScanData = data;
+        document.getElementById('basic-scan-progress').style.display = 'none';
+        document.getElementById('basic-scan-results').style.display = 'block';
+        renderBasicScanResults(data);
+        btn.disabled = false;
+        btn.innerHTML = '🔍 开始快速探测';
+        toast('快速探测完成！');
+        return;
+      }
+
+      if (data.status === 'failed') {
+        clearInterval(_basicPollInterval);
+        _basicPollInterval = null;
+        document.getElementById('basic-scan-progress').style.display = 'none';
+        progressEl.textContent = `探测失败: ${data.error || '未知错误'}`;
+        btn.disabled = false;
+        btn.innerHTML = '🔍 开始快速探测';
+        toast('快速探测失败', 'error');
+        return;
+      }
+
+      progressEl.textContent = '正在初始化探测...';
+    } catch (e) {
+      console.error('Basic poll error:', e);
+      clearInterval(_basicPollInterval);
+      _basicPollInterval = null;
+      document.getElementById('basic-scan-progress').style.display = 'none';
+      document.getElementById('btn-basic-scan').disabled = false;
+      document.getElementById('btn-basic-scan').innerHTML = '🔍 开始快速探测';
+      toast('探测状态查询失败', 'error');
+    }
+  }, 1000);
+}
+
+function renderBasicScanResults(data) {
+  const results = data.results || [];
+  const container = document.getElementById('basic-results-body');
+
+  if (results.length === 0) {
+    container.innerHTML = '<div class="basic-empty">⚠ 未返回任何结果</div>';
+    return;
+  }
+
+  let html = '';
+  const categoryLabels = { chat: '💬 Chat', auth: '🔐 认证', models: '🧩 模型', health: '💚 健康', api: '📡 API', other: '📎 其他', unknown: '❓ 未知' };
+
+  for (const r of results) {
+    const rootStat = r.root_status || '—';
+    const statusColor = rootStat >= 200 && rootStat < 300 ? '#27ae60' : rootStat >= 400 ? '#d63031' : '#d97706';
+    const wafBadge = r.waf ? `<span class="badge badge-waf">🛡 WAF: ${escapeHtml(r.waf)}</span>` : '';
+    const authBadge = r.auth_required ? `<span class="badge badge-auth">🔐 需要认证</span>` : `<span class="badge badge-safe">✅ 无需认证</span>`;
+    const defenseBadge = r.anti_defense ? `<span class="badge badge-waf">⚠ 反爬/高级防御</span>` : '';
+
+    const endpoints = r.endpoints || [];
+    let epRows = '';
+    if (endpoints.length === 0) {
+      epRows = '<div class="basic-empty" style="padding:16px;">未探测到有效端点。</div>';
+    } else {
+      epRows = endpoints.map(ep => {
+        const epStat = ep.status || 0;
+        const statClass = epStat >= 200 && epStat < 300 ? 'ok' : (epStat === 401 || epStat === 403 || epStat === 429) ? 'auth' : epStat >= 400 ? 'error' : 'unknown';
+        const catLabel = categoryLabels[ep.category] || `📎 ${ep.category || 'other'}`;
+        return `
+          <div class="basic-endpoint-item">
+            <span class="basic-endpoint-status ${statClass}">${epStat || '—'}</span>
+            <span class="basic-endpoint-path">${ep.method || 'GET'} ${escapeHtml(ep.path || ep.url || '—')}</span>
+            <span class="badge" style="background:var(--bg3);color:var(--text2);">${catLabel}</span>
+          </div>`;
+      }).join('');
+    }
+
+    const badgeRow = [authBadge, wafBadge, defenseBadge].filter(Boolean).join(' ');
+
+    html += `
+      <div class="basic-target-card">
+        <div class="basic-target-header">
+          <div>
+            <div class="basic-target-title">${escapeHtml(r.url)}</div>
+            <div class="basic-target-meta">
+              根状态: <span style="color:${statusColor};font-weight:700;">${rootStat}</span>
+              ${r.title ? ` · 标题: ${escapeHtml(r.title)}` : ''}
+              ${r.server ? ` · Server: ${escapeHtml(r.server)}` : ''}
+            </div>
+          </div>
+          <div class="basic-target-actions">
+            <div class="basic-target-badges">${badgeRow}</div>
+            <button class="btn btn-primary btn-sm" onclick="selectTargetForRecon(decodeURIComponent('${encodeURIComponent(r.url)}'), ${r.auth_required}, ${r.anti_defense})">
+              🎯 选择此目标
+            </button>
+          </div>
+        </div>
+        <div class="basic-endpoints-header">
+          <span>🔗 探测端点 (${endpoints.length} 个)</span>
+          ${r.anti_defense_reason ? `<span style="font-size:11px;color:var(--accent);">${escapeHtml(r.anti_defense_reason)}</span>` : ''}
+        </div>
+        <div class="basic-endpoints-list">${epRows}</div>
+      </div>`;
+  }
+
+  container.innerHTML = html || '<div class="basic-empty">⚠ 未返回任何结果</div>';
+  document.getElementById('basic-scan-results').style.display = 'block';
+}
+
+function selectTargetForRecon(url, authRequired, antiDefense) {
+  const modal = document.getElementById('recon-modal');
+  const title = document.getElementById('recon-modal-title');
+  const body = document.getElementById('recon-modal-body');
+
+  let hostname = url;
+  try { hostname = new URL(url).hostname; } catch (_) {}
+
+  title.textContent = `深度侦察 — ${hostname}`;
+
+  let formHtml = `<input type="hidden" id="recon-target-url" value="${escapeHtml(url)}">`;
+  formHtml += `<div class="recon-form-grid">`;
+  formHtml += `<div class="recon-form-group full"><label>目标 URL</label><input type="text" value="${escapeHtml(url)}" disabled style="background:#eef1f6;color:var(--text2);"></div>`;
+
+  if (antiDefense) {
+    // ── 分支 3：反爬 / 高级防御 ──
+    formHtml += `
+      <div class="recon-form-group full">
+        <div class="basic-notice warn">⚠ 目标可能启用反爬/WAF 防护，请配置高级探测参数。</div>
+      </div>`;
+    formHtml += `
+      <div class="recon-form-group">
+        <label>探测速率</label>
+        <select id="recon-rate-profile">
+          <option value="stealth" selected>🕵️ stealth (隐身模式)</option>
+          <option value="balanced">⚖️ balanced (平衡)</option>
+          <option value="fast">⚡ fast (快速)</option>
+        </select>
+      </div>
+      <div class="recon-form-group">
+        <label>超时 (秒)</label>
+        <input type="number" id="recon-timeout" value="30" min="5" max="120">
+      </div>
+      <div class="recon-form-group full">
+        <label>storageState 会话文件</label>
+        <input type="file" id="recon-storage-state" accept=".json,.txt" style="padding:9px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;">
+      </div>
+      <div class="recon-toggle-group full">
+        <label><input type="checkbox" id="recon-headed"> 显示浏览器窗口</label>
+        <label><input type="checkbox" id="recon-dict-scan"> 启用字典扫描</label>
+        <label><input type="checkbox" id="recon-no-spa"> 禁用 SPA 渲染</label>
+      </div>`;
+
+    formHtml += `<div class="recon-form-group full" style="margin-top:12px;">
+      <button type="button" class="auth-ref-toggle" onclick="toggleAuthRef(this)">
+        📋 专家指导：如何应对高级防御 <span class="arrow">▶</span>
+      </button>
+      <div class="auth-ref-body" style="display:none;">
+        <div style="padding:12px;font-size:12px;color:#78350f;line-height:1.8;">
+          <strong>🛡 反爬 / WAF 高级探测策略：</strong>
+          <ul style="margin-top:6px;padding-left:16px;">
+            <li><strong>用手动登录：</strong>勾选「显示浏览器窗口」，引擎将打开真实浏览器，你手动完成验证码/滑块后，自动保存 storageState。</li>
+            <li><strong>上传 storageState 文件：</strong>先在正常浏览器中登录目标，使用 Playwright codegen 或手动导出 cookies+localStorage 的 JSON 文件。</li>
+            <li><strong>使用 stealth 速率：</strong>单请求串行 + 随机抖动，大幅降低触发 WAF/IDS 行为检测的概率。</li>
+            <li><strong>关闭 SPA 渲染（纯 API）：</strong>如果目标是纯 API 服务（非 Web），可禁用 SPA 渲染加速探测。</li>
+            <li><strong>自定义 User-Agent / Headers：</strong>在下方「高级配置」中设置伪装请求头。</li>
+          </ul>
+          <div class="hint-rec" style="margin-top:8px;">💡 建议先用 stealth 模式做一次轻量探测，确认目标响应模式后再逐步增强强度。</div>
+        </div>
+      </div>
+    </div>`;
+  } else if (authRequired) {
+    // ── 分支 1：需要认证 ──
+    formHtml += `
+      <div class="recon-form-group full">
+        <div class="basic-notice info">🔐 该目标需要认证，请填写以下参数（至少一项）。</div>
+      </div>`;
+    formHtml += `
+      <div class="recon-form-group">
+        <label>Cookie 注入</label>
+        <input type="text" id="recon-cookie" placeholder="session=abc123">
+      </div>
+      <div class="recon-form-group">
+        <label>API Key</label>
+        <input type="text" id="recon-api-key" placeholder="sk-proj-...">
+      </div>
+      <div class="recon-form-group">
+        <label>API Key Header</label>
+        <select id="recon-api-key-header">
+          <option value="Authorization" selected>Authorization</option>
+          <option value="X-API-Key">X-API-Key</option>
+          <option value="x-api-key">x-api-key</option>
+          <option value="api-key">api-key</option>
+        </select>
+      </div>
+      <div class="recon-form-group">
+        <label>Bearer Token (JWT)</label>
+        <input type="text" id="recon-bearer" placeholder="eyJhbGci...">
+      </div>
+      <div class="recon-form-group">
+        <label>登录页面 URL</label>
+        <input type="text" id="recon-login-url" placeholder="https://target.com/login">
+      </div>
+      <div class="recon-form-group">
+        <label>登录凭据 JSON</label>
+        <input type="text" id="recon-login-cred" placeholder='{"username":"admin","password":"pass"}'>
+      </div>
+      <div class="recon-form-group full">
+        <label>storageState 会话文件</label>
+        <input type="file" id="recon-storage-state" accept=".json,.txt" style="padding:9px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;">
+      </div>
+      <div class="recon-toggle-group full">
+        <label><input type="checkbox" id="recon-dict-scan"> 启用字典扫描</label>
+        <label><input type="checkbox" id="recon-verify-ssl"> 验证 SSL 证书</label>
+      </div>`;
+
+    formHtml += `<div class="recon-form-group full" style="margin-top:12px;">
+      <button type="button" class="auth-ref-toggle" onclick="toggleAuthRef(this)">
+        📋 专家指导：如何获取认证凭据 <span class="arrow">▶</span>
+      </button>
+      <div class="auth-ref-body" style="display:none;">
+        <div style="padding:12px;font-size:12px;color:#78350f;line-height:1.8;">
+          <strong>🔐 获取认证凭据的常用方法：</strong>
+          <ul style="margin-top:6px;padding-left:16px;">
+            <li><strong>Cookie：</strong>浏览器登录目标后，F12 → Application → Cookies，复制所有 Cookie 值（格式: <code>key1=val1; key2=val2</code>）。</li>
+            <li><strong>API Key：</strong>在目标平台的「设置/API Keys」页面生成，常见格式如 <code>sk-xxx</code>、<code>sk-ant-xxx</code>。</li>
+            <li><strong>Bearer Token (JWT)：</strong>浏览器 F12 → Network → 找到任一 API 请求 → Request Headers → 复制 <code>Authorization: Bearer xxx</code> 中 <code>eyJ...</code> 部分。</li>
+            <li><strong>storageState 文件：</strong>使用 <code>playwright codegen --save-storage=auth.json</code> 或本项目的 <code>python tools/cookie_to_authfile.py</code> 工具自动生成。</li>
+          </ul>
+          <div class="hint-rec" style="margin-top:8px;">💡 以上所有认证方式会同时叠加生效。只需填写你需要的方式，其余留空即可。</div>
+        </div>
+      </div>
+    </div>`;
+  } else {
+    // ── 分支 2：无需认证 ──
+    formHtml += `
+      <div class="recon-form-group full">
+        <div class="basic-notice success">✅ 该目标无需认证参数，可直接启动深度侦察。</div>
+      </div>
+      <div class="recon-form-group full">
+        <label>探测速率</label>
+        <select id="recon-rate-profile">
+          <option value="balanced" selected>⚖️ balanced (平衡)</option>
+          <option value="stealth">🕵️ stealth (隐身)</option>
+          <option value="fast">⚡ fast (快速)</option>
+        </select>
+      </div>
+      <div class="recon-form-group full">
+        <label>超时 (秒)</label>
+        <input type="number" id="recon-timeout" value="30" min="5" max="120">
+      </div>
+      <div class="recon-toggle-group full">
+        <label><input type="checkbox" id="recon-dict-scan" checked> 启用字典扫描</label>
+        <label><input type="checkbox" id="recon-verify-ssl"> 验证 SSL 证书</label>
+      </div>`;
+  }
+
+  formHtml += `</div>`; // close recon-form-grid
+
+  body.innerHTML = formHtml;
+  modal.style.display = 'flex';
+}
+
+function closeReconModal() {
+  document.getElementById('recon-modal').style.display = 'none';
+}
+
+async function launchReconFromModal() {
+  const targetUrl = document.getElementById('recon-target-url').value;
+  if (!targetUrl) { toast('目标 URL 缺失', 'error'); return; }
+
+  const btn = document.getElementById('btn-launch-recon');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 启动中...';
+
+  const formData = new FormData();
+  formData.append('target_url', targetUrl);
+  formData.append('rate_profile', (document.getElementById('recon-rate-profile') || {}).value || 'stealth');
+  formData.append('timeout', (document.getElementById('recon-timeout') || {}).value || '30');
+
+  // 认证参数
+  const cookie = document.getElementById('recon-cookie');
+  const apiKey = document.getElementById('recon-api-key');
+  const apiKeyHeader = document.getElementById('recon-api-key-header');
+  const bearer = document.getElementById('recon-bearer');
+  const loginUrl = document.getElementById('recon-login-url');
+  const loginCred = document.getElementById('recon-login-cred');
+
+  if (cookie && cookie.value.trim()) formData.append('auth_cookie', cookie.value.trim());
+  if (bearer && bearer.value.trim()) formData.append('auth_bearer', bearer.value.trim());
+  if (loginUrl && loginUrl.value.trim()) formData.append('login_url', loginUrl.value.trim());
+  if (loginCred && loginCred.value.trim()) formData.append('login_cred', loginCred.value.trim());
+  if (apiKey && apiKey.value.trim()) {
+    formData.append('api_key', apiKey.value.trim());
+    formData.append('api_key_header', (apiKeyHeader && apiKeyHeader.value) || 'Authorization');
+  }
+
+  // storageState 文件
+  const storageEl = document.getElementById('recon-storage-state');
+  if (storageEl && storageEl.files && storageEl.files[0]) {
+    formData.append('storage_state_file', storageEl.files[0]);
+  }
+
+  // 开关
+  const dictScan = document.getElementById('recon-dict-scan');
+  const headed = document.getElementById('recon-headed');
+  const noSpa = document.getElementById('recon-no-spa');
+  const verifySsl = document.getElementById('recon-verify-ssl');
+
+  if (dictScan) formData.append('dict_scan', dictScan.checked ? 'true' : 'false');
+  if (headed) formData.append('headed', headed.checked ? 'true' : 'false');
+  if (noSpa) formData.append('no_spa', noSpa.checked ? 'true' : 'false');
+  if (verifySsl) formData.append('verify_ssl', verifySsl.checked ? 'true' : 'false');
+
+  // 默认开启 HAR 录制
+  formData.append('har_output', 'true');
+
+  try {
+    const res = await fetch(API.startScan, { method: 'POST', body: formData });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || `${res.status}`);
+
+    closeReconModal();
+    document.getElementById('scan-progress').style.display = 'block';
+    document.getElementById('progress-title').textContent = `扫描 #${result.scan_id} 进行中...`;
+    document.getElementById('progress-status').textContent = '正在启动侦察引擎...';
+    document.getElementById('result-container').innerHTML = '';
+    document.getElementById('findings-stream').innerHTML = renderFindingsStreamHeader(0);
+    pollScan(result.scan_id);
+    toast(`深度侦察 #${result.scan_id} 已启动`);
+  } catch (e) {
+    toast(`启动失败: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🚀 启动深度侦察';
+  }
+}
+
+function toggleAdvancedConfig() {
+  const form = document.getElementById('scan-form');
+  const workflowSection = form.nextElementSibling;
+  const faqSection = workflowSection ? workflowSection.nextElementSibling : null;
+
+  const isHidden = form.style.display === 'none';
+  if (isHidden) {
+    form.style.display = '';
+    if (workflowSection && workflowSection.classList.contains('section')) workflowSection.style.display = '';
+    if (faqSection && faqSection.classList.contains('section')) faqSection.style.display = '';
+    document.querySelector('.wizard-toggle').textContent = '⚙️ 隐藏高级配置';
+  } else {
+    form.style.display = 'none';
+    if (workflowSection && workflowSection.classList.contains('section')) workflowSection.style.display = 'none';
+    if (faqSection && faqSection.classList.contains('section')) faqSection.style.display = 'none';
+    document.querySelector('.wizard-toggle').textContent = '⚙️ 显示高级配置';
+  }
+}
+
+// ── 侦察弹窗 ESC / overlay 关闭 ──
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('recon-modal').style.display === 'flex') {
+      closeReconModal();
+    }
+  }
+});
+
+document.getElementById('recon-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('recon-modal')) closeReconModal();
+});
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {

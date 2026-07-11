@@ -124,6 +124,8 @@ def build_custom_target(
     verify_ssl: bool = False,
     cookie: str = "",
     jwt_token: str = "",
+    query_token: str = "",
+    stream: bool = False,
     user_agent: str = "",
     extra_headers: Optional[dict] = None,
     tls_impersonate: Optional[str] = None,
@@ -270,7 +272,7 @@ def build_custom_target(
             tls_impersonate=tls_impersonate,
         )
 
-    # raw → CustomHttpChatTarget（仅非标准 API 兜底）
+    # raw / sse → CustomHttpChatTarget（仅非标准 API 兜底）
     target = CustomHttpChatTarget(
         endpoint=endpoint,
         api_key=api_key,
@@ -283,6 +285,8 @@ def build_custom_target(
         content_type=effective["content_type"],
         http_method=effective["http_method"],
         jwt_token=jwt_token,
+        query_token=query_token,
+        stream=stream or (effective["api_format"] == "sse"),
         tls_impersonate=tls_impersonate,
     )
 

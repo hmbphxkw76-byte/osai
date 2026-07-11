@@ -1,5 +1,8 @@
 # RedTeam_AI — 完整 AI 红队六阶段自动化攻击流水线
-# 安装: pip install -r requirements.txt
+# 安装:
+#   pip install -r requirements.txt
+#   playwright install chromium    # ← 必须！否则浏览器引擎不可用
+#   npm install -g promptfoo       # L3 提示词模板 (npm 包，需 Node.js)
 #
 # 组件:
 #   recon/     L0 前置侦察 (Playwright + Flask)
@@ -22,6 +25,15 @@ flask>=3.0.0
 pyjwt>=2.8.0
 cryptography>=41.0.0          # pyjwt 传递依赖
 
+# Recon (L0) — 反检测 / 隐身 (可选但推荐)
+playwright-stealth>=1.0.0     # JS 层反检测: pip install playwright-stealth
+# patchright>=1.45.0          # Playwright 补丁版: pip install patchright (与 playwright 互斥)
+# CloakBrowser                # C++ 源码级反检测: https://github.com/CloakHQ/CloakBrowser (需单独下载 binary)
+
+# Recon (L0) — HAR 分析 / 会话持久化 (可选)
+haralyzer>=2.0.0              # HAR 文件分析: pip install haralyzer
+# Playwright storageState     # 内置，无需额外安装 — 一行代码持久化 cookies + localStorage
+
 # PyRIT (L4) — 攻击引擎
 openai>=1.0.0
 pyrit>=0.5.0
@@ -39,7 +51,11 @@ jinja2>=3.1.0                 # Flask 模板渲染依赖
 matplotlib>=3.8.0
 seaborn>=0.13.0
 
-# Optional — install separately
-# garak>=0.10.0          # Garak 模型侦查 (L1): pip install garak
-# promptfoo              # Promptfoo 模板管理 (L3): npm install -g promptfoo
-# neo4j>=5.0.0           # Neo4j 图数据库: pip install neo4j
+# Garak (L1) — AI 模型漏洞扫描器
+garak>=0.10.0
+
+# Promptfoo (L3) — 提示词模板管理 (npm 包，需单独安装)
+# npm install -g promptfoo
+
+# Neo4j (L5) — 攻击路径图数据库
+neo4j>=5.0.0

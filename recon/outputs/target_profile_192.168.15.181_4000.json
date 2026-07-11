@@ -1,0 +1,190 @@
+{
+  "meta": {
+    "version": "1.0",
+    "generated_at": "2026-07-10T14:40:07.120041+00:00",
+    "tool": "manual",
+    "target_url": "http://192.168.15.181:4000",
+    "probe_duration_ms": 0,
+    "notes": ""
+  },
+  "target": {
+    "base_url": "http://192.168.15.181:4000",
+    "chat_api_url": "http://192.168.15.181:4000/api/chat?token=mscb-qlAIg5F337BRoIt5",
+    "model_name": "",
+    "endpoint_type": "custom",
+    "api_format": "sse",
+    "target_type": "agent",
+    "verify_ssl": false,
+    "custom_headers": {},
+    "request_timeout": 60,
+    "http_method": "POST",
+    "content_type": "text/event-stream",
+    "framework": "SSA Text-to-SQL Agent",
+    "framework_confidence": "medium"
+  },
+  "auth": {
+    "type": "api_key",
+    "login_url": "",
+    "login_method": "POST",
+    "login_payload": {},
+    "session_cookie": "",
+    "cookies": {},
+    "custom_headers": {},
+    "csrf_token": "",
+    "bearer_token": "",
+    "token_refresh_url": "",
+    "notes": "token passed in query string: ?token=mscb-qlAIg5F337BRoIt5"
+  },
+  "api_endpoints": [
+    {
+      "path": "/api/chat",
+      "full_url": "http://192.168.15.181:4000/api/chat?token=mscb-qlAIg5F337BRoIt5",
+      "method": "POST",
+      "status": 200,
+      "content_type": "text/event-stream; charset=utf-8",
+      "category": "chat",
+      "request_schema": {},
+      "response_schema": {},
+      "param_patterns": {
+        "token": {
+          "type": "high_entropy_token",
+          "sample": "mscb-qlA..."
+        }
+      },
+      "is_chat_endpoint": true,
+      "is_streaming": true,
+      "requires_auth": false,
+      "confidence": "high",
+      "response_time_ms": 0.0,
+      "body_snippet": "data:{\"data\":{\"messageType\":\"continue\",\"content\":\"...\"},\"dataType\":\"t02\"}"
+    }
+  ],
+  "spa_info": {
+    "is_spa": true,
+    "framework": "unknown",
+    "router_mode": "unknown",
+    "js_bundle_urls": [],
+    "api_base_url": "",
+    "extracted_routes_count": 0,
+    "extracted_endpoints_count": 0,
+    "notes": "Hash-route SPA, chat widget embedded via chatbox-embed.js"
+  },
+  "rate_limit": {
+    "has_rate_limit": false,
+    "rate_limit_type": "none",
+    "recommended_concurrency": 3,
+    "recommended_rpm": 30,
+    "avg_response_ms": 0.0,
+    "p95_response_ms": 0.0,
+    "total_429s": 0,
+    "details": ""
+  },
+  "raw_probe_data": {
+    "dns_records": {},
+    "ssl_certificate": {},
+    "http_headers": {},
+    "robots_txt": "",
+    "favicon_hash": "",
+    "waf_detected": "",
+    "server_header": "",
+    "powered_by": "",
+    "fingerprint_matches": [],
+    "homepage_title": "",
+    "homepage_text_snippet": ""
+  },
+  "artifacts": {
+    "har_file": "",
+    "screenshots": [],
+    "js_files_saved": [],
+    "login_flow_trace": "",
+    "errors": [],
+    "warnings": []
+  },
+  "model_probe": {
+    "model_name": "",
+    "strategy": "",
+    "confidence": 0.0,
+    "framework": "unknown",
+    "framework_confidence": "low",
+    "endpoint_type": "unknown",
+    "recommended_concurrency": 3,
+    "recommended_rpm": 30,
+    "avg_response_ms": 0.0,
+    "total_429s": 0,
+    "discovered_endpoints": [],
+    "all_attempts": [],
+    "errors": []
+  },
+  "js_sdk": {
+    "findings": [],
+    "total_scripts_scanned": 0,
+    "total_matches": 0,
+    "extracted_api_urls": [],
+    "summary": ""
+  },
+  "credentials": {
+    "findings": [],
+    "total_scanned": 0,
+    "critical_count": 0,
+    "high_count": 0,
+    "summary": ""
+  },
+  "waf": {
+    "detections": [],
+    "waf_count": 0,
+    "summary": "",
+    "implications": ""
+  },
+  "rag_probe": {
+    "is_rag": false,
+    "is_agent": false,
+    "is_multi_agent": false,
+    "has_tools": false,
+    "has_memory": false,
+    "has_browsing": false,
+    "target_architecture": "unknown",
+    "rag_confidence": 0.0,
+    "rag_data_sources": [],
+    "agent_tools": [],
+    "agent_tools_count": 0,
+    "agent_delegation_detected": false,
+    "agent_card_discovered": false,
+    "agent_card_url": "",
+    "guardrail_detected": false,
+    "guardrail_boundaries": [],
+    "summary": ""
+  },
+  "prompt_extraction": {
+    "system_prompt_fragments": [],
+    "system_prompt_extracted": false,
+    "system_prompt_confidence": 0.0,
+    "tools_extracted": [],
+    "tools_count": 0,
+    "guardrail_rules": [],
+    "guardrail_detected": false,
+    "capabilities": [],
+    "knowledge_cutoff": "",
+    "model_identity": "",
+    "key_prefixes": [],
+    "key_prefix_leaked": false,
+    "extraction_success": false,
+    "risk_score": 0.0,
+    "all_responses": [],
+    "errors": [],
+    "summary": "",
+    "recommendations": []
+  },
+  "behavior_map": {
+    "overall_security_score": 50.0,
+    "overall_label": "medium",
+    "weakness_scores": [],
+    "critical_findings": [],
+    "weakest_boundary": "",
+    "attack_vectors": [],
+    "target_attack_entry": "",
+    "bypass_feasibility": "",
+    "bypass_methods": [],
+    "summary": "",
+    "detailed_report": ""
+  }
+}

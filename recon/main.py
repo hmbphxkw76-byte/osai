@@ -41,7 +41,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 # 添加项目根目录到 sys.path（本文件在 recon/ 下）
@@ -88,6 +90,10 @@ async def main():
     auth_group.add_argument("--auth-header",
                             action="append",
                             help="自定义认证头 (如 'X-API-Key: xxx')，可多次使用")
+    auth_group.add_argument("--storage-state",
+                            help="Playwright storageState JSON 文件路径 (含 cookies + localStorage + sessionStorage)\n"
+                                 "自动支持: storageState JSON / 纯 Cookie 字符串 / Netscape cookies.txt 格式\n"
+                                 "替代 --auth-file — 用 Playwright 原生会话持久化")
 
     # ── 功能开关 ──
     feat_group = parser.add_argument_group("功能开关")
@@ -101,6 +107,19 @@ async def main():
                             help="启用字典扫描 (较慢但覆盖更多)")
     feat_group.add_argument("--headed", action="store_true",
                             help="显示浏览器窗口 (非 headless 模式)")
+
+    # ── 反检测参数 ──
+    stealth_group = parser.add_argument_group("反检测 (Stealth)")
+    stealth_group.add_argument("--stealth", choices=["auto", "cloakbrowser", "patchright", "playwright_stealth", "none"],
+                               default="auto", const="auto", nargs="?",
+                               help="反检测模式: auto(自动探测), cloakbrowser, patchright, playwright_stealth, none (默认: auto)")
+    stealth_group.add_argument("--chrome-path",
+                               help="CloakBrowser 或系统 Chrome 的可执行文件路径")
+    stealth_group.add_argument("--no-humanize", action="store_true",
+                               help="禁用人机行为模拟（随机延迟、鼠标轨迹等）")
+    stealth_group.add_argument("--har-output",
+                               help="HAR (HTTP Archive) 文件输出路径 — 记录所有网络请求用于离线分析\n"
+                                    "可用 Chrome DevTools / harviewer / haralyzer 打开分析")
 
     # ── 高级参数 ──
     adv_group = parser.add_argument_group("高级参数")
@@ -167,6 +186,11 @@ async def main():
     if args.wordlist_web:
         web_paths = DictScanner.load_paths_from_file(args.wordlist_web)
 
+    # ── 兼容旧 --dump-har：未指定 --har-output 时默认输出到 output_dir ──
+    har_output_path = args.har_output
+    if args.dump_har and not har_output_path:
+        har_output_path = os.path.join(args.output, f"traffic_{int(time.time())}.har")
+
     # ── 运行引擎 ──
     from recon.engine import ReconEngine
 
@@ -190,6 +214,11 @@ async def main():
         interactive_login=args.interactive_login,
         manual_login=args.manual_login,
         manual_login_timeout=args.manual_login_timeout,
+        stealth_mode=args.stealth,
+        chrome_path=args.chrome_path,
+        humanize=not args.no_humanize,
+        storage_state_path=args.storage_state,
+        har_output_path=har_output_path,
     )
 
     try:

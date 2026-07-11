@@ -918,14 +918,16 @@ async def _build_target_from_profile(profile_path: str):
     api_key = ""
     cookie = ""
     jwt_token = ""
+    query_token = ""
     extra_headers = {}
 
     if auth_type == "bearer":
         api_key = auth_data.get("bearer_token", "")
     elif auth_type == "cookie":
         cookie = auth_data.get("session_cookie", "")
-    elif auth_type == "api_key":
+    elif auth_type in ("api_key", "query_token"):
         api_key = auth_data.get("bearer_token", "")
+        query_token = auth_data.get("query_token", "")
     if auth_data.get("custom_headers"):
         extra_headers.update(auth_data["custom_headers"])
     if auth_data.get("cookies"):
@@ -945,8 +947,19 @@ async def _build_target_from_profile(profile_path: str):
         "raw_json": "raw",
         "raw_form": "raw",
         "raw_text": "raw",
+        "sse": "sse",
     }
     effective_api_format = _API_FORMAT_MAP.get(api_format, "raw")
+
+    # ── SSE 流式检测 ──
+    stream = target.get("stream", False) or (api_format == "sse")
+    content_type = target.get("content_type", "application/json")
+    if effective_api_format == "sse" and "event-stream" in content_type:
+        stream = True
+
+    # ── Query token 提取 ──
+    if not query_token and auth_type == "query_token":
+        query_token = auth_data.get("notes", "").split("token=", 1)[-1] if "token=" in auth_data.get("notes", "") else ""
 
     console.print()
     console.print(Panel(
@@ -959,7 +972,9 @@ async def _build_target_from_profile(profile_path: str):
         f"  [bold]端点类型:[/bold] [cyan]{endpoint_type}[/cyan]\n"
         f"  [bold]模型:[/bold] [cyan]{model_name or '未识别'}[/cyan]\n"
         f"  [bold]认证:[/bold] [cyan]{auth_type}[/cyan] "
-        f"{'(Cookie)' if cookie else ''}{'(Bearer)' if api_key else ''}\n"
+        f"{'(Cookie)' if cookie else ''}{'(Bearer)' if api_key else ''}"
+        f"{'(QueryToken)' if query_token else ''}\n"
+        f"  [bold]流式:[/bold] [cyan]{'SSE' if stream else '非流式'}[/cyan]\n"
         f"  [bold]推荐并发:[/bold] [cyan]{recommended_concurrency}[/cyan]\n"
         f"  [bold]端点:[/bold] [dim]{len(profile.get('api_endpoints', []))} 个 | "
         f"动态路由: {len(profile.get('dynamic_routes', []))} 个[/dim]",
@@ -989,10 +1004,12 @@ async def _build_target_from_profile(profile_path: str):
         model=model_name or "default",
         api_format=effective_api_format,
         http_method="POST",
-        content_type="application/json",
+        content_type=content_type,
         verify_ssl=verify_ssl,
         cookie=cookie,
         jwt_token=jwt_token,
+        query_token=query_token,
+        stream=stream,
         user_agent="",
         extra_headers=extra_headers if extra_headers else None,
     )
