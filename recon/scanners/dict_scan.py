@@ -336,6 +336,8 @@ class DictScanner:
         llm_paths: Optional[list[str]] = None,
         web_paths: Optional[list[str]] = None,
         rate_profile: str = "stealth",
+        rate_limit_rpm: Optional[int] = None,
+        request_delay_ms: Optional[int] = None,
     ):
         # 根据速率模式调整参数
         rp = RATE_PROFILES.get(rate_profile, RATE_PROFILES["stealth"])
@@ -348,6 +350,14 @@ class DictScanner:
         self.verify_ssl = verify_ssl
         self.ca_cert = ca_cert
         self.verify = ca_cert if (verify_ssl and ca_cert) else verify_ssl
+
+        # 前端探测到的具体速率限制值，直接覆盖 profile 默认值
+        if request_delay_ms is not None and request_delay_ms > 0:
+            self.min_delay = request_delay_ms / 1000.0
+            self.max_delay = request_delay_ms / 1000.0 * 1.5
+            self.concurrency = 1
+        if rate_limit_rpm is not None and rate_limit_rpm > 0:
+            self.rpm_target = rate_limit_rpm
 
         # 429 退避状态
         self._consecutive_429s = 0

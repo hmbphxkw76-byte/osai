@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>&#x767B;&#x5F55;</title>
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+    <link href="/css/index.css" rel="stylesheet" />
+    <link rel="stylesheet" href="/global_assets/css/icons/icomoon/styles.css" />
+    <link rel="stylesheet" href="/assets/css/bootstrap.min.css" />
+    <script src="/global_assets/js/main/jquery.min.js"></script>
+    <script src="/global_assets/js/vue/dist/vue.js"></script>
+    <script src="/assets/js/Browser.js"></script>
+    <script src="/assets/js/browserCompatible.js"></script>
+</head>
+<body>
+    
+
+
+
+<div id="app">
+    <!-- 校友网 -->
+    <div v-if="isAlumniNetwork" class="alumniNetwork">
+        <div class="container">
+            <div class="container-left">
+                <p>Welcom !</p>
+                <p>欢迎来到国家开放大学实验学院校友网</p>
+            </div>
+            <div class="container-right">
+                <!--        登录信息-->
+                <div class="loginMessage">
+                    <h2>校友登录</h2>
+                    <div class="loginTop">
+                        <!--          登录类型-->
+                        <div class="loginType">
+                            <div class="loginTypeTitle" style="">
+                                <div class="loginTypeTitle">
+                                    <div class="loginTypeItems" v-on:click="ChangeTab(1)" :class="{activeTab: TabIndex == 1}">
+                                        账号密码登录
+                                    </div>
+                                    <div class="loginTypeItems" v-on:click="ChangeTab(2)" :class="{activeTab: TabIndex == 2}">
+                                        快捷登录
+                                    </div>
+                                </div>
+                            </div>
+                            <form id="jorenoeForm" method="post" v-on:submit.prevent="submitfrom" v-if="TabIndex == 1" action="">
+                                <div class="loginTypeContent loginPassword">
+                                    <div class="phone borderBottom flex-start">
+                                        <img src="/img/account.svg" />
+                                        <input type="text"
+                                            autocomplete="off"
+                                            v-on:blur="OnBlurUserName()"
+                                            id="username"
+                                            name="username"
+                                            v-model="FormLogin.UserName"
+                                            placeholder="请输入用户名">
+                                    </div>
+                                    <div v-if="UserNameTipsIsShow" class="errorTips">请输入正确的用户名</div>
+                                    <div class="password borderBottom flex-start" style="position:relative">
+                                        <img src="/img/loginPassword.svg" />
+                                        <input type="password"
+                                            minlength="6"
+                                            maxlength="16"
+                                            v-on:blur="OnBlurPassword()"
+                                            id="password"
+                                            name="password"
+                                            v-model="FormLogin.Password"
+                                            :type="showPassword ? 'text' : 'password'"
+                                            v-on:click="togglePassword"
+                                            placeholder="请输入密码">
+                                            <span
+                                                id="togglePwd"
+                                                v-on:click="togglePassword"
+                                                style="position:absolute; right:10px; top:20px; transform:translateY(-50%); cursor:pointer;">
+                                                <img :src="showPassword ? '/img/eye-slash.png' : '/img/eye-slash-o.png'" style="width:20px;height:20px;" />
+                                            </span>
+                                        <span v-if="true" class="iconfont iconloginPasswordOpen"></span>
+                                        <span v-else class="iconfont iconloginPasswordClose"></span>
+                                    </div>
+                                    <div v-if="PasswordTipsIsShow" class="errorTips">请输正确的密码</div>
+                                </div>
+
+                                <input type="hidden" id="LotNumber" name="LotNumber" >
+                                <input type="hidden" id="CaptchaOutput" name="CaptchaOutput" >
+                                <input type="hidden" id="PassToken" name="PassToken" >
+                                <input type="hidden" id="GenTime" name="GenTime" >
+                                <input type="hidden" id="button" name="button" value="login">
+
+                                <input type="hidden" id="RememberLogin" name="RememberLogin" v-model="FormLogin.RememberLogin">
+                                <input type="hidden" id="ReturnUrl" name="ReturnUrl" v-model="FormLogin.ReturnUrl">
+                                <button v-if="(TabIndex*1 == 1 && CheckUserName() && CheckPassword())"
+                                        v-on:click="handlerCode" name="button" class="button_active" >
+                                    登录
+                                </button>
+                                <button v-else type="button" name="button"v-on:click="handlerCode">登录</button>
+                            <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Gtvj_OiMGBCnDJxkblFSi-ly5iMp_YYX89nmXQkp0eN1IzsAzVs7xX5us5YNdnF87yGASuFM0zIiVqeNdfZ1IFpU7Y11xzg5X4Kyckc5NpoctPLDXO7uu0FpWgYFl1tH5OiAAAzjf7FuP7DZ08VUug" /></form>
+                            <form v-on:submit.prevent="onMobileSubmit" v-if="TabIndex == 2">
+                                <div class="loginTypeContent loginCode">
+                                    <div class="phone borderBottom flex-start">
+                                        <img src="/img/loginPhone.svg" />
+                                        <input type="text"
+                                            autocomplete="off"
+                                            maxlength="11"
+                                            v-on:blur="OnBlurMobile()"
+                                            v-model="FormData.Mobile"
+                                            placeholder="请输入手机号">
+                                    </div>
+                                    <div v-if="PhoneTipsIsShow" class="errorTips">请输入正确的手机号</div>
+                                    <div class="code borderBottom flex-start">
+                                        <img src="/img/loginCode.svg" />
+                                        <input type="text"
+                                            maxlength="6"
+                                            v-on:blur="OnBlurCode()"
+                                            v-model="FormData.Code"
+                                            placeholder="请输入验证码">
+                                        <div class="get-authcode">
+                                            <a class="countDown flex-space-center" v-on:click="Count*1>0?'':SendMobileLoginCode()" :class="Count>0?'activeTime':''">{{ Message }}</a>
+                                        </div>
+                                    </div>
+                                    <div v-if="CodeTipsIsShow" class="errorTips">请输入正确的验证码</div>
+                                </div>
+                                <button v-if="(TabIndex*1 == 2 && CheckMobile() && CheckCode())" type="submit" name="button" class="button_active" value="mobilelogin">登录</button>
+                                <button v-else type="button" name="button" value="mobilelogin">登录</button>
+                            </form>
+                        </div>
+                        <div class="form-group d-flex align-items-center" style=" margin-top: 20px; text-align: center;">
+                            <div class="form-check mb-0">
+                                <label class="form-check-label" for="RememberLogin">
+                                    <input type="checkbox" v-model="FormData.RememberLogin" v-on:change="OnRememberLogin(this)">
+                                    保持登录状态
+                                </label>
+                            </div>
+
+                            <a href="/Account/FindPassword" class="ml-auto" style="padding-right: 1.875rem;">忘记密码</a>
+                        </div>
+                    </div>
+                    <div id="otherLogin" class="loginBottom" v-if="!IsNativeApp()">
+                        <div class="otherLogin">
+                            <div class="line"></div>
+                            <div class="word">其他账号登录</div>
+                            <div class="line"></div>
+                        </div>
+                        <div class="otherLoginIcon">
+                            <a href="/External/Challenge?scheme=WeChat&amp;returnUrl=%2F"><img src="/img/loginWechat.svg" alt=""></a>
+                            <a href="/External/Challenge?scheme=QQ&amp;returnUrl=%2F"><img src="/img/loginQQ.svg" alt=""></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div> 
+    <!-- 实验学院简历登录 -->
+    <div v-else-if="isOfficialWebsite" class="officialWebsite">
+        <div class="container">
+            <div class="logo">
+                <img src="/img/officialWebsitelogoBg.png" alt="">
+            </div>
+            <div class="logo-text">
+                账号密码登录
+            </div>
+             <div class="loginMessage">
+                <div class="loginTop">
+                    <form id="jorenoeForm" method="post" v-on:submit.prevent="submitfrom" v-if="TabIndex == 1" action="">
+                        <div class="loginTypeContent loginPassword">
+                            <div class="phone borderBottom flex-start inputContainer">
+                                <img src="/img/account.svg" />
+                                <input type="text"
+                                    autocomplete="off"
+                                    v-on:blur="OnBlurUserName()"
+                                    id="username"
+                                    name="username"
+                                    v-model="FormLogin.UserName"
+                                    placeholder="请输入用户名">
+                            </div>
+                            <div v-if="UserNameTipsIsShow" class="errorTips">请输入正确的用户名</div>
+                            <div class="password borderBottom flex-start inputContainer" style="position:relative">
+                                <img src="/img/loginPassword.svg" />
+                                <input type="password"
+                                    minlength="6"
+                                    maxlength="16"
+                                    v-on:blur="OnBlurPassword()"
+                                    id="password"
+                                    name="password"
+                                    v-model="FormLogin.Password"
+                                    :type="showPassword ? 'text' : 'password'"
+                                    v-on:click="togglePassword"
+                                    placeholder="请输入密码">
+                                    <span
+                                        id="togglePwd"
+                                        v-on:click="togglePassword"
+                                        style="position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer;">
+                                        <img :src="showPassword ? '/img/eye-slash.png' : '/img/eye-slash-o.png'" style="width:20px;height:20px;" />
+                                    </span>
+                                <span v-if="true" class="iconfont iconloginPasswordOpen"></span>
+                                <span v-else class="iconfont iconloginPasswordClose"></span>
+                            </div>
+                            <div v-if="PasswordTipsIsShow" class="errorTips">请输正确的密码</div>
+                        </div>
+
+                        <input type="hidden" id="LotNumber" name="LotNumber" >
+                        <input type="hidden" id="CaptchaOutput" name="CaptchaOutput" >
+                        <input type="hidden" id="PassToken" name="PassToken" >
+                        <input type="hidden" id="GenTime" name="GenTime" >
+                        <input type="hidden" id="button" name="button" value="login">
+
+                        <input type="hidden" id="RememberLogin" name="RememberLogin" v-model="FormLogin.RememberLogin">
+                        <input type="hidden" id="ReturnUrl" name="ReturnUrl" v-model="FormLogin.ReturnUrl">
+
+                        <div class="form-group d-flex align-items-center" style="text-align: center;">
+                        <div class="form-check mb-0">
+                                <label class="form-check-label" for="RememberLogin" style="display: flex;">
+                                    <input type="checkbox" v-model="FormData.RememberLogin" v-on:change="OnRememberLogin(this)">
+                                    <span style="margin-left: 8px">记住密码</span>
+                                </label>
+                            </div>
+                            <a href="/Account/FindPassword" class="ml-auto">忘记密码</a>
+                        </div>
+                        <button v-if="(TabIndex*1 == 1 && CheckUserName() && CheckPassword())"
+                                v-on:click="handlerCode" name="button" class="button_active" >
+                            登录
+                        </button>
+                        <button v-else type="button" name="button"v-on:click="handlerCode">登录</button>
+                    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Gtvj_OiMGBCnDJxkblFSi-ly5iMp_YYX89nmXQkp0eN1IzsAzVs7xX5us5YNdnF87yGASuFM0zIiVqeNdfZ1IFpU7Y11xzg5X4Kyckc5NpoctPLDXO7uu0FpWgYFl1tH5OiAAAzjf7FuP7DZ08VUug" /></form>
+                    <div class="login_footer">
+                        登录遇到问题？请联系客服：400-900-3658
+                    </div>
+                </div>
+             </div>
+        </div>
+    </div> 
+    <!-- 全网 -->
+    <div v-else class="login">
+        <!--      宣传图-->
+        <div class="backgroungImg"></div>
+        <!--      登录内容-->
+        <div class="loginContent">
+            <!--        logo-->
+            <div class="logo">
+                <img src="/img/logo.png" />
+            </div>
+            <div class="platform">
+                <img src="/img/platform.png" style=" width: 260px; " />
+            </div>
+            <!--        登录信息-->
+            <div class="loginMessage">
+                <div class="loginTop">
+                    <!--          登录类型-->
+                    <div class="loginType">
+                        <div class="loginTypeTitle" style="">
+                            <div class="loginTypeTitle">
+                                <div class="loginTypeItems" v-on:click="ChangeTab(1)" :class="{activeTab: TabIndex == 1}">
+                                    账号密码登录
+                                </div>
+                                <div class="loginTypeItems" v-on:click="ChangeTab(2)" :class="{activeTab: TabIndex == 2}">
+                                    快捷登录
+                                </div>
+                            </div>
+                        </div>
+                        <form id="jorenoeForm" method="post" v-on:submit.prevent="submitfrom" v-if="TabIndex == 1" action="">
+                            <div class="loginTypeContent loginPassword">
+                                <div class="phone borderBottom flex-start">
+                                    <img src="/img/account.svg" />
+                                    <input type="text"
+                                        autocomplete="off"
+                                        v-on:blur="OnBlurUserName()"
+                                        id="username"
+                                        name="username"
+                                        v-model="FormLogin.UserName"
+                                        placeholder="请输入用户名">
+                                </div>
+                                <div v-if="UserNameTipsIsShow" class="errorTips">请输入正确的用户名</div>
+                                <div class="password borderBottom flex-start" style="position:relative">
+                                    <img src="/img/loginPassword.svg" />
+                                    <input type="password"
+                                        minlength="6"
+                                        maxlength="16"
+                                        v-on:blur="OnBlurPassword()"
+                                        id="password"
+                                        name="password"
+                                        v-model="FormLogin.Password"
+                                        :type="showPassword ? 'text' : 'password'"
+                                        placeholder="请输入密码">
+                                        <span v-on:click="togglePassword"
+                                            id="togglePwd"
+                                            style="position:absolute; right:10px; top:20px; transform:translateY(-50%); cursor:pointer;">
+                                            <img :src="showPassword ? '/img/eye-slash.png' : '/img/eye-slash-o.png'" style="width:20px;height:20px;" />
+                                        </span>
+                                    <span v-if="true" class="iconfont iconloginPasswordOpen"></span>
+                                    <span v-else class="iconfont iconloginPasswordClose"></span>
+                                </div>
+                                <div v-if="PasswordTipsIsShow" class="errorTips">请输正确的密码</div>
+                            </div>
+
+                            <input type="hidden" id="LotNumber" name="LotNumber" >
+                            <input type="hidden" id="CaptchaOutput" name="CaptchaOutput" >
+                            <input type="hidden" id="PassToken" name="PassToken" >
+                            <input type="hidden" id="GenTime" name="GenTime" >
+                            <input type="hidden" id="button" name="button" value="login">
+
+                            <input type="hidden" id="RememberLogin" name="RememberLogin" v-model="FormLogin.RememberLogin">
+                            <input type="hidden" id="ReturnUrl" name="ReturnUrl" v-model="FormLogin.ReturnUrl">
+                            <button v-if="(TabIndex*1 == 1 && CheckUserName() && CheckPassword())"
+                                    v-on:click="handlerCode" name="button" class="button_active" >
+                                登录
+                            </button>
+                            <button v-else type="button" name="button"v-on:click="handlerCode">登录</button>
+                        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Gtvj_OiMGBCnDJxkblFSi-ly5iMp_YYX89nmXQkp0eN1IzsAzVs7xX5us5YNdnF87yGASuFM0zIiVqeNdfZ1IFpU7Y11xzg5X4Kyckc5NpoctPLDXO7uu0FpWgYFl1tH5OiAAAzjf7FuP7DZ08VUug" /></form>
+                        <form v-on:submit.prevent="onMobileSubmit" v-if="TabIndex == 2">
+                            <div class="loginTypeContent loginCode">
+                                <div class="phone borderBottom flex-start">
+                                    <img src="/img/loginPhone.svg" />
+                                    <input type="text"
+                                        autocomplete="off"
+                                        maxlength="11"
+                                        v-on:blur="OnBlurMobile()"
+                                        v-model="FormData.Mobile"
+                                        placeholder="请输入手机号">
+                                </div>
+                                <div v-if="PhoneTipsIsShow" class="errorTips">请输入正确的手机号</div>
+                                <div class="code borderBottom flex-start">
+                                    <img src="/img/loginCode.svg" />
+                                    <input type="text"
+                                        maxlength="6"
+                                        v-on:blur="OnBlurCode()"
+                                        v-model="FormData.Code"
+                                        placeholder="请输入验证码">
+                                    <div class="get-authcode">
+                                        <a class="countDown flex-space-center" v-on:click="Count*1>0?'':SendMobileLoginCode()" :class="Count>0?'activeTime':''">{{ Message }}</a>
+                                    </div>
+                                </div>
+                                <div v-if="CodeTipsIsShow" class="errorTips">请输入正确的验证码</div>
+                            </div>
+                            <button v-if="(TabIndex*1 == 2 && CheckMobile() && CheckCode())" type="submit" name="button" class="button_active" value="mobilelogin">登录</button>
+                            <button v-else type="button" name="button" value="mobilelogin">登录</button>
+                        </form>
+                    </div>
+                    <div class="form-group d-flex align-items-center" style=" margin-top: 20px; text-align: center;">
+                        <div class="form-check mb-0">
+                            <label class="form-check-label" for="RememberLogin">
+                                <input type="checkbox" v-model="FormData.RememberLogin" v-on:change="OnRememberLogin(this)">
+                                保持登录状态
+                            </label>
+                        </div>
+
+                        <a href="/Account/FindPassword" class="ml-auto" style="padding-right: 1.875rem;">忘记密码</a>
+                    </div>
+                </div>
+                <div id="otherLogin" class="loginBottom" v-if="!IsNativeApp()">
+                    <div class="otherLogin">
+                        <div class="line"></div>
+                        <div class="word">其他账号登录</div>
+                        <div class="line"></div>
+                    </div>
+                    <div class="otherLoginIcon">
+                        <a href="/External/Challenge?scheme=WeChat&amp;returnUrl=%2F"><img src="/img/loginWechat.svg" alt=""></a>
+                        <a href="/External/Challenge?scheme=QQ&amp;returnUrl=%2F"><img src="/img/loginQQ.svg" alt=""></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="CodeJudge" style="position:absolute;left:37%;top:30%;">
+        </div>
+
+        <div id="jorenoe" style="left:0;top: 0;position: absolute;width: 100%;">
+        </div> 
+    </div> 
+</div>
+<script src="/js/gt4.js"></script>
+<style>
+    /* 隐藏浏览器原生密码显示按钮，避免与自定义图标重叠 */
+    input[type="password"]::-ms-reveal,
+    input[type="password"]::-ms-clear {
+        display: none;
+    }
+    input[type="password"]::-webkit-credentials-auto-fill-button {
+        visibility: hidden;
+    }
+
+    .geetest_footer_right {
+        /*隐藏Geetest 图标*/
+        display: none !important;
+    }
+
+    /*调整间距*/
+    .geetest_feedback{
+        display:none !important;
+        /* margin-top:40px !important; */
+    }
+    .geetest_footer{
+        padding-top:10% !important;
+    }
+    .geetest_footer_left{
+        top:0 !important;
+    }
+    .geetest_container{
+        margin-bottom:25px;
+    }
+</style>
+<script type="text/javascript">
+    var BaseUrl = "/Account/";
+    var element = document.getElementById("otherLogin");
+    console.dir(navigator.userAgent);
+    console.dir(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    if (element && window.location.href.includes('qwbx') 
+    || navigator.userAgent.indexOf('allInOne_iOS_app') > -1 
+    || navigator.userAgent.search('allInOne_iOS_app') > -1 
+    || navigator.userAgent.indexOf('allInOne_android_app') > -1 
+    || navigator.userAgent.search('allInOne_android_app') > -1
+    || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+        element.style.display = "none";
+    } else {
+        element.style.display = "block";
+    }
+    var app = new Vue({
+        el: "#app",
+        data: function () {
+            return {
+                TabIndex: 1,
+                Count: 0,
+                Message: "发送验证码",
+                PhoneTipsIsShow: false,
+                CodeTipsIsShow: false,
+                PasswordTipsIsShow: false,
+                UserNameTipsIsShow: false,
+                FormData: {
+                    Mobile: "",
+                    Code: "",
+                    ReturnUrl: "",
+                    RememberLogin: false,
+                    ClientId: ""
+                },
+                FormLogin: {
+                    UserName: "",
+                    Password: "",
+                    RememberLogin: false,
+                    ReturnUrl: "",
+                    // ClientId: "",
+                    LotNumber: "",
+                    CaptchaOutput: "",
+                    PassToken: "",
+                    GenTime: ""
+                },
+                 showPassword: false,
+            };
+        },
+        // 计算属性
+        computed: {
+            // 是否是校友网you
+            isAlumniNetwork() {
+                return ['AlumniNetwork','AlumniNetworkManage'].indexOf(this.FormData.ClientId) !== -1;
+            },
+            // 是否是实验学院兼职网登录
+            isOfficialWebsite() {
+                return ['OfficialWebsite'].indexOf(this.FormData.ClientId) !== -1;
+            }
+        },
+        created: function () {},
+        mounted: function () {
+            // 调整到 - mounted 钩子 进行获取路径 确保路径完整性
+            this.GetUrl();
+        },
+        methods: {
+              togglePassword() {
+            this.showPassword = !this.showPassword;
+        },
+            GetUrl: function () {
+                let str = location.href, num = str.indexOf("?");
+                str = str.substr(num + 1);
+                str = decodeURIComponent(str);
+                let arr = str.substr(10);
+                this.FormData.ReturnUrl = arr;
+                this.FormLogin.ReturnUrl = arr;
+                var client_id = this.getUrlParams("client_id");
+                console.log(client_id,"client_id 重新写的正则");
+                this.FormData.ClientId = client_id;
+                this.FormLogin.ClientId = client_id;
+                if (this.FormData.ClientId == "AllInOneCourseOpen") {
+                    this.ChangeTab(2);
+                    $(".loginTypeItems:eq(0)").hide();
+                }
+                else {
+                    this.ChangeTab(1);
+                }
+            },
+            getUrlParams(name) {
+                var reg2 = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i"); //定义正则表达式
+                var reg = new RegExp("(\\?|&)" + name + "=([^&]*)(&|$)", "i");
+                var r = this.FormData.ReturnUrl.match(reg);
+                var r2 = this.FormData.ReturnUrl.match(reg2);
+                console.log(r2 ? r2[2] : null,"测试原正则是否有用");
+                if (r != null) return unescape(r[2]);
+                return null;
+            },
+            OnRememberLogin: function () {
+                this.FormLogin.RememberLogin = this.FormData.RememberLogin;
+            },
+            SendMobileLoginCode: function () {
+                var This = this;
+                if (!this.CheckMobile()) {
+                    this.PhoneTipsIsShow = true;
+                    return;
+                } else {
+                    this.PhoneTipsIsShow = false;
+                }
+                jQuery.ajax({
+                    'type': 'POST', 'url': BaseUrl + "SendLoginCode", 'contentType': 'application/json', 'data': JSON.stringify(this.FormData), 'dataType': 'json',
+                    'success': function (data) {
+                        if (data.State) {
+                            This.CountDown();
+                        } else {
+                            alert(data.Message);
+                        }
+                    },
+                    error: function () {
+                        alert("验证码发送失败");
+                    }
+                });
+            },
+
+            submitfrom:function(){
+                 
+            },
+            handlerCode: function () {
+
+                if (!this.CheckUserName())
+                {
+                    this.PhoneTipsIsShow = true;
+                    return;
+                }else{
+                    this.PhoneTipsIsShow = false;
+                }
+
+                if (!this.CheckPassword()) {
+                    this.PasswordTipsIsShow = true;
+                    return;
+                }
+                else {
+                    this.PasswordTipsIsShow = false;
+                }
+
+                var This = this;
+                initGeetest4({
+                    // '18b55838db37e10b907db4f757a85ea7'
+                    captchaId: '5c4c44c593d2e8e49773d6116ebdd375',
+                    product: 'bind',
+                    riskType: 'word',
+                    new_captcha: true,
+                    hide: true
+                }, function (captcha) {
+
+                    captcha.onReady(function () {
+                        captcha.showCaptcha(); //显示验证码
+                    });
+
+                    captcha.onSuccess(function () {
+                        let str = location.href, num = str.indexOf("?");
+                        str = str.substr(num + 1);
+                        var params = new URLSearchParams(location.href.split('?')[1]);
+                        if (!params.has('ReturnUrl') || str == "ReturnUrl=/" || str == "ReturnUrl=%2F") {
+                            alert("请输入正确地址，进行登录，确保地址完整性!");
+                            return;
+                        }
+                        // if (queryParams.ReturnUrl) {
+                        //     alert("请正确输入要登录的地址路径,确保完整性!");
+                        //     return;
+                        // }
+
+                        var result = captcha.getValidate();
+                        // if (!This.CheckMobile()) {
+                        //     This.PhoneTipsIsShow = true;
+                        //     return;
+                        // } else {
+                        //     This.PhoneTipsIsShow = false;
+                        // }
+                        // if (!This.CheckCode()) {
+                        //     This.CodeTipsIsShow = true;
+                        //     return;
+                        // } else {
+                        //     This.CodeTipsIsShow = false;
+                        // };
+
+                        document.getElementById("LotNumber").value = result.lot_number;
+                        document.getElementById("CaptchaOutput").value = result.captcha_output;
+                        document.getElementById("PassToken").value = result.pass_token;
+                        document.getElementById("GenTime").value = result.gen_time;
+
+                        // document.getElementById("button").value = "login";
+
+                        // This.FormLogin.LotNumber = result.lot_number;
+                        // This.FormLogin.CaptchaOutput = result.captcha_output;
+                        // This.FormLogin.PassToken = result.pass_token;
+                        // This.FormLogin.GenTime = result.gen_time;
+                        // var formData = new FormData();
+                        // formData.append("model", JSON.stringify(This.FormLogin))
+                        var form = document.getElementById('jorenoeForm');
+                        if (form) {
+                            form.submit();
+                        }
+                        
+                        // jQuery.ajax({
+                        //     url: BaseUrl + 'Login?button=login',
+                        //     type: 'POST',
+                        //     data:  JSON.stringify(This.FormLogin),
+                        //     processData: false,  // 不处理数据
+                        //     contentType: "application/json",  // 不设置内容类型
+                        //     beforeSend: function (xhr) {
+                        //         // 获取防伪标记的值
+                        //         var token = $('input[name="__RequestVerificationToken"]').val();
+
+                        //         // 添加防伪标记到请求头
+                        //         xhr.setRequestHeader("RequestVerificationToken", token);
+                        //     },
+                        //     success: function (data) {
+                        //         jQuery('#jorenoe').html(data);
+                        //         // console.log(data);
+                        //         // if (data.State) {
+                        //         //     console.log('成功登录');
+                        //         //     window.open(data.Data, '_blank');
+                        //         // } else {
+                        //         //     $('#error').html(data);
+                        //         // }
+                        //     },
+                        //     error: function () {
+                        //         alert('登录失败');
+                        //     }
+                        // });
+                    });
+                    captcha.onError(function () {
+                        alert("请完成验证");
+                    });
+                });
+            },
+            onSubmit: function (e) {
+                var This = this;
+                if (!This.CheckMobile()) {
+                    This.PhoneTipsIsShow = true;
+                    return;
+                } else {
+                    This.PhoneTipsIsShow = false;
+                }
+                if (!This.CheckCode()) {
+                    This.CodeTipsIsShow = true;
+                    return;
+                } else {
+                    This.CodeTipsIsShow = false;
+                };
+                jQuery.ajax({
+                    'type': 'POST', 'url': BaseUrl + "Login", 'Content-Type': 'application/json', 'data': JSON.stringify(This.FormData), 'dataType': 'json',
+                    'success': function (data) {
+                        if (data.State) {
+                            //window.location.href = data.Data;
+                            //window.location.assign(data.Data);
+                            console.log('返回的地址：' + data.Data);
+                            window.open(data.Data, "_blank");
+
+                        } else {
+                            alert(data.Message);
+                        }
+                    },
+                    error: function () {
+                        alert("登录失败");
+                    }
+                });
+            },
+            onMobileSubmit: function (e) {
+                var This = this;
+                if (!this.CheckMobile()) {
+                    this.PhoneTipsIsShow = true;
+                    return;
+                } else {
+                    this.PhoneTipsIsShow = false;
+                }
+                if (!this.CheckCode()) {
+                    this.CodeTipsIsShow = true;
+                    return;
+                } else {
+                    this.CodeTipsIsShow = false;
+                };
+                jQuery.ajax({
+                    'type': 'POST', 'url': BaseUrl + "MobileLogin", 'contentType': 'application/json', 'data': JSON.stringify(this.FormData), 'dataType': 'json',
+                    'success': function (data) {
+                        if (data.State) {
+                            window.location.href = data.Data;
+                        } else {
+                            alert(data.Message);
+                        }
+                    },
+                    error: function () {
+                        alert("登录失败");
+                    }
+                });
+            },
+            CountDown: function () {
+                if (this.Count > 0) return;
+                this.Count = 60;
+                this.Message = this.Count + "秒后重新发送"
+                let clock = window.setInterval(() => {
+                    if (this.Count <= 0) {
+                        window.clearInterval(clock)
+                        this.Message = '发送验证码'
+                        return;
+                    }
+                    this.Count--
+                    this.Message = this.Count + '秒后重新发送'
+                }, 1000);
+            },
+            ChangeTab(index) {
+                this.TabIndex = index
+            },
+            Forget() {
+                window.location = "/Account/FindPassword"
+            },
+            OnBlurMobile() {
+                if (this.CheckMobile()) {
+                    this.PhoneTipsIsShow = false;
+                } else {
+                    this.PhoneTipsIsShow = true;
+                }
+            },
+            OnBlurCode() {
+                if (this.CheckCode()) {
+                    this.CodeTipsIsShow = false;
+                } else {
+                    this.CodeTipsIsShow = true;
+                }
+            },
+            OnBlurUserName() {
+                if (this.CheckUserName()) {
+                    this.UserNameTipsIsShow = false;
+                } else {
+                    this.UserNameTipsIsShow = true;
+                }
+            },
+            OnBlurPassword() {
+                if (this.CheckPassword()) {
+                    this.PasswordTipsIsShow = false;
+                } else {
+                    this.PasswordTipsIsShow = true;
+                }
+            },
+            CheckMobile() {
+                let reg = /^[1][2,3,4,5,6,7,8,9][0-9]{9}$/;
+                let Mobile = this.FormData.Mobile;
+                if (!reg.test(Mobile)) {
+                    return false;
+                }
+                return true;
+            },
+            CheckCode() {
+                let reg = /^\d{6}$/gi;
+                let Code = this.FormData.Code;
+                if (!reg.test(Code)) {
+                    return false;
+                }
+                return true;
+            },
+            IsNativeApp(){
+                // 判断是不是手机端嵌套
+                if (navigator.userAgent.indexOf('allInOne_iOS_app') > -1 || navigator.userAgent.search('allInOne_iOS_app') > -1 || navigator.userAgent.indexOf('allInOne_android_app') > -1 || navigator.userAgent.search('allInOne_android_app') > -1) {
+                    return true;
+                }
+                return false;
+            },
+            CheckPassword: function () {
+                let Password = this.FormLogin.Password;
+                if (Password.length < 6) {
+                    return false;
+                }
+                if (Password.length > 16) {
+                    return false;
+                }
+                return true;
+            },
+            CheckUserName: function () {
+                let UserName = this.FormLogin.UserName;
+                if (UserName.length < 1) {
+                    return false;
+                }
+                if (UserName.length > 50) {
+                    return false;
+                }
+                return true;
+            }
+        }
+    });
+</script>
+    
+</body>
+</html>

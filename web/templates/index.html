@@ -414,6 +414,7 @@
   }
   .toast-success { background: var(--green); color: #fff; }
   .toast-error { background: var(--accent); color: #fff; }
+  .toast-info { background: #3b82f6; color: #fff; }
   @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
   /* ── Page visibility ── */
@@ -673,7 +674,222 @@
     font-size: 11px;
   }
 
-  /* ── 快速探测向导 ── */
+  /* ── 基本探测向导 ── */
+  .wizard-tabs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .wizard-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg3);
+    border-radius: 8px;
+    padding: 3px;
+    flex-wrap: wrap;
+  }
+  .wizard-tab {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 12px;
+    font-family: var(--font);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .wizard-tab:hover { color: var(--text); background: rgba(255,255,255,0.5); }
+  .wizard-tab.active { background: var(--bg2); color: var(--text); font-weight: 600; }
+
+  .wizard-panel { display: none; }
+  .wizard-panel.active { display: block; }
+
+  .wizard-category-intro {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .wizard-category-intro strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .wizard-category-intro p {
+    margin: 0;
+    color: var(--text2);
+  }
+  .category-results-body { min-height: 120px; }
+
+  .category-scan-form {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .category-subsection {
+    margin-bottom: 16px;
+  }
+  .category-subsection-header {
+    padding: 10px 14px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+  }
+  .category-manual-list {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 8px 14px;
+    background: var(--bg2);
+  }
+  .category-manual-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .category-manual-item:last-child { border-bottom: none; }
+  .category-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    color: var(--blue);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .category-results {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--bg2);
+  }
+
+  .category-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .category-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: var(--bg3);
+    color: var(--text2);
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .category-badge:hover { background: #e2e8f0; }
+  .category-badge.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .category-badge.auth.active { background: #f59e0b; color: #fff; border-color: #f59e0b; }
+  .category-badge.model.active { background: #10b981; color: #fff; border-color: #10b981; }
+  .category-badge.anti.active { background: #ef4444; color: #fff; border-color: #ef4444; }
+  .category-badge.other.active { background: #64748b; color: #fff; border-color: #64748b; }
+
+  .auth-method-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .auth-method-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--bg3);
+    color: var(--text2);
+    transition: all 0.15s;
+  }
+  .auth-method-tab:hover { background: #e2e8f0; }
+  .auth-method-tab input { margin: 0; cursor: pointer; }
+  .auth-method-tab.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .auth-fields {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--bg2);
+  }
+  .auth-field-group { display: none; margin-bottom: 12px; }
+  .auth-field-group:last-child { margin-bottom: 0; }
+  .auth-field-group label {
+    display: block;
+    font-size: 11px;
+    color: var(--text2);
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .auth-field-group input,
+  .auth-field-group textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: #fff;
+    font-family: var(--mono);
+  }
+  .auth-field-group input:focus,
+  .auth-field-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .auth-header-row { margin-bottom: 8px; }
+  .auth-header-row:last-child { margin-bottom: 0; }
+  .auth-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+  }
+
+  .basic-endpoint-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+    flex-wrap: wrap;
+  }
+
   .wizard-intro {
     font-size: 13px;
     color: var(--text2);
@@ -815,6 +1031,36 @@
   .badge-auth { background: #fef3c7; color: #92400e; }
   .badge-waf { background: #fee2e2; color: #991b1b; }
   .badge-safe { background: #dcfce7; color: #166534; }
+  .badge-limited { background: #fff3cd; color: #856404; }
+
+  /* ── 速率限制信息面板（侦察弹窗内）── */
+  .rate-limit-panel {
+    background: linear-gradient(135deg, #fffbeb, #fffbeb);
+    border: 1px solid #fcd34d;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 6px;
+  }
+  .rate-limit-panel-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #92400e;
+    margin-bottom: 6px;
+  }
+  .rate-limit-panel-body {
+    font-size: 12px;
+    line-height: 1.8;
+    color: #78350f;
+  }
+  .rate-limit-panel-body strong { color: #451a03; }
+  .rate-limit-panel-hint {
+    font-size: 11px;
+    color: #b45309;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #fcd34d;
+  }
 
   /* ── 侦察配置弹窗 ── */
   .recon-form-grid {
@@ -1037,6 +1283,208 @@
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .form-grid { grid-template-columns: 1fr; }
   }
+
+  /* ── 手动登录 Token 提取卡片 ── */
+  .manual-login-card {
+    border: 1px solid #dbeafe;
+    border-left: 4px solid #3b82f6;
+    border-radius: 8px;
+    margin-top: 16px;
+    overflow: hidden;
+  }
+  .manual-login-card-header {
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e40af;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .manual-login-card-header .arrow {
+    transition: transform 0.2s;
+    font-size: 10px;
+    margin-left: auto;
+  }
+  .manual-login-card-header.open .arrow {
+    transform: rotate(90deg);
+  }
+  .manual-login-card-body {
+    padding: 12px 14px;
+    display: none;
+    background: #f8fafc;
+  }
+  .manual-login-card-body.open { display: block; }
+  .manual-login-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .manual-login-fields label {
+    font-size: 11px;
+    color: var(--text2);
+    font-weight: 600;
+  }
+  .manual-login-fields input,
+  .manual-login-fields select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    background: var(--bg3);
+    color: var(--text);
+  }
+  .manual-login-fields input { font-family: var(--mono); }
+  .manual-login-fields select { font-family: var(--font); }
+  .manual-login-fields input:focus,
+  .manual-login-fields select:focus {
+    outline: none;
+    border-color: #3b82f6;
+  }
+  .manual-login-fields .hint {
+    font-size: 11px;
+    color: var(--text2);
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+  .manual-login-status {
+    display: none;
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .manual-login-status.running {
+    display: block;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+  }
+  .manual-login-status.success {
+    display: block;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+  }
+  .manual-login-status.failed, .manual-login-status.timeout, .manual-login-status.cancelled {
+    display: block;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+  .manual-login-status .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid #bfdbfe;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  .manual-login-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .manual-login-result-detail {
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.6;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .manual-login-result-detail code {
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    word-break: break-all;
+  }
+
+  /* ── 快速导入浏览器请求头 ── */
+  .quick-import-card {
+    border: 1px solid #fcd34d;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+  .quick-import-card-header {
+    padding: 9px 14px;
+    background: linear-gradient(135deg, #fffbeb, #fef3c7);
+    font-weight: 700;
+    font-size: 13px;
+    color: #92400e;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .quick-import-card-header .arrow {
+    transition: transform 0.2s;
+    font-size: 10px;
+    margin-left: auto;
+  }
+  .quick-import-card-header.open .arrow {
+    transform: rotate(90deg);
+  }
+  .quick-import-card-body {
+    padding: 10px 14px;
+    display: none;
+    background: #fffdf7;
+  }
+  .quick-import-card-body.open { display: block; }
+  .quick-import-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 80px;
+    background: #fafafa;
+  }
+  .quick-import-textarea:focus {
+    outline: none;
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245,158,11,0.15);
+  }
+  .quick-import-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .quick-import-parse-result {
+    display: none;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    line-height: 1.6;
+  }
+  .quick-import-parse-result.show { display: block; }
+  .quick-import-parse-result code {
+    background: rgba(22,101,52,0.08);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
 </style>
 </head>
 <body>
@@ -1147,84 +1595,470 @@
   <div class="page" id="page-scan">
     <div class="page-header">
       <h2>L0 — 目标侦察</h2>
-      <p>简化两步走：先快速探测，再针对性深度侦察</p>
+      <p>简化两步走：先基本探测，再针对性深度侦察</p>
     </div>
 
-    <!-- 快速探测向导 -->
+    <!-- 基本探测向导 -->
     <div id="scan-wizard">
       <div class="section" id="wizard-step1">
-        <div class="section-header">
-          <span>🚀 第一步：快速探测目标</span>
+        <div class="section-header wizard-tabs-header">
+          <div class="wizard-tabs">
+            <button class="wizard-tab active" data-tab="basic" onclick="switchWizardTab('basic')">🚀 基本探测</button>
+            <button class="wizard-tab" data-tab="auth" onclick="switchWizardTab('auth')">🔐 认证探测</button>
+            <button class="wizard-tab" data-tab="anti" onclick="switchWizardTab('anti')">🛡️ 反爬探测</button>
+            <button class="wizard-tab" data-tab="model" onclick="switchWizardTab('model')">🧩 模型探测</button>
+            <button class="wizard-tab" data-tab="other" onclick="switchWizardTab('other')">📎 其它探测</button>
+          </div>
           <button type="button" class="hint-toggle" onclick="toggleHint(this)">
             专家提示 <span class="arrow">▶</span>
           </button>
         </div>
         <div class="section-body">
-          <p class="wizard-intro">
-            输入一个或多个目标 URL，系统会先执行轻量 HTTP 探测，列出存活端点和认证需求，再决定下一步侦察策略。
-          </p>
-          <div class="form-grid">
-            <div class="form-group full">
-              <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
-              <textarea id="basic-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn&#10;https://www.qianwen.com"></textarea>
+
+          <!-- 基本探测 -->
+          <div id="wizard-panel-basic" class="wizard-panel active">
+            <p class="wizard-intro">
+              输入一个或多个目标 URL，系统会先执行轻量 HTTP 探测，列出存活端点和认证需求，再决定下一步侦察策略。
+            </p>
+            <div class="form-grid">
+              <div class="form-group full">
+                <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
+                <textarea id="basic-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn&#10;https://www.qianwen.com"></textarea>
+              </div>
+            </div>
+
+            <div class="wizard-actions">
+              <button type="button" class="btn btn-primary" id="btn-basic-scan" onclick="startBasicScan()">
+                🔍 开始基本探测
+              </button>
+            </div>
+
+            <div class="hint-body">
+              <strong>🚀 基本探测说明</strong><br>
+              该阶段不携带认证信息，仅对常见 AI/Web 端点（如 <code>/login</code>、<code>/v1/chat/completions</code>、<code>/api/tags</code> 等）执行轻量 GET/POST 探测，返回状态码与响应摘要。<br><br>
+              <strong>三档速率模式（统一超时 20 秒）：</strong>
+              <ul>
+                <li><strong>stealth（隐身）：</strong>单请求串行 + 随机延迟 200-600ms，最大限度降低 WAF/IDS 触发概率，适合高防御站点。</li>
+                <li><strong>balanced（平衡）：</strong>3 并发 + 50-150ms 延迟，兼顾速度与隐蔽性。</li>
+                <li><strong>fast（快速）：</strong>5 并发 + 0-50ms 延迟，追求探测速度，可能触发频率限制。</li>
+              </ul>
+              <br>
+              <strong>使用组件：</strong><br>
+              <code>httpx</code> 根路径探测 → <code>DictScanner</code>（字典路径扫描器）→ <code>EndpointInferrer</code>（端点分类器：chat/auth/models/health/api） → WAF 关键词正则匹配（Cloudflare/Akamai/Imperva 等） → <code>速率限制提取</code>（解析 x-ratelimit-* / Retry-After / 429 端点）<br><br>
+              <strong>速率限制三档攻速建议：</strong>
+              <ul>
+                <li><strong>P0 · 严格限速：</strong>窗口配额 ≤10 次或 Retry-After > 10s，必须用 stealth 单线程串行，攻击时需大幅降速。</li>
+                <li><strong>P1 · 适度限制：</strong>窗口配额 ≤60 次或仅检测到限速头，推荐 balanced，攻击时需控制并发。</li>
+                <li><strong>P2 · 宽松限制：</strong>窗口配额 >60 次，可使用 balanced/fast，攻击时可适度放宽。</li>
+              </ul>
+              <br>
+              <strong>三种后续分支：</strong>
+              <ul>
+                <li><strong>需要认证：</strong>探测到 <code>/login</code>、<code>401/403</code> 等，将提示填写 Cookie / API Key / JWT。</li>
+                <li><strong>无需认证：</strong>可直接启动深度侦察，无需额外认证参数。</li>
+                <li><strong>结果为空 / 反爬：</strong>将切换到高级探测模式，提供 stealth、手动登录、storageState 等参数。</li>
+              </ul>
+              <div class="hint-rec">💡 商业 AI 平台（千问、Kimi、ChatGPT 等）通常需要先获取 Cookie 再执行深度侦察。探出的速率限制值将直接影响后续攻击阶段的并发和频率设置。</div>
+            </div>
+
+            <div id="basic-scan-progress" class="category-progress" style="display:none;">
+              <span class="spinner"></span>
+              <span id="basic-progress-text">正在探测目标，请稍候...</span>
+            </div>
+
+            <div id="basic-scan-results" class="category-results" style="display:none;">
+              <div class="category-subsection-header">📋 基本探测结果</div>
+              <div id="basic-results-body"></div>
             </div>
           </div>
 
-          <div class="wizard-actions">
-            <button type="button" class="btn btn-primary" id="btn-basic-scan" onclick="startBasicScan()">
-              🔍 开始快速探测
-            </button>
-            <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
-              <input type="checkbox" id="basic-verify-ssl"> 验证 SSL 证书
-            </label>
-            <button type="button" class="wizard-toggle" onclick="toggleAdvancedConfig()">⚙️ 显示高级配置</button>
+
+
+          <!-- 认证探测 -->
+          <div id="wizard-panel-auth" class="wizard-panel" style="display:none;">
+            <div class="wizard-category-intro">
+              <strong>🔐 认证探测</strong>
+              <p>探测登录入口、401/403、Token 接口等认证相关端点。</p>
+            </div>
+            <div class="category-scan-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔；如 https://www.qianwen.com/login</span></label>
+                  <textarea id="auth-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn"></textarea>
+                </div>
+                <div class="form-group full">
+                  <label>🔐 认证信息 <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 可多选组合，用于绕过认证拦截</span></label>
+                  <div class="auth-method-tabs">
+                    <label class="auth-method-tab" id="auth-tab-basic" onclick="toggleAuthMethod('basic')">
+                      <input type="checkbox" id="auth-use-basic" onchange="event.stopPropagation(); toggleAuthMethod('basic')"> Basic Auth
+                    </label>
+                    <label class="auth-method-tab" id="auth-tab-bearer" onclick="toggleAuthMethod('bearer')">
+                      <input type="checkbox" id="auth-use-bearer" onchange="event.stopPropagation(); toggleAuthMethod('bearer')"> Bearer / JWT
+                    </label>
+                    <label class="auth-method-tab" id="auth-tab-apikey" onclick="toggleAuthMethod('apikey')">
+                      <input type="checkbox" id="auth-use-apikey" onchange="event.stopPropagation(); toggleAuthMethod('apikey')"> API Key
+                    </label>
+                    <label class="auth-method-tab" id="auth-tab-cookie" onclick="toggleAuthMethod('cookie')">
+                      <input type="checkbox" id="auth-use-cookie" onchange="event.stopPropagation(); toggleAuthMethod('cookie')"> Cookie
+                    </label>
+                    <label class="auth-method-tab" id="auth-tab-headers" onclick="toggleAuthMethod('headers')">
+                      <input type="checkbox" id="auth-use-headers" onchange="event.stopPropagation(); toggleAuthMethod('headers')"> Custom Headers
+                    </label>
+                  </div>
+                  <div class="auth-fields">
+                    <div id="auth-fields-basic" class="auth-field-group">
+                      <div class="form-grid">
+                        <div class="form-group">
+                          <label>用户名</label>
+                          <input type="text" id="auth-basic-username" placeholder="username / email">
+                        </div>
+                        <div class="form-group">
+                          <label>密码</label>
+                          <input type="password" id="auth-basic-password" placeholder="password">
+                        </div>
+                      </div>
+                    </div>
+                    <div id="auth-fields-bearer" class="auth-field-group">
+                      <label>Bearer / JWT Token</label>
+                      <input type="text" id="auth-bearer-token" placeholder="eyJhbGciOiJIUzI1NiIs...">
+                    </div>
+                    <div id="auth-fields-apikey" class="auth-field-group">
+                      <div class="form-grid">
+                        <div class="form-group">
+                          <label>Header 名称</label>
+                          <input type="text" id="auth-apikey-name" value="Authorization" placeholder="X-API-Key / Authorization">
+                        </div>
+                        <div class="form-group">
+                          <label>API Key 值</label>
+                          <input type="text" id="auth-apikey-value" placeholder="sk-...">
+                        </div>
+                      </div>
+                    </div>
+                    <div id="auth-fields-cookie" class="auth-field-group">
+                      <label>Cookie 字符串</label>
+                      <textarea id="auth-cookie-value" rows="2" placeholder="session=abc123; token=xyz789; cf_clearance=..."></textarea>
+                    </div>
+                    <div id="auth-fields-headers" class="auth-field-group">
+                      <div id="auth-custom-headers-list"></div>
+                      <button type="button" class="btn btn-sm" onclick="addAuthHeaderRow()">+ 添加自定义 Header</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 快速导入：粘贴浏览器 Network 面板的请求头 -->
+                <div class="quick-import-card" id="quick-import-card" style="grid-column: 1 / -1;">
+                  <div class="quick-import-card-header open" onclick="toggleQuickImportCard()">
+                    ⚡ 从浏览器快速导入 <span style="font-weight:400;font-size:11px;color:#b45309;">— 粘贴 Network 面板的 Copy Request Headers</span>
+                    <span class="arrow">▶</span>
+                  </div>
+                  <div class="quick-import-card-body open" id="quick-import-card-body">
+                    <p style="font-size:11px;color:var(--text2);margin-bottom:8px;">
+                      浏览器已登录？F12 → Network → 右键任意请求 → <strong>Copy → Copy Request Headers</strong> → 粘贴到下方 → 自动解析并回填认证字段。
+                    </p>
+                    <textarea id="quick-import-textarea" class="quick-import-textarea"
+                      placeholder="粘贴原始请求头，例如：&#10;Cookie: HWWAFSESSID=abc123; token=xyz&#10;Authorization: Bearer eyJhbGciOi...&#10;X-API-Key: sk-proj-..."
+                      rows="5" oninput="autoDetectQuickImport(this.value)"></textarea>
+                    <div class="quick-import-actions">
+                      <button type="button" class="btn btn-primary" onclick="quickImportHeaders()" style="font-size:12px;padding:6px 14px;">
+                        🔍 解析导入
+                      </button>
+                      <button type="button" class="btn btn-sm" onclick="quickImportCookieOnly()" style="font-size:11px;">
+                        🍪 仅导入 Cookie
+                      </button>
+                      <button type="button" class="btn btn-sm" onclick="quickImportBearerOnly()" style="font-size:11px;">
+                        🔑 仅导入 Bearer
+                      </button>
+                      <button type="button" class="btn btn-sm" onclick="document.getElementById('quick-import-textarea').value=''" style="font-size:11px;">
+                        🗑 清空
+                      </button>
+                    </div>
+                    <div class="quick-import-parse-result" id="quick-import-result"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wizard-actions">
+                <button type="button" class="btn btn-primary" id="btn-auth-scan" onclick="startCategoryScan('auth')">
+                  🔐 开始认证探测
+                </button>
+              </div>
+            </div>
+            <div id="auth-scan-progress" class="category-progress" style="display:none;">
+              <span class="spinner"></span>
+              <span id="auth-progress-text">正在执行认证探测...</span>
+            </div>
+            <div id="auth-scan-results" class="category-results" style="display:none;">
+              <div class="category-subsection-header">📋 认证探测结果</div>
+              <div id="auth-results-body"></div>
+            </div>
+
+            <!-- 手动登录 Token 提取 -->
+            <div class="manual-login-card" id="manual-login-card">
+              <div class="manual-login-card-header open" onclick="toggleManualLoginCard()">
+                🖐️ 手动登录提取 Token <span style="font-weight:400;font-size:11px;color:#64748b;">— 处理滑块/拼图验证码</span>
+                <span class="arrow">▶</span>
+              </div>
+              <div class="manual-login-card-body open" id="manual-login-card-body">
+                <p style="font-size:11px;color:var(--text2);margin-bottom:10px;">
+                  适用场景：目标登录页含<strong>滑块拼图</strong>、<strong>图形验证码</strong>等无法自动绕过的挑战。
+                  启动有界面浏览器后，你手动完成验证码，系统自动提取 <code>access_token</code> 和 Cookie 并回填到上方认证字段。
+                </p>
+                <div class="manual-login-fields">
+                  <div>
+                    <label>登录页面 URL</label>
+                    <input type="text" id="manual-login-url" placeholder="https://passport.xxx.cn/Account/Login?..." autocomplete="off">
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <div style="flex:1;">
+                      <label>用户名</label>
+                      <input type="text" id="manual-login-username" placeholder="学号/账号" autocomplete="off">
+                    </div>
+                    <div style="flex:1;">
+                      <label>密码</label>
+                      <input type="password" id="manual-login-password" placeholder="密码" autocomplete="off">
+                    </div>
+                  </div>
+                  <div>
+                    <label>浏览器路径 <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 留空自动检测系统默认浏览器</span></label>
+                    <input type="text" id="manual-login-chrome-path" placeholder="例如 C:\Program Files\Google\Chrome\Application\chrome.exe" autocomplete="off">
+                    <div class="hint">留空时优先读取 Windows 注册表默认浏览器，再回退到 Chrome / Edge / 360 等常见路径；验证通过后可按 F12 抓取网络数据</div>
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <div style="flex:1;">
+                      <label>登录成功后保持打开</label>
+                      <select id="manual-login-keep-open">
+                        <option value="0">立即关闭（提取后关闭）</option>
+                        <option value="60" selected>60 秒（方便 F12）</option>
+                        <option value="120">120 秒</option>
+                        <option value="300">300 秒</option>
+                      </select>
+                    </div>
+                    <div style="flex:1;">
+                      <label>自动打开 DevTools</label>
+                      <select id="manual-login-auto-devtools">
+                        <option value="false">否</option>
+                        <option value="true" selected>是</option>
+                      </select>
+                    </div>
+                  </div>
+                  <label class="toggle" style="font-size:12px;font-weight:400;align-items:flex-start;margin-top:4px;">
+                    <input type="checkbox" id="manual-login-no-auto-submit">
+                    <span>不自动提交表单/触发验证码（纯手动模式：只打开浏览器并填账号密码，滑块/OTP/登录全部由你手工完成）<span style="color:var(--accent);">遇到重复弹出滑块时请勾选</span></span>
+                  </label>
+                </div>
+                <div class="manual-login-actions">
+                  <button type="button" class="btn btn-primary" id="btn-manual-login" onclick="startManualLogin()">
+                    🖐️ 启动手动登录
+                  </button>
+                  <button type="button" class="btn btn-sm" id="btn-manual-cancel" onclick="cancelManualLogin()" style="display:none;">
+                    ⏹ 取消
+                  </button>
+                </div>
+                <div class="manual-login-status" id="manual-login-status">
+                  <span id="manual-login-status-text"></span>
+                </div>
+                <div class="manual-login-result-detail" id="manual-login-result" style="display:none;"></div>
+
+                <!-- 凭据管理：加载已保存 Token/Cookie -->
+                <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);">
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--text2);font-weight:600;">💾 已保存凭据</span>
+                    <select id="saved-cred-select" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"
+                      onchange="document.getElementById('btn-apply-saved-cred').disabled = !this.value">
+                      <option value="">— 选择已保存凭据 —</option>
+                    </select>
+                    <button type="button" id="btn-apply-saved-cred" class="btn btn-sm" onclick="applySavedCredentials()" disabled>
+                      📥 加载
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 手动粘贴 DevTools 请求头 / cURL 提取凭据 -->
+                <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">
+                  <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:8px;">📋 从 DevTools 粘贴请求头 / cURL 提取凭据</div>
+                  <p style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.5;">
+                    如果自动监听没有抓到 Authorization，可在登录后按 F12 → Network → 右键任意已登录请求 → <strong>Copy → Copy request headers</strong> 或 <strong>Copy → Copy as cURL</strong>，然后粘贴到下方文本框。
+                  </p>
+                  <div style="display:flex;gap:8px;align-items:flex-start;">
+                    <textarea id="manual-creds-paste" rows="6" placeholder="粘贴内容示例：&#10;Authorization: Bearer 08dd5bb3-f773-42b2-8ad6-4e8e8a9222e7&#10;Cookie: SESSION=abc123; token=xyz789&#10;Origin: https://student.syxy.ouchn.cn" style="flex:1;font-family:var(--mono);font-size:11px;"></textarea>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                      <button type="button" class="btn btn-sm" onclick="parseManualCredsPaste()">🔍 解析</button>
+                      <button type="button" class="btn btn-sm" onclick="document.getElementById('manual-creds-paste').value=''" style="background:#fff;color:#64748b;border-color:var(--border);">清空</button>
+                    </div>
+                  </div>
+                  <div id="manual-creds-parse-result" class="manual-login-result-detail" style="display:none;margin-top:8px;"></div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="hint-body">
-            <strong>🚀 快速探测说明</strong><br>
-            该阶段不携带认证信息，仅对常见 AI/Web 端点（如 <code>/login</code>、<code>/v1/chat/completions</code>、<code>/api/tags</code> 等）执行轻量 GET/POST 探测，返回状态码与响应摘要。<br><br>
-            <strong>三种后续分支：</strong>
-            <ul>
-              <li><strong>需要认证：</strong>探测到 <code>/login</code>、<code>401/403</code> 等，将提示填写 Cookie / API Key / JWT。</li>
-              <li><strong>无需认证：</strong>可直接启动深度侦察，无需额外认证参数。</li>
-              <li><strong>结果为空 / 反爬：</strong>将切换到高级探测模式，提供 stealth、手动登录、storageState 等参数。</li>
-            </ul>
-            <div class="hint-rec">💡 商业 AI 平台（千问、Kimi、ChatGPT 等）通常需要先获取 Cookie 再执行深度侦察。</div>
+          <!-- 反爬探测 -->
+          <div id="wizard-panel-anti" class="wizard-panel" style="display:none;">
+            <div class="wizard-category-intro">
+              <strong>🛡️ 反爬探测</strong>
+              <p>输入目标 URL，检测 WAF/反爬/高级防御特征（Cloudflare、Akamai、Imperva 等），并评估是否需要 stealth 或浏览器渲染。</p>
+            </div>
+            <div class="category-scan-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
+                  <textarea id="anti-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn"></textarea>
+                </div>
+              </div>
+              <div class="wizard-actions">
+                <button type="button" class="btn btn-primary" id="btn-anti-scan" onclick="startCategoryScan('anti')">
+                  🛡️ 开始反爬探测
+                </button>
+              </div>
+            </div>
+            <div id="anti-scan-progress" class="category-progress" style="display:none;">
+              <span class="spinner"></span>
+              <span id="anti-progress-text">正在执行反爬探测...</span>
+            </div>
+            <div id="anti-scan-results" class="category-results" style="display:none;">
+              <div class="category-subsection-header">📋 反爬探测结果</div>
+              <div id="anti-results-body"></div>
+            </div>
+          </div>
+
+          <!-- 模型探测 -->
+          <div id="wizard-panel-model" class="wizard-panel" style="display:none;">
+            <div class="wizard-category-intro">
+              <strong>🧩 模型探测</strong>
+              <p>输入目标 URL，对模型相关端点（<code>/v1/models</code>、<code>/api/tags</code>、<code>/v1/chat/completions</code> 等）进行专项探测，快速定位可访问的 AI 模型接口。</p>
+            </div>
+            <div class="category-scan-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
+                  <textarea id="model-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn"></textarea>
+                </div>
+              </div>
+              <div class="wizard-actions">
+                <button type="button" class="btn btn-primary" id="btn-model-scan" onclick="startCategoryScan('model')">
+                  🧩 开始模型探测
+                </button>
+              </div>
+            </div>
+            <div id="model-scan-progress" class="category-progress" style="display:none;">
+              <span class="spinner"></span>
+              <span id="model-progress-text">正在执行模型探测...</span>
+            </div>
+            <div id="model-scan-results" class="category-results" style="display:none;">
+              <div class="category-subsection-header">📋 模型探测结果</div>
+              <div id="model-results-body"></div>
+            </div>
+          </div>
+
+          <!-- 其它探测 -->
+          <div id="wizard-panel-other" class="wizard-panel" style="display:none;">
+            <div class="wizard-category-intro">
+              <strong>📎 其它探测</strong>
+              <p>输入目标 URL，对未被分类覆盖的端点（健康检查、文档、监控、调试接口等）进行专项探测，避免遗漏潜在攻击面。</p>
+            </div>
+            <div class="category-scan-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>目标 URL <span style="font-weight:400;text-transform:none;letter-spacing:0;">— 支持多行、逗号、分号分隔</span></label>
+                  <textarea id="other-target-urls" rows="3" placeholder="https://open.bigmodel.cn&#10;https://api.moonshot.cn"></textarea>
+                </div>
+              </div>
+              <div class="wizard-actions">
+                <button type="button" class="btn btn-primary" id="btn-other-scan" onclick="startCategoryScan('other')">
+                  📎 开始其它探测
+                </button>
+              </div>
+            </div>
+            <div id="other-scan-progress" class="category-progress" style="display:none;">
+              <span class="spinner"></span>
+              <span id="other-progress-text">正在执行其它探测...</span>
+            </div>
+            <div id="other-scan-results" class="category-results" style="display:none;">
+              <div class="category-subsection-header">📋 其它探测结果</div>
+              <div id="other-results-body"></div>
+            </div>
+          </div>
+
+          <!-- 公共参数：所有探测共享，通过 JS 动态移动到当前 panel 的目标 URL 下方 -->
+          <div class="section" id="wizard-common-params" style="margin-top:0;">
+            <div class="section-header">
+              <span>⚙️ 功能开关</span>
+              <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看说明">
+                专家提示 <span class="arrow">▶</span>
+              </button>
+            </div>
+            <div class="section-body">
+              <div class="toggle-group">
+                <label class="toggle"><input type="checkbox" id="common-har-output" checked> 启用 HAR 流量录制</label>
+                <label class="toggle"><input type="checkbox" id="common-dict-scan"> 启用字典扫描</label>
+                <label class="toggle"><input type="checkbox" id="common-headed"> 显示浏览器窗口</label>
+                <label class="toggle"><input type="checkbox" id="common-no-spa"> 禁用 SPA 渲染</label>
+                <label class="toggle"><input type="checkbox" id="common-no-js-extract"> 禁用 JS 提取</label>
+                <label class="toggle"><input type="checkbox" id="common-no-traffic"> 禁用流量捕获</label>
+                <label class="toggle"><input type="checkbox" id="common-verify-ssl"> 验证 SSL 证书</label>
+              </div>
+              <div class="hint-body">
+                <strong>⚙️ 开关详解：</strong><br>
+                <ul>
+                  <li><strong>启用字典扫描</strong> — 用 200+ 条 LLM/Web 路径并发探测目标。耗时长但覆盖全，内网授权环境<strong>强烈建议开启</strong></li>
+                  <li><strong>显示浏览器窗口</strong> — 关闭无头模式，弹真实 Chromium 窗口。方便调试登录流程，CI/批量时<strong>关闭</strong></li>
+                  <li><strong>禁用 SPA 渲染</strong> — 不启动浏览器（纯 HTTP）。适用于 Ollama/纯 API 服务，速度<strong>极快</strong></li>
+                  <li><strong>禁用 JS 提取</strong> — 不下载分析 JS bundle。会丢失动态路由和隐藏端点，<strong>一般不勾</strong></li>
+                  <li><strong>禁用流量捕获</strong> — 不监听浏览器网络请求。Chat 端点推断将失效，<strong>不要勾</strong></li>
+                  <li><strong>验证 SSL 证书</strong> — 校验目标证书。自签名证书（内网常见）会报错，<strong>公网目标建议勾选</strong></li>
+                </ul>
+                <div class="hint-rec">
+                  💡 <strong>推荐 4 种配置：</strong><br>
+                  ① 基本探测（Ollama/纯 API）：勾「字典扫描」+「禁用 SPA 渲染」<br>
+                  ② 标准 SPA（默认）：勾「字典扫描」<br>
+                  ③ 调试登录：勾「字典扫描」+「显示浏览器」<br>
+                  ④ 静默外网：勾「验证 SSL」，其余默认
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section" id="wizard-common-advanced" style="margin-top:16px;">
+            <div class="section-header">
+              <span>🔧 高级参数</span>
+              <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看说明">
+                专家提示 <span class="arrow">▶</span>
+              </button>
+            </div>
+            <div class="section-body">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>探测速率</label>
+                  <select id="common-rate-profile">
+                    <option value="stealth" selected>🕵️ stealth (隐身模式)</option>
+                    <option value="balanced">⚖️ balanced (平衡)</option>
+                    <option value="fast">⚡ fast (快速)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>超时 (秒)</label>
+                  <input type="number" id="common-timeout" value="20" min="5" max="120">
+                </div>
+              </div>
+              <div class="hint-body">
+                <strong>🔧 探测速率详解：</strong><br>
+                <ul>
+                  <li><strong>🕵️ 隐身模式 (stealth)</strong> — 单请求串行 + 200~500ms 随机抖动，~12 RPM。生产/外网目标<strong>强烈推荐</strong>，几乎不触发 WAF/IDS 行为检测</li>
+                  <li><strong>⚖️ 平衡模式 (balanced)</strong> — 2 并发 + 50~150ms 抖动，~30 RPM。内网/授权测试环境适用</li>
+                  <li><strong>⚡ 快速模式 (fast)</strong> — 5 并发 + 微量延迟，~60 RPM。仅在内网隔离环境或明确授权快速扫描时使用</li>
+                </ul>
+                <div class="hint-rec">
+                  💡 <strong>企业红队最佳实践：</strong>默认使用 stealth 模式（1 并发 + 随机抖动）可确保不被目标行为检测发现。
+                  即使开启字典扫描（600+ 路径），stealth 模式也能在约 <strong>5-10 分钟</strong>内完成，无需担心速度问题。
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div id="basic-scan-progress" class="section" style="display:none;">
-        <div class="section-header">
-          <span>⏳ 快速探测进行中</span>
-        </div>
-        <div class="section-body">
-          <div class="basic-progress">
-            <span class="spinner"></span>
-            <span id="basic-progress-text">正在探测目标，请稍候...</span>
-          </div>
-        </div>
-      </div>
 
-      <div id="basic-scan-results" class="section" style="display:none;">
-        <div class="section-header">
-          <span>📋 第二步：探测结果</span>
-          <button type="button" class="hint-toggle" onclick="toggleHint(this)">
-            专家提示 <span class="arrow">▶</span>
-          </button>
-        </div>
-        <div class="section-body">
-          <div class="hint-body">
-            <strong>📋 结果解读</strong>
-            <ul>
-              <li><strong>状态码 200/201：</strong>端点可访问，可点击「选择此目标」进行深度侦察。</li>
-              <li><strong>状态码 401/403：</strong>端点需要认证，系统会提示填写 Cookie / API Key / JWT。</li>
-              <li><strong>未发现端点 / 全部 4xx：</strong>可能存在反爬、WAF 或目标不可达，需启用高级探测。</li>
-            </ul>
-          </div>
-          <div id="basic-results-body"></div>
-        </div>
-      </div>
+
     </div>
 
     <form id="scan-form" style="display:none;">
@@ -1253,7 +2087,7 @@
               <li><strong>Web 应用 + AI：</strong>含 Chat 界面的 SPA 应用（React/Vue/Next.js）</li>
               <li><strong>内网靶机：</strong>自签名证书的 HTTPS 服务（需关闭"验证 SSL 证书"）</li>
             </ul>
-            <div class="hint-rec">💡 如果不确定目标类型，保持默认配置启动一次快速探测即可。</div>
+            <div class="hint-rec">💡 如果不确定目标类型，保持默认配置启动一次基本探测即可。</div>
           </div>
         </div>
       </div>
@@ -1417,92 +2251,15 @@
         </div>
       </div>
 
-      <!-- 功能开关 -->
-      <div class="section">
-        <div class="section-header">
-          <span>⚙️ 功能开关</span>
-          <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看说明">
-            专家提示 <span class="arrow">▶</span>
-          </button>
-        </div>
-        <div class="section-body">
-          <div class="toggle-group">
-            <label class="toggle"><input type="checkbox" name="har_output" checked> 启用 HAR 流量录制</label>
-            <label class="toggle"><input type="checkbox" name="dict_scan"> 启用字典扫描</label>
-            <label class="toggle"><input type="checkbox" name="headed"> 显示浏览器窗口</label>
-            <label class="toggle"><input type="checkbox" name="no_spa"> 禁用 SPA 渲染</label>
-            <label class="toggle"><input type="checkbox" name="no_js_extract"> 禁用 JS 提取</label>
-            <label class="toggle"><input type="checkbox" name="no_traffic"> 禁用流量捕获</label>
-            <label class="toggle"><input type="checkbox" name="verify_ssl" id="verify_ssl_toggle"> 验证 SSL 证书</label>
-          </div>
+      <!-- 功能开关与高级参数已移至向导 tabs 上方作为公共参数 -->
 
-          <!-- 证书上传区域 -->
-          <div id="cert-upload-area" style="display:none; margin-top:16px; padding:14px 16px; background:#f0f7ff; border:1px dashed #93c5fd; border-radius:6px;">
-            <div class="form-group full" style="margin:0;">
-              <label style="margin-bottom:6px;">上传 CA / 自签名证书（可选）</label>
-              <input type="file" name="ca_cert_file" accept=".pem,.crt,.cer,.key" style="padding:8px 0; background:transparent; border:none; font-size:13px;">
-              <div style="font-size:11px; color:var(--text2); margin-top:6px;">
-                支持 .pem / .crt / .cer / .key。留空则使用系统默认 CA 证书库。
-              </div>
-            </div>
-          </div>
-
-          <div class="hint-body">
-            <strong>⚙️ 开关详解：</strong><br>
-            <ul>
-              <li><strong>启用字典扫描</strong> — 用 200+ 条 LLM/Web 路径并发探测目标。耗时长但覆盖全，内网授权环境<strong>强烈建议开启</strong></li>
-              <li><strong>显示浏览器窗口</strong> — 关闭无头模式，弹真实 Chromium 窗口。方便调试登录流程，CI/批量时<strong>关闭</strong></li>
-              <li><strong>禁用 SPA 渲染</strong> — 不启动浏览器（纯 HTTP）。适用于 Ollama/纯 API 服务，速度<strong>极快</strong></li>
-              <li><strong>禁用 JS 提取</strong> — 不下载分析 JS bundle。会丢失动态路由和隐藏端点，<strong>一般不勾</strong></li>
-              <li><strong>禁用流量捕获</strong> — 不监听浏览器网络请求。Chat 端点推断将失效，<strong>不要勾</strong></li>
-              <li><strong>验证 SSL 证书</strong> — 校验目标证书。自签名证书（内网常见）会报错，<strong>公网目标建议勾选</strong></li>
-            </ul>
-
-            <div class="hint-rec">
-              💡 <strong>推荐 4 种配置：</strong><br>
-              ① 快速探测（Ollama/纯 API）：勾「字典扫描」+「禁用 SPA 渲染」<br>
-              ② 标准 SPA（默认）：勾「字典扫描」<br>
-              ③ 调试登录：勾「字典扫描」+「显示浏览器」<br>
-              ④ 静默外网：勾「验证 SSL」，其余默认
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 高级参数 -->
-      <div class="section">
-        <div class="section-header">
-          <span>🔧 高级参数</span>
-          <button type="button" class="hint-toggle" onclick="toggleHint(this)" title="查看说明">
-            专家提示 <span class="arrow">▶</span>
-          </button>
-        </div>
-        <div class="section-body">
-          <div class="form-grid">
-            <div class="form-group">
-              <label>探测速率</label>
-              <select name="rate_profile">
-                <option value="stealth" selected>🕵️ 隐身模式 (stealth) — 推荐</option>
-                <option value="balanced">⚖️ 平衡模式 (balanced)</option>
-                <option value="fast">⚡ 快速模式 (fast)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>超时 (秒)</label>
-              <input type="number" name="timeout" value="30" min="5" max="120">
-            </div>
-          </div>
-          <div class="hint-body">
-            <strong>🔧 探测速率详解：</strong><br>
-            <ul>
-              <li><strong>🕵️ 隐身模式 (stealth)</strong> — 单请求串行 + 200~500ms 随机抖动，~12 RPM。生产/外网目标<strong>强烈推荐</strong>，几乎不触发 WAF/IDS 行为检测</li>
-              <li><strong>⚖️ 平衡模式 (balanced)</strong> — 2 并发 + 50~150ms 抖动，~30 RPM。内网/授权测试环境适用</li>
-              <li><strong>⚡ 快速模式 (fast)</strong> — 5 并发 + 微量延迟，~60 RPM。仅在内网隔离环境或明确授权快速扫描时使用</li>
-            </ul>
-            <div class="hint-rec">
-              💡 <strong>企业红队最佳实践：</strong>默认使用 stealth 模式（1 并发 + 随机抖动）可确保不被目标行为检测发现。
-              即使开启字典扫描（600+ 路径），stealth 模式也能在约 <strong>5-10 分钟</strong>内完成，无需担心速度问题。
-            </div>
+      <!-- 证书上传（仍保留在主表单中，受公共「验证 SSL」控制） -->
+      <div id="cert-upload-area" style="display:none; margin-top:16px; padding:14px 16px; background:#f0f7ff; border:1px dashed #93c5fd; border-radius:6px;">
+        <div class="form-group full" style="margin:0;">
+          <label style="margin-bottom:6px;">上传 CA / 自签名证书（可选）</label>
+          <input type="file" name="ca_cert_file" accept=".pem,.crt,.cer,.key" style="padding:8px 0; background:transparent; border:none; font-size:13px;">
+          <div style="font-size:11px; color:var(--text2); margin-top:6px;">
+            支持 .pem / .crt / .cer / .key。留空则使用系统默认 CA 证书库。
           </div>
         </div>
       </div>
@@ -1823,12 +2580,12 @@ document.querySelectorAll('.nav a').forEach(a => {
 });
 
 // ── Toast ──
-function toast(msg, type = 'success') {
+function toast(msg, type = 'success', duration = 3000) {
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
   el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), duration);
 }
 
 // ── URL 解析 ──
@@ -2108,11 +2865,11 @@ function renderScanTable(scans, compact = false) {
 }
 
 // ── SSL 证书上传区域显隐控制 ──
-const verifySslToggle = document.getElementById('verify_ssl_toggle');
+const commonVerifySsl = document.getElementById('common-verify-ssl');
 const certUploadArea = document.getElementById('cert-upload-area');
-if (verifySslToggle && certUploadArea) {
-  verifySslToggle.addEventListener('change', () => {
-    certUploadArea.style.display = verifySslToggle.checked ? 'block' : 'none';
+if (commonVerifySsl && certUploadArea) {
+  commonVerifySsl.addEventListener('change', () => {
+    certUploadArea.style.display = commonVerifySsl.checked ? 'block' : 'none';
   });
 }
 
@@ -2186,23 +2943,22 @@ document.getElementById('scan-form').addEventListener('submit', async (e) => {
   }
   formData.append('api_key', form.api_key.value.trim());
   formData.append('api_key_header', form.api_key_header.value);
-  formData.append('har_output', form.har_output.checked ? 'true' : 'false');
-  formData.append('dict_scan', form.dict_scan.checked ? 'true' : 'false');
-
-  formData.append('headed', form.headed.checked ? 'true' : 'false');
-  formData.append('no_spa', form.no_spa.checked ? 'true' : 'false');
-  formData.append('no_js_extract', form.no_js_extract.checked ? 'true' : 'false');
-  formData.append('no_traffic', form.no_traffic.checked ? 'true' : 'false');
-  formData.append('verify_ssl', form.verify_ssl.checked ? 'true' : 'false');
-  formData.append('timeout', form.timeout.value);
-  formData.append('rate_profile', form.rate_profile.value);
+  formData.append('har_output', document.getElementById('common-har-output').checked ? 'true' : 'false');
+  formData.append('dict_scan', document.getElementById('common-dict-scan').checked ? 'true' : 'false');
+  formData.append('headed', document.getElementById('common-headed').checked ? 'true' : 'false');
+  formData.append('no_spa', document.getElementById('common-no-spa').checked ? 'true' : 'false');
+  formData.append('no_js_extract', document.getElementById('common-no-js-extract').checked ? 'true' : 'false');
+  formData.append('no_traffic', document.getElementById('common-no-traffic').checked ? 'true' : 'false');
+  formData.append('verify_ssl', document.getElementById('common-verify-ssl').checked ? 'true' : 'false');
+  formData.append('timeout', document.getElementById('common-timeout').value);
+  formData.append('rate_profile', document.getElementById('common-rate-profile').value);
   if (form.concurrency) {
     formData.append('concurrency', form.concurrency.value);
   }
 
   // 附加证书文件（仅在开启 SSL 校验时上传）
   const certFile = form.ca_cert_file.files[0];
-  if (form.verify_ssl.checked && certFile) {
+  if (document.getElementById('common-verify-ssl').checked && certFile) {
     formData.append('ca_cert_file', certFile);
   }
 
@@ -3089,6 +3845,163 @@ function toggleAuthRef(btn) {
 // ── 基本扫描 ──
 let _basicPollInterval = null;
 let _basicScanData = null;
+let _basicScanResults = [];  // 存储完整结果，供 selectTargetForRecon 查询速率限制
+let _categoryAssignments = {};  // 手动从基本结果中分配给分类探测的端点
+let _categoryPolls = {};  // 分类探测轮询句柄
+
+const _categoryLabels = { auth: '🔐 认证探测', anti: '🛡️ 反爬探测', model: '🧩 模型探测', other: '📎 其它探测' };
+const _categoryShortLabels = { auth: '🔐 认证', anti: '🛡️ 反爬', model: '🧩 模型', other: '📎 其它' };
+const _categoryStartLabels = { auth: '🔐 开始认证探测', anti: '🛡️ 开始反爬探测', model: '🧩 开始模型探测', other: '📎 开始其它探测' };
+const _categoryPaths = {
+  auth: ['/login', '/auth', '/token', '/signin', '/signup', '/oauth', '/session', '/api/auth', '/api/login', '/api/token', '/v1/token', '/api/keys', '/api/accounts', '/v1/accounts'],
+  anti: ['/login', '/admin', '/config', '/.env', '/api/admin', '/debug', '/robots.txt', '/api/config', '/wp-admin', '/manage'],
+  model: ['/v1/models', '/api/models', '/models', '/api/tags', '/api/ps', '/v1/chat/completions', '/api/chat/completions', '/chat/completions', '/api/generate', '/v1/completions', '/api/completions', '/v1/messages', '/api/messages', '/v1/chat', '/api/chat'],
+  other: ['/health', '/docs', '/openapi.json', '/api/status', '/api/info', '/api/version', '/metrics', '/api/agent', '/api/rag', '/rag', '/api/swagger', '/swagger.json', '/api/doc', '/api/health']
+};
+
+function _epKey(targetUrl, ep) {
+  return `${targetUrl}|${ep.method || 'GET'}|${ep.path || ep.url || ''}`;
+}
+
+function _autoCategory(ep) {
+  const cat = ep.category || 'other';
+  if (cat === 'auth') return 'auth';
+  if (cat === 'models' || cat === 'chat') return 'model';
+  return 'other';
+}
+
+function _getAssignedCategory(targetUrl, ep) {
+  return _categoryAssignments[_epKey(targetUrl, ep)] || null;
+}
+
+function appendUrlToTextarea(textareaId, url) {
+  const el = document.getElementById(textareaId);
+  if (!el || !url) return false;
+  const existing = el.value.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  if (existing.includes(url)) return false;
+  el.value = (el.value.trim() ? el.value.trim() + '\n' : '') + url;
+  return true;
+}
+
+function removeUrlFromTextarea(textareaId, url) {
+  const el = document.getElementById(textareaId);
+  if (!el || !url) return false;
+  const lines = el.value.split('\n').map(s => s.trim());
+  const filtered = lines.filter(line => line !== url);
+  if (filtered.length === lines.length) return false;
+  el.value = filtered.join('\n');
+  return true;
+}
+
+function assignEndpoint(category, targetIdx, epIdx) {
+  const r = _basicScanResults[targetIdx];
+  if (!r) return;
+  const ep = r.endpoints[epIdx];
+  if (!ep) return;
+  const key = _epKey(r.url, ep);
+  const current = _categoryAssignments[key];
+  const fullUrl = ep.url || `${r.url.replace(/\/$/, '')}${ep.path || ''}`;
+
+  // 所有分类探测统一：将端点完整 URL 追加到对应目标 URL 文本框，再次点击则移除
+  if (current === category) {
+    delete _categoryAssignments[key];
+    removeUrlFromTextarea(`${category}-target-urls`, fullUrl);
+    toast(`已从${_categoryShortLabels[category]}探测目标移除：${fullUrl}`, 'info');
+  } else {
+    _categoryAssignments[key] = category;
+    appendUrlToTextarea(`${category}-target-urls`, fullUrl);
+    toast(`已加入${_categoryShortLabels[category]}探测目标：${fullUrl}`, 'success');
+  }
+  renderBasicScanResults(_basicScanData);
+}
+
+function prefillCategoryTargetUrls() {
+  const basicUrls = document.getElementById('basic-target-urls').value.trim();
+  if (!basicUrls) return;
+  ['auth', 'anti', 'model', 'other'].forEach(cat => {
+    const el = document.getElementById(`${cat}-target-urls`);
+    if (el && !el.value.trim()) el.value = basicUrls;
+  });
+}
+
+function renderManualLists() {
+  // 所有分类端点已直接写入对应目标 URL 文本框，不再渲染单独列表
+}
+
+function switchWizardTab(tabName) {
+  document.querySelectorAll('.wizard-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.wizard-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.id === 'wizard-panel-' + tabName);
+    panel.style.display = panel.id === 'wizard-panel-' + tabName ? 'block' : 'none';
+  });
+  moveCommonParamsToPanel(tabName);
+}
+
+function moveCommonParamsToPanel(tabName) {
+  const panel = document.getElementById('wizard-panel-' + tabName);
+  const commonParams = document.getElementById('wizard-common-params');
+  const commonAdvanced = document.getElementById('wizard-common-advanced');
+  if (!panel || !commonParams || !commonAdvanced) return;
+
+  // 找到当前 panel 的目标 URL 输入框，将公共参数插入到其所在 form-grid 之后，
+  // 确保所有参数都在目标 URL 下方。
+  const targetTextarea = panel.querySelector('textarea[id$="-target-urls"]');
+  const formGrid = targetTextarea ? targetTextarea.closest('.form-grid') : null;
+  if (formGrid) {
+    formGrid.after(commonParams);
+    commonParams.after(commonAdvanced);
+  } else {
+    panel.appendChild(commonParams);
+    panel.appendChild(commonAdvanced);
+  }
+  commonParams.style.display = 'block';
+  commonAdvanced.style.display = 'block';
+}
+
+function _renderCategoryResultCard(r, matchedEndpoints, label, authUsed = false) {
+  if (matchedEndpoints.length === 0) return '';
+  const rootStat = r.root_status || '—';
+  const statusColor = rootStat >= 200 && rootStat < 300 ? '#27ae60' : rootStat >= 400 ? '#d63031' : '#d97706';
+  const categoryLabels = { chat: '💬 Chat', auth: '🔐 认证', models: '🧩 模型', health: '💚 健康', api: '📡 API', other: '📎 其他', unknown: '❓ 未知' };
+
+  const authBadge = authUsed ? '<span class="auth-badge">🔐 已携带认证</span>' : '';
+
+  const epRows = matchedEndpoints.map(ep => {
+    const epStat = ep.status || 0;
+    const statClass = epStat >= 200 && epStat < 300 ? 'ok' : (epStat === 401 || epStat === 403 || epStat === 429) ? 'auth' : epStat >= 400 ? 'error' : 'unknown';
+    const catLabel = categoryLabels[ep.category] || `📎 ${ep.category || 'other'}`;
+    const authEffective = authUsed && epStat >= 200 && epStat < 300 ? '<span class="auth-badge">🔓 认证有效</span>' : '';
+    return `
+      <div class="basic-endpoint-item">
+        <span class="basic-endpoint-status ${statClass}">${epStat || '—'}</span>
+        <span class="basic-endpoint-path">${ep.method || 'GET'} ${escapeHtml(ep.path || ep.url || '—')}</span>
+        <span class="badge" style="background:var(--bg3);color:var(--text2);">${catLabel}</span>
+        ${authEffective}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="basic-target-card">
+      <div class="basic-target-header">
+        <div>
+          <div class="basic-target-title">${escapeHtml(r.url)} ${authBadge}</div>
+          <div class="basic-target-meta">
+            根状态: <span style="color:${statusColor};font-weight:700;">${rootStat}</span>
+            ${r.title ? ` · 标题: ${escapeHtml(r.title)}` : ''}
+            ${r.server ? ` · Server: ${escapeHtml(r.server)}` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="basic-endpoints-header">
+        <span>🔗 ${label} (${matchedEndpoints.length} 个)</span>
+      </div>
+      <div class="basic-endpoints-list">${epRows}</div>
+    </div>`;
+}
+
+
 
 async function startBasicScan() {
   const raw = document.getElementById('basic-target-urls').value.trim();
@@ -3109,16 +4022,17 @@ async function startBasicScan() {
   try {
     const data = await apiPost(API.basicScan, {
       target_urls: urls.join('\n'),
-      verify_ssl: document.getElementById('basic-verify-ssl').checked,
-      timeout: 10,
+      verify_ssl: document.getElementById('common-verify-ssl').checked,
+      timeout: parseInt(document.getElementById('common-timeout').value, 10) || 20,
       concurrency: 3,
+      rate_profile: document.getElementById('common-rate-profile').value || 'balanced',
     });
     pollBasicScan(data.basic_id);
   } catch (e) {
-    toast(`快速探测启动失败: ${e.message}`, 'error');
+    toast(`基本探测启动失败: ${e.message}`, 'error');
     document.getElementById('basic-scan-progress').style.display = 'none';
     btn.disabled = false;
-    btn.innerHTML = '🔍 开始快速探测';
+    btn.innerHTML = '🔍 开始基本探测';
   }
 }
 
@@ -3145,8 +4059,25 @@ async function pollBasicScan(basicId) {
         document.getElementById('basic-scan-results').style.display = 'block';
         renderBasicScanResults(data);
         btn.disabled = false;
-        btn.innerHTML = '🔍 开始快速探测';
-        toast('快速探测完成！');
+        btn.innerHTML = '🔍 开始基本探测';
+
+        // 基本探测完成后，自动将第一个目标 URL 填入认证探测 & 手动登录
+        const results = data.results || [];
+        if (results.length > 0 && results[0].target_url) {
+          const firstUrl = results[0].target_url;
+          prefillManualLoginUrl(firstUrl);
+          // 同时填入认证探测的目标 URL
+          const authTarget = document.getElementById('auth-target-urls');
+          if (authTarget && !authTarget.value.trim()) {
+            authTarget.value = firstUrl;
+          }
+        }
+        toast('基本探测完成！', 'success');
+        // 提示用户如果需要认证可以手动登录
+        const hasAuthRequired = results.some(r => r.auth_required);
+        if (hasAuthRequired) {
+          setTimeout(() => toast('探测到需要认证的端点 → 展开认证探测面板，使用「手动登录提取 Token」', 'info', 6000), 2000);
+        }
         return;
       }
 
@@ -3156,8 +4087,8 @@ async function pollBasicScan(basicId) {
         document.getElementById('basic-scan-progress').style.display = 'none';
         progressEl.textContent = `探测失败: ${data.error || '未知错误'}`;
         btn.disabled = false;
-        btn.innerHTML = '🔍 开始快速探测';
-        toast('快速探测失败', 'error');
+        btn.innerHTML = '🔍 开始基本探测';
+        toast('基本探测失败', 'error');
         return;
       }
 
@@ -3168,7 +4099,7 @@ async function pollBasicScan(basicId) {
       _basicPollInterval = null;
       document.getElementById('basic-scan-progress').style.display = 'none';
       document.getElementById('btn-basic-scan').disabled = false;
-      document.getElementById('btn-basic-scan').innerHTML = '🔍 开始快速探测';
+      document.getElementById('btn-basic-scan').innerHTML = '🔍 开始基本探测';
       toast('探测状态查询失败', 'error');
     }
   }, 1000);
@@ -3177,6 +4108,7 @@ async function pollBasicScan(basicId) {
 function renderBasicScanResults(data) {
   const results = data.results || [];
   const container = document.getElementById('basic-results-body');
+  _basicScanResults = results;  // 存储完整结果，供 selectTargetForRecon 查询
 
   if (results.length === 0) {
     container.innerHTML = '<div class="basic-empty">⚠ 未返回任何结果</div>';
@@ -3184,34 +4116,64 @@ function renderBasicScanResults(data) {
   }
 
   let html = '';
-  const categoryLabels = { chat: '💬 Chat', auth: '🔐 认证', models: '🧩 模型', health: '💚 健康', api: '📡 API', other: '📎 其他', unknown: '❓ 未知' };
 
-  for (const r of results) {
+  results.forEach((r, idx) => {
     const rootStat = r.root_status || '—';
     const statusColor = rootStat >= 200 && rootStat < 300 ? '#27ae60' : rootStat >= 400 ? '#d63031' : '#d97706';
     const wafBadge = r.waf ? `<span class="badge badge-waf">🛡 WAF: ${escapeHtml(r.waf)}</span>` : '';
     const authBadge = r.auth_required ? `<span class="badge badge-auth">🔐 需要认证</span>` : `<span class="badge badge-safe">✅ 无需认证</span>`;
     const defenseBadge = r.anti_defense ? `<span class="badge badge-waf">⚠ 反爬/高级防御</span>` : '';
 
+    // 速率限制信息
+    let rateLimitBadge = '';
+    let rateLimitDetail = '';
+    const rl = r.rate_limit || {};
+    if (rl.detected) {
+      const adviceLabels = { P0: 'P0·严格限速', P1: 'P1·适度限制', P2: 'P2·宽松限制' };
+      const advLabel = adviceLabels[(rl.advice || '').replace(/\(.*\)/, '').trim()] || `⚠ 已检测到限速`;
+      rateLimitBadge = `<span class="badge badge-limited">⏱ ${advLabel}</span>`;
+
+      let detailParts = [];
+      if (rl.limit_formatted) detailParts.push(`<strong>配额：</strong>${escapeHtml(rl.limit_formatted)}`);
+      if (rl.remaining !== null && rl.remaining !== undefined) detailParts.push(`<strong>剩余：</strong>${rl.remaining} 次`);
+      if (rl.reset_seconds !== null && rl.reset_seconds > 0) {
+        const mins = Math.floor(rl.reset_seconds / 60);
+        const secs = rl.reset_seconds % 60;
+        detailParts.push(`<strong>重置：</strong>${mins > 0 ? mins + '分' : ''}${secs}秒`);
+      }
+      if (rl.retry_after_seconds !== null) detailParts.push(`<strong>Retry-After：</strong>${rl.retry_after_seconds}s`);
+      if (rl.endpoints_hit_429 > 0) detailParts.push(`<strong>429 端点：</strong>${rl.endpoints_hit_429} 个`);
+      if (rl.advice) detailParts.push(`<strong>建议攻速：</strong>${escapeHtml(rl.advice)}`);
+
+      if (detailParts.length > 0) {
+        rateLimitDetail = `<div style="margin-top:6px;padding:8px 12px;background:#fff8e6;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;line-height:1.8;">${detailParts.join(' · ')}</div>`;
+      }
+    }
+
     const endpoints = r.endpoints || [];
     let epRows = '';
     if (endpoints.length === 0) {
       epRows = '<div class="basic-empty" style="padding:16px;">未探测到有效端点。</div>';
     } else {
-      epRows = endpoints.map(ep => {
+      epRows = endpoints.map((ep, epIdx) => {
         const epStat = ep.status || 0;
         const statClass = epStat >= 200 && epStat < 300 ? 'ok' : (epStat === 401 || epStat === 403 || epStat === 429) ? 'auth' : epStat >= 400 ? 'error' : 'unknown';
-        const catLabel = categoryLabels[ep.category] || `📎 ${ep.category || 'other'}`;
+        const assigned = _getAssignedCategory(r.url, ep);
+        const displayCat = assigned || _autoCategory(ep);
+        const catBadges = ['auth', 'model', 'anti', 'other'].map(cat => {
+          const active = displayCat === cat ? ' active' : '';
+          return `<span class="category-badge ${cat}${active}" onclick="assignEndpoint('${cat}', ${idx}, ${epIdx}); event.stopPropagation();">${_categoryShortLabels[cat]}</span>`;
+        }).join('');
         return `
           <div class="basic-endpoint-item">
             <span class="basic-endpoint-status ${statClass}">${epStat || '—'}</span>
             <span class="basic-endpoint-path">${ep.method || 'GET'} ${escapeHtml(ep.path || ep.url || '—')}</span>
-            <span class="badge" style="background:var(--bg3);color:var(--text2);">${catLabel}</span>
+            <div class="category-badges">${catBadges}</div>
           </div>`;
       }).join('');
     }
 
-    const badgeRow = [authBadge, wafBadge, defenseBadge].filter(Boolean).join(' ');
+    const badgeRow = [authBadge, wafBadge, defenseBadge, rateLimitBadge].filter(Boolean).join(' ');
 
     html += `
       <div class="basic-target-card">
@@ -3226,7 +4188,8 @@ function renderBasicScanResults(data) {
           </div>
           <div class="basic-target-actions">
             <div class="basic-target-badges">${badgeRow}</div>
-            <button class="btn btn-primary btn-sm" onclick="selectTargetForRecon(decodeURIComponent('${encodeURIComponent(r.url)}'), ${r.auth_required}, ${r.anti_defense})">
+            ${rateLimitDetail}
+            <button class="btn btn-primary btn-sm" onclick="selectTargetForRecon(${idx})">
               🎯 选择此目标
             </button>
           </div>
@@ -3237,13 +4200,1033 @@ function renderBasicScanResults(data) {
         </div>
         <div class="basic-endpoints-list">${epRows}</div>
       </div>`;
-  }
+  });
 
   container.innerHTML = html || '<div class="basic-empty">⚠ 未返回任何结果</div>';
   document.getElementById('basic-scan-results').style.display = 'block';
+  prefillCategoryTargetUrls();
 }
 
-function selectTargetForRecon(url, authRequired, antiDefense) {
+function toggleAuthMethod(method) {
+  const checkbox = document.getElementById(`auth-use-${method}`);
+  const fields = document.getElementById(`auth-fields-${method}`);
+  const tab = document.getElementById(`auth-tab-${method}`);
+  if (!checkbox || !fields || !tab) return;
+  const checked = checkbox.checked;
+  fields.style.display = checked ? 'block' : 'none';
+  tab.classList.toggle('active', checked);
+}
+
+function addAuthHeaderRow(key, value) {
+  const container = document.getElementById('auth-custom-headers-list');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'auth-header-row form-grid';
+  row.innerHTML = `
+    <div class="form-group">
+      <input type="text" class="auth-header-key" placeholder="Header 名称" value="${escapeHtml(key || '')}">
+    </div>
+    <div class="form-group" style="display:flex;gap:8px;">
+      <input type="text" class="auth-header-value" placeholder="Header 值" value="${escapeHtml(value || '')}" style="flex:1;">
+      <button type="button" class="btn btn-sm" onclick="this.closest('.auth-header-row').remove()" title="移除">×</button>
+    </div>
+  `;
+  container.appendChild(row);
+}
+
+// ── 手动登录 Token 提取 ──
+let _manualLoginPollInterval = null;
+let _manualLoginJobId = null;
+
+function toggleManualLoginCard() {
+  const header = document.querySelector('.manual-login-card-header');
+  const body = document.getElementById('manual-login-card-body');
+  header.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+// ── 快速导入浏览器请求头 ──
+
+function toggleQuickImportCard() {
+  const header = document.querySelector('.quick-import-card-header');
+  const body = document.getElementById('quick-import-card-body');
+  header.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+/**
+ * 解析原始 HTTP 请求头字符串，提取 Cookie / Authorization / API Key 等
+ * 输入：浏览器 Network 面板 Copy Request Headers 的内容
+ * 格式：每行 "Header-Name: value"
+ */
+function quickImportHeaders() {
+  const raw = document.getElementById('quick-import-textarea').value.trim();
+  if (!raw) { toast('请先粘贴请求头', 'error'); return; }
+
+  const headers = parseRawHeaders(raw);
+  const resultEl = document.getElementById('quick-import-result');
+  const fields = [];
+
+  // 1) Cookie
+  if (headers['cookie']) {
+    const cb = document.getElementById('auth-use-cookie');
+    const f = document.getElementById('auth-fields-cookie');
+    const inp = document.getElementById('auth-cookie-value');
+    const tab = document.getElementById('auth-tab-cookie');
+    if (cb && inp) { cb.checked = true; inp.value = headers['cookie']; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+    fields.push('🍪 Cookie: <code>' + escapeHtml(headers['cookie'].substring(0, 60)) + '...</code>');
+  }
+
+  // 2) Authorization (Bearer / Basic / JWT)
+  if (headers['authorization']) {
+    const authVal = headers['authorization'];
+    if (authVal.toLowerCase().startsWith('bearer ')) {
+      const token = authVal.substring(7);
+      const cb = document.getElementById('auth-use-bearer');
+      const f = document.getElementById('auth-fields-bearer');
+      const inp = document.getElementById('auth-bearer-token');
+      const tab = document.getElementById('auth-tab-bearer');
+      if (cb && inp) { cb.checked = true; inp.value = token; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+      fields.push('🔑 Bearer Token: <code>' + escapeHtml(token.substring(0, 60)) + '...</code>');
+    } else if (authVal.toLowerCase().startsWith('basic ')) {
+      // Basic Auth
+      const cred = authVal.substring(6);
+      try {
+        const decoded = atob(cred);
+        const [u, p] = decoded.split(':');
+        const cb = document.getElementById('auth-use-basic');
+        const f = document.getElementById('auth-fields-basic');
+        const inpU = document.getElementById('auth-basic-username');
+        const inpP = document.getElementById('auth-basic-password');
+        const tab = document.getElementById('auth-tab-basic');
+        if (cb && inpU) { cb.checked = true; inpU.value = u || ''; inpP.value = p || ''; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+        fields.push('👤 Basic Auth: <code>' + escapeHtml(u || '?') + '</code>');
+      } catch(e) {}
+    } else {
+      // 其他 Authorization 当做 API Key
+      const cb = document.getElementById('auth-use-apikey');
+      const f = document.getElementById('auth-fields-apikey');
+      const inpName = document.getElementById('auth-apikey-name');
+      const inpVal = document.getElementById('auth-apikey-value');
+      const tab = document.getElementById('auth-tab-apikey');
+      if (cb && inpVal) { cb.checked = true; inpName.value = 'Authorization'; inpVal.value = authVal; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+      fields.push('🔐 Authorization: <code>' + escapeHtml(authVal.substring(0, 40)) + '...</code>');
+    }
+  }
+
+  // 3) API Key（常见：X-API-Key, api-key, x-api-key, x-api-token）
+  const apiKeyCandidates = ['x-api-key', 'api-key', 'x-api-token', 'api_token', 'x-key'];
+  for (const key of apiKeyCandidates) {
+    if (headers[key]) {
+      const cb = document.getElementById('auth-use-apikey');
+      const f = document.getElementById('auth-fields-apikey');
+      const inpName = document.getElementById('auth-apikey-name');
+      const inpVal = document.getElementById('auth-apikey-value');
+      const tab = document.getElementById('auth-tab-apikey');
+      if (cb && inpVal && !inpVal.value) {
+        cb.checked = true;
+        inpName.value = key;
+        inpVal.value = headers[key];
+        if (f) f.style.display = 'block';
+        if (tab) tab.classList.add('active');
+        fields.push('🔐 ' + key + ': <code>' + escapeHtml(headers[key].substring(0, 40)) + '...</code>');
+        break;
+      }
+    }
+  }
+
+  // 4) 其他有价值头：X-CSRF-Token, X-Requested-With, Referer 等
+  const otherValuable = ['x-csrf-token', 'x-xsrf-token', 'x-requested-with', 'referer', 'origin'];
+  for (const key of otherValuable) {
+    if (headers[key]) {
+      // 添加到自定义 Headers
+      addAuthHeaderRow();
+      const rows = document.querySelectorAll('.auth-header-row');
+      const lastRow = rows[rows.length - 1];
+      if (lastRow) {
+        const keyInp = lastRow.querySelector('.auth-header-key');
+        const valInp = lastRow.querySelector('.auth-header-value');
+        if (keyInp) keyInp.value = key;
+        if (valInp) valInp.value = headers[key];
+      }
+      const cb = document.getElementById('auth-use-headers');
+      const f = document.getElementById('auth-fields-headers');
+      const tab = document.getElementById('auth-tab-headers');
+      if (cb) { cb.checked = true; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+      fields.push('📎 ' + key + ': <code>' + escapeHtml(headers[key].substring(0, 40)) + '</code>');
+    }
+  }
+
+  // 5) Host → 自动填入目标 URL
+  if (headers['host'] || headers[':authority']) {
+    let host = (headers['host'] || headers[':authority']).trim();
+    if (!host.startsWith('http')) host = 'https://' + host;
+    const targetInput = document.getElementById('auth-target-urls');
+    if (targetInput && !targetInput.value.trim()) {
+      targetInput.value = host;
+      fields.push('🌐 目标: <code>' + escapeHtml(host) + '</code>');
+    }
+  }
+
+  if (fields.length === 0) {
+    resultEl.className = 'quick-import-parse-result show';
+    resultEl.innerHTML = '<span style="color:#92400e;">⚠ 未识别到 Cookie / Bearer / API Key，请检查粘贴内容格式（每行应为 Header-Name: value）</span>';
+    return;
+  }
+
+  resultEl.className = 'quick-import-parse-result show';
+  resultEl.innerHTML = '<strong>✅ 已解析并回填以下认证字段：</strong><br>' + fields.join('<br>');
+  toast('已解析 ' + fields.length + ' 个认证字段并回填！当前可直接开始认证探测 🚀', 'success', 4000);
+}
+
+/**
+ * 快速仅导入 Cookie
+ */
+function quickImportCookieOnly() {
+  const raw = document.getElementById('quick-import-textarea').value.trim();
+  if (!raw) { toast('请先粘贴请求头', 'error'); return; }
+  const headers = parseRawHeaders(raw);
+  const cookie = headers['cookie'] || raw; // fallback: 如果输入不是标准头格式，直接当 Cookie
+  if (cookie) {
+    const cb = document.getElementById('auth-use-cookie');
+    const f = document.getElementById('auth-fields-cookie');
+    const inp = document.getElementById('auth-cookie-value');
+    const tab = document.getElementById('auth-tab-cookie');
+    if (cb && inp) { cb.checked = true; inp.value = cookie; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+    toast('Cookie 已回填！', 'success');
+  } else {
+    toast('未找到 Cookie 字段', 'error');
+  }
+}
+
+/**
+ * 快速仅导入 Bearer Token
+ */
+function quickImportBearerOnly() {
+  const raw = document.getElementById('quick-import-textarea').value.trim();
+  if (!raw) { toast('请先粘贴请求头', 'error'); return; }
+  const headers = parseRawHeaders(raw);
+  const auth = headers['authorization'] || raw;
+  let token = '';
+  if (auth.toLowerCase().startsWith('bearer ')) {
+    token = auth.substring(7);
+  } else if (auth.toLowerCase().startsWith('authorization: bearer ')) {
+    token = auth.substring(22);
+  } else {
+    token = auth; // fallback: 直接当 token
+  }
+  if (token) {
+    const cb = document.getElementById('auth-use-bearer');
+    const f = document.getElementById('auth-fields-bearer');
+    const inp = document.getElementById('auth-bearer-token');
+    const tab = document.getElementById('auth-tab-bearer');
+    if (cb && inp) { cb.checked = true; inp.value = token; if (f) f.style.display = 'block'; if (tab) tab.classList.add('active'); }
+    toast('Bearer Token 已回填！', 'success');
+  } else {
+    toast('未找到 Bearer Token', 'error');
+  }
+}
+
+/**
+ * 解析原始 HTTP 请求头字符串为键值对
+ */
+/**
+ * 粘贴后自动检测并勾选对应认证方式（仅当对应字段为空时才回填，避免覆盖用户手动输入）
+ */
+function autoDetectQuickImport(raw) {
+  if (!raw || raw.length < 8) return;
+  const headers = parseRawHeaders(raw);
+
+  // 1) Cookie
+  const cookieVal = headers['cookie'];
+  if (cookieVal) {
+    const cb = document.getElementById('auth-use-cookie');
+    const inp = document.getElementById('auth-cookie-value');
+    const f = document.getElementById('auth-fields-cookie');
+    const tab = document.getElementById('auth-tab-cookie');
+    if (cb && !cb.checked && inp && !inp.value) {
+      cb.checked = true;
+      inp.value = cookieVal;
+      if (f) f.style.display = 'block';
+      if (tab) tab.classList.add('active');
+    }
+  }
+
+  // 2) Authorization (Bearer / JWT / Basic / API Key)
+  const authVal = headers['authorization'];
+  if (authVal) {
+    if (authVal.toLowerCase().startsWith('bearer ')) {
+      const token = authVal.substring(7);
+      const cb = document.getElementById('auth-use-bearer');
+      const inp = document.getElementById('auth-bearer-token');
+      const f = document.getElementById('auth-fields-bearer');
+      const tab = document.getElementById('auth-tab-bearer');
+      if (cb && !cb.checked && inp && !inp.value) {
+        cb.checked = true;
+        inp.value = token;
+        if (f) f.style.display = 'block';
+        if (tab) tab.classList.add('active');
+      }
+    } else if (authVal.toLowerCase().startsWith('basic ')) {
+      try {
+        const decoded = atob(authVal.substring(6));
+        const [u, p] = decoded.split(':');
+        const cb = document.getElementById('auth-use-basic');
+        const inpU = document.getElementById('auth-basic-username');
+        const inpP = document.getElementById('auth-basic-password');
+        const f = document.getElementById('auth-fields-basic');
+        const tab = document.getElementById('auth-tab-basic');
+        if (cb && !cb.checked && inpU && !inpU.value) {
+          cb.checked = true;
+          inpU.value = u || '';
+          inpP.value = p || '';
+          if (f) f.style.display = 'block';
+          if (tab) tab.classList.add('active');
+        }
+      } catch (e) {}
+    } else {
+      // 其它 Authorization 作为 API Key 处理
+      const cb = document.getElementById('auth-use-apikey');
+      const inpName = document.getElementById('auth-apikey-name');
+      const inpVal = document.getElementById('auth-apikey-value');
+      const f = document.getElementById('auth-fields-apikey');
+      const tab = document.getElementById('auth-tab-apikey');
+      if (cb && !cb.checked && inpVal && !inpVal.value) {
+        cb.checked = true;
+        inpName.value = 'Authorization';
+        inpVal.value = authVal;
+        if (f) f.style.display = 'block';
+        if (tab) tab.classList.add('active');
+      }
+    }
+  }
+
+  // 3) API Key（常见头名称）
+  const apiKeyCandidates = ['x-api-key', 'api-key', 'x-api-token', 'api_token', 'x-key'];
+  for (const key of apiKeyCandidates) {
+    if (headers[key]) {
+      const cb = document.getElementById('auth-use-apikey');
+      const inpName = document.getElementById('auth-apikey-name');
+      const inpVal = document.getElementById('auth-apikey-value');
+      const f = document.getElementById('auth-fields-apikey');
+      const tab = document.getElementById('auth-tab-apikey');
+      if (cb && !cb.checked && inpVal && !inpVal.value) {
+        cb.checked = true;
+        inpName.value = key;
+        inpVal.value = headers[key];
+        if (f) f.style.display = 'block';
+        if (tab) tab.classList.add('active');
+      }
+      break;
+    }
+  }
+
+  // 4) 其它有价值头：X-CSRF-Token, X-Requested-With, Referer, Origin 等
+  const otherValuable = ['x-csrf-token', 'x-xsrf-token', 'x-requested-with', 'referer', 'origin'];
+  let hasCustomHeader = false;
+  for (const key of otherValuable) {
+    if (headers[key]) {
+      if (!hasCustomHeader) {
+        const cb = document.getElementById('auth-use-headers');
+        const f = document.getElementById('auth-fields-headers');
+        const tab = document.getElementById('auth-tab-headers');
+        if (cb && !cb.checked) {
+          cb.checked = true;
+          if (f) f.style.display = 'block';
+          if (tab) tab.classList.add('active');
+        }
+        hasCustomHeader = true;
+      }
+      // 检查是否已存在该 key，避免重复添加
+      const existingKeys = document.querySelectorAll('.auth-header-key');
+      let exists = false;
+      for (const ek of existingKeys) {
+        if (ek.value.toLowerCase() === key) { exists = true; break; }
+      }
+      if (!exists) {
+        addAuthHeaderRow(key, headers[key]);
+      }
+    }
+  }
+}
+
+function parseRawHeaders(raw) {
+  const headers = {};
+  const lines = raw.split('\n');
+  // 检测格式：标准 HTTP 头 "Name: value" 或浏览器 DevTools 捕获格式
+  let isChromeFormat = false;
+  
+  // 检测是否为 Chrome DevTools 格式（第一行可能是 GET/POST 请求行）
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // 请求行：GET /path HTTP/1.1
+    if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s/.test(trimmed)) {
+      isChromeFormat = true;
+      continue;
+    }
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx > 0) {
+      const key = trimmed.substring(0, colonIdx).trim().toLowerCase();
+      const value = trimmed.substring(colonIdx + 1).trim();
+      if (key && value) {
+        // 多个同名头拼接（如 Set-Cookie）
+        if (headers[key]) {
+          headers[key] += '; ' + value;
+        } else {
+          headers[key] = value;
+        }
+      }
+    }
+  }
+
+  // 如果没解析到任何标准头，尝试把整个输入当做单行特殊处理
+  if (Object.keys(headers).length === 0 && raw.length > 0) {
+    // 可能是简化格式：直接拖放了一段文本
+    const singleLine = raw.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+    if (singleLine.length < 2000) {
+      headers['cookie'] = singleLine;
+    }
+  }
+
+  return headers;
+}
+
+async function startManualLogin() {
+  const loginUrl = document.getElementById('manual-login-url').value.trim();
+  const username = document.getElementById('manual-login-username').value.trim();
+  const password = document.getElementById('manual-login-password').value;
+  const chromePath = document.getElementById('manual-login-chrome-path').value.trim();
+  const keepOpen = parseInt(document.getElementById('manual-login-keep-open').value, 10) || 0;
+  const autoDevtools = document.getElementById('manual-login-auto-devtools').value === 'true';
+  const noAutoSubmit = document.getElementById('manual-login-no-auto-submit').checked;
+
+  if (!loginUrl) { toast('请填写登录页面 URL', 'error'); return; }
+
+  const btn = document.getElementById('btn-manual-login');
+  const cancelBtn = document.getElementById('btn-manual-cancel');
+  const statusEl = document.getElementById('manual-login-status');
+  const statusText = document.getElementById('manual-login-status-text');
+  const resultEl = document.getElementById('manual-login-result');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 启动中...';
+  cancelBtn.style.display = 'inline-flex';
+  resultEl.style.display = 'none';
+  statusEl.className = 'manual-login-status running';
+  statusText.innerHTML = '<span class="spinner"></span> 正在启动浏览器...';
+
+  try {
+    const data = await apiPost('/api/auth/manual_login', {
+      login_url: loginUrl,
+      username: username,
+      password: password,
+      chrome_path: chromePath,
+      keep_open_seconds: keepOpen,
+      auto_devtools: autoDevtools,
+      auto_submit: !noAutoSubmit,
+    });
+    _manualLoginJobId = data.job_id;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> 等待登录...';
+    pollManualLogin();
+  } catch (e) {
+    statusEl.className = 'manual-login-status failed';
+    statusText.textContent = '启动失败: ' + e.message;
+    btn.disabled = false;
+    btn.innerHTML = '🖐️ 启动手动登录';
+    cancelBtn.style.display = 'none';
+  }
+}
+
+async function pollManualLogin() {
+  if (!_manualLoginJobId) return;
+  if (_manualLoginPollInterval) clearInterval(_manualLoginPollInterval);
+
+  _manualLoginPollInterval = setInterval(async () => {
+    try {
+      const data = await apiGet(`/api/auth/manual_login/${_manualLoginJobId}`);
+      const statusEl = document.getElementById('manual-login-status');
+      const statusText = document.getElementById('manual-login-status-text');
+      const btn = document.getElementById('btn-manual-login');
+      const cancelBtn = document.getElementById('btn-manual-cancel');
+      const resultEl = document.getElementById('manual-login-result');
+
+      // 更新状态文字
+      if (data.status === 'running' || data.status === 'waiting' || data.status === 'navigating' || data.status === 'filling' || data.status === 'starting') {
+        statusEl.className = 'manual-login-status running';
+        statusText.innerHTML = '<span class="spinner"></span> ' + (data.message || '等待中...');
+      } else if (data.status === 'success') {
+        clearInterval(_manualLoginPollInterval);
+        _manualLoginPollInterval = null;
+        statusEl.className = 'manual-login-status success';
+        statusText.innerHTML = '✅ ' + (data.message || '登录成功');
+        btn.disabled = false;
+        btn.innerHTML = '🖐️ 启动手动登录';
+        cancelBtn.style.display = 'none';
+
+        // 解析结果
+        const r = data.result || {};
+        const token = r.access_token || r.jwt || r.bearer || '';
+        const cookie = r.cookie_string || '';
+        const idToken = r.id_token || '';
+        const authHeader = r.authorization || '';
+        const apiKey = r.api_key || '';
+        const customHeaders = r.custom_headers || {};
+
+        // 显示结果摘要
+        const tokenPreview = token ? (token.substring(0, 60) + '...') : '无';
+        const detectReason = r.detected_reason || '';
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = [
+          '<div style="font-weight:600;color:#166534;margin-bottom:6px;">📋 提取结果 (已自动回填上方认证字段)</div>',
+          detectReason ? '<div style="font-size:11px;color:var(--text2);margin-bottom:6px;">🎯 触发方式: ' + escapeHtml(detectReason) + '</div>' : '',
+          token ? '<div>🔑 access_token / JWT: <code>' + escapeHtml(tokenPreview) + '</code></div>' : '',
+          idToken ? '<div>🆔 id_token: <code>' + escapeHtml(idToken.substring(0, 60) + '...') + '</code></div>' : '',
+          authHeader ? '<div>🛡️ Authorization: <code>' + escapeHtml(authHeader.substring(0, 60) + '...') + '</code></div>' : '',
+          apiKey ? '<div>🔐 API Key: <code>' + escapeHtml(apiKey.substring(0, 60) + '...') + '</code></div>' : '',
+          '<div>🍪 Cookies (' + (r.cookies ? Object.keys(r.cookies).length : 0) + ' 个)</div>',
+          (r.network_log_count ? '<div>📡 监听网络请求数: ' + r.network_log_count + '</div>' : ''),
+        ].filter(Boolean).join('');
+
+        // 自动回填 Bearer Token
+        if (token) {
+          const bearerCheckbox = document.getElementById('auth-use-bearer');
+          const bearerTab = document.getElementById('auth-tab-bearer');
+          const bearerFields = document.getElementById('auth-fields-bearer');
+          const bearerInput = document.getElementById('auth-bearer-token');
+          if (bearerCheckbox && bearerInput) {
+            bearerCheckbox.checked = true;
+            bearerInput.value = token;
+            if (bearerFields) bearerFields.style.display = 'block';
+            if (bearerTab) bearerTab.classList.add('active');
+          }
+        }
+
+        // 自动回填 Cookie
+        if (cookie) {
+          const cookieCheckbox = document.getElementById('auth-use-cookie');
+          const cookieTab = document.getElementById('auth-tab-cookie');
+          const cookieFields = document.getElementById('auth-fields-cookie');
+          const cookieInput = document.getElementById('auth-cookie-value');
+          if (cookieCheckbox && cookieInput) {
+            cookieCheckbox.checked = true;
+            cookieInput.value = cookie;
+            if (cookieFields) cookieFields.style.display = 'block';
+            if (cookieTab) cookieTab.classList.add('active');
+          }
+        }
+
+        // 自动回填 API Key
+        if (apiKey) {
+          const apikeyCheckbox = document.getElementById('auth-use-apikey');
+          const apikeyTab = document.getElementById('auth-tab-apikey');
+          const apikeyFields = document.getElementById('auth-fields-apikey');
+          const apikeyNameInput = document.getElementById('auth-apikey-name');
+          const apikeyValueInput = document.getElementById('auth-apikey-value');
+          if (apikeyCheckbox && apikeyValueInput) {
+            apikeyCheckbox.checked = true;
+            apikeyValueInput.value = apiKey;
+            if (apikeyNameInput) apikeyNameInput.value = 'Authorization';
+            if (apikeyFields) apikeyFields.style.display = 'block';
+            if (apikeyTab) apikeyTab.classList.add('active');
+          }
+        }
+
+        // 自动回填自定义 Headers (Authorization, X-API-Key, referer, origin 等)
+        const headerMap = { ...customHeaders };
+        if (authHeader) headerMap['Authorization'] = authHeader;
+        if (Object.keys(headerMap).length) {
+          const headersCheckbox = document.getElementById('auth-use-headers');
+          const headersTab = document.getElementById('auth-tab-headers');
+          const headersFields = document.getElementById('auth-fields-headers');
+          if (headersCheckbox) headersCheckbox.checked = true;
+          if (headersFields) headersFields.style.display = 'block';
+          if (headersTab) headersTab.classList.add('active');
+          for (const [k, v] of Object.entries(headerMap)) {
+            addAuthHeaderRow(k, v);
+          }
+        }
+
+        toast('认证凭据已自动回填！', 'success');
+
+        // ── 自动保存凭据到后端，供跨会话复用 ──
+        const autoLabel = '手动登录-' + new Date().toISOString().slice(0,19).replace('T',' ');
+        saveCapturedCredentials({
+          access_token: token,
+          id_token: idToken,
+          authorization: authHeader,
+          api_key: apiKey,
+          cookie: cookie,
+          cookies: r.cookies,
+          custom_headers: headerMap,
+          login_url_after: r.login_url_after
+        }, autoLabel);
+
+        // ── 添加「一键启动认证探测」按钮 ──
+        const actions = document.getElementById('manual-login-result');
+        if (actions) {
+          const existingBtn = document.getElementById('btn-auto-auth-scan');
+          if (!existingBtn) {
+            const autoBtn = document.createElement('button');
+            autoBtn.type = 'button';
+            autoBtn.id = 'btn-auto-auth-scan';
+            autoBtn.className = 'btn btn-primary';
+            autoBtn.style = 'margin-top:10px;font-size:13px;';
+            autoBtn.textContent = '🚀 使用提取的凭据一键启动认证探测';
+            autoBtn.onclick = function() {
+              // 先切到认证探测 tab
+              const authTab = document.querySelector('.wizard-tab[onclick*="auth"]');
+              if (authTab) authTab.click();
+              // 滚动到认证探测面板
+              const authPanel = document.getElementById('wizard-panel-auth');
+              if (authPanel) authPanel.scrollIntoView({behavior: 'smooth'});
+              // 延迟等 DOM 就绪后启动扫描
+              setTimeout(() => startCategoryScan('auth'), 300);
+            };
+            actions.appendChild(autoBtn);
+            toast('凭据已回填，点击按钮即可启动认证探测 ⬇', 'success', 5000);
+          }
+        }
+      } else if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
+        clearInterval(_manualLoginPollInterval);
+        _manualLoginPollInterval = null;
+        statusEl.className = 'manual-login-status ' + data.status;
+        statusText.innerHTML = (data.status === 'cancelled' ? '⏹ ' : '❌ ') + (data.message || data.error || '失败');
+        btn.disabled = false;
+        btn.innerHTML = '🖐️ 启动手动登录';
+        cancelBtn.style.display = 'none';
+        if (data.error) {
+          resultEl.style.display = 'block';
+          resultEl.innerHTML = '<div style="color:#991b1b;">错误: ' + escapeHtml(data.error) + '</div>';
+        }
+      }
+    } catch (e) {
+      // 轮询失败，忽略
+    }
+  }, 1000);
+}
+
+// ── 凭据持久化：保存到后端文件，支持跨会话复用 ──  
+async function saveCapturedCredentials(cred, label) {
+  try {
+    const finalLabel = label || prompt('给这组凭据起个名字（便于后续复用）：',
+      '国家开放大学-' + new Date().toISOString().slice(0,10));
+    if (!finalLabel) return;
+    await apiPost('/api/auth/save_credentials', {
+      label: finalLabel,
+      target_url: document.getElementById('manual-login-url').value.trim(),
+      credentials: cred,
+    });
+    toast('凭据已保存，后续可从「凭据管理」面板加载！', 'success');
+    loadSavedCredentialList();
+  } catch(e) { /* 静默失败 */ }
+}
+
+// ── 加载已保存凭据列表 ──
+async function loadSavedCredentialList() {
+  try {
+    const data = await apiGet('/api/auth/saved_credentials');
+    const list = data.credentials || [];
+    const dropdown = document.getElementById('saved-cred-select');
+    if (!dropdown) return;
+    dropdown.innerHTML = '<option value="">— 选择已保存凭据 —</option>';
+    list.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.label} (${c.created_at?.slice(0,10) || ''})`;
+      dropdown.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// ── 加载已保存凭据到认证字段 ──
+async function applySavedCredentials() {
+  const select = document.getElementById('saved-cred-select');
+  if (!select || !select.value) return;
+  const creds = await apiGet('/api/auth/saved_credentials');
+  const entry = (creds.credentials || []).find(c => c.id === select.value);
+  if (!entry) { toast('凭据不存在', 'error'); return; }
+  const c = entry.credentials;
+  if (c.access_token) {
+    document.getElementById('auth-use-bearer').checked = true;
+    document.getElementById('auth-bearer-token').value = c.access_token;
+    const fields = document.getElementById('auth-fields-bearer');
+    if (fields) fields.style.display = 'block';
+    const tab = document.getElementById('auth-tab-bearer');
+    if (tab) tab.classList.add('active');
+  }
+  if (c.cookie) {
+    document.getElementById('auth-use-cookie').checked = true;
+    document.getElementById('auth-cookie-value').value = c.cookie;
+    const fields = document.getElementById('auth-fields-cookie');
+    if (fields) fields.style.display = 'block';
+    const tab = document.getElementById('auth-tab-cookie');
+    if (tab) tab.classList.add('active');
+  }
+  if (c.api_key) {
+    document.getElementById('auth-use-apikey').checked = true;
+    document.getElementById('auth-apikey-value').value = c.api_key;
+    document.getElementById('auth-apikey-name').value = 'Authorization';
+    const fields = document.getElementById('auth-fields-apikey');
+    if (fields) fields.style.display = 'block';
+    const tab = document.getElementById('auth-tab-apikey');
+    if (tab) tab.classList.add('active');
+  }
+  if (c.authorization || (c.custom_headers && Object.keys(c.custom_headers).length)) {
+    document.getElementById('auth-use-headers').checked = true;
+    const fields = document.getElementById('auth-fields-headers');
+    if (fields) fields.style.display = 'block';
+    const tab = document.getElementById('auth-tab-headers');
+    if (tab) tab.classList.add('active');
+    if (c.authorization) addAuthHeaderRow('Authorization', c.authorization);
+    if (c.custom_headers) {
+      for (const [k, v] of Object.entries(c.custom_headers)) {
+        if (k.toLowerCase() !== 'authorization') addAuthHeaderRow(k, v);
+      }
+    }
+  }
+  toast(`已加载凭据: ${entry.label}`, 'success');
+}
+
+// ── 解析用户从 DevTools 粘贴的请求头 / cURL ──
+async function parseManualCredsPaste() {
+  const textarea = document.getElementById('manual-creds-paste');
+  const resultEl = document.getElementById('manual-creds-parse-result');
+  const text = textarea.value.trim();
+  if (!text) { toast('请先粘贴请求头或 cURL', 'error'); return; }
+
+  try {
+    const data = await apiPost('/api/auth/parse_manual_creds', { text });
+    const parsed = data.parsed || {};
+
+    // 显示解析摘要
+    const summary = data.summary || {};
+    const lines = [
+      '<div style="font-weight:600;color:#166534;margin-bottom:6px;">📋 解析结果（已自动回填上方认证字段）</div>',
+      summary.has_authorization ? `<div>🛡️ Authorization: <code>${escapeHtml(parsed.authorization.substring(0, 60) + '...')}</code></div>` : '',
+      summary.has_cookie ? `<div>🍪 Cookie: 解析到 ${summary.cookie_count} 个键值对</div>` : '',
+      summary.has_api_key ? `<div>🔐 API Key: <code>${escapeHtml((parsed.api_key || '').substring(0, 60) + '...')}</code></div>` : '',
+      summary.has_jwt ? `<div>🔑 JWT: <code>${escapeHtml((parsed.jwt || '').substring(0, 60) + '...')}</code></div>` : '',
+      parsed.request_url ? `<div>🌐 请求 URL: <code>${escapeHtml(parsed.request_url)}</code></div>` : '',
+    ].filter(Boolean);
+
+    resultEl.innerHTML = lines.length ? lines.join('') : '<div style="color:#92400e;">未解析到明显凭据，请检查粘贴内容是否包含 Authorization 或 Cookie。</div>';
+    resultEl.style.display = 'block';
+
+    // 自动回填（复用与浏览器自动提取相同的逻辑）
+    fillAuthFieldsFromManualResult(parsed);
+
+    if (data.ok) {
+      toast('凭据解析成功并已回填！', 'success');
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<div style="color:#991b1b;">解析失败: ${escapeHtml(e.message)}</div>`;
+    resultEl.style.display = 'block';
+  }
+}
+
+// 将解析出的凭据回填到认证参数区域
+function fillAuthFieldsFromManualResult(r) {
+  const token = r.access_token || r.bearer || r.jwt || '';
+  const cookie = r.cookie_string || '';
+  const idToken = r.id_token || '';
+  const authHeader = r.authorization || '';
+  const apiKey = r.api_key || '';
+  const customHeaders = r.custom_headers || {};
+
+  if (token) {
+    const bearerCheckbox = document.getElementById('auth-use-bearer');
+    const bearerTab = document.getElementById('auth-tab-bearer');
+    const bearerFields = document.getElementById('auth-fields-bearer');
+    const bearerInput = document.getElementById('auth-bearer-token');
+    if (bearerCheckbox && bearerInput) {
+      bearerCheckbox.checked = true;
+      bearerInput.value = token;
+      if (bearerFields) bearerFields.style.display = 'block';
+      if (bearerTab) bearerTab.classList.add('active');
+    }
+  }
+
+  if (cookie) {
+    const cookieCheckbox = document.getElementById('auth-use-cookie');
+    const cookieTab = document.getElementById('auth-tab-cookie');
+    const cookieFields = document.getElementById('auth-fields-cookie');
+    const cookieInput = document.getElementById('auth-cookie-value');
+    if (cookieCheckbox && cookieInput) {
+      cookieCheckbox.checked = true;
+      cookieInput.value = cookie;
+      if (cookieFields) cookieFields.style.display = 'block';
+      if (cookieTab) cookieTab.classList.add('active');
+    }
+  }
+
+  if (apiKey) {
+    const apikeyCheckbox = document.getElementById('auth-use-apikey');
+    const apikeyTab = document.getElementById('auth-tab-apikey');
+    const apikeyFields = document.getElementById('auth-fields-apikey');
+    const apikeyNameInput = document.getElementById('auth-apikey-name');
+    const apikeyValueInput = document.getElementById('auth-apikey-value');
+    if (apikeyCheckbox && apikeyValueInput) {
+      apikeyCheckbox.checked = true;
+      apikeyValueInput.value = apiKey;
+      if (apikeyNameInput) apikeyNameInput.value = 'Authorization';
+      if (apikeyFields) apikeyFields.style.display = 'block';
+      if (apikeyTab) apikeyTab.classList.add('active');
+    }
+  }
+
+  const headerMap = { ...customHeaders };
+  if (authHeader) headerMap['Authorization'] = authHeader;
+  if (Object.keys(headerMap).length) {
+    const headersCheckbox = document.getElementById('auth-use-headers');
+    const headersTab = document.getElementById('auth-tab-headers');
+    const headersFields = document.getElementById('auth-fields-headers');
+    if (headersCheckbox) headersCheckbox.checked = true;
+    if (headersFields) headersFields.style.display = 'block';
+    if (headersTab) headersTab.classList.add('active');
+    for (const [k, v] of Object.entries(headerMap)) {
+      addAuthHeaderRow(k, v);
+    }
+  }
+}
+
+async function cancelManualLogin() {
+  if (!_manualLoginJobId) return;
+  try {
+    await apiPost(`/api/auth/manual_login/${_manualLoginJobId}/cancel`, {});
+  } catch (e) { /* ignore */ }
+  if (_manualLoginPollInterval) {
+    clearInterval(_manualLoginPollInterval);
+    _manualLoginPollInterval = null;
+  }
+  document.getElementById('manual-login-status').className = 'manual-login-status cancelled';
+  document.getElementById('manual-login-status-text').textContent = '⏹ 已取消';
+  document.getElementById('btn-manual-login').disabled = false;
+  document.getElementById('btn-manual-login').innerHTML = '🖐️ 启动手动登录';
+  document.getElementById('btn-manual-cancel').style.display = 'none';
+}
+
+// 基本探测完成后，自动把第一个 URL 填入手动登录框
+function prefillManualLoginUrl(url) {
+  const input = document.getElementById('manual-login-url');
+  if (input && !input.value.trim() && url) {
+    input.value = url;
+  }
+}
+
+function collectAuthConfig() {
+  const auth = {};
+  if (document.getElementById('auth-use-basic').checked) {
+    auth.basic = {
+      username: document.getElementById('auth-basic-username').value.trim(),
+      password: document.getElementById('auth-basic-password').value,
+    };
+  }
+  if (document.getElementById('auth-use-bearer').checked) {
+    auth.bearer = {
+      token: document.getElementById('auth-bearer-token').value.trim(),
+    };
+  }
+  if (document.getElementById('auth-use-apikey').checked) {
+    auth.api_key = {
+      name: document.getElementById('auth-apikey-name').value.trim() || 'Authorization',
+      value: document.getElementById('auth-apikey-value').value.trim(),
+    };
+  }
+  if (document.getElementById('auth-use-cookie').checked) {
+    auth.cookie = document.getElementById('auth-cookie-value').value.trim();
+  }
+  if (document.getElementById('auth-use-headers').checked) {
+    const headers = {};
+    document.querySelectorAll('.auth-header-row').forEach(row => {
+      const k = row.querySelector('.auth-header-key').value.trim();
+      const v = row.querySelector('.auth-header-value').value.trim();
+      if (k && v) headers[k] = v;
+    });
+    if (Object.keys(headers).length) auth.headers = headers;
+  }
+  return auth;
+}
+
+async function startCategoryScan(category) {
+  const raw = document.getElementById(`${category}-target-urls`).value.trim();
+  if (!raw) { toast('请至少输入一个目标 URL', 'error'); return; }
+
+  const urls = parseTargetUrls(raw);
+  if (urls.length === 0) { toast('未识别到有效 URL', 'error'); return; }
+
+  const btn = document.getElementById(`btn-${category}-scan`);
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 探测中...';
+
+  document.getElementById(`${category}-scan-progress`).style.display = 'block';
+  document.getElementById(`${category}-scan-results`).style.display = 'none';
+  document.getElementById(`${category}-progress-text`).textContent = `正在执行${_categoryLabels[category]}...`;
+
+  try {
+    const payload = {
+      target_urls: urls.join('\n'),
+      verify_ssl: document.getElementById('common-verify-ssl').checked,
+      timeout: parseInt(document.getElementById('common-timeout').value, 10) || 20,
+      concurrency: 3,
+      rate_profile: document.getElementById('common-rate-profile').value || 'balanced',
+      paths: _categoryPaths[category],
+    };
+    if (category === 'auth') {
+      payload.auth = collectAuthConfig();
+    }
+    const data = await apiPost(API.basicScan, payload);
+    pollCategoryScan(category, data.basic_id);
+  } catch (e) {
+    toast(`${_categoryLabels[category]}启动失败: ${e.message}`, 'error');
+    document.getElementById(`${category}-scan-progress`).style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = _categoryStartLabels[category];
+  }
+}
+
+async function pollCategoryScan(category, basicId) {
+  if (_categoryPolls[category]) clearInterval(_categoryPolls[category]);
+
+  _categoryPolls[category] = setInterval(async () => {
+    try {
+      const data = await apiGet(API.basicScanDetail(basicId));
+      const progressEl = document.getElementById(`${category}-progress-text`);
+      const btn = document.getElementById(`btn-${category}-scan`);
+
+      if (data.status === 'running' && data.results) {
+        const done = data.results.filter(r => r.endpoints !== undefined || r.error).length;
+        progressEl.textContent = `正在执行${_categoryLabels[category]} (${done}/${data.results.length})...`;
+        return;
+      }
+
+      if (data.status === 'completed') {
+        clearInterval(_categoryPolls[category]);
+        _categoryPolls[category] = null;
+        document.getElementById(`${category}-scan-progress`).style.display = 'none';
+        document.getElementById(`${category}-scan-results`).style.display = 'block';
+        renderCategoryScanResults(category, data);
+        btn.disabled = false;
+        btn.innerHTML = _categoryStartLabels[category];
+        toast(`${_categoryLabels[category]}完成！`);
+        return;
+      }
+
+      if (data.status === 'failed') {
+        clearInterval(_categoryPolls[category]);
+        _categoryPolls[category] = null;
+        document.getElementById(`${category}-scan-progress`).style.display = 'none';
+        progressEl.textContent = `探测失败: ${data.error || '未知错误'}`;
+        btn.disabled = false;
+        btn.innerHTML = _categoryStartLabels[category];
+        toast(`${_categoryLabels[category]}失败`, 'error');
+        return;
+      }
+
+      progressEl.textContent = '正在初始化探测...';
+    } catch (e) {
+      console.error(`${category} poll error:`, e);
+      clearInterval(_categoryPolls[category]);
+      _categoryPolls[category] = null;
+      document.getElementById(`${category}-scan-progress`).style.display = 'none';
+      document.getElementById(`btn-${category}-scan`).disabled = false;
+      document.getElementById(`btn-${category}-scan`).innerHTML = _categoryStartLabels[category];
+      toast('探测状态查询失败', 'error');
+    }
+  }, 1000);
+}
+
+function renderCategoryScanResults(category, data) {
+  const container = document.getElementById(`${category}-results-body`);
+  const results = data.results || [];
+  if (results.length === 0) {
+    container.innerHTML = '<div class="basic-empty">⚠ 未返回任何结果</div>';
+    return;
+  }
+
+  const labelMap = { auth: '认证相关端点', anti: '探测端点', model: '模型相关端点', other: '其它端点' };
+  const auth = data.auth || {};
+  const authUsed = !!(auth.basic && auth.basic.username) ||
+                   !!(auth.bearer && auth.bearer.token) ||
+                   !!(auth.api_key && auth.api_key.value) ||
+                   !!auth.cookie ||
+                   !!(auth.headers && Object.keys(auth.headers).length);
+  let html = '';
+  results.forEach(r => {
+    html += _renderCategoryResultCard(r, r.endpoints || [], labelMap[category], authUsed);
+  });
+
+  container.innerHTML = html || `<div class="basic-empty">未探测到${labelMap[category]}</div>`;
+}
+
+function _buildRateLimitPanel(rl, defaultRateProfile) {
+  // 根据检测结果生成速率限制信息面板和参数建议
+  if (!rl || !rl.detected) return { html: '', rateProfile: defaultRateProfile, timeout: 30, rpm: '', delay: '' };
+
+  const adviceBase = (rl.advice || '').replace(/\(.*\)/, '').trim();
+  const rateProfileMap = { P0: 'stealth', P1: 'balanced', P2: 'balanced' };
+  const rateProfile = rateProfileMap[adviceBase] || 'stealth';
+
+  // 计算合理超时：reset_seconds + 10s 缓冲，最少 30s
+  let timeout = 30;
+  if (rl.reset_seconds && rl.reset_seconds > 0) timeout = Math.max(30, rl.reset_seconds + 10);
+  if (rl.retry_after_seconds && rl.retry_after_seconds > timeout) timeout = rl.retry_after_seconds + 10;
+
+  // 计算建议 RPM
+  let rpm = '';
+  if (typeof rl.limit === 'number' && rl.limit > 0) {
+    rpm = rl.limit;
+  } else if (adviceBase === 'P0') {
+    rpm = '10';
+  } else if (adviceBase === 'P1') {
+    rpm = '30';
+  }
+
+  // 计算建议请求间隔 (ms)
+  let delay = '';
+  if (rl.retry_after_seconds) {
+    delay = Math.max(1000, rl.retry_after_seconds * 1000 + 500);
+  } else if (adviceBase === 'P0') {
+    delay = '2000';
+  } else if (adviceBase === 'P1') {
+    delay = '1000';
+  } else if (adviceBase === 'P2') {
+    delay = '500';
+  }
+
+  let detailParts = [];
+  if (rl.limit_formatted) detailParts.push(`<strong>配额：</strong>${escapeHtml(rl.limit_formatted)}`);
+  if (rl.remaining !== null && rl.remaining !== undefined) detailParts.push(`<strong>剩余：</strong>${rl.remaining} 次`);
+  if (rl.reset_seconds !== null && rl.reset_seconds > 0) {
+    const mins = Math.floor(rl.reset_seconds / 60);
+    const secs = rl.reset_seconds % 60;
+    detailParts.push(`<strong>重置：</strong>${mins > 0 ? mins + '分' : ''}${secs}秒`);
+  }
+  if (rl.retry_after_seconds !== null) detailParts.push(`<strong>Retry-After：</strong>${rl.retry_after_seconds}s`);
+  if (rl.endpoints_hit_429 > 0) detailParts.push(`<strong>429 端点：</strong>${rl.endpoints_hit_429} 个`);
+  if (rl.advice) detailParts.push(`<strong>等级：</strong>${escapeHtml(rl.advice)}`);
+
+  const html = `
+    <div class="recon-form-group full">
+      <div class="rate-limit-panel">
+        <div class="rate-limit-panel-title">⏱ 已检测到 API 速率限制</div>
+        <div class="rate-limit-panel-body">${detailParts.join(' · ')}</div>
+        <div class="rate-limit-panel-hint">💡 以下参数已根据检测结果预填，可手动调整后启动深度侦察</div>
+      </div>
+    </div>`;
+
+  return { html, rateProfile, timeout, rpm, delay };
+}
+
+function selectTargetForRecon(idx) {
+  const r = _basicScanResults[idx];
+  if (!r) { toast('目标数据丢失，请重新执行基本探测', 'error'); return; }
+
+  const url = r.url;
+  const authRequired = r.auth_required;
+  const antiDefense = r.anti_defense;
+  const rl = r.rate_limit || {};
+
   const modal = document.getElementById('recon-modal');
   const title = document.getElementById('recon-modal-title');
   const body = document.getElementById('recon-modal-body');
@@ -3253,28 +5236,46 @@ function selectTargetForRecon(url, authRequired, antiDefense) {
 
   title.textContent = `深度侦察 — ${hostname}`;
 
+  // 根据速率限制检测决定默认速率
+  const defaultProfile = antiDefense ? 'stealth' : (authRequired ? 'stealth' : 'balanced');
+  const rlp = _buildRateLimitPanel(rl, defaultProfile);
+
+  const selectedStealth  = rlp.rateProfile === 'stealth'  ? 'selected' : '';
+  const selectedBalanced = rlp.rateProfile === 'balanced' ? 'selected' : '';
+  const selectedFast     = rlp.rateProfile === 'fast'     ? 'selected' : '';
+
   let formHtml = `<input type="hidden" id="recon-target-url" value="${escapeHtml(url)}">`;
   formHtml += `<div class="recon-form-grid">`;
   formHtml += `<div class="recon-form-group full"><label>目标 URL</label><input type="text" value="${escapeHtml(url)}" disabled style="background:#eef1f6;color:var(--text2);"></div>`;
+
+  // 速率限制信息面板（所有分支通用）
+  formHtml += rlp.html;
 
   if (antiDefense) {
     // ── 分支 3：反爬 / 高级防御 ──
     formHtml += `
       <div class="recon-form-group full">
         <div class="basic-notice warn">⚠ 目标可能启用反爬/WAF 防护，请配置高级探测参数。</div>
-      </div>`;
-    formHtml += `
+      </div>
       <div class="recon-form-group">
         <label>探测速率</label>
         <select id="recon-rate-profile">
-          <option value="stealth" selected>🕵️ stealth (隐身模式)</option>
-          <option value="balanced">⚖️ balanced (平衡)</option>
-          <option value="fast">⚡ fast (快速)</option>
+          <option value="stealth" ${selectedStealth}>🕵️ stealth (隐身模式)</option>
+          <option value="balanced" ${selectedBalanced}>⚖️ balanced (平衡)</option>
+          <option value="fast" ${selectedFast}>⚡ fast (快速)</option>
         </select>
       </div>
       <div class="recon-form-group">
         <label>超时 (秒)</label>
-        <input type="number" id="recon-timeout" value="30" min="5" max="120">
+        <input type="number" id="recon-timeout" value="${rlp.timeout}" min="5" max="120">
+      </div>
+      <div class="recon-form-group">
+        <label>API 速率限制 (次/窗口)</label>
+        <input type="text" id="recon-rate-limit-rpm" value="${rlp.rpm}" placeholder="留空=不限速">
+      </div>
+      <div class="recon-form-group">
+        <label>请求间隔 (ms)</label>
+        <input type="number" id="recon-request-delay" value="${rlp.delay}" min="100" max="30000" step="100" placeholder="留空=不限制">
       </div>
       <div class="recon-form-group full">
         <label>storageState 会话文件</label>
@@ -3299,8 +5300,9 @@ function selectTargetForRecon(url, authRequired, antiDefense) {
             <li><strong>使用 stealth 速率：</strong>单请求串行 + 随机抖动，大幅降低触发 WAF/IDS 行为检测的概率。</li>
             <li><strong>关闭 SPA 渲染（纯 API）：</strong>如果目标是纯 API 服务（非 Web），可禁用 SPA 渲染加速探测。</li>
             <li><strong>自定义 User-Agent / Headers：</strong>在下方「高级配置」中设置伪装请求头。</li>
+            <li><strong>速率限制适配：</strong>若基本探测中检测到 <code>429</code> 或 <code>x-ratelimit-*</code> 响应头，上方速率限制参数已自动预填。</li>
           </ul>
-          <div class="hint-rec" style="margin-top:8px;">💡 建议先用 stealth 模式做一次轻量探测，确认目标响应模式后再逐步增强强度。</div>
+          <div class="hint-rec" style="margin-top:8px;">💡 建议先用 stealth 模式做一次轻量探测，确认目标响应模式后再逐步增强强度。速率限制（Rate Limit）的数值将直接影响后续攻击阶段的并发、频率和间隔配置。</div>
         </div>
       </div>
     </div>`;
@@ -3309,8 +5311,27 @@ function selectTargetForRecon(url, authRequired, antiDefense) {
     formHtml += `
       <div class="recon-form-group full">
         <div class="basic-notice info">🔐 该目标需要认证，请填写以下参数（至少一项）。</div>
-      </div>`;
-    formHtml += `
+      </div>
+      <div class="recon-form-group">
+        <label>探测速率</label>
+        <select id="recon-rate-profile">
+          <option value="stealth" ${selectedStealth}>🕵️ stealth (隐身模式)</option>
+          <option value="balanced" ${selectedBalanced}>⚖️ balanced (平衡)</option>
+          <option value="fast" ${selectedFast}>⚡ fast (快速)</option>
+        </select>
+      </div>
+      <div class="recon-form-group">
+        <label>超时 (秒)</label>
+        <input type="number" id="recon-timeout" value="${rlp.timeout}" min="5" max="120">
+      </div>
+      <div class="recon-form-group">
+        <label>API 速率限制 (次/窗口)</label>
+        <input type="text" id="recon-rate-limit-rpm" value="${rlp.rpm}" placeholder="留空=不限速">
+      </div>
+      <div class="recon-form-group">
+        <label>请求间隔 (ms)</label>
+        <input type="number" id="recon-request-delay" value="${rlp.delay}" min="100" max="30000" step="100" placeholder="留空=不限制">
+      </div>
       <div class="recon-form-group">
         <label>Cookie 注入</label>
         <input type="text" id="recon-cookie" placeholder="session=abc123">
@@ -3372,17 +5393,25 @@ function selectTargetForRecon(url, authRequired, antiDefense) {
       <div class="recon-form-group full">
         <div class="basic-notice success">✅ 该目标无需认证参数，可直接启动深度侦察。</div>
       </div>
-      <div class="recon-form-group full">
+      <div class="recon-form-group">
         <label>探测速率</label>
         <select id="recon-rate-profile">
-          <option value="balanced" selected>⚖️ balanced (平衡)</option>
-          <option value="stealth">🕵️ stealth (隐身)</option>
-          <option value="fast">⚡ fast (快速)</option>
+          <option value="stealth" ${selectedStealth}>🕵️ stealth (隐身模式)</option>
+          <option value="balanced" ${selectedBalanced}>⚖️ balanced (平衡)</option>
+          <option value="fast" ${selectedFast}>⚡ fast (快速)</option>
         </select>
       </div>
-      <div class="recon-form-group full">
+      <div class="recon-form-group">
         <label>超时 (秒)</label>
-        <input type="number" id="recon-timeout" value="30" min="5" max="120">
+        <input type="number" id="recon-timeout" value="${rlp.timeout}" min="5" max="120">
+      </div>
+      <div class="recon-form-group">
+        <label>API 速率限制 (次/窗口)</label>
+        <input type="text" id="recon-rate-limit-rpm" value="${rlp.rpm}" placeholder="留空=不限速">
+      </div>
+      <div class="recon-form-group">
+        <label>请求间隔 (ms)</label>
+        <input type="number" id="recon-request-delay" value="${rlp.delay}" min="100" max="30000" step="100" placeholder="留空=不限制">
       </div>
       <div class="recon-toggle-group full">
         <label><input type="checkbox" id="recon-dict-scan" checked> 启用字典扫描</label>
@@ -3412,6 +5441,12 @@ async function launchReconFromModal() {
   formData.append('target_url', targetUrl);
   formData.append('rate_profile', (document.getElementById('recon-rate-profile') || {}).value || 'stealth');
   formData.append('timeout', (document.getElementById('recon-timeout') || {}).value || '30');
+
+  // 速率限制参数（来自基本探测结果）
+  const rateLimitRpm = document.getElementById('recon-rate-limit-rpm');
+  const requestDelay = document.getElementById('recon-request-delay');
+  if (rateLimitRpm && rateLimitRpm.value.trim()) formData.append('rate_limit_rpm', rateLimitRpm.value.trim());
+  if (requestDelay && requestDelay.value.trim()) formData.append('request_delay_ms', requestDelay.value.trim());
 
   // 认证参数
   const cookie = document.getElementById('recon-cookie');
@@ -3506,6 +5541,11 @@ document.getElementById('recon-modal').addEventListener('click', (e) => {
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   refreshDashboard();
+  moveCommonParamsToPanel('basic');
+  loadSavedCredentialList();
+  // 预置常用 Custom Headers（名称为空值，供用户手动填写）
+  const commonHeaders = ['X-Requested-With', 'Referer', 'Origin', 'X-CSRF-Token'];
+  commonHeaders.forEach(name => addAuthHeaderRow(name, ''));
 });
 </script>
 

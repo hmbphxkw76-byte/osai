@@ -72,6 +72,8 @@ class ReconEngine:
         humanize: bool = True,
         storage_state_path: Optional[str] = None,
         har_output_path: Optional[str] = None,
+        rate_limit_rpm: Optional[int] = None,
+        request_delay_ms: Optional[int] = None,
     ):
         self.target_url = target_url.rstrip("/")
         self.login_url = login_url
@@ -99,6 +101,9 @@ class ReconEngine:
         self.humanize = humanize
         self.storage_state_path = storage_state_path
         self.har_output_path = har_output_path
+        # 速率限制参数（来自前端探测结果）
+        self.rate_limit_rpm = int(rate_limit_rpm) if rate_limit_rpm else None
+        self.request_delay_ms = int(request_delay_ms) if request_delay_ms else None
 
         self.profile = TargetProfile()
         self._setup_meta()
@@ -282,6 +287,8 @@ class ReconEngine:
             verify_ssl=self.verify_ssl,
             ca_cert=self.ca_cert,
             rate_profile=self.rate_profile,
+            rate_limit_rpm=self.rate_limit_rpm,
+            request_delay_ms=self.request_delay_ms,
         )
         self._js_sdk_scanner = JsSdkScanner()
         self._credential_scanner = CredentialScanner()

@@ -25,10 +25,17 @@ flask>=3.0.0
 pyjwt>=2.8.0
 cryptography>=41.0.0          # pyjwt 传递依赖
 
-# Recon (L0) — 反检测 / 隐身 (可选但推荐)
-playwright-stealth>=1.0.0     # JS 层反检测: pip install playwright-stealth
-# patchright>=1.45.0          # Playwright 补丁版: pip install patchright (与 playwright 互斥)
-# CloakBrowser                # C++ 源码级反检测: https://github.com/CloakHQ/CloakBrowser (需单独下载 binary)
+# Recon (L0) — 反检测 / 隐身
+# 三层反检测体系（按强度排序）：
+#   1. CloakBrowser  — C++ 源码级反检测 (需单独下载 binary)
+#   2. patchright     — Playwright CDP/二进制补丁版 (推荐，日常使用)
+#   3. playwright-stealth — 纯 JS 注入层 (最轻量，兜底)
+#
+# patchright 与 playwright 互斥（前者是后者的 fork），两者选一安装：
+#   日常使用: pip install patchright && patchright install chromium
+#   轻量兜底: pip install playwright && playwright install chromium
+patchright>=1.45.0              # 安装: pip install patchright && patchright install chromium
+playwright-stealth>=1.0.0       # JS 层反检测（与 patchright 叠加使用）
 
 # Recon (L0) — HAR 分析 / 会话持久化 (可选)
 haralyzer>=2.0.0              # HAR 文件分析: pip install haralyzer
