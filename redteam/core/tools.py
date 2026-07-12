@@ -1,7 +1,6 @@
-"""工具解析器（简化版，移除 stealth 依赖）。
+"""工具解析器（简化版）。
 
-Library-First：阶段一侦察通过子进程调用 AIMap/mcp-scan 等成熟开源二进制。
-本模块统一解析这些二进制在系统中的实际路径，并依据 config/settings.yaml 的开关判断功能是否启用。
+本模块解析系统中可用工具的路径，并依据 config/settings.yaml 的开关判断功能是否启用。
 """
 from __future__ import annotations
 

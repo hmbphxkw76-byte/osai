@@ -1,21 +1,16 @@
 # AI-300 红队评估配置
 recon:
-  concurrency: 10
-  timeout: 5                 # 单请求超时（秒）
-  # 开关
-  enable_aimap: auto         # AIMap AI 攻击面发现
-  enable_mcp_scan: auto      # mcp-scan MCP 组件扫描
+  concurrency: 3              # 并发线程数，低并发减少 WAF 突发检测
+  timeout: 10                 # 单请求超时（秒）
+  rate_limit_ms: 800          # 请求最小间隔（毫秒），0=不限速，500-1000ms 模拟人工浏览绕过 WAF
+  # 词表
+  ai_wordlist: config/wordlists/ai_paths.txt   # AI 端点探测词表路径
   proxy: ""
 
 # 持久化
 store:
-  dir: .redteam_runs
+  dir: reports
 
 # 报告
 report:
   out_dir: reports
-
-# 外部工具路径
-tools:
-  aimap: tools/aimap
-  mcp_scan: mcp-scan

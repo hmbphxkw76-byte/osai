@@ -5,12 +5,27 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 from pathlib import Path
 from typing import Any
 
 from .models import ReconResult, Finding
 
-DEFAULT_STORE_DIR = Path(".redteam_runs")
+DEFAULT_STORE_DIR = Path("reports")
+
+
+def make_run_id(target: str, short_id: str, timestamp: str | None = None) -> str:
+    """生成可追踪的 run_id：{sanitized_target}_{timestamp}_{short_id}。
+
+    Example:
+        make_run_id("http://192.168.0.25:11434", "a1b2c3d4")
+        # -> "192.168.0.25_11434_20260712_143052_a1b2c3d4"
+    """
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", target.replace("://", "_"))
+    if timestamp is None:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+    return f"{safe}_{timestamp}_{short_id}"
 
 
 def _default(o: Any) -> Any:

@@ -6,7 +6,7 @@
 #   scoop install make        (Scoop)
 #   或用 Git Bash 自带的 make
 
-.PHONY: help install dev tools test lint format check clean build run wizard docs
+.PHONY: help install dev test lint format check clean build run wizard docs
 
 PYTHON := python
 PIP := pip
@@ -27,15 +27,12 @@ install:  ## 安装项目依赖 + 可编辑模式安装本包
 dev: install  ## 完整开发环境（依赖 + 包 + 预提交钩子）
 	@echo "[dev] 开发环境就绪"
 
-tools:  ## 下载安装外部侦察/扫描工具
-	$(PYTHON) scripts/install_tools.py
-
 # ---- 代码质量 ----
 lint:  ## 运行 Ruff 代码检查
-	$(RUFF) check redteam/ tests/ scripts/
+	$(RUFF) check redteam/ tests/
 
 format:  ## 运行 Ruff 自动格式化
-	$(RUFF) format redteam/ tests/ scripts/
+	$(RUFF) format redteam/ tests/
 
 check: lint test  ## 运行完整代码检查（lint + test）
 

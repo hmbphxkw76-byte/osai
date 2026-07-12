@@ -21,11 +21,11 @@ class TestToolResolverLoad:
 
     def test_load_custom_settings(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-            f.write("tools:\n  aimap: /custom/path/aimap\n  mcp_scan: /opt/mcp-scan\n")
+            f.write("tools:\n  nmap: /custom/path/nmap\n  custom_scanner: /opt/scanner\n")
             f.flush()
             resolver = ToolResolver(Path(f.name))
-            assert resolver.tools["aimap"] == "/custom/path/aimap"
-            assert resolver.tools["mcp_scan"] == "/opt/mcp-scan"
+            assert resolver.tools["nmap"] == "/custom/path/nmap"
+            assert resolver.tools["custom_scanner"] == "/opt/scanner"
 
 
 class TestToolResolverResolve:
@@ -69,17 +69,17 @@ class TestToolResolverEnabled:
 
     def test_enabled_bool_true(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-            f.write("recon:\n  enable_aimap: true\n")
+            f.write("recon:\n  enable_verbose: true\n")
             f.flush()
             resolver = ToolResolver(Path(f.name))
-            assert resolver.enabled("enable_aimap") is True
+            assert resolver.enabled("enable_verbose") is True
 
     def test_enabled_bool_false(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-            f.write("recon:\n  enable_aimap: false\n")
+            f.write("recon:\n  enable_verbose: false\n")
             f.flush()
             resolver = ToolResolver(Path(f.name))
-            assert resolver.enabled("enable_aimap") is False
+            assert resolver.enabled("enable_verbose") is False
 
     def test_enabled_auto_available(self):
         """auto 模式下，python 应该可用。"""

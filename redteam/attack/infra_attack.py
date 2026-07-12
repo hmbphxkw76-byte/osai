@@ -10,12 +10,10 @@
   - 云 ML 服务配置错误 (Ch9)
   - 容器与 K8s 漏洞 (Ch9)
 
-Library-First：使用 httpx 做 MCP SDK 探测，subprocess 调用 mcp-scan。
+Library-First：使用 httpx 做 MCP/云端点探测，供应链分析自研。
 """
 from __future__ import annotations
 
-import re
-import subprocess
 from typing import Any
 
 import httpx
@@ -23,64 +21,6 @@ import httpx
 from redteam.core.models import (
     AIService, AuthContext, Finding, OWASPLlm, MITREATLASTactic,
 )
-
-
-# ===== MCP 端点探测 =====
-def scan_mcp_endpoint(
-    mcp_url: str,
-    mcp_scan_binary: str = "mcp-scan",
-    timeout: int = 120,
-) -> dict[str, Any]:
-    """使用 mcp-scan 工具扫描 MCP 端点。"""
-    try:
-        proc = subprocess.run(
-            [mcp_scan_binary, mcp_url],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        output = proc.stdout + "\n" + proc.stderr
-        return {
-            "url": mcp_url,
-            "success": proc.returncode == 0,
-            "output": output[:3000],
-            "tools_found": _extract_mcp_tools(output),
-            "vulnerabilities": _extract_mcp_vulns(output),
-        }
-    except Exception as e:
-        return {"url": mcp_url, "success": False, "error": str(e), "tools_found": [], "vulnerabilities": []}
-
-
-def _extract_mcp_tools(output: str) -> list[str]:
-    """从 mcp-scan 输出提取发现的工具名。"""
-    tools: set[str] = set()
-    # 匹配 "tool: <name>" 或 "Tool: <name>" 或工具列表格式
-    patterns = [
-        r'(?i)(?:tool|function)[_\s]*(?:name)?\s*[:=]\s*["\']?(\w+)["\']?',
-        r'(?i)"name"\s*:\s*"(\w+)"',
-        r'(?i)- (\w+) \(',  # markdown list
-    ]
-    for pattern in patterns:
-        for match in re.findall(pattern, output):
-            if len(match) > 1 and match.lower() not in {"tool", "function", "name", "type"}:
-                tools.add(match)
-    return sorted(tools)
-
-
-def _extract_mcp_vulns(output: str) -> list[str]:
-    """从 mcp-scan 输出提取发现的漏洞。"""
-    vulns: list[str] = []
-    vuln_patterns = [
-        r'(?i)(prompt\s*injection)',
-        r'(?i)(tool\s*poisoning)',
-        r'(?i)(cross[\s_-]origin)',
-        r'(?i)(rug\s*pull)',
-        r'(?i)(vulnerability|vuln|CVE|exploit)',
-    ]
-    for pattern in vuln_patterns:
-        if re.search(pattern, output):
-            match = re.search(pattern, output)
-            if match:
-                vulns.append(match.group(1).strip())
-    return sorted(set(vulns))
 
 
 # ===== 供应链攻击检测 =====

@@ -1,0 +1,88 @@
+---
+description: RedTeam-AI 项目开发规范 - 基于 OffSec AI-300 课程，Library-First 架构，零外部小众工具依赖
+alwaysApply: true
+enabled: true
+updatedAt: 2026-07-12T00:00:00.000Z
+provider:
+---
+
+# RedTeam-AI 开发规范
+
+## 项目背景
+
+本项目是一个 AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 AI 红队评估。
+目标用户：Kali Linux 环境中备考 AI-300 或执行 AI 安全评估的安全专业人员。
+
+## 核心铁律
+
+1. **Library-First 原则**：首选纯 Python 库 (httpx, pydantic)，次选 Kali 标准工具 subprocess 调用。**严禁依赖外部小众 CLI 工具** (如 AIMap, mcp-scan, snyk-agent-scan)。
+2. **零外部小众工具依赖**：AI-300 考试环境无 pip install 途径，所有功能必须自包含或用 Kali 原生工具。
+3. **所有数据使用 Pydantic BaseModel**：API 边界处禁止传递裸 dict，必须使用 `redteam/core/models.py` 中定义的强类型模型。
+4. **每个 Finding 必须绑定 OWASPLlm + MITREATLASTactic**：不允许创建无分类标签的漏洞条目。
+5. **枚举优先于字符串常量**：AI 协议、漏洞分类、攻击阶段均使用 Enum。
+
+## 架构规范
+
+- 管道阶段模型：Phase 1~11，每阶段对应 AI-300 一个章节
+- 模块职责边界见 `docs/DEVELOPMENT_STANDARDS.md`
+- 阶段间通过 JSON 文件在 `reports/{run_id}/` 传递中间结果
+- Checkpoint/Resume 模式：失败不阻断下游
+
+## AI-300 章节映射
+
+| 章节 | 内容 | 代码模块 |
+|------|------|---------|
+| Ch1 | 介绍与框架 (MITRE ATLAS, OWASP, NVIDIA Kill Chain) | models.py 枚举定义 |
+| Ch2 | AI 目标侦察 | recon/ai_surface.py |
+| Ch3 | 单 Agent 攻击 (提示注入、记忆投毒) | attack/prompt_inject.py |
+| Ch4 | 多 Agent 系统与 A2A 协议攻击 | 待开发 |
+| Ch5 | RAG 管道利用 | 部分实现于 pipeline.py |
+| Ch6 | Embedding 攻击 | 待开发 |
+| Ch7 | MCP 与工具面攻击 | attack/infra_attack.py (已移除 mcp-scan) |
+| Ch8 | AI/ML 供应链攻击 | attack/infra_attack.py |
+| Ch9 | AI 基础设施与部署利用 | attack/infra_attack.py |
+| Ch10 | AI 目标威胁建模 | 待开发 |
+| Ch11 | 综合红队演练 | pipeline.py + cli.py |
+
+## 攻击方法学
+
+每模块遵循 **Enumerate-Attack-Detect-Evade** 循环 (AI-300 Ch3)：
+
+1. **Enumerate**：探测健康检查端点、工具发现、权限边界
+2. **Attack Naive**：直接使用已知技术，产生可检测信号
+3. **Detect**：检查 SIEM/Kibana 检测规则触发情况
+4. **Evade**：技术包括字符间隔、Base64编码、多轮crescendo、CSS隐藏、交叉文档拆分、导入解析
+
+## 代码规范
+
+- Python >= 3.10，必须有类型提示 (Type Hints)
+- Pydantic v2 风格模型定义
+- 文档字符串：Google style (Args/Returns/Raises)
+- 文件命名：snake_case.py，测试文件 test_*.py
+- 导入顺序：标准库 → 第三方 → 项目内部
+- 测试使用 pytest，测试数据必须是合成数据，严禁真实凭据
+
+## 禁止事项
+
+- 禁止在代码或配置文件中使用真实 API 密钥、密码、Token
+- 禁止依赖非 Kali 标准源的 CLI 工具
+- 禁止在 `config/settings.yaml` 中添加敏感凭据
+- 禁止硬编码 URL、主机名（应通过配置或参数传入）
+- 禁止生成超过 500 行的单一模块文件（应拆分职责）
+
+## 添加新攻击模块的检查清单
+
+- [ ] 在 `redteam/attack/` 或 `redteam/recon/` 下创建模块文件
+- [ ] 模块 docstring 注明覆盖的 AI-300 章节
+- [ ] 所有函数有类型提示和 docstring
+- [ ] 输出使用 Finding 模型，绑定 OWASPLlm + MITREATLASTactic
+- [ ] 在 `redteam/__init__.py` 或 `pipeline.py` 中注册新阶段
+- [ ] 在 `tests/` 下创建对应 test_*.py
+- [ ] 至少覆盖：正常路径 + 边界情况 + 空输入
+- [ ] mock 所有外部调用 (httpx, subprocess)
+- [ ] 不引入新的外部工具依赖
+- [ ] 运行 `pytest tests/ -q` 确认零回归
+
+## 参考文档
+
+完整标准见 `docs/DEVELOPMENT_STANDARDS.md`

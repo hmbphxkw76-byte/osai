@@ -4,7 +4,7 @@
 
   阶段              AI-300章节     模块
   ─────────────────────────────────────────────
-  1. AI 攻击面侦察    Ch2          recon/ (ai_surface, auth_parse, aimap_runner)
+  1. AI 攻击面侦察    Ch2          recon/ (ai_surface, auth_parse)
   2. 提示注入攻击     Ch3          attack/prompt_inject.py
   3. Agent 深度攻击   Ch3+Ch4      attack/agent_attack.py
   4. RAG 流水线攻击   Ch5          attack/rag_attack.py
@@ -30,13 +30,12 @@ from redteam.core.models import (
     AIService, AttackChain, AttackStep, AuthContext, Finding,
     OWASPLlm, MITREATLASTactic, ReconResult, ReportConfig,
 )
-from redteam.core.store import save_json, load_json, save_findings
+from redteam.core.store import save_json, load_json, save_findings, make_run_id
 from redteam.core.tools import ToolResolver
 from redteam.recon.auth_parse import parse_headers, parse_headers_file
 from redteam.recon.ai_surface import (
     discover_ai_services, passive_recon, profile_guardrails,
 )
-from redteam.recon import aimap_runner
 from redteam.attack.prompt_inject import (
     run_direct_injection_phase, extract_system_prompt,
     run_jailbreak_phase, generate_injection_findings,
@@ -64,7 +63,6 @@ from redteam.attack.supply_chain import (
     generate_supply_chain_findings,
 )
 from redteam.attack.infra_attack import (
-    scan_mcp_endpoint,
     scan_cloud_misconfigs, generate_infra_findings,
 )
 
@@ -95,7 +93,7 @@ class AIPipeline:
         Returns:
             (run_id, recon_result, ai_services)
         """
-        run_id = run_id or uuid.uuid4().hex[:8]
+        run_id = run_id or make_run_id(target, uuid.uuid4().hex[:8])
         print(f"\n{'='*60}")
         print(f"[Phase 1] AI 攻击面侦察 - {target}")
         print(f"{'='*60}")
@@ -113,6 +111,12 @@ class AIPipeline:
         recon = ReconResult(target=target)
         all_services: list[AIService] = []
 
+        # 读取限速配置
+        recon_cfg = self.settings.get("recon", {}) or {}
+        rate_limit_ms = int(recon_cfg.get("rate_limit_ms", 0))
+        if rate_limit_ms:
+            print(f"[Recon] 限速模式: {rate_limit_ms}ms/请求")
+
         # 1.1 被动侦察
         print("\n[Recon] 被动侦察...")
         passive = passive_recon(target)
@@ -122,34 +126,27 @@ class AIPipeline:
 
         # 1.2 主动 AI 服务发现
         print("\n[Recon] 主动 AI 服务发现...")
-        services = discover_ai_services(target, auth)
+        services = discover_ai_services(target, auth, rate_limit_ms=rate_limit_ms)
         all_services.extend(services)
         for svc in services:
             print(f"  [{svc.protocol.upper()}] {svc.url} | 模型: {svc.models[:3]} | 认证: {svc.auth_required}")
-        recon.ai_services = [s.model_dump() for s in services]
+        recon.ai_services = services
         recon.components = sorted(set(s.protocol for s in services))
         recon.models = sorted(set(m for s in services for m in s.models))
 
-        # 1.3 AIMap 深度扫描（如果可用）
-        if self.resolver.enabled("enable_aimap"):
-            print("\n[Recon] AIMap 深度扫描...")
-            try:
-                comps, eps, findings, fps = aimap_runner.run(
-                    target, self.resolver, timeout=180, authorized=True,
-                )
-                print(f"  发现: {len(comps)} 组件, {len(eps)} 端点, {len(fps)} 指纹")
-                recon.components.extend(comps)
-                recon.endpoints.extend([e.model_dump() for e in eps])
-            except Exception as e:
-                print(f"  AIMap 跳过: {e}")
-
-        # 1.4 护栏画像
+        # 1.3 护栏画像（三阶段：指纹→分类→绕过评估）
         for svc in services:
-            if svc.protocol in ("openai_compatible", "ollama", "mcp"):
+            if svc.protocol in ("openai_compatible", "ollama", "mcp", "generic_ai"):
                 print(f"\n[Recon] 护栏画像: {svc.url}")
-                guard = profile_guardrails(svc)
-                if guard.input_blocked_phrases:
-                    print(f"  检测到护栏关键词: {guard.input_blocked_phrases[:5]}")
+                guard = profile_guardrails(svc, auth=auth, rate_limit_ms=rate_limit_ms)
+                svc.guardrail_profile = guard
+                print(f"  护栏类型: {guard.guardrail_type.value} (置信度 {guard.guardrail_confidence})")
+                print(f"  阻断类别: {[c.value for c in guard.blocked_categories]}")
+                print(f"  绕过难度: {guard.bypass_difficulty}")
+                if guard.recommended_techniques:
+                    print(f"  推荐攻击策略: {guard.recommended_techniques}")
+                if guard.discouraged_techniques:
+                    print(f"  不推荐技术: {guard.discouraged_techniques}")
 
         # 持久化
         save_json(run_id, "recon", recon.model_dump())
@@ -508,19 +505,13 @@ class AIPipeline:
 
         all_findings: list[Finding] = []
 
-        # MCP 扫描
+        # MCP 端点枚举（基于 recon 阶段已发现的端点）
         mcp_urls = [e["url"] for e in recon.endpoints if "mcp" in e.get("url", "").lower()]
         mcp_results: list[dict] = []
         if mcp_urls:
-            mcp_bin = self.resolver.resolve("mcp_scan")
+            print(f"\n[MCP] 检测到 {len(mcp_urls)} 个 MCP 端点（待手动分析）")
             for mcp_url in mcp_urls[:5]:
-                print(f"\n[MCP] 扫描: {mcp_url}")
-                result = scan_mcp_endpoint(mcp_url, mcp_bin)
-                mcp_results.append(result)
-                if result.get("tools_found"):
-                    print(f"  发现工具: {result['tools_found']}")
-                if result.get("vulnerabilities"):
-                    print(f"  漏洞: {result['vulnerabilities']}")
+                print(f"  - {mcp_url}")
 
         # 云配置扫描 (Ch9)
         print("\n[Cloud] AI 云端配置检查...")
@@ -610,7 +601,7 @@ class AIPipeline:
 
     def _write_markdown_report(self, run_id: str, report: ReportConfig) -> Path:
         """写入 Markdown 报告。"""
-        p = Path(f".redteam_runs/{run_id}/AI300_Report.md")
+        p = Path(f"reports/{run_id}/AI300_Report.md")
         p.parent.mkdir(parents=True, exist_ok=True)
 
         lines = [
@@ -775,7 +766,7 @@ class AIPipeline:
         print(f"  总耗时: {elapsed:.1f}s")
         print(f"  总发现: {len(all_findings)}")
         print(f"  Run ID: {run_id}")
-        print(f"  报告: .redteam_runs/{run_id}/AI300_Report.md")
+        print(f"  报告: reports/{run_id}/AI300_Report.md")
         print(f"{'='*60}")
 
         return {

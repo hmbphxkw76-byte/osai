@@ -146,17 +146,65 @@ class AIService(BaseModel):
     version: str = ""
     system_prompt_hints: list[str] = Field(default_factory=list)  # 探测到的系统提示片段
     guardrail_keywords: list[str] = Field(default_factory=list)   # 检测到的护栏关键词
+    guardrail_profile: Optional[GuardrailProfile] = None          # 护栏画像（侦察阶段填充）
     raw_probe_response: str = ""  # 原始探测响应用于后续分析
 
 
 # ===== 护栏画像 =====
+class GuardrailType(str, Enum):
+    """护栏产品指纹（AI-300 Ch2 侦察阶段识别）。"""
+    NONE = "none"                    # 无护栏
+    OPENAI_MODERATION = "openai_moderation"
+    AZURE_CONTENT_SAFETY = "azure_content_safety"
+    LLAMA_GUARD = "llama_guard"
+    NEMO_GUARDRAILS = "nemo_guardrails"
+    AWS_BEDROCK_GUARDRAILS = "aws_bedrock_guardrails"
+    CUSTOM_WEAK = "custom_weak"      # 自定义护栏，易绕过
+    CUSTOM_MEDIUM = "custom_medium"
+    CUSTOM_STRONG = "custom_strong"  # 自定义护栏，难绕过
+    UNKNOWN = "unknown"
+
+
+class ContentCategory(str, Enum):
+    """护栏过滤的内容类别（用于分类测试）。"""
+    HARMFUL_CONTENT = "harmful"       # 暴力/非法内容
+    SYSTEM_OVERRIDE = "system"        # 系统提示覆盖/指令注入
+    JAILBREAK = "jailbreak"           # 角色扮演/越狱
+    PII_EXTRACTION = "pii"            # 个人信息提取
+    CODE_EXECUTION = "code_exec"      # 代码生成/执行
+
+
 class GuardrailProfile(BaseModel):
-    """Agent 护栏检测机制画像（AI-300 Ch3 核心概念）。"""
+    """Agent 护栏检测机制画像（AI-300 Ch2+Ch3 完整版）。
+
+    三阶段分析：
+      1. 指纹识别：识别护栏产品/类型
+      2. 分类测试：检测哪些内容类别被阻断
+      3. 绕过评估：评估绕过难度并推荐 Phase 2 攻击策略
+    """
+    # 指纹
+    guardrail_type: GuardrailType = GuardrailType.UNKNOWN
+    guardrail_confidence: float = 0.0  # 指纹置信度 0-1
+
+    # 分类测试结果
+    blocked_categories: list[ContentCategory] = Field(default_factory=list)
+    category_results: dict[str, bool] = Field(default_factory=dict)  # category -> blocked?
+
+    # 绕过评估
+    bypass_difficulty: str = "unknown"  # none/easy/medium/hard
+
+    # Phase 2 攻击策略推荐（按优先级排序的 technique 列表）
+    recommended_techniques: list[str] = Field(default_factory=list)
+    discouraged_techniques: list[str] = Field(default_factory=list)
+
+    # 基础信息（向后兼容）
     input_blocked_phrases: list[str] = Field(default_factory=list)
     output_filtered_patterns: list[str] = Field(default_factory=list)
     rate_limit_rpm: int = 0
-    bypass_methods: list[str] = Field(default_factory=list)
     evasion_variants: list[str] = Field(default_factory=list)
+
+    # 原始探针结果（用于报告证据）
+    probe_evidence: list[dict] = Field(default_factory=list)
 
 
 # ===== 提示注入结果 =====
@@ -228,64 +276,6 @@ class ReconResult(BaseModel):
     risk_summary: dict[str, str] = Field(default_factory=dict)
 
 
-# ===== 向后兼容：AIMap 需要的旧模型 =====
-class AIFingerprint(BaseModel):
-    """AI 服务详细指纹（保留兼容 aimap_runner）。"""
-    protocol: str = ""
-    version: str = ""
-    tools: list[str] = Field(default_factory=list)
-    models: list[str] = Field(default_factory=list)
-    auth_required: bool = False
-    auth_type: str = ""
-    tls: bool = True
-    cors_open: bool = False
-    system_prompt_leaked: bool = False
-    uncensored_model: bool = False
-    risk_factors: list[str] = Field(default_factory=list)
-    raw_info: dict = Field(default_factory=dict)
-
-    @property
-    def risk_score(self) -> float:
-        score = 0.0
-        if not self.auth_required and self.auth_type == "none":
-            score += 4.0
-        elif self.auth_type == "unknown":
-            score += 1.0
-        if len(self.tools) >= 10:
-            score += 2.0
-        critical_tools = {"exec_code", "run_shell", "execute_command", "shell_exec", "run_command"}
-        ct_count = sum(1 for t in self.tools if t.lower() in critical_tools)
-        score += ct_count * 1.0
-        if self.cors_open:
-            score += 1.0
-        if not self.tls:
-            score += 0.5
-        if self.system_prompt_leaked:
-            score += 0.5
-        if self.uncensored_model:
-            score += 2.0
-        if not self.auth_required and ct_count > 0:
-            score += 1.0
-        return min(score, 10.0)
-
-
-class Endpoint(BaseModel):
-    """端点模型（保留兼容 aimap_runner）。"""
-    url: str
-    kind: str = "web"
-    method: str = "POST"
-    status_code: int = 0
-    tags: list[str] = Field(default_factory=list)
-    auth: Optional[AuthContext] = None
-    requires_auth: bool = False
-    discovered_by: Optional[str] = None
-    ai_fingerprint: Optional[AIFingerprint] = None
-    risk_score: float = 0.0
-    risk_level: str = ""
-    response_headers: dict = Field(default_factory=dict)
-    content_type: str = ""
-    tech_stack: list[str] = Field(default_factory=list)
-    page_type: str = ""
 
 
 # ===== 报告配置 =====

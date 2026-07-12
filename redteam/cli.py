@@ -108,8 +108,8 @@ def wizard() -> None:
 
     console.print("\n[bold green]评估完成![/]")
     console.print(f"  Run ID: {run_id}")
-    console.print(f"  报告: [cyan].redteam_runs/{run_id}/AI300_Report.md[/]")
-    console.print(f"  原始数据: .redteam_runs/{run_id}/")
+    console.print(f"  报告: [cyan]reports/{run_id}/AI300_Report.md[/]")
+    console.print(f"  原始数据: reports/{run_id}/")
 
 
 @app.command()
@@ -205,7 +205,7 @@ def report(run_id: str = typer.Argument(..., help="已有 run_id")) -> None:
     chain = AttackChain(**chain_data) if chain_data else None
 
     report = pipe.report_phase(run_id, recon, findings, chain)
-    console.print(f"[green]报告已生成[/] .redteam_runs/{run_id}/AI300_Report.md")
+    console.print(f"[green]报告已生成[/] reports/{run_id}/AI300_Report.md")
 
 
 def main() -> None:

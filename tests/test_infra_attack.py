@@ -1,7 +1,5 @@
-"""基础设施攻击模块测试（AI-300 Ch7+Ch8+Ch9）。"""
+"""基础设施攻击模块测试（AI-300 Ch8+Ch9）。"""
 from redteam.attack.infra_attack import (
-    _extract_mcp_tools,
-    _extract_mcp_vulns,
     _extract_context,
     check_supply_chain_risks,
     generate_infra_findings,
@@ -9,88 +7,6 @@ from redteam.attack.infra_attack import (
 from redteam.core.models import (
     AIService, OWASPLlm, MITREATLASTactic,
 )
-
-
-class TestExtractMCPTools:
-    """mcp-scan 输出解析测试。"""
-
-    def test_extract_json_name_format(self):
-        """解析 "name": "tool_name" JSON 格式。"""
-        output = """
-        {
-          "name": "exec_code",
-          "name": "read_file",
-          "name": "search_docs"
-        }
-        """
-        tools = _extract_mcp_tools(output)
-        assert "exec_code" in tools
-        assert "read_file" in tools
-        assert "search_docs" in tools
-
-    def test_extract_markdown_list_format(self):
-        """解析 Markdown 列表格式。"""
-        output = """
-        Available Tools:
-        - exec_code (Execute arbitrary code)
-        - read_file (Read file contents)
-        - query_database (Run SQL queries)
-        """
-        tools = _extract_mcp_tools(output)
-        assert "exec_code" in tools
-        assert "read_file" in tools
-        assert "query_database" in tools
-
-    def test_extract_empty(self):
-        assert _extract_mcp_tools("") == []
-
-    def test_extract_noise_handled(self):
-        """无工具信息的输出返回空列表。"""
-        output = "Connection refused. Server not found."
-        assert _extract_mcp_tools(output) == []
-
-    def test_extract_tool_function_pattern(self):
-        """解析 'tool: name' 或 'function: name' 格式。"""
-        output = "tool: exec_code\nfunction: run_shell\ntool_name: something"
-        tools = _extract_mcp_tools(output)
-        assert len(tools) >= 1
-
-
-class TestExtractMCPVulns:
-    """mcp-scan 漏洞提取测试。"""
-
-    def test_extract_prompt_injection(self):
-        output = "Found vulnerability: prompt injection in tool description"
-        vulns = _extract_mcp_vulns(output)
-        assert "prompt injection" in vulns
-
-    def test_extract_tool_poisoning(self):
-        output = "Warning: tool poisoning detected in exec_code"
-        vulns = _extract_mcp_vulns(output)
-        assert "tool poisoning" in vulns
-
-    def test_extract_cross_origin(self):
-        output = "cross-origin escalation possible via CORS misconfiguration"
-        vulns = _extract_mcp_vulns(output)
-        assert any("cross" in v.lower() for v in vulns)
-
-    def test_extract_rug_pull(self):
-        output = "Rug pull vulnerability: server changes tools after initialization"
-        vulns = _extract_mcp_vulns(output)
-        assert any("rug" in v.lower() for v in vulns)
-
-    def test_extract_cve(self):
-        output = "CVE-2024-1234 affects this component"
-        vulns = _extract_mcp_vulns(output)
-        assert any("CVE" in v for v in vulns)
-
-    def test_extract_empty(self):
-        assert _extract_mcp_vulns("no security issues found") == []
-
-    def test_multiple_vulns(self):
-        output = "prompt injection CVE-2024-1234 exploited, tool poisoning and rug pull detected"
-        vulns = _extract_mcp_vulns(output)
-        assert len(vulns) >= 3
 
 
 class TestExtractContext:
