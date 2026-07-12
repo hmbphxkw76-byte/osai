@@ -1,0 +1,89 @@
+# ---- 通用 AI 对话 / 补全 ----
+chat
+api/chat
+api/v1/chat
+chat/completions
+completions
+api/completions
+v1/completions
+v1/chat/completions
+api/chat/completions
+inference
+predict
+api/predict
+api/generate
+generate
+llm
+api/llm
+completion
+api/completion
+prompt
+api/prompt
+ask
+api/ask
+query
+api/query
+assistant
+api/assistant
+conversation
+api/conversation
+openai
+api/openai
+langserve
+langserve/playground
+
+# ---- RAG / 检索增强 ----
+rag
+api/rag
+rag/query
+retrieve
+api/retrieve
+search
+api/search
+knowledge
+ingest
+
+# ---- Embedding / 向量 ----
+embeddings
+api/embeddings
+v1/embeddings
+embedding
+api/embed
+vector
+similarity
+
+# ---- Agent ----
+agent
+api/agent
+agents
+agent/run
+tools
+functions
+execute
+run
+
+# ---- MCP (Model Context Protocol) ----
+mcp
+.well-known/mcp
+sse
+messages
+
+# ---- A2A (Agent-to-Agent) Agent Card ----
+.well-known/agent-card.json
+agent-card.json
+agent.json
+.well-known/agent.json
+
+# ---- 模型服务端点 (Ollama / vLLM / OpenAI 兼容) ----
+api/tags
+api/ps
+api/show
+api/models
+v1/models
+
+# ---- 常见 AI 前端 / 工作流 ----
+gradio
+gradio_api
+comfy
+comfyui
+api/comfy

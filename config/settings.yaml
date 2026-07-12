@@ -1,0 +1,21 @@
+# AI-300 红队评估配置
+recon:
+  concurrency: 10
+  timeout: 5                 # 单请求超时（秒）
+  # 开关
+  enable_aimap: auto         # AIMap AI 攻击面发现
+  enable_mcp_scan: auto      # mcp-scan MCP 组件扫描
+  proxy: ""
+
+# 持久化
+store:
+  dir: .redteam_runs
+
+# 报告
+report:
+  out_dir: reports
+
+# 外部工具路径
+tools:
+  aimap: tools/aimap
+  mcp_scan: mcp-scan

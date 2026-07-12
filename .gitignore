@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# 运行产物
+.redteam_runs/
+reports/
+auth_store/
+
+# 自动下载的外部二进制（由 scripts/install_tools.py 重新生成）
+tools/
+
+# 密钥 / 本地配置
+.env
+*.local.yaml
+
+# 编辑器
+.vscode/
+.idea/
