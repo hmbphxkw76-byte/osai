@@ -5,6 +5,8 @@ import tempfile
 from redteam.recon.auth_parse import (
     parse_headers, parse_headers_file, summarize,
     _is_cookie_string, _decode_basic_auth,
+    is_jwt, decode_jwt, encode_basic_auth, describe_auth,
+    _detect_credential_headers, _try_decode_credential_value,
 )
 
 SAMPLE = """GET /api/chat HTTP/1.1
@@ -211,3 +213,197 @@ def test_basic_auth_to_header_dict():
     b64 = headers["Authorization"][6:]
     decoded = base64.b64decode(b64).decode()
     assert decoded == "admin:pass"
+
+
+# ===== JWT 检测与解码测试 =====
+
+def test_is_jwt_valid():
+    """标准三段式 JWT 应返回 True。"""
+    assert is_jwt("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature") is True
+
+
+def test_is_jwt_invalid():
+    """非三段式 token 应返回 False。"""
+    assert is_jwt("just_a_random_string") is False
+    assert is_jwt("sk-1234567890abcdef") is False
+    assert is_jwt("") is False
+    assert is_jwt("a.b") is False
+    assert is_jwt("a.b.c.d") is False
+
+
+def test_decode_jwt():
+    """解码 JWT 应返回 header 和 payload。"""
+    # 构造一个简单的 JWT: header={"alg":"HS256"}, payload={"sub":"test","exp":9999999999}
+    import json
+    header_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
+    payload_b64 = base64.urlsafe_b64encode(json.dumps({"sub": "test", "exp": 9999999999}).encode()).rstrip(b"=").decode()
+    token = f"{header_b64}.{payload_b64}.sig"
+
+    h, p = decode_jwt(token)
+    assert h is not None
+    assert p is not None
+    assert h["alg"] == "HS256"
+    assert p["sub"] == "test"
+    assert p["exp"] == 9999999999
+
+
+def test_decode_jwt_invalid():
+    """无效 JWT 字符串应返回 (None, None)。"""
+    assert decode_jwt("not-a-jwt") == (None, None)
+    assert decode_jwt("") == (None, None)
+    assert decode_jwt("a.b") == (None, None)
+
+
+def test_decode_jwt_padded_payload():
+    """带填充的 JWT 也应正常解码。"""
+    import json
+    # 构造需要填充的 payload
+    payload = {"sub": "user123", "role": "admin"}
+    payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    header_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).decode().rstrip("=")
+    token = f"{header_b64}.{payload_b64}.sig"
+
+    h, p = decode_jwt(token)
+    assert p is not None
+    assert p["sub"] == "user123"
+    assert p["role"] == "admin"
+
+
+# ===== Basic Auth 编码测试 =====
+
+def test_encode_basic_auth():
+    """编码 Basic Auth 凭据。"""
+    encoded = encode_basic_auth("admin", "secret")
+    decoded = base64.b64decode(encoded).decode()
+    assert decoded == "admin:secret"
+
+
+def test_encode_basic_auth_special_chars():
+    """包含特殊字符的用户名/密码也能正确编码。"""
+    encoded = encode_basic_auth("user@domain", "p@ss:word!")
+    decoded = base64.b64decode(encoded).decode()
+    assert decoded == "user@domain:p@ss:word!"
+
+
+# ===== AuthContext.auth_type 测试 =====
+
+def test_auth_type_jwt():
+    """JWT Bearer token 应识别为 jwt 类型。"""
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig"
+    raw = f"Authorization: Bearer {token}\n"
+    auth = parse_headers(raw)
+    assert auth.auth_type == "jwt"
+
+
+def test_auth_type_jwt_cookie():
+    """JWT + Cookie 组合。"""
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig"
+    raw = f"Authorization: Bearer {token}\nCookie: session=abc\n"
+    auth = parse_headers(raw)
+    assert auth.auth_type == "jwt+cookie"
+
+
+def test_auth_type_cookie():
+    """纯 Cookie 认证。"""
+    raw = "Cookie: session=abc; token=xyz\n"
+    auth = parse_headers(raw)
+    assert auth.auth_type == "cookie"
+
+
+def test_auth_type_basic():
+    """Basic Auth 认证。"""
+    encoded = base64.b64encode(b"admin:pass").decode()
+    raw = f"Authorization: Basic {encoded}\n"
+    auth = parse_headers(raw)
+    assert auth.auth_type == "basic"
+
+
+def test_auth_type_api_key():
+    """API Key 认证。"""
+    raw = "X-API-Key: sk-abc123\n"
+    auth = parse_headers(raw)
+    assert auth.auth_type == "api_key"
+
+
+def test_auth_type_none():
+    """无认证信息。"""
+    from redteam.core.models import AuthContext
+    assert AuthContext().auth_type == "none"
+
+
+# ===== describe_auth 测试 =====
+
+def test_describe_auth_jwt():
+    """describe_auth 应包含 JWT 解码信息。"""
+    import json
+    payload = {"sub": "admin", "role": "admin", "exp": 9999999999}
+    header_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
+    payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    token = f"{header_b64}.{payload_b64}.sig"
+    raw = f"Authorization: Bearer {token}\n"
+    auth = parse_headers(raw)
+
+    desc = describe_auth(auth)
+    assert "JWT" in desc
+    assert "HS256" in desc
+    assert "role" in desc
+    assert "***" in desc  # sub 应被脱敏
+
+
+def test_describe_auth_cookie():
+    """describe_auth 应列出 cookie 信息。"""
+    raw = "Cookie: session=abc; csrftoken=xyz\n"
+    auth = parse_headers(raw)
+    desc = describe_auth(auth)
+    assert "Cookie" in desc
+    assert "session" in desc
+    assert "csrftoken" in desc
+
+
+def test_describe_auth_basic():
+    """describe_auth 应展示 Basic Auth 用户名和编码。"""
+    encoded = base64.b64encode(b"admin:secret").decode()
+    raw = f"Authorization: Basic {encoded}\n"
+    auth = parse_headers(raw)
+    desc = describe_auth(auth)
+    assert "Basic Auth" in desc
+    assert "admin" in desc
+
+
+def test_describe_auth_none():
+    """无认证时的输出。"""
+    from redteam.core.models import AuthContext
+    desc = describe_auth(AuthContext())
+    assert "无认证信息" in desc
+
+
+# ===== 凭据检测测试 =====
+
+def test_detect_credential_headers_base64():
+    """检测 Base64 编码的凭据。"""
+    encoded = base64.b64encode(b"user:password123").decode()
+    headers = {"X-Custom-Auth": encoded}
+    result = _detect_credential_headers(headers)
+    assert "X-Custom-Auth" in result
+    assert "Base64" in result["X-Custom-Auth"]
+    assert "user" in result["X-Custom-Auth"]
+    assert "password123" not in result["X-Custom-Auth"]  # 密码应被遮蔽
+
+
+def test_detect_credential_headers_none():
+    """无凭据的请求头应返回空字典。"""
+    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    result = _detect_credential_headers(headers)
+    assert result == {}
+
+
+# ===== summarize 包含 auth_type =====
+
+def test_summarize_includes_auth_type():
+    """summarize 现在应包含 auth_type 字段。"""
+    auth = parse_headers(SAMPLE)
+    stats = summarize(auth)
+    assert "auth_type" in stats
+    assert stats["auth_type"] in ("jwt+cookie", "jwt+cookie+api_key")
+    assert stats["cookies"] == 2
+    assert stats["bearer"] == 1

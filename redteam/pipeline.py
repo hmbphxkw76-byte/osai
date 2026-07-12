@@ -32,7 +32,7 @@ from redteam.core.models import (
 )
 from redteam.core.store import save_json, load_json, save_findings, make_run_id
 from redteam.core.tools import ToolResolver
-from redteam.recon.auth_parse import parse_headers, parse_headers_file
+from redteam.recon.auth_parse import parse_headers, parse_headers_file, describe_auth
 from redteam.recon.ai_surface import (
     discover_ai_services, passive_recon, profile_guardrails,
 )
@@ -105,8 +105,7 @@ class AIPipeline:
         elif header_text:
             auth = parse_headers(header_text)
         if auth:
-            summary = auth.mask()
-            print(f"[Auth] Cookie: {len(summary.cookies)} | Bearer: {bool(summary.bearer)} | APIKeys: {len(summary.api_keys)}")
+            print(describe_auth(auth))
 
         recon = ReconResult(target=target)
         all_services: list[AIService] = []
@@ -710,6 +709,8 @@ class AIPipeline:
             auth = parse_headers_file(header_file)
         elif header_text:
             auth = parse_headers(header_text)
+        if auth:
+            print(describe_auth(auth))
 
         # Phase 1: Recon (Ch2)
         if "recon" in phases:

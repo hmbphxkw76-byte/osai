@@ -106,6 +106,42 @@ class AuthContext(BaseModel):
     api_keys: dict[str, str] = Field(default_factory=dict)
     extra_headers: dict[str, str] = Field(default_factory=dict)
 
+    @property
+    def auth_type(self) -> str:
+        """返回认证类型组合标签。
+
+        Returns:
+            认证类型字符串，多个类型用 '+' 连接。
+            可能值: jwt, jwt+cookie, jwt+api_key, bearer, bearer+cookie,
+                    cookie, basic, api_key, none
+        """
+        types: list[str] = []
+
+        # 检测 JWT（三段 base64url 由点分隔）
+        is_jwt = False
+        if self.bearer:
+            parts = self.bearer.split(".")
+            if len(parts) == 3 and all(parts):
+                is_jwt = True
+
+        if is_jwt:
+            types.append("jwt")
+        elif self.bearer:
+            types.append("bearer")
+
+        if self.cookies:
+            types.append("cookie")
+
+        if self.basic_auth:
+            types.append("basic")
+
+        if self.api_keys:
+            types.append("api_key")
+
+        if not types:
+            return "none"
+        return "+".join(types)
+
     def to_header_dict(self) -> dict[str, str]:
         headers: dict[str, str] = {}
         if self.cookies:
@@ -147,6 +183,8 @@ class AIService(BaseModel):
     system_prompt_hints: list[str] = Field(default_factory=list)  # 探测到的系统提示片段
     guardrail_keywords: list[str] = Field(default_factory=list)   # 检测到的护栏关键词
     guardrail_profile: Optional[GuardrailProfile] = None          # 护栏画像（侦察阶段填充）
+    model_fingerprint: Optional[ModelFingerprint] = None          # 模型指纹（AI-300 Ch2.3）
+    rag_pipeline: Optional[RAGPipelineProfile] = None              # RAG 流水线画像（AI-300 Ch2.3）
     raw_probe_response: str = ""  # 原始探测响应用于后续分析
 
 
@@ -205,6 +243,91 @@ class GuardrailProfile(BaseModel):
 
     # 原始探针结果（用于报告证据）
     probe_evidence: list[dict] = Field(default_factory=list)
+
+
+# ===== 模型指纹（AI-300 Ch2.3 Model Fingerprinting） =====
+class ModelFingerprint(BaseModel):
+    """模型指纹识别结果（AI-300 Ch2.3 完整实现）。
+
+    五种指纹识别技术：
+      1. 直接身份探测：询问模型身份
+      2. 矛盾测试：用错误身份断言诱导纠正
+      3. 知识截止日期测试：询问特定日期后的事件
+      4. 行为特征测试：代码生成风格、响应详细程度
+      5. 上下文窗口测试：标记注入 + 溢出测试
+    """
+    # 模型身份信息
+    claimed_model: str = ""
+    claimed_vendor: str = ""
+    corrected_identity: str = ""  # 矛盾测试中模型纠正的身份
+    
+    # 知识截止日期
+    claimed_cutoff: str = ""
+    estimated_cutoff: str = ""  # 通过测试推断的截止日期
+    
+    # 行为特征
+    response_verbosity: str = ""  # concise / detailed / verbose
+    code_style: str = ""           # minimal / docstring / example
+    
+    # 能力边界
+    context_window_estimate: int = 0  # 估计的上下文窗口大小（token）
+    arithmetic_capability: str = ""   # weak / moderate / strong
+    reasoning_capability: str = ""    # weak / moderate / strong
+    
+    # 元数据泄露
+    metadata_provider: str = ""
+    metadata_model: str = ""
+    
+    # 置信度
+    identity_confidence: float = 0.0
+    fingerprint_confidence: float = 0.0
+
+
+# ===== RAG 流水线画像（AI-300 Ch2.3 RAG Pipeline Recon） =====
+class RAGSource(BaseModel):
+    """RAG 检索来源信息。"""
+    title: str = ""
+    chunk_id: str = ""
+    text_snippet: str = ""
+    vector_score: float = 0.0
+    bm25_score: float = 0.0
+    combined_score: float = 0.0
+
+
+class RAGPipelineProfile(BaseModel):
+    """RAG 流水线侦察画像（AI-300 Ch2.3 完整实现）。
+
+    侦察技术（文档完整覆盖）：
+      1. RAG 激活检测：通用知识 vs 公司特定查询
+      2. 来源引用提取：文档名、chunk ID、相似度分数
+      3. 知识库映射：跨多个主题探测收集文档名称
+      4. 检索阈值推断：精确术语 vs 同义词 vs 拼写错误
+      5. 嵌入模型身份识别：通过错误提示和响应特征推断
+      6. 向量数据库类型检测：分析响应格式和元数据
+      7. 分块边界探测：通过精确查询定位 chunk 边界
+      8. 嵌入相似度分析：比较不同查询的检索分数分布
+    """
+    # RAG 状态
+    rag_active: bool = False
+    retrieval_threshold: float = 0.0  # 估计的检索相似度阈值
+    
+    # 检索来源
+    known_sources: list[str] = Field(default_factory=list)  # 已知文档名称
+    source_details: list[RAGSource] = Field(default_factory=list)
+    
+    # 文档结构
+    chunking_strategy: str = ""  # text / ast_aware / semantic
+    estimated_chunk_size: int = 0
+    estimated_document_count: int = 0
+    
+    # 检索信息
+    retrieval_time_ms: float = 0.0
+    generation_time_ms: float = 0.0
+    
+    # 供应商信息
+    embedding_provider: str = ""
+    embedding_model: str = ""
+    vector_db_type: str = ""
 
 
 # ===== 提示注入结果 =====

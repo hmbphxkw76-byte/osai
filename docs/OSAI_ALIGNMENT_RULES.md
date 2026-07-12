@@ -254,13 +254,22 @@ ATLAS_TACTICS = [
 ```python
 TOOL_DEPENDENCIES = {
     "required": ["httpx", "pydantic", "numpy"],
-    "optional": ["pyrit", "aimap", "mcp-scan"],
+    "optional": ["pyrit"],
 }
 ```
 
 ### 6.2 Fallback 强制要求
 
 每个使用外部工具的函数必须有 **纯 Python fallback**。
+
+### 6.3 禁止依赖
+
+- **禁止依赖外部小众 CLI 工具**（如 AIMap、mcp-scan、snyk-agent-scan）
+- **禁止依赖非 Kali 标准源的工具**
+- 仅允许：
+  - 纯 Python 库（httpx, pydantic, numpy 等）
+  - Kali 官方仓库预装工具（nmap, curl, sqlmap）
+  - Python 标准库已包含的功能
 
 ---
 
@@ -305,8 +314,6 @@ TOOL_DEPENDENCIES = {
 |-------------|------|---------|
 | Ch2: AI目标侦察 | recon/ai_surface.py | 攻击面发现、护栏画像 |
 | Ch2: AI目标侦察 | recon/auth_parse.py | 认证机制解析 |
-| Ch2: AI目标侦察 | recon/aimap_runner.py | AIMap集成 |
-| Ch2: AI目标侦察 | recon/mcp_scan_runner.py | MCP扫描 |
 | Ch3: 攻击AI智能体 | attack/prompt_inject.py | 提示注入、越狱 |
 | Ch3: 攻击AI智能体 | attack/agent_attack.py | Agent攻击 |
 | Ch4: 多智能体系统 | attack/agent_attack.py | 跨智能体注入 |

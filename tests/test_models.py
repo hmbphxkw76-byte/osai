@@ -55,6 +55,54 @@ class TestAuthContext:
         assert masked.bearer == "***"
         assert masked.cookies["session"] == "***"
 
+    def test_auth_type_jwt(self):
+        """JWT 格式 bearer token 应识别为 jwt。"""
+        auth = AuthContext(bearer="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig")
+        assert auth.auth_type == "jwt"
+
+    def test_auth_type_jwt_cookie(self):
+        """JWT + Cookie 组合认证。"""
+        auth = AuthContext(
+            bearer="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig",
+            cookies={"session": "abc123"},
+        )
+        assert auth.auth_type == "jwt+cookie"
+
+    def test_auth_type_bearer(self):
+        """非 JWT 格式的 bearer token。"""
+        auth = AuthContext(bearer="sk-1234567890abcdef")
+        assert auth.auth_type == "bearer"
+
+    def test_auth_type_cookie(self):
+        """纯 Cookie 认证。"""
+        auth = AuthContext(cookies={"session": "abc", "token": "xyz"})
+        assert auth.auth_type == "cookie"
+
+    def test_auth_type_basic(self):
+        """Basic Auth 认证。"""
+        from redteam.core.models import BasicAuth
+        auth = AuthContext(basic_auth=BasicAuth(username="admin", password="pass"))
+        assert auth.auth_type == "basic"
+
+    def test_auth_type_api_key(self):
+        """API Key 认证。"""
+        auth = AuthContext(api_keys={"X-API-Key": "sk-abc"})
+        assert auth.auth_type == "api_key"
+
+    def test_auth_type_none(self):
+        """无认证信息。"""
+        assert AuthContext().auth_type == "none"
+
+    def test_auth_type_multiple(self):
+        """多种认证类型组合。"""
+        from redteam.core.models import BasicAuth
+        auth = AuthContext(
+            bearer="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig",
+            cookies={"session": "abc"},
+            api_keys={"X-API-Key": "sk-xyz"},
+        )
+        assert auth.auth_type == "jwt+cookie+api_key"
+
 
 class TestFinding:
     def test_create_with_owasp(self):

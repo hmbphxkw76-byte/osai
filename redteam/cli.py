@@ -21,6 +21,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 from .pipeline import AIPipeline
+from .recon.auth_parse import parse_headers, parse_headers_file
 
 app = typer.Typer(
     help="RedTeam_AI — AI-300 红队自动化攻击流水线",
@@ -52,6 +53,13 @@ def wizard() -> None:
 
     pipe = AIPipeline()
 
+    # 预解析认证（供后续所有阶段使用，同时 recon_phase 内部也会 re-parse 并打印详情）
+    auth = None
+    if header_file:
+        auth = parse_headers_file(header_file)
+    elif header_text:
+        auth = parse_headers(header_text)
+
     with console.status("[cyan]Phase 1: AI 攻击面侦察...[/]"):
         run_id, recon, services = pipe.recon_phase(
             target,
@@ -78,24 +86,23 @@ def wizard() -> None:
         console.print("[yellow]未发现 AI 服务，尝试推进后续阶段（可能无效果）[/]")
 
     with console.status("[cyan]Phase 2: 提示注入攻击...[/]"):
-        auth = None  # recon_phase 已处理
-        inj_findings, chain = pipe.injection_phase(run_id, recon, services)
+        inj_findings, chain = pipe.injection_phase(run_id, recon, services, auth)
     console.print(f"[green]✓[/] 注入阶段完成，发现 {len(inj_findings)} 个漏洞")
 
     with console.status("[cyan]Phase 3: Agent 攻击...[/]"):
-        agent_findings = pipe.agent_attack_phase(run_id, services)
+        agent_findings = pipe.agent_attack_phase(run_id, services, auth)
     console.print("[green]✓[/] Agent 攻击完成")
 
     with console.status("[cyan]Phase 4: RAG 攻击...[/]"):
-        rag_findings = pipe.rag_attack_phase(run_id, services)
+        rag_findings = pipe.rag_attack_phase(run_id, services, auth)
     console.print("[green]✓[/] RAG 攻击完成")
 
     with console.status("[cyan]Phase 5: 嵌入模型攻击...[/]"):
-        emb_findings = pipe.embeddings_attack_phase(run_id, services)
+        emb_findings = pipe.embeddings_attack_phase(run_id, services, auth)
     console.print("[green]✓[/] 嵌入攻击完成")
 
     with console.status("[cyan]Phase 6: AI 供应链攻击...[/]"):
-        sc_findings = pipe.supply_chain_phase(run_id, services)
+        sc_findings = pipe.supply_chain_phase(run_id, services, auth)
     console.print("[green]✓[/] 供应链攻击完成")
 
     with console.status("[cyan]Phase 7: MCP + 基础设施攻击...[/]"):
