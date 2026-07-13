@@ -238,8 +238,14 @@ class GuardrailProfile(BaseModel):
     # 基础信息（向后兼容）
     input_blocked_phrases: list[str] = Field(default_factory=list)
     output_filtered_patterns: list[str] = Field(default_factory=list)
-    rate_limit_rpm: int = 0
     evasion_variants: list[str] = Field(default_factory=list)
+
+    # 速率限制信息（TCM rate_limit_tester.py / temperature_probe.py 融合）
+    rate_limit_detected: bool = False
+    rate_limit_rpm: int = 0
+    rate_limit_status_code: int = 0
+    rate_limit_error_message: str = ""
+    rate_limit_retry_after: str = ""
 
     # 原始探针结果（用于报告证据）
     probe_evidence: list[dict] = Field(default_factory=list)
@@ -249,12 +255,14 @@ class GuardrailProfile(BaseModel):
 class ModelFingerprint(BaseModel):
     """模型指纹识别结果（AI-300 Ch2.3 完整实现）。
 
-    五种指纹识别技术：
+    七种指纹识别技术：
       1. 直接身份探测：询问模型身份
       2. 矛盾测试：用错误身份断言诱导纠正
       3. 知识截止日期测试：询问特定日期后的事件
       4. 行为特征测试：代码生成风格、响应详细程度
       5. 上下文窗口测试：标记注入 + 溢出测试
+      6. 能力边界测试：算术能力、推理能力
+      7. 确定性测试：多次相同请求的响应一致性
     """
     # 模型身份信息
     claimed_model: str = ""
@@ -273,6 +281,16 @@ class ModelFingerprint(BaseModel):
     context_window_estimate: int = 0  # 估计的上下文窗口大小（token）
     arithmetic_capability: str = ""   # weak / moderate / strong
     reasoning_capability: str = ""    # weak / moderate / strong
+    
+    # 确定性分析（TCM temperature_probe.py 融合）
+    is_deterministic: bool = False
+    unique_response_count: int = 0
+    total_response_count: int = 0
+    response_variance: float = 0.0
+    avg_response_length_tokens: float = 0.0
+    median_response_length_tokens: float = 0.0
+    min_response_length_tokens: int = 0
+    max_response_length_tokens: int = 0
     
     # 元数据泄露
     metadata_provider: str = ""

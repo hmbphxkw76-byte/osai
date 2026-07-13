@@ -42,6 +42,31 @@ from .agent.multi_agent import (
     cross_agent_attack,
 )
 
+# RAG 攻击（Ch5）
+from .rag import (
+    probe_vector_dbs,
+    RAG_POISON_PAYLOADS,
+    inject_rag_poison,
+    check_retrieval_leakage,
+    generate_rag_findings,
+)
+
+# 供应链攻击（Ch8）
+from .supply_chain import (
+    detect_hf_model_source,
+    check_pickle_deserialization_risk,
+    check_dataset_poisoning_risks,
+    check_dependency_risks,
+    generate_supply_chain_findings,
+)
+
+# 基础设施攻击（Ch9）
+from .infra import (
+    scan_cloud_misconfigs,
+    check_supply_chain_risks,
+    generate_infra_findings,
+)
+
 __all__ = [
     # 核心引擎
     "AttackRunner",
@@ -63,4 +88,20 @@ __all__ = [
     # 多智能体攻击
     "CROSS_AGENT_PAYLOADS",
     "cross_agent_attack",
+    # RAG 攻击
+    "probe_vector_dbs",
+    "RAG_POISON_PAYLOADS",
+    "inject_rag_poison",
+    "check_retrieval_leakage",
+    "generate_rag_findings",
+    # 供应链攻击
+    "detect_hf_model_source",
+    "check_pickle_deserialization_risk",
+    "check_dataset_poisoning_risks",
+    "check_dependency_risks",
+    "generate_supply_chain_findings",
+    # 基础设施攻击
+    "scan_cloud_misconfigs",
+    "check_supply_chain_risks",
+    "generate_infra_findings",
 ]

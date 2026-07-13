@@ -8,6 +8,8 @@ provider:
 
 # RedTeam-AI 开发规范
 
+**符合最佳实践原则优先**
+
 ## 项目背景
 
 本项目是一个 AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 AI 红队评估。
@@ -110,8 +112,9 @@ provider:
 ### R3：手动攻击能力保留原则
 
 - 所有自动化攻击函数必须同时暴露手动入口（`manual` 参数）
-- Payload 库必须以 JSON/YAML 格式存储在 `config/wordlists/` 目录
+- Payload 库必须以 YAML 格式存储在 `config/payloads/` 目录，按 OWASP LLM Top 10 分类组织
 - 每个攻击模块必须包含 curl 命令示例注释
+- 代码中保留 Python fallback 常量，确保 YAML 文件缺失时仍能正常运行
 
 ### R4：报告对齐 OSAI 评分标准
 

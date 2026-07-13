@@ -7,6 +7,10 @@ recon:
   ai_wordlist: config/wordlists/ai_paths.txt   # AI 端点探测词表路径
   proxy: ""
 
+# 攻击载荷库
+payload:
+  dir: config/payloads        # 攻击载荷 YAML 文件存放目录
+
 # 持久化
 store:
   dir: reports

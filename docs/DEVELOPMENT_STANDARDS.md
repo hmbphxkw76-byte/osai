@@ -1,5 +1,7 @@
 # RedTeam-AI 开发标准 v2.1
 
+> **符合最佳实践原则优先**
+
 > 基于 OffSec AI-300 (OSAI) 课程大纲 + 当前代码实现梳理
 > 最后更新：2026-07-12
 
@@ -214,7 +216,7 @@ Finding(
 - 模块文件：`snake_case.py`
 - 测试文件：`test_*.py`，放在 `tests/` 目录
 - 配置：`config/*.yaml`
-- 词表：`config/wordlists/*.txt`
+- 词表：`config/wordlists/*.txt`（符合最佳实践原则优先）
 
 ### 5.3 文档字符串
 - 每个公开函数必须有 docstring

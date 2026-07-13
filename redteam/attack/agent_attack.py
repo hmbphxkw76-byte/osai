@@ -20,6 +20,7 @@ from redteam.attack.agent import (
     cross_agent_attack,
     generate_agent_attack_findings,
 )
+from redteam.attack.agent.prompt_inject import _send_injection
 
 from redteam.attack.core import PyRITAttackRunner, is_pyrit_available
 from redteam.core.models import AIService, AuthContext, PromptInjectionResult
@@ -99,4 +100,5 @@ __all__ = [
     "cross_agent_attack",
     "run_agent_attack_with_pyrit",
     "generate_agent_attack_findings",
+    "_send_injection",
 ]
