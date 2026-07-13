@@ -10,6 +10,8 @@
   - cascading_failure.py: 级联故障（ASI08）
   - trust_exploitation.py: 人机信任利用（ASI09）
   - rogue_agent.py: 流氓代理（ASI10）
+  - crescendo_attack.py: Crescendo 多轮对话升级攻击（Ch4）
+  - tap_attack.py: TAP 带剪枝攻击树算法（Ch4）
 
 双通道执行：
   - PyRIT 评分器：SelfAskTrueFalseScorer（LLM-as-Judge）替代关键词护栏检测
@@ -58,6 +60,8 @@ from .rogue_agent import (
     ROGUE_AGENT_PAYLOADS,
     create_rogue_agent,
 )
+from .crescendo_attack import crescendo_attack
+from .tap_attack import tap_attack
 from .findings import (
     generate_agent_attack_findings,
 )
@@ -74,7 +78,7 @@ __all__ = [
     "CASCADING_FAILURE_PAYLOADS",
     "TRUST_EXPLOITATION_PAYLOADS",
     "ROGUE_AGENT_PAYLOADS",
-    # 攻击函数
+    # 单轮攻击函数
     "test_indirect_injection",
     "poison_agent_memory",
     "hijack_agent_tools",
@@ -85,6 +89,9 @@ __all__ = [
     "trigger_cascading_failures",
     "exploit_human_trust",
     "create_rogue_agent",
+    # 多轮攻击函数（Ch4）
+    "crescendo_attack",
+    "tap_attack",
     # Findings 生成
     "generate_agent_attack_findings",
 ]
