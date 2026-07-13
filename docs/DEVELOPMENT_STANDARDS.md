@@ -261,6 +261,26 @@ tests/
 - 测试数据使用**合成数据**，严禁真实 API 密钥或凭据
 - 每新增一个模块，测试文件同步新增
 
+### 6.3 临时文件清理规则
+
+**AI 会话产生的临时文件必须在任务完成后立即删除，不得残留在工作区。**
+
+临时文件命名规范（均已在 `.gitignore` 中忽略）：
+
+| 模式 | 示例 | 说明 |
+|------|------|------|
+| `_*.py` | `_fix_yaml_colons.py`, `_validate_scenarios.py` | 临时调试/修复/验证脚本 |
+| `.temp_*.py` | `.temp_extract.py` | AI 会话数据提取脚本 |
+| `.temp_*.txt` | `.temp_Ch3.txt`, `.temp_exam_all.txt` | 临时章节课件/考试资料提取 |
+| `pytest_*.txt` | `pytest_output.txt`, `pytest_yaml_final.txt` | 临时 pytest 输出 |
+| `validate_*.txt` | `validate_real.txt` | 临时验证输出 |
+| `tmp_*.txt` / `tmp_*.log` | — | 通用临时输出文件 |
+
+**规则：**
+- AI 助手在会话结束时**必须主动删除**自己创建的临时文件
+- 确认删除前检查文件是否为 AI 会话产生的临时产物
+- 有用的临时脚本应移至 `scripts/` 目录并提交版本控制
+
 ---
 
 ## 七、配置文件规范
@@ -285,6 +305,36 @@ report:
 - 功能开关使用三态：`true`（启用）/ `false`（禁用）/ `auto`（自动检测）
 - 工具路径使用绝对路径或 `$PATH` 可解析的名称
 - 禁止在配置文件中存储凭据（API 密钥等通过环境变量获取）
+
+### 7.3 YAML 引号规范（重要）
+
+**中文引号必须使用 Unicode 全角引号，禁止 ASCII 双引号：**
+
+```yaml
+# 正确: description 字段使用中文全角引号 \u201c \u201d
+description: "使模型在\u201c虚假证据\u201d上编造"     # ✅ YAML 解析通过
+
+# 错误: ASCII 双引号 0x22 与外层 YAML 双引号冲突
+description: "使模型在"虚假证据"上编造"               # ❌ YAML 解析失败！
+```
+
+**问题根因：** 当 YAML 字符串用双引号 `"..."` 包裹时，内部出现的 ASCII `"` (0x22) 会被解析器视为字符串终止符，导致后续内容解析失败。
+
+**规则：**
+- 在 YAML `description` 或其他双引号字符串字段中，中文引号使用 `\u201c`（左）和 `\u201d`（右）
+- 或在编辑器中直接输入中文全角引号 `""`（U+201C/U+201D），而非 ASCII `""` (U+0022)
+- 同理适用于 `'...'` 单引号字符串中的中文单引号，应使用 `''`（U+2018/U+2019）
+
+**检查方法：**
+```python
+# 检测 YAML 描述中的 ASCII 引号冲突
+python -c "
+with open('file.yaml', 'r', encoding='utf-8') as f:
+    for i, line in enumerate(f, 1):
+        if 'description:' in line and line.count(chr(0x22)) > 2:
+            print(f'Line {i}: QUOTE CONFLICT')
+"
+```
 
 ---
 

@@ -35,37 +35,161 @@ class AttackTargetType(str, Enum):
 
 
 class AttackStrategy(str, Enum):
-    """攻击策略枚举 — AI-300考试高频策略优先。"""
+    """攻击策略枚举 — AI-300考试高频策略优先。
 
+    按攻击领域分类：
+      - 侦察：probe, recon, permission_map
+      - 注入：direct_inject, indirect_inject, jailbreak
+      - 编码：base64, rot13, unicode, leetspeak, morse, encoding
+      - 语义：roleplay, stealth, academic, translation
+      - 高级：crescendo, tap, pair, flip, adversarial_suffix, many_shot
+      - Agent/工具：memory_poison, system_prompt_extract, goal_hijack, tool_hijack, parameter_pollution, cross_agent
+      - RAG/向量：rag_poison, retrieval_leak, vector_db_attack
+      - Embeddings: membership_inference, attribute_inference, embedding_inversion, adversarial_embedding, unicode_embedding, vector_perturbation
+      - 供应链：dataset_poison, dependency_trojan, config_json_hijack, code_obfuscation, dependency_hiding
+      - 云/基础设施：cloud_misconfig, ssrf, metadata_extract, iam_enum, policy_read, trust_chain_map, passrole, role_assumption, privilege_esc, s3_access, secrets_enum, service_discovery, sagemaker_abuse, mlflow_rce, model_deploy
+      - MCP投毒：tool_poison, system_instruct_inject, keyword_trigger, chain_execution, data_exfil, lateral_movement, ui_spoof, credential_theft, phishing, dual_layer
+      - 规避：character_spacing, payload_splitting, css_hidden
+      - A2A/多Agent：cross_agent_inject, dns_spoof, workflow_bypass, sql_inject_via_agent
+      - 前沿：frontier
+    """
+
+    # 侦察
     PROBE = "probe"
+    RECON = "recon"
+    PERMISSION_MAP = "permission_map"
+
+    # 注入
     DIRECT_INJECT = "direct_inject"
     INDIRECT_INJECT = "indirect_inject"
     JAILBREAK = "jailbreak"
+
+    # 编码
     BASE64 = "base64"
     ROT13 = "rot13"
     UNICODE = "unicode"
     LEETSPEAK = "leetspeak"
     MORSE = "morse"
+    ENCODING = "encoding"                     # 泛用编码绕过
+
+    # 语义
     ROLEPLAY = "roleplay"
     STEALTH = "stealth"
     ACADEMIC = "academic"
     TRANSLATION = "translation"
+
+    # 高级 (PyRIT 多轮)
     CRESCENDO = "crescendo"
     TAP = "tap"
     PAIR = "pair"
     FLIP = "flip"
+    ADVERSARIAL_SUFFIX = "adversarial_suffix"  # GCG 对抗性后缀
+    MANY_SHOT = "many_shot"                    # Many-Shot 越狱
+
+    # Agent/工具攻击
     MEMORY_POISON = "memory_poison"
     SYSTEM_PROMPT_EXTRACT = "system_prompt_extract"
     GOAL_HIJACK = "goal_hijack"
     TOOL_HIJACK = "tool_hijack"
     PARAMETER_POLLUTION = "parameter_pollution"
     CROSS_AGENT = "cross_agent"
+
+    # RAG/向量
     RAG_POISON = "rag_poison"
     RETRIEVAL_LEAK = "retrieval_leak"
     VECTOR_DB_ATTACK = "vector_db_attack"
+
+    # Embedding 攻击 (Ch6)
+    MEMBERSHIP_INFERENCE = "membership_inference"
+    ATTRIBUTE_INFERENCE = "attribute_inference"
+    EMBEDDING_INVERSION = "embedding_inversion"
+    ADVERSARIAL_EMBEDDING = "adversarial_embedding"
+    UNICODE_EMBEDDING = "unicode_embedding"
+    VECTOR_PERTURBATION = "vector_perturbation"
+
+    # 供应链 (Ch8)
     DATASET_POISON = "dataset_poison"
     DEPENDENCY_TROJAN = "dependency_trojan"
+    CONFIG_JSON_HIJACK = "config_json_hijack"
+    CODE_OBFUSCATION = "code_obfuscation"
+    DEPENDENCY_HIDING = "dependency_hiding"
+
+    # 云/基础设施 (Ch9)
     CLOUD_MISCONFIG = "cloud_misconfig"
+    SSRF = "ssrf"
+    METADATA_EXTRACT = "metadata_extract"
+    IAM_ENUM = "iam_enum"
+    POLICY_READ = "policy_read"
+    TRUST_CHAIN_MAP = "trust_chain_map"
+    PASSROLE = "passrole"
+    ROLE_ASSUMPTION = "role_assumption"
+    PRIVILEGE_ESC = "privilege_esc"
+    S3_ACCESS = "s3_access"
+    SECRETS_ENUM = "secrets_enum"
+    SERVICE_DISCOVERY = "service_discovery"
+    SAGEMAKER_ABUSE = "sagemaker_abuse"
+    MLFLOW_RCE = "mlflow_rce"
+    MODEL_DEPLOY = "model_deploy"
+
+    # MCP 投毒 (Ch7)
+    TOOL_POISON = "tool_poison"
+    TOOL_DESCRIBE_POISON = "tool_describe_poison"  # 工具描述投毒
+    SYSTEM_INSTRUCT_INJECT = "system_instruct_inject"
+    KEYWORD_TRIGGER = "keyword_trigger"
+    CHAIN_EXECUTION = "chain_execution"
+    DATA_EXFIL = "data_exfil"
+    LATERAL_MOVEMENT = "lateral_movement"
+    UI_SPOOF = "ui_spoof"
+    CREDENTIAL_THEFT = "credential_theft"
+    PHISHING = "phishing"
+    DUAL_LAYER = "dual_layer"
+
+    # 规避 (SIEM/检测绕过)
+    CHARACTER_SPACING = "character_spacing"    # 字符间隔绕过
+    PAYLOAD_SPLITTING = "payload_splitting"    # 载荷拆分
+    CSS_HIDDEN = "css_hidden"                  # CSS 隐藏注入
+    DOCUMENT_SPLITTING = "document_splitting"  # 文档拆分规避
+    LOG_INJECTION = "log_injection"            # 日志注入规避
+    TRAFFIC_MASKING = "traffic_masking"        # 流量伪装
+
+    # RAG 专用策略 (Ch5)
+    CROSS_DOC_SPLIT = "cross_doc_split"        # 跨文档指令拆分
+
+    # LLM09 误导信息专用策略
+    BOUNDARY_TEST = "boundary_test"            # 知识边界探测
+    HALLUCINATION_INDUCE = "hallucination_induce"  # 幻觉诱导
+    AUTHORITY_HIJACK = "authority_hijack"      # 权威性接管
+    FAKE_CITATION = "fake_citation"            # 虚假引用生成
+    SOCIAL_ENGINEERING = "social_engineering"  # 深度伪造社工
+    IMPERSONATION = "impersonation"            # 身份冒充
+    CHAIN_HALLUCINATION = "chain_hallucination" # 链式幻觉
+
+    # 模型检查点攻击专用策略 (Ch8)
+    CHECKPOINT_ENUM = "checkpoint_enum"        # 检查点侦察
+    EPOCH_OVERRIDE = "epoch_override"          # 高Epoch覆盖
+    AUTO_LOADER_ABUSE = "auto_loader_abuse"    # 自动加载器利用
+    CHECKPOINT_POISON = "checkpoint_poison"    # 检查点投毒
+    SAFETENSOR_BYPASS = "safetensor_bypass"    # SafeTensors绕过
+    GGUF_EXPLOIT = "gguf_exploit"              # GGUF格式利用
+    FORMAT_CONFUSION = "format_confusion"      # 格式混淆
+    NAMESPACE_REUSE = "namespace_reuse"        # 命名空间复用
+    REPO_HIJACK = "repo_hijack"                # 仓库劫持
+    TOKEN_ABUSE = "token_abuse"                # Token滥用
+    JOBLIB_RCE = "joblib_rce"                  # Joblib RCE
+    IMPORT_HIJACK = "import_hijack"            # Python导入劫持
+
+    # 基础设施专用策略 (Ch9)
+    K8S_ESCAPE = "k8s_escape"                  # K8s容器逃逸
+    CONTAINER_BREAKOUT = "container_breakout"  # 容器突破
+    CREDENTIAL_EXPOSURE = "credential_exposure" # 凭证暴露
+
+    # A2A/多Agent 专用策略
+    CROSS_AGENT_INJECT = "cross_agent_inject"  # 跨Agent间接注入
+    DNS_SPOOF = "dns_spoof"                    # Agent Card DNS欺骗
+    WORKFLOW_BYPASS = "workflow_bypass"        # 工作流完整性绕过
+    SQL_INJECT_VIA_AGENT = "sql_inject_via_agent"  # 通过Agent的SQL注入
+
+    # 前沿
     FRONTIER = "frontier"
 
 
@@ -98,6 +222,9 @@ class AttackPhaseType(str, Enum):
     DESERIALIZATION = "deserialization"
     ACCESS = "access"
     EVASION = "evasion"
+    INFERENCE = "inference"          # 嵌入推断阶段 (Ch6)
+    ENUMERATION = "enumeration"      # IAM/权限枚举阶段 (Ch9)
+    LATERAL = "lateral"              # 横向移动阶段 (Ch9)
     FRONTIER = "frontier"
 
 
@@ -371,19 +498,28 @@ STRATEGY_TO_CONVERTER_MAP: dict[AttackStrategy, list[str]] = {
     AttackStrategy.PAIR: ["PairConverter"],
     AttackStrategy.FLIP: ["FlipConverter"],
     AttackStrategy.JAILBREAK: ["RoleplayJailbreakConverter"],
+    AttackStrategy.ADVERSARIAL_SUFFIX: ["PairConverter"],      # GCG 后缀 → PAIR
+    AttackStrategy.MANY_SHOT: ["TapConverter"],                # Many-Shot → TAP
+    # 以下策略无 PyRIT converter（纯 payload 层面操作）
+    AttackStrategy.CHARACTER_SPACING: [],
+    AttackStrategy.PAYLOAD_SPLITTING: [],
+    AttackStrategy.CSS_HIDDEN: [],
+    AttackStrategy.ENCODING: [],
 }
 
 PHASE_DEFAULT_STRATEGIES: dict[AttackPhaseType, list[AttackStrategy]] = {
-    AttackPhaseType.PROBE: [AttackStrategy.PROBE],
+    AttackPhaseType.PROBE: [AttackStrategy.PROBE, AttackStrategy.RECON],
     AttackPhaseType.ENCODING: [AttackStrategy.BASE64, AttackStrategy.ROT13, AttackStrategy.UNICODE],
     AttackPhaseType.SEMANTIC: [AttackStrategy.ROLEPLAY, AttackStrategy.STEALTH, AttackStrategy.TRANSLATION],
-    AttackPhaseType.ADVANCED: [AttackStrategy.CRESCENDO, AttackStrategy.TAP, AttackStrategy.PAIR],
+    AttackPhaseType.ADVANCED: [AttackStrategy.CRESCENDO, AttackStrategy.TAP, AttackStrategy.PAIR, AttackStrategy.ADVERSARIAL_SUFFIX, AttackStrategy.MANY_SHOT],
+    AttackPhaseType.EVASION: [AttackStrategy.CHARACTER_SPACING, AttackStrategy.PAYLOAD_SPLITTING, AttackStrategy.CSS_HIDDEN, AttackStrategy.ENCODING],
     AttackPhaseType.FRONTIER: [AttackStrategy.FRONTIER],
 }
 
 TARGET_DEFAULT_STRATEGIES: dict[AttackTargetType, list[AttackStrategy]] = {
     AttackTargetType.AGENT: [
         AttackStrategy.PROBE,
+        AttackStrategy.RECON,
         AttackStrategy.DIRECT_INJECT,
         AttackStrategy.INDIRECT_INJECT,
         AttackStrategy.JAILBREAK,
@@ -391,6 +527,24 @@ TARGET_DEFAULT_STRATEGIES: dict[AttackTargetType, list[AttackStrategy]] = {
         AttackStrategy.ROLEPLAY,
         AttackStrategy.MEMORY_POISON,
         AttackStrategy.SYSTEM_PROMPT_EXTRACT,
+        AttackStrategy.GOAL_HIJACK,
+        AttackStrategy.TOOL_HIJACK,
+        AttackStrategy.ADVERSARIAL_SUFFIX,
+        AttackStrategy.CROSS_AGENT_INJECT,
+    ],
+    AttackTargetType.MULTI_AGENT: [
+        AttackStrategy.PROBE,
+        AttackStrategy.RECON,
+        AttackStrategy.DIRECT_INJECT,
+        AttackStrategy.INDIRECT_INJECT,
+        AttackStrategy.JAILBREAK,
+        AttackStrategy.BASE64,
+        AttackStrategy.SYSTEM_PROMPT_EXTRACT,
+        AttackStrategy.CROSS_AGENT,
+        AttackStrategy.CROSS_AGENT_INJECT,
+        AttackStrategy.DNS_SPOOF,
+        AttackStrategy.WORKFLOW_BYPASS,
+        AttackStrategy.SQL_INJECT_VIA_AGENT,
         AttackStrategy.GOAL_HIJACK,
         AttackStrategy.TOOL_HIJACK,
     ],
@@ -436,6 +590,8 @@ TARGET_DEFAULT_STRATEGIES: dict[AttackTargetType, list[AttackStrategy]] = {
         AttackStrategy.ROT13,
         AttackStrategy.ROLEPLAY,
         AttackStrategy.STEALTH,
+        AttackStrategy.ADVERSARIAL_SUFFIX,
+        AttackStrategy.CHARACTER_SPACING,
     ],
 }
 

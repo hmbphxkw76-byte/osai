@@ -1,5 +1,5 @@
 owasp: LLM02
-technique_group: sensitive_information_disclosure
+technique_group: sensitive_info
 description: 敏感信息泄露攻击载荷 — AI-300 Ch2+Ch3，探测LLM输出的隐私数据泄露
 payloads:
   - technique: prompt_extraction

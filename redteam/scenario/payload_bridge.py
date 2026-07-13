@@ -35,6 +35,8 @@ STRATEGY_TO_PAYLOAD_CATEGORIES: dict[AttackStrategy, list[str]] = {
     AttackStrategy.TAP: ["llm01"],
     AttackStrategy.PAIR: ["llm01"],
     AttackStrategy.FLIP: ["llm01"],
+    AttackStrategy.ADVERSARIAL_SUFFIX: ["llm01"],   # GCG 后缀
+    AttackStrategy.MANY_SHOT: ["llm01"],              # Many-Shot 越狱
     AttackStrategy.FRONTIER: ["llm01"],
 
     # LLM02: 不安全输出处理
@@ -59,6 +61,94 @@ STRATEGY_TO_PAYLOAD_CATEGORIES: dict[AttackStrategy, list[str]] = {
     AttackStrategy.VECTOR_DB_ATTACK: ["llm08"],
     AttackStrategy.CLOUD_MISCONFIG: ["llm05", "llm10"],
 
+    # Embedding 攻击 (Ch6)
+    AttackStrategy.MEMBERSHIP_INFERENCE: ["llm08"],
+    AttackStrategy.ATTRIBUTE_INFERENCE: ["llm08"],
+    AttackStrategy.EMBEDDING_INVERSION: ["llm08"],
+    AttackStrategy.ADVERSARIAL_EMBEDDING: ["llm08"],
+    AttackStrategy.UNICODE_EMBEDDING: ["llm08"],
+    AttackStrategy.VECTOR_PERTURBATION: ["llm08"],
+
+    # 云/基础设施 (Ch9)
+    AttackStrategy.SSRF: ["llm10"],
+    AttackStrategy.METADATA_EXTRACT: ["llm05", "llm07"],
+    AttackStrategy.IAM_ENUM: ["llm10"],
+    AttackStrategy.POLICY_READ: ["llm10"],
+    AttackStrategy.TRUST_CHAIN_MAP: ["llm10"],
+    AttackStrategy.PASSROLE: ["llm10"],
+    AttackStrategy.ROLE_ASSUMPTION: ["llm10"],
+    AttackStrategy.PRIVILEGE_ESC: ["llm10"],
+    AttackStrategy.S3_ACCESS: ["llm05", "llm10"],
+    AttackStrategy.SECRETS_ENUM: ["llm07", "llm10"],
+    AttackStrategy.SERVICE_DISCOVERY: ["llm10"],
+    AttackStrategy.SAGEMAKER_ABUSE: ["llm08", "llm10"],
+    AttackStrategy.MLFLOW_RCE: ["llm03", "llm08"],
+    AttackStrategy.MODEL_DEPLOY: ["llm08"],
+
+    # MCP 投毒 (Ch7)
+    AttackStrategy.TOOL_POISON: ["llm06"],
+    AttackStrategy.TOOL_DESCRIBE_POISON: ["llm06"],
+    AttackStrategy.SYSTEM_INSTRUCT_INJECT: ["llm06", "llm01"],
+    AttackStrategy.KEYWORD_TRIGGER: ["llm06"],
+    AttackStrategy.CHAIN_EXECUTION: ["llm06"],
+    AttackStrategy.DATA_EXFIL: ["llm05", "llm06"],
+    AttackStrategy.LATERAL_MOVEMENT: ["llm06"],
+    AttackStrategy.UI_SPOOF: ["llm06"],
+    AttackStrategy.CREDENTIAL_THEFT: ["llm02", "llm06"],
+    AttackStrategy.PHISHING: ["llm09"],
+    AttackStrategy.DUAL_LAYER: ["llm06"],
+
+    # 供应链专用
+    AttackStrategy.CONFIG_JSON_HIJACK: ["llm03"],
+    AttackStrategy.CODE_OBFUSCATION: ["llm03"],
+    AttackStrategy.DEPENDENCY_HIDING: ["llm03"],
+    AttackStrategy.CREDENTIAL_EXPOSURE: ["llm02", "llm03"],
+
+    # 模型检查点攻击 (Ch8)
+    AttackStrategy.CHECKPOINT_ENUM: ["llm03", "llm04"],
+    AttackStrategy.EPOCH_OVERRIDE: ["llm03", "llm04"],
+    AttackStrategy.AUTO_LOADER_ABUSE: ["llm03"],
+    AttackStrategy.CHECKPOINT_POISON: ["llm04"],
+    AttackStrategy.SAFETENSOR_BYPASS: ["llm03"],
+    AttackStrategy.GGUF_EXPLOIT: ["llm03"],
+    AttackStrategy.FORMAT_CONFUSION: ["llm03"],
+    AttackStrategy.NAMESPACE_REUSE: ["llm03", "llm04"],
+    AttackStrategy.REPO_HIJACK: ["llm03"],
+    AttackStrategy.TOKEN_ABUSE: ["llm02", "llm03"],
+    AttackStrategy.JOBLIB_RCE: ["llm03"],
+    AttackStrategy.IMPORT_HIJACK: ["llm03"],
+
+    # 基础设施 (Ch9)
+    AttackStrategy.K8S_ESCAPE: ["llm10"],
+    AttackStrategy.CONTAINER_BREAKOUT: ["llm10"],
+    AttackStrategy.LOG_INJECTION: ["llm10"],
+    AttackStrategy.TRAFFIC_MASKING: ["llm10"],
+
+    # RAG 专用 (Ch5)
+    AttackStrategy.CROSS_DOC_SPLIT: ["llm04", "llm01"],
+    AttackStrategy.DOCUMENT_SPLITTING: ["llm04"],
+
+    # LLM09 误导信息
+    AttackStrategy.BOUNDARY_TEST: ["llm09"],
+    AttackStrategy.HALLUCINATION_INDUCE: ["llm09"],
+    AttackStrategy.AUTHORITY_HIJACK: ["llm09"],
+    AttackStrategy.FAKE_CITATION: ["llm09"],
+    AttackStrategy.SOCIAL_ENGINEERING: ["llm09"],
+    AttackStrategy.IMPERSONATION: ["llm09"],
+    AttackStrategy.CHAIN_HALLUCINATION: ["llm09"],
+
+    # A2A/多Agent 专用策略
+    AttackStrategy.CROSS_AGENT_INJECT: ["llm06"],     # 跨Agent间接注入
+    AttackStrategy.DNS_SPOOF: ["llm06"],               # Agent Card DNS欺骗
+    AttackStrategy.WORKFLOW_BYPASS: ["llm06"],         # 工作流绕过
+    AttackStrategy.SQL_INJECT_VIA_AGENT: ["llm06"],    # Agent链SQL注入
+
+    # 纯 payload 层面策略（无对应库载荷）
+    AttackStrategy.CHARACTER_SPACING: [],
+    AttackStrategy.PAYLOAD_SPLITTING: [],
+    AttackStrategy.CSS_HIDDEN: [],
+    AttackStrategy.ENCODING: [],
+
     # 编码类策略无对应库载荷（由 converter 层处理）
     AttackStrategy.BASE64: [],
     AttackStrategy.ROT13: [],
@@ -66,6 +156,7 @@ STRATEGY_TO_PAYLOAD_CATEGORIES: dict[AttackStrategy, list[str]] = {
     AttackStrategy.LEETSPEAK: [],
     AttackStrategy.MORSE: [],
     AttackStrategy.PROBE: [],
+    AttackStrategy.RECON: [],
 }
 
 
@@ -91,19 +182,106 @@ LIBRARY_TECHNIQUE_TO_STRATEGY: dict[str, list[AttackStrategy]] = {
     "parameter_pollution": [AttackStrategy.PARAMETER_POLLUTION],
     "cross_agent": [AttackStrategy.CROSS_AGENT],
     "crescendo": [AttackStrategy.CRESCENDO],
-    "many_shot": [AttackStrategy.TAP],
-    "adversarial_suffix": [AttackStrategy.PAIR],
+    "many_shot": [AttackStrategy.MANY_SHOT],
+    "adversarial_suffix": [AttackStrategy.ADVERSARIAL_SUFFIX],
     # 供应链
     "dependency_confusion": [AttackStrategy.DEPENDENCY_TROJAN],
     "deserialization_rce": [AttackStrategy.DATASET_POISON],
     "jailbreak": [AttackStrategy.JAILBREAK],
     "multimodal_injection": [AttackStrategy.DIRECT_INJECT, AttackStrategy.INDIRECT_INJECT],
     "hallucination_exploitation": [AttackStrategy.MEMORY_POISON],
+    # 规避技术
+    "character_spacing": [AttackStrategy.CHARACTER_SPACING],
+    "payload_splitting": [AttackStrategy.PAYLOAD_SPLITTING],
+    "css_hidden": [AttackStrategy.CSS_HIDDEN],
+    "encoding": [AttackStrategy.CHARACTER_SPACING, AttackStrategy.ENCODING],
+    # A2A 技术
+    "indirect_inject": [AttackStrategy.CROSS_AGENT_INJECT, AttackStrategy.INDIRECT_INJECT],
+    "agent_registration": [AttackStrategy.DNS_SPOOF],
+    "workflow_bypass": [AttackStrategy.WORKFLOW_BYPASS],
+    "sql_injection": [AttackStrategy.SQL_INJECT_VIA_AGENT],
+    "deserialization": [AttackStrategy.DATASET_POISON, AttackStrategy.DEPENDENCY_TROJAN],
+    "priority_override": [AttackStrategy.WORKFLOW_BYPASS],
     # 通用技术
-    "encoding": [AttackStrategy.BASE64, AttackStrategy.ROT13],
     "language_switch": [AttackStrategy.TRANSLATION],
     "context_window_abuse": [AttackStrategy.STEALTH],
     "api_hammer": [AttackStrategy.CLOUD_MISCONFIG],
+
+    # 新增：Embedding 攻击技术
+    "membership_inference": [AttackStrategy.MEMBERSHIP_INFERENCE],
+    "attribute_inference": [AttackStrategy.ATTRIBUTE_INFERENCE],
+    "embedding_inversion": [AttackStrategy.EMBEDDING_INVERSION],
+    "adversarial_embedding": [AttackStrategy.ADVERSARIAL_EMBEDDING],
+    "unicode_embedding": [AttackStrategy.UNICODE_EMBEDDING],
+    "vector_perturbation": [AttackStrategy.VECTOR_PERTURBATION],
+
+    # 新增：云基础设施技术
+    "ssrf": [AttackStrategy.SSRF],
+    "metadata_extraction": [AttackStrategy.METADATA_EXTRACT],
+    "iam_enumeration": [AttackStrategy.IAM_ENUM],
+    "policy_read": [AttackStrategy.POLICY_READ],
+    "trust_chain_mapping": [AttackStrategy.TRUST_CHAIN_MAP],
+    "passrole": [AttackStrategy.PASSROLE],
+    "role_assumption": [AttackStrategy.ROLE_ASSUMPTION],
+    "privilege_escalation": [AttackStrategy.PRIVILEGE_ESC],
+    "s3_access": [AttackStrategy.S3_ACCESS],
+    "secrets_enumeration": [AttackStrategy.SECRETS_ENUM],
+    "service_discovery": [AttackStrategy.SERVICE_DISCOVERY],
+    "sagemaker_abuse": [AttackStrategy.SAGEMAKER_ABUSE],
+    "mlflow_rce": [AttackStrategy.MLFLOW_RCE],
+    "model_deploy": [AttackStrategy.MODEL_DEPLOY],
+
+    # 新增：MCP 投毒技术
+    "tool_description_poison": [AttackStrategy.TOOL_POISON, AttackStrategy.TOOL_DESCRIBE_POISON],
+    "system_instruction_injection": [AttackStrategy.SYSTEM_INSTRUCT_INJECT],
+    "keyword_trigger": [AttackStrategy.KEYWORD_TRIGGER],
+    "chain_execution": [AttackStrategy.CHAIN_EXECUTION],
+    "data_exfiltration": [AttackStrategy.DATA_EXFIL],
+    "lateral_movement": [AttackStrategy.LATERAL_MOVEMENT],
+    "ui_spoof": [AttackStrategy.UI_SPOOF],
+    "credential_theft": [AttackStrategy.CREDENTIAL_THEFT],
+    "phishing": [AttackStrategy.PHISHING],
+    "dual_layer": [AttackStrategy.DUAL_LAYER],
+
+    # 新增：供应链技术
+    "config_json_hijack": [AttackStrategy.CONFIG_JSON_HIJACK],
+    "code_obfuscation": [AttackStrategy.CODE_OBFUSCATION],
+    "dependency_hiding": [AttackStrategy.DEPENDENCY_HIDING],
+    "permission_mapping": [AttackStrategy.PERMISSION_MAP],
+    "credential_exposure": [AttackStrategy.CREDENTIAL_EXPOSURE],
+
+    # 新增：模型检查点技术
+    "checkpoint_enum": [AttackStrategy.CHECKPOINT_ENUM],
+    "epoch_override": [AttackStrategy.EPOCH_OVERRIDE],
+    "auto_loader_abuse": [AttackStrategy.AUTO_LOADER_ABUSE],
+    "checkpoint_poison": [AttackStrategy.CHECKPOINT_POISON],
+    "safetensor_bypass": [AttackStrategy.SAFETENSOR_BYPASS],
+    "gguf_exploit": [AttackStrategy.GGUF_EXPLOIT],
+    "format_confusion": [AttackStrategy.FORMAT_CONFUSION],
+    "namespace_reuse": [AttackStrategy.NAMESPACE_REUSE],
+    "repo_hijack": [AttackStrategy.REPO_HIJACK],
+    "token_abuse": [AttackStrategy.TOKEN_ABUSE],
+    "joblib_rce": [AttackStrategy.JOBLIB_RCE],
+    "import_hijack": [AttackStrategy.IMPORT_HIJACK],
+
+    # 新增：基础设施技术
+    "k8s_escape": [AttackStrategy.K8S_ESCAPE],
+    "container_breakout": [AttackStrategy.CONTAINER_BREAKOUT],
+    "log_injection": [AttackStrategy.LOG_INJECTION],
+    "traffic_masking": [AttackStrategy.TRAFFIC_MASKING],
+
+    # 新增：RAG 规避技术
+    "cross_doc_split": [AttackStrategy.CROSS_DOC_SPLIT],
+    "document_splitting": [AttackStrategy.DOCUMENT_SPLITTING],
+
+    # 新增：LLM09 技术
+    "boundary_test": [AttackStrategy.BOUNDARY_TEST],
+    "hallucination_induce": [AttackStrategy.HALLUCINATION_INDUCE],
+    "authority_hijack": [AttackStrategy.AUTHORITY_HIJACK],
+    "fake_citation": [AttackStrategy.FAKE_CITATION],
+    "social_engineering": [AttackStrategy.SOCIAL_ENGINEERING],
+    "impersonation": [AttackStrategy.IMPERSONATION],
+    "chain_hallucination": [AttackStrategy.CHAIN_HALLUCINATION],
 }
 
 
@@ -190,24 +368,53 @@ class PayloadBridge:
     # ── private ──────────────────────────────────────────────────────
 
     def _load_base_scenario(self, name: str) -> tuple[Optional[AttackScenario], dict]:
-        """加载基场景（用于 extends）。"""
-        # 尝试多种文件名形式
-        candidates = [
-            self._scenario_dir / f"{name}.yaml",
-            self._scenario_dir / f"_{name}.yaml",
-        ]
-        for cand in candidates:
-            if cand.exists():
-                try:
-                    import yaml
-                    with open(cand, encoding="utf-8") as f:
-                        raw = yaml.safe_load(f)
-                    scenario = AttackScenario(**{k: v for k, v in raw.items() if k not in ("extends", "payload_sources")})
-                    return scenario, raw
-                except Exception as e:
-                    logger.warning("加载基场景失败 %s: %s", cand, e)
+        """加载基场景（用于 extends）。
 
-        logger.info("基场景 %s 未找到，跳过继承", name)
+        查找顺序：
+          1. 在场景注册表中按 extends_id 查找 file 字段
+          2. 直接按 {name}.yaml / _{name}.yaml 文件名查找（向后兼容）
+        """
+        import yaml
+
+        yaml_file: Optional[Path] = None
+
+        # ── Step 1: 通过注册表按 ID 查找实际文件名 ──
+        try:
+            from redteam.core.registry_loader import ScenarioRegistry
+            registry = ScenarioRegistry(registry_dir=str(self._scenario_dir))
+            reg_entry = registry.get(name)
+            if reg_entry:
+                file_name = reg_entry.get("file", "")
+                if file_name:
+                    cand = self._scenario_dir / file_name
+                    if cand.exists():
+                        yaml_file = cand
+        except Exception as reg_err:
+            logger.debug("注册表查找基场景失败 %s: %s", name, reg_err)
+
+        # ── Step 2: 回退到直接文件名匹配 ──
+        if yaml_file is None:
+            for cand_candidate in [
+                self._scenario_dir / f"{name}.yaml",
+                self._scenario_dir / f"_{name}.yaml",
+            ]:
+                if cand_candidate.exists():
+                    yaml_file = cand_candidate
+                    break
+
+        if yaml_file is None:
+            logger.info("基场景 %s 未找到，跳过继承", name)
+            return None, {}
+
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                raw = yaml.safe_load(f)
+            scenario = AttackScenario(**{k: v for k, v in raw.items() if k not in ("extends", "payload_sources")})
+            logger.info("成功加载基场景 %s → %s", name, yaml_file.name)
+            return scenario, raw
+        except Exception as e:
+            logger.warning("加载基场景失败 %s: %s", yaml_file, e)
+
         return None, {}
 
     def _load_library_payloads(

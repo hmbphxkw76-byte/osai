@@ -21,7 +21,7 @@
 #   file:           对应的 YAML 文件名
 # =============================================================================
 
-version: "1.0.0"
+version: "1.1.0"
 last_updated: "2026-07-13"
 
 scenarios:
@@ -43,7 +43,7 @@ scenarios:
     description: 针对 AI Agent 的综合攻击场景，继承 genoric 基础阶段
     target_type: agent
     extends: generic_basic
-    payload_sources: [llm01, llm02, llm06, llm07]
+    payload_sources: [llm01, llm02, llm03, llm06, llm07]
     ai300_chapters: ["Ch3", "Ch4"]
     owasp_coverage: [LLM01, LLM02, LLM06, LLM07]
     status: stable
@@ -55,9 +55,9 @@ scenarios:
     description: 针对 RAG 管道的知识库投毒、检索泄露、向量数据库攻击
     target_type: rag
     extends: null
-    payload_sources: [llm04, llm05, llm08]
+    payload_sources: [llm01, llm04, llm05, llm07, llm08]
     ai300_chapters: ["Ch5"]
-    owasp_coverage: [LLM05, LLM06]
+    owasp_coverage: [LLM04, LLM05, LLM06, LLM08]
     status: stable
     file: rag.yaml
 
@@ -67,9 +67,9 @@ scenarios:
     description: 针对 MCP 服务器的工具劫持、参数污染、配置提取攻击
     target_type: mcp
     extends: null
-    payload_sources: [llm02, llm06, llm07]
+    payload_sources: [llm02, llm03, llm06, llm07]
     ai300_chapters: ["Ch7"]
-    owasp_coverage: [LLM02, LLM07]
+    owasp_coverage: [LLM02, LLM06, LLM07]
     status: stable
     file: mcp.yaml
 
@@ -79,7 +79,7 @@ scenarios:
     description: 针对 LLM 供应链的依赖混淆、Pickle 反序列化、模型投毒攻击
     target_type: supply_chain
     extends: null
-    payload_sources: [llm03]
+    payload_sources: [llm03, llm04]
     ai300_chapters: ["Ch7", "Ch8"]
     owasp_coverage: [LLM03, LLM04, LLM05]
     status: stable
@@ -91,9 +91,9 @@ scenarios:
     description: 针对嵌入模型和向量数据库的攻击场景
     target_type: embeddings
     extends: null
-    payload_sources: [llm08]
+    payload_sources: [llm05, llm08]
     ai300_chapters: ["Ch5", "Ch6"]
-    owasp_coverage: [LLM01, LLM07, LLM08]
+    owasp_coverage: [LLM07, LLM08]
     status: stable
     file: embeddings.yaml
 
@@ -103,8 +103,81 @@ scenarios:
     description: 针对 LLM 基础设施和部署环境的攻击场景
     target_type: infra
     extends: null
-    payload_sources: [llm05, llm10]
+    payload_sources: [llm03, llm05, llm10]
     ai300_chapters: ["Ch9"]
-    owasp_coverage: [LLM02, LLM03, LLM04]
+    owasp_coverage: [LLM05, LLM10]
     status: stable
     file: infra.yaml
+
+  # ── A2A 多 Agent 攻击场景 (P0) ──
+  - id: a2a_attack
+    name: Multi-Agent A2A Protocol Attack Scenario
+    description: >
+      针对多 Agent 系统和 A2A 协议的综合攻击场景。
+      覆盖 Agent Card 枚举、Orchestrator 劫持、A2A 欺骗、
+      工作流完整性绕过、跨Agent间接提示注入。
+    target_type: agent
+    extends: agent_basic
+    payload_sources: [llm01, llm02, llm03, llm06, llm07]
+    ai300_chapters: ["Ch4"]
+    owasp_coverage: [LLM02, LLM06, LLM07]
+    status: stable
+    file: a2a_attack.yaml
+
+  # ── MCP 工具投毒场景 (P0) ──
+  - id: mcp_poisoning
+    name: MCP Tool Poisoning & Supply Chain Scenario
+    description: >
+      针对 MCP 服务器的工具描述投毒、隐藏指令注入、
+      关键词触发外泄、跨工具横向移动和 MCP Apps UI 欺骗。
+    target_type: mcp
+    extends: mcp_basic
+    payload_sources: [llm03, llm06, llm07]
+    ai300_chapters: ["Ch7"]
+    owasp_coverage: [LLM03, LLM06, LLM07]
+    status: stable
+    file: mcp_poisoning.yaml
+
+  # ── Cloud IAM 权限提升场景 (P0) ──
+  - id: cloud_iam_escalation
+    name: Cloud IAM Privilege Escalation Scenario
+    description: >
+      针对 LLM 基础设施中云 IAM 权限提升链的攻击场景。
+      覆盖 SSRF→Lambda→DataScientist→MLOps→SageMaker 4层提升链、
+      PassRole 利用、S3 跨项目访问和 SageMaker/MLflow 平台利用。
+    target_type: infra
+    extends: infra_attack
+    payload_sources: [llm03, llm05, llm10]
+    ai300_chapters: ["Ch9"]
+    owasp_coverage: [LLM02, LLM05, LLM06]
+    status: stable
+    file: cloud_iam_escalation.yaml
+
+  # ── LLM09 幻觉攻击场景 (P2) ──
+  - id: misinformation_attack
+    name: Misinformation & Hallucination Attack Scenario
+    description: >
+      针对 LLM 幻觉与误导信息的攻击场景，填补 OWASP LLM09 覆盖缺口。
+      覆盖幻觉诱导、虚假引用生成、深度伪造社工、链式幻觉。
+    target_type: generic
+    extends: generic_basic
+    payload_sources: [llm01, llm09]
+    ai300_chapters: ["Ch3", "Ch9"]
+    owasp_coverage: [LLM09]
+    status: stable
+    file: misinformation_attack.yaml
+
+  # ── 模型检查点攻击场景 (P2) ──
+  - id: model_checkpoint_attack
+    name: Model Checkpoint Auto-Loader Exploit Scenario
+    description: >
+      针对 ML 模型检查点自动加载机制的供应链攻击场景。
+      覆盖高 Epoch 覆盖、SafeTensors 绕过、GGUF 利用、
+      HuggingFace 命名空间复用和 Joblib/import hijack RCE。
+    target_type: supply_chain
+    extends: supply_chain_attack
+    payload_sources: [llm03, llm04, llm05]
+    ai300_chapters: ["Ch8"]
+    owasp_coverage: [LLM03, LLM04]
+    status: stable
+    file: model_checkpoint_attack.yaml

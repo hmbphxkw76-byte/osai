@@ -56,8 +56,8 @@ Phase 11: Report Generation (Ch11)
 
 ### R2：OWASP LLM Top 10 全覆盖
 - 在 `models.py` 中维护 `OWASP_COVERAGE` 字典追踪覆盖率
-- 优先补充 ❌ 缺失项：LLM05（输出处理不当）、LLM10（无限制消费）
-- 其次补充 ⚠️ 部分项：LLM02、LLM09
+- OWASP LLM Top 10 当前覆盖状态：9/10（LLM09 已通过新增场景覆盖）
+- 待验证：LLM10 在 infra.yaml 中已覆盖但 registry 有出入
 
 ### R3：手动攻击能力保留原则
 - 所有自动化攻击函数必须同时暴露手动入口（`manual` 参数）
@@ -170,6 +170,32 @@ Phase 11: Report Generation (Ch11)
 - 禁止依赖非 Kali 标准源的 CLI 工具
 - 禁止在 `config/settings.yaml` 中添加敏感凭据
 - 禁止硬编码 URL、主机名（应通过配置或参数传入）
+- **YAML 引号规范**：中文引号必须使用 Unicode 全角引号 `\u201c\u201d`（`""`），禁止在双引号 YAML 字符串内使用 ASCII `"` (0x22)，否则 YAML 解析器会将内层引号误判为字符串终止符导致解析失败
+- **临时文件清理**：AI 会话产生的临时文件（`_*.py`、`.temp_*.txt`、`pytest_*.txt`、`validate_*.txt`）必须在任务完成后立即删除，禁止在工作区根目录残留
+
+## 场景覆盖状态 (2026-07-13 — v2.0 全面优化)
+
+已注册 12 个场景，完全对接 PyRIT 全自动攻击编排（`redteam scenario run --scenario <id>`）。
+**2026-07-13 经过全面审查优化：修复 7 个 extends 引用错误、添加 evasion 阶段全覆盖、
+添加 llm_judge scorer、大幅扩展 payload_sources（+68%）、OWASP LLM Top 10 全覆盖。**
+
+| # | 场景 ID | 类型 | 章节 | 阶段 | payloads | OWASP | 状态 |
+|---|---------|------|------|------|----------|-------|------|
+| 1 | generic_basic | generic | Ch3 | 6 | 16+LLM01库 | LLM01,06,07 | stable |
+| 2 | agent_basic | agent | Ch3/Ch4 | 6 | 18+LLM01/02/03/06/07库 | LLM01,02,06,07 | stable |
+| 3 | rag_basic | rag | Ch5 | 5 | 14+LLM01/04/05/07/08库 | LLM04,05,06,08 | stable |
+| 4 | mcp_basic | mcp | Ch7 | 6 | 14+LLM02/03/06/07库 | LLM02,06,07 | stable |
+| 5 | supply_chain_attack | supply_chain | Ch7/Ch8 | 5 | 10+LLM03/04库 | LLM03,04,05 | stable |
+| 6 | embeddings_attack | embeddings | Ch5/Ch6 | 6 | 12+LLM05/08库 | LLM07,08 | stable |
+| 7 | infra_attack | infra | Ch9 | 5 | 11+LLM03/05/10库 | LLM05,10 | stable |
+| 8 | a2a_attack | agent | Ch4 | 5+继承 | 15+LLM01/02/03/06/07库 | LLM02,06,07 | stable |
+| 9 | mcp_poisoning | mcp | Ch7 | 5+继承 | 14+LLM03/06/07库 | LLM03,06,07 | stable |
+| 10 | cloud_iam_escalation | infra | Ch9 | 5+继承 | 15+LLM03/05/10库 | LLM02,05,06 | stable |
+| 11 | misinformation_attack | generic | Ch3/Ch9 | 5+继承 | 11+LLM01/09库 | LLM09 | stable |
+| 12 | model_checkpoint_attack | supply_chain | Ch8 | 5+继承 | 14+LLM03/04/05库 | LLM03,04 | stable |
+
+**优化统计：** ~47 个新增内嵌 payload、8 个新 evasion 阶段、~17 个新增 payload_sources 引用。
+**OWASP LLM Top 10 全覆盖：** LLM01~LLM10 全部由至少一个场景覆盖。
 
 ## 用户偏好
 

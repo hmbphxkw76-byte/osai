@@ -904,6 +904,85 @@ def scenario_generate(
     console.print(f"\n[dim]编辑该文件的 payloads 字段以自定义攻击载荷[/]")
 
 
+@app.command(name="validate")
+def validate_yaml(
+    file_path: str = typer.Option(
+        None, "--file", "-f",
+        help="验证单个 YAML 场景文件",
+    ),
+    all_files: bool = typer.Option(
+        False, "--all", "-a",
+        help="验证所有场景文件",
+    ),
+    registry_only: bool = typer.Option(
+        False, "--registry", "-r",
+        help="仅验证注册表一致性",
+    ),
+    strict: bool = typer.Option(
+        False, "--strict", "-s",
+        help="严格模式（升级警告为错误）",
+    ),
+    scenario_dir: str = typer.Option(
+        "config/scenarios", "--scenario-dir",
+        help="场景目录路径",
+    ),
+    payload_dir: str = typer.Option(
+        "config/payloads", "--payload-dir",
+        help="载荷库目录路径",
+    ),
+) -> None:
+    """YAML 预检验证 — 在管道执行前检测配置文件错误。
+
+    验证维度：
+      * YAML 语法检查
+      * Pydantic Schema 符合性
+      * 跨引用完整性（phase → payloads）
+      * 继承链校验（extends → 注册表）
+      * 载荷源引用（payload_sources → 已知类别）
+      * 注册表一致性（注册表 ↔ YAML 文件）
+      * 枚举值正确性
+
+    示例：
+      redteam validate --file config/scenarios/agent.yaml
+      redteam validate --all
+      redteam validate --registry
+      redteam validate --all --strict
+    """
+    from .core.yaml_validator import YamlValidator
+
+    validator = YamlValidator(
+        scenario_dir=scenario_dir,
+        payload_dir=payload_dir,
+        strict=strict,
+    )
+
+    if file_path:
+        report = validator.validate_file(file_path)
+        validator.print_report(report, verbose=True)
+        if not report.passed:
+            raise typer.Exit(1)
+
+    elif registry_only:
+        report = validator.validate_registry()
+        validator.print_report(report, verbose=True)
+        if not report.passed:
+            raise typer.Exit(1)
+
+    elif all_files:
+        report = validator.validate_all()
+        validator.print_report(report, verbose=True)
+        if not report.passed:
+            raise typer.Exit(1)
+
+    else:
+        # 默认：验证所有
+        console.print("[cyan]未指定验证目标，默认验证所有场景文件...[/]")
+        report = validator.validate_all()
+        validator.print_report(report, verbose=True)
+        if not report.passed:
+            raise typer.Exit(1)
+
+
 @app.command()
 def quicktest(
     target: str = typer.Option(..., "--target", "-t", help="目标 URL"),

@@ -1,5 +1,5 @@
 owasp: LLM08
-technique_group: vector_and_embedding_weaknesses
+technique_group: vector_weakness
 description: 向量与嵌入弱点攻击载荷 — AI-300 Ch6，攻击向量数据库/RAG检索/嵌入模型
 payloads:
   - technique: embedding_inversion

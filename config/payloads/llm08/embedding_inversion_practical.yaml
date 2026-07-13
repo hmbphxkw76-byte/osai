@@ -15,7 +15,7 @@
 #   5. 向量数据库 API 利用 — 直接攻击向量DB端点
 
 owasp: LLM08
-technique_group: embedding_inversion_practical
+technique_group: embedding_inversion
 description: 嵌入实操攻击载荷 — 嵌入反演/成员推断/属性推断/向量DB利用 — AI-300 Ch6
 
 payloads:

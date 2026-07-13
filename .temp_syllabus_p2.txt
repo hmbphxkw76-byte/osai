@@ -1,8 +1,0 @@
-=== PAGE 2 ===
- 
-Threat  Modeling  for  AIEnabled  Targets  
-Develop  strategies  for  identifying  high-value  AI  assets,  trust  boundaries,  and  potential  attack  paths  in  complex  AI  environments  
-Assembling  The  Pieces  -  Capstone  Red  Team  Engagement  
-Apply  the  techniques  learned  throughout  the  course  during  a  full-spectrum  red  team  engagement  against  a  realistic  enterprise  AI  environment,  simulating  how  adversaries  compromise  production  AI  systems  
- 
- AI300  Syllabus  2  of  2   
