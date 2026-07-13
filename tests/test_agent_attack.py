@@ -33,14 +33,14 @@ class TestAgentAttackPayloads:
             for p in payload_list:
                 assert "technique" in p, f"Missing technique in {p}"
                 assert "name" in p, f"Missing name in {p}"
-                assert "payload_template" in p, f"Missing payload_template in {p}"
+                assert "payload" in p or "payload_template" in p, f"Missing payload in {p}"
 
     def test_template_variable_substitution(self):
         """验证载荷模板中 {goal} 等占位符可替换。"""
         for p in CROSS_AGENT_PAYLOADS:
             if p["technique"] == "a2a_spoof":
                 # JSON 模板中的 {goal} 应在字符串内
-                template = p["payload_template"]
+                template = p.get("payload", "") or p.get("payload_template", "")
                 if isinstance(template, str):
                     # It's already a JSON string
                     filled = template.replace("{goal}", "test_goal")
