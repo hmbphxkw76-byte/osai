@@ -217,5 +217,13 @@ Phase 11: Report Generation (Ch11)
 | 开发标准 | `docs/DEVELOPMENT_STANDARDS.md` | 代码架构、数据模型、代码风格规范 |
 | OSAI 对齐规则 | `docs/OSAI_ALIGNMENT_RULES.md` | AI-300 考试对齐的 7 条核心规则 |
 | 考试工具指南 | `docs/AI300_EXAM_TOOLS.md` | AI-300 考试备考工具参考，含工具与章节映射 |
+| 命令行手册 | `docs/COMMAND_REFERENCE.md` | 全部 36 个 Makefile 目标用法速查，**Makefile 变更时同步更新** |
 | 强制规则 | `.trae/rules/redteam-dev-standards/RULE.mdc` | Trae IDE 强制规则（Source of Truth） |
 | 辅助规则 | `.codebuddy/rules/redteam-dev-standards/RULE.mdc` | 辅助规则（与 .trae 同步） |
+
+## Makefile 命令行手册同步约定 (2026-07-13)
+
+**铁律**：每次修改 Makefile（新增/删除/重命名目标、变量变更），必须同步更新 `docs/COMMAND_REFERENCE.md`。
+这是强制规则，已写入 `.trae/rules/` 和 `.codebuddy/rules/` 两处规则文件，以及 `docs/DEVELOPMENT_STANDARDS.md` §6.4。
+
+手册包含 12 个类别（与 Makefile 注释分组一一对应）：环境安装与构建、代码质量与测试、YAML 预检验证、场景驱动攻击、提示注入攻击、快速测试、报告生成、前沿漏洞攻击、统一攻击流水线、Git 仓库侦察、传统运行模式、其他。

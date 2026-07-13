@@ -44,15 +44,13 @@ help:  ## 显示所有可用目标
 # 环境安装
 # ================================================================
 install:  ## 安装项目依赖 + 可编辑模式安装本包
-	$(PIP) install -r requirements.txt
-	$(PIP) install -e . --no-deps
+	$(PIP) install -e ".[dev]"
 
 dev: install  ## 完整开发环境（依赖 + 包）
 	@echo "[dev] 开发环境就绪"
 
 upgrade:  ## 升级所有依赖到最新版本
-	$(PIP) install --upgrade -r requirements.txt
-	$(PIP) install -e . --no-deps
+	$(PIP) install --upgrade -e ".[dev]"
 
 # ================================================================
 # 代码质量

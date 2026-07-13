@@ -209,8 +209,25 @@ description: "使模型在"虚假证据"上编造"
 - [ ] 不引入新的外部工具依赖
 - [ ] 运行 `pytest tests/ -q` 确认零回归
 
+### Makefile 命令行手册同步规则
+
+**每次修改 Makefile（新增/删除/重命名目标），必须同步更新 `docs/COMMAND_REFERENCE.md`。**
+
+- 新增目标：在手册中按类别添加对应的命令条目，含用法示例和实际执行命令
+- 删除目标：从手册中移除对应条目
+- 修改目标：更新手册中的用法说明和变量参考
+- 变量变更：同步更新手册顶部的变量速查表
+- 手册末尾"考试常用命令速查"也应保持更新
+
+手册结构按 Makefile 中的注释分组对应，分为 12 个类别：
+环境安装与构建、代码质量与测试、YAML 预检验证、场景驱动攻击、提示注入攻击、
+快速测试、报告生成、前沿漏洞攻击、统一攻击流水线、Git 仓库侦察、传统运行模式、其他。
+
+手册路径：`docs/COMMAND_REFERENCE.md`
+
 ## 参考文档
 
 - 完整标准见 `docs/DEVELOPMENT_STANDARDS.md`
 - OSAI 考试对齐规则见 `docs/OSAI_ALIGNMENT_RULES.md`
 - 考试工具参考见 `docs/AI300_EXAM_TOOLS.md`
+- 命令行手册见 `docs/COMMAND_REFERENCE.md`
