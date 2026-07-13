@@ -1,10 +1,15 @@
-"""Agent 攻击模块（AI-300 Ch3+Ch4：单/多智能体攻击）。
+"""Agent 攻击模块（AI-300 Ch3+Ch4：单/多智能体攻击 + OWASP ASI Top 10）。
 
-覆盖 AI-300 课程 Ch3 和 Ch4 的完整攻击技术：
+覆盖 AI-300 课程和 OWASP ASI Top 10 的完整攻击技术：
   - prompt_inject.py: 提示注入（直接/间接）
-  - goal_hijack.py: 目标劫持
-  - memory_attack.py: 记忆攻击
-  - tool_hijack.py: 工具劫持
+  - goal_hijack.py: 目标劫持（ASI01）
+  - memory_attack.py: 记忆攻击（ASI06）
+  - tool_hijack.py: 工具劫持（ASI02）
+  - privilege_abuse.py: 身份和权限滥用（ASI03）
+  - a2a_attack.py: 不安全代理间通信（ASI07）
+  - cascading_failure.py: 级联故障（ASI08）
+  - trust_exploitation.py: 人机信任利用（ASI09）
+  - rogue_agent.py: 流氓代理（ASI10）
 
 双通道执行：
   - PyRIT 评分器：SelfAskTrueFalseScorer（LLM-as-Judge）替代关键词护栏检测
@@ -33,6 +38,26 @@ from .multi_agent import (
     CROSS_AGENT_PAYLOADS,
     cross_agent_attack,
 )
+from .privilege_abuse import (
+    PRIVILEGE_ABUSE_PAYLOADS,
+    abuse_privileges,
+)
+from .a2a_attack import (
+    A2A_ATTACK_PAYLOADS,
+    attack_inter_agent_communication,
+)
+from .cascading_failure import (
+    CASCADING_FAILURE_PAYLOADS,
+    trigger_cascading_failures,
+)
+from .trust_exploitation import (
+    TRUST_EXPLOITATION_PAYLOADS,
+    exploit_human_trust,
+)
+from .rogue_agent import (
+    ROGUE_AGENT_PAYLOADS,
+    create_rogue_agent,
+)
 from .findings import (
     generate_agent_attack_findings,
 )
@@ -44,12 +69,22 @@ __all__ = [
     "TOOL_HIJACK_PAYLOADS",
     "GOAL_HIJACK_PAYLOADS",
     "CROSS_AGENT_PAYLOADS",
+    "PRIVILEGE_ABUSE_PAYLOADS",
+    "A2A_ATTACK_PAYLOADS",
+    "CASCADING_FAILURE_PAYLOADS",
+    "TRUST_EXPLOITATION_PAYLOADS",
+    "ROGUE_AGENT_PAYLOADS",
     # 攻击函数
     "test_indirect_injection",
     "poison_agent_memory",
     "hijack_agent_tools",
     "hijack_agent_goal",
     "cross_agent_attack",
+    "abuse_privileges",
+    "attack_inter_agent_communication",
+    "trigger_cascading_failures",
+    "exploit_human_trust",
+    "create_rogue_agent",
     # Findings 生成
     "generate_agent_attack_findings",
 ]
