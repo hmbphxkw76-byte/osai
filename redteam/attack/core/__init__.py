@@ -32,7 +32,7 @@ from .converters import (
     PromptConverter,
     Base64Converter,
     ROT13Converter,
-    UnicodeConverter,
+    UnicodeConfusableConverter,
     build_converter,
 )
 from .payload_loader import PayloadLoader
@@ -59,7 +59,7 @@ __all__ = [
     "PromptConverter",
     "Base64Converter",
     "ROT13Converter",
-    "UnicodeConverter",
+    "UnicodeConfusableConverter",
     "build_converter",
     # Payload Loader
     "PayloadLoader",
