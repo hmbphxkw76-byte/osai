@@ -4,7 +4,7 @@
   - prompt_inject.py: 提示注入（直接/间接）
   - goal_hijack.py: 目标劫持（ASI01）
   - memory_attack.py: 记忆攻击（ASI06）
-  - tool_hijack.py: 工具劫持（ASI02）
+  - tool_hijack.py: 工具劫持（ASI02）+ MCP 工具描述投毒
   - privilege_abuse.py: 身份和权限滥用（ASI03）
   - a2a_attack.py: 不安全代理间通信（ASI07）
   - cascading_failure.py: 级联故障（ASI08）
@@ -12,12 +12,14 @@
   - rogue_agent.py: 流氓代理（ASI10）
   - crescendo_attack.py: Crescendo 多轮对话升级攻击（Ch4）
   - tap_attack.py: TAP 带剪枝攻击树算法（Ch4）
+  - context_overflow.py: 上下文窗口溢出攻击（Ch3）
 
 双通道执行：
   - PyRIT 评分器：SelfAskTrueFalseScorer（LLM-as-Judge）替代关键词护栏检测
   - Native 回退：httpx 直连 + 关键词检测
 
 Library-First：执行层委托 PyRIT，载荷资产自研。
+技术来源：Adapted from mcp-attack-labs/ (labs 01, 03, 05)
 """
 
 from .prompt_inject import (
@@ -30,7 +32,10 @@ from .memory_attack import (
 )
 from .tool_hijack import (
     TOOL_HIJACK_PAYLOADS,
+    MCP_TOOL_POISON_PAYLOADS,
     hijack_agent_tools,
+    probe_mcp_tool_descriptions,
+    inject_mcp_tool_poison,
 )
 from .goal_hijack import (
     GOAL_HIJACK_PAYLOADS,
@@ -62,6 +67,14 @@ from .rogue_agent import (
 )
 from .crescendo_attack import crescendo_attack
 from .tap_attack import tap_attack
+from .context_overflow import (
+    PADDING_PAYLOADS,
+    OverflowConfig,
+    estimate_tokens,
+    check_context_overflow_compliance,
+    run_context_overflow_attack,
+    run_context_overflow_probe,
+)
 from .findings import (
     generate_agent_attack_findings,
 )
@@ -83,6 +96,9 @@ __all__ = [
     "poison_agent_memory",
     "hijack_agent_tools",
     "hijack_agent_goal",
+    "MCP_TOOL_POISON_PAYLOADS",
+    "probe_mcp_tool_descriptions",
+    "inject_mcp_tool_poison",
     "cross_agent_attack",
     "abuse_privileges",
     "attack_inter_agent_communication",
@@ -92,6 +108,13 @@ __all__ = [
     # 多轮攻击函数（Ch4）
     "crescendo_attack",
     "tap_attack",
+    # 上下文溢出攻击（Ch3）
+    "PADDING_PAYLOADS",
+    "OverflowConfig",
+    "estimate_tokens",
+    "check_context_overflow_compliance",
+    "run_context_overflow_attack",
+    "run_context_overflow_probe",
     # Findings 生成
     "generate_agent_attack_findings",
 ]

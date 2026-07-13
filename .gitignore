@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.coverage
+pytest_output.txt
 
 # 运行产物
 .redteam_runs/

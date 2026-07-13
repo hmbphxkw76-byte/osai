@@ -1,0 +1,69 @@
+# =============================================================================
+# RedTeam-AI 本地载荷注册表 (Local Payload Registry)
+# =============================================================================
+# 本文件用于注册用户自定义载荷库，不会被 Git 版本控制。
+# 加载时与 _registry.core.yaml 合并，相同 technique_group 本地优先。
+#
+# 使用方法:
+#   1. 复制本文件: cp _registry.local.example.yaml _registry.local.yaml
+#   2. 在对应 OWASP 类别子目录 (llm01~llm10) 下创建 .yaml 载荷文件
+#   3. 在 _registry.local.yaml 中注册新文件
+#   4. 在场景的 payload_sources 中引用对应类别
+#
+# 合并规则:
+#   - 核心注册表 (_registry.core.yaml) 由项目仓库管理
+#   - 本地注册表 (本文件) 由你管理，gitignored
+#   - 相同 category + technique_group: 本地覆盖核心
+#   - 不同 technique_group: 追加到对应类别
+#   - 新 category: 自动创建
+#   - 冲突日志: INFO 级别报告被覆盖的核心条目
+#
+# 字段说明 (与 _registry.core.yaml 一致):
+#   categories.<llmXX>.files[]:
+#     technique_group: 技术组名称 (对应文件名，不含 .yaml)
+#     description:     载荷文件描述
+#     ai300_chapter:   覆盖的 AI-300 章节
+#     payload_count:   载荷条目数量
+#     status:          状态: stable / experimental / deprecated
+#     file:            相对路径 (相对于 config/payloads/)
+# =============================================================================
+
+version: "1.0.0"
+last_updated: "2026-07-13"
+
+# ── 本地自定义载荷分类 ──
+# 取消注释并修改以下示例来添加你的载荷库:
+
+categories:
+  # 示例 1: 扩展现有类别 (追加自定义载荷文件)
+  # llm01:
+  #   files:
+  #     - technique_group: my_custom_injection
+  #       description: My custom prompt injection payloads
+  #       ai300_chapter: Ch3
+  #       payload_count: 5
+  #       status: experimental
+  #       file: llm01/my_custom_injection.yaml
+
+  # 示例 2: 覆盖核心载荷文件
+  #   (相同 technique_group 会覆盖核心注册表中的条目)
+  # llm01:
+  #   files:
+  #     - technique_group: direct_injection
+  #       description: My enhanced direct injection payloads
+  #       ai300_chapter: Ch3
+  #       payload_count: 35
+  #       status: stable
+  #       file: llm01/direct_injection.yaml  # 覆盖核心同名文件
+
+  # 示例 3: 创建新类别 (非 OWASP 标准的实验性载荷)
+  # llm_custom:
+  #   name: Custom Attack Techniques
+  #   description: Experimental attack techniques not in OWASP Top 10
+  #   files:
+  #     - technique_group: adversarial_prompting
+  #       description: Advanced adversarial prompt engineering
+  #       ai300_chapter: Ch3
+  #       payload_count: 10
+  #       status: experimental
+  #       file: llm_custom/adversarial_prompting.yaml

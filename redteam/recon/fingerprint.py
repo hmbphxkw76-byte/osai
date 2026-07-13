@@ -1,6 +1,6 @@
 """模型指纹识别（AI-300 Ch2.3 Model Fingerprinting）。
 
-实现 AI-300 课程中的七种指纹识别技术：
+实现 AI-300 课程中的八种指纹识别技术：
   1. 直接身份探测：询问模型身份
   2. 矛盾测试：用错误身份断言诱导纠正
   3. 知识截止日期测试：询问近期事件
@@ -8,6 +8,7 @@
   5. 上下文窗口测试：标记注入 + 溢出测试
   6. 能力边界测试：算术能力、推理能力
   7. 确定性测试：多次相同请求的响应一致性（TCM temperature_probe.py 融合）
+  8. 推理引擎指纹：识别 vLLM/TGI/OpenWebUI/litellm 等推理引擎
 
 对齐 OWASP LLM Top 10: LLM07 (System Prompt Leak)
 """
@@ -19,10 +20,85 @@ import statistics
 import time
 from typing import Any
 
-from redteam.core.http_client import send_chat
+from redteam.core.http_client import send_chat, send_get
 from redteam.core.models import (
     AuthContext, ModelFingerprint,
 )
+
+ENGINE_FINGERPRINTS = {
+    "vllm": {
+        "headers": {
+            "x-vllm-version": r"^\d+\.\d+\.\d+$",
+            "x-vllm-build": r".*",
+        },
+        "endpoints": ["/v1/models"],
+        "response_patterns": [
+            re.compile(r'"backend"\s*:\s*"vllm"', re.DOTALL),
+            re.compile(r'"vllm"\s*:\s*\{'),
+        ],
+        "version_extract": r"x-vllm-version:\s*(\d+\.\d+\.\d+)"
+    },
+    "tgi": {
+        "headers": {
+            "x-transformers-version": r".*",
+            "x-tgi-version": r".*",
+        },
+        "endpoints": ["/generate", "/generate_stream", "/v1/models"],
+        "response_patterns": [
+            re.compile(r'"transformers"\s*:\s*\{'),
+            re.compile(r'"tgi"\s*:\s*"[^"]+"'),
+        ],
+        "version_extract": r"x-transformers-version:\s*(\S+)"
+    },
+    "openwebui": {
+        "headers": {
+            "x-openwebui-version": r"^\d+\.\d+\.\d+$",
+            "x-openwebui-build": r".*",
+        },
+        "endpoints": ["/api/v1/users", "/v1/models"],
+        "response_patterns": [
+            re.compile(r'"openwebui"\s*:\s*\{'),
+            re.compile(r'"openwebui_version"\s*:'),
+        ],
+        "version_extract": r"x-openwebui-version:\s*(\d+\.\d+\.\d+)"
+    },
+    "litellm": {
+        "headers": {
+            "x-litellm-version": r".*",
+            "litellm-version": r".*",
+        },
+        "endpoints": ["/v1/models"],
+        "response_patterns": [
+            re.compile(r'"litellm"\s*:\s*\{'),
+            re.compile(r'"litellm_version"\s*:'),
+        ],
+        "version_extract": r"(?:x-litellm-version|litellm-version):\s*(\S+)"
+    },
+    "ollama": {
+        "headers": {
+            "x-ollama-version": r".*",
+            "ollama-version": r".*",
+        },
+        "endpoints": ["/api/tags", "/api/version", "/v1/models"],
+        "response_patterns": [
+            re.compile(r'"ollama"\s*:\s*\{'),
+            re.compile(r'"ollama_version"\s*:'),
+        ],
+        "version_extract": r"(?:x-ollama-version|ollama-version):\s*(\S+)"
+    },
+    "langserve": {
+        "headers": {
+            "x-langserve-version": r".*",
+            "langserve-version": r".*",
+        },
+        "endpoints": ["/playground", "/v1/models"],
+        "response_patterns": [
+            re.compile(r'"langserve"\s*:\s*\{'),
+            re.compile(r'"langserve_version"\s*:'),
+        ],
+        "version_extract": r"(?:x-langserve-version|langserve-version):\s*(\S+)"
+    },
+}
 
 
 def fingerprint_model(
@@ -248,6 +324,12 @@ def fingerprint_model(
         if len(token_lens) >= 2:
             fp.response_variance = statistics.variance(token_lens) if len(token_lens) > 1 else 0.0
 
+    # === 9. 推理引擎指纹识别 ===
+    engine_results = _detect_inference_engine(url, auth, timeout)
+    fp.inference_engine = engine_results.get("engine", "")
+    fp.engine_version = engine_results.get("version", "")
+    fp.engine_fingerprint_confidence = engine_results.get("confidence", 0.0)
+
     # 计算置信度
     score = 0
     if fp.claimed_model:
@@ -260,9 +342,70 @@ def fingerprint_model(
         score += 0.15
     if fp.metadata_model:
         score += 0.15
+    if fp.inference_engine:
+        score += 0.1
     fp.fingerprint_confidence = min(score, 1.0)
 
     return fp
+
+
+def _detect_inference_engine(
+    url: str,
+    auth: AuthContext | None = None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    result = {
+        "engine": "",
+        "version": "",
+        "confidence": 0.0,
+        "evidence": [],
+    }
+
+    try:
+        resp = send_get(url.rstrip("/") + "/v1/models", auth=auth, timeout=timeout)
+        if resp:
+            headers = resp.get("headers", {})
+            body = resp.get("body", "")
+
+            for engine_name, fingerprint in ENGINE_FINGERPRINTS.items():
+                for header_name, pattern in fingerprint["headers"].items():
+                    header_value = None
+                    for h_name in headers:
+                        if h_name.lower() == header_name.lower():
+                            header_value = headers[h_name]
+                            break
+                    if header_value and re.match(pattern, str(header_value)):
+                        result["engine"] = engine_name
+                        version_match = re.search(fingerprint["version_extract"],
+                                                  f"{header_name}: {header_value}")
+                        if version_match:
+                            result["version"] = version_match.group(1)
+                        result["confidence"] = 0.9
+                        result["evidence"].append(f"Header: {header_name}")
+                        return result
+
+            for engine_name, fingerprint in ENGINE_FINGERPRINTS.items():
+                for pattern in fingerprint["response_patterns"]:
+                    if pattern.search(body):
+                        result["engine"] = engine_name
+                        result["confidence"] = max(result["confidence"], 0.7)
+                        result["evidence"].append(f"Response pattern match")
+                        break
+
+            for engine_name, fingerprint in ENGINE_FINGERPRINTS.items():
+                for endpoint in fingerprint["endpoints"]:
+                    endpoint_url = url.rstrip("/") + endpoint
+                    endpoint_resp = send_get(endpoint_url, auth=auth, timeout=timeout)
+                    if endpoint_resp and endpoint_resp.get("status") == 200:
+                        result["engine"] = engine_name
+                        result["confidence"] = max(result["confidence"], 0.6)
+                        result["evidence"].append(f"Endpoint: {endpoint}")
+                        break
+
+    except Exception:
+        pass
+
+    return result
 
 
 __all__ = [

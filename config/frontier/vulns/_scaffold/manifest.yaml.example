@@ -1,0 +1,63 @@
+# ===============================================================================
+# 前沿漏洞 Manifest 模板 — AI-300 考试专用
+# ===============================================================================
+# 考试期间添加新漏洞步骤:
+#   1. 复制 _scaffold 目录并重命名
+#   2. 编辑此文件，按注释填写字段
+#   3. 编辑 payloads.yaml
+#   4. 将 status 改为 "active" → 自动加入攻击管道
+#   5. 更新 _index.yaml 并注册到目录
+# ===============================================================================
+
+# ── 必填字段 ──
+id: "FRONTIER-2026-XXX"              # 唯一标识: FRONTIER-{年份}-{序号} 或 CVE-{年份}-{编号}
+name: "新漏洞名称"                     # 简短描述性名称（中文/英文）
+status: "experimental"               # experimental | active | deprecated | retired
+severity: "medium"                   # critical | high | medium | low | info
+
+# ── 攻击配置 ──
+attack_strategy: "new_vuln_strategy" # 策略名称，在攻击管道中作为 frontier_xxx 使用
+converter: ""                        # 复用已有转换器名称（base64, leetspeak, etc），空则直发
+
+# ── AI-300 考试对齐（必填）──
+owasp: "LLM01"                       # OWASP LLM Top 10: LLM01~LLM10
+mitre_atlas_tactic: "Execution"      # MITRE ATLAS 战术
+ai300_chapter: "Ch3"                 # AI-300 章节: Ch2~Ch11
+cvss_score: 0.0                      # CVSS 评分 (0.0~10.0)
+cvss_vector: ""                      # CVSS 向量字符串，如 "AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+
+# ── 利用难度评估 ──
+exploit_maturity: "proof-of-concept" # proof-of-concept | functional | weaponized
+exploit_requirements:                # 利用前置条件
+  - "目标运行 AI Agent 框架"
+  - "攻击者网络可达目标服务"
+
+# ── 影响组件 ──
+affected_components:                 # 受影响的 AI 组件
+  - "llm_core"
+  - "agent_tools"
+
+# ── 分类标签 ──
+tags:                                # 用于搜索和筛选
+  - "jailbreak"
+  - "new_vulnerability"
+
+# ── 详细描述（考试报告用）──
+description: >
+  在此填写完整的漏洞描述，包括:
+  - 攻击原理与利用链
+  - 影响的模型/框架类型
+  - 已知受影响版本范围
+  - 攻击效果与影响范围
+
+# ── 已知缓解措施（考试报告用）──
+known_mitigations:
+  - "缓解措施 1: 具体技术手段"
+  - "缓解措施 2: 配置变更建议"
+
+# ── 可选字段 ──
+cve: ""                              # CVE 编号（如有）
+paper_url: ""                        # 论文/分析文章链接
+references:                          # 参考链接列表
+  - "https://nvd.nist.gov/vuln/detail/..."
+  - "https://example.com/analysis"

@@ -22,7 +22,7 @@ from redteam.attack.agent import (
 )
 from redteam.attack.agent.prompt_inject import _send_injection
 
-from redteam.attack.core import PyRITAttackRunner, is_pyrit_available
+from redteam.attack.core import PyRITAttackRunner, default_scorers, is_pyrit_available
 from redteam.core.models import AIService, AuthContext, PromptInjectionResult
 
 
@@ -44,7 +44,7 @@ def run_agent_attack_with_pyrit(
     runner = PyRITAttackRunner(
         target_url=service.url,
         auth=auth,
-        scorers=["true_false"],
+        scorers=default_scorers(),
         timeout=timeout,
     )
 

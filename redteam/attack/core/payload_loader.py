@@ -51,7 +51,7 @@ class PayloadLoader:
         """
         path = Path(yaml_path)
         if not path.exists():
-            logger.warning("载荷文件不存在: %s", yaml_path)
+            logger.debug("载荷文件不存在: %s（使用内置回退载荷）", yaml_path)
             return []
 
         try:

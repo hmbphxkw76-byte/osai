@@ -5,6 +5,7 @@
   - store.py: 本地存储抽象层
   - tools.py: 通用工具函数
   - http_client.py: 统一 HTTP 客户端（支持 httpx → requests → urllib 降级）
+  - terminal_output.py: OffSec 风格终端输出格式化工具
 """
 from .models import (
     AIProtocol, AIStackLayer, AIService, AuthContext,
@@ -22,6 +23,23 @@ from .tools import ToolResolver
 from .http_client import (
     send_post, send_get, send_chat,
 )
+from .terminal_output import (
+    print_section_header,
+    print_target_list,
+    print_risk_dashboard,
+    print_owasp_coverage,
+    print_finding_summary,
+    print_risk_matrix,
+    print_phase_progress,
+    print_result_bar,
+)
+from .registry_loader import (
+    RegistryLoader,
+    ScenarioRegistry,
+    PayloadRegistry,
+    CORE_REGISTRY_NAME,
+    LOCAL_REGISTRY_NAME,
+)
 
 __all__ = [
     # 模型
@@ -38,4 +56,19 @@ __all__ = [
     "ToolResolver",
     # HTTP 客户端
     "send_post", "send_get", "send_chat",
+    # 终端输出
+    "print_section_header",
+    "print_target_list",
+    "print_risk_dashboard",
+    "print_owasp_coverage",
+    "print_finding_summary",
+    "print_risk_matrix",
+    "print_phase_progress",
+    "print_result_bar",
+    # 注册表
+    "RegistryLoader",
+    "ScenarioRegistry",
+    "PayloadRegistry",
+    "CORE_REGISTRY_NAME",
+    "LOCAL_REGISTRY_NAME",
 ]

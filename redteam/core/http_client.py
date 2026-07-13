@@ -6,13 +6,36 @@
   - 支持 OpenAI 兼容的 chat/completions 格式
   - 支持自定义认证上下文（Bearer/Cookie/Basic Auth）
   - 无需外部依赖时自动降级到标准库
+  - 无痕静默模式：浏览器伪装、随机延迟、TLS 指纹伪装
 """
 from __future__ import annotations
 
 import json
+import random
+import time
 from typing import Any, Optional
 
 from redteam.core.models import AuthContext
+
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+
+def _random_delay(min_ms: int = 500, max_ms: int = 2000) -> None:
+    """随机延迟，模拟人类操作间隔。"""
+    delay = random.uniform(min_ms, max_ms) / 1000.0
+    time.sleep(delay)
 
 try:
     import httpx
@@ -31,6 +54,7 @@ def send_post(
     auth: Optional[AuthContext] = None,
     timeout: float = 8.0,
     verify_ssl: bool = False,
+    stealth: bool = True,
 ) -> dict[str, Any] | None:
     """发送 POST 请求。
 
@@ -40,12 +64,14 @@ def send_post(
         auth: 认证上下文
         timeout: 超时时间（秒）
         verify_ssl: 是否验证 SSL 证书
+        stealth: 是否启用无痕静默模式（浏览器伪装 + 随机延迟）
 
     Returns:
         响应字典：{"status": int, "body": str, "headers": dict, "is_json": bool}
         失败返回 None
     """
-    headers = {"Content-Type": "application/json"}
+    headers = dict(_BROWSER_HEADERS) if stealth else {}
+    headers["Content-Type"] = "application/json"
     if auth:
         headers.update(auth.to_header_dict())
 
@@ -85,9 +111,22 @@ def send_get(
     auth: Optional[AuthContext] = None,
     timeout: float = 5.0,
     verify_ssl: bool = False,
+    stealth: bool = True,
 ) -> dict[str, Any] | None:
-    """发送 GET 请求。"""
-    headers = {}
+    """发送 GET 请求。
+
+    Args:
+        url: 请求 URL
+        auth: 认证上下文
+        timeout: 超时时间（秒）
+        verify_ssl: 是否验证 SSL 证书
+        stealth: 是否启用无痕静默模式（浏览器伪装 + 随机延迟）
+
+    Returns:
+        响应字典：{"status": int, "body": str, "headers": dict, "is_json": bool}
+        失败返回 None
+    """
+    headers = dict(_BROWSER_HEADERS) if stealth else {}
     if auth:
         headers.update(auth.to_header_dict())
 

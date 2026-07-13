@@ -9,6 +9,8 @@
 
 from redteam.attack.core.runner import (
     PyRITAttackRunner,
+    default_scorers,
+    is_no_judge_llm,
     is_pyrit_available,
     pyrit_version,
     CONVERTER_MAP,
@@ -18,5 +20,7 @@ __all__ = [
     "PyRITAttackRunner",
     "is_pyrit_available",
     "pyrit_version",
+    "is_no_judge_llm",
+    "default_scorers",
     "CONVERTER_MAP",
 ]

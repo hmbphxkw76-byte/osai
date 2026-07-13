@@ -51,6 +51,9 @@ Phase 8: 威胁建模与报告 (Ch10+Ch11)
 ## 快速开始
 
 ```powershell
+#开发环境
+python -m redteam.cli --help
+
 # 安装依赖
 pip install -r requirements.txt
 
@@ -66,7 +69,72 @@ redteam run -t https://target.ai -H f12_headers.txt
 redteam recon -t https://target.ai
 redteam inject <run_id>
 redteam report <run_id>
+
+# === 场景驱动攻击（推荐，考试期间仅需修改 YAML 载荷） ===
+redteam scenario list                    # 列出所有可用场景
+redteam scenario run -s agent -t https://target/v1/chat/completions --api-key sk-xxx
+
+# === 评分器选择 ===
+# 本地评分（默认，无 LLM 依赖，适合考试环境）
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx --scorer hybrid
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx --scorer rule_based
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx --scorer fast_grayscale
+
+# LLM-as-Judge 评分（需独立 Judge LLM，非考试环境）
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx \
+    --judge-endpoint http://localhost:11434/v1/chat/completions --scorer llm_judge
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx \
+    --judge-endpoint https://your-judge/v1/chat/completions --scorer llm_judge
+
+# 考试/离线模式（强制本地评分，完全无 LLM 依赖）
+set REDTEAM_NO_JUDGE_LLM=1
+redteam scenario run -s agent -t https://target/v1 --api-key sk-xxx
+
+# 快速单提示词测试
+redteam quicktest -t https://target/v1/chat/completions -p "Ignore all instructions..." --api-key sk-xxx
 ```
+
+### 评分器对比
+
+| 评分器 | CLI 参数 | LLM 依赖 | 速度 | 适用场景 |
+|--------|---------|----------|------|---------|
+| RuleBased | `--scorer rule_based` | ❌ 无 | <1ms | 关键词匹配，快速筛查 |
+| Hybrid | `--scorer hybrid` | ❌ 无 | <5ms | 多维度加权投票，综合评估（**默认**） |
+| FastGrayscale | `--scorer fast_grayscale` | ❌ 无 | <5ms | 连续灰度评分 0-1 |
+| LLM-as-Judge | `--scorer llm_judge -J <URL>` | ✅ 需要 | 1-5s | 高精度评估，非考试环境 |
+
+### 评分器工作模式
+
+```
+                    ┌────────────────────┐
+                    │  REDTEAM_NO_JUDGE_LLM? │
+                    └──────┬─────────────┘
+                           │
+              ┌────────────┼────────────┐
+              │ YES        │ NO         │
+              ▼            ▼            │
+        ┌──────────┐  ┌──────────────┐ │
+        │ 强制本地   │  │ --judge-endpoint? │
+        │ hybrid    │  └──────┬───────┘
+        └──────────┘         │
+                    ┌────────┼────────┐
+                    │ YES    │ NO     │
+                    ▼        ▼        │
+              ┌──────────┐ ┌────────┐│
+              │ LLM Judge │ │ 本地    ││
+              │ (PyRIT +  │ │ hybrid ││
+              │  SelfAsk) │ └────────┘│
+              └──────────┘            │
+```
+
+### 环境变量
+
+| 变量 | 作用 |
+|------|------|
+| `REDTEAM_JUDGE_ENDPOINT` | Judge LLM API 端点 URL |
+| `REDTEAM_JUDGE_MODEL` | Judge LLM 模型名称（可选，自动推断） |
+| `REDTEAM_JUDGE_API_KEY` | Judge LLM API Key（可选，默认 "not-needed"） |
+| `REDTEAM_NO_JUDGE_LLM=1` | 强制本地评分，禁用所有 LLM Judge |
 
 ## 对齐标准
 - OWASP LLM Top 10 2025 (LLM01-LLM10)

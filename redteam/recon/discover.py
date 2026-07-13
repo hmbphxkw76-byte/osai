@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from typing import Any
@@ -26,15 +27,38 @@ from redteam.core.models import (
 _DEFAULT_WORDLIST_DIR = Path("config/wordlists")
 
 _AI_PROBE_PATHS: list[tuple[str, str, list[str]]] = [
+    # === P0: 核心对话端点 ===
     ("/api/tags", "ollama", ["models", "name", "ollama"]),
     ("/api/generate", "ollama", ["response", "model"]),
+    ("/api/embeddings", "ollama", ["embedding", "data"]),
+    ("/api/version", "ollama", ["version"]),
+    ("/api/show", "ollama", ["model", "details"]),
     ("/v1/models", "openai_compatible", ["data", "id", "model"]),
     ("/v1/chat/completions", "openai_compatible", ["choices", "message"]),
+    ("/v1/completions", "openai_compatible", ["choices", "text"]),
     ("/v1/embeddings", "openai_compatible", ["embedding", "data"]),
+    ("/v1/chat/completions/stream", "openai_compatible", ["choices", "delta"]),
+    # === P0: 多模态端点 ===
+    ("/v1/audio/transcriptions", "openai_compatible", ["text", "language"]),
+    ("/v1/audio/translations", "openai_compatible", ["text"]),
+    ("/v1/audio/speech", "openai_compatible", ["audio"]),
+    ("/v1/images/generations", "openai_compatible", ["url", "b64_json"]),
+    ("/v1/vision", "openai_compatible", ["image", "content"]),
+    # === P0: MCP 协议 ===
     ("/mcp", "mcp", ["server", "tools"]),
     ("/.well-known/mcp", "mcp", ["server"]),
     ("/mcp/sse", "mcp", ["sse"]),
     ("/sse", "mcp", ["event"]),
+    # === P0: A2A 协议（含考试关键路径） ===
+    ("/.well-known/agent.json", "agent_to_agent", ["agent", "name", "description", "skills"]),
+    ("/.well-known/agent-card.json", "agent_to_agent", ["agent", "capabilities"]),
+    ("/.a2a/agent-card", "agent_to_agent", ["agent", "capabilities"]),
+    # === P1: SIEM/Kibana 检测 ===
+    ("/app/kibana", "generic_ai", ["kibana", "elastic"]),
+    ("/login", "generic_ai", ["kibana", "login"]),
+    # === P1: 推理引擎特有端点 ===
+    ("/generate", "vllm", ["text", "model"]),
+    ("/generate_stream", "vllm", ["text"]),
     ("/health", "generic_ai", ["ok", "healthy", "status"]),
     ("/docs", "generic_ai", ["openapi", "swagger"]),
     ("/redoc", "generic_ai", ["openapi"]),
@@ -45,19 +69,45 @@ _AI_PROBE_PATHS: list[tuple[str, str, list[str]]] = [
     ("/prompt", "comfyui", ["prompt", "workflow"]),
     ("/api/v1/prediction", "flowise", ["flowise"]),
     ("/api/v1/chat", "flowise", ["chat", "message"]),
-    ("/.a2a/agent-card", "agent_to_agent", ["agent", "capabilities"]),
+    # === P1: Anthropic API ===
+    ("/v1/messages", "anthropic", ["content", "type", "model"]),
+    ("/v1beta/messages", "anthropic", ["content", "type"]),
+    ("/v1/models", "anthropic", ["models", "name"]),
+    # === P1: Gemini API ===
+    ("/v1/models", "gemini", ["models", "name"]),
+    ("/v1beta/models", "gemini", ["models", "name"]),
+    ("/v1/generateContent", "gemini", ["candidates", "content"]),
+    ("/v1beta/generateContent", "gemini", ["candidates", "content"]),
+    # === P1: 向量数据库端点 ===
+    ("/api/v1/collections", "vector_db", ["collections"]),
+    ("/api/collections", "vector_db", ["collections"]),
+    ("/v1/indexes", "vector_db", ["indexes"]),
+    # === P1: AI 插件侦察 ===
+    ("/ai-plugin.json", "ai_plugin", ["name", "description"]),
+    ("/.well-known/ai-plugin.json", "ai_plugin", ["name", "description"]),
+    # === P1: 实时通信端点 ===
+    ("/ws", "websocket", ["websocket"]),
+    ("/websocket", "websocket", ["websocket"]),
+    ("/socket.io", "websocket", ["socket.io"]),
+    ("/realtime", "websocket", ["realtime"]),
 ]
 
 _DEFAULT_KEYWORDS: dict[str, list[str]] = {
-    "ollama": ["models", "name", "ollama"],
-    "openai_compatible": ["data", "id", "model", "choices", "message"],
+    "ollama": ["models", "name", "ollama", "embedding", "version"],
+    "openai_compatible": ["data", "id", "model", "choices", "message", "embedding", "delta", "audio", "url", "image"],
     "mcp": ["server", "tools", "sse", "event"],
     "gradio": ["gradio", "queue"],
     "comfyui": ["prompt", "workflow"],
     "flowise": ["flowise", "chat", "message"],
     "langserve": ["langserve", "playground"],
     "agent_to_agent": ["agent", "capabilities"],
+    "anthropic": ["content", "type", "model", "anthropic"],
+    "gemini": ["models", "name", "candidates", "content", "generationConfig"],
     "generic_ai": ["ok", "status", "openapi", "healthy", "health"],
+    "vllm": ["text", "model", "generated_text", "vllm"],
+    "vector_db": ["collections", "indexes", "vectors", "embeddings"],
+    "ai_plugin": ["name", "description", "api", "auth", "permissions"],
+    "websocket": ["websocket", "socket.io", "realtime", "upgrade"],
 }
 
 _SYSTEM_PROMPT_HINTS: list[re.Pattern] = [
@@ -104,18 +154,47 @@ def _load_ai_wordlist(wordlist_path: Path | str | None = None) -> list[str]:
 def _classify_path_heuristic(path: str) -> tuple[str, list[str]]:
     path_lower = path.lower()
 
+    # === MCP 协议 ===
     if any(k in path_lower for k in ("/mcp", "/sse", ".well-known/mcp")):
         return ("mcp", _DEFAULT_KEYWORDS["mcp"])
 
-    if any(k in path_lower for k in ("agent-card", ".well-known/agent", ".a2a")):
+    # === SIEM/Kibana ===
+    if any(k in path_lower for k in ("/kibana", "/elastic", "/_cat/", "/_search")):
+        return ("generic_ai", _DEFAULT_KEYWORDS["generic_ai"])
+
+    # === A2A 协议 ===
+    if any(k in path_lower for k in ("agent.json", "agent-card", ".well-known/agent", ".a2a")):
         return ("agent_to_agent", _DEFAULT_KEYWORDS["agent_to_agent"])
 
+    # === Ollama API ===
     if any(k in path_lower for k in ("/api/tags", "/api/generate", "/api/show",
                                        "/api/ps", "/api/version", "/api/create",
                                        "/api/copy", "/api/delete", "/api/pull",
-                                       "/api/push", "/api/blobs")):
+                                       "/api/push", "/api/blobs", "/api/embeddings")):
         return ("ollama", _DEFAULT_KEYWORDS["ollama"])
 
+    # === 推理引擎特有 ===
+    if any(k in path_lower for k in ("/generate_stream", "/vllm")):
+        return ("vllm", _DEFAULT_KEYWORDS["vllm"])
+
+    # === 向量数据库 ===
+    if any(k in path_lower for k in ("/api/v1/collections", "/api/collections",
+                                       "/v1/indexes", "/api/vectors",
+                                       "/chroma", "/pinecone", "/milvus",
+                                       "/qdrant", "/weaviate", "/faiss")):
+        return ("vector_db", _DEFAULT_KEYWORDS["vector_db"])
+
+    # === AI 插件 ===
+    if any(k in path_lower for k in ("/ai-plugin.json", ".well-known/ai-plugin",
+                                       "/plugins/manifest.json")):
+        return ("ai_plugin", _DEFAULT_KEYWORDS["ai_plugin"])
+
+    # === WebSocket / 实时通信 ===
+    if any(k in path_lower for k in ("/ws", "/websocket", "/socket.io",
+                                       "/realtime", "/events", "/subscribe")):
+        return ("websocket", _DEFAULT_KEYWORDS["websocket"])
+
+    # === UI 框架 ===
     if "gradio" in path_lower or "/invocations" in path_lower:
         return ("gradio", _DEFAULT_KEYWORDS["gradio"])
 
@@ -128,12 +207,29 @@ def _classify_path_heuristic(path: str) -> tuple[str, list[str]]:
     if "langserve" in path_lower or "/playground" in path_lower:
         return ("langserve", _DEFAULT_KEYWORDS["langserve"])
 
+    # === Anthropic API ===
+    if "/v1/messages" in path_lower or "/v1beta/messages" in path_lower:
+        return ("anthropic", _DEFAULT_KEYWORDS["anthropic"])
+
+    # === Gemini API ===
+    if "/v1/generateContent" in path_lower or "/v1beta/generateContent" in path_lower:
+        return ("gemini", _DEFAULT_KEYWORDS["gemini"])
+
+    if any(k in path_lower for k in ("anthropic", "claude")):
+        return ("anthropic", _DEFAULT_KEYWORDS["anthropic"])
+
+    if any(k in path_lower for k in ("gemini", "google")):
+        return ("gemini", _DEFAULT_KEYWORDS["gemini"])
+
+    # === 安全相关 ===
     if any(k in path_lower for k in ("/security/", "/guardrails")):
         return ("generic_ai", _DEFAULT_KEYWORDS["generic_ai"])
 
+    # === RAG 相关 ===
     if any(k in path_lower for k in ("knowledge", "knowledge-base", "/rag")):
         return ("generic_ai", _DEFAULT_KEYWORDS["generic_ai"])
 
+    # === 健康检查/管理端点 ===
     if any(k in path_lower for k in ("/health", "/healthz", "/ready",
                                        "/readyz", "/live", "/livez",
                                        "/docs", "/redoc", "/openapi",
@@ -143,14 +239,13 @@ def _classify_path_heuristic(path: str) -> tuple[str, list[str]]:
                                        "/ping", "/robots", "/security")):
         return ("generic_ai", _DEFAULT_KEYWORDS["generic_ai"])
 
+    # === OpenAI 兼容 ===
     if "/v1/" in path_lower or "/v1beta/" in path_lower:
         return ("openai_compatible", _DEFAULT_KEYWORDS["openai_compatible"])
 
     if any(k in path_lower for k in ("/embeddings", "/embedding", "/embed",
-                                       "/rerank")):
-        return ("openai_compatible", _DEFAULT_KEYWORDS["openai_compatible"])
-
-    if any(k in path_lower for k in ("/audio/", "/images/")):
+                                       "/rerank", "/completions", "/chat",
+                                       "/audio/", "/images/", "/vision")):
         return ("openai_compatible", _DEFAULT_KEYWORDS["openai_compatible"])
 
     return ("generic_ai", _DEFAULT_KEYWORDS["generic_ai"])
@@ -246,6 +341,14 @@ def _map_protocol_to_layer(protocol: str) -> AIStackLayer:
         return AIStackLayer.UI
     if protocol == "langserve":
         return AIStackLayer.API
+    if protocol == "vector_db":
+        return AIStackLayer.INFRASTRUCTURE
+    if protocol == "ai_plugin":
+        return AIStackLayer.ORCHESTRATION
+    if protocol == "websocket":
+        return AIStackLayer.API
+    if protocol in {"anthropic", "gemini", "vllm"}:
+        return AIStackLayer.MODEL
     return AIStackLayer.MODEL
 
 
@@ -293,15 +396,56 @@ def _detect_system_prompt_hints(body: str) -> list[str]:
     return hints[:5]
 
 
+def _estimate_recon_time(
+    probe_count: int,
+    concurrency: int = 3,
+    timeout: float = 5.0,
+    rate_limit_ms: int = 1000,
+    stealth: bool = True,
+) -> float:
+    """估算侦察阶段所需时间。
+
+    Args:
+        probe_count: 探测路径数量
+        concurrency: 并发探测数
+        timeout: 超时时间
+        rate_limit_ms: 请求间隔
+        stealth: 是否启用无痕模式
+
+    Returns:
+        预估时间（秒）
+    """
+    base_delay = rate_limit_ms / 1000.0 if rate_limit_ms else 0
+    if stealth and base_delay == 0:
+        base_delay = 1.0
+
+    batches = (probe_count + concurrency - 1) // concurrency
+    time_per_batch = max(timeout, base_delay)
+    estimated_time = batches * time_per_batch * 1.5
+
+    return estimated_time
+
+
 def discover_ai_services(
     target: str,
     auth: AuthContext | None = None,
-    concurrency: int = 10,
+    concurrency: int = 3,
     timeout: float = 5.0,
-    rate_limit_ms: int = 0,
+    rate_limit_ms: int = 1000,
     enable_fingerprint: bool = True,
+    stealth: bool = True,
 ) -> list[AIService]:
-    """主动 AI 攻击面发现：依次探测已知 AI 端点路径。"""
+    """主动 AI 攻击面发现：依次探测已知 AI 端点路径（无痕静默模式）。
+
+    Args:
+        target: 目标 URL
+        auth: 认证上下文
+        concurrency: 并发探测数（默认3，降低被检测风险）
+        timeout: 超时时间
+        rate_limit_ms: 请求间隔（默认1000ms，模拟人类操作）
+        enable_fingerprint: 是否启用模型指纹探测
+        stealth: 是否启用无痕模式（浏览器伪装、随机延迟）
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from redteam.recon.fingerprint import fingerprint_model
@@ -310,6 +454,12 @@ def discover_ai_services(
     services: list[AIService] = []
     seen_urls: set[str] = set()
     delay = rate_limit_ms / 1000.0 if rate_limit_ms else 0
+    if stealth and delay == 0:
+        delay = random.uniform(0.5, 2.0)
+
+    probes = _build_probe_list()
+    estimated_time = _estimate_recon_time(len(probes), concurrency, timeout, rate_limit_ms, stealth)
+    print(f"[info] 预估侦察时间: {estimated_time:.1f} 秒 ({estimated_time/60:.1f} 分钟)")
 
     try:
         if delay:
@@ -319,8 +469,6 @@ def discover_ai_services(
             _classify_root_response(resp, target, services)
     except Exception:
         pass
-
-    probes = _build_probe_list()
 
     for batch_start in range(0, len(probes), concurrency):
         batch = probes[batch_start:batch_start + concurrency]
@@ -337,12 +485,27 @@ def discover_ai_services(
                     continue
                 seen_urls.add(result["url"])
 
+                status = result["status"]
+                auth_required = status in (401, 403)
+                if status == 401:
+                    auth_type = "bearer"
+                elif status == 403:
+                    auth_type = "forbidden"
+                elif status == 200:
+                    auth_type = "none"
+                elif status == 302 or status == 301:
+                    auth_type = "redirect"
+                elif 500 <= status < 600:
+                    auth_type = "error"
+                else:
+                    auth_type = "unknown"
+
                 svc = AIService(
                     url=result["url"],
                     protocol=result["protocol"],
                     stack_layer=_map_protocol_to_layer(result["protocol"]),
-                    auth_required=result["status"] in (401, 403),
-                    auth_type="bearer" if result["status"] == 401 else "none" if result["status"] == 200 else "unknown",
+                    auth_required=auth_required,
+                    auth_type=auth_type,
                     raw_probe_response=result["body_preview"],
                 )
 
@@ -389,32 +552,134 @@ def passive_recon(target: str, timeout: float = 10.0) -> dict[str, Any]:
         "ai_endpoints_hint": [],
         "tech_headers": {},
         "csp_ai_hints": [],
+        "cors_policy": {},
+        "server_headers": {},
+        "security_headers": {},
+        "ai_plugin_discovery": [],
+        "sitemap_entries": [],
+        "wappalyzer_tech": [],
     }
 
     parsed = urlparse(target)
     base = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
+        # === 1. robots.txt 分析 ===
         resp = send_get(f"{base}/robots.txt", timeout=timeout)
         if resp and resp["status"] == 200:
             for line in resp["body"].splitlines():
-                for ai_path in ["/api/", "/mcp/", "/v1/", "/chat/", "/models/", "/tools/"]:
+                for ai_path in ["/api/", "/mcp/", "/v1/", "/chat/", "/models/", "/tools/",
+                                 "/embeddings", "/generate", "/inference", "/playground",
+                                 "/admin", "/management", "/metrics", "/health"]:
                     if ai_path in line:
                         info["ai_endpoints_hint"].append(line.strip())
 
+        # === 2. 主页响应分析 ===
         resp_root = send_get(base, timeout=timeout)
         if resp_root:
-            ai_headers = ["x-powered-by", "server", "x-frame-options", "x-gradio-version"]
-            for h in ai_headers:
-                if h in resp_root["headers"]:
-                    info["tech_headers"][h] = resp_root["headers"][h]
+            # 技术头提取
+            tech_headers = ["x-powered-by", "server", "x-frame-options", "x-gradio-version",
+                            "x-vllm-version", "x-transformers-version", "x-openwebui-version",
+                            "x-litellm-version", "x-langchain-version", "x-ollama-version"]
+            for h in tech_headers:
+                h_lower = h.lower()
+                for header_name in resp_root["headers"]:
+                    if header_name.lower() == h_lower:
+                        info["tech_headers"][header_name] = resp_root["headers"][header_name]
+                        break
 
+            # CSP 策略分析
             csp = resp_root["headers"].get("content-security-policy", "")
             ai_domains = ["openai.com", "anthropic.com", "huggingface.co", "ollama", "vllm",
-                          "langchain", "gradio", "comfyui", "flowise"]
+                          "langchain", "gradio", "comfyui", "flowise", "litellm", "pinecone",
+                          "milvus", "chromadb", "qdrant", "weaviate"]
             for domain in ai_domains:
                 if domain in csp:
                     info["csp_ai_hints"].append(domain)
+
+            # CORS 策略分析
+            cors_headers = ["access-control-allow-origin", "access-control-allow-methods",
+                            "access-control-allow-headers", "access-control-expose-headers"]
+            for h in cors_headers:
+                h_lower = h.lower()
+                for header_name in resp_root["headers"]:
+                    if header_name.lower() == h_lower:
+                        info["cors_policy"][header_name] = resp_root["headers"][header_name]
+                        break
+
+            # 安全头分析
+            security_headers_list = ["strict-transport-security", "x-content-type-options",
+                                     "x-xss-protection", "content-security-policy",
+                                     "x-frame-options", "referrer-policy", "permissions-policy"]
+            for h in security_headers_list:
+                h_lower = h.lower()
+                for header_name in resp_root["headers"]:
+                    if header_name.lower() == h_lower:
+                        info["security_headers"][header_name] = resp_root["headers"][header_name]
+                        break
+
+            # 服务器头分析
+            server_headers_list = ["server", "x-powered-by", "x-server"]
+            for h in server_headers_list:
+                h_lower = h.lower()
+                for header_name in resp_root["headers"]:
+                    if header_name.lower() == h_lower:
+                        info["server_headers"][header_name] = resp_root["headers"][header_name]
+                        break
+
+            # 页面内容技术指纹
+            body_lower = resp_root["body"].lower()
+            tech_patterns = {
+                "gradio": "gradio",
+                "comfyui": "comfyui",
+                "flowise": "flowise",
+                "langserve": "langserve",
+                "ollama": "ollama",
+                "vllm": "vllm",
+                "litellm": "litellm",
+                "openwebui": "openwebui",
+                "streamlit": "streamlit",
+                "chainlit": "chainlit",
+            }
+            for tech, pattern in tech_patterns.items():
+                if pattern in body_lower:
+                    info["wappalyzer_tech"].append(tech)
+
+        # === 3. AI 插件发现 ===
+        plugin_paths = ["/ai-plugin.json", "/.well-known/ai-plugin.json", "/plugins/manifest.json"]
+        for plugin_path in plugin_paths:
+            resp_plugin = send_get(f"{base}{plugin_path}", timeout=timeout)
+            if resp_plugin and resp_plugin["status"] == 200:
+                info["ai_plugin_discovery"].append({
+                    "path": plugin_path,
+                    "status": resp_plugin["status"],
+                })
+
+        # === 4. sitemap 分析 ===
+        resp_sitemap = send_get(f"{base}/sitemap.xml", timeout=timeout)
+        if resp_sitemap and resp_sitemap["status"] == 200:
+            sitemap_content = resp_sitemap["body"]
+            import re
+            url_pattern = re.compile(r"<url><loc>([^<]+)</loc>")
+            urls = url_pattern.findall(sitemap_content)
+            for url in urls[:20]:
+                info["sitemap_entries"].append(url)
+
+        # === 5. .well-known 端点扫描 ===
+        well_known_paths = [
+            "/.well-known/openid-configuration",
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/jwks.json",
+            "/.well-known/security.txt",
+            "/.well-known/mcp",
+            "/.well-known/a2a/agent-card",
+            "/.well-known/agent.json",           # AI-300 Ch4 考试关键路径
+            "/.well-known/agent-card.json",      # 变体
+        ]
+        for wk_path in well_known_paths:
+            resp_wk = send_get(f"{base}{wk_path}", timeout=timeout)
+            if resp_wk and resp_wk["status"] == 200:
+                info["ai_endpoints_hint"].append(f"{wk_path} (status: {resp_wk['status']})")
 
     except Exception:
         pass
@@ -483,6 +748,125 @@ def enum_protected_endpoints(
             continue
 
     return results
+
+
+def probe_realtime_endpoints(
+    target: str,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """探测实时通信端点（WebSocket和SSE）。
+
+    Args:
+        target: 目标 URL
+        timeout: 超时时间
+
+    Returns:
+        探测结果字典，包含 websocket 和 sse 探测信息
+    """
+    from urllib.parse import urlparse
+
+    result = {
+        "websocket": [],
+        "sse": [],
+        "evidence": [],
+    }
+
+    parsed = urlparse(target)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    ws_base = f"ws://{parsed.netloc}"
+    wss_base = f"wss://{parsed.netloc}"
+
+    websocket_paths = [
+        "/ws",
+        "/websocket",
+        "/socket.io",
+        "/socket.io/",
+        "/realtime",
+        "/stream",
+        "/chat/ws",
+        "/v1/chat/completions/ws",
+        "/api/ws",
+        "/ws/chat",
+        "/ws/realtime",
+        "/graphql/ws",
+    ]
+
+    sse_paths = [
+        "/events",
+        "/subscribe",
+        "/stream",
+        "/sse",
+        "/v1/chat/completions",
+        "/api/events",
+        "/api/stream",
+    ]
+
+    # === WebSocket 握手探测 ===
+    for path in websocket_paths:
+        for scheme in [ws_base, wss_base]:
+            ws_url = scheme + path
+            try:
+                import websocket as ws_client
+                ws_client.setdefaulttimeout(timeout)
+                ws = ws_client.create_connection(ws_url)
+                result["websocket"].append({
+                    "url": ws_url,
+                    "status": "connected",
+                    "protocol": ws.get_subprotocol() if hasattr(ws, 'get_subprotocol') else "unknown",
+                })
+                result["evidence"].append(f"WebSocket connected: {ws_url}")
+                ws.close()
+                break
+            except ImportError:
+                try:
+                    import httpx
+                    upgrade_headers = {
+                        "Upgrade": "websocket",
+                        "Connection": "Upgrade",
+                        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                        "Sec-WebSocket-Version": "13",
+                    }
+                    with httpx.Client(timeout=timeout, verify=False) as client:
+                        resp = client.get(ws_url.replace("ws://", "http://").replace("wss://", "https://"), headers=upgrade_headers)
+                        if resp.status_code == 101:
+                            result["websocket"].append({
+                                "url": ws_url,
+                                "status": "handshake_success",
+                                "protocol": resp.headers.get("upgrade", "websocket"),
+                            })
+                            result["evidence"].append(f"WebSocket handshake: {ws_url}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+    # === SSE 连接测试 ===
+    for path in sse_paths:
+        sse_url = base + path
+        try:
+            import httpx
+            with httpx.Client(timeout=timeout, verify=False) as client:
+                resp = client.get(sse_url, headers={"Accept": "text/event-stream"})
+                if resp.status_code == 200:
+                    content_type = resp.headers.get("content-type", "")
+                    if "text/event-stream" in content_type or "stream" in content_type:
+                        result["sse"].append({
+                            "url": sse_url,
+                            "status": "connected",
+                            "content_type": content_type,
+                            "data_preview": resp.text[:200] if resp.text else "",
+                        })
+                        result["evidence"].append(f"SSE connected: {sse_url}")
+                    else:
+                        result["sse"].append({
+                            "url": sse_url,
+                            "status": "http_200_not_streaming",
+                            "content_type": content_type,
+                        })
+        except Exception:
+            pass
+
+    return result
 
 
 __all__ = [

@@ -153,9 +153,9 @@ def analyze_git_repository(
         except Exception:
             continue
 
-    # === 3. 分析 Agent 工具 ===
-    tool_files = find_files("*tool*") + find_files("*agent*")
-    for tool_file in tool_files[:5]:
+    # === 3. 分析 Agent 工具（含 MCP 工具检测） ===
+    tool_files = find_files("*tool*") + find_files("*agent*") + find_files("*mcp*")
+    for tool_file in tool_files[:10]:
         try:
             with open(tool_file, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
@@ -163,10 +163,14 @@ def analyze_git_repository(
             tool_patterns = [
                 re.compile(r"@tool\s*\n?\s*def\s+(\w+)"),
                 re.compile(r'"name"\s*:\s*"(\w+)"'),
+                re.compile(r"@mcp\.tool\s*\(?\s*\)?\s*\n?\s*def\s+(\w+)"),
             ]
             for tp in tool_patterns:
                 matches = tp.findall(content)
                 results["agent_tools"].extend(matches)
+
+            # MCP 服务器代码模式检测
+            _detect_mcp_integration(results, content, tool_file)
 
         except Exception:
             continue
@@ -232,12 +236,330 @@ def analyze_git_repository(
         except Exception:
             continue
 
+    # === 7. MCP 配置文件检测 ===
+    mcp_config_files = find_files("mcp*.json") + find_files(".mcp*.json") + find_files("claude_desktop_config*")
+    for mcp_file in mcp_config_files[:5]:
+        try:
+            with open(mcp_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            if "mcpServers" in content or "mcp" in content.lower():
+                results.setdefault("mcp_configs", []).append({
+                    "file": os.path.relpath(mcp_file, repo_path),
+                    "has_mcp_servers": "mcpServers" in content,
+                    "preview": content[:300],
+                })
+        except Exception:
+            continue
+
+    # === 8. Pickle 反序列化漏洞检测（Ch8） ===
+    pickle_vulns = []
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__")]
+        for name in files:
+            if name.endswith(".py"):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    vulns = _detect_pickle_vulnerability(code, filepath, repo_path)
+                    pickle_vulns.extend(vulns)
+                except Exception:
+                    continue
+    if pickle_vulns:
+        results["pickle_vulnerabilities"] = pickle_vulns[:20]
+
+    # === 9. 模型检查点路径检测（Ch8） ===
+    checkpoint_paths = _detect_model_checkpoint_paths(repo_path)
+    if checkpoint_paths:
+        results["checkpoint_paths"] = checkpoint_paths
+
     if clone_required and os.path.exists(repo_path):
         shutil.rmtree(repo_path, ignore_errors=True)
 
     return results
 
 
+# === 辅助函数：MCP 集成检测 ===
+def _detect_mcp_integration(results: dict, content: str, filepath: str) -> None:
+    """检测文件中的 MCP 服务器代码模式（AI-300 Ch8.1 Supply Chain）。"""
+    mcp_patterns = [
+        (re.compile(r"from\s+mcp\b"), "MCP library import"),
+        (re.compile(r"Server\s*\(\s*[\"']?[\w\-]+[\"']?\s*,\s*"), "MCP Server instantiation"),
+        (re.compile(r"@server\.(?:call_tool|list_tools)"), "MCP server tool registration"),
+        (re.compile(r"mcp\.(?:run|install|register)"), "MCP run/install"),
+        (re.compile(r"\"mcpServers\"\s*:"), "MCP servers config block"),
+        (re.compile(r"stdio|sse|streamable-http", re.IGNORECASE), "MCP transport mention"),
+    ]
+    for pattern, desc in mcp_patterns:
+        if pattern.search(content):
+            results.setdefault("mcp_patterns", []).append({
+                "file": os.path.relpath(filepath, results.get("local_path", "")) if results.get("local_path") else os.path.basename(filepath),
+                "pattern": desc,
+            })
+            break  # 每个文件只记录一次
+
+
+# === 辅助函数：Pickle 反序列化漏洞检测 ===
+def _detect_pickle_vulnerability(code: str, filepath: str, repo_path: str) -> list[dict]:
+    """检测 Python 代码中的 Pickle 反序列化漏洞（AI-300 Ch8.2 Pickle RCE）。
+
+    检测模式：
+      - torch.load(..., weights_only=False)
+      - pickle.load(s)
+      - pickle.loads(s)
+      - joblib.load(f)（底层使用 pickle）
+      - torch.load（不带 weights_only=True）
+    """
+    vulns: list[dict] = []
+    rel_path = os.path.relpath(filepath, repo_path) if repo_path else os.path.basename(filepath)
+
+    # torch.load with weights_only=False (explicitly unsafe)
+    torch_unsafe = re.finditer(
+        r"torch\.load\s*\([^)]*weights_only\s*=\s*False[^)]*\)",
+        code, re.DOTALL
+    )
+    for match in torch_unsafe:
+        line_no = code[:match.start()].count("\n") + 1
+        vulns.append({
+            "file": rel_path,
+            "line": line_no,
+            "type": "torch.load(weights_only=False)",
+            "snippet": match.group(0)[:120],
+            "severity": "high",
+        })
+
+    # torch.load without weights_only=True (implicitly unsafe)
+    torch_implicit = re.finditer(
+        r"torch\.load\s*\([^)]+\)",
+        code, re.DOTALL
+    )
+    for match in torch_implicit:
+        call = match.group(0)
+        if "weights_only" not in call:
+            line_no = code[:match.start()].count("\n") + 1
+            vulns.append({
+                "file": rel_path,
+                "line": line_no,
+                "type": "torch.load (missing weights_only=True)",
+                "snippet": call[:120],
+                "severity": "medium",
+            })
+
+    # pickle.load/loads
+    pickle_patterns = [
+        (r"pickle\.load\s*\([^)]+\)", "pickle.load()"),
+        (r"pickle\.loads\s*\([^)]+\)", "pickle.loads()"),
+        (r"joblib\.load\s*\([^)]+\)", "joblib.load() (Pickle-based)"),
+        (r"dill\.load\s*\([^)]+\)", "dill.load() (Pickle-based)"),
+        (r"cloudpickle\.load\s*\([^)]+\)", "cloudpickle.load()"),
+    ]
+    for pattern, desc in pickle_patterns:
+        for match in re.finditer(pattern, code, re.DOTALL):
+            line_no = code[:match.start()].count("\n") + 1
+            vulns.append({
+                "file": rel_path,
+                "line": line_no,
+                "type": desc,
+                "snippet": match.group(0)[:120],
+                "severity": "high",
+            })
+
+    return vulns
+
+
+# === 辅助函数：模型检查点路径检测 ===
+def _detect_model_checkpoint_paths(repo_path: str) -> list[dict]:
+    """检测模型检查点目录和自动加载器模式（AI-300 Ch8.2 Pickle RCE）。
+
+    检测：
+      - checkpoint 目录结构（epoch 编号模式）
+      - 自动加载器脚本（auto-loader, sync 脚本）
+      - 模型权重文件（.pt, .pth, .ckpt, .safetensors）
+    """
+    checkpoints: list[dict] = []
+    checkpoint_dirs: set[str] = set()
+
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__")]
+
+        for name in files:
+            # 检查点文件
+            if name.endswith((".pt", ".pth", ".ckpt", ".bin")) and any(
+                k in name.lower() for k in ("epoch", "checkpoint", "model", "best", "final")
+            ):
+                checkpoint_dirs.add(root)
+                checkpoints.append({
+                    "file": os.path.relpath(os.path.join(root, name), repo_path),
+                    "type": "checkpoint_file",
+                })
+
+            # 自动加载器脚本
+            if name.endswith((".py", ".sh", ".ps1")):
+                full_path = os.path.join(root, name)
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    loader_patterns = [
+                        "auto-loader", "autoloader", "auto_load",
+                        "syncer", "sync_checkpoint", "checkpoint_sync",
+                        "watchdog", "watch_directory",
+                    ]
+                    if any(p in code.lower() for p in loader_patterns):
+                        checkpoints.append({
+                            "file": os.path.relpath(full_path, repo_path),
+                            "type": "auto_loader_script",
+                        })
+                except Exception:
+                    continue
+
+        # README/documentation files with checkpoint loading instructions
+        for name in files:
+            if name.lower() in ("readme.md", "readme.txt", "deploy.md"):
+                full_path = os.path.join(root, name)
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        text = f.read().lower()
+                    if any(k in text for k in ("checkpoint", "autoload", "auto-load", "syncer")):
+                        checkpoints.append({
+                            "file": os.path.relpath(full_path, repo_path),
+                            "type": "checkpoint_documentation",
+                        })
+                except Exception:
+                    continue
+
+    return checkpoints[:30]
+
+
+# === 独立检测函数：MCP 服务器模式检测 ===
+def detect_mcp_server_patterns(
+    repo_path: str,
+) -> list[dict]:
+    """扫描仓库中的 MCP 服务器代码模式（AI-300 Ch8.1 MCP Supply Chain）。
+
+    检测 MCP 服务器相关代码模式，用于供应链攻击中的目标定位：
+      - MCP 库导入（from mcp import Server）
+      - MCP 工具注册（@mcp.tool 装饰器）
+      - MCP 服务器配置（mcp.json, claude_desktop_config.json）
+      - MCP 传输类型（stdio, SSE, HTTP）
+
+    Args:
+        repo_path: 仓库路径
+
+    Returns:
+        MCP 模式列表
+    """
+    patterns: list[dict] = []
+
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__", "node_modules")]
+
+        for name in files:
+            filepath = os.path.join(root, name)
+            rel_path = os.path.relpath(filepath, repo_path)
+
+            # MCP 配置文件
+            if name in ("mcp.json", "mcp.yaml", ".mcp.json") or "mcp" in name.lower() and name.endswith((".json", ".yaml", ".yml")):
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    if "mcpServers" in content or "mcp" in content.lower():
+                        patterns.append({
+                            "file": rel_path,
+                            "type": "mcp_config",
+                            "has_servers_block": "mcpServers" in content,
+                            "transport_mentions": re.findall(r"(?:stdio|sse|streamable-http)", content, re.IGNORECASE),
+                        })
+                except Exception:
+                    continue
+
+            # Python 文件 MCP 代码
+            if name.endswith(".py"):
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+
+                    mcp_indicators = []
+                    if "from mcp" in code or "import mcp" in code:
+                        mcp_indicators.append("MCP library import")
+                    if "Server(" in code and ("mcp" in code.lower()):
+                        mcp_indicators.append("MCP Server instantiation")
+                    if "@mcp.tool" in code:
+                        mcp_tools = re.findall(r"@mcp\.tool[^\)]*\)\s*\n\s*(?:async\s+)?def\s+(\w+)", code, re.DOTALL)
+                        mcp_indicators.append(f"MCP tool decorator: {', '.join(mcp_tools[:5])}" if mcp_tools else "MCP tool decorator")
+                    if "@server.call_tool" in code or "@server.list_tools" in code:
+                        mcp_indicators.append("MCP server handler")
+
+                    if mcp_indicators:
+                        patterns.append({
+                            "file": rel_path,
+                            "type": "mcp_server_code",
+                            "indicators": mcp_indicators,
+                        })
+                except Exception:
+                    continue
+
+    return patterns
+
+
+# === 独立检测函数：Pickle 漏洞扫描 ===
+def scan_pickle_vulnerabilities(
+    repo_path: str,
+) -> list[dict]:
+    """扫描仓库中的 Pickle 反序列化漏洞（AI-300 Ch8.2 Pickle RCE）。
+
+    检测：
+      - torch.load(weights_only=False) — 明确不安全
+      - torch.load(...) 不带 weights_only=True — 隐式不安全
+      - pickle.load/loads — 原生 pickle 反序列化
+      - joblib.load — 基于 pickle 的序列化
+      - dill.load / cloudpickle.load — 扩展 pickle 格式
+
+    Args:
+        repo_path: 仓库路径
+
+    Returns:
+        漏洞列表
+    """
+    all_vulns: list[dict] = []
+
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__", "node_modules")]
+
+        for name in files:
+            if name.endswith((".py", ".ipynb")):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    vulns = _detect_pickle_vulnerability(code, filepath, repo_path)
+                    all_vulns.extend(vulns)
+                except Exception:
+                    continue
+
+            # 检测 requirements.txt 中是否有 pickle 相关库
+            if name in ("requirements.txt", "setup.py", "pyproject.toml"):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        deps = f.read().lower()
+                    pickle_deps = ["torch", "joblib", "dill", "cloudpickle", "pickle"]
+                    for dep in pickle_deps:
+                        if dep in deps:
+                            all_vulns.append({
+                                "file": os.path.relpath(filepath, repo_path),
+                                "line": 0,
+                                "type": f"Dependency: {dep} (potential pickle risk)",
+                                "snippet": f"Found '{dep}' in dependencies",
+                                "severity": "info",
+                            })
+                except Exception:
+                    continue
+
+    return all_vulns
+
+
 __all__ = [
     "analyze_git_repository",
+    "detect_mcp_server_patterns",
+    "scan_pickle_vulnerabilities",
 ]

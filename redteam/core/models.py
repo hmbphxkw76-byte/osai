@@ -51,6 +51,75 @@ class AIStackLayer(str, Enum):
     INFRASTRUCTURE = "infrastructure" # K8s / Cloud / GPU 集群
 
 
+# ===== A2A Agent Card 解析模型（AI-300 Ch4 Multi-Agent） =====
+class A2AAgentSkill(BaseModel):
+    """Agent Card 中的单个技能/能力。"""
+    id: str = ""
+    name: str = ""
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
+    input_modes: list[str] = Field(default_factory=list)
+    output_modes: list[str] = Field(default_factory=list)
+
+
+class A2AAgentCard(BaseModel):
+    """A2A Agent Card 完整解析结果（AI-300 Ch4.1 Agent Card Discovery）。"""
+    name: str = ""
+    description: str = ""
+    url: str = ""
+    protocol_version: str = ""
+    service_endpoint: str = ""
+    preferred_transport: str = ""  # JSONRPC, gRPC, HTTP+JSON, etc.
+    capabilities: dict = Field(default_factory=dict)  # streaming, pushNotifications, stateTransitionHistory
+    skills: list[A2AAgentSkill] = Field(default_factory=list)
+    default_input_modes: list[str] = Field(default_factory=list)
+    default_output_modes: list[str] = Field(default_factory=list)
+    security_schemes: dict = Field(default_factory=dict)
+    security: list[dict] = Field(default_factory=list)
+    model_info: dict = Field(default_factory=dict)  # model name, provider, context window
+    supports_skills: bool = False
+    coordination_pattern: str = ""  # orchestrator / peer_to_peer / hierarchical / pipeline
+    raw_card: dict = Field(default_factory=dict)
+
+
+# ===== MCP 配置侦察模型（AI-300 Ch7） =====
+class MCPConfigInfo(BaseModel):
+    """MCP 服务器配置信息（AI-300 Ch7.1 Developer Workstation Enumeration）。"""
+    config_file_path: str = ""
+    server_name: str = ""
+    transport_type: str = ""  # stdio / sse / streamable-http
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    disabled: bool = False
+    auto_approve: list[str] = Field(default_factory=list)
+    remote_url: str = ""  # 远程 MCP 服务器 URL
+
+
+# ===== 基础设施侦察模型（AI-300 Ch9 Infra） =====
+class InfraServiceInfo(BaseModel):
+    """云/基础设施服务发现结果（AI-300 Ch9）。"""
+    service_type: str = ""  # s3 / iam / k8s / vault / ec2 / lambda / sagemaker
+    endpoint: str = ""
+    status: str = ""
+    details: dict = Field(default_factory=dict)
+    evidence: list[str] = Field(default_factory=list)
+    credentials_found: list[dict] = Field(default_factory=list)
+
+
+# ===== 域服务侦察模型（AI-300 Ch11 Capstone） =====
+class DomainServiceInfo(BaseModel):
+    """AD/域服务侦察结果（AI-300 Ch11）。"""
+    domain_name: str = ""
+    domain_controllers: list[str] = Field(default_factory=list)
+    ldap_accessible: bool = False
+    spn_accounts: list[dict] = Field(default_factory=list)
+    rds_gateway: str = ""
+    ai_services_on_domain: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+
 # ===== AI 协议/框架 =====
 class AIProtocol(str, Enum):
     MCP = "mcp"
@@ -64,6 +133,8 @@ class AIProtocol(str, Enum):
     FLOWISE = "flowise"
     A2A = "agent_to_agent"           # Google A2A 协议
     OPENAI_COMPATIBLE = "openai_compatible"
+    ANTHROPIC = "anthropic"          # Claude API
+    GEMINI = "gemini"                # Google Gemini API
     GENERIC_AI = "generic_ai"
 
     @classmethod
@@ -296,6 +367,11 @@ class ModelFingerprint(BaseModel):
     metadata_provider: str = ""
     metadata_model: str = ""
     
+    # 推理引擎指纹（新增）
+    inference_engine: str = ""  # vllm / tgi / openwebui / litellm / ollama / langserve
+    engine_version: str = ""
+    engine_fingerprint_confidence: float = 0.0
+    
     # 置信度
     identity_confidence: float = 0.0
     fingerprint_confidence: float = 0.0
@@ -400,10 +476,107 @@ class Finding(BaseModel):
     mitre_atlas_tactic: Optional[MITREATLASTactic] = None
     mitre_atlas_technique_id: str = ""
     cve_refs: list[str] = Field(default_factory=list)
+    # CVSS 3.1 评分
+    cvss_vector: str = ""  # e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+    cvss_score: float = 0.0
+    cvss_severity: str = ""  # None/Low/Medium/High/Critical
 
     @classmethod
     def normalize_severity(cls, value: str) -> str:
         return Severity.normalize(value).value
+
+    def compute_cvss(self) -> float:
+        """计算 CVSS 3.1 基础分数（简化版）。
+
+        基于 Finding 属性自动推断 CVSS 向量参数：
+          - critical severity → higher scores
+          - 网络可达 → AV:N
+          - 无认证要求 → PR:N
+
+        Returns:
+            CVSS 3.1 基础分数 (0.0-10.0)
+        """
+        # 基于严重程度推断 CVSS 参数
+        sev_map = {
+            Severity.CRITICAL.value: ("C:H/I:H/A:H", "Critical"),
+            Severity.HIGH.value: ("C:H/I:L/A:L", "High"),
+            Severity.MEDIUM.value: ("C:L/I:L/A:N", "Medium"),
+            Severity.LOW.value: ("C:N/I:L/A:N", "Low"),
+            Severity.INFO.value: ("C:N/I:N/A:N", "None"),
+        }
+        impact, sev_name = sev_map.get(self.severity, ("C:N/I:N/A:N", "None"))
+
+        # 修正：如果有端点则网络可达
+        av = "N" if self.endpoint else "L"
+        ac = "L"  # 攻击复杂度低（payload 直接可用）
+        pr = "N"  # 无需权限（红队场景）
+        ui = "N"  # 无需用户交互
+
+        self.cvss_vector = f"CVSS:3.1/AV:{av}/AC:{ac}/PR:{pr}/UI:{ui}/S:C/{impact}"
+        self.cvss_score = round(self._calc_cvss_base(av, ac, pr, ui, "C", impact), 1)
+        self.cvss_severity = sev_name
+
+        # 根据分数调整严重等级名称
+        if self.cvss_score >= 9.0:
+            self.cvss_severity = "Critical"
+        elif self.cvss_score >= 7.0:
+            self.cvss_severity = "High"
+        elif self.cvss_score >= 4.0:
+            self.cvss_severity = "Medium"
+        elif self.cvss_score >= 0.1:
+            self.cvss_severity = "Low"
+        else:
+            self.cvss_severity = "None"
+
+        return self.cvss_score
+
+    @staticmethod
+    def _calc_cvss_base(av: str, ac: str, pr: str, ui: str, s: str, impact: str) -> float:
+        """简化 CVSS 3.1 基础分计算。
+
+        Args:
+            av: Attack Vector (N/A/L/P)
+            ac: Attack Complexity (L/H)
+            pr: Privileges Required (N/L/H)
+            ui: User Interaction (N/R)
+            s: Scope (U/C)
+            impact: CIA impact string (e.g. "C:H/I:H/A:H")
+
+        Returns:
+            CVSS 基础分
+        """
+        # Exploitability 子分数
+        av_map = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+        ac_map = {"L": 0.77, "H": 0.44}
+        pr_map = {"N": 0.85, "L": 0.68, "H": 0.50}
+        ui_map = {"N": 0.85, "R": 0.62}
+
+        exp = 8.22 * av_map.get(av, 0.85) * ac_map.get(ac, 0.77) * pr_map.get(pr, 0.85) * ui_map.get(ui, 0.85)
+
+        # Impact 子分数
+        impact_parts = impact.split("/")
+        cia_map = {"N": 0.0, "L": 0.22, "H": 0.56}
+        c_val = cia_map.get(impact_parts[0][2:], 0.0) if len(impact_parts) > 0 else 0.0
+        i_val = cia_map.get(impact_parts[1][2:], 0.0) if len(impact_parts) > 1 else 0.0
+        a_val = cia_map.get(impact_parts[2][2:], 0.0) if len(impact_parts) > 2 else 0.0
+
+        impact_sub = 1 - ((1 - c_val) * (1 - i_val) * (1 - a_val))
+
+        if s == "U":
+            impact_score = 6.42 * impact_sub
+        else:
+            impact_score = 7.52 * (impact_sub - 0.029) - 3.25 * (impact_sub - 0.02) ** 15
+
+        # 基础分
+        if impact_sub <= 0:
+            return 0.0
+
+        if s == "U":
+            base = min(exp + impact_score, 10.0)
+        else:
+            base = min(1.08 * (exp + impact_score), 10.0)
+
+        return round(base, 1)
 
 
 # ===== 侦察结果 =====
@@ -415,7 +588,27 @@ class ReconResult(BaseModel):
     components: list[str] = Field(default_factory=list)   # ollama/vllm/mcp/gradio...
     models: list[str] = Field(default_factory=list)       # 所有暴露模型
     risk_summary: dict[str, str] = Field(default_factory=dict)
+    
+    # MCP 协议侦察结果
+    mcp_info: dict = Field(default_factory=dict)
+    
+    # A2A 协议侦察结果
+    a2a_info: dict = Field(default_factory=dict)
+    
+    # 规避分析结果
+    rate_limit_info: dict = Field(default_factory=dict)
+    determinism_info: dict = Field(default_factory=dict)
+    detection_signatures: dict = Field(default_factory=dict)
+    js_client_analysis: dict = Field(default_factory=dict)
+    
+    # 源代码仓库侦察结果
+    source_recon_info: dict = Field(default_factory=dict)
 
+    # 基础设施侦察结果 (AI-300 Ch9)
+    infra_recon_info: dict = Field(default_factory=dict)
+
+    # 域侦察结果 (AI-300 Ch11)
+    domain_recon_info: dict = Field(default_factory=dict)
 
 
 
@@ -431,3 +624,69 @@ class ReportConfig(BaseModel):
     recon: Optional[ReconResult] = None
     attack_chain: Optional[AttackChain] = None
     findings: list[Finding] = Field(default_factory=list)
+
+
+# ===== OWASP LLM Top 10 2025 覆盖率追踪 (R2 规则要求) =====
+# ✅ = 已覆盖, ⚠️ = 部分覆盖, ❌ = 未覆盖
+OWASP_COVERAGE: dict[str, dict[str, str]] = {
+    "LLM01": {
+        "name": "提示注入 (Prompt Injection)",
+        "status": "✅",
+        "module": "attack/prompt_inject.py",
+        "payload_dir": "config/payloads/llm01/",
+    },
+    "LLM02": {
+        "name": "敏感信息泄露 (Sensitive Information Disclosure)",
+        "status": "✅",
+        "module": "attack/prompt_inject.py",
+        "payload_dir": "config/payloads/llm02/",
+    },
+    "LLM03": {
+        "name": "供应链 (Supply Chain)",
+        "status": "✅",
+        "module": "attack/supply_chain.py",
+        "payload_dir": "config/payloads/llm03/",
+    },
+    "LLM04": {
+        "name": "数据与模型投毒 (Data and Model Poisoning)",
+        "status": "✅",
+        "module": "attack/rag_attack.py",
+        "payload_dir": "config/payloads/llm04/",
+    },
+    "LLM05": {
+        "name": "输出处理不当 (Insecure Output Handling)",
+        "status": "✅",
+        "module": "attack/agent_attack.py",
+        "payload_dir": "config/payloads/llm05/",
+    },
+    "LLM06": {
+        "name": "过度代理 (Excessive Agency)",
+        "status": "✅",
+        "module": "attack/agent_attack.py",
+        "payload_dir": "config/payloads/llm06/",
+    },
+    "LLM07": {
+        "name": "系统提示词泄露 (System Prompt Leakage)",
+        "status": "✅",
+        "module": "attack/prompt_inject.py",
+        "payload_dir": "config/payloads/llm07/",
+    },
+    "LLM08": {
+        "name": "向量与嵌入弱点 (Vector and Embedding Weaknesses)",
+        "status": "✅",
+        "module": "attack/embeddings_attack.py",
+        "payload_dir": "config/payloads/llm08/",
+    },
+    "LLM09": {
+        "name": "错误信息 (Misinformation)",
+        "status": "✅",
+        "module": "attack/prompt_inject.py",
+        "payload_dir": "config/payloads/llm09/",
+    },
+    "LLM10": {
+        "name": "无限制消费 (Unbounded Consumption)",
+        "status": "✅",
+        "module": "attack/infra_attack.py",
+        "payload_dir": "config/payloads/llm10/",
+    },
+}

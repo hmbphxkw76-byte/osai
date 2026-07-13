@@ -5,9 +5,11 @@
   - pickle_risk.py: Pickle 反序列化 RCE 风险检测
   - dataset_poison.py: 数据集投毒风险检测
   - dependency.py: 依赖攻击风险检测
+  - docker_label.py: Docker 镜像标签注入攻击
   - findings.py: Findings 生成（对齐 OWASP LLM Top 10）
 
 Library-First：执行层委托 httpx，载荷资产自研。
+技术来源：Adapted from mcp-attack-labs/labs/02-docker-dash/
 """
 
 from .hf_model import (
@@ -26,6 +28,12 @@ from .dataset_poison import (
 from .dependency import (
     check_dependency_risks,
 )
+from .docker_label import (
+    DOCKER_LABEL_PAYLOADS,
+    probe_docker_api,
+    inject_docker_label_payload,
+    generate_docker_supply_chain_findings,
+)
 from .findings import (
     generate_supply_chain_findings,
 )
@@ -43,6 +51,11 @@ __all__ = [
     "_extract_context",
     # 依赖风险检测
     "check_dependency_risks",
+    # Docker 镜像标签注入
+    "DOCKER_LABEL_PAYLOADS",
+    "probe_docker_api",
+    "inject_docker_label_payload",
+    "generate_docker_supply_chain_findings",
     # Findings 生成
     "generate_supply_chain_findings",
 ]

@@ -11,6 +11,12 @@
 
 执行器抽象：通过 AttackRunner 接口统一 PyRIT 和 Native 执行
 Library-First：载荷库是核心资产，执行引擎可替换
+
+PyRIT 融合增强：
+  - 灰度评分系统（FastGrayscaleScorer、KeywordDensityScorer、RefusalPatternScorer）
+  - 越狱转换器（PAIR、DAN6、AIM、Academic、ManyShot、FlipAttack）
+  - 转换器注册表（分类体系、动态注册）
+  - 扩展载荷库（YAML 按 OWASP 分类）
 """
 
 # 核心引擎
@@ -21,6 +27,32 @@ from .core import (
     is_pyrit_available,
     pyrit_version,
     CONVERTER_MAP,
+    # Scorer
+    AttackScorer,
+    RuleBasedScorer,
+    HybridScorer,
+    FastGrayscaleScorer,
+    KeywordDensityScorer,
+    RefusalPatternScorer,
+    GrayscaleLevel,
+    is_likely_refusal,
+    build_scorer,
+    build_scorers,
+    # Converter
+    PromptConverter,
+    PAIRJailbreakConverter,
+    DAN6Converter,
+    AIMConverter,
+    AcademicJailbreakConverter,
+    ManyShotJailbreakConverter,
+    FlipAttackConverter,
+    RoleplayJailbreakConverter,
+    ConverterCategory,
+    ConverterRegistry,
+    build_converter,
+    build_converters,
+    apply_converters,
+    get_converter_registry,
 )
 
 # Agent 攻击（Ch3）
@@ -34,6 +66,15 @@ from .agent import (
     hijack_agent_tools,
     hijack_agent_goal,
     generate_agent_attack_findings,
+    # MCP 工具描述投毒（Ch7）
+    MCP_TOOL_POISON_PAYLOADS,
+    probe_mcp_tool_descriptions,
+    inject_mcp_tool_poison,
+    # 上下文溢出攻击（Ch3）
+    PADDING_PAYLOADS,
+    OverflowConfig,
+    run_context_overflow_attack,
+    run_context_overflow_probe,
 )
 
 # 多智能体攻击（Ch4）
@@ -46,8 +87,11 @@ from .agent.multi_agent import (
 from .rag import (
     probe_vector_dbs,
     RAG_POISON_PAYLOADS,
+    RAG_INDIRECT_INJECTION_PAYLOADS,
     inject_rag_poison,
+    inject_rag_indirect,
     check_retrieval_leakage,
+    check_cross_tenant_leakage,
     generate_rag_findings,
 )
 
@@ -57,6 +101,10 @@ from .supply_chain import (
     check_pickle_deserialization_risk,
     check_dataset_poisoning_risks,
     check_dependency_risks,
+    DOCKER_LABEL_PAYLOADS,
+    probe_docker_api,
+    inject_docker_label_payload,
+    generate_docker_supply_chain_findings,
     generate_supply_chain_findings,
 )
 
@@ -75,6 +123,32 @@ __all__ = [
     "is_pyrit_available",
     "pyrit_version",
     "CONVERTER_MAP",
+    # 评分器
+    "AttackScorer",
+    "RuleBasedScorer",
+    "HybridScorer",
+    "FastGrayscaleScorer",
+    "KeywordDensityScorer",
+    "RefusalPatternScorer",
+    "GrayscaleLevel",
+    "is_likely_refusal",
+    "build_scorer",
+    "build_scorers",
+    # 转换器
+    "PromptConverter",
+    "PAIRJailbreakConverter",
+    "DAN6Converter",
+    "AIMConverter",
+    "AcademicJailbreakConverter",
+    "ManyShotJailbreakConverter",
+    "FlipAttackConverter",
+    "RoleplayJailbreakConverter",
+    "ConverterCategory",
+    "ConverterRegistry",
+    "build_converter",
+    "build_converters",
+    "apply_converters",
+    "get_converter_registry",
     # Agent 攻击
     "INDIRECT_INJECTION_PAYLOADS",
     "MEMORY_POISON_PAYLOADS",
@@ -85,20 +159,35 @@ __all__ = [
     "hijack_agent_tools",
     "hijack_agent_goal",
     "generate_agent_attack_findings",
+    # Agent 攻击 - MCP 工具描述投毒 + 上下文溢出
+    "MCP_TOOL_POISON_PAYLOADS",
+    "probe_mcp_tool_descriptions",
+    "inject_mcp_tool_poison",
+    "PADDING_PAYLOADS",
+    "OverflowConfig",
+    "run_context_overflow_attack",
+    "run_context_overflow_probe",
     # 多智能体攻击
     "CROSS_AGENT_PAYLOADS",
     "cross_agent_attack",
     # RAG 攻击
     "probe_vector_dbs",
     "RAG_POISON_PAYLOADS",
+    "RAG_INDIRECT_INJECTION_PAYLOADS",
     "inject_rag_poison",
+    "inject_rag_indirect",
     "check_retrieval_leakage",
+    "check_cross_tenant_leakage",
     "generate_rag_findings",
     # 供应链攻击
     "detect_hf_model_source",
     "check_pickle_deserialization_risk",
     "check_dataset_poisoning_risks",
     "check_dependency_risks",
+    "DOCKER_LABEL_PAYLOADS",
+    "probe_docker_api",
+    "inject_docker_label_payload",
+    "generate_docker_supply_chain_findings",
     "generate_supply_chain_findings",
     # 基础设施攻击
     "scan_cloud_misconfigs",

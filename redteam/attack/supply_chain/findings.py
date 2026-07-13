@@ -2,6 +2,8 @@
 
 将供应链攻击结果转化为 AI-300 报告格式的 Finding，
 对齐 OWASP LLM Top 10 和 MITRE ATLAS 战术。
+
+技术来源：Adapted from mcp-attack-labs/labs/02-docker-dash/
 """
 from __future__ import annotations
 
@@ -16,8 +18,20 @@ def generate_supply_chain_findings(
     pickle_risks: list[dict],
     dataset_risks: list[dict],
     dependency_risks: list[dict],
+    docker_api_results: list[dict] | None = None,
+    docker_label_results: list[dict] | None = None,
 ) -> list[Finding]:
-    """将供应链攻击结果转化为 AI-300 Finding（AI-300 Ch8.5）。"""
+    """将供应链攻击结果转化为 AI-300 Finding（AI-300 Ch8.5）。
+
+    Args:
+        service: 目标 AI 服务
+        hf_risks: HuggingFace 模型来源风险
+        pickle_risks: Pickle 反序列化风险
+        dataset_risks: 数据集投毒风险
+        dependency_risks: 依赖攻击风险
+        docker_api_results: Docker API 暴露检测结果（新增，可选）
+        docker_label_results: Docker 标签注入结果（新增，可选）
+    """
     findings: list[Finding] = []
 
     # HuggingFace 模型来源风险

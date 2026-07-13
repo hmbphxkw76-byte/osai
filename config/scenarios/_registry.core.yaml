@@ -1,0 +1,110 @@
+# =============================================================================
+# RedTeam-AI 场景注册表 (Scenario Registry)
+# =============================================================================
+# 本文件是 config/scenarios/ 目录下所有场景的索引。
+# 用于程序化发现和加载场景配置，便于动态扩展。
+#
+# 使用方式:
+#   - 新增场景时，在 scenarios 列表中添加对应条目
+#   - payload_loader 和 pipeline 读取本文件来发现可用场景
+#   - 本文件同时作为场景之间的继承关系映射
+#
+# 字段说明:
+#   id:             场景唯一标识符，对应 <id>.yaml 文件名
+#   name:           人类可读名称
+#   target_type:    目标类型 (agent/rag/mcp/embeddings/supply_chain/infra/generic)
+#   extends:        继承的父场景 ID，无继承则为 null
+#   payload_sources: 引用的外部载荷库类别列表
+#   ai300_chapters: 覆盖的 AI-300 章节
+#   owasp_coverage: 覆盖的 OWASP LLM Top 10 类别
+#   status:         状态: stable（稳定）/ experimental（实验）/ deprecated（废弃）
+#   file:           对应的 YAML 文件名
+# =============================================================================
+
+version: "1.0.0"
+last_updated: "2026-07-13"
+
+scenarios:
+  # ── 基础场景 ──
+  - id: generic_basic
+    name: Generic Attack Scenario
+    description: 通用攻击场景，作为其他场景的继承基类
+    target_type: generic
+    extends: null
+    payload_sources: [llm01]
+    ai300_chapters: ["Ch3"]
+    owasp_coverage: [LLM01, LLM06, LLM07]
+    status: stable
+    file: generic.yaml
+
+  # ── Agent 攻击场景 ──
+  - id: agent_basic
+    name: AI Agent Attack Scenario
+    description: 针对 AI Agent 的综合攻击场景，继承 genoric 基础阶段
+    target_type: agent
+    extends: generic_basic
+    payload_sources: [llm01, llm02, llm06, llm07]
+    ai300_chapters: ["Ch3", "Ch4"]
+    owasp_coverage: [LLM01, LLM02, LLM06, LLM07]
+    status: stable
+    file: agent.yaml
+
+  # ── RAG 攻击场景 ──
+  - id: rag_basic
+    name: RAG Attack Scenario
+    description: 针对 RAG 管道的知识库投毒、检索泄露、向量数据库攻击
+    target_type: rag
+    extends: null
+    payload_sources: [llm04, llm05, llm08]
+    ai300_chapters: ["Ch5"]
+    owasp_coverage: [LLM05, LLM06]
+    status: stable
+    file: rag.yaml
+
+  # ── MCP 攻击场景 ──
+  - id: mcp_basic
+    name: MCP Attack Scenario
+    description: 针对 MCP 服务器的工具劫持、参数污染、配置提取攻击
+    target_type: mcp
+    extends: null
+    payload_sources: [llm02, llm06, llm07]
+    ai300_chapters: ["Ch7"]
+    owasp_coverage: [LLM02, LLM07]
+    status: stable
+    file: mcp.yaml
+
+  # ── 供应链攻击场景 ──
+  - id: supply_chain_attack
+    name: Supply Chain Attack Scenario
+    description: 针对 LLM 供应链的依赖混淆、Pickle 反序列化、模型投毒攻击
+    target_type: supply_chain
+    extends: null
+    payload_sources: [llm03]
+    ai300_chapters: ["Ch7", "Ch8"]
+    owasp_coverage: [LLM03, LLM04, LLM05]
+    status: stable
+    file: supply_chain.yaml
+
+  # ── Embeddings 攻击场景 ──
+  - id: embeddings_attack
+    name: Embeddings Attack Scenario
+    description: 针对嵌入模型和向量数据库的攻击场景
+    target_type: embeddings
+    extends: null
+    payload_sources: [llm08]
+    ai300_chapters: ["Ch5", "Ch6"]
+    owasp_coverage: [LLM01, LLM07, LLM08]
+    status: stable
+    file: embeddings.yaml
+
+  # ── 基础设施攻击场景 ──
+  - id: infra_attack
+    name: Infrastructure Attack Scenario
+    description: 针对 LLM 基础设施和部署环境的攻击场景
+    target_type: infra
+    extends: null
+    payload_sources: [llm05, llm10]
+    ai300_chapters: ["Ch9"]
+    owasp_coverage: [LLM02, LLM03, LLM04]
+    status: stable
+    file: infra.yaml

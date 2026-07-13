@@ -1,0 +1,300 @@
+AI-300: Attacking Multi-Agent Systems and A2A Protocol
+This course develops the skills needed to conduct offensive operations against AI-enabled enterprise systems. It enables learners to apply structured methodologies when operating in realistic, AI-driven environments.
+4. Attacking Multi-Agent Systems & Agent-to-Agent (A2A) Protocol
+In this Learning Module, we'll learn how to effectively attack multi-
+agent systems and exploit the Agent-to-Agent (A2A) protocol. We'll begin
+by understanding what multi-agent systems are, how they coordinate work
+between specialized agents, and where security vulnerabilities emerge in
+Next, we will focus on reconnaissance, covering how to
+discover and enumerate A2A agents in the wild before exploitation.
+After reconnaissance, we will cover exploitation techniques against
+multiple types of A2A workflows. We will attack a Sales Analytics
+platform to perform workflow integrity bypasses and inject malicious
+content into generated files. We will also exploit database-driven
+agents to execute operating system commands via SQL injection.
+Finally, we will demonstrate protocol-level attacks applicable to any
+A2A system, including rogue agent registration, Agent Card spoofing
+via DNS manipulation, and indirect prompt injection.
+In this Learning Module, we will cover the following Learning Units:
+Multi-Agent Architecture Overview
+4.1. Multi-Agent Architecture Overview
+In this Learning Unit, we'll start by understanding how multi-agent
+systems work and where security vulnerabilities emerge. Next, we'll
+examine the various coordination patterns used by these systems and
+examine the trust boundaries that attackers can exploit.
+In this Learning Unit, we'll cover the following Learning Objectives:
+Understand the different coordination patterns used in multi-agent
+Identify trust boundaries between agents and the systems they interact
+Map the attack surface of a multi-agent deployment
+Multi-agent systems represent an evolution in AI deployment where
+multiple specialized agents collaborate to accomplish complex tasks.
+Rather than relying on a single monolithic model, these systems
+distribute responsibilities across agents with distinct roles,
+capabilities, and access permissions. This architectural pattern
+introduces unique security challenges that differ significantly from
+The shift toward multi-agent architectures has been driven
+by several factors: the need for specialized expertise
+where different agents excel at different tasks, scalability
+requirements, and the desire to implement separation of concerns.
+multi-agent systems can outperform single agents on complex reasoning
+tasks by decomposing problems across specialized components.
+Multi-agent systems are increasingly common in enterprise
+environments, powering everything from customer support workflows to
+automated security operations. As these systems handle sensitive data
+and make autonomous decisions, understanding their security implications
+becomes critical for red team assessments.
+However, this distributed architecture dramatically expands the attack
+surface. While single-agent systems expose interfaces for user input and
+external tools, multi-agent architectures introduce
+as a critical new attack surface. What were once internal
+function calls within a monolith are now network requests between
+distinct entities. This transition exposes authentication gaps, data
+serialization vulnerabilities, and implicit trust relationships that
+attackers can exploit to move laterally between agents.
+Multi-agent systems employ various coordination patterns, each with
+distinct security implications. The patterns described below are common
+architectural topologies found in distributed systems and multi-agent
+research, and they are not A2A-specific terminology, but represent how
+A2A agents are typically deployed in practice.
+(also called hub-and-spoke) uses a central
+agent that manages task distribution to sub-agents. This creates a
+single point of failure where compromising the orchestrator means
+controlling the entire system. Attackers can also target sub-agents to
+inject malicious outputs that influence orchestrator decisions.
+Figure 1: Orchestrator Pattern Architecture
+(mesh topology) allows agents to communicate
+directly without a central coordinator. The primary security risk here
+is trust propagation, where one compromised agent can influence all
+peers. Attackers can abuse peer discovery mechanisms to inject rogue
+Figure 2: Peer-to-Peer Pattern Architecture
+(tree topology) uses layered agents with
+supervisory relationships. This enables vertical privilege escalation
+through crafted subordinate outputs. Attackers can impersonate
+higher-level agents to issue unauthorized commands to lower-level
+Figure 3: Hierarchical Pattern Architecture
+(chain topology) involves sequential processing
+where each agent's output feeds the next agent in the chain. This allows
+payloads to persist through the entire chain and enables capability
+jumping, where a payload injected at a low-privilege stage executes at a
+Figure 4: Pipeline Pattern Architecture
+Understanding these coordination patterns is essential for security
+assessment, as each topology presents unique attack surfaces and trust
+boundaries that adversaries can exploit.
+Which coordination pattern creates a single point of failure where compromising one component means controlling the entire system?
+In which pattern can a payload injected at a low-privilege stage execute at a high-privilege stage later in the workflow?
+Which pattern's primary security risk is trust propagation, where one compromised agent can influence all other agents?
+Which pattern enables vertical privilege escalation through crafted subordinate outputs and impersonation of higher-level agents?
+Several frameworks enable multi-agent system development. Understanding
+these frameworks helps identify implementation-specific vulnerabilities
+graph-based orchestration with explicit state management. Security
+concerns include state persistence that can expose sensitive
+data, conditional routing that can be manipulated, and serialized
+checkpoints that can be exploited.
+Research enables conversation-driven multi-agent coordination. Code
+execution agents present direct RCE vectors, group chat functionality
+allows any agent to hijack conversations, and conversation history is
+accessible to all participants.
+uses role-based agent collaboration
+with task delegation. Role definitions stored in prompts can be
+overridden, memory systems can persist malicious content, and task
+agent handoffs with function-based tools. It has minimal security
+validation, weak handoff authentication, and context variables that can
+carry injection payloads between agents.
+for cross-vendor agent interoperability. Because it's a standard,
+vulnerabilities affect all compliant implementations. The discovery
+mechanism enables impersonation, and the parsing and validation logic
+presents additional attack surface.
+Which multi-agent framework presents direct RCE vectors through its code execution agents and allows any agent to hijack conversations via group chat functionality?
+Which framework's security concerns include state persistence exposing sensitive data and serialized checkpoints that can be exploited?
+Which lightweight framework has minimal security validation and context variables that can carry injection payloads between agents during handoffs?
+Understanding trust boundaries is fundamental to identifying attack
+vectors. Trust boundaries exist wherever data or control flows between
+components with different privilege levels. The
+attack, where a trusted component is tricked into misusing its
+authority, is particularly relevant in multi-agent environments.
+Confused deputy problem: Each agent may have different capabilities
+and permissions. An attacker who can influence one agent's output can
+potentially leverage the downstream agent's elevated privileges to
+When examining inter-agent trust, we find that agents often process peer
+outputs without validation, assuming upstream sanitization has already
+occurred. Orchestrators execute actions based on sub-agent
+recommendations without independent verification. Downstream agents
+interpret upstream outputs as authoritative instructions rather than
+untrusted input. Agents inherit and propagate permissions from peers
+without explicit authorization checks.
+Tool trust violations occur when agents trust tool outputs completely,
+creating injection opportunities. Tool parameters are often built from
+context containing attacker-controlled content. Different tools have
+vastly different security implications, yet agents may treat file-read
+and code-execution tools with equal trust.
+System trust violations manifest when SQL injection through agents
+accesses unauthorized data. Agents often hold elevated API keys that
+users shouldn't be able to leverage directly. Agents running as service
+accounts frequently have broader file system access than intended for
+the user's actual privilege level.
+What type of attack occurs when a trusted component is tricked into misusing its authority, and is particularly dangerous in multi-agent systems where agents have different capabilities and permissions?
+In inter-agent trust violations, downstream agents often interpret upstream outputs as what, rather than treating them as untrusted input?
+What type of trust violation occurs when tool parameters are built from context containing attacker-controlled content?
+Why do agents running as service accounts pose a system trust risk?
+A systematic approach to identifying attack vectors requires mapping all
+entry, processing, and exit points in the multi-agent system.
+Input vectors include user prompts, external files and URLs, API
+responses, inter-agent messages, and webhooks. These can be exploited
+through direct and indirect prompt injection, document injection, and
+Processing vectors include prompt construction, tool selection,
+parameter building, state management, and memory retrieval. Attackers
+can exploit these through template injection, tool confusion, parameter
+injection, state manipulation, and memory poisoning.
+Output vectors include agent responses, tool invocations, state
+modifications, external actions, and handoffs between agents. These
+enable response injection, SSRF and SQL injection via tools, state
+corruption, unauthorized actions, and handoff hijacking.
+Persistence vectors include shared memory, conversation history,
+configuration files, logs, and caches. Attackers can leverage memory
+persistence attacks, history injection, configuration backdoors, and
+cache poisoning to maintain access or influence future interactions.
+Which category of attack vectors includes user prompts, external files and URLs, API responses, and inter-agent messages?
+Template injection, tool confusion, and state manipulation are exploitation techniques for which category of attack vectors?
+Which attack vector category enables SSRF, SQL injection via tools, and handoff hijacking?
+What type of vectors allow attackers to maintain access or influence future interactions through techniques like memory persistence attacks and cache poisoning?
+In this Learning Unit, we'll learn how to discover and enumerate A2A
+multi-agent systems in the wild. Before we can exploit these systems, we
+need to identify what agents exist, what capabilities they expose, and
+how they communicate. We'll apply these techniques to the Sales
+Analytics A2A platform that we'll attack in the next section.
+In this Learning Unit, we'll cover the following Learning Objectives:
+Discover A2A agents through Agent Card enumeration
+Map the architecture and data flow of a multi-agent system
+Identify attack surface by analyzing agent capabilities and tools
+Our lab environment contains several independent A2A workflows spread
+across multiple machines. These include a Sales Analytics platform with
+coordinated agents for data retrieval, presentation generation, and
+security scanning, as well as separate agent deployments for customer
+data processing and inter-agent communication. Each workflow presents
+its own attack surface, and we will target them individually throughout
+Alongside the A2A infrastructure, the lab deploys an
+(Elasticsearch, Logstash, Kibana)
+for defensive monitoring. Before
+we start probing the system, it is worth reviewing the detection rules
+configured in the SIEM. This serves two purposes. As defenders, we
+learn what visibility exists over agent behavior. As attackers, we
+learn what rules we need to evade later during exploitation.
+Let's start the lab and begin by exploring the detection rules.
+We'll open a browser and navigate to
+following active detection logic:
+A2A Agent Response Content Differs from Baseline
+Logs show routing to non-standard IPs (not internal or localhost)
+A2A Enumeration Followed by Suspicious Activity
+Multiple agent.json or endpoint registration events within short time window
+Source Document Enumeration Attempt
+Queries attempting to list documents, sources, or internal files
+A2A Agent Registration Outside Business Hours
+Agent registration events occurring outside 6 AM – 8 PM
+Base64 Encoded Strings in User Data
+Presence of long Base64-encoded strings in log messages
+Suspicious Unicode Characters in Data
+Zero-width or hidden Unicode characters detected in messages
+LLM Response Contains Unrelated PII
+SSNs, credit card numbers, or exfiltration keywords in responses
+A2A Agent Card URL Modification Detected
+Requests to /.well-known/agent.json from unauthorized IPs
+DNS Response from Unauthorized Source
+DNS answers originating from non-approved DNS servers
+Prompt Injection Keywords in Data Field
+Injection phrases such as "ignore previous instructions" or "admin mode"
+A2A Agent TLS Certificate Fingerprint Changed
+TLS certificate hash differs from known trusted fingerprints
+A2A Traffic to Previously Unseen IP Address
+HTTP traffic to new destination IPs on A2A service ports
+Excessive Data Retrieval by Recently Registered Agent
+High volume of routing activity to non-approved endpoints
+A2A Agent Registration from Non-Whitelisted IP
+Agent registration logs from unauthorized IP addresses
+Dangerous XP_CmdShell Usage Detected
+xp_cmdshell, EXEC xp_*, or union select patterns in logs
+Security Scan Workflow Step Skipped
+Logs indicating security scan bypass or skipped validation steps
+Known LLM Jailbreak Phrases in Input
+Known jailbreak phrases such as DAN mode or bypass safety
+Unusual DNS Query Volume for A2A Hostnames
+High volume of DNS queries for internal agent hostnames
+Executable Instructions in Product Data
+Product data containing executable-like instructions or SQL patterns
+Hosts File Modification Detected
+Modification events for /etc/hosts or Windows hosts file
+Bulk Data Insertion from External Source
+Multiple INSERT/UPDATE operations from non-application IPs
+Duplicate Agent Capability Registration
+Multiple endpoint registration events within short timeframe
+Table 1 - A2A Rule Definitions and Detection Triggers
+These rules cover all four attack categories we will explore: workflow
+manipulation on the Sales platform, rogue agent registration, Agent
+Card spoofing, and data poisoning. Each evasion section later in the
+module will reference the specific rules it targets and explain how to
+Your browser does not support the video tag.
+With the detection landscape mapped, we can move on to identifying the
+A2A services running in the environment. We will start with a standard
+port scan against the Sales Analytics host from our Kali VM to
+determine which services are exposed and where the agent endpoints
+nmap -p- --min-rate 1000 192.168.50.25
+Starting Nmap 7.95 ( https://nmap.org ) at 2026-01-21 11:31 EST
+Nmap scan report for 192.168.50.25
+Not shown: 65515 closed tcp ports (reset)
+Nmap done: 1 IP address (1 host up) scanned in 82.99 seconds
+Listing 1 - Nmap Full Port Scan Results
+The scan reveals a mix of standard Windows services and several high
+ports that stand out. Ports 8000-8003 and 8080 are highlighted because
+they represent the A2A ecosystem:
+port 8000 hosts the Orchestrator that coordinates workflow
+ports 8001-8003 each run a specialized Agent (Sales, Security, and
+port 8080 serves the Web Dashboard where users interact with the
+The presence of MSSQL on port 1433 is also noteworthy, as it suggests
+the agents may be backed by a database we can target later.
+With the listening ports identified, our next step is to query each
+agent endpoint and understand what capabilities they advertise.
+Your browser does not support the video tag.
+A2A agents advertise their capabilities through Agent Cards served at
+mechanism, while useful for legitimate orchestration, provides
+attackers with a roadmap of available functionality.
+The Agent Card discovery endpoint is similar to other
+/.well-known/openid-configuration
+. During reconnaissance, always
+check for A2A endpoints alongside traditional web enumeration.
+When targeting a network, we can scan for A2A agents by probing common
+ports for the Agent Card endpoint:
+curl -s http://192.168.50.25:8000/.well-known/agent.json | jq .
+"description": "Central orchestrator that coordinates sales analysis and presentation generation workflows. Discovers and routes requests to specialized agents.",
+"serviceEndpoint": "http://0.0.0.0:8000/a2a",
+"stateTransitionHistory": false
+"name": "AI Workflow Planning",
+"description": "Use AI to plan and execute multi-agent workflows",
+"description": "Discover and register available agents via their agent cards",
+"name": "Strategic Analysis Enrichment",
+"description": "Enrich analysis results with strategic business insights",
+"model": "/home/ubuntu/models/Qwen2.5-7B-Instruct-AWQ",
+Listing 2 - Discovering the Orchestrator Agent Card
+The Agent Card reveals valuable information: the agent's purpose, its
+URL, protocol version, and most importantly, its advertised skills. This
+confirms this orchestrator coordinates a sales analytics workflow with
+Your browser does not support the video tag.
+To map the full extent of this workflow, let's enumerate the architecture
+of the A2A-based sales analytics platform running on the internal server
+at 192.168.50.25 as part of our engagement against Megacorp One.
+First, we probe the known ports:
+curl -s http://192.168.50.25:8000/.well-known/agent.json | jq '{name, description}'
+"description": "Central orchestrator that coordinates sales analysis and presentation generation workflows. Discovers and routes requests to specialized agents."
+curl -s http://192.168.50.25:8001/.well-known/agent.json | jq '{name, description}'
+"name": "MSSQL Database Agent",
+"description": "AI-powered SQL Server agent with server-wide access. Converts natural language to SQL (SELECT, INSERT, UPDATE, DELETE) across ALL databases, with automatic schema discovery, data analysis, anomaly detection, and forecasting capabilities."
+curl -s http://192.168.50.25:8002/.well-known/agent.json | jq '{name, description}'
+"name": "Presentation Generator Agent",
+"description": "AI-powered presentation generator that creates dynamic PowerPoint decks with charts, diagrams, tables, and narratives based on natural language prompts."
+curl -s http://192.168.50.25:8003/.well-known/agent.json | jq '{name, description}'
+"name": "Security Link Scanner Agent",
+"description": "Security agent that extracts hyperlinks from PowerPoint presentations and scans them against malware databases for threats."
+curl -s http://192.168.50.25:8080/.well-known/agent.json | jq '{name, description}'
+Listing 3 - Enumerating Sales Analytics Agents
+because while the service is active and responding
+with JSON (likely a standard 404 error), it does not return the valid Agent
+) required by the A2A protocol. This
+indicates it is an HTTP service but not an Agent — likely the
