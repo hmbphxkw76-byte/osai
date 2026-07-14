@@ -1,4 +1,4 @@
-"""评分器接口（AI-300 Ch3+Ch5 攻击效果评估）。
+﻿"""评分器接口（AI-300 Ch3+Ch5 攻击效果评估）。
 
 模块职责：
   - RuleBasedScorer: 基于关键词匹配的规则评分
@@ -22,7 +22,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # 从子模块再导出
-from redteam.attack.core.grayscale_scorer import (  # noqa: F401, E402
+from redteam.attack.engine.grayscale_scorer import (  # noqa: F401, E402
     AttackScorer,
     FastGrayscaleScorer,
     GrayscaleLevel,
@@ -30,8 +30,8 @@ from redteam.attack.core.grayscale_scorer import (  # noqa: F401, E402
     KeywordDensityScorer,
     RefusalPatternScorer,
 )
-from redteam.attack.core.hybrid_scorer import HybridScorer  # noqa: F401, E402
-from redteam.attack.core.llm_judge_scorer import LLMJudgeScorer  # noqa: F401, E402
+from redteam.attack.engine.hybrid_scorer import HybridScorer  # noqa: F401, E402
+from redteam.attack.engine.llm_judge_scorer import LLMJudgeScorer  # noqa: F401, E402
 
 
 # ---------------------------------------------------------------------------

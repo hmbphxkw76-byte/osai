@@ -1,4 +1,4 @@
-"""混合评分器（AI-300 Ch5 进阶评分方案）。
+﻿"""混合评分器（AI-300 Ch5 进阶评分方案）。
 
 模块职责：
   - HybridScorer: 多维度加权投票混合评分器
@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from redteam.attack.core.grayscale_scorer import (
+from redteam.attack.engine.grayscale_scorer import (
     AttackScorer,
     KeywordDensityScorer,
     RefusalPatternScorer,
@@ -26,7 +26,7 @@ class HybridScorer(AttackScorer):
 
     def __init__(self):
         # 延迟导入避免循环依赖
-        from redteam.attack.core.scorer import RuleBasedScorer
+        from redteam.attack.engine.scorer import RuleBasedScorer
         self.rule_scorer = RuleBasedScorer()
 
     def score(
@@ -49,7 +49,7 @@ class HybridScorer(AttackScorer):
             return 0.0
 
         # API 错误响应直接归零
-        from redteam.attack.core.scorer import is_api_error_response
+        from redteam.attack.engine.scorer import is_api_error_response
         if is_api_error_response(response_text):
             return 0.0
 

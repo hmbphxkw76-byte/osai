@@ -1,4 +1,4 @@
-"""原生攻击执行器（AI-300 考试环境回退方案）。
+﻿"""原生攻击执行器（AI-300 考试环境回退方案）。
 
 模块职责：
   - NativeAttackRunner: 使用 httpx 直接发送请求的本地攻击执行器
@@ -15,17 +15,17 @@ from typing import Any, Optional, TYPE_CHECKING
 import httpx
 from urllib.parse import urlparse, urlunparse
 
-from redteam.attack.core.converters import (
+from redteam.attack.engine.converters import (
     apply_converters,
     build_converter,
 )
-from redteam.attack.core.scorer import (
+from redteam.attack.engine.scorer import (
     FastGrayscaleScorer,
     HybridScorer,
     is_api_error_response,
     is_likely_refusal,
 )
-from redteam.attack.core.runner import (
+from redteam.attack.engine.runner import (
     AttackRunner,
     _detect_guardrail,
     _infer_model_name,

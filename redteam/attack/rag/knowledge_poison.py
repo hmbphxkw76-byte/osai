@@ -1,4 +1,4 @@
-"""RAG 知识库投毒（AI-300 Ch5: Exploiting RAG Pipelines）。
+﻿"""RAG 知识库投毒（AI-300 Ch5: Exploiting RAG Pipelines）。
 
 实现 AI-300 课程中的知识库投毒技术：
   - 检索排名操纵：注入高优先级文档窃取检索排名
@@ -21,7 +21,7 @@ from urllib.parse import urljoin
 import httpx
 
 from redteam.core.models import AIService, AuthContext
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

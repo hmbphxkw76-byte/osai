@@ -1,4 +1,4 @@
----
+﻿---
 name: de_pyrit_native_first_pivot
 overview: 将 RedTeam-AI 的主攻击引擎从"PyRIT 偏好"切换为"原生 httpx 优先"，消除 PyRIT 0.14.0 scanner 卡死对整条 OSAI 流水线的阻断。原生引擎（NativeAttackRunner）已存在，本方案补强其多轮对话能力并解耦 PyRIT 关键路径，使其完全可在仅 httpx/pydantic/numpy 环境下端到端跑通 11 阶段。PyRIT 保留为可选增强层，仅在显式开启且可导入时启用。
 todos:
@@ -111,7 +111,7 @@ flowchart TD
 
 ```
 pyproject.toml                          # [MODIFY] 将 pyrit 从 dependencies 移入 optional-dependencies.pyrit
-redteam/attack/core/native_runner.py    # [MODIFY] NativeAttackRunner.run/send_prompt 增加 conversation_history 参数，复用单 httpx.Client
+redteam/attack/engine/native_runner.py    # [MODIFY] NativeAttackRunner.run/send_prompt 增加 conversation_history 参数，复用单 httpx.Client
 redteam/scenario/pyrit_orchestrator.py  # [MODIFY] 原生多轮分支传累积历史；PyRIT 分支仅显式开启时进入
 redteam/pipeline/runner.py              # [MODIFY] use_pyrit 默认 False
 redteam/pipeline/injection_phase.py     # [MODIFY] use_pyrit 默认 False
@@ -126,7 +126,7 @@ docs/COMMAND_REFERENCE.md               # [MODIFY] 同步 --use-pyrit 可选参�
 ## 关键代码结构
 
 ```python
-# redteam/attack/core/native_runner.py
+# redteam/attack/engine/native_runner.py
 class NativeAttackRunner(AttackRunner):
     def run(
         self,

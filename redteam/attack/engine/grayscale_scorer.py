@@ -1,4 +1,4 @@
-"""灰度评分系统（AI-300 Ch3+Ch5 攻击效果评估 — 无 LLM 依赖层）。
+﻿"""灰度评分系统（AI-300 Ch3+Ch5 攻击效果评估 — 无 LLM 依赖层）。
 
 模块职责：
   - KeywordDensityScorer: 关键词密度分析器
@@ -24,7 +24,7 @@ _API_ERROR_CHECK = None
 def _get_error_checker():
     global _API_ERROR_CHECK
     if _API_ERROR_CHECK is None:
-        from redteam.attack.core.scorer import is_api_error_response
+        from redteam.attack.engine.scorer import is_api_error_response
         _API_ERROR_CHECK = is_api_error_response
     return _API_ERROR_CHECK
 
@@ -103,7 +103,7 @@ class HybridScoreResult:
 
 
 # ---------------------------------------------------------------------------
-# 关键词密度评分器（PyRIT 融合）
+# 关键词密度评分器
 # ---------------------------------------------------------------------------
 class KeywordDensityScorer:
     """关键词密度分析器：检测响应中是否包含目标关键词。
@@ -168,7 +168,7 @@ class KeywordDensityScorer:
 
 
 # ---------------------------------------------------------------------------
-# 拒绝模式检测评分器（PyRIT 融合）
+# 拒绝模式检测评分器
 # ---------------------------------------------------------------------------
 class RefusalPatternScorer:
     """拒绝模式检测器：深度分析响应的拒绝特征。

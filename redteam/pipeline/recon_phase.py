@@ -647,13 +647,11 @@ def recon_phase(
             print(f"    阻断类别: {[c.value for c in guard.blocked_categories]}")
             print(f"    绕过难度: {guard.bypass_difficulty}")
             if guard.recommended_techniques:
-                from redteam.recon.guardrail import _OWASP_RISK_MAPPING, _PYRIT_EFFECTIVENESS
+                from redteam.recon.guardrail import _OWASP_RISK_MAPPING
                 print(f"    推荐攻击策略:")
                 for i, tech in enumerate(guard.recommended_techniques, 1):
                     owasp = _OWASP_RISK_MAPPING.get(tech, [])
-                    eff = _PYRIT_EFFECTIVENESS.get(tech, {})
-                    rate = eff.get("base_rate", 0)
-                    print(f"      [{i}] {tech} (成功率: {rate:.0%}, OWASP: {', '.join(owasp)})")
+                    print(f"      [{i}] {tech} (OWASP: {', '.join(owasp)})")
 
     # ═══════════════════════════════════════════════════════════════
     # [6/6] 规避分析 — 速率限制已在[2/6]完成，此处仅确定性+签名+JS

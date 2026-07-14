@@ -1,12 +1,13 @@
 """场景Schema模块 — 攻击场景数据结构定义。
 
-基于PyRIT scenarios设计，适配AI-300考试需求：
+基于 AI-300 考试需求设计：
   - AttackScenario: 顶层场景定义
   - AttackPhase: 攻击阶段（PROBE/ENCODING/SEMANTIC/ADVANCED）
   - AttackStrategy: 攻击策略枚举（30+种）
   - PayloadTemplate: 载荷模板
   - AttackConfig: 攻击配置
   - ScenarioResult: 场景执行结果
+
 
 Library-First: 配置即攻击，考试期间仅需修改YAML载荷文件
 """
@@ -21,7 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class AttackTargetType(str, Enum):
-    """攻击目标类型 — AI-300考试高频目标 + PyRIT targets 完整覆盖。"""
+    """攻击目标类型 — AI-300考试高频目标全覆盖。"""
 
     AGENT = "agent"
     MCP = "mcp"
@@ -78,7 +79,7 @@ class AttackStrategy(str, Enum):
     ACADEMIC = "academic"
     TRANSLATION = "translation"
 
-    # 高级 (PyRIT 多轮)
+    # 高级 (多轮原生)
     CRESCENDO = "crescendo"
     TAP = "tap"
     PAIR = "pair"
@@ -500,7 +501,7 @@ STRATEGY_TO_CONVERTER_MAP: dict[AttackStrategy, list[str]] = {
     AttackStrategy.JAILBREAK: ["RoleplayJailbreakConverter"],
     AttackStrategy.ADVERSARIAL_SUFFIX: ["PairConverter"],      # GCG 后缀 → PAIR
     AttackStrategy.MANY_SHOT: ["TapConverter"],                # Many-Shot → TAP
-    # 以下策略无 PyRIT converter（纯 payload 层面操作）
+    # 以下策略无 converter（纯 payload 层面操作）
     AttackStrategy.CHARACTER_SPACING: [],
     AttackStrategy.PAYLOAD_SPLITTING: [],
     AttackStrategy.CSS_HIDDEN: [],

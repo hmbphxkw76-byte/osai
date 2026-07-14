@@ -1,4 +1,4 @@
-"""载荷桥接模块 — 连接 config/payloads/ 高质量载荷库与 config/scenarios/ 攻击剧本。
+﻿"""载荷桥接模块 — 连接 config/payloads/ 高质量载荷库与 config/scenarios/ 攻击剧本。
 
 解决 Scenarios 内嵌简陋占位符、不引用外部载荷库的断裂问题：
   1. 从 config/payloads/ 按 OWASP 类别 + 策略过滤加载高质量载荷
@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 from .schema import AttackScenario, AttackStrategy, AttackTargetType, PayloadTemplate
 

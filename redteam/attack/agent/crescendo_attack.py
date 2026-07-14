@@ -1,4 +1,4 @@
-"""Crescendo 多轮对话升级攻击（AI-300 Ch4）。
+﻿"""Crescendo 多轮对话升级攻击（AI-300 Ch4）。
 
 实现渐增式多轮对话攻击算法：
   - 从良性消息开始建立信任
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from redteam.core.models import AIService, AuthContext
-from redteam.attack.core.multi_turn_runner import CrescendoAttackRunner
+from redteam.attack.engine.crescendo_runner import CrescendoAttackRunner
 
 
 def crescendo_attack(

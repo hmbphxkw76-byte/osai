@@ -44,7 +44,7 @@ categories:
         file: llm01/jailbreak.yaml
 
       - technique_group: crescendo_jailbreak
-        description: Crescendo 多轮渐进越狱 (PyRIT 增强)
+        description: Crescendo 多轮渐进越狱
         ai300_chapter: Ch3
         payload_count: 5
         status: stable

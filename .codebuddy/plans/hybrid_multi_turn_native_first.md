@@ -1,4 +1,4 @@
-# 混合架构：原生优先 + PyRIT 仅用于多轮编排器
+﻿# 混合架构：原生优先 + PyRIT 仅用于多轮编排器
 
 > 最后更新：2026-07-14 | 决策状态：已确认执行
 
@@ -30,8 +30,8 @@ PyRIT 在目标 Kali/考试环境中**安装/导入层**受阻（`import pyrit` 
 
 | 文件 | 原因 |
 |------|------|
-| `redteam/attack/core/pyrit_runner.py` | PyRITAttackRunner（单轮攻击用 PyRIT，不再需要） |
-| `redteam/attack/core/pyrit_memory_patch.py` | PyRIT SQLite 兼容补丁（不再需要） |
+| `redteam/attack/engine/pyrit_runner.py` | PyRITAttackRunner（单轮攻击用 PyRIT，不再需要） |
+| `redteam/attack/engine/pyrit_memory_patch.py` | PyRIT SQLite 兼容补丁（不再需要） |
 | `redteam/attack/pyrit_runner.py` | 向后兼容 shim（不再需要） |
 
 ### 重命名文件
@@ -45,8 +45,8 @@ PyRIT 在目标 Kali/考试环境中**安装/导入层**受阻（`import pyrit` 
 | 文件 | 变更内容 |
 |------|---------|
 | `pyproject.toml` | pyrit 移入 `[project.optional-dependencies].pyrit` |
-| `redteam/attack/core/runner.py` | 移除模块级 `import pyrit`、CONVERTER_MAP、PyRITAttackRunner 再导出 |
-| `redteam/attack/core/__init__.py` | 移除 PyRITAttackRunner 导出 |
+| `redteam/attack/engine/runner.py` | 移除模块级 `import pyrit`、CONVERTER_MAP、PyRITAttackRunner 再导出 |
+| `redteam/attack/engine/__init__.py` | 移除 PyRITAttackRunner 导出 |
 | `redteam/scenario/orchestrator.py` | PeRITAttackRunner → NativeAttackRunner；更新 multi_turn_orchestrator import |
 | `redteam/scenario/multi_turn_orchestrator.py` | 重命名后的编排器，保持 PyRIT 惰性导入 + 原生兜底 |
 | `redteam/attack/prompt_inject.py` | PyRITAttackRunner → NativeAttackRunner |

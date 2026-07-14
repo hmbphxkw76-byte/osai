@@ -1,4 +1,4 @@
-# RedTeam-AI 开发标准 v2.3
+﻿# RedTeam-AI 开发标准 v2.3
 
 > **符合最佳实践原则优先**
 
@@ -35,7 +35,7 @@ YAML 文件缺失时自动回退到模块内 Python fallback 常量，确保离�
 |------|---------|---------|
 | Phase 1→2 衔接 | 侦察情报简报、攻击策略推荐（动态成功率）、目标确认 | `cli.py` wizard |
 | Phase 2 执行 | 原生引擎指导（转换器选择、评分策略）+ 可选 PyRIT 多轮增强 | `cli.py` + `injection_phase.py` |
-| Phase 9 报告 | 风险仪表盘、OWASP 覆盖率、攻击链可视化 | `report_phase.py` |
+| Phase 9 报告 | 风险仪表盘、OWASP 覆盖率、攻击链可视化 | `report_writer.py` |
 | 全部阶段 | 统一横幅（阶段编号 + AI-300 章节 + 状态图标） | `terminal_output.py` |
 
 ### 2.0.3 原生优先（Native-First）
@@ -146,12 +146,12 @@ Phase 11: Report Generation (AI-300 Ch11)
 | `redteam/recon/ai_surface.py` | AI 服务发现、被动/主动侦察、端点枚举 | Ch2 |
 | `redteam/recon/auth_parse.py` | 浏览器 F12 请求头解析为 AuthContext | Ch2 |
 | `redteam/attack/prompt_inject.py` | 直接/间接提示注入、护栏绕过 | Ch3 |
-| `redteam/attack/infra_attack.py` | 云配置错误、供应链风险、MCP 端点分析 | Ch7, Ch8, Ch9 |
-| `redteam/attack/pyrit_runner.py` | PyRIT 框架集成（可选双通道执行） | Ch3~Ch7 |
+| `redteam/attack/infra/` | 云配置错误、供应链风险、MCP 端点分析 | Ch7, Ch8, Ch9 |
+| `redteam/attack/engine/native_runner.py` | Native-First 攻击引擎（httpx 直连） | Ch3~Ch7 |
 | `redteam/core/models.py` | 所有数据模型、枚举定义 | 全章节 |
 | `redteam/core/tools.py` | 工具路径解析、功能开关 | 基础设施 |
 | `redteam/core/store.py` | JSON 持久化层 | 基础设施 |
-| `redteam/pipeline.py` | 管道编排主逻辑 | 全章节 |
+| `redteam/pipeline/runner.py` | 管道编排主逻辑 | 全章节 |
 | `redteam/cli.py` | CLI 入口 | 基础设施 |
 
 ### 3.3 不允许的模块依赖
@@ -349,7 +349,6 @@ tests/
 ├── test_ai_surface.py      # 侦察模块
 ├── test_infra_attack.py    # 基础设施攻击
 ├── test_prompt_inject.py   # 提示注入
-├── test_pipeline.py        # 管道集成
 ├── test_models.py          # 数据模型
 ├── test_tools.py           # 工具解析
 ├── test_cli.py             # CLI

@@ -1,4 +1,4 @@
-"""目标劫持攻击（AI-300 Ch3: Goal Hijacking）。
+﻿"""目标劫持攻击（AI-300 Ch3: Goal Hijacking）。
 
 实现 AI-300 课程中的目标劫持技术：
   - 任务覆盖：用新任务覆盖原任务
@@ -19,7 +19,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

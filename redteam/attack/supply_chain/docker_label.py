@@ -1,4 +1,4 @@
-"""Docker 镜像标签注入攻击（AI-300 Ch8: Supply Chain Attacks）。
+﻿"""Docker 镜像标签注入攻击（AI-300 Ch8: Supply Chain Attacks）。
 
 实现 AI-300 课程中的容器供应链攻击技术：
   - Docker 镜像标签注入：通过 LABEL 指令嵌入恶意提示
@@ -21,7 +21,7 @@ from urllib.parse import urljoin
 import httpx
 
 from redteam.core.models import AIService, AuthContext
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

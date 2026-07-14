@@ -1,4 +1,4 @@
-"""命令行交互入口（Typer + Rich）。
+﻿"""命令行交互入口（Typer + Rich）。
 
 AI-300 红队攻击流水线的 CLI 界面。
 提供：
@@ -21,13 +21,51 @@ YAML 配置驱动模式（考试推荐）：
 """
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+
+
+def _find_project_root() -> Path:
+    """自动发现项目根目录（含 pyproject.toml 的目录）。"""
+    candidate = Path.cwd()
+    for _ in range(5):
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+        candidate = candidate.parent
+    return Path.cwd()
+
+
+def _load_dotenv() -> None:
+    """加载项目根目录 .env 文件到 os.environ。
+
+    优先 python-dotenv，不可用时静默回退（不影响无 .env 的正常使用）。
+    查找顺序：项目根目录 > 当前工作目录。
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return  # python-dotenv 未安装，静默跳过
+
+    project_root = _find_project_root()
+    env_paths = [
+        project_root / ".env",
+        Path.cwd() / ".env",
+    ]
+    loaded = False
+    for env_path in env_paths:
+        if env_path.is_file():
+            load_dotenv(dotenv_path=env_path, override=False)
+            loaded = True
+            break
+    if not loaded:
+        load_dotenv(override=False)  # fallback: 自动搜索 .env
 
 from .pipeline import AIPipeline
 from .recon.auth_parse import parse_headers, parse_headers_file
@@ -37,7 +75,6 @@ from .core.terminal_output import (
     print_recon_briefing,
     print_attack_strategy_recommendations,
     print_target_confirmation_prompt,
-    print_pyrit_guidance,
     print_target_list,
     print_result_bar,
     print_findings_display,
@@ -45,14 +82,8 @@ from .core.terminal_output import (
 )
 from .attack.frontier.adapter import FrontierAdapter
 from .attack.frontier.registry import get_registry
-from .attack.core.runner import (
-    NativeAttackRunner,
-    probe_scorer_availability,
-    ScorerProbeResult,
-    is_no_judge_llm,
-)
-from .attack.core.pipeline_orchestrator import PipelineOrchestrator
-from .attack.core import is_pyrit_available as _pyrit_check
+from .attack.engine.runner import NativeAttackRunner
+from .attack.engine.pipeline_orchestrator import PipelineOrchestrator
 from .scenario import (
     ScenarioLoader,
     ScenarioOrchestrator,
@@ -237,35 +268,6 @@ def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
             return None, "not-needed", ""
         console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
         return endpoint, api_key.strip(), model
-
-
-def _print_probe_result(console: Console, result: ScorerProbeResult) -> None:
-    """打印评分器探测结果摘要。
-
-    Args:
-        console: Rich Console 实例
-        result: 探测结果
-    """
-    console.print(f"\n  [bold]评分器可用性探测结果[/]")
-    for line in result.details:
-        # 推荐行高亮
-        if line.startswith("\n  推荐"):
-            console.print(f"  [bold green]{line.strip()}[/]")
-        elif line.startswith("Layer") and "跳过" in line:
-            console.print(f"  [dim]{line}[/]")
-        elif "✓" in line:
-            console.print(f"  [green]{line}[/]")
-        elif "✗" in line:
-            console.print(f"  [red]{line}[/]")
-        else:
-            console.print(f"  [dim]{line}[/]")
-
-    # 结果摘要卡片
-    tier_icons = {"judge_llm": "[AI]", "composite": "[S]", "hybrid": "[#]"}
-    tier_names = {"judge_llm": "LLM-as-Judge (Layer 1)", "composite": "PyRIT Composite (Layer 2)", "hybrid": "HybridScorer (Layer 3)"}
-    icon = tier_icons.get(result.recommended_tier, "[-]")
-    name = tier_names.get(result.recommended_tier, result.recommended_tier)
-    console.print(f"  [bold cyan]{icon} 推荐: {name}[/]")
 
 
 def _prompt_multi_turn_with_guidance(
@@ -564,7 +566,7 @@ def wizard(
         confirmed_targets = []
         target_model_name = ""
 
-    # Phase 2 配置询问（PyRIT 自动化编排 → 评分器探查 → 多轮攻击专家指导）
+    # Phase 2 配置询问（评分器选择 → 多轮攻击专家指导）
     if confirmed_targets:
         console.print(f"\n{'─' * 72}")
         console.print(f"  [Phase 2 Configuration]  提示注入攻击参数设置")
@@ -573,88 +575,21 @@ def wizard(
         judge_endpoint: Optional[str] = None
         judge_api_key: str = "not-needed"
         judge_model_name: str = ""
-        _probe_result: Optional[ScorerProbeResult] = None
 
-        # ── PyRIT 自动化攻击编排 ──
-        pyrit_available = _pyrit_check()
-        if pyrit_available:
-            console.print(f"\n  [bold]PyRIT 自动化攻击编排[/]")
-            console.print(f"    PyRIT 是微软开源的 AI 红队框架，提供编码绕过 + 转换器链 + ")
-            console.print(f"    PromptSendingOrchestrator 批量攻击编排能力。")
-            console.print(f"    推荐启用（默认回车即可）。")
+        # ── 评分策略选择 ──
+        console.print(f"\n  [bold]评分策略选择[/]")
+        console.print(f"    [1] HybridScorer（多维度加权投票，零外部依赖，默认推荐）")
+        console.print(f"    [2] LLM-as-Judge（调用外部大模型评分，精度更高）")
+        scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
 
-            use_pyrit = typer.confirm(
-                "  启用 PyRIT 自动化攻击编排？[Y/n]",
-                default=True,
-            )
-            if use_pyrit:
-                # ── 评分策略选择 ──
-                console.print(f"\n  [bold]评分策略选择[/]")
-                console.print(f"    评分器用于自动判断攻击是否成功（系统提示是否泄露/越狱是否生效）。")
-                console.print(f"    系统会在攻击前自动探测评分器可用性，按优先级选择：")
-                console.print(f"      Layer 1 → Layer 2 → Layer 3（全自动降级）")
-                console.print(f"    [1] [green]Composite（默认推荐）[/] — PyRIT 原生 12 子评分器组合")
-                console.print(f"        SubString + Regex + MarkdownInjection，零 LLM 依赖，离线可用")
-                console.print(f"    [2] [cyan]LLM-as-Judge[/]（需外部大模型）— SelfAskTrueFalseScorer")
-                console.print(f"        语义理解能力更强，可检出复杂越狱场景，但需额外 API 调用")
-                scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
-
-                if scorer_choice == "2":
-                    judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)
-                    # 攻击前探查 Judge 端点连通性
-                    if judge_endpoint:
-                        console.print("\n  [bold cyan]⏳ 正在探查 Judge LLM 端点连通性...[/]")
-                        _probe_result = probe_scorer_availability(
-                            judge_endpoint=judge_endpoint,
-                            judge_api_key=judge_api_key,
-                            judge_model=judge_model_name,
-                        )
-                        _print_probe_result(console, _probe_result)
-                        if _probe_result.recommended_tier != "judge_llm":
-                            console.print(
-                                "\n  [yellow]⚠ LLM Judge 端点不可用，自动降级为 Composite 评分器[/]"
-                            )
-                            judge_endpoint = None
-                            judge_api_key = "not-needed"
-                            judge_model_name = ""
-                else:
-                    console.print("  [dim]→ 使用 PyRIT Composite（12 子评分器组合，零 LLM 依赖）[/]")
+        if scorer_choice == "2":
+            judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)
         else:
-            console.print("\n  [dim]PyRIT 未安装，回退到 Native 模式（基础单轮注入）[/]")
-            use_pyrit = False
-
-        # ── Native 模式评分器选择 ──
-        if not use_pyrit:
-            console.print(f"\n  [bold]评分策略选择[/]")
-            console.print(f"    [1] Composite/HybridScorer（多维度加权投票，零外部依赖，默认推荐）")
-            console.print(f"    [2] LLM-as-Judge（调用外部大模型评分，精度更高）")
-            scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
-
-            if scorer_choice == "2":
-                judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)
-                # Native 模式也尝试探查 Judge 端点
-                if judge_endpoint:
-                    console.print("\n  [bold cyan]⏳ 正在探查 Judge LLM 端点连通性...[/]")
-                    _probe_result = probe_scorer_availability(
-                        judge_endpoint=judge_endpoint,
-                        judge_api_key=judge_api_key,
-                        judge_model=judge_model_name,
-                    )
-                    _print_probe_result(console, _probe_result)
-                    if _probe_result.recommended_tier != "judge_llm":
-                        console.print(
-                            "\n  [yellow]⚠ LLM Judge 端点不可用，自动降级为本地 HybridScorer[/]"
-                        )
-                        judge_endpoint = None
-                        judge_api_key = "not-needed"
-                        judge_model_name = ""
-            else:
-                console.print("  [dim]→ 使用 Composite/HybridScorer（本地规则 + 关键词 + 语义加权投票）[/]")
+            console.print("  [dim]→ 使用 HybridScorer（本地规则 + 关键词 + 语义加权投票）[/]")
 
         # ── 多轮升级攻击（AI 红队专家指导） ──
         use_multi_turn = _prompt_multi_turn_with_guidance(console, confirmed_targets, recommendations)
     else:
-        use_pyrit = False
         use_multi_turn = False
         judge_endpoint = None
         judge_api_key = "not-needed"
@@ -662,10 +597,6 @@ def wizard(
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 2: 提示注入攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
     if confirmed_targets:
-        # PyRIT 自动化指导
-        if use_pyrit:
-            print_pyrit_guidance(confirmed_targets)
-        
         print_phase_banner(
             2, "提示注入攻击",
             target=confirmed_targets[0].url if len(confirmed_targets) == 1 else f"{len(confirmed_targets)} targets",
@@ -676,7 +607,6 @@ def wizard(
         # 使用确认后的目标列表执行攻击
         inj_findings, chain = pipe.injection_phase(
             run_id, recon, confirmed_targets, auth,
-            use_pyrit=use_pyrit,
             with_multi_turn=use_multi_turn,
             target_model_name=target_model_name,
             judge_endpoint=judge_endpoint,
@@ -878,8 +808,8 @@ def run(
             final_payload = payload
 
         if final_payload and result.get("services"):
-            from .attack.core.runner import NativeAttackRunner
-            from .attack.core.scorer import HybridScorer
+            from .attack.engine.runner import NativeAttackRunner
+            from .attack.engine.scorer import HybridScorer
             from .core.models import AuthContext
             auth = None
             if api_key:
@@ -992,7 +922,7 @@ def inject(
         console.print(f"  载荷长度: {len(payload)} 字符")
         console.print(f"  认证: {'已配置' if auth else '无'}")
 
-        from .attack.core.runner import NativeAttackRunner
+        from .attack.engine.runner import NativeAttackRunner
         runner = NativeAttackRunner(target_url=target, auth=auth)
 
         with console.status("[cyan]发送注入载荷...[/]"):
@@ -1002,7 +932,7 @@ def inject(
         console.print(f"  耗时: {result.latency_ms}ms")
         console.print(f"  防护触发: {'✅' if result.guardrail_triggered else '❌'}")
 
-        from .attack.core.scorer import HybridScorer
+        from .attack.engine.scorer import HybridScorer
         scorer = HybridScorer()
         score = scorer.score(result.response_preview or "", payload)
 
@@ -1705,7 +1635,7 @@ def quicktest(
     console.print(f"  耗时: {result.latency_ms}ms")
     console.print(f"  防护触发: {'✅' if result.guardrail_triggered else '❌'}")
 
-    from .attack.core.scorer import HybridScorer, FastGrayscaleScorer, RuleBasedScorer
+    from .attack.engine.scorer import HybridScorer, FastGrayscaleScorer, RuleBasedScorer
 
     scorer_map = {
         "rule_based": RuleBasedScorer(),
@@ -1900,6 +1830,9 @@ def git_probe(
 
 
 def main() -> None:
+    # Load .env from project root — must run before any os.environ.get() downstream
+    _load_dotenv()
+
     # Windows console UTF-8 encoding fix — prevents GBK encoding errors with Rich emoji output
     if sys.platform == "win32":
         try:

@@ -1,4 +1,4 @@
-# 前沿漏洞目录 — AI-300 考试专用
+﻿# 前沿漏洞目录 — AI-300 考试专用
 
 此目录存储所有前沿 AI 漏洞的 manifest + payloads。考试期间发现新漏洞时，只需复制脚手架模板即可快速添加。
 
@@ -234,9 +234,9 @@ config/frontier/vulns/*.yaml   ──→  FrontierRegistry（加载与索引）
 | `schema.py` | `redteam/attack/frontier/schema.py` | Pydantic 模型定义（FrontierVuln, FrontierPayloads） |
 | `registry.py` | `redteam/attack/frontier/registry.py` | 目录扫描 + YAML 加载 + 内存索引 + 单例工厂 |
 | `adapter.py` | `redteam/attack/frontier/adapter.py` | 载荷占位符替换 + 执行调度 + Finding 转换 |
-| `runner.py` | `redteam/attack/core/runner.py` | 底层 HTTP POST 请求发送 |
-| `scorer.py` | `redteam/attack/core/scorer.py` | 灰度评分器（0-1 分，判断攻击成功/失败） |
-| `orchestrator.py` | `redteam/attack/core/pipeline_orchestrator.py` | 流水线编排（Phase 4 自动集成 frontier） |
+| `runner.py` | `redteam/attack/engine/runner.py` | 底层 HTTP POST 请求发送 |
+| `scorer.py` | `redteam/attack/engine/scorer.py` | 灰度评分器（0-1 分，判断攻击成功/失败） |
+| `orchestrator.py` | `redteam/attack/engine/pipeline_orchestrator.py` | 流水线编排（Phase 4 自动集成 frontier） |
 | `cli.py` | `redteam/cli.py` | CLI 入口（`redteam frontier` 命令） |
 
 ---
@@ -495,7 +495,7 @@ def _to_finding(self, vuln: FrontierVuln, result: PromptInjectionResult) -> Find
 
 ### 第四阶段：HTTP 请求发送与评分
 
-**文件**: `redteam/attack/core/runner.py` + `redteam/attack/core/scorer.py`
+**文件**: `redteam/attack/engine/runner.py` + `redteam/attack/engine/scorer.py`
 
 #### 4.1 请求发送
 
@@ -536,7 +536,7 @@ async def send_many(self, payloads: list[str], converters=None, technique=""):
 
 #### 4.2 灰度评分器 (FastGrayscaleScorer)
 
-**文件**: `redteam/attack/core/scorer.py`
+**文件**: `redteam/attack/engine/scorer.py`
 
 ```python
 class FastGrayscaleScorer:
@@ -630,7 +630,7 @@ def frontier(target: str, objective: str, vuln: str = None,
 
 #### 入口 B：Pipeline 流水线集成（Phase 4: FRONTIER）
 
-**文件**: `redteam/attack/core/pipeline_orchestrator.py`
+**文件**: `redteam/attack/engine/pipeline_orchestrator.py`
 
 ```python
 class PipelineOrchestrator:

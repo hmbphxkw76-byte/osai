@@ -1,4 +1,4 @@
-"""级联故障攻击（OWASP ASI08: Cascading Failures）。
+﻿"""级联故障攻击（OWASP ASI08: Cascading Failures）。
 
 实现 OWASP ASI Top 10 中的级联故障技术：
   - 依赖链攻击：通过破坏一个组件影响整个系统
@@ -17,7 +17,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

@@ -1,4 +1,4 @@
-"""提示注入攻击阶段 (AI-300 Ch3)。
+﻿"""提示注入攻击阶段 (AI-300 Ch3)。
 
 执行提示注入攻击：
   - 直接提示注入
@@ -21,9 +21,8 @@ from redteam.core.models import AIService, AttackChain, AttackStep, AuthContext,
 from redteam.core.store import save_findings, save_json
 from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
 from redteam.attack.prompt_inject import run_full_injection_suite, generate_injection_findings
-from redteam.attack.agent_attack import test_indirect_injection
-from redteam.attack.core import is_pyrit_available
-from redteam.attack.core.determinism_router import DeterminismAwareRouter
+from redteam.attack.agent import test_indirect_injection
+from redteam.attack.engine.determinism_router import DeterminismAwareRouter
 
 if TYPE_CHECKING:
     from redteam.core.rate_limiter import RateLimitGovernor
@@ -65,7 +64,6 @@ def injection_phase(
     recon: ReconResult,
     services: list[AIService],
     auth: AuthContext | None = None,
-    use_pyrit: bool | None = None,
     with_multi_turn: bool = False,
     target_model_name: str = "",
     judge_endpoint: str | None = None,
@@ -88,7 +86,6 @@ def injection_phase(
         recon: 侦察结果
         services: AI 服务列表
         auth: 认证上下文
-        use_pyrit: 是否使用 PyRIT 执行（None=自动检测）
         with_multi_turn: 是否启用 Crescendo + TAP 多轮攻击
         judge_endpoint: LLM Judge API 端点（Native 路径评分）
         judge_api_key: LLM Judge API Key
@@ -113,17 +110,10 @@ def injection_phase(
         "Attackable Targets"
     )
 
-    _pyrit = use_pyrit if use_pyrit is not None else is_pyrit_available()
-    if _pyrit:
-        if judge_endpoint:
-            print(f"\n  [PyRIT + LLM Judge] 已启用（编码绕过 + 外部 LLM 评分）")
-        else:
-            print(f"\n  [PyRIT] 已启用（编码绕过 + 内置规则评分）")
+    if judge_endpoint:
+        print(f"\n  [Native + LLM Judge] 已启用")
     else:
-        if judge_endpoint:
-            print(f"\n  [Native + LLM Judge] 已启用")
-        else:
-            print(f"\n  [Native] 回退到手写 httpx 模式")
+        print(f"\n  [Native] 纯 httpx 执行模式")
 
     if with_multi_turn:
         print(f"  [Multi-Turn] Crescendo + TAP 多轮攻击已启用")

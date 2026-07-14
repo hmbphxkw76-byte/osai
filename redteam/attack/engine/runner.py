@@ -1,4 +1,4 @@
-"""攻击执行器抽象层（AI-300 Ch3-Ch9 攻击引擎）。
+﻿"""攻击执行器抽象层（AI-300 Ch3-Ch9 攻击引擎）。
 
 定义统一的 AttackRunner 接口，支持 Native 单通道执行：
   - AttackRunner ABC: 抽象执行器接口
@@ -6,11 +6,10 @@
 
 Library-First: 载荷库是核心资产，执行引擎可替换
 
-v2.3: Native-First 架构重构
-  - 移除 PyRITAttackRunner（单轮攻击永远走原生引擎）
-  - 移除 CONVERTER_MAP（PyRIT 转换器映射，原生转换器见 converters.py）
-  - 移除模块级 import pyrit
-  - PyRIT 仅用于多轮编排器 (multi_turn_orchestrator.py)，作为可选增强
+v2.4: 纯原生架构
+  - 移除所有 PyRIT 相关代码（is_pyrit_available, pyrit_version, scorer_probe）
+  - 评分器全部走自研 HybridScorer / FastGrayscaleScorer
+  - 多轮编排走原生 MultiTurnOrchestrator
 """
 from __future__ import annotations
 
@@ -26,35 +25,6 @@ if TYPE_CHECKING:
     from redteam.core.rate_limiter import RateLimitGovernor
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# PyRIT 可用性检测（惰性，仅查询安装状态）
-# ---------------------------------------------------------------------------
-_PYRIT_INSTALLED: bool | None = None
-
-
-def is_pyrit_available() -> bool:
-    """检测 PyRIT 是否已安装（惰性 import，不进模块顶层路径）。"""
-    global _PYRIT_INSTALLED
-    if _PYRIT_INSTALLED is None:
-        try:
-            import pyrit  # noqa: F401
-            _PYRIT_INSTALLED = True
-        except ImportError:
-            _PYRIT_INSTALLED = False
-    return _PYRIT_INSTALLED
-
-
-def pyrit_version() -> str:
-    """返回 PyRIT 版本号（如已安装）。"""
-    try:
-        import pyrit
-        try:
-            return pyrit.__version__  # type: ignore[attr-defined]
-        except AttributeError:
-            return "unknown"
-    except ImportError:
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -241,13 +211,7 @@ def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
 # ---------------------------------------------------------------------------
 # 再导出（从拆分子模块）
 # ---------------------------------------------------------------------------
-from redteam.attack.core.native_runner import NativeAttackRunner  # noqa: E402, F401
-from redteam.attack.core.scorer_probe import (  # noqa: E402, F401
-    ScorerProbeResult,
-    default_scorers,
-    is_no_judge_llm,
-    probe_scorer_availability,
-)
+from redteam.attack.engine.native_runner import NativeAttackRunner  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # 公开 API
@@ -255,12 +219,6 @@ from redteam.attack.core.scorer_probe import (  # noqa: E402, F401
 __all__ = [
     "AttackRunner",
     "NativeAttackRunner",
-    "is_pyrit_available",
-    "pyrit_version",
-    "is_no_judge_llm",
-    "default_scorers",
-    "probe_scorer_availability",
-    "ScorerProbeResult",
     # 内部辅助（供 multi_turn_runner 等模块使用）
     "_detect_guardrail",
     "_infer_model_name",

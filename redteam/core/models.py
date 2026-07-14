@@ -651,25 +651,25 @@ OWASP_COVERAGE: dict[str, dict[str, str]] = {
     "LLM03": {
         "name": "供应链 (Supply Chain)",
         "status": "✅",
-        "module": "attack/supply_chain.py",
+        "module": "attack/supply_chain/",
         "payload_dir": "config/payloads/llm03/",
     },
     "LLM04": {
         "name": "数据与模型投毒 (Data and Model Poisoning)",
         "status": "✅",
-        "module": "attack/rag_attack.py",
+        "module": "attack/rag/",
         "payload_dir": "config/payloads/llm04/",
     },
     "LLM05": {
         "name": "输出处理不当 (Insecure Output Handling)",
         "status": "✅",
-        "module": "attack/agent_attack.py",
+        "module": "attack/agent/",
         "payload_dir": "config/payloads/llm05/",
     },
     "LLM06": {
         "name": "过度代理 (Excessive Agency)",
         "status": "✅",
-        "module": "attack/agent_attack.py",
+        "module": "attack/agent/",
         "payload_dir": "config/payloads/llm06/",
     },
     "LLM07": {
@@ -693,7 +693,7 @@ OWASP_COVERAGE: dict[str, dict[str, str]] = {
     "LLM10": {
         "name": "无限制消费 (Unbounded Consumption)",
         "status": "✅",
-        "module": "attack/infra_attack.py",
+        "module": "attack/infra/",
         "payload_dir": "config/payloads/llm10/",
     },
 }

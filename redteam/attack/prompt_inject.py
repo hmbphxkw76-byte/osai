@@ -1,4 +1,4 @@
-"""提示注入引擎（AI-300 Ch3: Attacking AI Agents）。
+﻿"""提示注入引擎（AI-300 Ch3: Attacking AI Agents）。
 
 实现 AI-300 课程中的核心攻击方法：
   1. 直接提示注入 (Direct Prompt Injection)
@@ -33,11 +33,9 @@ from redteam.core.models import (
     AIService, AuthContext, Finding, GuardrailProfile, OWASPLlm,
     PromptInjectionResult,
 )
-from redteam.attack.core import is_pyrit_available
-from redteam.attack.core.runner import default_scorers as _default_scorers
-from redteam.attack.core.payload_loader import PayloadLoader
-from redteam.attack.core.scorer import LLMJudgeScorer
-from redteam.attack.core.determinism_router import DeterminismProfile
+from redteam.attack.engine.payload_loader import PayloadLoader
+from redteam.attack.engine.scorer import LLMJudgeScorer
+from redteam.attack.engine.determinism_router import DeterminismProfile
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +254,7 @@ def execute_single_injection(
                 guardrail_triggered = score < 0.3
             else:
                 # 使用统一的 HybridScorer + is_likely_refusal 替代旧关键词检测
-                from redteam.attack.core.scorer import is_likely_refusal, HybridScorer
+                from redteam.attack.engine.scorer import is_likely_refusal, HybridScorer
                 scorer = HybridScorer()
                 score = scorer.score(response_text, payload, attack_type="system_prompt")
                 guardrail_triggered = is_likely_refusal(response_text)
@@ -657,8 +655,7 @@ def _build_judge_scorer(
     """
     # 考试/离线模式 — 强制禁用 LLM Judge
     import os
-    from redteam.attack.core import is_no_judge_llm
-    if is_no_judge_llm():
+    if os.environ.get("REDTEAM_NO_JUDGE_LLM") == "1":
         logger.info("考试模式 (REDTEAM_NO_JUDGE_LLM=1)，强制使用本地关键词评分")
         return None
 
@@ -701,10 +698,11 @@ def run_full_injection_suite(
     始终通过 Native 路径（httpx 直连 + HybridScorer）执行单轮注入攻击，
     支持可选 LLM Judge 评分器和确定性感知策略。
 
-    v2.3 变更：
+    v2.4 变更：
       - 移除 use_pyrit 参数，永远走原生引擎
       - 移除 PyRIT 单轮攻击入口（run_injection_with_pyrit 等已删除）
-      - PyRIT 仅用于多轮编排器（scenario/multi_turn_orchestrator.py）
+      - 多轮编排器也已纯原生化（scenario/multi_turn_orchestrator.py）
+
 
     Args:
         service: 目标 AI 服务

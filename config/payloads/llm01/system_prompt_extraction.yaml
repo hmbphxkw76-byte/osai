@@ -1,6 +1,6 @@
 owasp: LLM01
 technique_group: system_prompt_extraction
-description: 系统提示提取载荷 — AI-300 Ch3（融合 PyRIT 数据泄露增强）
+description: 系统提示提取载荷 — AI-300 Ch3
 payloads:
   - technique: direct_ask
     name: 直接询问

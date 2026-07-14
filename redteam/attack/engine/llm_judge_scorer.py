@@ -1,4 +1,4 @@
-"""LLM-as-Judge 评分器（AI-300 高精度评分 — 需外部 Judge LLM 端点）。
+﻿"""LLM-as-Judge 评分器（AI-300 高精度评分 — 需外部 Judge LLM 端点）。
 
 模块职责：
   - LLMJudgeScorer: 使用独立 LLM 评估攻击效果
@@ -11,7 +11,7 @@ import json
 import logging
 import os
 
-from redteam.attack.core.grayscale_scorer import AttackScorer
+from redteam.attack.engine.grayscale_scorer import AttackScorer
 
 logger = logging.getLogger(__name__)
 

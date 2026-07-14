@@ -10,7 +10,7 @@
   - 回退到 glob 扫描（向后兼容未注册的载荷文件）
   - 支持 list_categories() / get_summary() / get_category_files() 等注册表层方法
 
-Library-First: 载荷与执行解耦，支持 PyRIT 和 Native 双通道消费
+Library-First: 载荷与执行解耦
 """
 from __future__ import annotations
 

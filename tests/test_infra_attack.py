@@ -1,5 +1,5 @@
 """基础设施攻击模块测试（AI-300 Ch8+Ch9）。"""
-from redteam.attack.infra_attack import (
+from redteam.attack.infra import (
     _extract_context,
     check_supply_chain_risks,
     generate_infra_findings,

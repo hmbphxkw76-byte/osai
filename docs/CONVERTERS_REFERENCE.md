@@ -1,6 +1,6 @@
-# 转换器参考手册 (Converters Reference)
+﻿# 转换器参考手册 (Converters Reference)
 
-> 模块：`redteam/attack/core/converters.py`
+> 模块：`redteam/attack/engine/converters.py`
 > AI-300 章节映射：Ch3 单 Agent 攻击（护栏绕过）、Ch5 RAG 管道利用（编码绕过）
 > OWASP LLM Top 10：LLM01 (Prompt Injection)
 > 分类体系：PyRIT 融合增强
@@ -826,9 +826,9 @@ curl -X POST https://target-ai.example.com/v1/chat/completions \
 | 模块 | 关系 | 说明 |
 |------|------|------|
 | `redteam/attack/prompt_inject.py` | 调用方 | 提示注入攻击模块，使用 `apply_converters()` 变形 payload |
-| `redteam/attack/agent_attack.py` | 调用方 | 多 Agent 攻击模块 |
-| `redteam/attack/rag_attack.py` | 调用方 | RAG 管道利用，结合编码绕过检索器 |
-| `redteam/pipeline.py` | 编排方 | 攻击流水线中触发 evasion 阶段 |
+| `redteam/attack/agent/` | 调用方 | 多 Agent 攻击模块 |
+| `redteam/attack/rag/` | 调用方 | RAG 管道利用，结合编码绕过检索器 |
+| `redteam/pipeline/runner.py` | 编排方 | 攻击流水线中触发 evasion 阶段 |
 | `config/scenarios/*.yaml` | 配置方 | 场景配置中指定 converters 字段 |
 
 ---

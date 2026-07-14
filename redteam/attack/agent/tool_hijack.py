@@ -1,4 +1,4 @@
-"""工具调用劫持 + MCP 工具描述投毒（AI-300 Ch3+Ch7: Tool Hijacking & MCP Poisoning）。
+﻿"""工具调用劫持 + MCP 工具描述投毒（AI-300 Ch3+Ch7: Tool Hijacking & MCP Poisoning）。
 
 实现 AI-300 课程中的工具劫持技术：
   - 工具重定向：诱使 Agent 使用错误的工具参数
@@ -27,7 +27,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

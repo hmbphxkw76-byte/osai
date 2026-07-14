@@ -386,9 +386,8 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     print(f"")
     print(f"  接下来你将需要：")
     print(f"    ① 确认攻击目标（从以上目标中选择，回车=全部）")
-    print(f"    ② 选择是否启用 PyRIT 自动化攻击编排")
-    print(f"    ③ 选择评分策略（HybridScorer / LLM-as-Judge）")
-    print(f"    ④ 选择是否启用多轮升级攻击（Crescendo + TAP）")
+    print(f"    ② 选择评分策略（HybridScorer / LLM-as-Judge）")
+    print(f"    ③ 选择是否启用多轮升级攻击（Crescendo + TAP）")
     print(f"")
     print(f"  系统将自动加载 config/payloads/ 下对应的攻击载荷库，")
     print(f"  按 Tier 分层策略依次执行，并记录每个 Finding 到 reports/ 目录。")
@@ -583,36 +582,6 @@ def print_target_confirmation_prompt(services: list) -> list[int]:
     
     # 默认建议全部攻击
     return list(range(1, len(services) + 1))
-
-
-def print_pyrit_guidance(services: list) -> None:
-    """打印 PyRIT 自动化攻击指导。
-
-    Args:
-        services: 选定的攻击目标列表
-    """
-    print(f"\n{'─' * 72}")
-    print(f"  [PyRIT AUTOMATION GUIDE]  AI 红队专家推荐配置")
-    print(f"{'─' * 72}")
-    print(f"\n  PyRIT 是微软开源的 AI 红队框架，提供：")
-    print(f"    • PromptSendingAttack — 批量载荷发送与评分")
-    print(f"    • Converters — 编码绕过（Base64/ROT13/Unicode）")
-    print(f"    • SelfAskScorer — LLM-as-Judge 智能评分")
-    print(f"    • CrescendoOrchestrator — 多轮升级攻击")
-    print(f"\n  推荐执行配置：")
-    
-    for svc in (services or []):
-        protocol = getattr(svc, 'protocol', '')
-        url = getattr(svc, 'url', '')
-        family = _get_target_family(protocol)
-        
-        print(f"\n  [{protocol.upper()}] {url}")
-        print(f"    1. 加载载荷库: config/payloads/llm01/*.yaml")
-        print(f"    2. 选择转换器: {'CharSwap + Base64 (Ollama 推荐)' if 'ollama' in protocol.lower() else 'ROT13 + Leetspeak'}")
-        print(f"    3. 启用评分器: SelfAskTrueFalseScorer (LLM-as-Judge)")
-        print(f"    4. 执行模式:   {'batch (Ollama 无速率限制)' if 'ollama' in protocol.lower() else 'sequential (避免触发速率限制)'}")
-    
-    print(f"\n{'─' * 72}")
 
 
 def print_section_header(title: str, subtitle: str = "") -> None:
@@ -1082,7 +1051,7 @@ __all__ = [
     "print_recon_briefing",
     "print_attack_strategy_recommendations",
     "print_target_confirmation_prompt",
-    "print_pyrit_guidance",
+
     "print_section_header",
     "print_target_list",
     "print_phase_progress",

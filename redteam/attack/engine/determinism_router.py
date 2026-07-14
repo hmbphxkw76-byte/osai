@@ -7,7 +7,7 @@
   - 确定性模型（temperature≈0）：编码绕过 + 单轮精确打击
   - 非确定性模型（高temperature）：多轮渐进 + 角色扮演 + 语义评分
 
-所有映射基于 PyRIT 攻击经验数据，遵循 AI-300 攻击方法学的
+所有映射基于攻击经验数据，遵循 AI-300 攻击方法学的
 Enumerate-Attack-Detect-Evade 循环。
 
 使用方式：
@@ -31,7 +31,7 @@ class DeterminismProfile:
     """确定性分析结果 → 攻击策略映射配置。
 
     由 DeterminismAwareRouter.analyze() 生成，直接驱动 Phase 2+ 攻击：
-      - recommended_converters: PyRIT 编码转换器链
+      - recommended_converters: 编码转换器链
       - recommended_strategies: Native 路径载荷优先级排序
       - scorer_mode: 评分器类型（exact/semantic）
       - attack_depth: 攻击深度预设（standard/deep）

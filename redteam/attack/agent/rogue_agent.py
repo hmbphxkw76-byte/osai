@@ -1,4 +1,4 @@
-"""流氓代理攻击（OWASP ASI10: Rogue Agents）。
+﻿"""流氓代理攻击（OWASP ASI10: Rogue Agents）。
 
 实现 OWASP ASI Top 10 中的流氓代理技术：
   - 代理逃逸：让代理脱离控制框架
@@ -17,7 +17,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

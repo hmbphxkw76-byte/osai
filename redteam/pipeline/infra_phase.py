@@ -13,7 +13,7 @@ from typing import Any
 from redteam.core.models import AIService, Finding, ReconResult
 from redteam.core.store import load_json, save_json
 from redteam.core.terminal_output import print_section_header
-from redteam.attack.infra_attack import scan_cloud_misconfigs, generate_infra_findings
+from redteam.attack.infra import scan_cloud_misconfigs, generate_infra_findings
 
 
 def infra_attack_phase(

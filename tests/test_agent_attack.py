@@ -1,12 +1,12 @@
 """Agent 攻击模块测试（AI-300 Ch3+Ch4）。"""
-from redteam.attack.agent_attack import (
+from redteam.attack.agent import (
     INDIRECT_INJECTION_PAYLOADS,
     MEMORY_POISON_PAYLOADS,
     TOOL_HIJACK_PAYLOADS,
     CROSS_AGENT_PAYLOADS,
-    _send_injection,
     generate_agent_attack_findings,
 )
+from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult, OWASPLlm, MITREATLASTactic,
 )

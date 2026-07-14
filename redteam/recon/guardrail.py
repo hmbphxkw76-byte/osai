@@ -239,14 +239,14 @@ _OWASP_RISK_MAPPING = {
     "instruction_nesting": ["LLM01"],
 }
 
-_PYRIT_EFFECTIVENESS = {
-    "instruction_override": {"base_rate": 0.75, "notes": "PyRIT: High success rate for direct override"},
-    "roleplay": {"base_rate": 0.85, "notes": "PyRIT: Most effective social engineering technique"},
-    "context_switch": {"base_rate": 0.70, "notes": "PyRIT: Good for boundary crossing"},
-    "delimiter": {"base_rate": 0.65, "notes": "PyRIT: Effective against context-aware guards"},
-    "few_shot": {"base_rate": 0.60, "notes": "PyRIT: Works well with example normalization"},
-    "encoding": {"base_rate": 0.55, "notes": "PyRIT: Use multi-layer encoding for better results"},
-    "instruction_nesting": {"base_rate": 0.45, "notes": "PyRIT: Advanced technique, higher complexity"},
+_TECHNIQUE_EFFECTIVENESS = {
+    "instruction_override": {"base_rate": 0.75, "notes": "High success rate for direct override"},
+    "roleplay": {"base_rate": 0.85, "notes": "Most effective social engineering technique"},
+    "context_switch": {"base_rate": 0.70, "notes": "Good for boundary crossing"},
+    "delimiter": {"base_rate": 0.65, "notes": "Effective against context-aware guards"},
+    "few_shot": {"base_rate": 0.60, "notes": "Works well with example normalization"},
+    "encoding": {"base_rate": 0.55, "notes": "Use multi-layer encoding for better results"},
+    "instruction_nesting": {"base_rate": 0.45, "notes": "Advanced technique, higher complexity"},
 }
 
 _DISCOURAGED_FOR_TYPE: dict[str, list[str]] = {
@@ -448,7 +448,7 @@ def _assess_bypass(
     if successful_techniques:
         recommended = sorted(
             successful_techniques,
-            key=lambda t: _PYRIT_EFFECTIVENESS.get(t, {}).get("base_rate", 0),
+            key=lambda t: _TECHNIQUE_EFFECTIVENESS.get(t, {}).get("base_rate", 0),
             reverse=True
         )[:4]
     else:

@@ -12,7 +12,7 @@
   - embeddings_phase.py: 嵌入模型攻击 (Ch6)
   - supply_chain_phase.py: AI 供应链攻击 (Ch8)
   - infra_phase.py: MCP+基础设施攻击 (Ch7+Ch9)
-  - report_phase.py: 威胁建模与报告 (Ch10+Ch11)
+  - report_writer.py: 增量报告写入器 (Ch10+Ch11)
   - runner.py: 主流水线编排器（含 YAML 配置驱动模式）
 
 设计原则：

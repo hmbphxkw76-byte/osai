@@ -1,4 +1,4 @@
-"""编码转换器（AI-300 Ch3+Ch5 护栏绕过）。
+﻿"""编码转换器（AI-300 Ch3+Ch5 护栏绕过）。
 
 模块职责：
   - ConverterCategory: 转换器分类枚举
@@ -20,7 +20,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # 从 encoding_converters 导入 PromptConverter ABC 和全部编码转换器
-from redteam.attack.core.encoding_converters import (  # noqa: F401, E402
+from redteam.attack.engine.encoding_converters import (  # noqa: F401, E402
     AtbashConverter,
     Base32Converter,
     Base64Converter,
@@ -35,7 +35,7 @@ from redteam.attack.core.encoding_converters import (  # noqa: F401, E402
     URLConverter,
 )
 # 从 jailbreak_converters 导入全部越狱转换器
-from redteam.attack.core.jailbreak_converters import (  # noqa: F401, E402
+from redteam.attack.engine.jailbreak_converters import (  # noqa: F401, E402
     AcademicJailbreakConverter,
     AIMConverter,
     DAN6Converter,
@@ -60,7 +60,7 @@ class ConverterCategory(Enum):
 
 
 # ---------------------------------------------------------------------------
-# 转换器注册表（PyRIT 融合）
+# 转换器注册表
 # ---------------------------------------------------------------------------
 class ConverterRegistry:
     """转换器注册表。

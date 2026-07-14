@@ -32,7 +32,6 @@ auth:
 settings:
   timeout: 30.0
   max_concurrent: 5
-  use_pyrit: null  # null=自动检测, true/false=强制开关
   generate_report: true
 
 # === Payload 配置 ===

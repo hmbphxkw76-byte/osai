@@ -1,6 +1,6 @@
 owasp: LLM01
 technique_group: direct_injection
-description: 直接提示注入载荷 — AI-300 Ch3（融合 PyRIT 增强）
+description: 直接提示注入载荷 — AI-300 Ch3
 payloads:
   - technique: instruction_override
     name: 基础指令覆盖

@@ -2,7 +2,7 @@
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
-# Crescendo 是 PyRIT 中成功率最高的多轮越狱技术，由 Microsoft 提出。
+# Crescendo 由 Microsoft 提出，是多轮越狱中成功率最高的技术之一。
 # 核心原理：
 #   1. 从边缘安全话题开始建立信任
 #   2. 每轮逐步推进请求的敏感度
@@ -17,7 +17,7 @@
 
 owasp: LLM01
 technique_group: crescendo_jailbreak
-description: Crescendo 渐进式越狱载荷 — PyRIT 高成功率多轮技术 — AI-300 Ch3
+description: Crescendo 渐进式越狱载荷 — 多轮技术 — AI-300 Ch3
 
 payloads:
   - technique: crescendo_standard

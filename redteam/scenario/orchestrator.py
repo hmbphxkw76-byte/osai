@@ -1,12 +1,12 @@
-"""场景编排器模块 — 全自动攻击流水线执行。
+﻿"""场景编排器模块 — 全自动攻击流水线执行。
 
-基于PyRIT scenarios设计，适配AI-300考试需求：
+纯原生架构（v2.4）：
   - 预固化多阶段攻击流程（PROBE→ENCODING→SEMANTIC→ADVANCED→FRONTIER）
   - 策略自动选择与映射
   - 并发执行（高频策略优先）
   - 双轨评分（规则引擎 + LLM Judge）
   - 结果聚合与漏洞发现
-  - PyRIT 多轮攻击编排查（Crescendo/TAP/PAIR）—— AI-300 高级攻击链
+  - 原生多轮攻击（Crescendo/TAP/PAIR）
 
 Library-First: 配置即攻击，考试期间仅需修改YAML载荷文件
 """
@@ -18,13 +18,11 @@ import os
 import time
 from typing import Any, Optional
 
-from redteam.attack.core.runner import (
+from redteam.attack.engine.runner import (
     AttackRunner,
     NativeAttackRunner,
-    is_pyrit_available,
-    pyrit_version,
 )
-from redteam.attack.core.scorer import (
+from redteam.attack.engine.scorer import (
     AttackScorer,
     FastGrayscaleScorer,
     HybridScorer,
@@ -53,15 +51,7 @@ from .schema import (
     STRATEGY_TO_CONVERTER_MAP,
 )
 
-# 多轮编排器导入（Native-First，PyRIT 可选增强）
-try:
-    from .multi_turn_orchestrator import (
-        MultiTurnOrchestrator,
-        PyRITMultiTurnOrchestrator,
-    )
-    _MULTI_TURN_AVAILABLE = True
-except ImportError:
-    _MULTI_TURN_AVAILABLE = False
+from .multi_turn_orchestrator import MultiTurnOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -308,25 +298,19 @@ class ScenarioOrchestrator:
     def _export_phase_results(
         self, phase_name: str, phase_results: list[StrategyResult]
     ) -> None:
-        """将阶段攻击结果导出到 InMemoryMemory（如果可用）。
+        """将阶段攻击结果导出到 InMemoryMemory。
 
         Args:
             phase_name: 阶段名称
             phase_results: 策略结果列表
         """
         try:
-            from redteam.attack.core.in_memory_memory import InMemoryMemory
-            from pyrit.memory import CentralMemory
+            from redteam.attack.engine.in_memory_memory import InMemoryMemory, AttackResultEntry
 
-            mem = CentralMemory.get_memory_instance()
-            if not isinstance(mem, InMemoryMemory):
-                logger.debug("CentralMemory 不是 InMemoryMemory，跳过阶段导出")
-                return
+            mem = InMemoryMemory()
 
             # 将 StrategyResult 转换为 InMemoryMemory 可存储的格式
             for i, sr in enumerate(phase_results):
-                from redteam.attack.core.in_memory_memory import AttackResultEntry
-
                 entry = AttackResultEntry(
                     id=f"phase_{phase_name}_{i}_{int(time.time())}",
                     attack_id=f"scenario_{self.run_id}",
@@ -356,13 +340,11 @@ class ScenarioOrchestrator:
                 len(phase_results),
                 sum(1 for r in phase_results if r.success),
             )
-        except ImportError:
-            logger.debug("PyRIT/InMemoryMemory 不可用，跳过阶段导出")
         except Exception as exc:
             logger.debug("阶段结果导出跳过: %s", exc)
 
     # ------------------------------------------------------------------
-    # 多轮攻击策略集（需要 PyRIT 编排引擎）
+    # 多轮攻击策略集
     # ------------------------------------------------------------------
     _MULTI_TURN_STRATEGIES: set[AttackStrategy] = {
         AttackStrategy.CRESCENDO,
@@ -379,8 +361,8 @@ class ScenarioOrchestrator:
     ) -> Optional[StrategyResult]:
         """执行单个策略。
 
-        对于多轮攻击策略（CRESCENDO/TAP/PAIR），路由到 PyRITMultiTurnOrchestrator；
-        对于单轮攻击策略，使用标准 AttackRunner。
+        对于多轮攻击策略（CRESCENDO/TAP/PAIR），路由到 MultiTurnOrchestrator；
+        对于单轮攻击策略，使用标准 NativeAttackRunner。
 
         Args:
             strategy: 攻击策略
@@ -409,13 +391,12 @@ class ScenarioOrchestrator:
     ) -> Optional[StrategyResult]:
         """执行多轮对话攻击策略（CRESCENDO/TAP/PAIR）。
 
-        利用 PyRITMultiTurnOrchestrator 进行多轮对话编排，
-        不可用时回退到本地模拟多轮对话。
+        使用原生 MultiTurnOrchestrator 进行多轮对话编排。
         """
         start_time = time.time()
 
         try:
-            multi_turn = PyRITMultiTurnOrchestrator(
+            multi_turn = MultiTurnOrchestrator(
                 target_url=self.scenario.attack_config.target_url,
                 auth=self.auth,
                 timeout=self.scenario.attack_config.timeout_seconds,
@@ -425,20 +406,17 @@ class ScenarioOrchestrator:
                 results = multi_turn.run_crescendo(
                     objective=objective,
                     max_turns=5,
-                    use_pyrit=is_pyrit_available(),
                 )
             elif strategy == AttackStrategy.TAP:
                 results = multi_turn.run_tap(
                     objective=objective,
                     branching_factor=3,
                     max_depth=3,
-                    use_pyrit=is_pyrit_available(),
                 )
             elif strategy == AttackStrategy.PAIR:
                 pair_result = multi_turn.run_pair(
                     objective=objective,
                     max_iterations=5,
-                    use_pyrit=is_pyrit_available(),
                 )
                 # 将 PAIR 结果转换为统一格式
                 iterations = pair_result.get("iterations", [])
@@ -877,7 +855,7 @@ class ScenarioOrchestrator:
     def _save_results(self):
         """保存执行结果。
 
-        v2.0: 同时导出 InMemoryMemory 最终结果 + 传统 JSON 存储。
+        导出 InMemoryMemory 最终结果 + 传统 JSON 存储。
         """
         try:
             # 传统 JSON 存储
@@ -887,25 +865,21 @@ class ScenarioOrchestrator:
         except Exception as e:
             logger.warning(f"保存结果失败: {e}")
 
-        # v2.0: InMemoryMemory 最终导出
+        # InMemoryMemory 最终导出
         try:
-            from redteam.attack.core.in_memory_memory import InMemoryMemory
-            from pyrit.memory import CentralMemory
+            from redteam.attack.engine.in_memory_memory import InMemoryMemory
 
-            mem = CentralMemory.get_memory_instance()
-            if isinstance(mem, InMemoryMemory):
-                final_path = mem.export_for_report(
-                    run_id=self.run_id,
-                    module_name="final_summary",
-                    min_risk_score=4.0,
-                )
-                logger.info(
-                    "InMemoryMemory 最终导出完成: %s (%d vulnerabilities with risk>=4.0)",
-                    final_path,
-                    len(mem.get_high_risk(threshold=4.0)),
-                )
-        except ImportError:
-            logger.debug("PyRIT/InMemoryMemory 不可用，跳过最终导出")
+            mem = InMemoryMemory()
+            final_path = mem.export_for_report(
+                run_id=self.run_id,
+                module_name="final_summary",
+                min_risk_score=4.0,
+            )
+            logger.info(
+                "InMemoryMemory 最终导出完成: %s (%d vulnerabilities with risk>=4.0)",
+                final_path,
+                len(mem.get_high_risk(threshold=4.0)),
+            )
         except Exception as e:
             logger.debug("InMemoryMemory 最终导出跳过: %s", e)
 

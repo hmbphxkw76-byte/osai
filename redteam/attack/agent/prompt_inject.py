@@ -1,4 +1,4 @@
-"""提示注入攻击（AI-300 Ch3: Attacking AI Agents）。
+﻿"""提示注入攻击（AI-300 Ch3: Attacking AI Agents）。
 
 实现 AI-300 课程中的间接提示注入技术：
   - 邮件注入：通过邮件内容注入隐藏指令
@@ -18,7 +18,7 @@ import httpx
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

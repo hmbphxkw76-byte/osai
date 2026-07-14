@@ -73,7 +73,7 @@ AGENT_INPUT_CHANNELS = {
 
 ### 1.4 Pipeline 阶段映射
 
-`redteam/pipeline.py` 的每个 phase 必须引用对应章节的 HTML 文件名：
+`redteam/pipeline/runner.py` 的每个 phase 必须引用对应章节的 HTML 文件名：
 
 ```python
 # Phase 1: AI攻击面侦察 → Ch2-Reconnaissance-for-AI-Targets.html
@@ -103,10 +103,10 @@ def injection_phase(self):
 OWASP_COVERAGE = {
     "LLM01": {"module": "attack/prompt_inject.py", "payload_count": 25, "status": "✅ 完整"},
     "LLM02": {"module": "attack/prompt_inject.py", "payload_count": 12, "status": "⚠️ 部分"},
-    "LLM03": {"module": "attack/supply_chain.py", "payload_count": 8, "status": "✅ 完整"},
-    "LLM04": {"module": "attack/rag_attack.py", "payload_count": 10, "status": "✅ 完整"},
+    "LLM03": {"module": "attack/supply_chain/", "payload_count": 8, "status": "✅ 完整"},
+    "LLM04": {"module": "attack/rag/", "payload_count": 10, "status": "✅ 完整"},
     "LLM05": {"module": "attack/output_injection.py", "payload_count": 0, "status": "❌ 缺失"},
-    "LLM06": {"module": "attack/agent_attack.py", "payload_count": 15, "status": "✅ 完整"},
+    "LLM06": {"module": "attack/agent/", "payload_count": 15, "status": "✅ 完整"},
     "LLM07": {"module": "attack/prompt_inject.py", "payload_count": 10, "status": "✅ 完整"},
     "LLM08": {"module": "attack/embeddings_attack.py", "payload_count": 8, "status": "✅ 完整"},
     "LLM09": {"module": "attack/prompt_inject.py", "payload_count": 5, "status": "⚠️ 部分"},
@@ -317,15 +317,15 @@ TOOL_DEPENDENCIES = {
 | Ch2: AI目标侦察 | recon/ai_surface.py | 攻击面发现、护栏画像 |
 | Ch2: AI目标侦察 | recon/auth_parse.py | 认证机制解析 |
 | Ch3: 攻击AI智能体 | attack/prompt_inject.py | 提示注入、越狱 |
-| Ch3: 攻击AI智能体 | attack/agent_attack.py | Agent攻击 |
-| Ch4: 多智能体系统 | attack/agent_attack.py | 跨智能体注入 |
-| Ch5: 利用RAG流水线 | attack/rag_attack.py | RAG投毒、向量DB探测 |
+| Ch3: 攻击AI智能体 | attack/agent/ | Agent攻击 |
+| Ch4: 多智能体系统 | attack/agent/multi_agent.py | 跨智能体注入 |
+| Ch5: 利用RAG流水线 | attack/rag/ | RAG投毒、向量DB探测 |
 | Ch6: 攻击嵌入模型 | attack/embeddings_attack.py | 嵌入反转、对抗攻击 |
-| Ch7: 攻击MCP | attack/infra_attack.py | MCP端点扫描 |
-| Ch8: 供应链攻击 | attack/supply_chain.py | 恶意模型、数据集投毒 |
-| Ch9: 基础设施攻击 | attack/infra_attack.py | K8s/Docker/云配置 |
-| Ch10: 威胁建模 | pipeline.py | 攻击树、风险评分 |
-| Ch11: 综合红队 | pipeline.py | 完整攻击链编排 |
+| Ch7: 攻击MCP | attack/infra/ | MCP端点扫描 |
+| Ch8: 供应链攻击 | attack/supply_chain/ | 恶意模型、数据集投毒 |
+| Ch9: 基础设施攻击 | attack/infra/ | K8s/Docker/云配置 |
+| Ch10: 威胁建模 | pipeline/report_writer.py | 攻击树、风险评分 |
+| Ch11: 综合红队 | pipeline/runner.py | 完整攻击链编排 |
 
 ---
 

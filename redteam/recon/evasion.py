@@ -395,7 +395,7 @@ def probe_rate_limit(
         if rate_limited:
             break
 
-        # ━━━ 够用即停：当前速率已满足 PyRIT 攻击需求，不再探测更高 ━━━
+        # 够用即停：当前速率已满足攻击需求，不再探测更高
         if not rate_limited and rate >= stop_at_safe_rpm and successful_count == max_requests:
             results["threshold_rpm"] = rate
             results["stop_reason"] = f"safe_at_{rate}_rpm"

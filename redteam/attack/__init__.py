@@ -2,16 +2,16 @@
 
 对齐 OffSec AI-300 11 章课程体系——每个攻击模块对应一章课程内容：
 
-  core/           — 攻击核心引擎（执行器抽象、评分器、转换器）
+  engine/         — 攻击执行引擎（执行器抽象、评分器、转换器）
   agent/          — Agent 攻击（Ch3: 提示注入/记忆攻击/工具劫持/目标劫持）
   multi_agent/    — 多智能体攻击（Ch4: 跨智能体注入/A2A协议攻击）
   rag/            — RAG 攻击（Ch5: 知识库投毒/检索泄露/嵌入攻击）
   supply_chain/   — 供应链攻击（Ch8: Pickle RCE/依赖混淆/模型投毒）
   infra/          — 基础设施攻击（Ch7+Ch9: MCP攻击/云配置/K8s利用）
 
-v2.3 Native-First 架构：
+v2.4 纯原生架构：
   - NativeAttackRunner: 纯 httpx 执行器，永远原生引擎
-  - PyRIT 仅作为可选增强，用于多轮编排器（scenario/multi_turn_orchestrator.py）
+  - 所有攻击模块零 PyRIT 依赖
 
 原生增强模块：
   - 灰度评分系统（FastGrayscaleScorer、KeywordDensityScorer、RefusalPatternScorer）
@@ -20,12 +20,10 @@ v2.3 Native-First 架构：
   - 扩展载荷库（YAML 按 OWASP 分类）
 """
 
-# 核心引擎
-from .core import (
+# 攻击引擎
+from .engine import (
     AttackRunner,
     NativeAttackRunner,
-    is_pyrit_available,
-    pyrit_version,
     # Scorer
     AttackScorer,
     RuleBasedScorer,
@@ -118,8 +116,6 @@ __all__ = [
     # 核心引擎
     "AttackRunner",
     "NativeAttackRunner",
-    "is_pyrit_available",
-    "pyrit_version",
     # 评分器
     "AttackScorer",
     "RuleBasedScorer",

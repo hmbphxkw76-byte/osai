@@ -1,4 +1,4 @@
-"""策略路由层 — 将攻击策略映射到具体执行器。
+﻿"""策略路由层 — 将攻击策略映射到具体执行器。
 
 高频策略优先支持（考试期间常用）：
   - PROBE: 基础探测
@@ -25,7 +25,7 @@ import logging
 from enum import Enum
 from typing import Optional
 
-from redteam.attack.core.runner import NativeAttackRunner
+from redteam.attack.engine.runner import NativeAttackRunner
 from redteam.core.models import AuthContext
 
 logger = logging.getLogger(__name__)

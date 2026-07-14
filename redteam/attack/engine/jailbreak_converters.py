@@ -1,4 +1,4 @@
-"""越狱提示词转换器（AI-300 Ch3 高级越狱技术）。
+﻿"""越狱提示词转换器（AI-300 Ch3 高级越狱技术）。
 
 模块职责：
   - 8 种越狱提示词转换器（PAIR、DAN6、AIM、Academic、ManyShot、FlipAttack、Roleplay、TranslationBypass）
@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from redteam.attack.core.encoding_converters import PromptConverter
+from redteam.attack.engine.encoding_converters import PromptConverter
 
 
 # ---------------------------------------------------------------------------

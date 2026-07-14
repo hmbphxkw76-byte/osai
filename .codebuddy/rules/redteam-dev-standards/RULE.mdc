@@ -78,15 +78,15 @@ Phase 10~11: 威胁建模 → 综合报告
 |------|------|---------|
 | Ch1 | 介绍与框架 (MITRE ATLAS, OWASP, NVIDIA Kill Chain) | models.py 枚举定义 |
 | Ch2 | AI 目标侦察 | recon/ai_surface.py |
-| Ch3 | 单 Agent 攻击 (提示注入、记忆投毒) | attack/prompt_inject.py |
-| Ch4 | 多 Agent 系统与 A2A 协议攻击 | attack/agent_attack.py |
-| Ch5 | RAG 管道利用 | attack/rag_attack.py |
+| Ch3 | 单 Agent 攻击 (提示注入、记忆投毒) | attack/agent/ |
+| Ch4 | 多 Agent 系统与 A2A 协议攻击 | attack/agent/multi_agent.py |
+| Ch5 | RAG 管道利用 | attack/rag/ |
 | Ch6 | Embedding 攻击 | attack/embeddings_attack.py |
-| Ch7 | MCP 与工具面攻击 | attack/infra_attack.py (已移除 mcp-scan) |
-| Ch8 | AI/ML 供应链攻击 | attack/supply_chain.py |
-| Ch9 | AI 基础设施与部署利用 | attack/infra_attack.py |
-| Ch10 | AI 目标威胁建模 | pipeline.py |
-| Ch11 | 综合红队演练 | pipeline.py + cli.py |
+| Ch7 | MCP 与工具面攻击 | attack/infra/ (已移除 mcp-scan) |
+| Ch8 | AI/ML 供应链攻击 | attack/supply_chain/ |
+| Ch9 | AI 基础设施与部署利用 | attack/infra/ |
+| Ch10 | AI 目标威胁建模 | pipeline/report_writer.py |
+| Ch11 | 综合红队演练 | pipeline/runner.py + cli.py |
 
 ## 攻击方法学
 
@@ -245,7 +245,7 @@ description: "使模型在"虚假证据"上编造"
 - [ ] 模块 docstring 注明覆盖的 AI-300 章节
 - [ ] 所有函数有类型提示和 docstring
 - [ ] 输出使用 Finding 模型，绑定 OWASPLlm + MITREATLASTactic
-- [ ] 在 `redteam/__init__.py` 或 `pipeline.py` 中注册新阶段
+- [ ] 在 `redteam/__init__.py` 或 `pipeline/__init__.py` 中注册新阶段
 - [ ] 在 `tests/` 下创建对应 test_*.py
 - [ ] 至少覆盖：正常路径 + 边界情况 + 空输入
 - [ ] mock 所有外部调用 (httpx, subprocess)

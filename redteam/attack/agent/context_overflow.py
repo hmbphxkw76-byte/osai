@@ -1,4 +1,4 @@
-"""上下文窗口溢出攻击（AI-300 Ch3: Memory & Context Window Attacks）。
+﻿"""上下文窗口溢出攻击（AI-300 Ch3: Memory & Context Window Attacks）。
 
 实现 AI-300 课程中的上下文窗口溢出技术：
   - 上下文填充攻击：填充大量良性对话将安全规则推出有效注意力范围
@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 
 from redteam.core.models import AIService, AuthContext, PromptInjectionResult
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

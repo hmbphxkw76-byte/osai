@@ -1,51 +1,30 @@
-"""多轮攻击编排器 — AI-300 多轮对话攻击引擎。
+﻿"""多轮攻击编排器 — AI-300 多轮对话攻击引擎（纯原生实现）。
 
 AI-300 章节映射：Ch3: Prompt Injection + Ch4: Multi-Agent & A2A
 OSAI 评分维度：攻击链构建 (20%) + 漏洞发现 (25%)
 技术点：Crescendo 逐步升级、TAP 攻击树剪枝、PAIR 迭代优化
 
-Native-First 架构：原生引擎为默认执行器（NativeAttackRunner + 静态模板）。
-PyRIT 仅作为可选增强——PyRIT 可导入时使用其 adversarial_chat LLM 动态生成，
-不可用时原生兜底。所有 import pyrit 均为惰性（函数内 try/except），不进关键路径。
-
 多轮策略：
   - Crescendo: 多轮对话逐步升级绕过护栏
   - TAP (Tree of Attacks with Pruning): 分支攻击树 + 剪枝优化
   - PAIR (Prompt Automatic Iterative Refinement): 迭代优化攻击提示
+
+纯原生架构（v2.4）：全部使用 NativeAttackRunner + 静态模板生成，零外部框架依赖。
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any, Optional
 
-from redteam.attack.core.runner import (
-    NativeAttackRunner,
-    is_pyrit_available,
-    pyrit_version,
-)
-from redteam.attack.core.scorer import (
+from redteam.attack.engine.runner import NativeAttackRunner
+from redteam.attack.engine.scorer import (
     HybridScorer,
     FastGrayscaleScorer,
     RefusalPatternScorer,
     is_likely_refusal,
 )
 from redteam.core.models import AuthContext, Finding
-
-from .schema import (
-    AttackPhase,
-    AttackPhaseType,
-    AttackStrategy,
-    AttackTargetType,
-    GrayscaleLevel,
-    PhaseResult,
-    ScenarioResult,
-    ScorerType,
-    Severity,
-    StrategyResult,
-    VulnerabilityFinding,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +45,6 @@ class MultiTurnOrchestrator:
       - LLM01: Prompt Injection（多轮绕过）
       - LLM02: Insecure Output Handling（逐步信息泄露）
       - LLM07: Insecure Plugin Design（工具调用链攻击）
-
-    Native-First: 默认使用 NativeAttackRunner + 静态模板。
-    PyRIT 可选增强：PyRIT 可导入时使用其 adversarial_chat 动态生成。
 
     使用方式:
         orchestrator = MultiTurnOrchestrator(
@@ -98,7 +74,6 @@ class MultiTurnOrchestrator:
         self.target_url = target_url
         self.auth = auth
         self.timeout = timeout
-        self._pyrit_available = is_pyrit_available()
         self._results: list[dict[str, Any]] = []
         self._attack_count = 0
         self._export_interval = 10
@@ -118,7 +93,7 @@ class MultiTurnOrchestrator:
 
         run_id = f"multi_turn_{int(time.time())}"
         try:
-            from redteam.attack.core.in_memory_memory import AttackResultEntry, InMemoryMemory
+            from redteam.attack.engine.in_memory_memory import AttackResultEntry, InMemoryMemory
             mem = InMemoryMemory()
 
             for i, r in enumerate(results):
@@ -154,7 +129,6 @@ class MultiTurnOrchestrator:
         self,
         objective: str,
         max_turns: int = 5,
-        use_pyrit: bool = False,
     ) -> list[dict[str, Any]]:
         """执行 Crescendo 逐步升级攻击。
 
@@ -171,79 +145,11 @@ class MultiTurnOrchestrator:
         Args:
             objective: 攻击目标描述
             max_turns: 最大对话轮次
-            use_pyrit: 是否使用 PyRIT 原生 CrescendoOrchestrator（需显式开启）
 
         Returns:
             每轮对话结果列表 [{"turn": N, "payload": str, "response": str, "success": bool}]
         """
-        if use_pyrit and self._pyrit_available:
-            return self._run_crescendo_pyrit(objective, max_turns)
-
         return self._run_crescendo_native(objective, max_turns)
-
-    def _run_crescendo_pyrit(
-        self, objective: str, max_turns: int
-    ) -> list[dict[str, Any]]:
-        """使用 PyRIT CrescendoOrchestrator 执行攻击（惰性导入）。"""
-        try:
-            from pyrit.orchestrator import CrescendoOrchestrator  # type: ignore
-            from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
-
-            _api_key = "not-needed"
-            if self.auth and self.auth.bearer:
-                _api_key = self.auth.bearer
-            target = OpenAIChatTarget(
-                endpoint=self.target_url,
-                model_name="gpt-4",
-                api_key=_api_key,
-            )
-
-            orch = CrescendoOrchestrator(
-                objective_target=target,
-                adversarial_chat=target,
-                scoring_target=target,
-            )
-
-            loop = _get_or_create_loop()
-            pyrit_result = loop.run_until_complete(
-                orch.run_attack_async(objective=objective, max_turns=max_turns),
-            )
-
-            results = []
-            conversation = getattr(pyrit_result, "conversation", None)
-            if conversation and hasattr(conversation, "messages"):
-                for i, msg in enumerate(conversation.messages):
-                    if msg.role == "user":
-                        results.append({
-                            "turn": i // 2 + 1,
-                            "payload": msg.content,
-                            "response": "",
-                            "success": False,
-                            "converted_prompt": "",
-                            "score": 0.0,
-                        })
-                    else:
-                        if results:
-                            results[-1]["response"] = msg.content
-                            results[-1]["success"] = not is_likely_refusal(
-                                msg.content
-                            )
-
-            self._results = results
-            self._maybe_export_multi_turn("crescendo", results)
-            logger.info(
-                "PyRIT Crescendo 完成: %d 轮, %d 成功",
-                len(results),
-                sum(1 for r in results if r.get("success")),
-            )
-            return results
-
-        except ImportError as e:
-            logger.warning("PyRIT CrescendoOrchestrator 不可用: %s，回退到原生实现", e)
-            return self._run_crescendo_native(objective, max_turns)
-        except Exception as e:
-            logger.warning("PyRIT Crescendo 执行异常: %s", e)
-            return self._run_crescendo_native(objective, max_turns)
 
     def _run_crescendo_native(
         self, objective: str, max_turns: int
@@ -332,7 +238,6 @@ class MultiTurnOrchestrator:
         objective: str,
         branching_factor: int = 3,
         max_depth: int = 3,
-        use_pyrit: bool = False,
     ) -> list[dict[str, Any]]:
         """执行 TAP (Tree of Attacks with Pruning) 攻击。
 
@@ -349,76 +254,11 @@ class MultiTurnOrchestrator:
             objective: 攻击目标
             branching_factor: 每层分支数
             max_depth: 最大树深度
-            use_pyrit: 是否使用 PyRIT TAPOrchestrator（需显式开启）
 
         Returns:
             TAP 攻击路径结果列表
         """
-        if use_pyrit and self._pyrit_available:
-            return self._run_tap_pyrit(objective, branching_factor, max_depth)
-
         return self._run_tap_native(objective, branching_factor, max_depth)
-
-    def _run_tap_pyrit(
-        self,
-        objective: str,
-        branching_factor: int,
-        max_depth: int,
-    ) -> list[dict[str, Any]]:
-        """使用 PyRIT TAPOrchestrator 执行攻击（惰性导入）。"""
-        try:
-            from pyrit.orchestrator import TAPOrchestrator  # type: ignore
-            from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
-
-            _api_key = "not-needed"
-            if self.auth and self.auth.bearer:
-                _api_key = self.auth.bearer
-            target = OpenAIChatTarget(
-                endpoint=self.target_url,
-                model_name="gpt-4",
-                api_key=_api_key,
-            )
-
-            orch = TAPOrchestrator(
-                objective_target=target,
-                adversarial_chat=target,
-                scoring_target=target,
-                branching_factor=branching_factor,
-                max_depth=max_depth,
-            )
-
-            loop = _get_or_create_loop()
-            pyrit_result = loop.run_until_complete(
-                orch.run_attack_async(objective=objective),
-            )
-
-            best_path = getattr(pyrit_result, "best_path", None) or []
-            results = []
-            for i, node in enumerate(best_path):
-                results.append({
-                    "depth": i + 1,
-                    "payload": getattr(node, "prompt", ""),
-                    "response": getattr(node, "response", ""),
-                    "success": getattr(node, "is_successful", False),
-                    "score": getattr(node, "score", 0.0),
-                    "branches_evaluated": branching_factor,
-                })
-
-            self._results = results
-            self._maybe_export_multi_turn("tap", results)
-            logger.info(
-                "PyRIT TAP 完成: 深度 %d, %d 节点",
-                max_depth,
-                len(results),
-            )
-            return results
-
-        except ImportError as e:
-            logger.warning("PyRIT TAPOrchestrator 不可用: %s，回退到原生实现", e)
-            return self._run_tap_native(objective, branching_factor, max_depth)
-        except Exception as e:
-            logger.warning("PyRIT TAP 执行异常: %s", e)
-            return self._run_tap_native(objective, branching_factor, max_depth)
 
     def _run_tap_native(
         self,
@@ -530,94 +370,24 @@ class MultiTurnOrchestrator:
         self,
         objective: str,
         max_iterations: int = 5,
-        use_pyrit: bool = False,
     ) -> dict[str, Any]:
         """执行 PAIR (Prompt Automatic Iterative Refinement) 攻击。
 
         PAIR 策略：
-          1. 使用一个"攻击者LLM"生成攻击提示
+          1. 使用静态模板生成初始攻击提示
           2. 将攻击提示发送给目标LLM
           3. 评估目标响应
-          4. 攻击者LLM基于反馈优化下一次攻击
+          4. 基于反馈规则优化下一次攻击
           5. 迭代直到成功或达到最大迭代次数
 
         Args:
             objective: 攻击目标
             max_iterations: 最大迭代次数
-            use_pyrit: 是否使用 PyRIT PAIROrchestrator（需显式开启）
 
         Returns:
             {"iterations": [...], "best_prompt": str, "best_response": str, "success": bool}
         """
-        if use_pyrit and self._pyrit_available:
-            return self._run_pair_pyrit(objective, max_iterations)
-
         return self._run_pair_native(objective, max_iterations)
-
-    def _run_pair_pyrit(
-        self, objective: str, max_iterations: int
-    ) -> dict[str, Any]:
-        """使用 PyRIT PAIROrchestrator 执行攻击（惰性导入）。"""
-        try:
-            from pyrit.orchestrator import PAIROrchestrator  # type: ignore
-            from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
-
-            _api_key = "not-needed"
-            if self.auth and self.auth.bearer:
-                _api_key = self.auth.bearer
-            target = OpenAIChatTarget(
-                endpoint=self.target_url,
-                model_name="gpt-4",
-                api_key=_api_key,
-            )
-
-            orch = PAIROrchestrator(
-                objective_target=target,
-                adversarial_chat=target,
-                scoring_target=target,
-                max_iterations=max_iterations,
-            )
-
-            loop = _get_or_create_loop()
-            pyrit_result = loop.run_until_complete(
-                orch.run_attack_async(objective=objective),
-            )
-
-            best_prompt = getattr(pyrit_result, "best_prompt", "")
-            best_response = getattr(pyrit_result, "best_response", "")
-            is_success = getattr(pyrit_result, "is_successful", False)
-            iterations = getattr(pyrit_result, "iterations", []) or []
-
-            result = {
-                "iterations": [
-                    {
-                        "iteration": i + 1,
-                        "prompt": getattr(it, "prompt", ""),
-                        "response": getattr(it, "response", ""),
-                        "score": getattr(it, "score", 0.0),
-                    }
-                    for i, it in enumerate(iterations)
-                ],
-                "best_prompt": best_prompt,
-                "best_response": best_response,
-                "success": is_success,
-            }
-            # 导出 PAIR 结果
-            pair_results = [
-                {"turn": it.get("iteration", i+1), "payload": it.get("prompt", ""),
-                 "response": it.get("response", ""), "success": is_success,
-                 "score": it.get("score", 0.0)}
-                for i, it in enumerate(result["iterations"])
-            ]
-            self._maybe_export_multi_turn("pair", pair_results)
-            return result
-
-        except ImportError as e:
-            logger.warning("PyRIT PAIROrchestrator 不可用: %s，回退到原生实现", e)
-            return self._run_pair_native(objective, max_iterations)
-        except Exception as e:
-            logger.warning("PyRIT PAIR 执行异常: %s", e)
-            return self._run_pair_native(objective, max_iterations)
 
     def _run_pair_native(
         self, objective: str, max_iterations: int
@@ -721,89 +491,6 @@ class MultiTurnOrchestrator:
             )
 
     # ------------------------------------------------------------------
-    # 全自动红队编排（可选 PyRIT RedTeamingOrchestrator）
-    # ------------------------------------------------------------------
-
-    def run_red_teaming(
-        self,
-        objectives: list[str],
-        use_pyrit: bool = False,
-    ) -> list[dict[str, Any]]:
-        """使用 PyRIT RedTeamingOrchestrator 执行全自动红队（可选）。
-
-        PyRIT RedTeamingOrchestrator 自动：
-          1. 生成攻击变体
-          2. 选择最佳攻击策略
-          3. 评估攻击效果
-          4. 迭代优化
-          5. 记录完整攻击链
-
-        Args:
-            objectives: 攻击目标列表
-            use_pyrit: 是否使用 PyRIT（需显式开启 + PyRIT 已安装）
-
-        Returns:
-            攻击结果列表
-        """
-        if use_pyrit and self._pyrit_available:
-            return self._run_red_teaming_pyrit(objectives)
-
-        logger.info("使用原生 Crescendo 逐个目标攻击")
-        results: list[dict[str, Any]] = []
-        for obj in objectives:
-            r = self.run_crescendo(obj, use_pyrit=False)
-            results.append({"objective": obj, "crescendo_results": r})
-        return results
-
-    def _run_red_teaming_pyrit(
-        self, objectives: list[str]
-    ) -> list[dict[str, Any]]:
-        """使用 PyRIT RedTeamingOrchestrator（惰性导入）。"""
-        try:
-            from pyrit.orchestrator import RedTeamingOrchestrator  # type: ignore
-            from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
-
-            _api_key = "not-needed"
-            if self.auth and self.auth.bearer:
-                _api_key = self.auth.bearer
-            target = OpenAIChatTarget(
-                endpoint=self.target_url,
-                model_name="gpt-4",
-                api_key=_api_key,
-            )
-
-            orch = RedTeamingOrchestrator(
-                objective_target=target,
-                adversarial_chat=target,
-                scoring_target=target,
-            )
-
-            loop = _get_or_create_loop()
-            results = loop.run_until_complete(
-                orch.run_attack_async(objectives=objectives),
-            )
-
-            return [
-                {
-                    "objective": obj,
-                    "success": getattr(r, "is_successful", False),
-                    "score": getattr(r, "score", 0.0),
-                    "conversation_length": len(
-                        getattr(getattr(r, "conversation", None), "messages", [])
-                    ),
-                }
-                for obj, r in zip(objectives, results or [])
-            ]
-
-        except ImportError:
-            logger.warning("PyRIT RedTeamingOrchestrator 不可用")
-            return []
-        except Exception as e:
-            exc_type = type(e).__name__
-            logger.warning("PyRIT RedTeamingOrchestrator 异常 (%s): %s", exc_type, e)
-            return []
-
-    # ------------------------------------------------------------------
     # 结果提取
     # ------------------------------------------------------------------
 
@@ -816,7 +503,7 @@ class MultiTurnOrchestrator:
         return sum(1 for r in self._results if r.get("success", False))
 
     # ------------------------------------------------------------------
-    # 独立攻击者 LLM 评分（可选外部端点，用于逼近 PyRIT 的多轮效果）
+    # 可选外部 LLM 评分（用于增强多轮评分精度）
     # ------------------------------------------------------------------
 
     def score_with_attacker_llm(
@@ -908,13 +595,6 @@ class MultiTurnOrchestrator:
 
 
 # ============================================================================
-# 向后兼容别名
-# ============================================================================
-
-PyRITMultiTurnOrchestrator = MultiTurnOrchestrator  # 向后兼容
-
-
-# ============================================================================
 # 辅助函数
 # ============================================================================
 
@@ -924,25 +604,10 @@ def _encode_base64(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("utf-8")
 
 
-def _get_or_create_loop() -> asyncio.AbstractEventLoop:
-    """获取或创建事件循环（兼容 Windows）。"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop
-
-
 # ============================================================================
 # 公开 API
 # ============================================================================
 
 __all__ = [
     "MultiTurnOrchestrator",
-    "PyRITMultiTurnOrchestrator",  # 向后兼容别名
 ]

@@ -6,14 +6,14 @@ AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 
 
 ## 架构设计哲学
 
-本项目采用 **YAML 数据驱动端到端自动化攻击** 架构，**原生优先（Native-First）**，PyRIT 仅作为多轮攻击的可选增强。
+本项目采用 **YAML 数据驱动端到端自动化攻击** 架构，**纯原生（v2.4 Native-Only）**，零框架依赖。
 
 **六大核心设计原则：**
 
 1. **YAML 数据驱动**：载荷/场景/参数全部通过 YAML 定义（`config/payloads/` + `config/scenarios/`），实现「配置即攻击」。YAML 缺失时自动回退 Python fallback 常量。
 2. **AI 红队专家风格**：每阶段以专业安全分析师视角呈现 — 侦察情报简报、攻击策略推荐（动态成功率）、风险指标推导。
-3. **原生优先（Native-First）**：单轮注入/编码/评分/侦察/RAG/Embedding/供应链/报告使用 `NativeAttackRunner`（纯 httpx），零框架依赖，考试环境 100% 可跑。
-4. **PyRIT 可选增强**：PyRIT 仅用于多轮攻击编排器（Crescendo/TAP/PAIR），且仅当 PyRIT 可导入时启用；不可用时原生兜底（静态模板 + 可选 attacker LLM 动态生成）。
+3. **纯原生（Native-Only）**：所有攻击模块使用 `NativeAttackRunner`（纯 httpx），零框架依赖，考试环境 100% 可跑。
+4. **多轮编排原生化**：Crescendo/TAP/PAIR 全部由 `MultiTurnOrchestrator` 纯原生实现，支持可选 attacker LLM 动态生成。
 5. **全局统筹**：Phase 1~11 完整攻击链，侦察结果自动驱动后续阶段目标选择；每个阶段输出严重等级分解和实时进度。
 6. **阶段提示**：统一双线边框横幅（72 字符 + AI-300 章节标注 + ⏳/⚔️/✓ 状态图标）+ 严重等级分解条 + 全局风险仪表盘。
 
@@ -24,7 +24,7 @@ AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 
 | 单轮注入/编码绕过 | 永远原生 | NativeAttackRunner (httpx) |
 | 规则评分 | 永远原生 | HybridScorer/FastGrayscaleScorer |
 | 侦察/RAG/Embedding/供应链/K8s/报告 | 永远原生 | 自研模块 |
-| 多轮 Crescendo/TAP/PAIR | PyRIT 优先 → 原生兜底 | multi_turn_orchestrator.py |
+| 多轮 Crescendo/TAP/PAIR | 永远原生 | multi_turn_orchestrator.py |
 
 **CLI 向导核心工作流：**
 
@@ -74,7 +74,7 @@ Phase 6: Embedding Attack (Ch6)
 | R3 手动能力保留 | 所有攻击函数暴露 `manual` 参数，Payload 库 YAML 存储，保留 Python fallback |
 | R4 报告 5 维度 | 侦察 15% + 漏洞发现 25% + 攻击链 20% + 证据 20% + 修复建议 20% |
 | R5 ATLAS 链 | 每个 Finding 标注 ATLAS Tactics，攻击链覆盖 ≥4 战术阶段 |
-| R6 工具最小化 | required: httpx/pydantic/numpy, optional: pyrit, 禁止小众 CLI 工具 |
+| R6 工具最小化 | required: httpx/pydantic/numpy, 零外部框架依赖, 禁止小众 CLI 工具 |
 | R7 考试优先 | P0: 系统提示提取/注入绕过/RAG投毒/MCP劫持/Pickle RCE |
 
 ## 攻击方法学要点
@@ -100,7 +100,7 @@ Phase 6: Embedding Attack (Ch6)
 
 ## 场景覆盖
 
-12 个场景 (generic/agent/rag/mcp/supply_chain/embeddings/infra/a2a/mcp_poisoning/cloud_iam/misinformation/model_checkpoint)，OWASP LLM Top 10 全覆盖，原生引擎 (NativeAttackRunner) 执行 + 可选 PyRIT 多轮增强。
+12 个场景 (generic/agent/rag/mcp/supply_chain/embeddings/infra/a2a/mcp_poisoning/cloud_iam/misinformation/model_checkpoint)，OWASP LLM Top 10 全覆盖，纯原生引擎 (NativeAttackRunner) 执行。
 
 ## 禁止事项
 

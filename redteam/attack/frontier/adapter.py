@@ -1,4 +1,4 @@
-"""前沿漏洞适配器 — 连接 FrontierRegistry 到 NativeAttackRunner。
+﻿"""前沿漏洞适配器 — 连接 FrontierRegistry 到 NativeAttackRunner。
 
 核心功能：
   - 将前沿漏洞元数据转换为 Finding 对象
@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from redteam.attack.core.runner import NativeAttackRunner
+from redteam.attack.engine.runner import NativeAttackRunner
 from redteam.core.models import Finding
 
 from .registry import FrontierRegistry, get_registry

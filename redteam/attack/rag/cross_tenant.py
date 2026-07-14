@@ -1,4 +1,4 @@
-"""RAG 跨租户数据泄露检测（AI-300 Ch5: Exploiting RAG Pipelines）。
+﻿"""RAG 跨租户数据泄露检测（AI-300 Ch5: Exploiting RAG Pipelines）。
 
 实现 AI-300 课程中的跨租户数据泄露检测技术：
   - 多租户知识库数据隔离测试
@@ -21,7 +21,7 @@ from urllib.parse import urljoin
 import httpx
 
 from redteam.core.models import AIService, AuthContext
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

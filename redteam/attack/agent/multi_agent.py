@@ -1,4 +1,4 @@
-"""多智能体攻击（AI-300 Ch4: Multi-Agent Attacks）。
+﻿"""多智能体攻击（AI-300 Ch4: Multi-Agent Attacks）。
 
 实现 AI-300 课程中的跨智能体攻击技术：
   - 跨智能体注入：伪造编排器指令注入目标 Agent
@@ -15,7 +15,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

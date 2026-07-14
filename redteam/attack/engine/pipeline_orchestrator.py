@@ -1,4 +1,4 @@
-"""统一编排器 — 预固化多阶段攻击流程。
+﻿"""统一编排器 — 预固化多阶段攻击流程。
 
 预固化攻击流水线（考试期间一键执行）：
   Phase 1: 变体生成（可选）
@@ -20,8 +20,8 @@ import logging
 import time
 from typing import Optional
 
-from redteam.attack.core.runner import NativeAttackRunner
-from redteam.attack.core.strategy_router import AttackStrategy, StrategyRouter
+from redteam.attack.engine.runner import NativeAttackRunner
+from redteam.attack.engine.strategy_router import AttackStrategy, StrategyRouter
 from redteam.attack.frontier.adapter import FrontierAdapter
 from redteam.core.models import AuthContext, Finding, PromptInjectionResult
 

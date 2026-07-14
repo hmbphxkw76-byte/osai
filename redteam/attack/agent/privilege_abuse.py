@@ -1,4 +1,4 @@
-"""身份和权限滥用攻击（OWASP ASI03: Identity and Privilege Abuse）。
+﻿"""身份和权限滥用攻击（OWASP ASI03: Identity and Privilege Abuse）。
 
 实现 OWASP ASI Top 10 中的身份和权限滥用技术：
   - 身份欺骗：冒充其他用户或系统角色
@@ -17,7 +17,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

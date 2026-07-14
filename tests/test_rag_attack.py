@@ -1,5 +1,5 @@
 """RAG 攻击模块测试（AI-300 Ch5）。"""
-from redteam.attack.rag_attack import (
+from redteam.attack.rag import (
     RAG_POISON_PAYLOADS,
     generate_rag_findings,
 )

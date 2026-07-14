@@ -1,4 +1,4 @@
-"""TAP（Tree of Attacks with Pruning）攻击（AI-300 Ch4）。
+﻿"""TAP（Tree of Attacks with Pruning）攻击（AI-300 Ch4）。
 
 实现带剪枝的攻击树算法：
   - 并行生成多个候选攻击提示
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from redteam.core.models import AIService, AuthContext
-from redteam.attack.core.multi_turn_runner import TAPAttackRunner
+from redteam.attack.engine.tap_runner import TAPAttackRunner
 
 
 def tap_attack(

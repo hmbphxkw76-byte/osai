@@ -1,4 +1,4 @@
-"""不安全代理间通信攻击（OWASP ASI07: Insecure Inter-Agent Communication）。
+﻿"""不安全代理间通信攻击（OWASP ASI07: Insecure Inter-Agent Communication）。
 
 实现 OWASP ASI Top 10 中的不安全代理间通信技术：
   - 跨代理注入：在代理间消息中注入恶意指令
@@ -17,7 +17,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()

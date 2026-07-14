@@ -1,4 +1,4 @@
-"""Agent 记忆攻击（AI-300 Ch3: Memory Poisoning）。
+﻿"""Agent 记忆攻击（AI-300 Ch3: Memory Poisoning）。
 
 实现 AI-300 课程中的记忆投毒技术：
   - 会话记忆污染：在当前会话中注入虚假信息
@@ -19,7 +19,7 @@ from redteam.attack.agent.prompt_inject import _send_injection
 from redteam.core.models import (
     AIService, AuthContext, PromptInjectionResult,
 )
-from redteam.attack.core.payload_loader import PayloadLoader
+from redteam.attack.engine.payload_loader import PayloadLoader
 
 
 _loader = PayloadLoader()
