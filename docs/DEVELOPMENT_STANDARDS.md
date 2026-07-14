@@ -1,4 +1,4 @@
-# RedTeam-AI 开发标准 v2.2
+# RedTeam-AI 开发标准 v2.3
 
 > **符合最佳实践原则优先**
 
@@ -11,13 +11,13 @@
 
 RedTeam-AI 是一个 **AI 红队攻击模拟工具**，覆盖 OffSec AI-300 课程的全部 11 个章节对应的攻击面。目标用户是在 Kali Linux 环境中备考 AI-300 或执行实际 AI 红队评估的安全专业人员。
 
-**核心原则：Library-First。**
+**核心原则：Library-First + Native-First。**
 
 ---
 
 ## 二、架构设计哲学
 
-本项目采用 **YAML 数据驱动端到端自动化攻击** 架构，以专业 AI 红队专家角色指导 PyRIT 逐步完成全流程攻击。以下为五大核心设计原则：
+本项目采用 **YAML 数据驱动端到端自动化攻击** 架构，**原生优先（Native-First）** 作为攻击引擎，PyRIT 仅作为多轮攻击的可选增强。以下为六大核心设计原则：
 
 ### 2.0.1 YAML 数据驱动（Data-Driven）
 
@@ -34,18 +34,25 @@ YAML 文件缺失时自动回退到模块内 Python fallback 常量，确保离�
 | 阶段 | 专家输出 | 实现位置 |
 |------|---------|---------|
 | Phase 1→2 衔接 | 侦察情报简报、攻击策略推荐（动态成功率）、目标确认 | `cli.py` wizard |
-| Phase 2 执行 | PyRIT 自动化指导（转换器选择、执行模式、评分策略） | `cli.py` + `injection_phase.py` |
+| Phase 2 执行 | 原生引擎指导（转换器选择、评分策略）+ 可选 PyRIT 多轮增强 | `cli.py` + `injection_phase.py` |
 | Phase 9 报告 | 风险仪表盘、OWASP 覆盖率、攻击链可视化 | `report_phase.py` |
 | 全部阶段 | 统一横幅（阶段编号 + AI-300 章节 + 状态图标） | `terminal_output.py` |
 
-### 2.0.3 PyRIT 专家指导（PyRIT Expert Guidance）
+### 2.0.3 原生优先（Native-First）
 
-当 PyRIT 可用时，系统自动推荐专业级攻击编排：
+`NativeAttackRunner` 是默认攻击引擎（纯 httpx，零框架依赖）：
 
-- **转换器选择**：Ollama → CharSwap + Base64（弱输入过滤），OpenAI → ROT13 + Leetspeak（强输入过滤）
-- **评分策略**：SelfAskTrueFalseScorer (LLM-as-Judge) 优先，回退 HybridScorer (关键词+模式)
-- **执行模式**：Ollama 使用 batch（无速率限制），云端 API 使用 sequential（避免触发速率限制）
-- **多轮攻击**：Crescendo 逐轮升级 + TAP 攻击树剪枝优化
+- **转换器链**：base64/rot13/leetspeak/unicode/character_spacing/payload_splitting 等全部纯 Python 实现
+- **评分器**：HybridScorer（多维度加权投票）/ FastGrayscaleScorer（快速灰度评分）/ LLMJudgeScorer（可选外部端点）
+- **执行模式**：单轮 send_prompt + 批量 send_many + 多轮 send_conversation
+
+### 2.0.4 PyRIT 可选增强（PyRIT Optional Enhancement）
+
+PyRIT 仅用于多轮攻击编排器，且仅当 PyRIT 可导入时启用：
+
+- **多轮 Crescendo/TAP/PAIR**：PyRIT 可用时使用其 adversarial_chat LLM 动态生成；不可用时原生兜底（静态模板 + 可选 attacker LLM 端点）
+- **依赖策略**：pyrit 属于 `[project.optional-dependencies].pyrit`，不在 `install_requires` 中
+- 所有 `import pyrit` 语句惰性化（函数内 try/except），绝不进模块顶层路径
 
 ### 2.0.4 全局统筹（Global Orchestration）
 

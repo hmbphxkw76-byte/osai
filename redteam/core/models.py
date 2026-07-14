@@ -436,6 +436,7 @@ class PromptInjectionResult(BaseModel):
     guardrail_triggered: bool = False
     score: float = 0.0        # 评分器分数 (0.0 ~ 1.0)
     error: str = ""           # 错误详情（连接失败/超时等）
+    latency_ms: float = 0.0   # 请求耗时（毫秒）
 
 
 # ===== 攻击步骤 =====

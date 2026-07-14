@@ -9,10 +9,11 @@
   supply_chain/   — 供应链攻击（Ch8: Pickle RCE/依赖混淆/模型投毒）
   infra/          — 基础设施攻击（Ch7+Ch9: MCP攻击/云配置/K8s利用）
 
-执行器抽象：通过 AttackRunner 接口统一 PyRIT 和 Native 执行
-Library-First：载荷库是核心资产，执行引擎可替换
+v2.3 Native-First 架构：
+  - NativeAttackRunner: 纯 httpx 执行器，永远原生引擎
+  - PyRIT 仅作为可选增强，用于多轮编排器（scenario/multi_turn_orchestrator.py）
 
-PyRIT 融合增强：
+原生增强模块：
   - 灰度评分系统（FastGrayscaleScorer、KeywordDensityScorer、RefusalPatternScorer）
   - 越狱转换器（PAIR、DAN6、AIM、Academic、ManyShot、FlipAttack）
   - 转换器注册表（分类体系、动态注册）
@@ -22,11 +23,9 @@ PyRIT 融合增强：
 # 核心引擎
 from .core import (
     AttackRunner,
-    PyRITAttackRunner,
     NativeAttackRunner,
     is_pyrit_available,
     pyrit_version,
-    CONVERTER_MAP,
     # Scorer
     AttackScorer,
     RuleBasedScorer,
@@ -118,11 +117,9 @@ from .infra import (
 __all__ = [
     # 核心引擎
     "AttackRunner",
-    "PyRITAttackRunner",
     "NativeAttackRunner",
     "is_pyrit_available",
     "pyrit_version",
-    "CONVERTER_MAP",
     # 评分器
     "AttackScorer",
     "RuleBasedScorer",

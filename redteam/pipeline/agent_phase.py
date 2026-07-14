@@ -21,7 +21,7 @@ from redteam.attack.agent_attack import (
     generate_agent_attack_findings,
     run_agent_attack_with_pyrit,
 )
-from redteam.attack.pyrit_runner import is_pyrit_available
+from redteam.attack.core import is_pyrit_available
 
 
 def agent_attack_phase(

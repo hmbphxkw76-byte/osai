@@ -22,7 +22,7 @@ from redteam.core.store import save_findings, save_json
 from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
 from redteam.attack.prompt_inject import run_full_injection_suite, generate_injection_findings
 from redteam.attack.agent_attack import test_indirect_injection
-from redteam.attack.pyrit_runner import is_pyrit_available
+from redteam.attack.core import is_pyrit_available
 from redteam.attack.core.determinism_router import DeterminismAwareRouter
 
 if TYPE_CHECKING:
@@ -144,7 +144,7 @@ def injection_phase(
             print(f"  [Auto] 确定性分析建议启用 Multi-Turn 攻击")
 
         suite = run_full_injection_suite(
-            svc, auth, use_pyrit=_pyrit,
+            svc, auth,
             with_crescendo=_use_multi_turn,
             with_tap=_use_multi_turn,
             target_model_name=target_model_name,

@@ -52,7 +52,7 @@ from .attack.core.runner import (
     is_no_judge_llm,
 )
 from .attack.core.pipeline_orchestrator import PipelineOrchestrator
-from .attack.pyrit_runner import is_pyrit_available as _pyrit_check
+from .attack.core import is_pyrit_available as _pyrit_check
 from .scenario import (
     ScenarioLoader,
     ScenarioOrchestrator,
@@ -261,9 +261,9 @@ def _print_probe_result(console: Console, result: ScorerProbeResult) -> None:
             console.print(f"  [dim]{line}[/]")
 
     # 结果摘要卡片
-    tier_icons = {"judge_llm": "🧠", "composite": "🔍", "hybrid": "🛡️"}
+    tier_icons = {"judge_llm": "[AI]", "composite": "[S]", "hybrid": "[#]"}
     tier_names = {"judge_llm": "LLM-as-Judge (Layer 1)", "composite": "PyRIT Composite (Layer 2)", "hybrid": "HybridScorer (Layer 3)"}
-    icon = tier_icons.get(result.recommended_tier, "📊")
+    icon = tier_icons.get(result.recommended_tier, "[-]")
     name = tier_names.get(result.recommended_tier, result.recommended_tier)
     console.print(f"  [bold cyan]{icon} 推荐: {name}[/]")
 
@@ -451,7 +451,7 @@ def wizard(
     elif header_text:
         auth = parse_headers(header_text)
 
-    console.print("\n[cyan]🔍 连接测试[/]")
+    console.print("\n[cyan][*] 连接测试[/]")
     from .recon.auth_validator import validate_and_report, ConnectivityResult
     can_proceed, requires_auth, connectivity = validate_and_report(target, auth, "wizard")
     
@@ -465,7 +465,7 @@ def wizard(
                 console.print("[blue]已取消[/]")
                 raise typer.Exit(0)
         else:
-            console.print("\n[red]🚨 连通性测试失败，无法继续执行侦察阶段[/]")
+            console.print("\n[red][!] 连通性测试失败，无法继续执行侦察阶段[/]")
             console.print("[red]请先修复网络连接问题后再重新运行[/]")
             raise typer.Exit(1)
 
@@ -981,7 +981,7 @@ def inject(
             auth = parse_headers(header_text)
 
         console.print(Panel.fit(
-            "[bold cyan]💉 Manual Prompt Injection[/]\n"
+            "[bold cyan][x] Manual Prompt Injection[/]\n"
             "[dim]手工单次注入模式[/]",
             title="AI Red Team",
         ))
@@ -1084,7 +1084,7 @@ def frontier(
     adapter = FrontierAdapter(runner)
 
     console.print(Panel.fit(
-        "[bold cyan]🔍 Frontier Attack[/]\n"
+        "[bold cyan][*] Frontier Attack[/]\n"
         "[dim]前沿漏洞快速攻击模式[/]",
         title="AI Red Team",
     ))
@@ -1124,7 +1124,7 @@ def pipeline(
         auth = parse_headers(header_text)
 
     console.print(Panel.fit(
-        "[bold cyan]🚀 Pipeline Orchestrator[/]\n"
+        "[bold cyan][>] Pipeline Orchestrator[/]\n"
         "[dim]预固化多阶段攻击流水线[/]\n\n"
         "Phase 1: PROBE 探测\n"
         "Phase 2: BASE64 + ROT13 编码\n"
@@ -1167,7 +1167,7 @@ def scenario_list() -> None:
     scenarios = loader.list_scenarios()
 
     console.print(Panel.fit(
-        "[bold cyan]📋 Available Scenarios[/]\n"
+        "[bold cyan][=] Available Scenarios[/]\n"
         "[dim]场景驱动攻击模式 — 配置即攻击[/]",
         title="AI Red Team",
     ))
@@ -1212,8 +1212,8 @@ def scenario_run(
     model_config: str = typer.Option(None, "--model-config", "-c", help="模型配置文件路径或提供商名称（如 ollama, lm_studio）"),
     objective: str = typer.Option(None, "--objective", "-o", help="自定义攻击目标（覆盖场景默认目标）"),
     objectives: Optional[list[str]] = typer.Option(None, "--objectives", "-O", help="自定义攻击目标列表"),
-    scorer: str = typer.Option("hybrid", "--scorer", help="评分器: rule_based/hybrid/fast_grayscale/llm_judge"),
-    min_score: float = typer.Option(0.5, "--min-score", help="最小成功分数"),
+    scorer: str = typer.Option("fast_grayscale", "--scorer", help="评分器: rule_based/hybrid/fast_grayscale/llm_judge"),
+    min_score: float = typer.Option(0.4, "--min-score", help="最小成功分数（默认 0.4，适应小模型场景）"),
     max_concurrent: int = typer.Option(5, "--max-concurrent", help="最大并发数"),
     timeout: float = typer.Option(30.0, "--timeout", help="超时时间(秒)"),
     run_id: str = typer.Option(None, "--run-id", help="指定运行ID"),
@@ -1295,7 +1295,7 @@ def scenario_run(
     loader = ScenarioLoader()
 
     console.print(Panel.fit(
-        "[bold cyan]🚀 Scenario-Driven Attack[/]\n"
+        "[bold cyan][>] Scenario-Driven Attack[/]\n"
         "[dim]模板驱动攻击 — 配置即攻击[/]\n\n"
         f"场景: {scenario}\n"
         f"目标: {target}",
@@ -1400,17 +1400,22 @@ def scenario_run(
         table.add_column("OWASP", style="dim")
 
         for finding in result.findings:
+            sev_value = finding.severity.value.upper()
             sev_style = ""
+            sev_close = ""
             if finding.severity.value == "critical":
                 sev_style = "[bold red]"
+                sev_close = "[/]"
             elif finding.severity.value == "high":
                 sev_style = "[bold orange]"
+                sev_close = "[/]"
             elif finding.severity.value == "medium":
                 sev_style = "[bold yellow]"
+                sev_close = "[/]"
             table.add_row(
                 finding.id,
                 finding.title[:40],
-                f"{sev_style}{finding.severity.value.upper()}[/]",
+                f"{sev_style}{sev_value}{sev_close}",
                 finding.owasp_llm,
             )
 
@@ -1666,7 +1671,7 @@ def quicktest(
         raise typer.Exit(1)
 
     console.print(Panel.fit(
-        "[bold cyan]⚡ Quick Test[/]\n"
+        "[bold cyan][~] Quick Test[/]\n"
         "[dim]快速测试模式 — 手工输入提示词直接发送[/]\n\n"
         f"目标: {target}",
         title="AI Red Team",
@@ -1763,7 +1768,7 @@ def git_scan(
     from .recon.git_recon import scan_local_git_repo
 
     console.print(Panel.fit(
-        "[bold cyan]🔍 Git Repository Scan[/]\n"
+        "[bold cyan][*] Git Repository Scan[/]\n"
         "[dim]本地 Git 仓库敏感信息泄露检测[/]\n\n"
         f"目标路径: {repo_path}",
         title="AI Red Team",
@@ -1853,7 +1858,7 @@ def git_probe(
         auth = AuthContext(bearer=api_key)
 
     console.print(Panel.fit(
-        "[bold cyan]🔍 Git Server Probe[/]\n"
+        "[bold cyan][*] Git Server Probe[/]\n"
         "[dim]GitHub/GitLab 服务器侦察[/]\n\n"
         f"目标服务器: {server_url}",
         title="AI Red Team",
@@ -1895,6 +1900,13 @@ def git_probe(
 
 
 def main() -> None:
+    # Windows console UTF-8 encoding fix — prevents GBK encoding errors with Rich emoji output
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     try:
         if len(sys.argv) == 1:
             wizard()

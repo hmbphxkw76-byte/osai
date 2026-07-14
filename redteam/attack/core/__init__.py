@@ -1,29 +1,50 @@
 """攻击核心引擎（AI-300 Ch3-Ch9）。
 
-模块：
-  - runner.py: 执行器抽象层（AttackRunner ABC + PyRIT/Native 实现）
-  - multi_turn_runner.py: 多轮攻击执行器（Crescendo + TAP 算法）
-  - scorer.py: 评分器接口（LLM-as-Judge + 规则评分 + 灰度评分）
-  - converters.py: 编码转换器（Base64/ROT13/Unicode + 越狱转换器）
-  - payload_loader.py: YAML 载荷库加载器（OWASP 分类管理）
+模块结构（v2.3 Native-First 重构后）：
+  核心接口层：
+    - runner.py: AttackRunner ABC + 辅助函数 + 再导出
+    - native_runner.py: NativeAttackRunner（httpx 直连，默认攻击引擎）
+    - multi_turn_runner.py: 多轮攻击执行器（Crescendo + TAP 算法）
 
-PyRIT 融合增强：
-  - FastGrayscaleScorer: 快速灰度评分器（无 LLM 依赖）
-  - KeywordDensityScorer: 关键词密度分析器
-  - RefusalPatternScorer: 拒绝模式检测器
-  - ConverterRegistry: 转换器注册表（分类体系、动态注册）
-  - JailbreakConverters: 越狱提示词转换器（PAIR、DAN6、AIM、Academic、ManyShot、FlipAttack）
+  评分器层：
+    - scorer.py: RuleBasedScorer + is_likely_refusal + 工厂 + 再导出
+    - grayscale_scorer.py: 灰度评分系统（KeywordDensity + RefusalPattern + FastGrayscale
+                           + GrayscaleLevel + HybridScoreResult + AttackScorer ABC）
+    - hybrid_scorer.py: HybridScorer（多维度加权投票）
+    - llm_judge_scorer.py: LLMJudgeScorer（需外部 Judge LLM 端点）
+
+  转换器层：
+    - converters.py: ConverterCategory + ConverterRegistry + 工厂 + 再导出
+    - encoding_converters.py: 11 种纯 Python 编码转换器（PromptConverter ABC + 编码/混淆类）
+    - jailbreak_converters.py: 8 种越狱提示词转换器
+
+  编排层：
+    - strategy_router.py: StrategyRouter（攻击策略 → 执行器映射）
+    - determinism_router.py: DeterminismAwareRouter（侦察→攻击战术衔接）
+    - pipeline_orchestrator.py: PipelineOrchestrator（预固化多阶段攻击流程）
+    - payload_loader.py: PayloadLoader（YAML 载荷库加载器）
+    - scorer_probe.py: 评分器可用性探测 + NO_JUDGE_LLM 检测 + default_scorers
+    - in_memory_memory.py: 纯 Python 内存存储（结果存储/导出）
+
+PyRIT 多轮增强：
+  - multi_turn_orchestrator.py（位于 scenario/ 目录）: PyRIT 可选增强
+    Crescendo/TAP/PAIR — PyRIT 可用时使用其 adversarial_chat，不可用时原生兜底
 """
-
+from .in_memory_memory import (
+    InMemoryMemory,
+    ConversationEntry,
+    AttackResultEntry,
+    setup_memory_with_fallback,
+)
 from .runner import (
     AttackRunner,
-    PyRITAttackRunner,
     NativeAttackRunner,
     is_pyrit_available,
     pyrit_version,
     is_no_judge_llm,
     default_scorers,
-    CONVERTER_MAP,
+    probe_scorer_availability,
+    ScorerProbeResult,
 )
 from .multi_turn_runner import (
     MultiTurnAttackRunner,
@@ -37,6 +58,7 @@ from .scorer import (
     FastGrayscaleScorer,
     KeywordDensityScorer,
     RefusalPatternScorer,
+    LLMJudgeScorer,
     GrayscaleLevel,
     HybridScoreResult,
     is_likely_refusal,
@@ -71,15 +93,20 @@ from .determinism_router import (
 from .pipeline_orchestrator import PipelineOrchestrator
 
 __all__ = [
+    # InMemoryMemory
+    "InMemoryMemory",
+    "ConversationEntry",
+    "AttackResultEntry",
+    "setup_memory_with_fallback",
     # Runner
     "AttackRunner",
-    "PyRITAttackRunner",
     "NativeAttackRunner",
     "is_pyrit_available",
     "pyrit_version",
     "is_no_judge_llm",
     "default_scorers",
-    "CONVERTER_MAP",
+    "probe_scorer_availability",
+    "ScorerProbeResult",
     # Multi-turn Runner
     "MultiTurnAttackRunner",
     "CrescendoAttackRunner",
@@ -91,6 +118,7 @@ __all__ = [
     "FastGrayscaleScorer",
     "KeywordDensityScorer",
     "RefusalPatternScorer",
+    "LLMJudgeScorer",
     "GrayscaleLevel",
     "HybridScoreResult",
     "is_likely_refusal",
