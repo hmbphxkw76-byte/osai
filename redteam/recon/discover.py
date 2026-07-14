@@ -14,7 +14,7 @@ import json
 import random
 import re
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 from pathlib import Path
@@ -23,6 +23,9 @@ from redteam.core.http_client import send_get, send_post
 from redteam.core.models import (
     AIProtocol, AIStackLayer, AIService, AuthContext,
 )
+
+if TYPE_CHECKING:
+    from redteam.core.rate_limiter import RateLimitGovernor
 
 _DEFAULT_WORDLIST_DIR = Path("config/wordlists")
 
@@ -287,11 +290,22 @@ def probe_ai_endpoint(
     keywords: list[str],
     auth: AuthContext | None = None,
     timeout: float = 5.0,
+    governor: "RateLimitGovernor | None" = None,
 ) -> dict[str, Any] | None:
-    """探测单个 AI 端点路径。"""
+    """探测单个 AI 端点路径。
+
+    Args:
+        base_url: 基础 URL
+        path: 探测路径
+        expected_protocol: 预期协议
+        keywords: 匹配关键词列表
+        auth: 认证上下文
+        timeout: 超时时间
+        governor: 自适应速率调速器（可选，控制请求速率）
+    """
     url = urljoin(base_url, path)
     try:
-        resp = send_get(url, auth=auth, timeout=timeout)
+        resp = send_get(url, auth=auth, timeout=timeout, governor=governor)
         if resp is None:
             return None
 
@@ -402,6 +416,8 @@ def _estimate_recon_time(
     timeout: float = 5.0,
     rate_limit_ms: int = 1000,
     stealth: bool = True,
+    governor: "RateLimitGovernor | None" = None,
+    target_url: str = "",
 ) -> float:
     """估算侦察阶段所需时间。
 
@@ -411,10 +427,20 @@ def _estimate_recon_time(
         timeout: 超时时间
         rate_limit_ms: 请求间隔
         stealth: 是否启用无痕模式
+        governor: 自适应调速器（优先使用其安全速率）
+        target_url: 目标 URL（用于查询调速器）
 
     Returns:
         预估时间（秒）
     """
+    # 优先使用调速器的安全速率
+    if governor and target_url:
+        safe_rpm, has_limit = governor.get_safe_rate(target_url)
+        if safe_rpm > 0:
+            batch_time = (concurrency / safe_rpm) * 60
+            batches = (probe_count + concurrency - 1) // concurrency
+            return batches * batch_time * 1.2  # 20% 余量
+
     base_delay = rate_limit_ms / 1000.0 if rate_limit_ms else 0
     if stealth and base_delay == 0:
         base_delay = 1.0
@@ -434,17 +460,21 @@ def discover_ai_services(
     rate_limit_ms: int = 1000,
     enable_fingerprint: bool = True,
     stealth: bool = True,
+    governor: "RateLimitGovernor | None" = None,
 ) -> list[AIService]:
     """主动 AI 攻击面发现：依次探测已知 AI 端点路径（无痕静默模式）。
+
+    v2.2: 集成 RateLimitGovernor 自适应调速，请求前自动等待安全间隔。
 
     Args:
         target: 目标 URL
         auth: 认证上下文
         concurrency: 并发探测数（默认3，降低被检测风险）
         timeout: 超时时间
-        rate_limit_ms: 请求间隔（默认1000ms，模拟人类操作）
+        rate_limit_ms: 请求间隔（默认1000ms，governor 优先）
         enable_fingerprint: 是否启用模型指纹探测
         stealth: 是否启用无痕模式（浏览器伪装、随机延迟）
+        governor: 自适应速率调速器（可选，优先于 rate_limit_ms）
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -453,18 +483,29 @@ def discover_ai_services(
 
     services: list[AIService] = []
     seen_urls: set[str] = set()
-    delay = rate_limit_ms / 1000.0 if rate_limit_ms else 0
-    if stealth and delay == 0:
-        delay = random.uniform(0.5, 2.0)
 
     probes = _build_probe_list()
-    estimated_time = _estimate_recon_time(len(probes), concurrency, timeout, rate_limit_ms, stealth)
-    print(f"[info] 预估侦察时间: {estimated_time:.1f} 秒 ({estimated_time/60:.1f} 分钟)")
+
+    # 估算时间（调速器优先）
+    estimated_time = _estimate_recon_time(
+        len(probes), concurrency, timeout, rate_limit_ms, stealth,
+        governor=governor, target_url=target,
+    )
+    print(f"[info] 端点探测数: {len(probes)}, 预估时间: {estimated_time:.1f} 秒 ({estimated_time/60:.1f} 分钟)")
+
+    # ━━━ 调速器模式：延迟由 governor 在 send_get 中自动处理 ━━━
+    # 如果 governor 可用，探针内不再使用手动 time.sleep
+    use_governor = governor is not None
+
+    # 手动延迟仅在没有 governor 时使用
+    delay = rate_limit_ms / 1000.0 if rate_limit_ms and not use_governor else 0
+    if stealth and delay == 0 and not use_governor:
+        delay = random.uniform(0.5, 2.0)
 
     try:
-        if delay:
+        if delay and not use_governor:
             time.sleep(delay)
-        resp = send_get(target, auth=auth, timeout=timeout)
+        resp = send_get(target, auth=auth, timeout=timeout, governor=governor)
         if resp:
             _classify_root_response(resp, target, services)
     except Exception:
@@ -474,7 +515,7 @@ def discover_ai_services(
         batch = probes[batch_start:batch_start + concurrency]
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             futures = {
-                executor.submit(probe_ai_endpoint, target, path, proto, keywords, auth, timeout): (path, proto)
+                executor.submit(probe_ai_endpoint, target, path, proto, keywords, auth, timeout, governor): (path, proto)
                 for path, proto, keywords in batch
             }
             for f in as_completed(futures):
@@ -517,7 +558,8 @@ def discover_ai_services(
 
                 services.append(svc)
 
-        if delay and batch_start + concurrency < len(probes):
+        # 仅在无 governor 时手动延迟
+        if not use_governor and delay and batch_start + concurrency < len(probes):
             time.sleep(delay)
 
     deduped: dict[str, AIService] = {}

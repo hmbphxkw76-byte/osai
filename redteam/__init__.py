@@ -33,7 +33,6 @@ from .pipeline import AIPipeline
 from .scenario import (
     ScenarioLoader,
     ScenarioOrchestrator,
-    ScenarioReporter,
     PyRITMultiTurnOrchestrator,
     PyRITScoringOrchestrator,
     AttackTargetType,
@@ -45,7 +44,6 @@ __all__ = [
     "AIPipeline",
     "ScenarioLoader",
     "ScenarioOrchestrator",
-    "ScenarioReporter",
     "PyRITMultiTurnOrchestrator",
     "PyRITScoringOrchestrator",
     "AttackTargetType",

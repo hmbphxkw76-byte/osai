@@ -7,15 +7,21 @@
   - 支持自定义认证上下文（Bearer/Cookie/Basic Auth）
   - 无需外部依赖时自动降级到标准库
   - 无痕静默模式：浏览器伪装、随机延迟、TLS 指纹伪装
+  - 自适应速率调速：RateLimitGovernor 集成，避免触发目标限速
+
+对齐 OWASP LLM Top 10: LLM10 (Unbounded Consumption)
 """
 from __future__ import annotations
 
 import json
 import random
 import time
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from redteam.core.models import AuthContext
+
+if TYPE_CHECKING:
+    from redteam.core.rate_limiter import RateLimitGovernor
 
 _BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -55,6 +61,7 @@ def send_post(
     timeout: float = 8.0,
     verify_ssl: bool = False,
     stealth: bool = True,
+    governor: Optional["RateLimitGovernor"] = None,
 ) -> dict[str, Any] | None:
     """发送 POST 请求。
 
@@ -65,28 +72,34 @@ def send_post(
         timeout: 超时时间（秒）
         verify_ssl: 是否验证 SSL 证书
         stealth: 是否启用无痕静默模式（浏览器伪装 + 随机延迟）
+        governor: 自适应速率调速器（可选）
 
     Returns:
         响应字典：{"status": int, "body": str, "headers": dict, "is_json": bool}
         失败返回 None
     """
+    # 请求前调速
+    if governor:
+        governor.govern_and_wait(url)
+
     headers = dict(_BROWSER_HEADERS) if stealth else {}
     headers["Content-Type"] = "application/json"
     if auth:
         headers.update(auth.to_header_dict())
 
+    resp = None
     try:
         if _HTTP_LIB == "httpx":
             with httpx.Client(timeout=timeout, verify=verify_ssl) as client:
                 resp = client.post(url, json=data, headers=headers)
-                return _parse_response(resp)
+                result = _parse_response(resp)
 
         elif _HTTP_LIB == "requests":
             resp = requests.post(
                 url, json=data, headers=headers,
                 timeout=timeout, verify=verify_ssl
             )
-            return _parse_response(resp)
+            result = _parse_response(resp)
 
         else:
             data_bytes = json.dumps(data).encode("utf-8")
@@ -95,7 +108,7 @@ def send_post(
             )
             with __import__("urllib.request").request.urlopen(req, timeout=timeout) as resp:
                 body = resp.read().decode("utf-8")
-                return {
+                result = {
                     "status": resp.status,
                     "body": body,
                     "headers": dict(resp.headers),
@@ -103,7 +116,13 @@ def send_post(
                 }
 
     except Exception:
-        return None
+        result = None
+
+    # 响应后反馈
+    if governor and result:
+        governor.report(url, result["status"], result.get("headers"))
+
+    return result
 
 
 def send_get(
@@ -112,6 +131,7 @@ def send_get(
     timeout: float = 5.0,
     verify_ssl: bool = False,
     stealth: bool = True,
+    governor: Optional["RateLimitGovernor"] = None,
 ) -> dict[str, Any] | None:
     """发送 GET 请求。
 
@@ -121,30 +141,36 @@ def send_get(
         timeout: 超时时间（秒）
         verify_ssl: 是否验证 SSL 证书
         stealth: 是否启用无痕静默模式（浏览器伪装 + 随机延迟）
+        governor: 自适应速率调速器（可选）
 
     Returns:
         响应字典：{"status": int, "body": str, "headers": dict, "is_json": bool}
         失败返回 None
     """
+    # 请求前调速
+    if governor:
+        governor.govern_and_wait(url)
+
     headers = dict(_BROWSER_HEADERS) if stealth else {}
     if auth:
         headers.update(auth.to_header_dict())
 
+    result = None
     try:
         if _HTTP_LIB == "httpx":
             with httpx.Client(timeout=timeout, verify=verify_ssl) as client:
                 resp = client.get(url, headers=headers)
-                return _parse_response(resp)
+                result = _parse_response(resp)
 
         elif _HTTP_LIB == "requests":
             resp = requests.get(url, headers=headers, timeout=timeout, verify=verify_ssl)
-            return _parse_response(resp)
+            result = _parse_response(resp)
 
         else:
             req = __import__("urllib.request").request.Request(url, headers=headers)
             with __import__("urllib.request").request.urlopen(req, timeout=timeout) as resp:
                 body = resp.read().decode("utf-8")
-                return {
+                result = {
                     "status": resp.status,
                     "body": body,
                     "headers": dict(resp.headers),
@@ -152,7 +178,13 @@ def send_get(
                 }
 
     except Exception:
-        return None
+        result = None
+
+    # 响应后反馈
+    if governor and result:
+        governor.report(url, result["status"], result.get("headers"))
+
+    return result
 
 
 def send_chat(
@@ -160,6 +192,7 @@ def send_chat(
     content: str,
     auth: Optional[AuthContext] = None,
     timeout: float = 8.0,
+    governor: Optional["RateLimitGovernor"] = None,
 ) -> dict[str, Any] | None:
     """发送 OpenAI 格式的聊天请求。
 
@@ -168,6 +201,7 @@ def send_chat(
         content: 用户消息内容
         auth: 认证上下文
         timeout: 超时时间（秒）
+        governor: 自适应速率调速器（可选）
 
     Returns:
         响应字典，包含 status, body, headers, is_json
@@ -178,6 +212,7 @@ def send_chat(
         auth=auth,
         timeout=timeout,
         verify_ssl=False,
+        governor=governor,
     )
 
 

@@ -50,13 +50,13 @@ class AttackStrategy(str, Enum):
 
 
 STRATEGY_CONVERTER_MAP: dict[AttackStrategy, str] = {
-    AttackStrategy.BASE64: "Base64Converter",
-    AttackStrategy.ROT13: "ROT13Converter",
-    AttackStrategy.ROLEPLAY: "RoleplayJailbreakConverter",
-    AttackStrategy.STEALTH: "AcademicResearchConverter",
-    AttackStrategy.BRUTEFORCE: "ContextualPrimingConverter",
-    AttackStrategy.TRANSLATION: "TranslationBypassConverter",
-    AttackStrategy.ENCODING: "Base64Converter",
+    AttackStrategy.BASE64: "base64",
+    AttackStrategy.ROT13: "rot13",
+    AttackStrategy.ROLEPLAY: "roleplay",
+    AttackStrategy.STEALTH: "academic",
+    AttackStrategy.BRUTEFORCE: "roleplay",
+    AttackStrategy.TRANSLATION: "translation",
+    AttackStrategy.ENCODING: "base64",
 }
 
 

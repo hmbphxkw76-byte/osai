@@ -6,11 +6,10 @@ AI-300 红队攻击流水线的 CLI 界面。
   - redteam run: 非交互式运行
   - redteam recon: 仅侦察
   - redteam inject: 仅提示注入
-  - redteam report: 重新生成报告
   - redteam scenario: 场景驱动攻击（模板驱动，考试期间仅需修改载荷）
 
-对齐 OffSec AI-300 9 阶段攻击链：
-  recon → injection → agent → multi_agent → rag → embeddings → supply_chain → infra → report
+对齐 OffSec AI-300 8 阶段攻击链（报告通过增量 ReportWriter 自动生成至 reports/）：
+  recon → injection → agent → multi_agent → rag → embeddings → supply_chain → infra
 
 场景驱动模式（推荐用于考试）：
   1. 修改 config/scenarios/agent.yaml 中的载荷内容
@@ -33,14 +32,30 @@ from rich.panel import Panel
 from .pipeline import AIPipeline
 from .recon.auth_parse import parse_headers, parse_headers_file
 from .core.models import AIProtocol
+from .core.terminal_output import (
+    print_phase_banner,
+    print_recon_briefing,
+    print_attack_strategy_recommendations,
+    print_target_confirmation_prompt,
+    print_pyrit_guidance,
+    print_target_list,
+    print_result_bar,
+    print_findings_display,
+    print_global_findings_summary,
+)
 from .attack.frontier.adapter import FrontierAdapter
 from .attack.frontier.registry import get_registry
-from .attack.core.runner import NativeAttackRunner
+from .attack.core.runner import (
+    NativeAttackRunner,
+    probe_scorer_availability,
+    ScorerProbeResult,
+    is_no_judge_llm,
+)
 from .attack.core.pipeline_orchestrator import PipelineOrchestrator
+from .attack.pyrit_runner import is_pyrit_available as _pyrit_check
 from .scenario import (
     ScenarioLoader,
     ScenarioOrchestrator,
-    ScenarioReporter,
     AttackTargetType,
     ScorerType,
 )
@@ -54,6 +69,339 @@ console = Console()
 @app.callback()
 def callback() -> None:
     """RedTeam_AI CLI"""
+
+
+def _print_wizard_phase_result(
+    console: Console, phase_name: str, findings: list,
+    phase_num: int = 0,
+) -> None:
+    """打印向导模式各阶段的结果摘要 — 统一 Findings Summary + Attack Path Details + Findings Details。
+
+    Args:
+        console: Rich Console 实例
+        phase_name: 阶段名称
+        findings: Finding 列表
+        phase_num: 阶段编号
+    """
+    total = len(findings)
+    if total == 0:
+        console.print(f"[dim]  → 未发现漏洞[/]")
+        return
+
+    # 统计严重等级（Rich 风格头部）
+    sev: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for f in findings:
+        s = f.severity if hasattr(f, "severity") else "info"
+        if hasattr(s, "value"):
+            s = s.value
+        sev[str(s).lower()] = sev.get(str(s).lower(), 0) + 1
+
+    is_success = sev["critical"] + sev["high"]
+    console.print(f"\n  [green]✓[/] {phase_name}完成 — 共 {total} 个漏洞")
+    if is_success > 0:
+        console.print(f"  [bold yellow]  ⚠️[/] 高危/严重: {is_success} 个")
+
+    # 使用统一的三段式 Findings 展示
+    print_findings_display(
+        findings,
+        phase_name=phase_name,
+        phase_num=phase_num,
+    )
+
+
+def _prompt_target_model(
+    console: Console, targets: list,
+) -> str:
+    """让用户选择要攻击的目标模型。
+
+    从侦察到的所有服务中收集模型名称，列出供用户选择。
+    支持按编号选择或输入自定义模型名称。
+
+    Args:
+        console: Rich Console 实例
+        targets: 确认攻击的 AIService 列表
+
+    Returns:
+        用户选择的目标模型名称
+    """
+    # 收集所有模型名并去重
+    all_models: list[str] = []
+    seen: set[str] = set()
+    for t in targets:
+        for m in getattr(t, "models", []) or []:
+            if m not in seen:
+                all_models.append(m)
+                seen.add(m)
+
+    if not all_models:
+        console.print("\n  [yellow]⚠ 侦察阶段未识别到模型名称（服务标记中模型字段为空）[/]")
+        console.print("  [dim]这可能是[未识别]标签的来源 — 目标 Endpoint 未返回模型列表或探测未覆盖[/]")
+        console.print("  [dim]提示：留空跳过仍可攻击，但某些载荷可能缺少针对性适配[/]")
+        return typer.prompt("  目标模型名称（回车跳过）", default="").strip()
+
+    console.print(f"\n  [bold]侦察到的模型[/] ({len(all_models)} 个)")
+    for i, m in enumerate(all_models, 1):
+        console.print(f"    [{i}] {m}")
+    console.print(f"    [0] 跳过（不指定模型名称，攻击将使用服务默认模型）")
+    console.print(f"    [c] 自定义输入")
+
+    choice = typer.prompt("  请选择要攻击的目标模型（编号或直接输入名称，回车=全部使用[1]）", default="1").strip()
+
+    # 跳过模型指定
+    if choice == "0":
+        console.print("  [dim]→ 跳过模型指定，后续攻击将使用各服务的默认模型[/]")
+        return ""
+
+    # 尝试按编号选择
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(all_models):
+            selected = all_models[idx]
+            console.print(f"  [green]  → 目标模型: {selected}[/]")
+            return selected
+    except ValueError:
+        pass
+
+    # 如果不是合法数字，当作模型名称直接使用
+    if choice.lower() == "c" or not choice:
+        choice = typer.prompt("  输入目标模型名称", default="").strip()
+
+    if choice:
+        console.print(f"  [green]  → 目标模型: {choice}[/]")
+    else:
+        console.print("  [yellow]  → 未指定模型，将自动推断[/]")
+    return choice
+
+
+def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
+    """交互式选择 LLM Judge 平台并收集连接参数。
+
+    支持平台：OpenAI 兼容 / 智谱 AI / Ollama 本地 / 自定义端点。
+    返回 (judge_endpoint, judge_api_key, judge_model_name)。
+    """
+    console.print("\n  [bold]LLM Judge 平台选择[/]")
+    console.print("    [a] OpenAI 兼容 API（默认）")
+    console.print("    [b] 智谱 AI (GLM) — https://open.bigmodel.cn/api/paas/v4")
+    console.print("    [c] Ollama 本地模型 — http://localhost:11434/v1")
+    console.print("    [d] 自定义端点")
+    platform = typer.prompt("  请选择 Judge 平台", default="a").strip().lower()
+
+    if platform == "b":
+        # 智谱 AI
+        console.print("  [dim]智谱 AI API: https://open.bigmodel.cn/api/paas/v4/chat/completions[/]")
+        endpoint = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        api_key = typer.prompt("  智谱 AI API Key（必填）", default="")
+        model = typer.prompt("  模型名称", default="glm-4-flash")
+        if not api_key.strip():
+            console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
+            return None, "not-needed", ""
+        console.print(f"  [dim]  → 端点: {endpoint}[/]")
+        console.print(f"  [dim]  → 模型: {model}[/]")
+        return endpoint, api_key.strip(), model
+
+    elif platform == "c":
+        # Ollama 本地
+        endpoint = typer.prompt(
+            "  Ollama 端点 URL",
+            default="http://localhost:11434/v1/chat/completions",
+        )
+        model = typer.prompt("  模型名称", default="qwen2.5:7b")
+        console.print("  [dim]Ollama 无需 API Key[/]")
+        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
+        return endpoint, "ollama", model
+
+    elif platform == "d":
+        # 自定义
+        endpoint = typer.prompt(
+            "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
+            default="https://api.openai.com/v1/chat/completions",
+        )
+        api_key = typer.prompt("  Judge LLM API Key（可留空）", default="")
+        model = typer.prompt("  模型名称", default="gpt-4o")
+        if not api_key.strip():
+            console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
+            return None, "not-needed", ""
+        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
+        return endpoint, api_key.strip(), model
+
+    else:
+        # 默认：OpenAI 兼容 API
+        endpoint = typer.prompt(
+            "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
+            default="https://api.openai.com/v1/chat/completions",
+        )
+        api_key = typer.prompt("  Judge LLM API Key（必填）", default="")
+        model = typer.prompt("  模型名称", default="gpt-4o")
+        if not api_key.strip():
+            console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
+            return None, "not-needed", ""
+        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
+        return endpoint, api_key.strip(), model
+
+
+def _print_probe_result(console: Console, result: ScorerProbeResult) -> None:
+    """打印评分器探测结果摘要。
+
+    Args:
+        console: Rich Console 实例
+        result: 探测结果
+    """
+    console.print(f"\n  [bold]评分器可用性探测结果[/]")
+    for line in result.details:
+        # 推荐行高亮
+        if line.startswith("\n  推荐"):
+            console.print(f"  [bold green]{line.strip()}[/]")
+        elif line.startswith("Layer") and "跳过" in line:
+            console.print(f"  [dim]{line}[/]")
+        elif "✓" in line:
+            console.print(f"  [green]{line}[/]")
+        elif "✗" in line:
+            console.print(f"  [red]{line}[/]")
+        else:
+            console.print(f"  [dim]{line}[/]")
+
+    # 结果摘要卡片
+    tier_icons = {"judge_llm": "🧠", "composite": "🔍", "hybrid": "🛡️"}
+    tier_names = {"judge_llm": "LLM-as-Judge (Layer 1)", "composite": "PyRIT Composite (Layer 2)", "hybrid": "HybridScorer (Layer 3)"}
+    icon = tier_icons.get(result.recommended_tier, "📊")
+    name = tier_names.get(result.recommended_tier, result.recommended_tier)
+    console.print(f"  [bold cyan]{icon} 推荐: {name}[/]")
+
+
+def _prompt_multi_turn_with_guidance(
+    console: Console,
+    confirmed_targets: list,
+    recommendations: dict,
+) -> bool:
+    """AI 红队专家视角的多轮升级攻击建议。
+
+    基于目标协议族、护栏状态和策略成功率进行分析：
+    - 需要多轮时：展示完整专家指导，推荐启用 [Y/n]
+    - 不需要多轮时：展示简要分析结论，让用户明确确认采用单轮模式 [y/N]
+
+    Args:
+        console: Rich Console 实例
+        confirmed_targets: 确认的攻击目标列表
+        recommendations: 攻击策略推荐结果 {url: [strategy_dict, ...]}
+
+    Returns:
+        True 表示启用多轮攻击，False 表示单轮攻击
+    """
+    total = len(confirmed_targets)
+
+    # ── 逐目标分析 ──
+    targets_need_multi_turn: list[str] = []
+    reasons_need: list[str] = []
+    targets_single_ok: list[str] = []
+    reasons_single: list[str] = []
+
+    for svc in confirmed_targets:
+        protocol = getattr(svc, 'protocol', '').lower()
+        url = getattr(svc, 'url', '')
+        auth_req = getattr(svc, 'auth_required', False)
+        svc_recs = recommendations.get(url, [])
+
+        # 获取该目标的最高成功率策略
+        top_rate = svc_recs[0]['success_rate'] if svc_recs else 0.5
+        top_strategy = svc_recs[0]['name'] if svc_recs else 'unknown'
+
+        if 'ollama' in protocol and not auth_req and top_rate >= 0.80:
+            targets_single_ok.append(url)
+            reasons_single.append(
+                f"Ollama 本地模型（无认证 + 无护栏），{top_strategy}策略预估 "
+                f"{int(top_rate*100)}% 成功率，单轮即可突破"
+            )
+        elif 'ollama' in protocol and top_rate < 0.70:
+            targets_need_multi_turn.append(url)
+            reasons_need.append(
+                f"Ollama 本地模型但 Tier 1 策略成功率仅 {int(top_rate*100)}%，"
+                f"多轮渐进式攻击可逐步突破模型的行为边界"
+            )
+        elif 'openai' in protocol:
+            targets_need_multi_turn.append(url)
+            reasons_need.append(
+                f"OpenAI 兼容 API 通常部署内容审核层（Moderation API），"
+                f"单轮高信号攻击易被拦截，Crescendo 渐进式绕过效果更佳"
+            )
+        elif 'mcp' in protocol:
+            targets_need_multi_turn.append(url)
+            reasons_need.append(
+                f"MCP 工具服务器，工具劫持通常需要多轮对话建立信任上下文"
+            )
+        elif auth_req:
+            targets_need_multi_turn.append(url)
+            reasons_need.append(
+                f"需认证端点，认证后可能有更强的监控/审核，多轮低信号攻击可规避检测"
+            )
+        elif top_rate < 0.60:
+            targets_need_multi_turn.append(url)
+            reasons_need.append(
+                f"通用 AI 端点，Tier 1 策略成功率仅 {int(top_rate*100)}%，"
+                f"建议启用多轮攻击提高突破概率"
+            )
+        else:
+            targets_single_ok.append(url)
+            reasons_single.append(
+                f"通用 AI 端点，Tier 1 策略成功率 {int(top_rate*100)}%，单轮足够"
+            )
+
+    need_count = len(targets_need_multi_turn)
+
+    # ── 情况 1：需要多轮攻击 → 展示完整专家指导，推荐启用 ──
+    if need_count > 0:
+        console.print(f"\n{'─' * 72}")
+        console.print(f"  [MULTI-TURN ADVISOR]  多轮升级攻击专家建议")
+        console.print(f"{'─' * 72}")
+
+        console.print(f"\n  [bold cyan]检测到 {need_count}/{total} 个目标需要多轮攻击来提高攻击效果：[/]")
+        for url in targets_need_multi_turn:
+            console.print(f"    ✓ {url}")
+        console.print()
+        for reason in reasons_need:
+            console.print(f"    └─ {reason}")
+
+        if targets_single_ok:
+            console.print(f"\n  [dim]其余 {len(targets_single_ok)} 个目标单轮即可（不再赘述）[/]")
+
+        console.print(f"\n  [bold]多轮升级攻击技术说明：[/]")
+        console.print(f"    • [cyan]Crescendo[/] — 逐步升级对话，从无害话题渐变到敏感目标")
+        console.print(f"    • [cyan]TAP[/] — 自动生成攻击树并剪枝优化，探索多条攻击路径")
+        console.print(f"    • 核心优势：低信号渐进式绕过，对部署了内容审核/护栏的目标效果显著")
+        console.print(f"    • 代价说明：耗时 ~5-10x 单轮，Token 消耗更大")
+
+        est_single = total * 6
+        est_multi = need_count * 40 + (total - need_count) * 6
+        console.print(f"\n  [dim]预估耗时：[/]")
+        console.print(f"  [dim]  仅单轮：~{est_single} 次请求（约 {est_single//30 + 1} 分钟 @30 RPM）[/]")
+        console.print(f"  [dim]  启用多轮：~{est_multi} 次请求（约 {est_multi//30 + 1} 分钟 @30 RPM）[/]")
+
+        console.print(f"\n  [bold cyan]AI 红队专家建议：[/]对以上 {need_count} 个目标启用多轮升级攻击，")
+        console.print(f"  以渐进式低信号方式绕过护栏/审核层，最大化攻击成功率。")
+
+        return typer.confirm(
+            f"\n  启用多轮升级攻击？（Crescendo + TAP）[Y/n]",
+            default=True,
+        )
+
+    # ── 情况 2：所有目标单轮足够 → 简要说明，用户明确确认采用单轮 ──
+    console.print(f"\n{'─' * 72}")
+    console.print(f"  [MULTI-TURN ADVISOR]  多轮升级攻击分析")
+    console.print(f"{'─' * 72}")
+
+    console.print(f"\n  [bold green]✓ 所有 {total} 个目标单轮攻击预计足够，无需多轮升级。[/]")
+    for url in targets_single_ok:
+        console.print(f"    • {url}")
+    console.print()
+    for reason in reasons_single:
+        console.print(f"      └─ {reason}")
+
+    console.print(f"\n  [dim]原因：目标为本地模型/无护栏/Tier 1 策略成功率充分，[/]")
+    console.print(f"  [dim]  多轮攻击在此场景下不会显著提升效果，反而增加 ~5-10x 耗时。[/]")
+
+    return typer.confirm(
+        f"\n  确认采用单轮攻击模式？（Crescendo + TAP 多轮升级攻击）[y/N]",
+        default=False,
+    )
 
 
 @app.command()
@@ -93,7 +441,7 @@ def wizard(
 
     pipe = AIPipeline()
 
-    # 预解析认证（供后续所有阶段使用，同时 recon_phase 内部也会 re-parse 并打印详情）
+    # 预解析认证（供后续所有阶段使用）
     auth = None
     if api_key and isinstance(api_key, str):
         from .core.models import AuthContext
@@ -104,8 +452,8 @@ def wizard(
         auth = parse_headers(header_text)
 
     console.print("\n[cyan]🔍 连接测试[/]")
-    from .recon.auth_validator import validate_and_report
-    can_proceed, requires_auth = validate_and_report(target, auth, "wizard")
+    from .recon.auth_validator import validate_and_report, ConnectivityResult
+    can_proceed, requires_auth, connectivity = validate_and_report(target, auth, "wizard")
     
     if not can_proceed:
         if requires_auth:
@@ -121,84 +469,347 @@ def wizard(
             console.print("[red]请先修复网络连接问题后再重新运行[/]")
             raise typer.Exit(1)
 
-    with console.status("[cyan]Phase 1: AI 攻击面侦察...[/]"):
-        run_id, recon, services = pipe.recon_phase(
-            target,
-            header_text=header_text or None,
-            header_file=header_file or None,
-        )
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 1: 侦察 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(1, "AI 攻击面侦察", target=target, status="active")
+    
+    run_id, recon, services, governor = pipe.recon_phase(
+        target,
+        header_text=header_text or None,
+        header_file=header_file or None,
+        connectivity=connectivity,
+    )
 
-    # 展示侦察结果
-    table = Table(title="发现的 AI 服务")
-    table.add_column("协议", style="cyan")
-    table.add_column("URL", style="white")
-    table.add_column("模型", style="green")
-    table.add_column("认证", style="yellow")
-    table.add_column("说明", style="dim")
-    for svc in services:
-        protocol_display = svc.protocol.upper()
-        url_display = svc.url
-        models_display = ", ".join(svc.models[:3]) if svc.models else "-"
-        auth_display = "需要" if svc.auth_required else "不需要"
-        
-        note = ""
-        if svc.protocol == AIProtocol.OLLAMA.value:
-            note = "Ollama 原生"
-        elif svc.protocol == AIProtocol.OPENAI_COMPATIBLE.value and "ollama" in svc.url.lower():
-            note = "Ollama OpenAI 兼容"
-        elif svc.protocol == AIProtocol.ANTHROPIC.value and "ollama" in svc.url.lower():
-            note = "Ollama Anthropic 兼容"
-        elif svc.protocol == AIProtocol.GENERIC_AI.value:
-            note = "通用 AI 端点"
-        
-        table.add_row(
-            protocol_display,
-            url_display,
-            models_display,
-            auth_display,
-            note,
-        )
-    console.print(table)
-
-    if not services:
+    # 展示侦察结果表格
+    if services:
+        table = Table(title="发现的 AI 服务", show_lines=False, expand=True)
+        table.add_column("协议", style="cyan", no_wrap=True)
+        table.add_column("URL", style="white", no_wrap=True, overflow="fold")
+        table.add_column("模型", style="green")
+        table.add_column("认证", style="yellow", no_wrap=True)
+        table.add_column("说明", style="dim", no_wrap=True)
+        for svc in services:
+            protocol_display = svc.protocol.upper()
+            url_display = svc.url
+            models_display = ", ".join(svc.models[:3]) if svc.models else "-"
+            auth_display = "需要" if svc.auth_required else "不需要"
+            
+            note = ""
+            if svc.protocol == AIProtocol.OLLAMA.value:
+                note = "Ollama 原生"
+            elif svc.protocol == AIProtocol.OPENAI_COMPATIBLE.value and "ollama" in svc.url.lower():
+                note = "Ollama OpenAI 兼容"
+            elif svc.protocol == AIProtocol.ANTHROPIC.value and "ollama" in svc.url.lower():
+                note = "Ollama Anthropic 兼容"
+            elif svc.protocol == AIProtocol.GENERIC_AI.value:
+                note = "通用 AI 端点"
+            elif svc.protocol == AIProtocol.MCP.value:
+                note = "MCP 工具服务器"
+            
+            table.add_row(
+                protocol_display,
+                url_display,
+                models_display,
+                auth_display,
+                note,
+            )
+        console.print(table)
+    else:
         console.print("[yellow]未发现 AI 服务，尝试推进后续阶段（可能无效果）[/]")
 
-    with console.status("[cyan]Phase 2: 提示注入攻击...[/]"):
-        inj_findings, chain = pipe.injection_phase(run_id, recon, services, auth)
-    console.print(f"[green]✓[/] 注入阶段完成，发现 {len(inj_findings)} 个漏洞")
+    print_phase_banner(1, "AI 攻击面侦察", target=target, status="complete")
 
-    with console.status("[cyan]Phase 3: Agent 攻击...[/]"):
-        agent_findings = pipe.agent_attack_phase(run_id, services, auth)
-    console.print("[green]✓[/] Agent 攻击完成")
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ 侦察→攻击 决策衔接 ━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # 从侦察结果中筛选可攻击目标
+    attackable = [s for s in services if s.protocol in (
+        "openai_compatible", "ollama", "mcp", "generic_ai",
+    )]
+    
+    if attackable:
+        # 情报简报：侦察结果全景展示
+        print_recon_briefing(recon, attackable)
+        
+        # 攻击策略推荐：基于协议族动态计算成功率
+        recommendations = print_attack_strategy_recommendations(attackable)
+        
+        # 目标确认：让用户选择要攻击的目标
+        print_target_confirmation_prompt(attackable)
+        target_input = typer.prompt(
+            "\n  选择要攻击的目标（逗号分隔，回车=全部）",
+            default="",
+            show_default=False,
+        )
+        
+        if target_input.strip():
+            try:
+                selected_indices = [int(x.strip()) for x in target_input.split(",") if x.strip()]
+                confirmed_targets = [attackable[i-1] for i in selected_indices if 1 <= i <= len(attackable)]
+                if not confirmed_targets:
+                    console.print("[yellow]无效选择，将攻击全部可用目标[/]")
+                    confirmed_targets = attackable
+            except (ValueError, IndexError):
+                console.print("[yellow]格式错误，将攻击全部可用目标[/]")
+                confirmed_targets = attackable
+        else:
+            confirmed_targets = attackable
+        
+        console.print(f"\n  [green]✓[/] 确认攻击目标: {len(confirmed_targets)}/{len(attackable)} 个服务")
+        for t in confirmed_targets:
+            model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
+            console.print(f"    • [{t.protocol.upper()}] {t.url}{model_hint}")
 
-    with console.status("[cyan]Phase 4: 多 Agent/A2A 攻击...[/]"):
-        ma_findings = pipe.multi_agent_phase(run_id, services, auth)
-    console.print("[green]✓[/] 多 Agent/A2A 攻击完成")
+        # ── 目标模型选择 ──
+        target_model_name = _prompt_target_model(console, confirmed_targets)
+    else:
+        confirmed_targets = []
+        target_model_name = ""
 
-    with console.status("[cyan]Phase 5: RAG 攻击...[/]"):
-        rag_findings = pipe.rag_attack_phase(run_id, services, auth)
-    console.print("[green]✓[/] RAG 攻击完成")
+    # Phase 2 配置询问（PyRIT 自动化编排 → 评分器探查 → 多轮攻击专家指导）
+    if confirmed_targets:
+        console.print(f"\n{'─' * 72}")
+        console.print(f"  [Phase 2 Configuration]  提示注入攻击参数设置")
+        console.print(f"{'─' * 72}")
 
-    with console.status("[cyan]Phase 6: 嵌入模型攻击...[/]"):
-        emb_findings = pipe.embeddings_attack_phase(run_id, services, auth)
-    console.print("[green]✓[/] 嵌入攻击完成")
+        judge_endpoint: Optional[str] = None
+        judge_api_key: str = "not-needed"
+        judge_model_name: str = ""
+        _probe_result: Optional[ScorerProbeResult] = None
 
-    with console.status("[cyan]Phase 7: AI 供应链攻击...[/]"):
-        sc_findings = pipe.supply_chain_phase(run_id, services, auth)
-    console.print("[green]✓[/] 供应链攻击完成")
+        # ── PyRIT 自动化攻击编排 ──
+        pyrit_available = _pyrit_check()
+        if pyrit_available:
+            console.print(f"\n  [bold]PyRIT 自动化攻击编排[/]")
+            console.print(f"    PyRIT 是微软开源的 AI 红队框架，提供编码绕过 + 转换器链 + ")
+            console.print(f"    PromptSendingOrchestrator 批量攻击编排能力。")
+            console.print(f"    推荐启用（默认回车即可）。")
 
-    with console.status("[cyan]Phase 8: MCP + 基础设施攻击...[/]"):
-        infra_findings = pipe.infra_attack_phase(run_id, recon, services)
-    console.print("[green]✓[/] 基础设施攻击完成")
+            use_pyrit = typer.confirm(
+                "  启用 PyRIT 自动化攻击编排？[Y/n]",
+                default=True,
+            )
+            if use_pyrit:
+                # ── 评分策略选择 ──
+                console.print(f"\n  [bold]评分策略选择[/]")
+                console.print(f"    评分器用于自动判断攻击是否成功（系统提示是否泄露/越狱是否生效）。")
+                console.print(f"    系统会在攻击前自动探测评分器可用性，按优先级选择：")
+                console.print(f"      Layer 1 → Layer 2 → Layer 3（全自动降级）")
+                console.print(f"    [1] [green]Composite（默认推荐）[/] — PyRIT 原生 12 子评分器组合")
+                console.print(f"        SubString + Regex + MarkdownInjection，零 LLM 依赖，离线可用")
+                console.print(f"    [2] [cyan]LLM-as-Judge[/]（需外部大模型）— SelfAskTrueFalseScorer")
+                console.print(f"        语义理解能力更强，可检出复杂越狱场景，但需额外 API 调用")
+                scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
 
-    with console.status("[cyan]Phase 9: 威胁建模与报告生成...[/]"):
-        report = pipe.report_phase(run_id, recon, infra_findings, chain)
-    console.print("[green]✓[/] 报告已生成")
+                if scorer_choice == "2":
+                    judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)
+                    # 攻击前探查 Judge 端点连通性
+                    if judge_endpoint:
+                        console.print("\n  [bold cyan]⏳ 正在探查 Judge LLM 端点连通性...[/]")
+                        _probe_result = probe_scorer_availability(
+                            judge_endpoint=judge_endpoint,
+                            judge_api_key=judge_api_key,
+                            judge_model=judge_model_name,
+                        )
+                        _print_probe_result(console, _probe_result)
+                        if _probe_result.recommended_tier != "judge_llm":
+                            console.print(
+                                "\n  [yellow]⚠ LLM Judge 端点不可用，自动降级为 Composite 评分器[/]"
+                            )
+                            judge_endpoint = None
+                            judge_api_key = "not-needed"
+                            judge_model_name = ""
+                else:
+                    console.print("  [dim]→ 使用 PyRIT Composite（12 子评分器组合，零 LLM 依赖）[/]")
+        else:
+            console.print("\n  [dim]PyRIT 未安装，回退到 Native 模式（基础单轮注入）[/]")
+            use_pyrit = False
 
-    console.print("\n[bold green]评估完成![/]")
-    console.print(f"  Run ID: {run_id}")
-    console.print(f"  报告: [cyan]reports/{run_id}/AI300_Report.md[/]")
-    console.print(f"  原始数据: reports/{run_id}/")
+        # ── Native 模式评分器选择 ──
+        if not use_pyrit:
+            console.print(f"\n  [bold]评分策略选择[/]")
+            console.print(f"    [1] Composite/HybridScorer（多维度加权投票，零外部依赖，默认推荐）")
+            console.print(f"    [2] LLM-as-Judge（调用外部大模型评分，精度更高）")
+            scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
+
+            if scorer_choice == "2":
+                judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)
+                # Native 模式也尝试探查 Judge 端点
+                if judge_endpoint:
+                    console.print("\n  [bold cyan]⏳ 正在探查 Judge LLM 端点连通性...[/]")
+                    _probe_result = probe_scorer_availability(
+                        judge_endpoint=judge_endpoint,
+                        judge_api_key=judge_api_key,
+                        judge_model=judge_model_name,
+                    )
+                    _print_probe_result(console, _probe_result)
+                    if _probe_result.recommended_tier != "judge_llm":
+                        console.print(
+                            "\n  [yellow]⚠ LLM Judge 端点不可用，自动降级为本地 HybridScorer[/]"
+                        )
+                        judge_endpoint = None
+                        judge_api_key = "not-needed"
+                        judge_model_name = ""
+            else:
+                console.print("  [dim]→ 使用 Composite/HybridScorer（本地规则 + 关键词 + 语义加权投票）[/]")
+
+        # ── 多轮升级攻击（AI 红队专家指导） ──
+        use_multi_turn = _prompt_multi_turn_with_guidance(console, confirmed_targets, recommendations)
+    else:
+        use_pyrit = False
+        use_multi_turn = False
+        judge_endpoint = None
+        judge_api_key = "not-needed"
+        judge_model_name = ""
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 2: 提示注入攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    if confirmed_targets:
+        # PyRIT 自动化指导
+        if use_pyrit:
+            print_pyrit_guidance(confirmed_targets)
+        
+        print_phase_banner(
+            2, "提示注入攻击",
+            target=confirmed_targets[0].url if len(confirmed_targets) == 1 else f"{len(confirmed_targets)} targets",
+            subtitle="Ch3: Prompt Injection + Jailbreak + System Prompt Extraction",
+            status="active",
+        )
+
+        # 使用确认后的目标列表执行攻击
+        inj_findings, chain = pipe.injection_phase(
+            run_id, recon, confirmed_targets, auth,
+            use_pyrit=use_pyrit,
+            with_multi_turn=use_multi_turn,
+            target_model_name=target_model_name,
+            judge_endpoint=judge_endpoint,
+            judge_api_key=judge_api_key,
+            judge_model_name=judge_model_name,
+            governor=governor,
+        )
+        
+        # 展示注入阶段结果摘要
+        _print_wizard_phase_result(console, "提示注入攻击", inj_findings, phase_num=2)
+        print_phase_banner(2, "提示注入攻击", status="complete")
+    else:
+        console.print("\n[yellow]⚠ 无确认目标，跳过 Phase 2[/]")
+        inj_findings = []
+        chain = None
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 3: Agent 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(3, "Agent 攻击",
+                       target=target,
+                       subtitle="Ch3/Ch4: Agent Memory Poison, Goal Hijack, Tool Hijack",
+                       status="active")
+    agent_findings = pipe.agent_attack_phase(run_id, services, auth)
+    _print_wizard_phase_result(console, "Agent 攻击", agent_findings, phase_num=3)
+    print_phase_banner(3, "Agent 攻击", status="complete")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 4: 多 Agent/A2A ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(4, "多 Agent / A2A 协议攻击",
+                       target=target,
+                       subtitle="Ch4: Inter-Agent Trust + Cascading Failure + Rogue Agent",
+                       status="active")
+    ma_findings = pipe.multi_agent_phase(run_id, services, auth)
+    _print_wizard_phase_result(console, "多 Agent/A2A 攻击", ma_findings, phase_num=4)
+    print_phase_banner(4, "多 Agent / A2A 协议攻击", status="complete")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 5: RAG 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(5, "RAG 流水线攻击",
+                       target=target,
+                       subtitle="Ch5: Vector DB + Knowledge Poisoning + Retrieval Leakage",
+                       status="active")
+    rag_findings = pipe.rag_attack_phase(run_id, services, auth)
+    _print_wizard_phase_result(console, "RAG 流水线攻击", rag_findings, phase_num=5)
+    print_phase_banner(5, "RAG 流水线攻击", status="complete")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 6: Embedding 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(6, "嵌入模型攻击",
+                       target=target,
+                       subtitle="Ch6: Embedding Inversion + Membership/Attribute Inference",
+                       status="active")
+    emb_findings = pipe.embeddings_attack_phase(run_id, services, auth)
+    _print_wizard_phase_result(console, "嵌入模型攻击", emb_findings, phase_num=6)
+    print_phase_banner(6, "嵌入模型攻击", status="complete")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 7: 供应链攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(7, "AI 供应链攻击",
+                       target=target,
+                       subtitle="Ch8: HF Model Integrity + Pickle RCE + Dependency Risks",
+                       status="active")
+    sc_findings = pipe.supply_chain_phase(run_id, services, auth)
+    _print_wizard_phase_result(console, "AI 供应链攻击", sc_findings, phase_num=7)
+    print_phase_banner(7, "AI 供应链攻击", status="complete")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 8: 基础设施攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
+    print_phase_banner(8, "MCP + 基础设施攻击",
+                       target=target,
+                       subtitle="Ch7/Ch9: MCP Tool Hijack + K8s Escape + Cloud IAM Escalation",
+                       status="active")
+    infra_findings = pipe.infra_attack_phase(run_id, recon, services)
+    _print_wizard_phase_result(console, "MCP + 基础设施攻击", infra_findings, phase_num=8)
+    print_phase_banner(8, "MCP + 基础设施攻击", status="complete")
+
+    # ━━━━━━━━ 汇总所有 Findings + 增量报告收尾 ━━━━━━━━
+    all_findings = (
+        inj_findings
+        + agent_findings
+        + ma_findings
+        + rag_findings
+        + emb_findings
+        + sc_findings
+        + infra_findings
+    )
+
+    # 增量报告收尾
+    from .pipeline.report_writer import ReportWriter
+    writer = ReportWriter(run_id, target)
+    writer.append_recon(
+        components=list(getattr(recon, "components", [])) if recon else [],
+        models=list(getattr(recon, "models", [])) if recon else [],
+    )
+    for phase_name, phase_num, findings, subtitle in [
+        ("提示注入攻击", 2, inj_findings, "Ch3: Prompt Injection + Jailbreak + System Prompt Extraction"),
+        ("Agent 攻击", 3, agent_findings, "Ch3/Ch4: Agent Memory Poison + Goal Hijack + Tool Hijack"),
+        ("多 Agent/A2A 攻击", 4, ma_findings, "Ch4: Inter-Agent Trust + Cascading Failure + Rogue Agent"),
+        ("RAG 流水线攻击", 5, rag_findings, "Ch5: Vector DB + Knowledge Poisoning + Retrieval Leakage"),
+        ("嵌入模型攻击", 6, emb_findings, "Ch6: Embedding Inversion + Membership/Attribute Inference"),
+        ("AI 供应链攻击", 7, sc_findings, "Ch8: HF Model Integrity + Pickle RCE + Dependency Risks"),
+        ("MCP + 基础设施攻击", 8, infra_findings, "Ch7/Ch9: MCP Tool Hijack + K8s Escape + Cloud IAM Escalation"),
+    ]:
+        if findings:
+            findings_dict = [
+                f.model_dump() if hasattr(f, "model_dump") else f
+                for f in findings
+            ]
+            writer.append_phase(phase_name, phase_num, findings_dict, subtitle)
+
+    report_path = writer.finalize()
+
+    # 全局 Findings 汇总（跨阶段总览）
+    phase_findings_map: dict[str, list] = {
+        "提示注入攻击": inj_findings,
+        "Agent 攻击": agent_findings,
+        "多 Agent/A2A 攻击": ma_findings,
+        "RAG 流水线攻击": rag_findings,
+        "嵌入模型攻击": emb_findings,
+        "AI 供应链攻击": sc_findings,
+        "MCP + 基础设施攻击": infra_findings,
+    }
+    print_global_findings_summary(phase_findings_map)
+
+    total_findings = len(all_findings)
+    sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for f in all_findings:
+        s = f.severity if hasattr(f, 'severity') else "info"
+        if hasattr(s, 'value'):
+            s = s.value
+        sev_counts[str(s).lower()] = sev_counts.get(str(s).lower(), 0) + 1
+    critical_and_high = sev_counts["critical"] + sev_counts["high"]
+
+    console.print("\n[bold green]✓ 评估完成![/]")
+    console.print(f"  Run ID:      {run_id}")
+    console.print(f"  总发现漏洞:  {total_findings}")
+    console.print(f"  高危/严重:   {critical_and_high}")
+    console.print(f"  报告:        [cyan]reports/{run_id}/AI300_Report.md[/]")
+    console.print(f"  原始数据:    reports/{run_id}/")
 
 
 @app.command()
@@ -312,7 +923,7 @@ def recon(
       redteam recon --target https://xxx --api-key sk-xxx
     """
     pipe = AIPipeline()
-    run_id, recon, services = pipe.recon_phase(
+    run_id, recon, services, governor = pipe.recon_phase(
         target, header_text=header_text, header_file=header_file,
     )
     console.print(f"\n[green]侦察完成[/] Run ID: {run_id}")
@@ -441,24 +1052,6 @@ def inject(
     pipe = AIPipeline()
     findings, chain = pipe.injection_phase(run_id, recon, services)
     console.print(f"\n[green]注入完成[/] 发现 {len(findings)} 个漏洞")
-
-
-@app.command("report")
-def report(run_id: str = typer.Argument(..., help="已有 run_id")) -> None:
-    """重新生成报告"""
-    pipe = AIPipeline()
-    from .core.store import load_json
-    recon_data = load_json(run_id, "recon")
-    findings_data = load_json(run_id, "findings")
-    chain_data = load_json(run_id, "attack_chain_injection")
-
-    from .core.models import ReconResult, Finding, AttackChain
-    recon = ReconResult(**recon_data) if recon_data else ReconResult(target="unknown")
-    findings = [Finding(**f) if isinstance(f, dict) else f for f in (findings_data or [])]
-    chain = AttackChain(**chain_data) if chain_data else None
-
-    report = pipe.report_phase(run_id, recon, findings, chain)
-    console.print(f"[green]报告已生成[/] reports/{run_id}/AI300_Report.md")
 
 
 @app.command()
@@ -629,6 +1222,7 @@ def scenario_run(
     skip_auth_check: bool = typer.Option(False, "--skip-auth-check", help="跳过认证验证（不推荐）"),
     judge_endpoint: str = typer.Option(None, "--judge-endpoint", "-J", help="Judge LLM 端点 URL（启用 LLM-as-Judge 评分）"),
     judge_api_key: str = typer.Option("not-needed", "--judge-api-key", help="Judge LLM API Key（默认 not-needed）"),
+    judge_model: str = typer.Option("", "--judge-model", help="Judge LLM 模型名称（如 glm-4-flash, gpt-4o）"),
     with_multi_turn: bool = typer.Option(False, "--multi-turn", "-M", help="启用多轮攻击（Crescendo + TAP）"),
 ) -> None:
     """执行场景驱动攻击（推荐用于考试）
@@ -710,7 +1304,7 @@ def scenario_run(
 
     if not skip_auth_check:
         from .recon.auth_validator import validate_and_report
-        can_proceed, requires_auth = validate_and_report(target, auth, "scenario run")
+        can_proceed, requires_auth, _ = validate_and_report(target, auth, "scenario run")
         if not can_proceed:
             if requires_auth:
                 console.print("\n[yellow]继续执行攻击可能会失败，是否继续？[/]")
@@ -763,7 +1357,19 @@ def scenario_run(
     console.print(f"  载荷模板: {len(loaded_scenario.payloads)} 个")
     console.print(f"  评分器: {scorer}")
     if judge_endpoint:
-        console.print(f"  [cyan]Judge 端点: {judge_endpoint}[/]")
+        model_info = f" ({judge_model})" if judge_model else ""
+        console.print(f"  [cyan]Judge 端点: {judge_endpoint}{model_info}[/]")
+        # 攻击前探查 Judge 端点
+        console.print("  [dim]⏳ 正在探查 Judge 端点连通性...[/]")
+        _probe = probe_scorer_availability(
+            judge_endpoint=judge_endpoint,
+            judge_api_key=judge_api_key,
+            judge_model=judge_model,
+        )
+        if _probe.recommended_tier == "judge_llm":
+            console.print("  [green]  ✓ Judge 端点连通正常，将使用 LLM-as-Judge 评分[/]")
+        else:
+            console.print("  [yellow]  ⚠ Judge 端点不可用，将自动降级为 Composite 评分器[/]")
     if with_multi_turn:
         console.print(f"  [cyan]多轮攻击: Crescendo + TAP[/]")
 
@@ -774,6 +1380,7 @@ def scenario_run(
             run_id=run_id,
             judge_endpoint=judge_endpoint,
             judge_api_key=judge_api_key,
+            judge_model_name=judge_model,
         )
         result = orchestrator.run_sync()
 
@@ -810,11 +1417,16 @@ def scenario_run(
         console.print(table)
 
     if not disable_report:
-        with console.status("[cyan]生成报告...[/]"):
-            reporter = ScenarioReporter(result)
-            report_path = reporter.generate(output_dir=output_dir)
+        with console.status("[cyan]保存增量报告...[/]"):
+            from .pipeline.report_writer import ReportWriter
+            writer = ReportWriter(result.run_id, target)
+            writer.append_recon(components=[], models=[])
+            findings_dict = [f.model_dump() for f in result.findings]
+            if findings_dict:
+                writer.append_phase("Scenario Attack", 0, findings_dict, scenario)
+            report_path = writer.finalize()
 
-        console.print(f"\n[green]报告已生成[/]")
+        console.print(f"\n[green]报告已保存[/]")
         console.print(f"  {report_path}")
 
 
@@ -1062,7 +1674,7 @@ def quicktest(
 
     if not skip_auth_check:
         from .recon.auth_validator import validate_and_report
-        can_proceed, requires_auth = validate_and_report(target, auth, "quicktest")
+        can_proceed, requires_auth, _ = validate_and_report(target, auth, "quicktest")
         if not can_proceed:
             if requires_auth:
                 console.print("\n[yellow]继续发送提示词可能会失败，是否继续？[/]")
@@ -1283,10 +1895,13 @@ def git_probe(
 
 
 def main() -> None:
-    if len(sys.argv) == 1:
-        wizard()
-    else:
-        app()
+    try:
+        if len(sys.argv) == 1:
+            wizard()
+        else:
+            app()
+    except typer.Exit:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

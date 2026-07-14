@@ -6,8 +6,9 @@
   - 检测签名分析：识别目标的检测规则
   - 速率限制阈值探测：系统性测试目标的速率限制（TCM rate_limit_tester.py / temperature_probe.py 完整融合）
   - 确定性探测：多次相同请求测试响应一致性（TCM temperature_probe.py 完整融合）
+  - 通用速率探测：支持非聊天端点的速率限制测试（v2.0 新增）
 
-对齐 OWASP LLM Top 10: LLM01 (Prompt Injection)
+对齐 OWASP LLM Top 10: LLM01 (Prompt Injection), LLM10 (Unbounded Consumption)
 """
 from __future__ import annotations
 
@@ -20,10 +21,13 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from redteam.core.http_client import send_chat, send_get
+from redteam.core.http_client import send_chat, send_get, send_post
 from redteam.core.models import AuthContext, RAGSource
+
+if TYPE_CHECKING:
+    from redteam.core.rate_limiter import RateLimitGovernor
 
 
 def detect_canary_token(
@@ -152,29 +156,51 @@ def probe_rate_limit(
     max_requests: int = 50,
     concurrent: bool = False,
     output_file: str | None = None,
+    governor: "RateLimitGovernor | None" = None,
+    stealth: bool = True,
+    stop_at_safe_rpm: int = 20,
 ) -> dict[str, Any]:
     """探测目标的速率限制阈值（AI-300 Ch2.4）。
 
-    通过逐步提高请求速率，确定目标的速率限制阈值。
+    双模式设计：
+      - stealth=True（默认，考试推荐）：保守探测，从低速率起步，
+        基于延迟突增提前停手，绝不主动触发 429。适合需要保护目标
+        不被封禁的场景。
+      - stealth=False（精确模式）：激进探测，逐步提高速率直到
+        触发 429，获取精确阈值。仅适合有授权的非考试环境。
+
+    够用即停（stop_at_safe_rpm）：
+      当探测确认目标支持 ≥stop_at_safe_rpm RPM 且无任何限速迹象时，
+      立即停止探测并返回该值为安全阈值。默认 20 RPM（探测全部档位
+      [5→10→20]，确保手写覆写值在已验证范围内，避免触发封禁）。
+
     融合 TCM rate_limit_tester.py 和 temperature_probe.py 的完整逻辑，包括：
       - 串行模式：按指定速率依次发送请求
       - 并发模式：使用 threading 并发发送请求（模拟真实攻击场景）
       - CSV 结果导出：考试时留存证据
+      - 自适应调速器注入：探测结果自动播种到 RateLimitGovernor
+      - 延迟突增检测：stealth 模式下，响应时间突增 >3x 基线即停手
 
     Args:
         url: 目标端点 URL
         auth: 认证上下文
         timeout: 单请求超时
-        test_rates: 测试速率列表（req/min），默认 [30, 60, 120, 180]
-        max_requests: 每个速率下的最大请求数
+        test_rates: 测试速率列表（req/min），stealth 默认 [5, 10, 20, 40]，
+                    非 stealth 默认 [30, 60, 120, 180]
+        max_requests: 每个速率下的最大请求数（stealth 下默认 5，非 stealth 默认 50）
         concurrent: 是否启用并发模式
         output_file: CSV 输出文件路径
+        governor: 自适应速率调速器（可选，探测结果自动注入）
+        stealth: 是否启用保守探测模式（默认 True，考试推荐）
+        stop_at_safe_rpm: 够用即停阈值（RPM），达到后不再探测更高速率。
 
     Returns:
         速率限制分析结果，包含 threshold_rpm, detected, status_code, error_message
     """
     if test_rates is None:
-        test_rates = [30, 60, 120, 180]
+        test_rates = [5, 10, 20, 40] if stealth else [30, 60, 120, 180]
+    if stealth:
+        max_requests = min(max_requests, 5)  # stealth 下每档最多 5 请求
 
     results = {
         "target": url,
@@ -185,6 +211,7 @@ def probe_rate_limit(
         "retry_after": "",
         "test_results": [],
         "all_requests": [],
+        "stop_reason": "",
     }
 
     for rate in test_rates:
@@ -208,7 +235,7 @@ def probe_rate_limit(
                     time.sleep(wait_time)
 
                 request_start = time.time()
-                resp = send_chat(url, "Hello", auth, timeout)
+                resp = send_chat(url, "Hello", auth, timeout, governor=governor)
                 response_time_ms = (time.time() - request_start) * 1000
 
                 status_code = resp["status"] if resp else 0
@@ -284,12 +311,16 @@ def probe_rate_limit(
                 results["retry_after"] = ""
 
         else:
+            # ━━━ 串行模式 ━━━
+            # stealth 模式下收集基线延迟，检测软限速
+            baseline_latencies: list[float] = []
+
             for i in range(1, max_requests + 1):
                 if rate_limited:
                     break
 
                 request_start = time.time()
-                resp = send_chat(url, "Hello", auth, timeout)
+                resp = send_chat(url, "Hello", auth, timeout, governor=governor)
                 response_time_ms = (time.time() - request_start) * 1000
 
                 status_code = resp["status"] if resp else 0
@@ -311,6 +342,7 @@ def probe_rate_limit(
                 if resp:
                     body_lower = resp["body"].lower()
 
+                    # ━━━ 硬限速检测：429 或限速关键词 ━━━
                     if resp["status"] == 429 or \
                        "rate limit" in body_lower or \
                        "too many requests" in body_lower:
@@ -320,6 +352,30 @@ def probe_rate_limit(
                         results["status_code"] = resp["status"]
                         results["error_message"] = resp["body"][:200]
                         results["retry_after"] = resp["headers"].get("retry-after", "")
+                        results["throttle_type"] = "hard_429"
+                    # ━━━ 封禁检测：403/401 可能表示 IP 被封 ━━━
+                    elif resp["status"] in (403, 401) and stealth:
+                        rate_limited = True
+                        results["rate_limit_detected"] = True
+                        results["threshold_rpm"] = rate
+                        results["status_code"] = resp["status"]
+                        results["error_message"] = resp["body"][:200]
+                        results["throttle_type"] = "access_denied"
+                    # ━━━ 软限速检测：延迟突增 >3x 基线 ━━━
+                    elif resp["status"] == 200 and stealth:
+                        baseline_latencies.append(response_time_ms)
+                        if len(baseline_latencies) >= 3:
+                            baseline_avg = statistics.mean(baseline_latencies[:3])
+                            # 最近 2 次平均延迟 vs 基线
+                            recent_avg = statistics.mean(baseline_latencies[-2:]) if len(baseline_latencies) >= 2 else baseline_avg
+                            if baseline_avg > 0 and recent_avg > baseline_avg * 3.0:
+                                rate_limited = True
+                                results["rate_limit_detected"] = True
+                                results["threshold_rpm"] = max(rate - 10, 5)  # 保守估计
+                                results["status_code"] = 200
+                                results["error_message"] = f"Latency spike: baseline={baseline_avg:.0f}ms, recent={recent_avg:.0f}ms"
+                                results["throttle_type"] = "soft_latency_spike"
+                        successful_count += 1
                     elif resp["status"] == 200:
                         successful_count += 1
                     else:
@@ -339,11 +395,178 @@ def probe_rate_limit(
         if rate_limited:
             break
 
-    if not results["rate_limit_detected"] and test_rates:
+        # ━━━ 够用即停：当前速率已满足 PyRIT 攻击需求，不再探测更高 ━━━
+        if not rate_limited and rate >= stop_at_safe_rpm and successful_count == max_requests:
+            results["threshold_rpm"] = rate
+            results["stop_reason"] = f"safe_at_{rate}_rpm"
+            break
+
+    if not results.get("stop_reason") and not results["rate_limit_detected"] and test_rates:
         results["threshold_rpm"] = test_rates[-1]
 
     if output_file:
         _save_probe_results(results["all_requests"], output_file)
+
+    # 注入调速器（探测结果自动播种）
+    if governor:
+        governor.seed_endpoint(url, results)
+
+    return results
+
+
+def probe_rate_limit_generic(
+    url: str,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    auth: AuthContext | None = None,
+    timeout: float = 8.0,
+    test_rates: list[int] | None = None,
+    max_requests: int = 30,
+    output_file: str | None = None,
+    governor: "RateLimitGovernor | None" = None,
+    stealth: bool = True,
+    stop_at_safe_rpm: int = 20,
+) -> dict[str, Any]:
+    """通用速率限制探测——支持任意 HTTP 方法和路径（AI-300 Ch2.4 v2.0）。
+
+    与 probe_rate_limit() 不同，此函数不依赖 send_chat() 的聊天格式，
+    可以对任意端点（/api/tags, /v1/models, /health, /mcp 等）进行
+    速率限制探测。
+
+    够用即停（stop_at_safe_rpm）：
+      默认 20 RPM（探测全部档位 [5→10→20]，确保进入手动覆写范围时
+      已在探测中验证安全，避免触发封禁）。
+
+    Args:
+        url: 目标端点 URL
+        method: HTTP 方法（GET / POST）
+        payload: POST 请求体（method=POST 时使用）
+        auth: 认证上下文
+        timeout: 单请求超时
+        test_rates: 测试速率列表（req/min），默认 [30, 60, 120]
+        max_requests: 每个速率下的最大请求数
+        output_file: CSV 输出文件路径
+        governor: 自适应速率调速器（可选，探测结果自动注入）
+
+    Returns:
+        速率限制分析结果，包含 threshold_rpm, detected, status_code
+    """
+    if test_rates is None:
+        test_rates = [5, 10, 20] if stealth else [30, 60, 120]
+    if stealth:
+        max_requests = min(max_requests, 5)
+
+    results = {
+        "target": url,
+        "method": method,
+        "rate_limit_detected": False,
+        "threshold_rpm": 0,
+        "status_code": 0,
+        "error_message": "",
+        "retry_after": "",
+        "test_results": [],
+        "all_requests": [],
+        "stop_reason": "",
+    }
+
+    for rate in test_rates:
+        delay = 60.0 / rate
+        rate_limited = False
+        successful_count = 0
+        failed_count = 0
+        request_results = []
+        baseline_latencies: list[float] = []
+
+        for i in range(1, max_requests + 1):
+            if rate_limited:
+                break
+
+            request_start = time.time()
+
+            if method.upper() == "GET":
+                resp = send_get(url, auth, timeout, governor=governor)
+            else:
+                data = payload or {"test": "rate_limit_probe"}
+                resp = send_post(url, data, auth, timeout, governor=governor)
+
+            response_time_ms = (time.time() - request_start) * 1000
+            status_code = resp["status"] if resp else 0
+            success = resp["status"] == 200 if resp else False
+
+            request_results.append({
+                'request_number': i,
+                'timestamp': datetime.now().isoformat(),
+                'status_code': status_code,
+                'success': success,
+                'error_text': resp["body"][:200] if (resp and not success) else None,
+                'response_time_ms': response_time_ms,
+            })
+
+            if resp:
+                body_lower = resp["body"].lower() if resp["body"] else ""
+                if resp["status"] == 429 or \
+                   "rate limit" in body_lower or \
+                   "too many requests" in body_lower:
+                    rate_limited = True
+                    results["rate_limit_detected"] = True
+                    results["threshold_rpm"] = rate
+                    results["status_code"] = resp["status"]
+                    results["error_message"] = resp["body"][:200]
+                    results["retry_after"] = resp.get("headers", {}).get("retry-after", "")
+                    results["throttle_type"] = "hard_429"
+                elif resp["status"] in (403, 401) and stealth:
+                    rate_limited = True
+                    results["rate_limit_detected"] = True
+                    results["threshold_rpm"] = rate
+                    results["status_code"] = resp["status"]
+                    results["error_message"] = resp["body"][:200]
+                    results["throttle_type"] = "access_denied"
+                elif resp["status"] == 200 and stealth:
+                    baseline_latencies.append(response_time_ms)
+                    if len(baseline_latencies) >= 3:
+                        baseline_avg = statistics.mean(baseline_latencies[:3])
+                        recent_avg = statistics.mean(baseline_latencies[-2:]) if len(baseline_latencies) >= 2 else baseline_avg
+                        if baseline_avg > 0 and recent_avg > baseline_avg * 3.0:
+                            rate_limited = True
+                            results["rate_limit_detected"] = True
+                            results["threshold_rpm"] = max(rate - 10, 5)
+                            results["status_code"] = 200
+                            results["error_message"] = f"Latency spike: baseline={baseline_avg:.0f}ms, recent={recent_avg:.0f}ms"
+                            results["throttle_type"] = "soft_latency_spike"
+                    successful_count += 1
+                elif resp["status"] == 200:
+                    successful_count += 1
+                else:
+                    failed_count += 1
+
+            if i < max_requests and not rate_limited:
+                time.sleep(delay)
+
+        results["all_requests"].extend(request_results)
+        results["test_results"].append({
+            "rate": rate,
+            "successful": successful_count,
+            "failed": failed_count,
+            "rate_limited": rate_limited,
+        })
+
+        if rate_limited:
+            break
+
+        # 够用即停
+        if not rate_limited and rate >= stop_at_safe_rpm and successful_count == max_requests:
+            results["threshold_rpm"] = rate
+            results["stop_reason"] = f"safe_at_{rate}_rpm"
+            break
+
+    if not results.get("stop_reason") and not results["rate_limit_detected"] and test_rates:
+        results["threshold_rpm"] = test_rates[-1]
+
+    if output_file:
+        _save_probe_results(results["all_requests"], output_file)
+
+    if governor:
+        governor.seed_endpoint(url, results)
 
     return results
 
@@ -699,6 +922,7 @@ __all__ = [
     "detect_canary_token",
     "stealth_probe",
     "probe_rate_limit",
+    "probe_rate_limit_generic",
     "probe_determinism",
     "analyze_detection_signatures",
     "analyze_js_client",

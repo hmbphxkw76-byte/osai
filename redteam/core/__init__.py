@@ -26,12 +26,10 @@ from .http_client import (
 from .terminal_output import (
     print_section_header,
     print_target_list,
-    print_risk_dashboard,
-    print_owasp_coverage,
-    print_finding_summary,
-    print_risk_matrix,
     print_phase_progress,
     print_result_bar,
+    print_findings_display,
+    print_global_findings_summary,
 )
 from .registry_loader import (
     RegistryLoader,
@@ -59,12 +57,10 @@ __all__ = [
     # 终端输出
     "print_section_header",
     "print_target_list",
-    "print_risk_dashboard",
-    "print_owasp_coverage",
-    "print_finding_summary",
-    "print_risk_matrix",
     "print_phase_progress",
     "print_result_bar",
+    "print_findings_display",
+    "print_global_findings_summary",
     # 注册表
     "RegistryLoader",
     "ScenarioRegistry",

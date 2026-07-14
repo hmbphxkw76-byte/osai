@@ -43,6 +43,7 @@ from .schema import (
     AttackStrategy,
     AttackTargetType,
     GrayscaleLevel,
+    PayloadTemplate,
     PhaseResult,
     ScenarioResult,
     ScorerType,
@@ -77,9 +78,7 @@ class ScenarioOrchestrator:
         orchestrator = ScenarioOrchestrator(scenario, auth=auth)
         result = orchestrator.run()
 
-        # 获取报告
-        reporter = ScenarioReporter(result)
-        reporter.generate()
+        # 结果自动通过 ReportWriter 保存到 reports/
 
     考试期间操作流程：
       1. 修改 config/scenarios/agent.yaml 中的载荷内容
@@ -94,6 +93,7 @@ class ScenarioOrchestrator:
         run_id: str | None = None,
         judge_endpoint: str | None = None,
         judge_api_key: str = "not-needed",
+        judge_model_name: str = "",
     ):
         self.scenario = scenario
         self.auth = auth
@@ -101,6 +101,7 @@ class ScenarioOrchestrator:
         # Judge 端点优先级: 参数 > REDTEAM_JUDGE_ENDPOINT 环境变量
         self._judge_endpoint = judge_endpoint or os.environ.get("REDTEAM_JUDGE_ENDPOINT", "").strip() or None
         self._judge_api_key = judge_api_key or os.environ.get("REDTEAM_JUDGE_API_KEY", "not-needed")
+        self._judge_model = judge_model_name or os.environ.get("REDTEAM_JUDGE_MODEL", "").strip()
         self._runner = self._build_runner()
         self._scorers = self._build_scorers()
         self._results: ScenarioResult = self._init_result()
@@ -135,6 +136,8 @@ class ScenarioOrchestrator:
                     converters=[],
                     scorers=["true_false"],
                     judge_endpoint=judge_ep,
+                    judge_api_key=self._judge_api_key,
+                    judge_model_name=self._judge_model,
                 )
             else:
                 logger.info("使用 PyRITAttackRunner + 本地评分器 (无 Judge LLM)")
@@ -143,7 +146,7 @@ class ScenarioOrchestrator:
                     auth=self.auth,
                     timeout=self.scenario.attack_config.timeout_seconds,
                     converters=[],
-                    scorers=["hybrid"],
+                    scorers=["composite"],
                 )
 
         logger.info("PyRIT 不可用，使用 NativeAttackRunner")
@@ -172,6 +175,7 @@ class ScenarioOrchestrator:
                         "llm_judge",
                         judge_endpoint=self._judge_endpoint,
                         judge_api_key=self._judge_api_key,
+                        judge_model=self._judge_model,
                     ))
                 else:
                     logger.warning(

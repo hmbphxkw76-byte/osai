@@ -5,7 +5,6 @@
   - loader: 场景配置加载器
   - orchestrator: 场景编排器（全自动流水线执行，支持 PyRIT 双引擎）
   - pyrit_orchestrator: PyRIT 多轮攻击编排器（Crescendo/TAP/PAIR）
-  - reporter: 场景报告器（OSCP标准报告生成）
 
 考试期间使用方式：
   1. 修改 config/scenarios/agent.yaml 中的载荷内容
@@ -45,7 +44,6 @@ from .pyrit_orchestrator import (
     PyRITMultiTurnOrchestrator,
     PyRITScoringOrchestrator,
 )
-from .reporter import ScenarioReporter
 
 __all__ = [
     # Schema
@@ -71,5 +69,4 @@ __all__ = [
     "ScenarioOrchestrator",
     "PyRITMultiTurnOrchestrator",
     "PyRITScoringOrchestrator",
-    "ScenarioReporter",
 ]

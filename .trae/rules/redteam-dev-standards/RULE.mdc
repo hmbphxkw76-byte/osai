@@ -22,6 +22,49 @@ provider:
 3. **每个 Finding 必须绑定 OWASPLlm + MITREATLASTactic**：不允许创建无分类标签的漏洞条目。
 4. **枚举优先于字符串常量**：AI 协议、漏洞分类、攻击阶段均使用 Enum。
 
+## 架构设计哲学
+
+本项目采用 **YAML 数据驱动端到端自动化攻击** 架构，以专业 AI 红队专家指导 PyRIT 逐步完成全流程攻击。
+
+### 核心设计原则
+
+1. **YAML 数据驱动 (Data-Driven)**：攻击载荷、场景配置、参数设置全部通过 YAML 文件定义（`config/payloads/` + `config/scenarios/`），实现「配置即攻击」的声明式红队模式。
+2. **AI 红队专家风格 (Red Team Expert Persona)**：每个阶段以专业安全分析师视角呈现 — 侦察简报、策略推荐、风险指标、PyRIT 自动化指导，模拟真正的 AI 红队专家决策流程。
+3. **PyRIT 专家指导 (PyRIT Expert Guidance)**：当 PyRIT 可用时，自动推荐最优转换器组合、LLM-as-Judge 评分策略、执行模式（batch/sequential），提供专业级攻击编排。
+4. **全局统筹 (Global Orchestration)**：Phase 1~11 形成完整攻击链，侦察结果自动驱动后续攻击阶段的目标选择和策略调整。
+5. **阶段提示 (Stage Cues)**：每个重要阶段向用户展示：
+   - 阶段横幅（统一视觉风格，含 AI-300 章节标注）
+   - 实时进度（攻击执行中状态）
+   - 阶段性结果（成功/失败计数、严重程度分布、关键发现摘要）
+
+### CLI 向导交互模式
+
+向导 (`redteam wizard`) 遵循 AI 红队专家工作流：
+
+```
+目标输入 → 认证配置 → 连通性验证
+    ↓
+Phase 1: 侦察 → 情报简报（攻击面全景）
+    ↓
+侦察→攻击决策衔接：
+  ├─ 攻击策略推荐（按目标协议族计算动态成功率）
+  ├─ 目标确认 [y/N]（排除无效目标）
+  └─ Phase 2 参数配置（PyRIT/multi-turn/judge [Y/n]）
+    ↓
+Phase 2: 提示注入 ← PyRIT 自动化指导
+    ↓
+Phase 3~9: 统一横幅 + 实时进度 + 结果摘要
+    ↓
+Phase 10~11: 威胁建模 → 综合报告
+```
+
+### 终端输出规范
+
+- 统一使用 `print_phase_banner()` 打印双线边框阶段横幅（72 字符宽度）
+- 每个阶段横幅包含：阶段编号、标题、目标 URL、AI-300 章节标注、状态图标（⏳/⚔️/✓）
+- 关键决策点使用 `[y/N]` 交互确认模式，与初始认证配置风格统一
+- 攻击结果使用进度条 + 计数展示（`print_result_bar()`）
+
 ## 架构规范
 
 - 管道阶段模型：Phase 1~11，每阶段对应 AI-300 一个章节
@@ -224,6 +267,28 @@ description: "使模型在"虚假证据"上编造"
 快速测试、报告生成、前沿漏洞攻击、统一攻击流水线、Git 仓库侦察、传统运行模式、其他。
 
 手册路径：`docs/COMMAND_REFERENCE.md`
+
+### `.codebuddy` ↔ `.trae` 自动同步规则
+
+**修改任一目录内容时，必须同时同步更新另一目录的对应文件。**
+
+| 同步方向 | 规则 |
+|---------|------|
+| `.trae/rules/` → `.codebuddy/rules/` | 规则变更以 `.trae` 为 Source of Truth，`.codebuddy` 同步保持一致 |
+| `.codebuddy/memory/` → `.trae/memory/` | 记忆文件以 `.codebuddy` 为主要编辑位置，`.trae` 同步副本 |
+| `.codebuddy/automations/` ↔ `.trae/automations/` | 双向同步，保持自动化任务一致 |
+| 共同文件 | `RULE.mdc`、`MEMORY.md` 等共同文件的变更必须双向同步 |
+
+**触发条件**：任何对 `.codebuddy/` 或 `.trae/` 目录下文件的修改，必须在同一次会话中同步到另一目录。
+
+### CLI 错误输出规范
+
+**CLI 退出时必须抑制 Python traceback，只向用户展示友好错误消息。**
+
+- `main()` 函数使用 `try/except typer.Exit: sys.exit(1)` 包装所有命令调用
+- 预期错误（如连通性测试失败、认证缺失、参数无效）在 `raise typer.Exit(1)` 前已打印友好消息，不应暴露调用栈
+- 非预期异常（程序 bug）可让 traceback 自然传播，便于调试
+- 此规范适用于 `cli.py` 中所有通过 `main()` 调用的命令路径
 
 ## 参考文档
 

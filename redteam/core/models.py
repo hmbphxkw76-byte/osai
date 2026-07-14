@@ -434,6 +434,8 @@ class PromptInjectionResult(BaseModel):
     extracted_info: str = ""
     bypass_method: str = ""
     guardrail_triggered: bool = False
+    score: float = 0.0        # 评分器分数 (0.0 ~ 1.0)
+    error: str = ""           # 错误详情（连接失败/超时等）
 
 
 # ===== 攻击步骤 =====
@@ -588,6 +590,10 @@ class ReconResult(BaseModel):
     components: list[str] = Field(default_factory=list)   # ollama/vllm/mcp/gradio...
     models: list[str] = Field(default_factory=list)       # 所有暴露模型
     risk_summary: dict[str, str] = Field(default_factory=dict)
+
+    # 目标类型识别（来自连通性测试）
+    target_type: str = ""  # ollama / openai / model_platform / ai_website / web_app / unknown
+    connectivity_summary: dict = Field(default_factory=dict)
     
     # MCP 协议侦察结果
     mcp_info: dict = Field(default_factory=dict)

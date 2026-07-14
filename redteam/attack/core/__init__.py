@@ -64,6 +64,10 @@ from .converters import (
 )
 from .payload_loader import PayloadLoader
 from .strategy_router import StrategyRouter, AttackStrategy, STRATEGY_CONVERTER_MAP
+from .determinism_router import (
+    DeterminismProfile,
+    DeterminismAwareRouter,
+)
 from .pipeline_orchestrator import PipelineOrchestrator
 
 __all__ = [
@@ -116,6 +120,9 @@ __all__ = [
     "StrategyRouter",
     "AttackStrategy",
     "STRATEGY_CONVERTER_MAP",
+    # Determinism Router
+    "DeterminismProfile",
+    "DeterminismAwareRouter",
     # Pipeline Orchestrator
     "PipelineOrchestrator",
 ]

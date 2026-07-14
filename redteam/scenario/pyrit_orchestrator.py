@@ -142,13 +142,14 @@ class PyRITMultiTurnOrchestrator:
             from pyrit.orchestrator import CrescendoOrchestrator  # type: ignore
             from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
 
+            _api_key = "not-needed"
+            if self.auth and self.auth.bearer:
+                _api_key = self.auth.bearer
             target = OpenAIChatTarget(
                 endpoint=self.target_url,
                 model_name="gpt-4",
+                api_key=_api_key,
             )
-            if self.auth:
-                if self.auth.bearer:
-                    target._api_key = self.auth.bearer
 
             orch = CrescendoOrchestrator(
                 objective_target=target,
@@ -310,12 +311,14 @@ class PyRITMultiTurnOrchestrator:
             from pyrit.orchestrator import TAPOrchestrator  # type: ignore
             from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
 
+            _api_key = "not-needed"
+            if self.auth and self.auth.bearer:
+                _api_key = self.auth.bearer
             target = OpenAIChatTarget(
                 endpoint=self.target_url,
                 model_name="gpt-4",
+                api_key=_api_key,
             )
-            if self.auth and self.auth.bearer:
-                target._api_key = self.auth.bearer
 
             orch = TAPOrchestrator(
                 objective_target=target,
@@ -498,12 +501,14 @@ class PyRITMultiTurnOrchestrator:
             from pyrit.orchestrator import PAIROrchestrator  # type: ignore
             from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
 
+            _api_key = "not-needed"
+            if self.auth and self.auth.bearer:
+                _api_key = self.auth.bearer
             target = OpenAIChatTarget(
                 endpoint=self.target_url,
                 model_name="gpt-4",
+                api_key=_api_key,
             )
-            if self.auth and self.auth.bearer:
-                target._api_key = self.auth.bearer
 
             orch = PAIROrchestrator(
                 objective_target=target,
@@ -687,16 +692,19 @@ class PyRITMultiTurnOrchestrator:
         try:
             from pyrit.orchestrator import RedTeamingOrchestrator  # type: ignore
             from pyrit.prompt_target import OpenAIChatTarget  # type: ignore
-            from pyrit.common import IN_MEMORY, initialize_pyrit  # type: ignore
+            from pyrit.setup import IN_MEMORY, initialize_pyrit_async  # type: ignore
 
-            initialize_pyrit(memory_db_type=IN_MEMORY)
+            loop = _get_or_create_loop()
+            loop.run_until_complete(initialize_pyrit_async(memory_db_type=IN_MEMORY))
 
+            _api_key = "not-needed"
+            if self.auth and self.auth.bearer:
+                _api_key = self.auth.bearer
             target = OpenAIChatTarget(
                 endpoint=self.target_url,
                 model_name="gpt-4",
+                api_key=_api_key,
             )
-            if self.auth and self.auth.bearer:
-                target._api_key = self.auth.bearer
 
             orch = RedTeamingOrchestrator(
                 objective_target=target,

@@ -1,8 +1,8 @@
 # RedTeam-AI 流水线配置文件 (AI-300 考试推荐模式)
 # 使用方式: redteam run --config config/pipeline.yaml --target https://xxx --api-key sk-xxx
 #
-# 对齐 OffSec AI-300 9 阶段攻击链:
-#   recon → injection → agent → multi_agent → rag → embeddings → supply_chain → infra → report
+# 对齐 OffSec AI-300 8 阶段攻击链 (报告通过增量 ReportWriter 自动生成):
+#   recon → injection → agent → multi_agent → rag → embeddings → supply_chain → infra
 
 # === 目标配置 ===
 target: ""  # 通过 CLI --target 参数传入
@@ -19,7 +19,6 @@ phases:
   - embeddings
   - supply_chain
   - infra
-  - report
 
 # === 认证配置 ===
 auth:

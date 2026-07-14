@@ -13,7 +13,7 @@
   - pipeline/embeddings_phase.py: 嵌入模型攻击 (Ch6)
   - pipeline/supply_chain_phase.py: AI 供应链攻击 (Ch8)
   - pipeline/infra_phase.py: MCP+基础设施攻击 (Ch7+Ch9)
-  - pipeline/report_phase.py: 威胁建模与报告 (Ch10+Ch11)
+  - pipeline/report_writer.py: 增量报告写入器 (Ch11)
 
 推荐使用新的导入方式：
   from redteam.pipeline import AIPipeline
@@ -29,7 +29,6 @@ from .pipeline.rag_phase import rag_attack_phase
 from .pipeline.embeddings_phase import embeddings_attack_phase
 from .pipeline.supply_chain_phase import supply_chain_phase
 from .pipeline.infra_phase import infra_attack_phase
-from .pipeline.report_phase import report_phase
 
 __all__ = [
     "AIPipeline",
@@ -40,5 +39,4 @@ __all__ = [
     "embeddings_attack_phase",
     "supply_chain_phase",
     "infra_attack_phase",
-    "report_phase",
 ]
