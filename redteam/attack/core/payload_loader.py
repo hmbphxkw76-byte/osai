@@ -166,7 +166,19 @@ class PayloadLoader:
                 logger.warning("载荷文件格式错误，缺少 payloads 字段: %s", yaml_path)
                 return []
 
-            return data["payloads"]
+            payloads = data["payloads"]
+            # 规范化：确保每个条目同时有 payload 和 payload_template 键
+            # YAML 文件使用 payload，fallback 常量使用 payload_template，
+            # 统一规范化使得消费者可以用任意键名访问
+            for item in payloads:
+                if isinstance(item, dict):
+                    py = item.get("payload", "")
+                    pt = item.get("payload_template", "")
+                    if py and not pt:
+                        item["payload_template"] = py
+                    elif pt and not py:
+                        item["payload"] = pt
+            return payloads
 
         except yaml.YAMLError as exc:
             logger.error("YAML 解析失败: %s, 错误: %s", yaml_path, exc)

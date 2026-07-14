@@ -552,8 +552,8 @@ class ConverterRegistry:
             return
         self._registry: dict[str, dict] = {}
         self._category_map: dict[str, list[str]] = {}
-        self._populate_default_converters()
         self._initialized = True
+        self._populate_default_converters()
 
     def _populate_default_converters(self):
         encoding_converters = [

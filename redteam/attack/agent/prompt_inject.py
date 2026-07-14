@@ -52,7 +52,9 @@ def test_indirect_injection(
     results: list[PromptInjectionResult] = []
 
     for template in INDIRECT_INJECTION_PAYLOADS:
-        payload = template["payload_template"].replace("{goal}", goal)
+        # 兼容 YAML 的 "payload" 和 fallback 常量的 "payload_template" 两种键名
+        payload_content = template.get("payload", "") or template.get("payload_template", "")
+        payload = payload_content.replace("{goal}", goal)
         result = _send_injection(service.url, payload, auth, timeout)
         result.technique = template["technique"]
         results.append(result)
