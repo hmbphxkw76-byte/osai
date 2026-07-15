@@ -23,6 +23,15 @@ from ...core.store import load_json, load_findings, DEFAULT_STORE_DIR
 REPORTS_DIR = Path("reports")
 
 
+def _fget(obj: Any, key: str, default: Any = None) -> Any:
+    """安全获取属性 — 兼容 Pydantic 模型和 dict。"""
+    if hasattr(obj, key):
+        return getattr(obj, key)
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default
+
+
 def _load_all_data(run_id: str) -> dict[str, Any]:
     """从 results/{run_id}/ 加载所有原始攻击数据。
 
@@ -45,11 +54,11 @@ def _load_all_data(run_id: str) -> dict[str, Any]:
     return data
 
 
-def _count_severity(findings: list[dict]) -> dict[str, int]:
+def _count_severity(findings: list) -> dict[str, int]:
     """统计 Findings 严重级别分布。"""
     counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for f in findings:
-        sev = f.get("severity", "info")
+        sev = _fget(f, "severity", "info")
         if sev in counts:
             counts[sev] += 1
     return counts
@@ -75,31 +84,34 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
     seen = set()
     unique_findings = []
     for f in all_findings:
-        key = f.get("title", "")
+        key = _fget(f, "title", "")
         if key not in seen:
             seen.add(key)
             unique_findings.append(f)
 
     sev_counts = _count_severity(unique_findings)
-    verified_count = sum(1 for f in all_findings if f.get("verified"))
+    verified_count = sum(1 for f in all_findings if _fget(f, "verified"))
     exploit_count = len(exploit_findings)
 
     # OWASP 分布
     owasp_dist: dict[str, int] = {}
     for f in unique_findings:
-        owasp = f.get("owasp_llm", "N/A")
+        raw = _fget(f, "owasp_llm")
+        owasp = raw.value if raw else "N/A"
         owasp_dist[owasp] = owasp_dist.get(owasp, 0) + 1
 
     # OWASP Agentic 分布
     agentic_dist: dict[str, int] = {}
     for f in unique_findings:
-        agentic = f.get("owasp_agentic", "N/A")
+        raw = _fget(f, "owasp_agentic")
+        agentic = raw.value if raw else "N/A"
         agentic_dist[agentic] = agentic_dist.get(agentic, 0) + 1
 
     # ATLAS 战术分布
     atlas_dist: dict[str, int] = {}
     for f in unique_findings:
-        tactic = f.get("mitre_atlas_tactic", "N/A")
+        raw = _fget(f, "mitre_atlas_tactic")
+        tactic = raw.value if raw else "N/A"
         atlas_dist[tactic] = atlas_dist.get(tactic, 0) + 1
 
     # 模型列表
@@ -198,17 +210,20 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
     lines.append(f"")
     if unique_findings:
         for i, f in enumerate(unique_findings[:50], 1):  # 最多 50 条
-            title = f.get("title", "Untitled")
-            severity = f.get("severity", "info").upper()
-            category = f.get("category", "")
-            description = f.get("description", "No description")
-            evidence = f.get("evidence", "")
-            remediation = f.get("remediation", "")
-            owasp = f.get("owasp_llm", "")
-            atlas = f.get("mitre_atlas_tactic", "")
-            verified = "✅ Verified" if f.get("verified") else "⚠️ Unverified"
-            cve = ", ".join(f.get("cve_refs", [])) if f.get("cve_refs") else "N/A"
-            endpoint = f.get("endpoint", "N/A")
+            title = _fget(f, "title", "Untitled")
+            severity = _fget(f, "severity", "info").upper()
+            category = _fget(f, "category", "")
+            description = _fget(f, "description", "No description")
+            evidence = _fget(f, "evidence", "")
+            remediation = _fget(f, "remediation", "")
+            owasp_raw = _fget(f, "owasp_llm")
+            owasp = owasp_raw.value if owasp_raw else ""
+            atlas_raw = _fget(f, "mitre_atlas_tactic")
+            atlas = atlas_raw.value if atlas_raw else ""
+            verified = "✅ Verified" if _fget(f, "verified") else "⚠️ Unverified"
+            cve_refs = _fget(f, "cve_refs", [])
+            cve = ", ".join(cve_refs) if cve_refs else "N/A"
+            endpoint = _fget(f, "endpoint", "N/A")
 
             lines.append(f"### {i}. {title}")
             lines.append(f"")
@@ -217,8 +232,9 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
             lines.append(f"| Severity | **{severity}** |")
             lines.append(f"| Category | {category} |")
             lines.append(f"| OWASP LLM | {owasp} |")
-            if agentic_val := f.get("owasp_agentic", ""):
-                lines.append(f"| OWASP Agentic | {agentic_val} |")
+            agentic_raw = _fget(f, "owasp_agentic")
+            if agentic_raw:
+                lines.append(f"| OWASP Agentic | {agentic_raw.value} |")
             lines.append(f"| MITRE ATLAS | {atlas} |")
             lines.append(f"| CVE | {cve} |")
             lines.append(f"| Endpoint | {endpoint} |")
@@ -247,9 +263,9 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
         lines.append(f"")
 
         for i, f in enumerate(exploit_findings[:20], 1):
-            title = f.get("title", "Untitled")
-            proof = f.get("exploitation_proof", {})
-            verified_str = "✅ YES" if f.get("verified") else "❌ NO"
+            title = _fget(f, "title", "Untitled")
+            proof = _fget(f, "exploitation_proof", {})
+            verified_str = "✅ YES" if _fget(f, "verified") else "❌ NO"
 
             lines.append(f"### {i}. {title}")
             lines.append(f"")
@@ -387,11 +403,11 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
     lines.append(f"")
     lines.append(f"### Immediate Actions (Critical/High)")
     lines.append(f"")
-    priority_findings = [f for f in unique_findings if f.get("severity") in ("critical", "high")]
+    priority_findings = [f for f in unique_findings if _fget(f, "severity") in ("critical", "high")]
     if priority_findings:
         for f in priority_findings[:10]:
-            title = f.get("title", "Untitled")
-            remediation = f.get("remediation", "No specific remediation provided")
+            title = _fget(f, "title", "Untitled")
+            remediation = _fget(f, "remediation", "No specific remediation provided")
             lines.append(f"- **{title}**: {remediation}")
     else:
         lines.append(f"- No critical or high severity findings.")
@@ -399,11 +415,11 @@ def _make_osai_report(run_id: str, target: str | None, data: dict[str, Any]) -> 
 
     lines.append(f"### Medium-Term Improvements")
     lines.append(f"")
-    medium_findings = [f for f in unique_findings if f.get("severity") == "medium"]
+    medium_findings = [f for f in unique_findings if _fget(f, "severity") == "medium"]
     if medium_findings:
         for f in medium_findings[:5]:
-            title = f.get("title", "Untitled")
-            remediation = f.get("remediation", "")
+            title = _fget(f, "title", "Untitled")
+            remediation = _fget(f, "remediation", "")
             lines.append(f"- **{title}**: {remediation}")
     else:
         lines.append(f"- No medium severity findings.")

@@ -242,7 +242,7 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     # ── 头部 ──
     print(f"\n{'═' * 72}")
     print(f"╔{'═' * 70}╗")
-    print(f"║  [⚔️  ATTACK STRATEGY]  攻击策略专家分析                              ║")
+    print(f"║  [⚔️  ATTACK STRATEGY]  中高价值目标策略分析                            ║")
     print(f"║  基于侦察情报: {total} 服务, {len(all_models)} 模型, {no_auth} 无需认证{' ' * (35 - len(str(total)) - len(str(len(all_models))) - len(str(no_auth)))}║")
     print(f"╚{'═' * 70}╝")
     print(f"{'═' * 72}")

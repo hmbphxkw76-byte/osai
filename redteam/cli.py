@@ -1276,42 +1276,113 @@ def wizard(
                 console.print(f"      [dim]└─ {'; '.join(chapter_hints[:2])}[/]")
 
         console.print(f"\n  [dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]")
-        console.print(f"  [bold]选择攻击策略：[/]")
-        console.print(f"    [1~{len(ranked)}] 选择单个高价值目标优先攻击")
-        console.print(f"    [a] 全部攻击（按优先级顺序执行）")
-        console.print(f"    [n] 退出程序")
 
-        target_input = typer.prompt(
-            "\n  请选择",
-            default="1",
-            show_default=False,
-        )
+        # 自动分离高/中优先级目标（评分 >= 30）
+        high_medium = [item for item in ranked if item["score"] >= 30]
+        low_priority = [item for item in ranked if item["score"] < 30]
 
-        if target_input.strip().lower() == "n":
-            console.print("\n[blue]已退出程序。[/]")
-            raise typer.Exit(0)
+        # 默认选择高、中级别目标
+        confirmed_targets = [item["target"] for item in high_medium]
 
-        if target_input.strip().lower() == "a":
-            # 全部攻击 — 按优先级顺序
-            confirmed_targets = [item["target"] for item in ranked]
-            console.print(f"\n  [green]✓[/] 全部攻击模式: {len(confirmed_targets)} 个目标（按优先级排序）")
+        # 如果存在低优先级目标，询问用户是否增加
+        if low_priority:
+            console.print(f"\n  [bold]默认已选择 {len(confirmed_targets)} 个高/中优先级目标[/]")
+            console.print(f"  [dim]发现 {len(low_priority)} 个低优先级目标未选中：[/]")
+            for item in low_priority:
+                svc = item["target"]
+                console.print(f"    • [{svc.protocol.upper()}] {svc.url} (评分: {item['score']})")
+
+            include_low = typer.confirm(
+                "\n  是否增加对低风险目标的攻击？",
+                default=False,
+            )
+            if include_low:
+                confirmed_targets = [item["target"] for item in ranked]
+                console.print(f"  [green]✓[/] 已添加低优先级目标，共 {len(confirmed_targets)} 个目标")
+            else:
+                console.print(f"  [dim]已跳过低优先级目标[/]")
+
+        # 显示最终选中的目标列表（带编号）
+        if confirmed_targets:
+            console.print(f"\n  [bold]最终攻击目标列表：[/]")
+            for i, t in enumerate(confirmed_targets, 1):
+                model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
+                console.print(f"    [bold][{i}][/] [{t.protocol.upper()}] {t.url}{model_hint}")
+
+            console.print(f"\n  [dim]输入编号选择单个目标（如 1），或直接回车确认默认选择[/]")
+            console.print(f"  [dim]输入 [n] 退出程序[/]")
+
+            target_input = typer.prompt(
+                "\n  请选择",
+                default="",
+                show_default=False,
+            )
+
+            if target_input.strip().lower() == "n":
+                console.print("\n[blue]已退出程序。[/]")
+                raise typer.Exit(0)
+
+            if target_input.strip() == "":
+                # 默认确认 — 保持当前选择
+                console.print(f"\n  [green]✓[/] 确认攻击 {len(confirmed_targets)} 个目标（按优先级排序）")
+            else:
+                # 选择单个目标
+                try:
+                    idx = int(target_input.strip()) - 1
+                    if 0 <= idx < len(confirmed_targets):
+                        confirmed_targets = [confirmed_targets[idx]]
+                    else:
+                        console.print("[yellow]无效选择，使用最高优先级目标[/]")
+                        confirmed_targets = [confirmed_targets[0]]
+                except ValueError:
+                    console.print("[yellow]格式错误，使用最高优先级目标[/]")
+                    confirmed_targets = [confirmed_targets[0]]
+
+                console.print(f"\n  [green]✓[/] 优先攻击目标:")
+                t = confirmed_targets[0]
+                model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
+                console.print(f"    • [{t.protocol.upper()}] {t.url}{model_hint}")
         else:
-            # 选择单个目标
-            try:
-                idx = int(target_input.strip()) - 1
-                if 0 <= idx < len(ranked):
-                    confirmed_targets = [ranked[idx]["target"]]
-                else:
-                    console.print("[yellow]无效选择，使用最高优先级目标[/]")
-                    confirmed_targets = [ranked[0]["target"]]
-            except ValueError:
-                console.print("[yellow]格式错误，使用最高优先级目标[/]")
-                confirmed_targets = [ranked[0]["target"]]
+            # 无高/中优先级目标，仅低优先级可选
+            console.print(f"\n  [yellow]未发现高/中优先级目标[/]")
+            console.print(f"  [dim]仅以下低优先级目标可选：[/]")
+            for i, item in enumerate(low_priority, 1):
+                svc = item["target"]
+                console.print(f"    [bold][{i}][/] [{svc.protocol.upper()}] {svc.url} (评分: {item['score']})")
 
-            console.print(f"\n  [green]✓[/] 优先攻击目标:")
-            t = confirmed_targets[0]
-            model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
-            console.print(f"    • [{t.protocol.upper()}] {t.url}{model_hint}")
+            console.print(f"\n  [dim]输入编号选择目标，或直接回车跳过攻击阶段[/]")
+            console.print(f"  [dim]输入 [n] 退出程序[/]")
+
+            target_input = typer.prompt(
+                "\n  请选择",
+                default="",
+                show_default=False,
+            )
+
+            if target_input.strip().lower() == "n":
+                console.print("\n[blue]已退出程序。[/]")
+                raise typer.Exit(0)
+
+            if target_input.strip() == "":
+                console.print("[dim]已跳过攻击阶段[/]")
+                confirmed_targets = []
+            else:
+                try:
+                    idx = int(target_input.strip()) - 1
+                    if 0 <= idx < len(low_priority):
+                        confirmed_targets = [low_priority[idx]["target"]]
+                    else:
+                        console.print("[yellow]无效选择，跳过攻击阶段[/]")
+                        confirmed_targets = []
+                except ValueError:
+                    console.print("[yellow]格式错误，跳过攻击阶段[/]")
+                    confirmed_targets = []
+
+            if confirmed_targets:
+                console.print(f"\n  [green]✓[/] 优先攻击目标:")
+                t = confirmed_targets[0]
+                model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
+                console.print(f"    • [{t.protocol.upper()}] {t.url}{model_hint}")
 
         # 保存完整排序列表供后续迭代使用
         _remaining_targets = [item["target"] for item in ranked if item["target"] not in confirmed_targets]
@@ -1345,18 +1416,16 @@ def wizard(
     # Phase 2 (Detect) 配置询问（评分器选择 → 多轮攻击专家指导）
     if run_attack_phases:
         console.print(f"\n{'─' * 72}")
-        console.print(f"  [Detect Phase Configuration]  目标策略选择")
+        console.print(f"  [Detect Phase Configuration]  目标评分策略选择")
         console.print(f"{'─' * 72}")
 
         judge_endpoint: Optional[str] = None
         judge_api_key: str = "not-needed"
         judge_model_name: str = ""
 
-        # ── 评分策略选择 ──
-        console.print(f"\n  [bold]评分策略选择[/]")
         console.print(f"    [1] HybridScorer（多维度加权投票，零外部依赖，默认推荐）")
         console.print(f"    [2] LLM-as-Judge（调用外部大模型评分，精度更高）")
-        scorer_choice = typer.prompt("  请选择评分策略 [1/2]", default="1")
+        scorer_choice = typer.prompt("  请选择 [1/2]", default="1")
 
         if scorer_choice == "2":
             judge_endpoint, judge_api_key, judge_model_name = _prompt_judge_platform(console)

@@ -587,7 +587,7 @@ def recon_phase(
             bar_len = 20
             filled = int(bar_len * done / total)
             bar = "█" * filled + "░" * (bar_len - filled)
-            print(f"\r  [{bar}] {done}/{total} ({pct}%) {phase}", end="", flush=True)
+            print(f"\r  [{bar}] {done}/{total} ({pct}%) {phase:<80}", end="", flush=True)
             if done >= total or "完成" in phase:
                 print()  # 换行
 
