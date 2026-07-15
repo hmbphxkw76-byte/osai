@@ -77,7 +77,6 @@ from .core.terminal_output import (
     print_target_confirmation_prompt,
     print_target_list,
     print_result_bar,
-    print_findings_display,
     print_global_findings_summary,
 )
 from .attack.frontier.adapter import FrontierAdapter
@@ -132,12 +131,185 @@ def _print_wizard_phase_result(
     if is_success > 0:
         console.print(f"  [bold yellow]  ⚠️[/] 高危/严重: {is_success} 个")
 
-    # 使用统一的三段式 Findings 展示
-    print_findings_display(
-        findings,
-        phase_name=phase_name,
-        phase_num=phase_num,
-    )
+
+def _classify_target_type(target: str) -> str:
+    """基于 URL 模式快速分类目标类型（无需网络请求）。
+
+    区分两类侦察对象：
+    - "platform"：已知模型平台（Ollama/OpenAI/智谱/DeepSeek 等）
+    - "enterprise"：企业基于 LLM 部署的 AI 应用 URL
+
+    Args:
+        target: 目标 URL
+
+    Returns:
+        "platform" 或 "enterprise"
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(target)
+        hostname = parsed.hostname or ""
+        port = parsed.port
+        path = parsed.path.lower()
+    except Exception:
+        return "enterprise"
+
+    # 已知平台域名特征
+    _PLATFORM_DOMAINS = {
+        # ── 国际主流 ──
+        "openai.com", "api.openai.com",
+        "anthropic.com", "api.anthropic.com",
+        "deepseek.com", "api.deepseek.com",
+        "x.ai", "api.x.ai",
+        "cohere.com", "api.cohere.com",
+        "huggingface.co", "api-inference.huggingface.co",
+        "mistral.ai", "api.mistral.ai",
+        "groq.com", "api.groq.com",
+        "together.xyz", "api.together.xyz",
+        "replicate.com", "api.replicate.com",
+        "perplexity.ai", "api.perplexity.ai",
+        "generativelanguage.googleapis.com",
+        "ai.google.dev",
+        # ── 国内主流 ──
+        "zhipuai.cn", "bigmodel.cn", "open.bigmodel.cn",
+        "qwen.com", "qianwen.aliyun.com", "dashscope.aliyuncs.com",
+        "baidu.com", "baidubce.com", "qianfan.baidubce.com",
+        "moonshot.cn", "api.moonshot.cn",
+        "siliconflow.cn", "api.siliconflow.cn",
+        "lingyiwanwu.com", "api.lingyiwanwu.com",
+        "minimax.chat", "api.minimax.chat",
+        "volcengineapi.com", "open.volcengineapi.com",
+        "maas-api.ml-platform-cn-beijing.volces.com",
+        "tencentcloudapi.com", "hunyuan.tencentcloudapi.com",
+        # ── 本地/开源 ──
+        "lmstudio.ai", "localhost", "127.0.0.1",
+    }
+
+    # 检查域名匹配
+    if hostname in _PLATFORM_DOMAINS:
+        return "platform"
+
+    # 检查 Ollama 默认端口
+    if port == 11434:
+        return "platform"
+
+    # 检查路径特征
+    _PLATFORM_PATHS = [
+        "/v1/chat/completions", "/v1/messages", "/v1/embeddings",
+        "/v1/models", "/v1/completions",
+        "/api/paas/v4", "/api/v1/chat", "/api/v1/embeddings",
+        "/api/v1/engines", "/api/generate",
+    ]
+    for pp in _PLATFORM_PATHS:
+        if pp in path:
+            return "platform"
+
+    # 默认归类为企业 AI 应用
+    return "enterprise"
+
+
+def _preliminary_auth_check(target: str, header_file: str) -> dict:
+    """初步认证验证：选中 headers 文件后立即验证认证是否有效。
+
+    发送轻量级请求验证认证头是否适用于目标 URL，避免后续阶段才发现问题。
+
+    Args:
+        target: 目标 URL
+        header_file: headers 文件路径
+
+    Returns:
+        {
+            "success": bool,
+            "status_code": int,
+            "message": str,
+            "suggestion": str,
+            "response_preview": str,  # 响应内容预览（用于判断是否登录页）
+        }
+    """
+    import json
+    from redteam.core.models import AuthContext
+    from redteam.recon.auth_validator import parse_headers, parse_headers_file, send_post
+
+    result = {
+        "success": False,
+        "status_code": 0,
+        "message": "",
+        "suggestion": "",
+        "response_preview": "",
+    }
+
+    # 解析 headers
+    try:
+        auth = parse_headers_file(header_file)
+        if auth is None:
+            result["message"] = "无法解析请求头文件"
+            result["suggestion"] = "请检查文件格式是否正确（Key: Value 每行一个）"
+            return result
+    except Exception as e:
+        result["message"] = f"解析请求头文件失败: {e}"
+        result["suggestion"] = "请检查文件格式"
+        return result
+
+    # 发送测试请求
+    try:
+        auth_result = send_post(
+            target,
+            data={"messages": [{"role": "user", "content": "Hello"}]},
+            auth=auth, timeout=5.0, verify_ssl=False, stealth=True,
+        )
+
+        if auth_result is None:
+            result["message"] = "连接目标失败"
+            result["suggestion"] = "请检查网络连接和目标 URL"
+            return result
+
+        status_code = auth_result.get("status", 0)
+        body = auth_result.get("body", "")
+        result["status_code"] = status_code
+        result["response_preview"] = body[:200] if body else ""
+
+        # 检查响应内容是否为 HTML 登录页（常见 Web 应用问题）
+        is_html = False
+        if body:
+            body_lower = body.lower()
+            if any(tag in body_lower for tag in ["<html", "<!doctype", "<form", "login", "sign in", "登录"]):
+                is_html = True
+
+        if 200 <= status_code < 300:
+            if is_html:
+                result["success"] = False
+                result["message"] = f"HTTP {status_code} 但响应为 HTML 页面（可能是登录页）"
+                result["suggestion"] = (
+                    "认证可能已过期或不适用于该目标。\n"
+                    "  建议：\n"
+                    "  1. 重新从浏览器获取认证头\n"
+                    "  2. 选择其他认证文件\n"
+                    "  3. 跳过认证继续（可能无法访问 AI 功能）"
+                )
+            else:
+                result["success"] = True
+                result["message"] = "认证验证通过"
+        elif status_code in (401, 403):
+            result["success"] = False
+            result["message"] = f"认证失败 (HTTP {status_code})"
+            result["suggestion"] = (
+                "认证信息无效或不适用于该目标。\n"
+                "  建议：\n"
+                "  1. 选择其他认证文件\n"
+                "  2. 重新从浏览器获取认证头\n"
+                "  3. 跳过认证继续（可能无法访问 AI 功能）"
+            )
+        else:
+            result["success"] = False
+            result["message"] = f"目标返回 HTTP {status_code}"
+            result["suggestion"] = "目标可能不是标准 AI API 端点，建议继续侦察阶段自动发现端点"
+
+    except Exception as e:
+        result["message"] = f"验证过程异常: {e}"
+        result["suggestion"] = "请检查网络连接和目标 URL"
+
+    return result
 
 
 def _prompt_target_model(
@@ -204,94 +376,350 @@ def _prompt_target_model(
     return choice
 
 
+def _rank_targets_by_attack_value(targets: list) -> list[dict]:
+    """红队专家视角：按攻击价值对目标进行排序（AI-300 R7/R8 对齐）。
+
+    评分体系严格对齐 OffSec AI-300 考试高频场景和 OWASP Agentic Top 10：
+
+    P0 考试场景（+30~40 分）：
+      - POST 对话能力（提示注入绕过护栏，LLM01/ASI01）：+40
+      - 系统提示提取端点（LLM07）：+35
+      - 代理目标劫持入口（ASI01）：+35
+      - MCP 工具面（工具劫持，LLM06/ASI02）：+30
+      - A2A 代理面（代理间劫持，ASI07）：+30
+      - RAG 管道端点（知识库投毒，LLM04/ASI06）：+30
+      - 序列化/模型加载端点（Pickle RCE，LLM05/ASI05）：+30
+
+    P1 考试场景（+10~20 分）：
+      - 无认证（直接攻击）：+15
+      - 向量数据库端点（LLM08）：+15
+      - 模型枚举端点（信息收集）：+10
+      - 级联故障入口（ASI08）：+10
+
+    辅助加分（+5~10 分）：
+      - 协议族（Ollama/OpenAI/Anthropic）：+5~10
+      - 暴露模型名：+10
+
+    减分项：
+      - 需认证（攻击门槛↑）：-10
+      - 嵌入端点（非对话目标，Ch3 注入不适用）：-20
+
+    Args:
+        targets: AIService 列表
+
+    Returns:
+        按攻击价值降序排列的 dict 列表，每个 dict 含 target, score, reasons
+    """
+    scored: list[dict] = []
+
+    # ━━━ P0 考试场景路径模式 ━━━
+    # Ch3: 提示注入绕过护栏 (LLM01/ASI01)
+    POST_PATHS = [
+        "/v1/chat/completions", "/v1/completions", "/v1/messages",
+        "/api/chat", "/api/generate", "/api/chat/completions",
+        "/chat", "/chat/completions", "/v1/engines/chat/completions",
+    ]
+    # Ch3: 系统提示提取 (LLM07) — /api/show 可返回系统提示
+    SYSTEM_PROMPT_PATHS = [
+        "/api/show", "/v1/models/", "/api/model/info", "/v1/engines",
+        "/api/system-prompt", "/api/prompt", "/config", "/v1/config",
+    ]
+    # Ch3: 代理目标劫持 (ASI01) — 可 POST 的 Agent 端点
+    AGENT_GOAL_HIJACK_PATHS = [
+        "/agent", "/agents", "/v1/agents", "/assistant", "/v1/assistant",
+        "/agent/run", "/agent/chat", "/v1/agent/invoke",
+    ]
+    # Ch7: MCP 工具劫持 (LLM06/ASI02)
+    MCP_PATHS = ["/mcp", "/mcp/sse", "/sse", "/mcp/v1", "/mcp/api"]
+    # Ch4: A2A 代理间劫持 (ASI07)
+    A2A_PATHS = [
+        "/.well-known/agent.json", "/.well-known/agent-card.json",
+        "/.a2a/agent-card", "/agent/card", "/v1/agent-card",
+    ]
+    # Ch5: RAG 知识库投毒 (LLM04/ASI06)
+    RAG_PATHS = [
+        "/rag", "/query", "/search", "/v1/rag", "/v1/query",
+        "/v1/search", "/rag/query", "/rag/search", "/ask", "/v1/ask",
+        "/retrieval", "/v1/retrieval", "/embed", "/v1/embed",
+    ]
+    # Ch8: Pickle RCE (LLM05/ASI05) — 模型加载/反序列化
+    SERIALIZATION_PATHS = [
+        "/load", "/v1/load", "/model/load", "/v1/model/load",
+        "/predict", "/v1/predict", "/inference", "/v1/inference",
+        "/download", "/v1/download", "/import", "/v1/import",
+    ]
+
+    # ━━━ P1 考试场景路径模式 ━━━
+    # Ch5: 向量数据库未授权访问 (LLM08)
+    VECTOR_DB_PATHS = [
+        "/v1/indexes", "/v1/collections", "/v1/vectors",
+        "/index", "/collection", "/vector", "/embed/db",
+        "/vectordb", "/v1/vectordb", "/similarity", "/v1/similarity",
+    ]
+    # Ch4: 级联故障 (ASI08) — 多代理编排端点
+    CASCADE_PATHS = [
+        "/orchestrate", "/v1/orchestrate", "/workflow", "/v1/workflow",
+        "/pipeline", "/v1/pipeline", "/chain", "/v1/chain",
+    ]
+    # 模型枚举路径（信息收集）
+    MODEL_PATHS = ["/v1/models", "/api/tags", "/models", "/v1/models/list"]
+    # 嵌入模型端点（非对话目标，提示注入不适用）
+    EMBEDDING_PATHS = ["/api/embeddings", "/v1/embeddings", "/embed", "/v1/embed"]
+
+    for svc in targets:
+        score = 0
+        reasons: list[str] = []
+        url_lower = svc.url.lower()
+        protocol = svc.protocol.lower()
+
+        # ━━━ P0 考试场景评分 ━━━
+
+        # 1. POST 对话能力（Ch3: 提示注入绕过护栏 — LLM01/ASI01）
+        if any(p in url_lower for p in POST_PATHS):
+            score += 40
+            reasons.append("POST 对话端点（Ch3 提示注入 P0, LLM01/ASI01）")
+
+        # 2. 系统提示提取（Ch3: LLM07）
+        if any(p in url_lower for p in SYSTEM_PROMPT_PATHS):
+            score += 35
+            reasons.append("系统提示提取端点（Ch3 P0, LLM07）")
+
+        # 3. 代理目标劫持入口（Ch3: ASI01）
+        if any(p in url_lower for p in AGENT_GOAL_HIJACK_PATHS):
+            score += 35
+            reasons.append("代理目标劫持入口（Ch3 P0, ASI01）")
+
+        # 4. MCP 工具面（Ch7: 工具劫持 — LLM06/ASI02）
+        if any(p in url_lower for p in MCP_PATHS) or "mcp" in protocol:
+            score += 30
+            reasons.append("MCP 工具面（Ch7 P0, LLM06/ASI02）")
+
+        # 5. A2A 代理面（Ch4: 代理间劫持 — ASI07）
+        if any(p in url_lower for p in A2A_PATHS) or "agent" in protocol:
+            score += 30
+            reasons.append("A2A 代理面（Ch4 P0, ASI07）")
+
+        # 6. RAG 管道端点（Ch5: 知识库投毒 — LLM04/ASI06）
+        if any(p in url_lower for p in RAG_PATHS):
+            score += 30
+            reasons.append("RAG 管道端点（Ch5 P0, LLM04/ASI06）")
+
+        # 7. 序列化/模型加载端点（Ch8: Pickle RCE — LLM05/ASI05）
+        if any(p in url_lower for p in SERIALIZATION_PATHS):
+            score += 30
+            reasons.append("序列化端点（Ch8 P0, LLM05/ASI05）")
+
+        # ━━━ P1 考试场景评分 ━━━
+
+        # 8. 无认证（降低攻击门槛）
+        if not svc.auth_required:
+            score += 15
+            reasons.append("无认证（直接攻击）")
+        else:
+            score -= 10
+            reasons.append("需认证（攻击门槛↑）")
+
+        # 9. 向量数据库端点（Ch5: LLM08）
+        if any(p in url_lower for p in VECTOR_DB_PATHS):
+            score += 15
+            reasons.append("向量数据库端点（Ch5 P1, LLM08）")
+
+        # 10. 模型枚举端点（信息收集）
+        if any(p in url_lower for p in MODEL_PATHS):
+            score += 10
+            reasons.append("模型枚举端点（信息收集 P1）")
+
+        # 11. 级联故障入口（Ch4: ASI08）
+        if any(p in url_lower for p in CASCADE_PATHS):
+            score += 10
+            reasons.append("级联故障入口（Ch4 P1, ASI08）")
+
+        # ━━━ 端点类型惩罚 ━━━
+
+        # 12. 嵌入端点惩罚（非对话目标，提示注入不适用 — Ch6 嵌入攻击除外）
+        if any(p in url_lower for p in EMBEDDING_PATHS):
+            score -= 20
+            reasons.append("嵌入端点（非对话目标，Ch3 注入不适用）")
+
+        # ━━━ 辅助加分 ━━━
+
+        # 12. 协议族加分
+        if "ollama" in protocol:
+            score += 10
+            reasons.append("Ollama（无审核层，成功率最高）")
+        elif "openai" in protocol:
+            score += 8
+            reasons.append("OpenAI 兼容（载荷通用性最强）")
+        elif "anthropic" in protocol:
+            score += 7
+            reasons.append("Anthropic 兼容（考试高频）")
+        elif "gemini" in protocol:
+            score += 7
+            reasons.append("Gemini 兼容（考试覆盖）")
+        elif "mcp" in protocol:
+            score += 5
+            reasons.append("MCP 协议（Ch7 考试重点）")
+        elif "generic" in protocol:
+            score += 3
+            reasons.append("通用 AI 端点")
+
+        # 13. 暴露模型名（可精准适配载荷）
+        if svc.models:
+            score += 10
+            reasons.append(f"暴露模型 ×{len(svc.models)}")
+
+        scored.append({
+            "target": svc,
+            "score": score,
+            "reasons": reasons,
+        })
+
+    # 按分数降序排列
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored
+
+
 def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
     """交互式选择 LLM Judge 平台并收集连接参数。
 
-    支持平台：OpenAI 兼容 / 智谱 AI / Ollama 本地 / 自定义端点。
+    支持平台：OpenAI / 智谱 AI / DeepSeek / Ollama / SiliconFlow / 自定义端点。
     返回 (judge_endpoint, judge_api_key, judge_model_name)。
-
-    .env 变量作为默认值（优先级：环境变量 > 硬编码默认值）：
-      REDTEAM_JUDGE_ENDPOINT  — Judge API 端点 URL
-      REDTEAM_JUDGE_API_KEY   — Judge API Key
-      REDTEAM_JUDGE_MODEL     — Judge 模型名称
     """
     import os
+    from pathlib import Path
 
-    # ━━━ 从环境变量读取预设值（.env 已在 main() 中通过 _load_dotenv 加载） ━━━
-    env_endpoint = os.environ.get("REDTEAM_JUDGE_ENDPOINT", "").strip()
-    env_api_key = os.environ.get("REDTEAM_JUDGE_API_KEY", "").strip()
-    env_model = os.environ.get("REDTEAM_JUDGE_MODEL", "").strip()
+    import yaml
 
-    # 检测到 .env 预设时给出提示
-    env_hints: list[str] = []
-    if env_endpoint:
-        env_hints.append(f"endpoint={env_endpoint}")
-    if env_api_key:
-        env_hints.append(f"api_key={'*' * min(len(env_api_key), 8)}")
-    if env_model:
-        env_hints.append(f"model={env_model}")
-    if env_hints:
-        console.print(f"\n  [dim]  .env 已配置: {', '.join(env_hints)}[/]")
-        console.print("  [dim]  (直接回车即可使用 .env 中的默认值)[/]")
+    # ━━━ 预定义平台配置 ━━━
+    PRESET_PLATFORMS: list[dict] = [
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "endpoint": "https://api.openai.com/v1/chat/completions",
+            "model": "gpt-4o",
+            "note": "官方 API",
+        },
+        {
+            "id": "glm",
+            "name": "智谱 AI (GLM)",
+            "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "model": "glm-4-flash",
+            "note": "国内平台，免费额度",
+        },
+        {
+            "id": "deepseek",
+            "name": "DeepSeek",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "model": "deepseek-chat",
+            "note": "性价比优秀",
+        },
+        {
+            "id": "ollama",
+            "name": "Ollama 本地模型",
+            "endpoint": "http://localhost:11434/v1/chat/completions",
+            "model": "qwen2.5:7b",
+            "note": "本地运行，无需 API Key",
+            "no_key": True,
+        },
+        {
+            "id": "siliconflow",
+            "name": "SiliconFlow (硅基流动)",
+            "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
+            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "note": "国内聚合平台",
+        },
+    ]
+
+    # ━━━ 扫描 config/credentials 目录下的凭证文件 ━━━
+    creds_dir = Path("config/credentials")
+    cred_files = sorted(creds_dir.glob("*.yaml")) if creds_dir.exists() else []
+    cred_keys: dict[str, str] = {}  # platform_id -> api_key
+    for cfile in cred_files:
+        try:
+            cdata = yaml.safe_load(cfile.read_text(encoding="utf-"))
+            if cdata and "api_key" in cdata:
+                provider = cdata.get("provider", "").lower()
+                api_key = str(cdata.get("api_key", ""))
+                if api_key and api_key != "your-api-key-here":
+                    # 映射 provider 到平台 id
+                    if "glm" in provider or "zhipu" in provider or "bigmodel" in cdata.get("base_url", ""):
+                        cred_keys["glm"] = api_key
+                    elif "deepseek" in provider:
+                        cred_keys["deepseek"] = api_key
+                    elif "openai" in provider:
+                        cred_keys["openai"] = api_key
+                    elif "silicon" in provider or "siliconflow" in provider:
+                        cred_keys["siliconflow"] = api_key
+        except Exception:
+            pass
 
     console.print("\n  [bold]LLM Judge 平台选择[/]")
-    console.print("    [a] OpenAI 兼容 API（默认）")
-    console.print("    [b] 智谱 AI (GLM) — https://open.bigmodel.cn/api/paas/v4")
-    console.print("    [c] Ollama 本地模型 — http://localhost:11434/v1")
-    console.print("    [d] 自定义端点")
-    platform = typer.prompt("  请选择 Judge 平台", default="a").strip().lower()
+    for idx, plat in enumerate(PRESET_PLATFORMS, 1):
+        key_hint = " 🔑" if plat["id"] in cred_keys else ""
+        console.print(f"    [{idx}] {plat['name']:<25} {plat['note']}{key_hint}")
+    console.print(f"    [{len(PRESET_PLATFORMS) + 1}] 自定义端点")
+    console.print(f"    [0] 不使用 LLM Judge（使用 HybridScorer，零外部依赖）")
 
-    if platform == "b":
-        # 智谱 AI
-        endpoint = env_endpoint or "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-        console.print(f"  [dim]智谱 AI API: {endpoint}[/]")
-        api_key = typer.prompt("  智谱 AI API Key（必填）", default=env_api_key or "")
-        model = typer.prompt("  模型名称", default=env_model or "glm-4-flash")
+    choice = typer.prompt(
+        "  请选择",
+        default="1",
+        show_default=False,
+    ).strip()
+
+    if choice == "0":
+        console.print("  [dim]使用 HybridScorer（多维度加权投票，零外部依赖）[/]")
+        return None, "not-needed", ""
+
+    # 自定义端点
+    if choice == str(len(PRESET_PLATFORMS) + 1):
+        endpoint = typer.prompt("  Judge LLM API 端点 URL", default="https://api.openai.com/v1/chat/completions")
+        api_key = typer.prompt("  Judge LLM API Key", default="")
+        model = typer.prompt("  模型名称", default="gpt-4o")
         if not api_key.strip():
             console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
             return None, "not-needed", ""
-        console.print(f"  [dim]  → 端点: {endpoint}[/]")
-        console.print(f"  [dim]  → 模型: {model}[/]")
         return endpoint, api_key.strip(), model
 
-    elif platform == "c":
-        # Ollama 本地
-        ollama_default = env_endpoint or "http://localhost:11434/v1/chat/completions"
-        endpoint = typer.prompt("  Ollama 端点 URL", default=ollama_default)
-        model = typer.prompt("  模型名称", default=env_model or "qwen2.5:7b")
-        console.print("  [dim]Ollama 无需 API Key[/]")
-        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
-        return endpoint, "ollama", model
+    # 选择预定义平台
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(PRESET_PLATFORMS):
+            plat = PRESET_PLATFORMS[idx]
+            endpoint = plat["endpoint"]
+            model = plat["model"]
+            # 尝试从凭证文件加载 api_key
+            api_key = cred_keys.get(plat["id"], "")
 
-    elif platform == "d":
-        # 自定义
-        custom_default = env_endpoint or "https://api.openai.com/v1/chat/completions"
-        endpoint = typer.prompt(
-            "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
-            default=custom_default,
-        )
-        api_key = typer.prompt("  Judge LLM API Key（可留空）", default=env_api_key or "")
-        model = typer.prompt("  模型名称", default=env_model or "gpt-4o")
-        if not api_key.strip():
-            console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
+            # 显示平台配置信息
+            masked_key = ""
+            if api_key:
+                masked_key = api_key[:5] + "*" * max(len(api_key) - 5, 4)
+            elif plat.get("no_key"):
+                masked_key = "（无需 Key）"
+            else:
+                masked_key = "（待输入）"
+
+            console.print(f"\n  [green]✓ {plat['name']}[/]")
+            console.print(f"    endpoint = {endpoint}")
+            console.print(f"    api_key  = {masked_key}")
+            console.print(f"    model    = {model}")
+
+            if plat.get("no_key"):
+                return endpoint, "ollama", model
+
+            if not api_key:
+                api_key = typer.prompt("  请输入 API Key", default="")
+                if not api_key.strip():
+                    console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
+                    return None, "not-needed", ""
+
+            return endpoint, api_key.strip(), model
+        else:
+            console.print("[yellow]无效选择，回退到 HybridScorer[/]")
             return None, "not-needed", ""
-        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
-        return endpoint, api_key.strip(), model
-
-    else:
-        # 默认：OpenAI 兼容 API
-        openai_default = env_endpoint or "https://api.openai.com/v1/chat/completions"
-        endpoint = typer.prompt(
-            "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
-            default=openai_default,
-        )
-        api_key = typer.prompt("  Judge LLM API Key（必填）", default=env_api_key or "")
-        model = typer.prompt("  模型名称", default=env_model or "gpt-4o")
-        if not api_key.strip():
-            console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
-            return None, "not-needed", ""
-        console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
-        return endpoint, api_key.strip(), model
+    except ValueError:
+        console.print("[yellow]无效输入，回退到 HybridScorer[/]")
+        return None, "not-needed", ""
 
 
 def _prompt_multi_turn_with_guidance(
@@ -331,6 +759,9 @@ def _prompt_multi_turn_with_guidance(
         top_rate = svc_recs[0]['success_rate'] if svc_recs else 0.5
         top_strategy = svc_recs[0]['name'] if svc_recs else 'unknown'
 
+        # 判断是否为高价值目标（有认证/低成功率/MCP）
+        is_valuable = auth_req or top_rate < 0.60 or 'mcp' in protocol
+
         if 'ollama' in protocol and not auth_req and top_rate >= 0.80:
             targets_single_ok.append(url)
             reasons_single.append(
@@ -343,11 +774,25 @@ def _prompt_multi_turn_with_guidance(
                 f"Ollama 本地模型但 Tier 1 策略成功率仅 {int(top_rate*100)}%，"
                 f"多轮渐进式攻击可逐步突破模型的行为边界"
             )
-        elif 'openai' in protocol:
+        elif 'openai' in protocol and is_valuable:
+            # 仅对高价值 OpenAI 目标推荐多轮（有认证/低成功率）
             targets_need_multi_turn.append(url)
-            reasons_need.append(
-                f"OpenAI 兼容 API 通常部署内容审核层（Moderation API），"
-                f"单轮高信号攻击易被拦截，Crescendo 渐进式绕过效果更佳"
+            if auth_req:
+                reasons_need.append(
+                    f"OpenAI 兼容 API（已认证），内容审核层可能更强，"
+                    f"Crescendo 渐进式绕过效果更佳"
+                )
+            else:
+                reasons_need.append(
+                    f"OpenAI 兼容 API，Tier 1 策略成功率仅 {int(top_rate*100)}%，"
+                    f"多轮渐进式攻击可提高突破概率"
+                )
+        elif 'openai' in protocol and not is_valuable:
+            # OpenAI 兼容但无认证且成功率高 → 单轮足够
+            targets_single_ok.append(url)
+            reasons_single.append(
+                f"OpenAI 兼容 API（无认证），{top_strategy}策略预估 "
+                f"{int(top_rate*100)}% 成功率，单轮即可"
             )
         elif 'mcp' in protocol:
             targets_need_multi_turn.append(url)
@@ -389,23 +834,8 @@ def _prompt_multi_turn_with_guidance(
         if targets_single_ok:
             console.print(f"\n  [dim]其余 {len(targets_single_ok)} 个目标单轮即可（不再赘述）[/]")
 
-        console.print(f"\n  [bold]多轮升级攻击技术说明：[/]")
-        console.print(f"    • [cyan]Crescendo[/] — 逐步升级对话，从无害话题渐变到敏感目标")
-        console.print(f"    • [cyan]TAP[/] — 自动生成攻击树并剪枝优化，探索多条攻击路径")
-        console.print(f"    • 核心优势：低信号渐进式绕过，对部署了内容审核/护栏的目标效果显著")
-        console.print(f"    • 代价说明：耗时 ~5-10x 单轮，Token 消耗更大")
-
-        est_single = total * 6
-        est_multi = need_count * 40 + (total - need_count) * 6
-        console.print(f"\n  [dim]预估耗时：[/]")
-        console.print(f"  [dim]  仅单轮：~{est_single} 次请求（约 {est_single//30 + 1} 分钟 @30 RPM）[/]")
-        console.print(f"  [dim]  启用多轮：~{est_multi} 次请求（约 {est_multi//30 + 1} 分钟 @30 RPM）[/]")
-
-        console.print(f"\n  [bold cyan]AI 红队专家建议：[/]对以上 {need_count} 个目标启用多轮升级攻击，")
-        console.print(f"  以渐进式低信号方式绕过护栏/审核层，最大化攻击成功率。")
-
         return typer.confirm(
-            f"\n  启用多轮升级攻击？（Crescendo + TAP）[Y/n]",
+            f"\n  启用多轮升级攻击？（Crescendo + TAP）",
             default=True,
         )
 
@@ -425,7 +855,7 @@ def _prompt_multi_turn_with_guidance(
     console.print(f"  [dim]  多轮攻击在此场景下不会显著提升效果，反而增加 ~5-10x 耗时。[/]")
 
     return typer.confirm(
-        f"\n  确认采用单轮攻击模式？（Crescendo + TAP 多轮升级攻击）[y/N]",
+        "\n  确认采用单轮攻击模式？（Crescendo + TAP 多轮升级攻击）",
         default=False,
     )
 
@@ -541,28 +971,186 @@ def wizard(
         title="AI Red Team Pipeline",
     ))
 
-    target = typer.prompt("\n目标 URL")
-    
-    use_api_key = typer.confirm("是否使用 API Key 认证?", default=False)
-    if use_api_key:
-        api_key_input = typer.prompt("API Key", default="")
-        if api_key_input:
-            api_key = api_key_input
-    
-    use_headers = typer.confirm("是否使用浏览器请求头认证?", default=False)
-    header_file = ""
-    header_text = None
-    if use_headers:
-        header_file = typer.prompt("F12 请求头文件路径（可留空）", default="")
-        if not header_file:
-            header_text = typer.prompt("或直接粘贴请求头文本（可留空）", default="")
+    # ━━━ 抑制攻击模块的 verbose 日志（向导模式保持输出简洁）━━━
+    import logging
+    logging.getLogger("redteam.attack").setLevel(logging.ERROR)
+    logging.getLogger("redteam.pipeline").setLevel(logging.ERROR)
+    logging.getLogger("redteam.recon").setLevel(logging.ERROR)
 
-    use_local_model = typer.confirm("是否使用本地模型（Ollama/LM Studio）?", default=False)
-    model_name = None
-    provider = None
-    if use_local_model:
-        provider = typer.prompt("模型提供商", default="ollama", show_default=True)
-        model_name = typer.prompt("模型名称", default="qwen2.5:7b", show_default=True)
+    # ━━━ 考试场景选择 ━━━
+    console.print("\n  [bold]选择目标类型[/]")
+    console.print(f"    [1] AI 应用（企业 Web 应用，后端调用 LLM）")
+    console.print(f"    [2] AI 模型（直接调用 LLM API 端点）")
+    scenario_choice = typer.prompt("  请选择 [1/2]", default="1").strip()
+
+    from pathlib import Path
+    import yaml
+
+    # ━━━ 场景分支 ━━━
+    if scenario_choice == "2":
+        # ━━━ 场景2：直接 LLM API 端点 → 从预配置列表选择 ━━━
+        console.print(f"\n  [dim]场景2：直接 LLM API 端点 — 从预配置平台选择[/]")
+        creds_dir = Path("config/credentials")
+        available_creds = sorted(creds_dir.glob("*.yaml")) if creds_dir.exists() else []
+        if available_creds:
+            # 读取所有凭证信息
+            cred_infos: list[dict] = []
+            for cfile in available_creds:
+                try:
+                    cdata = yaml.safe_load(cfile.read_text(encoding="utf-8"))
+                    cred_infos.append({
+                        "file": cfile.name,
+                        "provider": cdata.get("provider", "?"),
+                        "model": cdata.get("name", "?"),
+                        "endpoint": cdata.get("base_url", "?"),
+                        "has_key": bool(cdata.get("api_key") and cdata.get("api_key") != "your-api-key-here"),
+                    })
+                except Exception:
+                    cred_infos.append({"file": cfile.name, "provider": "?", "model": "?", "endpoint": "?", "has_key": False})
+
+            # 展示平台信息表格
+            console.print(f"\n  [bold]预配置平台列表[/] ({len(cred_infos)} 个):")
+            table = Table(show_lines=False, expand=True)
+            table.add_column("#", style="cyan", no_wrap=True, width=4)
+            table.add_column("提供商", style="green", no_wrap=True)
+            table.add_column("模型", style="white")
+            table.add_column("端点 URL", style="dim", overflow="fold")
+            table.add_column("Key", justify="center", no_wrap=True, width=5)
+            for idx, info in enumerate(cred_infos, 1):
+                key_status = "[green]✓[/]" if info["has_key"] else "[red]✗[/]"
+                table.add_row(
+                    str(idx),
+                    info["provider"],
+                    info["model"],
+                    info["endpoint"],
+                    key_status,
+                )
+            console.print(table)
+            choice = typer.prompt("  请选择目标平台", default="1")
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(available_creds):
+                    cdata = yaml.safe_load(available_creds[idx].read_text(encoding="utf-8"))
+                    target = cdata.get("base_url", "")
+                    api_key = cdata.get("api_key", "")
+                    if api_key and api_key != "your-api-key-here":
+                        console.print(f"  [green]✓[/] 已选择: {cred_infos[idx]['provider']} ({cred_infos[idx]['model']})")
+                    else:
+                        console.print(f"  [yellow]⚠[/] {cred_infos[idx]['provider']} 中 API Key 未配置")
+                        api_key = ""
+                else:
+                    console.print("[yellow]无效选择，默认使用第 1 个平台[/]")
+                    cdata = yaml.safe_load(available_creds[0].read_text(encoding="utf-8"))
+                    target = cdata.get("base_url", "")
+                    api_key = cdata.get("api_key", "")
+            except (ValueError, IndexError):
+                console.print("[yellow]无效输入，默认使用第 1 个平台[/]")
+                cdata = yaml.safe_load(available_creds[0].read_text(encoding="utf-8"))
+                target = cdata.get("base_url", "")
+                api_key = cdata.get("api_key", "")
+        else:
+            console.print("  [yellow]config/credentials/ 目录下无预配置文件[/]")
+            target = typer.prompt("  目标 URL")
+            use_api_key = typer.confirm("目标服务是否需要 API Key 认证?", default=False)
+            api_key = None
+            if use_api_key:
+                api_key_input = typer.prompt("  请输入 API Key", default="")
+                if api_key_input:
+                    api_key = api_key_input
+
+        header_file = ""
+        header_text = None
+
+    else:
+        # ━━━ 场景1：AI 应用 → 输入 URL ━━━
+        target = typer.prompt("\n目标 URL")
+
+        # ━━━ 企业 AI 应用 URL → 询问是否认证 ━━━
+        console.print(f"\n  [dim]目标类型: AI 应用（企业基于 LLM 部署的 Web 应用）[/]")
+        use_auth = typer.confirm(
+            "\n  目标是否需要认证？（如需要，将读取浏览器请求头）",
+            default=False,
+        )
+
+        api_key = None
+        header_file = ""
+        header_text = None
+
+        if use_auth:
+            # 扫描 config/headers 目录下的可用请求头文件
+            headers_dir = Path("config/headers")
+            available_headers = sorted(headers_dir.glob("*.txt")) if headers_dir.exists() else []
+            if available_headers:
+                console.print(f"\n  [bold]目标服务认证（浏览器请求头）[/]")
+                console.print(f"  从浏览器 F12 复制的请求头，发现 {len(available_headers)} 个预配置文件:")
+                console.print(f"    [0] 不使用请求头认证")
+                for idx, hfile in enumerate(available_headers, 1):
+                    console.print(f"    [{idx}] {hfile.name}")
+
+                # 认证选择 + 预检循环
+                max_attempts = 3
+                for attempt in range(max_attempts):
+                    choice = typer.prompt("  请选择", default="0")
+                    if choice.strip() == "0":
+                        # 用户选择不使用认证
+                        header_file = ""
+                        console.print("  [dim]→ 不进行认证，直接侦察[/]")
+                        break
+
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(available_headers):
+                            selected_header = str(available_headers[idx])
+                            console.print(f"  [green]✓[/] 已选择: {available_headers[idx].name}")
+
+                            # ━━━ 初步认证验证 ━━━
+                            console.print(f"  [dim]正在验证认证信息...[/]")
+                            auth_check = _preliminary_auth_check(target, selected_header)
+
+                            if auth_check["success"]:
+                                header_file = selected_header
+                                console.print(f"  [green]✓[/] {auth_check['message']}")
+                                break
+                            else:
+                                # 认证失败，给出建议
+                                console.print(f"\n  [yellow]⚠[/] {auth_check['message']}")
+                                if auth_check["response_preview"]:
+                                    console.print(f"  [dim]响应预览: {auth_check['response_preview'][:100]}...[/]")
+                                console.print(f"  [dim]{auth_check['suggestion']}[/]")
+
+                                # 提供选项
+                                console.print(f"\n  [bold]选择操作:[/]")
+                                console.print(f"    [1] 选择其他认证文件")
+                                console.print(f"    [2] 跳过认证继续（可能无法访问 AI 功能）")
+                                console.print(f"    [3] 取消并退出")
+                                retry_choice = typer.prompt("  请选择", default="1")
+
+                                if retry_choice.strip() == "1":
+                                    if attempt < max_attempts - 1:
+                                        console.print(f"\n  请重新选择认证文件:")
+                                        console.print(f"    [0] 不使用请求头认证")
+                                        for i, hfile in enumerate(available_headers, 1):
+                                            console.print(f"    [{i}] {hfile.name}")
+                                    else:
+                                        console.print("  [yellow]已达到最大尝试次数，跳过认证[/]")
+                                        header_file = ""
+                                elif retry_choice.strip() == "2":
+                                    console.print("  [dim]→ 跳过认证继续侦察[/]")
+                                    header_file = ""
+                                    break
+                                else:
+                                    console.print("[blue]已取消[/]")
+                                    raise typer.Exit(0)
+                        else:
+                            console.print("[yellow]无效选择，跳过请求头认证[/]")
+                            break
+                    except ValueError:
+                        console.print("[yellow]无效输入，跳过请求头认证[/]")
+                        break
+            else:
+                console.print("  [yellow]config/headers/ 目录下无预配置文件，跳过认证[/]")
+        else:
+            console.print("  [dim]→ 不进行认证，直接侦察[/]")
 
     pipe = AIPipeline()
 
@@ -609,18 +1197,30 @@ def wizard(
         connectivity=connectivity,
     )
 
-    # 展示侦察结果表格
-    if services:
+    print_phase_banner(1, "AI 攻击面侦察", target=target, status="complete")
+
+    # 从侦察结果中筛选可攻击目标
+    attackable = [s for s in services if s.protocol in (
+        "openai_compatible", "ollama", "mcp", "generic_ai",
+    )]
+
+    recommendations: dict = {}
+
+    if attackable:
+        # ── 侦察简报：纯事实展示（不含分析）──
+        print_recon_briefing(recon, attackable)
+
+        # 展示侦察结果表格
         table = Table(title="发现的 AI 服务", show_lines=False, expand=True)
         table.add_column("协议", style="cyan", no_wrap=True)
         table.add_column("URL", style="white", no_wrap=True, overflow="fold")
-        table.add_column("模型", style="green")
+        table.add_column("模型", style="green", no_wrap=False, overflow="fold")
         table.add_column("认证", style="yellow", no_wrap=True)
         table.add_column("说明", style="dim", no_wrap=True)
         for svc in services:
             protocol_display = svc.protocol.upper()
             url_display = svc.url
-            models_display = ", ".join(svc.models[:3]) if svc.models else "-"
+            models_display = ", ".join(svc.models) if svc.models else "-"
             auth_display = "需要" if svc.auth_required else "不需要"
             
             note = ""
@@ -643,47 +1243,78 @@ def wizard(
                 note,
             )
         console.print(table)
-    else:
-        console.print("[yellow]未发现 AI 服务，尝试推进后续阶段（可能无效果）[/]")
 
-    print_phase_banner(1, "AI 攻击面侦察", target=target, status="complete")
+        # ━━━ 红队专家视角：目标优先级排序 ━━━
+        ranked = _rank_targets_by_attack_value(attackable)
 
-    # 从侦察结果中筛选可攻击目标
-    attackable = [s for s in services if s.protocol in (
-        "openai_compatible", "ollama", "mcp", "generic_ai",
-    )]
+        console.print(f"\n  [bold red]▶ 红队专家目标优先级分析[/]")
+        console.print(f"  [dim]基于 AI-300 考试高频场景和攻击成功率排序[/]")
 
-    recommendations: dict = {}
+        for i, item in enumerate(ranked, 1):
+            svc = item["target"]
+            score = item["score"]
+            reasons = item["reasons"]
+            # 价值等级标记（对齐 AI-300 P0/P1）
+            if score >= 70:
+                level = "[red]极高[/]"
+            elif score >= 50:
+                level = "[yellow]高[/]"
+            elif score >= 30:
+                level = "[blue]中[/]"
+            else:
+                level = "[dim]低[/]"
 
-    if attackable:
-        # ── 侦察简报：纯事实展示（不含分析）──
-        print_recon_briefing(recon, attackable)
+            console.print(f"\n  [bold][{i}][/] {level} [cyan]{svc.protocol.upper()}[/] {svc.url}")
+            console.print(f"      评分: {score} | {'; '.join(reasons[:3])}")
+            # 显示 AI-300 章节和 OWASP 映射（从 reasons 中提取）
+            chapter_hints = []
+            for r in reasons:
+                if "Ch" in r and ("P0" in r or "P1" in r):
+                    # 提取章节和 OWASP 信息
+                    chapter_hints.append(r)
+            if chapter_hints:
+                console.print(f"      [dim]└─ {'; '.join(chapter_hints[:2])}[/]")
 
-        # 目标确认：让用户选择要攻击的目标
-        print_target_confirmation_prompt(attackable)
+        console.print(f"\n  [dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]")
+        console.print(f"  [bold]选择攻击策略：[/]")
+        console.print(f"    [1~{len(ranked)}] 选择单个高价值目标优先攻击")
+        console.print(f"    [a] 全部攻击（按优先级顺序执行）")
+        console.print(f"    [n] 退出程序")
+
         target_input = typer.prompt(
-            "\n  选择要攻击的目标（逗号分隔，回车=全部）",
-            default="",
+            "\n  请选择",
+            default="1",
             show_default=False,
         )
 
-        if target_input.strip():
-            try:
-                selected_indices = [int(x.strip()) for x in target_input.split(",") if x.strip()]
-                confirmed_targets = [attackable[i-1] for i in selected_indices if 1 <= i <= len(attackable)]
-                if not confirmed_targets:
-                    console.print("[yellow]无效选择，将攻击全部可用目标[/]")
-                    confirmed_targets = attackable
-            except (ValueError, IndexError):
-                console.print("[yellow]格式错误，将攻击全部可用目标[/]")
-                confirmed_targets = attackable
-        else:
-            confirmed_targets = attackable
+        if target_input.strip().lower() == "n":
+            console.print("\n[blue]已退出程序。[/]")
+            raise typer.Exit(0)
 
-        console.print(f"\n  [green]✓[/] 确认攻击目标: {len(confirmed_targets)}/{len(attackable)} 个服务")
-        for t in confirmed_targets:
+        if target_input.strip().lower() == "a":
+            # 全部攻击 — 按优先级顺序
+            confirmed_targets = [item["target"] for item in ranked]
+            console.print(f"\n  [green]✓[/] 全部攻击模式: {len(confirmed_targets)} 个目标（按优先级排序）")
+        else:
+            # 选择单个目标
+            try:
+                idx = int(target_input.strip()) - 1
+                if 0 <= idx < len(ranked):
+                    confirmed_targets = [ranked[idx]["target"]]
+                else:
+                    console.print("[yellow]无效选择，使用最高优先级目标[/]")
+                    confirmed_targets = [ranked[0]["target"]]
+            except ValueError:
+                console.print("[yellow]格式错误，使用最高优先级目标[/]")
+                confirmed_targets = [ranked[0]["target"]]
+
+            console.print(f"\n  [green]✓[/] 优先攻击目标:")
+            t = confirmed_targets[0]
             model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
             console.print(f"    • [{t.protocol.upper()}] {t.url}{model_hint}")
+
+        # 保存完整排序列表供后续迭代使用
+        _remaining_targets = [item["target"] for item in ranked if item["target"] not in confirmed_targets]
 
         # 目标模型选择
         target_model_name = _prompt_target_model(console, confirmed_targets)
@@ -704,14 +1335,17 @@ def wizard(
 
         run_attack_phases = bool(confirmed_targets)
     else:
+        if not services:
+            console.print("[yellow]未发现 AI 服务，尝试推进后续阶段（可能无效果）[/]")
         confirmed_targets = []
         target_model_name = ""
         run_attack_phases = False
+        _remaining_targets: list = []
 
     # Phase 2 (Detect) 配置询问（评分器选择 → 多轮攻击专家指导）
     if run_attack_phases:
         console.print(f"\n{'─' * 72}")
-        console.print(f"  [Detect Phase Configuration]  提示注入攻击参数设置")
+        console.print(f"  [Detect Phase Configuration]  目标策略选择")
         console.print(f"{'─' * 72}")
 
         judge_endpoint: Optional[str] = None
@@ -740,7 +1374,7 @@ def wizard(
     # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 2: Detect — 提示注入攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
     if confirmed_targets:
         print_phase_banner(
-            2, "提示注入攻击",
+            2, "高价值目标的策略执行",
             target=confirmed_targets[0].url if len(confirmed_targets) == 1 else f"{len(confirmed_targets)} targets",
             subtitle="Ch3: Detect — Prompt Injection + Jailbreak + System Prompt Extraction",
             status="active",
@@ -764,6 +1398,56 @@ def wizard(
         console.print("\n[yellow]⚠ 无确认目标，跳过 Phase 2[/]")
         inj_findings = []
         chain = None
+
+    # ━━━ 迭代攻击：询问是否继续攻击剩余目标 ━━━
+    if _remaining_targets and confirmed_targets and len(confirmed_targets) == 1:
+        console.print(f"\n{'─' * 72}")
+        console.print(f"  [bold]迭代攻击 — 剩余 {len(_remaining_targets)} 个目标[/]")
+        console.print(f"{'─' * 72}")
+        for i, svc in enumerate(_remaining_targets, 1):
+            console.print(f"    [{i}] [cyan]{svc.protocol.upper()}[/] {svc.url}")
+        console.print(f"    [a] 攻击全部剩余目标")
+        console.print(f"    [n] 跳过，直接进入下一阶段")
+
+        iter_input = typer.prompt(
+            "\n  是否攻击剩余目标？",
+            default="n",
+            show_default=False,
+        )
+
+        if iter_input.strip().lower() != "n":
+            if iter_input.strip().lower() == "a":
+                # 攻击全部剩余目标
+                additional_targets = _remaining_targets
+            else:
+                try:
+                    idx = int(iter_input.strip()) - 1
+                    if 0 <= idx < len(_remaining_targets):
+                        additional_targets = [_remaining_targets[idx]]
+                    else:
+                        additional_targets = []
+                except ValueError:
+                    additional_targets = []
+
+            if additional_targets:
+                console.print(f"\n  [green]✓[/] 追加攻击 {len(additional_targets)} 个目标")
+                for svc in additional_targets:
+                    console.print(f"    • [{svc.protocol.upper()}] {svc.url}")
+
+                # 对追加目标执行注入攻击
+                for atk_svc in additional_targets:
+                    console.print(f"\n  [bold]→ 攻击: [{atk_svc.protocol.upper()}] {atk_svc.url}[/]")
+                    add_inj_findings, _ = pipe.injection_phase(
+                        run_id, recon, [atk_svc], auth,
+                        with_multi_turn=use_multi_turn,
+                        target_model_name=target_model_name,
+                        judge_endpoint=judge_endpoint,
+                        judge_api_key=judge_api_key,
+                        judge_model_name=judge_model_name,
+                        governor=governor,
+                    )
+                    inj_findings.extend(add_inj_findings)
+                    _print_wizard_phase_result(console, "提示注入攻击", add_inj_findings, phase_num=2)
 
     # ━━━━━━━━ Phases 3-8: 统一由 run_attack_phases 守卫 ━━━━━━━━
     if run_attack_phases:

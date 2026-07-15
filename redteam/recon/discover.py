@@ -14,7 +14,7 @@ import json
 import random
 import re
 import time
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 from pathlib import Path
@@ -94,6 +94,22 @@ _AI_PROBE_PATHS: list[tuple[str, str, list[str]]] = [
     ("/socket.io", "websocket", ["socket.io"]),
     ("/realtime", "websocket", ["realtime"]),
 ]
+
+# P0 核心路径集合 — 分层探测时优先执行这些路径
+_P0_PATHS: set[str] = {
+    # Ollama 核心
+    "/api/tags", "/api/generate", "/api/embeddings", "/api/version", "/api/show",
+    # OpenAI 兼容核心
+    "/v1/models", "/v1/chat/completions", "/v1/completions", "/v1/embeddings",
+    "/v1/chat/completions/stream",
+    # 多模态核心
+    "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/audio/speech",
+    "/v1/images/generations", "/v1/vision",
+    # MCP 协议核心
+    "/mcp", "/.well-known/mcp", "/mcp/sse", "/sse",
+    # A2A 协议核心
+    "/.well-known/agent.json", "/.well-known/agent-card.json", "/.a2a/agent-card",
+}
 
 _DEFAULT_KEYWORDS: dict[str, list[str]] = {
     "ollama": ["models", "name", "ollama", "embedding", "version"],
@@ -456,25 +472,34 @@ def discover_ai_services(
     target: str,
     auth: AuthContext | None = None,
     concurrency: int = 3,
-    timeout: float = 5.0,
+    timeout: float = 3.0,
     rate_limit_ms: int = 1000,
     enable_fingerprint: bool = True,
     stealth: bool = True,
     governor: "RateLimitGovernor | None" = None,
+    layered: bool = True,
+    early_exit_threshold: int = 30,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> list[AIService]:
     """主动 AI 攻击面发现：依次探测已知 AI 端点路径（无痕静默模式）。
 
-    v2.2: 集成 RateLimitGovernor 自适应调速，请求前自动等待安全间隔。
+    v2.3: 分层探测 + 进度回调 + 早期退出。
+    - 分层探测：先 P0 核心路径（~23 个），发现 AI 服务后再扩展 P1/P2
+    - 进度回调：实时报告探测进度
+    - 早期退出：连续 N 个 404 后跳过剩余路径
 
     Args:
         target: 目标 URL
         auth: 认证上下文
         concurrency: 并发探测数（默认3，降低被检测风险）
-        timeout: 超时时间
+        timeout: 超时时间（默认3.0s，侦察阶段不需要长超时）
         rate_limit_ms: 请求间隔（默认1000ms，governor 优先）
         enable_fingerprint: 是否启用模型指纹探测
         stealth: 是否启用无痕模式（浏览器伪装、随机延迟）
         governor: 自适应速率调速器（可选，优先于 rate_limit_ms）
+        layered: 是否启用分层探测（P0 优先，发现 AI 服务后扩展）
+        early_exit_threshold: 连续 404 阈值，超过后提前终止
+        progress_callback: 进度回调函数 (done, total, phase_label)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -486,15 +511,29 @@ def discover_ai_services(
 
     probes = _build_probe_list()
 
+    # 分层探测：P0 核心路径优先
+    if layered:
+        p0_probes = [p for p in probes if p[0] in _P0_PATHS]
+        p1_probes = [p for p in probes if p[0] not in _P0_PATHS]
+        # 确保 P0 路径包含所有硬编码的 P0（即使词表中没有）
+        probe_phases: list[tuple[list[tuple[str, str, list[str]]], str]] = [
+            (p0_probes, "P0"),
+            (p1_probes, "P1"),
+        ]
+    else:
+        probe_phases = [(probes, "all")]
+
+    total_probes = sum(len(phase[0]) for phase in probe_phases)
+
     # 估算时间（调速器优先）
     estimated_time = _estimate_recon_time(
-        len(probes), concurrency, timeout, rate_limit_ms, stealth,
+        total_probes, concurrency, timeout, rate_limit_ms, stealth,
         governor=governor, target_url=target,
     )
-    print(f"[info] 端点探测数: {len(probes)}, 预估时间: {estimated_time:.1f} 秒 ({estimated_time/60:.1f} 分钟)")
+    print(f"[info] 端点探测数: {total_probes} (P0: {len(probe_phases[0][0])}), "
+          f"预估时间: {estimated_time:.1f} 秒 ({estimated_time/60:.1f} 分钟)")
 
     # ━━━ 调速器模式：延迟由 governor 在 send_get 中自动处理 ━━━
-    # 如果 governor 可用，探针内不再使用手动 time.sleep
     use_governor = governor is not None
 
     # 手动延迟仅在没有 governor 时使用
@@ -511,56 +550,100 @@ def discover_ai_services(
     except Exception:
         pass
 
-    for batch_start in range(0, len(probes), concurrency):
-        batch = probes[batch_start:batch_start + concurrency]
-        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
-            futures = {
-                executor.submit(probe_ai_endpoint, target, path, proto, keywords, auth, timeout, governor): (path, proto)
-                for path, proto, keywords in batch
-            }
-            for f in as_completed(futures):
-                result = f.result()
-                if not result or result["status"] in (404,):
-                    continue
-                if result["url"] in seen_urls:
-                    continue
-                seen_urls.add(result["url"])
+    # ── 分层探测主循环 ──
+    total_done = 0
+    consecutive_404 = 0
+    early_exit = False
 
-                status = result["status"]
-                auth_required = status in (401, 403)
-                if status == 401:
-                    auth_type = "bearer"
-                elif status == 403:
-                    auth_type = "forbidden"
-                elif status == 200:
-                    auth_type = "none"
-                elif status == 302 or status == 301:
-                    auth_type = "redirect"
-                elif 500 <= status < 600:
-                    auth_type = "error"
-                else:
-                    auth_type = "unknown"
+    for phase_probes, phase_label in probe_phases:
+        if not phase_probes or early_exit:
+            continue
 
-                svc = AIService(
-                    url=result["url"],
-                    protocol=result["protocol"],
-                    stack_layer=_map_protocol_to_layer(result["protocol"]),
-                    auth_required=auth_required,
-                    auth_type=auth_type,
-                    raw_probe_response=result["body_preview"],
-                )
+        # P1 阶段：如果 P0 未发现 AI 服务，跳过扩展探测
+        if phase_label == "P1" and not services:
+            print(f"    P0 阶段未发现 AI 服务，跳过 P1 扩展探测")
+            continue
 
-                if result["is_json"]:
-                    _parse_models_from_response(result["body_preview"], svc)
+        for batch_start in range(0, len(phase_probes), concurrency):
+            batch = phase_probes[batch_start:batch_start + concurrency]
 
-                svc.tools = _detect_tools(result["body_preview"])
-                svc.system_prompt_hints = _detect_system_prompt_hints(result["body_preview"])
+            # 进度回调
+            if progress_callback:
+                current_path = batch[0][0] if batch else ""
+                progress_callback(total_done, total_probes, f"{phase_label}: {current_path}")
 
-                services.append(svc)
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                futures = {
+                    executor.submit(probe_ai_endpoint, target, path, proto, keywords, auth, timeout, governor): (path, proto)
+                    for path, proto, keywords in batch
+                }
+                for f in as_completed(futures):
+                    total_done += 1
+                    result = f.result()
+                    if not result:
+                        continue
+                    if result["status"] == 404:
+                        consecutive_404 += 1
+                        if consecutive_404 >= early_exit_threshold:
+                            early_exit = True
+                            break
+                        continue
 
-        # 仅在无 governor 时手动延迟
-        if not use_governor and delay and batch_start + concurrency < len(probes):
-            time.sleep(delay)
+                    # 非 404 响应，重置计数器
+                    consecutive_404 = 0
+
+                    if result["url"] in seen_urls:
+                        continue
+                    seen_urls.add(result["url"])
+
+                    status = result["status"]
+                    auth_required = status in (401, 403)
+                    if status == 401:
+                        auth_type = "bearer"
+                    elif status == 403:
+                        auth_type = "forbidden"
+                    elif status == 200:
+                        auth_type = "none"
+                    elif status == 302 or status == 301:
+                        auth_type = "redirect"
+                    elif 500 <= status < 600:
+                        auth_type = "error"
+                    else:
+                        auth_type = "unknown"
+
+                    svc = AIService(
+                        url=result["url"],
+                        protocol=result["protocol"],
+                        stack_layer=_map_protocol_to_layer(result["protocol"]),
+                        auth_required=auth_required,
+                        auth_type=auth_type,
+                        raw_probe_response=result["body_preview"],
+                    )
+
+                    if result["is_json"]:
+                        _parse_models_from_response(result["body_preview"], svc)
+
+                    svc.tools = _detect_tools(result["body_preview"])
+                    svc.system_prompt_hints = _detect_system_prompt_hints(result["body_preview"])
+
+                    services.append(svc)
+
+            # 早期退出检查
+            if early_exit:
+                print(f"    连续 {consecutive_404} 个 404，提前终止探测")
+                break
+
+            # 仅在无 governor 时手动延迟
+            if not use_governor and delay and batch_start + concurrency < len(phase_probes):
+                time.sleep(delay)
+
+        # P0 阶段完成后的进度反馈
+        if progress_callback and phase_label == "P0" and services:
+            progress_callback(total_done, total_probes, f"P0 完成: 发现 {len(services)} 个服务 → P1")
+
+    # 最终进度
+    if progress_callback:
+        progress_callback(total_done, total_probes, f"完成: 发现 {len(services)} 个服务")
 
     deduped: dict[str, AIService] = {}
     for s in services:

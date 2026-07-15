@@ -21,6 +21,22 @@ AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 
 4. **枚举优先于字符串常量**
 5. **目录结构强制合规**：所有新建文件/目录必须遵循已有项目目录结构。创建前必须先阅读父目录结构。严禁在 `pipeline/` 根目录创建与 `execution/`/`reporting/` 平级的独立目录
 
+## 攻击执行策略：见好就收
+
+**规则**：同一攻击阶段内，第一个技术成功（高质量 Finding 确认）后立即停止后续技术尝试。
+
+**理由**（OSAI 考试对齐）：
+- 1 个完整 Finding（OWASP + ATLAS + CVSS + 完整请求/响应日志）即可满分
+- 同阶段重复技术不额外加分（如 6 个 LLM01 Finding ≈ 1 个 LLM01 Finding）
+- 攻击链多样性靠跨阶段串联（Ch3→Ch7→Ch8），不靠同阶段堆技术
+
+**代码实现**（`prompt_inject.py`）：
+- `run_direct_injection_phase`: `if result.success: break`
+- `run_jailbreak_phase`: `if result.success and not result.guardrail_triggered: break`
+- `extract_system_prompt`: `if result.success and len > 30: return`
+
+**适用边界**：考试模式 → 见好就收；正式评估报告 → 未来可加 `--exhaustive` 开关
+
 ## 项目目录结构（强制读写参考）
 
 ```

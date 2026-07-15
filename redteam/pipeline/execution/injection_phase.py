@@ -17,12 +17,13 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from redteam.core.models import AIService, AttackChain, AttackStep, AuthContext, Finding, OWASPLlm, MITREATLASTactic, PromptInjectionResult, ReconResult
+from redteam.core.models import AIService, AttackChain, AttackStep, AuthContext, Finding, GuardrailType, OWASPLlm, MITREATLASTactic, PromptInjectionResult, ReconResult
 from redteam.core.store import save_findings, save_json
-from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
+
 from redteam.attack.prompt_inject import run_full_injection_suite, generate_injection_findings
 from redteam.attack.agent import test_indirect_injection
 from redteam.attack.engine.determinism_router import DeterminismAwareRouter
+from rich.table import Table
 
 if TYPE_CHECKING:
     from redteam.core.rate_limiter import RateLimitGovernor
@@ -92,8 +93,6 @@ def injection_phase(
         judge_model_name: LLM Judge 模型名称（如 glm-4-flash, gpt-4o）
         governor: 自适应调速器（v2.1 新增）
     """
-    print_section_header("[Phase 2] 提示注入攻击", f"Target: {recon.target}")
-
     chain = AttackChain(chain_id=run_id, target=recon.target)
     all_findings: list[Finding] = []
     step_id = 1
@@ -105,33 +104,36 @@ def injection_phase(
         print("  无可攻击的 AI 服务，跳过注入阶段")
         return all_findings, chain
 
-    print_target_list(
-        [s.model_dump() for s in attackable],
-        "Attackable Targets"
-    )
-
-    if judge_endpoint:
-        print(f"\n  [Native + LLM Judge] 已启用")
-    else:
-        print(f"\n  [Native] 纯 httpx 执行模式")
-
-    if with_multi_turn:
-        print(f"  [Multi-Turn] Crescendo + TAP 多轮攻击已启用")
-
+    # ━━━ 目标概览表 ━━━
     det_router = DeterminismAwareRouter()
-
+    print(f"\n  [bold]攻击目标概览[/]")
+    tgt_table = Table(show_lines=False, expand=True, pad_edge=False)
+    tgt_table.add_column("目标", style="cyan", no_wrap=True)
+    tgt_table.add_column("协议", style="dim")
+    tgt_table.add_column("确定性", justify="center")
+    tgt_table.add_column("护栏", justify="center")
+    tgt_table.add_column("评分器", style="dim")
     for svc in attackable[:3]:
-        print(f"\n  目标: [{svc.protocol.upper()}] {svc.url}")
-
-        # ━━━ 确定性感知策略分析 ━━━
         det_info = recon.determinism_info.get(svc.url, {})
         det_profile = det_router.analyze(det_info)
-        print(f"  [Determinism] {det_router.summarize(det_profile)}")
+        det_str = "否" if not det_profile.is_deterministic else "是"
+        grd_str = "无" if not svc.guardrail_profile or svc.guardrail_profile.guardrail_type == GuardrailType.NONE else svc.guardrail_profile.guardrail_type.value
+        scorer = "LLM Judge" if judge_endpoint else "Hybrid"
+        tgt_table.add_row(
+            svc.url[:50], svc.protocol.upper(), det_str, grd_str, scorer
+        )
+    print(tgt_table)
 
-        # 自动启用多轮攻击（如果确定性分析建议）
+    multi_turn_str = "Crescendo + TAP" if with_multi_turn else "未启用"
+    print(f"\n  多轮攻击: {multi_turn_str}")
+
+    # ━━━ 执行攻击 ━━━
+    results_summary: list[dict] = []
+
+    for svc in attackable[:3]:
+        det_info = recon.determinism_info.get(svc.url, {})
+        det_profile = det_router.analyze(det_info)
         _use_multi_turn = with_multi_turn or det_profile.enable_multi_turn
-        if det_profile.enable_multi_turn and not with_multi_turn:
-            print(f"  [Auto] 确定性分析建议启用 Multi-Turn 攻击")
 
         suite = run_full_injection_suite(
             svc, auth,
@@ -151,89 +153,51 @@ def injection_phase(
         tap_result = suite.get("tap")
 
         success_direct = sum(1 for r in direct_results if r.success)
-        print_result_bar(
-            "直接提示注入", success_direct, len(direct_results),
-            severity="high" if success_direct > 0 else "medium"
-        )
-        # 如果全部失败且存在错误信息，输出诊断
-        _print_error_diagnostics("直接提示注入", direct_results)
-
-        chain.steps.append(AttackStep(
-            step_id=step_id, phase="direct_injection",
-            technique="direct_prompt_injection",
-            target_url=svc.url, status="success" if success_direct else "partial",
-        ))
-        step_id += 1
-
         sp_success = 1 if (sp_result and sp_result.success) else 0
-        print_result_bar(
-            "系统提示提取", sp_success, 1,
-            severity="critical" if sp_success else "medium"
-        )
-        if sp_result and not sp_result.success:
-            _print_error_diagnostics("系统提示提取", [sp_result])
-        chain.steps.append(AttackStep(
-            step_id=step_id, phase="system_prompt_extract",
-            technique=sp_result.technique if sp_result else "multi_technique",
-            target_url=svc.url, status="success" if sp_success else "failed",
-            evidence=sp_result.extracted_info[:500] if sp_result else "",
-        ))
-        step_id += 1
-
         success_jb = sum(1 for r in jailbreak_results if r.success)
-        print_result_bar(
-            "越狱/护栏绕过", success_jb, len(jailbreak_results),
-            severity="high" if success_jb > 0 else "medium"
-        )
-        _print_error_diagnostics("越狱/护栏绕过", jailbreak_results)
-        chain.steps.append(AttackStep(
-            step_id=step_id, phase="jailbreak",
-            technique="jailbreak_multi", target_url=svc.url,
-            status="success" if success_jb else "failed",
-        ))
-        step_id += 1
-
         indirect_results = test_indirect_injection(svc, auth)
         success_indirect = sum(1 for r in indirect_results if r.success)
-        print_result_bar(
-            "间接提示注入", success_indirect, len(indirect_results),
-            severity="high" if success_indirect > 0 else "medium"
-        )
-        chain.steps.append(AttackStep(
-            step_id=step_id, phase="indirect_injection",
-            technique="indirect_prompt_injection", target_url=svc.url,
-            status="success" if success_indirect else "partial",
-        ))
-        step_id += 1
 
-        # 多轮攻击结果展示
+        cr_success = 0
+        cr_turns = 0
         if crescendo_result:
             cr_success = 1 if crescendo_result.get("result") == "success" else 0
-            turns = len(crescendo_result.get("attack_log", []))
-            print_result_bar(
-                f"Crescendo 多轮 ({turns} turns)", cr_success, 1,
-                severity="critical" if cr_success else "medium"
-            )
-            chain.steps.append(AttackStep(
-                step_id=step_id, phase="crescendo_multi_turn",
-                technique="crescendo_escalation", target_url=svc.url,
-                status="success" if cr_success else "failed",
-                evidence=f"Turns: {turns}",
-            ))
-            step_id += 1
+            cr_turns = len(crescendo_result.get("attack_log", []))
 
+        tap_success = 0
+        tap_score = 0.0
         if tap_result:
             tap_success = 1 if tap_result.get("result") == "success" else 0
             tap_score = tap_result.get("best_score", 0.0)
-            print_result_bar(
-                f"TAP 攻击树 (score={tap_score:.2f})", tap_success, 1,
-                severity="critical" if tap_success else "medium"
-            )
+
+        results_summary.append({
+            "target": svc.protocol.upper(),
+            "direct": (success_direct, len(direct_results)),
+            "sys_prompt": (sp_success, 1),
+            "jailbreak": (success_jb, len(jailbreak_results)),
+            "indirect": (success_indirect, len(indirect_results)),
+            "crescendo": (cr_success, cr_turns),
+            "tap": (tap_success, tap_score),
+        })
+
+        # 错误诊断（仅在有错误时显示）
+        for label, results in [("直接提示注入", direct_results), ("越狱/护栏绕过", jailbreak_results)]:
+            _print_error_diagnostics(label, results)
+
+        # 构建 attack chain
+        for phase, tech, status, evidence in [
+            ("direct_injection", "direct_prompt_injection", "success" if success_direct else "partial", ""),
+            ("system_prompt_extract", sp_result.technique if sp_result else "multi_technique", "success" if sp_success else "failed", sp_result.extracted_info[:500] if sp_result else ""),
+            ("jailbreak", "jailbreak_multi", "success" if success_jb else "failed", ""),
+            ("indirect_injection", "indirect_prompt_injection", "success" if success_indirect else "partial", ""),
+            ("crescendo_multi_turn", "crescendo_escalation", "success" if cr_success else "failed", f"Turns: {cr_turns}"),
+            ("tap_attack_tree", "tap_pruning", "success" if tap_success else "failed", f"Best score: {tap_score:.2f}"),
+        ]:
+            if phase in ("crescendo_multi_turn", "tap_attack_tree") and not (crescendo_result or tap_result):
+                continue
             chain.steps.append(AttackStep(
-                step_id=step_id, phase="tap_attack_tree",
-                technique="tap_pruning", target_url=svc.url,
-                status="success" if tap_success else "failed",
-                evidence=f"Best score: {tap_score:.2f}",
+                step_id=step_id, phase=phase, technique=tech,
+                target_url=svc.url, status=status, evidence=evidence,
             ))
             step_id += 1
 
@@ -246,6 +210,37 @@ def injection_phase(
 
         chain.mitre_atlas_tactics.append(MITREATLASTactic.INITIAL_ACCESS.value)
         chain.owasp_llm_categories.append(OWASPLlm.LLM01_PROMPT_INJECTION.value)
+
+    # ━━━ 攻击结果摘要表 ━━━
+    print(f"\n  [bold]攻击结果摘要[/]")
+    res_table = Table(show_lines=False, expand=True, pad_edge=False)
+    res_table.add_column("目标", style="cyan")
+    res_table.add_column("直接注入", justify="center")
+    res_table.add_column("系统提示", justify="center")
+    res_table.add_column("越狱绕过", justify="center")
+    res_table.add_column("间接注入", justify="center")
+    res_table.add_column("Crescendo", justify="center")
+    res_table.add_column("TAP", justify="center")
+
+    for r in results_summary:
+        def _cell(success, total, score=None):
+            if total == 0:
+                return "[dim]—[/]"
+            s, t = success, total
+            if s > 0:
+                return f"[red]⚠ {s}/{t}[/]"
+            return f"[green]✓ 0/{t}[/]"
+
+        res_table.add_row(
+            r["target"],
+            _cell(*r["direct"]),
+            _cell(*r["sys_prompt"]),
+            _cell(*r["jailbreak"]),
+            _cell(*r["indirect"]),
+            _cell(r["crescendo"][0], 1) if r["crescendo"][1] > 0 else "[dim]—[/]",
+            _cell(r["tap"][0], 1, r["tap"][1]) if r["tap"][1] >= 0 else "[dim]—[/]",
+        )
+    print(res_table)
 
     save_findings(run_id, all_findings, subdir="detect")
     save_json(run_id, "attack_chain_injection", chain.model_dump(), subdir="recon")

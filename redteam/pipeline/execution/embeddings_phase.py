@@ -14,7 +14,7 @@ from typing import Any
 
 from redteam.core.models import AIService, AuthContext, Finding
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header
+
 from redteam.attack.embeddings_attack import (
     probe_embedding_endpoints, test_embedding_inversion,
     inject_adversarial_embeddings, check_embedding_leakage,
@@ -35,8 +35,6 @@ def embeddings_attack_phase(
     3. 对抗性嵌入注入
     4. 嵌入信息泄露检测
     """
-    print_section_header("[Phase 5] 嵌入模型攻击", "Embeddings Inversion + Adversarial Injection")
-
     all_findings: list[Finding] = []
 
     for svc in services[:3]:

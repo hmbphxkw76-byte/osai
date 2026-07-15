@@ -19,7 +19,7 @@ from typing import Any, Optional
 from redteam.core.models import AIService, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic, Severity
 from redteam.core.kill_chain_tracker import get_tracker
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header
+
 
 
 @dataclass
@@ -92,8 +92,6 @@ def threat_modeling_phase(
     Returns:
         ThreatModel
     """
-    print_section_header("[Phase 10] AI 目标威胁建模", "Ch10: Hypothesis Register + Trust Boundaries + Attack Paths")
-
     model = ThreatModel(target=target)
     model.hypotheses = _build_hypothesis_register(findings)
     model.trust_boundaries = _map_trust_boundaries(services, findings)

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from redteam.core.models import AIService, AuthContext, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic, Severity
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
+from redteam.core.terminal_output import print_target_list, print_result_bar
 
 # 复用 agent 模块导出函数（而非内联实现）
 from redteam.attack.agent import (
@@ -49,8 +49,6 @@ def multi_agent_phase(
     Returns:
         Finding 列表
     """
-    print_section_header("[Phase 4] Multi-Agent & A2A Protocol Attack", "Ch4: Inter-Agent Trust + Cascading + Rogue")
-
     all_findings: list[Finding] = []
     # 筛选支持 A2A 或多 Agent 的服务
     multi_agent_svcs = [

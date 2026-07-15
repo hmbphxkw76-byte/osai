@@ -17,7 +17,7 @@ from typing import Any
 
 from redteam.core.models import AIService, AuthContext, Finding
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header
+
 from redteam.attack.supply_chain import (
     detect_hf_model_source, check_pickle_deserialization_risk,
     check_dataset_poisoning_risks, check_dependency_risks,
@@ -52,8 +52,6 @@ def supply_chain_phase(
         gitlab_token: GitLab Personal Access Token（可选）
         repo_path: 本地仓库路径（可选，用于代码分析）
     """
-    print_section_header("[Phase 7] AI 供应链攻击", "HF Model Integrity + Dependency Risks + Git Recon")
-
     all_findings: list[Finding] = []
 
     for svc in services[:3]:

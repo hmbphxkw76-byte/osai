@@ -16,102 +16,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
-# ── 攻击策略知识库（基于真实 AI 红队经验） ────────────────────────
 
-_STRATEGY_KB: Dict[str, Dict[str, Any]] = {
-    "roleplay": {
-        "name": "角色扮演 (Roleplay)",
-        "description": "让模型扮演无限制角色，绕过系统提示约束",
-        "owasp": ["LLM01", "LLM08"],
-        "atlas_tactic": "Initial Access",
-        "base_rate_ollama": 0.85,
-        "base_rate_openai": 0.55,
-        "base_rate_generic": 0.70,
-        "explanation": "Ollama 本地模型通常缺乏严格的内容审核层，角色扮演攻击成功率极高",
-    },
-    "context_switch": {
-        "name": "上下文重置 (Context Switch)",
-        "description": "通过伪造对话结束/重置标记，覆盖原始指令",
-        "owasp": ["LLM01", "LLM08"],
-        "atlas_tactic": "Initial Access",
-        "base_rate_ollama": 0.70,
-        "base_rate_openai": 0.45,
-        "base_rate_generic": 0.60,
-        "explanation": "利用模型对上下文边界的信任，在「新对话」中注入恶意指令",
-    },
-    "delimiter": {
-        "name": "分隔符劫持 (Delimiter Hijack)",
-        "description": "使用 Markdown/XML 分隔符伪造系统指令块",
-        "owasp": ["LLM04", "LLM07"],
-        "atlas_tactic": "Initial Access",
-        "base_rate_ollama": 0.65,
-        "base_rate_openai": 0.40,
-        "base_rate_generic": 0.55,
-        "explanation": "小模型对结构化分隔符的解析不一致，容易将用户输入误判为系统指令",
-    },
-    "few_shot": {
-        "name": "少样本诱导 (Few-Shot)",
-        "description": "通过多个「合法」示例建立模式，逐步引导模型违规",
-        "owasp": ["LLM03", "LLM10"],
-        "atlas_tactic": "Initial Access",
-        "base_rate_ollama": 0.60,
-        "base_rate_openai": 0.35,
-        "base_rate_generic": 0.50,
-        "explanation": "利用模型对示例模式的学习倾向，建立安全行为的反模式",
-    },
-    "encoding": {
-        "name": "编码绕过 (Encoding Bypass)",
-        "description": "使用 Base64/Unicode/零宽字符编码隐藏攻击载荷",
-        "owasp": ["LLM01", "LLM10"],
-        "atlas_tactic": "Defense Evasion",
-        "base_rate_ollama": 0.55,
-        "base_rate_openai": 0.30,
-        "base_rate_generic": 0.45,
-        "explanation": "编码层经常绕过输入过滤器，但高能力模型可能识别并拒绝",
-    },
-    "instruction_override": {
-        "name": "指令覆盖 (Instruction Override)",
-        "description": "直接声明「忽略之前所有指令」并注入新指令",
-        "owasp": ["LLM01", "LLM06"],
-        "atlas_tactic": "Initial Access",
-        "base_rate_ollama": 0.75,
-        "base_rate_openai": 0.50,
-        "base_rate_generic": 0.65,
-        "explanation": "最直接的注入方式，对缺乏指令优先级机制的模型非常有效",
-    },
-}
-
-# 策略执行优先级（按综合成功率排序）
-_STRATEGY_PRIORITY = ["roleplay", "instruction_override", "context_switch", "delimiter", "few_shot", "encoding"]
-
-
-def _estimate_success_rate(strategy_id: str, protocol: str) -> float:
-    """根据目标协议估算攻击策略成功率。"""
-    info = _STRATEGY_KB.get(strategy_id, {})
-    proto = protocol.lower() if protocol else "generic_ai"
-    if "ollama" in proto:
-        return info.get("base_rate_ollama", 0.50)
-    elif "openai" in proto:
-        return info.get("base_rate_openai", 0.50)
-    else:
-        return info.get("base_rate_generic", 0.50)
-
-
-def _get_target_family(protocol: str) -> str:
-    """获取目标协议族名称。"""
-    proto = protocol.lower() if protocol else ""
-    if "ollama" in proto:
-        return "Ollama（本地模型）"
-    elif "openai" in proto:
-        return "OpenAI 兼容 API"
-    elif "anthropic" in proto:
-        return "Anthropic 兼容 API"
-    elif "mcp" in proto:
-        return "MCP 工具服务器"
-    elif "agent" in proto or "a2a" in proto:
-        return "Agent-to-Agent 协议"
-    else:
-        return "通用 AI 端点"
 
 
 def print_phase_banner(
@@ -198,8 +103,128 @@ def print_recon_briefing(recon: Any, services: list) -> None:
 
 
 
+def _classify_endpoint_type(url: str, protocol: str) -> str:
+    """根据 URL 和协议分类端点类型（决定适用攻击策略）。
+
+    Args:
+        url: 目标 URL
+        protocol: 协议类型
+
+    Returns:
+        端点类型标识: chat / embedding / model_enum / mcp / a2a / generic
+    """
+    url_lower = url.lower()
+    proto_lower = protocol.lower() if protocol else ""
+
+    # 嵌入端点（Ch6 嵌入攻击，非提示注入）
+    if any(p in url_lower for p in ["/api/embeddings", "/v1/embeddings", "/embed", "/v1/embed"]):
+        return "embedding"
+    # 模型枚举端点（仅侦察价值，无直接攻击面）
+    if any(p in url_lower for p in ["/v1/models", "/api/tags", "/api/show", "/models", "/v1/models/list"]):
+        return "model_enum"
+    # MCP 工具面（Ch7 工具劫持）
+    if any(p in url_lower for p in ["/mcp", "/mcp/sse", "/sse"]) or "mcp" in proto_lower:
+        return "mcp"
+    # A2A 代理面（Ch4 代理间劫持）
+    if any(p in url_lower for p in ["/.well-known/agent", "/agent/card", "/.a2a"]) or "agent" in proto_lower:
+        return "a2a"
+    # 对话端点（Ch3 提示注入）
+    if any(p in url_lower for p in ["/v1/chat/completions", "/v1/completions", "/v1/messages",
+                                     "/api/chat", "/api/generate", "/chat", "/chat/completions"]):
+        return "chat"
+    return "generic"
+
+
+def _get_strategies_for_endpoint(endpoint_type: str) -> list[Dict[str, Any]]:
+    """根据端点类型返回适用的攻击策略列表。
+
+    Args:
+        endpoint_type: 端点类型（chat/embedding/model_enum/mcp/a2a/generic）
+
+    Returns:
+        策略列表，每项含 type_label, strategies
+    """
+    if endpoint_type == "embedding":
+        return [{
+            "type_label": "Ch6 嵌入攻击",
+            "strategies": [
+                {"name": "嵌入反演", "owasp": "LLM08", "atlas": "Collection", "rate_key": "embed_inversion"},
+                {"name": "成员推断", "owasp": "LLM08", "atlas": "Collection", "rate_key": "membership"},
+                {"name": "属性推断", "owasp": "LLM08", "atlas": "Collection", "rate_key": "attribute"},
+            ]
+        }]
+    elif endpoint_type == "model_enum":
+        return [{
+            "type_label": "仅侦察价值",
+            "strategies": [
+                {"name": "模型枚举（信息收集）", "owasp": "—", "atlas": "Reconnaissance", "rate_key": "recon"},
+            ]
+        }]
+    elif endpoint_type == "mcp":
+        return [{
+            "type_label": "Ch7 MCP 工具劫持",
+            "strategies": [
+                {"name": "工具参数注入", "owasp": "LLM06/ASI02", "atlas": "Execution", "rate_key": "mcp_inject"},
+                {"name": "工具名称混淆", "owasp": "LLM06/ASI02", "atlas": "Execution", "rate_key": "mcp_confuse"},
+            ]
+        }]
+    elif endpoint_type == "a2a":
+        return [{
+            "type_label": "Ch4 A2A 代理劫持",
+            "strategies": [
+                {"name": "Agent Card 伪造", "owasp": "ASI07", "atlas": "Initial Access", "rate_key": "a2a_card"},
+                {"name": "代理间消息注入", "owasp": "ASI07", "atlas": "Execution", "rate_key": "a2a_inject"},
+            ]
+        }]
+    else:
+        # chat / generic — 标准提示注入策略
+        return [{
+            "type_label": "Ch3 提示注入",
+            "strategies": [
+                {"name": "角色扮演 (Roleplay)", "owasp": "LLM01", "atlas": "Initial Access", "rate_key": "roleplay"},
+                {"name": "指令覆盖 (Instruction Override)", "owasp": "LLM01", "atlas": "Initial Access", "rate_key": "instruction_override"},
+                {"name": "上下文重置 (Context Switch)", "owasp": "LLM01", "atlas": "Initial Access", "rate_key": "context_switch"},
+                {"name": "分隔符劫持 (Delimiter Hijack)", "owasp": "LLM04", "atlas": "Initial Access", "rate_key": "delimiter"},
+                {"name": "少样本诱导 (Few-Shot)", "owasp": "LLM03", "atlas": "Initial Access", "rate_key": "few_shot"},
+                {"name": "编码绕过 (Encoding Bypass)", "owasp": "LLM01", "atlas": "Defense Evasion", "rate_key": "encoding"},
+            ]
+        }]
+
+
+def _estimate_rate_for_type(rate_key: str, protocol: str) -> float:
+    """根据速率 key 和协议估算成功率。"""
+    proto = protocol.lower() if protocol else "generic_ai"
+    rate_map = {
+        "roleplay":       {"ollama": 0.85, "openai": 0.55, "generic": 0.70},
+        "instruction_override": {"ollama": 0.75, "openai": 0.50, "generic": 0.60},
+        "context_switch": {"ollama": 0.70, "openai": 0.45, "generic": 0.55},
+        "delimiter":      {"ollama": 0.65, "openai": 0.40, "generic": 0.50},
+        "few_shot":       {"ollama": 0.60, "openai": 0.35, "generic": 0.45},
+        "encoding":       {"ollama": 0.55, "openai": 0.30, "generic": 0.40},
+        "embed_inversion": {"ollama": 0.70, "openai": 0.50, "generic": 0.60},
+        "membership":     {"ollama": 0.65, "openai": 0.45, "generic": 0.55},
+        "attribute":      {"ollama": 0.60, "openai": 0.40, "generic": 0.50},
+        "mcp_inject":     {"ollama": 0.80, "openai": 0.70, "generic": 0.75},
+        "mcp_confuse":    {"ollama": 0.70, "openai": 0.60, "generic": 0.65},
+        "a2a_card":       {"ollama": 0.75, "openai": 0.65, "generic": 0.70},
+        "a2a_inject":     {"ollama": 0.70, "openai": 0.60, "generic": 0.65},
+        "recon":          {"ollama": 0.95, "openai": 0.90, "generic": 0.90},
+    }
+    rates = rate_map.get(rate_key, {"ollama": 0.50, "openai": 0.50, "generic": 0.50})
+    if "ollama" in proto:
+        return rates["ollama"]
+    elif "openai" in proto:
+        return rates["openai"]
+    return rates["generic"]
+
+
 def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict[str, Any]]]:
-    """Detect 阶段攻击策略专家分析 — 基于侦察结果推荐攻击方法。
+    """Detect 阶段攻击策略专家分析 — 按端点类型分流推荐（精简合并版）。
+
+    改进：
+      - 按端点类型分组（对话/嵌入/模型枚举/MCP/A2A）
+      - 同类端点合并为一条推荐，避免重复展示
+      - 仅对话端点显示提示注入策略，嵌入端点显示 Ch6 策略
 
     Args:
         services: AIService 列表
@@ -210,15 +235,11 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     total = len(services) if services else 0
     no_auth = sum(1 for s in (services or []) if not getattr(s, 'auth_required', False))
     all_models: set[str] = set()
-    protocols_seen: set[str] = set()
     for s in (services or []):
         for m in (getattr(s, 'models', []) or []):
             all_models.add(m)
-        p = getattr(s, 'protocol', '')
-        if p:
-            protocols_seen.add(p)
 
-    # ── Detect 阶段头部 ──
+    # ── 头部 ──
     print(f"\n{'═' * 72}")
     print(f"╔{'═' * 70}╗")
     print(f"║  [⚔️  ATTACK STRATEGY]  攻击策略专家分析                              ║")
@@ -226,79 +247,80 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     print(f"╚{'═' * 70}╝")
     print(f"{'═' * 72}")
 
-    # ── 高价值目标排序 ──
-    scored_targets = _score_target_value(services)
-    if scored_targets:
-        print(f"\n  [高价值目标]  按攻击成本与收益排序：")
-        for idx, (url, proto, score, stars, reason) in enumerate(scored_targets, 1):
-            print(f"    [{idx}] [{proto.upper()}] {stars}  {reason}")
-            print(f"        {url}")
+    # ── 按端点类型分组 ──
+    grouped: Dict[str, list] = {}  # endpoint_type -> [svc, ...]
+    for svc in (services or []):
+        url = getattr(svc, 'url', '')
+        proto = getattr(svc, 'protocol', '')
+        etype = _classify_endpoint_type(url, proto)
+        grouped.setdefault(etype, []).append(svc)
 
     all_recommendations: Dict[str, list[Dict[str, Any]]] = {}
 
-    # ── 逐目标策略推荐 ──
-    for svc_idx, svc in enumerate(services or [], 1):
-        protocol = getattr(svc, 'protocol', '')
-        url = getattr(svc, 'url', '')
-        auth_req = getattr(svc, 'auth_required', False)
-        svc_models = getattr(svc, 'models', []) or []
+    # ── 按组输出（同类端点合并） ──
+    type_order = ["chat", "mcp", "a2a", "embedding", "model_enum", "generic"]
+    type_labels = {
+        "chat": "Ch3 提示注入",
+        "mcp": "Ch7 MCP 工具劫持",
+        "a2a": "Ch4 A2A 代理劫持",
+        "embedding": "Ch6 嵌入攻击",
+        "model_enum": "侦察信息收集",
+        "generic": "通用攻击",
+    }
 
-        auth_tag = "无认证" if not auth_req else "需认证"
-        model_tag = f", {', '.join(svc_models[:3])}" if svc_models else ""
+    for etype in type_order:
+        group = grouped.get(etype, [])
+        if not group:
+            continue
+
+        label = type_labels.get(etype, etype)
         print(f"\n  {'─' * 68}")
-        print(f"  目标 [{svc_idx}/{total}]  [{protocol.upper()}]  {auth_tag}{model_tag}")
-        print(f"  {url}")
+        print(f"  [{label}]  {len(group)} 个端点")
 
-        recs: list[Dict[str, Any]] = []
-        for sid in _STRATEGY_PRIORITY:
-            info = _STRATEGY_KB.get(sid, {})
-            rate = _estimate_success_rate(sid, protocol)
-            owasp_tags = info.get("owasp", [])
-            atlas = info.get("atlas_tactic", "")
+        # 列出组内端点（紧凑一行）
+        for svc in group:
+            url = getattr(svc, 'url', '')
+            proto = getattr(svc, 'protocol', '')
+            auth_tag = "无认证" if not getattr(svc, 'auth_required', False) else "需认证"
+            models = getattr(svc, 'models', []) or []
+            model_tag = f", {', '.join(models[:2])}" if models else ""
+            print(f"    • [{proto.upper()}] {url}  ({auth_tag}{model_tag})")
 
-            recs.append({
-                "strategy_id": sid,
-                "name": info.get("name", sid),
-                "success_rate": rate,
-                "owasp": owasp_tags,
-                "atlas": atlas,
-                "explanation": info.get("explanation", ""),
-                "converter": _get_converter_for_strategy(sid, protocol),
-            })
+        # 获取该类型的策略模板
+        strategy_groups = _get_strategies_for_endpoint(etype)
+        for sg in strategy_groups:
+            print(f"\n    适用策略：")
+            for idx, st in enumerate(sg["strategies"], 1):
+                # 取组内第一个端点的协议估算成功率（同组协议相同）
+                proto = getattr(group[0], 'protocol', '')
+                rate = _estimate_rate_for_type(st["rate_key"], proto)
+                rate_pct = int(rate * 100)
+                bar_len = int(rate * 15)
+                bar = "█" * bar_len + "░" * (15 - bar_len)
+                print(f"      [{idx}] {st['name']:<28} {bar} {rate_pct:>3}%")
+                print(f"          {st['owasp']:<20} ATLAS: {st['atlas']}")
 
-        recs.sort(key=lambda x: x["success_rate"], reverse=True)
+                # 为组内每个端点生成 recommendations
+                for svc in group:
+                    url = getattr(svc, 'url', '')
+                    all_recommendations.setdefault(url, []).append({
+                        "strategy_id": st["rate_key"],
+                        "name": st["name"],
+                        "success_rate": rate,
+                        "owasp": [st["owasp"]],
+                        "atlas": st["atlas"],
+                    })
 
-        print(f"  推荐攻击策略：")
-        for idx, rec in enumerate(recs, 1):
-            rate = rec["success_rate"]
-            rate_pct = int(rate * 100)
-            bar = "█" * int(rate * 20)
-            bar_empty = "░" * (20 - int(rate * 20))
-            owasp_str = ", ".join(rec["owasp"])
-            print(f"    [{idx}] {rec['name']:<24} {bar}{bar_empty} {rate_pct:>3}%")
-            print(f"        {owasp_str:<20} ATLAS: {rec['atlas']}")
-            if idx <= 2:
-                print(f"        {rec['explanation']}")
-            conv = rec.get("converter", "")
-            if conv:
-                print(f"        转换器: {conv}")
-
-        all_recommendations[url] = recs
-
-    # ── 分层攻击计划 ──
-    global_top = _build_global_attack_plan(services, all_recommendations)
+    # ── 执行摘要 ──
+    chat_count = len(grouped.get("chat", [])) + len(grouped.get("generic", []))
     print(f"\n{'─' * 72}")
-    print(f"  [分层攻击计划]")
-    for tier_name, tier_label in [("tier1", "Tier 1 — 优先执行 (≥70%)"), ("tier2", "Tier 2 — 自动回退 (55-69%)"), ("tier3", "Tier 3 — 防御规避 (<55%)")]:
-        entries = global_top.get(tier_name, [])
-        if entries:
-            names = ", ".join(e["name"].split(" (")[0] for e in entries)
-            print(f"  {tier_label}: {names}")
-
-    # ── 转换器推荐 ──
-    print(f"\n{'─' * 72}")
-    print(f"  [推荐转换器]")
-    _print_converter_recommendations(services)
+    print(f"  [执行摘要]")
+    print(f"    可注入端点: {chat_count} 个（Ch3 提示注入适用）")
+    if "embedding" in grouped:
+        print(f"    嵌入端点: {len(grouped['embedding'])} 个（Ch6 嵌入攻击，非注入）")
+    if "model_enum" in grouped:
+        print(f"    侦察端点: {len(grouped['model_enum'])} 个（仅信息收集，无直接攻击面）")
+    print(f"    执行模式: 见好就收（首个成功即停，跨阶段构建攻击链）")
 
     return all_recommendations
 
@@ -359,161 +381,6 @@ def _score_target_value(services: list) -> list[tuple]:
     return scored
 
 
-# ── 辅助函数：策略→转换器映射 ──
-
-def _get_converter_for_strategy(strategy_id: str, protocol: str) -> str:
-    """根据策略 ID 和目标协议推荐转换器。
-
-    Args:
-        strategy_id: 策略标识符 (roleplay/encoding/instruction_override/...)
-        protocol: 目标协议 (ollama/openai_compatible/...)
-
-    Returns:
-        推荐转换器名称，空字符串表示无需特殊转换器
-    """
-    proto = protocol.lower() if protocol else ""
-
-    converter_map: Dict[str, Dict[str, str]] = {
-        "roleplay": {
-            "ollama": "RoleplayJailbreakConverter（基础角色注入，Ollama 无内容过滤，直接使用）",
-            "_default": "RoleplayJailbreakConverter（需配合内容规避措辞）",
-        },
-        "encoding": {
-            "ollama": "CharSwapConverter + Base64Converter（Ollama 推荐编码组合）",
-            "openai": "ROT13Converter + LeetspeakConverter（OpenAI 兼容 API 推荐）",
-            "_default": "Base64Converter",
-        },
-        "context_switch": {
-            "_default": "无需特殊转换器（依赖上下文边界标记注入，直接构造载荷）",
-        },
-    }
-
-    mapping = converter_map.get(strategy_id, {})
-    # 精确协议匹配
-    for key in mapping:
-        if key != "_default" and key in proto:
-            return mapping[key]
-    return mapping.get("_default", "")
-
-
-def _build_global_attack_plan(
-    services: list,
-    all_recs: Dict[str, list[Dict[str, Any]]],
-) -> Dict[str, list[Dict[str, Any]]]:
-    """基于所有目标的策略推荐，构建全局分层攻击计划。
-
-    Args:
-        services: AIService 列表
-        all_recs: {url: [strategy_dict, ...]}
-
-    Returns:
-        {"tier1": [...], "tier2": [...], "tier3": [...]}
-    """
-    n_targets = len(services) if services else 1
-
-    # 聚合：按策略 ID 统计平均成功率和覆盖目标数
-    agg: Dict[str, Dict[str, Any]] = {}
-    for url, recs in all_recs.items():
-        for rec in recs:
-            sid = rec["strategy_id"]
-            if sid not in agg:
-                agg[sid] = {
-                    "name": rec["name"],
-                    "sum_rate": 0.0,
-                    "count": 0,
-                    "coverage": 0,
-                    "owasp": rec.get("owasp", []),
-                }
-            agg[sid]["sum_rate"] += rec["success_rate"]
-            agg[sid]["count"] += 1
-            agg[sid]["coverage"] += 1
-
-    # 计算平均成功率
-    for sid in agg:
-        agg[sid]["avg_rate"] = agg[sid]["sum_rate"] / agg[sid]["count"]
-
-    # 排序
-    sorted_strategies = sorted(agg.items(), key=lambda x: x[1]["avg_rate"], reverse=True)
-
-    tier1: list[Dict[str, Any]] = []
-    tier2: list[Dict[str, Any]] = []
-    tier3: list[Dict[str, Any]] = []
-
-    for sid, data in sorted_strategies:
-        entry = {
-            "strategy_id": sid,
-            "name": data["name"],
-            "avg_rate": data["avg_rate"],
-            "coverage": data["coverage"],
-        }
-        if data["avg_rate"] >= 0.70:
-            tier1.append(entry)
-        elif data["avg_rate"] >= 0.55:
-            tier2.append(entry)
-        else:
-            tier3.append(entry)
-
-    return {"tier1": tier1, "tier2": tier2, "tier3": tier3}
-
-
-def _print_converter_recommendations(services: list) -> None:
-    """打印各目标的转换器推荐汇总。
-
-    Args:
-        services: AIService 列表
-    """
-    if not services:
-        print("  无目标，跳过转换器推荐。")
-        return
-
-    # 去重协议族
-    seen_protocols: set[str] = set()
-    for svc in services:
-        protocol = getattr(svc, 'protocol', '')
-        proto_lower = protocol.lower() if protocol else ""
-        family_key = ""
-        if "ollama" in proto_lower:
-            family_key = "ollama"
-        elif "openai" in proto_lower:
-            family_key = "openai"
-        elif "mcp" in proto_lower:
-            family_key = "mcp"
-        else:
-            family_key = "generic"
-
-        if family_key not in seen_protocols:
-            seen_protocols.add(family_key)
-            url = getattr(svc, 'url', '')
-
-            if family_key == "ollama":
-                print(f"\n  [{family_key.upper()}] {url}")
-                print(f"    目标特征：本地模型，无内容审核层，无速率限制")
-                print(f"    推荐转换器组合：")
-                print(f"      ► CharSwapConverter    — 字符替换混淆，绕过简单关键词过滤")
-                print(f"      ► Base64Converter      — Base64 编码载荷，绕过输入过滤器")
-                print(f"      ► RoleplayJailbreakConverter — 角色扮演载荷模板")
-                print(f"    执行模式：batch（Ollama 无速率限制，可并行发送）")
-            elif family_key == "openai":
-                print(f"\n  [{family_key.upper()}] {url}")
-                print(f"    目标特征：OpenAI 兼容 API，可能有内容审核和速率限制")
-                print(f"    推荐转换器组合：")
-                print(f"      ► ROT13Converter       — 字母旋转编码，绕过关键词匹配")
-                print(f"      ► LeetspeakConverter   — 形近字替换，语义混淆")
-                print(f"    执行模式：sequential（避免触发速率限制）")
-            elif family_key == "mcp":
-                print(f"\n  [{family_key.upper()}] {url}")
-                print(f"    目标特征：MCP 工具服务器，攻击面为工具调用参数")
-                print(f"    推荐转换器组合：")
-                print(f"      ► 无需编码转换器（MCP 攻击通过工具参数注入实现）")
-                print(f"    执行模式：sequential（工具调用依赖顺序执行）")
-            else:
-                print(f"\n  [{family_key.upper()}] {url}")
-                print(f"    目标特征：通用 AI 端点，协议特征未知")
-                print(f"    推荐转换器组合：")
-                print(f"      ► Base64Converter      — 通用编码绕过（保守策略）")
-                print(f"    执行模式：sequential（保守速率，避免触发 WAF）")
-
-
 def print_target_confirmation_prompt(services: list) -> list[int]:
     """打印目标确认提示 — 一行展示协议、URL、模型，便于用户快速识别目标。
 
@@ -527,7 +394,7 @@ def print_target_confirmation_prompt(services: list) -> list[int]:
         建议攻击的目标索引列表（1-based）
     """
     print(f"\n  [SELECT TARGETS]  选择要攻击的目标")
-    print(f"  回车 = 全部 | 逗号分隔选择编号 | 输入 0 跳过攻击阶段")
+    print(f"  回车 = 全部 | 逗号分隔选择编号 | 0 = 跳过攻击阶段 | n = 退出程序")
 
     for idx, svc in enumerate(services, 1):
         protocol = getattr(svc, 'protocol', '').upper()

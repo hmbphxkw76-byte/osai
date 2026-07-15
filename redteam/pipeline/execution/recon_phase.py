@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from redteam.core.models import AIService, AIProtocol, AuthContext, ReconResult
@@ -573,11 +573,32 @@ def recon_phase(
     # ═══════════════════════════════════════════════════════════════
     print(f"\n[3/6] 主动 AI 服务发现...")
 
+    # 进度回调：实时显示探测进度
+    _last_progress_pct = [0]  # 使用 list 实现 nonlocal
+
+    def _probe_progress(done: int, total: int, phase: str) -> None:
+        """探测进度回调 — 每 10% 更新一次，避免刷屏。"""
+        if total == 0:
+            return
+        pct = int(done / total * 100)
+        # 每 10% 或阶段变化时更新
+        if pct >= _last_progress_pct[0] + 10 or "完成" in phase or "P0" in phase:
+            _last_progress_pct[0] = pct
+            bar_len = 20
+            filled = int(bar_len * done / total)
+            bar = "█" * filled + "░" * (bar_len - filled)
+            print(f"\r  [{bar}] {done}/{total} ({pct}%) {phase}", end="", flush=True)
+            if done >= total or "完成" in phase:
+                print()  # 换行
+
     services = discover_ai_services(
         target, auth,
         rate_limit_ms=effective_delay_ms if safe_rpm > 0 else configured_rate_limit_ms,
         governor=governor,
         stealth=True,
+        layered=True,
+        early_exit_threshold=30,
+        progress_callback=_probe_progress,
     )
     all_services.extend(services)
 

@@ -13,7 +13,7 @@ from typing import Any
 
 from redteam.core.models import AIService, AuthContext, Finding
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header
+
 from redteam.attack.rag import probe_vector_dbs, inject_rag_poison, check_retrieval_leakage, generate_rag_findings
 
 
@@ -23,8 +23,6 @@ def rag_attack_phase(
     auth: AuthContext | None = None,
 ) -> list[Finding]:
     """RAG 流水线攻击。"""
-    print_section_header("[Phase 4] RAG 流水线攻击", "Vector DB + Knowledge Poisoning")
-
     all_findings: list[Finding] = []
 
     for svc in services[:3]:

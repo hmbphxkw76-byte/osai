@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from redteam.core.models import AIService, AuthContext, Finding, ReconResult, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header
+
 from redteam.attack.infra import scan_cloud_misconfigs, generate_infra_findings
 from redteam.recon.infra_recon import (
     probe_cloud_metadata,
@@ -71,8 +71,6 @@ def infra_attack_phase(
       - SageMaker/Triton 推理端点识别 (Ch9.2)
       - Vault 密钥管理检测 (Ch9.3)
     """
-    print_section_header("[Phase 8] AI 基础设施攻击", "Cloud Metadata + K8s + Inference Endpoints")
-
     all_findings: list[Finding] = []
     base_url = _extract_base_url(recon.target)
     cloud_evidence: list[dict] = []

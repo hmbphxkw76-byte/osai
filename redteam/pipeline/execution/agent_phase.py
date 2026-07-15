@@ -20,7 +20,7 @@ from redteam.core.models import (
     PromptInjectionResult,
 )
 from redteam.core.store import load_json, save_json
-from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
+from redteam.core.terminal_output import print_target_list, print_result_bar
 from redteam.attack.agent import (
     test_indirect_injection, poison_agent_memory,
     hijack_agent_tools, cross_agent_attack,
@@ -158,8 +158,6 @@ def agent_attack_phase(
     Returns:
         Finding 列表
     """
-    print_section_header("[Phase 3] Agent 深度攻击", "OWASP ASI01-ASI10 Full Coverage Attack")
-
     all_findings: list[Finding] = []
     agent_services = [s for s in services if s.protocol in ("mcp", "agent_to_agent") or s.tools]
 
