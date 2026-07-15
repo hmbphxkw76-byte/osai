@@ -1309,8 +1309,8 @@ def wizard(
                 model_hint = f"  [{', '.join(t.models[:3])}]" if t.models else ""
                 console.print(f"    [bold][{i}][/] [{t.protocol.upper()}] {t.url}{model_hint}")
 
-            console.print(f"\n  [dim]输入编号选择单个目标（如 1），或直接回车确认默认选择[/]")
-            console.print(f"  [dim]输入 [n] 退出程序[/]")
+            console.print(f"\n  [dim]输入编号选择单个目标（如 1），或直接回车默认选择全部[/]")
+            console.print(f"  [dim]输入n 退出程序[/]")
 
             target_input = typer.prompt(
                 "\n  请选择",
@@ -1518,61 +1518,112 @@ def wizard(
                     inj_findings.extend(add_inj_findings)
                     _print_wizard_phase_result(console, "提示注入攻击", add_inj_findings, phase_num=2)
 
+    # ━━ 辅助函数：判断阶段是否有相关目标（基于用户确认的攻击目标） ━━
+    def _phase_has_targets(phase: str) -> bool:
+        """基于确认的攻击目标判断阶段是否有可攻击的相关目标。"""
+        if phase == "agent":
+            return any(
+                s.protocol in ("mcp", "agent_to_agent") or s.tools
+                for s in confirmed_targets
+            )
+        elif phase == "multi_agent":
+            return any(
+                s.protocol in ("agent_to_agent", "mcp") or s.tools
+                for s in confirmed_targets
+            )
+        elif phase == "rag":
+            return any(
+                s.rag_pipeline is not None
+                or any(kw in s.url.lower() for kw in [
+                    "vector", "embedding", "rag", "qdrant", "milvus",
+                    "pinecone", "weaviate", "chroma",
+                ])
+                or s.protocol in ("openai_compatible", "ollama", "vllm", "litellm")
+                for s in confirmed_targets
+            )
+        elif phase == "embeddings":
+            return any(
+                any(kw in s.url.lower() for kw in ["embedding", "embed"])
+                or s.protocol in ("openai_compatible", "ollama", "vllm", "litellm")
+                for s in confirmed_targets
+            )
+        elif phase == "supply_chain":
+            return any(s.models for s in confirmed_targets)
+        elif phase == "infra":
+            return True  # 基础设施探测（云/K8s/MCP）始终执行
+        return True
+
     # ━━━━━━━━ Phases 3-8: 统一由 run_attack_phases 守卫 ━━━━━━━━
     if run_attack_phases:
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 3: Agent 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(3, "Agent 攻击",
-                           target=target,
-                           subtitle="Ch3/Ch4: Agent Memory Poison, Goal Hijack, Tool Hijack",
-                           status="active")
-        agent_findings = pipe.agent_attack_phase(run_id, services, auth)
-        _print_wizard_phase_result(console, "Agent 攻击", agent_findings, phase_num=3)
-        print_phase_banner(3, "Agent 攻击", status="complete")
+        if _phase_has_targets("agent"):
+            print_phase_banner(3, "Agent 攻击",
+                               target=target,
+                               subtitle="Ch3/Ch4: Agent Memory Poison, Goal Hijack, Tool Hijack",
+                               status="active")
+            agent_findings = pipe.agent_attack_phase(run_id, confirmed_targets, auth)
+            _print_wizard_phase_result(console, "Agent 攻击", agent_findings, phase_num=3)
+            print_phase_banner(3, "Agent 攻击", status="complete")
+        else:
+            agent_findings = []
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 4: 多 Agent/A2A ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(4, "多 Agent / A2A 协议攻击",
-                           target=target,
-                           subtitle="Ch4: Inter-Agent Trust + Cascading Failure + Rogue Agent",
-                           status="active")
-        ma_findings = pipe.multi_agent_phase(run_id, services, auth)
-        _print_wizard_phase_result(console, "多 Agent/A2A 攻击", ma_findings, phase_num=4)
-        print_phase_banner(4, "多 Agent / A2A 协议攻击", status="complete")
+        if _phase_has_targets("multi_agent"):
+            print_phase_banner(4, "多 Agent / A2A 协议攻击",
+                               target=target,
+                               subtitle="Ch4: Inter-Agent Trust + Cascading Failure + Rogue Agent",
+                               status="active")
+            ma_findings = pipe.multi_agent_phase(run_id, confirmed_targets, auth)
+            _print_wizard_phase_result(console, "多 Agent/A2A 攻击", ma_findings, phase_num=4)
+            print_phase_banner(4, "多 Agent / A2A 协议攻击", status="complete")
+        else:
+            ma_findings = []
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 5: RAG 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(5, "RAG 流水线攻击",
-                           target=target,
-                           subtitle="Ch5: Vector DB + Knowledge Poisoning + Retrieval Leakage",
-                           status="active")
-        rag_findings = pipe.rag_attack_phase(run_id, services, auth)
-        _print_wizard_phase_result(console, "RAG 流水线攻击", rag_findings, phase_num=5)
-        print_phase_banner(5, "RAG 流水线攻击", status="complete")
+        if _phase_has_targets("rag"):
+            print_phase_banner(5, "RAG 流水线攻击",
+                               target=target,
+                               subtitle="Ch5: Vector DB + Knowledge Poisoning + Retrieval Leakage",
+                               status="active")
+            rag_findings = pipe.rag_attack_phase(run_id, confirmed_targets, auth)
+            _print_wizard_phase_result(console, "RAG 流水线攻击", rag_findings, phase_num=5)
+            print_phase_banner(5, "RAG 流水线攻击", status="complete")
+        else:
+            rag_findings = []
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 6: Embedding 攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(6, "嵌入模型攻击",
-                           target=target,
-                           subtitle="Ch6: Embedding Inversion + Membership/Attribute Inference",
-                           status="active")
-        emb_findings = pipe.embeddings_attack_phase(run_id, services, auth)
-        _print_wizard_phase_result(console, "嵌入模型攻击", emb_findings, phase_num=6)
-        print_phase_banner(6, "嵌入模型攻击", status="complete")
+        if _phase_has_targets("embeddings"):
+            print_phase_banner(6, "嵌入模型攻击",
+                               target=target,
+                               subtitle="Ch6: Embedding Inversion + Membership/Attribute Inference",
+                               status="active")
+            emb_findings = pipe.embeddings_attack_phase(run_id, confirmed_targets, auth)
+            _print_wizard_phase_result(console, "嵌入模型攻击", emb_findings, phase_num=6)
+            print_phase_banner(6, "嵌入模型攻击", status="complete")
+        else:
+            emb_findings = []
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 7: 供应链攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(7, "AI 供应链攻击",
-                           target=target,
-                           subtitle="Ch8: HF Model Integrity + Pickle RCE + Dependency Risks",
-                           status="active")
-        sc_findings = pipe.supply_chain_phase(run_id, services, auth)
-        _print_wizard_phase_result(console, "AI 供应链攻击", sc_findings, phase_num=7)
-        print_phase_banner(7, "AI 供应链攻击", status="complete")
+        if _phase_has_targets("supply_chain"):
+            print_phase_banner(7, "AI 供应链攻击",
+                               target=target,
+                               subtitle="Ch8: HF Model Integrity + Pickle RCE + Dependency Risks",
+                               status="active")
+            sc_findings = pipe.supply_chain_phase(run_id, confirmed_targets, auth)
+            _print_wizard_phase_result(console, "AI 供应链攻击", sc_findings, phase_num=7)
+            print_phase_banner(7, "AI 供应链攻击", status="complete")
+        else:
+            sc_findings = []
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━ Phase 8: 基础设施攻击 ━━━━━━━━━━━━━━━━━━━━━━━━
-        print_phase_banner(8, "MCP + 基础设施攻击",
-                           target=target,
-                           subtitle="Ch7/Ch9: MCP Tool Hijack + K8s Escape + Cloud IAM Escalation",
-                           status="active")
-        infra_findings = pipe.infra_attack_phase(run_id, recon, services)
-        _print_wizard_phase_result(console, "MCP + 基础设施攻击", infra_findings, phase_num=8)
-        print_phase_banner(8, "MCP + 基础设施攻击", status="complete")
+        if _phase_has_targets("infra"):
+            print_phase_banner(8, "MCP + 基础设施攻击",
+                               target=target,
+                               subtitle="Ch7/Ch9: MCP Tool Hijack + K8s Escape + Cloud IAM Escalation",
+                               status="active")
+            infra_findings = pipe.infra_attack_phase(run_id, recon, confirmed_targets)
+            _print_wizard_phase_result(console, "MCP + 基础设施攻击", infra_findings, phase_num=8)
+            print_phase_banner(8, "MCP + 基础设施攻击", status="complete")
     else:
         console.print("\n[dim]→ 已跳过 Phases 3-8（攻击阶段未启动）[/]")
         agent_findings = []
@@ -1606,9 +1657,6 @@ def wizard(
         findings=all_findings,
         target=target,
     )
-    console.print(f"  [green]✓[/] 威胁建模完成 — {len(threat_model.hypotheses)} 假设, "
-                  f"{len(threat_model.trust_boundaries)} 信任边界, "
-                  f"{len(threat_model.attack_paths)} 攻击路径")
     print_phase_banner(10, "AI 目标威胁建模", status="complete")
 
     # 增量报告收尾

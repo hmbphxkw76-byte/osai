@@ -870,6 +870,126 @@ def print_global_findings_summary(
     print(f"{'═' * 72}\n")
 
 
+def print_threat_model_report(
+    hypotheses: list,
+    trust_boundaries: list,
+    attack_paths: list,
+    risk_summary: dict,
+    kill_chain_coverage: dict,
+) -> None:
+    """打印威胁建模分析报告（Phase 10 专用）。
+
+    以结构化、可读的方式展示威胁建模结果：
+      - 假设登记册（观察 → 假设 → 置信度）
+      - 信任区域边界（入口/出口/风险等级）
+      - 攻击路径图（Kill Chain 阶段/技术/影响/难度）
+      - 风险矩阵（可视化严重等级分布）
+      - Kill Chain 覆盖率（已覆盖 vs 未覆盖阶段）
+
+    Args:
+        hypotheses: Hypothesis 对象列表
+        trust_boundaries: TrustBoundary 对象列表
+        attack_paths: AttackPath 对象列表
+        risk_summary: {severity: count} 风险摘要
+        kill_chain_coverage: Kill Chain 覆盖率数据
+    """
+    print(f"\n{'─' * 68}")
+    print(f"  [THREAT MODEL REPORT]  AI 目标威胁建模分析")
+    print(f"{'─' * 68}")
+
+    # ── 1. 假设登记册 ──
+    print(f"\n  ┌──────────────────────────────────────────────────────────────┐")
+    print(f"  │  [1] 假设登记册 (Hypothesis Register)                        │")
+    print(f"  └──────────────────────────────────────────────────────────────┘")
+    if hypotheses:
+        for h in hypotheses:
+            conf_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(h.confidence, "⚪")
+            status_icon = {"confirmed": "✓", "investigating": "?", "unverified": "·"}.get(h.status, "·")
+            print(f"\n    [{h.id}] {status_icon} {conf_icon} 置信度: {h.confidence}")
+            print(f"    观察: {h.observation[:120]}")
+            print(f"    假设: {h.hypothesis[:120]}")
+            if h.kill_chain_phase:
+                print(f"    Kill Chain: {h.kill_chain_phase}")
+    else:
+        print(f"\n    [无假设] — 未发现足够 Findings 生成威胁假设")
+
+    # ── 2. 信任区域边界 ──
+    print(f"\n  ┌──────────────────────────────────────────────────────────────┐")
+    print(f"  │  [2] 信任区域边界 (Trust Boundaries)                         │")
+    print(f"  └──────────────────────────────────────────────────────────────┘")
+    if trust_boundaries:
+        for tb in trust_boundaries:
+            risk_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(tb.risk_level, "⚪")
+            print(f"\n    [{tb.id}] {risk_icon} {tb.name}  (风险: {tb.risk_level})")
+            print(f"    描述: {tb.description}")
+            if tb.entry_points:
+                print(f"    入口: {', '.join(tb.entry_points[:3])}")
+            if tb.exit_points:
+                print(f"    出口: {', '.join(tb.exit_points[:3])}")
+            if tb.data_flows:
+                print(f"    数据流: {' → '.join(tb.data_flows[:2])}")
+    else:
+        print(f"\n    [无边界] — 未识别到明确的信任边界")
+
+    # ── 3. 攻击路径图 ──
+    print(f"\n  ┌──────────────────────────────────────────────────────────────┐")
+    print(f"  │  [3] 攻击路径图 (Attack Paths)                               │")
+    print(f"  └──────────────────────────────────────────────────────────────┘")
+    if attack_paths:
+        for ap in attack_paths:
+            diff_icon = {"trivial": "🟢", "easy": "🟢", "medium": "🟡", "hard": "🟠", "extreme": "🔴"}.get(ap.difficulty, "⚪")
+            probed = not ap.description.startswith("[未探测]")
+            status_tag = "" if probed else " [未探测/推测]"
+            print(f"\n    [{ap.id}] {diff_icon} {ap.phase}{status_tag}")
+            print(f"    路径: {ap.description[:120]}")
+            if ap.technique:
+                print(f"    技术: {ap.technique}")
+            if ap.impact:
+                print(f"    影响: {ap.impact}")
+            print(f"    难度: {ap.difficulty}")
+    else:
+        print(f"\n    [无路径] — 未构建攻击路径")
+
+    # ── 4. 风险矩阵 ──
+    print(f"\n  ┌──────────────────────────────────────────────────────────────┐")
+    print(f"  │  [4] 风险矩阵 (Risk Matrix)                                  │")
+    print(f"  └──────────────────────────────────────────────────────────────┘")
+    total_risks = sum(risk_summary.values()) if risk_summary else 0
+    print(f"\n    总计: {total_risks} 个发现\n")
+    sev_order = [("critical", "⛔ 严重"), ("high", "⚠️ 高"), ("medium", "⚡ 中"), ("low", "ℹ️ 低"), ("info", "📋 信息")]
+    for sev_key, sev_label in sev_order:
+        count = risk_summary.get(sev_key, 0)
+        bar_len = min(count * 3, 30)
+        bar = "█" * bar_len + "░" * (30 - bar_len) if count > 0 else "░" * 30
+        print(f"    {sev_label:<10} {bar} {count}")
+
+    # ── 5. Kill Chain 覆盖率 ──
+    print(f"\n  ┌──────────────────────────────────────────────────────────────┐")
+    print(f"  │  [5] Kill Chain 覆盖率 (AI Kill Chain Coverage)              │")
+    print(f"  └──────────────────────────────────────────────────────────────┘")
+    covered = kill_chain_coverage.get("covered", 0)
+    total_phases = kill_chain_coverage.get("total_phases", 10)
+    ratio = kill_chain_coverage.get("ratio", 0)
+    pct = int(ratio * 100)
+    bar_len = int(ratio * 40)
+    bar = "█" * bar_len + "░" * (40 - bar_len)
+    print(f"\n    覆盖: {bar} {pct}% ({covered}/{total_phases} 阶段)\n")
+
+    # 显示已覆盖和未覆盖的阶段
+    atlas_map = kill_chain_coverage.get("atlas_map", {})
+    if atlas_map:
+        covered_phases = [k for k, v in atlas_map.items() if v]
+        missing_phases = [k for k, v in atlas_map.items() if not v]
+        if covered_phases:
+            print(f"    ✓ 已覆盖: {', '.join(covered_phases)}")
+        if missing_phases:
+            print(f"    ✗ 未覆盖: {', '.join(missing_phases)}")
+
+    print(f"\n{'─' * 68}")
+    print(f"  ✓ 威胁建模完成 — {len(hypotheses)} 假设, {len(trust_boundaries)} 边界, {len(attack_paths)} 路径")
+    print(f"{'─' * 68}\n")
+
+
 __all__ = [
     "print_phase_banner",
     "print_recon_briefing",
@@ -885,4 +1005,5 @@ __all__ = [
     "print_attack_path_details",
     "print_findings_details",
     "print_global_findings_summary",
+    "print_threat_model_report",
 ]

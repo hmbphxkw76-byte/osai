@@ -115,13 +115,20 @@ def threat_modeling_phase(
     }
     save_json(run_id, "threat_model", model_data, subdir="recon")
 
-    # 打印摘要
-    print(f"  Hypotheses: {len(model.hypotheses)}")
-    print(f"  Trust Boundaries: {len(model.trust_boundaries)}")
-    print(f"  Attack Paths: {len(model.attack_paths)}")
-    if model.risk_summary:
-        print(f"  Risk Summary: {model.risk_summary}")
-    print(f"  Kill Chain Coverage: {kc_coverage['covered']}/{kc_coverage['total_phases']} phases ({int(kc_coverage['ratio'] * 100)}%)")
+    # 打印结构化威胁建模报告
+    from redteam.core.terminal_output import print_threat_model_report
+    print_threat_model_report(
+        hypotheses=model.hypotheses,
+        trust_boundaries=model.trust_boundaries,
+        attack_paths=model.attack_paths,
+        risk_summary=model.risk_summary,
+        kill_chain_coverage={
+            "covered": kc_coverage["covered"],
+            "total_phases": kc_coverage["total_phases"],
+            "ratio": kc_coverage["ratio"],
+            "phases": kc_coverage.get("phases", {}),
+        },
+    )
 
     return model
 
