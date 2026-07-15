@@ -4,16 +4,17 @@
 
 目录结构：
   - __init__.py: 统一导出入口
-  - recon_phase.py: AI 攻击面侦察 (Ch2)
-  - injection_phase.py: 提示注入攻击 (Ch3)
-  - agent_phase.py: Agent 深度攻击 (Ch3+Ch4)
-  - multi_agent_phase.py: 多 Agent/A2A 协议攻击 (Ch4)
-  - rag_phase.py: RAG 流水线攻击 (Ch5)
-  - embeddings_phase.py: 嵌入模型攻击 (Ch6)
-  - supply_chain_phase.py: AI 供应链攻击 (Ch8)
-  - infra_phase.py: MCP+基础设施攻击 (Ch7+Ch9)
-  - report_writer.py: 增量报告写入器 (Ch10+Ch11)
   - runner.py: 主流水线编排器（含 YAML 配置驱动模式）
+  - runner_display.py: 显示工具函数（速率限制建议等）
+  - runner_extensions.py: 扩展方法 Mixin（阶段快捷方法、场景驱动）
+  - execution/: 攻击执行层（Phase 1~8）
+      recon_phase.py, injection_phase.py, agent_phase.py,
+      multi_agent_phase.py, rag_phase.py, embeddings_phase.py,
+      supply_chain_phase.py, infra_phase.py
+  - exploit/: 利用证明管线（Detect→Exploit 双阶段闭环）
+      registry.py, embeddings.py
+  - reporting/: 报告产出管线（增量写入 + 正式出版）
+      writer.py, publisher.py
 
 设计原则：
   - Library-First：所有 HTTP/探测能力委托 httpx + 成熟工具

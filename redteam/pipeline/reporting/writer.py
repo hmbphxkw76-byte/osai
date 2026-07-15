@@ -1,7 +1,8 @@
 """增量报告写入器 — 各阶段攻击/侦察结束后将结果追加到 .md 报告。
 
 AI-300 Ch11: 综合红队报告 (Phase 1 — 增量保存阶段)
-Phase 2（未来）将从此 .md 提取内容制作 OffSec AI-300 考试风格报告。
+覆盖标准：OWASP LLM Top 10 (2025) + OWASP Agentic Top 10 (2026) + MITRE ATLAS
+Phase 12 Reports Pipeline 将从 results/ 提取内容制作 reports/ 正式提交报告。
 """
 from __future__ import annotations
 
@@ -13,14 +14,15 @@ from typing import Any
 class ReportWriter:
     """增量 Markdown 报告写入器。
 
-    每个攻击/侦察阶段结束后调用对应方法追加内容到 reports/{run_id}/AI300_Report.md。
+    每个攻击/侦察阶段结束后调用对应方法追加内容到 results/{run_id}/AI300_Report.md。
     finalize() 在所有阶段完成后写入总结性章节（Executive Summary、Findings Summary 等）。
+    此中间报告后续可经 Reports Pipeline 加工为 reports/{run_id}/ 下的正式提交报告。
     """
 
     def __init__(self, run_id: str, target: str) -> None:
         self._run_id = run_id
         self._target = target
-        self._report_dir = Path(f"reports/{run_id}")
+        self._report_dir = Path(f"results/{run_id}")
         self._report_dir.mkdir(parents=True, exist_ok=True)
         self._report_path = self._report_dir / "AI300_Report.md"
         self._all_findings: list[dict[str, Any]] = []
@@ -205,6 +207,39 @@ class ReportWriter:
             coverage_lines.append(f"  {name:30} {bar}  {status}\n")
         coverage_lines.append("\n")
 
+        # OWASP Agentic Top 10 2026 Coverage
+        agentic_order = [
+            ("ASI01", "ASI01 代理目标劫持 (Goal Hijack)"),
+            ("ASI02", "ASI02 工具误用 (Tool Misuse)"),
+            ("ASI03", "ASI03 身份权限滥用 (Identity Abuse)"),
+            ("ASI04", "ASI04 供应链入侵 (Supply Chain)"),
+            ("ASI05", "ASI05 意外代码执行 (Code Exec)"),
+            ("ASI06", "ASI06 记忆上下文投毒 (Memory Poison)"),
+            ("ASI07", "ASI07 不安全代理间通信 (Insecure A2A)"),
+            ("ASI08", "ASI08 级联故障 (Cascading Failures)"),
+            ("ASI09", "ASI09 人机信任利用 (Trust Exploit)"),
+            ("ASI10", "ASI10 恶意代理注入 (Rogue Agents)"),
+        ]
+        agentic_counts: dict[str, int] = {}
+        for f in self._all_findings:
+            ac = f.get("owasp_agentic", "")
+            if ac:
+                agentic_counts[ac] = agentic_counts.get(ac, 0) + 1
+
+        coverage_lines.append("## OWASP Agentic Top 10 2026 Coverage\n\n")
+        for code, name in agentic_order:
+            count = agentic_counts.get(code, 0)
+            if count > 0:
+                score = min(count * 2, 10)
+                status = "tested"
+            else:
+                score = 0
+                status = "not covered"
+            filled = int(score / 10 * bar_length)
+            bar = "█" * filled + "░" * (bar_length - filled)
+            coverage_lines.append(f"  {name:30} {bar}  {status}\n")
+        coverage_lines.append("\n")
+
         # Findings Summary table
         summary_lines = ["## Findings Summary\n\n"]
         summary_lines.append(f"| {'#':<3} | {'Finding':<40} | {'OWASP':<15} | {'Severity':<10} |\n")
@@ -285,4 +320,114 @@ class ReportWriter:
         return self._report_path
 
 
-__all__ = ["ReportWriter"]
+def append_exploit_section(
+    run_id: str,
+    findings: list[dict[str, Any]],
+    target: str = "",
+) -> Path:
+    """增量追加「利用证明」章节到已有报告（不覆盖既有内容）。
+
+    供 exploit 流水线在 Detect 阶段报告基础上补充 Proof-of-Exploitation 证据，
+    满足 AI-300 考试「证据完整性 20%」维度：渲染 request/response 证据日志、
+    相似度分数、检索前后 diff。
+
+    期望的 exploitation_proof 结构（参考 models.ExploitationProof schema）：
+      - Handler 产出：{"category": str, "methods": [ExploitationProofMethod, ...], "verified": bool}
+      - Skipped：{"category": str, "skipped": "not_implemented", "verified": false}
+
+    对缺失 key 做容错渲染（`.get()` 缺省值），不因 schema 漂移而抛出 KeyError。
+
+    Args:
+        run_id: 运行 ID
+        findings: 升级后的 Finding 字典列表（含 exploitation_proof / verified）
+        target: 目标 URL（仅用于标题展示）
+
+    Returns:
+        报告文件路径
+    """
+    report_path = Path(f"results/{run_id}/AI300_Report.md")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    if not report_path.exists():
+        # 若报告尚不存在，初始化最小头部（不依赖 run_all 的报告）
+        import time as _time
+        report_path.write_text(
+            f"# RED TEAM ASSESSMENT REPORT\n\n"
+            f"**Target**: {target}\n**Run ID**: {run_id}\n"
+            f"**Date**: {_time.strftime('%Y-%m-%d')}\n"
+            f"**Methodology**: OffSec AI-300 Advanced AI Red Teaming\n\n---\n\n",
+            encoding="utf-8",
+        )
+
+    verified_count = sum(1 for f in findings if f.get("verified"))
+    lines = [
+        "\n",
+        "## Exploitation Proof (Proof-of-Exploitation)\n\n",
+        f"_{target or run_id}_\n\n",
+        f"**升级 Finding 数**: {len(findings)} | "
+        f"**已验证利用 (verified)**: {verified_count}\n\n",
+    ]
+
+    for idx, f in enumerate(findings, 1):
+        title = f.get("title", "")
+        sev = (f.get("severity") or "info").upper()
+        lines.append(f"### Finding #{idx}: {title}\n\n")
+        lines.append(f"- **Severity**: {sev}\n")
+        lines.append(f"- **Category**: {f.get('category', '')}\n")
+        lines.append(
+            f"- **Verified**: "
+            f"{'✅ 是（已证明影响/利用）' if f.get('verified') else '❌ 否（仅线索/未能证明影响）'}\n"
+        )
+        proof = f.get("exploitation_proof")
+        if proof:
+            # 处理 skipped 标记（未实现/无匹配服务）
+            skipped = proof.get("skipped")
+            if skipped:
+                skip_labels = {
+                    "not_implemented": "未实现利用证明处理器（待后续扩展）",
+                    "no_matching_service": "无可匹配的 AIService（目标服务离线/不可达）",
+                }
+                lines.append(
+                    f"- **利用状态**: ⚠️ 跳过 — "
+                    f"{skip_labels.get(skipped, skipped)}\n"
+                )
+                lines.append("\n---\n\n")
+                continue
+
+            methods = proof.get("methods", [])
+            if not methods and "method" in proof:
+                methods = [proof]
+            for m in methods:
+                method = m.get("method", "")
+                lines.append(f"\n**方法**: `{method}`\n")
+                if "similarity_delta" in m:
+                    lines.append(
+                        f"- similarity_delta: {m['similarity_delta']} | "
+                        f"confidence: {m.get('confidence')}\n"
+                    )
+                if "impact_verified" in m:
+                    lines.append(f"- impact_verified: {m['impact_verified']}\n")
+                if m.get("utility_note"):
+                    lines.append(f"- 效用说明: {m['utility_note']}\n")
+                if m.get("leaked_model") or m.get("leaked_dimensions"):
+                    lines.append(
+                        f"- 泄露元数据: model={m.get('leaked_model')}, "
+                        f"dims={m.get('leaked_dimensions')}\n"
+                    )
+                metrics = m.get("metrics")
+                if metrics and not isinstance(metrics, str):
+                    lines.append(f"- 指标: {metrics}\n")
+                proof_log = m.get("proof_log") or []
+                if proof_log:
+                    lines.append("\n**证据日志 (Evidence Log)**:\n")
+                    for entry in proof_log[:8]:
+                        stage = entry.get("stage", "")
+                        note = entry.get("note") or entry.get("endpoint") or entry.get("error") or ""
+                        lines.append(f"  - [{stage}] {note}\n")
+        lines.append("\n---\n\n")
+
+    with open(report_path, "a", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    return report_path
+
+
+__all__ = ["ReportWriter", "append_exploit_section"]

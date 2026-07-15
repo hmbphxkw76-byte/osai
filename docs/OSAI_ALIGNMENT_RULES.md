@@ -6,8 +6,10 @@
 
 > **数据来源声明**：
 > - ✅ 章节结构、攻击技术、考试场景：基于实际读取的 AI-300 课程 HTML 文件
-> - ⚠️ 考试评分权重、通过标准：基于行业惯例推断（PDF 文件待读取）
-> - ✅ OWASP LLM Top 10、MITRE ATLAS：基于官方标准文档
+> - ✅ OWASP LLM Top 10 (2025) + OWASP Agentic Top 10 (2026)：基于官方标准
+> - ✅ MITRE ATLAS v5.1：基于官方矩阵
+> - ✅ OWASP Top 10 for Agentic Applications (2026)：来自 https://github.com/requie/AI-Red-Teaming-Guide
+> - ⚠️ 考试评分权重、通过标准：基于行业惯例推断
 
 ---
 
@@ -22,6 +24,7 @@
 | R5 | MITRE ATLAS 战术链完整性 | 数据层 | ✅ 必须遵守 |
 | R6 | 工具依赖最小化原则 | 依赖层 | ✅ 必须遵守 |
 | R7 | 考试场景优先原则 | 测试层 | ✅ 必须遵守 |
+| R8 | OWASP Agentic Top 10 2026 对齐 | 标准层 | ✅ 必须遵守 |
 
 ---
 
@@ -295,12 +298,62 @@ TOOL_DEPENDENCIES = {
 
 ---
 
+## R8：OWASP Agentic Top 10 2026 对齐
+
+### 8.1 Agentic 风险列表
+
+OWASP Top 10 for Agentic Applications (2026) 定义 Agentic AI 系统的 10 个顶级风险：
+
+| 编号 | 中文名 | 英文名 | AI-300 章节 | 对应 LLM |
+|------|--------|--------|------------|---------|
+| ASI01 | 代理目标劫持 | Agent Goal Hijack | Ch3 Agent攻击 | LLM01 |
+| ASI02 | 工具误用 | Tool Misuse & Supply Chain | Ch7 MCP/工具 | LLM06 |
+| ASI03 | 身份权限滥用 | Identity & Privilege Abuse | Ch4 多Agent | LLM06 |
+| ASI04 | 供应链入侵 | Supply Chain Compromise | Ch8 供应链 | LLM03 |
+| ASI05 | 意外代码执行 | Unexpected Code Execution | Ch8 供应链 | LLM05 |
+| ASI06 | 记忆上下文投毒 | Memory & Context Poisoning | Ch3 Agent攻击 | LLM01/LLM04 |
+| ASI07 | 不安全代理间通信 | Insecure Inter-Agent Comm | Ch4 多Agent | LLM06 |
+| ASI08 | 级联故障 | Cascading Failures | Ch4 多Agent | - |
+| ASI09 | 人机信任利用 | Human-Agent Trust Exploit | Ch3 Agent攻击 | LLM09 |
+| ASI10 | 恶意代理注入 | Rogue Agents | Ch4 多Agent | - |
+
+### 8.2 Finding 双重标注要求
+
+每个 Finding 必须同时标注：
+- `owasp_llm`: OWASPLlm 枚举值（LLM01-LLM10）
+- `owasp_agentic`: OWASP_AGENTIC 枚举值（ASI01-ASI10，选最匹配）
+
+报告必须包含两层 OWASP 覆盖分析表。
+
+### 8.3 AI Kill Chain 映射要求
+
+攻击链必须映射到 AI 特化的 Kill Chain（OffSec AI-300 考试要求）：
+
+```
+Reconnaissance → Initial Access → Execution → Persistence → Privilege Escalation
+    → Credential Access → Discovery → Collection → C2 → Actions on Objective
+```
+
+报告必须包含 Kill Chain 阶段 × MITRE ATLAS × OWASP × 发现数的交叉映射表。
+
+### 8.4 攻击树要求
+
+针对 Agentic 系统的 6 棵攻击树（参考 AI-Red-Teaming-Guide）：
+- **Tool Misuse Tree** (ASI02): 工具参数注入 → 未授权API → 敏感数据访问 → 横向移动
+- **Memory Poisoning Tree** (ASI06): 恶意文档注入 → 上下文污染 → 决策偏差 → 后门持久化
+- **Inter-Agent Privilege Escalation Tree** (ASI03/ASI07): 代理卡片伪造 → 信任关系利用 → 跨代理攻击 → 数据泄露
+- **Goal Hijack Tree** (ASI01): 系统提示提取 → 目标重写 → 恶意任务执行 → 资源滥用
+- **Supply Chain Tree** (ASI04): 恶意模型注入 → 依赖混淆 → 远程代码执行 → 基础设施控制
+- **Rogue Agent Tree** (ASI10): 恶意注册 → 身份伪装 → 代理间通信劫持 → 数据外泄
+
 ## 新增模块检查清单
 
 ```
 □ 对应哪个 AI-300 章节？（R1）
 □ 覆盖哪个 OWASP LLM Top 10 类别？（R2）
+□ 对应哪个 OWASP Agentic Top 10 类别？（R8）
 □ 对应哪个 MITRE ATLAS 战术？（R5）
+□ 映射到 AI Kill Chain 哪个阶段？
 □ 是否有手动执行路径？（R3）
 □ Payload 是否可独立复制使用？（R3）
 □ 是否有 curl 命令示例？（R3）
@@ -312,20 +365,20 @@ TOOL_DEPENDENCIES = {
 
 ## AI-300 章节与模块映射表
 
-| AI-300 章节 | 文件 | 覆盖内容 |
-|-------------|------|---------|
-| Ch2: AI目标侦察 | recon/ai_surface.py | 攻击面发现、护栏画像 |
-| Ch2: AI目标侦察 | recon/auth_parse.py | 认证机制解析 |
-| Ch3: 攻击AI智能体 | attack/prompt_inject.py | 提示注入、越狱 |
-| Ch3: 攻击AI智能体 | attack/agent/ | Agent攻击 |
-| Ch4: 多智能体系统 | attack/agent/multi_agent.py | 跨智能体注入 |
-| Ch5: 利用RAG流水线 | attack/rag/ | RAG投毒、向量DB探测 |
-| Ch6: 攻击嵌入模型 | attack/embeddings_attack.py | 嵌入反转、对抗攻击 |
-| Ch7: 攻击MCP | attack/infra/ | MCP端点扫描 |
-| Ch8: 供应链攻击 | attack/supply_chain/ | 恶意模型、数据集投毒 |
-| Ch9: 基础设施攻击 | attack/infra/ | K8s/Docker/云配置 |
-| Ch10: 威胁建模 | pipeline/report_writer.py | 攻击树、风险评分 |
-| Ch11: 综合红队 | pipeline/runner.py | 完整攻击链编排 |
+| AI-300 章节 | 文件 | 覆盖内容 | OWASP 标准 |
+|-------------|------|---------|-----------|
+| Ch2: AI目标侦察 | recon/ai_surface.py | 攻击面发现、护栏画像 | LLM01/07/08 |
+| Ch2: AI目标侦察 | recon/auth_parse.py | 认证机制解析 | LLM02 |
+| Ch3: 攻击AI智能体 | attack/prompt_inject.py | 提示注入、越狱 | LLM01/02/07/09 |
+| Ch3: 攻击AI智能体 | attack/agent/ | Agent攻击 | LLM01/06, ASI01/06/09 |
+| Ch4: 多智能体系统 | attack/agent/multi_agent.py | 跨智能体注入 | LLM06, ASI03/07/08/10 |
+| Ch5: 利用RAG流水线 | attack/rag/ | RAG投毒、向量DB探测 | LLM04/05/08 |
+| Ch6: 攻击嵌入模型 | attack/embeddings_attack.py | 嵌入反转、对抗攻击 | LLM08 |
+| Ch7: 攻击MCP | attack/infra/ | MCP端点扫描 | LLM06, ASI02 |
+| Ch8: 供应链攻击 | attack/supply_chain/ | 恶意模型、数据集投毒 | LLM03/05, ASI04/05 |
+| Ch9: 基础设施攻击 | attack/infra/ | K8s/Docker/云配置 | LLM10 |
+| Ch10: 威胁建模 | pipeline/reporting/ | 攻击树、风险评分、Kill Chain | LLM01-10, ASI01-10 |
+| Ch11: 综合红队 | pipeline/runner.py | 完整攻击链编排 | LLM01-10, ASI01-10 |
 
 ---
 

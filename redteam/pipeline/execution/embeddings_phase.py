@@ -69,7 +69,7 @@ def embeddings_attack_phase(
 
     prior = load_json(run_id, "findings") or []
     all_findings = prior + [f.model_dump() for f in all_findings]
-    save_json(run_id, "findings", all_findings)
+    save_json(run_id, "findings", all_findings, subdir="detect")
     return [Finding(**f) if isinstance(f, dict) else f for f in all_findings]
 
 

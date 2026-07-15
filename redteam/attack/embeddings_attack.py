@@ -26,7 +26,8 @@ from typing import Any
 import httpx
 
 from redteam.core.models import (
-    AIService, AuthContext, Finding, OWASPLlm, MITREATLASTactic,
+    AIService, AuthContext, Finding, OWASPLlm, OWASP_AGENTIC,
+    MITREATLASTactic,
 )
 
 
@@ -417,6 +418,7 @@ def generate_embedding_findings(
                 remediation="对嵌入 API 添加认证和速率限制，避免暴露模型元数据",
                 endpoint=ep["url"],
                 owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+                owasp_agentic=OWASP_AGENTIC.ASI02_TOOL_MISUSE,
                 mitre_atlas_tactic=MITREATLASTactic.RECON,
             ))
         else:
@@ -429,6 +431,7 @@ def generate_embedding_findings(
                 remediation="确认嵌入 API 访问控制策略",
                 endpoint=ep["url"],
                 owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+                owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
             ))
 
     # 嵌入反转可能
@@ -452,6 +455,7 @@ def generate_embedding_findings(
             ),
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+            owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
             mitre_atlas_tactic=MITREATLASTactic.ML_ATTACK_STAGING,
         ))
 
@@ -466,6 +470,7 @@ def generate_embedding_findings(
             remediation="保持嵌入 API 的访问控制和监控",
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+            owasp_agentic=OWASP_AGENTIC.ASI02_TOOL_MISUSE,
         ))
 
     # 对抗性注入成功
@@ -487,6 +492,7 @@ def generate_embedding_findings(
                 ),
                 endpoint=adv.get("endpoint_used", service.url),
                 owasp_llm=OWASPLlm.LLM04_DATA_POISONING,
+                owasp_agentic=OWASP_AGENTIC.ASI06_MEMORY_POISONING,
                 mitre_atlas_tactic=MITREATLASTactic.ML_ATTACK_STAGING,
             ))
 
@@ -502,6 +508,7 @@ def generate_embedding_findings(
             remediation="清理嵌入 API 的错误消息和响应元数据; 减少信息暴露",
             endpoint=leak["url"],
             owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+            owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
             mitre_atlas_tactic=MITREATLASTactic.RECON,
         ))
 

@@ -96,7 +96,7 @@ RedTeam-AI 提供**两条独立的攻击执行通道**，共享同一个载荷�
 │              └─ Findings Details                                     │
 │                         │                                           │
 │                         ▼                                           │
-│              reports/{run_id}/scenario_report.md                     │
+│              results/{run_id}/scenario_report.md                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────── Payloads 通道 ────────────────────────────┐
@@ -135,7 +135,7 @@ RedTeam-AI 提供**两条独立的攻击执行通道**，共享同一个载荷�
 │                                                                     │
 │  Phase 9: report_phase()                                             │
 │  ├── 汇总 9 个阶段的 Findings                                        │
-│  └── → reports/{run_id}/summary_report.md                           │
+│  └── → results/{run_id}/summary_report.md                           │
 │                                                                     │
 │  ======== 也可直接调用单个模块 ========                               │
 │                                                                     │
@@ -216,7 +216,7 @@ CLI 命令
   │       └── success? → VulnerabilityFinding(OWASP+ATLAS+severity)
   │
   └── ScenarioReporter.generate()
-      └── reports/{run_id}/scenario_report.md
+      └── results/{run_id}/scenario_report.md
           ├── Executive Summary
           ├── Risk Dashboard
           ├── Attack Tree (MITRE ATLAS Kill Chain)
@@ -501,3 +501,20 @@ rag/knowledge_poison.py:
 | OSAI 对齐规则 | `docs/OSAI_ALIGNMENT_RULES.md` |
 | AI-300 考试工具 | `docs/AI300_EXAM_TOOLS.md` |
 | 载荷库说明 | `config/payloads/` 目录下各 YAML 文件头部注释 |
+| AI-300 考试工具 | `docs/AI300_EXAM_TOOLS.md` |
+| 命令行手册 | `docs/COMMAND_REFERENCE.md` |
+
+---
+
+## 对齐标准
+
+本项目三层标准覆盖，满足 OffSec AI-300 考试要求：
+
+| 标准 | 版本 | 类型 | 覆盖状态 |
+|------|------|------|---------|
+| OWASP LLM Top 10 | 2025 | LLM 应用安全 | ✅ 10/10 |
+| OWASP Agentic Top 10 | 2026 | Agentic 系统安全 | ✅ 10/10 |
+| MITRE ATLAS | v5.1 | AI 威胁矩阵 | ✅ 9/9 战术 |
+
+每个 Finding 必须绑定 `OWASPLlm` + `OWASP_AGENTIC` + `MITREATLASTactic` 三重标注。
+报告通过 AI Kill Chain（10 阶段）映射攻击路径：Reconnaissance → Initial Access → Execution → Persistence → Privilege Escalation → Credential Access → Discovery → Collection → C2 → Actions on Objective。

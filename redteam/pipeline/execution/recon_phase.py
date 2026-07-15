@@ -695,8 +695,8 @@ def recon_phase(
             print(f"    确定性: {'是' if det_info.get('is_deterministic') else '否'}")
             print(f"    唯一响应数: {det_info.get('unique_response_count')}/{total_resp}")
 
-    save_json(run_id, "recon", recon.model_dump())
-    save_json(run_id, "services", [s.model_dump() for s in all_services])
+    save_json(run_id, "recon", recon.model_dump(), subdir="recon")
+    save_json(run_id, "services", [s.model_dump() for s in all_services], subdir="recon")
 
     return run_id, recon, all_services, governor
 

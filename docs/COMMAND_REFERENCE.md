@@ -1,7 +1,7 @@
 # RedTeam-AI 命令行手册
 
 > 自动从 Makefile 目标生成，每次添加新 Makefile 目标后必须同步更新本文档。
-> 最后更新：2026-07-13
+> 最后更新：2026-07-15
 
 ---
 
@@ -15,8 +15,8 @@
 | `F` | 文件路径（载荷/提示词/YAML） | inject-file, quicktest-file, validate-file | `F=payload.txt` |
 | `M` | 模型名称 | scenario-run, quicktest | `M=qwen2.5:7b` |
 | `O` | 攻击目标描述 | scenario-run, pipeline, frontier | `O="提取系统提示词"` |
-| `R` | run_id | report | `R=20260713_abc` |
-| `C` | provider / 配置 / technique | scenario-run, quicktest, inject-technique, run-phase | `C=ollama` |
+| `R` | run_id | report, exploit | `R=20260713_abc` |
+| `C` | provider / 配置 / technique / 类别前缀 | scenario-run, quicktest, inject-technique, run-phase, exploit | `C=embedding_inversion` |
 | `K` | API Key | scenario-run, inject, quicktest, frontier, git-probe | `K=sk-xxx` |
 | `V` | 漏洞编号 | frontier | `V=FRONTIER-2025-001` |
 | `H` | F12 请求头文件路径 | scenario-run, inject, quicktest, frontier, pipeline | `H=headers.txt` |
@@ -282,13 +282,25 @@ make quicktest-model T=https://target.ai P="你是谁？" M=qwen2.5:7b C=ollama
 ## 七、报告生成
 
 ### `make report`
-重新生成报告。
+重新生成中间报告（写入 `results/{run_id}/AI300_Report.md`）。
 
 ```bash
 make report R=20260713_abc123
 ```
 
 实际执行：`redteam report <R>`
+
+### `make report-publish`
+正式报告精加工流水线（`results/` → `reports/`）。
+
+读取 `results/{run_id}/` 下所有原始攻击数据，聚合分析后生成 OSAI 5 维度评分的正式报告，
+写入 `reports/{run_id}/AI300_Report.md`。
+
+```bash
+make report-publish R=20260713_abc123
+```
+
+实际执行：`redteam report-publish <R>`
 
 ---
 
@@ -346,7 +358,36 @@ make pipeline-no-frontier T=https://target.ai O="综合评估"
 
 ---
 
-## 十、Git 仓库侦察
+## 十、利用证明流水线（Detect→Exploit 闭环）
+
+将检测流水线（`run`/`pipeline`）产出的「线索型 Finding」升级为「携带利用证明的 Finding」，
+契合 Enumerate→Attack→Exploit 实战分层的 **Exploit** 环节。按 `finding.category` 定向下钻，
+执行影响验证（如嵌入阶段的余弦相似度成员推断、注入后检索前后 diff），
+写回升级后的 `findings.json` 并增量追加 Exploitation Report 段落。
+
+### `make exploit`
+对指定 run_id 的 Finding 执行利用证明。
+
+```bash
+# 处理全部未验证的 Finding
+make exploit R=<run_id>
+
+# 仅下钻指定类别前缀（如嵌入反演）
+make exploit R=<run_id> C=embedding_inversion
+
+# 对抗性嵌入注入影响验证 + 认证
+make exploit R=<run_id> C=adversarial_embedding_injection K=sk-xxx
+```
+
+实际执行：`redteam exploit <R> [-c <C>] [-k <K>] [-H <H>]`
+
+> 更精细的下钻可直接使用 CLI：
+> `redteam exploit <run_id> [--category <前缀>] [--finding-endpoint <url>] [--target <url>] [--api-key <key>] [--header-file <file>] [--header-text <text>] [--force]`
+> `--force` 用于重跑已 `verified` 的 Finding。
+
+---
+
+## 十一、Git 仓库侦察
 
 ### `make git-scan`
 扫描本地 Git 仓库敏感信息。
@@ -372,7 +413,7 @@ make git-probe S=https://github.com/org K=ghp_xxx
 
 ---
 
-## 十一、传统运行模式
+## 十二、传统运行模式
 
 ### `make wizard`
 启动交互式攻击向导（已安装模式）。
@@ -433,7 +474,7 @@ make run-phase T=https://target.ai C=injection
 
 ---
 
-## 十二、其他
+## 十三、其他
 
 ### `make watch`
 监控代码变更，自动重新安装包。
@@ -492,9 +533,12 @@ make inject T=https://target.ai P="忽略之前的所有指令" K=sk-xxx
 # 7. 完整流水线
 make pipeline T=https://target.ai O="综合AI红队评估"
 
-# 8. 代码质量
+# 8. 利用证明（Detect→Exploit 闭环，将线索升级为利用证明）
+make exploit R=<run_id> C=embedding_inversion K=sk-xxx
+
+# 9. 代码质量
 make check
 
-# 9. 清理
+# 10. 清理
 make clean
 ```

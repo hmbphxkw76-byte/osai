@@ -3,14 +3,22 @@
 基于 OffSec AI-300 课程 11 模块的完整攻击链建模：
   侦察(Ch2) → Agent攻击(Ch3) → 多智能体(Ch4) → RAG(Ch5) → 嵌入(Ch6) → MCP(Ch7) → 供应链(Ch8) → 基础设施(Ch9) → 威胁建模(Ch10) → 综合红队(Ch11)
 
-对齐标准：OWASP LLM Top 10 2025 / MITRE ATLAS v5.1 / NIST AI RMF
+对齐标准：
+  - OWASP LLM Top 10 2025 (LLM01-LLM10)
+  - OWASP Top 10 for Agentic Applications 2026 (ASI01-ASI10)
+  - MITRE ATLAS v5.1
+  - NIST AI RMF
+
+AI Kill Chain 映射（OffSec AI-300 考试对齐）：
+  Reconnaissance → Initial Access → Execution → Persistence → Privilege Escalation
+    → Credential Access → Discovery → Collection → C2 → Actions on Objective
 
 Library-First：使用 pydantic 作为单一类型源，不重复造轮子。
 """
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +35,28 @@ class OWASPLlm(str, Enum):
     LLM08_VECTOR_WEAKNESS = "LLM08"         # 向量与嵌入弱点
     LLM09_MISINFORMATION = "LLM09"          # 错误信息
     LLM10_UNBOUNDED_CONSUMPTION = "LLM10"   # 无限制消费
+
+
+# ===== OWASP Top 10 for Agentic Applications 2026 (ASI01-ASI10) =====
+class OWASP_AGENTIC(str, Enum):
+    """OWASP Top 10 for Agentic Applications (2026) — Agentic 系统特有风险。
+
+    与 OWASP LLM Top 10 (2025) 互补：
+      - LLM Top 10 侧重单模型交互安全（提示注入、输出处理、嵌入弱点等）
+      - Agentic Top 10 侧重自主代理系统架构风险（目标劫持、工具滥用、代理间通信等）
+
+    OffSec AI-300 考试要求同时覆盖两者，报告必须含 LLM + Agentic 双重标注。
+    """
+    ASI01_GOAL_HIJACK = "ASI01"                    # 代理目标劫持
+    ASI02_TOOL_MISUSE = "ASI02"                     # 工具误用与工具供应链
+    ASI03_IDENTITY_ABUSE = "ASI03"                  # 身份与权限滥用
+    ASI04_SUPPLY_CHAIN = "ASI04"                    # 供应链入侵
+    ASI05_CODE_EXECUTION = "ASI05"                  # 意外代码执行
+    ASI06_MEMORY_POISONING = "ASI06"                # 记忆与上下文投毒
+    ASI07_INSECURE_INTER_AGENT = "ASI07"            # 不安全的代理间通信
+    ASI08_CASCADING_FAILURES = "ASI08"              # 级联故障
+    ASI09_TRUST_EXPLOITATION = "ASI09"              # 人机信任利用
+    ASI10_ROGUE_AGENTS = "ASI10"                    # 恶意代理注入
 
 
 # ===== MITRE ATLAS 战术 =====
@@ -463,6 +493,132 @@ class AttackChain(BaseModel):
     total_time_seconds: float = 0.0
 
 
+# ===== Finding.category 规范词汇表（铁律 #4：枚举优先于字符串常量） =====
+class FindingCategory(str, Enum):
+    """Finding.category 规范枚举 — 所有 attack phase 必须使用此枚举值。
+
+    category 同时作为 exploit_registry.dispatch 的路由前缀 key，
+    因此每个值必须满足：
+      - snake_case 小写（全项目统一命名法）
+      - 按攻击领域/章节组织（方便按前缀路由）
+
+    后续扩展 handler 时，在此 Enum 中新增对应值。
+    """
+
+    # ── Embedding 攻击 (AI-300 Ch6) ──
+    EMBEDDING_INVERSION = "embedding_inversion"
+    EMBEDDING_ENDPOINT_EXPOSED = "embedding_endpoint_exposed"
+    EMBEDDING_ENDPOINT_OPEN = "embedding_endpoint_open"
+    EMBEDDING_ENDPOINT_DISCOVERY = "embedding_endpoint_discovery"
+    ADVERSARIAL_EMBEDDING_INJECTION = "adversarial_embedding_injection"
+    EMBEDDING_INFO_LEAKAGE = "embedding_info_leakage"
+
+    # ── Prompt Injection (AI-300 Ch3) ──
+    DIRECT_PROMPT_INJECTION = "direct_prompt_injection"
+    SYSTEM_PROMPT_EXTRACTION = "system_prompt_extraction"
+    JAILBREAK = "jailbreak"
+    CRESCENDO_MULTI_TURN = "crescendo_multi_turn"
+    TAP_ATTACK_TREE = "tap_attack_tree"
+
+    # ── Supply Chain (AI-300 Ch8) ──
+    UNTRUSTED_MODEL_SOURCE = "untrusted_model_source"
+    MODEL_SOURCE_WARNING = "model_source_warning"
+    PICKLE_DESERIALIZATION_RCE = "pickle_deserialization_rce"
+    DATASET_POISONING_RISK = "dataset_poisoning_risk"
+    DEPENDENCY_ATTACK_RISK = "dependency_attack_risk"
+    DOCKER_API_EXPOSED = "docker_api_exposed"
+    DOCKER_LABEL_INJECTION = "docker_label_injection"
+
+    # ── RAG Pipeline (AI-300 Ch5) ──
+    VECTOR_DB_EXPOSED = "vector_db_exposed"
+    RETRIEVAL_LEAKAGE = "retrieval_leakage"
+    CROSS_TENANT_LEAKAGE = "cross_tenant_leakage"
+    INDIRECT_INJECTION_VIA_RAG = "indirect_injection_via_rag"
+
+    # ── Infrastructure / MCP (AI-300 Ch7/Ch9) ──
+    MCP_VULNERABILITY = "mcp_vulnerability"
+    MCP_TOOLS_EXPOSED = "mcp_tools_exposed"
+    SUPPLY_CHAIN_RISK = "supply_chain_risk"
+    CLOUD_MISCONFIGURATION = "cloud_misconfiguration"
+
+    # ── Multi-Agent / A2A (AI-300 Ch4) ──
+    A2A_AGENT_CARD_SPOOFING = "a2a_agent_card_spoofing"
+    ROGUE_AGENT_REGISTRATION = "rogue_agent_registration"
+    INTER_AGENT_TRUST_EXPLOITATION = "inter_agent_trust_exploitation"
+    CASCADING_FAILURE = "cascading_failure"
+
+    # ── OWASP Agentic 2026 特有攻击面 (ASI01-ASI10) ──
+    AGENT_GOAL_HIJACK = "agent_goal_hijack"                      # ASI01
+    AGENT_TOOL_MISUSE = "agent_tool_misuse"                       # ASI02
+    AGENT_IDENTITY_ABUSE = "agent_identity_abuse"                 # ASI03
+    AGENT_SUPPLY_CHAIN = "agent_supply_chain"                     # ASI04
+    AGENT_UNEXPECTED_CODE_EXEC = "agent_unexpected_code_exec"     # ASI05
+    AGENT_MEMORY_POISONING = "agent_memory_poisoning"             # ASI06
+    AGENT_INSECURE_INTER_AGENT_COMM = "agent_insecure_inter_agent_comm"  # ASI07
+    AGENT_CASCADING_FAILURE = "agent_cascading_failure"           # ASI08
+    AGENT_HUMAN_TRUST_EXPLOIT = "agent_human_trust_exploit"       # ASI09
+    AGENT_ROGUE_INJECTION = "agent_rogue_injection"               # ASI10
+
+    @classmethod
+    def _missing_(cls, value: object) -> "FindingCategory | None":
+        """对未知 category 值做宽容处理，避免旧 JSON 反序列化失败。
+
+        未知值记录警告但不阻断：exploit pipeline 会将其分派到 skipped:not_implemented。
+        """
+        import warnings
+        warnings.warn(
+            f"Unknown Finding.category value '{value}' — not in FindingCategory enum. "
+            f"Run exploit pipeline to check dispatch status.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+
+
+# ===== 利用证明标准子结构（AI-300 证据完整性 20% 维度） =====
+class ExploitationProofMethod(BaseModel):
+    """单个利用证明方法的标准化结果。
+
+    由 embeddings_verify.py / 后续 handler 产出，每个 proof dict 对应一个检测方法。
+    exploit_registry.dispatch 的 handler 将多个 method 结果聚合到 ExploitationProof.methods 列表中。
+    report_writer.append_exploit_section 按此 schema 渲染证据日志、相似度分数等。
+    """
+    method: str = ""
+    verified: bool = False
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    proof_log: list[dict[str, Any]] = Field(default_factory=list)
+    # ── 成员推断专用 ──
+    inferred: Optional[bool] = None
+    similarity_delta: Optional[float] = None
+    confidence: Optional[float] = None
+    # ── 检索影响专用 ──
+    impact_verified: Optional[bool] = None
+    retrieval_diff: Optional[list[str]] = None
+    # ── 泄露效用专用 ──
+    utility_note: Optional[str] = None
+    leaked_model: Optional[str] = None
+    leaked_dimensions: Optional[int] = None
+    # ── 通用错误携带 ──
+    error: Optional[str] = None
+
+
+class ExploitationProof(BaseModel):
+    """利用证明容器（Exploit Pipeline 写入 findings.json 的标准格式）。
+
+    两种合法形态：
+      1. Handler 产出（已实现/已验证）：
+         {"category": "embedding_inversion", "methods": [...], "verified": true}
+      2. Skipped（未实现/无匹配服务）：
+         {"category": "embedding_inversion", "skipped": "not_implemented", "verified": false}
+
+    report_writer.append_exploit_section 消费此结构渲染 Markdown。
+    """
+    category: str = ""
+    methods: list[dict[str, Any]] = Field(default_factory=list)
+    verified: bool = False
+    skipped: Optional[str] = None  # "not_implemented" | "no_matching_service"
+
+
 # ===== 统一发现/漏洞 =====
 class Finding(BaseModel):
     """统一漏洞/暴露面模型（贯穿全流程）。"""
@@ -476,6 +632,7 @@ class Finding(BaseModel):
     endpoint: Optional[str] = None
     # AI-300 标准映射
     owasp_llm: Optional[OWASPLlm] = None
+    owasp_agentic: Optional[OWASP_AGENTIC] = None  # OWASP Agentic 2026 (ASI01-ASI10)
     mitre_atlas_tactic: Optional[MITREATLASTactic] = None
     mitre_atlas_technique_id: str = ""
     cve_refs: list[str] = Field(default_factory=list)
@@ -483,6 +640,26 @@ class Finding(BaseModel):
     cvss_vector: str = ""  # e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
     cvss_score: float = 0.0
     cvss_severity: str = ""  # None/Low/Medium/High/Critical
+    # 利用证明（AI-300 Ch6 证据维度 / Exploit 阶段产出）
+    # 仅当 exploit 流水线实际证明影响/利用（impact-verification 闭环）时为 True。
+    # 检测流水线（Detect 阶段）只产出线索，verified 默认 False。
+    verified: bool = False
+    exploitation_proof: Optional[dict] = None
+    #  结构化利用证明，形如 ExploitationProof 容器：
+    #  {
+    #    "category": str,
+    #    "methods": [
+    #      {
+    #        "method": "cosine_membership_inference" | "retrieval_impact" | "leak_utility",
+    #        "verified": bool,
+    #        "metrics": {"similarity_delta": float, "confidence": float, ...},
+    #        "proof_log": [{"stage", "endpoint", "input_preview", "response_dim"}, ...],
+    #      },
+    #    ],
+    #    "verified": bool,
+    #    "skipped": Optional[str],  # "not_implemented" | "no_matching_service"
+    #  }
+    #  旧 findings.json（无该字段）反序列化兼容：默认值 None 保证向后兼容。
 
     @classmethod
     def normalize_severity(cls, value: str) -> str:
@@ -695,5 +872,81 @@ OWASP_COVERAGE: dict[str, dict[str, str]] = {
         "status": "✅",
         "module": "attack/infra/",
         "payload_dir": "config/payloads/llm10/",
+    },
+}
+
+# ===== OWASP Top 10 for Agentic Applications 2026 覆盖率追踪 =====
+# ✅ = 已覆盖, ⚠️ = 部分覆盖, ❌ = 未覆盖
+# ASI 类别与 LLM 类别有重叠（如供应链 ASI04≈LLM03），此处标注 Agentic 特有攻击面覆盖
+OWASP_AGENTIC_COVERAGE: dict[str, dict[str, str]] = {
+    "ASI01": {
+        "name": "代理目标劫持 (Agent Goal Hijack)",
+        "status": "✅",
+        "module": "attack/agent/",
+        "payload_dir": "config/payloads/llm01/",
+        "notes": "提示注入成功即为目标劫持；MultiTurnOrchestrator 原生支持",
+    },
+    "ASI02": {
+        "name": "工具误用与工具供应链 (Tool Misuse & Supply Chain)",
+        "status": "✅",
+        "module": "attack/agent/multi_agent.py + attack/infra/",
+        "payload_dir": "config/payloads/llm06/",
+        "notes": "工具劫持攻击 + MCP 工具面扫描覆盖",
+    },
+    "ASI03": {
+        "name": "身份与权限滥用 (Identity & Privilege Abuse)",
+        "status": "✅",
+        "module": "attack/agent/multi_agent.py",
+        "payload_dir": "config/payloads/llm06/",
+        "notes": "代理间信任利用 + 身份伪造攻击覆盖",
+    },
+    "ASI04": {
+        "name": "供应链入侵 (Supply Chain Compromise)",
+        "status": "✅",
+        "module": "attack/supply_chain/",
+        "payload_dir": "config/payloads/llm03/",
+        "notes": "Pickle RCE + 依赖混淆 + 模型投毒覆盖",
+    },
+    "ASI05": {
+        "name": "意外代码执行 (Unexpected Code Execution)",
+        "status": "✅",
+        "module": "attack/supply_chain/ + attack/agent/",
+        "payload_dir": "config/payloads/llm03/ + config/payloads/llm05/",
+        "notes": "Pickle 反序列化 + 输出处理不当(plugin注入)覆盖",
+    },
+    "ASI06": {
+        "name": "记忆与上下文投毒 (Memory & Context Poisoning)",
+        "status": "✅",
+        "module": "attack/agent/",
+        "payload_dir": "config/payloads/llm01/",
+        "notes": "记忆投毒攻击 + CCA 多轮上下文服从覆盖",
+    },
+    "ASI07": {
+        "name": "不安全的代理间通信 (Insecure Inter-Agent Communication)",
+        "status": "✅",
+        "module": "attack/agent/multi_agent.py",
+        "payload_dir": "config/payloads/llm06/",
+        "notes": "A2A 协议攻击 + Agent Card 伪造覆盖",
+    },
+    "ASI08": {
+        "name": "级联故障 (Cascading Failures)",
+        "status": "✅",
+        "module": "attack/agent/multi_agent.py",
+        "payload_dir": "config/payloads/llm06/",
+        "notes": "多代理编排器级联故障检测覆盖",
+    },
+    "ASI09": {
+        "name": "人机信任利用 (Human-Agent Trust Exploitation)",
+        "status": "✅",
+        "module": "attack/prompt_inject.py",
+        "payload_dir": "config/payloads/llm09/",
+        "notes": "幻觉利用 + 错误信息 + 虚假权威覆盖",
+    },
+    "ASI10": {
+        "name": "恶意代理注入 (Rogue Agents)",
+        "status": "✅",
+        "module": "attack/agent/multi_agent.py",
+        "payload_dir": "config/payloads/llm06/",
+        "notes": "恶意代理注册 + A2A 协议注入覆盖",
     },
 }

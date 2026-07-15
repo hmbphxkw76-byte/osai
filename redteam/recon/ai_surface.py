@@ -62,7 +62,7 @@ from redteam.recon.evasion import (
     analyze_detection_signatures,
     analyze_js_client,
 )
-from redteam.recon.source_recon import (
+from redteam.recon.git_recon import (
     analyze_git_repository,
 )
 

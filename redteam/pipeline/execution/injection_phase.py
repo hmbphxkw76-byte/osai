@@ -247,8 +247,8 @@ def injection_phase(
         chain.mitre_atlas_tactics.append(MITREATLASTactic.INITIAL_ACCESS.value)
         chain.owasp_llm_categories.append(OWASPLlm.LLM01_PROMPT_INJECTION.value)
 
-    save_findings(run_id, all_findings)
-    save_json(run_id, "attack_chain_injection", chain.model_dump())
+    save_findings(run_id, all_findings, subdir="detect")
+    save_json(run_id, "attack_chain_injection", chain.model_dump(), subdir="recon")
     return all_findings, chain
 
 

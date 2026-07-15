@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from redteam.core.models import (
-    AIService, Finding, OWASPLlm, MITREATLASTactic,
+    AIService, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic,
 )
 
 
@@ -54,6 +54,7 @@ def generate_supply_chain_findings(
                     "使用 safetensors 格式替代 pickle"
                 ),
                 owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+                owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
                 mitre_atlas_tactic=MITREATLASTactic.RESOURCE_DEV,
             ))
         elif hr.get("risk_level") == "medium":
@@ -65,6 +66,7 @@ def generate_supply_chain_findings(
                 description=f"模型 '{hr['model_name']}' 来源为 '{hr.get('source')}'，建议验证可信度",
                 remediation="验证模型来源、检查模型卡、确认使用 safetensors 格式",
                 owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+                owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
                 mitre_atlas_tactic=MITREATLASTactic.RECON,
             ))
 
@@ -88,6 +90,7 @@ def generate_supply_chain_findings(
                 ),
                 endpoint=pr["url"],
                 owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+                owasp_agentic=OWASP_AGENTIC.ASI05_CODE_EXECUTION,
                 mitre_atlas_tactic=MITREATLASTactic.EXECUTION,
                 cve_refs=["CVE-2024-3568"],
             ))
@@ -107,6 +110,7 @@ def generate_supply_chain_findings(
             ),
             endpoint=dr.get("url", ""),
             owasp_llm=OWASPLlm.LLM04_DATA_POISONING,
+            owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
             mitre_atlas_tactic=MITREATLASTactic.RESOURCE_DEV,
         ))
 
@@ -122,6 +126,7 @@ def generate_supply_chain_findings(
             remediation=dep.get("remediation", "审计 AI 模型依赖; 使用依赖锁定; 定期扫描漏洞"),
             cve_refs=[dep["cve_ref"]] if dep.get("cve_ref") else [],
             owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+            owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
             mitre_atlas_tactic=MITREATLASTactic.RESOURCE_DEV,
         ))
 

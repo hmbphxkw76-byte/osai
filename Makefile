@@ -21,9 +21,10 @@
         validate validate-strict validate-registry validate-file \
         inject inject-file inject-technique \
         quicktest quicktest-file quicktest-model \
-        report \
+        report report-publish \
         frontier frontier-stealth \
         pipeline pipeline-no-frontier \
+        exploit \
         git-scan git-probe \
         test-single test-cov test-verbose
 
@@ -163,6 +164,9 @@ quicktest-model:  ## 指定模型快速测试（用法：make quicktest-model T=
 report:  ## 重新生成报告（用法：make report R=<run_id>）
 	redteam report $(R)
 
+report-publish:  ## 正式报告精加工流水线（results/ → reports/，用法：make report-publish R=<run_id>）
+	redteam report-publish $(R)
+
 # ================================================================
 # 前沿漏洞攻击
 # ================================================================
@@ -183,6 +187,12 @@ pipeline:  ## 统一攻击流水线（用法：make pipeline T=https://target.ai
 
 pipeline-no-frontier:  ## 统一攻击流水线（禁用前沿漏洞阶段）
 	redteam pipeline -t $(T) -o "$(O)" --disable-frontier $(if $(H), -H $(H))
+
+# ================================================================
+# 利用证明流水线（Detect→Exploit 闭环）
+# ================================================================
+exploit:  ## 利用证明流水线：将线索型 Finding 升级为利用证明（用法：make exploit R=<run_id> [C=<category>] [K=<api_key>]）
+	redteam exploit $(R) $(if $(C), -c $(C)) $(if $(K), -k $(K)) $(if $(H), -H $(H))
 
 # ================================================================
 # Git 仓库侦察

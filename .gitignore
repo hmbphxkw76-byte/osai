@@ -33,6 +33,7 @@ tmp_*.log
 
 # 运行产物
 .redteam_runs/
+results/
 reports/
 auth_store/
 

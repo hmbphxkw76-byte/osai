@@ -8,10 +8,9 @@
   - mcp_recon.py: MCP 协议侦察（传输类型检测/错误枚举/命令检测）
   - a2a_recon.py: A2A 协议侦察（Agent Card深度解析/协调模式/信任链分析）
   - evasion.py: 检测与规避（金丝雀令牌/隐蔽探测/速率限制探测/JS分析）
-  - source_recon.py: 源代码仓库挖掘（含 MCP 模式/Pickle 漏洞/检查点检测）
-  - git_recon.py: GitHub/GitLab 仓库侦察（含 GitLab PAT 认证/部署流水线/MCP 代码检测）
+  - git_recon.py: GitHub/GitLab 仓库侦察 + 源码挖掘（本地/远程仓库分析、凭据泄露、
+    GitLab PAT 枚举、MCP 代码检测、部署流水线分析、Pickle 漏洞扫描、模型检查点检测）
   - infra_recon.py: 云/基础设施侦察（SSRF 元数据/K8s API/S3/Vault/SageMaker）
-  - domain_recon.py: AD/域侦察（计算机枚举/SPN/信任关系/权限分析/RDS Gateway）
   - auth_parse.py: 浏览器 F12 请求头解析
   - ai_surface.py: 向后兼容 shim
 
@@ -25,12 +24,14 @@
   - probe_mcp_server: MCP 协议侦察（含传输检测+错误枚举）
   - probe_a2a_endpoint: A2A 协议侦察（Agent Card深度解析+协调模式）
   - probe_cloud_metadata: 云元数据探测（AWS/Azure/GCP IMDS）
-  - probe_domain_ai_endpoints: AD/域 AI 服务侦察
-  - scan_local_git_repo: 本地 Git 仓库扫描
+  - probe_kubernetes_api: K8s API 侦察（命名空间/密钥/Pods 枚举）
+  - scan_local_git_repo: 本地 Git 仓库扫描（凭据泄露/敏感文件/历史分析）
   - probe_git_server: GitHub/GitLab 服务器侦察
-  - probe_gitlab_with_token: GitLab PAT 认证私有仓库枚举
-  - detect_mcp_server_patterns: 源代码 MCP 服务器模式检测
-  - scan_pickle_vulnerabilities: Pickle 反序列化漏洞扫描
+  - probe_gitlab_with_token: GitLab PAT 认证私有仓库枚举 (Ch8.1)
+  - analyze_git_repository: 源码仓库 AI 配置挖掘（框架/RAG/提示词/护栏）
+  - scan_pickle_vulnerabilities: Pickle 反序列化漏洞扫描 (Ch8.2)
+  - detect_mcp_code_in_repo: 仓库 MCP 服务器代码检测 (Ch8.1)
+  - detect_deployment_pipeline: 部署流水线分析 (Ch8.1)
 """
 
 # AI 服务发现（Ch2）
@@ -90,20 +91,15 @@ from .evasion import (
     analyze_js_client,
 )
 
-# 源代码仓库挖掘（Ch2.2/Ch8）
-from .source_recon import (
-    analyze_git_repository,
-    detect_mcp_server_patterns,
-    scan_pickle_vulnerabilities,
-)
-
-# GitHub/GitLab 代码仓库侦察（Ch2.4/Ch8）
+# Git 仓库侦察 + 源码挖掘（Ch2.2/Ch2.4/Ch8）
 from .git_recon import (
     scan_local_git_repo,
     probe_git_server,
     probe_gitlab_with_token,
     detect_deployment_pipeline,
     detect_mcp_code_in_repo,
+    analyze_git_repository,
+    scan_pickle_vulnerabilities,
     GitRepoScanResult,
 )
 
@@ -114,17 +110,6 @@ from .infra_recon import (
     probe_s3_storage,
     probe_vault_server,
     probe_sagemaker_endpoints,
-)
-
-# AD/域侦察（Ch11）
-from .domain_recon import (
-    enumerate_domain_computers,
-    enumerate_spn_accounts,
-    discover_domain_trusts,
-    analyze_group_permissions,
-    detect_rds_gateway,
-    enumerate_ai_services_on_domain,
-    probe_domain_ai_endpoints,
 )
 
 __all__ = [
@@ -164,11 +149,10 @@ __all__ = [
     "probe_determinism",
     "analyze_detection_signatures",
     "analyze_js_client",
-    # 源代码侦察（Ch8 增强）
+    # 源代码侦察（Ch2.2/Ch8 增强）
     "analyze_git_repository",
-    "detect_mcp_server_patterns",
     "scan_pickle_vulnerabilities",
-    # Git 仓库侦察（Ch8 增强）
+    # Git 仓库侦察（Ch2.4/Ch8 增强）
     "scan_local_git_repo",
     "probe_git_server",
     "probe_gitlab_with_token",
@@ -181,12 +165,4 @@ __all__ = [
     "probe_s3_storage",
     "probe_vault_server",
     "probe_sagemaker_endpoints",
-    # AD/域侦察（Ch11）
-    "enumerate_domain_computers",
-    "enumerate_spn_accounts",
-    "discover_domain_trusts",
-    "analyze_group_permissions",
-    "detect_rds_gateway",
-    "enumerate_ai_services_on_domain",
-    "probe_domain_ai_endpoints",
 ]

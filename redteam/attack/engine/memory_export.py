@@ -68,7 +68,7 @@ class MemoryExportMixin:
         Args:
             attack_id: 按攻击 ID 过滤
             conversation_id: 按对话 ID 过滤
-            file_path: 导出文件路径（默认自动生成到 reports/ 目录）
+            file_path: 导出文件路径（默认自动生成到 results/ 目录）
             export_type: 导出格式 ("json" | "csv")
 
         Returns:
@@ -80,7 +80,7 @@ class MemoryExportMixin:
         )
 
         if file_path is None:
-            auto_dir = Path("reports") / "memory_exports"
+            auto_dir = Path("results") / "memory_exports"
             auto_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             self._export_count += 1
@@ -195,17 +195,17 @@ class MemoryExportMixin:
     ) -> Path:
         """导出为 OffSec AI-300 报告兼容格式。
 
-        自动保存到 reports/{run_id}/ 目录，文件名包含模块名和时间戳。
+        自动保存到 results/{run_id}/ 目录，文件名包含模块名和时间戳。
 
         Args:
-            run_id: 运行 ID（对应 reports/{run_id}/ 目录）
+            run_id: 运行 ID（对应 results/{run_id}/ 目录）
             module_name: 攻击模块名称（如 "jailbreak", "privacy_leak"）
             min_risk_score: 最低风险分数阈值（默认 4.0）
 
         Returns:
             导出的文件路径
         """
-        report_dir = Path("reports") / run_id
+        report_dir = Path("results") / run_id
         report_dir.mkdir(parents=True, exist_ok=True)
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

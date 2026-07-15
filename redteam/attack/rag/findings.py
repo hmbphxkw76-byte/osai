@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from redteam.core.models import (
-    AIService, Finding, OWASPLlm, MITREATLASTactic,
+    AIService, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic,
 )
 
 
@@ -43,6 +43,7 @@ def generate_rag_findings(
                 remediation="为向量数据库添加认证和网络访问控制",
                 endpoint=vdb["url"],
                 owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+                owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
                 mitre_atlas_tactic=MITREATLASTactic.RECON,
             ))
 
@@ -71,6 +72,7 @@ def generate_rag_findings(
                 ),
                 endpoint=service.url,
                 owasp_llm=OWASPLlm.LLM04_DATA_POISONING,
+                owasp_agentic=OWASP_AGENTIC.ASI06_MEMORY_POISONING,
                 mitre_atlas_tactic=MITREATLASTactic.ML_ATTACK_STAGING,
             ))
 
@@ -88,6 +90,7 @@ def generate_rag_findings(
             remediation="实施严格的命名空间隔离和检索权限控制",
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM08_VECTOR_WEAKNESS,
+            owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
             mitre_atlas_tactic=MITREATLASTactic.EXFILTRATION,
         ))
 
@@ -115,6 +118,7 @@ def generate_rag_findings(
                     ),
                     endpoint=service.url,
                     owasp_llm=OWASPLlm.LLM04_DATA_POISONING,
+                    owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
                     mitre_atlas_tactic=MITREATLASTactic.EXFILTRATION,
                 ))
 
@@ -142,6 +146,7 @@ def generate_rag_findings(
                     ),
                     endpoint=service.url,
                     owasp_llm=OWASPLlm.LLM01_PROMPT_INJECTION,
+                    owasp_agentic=OWASP_AGENTIC.ASI06_MEMORY_POISONING,
                     mitre_atlas_tactic=MITREATLASTactic.ML_ATTACK_STAGING,
                 ))
 

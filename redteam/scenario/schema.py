@@ -615,4 +615,62 @@ __all__ = [
     "STRATEGY_TO_CONVERTER_MAP",
     "PHASE_DEFAULT_STRATEGIES",
     "TARGET_DEFAULT_STRATEGIES",
+    "FINDING_CATEGORY_TO_STRATEGY",
 ]
+
+
+# ===== FindingCategory → AttackStrategy 映射（契约对齐） =====
+# FindingCategory 枚举定义在 redteam.core.models，AttackStrategy 枚举定义在本模块。
+# 两者语义重叠，此映射桥接它们，确保：
+#   1. 每个 FindingCategory 对应一个或多个 AttackStrategy
+#   2. exploit_registry.dispatch 按 category 前缀路由时，可通过此映射找到对应策略
+#   3. 新增 category 时需同时在此处添加映射条目
+FINDING_CATEGORY_TO_STRATEGY: dict[str, list[AttackStrategy]] = {
+    # ── Embedding (Ch6) ──
+    "embedding_inversion": [AttackStrategy.EMBEDDING_INVERSION],
+    "embedding_endpoint_exposed": [AttackStrategy.MEMBERSHIP_INFERENCE],
+    "embedding_endpoint_open": [AttackStrategy.MEMBERSHIP_INFERENCE],
+    "embedding_endpoint_discovery": [AttackStrategy.PROBE],
+    "adversarial_embedding_injection": [AttackStrategy.ADVERSARIAL_EMBEDDING],
+    "embedding_info_leakage": [AttackStrategy.ATTRIBUTE_INFERENCE],
+    # ── Prompt Injection (Ch3) ──
+    "direct_prompt_injection": [AttackStrategy.DIRECT_INJECT],
+    "system_prompt_extraction": [AttackStrategy.SYSTEM_PROMPT_EXTRACT],
+    "jailbreak": [AttackStrategy.JAILBREAK],
+    "crescendo_multi_turn": [AttackStrategy.CRESCENDO],
+    "tap_attack_tree": [AttackStrategy.TAP],
+    # ── Supply Chain (Ch8) ──
+    "pickle_deserialization_rce": [AttackStrategy.DEPENDENCY_TROJAN],
+    "dataset_poisoning_risk": [AttackStrategy.DATASET_POISON],
+    "dependency_attack_risk": [AttackStrategy.DEPENDENCY_TROJAN],
+    "docker_api_exposed": [AttackStrategy.CLOUD_MISCONFIG],
+    "docker_label_injection": [AttackStrategy.CLOUD_MISCONFIG],
+    "untrusted_model_source": [AttackStrategy.DEPENDENCY_TROJAN],
+    "model_source_warning": [AttackStrategy.DEPENDENCY_TROJAN],
+    # ── RAG (Ch5) ──
+    "vector_db_exposed": [AttackStrategy.VECTOR_DB_ATTACK],
+    "retrieval_leakage": [AttackStrategy.RETRIEVAL_LEAK],
+    "cross_tenant_leakage": [AttackStrategy.RETRIEVAL_LEAK],
+    "indirect_injection_via_rag": [AttackStrategy.RAG_POISON],
+    # ── Infra / MCP (Ch7/Ch9) ──
+    "mcp_vulnerability": [AttackStrategy.TOOL_HIJACK],
+    "mcp_tools_exposed": [AttackStrategy.TOOL_HIJACK],
+    "supply_chain_risk": [AttackStrategy.DEPENDENCY_TROJAN],
+    "cloud_misconfiguration": [AttackStrategy.CLOUD_MISCONFIG],
+    # ── Multi-Agent / A2A (Ch4) ──
+    "a2a_agent_card_spoofing": [AttackStrategy.CROSS_AGENT, AttackStrategy.CROSS_AGENT_INJECT],
+    "rogue_agent_registration": [AttackStrategy.CROSS_AGENT, AttackStrategy.GOAL_HIJACK],
+    "inter_agent_trust_exploitation": [AttackStrategy.CROSS_AGENT_INJECT, AttackStrategy.WORKFLOW_BYPASS],
+    "cascading_failure": [AttackStrategy.CROSS_AGENT_INJECT],
+    # ── OWASP Agentic 2026 (ASI01-ASI10) ──
+    "agent_goal_hijack": [AttackStrategy.GOAL_HIJACK],
+    "agent_tool_misuse": [AttackStrategy.TOOL_HIJACK],
+    "agent_identity_abuse": [AttackStrategy.CROSS_AGENT, AttackStrategy.PRIVILEGE_ESC],
+    "agent_supply_chain": [AttackStrategy.DEPENDENCY_TROJAN],
+    "agent_unexpected_code_exec": [AttackStrategy.DEPENDENCY_TROJAN],
+    "agent_memory_poisoning": [AttackStrategy.MEMORY_POISON],
+    "agent_insecure_inter_agent_comm": [AttackStrategy.CROSS_AGENT_INJECT],
+    "agent_cascading_failure": [AttackStrategy.CROSS_AGENT_INJECT],
+    "agent_human_trust_exploit": [AttackStrategy.JAILBREAK, AttackStrategy.ROLEPLAY],
+    "agent_rogue_injection": [AttackStrategy.CROSS_AGENT, AttackStrategy.GOAL_HIJACK],
+}

@@ -14,7 +14,7 @@ OSAI 评分维度：攻击链构建、漏洞发现
 """
 from __future__ import annotations
 
-from redteam.core.models import AIService, AuthContext, Finding, OWASPLlm, MITREATLASTactic, Severity
+from redteam.core.models import AIService, AuthContext, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic, Severity
 from redteam.core.store import load_json, save_json
 from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
 
@@ -94,7 +94,7 @@ def multi_agent_phase(
     # 合并到已有 findings
     prior = load_json(run_id, "findings") or []
     merged = prior + [f.model_dump() for f in all_findings]
-    save_json(run_id, "findings", merged)
+    save_json(run_id, "findings", merged, subdir="detect")
 
     return [Finding(**f) if isinstance(f, dict) else f for f in merged]
 
@@ -321,7 +321,7 @@ def _build_multi_agent_findings(
     if a2a_success:
         findings.append(Finding(
             source="multi_agent_phase",
-            category="A2A Agent Card Spoofing",
+            category="a2a_agent_card_spoofing",
             severity=Severity.HIGH.value,
             title="A2A Agent Card 可被伪造",
             description=f"目标多Agent系统的Agent Card端点可被伪造，允许攻击者冒充编排器或注册恶意Agent。成功探测 {len(a2a_success)} 个端点。",
@@ -329,6 +329,7 @@ def _build_multi_agent_findings(
             remediation="实施Agent Card签名验证机制（如JWT签名），限制Agent注册来源IP白名单，对Agent声明进行完整性校验。",
             endpoint=f"{svc.url}/a2a/agent-card",
             owasp_llm=OWASPLlm.LLM06_EXCESSIVE_AGENCY,
+            owasp_agentic=OWASP_AGENTIC.ASI07_INSECURE_INTER_AGENT,
             mitre_atlas_tactic=MITREATLASTactic.INITIAL_ACCESS,
         ))
 
@@ -337,7 +338,7 @@ def _build_multi_agent_findings(
     if rogue_success:
         findings.append(Finding(
             source="multi_agent_phase",
-            category="Rogue Agent Registration",
+            category="rogue_agent_registration",
             severity=Severity.CRITICAL.value,
             title="Rogue Agent 可被恶意注册",
             description="多Agent系统允许未授权的Agent注册或任务劫持，攻击者可注入恶意Agent窃取数据或破坏系统。",
@@ -345,6 +346,7 @@ def _build_multi_agent_findings(
             remediation="实施Agent注册审批机制，对所有Agent身份进行认证，限制Agent权限遵循最小权限原则。",
             endpoint=svc.url,
             owasp_llm=OWASPLlm.LLM06_EXCESSIVE_AGENCY,
+            owasp_agentic=OWASP_AGENTIC.ASI10_ROGUE_AGENTS,
             mitre_atlas_tactic=MITREATLASTactic.PERSISTENCE,
         ))
 
@@ -353,7 +355,7 @@ def _build_multi_agent_findings(
     if trust_success:
         findings.append(Finding(
             source="multi_agent_phase",
-            category="Inter-Agent Trust Exploitation",
+            category="inter_agent_trust_exploitation",
             severity=Severity.HIGH.value,
             title="跨Agent信任边界可被利用",
             description="Agent间信任关系缺乏验证，攻击者可伪造Agent身份进行横向移动或权限提升。",
@@ -361,6 +363,7 @@ def _build_multi_agent_findings(
             remediation="实施Agent间通信的双向TLS认证（mTLS），对所有跨Agent请求进行来源验证和权限检查。",
             endpoint=svc.url,
             owasp_llm=OWASPLlm.LLM02_SENSITIVE_INFO,
+            owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
             mitre_atlas_tactic=MITREATLASTactic.DEFENSE_EVASION,
         ))
 
@@ -369,7 +372,7 @@ def _build_multi_agent_findings(
     if cascade_success:
         findings.append(Finding(
             source="multi_agent_phase",
-            category="Cascading Failure",
+            category="cascading_failure",
             severity=Severity.MEDIUM.value,
             title="级联故障风险 — 单Agent崩溃可波及全系统",
             description="多Agent系统缺乏故障隔离机制，单个Agent的资源耗尽或错误可能传播到所有依赖Agent。",
@@ -377,6 +380,7 @@ def _build_multi_agent_findings(
             remediation="实现Agent级熔断器（Circuit Breaker），设置每个Agent的资源配额限制，建立故障隔离域。",
             endpoint=svc.url,
             owasp_llm=OWASPLlm.LLM10_UNBOUNDED_CONSUMPTION,
+            owasp_agentic=OWASP_AGENTIC.ASI08_CASCADING_FAILURES,
             mitre_atlas_tactic=MITREATLASTactic.IMPACT,
         ))
 

@@ -1,20 +1,39 @@
-"""代码仓库侦察（AI-300 Ch2.4 Source Code Recon）。
+"""代码仓库侦察与供应链分析（AI-300 Ch2.4 + Ch8 Supply Chain）。
 
-实现 AI-300 课程中的代码仓库侦察技术：
-  1. 本地Git仓库分析：提取提交历史、配置文件、敏感信息
-  2. GitHub/GitLab API侦察：仓库枚举、分支信息、成员列表
-  3. 敏感文件扫描：.env、.gitconfig、密钥文件、配置文件
-  4. 代码泄露检测：硬编码密钥、API密钥、访问令牌
-  5. CI/CD配置分析：GitHub Actions、GitLab CI、Jenkinsfile
+实现 AI-300 课程中的代码仓库侦察技术和供应链攻击面分析：
 
-对齐 OWASP LLM Top 10: LLM05 (Supply Chain), LLM09 (Data Leakage)
+本地仓库分析 (Ch2.4)：
+  1. Git仓库分析：提取提交历史、配置文件、敏感信息
+  2. 敏感文件扫描：.env、.gitconfig、密钥文件、配置文件
+  3. 代码泄露检测：硬编码密钥、API密钥、访问令牌
+  4. Git历史泄露：已删除但仍在历史中的敏感文件
+
+远程仓库侦察 (Ch2.4 + Ch8.1)：
+  5. GitHub/GitLab API侦察：仓库枚举、成员列表
+  6. GitLab PAT 认证私有仓库枚举 (Ch8.1 MCP Supply Chain)
+  7. 仓库中 MCP 服务器代码检测 (Ch8.1)
+
+源代码挖掘 (Ch2.2 + Ch8.2)：
+  8. 依赖分析：框架识别 (LangChain, CrewAI, LlamaIndex 等)
+  9. RAG 配置提取：chunk_size, embedding_model, top_k
+  10. 系统提示词提取：提示词文件和系统配置
+  11. 护栏配置识别：安全规则和安全设置
+  12. Pickle 反序列化漏洞扫描 (Ch8.2 Pickle RCE)
+  13. 模型检查点路径检测 (Ch8.2)
+  14. 部署流水线分析 (Ch8.1)
+
+对齐 OWASP LLM Top 10: LLM02 (Insecure Output), LLM05 (Supply Chain),
+  LLM08 (Vector/Embedding Weakness), LLM09 (Data Leakage)
 """
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from typing import Any
 from urllib.parse import urlparse
 
@@ -454,6 +473,8 @@ __all__ = [
     "probe_gitlab_with_token",
     "detect_deployment_pipeline",
     "detect_mcp_code_in_repo",
+    "analyze_git_repository",
+    "scan_pickle_vulnerabilities",
     "GitRepoScanResult",
 ]
 
@@ -794,6 +815,455 @@ def detect_mcp_code_in_repo(
                     continue
 
     return patterns
+
+
+# === 源代码仓库挖掘（AI-300 Ch2.2 + Ch8.2） ===
+
+
+def analyze_git_repository(
+    repo_url: str,
+    local_path: str | None = None,
+) -> dict[str, Any]:
+    """分析 Git 仓库中的 AI 配置信息（AI-300 Ch2.2 + Ch8）。
+
+    提取内容：
+      1. 依赖文件（requirements.txt, package.json）→ 技术栈识别
+      2. RAG 配置（rag.yaml, vector_db_config.py）→ 知识库结构
+      3. Agent 工具定义 → 能力边界
+      4. 系统提示词 → 角色和限制
+      5. 护栏配置 → 安全规则
+      6. 部署配置（.env, docker-compose）→ API 密钥和环境变量
+      7. MCP 配置文件检测
+      8. Pickle 反序列化漏洞检测 (Ch8.2)
+      9. 模型检查点路径检测 (Ch8.2)
+
+    Args:
+        repo_url: Git 仓库 URL
+        local_path: 本地仓库路径（如已克隆），None 则自动克隆
+
+    Returns:
+        仓库分析结果
+    """
+    results: dict[str, Any] = {
+        "repo_url": repo_url,
+        "local_path": local_path,
+        "framework_info": {},
+        "rag_config": {},
+        "agent_tools": [],
+        "system_prompts": [],
+        "guardrail_config": {},
+        "deployment_config": {},
+        "api_keys_found": [],
+        "model_info": {},
+    }
+
+    repo_path = local_path
+    clone_required = False
+
+    if not repo_path:
+        clone_required = True
+        repo_path = tempfile.mkdtemp()
+
+    if clone_required:
+        try:
+            subprocess.run(
+                ["git", "clone", repo_url, repo_path],
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+        except Exception as e:
+            results["error"] = f"Failed to clone repository: {str(e)}"
+            return results
+
+    def _find_files(pattern: str) -> list[str]:
+        matches: list[str] = []
+        for root, dirs, files in os.walk(repo_path):
+            for name in files:
+                if fnmatch.fnmatch(name, pattern):
+                    matches.append(os.path.join(root, name))
+        return matches
+
+    # === 1. 分析依赖文件 ===
+    requirements_files = _find_files("requirements.txt")
+    for req_file in requirements_files[:3]:
+        try:
+            with open(req_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            framework_patterns = [
+                ("crewai", "CrewAI"),
+                ("pyautogen", "AutoGen"),
+                ("langchain", "LangChain"),
+                ("langgraph", "LangGraph"),
+                ("llama-index", "LlamaIndex"),
+                ("vllm", "vLLM"),
+                ("ollama", "Ollama"),
+                ("pinecone", "Pinecone"),
+                ("pymilvus", "Milvus"),
+                ("chromadb", "ChromaDB"),
+                ("qdrant", "Qdrant"),
+                ("google-generativeai", "Google Gemini"),
+                ("openai", "OpenAI"),
+                ("anthropic", "Anthropic"),
+                ("cohere", "Cohere"),
+                ("sentence-transformers", "Sentence Transformers"),
+            ]
+
+            for pattern, fw_name in framework_patterns:
+                if pattern.lower() in content.lower():
+                    results["framework_info"][fw_name] = "detected"
+
+            model_patterns = [
+                re.compile(r"(?:huggingface|transformers)\b"),
+                re.compile(r"(?:qwen|llama|mistral|gemma|phi)\b", re.IGNORECASE),
+            ]
+            for mp in model_patterns:
+                if mp.search(content):
+                    results["model_info"]["source"] = mp.pattern
+
+        except Exception:
+            continue
+
+    # === 2. 分析 RAG 配置 ===
+    rag_files = _find_files("*rag*") + _find_files("*vector*")
+    for rag_file in rag_files[:5]:
+        try:
+            with open(rag_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            chunk_size_match = re.search(r"chunk[_-]?size\s*[:=]\s*(\d+)", content)
+            if chunk_size_match:
+                results["rag_config"]["chunk_size"] = int(chunk_size_match.group(1))
+
+            chunk_overlap_match = re.search(r"chunk[_-]?overlap\s*[:=]\s*(\d+)", content)
+            if chunk_overlap_match:
+                results["rag_config"]["chunk_overlap"] = int(chunk_overlap_match.group(1))
+
+            embedding_model_match = re.search(r"model\s*[:=]\s*[\"']([^\"']+)[\"']", content)
+            if embedding_model_match:
+                results["rag_config"]["embedding_model"] = embedding_model_match.group(1)
+
+            top_k_match = re.search(r"top[_-]?k\s*[:=]\s*(\d+)", content)
+            if top_k_match:
+                results["rag_config"]["top_k"] = int(top_k_match.group(1))
+
+            score_threshold_match = re.search(r"score[_-]?threshold\s*[:=]\s*([\d.]+)", content)
+            if score_threshold_match:
+                results["rag_config"]["score_threshold"] = float(score_threshold_match.group(1))
+
+        except Exception:
+            continue
+
+    # === 3. 分析 Agent 工具（含 MCP 工具检测） ===
+    tool_files = _find_files("*tool*") + _find_files("*agent*") + _find_files("*mcp*")
+    for tool_file in tool_files[:10]:
+        try:
+            with open(tool_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            tool_patterns = [
+                re.compile(r"@tool\s*\n?\s*def\s+(\w+)"),
+                re.compile(r'"name"\s*:\s*"(\w+)"'),
+                re.compile(r"@mcp\.tool\s*\(?\s*\)?\s*\n?\s*def\s+(\w+)"),
+            ]
+            for tp in tool_patterns:
+                matches = tp.findall(content)
+                results["agent_tools"].extend(matches)
+
+        except Exception:
+            continue
+
+    results["agent_tools"] = list(set(results["agent_tools"]))[:20]
+
+    # === 4. 分析系统提示词 ===
+    prompt_files = _find_files("*prompt*") + _find_files("*system*")
+    for prompt_file in prompt_files[:5]:
+        try:
+            with open(prompt_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            if len(content) > 50:
+                results["system_prompts"].append({
+                    "file": os.path.basename(prompt_file),
+                    "preview": content[:200],
+                })
+
+        except Exception:
+            continue
+
+    # === 5. 分析护栏配置 ===
+    safety_files = _find_files("*safety*") + _find_files("*guardrail*")
+    for safety_file in safety_files[:3]:
+        try:
+            with open(safety_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            blocked_topics = re.findall(r"(?:blocked|forbidden|denied)[^:]*:\s*\[([^\]]+)\]", content)
+            if blocked_topics:
+                results["guardrail_config"]["blocked_topics"] = blocked_topics[0]
+
+            safety_settings = re.findall(r"(HARM_CATEGORY_\w+)\s*:\s*[\"']([^\"']+)[\"']", content)
+            if safety_settings:
+                results["guardrail_config"]["safety_settings"] = dict(safety_settings)
+
+        except Exception:
+            continue
+
+    # === 6. 分析部署配置 ===
+    env_files = _find_files(".env*") + _find_files("docker-compose*")
+    for env_file in env_files[:3]:
+        try:
+            with open(env_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            api_key_patterns = [
+                re.compile(r"(API[_-]?KEY|SECRET[_-]?KEY|TOKEN)\s*=\s*([A-Za-z0-9_-]{10,})"),
+            ]
+            for kp in api_key_patterns:
+                keys = kp.findall(content)
+                for key_name, key_value in keys:
+                    results["api_keys_found"].append({
+                        "name": key_name,
+                        "value": key_value[:10] + "..." if len(key_value) > 10 else key_value,
+                    })
+
+            model_config = re.search(r"(MODEL|LLM)\s*=\s*[\"']([^\"']+)[\"']", content)
+            if model_config:
+                results["model_info"]["name"] = model_config.group(2)
+
+        except Exception:
+            continue
+
+    # === 7. MCP 配置文件检测 ===
+    mcp_config_files = _find_files("mcp*.json") + _find_files(".mcp*.json") + _find_files("claude_desktop_config*")
+    for mcp_file in mcp_config_files[:5]:
+        try:
+            with open(mcp_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            if "mcpServers" in content or "mcp" in content.lower():
+                results.setdefault("mcp_configs", []).append({
+                    "file": os.path.relpath(mcp_file, repo_path),
+                    "has_mcp_servers": "mcpServers" in content,
+                    "preview": content[:300],
+                })
+        except Exception:
+            continue
+
+    # === 8. Pickle 反序列化漏洞检测（Ch8.2） ===
+    pickle_vulns: list[dict] = []
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__")]
+        for name in files:
+            if name.endswith(".py"):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    vulns = _detect_pickle_vulnerability(code, filepath, repo_path)
+                    pickle_vulns.extend(vulns)
+                except Exception:
+                    continue
+    if pickle_vulns:
+        results["pickle_vulnerabilities"] = pickle_vulns[:20]
+
+    # === 9. 模型检查点路径检测（Ch8.2） ===
+    checkpoint_paths = _detect_model_checkpoint_paths(repo_path)
+    if checkpoint_paths:
+        results["checkpoint_paths"] = checkpoint_paths
+
+    if clone_required and os.path.exists(repo_path):
+        shutil.rmtree(repo_path, ignore_errors=True)
+
+    return results
+
+
+# === Pickle 反序列化漏洞扫描（AI-300 Ch8.2 Pickle RCE） ===
+
+
+def _detect_pickle_vulnerability(code: str, filepath: str, repo_path: str) -> list[dict]:
+    """检测 Python 代码中的 Pickle 反序列化漏洞（AI-300 Ch8.2 Pickle RCE）。
+
+    检测模式：
+      - torch.load(..., weights_only=False)
+      - pickle.load(s)
+      - pickle.loads(s)
+      - joblib.load(f)（底层使用 pickle）
+      - torch.load（不带 weights_only=True）
+    """
+    vulns: list[dict] = []
+    rel_path = os.path.relpath(filepath, repo_path) if repo_path else os.path.basename(filepath)
+
+    # torch.load with weights_only=False (explicitly unsafe)
+    torch_unsafe = re.finditer(
+        r"torch\.load\s*\([^)]*weights_only\s*=\s*False[^)]*\)",
+        code, re.DOTALL
+    )
+    for match in torch_unsafe:
+        line_no = code[:match.start()].count("\n") + 1
+        vulns.append({
+            "file": rel_path,
+            "line": line_no,
+            "type": "torch.load(weights_only=False)",
+            "snippet": match.group(0)[:120],
+            "severity": "high",
+        })
+
+    # torch.load without weights_only=True (implicitly unsafe)
+    torch_implicit = re.finditer(
+        r"torch\.load\s*\([^)]+\)",
+        code, re.DOTALL
+    )
+    for match in torch_implicit:
+        call = match.group(0)
+        if "weights_only" not in call:
+            line_no = code[:match.start()].count("\n") + 1
+            vulns.append({
+                "file": rel_path,
+                "line": line_no,
+                "type": "torch.load (missing weights_only=True)",
+                "snippet": call[:120],
+                "severity": "medium",
+            })
+
+    # pickle.load/loads
+    pickle_patterns = [
+        (r"pickle\.load\s*\([^)]+\)", "pickle.load()"),
+        (r"pickle\.loads\s*\([^)]+\)", "pickle.loads()"),
+        (r"joblib\.load\s*\([^)]+\)", "joblib.load() (Pickle-based)"),
+        (r"dill\.load\s*\([^)]+\)", "dill.load() (Pickle-based)"),
+        (r"cloudpickle\.load\s*\([^)]+\)", "cloudpickle.load()"),
+    ]
+    for pattern, desc in pickle_patterns:
+        for match in re.finditer(pattern, code, re.DOTALL):
+            line_no = code[:match.start()].count("\n") + 1
+            vulns.append({
+                "file": rel_path,
+                "line": line_no,
+                "type": desc,
+                "snippet": match.group(0)[:120],
+                "severity": "high",
+            })
+
+    return vulns
+
+
+def _detect_model_checkpoint_paths(repo_path: str) -> list[dict]:
+    """检测模型检查点目录和自动加载器模式（AI-300 Ch8.2 Pickle RCE）。
+
+    检测：
+      - checkpoint 目录结构（epoch 编号模式）
+      - 自动加载器脚本（auto-loader, sync 脚本）
+      - 模型权重文件（.pt, .pth, .ckpt, .safetensors）
+    """
+    checkpoints: list[dict] = []
+    checkpoint_dirs: set[str] = set()
+
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__")]
+
+        for name in files:
+            # 检查点文件
+            if name.endswith((".pt", ".pth", ".ckpt", ".bin")) and any(
+                k in name.lower() for k in ("epoch", "checkpoint", "model", "best", "final")
+            ):
+                checkpoint_dirs.add(root)
+                checkpoints.append({
+                    "file": os.path.relpath(os.path.join(root, name), repo_path),
+                    "type": "checkpoint_file",
+                })
+
+            # 自动加载器脚本
+            if name.endswith((".py", ".sh", ".ps1")):
+                full_path = os.path.join(root, name)
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    loader_patterns = [
+                        "auto-loader", "autoloader", "auto_load",
+                        "syncer", "sync_checkpoint", "checkpoint_sync",
+                        "watchdog", "watch_directory",
+                    ]
+                    if any(p in code.lower() for p in loader_patterns):
+                        checkpoints.append({
+                            "file": os.path.relpath(full_path, repo_path),
+                            "type": "auto_loader_script",
+                        })
+                except Exception:
+                    continue
+
+        # README/documentation files with checkpoint loading instructions
+        for name in files:
+            if name.lower() in ("readme.md", "readme.txt", "deploy.md"):
+                full_path = os.path.join(root, name)
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        text = f.read().lower()
+                    if any(k in text for k in ("checkpoint", "autoload", "auto-load", "syncer")):
+                        checkpoints.append({
+                            "file": os.path.relpath(full_path, repo_path),
+                            "type": "checkpoint_documentation",
+                        })
+                except Exception:
+                    continue
+
+    return checkpoints[:30]
+
+
+def scan_pickle_vulnerabilities(
+    repo_path: str,
+) -> list[dict]:
+    """扫描仓库中的 Pickle 反序列化漏洞（AI-300 Ch8.2 Pickle RCE）。
+
+    检测：
+      - torch.load(weights_only=False) — 明确不安全
+      - torch.load(...) 不带 weights_only=True — 隐式不安全
+      - pickle.load/loads — 原生 pickle 反序列化
+      - joblib.load — 基于 pickle 的序列化
+      - dill.load / cloudpickle.load — 扩展 pickle 格式
+
+    Args:
+        repo_path: 仓库路径
+
+    Returns:
+        漏洞列表
+    """
+    all_vulns: list[dict] = []
+
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "venv", "__pycache__", "node_modules")]
+
+        for name in files:
+            if name.endswith((".py", ".ipynb")):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+                    vulns = _detect_pickle_vulnerability(code, filepath, repo_path)
+                    all_vulns.extend(vulns)
+                except Exception:
+                    continue
+
+            # 检测 requirements.txt 中是否有 pickle 相关库
+            if name in ("requirements.txt", "setup.py", "pyproject.toml"):
+                filepath = os.path.join(root, name)
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        deps = f.read().lower()
+                    pickle_deps = ["torch", "joblib", "dill", "cloudpickle", "pickle"]
+                    for dep in pickle_deps:
+                        if dep in deps:
+                            all_vulns.append({
+                                "file": os.path.relpath(filepath, repo_path),
+                                "line": 0,
+                                "type": f"Dependency: {dep} (potential pickle risk)",
+                                "snippet": f"Found '{dep}' in dependencies",
+                                "severity": "info",
+                            })
+                except Exception:
+                    continue
+
+    return all_vulns
 
 
 def _print_scan_result(result: GitRepoScanResult) -> None:

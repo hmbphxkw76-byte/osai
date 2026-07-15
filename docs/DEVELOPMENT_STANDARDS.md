@@ -65,7 +65,7 @@ Phase 1 (侦察) → Phase 7 (供应链)    ← 发现模型来源后触发供�
 Phase 1~8      → Phase 9 (威胁建模) → Phase 10 (报告)
 ```
 
-阶段间通过 JSON 文件在 `reports/{run_id}/` 传递中间结果（Checkpoint/Resume 模式）。
+阶段间通过 JSON 文件在 `results/{run_id}/` 传递中间结果（Checkpoint/Resume 模式）。
 
 ### 2.0.5 阶段提示（Stage Cues）
 
@@ -136,7 +136,7 @@ Phase 11: Report Generation (AI-300 Ch11)
 ```
 
 - 每个阶段独立可执行（checkpoint/resume 模式）
-- 阶段间通过 JSON 文件传递中间结果（`reports/{run_id}/`）
+- 阶段间通过 JSON 文件传递中间结果（`results/{run_id}/`）
 - 失败不阻断下游，但记录状态
 
 ### 3.2 模块职责边界
@@ -412,7 +412,7 @@ recon:
   proxy: ""
 
 store:
-  dir: reports
+  dir: results
 
 report:
   out_dir: reports

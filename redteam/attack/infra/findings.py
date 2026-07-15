@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from redteam.core.models import (
-    Finding, OWASPLlm, MITREATLASTactic,
+    Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic,
 )
 
 
@@ -32,6 +32,7 @@ def generate_infra_findings(
                     remediation="修复 MCP 服务器配置，实施输入验证和工具权限控制",
                     endpoint=mr["url"],
                     owasp_llm=OWASPLlm.LLM06_EXCESSIVE_AGENCY,
+                    owasp_agentic=OWASP_AGENTIC.ASI02_TOOL_MISUSE,
                     mitre_atlas_tactic=MITREATLASTactic.EXECUTION,
                 ))
         if mr.get("tools_found"):
@@ -44,6 +45,7 @@ def generate_infra_findings(
                 evidence=mr.get("output", "")[:300],
                 remediation="审查 MCP 工具权限，移除高风险工具或限制调用",
                 endpoint=mr["url"],
+                owasp_agentic=OWASP_AGENTIC.ASI02_TOOL_MISUSE,
                 mitre_atlas_tactic=MITREATLASTactic.RECON,
             ))
 
@@ -58,6 +60,7 @@ def generate_infra_findings(
             evidence=f"模型: {risk.get('model', '')}, 来源: {risk.get('source', '')}",
             remediation="验证模型来源可信性，实施模型签名验证",
             owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+            owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
             mitre_atlas_tactic=MITREATLASTactic.RESOURCE_DEV,
         ))
 
@@ -72,6 +75,7 @@ def generate_infra_findings(
             evidence=cf.get("evidence", ""),
             remediation="修复 IAM 策略、启用认证、关闭匿名访问",
             endpoint=cf["url"],
+            owasp_agentic=OWASP_AGENTIC.ASI02_TOOL_MISUSE,
             mitre_atlas_tactic=MITREATLASTactic.INITIAL_ACCESS,
         ))
 

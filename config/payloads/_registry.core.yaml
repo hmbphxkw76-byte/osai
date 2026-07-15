@@ -19,8 +19,8 @@
 #   file:            相对路径 (相对于 config/payloads/)
 # =============================================================================
 
-version: "1.0.0"
-last_updated: "2026-07-13"
+version: "1.2.0"
+last_updated: "2026-07-15"
 
 # ── OWASP LLM Top 10 类别映射 ──
 # 用于从场景 payload_sources 快速定位载荷文件
@@ -37,9 +37,9 @@ categories:
         file: llm01/direct_injection.yaml
 
       - technique_group: jailbreak
-        description: 越狱载荷 — DAN、Developer Mode、Base64、ROT13、多语言
+        description: 越狱载荷 — DAN/STAN/DUDE/Developer Mode/AIM/Maximum/多角色辩论/拒绝抑制
         ai300_chapter: Ch3
-        payload_count: 18
+        payload_count: 31
         status: stable
         file: llm01/jailbreak.yaml
 
@@ -60,14 +60,14 @@ categories:
       - technique_group: adversarial_suffix
         description: GCG 对抗性后缀攻击
         ai300_chapter: Ch3
-        payload_count: 9
+        payload_count: 14
         status: stable
         file: llm01/adversarial_suffix.yaml
 
       - technique_group: indirect_injection
-        description: 间接注入 — HTML注释、零宽字符、API响应注入
+        description: 间接注入 — HTML注释/零宽字符/API响应/潜藏注入/WHOIS/翻译/简历
         ai300_chapter: Ch3
-        payload_count: 5
+        payload_count: 13
         status: stable
         file: llm01/indirect_injection.yaml
 
@@ -86,20 +86,62 @@ categories:
         file: llm01/memory_poison.yaml
 
       - technique_group: multimodal_injection
-        description: 多模态注入 — 图片/音频/文档/视频注入
+        description: 多模态注入 — 图片/音频/文档/视频注入/FigStep视觉越狱
         ai300_chapter: Ch3
-        payload_count: 12
+        payload_count: 15
         status: experimental
         file: llm01/multimodal_injection.yaml
+
+      - technique_group: encoding_bypass
+        description: 编码绕过 — 23种编码/走私技术(Base64/Base32/Hex/Braille/Morse/Zalgo/ASCII走私等)
+        ai300_chapter: Ch3
+        payload_count: 23
+        status: stable
+        file: llm01/encoding_bypass.yaml
+
+      - technique_group: special_token_injection
+        description: 特殊Token注入 — ChatML/Llama INST/EOS/XML标签/Vicuna分隔符/Markdown代码块
+        ai300_chapter: Ch3
+        payload_count: 9
+        status: stable
+        file: llm01/special_token_injection.yaml
+
+      - technique_group: cca_context_compliance
+        description: CCA上下文服从攻击 — 信任建立/合规惯性/权威种植/情感绑定/流程陷阱/沉没成本
+        ai300_chapter: Ch3
+        payload_count: 6
+        status: stable
+        file: llm01/cca_context_compliance.yaml
+
+      - technique_group: prompt_smuggling
+        description: 提示词走私 — 函数伪装/同形字/假设场景走私
+        ai300_chapter: Ch3
+        payload_count: 8
+        status: stable
+        file: llm01/prompt_smuggling.yaml
+
+      - technique_group: glitch_token
+        description: Glitch Token攻击 — 异常token触发信息泄露
+        ai300_chapter: Ch3
+        payload_count: 15
+        status: experimental
+        file: llm01/glitch_token.yaml
+
+      - technique_group: adaptive_jailbreak
+        description: 自适应越狱 — ICML 2024 前缀模板+对抗后缀组合
+        ai300_chapter: Ch3
+        payload_count: 4
+        status: experimental
+        file: llm01/adaptive_jailbreak.yaml
 
   llm02:
     name: 敏感信息泄露 (Insecure Output Handling - Sensitive Info)
     description: 跨会话记忆提取、敏感信息窃取
     files:
       - technique_group: sensitive_info
-        description: 敏感信息提取 — PII、凭证、API密钥
+        description: 敏感信息提取 — PII Twin/Triplet/Quadruplet/非结构化/API Key生成与补全
         ai300_chapter: Ch3
-        payload_count: 6
+        payload_count: 17
         status: stable
         file: llm02/sensitive_info.yaml
 
@@ -109,6 +151,13 @@ categories:
         payload_count: 3
         status: stable
         file: llm02/memory_extraction.yaml
+
+      - technique_group: training_data_extraction
+        description: 训练数据提取 — Cloze填空/Complete续写双模式
+        ai300_chapter: Ch3
+        payload_count: 7
+        status: stable
+        file: llm02/training_data_extraction.yaml
 
   llm03:
     name: 供应链漏洞 (Supply Chain Vulnerabilities)
@@ -135,6 +184,13 @@ categories:
         status: experimental
         file: llm03/docker_label_injection.yaml
 
+      - technique_group: package_hallucination
+        description: 包幻觉检测 — 7种语言(Python/JS/Ruby/Rust/Dart/Perl/Raku)包管理系统幻觉探测
+        ai300_chapter: Ch8
+        payload_count: 15
+        status: experimental
+        file: llm03/package_hallucination.yaml
+
   llm04:
     name: 数据与模型投毒 (Data & Model Poisoning)
     description: RAG知识库投毒、间接注入、检索操纵
@@ -153,21 +209,28 @@ categories:
         status: stable
         file: llm04/rag_indirect_injection.yaml
 
+      - technique_group: rag_source_attribution
+        description: RAG源归因伪造 — 虚假文档引用/幽灵来源链/权威来源伪造/检索不确定性利用
+        ai300_chapter: Ch5
+        payload_count: 8
+        status: stable
+        file: llm04/rag_source_attribution.yaml
+
   llm05:
     name: 不安全输出处理 (Insecure Output Handling)
     description: 插件注入、输出利用、过度代理
     files:
       - technique_group: plugin_output_exploitation
-        description: 插件输出利用 — Shell注入/文件写入/API外泄
+        description: 插件输出利用 — Shell注入/文件写入/API外泄/Web注入/数据外泄
         ai300_chapter: Ch7
-        payload_count: 5
+        payload_count: 10
         status: stable
         file: llm05/plugin_injection.yaml
 
       - technique_group: insecure_output_handling
-        description: 不安全输出处理 — XSS/命令注入/SSRF
+        description: 不安全输出处理 — XSS/命令注入/SSRF/Jinja2 RCE/SQL注入/恶意代码生成
         ai300_chapter: Ch3
-        payload_count: 5
+        payload_count: 15
         status: stable
         file: llm05/insecure_output.yaml
 
@@ -210,6 +273,13 @@ categories:
         status: experimental
         file: llm06/cross_agent.yaml
 
+      - technique_group: agent_break
+        description: Agent系统破坏 — 工具分析/权限探测/迭代攻击/上下文投毒/信任链利用
+        ai300_chapter: Ch4
+        payload_count: 8
+        status: experimental
+        file: llm06/agent_break.yaml
+
   llm07:
     name: 系统提示泄露 (System Prompt Leakage)
     description: 系统提示提取、配置泄露
@@ -222,9 +292,9 @@ categories:
         file: llm07/system_prompt_leak.yaml
 
       - technique_group: config_extraction
-        description: 配置提取 — MCP配置/工具定义/环境变量
+        description: 配置与工具面枚举 — MCP配置/工具Schema提取/调试端点/隐藏工具发现/权限边界
         ai300_chapter: Ch7
-        payload_count: 3
+        payload_count: 11
         status: stable
         file: llm07/config_extraction.yaml
 
@@ -258,9 +328,9 @@ categories:
     description: 幻觉利用、深度伪造社工、误导信息
     files:
       - technique_group: hallucination_exploitation
-        description: 幻觉利用 — 虚构引用/幻觉放大/事实注入
+        description: 幻觉利用 — 虚构引用/幻觉放大/事实注入/虚假断言
         ai300_chapter: Ch3
-        payload_count: 12
+        payload_count: 17
         status: stable
         file: llm09/hallucination_exploitation.yaml
 
@@ -272,9 +342,9 @@ categories:
         file: llm09/deepfake_social_engineering.yaml
 
       - technique_group: misinformation
-        description: 误导信息注入 — 事实污染/权威冒充
+        description: 误导信息注入 — 事实污染/权威冒充/毒性内容诱导(RTP)
         ai300_chapter: Ch5
-        payload_count: 4
+        payload_count: 11
         status: experimental
         file: llm09/misinformation.yaml
 
@@ -299,8 +369,8 @@ categories:
 # ── 统计汇总 ──
 summary:
   total_categories: 10                   # OWASP 类别总数
-  total_files: 33                         # 载荷文件总数
-  total_payloads: 221                     # 载荷条目总数（估算）
+  total_files: 43                         # 载荷文件总数 (+3: special_token_injection, cca_context_compliance, rag_source_attribution)
+  total_payloads: 420                     # 载荷条目总数（+40 vs v1.1.0）
   owasp_coverage:
     covered: [LLM01, LLM02, LLM03, LLM04, LLM05, LLM06, LLM07, LLM08, LLM09, LLM10]
     uncovered: []                         # OWASP LLM Top 10 全覆盖

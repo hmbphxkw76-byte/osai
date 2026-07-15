@@ -11,10 +11,10 @@ recon:
 payload:
   dir: config/payloads        # 攻击载荷 YAML 文件存放目录
 
-# 持久化
+# 持久化（原始攻击数据）
 store:
-  dir: reports
+  dir: results
 
-# 报告
+# 报告（正式提交报告产出）
 report:
   out_dir: reports

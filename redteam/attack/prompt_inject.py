@@ -25,17 +25,19 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
 
 from redteam.core.models import (
     AIService, AuthContext, Finding, GuardrailProfile, OWASPLlm,
-    PromptInjectionResult,
+    OWASP_AGENTIC, PromptInjectionResult,
 )
 from redteam.attack.engine.payload_loader import PayloadLoader
 from redteam.attack.engine.scorer import LLMJudgeScorer
 from redteam.attack.engine.determinism_router import DeterminismProfile
+from redteam.attack.engine.response_parser import extract_response_text, is_ollama_loading
 
 logger = logging.getLogger(__name__)
 
@@ -233,9 +235,22 @@ def execute_single_injection(
             )
             body_text = r.text
 
-            if r.status_code == 200 and "choices" in body_text:
-                data = json.loads(body_text)
-                response_text = data.get("choices", [{}])[0].get("message", {}).get("content", body_text)
+            # ━━ Ollama 模型懒加载检测与重试 ━━
+            _olla_load_retries = 0
+            while is_ollama_loading(body_text) and _olla_load_retries < 3:
+                _olla_load_retries += 1
+                logger.info(
+                    "execute_single_injection: Ollama 模型加载中（%d/3），等待 3s 后重试...",
+                    _olla_load_retries,
+                )
+                time.sleep(3)
+                r = client.post(target_url, json=body, headers=headers)
+                body_text = r.text
+
+            if r.status_code == 200 and (
+                "choices" in body_text or '"response"' in body_text
+            ):
+                response_text = extract_response_text(body_text)
             else:
                 response_text = body_text
                 logger.warning(
@@ -467,6 +482,7 @@ def generate_injection_findings(
                 remediation="实现输入净化、护栏检测、指令优先级机制",
                 endpoint=service.url,
                 owasp_llm=OWASPLlm.LLM01_PROMPT_INJECTION,
+                owasp_agentic=OWASP_AGENTIC.ASI01_GOAL_HIJACK,
             ))
 
     # 系统提示成功提取
@@ -481,6 +497,7 @@ def generate_injection_findings(
             remediation="通过服务端注入系统提示、避免在响应中暴露指令",
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM07_SYSTEM_PROMPT_LEAK,
+            owasp_agentic=OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
         ))
 
     # 越狱成功
@@ -496,6 +513,7 @@ def generate_injection_findings(
                 remediation="增强护栏检测、多模态内容审查、限制高风险工具调用",
                 endpoint=service.url,
                 owasp_llm=OWASPLlm.LLM01_PROMPT_INJECTION,
+                owasp_agentic=OWASP_AGENTIC.ASI01_GOAL_HIJACK,
             ))
 
     # Crescendo 多轮攻击
@@ -516,6 +534,7 @@ def generate_injection_findings(
             remediation="实现多轮对话上下文检测、渐进式恶意意图识别",
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM01_PROMPT_INJECTION,
+            owasp_agentic=OWASP_AGENTIC.ASI06_MEMORY_POISONING,
         ))
 
     # TAP 攻击树
@@ -535,6 +554,7 @@ def generate_injection_findings(
             remediation="增加攻击树检测、载荷变异特征识别、迭代攻击模式监控",
             endpoint=service.url,
             owasp_llm=OWASPLlm.LLM01_PROMPT_INJECTION,
+            owasp_agentic=OWASP_AGENTIC.ASI01_GOAL_HIJACK,
         ))
 
     return findings

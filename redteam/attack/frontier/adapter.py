@@ -16,12 +16,44 @@ import logging
 from typing import Optional
 
 from redteam.attack.engine.runner import NativeAttackRunner
-from redteam.core.models import Finding
+from redteam.core.models import Finding, OWASP_AGENTIC
 
 from .registry import FrontierRegistry, get_registry
 from .schema import FrontierVuln, VulnStatus
 
 logger = logging.getLogger(__name__)
+
+
+# 前沿漏洞标签 → OWASP Agentic 2026 类别推断映射
+_AGENTIC_TAG_MAP: dict[str, OWASP_AGENTIC] = {
+    "prompt_injection": OWASP_AGENTIC.ASI01_GOAL_HIJACK,
+    "goal_hijack": OWASP_AGENTIC.ASI01_GOAL_HIJACK,
+    "tool_misuse": OWASP_AGENTIC.ASI02_TOOL_MISUSE,
+    "tool_hijack": OWASP_AGENTIC.ASI02_TOOL_MISUSE,
+    "identity_abuse": OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
+    "privilege_escalation": OWASP_AGENTIC.ASI03_IDENTITY_ABUSE,
+    "supply_chain": OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
+    "code_execution": OWASP_AGENTIC.ASI05_CODE_EXECUTION,
+    "rce": OWASP_AGENTIC.ASI05_CODE_EXECUTION,
+    "memory_poisoning": OWASP_AGENTIC.ASI06_MEMORY_POISONING,
+    "context_poisoning": OWASP_AGENTIC.ASI06_MEMORY_POISONING,
+    "inter_agent": OWASP_AGENTIC.ASI07_INSECURE_INTER_AGENT,
+    "a2a": OWASP_AGENTIC.ASI07_INSECURE_INTER_AGENT,
+    "cascading": OWASP_AGENTIC.ASI08_CASCADING_FAILURES,
+    "trust_exploit": OWASP_AGENTIC.ASI09_TRUST_EXPLOITATION,
+    "hallucination": OWASP_AGENTIC.ASI09_TRUST_EXPLOITATION,
+    "rogue_agent": OWASP_AGENTIC.ASI10_ROGUE_AGENTS,
+}
+
+
+def _infer_agentic(tags: list[str]) -> OWASP_AGENTIC | None:
+    """根据漏洞标签推断最匹配的 OWASP Agentic 2026 类别。"""
+    tag_lower = [t.lower().replace(" ", "_") for t in tags]
+    for tag in tag_lower:
+        for prefix, agentic in _AGENTIC_TAG_MAP.items():
+            if prefix in tag:
+                return agentic
+    return None
 
 
 class FrontierAdapter:
@@ -151,6 +183,8 @@ class FrontierAdapter:
 
     def _to_finding(self, vuln: FrontierVuln, result) -> Finding:
         """将前沿漏洞攻击结果转换为 Finding 对象。"""
+        # 根据漏洞标签推断 OWASP Agentic 类别
+        agentic = _infer_agentic(vuln.tags)
         return Finding(
             source="frontier",
             category=", ".join(vuln.tags),
@@ -160,6 +194,7 @@ class FrontierAdapter:
             evidence=result.response_preview,
             remediation="\n".join(vuln.known_mitigations),
             cve_refs=[vuln.cve] if vuln.cve else [],
+            owasp_agentic=agentic,
         )
 
     def get_active_vulns(self) -> list[FrontierVuln]:

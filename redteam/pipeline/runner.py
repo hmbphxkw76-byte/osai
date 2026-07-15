@@ -36,15 +36,15 @@ from redteam.core.terminal_output import (
     print_global_findings_summary,
 )
 
-from .recon_phase import recon_phase
-from .injection_phase import injection_phase
-from .agent_phase import agent_attack_phase
-from .multi_agent_phase import multi_agent_phase
-from .rag_phase import rag_attack_phase
-from .embeddings_phase import embeddings_attack_phase
-from .supply_chain_phase import supply_chain_phase
-from .infra_phase import infra_attack_phase
-from .report_writer import ReportWriter
+from .execution.recon_phase import recon_phase
+from .execution.injection_phase import injection_phase
+from .execution.agent_phase import agent_attack_phase
+from .execution.multi_agent_phase import multi_agent_phase
+from .execution.rag_phase import rag_attack_phase
+from .execution.embeddings_phase import embeddings_attack_phase
+from .execution.supply_chain_phase import supply_chain_phase
+from .execution.infra_phase import infra_attack_phase
+from .reporting.writer import ReportWriter
 from .runner_display import print_rate_limit_advisory, interactive_rpm_override
 from .runner_extensions import PipelineExtensionsMixin
 
@@ -300,7 +300,7 @@ class AIPipeline(PipelineExtensionsMixin):
             cfg = self._PHASE_CONFIG["infra"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
             phase_start = time.time()
-            infra_findings = infra_attack_phase(run_id, recon, services)
+            infra_findings = infra_attack_phase(run_id, recon, services, auth=auth)
             self._print_phase_result("MCP + Infrastructure Attack", infra_findings, time.time() - phase_start, phase_num=8)
             _append_to_report(writer, "MCP + Infrastructure Attack", 8, infra_findings, cfg["subtitle"])
             print_phase_banner(int(cfg["num"]), cfg["title"], status="complete")
@@ -341,7 +341,7 @@ class AIPipeline(PipelineExtensionsMixin):
         print(f"  ASSESSMENT COMPLETE - Duration: {elapsed:.1f}s")
         print(f"  Total Findings: {total_tests}  |  High/Critical: {crit_high}")
         print(f"  Run ID: {run_id}")
-        print(f"  Report: reports/{run_id}/AI300_Report.md")
+        print(f"  Report: results/{run_id}/AI300_Report.md")
         print(f"{'=' * 66}\n")
 
         return {

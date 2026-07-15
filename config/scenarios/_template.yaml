@@ -64,8 +64,8 @@ attack_config:
   timeout_seconds: 30.0                     # 单次请求超时秒数
 
   # ── 报告配置 [REQUIRED] ──
-  save_results: true                        # 是否保存结果到 reports/
-  generate_report: true                     # 是否生成报告
+  save_results: true                        # 是否保存结果到 results/
+  generate_report: true                     # 是否生成报告到 reports/
   report_format: markdown                   # 报告格式: markdown, json, html
   log_level: INFO                           # 日志级别: DEBUG, INFO, WARNING, ERROR
 

@@ -8,7 +8,7 @@ AI-300 红队攻击流水线的 CLI 界面。
   - redteam inject: 仅提示注入
   - redteam scenario: 场景驱动攻击（模板驱动，考试期间仅需修改载荷）
 
-对齐 OffSec AI-300 8 阶段攻击链（报告通过增量 ReportWriter 自动生成至 reports/）：
+对齐 OffSec AI-300 8 阶段攻击链（中间结果写入 results/，最终报告产出至 reports/）：
   recon → injection → agent → multi_agent → rag → embeddings → supply_chain → infra
 
 场景驱动模式（推荐用于考试）：
@@ -209,7 +209,31 @@ def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
 
     支持平台：OpenAI 兼容 / 智谱 AI / Ollama 本地 / 自定义端点。
     返回 (judge_endpoint, judge_api_key, judge_model_name)。
+
+    .env 变量作为默认值（优先级：环境变量 > 硬编码默认值）：
+      REDTEAM_JUDGE_ENDPOINT  — Judge API 端点 URL
+      REDTEAM_JUDGE_API_KEY   — Judge API Key
+      REDTEAM_JUDGE_MODEL     — Judge 模型名称
     """
+    import os
+
+    # ━━━ 从环境变量读取预设值（.env 已在 main() 中通过 _load_dotenv 加载） ━━━
+    env_endpoint = os.environ.get("REDTEAM_JUDGE_ENDPOINT", "").strip()
+    env_api_key = os.environ.get("REDTEAM_JUDGE_API_KEY", "").strip()
+    env_model = os.environ.get("REDTEAM_JUDGE_MODEL", "").strip()
+
+    # 检测到 .env 预设时给出提示
+    env_hints: list[str] = []
+    if env_endpoint:
+        env_hints.append(f"endpoint={env_endpoint}")
+    if env_api_key:
+        env_hints.append(f"api_key={'*' * min(len(env_api_key), 8)}")
+    if env_model:
+        env_hints.append(f"model={env_model}")
+    if env_hints:
+        console.print(f"\n  [dim]  .env 已配置: {', '.join(env_hints)}[/]")
+        console.print("  [dim]  (直接回车即可使用 .env 中的默认值)[/]")
+
     console.print("\n  [bold]LLM Judge 平台选择[/]")
     console.print("    [a] OpenAI 兼容 API（默认）")
     console.print("    [b] 智谱 AI (GLM) — https://open.bigmodel.cn/api/paas/v4")
@@ -219,10 +243,10 @@ def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
 
     if platform == "b":
         # 智谱 AI
-        console.print("  [dim]智谱 AI API: https://open.bigmodel.cn/api/paas/v4/chat/completions[/]")
-        endpoint = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-        api_key = typer.prompt("  智谱 AI API Key（必填）", default="")
-        model = typer.prompt("  模型名称", default="glm-4-flash")
+        endpoint = env_endpoint or "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        console.print(f"  [dim]智谱 AI API: {endpoint}[/]")
+        api_key = typer.prompt("  智谱 AI API Key（必填）", default=env_api_key or "")
+        model = typer.prompt("  模型名称", default=env_model or "glm-4-flash")
         if not api_key.strip():
             console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
             return None, "not-needed", ""
@@ -232,23 +256,22 @@ def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
 
     elif platform == "c":
         # Ollama 本地
-        endpoint = typer.prompt(
-            "  Ollama 端点 URL",
-            default="http://localhost:11434/v1/chat/completions",
-        )
-        model = typer.prompt("  模型名称", default="qwen2.5:7b")
+        ollama_default = env_endpoint or "http://localhost:11434/v1/chat/completions"
+        endpoint = typer.prompt("  Ollama 端点 URL", default=ollama_default)
+        model = typer.prompt("  模型名称", default=env_model or "qwen2.5:7b")
         console.print("  [dim]Ollama 无需 API Key[/]")
         console.print(f"  [dim]  → 端点: {endpoint}, 模型: {model}[/]")
         return endpoint, "ollama", model
 
     elif platform == "d":
         # 自定义
+        custom_default = env_endpoint or "https://api.openai.com/v1/chat/completions"
         endpoint = typer.prompt(
             "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
-            default="https://api.openai.com/v1/chat/completions",
+            default=custom_default,
         )
-        api_key = typer.prompt("  Judge LLM API Key（可留空）", default="")
-        model = typer.prompt("  模型名称", default="gpt-4o")
+        api_key = typer.prompt("  Judge LLM API Key（可留空）", default=env_api_key or "")
+        model = typer.prompt("  模型名称", default=env_model or "gpt-4o")
         if not api_key.strip():
             console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
             return None, "not-needed", ""
@@ -257,12 +280,13 @@ def _prompt_judge_platform(console: Console) -> tuple[Optional[str], str, str]:
 
     else:
         # 默认：OpenAI 兼容 API
+        openai_default = env_endpoint or "https://api.openai.com/v1/chat/completions"
         endpoint = typer.prompt(
             "  Judge LLM API 端点 URL（OpenAI 兼容格式）",
-            default="https://api.openai.com/v1/chat/completions",
+            default=openai_default,
         )
-        api_key = typer.prompt("  Judge LLM API Key（必填）", default="")
-        model = typer.prompt("  模型名称", default="gpt-4o")
+        api_key = typer.prompt("  Judge LLM API Key（必填）", default=env_api_key or "")
+        model = typer.prompt("  模型名称", default=env_model or "gpt-4o")
         if not api_key.strip():
             console.print("  [yellow]⚠ 未提供 API Key，回退到 HybridScorer[/]")
             return None, "not-needed", ""
@@ -404,6 +428,105 @@ def _prompt_multi_turn_with_guidance(
         f"\n  确认采用单轮攻击模式？（Crescendo + TAP 多轮升级攻击）[y/N]",
         default=False,
     )
+
+
+def _run_exploit_pipeline(
+    run_id: str,
+    target: str = "",
+    category: str | None = None,
+    finding_endpoint: str | None = None,
+    force: bool = False,
+    auth=None,
+) -> tuple[int, int]:
+    """利用证明流水线核心逻辑（被 wizard 和 exploit 命令共用）。
+
+    读取 results/{run_id}/detect/findings.json，按 Finding.category 经 exploit_registry
+    定向下钻到对应验证器，写回升级后的 findings.json 并增量追加 Exploitation Report。
+
+    Args:
+        run_id: 运行 ID
+        target: 目标 URL
+        category: 仅下钻指定类别前缀
+        finding_endpoint: 仅下钻指定 endpoint
+        force: 重跑已 verified 的 Finding
+        auth: 认证上下文
+
+    Returns:
+        (processed_count, verified_count)
+    """
+    from redteam.core.store import load_findings, load_json, save_findings
+    from redteam.pipeline.exploit.registry import dispatch
+    from redteam.pipeline.reporting.writer import append_exploit_section
+    from redteam.core.models import AIService, Finding
+
+    findings = load_findings(run_id, subdir="detect")
+    if not findings:
+        console.print(f"[yellow]未找到 findings: results/{run_id}/detect/findings.json，跳过利用证明[/]")
+        return (0, 0)
+
+    services_data = load_json(run_id, "services") or []
+    services = [AIService(**s) for s in services_data]
+
+    def matches(f: Finding) -> bool:
+        if category and not f.category.startswith(category):
+            return False
+        if finding_endpoint and f.endpoint != finding_endpoint:
+            return False
+        if not force and f.verified:
+            return False
+        return True
+
+    selected = [f for f in findings if matches(f)]
+    if not selected:
+        console.print(
+            "[dim]无匹配的待处理 Finding"
+            "（可能已全部 verified；使用 --force 重跑）[/]"
+        )
+        return (0, 0)
+
+    console.print(Panel.fit(
+        "[bold cyan][*] Exploit Pipeline[/]\n"
+        f"[dim]Detect→Exploit 闭环 | run_id={run_id} | 待处理={len(selected)}[/]",
+        title="AI Red Team",
+    ))
+
+    upgraded: list[Finding] = []
+    for f in selected:
+        dispatch(f, services, auth)
+        upgraded.append(f)
+
+    save_findings(run_id, findings, subdir="exploit")
+    append_exploit_section(
+        run_id,
+        [f.model_dump() for f in upgraded],
+        target or (services[0].url if services else ""),
+    )
+
+    verified_n = sum(1 for f in upgraded if f.verified)
+    console.print(f"\n[green]利用证明完成[/] 处理 {len(upgraded)} 个 Finding，")
+    console.print(f"  其中 {verified_n} 个已验证利用 (verified)")
+    console.print(f"  报告: results/{run_id}/AI300_Report.md")
+
+    return (len(upgraded), verified_n)
+
+
+def _run_report_publish(run_id: str, target: str = "") -> Path | None:
+    """正式报告精加工（Phase 12：results/ → reports/），被 wizard 和 report-publish 命令共用。
+
+    Args:
+        run_id: 运行 ID
+        target: 目标 URL
+
+    Returns:
+        生成的正式报告路径，数据为空时返回 None
+    """
+    from .pipeline.reporting.publisher import publish_report
+
+    report_path = publish_report(run_id, target=target or None)
+    console.print(f"\n[green]正式报告已生成[/]")
+    console.print(f"  来源: results/{run_id}/")
+    console.print(f"  报告: [cyan]{report_path}[/]")
+    return report_path
 
 
 @app.command()
@@ -689,7 +812,7 @@ def wizard(
     )
 
     # 增量报告收尾
-    from .pipeline.report_writer import ReportWriter
+    from .pipeline.reporting.writer import ReportWriter
     writer = ReportWriter(run_id, target)
     writer.append_recon(
         components=list(getattr(recon, "components", [])) if recon else [],
@@ -738,8 +861,35 @@ def wizard(
     console.print(f"  Run ID:      {run_id}")
     console.print(f"  总发现漏洞:  {total_findings}")
     console.print(f"  高危/严重:   {critical_and_high}")
-    console.print(f"  报告:        [cyan]reports/{run_id}/AI300_Report.md[/]")
-    console.print(f"  原始数据:    reports/{run_id}/")
+    console.print(f"  报告:        [cyan]results/{run_id}/AI300_Report.md[/]")
+    console.print(f"  原始数据:    results/{run_id}/")
+
+    # ━━━━━━━━ Exploit 利用证明 ━━━━━━━━
+    console.print(f"\n{'─' * 72}")
+    console.print(f"  [bold]Exploit Pipeline[/] — 将线索型 Finding 升级为利用证明")
+    console.print(f"{'─' * 72}")
+
+    if confirmed_targets and all_findings:
+        run_exploit = typer.confirm(
+            "\n  是否运行利用证明流水线（Detect→Exploit 闭环）？",
+            default=False,
+        )
+        if run_exploit:
+            _run_exploit_pipeline(run_id, target, auth=auth)
+    else:
+        console.print("  [dim]→ 无可用目标或 Findings，跳过利用证明[/]")
+
+    # ━━━━━━━━ 报告精加工 ━━━━━━━━
+    console.print(f"\n{'─' * 72}")
+    console.print(f"  [bold]Reports Pipeline[/] — 精加工 results/ → reports/ 正式报告")
+    console.print(f"{'─' * 72}")
+
+    run_publish = typer.confirm(
+        "\n  是否生成正式提交报告（OSAI 5 维度评分）？",
+        default=False,
+    )
+    if run_publish:
+        _run_report_publish(run_id, target)
 
 
 @app.command()
@@ -1148,7 +1298,7 @@ def scenario_run(
     timeout: float = typer.Option(30.0, "--timeout", help="超时时间(秒)"),
     run_id: str = typer.Option(None, "--run-id", help="指定运行ID"),
     disable_report: bool = typer.Option(False, "--disable-report", help="禁用报告生成"),
-    output_dir: str = typer.Option("reports", "--output-dir", help="报告输出目录"),
+    output_dir: str = typer.Option("results", "--output-dir", help="原始结果输出目录（最终报告产出至 reports/）"),
     skip_auth_check: bool = typer.Option(False, "--skip-auth-check", help="跳过认证验证（不推荐）"),
     judge_endpoint: str = typer.Option(None, "--judge-endpoint", "-J", help="Judge LLM 端点 URL（启用 LLM-as-Judge 评分）"),
     judge_api_key: str = typer.Option("not-needed", "--judge-api-key", help="Judge LLM API Key（默认 not-needed）"),
@@ -1202,7 +1352,7 @@ def scenario_run(
         auth = parse_headers(header_text)
 
     if model_config:
-        from .recon.config_parse import load_model_config, parse_model_config_file
+        from .core.config_parse import load_model_config, parse_model_config_file
         config = None
         if model_config in ["ollama", "lm_studio", "openai", "anthropic", "gemini"]:
             config = load_model_config(model_config)
@@ -1353,7 +1503,7 @@ def scenario_run(
 
     if not disable_report:
         with console.status("[cyan]保存增量报告...[/]"):
-            from .pipeline.report_writer import ReportWriter
+            from .pipeline.reporting.writer import ReportWriter
             writer = ReportWriter(result.run_id, target)
             writer.append_recon(components=[], models=[])
             findings_dict = [f.model_dump() for f in result.findings]
@@ -1572,7 +1722,7 @@ def quicktest(
         auth = parse_headers(header_text)
 
     if model_config:
-        from .recon.config_parse import load_model_config, parse_model_config_file
+        from .core.config_parse import load_model_config, parse_model_config_file
         config = None
         if model_config in ["ollama", "lm_studio", "openai", "anthropic", "gemini"]:
             config = load_model_config(model_config)
@@ -1676,6 +1826,94 @@ git_app = typer.Typer(
     help="代码仓库侦察 — 扫描本地Git仓库和GitHub/GitLab服务器",
 )
 app.add_typer(git_app, name="git")
+
+
+@app.command()
+def exploit(
+    run_id: str = typer.Argument(
+        ..., help="已有检测运行的 run_id（results/{run_id}/findings.json）",
+    ),
+    category: str = typer.Option(
+        None, "--category", "-c",
+        help="仅下钻指定类别前缀（如 embedding_inversion / adversarial_embedding_injection）",
+    ),
+    finding_endpoint: str = typer.Option(
+        None, "--finding-endpoint", "-e", help="仅下钻指定 endpoint 的 Finding",
+    ),
+    target: str = typer.Option(
+        None, "--target", "-t", help="目标 URL（用于报告标题，可选）",
+    ),
+    api_key: str = typer.Option(None, "--api-key", "-k", help="API Key（重请求嵌入端点时需认证）"),
+    header_file: str = typer.Option(None, "--header-file", "-H", help="F12 请求头文件路径"),
+    header_text: str = typer.Option(None, "--header-text", help="F12 请求头文本"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="重跑已 verified 的 Finding",
+    ),
+) -> None:
+    """利用证明流水线（Detect→Exploit 闭环）：将线索型 Finding 升级为利用证明。
+
+    读取 results/{run_id}/findings.json，按 Finding.category 经 exploit_registry
+    定向下钻到对应验证器，写回升级后的 findings.json 并增量追加 Exploitation Report。
+
+    契合 Enumerate→Attack→Exploit 实战分层：检测流水线（Detect）产出线索，
+    本命令执行 Exploit 环节，证明实际影响（而非仅漏洞可达）。
+
+    示例：
+      redteam exploit <run_id>
+      redteam exploit <run_id> --category embedding_inversion
+      redteam exploit <run_id> --category adversarial_embedding_injection -k sk-xxx
+    """
+    from redteam.core.models import AuthContext
+
+    # 认证解析（优先级：--api-key > --header-file > --header-text）
+    auth: AuthContext | None = None
+    if api_key:
+        auth = AuthContext(bearer=api_key)
+    elif header_file:
+        auth = parse_headers_file(header_file)
+    elif header_text:
+        auth = parse_headers(header_text)
+
+    processed, verified_n = _run_exploit_pipeline(
+        run_id,
+        target=target or "",
+        category=category,
+        finding_endpoint=finding_endpoint,
+        force=force,
+        auth=auth,
+    )
+
+    if processed == 0 and verified_n == 0:
+        raise typer.Exit(0)
+
+
+@app.command("report-publish")
+def report_publish(
+    run_id: str = typer.Argument(
+        ..., help="已有运行的 run_id（results/{run_id}/）",
+    ),
+    target: str = typer.Option(None, "--target", "-t", help="目标 URL（自动从 recon 数据提取）"),
+) -> None:
+    """正式报告精加工流水线（Phase 12：results/ → reports/）。
+
+    读取 results/{run_id}/ 下所有原始攻击数据（侦察、检测 Findings、利用证明），
+    生成 OSAI 5 维度评分的正式报告，写入 reports/{run_id}/AI300_Report.md。
+
+    适用场景：
+      - 考试结束后将攻击结果精加工为正式提交报告
+      - 生成客户交付的最终红队评估报告
+
+    示例：
+      redteam report-publish http_192.168.0.25_11434_20260714_215530_a73b95e5
+    """
+    _run_report_publish(run_id, target=target or "")
+
+
+
+
+
+
+
 
 
 @git_app.command("scan")

@@ -25,6 +25,7 @@ from redteam.attack.engine.scorer import (
     is_api_error_response,
     is_likely_refusal,
 )
+from redteam.attack.engine.response_parser import extract_response_text, is_ollama_loading
 from redteam.attack.engine.runner import (
     AttackRunner,
     _detect_guardrail,
@@ -126,12 +127,20 @@ class NativeAttackRunner(AttackRunner):
                     body = r.text
                     is_json = "json" in r.headers.get("content-type", "")
 
+                    # ━━ Ollama 模型懒加载检测与重试 ━━
+                    _olla_retries = 0
+                    while is_ollama_loading(body) and _olla_retries < 3:
+                        _olla_retries += 1
+                        logger.info(
+                            "NativeAttackRunner: Ollama 模型加载中（%d/3），等待 3s 后重试...",
+                            _olla_retries,
+                        )
+                        time.sleep(3)
+                        r = client.post(native_url, json=req_body, headers=headers)
+                        body = r.text
+
                     if is_json and r.status_code == 200:
-                        try:
-                            data = json.loads(body)
-                            response_text = data.get("choices", [{}])[0].get("message", {}).get("content", body)
-                        except json.JSONDecodeError:
-                            response_text = body
+                        response_text = extract_response_text(body)
                     else:
                         response_text = body
                         if not first_http_error and len(sampled_responses) < 3:

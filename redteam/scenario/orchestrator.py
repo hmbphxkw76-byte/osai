@@ -68,7 +68,7 @@ class ScenarioOrchestrator:
         orchestrator = ScenarioOrchestrator(scenario, auth=auth)
         result = orchestrator.run()
 
-        # 结果自动通过 ReportWriter 保存到 reports/
+        # 结果自动通过 ReportWriter 保存到 results/
 
     考试期间操作流程：
       1. 修改 config/scenarios/agent.yaml 中的载荷内容

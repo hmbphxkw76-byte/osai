@@ -9,7 +9,9 @@
 """
 from .models import (
     AIProtocol, AIStackLayer, AIService, AuthContext,
-    AttackChain, AttackStep, ContentCategory, Finding,
+    AttackChain, AttackStep, ContentCategory,
+    ExploitationProof, ExploitationProofMethod,
+    Finding, FindingCategory,
     GuardrailProfile, GuardrailType, MITREATLASTactic,
     ModelFingerprint, OWASPLlm, PromptInjectionResult,
     RAGPipelineProfile, RAGSource, ReconResult, ReportConfig,
@@ -42,7 +44,9 @@ from .registry_loader import (
 __all__ = [
     # 模型
     "AIProtocol", "AIStackLayer", "AIService", "AuthContext",
-    "AttackChain", "AttackStep", "ContentCategory", "Finding",
+    "AttackChain", "AttackStep", "ContentCategory",
+    "ExploitationProof", "ExploitationProofMethod",
+    "Finding", "FindingCategory",
     "GuardrailProfile", "GuardrailType", "MITREATLASTactic",
     "ModelFingerprint", "OWASPLlm", "PromptInjectionResult",
     "RAGPipelineProfile", "RAGSource", "ReconResult", "ReportConfig",

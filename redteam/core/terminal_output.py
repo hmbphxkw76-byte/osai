@@ -390,7 +390,7 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     print(f"    ③ 选择是否启用多轮升级攻击（Crescendo + TAP）")
     print(f"")
     print(f"  系统将自动加载 config/payloads/ 下对应的攻击载荷库，")
-    print(f"  按 Tier 分层策略依次执行，并记录每个 Finding 到 reports/ 目录。")
+    print(f"  按 Tier 分层策略依次执行，并记录每个 Finding 到 results/ 目录。")
 
     print(f"\n{'═' * 72}")
     return all_recommendations

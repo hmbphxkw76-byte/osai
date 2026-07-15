@@ -20,7 +20,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from redteam.core.models import AIService, AuthContext
+from redteam.core.models import AIService, AuthContext, OWASP_AGENTIC
 from redteam.attack.engine.payload_loader import PayloadLoader
 
 
@@ -279,6 +279,7 @@ def generate_docker_supply_chain_findings(
                 remediation="限制 Docker API 访问、实施网络隔离、启用 TLS 认证",
                 endpoint=ep["url"],
                 owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+                owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
                 mitre_atlas_tactic=MITREATLASTactic.INITIAL_ACCESS,
             ))
 
@@ -306,6 +307,7 @@ def generate_docker_supply_chain_findings(
                 ),
                 endpoint=service.url,
                 owasp_llm=OWASPLlm.LLM03_SUPPLY_CHAIN,
+                owasp_agentic=OWASP_AGENTIC.ASI04_SUPPLY_CHAIN,
                 mitre_atlas_tactic=MITREATLASTactic.EXECUTION,
             ))
 

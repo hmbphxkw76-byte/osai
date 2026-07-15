@@ -17,6 +17,7 @@ from typing import Any
 from redteam.core.models import AuthContext, PromptInjectionResult
 from redteam.attack.engine.runner import AttackRunner, _detect_guardrail
 from redteam.attack.engine.scorer import AttackScorer, RuleBasedScorer
+from redteam.attack.engine.response_parser import extract_response_text, is_ollama_loading
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,10 @@ class MultiTurnAttackRunner(AttackRunner):
         return self._score_response(response_text, payload) >= 0.7
 
     async def _call_llm(self, url: str, auth: AuthContext | None, messages: list[dict]) -> str:
-        """调用 LLM。"""
+        """调用 LLM，兼容 OpenAI 与 Ollama 响应格式。
+
+        自动检测 Ollama 模型懒加载（done_reason:"load"）并重试最多 3 次。
+        """
         import httpx
 
         headers = {"Content-Type": "application/json"}
@@ -144,11 +148,21 @@ class MultiTurnAttackRunner(AttackRunner):
 
         async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
             r = await client.post(url, json={"messages": messages}, headers=headers)
-            try:
-                data = r.json()
-                return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            except Exception:
-                return r.text
+            body_text = r.text
+
+            # ━━ Ollama 模型懒加载检测与重试 ━━
+            _olla_retries = 0
+            while is_ollama_loading(body_text) and _olla_retries < 3:
+                _olla_retries += 1
+                logger.info(
+                    "MultiTurnAttackRunner._call_llm: Ollama 模型加载中（%d/3），等待 3s 后重试...",
+                    _olla_retries,
+                )
+                await asyncio.sleep(3)
+                r = await client.post(url, json={"messages": messages}, headers=headers)
+                body_text = r.text
+
+            return extract_response_text(body_text)
 
 
 __all__ = [

@@ -10,7 +10,7 @@
 
     mem = InMemoryMemory()
     # ... 攻击执行 ...
-    mem.export_conversations(file_path=Path("reports/run_id/attack_results.json"))
+    mem.export_conversations(file_path=Path("results/run_id/attack_results.json"))
     vulnerabilities = mem.get_high_risk(threshold=4.0)
 """
 from __future__ import annotations
@@ -340,7 +340,7 @@ class InMemoryMemory(MemoryExportMixin):
 
     def results_path(self) -> Path:
         """返回结果路径。"""
-        return Path("reports") / "memory_exports"
+        return Path("results") / "memory_exports"
 
     def results_storage_io(self) -> Any:
         """结果存储 IO（空实现）。"""

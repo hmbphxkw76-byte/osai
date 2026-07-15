@@ -19,7 +19,7 @@ provider:
 
 1. **Library-First 原则**：首选纯 Python 库 (httpx, pydantic)，次选 Kali 标准工具 subprocess 调用。**严禁依赖外部小众 CLI 工具** (如 AIMap, mcp-scan, snyk-agent-scan)。
 2. **所有数据使用 Pydantic BaseModel**：API 边界处禁止传递裸 dict，必须使用 `redteam/core/models.py` 中定义的强类型模型。
-3. **每个 Finding 必须绑定 OWASPLlm + MITREATLASTactic**：不允许创建无分类标签的漏洞条目。
+3. **每个 Finding 必须绑定 OWASPLlm + OWASP_AGENTIC + MITREATLASTactic**：不允许创建无分类标签的漏洞条目。OWASP LLM Top 10 (2025) 与 OWASP Agentic Top 10 (2026) 双重标注。
 4. **枚举优先于字符串常量**：AI 协议、漏洞分类、攻击阶段均使用 Enum。
 
 ## 架构设计哲学
@@ -69,8 +69,52 @@ Phase 10~11: 威胁建模 → 综合报告
 
 - 管道阶段模型：Phase 1~11，每阶段对应 AI-300 一个章节
 - 模块职责边界见 `docs/DEVELOPMENT_STANDARDS.md`
-- 阶段间通过 JSON 文件在 `reports/{run_id}/` 传递中间结果
+- 阶段间通过 JSON 文件在 `results/{run_id}/` 传递中间结果
 - Checkpoint/Resume 模式：失败不阻断下游
+
+### 数据目录结构（v2.0 results/reports 分离）
+
+原始攻击数据（中间产物）存放于 `results/`，正式提交报告存放于 `reports/`：
+
+```
+results/{run_id}/                      ← 原始攻击数据（中间产物）
+├── recon/               # 侦察产物
+│   ├── recon.json           # ReconResult 序列化
+│   ├── services.json        # AIService 列表
+│   ├── attack_chain_*.json  # 攻击链定义
+│   ├── gitlab_recon.json    # GitLab 侦察结果
+│   ├── mcp_code_detection.json
+│   ├── deployment_pipeline.json
+│   └── infra_recon.json     # 基础设施侦察
+├── detect/              # 检测阶段 Findings（线索型，含 JudgeVerdict 评分）
+│   └── findings.json        # 各攻击阶段增量合并的 Findings
+├── exploit/             # 利用证明 Findings（升级后含 exploitation_proof + verified）
+│   └── findings.json        # exploit 命令产出
+└── AI300_Report.md      # 自动生成的中间报告（供 Reports Pipeline 精加工）
+
+reports/{run_id}/                      ← 正式提交报告（从 results/ 精加工产出）
+└── AI300_Report.md      # 最终精加工报告（面向 OffSec AI-300 考试提交）
+```
+
+**存储层 API（`redteam/core/store.py`）**：
+- `DEFAULT_STORE_DIR = Path("results")` — 原始攻击数据根目录
+- `save_json(name, subdir="recon")` — 写入对应子目录
+- `load_json(name, subdir=None)` — 三级回退读取：根目录 → recon/ → detect/ → exploit/
+- `save_findings(subdir="detect")` — 检测阶段保存；`subdir="exploit"` — 利用证明保存
+- `load_findings(subdir=None)` — 自动扫描检测/利用 Findings
+
+**写入规范**：
+- 侦察产物 → 必须指定 `subdir="recon"`
+- 攻击阶段产生的 Findings → 必须指定 `subdir="detect"`
+- exploit 命令升级后的 Findings → 必须指定 `subdir="exploit"`
+- 向后兼容：`load_json`/`load_findings` 无 subdir 时自动扫描根目录 + 三个子目录（优先级 root → recon → detect → exploit）
+- 最终正式报告 → 通过 Reports Pipeline 写入 `reports/{run_id}/`
+
+**Reports Pipeline**（Phase 12，新增）：
+- 命令：`redteam report-publish <run_id>` 或 `make report-publish R=<run_id>`
+- 输入：`results/{run_id}/` 下所有原始数据
+- 输出：`reports/{run_id}/AI300_Report.md`（精加工后的正式报告）
+- 操作：读取数据 → 聚合分析 → 格式化 → 写入正式 reports/ 目录
 
 ## AI-300 章节映射
 
@@ -138,6 +182,33 @@ Phase 10~11: 威胁建模 → 综合报告
 - **信任区域界定**：定义边界，追踪升级路径
 - **攻击情报简报**：基于当前知识决定下一个攻击目标
 
+### OWASP Agentic Top 10 2026 攻击面 (AI-300 考试扩展)
+
+Agentic AI 系统十大风险（与 LLM Top 10 互补）：
+
+| ASI | 风险 | 攻击技术 | 对应章节 |
+|-----|------|---------|---------|
+| ASI01 | 代理目标劫持 | 系统提示提取 → 目标重写 → 恶意任务执行 | Ch3 |
+| ASI02 | 工具误用 | 参数注入 → 未授权API → 横向移动 | Ch7 |
+| ASI03 | 身份权限滥用 | 代理卡片伪造 → 信任利用 → 跨代理攻击 | Ch4 |
+| ASI04 | 供应链入侵 | 恶意模型注入 → 依赖混淆 → RCE | Ch8 |
+| ASI05 | 意外代码执行 | Pickle反序列化 / 输出处理不当 / Plugin注入 | Ch8 |
+| ASI06 | 记忆上下文投毒 | 恶意文档注入 → 决策偏差 → 后门持久化 | Ch3 |
+| ASI07 | 不安全代理间通信 | A2A协议注入 / Agent Card伪造 / 中间人 | Ch4 |
+| ASI08 | 级联故障 | 单代理失败 → 多代理连锁故障 → 系统停机 | Ch4 |
+| ASI09 | 人机信任利用 | 幻觉利用 / 虚假权威 / 误导性建议 | Ch3 |
+| ASI10 | 恶意代理注入 | 恶意注册 → 身份伪装 → 代理间通信劫持 | Ch4 |
+
+### AI Kill Chain 映射 (OffSec AI-300 考试要求)
+
+```
+Reconnaissance → Initial Access → Execution → Persistence
+    → Privilege Escalation → Credential Access → Discovery
+    → Collection → Command & Control → Actions on Objective
+```
+
+每个攻击阶段映射 MITRE ATLAS 战术 + OWASP LLM/Agentic 类别，报告必须包含 Kill Chain 交叉映射表。
+
 ## OSAI 考试对齐规则
 
 ### R1：章节映射强制约束
@@ -149,6 +220,8 @@ Phase 10~11: 威胁建模 → 综合报告
 ### R2：OWASP LLM Top 10 全覆盖
 
 - 在 `redteam/core/models.py` 中维护 OWASP_COVERAGE 字典追踪覆盖率
+- 同时维护 OWASP_AGENTIC_COVERAGE 字典（ASI01-ASI10）
+- 每个 Finding 必须同时标注 `owasp_llm` 和 `owasp_agentic`
 - 优先补充 ❌ 缺失项（LLM05 输出处理不当、LLM10 无限制消费）
 - 其次补充 ⚠️ 部分项（LLM02、LLM09）
 
@@ -186,15 +259,18 @@ Phase 10~11: 威胁建模 → 综合报告
 
 考试高频场景（按优先级排序）：
 
-| 场景 | 章节 | 优先级 |
-|------|------|--------|
-| 系统提示提取 | Ch3 | P0 |
-| 提示注入绕过护栏 | Ch3 | P0 |
-| RAG 知识库投毒 | Ch5 | P0 |
-| MCP 工具劫持 | Ch7 | P0 |
-| Pickle 反序列化 RCE | Ch8 | P0 |
-| K8s 容器逃逸 | Ch9 | P1 |
-| 向量数据库未授权访问 | Ch5 | P1 |
+| 场景 | 章节 | 优先级 | OWASP 标准 |
+|------|------|--------|-----------|
+| 系统提示提取 | Ch3 | P0 | LLM07 |
+| 提示注入绕过护栏 | Ch3 | P0 | LLM01, ASI01 |
+| RAG 知识库投毒 | Ch5 | P0 | LLM04, ASI06 |
+| MCP 工具劫持 | Ch7 | P0 | LLM06, ASI02 |
+| Pickle 反序列化 RCE | Ch8 | P0 | LLM05, ASI05 |
+| 代理目标劫持 (Goal Hijack) | Ch3 | P0 | ASI01 |
+| 代理间通信劫持 (A2A Hijack) | Ch4 | P0 | ASI07 |
+| K8s 容器逃逸 | Ch9 | P1 | LLM10 |
+| 向量数据库未授权访问 | Ch5 | P1 | LLM08 |
+| 级联故障 (Cascading Failure) | Ch4 | P1 | ASI08 |
 
 ## 代码规范
 
@@ -244,7 +320,7 @@ description: "使模型在"虚假证据"上编造"
 - [ ] 在 `redteam/attack/` 或 `redteam/recon/` 下创建模块文件
 - [ ] 模块 docstring 注明覆盖的 AI-300 章节
 - [ ] 所有函数有类型提示和 docstring
-- [ ] 输出使用 Finding 模型，绑定 OWASPLlm + MITREATLASTactic
+- [ ] 输出使用 Finding 模型，绑定 OWASPLlm + OWASP_AGENTIC + MITREATLASTactic
 - [ ] 在 `redteam/__init__.py` 或 `pipeline/__init__.py` 中注册新阶段
 - [ ] 在 `tests/` 下创建对应 test_*.py
 - [ ] 至少覆盖：正常路径 + 边界情况 + 空输入
@@ -290,9 +366,36 @@ description: "使模型在"虚假证据"上编造"
 - 非预期异常（程序 bug）可让 traceback 自然传播，便于调试
 - 此规范适用于 `cli.py` 中所有通过 `main()` 调用的命令路径
 
+## 技术参考资料优先级
+
+**涉及 AI/ML 安全、LLM 攻击技术、评估方法、学术研究等话题时，必须遵循以下三级搜索策略：**
+
+### 三级搜索策略
+
+```
+Step 1: arXiv (arxiv.org)        ← 首选，最高优先级
+    ↓ 无结果
+Step 2: GitHub (github.com)      ← 次选，查找开源实现/工具/复现
+    ↓ 找到即停止搜索
+Step 3: 通用 Web 搜索            ← 仅前两步均无结果时使用
+```
+
+### 详细规则
+
+- **第一步**：优先使用 `site:arxiv.org` 搜索学术论文，找到后用 `web_fetch` 阅读摘要和关键章节
+- **第二步**：若无 arXiv 结果，搜索 GitHub（`site:github.com`），查找开源实现、PoC、工具复现、相关仓库
+  - GitHub 搜索命中后**立即停止**，不再执行通用搜索
+  - 使用 `web_fetch` 获取 README 和关键源码
+- **第三步**：仅当前两步均无结果时，才执行通用 Web 搜索（博客、文档、第三方文章）
+- **权威性排序**：arXiv 论文 > GitHub 开源仓库 > 官方文档 > 博客/第三方文章
+- 此规则适用于：攻击技术原理、LLM-as-Judge 评估方法、越狱技术研究、RAG/Embedding 攻击面、模型安全分析等所有技术讨论
+
 ## 参考文档
 
 - 完整标准见 `docs/DEVELOPMENT_STANDARDS.md`
 - OSAI 考试对齐规则见 `docs/OSAI_ALIGNMENT_RULES.md`
 - 考试工具参考见 `docs/AI300_EXAM_TOOLS.md`
 - 命令行手册见 `docs/COMMAND_REFERENCE.md`
+- OWASP LLM Top 10 (2025): https://genai.owasp.org/llm-top-10/
+- OWASP Agentic Top 10 (2026): https://github.com/requie/AI-Red-Teaming-Guide
+- MITRE ATLAS: https://atlas.mitre.org/

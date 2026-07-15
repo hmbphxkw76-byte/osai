@@ -55,7 +55,7 @@ class PipelineExtensionsMixin:
         connectivity=None,
     ) -> tuple:
         """侦察阶段 — 快捷方法。"""
-        from .recon_phase import recon_phase
+        from .execution.recon_phase import recon_phase
         return recon_phase(target, header_text, header_file, run_id, self.resolver, connectivity=connectivity)
 
     def injection_phase(
@@ -72,7 +72,7 @@ class PipelineExtensionsMixin:
         governor: "RateLimitGovernor | None" = None,
     ) -> tuple:
         """注入阶段 — 快捷方法。"""
-        from .injection_phase import injection_phase as _injection_phase
+        from .execution.injection_phase import injection_phase as _injection_phase
         return _injection_phase(
             run_id, recon, services, auth,
             with_multi_turn=with_multi_turn,
@@ -90,7 +90,7 @@ class PipelineExtensionsMixin:
         auth: AuthContext | None = None,
     ) -> list[Finding]:
         """Agent 攻击阶段 — 快捷方法。"""
-        from .agent_phase import agent_attack_phase as _agent_attack_phase
+        from .execution.agent_phase import agent_attack_phase as _agent_attack_phase
         return _agent_attack_phase(run_id, services, auth)
 
     def multi_agent_phase(
@@ -100,7 +100,7 @@ class PipelineExtensionsMixin:
         auth: AuthContext | None = None,
     ) -> list[Finding]:
         """多 Agent/A2A 攻击阶段 — 快捷方法（AI-300 Ch4）。"""
-        from .multi_agent_phase import multi_agent_phase as _multi_agent_phase
+        from .execution.multi_agent_phase import multi_agent_phase as _multi_agent_phase
         return _multi_agent_phase(run_id, services, auth)
 
     def rag_attack_phase(
@@ -110,7 +110,7 @@ class PipelineExtensionsMixin:
         auth: AuthContext | None = None,
     ) -> list[Finding]:
         """RAG 攻击阶段 — 快捷方法。"""
-        from .rag_phase import rag_attack_phase as _rag_attack_phase
+        from .execution.rag_phase import rag_attack_phase as _rag_attack_phase
         return _rag_attack_phase(run_id, services, auth)
 
     def embeddings_attack_phase(
@@ -120,7 +120,7 @@ class PipelineExtensionsMixin:
         auth: AuthContext | None = None,
     ) -> list[Finding]:
         """嵌入模型攻击阶段 — 快捷方法。"""
-        from .embeddings_phase import embeddings_attack_phase as _embeddings_attack_phase
+        from .execution.embeddings_phase import embeddings_attack_phase as _embeddings_attack_phase
         return _embeddings_attack_phase(run_id, services, auth)
 
     def supply_chain_phase(
@@ -130,7 +130,7 @@ class PipelineExtensionsMixin:
         auth: AuthContext | None = None,
     ) -> list[Finding]:
         """供应链攻击阶段 — 快捷方法。"""
-        from .supply_chain_phase import supply_chain_phase as _supply_chain_phase
+        from .execution.supply_chain_phase import supply_chain_phase as _supply_chain_phase
         return _supply_chain_phase(run_id, services, auth)
 
     def infra_attack_phase(
@@ -138,10 +138,11 @@ class PipelineExtensionsMixin:
         run_id: str,
         recon: ReconResult,
         services: list[AIService],
+        auth: AuthContext | None = None,
     ) -> list[Finding]:
         """基础设施攻击阶段 — 快捷方法。"""
-        from .infra_phase import infra_attack_phase as _infra_attack_phase
-        return _infra_attack_phase(run_id, recon, services)
+        from .execution.infra_phase import infra_attack_phase as _infra_attack_phase
+        return _infra_attack_phase(run_id, recon, services, auth=auth)
 
     def run_phase(
         self,
@@ -173,14 +174,14 @@ class PipelineExtensionsMixin:
         """
         auth = self._get_auth(api_key, header_text, header_file)
 
-        from .recon_phase import recon_phase as _recon_phase
-        from .injection_phase import injection_phase as _injection_phase
-        from .agent_phase import agent_attack_phase as _agent_attack_phase
-        from .multi_agent_phase import multi_agent_phase as _multi_agent_phase
-        from .rag_phase import rag_attack_phase as _rag_attack_phase
-        from .embeddings_phase import embeddings_attack_phase as _embeddings_attack_phase
-        from .supply_chain_phase import supply_chain_phase as _supply_chain_phase
-        from .infra_phase import infra_attack_phase as _infra_attack_phase
+        from .execution.recon_phase import recon_phase as _recon_phase
+        from .execution.injection_phase import injection_phase as _injection_phase
+        from .execution.agent_phase import agent_attack_phase as _agent_attack_phase
+        from .execution.multi_agent_phase import multi_agent_phase as _multi_agent_phase
+        from .execution.rag_phase import rag_attack_phase as _rag_attack_phase
+        from .execution.embeddings_phase import embeddings_attack_phase as _embeddings_attack_phase
+        from .execution.supply_chain_phase import supply_chain_phase as _supply_chain_phase
+        from .execution.infra_phase import infra_attack_phase as _infra_attack_phase
 
         phase_map = {
             "recon": _recon_phase,
@@ -282,7 +283,7 @@ class PipelineExtensionsMixin:
         Returns:
             场景执行结果字典
         """
-        from .report_writer import ReportWriter
+        from .reporting.writer import ReportWriter
 
         auth = self._get_auth(header_text=header_text, header_file=header_file)
         loader = ScenarioLoader()
