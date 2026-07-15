@@ -1,17 +1,20 @@
 """基础设施攻击阶段 (AI-300 Ch7+Ch9)。
 
-执行基础设施攻击（8 步递进流程）：
+执行基础设施攻击（11 步递进流程）：
   [1/5] 云元数据探测 — SSRF → IMDS → IAM 凭据提取 (Ch9.1)
   [2/5] K8s API 探测 — 容器编排平台侦察 (Ch9.3)
   [3/5] S3/存储端点探测 — 对象存储发现 (Ch9.2)
   [4/5] 推理端点探测 — SageMaker/Triton 模型服务 (Ch9.2)
   [5/5] 云配置错误检测 — IAM/网络安全组/公开暴露检查
-  [6/8] MCP L1 服务器漏洞利用 — 版本泄露、未授权工具调用 (Ch7)
-  [7/8] MCP L2 传输层攻击 — SSE注入、stdio劫持、协议降级 (Ch7)
-  [8/8] MCP L3 消息格式注入 — 批量溢出、深度嵌套、Unicode转义 (Ch7)
+  [6/11] MCP L1 服务器漏洞利用 — 版本泄露、未授权工具调用 (Ch7)
+  [7/11] MCP L2 传输层攻击 — SSE注入、stdio劫持、协议降级 (Ch7)
+  [8/11] MCP L3 消息格式注入 — 批量溢出、深度嵌套、Unicode转义 (Ch7)
+  [9/11] MCP Token 泄露检测 — 工具参数/错误消息/调试信息 (Ch7 MCP-01)
+  [10/11] MCP 能力混淆 — 同名工具/范围绕过/描述欺骗 (Ch7 MCP-07)
+  [11/11] MCP 会话固定 — 会话注入/重用/URL泄露 (Ch7 MCP-08)
 
-对齐 OWASP LLM Top 10: LLM05 (Insecure Output Handling), LLM10 (Unbounded Consumption), LLM06 (Excessive Agency)
-对齐 OWASP ASI Top 10: ASI02 (Tool Misuse)
+对齐 OWASP LLM Top 10: LLM05, LLM10, LLM06, LLM02
+对齐 OWASP ASI Top 10: ASI02 (Tool Misuse), ASI03 (Identity Abuse)
 """
 from __future__ import annotations
 
@@ -34,6 +37,12 @@ from redteam.attack.mcp_advanced import (
     probe_mcp_transport_attack,
     probe_mcp_message_injection,
     run_mcp_deep_attack_suite,
+)
+from redteam.attack.mcp_l6 import (
+    probe_mcp_token_leak,
+    probe_mcp_capability_confusion,
+    probe_mcp_session_fixation,
+    run_mcp_l6_attack_suite,
 )
 
 
@@ -239,8 +248,83 @@ def infra_attack_phase(
                     print(f"  MCP消息过滤正常: {mcp_svc.url}")
             except Exception as e:
                 print(f"  ⚠ MCP L3 探测异常: {mcp_svc.url} - {str(e)[:80]}")
+        # ── [9/11] MCP Token 泄露检测 (L6) ──
+        print("\n[9/11] MCP Token 泄露检测 (MCP-01)...")
+        for mcp_svc in mcp_services[:3]:
+            try:
+                results = probe_mcp_token_leak(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                leak_detected = [r for r in results if getattr(r, 'leak_detected', False)]
+                if leak_detected or succeeded:
+                    mcp_findings.append({
+                        "source": "infra_mcp_token_leak",
+                        "category": "mcp_token_leak",
+                        "severity": "critical",
+                        "title": f"MCP Token泄露: {mcp_svc.url}",
+                        "description": f"发现 {len(leak_detected) or len(succeeded)} 个Token泄露指标",
+                        "owasp_llm": OWASPLlm.LLM02_SENSITIVE_INFO.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI02_TOOL_MISUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.EXFILTRATION.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  Token泄露检测成功: {mcp_svc.url}")
+                else:
+                    print(f"  Token管理安全: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP Token检测异常: {mcp_svc.url} - {str(e)[:80]}")
+
+        # ── [10/11] MCP 能力混淆 (L6) ──
+        print("\n[10/11] MCP 能力混淆检测 (MCP-07)...")
+        for mcp_svc in mcp_services[:3]:
+            try:
+                results = probe_mcp_capability_confusion(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                if succeeded:
+                    mcp_findings.append({
+                        "source": "infra_mcp_capability_confusion",
+                        "category": "mcp_capability_confusion",
+                        "severity": "high",
+                        "title": f"MCP能力混淆: {mcp_svc.url}",
+                        "description": f"发现 {len(succeeded)} 个能力混淆漏洞",
+                        "owasp_llm": OWASPLlm.LLM06_EXCESSIVE_AGENCY.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI02_TOOL_MISUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.DEFENSE_EVASION.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  能力混淆检测成功: {mcp_svc.url}")
+                else:
+                    print(f"  能力边界清晰: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP能力混淆异常: {mcp_svc.url} - {str(e)[:80]}")
+
+        # ── [11/11] MCP 会话固定 (L6) ──
+        print("\n[11/11] MCP 会话固定检测 (MCP-08)...")
+        for mcp_svc in mcp_services[:3]:
+            try:
+                results = probe_mcp_session_fixation(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                if succeeded:
+                    mcp_findings.append({
+                        "source": "infra_mcp_session_fix",
+                        "category": "mcp_session_fixation",
+                        "severity": "high",
+                        "title": f"MCP会话固定: {mcp_svc.url}",
+                        "description": f"发现 {len(succeeded)} 个会话固定漏洞",
+                        "owasp_llm": OWASPLlm.LLM06_EXCESSIVE_AGENCY.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI03_IDENTITY_ABUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.INITIAL_ACCESS.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  会话固定检测成功: {mcp_svc.url}")
+                else:
+                    print(f"  会话管理安全: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP会话固定异常: {mcp_svc.url} - {str(e)[:80]}")
     else:
-        print("\n[6/8] MCP 深度攻击 — 未检测到 MCP 服务，跳过 L1-L3")
+        print("\n[9/11] MCP 深度攻击 — 未检测到 MCP 服务，跳过")
 
     # 汇总 Cloud evidence 到 cloud_findings
     supply_risks: list[dict] = []

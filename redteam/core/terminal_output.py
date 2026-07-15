@@ -515,10 +515,10 @@ def _print_converter_recommendations(services: list) -> None:
 
 
 def print_target_confirmation_prompt(services: list) -> list[int]:
-    """打印目标确认提示 — 紧凑格式，引用上方已展示的 Rich Table。
+    """打印目标确认提示 — 一行展示协议、URL、模型，便于用户快速识别目标。
 
     注意：此函数仅展示提示信息，实际交互由调用方（cli.py）完成。
-    服务详情已通过 Rich Table 展示，此处仅提供简洁的选择指引。
+    上方已通过 Rich Table 展示服务详情，此处提供含 URL 的简洁选择指引。
 
     Args:
         services: AIService 列表
@@ -526,18 +526,17 @@ def print_target_confirmation_prompt(services: list) -> list[int]:
     Returns:
         建议攻击的目标索引列表（1-based）
     """
-    print(f"\n  [SELECT TARGETS]  选择要攻击的目标（参考上方表格编号）")
+    print(f"\n  [SELECT TARGETS]  选择要攻击的目标")
     print(f"  回车 = 全部 | 逗号分隔选择编号 | 输入 0 跳过攻击阶段")
 
     for idx, svc in enumerate(services, 1):
         protocol = getattr(svc, 'protocol', '').upper()
         url = getattr(svc, 'url', '')
-        # 紧凑一行：编号 + 协议 + URL + 模型/认证状态
         svc_models = getattr(svc, 'models', []) or []
-        model_hint = svc_models[0] if svc_models else "未识别"
+        model_hint = svc_models[0] if svc_models else "-"
         auth_req = getattr(svc, 'auth_required', False)
         auth_tag = " 🔒" if auth_req else ""
-        print(f"  [{idx}] {protocol:<20} {model_hint:<18}{auth_tag}")
+        print(f"  [{idx}] {protocol:<20} {url:<52} {model_hint:<22}{auth_tag}")
 
     return list(range(1, len(services) + 1))
 

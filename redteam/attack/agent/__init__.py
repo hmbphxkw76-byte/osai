@@ -10,12 +10,13 @@
   - cascading_failure.py: 级联故障（ASI08）
   - trust_exploitation.py: 人机信任利用（ASI09）
   - rogue_agent.py: 流氓代理（ASI10）
+  - few_shot_backdoor.py: Few-shot 后门植入（PI-09, ASI06）
   - crescendo_attack.py: Crescendo 多轮对话升级攻击（Ch4）
   - tap_attack.py: TAP 带剪枝攻击树算法（Ch4）
   - context_overflow.py: 上下文窗口溢出攻击（Ch3）
 
 Native-First 架构：默认使用 NativeAttackRunner (httpx)。
-技术来源：Adapted from mcp-attack-labs/ (labs 01, 03, 05)
+技术来源：Adapted from mcp-attack-labs/ (labs 01, 03, 05) + OWASP AI Vulns PI-09
 """
 
 from .prompt_inject import (
@@ -73,6 +74,11 @@ from .context_overflow import (
 )
 from .findings import (
     generate_agent_attack_findings,
+)
+from .few_shot_backdoor import (
+    FEW_SHOT_BACKDOOR_PAYLOADS,
+    embed_few_shot_backdoor,
+    run_few_shot_backdoor_suite,
 )
 
 
@@ -182,6 +188,10 @@ __all__ = [
     "run_context_overflow_probe",
     # Findings 生成
     "generate_agent_attack_findings",
+    # Few-shot Backdoor
+    "FEW_SHOT_BACKDOOR_PAYLOADS",
+    "embed_few_shot_backdoor",
+    "run_few_shot_backdoor_suite",
     # Agent 攻击套件编排器
     "run_agent_attack_suite",
 ]

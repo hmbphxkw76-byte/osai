@@ -89,7 +89,7 @@ pytest, mock 外部调用, 合成数据, 禁止真实凭据, 每模块三路径�
 
 ## Payload 载荷库
 
-43 个 YAML，420 条载荷，覆盖 OWASP LLM01-LLM10 + OWASP Agentic ASI01-ASI10
+53 个 YAML，490 条载荷，覆盖 OWASP LLM01-LLM10 + OWASP Agentic ASI01-ASI10 + Token Smuggling + Few-shot Backdoor + MCP L6
 
 ## 禁止事项
 
@@ -109,3 +109,4 @@ pytest, mock 外部调用, 合成数据, 禁止真实凭据, 每模块三路径�
 - v2.0 results/reports 双目录 + Reports Pipeline (Phase 12) — 2026-07-15
 - Exploit Pipeline (Detect→Exploit) — 2026-07-15，216 测试
 - OWASP Agentic Top 10 (2026) 对齐 — 2026-07-15，ASI01-ASI10 枚举/覆盖/报告整合
+- v1.3.0 靶机覆盖率补全（+14 文件）+ Token Smuggling + Few-shot Backdoor + MCP L6 + 全量扫描 — 2026-07-15，324 测试零回归，420→490 载荷

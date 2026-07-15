@@ -6,10 +6,11 @@
   - dataset_poison.py: 数据集投毒风险检测
   - dependency.py: 依赖攻击风险检测
   - docker_label.py: Docker 镜像标签注入攻击
+  - model_card_forgery.py: Model Card 伪造检测（LLM03 DonkAI）
   - findings.py: Findings 生成（对齐 OWASP LLM Top 10）
 
 Library-First：执行层委托 httpx，载荷资产自研。
-技术来源：Adapted from mcp-attack-labs/labs/02-docker-dash/
+技术来源：Adapted from mcp-attack-labs/labs/02-docker-dash/ + OWASP DonkAI LLM03
 """
 
 from .hf_model import (
@@ -37,6 +38,10 @@ from .docker_label import (
 from .findings import (
     generate_supply_chain_findings,
 )
+from .model_card_forgery import (
+    detect_model_card_forgery,
+    scan_hf_model_card,
+)
 
 __all__ = [
     # HuggingFace 模型来源检测
@@ -58,4 +63,7 @@ __all__ = [
     "generate_docker_supply_chain_findings",
     # Findings 生成
     "generate_supply_chain_findings",
+    # Model Card 伪造检测
+    "detect_model_card_forgery",
+    "scan_hf_model_card",
 ]

@@ -2,11 +2,11 @@
 
 执行 Agent 深度攻击 — 覆盖 OWASP ASI Top 10 全部 10 类攻击技术：
 
-  [1] 间接注入 (ASI06)       [6] 身份权限滥用 (ASI03)
-  [2] 记忆投毒 (ASI06)       [7] A2A 通信攻击 (ASI07)
-  [3] 工具劫持 (ASI02)       [8] 级联故障触发 (ASI08)
-  [4] 目标劫持 (ASI01)       [9] 信任利用 (ASI09)
-  [5] 跨智能体攻击          [10] 恶意代理注入 (ASI10)
+  [1] 间接注入 (ASI06)       [7] A2A 通信攻击 (ASI07)
+  [2] 记忆投毒 (ASI06)       [8] 级联故障触发 (ASI08)
+  [3] 工具劫持 (ASI02)       [9] 信任利用 (ASI09)
+  [4] 目标劫持 (ASI01)       [10] 恶意代理注入 (ASI10)
+  [5] Few-shot后门 (ASI01-ASI06)  [11] 跨智能体攻击 (ASI07)
 
 对齐 OWASP ASI Top 10: ASI01-ASI10 全覆盖
 """
@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from redteam.core.models import AIService, AuthContext, Finding, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic, Severity
+from redteam.core.models import (
+    AIService, AuthContext, Finding,
+    OWASPLlm, OWASP_AGENTIC, MITREATLASTactic, Severity,
+    PromptInjectionResult,
+)
 from redteam.core.store import load_json, save_json
 from redteam.core.terminal_output import print_section_header, print_target_list, print_result_bar
 from redteam.attack.agent import (
@@ -24,10 +28,25 @@ from redteam.attack.agent import (
     attack_inter_agent_communication, trigger_cascading_failures,
     exploit_human_trust, create_rogue_agent,
     generate_agent_attack_findings,
+    run_few_shot_backdoor_suite,
 )
 
 
 # ASI 模块注册表：映射到 (函数, 标签, OWASP_AGENTIC, 严重度)
+
+
+def _run_few_shot_backdoor(
+    service: AIService,
+    auth: AuthContext | None = None,
+) -> list[PromptInjectionResult]:
+    """执行 Few-shot Backdoor 攻击套件并扁平化结果。"""
+    suite_result = run_few_shot_backdoor_suite(service, auth)
+    flat: list[PromptInjectionResult] = []
+    for results in suite_result.values():
+        flat.extend(results)
+    return flat
+
+
 _ASI_ATTACKS: list[dict[str, Any]] = [
     {
         "id": "indirect_injection",
@@ -60,6 +79,14 @@ _ASI_ATTACKS: list[dict[str, Any]] = [
         "owasp_llm": OWASPLlm.LLM01_PROMPT_INJECTION,
         "owasp_agentic": OWASP_AGENTIC.ASI01_GOAL_HIJACK,
         "severity": Severity.CRITICAL,
+    },
+    {
+        "id": "few_shot_backdoor",
+        "label": "Few-shot后门植入",
+        "fn": _run_few_shot_backdoor,
+        "owasp_llm": OWASPLlm.LLM01_PROMPT_INJECTION,
+        "owasp_agentic": OWASP_AGENTIC.ASI06_MEMORY_POISONING,
+        "severity": Severity.HIGH,
     },
     {
         "id": "cross_agent",

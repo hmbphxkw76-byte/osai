@@ -72,6 +72,10 @@ from .agent import (
     OverflowConfig,
     run_context_overflow_attack,
     run_context_overflow_probe,
+    # Few-shot Backdoor（Ch3 PI-09）
+    FEW_SHOT_BACKDOOR_PAYLOADS,
+    embed_few_shot_backdoor,
+    run_few_shot_backdoor_suite,
 )
 
 # 多智能体攻击（Ch4）
@@ -105,6 +109,8 @@ from .supply_chain import (
     inject_docker_label_payload,
     generate_docker_supply_chain_findings,
     generate_supply_chain_findings,
+    detect_model_card_forgery,
+    scan_hf_model_card,
 )
 
 # 基础设施攻击（Ch9）
@@ -125,6 +131,30 @@ from .mcp_advanced import (
     run_mcp_deep_attack_suite,
 )
 
+# MCP L6 攻击（Ch7 扩展：Token泄露/能力混淆/会话固定）
+from .mcp_l6 import (
+    MCP_TOKEN_LEAK_PAYLOADS,
+    MCP_CAPABILITY_CONFUSION_PAYLOADS,
+    MCP_SESSION_FIX_PAYLOADS,
+    probe_mcp_token_leak,
+    probe_mcp_capability_confusion,
+    probe_mcp_session_fixation,
+    run_mcp_l6_attack_suite,
+)
+
+# Token Smuggling 绕过引擎（Ch3: PI-08）
+from .evasion import (
+    HOMOGLYPH_MAP,
+    ZERO_WIDTH_CHARS,
+    TOKEN_SMUGGLE_PAYLOADS,
+    SMUGGLE_TECHNIQUES,
+    apply_homoglyphs,
+    inject_zero_width,
+    split_phrase_evasion,
+    smuggle_payload,
+    execute_token_smuggling_attack,
+)
+
 # 自适应绕过引擎（Ch3: Detect→Evade）
 from .adaptive_evasion import (
     detect_guardrail_response,
@@ -135,6 +165,17 @@ from .adaptive_evasion import (
 
 # 嵌入反演重建（Ch6 扩展）
 from .embeddings_verify import attempt_embedding_inversion
+
+# 自动化全量扫描（Ch2）
+from ..scan import (
+    ScanTarget,
+    ScanResult,
+    BroadScanResult,
+    OWASP_SCAN_CATEGORIES,
+    scan_target,
+    run_broad_scan,
+    format_scan_summary,
+)
 
 __all__ = [
     # 核心引擎
@@ -220,6 +261,31 @@ __all__ = [
     "probe_mcp_transport_attack",
     "probe_mcp_message_injection",
     "run_mcp_deep_attack_suite",
+    # MCP L6 攻击
+    "MCP_TOKEN_LEAK_PAYLOADS",
+    "MCP_CAPABILITY_CONFUSION_PAYLOADS",
+    "MCP_SESSION_FIX_PAYLOADS",
+    "probe_mcp_token_leak",
+    "probe_mcp_capability_confusion",
+    "probe_mcp_session_fixation",
+    "run_mcp_l6_attack_suite",
+    # Token Smuggling
+    "HOMOGLYPH_MAP",
+    "ZERO_WIDTH_CHARS",
+    "TOKEN_SMUGGLE_PAYLOADS",
+    "SMUGGLE_TECHNIQUES",
+    "apply_homoglyphs",
+    "inject_zero_width",
+    "split_phrase_evasion",
+    "smuggle_payload",
+    "execute_token_smuggling_attack",
+    # Few-shot Backdoor
+    "FEW_SHOT_BACKDOOR_PAYLOADS",
+    "embed_few_shot_backdoor",
+    "run_few_shot_backdoor_suite",
+    # Model Card Forgery
+    "detect_model_card_forgery",
+    "scan_hf_model_card",
     # 自适应绕过
     "detect_guardrail_response",
     "run_adaptive_evasion",
@@ -227,4 +293,12 @@ __all__ = [
     "count_available",
     # 嵌入反演
     "attempt_embedding_inversion",
+    # 自动化全量扫描
+    "ScanTarget",
+    "ScanResult",
+    "BroadScanResult",
+    "OWASP_SCAN_CATEGORIES",
+    "scan_target",
+    "run_broad_scan",
+    "format_scan_summary",
 ]
