@@ -21,6 +21,37 @@ provider:
 2. **所有数据使用 Pydantic BaseModel**：API 边界处禁止传递裸 dict，必须使用 `redteam/core/models.py` 中定义的强类型模型。
 3. **每个 Finding 必须绑定 OWASPLlm + OWASP_AGENTIC + MITREATLASTactic**：不允许创建无分类标签的漏洞条目。OWASP LLM Top 10 (2025) 与 OWASP Agentic Top 10 (2026) 双重标注。
 4. **枚举优先于字符串常量**：AI 协议、漏洞分类、攻击阶段均使用 Enum。
+5. **目录结构强制合规**：所有新建文件和目录必须遵循项目已有目录结构惯例。**严禁在未理解现有层级的情况下自创新目录**。创建前必须先阅读目标父目录结构，确认新文件应归入哪个已有子目录。
+
+## 项目目录结构（强制参考）
+
+```
+redteam/
+├── attack/              ← 攻击模块（按攻击类型分子目录）
+│   ├── agent/           ← Ch3/Ch4: Agent 攻击
+│   ├── rag/             ← Ch5: RAG 攻击
+│   ├── supply_chain/    ← Ch8: 供应链攻击
+│   └── infra/           ← Ch7/Ch9: 基础设施
+├── core/                ← 核心基础设施（models, store, terminal_output, tools）
+├── pipeline/            ← 攻击流水线编排
+│   ├── execution/       ← **所有阶段实现 + 子模块**（recon, detect, exploit, threat_modeling）
+│   │   ├── recon_phase.py
+│   │   ├── injection_phase.py
+│   │   ├── agent_phase.py / multi_agent_phase.py / rag_phase.py / ...
+│   │   ├── exploit/     ← 利用证明（归入 execution 子目录，不是 pipeline 平级）
+│   │   └── threat_modeling_phase.py
+│   ├── reporting/       ← 报告生成（仅 report_publisher.py）
+│   └── runner*.py       ← 运行器（runner.py, runner_display.py, runner_extensions.py）
+├── recon/               ← 侦察模块（auth_*, connectivity, ai_surface, crawl*）
+├── cli.py               ← CLI 入口
+└── __init__.py
+```
+
+**关键规则**：
+- `pipeline/` 下只有 3 类内容：`execution/`（阶段实现）、`reporting/`（报告）、`runner*.py`（运行器）
+- 任何新的攻击阶段或利用模块 → 必须放入 `pipeline/execution/` 下
+- 任何新的报告功能 → 必须放入 `pipeline/reporting/` 下
+- **严禁在 `pipeline/` 根目录创建与 `execution/`/`reporting/` 平级的独立目录**
 
 ## 架构设计哲学
 

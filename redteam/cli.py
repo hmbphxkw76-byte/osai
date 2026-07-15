@@ -455,7 +455,7 @@ def _run_exploit_pipeline(
         (processed_count, verified_count)
     """
     from redteam.core.store import load_findings, load_json, save_findings
-    from redteam.pipeline.exploit.registry import dispatch
+    from redteam.pipeline.execution.exploit.registry import dispatch
     from redteam.pipeline.reporting.writer import append_exploit_section
     from redteam.core.models import AIService, Finding
 

@@ -13,12 +13,29 @@ AI 红队攻击模拟工具，面向 OffSec AI-300 (OSAI) 考试备考和实际 
 5. **全局统筹**：Phase 1~12 完整攻击链，侦察结果自动驱动后续阶段
 6. **阶段提示**：统一双线边框横幅（72 字符 + AI-300 标注 + ⏳/⚔️/✓）
 
-## 四大核心铁律
+## 五大核心铁律
 
 1. **Library-First**：纯 Python 库优先，严禁外部小众 CLI 工具
 2. **Pydantic BaseModel**：API 边界禁止裸 dict
 3. **Finding 绑定 OWASPLlm/OWASP_AGENTIC + MITREATLASTactic**：不允许无分类标签
 4. **枚举优先于字符串常量**
+5. **目录结构强制合规**：所有新建文件/目录必须遵循已有项目目录结构。创建前必须先阅读父目录结构。严禁在 `pipeline/` 根目录创建与 `execution/`/`reporting/` 平级的独立目录
+
+## 项目目录结构（强制读写参考）
+
+```
+redteam/
+├── attack/              ← 攻击模块（按类型分子目录）
+├── core/                ← 核心基础设施（models, store, terminal_output）
+├── pipeline/            ← 流水线编排
+│   ├── execution/       ← **所有阶段实现**（recon/injection/agent/...）+ exploit/
+│   ├── reporting/       ← 报告生成
+│   └── runner*.py       ← 运行器
+├── recon/               ← 侦察模块
+└── cli.py               ← CLI
+```
+
+**规则**：pipeline/ 下只有 execution/ + reporting/ + runner*.py。创新模块必须先放入已有子目录。
 
 ## 管道阶段模型
 
