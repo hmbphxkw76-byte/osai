@@ -44,6 +44,7 @@ from .execution.rag_phase import rag_attack_phase
 from .execution.embeddings_phase import embeddings_attack_phase
 from .execution.supply_chain_phase import supply_chain_phase
 from .execution.infra_phase import infra_attack_phase
+from redteam.core.kill_chain_tracker import get_tracker, reset_tracker
 from .reporting.writer import ReportWriter
 from .runner_display import print_rate_limit_advisory, interactive_rpm_override
 from .runner_extensions import PipelineExtensionsMixin
@@ -56,7 +57,10 @@ def _append_to_report(
     findings: list[Finding],
     subtitle: str = "",
 ) -> None:
-    """将阶段发现追加到增量报告（Finding 模型 → dict 转换）。"""
+    """将阶段发现追加到增量报告（Finding 模型 → dict 转换）。
+
+    同时将 Finding 类别记录到 Kill Chain 追踪器。
+    """
     if not findings:
         return
     findings_dict = [
@@ -64,6 +68,12 @@ def _append_to_report(
         for f in findings
     ]
     writer.append_phase(phase_name, phase_num, findings_dict, subtitle)
+    # 记录到 Kill Chain 追踪器
+    tracker = get_tracker()
+    for f in findings:
+        cat = getattr(f, "category", "") or ""
+        if cat:
+            tracker.record(cat)
 
 
 class AIPipeline(PipelineExtensionsMixin):
@@ -88,7 +98,7 @@ class AIPipeline(PipelineExtensionsMixin):
         },
         "injection": {
             "num": "2", "title": "提示注入攻击",
-            "subtitle": "Ch3: Prompt Injection + Jailbreak + System Prompt Extraction",
+            "subtitle": "Ch3: Detect — Prompt Injection + Jailbreak + System Prompt Extraction",
         },
         "agent": {
             "num": "3", "title": "Agent 攻击",
@@ -179,6 +189,7 @@ class AIPipeline(PipelineExtensionsMixin):
         Returns:
             完整评估结果字典
         """
+        reset_tracker()  # 每次运行重置 Kill Chain 追踪器
         started = time.time()
         all_phase_order = [
             "recon", "injection", "agent", "multi_agent",
@@ -214,6 +225,7 @@ class AIPipeline(PipelineExtensionsMixin):
         attack_chain = None
         if "injection" in to_run:
             cfg = self._PHASE_CONFIG["injection"]
+            get_tracker().start_phase("injection")
             print_phase_banner(
                 int(cfg["num"]), cfg["title"],
                 target=services[0].url if services else target,
@@ -244,6 +256,7 @@ class AIPipeline(PipelineExtensionsMixin):
         if "agent" in to_run:
             cfg = self._PHASE_CONFIG["agent"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("agent")
             phase_start = time.time()
             agent_findings = agent_attack_phase(run_id, services, auth=auth)
             self._print_phase_result("Agent Attack", agent_findings, time.time() - phase_start, phase_num=3)
@@ -255,6 +268,7 @@ class AIPipeline(PipelineExtensionsMixin):
         if "multi_agent" in to_run:
             cfg = self._PHASE_CONFIG["multi_agent"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("multi_agent")
             phase_start = time.time()
             multi_agent_findings = multi_agent_phase(run_id, services, auth=auth)
             self._print_phase_result("Multi-Agent/A2A Attack", multi_agent_findings, time.time() - phase_start, phase_num=4)
@@ -266,6 +280,7 @@ class AIPipeline(PipelineExtensionsMixin):
         if "rag" in to_run:
             cfg = self._PHASE_CONFIG["rag"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("rag")
             phase_start = time.time()
             rag_findings = rag_attack_phase(run_id, services, auth=auth)
             self._print_phase_result("RAG Pipeline Attack", rag_findings, time.time() - phase_start, phase_num=5)
@@ -277,6 +292,7 @@ class AIPipeline(PipelineExtensionsMixin):
         if "embeddings" in to_run:
             cfg = self._PHASE_CONFIG["embeddings"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("embeddings")
             phase_start = time.time()
             embedding_findings = embeddings_attack_phase(run_id, services, auth=auth)
             self._print_phase_result("Embedding Attack", embedding_findings, time.time() - phase_start, phase_num=6)
@@ -288,6 +304,7 @@ class AIPipeline(PipelineExtensionsMixin):
         if "supply_chain" in to_run:
             cfg = self._PHASE_CONFIG["supply_chain"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("supply_chain")
             phase_start = time.time()
             supply_chain_findings = supply_chain_phase(run_id, services, auth=auth)
             self._print_phase_result("AI Supply Chain Attack", supply_chain_findings, time.time() - phase_start, phase_num=7)
@@ -299,11 +316,32 @@ class AIPipeline(PipelineExtensionsMixin):
         if "infra" in to_run:
             cfg = self._PHASE_CONFIG["infra"]
             print_phase_banner(int(cfg["num"]), cfg["title"], target=target, subtitle=cfg["subtitle"], status="active")
+            get_tracker().start_phase("infra")
             phase_start = time.time()
             infra_findings = infra_attack_phase(run_id, recon, services, auth=auth)
             self._print_phase_result("MCP + Infrastructure Attack", infra_findings, time.time() - phase_start, phase_num=8)
             _append_to_report(writer, "MCP + Infrastructure Attack", 8, infra_findings, cfg["subtitle"])
             print_phase_banner(int(cfg["num"]), cfg["title"], status="complete")
+
+        # Phase 10: Threat Modeling
+        threat_model = None
+        if "threat_modeling" in to_run or "threat_model" in to_run:
+            get_tracker().start_phase("threat_modeling")
+            print_phase_banner(10, "AI 目标威胁建模", target=target,
+                               subtitle="Ch10: Hypothesis Register + Trust Boundaries + Attack Paths + Kill Chain Coverage",
+                               status="active")
+            from .execution.threat_modeling_phase import threat_modeling_phase
+            all_findings_temp = (
+                injection_findings + agent_findings + multi_agent_findings
+                + rag_findings + embedding_findings + supply_chain_findings + infra_findings
+            )
+            threat_model = threat_modeling_phase(run_id, services, all_findings_temp, target)
+            print(f"\n  [green]OK[/] Threat model: {len(threat_model.hypotheses)} hypotheses, "
+                  f"{len(threat_model.trust_boundaries)} trust boundaries, "
+                  f"{len(threat_model.attack_paths)} attack paths")
+            kc = get_tracker().get_coverage()
+            print(f"  Kill Chain: {kc['covered']}/{kc['total_phases']} phases ({int(kc['ratio'] * 100)}%)")
+            print_phase_banner(10, "AI 目标威胁建模", status="complete")
 
         # Aggregate all findings
         all_findings = (
@@ -337,9 +375,13 @@ class AIPipeline(PipelineExtensionsMixin):
         all_sev = self._count_by_severity(all_findings)
         crit_high = all_sev["critical"] + all_sev["high"]
 
+        # Kill Chain 覆盖率
+        kc_coverage = get_tracker().get_coverage()
+
         print(f"\n{'=' * 66}")
         print(f"  ASSESSMENT COMPLETE - Duration: {elapsed:.1f}s")
         print(f"  Total Findings: {total_tests}  |  High/Critical: {crit_high}")
+        print(f"  Kill Chain Coverage: {kc_coverage['covered']}/{kc_coverage['total_phases']} phases ({int(kc_coverage['ratio'] * 100)}%)")
         print(f"  Run ID: {run_id}")
         print(f"  Report: results/{run_id}/AI300_Report.md")
         print(f"{'=' * 66}\n")
@@ -355,6 +397,7 @@ class AIPipeline(PipelineExtensionsMixin):
             "findings": all_findings,
             "attack_chain": attack_chain,
             "report": str(report_path),
+            "kill_chain_coverage": kc_coverage,
         }
 
     def run_from_config(

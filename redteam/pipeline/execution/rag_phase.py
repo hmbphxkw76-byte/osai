@@ -46,10 +46,12 @@ def rag_attack_phase(
         findings = generate_rag_findings(svc, vdbs, poison_results, leakage)
         all_findings.extend(findings)
 
+    # Persist accumulated findings to JSON store (for checkpoint/resume)
     prior = load_json(run_id, "findings") or []
-    all_findings = prior + [f.model_dump() for f in all_findings]
-    save_json(run_id, "findings", all_findings, subdir="detect")
-    return [Finding(**f) if isinstance(f, dict) else f for f in all_findings]
+    accumulated = prior + [f.model_dump() for f in all_findings]
+    save_json(run_id, "findings", accumulated, subdir="detect")
+    # Return ONLY this phase's own findings (not accumulated history)
+    return all_findings
 
 
 __all__ = [

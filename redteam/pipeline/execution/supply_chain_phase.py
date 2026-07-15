@@ -140,10 +140,12 @@ def supply_chain_phase(
     else:
         print(f"\n  [7/7] 部署流水线分析 — 跳过（未提供仓库路径）")
 
+    # Persist accumulated findings to JSON store (for checkpoint/resume)
     prior = load_json(run_id, "findings") or []
-    all_findings = prior + [f.model_dump() for f in all_findings]
-    save_json(run_id, "findings", all_findings, subdir="detect")
-    return [Finding(**f) if isinstance(f, dict) else f for f in all_findings]
+    accumulated = prior + [f.model_dump() for f in all_findings]
+    save_json(run_id, "findings", accumulated, subdir="detect")
+    # Return ONLY this phase's own findings (not accumulated history)
+    return all_findings
 
 
 __all__ = [

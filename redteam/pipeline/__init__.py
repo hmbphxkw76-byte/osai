@@ -7,12 +7,13 @@
   - runner.py: 主流水线编排器（含 YAML 配置驱动模式）
   - runner_display.py: 显示工具函数（速率限制建议等）
   - runner_extensions.py: 扩展方法 Mixin（阶段快捷方法、场景驱动）
-  - execution/: 攻击执行层（Phase 1~8）
+    - execution/: 攻击执行层（Phase 1~10）
       recon_phase.py, injection_phase.py, agent_phase.py,
       multi_agent_phase.py, rag_phase.py, embeddings_phase.py,
-      supply_chain_phase.py, infra_phase.py
-  - exploit/: 利用证明管线（Detect→Exploit 双阶段闭环）
-      registry.py, embeddings.py
+      supply_chain_phase.py, infra_phase.py, threat_modeling_phase.py
+  - exploit/: 利用证明管线（Detect→Exploit 双阶段闭环，8/8 类别全覆盖）
+      registry.py, common.py, embeddings.py, injection.py,
+      agent_exploit.py, rag.py, supply_chain.py, infra.py, mcp_exploit.py
   - reporting/: 报告产出管线（增量写入 + 正式出版）
       writer.py, publisher.py
 

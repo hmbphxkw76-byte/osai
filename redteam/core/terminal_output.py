@@ -159,87 +159,47 @@ def print_phase_banner(
 
 
 def print_recon_briefing(recon: Any, services: list) -> None:
-    """打印侦察简报 — Phase 1 完成后向 AI 红队专家展示攻击面全景。
+    """打印侦察简报 — 纯事实摘要，不含分析（分析留给 Detect 阶段）。
+
+    注意：详细服务表格已在调用方通过 Rich Table 展示，此处仅输出统计摘要。
 
     Args:
         recon: ReconResult 对象
         services: AIService 列表
     """
-    print(f"\n{'─' * 72}")
-    print(f"  [INTEL BRIEF]  攻击面全景 & 风险指标")
-    print(f"{'─' * 72}")
-
-    # 攻击面统计
     total_svcs = len(services) if services else 0
     auth_svcs = sum(1 for s in services if getattr(s, 'auth_required', False))
-    models = set()
+    no_auth = total_svcs - auth_svcs
+    models: set[str] = set()
     for s in (services or []):
         for m in (getattr(s, 'models', []) or []):
             models.add(m)
 
-    # 紧凑一行摘要
     model_count = len(models)
-    component_str = ""
+    protocols = sorted(set(getattr(s, 'protocol', '?').upper() for s in (services or [])))
+
+    print(f"\n  [RECON SUMMARY]  {total_svcs} 服务, {model_count} 模型, {no_auth} 无需认证")
+    if protocols:
+        print(f"  协议族: {', '.join(protocols)}")
+
+    # 关键风险指标
+    risk_flags: list[str] = []
+    if no_auth > 0:
+        risk_flags.append(f"无认证端点 ×{no_auth}")
+    if model_count > 0:
+        risk_flags.append(f"暴露模型 ×{model_count}")
     if hasattr(recon, 'components') and recon.components:
-        component_str = f", 组件: {', '.join(recon.components[:5])}"
-    print(f"\n  攻击面: {total_svcs} 服务 / {model_count} 模型 / {auth_svcs} 需认证{component_str}")
-
-    # 逐个服务分析（精简）
-    if services:
-        print(f"\n  目标清单:")
-        for idx, svc in enumerate(services, 1):
-            protocol = getattr(svc, 'protocol', 'unknown')
-            url = getattr(svc, 'url', '')
-            svc_models = getattr(svc, 'models', []) or []
-            auth_req = getattr(svc, 'auth_required', False)
-            auth_tag = " [AUTH]" if auth_req else ""
-            model_tag = f" [{', '.join(svc_models[:3])}]" if svc_models else ""
-
-            print(f"  [{idx}] {protocol.upper():<20} {url}{model_tag}{auth_tag}")
-
-    # 风险指标
-    risks = _derive_risk_indicators(services)
-    if risks:
-        print(f"\n  风险提示:")
-        for r in risks:
-            print(f"    {r}")
-
-    print(f"{'─' * 72}")
+        for c in recon.components:
+            if c in ("ollama", "mcp"):
+                risk_flags.append(f"{c.upper()} 原生端点")
+    if risk_flags:
+        print(f"  [RISK]  {', '.join(risk_flags)}")
 
 
-def _derive_risk_indicators(services: list) -> list[str]:
-    """从侦察结果推导风险指标。"""
-    indicators: list[str] = []
-    if not services:
-        return indicators
-    
-    for svc in (services or []):
-        protocol = getattr(svc, 'protocol', '')
-        auth_req = getattr(svc, 'auth_required', False)
-        url = getattr(svc, 'url', '')
-        
-        if "ollama" in protocol.lower() and not auth_req:
-            indicators.append(f"⚠️  [{protocol.upper()}] {url} — 无认证 Ollama 实例，可直接访问模型列表和发送请求")
-        if "openai" in protocol.lower():
-            indicators.append(f"⚡ [{protocol.upper()}] {url} — OpenAI 兼容端点，可测试系统提示提取和越狱")
-        if "mcp" in protocol.lower():
-            indicators.append(f"🔧 [{protocol.upper()}] {url} — MCP 服务器，需检查工具劫持和权限提升")
-        if auth_req:
-            indicators.append(f"🔒 [{protocol.upper()}] {url} — 需要认证，认证强度未知")
-
-    return indicators
 
 
 def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict[str, Any]]]:
-    """打印攻击策略推荐 — 侦察阶段最终交付，桥接 Phase 1 → Phase 2。
-
-    这是 Phase 1（AI 攻击面侦察）的最终输出，基于侦察阶段实际探测结果：
-      - HTTP 响应指纹 → 协议族判定（Ollama/OpenAI/MCP）
-      - 护栏检测 → 绕过难度评估
-      - 模型发现 → 策略针对性调整
-
-    针对每个可攻击目标，按估计成功率排序推荐攻击策略，
-    并给出转换器建议和推荐攻击组合。
+    """Detect 阶段攻击策略专家分析 — 基于侦察结果推荐攻击方法。
 
     Args:
         services: AIService 列表
@@ -247,18 +207,8 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     Returns:
         {target_url: [{strategy_id, name, success_rate, owasp, explanation}, ...]}
     """
-    # ── 阶段标识头部：明确这是 Phase 1 最终交付 ──
-    print(f"\n{'═' * 72}")
-    print(f"╔{'═' * 70}╗")
-    print(f"║  [ATTACK STRATEGY ADVISOR]                                           ║")
-    print(f"║  Phase 1 最终交付 — 侦察结果 → 攻击策略衔接分析                      ║")
-    print(f"╚{'═' * 70}╝")
-    print(f"{'═' * 72}")
-
-    # ── 侦察成果总览 ──
     total = len(services) if services else 0
     no_auth = sum(1 for s in (services or []) if not getattr(s, 'auth_required', False))
-    auth_count = sum(1 for s in (services or []) if getattr(s, 'auth_required', False))
     all_models: set[str] = set()
     protocols_seen: set[str] = set()
     for s in (services or []):
@@ -268,18 +218,21 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
         if p:
             protocols_seen.add(p)
 
-    print(f"\n  Phase 1 侦察已完成。以下策略推荐基于侦察阶段实际探测结果自动生成。")
-    print(f"  侦察成果：发现 {total} 个 AI 服务 | {len(all_models)} 个模型 | "
-          f"{no_auth} 无需认证{' | ' + str(auth_count) + ' 需认证' if auth_count else ''}")
-    if all_models:
-        print(f"  检测模型：{', '.join(sorted(all_models))}")
-    print(f"  协议族  ：{', '.join(sorted(protocols_seen))}")
+    # ── Detect 阶段头部 ──
+    print(f"\n{'═' * 72}")
+    print(f"╔{'═' * 70}╗")
+    print(f"║  [⚔️  ATTACK STRATEGY]  攻击策略专家分析                              ║")
+    print(f"║  基于侦察情报: {total} 服务, {len(all_models)} 模型, {no_auth} 无需认证{' ' * (35 - len(str(total)) - len(str(len(all_models))) - len(str(no_auth)))}║")
+    print(f"╚{'═' * 70}╝")
+    print(f"{'═' * 72}")
 
-    # ── 侦察→策略 推导说明 ──
-    print(f"\n  侦察结果如何推导出以下策略推荐：")
-    print(f"    ① HTTP 指纹 → 判定协议族 → 选择该协议族的经验成功率基准")
-    print(f"    ② 护栏探测 → 评估绕过难度 → 调整策略优先级")
-    print(f"    ③ 模型识别 → 匹配已知弱点 → OWASP/ATLAS 分类标注")
+    # ── 高价值目标排序 ──
+    scored_targets = _score_target_value(services)
+    if scored_targets:
+        print(f"\n  [高价值目标]  按攻击成本与收益排序：")
+        for idx, (url, proto, score, stars, reason) in enumerate(scored_targets, 1):
+            print(f"    [{idx}] [{proto.upper()}] {stars}  {reason}")
+            print(f"        {url}")
 
     all_recommendations: Dict[str, list[Dict[str, Any]]] = {}
 
@@ -287,17 +240,14 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
     for svc_idx, svc in enumerate(services or [], 1):
         protocol = getattr(svc, 'protocol', '')
         url = getattr(svc, 'url', '')
-        family = _get_target_family(protocol)
         auth_req = getattr(svc, 'auth_required', False)
         svc_models = getattr(svc, 'models', []) or []
 
-        # 侦察依据摘要
-        auth_tag = "需认证" if auth_req else "无需认证"
-        model_tag = f", 模型: {', '.join(svc_models[:3])}" if svc_models else ""
+        auth_tag = "无认证" if not auth_req else "需认证"
+        model_tag = f", {', '.join(svc_models[:3])}" if svc_models else ""
         print(f"\n  {'─' * 68}")
-        print(f"  目标 [{svc_idx}/{total}] {url}")
-        print(f"  侦察依据：协议族={family} | 认证={auth_tag}{model_tag}")
-        print(f"  护栏状态：type=none (置信度 1.0) | 绕过难度=none")
+        print(f"  目标 [{svc_idx}/{total}]  [{protocol.upper()}]  {auth_tag}{model_tag}")
+        print(f"  {url}")
 
         recs: list[Dict[str, Any]] = []
         for sid in _STRATEGY_PRIORITY:
@@ -316,10 +266,9 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
                 "converter": _get_converter_for_strategy(sid, protocol),
             })
 
-        # 按成功率降序排列
         recs.sort(key=lambda x: x["success_rate"], reverse=True)
 
-        print(f"\n  推荐攻击策略（按估计成功率排序）：")
+        print(f"  推荐攻击策略：")
         for idx, rec in enumerate(recs, 1):
             rate = rec["success_rate"]
             rate_pct = int(rate * 100)
@@ -327,73 +276,87 @@ def print_attack_strategy_recommendations(services: list) -> Dict[str, list[Dict
             bar_empty = "░" * (20 - int(rate * 20))
             owasp_str = ", ".join(rec["owasp"])
             print(f"    [{idx}] {rec['name']:<24} {bar}{bar_empty} {rate_pct:>3}%")
-            print(f"        OWASP: {owasp_str:<20} ATLAS: {rec['atlas']}")
-            if idx <= 2:  # 对前 2 名展示理由
-                print(f"        Rationale: {rec['explanation']}")
+            print(f"        {owasp_str:<20} ATLAS: {rec['atlas']}")
+            if idx <= 2:
+                print(f"        {rec['explanation']}")
             conv = rec.get("converter", "")
             if conv:
-                print(f"        推荐转换器: {conv}")
+                print(f"        转换器: {conv}")
 
         all_recommendations[url] = recs
 
-    # ── 全局攻击策略组合建议 ──
-    print(f"\n{'─' * 72}")
-    print(f"  [ATTACK PLAN]  推荐攻击策略组合与执行顺序")
-    print(f"{'─' * 72}")
-
-    # 为所有目标聚合出全局最优策略
+    # ── 分层攻击计划 ──
     global_top = _build_global_attack_plan(services, all_recommendations)
-    print(f"\n  基于 {total} 个目标的聚合分析，推荐以下分层攻击策略组合：")
-    print(f"")
-    print(f"  ╔══════════════════════════════════════════════════════════════════════╗")
-    print(f"  ║  Tier 1 — 高成功率策略（优先执行，预期 80%+ 成功率）               ║")
-    print(f"  ╚══════════════════════════════════════════════════════════════════════╝")
-    for tier1 in global_top.get("tier1", []):
-        print(f"    ► {tier1['name']}  → 预计 {int(tier1['avg_rate']*100)}% 成功率  "
-              f"| 覆盖 {tier1['coverage']}/{total} 目标")
-    print(f"")
-    print(f"  ╔══════════════════════════════════════════════════════════════════════╗")
-    print(f"  ║  Tier 2 — 中等成功率策略（Tier 1 失败后自动回退）                  ║")
-    print(f"  ╚══════════════════════════════════════════════════════════════════════╝")
-    for tier2 in global_top.get("tier2", []):
-        print(f"    ► {tier2['name']}  → 预计 {int(tier2['avg_rate']*100)}% 成功率  "
-              f"| 覆盖 {tier2['coverage']}/{total} 目标")
-    print(f"")
-    print(f"  ╔══════════════════════════════════════════════════════════════════════╗")
-    print(f"  ║  Tier 3 — 绕过/编码策略（防御规避用途）                            ║")
-    print(f"  ╚══════════════════════════════════════════════════════════════════════╝")
-    for tier3 in global_top.get("tier3", []):
-        print(f"    ► {tier3['name']}  → 预计 {int(tier3['avg_rate']*100)}% 成功率  "
-              f"| 用途: 防御规避")
-    print(f"")
-    print(f"  执行逻辑：Tier 1 → 成功则记录 Finding → 失败则自动降级到 Tier 2")
-    print(f"            Tier 2 → 成功则记录 Finding → 失败则尝试 Tier 3 绕过策略")
-    print(f"            每个 Tier 可选启用编码转换器增强绕过效果")
-
-    # ── 转换器推荐汇总 ──
     print(f"\n{'─' * 72}")
-    print(f"  [CONVERTER GUIDE]  推荐转换器配置")
-    print(f"{'─' * 72}")
+    print(f"  [分层攻击计划]")
+    for tier_name, tier_label in [("tier1", "Tier 1 — 优先执行 (≥70%)"), ("tier2", "Tier 2 — 自动回退 (55-69%)"), ("tier3", "Tier 3 — 防御规避 (<55%)")]:
+        entries = global_top.get(tier_name, [])
+        if entries:
+            names = ", ".join(e["name"].split(" (")[0] for e in entries)
+            print(f"  {tier_label}: {names}")
+
+    # ── 转换器推荐 ──
+    print(f"\n{'─' * 72}")
+    print(f"  [推荐转换器]")
     _print_converter_recommendations(services)
 
-    # ── 下一步行动说明 ──
-    print(f"\n{'─' * 72}")
-    print(f"  [NEXT STEPS]  侦察阶段已完成，即将进入攻击阶段")
-    print(f"{'─' * 72}")
-    print(f"")
-    print(f"  当前阶段: Phase 1 (AI 攻击面侦察) ✓ 已完成")
-    print(f"  下一阶段: Phase 2 (提示注入攻击)")
-    print(f"")
-    print(f"  接下来你将需要：")
-    print(f"    ① 确认攻击目标（从以上目标中选择，回车=全部）")
-    print(f"    ② 选择评分策略（HybridScorer / LLM-as-Judge）")
-    print(f"    ③ 选择是否启用多轮升级攻击（Crescendo + TAP）")
-    print(f"")
-    print(f"  系统将自动加载 config/payloads/ 下对应的攻击载荷库，")
-    print(f"  按 Tier 分层策略依次执行，并记录每个 Finding 到 results/ 目录。")
-
-    print(f"\n{'═' * 72}")
     return all_recommendations
+
+
+def _score_target_value(services: list) -> list[tuple]:
+    """对目标进行高价值排序（攻击成本低 + 收益高）。"""
+    scored: list[tuple] = []
+    for svc in (services or []):
+        protocol = getattr(svc, 'protocol', 'unknown')
+        url = getattr(svc, 'url', '')
+        auth_req = getattr(svc, 'auth_required', False)
+        svc_models = getattr(svc, 'models', []) or []
+        guard = getattr(svc, 'guardrail_profile', None)
+
+        score = 0
+        reasons: list[str] = []
+
+        # 无认证 +20
+        if not auth_req:
+            score += 20
+            reasons.append("无认证")
+        else:
+            reasons.append("需认证")
+
+        # 协议族加分
+        proto_lower = protocol.lower() if protocol else ""
+        if "ollama" in proto_lower:
+            score += 25
+            reasons.append("本地模型/无审核层")
+        elif "openai" in proto_lower:
+            score += 20
+            reasons.append("OpenAI 兼容 API")
+        elif "mcp" in proto_lower:
+            score += 18
+            reasons.append("MCP 工具面")
+        else:
+            score += 10
+            reasons.append("通用端点")
+
+        # 模型多 +10
+        if len(svc_models) >= 3:
+            score += 10
+            reasons.append(f"{len(svc_models)}模型")
+        elif svc_models:
+            score += 5
+
+        # 无护栏 +15
+        if guard and hasattr(guard, 'guardrail_type'):
+            gtype = str(guard.guardrail_type).lower()
+            if gtype == "none":
+                score += 15
+                reasons.append("无护栏")
+
+        stars = "★" * min(5, max(1, score // 20))
+        scored.append((url, protocol, score, stars, " | ".join(reasons)))
+
+    scored.sort(key=lambda x: x[2], reverse=True)
+    return scored
 
 
 # ── 辅助函数：策略→转换器映射 ──
@@ -552,9 +515,10 @@ def _print_converter_recommendations(services: list) -> None:
 
 
 def print_target_confirmation_prompt(services: list) -> list[int]:
-    """打印目标确认提示 — 让用户确认哪些目标进入 Phase 2 攻击。
+    """打印目标确认提示 — 紧凑格式，引用上方已展示的 Rich Table。
 
     注意：此函数仅展示提示信息，实际交互由调用方（cli.py）完成。
+    服务详情已通过 Rich Table 展示，此处仅提供简洁的选择指引。
 
     Args:
         services: AIService 列表
@@ -562,25 +526,19 @@ def print_target_confirmation_prompt(services: list) -> list[int]:
     Returns:
         建议攻击的目标索引列表（1-based）
     """
-    print(f"\n  [TARGET CONFIRMATION]")
-    print(f"  以下是从侦察阶段发现的可攻击目标。")
-    print(f"  请输入要攻击的目标编号（逗号分隔，回车=全部）：")
-    print(f"  [dim]提示：选择全部后，将依次对每个服务执行注入攻击（提示提取、越狱、间接注入）[/]")
-    print(f"  [dim]注意：提示注入攻击无需额外必填参数，选择即可执行；如需 LLM Judge 评分或多轮攻击，将在下一步配置[/]\n")
-    
+    print(f"\n  [SELECT TARGETS]  选择要攻击的目标（参考上方表格编号）")
+    print(f"  回车 = 全部 | 逗号分隔选择编号 | 输入 0 跳过攻击阶段")
+
     for idx, svc in enumerate(services, 1):
-        protocol = getattr(svc, 'protocol', '')
+        protocol = getattr(svc, 'protocol', '').upper()
         url = getattr(svc, 'url', '')
+        # 紧凑一行：编号 + 协议 + URL + 模型/认证状态
         svc_models = getattr(svc, 'models', []) or []
-        if svc_models:
-            model_str = svc_models[0]
-        else:
-            model_str = "\u672a\u8bc6\u522b"  # 未识别
+        model_hint = svc_models[0] if svc_models else "未识别"
         auth_req = getattr(svc, 'auth_required', False)
-        auth_tag = " [AUTH]" if auth_req else ""
-        print(f"  [{idx}] {protocol.upper():<20} {url:<45} [{model_str}]{auth_tag}")
-    
-    # 默认建议全部攻击
+        auth_tag = " 🔒" if auth_req else ""
+        print(f"  [{idx}] {protocol:<20} {model_hint:<18}{auth_tag}")
+
     return list(range(1, len(services) + 1))
 
 

@@ -25,7 +25,6 @@ from redteam.core.models import AIService, AIProtocol, AuthContext, ReconResult
 from redteam.core.rate_limiter import RateLimitGovernor, get_governor
 from redteam.core.store import save_json, make_run_id
 from redteam.core.tools import ToolResolver
-from redteam.core.terminal_output import print_target_list
 from redteam.recon.auth_parse import parse_headers, parse_headers_file, describe_auth
 from redteam.recon.auth_validator import ConnectivityResult, TargetType
 from redteam.recon.discover import discover_ai_services, passive_recon, enum_protected_endpoints
@@ -582,10 +581,12 @@ def recon_phase(
     )
     all_services.extend(services)
 
-    print_target_list(
-        [s.model_dump() for s in services],
-        "AI Services Discovered"
-    )
+    if services:
+        proto_summary = ", ".join(sorted(set(s.protocol.upper() for s in services)))
+        model_n = len(set(m for s in services for m in s.models))
+        print(f"    发现 {len(services)} 个服务 ({proto_summary}), {model_n} 模型")
+    else:
+        print("    [yellow]未发现 AI 服务[/]")
 
     recon.ai_services = services
     recon.components = sorted(set(s.protocol for s in services))
@@ -635,23 +636,26 @@ def recon_phase(
             print(f"  A2A 端点检测到")
 
     # ═══════════════════════════════════════════════════════════════
-    # [5/6] 护栏画像
+    # [5/6] 护栏画像 — 紧凑摘要输出，详细数据留给 Attack Strategy Advisor
     # ═══════════════════════════════════════════════════════════════
     print("\n[5/6] 护栏画像...")
+    guardrail_results: list[tuple] = []
     for svc in all_services:
         if svc.protocol in ("openai_compatible", "ollama", "mcp", "generic_ai", "agent_to_agent"):
-            print(f"\n  目标: {svc.url}")
             guard = profile_guardrails(svc, auth=auth, rate_limit_ms=effective_delay_ms)
             svc.guardrail_profile = guard
-            print(f"    护栏类型: {guard.guardrail_type.value} (置信度 {guard.guardrail_confidence})")
-            print(f"    阻断类别: {[c.value for c in guard.blocked_categories]}")
-            print(f"    绕过难度: {guard.bypass_difficulty}")
-            if guard.recommended_techniques:
-                from redteam.recon.guardrail import _OWASP_RISK_MAPPING
-                print(f"    推荐攻击策略:")
-                for i, tech in enumerate(guard.recommended_techniques, 1):
-                    owasp = _OWASP_RISK_MAPPING.get(tech, [])
-                    print(f"      [{i}] {tech} (OWASP: {', '.join(owasp)})")
+            guardrail_results.append((svc, guard))
+
+    if guardrail_results:
+        print(f"  护栏画像摘要（{len(guardrail_results)} 服务）:")
+        for svc, guard in guardrail_results:
+            proto = svc.protocol.upper() if svc.protocol else "?"
+            gtype = guard.guardrail_type.value
+            bypass = guard.bypass_difficulty
+            blocked_n = len(guard.blocked_categories) if guard.blocked_categories else 0
+            tech_n = len(guard.recommended_techniques) if guard.recommended_techniques else 0
+            print(f"    [{proto}] {svc.url}")
+            print(f"        类型={gtype} | 绕过难度={bypass} | 阻断类别={blocked_n}")
 
     # ═══════════════════════════════════════════════════════════════
     # [6/6] 规避分析 — 速率限制已在[2/6]完成，此处仅确定性+签名+JS
@@ -681,19 +685,19 @@ def recon_phase(
     ]
 
     if _probe_targets:
-        print(f"\n  [确定性探测] {len(_probe_targets)} 个可攻击端点")
-
-    for svc in _probe_targets:
-        chat_url = _resolve_chat_url(svc)
-        print(f"  确定性探测 ({chat_url})...")
-        det_info = probe_determinism(chat_url, auth, num_requests=3)
-        recon.determinism_info[svc.url] = det_info
-        total_resp = det_info.get('total_response_count', 0)
-        if total_resp == 0:
-            print(f"    无法确定（无有效响应，端点可能不支持聊天格式）")
-        else:
-            print(f"    确定性: {'是' if det_info.get('is_deterministic') else '否'}")
-            print(f"    唯一响应数: {det_info.get('unique_response_count')}/{total_resp}")
+        det_results: list[str] = []
+        for svc in _probe_targets:
+            chat_url = _resolve_chat_url(svc)
+            det_info = probe_determinism(chat_url, auth, num_requests=3)
+            recon.determinism_info[svc.url] = det_info
+            total_resp = det_info.get('total_response_count', 0)
+            if total_resp == 0:
+                det_results.append(f"{svc.protocol.upper()}: 不可探测")
+            else:
+                det_results.append(
+                    f"{svc.protocol.upper()}: {'确定' if det_info.get('is_deterministic') else '非确定'}"
+                )
+        print(f"    确定性: {', '.join(det_results)}")
 
     save_json(run_id, "recon", recon.model_dump(), subdir="recon")
     save_json(run_id, "services", [s.model_dump() for s in all_services], subdir="recon")

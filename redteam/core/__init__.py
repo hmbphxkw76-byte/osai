@@ -6,6 +6,7 @@
   - tools.py: 通用工具函数
   - http_client.py: 统一 HTTP 客户端（支持 httpx → requests → urllib 降级）
   - terminal_output.py: OffSec 风格终端输出格式化工具
+  - kill_chain_tracker.py: AI Kill Chain 追踪器（Phase→Tactic 实时映射）
 """
 from .models import (
     AIProtocol, AIStackLayer, AIService, AuthContext,
@@ -40,6 +41,12 @@ from .registry_loader import (
     CORE_REGISTRY_NAME,
     LOCAL_REGISTRY_NAME,
 )
+from .kill_chain_tracker import (
+    KillChainTracker,
+    KillChainState,
+    get_tracker,
+    reset_tracker,
+)
 
 __all__ = [
     # 模型
@@ -71,4 +78,9 @@ __all__ = [
     "PayloadRegistry",
     "CORE_REGISTRY_NAME",
     "LOCAL_REGISTRY_NAME",
+    # Kill Chain 追踪
+    "KillChainTracker",
+    "KillChainState",
+    "get_tracker",
+    "reset_tracker",
 ]

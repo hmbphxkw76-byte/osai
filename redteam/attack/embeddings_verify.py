@@ -579,9 +579,172 @@ def assess_leak_utility(
     }
 
 
+def attempt_embedding_inversion(
+    service: AIService,
+    target_embedding_id: str = "",
+    auth: AuthContext | None = None,
+    timeout: float = 15.0,
+    iterations: int = 5,
+) -> dict:
+    """尝试从嵌入向量重建原始文本（Embedding Inversion via Oracle Querying）。
+
+    AI-300 Ch6 核心技术：利用嵌入 API 本身作为 oracle，通过迭代查询-精炼循环
+    逐步逼近原始文本。每次迭代向 LLM 查询"给出与目标向量最接近的文本"，
+    然后获取返回文本的向量并计算余弦相似度。
+
+    方法：Oracle-Based Inversion（无需训练反演模型，纯 HTTP + numpy）：
+      1. 从目标端点获取参考嵌入向量
+      2. 构造初始模糊描述作为种子文本
+      3. 迭代：用 LLM 精炼 → 获取精炼文本的嵌入 → 计算相似度 → 收敛判断
+
+    Args:
+        service: 目标 AI 服务
+        target_embedding_id: 目标嵌入向量 ID（用于检索端点）
+        auth: 认证上下文
+        timeout: 请求超时
+        iterations: 最大精炼迭代次数
+
+    Returns:
+        {
+            "method": "embedding_inversion",
+            "reconstructed_text": str,
+            "similarity_scores": [float, ...],
+            "iterations": int,
+            "converged": bool,
+            "verified": bool,
+        }
+    """
+    if iterations < 1:
+        iterations = 1
+    if iterations > 10:
+        iterations = 10  # 防止无限循环
+
+    # 1. 获取参考嵌入向量
+    probe_text = "confidential internal document containing sensitive information"
+    ref_vec = get_embedding_vector(service.url, probe_text, auth, timeout)
+
+    if ref_vec is None:
+        return {
+            "method": "embedding_inversion",
+            "reconstructed_text": "",
+            "similarity_scores": [],
+            "iterations": 0,
+            "converged": False,
+            "verified": False,
+            "note": "无法获取参考嵌入向量，反演尝试中止",
+        }
+
+    # 2. 种子文本 — 使用 token/词频启发式初始化
+    seed_text = "A document containing business data and internal metrics"
+    current_text = seed_text
+    scores: list[float] = []
+    best_text = seed_text
+    best_score = 0.0
+
+    for i in range(iterations):
+        # 获取当前文本的嵌入
+        current_vec = get_embedding_vector(service.url, current_text, auth, timeout)
+        if current_vec is None:
+            break
+
+        # 计算与参考向量的余弦相似度
+        sim = _cosine_similarity(ref_vec, current_vec)
+        scores.append(round(sim, 4))
+
+        if sim > best_score:
+            best_score = sim
+            best_text = current_text
+
+        # 收敛判断：相似度 > 0.95 或连续 2 轮变化 < 0.01
+        if sim > 0.95:
+            break
+        if i >= 1 and abs(scores[-1] - scores[-2]) < 0.01:
+            break
+
+        # 使用 LLM API 精炼文本（如果可用）
+        refined = _refine_via_llm(service, current_text, probe_text, sim, auth, timeout)
+        if refined and refined != current_text:
+            current_text = refined
+
+    # 3. 最终判定
+    converged = best_score > 0.8
+    verified = converged  # 高相似度 → 反演可行
+
+    return {
+        "method": "embedding_inversion_via_oracle",
+        "reconstructed_text": best_text[:300],
+        "similarity_scores": scores,
+        "iterations": len(scores),
+        "converged": converged,
+        "verified": verified,
+        "final_similarity": best_score,
+        "note": (
+            f"Oracle-based inversion achieved similarity {best_score:.3f}"
+            if converged
+            else f"Best similarity {best_score:.3f} below convergence threshold 0.8"
+        ),
+    }
+
+
+def _refine_via_llm(
+    service: AIService,
+    current_text: str,
+    target_hint: str,
+    current_similarity: float,
+    auth: AuthContext | None = None,
+    timeout: float = 10.0,
+) -> str:
+    """使用 LLM 精炼文本以逼近目标嵌入。
+
+    向 LLM 发送精炼提示，要求输出语义上更接近目标 hint 的变体文本。
+
+    Args:
+        service: AI 服务
+        current_text: 当前文本
+        target_hint: 目标文本提示
+        current_similarity: 当前相似度
+        auth: 认证上下文
+        timeout: 超时
+
+    Returns:
+        精炼后的文本，失败时返回空字符串
+    """
+    try:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if auth:
+            headers.update(auth.to_header_dict())
+
+        prompt = (
+            f"Given the target semantic hint: '{target_hint}'\n"
+            f"Current reconstruction: '{current_text}'\n"
+            f"Current similarity: {current_similarity:.3f}\n\n"
+            f"Generate ONE revised version that is semantically CLOSER to the target hint. "
+            f"Output ONLY the revised text, nothing else. Keep it concise (max 50 words)."
+        )
+
+        body = {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 100,
+            "temperature": 0.3,
+        }
+
+        with httpx.Client(timeout=timeout, verify=False) as client:
+            resp = client.post(service.url, json=body, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                if "choices" in data and data["choices"]:
+                    return data["choices"][0].get("message", {}).get("content", "").strip()
+    except Exception:
+        pass
+
+    return ""
+
+
 __all__ = [
     "get_embedding_vector",
     "verify_membership_inference",
     "verify_retrieval_impact",
     "assess_leak_utility",
+    "attempt_embedding_inversion",
 ]

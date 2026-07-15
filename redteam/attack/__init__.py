@@ -85,8 +85,10 @@ from .rag import (
     probe_vector_dbs,
     RAG_POISON_PAYLOADS,
     RAG_INDIRECT_INJECTION_PAYLOADS,
+    _ADVERSARIAL_EMBEDDING_PAYLOADS,
     inject_rag_poison,
     inject_rag_indirect,
+    inject_adversarial_embedding,
     check_retrieval_leakage,
     check_cross_tenant_leakage,
     generate_rag_findings,
@@ -111,6 +113,28 @@ from .infra import (
     check_supply_chain_risks,
     generate_infra_findings,
 )
+
+# MCP 深度攻击（Ch7 扩展）
+from .mcp_advanced import (
+    MCP_SERVER_EXPLOIT_PAYLOADS,
+    MCP_TRANSPORT_ATTACK_PAYLOADS,
+    MCP_MESSAGE_INJECTION_PAYLOADS,
+    probe_mcp_server_exploit,
+    probe_mcp_transport_attack,
+    probe_mcp_message_injection,
+    run_mcp_deep_attack_suite,
+)
+
+# 自适应绕过引擎（Ch3: Detect→Evade）
+from .adaptive_evasion import (
+    detect_guardrail_response,
+    run_adaptive_evasion,
+    get_available_strategies,
+    count_available,
+)
+
+# 嵌入反演重建（Ch6 扩展）
+from .embeddings_verify import attempt_embedding_inversion
 
 __all__ = [
     # 核心引擎
@@ -167,8 +191,10 @@ __all__ = [
     "probe_vector_dbs",
     "RAG_POISON_PAYLOADS",
     "RAG_INDIRECT_INJECTION_PAYLOADS",
+    "_ADVERSARIAL_EMBEDDING_PAYLOADS",
     "inject_rag_poison",
     "inject_rag_indirect",
+    "inject_adversarial_embedding",
     "check_retrieval_leakage",
     "check_cross_tenant_leakage",
     "generate_rag_findings",
@@ -186,4 +212,19 @@ __all__ = [
     "scan_cloud_misconfigs",
     "check_supply_chain_risks",
     "generate_infra_findings",
+    # MCP 深度攻击
+    "MCP_SERVER_EXPLOIT_PAYLOADS",
+    "MCP_TRANSPORT_ATTACK_PAYLOADS",
+    "MCP_MESSAGE_INJECTION_PAYLOADS",
+    "probe_mcp_server_exploit",
+    "probe_mcp_transport_attack",
+    "probe_mcp_message_injection",
+    "run_mcp_deep_attack_suite",
+    # 自适应绕过
+    "detect_guardrail_response",
+    "run_adaptive_evasion",
+    "get_available_strategies",
+    "count_available",
+    # 嵌入反演
+    "attempt_embedding_inversion",
 ]

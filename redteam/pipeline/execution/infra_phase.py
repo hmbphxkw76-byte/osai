@@ -1,20 +1,24 @@
 """基础设施攻击阶段 (AI-300 Ch7+Ch9)。
 
-执行基础设施攻击（5 步递进流程）：
+执行基础设施攻击（8 步递进流程）：
   [1/5] 云元数据探测 — SSRF → IMDS → IAM 凭据提取 (Ch9.1)
   [2/5] K8s API 探测 — 容器编排平台侦察 (Ch9.3)
   [3/5] S3/存储端点探测 — 对象存储发现 (Ch9.2)
   [4/5] 推理端点探测 — SageMaker/Triton 模型服务 (Ch9.2)
   [5/5] 云配置错误检测 — IAM/网络安全组/公开暴露检查
+  [6/8] MCP L1 服务器漏洞利用 — 版本泄露、未授权工具调用 (Ch7)
+  [7/8] MCP L2 传输层攻击 — SSE注入、stdio劫持、协议降级 (Ch7)
+  [8/8] MCP L3 消息格式注入 — 批量溢出、深度嵌套、Unicode转义 (Ch7)
 
-对齐 OWASP LLM Top 10: LLM05 (Insecure Output Handling), LLM10 (Unbounded Consumption)
+对齐 OWASP LLM Top 10: LLM05 (Insecure Output Handling), LLM10 (Unbounded Consumption), LLM06 (Excessive Agency)
+对齐 OWASP ASI Top 10: ASI02 (Tool Misuse)
 """
 from __future__ import annotations
 
 from typing import Any
 from urllib.parse import urlparse
 
-from redteam.core.models import AIService, AuthContext, Finding, ReconResult
+from redteam.core.models import AIService, AuthContext, Finding, ReconResult, OWASPLlm, OWASP_AGENTIC, MITREATLASTactic
 from redteam.core.store import load_json, save_json
 from redteam.core.terminal_output import print_section_header
 from redteam.attack.infra import scan_cloud_misconfigs, generate_infra_findings
@@ -24,6 +28,12 @@ from redteam.recon.infra_recon import (
     probe_s3_storage,
     probe_vault_server,
     probe_sagemaker_endpoints,
+)
+from redteam.attack.mcp_advanced import (
+    probe_mcp_server_exploit,
+    probe_mcp_transport_attack,
+    probe_mcp_message_injection,
+    run_mcp_deep_attack_suite,
 )
 
 
@@ -147,26 +157,116 @@ def infra_attack_phase(
     else:
         print("  未发现明显配置问题")
 
+    # ═══════════════════════════════════════════════════════════════
+    # [6/8] MCP L1 服务器漏洞利用探测
+    # ═══════════════════════════════════════════════════════════════
+    mcp_findings: list[dict] = []
+    mcp_services = [s for s in services if s.protocol == "mcp" or "mcp" in s.url.lower()]
+    if mcp_services:
+        print("\n[6/8] MCP L1 服务器漏洞利用 (Server Exploitation)...")
+        for mcp_svc in mcp_services[:3]:  # 限制探测 3 个 MCP 服务
+            try:
+                results = probe_mcp_server_exploit(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                if succeeded:
+                    techniques = [getattr(r, 'technique', '') or r.technique for r in succeeded]
+                    mcp_findings.append({
+                        "source": "infra_mcp_l1",
+                        "category": "mcp_server_exploit",
+                        "severity": "high",
+                        "title": f"MCP服务器漏洞利用: {mcp_svc.url}",
+                        "description": f"发现 {len(succeeded)}/{len(results)} 个MCP服务器漏洞利用向量: {', '.join(techniques)}",
+                        "owasp_llm": OWASPLlm.LLM06_EXCESSIVE_AGENCY.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI02_TOOL_MISUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.EXECUTION.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  MCP服务器漏洞利用成功: {mcp_svc.url} ({len(succeeded)} vectors)")
+                else:
+                    print(f"  MCP服务器硬防护正常: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP L1 探测异常: {mcp_svc.url} - {str(e)[:80]}")
+
+        # ── [7/8] MCP L2 传输层攻击 ──
+        print("\n[7/8] MCP L2 传输层攻击 (Transport Attack)...")
+        for mcp_svc in mcp_services[:3]:
+            try:
+                results = probe_mcp_transport_attack(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                if succeeded:
+                    techniques = [getattr(r, 'technique', '') or r.technique for r in succeeded]
+                    mcp_findings.append({
+                        "source": "infra_mcp_l2",
+                        "category": "mcp_transport_attack",
+                        "severity": "critical" if any("hijack" in t for t in techniques) else "high",
+                        "title": f"MCP传输层攻击: {mcp_svc.url}",
+                        "description": f"发现 {len(succeeded)}/{len(results)} 个MCP传输层攻击向量: {', '.join(techniques)}",
+                        "owasp_llm": OWASPLlm.LLM06_EXCESSIVE_AGENCY.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI02_TOOL_MISUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.INITIAL_ACCESS.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  MCP传输层攻击成功: {mcp_svc.url} ({len(succeeded)} vectors)")
+                else:
+                    print(f"  MCP传输层安全: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP L2 探测异常: {mcp_svc.url} - {str(e)[:80]}")
+
+        # ── [8/8] MCP L3 消息格式注入 ──
+        print("\n[8/8] MCP L3 消息格式注入 (Message Injection)...")
+        for mcp_svc in mcp_services[:3]:
+            try:
+                results = probe_mcp_message_injection(mcp_svc, auth=auth, timeout=10.0)
+                succeeded = [r for r in results if r.success]
+                if succeeded:
+                    techniques = [getattr(r, 'technique', '') or r.technique for r in succeeded]
+                    mcp_findings.append({
+                        "source": "infra_mcp_l3",
+                        "category": "mcp_message_injection",
+                        "severity": "high",
+                        "title": f"MCP消息格式注入: {mcp_svc.url}",
+                        "description": f"发现 {len(succeeded)}/{len(results)} 个MCP消息注入向量: {', '.join(techniques)}",
+                        "owasp_llm": OWASPLlm.LLM05_OUTPUT_HANDLING.value,
+                        "owasp_agentic": OWASP_AGENTIC.ASI02_TOOL_MISUSE.value,
+                        "mitre_atlas_tactic": MITREATLASTactic.EXECUTION.value,
+                        "endpoint": mcp_svc.url,
+                        "evidence": str(succeeded[0].response_preview)[:500] if succeeded else "",
+                    })
+                    print(f"  ⚠️  MCP消息注入成功: {mcp_svc.url} ({len(succeeded)} vectors)")
+                else:
+                    print(f"  MCP消息过滤正常: {mcp_svc.url}")
+            except Exception as e:
+                print(f"  ⚠ MCP L3 探测异常: {mcp_svc.url} - {str(e)[:80]}")
+    else:
+        print("\n[6/8] MCP 深度攻击 — 未检测到 MCP 服务，跳过 L1-L3")
+
     # 汇总 Cloud evidence 到 cloud_findings
     supply_risks: list[dict] = []
 
-    findings = generate_infra_findings([], supply_risks, cloud_findings)
+    findings = generate_infra_findings(supply_risks, supply_risks, cloud_findings)
     all_findings.extend(findings)
+    # 追加 MCP Findings
+    all_findings.extend(mcp_findings)
 
-    # 存储基础设施侦察结果到 JSON
+    # 存储基础设施侦察结果到 JSON（含 MCP 攻击结果）
     infra_recon_data = {
         "cloud_metadata": metadata_result,
         "kubernetes": k8s_result,
         "object_storage": s3_result,
         "inference_endpoints": inference_result,
         "cloud_evidence": cloud_evidence,
+        "mcp_findings_count": len(mcp_findings),
     }
     save_json(run_id, "infra_recon", infra_recon_data, subdir="recon")
 
+    # Persist accumulated findings to JSON store (for checkpoint/resume)
     prior = load_json(run_id, "findings") or []
-    all_findings = prior + [f.model_dump() for f in all_findings]
-    save_json(run_id, "findings", all_findings, subdir="detect")
-    return [Finding(**f) if isinstance(f, dict) else f for f in all_findings]
+    accumulated = prior + [f.model_dump() if hasattr(f, 'model_dump') else f for f in all_findings]
+    save_json(run_id, "findings", accumulated, subdir="detect")
+    # Return ONLY this phase's own findings (not accumulated history)
+    return all_findings
 
 
 __all__ = [

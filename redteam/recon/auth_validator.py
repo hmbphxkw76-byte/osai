@@ -890,9 +890,6 @@ def validate_and_report(
     result = validate_auth(target_url, auth)
     conn = result.connectivity
 
-    # ━━━ 标题 ━━━
-    console.print(f"\n[bold cyan]🔍 连通性测试 & 目标类型识别[/]")
-
     # ━━━ 探测详情表格 ━━━
     if conn and conn.probes:
         # 只展示有意义的探测结果（非全部 404）

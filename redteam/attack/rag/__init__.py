@@ -18,8 +18,10 @@ from .vector_db import (
 from .knowledge_poison import (
     RAG_POISON_PAYLOADS,
     RAG_INDIRECT_INJECTION_PAYLOADS,
+    _ADVERSARIAL_EMBEDDING_PAYLOADS,
     inject_rag_poison,
     inject_rag_indirect,
+    inject_adversarial_embedding,
 )
 from .retrieval_leak import (
     check_retrieval_leakage,
@@ -39,8 +41,10 @@ __all__ = [
     # 知识库投毒
     "RAG_POISON_PAYLOADS",
     "RAG_INDIRECT_INJECTION_PAYLOADS",
+    "_ADVERSARIAL_EMBEDDING_PAYLOADS",
     "inject_rag_poison",
     "inject_rag_indirect",
+    "inject_adversarial_embedding",
     # 检索泄露检测
     "check_retrieval_leakage",
     # 跨租户数据泄露

@@ -147,37 +147,45 @@ class ReportWriter:
         total = len(self._all_findings)
         sev_counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
         owasp_counts: dict[str, int] = {}
+        agentic_counts: dict[str, int] = {}
+        verified_count = 0
+        atlas_tactics: set[str] = set()
         for f in self._all_findings:
-            sev = f.get("severity", "info")
+            sev = (f.get("severity") or "info").lower()
             sev_counts[sev] = sev_counts.get(sev, 0) + 1
             cat = f.get("owasp_llm", "")
             if cat:
                 owasp_counts[cat] = owasp_counts.get(cat, 0) + 1
+            ac = f.get("owasp_agentic", "")
+            if ac:
+                agentic_counts[ac] = agentic_counts.get(ac, 0) + 1
+            if f.get("verified"):
+                verified_count += 1
+            tactic = f.get("mitre_atlas_tactic", "")
+            if tactic:
+                atlas_tactics.add(str(tactic))
 
-        failed = sev_counts["critical"] + sev_counts["high"]
-        passed = total - failed
-        pass_rate = (passed / total * 100) if total > 0 else 0
-        fail_rate = (failed / total * 100) if total > 0 else 0
-
-        bar_length = 40
-        defend_bar = "█" * int(pass_rate / 100 * bar_length)
-        vuln_bar = "█" * int(fail_rate / 100 * bar_length)
+        llm_categories_hit = len([v for v in owasp_counts.values() if v > 0])
+        agentic_categories_hit = len([v for v in agentic_counts.values() if v > 0])
+        atlas_tactics_hit = len(atlas_tactics)
 
         exec_lines = [
             "\n",
             "## Executive Summary\n\n",
             "```\n",
             "╔══════════════════════════════════════════════════════════════════╗\n",
-            "║  RED TEAM ASSESSMENT — RISK DASHBOARD                         ║\n",
+            "║  RED TEAM ASSESSMENT — FINDINGS SCORECARD                     ║\n",
             "╠══════════════════════════════════════════════════════════════════╣\n",
-            f"║  Total tests     {total:>5}   │  Passed (safe)   {passed:>4}   │  {pass_rate:.1f}%        ║\n",
-            f"║  Failed (vuln)   {failed:>3}   │  Critical risk   {sev_counts['critical']:>3}   │  High risk  ║\n",
+            f"║  Total Findings:  {total:<4}  │  Verified (PoC):  {verified_count:<4}                ║\n",
+            f"║  ⛔ CRITICAL:     {sev_counts['critical']:<4}  │  ⚠️  HIGH:        {sev_counts['high']:<4}                ║\n",
+            f"║  ⚡ MEDIUM:       {sev_counts['medium']:<4}  │  🔹 LOW:          {sev_counts['low']:<4}  │  ⚪ INFO:  {sev_counts['info']:<4}  ║\n",
+            "╠══════════════════════════════════════════════════════════════════╣\n",
+            f"║  OWASP LLM:     {llm_categories_hit:>2}/10  │  OWASP Agentic:  {agentic_categories_hit:>2}/10              ║\n",
+            f"║  MITRE ATLAS:   {atlas_tactics_hit:>2}/9   │  Kill Chain:     TBD                 ║\n",
             "╚══════════════════════════════════════════════════════════════════╝\n",
-            "\n",
-            f"  DEFENDED  {defend_bar}{'░'*(bar_length-len(defend_bar))}  {pass_rate:.1f}%\n",
-            f"  VULNERABLE {vuln_bar}{'░'*(bar_length-len(vuln_bar))}  {fail_rate:.1f}%\n",
             "```\n\n",
         ]
+        bar_length = 40
 
         # OWASP LLM Top 10 Coverage
         owasp_order = [
@@ -220,12 +228,6 @@ class ReportWriter:
             ("ASI09", "ASI09 人机信任利用 (Trust Exploit)"),
             ("ASI10", "ASI10 恶意代理注入 (Rogue Agents)"),
         ]
-        agentic_counts: dict[str, int] = {}
-        for f in self._all_findings:
-            ac = f.get("owasp_agentic", "")
-            if ac:
-                agentic_counts[ac] = agentic_counts.get(ac, 0) + 1
-
         coverage_lines.append("## OWASP Agentic Top 10 2026 Coverage\n\n")
         for code, name in agentic_order:
             count = agentic_counts.get(code, 0)
