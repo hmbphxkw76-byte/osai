@@ -23,7 +23,7 @@ PyRIT 0.14.0 兼容
 import sys
 import os
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -413,9 +413,6 @@ def _precise_model_match(
     目标模型信息等精细调整策略参数。
     """
     family = rule_result["family"]
-    complexity = profile.complexity
-    token_count = profile.token_count
-    context_window = profile.context_window
     confidence = profile.avg_confidence
 
     # ── ASI 类别约束（借鉴 DeepTeam 框架映射）──

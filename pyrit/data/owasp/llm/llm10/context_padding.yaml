@@ -9,6 +9,9 @@
 owasp: LLM10
 technique_group: context_padding
 description: 上下文窗口填充载荷（用于上下文溢出攻击）— AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 source: Adapted from mcp-attack-labs/labs/05-agentic-memory-attacks/attack4_context_overflow.py
 
 payloads:

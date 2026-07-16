@@ -7,6 +7,9 @@ name: "Agentic Supply Chain Vulnerabilities"
 severity: "high"
 owasp_agentic_id: "ASI04"
 description: "被篡改的第三方Agent、MCP服务器、插件、提示模板和工具描述符引入运行时信任失败"
+surfaces: [agent, mcp]
+ai300_chapters: [Ch8]
+
 mitigation_principles:
   - "Pin and verify tool versions"
   - "Authenticate MCP and plugin sources"

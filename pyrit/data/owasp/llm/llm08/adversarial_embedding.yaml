@@ -1,6 +1,9 @@
 owasp: LLM08
 technique_group: adversarial_embedding
 description: 对抗性嵌入攻击载荷 — AI-300 Ch6，通过对抗样本绕过嵌入相似度检测和内容过滤
+surfaces: [embedding]
+ai300_chapters: [Ch6]
+
 payloads:
   - technique: synonym_substitution
     name: 同义词替换绕过

@@ -99,19 +99,15 @@ def main():
 def _run_scenario(args, logger):
     """执行攻击场景"""
     from pyrit_ai300 import AI300Engine
-    from pyrit_ai300.display import ExecutionDisplay
+    from pyrit_ai300.pipeline import PipelineTracker
     
-    # 创建展示器并显示启动横幅
-    visualizer = ExecutionDisplay()
-    visualizer.show_banner(
-        config_path=args.config,
-        target_path=args.target,
-    )
+    # 创建流水线追踪器
+    tracker = PipelineTracker(verbose=True)
     
     engine = AI300Engine(
         config_path=args.config,
         target_config=args.target,
-        visualizer=visualizer,
+        tracker=tracker,
     )
     
     results = engine.run(module=args.module)
@@ -139,32 +135,32 @@ def _run_scenario(args, logger):
 def _list_components(args, logger):
     """列出可用组件"""
     if args.component == "attacks":
-        from pyrit_ai300.orchestrators import AttackOrchestrator
+        from pyrit_ai300.orchestrators.attack_registry import list_attacks, get_attack_info
         print("Available Attacks:")
         for category in ["single_turn", "multi_turn", "compound", "streaming"]:
-            attacks = AttackOrchestrator.list_attacks(category)
+            attacks = list_attacks(category)
             if attacks:
                 print(f"\n  {category.upper()}:")
                 for attack in attacks:
-                    info = AttackOrchestrator.get_attack_info(attack)
+                    info = get_attack_info(attack)
                     print(f"    - {attack}: {info.get('description', '')}")
     
     elif args.component == "converters":
-        from pyrit_ai300.orchestrators.attack_orchestrator import CONVERTER_MAP
+        from pyrit_ai300.orchestrators.component_registry import CONVERTER_MAP
         print("Available Converters:")
         for converter_name in CONVERTER_MAP:
             print(f"    - {converter_name}")
     
     elif args.component == "scorers":
-        from pyrit_ai300.orchestrators.attack_orchestrator import SCORER_MAP
+        from pyrit_ai300.orchestrators.component_registry import SCORER_MAP
         print("Available Scorers:")
         for scorer_name in SCORER_MAP:
             print(f"    - {scorer_name}")
     
     elif args.component == "targets":
-        from pyrit_ai300.orchestrators import AttackOrchestrator
+        from pyrit_ai300.orchestrators.attack_registry import list_types
         print("Available Target Types:")
-        for target_type in AttackOrchestrator.list_types():
+        for target_type in list_types():
             print(f"    - {target_type}")
     
     elif args.component == "modules":

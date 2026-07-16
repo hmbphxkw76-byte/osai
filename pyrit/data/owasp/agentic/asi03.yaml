@@ -7,6 +7,9 @@ name: "Agent Identity & Privilege Abuse"
 severity: "high"
 owasp_agentic_id: "ASI03"
 description: "Agent继承或升级高权限凭证——共享服务账户、静态API密钥或完整用户会话——使被混淆或被破坏的Agent能以机器速度跨系统行动"
+surfaces: [agent]
+ai300_chapters: [Ch4]
+
 mitigation_principles:
   - "Dedicated agent identities with time-bound, least-privilege scopes"
   - "Fine-grained authorization at the tool level"

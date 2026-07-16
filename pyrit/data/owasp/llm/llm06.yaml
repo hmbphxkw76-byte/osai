@@ -7,6 +7,9 @@ name: "Sensitive Information Disclosure"
 severity: "high"
 owasp_llm_id: "LLM06"
 description: "LLM在响应中无意中泄露训练数据中的PII、凭证、API密钥、商业机密或其他敏感信息"
+surfaces: [agent, mcp]
+ai300_chapters: [Ch3, Ch4, Ch7]
+
 mitigation_principles:
   - "Implement output filtering for sensitive patterns"
   - "Use differential privacy during training"

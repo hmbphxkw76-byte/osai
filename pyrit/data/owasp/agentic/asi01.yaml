@@ -7,6 +7,9 @@ name: "Agent Goal Hijack"
 severity: "critical"
 owasp_agentic_id: "ASI01"
 description: "攻击者通过外部数据（文档/邮件/网页）中的恶意内容改变Agent的主要目标或注入隐藏指令，劫持整个多步骤工作流"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "Treat external input as data, not instructions"
   - "Validate plans against an allowlist of permitted actions"

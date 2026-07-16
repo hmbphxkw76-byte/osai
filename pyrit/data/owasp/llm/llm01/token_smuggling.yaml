@@ -14,6 +14,9 @@
 owasp: LLM01
 technique_group: token_smuggling
 description: "Token Smuggling 绕过载荷 — 同形字/零宽字符/拆分/Unicode规范化/RTL覆盖 — AI-300 Ch3（PI-08）"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: homoglyph_ignore

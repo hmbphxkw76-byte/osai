@@ -17,6 +17,9 @@
 owasp: LLM03
 technique_group: model_deserialization
 description: 模型反序列化攻击载荷（Pickle/Joblib/TF/Keras RCE）— AI-300 Ch8（P0 考试场景）
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 
 payloads:
   - technique: pickle_rce

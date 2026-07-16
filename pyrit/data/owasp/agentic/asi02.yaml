@@ -7,6 +7,9 @@ name: "Tool Misuse & Exploitation"
 severity: "critical"
 owasp_agentic_id: "ASI02"
 description: "Agent将合法工具以不安全或意外方式使用——模糊提示、被操纵的参数、或无人预料的工具链组合"
+surfaces: [agent, mcp]
+ai300_chapters: [Ch7]
+
 mitigation_principles:
   - "Tight tool scoping"
   - "Schema validation on arguments"

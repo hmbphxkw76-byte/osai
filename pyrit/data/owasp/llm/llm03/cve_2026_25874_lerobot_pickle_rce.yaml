@@ -39,6 +39,9 @@ frontier:
 owasp: LLM03
 technique_group: pickle_deserialization
 description: "[CVE-2026-25874] LeRobot Unauthenticated Pickle Deserialization RCE — Ch8（LLM03, CVSS 9.8）"
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 
 payloads:
   # ── 基础攻击 ──

@@ -12,6 +12,9 @@
 owasp: LLM04
 technique_group: indirect_injection
 description: RAG 间接提示注入载荷（检索文档中的隐藏指令）— AI-300 Ch5
+surfaces: [rag]
+ai300_chapters: [Ch5]
+
 source: Adapted from mcp-attack-labs/labs/04-rag-security/attack2_indirect_injection.py
 
 payloads:

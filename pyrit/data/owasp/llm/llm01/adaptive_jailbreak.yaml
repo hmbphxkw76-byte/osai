@@ -14,6 +14,9 @@
 owasp: LLM01
 technique_group: adaptive_jailbreak
 description: 自适应越狱攻击载荷 — 前缀模板+对抗后缀组合 — AI-300 Ch3（Garak adaptive_attacks / ICML 2024 移植扩充）
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: adaptive_jailbreak_template

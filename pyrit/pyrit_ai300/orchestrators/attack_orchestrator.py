@@ -10,6 +10,10 @@ AI-300 Framework - Attack Orchestrator v3.0
 - TreeOfAttacksWithPruningAttack: 树搜索 + 剪枝 (context_overflow / adversarial)
 - SequentialAttack: 多 preset 早停 (FIRST_SUCCESS)
 
+组件映射和攻击注册表已拆分为独立模块：
+- component_registry.py: CONVERTER_MAP, SCORER_MAP 等
+- attack_registry.py: ATTACK_REGISTRY, list_attacks() 等
+
 PyRIT 0.14.0 API 说明：
 - 内存：SQLiteMemory + CentralMemory.set_memory_instance()
 - 攻击：直接使用 PyRIT 攻击类 + execute_async()
@@ -36,113 +40,21 @@ from pyrit.executor.attack import (
     AttackScoringConfig,
     AttackAdversarialConfig,
 )
-from pyrit.prompt_converter import (
-    PromptConverter,
-    Base64Converter,
-    ROT13Converter,
-    UnicodeConfusableConverter,
-    LeetspeakConverter,
-    MaliciousQuestionGeneratorConverter,
-    AddTextImageConverter,
-    PDFConverter,
-    WordDocConverter,
-    PersuasionConverter,
-    SearchReplaceConverter,
-    TextJailbreakConverter,
-    AsciiSmugglerConverter,
-    ZeroWidthConverter,
-    DiacriticConverter,
-    TranslationConverter,
-    VariationConverter,
-)
-from pyrit.prompt_target import (
-    PromptTarget,
-    OpenAIChatTarget,
-)
-from pyrit.score import (
-    Scorer,
-    SelfAskRefusalScorer,
-    SelfAskTrueFalseScorer,
-    SubStringScorer,
-    SelfAskCategoryScorer,
-    PromptShieldScorer,
-    InsecureCodeScorer,
-    ShellCommandOutputScorer,
-    SQLInjectionOutputScorer,
-    XSSOutputScorer,
-    PathTraversalOutputScorer,
-    GandalfScorer,
-    CredentialLeakScorer,
-    AzureContentFilterScorer,
-    StaticPromptInjectionScorer,
+from pyrit.prompt_converter import PromptConverter
+from pyrit.prompt_target import PromptTarget, OpenAIChatTarget
+from pyrit.score import Scorer
+
+# 组件映射和攻击注册表从独立模块导入
+from .component_registry import (
+    CONVERTER_MAP,
+    SCORER_MAP,
+    SPECIAL_PRESETS,
+    LLM_BACKEND_SCORERS,
+    CONVERTER_NAME_MAP,
+    SCORER_NAME_MAP,
 )
 
 logger = logging.getLogger(__name__)
-
-
-# PyRIT 组件映射表 - 配置名称到实际类的映射
-# 对齐 OffSec AI-300 考试技术：编码混淆 + Token走私 + 视觉欺骗 + 越狱模板 + 多模态
-CONVERTER_MAP: Dict[str, type] = {
-    # 编码混淆（ASI01 基础编码技术）
-    "base64": Base64Converter,
-    "rot13": ROT13Converter,
-    "unicode_confusable": UnicodeConfusableConverter,
-    "leetspeak": LeetspeakConverter,
-    # 越狱模板（ASI01/ASI06 高级越狱）
-    "persuasion": PersuasionConverter,
-    "text_jailbreak": TextJailbreakConverter,
-    "malicious_question_generator": MaliciousQuestionGeneratorConverter,
-    # Token 走私（ASI01/ASI05 绕过过滤）
-    "ascii_smuggler": AsciiSmugglerConverter,
-    "zero_width": ZeroWidthConverter,
-    "diacritic": DiacriticConverter,
-    # 搜索替换（ASI02 工具参数操纵）
-    "search_replace": SearchReplaceConverter,
-    # 翻译混淆（ASI01/ASI09 多语言绕过）
-    "translation": TranslationConverter,
-    # 变异生成（通用变异测试）
-    "variation": VariationConverter,
-    # 多模态注入（ASI02/RAG 文档载荷）
-    "add_text_image": AddTextImageConverter,
-    "pdf": PDFConverter,
-    "word_doc": WordDocConverter,
-}
-
-# 特殊 preset 处理（不映射到单一 converter，需要特殊逻辑）
-SPECIAL_PRESETS = {"identity", "context_wrap", "chunked_delivery"}
-
-SCORER_MAP: Dict[str, type] = {
-    # SelfAsk 系列（需要 LLM 后端）
-    "refusal": SelfAskRefusalScorer,
-    "true_false": SelfAskTrueFalseScorer,
-    "category": SelfAskCategoryScorer,
-    # 规则匹配系列（无需 LLM）
-    "substring": SubStringScorer,
-    "prompt_shield": PromptShieldScorer,
-    "insecure_code": InsecureCodeScorer,
-    "shell_command": ShellCommandOutputScorer,
-    "sql_injection": SQLInjectionOutputScorer,
-    "xss": XSSOutputScorer,
-    "path_traversal": PathTraversalOutputScorer,
-    "credential_leak": CredentialLeakScorer,
-    "static_prompt_injection": StaticPromptInjectionScorer,
-    # Float Scale 系列
-    "gandalf": GandalfScorer,
-    "azure_content_filter": AzureContentFilterScorer,
-}
-
-# 需要 LLM 后端的评分器类型（SelfAsk 系列）
-LLM_BACKEND_SCORERS = {"refusal", "true_false", "category"}
-
-# 规则匹配评分器（无需 LLM，纯 regex/关键词）
-RULE_BASED_SCORERS = {
-    "substring", "prompt_shield", "insecure_code", "shell_command",
-    "sql_injection", "xss", "path_traversal", "credential_leak",
-    "static_prompt_injection", "gandalf", "azure_content_filter",
-}
-
-# 非 LLM 评分器类型（规则匹配系列）
-RULE_BASED_SCORERS = {"substring"}
 
 
 def _import_class(fqn: str) -> type:
@@ -161,7 +73,7 @@ class AttackOrchestrator:
     2. 自动组合 PyRIT 转换器链
     3. 使用 PyRIT 原生攻击执行（不再手动循环）
     4. 自动评分和结果存储
-    5. 支持外部 LLM 评分器后端（config/scorers.yaml）
+    5. 支持外部 LLM 评分器后端（config/scores/ 目录）
 
     核心改进：
     - SmartMatcher 选择 PyRIT 攻击策略
@@ -169,8 +81,8 @@ class AttackOrchestrator:
     - 继承 PyRIT 的全部能力（重试、升级、回退、剪枝、早停）
     """
 
-    # 评分器配置文件路径
-    SCORER_CONFIG_PATH = "config/scorers.yaml"
+    # 评分器配置路径（支持目录或单文件）
+    SCORER_CONFIG_PATH = "config/scores/"
 
     # 数据目录路径（payload_refs 解析用）
     DATA_DIR = "data"
@@ -230,18 +142,69 @@ class AttackOrchestrator:
         return {}
 
     def _load_scorer_config(self) -> None:
-        """加载评分器配置文件（config/scorers.yaml）"""
+        """
+        加载评分器配置
+
+        支持两种模式：
+        - 目录模式：加载 path 下所有 *.yaml 文件，合并 scorer_llm_backends / scorer_definitions / best_scorer_by_scenario
+        - 单文件模式：向后兼容旧的 config/scorers.yaml
+        """
         path = Path(self._scorer_config_path)
+
         if not path.exists():
             logger.warning("Scorer config not found: %s, using defaults", self._scorer_config_path)
             self._scorer_config = {"scorer_llm_backends": {}, "scorer_definitions": {}}
             return
-        with open(path, "r", encoding="utf-8") as f:
-            self._scorer_config = yaml.safe_load(f) or {}
+
+        # 初始化合并容器
+        merged_backends: Dict[str, Any] = {}
+        merged_definitions: Dict[str, Any] = {}
+        merged_scenarios: Dict[str, Any] = {}
+        loaded_files: List[str] = []
+
+        if path.is_dir():
+            # 目录模式：遍历所有 YAML 文件
+            yaml_files = sorted(path.glob("*.yaml")) + sorted(path.glob("*.yml"))
+            for yaml_file in yaml_files:
+                try:
+                    with open(yaml_file, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    if not isinstance(data, dict):
+                        continue
+                    # 合并各段落（后加载的覆盖先加载的）
+                    if "scorer_llm_backends" in data:
+                        merged_backends.update(data["scorer_llm_backends"])
+                    if "scorer_definitions" in data:
+                        merged_definitions.update(data["scorer_definitions"])
+                    if "best_scorer_by_scenario" in data:
+                        merged_scenarios.update(data["best_scorer_by_scenario"])
+                    loaded_files.append(yaml_file.name)
+                except Exception as e:
+                    logger.warning("Failed to load %s: %s", yaml_file.name, e)
+        else:
+            # 单文件模式（向后兼容）
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                merged_backends = data.get("scorer_llm_backends", {})
+                merged_definitions = data.get("scorer_definitions", {})
+                merged_scenarios = data.get("best_scorer_by_scenario", {})
+                loaded_files.append(path.name)
+            except Exception as e:
+                logger.warning("Failed to load %s: %s", path.name, e)
+
+        self._scorer_config = {
+            "scorer_llm_backends": merged_backends,
+            "scorer_definitions": merged_definitions,
+            "best_scorer_by_scenario": merged_scenarios,
+        }
+
         logger.info(
-            "Scorer config loaded: %d backends, %d definitions",
-            len(self._scorer_config.get("scorer_llm_backends", {})),
-            len(self._scorer_config.get("scorer_definitions", {})),
+            "Scorer config loaded (%s): %d backends, %d definitions, %d scenarios",
+            ", ".join(loaded_files) if loaded_files else "defaults",
+            len(merged_backends),
+            len(merged_definitions),
+            len(merged_scenarios),
         )
 
     def _build_scorer_llm_target(self, backend_name: str) -> Optional[PromptTarget]:
@@ -421,7 +384,7 @@ class AttackOrchestrator:
         target: PromptTarget,
         converters: Optional[List[PromptConverter]] = None,
         scorers: Optional[List[Scorer]] = None,
-        visualizer: Optional[Any] = None,
+        tracker: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         执行单次攻击（同步接口）
@@ -434,7 +397,7 @@ class AttackOrchestrator:
         mode = attack_config.get("mode", "chain")
 
         if mode == "smart_match":
-            return self._execute_smart_match_v3(attack_config, target, scorers, visualizer)
+            return self._execute_smart_match_v3(attack_config, target, scorers, tracker)
         elif mode == "presets":
             return self._execute_presets_v3(attack_config, target, scorers)
         else:
@@ -699,7 +662,7 @@ class AttackOrchestrator:
         attack_config: Dict[str, Any],
         target: PromptTarget,
         scorers: Optional[List[Scorer]],
-        visualizer: Optional[Any] = None,
+        tracker: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         smart_match 模式 v3.0：使用 PyRIT 原生攻击 + 两层策略选择 + Fallback 链
@@ -711,16 +674,12 @@ class AttackOrchestrator:
         4. 动态参数计算
         """
         from ..orchestrators.smart_matcher import SmartMatcher
-        from ..payloads.payload_classifier import classify_payloads, analyze_payloads
 
         attack_name = attack_config.get("name", "unnamed_attack")
         payloads = attack_config.get("payloads", [])
         converter_presets = attack_config.get("converter_presets", {})
         target_model = attack_config.get("target_model", "")
         asi_category = attack_config.get("asi_category", "")
-
-        # 提取评分器信息
-        scorer_info_list = self.get_scorer_info(attack_config.get("scorers", []))
 
         logger.info(
             "Executing attack (smart_match v3.0): %s with %d payloads, target=%s",
@@ -740,14 +699,36 @@ class AttackOrchestrator:
 
         logger.info("Attack plan (v3.0): %s", plan_summary)
 
-        # 1.5 可视化
-        if visualizer:
-            categorized = classify_payloads(payloads)
-            profiles = analyze_payloads(payloads)
-            visualizer.show_classification(categorized)
-            visualizer.show_scorer_info(scorer_info_list)
-            visualizer.show_execution_plan(plan, plan_summary)
-            visualizer.show_attack_start()
+        # 1.5 流水线追踪：记录分类和策略选择
+        if tracker:
+            for item in plan:
+                tracker.start_payload(item["payload"])
+                tracker.log_load(item["payload"], source=attack_name)
+                # 记录分类
+                profile_dict = item.get("payload_profile", {})
+                if profile_dict:
+                    from ..payloads.models import PayloadProfile
+                    profile = PayloadProfile(
+                        technique=profile_dict.get("technique", "direct"),
+                        encoding_state=profile_dict.get("encoding_state", "plain"),
+                        language=profile_dict.get("language", "en"),
+                        length_class=profile_dict.get("length_class", "short"),
+                        complexity=profile_dict.get("complexity", "simple"),
+                    )
+                    tracker.log_classify(profile)
+                # 记录策略选择
+                strategy = {
+                    "class": item.get("attack_class", ""),
+                    "family": item.get("attack_family", ""),
+                    "reason": item.get("attack_reason", ""),
+                    "confidence": item.get("attack_confidence", 1.0),
+                    "params": item.get("attack_params", {}),
+                    "fallback_chain": item.get("attack_fallback_chain", []),
+                }
+                tracker.log_strategy(strategy)
+
+            tracker.show_classification_summary()
+            tracker.show_strategy_summary()
 
         # 2. 执行：使用 PyRIT 原生攻击（支持 Fallback 链）
         results = {
@@ -767,8 +748,6 @@ class AttackOrchestrator:
         attack_scoring_config = AttackScoringConfig()
         if scorers:
             attack_scoring_config = AttackScoringConfig(objective_scorer=scorers[0] if scorers else None)
-
-        total_plan = len(plan)
 
         for idx, item in enumerate(plan, 1):
             payload = item["payload"]
@@ -813,21 +792,13 @@ class AttackOrchestrator:
                 results["category_stats"][category] = {"success": 0, "failure": 0}
             results["category_stats"][category]["success" if is_success else "failure"] += 1
 
-            # 可视化
-            if visualizer:
-                visualizer.show_attack_progress(
-                    index=idx,
-                    total=total_plan,
-                    category=category,
-                    preset=attempt_result["attack_class"],
-                    strategy="native",
-                    status=attempt_result["status"],
-                    response_preview=attempt_result["response"][:80],
-                )
+            # 流水线追踪：记录执行结果
+            if tracker:
+                tracker.log_execution(attempt_result)
 
-        # 3. 可视化：结果汇总
-        if visualizer:
-            visualizer.show_results_summary(results)
+        # 3. 流水线追踪：结果汇总
+        if tracker:
+            tracker.show_full_report()
 
         self._results.append(results)
         return results
@@ -1013,166 +984,16 @@ class AttackOrchestrator:
     # 静态工具方法
     # ──────────────────────────────────────────────────────────────────────────
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # 静态工具方法
-    # ──────────────────────────────────────────────────────────────────────────
-
-    # PyRIT 攻击策略映射（集中管理，单一数据源）
-    _ATTACK_REGISTRY: Dict[str, Dict[str, str]] = {
-        # Single-Turn Attacks
-        "prompt_sending": {
-            "class": "pyrit.executor.attack.single_turn.prompt_sending.PromptSendingAttack",
-            "category": "single_turn",
-            "description": "基础提示发送攻击",
-            "use_case": "直接提示注入、间接提示注入",
-        },
-        "context_compliance": {
-            "class": "pyrit.executor.attack.single_turn.context_compliance.ContextComplianceAttack",
-            "category": "single_turn",
-            "description": "上下文合规攻击",
-            "use_case": "利用上下文合规性绕过安全控制",
-        },
-        "flip_attack": {
-            "class": "pyrit.executor.attack.single_turn.flip_attack.FlipAttack",
-            "category": "single_turn",
-            "description": "翻转攻击",
-            "use_case": "字符/令牌翻转绕过过滤",
-        },
-        "role_play": {
-            "class": "pyrit.executor.attack.single_turn.role_play.RolePlayAttack",
-            "category": "single_turn",
-            "description": "角色扮演攻击",
-            "use_case": "角色扮演越狱、身份劫持",
-        },
-        "many_shot_jailbreak": {
-            "class": "pyrit.executor.attack.single_turn.many_shot_jailbreak.ManyShotJailbreakAttack",
-            "category": "single_turn",
-            "description": "多轮越狱攻击",
-            "use_case": "绕过安全过滤、角色扮演越狱",
-        },
-        "skeleton_key": {
-            "class": "pyrit.executor.attack.single_turn.skeleton_key.SkeletonKeyAttack",
-            "category": "single_turn",
-            "description": "骨架密钥攻击",
-            "use_case": "绕过模型级安全控制",
-        },
-        # Multi-Turn Attacks
-        "tree_of_attacks": {
-            "class": "pyrit.executor.attack.multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack",
-            "category": "multi_turn",
-            "description": "树状攻击 (TAP)",
-            "use_case": "复杂目标攻击、自适应攻击路径",
-        },
-        "crescendo": {
-            "class": "pyrit.executor.attack.multi_turn.crescendo.CrescendoAttack",
-            "category": "multi_turn",
-            "description": "渐强攻击",
-            "use_case": "渐进式绕过安全控制",
-        },
-        "pair": {
-            "class": "pyrit.executor.attack.multi_turn.pair.PAIRAttack",
-            "category": "multi_turn",
-            "description": "提示自动迭代优化 (PAIR)",
-            "use_case": "自动化攻击优化",
-        },
-        "red_teaming": {
-            "class": "pyrit.executor.attack.multi_turn.red_teaming.RedTeamingAttack",
-            "category": "multi_turn",
-            "description": "红队攻击",
-            "use_case": "综合红队评估",
-        },
-        "chunked_request": {
-            "class": "pyrit.executor.attack.multi_turn.chunked_request.ChunkedRequestAttack",
-            "category": "multi_turn",
-            "description": "分块请求攻击",
-            "use_case": "绕过上下文长度限制",
-        },
-        "multi_prompt_sending": {
-            "class": "pyrit.executor.attack.multi_turn.multi_prompt_sending.MultiPromptSendingAttack",
-            "category": "multi_turn",
-            "description": "多提示发送攻击",
-            "use_case": "批量提示测试",
-        },
-        "simulated_conversation": {
-            "class": "pyrit.executor.attack.multi_turn.simulated_conversation.SimulatedConversationAttack",
-            "category": "multi_turn",
-            "description": "模拟对话攻击",
-            "use_case": "多轮对话攻击",
-        },
-        # Compound Attacks
-        "sequential": {
-            "class": "pyrit.executor.attack.compound.sequential_attack.SequentialAttack",
-            "category": "compound",
-            "description": "顺序攻击",
-            "use_case": "攻击链组合",
-        },
-        # Streaming Attacks
-        "barge_in": {
-            "class": "pyrit.executor.attack.streaming.barge_in.BargeInAttack",
-            "category": "streaming",
-            "description": "实时音频插入攻击",
-            "use_case": "实时音频流绕过",
-        },
-    }
-
-    @classmethod
-    def list_attacks(cls, category: str = None) -> List[str]:
-        """
-        列出可用攻击（单一数据源，从注册表派生）
-
-        Args:
-            category: 攻击类别 ("single_turn", "multi_turn", "compound", "streaming")
-
-        Returns:
-            攻击名称列表
-        """
-        if category:
-            return [
-                name for name, info in cls._ATTACK_REGISTRY.items()
-                if info["category"] == category
-            ]
-        return list(cls._ATTACK_REGISTRY.keys())
-
-    @classmethod
-    def get_attack_info(cls, name: str) -> Dict[str, str]:
-        """
-        获取攻击信息（单一数据源）
-
-        Args:
-            name: 攻击名称
-
-        Returns:
-            攻击信息字典
-        """
-        info = cls._ATTACK_REGISTRY.get(name)
-        if info:
-            return {
-                "category": info["category"],
-                "description": info["description"],
-                "use_case": info["use_case"],
-                "class": info["class"],
-            }
-        return {"category": "unknown", "description": "Unknown attack"}
-
-    @classmethod
-    def get_attack_class(cls, name: str) -> Optional[str]:
-        """获取攻击类的全限定名"""
-        info = cls._ATTACK_REGISTRY.get(name)
-        return info["class"] if info else None
-
-    @staticmethod
-    def list_types() -> List[str]:
-        """列出支持的目标类型"""
-        return ["ollama", "openai", "http"]
-
     @staticmethod
     def load_yaml(path: str) -> Dict[str, Any]:
         """加载 YAML 文件（支持多文档分隔符 ---）"""
+        from pathlib import Path
         file_path = Path(path)
         if not file_path.exists():
             logger.warning("Config file not found: %s", path)
             return {}
         with open(file_path, "r", encoding="utf-8") as f:
+            import yaml
             docs = list(yaml.safe_load_all(f))
             return docs[0] if docs else {}
 
@@ -1279,80 +1100,25 @@ class AttackOrchestrator:
 
     @staticmethod
     def _extract_converter_names(pyrit_converters: List[str]) -> List[str]:
-        """从 PyRIT 转换器全限定名提取简短名称（与 CONVERTER_MAP 保持一致）"""
-        name_map = {
-            # 编码混淆
-            "Base64Converter": "base64",
-            "ROT13Converter": "rot13",
-            "UnicodeConfusableConverter": "unicode_confusable",
-            "LeetspeakConverter": "leetspeak",
-            # 越狱模板
-            "PersuasionConverter": "persuasion",
-            "TextJailbreakConverter": "text_jailbreak",
-            "MaliciousQuestionGeneratorConverter": "malicious_question_generator",
-            # Token 走私
-            "AsciiSmugglerConverter": "ascii_smuggler",
-            "ZeroWidthConverter": "zero_width",
-            "DiacriticConverter": "diacritic",
-            # 搜索替换
-            "SearchReplaceConverter": "search_replace",
-            # 翻译混淆
-            "TranslationConverter": "translation",
-            # 变异生成
-            "VariationConverter": "variation",
-            # 多模态
-            "AddTextImageConverter": "add_text_image",
-            "PDFConverter": "pdf",
-            "WordDocConverter": "word_doc",
-        }
+        """从 PyRIT 转换器全限定名提取简短名称"""
         names = []
         for converter_fqn in pyrit_converters:
             class_name = converter_fqn.split(".")[-1]
-            if class_name in name_map:
-                names.append(name_map[class_name])
+            if class_name in CONVERTER_NAME_MAP:
+                names.append(CONVERTER_NAME_MAP[class_name])
         return names
 
     @staticmethod
     def _extract_scorer_names(pyrit_scorers: List[str]) -> List[str]:
         """从 PyRIT 评分器全限定名提取简短名称"""
-        name_map = {
-            # SelfAsk 系列
-            "SelfAskRefusalScorer": "refusal",
-            "SelfAskTrueFalseScorer": "true_false",
-            "SelfAskCategoryScorer": "category",
-            # 规则匹配系列
-            "SubStringScorer": "substring",
-            "PromptShieldScorer": "prompt_shield",
-            "InsecureCodeScorer": "insecure_code",
-            "ShellCommandOutputScorer": "shell_command",
-            "SQLInjectionOutputScorer": "sql_injection",
-            "XSSOutputScorer": "xss",
-            "PathTraversalOutputScorer": "path_traversal",
-            "CredentialLeakScorer": "credential_leak",
-            "StaticPromptInjectionScorer": "static_prompt_injection",
-            # Float Scale 系列
-            "GandalfScorer": "gandalf",
-            "AzureContentFilterScorer": "azure_content_filter",
-        }
         names = []
         for scorer_fqn in pyrit_scorers:
             class_name = scorer_fqn.split(".")[-1]
-            if class_name in name_map:
-                names.append(name_map[class_name])
+            if class_name in SCORER_NAME_MAP:
+                names.append(SCORER_NAME_MAP[class_name])
         return names
 
-    def _compute_best_combinations(self, category_stats: Dict) -> List[Dict[str, Any]]:
-        """从统计结果中计算每个类别的最佳组合"""
-        best = []
-        for category, stats in category_stats.items():
-            success = stats.get("success", 0)
-            failure = stats.get("failure", 0)
-            total = success + failure
-            if total > 0:
-                best.append({
-                    "category": category,
-                    "success_rate": success / total,
-                    "total_tests": total,
-                })
-        best.sort(key=lambda x: x["success_rate"], reverse=True)
-        return best
+
+# 向后兼容：模块级导出
+# 确保 from attack_orchestrator import CONVERTER_MAP 等仍然工作
+# 已通过 component_registry 导入到模块命名空间

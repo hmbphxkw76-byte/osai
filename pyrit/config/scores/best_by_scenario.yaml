@@ -1,0 +1,11 @@
+# AI-300 Framework - Best Scorer by Scenario
+# 根据 OWASP Agentic Top 10 场景推荐的最佳评分器
+
+best_scorer_by_scenario:
+  ASI01_agent_goal_hijack: "refusal_local"
+  ASI02_tool_misuse: "true_false_local"
+  ASI03_identity_abuse: "category_local"
+  ASI05_code_execution: "substring_system_prompt"
+  ASI06_memory_poisoning: "refusal_local"
+  ASI09_human_trust: "refusal_local"
+  ASI10_rogue_agents: "category_local"

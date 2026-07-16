@@ -22,6 +22,9 @@
 owasp: LLM01
 technique_group: cca_context_compliance
 description: CCA 上下文服从攻击载荷 — 多轮历史污染诱导模型服从 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: trust_establishment_cca

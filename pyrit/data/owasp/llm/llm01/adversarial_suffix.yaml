@@ -25,6 +25,9 @@
 owasp: LLM01
 technique_group: adversarial_suffix
 description: GCG 风格对抗后缀载荷 — 通过梯度优化的 token 序列绕过对齐 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: gcg_universal

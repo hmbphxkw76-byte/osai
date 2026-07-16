@@ -7,6 +7,9 @@ name: "Prompt Injection"
 severity: "critical"
 owasp_llm_id: "LLM01"
 description: "攻击者通过精心构造的直接或间接提示，操纵LLM执行非预期操作或忽略安全控制"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "Treat all user input as untrusted data"
   - "Implement input validation and sanitization"

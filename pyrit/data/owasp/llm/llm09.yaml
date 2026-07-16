@@ -7,6 +7,9 @@ name: "Overreliance"
 severity: "medium"
 owasp_llm_id: "LLM09"
 description: "用户或系统过度信任LLM输出，未经验证直接用于决策，导致错误、安全风险或法律问题"
+surfaces: [agent, rag]
+ai300_chapters: [Ch3, Ch5]
+
 mitigation_principles:
   - "Implement output verification mechanisms"
   - "Display confidence levels with LLM outputs"

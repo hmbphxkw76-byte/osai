@@ -7,6 +7,9 @@ name: "Excessive Agency"
 severity: "medium"
 owasp_llm_id: "LLM08"
 description: "LLM被赋予过多自主权或权限，能够在未经人类确认的情况下执行破坏性操作"
+surfaces: [embedding, rag]
+ai300_chapters: [Ch5, Ch6]
+
 mitigation_principles:
   - "Implement human-in-the-loop for destructive actions"
   - "Use least-privilege access for LLM tools"

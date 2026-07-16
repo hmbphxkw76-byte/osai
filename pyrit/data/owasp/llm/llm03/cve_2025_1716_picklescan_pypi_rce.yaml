@@ -36,6 +36,9 @@ frontier:
 owasp: LLM03
 technique_group: supply_chain_pickle
 description: "Picklescan RCE 绕过载荷 — 绕过安全扫描工具检测 → 恶意 PyPI 包安装 → 扫描环境 RCE — AI-300 Ch8 (LLM03, CVSS 9.8)"
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 
 payloads:
   # ── 基础：直接扫描绕过 ──

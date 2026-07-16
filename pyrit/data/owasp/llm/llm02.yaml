@@ -7,6 +7,9 @@ name: "Insecure Output Handling"
 severity: "high"
 owasp_llm_id: "LLM02"
 description: "LLM输出未经过适当验证或清理直接传递给下游系统，导致XSS、SSRF、命令注入等安全风险"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "Validate and sanitize all LLM outputs before passing to downstream systems"
   - "Encode outputs based on context (HTML, URL, shell)"

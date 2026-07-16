@@ -20,6 +20,9 @@
 owasp: LLM01
 technique_group: special_token_injection
 description: 特殊 Token 注入载荷 — 利用对话格式分隔符打破系统/用户边界 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: chatml_boundary_break

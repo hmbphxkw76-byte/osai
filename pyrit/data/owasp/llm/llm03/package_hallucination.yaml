@@ -13,6 +13,9 @@
 owasp: LLM03
 technique_group: package_hallucination
 description: 包幻觉检测载荷 — 7 种语言包管理系统幻觉探测 — AI-300 Ch8（Garak packagehallucination 移植扩充）
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 
 payloads:
   - technique: package_hallucination_python

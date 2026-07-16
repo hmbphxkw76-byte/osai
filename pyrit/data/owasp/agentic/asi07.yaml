@@ -7,6 +7,9 @@ name: "Insecure Inter-Agent Communication"
 severity: "high"
 owasp_agentic_id: "ASI07"
 description: "多Agent工作流缺乏消息认证、完整性或新鲜度验证——使Agent间可伪造、重放、篡改消息或未授权委托"
+surfaces: [agent]
+ai300_chapters: [Ch4]
+
 mitigation_principles:
   - "Authenticate every inter-agent message"
   - "Sign with agent-specific keys"

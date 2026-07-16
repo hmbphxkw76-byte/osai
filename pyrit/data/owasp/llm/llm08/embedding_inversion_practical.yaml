@@ -17,6 +17,9 @@
 owasp: LLM08
 technique_group: embedding_inversion
 description: 嵌入实操攻击载荷 — 嵌入反演/成员推断/属性推断/向量DB利用 — AI-300 Ch6
+surfaces: [embedding, rag]
+ai300_chapters: [Ch6]
+
 
 payloads:
   - technique: embedding_inversion_multiquery

@@ -7,6 +7,9 @@ name: "Rogue Agents"
 severity: "medium"
 owasp_agentic_id: "ASI10"
 description: "被破坏或错位的Agent继续表现合法——有效凭证、正常模式、合理输出——同时追求隐藏目标、泄露数据或破坏对等Agent"
+surfaces: [agent]
+ai300_chapters: [Ch4]
+
 mitigation_principles:
   - "Behavioral baselines per agent identity"
   - "Anomaly detection over time"

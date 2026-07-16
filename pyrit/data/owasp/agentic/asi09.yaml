@@ -7,6 +7,9 @@ name: "Human-Agent Trust Exploitation"
 severity: "medium"
 owasp_agentic_id: "ASI09"
 description: "用户过度信任流畅、自信的Agent——通过操纵摘要、钓鱼建议或篡改财务详情进行社工"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "UI that distinguishes agent content from verified data"
   - "Human approval for high-stakes actions"

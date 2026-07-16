@@ -8,6 +8,9 @@ name: "Model Denial of Service"
 severity: "medium"
 owasp_llm_id: "LLM04"
 description: "攻击者通过构造资源密集型请求（长输入、复杂推理、重复调用）导致服务降级或成本激增"
+surfaces: [rag]
+ai300_chapters: [Ch5]
+
 mitigation_principles:
   - "Implement input length limits"
   - "Rate limit per user/IP"

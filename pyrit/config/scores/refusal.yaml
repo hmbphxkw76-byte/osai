@@ -1,0 +1,17 @@
+# AI-300 Framework - Refusal Scorers
+# 拒绝检测评分器：判断模型是否拒绝回答
+
+scorer_definitions:
+  # 拒绝检测评分器（本地 Ollama）
+  refusal_local:
+    type: "refusal"
+    backend: "local_ollama"
+    description: "拒绝检测 — 判断模型是否拒绝回答（本地 Ollama）"
+    params: {}
+
+  # 拒绝检测评分器（远程 GPT-4o-mini）
+  refusal_gpt4:
+    type: "refusal"
+    backend: "openai_gpt4"
+    description: "拒绝检测 — 判断模型是否拒绝回答（GPT-4o-mini）"
+    params: {}

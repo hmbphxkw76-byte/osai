@@ -16,6 +16,9 @@
 owasp: LLM01
 technique_group: glitch_token
 description: Glitch Token 攻击载荷 — 利用异常 token 触发模型信息泄露 — AI-300 Ch3（Garak glitch probes 移植扩充）
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: glitch_repeat_attack

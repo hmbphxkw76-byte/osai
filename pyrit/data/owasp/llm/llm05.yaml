@@ -8,6 +8,9 @@ name: "Supply Chain Vulnerabilities"
 severity: "high"
 owasp_llm_id: "LLM05"
 description: "第三方预训练模型、数据集、依赖包或插件被篡改，引入后门、数据泄露或恶意功能"
+surfaces: [agent, mcp]
+ai300_chapters: [Ch3, Ch7]
+
 mitigation_principles:
   - "Verify model checksums and signatures"
   - "Audit third-party dependencies"

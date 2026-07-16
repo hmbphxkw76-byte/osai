@@ -7,6 +7,9 @@ name: "Memory & Context Poisoning"
 severity: "high"
 owasp_agentic_id: "ASI06"
 description: "攻击者污染Agent长期记忆、RAG存储或共享上下文，使偏见或恶意数据影响未来会话"
+surfaces: [agent, rag]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "Sanitize data before persistence"
   - "Integrity checks on vector stores"

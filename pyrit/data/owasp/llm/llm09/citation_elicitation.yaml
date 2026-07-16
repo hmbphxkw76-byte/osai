@@ -12,6 +12,9 @@
 owasp: LLM09
 technique_group: citation_elicitation
 description: "引文诱导载荷 — 虚构引用/幽灵来源/虚假权威/学术伪造 — AI-300 Ch3（LLM09）"
+surfaces: [agent, rag]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: fake_source_citation

@@ -37,7 +37,7 @@ from .orchestrators import AttackOrchestrator, SmartMatcher, select_attack_strat
 logger = logging.getLogger(__name__)
 from .reporting import ReportGenerator
 from .payloads import PayloadManager, classify_payload, classify_payloads
-from .display import ExecutionDisplay
+from .pipeline import PipelineTracker
 
 __all__ = [
     "AI300Engine",
@@ -48,7 +48,7 @@ __all__ = [
     "AttackProbeFamily",
     "ReportGenerator",
     "PayloadManager",
-    "ExecutionDisplay",
+    "PipelineTracker",
     "classify_payload",
     "classify_payloads",
 ]
@@ -77,7 +77,7 @@ class AI300Engine:
         self,
         config_path: str = None,
         target_config: str = "config/targets/ollama_local.yaml",
-        visualizer: Optional[Any] = None,
+        tracker: Optional[Any] = None,
     ):
         """
         初始化 AI-300 引擎
@@ -85,22 +85,22 @@ class AI300Engine:
         Args:
             config_path: 场景配置文件路径
             target_config: 目标配置文件路径
-            visualizer: Smart Match 可视化器（可选，默认自动创建）
+            tracker: 流水线追踪器（可选，默认自动创建）
         """
         self.config_path = config_path
         self.target_config = target_config
         self.orchestrator = None
         self.report_generator = None
         self._results = []
-        self.visualizer = visualizer
+        self.tracker = tracker
 
     def load_config(self, config_path: str) -> None:
         """加载配置文件"""
         self.config_path = config_path
-        # 自动创建可视化器（如果未提供）
-        if self.visualizer is None:
-            from .display import ExecutionDisplay
-            self.visualizer = ExecutionDisplay()
+        # 自动创建追踪器（如果未提供）
+        if self.tracker is None:
+            from .pipeline import PipelineTracker
+            self.tracker = PipelineTracker(verbose=True)
         self.orchestrator = AttackOrchestrator(config_path=config_path)
 
     def run(self, module: str = None) -> list:
@@ -156,19 +156,15 @@ class AI300Engine:
         # 加载目标配置
         target_cfg = AttackOrchestrator.load_yaml(self.target_config)
 
-        # 可视化：模块开始
-        if self.visualizer:
-            if self.visualizer.console:
-                self.visualizer.console.print()
-                self.visualizer.console.print(
-                    f"[bold cyan]═══ Module: {module_name} — {module_config.get('name', '')} ═══[/bold cyan]"
-                )
-                self.visualizer.console.print(
-                    f"[dim]OWASP: {module_config.get('owasp', 'N/A')} | Attacks: {len(attacks)}[/dim]"
-                )
-            else:
-                print(f"\n=== Module: {module_name} — {module_config.get('name', '')} ===")
-                print(f"OWASP: {module_config.get('owasp', 'N/A')} | Attacks: {len(attacks)}")
+        # 追踪：模块开始
+        if self.tracker and self.tracker.console:
+            self.tracker.console.print()
+            self.tracker.console.print(
+                f"[bold cyan]═══ Module: {module_name} — {module_config.get('name', '')} ═══[/bold cyan]"
+            )
+            self.tracker.console.print(
+                f"[dim]OWASP: {module_config.get('owasp', 'N/A')} | Attacks: {len(attacks)}[/dim]"
+            )
 
         # 执行攻击链
         scenario_results = {
@@ -188,15 +184,12 @@ class AI300Engine:
             target = self.orchestrator.build_target(target_cfg)
             mode = attack.get("mode", "chain")
 
-            # 可视化：攻击开始
-            if self.visualizer:
+            # 追踪：攻击开始
+            if self.tracker and self.tracker.console:
                 attack_name = attack.get("name", "unnamed")
-                if self.visualizer.console:
-                    self.visualizer.console.print(
-                        f"\n  [bold yellow]Attack:[/bold yellow] {attack_name} [dim](mode: {mode})[/dim]"
-                    )
-                else:
-                    print(f"\n  Attack: {attack_name} (mode: {mode})")
+                self.tracker.console.print(
+                    f"\n  [bold yellow]Attack:[/bold yellow] {attack_name} [dim](mode: {mode})[/dim]"
+                )
 
             # 根据模式传递不同参数
             if mode == "smart_match":
@@ -205,7 +198,7 @@ class AI300Engine:
                     target=target,
                     converters=None,
                     scorers=self.orchestrator.build_scorers(attack.get("scorers", []), objective_target=target),
-                    visualizer=self.visualizer,
+                    tracker=self.tracker,
                 )
             elif mode == "presets":
                 result = self.orchestrator.execute_attack(
@@ -227,9 +220,16 @@ class AI300Engine:
             scenario_results["summary"]["successful_payloads"] += result.get("success_count", 0)
             scenario_results["summary"]["failed_payloads"] += result.get("failure_count", 0)
 
-        # 可视化：模块完成
-        if self.visualizer:
-            self.visualizer.show_module_complete(module_name, scenario_results)
+        # 追踪：模块完成
+        if self.tracker and self.tracker.console:
+            success = scenario_results["summary"]["successful_payloads"]
+            total = scenario_results["summary"]["total_payloads"]
+            rate = (success / total * 100) if total > 0 else 0
+            self.tracker.console.print()
+            self.tracker.console.print(
+                f"[bold green]Module Complete:[/bold green] {module_name} | "
+                f"Payloads: {total} | Successful: {success} | Rate: {rate:.1f}%"
+            )
 
         return scenario_results
 

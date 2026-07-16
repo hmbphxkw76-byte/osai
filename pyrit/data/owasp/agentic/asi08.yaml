@@ -7,6 +7,9 @@ name: "Cascading Failures"
 severity: "medium"
 owasp_agentic_id: "ASI08"
 description: "小错误通过规划和执行放大——幻觉端点变成失败调用，错误处理触发更糟调用，多Agent管道放大'自信错误'输出"
+surfaces: [agent]
+ai300_chapters: [Ch4]
+
 mitigation_principles:
   - "Circuit breakers"
   - "Validation between plan and execute"

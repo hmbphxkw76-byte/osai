@@ -7,6 +7,9 @@ name: "Unexpected Code Execution"
 severity: "critical"
 owasp_agentic_id: "ASI05"
 description: "Agent生成或运行代码（shell脚本/SQL/Python片段）导致远程代码执行、沙箱逃逸或数据泄露"
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 mitigation_principles:
   - "Never run generated code with production credentials"
   - "Sandboxed runtimes with minimal permissions"

@@ -11,6 +11,9 @@
 owasp: LLM01
 technique_group: structured_field_injection
 description: "结构化字段注入载荷 — YAML/JSON/XML数据字段嵌入恶意指令 — AI-300 Ch3（PI-05）"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: yaml_field_injection

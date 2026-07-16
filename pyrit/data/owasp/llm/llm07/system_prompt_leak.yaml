@@ -23,6 +23,9 @@
 owasp: LLM07
 technique_group: system_prompt_leakage
 description: 系统提示泄露攻击载荷 — AI-300 Ch3.1+Ch7，LLM07 专有技术（与 LLM01 注入型提取互补）
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: direct_request

@@ -528,3 +528,19 @@ summary:
     - ASI09
     - ASI10
     uncovered: []
+
+# 攻击面交叉引用索引
+# 通过 PayloadManager.get_payloads_by_surface() 动态查询
+surfaces_index:
+  agent:
+    description: 单/多 Agent 系统的对话面攻击
+    key_categories: [llm01, llm06, llm07, asi01, asi02, asi03, asi07, asi08, asi09, asi10]
+  rag:
+    description: RAG 管道（知识库投毒、检索劫持）
+    key_categories: [llm04, llm08, llm09]
+  mcp:
+    description: MCP 工具协议和工具调用链
+    key_categories: [llm05, llm06, llm07, asi02, asi04]
+  embedding:
+    description: Embedding 向量 API
+    key_categories: [llm02, llm08]

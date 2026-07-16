@@ -18,6 +18,9 @@
 owasp: LLM03
 technique_group: dependency_confusion
 description: 依赖混淆/命名空间复用攻击载荷 — AI-300 Ch8（P0 考试场景）
+surfaces: [agent]
+ai300_chapters: [Ch8]
+
 
 payloads:
   - technique: pip_confusion

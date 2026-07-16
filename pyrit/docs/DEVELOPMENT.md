@@ -194,7 +194,31 @@ pyrit/                          # 项目根目录
 └── README.md                   # 使用文档
 ```
 
-## 5. 数据与代码分离（核心架构原则）
+## 5. OWASP 唯一真相源（强制）
+
+**规则编号**: DATA-001（详见 `.codebuddy/rules/data-architecture.md`）
+
+所有攻击载荷（payload）**必须且只能**存储在 `data/owasp/` 目录下，任何其他位置不得存储载荷内容。
+
+```
+data/owasp/          ← 唯一真相源
+  ├── llm/           ← LLM01-LLM10（含子目录技术组文件）
+  └── agentic/       ← ASI01-ASI10
+```
+
+**核心约束**：
+1. **禁止重复存储** — 不得在 `by_surface/` 或其他目录重复存储载荷
+2. **攻击面通过元数据实现** — 每个 payload YAML 必须包含 `surfaces` 字段（如 `[rag, agent, mcp, embedding]`）
+3. **考试章节标注** — 每个 payload YAML 必须包含 `ai300_chapters` 字段（如 `[Ch3, Ch5]`）
+4. **surfaces/ 目录可选** — `data/surfaces/` 为分析文档，可安全删除
+
+**新增载荷流程**：
+1. 确定 OWASP 类别 → 在对应目录创建 YAML
+2. 填写 `surfaces` 和 `ai300_chapters` 元数据
+3. 在 `config/catalog/catalog.yaml` 中添加引用
+4. **不需要**修改代码逻辑
+
+## 6. 数据与代码分离（核心架构原则）
 
 **强制规则**：数据（配置 + 载荷）与代码（框架引擎）必须物理分离。
 
@@ -221,7 +245,7 @@ pyrit/                          # 项目根目录
     → 自动生成报告 → results/
 ```
 
-## 6. 命名规范
+## 7. 命名规范
 
 - **目录名**：小写 + 下划线（`attack_factory/` ✗ → `attacks/` ✓）
 - **文件名**：小写 + 下划线（`attack_factory.py`）
@@ -229,7 +253,7 @@ pyrit/                          # 项目根目录
 - **函数/变量**：小写 + 下划线（`build_target`）
 - **配置键名**：小写 + 下划线（`pyrit_converters`）
 
-## 7. 配置驱动原则
+## 8. 配置驱动原则
 
 见第 4 节「数据与代码分离」。核心要点：
 - 新增攻击技术：只改 `config/catalog/catalog.yaml`
@@ -239,7 +263,7 @@ pyrit/                          # 项目根目录
 - 新增转换器/评分器映射：只改 `pyrit_ai300/orchestrators/attack_orchestrator.py` 的 `CONVERTER_MAP` / `SCORER_MAP`
 - **不修改代码逻辑**即可扩展攻击能力
 
-## 8. 日志规范
+## 9. 日志规范
 
 ```python
 import logging
@@ -251,9 +275,36 @@ logger.info("Executing attack: %s with %d payloads", attack_name, len(payloads))
 logger.error("Attack failed: %s", str(e))
 ```
 
-## 9. 测试规范
+## 10. 测试规范
+
+### 10.1 测试文件规范
 
 - 测试文件命名：`test_<module>.py`
 - 测试函数命名：`test_<function>_<scenario>`
 - 使用 `pytest` 框架
 - 运行：`make test` 或 `python -m pytest pyrit_ai300/tests/ -v`
+
+### 10.2 测试分层策略（强制）
+
+| 阶段 | 跑什么 | 命令 | 耗时 | 定位 |
+|------|--------|------|------|------|
+| **每次代码修改后** | 单元测试（全量） | `make test` | ~15s | 快速发现回归 |
+| **提交前 / 合并前** | Lint + 单元测试 | `make ci` | ~20s | 代码质量 + 正确性 |
+| **发布前** | 覆盖率报告 | `make test-cov` | ~20s | 确认覆盖无退化 |
+
+**核心原则：本项目的单元测试就是回归测试。** 65 个测试覆盖 PayloadManager、SmartMatcher、PayloadClassifier、AttackOrchestrator 等核心模块。
+
+### 10.3 回归测试执行时机
+
+- **每次修改代码后**：必须跑 `make test`，确认全部通过
+- **每次重构完成后**：跑 `make ci`（lint + test）
+- **每次合并前**：全量扫描 + 确认清理
+- **每次发布前**：跑 `make test-cov`，确认覆盖率无退化
+
+### 10.4 集成测试
+
+集成测试 = 连接真实目标执行攻击，需要目标在线且耗时长，不适合"每次修改后"跑。
+
+**执行时机**：
+- 考试前用真实目标跑一次 `make run-module MODULE=single_agent` 验证端到端
+- 日常开发只跑单元测试

@@ -26,8 +26,37 @@ if sys.platform == "win32":
 
 logger = logging.getLogger(__name__)
 
-# 复用 display 模块的元数据（避免重复定义）
-from pyrit_ai300.display.execution_display import CATEGORY_META, STRATEGY_META, SCORER_META
+# 分类/策略/评分器元数据（从 display 模块迁移）
+CATEGORY_META: Dict[str, Dict[str, str]] = {
+    "direct_short": {"label": "Direct Short", "desc": "直接注入短文本"},
+    "role_play": {"label": "Role Play", "desc": "角色扮演类"},
+    "multilingual": {"label": "Multilingual", "desc": "多语言载荷"},
+    "encoded": {"label": "Encoded", "desc": "已编码载荷"},
+    "long_context": {"label": "Long Context", "desc": "长文本载荷"},
+    "prompt_leaking": {"label": "Prompt Leaking", "desc": "提示泄露"},
+    "adversarial": {"label": "Adversarial", "desc": "对抗性后缀"},
+    "markdown_injection": {"label": "Markdown Injection", "desc": "Markdown注入"},
+    "indirect_injection": {"label": "Indirect Injection", "desc": "间接注入"},
+    "context_splitting": {"label": "Context Splitting", "desc": "上下文拆分"},
+    "instruction_override": {"label": "Instruction Override", "desc": "指令覆盖"},
+    "payload_splitting": {"label": "Payload Splitting", "desc": "载荷拆分"},
+    "data_exfiltration": {"label": "Data Exfiltration", "desc": "数据渗出"},
+    "cross_context_contamination": {"label": "Cross-Context", "desc": "跨上下文污染"},
+    "context_manipulation": {"label": "Context Manipulation", "desc": "上下文操纵"},
+}
+
+STRATEGY_META: Dict[str, Dict[str, str]] = {
+    "single_turn": {"label": "Single-Turn", "desc": "单轮攻击"},
+    "multi_turn": {"label": "Multi-Turn", "desc": "多轮攻击"},
+    "tree_attack": {"label": "Tree Attack", "desc": "树状攻击"},
+}
+
+SCORER_META: Dict[str, Dict[str, str]] = {
+    "refusal": {"label": "SelfAskRefusalScorer", "desc": "拒绝检测"},
+    "true_false": {"label": "SelfAskTrueFalseScorer", "desc": "真假判断"},
+    "substring": {"label": "SubStringScorer", "desc": "子串匹配"},
+    "category": {"label": "SelfAskCategoryScorer", "desc": "分类评分"},
+}
 
 
 class ExecutionReportGenerator:
@@ -96,14 +125,14 @@ class ExecutionReportGenerator:
             f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"**Config:** {config_path}",
             f"**Target:** {target_path}",
-            f"**Mode:** smart_match",
+            "**Mode:** smart_match",
             "",
             "---",
             "",
             "## 1. Execution Summary",
             "",
-            f"| Metric | Value |",
-            f"|--------|-------|",
+            "| Metric | Value |",
+            "|--------|-------|",
             f"| Total Executions | {total} |",
             f"| Successful | {success} |",
             f"| Failed | {failure} |",

@@ -20,6 +20,9 @@
 owasp: LLM10
 technique_group: resource_exhaustion
 description: 资源耗尽/DoS 攻击载荷 — 触发 LLM 无限循环/递归/超大输出 — AI-300 Ch3+Ch9
+surfaces: [agent, rag]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: infinite_loop

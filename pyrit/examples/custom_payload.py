@@ -19,7 +19,9 @@ def main():
     manager.load_data_dir("data/")
 
     # 2. 通过引用加载载荷
-    payloads = manager.resolve_refs(["owasp:agentic:asi01", "by_surface:agent"])
+    payloads = manager.resolve_refs(["owasp:agentic:asi01"])
+    # 按攻击面筛选（可选）
+    agent_payloads = manager.get_payloads_by_surface("agent")
     logger.info("Loaded %d payloads from data/ directory", len(payloads))
 
     # 3. 初始化编排器

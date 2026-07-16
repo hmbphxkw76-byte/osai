@@ -8,6 +8,9 @@ name: "Insecure Plugin Design"
 severity: "high"
 owasp_llm_id: "LLM07"
 description: "LLM插件、MCP工具或扩展缺乏适当的输入验证、授权检查或安全控制，导致未授权操作"
+surfaces: [agent, mcp]
+ai300_chapters: [Ch3, Ch7]
+
 mitigation_principles:
   - "Implement strict input validation for all plugin parameters"
   - "Require explicit user authorization for sensitive operations"

@@ -1,0 +1,10 @@
+# AI-300 Framework - True/False Scorers
+# 真假判断评分器：自定义评分标准
+
+scorer_definitions:
+  # 真假判断评分器
+  true_false_local:
+    type: "true_false"
+    backend: "local_ollama"
+    description: "真假判断 — 自定义评分标准（本地 Ollama）"
+    params: {}

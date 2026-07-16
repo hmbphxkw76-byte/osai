@@ -24,6 +24,9 @@
 owasp: LLM01
 technique_group: many_shot_jailbreak
 description: Many-Shot 越狱载荷 — Anthropic 验证的高成功率策略 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: many_shot_standard

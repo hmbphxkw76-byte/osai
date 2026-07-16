@@ -40,6 +40,7 @@
 | **数据驱动** | 攻击载荷、目标配置、评分规则全部从 YAML 配置加载 |
 | **全流程自动化** | 修改载荷后，攻击执行→评分→报告生成全程无需人工干预 |
 | **考试对齐** | 每个 Module 对应独立场景配置，覆盖 AI-300 全部 11 个 Module |
+| **OWASP 唯一真相源** | 所有载荷仅存储在 `data/owasp/`，攻击面通过 `surfaces` 元数据交叉引用 |
 | **OWASP 映射** | 每个攻击场景都有对应的 OWASP LLM Top 10 + Agentic Top 10 分类 |
 
 ### 1.3 OWASP Agentic Top 10 (2026) 基础设计原则
@@ -257,7 +258,55 @@ attack_config:
 
 ---
 
-## 7. 与现有 PyRIT 安装的关系
+## 7. 数据目录结构
+
+### 7.1 唯一真相源规则（DATA-001）
+
+```
+data/
+├── owasp/                        ← 载荷唯一真相源
+│   ├── llm/                      ← LLM01-LLM10
+│   │   ├── llm01.yaml            ← 顶层聚合（含 surfaces/chapters 元数据）
+│   │   ├── llm01/                ← 子目录（直接扫描）
+│   │   │   ├── direct_injection.yaml  (surfaces: [agent], ai300_chapters: [Ch3])
+│   │   │   └── ...
+│   │   └── ...
+│   ├── agentic/                  ← ASI01-ASI10
+│   ├── _registry.core.yaml       ← 含 surfaces_index 交叉引用
+│   └── _template.yaml            ← 含 surfaces/chapters 模板
+└── surfaces/                     ← 攻击面分析文档（可选，可安全删除）
+    ├── README.md
+    ├── rag.md
+    ├── mcp.md
+    ├── agent.md
+    └── embedding.md
+```
+
+### 7.2 元数据规范
+
+每个 payload YAML 文件**必须**包含：
+
+```yaml
+owasp: LLM04                      # OWASP 类别
+technique_group: rag_poisoning    # 技术组
+surfaces: [rag, agent]            # 攻击面（agent/rag/mcp/embedding）
+ai300_chapters: [Ch5]             # AI-300 考试章节
+payloads: [...]                   # 载荷列表
+```
+
+### 7.3 考试命令映射
+
+| 攻击目标 | CLI 命令 | 覆盖 |
+|----------|----------|------|
+| 单 Agent | `ai300-scan run -m single_agent` | ASI01, ASI02, ASI05, ASI06 |
+| 多 Agent | `ai300-scan run -m multi_agent` | ASI03, ASI04, ASI07-ASI10 |
+| RAG | `ai300-scan run -m rag` | LLM03, LLM06 |
+| MCP | `ai300-scan run -m mcp` | LLM02, LLM07 |
+| Embedding | `ai300-scan run -m embeddings` | LLM03, LLM10 |
+
+---
+
+## 8. 与现有 PyRIT 安装的关系
 
 本框架作为 PyRIT 的 **上层封装**，不修改 PyRIT 任何代码：
 
@@ -283,22 +332,22 @@ pyrit/                    # PyRIT 框架（独立安装）
 
 ---
 
-## 8. 考试使用指南
+## 9. 考试使用指南
 
-### 8.1 考试前准备
+### 9.1 考试前准备
 
-1. 安装框架：`pip install -e .`
+1. 安装框架：`pip install -e .`（无网络环境见 [`OFFLINE_INSTALL.md`](./OFFLINE_INSTALL.md)）
 2. 配置目标：编辑 `config/targets/` 下的 YAML 文件
 3. 准备载荷：编辑 `config/catalog/catalog.yaml`
 4. 验证配置：`ai300 list modules`
 
-### 8.2 考试中执行
+### 9.2 考试中执行
 
 1. 运行指定 Module：`ai300 run -m single_agent`
 2. 运行全部 Module：`ai300 run`
 3. 生成报告：`ai300 report -r results.json -o report.md`
 
-### 8.3 考试后分析
+### 9.3 考试后分析
 
 1. 查看执行结果
 2. 分析攻击成功率

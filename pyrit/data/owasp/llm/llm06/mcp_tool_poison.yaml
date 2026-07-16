@@ -14,6 +14,9 @@
 owasp: LLM06
 technique_group: mcp_tool_poison
 description: MCP 工具描述投毒载荷（服务端工具描述中的隐藏指令）— AI-300 Ch7
+surfaces: [mcp, agent]
+ai300_chapters: [Ch7]
+
 source: Adapted from mcp-attack-labs/labs/01-mcp-tool-poisoning/attack1_direct_poison.py
 
 payloads:

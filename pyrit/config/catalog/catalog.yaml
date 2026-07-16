@@ -21,7 +21,7 @@
 # payload_refs 格式: "category:subcategory:id"
 #   - owasp:agentic:asi01  → data/owasp/agentic/asi01.yaml
 #   - owasp:llm:llm01      → data/owasp/llm/llm01.yaml
-#   - by_surface:agent     → data/by_surface/agent.yaml
+#   - owasp:llm:llm01:direct_injection → data/owasp/llm/llm01/direct_injection.yaml
 
 catalog:
 
@@ -47,7 +47,6 @@ catalog:
       description: "攻击者通过外部数据（文档/邮件/网页）中的恶意内容改变Agent的主要目标或注入隐藏指令，劫持整个多步骤工作流"
       payload_refs:
         - "owasp:agentic:asi01"
-        - "by_surface:agent"
       pyrit_converters:
         - "pyrit.converter.base64_converter.Base64Converter"
         - "pyrit.converter.rot13_converter.Rot13Converter"
@@ -71,7 +70,6 @@ catalog:
       description: "Agent将合法工具以不安全或意外方式使用——模糊提示、被操纵的参数、或无人预料的工具链组合"
       payload_refs:
         - "owasp:agentic:asi02"
-        - "by_surface:mcp"
       pyrit_converters:
         - "pyrit.converter.add_text_image_converter.AddTextImageConverter"
         - "pyrit.converter.pdf_converter.PDFConverter"
@@ -108,7 +106,6 @@ catalog:
       description: "攻击者污染Agent长期记忆、RAG存储或共享上下文，使偏见或恶意数据影响未来会话"
       payload_refs:
         - "owasp:agentic:asi06"
-        - "by_surface:rag"
       pyrit_converters:
         - "pyrit.converter.text_jailbreak_converter.TextJailbreakConverter"
         - "pyrit.converter.persuasion_converter.PersuasionConverter"
@@ -135,7 +132,6 @@ catalog:
       description: "Agent继承或升级高权限凭证——共享服务账户、静态API密钥或完整用户会话"
       payload_refs:
         - "owasp:agentic:asi03"
-        - "by_surface:agent"
       pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
       pyrit_converters:
         - "pyrit.converter.persuasion_converter.PersuasionConverter"
@@ -154,7 +150,6 @@ catalog:
       description: "被篡改的第三方Agent、MCP服务器、插件、提示模板和工具描述符引入运行时信任失败"
       payload_refs:
         - "owasp:agentic:asi04"
-        - "by_surface:mcp"
       pyrit_converters:
         - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
       pyrit_scorers:
@@ -236,7 +231,6 @@ catalog:
       description: "在数据摄入阶段注入恶意内容"
       payload_refs:
         - "owasp:llm:llm03"
-        - "by_surface:rag"
       pyrit_converters:
         - "pyrit.converter.add_text_image_converter.AddTextImageConverter"
         - "pyrit.converter.word_doc_converter.WordDocConverter"
@@ -246,7 +240,6 @@ catalog:
       name: "Retrieval Hijacking"
       description: "操纵检索结果使恶意内容优先返回"
       payload_refs:
-        - "by_surface:rag"
       pyrit_converters:
         - "pyrit.converter.search_replace_converter.SearchReplaceConverter"
       pyrit_scorers:
@@ -256,7 +249,6 @@ catalog:
       description: "从知识库中提取敏感信息"
       payload_refs:
         - "owasp:llm:llm06"
-        - "by_surface:rag"
       pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
       pyrit_converters: []
       pyrit_scorers:
@@ -273,7 +265,6 @@ catalog:
       description: "从embedding向量还原原始文本"
       payload_refs:
         - "owasp:llm:llm10"
-        - "by_surface:embedding"
       pyrit_converters: []
       pyrit_scorers:
         - "pyrit.score.true_false.substring_scorer.SubstringScorer"
@@ -281,7 +272,6 @@ catalog:
       name: "Attribute Inference"
       description: "从embedding推断文档属性"
       payload_refs:
-        - "by_surface:embedding"
       pyrit_converters: []
       pyrit_scorers:
         - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
@@ -297,7 +287,6 @@ catalog:
       description: "毒化MCP工具描述"
       payload_refs:
         - "owasp:llm:llm07"
-        - "by_surface:mcp"
       pyrit_converters:
         - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
       pyrit_scorers:
@@ -306,7 +295,6 @@ catalog:
       name: "Tool Shadowing"
       description: "创建恶意工具替代合法工具"
       payload_refs:
-        - "by_surface:mcp"
       pyrit_converters: []
       pyrit_scorers:
         - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
@@ -315,7 +303,6 @@ catalog:
       description: "绕过MCP权限控制"
       payload_refs:
         - "owasp:llm:llm07"
-        - "by_surface:mcp"
       pyrit_attack: "multi_turn.crescendo.CrescendoAttack"
       pyrit_converters:
         - "pyrit.converter.persuasion_converter.PersuasionConverter"
@@ -350,7 +337,6 @@ catalog:
       description: "在MCP服务器中植入后门"
       payload_refs:
         - "owasp:llm:llm05"
-        - "by_surface:mcp"
       pyrit_converters: []
       pyrit_scorers:
         - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
@@ -382,7 +368,6 @@ catalog:
       description: "通过API提取模型权重"
       payload_refs:
         - "owasp:llm:llm10"
-        - "by_surface:embedding"
       pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
       pyrit_converters: []
       pyrit_scorers:

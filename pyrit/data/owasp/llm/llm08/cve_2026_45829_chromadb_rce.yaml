@@ -41,6 +41,9 @@ frontier:
 owasp: LLM08
 technique_group: vector_db_rce
 description: "[CVE-2026-45829] ChromaDB Pre-Auth Code Injection RCE (ChromaToast) — Ch5（LLM08, CVSS 10.0）"
+surfaces: [rag, embedding]
+ai300_chapters: [Ch5]
+
 
 payloads:
   # ── 基础攻击 ──

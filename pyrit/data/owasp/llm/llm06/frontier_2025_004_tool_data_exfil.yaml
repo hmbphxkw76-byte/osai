@@ -29,6 +29,9 @@ frontier:
 owasp: LLM06
 technique_group: tool_data_exfiltration
 description: "工具调用数据泄露 — 诱导模型调用外部工具将敏感数据发送至攻击者端点 — AI-300 Ch3 (LLM06, CVSS 8.2)"
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   # ── 基础：直接数据外发 ──

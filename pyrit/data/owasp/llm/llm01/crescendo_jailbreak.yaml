@@ -18,6 +18,9 @@
 owasp: LLM01
 technique_group: crescendo_jailbreak
 description: Crescendo 渐进式越狱载荷 — 多轮技术 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: crescendo_standard

@@ -13,6 +13,9 @@
 owasp: LLM02
 technique_group: training_data_extraction
 description: 训练数据提取载荷 — Cloze填空/Complete续写双模式 — AI-300 Ch3+Ch6（Garak leakreplay 移植扩充）
+surfaces: [agent, embedding]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: cloze_extraction

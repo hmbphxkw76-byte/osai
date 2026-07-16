@@ -1,6 +1,9 @@
 owasp: LLM01
 technique_group: indirect_injection
 description: 间接提示注入载荷 — AI-300 Ch3（OWASP ASI01 融合）
+surfaces: [rag, agent]
+ai300_chapters: [Ch3]
+
 payloads:
   - technique: echo_leak
     name: EchoLeak间接注入

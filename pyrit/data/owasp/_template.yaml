@@ -59,6 +59,15 @@ technique_group: my_technique
 # 格式: <载荷用途> — AI-300 ChX（<增强说明>）
 description: 描述载荷用途和覆盖的技术 — AI-300 Ch3
 
+# ── 攻击面 [OPTIONAL] ──
+# 标注载荷适用的攻击面，用于交叉引用
+# 可选值: agent, rag, mcp, embedding
+surfaces: [agent]
+
+# ── AI-300 考试章节 [OPTIONAL] ──
+# 标注载荷对应的 AI-300 考试章节
+ai300_chapters: [Ch3]
+
 # ── 载荷列表 [REQUIRED] ──
 # 每个条目代表一个具体的攻击载荷
 payloads:

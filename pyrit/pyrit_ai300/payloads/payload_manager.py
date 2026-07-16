@@ -11,13 +11,14 @@ AI-300 Framework - Payload Manager
 使用方式：
     manager = PayloadManager()
     manager.load_data_dir("data/")
-    payloads = manager.resolve_refs(["owasp:agentic:asi01", "by_surface:agent"])
+    payloads = manager.resolve_refs(["owasp:agentic:asi01"])
+    rag_payloads = manager.get_payloads_by_surface("rag")
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -31,15 +32,16 @@ class PayloadManager:
     攻击载荷管理器
 
     功能：
-    1. 从 data/ 目录加载攻击载荷（owasp/llm, owasp/agentic, by_surface）
+    1. 从 data/ 目录加载攻击载荷（owasp/llm, owasp/agentic）
     2. 解析 payload_refs 引用
-    3. 按 OWASP 标准/攻击面维度检索
+    3. 按 OWASP 标准/攻击面/AI-300 章节检索
     4. 与 PyRIT SeedDataset 集成
 
-    使用方式：
+    使用方式:
         manager = PayloadManager()
         manager.load_data_dir("data/")
         payloads = manager.resolve_refs(["owasp:agentic:asi01"])
+        rag_payloads = manager.get_payloads_by_surface("rag")
     """
 
     def __init__(self):
@@ -56,18 +58,19 @@ class PayloadManager:
 
         目录结构:
             data/
-            ├── owasp/
-            │   ├── llm/
-            │   │   ├── llm01.yaml
-            │   │   └── ...
-            │   └── agentic/
-            │       ├── asi01.yaml
-            │       └── ...
-            └── by_surface/
-                ├── agent.yaml
-                ├── mcp.yaml
-                ├── embedding.yaml
-                └── rag.yaml
+            └── owasp/
+                ├── llm/
+                │   ├── llm01.yaml
+                │   ├── llm01/
+                │   │   ├── direct_injection.yaml
+                │   │   └── ...
+                │   └── ...
+                └── agentic/
+                    ├── asi01.yaml
+                    └── ...
+
+        注意: OWASP 目录为唯一真相源，surfaces 维度通过 payload 元数据中的
+              surfaces 字段实现交叉引用，不单独加载。
 
         Args:
             data_dir: data/ 目录路径
@@ -77,7 +80,7 @@ class PayloadManager:
             logger.warning("Data directory not found: %s", data_dir)
             return
 
-        # 加载 owasp/ 下的载荷
+        # 加载 owasp/ 下的载荷（唯一真相源）
         owasp_dir = self._data_dir / "owasp"
         if owasp_dir.exists():
             for standard_dir in owasp_dir.iterdir():
@@ -87,17 +90,23 @@ class PayloadManager:
                 self._index.setdefault("owasp", {})
                 self._index["owasp"].setdefault(standard, [])
 
+                # 加载顶层 YAML（如 llm01.yaml）
                 for yaml_file in sorted(standard_dir.glob("*.yaml")):
                     self._load_payload_file(yaml_file, "owasp", standard)
 
-        # 加载 by_surface/ 下的载荷
-        surface_dir = self._data_dir / "by_surface"
-        if surface_dir.exists():
-            self._index.setdefault("by_surface", {})
-            for yaml_file in sorted(surface_dir.glob("*.yaml")):
-                surface_name = yaml_file.stem
-                self._index["by_surface"].setdefault(surface_name, [])
-                self._load_payload_file(yaml_file, "by_surface", surface_name)
+                # 加载子目录中的 YAML（支持多级嵌套，如 llm01/jailbreak/aim.yaml）
+                for sub_dir in sorted(standard_dir.iterdir()):
+                    if sub_dir.is_dir() and not sub_dir.name.startswith("_"):
+                        sub_name = sub_dir.name  # e.g. "llm01"
+                        for yaml_file in sorted(sub_dir.rglob("*.yaml")):
+                            # 计算相对路径作为 subcategory
+                            # 如 llm01/jailbreak/aim.yaml → subcategory: "llm01:jailbreak"
+                            rel_dir = yaml_file.parent.relative_to(sub_dir)
+                            if rel_dir == Path("."):
+                                subcat = f"{standard}:{sub_name}"
+                            else:
+                                subcat = f"{standard}:{sub_name}:{rel_dir.as_posix().replace('/', ':')}"
+                            self._load_payload_file(yaml_file, "owasp", subcat)
 
         total = len(self._payload_store)
         logger.info("Loaded %d payload files from %s", total, data_dir)
@@ -110,8 +119,8 @@ class PayloadManager:
 
         Args:
             file_path: YAML 文件路径
-            category: 顶层类别 (owasp, by_surface)
-            subcategory: 子类别 (llm, agentic, agent, mcp, ...)
+            category: 顶层类别 (owasp)
+            subcategory: 子类别 (llm, agentic, 或 llm:llm01 格式)
         """
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -124,10 +133,7 @@ class PayloadManager:
             # 构建引用路径（统一小写）
             file_id = data.get("id", file_path.stem).lower()
             subcategory_lower = subcategory.lower()
-            if category == "owasp":
-                ref_path = f"owasp:{subcategory_lower}:{file_id}"
-            else:
-                ref_path = f"by_surface:{file_id}"
+            ref_path = f"owasp:{subcategory_lower}:{file_id}"
 
             # 存储
             self._payload_store[ref_path] = {
@@ -140,6 +146,8 @@ class PayloadManager:
                 "description": data.get("description", ""),
                 "payloads": data.get("payloads", []),
                 "tags": data.get("tags", []),
+                "surfaces": data.get("surfaces", []),
+                "ai300_chapters": data.get("ai300_chapters", []),
                 "detection_focus": data.get("detection_focus", []),
                 "mitigation_principles": data.get("mitigation_principles", []),
                 "source_file": str(file_path),
@@ -164,10 +172,12 @@ class PayloadManager:
         引用格式:
             - "owasp:agentic:asi01"  → data/owasp/agentic/asi01.yaml
             - "owasp:llm:llm01"     → data/owasp/llm/llm01.yaml
-            - "by_surface:agent"    → data/by_surface/agent.yaml
-            - "text_jailbreak:aim"  → PyRIT TextJailBreak 模板渲染
+            - "owasp:llm:llm01:direct_injection" → data/owasp/llm/llm01/direct_injection.yaml
+            - "text_jailbreak:aim"  → 用 aim 模板渲染（data/owasp/llm/llm01/jailbreak/）
             - "text_jailbreak:random" → 随机模板渲染
             - "text_jailbreak:all"  → 全部模板渲染（穷举）
+
+        注意: by_surface: 前缀不再支持，请使用 get_payloads_by_surface() 方法。
 
         Args:
             refs: 引用路径列表
@@ -178,6 +188,14 @@ class PayloadManager:
         all_payloads = []
         seen = set()
 
+        def _get_dedup_key(payload):
+            """获取去重键（支持字符串和字典格式）"""
+            if isinstance(payload, str):
+                return payload
+            elif isinstance(payload, dict):
+                return payload.get("payload", str(payload))
+            return str(payload)
+
         for ref in refs:
             ref = ref.strip().lower()
 
@@ -185,15 +203,17 @@ class PayloadManager:
             if ref.startswith("text_jailbreak:"):
                 rendered = self._resolve_text_jailbreak(ref)
                 for payload in rendered:
-                    if payload not in seen:
-                        seen.add(payload)
+                    key = _get_dedup_key(payload)
+                    if key not in seen:
+                        seen.add(key)
                         all_payloads.append(payload)
                 continue
 
             if ref in self._payload_store:
                 for payload in self._payload_store[ref]["payloads"]:
-                    if payload not in seen:
-                        seen.add(payload)
+                    key = _get_dedup_key(payload)
+                    if key not in seen:
+                        seen.add(key)
                         all_payloads.append(payload)
             else:
                 logger.warning("Payload ref not found: %s", ref)
@@ -204,8 +224,11 @@ class PayloadManager:
         """
         解析 text_jailbreak: 前缀的引用
 
+        模板来源: data/owasp/llm/llm01/jailbreak/ 目录下的统一格式 YAML 文件
+        渲染方式: 将模板 payload 中的 {goal} 占位符替换为实际攻击载荷
+
         格式:
-            - "text_jailbreak:aim"   → 用 aim.yaml 模板渲染所有已加载载荷
+            - "text_jailbreak:aim"   → 用 aim 模板渲染所有已加载载荷
             - "text_jailbreak:random" → 用随机模板渲染
             - "text_jailbreak:all"   → 用所有模板渲染（穷举）
 
@@ -215,13 +238,6 @@ class PayloadManager:
         Returns:
             渲染后的载荷列表
         """
-        from .text_jailbreak_integration import TextJailBreakIntegration
-
-        integration = TextJailBreakIntegration()
-        if not integration.available:
-            logger.warning("TextJailBreak not available, skipping ref: %s", ref)
-            return []
-
         # 提取模板名
         parts = ref.split(":", 1)
         if len(parts) < 2:
@@ -231,12 +247,28 @@ class PayloadManager:
         template_spec = parts[1].strip()
 
         # 获取基础载荷（从所有已加载的 payload_store 中收集）
+        # 支持两种格式: 字符串列表 或 字典列表（需提取 payload 字段）
         base_payloads = []
         for data in self._payload_store.values():
-            base_payloads.extend(data.get("payloads", []))
+            for entry in data.get("payloads", []):
+                if isinstance(entry, dict):
+                    base_payloads.append(entry.get("payload", ""))
+                elif isinstance(entry, str):
+                    base_payloads.append(entry)
 
         if not base_payloads:
             logger.warning("No base payloads loaded for text_jailbreak rendering")
+            return []
+
+        # 收集所有 jailbreak 模板（technique: jailbreak_template）
+        jb_templates = []
+        for ref_path, data in self._payload_store.items():
+            for payload_entry in data.get("payloads", []):
+                if isinstance(payload_entry, dict) and payload_entry.get("technique") == "jailbreak_template":
+                    jb_templates.append(payload_entry)
+
+        if not jb_templates:
+            logger.warning("No jailbreak templates loaded, skipping ref: %s", ref)
             return []
 
         results = []
@@ -244,28 +276,34 @@ class PayloadManager:
         if template_spec == "random":
             # 随机模板：每个载荷用随机模板渲染
             for prompt in base_payloads:
-                result = integration.render_random(prompt)
-                if result and result.get("rendered"):
-                    results.append(result["rendered"])
+                template = random.choice(jb_templates)
+                rendered = template["payload"].replace("{goal}", prompt)
+                results.append(rendered)
         elif template_spec == "all":
             # 全模板：每个载荷用所有模板渲染
             for prompt in base_payloads:
-                rendered_list = integration.render_all(prompt)
-                for item in rendered_list:
-                    if item.get("rendered"):
-                        results.append(item["rendered"])
+                for template in jb_templates:
+                    rendered = template["payload"].replace("{goal}", prompt)
+                    results.append(rendered)
         else:
-            # 指定模板：template_spec 是模板文件名（如 "aim.yaml" 或 "aim"）
-            template_name = template_spec
-            if not template_name.endswith(".yaml"):
-                template_name += ".yaml"
+            # 指定模板：template_spec 是模板名（如 "aim" 或 "aim.yaml" 或 "dan_1"）
+            template_name = template_spec.replace(".yaml", "").lower().replace("_", " ")
+            matched = None
+            for template in jb_templates:
+                # 标准化比较：忽略大小写、下划线/空格差异
+                tname = template.get("name", "").lower().replace("_", " ")
+                if tname == template_name:
+                    matched = template
+                    break
+            if not matched:
+                logger.warning("Jailbreak template '%s' not found", template_spec)
+                return []
 
             for prompt in base_payloads:
-                rendered = integration.render_template(template_name, prompt)
-                if rendered:
-                    results.append(rendered)
+                rendered = matched["payload"].replace("{goal}", prompt)
+                results.append(rendered)
 
-        logger.info("TextJailBreak rendered %d payloads from %d base payloads (template: %s)",
+        logger.info("Jailbreak templates rendered %d payloads from %d base payloads (template: %s)",
                     len(results), len(base_payloads), template_spec)
         return results
 
@@ -286,8 +324,8 @@ class PayloadManager:
         按类别获取载荷
 
         Args:
-            category: 类别 (owasp, by_surface)
-            subcategory: 子类别 (llm, agentic, agent, mcp, ...)
+            category: 类别 (owasp)
+            subcategory: 子类别 (llm, agentic, 或 llm:llm01 格式)
 
         Returns:
             载荷列表
@@ -300,6 +338,42 @@ class PayloadManager:
                 refs.extend(sub_refs)
 
         return self.resolve_refs(refs)
+
+    def get_payloads_by_surface(self, surface: str) -> List[str]:
+        """
+        按攻击面维度获取载荷（通过 surfaces 元数据交叉引用）
+
+        Args:
+            surface: 攻击面名称 (rag, mcp, agent, embedding)
+
+        Returns:
+            匹配的载荷列表
+        """
+        surface_lower = surface.lower()
+        matched_refs = []
+        for ref, data in self._payload_store.items():
+            surfaces = [s.lower() for s in data.get("surfaces", [])]
+            if surface_lower in surfaces:
+                matched_refs.append(ref)
+        return self.resolve_refs(matched_refs)
+
+    def get_payloads_by_chapter(self, chapter: str) -> List[str]:
+        """
+        按 AI-300 考试章节获取载荷
+
+        Args:
+            chapter: AI-300 章节 (Ch3, Ch4, Ch5, Ch6, Ch7, Ch8)
+
+        Returns:
+            匹配的载荷列表
+        """
+        chapter_lower = chapter.lower()
+        matched_refs = []
+        for ref, data in self._payload_store.items():
+            chapters = [c.lower() for c in data.get("ai300_chapters", [])]
+            if chapter_lower in chapters:
+                matched_refs.append(ref)
+        return self.resolve_refs(matched_refs)
 
     def get_all_refs(self) -> List[str]:
         """获取所有可用的引用路径"""
@@ -376,34 +450,6 @@ class PayloadManager:
 
         logger.info("Loaded legacy payloads from %s", config_path)
 
-    def load_from_json(self, json_path: str) -> None:
-        """
-        从 JSON 文件加载载荷（兼容接口）
-
-        Args:
-            json_path: JSON 文件路径
-        """
-        path = Path(json_path)
-        if not path.exists():
-            logger.warning("JSON file not found: %s", json_path)
-            return
-
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        for key, payloads in data.items():
-            if isinstance(payloads, list):
-                self._payload_store[f"json:{key}"] = {
-                    "id": key,
-                    "ref_path": f"json:{key}",
-                    "category": "json",
-                    "subcategory": "",
-                    "name": key,
-                    "payloads": payloads,
-                }
-
-        logger.info("Loaded payloads from JSON: %s", json_path)
-
     def get_payloads(
         self,
         module: str,
@@ -479,32 +525,4 @@ class PayloadManager:
                 }
         return {}
 
-    def to_pyrit_seed_prompts(
-        self,
-        module: str,
-        attack: str,
-    ) -> list:
-        """
-        转换为 PyRIT SeedPrompt 对象（兼容接口）
 
-        Args:
-            module: Module 名称
-            attack: 攻击类型
-
-        Returns:
-            PyRIT SeedPrompt 列表
-        """
-        try:
-            from pyrit.models import SeedPrompt
-            payloads = self.get_payloads(module, attack)
-            return [
-                SeedPrompt(
-                    value=prompt,
-                    data_type="text",
-                    name=f"{module}_{attack}_{i}",
-                )
-                for i, prompt in enumerate(payloads)
-            ]
-        except ImportError:
-            logger.error("PyRIT not installed")
-            return []

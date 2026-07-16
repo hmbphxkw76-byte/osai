@@ -10,7 +10,6 @@
 #
 # payload_refs 引用 data/ 目录下的载荷文件:
 #   - owasp:agentic:asi01  → data/owasp/agentic/asi01.yaml
-#   - by_surface:agent     → data/by_surface/agent.yaml
 
 catalog:
   single_agent:
@@ -60,7 +59,6 @@ catalog:
       # 载荷引用（引用 data/ 目录下的载荷文件）
       payload_refs:
         - "owasp:agentic:asi01"
-        - "by_surface:agent"
 
     tool_misuse:
       name: "ASI02:2026 — Tool Misuse & Exploitation"
@@ -88,4 +86,3 @@ catalog:
 
       payload_refs:
         - "owasp:agentic:asi02"
-        - "by_surface:mcp"

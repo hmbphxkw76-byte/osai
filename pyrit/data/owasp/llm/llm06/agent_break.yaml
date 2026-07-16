@@ -16,6 +16,9 @@
 owasp: LLM06
 technique_group: agent_break
 description: Agent 系统破坏载荷 — 工具分析/权限探测/迭代攻击/自动发现 — AI-300 Ch4+Ch7（Garak agent_breaker 移植扩充）
+surfaces: [agent]
+ai300_chapters: [Ch4]
+
 
 payloads:
   - technique: agent_tool_discovery

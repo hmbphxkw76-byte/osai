@@ -1,6 +1,9 @@
 owasp: LLM06
 technique_group: tool_hijacking
 description: 工具调用劫持载荷 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 payloads:
   - technique: tool_redirect
     name: 工具重定向

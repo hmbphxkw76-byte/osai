@@ -1,6 +1,9 @@
 owasp: LLM01
 technique_group: memory_poisoning
 description: 记忆投毒载荷 — AI-300 Ch3
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 payloads:
   - technique: session_memory
     name: 会话记忆污染

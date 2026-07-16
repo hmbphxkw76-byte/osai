@@ -8,6 +8,9 @@ name: "Model Theft"
 severity: "medium"
 owasp_llm_id: "LLM10"
 description: "攻击者通过系统性API查询提取模型的决策边界、架构信息或功能，实现模型窃取或知识产权侵犯"
+surfaces: [agent, rag]
+ai300_chapters: [Ch3]
+
 mitigation_principles:
   - "Implement query rate limiting"
   - "Monitor for systematic extraction patterns"

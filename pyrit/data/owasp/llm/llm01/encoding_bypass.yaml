@@ -12,6 +12,9 @@
 owasp: LLM01
 technique_group: encoding_bypass
 description: 编码绕过载荷 — 23 种编码/走私技术绕过文本级护栏 — AI-300 Ch3（Garak encoding probes 移植 + ASCII 走私扩充）
+surfaces: [agent]
+ai300_chapters: [Ch3]
+
 
 payloads:
   - technique: base64_injection
