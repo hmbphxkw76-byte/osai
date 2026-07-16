@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyrit-ai300"
+version = "1.0.0"
+description = "OffSec AI-300 (OSAI+) Exam-Aligned Red Teaming Framework built on PyRIT"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "AI-300 Framework Team"},
+]
+keywords = [
+    "ai-red-team",
+    "offsec",
+    "ai-300",
+    "osai",
+    "pyrit",
+    "llm-security",
+    "prompt-injection",
+    "rag-security",
+    "agent-security",
+    "mcp-security",
+    "owasp-llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
+
+dependencies = [
+    "pyrit>=0.14.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+pdf = ["weasyprint>=60.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+ai300 = "pyrit_ai300.cli:main"
+
+[tool.setuptools]
+packages = ["pyrit_ai300", "pyrit_ai300.orchestrators", "pyrit_ai300.payloads", "pyrit_ai300.converters", "pyrit_ai300.scorers", "pyrit_ai300.attacks", "pyrit_ai300.reporting", "pyrit_ai300.display", "pyrit_ai300.utils", "pyrit_ai300.tests"]
+package-dir = {"pyrit_ai300" = "pyrit_ai300"}
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["pyrit_ai300/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

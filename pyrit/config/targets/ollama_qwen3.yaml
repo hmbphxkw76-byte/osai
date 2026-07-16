@@ -1,0 +1,23 @@
+# Ollama Target - Qwen3 0.6B @ 192.168.0.22
+target:
+  name: "qwen3_0.6b_remote"
+  type: "ollama"
+  description: "Remote Ollama Qwen3 0.6B on LAN"
+
+  connection:
+    endpoint: "http://192.168.0.22:11434/v1"
+    api_key: "not-needed"
+    model: "qwen3:0.6b"
+    temperature: 0.7
+    max_tokens: 2048
+
+  metadata:
+    module: "single_agent"
+    owasp_mapping: "LLM01"
+    attack_surface: "prompt_injection"
+    environment: "remote"
+
+  retry:
+    max_attempts: 3
+    delay_seconds: 3
+    detect_load_reason: true

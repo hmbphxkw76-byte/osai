@@ -1,0 +1,389 @@
+# AI-300 Framework - Attack Catalog
+# 对齐 OffSec AI-300 考试 + OWASP Agentic Top 10 (2026) 官方 ASI01-ASI10
+# 来源: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/
+#
+# OWASP Agentic Top 10 (2026) 官方命名:
+#   ASI01: Agent Goal Hijack
+#   ASI02: Tool Misuse & Exploitation
+#   ASI03: Agent Identity & Privilege Abuse
+#   ASI04: Agentic Supply Chain Vulnerabilities
+#   ASI05: Unexpected Code Execution
+#   ASI06: Memory & Context Poisoning
+#   ASI07: Insecure Inter-Agent Communication
+#   ASI08: Cascading Failures
+#   ASI09: Human-Agent Trust Exploitation
+#   ASI10: Rogue Agents
+#
+# 两大基础设计原则:
+#   Least Agency — 限制 Agent 自主行动的自由度
+#   Strong Observability — 必须能看到 Agent 在做什么、为什么、以谁的身份
+#
+# payload_refs 格式: "category:subcategory:id"
+#   - owasp:agentic:asi01  → data/owasp/agentic/asi01.yaml
+#   - owasp:llm:llm01      → data/owasp/llm/llm01.yaml
+#   - by_surface:agent     → data/by_surface/agent.yaml
+
+catalog:
+
+  # ============================================
+  # Module 3: Single Agent Risks
+  # 对齐 OWASP Agentic: ASI01, ASI02, ASI05, ASI06
+  # 基础原则: Least Agency + Strong Observability
+  # ============================================
+  single_agent:
+    name: "Single Agent Risks"
+    description: "单Agent系统核心风险（对齐 OWASP Agentic Top 10 ASI01-ASI10）"
+    module: 3
+    owasp_agentic: "ASI01,ASI02,ASI05,ASI06"
+    foundational_principles:
+      - "Least Agency: 限制Agent自主行动的自由度，默认不授予未经验证的权限"
+      - "Strong Observability: 必须能看到Agent在做什么、为什么、以谁的身份"
+
+    # ASI01: Agent Goal Hijack
+    agent_goal_hijack:
+      name: "ASI01:2026 — Agent Goal Hijack"
+      owasp_agentic_id: "ASI01"
+      severity: "critical"
+      description: "攻击者通过外部数据（文档/邮件/网页）中的恶意内容改变Agent的主要目标或注入隐藏指令，劫持整个多步骤工作流"
+      payload_refs:
+        - "owasp:agentic:asi01"
+        - "by_surface:agent"
+      pyrit_converters:
+        - "pyrit.converter.base64_converter.Base64Converter"
+        - "pyrit.converter.rot13_converter.Rot13Converter"
+        - "pyrit.converter.unicode_confusable_converter.UnicodeConfusableConverter"
+        - "pyrit.converter.leet_speak_converter.LeetspeakConverter"
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.ascii_smuggler_converter.AsciiSmugglerConverter"
+        - "pyrit.converter.zero_width_converter.ZeroWidthConverter"
+        - "pyrit.converter.diacritic_converter.DiacriticConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
+        - "pyrit.score.true_false.prompt_shield_scorer.PromptShieldScorer"
+        - "pyrit.score.true_false.static_prompt_injection_scorer.StaticPromptInjectionScorer"
+
+    # ASI02: Tool Misuse & Exploitation
+    tool_misuse_exploitation:
+      name: "ASI02:2026 — Tool Misuse & Exploitation"
+      owasp_agentic_id: "ASI02"
+      severity: "critical"
+      description: "Agent将合法工具以不安全或意外方式使用——模糊提示、被操纵的参数、或无人预料的工具链组合"
+      payload_refs:
+        - "owasp:agentic:asi02"
+        - "by_surface:mcp"
+      pyrit_converters:
+        - "pyrit.converter.add_text_image_converter.AddTextImageConverter"
+        - "pyrit.converter.pdf_converter.PDFConverter"
+        - "pyrit.converter.search_replace_converter.SearchReplaceConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+    # ASI05: Unexpected Code Execution
+    unexpected_code_execution:
+      name: "ASI05:2026 — Unexpected Code Execution"
+      owasp_agentic_id: "ASI05"
+      severity: "critical"
+      description: "Agent生成或运行代码（shell脚本/SQL/Python片段）导致远程代码执行、沙箱逃逸或数据泄露"
+      payload_refs:
+        - "owasp:agentic:asi05"
+      pyrit_converters:
+        - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
+        - "pyrit.converter.ascii_smuggler_converter.AsciiSmugglerConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.float_scale.insecure_code_scorer.InsecureCodeScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.true_false.regex.shell_command_output_scorer.ShellCommandOutputScorer"
+        - "pyrit.score.true_false.regex.sql_injection_output_scorer.SQLInjectionOutputScorer"
+        - "pyrit.score.true_false.regex.xss_output_scorer.XSSOutputScorer"
+        - "pyrit.score.true_false.regex.path_traversal_output_scorer.PathTraversalOutputScorer"
+
+    # ASI06: Memory & Context Poisoning
+    memory_context_poisoning:
+      name: "ASI06:2026 — Memory & Context Poisoning"
+      owasp_agentic_id: "ASI06"
+      severity: "high"
+      description: "攻击者污染Agent长期记忆、RAG存储或共享上下文，使偏见或恶意数据影响未来会话"
+      payload_refs:
+        - "owasp:agentic:asi06"
+        - "by_surface:rag"
+      pyrit_converters:
+        - "pyrit.converter.text_jailbreak_converter.TextJailbreakConverter"
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.variation_converter.VariationConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
+
+  # ============================================
+  # Module 4: Multi-Agent / A2A Risks
+  # 对齐 OWASP Agentic: ASI03, ASI04, ASI07, ASI08, ASI09, ASI10
+  # ============================================
+  multi_agent:
+    name: "Multi-Agent / A2A Risks"
+    description: "多Agent系统和A2A协议核心风险（对齐 OWASP Agentic Top 10 ASI01-ASI10）"
+    module: 4
+    owasp_agentic: "ASI03,ASI04,ASI07,ASI08,ASI09,ASI10"
+
+    # ASI03: Agent Identity & Privilege Abuse
+    agent_identity_privilege_abuse:
+      name: "ASI03:2026 — Agent Identity & Privilege Abuse"
+      owasp_agentic_id: "ASI03"
+      severity: "high"
+      description: "Agent继承或升级高权限凭证——共享服务账户、静态API密钥或完整用户会话"
+      payload_refs:
+        - "owasp:agentic:asi03"
+        - "by_surface:agent"
+      pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
+      pyrit_converters:
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.unicode_confusable_converter.UnicodeConfusableConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.true_false.gandalf_scorer.GandalfScorer"
+        - "pyrit.score.true_false.regex.credential_leak_scorer.CredentialLeakScorer"
+
+    # ASI04: Agentic Supply Chain Vulnerabilities
+    agentic_supply_chain:
+      name: "ASI04:2026 — Agentic Supply Chain Vulnerabilities"
+      owasp_agentic_id: "ASI04"
+      severity: "high"
+      description: "被篡改的第三方Agent、MCP服务器、插件、提示模板和工具描述符引入运行时信任失败"
+      payload_refs:
+        - "owasp:agentic:asi04"
+        - "by_surface:mcp"
+      pyrit_converters:
+        - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+    # ASI07: Insecure Inter-Agent Communication
+    insecure_inter_agent_communication:
+      name: "ASI07:2026 — Insecure Inter-Agent Communication"
+      owasp_agentic_id: "ASI07"
+      severity: "high"
+      description: "多Agent工作流缺乏消息认证、完整性或新鲜度验证"
+      payload_refs:
+        - "owasp:agentic:asi07"
+      pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
+      pyrit_converters:
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.translation_converter.TranslationConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+    # ASI08: Cascading Failures
+    cascading_failures:
+      name: "ASI08:2026 — Cascading Failures"
+      owasp_agentic_id: "ASI08"
+      severity: "medium"
+      description: "小错误通过规划和执行放大——幻觉端点变成失败调用，错误处理触发更糟调用"
+      payload_refs:
+        - "owasp:agentic:asi08"
+      pyrit_attack: "multi_turn.sequential.SequentialAttack"
+      pyrit_converters:
+        - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
+
+    # ASI09: Human-Agent Trust Exploitation
+    human_agent_trust_exploitation:
+      name: "ASI09:2026 — Human-Agent Trust Exploitation"
+      owasp_agentic_id: "ASI09"
+      severity: "medium"
+      description: "用户过度信任流畅、自信的Agent——通过操纵摘要、钓鱼建议或篡改财务详情进行社工"
+      payload_refs:
+        - "owasp:agentic:asi09"
+      pyrit_attack: "multi_turn.pair.PAIRAttack"
+      pyrit_converters:
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.float_scale.azure_content_filter_scorer.AzureContentFilterScorer"
+
+    # ASI10: Rogue Agents
+    rogue_agents:
+      name: "ASI10:2026 — Rogue Agents"
+      owasp_agentic_id: "ASI10"
+      severity: "medium"
+      description: "被破坏或错位的Agent继续表现合法——有效凭证、正常模式、合理输出——同时追求隐藏目标"
+      payload_refs:
+        - "owasp:agentic:asi10"
+      pyrit_attack: "multi_turn.sequential.SequentialAttack"
+      pyrit_converters:
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+        - "pyrit.score.true_false.gandalf_scorer.GandalfScorer"
+
+  # ============================================
+  # Module 5: RAG Pipeline Attacks (OWASP LLM03, LLM06)
+  # ============================================
+  rag:
+    name: "RAG Pipeline Exploitation"
+    owasp: "LLM03,LLM06"
+    ingestion_poisoning:
+      name: "Ingestion Poisoning"
+      description: "在数据摄入阶段注入恶意内容"
+      payload_refs:
+        - "owasp:llm:llm03"
+        - "by_surface:rag"
+      pyrit_converters:
+        - "pyrit.converter.add_text_image_converter.AddTextImageConverter"
+        - "pyrit.converter.word_doc_converter.WordDocConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    retrieval_hijacking:
+      name: "Retrieval Hijacking"
+      description: "操纵检索结果使恶意内容优先返回"
+      payload_refs:
+        - "by_surface:rag"
+      pyrit_converters:
+        - "pyrit.converter.search_replace_converter.SearchReplaceConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
+    knowledge_base_extraction:
+      name: "Knowledge Base Extraction"
+      description: "从知识库中提取敏感信息"
+      payload_refs:
+        - "owasp:llm:llm06"
+        - "by_surface:rag"
+      pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+  # ============================================
+  # Module 6: Embedding Attacks (OWASP LLM03, LLM10)
+  # ============================================
+  embeddings:
+    name: "Embedding Vector Attacks"
+    owasp: "LLM03,LLM10"
+    embedding_inversion:
+      name: "Embedding Inversion"
+      description: "从embedding向量还原原始文本"
+      payload_refs:
+        - "owasp:llm:llm10"
+        - "by_surface:embedding"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
+    attribute_inference:
+      name: "Attribute Inference"
+      description: "从embedding推断文档属性"
+      payload_refs:
+        - "by_surface:embedding"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+  # ============================================
+  # Module 7: MCP / Tool Surface Attacks (OWASP LLM02, LLM07)
+  # ============================================
+  mcp:
+    name: "MCP and Tool Surface Attacks"
+    owasp: "LLM02,LLM07"
+    tool_poisoning:
+      name: "Tool Poisoning"
+      description: "毒化MCP工具描述"
+      payload_refs:
+        - "owasp:llm:llm07"
+        - "by_surface:mcp"
+      pyrit_converters:
+        - "pyrit.converter.malicious_question_generator_converter.MaliciousQuestionGeneratorConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+    tool_shadowing:
+      name: "Tool Shadowing"
+      description: "创建恶意工具替代合法工具"
+      payload_refs:
+        - "by_surface:mcp"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    permission_bypass:
+      name: "Permission Bypass"
+      description: "绕过MCP权限控制"
+      payload_refs:
+        - "owasp:llm:llm07"
+        - "by_surface:mcp"
+      pyrit_attack: "multi_turn.crescendo.CrescendoAttack"
+      pyrit_converters:
+        - "pyrit.converter.persuasion_converter.PersuasionConverter"
+        - "pyrit.converter.search_replace_converter.SearchReplaceConverter"
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
+
+  # ============================================
+  # Module 8: Supply Chain Attacks (OWASP LLM05)
+  # ============================================
+  supply_chain:
+    name: "AI/ML Supply Chain Attacks"
+    owasp: "LLM05"
+    pickle_rce:
+      name: "Pickle Deserialization RCE"
+      description: "利用Pickle反序列化执行任意代码"
+      payload_refs:
+        - "owasp:llm:llm05"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    dependency_confusion:
+      name: "Dependency Confusion"
+      description: "利用依赖混淆攻击AI/ML管道"
+      payload_refs:
+        - "owasp:llm:llm05"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    mcp_backdoor:
+      name: "MCP Server Backdoor"
+      description: "在MCP服务器中植入后门"
+      payload_refs:
+        - "owasp:llm:llm05"
+        - "by_surface:mcp"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+
+  # ============================================
+  # Module 9: Infrastructure Attacks (OWASP LLM04, LLM10)
+  # ============================================
+  infrastructure:
+    name: "AI Infrastructure Exploits"
+    owasp: "LLM04,LLM10"
+    cloud_misconfiguration:
+      name: "Cloud Service Misconfiguration"
+      description: "利用云服务配置错误"
+      payload_refs:
+        - "owasp:llm:llm04"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    container_escape:
+      name: "Container and Orchestration Exploits"
+      description: "容器和编排系统漏洞利用"
+      payload_refs:
+        - "owasp:llm:llm04"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.self_ask_true_false_scorer.SelfAskTrueFalseScorer"
+    model_extraction:
+      name: "Model Extraction"
+      description: "通过API提取模型权重"
+      payload_refs:
+        - "owasp:llm:llm10"
+        - "by_surface:embedding"
+      pyrit_attack: "multi_turn.tree_of_attacks.TreeOfAttacksWithPruningAttack"
+      pyrit_converters: []
+      pyrit_scorers:
+        - "pyrit.score.true_false.substring_scorer.SubstringScorer"
