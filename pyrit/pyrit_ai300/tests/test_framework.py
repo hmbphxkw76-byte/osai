@@ -477,25 +477,6 @@ class TestPayloadManager(unittest.TestCase):
         from pyrit_ai300.payloads import PayloadManager
         self.manager = PayloadManager()
 
-    def test_add_payload(self):
-        self.manager.add_payload("single_agent", "direct_injection", "test_payload")
-        payloads = self.manager.get_payloads("single_agent", "direct_injection")
-        self.assertIn("test_payload", payloads)
-
-    def test_get_all_modules(self):
-        self.manager.add_payload("single_agent", "test_attack", "payload1")
-        self.manager.add_payload("multi_agent", "test_attack", "payload2")
-        modules = self.manager.get_all_modules()
-        self.assertIn("single_agent", modules)
-        self.assertIn("multi_agent", modules)
-
-    def test_get_attacks_for_module(self):
-        self.manager.add_payload("single_agent", "attack_a", "p1")
-        self.manager.add_payload("single_agent", "attack_b", "p2")
-        attacks = self.manager.get_attacks_for_module("single_agent")
-        self.assertIn("attack_a", attacks)
-        self.assertIn("attack_b", attacks)
-
     def test_load_data_dir(self):
         self.manager.load_data_dir("data/")
         refs = self.manager.get_all_refs()

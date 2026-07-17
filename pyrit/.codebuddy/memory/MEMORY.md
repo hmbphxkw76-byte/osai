@@ -105,6 +105,16 @@ pyrit_ai300/          # 代码层
 - 所有 YAML 的 `surfaces` 和 `ai300_chapters` 字段
 - 52 个过时载荷（DAN/STAN/GCG 后缀/glitch token 等）
 
+## 已删除的死代码（2026-07-17 二次清理）
+- `AttackOrchestrator._execute_with_fallback()` 同步版本（约52行）
+- `AttackOrchestrator._execute_single_attack()` 同步版本（约101行）
+- `SmartMatcher.AttackMemory` 类（约100行，从未被调用）
+- `SmartMatcher.AdaptiveExplorationManager` 类（约62行，从未被调用）
+- `SmartMatcher._build_exploration_fallback()` / `record_attack_result()` / `get_memory_summary()` / `get_exploration_summary()` 方法
+- `PayloadManager.get_payloads()` / `get_all_modules()` / `get_attacks_for_module()` / `add_payload()` / `get_metadata()` 5个 legacy 兼容方法
+- `orchestrators/__init__.py` 中未使用的 `RULE_BASED_SCORERS` 导出
+- 对应测试（6个）从 174 减少到 168
+
 ## 已删除的死代码（2026-07-16）
 - `converters/`, `scorers/`, `attacks/` 整个目录（空壳）
 - `text_jailbreak_integration.py`（模板已转 YAML）
@@ -116,7 +126,7 @@ pyrit_ai300/          # 代码层
 - 载荷库: 590 个有效载荷（LLM 537 + Agentic 105）
 - Jailbreak 模板: 165 个（统一 YAML 格式）
 - 侦察工具: 2 个（Garak + DeepTeam）✅
-- 测试: 174 passed, 1 skipped
+- 测试: 168 passed, 1 skipped
 
 ## Garak 独立 venv 架构
 - **原因**：garak 0.15.1 与 pyrit 0.14.0 的 datasets 版本冲突

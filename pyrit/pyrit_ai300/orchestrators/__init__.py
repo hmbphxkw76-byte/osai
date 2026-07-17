@@ -16,7 +16,6 @@ from .component_registry import (
     SCORER_MAP,
     SPECIAL_PRESETS,
     LLM_BACKEND_SCORERS,
-    RULE_BASED_SCORERS,
     CONVERTER_NAME_MAP,
     SCORER_NAME_MAP,
 )
@@ -43,7 +42,6 @@ __all__ = [
     "SCORER_MAP",
     "SPECIAL_PRESETS",
     "LLM_BACKEND_SCORERS",
-    "RULE_BASED_SCORERS",
     "CONVERTER_NAME_MAP",
     "SCORER_NAME_MAP",
     # Attack Registry

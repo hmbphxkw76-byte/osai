@@ -148,180 +148,6 @@ ASI_STRATEGY_HINTS: Dict[str, Dict[str, Any]] = {
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 攻击记忆系统（v3.1 新增 - 借鉴 AutoRedTeamer arXiv:2503.15754）
-# ──────────────────────────────────────────────────────────────────────────────
-
-class AttackMemory:
-    """
-    攻击记忆系统：记录历史攻击效果，指导未来选择
-    
-    借鉴 AutoRedTeamer 的记忆引导攻击选择机制：
-    - 记录每次攻击的结果（成功/失败、成本）
-    - 基于历史成功率推荐最优攻击
-    - 终身学习：持续积累经验
-    """
-    
-    def __init__(self):
-        self._history: List[Dict[str, Any]] = []
-        self._category_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
-        # {payload_category: {attack_family: {"successes": N, "total": N}}}
-    
-    def record_result(
-        self,
-        payload_category: str,
-        attack_family: str,
-        success: bool,
-        cost: float = 1.0,
-    ):
-        """
-        记录攻击结果
-        
-        Args:
-            payload_category: 载荷类别
-            attack_family: 攻击探针族
-            success: 是否成功
-            cost: 攻击成本（请求次数/时间）
-        """
-        if payload_category not in self._category_stats:
-            self._category_stats[payload_category] = {}
-        if attack_family not in self._category_stats[payload_category]:
-            self._category_stats[payload_category][attack_family] = {
-                "successes": 0, "total": 0, "total_cost": 0.0
-            }
-        
-        stats = self._category_stats[payload_category][attack_family]
-        stats["total"] += 1
-        stats["total_cost"] += cost
-        if success:
-            stats["successes"] += 1
-        
-        self._history.append({
-            "category": payload_category,
-            "family": attack_family,
-            "success": success,
-            "cost": cost,
-        })
-    
-    def get_best_family(self, payload_category: str) -> Optional[str]:
-        """
-        获取某载荷类别下历史最佳攻击族
-        
-        Returns:
-            最佳攻击族名称，或 None（无足够数据）
-        """
-        if payload_category not in self._category_stats:
-            return None
-        
-        best_family = None
-        best_rate = -1.0
-        
-        for family, stats in self._category_stats[payload_category].items():
-            if stats["total"] < 2:  # 至少需要 2 次记录
-                continue
-            rate = stats["successes"] / stats["total"]
-            if rate > best_rate:
-                best_rate = rate
-                best_family = family
-        
-        return best_family if best_rate > 0.3 else None
-    
-    def get_success_rate(self, payload_category: str, attack_family: str) -> Optional[float]:
-        """获取某类别+攻击族的成功率"""
-        stats = self._category_stats.get(payload_category, {}).get(attack_family)
-        if stats and stats["total"] > 0:
-            return stats["successes"] / stats["total"]
-        return None
-    
-    @property
-    def total_records(self) -> int:
-        return len(self._history)
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """获取记忆摘要"""
-        return {
-            "total_records": len(self._history),
-            "categories": {
-                cat: {
-                    fam: {
-                        "rate": s["successes"] / max(s["total"], 1),
-                        "total": s["total"],
-                    }
-                    for fam, s in fams.items()
-                }
-                for cat, fams in self._category_stats.items()
-            },
-        }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 自适应探索管理器（v3.1 新增 - 借鉴 Active Attacks arXiv:2509.21947）
-# ──────────────────────────────────────────────────────────────────────────────
-
-class AdaptiveExplorationManager:
-    """
-    自适应探索管理器：防止攻击策略过早收敛
-    
-    借鉴 Active Attacks 的自适应环境思想：
-    - 已探索区域的奖励自然衰减
-    - 鼓励攻击者探索未充分测试的策略组合
-    - 自然形成从易到难的课程学习
-    """
-    
-    def __init__(self, decay_factor: float = 0.7, exploration_bonus: float = 1.5):
-        self._exploited_regions: Set[str] = set()
-        self._region_decay: Dict[str, float] = {}
-        self._decay_factor = decay_factor
-        self._exploration_bonus = exploration_bonus
-    
-    def compute_exploration_bonus(self, technique: str, complexity: str) -> float:
-        """
-        计算探索奖励
-        
-        Args:
-            technique: 攻击技术类别
-            complexity: 复杂度
-            
-        Returns:
-            探索奖励乘数
-        """
-        region_key = f"{technique}_{complexity}"
-        
-        if region_key in self._exploited_regions:
-            # 已探索区域给予衰减奖励
-            decay = self._region_decay.get(region_key, 1.0)
-            return 0.3 * decay
-        else:
-            # 未探索区域给予探索奖励
-            return self._exploration_bonus
-    
-    def mark_exploited(self, technique: str, complexity: str, success: bool):
-        """
-        标记区域为已探索
-        
-        Args:
-            technique: 攻击技术类别
-            complexity: 复杂度
-            success: 是否成功
-        """
-        region_key = f"{technique}_{complexity}"
-        if success:
-            self._exploited_regions.add(region_key)
-            # 成功后衰减该区域未来奖励
-            self._region_decay[region_key] = self._region_decay.get(region_key, 1.0) * self._decay_factor
-    
-    @property
-    def exploited_count(self) -> int:
-        return len(self._exploited_regions)
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """获取探索摘要"""
-        return {
-            "exploited_regions": list(self._exploited_regions),
-            "region_decay": dict(self._region_decay),
-        }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # 第一层：快速规则筛选
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -739,20 +565,15 @@ def select_preset_strategy(
 
 class SmartMatcher:
     """
-    智能匹配引擎 v3.1
+    智能匹配引擎 v3.0
 
-    职责：PayloadProfile → PyRIT 攻击策略选择（两层选择 + 记忆引导 + 自适应探索）
+    职责：PayloadProfile → PyRIT 攻击策略选择（两层选择）
     执行：由 AttackOrchestrator 调用 PyRIT 原生攻击完成
-
-    v3.1 新增：
-    - 攻击记忆系统（AttackMemory）：记录历史攻击效果，指导未来选择
-    - 自适应探索管理器（AdaptiveExplorationManager）：防止策略过早收敛
 
     使用方式：
         matcher = SmartMatcher(target_model="gpt-4")
         strategy = matcher.select_strategy(payload_profile, has_adversarial=True)
         # orchestrator 使用 strategy 构建 PyRIT 攻击并执行
-        # 执行后记录结果：matcher.record_attack_result(category, family, success)
     """
 
     def __init__(
@@ -777,10 +598,6 @@ class SmartMatcher:
         self.preferred_probe_families = preferred_probe_families or []
         self.aggression_level = aggression_level
 
-        # v3.1 新增：攻击记忆系统
-        self.attack_memory = AttackMemory()
-        self.exploration_manager = AdaptiveExplorationManager()
-
         # 自动检测目标模型的上下文窗口
         if target_model:
             for model_name, window in _get_model_context_windows().items():
@@ -794,7 +611,7 @@ class SmartMatcher:
         converter_presets: Optional[Dict[str, List[str]]] = None,
     ) -> Dict[str, Any]:
         """
-        为单个 payload 选择最优 PyRIT 攻击策略（两层选择 + 记忆引导 + 自适应探索 + 侦察驱动）
+        为单个 payload 选择最优 PyRIT 攻击策略（两层选择 + 侦察驱动）
 
         Args:
             profile: PayloadProfile 实例
@@ -803,7 +620,7 @@ class SmartMatcher:
         Returns:
             攻击配置字典
         """
-        # 基础两层策略选择（含侦察推荐）
+        # 两层策略选择（含侦察推荐）
         strategy = select_attack_strategy(
             profile=profile,
             target_model=self.target_model,
@@ -812,88 +629,8 @@ class SmartMatcher:
             preferred_probe_families=self.preferred_probe_families,
             aggression_level=self.aggression_level,
         )
-        
-        # v3.1 新增：记忆引导优化
-        category = profile.primary_category
-        memory_best = self.attack_memory.get_best_family(category)
-        if memory_best and memory_best != strategy["family"]:
-            # 历史记忆推荐不同策略，且有足够数据支持
-            rate = self.attack_memory.get_success_rate(category, memory_best)
-            if rate and rate > 0.4:
-                # 切换到历史最佳策略
-                strategy["family"] = memory_best
-                strategy["class"] = FAMILY_ATTACK_CLASS_MAP.get(memory_best, strategy["class"])
-                strategy["reason"] += f" | 记忆引导: 历史成功率 {rate:.0%}"
-        
-        # v3.1 新增：自适应探索奖励
-        exploration_bonus = self.exploration_manager.compute_exploration_bonus(
-            profile.technique, profile.complexity
-        )
-        if exploration_bonus > 1.0:
-            # 未探索区域，给予探索奖励（增加备选策略）
-            strategy["reason"] += f" | 探索奖励: {exploration_bonus:.1f}x"
-            # 低置信度时增加更多备选
-            if profile.needs_multi_strategy:
-                extra_fallback = self._build_exploration_fallback(profile)
-                strategy.setdefault("fallback_chain", []).extend(extra_fallback)
-        
+
         return strategy
-    
-    def _build_exploration_fallback(self, profile: Any) -> List[Dict[str, Any]]:
-        """构建探索性备选策略"""
-        fallbacks = []
-        # 尝试未使用的攻击族
-        all_families = [
-            AttackProbeFamily.PROGRESSIVE,
-            AttackProbeFamily.TREE_SEARCH,
-            AttackProbeFamily.ITERATIVE,
-        ]
-        for family in all_families:
-            if family != profile.technique:
-                attack_class = FAMILY_ATTACK_CLASS_MAP.get(family)
-                if attack_class:
-                    fallbacks.append({
-                        "class": attack_class,
-                        "family": family,
-                        "params": {},
-                        "reason": f"探索备选: {family}",
-                    })
-                    if len(fallbacks) >= 2:
-                        break
-        return fallbacks
-    
-    def record_attack_result(
-        self,
-        payload_category: str,
-        attack_family: str,
-        success: bool,
-        cost: float = 1.0,
-    ):
-        """
-        记录攻击结果（v3.1 新增）
-        
-        在每次攻击执行后调用，更新记忆系统和探索状态。
-        
-        Args:
-            payload_category: 载荷类别
-            attack_family: 攻击探针族
-            success: 是否成功
-            cost: 攻击成本
-        """
-        self.attack_memory.record_result(payload_category, attack_family, success, cost)
-        # 更新探索状态
-        # 注意：technique 和 complexity 需要从 payload 获取，这里简化处理
-        self.exploration_manager.mark_exploited(
-            payload_category, "moderate", success
-        )
-    
-    def get_memory_summary(self) -> Dict[str, Any]:
-        """获取记忆摘要"""
-        return self.attack_memory.get_summary()
-    
-    def get_exploration_summary(self) -> Dict[str, Any]:
-        """获取探索摘要"""
-        return self.exploration_manager.get_summary()
 
     def select_preset_strategy(
         self,
