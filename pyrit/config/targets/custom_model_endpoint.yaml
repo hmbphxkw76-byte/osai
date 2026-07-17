@@ -3,7 +3,7 @@
 target:
   name: "custom_model_endpoint"
   type: "ollama"
-  description: "Remote Ollama Qwen3 (LAN)"
+  description:  Ollama Endpoint"
 
   # ── 连接配置（切换目标时必改） ──
   connection:

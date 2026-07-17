@@ -255,7 +255,7 @@ Examples:
     # Setup logging
     log_level = "DEBUG" if getattr(args, "verbose", False) else "INFO"
     logger = setup_logger(level=log_level)
-    
+
     if args.command == "owasp":
         _run_owasp(args, logger)
     elif args.command == "list":
@@ -265,7 +265,319 @@ Examples:
     elif args.command == "recon":
         _run_recon(args, logger)
     else:
-        parser.print_help()
+        # 无子命令时启动专家引导向导
+        _run_wizard(logger)
+
+
+def _run_wizard(logger):
+    """
+    专家引导向导（无子命令时自动启动）
+
+    引导用户逐步完成：
+    1. 选择目标（config/targets/ 目录）
+    2. 选择攻击范围（OWASP scope）
+    3. 设置攻击目标（objective）
+    4. 确认并执行
+    """
+    from pathlib import Path
+
+    targets_dir = Path("config/targets")
+
+    print()
+    print("=" * 60)
+    print("  AI-300 红队评估框架 - 专家引导模式")
+    print("=" * 60)
+    print()
+
+    # ── 步骤 1：选择目标 ──
+    while True:
+        if not targets_dir.exists() or not targets_dir.is_dir():
+            print(f"  ✗ 目标配置目录不存在: {targets_dir}")
+            print(f"    请创建该目录并添加目标 YAML 配置文件")
+            return
+
+        yaml_files = sorted(targets_dir.glob("*.yaml"))
+        if not yaml_files:
+            print(f"  ✗ 目标配置目录为空: {targets_dir}")
+            print(f"    请添加目标 YAML 配置文件")
+            return
+
+        print("  [步骤 1/3] 选择攻击目标")
+        print("  " + "─" * 40)
+        for idx, yf in enumerate(yaml_files, 1):
+            print(f"    {idx}. {yf.name}")
+        print()
+        print(f"    输入 1-{len(yaml_files)} 选择目标，输入 q 退出")
+        print()
+
+        try:
+            choice = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已取消")
+            return
+
+        if choice.lower() == "q":
+            print("  已退出")
+            return
+
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(yaml_files):
+                selected_target = str(yaml_files[idx - 1])
+                print(f"\n  ✓ 已选择: {yaml_files[idx - 1].name}")
+                break
+            else:
+                print(f"  ✗ 无效选择，请输入 1-{len(yaml_files)}")
+        except ValueError:
+            print("  ✗ 请输入数字")
+        print()
+
+    # ── 步骤 2：选择攻击范围 ──
+    print()
+    print("  [步骤 2/3] 选择攻击范围")
+    print("  " + "─" * 40)
+    print("    1. llm01  - 提示注入（Prompt Injection）")
+    print("    2. llm02  - 敏感信息泄露（Sensitive Info Disclosure）")
+    print("    3. llm03  - 供应链攻击（Supply Chain）")
+    print("    4. llm04  - 数据与模型投毒（Data & Model Poisoning）")
+    print("    5. llm05  - 不当输出处理（Improper Output Handling）")
+    print("    6. llm06  - 过度代理（Excessive Agency）")
+    print("    7. llm07  - 系统提示泄露（System Prompt Leakage）")
+    print("    8. llm08  - 向量与嵌入弱点（Vector & Embedding Weaknesses）")
+    print("    9. llm09  - 错误信息误导（Misinformation）")
+    print("    10. llm10 - 无边界消费（Unbounded Consumption）")
+    print("    11. asi01  - 代理劫持（Agent Hijacking）")
+    print("    12. asi02  - 工具滥用（Tool Misuse）")
+    print("    13. asi03  - 身份欺骗（Identity Spoofing）")
+    print("    14. asi04  - 数据泄露（Data Exfiltration）")
+    print("    15. asi05  - 权限提升（Privilege Escalation）")
+    print("    16. asi06  - 通信破坏（Communication Disruption）")
+    print("    17. asi07  - 目标混淆（Goal Divergence）")
+    print("    18. asi08  - 记忆操纵（Memory Manipulation）")
+    print("    19. asi09  - 状态篡改（State Tampering）")
+    print("    20. asi10  - 协作攻击（Collaborative Attack）")
+    print("    21. llm    - 全部 LLM Top 10")
+    print("    22. agentic - 全部 Agentic Top 10")
+    print("    23. all    - 全部 20 项")
+    print()
+    print("    输入 1-23 选择范围，输入 q 退出")
+    print()
+
+    scope_map = {
+        1: "llm01", 2: "llm02", 3: "llm03", 4: "llm04", 5: "llm05",
+        6: "llm06", 7: "llm07", 8: "llm08", 9: "llm09", 10: "llm10",
+        11: "asi01", 12: "asi02", 13: "asi03", 14: "asi04", 15: "asi05",
+        16: "asi06", 17: "asi07", 18: "asi08", 19: "asi09", 20: "asi10",
+        21: "llm", 22: "agentic", 23: "all",
+    }
+
+    while True:
+        try:
+            choice = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已取消")
+            return
+
+        if choice.lower() == "q":
+            print("  已退出")
+            return
+
+        try:
+            idx = int(choice)
+            if idx in scope_map:
+                selected_scope = scope_map[idx]
+                print(f"\n  ✓ 已选择: {selected_scope}")
+                break
+            else:
+                print(f"  ✗ 无效选择，请输入 1-23")
+        except ValueError:
+            print("  ✗ 请输入数字")
+        print()
+
+    # ── 步骤 3：选择攻击载荷配置 ──
+    import yaml
+    from pathlib import Path
+
+    placeholders_dir = Path("config/placeholders") / selected_scope
+    yaml_files = sorted(placeholders_dir.glob("*.yaml")) if placeholders_dir.exists() else []
+
+    # 预加载每个文件的摘要信息
+    file_summaries = []
+    for yf in yaml_files:
+        try:
+            with open(yf, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            obj = data.get("objective", [])
+            if isinstance(obj, list):
+                obj_preview = obj[0] if obj else None
+            else:
+                obj_preview = str(obj) if obj else None
+            # 提取非 objective 的占位符键名
+            other_keys = [k for k in data if k != "objective" and data[k]]
+            file_summaries.append({
+                "file": yf,
+                "data": data,
+                "objective_preview": obj_preview,
+                "has_objective": bool(obj),
+                "placeholders": other_keys,
+            })
+        except Exception:
+            file_summaries.append({
+                "file": yf,
+                "data": {},
+                "objective_preview": None,
+                "has_objective": False,
+                "placeholders": [],
+            })
+
+    print()
+    print("  [步骤 3/3] 选择攻击载荷配置")
+    print("  " + "─" * 40)
+
+    if yaml_files:
+        print(f"    发现 {len(yaml_files)} 个预配置攻击载荷:")
+        print()
+        for idx, summary in enumerate(file_summaries, 1):
+            fname = summary["file"].stem
+            obj = summary["objective_preview"]
+            ph = summary["placeholders"]
+            if obj:
+                if len(obj) > 45:
+                    obj = obj[:42] + "..."
+                print(f"    {idx}. {fname}")
+                print(f"       目标: {obj}")
+            elif ph:
+                # 无目标但有占位符 — 显示提供的参数
+                ph_preview = ", ".join(ph[:4])
+                if len(ph) > 4:
+                    ph_preview += f" +{len(ph)-4}"
+                print(f"    {idx}. {fname}")
+                print(f"       参数: {ph_preview}")
+            else:
+                print(f"    {idx}. {fname}")
+            print()
+        print("    输入编号选择载荷，按 Enter 跳过（使用载荷文本本身）")
+        print("    输入 c 自定义目标，输入 q 退出")
+        print()
+    else:
+        print(f"    目录 config/placeholders/{selected_scope}/ 无预配置载荷")
+        print("    输入攻击目标文本（如 whoami），按 Enter 跳过，输入 q 退出")
+        print()
+
+    try:
+        choice = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if choice.lower() == "q":
+        print("  已退出")
+        return
+
+    selected_objective = None
+    selected_placeholders = None
+    selected_config_name = None
+
+    if not choice and yaml_files:
+        # 跳过 — 使用载荷文本本身
+        print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
+    elif choice.lower() == "c" and yaml_files:
+        # 自定义目标
+        try:
+            custom_obj = input("    输入自定义目标: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已取消")
+            return
+        if custom_obj:
+            selected_objective = custom_obj
+            selected_config_name = "自定义"
+            print(f"  ✓ 自定义目标: '{custom_obj}'")
+        else:
+            print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
+    elif choice.isdigit() and yaml_files:
+        idx = int(choice)
+        if 1 <= idx <= len(file_summaries):
+            summary = file_summaries[idx - 1]
+            selected_config_name = summary["file"].stem
+            data = summary["data"]
+            obj = data.get("objective", [])
+            if isinstance(obj, list) and obj:
+                selected_objective = obj[0]  # 取第一个目标
+                # 其余目标存入 placeholders 供后续扩展
+                selected_placeholders = {k: v for k, v in data.items() if k != "objective" and v}
+            elif obj:
+                selected_objective = str(obj)
+                selected_placeholders = {k: v for k, v in data.items() if k != "objective" and v}
+            print(f"  ✓ 已选择: {selected_config_name}")
+            print(f"    目标: {selected_objective}")
+            if selected_placeholders:
+                print(f"    占位符: {', '.join(selected_placeholders.keys())}")
+        else:
+            print("  ✗ 无效选择，将使用载荷文本本身")
+    elif not yaml_files:
+        # 无预配置目录，直接作为自定义目标
+        if choice:
+            selected_objective = choice
+            selected_config_name = "自定义"
+            print(f"  ✓ 攻击目标: '{choice}'")
+        else:
+            print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
+    else:
+        print("  ✗ 无效输入，将使用载荷文本本身")
+
+    # ── 确认并执行 ──
+    print()
+    print("  " + "=" * 40)
+    print("  执行确认")
+    print("  " + "=" * 40)
+    print(f"    目标文件: {selected_target}")
+    print(f"    攻击范围: {selected_scope}")
+    if selected_config_name:
+        print(f"    载荷配置: {selected_config_name}")
+    print(f"    攻击目标: {selected_objective or '（使用载荷文本）'}")
+    print()
+    print("    输入 y 开始执行，输入 n 取消")
+    print()
+
+    try:
+        confirm = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if confirm != "y":
+        print("  已取消")
+        return
+
+    print()
+    print("  🚀 开始执行...")
+    print()
+
+    # 构建参数命名空间并执行
+    import argparse
+    exec_args = argparse.Namespace(
+        command="owasp",
+        scope=selected_scope,
+        target_file=selected_target,
+        target_dir=None,
+        target_url=None,
+        output=None,
+        format="markdown",
+        profile=None,
+        model=None,
+        objective=selected_objective,
+        placeholders=selected_placeholders,
+        list_placeholders=False,
+        no_prompt=False,
+        placeholder_file=None,
+        experiment=None,
+        auto_recon=False,
+        scorer_url=None,
+        scorer_key=None,
+        scorer_model=None,
+        verbose=False,
+    )
+    _run_owasp(exec_args, logger)
 
 
 def _resolve_targets(args):
@@ -908,9 +1220,9 @@ def _run_owasp(args, logger):
         if args.placeholders:
             placeholders.update(_parse_placeholders(args.placeholders))
         objective = placeholders.get("objective", "")
-    elif placeholder_file:
+    elif args.placeholder_file:
         # 加载 --placeholder-file（如果指定，向后兼容）
-        file_placeholders = load_placeholder_file(placeholder_file)
+        file_placeholders = load_placeholder_file(args.placeholder_file)
         # CLI 参数优先级高于文件
         if objective:
             file_placeholders["objective"] = objective
@@ -943,8 +1255,8 @@ def _run_owasp(args, logger):
             print(f"      缺失参数 ({len(missing)} 个): {', '.join(missing_labels)}")
             if experiment_arg:
                 print(f"      请编辑 {experiment_config['config_path']} 补齐以下字段: {', '.join(missing)}")
-            elif placeholder_file:
-                print(f"      请编辑 {placeholder_file} 补齐以下字段: {', '.join(missing)}")
+            elif args.placeholder_file:
+                print(f"      请编辑 {args.placeholder_file} 补齐以下字段: {', '.join(missing)}")
             else:
                 print(f"      请编辑 config/placeholders/{args.scope}/ 下的配置文件")
             if not getattr(args, "no_prompt", False):
@@ -954,7 +1266,7 @@ def _run_owasp(args, logger):
             logger.info("ℹ️  %d 个未使用的占位符已自动忽略: %s", len(extra), ", ".join(extra))
 
     # 3. 交互式占位符提示（除非 --no-prompt 或无配置）
-    if not getattr(args, "no_prompt", False) and not experiment_arg and not placeholder_file and not auto_placeholders:
+    if not getattr(args, "no_prompt", False) and not experiment_arg and not args.placeholder_file and not auto_placeholders:
         objective, placeholders = _interactive_prompt_placeholders(args, logger)
     else:
         # --no-prompt 模式下仍解析 --placeholders
