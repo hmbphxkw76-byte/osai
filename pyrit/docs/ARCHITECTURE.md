@@ -49,6 +49,7 @@
 | **数据驱动** | 攻击载荷、目标配置、评分规则全部从 YAML 配置加载 |
 | **全流程自动化** | 修改载荷后，侦察→攻击→评分→报告生成全程无需人工干预 |
 | **考试对齐** | 覆盖 AI-300 全部 Module，OWASP LLM Top 10 + Agentic Top 10 |
+| **config 为唯一配置源** | 所有策略配置在 config/ 目录，代码不含硬编码字典 |
 
 ### 1.3 数据流
 
@@ -73,11 +74,14 @@
 │    ▼                                                                  │
 │  TargetProfile JSON → results/recon/profile_<timestamp>.json          │
 │                                                                       │
-│  ② 攻击流程（run 命令）                                                │
+│  ② 攻击流程（owasp 命令）                                              │
 │  ────────────────────────                                             │
 │  AI300Engine.run()                                                   │
 │    ├── ProfileLoader.load(profile.json) ──→ SmartMatcher 参数         │
-│    ├── 遍历 7 个 Module                                               │
+│    ├── 从 config/attack/defaults.yaml 加载默认转换器/评分器            │
+│    ├── AttackOrchestrator.build_attack_list_from_refs()              │
+│    │     └── 从 OWASP ref 构建攻击列表                                │
+│    ├── 遍历攻击列表                                                   │
 │    │     └── AttackOrchestrator.execute_attack()                     │
 │    │           ├── SmartMatcher → PyRIT 攻击策略选择                  │
 │    │           ├── PyRIT 原生攻击执行                                  │
@@ -371,24 +375,19 @@ max_turns = 5 + complexity_score + token_factor
 data/
 ├── owasp/                        ← 载荷唯一真相源
 │   ├── llm/                      ← LLM01-LLM10
-│   │   ├── llm01.yaml            ← 顶层聚合（含 surfaces/chapters 元数据）
-│   │   ├── llm01/                ← 子目录（直接扫描）
-│   │   │   ├── direct_injection.yaml  (surfaces: [agent], ai300_chapters: [Ch3])
+│   │   ├── llm01/                ← 子目录（多级扫描）
+│   │   │   ├── direct_injection.yaml
+│   │   │   ├── jailbreak/        ← 多级子目录支持
+│   │   │   │   ├── aim.yaml
+│   │   │   │   └── ...
 │   │   │   └── ...
 │   │   └── ...
 │   ├── agentic/                  ← ASI01-ASI10
-│   ├── _registry.core.yaml       ← 含 surfaces_index 交叉引用
-│   └── _template.yaml            ← 含 surfaces/chapters 模板
-├── recon_templates/              ← 侦察探测模板
-│   ├── system_prompt.yaml
-│   ├── capability.yaml
-│   └── boundary.yaml
-└── surfaces/                     ← 攻击面分析文档（可选，可安全删除）
-    ├── README.md
-    ├── rag.md
-    ├── mcp.md
-    ├── agent.md
-    └── embedding.md
+│   └── recon_templates/          ← 侦察探测模板
+│       ├── system_prompt.yaml
+│       ├── capability.yaml
+│       └── boundary.yaml
+└── recon_templates/              ← 侦察探测模板（根目录）
 ```
 
 ### 7.2 元数据规范
@@ -396,12 +395,17 @@ data/
 每个 payload YAML 文件**必须**包含：
 
 ```yaml
-owasp: LLM04                      # OWASP 类别
-technique_group: rag_poisoning    # 技术组
-surfaces: [rag, agent]            # 攻击面（agent/rag/mcp/embedding）
-ai300_chapters: [Ch5]             # AI-300 考试章节
+id: llm01                         # OWASP 分类标识
+name: Prompt Injection            # 人类可读名称
+description: 直接提示注入         # 攻击原理描述
 payloads: [...]                   # 载荷列表
 ```
+
+**架构约束**：
+- OWASP ID 隐含攻击面，不存储 `surfaces` 和 `ai300_chapters` 字段
+- surfaces 由侦察阶段动态生成（TargetProfile.surfaces）
+- AI-300 章节由 `reporting/chapter_mapper.py` 动态推导
+- 多级子目录扫描（`rglob`），有子目录时顶层 YAML 不加载
 
 ---
 
@@ -410,18 +414,16 @@ payloads: [...]                   # 载荷列表
 ### 8.1 目录结构
 
 ```
-pyrit_ai300/                      # 代码层（纯框架引擎）
+pyrit_ai300/                      # 代码层（纯执行引擎）
 ├── reconnaissance/               #   侦察引擎（完全独立，不 import attack/）
 │   ├── recon_engine.py           #   统一调度入口
 │   ├── target_profile.py         #   TargetProfile 数据模型（唯一接口契约）
 │   ├── profile_merger.py         #   多工具结果合并
-│   ├── adapters/                 #   薄壳适配器（每个 ≤150 行）
+│   ├── adapters/                 #   薄壳适配器
 │   │   ├── base_adapter.py       #   抽象基类
 │   │   ├── garak_adapter.py      #   → import garak
 │   │   └── deepteam_adapter.py   #   → import deepteam
-│   └── utils/
-│       ├── http_client.py        #   HTTP 客户端
-│       └── result_parser.py      #   结果解析器
+│   └── utils/                    #   工具函数
 ├── attack/                       #   攻击引擎扩展
 │   ├── profile_loader.py         #   读 TargetProfile → SmartMatcher 参数
 │   └── __init__.py
@@ -430,16 +432,21 @@ pyrit_ai300/                      # 代码层（纯框架引擎）
 │   ├── smart_matcher.py         #   PyRIT 攻击策略选择
 │   ├── attack_registry.py       #   攻击元数据注册表
 │   ├── component_registry.py    #   PyRIT 组件映射（CONVERTER_MAP / SCORER_MAP）
-│   └── rate_controller.py       #   速率控制
+│   ├── rate_controller.py       #   速率控制
+│   └── auth/                    #   认证配置解析
 ├── payloads/                     #   载荷管理
-│   └── payload_manager.py       #   载荷加载/分类/渲染
+│   ├── payload_manager.py       #   载荷加载/分类/渲染
+│   ├── models.py                #   PayloadProfile 数据模型
+│   ├── normalizer.py            #   载荷标准化
+│   ├── patterns.py              #   攻击分类模式
+│   └── payload_classifier.py    #   载荷分类器
 ├── pipeline/                     #   流水线追踪
 │   └── tracker.py               #   执行追踪 + 终端输出
 ├── reporting/                    #   报告生成
 │   ├── report_generator.py      #   评估报告生成
-│   └── execution_report.py      #   执行报告保存
-├── tests/                        #   单元测试
-│   └── test_recon/              #   侦察测试（46 tests）
+│   ├── execution_report.py      #   执行报告保存
+│   └── chapter_mapper.py        #   OWASP ID → AI-300 章节映射
+├── tests/                        #   单元测试（168 tests）
 ├── utils/                        #   工具函数
 │   └── logger.py                #   日志配置
 ├── __init__.py                   #   AI300Engine 入口
@@ -450,12 +457,9 @@ pyrit_ai300/                      # 代码层（纯框架引擎）
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| TargetProfile | 13 | 数据模型、序列化、OWASP 映射 |
-| ReconEngine | 7 | 调度、并发、配置加载 |
-| Adapters | 16 | Garak/DeepTeam 适配器 + 映射 |
-| ProfileLoader | 7 | TargetProfile → SmartMatcher 参数 |
-| ProfileMerger | 26 | 去重、加权、风险计算、攻击建议 |
-| **总计** | **174+** | **全部通过** |
+| Framework | 107 | 编排器、载荷管理、SmartMatcher、报告 |
+| Recon | 64 | 侦察引擎、适配器、ProfileMerger |
+| **总计** | **168** | **全部通过** |
 
 ---
 
@@ -492,8 +496,7 @@ pyrit/                    # PyRIT 框架（独立安装）
 1. 安装框架：`pip install -e .`（无网络环境见 [`OFFLINE_INSTALL.md`](./OFFLINE_INSTALL.md)）
 2. 安装侦察工具：`pip install -e ".[recon]"`
 3. 配置目标：编辑 `config/targets/` 下的 YAML 文件
-4. 准备载荷：编辑 `config/catalog/catalog.yaml`
-5. 验证配置：`ai300 list modules`
+4. 验证配置：`ai300 list owasp`
 
 ### 10.2 考试中执行
 
@@ -501,14 +504,20 @@ pyrit/                    # PyRIT 框架（独立安装）
 # 侦察目标
 ai300 recon -t http://target:11434 -d quick
 
-# 运行指定 Module（使用侦察结果）
-ai300 run -m single_agent --profile results/recon/profile_xxx.json
+# OWASP 标准攻击（单目标）
+ai300 owasp llm01 --target-file config/targets/ollama_local.yaml
 
-# 自动侦察 + 攻击
-ai300 run -m single_agent --auto-recon
+# 先侦察再攻击
+ai300 owasp llm01 --target-url http://target.com --auto-recon
 
-# 运行全部 Module
-ai300 run
+# 使用侦察生成的 profile
+ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --profile results/recon/profile.json
+
+# 全量 LLM Top 10 攻击
+ai300 owasp llm --target-file config/targets/ollama_local.yaml
+
+# 全量攻击 + HTML 报告
+ai300 owasp all --target-file config/targets/ollama_local.yaml --format html -o report.html
 
 # 生成报告
 ai300 report -r results.json -o report.md

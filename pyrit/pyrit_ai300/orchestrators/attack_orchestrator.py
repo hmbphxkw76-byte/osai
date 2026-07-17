@@ -270,11 +270,17 @@ class AttackOrchestrator:
     # 评分器配置目录（多文件模式：config/scores/*.yaml）
     SCORER_CONFIG_PATH = "config/scores/"
 
+    # 攻击默认配置（转换器/评分器/ASI映射）
+    ATTACK_DEFAULTS_PATH = "config/attack/defaults.yaml"
+
     # 数据目录路径（payload_refs 解析用）
     DATA_DIR = "data"
 
     # 类级别 PayloadManager 实例（共享缓存）
     _payload_manager: Optional[Any] = None
+
+    # 类级别攻击默认配置缓存
+    _attack_defaults_cache: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
@@ -315,6 +321,21 @@ class AttackOrchestrator:
             AttackOrchestrator._payload_manager = PayloadManager()
             AttackOrchestrator._payload_manager.load_data_dir(self._data_dir)
         self._payload_mgr = AttackOrchestrator._payload_manager
+
+    @classmethod
+    def _load_attack_defaults(cls) -> Dict[str, Any]:
+        """加载攻击默认配置（类级别缓存）"""
+        if cls._attack_defaults_cache is not None:
+            return cls._attack_defaults_cache
+
+        path = Path(cls.ATTACK_DEFAULTS_PATH)
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                cls._attack_defaults_cache = yaml.safe_load(f) or {}
+        else:
+            logger.warning("Attack defaults config not found: %s", path)
+            cls._attack_defaults_cache = {}
+        return cls._attack_defaults_cache
 
     def resolve_payload_refs(self, refs: List[str]) -> List[str]:
         """解析 payload_refs 为实际载荷列表"""
@@ -646,29 +667,7 @@ class AttackOrchestrator:
                 logger.warning("Unknown converter: %s", name)
         return converters
 
-    # ASI 类别 → 评分器类型自动映射（SmartMatcher 内部决策）
-    _ASI_SCORER_MAP: Dict[str, str] = {
-        "ASI01": "refusal",
-        "ASI02": "true_false",
-        "ASI03": "category",
-        "ASI04": "true_false",
-        "ASI05": "substring",
-        "ASI06": "refusal",
-        "ASI07": "true_false",
-        "ASI08": "category",
-        "ASI09": "refusal",
-        "ASI10": "category",
-        "LLM01": "refusal",
-        "LLM02": "refusal",
-        "LLM03": "true_false",
-        "LLM04": "substring",
-        "LLM05": "category",
-        "LLM06": "true_false",
-        "LLM07": "substring",
-        "LLM08": "category",
-        "LLM09": "refusal",
-        "LLM10": "true_false",
-    }
+    # ASI 类别 → 评分器类型自动映射（从 config/attack/defaults.yaml 加载）
 
     def build_scorers(
         self,
@@ -702,7 +701,9 @@ class AttackOrchestrator:
             else:
                 scorer_type = config.get("name", "")
         elif asi_category:
-            scorer_type = self._ASI_SCORER_MAP.get(asi_category, "refusal")
+            defaults = self._load_attack_defaults()
+            asi_map = defaults.get("asi_scorer_map", {})
+            scorer_type = asi_map.get(asi_category, "refusal")
 
         if not scorer_type:
             logger.debug("No scorer type determined, skipping scorer creation")
@@ -1522,52 +1523,10 @@ class AttackOrchestrator:
         Returns:
             攻击配置列表
         """
-        # OWASP ID → 默认转换器/评分器映射
-        _DEFAULT_CONVERTERS = {
-            "llm01": ["base64", "rot13", "unicode_confusable", "leetspeak", "ascii_smuggler", "zero_width", "diacritic"],
-            "llm02": ["base64"],
-            "llm03": ["malicious_question_generator"],
-            "llm04": ["add_text_image", "word_doc"],
-            "llm05": ["malicious_question_generator"],
-            "llm06": ["persuasion", "variation"],
-            "llm07": ["translation", "persuasion"],
-            "llm08": ["base64"],
-            "llm09": ["persuasion"],
-            "llm10": ["base64"],
-            "asi01": ["base64", "rot13", "unicode_confusable", "leetspeak", "persuasion", "ascii_smuggler", "zero_width", "diacritic"],
-            "asi02": ["add_text_image", "pdf"],
-            "asi03": ["persuasion", "unicode_confusable"],
-            "asi04": ["malicious_question_generator"],
-            "asi05": ["malicious_question_generator", "ascii_smuggler"],
-            "asi06": ["persuasion", "variation"],
-            "asi07": ["persuasion", "translation"],
-            "asi08": ["malicious_question_generator"],
-            "asi09": ["persuasion"],
-            "asi10": ["persuasion", "malicious_question_generator"],
-        }
-
-        _DEFAULT_SCORERS = {
-            "llm01": ["refusal", "substring"],
-            "llm02": ["true_false"],
-            "llm03": ["true_false"],
-            "llm04": ["true_false"],
-            "llm05": ["refusal", "true_false"],
-            "llm06": ["true_false", "substring"],
-            "llm07": ["refusal", "true_false"],
-            "llm08": ["substring"],
-            "llm09": ["refusal"],
-            "llm10": ["true_false"],
-            "asi01": ["refusal", "substring"],
-            "asi02": ["refusal", "true_false"],
-            "asi03": ["refusal", "true_false"],
-            "asi04": ["refusal", "true_false"],
-            "asi05": ["refusal", "true_false"],
-            "asi06": ["true_false", "substring"],
-            "asi07": ["refusal", "true_false"],
-            "asi08": ["true_false", "substring"],
-            "asi09": ["refusal", "true_false"],
-            "asi10": ["refusal", "true_false"],
-        }
+        # 从 config/attack/defaults.yaml 加载 OWASP ID → 默认转换器/评分器映射
+        defaults = cls._load_attack_defaults()
+        default_converters = defaults.get("default_converters", {})
+        default_scorers = defaults.get("default_scorers", {})
 
         attacks = []
         for ref in refs:
@@ -1576,8 +1535,8 @@ class AttackOrchestrator:
                 continue
 
             owasp_id = data.get("id", ref.split(":")[-1]).lower()
-            converters = _DEFAULT_CONVERTERS.get(owasp_id, ["base64"])
-            scorers = _DEFAULT_SCORERS.get(owasp_id, ["refusal"])
+            converters = default_converters.get(owasp_id, ["base64"])
+            scorers = default_scorers.get(owasp_id, ["refusal"])
 
             scorer_configs = []
             for sname in scorers:

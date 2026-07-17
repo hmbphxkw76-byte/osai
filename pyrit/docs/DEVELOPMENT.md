@@ -115,7 +115,7 @@ vulture pyrit_ai300/ --min-confidence 80
 | ASI03, ASI08, ASI10, LLM05, LLM08 | category | 身份滥用/级联失败 → 多类别判断 |
 | ASI05, LLM04, LLM07 | substring | 代码执行/RAG → 检测 system prompt 泄露 |
 
-**外部 LLM 评分器配置**（`config/scores.yaml`）：
+**外部 LLM 评分器配置**（`config/scores/` 目录，每后端一个 YAML）：
 
 ```yaml
 scorer_llm_backends:

@@ -1128,7 +1128,8 @@ def _list_components(args, logger):
         for scorer_name in SCORER_MAP:
             print(f"    - {scorer_name}")
         print(f"\nASI Auto-Selection Map:")
-        for asi, scorer_type in sorted(AttackOrchestrator._ASI_SCORER_MAP.items()):
+        asi_map = AttackOrchestrator._load_attack_defaults().get("asi_scorer_map", {})
+        for asi, scorer_type in sorted(asi_map.items()):
             print(f"    {asi} → {scorer_type}")
         print(f"\nDefault LLM Backend: local_ollama (qwen3:0.6b @ http://localhost:11434/v1)")
         print(f"Override with: --scorer-url / --scorer-key / --scorer-model")

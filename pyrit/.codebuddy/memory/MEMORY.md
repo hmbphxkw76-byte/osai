@@ -105,6 +105,21 @@ pyrit_ai300/          # 代码层
 - 所有 YAML 的 `surfaces` 和 `ai300_chapters` 字段
 - 52 个过时载荷（DAN/STAN/GCG 后缀/glitch token 等）
 
+## 配置迁移（2026-07-17 三次清理）
+- **目标**：config 目录成为唯一配置源，代码中不再硬编码策略配置
+- **新建文件**：`config/attack/defaults.yaml`（3个配置块）
+  - `default_converters`：20 个 OWASP ID → 转换器列表
+  - `default_scorers`：20 个 OWASP ID → 评分器列表
+  - `asi_scorer_map`：20 个 ASI/LLM 类别 → 评分器类型
+- **删除硬编码**：
+  - `AttackOrchestrator._DEFAULT_CONVERTERS`（~22行）
+  - `AttackOrchestrator._DEFAULT_SCORERS`（~22行）
+  - `AttackOrchestrator._ASI_SCORER_MAP`（~22行类属性）
+- **新增方法**：`AttackOrchestrator._load_attack_defaults()`（类级别缓存加载）
+- **修改方法**：`build_attack_list_from_refs` / `build_scorers` / `cli.py` 信息展示
+- **净减代码**：约 50 行硬编码 → 1 个 YAML 文件 + 5 行加载逻辑
+- **测试**：168 passed, 1 skipped（无回归）
+
 ## 已删除的死代码（2026-07-17 二次清理）
 - `AttackOrchestrator._execute_with_fallback()` 同步版本（约52行）
 - `AttackOrchestrator._execute_single_attack()` 同步版本（约101行）

@@ -152,12 +152,12 @@ ADVERSARIAL_SUFFIX_PATTERN = re.compile(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 扩展模式：从 config/patterns.yaml 加载
+# 扩展模式：从 config/attack/patterns.yaml 加载
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _load_yaml_patterns() -> Dict[str, List[Tuple[str, float]]]:
     """
-    从 config/patterns.yaml 加载扩展模式
+    从 config/attack/patterns.yaml 加载扩展模式
 
     YAML 结构：顶层为类别名，每个类别下为 pattern/confidence/description 条目列表
 
@@ -169,7 +169,7 @@ def _load_yaml_patterns() -> Dict[str, List[Tuple[str, float]]]:
 
     import pathlib
     project_root = pathlib.Path(__file__).resolve().parent.parent.parent
-    yaml_path = project_root / "config" / "patterns.yaml"
+    yaml_path = project_root / "config" / "attack" / "patterns.yaml"
 
     if not yaml_path.exists():
         logger.debug("patterns.yaml not found at %s, using code-only patterns", yaml_path)
@@ -281,7 +281,7 @@ def get_loaded_pattern_info() -> Dict[str, Any]:
     """
     import pathlib
     project_root = pathlib.Path(__file__).resolve().parent.parent.parent
-    yaml_path = project_root / "config" / "patterns.yaml"
+    yaml_path = project_root / "config" / "attack" / "patterns.yaml"
 
     yaml_loaded = bool(_YAML_PATTERNS)
 
