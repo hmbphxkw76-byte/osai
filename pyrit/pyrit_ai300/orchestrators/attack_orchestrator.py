@@ -436,8 +436,13 @@ class AttackOrchestrator:
     def build_converters(
         self,
         converter_configs: List[Dict[str, Any]],
-    ) -> List[PromptConverter]:
-        """根据配置列表构建转换器链"""
+    ) -> List[PromptConverterConfiguration]:
+        """
+        根据配置列表构建转换器配置（PyRIT 0.14.0 兼容）
+
+        Returns:
+            List[PromptConverterConfiguration] - AttackConverterConfig 需要的格式
+        """
         converters = []
         for config in converter_configs:
             name = config.get("name") if isinstance(config, dict) else config
@@ -450,7 +455,9 @@ class AttackOrchestrator:
             converter_class = CONVERTER_MAP.get(name)
             if converter_class:
                 try:
-                    converters.append(converter_class(**params))
+                    # PyRIT 0.14.0: 包装为 PromptConverterConfiguration
+                    converter_instance = converter_class(**params)
+                    converters.append(PromptConverterConfiguration(converters=[converter_instance]))
                     logger.debug("Added converter: %s", name)
                 except TypeError as e:
                     logger.warning("Converter %s requires params: %s", name, e)
