@@ -68,21 +68,24 @@
 ## 目录结构（简化）
 ```
 data/                 # 数据层
-  ├── owasp/          #   唯一真相源（LLM01-10 + ASI01-10 + expericing/）
+  ├── owasp/          #   唯一真相源（LLM01-10 + ASI01-10 + recon_templates/）
   └── recon_templates/#   侦察探测模板
-config/               # 配置层
+config/               # 配置层（唯一配置源）
+  ├── attack/         #   攻击策略配置（defaults.yaml + patterns.yaml）
   ├── placeholders/   #   占位符配置（llm01-llm10/ + expericing/）
   ├── recon/          #   侦察配置
   ├── scores/         #   评分器 LLM 后端（每后端一个 YAML）
+  ├── headers/        #   认证头文件
+  ├── output/         #   输出报告配置
   └── targets/        #   目标配置
-pyrit_ai300/          # 代码层
+pyrit_ai300/          # 代码层（纯执行引擎）
   ├── reconnaissance/ #   侦察引擎（独立）
   ├── attack/         #   攻击引擎扩展
   ├── orchestrators/  #   编排器（attack_orchestrator/smart_matcher/component_registry）
   ├── payloads/       #   载荷管理
   ├── pipeline/       #   流水线追踪
   ├── reporting/      #   报告生成
-  └── tests/          #   单元测试
+  └── tests/          #   单元测试（168 tests）
 ```
 
 ## 数据架构规则（DATA-001）
