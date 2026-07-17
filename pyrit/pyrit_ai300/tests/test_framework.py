@@ -923,10 +923,10 @@ class TestRateControlConfig(unittest.TestCase):
         self.assertIn("rate_control", config["target"])
         self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 1)
 
-    def test_qwen3_config_has_rate_control(self):
-        """验证 qwen3 目标配置包含 rate_control"""
+    def test_custom_model_config_has_rate_control(self):
+        """验证 custom_model 目标配置包含 rate_control"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/qwen3_remote.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/custom_model_endpoint.yaml")
         self.assertIn("rate_control", config["target"])
         self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 2)
 
