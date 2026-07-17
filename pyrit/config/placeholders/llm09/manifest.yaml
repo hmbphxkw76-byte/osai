@@ -1,6 +1,11 @@
 # LLM09 — 错误信息误导（Misinformation）
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 
+scope:
+  id: llm09
+  name: 错误信息误导
+  description: Misinformation
+
 templates:
   citation_elicitation:
     requires: []

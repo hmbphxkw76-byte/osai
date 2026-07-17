@@ -2,6 +2,11 @@
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 # 本文件为唯一真相源，wizard 和 _run_owasp 均以此为准
 
+scope:
+  id: llm02
+  name: 敏感信息泄露
+  description: Sensitive Information Disclosure
+
 templates:
   sensitive_info:
     requires: [name, email, phone, address, key_type, key_prefix]

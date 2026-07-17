@@ -1,6 +1,11 @@
 # LLM08 — 向量与嵌入弱点（Vector & Embedding Weaknesses）
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 
+scope:
+  id: llm08
+  name: 向量与嵌入弱点
+  description: Vector & Embedding Weaknesses
+
 templates:
   adversarial_embedding:
     requires: []

@@ -61,9 +61,6 @@ Examples:
   # 实验模式（推荐：一个参数替代 --objective/--placeholders）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --experiment expericing/tier1_goal
 
-  # 使用占位符配置文件（向后兼容）
-  ai300 owasp llm03 --target-file config/targets/ollama_local.yaml --placeholder-file config/placeholders/default.yaml
-
   # 多目标攻击（逗号分隔）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --objective "whoami,id,uname"
 
@@ -74,7 +71,7 @@ Examples:
     owasp_required = owasp_parser.add_argument_group("required arguments")
     owasp_required.add_argument(
         "scope",
-        help="OWASP scope: llm01/asi01 (single ID), llm/agentic (group), all, "
+        help="OWASP scope: single ID (llm01/asi01), group (llm/agentic), all, "
              "ref_path (owasp:llm:llm04:rag_poison), or text_jailbreak:aim/random/all",
     )
     owasp_target = owasp_parser.add_argument_group(
@@ -144,7 +141,7 @@ Examples:
     owasp_optional.add_argument(
         "--placeholder-file",
         default=None,
-        help="占位符配置文件路径（YAML 格式，如 config/placeholders/default.yaml）。"
+        help="占位符配置文件路径（YAML 格式）。"
              "定义后自动填充载荷中的占位符，缺失时提示补齐",
     )
     owasp_optional.add_argument(
@@ -274,9 +271,10 @@ def _run_wizard(logger):
     专家引导向导（无子命令时自动启动）
 
     引导用户逐步完成：
-    1. 选择目标（config/targets/ 目录）
-    2. 选择攻击范围（OWASP scope）
-    3. 设置攻击目标（objective）
+    0. 选择模式（攻击 / 侦察）
+    1. 选择目标
+    2. 选择攻击范围 / 侦察深度
+    3. 设置攻击目标 / 执行侦察
     4. 确认并执行
     """
     from pathlib import Path
@@ -288,6 +286,32 @@ def _run_wizard(logger):
     print("  AI-300 红队评估框架 - 专家引导模式")
     print("=" * 60)
     print()
+
+    # ── 步骤 0：选择模式 ──
+    print("  [步骤 0] 选择操作模式")
+    print("  " + "─" * 40)
+    print("    1. 攻击（Attack）- 执行 OWASP 标准攻击")
+    print("    2. 侦察（Recon）- 先侦察目标，生成画像")
+    print()
+    print("    输入 1 或 2 选择模式，输入 q 退出")
+    print()
+
+    try:
+        mode_choice = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if mode_choice.lower() == "q":
+        print("  已退出")
+        return
+
+    if mode_choice == "2":
+        _run_wizard_recon(logger)
+        return
+    elif mode_choice != "1":
+        print("  ✗ 无效选择，默认进入攻击模式")
+        print()
 
     # ── 步骤 1：选择目标 ──
     while True:
@@ -332,44 +356,52 @@ def _run_wizard(logger):
             print("  ✗ 请输入数字")
         print()
 
-    # ── 步骤 2：选择攻击范围 ──
+    # ── 步骤 2：选择攻击范围（动态扫描 config/placeholders/） ──
     print()
     print("  [步骤 2/3] 选择攻击范围")
     print("  " + "─" * 40)
-    print("    1. llm01  - 提示注入（Prompt Injection）")
-    print("    2. llm02  - 敏感信息泄露（Sensitive Info Disclosure）")
-    print("    3. llm03  - 供应链攻击（Supply Chain）")
-    print("    4. llm04  - 数据与模型投毒（Data & Model Poisoning）")
-    print("    5. llm05  - 不当输出处理（Improper Output Handling）")
-    print("    6. llm06  - 过度代理（Excessive Agency）")
-    print("    7. llm07  - 系统提示泄露（System Prompt Leakage）")
-    print("    8. llm08  - 向量与嵌入弱点（Vector & Embedding Weaknesses）")
-    print("    9. llm09  - 错误信息误导（Misinformation）")
-    print("    10. llm10 - 无边界消费（Unbounded Consumption）")
-    print("    11. asi01  - 代理劫持（Agent Hijacking）")
-    print("    12. asi02  - 工具滥用（Tool Misuse）")
-    print("    13. asi03  - 身份欺骗（Identity Spoofing）")
-    print("    14. asi04  - 数据泄露（Data Exfiltration）")
-    print("    15. asi05  - 权限提升（Privilege Escalation）")
-    print("    16. asi06  - 通信破坏（Communication Disruption）")
-    print("    17. asi07  - 目标混淆（Goal Divergence）")
-    print("    18. asi08  - 记忆操纵（Memory Manipulation）")
-    print("    19. asi09  - 状态篡改（State Tampering）")
-    print("    20. asi10  - 协作攻击（Collaborative Attack）")
-    print("    21. llm    - 全部 LLM Top 10")
-    print("    22. agentic - 全部 Agentic Top 10")
-    print("    23. all    - 全部 20 项")
-    print()
-    print("    输入 1-23 选择范围，输入 q 退出")
-    print()
 
-    scope_map = {
-        1: "llm01", 2: "llm02", 3: "llm03", 4: "llm04", 5: "llm05",
-        6: "llm06", 7: "llm07", 8: "llm08", 9: "llm09", 10: "llm10",
-        11: "asi01", 12: "asi02", 13: "asi03", 14: "asi04", 15: "asi05",
-        16: "asi06", 17: "asi07", 18: "asi08", 19: "asi09", 20: "asi10",
-        21: "llm", 22: "agentic", 23: "all",
-    }
+    scopes = discover_scopes()
+    if not scopes:
+        print("  ✗ 未找到任何 scope（config/placeholders/ 下无 manifest.yaml）")
+        return
+
+    # 分组：LLM vs Agentic
+    llm_scopes = [s for s in scopes if s["id"].startswith("llm")]
+    asi_scopes = [s for s in scopes if s["id"].startswith("asi")]
+
+    idx = 0
+    scope_map = {}  # idx -> scope_id
+
+    if llm_scopes:
+        print("    ── LLM Top 10 ──")
+        for s in llm_scopes:
+            idx += 1
+            scope_map[idx] = s["id"]
+            print(f"    {idx:>2}. {s['id']:<6} - {s['name']}（{s['description']}）")
+        # LLM 分组选项
+        idx += 1
+        scope_map[idx] = "llm"
+        print(f"    {idx:>2}. llm    - 全部 LLM Top 10")
+
+    if asi_scopes:
+        print("    ── Agentic Top 10 ──")
+        for s in asi_scopes:
+            idx += 1
+            scope_map[idx] = s["id"]
+            print(f"    {idx:>2}. {s['id']:<6} - {s['name']}（{s['description']}）")
+        # Agentic 分组选项
+        idx += 1
+        scope_map[idx] = "agentic"
+        print(f"    {idx:>2}. agentic - 全部 Agentic Top 10")
+
+    # 全部选项
+    idx += 1
+    scope_map[idx] = "all"
+    print(f"    {idx:>2}. all    - 全部 {len(scopes)} 项")
+    print()
+    print(f"    输入 1-{idx} 选择范围，输入 q 退出")
+    print()
 
     while True:
         try:
@@ -383,13 +415,13 @@ def _run_wizard(logger):
             return
 
         try:
-            idx = int(choice)
-            if idx in scope_map:
-                selected_scope = scope_map[idx]
+            choice_idx = int(choice)
+            if choice_idx in scope_map:
+                selected_scope = scope_map[choice_idx]
                 print(f"\n  ✓ 已选择: {selected_scope}")
                 break
             else:
-                print(f"  ✗ 无效选择，请输入 1-23")
+                print(f"  ✗ 无效选择，请输入 1-{idx}")
         except ValueError:
             print("  ✗ 请输入数字")
         print()
@@ -490,8 +522,7 @@ def _run_wizard(logger):
             if targets:
                 print(f"       适用: {', '.join(targets)}")
             print()
-        print("    输入编号选择载荷，按 Enter 跳过（使用载荷文本本身）")
-        print("    输入 c 自定义目标，输入 q 退出")
+        print("    按 Enter 加载全部配置（推荐），输入 q 退出")
         print()
     else:
         print(f"    目录 config/placeholders/{selected_scope}/ 无预配置载荷")
@@ -513,28 +544,14 @@ def _run_wizard(logger):
     selected_config_name = None
 
     if not choice and yaml_files:
-        # 跳过 — 使用载荷文本本身
-        print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
-    elif choice.lower() == "c" and yaml_files:
-        # 自定义目标
-        try:
-            custom_obj = input("    输入自定义目标: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n  已取消")
-            return
-        if custom_obj:
-            selected_objective = custom_obj
-            selected_config_name = "自定义"
-            print(f"  ✓ 自定义目标: '{custom_obj}'")
-        else:
-            print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
-    elif choice.isdigit() and yaml_files:
-        idx = int(choice)
-        if 1 <= idx <= len(file_summaries):
-            summary = file_summaries[idx - 1]
-            selected_config_name = summary["fname"]
+        # 默认：加载全部配置
+        selected_configs = []
+        all_placeholders = {}
+        for summary in file_summaries:
+            fname = summary["fname"]
             data = summary["data"]
             cfg_type = summary["cfg_type"]
+            selected_configs.append(fname)
 
             if cfg_type == "objective":
                 obj = data.get("objective", [])
@@ -542,20 +559,23 @@ def _run_wizard(logger):
                     selected_objective = obj[0]
                 elif obj:
                     selected_objective = str(obj)
-                print(f"  ✓ 已选择: {selected_config_name}")
-                print(f"    目标: {selected_objective}")
             else:
-                # placeholders 类型
-                selected_placeholders = {k: v for k, v in data.items() if k != "objective" and v}
-                print(f"  ✓ 已选择: {selected_config_name}")
-                if summary["target_templates"]:
-                    print(f"    适用模板: {', '.join(summary['target_templates'])}")
-                if selected_placeholders:
-                    print(f"    提供参数: {', '.join(selected_placeholders.keys())}")
-                # 提示需要配合 objective 使用
-                print(f"    提示: 参数配置需配合攻击目标使用，建议同时选择 objective 或输入 c 自定义目标")
-        else:
-            print("  ✗ 无效选择，将使用载荷文本本身")
+                # placeholders 类型：合并所有参数
+                for k, v in data.items():
+                    if k != "objective" and v:
+                        all_placeholders[k] = v
+
+        selected_placeholders = all_placeholders if all_placeholders else None
+        selected_config_name = ", ".join(selected_configs)
+        print(f"  ✓ 已加载全部 {len(selected_configs)} 个配置: {selected_config_name}")
+        if selected_objective:
+            preview = selected_objective[:50] + "..." if len(selected_objective) > 50 else selected_objective
+            print(f"    攻击目标: {preview}")
+        if selected_placeholders:
+            print(f"    占位符参数: {', '.join(selected_placeholders.keys())}")
+    elif not choice and not yaml_files:
+        # 无预配置，跳过
+        print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
     elif not yaml_files:
         # 无预配置目录，直接作为自定义目标
         if choice:
@@ -620,6 +640,143 @@ def _run_wizard(logger):
         verbose=False,
     )
     _run_owasp(exec_args, logger)
+
+
+def _run_wizard_recon(logger):
+    """
+    侦察引导向导
+
+    引导用户逐步完成：
+    1. 输入目标 URL
+    2. 选择侦察深度
+    3. 确认并执行侦察
+    """
+    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.pipeline import PipelineTracker
+
+    # ── 步骤 1：输入目标 ──
+    print()
+    print("  [步骤 1/2] 输入侦察目标")
+    print("  " + "─" * 40)
+    print("    输入目标 URL 或 endpoint")
+    print("    例如: http://target.com 或 http://localhost:11434")
+    print()
+    print("    输入目标 URL，输入 q 退出")
+    print()
+
+    try:
+        target = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if target.lower() == "q":
+        print("  已退出")
+        return
+
+    if not target:
+        print("  ✗ 目标不能为空")
+        return
+
+    print(f"\n  ✓ 侦察目标: {target}")
+
+    # ── 步骤 2：选择侦察深度 ──
+    print()
+    print("  [步骤 2/2] 选择侦察深度")
+    print("  " + "─" * 40)
+    print("    1. quick    - 快速扫描（仅基础探测）")
+    print("    2. standard - 标准扫描（推荐，Garak + DeepTeam）")
+    print("    3. deep     - 深度扫描（全部探针，耗时较长）")
+    print()
+    print("    输入 1-3 选择深度（默认 2），输入 q 退出")
+    print()
+
+    depth = "standard"
+    try:
+        depth_choice = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if depth_choice.lower() == "q":
+        print("  已退出")
+        return
+
+    depth_map = {"1": "quick", "2": "standard", "3": "deep"}
+    if depth_choice in depth_map:
+        depth = depth_map[depth_choice]
+    elif depth_choice:
+        print(f"  ⚠ 无效输入，使用默认深度: standard")
+
+    print(f"\n  ✓ 侦察深度: {depth}")
+
+    # ── 确认并执行 ──
+    print()
+    print("  " + "=" * 40)
+    print("  侦察执行确认")
+    print("  " + "=" * 40)
+    print(f"    目标:   {target}")
+    print(f"    深度:   {depth}")
+    print()
+    print("    输入 y 开始执行，输入 n 取消")
+    print()
+
+    try:
+        confirm = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  已取消")
+        return
+
+    if confirm != "y":
+        print("  已取消")
+        return
+
+    print()
+    print("  🔍 开始侦察...")
+    print()
+
+    # 执行侦察
+    tracker = PipelineTracker(verbose=True)
+    engine = ReconEngine()
+
+    # 检查工具可用性
+    tool_status = engine.check_tools()
+    available_tools = [t for t, ok in tool_status.items() if ok]
+    if not available_tools:
+        print("  ⚠ 未检测到可用侦察工具（Garak / DeepTeam）")
+        print("    请确保已安装: pip install garak deeteam")
+        return
+
+    print(f"  可用工具: {', '.join(available_tools)}")
+    print()
+
+    profile = engine.run(
+        target=target,
+        depth=depth,
+        tracker=tracker,
+    )
+
+    # 保存结果
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = f"results/recon/wizard_profile_{timestamp}.json"
+    profile.save(output_path)
+
+    # 打印摘要
+    print()
+    print("  " + "=" * 40)
+    print("  侦察完成")
+    print("  " + "=" * 40)
+    print(f"  目标:         {profile.target}")
+    print(f"  使用工具:     {', '.join(profile.tools_used)}")
+    print(f"  漏洞发现:     {profile.vulnerability_count}")
+    print(f"  风险等级:     {profile.risk_level}")
+    print(f"  OWASP 映射:   {', '.join(profile.get_owasp_mappings())}")
+    print(f"  画像保存至:   {output_path}")
+    print()
+    print("  提示: 使用以下命令基于画像执行攻击:")
+    print(f"    ai300 owasp llm01 --target-url {target} --profile {output_path}")
+    print()
 
 
 def _resolve_targets(args):
@@ -1118,6 +1275,7 @@ def load_scope_manifest(scope: str) -> Dict[str, Any]:
     加载 scope 的 manifest.yaml（唯一配置真相源）
 
     manifest 声明了：
+    - scope: 元数据（id, name, description）
     - templates: 每个模板的占位符需求
     - configs: 每个配置文件的类型（objective/placeholders）和目标模板
 
@@ -1138,6 +1296,39 @@ def load_scope_manifest(scope: str) -> Dict[str, Any]:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
+
+
+def discover_scopes() -> list[Dict[str, str]]:
+    """
+    扫描 config/placeholders/ 目录，发现所有可用 scope
+
+    只返回包含 manifest.yaml 的目录，按 scope id 排序。
+
+    Returns:
+        scope 列表，每项包含 id, name, description
+        例如: [{"id": "llm01", "name": "提示注入", "description": "Prompt Injection"}, ...]
+    """
+    from pathlib import Path
+
+    placeholders_dir = Path("config/placeholders")
+    if not placeholders_dir.exists():
+        return []
+
+    scopes = []
+    for entry in sorted(placeholders_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        manifest_path = entry / "manifest.yaml"
+        if not manifest_path.exists():
+            continue
+        manifest = load_scope_manifest(entry.name)
+        scope_meta = manifest.get("scope", {})
+        scopes.append({
+            "id": scope_meta.get("id", entry.name),
+            "name": scope_meta.get("name", entry.name),
+            "description": scope_meta.get("description", ""),
+        })
+    return scopes
 
 
 def auto_discover_placeholders(scope: str) -> Dict[str, Any]:
@@ -1274,6 +1465,27 @@ def validate_placeholders(scope: str, placeholders: Dict[str, str]) -> tuple:
     extra = [k for k in placeholders.keys() if k not in used_placeholders]
 
     return missing, extra
+
+
+def _print_partial_summary(results):
+    """打印中断时的部分结果摘要"""
+    total_success = 0
+    total_failure = 0
+    total_tests = 0
+    for result in results:
+        for attack in result.get("attacks", []):
+            success = attack.get("success_count", 0)
+            failure = attack.get("failure_count", 0)
+            total_success += success
+            total_failure += failure
+            total_tests += success + failure
+            scope = result.get("scope", "unknown")
+            rate = (success / (success + failure) * 100) if (success + failure) > 0 else 0
+            print(f"    {scope}: {success}/{success + failure} passed ({rate:.0f}%)")
+    if total_tests > 0:
+        overall_rate = total_success / total_tests * 100
+        print(f"\n  总计: {total_success}/{total_tests} passed ({overall_rate:.0f}%)")
+    print(f"\n  提示: 已保存部分结果到 results/ 目录")
 
 
 def _run_owasp(args, logger):
@@ -1468,8 +1680,17 @@ def _run_owasp(args, logger):
                 scorer_model=args.scorer_model,
             )
 
-            obj_results = engine.run(scope=args.scope)
-            results.extend(obj_results)
+            try:
+                obj_results = engine.run(scope=args.scope)
+                results.extend(obj_results)
+            except KeyboardInterrupt:
+                print("\n\n  ⚠ 用户中断 — 打印已完成的结果摘要")
+                logger.warning("Execution interrupted by user (KeyboardInterrupt)")
+                if results:
+                    _print_partial_summary(results)
+                else:
+                    print("  无已完成的结果")
+                return
 
         # 保存执行报告（每个 scope 聚合后保存一次）
         from pyrit_ai300.reporting import ExecutionReportGenerator
@@ -1584,9 +1805,16 @@ def _list_components(args, logger):
         from pyrit_ai300.payloads.payload_manager import PayloadManager
         pm = PayloadManager()
         pm.load_data_dir("data/")
-        print("OWASP Scopes:")
-        print("  Single ID: llm01, llm02, ..., llm10, asi01, asi02, ..., asi10")
-        print("  Groups:    llm (all LLM Top 10), agentic (all Agentic Top 10)")
+        scopes = discover_scopes()
+        print("OWASP Scopes (动态发现):")
+        if scopes:
+            llm_ids = [s["id"] for s in scopes if s["id"].startswith("llm")]
+            asi_ids = [s["id"] for s in scopes if s["id"].startswith("asi")]
+            if llm_ids:
+                print(f"  LLM:     {', '.join(llm_ids)}")
+            if asi_ids:
+                print(f"  Agentic: {', '.join(asi_ids)}")
+        print("  Groups:    llm (all LLM), agentic (all Agentic)")
         print("  All:       all")
         print("  Single file: owasp:llm:llm04:rag_poison (ref_path format)")
         print(f"\n  Loaded refs: {len(pm.get_all_refs())}")

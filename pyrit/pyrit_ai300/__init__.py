@@ -71,14 +71,6 @@ class AI300Engine:
         engine.generate_report()
     """
 
-    # OWASP Scope 定义
-    OWASP_SCOPES = {
-        "llm": ["llm01", "llm02", "llm03", "llm04", "llm05",
-                "llm06", "llm07", "llm08", "llm09", "llm10"],
-        "agentic": ["asi01", "asi02", "asi03", "asi04", "asi05",
-                    "asi06", "asi07", "asi08", "asi09", "asi10"],
-    }
-
     def __init__(
         self,
         config_path: str = None,

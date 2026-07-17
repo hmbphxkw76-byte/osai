@@ -1,6 +1,11 @@
 # LLM06 — 过度代理（Excessive Agency）
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 
+scope:
+  id: llm06
+  name: 过度代理
+  description: Excessive Agency
+
 templates:
   agent_break:
     requires: [exploit_strategies, functionality, target_tool, tool_name, vulnerabilities]

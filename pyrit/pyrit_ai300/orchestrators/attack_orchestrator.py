@@ -848,16 +848,27 @@ class AttackOrchestrator:
                 if semaphore:
                     await semaphore.acquire()
                 try:
+                    payload_text = _extract_payload_text(payload, objective=objective, placeholders=placeholders)
+                    logger.info("  Running: %.80s", payload_text)
                     attack = PromptSendingAttack(
                         objective_target=target,
                         attack_converter_config=attack_converter_config,
                         attack_scoring_config=attack_scoring_config,
                         max_attempts_on_failure=2,
                     )
-                    attack_result = await attack.execute_async(objective=_extract_payload_text(payload, objective=objective, placeholders=placeholders))
+                    attack_result = await attack.execute_async(objective=payload_text)
                     outcome = attack_result.outcome
                     is_success = outcome.name == "SUCCESS"
                     response_text = str(attack_result)[:200]
+
+                    payload_short = payload_text[:60]
+                    logger.info(
+                        "  [%s] %s → %s (%.100s)",
+                        "✓ PASS" if is_success else "✗ BLOCK",
+                        payload_short,
+                        outcome.name,
+                        response_text,
+                    )
 
                     return {
                         "payload": _extract_payload_text(payload, objective=objective, placeholders=placeholders)[:100],
@@ -900,6 +911,13 @@ class AttackOrchestrator:
                     reason=f"Attack {'succeeded' if is_success else 'failed'} → {score_label}",
                     response_snippet=r.get("response", ""),
                 )
+
+        logger.info(
+            "  Summary: %d/%d passed (%.0f%%)",
+            results["success_count"],
+            len(all_results),
+            (results["success_count"] / len(all_results) * 100) if all_results else 0,
+        )
 
         self._results.append(results)
         return results
@@ -970,6 +988,8 @@ class AttackOrchestrator:
                 if semaphore:
                     await semaphore.acquire()
                 try:
+                    payload_text = _extract_payload_text(payload, objective=objective, placeholders=placeholders)
+                    logger.info("  Running: %.80s", payload_text)
                     if len(preset_names) == 1:
                         preset_name = preset_names[0]
                         converter_names = converter_presets[preset_name]
@@ -985,8 +1005,18 @@ class AttackOrchestrator:
                             attack_scoring_config=attack_scoring_config,
                             max_attempts_on_failure=1,
                         )
-                        attack_result = await attack.execute_async(objective=_extract_payload_text(payload, objective=objective, placeholders=placeholders))
+                        attack_result = await attack.execute_async(objective=payload_text)
                         is_success = attack_result.outcome.name == "SUCCESS"
+
+                        payload_short = payload_text[:60]
+                        logger.info(
+                            "  [%s] %s → preset=%s, %s (%.100s)",
+                            "✓ PASS" if is_success else "✗ BLOCK",
+                            payload_short,
+                            preset_name,
+                            attack_result.outcome.name,
+                            str(attack_result)[:200],
+                        )
 
                         return {
                             "payload": _extract_payload_text(payload, objective=objective, placeholders=placeholders)[:100],
@@ -1033,7 +1063,7 @@ class AttackOrchestrator:
                             completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
                         )
 
-                        seq_result = await sequential.execute_async(objective=_extract_payload_text(payload, objective=objective, placeholders=placeholders))
+                        seq_result = await sequential.execute_async(objective=payload_text)
                         is_success = seq_result.outcome.name == "SUCCESS"
 
                         successful_preset = "unknown"
@@ -1041,6 +1071,16 @@ class AttackOrchestrator:
                             if child_result and child_result.outcome.name == "SUCCESS":
                                 successful_preset = preset_names[i] if i < len(preset_names) else "unknown"
                                 break
+
+                        payload_short = payload_text[:60]
+                        logger.info(
+                            "  [%s] %s → preset=%s, %s (%.100s)",
+                            "✓ PASS" if is_success else "✗ BLOCK",
+                            payload_short,
+                            successful_preset if is_success else "all_failed",
+                            seq_result.outcome.name,
+                            str(seq_result)[:200],
+                        )
 
                         return {
                             "payload": _extract_payload_text(payload, objective=objective, placeholders=placeholders)[:100],
@@ -1075,6 +1115,13 @@ class AttackOrchestrator:
                 results["success_count"] += 1
             else:
                 results["failure_count"] += 1
+
+        logger.info(
+            "  Summary: %d/%d passed (%.0f%%)",
+            results["success_count"],
+            len(all_results),
+            (results["success_count"] / len(all_results) * 100) if all_results else 0,
+        )
 
         self._results.append(results)
         return results
@@ -1259,6 +1306,7 @@ class AttackOrchestrator:
                 if semaphore:
                     await semaphore.acquire()
                 try:
+                    logger.info("  Running: %.80s", payload)
                     attempt_result = await self._execute_with_fallback_async(
                         payload=payload,
                         primary_class_fqn=item["attack_class"],
@@ -1267,6 +1315,18 @@ class AttackOrchestrator:
                         target=target,
                         attack_scoring_config=attack_scoring_config,
                         converter_presets=converter_presets,
+                    )
+
+                    is_success = attempt_result["status"] == "success"
+                    payload_short = _extract_payload_text(payload)[:60]
+                    attack_class_short = attempt_result["attack_class"].split(".")[-1]
+                    logger.info(
+                        "  [%s] %s → %s (attempts=%d, %.100s)",
+                        "✓ PASS" if is_success else "✗ BLOCK",
+                        payload_short,
+                        attack_class_short,
+                        attempt_result.get("attempts_used", 1),
+                        attempt_result["response"],
                     )
 
                     return {
@@ -1314,6 +1374,13 @@ class AttackOrchestrator:
                         reason=f"Attack {'succeeded' if is_success else 'failed'} → {score_label}",
                         response_snippet=r.get("response", ""),
                     )
+
+        logger.info(
+            "  Summary: %d/%d passed (%.0f%%)",
+            results["success_count"],
+            len(all_results),
+            (results["success_count"] / len(all_results) * 100) if all_results else 0,
+        )
 
         if tracker:
             tracker.show_full_report()

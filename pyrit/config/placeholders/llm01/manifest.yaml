@@ -1,6 +1,11 @@
 # LLM01 — 提示注入（Prompt Injection）
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 
+scope:
+  id: llm01
+  name: 提示注入
+  description: Prompt Injection
+
 templates:
   adaptive_jailbreak:
     requires: []

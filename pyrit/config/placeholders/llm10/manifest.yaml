@@ -1,6 +1,11 @@
 # LLM10 — 无边界消费（Unbounded Consumption）
 # 声明所有模板的占位符需求 + 配置文件的提供能力
 
+scope:
+  id: llm10
+  name: 无边界消费
+  description: Unbounded Consumption
+
 templates:
   context_padding:
     requires: []
