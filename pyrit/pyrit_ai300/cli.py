@@ -394,41 +394,68 @@ def _run_wizard(logger):
             print("  ✗ 请输入数字")
         print()
 
-    # ── 步骤 3：选择攻击载荷配置 ──
+    # ── 步骤 3：选择攻击载荷配置（基于 manifest） ──
     import yaml
     from pathlib import Path
 
+    manifest = load_scope_manifest(selected_scope)
+    config_defs = manifest.get("configs", {}) if manifest else {}
+    template_defs = manifest.get("templates", {}) if manifest else {}
+
+    # 收集配置文件（排除 manifest.yaml）
     placeholders_dir = Path("config/placeholders") / selected_scope
     yaml_files = sorted(placeholders_dir.glob("*.yaml")) if placeholders_dir.exists() else []
+    yaml_files = [f for f in yaml_files if f.stem != "manifest"]
 
-    # 预加载每个文件的摘要信息
+    # 预加载每个配置的摘要信息（基于 manifest 结构）
     file_summaries = []
     for yf in yaml_files:
+        fname = yf.stem
+        cfg_def = config_defs.get(fname, {})
+        cfg_type = cfg_def.get("type", "placeholders")
+        target_templates = cfg_def.get("target_templates", [])
+        description = cfg_def.get("description", "")
+
+        # 读取实际数据
         try:
             with open(yf, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-            obj = data.get("objective", [])
-            if isinstance(obj, list):
-                obj_preview = obj[0] if obj else None
-            else:
-                obj_preview = str(obj) if obj else None
-            # 提取非 objective 的占位符键名
-            other_keys = [k for k in data if k != "objective" and data[k]]
-            file_summaries.append({
-                "file": yf,
-                "data": data,
-                "objective_preview": obj_preview,
-                "has_objective": bool(obj),
-                "placeholders": other_keys,
-            })
         except Exception:
-            file_summaries.append({
-                "file": yf,
-                "data": {},
-                "objective_preview": None,
-                "has_objective": False,
-                "placeholders": [],
-            })
+            data = {}
+
+        # 提取预览信息
+        if cfg_type == "objective":
+            obj = data.get("objective", [])
+            if isinstance(obj, list) and obj:
+                preview = obj[0]
+            else:
+                preview = str(obj) if obj else None
+        else:
+            # placeholders 类型：显示提供的参数
+            provides = cfg_def.get("provides", [])
+            preview = ", ".join(provides[:4]) if provides else None
+            if provides and len(provides) > 4:
+                preview += f" +{len(provides)-4}"
+
+        # 检查该配置是否能满足目标模板的需求
+        missing = []
+        if cfg_type == "placeholders" and target_templates:
+            provides_set = set(cfg_def.get("provides", []))
+            for tmpl_name in target_templates:
+                requires = set(template_defs.get(tmpl_name, {}).get("requires", []))
+                missing.extend(requires - provides_set)
+
+        file_summaries.append({
+            "file": yf,
+            "fname": fname,
+            "data": data,
+            "cfg_type": cfg_type,
+            "target_templates": target_templates,
+            "description": description,
+            "preview": preview,
+            "provides": cfg_def.get("provides", []),
+            "missing": missing,
+        })
 
     print()
     print("  [步骤 3/3] 选择攻击载荷配置")
@@ -438,23 +465,30 @@ def _run_wizard(logger):
         print(f"    发现 {len(yaml_files)} 个预配置攻击载荷:")
         print()
         for idx, summary in enumerate(file_summaries, 1):
-            fname = summary["file"].stem
-            obj = summary["objective_preview"]
-            ph = summary["placeholders"]
-            if obj:
-                if len(obj) > 45:
-                    obj = obj[:42] + "..."
-                print(f"    {idx}. {fname}")
-                print(f"       目标: {obj}")
-            elif ph:
-                # 无目标但有占位符 — 显示提供的参数
-                ph_preview = ", ".join(ph[:4])
-                if len(ph) > 4:
-                    ph_preview += f" +{len(ph)-4}"
-                print(f"    {idx}. {fname}")
-                print(f"       参数: {ph_preview}")
+            fname = summary["fname"]
+            cfg_type = summary["cfg_type"]
+            desc = summary["description"]
+            preview = summary["preview"]
+            targets = summary["target_templates"]
+
+            # 类型标记
+            if cfg_type == "objective":
+                type_label = "目标"
             else:
-                print(f"    {idx}. {fname}")
+                type_label = "参数"
+
+            print(f"    {idx}. {fname} [{type_label}]")
+            if desc:
+                print(f"       {desc}")
+            if preview:
+                if cfg_type == "objective":
+                    if len(preview) > 45:
+                        preview = preview[:42] + "..."
+                    print(f"       目标: {preview}")
+                else:
+                    print(f"       提供: {preview}")
+            if targets:
+                print(f"       适用: {', '.join(targets)}")
             print()
         print("    输入编号选择载荷，按 Enter 跳过（使用载荷文本本身）")
         print("    输入 c 自定义目标，输入 q 退出")
@@ -498,20 +532,28 @@ def _run_wizard(logger):
         idx = int(choice)
         if 1 <= idx <= len(file_summaries):
             summary = file_summaries[idx - 1]
-            selected_config_name = summary["file"].stem
+            selected_config_name = summary["fname"]
             data = summary["data"]
-            obj = data.get("objective", [])
-            if isinstance(obj, list) and obj:
-                selected_objective = obj[0]  # 取第一个目标
-                # 其余目标存入 placeholders 供后续扩展
+            cfg_type = summary["cfg_type"]
+
+            if cfg_type == "objective":
+                obj = data.get("objective", [])
+                if isinstance(obj, list) and obj:
+                    selected_objective = obj[0]
+                elif obj:
+                    selected_objective = str(obj)
+                print(f"  ✓ 已选择: {selected_config_name}")
+                print(f"    目标: {selected_objective}")
+            else:
+                # placeholders 类型
                 selected_placeholders = {k: v for k, v in data.items() if k != "objective" and v}
-            elif obj:
-                selected_objective = str(obj)
-                selected_placeholders = {k: v for k, v in data.items() if k != "objective" and v}
-            print(f"  ✓ 已选择: {selected_config_name}")
-            print(f"    目标: {selected_objective}")
-            if selected_placeholders:
-                print(f"    占位符: {', '.join(selected_placeholders.keys())}")
+                print(f"  ✓ 已选择: {selected_config_name}")
+                if summary["target_templates"]:
+                    print(f"    适用模板: {', '.join(summary['target_templates'])}")
+                if selected_placeholders:
+                    print(f"    提供参数: {', '.join(selected_placeholders.keys())}")
+                # 提示需要配合 objective 使用
+                print(f"    提示: 参数配置需配合攻击目标使用，建议同时选择 objective 或输入 c 自定义目标")
         else:
             print("  ✗ 无效选择，将使用载荷文本本身")
     elif not yaml_files:
@@ -1071,12 +1113,41 @@ def load_experiment_config(experiment_path: str) -> Dict[str, Any]:
     return result
 
 
+def load_scope_manifest(scope: str) -> Dict[str, Any]:
+    """
+    加载 scope 的 manifest.yaml（唯一配置真相源）
+
+    manifest 声明了：
+    - templates: 每个模板的占位符需求
+    - configs: 每个配置文件的类型（objective/placeholders）和目标模板
+
+    Args:
+        scope: OWASP scope (如 "llm01", "llm02")
+
+    Returns:
+        manifest 字典，不存在返回空字典
+    """
+    import yaml
+    from pathlib import Path
+
+    manifest_path = Path("config/placeholders") / scope / "manifest.yaml"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
 def auto_discover_placeholders(scope: str) -> Dict[str, Any]:
     """
     自动发现 scope 对应的占位符配置文件
 
-    检查 config/placeholders/{scope}/ 目录，加载所有 *.yaml 文件并合并。
-    加载顺序：{scope}_tier1_goal.yaml 优先，其余按字母顺序。
+    基于 manifest.yaml 的结构加载配置：
+    - objective 类型配置 → 提取 objective 字段
+    - placeholders 类型配置 → 提取占位符参数
+    跳过 manifest.yaml 本身。
 
     Args:
         scope: OWASP scope (如 "llm01", "asi01")
@@ -1091,27 +1162,52 @@ def auto_discover_placeholders(scope: str) -> Dict[str, Any]:
     if not config_dir.exists() or not config_dir.is_dir():
         return {}
 
-    # 按优先级排序：{scope}_tier1_goal.yaml 优先，其余按字母顺序
-    yaml_files = sorted(config_dir.glob("*.yaml"))
-    yaml_files.sort(key=lambda p: (0 if p.stem == f"{scope}_tier1_goal" else 1, p.name))
+    # 读取 manifest 获取配置结构
+    manifest = load_scope_manifest(scope)
+    config_defs = manifest.get("configs", {})
+
+    # 确定加载顺序：objective 配置优先，其余按字母顺序
+    def _sort_key(yf):
+        stem = yf.stem
+        if stem == "manifest":
+            return (2, stem)  # 最后（会被跳过）
+        cfg = config_defs.get(stem, {})
+        is_objective = cfg.get("type") == "objective"
+        return (0 if is_objective else 1, stem)
+
+    yaml_files = sorted(config_dir.glob("*.yaml"), key=_sort_key)
 
     if not yaml_files:
         return {}
 
     merged = {}
     for yaml_file in yaml_files:
+        if yaml_file.stem == "manifest":
+            continue  # 跳过 manifest 本身
         try:
             with open(yaml_file, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-            for k, v in data.items():
-                if not v:
-                    continue
-                if k == "objective" and isinstance(v, list):
-                    objectives = [x for x in v if x and str(x).strip()]
+            cfg_def = config_defs.get(yaml_file.stem, {})
+            cfg_type = cfg_def.get("type", "placeholders")
+
+            if cfg_type == "objective":
+                # objective 配置：只提取 objective 字段
+                obj = data.get("objective", [])
+                if isinstance(obj, list):
+                    objectives = [x for x in obj if x and str(x).strip()]
                     if objectives:
-                        merged[k] = objectives
-                elif isinstance(v, (str, int, float)):
-                    merged[k] = v
+                        merged["objective"] = objectives
+                elif obj:
+                    merged["objective"] = obj
+            else:
+                # placeholders 配置：提取所有非 objective 字段
+                for k, v in data.items():
+                    if k == "objective":
+                        continue
+                    if not v:
+                        continue
+                    if isinstance(v, (str, int, float)):
+                        merged[k] = v
         except Exception:
             pass
 
@@ -1264,6 +1360,38 @@ def _run_owasp(args, logger):
                 raise ValueError(f"占位符配置不完整，缺失: {', '.join(missing)}")
         if extra:
             logger.info("ℹ️  %d 个未使用的占位符已自动忽略: %s", len(extra), ", ".join(extra))
+
+    # ── Manifest 校验：检查占位符是否满足模板声明的需求 ──
+    manifest = load_scope_manifest(args.scope)
+    if manifest and placeholders:
+        template_defs = manifest.get("templates", {})
+        config_defs = manifest.get("configs", {})
+        # 收集所有模板的占位符需求
+        all_requires = set()
+        for tmpl_name, tmpl_info in template_defs.items():
+            all_requires.update(tmpl_info.get("requires", []))
+        # 检查是否有声明的需求未被满足（排除 Tier 2 编码变体）
+        tier2_encodings = {
+            "base64_goal", "base32_goal", "ascii85_goal", "french_goal",
+            "bidi_override_goal", "unicode_tag_goal", "zalgo_goal",
+            "chain_encoded_goal", "ascii_tag_deep_goal",
+            "hex_goal", "rot13_goal", "sneaky_bits_goal",
+            "interlinear_ws_goal", "multi_tag_mix_goal",
+        }
+        unresolved = [ph for ph in all_requires if ph not in placeholders and ph not in tier2_encodings]
+        if unresolved:
+            logger.warning(
+                "⚠️ 以下占位符在 manifest 中声明但未被提供: %s",
+                ", ".join(unresolved),
+            )
+            logger.warning("   相关模板可能输出未替换的占位符文本")
+            # 列出哪些模板受影响
+            affected = []
+            for tmpl_name, tmpl_info in template_defs.items():
+                if set(tmpl_info.get("requires", [])) & set(unresolved):
+                    affected.append(tmpl_name)
+            if affected:
+                logger.warning("   受影响模板: %s", ", ".join(affected))
 
     # 3. 交互式占位符提示（除非 --no-prompt 或无配置）
     if not getattr(args, "no_prompt", False) and not experiment_arg and not args.placeholder_file and not auto_placeholders:

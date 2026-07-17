@@ -1,0 +1,13 @@
+# LLM10 — 无边界消费（Unbounded Consumption）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  context_padding:
+    requires: []
+  resource_exhaustion:
+    requires: []
+
+configs:
+  llm10_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

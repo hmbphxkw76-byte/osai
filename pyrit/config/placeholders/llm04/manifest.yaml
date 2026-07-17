@@ -1,0 +1,15 @@
+# LLM04 — 数据与模型投毒（Data & Model Poisoning）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  rag_indirect_injection:
+    requires: []
+  rag_poison:
+    requires: [captured_token]
+  rag_source_attribution:
+    requires: []
+
+configs:
+  llm04_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

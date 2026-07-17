@@ -1,0 +1,13 @@
+# LLM05 — 不当输出处理（Improper Output Handling）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  insecure_output:
+    requires: [evasion_task, language, malware_payload, python_code, sql_command, sql_payload, subfunction]
+  plugin_injection:
+    requires: [domain, encoding, injected_action, injected_js, injected_marker, injected_strings, modified_domain, task]
+
+configs:
+  llm05_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

@@ -1,0 +1,51 @@
+# LLM01 — 提示注入（Prompt Injection）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  adaptive_jailbreak:
+    requires: []
+  adversarial_suffix:
+    requires: []
+  cca_context_compliance:
+    requires: []
+  cve_2025_32711_m365_echoleak:
+    requires: []
+  direct_injection:
+    requires: []  # {base64_goal} {french_goal} 为编码变体，自动从 objective 生成
+  encoding_bypass:
+    requires: []  # 13 种编码变体均为自动编码，无需用户提供
+  few_shot_backdoor:
+    requires: []
+  format_injection:
+    requires: []
+  frontier_2025_001_hcot_injection:
+    requires: []
+  glitch_token:
+    requires: []
+  indirect_injection:
+    requires: []
+  jailbreak:
+    requires: []
+  many_shot_jailbreak:
+    requires: []
+  memory_poison:
+    requires: [fake_info]
+  multimodal_injection:
+    requires: []
+  prompt_smuggling:
+    requires: [action_definition, action_verb, context_object, goal_description, target_object]
+  special_token_injection:
+    requires: []
+  structured_field_injection:
+    requires: []
+  system_prompt_extraction:
+    requires: []
+  token_smuggling:
+    requires: []
+  crescendo_jailbreak:
+    requires: []
+
+configs:
+  llm01_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

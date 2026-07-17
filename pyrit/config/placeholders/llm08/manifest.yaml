@@ -1,0 +1,19 @@
+# LLM08 — 向量与嵌入弱点（Vector & Embedding Weaknesses）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  adversarial_embedding:
+    requires: []
+  cve_2026_45829_chromadb_rce:
+    requires: [target_db, target_host, target_port]
+  embedding_inversion_practical:
+    requires: [collection_name]
+  embedding_verify:
+    requires: []
+  vector_weakness:
+    requires: []
+
+configs:
+  llm08_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

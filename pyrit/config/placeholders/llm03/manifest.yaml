@@ -1,0 +1,21 @@
+# LLM03 — 供应链攻击（Supply Chain）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  cve_2025_1716_picklescan_pypi_rce:
+    requires: []
+  cve_2026_25874_lerobot_pickle_rce:
+    requires: [target_host, target_port]
+  dependency_confusion:
+    requires: []
+  docker_label_injection:
+    requires: []
+  model_deserialization:
+    requires: []
+  package_hallucination:
+    requires: [task]
+
+configs:
+  llm03_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"

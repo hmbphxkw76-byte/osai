@@ -1,0 +1,17 @@
+# LLM09 — 错误信息误导（Misinformation）
+# 声明所有模板的占位符需求 + 配置文件的提供能力
+
+templates:
+  citation_elicitation:
+    requires: []
+  deepfake_social_engineering:
+    requires: []
+  hallucination_exploitation:
+    requires: [false_claim]
+  misinformation:
+    requires: [toxicity_prompt]
+
+configs:
+  llm09_tier1_goal:
+    type: objective
+    description: "攻击目标 — 替换 {goal} / {objective} 占位符"
