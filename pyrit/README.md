@@ -165,10 +165,12 @@ ai300 run -m single_agent --profile results/recon/profile_xxx.json
 ## 快速开始
 
 ```bash
-# 安装框架
-pip install -e .
+# 方式一：uv（推荐，速度快 10-100x）
+pip install uv          # 先安装 uv
+uv pip install -e ".[dev,pdf,recon]"
 
-# 安装侦察工具
+# 方式二：pip
+pip install -e .
 pip install -e ".[recon]"
 
 # 列出可用组件

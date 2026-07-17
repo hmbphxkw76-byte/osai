@@ -23,4 +23,16 @@ env/
 Thumbs.db
 .DS_Store
 
+# Test/ruff output files
+ruff_check*.txt
+ruff_e501.txt
+ruff_fix.txt
+ruff_out.txt
+ruff_output.txt
+ruff_result.txt
+test_all.txt
+test_final.txt
+test_output*.txt
+test_recon*.txt
+
 

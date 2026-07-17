@@ -48,10 +48,10 @@ dependencies = [
 
 [project.optional-dependencies]
 pdf = ["weasyprint>=60.0"]
+# garak 必须在独立 venv 安装（datasets<4.0 与 pyrit 的 datasets>=4.8.0 冲突）
+# 安装方式：uv venv .garak && .garak/Scripts/pip install -r garak-requirements.txt
 recon = [
-    "garak>=0.15.1",
     "deepteam>=1.0.7",
-    "litellm>=1.84.0,<1.91.0",
 ]
 dev = [
     "pytest>=7.0",
@@ -65,7 +65,7 @@ dev = [
 ai300 = "pyrit_ai300.cli:main"
 
 [tool.setuptools]
-packages = ["pyrit_ai300", "pyrit_ai300.orchestrators", "pyrit_ai300.payloads", "pyrit_ai300.pipeline", "pyrit_ai300.reporting", "pyrit_ai300.utils", "pyrit_ai300.tests"]
+packages = ["pyrit_ai300", "pyrit_ai300.orchestrators", "pyrit_ai300.payloads", "pyrit_ai300.pipeline", "pyrit_ai300.reconnaissance", "pyrit_ai300.reconnaissance.adapters", "pyrit_ai300.reconnaissance.utils", "pyrit_ai300.reporting", "pyrit_ai300.utils", "pyrit_ai300.tests"]
 package-dir = {"pyrit_ai300" = "pyrit_ai300"}
 
 [tool.black]

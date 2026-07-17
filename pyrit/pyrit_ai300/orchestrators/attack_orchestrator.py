@@ -41,6 +41,7 @@ from pyrit.executor.attack import (
     AttackAdversarialConfig,
 )
 from pyrit.prompt_converter import PromptConverter
+from pyrit.prompt_normalizer.prompt_converter_configuration import PromptConverterConfiguration
 from pyrit.prompt_target import PromptTarget, OpenAIChatTarget
 from pyrit.score import Scorer
 

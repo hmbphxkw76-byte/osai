@@ -219,6 +219,22 @@ class ReconEngine:
             futures = {}
             for tool in tools:
                 adapter = self._get_adapter(tool)
+
+                # 预检：工具未安装则直接跳过，不提交到线程池
+                if not adapter.check_available():
+                    logger.warning("%s not installed, skipping", tool)
+                    results.append(AdapterResult(
+                        tool=tool, success=False,
+                        errors=[f"{tool} not installed"],
+                    ))
+                    if tracker:
+                        tracker.log_recon_tool(
+                            tool=tool, success=False,
+                            findings_count=0, duration_ms=0,
+                            error="not installed",
+                        )
+                    continue
+
                 tool_config = self._get_tool_config(tool)
                 future = executor.submit(adapter.run, target, tool_config)
                 futures[future] = tool

@@ -175,6 +175,15 @@ pyrit_ai300/          # 代码层：纯框架引擎
 - **集成方式**：Adapter 薄壳，每个 ≤100 行，零重复造轮子
 - **接口契约**：TargetProfile JSON（侦察 → 攻击的唯一通信方式）
 
+## Garak 独立 venv 架构（2026-07-17）
+- **原因**：garak 0.15.1 要求 `datasets>=3.0.0,<4.0`，与 pyrit 0.14.0 的 `datasets>=4.8.0` 冲突
+- **方案**：garak 安装在独立 venv `.garak/`，主程序通过 subprocess 调用
+- **文件**：`garak-requirements.txt`（固定版本：garak==0.15.1, datasets>=3.0.0,<4.0, litellm>=1.84.0,<1.91.0）
+- **适配器**：`garak_adapter.py` 重写为 subprocess 模式，`_get_garak_python()` 自动检测路径
+- **安装**：`make setup-garak`（Windows）/ `make setup-garak-unix`（Linux/Mac）
+- **环境变量**：`GARAK_PYTHON` 可覆盖自动检测路径
+- **pyproject.toml**：garak 从 `recon` optional-dependencies 移除，仅保留 deepteam
+
 ## 侦察驱动攻击数据流（v3.1 新增）
 - **目标配置三级优先级**：CLI `--target-url` > 侦察 `target_endpoint` > `target_config.yaml`
 - **策略参数注入**：ProfileLoader 输出 `preferred_probe_families` + `aggression_level` → SmartMatcher

@@ -12,11 +12,10 @@ help: ## Show this help message
 	@echo "Examples:"
 	@echo "  make install          Install production dependencies"
 	@echo "  make install-dev      Install development dependencies"
-	@echo "  make run              Run all scenarios"
-	@echo "  make run-module MODULE=single_agent  Run specific module"
+	@echo "  make install-uv       Install with uv (fast)"
+	@echo "  make venv-uv          Create uv venv + install all"
 	@echo "  make test             Run unit tests"
 	@echo "  make lint             Run linters"
-	@echo "  make format           Format code"
 
 # Installation
 install: ## Install production dependencies
@@ -129,6 +128,27 @@ venv: ## Create virtual environment
 	python -m venv .venv
 	.venv\Scripts\activate && pip install -e ".[dev,pdf]"
 	@echo "[OK] Virtual environment created and dependencies installed"
+
+# UV (fast Python package manager)
+install-uv: ## Install with uv (recommended: pip install uv first)
+	uv pip install -e ".[dev,pdf]"
+	@echo "[OK] Installed via uv"
+
+venv-uv: ## Create venv with uv and install all dependencies
+	uv venv .venv
+	uv pip install -e ".[dev,pdf]"
+	@echo "[OK] UV virtual environment ready"
+
+# Garak 独立 venv（datasets<4.0 与 pyrit 冲突，必须隔离）
+setup-garak: ## Create garak venv with pinned dependencies
+	uv venv .garak --python 3.12
+	.garak/Scripts/pip install -r garak-requirements.txt
+	@echo "[OK] Garak venv ready (.garak/)"
+
+setup-garak-unix: ## Create garak venv (Linux/Mac)
+	uv venv .garak --python 3.12
+	.garak/bin/pip install -r garak-requirements.txt
+	@echo "[OK] Garak venv ready (.garak/)"
 
 # Development setup
 setup: clean install-dev ## Full development setup

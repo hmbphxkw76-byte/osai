@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 AI-300 Framework - Garak Adapter
-Garak 适配器：LLM 漏洞扫描（Python SDK 调用）
+Garak 适配器：LLM 漏洞扫描（subprocess 调用独立 venv）
 
 Garak v0.15.1 (NVIDIA, LLM vulnerability scanner)
-- PyPI: pip install garak>=0.15.1
-- CLI: garak --model_type openai --model_name gpt-4o --probes promptinject
-- Python API: garak.cli.main() 或 garak.run
+- 独立 venv 安装：uv venv .garak && .garak/Scripts/pip install -r garak-requirements.txt
+- 调用方式：subprocess 调用 .garak/Scripts/python -m garak
+- 输出解析：读取 garak_output/*.jsonl
 
 核心 probe 直接对应 AI-300 考点：
   - promptinject → LLM01 Prompt Injection
@@ -27,9 +27,12 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import time
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .base_adapter import AdapterResult, BaseAdapter
 
@@ -67,73 +70,158 @@ DEFAULT_PROBES = [
     "toxicity",
 ]
 
+# Garak venv 路径（相对项目根目录）
+GARAK_VENV_DIR = ".garak"
+GARAK_REQUIREMENTS = "garak-requirements.txt"
+
+
+def _get_garak_python() -> Optional[str]:
+    """
+    自动检测 garak Python 解释器路径
+
+    优先级：
+    1. 环境变量 GARAK_PYTHON
+    2. 项目根目录下 .garak venv
+    3. 系统 PATH 中的 garak 命令
+
+    Returns:
+        Python 解释器路径，未找到返回 None
+    """
+    # 1. 环境变量覆盖
+    env_path = os.environ.get("GARAK_PYTHON")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    # 2. 项目根目录 .garak venv
+    # 从当前文件位置向上找到项目根目录（pyrit_ai300/ 的父目录）
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    if sys.platform == "win32":
+        venv_python = project_root / GARAK_VENV_DIR / "Scripts" / "python.exe"
+    else:
+        venv_python = project_root / GARAK_VENV_DIR / "bin" / "python"
+
+    if venv_python.exists():
+        return str(venv_python)
+
+    # 3. 系统 PATH 中查找 garak
+    garak_cmd = shutil.which("garak")
+    if garak_cmd:
+        return garak_cmd
+
+    return None
+
 
 class GarakAdapter(BaseAdapter):
-    """Garak 薄壳适配器（LLM 漏洞扫描）"""
+    """Garak 薄壳适配器（LLM 漏洞扫描，subprocess 模式）"""
 
     @property
     def name(self) -> str:
         return "garak"
 
     def check_available(self) -> bool:
-        """检查 Garak 是否已安装"""
-        try:
-            import garak  # noqa: F401
-            return True
-        except ImportError:
+        """检查 Garak 是否可用（检测 venv 或系统命令）"""
+        garak_path = _get_garak_python()
+        if not garak_path:
             return False
+
+        # 验证 garak 模块可执行
+        try:
+            result = subprocess.run(
+                [garak_path, "-c", "import garak; print(garak.__version__)"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                version = result.stdout.strip()
+                logger.info("Garak found: version=%s, path=%s", version, garak_path)
+                return True
+        except Exception:
+            pass
+        return False
 
     def run(self, target: str, config: dict) -> AdapterResult:
         """
-        执行 Garak 漏洞扫描
+        执行 Garak 漏洞扫描（subprocess 模式）
 
         Args:
-            target: 目标 URL/endpoint（如 http://student.syxy.com 或 http://localhost:11434/v1）
+            target: 目标 URL/endpoint（如 http://www.example.com 或 http://localhost:11434/v1）
             config: 配置字典（probes, detectors, model_name, timeout 等）
 
         Returns:
             AdapterResult
         """
+        start_time = time.time()
+
+        # 检测 garak 路径
+        garak_python = _get_garak_python()
+        if not garak_python:
+            return self._make_error_result(
+                "Garak not found. Run: uv venv .garak && .garak/Scripts/pip install -r garak-requirements.txt"
+            )
+
         probes = config.get("probes", DEFAULT_PROBES)
         detectors = config.get("detectors", [])
         model_name = config.get("model_name", "")
-        start_time = time.time()
+        timeout = config.get("timeout", 600)
 
         try:
-            from garak import cli as garak_cli
-
             # 构建 Garak CLI 参数
             garak_args = self._build_garak_args(target, probes, detectors, model_name)
 
-            # 支持直接 URL 目标：通过环境变量传递 endpoint
+            # 环境变量（支持目标 endpoint）
+            env = os.environ.copy()
             if target and target.startswith("http"):
-                os.environ["OPENAI_BASE_URL"] = target
+                env["OPENAI_BASE_URL"] = target
 
-            # 执行扫描（通过 CLI 入口）
-            garak_cli.main(garak_args)
+            # 执行 garak（subprocess）
+            cmd = [garak_python, "-m", "garak"] + garak_args
+            logger.info("Running garak: %s", " ".join(cmd))
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                cwd=str(Path(__file__).resolve().parent.parent.parent.parent),
+            )
 
             duration = time.time() - start_time
 
             # 读取 Garak 报告（JSONL 格式）
             findings = self._parse_garak_output()
 
+            # garak 返回非零但仍有输出时，标记为部分成功
+            success = result.returncode == 0 or len(findings) > 0
+            errors = []
+            if result.returncode != 0:
+                errors.append(f"garak exit code {result.returncode}: {result.stderr[:500]}")
+
             return AdapterResult(
                 tool=self.name,
-                success=True,
+                success=success,
                 data={
                     "probes_used": probes,
                     "detectors_used": detectors or "default",
                     "model_name": model_name,
                     "garak_args": garak_args,
+                    "exit_code": result.returncode,
+                    "stdout_tail": result.stdout[-1000:] if result.stdout else "",
                 },
                 findings=findings,
+                errors=errors,
                 duration=duration,
-                raw_output=f"garak {' '.join(garak_args)}",
+                raw_output=result.stdout[-2000:] if result.stdout else "",
             )
 
-        except ImportError:
-            logger.warning("Garak not installed, skipping")
-            return self._make_error_result("Garak not installed (pip install garak>=0.15.1)")
+        except subprocess.TimeoutExpired:
+            duration = time.time() - start_time
+            logger.error("Garak timed out after %ds", timeout)
+            return AdapterResult(
+                tool=self.name,
+                success=False,
+                errors=[f"Garak timed out after {timeout}s"],
+                duration=duration,
+            )
         except Exception as e:
             duration = time.time() - start_time
             logger.error("Garak execution failed: %s", str(e))
@@ -157,10 +245,8 @@ class GarakAdapter(BaseAdapter):
             "--model_name", model_name or "gpt-4o",
             "--probes", ",".join(probes),
         ]
-        # 支持直接 URL 目标（如 http://student.syxy.com）
+        # 支持直接 URL 目标（如 http://www.example.com）
         if target and target.startswith("http"):
-            # Garak 通过 OPENAI_BASE_URL 环境变量或 --endpoint 传递 endpoint
-            # 检查 Garak 是否支持 --endpoint 参数
             args.extend(["--endpoint", target])
         if detectors:
             args.extend(["--detectors", ",".join(detectors)])
@@ -169,7 +255,6 @@ class GarakAdapter(BaseAdapter):
     def _parse_garak_output(self) -> List[Dict[str, Any]]:
         """解析 Garak JSONL 输出"""
         import json
-        from pathlib import Path
 
         findings = []
 
