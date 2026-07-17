@@ -1,0 +1,15 @@
+# 场景2: HTTPS + 自签名证书（关闭校验）
+target:
+  name: "https_self_signed"
+  type: "http"
+  description: "HTTPS target with self-signed certificate"
+
+  connection:
+    http_request: |
+      POST /api/v1/chat HTTP/1.1
+      Host: 192.168.1.100
+      Content-Type: application/json
+
+      {"message": "{PROMPT}"}
+    use_tls: true
+    verify_ssl: false    # ← 关闭证书校验

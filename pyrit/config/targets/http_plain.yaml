@@ -1,0 +1,15 @@
+# 场景1: 纯 HTTP（无加密，verify_ssl 不生效）
+target:
+  name: "http_plain"
+  type: "http"
+  description: "Plain HTTP target (no TLS)"
+
+  connection:
+    http_request: |
+      POST /api/v1/chat HTTP/1.1
+      Host: 192.168.1.100
+      Content-Type: application/json
+
+      {"message": "{PROMPT}"}
+    use_tls: false         # ← 纯 HTTP，不走 HTTPS
+    # verify_ssl 在 use_tls=false 时不生效，无需配置

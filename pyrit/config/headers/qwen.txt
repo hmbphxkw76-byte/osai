@@ -1,0 +1,14 @@
+GET /chat undefined
+Host: www.qianwen.com
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+Accept-Encoding: gzip, deflate, br, zstd
+Connection: keep-alive
+Cookie: UM_distinctid=19f45327869c30-034628999a5c1c-9575122-144000-19f4532786a1491; CNZZDATA1281448031=1293530324-1783572363-%7C1784098898; __itrace_wid=a5e18d1e-088a-4577-b1b5-02dbdf264f62; theme-mode=light; b-user-id=96e7058e-12e5-9308-31c3-349f7720c678; cna=jRXWImcLzUgCAa+YvAgZZ8Ku; tfstk=gkYr0uakI43zhLDM_CbE33hMU0jRJwk_xe6CtBAhNTXlR0BhKBpAOyOhV27e3CK5ABDJLeWDEbEI2B_eLKJNEw_WP2-FnKXWF3OB0WR93pSKw96hLpOHV3us5QdRJwvECVg1rmhTGUW3dwbRofy0TSgs5QdlJwDsCVtBHmTGt9bhqwXcmtCQEwjhEjWcT1E3Epbngj5C_J2ltMXmo_1N-9vh-jRcH6bhtpbngIXAtfVhKOaV_gcRg8UROog3vORl3y4HoaIPLQqQ-yYVagrJZt-y4E5P4OsBdRpJrKOHPUIxxk7pGhJexdDbVTxN_KS64AzyQLCHnsvSOkC2YBYOyLkz2TxW3GCcmWuOGd6DwUxq9-AkCT72jeGQ8OxMtUjyDVeldnOw868KpqJwtCKh0eyP4jediFGJJ3y3xg4CgOGqg7Gwg6b_C2PQvkIJDsWswbE3xRU_Ru8IwkEd2w5VCbhN.; isg=BJOTxmWa_fWLS7GhEm0SeUPkIRe9SCcK-L4OMUWw77LpxLNmzRi3WvEV_ryq_38C; _ON_EXT_DVIDN=eCy#AAOyJEIH+7zRbMfUkFmMw8BVWpZGPw1t7sENBDxMm5W2+vbXoUyOfwYCKTYijvQuq7E=; _qk_bx_ck_v1=eyJkZXZpY2VJZCI6ImVDeSNBQU95SkVJSCs3elJiTWZVa0ZtTXc4QlZXcFpHUHcxdDdzRU5CRHhNbTVXMit2YlhvVXlPZndZQ0tUWWlqdlF1cTdFPSIsImRldmljZUZpbmdlcnByaW50IjoiY2IxMjZjOWE1ZjRjYWRjOGJlYjUxNDVhYWU0ZWE4OTUifQ==
+Upgrade-Insecure-Requests: 1
+Sec-Fetch-Dest: document
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Site: none
+Sec-Fetch-User: ?1
+Priority: u=0, i

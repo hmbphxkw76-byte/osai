@@ -599,7 +599,8 @@ class AttackOrchestrator:
                 else:
                     browser = await p.chromium.launch(headless=headless)
 
-                context = await browser.new_context()
+                ignore_https = connection.get("ignore_https_errors", True)
+                context = await browser.new_context(ignore_https_errors=ignore_https)
 
                 if auth_profile and auth_profile.has_auth():
                     from .auth import inject_auth
