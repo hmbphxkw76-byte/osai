@@ -68,6 +68,21 @@ def _import_class(fqn: str) -> type:
     return getattr(module, class_name)
 
 
+def _extract_payload_text(payload: Any) -> str:
+    """
+    从载荷中提取文本（兼容字符串和字典格式）
+
+    Args:
+        payload: 载荷（字符串或字典）
+
+    Returns:
+        载荷文本字符串
+    """
+    if isinstance(payload, dict):
+        return payload.get("payload", str(payload))
+    return str(payload)
+
+
 class AttackOrchestrator:
     """
     攻击编排器 v3.0
@@ -683,16 +698,16 @@ class AttackOrchestrator:
                     response_text = str(attack_result)[:200]
 
                     return {
-                        "payload": payload[:100],
+                        "payload": _extract_payload_text(payload)[:100],
                         "status": "success" if is_success else "failed",
                         "outcome": outcome.name,
                         "response": response_text,
                         "is_success": is_success,
                     }
                 except Exception as e:
-                    logger.error("Attack failed for payload '%s': %s", payload[:50], str(e))
+                    logger.error("Attack failed for payload '%s': %s", _extract_payload_text(payload)[:50], str(e))
                     return {
-                        "payload": payload[:100],
+                        "payload": _extract_payload_text(payload)[:100],
                         "status": "error",
                         "error": str(e)[:200],
                         "is_success": False,
@@ -806,7 +821,7 @@ class AttackOrchestrator:
                         is_success = attack_result.outcome.name == "SUCCESS"
 
                         return {
-                            "payload": payload[:100],
+                            "payload": _extract_payload_text(payload)[:100],
                             "preset": preset_name,
                             "status": "success" if is_success else "failed",
                             "outcome": attack_result.outcome.name,
@@ -859,7 +874,7 @@ class AttackOrchestrator:
                                 break
 
                         return {
-                            "payload": payload[:100],
+                            "payload": _extract_payload_text(payload)[:100],
                             "preset": successful_preset if is_success else "all_failed",
                             "status": "success" if is_success else "failed",
                             "outcome": seq_result.outcome.name,
@@ -867,9 +882,9 @@ class AttackOrchestrator:
                             "is_success": is_success,
                         }
                 except Exception as e:
-                    logger.error("Attack failed for payload '%s': %s", payload[:50], str(e))
+                    logger.error("Attack failed for payload '%s': %s", _extract_payload_text(payload)[:50], str(e))
                     return {
-                        "payload": payload[:100],
+                        "payload": _extract_payload_text(payload)[:100],
                         "preset": "error",
                         "status": "error",
                         "error": str(e)[:200],
@@ -1042,7 +1057,7 @@ class AttackOrchestrator:
                     )
 
                     return {
-                        "payload": payload[:100],
+                        "payload": _extract_payload_text(payload)[:100],
                         "payload_category": item["payload_category"],
                         "attack_class": attempt_result["attack_class"],
                         "attack_family": item.get("attack_family", ""),
