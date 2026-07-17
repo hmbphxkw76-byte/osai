@@ -162,40 +162,41 @@ with open(path, "r", encoding="utf-8") as f:
 
 ```
 pyrit/                          # 项目根目录
-├── config/                     # 配置层（用户只改这里）
-│   ├── catalog/               #   catalog.yaml (攻击定义+载荷)
+├── config/                     # 配置层（唯一配置源）
+│   ├── attack/                #   攻击策略配置
+│   │   ├── defaults.yaml  #   默认转换器/评分器/ASI映射
+│   │   └── patterns.yaml  #   攻击分类正则模式
 │   ├── targets/               #   目标端点配置 YAML
-│   ├── output/                #   输出报告配置
+│   ├── placeholders/          #   占位符配置（llm01-llm10/ + expericing/）
 │   ├── recon/                 #   侦察配置（recon.yaml）
-│   └── scores.yaml            #   外部 LLM 评分器后端配置
+│   ├── scores/                #   评分器 LLM 后端（每后端一个 YAML）
+│   ├── headers/               #   认证头文件
+│   └── output/                #   输出报告配置
 ├── data/                       # 数据层
-│   ├── owasp/                 #   载荷唯一真相源（251 YAML）
+│   ├── owasp/                 #   载荷唯一真相源（590+ YAML）
 │   │   ├── llm/               #     LLM01-LLM10
-│   │   └── agentic/           #     ASI01-ASI10
-│   ├── recon_templates/       #   侦察探测模板
-│   └── surfaces/              #   攻击面分析文档（可选）
-├── pyrit_ai300/                # 代码层（纯框架引擎）
+│   │   ├── agentic/           #     ASI01-ASI10
+│   │   └── recon_templates/    #     侦察探测模板
+│   └── recon_templates/       #   侦察探测模板（根目录）
+├── pyrit_ai300/                # 代码层（纯执行引擎）
 │   ├── reconnaissance/        #   侦察引擎（完全独立）
 │   │   ├── recon_engine.py    #   统一调度入口
 │   │   ├── target_profile.py  #   TargetProfile 数据模型
 │   │   ├── profile_merger.py  #   多工具结果合并
 │   │   ├── adapters/          #   薄壳适配器
-│   │   │   ├── base_adapter.py
-│   │   │   ├── garak_adapter.py
-│   │   │   └── deepteam_adapter.py
-│   │   └── utils/
+│   │   └── utils/             #   工具函数
 │   ├── attack/                #   攻击引擎扩展
 │   │   └── profile_loader.py  #   TargetProfile → SmartMatcher
 │   ├── orchestrators/         #   编排器
 │   │   ├── attack_orchestrator.py
 │   │   ├── smart_matcher.py
 │   │   ├── attack_registry.py
-│   │   └── component_registry.py
+│   │   ├── component_registry.py
+│   │   └── rate_controller.py
 │   ├── payloads/              #   载荷管理
 │   ├── pipeline/              #   流水线追踪
 │   ├── reporting/             #   报告生成
-│   ├── tests/                 #   单元测试
-│   │   └── test_recon/        #   侦察测试
+│   ├── tests/                 #   单元测试（168 tests）
 │   ├── utils/                 #   工具函数
 │   ├── __init__.py            #   AI300Engine 入口
 │   └── cli.py                 #   命令行接口
@@ -212,23 +213,26 @@ pyrit/                          # 项目根目录
 
 ## 5. OWASP 唯一真相源（强制）
 
-**规则编号**: DATA-001（详见 `.codebuddy/rules/data-architecture.md`）
+**规则编号**: DATA-001
 
 所有攻击载荷（payload）**必须且只能**存储在 `data/owasp/` 目录下，任何其他位置不得存储载荷内容。
 
 ```
 data/owasp/          ← 唯一真相源
-  ├── llm/           ← LLM01-LLM10（含子目录技术组文件）
-  └── agentic/       ← ASI01-ASI10
+  ├── llm/           ← LLM01-LLM10（含多级子目录）
+  ├── agentic/       ← ASI01-ASI10
+  └── recon_templates/ ← 侦察探测模板
 ```
 
 **核心约束**：
-1. **禁止重复存储** — 不得在 `by_surface/` 或其他目录重复存储载荷
-2. **surfaces/ 目录可选** — `data/surfaces/` 为分析文档，可安全删除
+1. **禁止重复存储** — 不得在其他目录重复存储载荷
+2. **OWASP ID 隐含攻击面** — 不存储 `surfaces` 和 `ai300_chapters` 字段
+3. **多级子目录扫描** — `load_data_dir()` 使用 `rglob` 递归
+4. **顶层文件跳过规则** — 有子目录时顶层 YAML 不加载
 
 **YAML 三要素规范（强制）**：
 
-所有载荷 YAML 文件必须包含 `id`、`name`、`description` 三个字段，映射 OWASP 官方分类：
+所有载荷 YAML 文件必须包含 `id`、`name`、`description` 三个字段：
 
 | 字段 | 含义 | 示例 |
 |------|------|------|
@@ -239,8 +243,7 @@ data/owasp/          ← 唯一真相源
 **新增载荷流程**：
 1. 确定 OWASP 类别 → 在对应目录创建 YAML
 2. 填写 `id`、`name`、`description` 三要素
-3. 在 `config/catalog/catalog.yaml` 中添加引用
-4. **不需要**修改代码逻辑
+3. **不需要**修改代码逻辑
 
 ## 6. 数据与代码分离（核心架构原则）
 
@@ -257,9 +260,10 @@ data/owasp/          ← 唯一真相源
 1. `pyrit_ai300/` 下的代码**不得**包含硬编码的攻击载荷或目标配置
 2. 所有数据文件使用相对路径（`config/...`），从项目根目录解析
 3. 用户只需编辑 `config/` 和 `data/` 即可定制全部攻击流程
-4. 新增攻击技术：只改 `config/catalog/catalog.yaml`，不改代码
+4. 新增攻击技术：只改 `data/owasp/` 下的 YAML，不改代码
 5. 新增目标类型：只改 `config/targets/*.yaml`，不改代码
 6. 侦察层不 import 攻击层，两者通过 TargetProfile JSON 通信
+7. config/ 为唯一配置源：策略配置（转换器/评分器/ASI映射）全部在 `config/attack/defaults.yaml`
 
 **端到端数据驱动流程**：
 ```
@@ -268,8 +272,9 @@ data/owasp/          ← 唯一真相源
     → ReconEngine 调度 Garak + DeepTeam
     → ProfileMerger 合并结果
     → TargetProfile JSON
-  → ai300 run --profile <json>
+  → ai300 owasp <scope> --target-file <yaml>
     → ProfileLoader 加载画像
+    → 从 config/attack/defaults.yaml 加载默认策略
     → SmartMatcher 选择策略
     → PyRIT 原生攻击执行
     → 自动评分
@@ -287,11 +292,13 @@ data/owasp/          ← 唯一真相源
 ## 8. 配置驱动原则
 
 见第 4 节「数据与代码分离」。核心要点：
-- 新增攻击技术：只改 `config/catalog/catalog.yaml`
+- 新增攻击技术：只改 `data/owasp/` 下的 YAML
 - 新增目标类型：只改 `config/targets/*.yaml`
 - 新增侦察工具配置：只改 `config/recon/recon.yaml`
-- 新增外部 LLM 评分器后端：只改 `config/scores.yaml` 的 `scorer_llm_backends`（或使用 CLI `--scorer-url`/`--scorer-key`/`--scorer-model`）
+- 新增外部 LLM 评分器后端：只改 `config/scores/*.yaml`（或使用 CLI `--scorer-url`/`--scorer-key`/`--scorer-model`）
 - 新增转换器/评分器映射：只改 `pyrit_ai300/orchestrators/component_registry.py` 的 `CONVERTER_MAP` / `SCORER_MAP`
+- 新增默认攻击策略：只改 `config/attack/defaults.yaml`（OWASP ID → 转换器/评分器映射）
+- 新增攻击分类模式：只改 `config/attack/patterns.yaml`
 - **不修改代码逻辑**即可扩展攻击能力
 
 ## 9. 日志规范
@@ -356,7 +363,7 @@ pip install -e ".[recon]"
 | **提交前 / 合并前** | Lint + 单元测试 | `make ci` | ~20s | 代码质量 + 正确性 |
 | **发布前** | 覆盖率报告 | `make test-cov` | ~20s | 确认覆盖无退化 |
 
-**核心原则：本项目的单元测试就是回归测试。** 174+ 个测试覆盖侦察引擎、适配器、ProfileMerger、攻击编排、载荷管理等核心模块。
+**核心原则：本项目的单元测试就是回归测试。** 168 个测试覆盖侦察引擎、适配器、ProfileMerger、攻击编排、载荷管理等核心模块。
 
 ### 11.3 回归测试执行时机
 
@@ -370,7 +377,7 @@ pip install -e ".[recon]"
 集成测试 = 连接真实目标执行攻击，需要目标在线且耗时长，不适合"每次修改后"跑。
 
 **执行时机**：
-- 考试前用真实目标跑一次 `ai300 run -m single_agent` 验证端到端
+- 考试前用真实目标跑一次 `ai300 owasp llm01 --target-file config/targets/xxx.yaml` 验证端到端
 - 日常开发只跑单元测试
 
 ## 12. 载荷跟踪与添加规则（强制）
