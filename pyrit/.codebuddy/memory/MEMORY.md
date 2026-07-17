@@ -139,6 +139,28 @@ pyrit_ai300/          # 代码层（纯执行引擎）
 - `display/` 目录（拆分为 pipeline/ + reporting/）
 - `strategy_optimizer.py`, `scenario_runner.py`, `attack_factory.py` 等
 
+## CLI 命令（v3.0）
+
+```
+ai300 owasp <scope>     # OWASP 标准攻击（llm01/asi01/llm/agentic/all/ref_path）
+  --target-file <yaml>   # 目标配置文件
+  --target-dir <dir>     # 多目标批量（目录下所有 YAML）
+  --target-url <url>     # 直接 URL
+  --profile <json>       # 侦察生成的 TargetProfile
+  --objective <text>     # 攻击目标（替换 {goal} 占位符）
+  --placeholders k=v     # 自定义占位符
+  --experiment <path>    # 实验配置（config/placeholders/{path}.yaml）
+  --auto-recon           # 先侦察再攻击
+  --scorer-url/key/model # 外部 LLM 评分器
+  --format md|html       # 报告格式
+  --list-placeholders    # 列出占位符
+  --no-prompt            # 禁用交互式提示
+
+ai300 recon -t <target>  # 侦察目标
+ai300 list <component>   # 列出组件（attacks/converters/scorers/owasp）
+ai300 report -r <json>   # 生成报告
+```
+
 ## 覆盖进度
 - AI-300 Module: 11/11 | OWASP LLM: 10/10 | OWASP Agentic: 10/10
 - 载荷库: 590 个有效载荷（LLM 537 + Agentic 105）
