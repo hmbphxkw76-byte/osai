@@ -13,12 +13,6 @@ frontier:
   severity: critical
   status: active
   attack_strategy: pickle_deserialization
-  tags:
-  - supply_chain
-  - pickle
-  - deserialization
-  - rce
-  - huggingface
   cve: CVE-2026-25874
   known_mitigations:
   - 升级 LeRobot 至修复版本（> 0.5.1）
@@ -50,7 +44,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_basic_2
     name: "基础载荷 2/3"
@@ -59,7 +52,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_basic_3
     name: "基础载荷 3/3"
@@ -68,7 +60,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   # ── 高级攻击 ──
   - technique: pickle_deserialization_adv_1
@@ -78,7 +69,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_adv_2
     name: "高级载荷 2/4"
@@ -87,7 +77,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_adv_3
     name: "高级载荷 3/4"
@@ -96,7 +85,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_adv_4
     name: "高级载荷 4/4"
@@ -105,7 +93,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   # ── 隐身攻击 ──
   - technique: pickle_deserialization_stealth_1
@@ -115,7 +102,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_stealth_2
     name: "隐身载荷 2/4"
@@ -124,7 +110,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_stealth_3
     name: "隐身载荷 3/4"
@@ -133,7 +118,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]
 
   - technique: pickle_deserialization_stealth_4
     name: "隐身载荷 4/4"
@@ -142,4 +126,3 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [supply_chain, pickle, deserialization, rce, huggingface]

@@ -449,45 +449,6 @@ class PayloadManager:
             stats["by_category"][cat][subcat]["payloads"] += count
         return stats
 
-    # --- 兼容旧接口 ---
-
-    def load_from_yaml(self, config_path: str) -> None:
-        """
-        从旧版 YAML 配置文件加载载荷（兼容接口）
-
-        用于向后兼容，新代码应使用 load_data_dir()
-
-        Args:
-            config_path: YAML 文件路径 (config/catalog/catalog.yaml)
-        """
-        path = Path(config_path)
-        if not path.exists():
-            logger.warning("Config file not found: %s", config_path)
-            return
-
-        with open(path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-
-        if "catalog" in config:
-            catalog = config["catalog"]
-            for module_name, module_data in catalog.items():
-                if not isinstance(module_data, dict):
-                    continue
-                for attack_name, attack_data in module_data.items():
-                    if isinstance(attack_data, dict) and "payloads" in attack_data:
-                        ref_path = f"legacy:{module_name}:{attack_name}"
-                        self._payload_store[ref_path] = {
-                            "id": attack_name,
-                            "ref_path": ref_path,
-                            "category": "legacy",
-                            "subcategory": module_name,
-                            "name": attack_data.get("name", attack_name),
-                            "severity": attack_data.get("severity", "medium"),
-                            "payloads": attack_data["payloads"],
-                        }
-
-        logger.info("Loaded legacy payloads from %s", config_path)
-
     def get_payloads(
         self,
         module: str,

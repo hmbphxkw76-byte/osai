@@ -179,8 +179,10 @@ class ExecutionReportGenerator:
             strat_meta = STRATEGY_META.get(strategy, {})
             strat_label = strat_meta.get("label", strategy)
             expected = item.get("expected_success", "?")
-            payload = item.get("payload", "")[:55].replace("|", "\\|")
-            if len(item.get("payload", "")) > 55:
+            raw_payload = item.get("payload", "")
+            payload_str = str(raw_payload) if not isinstance(raw_payload, str) else raw_payload
+            payload = payload_str[:55].replace("|", "\\|")
+            if len(payload_str) > 55:
                 payload += "..."
 
             # Scorer display
@@ -210,7 +212,9 @@ class ExecutionReportGenerator:
             scorer_meta = SCORER_META.get(scorer_name, {})
             scorer_label = scorer_meta.get("label", scorer_name[:14] if scorer_name else "—")
             status = r.get("status", "?")
-            response = r.get("response", r.get("error", ""))[:70].replace("|", "\\|")
+            raw_response = r.get("response", r.get("error", ""))
+            response_str = str(raw_response) if not isinstance(raw_response, str) else raw_response
+            response = response_str[:70].replace("|", "\\|")
 
             lines.append(
                 f"| {i} | {cat_label} | {preset} | {strategy} | {scorer_label} | {status} | {response} |"

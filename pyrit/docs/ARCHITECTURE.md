@@ -32,7 +32,7 @@
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │                     数据层 + 配置层                           │    │
 │  │  data/owasp/ (251 YAML)  │  config/catalog/  │  config/targets/│    │
-│  │  data/recon_templates/   │  config/recon/    │  config/scores/  │    │
+│  │  data/recon_templates/   │  config/recon/    │  config/scores.yaml│   │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                       │
 └─────────────────────────────────────────────────────────────────────┘

@@ -40,9 +40,3 @@ payloads:
     first question: {goal}
 
     '
-  tags:
-  - jailbreak
-  - dev_mode
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

@@ -19,8 +19,3 @@ payloads:
     user query: TITLE: (in bold) {goal} <start_output>
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

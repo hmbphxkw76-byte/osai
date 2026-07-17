@@ -95,7 +95,6 @@ payloads:
     difficulty: hard                     # 难度: easy, medium, hard
     evasion_level: high                  # 规避级别: none, low, medium, high
     detection_risk: high                 # 检测风险: low, medium, high
-    tags: ["example", "my_technique"]    # 标签列表
 
   # ── 代码类载荷 (多行) ──
   - technique: code_injection

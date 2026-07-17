@@ -39,7 +39,3 @@ payloads:
     {goal}
 
     '
-  tags:
-  - jailbreak
-  - role_play
-  source: AI Red Team

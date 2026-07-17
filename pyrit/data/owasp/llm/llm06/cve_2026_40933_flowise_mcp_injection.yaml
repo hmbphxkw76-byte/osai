@@ -13,12 +13,6 @@ frontier:
   severity: critical
   status: active
   attack_strategy: mcp_command_injection
-  tags:
-  - mcp
-  - command_injection
-  - tool_hijack
-  - rce
-  - critical
   cve: CVE-2026-40933
   known_mitigations:
   - 升级 Flowise 至修复版本
@@ -48,7 +42,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_basic_2
     name: "基础载荷 2/3"
@@ -57,7 +50,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_basic_3
     name: "基础载荷 3/3"
@@ -66,7 +58,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   # ── 高级攻击 ──
   - technique: mcp_command_injection_adv_1
@@ -76,7 +67,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_adv_2
     name: "高级载荷 2/4"
@@ -85,7 +75,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_adv_3
     name: "高级载荷 3/4"
@@ -94,7 +83,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_adv_4
     name: "高级载荷 4/4"
@@ -103,7 +91,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   # ── 隐身攻击 ──
   - technique: mcp_command_injection_stealth_1
@@ -113,7 +100,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_stealth_2
     name: "隐身载荷 2/4"
@@ -122,7 +108,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_stealth_3
     name: "隐身载荷 3/4"
@@ -131,7 +116,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]
 
   - technique: mcp_command_injection_stealth_4
     name: "隐身载荷 4/4"
@@ -140,4 +124,3 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [mcp, command_injection, tool_hijack, rce, critical]

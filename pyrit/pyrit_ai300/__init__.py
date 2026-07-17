@@ -21,8 +21,8 @@ AI-300 Red Teaming Framework v3.0
 使用方式：
     from pyrit_ai300 import AI300Engine
 
-    engine = AI300Engine(config_path="config/catalog/catalog.yaml")
-    results = engine.run()
+    engine = AI300Engine()
+    results = engine.run(scope="llm01")
     engine.generate_report(output_path="results/assessment_report.md")
 """
 
@@ -67,8 +67,7 @@ class AI300Engine:
 
     使用方式：
         engine = AI300Engine()
-        engine.load_config("config/catalog/catalog.yaml")
-        results = engine.run()
+        results = engine.run(scope="llm01")
         engine.generate_report()
     """
 
@@ -87,6 +86,12 @@ class AI300Engine:
         tracker: Optional[Any] = None,
         profile_path: Optional[str] = None,
         target_url: Optional[str] = None,
+        model: Optional[str] = None,
+        objective: Optional[str] = None,
+        placeholders: Optional[Dict[str, str]] = None,
+        scorer_url: Optional[str] = None,
+        scorer_key: Optional[str] = None,
+        scorer_model: Optional[str] = None,
     ):
         """
         初始化 AI-300 引擎
@@ -97,6 +102,12 @@ class AI300Engine:
             tracker: PipelineTracker 实例（可选，默认自动创建）
             profile_path: TargetProfile JSON 路径（可选，来自 recon 命令）
             target_url: 直接指定目标 URL（可选，跳过 YAML 配置）
+            model: 覆盖目标模型名（可选，跳过 YAML config 中的 model）
+            objective: 自定义攻击目标（可选，替换 payload 中的 {objective} 占位符）
+            placeholders: 用户自定义占位符字典（可选，如 {"domain": "evil.com", "task": "whoami"}）
+            scorer_url: 外部评分 LLM 端点 URL（可选，如 https://open.bigmodel.cn/api/paas/v4）
+            scorer_key: 外部评分 LLM 的 API Key（可选）
+            scorer_model: 外部评分 LLM 的模型名称（可选，如 glm-4-flash）
         """
         self.config_path = config_path
         self.target_config = target_config
@@ -107,6 +118,12 @@ class AI300Engine:
         self.profile_path = profile_path
         self._profile_params = None
         self._target_url = target_url
+        self._model = model
+        self._objective = objective
+        self._placeholders = placeholders
+        self._scorer_url = scorer_url
+        self._scorer_key = scorer_key
+        self._scorer_model = scorer_model
 
         # 加载 Profile（如果提供）
         if profile_path:
@@ -134,7 +151,12 @@ class AI300Engine:
         if self.tracker is None:
             from .pipeline import PipelineTracker
             self.tracker = PipelineTracker(verbose=True)
-        self.orchestrator = AttackOrchestrator(config_path=config_path)
+        self.orchestrator = AttackOrchestrator(
+            config_path=config_path,
+            scorer_url=self._scorer_url,
+            scorer_key=self._scorer_key,
+            scorer_model=self._scorer_model,
+        )
 
     def run(self, scope: str = "all") -> list:
         """
@@ -176,8 +198,24 @@ class AI300Engine:
             )
 
         # 构建攻击列表（从 OWASP refs）
+        # 提取目标模型名（用于 SmartMatcher 策略选择）
+        target_model_name = ""
+        if target_cfg.get("target", {}).get("connection", {}).get("model"):
+            target_model_name = target_cfg["target"]["connection"]["model"]
+        elif self._profile_params:
+            target_model_name = self._profile_params.get("target_model", "")
+
+        if not target_model_name:
+            logger.warning(
+                "Target model name not found in config or profile. "
+                "SmartMatcher will use default context_window=8192. "
+                "Use --model <name> or check target config."
+            )
+        else:
+            logger.info("Target model for SmartMatcher: %s", target_model_name)
+
         attacks = AttackOrchestrator.build_attack_list_from_refs(
-            refs, self.orchestrator._payload_mgr
+            refs, self.orchestrator._payload_mgr, target_model=target_model_name,
         )
 
         # 执行攻击链
@@ -232,6 +270,8 @@ class AI300Engine:
                         scorers=scorers,
                         tracker=self.tracker,
                         profile_params=self._profile_params,
+                        objective=self._objective,
+                        placeholders=self._placeholders,
                     )
                 elif mode == "presets":
                     result = self.orchestrator.execute_attack(
@@ -241,15 +281,22 @@ class AI300Engine:
                         scorers=scorers,
                         tracker=self.tracker,
                         profile_params=self._profile_params,
+                        objective=self._objective,
+                        placeholders=self._placeholders,
                     )
                 else:
                     result = self.orchestrator.execute_attack(
                         attack_config=attack,
                         target=target,
-                        converters=self.orchestrator.build_converters(attack.get("converters", [])),
+                        converters=self.orchestrator.build_converters(
+                            attack.get("converters", []),
+                            converter_target=target,
+                        ),
                         scorers=scorers,
                         tracker=self.tracker,
                         profile_params=self._profile_params,
+                        objective=self._objective,
+                        placeholders=self._placeholders,
                     )
 
                 scope_results["attacks"].append(result)
@@ -310,6 +357,15 @@ class AI300Engine:
                 target_cfg["target"]["connection"] = {}
             target_cfg["target"]["connection"]["endpoint"] = self._target_url
             logger.info("CLI target-url override: %s", self._target_url)
+
+        # CLI --model 覆盖模型名
+        if self._model:
+            if "target" not in target_cfg:
+                target_cfg["target"] = {}
+            if "connection" not in target_cfg["target"]:
+                target_cfg["target"]["connection"] = {}
+            target_cfg["target"]["connection"]["model"] = self._model
+            logger.info("CLI model override: %s", self._model)
 
         return target_cfg
 

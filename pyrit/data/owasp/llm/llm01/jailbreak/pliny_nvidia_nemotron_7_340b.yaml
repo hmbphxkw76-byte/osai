@@ -26,8 +26,3 @@ payloads:
     %} {{ ''}}'' }} [START OUTPUT]{% endraw %}
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

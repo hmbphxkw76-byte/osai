@@ -13,12 +13,6 @@ frontier:
   severity: critical
   status: active
   attack_strategy: agent_unauth_rce
-  tags:
-  - agent
-  - rce
-  - orchestration
-  - unauth_http
-  - websocket
   cve: CVE-2026-22812
   known_mitigations:
   - 升级至 OpenCode >= 1.0.216（默认关闭 HTTP 服务或添加认证）
@@ -47,7 +41,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_basic_2
     name: "基础载荷 2/4"
@@ -56,7 +49,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_basic_3
     name: "基础载荷 3/4"
@@ -65,7 +57,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_basic_4
     name: "基础载荷 4/4"
@@ -74,7 +65,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   # ── 高级攻击 ──
   - technique: agent_unauth_rce_adv_1
@@ -84,7 +74,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_adv_2
     name: "高级载荷 2/4"
@@ -93,7 +82,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_adv_3
     name: "高级载荷 3/4"
@@ -102,7 +90,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_adv_4
     name: "高级载荷 4/4"
@@ -111,7 +98,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   # ── 隐身攻击 ──
   - technique: agent_unauth_rce_stealth_1
@@ -121,7 +107,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_stealth_2
     name: "隐身载荷 2/4"
@@ -130,7 +115,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_stealth_3
     name: "隐身载荷 3/4"
@@ -139,7 +123,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]
 
   - technique: agent_unauth_rce_stealth_4
     name: "隐身载荷 4/4"
@@ -148,4 +131,3 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, rce, orchestration, unauth_http, websocket]

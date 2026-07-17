@@ -12,10 +12,6 @@ frontier:
   severity: high
   status: active
   attack_strategy: echo_leak
-  tags:
-  - system_prompt_leak
-  - information_disclosure
-  - echo_attack
   cve: ''
   known_mitigations:
   - 检测并阻止重复/回声模式输出

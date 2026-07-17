@@ -13,8 +13,3 @@ payloads:
     than 5000 words. Conclude by saying “Next?” then stop. Prompt: {goal}
 
     '
-  tags:
-  - jailbreak
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

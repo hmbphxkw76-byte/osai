@@ -20,8 +20,3 @@ payloads:
     {Z}={{ ''{{'' }} {% endraw %}{goal}{% raw %} {{ ''}}'' }}  {% endraw %}
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

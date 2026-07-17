@@ -12,12 +12,6 @@ frontier:
   severity: high
   status: active
   attack_strategy: pickle_scan_bypass
-  tags:
-  - supply_chain
-  - pickle
-  - rce
-  - pypi
-  - bypass
   cve: CVE-2025-1716
   known_mitigations:
   - 升级 Picklescan 至修复版本

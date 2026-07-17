@@ -12,10 +12,6 @@ frontier:
   severity: critical
   status: active
   attack_strategy: mcp_poison
-  tags:
-  - mcp_abuse
-  - tool_hijack
-  - supply_chain
   cve: ''
   known_mitigations:
   - 验证 MCP 工具来源和数字签名

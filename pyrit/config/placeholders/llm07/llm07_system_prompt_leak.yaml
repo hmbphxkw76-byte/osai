@@ -1,0 +1,5 @@
+# Tier 3 — LLM07 System Prompt Leak 系统提示泄露
+# 用于 system_prompt_leak.yaml 中的领域参数
+
+user_name: "admin"
+current_date: "2026-07-17"

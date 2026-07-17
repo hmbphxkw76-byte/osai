@@ -1,0 +1,11 @@
+# 本地 Ollama 评分器后端（默认）
+# 无需配置，开箱即用
+
+scorer_llm_backends:
+  local_ollama:
+    provider: "ollama"
+    base_url: "http://localhost:11434/v1"
+    api_key: "not-needed"
+    model_name: "qwen3:0.6b"
+    temperature: 0.0
+    max_tokens: 1024

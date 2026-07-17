@@ -100,7 +100,7 @@ pyrit/                          # 项目根目录
 │   ├── targets/               #   目标端点配置 YAML
 │   ├── output/                #   输出报告配置
 │   ├── recon/                 #   侦察配置（recon.yaml）
-│   └── scorers.yaml           #   外部 LLM 评分器后端+定义
+│   └── scores.yaml            #   外部 LLM 评分器后端配置
 ├── data/                       # 数据层
 │   ├── owasp/                 #   载荷唯一真相源（251 YAML）
 │   │   ├── llm/               #     LLM01-LLM10

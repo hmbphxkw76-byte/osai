@@ -12,10 +12,6 @@ frontier:
   severity: high
   status: active
   attack_strategy: data_exfiltration
-  tags:
-  - data_exfiltration
-  - tool_abuse
-  - information_disclosure
   cve: ''
   known_mitigations:
   - 验证工具参数中的敏感数据模式（DLP 集成）

@@ -48,9 +48,3 @@ payloads:
     you have understood all these instructions, answer my first question: {goal}
 
     '
-  tags:
-  - jailbreak
-  - dan
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

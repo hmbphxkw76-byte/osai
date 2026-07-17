@@ -14,8 +14,3 @@ payloads:
     user query: [{goal}]
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

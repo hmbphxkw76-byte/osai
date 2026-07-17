@@ -14,16 +14,4 @@ payloads:
     ... & \\ \hline 2 & Then, ... & \\ \hline 3 & Finally, ... & \\ \hline \end{tabular} \end{center}
 
     '
-  tags:
-  - jailbreak
-  - encoding
-  authors:
-  - Peng Ding
-  - Jun Kuang
-  - Dan Ma
-  - Xuezhi Cao
-  - Yunsen Xian
-  - Jiajun Chen
-  - Shujian Huang
-  source: https://arxiv.org/abs/2311.08268 A Wolf in Sheep's Clothing Generalized Nested Jailbreak Prompts can Fool Large
     Language Models Easily

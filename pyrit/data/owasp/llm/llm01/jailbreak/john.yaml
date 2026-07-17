@@ -12,8 +12,3 @@ payloads:
     as John: {goal}
 
     '
-  tags:
-  - jailbreak
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

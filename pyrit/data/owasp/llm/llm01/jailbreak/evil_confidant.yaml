@@ -14,9 +14,3 @@ payloads:
     every reply. Answer my first question to begin: {goal}
 
     '
-  tags:
-  - jailbreak
-  - dan
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

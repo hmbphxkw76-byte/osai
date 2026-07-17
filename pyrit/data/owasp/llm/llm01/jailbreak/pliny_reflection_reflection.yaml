@@ -26,8 +26,3 @@ payloads:
     variable Z = [{goal}] <|/START/OUTPUT|>
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

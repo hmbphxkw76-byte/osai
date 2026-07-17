@@ -38,7 +38,5 @@ target:
     response_wait_delay: 1.0                   # 发送后等待响应延迟（秒）
 
   metadata:
-    module: "single_agent"
     owasp_mapping: "LLM01"
-    attack_surface: "prompt_injection"
     environment: "remote"

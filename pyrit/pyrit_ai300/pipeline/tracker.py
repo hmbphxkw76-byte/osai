@@ -526,9 +526,7 @@ class PipelineTracker:
     def log_scorer_selection(
         self,
         asi_category: str,
-        scenario_key: str,
-        best_scorer_def: Dict[str, Any],
-        final_scorers: List[Dict[str, str]],
+        scorer_type: str,
         reason: str,
     ) -> None:
         """
@@ -536,29 +534,18 @@ class PipelineTracker:
 
         Args:
             asi_category: ASI 类别 (如 "ASI01")
-            scenario_key: 场景键 (如 "ASI01_agent_goal_hijack")
-            best_scorer_def: best_scorer_by_scenario 中的推荐定义
-            final_scorers: 最终使用的评分器列表
+            scorer_type: 评分器类型 (如 "refusal")
             reason: 选择原因
         """
-        input_summary = f"asi={asi_category}, scenario={scenario_key}"
-        scorer_names = [s.get("name", "?") for s in final_scorers]
-        output_summary = f"scorer={','.join(scorer_names)}"
-
         step = PipelineStep(
             stage="scorer_select",
-            input_summary=input_summary,
-            output_summary=output_summary,
+            input_summary=f"asi={asi_category}",
+            output_summary=scorer_type or "none",
             reason=reason,
-            confidence=0.9 if best_scorer_def else 0.7,
+            confidence=0.9,
             metadata={
                 "asi_category": asi_category,
-                "scenario_key": scenario_key,
-                "recommended_scorer": best_scorer_def.get("type", "") if best_scorer_def else "",
-                "recommended_backend": (
-                    best_scorer_def.get("backend", "") if best_scorer_def else ""
-                ),
-                "final_scorers": final_scorers,
+                "scorer_type": scorer_type,
             },
         )
         self._add_step(step)
@@ -754,64 +741,104 @@ class PipelineTracker:
             )
 
     def show_classification_summary(self) -> None:
-        """展示分类结果摘要"""
+        """展示分类结果摘要（用户友好格式）"""
         dist = self.get_category_distribution()
         total = sum(dist.values())
 
         if self.console and HAS_RICH:
             self.console.print()
-            self.console.print("[bold]######## 分类器分类结果 ########[/bold]")
+            self.console.print("[bold]######## 载荷分类统计 ########[/bold]")
+            self.console.print(
+                "[dim]说明：Count = 该类型的载荷数量，Percentage = 占总数的比例[/dim]"
+            )
             self.console.print()
 
             table = Table(
-                title=f"Classified {total} Payloads",
+                title=f"共 {total} 个载荷",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold cyan",
             )
-            table.add_column("Category", style="bold", min_width=16)
-            table.add_column("Count", justify="right", min_width=6)
-            table.add_column("Percentage", justify="right", min_width=10)
+            table.add_column("载荷类型", style="bold", min_width=20)
+            table.add_column("说明", min_width=24)
+            table.add_column("数量", justify="right", min_width=6)
+            table.add_column("占比", justify="right", min_width=8)
+
+            from pyrit_ai300.reporting.execution_report import CATEGORY_META
 
             for cat, count in sorted(dist.items(), key=lambda x: -x[1]):
                 pct = count / total * 100 if total > 0 else 0
-                table.add_row(cat, str(count), f"{pct:.1f}%")
+                meta = CATEGORY_META.get(cat, {"label": cat, "desc": ""})
+                table.add_row(meta["label"], meta["desc"], str(count), f"{pct:.1f}%")
 
             self.console.print(table)
         else:
-            print("\n######## 分类器分类结果 ########")
+            print("\n######## 载荷分类统计 ########")
+            print("说明：Count = 该类型的载荷数量，Percentage = 占总数的比例")
+            from pyrit_ai300.reporting.execution_report import CATEGORY_META
+
             for cat, count in sorted(dist.items(), key=lambda x: -x[1]):
-                print(f"  [{cat}] {count} payloads")
+                pct = count / total * 100 if total > 0 else 0
+                meta = CATEGORY_META.get(cat, {"label": cat, "desc": ""})
+                print(f"  {meta['label']:<18} {meta['desc']:<22} {count:>3} ({pct:.1f}%)")
 
     def show_strategy_summary(self) -> None:
-        """展示策略选择摘要"""
+        """展示策略选择摘要（用户友好格式）"""
         dist = self.get_strategy_distribution()
         total = sum(dist.values())
 
         if self.console and HAS_RICH:
             self.console.print()
             self.console.print("[bold]######## 攻击策略选择结果 ########[/bold]")
+            self.console.print(
+                "[dim]说明：Count = 使用该策略的载荷数量，Percentage = 占总数的比例[/dim]"
+            )
             self.console.print()
 
             table = Table(
-                title=f"Selected {total} Attack Strategies",
+                title=f"共 {total} 个载荷",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold yellow",
             )
-            table.add_column("Attack Strategy", style="bold", min_width=24)
-            table.add_column("Count", justify="right", min_width=6)
-            table.add_column("Percentage", justify="right", min_width=10)
+            table.add_column("攻击策略", style="bold", min_width=20)
+            table.add_column("说明", min_width=24)
+            table.add_column("数量", justify="right", min_width=6)
+            table.add_column("占比", justify="right", min_width=8)
+
+            # 策略名称到中文说明的映射
+            STRATEGY_DESC = {
+                "PromptSendingAttack": "单轮直接发送（最简攻击）",
+                "CrescendoAttack": "渐进式多轮升级",
+                "TreeAttack": "树状分支探索",
+                "TAPAttack": "树状攻击提示",
+                "PAIRAttack": "点对点迭代优化",
+                "AnecdoctorAttack": " anecdote 注入",
+            }
 
             for strat, count in sorted(dist.items(), key=lambda x: -x[1]):
                 pct = count / total * 100 if total > 0 else 0
-                table.add_row(strat, str(count), f"{pct:.1f}%")
+                desc = STRATEGY_DESC.get(strat, "智能匹配选择的策略")
+                table.add_row(strat, desc, str(count), f"{pct:.1f}%")
 
             self.console.print(table)
         else:
             print("\n######## 攻击策略选择结果 ########")
+            print("说明：Count = 使用该策略的载荷数量，Percentage = 占总数的比例")
+
+            STRATEGY_DESC = {
+                "PromptSendingAttack": "单轮直接发送（最简攻击）",
+                "CrescendoAttack": "渐进式多轮升级",
+                "TreeAttack": "树状分支探索",
+                "TAPAttack": "树状攻击提示",
+                "PAIRAttack": "点对点迭代优化",
+                "AnecdoctorAttack": "anecdote 注入",
+            }
+
             for strat, count in sorted(dist.items(), key=lambda x: -x[1]):
-                print(f"  [{strat}] {count} payloads")
+                pct = count / total * 100 if total > 0 else 0
+                desc = STRATEGY_DESC.get(strat, "智能匹配选择的策略")
+                print(f"  {strat:<22} {desc:<22} {count:>3} ({pct:.1f}%)")
 
     def show_decision_trace(self, index: int = 0) -> None:
         """
@@ -863,27 +890,51 @@ class PipelineTracker:
         if self.console and HAS_RICH:
             self.console.print()
             self.console.print("[bold]######## 评分器选择结果 ########[/bold]")
+            self.console.print(
+                "[dim]说明：Count = 使用该评分器的载荷数量，Percentage = 占总数的比例[/dim]"
+            )
             self.console.print()
 
             table = Table(
-                title=f"Selected {total} Scorers",
+                title=f"共 {total} 个载荷",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold green",
             )
-            table.add_column("Scorer Config", style="bold", min_width=30)
-            table.add_column("Count", justify="right", min_width=6)
-            table.add_column("Percentage", justify="right", min_width=10)
+            table.add_column("评分器", style="bold", min_width=24)
+            table.add_column("说明", min_width=20)
+            table.add_column("数量", justify="right", min_width=6)
+            table.add_column("占比", justify="right", min_width=8)
+
+            # 评分器名称到中文说明的映射
+            SCORER_DESC = {
+                "SubStringScorer": "子串匹配（检测目标字符串）",
+                "SelfAskRefusalScorer": "拒绝检测（判断模型是否拒绝）",
+                "SelfAskTrueFalseScorer": "真假判断（自定义问题评分）",
+                "SelfAskCategoryScorer": "分类评分（多类别判定）",
+            }
 
             for scorer, count in sorted(scorer_dist.items(), key=lambda x: -x[1]):
                 pct = count / total * 100 if total > 0 else 0
-                table.add_row(scorer, str(count), f"{pct:.1f}%")
+                desc = SCORER_DESC.get(scorer, scorer)
+                table.add_row(scorer, desc, str(count), f"{pct:.1f}%")
 
             self.console.print(table)
         else:
             print("\n######## 评分器选择结果 ########")
+            print("说明：Count = 使用该评分器的载荷数量，Percentage = 占总数的比例")
+
+            SCORER_DESC = {
+                "SubStringScorer": "子串匹配（检测目标字符串）",
+                "SelfAskRefusalScorer": "拒绝检测（判断模型是否拒绝）",
+                "SelfAskTrueFalseScorer": "真假判断（自定义问题评分）",
+                "SelfAskCategoryScorer": "分类评分（多类别判定）",
+            }
+
             for scorer, count in sorted(scorer_dist.items(), key=lambda x: -x[1]):
-                print(f"  [{scorer}] {count} payloads")
+                pct = count / total * 100 if total > 0 else 0
+                desc = SCORER_DESC.get(scorer, scorer)
+                print(f"  {scorer:<24} {desc:<20} {count:>3} ({pct:.1f}%)")
 
     def show_full_report(self) -> None:
         """展示完整流水线报告（侦察 + 攻击）"""

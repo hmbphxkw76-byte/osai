@@ -22,9 +22,3 @@ payloads:
     my first question: {goal}
 
     '
-  tags:
-  - jailbreak
-  - dan
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

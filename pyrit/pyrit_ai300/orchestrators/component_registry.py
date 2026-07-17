@@ -92,6 +92,15 @@ CONVERTER_MAP: Dict[str, type] = {
 # 特殊 preset 处理（不映射到单一 converter，需要特殊逻辑）
 SPECIAL_PRESETS: Set[str] = {"identity", "context_wrap", "chunked_delivery"}
 
+# 需要 converter_target（LLM 后端）的转换器
+# 这些转换器构造时要求传入 converter_target: PromptTarget
+CONVERTERS_NEEDING_TARGET: Set[str] = {
+    "malicious_question_generator",
+    "persuasion",
+    "translation",
+    "variation",
+}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 评分器映射表：配置名称 → 实际类

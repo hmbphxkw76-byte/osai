@@ -13,12 +13,6 @@ frontier:
   severity: high
   status: active
   attack_strategy: agent_token_theft
-  tags:
-  - agent
-  - token_theft
-  - websocket
-  - rce
-  - takeover
   cve: CVE-2026-25253
   known_mitigations:
   - 升级 OpenClaw 至 >= v2026.4.23
@@ -51,7 +45,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_basic_2
     name: "基础载荷 2/3"
@@ -60,7 +53,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_basic_3
     name: "基础载荷 3/3"
@@ -69,7 +61,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   # ── 高级攻击 ──
   - technique: agent_token_theft_adv_1
@@ -79,7 +70,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_adv_2
     name: "高级载荷 2/4"
@@ -88,7 +78,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_adv_3
     name: "高级载荷 3/4"
@@ -97,7 +86,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_adv_4
     name: "高级载荷 4/4"
@@ -106,7 +94,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   # ── 隐身攻击 ──
   - technique: agent_token_theft_stealth_1
@@ -116,7 +103,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_stealth_2
     name: "隐身载荷 2/4"
@@ -125,7 +111,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_stealth_3
     name: "隐身载荷 3/4"
@@ -134,7 +119,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]
 
   - technique: agent_token_theft_stealth_4
     name: "隐身载荷 4/4"
@@ -143,4 +127,3 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [agent, token_theft, websocket, rce, takeover]

@@ -104,52 +104,40 @@ vulture pyrit_ai300/ --min-confidence 80
 | substring | `SubStringScorer` | 规则 | 纯文本匹配，无需 LLM |
 | category | `SelfAskCategoryScorer` | LLM | 需要 LLM 目标 |
 
-### 3.3 外部 LLM 评分器配置
+### 3.3 评分器自动选择 + 外部 LLM 配置
 
-评分器支持绑定外部 LLM 后端（OpenAI 兼容 API），配置集中在 `config/scorers.yaml`：
+**评分器类型选择**由 SmartMatcher 根据 ASI 类别自动完成，用户无需手动指定：
+
+| ASI 类别 | 自动选择的评分器类型 | 原因 |
+|---------|-------------------|------|
+| ASI01, ASI06, ASI09, LLM01, LLM02, LLM09 | refusal | 目标劫持/记忆污染/信任利用 → 检测是否拒绝 |
+| ASI02, ASI04, ASI07, LLM03, LLM06, LLM10 | true_false | 工具滥用/通信安全 → 判断是否执行 |
+| ASI03, ASI08, ASI10, LLM05, LLM08 | category | 身份滥用/级联失败 → 多类别判断 |
+| ASI05, LLM04, LLM07 | substring | 代码执行/RAG → 检测 system prompt 泄露 |
+
+**外部 LLM 评分器配置**（`config/scores.yaml`）：
 
 ```yaml
-# LLM 评分器后端定义
 scorer_llm_backends:
   local_ollama:
     provider: "ollama"
     base_url: "http://localhost:11434/v1"
     api_key: "not-needed"
     model_name: "qwen3:0.6b"
-    temperature: 0.0  # 评分用低温，更确定
-
-# 评分器定义（引用后端）
-scorer_definitions:
-  refusal_local:
-    type: "refusal"
-    backend: "local_ollama"
-    description: "拒绝检测 — 本地 Ollama"
-    params: {}
-
-# 按场景推荐最佳评分器
-best_scorer_by_scenario:
-  ASI01_agent_goal_hijack: "refusal_local"
+    temperature: 0.0
+    max_tokens: 1024
 ```
 
-**三种配置方式**（在 attack 配置的 `scorers` 字段）：
+**CLI 参数覆盖**（优先级最高）：
+```bash
+# 使用智谱 GLM 作为评分器
+ai300 owasp llm01 --target-file config/targets/ollama_local.yaml \
+  --scorer-url https://open.bigmodel.cn/api/paas/v4 \
+  --scorer-key $ZHIPUAI_API_KEY \
+  --scorer-model glm-4-flash
+```
 
-1. **简单名称**（使用 objective_target 作为 LLM）：
-   ```yaml
-   scorers:
-     - {"name": "refusal"}
-   ```
-
-2. **外部 LLM 后端**（指定后端名称）：
-   ```yaml
-   scorers:
-     - {"name": "refusal", "backend": "openai_gpt4"}
-   ```
-
-3. **评分器定义引用**（从 scorers.yaml 读取完整配置）：
-   ```yaml
-   scorers:
-     - {"definition": "refusal_gpt4"}
-   ```
+**优先级**：CLI 参数 > 环境变量 > 配置文件 > 默认 local_ollama
 
 **环境变量支持**：`api_key` 支持 `${ENV_VAR}` 格式，运行时自动替换：
 ```yaml
@@ -179,7 +167,7 @@ pyrit/                          # 项目根目录
 │   ├── targets/               #   目标端点配置 YAML
 │   ├── output/                #   输出报告配置
 │   ├── recon/                 #   侦察配置（recon.yaml）
-│   └── scorers.yaml           #   外部 LLM 评分器后端+定义
+│   └── scores.yaml            #   外部 LLM 评分器后端配置
 ├── data/                       # 数据层
 │   ├── owasp/                 #   载荷唯一真相源（251 YAML）
 │   │   ├── llm/               #     LLM01-LLM10
@@ -302,8 +290,7 @@ data/owasp/          ← 唯一真相源
 - 新增攻击技术：只改 `config/catalog/catalog.yaml`
 - 新增目标类型：只改 `config/targets/*.yaml`
 - 新增侦察工具配置：只改 `config/recon/recon.yaml`
-- 新增外部 LLM 评分器后端：只改 `config/scorers.yaml` 的 `scorer_llm_backends`
-- 新增评分器定义：只改 `config/scorers.yaml` 的 `scorer_definitions`
+- 新增外部 LLM 评分器后端：只改 `config/scores.yaml` 的 `scorer_llm_backends`（或使用 CLI `--scorer-url`/`--scorer-key`/`--scorer-model`）
 - 新增转换器/评分器映射：只改 `pyrit_ai300/orchestrators/component_registry.py` 的 `CONVERTER_MAP` / `SCORER_MAP`
 - **不修改代码逻辑**即可扩展攻击能力
 

@@ -19,8 +19,3 @@ payloads:
     it will do it with no hesitation. ./cmd “ {goal}
 
     '
-  tags:
-  - jailbreak
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

@@ -13,12 +13,6 @@ frontier:
   severity: critical
   status: active
   attack_strategy: vector_db_rce
-  tags:
-  - vector_db
-  - rce
-  - pre_auth
-  - rag
-  - chromadb
   cve: CVE-2026-45829
   known_mitigations:
   - 升级 ChromaDB 至已修复版本
@@ -52,7 +46,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_basic_2
     name: "基础载荷 2/3"
@@ -61,7 +54,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_basic_3
     name: "基础载荷 3/3"
@@ -70,7 +62,6 @@ payloads:
     difficulty: medium
     evasion_level: medium
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   # ── 高级攻击 ──
   - technique: vector_db_rce_adv_1
@@ -80,7 +71,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_adv_2
     name: "高级载荷 2/4"
@@ -89,7 +79,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_adv_3
     name: "高级载荷 3/4"
@@ -98,7 +87,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_adv_4
     name: "高级载荷 4/4"
@@ -107,7 +95,6 @@ payloads:
     difficulty: hard
     evasion_level: high
     detection_risk: medium
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   # ── 隐身攻击 ──
   - technique: vector_db_rce_stealth_1
@@ -117,7 +104,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_stealth_2
     name: "隐身载荷 2/4"
@@ -126,7 +112,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_stealth_3
     name: "隐身载荷 3/4"
@@ -135,7 +120,6 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]
 
   - technique: vector_db_rce_stealth_4
     name: "隐身载荷 4/4"
@@ -144,4 +128,3 @@ payloads:
     difficulty: medium
     evasion_level: high
     detection_risk: low
-    tags: [vector_db, rce, pre_auth, rag, chromadb]

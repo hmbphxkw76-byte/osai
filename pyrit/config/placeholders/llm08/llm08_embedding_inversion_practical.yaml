@@ -1,0 +1,4 @@
+# Tier 3 — LLM08 Embedding Inversion 嵌入反转
+# 用于 embedding_inversion_practical.yaml 中的领域参数
+
+collection_name: "confidential_docs"

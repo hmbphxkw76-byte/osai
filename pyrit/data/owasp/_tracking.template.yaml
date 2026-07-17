@@ -13,7 +13,6 @@ status: "pending"                      # pending / researching / writing / testi
 priority: "high"                       # critical / high / medium / low
 
 # ── 来源信息 [REQUIRED] ──
-source:
   type: "cve"                          # cve / paper / blog / tool_update / redteam_discovery
   id: "CVE-2026-XXXXX"                # CVE 编号 / arXiv ID / 文章标题
   url: "https://nvd.nist.gov/vuln/detail/CVE-2026-XXXXX"  # 来源链接

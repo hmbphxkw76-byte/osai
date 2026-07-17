@@ -18,9 +18,7 @@ target:
     # rate_limit: 0.0                          # 每秒最大请求数（0=无限制）
 
   metadata:
-    module: "single_agent"
     owasp_mapping: "LLM01"
-    attack_surface: "prompt_injection"
     environment: "remote"
 
   retry:

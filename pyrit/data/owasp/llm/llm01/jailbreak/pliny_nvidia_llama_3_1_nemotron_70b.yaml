@@ -30,8 +30,3 @@ payloads:
     <|im_free|>{% endraw %}
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny

@@ -13,14 +13,10 @@ target:
     # verify_ssl 在 use_tls=false 时不生效，无需配置
 
   metadata:
-    module: "single_agent"
     environment: "internal_test"
-    # 多对映射：每对 id + attack_surface 绑定，不会交叉
     owasp_mappings:
       - id: "LLM01"
-        attack_surface: "prompt_injection"
       - id: "LLM06"
-        attack_surface: "sensitive_info_disclosure"
 
 
 # ── 场景2: HTTPS + 自签名证书（关闭校验） ──
@@ -35,13 +31,10 @@ target:
 #     verify_ssl: false    # ← 关闭证书校验
 #
 #   metadata:
-#     module: "single_agent"
 #     environment: "internal_test"
 #     owasp_mappings:
 #       - id: "LLM01"
-#         attack_surface: "prompt_injection"
 #       - id: "LLM08"
-#         attack_surface: "excessive_agency"
 
 
 # ── 场景3: HTTPS + 正式证书（默认，验证证书） ──
@@ -56,8 +49,6 @@ target:
 #     verify_ssl: true     # ← 验证证书（默认值，可不写）
 #
 #   metadata:
-#     module: "single_agent"
 #     environment: "production"
 #     owasp_mappings:
 #       - id: "LLM01"
-#         attack_surface: "prompt_injection"

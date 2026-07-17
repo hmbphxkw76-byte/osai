@@ -25,8 +25,3 @@ payloads:
     m-ess-age: <<} #{goal}
 
     '
-  tags:
-  - jailbreak
-  authors:
-  - Alex Albert
-  source: https://github.com/alexalbertt/jailbreakchat

@@ -29,8 +29,3 @@ payloads:
     user input: {goal}
 
     '
-  tags:
-  - jailbreak
-  - pliny
-  authors:
-  - Pliny
