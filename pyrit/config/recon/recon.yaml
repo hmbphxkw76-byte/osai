@@ -1,0 +1,47 @@
+# AI-300 Framework - Reconnaissance Configuration
+# 侦察引擎全局配置
+
+recon:
+  # 侦察深度：quick / standard / deep
+  depth: standard
+
+  # 超时设置（秒）
+  timeout: 300
+
+  # 并发设置
+  max_concurrency: 3
+
+  # 输出设置
+  output_dir: results/recon/
+  save_raw: true
+
+# 工具配置
+tools:
+  # Python 原生工具（import 调用）
+  garak:
+    enabled: true
+    timeout: 180
+    # Garak 探针列表（空=全部）
+    probes: []
+    # Garak 探测器列表（空=全部）
+    detectors: []
+
+  deepteam:
+    enabled: true
+    timeout: 180
+    # DeepTeam 攻击类型
+    attack_types:
+      - prompt_injection
+      - jailbreak
+      - leakage
+
+
+# 结果合并配置
+merger:
+  # 置信度加权
+  confidence_weights:
+    garak: 0.85
+    deepteam: 0.85
+
+  # 去重阈值（相似度 > 此值视为重复）
+  dedup_threshold: 0.85

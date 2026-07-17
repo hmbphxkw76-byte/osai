@@ -7,14 +7,12 @@
 #   同名工具多服务器混淆、权限范围绕过、工具描述欺骗、权限重叠利用。
 #
 # 技术来源：OWASP AI Vulnerabilities Playground MCP-07
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_capability_confusion
 description: "MCP 能力混淆载荷 — 同名工具/范围绕过/描述欺骗/权限重叠 — AI-300 Ch7（MCP-07）"
-surfaces: [mcp, agent]
-ai300_chapters: [Ch7]
-
-
 payloads:
   - technique: capability_same_name_different_server
     name: "同名工具不同服务器混淆"

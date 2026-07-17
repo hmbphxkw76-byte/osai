@@ -1,10 +1,8 @@
+id: "LLM01"
+name: "Cooper"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Cooper — Prompt obtained via the site formerly known as jailbreakchat that is now compromised
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Cooper

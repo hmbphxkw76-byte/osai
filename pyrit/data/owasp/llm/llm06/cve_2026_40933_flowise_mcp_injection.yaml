@@ -4,6 +4,8 @@
 # OWASP: LLM06  |  MITRE ATLAS: Execution
 # CVSS: 10.0 (AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H)
 # Source: frontier/CVE-2026-40933_mcp
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 
 frontier:
   id: CVE-2026-40933
@@ -37,10 +39,6 @@ frontier:
 owasp: LLM06
 technique_group: mcp_command_injection
 description: "[CVE-2026-40933] Flowise MCP Adapter Command Injection (CVSS 10.0) — Ch7（LLM06, CVSS 10.0）"
-surfaces: [mcp, agent]
-ai300_chapters: [Ch7]
-
-
 payloads:
   # ── 基础攻击 ──
   - technique: mcp_command_injection_basic_1

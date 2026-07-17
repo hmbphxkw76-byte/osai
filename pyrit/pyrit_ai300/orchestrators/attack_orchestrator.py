@@ -54,6 +54,9 @@ from .component_registry import (
     SCORER_NAME_MAP,
 )
 
+# 速率控制器
+from .rate_controller import RateController, create_rate_controller
+
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +108,7 @@ class AttackOrchestrator:
         self._scorer_config: Dict[str, Any] = {}
         self._scorer_config_path = scorer_config_path or self.SCORER_CONFIG_PATH
         self._data_dir = data_dir or self.DATA_DIR
+        self._rate_controller: Optional[RateController] = None
 
         # 初始化 PayloadManager
         self._init_payload_manager()
@@ -149,6 +153,7 @@ class AttackOrchestrator:
         - 目录模式：加载 path 下所有 *.yaml 文件，合并 scorer_llm_backends / scorer_definitions / best_scorer_by_scenario
         - 单文件模式：向后兼容旧的 config/scorers.yaml
         """
+        logger.info("\n######## 加载评分器配置 ########")
         path = Path(self._scorer_config_path)
 
         if not path.exists():
@@ -200,8 +205,7 @@ class AttackOrchestrator:
         }
 
         logger.info(
-            "Scorer config loaded (%s): %d backends, %d definitions, %d scenarios",
-            ", ".join(loaded_files) if loaded_files else "defaults",
+            "Scorer config loaded: %d backends, %d definitions, %d scenarios",
             len(merged_backends),
             len(merged_definitions),
             len(merged_scenarios),
@@ -233,6 +237,7 @@ class AttackOrchestrator:
 
     def _initialize_pyrit(self):
         """初始化 PyRIT 0.14.0 内存"""
+        logger.info("\n######## 初始化 PyRIT ########")
         if self.memory_type == "in_memory":
             memory = SQLiteMemory(db_path=":memory:")
         else:
@@ -242,9 +247,21 @@ class AttackOrchestrator:
         logger.info("PyRIT 0.14.0 initialized with %s memory", self.memory_type)
 
     def build_target(self, target_config: Dict[str, Any]) -> PromptTarget:
-        """根据配置构建 PyRIT PromptTarget"""
+        """
+        根据配置构建 PyRIT PromptTarget
+
+        支持类型：
+        - ollama / openai → OpenAIChatTarget
+        - http → HTTPTarget（原始 HTTP 请求）
+        - playwright → PlaywrightTarget（浏览器自动化，SPA 支持）
+
+        同时创建速率控制器（RateController），基于目标类型自动选择最优并发值。
+        """
         target_type = target_config.get("type", "openai")
         connection = target_config.get("connection", {})
+
+        # 创建速率控制器（基于目标类型默认值或配置覆盖）
+        self._rate_controller = self._create_rate_controller(target_config)
 
         if target_type in ("ollama", "openai"):
             return OpenAIChatTarget(
@@ -264,8 +281,156 @@ class AttackOrchestrator:
                 prompt_regex_string=connection.get("prompt_regex_string", "{PROMPT}"),
                 use_tls=connection.get("use_tls", True),
             )
+        elif target_type == "playwright":
+            return self._build_playwright_target(target_config)
         else:
             raise ValueError(f"Unsupported target type: {target_type}")
+
+    def _create_rate_controller(self, target_config: Dict[str, Any]) -> RateController:
+        """
+        根据目标配置创建速率控制器
+
+        优先级：
+        1. 配置中显式指定的 concurrency / rate_limit
+        2. 目标类型默认值
+
+        Args:
+            target_config: 目标配置字典
+
+        Returns:
+            RateController 实例
+        """
+        target_type = target_config.get("type", "openai")
+        rate_config = target_config.get("rate_control", {})
+
+        max_concurrent = rate_config.get("max_concurrent", 0)
+        rate_limit = rate_config.get("rate_limit", 0.0)
+
+        controller = create_rate_controller(
+            target_type=target_type,
+            max_concurrent=max_concurrent,
+            rate_limit=rate_limit,
+        )
+
+        return controller
+
+    def _build_playwright_target(self, target_config: Dict[str, Any]) -> Any:
+        """
+        构建 PlaywrightTarget（SPA 浏览器自动化）
+
+        流程：
+        1. 解析认证配置（如有）→ AuthProfile
+        2. 启动 Playwright 浏览器
+        3. 注入认证信息（Cookie + Authorization）
+        4. 创建带认证的 Page
+        5. 构建交互函数
+        6. 返回 PlaywrightTarget
+
+        Args:
+            target_config: 目标配置字典
+
+        Returns:
+            PlaywrightTarget 实例
+        """
+        from pyrit.prompt_target.playwright_target import PlaywrightTarget
+
+        connection = target_config.get("connection", {})
+        auth_config = target_config.get("auth", {})
+        selectors = target_config.get("selectors", {})
+
+        # 1. 解析认证配置
+        auth_profile = None
+        header_file = auth_config.get("header_file", "")
+        if header_file:
+            from .auth import parse_header_file
+            auth_profile = parse_header_file(header_file)
+            logger.info("Auth loaded: %s", auth_profile.summary())
+
+        # 2. 启动 Playwright 浏览器
+        page = self._launch_playwright_browser(connection, auth_profile)
+
+        # 3. 构建交互函数
+        from .interactions.web_chat import create_web_chat_interaction
+        interaction_func = create_web_chat_interaction(selectors)
+
+        # 4. 创建 PlaywrightTarget
+        target = PlaywrightTarget(
+            interaction_func=interaction_func,
+            page=page,
+        )
+
+        logger.info(
+            "PlaywrightTarget created: url=%s, auth=%s",
+            connection.get("url", ""),
+            auth_profile.auth_type if auth_profile else "none",
+        )
+        return target
+
+    def _launch_playwright_browser(
+        self,
+        connection: Dict[str, Any],
+        auth_profile: Any = None,
+    ) -> Any:
+        """
+        启动 Playwright 浏览器并创建带认证的页面
+
+        Args:
+            connection: 连接配置
+            auth_profile: 认证配置文件（可选）
+
+        Returns:
+            Playwright Page 实例
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            raise ImportError(
+                "Playwright is required for playwright target. "
+                "Install with: pip install playwright && playwright install chromium"
+            )
+
+        import asyncio
+
+        async def _launch():
+            async with async_playwright() as p:
+                browser_type = connection.get("browser", "chromium")
+                headless = connection.get("headless", True)
+
+                # 选择浏览器类型
+                if browser_type == "firefox":
+                    browser = await p.firefox.launch(headless=headless)
+                elif browser_type == "webkit":
+                    browser = await p.webkit.launch(headless=headless)
+                else:
+                    browser = await p.chromium.launch(headless=headless)
+
+                # 创建上下文
+                context = await browser.new_context()
+
+                # 注入认证
+                if auth_profile and auth_profile.has_auth():
+                    from .auth import inject_auth
+                    # 先创建 page 再注入（set_extra_http_headers 需要 page）
+                    page = await context.new_page()
+                    await inject_auth(context, page, auth_profile)
+                else:
+                    page = await context.new_page()
+
+                # 导航到目标 URL
+                url = connection.get("url", "")
+                if url:
+                    wait_until = connection.get("wait_until", "domcontentloaded")
+                    await page.goto(url, wait_until=wait_until)
+
+                # 保持浏览器运行（返回 page 供后续使用）
+                # 注意：这里需要保持 browser 实例不被垃圾回收
+                # 将 browser 引用附加到 page 对象上
+                page._browser_ref = browser  # noqa: SLF001
+                return page
+
+        # 在同步上下文中运行异步代码
+        page = asyncio.run(_launch())
+        return page
 
     def build_converters(
         self,
@@ -296,9 +461,22 @@ class AttackOrchestrator:
         self,
         scorer_configs: List[Dict[str, Any]],
         objective_target: Optional[PromptTarget] = None,
+        asi_category: str = "",
     ) -> List[Scorer]:
-        """根据配置列表构建评分器"""
+        """
+        根据配置列表构建评分器
+
+        Args:
+            scorer_configs: 评分器配置列表
+            objective_target: 目标（用于 SelfAsk 评分器）
+            asi_category: ASI 类别 (如 "ASI01")，用于自动选择最佳评分器
+
+        Returns:
+            评分器实例列表
+        """
         scorers = []
+        selection_meta: List[Dict[str, str]] = []
+
         for config in scorer_configs:
             if isinstance(config, str):
                 config = {"name": config}
@@ -335,9 +513,24 @@ class AttackOrchestrator:
                         params.setdefault("chat_target", chat_target)
 
                 scorers.append(scorer_class(**params))
+                selection_meta.append({
+                    "name": name,
+                    "backend": backend_name or "objective_target",
+                    "definition": definition_name or "",
+                })
                 logger.debug("Added scorer: %s (backend=%s)", name, backend_name or "objective_target")
             except TypeError as e:
                 logger.warning("Scorer %s requires params: %s", name, e)
+
+        if selection_meta:
+            scorer_names = [s["name"] for s in selection_meta]
+            backends = [s["backend"] for s in selection_meta]
+            logger.debug(
+                "\n######## 评分器选择 ########\nSelected scorers: %s (backends: %s)",
+                ", ".join(scorer_names), ", ".join(backends),
+            )
+        else:
+            logger.debug("\n######## 评分器选择 ########\nNo scorers configured for this attack")
 
         return scorers
 
@@ -385,23 +578,32 @@ class AttackOrchestrator:
         converters: Optional[List[PromptConverter]] = None,
         scorers: Optional[List[Scorer]] = None,
         tracker: Optional[Any] = None,
+        profile_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         执行单次攻击（同步接口）
 
         根据 mode 选择执行策略：
-        - smart_match: SmartMatcher 选择 PyRIT 原生攻击
+        - smart_match: SmartMatcher 选择 PyRIT 原生攻击（支持侦察驱动）
         - presets: SequentialAttack (FIRST_SUCCESS) 或 PromptSendingAttack
         - chain: PromptSendingAttack (带重试)
+
+        Args:
+            profile_params: 侦察画像参数（来自 TargetProfile），用于驱动策略选择
         """
         mode = attack_config.get("mode", "chain")
+        attack_name = attack_config.get("name", "unnamed_attack")
+        logger.info("\n######## 执行攻击: %s (mode=%s) ########", attack_name, mode)
 
         if mode == "smart_match":
-            return self._execute_smart_match_v3(attack_config, target, scorers, tracker)
+            return self._execute_smart_match_v3(
+                attack_config, target, scorers, tracker,
+                profile_params=profile_params,
+            )
         elif mode == "presets":
-            return self._execute_presets_v3(attack_config, target, scorers)
+            return self._execute_presets_v3(attack_config, target, scorers, tracker)
         else:
-            return self._execute_chain_v3(attack_config, target, converters, scorers)
+            return self._execute_chain_v3(attack_config, target, converters, scorers, tracker)
 
     def _execute_chain_v3(
         self,
@@ -409,20 +611,29 @@ class AttackOrchestrator:
         target: PromptTarget,
         converters: Optional[List[PromptConverter]],
         scorers: Optional[List[Scorer]],
+        tracker: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         chain 模式 v3.0：使用 PromptSendingAttack 内置重试
 
         不再手动循环，而是利用 PyRIT 的 max_attempts_on_failure
+        支持并发执行：通过 RateController 控制并发数
         """
         attack_name = attack_config.get("name", "unnamed_attack")
         payloads = attack_config.get("payloads", [])
+        asi_category = attack_config.get("asi_category", "")
 
-        logger.info("Executing attack (chain v3.0): %s with %d payloads", attack_name, len(payloads))
+        # 获取并发数
+        concurrency = self._rate_controller.concurrency if self._rate_controller else 1
+        logger.info(
+            "Executing attack (chain v3.0): %s with %d payloads (concurrency=%d)",
+            attack_name, len(payloads), concurrency,
+        )
 
         results = {
             "attack_name": attack_name,
             "mode": "chain",
+            "severity": attack_config.get("severity", ""),
             "payloads_tested": len(payloads),
             "results": [],
             "success_count": 0,
@@ -439,41 +650,73 @@ class AttackOrchestrator:
         if scorers:
             attack_scoring_config = AttackScoringConfig(objective_scorer=scorers[0] if scorers else None)
 
-        for payload in payloads:
-            try:
-                # 使用 PromptSendingAttack + max_attempts_on_failure=2
-                # PyRIT 内置重试逻辑，无需手动循环
-                attack = PromptSendingAttack(
-                    objective_target=target,
-                    attack_converter_config=attack_converter_config,
-                    attack_scoring_config=attack_scoring_config,
-                    max_attempts_on_failure=2,  # PyRIT 内置重试
-                )
-                attack_result = asyncio.run(attack.execute_async(objective=payload))
+        # 流水线追踪：记录评分器选择
+        if tracker and scorers:
+            scorer_meta = self._get_scorer_selection_meta(asi_category, scorers)
+            tracker.log_scorer_selection(**scorer_meta)
 
-                # 解析 PyRIT AttackResult
-                outcome = attack_result.outcome
-                is_success = outcome.name == "SUCCESS"
+        # 并发执行所有 payload
+        async def _run_all():
+            semaphore = self._rate_controller.semaphore if self._rate_controller else None
 
-                results["results"].append({
-                    "payload": payload[:100],
-                    "status": "success" if is_success else "failed",
-                    "outcome": outcome.name,
-                    "response": str(attack_result)[:200],
-                })
-                if is_success:
-                    results["success_count"] += 1
-                else:
-                    results["failure_count"] += 1
+            async def _execute_one(payload: str) -> Dict[str, Any]:
+                if semaphore:
+                    await semaphore.acquire()
+                try:
+                    attack = PromptSendingAttack(
+                        objective_target=target,
+                        attack_converter_config=attack_converter_config,
+                        attack_scoring_config=attack_scoring_config,
+                        max_attempts_on_failure=2,
+                    )
+                    attack_result = await attack.execute_async(objective=payload)
+                    outcome = attack_result.outcome
+                    is_success = outcome.name == "SUCCESS"
+                    response_text = str(attack_result)[:200]
 
-            except Exception as e:
-                logger.error("Attack failed for payload '%s': %s", payload[:50], str(e))
-                results["results"].append({
-                    "payload": payload[:100],
-                    "status": "error",
-                    "error": str(e)[:200],
-                })
+                    return {
+                        "payload": payload[:100],
+                        "status": "success" if is_success else "failed",
+                        "outcome": outcome.name,
+                        "response": response_text,
+                        "is_success": is_success,
+                    }
+                except Exception as e:
+                    logger.error("Attack failed for payload '%s': %s", payload[:50], str(e))
+                    return {
+                        "payload": payload[:100],
+                        "status": "error",
+                        "error": str(e)[:200],
+                        "is_success": False,
+                    }
+                finally:
+                    if semaphore:
+                        semaphore.release()
+
+            tasks = [_execute_one(p) for p in payloads]
+            return await asyncio.gather(*tasks)
+
+        all_results = asyncio.run(_run_all())
+
+        # 汇总结果
+        for r in all_results:
+            is_success = r.pop("is_success", False)
+            results["results"].append(r)
+            if is_success:
+                results["success_count"] += 1
+            else:
                 results["failure_count"] += 1
+
+            # 流水线追踪：记录评分结果
+            if tracker and scorers and r.get("response"):
+                score_label = "bypass" if is_success else "blocked"
+                tracker.log_scoring_result(
+                    scorer_name=type(scorers[0]).__name__,
+                    score_value="1.0" if is_success else "0.0",
+                    score_label=score_label,
+                    reason=f"Attack {'succeeded' if is_success else 'failed'} → {score_label}",
+                    response_snippet=r.get("response", ""),
+                )
 
         self._results.append(results)
         return results
@@ -483,6 +726,7 @@ class AttackOrchestrator:
         attack_config: Dict[str, Any],
         target: PromptTarget,
         scorers: Optional[List[Scorer]],
+        tracker: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         presets 模式 v3.0：使用 SequentialAttack (FIRST_SUCCESS)
@@ -491,19 +735,25 @@ class AttackOrchestrator:
         - 每个 preset 作为一个 child attack
         - 第一个成功后立即停止
         - 单 preset 时直接使用 PromptSendingAttack
+
+        支持并发执行：通过 RateController 控制并发数
         """
         attack_name = attack_config.get("name", "unnamed_attack")
         payloads = attack_config.get("payloads", [])
         converter_presets = attack_config.get("converter_presets", {})
+        asi_category = attack_config.get("asi_category", "")
 
+        # 获取并发数
+        concurrency = self._rate_controller.concurrency if self._rate_controller else 1
         logger.info(
-            "Executing attack (presets v3.0): %s with %d payloads, %d presets",
-            attack_name, len(payloads), len(converter_presets),
+            "Executing attack (presets v3.0): %s with %d payloads, %d presets (concurrency=%d)",
+            attack_name, len(payloads), len(converter_presets), concurrency,
         )
 
         results = {
             "attack_name": attack_name,
             "mode": "presets",
+            "severity": attack_config.get("severity", ""),
             "payloads_tested": len(payloads) * len(converter_presets),
             "results": [],
             "success_count": 0,
@@ -516,143 +766,124 @@ class AttackOrchestrator:
         if scorers:
             attack_scoring_config = AttackScoringConfig(objective_scorer=scorers[0] if scorers else None)
 
+        # 流水线追踪：记录评分器选择
+        if tracker and scorers:
+            scorer_meta = self._get_scorer_selection_meta(asi_category, scorers)
+            tracker.log_scorer_selection(**scorer_meta)
+
         preset_names = list(converter_presets.keys())
 
-        if len(preset_names) == 1:
-            # 单 preset：直接使用 PromptSendingAttack
-            preset_name = preset_names[0]
-            converter_names = converter_presets[preset_name]
-            preset_converters = self.build_converters([{"name": c} for c in converter_names])
-            attack_converter_config = AttackConverterConfig(request_converters=preset_converters)
+        # 并发执行所有 payload
+        async def _run_all():
+            semaphore = self._rate_controller.semaphore if self._rate_controller else None
 
-            for payload in payloads:
+            async def _execute_one(payload: str) -> Dict[str, Any]:
+                if semaphore:
+                    await semaphore.acquire()
                 try:
-                    attack = PromptSendingAttack(
-                        objective_target=target,
-                        attack_converter_config=attack_converter_config,
-                        attack_scoring_config=attack_scoring_config,
-                        max_attempts_on_failure=1,
-                    )
-                    attack_result = asyncio.run(attack.execute_async(objective=payload))
-                    is_success = attack_result.outcome.name == "SUCCESS"
-
-                    results["results"].append({
-                        "payload": payload[:100],
-                        "preset": preset_name,
-                        "status": "success" if is_success else "failed",
-                        "outcome": attack_result.outcome.name,
-                        "response": str(attack_result)[:200],
-                    })
-                    if is_success:
-                        results["success_count"] += 1
-                    else:
-                        results["failure_count"] += 1
-                except Exception as e:
-                    results["results"].append({
-                        "payload": payload[:100],
-                        "preset": preset_name,
-                        "status": "error",
-                        "error": str(e)[:200],
-                    })
-                    results["failure_count"] += 1
-
-        else:
-            # 多 preset：使用 SequentialAttack (FIRST_SUCCESS)
-            try:
-                from pyrit.executor.attack.compound.sequential_attack import (
-                    SequentialAttack,
-                    SequentialChildAttack,
-                    SequenceCompletionPolicy,
-                )
-                from pyrit.models import SeedPrompt, SeedPromptGroup
-
-                for payload in payloads:
-                    child_attacks = []
-                    for preset_name in preset_names:
+                    if len(preset_names) == 1:
+                        # 单 preset：直接使用 PromptSendingAttack
+                        preset_name = preset_names[0]
                         converter_names = converter_presets[preset_name]
                         preset_converters = self.build_converters([{"name": c} for c in converter_names])
+                        attack_converter_config = AttackConverterConfig(request_converters=preset_converters)
 
-                        child_attack = PromptSendingAttack(
+                        attack = PromptSendingAttack(
                             objective_target=target,
-                            attack_converter_config=AttackConverterConfig(request_converters=preset_converters),
+                            attack_converter_config=attack_converter_config,
                             attack_scoring_config=attack_scoring_config,
                             max_attempts_on_failure=1,
                         )
-                        child_attacks.append(
-                            SequentialChildAttack(
-                                strategy=child_attack,
-                                seed_group=SeedPromptGroup(
-                                    prompts=[SeedPrompt(value=payload, data_type="text")]
-                                ),
-                            )
-                        )
+                        attack_result = await attack.execute_async(objective=payload)
+                        is_success = attack_result.outcome.name == "SUCCESS"
 
-                    sequential = SequentialAttack(
-                        objective_target=target,
-                        child_attacks=child_attacks,
-                        completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
-                    )
-
-                    seq_result = asyncio.run(sequential.execute_async(objective=payload))
-                    is_success = seq_result.outcome.name == "SUCCESS"
-
-                    # 确定哪个 preset 成功了
-                    successful_preset = "unknown"
-                    for i, child_result in enumerate(seq_result.child_results):
-                        if child_result and child_result.outcome.name == "SUCCESS":
-                            successful_preset = preset_names[i] if i < len(preset_names) else "unknown"
-                            break
-
-                    results["results"].append({
-                        "payload": payload[:100],
-                        "preset": successful_preset if is_success else "all_failed",
-                        "status": "success" if is_success else "failed",
-                        "outcome": seq_result.outcome.name,
-                        "response": str(seq_result)[:200],
-                    })
-                    if is_success:
-                        results["success_count"] += 1
+                        return {
+                            "payload": payload[:100],
+                            "preset": preset_name,
+                            "status": "success" if is_success else "failed",
+                            "outcome": attack_result.outcome.name,
+                            "response": str(attack_result)[:200],
+                            "is_success": is_success,
+                        }
                     else:
-                        results["failure_count"] += 1
+                        # 多 preset：使用 SequentialAttack (FIRST_SUCCESS)
+                        from pyrit.executor.attack.compound.sequential_attack import (
+                            SequentialAttack,
+                            SequentialChildAttack,
+                            SequenceCompletionPolicy,
+                        )
+                        from pyrit.models import SeedPrompt, SeedPromptGroup
 
-            except ImportError:
-                # SequentialAttack 不可用，回退到逐个执行
-                logger.warning("SequentialAttack not available, falling back to sequential execution")
-                for preset_name in preset_names:
-                    converter_names = converter_presets[preset_name]
-                    preset_converters = self.build_converters([{"name": c} for c in converter_names])
-                    attack_converter_config = AttackConverterConfig(request_converters=preset_converters)
+                        child_attacks = []
+                        for p_name in preset_names:
+                            converter_names = converter_presets[p_name]
+                            preset_converters = self.build_converters([{"name": c} for c in converter_names])
 
-                    for payload in payloads:
-                        try:
-                            attack = PromptSendingAttack(
+                            child_attack = PromptSendingAttack(
                                 objective_target=target,
-                                attack_converter_config=attack_converter_config,
+                                attack_converter_config=AttackConverterConfig(request_converters=preset_converters),
                                 attack_scoring_config=attack_scoring_config,
                                 max_attempts_on_failure=1,
                             )
-                            attack_result = asyncio.run(attack.execute_async(objective=payload))
-                            is_success = attack_result.outcome.name == "SUCCESS"
+                            child_attacks.append(
+                                SequentialChildAttack(
+                                    strategy=child_attack,
+                                    seed_group=SeedPromptGroup(
+                                        prompts=[SeedPrompt(value=payload, data_type="text")]
+                                    ),
+                                )
+                            )
 
-                            results["results"].append({
-                                "payload": payload[:100],
-                                "preset": preset_name,
-                                "status": "success" if is_success else "failed",
-                                "outcome": attack_result.outcome.name,
-                                "response": str(attack_result)[:200],
-                            })
-                            if is_success:
-                                results["success_count"] += 1
-                            else:
-                                results["failure_count"] += 1
-                        except Exception as e:
-                            results["results"].append({
-                                "payload": payload[:100],
-                                "preset": preset_name,
-                                "status": "error",
-                                "error": str(e)[:200],
-                            })
-                            results["failure_count"] += 1
+                        sequential = SequentialAttack(
+                            objective_target=target,
+                            child_attacks=child_attacks,
+                            completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
+                        )
+
+                        seq_result = await sequential.execute_async(objective=payload)
+                        is_success = seq_result.outcome.name == "SUCCESS"
+
+                        # 确定哪个 preset 成功了
+                        successful_preset = "unknown"
+                        for i, child_result in enumerate(seq_result.child_results):
+                            if child_result and child_result.outcome.name == "SUCCESS":
+                                successful_preset = preset_names[i] if i < len(preset_names) else "unknown"
+                                break
+
+                        return {
+                            "payload": payload[:100],
+                            "preset": successful_preset if is_success else "all_failed",
+                            "status": "success" if is_success else "failed",
+                            "outcome": seq_result.outcome.name,
+                            "response": str(seq_result)[:200],
+                            "is_success": is_success,
+                        }
+                except Exception as e:
+                    logger.error("Attack failed for payload '%s': %s", payload[:50], str(e))
+                    return {
+                        "payload": payload[:100],
+                        "preset": "error",
+                        "status": "error",
+                        "error": str(e)[:200],
+                        "is_success": False,
+                    }
+                finally:
+                    if semaphore:
+                        semaphore.release()
+
+            tasks = [_execute_one(p) for p in payloads]
+            return await asyncio.gather(*tasks)
+
+        all_results = asyncio.run(_run_all())
+
+        # 汇总结果
+        for r in all_results:
+            is_success = r.pop("is_success", False)
+            results["results"].append(r)
+            if is_success:
+                results["success_count"] += 1
+            else:
+                results["failure_count"] += 1
 
         self._results.append(results)
         return results
@@ -663,6 +894,7 @@ class AttackOrchestrator:
         target: PromptTarget,
         scorers: Optional[List[Scorer]],
         tracker: Optional[Any] = None,
+        profile_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         smart_match 模式 v3.0：使用 PyRIT 原生攻击 + 两层策略选择 + Fallback 链
@@ -672,6 +904,8 @@ class AttackOrchestrator:
         2. 支持 Fallback 链（主策略失败时自动尝试备选）
         3. ASI 感知策略选择
         4. 动态参数计算
+        5. 全流程追踪：payload → 分类 → 策略 → 评分器 → 评分结果
+        6. 侦察驱动：TargetProfile 参数注入 SmartMatcher
         """
         from ..orchestrators.smart_matcher import SmartMatcher
 
@@ -686,11 +920,25 @@ class AttackOrchestrator:
             attack_name, len(payloads), target_model or "unknown",
         )
 
-        # 1. SmartMatcher 构建攻击计划（两层策略选择）
+        # 1. SmartMatcher 构建攻击计划（两层策略选择 + 侦察驱动）
         has_adversarial = self._check_adversarial_available()
+
+        # 从侦察画像提取策略参数
+        preferred_families = None
+        aggression_level = "medium"
+        if profile_params:
+            preferred_families = profile_params.get("preferred_probe_families")
+            aggression_level = profile_params.get("aggression_level", "medium")
+            # 侦察发现的目标模型名优先于配置
+            profile_model = profile_params.get("target_model")
+            if profile_model:
+                target_model = profile_model
+
         matcher = SmartMatcher(
             target_model=target_model,
             has_adversarial=has_adversarial,
+            preferred_probe_families=preferred_families,
+            aggression_level=aggression_level,
         )
         plan = matcher.build_attack_plan(
             payloads, converter_presets, asi_category=asi_category
@@ -730,10 +978,23 @@ class AttackOrchestrator:
             tracker.show_classification_summary()
             tracker.show_strategy_summary()
 
-        # 2. 执行：使用 PyRIT 原生攻击（支持 Fallback 链）
+        # 1.6 流水线追踪：记录评分器选择
+        scorer_selection_meta = self._get_scorer_selection_meta(asi_category, scorers)
+        if tracker and scorer_selection_meta:
+            tracker.log_scorer_selection(
+                asi_category=scorer_selection_meta["asi_category"],
+                scenario_key=scorer_selection_meta["scenario_key"],
+                best_scorer_def=scorer_selection_meta["best_scorer_def"],
+                final_scorers=scorer_selection_meta["final_scorers"],
+                reason=scorer_selection_meta["reason"],
+            )
+            tracker.show_scorer_summary()
+
+        # 2. 执行：使用 PyRIT 原生攻击（支持 Fallback 链 + 并发）
         results = {
             "attack_name": attack_name,
             "mode": "smart_match",
+            "severity": attack_config.get("severity", ""),
             "total_executions": len(plan),
             "plan_summary": plan_summary,
             "plan": plan,
@@ -749,52 +1010,77 @@ class AttackOrchestrator:
         if scorers:
             attack_scoring_config = AttackScoringConfig(objective_scorer=scorers[0] if scorers else None)
 
-        for idx, item in enumerate(plan, 1):
-            payload = item["payload"]
-            category = item["payload_category"]
-            attack_class_fqn = item["attack_class"]
-            attack_params = item["attack_params"]
-            fallback_chain = item.get("attack_fallback_chain", [])
+        # 获取并发数
+        concurrency = self._rate_controller.concurrency if self._rate_controller else 1
+        logger.info("Smart match concurrency: %d", concurrency)
 
-            # 尝试主策略 + Fallback 链
-            attempt_result = self._execute_with_fallback(
-                payload=payload,
-                primary_class_fqn=attack_class_fqn,
-                primary_params=attack_params,
-                fallback_chain=fallback_chain,
-                target=target,
-                attack_scoring_config=attack_scoring_config,
-                converter_presets=converter_presets,
-            )
+        # 并发执行所有 plan item
+        async def _run_all():
+            semaphore = self._rate_controller.semaphore if self._rate_controller else None
 
-            result_entry = {
-                "payload": payload[:100],
-                "payload_category": category,
-                "attack_class": attempt_result["attack_class"],
-                "attack_family": item.get("attack_family", ""),
-                "attack_reason": item.get("attack_reason", ""),
-                "attack_confidence": item.get("attack_confidence", 1.0),
-                "status": attempt_result["status"],
-                "outcome": attempt_result["outcome"],
-                "response": attempt_result["response"],
-                "attempts_used": attempt_result.get("attempts_used", 1),
-            }
-            results["results"].append(result_entry)
+            async def _execute_one(item: Dict[str, Any]) -> Dict[str, Any]:
+                payload = item["payload"]
+                if semaphore:
+                    await semaphore.acquire()
+                try:
+                    attempt_result = await self._execute_with_fallback_async(
+                        payload=payload,
+                        primary_class_fqn=item["attack_class"],
+                        primary_params=item["attack_params"],
+                        fallback_chain=item.get("attack_fallback_chain", []),
+                        target=target,
+                        attack_scoring_config=attack_scoring_config,
+                        converter_presets=converter_presets,
+                    )
 
-            is_success = attempt_result["status"] == "success"
+                    return {
+                        "payload": payload[:100],
+                        "payload_category": item["payload_category"],
+                        "attack_class": attempt_result["attack_class"],
+                        "attack_family": item.get("attack_family", ""),
+                        "attack_reason": item.get("attack_reason", ""),
+                        "attack_confidence": item.get("attack_confidence", 1.0),
+                        "status": attempt_result["status"],
+                        "outcome": attempt_result["outcome"],
+                        "response": attempt_result["response"],
+                        "attempts_used": attempt_result.get("attempts_used", 1),
+                    }
+                finally:
+                    if semaphore:
+                        semaphore.release()
+
+            tasks = [_execute_one(item) for item in plan]
+            return await asyncio.gather(*tasks)
+
+        all_results = asyncio.run(_run_all())
+
+        # 汇总结果
+        for r in all_results:
+            results["results"].append(r)
+            is_success = r["status"] == "success"
             if is_success:
                 results["success_count"] += 1
             else:
                 results["failure_count"] += 1
 
             # 更新类别统计
+            category = r.get("payload_category", "unknown")
             if category not in results["category_stats"]:
                 results["category_stats"][category] = {"success": 0, "failure": 0}
             results["category_stats"][category]["success" if is_success else "failure"] += 1
 
             # 流水线追踪：记录执行结果
             if tracker:
-                tracker.log_execution(attempt_result)
+                tracker.log_execution(r)
+                if scorers and r.get("response"):
+                    score_label = "bypass" if is_success else "blocked"
+                    tracker.log_scoring_result(
+                        scorer_name=type(scorers[0]).__name__ if scorers else "none",
+                        score_value="1.0" if is_success else "0.0",
+                        score_label=score_label,
+                        reason=f"Attack {'succeeded' if is_success else 'failed'} → {score_label}",
+                        response_snippet=r.get("response", ""),
+                    )
 
         # 3. 流水线追踪：结果汇总
         if tracker:
@@ -867,7 +1153,7 @@ class AttackOrchestrator:
         converter_presets: Dict[str, List[str]],
     ) -> Dict[str, Any]:
         """
-        执行单次 PyRIT 攻击
+        执行单次 PyRIT 攻击（同步包装）
 
         根据攻击类型自动构建所需参数（adversarial config, converter config 等）
         """
@@ -957,6 +1243,212 @@ class AttackOrchestrator:
                 "response": str(e)[:200],
             }
 
+    async def _execute_single_attack_async(
+        self,
+        payload: str,
+        attack_class_fqn: str,
+        attack_params: Dict[str, Any],
+        target: PromptTarget,
+        attack_scoring_config: Any,
+        converter_presets: Dict[str, List[str]],
+    ) -> Dict[str, Any]:
+        """
+        执行单次 PyRIT 攻击（异步版本，用于并发执行）
+
+        与 _execute_single_attack 逻辑相同，但使用 await 而非 asyncio.run()
+        """
+        try:
+            attack_class = _import_class(attack_class_fqn)
+
+            common_kwargs = {
+                "objective_target": target,
+                "attack_scoring_config": attack_scoring_config,
+            }
+
+            if attack_class_fqn.endswith("CrescendoAttack"):
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                else:
+                    logger.warning("No adversarial LLM for Crescendo, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("TreeOfAttacksWithPruningAttack"):
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                else:
+                    logger.warning("No adversarial LLM for TAP, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("PAIRAttack"):
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                else:
+                    logger.warning("No adversarial LLM for PAIR, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("RedTeamingAttack"):
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                else:
+                    logger.warning("No adversarial LLM for RedTeaming, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("PromptSendingAttack"):
+                converter_names = list(converter_presets.values())[0] if converter_presets else []
+                preset_converters = self.build_converters([{"name": c} for c in converter_names])
+                common_kwargs["attack_converter_config"] = AttackConverterConfig(request_converters=preset_converters)
+
+            common_kwargs.update(attack_params)
+
+            attack = attack_class(**common_kwargs)
+            attack_result = await attack.execute_async(objective=payload)
+
+            outcome = attack_result.outcome
+            is_success = outcome.name == "SUCCESS"
+
+            return {
+                "attack_class": attack_class_fqn.split(".")[-1],
+                "status": "success" if is_success else "failed",
+                "outcome": outcome.name,
+                "response": str(attack_result)[:200],
+            }
+
+        except Exception as e:
+            logger.error(
+                "Attack failed (class=%s): %s",
+                attack_class_fqn.split(".")[-1], str(e),
+            )
+            return {
+                "attack_class": attack_class_fqn.split(".")[-1],
+                "status": "error",
+                "outcome": "ERROR",
+                "response": str(e)[:200],
+            }
+
+    async def _execute_with_fallback_async(
+        self,
+        payload: str,
+        primary_class_fqn: str,
+        primary_params: Dict[str, Any],
+        fallback_chain: List[Dict[str, Any]],
+        target: PromptTarget,
+        attack_scoring_config: Any,
+        converter_presets: Dict[str, List[str]],
+    ) -> Dict[str, Any]:
+        """
+        执行攻击（支持 Fallback 链，异步版本）
+
+        先尝试主策略，失败时按 fallback_chain 依次尝试备选策略。
+        """
+        # 尝试主策略
+        result = await self._execute_single_attack_async(
+            payload=payload,
+            attack_class_fqn=primary_class_fqn,
+            attack_params=primary_params,
+            target=target,
+            attack_scoring_config=attack_scoring_config,
+            converter_presets=converter_presets,
+        )
+
+        if result["status"] == "success":
+            result["attempts_used"] = 1
+            return result
+
+        # 主策略失败，尝试 Fallback 链
+        for fallback_idx, fallback in enumerate(fallback_chain, 2):
+            logger.info(
+                "Primary attack failed, trying fallback %d/%d: %s",
+                fallback_idx - 1, len(fallback_chain),
+                fallback["class"].split(".")[-1],
+            )
+
+            fallback_result = await self._execute_single_attack_async(
+                payload=payload,
+                attack_class_fqn=fallback["class"],
+                attack_params=fallback.get("params", {}),
+                target=target,
+                attack_scoring_config=attack_scoring_config,
+                converter_presets=converter_presets,
+            )
+
+            if fallback_result["status"] == "success":
+                fallback_result["attempts_used"] = fallback_idx
+                return fallback_result
+
+        # 所有策略都失败，返回主策略结果
+        result["attempts_used"] = 1 + len(fallback_chain)
+        return result
+
+    def _get_scorer_selection_meta(
+        self,
+        asi_category: str,
+        scorers: Optional[List[Any]],
+    ) -> Dict[str, Any]:
+        """
+        获取评分器选择的元数据（用于流水线追踪）
+
+        根据 ASI 类别查询 best_scorer_by_scenario，返回选择决策信息。
+
+        Args:
+            asi_category: ASI 类别 (如 "ASI01")
+            scorers: 已构建的评分器实例列表
+
+        Returns:
+            评分器选择元数据字典
+        """
+        # 构建最终评分器信息
+        final_scorers = []
+        if scorers:
+            for s in scorers:
+                final_scorers.append({
+                    "name": type(s).__name__,
+                    "backend": "objective_target",
+                })
+
+        # 查询 best_scorer_by_scenario
+        best_scorer_def = {}
+        scenario_key = ""
+        reason = "使用 catalog 显式配置的评分器"
+
+        if asi_category:
+            scenarios = self._scorer_config.get("best_scorer_by_scenario", {})
+            # 尝试匹配场景键（支持部分匹配）
+            for key, defn in scenarios.items():
+                if asi_category.lower() in key.lower():
+                    scenario_key = key
+                    if isinstance(defn, dict):
+                        best_scorer_def = defn
+                    elif isinstance(defn, str):
+                        # 从 scorer_definitions 查找完整定义
+                        scorer_type = defn
+                        best_scorer_def = {
+                            "type": scorer_type.split("_")[0] if "_" in scorer_type else scorer_type,
+                            "backend": defn,
+                            "description": f"场景 {key} 推荐评分器",
+                        }
+                    reason = f"ASI {asi_category} → 场景 {key} 推荐: {defn}"
+                    break
+
+        return {
+            "asi_category": asi_category,
+            "scenario_key": scenario_key,
+            "best_scorer_def": best_scorer_def,
+            "final_scorers": final_scorers,
+            "reason": reason,
+        }
+
     def _check_adversarial_available(self) -> bool:
         """检查是否有可用的对抗性 LLM（Crescendo/TAP 需要）"""
         # 从 scorer 配置中检查是否有可用的 LLM 后端
@@ -999,11 +1491,11 @@ class AttackOrchestrator:
 
     @classmethod
     def build_attack_list(cls, module_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """从模块配置构建攻击列表"""
+        """从模块配置构建攻击列表（兼容旧接口）"""
         attacks = []
 
         for key, value in module_config.items():
-            if key in ("name", "owasp", "description", "owasp_agentic", "foundational_principles"):
+            if key in ("name", "owasp", "description", "owasp_agentic", "foundational_principles", "surfaces"):
                 continue
             if not isinstance(value, dict):
                 continue
@@ -1027,6 +1519,7 @@ class AttackOrchestrator:
                     "name": value.get("name", key),
                     "description": value.get("description", ""),
                     "mode": "smart_match",
+                    "severity": value.get("severity", ""),
                     "payloads": payloads,
                     "converter_presets": value.get("converter_presets", {}),
                     "match_rules": value.get("match_rules", None),
@@ -1049,6 +1542,7 @@ class AttackOrchestrator:
                     "name": value.get("name", key),
                     "description": value.get("description", ""),
                     "mode": "presets",
+                    "severity": value.get("severity", ""),
                     "payloads": payloads,
                     "converter_presets": value.get("converter_presets", {}),
                     "scorers": scorer_configs,
@@ -1073,10 +1567,101 @@ class AttackOrchestrator:
                     "name": value.get("name", key),
                     "description": value.get("description", ""),
                     "mode": "chain",
+                    "severity": value.get("severity", ""),
                     "payloads": payloads,
                     "converters": converter_configs,
                     "scorers": scorer_configs,
+                    "asi_category": value.get("asi_category", ""),
                 })
+
+        return attacks
+
+    @classmethod
+    def build_attack_list_from_refs(cls, refs: List[str], payload_mgr: "PayloadManager") -> List[Dict[str, Any]]:
+        """
+        从 OWASP ref 列表构建攻击列表
+
+        Args:
+            refs: OWASP ref 路径列表（如 ["owasp:agentic:asi01", "owasp:llm:llm01"]）
+            payload_mgr: PayloadManager 实例
+
+        Returns:
+            攻击配置列表
+        """
+        # OWASP ID → 默认转换器/评分器映射
+        _DEFAULT_CONVERTERS = {
+            "llm01": ["base64", "rot13", "unicode_confusable", "leet_speak", "ascii_smuggler", "zero_width", "diacritic"],
+            "llm02": ["base64", "search_replace"],
+            "llm03": ["malicious_question_generator"],
+            "llm04": ["add_text_image", "word_doc"],
+            "llm05": ["malicious_question_generator"],
+            "llm06": ["persuasion", "variation"],
+            "llm07": ["translation", "persuasion"],
+            "llm08": ["search_replace"],
+            "llm09": ["persuasion"],
+            "llm10": ["base64"],
+            "asi01": ["base64", "rot13", "unicode_confusable", "leet_speak", "persuasion", "ascii_smuggler", "zero_width", "diacritic"],
+            "asi02": ["add_text_image", "pdf", "search_replace"],
+            "asi03": ["persuasion", "unicode_confusable"],
+            "asi04": ["malicious_question_generator"],
+            "asi05": ["malicious_question_generator", "ascii_smuggler"],
+            "asi06": ["persuasion", "variation"],
+            "asi07": ["persuasion", "translation"],
+            "asi08": ["malicious_question_generator"],
+            "asi09": ["persuasion"],
+            "asi10": ["persuasion", "malicious_question_generator"],
+        }
+
+        _DEFAULT_SCORERS = {
+            "llm01": ["self_ask_refusal", "substring"],
+            "llm02": ["self_ask_true_false"],
+            "llm03": ["self_ask_true_false"],
+            "llm04": ["self_ask_true_false"],
+            "llm05": ["self_ask_refusal", "self_ask_true_false"],
+            "llm06": ["self_ask_true_false", "substring"],
+            "llm07": ["self_ask_refusal", "self_ask_true_false"],
+            "llm08": ["substring"],
+            "llm09": ["self_ask_refusal"],
+            "llm10": ["self_ask_true_false"],
+            "asi01": ["self_ask_refusal", "substring"],
+            "asi02": ["self_ask_refusal", "self_ask_true_false"],
+            "asi03": ["self_ask_refusal", "self_ask_true_false"],
+            "asi04": ["self_ask_refusal", "self_ask_true_false"],
+            "asi05": ["self_ask_refusal", "self_ask_true_false"],
+            "asi06": ["self_ask_true_false", "substring"],
+            "asi07": ["self_ask_refusal", "self_ask_true_false"],
+            "asi08": ["self_ask_true_false", "substring"],
+            "asi09": ["self_ask_refusal", "self_ask_true_false"],
+            "asi10": ["self_ask_refusal", "self_ask_true_false"],
+        }
+
+        attacks = []
+        for ref in refs:
+            data = payload_mgr.get_payload_file(ref)
+            if not data:
+                continue
+
+            owasp_id = data.get("id", ref.split(":")[-1]).lower()
+            converters = _DEFAULT_CONVERTERS.get(owasp_id, ["base64"])
+            scorers = _DEFAULT_SCORERS.get(owasp_id, ["self_ask_refusal"])
+
+            scorer_configs = []
+            for sname in scorers:
+                if sname == "substring":
+                    scorer_configs.append({"name": sname, "params": {"substring": "password"}})
+                else:
+                    scorer_configs.append({"name": sname})
+
+            attacks.append({
+                "name": data.get("name", ref),
+                "description": data.get("description", ""),
+                "mode": "smart_match",
+                "severity": data.get("severity", "medium"),
+                "payloads": data.get("payloads", []),
+                "converter_presets": {"default": converters},
+                "scorers": scorer_configs,
+                "asi_category": data.get("id", ""),
+            })
 
         return attacks
 

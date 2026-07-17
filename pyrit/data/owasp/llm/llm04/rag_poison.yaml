@@ -1,9 +1,8 @@
+id: "LLM04"
+name: "Model Denial of Service"
 owasp: LLM04
 technique_group: rag_poisoning
 description: RAG 知识库投毒载荷 — AI-300 Ch5
-surfaces: [rag]
-ai300_chapters: [Ch5]
-
 payloads:
   - technique: ranking_manipulation
     name: 检索排名操纵

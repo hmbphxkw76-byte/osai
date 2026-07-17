@@ -1,10 +1,8 @@
+id: "LLM01"
+name: "Pliny Google Gemini 1 5 Pro 002 Flash"
 owasp: LLM01
 technique_group: jailbreak_template
 description: pliny_jailbreak_google_gemini_1_5_pro_002_flash_002 越狱模板
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: pliny_jailbreak_google_gemini_1_5_pro_002_flash_002

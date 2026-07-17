@@ -1,0 +1,152 @@
+﻿I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\reconnaissance\adapters\__init__.py:7:1
+   |
+ 5 |   """
+ 6 |
+ 7 | / from .base_adapter import BaseAdapter, AdapterResult
+ 8 | | from .llmmap_adapter import LLMMAPAdapter
+ 9 | | from .garak_adapter import GarakAdapter
+10 | | from .deepteam_adapter import DeepTeamAdapter
+   | |_____________________________________________^
+11 |
+12 |   __all__ = [
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\reconnaissance\adapters\base_adapter.py:12:1
+   |
+10 |   """
+11 |
+12 | / from __future__ import annotations
+13 | |
+14 | | import sys
+15 | | import os
+16 | | from abc import ABC, abstractmethod
+17 | | from dataclasses import dataclass, field
+18 | | from typing import Any, Dict, List, Optional
+   | |____________________________________________^
+19 |
+20 |   if sys.platform == "win32":
+   |
+help: Organize imports
+
+F401 [*] `typing.Optional` imported but unused
+  --> pyrit_ai300\reconnaissance\adapters\base_adapter.py:18:37
+   |
+16 | from abc import ABC, abstractmethod
+17 | from dataclasses import dataclass, field
+18 | from typing import Any, Dict, List, Optional
+   |                                     ^^^^^^^^
+19 |
+20 | if sys.platform == "win32":
+   |
+help: Remove unused import: `typing.Optional`
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\reconnaissance\adapters\deepteam_adapter.py:29:1
+   |
+27 |   """
+28 |
+29 | / from __future__ import annotations
+30 | |
+31 | | import sys
+32 | | import os
+33 | | import logging
+34 | | import time
+35 | | from typing import Any, Dict, List
+36 | |
+37 | | from .base_adapter import BaseAdapter, AdapterResult
+   | |____________________________________________________^
+38 |
+39 |   if sys.platform == "win32":
+   |
+help: Organize imports
+
+F841 Local variable `timeout` is assigned to but never used
+   --> pyrit_ai300\reconnaissance\adapters\deepteam_adapter.py:113:9
+    |
+111 |         vulnerabilities = config.get("vulnerabilities", DEFAULT_VULNERABILITIES)
+112 |         attacks = config.get("attacks", [])
+113 |         timeout = config.get("timeout", 180)
+    |         ^^^^^^^
+114 |         start_time = time.time()
+    |
+help: Remove assignment to unused variable `timeout`
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\reconnaissance\adapters\garak_adapter.py:26:1
+   |
+24 |   """
+25 |
+26 | / from __future__ import annotations
+27 | |
+28 | | import sys
+29 | | import os
+30 | | import logging
+31 | | import time
+32 | | from typing import Any, Dict, List
+33 | |
+34 | | from .base_adapter import BaseAdapter, AdapterResult
+   | |____________________________________________________^
+35 |
+36 |   if sys.platform == "win32":
+   |
+help: Organize imports
+
+F841 Local variable `timeout` is assigned to but never used
+   --> pyrit_ai300\reconnaissance\adapters\garak_adapter.py:100:9
+    |
+ 98 |         detectors = config.get("detectors", [])
+ 99 |         model_name = config.get("model_name", "")
+100 |         timeout = config.get("timeout", 180)
+    |         ^^^^^^^
+101 |         start_time = time.time()
+    |
+help: Remove assignment to unused variable `timeout`
+
+E501 Line too long (102 > 100)
+  --> pyrit_ai300\reconnaissance\adapters\llmmap_adapter.py:15:101
+   |
+13 |   - OpenAI: gpt-3.5-turbo, gpt-4-turbo, gpt-4o
+14 |   - Anthropic: claude-3-opus, claude-3-sonnet, claude-3.5-sonnet, claude-3-haiku
+15 |   - Meta: Llama-2-7b, Llama-3-8b, Llama-3-70b, Llama-3.1-8b, Llama-3.1-70b, Llama-3.2-1b, Llama-3.2-3b
+   |                                                                                                     ^^
+16 |   - Qwen: Qwen2-1.5b, Qwen2-7b, Qwen2-72b, Qwen2.5-0.5b, Qwen2.5-3b
+17 |   - Mistral: Mistral-7b-v0.1/0.2/0.3, Mixtral-8x7b
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\reconnaissance\adapters\llmmap_adapter.py:26:1
+   |
+24 |   """
+25 |
+26 | / from __future__ import annotations
+27 | |
+28 | | import sys
+29 | | import os
+30 | | import logging
+31 | | import time
+32 | | from typing import Any, Dict, List, Optional
+33 | |
+34 | | from .base_adapter import BaseAdapter, AdapterResult
+   | |____________________________________________________^
+35 |
+36 |   if sys.platform == "win32":
+   |
+help: Organize imports
+
+F401 [*] `typing.Optional` imported but unused
+  --> pyrit_ai300\reconnaissance\adapters\llmmap_adapter.py:32:37
+   |
+30 | import logging
+31 | import time
+32 | from typing import Any, Dict, List, Optional
+   |                                     ^^^^^^^^
+33 |
+34 | from .base_adapter import BaseAdapter, AdapterResult
+   |
+help: Remove unused import: `typing.Optional`
+
+Found 10 errors.
+[*] 7 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).

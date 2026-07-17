@@ -3,6 +3,8 @@
 # OWASP: LLM01 (提示注入)  |  MITRE ATLAS: Defense Evasion
 # CVSS: 8.5 (AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N)
 # Source: frontier/FRONTIER-2025-001_hcot
+id: "LLM01"
+name: "Prompt Injection"
 
 frontier:
   id: FRONTIER-2025-001
@@ -28,10 +30,6 @@ frontier:
 owasp: LLM01
 technique_group: hidden_cot_injection
 description: "H-CoT 隐藏思考链注入 — 在提示词中嵌入隐形推理步骤绕过护栏检测 — AI-300 Ch3 (LLM01, CVSS 8.5)"
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   # ── 基础：分步推理注入 ──
   - technique: chain_of_thought_manipulation

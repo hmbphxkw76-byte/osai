@@ -19,14 +19,12 @@
 #   4. 护栏逆向工程 — 系统性地枚举所有护栏规则及其边界
 #   5. 提示模板泄露 — 提取 system prompt 的模板引擎和变量定义
 #   6. 功能枚举 — 通过泄露的提示发现隐藏功能/命令
+id: "LLM07"
+name: "Insecure Plugin Design"
 
 owasp: LLM07
 technique_group: system_prompt_leakage
 description: 系统提示泄露攻击载荷 — AI-300 Ch3.1+Ch7，LLM07 专有技术（与 LLM01 注入型提取互补）
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: direct_request
     name: 直接请求

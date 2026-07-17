@@ -8,13 +8,12 @@
 #   2. 管理员批注注入 - 方括号包裹的系统指令
 #   3. 系统分隔符覆盖 - 伪造系统消息分隔符
 #   4. 语义注入 - 无结构标记的纯语义注入
+id: "LLM04"
+name: "Model Denial of Service"
 
 owasp: LLM04
 technique_group: indirect_injection
 description: RAG 间接提示注入载荷（检索文档中的隐藏指令）— AI-300 Ch5
-surfaces: [rag]
-ai300_chapters: [Ch5]
-
 source: Adapted from mcp-attack-labs/labs/04-rag-security/attack2_indirect_injection.py
 
 payloads:

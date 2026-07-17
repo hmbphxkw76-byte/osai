@@ -1,10 +1,8 @@
+id: "LLM01"
+name: "Pliny Anthropic Godmode Mini"
 owasp: LLM01
 technique_group: jailbreak_template
 description: pliny_jailbreak_anthropic_godmode_mini 越狱模板
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: pliny_jailbreak_anthropic_godmode_mini

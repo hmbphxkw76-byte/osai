@@ -1,9 +1,8 @@
+id: "LLM08"
+name: "Excessive Agency"
 owasp: LLM08
 technique_group: embedding_exploit_verification
 description: "嵌入利用证明验证探针 — AI-300 Ch6，成员/属性推断基线与检索影响验证查询（YAML 驱动，R3）"
-surfaces: [embedding]
-ai300_chapters: [Ch6]
-
 # 已知成员基线：假定存在于目标知识库/训练语料中的文本片段（用于余弦相似度成员推断）
 member_baselines:
   - label: revenue_2026

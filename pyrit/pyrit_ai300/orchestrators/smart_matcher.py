@@ -405,15 +405,30 @@ def _precise_model_match(
     has_adversarial: bool = False,
     asi_category: str = "",
     converter_presets: Optional[Dict[str, List[str]]] = None,
+    preferred_probe_families: Optional[List[str]] = None,
+    aggression_level: str = "medium",
 ) -> Dict[str, Any]:
     """
     第二层：基于载荷特征的精确策略匹配
 
     在第一层快速筛选基础上，结合 ASI 类别、转换器预设、
-    目标模型信息等精细调整策略参数。
+    目标模型信息、侦察推荐等精细调整策略参数。
     """
     family = rule_result["family"]
     confidence = profile.avg_confidence
+
+    # ── 侦察推荐约束（来自 TargetProfile 的漏洞发现）──
+    if preferred_probe_families:
+        # 如果当前族不在侦察推荐列表中，优先使用侦察推荐的族
+        if family not in preferred_probe_families:
+            if has_adversarial:
+                # 有对抗 LLM，使用侦察推荐的首选族
+                family = preferred_probe_families[0]
+                rule_result["reason"] += " | 侦察推荐: 基于漏洞发现"
+            elif not has_adversarial and preferred_probe_families[0] == AttackProbeFamily.DIRECT_SINGLE:
+                # 无对抗 LLM 时，如果侦察推荐是单轮则切换
+                family = AttackProbeFamily.DIRECT_SINGLE
+                rule_result["reason"] += " | 侦察推荐: 基于漏洞发现"
 
     # ── ASI 类别约束（借鉴 DeepTeam 框架映射）──
     if asi_category and asi_category in ASI_STRATEGY_HINTS:
@@ -625,18 +640,22 @@ def select_attack_strategy(
     target_model: str = "",
     has_adversarial: bool = False,
     converter_presets: Optional[Dict[str, List[str]]] = None,
+    preferred_probe_families: Optional[List[str]] = None,
+    aggression_level: str = "medium",
 ) -> Dict[str, Any]:
     """
     基于 PayloadProfile 选择最优 PyRIT 原生攻击策略（v3.0 两层选择）
 
     第一层：快速规则筛选 → 确定攻击探针族
-    第二层：精确模型匹配 → 动态参数 + ASI 约束 + Fallback 链
+    第二层：精确模型匹配 → 动态参数 + ASI 约束 + Fallback 链 + 侦察推荐
 
     Args:
         profile: PayloadProfile 实例
         target_model: 目标模型名称
         has_adversarial: 是否有可用的对抗性 LLM
         converter_presets: 转换器预设配置
+        preferred_probe_families: 侦察推荐的攻击探针族列表
+        aggression_level: 侦察推荐的攻击强度
 
     Returns:
         攻击配置字典：{
@@ -658,6 +677,8 @@ def select_attack_strategy(
         has_adversarial=has_adversarial,
         asi_category=profile.asi_category if hasattr(profile, 'asi_category') else "",
         converter_presets=converter_presets,
+        preferred_probe_families=preferred_probe_families,
+        aggression_level=aggression_level,
     )
 
     logger.debug(
@@ -739,16 +760,22 @@ class SmartMatcher:
         target_model: str = "",
         has_adversarial: bool = False,
         context_window: int = 8192,
+        preferred_probe_families: Optional[List[str]] = None,
+        aggression_level: str = "medium",
     ):
         """
         Args:
             target_model: 目标模型名称
             has_adversarial: 是否有可用的对抗性 LLM
             context_window: 目标模型上下文窗口大小
+            preferred_probe_families: 侦察推荐的攻击探针族列表（来自 TargetProfile）
+            aggression_level: 侦察推荐的攻击强度（low/medium/high）
         """
         self.target_model = target_model
         self.has_adversarial = has_adversarial
         self.context_window = context_window
+        self.preferred_probe_families = preferred_probe_families or []
+        self.aggression_level = aggression_level
 
         # v3.1 新增：攻击记忆系统
         self.attack_memory = AttackMemory()
@@ -767,7 +794,7 @@ class SmartMatcher:
         converter_presets: Optional[Dict[str, List[str]]] = None,
     ) -> Dict[str, Any]:
         """
-        为单个 payload 选择最优 PyRIT 攻击策略（两层选择 + 记忆引导 + 自适应探索）
+        为单个 payload 选择最优 PyRIT 攻击策略（两层选择 + 记忆引导 + 自适应探索 + 侦察驱动）
 
         Args:
             profile: PayloadProfile 实例
@@ -776,12 +803,14 @@ class SmartMatcher:
         Returns:
             攻击配置字典
         """
-        # 基础两层策略选择
+        # 基础两层策略选择（含侦察推荐）
         strategy = select_attack_strategy(
             profile=profile,
             target_model=self.target_model,
             has_adversarial=self.has_adversarial,
             converter_presets=converter_presets,
+            preferred_probe_families=self.preferred_probe_families,
+            aggression_level=self.aggression_level,
         )
         
         # v3.1 新增：记忆引导优化

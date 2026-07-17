@@ -14,14 +14,12 @@
 #   3. Docker 镜像标签劫持
 #   4. MCP 服务器依赖混淆
 #   5. pip install --extra-index-url 攻击
+id: "LLM03"
+name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: dependency_confusion
 description: 依赖混淆/命名空间复用攻击载荷 — AI-300 Ch8（P0 考试场景）
-surfaces: [agent]
-ai300_chapters: [Ch8]
-
-
 payloads:
   - technique: pip_confusion
     name: "PyPI 依赖混淆基础版"

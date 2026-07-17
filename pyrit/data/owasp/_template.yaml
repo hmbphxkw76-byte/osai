@@ -1,6 +1,9 @@
 # =============================================================================
 # RedTeam-AI 载荷库模板 (Payload Library Template)
 # =============================================================================
+id: "TEMPLATE"
+name: "Payload YAML Template"
+description: "Template documentation for payload YAML structure — defines id/name/description three-element standard"
 # 本文件定义了 data/payloads/ 子目录中载荷 YAML 文件的标准结构。
 # 
 # 目录结构约定:

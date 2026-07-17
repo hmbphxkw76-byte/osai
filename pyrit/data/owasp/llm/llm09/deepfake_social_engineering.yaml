@@ -1,9 +1,8 @@
+id: "LLM09"
+name: "Overreliance"
 owasp: LLM09
 technique_group: deepfake_social_engineering
 description: 深度伪造/社会工程学攻击载荷 — AI-300 Ch3+Ch9，诱导LLM生成可用于欺诈的虚假内容
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
 payloads:
   - technique: executive_spoof
     name: 高管冒充

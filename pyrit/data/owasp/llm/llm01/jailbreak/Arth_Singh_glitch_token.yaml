@@ -1,10 +1,8 @@
+id: "LLM01"
+name: "Arth Singh Glitch Token"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Glitch Token Simulation — Simulates encountering a glitch token that causes behavioral anomalies
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Glitch Token Simulation

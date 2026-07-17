@@ -3,6 +3,8 @@
 # OWASP: LLM06 (过度代理)  |  MITRE ATLAS: Exfiltration
 # CVSS: 8.2 (AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N)
 # Source: frontier/FRONTIER-2025-004_data_exfil
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 
 frontier:
   id: FRONTIER-2025-004
@@ -29,10 +31,6 @@ frontier:
 owasp: LLM06
 technique_group: tool_data_exfiltration
 description: "工具调用数据泄露 — 诱导模型调用外部工具将敏感数据发送至攻击者端点 — AI-300 Ch3 (LLM06, CVSS 8.2)"
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   # ── 基础：直接数据外发 ──
   - technique: webhook_exfil

@@ -18,14 +18,12 @@
 # MultiTurnOrchestrator 兼容：
 #   本文件的多轮载荷通过 {turn_N} 和 {goal} 占位符支持 MultiTurnOrchestrator 注入。
 #   可作为 multi_turn_orchestrator.py 中 Crescendo/TAP/PAIR 之后的第四个策略变体。
+id: "LLM01"
+name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: cca_context_compliance
 description: CCA 上下文服从攻击载荷 — 多轮历史污染诱导模型服从 — AI-300 Ch3
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: trust_establishment_cca
     name: "信任建立 → 边缘请求 → 恶意指令（3 轮 CCA）"

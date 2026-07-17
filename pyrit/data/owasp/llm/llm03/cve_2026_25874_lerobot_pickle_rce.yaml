@@ -4,6 +4,8 @@
 # OWASP: LLM03  |  MITRE ATLAS: Execution
 # CVSS: 9.8 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)
 # Source: frontier/CVE-2026-25874_supply_chain
+id: "LLM03"
+name: "Training Data Poisoning"
 
 frontier:
   id: CVE-2026-25874
@@ -39,10 +41,6 @@ frontier:
 owasp: LLM03
 technique_group: pickle_deserialization
 description: "[CVE-2026-25874] LeRobot Unauthenticated Pickle Deserialization RCE — Ch8（LLM03, CVSS 9.8）"
-surfaces: [agent]
-ai300_chapters: [Ch8]
-
-
 payloads:
   # ── 基础攻击 ──
   - technique: pickle_deserialization_basic_1

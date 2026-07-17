@@ -1,0 +1,64 @@
+﻿E402 Module level import not at top of file
+  --> pyrit_ai300\__init__.py:38:1
+   |
+37 | logger = logging.getLogger(__name__)
+38 | from .reporting import ReportGenerator
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+39 | from .payloads import PayloadManager, classify_payload, classify_payloads
+40 | from .pipeline import PipelineTracker
+   |
+
+E402 Module level import not at top of file
+  --> pyrit_ai300\__init__.py:39:1
+   |
+37 | logger = logging.getLogger(__name__)
+38 | from .reporting import ReportGenerator
+39 | from .payloads import PayloadManager, classify_payload, classify_payloads
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+40 | from .pipeline import PipelineTracker
+41 | from .reconnaissance import ReconEngine, TargetProfile
+   |
+
+E402 Module level import not at top of file
+  --> pyrit_ai300\__init__.py:40:1
+   |
+38 | from .reporting import ReportGenerator
+39 | from .payloads import PayloadManager, classify_payload, classify_payloads
+40 | from .pipeline import PipelineTracker
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+41 | from .reconnaissance import ReconEngine, TargetProfile
+42 | from .attack import ProfileLoader
+   |
+
+E402 Module level import not at top of file
+  --> pyrit_ai300\__init__.py:41:1
+   |
+39 | from .payloads import PayloadManager, classify_payload, classify_payloads
+40 | from .pipeline import PipelineTracker
+41 | from .reconnaissance import ReconEngine, TargetProfile
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+42 | from .attack import ProfileLoader
+   |
+
+E402 Module level import not at top of file
+  --> pyrit_ai300\__init__.py:42:1
+   |
+40 | from .pipeline import PipelineTracker
+41 | from .reconnaissance import ReconEngine, TargetProfile
+42 | from .attack import ProfileLoader
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+43 |
+44 | __all__ = [
+   |
+
+F821 Undefined name `PayloadManager`
+    --> pyrit_ai300\orchestrators\attack_orchestrator.py:1580:73
+     |
+1579 |     @classmethod
+1580 |     def build_attack_list_from_refs(cls, refs: List[str], payload_mgr: "PayloadManager") -> List[Dict[str, Any]]:
+     |                                                                         ^^^^^^^^^^^^^^
+1581 |         """
+1582 |         从 OWASP ref 列表构建攻击列表
+     |
+
+Found 10 errors (4 fixed, 6 remaining).

@@ -20,14 +20,12 @@
 #   - promptfoo plugin: rag-source-attribution — 灵感参考，载荷自行撰写
 #   - arXiv:2402.05120 — "The Hallucinations Leaderboard: Measuring and Mitigating LLM Hallucinations"
 #   - arXiv:2312.10997 — "Retrieval-Augmented Generation for Large Language Models: A Survey" (Section 7: Security)
+id: "LLM04"
+name: "Model Denial of Service"
 
 owasp: LLM04
 technique_group: rag_source_attribution
 description: RAG 源归因伪造载荷 — 诱使检索增强系统编造不存在的文档引用和虚假来源 — AI-300 Ch5
-surfaces: [rag]
-ai300_chapters: [Ch5]
-
-
 payloads:
   - technique: fake_document_citation
     name: "虚假文档引用伪造"

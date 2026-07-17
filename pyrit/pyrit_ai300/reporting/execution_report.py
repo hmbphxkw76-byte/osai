@@ -66,11 +66,11 @@ class ExecutionReportGenerator:
     从 Smart Match 攻击结果生成 Markdown 格式的执行报告。
 
     使用方式：
-        reporter = ExecutionReportGenerator(output_dir="results/execution_reports")
+        reporter = ExecutionReportGenerator(output_dir="results/smart_match_reports")
         reporter.save_execution_report(results, plan, module_name, config_path, target_path)
     """
 
-    def __init__(self, output_dir: str = "results/execution_reports"):
+    def __init__(self, output_dir: str = "results/smart_match_reports"):
         """
         Args:
             output_dir: 报告输出目录

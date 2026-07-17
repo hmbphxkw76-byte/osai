@@ -7,14 +7,12 @@
 #   会话ID注入、会话重用、URL中Token泄露、通知通道劫持。
 #
 # 技术来源：OWASP AI Vulnerabilities Playground MCP-08
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_session_fix
 description: "MCP 会话固定载荷 — 会话注入/重用/URL泄露/通知劫持 — AI-300 Ch7（MCP-08）"
-surfaces: [mcp, agent]
-ai300_chapters: [Ch7]
-
-
 payloads:
   - technique: session_id_injection
     name: "会话ID注入"

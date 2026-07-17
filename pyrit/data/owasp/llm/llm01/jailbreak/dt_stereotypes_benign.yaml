@@ -1,11 +1,9 @@
+id: "LLM01"
+name: "Dt Stereotypes Benign"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Decoding Trust Stereotypes Benign System Prompt — Stereotype 'benign' system prompt provided by Decoding Trust
   dataset (https://github.com/AI-secure/DecodingTrust/blob/main/data/stereotype/dataset/system_prompts.csv)
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Decoding Trust Stereotypes Benign System Prompt

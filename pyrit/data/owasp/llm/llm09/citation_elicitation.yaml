@@ -8,14 +8,12 @@
 #   通过这种"幻觉利用"揭示模型内部知识或提取受保护信息。
 #
 # 技术来源：OWASP DonkAI LLM09 C2 Citation Elicitation
+id: "LLM09"
+name: "Overreliance"
 
 owasp: LLM09
 technique_group: citation_elicitation
 description: "引文诱导载荷 — 虚构引用/幽灵来源/虚假权威/学术伪造 — AI-300 Ch3（LLM09）"
-surfaces: [agent, rag]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: fake_source_citation
     name: "虚假来源引用"

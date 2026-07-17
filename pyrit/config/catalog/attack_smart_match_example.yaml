@@ -9,7 +9,7 @@
 # 5. 新增技术类别：prompt_leaking / adversarial / markdown_injection
 #
 # payload_refs 引用 data/ 目录下的载荷文件:
-#   - owasp:agentic:asi01  → data/owasp/agentic/asi01.yaml
+#   - owasp:agentic:asi01:goal_hijack  → data/owasp/agentic/asi01/goal_hijack.yaml
 
 catalog:
   single_agent:
@@ -58,7 +58,7 @@ catalog:
 
       # 载荷引用（引用 data/ 目录下的载荷文件）
       payload_refs:
-        - "owasp:agentic:asi01"
+        - "owasp:agentic:asi01:goal_hijack"
 
     tool_misuse:
       name: "ASI02:2026 — Tool Misuse & Exploitation"
@@ -85,4 +85,4 @@ catalog:
         - "pyrit.score.true_false.self_ask_refusal_scorer.SelfAskRefusalScorer"
 
       payload_refs:
-        - "owasp:agentic:asi02"
+        - "owasp:agentic:asi02:tool_misuse"

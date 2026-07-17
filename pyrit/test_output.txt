@@ -1,0 +1,25 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\�ĵ�\GitHub\osai\pyrit
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, cov-7.1.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 10 items
+
+pyrit_ai300\tests\test_recon\test_adapters.py .....F..F.                 [100%]
+
+================================== FAILURES ===================================
+_______________________ TestGarakAdapter.test_map_owasp _______________________
+pyrit_ai300\tests\test_recon\test_adapters.py:82: in test_map_owasp
+    self.assertEqual(adapter._map_owasp("prompt_injection"), "LLM01")
+                     ^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'GarakAdapter' object has no attribute '_map_owasp'
+_____________________ TestDeepTeamAdapter.test_map_owasp ______________________
+pyrit_ai300\tests\test_recon\test_adapters.py:97: in test_map_owasp
+    self.assertEqual(adapter._map_owasp("prompt_injection"), "LLM01")
+                     ^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'DeepTeamAdapter' object has no attribute '_map_owasp'
+=========================== short test summary info ===========================
+FAILED pyrit_ai300/tests/test_recon/test_adapters.py::TestGarakAdapter::test_map_owasp
+FAILED pyrit_ai300/tests/test_recon/test_adapters.py::TestDeepTeamAdapter::test_map_owasp
+========================= 2 failed, 8 passed in 3.35s =========================

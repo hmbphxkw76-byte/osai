@@ -1,0 +1,44 @@
+# Playwright Target - Web Chat SPA
+# 攻击 Web 聊天界面（SPA 架构），支持认证注入
+
+target:
+  name: "web_chat_spa"
+  type: "playwright"
+  description: "Web-based chat interface (SPA) with auth injection"
+
+  # 认证配置（可选）
+  # header_file 指向 F12 复制的原始 Request Headers 文件
+  auth:
+    header_file: "config/headers/syxy.txt"    # 认证数据唯一真相源
+    auto_extract: true                         # 自动解析 cookie + bearer
+    # cookie_domain: ".ouchn.cn"               # 可选：手动指定 cookie 域名
+
+  # 速率控制（可选，未配置则使用目标类型默认值）
+  # playwright 目标强制 max_concurrent=1（单浏览器实例）
+  rate_control:
+    max_concurrent: 1                          # 浏览器目标必须串行
+    # rate_limit: 0.0                          # 每秒最大请求数（0=无限制）
+
+  # 连接配置
+  connection:
+    url: "https://student.syxy.ouchn.cn/"
+    browser: "chromium"                        # chromium / firefox / webkit
+    headless: true                             # true=无头模式，false=有界面
+    wait_until: "domcontentloaded"             # load / domcontentloaded / networkidle
+
+  # DOM 选择器（根据目标站点调整）
+  selectors:
+    input: "textarea, input[type='text'], [contenteditable='true']"  # 输入框
+    send_button: "button[type='submit'], .send-btn"                   # 发送按钮
+    response: ".response, .ai-message, .assistant-message"            # 响应区域
+
+  # 交互参数
+  interaction:
+    wait_timeout: 10000                        # 等待超时（毫秒）
+    response_wait_delay: 1.0                   # 发送后等待响应延迟（秒）
+
+  metadata:
+    module: "single_agent"
+    owasp_mapping: "LLM01"
+    attack_surface: "prompt_injection"
+    environment: "remote"

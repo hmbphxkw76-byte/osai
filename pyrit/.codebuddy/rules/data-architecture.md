@@ -64,11 +64,43 @@ data/surfaces/       ← 可选（MAY），可安全删除
 
 `_registry.core.yaml` 中的 `surfaces_index` 提供静态交叉索引，动态查询通过 `PayloadManager` 实现。
 
-### 5. 新增载荷流程
+### 5. YAML 三要素规范（强制）
+
+所有载荷 YAML 文件**必须**包含以下三个字段，映射 OWASP 官方分类：
+
+| 字段 | 含义 | 示例 | 约束 |
+|------|------|------|------|
+| `id` | OWASP 分类标识 | `LLM01`, `ASI01` | 必须与 OWASP 官方 ID 一致 |
+| `name` | 人类可读类别名 | `Prompt Injection`, `Agent Goal Hijack` | 必须与 OWASP 官方名称一致 |
+| `description` | 技术组攻击原理描述 | `直接提示注入 — 指令覆盖、角色扮演、分隔符、编码绕过` | 概括本文件覆盖的攻击技术范围 |
+
+**字段位置**：紧跟在文件头部注释块之后，`technique_group` 之前。
+
+```yaml
+# LLM01: Prompt Injection — Direct Injection
+id: "LLM01"
+name: "Prompt Injection"
+description: "直接提示注入 — 指令覆盖、角色扮演、分隔符、编码绕过"
+technique_group: direct_injection
+payloads:
+  - technique: instruction_override
+    ...
+```
+
+**特殊文件**（非载荷文件）：
+- `_registry.core.yaml` → `id: "REGISTRY"`, `name: "OWASP Payload Registry"`
+- `_template.yaml` → `id: "TEMPLATE"`, `name: "Payload YAML Template"`
+
+**ref_path 构建规则**：
+- `id` 字段仅作 OWASP 分类标识，**不参与** ref_path 构建
+- ref_path 始终基于 `file_path.stem`（文件名去掉扩展名）
+- 示例：`data/owasp/llm/llm01/direct_injection.yaml` → ref_path: `owasp:llm:llm01:direct_injection`
+
+### 6. 新增载荷流程
 
 1. 确定 OWASP 类别（LLM01-LLM10 或 ASI01-ASI10）
 2. 在对应目录下创建 YAML 文件
-3. 填写 `surfaces` 和 `ai300_chapters` 元数据
+3. 填写 `id`、`name`、`description` 三要素
 4. 在 `config/catalog/catalog.yaml` 中添加引用
 
 **不需要**：

@@ -1,9 +1,8 @@
+id: "LLM09"
+name: "Overreliance"
 owasp: LLM09
 technique_group: misinformation
 description: 错误信息攻击载荷 — AI-300 Ch3+Ch5，诱导LLM生成看似可信的错误/误导内容
-surfaces: [agent, rag]
-ai300_chapters: [Ch5]
-
 payloads:
   - technique: hallucination_induction
     name: 幻觉诱导

@@ -1,11 +1,9 @@
+id: "LLM01"
+name: "Arth Singh Fractal Identity Collapse"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Fractal Identity Collapse Protocol — Creates infinitely nested identity layers that progressively dissolve safety
   boundaries through recursive self-reference
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Fractal Identity Collapse Protocol

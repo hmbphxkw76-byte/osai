@@ -1,9 +1,8 @@
+id: "LLM07"
+name: "Insecure Plugin Design"
 owasp: LLM07
 technique_group: configuration_extraction
 description: 系统配置与工具面枚举载荷 — AI-300 Ch3.1+Ch7，提取Agent的配置参数、工具列表、调试端点、模型设置
-surfaces: [agent, mcp]
-ai300_chapters: [Ch7]
-
 payloads:
   - technique: config_dump
     name: 配置转储

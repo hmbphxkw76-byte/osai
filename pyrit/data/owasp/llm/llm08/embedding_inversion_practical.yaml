@@ -13,14 +13,12 @@
 #   3. 属性推断 (Attribute Inference) — 从向量预测元数据
 #   4. 向量相似度钓鱼 — 构造高相似度对抗文档
 #   5. 向量数据库 API 利用 — 直接攻击向量DB端点
+id: "LLM08"
+name: "Excessive Agency"
 
 owasp: LLM08
 technique_group: embedding_inversion
 description: 嵌入实操攻击载荷 — 嵌入反演/成员推断/属性推断/向量DB利用 — AI-300 Ch6
-surfaces: [embedding, rag]
-ai300_chapters: [Ch6]
-
-
 payloads:
   - technique: embedding_inversion_multiquery
     name: "多查询渐进式嵌入反演"

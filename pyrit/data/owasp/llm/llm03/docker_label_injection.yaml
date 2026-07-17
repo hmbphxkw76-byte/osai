@@ -11,13 +11,12 @@
 #   1. 镜像描述标签注入 - 伪装为无害镜像描述
 #   2. 健康检查标签注入 - 利用健康检查触发恶意链
 #   3. 维护者标签注入 - 伪造官方维护者信息
+id: "LLM03"
+name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: docker_label_injection
 description: Docker 镜像标签注入载荷（通过容器标签实现供应链攻击）— AI-300 Ch8
-surfaces: [agent]
-ai300_chapters: [Ch8]
-
 source: Adapted from mcp-attack-labs/labs/02-docker-dash/rce-attack/Dockerfile
 
 payloads:

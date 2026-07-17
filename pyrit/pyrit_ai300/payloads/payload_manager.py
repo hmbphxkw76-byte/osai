@@ -1,18 +1,20 @@
 """
 AI-300 Framework - Payload Manager
-载荷管理器：管理所有 AI-300 考试攻击载荷
+载荷管理器：管理所有 OWASP 标准攻击载荷
 
 数据驱动设计：
 - 载荷从 data/ 目录下的 YAML 文件加载
-- 支持按 OWASP 标准、攻击面维度检索
+- 支持按 OWASP ID 检索（LLM01-LLM10, ASI01-ASI10）
 - 支持 payload_refs 引用解析
+- 支持 scope 解析（单个 ID / 分组 / 全部）
 - 支持载荷的动态更新和扩展
 
 使用方式：
     manager = PayloadManager()
     manager.load_data_dir("data/")
     payloads = manager.resolve_refs(["owasp:agentic:asi01"])
-    rag_payloads = manager.get_payloads_by_surface("rag")
+    refs = manager.get_scope_refs("llm01")
+    all_llm = manager.get_scope_refs("llm")
 """
 
 from __future__ import annotations
@@ -34,14 +36,15 @@ class PayloadManager:
     功能：
     1. 从 data/ 目录加载攻击载荷（owasp/llm, owasp/agentic）
     2. 解析 payload_refs 引用
-    3. 按 OWASP 标准/攻击面/AI-300 章节检索
-    4. 与 PyRIT SeedDataset 集成
+    3. 按 OWASP ID 检索（LLM01-LLM10, ASI01-ASI10）
+    4. 支持 scope 解析（单个 ID / 分组 / 全部）
+    5. 与 PyRIT SeedDataset 集成
 
     使用方式:
         manager = PayloadManager()
         manager.load_data_dir("data/")
         payloads = manager.resolve_refs(["owasp:agentic:asi01"])
-        rag_payloads = manager.get_payloads_by_surface("rag")
+        refs = manager.get_scope_refs("llm01")
     """
 
     def __init__(self):
@@ -66,15 +69,16 @@ class PayloadManager:
                 │   │   └── ...
                 │   └── ...
                 └── agentic/
-                    ├── asi01.yaml
+                    ├── asi01/
+                    │   └── goal_hijack.yaml
                     └── ...
 
-        注意: OWASP 目录为唯一真相源，surfaces 维度通过 payload 元数据中的
-              surfaces 字段实现交叉引用，不单独加载。
+        注意: OWASP 目录为唯一真相源，surfaces 由侦察阶段动态生成。
 
         Args:
             data_dir: data/ 目录路径
         """
+        logger.info("\n######## 加载 Payloads 信息 ########")
         self._data_dir = Path(data_dir)
         if not self._data_dir.exists():
             logger.warning("Data directory not found: %s", data_dir)
@@ -90,8 +94,22 @@ class PayloadManager:
                 self._index.setdefault("owasp", {})
                 self._index["owasp"].setdefault(standard, [])
 
+                # 收集有对应子目录的顶层文件名（无扩展名）
+                # 规则：有子目录时，顶层 YAML 不加载（子目录是唯一真相源）
+                subdir_names = {
+                    d.name for d in standard_dir.iterdir()
+                    if d.is_dir() and not d.name.startswith("_")
+                }
+
                 # 加载顶层 YAML（如 llm01.yaml）
+                # 跳过有对应子目录的文件（子目录是唯一载荷源）
                 for yaml_file in sorted(standard_dir.glob("*.yaml")):
+                    if yaml_file.stem in subdir_names:
+                        logger.debug(
+                            "Skipping %s: subdirectory exists (subdirectory is single source of truth)",
+                            yaml_file.name,
+                        )
+                        continue
                     self._load_payload_file(yaml_file, "owasp", standard)
 
                 # 加载子目录中的 YAML（支持多级嵌套，如 llm01/jailbreak/aim.yaml）
@@ -108,8 +126,9 @@ class PayloadManager:
                                 subcat = f"{standard}:{sub_name}:{rel_dir.as_posix().replace('/', ':')}"
                             self._load_payload_file(yaml_file, "owasp", subcat)
 
-        total = len(self._payload_store)
-        logger.info("Loaded %d payload files from %s", total, data_dir)
+        total_files = len(self._payload_store)
+        total_payloads = sum(len(d["payloads"]) for d in self._payload_store.values())
+        logger.info("Loaded %d payload files, %d payloads from %s", total_files, total_payloads, data_dir)
 
     def _load_payload_file(
         self, file_path: Path, category: str, subcategory: str
@@ -131,13 +150,15 @@ class PayloadManager:
                 return
 
             # 构建引用路径（统一小写）
-            file_id = data.get("id", file_path.stem).lower()
+            # ref_path 始终基于文件名，确保唯一性
+            # YAML 中的 id 字段仅作 OWASP ID 元数据，不参与 ref_path 构建
+            file_id = file_path.stem.lower()
             subcategory_lower = subcategory.lower()
             ref_path = f"owasp:{subcategory_lower}:{file_id}"
 
-            # 存储
+            # 存储（id 字段取自 YAML，用于 OWASP 分类标识）
             self._payload_store[ref_path] = {
-                "id": file_id,
+                "id": data.get("id", file_id).lower(),
                 "ref_path": ref_path,
                 "category": category,
                 "subcategory": subcategory,
@@ -146,8 +167,6 @@ class PayloadManager:
                 "description": data.get("description", ""),
                 "payloads": data.get("payloads", []),
                 "tags": data.get("tags", []),
-                "surfaces": data.get("surfaces", []),
-                "ai300_chapters": data.get("ai300_chapters", []),
                 "detection_focus": data.get("detection_focus", []),
                 "mitigation_principles": data.get("mitigation_principles", []),
                 "source_file": str(file_path),
@@ -160,8 +179,6 @@ class PayloadManager:
                 self._index[category][subcategory] = []
             self._index[category][subcategory].append(ref_path)
 
-            logger.debug("Loaded payload file: %s (%d payloads)", ref_path, len(data.get("payloads", [])))
-
         except Exception as e:
             logger.error("Failed to load %s: %s", file_path, str(e))
 
@@ -170,14 +187,12 @@ class PayloadManager:
         解析 payload_refs 为实际载荷列表
 
         引用格式:
-            - "owasp:agentic:asi01"  → data/owasp/agentic/asi01.yaml
+            - "owasp:agentic:asi01"  → data/owasp/agentic/asi01/goal_hijack.yaml
             - "owasp:llm:llm01"     → data/owasp/llm/llm01.yaml
             - "owasp:llm:llm01:direct_injection" → data/owasp/llm/llm01/direct_injection.yaml
             - "text_jailbreak:aim"  → 用 aim 模板渲染（data/owasp/llm/llm01/jailbreak/）
             - "text_jailbreak:random" → 随机模板渲染
             - "text_jailbreak:all"  → 全部模板渲染（穷举）
-
-        注意: by_surface: 前缀不再支持，请使用 get_payloads_by_surface() 方法。
 
         Args:
             refs: 引用路径列表
@@ -339,41 +354,64 @@ class PayloadManager:
 
         return self.resolve_refs(refs)
 
-    def get_payloads_by_surface(self, surface: str) -> List[str]:
+    def get_scope_refs(self, scope: str) -> List[str]:
         """
-        按攻击面维度获取载荷（通过 surfaces 元数据交叉引用）
+        解析 OWASP scope 为 ref 路径列表
+
+        scope 支持四种粒度：
+        - 单个文件 (ref_path): "owasp:llm:llm04:rag_poison"
+        - 单个 OWASP ID: "llm01", "asi01"
+        - 按标准分组: "llm" (所有 LLM Top 10), "agentic" (所有 Agentic Top 10)
+        - 全部: "all"
 
         Args:
-            surface: 攻击面名称 (rag, mcp, agent, embedding)
+            scope: OWASP scope 字符串
+
+        Returns:
+            匹配的 ref 路径列表
+        """
+        scope = scope.lower().strip()
+
+        # 全部
+        if scope == "all":
+            return self.get_all_refs()
+
+        # 按标准分组: llm, agentic
+        if scope in ("llm", "agentic"):
+            return [ref for ref in self.get_all_refs() if f":{scope}:" in ref]
+
+        # 单文件模式: ref_path 格式（含两个以上冒号，如 owasp:llm:llm04:rag_poison）
+        if scope.count(":") >= 2:
+            # 精确匹配 ref_path
+            if scope in self._payload_store:
+                return [scope]
+            # 前缀匹配（如 owasp:llm:llm04 匹配 llm04 下所有文件）
+            prefix_matches = [ref for ref in self.get_all_refs() if ref.startswith(f"{scope}:")]
+            if prefix_matches:
+                return prefix_matches
+            logger.warning("Payload ref not found: %s", scope)
+            return []
+
+        # 单个 OWASP ID: llm01, asi01
+        # 先尝试精确匹配（如 owasp:llm:llm01）
+        exact_matches = [ref for ref in self.get_all_refs() if ref.endswith(f":{scope}")]
+        if exact_matches:
+            return exact_matches
+
+        # 模糊匹配（如 llm01 匹配 llm01 下的所有子文件）
+        return [ref for ref in self.get_all_refs() if f":{scope}" in ref]
+
+    def get_payloads_by_owasp(self, owasp_id: str) -> List[str]:
+        """
+        按 OWASP ID 获取载荷
+
+        Args:
+            owasp_id: OWASP ID (如 "LLM01", "ASI01")
 
         Returns:
             匹配的载荷列表
         """
-        surface_lower = surface.lower()
-        matched_refs = []
-        for ref, data in self._payload_store.items():
-            surfaces = [s.lower() for s in data.get("surfaces", [])]
-            if surface_lower in surfaces:
-                matched_refs.append(ref)
-        return self.resolve_refs(matched_refs)
-
-    def get_payloads_by_chapter(self, chapter: str) -> List[str]:
-        """
-        按 AI-300 考试章节获取载荷
-
-        Args:
-            chapter: AI-300 章节 (Ch3, Ch4, Ch5, Ch6, Ch7, Ch8)
-
-        Returns:
-            匹配的载荷列表
-        """
-        chapter_lower = chapter.lower()
-        matched_refs = []
-        for ref, data in self._payload_store.items():
-            chapters = [c.lower() for c in data.get("ai300_chapters", [])]
-            if chapter_lower in chapters:
-                matched_refs.append(ref)
-        return self.resolve_refs(matched_refs)
+        return self.resolve_refs(self.get_scope_refs(owasp_id))
 
     def get_all_refs(self) -> List[str]:
         """获取所有可用的引用路径"""

@@ -1,11 +1,9 @@
+id: "LLM01"
+name: "Arth Singh Cognitive Overload"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Cognitive Overload - Nested Instructions — Overwhelms the model with nested conditional logic and contradictory
   framing to bypass safety checks
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Cognitive Overload - Nested Instructions

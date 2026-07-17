@@ -18,14 +18,12 @@
 #   3. 文档注入 — PDF 隐藏层/元数据
 #   4. SVG/XML 注入 — 矢量图中的代码执行
 #   5. 二维码注入 — QR码中的恶意URL/指令
+id: "LLM01"
+name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: multimodal_injection
 description: 跨模态提示注入载荷 — 图像/音频/文档/视频中的隐藏指令 — AI-300 Ch3+Ch5
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: image_text_injection
     name: "图像文字注入（白底黑字）"

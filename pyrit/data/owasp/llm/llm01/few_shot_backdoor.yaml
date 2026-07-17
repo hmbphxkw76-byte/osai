@@ -8,14 +8,12 @@
 #   利用模型从示例中学习模式的能力建立隐蔽后门通道。
 #
 # 技术来源：OWASP AI Vulnerabilities Playground PI-09
+id: "LLM01"
+name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: few_shot_backdoor
 description: "Few-shot 后门植入载荷 — 触发词/格式/数字代码/语言切换/情绪/渐进信任 — AI-300 Ch3（PI-09）"
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: trigger_word_backdoor
     name: "触发词后门"

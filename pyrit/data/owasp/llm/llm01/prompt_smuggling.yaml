@@ -7,14 +7,12 @@
 #
 # 技术来源：Garak probes/smuggling.py — FunctionMasking/Homoglyph/HypotheticalResponse
 # AI-300 Ch3 考试场景：输出绕过、内容过滤规避
+id: "LLM01"
+name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: prompt_smuggling
 description: 提示词走私载荷 — 函数伪装/同形字/假设场景走私 — AI-300 Ch3（Garak smuggling probes 移植扩充）
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: hypothetical_response_smuggling
     name: "假设响应走私 — Hotwire 场景"

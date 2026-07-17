@@ -1,10 +1,8 @@
+id: "LLM01"
+name: "Arth Singh Fewshot Redteam Eval"
 owasp: LLM01
 technique_group: jailbreak_template
 description: New Red Team Evaluation Few-Shot — Few-shot examples framed as red team evaluation dataset
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: New Red Team Evaluation Few-Shot

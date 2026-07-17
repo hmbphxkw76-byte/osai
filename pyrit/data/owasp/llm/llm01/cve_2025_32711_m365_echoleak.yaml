@@ -3,6 +3,8 @@
 # OWASP: LLM01 (提示注入) + LLM07 (系统提示泄露)  |  MITRE ATLAS: Exfiltration
 # CVSS: 9.3 (AV:N/AC:M/PR:N/UI:N/S:C/C:H/I:N/A:N)
 # Source: frontier/CVE-2025-32711_prompt_injection
+id: "LLM01"
+name: "Prompt Injection"
 
 frontier:
   id: CVE-2025-32711
@@ -39,10 +41,6 @@ frontier:
 owasp: LLM01
 technique_group: indirect_prompt_injection
 description: "EchoLeak 零点击间接提示注入 — 恶意邮件 → Copilot 自动处理 → 隐藏注入 → 敏感数据泄露 — AI-300 Ch3 (LLM01+LLM07, CVSS 9.3)"
-surfaces: [agent, rag]
-ai300_chapters: [Ch3]
-
-
 payloads:
   # ── 基础：直接数据泄露请求 ──
   - technique: data_harvesting

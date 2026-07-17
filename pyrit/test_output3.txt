@@ -1,0 +1,18 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\�ĵ�\GitHub\osai\pyrit
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, cov-7.1.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 175 items
+
+pyrit_ai300\tests\test_framework.py .................................... [ 20%]
+.....................................................................    [ 60%]
+pyrit_ai300\tests\test_recon\test_adapters.py ................           [ 69%]
+pyrit_ai300\tests\test_recon\test_profile_loader.py .......              [ 73%]
+pyrit_ai300\tests\test_recon\test_profile_merger.py .................... [ 84%]
+......                                                                   [ 88%]
+pyrit_ai300\tests\test_recon\test_recon_engine.py ......s                [ 92%]
+pyrit_ai300\tests\test_recon\test_target_profile.py ..............       [100%]
+
+======================= 174 passed, 1 skipped in 12.74s =======================

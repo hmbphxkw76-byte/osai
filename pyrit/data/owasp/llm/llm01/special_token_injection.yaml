@@ -16,14 +16,12 @@
 # 与现有 encoding_bypass.yaml 的区别：
 #   encoding_bypass 关注「编码层」绕过（Base64/ROT13/Zalgo 等），
 #   本文件关注「tokenizer 层」注入——利用 tokenizer 对特殊格式标记的原生处理逻辑。
+id: "LLM01"
+name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: special_token_injection
 description: 特殊 Token 注入载荷 — 利用对话格式分隔符打破系统/用户边界 — AI-300 Ch3
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: chatml_boundary_break
     name: "ChatML 格式边界突破"

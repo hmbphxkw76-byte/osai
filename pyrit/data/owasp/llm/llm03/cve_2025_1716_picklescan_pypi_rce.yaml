@@ -3,6 +3,8 @@
 # OWASP: LLM03 (供应链)  |  MITRE ATLAS: Execution → Persistence
 # CVSS: 9.8 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)
 # Source: frontier/CVE-2025-1716_supply_chain
+id: "LLM03"
+name: "Training Data Poisoning"
 
 frontier:
   id: CVE-2025-1716
@@ -36,10 +38,6 @@ frontier:
 owasp: LLM03
 technique_group: supply_chain_pickle
 description: "Picklescan RCE 绕过载荷 — 绕过安全扫描工具检测 → 恶意 PyPI 包安装 → 扫描环境 RCE — AI-300 Ch8 (LLM03, CVSS 9.8)"
-surfaces: [agent]
-ai300_chapters: [Ch8]
-
-
 payloads:
   # ── 基础：直接扫描绕过 ──
   - technique: model_scan_bypass

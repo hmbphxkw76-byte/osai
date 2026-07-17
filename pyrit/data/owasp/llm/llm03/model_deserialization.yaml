@@ -13,14 +13,12 @@
 #   4. TensorFlow SavedModel 签名注入
 #   5. ONNX 模型自定义算子注入
 #   6. GGUF/GGML 格式操纵
+id: "LLM03"
+name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: model_deserialization
 description: 模型反序列化攻击载荷（Pickle/Joblib/TF/Keras RCE）— AI-300 Ch8（P0 考试场景）
-surfaces: [agent]
-ai300_chapters: [Ch8]
-
-
 payloads:
   - technique: pickle_rce
     name: "PyTorch Pickle 反序列化 RCE"

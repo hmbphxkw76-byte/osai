@@ -14,14 +14,12 @@
 #   2. 逆向 Crescendo — 从无害拒绝中提取信息
 #   3. 情感 Crescendo — 混合情感操控的渐进
 #   4. 角色 Crescendo — 角色扮演与渐进结合
+id: "LLM01"
+name: "Crescendo Jailbreak"
 
 owasp: LLM01
 technique_group: crescendo_jailbreak
 description: Crescendo 渐进式越狱载荷 — 多轮技术 — AI-300 Ch3
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   - technique: crescendo_standard
     name: "标准 Crescendo 5轮渐进"

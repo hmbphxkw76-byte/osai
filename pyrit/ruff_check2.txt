@@ -1,0 +1,77 @@
+﻿I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\pipeline\tracker.py:26:1
+   |
+24 |   """
+25 |
+26 | / from __future__ import annotations
+27 | |
+28 | | import sys
+29 | | import os
+30 | | import logging
+31 | | from dataclasses import dataclass, field
+32 | | from datetime import datetime
+33 | | from typing import Any, Dict, List, Optional
+   | |____________________________________________^
+34 |
+35 |   if sys.platform == "win32":
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> pyrit_ai300\pipeline\tracker.py:44:5
+   |
+42 |   # Rich imports (optional)
+43 |   try:
+44 | /     from rich.console import Console
+45 | |     from rich.table import Table
+46 | |     from rich.panel import Panel
+47 | |     from rich import box
+   | |________________________^
+48 |       HAS_RICH = True
+49 |   except ImportError:
+   |
+help: Organize imports
+
+E501 Line too long (139 > 100)
+  --> pyrit_ai300\pipeline\tracker.py:63:97
+   |
+62 | …
+63 | …ge/recon_complete/profile_loaded/load/normalize/classify/strategy/execute/scoring)
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+64 | …
+65 | …
+   |
+
+E501 Line too long (109 > 100)
+   --> pyrit_ai300\pipeline\tracker.py:351:93
+    |
+350 |         if self.verbose:
+351 |             self._print_step("recon_complete", f"画像已保存: {profile_path}", f"总耗时: {duration_ms:.0f}ms")
+    |                                                                                                     ^^^^^^^^^
+352 |             self._print_header("侦察阶段完成", "green")
+    |
+
+E501 Line too long (107 > 100)
+   --> pyrit_ai300\pipeline\tracker.py:379:97
+    |
+377 |         if self.verbose:
+378 |             self._print_header("攻击阶段", "yellow")
+379 |             self._print_step("profile_loaded", f"画像: {profile_path}", f"建议: {len(recommendations)} 条")
+    |                                                                                                     ^^^^^^^
+380 |
+381 |     # ──────────────────────────────────────────────────────────────────────────
+    |
+
+E501 Line too long (101 > 100)
+   --> pyrit_ai300\pipeline\tracker.py:548:101
+    |
+546 |                 "scenario_key": scenario_key,
+547 |                 "recommended_scorer": best_scorer_def.get("type", "") if best_scorer_def else "",
+548 |                 "recommended_backend": best_scorer_def.get("backend", "") if best_scorer_def else "",
+    |                                                                                                     ^
+549 |                 "final_scorers": final_scorers,
+550 |             },
+    |
+
+Found 6 errors.
+[*] 2 fixable with the `--fix` option.

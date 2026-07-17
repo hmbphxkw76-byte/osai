@@ -1,33 +1,39 @@
 # AI-300 Framework Architecture Design
 
-## 1. 架构总览
+## 1. 架构总览（v3.0）
 
 ### 1.1 设计哲学
 
-本框架以 **PyRIT (Python Risk Identification Tool) 0.14.0** 为核心引擎，采用 **数据驱动** 设计，实现 OffSec AI-300 考试场景的全覆盖。
+本框架以 **PyRIT 0.14.0** 为核心引擎，采用 **三层分离 + 数据驱动** 设计，实现 OffSec AI-300 考试场景的全覆盖。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     AI-300 Framework Architecture                     │
+│                     AI-300 Framework v3.0 Architecture               │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                       │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────┐ │
-│  │   Config     │   │  Attack     │   │  Score      │   │ Report   │ │
-│  │   Layer      │──▶│  Engine     │──▶│  Engine     │──▶│ Generator│ │
-│  │  (YAML)      │   │  (PyRIT)    │   │  (PyRIT)    │   │ (Output) │ │
-│  └─────────────┘   └─────────────┘   └─────────────┘   └──────────┘ │
-│         │                 │                │                │        │
-│         ▼                 ▼                ▼                ▼        │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────┐ │
-│  │  Payload    │   │  Converter  │   │  Memory     │   │ Markdown/│ │
-│  │  Manager    │   │  Chain      │   │  (SQLite)   │   │ HTML     │ │
-│  └─────────────┘   └─────────────┘   └─────────────┘   └──────────┘ │
-│                                               │                       │
-│                                               ▼                       │
-│                                        ┌─────────────┐               │
-│                                        │  Display    │               │
-│                                        │  (Rich)     │               │
-│                                        └─────────────┘               │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                     CLI 入口 (cli.py)                        │    │
+│  │         命令: run / list / report / recon                    │    │
+│  └──────────────────────────┬──────────────────────────────────┘    │
+│                             │                                        │
+│              ┌──────────────┴──────────────┐                        │
+│              ▼                              ▼                        │
+│  ┌──────────────────────┐      ┌──────────────────────────────┐    │
+│  │   侦察层 (recon)      │      │       攻击层 (attack)         │    │
+│  │                      │      │                              │    │
+│  │  ReconEngine         │      │  AI300Engine                 │    │
+│  │    ├── GarakAdapter  │      │    ├── AttackOrchestrator    │    │
+│  │    ├── DeepTeamAdapter│     │    ├── SmartMatcher          │    │
+│  │    └── ProfileMerger │      │    ├── ProfileLoader ◄──────┼──┐ │
+│  │           ↓          │      │    └── 7 个 Module           │  │ │
+│  │   TargetProfile JSON │──────┼──────────────────────────────┘  │ │
+│  └──────────────────────┘      └──────────────────────────────────┘ │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                     数据层 + 配置层                           │    │
+│  │  data/owasp/ (251 YAML)  │  config/catalog/  │  config/targets/│    │
+│  │  data/recon_templates/   │  config/recon/    │  config/scores/  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │                                                                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -37,13 +43,53 @@
 | 原则 | 实现方式 |
 |------|---------|
 | **不重复造轮子** | 所有攻击/转换器/评分器/目标均通过 `import pyrit` 直接调用 |
+| **调度器 + 格式转换器** | 框架只做编排+格式转换，能力来自 PyRIT + 外部工具（ARCH-001） |
+| **三层分离** | 数据层（data/）+ 配置层（config/）+ 引擎层（pyrit_ai300/） |
+| **侦察-攻击解耦** | 侦察层不 import 攻击层，通过 TargetProfile JSON 通信 |
 | **数据驱动** | 攻击载荷、目标配置、评分规则全部从 YAML 配置加载 |
-| **全流程自动化** | 修改载荷后，攻击执行→评分→报告生成全程无需人工干预 |
-| **考试对齐** | 每个 Module 对应独立场景配置，覆盖 AI-300 全部 11 个 Module |
-| **OWASP 唯一真相源** | 所有载荷仅存储在 `data/owasp/`，攻击面通过 `surfaces` 元数据交叉引用 |
-| **OWASP 映射** | 每个攻击场景都有对应的 OWASP LLM Top 10 + Agentic Top 10 分类 |
+| **全流程自动化** | 修改载荷后，侦察→攻击→评分→报告生成全程无需人工干预 |
+| **考试对齐** | 覆盖 AI-300 全部 Module，OWASP LLM Top 10 + Agentic Top 10 |
 
-### 1.3 OWASP Agentic Top 10 (2026) 基础设计原则
+### 1.3 数据流
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         端到端数据流                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ① 侦察流程（recon 命令）                                              │
+│  ─────────────────────────                                            │
+│  ReconEngine.run(target)                                             │
+│    ├── GarakAdapter.run() ──────────┐                                │
+│    ├── DeepTeamAdapter.run() ───────┤──→ ThreadPoolExecutor 并发      │
+│    │                                │                                │
+│    ▼                                ▼                                │
+│  ProfileMerger.merge(results)                                         │
+│    ├── 去重（相似度 > 0.85）                                          │
+│    ├── 置信度加权（garak: 0.85, deepteam: 0.85）                       │
+│    ├── 风险计算（critical/high/medium/low）                            │
+│    └── 攻击建议生成                                                    │
+│    │                                                                  │
+│    ▼                                                                  │
+│  TargetProfile JSON → results/recon/profile_<timestamp>.json          │
+│                                                                       │
+│  ② 攻击流程（run 命令）                                                │
+│  ────────────────────────                                             │
+│  AI300Engine.run()                                                   │
+│    ├── ProfileLoader.load(profile.json) ──→ SmartMatcher 参数         │
+│    ├── 遍历 7 个 Module                                               │
+│    │     └── AttackOrchestrator.execute_attack()                     │
+│    │           ├── SmartMatcher → PyRIT 攻击策略选择                  │
+│    │           ├── PyRIT 原生攻击执行                                  │
+│    │           └── Scorer 评分                                        │
+│    │                                                                  │
+│    ▼                                                                  │
+│  ReportGenerator.generate() → results/assessment_report.md            │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 1.4 OWASP Agentic Top 10 (2026) 基础设计原则
 
 来源: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/
 
@@ -184,39 +230,121 @@ Module 9: Infrastructure
 
 ---
 
-## 4. 数据驱动自动化流程
+## 4. 侦察引擎设计（v3.0 新增）
 
-### 4.1 配置驱动攻击执行
-
-```yaml
-# 修改攻击载荷 → 自动执行 → 自动评分 → 自动报告
-attack_config:
-  name: "direct_prompt_injection"
-  payloads:
-    - "new_payload_1"  # 只需修改这里
-    - "new_payload_2"
-  converters: ["base64", "rot13"]
-  scorers: ["refusal", "substring"]
-```
-
-### 4.2 自动化流水线
+### 4.1 架构
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  Config   │────▶│  Attack   │────▶│  Score   │────▶│  Report  │
-│  Load     │     │  Execute  │     │  Evaluate │     │  Generate │
-└──────────┘     └──────────┘     └──────────┘     └──────────┘
-     │                │                │                │
-     ▼                ▼                ▼                ▼
-  YAML/JSON       PyRIT           PyRIT           Markdown/
-  Files           Executor        Scorers         HTML
+ReconEngine (统一调度器)
+  ├── GarakAdapter ────→ NVIDIA Garak 漏洞扫描
+  ├── DeepTeamAdapter ──→ Confident AI DeepTeam OWASP 红队
+  └── ProfileMerger ────→ 多工具结果合并（去重 + 加权 + 风险计算）
+```
+
+### 4.2 侦察工具
+
+| 工具 | 版本 | 定位 | 集成方式 | AI-300 对应 |
+|------|------|------|---------|------------|
+| Garak | ≥0.15.1 | 漏洞扫描 | Python SDK (`garak.cli.main`) | LLM01/LLM03/LLM06/LLM08/LLM09 |
+| DeepTeam | ≥1.0.7 | OWASP 红队 | Python API (`red_team()`) | OWASP Top 10 LLM + Agentic |
+
+### 4.3 TargetProfile JSON Schema
+
+```json
+{
+  "target": "http://localhost:11434",
+  "tools_used": ["garak", "deepteam"],
+  "risk_level": "high",
+  "vulnerability_count": 12,
+  "vulnerabilities": [
+    {
+      "id": "vuln_001",
+      "category": "prompt_injection",
+      "severity": "critical",
+      "owasp": "LLM01",
+      "confidence": 0.85,
+      "source": "garak",
+      "description": "Direct prompt injection successful"
+    }
+  ],
+  "attack_surface": ["agent", "rag"],
+  "attack_recommendations": [
+    {
+      "strategy": "DIRECT_SINGLE",
+      "priority": 1,
+      "reason": "High confidence prompt injection vulnerability"
+    }
+  ],
+  "metadata": {
+    "scan_duration": 45.2,
+    "timestamp": "2026-07-17T09:40:21"
+  }
+}
+```
+
+### 4.4 Probe → OWASP 映射（Garak）
+
+| Garak Probe | OWASP | AI-300 考点 |
+|-------------|-------|------------|
+| promptinject | LLM01 | Prompt Injection |
+| dan / jailbreak | LLM01 | Jailbreak |
+| malgen | LLM06 | Sensitive Information Disclosure |
+| hallucination | LLM09 | Overreliance |
+| misinformation | LLM08 | Excessive Agency |
+| toxicity | LLM03 | Training Data Poisoning |
+
+### 4.5 Vulnerability → OWASP 映射（DeepTeam）
+
+| DeepTeam 漏洞类型 | OWASP |
+|-------------------|-------|
+| prompt_injection | LLM01 |
+| jailbreak | LLM01 |
+| leakage | LLM02 |
+| poisoning | LLM03 |
+| excessive_agency | LLM05 |
+| system_prompt | LLM06 |
+| rag | LLM07 |
+| hallucination | LLM09 |
+
+---
+
+## 5. Smart Match 引擎（v3.0 核心）
+
+### 5.1 决策流程
+
+```
+payload → normalize_payload() → analyze_payload() → PayloadProfile(五维+置信度)
+  → 两层策略选择 → PyRIT 原生攻击
+```
+
+### 5.2 攻击探针族
+
+| 策略 | 适用场景 | PyRIT 攻击 |
+|------|---------|-----------|
+| DIRECT_SINGLE | 直接注入，高置信度 | PromptSendingAttack |
+| PROGRESSIVE | 渐进式升级 | CrescendoAttack |
+| TREE_SEARCH | 多路径探索 | TreeOfAttacksAttack |
+| ITERATIVE | 自动优化 | PAIRAttack |
+| EXPLORATORY | 未知目标 | RedTeamingAttack |
+| MULTI_PRESET | 多预设组合 | SequentialAttack |
+
+### 5.3 Fallback 链
+
+```
+CrescendoAttack → TAP → PAIR → PromptSendingAttack
+```
+
+### 5.4 动态参数
+
+```python
+max_turns = 5 + complexity_score + token_factor
 ```
 
 ---
 
-## 5. 报告生成系统
+## 6. 报告生成系统
 
-### 5.1 报告结构（对齐 OffSec 标准）
+### 6.1 报告结构（对齐 OffSec 标准）
 
 1. **Executive Summary** - 关键发现和风险评级
 2. **Scope and Rules of Engagement** - 范围和交战规则
@@ -228,33 +356,10 @@ attack_config:
 8. **Remediation Recommendations** - 修复建议
 9. **Appendices** - 工具、参考、元数据
 
-### 5.2 输出格式
+### 6.2 输出格式
 
 - **Markdown** - 默认格式，便于版本控制和协作
 - **HTML** - 可视化报告，支持样式和交互
-
----
-
-## 6. 扩展性设计
-
-### 6.1 添加新攻击
-
-1. 在 `config/catalog/catalog.yaml` 中添加攻击定义
-2. 配置 PyRIT 攻击组件和转换器
-3. 定义攻击载荷
-4. 运行框架自动执行
-
-### 6.2 添加新转换器
-
-1. 在 `pyrit_ai300/orchestrators/attack_orchestrator.py` 的 `CONVERTER_MAP` 中添加映射
-2. 在配置中引用新转换器名称
-3. 框架自动加载和使用
-
-### 6.3 添加新评分器
-
-1. 在 `pyrit_ai300/orchestrators/attack_orchestrator.py` 的 `SCORER_MAP` 中添加映射
-2. 在配置中引用新评分器名称
-3. 框架自动加载和评分
 
 ---
 
@@ -274,6 +379,10 @@ data/
 │   ├── agentic/                  ← ASI01-ASI10
 │   ├── _registry.core.yaml       ← 含 surfaces_index 交叉引用
 │   └── _template.yaml            ← 含 surfaces/chapters 模板
+├── recon_templates/              ← 侦察探测模板
+│   ├── system_prompt.yaml
+│   ├── capability.yaml
+│   └── boundary.yaml
 └── surfaces/                     ← 攻击面分析文档（可选，可安全删除）
     ├── README.md
     ├── rag.md
@@ -294,19 +403,63 @@ ai300_chapters: [Ch5]             # AI-300 考试章节
 payloads: [...]                   # 载荷列表
 ```
 
-### 7.3 考试命令映射
+---
 
-| 攻击目标 | CLI 命令 | 覆盖 |
-|----------|----------|------|
-| 单 Agent | `ai300-scan run -m single_agent` | ASI01, ASI02, ASI05, ASI06 |
-| 多 Agent | `ai300-scan run -m multi_agent` | ASI03, ASI04, ASI07-ASI10 |
-| RAG | `ai300-scan run -m rag` | LLM03, LLM06 |
-| MCP | `ai300-scan run -m mcp` | LLM02, LLM07 |
-| Embedding | `ai300-scan run -m embeddings` | LLM03, LLM10 |
+## 8. 引擎层模块
+
+### 8.1 目录结构
+
+```
+pyrit_ai300/                      # 代码层（纯框架引擎）
+├── reconnaissance/               #   侦察引擎（完全独立，不 import attack/）
+│   ├── recon_engine.py           #   统一调度入口
+│   ├── target_profile.py         #   TargetProfile 数据模型（唯一接口契约）
+│   ├── profile_merger.py         #   多工具结果合并
+│   ├── adapters/                 #   薄壳适配器（每个 ≤150 行）
+│   │   ├── base_adapter.py       #   抽象基类
+│   │   ├── garak_adapter.py      #   → import garak
+│   │   └── deepteam_adapter.py   #   → import deepteam
+│   └── utils/
+│       ├── http_client.py        #   HTTP 客户端
+│       └── result_parser.py      #   结果解析器
+├── attack/                       #   攻击引擎扩展
+│   ├── profile_loader.py         #   读 TargetProfile → SmartMatcher 参数
+│   └── __init__.py
+├── orchestrators/                #   编排器
+│   ├── attack_orchestrator.py   #   攻击编排 + 执行
+│   ├── smart_matcher.py         #   PyRIT 攻击策略选择
+│   ├── attack_registry.py       #   攻击元数据注册表
+│   ├── component_registry.py    #   PyRIT 组件映射（CONVERTER_MAP / SCORER_MAP）
+│   └── rate_controller.py       #   速率控制
+├── payloads/                     #   载荷管理
+│   └── payload_manager.py       #   载荷加载/分类/渲染
+├── pipeline/                     #   流水线追踪
+│   └── tracker.py               #   执行追踪 + 终端输出
+├── reporting/                    #   报告生成
+│   ├── report_generator.py      #   评估报告生成
+│   └── execution_report.py      #   执行报告保存
+├── tests/                        #   单元测试
+│   └── test_recon/              #   侦察测试（46 tests）
+├── utils/                        #   工具函数
+│   └── logger.py                #   日志配置
+├── __init__.py                   #   AI300Engine 入口
+└── cli.py                        #   命令行接口
+```
+
+### 8.2 测试覆盖
+
+| 模块 | 测试数 | 覆盖内容 |
+|------|--------|---------|
+| TargetProfile | 13 | 数据模型、序列化、OWASP 映射 |
+| ReconEngine | 7 | 调度、并发、配置加载 |
+| Adapters | 16 | Garak/DeepTeam 适配器 + 映射 |
+| ProfileLoader | 7 | TargetProfile → SmartMatcher 参数 |
+| ProfileMerger | 26 | 去重、加权、风险计算、攻击建议 |
+| **总计** | **174+** | **全部通过** |
 
 ---
 
-## 8. 与现有 PyRIT 安装的关系
+## 9. 与现有 PyRIT 安装的关系
 
 本框架作为 PyRIT 的 **上层封装**，不修改 PyRIT 任何代码：
 
@@ -315,11 +468,11 @@ pyrit_ai300/             # 本框架
 ├── config/               # 配置文件（项目根目录）
 ├── orchestrators/        # 编排器（调用 PyRIT）
 ├── reporting/            # 报告生成
-├── display/              # 终端展示
-├── converters/           # 转换器配置（映射 PyRIT）
-├── scorers/              # 评分器配置（映射 PyRIT）
 ├── payloads/             # 载荷管理
-└── attacks/              # 攻击配置（映射 PyRIT）
+├── reconnaissance/       # 侦察引擎（调用外部工具）
+├── attack/               # 攻击引擎扩展
+├── pipeline/             # 执行追踪
+└── tests/                # 单元测试
 
 pyrit/                    # PyRIT 框架（独立安装）
 ├── executor/attack/      # 攻击执行器
@@ -332,22 +485,36 @@ pyrit/                    # PyRIT 框架（独立安装）
 
 ---
 
-## 9. 考试使用指南
+## 10. 考试使用指南
 
-### 9.1 考试前准备
+### 10.1 考试前准备
 
 1. 安装框架：`pip install -e .`（无网络环境见 [`OFFLINE_INSTALL.md`](./OFFLINE_INSTALL.md)）
-2. 配置目标：编辑 `config/targets/` 下的 YAML 文件
-3. 准备载荷：编辑 `config/catalog/catalog.yaml`
-4. 验证配置：`ai300 list modules`
+2. 安装侦察工具：`pip install -e ".[recon]"`
+3. 配置目标：编辑 `config/targets/` 下的 YAML 文件
+4. 准备载荷：编辑 `config/catalog/catalog.yaml`
+5. 验证配置：`ai300 list modules`
 
-### 9.2 考试中执行
+### 10.2 考试中执行
 
-1. 运行指定 Module：`ai300 run -m single_agent`
-2. 运行全部 Module：`ai300 run`
-3. 生成报告：`ai300 report -r results.json -o report.md`
+```bash
+# 侦察目标
+ai300 recon -t http://target:11434 -d quick
 
-### 9.3 考试后分析
+# 运行指定 Module（使用侦察结果）
+ai300 run -m single_agent --profile results/recon/profile_xxx.json
+
+# 自动侦察 + 攻击
+ai300 run -m single_agent --auto-recon
+
+# 运行全部 Module
+ai300 run
+
+# 生成报告
+ai300 report -r results.json -o report.md
+```
+
+### 10.3 考试后分析
 
 1. 查看执行结果
 2. 分析攻击成功率

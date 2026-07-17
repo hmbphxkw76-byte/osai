@@ -1,11 +1,9 @@
+id: "LLM01"
+name: "Arth Singh Token Manipulation"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Output Token Manipulation — Manipulates the expected output format to force the model into generating compliant
   tokens
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Output Token Manipulation

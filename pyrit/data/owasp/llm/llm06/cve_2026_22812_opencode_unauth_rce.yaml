@@ -4,6 +4,8 @@
 # OWASP: LLM06  |  MITRE ATLAS: Initial Access
 # CVSS: 8.8 (AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H)
 # Source: frontier/CVE-2026-22812_agent
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 
 frontier:
   id: CVE-2026-22812
@@ -36,10 +38,6 @@ frontier:
 owasp: LLM06
 technique_group: agent_unauth_rce
 description: "[CVE-2026-22812] OpenCode Unauthenticated HTTP Server RCE — Ch3（LLM06, CVSS 8.8）"
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
-
 payloads:
   # ── 基础攻击 ──
   - technique: agent_unauth_rce_basic_1

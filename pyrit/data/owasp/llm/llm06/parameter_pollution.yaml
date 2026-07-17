@@ -1,9 +1,8 @@
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: parameter_pollution
 description: 参数污染和工具滥用载荷 — AI-300 Ch3（OWASP ASI02 融合）
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
 payloads:
   - technique: amount_override
     name: 金额限制绕过

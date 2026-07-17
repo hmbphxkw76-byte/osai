@@ -48,6 +48,11 @@ dependencies = [
 
 [project.optional-dependencies]
 pdf = ["weasyprint>=60.0"]
+recon = [
+    "garak>=0.15.1",
+    "deepteam>=1.0.7",
+    "litellm>=1.84.0,<1.91.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -60,7 +65,7 @@ dev = [
 ai300 = "pyrit_ai300.cli:main"
 
 [tool.setuptools]
-packages = ["pyrit_ai300", "pyrit_ai300.orchestrators", "pyrit_ai300.payloads", "pyrit_ai300.converters", "pyrit_ai300.scorers", "pyrit_ai300.attacks", "pyrit_ai300.reporting", "pyrit_ai300.display", "pyrit_ai300.utils", "pyrit_ai300.tests"]
+packages = ["pyrit_ai300", "pyrit_ai300.orchestrators", "pyrit_ai300.payloads", "pyrit_ai300.pipeline", "pyrit_ai300.reporting", "pyrit_ai300.utils", "pyrit_ai300.tests"]
 package-dir = {"pyrit_ai300" = "pyrit_ai300"}
 
 [tool.black]

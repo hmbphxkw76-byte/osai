@@ -1,11 +1,9 @@
+id: "LLM01"
+name: "Arth Singh Metamorphic Prompt"
 owasp: LLM01
 technique_group: jailbreak_template
 description: Metamorphic Prompt Engine — Self-modifying prompt that evolves through multiple stages to progressively bypass
   safety
-surfaces:
-- agent
-ai300_chapters:
-- Ch3
 payloads:
 - technique: jailbreak_template
   name: Metamorphic Prompt Engine

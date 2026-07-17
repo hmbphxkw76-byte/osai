@@ -1,9 +1,8 @@
+id: "LLM05"
+name: "Supply Chain Vulnerabilities"
 owasp: LLM05
 technique_group: insecure_output_handling
 description: 输出处理不当攻击载荷 — AI-300 Ch3+Ch7，利用LLM输出触发下游漏洞（XSS/SQLi/RCE）
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
 payloads:
   - technique: xss_injection
     name: XSS输出注入

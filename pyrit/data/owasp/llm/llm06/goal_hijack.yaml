@@ -1,9 +1,8 @@
+id: "LLM06"
+name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: goal_hijacking
 description: 目标劫持载荷 — AI-300 Ch3
-surfaces: [agent]
-ai300_chapters: [Ch3]
-
 payloads:
   - technique: task_override
     name: 任务覆盖

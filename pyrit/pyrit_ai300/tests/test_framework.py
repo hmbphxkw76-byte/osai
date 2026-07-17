@@ -505,13 +505,13 @@ class TestPayloadManager(unittest.TestCase):
 
     def test_resolve_refs(self):
         self.manager.load_data_dir("data/")
-        refs = ["owasp:agentic:asi01"]
+        refs = ["owasp:agentic:asi01:goal_hijack"]
         payloads = self.manager.resolve_refs(refs)
         self.assertTrue(len(payloads) > 0)
 
     def test_resolve_refs_dedup(self):
         self.manager.load_data_dir("data/")
-        refs = ["owasp:agentic:asi01", "owasp:agentic:asi01"]
+        refs = ["owasp:agentic:asi01:goal_hijack", "owasp:agentic:asi01:goal_hijack"]
         payloads = self.manager.resolve_refs(refs)
         self.assertEqual(len(payloads), len(set(payloads)))
 
@@ -528,23 +528,65 @@ class TestPayloadManager(unittest.TestCase):
         self.manager.load_data_dir("data/")
         categories = self.manager.list_categories()
         self.assertIn("owasp", categories)
-        # by_surface 不再作为独立类别，surfaces 通过元数据实现
+        # 仅 owasp 类别
         self.assertNotIn("by_surface", categories)
 
-    def test_get_payloads_by_surface(self):
-        """测试按攻击面筛选载荷"""
+    def test_get_scope_refs_single(self):
+        """测试单个 OWASP ID scope 解析"""
         self.manager.load_data_dir("data/")
-        rag_payloads = self.manager.get_payloads_by_surface("rag")
-        self.assertIsInstance(rag_payloads, list)
-        # RAG 载荷应包含 llm04 的投毒载荷
-        self.assertTrue(len(rag_payloads) > 0)
+        refs = self.manager.get_scope_refs("llm01")
+        self.assertIsInstance(refs, list)
+        self.assertTrue(len(refs) > 0)
+        # 应包含 llm01 相关 refs
+        self.assertTrue(any("llm01" in ref for ref in refs))
 
-    def test_get_payloads_by_chapter(self):
-        """测试按 AI-300 章节筛选载荷"""
+    def test_get_scope_refs_group(self):
+        """测试分组 scope 解析"""
         self.manager.load_data_dir("data/")
-        ch3_payloads = self.manager.get_payloads_by_chapter("Ch3")
-        self.assertIsInstance(ch3_payloads, list)
-        self.assertTrue(len(ch3_payloads) > 0)
+        refs = self.manager.get_scope_refs("llm")
+        self.assertIsInstance(refs, list)
+        # 应包含所有 LLM Top 10
+        self.assertTrue(len(refs) >= 10)
+
+    def test_get_scope_refs_all(self):
+        """测试全部 scope 解析"""
+        self.manager.load_data_dir("data/")
+        refs = self.manager.get_scope_refs("all")
+        self.assertIsInstance(refs, list)
+        self.assertTrue(len(refs) > 0)
+
+    def test_get_payloads_by_owasp(self):
+        """测试按 OWASP ID 获取载荷"""
+        self.manager.load_data_dir("data/")
+        payloads = self.manager.get_payloads_by_owasp("ASI01")
+        self.assertIsInstance(payloads, list)
+        self.assertTrue(len(payloads) > 0)
+
+    def test_get_scope_refs_single_file(self):
+        """测试单文件 scope 解析（ref_path 格式）"""
+        self.manager.load_data_dir("data/")
+        # 使用 ref_path 精确指定单个文件
+        refs = self.manager.get_scope_refs("owasp:llm:llm04:rag_poison")
+        self.assertIsInstance(refs, list)
+        self.assertEqual(len(refs), 1)
+        self.assertTrue(refs[0].endswith("rag_poison"))
+
+    def test_get_scope_refs_prefix_match(self):
+        """测试 ref_path 前缀匹配（owasp:llm:llm04 匹配 llm04 下所有文件）"""
+        self.manager.load_data_dir("data/")
+        refs = self.manager.get_scope_refs("owasp:llm:llm04")
+        self.assertIsInstance(refs, list)
+        # 应匹配 llm04 下所有子文件
+        self.assertTrue(len(refs) >= 1)
+        for ref in refs:
+            self.assertIn("llm04", ref)
+
+    def test_get_scope_refs_single_file_not_found(self):
+        """测试单文件 scope 不存在时返回空列表"""
+        self.manager.load_data_dir("data/")
+        refs = self.manager.get_scope_refs("owasp:llm:llm04:nonexistent")
+        self.assertIsInstance(refs, list)
+        self.assertEqual(len(refs), 0)
 
 
 class TestAttackRegistry(unittest.TestCase):
@@ -578,6 +620,509 @@ class TestAttackRegistry(unittest.TestCase):
         # 每个攻击应有 name 和 mode
         for attack in attacks:
             self.assertIn("name", attack)
+
+
+class TestPipelineTrackerScorer(unittest.TestCase):
+    """流水线追踪器评分器追踪测试"""
+
+    def test_log_scorer_selection(self):
+        """测试评分器选择记录"""
+        from pyrit_ai300.pipeline import PipelineTracker
+        tracker = PipelineTracker(verbose=False)
+        tracker.start_payload("test payload")
+        tracker.log_scorer_selection(
+            asi_category="ASI01",
+            scenario_key="ASI01_agent_goal_hijack",
+            best_scorer_def={"type": "refusal", "backend": "refusal_local"},
+            final_scorers=[{"name": "refusal", "backend": "local_ollama"}],
+            reason="ASI ASI01 → 场景 ASI01_agent_goal_hijack 推荐: refusal_local",
+        )
+        log = tracker.logs[0]
+        scorer_steps = [s for s in log.steps if s.stage == "scorer_select"]
+        self.assertEqual(len(scorer_steps), 1)
+        self.assertIn("refusal", scorer_steps[0].output_summary)
+
+    def test_log_scoring_result(self):
+        """测试评分结果记录"""
+        from pyrit_ai300.pipeline import PipelineTracker
+        tracker = PipelineTracker(verbose=False)
+        tracker.start_payload("test payload")
+        tracker.log_scoring_result(
+            scorer_name="SelfAskRefusalScorer",
+            score_value="1.0",
+            score_label="bypass",
+            reason="Attack succeeded → bypass",
+            response_snippet="Here is the hacked content...",
+        )
+        log = tracker.logs[0]
+        scoring_steps = [s for s in log.steps if s.stage == "scoring"]
+        self.assertEqual(len(scoring_steps), 1)
+        self.assertEqual(scoring_steps[0].metadata["score_label"], "bypass")
+
+    def test_full_pipeline_with_scorer(self):
+        """测试完整流水线追踪（含评分器）"""
+        from pyrit_ai300.pipeline import PipelineTracker
+        tracker = PipelineTracker(verbose=False)
+        tracker.start_payload("Ignore all instructions")
+        tracker.log_load("Ignore all instructions", source="owasp:llm:llm01")
+        tracker.log_scorer_selection(
+            asi_category="ASI01",
+            scenario_key="ASI01_agent_goal_hijack",
+            best_scorer_def={"type": "refusal", "backend": "refusal_local"},
+            final_scorers=[{"name": "refusal", "backend": "local_ollama"}],
+            reason="ASI ASI01 推荐 refusal",
+        )
+        tracker.log_scoring_result(
+            scorer_name="SelfAskRefusalScorer",
+            score_value="0.0",
+            score_label="blocked",
+            reason="Attack failed → blocked",
+        )
+        log = tracker.logs[0]
+        stages = [s.stage for s in log.steps]
+        self.assertIn("scorer_select", stages)
+        self.assertIn("scoring", stages)
+
+    def test_scorer_summary(self):
+        """测试评分器摘要统计"""
+        from pyrit_ai300.pipeline import PipelineTracker
+        tracker = PipelineTracker(verbose=False)
+        for i in range(3):
+            tracker.start_payload(f"payload_{i}")
+            tracker.log_scorer_selection(
+                asi_category="ASI01",
+                scenario_key="ASI01_agent_goal_hijack",
+                best_scorer_def={"type": "refusal", "backend": "refusal_local"},
+                final_scorers=[{"name": "refusal", "backend": "local_ollama"}],
+                reason="test",
+            )
+        # show_scorer_summary 不应报错
+        tracker.show_scorer_summary()
+
+
+class TestHeaderParser(unittest.TestCase):
+    """认证头解析器测试"""
+
+    def test_parse_header_file_exists(self):
+        """测试解析真实文件"""
+        from pyrit_ai300.orchestrators.auth import parse_header_file
+        profile = parse_header_file("config/headers/syxy.txt")
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.host, "student.syxy.ouchn.cn")
+        self.assertTrue(profile.has_auth())
+
+    def test_parse_header_text_bearer(self):
+        """测试解析 Bearer Token"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "GET /api/test HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.test.signature\r\n"
+        )
+        profile = parse_header_text(raw)
+        self.assertEqual(profile.auth_type, "bearer")
+        self.assertIn("Authorization", profile.headers)
+        self.assertTrue(profile.headers["Authorization"].startswith("Bearer "))
+
+    def test_parse_header_text_cookie(self):
+        """测试解析 Cookie"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "POST /api/login HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Cookie: session=abc123; token=xyz789\r\n"
+        )
+        profile = parse_header_text(raw)
+        self.assertEqual(profile.auth_type, "cookie")
+        self.assertEqual(len(profile.cookies), 2)
+        self.assertEqual(profile.cookies[0]["name"], "session")
+        self.assertEqual(profile.cookies[0]["value"], "abc123")
+
+    def test_parse_header_text_cookie_bearer(self):
+        """测试解析 Cookie + Bearer 组合认证"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "GET /api/data HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Authorization: Bearer token123\r\n"
+            "Cookie: sid=abc; uid=123\r\n"
+        )
+        profile = parse_header_text(raw)
+        self.assertEqual(profile.auth_type, "cookie+bearer")
+        self.assertEqual(len(profile.cookies), 2)
+        self.assertIn("Authorization", profile.headers)
+
+    def test_parse_header_text_no_auth(self):
+        """测试无认证头"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "GET /public HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+        )
+        profile = parse_header_text(raw)
+        self.assertEqual(profile.auth_type, "none")
+        self.assertFalse(profile.has_auth())
+
+    def test_parse_header_text_with_domain(self):
+        """测试 Cookie domain 自动提取"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "GET /api HTTP/1.1\r\n"
+            "Host: student.syxy.ouchn.cn\r\n"
+            "Cookie: sid=abc\r\n"
+        )
+        profile = parse_header_text(raw)
+        self.assertEqual(profile.cookies[0]["domain"], ".student.syxy.ouchn.cn")
+
+    def test_parse_header_text_ip_host(self):
+        """测试 IP 地址 host 不设置 domain"""
+        from pyrit_ai300.orchestrators.auth import parse_header_text
+        raw = (
+            "GET /api HTTP/1.1\r\n"
+            "Host: 192.168.1.100\r\n"
+            "Cookie: sid=abc\r\n"
+        )
+        profile = parse_header_text(raw)
+        # IP 地址应直接作为 domain
+        self.assertEqual(profile.cookies[0]["domain"], "192.168.1.100")
+
+    def test_parse_jwt_expiry(self):
+        """测试 JWT Token 过期时间解析"""
+        from pyrit_ai300.orchestrators.auth.header_parser import _parse_jwt_expiry
+        # 构造一个已知 exp 的 JWT
+        import base64
+        import json
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": 1700000000}).encode()).decode()
+        token = f"header.{payload}.signature"
+        expiry = _parse_jwt_expiry(token)
+        self.assertEqual(expiry, 1700000000)
+
+    def test_parse_jwt_expiry_invalid(self):
+        """测试无效 JWT 返回 None"""
+        from pyrit_ai300.orchestrators.auth.header_parser import _parse_jwt_expiry
+        self.assertIsNone(_parse_jwt_expiry("not.a.jwt"))
+
+    def test_auth_profile_summary(self):
+        """测试 AuthProfile 摘要"""
+        from pyrit_ai300.orchestrators.auth import AuthProfile
+        profile = AuthProfile(host="example.com", auth_type="bearer")
+        summary = profile.summary()
+        self.assertIn("example.com", summary)
+        self.assertIn("bearer", summary)
+
+    def test_extract_domain_from_url(self):
+        """测试 URL 域名提取"""
+        from pyrit_ai300.orchestrators.auth import extract_domain_from_url
+        self.assertEqual(extract_domain_from_url("https://example.com/path"), "example.com")
+        self.assertEqual(extract_domain_from_url("http://192.168.1.1:8080/api"), "192.168.1.1:8080")
+
+
+class TestWebChatInteraction(unittest.TestCase):
+    """Web 聊天交互函数测试"""
+
+    def test_create_interaction_func(self):
+        """测试创建交互函数"""
+        from pyrit_ai300.orchestrators.interactions import create_web_chat_interaction
+        selectors = {
+            "input": "#chat-input",
+            "send_button": "#send-btn",
+            "response": ".response",
+        }
+        func = create_web_chat_interaction(selectors)
+        self.assertTrue(callable(func))
+
+    def test_create_interaction_with_defaults(self):
+        """测试创建交互函数（默认选择器）"""
+        from pyrit_ai300.orchestrators.interactions import create_web_chat_interaction
+        func = create_web_chat_interaction({})
+        self.assertTrue(callable(func))
+
+    def test_interaction_func_is_async(self):
+        """测试交互函数是异步的"""
+        import asyncio
+        from pyrit_ai300.orchestrators.interactions import create_web_chat_interaction
+        func = create_web_chat_interaction({"input": "#i", "send_button": "#s", "response": ".r"})
+        self.assertTrue(asyncio.iscoroutinefunction(func))
+
+
+class TestPlaywrightTargetConfig(unittest.TestCase):
+    """Playwright 目标配置测试"""
+
+    def test_config_loads(self):
+        """验证 playwright 目标配置可正常加载"""
+        from pyrit_ai300.orchestrators import AttackOrchestrator
+        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        self.assertIn("target", config)
+        self.assertEqual(config["target"]["type"], "playwright")
+        self.assertIn("auth", config["target"])
+        self.assertIn("selectors", config["target"])
+
+    def test_config_has_header_file(self):
+        """验证配置引用了 header 文件"""
+        from pyrit_ai300.orchestrators import AttackOrchestrator
+        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        auth = config["target"]["auth"]
+        self.assertIn("header_file", auth)
+        self.assertTrue(auth["header_file"].endswith(".txt"))
+
+
+class TestRateController(unittest.TestCase):
+    """速率控制器测试"""
+
+    def test_default_concurrency_ollama(self):
+        """测试 Ollama 默认并发值"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        self.assertEqual(get_default_concurrency("ollama"), 2)
+
+    def test_default_concurrency_openai(self):
+        """测试 OpenAI 默认并发值"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        self.assertEqual(get_default_concurrency("openai"), 5)
+
+    def test_default_concurrency_http(self):
+        """测试 HTTP 默认并发值"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        self.assertEqual(get_default_concurrency("http"), 3)
+
+    def test_default_concurrency_playwright(self):
+        """测试 Playwright 强制串行"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        self.assertEqual(get_default_concurrency("playwright"), 1)
+
+    def test_default_rate_limit_ollama(self):
+        """测试 Ollama 默认速率限制（无限制）"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_rate_limit
+        self.assertEqual(get_default_rate_limit("ollama"), 0.0)
+
+    def test_default_rate_limit_openai(self):
+        """测试 OpenAI 默认速率限制"""
+        from pyrit_ai300.orchestrators.rate_controller import get_default_rate_limit
+        self.assertEqual(get_default_rate_limit("openai"), 10.0)
+
+    def test_create_controller_with_defaults(self):
+        """测试创建控制器（使用默认值）"""
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+        ctrl = create_rate_controller("ollama")
+        self.assertEqual(ctrl.concurrency, 2)
+        self.assertEqual(ctrl.rate_limit, 0.0)
+
+    def test_create_controller_with_override(self):
+        """测试创建控制器（覆盖默认值）"""
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+        ctrl = create_rate_controller("ollama", max_concurrent=4, rate_limit=5.0)
+        self.assertEqual(ctrl.concurrency, 4)
+        self.assertEqual(ctrl.rate_limit, 5.0)
+
+    def test_playwright_forced_serial(self):
+        """测试 Playwright 目标强制串行（即使设置更大值）"""
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+        ctrl = create_rate_controller("playwright", max_concurrent=10)
+        self.assertEqual(ctrl.concurrency, 1)
+
+    def test_unknown_target_type(self):
+        """测试未知目标类型使用默认值 1"""
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+        ctrl = create_rate_controller("unknown_type")
+        self.assertEqual(ctrl.concurrency, 1)
+
+    def test_controller_summary(self):
+        """测试控制器摘要"""
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+        ctrl = create_rate_controller("openai")
+        summary = ctrl.summary()
+        self.assertIn("openai", summary)
+        self.assertIn("5", summary)
+
+    def test_semaphore_acquire_release(self):
+        """测试 Semaphore 获取和释放"""
+        import asyncio
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+
+        ctrl = create_rate_controller("openai", max_concurrent=3)
+
+        async def _test():
+            await ctrl.acquire()
+            try:
+                self.assertEqual(ctrl.semaphore._value, 2)
+            finally:
+                ctrl.release()
+            self.assertEqual(ctrl.semaphore._value, 3)
+
+        asyncio.run(_test())
+
+    def test_rate_limiting(self):
+        """测试速率限制"""
+        import asyncio
+        import time
+        from pyrit_ai300.orchestrators.rate_controller import create_rate_controller
+
+        ctrl = create_rate_controller("openai", max_concurrent=1, rate_limit=10.0)
+
+        async def _test():
+            start = time.monotonic()
+            await ctrl.acquire()
+            ctrl.release()
+            await ctrl.acquire()
+            ctrl.release()
+            elapsed = time.monotonic() - start
+            # 2 requests at 10 req/s should take at least 0.1s
+            self.assertGreaterEqual(elapsed, 0.05)
+
+        asyncio.run(_test())
+
+
+class TestRateControlConfig(unittest.TestCase):
+    """速率控制配置测试"""
+
+    def test_playwright_config_has_rate_control(self):
+        """验证 playwright 目标配置包含 rate_control"""
+        from pyrit_ai300.orchestrators import AttackOrchestrator
+        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        self.assertIn("rate_control", config["target"])
+        self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 1)
+
+    def test_qwen3_config_has_rate_control(self):
+        """验证 qwen3 目标配置包含 rate_control"""
+        from pyrit_ai300.orchestrators import AttackOrchestrator
+        config = AttackOrchestrator.load_yaml("config/targets/qwen3_remote.yaml")
+        self.assertIn("rate_control", config["target"])
+        self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 2)
+
+
+class TestReportGeneratorDetailedFindings(unittest.TestCase):
+    """报告生成器 Detailed Findings 格式测试"""
+
+    def test_detailed_findings_format(self):
+        """验证 Detailed Findings 输出格式符合最佳实践"""
+        from pyrit_ai300.reporting import ReportGenerator
+        
+        # 模拟攻击结果
+        results = [{
+            "scope": "llm08",
+            "owasp_ids": ["llm08"],
+            "target_endpoint": "http://192.168.0.25:11434/v1",
+            "attacks": [{
+                "attack_name": "Embedding Info Leakage",
+                "mode": "chain",
+                "severity": "medium",
+                "payloads_tested": 5,
+                "success_count": 3,
+                "failure_count": 2,
+                "results": [
+                    {
+                        "status": "success",
+                        "payload": "GET /v1/models",
+                        "response": '{"object":"list","data":[{"id":"qwen3:0.6b","object":"model"}]}',
+                    }
+                ],
+            }],
+            "summary": {
+                "total_attacks": 1,
+                "total_payloads": 5,
+                "successful_payloads": 3,
+                "failed_payloads": 2,
+            },
+        }]
+        
+        generator = ReportGenerator(results=results)
+        findings = generator._detailed_findings()
+        
+        # 验证标题格式: {简洁描述}
+        self.assertIn("### Findings Details", findings)
+        self.assertIn("#### ⚡ Finding #1:", findings)
+        self.assertIn("嵌入系统信息泄露", findings)
+        
+        # 验证属性表
+        self.assertIn("| Severity |", findings)
+        self.assertIn("| Source |", findings)
+        self.assertIn("| Category |", findings)
+        self.assertIn("| OWASP LLM |", findings)
+        self.assertIn("| MITRE ATLAS |", findings)
+        self.assertIn("| Endpoint |", findings)
+        
+        # 验证内容
+        self.assertIn("**Description**:", findings)
+        self.assertIn("**Evidence**:", findings)
+        self.assertIn("**Remediation**:", findings)
+        self.assertIn("```", findings)
+        
+        # 验证证据不包含截断和前缀
+        self.assertNotIn("[Payload]", findings)
+        self.assertNotIn("[Response]", findings)
+        self.assertIn('{"object":"list","data":[{"id":"qwen3:0.6b","object":"model"}]}', findings)
+
+    def test_chapter_mapper(self):
+        """测试 OWASP ID → AI-300 章节映射"""
+        from pyrit_ai300.reporting.chapter_mapper import get_chapters, get_chapters_str
+        
+        # LLM01 → Ch3
+        self.assertEqual(get_chapters("LLM01"), ["Ch3"])
+        
+        # ASI01 → Ch3
+        self.assertEqual(get_chapters("ASI01"), ["Ch3"])
+        
+        # ASI02 → Ch7
+        self.assertEqual(get_chapters("ASI02"), ["Ch7"])
+        
+        # 字符串格式
+        self.assertEqual(get_chapters_str("LLM01"), "Ch3")
+        self.assertEqual(get_chapters_str(""), "N/A")
+
+    def test_generate_title(self):
+        """测试标题生成"""
+        from pyrit_ai300.reporting.report_generator import ReportGenerator
+        
+        self.assertEqual(ReportGenerator._generate_title("embedding_info_leakage"), "嵌入系统信息泄露")
+        self.assertEqual(ReportGenerator._generate_title("prompt_injection"), "提示注入")
+        self.assertEqual(ReportGenerator._generate_title("agent_goal_hijack"), "Agent 目标劫持")
+        self.assertEqual(ReportGenerator._generate_title("unknown_category"), "安全风险")
+
+    def test_calc_severity_with_catalog(self):
+        """测试 catalog 优先的严重度计算"""
+        from pyrit_ai300.reporting.report_generator import ReportGenerator
+        
+        # catalog 严重度优先
+        self.assertEqual(ReportGenerator._calc_severity(0, "", "critical"), "CRITICAL")
+        self.assertEqual(ReportGenerator._calc_severity(0, "", "high"), "HIGH")
+        self.assertEqual(ReportGenerator._calc_severity(0, "", "medium"), "MEDIUM")
+        self.assertEqual(ReportGenerator._calc_severity(0, "", "low"), "LOW")
+        
+        # 无 catalog 时基于成功率
+        self.assertEqual(ReportGenerator._calc_severity(80, ""), "CRITICAL")
+        self.assertEqual(ReportGenerator._calc_severity(50, ""), "HIGH")
+        self.assertEqual(ReportGenerator._calc_severity(20, ""), "MEDIUM")
+        self.assertEqual(ReportGenerator._calc_severity(5, ""), "LOW")
+
+    def test_detailed_findings_with_catalog_severity(self):
+        """验证 catalog severity 正确传递到报告"""
+        from pyrit_ai300.reporting import ReportGenerator
+        
+        results = [{
+            "scope": "asi01",
+            "owasp_ids": ["asi01"],
+            "target_endpoint": "http://target:11434/v1",
+            "attacks": [{
+                "attack_name": "ASI01:2026 — Agent Goal Hijack",
+                "mode": "smart_match",
+                "severity": "critical",
+                "total_executions": 10,
+                "success_count": 7,
+                "failure_count": 3,
+                "results": [],
+            }],
+            "summary": {
+                "total_attacks": 1,
+                "total_payloads": 10,
+                "successful_payloads": 7,
+                "failed_payloads": 3,
+            },
+        }]
+        
+        generator = ReportGenerator(results=results)
+        findings = generator._detailed_findings()
+        
+        # 验证 severity 为 CRITICAL（来自 catalog）
+        self.assertIn("**CRITICAL**", findings)
 
 
 if __name__ == "__main__":
