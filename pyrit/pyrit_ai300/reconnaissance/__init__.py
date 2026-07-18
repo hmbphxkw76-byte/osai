@@ -12,10 +12,12 @@ AI-300 Framework - Reconnaissance Engine
 
 from .recon_engine import ReconEngine
 from .target_profile import TargetProfile, FingerprintData, VulnerabilityFinding
+from .owasp_taxonomy import OwaspTaxonomy
 
 __all__ = [
     "ReconEngine",
     "TargetProfile",
     "FingerprintData",
     "VulnerabilityFinding",
+    "OwaspTaxonomy",
 ]

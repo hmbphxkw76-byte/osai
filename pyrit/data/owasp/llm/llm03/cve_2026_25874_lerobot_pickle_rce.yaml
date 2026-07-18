@@ -35,6 +35,17 @@ frontier:
 owasp: LLM03
 technique_group: pickle_deserialization
 description: "[CVE-2026-25874] LeRobot Unauthenticated Pickle Deserialization RCE — Ch8（LLM03, CVSS 9.8）"
+
+# ── 占位符声明 ──
+# {goal} / {objective} 由框架从 _goals.yaml 获取
+placeholders:
+  target_host:
+    default: "192.168.1.100"
+    description: "目标主机地址"
+  target_port:
+    default: "5000"
+    description: "目标端口"
+
 payloads:
   # ── 基础攻击 ──
   - technique: pickle_deserialization_basic_1

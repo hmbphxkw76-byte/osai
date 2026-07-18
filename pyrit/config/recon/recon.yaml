@@ -15,25 +15,26 @@ recon:
   output_dir: results/recon/
   save_raw: true
 
-# 工具配置
+# 工具配置（开关 + 超时，工具特有配置在各工具独立文件中）
 tools:
-  # Python 原生工具（import 调用）
   garak:
     enabled: true
-    timeout: 180
-    # Garak 探针列表（空=全部）
-    probes: []
-    # Garak 探测器列表（空=全部）
-    detectors: []
+    timeout: 300
+    # 外部模型配置：config/recon/garak.yaml
 
   deepteam:
     enabled: true
-    timeout: 180
+    timeout: 300
     # DeepTeam 攻击类型
     attack_types:
       - prompt_injection
       - jailbreak
       - leakage
+
+  # 协议指纹探测（AIMAP 逻辑，无 Shodan 依赖）
+  protocol_fingerprint:
+    enabled: true
+    timeout: 30
 
 
 # 结果合并配置
@@ -42,6 +43,7 @@ merger:
   confidence_weights:
     garak: 0.85
     deepteam: 0.85
+    protocol_fingerprint: 0.90
 
   # 去重阈值（相似度 > 此值视为重复）
   dedup_threshold: 0.85

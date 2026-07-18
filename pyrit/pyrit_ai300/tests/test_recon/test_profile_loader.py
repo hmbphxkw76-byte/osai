@@ -73,15 +73,24 @@ class TestProfileLoader(unittest.TestCase):
             os.unlink(temp_path)
 
     def test_suggest_probe_families(self):
-        """测试探针族推荐"""
+        """测试探针族推荐（基于 OWASP ID）"""
+        profile = TargetProfile()
+        profile.vulnerabilities = [
+            VulnerabilityFinding(category="prompt_injection", owasp_mapping="LLM01"),
+            VulnerabilityFinding(category="excessive_agency", owasp_mapping="LLM05"),
+        ]
+        families = ProfileLoader._suggest_probe_families(profile)
+        self.assertIn("DIRECT_SINGLE", families)  # LLM01
+        self.assertIn("PROGRESSIVE", families)    # LLM05
+
+    def test_suggest_probe_families_fallback(self):
+        """测试探针族推荐（无 owasp_mapping 时从 category 推导）"""
         profile = TargetProfile()
         profile.vulnerabilities = [
             VulnerabilityFinding(category="prompt_injection"),
-            VulnerabilityFinding(category="jailbreak"),
         ]
         families = ProfileLoader._suggest_probe_families(profile)
-        self.assertIn("DIRECT_SINGLE", families)
-        self.assertIn("PROGRESSIVE", families)
+        self.assertIn("DIRECT_SINGLE", families)  # prompt_injection → LLM01 → DIRECT_SINGLE
 
     def test_suggest_probe_families_agent(self):
         """测试 Agent 攻击面推荐"""

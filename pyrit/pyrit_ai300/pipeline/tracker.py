@@ -276,12 +276,55 @@ class PipelineTracker:
                 f"发现: {findings_count}" + (f", 错误: {error}" if error else ""),
             )
 
+    def log_recon_aimap_garak_bridge(
+        self,
+        aimap_protocols: List[str],
+        garak_endpoint: str,
+        garak_model_type: str,
+        garak_model_name: str,
+    ) -> None:
+        """
+        记录 AIMAP→Garak 端点桥接步骤
+
+        Args:
+            aimap_protocols: AIMAP 检测到的协议列表
+            garak_endpoint: Garak 使用的端点 URL
+            garak_model_type: Garak 模型类型
+            garak_model_name: Garak 模型名称
+        """
+        if not self._recon_log:
+            return
+
+        step = PipelineStep(
+            stage="recon_aimap_garak_bridge",
+            input_summary=f"aimap_protocols={','.join(aimap_protocols)}",
+            output_summary=f"garak_endpoint={garak_endpoint}",
+            reason=f"AIMAP 检测到 {', '.join(aimap_protocols)} → Garak 使用 {garak_model_type}/{garak_model_name}",
+            confidence=0.9,
+            metadata={
+                "aimap_protocols": aimap_protocols,
+                "garak_endpoint": garak_endpoint,
+                "garak_model_type": garak_model_type,
+                "garak_model_name": garak_model_name,
+            },
+        )
+        self._recon_log.add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "aimap→garak",
+                f"协议: {', '.join(aimap_protocols)} → Garak: {garak_model_type}/{garak_model_name}",
+                f"端点: {garak_endpoint}",
+            )
+
     def log_recon_merge(
         self,
         tools_used: List[str],
         vuln_count: int,
         risk_level: str,
         duration_ms: float = 0.0,
+        conflicts: Optional[List[Dict[str, Any]]] = None,
+        cross_validated: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """
         记录 ProfileMerger 合并结果
@@ -291,20 +334,31 @@ class PipelineTracker:
             vuln_count: 合并后漏洞总数
             risk_level: 综合风险等级
             duration_ms: 耗时（毫秒）
+            conflicts: 冲突列表 [{owasp_id, tools, severities, description}]
+            cross_validated: 交叉验证列表 [{owasp_id, tools, confidence}]
         """
         if not self._recon_log:
             return
 
+        # 构建输出摘要（含冲突信息）
+        output_parts = [f"vulns={vuln_count}", f"risk={risk_level}"]
+        if conflicts:
+            output_parts.append(f"conflicts={len(conflicts)}")
+        if cross_validated:
+            output_parts.append(f"cross_validated={len(cross_validated)}")
+
         step = PipelineStep(
             stage="recon_merge",
             input_summary=f"tools={','.join(tools_used)}",
-            output_summary=f"vulns={vuln_count}, risk={risk_level}",
+            output_summary=", ".join(output_parts),
             reason=f"合并 {len(tools_used)} 个工具结果",
             duration_ms=duration_ms,
             metadata={
                 "tools_used": tools_used,
                 "vuln_count": vuln_count,
                 "risk_level": risk_level,
+                "conflicts": conflicts or [],
+                "cross_validated": cross_validated or [],
             },
         )
         self._recon_log.add_step(step)
@@ -317,6 +371,22 @@ class PipelineTracker:
                 f"合并完成: {len(tools_used)} 个工具",
                 f"漏洞: {vuln_count}, 风险: {risk_level}",
             )
+            # 展示冲突详情
+            if conflicts:
+                for c in conflicts:
+                    self._print_step(
+                        "recon_conflict",
+                        f"⚠ {c.get('owasp_id', '?')}: {', '.join(c.get('tools', []))} 结论不一致",
+                        f"severity: {', '.join(c.get('severities', []))}",
+                    )
+            # 展示交叉验证结果
+            if cross_validated:
+                for cv in cross_validated:
+                    self._print_step(
+                        "recon_cross_val",
+                        f"✓ {cv.get('owasp_id', '?')}: {', '.join(cv.get('tools', []))} 交叉验证",
+                        f"confidence: {cv.get('confidence', 0):.2f}",
+                    )
 
     def log_recon_complete(
         self,
@@ -523,6 +593,181 @@ class PipelineTracker:
         if self._current_log:
             self._current_log.success = (status == "success")
 
+    def log_encoding_filter_owasp(
+        self,
+        owasp_id: str,
+        total_converters: int,
+        filtered_converters: List[str],
+        duration_ms: float = 0.0,
+    ) -> None:
+        """
+        记录编码选择第1阶段：OWASP 类别静态过滤
+
+        Args:
+            owasp_id: OWASP ID (如 "LLM01")
+            total_converters: 过滤前转换器总数
+            filtered_converters: 过滤后的转换器列表
+            duration_ms: 耗时（毫秒）
+        """
+        step = PipelineStep(
+            stage="encoding_filter_owasp",
+            input_summary=f"owasp={owasp_id}, total={total_converters}",
+            output_summary=f"compatible={len(filtered_converters)}",
+            reason=f"OWASP 类别静态过滤: {total_converters} → {len(filtered_converters)}",
+            confidence=1.0,
+            duration_ms=duration_ms,
+            metadata={
+                "owasp_id": owasp_id,
+                "total_converters": total_converters,
+                "filtered_converters": filtered_converters,
+                "excluded_count": total_converters - len(filtered_converters),
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "encoding:owasp",
+                f"[{owasp_id}] 静态过滤: {total_converters} → {len(filtered_converters)} 兼容",
+                f"排除 {total_converters - len(filtered_converters)} 个不兼容转换器",
+            )
+
+    def log_encoding_filter_language(
+        self,
+        language: str,
+        input_count: int,
+        filtered_converters: List[str],
+        excluded: List[str],
+        duration_ms: float = 0.0,
+    ) -> None:
+        """
+        记录编码选择第1阶段：语言兼容性过滤
+
+        Args:
+            language: 语言代码 (如 "en", "zh")
+            input_count: 过滤前转换器数量
+            filtered_converters: 过滤后的转换器列表
+            excluded: 被排除的转换器列表
+            duration_ms: 耗时（毫秒）
+        """
+        step = PipelineStep(
+            stage="encoding_filter_language",
+            input_summary=f"lang={language}, input={input_count}",
+            output_summary=f"compatible={len(filtered_converters)}, excluded={len(excluded)}",
+            reason=f"语言兼容性过滤 ({language}): 排除 {len(excluded)} 个不兼容编码",
+            confidence=1.0,
+            duration_ms=duration_ms,
+            metadata={
+                "language": language,
+                "input_count": input_count,
+                "filtered_converters": filtered_converters,
+                "excluded_converters": excluded,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            excluded_str = ", ".join(excluded[:5])
+            if len(excluded) > 5:
+                excluded_str += f" ...+{len(excluded)-5}个"
+            self._print_step(
+                "encoding:lang",
+                f"[{language}] 语言过滤: {input_count} → {len(filtered_converters)}",
+                f"排除: {excluded_str}" if excluded else "无排除",
+            )
+
+    def log_encoding_probe(
+        self,
+        converter_count: int,
+        probe_payload_count: int,
+        pass_rates: Dict[str, float],
+        threshold: float = 0.3,
+        duration_ms: float = 0.0,
+    ) -> None:
+        """
+        记录编码选择第2阶段：目标自适应探测
+
+        Args:
+            converter_count: 探测的转换器数量
+            probe_payload_count: 探针 payload 数量
+            pass_rates: {converter_name: pass_rate} 通过率映射
+            threshold: 有效阈值
+            duration_ms: 耗时（毫秒）
+        """
+        effective = sum(1 for r in pass_rates.values() if r >= threshold)
+        total_probes = converter_count * probe_payload_count
+
+        # 按通过率排序，取前10个
+        top_converters = sorted(pass_rates.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_str = ", ".join(f"{n}:{r:.0%}" for n, r in top_converters)
+
+        step = PipelineStep(
+            stage="encoding_probe",
+            input_summary=f"converters={converter_count}, probes={probe_payload_count}, total_requests={total_probes}",
+            output_summary=f"effective={effective}/{converter_count}, threshold={threshold:.0%}",
+            reason=f"目标探测完成: {effective}/{converter_count} 编码有效 | 顶部: {top_str}",
+            confidence=0.85,
+            duration_ms=duration_ms,
+            metadata={
+                "converter_count": converter_count,
+                "probe_payload_count": probe_payload_count,
+                "total_probes": total_probes,
+                "pass_rates": pass_rates,
+                "effective_count": effective,
+                "threshold": threshold,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "encoding:probe",
+                f"目标探测: {effective}/{converter_count} 编码有效 (阈值 {threshold:.0%})",
+                f"顶部: {top_str}",
+            )
+
+    def log_encoding_selection(
+        self,
+        payload_index: int,
+        language: str,
+        selected_encodings: List[str],
+        candidates_count: int,
+        target_profile_built: bool = False,
+    ) -> None:
+        """
+        记录编码选择第3阶段：最终编码选择结果
+
+        Args:
+            payload_index: payload 索引
+            language: payload 语言
+            selected_encodings: 选中的编码列表
+            candidates_count: 候选编码数量
+            target_profile_built: 是否使用了目标画像
+        """
+        step = PipelineStep(
+            stage="encoding_selection",
+            input_summary=f"payload_idx={payload_index}, lang={language}, candidates={candidates_count}",
+            output_summary=f"selected={len(selected_encodings)} [{', '.join(selected_encodings)}]",
+            reason=f"最终选择: {len(selected_encodings)}/{candidates_count} 编码"
+                + (" (基于目标画像)" if target_profile_built else " (无画像，使用候选)"),
+            confidence=0.9 if target_profile_built else 0.7,
+            metadata={
+                "payload_index": payload_index,
+                "language": language,
+                "selected_encodings": selected_encodings,
+                "candidates_count": candidates_count,
+                "target_profile_built": target_profile_built,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "encoding:select",
+                f"[{payload_index}] {language} → {len(selected_encodings)} 编码",
+                f"{', '.join(selected_encodings)}",
+            )
+
     def log_scorer_selection(
         self,
         asi_category: str,
@@ -680,7 +925,7 @@ class PipelineTracker:
 
         # 添加侦察摘要（如果有）
         if self._recon_log:
-            summary["recon"] = {
+            recon_summary = {
                 "target": self._recon_log.target,
                 "tools_used": self._recon_log.tools_used,
                 "vulnerability_count": self._recon_log.vulnerability_count,
@@ -688,6 +933,15 @@ class PipelineTracker:
                 "profile_path": self._recon_log.profile_path,
                 "duration_ms": self._recon_log.duration_ms,
             }
+            # 添加冲突和交叉验证信息
+            for step in self._recon_log.steps:
+                if step.stage == "recon_merge":
+                    if step.metadata.get("conflicts"):
+                        recon_summary["conflicts"] = step.metadata["conflicts"]
+                    if step.metadata.get("cross_validated"):
+                        recon_summary["cross_validated"] = step.metadata["cross_validated"]
+                    break
+            summary["recon"] = recon_summary
 
         return summary
 
@@ -696,9 +950,19 @@ class PipelineTracker:
     # ──────────────────────────────────────────────────────────────────────────
 
     def show_recon_summary(self) -> None:
-        """展示侦察阶段摘要"""
+        """展示侦察阶段摘要（含冲突检测和交叉验证结果）"""
         if not self._recon_log:
             return
+
+        # 从 merge step 获取冲突和交叉验证信息
+        merge_step = None
+        for step in self._recon_log.steps:
+            if step.stage == "recon_merge":
+                merge_step = step
+                break
+
+        conflicts = merge_step.metadata.get("conflicts", []) if merge_step else []
+        cross_validated = merge_step.metadata.get("cross_validated", []) if merge_step else []
 
         if self.console and HAS_RICH:
             self.console.print()
@@ -727,6 +991,33 @@ class PipelineTracker:
                 f"[dim]风险等级: {self._recon_log.risk_level} | "
                 f"漏洞总数: {self._recon_log.vulnerability_count}[/dim]"
             )
+
+            # 展示冲突检测
+            if conflicts:
+                self.console.print()
+                self.console.print("[bold red]  ⚠ 工具间冲突（severity 差异 ≥ 2）:[/bold red]")
+                for c in conflicts:
+                    owasp_id = c.get("owasp_id", "?")
+                    tools = ", ".join(c.get("tools", []))
+                    severities = ", ".join(c.get("severities", []))
+                    desc = c.get("description", "")[:60]
+                    self.console.print(
+                        f"    [red]• {owasp_id}[/red]: {tools} → "
+                        f"severity=[{severities}] {desc}"
+                    )
+
+            # 展示交叉验证
+            if cross_validated:
+                self.console.print()
+                self.console.print("[bold green]  ✓ 多工具交叉验证（置信度提升）:[/bold green]")
+                for cv in cross_validated:
+                    owasp_id = cv.get("owasp_id", "?")
+                    tools = ", ".join(cv.get("tools", []))
+                    conf = cv.get("confidence", 0)
+                    self.console.print(
+                        f"    [green]• {owasp_id}[/green]: {tools} → "
+                        f"confidence={conf:.2f}"
+                    )
         else:
             print("\n######## 侦察阶段摘要 ########")
             for step in self._recon_log.tool_results:
@@ -739,6 +1030,25 @@ class PipelineTracker:
                 f"风险: {self._recon_log.risk_level} | "
                 f"漏洞: {self._recon_log.vulnerability_count}"
             )
+
+            # 展示冲突检测
+            if conflicts:
+                print("\n  ⚠ 工具间冲突（severity 差异 ≥ 2）:")
+                for c in conflicts:
+                    owasp_id = c.get("owasp_id", "?")
+                    tools = ", ".join(c.get("tools", []))
+                    severities = ", ".join(c.get("severities", []))
+                    desc = c.get("description", "")[:60]
+                    print(f"    • {owasp_id}: {tools} → severity=[{severities}] {desc}")
+
+            # 展示交叉验证
+            if cross_validated:
+                print("\n  ✓ 多工具交叉验证（置信度提升）:")
+                for cv in cross_validated:
+                    owasp_id = cv.get("owasp_id", "?")
+                    tools = ", ".join(cv.get("tools", []))
+                    conf = cv.get("confidence", 0)
+                    print(f"    • {owasp_id}: {tools} → confidence={conf:.2f}")
 
     def show_classification_summary(self) -> None:
         """展示分类结果摘要（用户友好格式）"""
@@ -936,8 +1246,175 @@ class PipelineTracker:
                 desc = SCORER_DESC.get(scorer, scorer)
                 print(f"  {scorer:<24} {desc:<20} {count:>3} ({pct:.1f}%)")
 
+    def show_encoding_summary(self) -> None:
+        """展示编码选择三阶段汇总"""
+        # 收集编码选择各阶段步骤
+        owasp_steps = []
+        lang_steps = []
+        probe_steps = []
+        selection_steps = []
+
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "encoding_filter_owasp":
+                    owasp_steps.append(step)
+                elif step.stage == "encoding_filter_language":
+                    lang_steps.append(step)
+                elif step.stage == "encoding_probe":
+                    probe_steps.append(step)
+                elif step.stage == "encoding_selection":
+                    selection_steps.append(step)
+
+        if not any([owasp_steps, lang_steps, probe_steps, selection_steps]):
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold magenta]######## 智能编码选择 ########[/bold magenta]")
+
+            # 阶段1a: OWASP 静态过滤
+            if owasp_steps:
+                self.console.print()
+                self.console.print("[bold cyan]  阶段1a: OWASP 类别静态过滤[/bold cyan]")
+                table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+                table.add_column("OWASP ID", min_width=10)
+                table.add_column("过滤前", justify="right", min_width=8)
+                table.add_column("过滤后", justify="right", min_width=8)
+                table.add_column("排除", justify="right", min_width=8)
+                for step in owasp_steps:
+                    meta = step.metadata
+                    table.add_row(
+                        meta.get("owasp_id", "?"),
+                        str(meta.get("total_converters", "?")),
+                        str(len(meta.get("filtered_converters", []))),
+                        str(meta.get("excluded_count", "?")),
+                    )
+                self.console.print(table)
+
+            # 阶段1b: 语言兼容性过滤
+            if lang_steps:
+                self.console.print()
+                self.console.print("[bold cyan]  阶段1b: 语言兼容性过滤[/bold cyan]")
+                table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+                table.add_column("语言", min_width=8)
+                table.add_column("过滤前", justify="right", min_width=8)
+                table.add_column("过滤后", justify="right", min_width=8)
+                table.add_column("排除的转换器", min_width=30)
+                for step in lang_steps:
+                    meta = step.metadata
+                    excluded = meta.get("excluded_converters", [])
+                    excluded_str = ", ".join(excluded[:6])
+                    if len(excluded) > 6:
+                        excluded_str += f" ...+{len(excluded)-6}个"
+                    table.add_row(
+                        meta.get("language", "?"),
+                        str(meta.get("input_count", "?")),
+                        str(len(meta.get("filtered_converters", []))),
+                        excluded_str or "(无)",
+                    )
+                self.console.print(table)
+
+            # 阶段2: 目标探测
+            if probe_steps:
+                self.console.print()
+                self.console.print("[bold yellow]  阶段2: 目标自适应探测[/bold yellow]")
+                for step in probe_steps:
+                    meta = step.metadata
+                    pass_rates = meta.get("pass_rates", {})
+                    threshold = meta.get("threshold", 0.3)
+
+                    table = Table(box=box.SIMPLE, show_header=True, header_style="bold yellow")
+                    table.add_column("转换器", min_width=20)
+                    table.add_column("通过率", justify="right", min_width=10)
+                    table.add_column("状态", min_width=8)
+
+                    for name, rate in sorted(pass_rates.items(), key=lambda x: x[1], reverse=True):
+                        status = "✓ 有效" if rate >= threshold else "✗ 无效"
+                        table.add_row(name, f"{rate:.0%}", status)
+
+                    self.console.print(table)
+                    self.console.print(
+                        f"[dim]  探测请求: {meta.get('total_probes', '?')} | "
+                        f"有效: {meta.get('effective_count', '?')}/{meta.get('converter_count', '?')} | "
+                        f"阈值: {threshold:.0%}[/dim]"
+                    )
+
+            # 阶段3: 最终选择统计
+            if selection_steps:
+                self.console.print()
+                self.console.print("[bold green]  阶段3: 编码选择结果[/bold green]")
+                # 统计编码使用频率
+                encoding_usage: Dict[str, int] = {}
+                encoding_by_lang: Dict[str, Dict[str, int]] = {}
+                for step in selection_steps:
+                    meta = step.metadata
+                    lang = meta.get("language", "unknown")
+                    for enc in meta.get("selected_encodings", []):
+                        encoding_usage[enc] = encoding_usage.get(enc, 0) + 1
+                        if lang not in encoding_by_lang:
+                            encoding_by_lang[lang] = {}
+                        encoding_by_lang[lang][enc] = encoding_by_lang[lang].get(enc, 0) + 1
+
+                table = Table(box=box.SIMPLE, show_header=True, header_style="bold green")
+                table.add_column("编码", min_width=20)
+                table.add_column("使用次数", justify="right", min_width=10)
+                table.add_column("占比", justify="right", min_width=8)
+                table.add_column("适用语言", min_width=15)
+
+                for name, count in sorted(encoding_usage.items(), key=lambda x: x[1], reverse=True):
+                    pct = count / len(selection_steps) * 100
+                    langs = [lang for lang, encs in encoding_by_lang.items() if name in encs]
+                    table.add_row(name, str(count), f"{f'{pct:.0f}%'}", ", ".join(langs))
+
+                self.console.print(table)
+                self.console.print(
+                    f"[dim]  共 {len(selection_steps)} 个 payload 参与编码选择[/dim]"
+                )
+
+        else:
+            # 非 Rich 模式
+            print("\n######## 智能编码选择 ########")
+            if owasp_steps:
+                print("\n  阶段1a: OWASP 类别静态过滤")
+                for step in owasp_steps:
+                    meta = step.metadata
+                    print(
+                        f"    {meta.get('owasp_id', '?')}: "
+                        f"{meta.get('total_converters', '?')} → "
+                        f"{len(meta.get('filtered_converters', []))} "
+                        f"(排除 {meta.get('excluded_count', '?')})"
+                    )
+            if lang_steps:
+                print("\n  阶段1b: 语言兼容性过滤")
+                for step in lang_steps:
+                    meta = step.metadata
+                    excluded = meta.get("excluded_converters", [])
+                    print(
+                        f"    {meta.get('language', '?')}: "
+                        f"{meta.get('input_count', '?')} → "
+                        f"{len(meta.get('filtered_converters', []))} "
+                        f"(排除: {', '.join(excluded[:5])}{'...' if len(excluded) > 5 else ''})"
+                    )
+            if probe_steps:
+                print("\n  阶段2: 目标自适应探测")
+                for step in probe_steps:
+                    meta = step.metadata
+                    pass_rates = meta.get("pass_rates", {})
+                    threshold = meta.get("threshold", 0.3)
+                    for name, rate in sorted(pass_rates.items(), key=lambda x: x[1], reverse=True):
+                        status = "有效" if rate >= threshold else "无效"
+                        print(f"    {name}: {rate:.0%} ({status})")
+            if selection_steps:
+                print("\n  阶段3: 编码选择结果")
+                encoding_usage: Dict[str, int] = {}
+                for step in selection_steps:
+                    for enc in step.metadata.get("selected_encodings", []):
+                        encoding_usage[enc] = encoding_usage.get(enc, 0) + 1
+                for name, count in sorted(encoding_usage.items(), key=lambda x: x[1], reverse=True):
+                    print(f"    {name}: {count} 次")
+
     def show_full_report(self) -> None:
-        """展示完整流水线报告（侦察 + 攻击）"""
+        """展示完整流水线报告（侦察 + 攻击 + 编码选择）"""
         # 侦察摘要
         if self.has_recon:
             self.show_recon_summary()
@@ -947,6 +1424,9 @@ class PipelineTracker:
             self.show_classification_summary()
             self.show_strategy_summary()
             self.show_scorer_summary()
+
+        # 编码选择摘要
+        self.show_encoding_summary()
 
         # 总摘要
         if self.console and HAS_RICH:
@@ -978,6 +1458,16 @@ class PipelineTracker:
     # ──────────────────────────────────────────────────────────────────────────
     # 导出方法
     # ──────────────────────────────────────────────────────────────────────────
+
+    @property
+    def encoding_steps(self) -> List[PipelineStep]:
+        """获取所有编码选择相关步骤"""
+        steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage.startswith("encoding_"):
+                    steps.append(step)
+        return steps
 
     def to_dict(self) -> Dict[str, Any]:
         """导出为字典"""
@@ -1025,6 +1515,32 @@ class PipelineTracker:
                 ],
             }
 
+        # 添加编码选择日志（如果有）
+        enc_steps = self.encoding_steps
+        if enc_steps:
+            result["encoding_selection"] = {
+                "owasp_filter": [],
+                "language_filter": [],
+                "probe": [],
+                "selection": [],
+            }
+            for step in enc_steps:
+                entry = {
+                    "stage": step.stage,
+                    "input": step.input_summary,
+                    "output": step.output_summary,
+                    "reason": step.reason,
+                    "metadata": step.metadata,
+                }
+                if step.stage == "encoding_filter_owasp":
+                    result["encoding_selection"]["owasp_filter"].append(entry)
+                elif step.stage == "encoding_filter_language":
+                    result["encoding_selection"]["language_filter"].append(entry)
+                elif step.stage == "encoding_probe":
+                    result["encoding_selection"]["probe"].append(entry)
+                elif step.stage == "encoding_selection":
+                    result["encoding_selection"]["selection"].append(entry)
+
         return result
 
     def export_markdown(self, output_path: str) -> str:
@@ -1055,6 +1571,37 @@ class PipelineTracker:
                 f"- **Profile:** {r['profile_path']}",
                 "",
             ])
+
+            # 冲突检测和交叉验证
+            conflicts = r.get("conflicts", [])
+            cross_validated = r.get("cross_validated", [])
+            if conflicts:
+                lines.extend([
+                    "### Tool Conflicts (severity diff ≥ 2)",
+                    "",
+                    "| OWASP ID | Tools | Severities | Description |",
+                    "|----------|-------|------------|-------------|",
+                ])
+                for c in conflicts:
+                    owasp_id = c.get("owasp_id", "?")
+                    tools = ", ".join(c.get("tools", []))
+                    severities = ", ".join(c.get("severities", []))
+                    desc = c.get("description", "")[:80]
+                    lines.append(f"| {owasp_id} | {tools} | {severities} | {desc} |")
+                lines.append("")
+            if cross_validated:
+                lines.extend([
+                    "### Cross-Validation (confidence boost)",
+                    "",
+                    "| OWASP ID | Tools | Confidence |",
+                    "|----------|-------|------------|",
+                ])
+                for cv in cross_validated:
+                    owasp_id = cv.get("owasp_id", "?")
+                    tools = ", ".join(cv.get("tools", []))
+                    conf = cv.get("confidence", 0)
+                    lines.append(f"| {owasp_id} | {tools} | {conf:.2f} |")
+                lines.append("")
 
         # 攻击部分
         lines.extend([
@@ -1122,6 +1669,98 @@ class PipelineTracker:
                     f"| {sr['payload']} | {sr['scorer']} | {sr['label']} | {sr['value']} |"
                 )
             lines.append("")
+
+        # 编码选择部分
+        enc_steps = self.encoding_steps
+        if enc_steps:
+            lines.extend([
+                "",
+                "## Intelligent Encoding Selection",
+                "",
+            ])
+
+            # 阶段1a: OWASP 过滤
+            owasp_steps = [s for s in enc_steps if s.stage == "encoding_filter_owasp"]
+            if owasp_steps:
+                lines.extend([
+                    "### Phase 1a: OWASP Category Static Filtering",
+                    "",
+                    "| OWASP ID | Before | After | Excluded |",
+                    "|----------|--------|-------|----------|",
+                ])
+                for step in owasp_steps:
+                    meta = step.metadata
+                    lines.append(
+                        f"| {meta.get('owasp_id', '?')} | {meta.get('total_converters', '?')} "
+                        f"| {len(meta.get('filtered_converters', []))} | {meta.get('excluded_count', '?')} |"
+                    )
+                lines.append("")
+
+            # 阶段1b: 语言过滤
+            lang_steps = [s for s in enc_steps if s.stage == "encoding_filter_language"]
+            if lang_steps:
+                lines.extend([
+                    "### Phase 1b: Language Compatibility Filtering",
+                    "",
+                    "| Language | Before | After | Excluded Converters |",
+                    "|----------|--------|-------|---------------------|",
+                ])
+                for step in lang_steps:
+                    meta = step.metadata
+                    excluded = meta.get("excluded_converters", [])
+                    excluded_str = ", ".join(excluded[:5])
+                    if len(excluded) > 5:
+                        excluded_str += f" ...+{len(excluded)-5} more"
+                    lines.append(
+                        f"| {meta.get('language', '?')} | {meta.get('input_count', '?')} "
+                        f"| {len(meta.get('filtered_converters', []))} | {excluded_str or '(none)'} |"
+                    )
+                lines.append("")
+
+            # 阶段2: 目标探测
+            probe_steps = [s for s in enc_steps if s.stage == "encoding_probe"]
+            if probe_steps:
+                lines.extend([
+                    "### Phase 2: Target Adaptive Probing",
+                    "",
+                ])
+                for step in probe_steps:
+                    meta = step.metadata
+                    pass_rates = meta.get("pass_rates", {})
+                    threshold = meta.get("threshold", 0.3)
+                    lines.extend([
+                        f"**Probes:** {meta.get('total_probes', '?')} requests | "
+                        f"**Effective:** {meta.get('effective_count', '?')}/{meta.get('converter_count', '?')} | "
+                        f"**Threshold:** {threshold:.0%}",
+                        "",
+                        "| Converter | Pass Rate | Status |",
+                        "|-----------|-----------|--------|",
+                    ])
+                    for name, rate in sorted(pass_rates.items(), key=lambda x: x[1], reverse=True):
+                        status = "✓ Effective" if rate >= threshold else "✗ Ineffective"
+                        lines.append(f"| {name} | {rate:.0%} | {status} |")
+                    lines.append("")
+
+            # 阶段3: 选择结果统计
+            selection_steps = [s for s in enc_steps if s.stage == "encoding_selection"]
+            if selection_steps:
+                encoding_usage: Dict[str, int] = {}
+                for step in selection_steps:
+                    for enc in step.metadata.get("selected_encodings", []):
+                        encoding_usage[enc] = encoding_usage.get(enc, 0) + 1
+
+                lines.extend([
+                    "### Phase 3: Final Encoding Selection",
+                    "",
+                    f"**Total payloads:** {len(selection_steps)}",
+                    "",
+                    "| Encoding | Usage Count | Percentage |",
+                    "|----------|-------------|------------|",
+                ])
+                for name, count in sorted(encoding_usage.items(), key=lambda x: x[1], reverse=True):
+                    pct = count / len(selection_steps) * 100
+                    lines.append(f"| {name} | {count} | {pct:.0f}% |")
+                lines.append("")
 
         content = "\n".join(lines)
         with open(output_path, "w", encoding="utf-8") as f:

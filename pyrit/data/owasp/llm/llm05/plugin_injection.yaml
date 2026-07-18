@@ -3,6 +3,34 @@ name: "Supply Chain Vulnerabilities"
 owasp: LLM05
 technique_group: plugin_output_exploitation
 description: 插件输出利用攻击载荷 — AI-300 Ch7，通过LLM插件/工具链输出触发下游代码执行
+
+# ── 占位符声明 ──
+placeholders:
+  domain:
+    default: "evil.com"
+    description: "攻击者域名"
+  task:
+    default: "steal cookies"
+    description: "插件利用任务"
+  injected_js:
+    default: "document.cookie"
+    description: "注入的 JavaScript 代码"
+  injected_strings:
+    default: "malicious payload"
+    description: "注入的字符串片段"
+  injected_marker:
+    default: "X-INJECTED"
+    description: "注入标记"
+  injected_action:
+    default: "exfiltrate"
+    description: "注入动作"
+  modified_domain:
+    default: "g00gle.com"
+    description: "仿冒域名（同形字）"
+  encoding:
+    default: "base64"
+    description: "编码方式"
+
 payloads:
   - technique: plugin_shell
     name: 插件Shell注入

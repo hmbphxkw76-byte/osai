@@ -1,0 +1,116 @@
+{
+  "target": "http://192.168.0.23:11434",
+  "created_at": "2026-07-18T10:54:01.994556",
+  "recon_depth": "standard",
+  "tools_used": [
+    "protocol_fingerprint"
+  ],
+  "fingerprint": {
+    "model_name": "qwen3:0.6b",
+    "model_family": "qwen",
+    "provider": "ollama",
+    "context_window": null,
+    "system_prompt": null,
+    "capabilities": [
+      "local_inference"
+    ],
+    "detected_filters": [],
+    "confidence": 0.9
+  },
+  "surfaces": [
+    "prompt",
+    "model_extraction",
+    "rag"
+  ],
+  "entry_points": [],
+  "vulnerabilities": [
+    {
+      "tool": "protocol_fingerprint",
+      "category": "protocol_detected",
+      "severity": "low",
+      "description": "Detected ollama protocol on http://192.168.0.23:11434",
+      "evidence": "Protocol: ollama",
+      "owasp_mapping": "LLM02",
+      "confidence": 0.81
+    },
+    {
+      "tool": "protocol_fingerprint",
+      "category": "protocol_detected",
+      "severity": "low",
+      "description": "Detected vllm protocol on http://192.168.0.23:11434",
+      "evidence": "Protocol: vllm",
+      "owasp_mapping": "LLM02",
+      "confidence": 0.81
+    },
+    {
+      "tool": "protocol_fingerprint",
+      "category": "no_auth",
+      "severity": "medium",
+      "description": "No authentication required on exposed endpoint",
+      "evidence": "Endpoint http://192.168.0.23:11434 accessible without auth",
+      "owasp_mapping": "LLM01",
+      "confidence": 0.765
+    }
+  ],
+  "raw_results": {
+    "protocol_fingerprint": {
+      "tool": "protocol_fingerprint",
+      "success": true,
+      "data": {
+        "target": "http://192.168.0.23:11434",
+        "detected_protocols": [
+          "ollama",
+          "vllm"
+        ],
+        "surfaces": [
+          "prompt",
+          "model_extraction",
+          "rag"
+        ],
+        "entry_points": [],
+        "provider": "ollama",
+        "model_name": "qwen3:0.6b",
+        "model_family": "qwen",
+        "capabilities": [
+          "local_inference"
+        ],
+        "auth_required": false,
+        "system_prompt_leaked": false,
+        "auth_type": null,
+        "system_prompt": null
+      },
+      "findings": [
+        {
+          "category": "protocol_detected",
+          "severity": "low",
+          "description": "Detected ollama protocol on http://192.168.0.23:11434",
+          "evidence": "Protocol: ollama",
+          "owasp_mapping": "LLM02",
+          "confidence": 0.9
+        },
+        {
+          "category": "protocol_detected",
+          "severity": "low",
+          "description": "Detected vllm protocol on http://192.168.0.23:11434",
+          "evidence": "Protocol: vllm",
+          "owasp_mapping": "LLM02",
+          "confidence": 0.9
+        },
+        {
+          "category": "no_auth",
+          "severity": "medium",
+          "description": "No authentication required on exposed endpoint",
+          "evidence": "Endpoint http://192.168.0.23:11434 accessible without auth",
+          "owasp_mapping": "LLM01",
+          "confidence": 0.85
+        }
+      ],
+      "errors": [],
+      "duration": 0.1949608325958252
+    }
+  },
+  "risk_level": "medium",
+  "attack_recommendations": [
+    "目标包含 RAG，增加上下文溢出攻击"
+  ]
+}

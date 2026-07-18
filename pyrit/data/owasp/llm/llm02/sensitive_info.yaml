@@ -3,6 +3,28 @@ name: "Insecure Output Handling"
 owasp: LLM02
 technique_group: sensitive_info
 description: 敏感信息泄露攻击载荷 — AI-300 Ch2+Ch3，探测LLM输出的隐私数据泄露
+
+# ── 占位符声明 ──
+placeholders:
+  name:
+    default: "John Doe"
+    description: "目标用户姓名（PII 关联查询）"
+  email:
+    default: "john@example.com"
+    description: "目标用户邮箱"
+  phone:
+    default: "555-1234"
+    description: "目标用户电话"
+  address:
+    default: "123 Main St"
+    description: "目标用户地址"
+  key_type:
+    default: "API_KEY"
+    description: "API 密钥类型"
+  key_prefix:
+    default: "sk-"
+    description: "API 密钥前缀（补全攻击）"
+
 payloads:
   - technique: prompt_extraction
     name: 系统提示提取

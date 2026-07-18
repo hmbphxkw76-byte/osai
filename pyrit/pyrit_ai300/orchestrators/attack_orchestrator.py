@@ -1583,6 +1583,10 @@ class AttackOrchestrator:
         """
         从 OWASP ref 列表构建攻击列表
 
+        使用智能编码选择器（encoding_selector）进行两级静态过滤：
+        1. OWASP 类别 → 兼容转换器子集
+        2. 语言兼容性 → 排除不兼容编码
+
         Args:
             refs: OWASP ref 路径列表（如 ["owasp:agentic:asi01", "owasp:llm:llm01"]）
             payload_mgr: PayloadManager 实例
@@ -1591,10 +1595,14 @@ class AttackOrchestrator:
         Returns:
             攻击配置列表
         """
-        # 从 config/attack/defaults.yaml 加载 OWASP ID → 默认转换器/评分器映射
+        from .encoding_selector import get_converter_candidates
+
+        # 从 config/attack/defaults.yaml 加载 OWASP ID → 默认评分器映射
         defaults = cls._load_attack_defaults()
-        default_converters = defaults.get("default_converters", {})
         default_scorers = defaults.get("default_scorers", {})
+
+        # 获取已注册的转换器集合
+        registered = set(CONVERTER_MAP.keys())
 
         attacks = []
         for ref in refs:
@@ -1603,7 +1611,18 @@ class AttackOrchestrator:
                 continue
 
             owasp_id = data.get("id", ref.split(":")[-1]).lower()
-            converters = default_converters.get(owasp_id, ["base64"])
+            owasp_id_upper = data.get("id", ref.split(":")[-1]).upper()
+
+            # 使用智能编码选择器获取候选转换器（OWASP + 语言过滤）
+            smart_converters = get_converter_candidates(
+                owasp_id=owasp_id_upper,
+                language="en",  # 默认英文，运行时按 payload 实际语言调整
+                registered_converters=registered,
+            )
+
+            # 回退：如果智能选择器没有结果，使用 base64
+            converters = smart_converters if smart_converters else ["base64"]
+
             scorers = default_scorers.get(owasp_id, ["refusal"])
 
             scorer_configs = []

@@ -3,6 +3,16 @@ name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: tool_hijacking
 description: 工具调用劫持载荷 — AI-300 Ch3
+
+# ── 占位符声明 ──
+placeholders:
+  malicious_command:
+    default: "rm -rf /"
+    description: "恶意 shell 命令"
+  malicious_query:
+    default: "SELECT * FROM admin_users"
+    description: "恶意数据库查询"
+
 payloads:
   - technique: tool_redirect
     name: 工具重定向

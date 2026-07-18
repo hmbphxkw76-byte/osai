@@ -1,4 +1,0 @@
-# Tier 3 — LLM04 RAG Poison 知识库投毒
-# 用于 rag_poison.yaml 中的领域参数
-
-captured_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"

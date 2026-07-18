@@ -18,6 +18,7 @@ from .component_registry import (
     LLM_BACKEND_SCORERS,
     CONVERTER_NAME_MAP,
     SCORER_NAME_MAP,
+    CONVERTERS_NEEDING_TARGET,
 )
 from .attack_registry import (
     ATTACK_REGISTRY,
@@ -33,6 +34,18 @@ from .smart_matcher import (
     PyRITAttack,
     AttackProbeFamily,
 )
+from .encoding_selector import (
+    TargetProfile,
+    filter_converters_by_owasp,
+    filter_converters_by_language,
+    get_converter_candidates,
+    select_encodings_for_payload,
+    select_encodings_batch,
+    build_profile_and_select,
+    probe_target_model,
+    CONVERTER_OWASP_COMPATIBILITY,
+    LANGUAGE_INCOMPATIBLE_CONVERTERS,
+)
 
 __all__ = [
     # AttackOrchestrator
@@ -44,6 +57,7 @@ __all__ = [
     "LLM_BACKEND_SCORERS",
     "CONVERTER_NAME_MAP",
     "SCORER_NAME_MAP",
+    "CONVERTERS_NEEDING_TARGET",
     # Attack Registry
     "ATTACK_REGISTRY",
     "list_attacks",
@@ -56,4 +70,15 @@ __all__ = [
     "select_preset_strategy",
     "PyRITAttack",
     "AttackProbeFamily",
+    # Encoding Selector
+    "TargetProfile",
+    "filter_converters_by_owasp",
+    "filter_converters_by_language",
+    "get_converter_candidates",
+    "select_encodings_for_payload",
+    "select_encodings_batch",
+    "build_profile_and_select",
+    "probe_target_model",
+    "CONVERTER_OWASP_COMPATIBILITY",
+    "LANGUAGE_INCOMPATIBLE_CONVERTERS",
 ]

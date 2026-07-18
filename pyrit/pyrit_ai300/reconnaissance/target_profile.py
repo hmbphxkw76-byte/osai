@@ -48,6 +48,8 @@ class VulnerabilityFinding:
     evidence: str = ""
     owasp_mapping: str = ""  # LLM01-LLM10 / ASI01-ASI10
     confidence: float = 0.0
+    source_tools: List[str] = field(default_factory=list)  # 多工具交叉验证时的工具列表
+    conflict: bool = False   # 是否存在工具间冲突
 
 
 @dataclass

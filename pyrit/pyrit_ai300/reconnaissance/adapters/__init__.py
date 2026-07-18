@@ -7,10 +7,12 @@ AI-300 Framework - Reconnaissance Adapters
 from .base_adapter import AdapterResult, BaseAdapter
 from .deepteam_adapter import DeepTeamAdapter
 from .garak_adapter import GarakAdapter
+from .protocol_fingerprint_adapter import ProtocolFingerprintAdapter
 
 __all__ = [
     "BaseAdapter",
     "AdapterResult",
     "GarakAdapter",
     "DeepTeamAdapter",
+    "ProtocolFingerprintAdapter",
 ]

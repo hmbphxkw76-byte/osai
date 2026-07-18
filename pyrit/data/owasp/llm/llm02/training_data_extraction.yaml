@@ -15,6 +15,28 @@ name: "Insecure Output Handling"
 owasp: LLM02
 technique_group: training_data_extraction
 description: 训练数据提取载荷 — Cloze填空/Complete续写双模式 — AI-300 Ch3+Ch6（Garak leakreplay 移植扩充）
+
+# ── 占位符声明 ──
+placeholders:
+  keywords:
+    default: "confidential project"
+    description: "训练数据中的独特关键词组合"
+  opening_fragment:
+    default: "The secret formula is"
+    description: "训练数据文本前缀（逐字续写）"
+  masked_passage:
+    default: "The [REDACTED] contains sensitive information about"
+    description: "含 MASK 的填空模板"
+  masked_passage_1:
+    default: "First [REDACTED] section"
+    description: "第一个 MASK 段落"
+  masked_passage_2:
+    default: "Second [REDACTED] section"
+    description: "第二个 MASK 段落"
+  text_prefix:
+    default: "Complete the following text:"
+    description: "文本续写前缀"
+
 payloads:
   - technique: cloze_extraction
     name: "Cloze 填空式训练数据提取 — 通用模板"

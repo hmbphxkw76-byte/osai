@@ -36,6 +36,30 @@ from pyrit.prompt_converter import (
     DiacriticConverter,
     TranslationConverter,
     VariationConverter,
+    # 新增：更多编码混淆转换器
+    AtbashConverter,
+    CaesarConverter,
+    BinaryConverter,
+    MorseConverter,
+    BrailleConverter,
+    EcojiConverter,
+    Base2048Converter,
+    CharSwapConverter,
+    RandomCapitalLettersConverter,
+    FirstLetterConverter,
+    UnicodeSubstitutionConverter,
+    UnicodeReplacementConverter,
+    AskToDecodeConverter,
+    SneakyBitsSmugglerConverter,
+    VariationSelectorSmugglerConverter,
+    CodeChameleonConverter,
+    MathObfuscationConverter,
+    DenylistConverter,
+    TenseConverter,
+    ToneConverter,
+    ColloquialWordswapConverter,
+    RandomTranslationConverter,
+    QRCodeConverter,
 )
 
 # PyRIT 评分器导入
@@ -64,29 +88,55 @@ from pyrit.score import (
 # ──────────────────────────────────────────────────────────────────────────────
 
 CONVERTER_MAP: Dict[str, type] = {
-    # 编码混淆（ASI01 基础编码技术）
+    # ── 编码混淆（基础编码技术）──
     "base64": Base64Converter,
     "rot13": ROT13Converter,
     "unicode_confusable": UnicodeConfusableConverter,
     "leetspeak": LeetspeakConverter,
-    # 越狱模板（ASI01/ASI06 高级越狱）
+    "atbash": AtbashConverter,
+    "caesar": CaesarConverter,
+    "binary": BinaryConverter,
+    "morse": MorseConverter,
+    "braille": BrailleConverter,
+    "ecoji": EcojiConverter,
+    "base2048": Base2048Converter,
+    "char_swap": CharSwapConverter,
+    "random_capital": RandomCapitalLettersConverter,
+    "first_letter": FirstLetterConverter,
+    "unicode_substitution": UnicodeSubstitutionConverter,
+    "unicode_replacement": UnicodeReplacementConverter,
+    "ask_to_decode": AskToDecodeConverter,
+    "sneaky_bits": SneakyBitsSmugglerConverter,
+    "variation_selector_smuggler": VariationSelectorSmugglerConverter,
+    # ── 越狱/说服类 ──
     "persuasion": PersuasionConverter,
     "text_jailbreak": TextJailbreakConverter,
     "malicious_question_generator": MaliciousQuestionGeneratorConverter,
-    # Token 走私（ASI01/ASI05 绕过过滤）
+    # ── Token 走私 ──
     "ascii_smuggler": AsciiSmugglerConverter,
     "zero_width": ZeroWidthConverter,
     "diacritic": DiacriticConverter,
-    # 搜索替换（ASI02 工具参数操纵）
-    "search_replace": SearchReplaceConverter,
-    # 翻译混淆（ASI01/ASI09 多语言绕过）
+    # ── 翻译混淆 ──
     "translation": TranslationConverter,
-    # 变异生成（通用变异测试）
+    "random_translation": RandomTranslationConverter,
+    # ── 变异生成 ──
     "variation": VariationConverter,
-    # 多模态注入（ASI02/RAG 文档载荷）
+    # ── 多模态注入 ──
     "add_text_image": AddTextImageConverter,
     "pdf": PDFConverter,
     "word_doc": WordDocConverter,
+    "qr_code": QRCodeConverter,
+    # ── 代码伪装 ──
+    "code_chameleon": CodeChameleonConverter,
+    "math_obfuscation": MathObfuscationConverter,
+    # ── 搜索替换 ──
+    "search_replace": SearchReplaceConverter,
+    # ── 否定陷阱 ──
+    "denylist": DenylistConverter,
+    # ── 风格变异 ──
+    "tense": TenseConverter,
+    "tone": ToneConverter,
+    "colloquial_swap": ColloquialWordswapConverter,
 }
 
 # 特殊 preset 处理（不映射到单一 converter，需要特殊逻辑）
@@ -147,7 +197,22 @@ CONVERTER_NAME_MAP: Dict[str, str] = {
     "ROT13Converter": "rot13",
     "UnicodeConfusableConverter": "unicode_confusable",
     "LeetspeakConverter": "leetspeak",
-    # 越狱模板
+    "AtbashConverter": "atbash",
+    "CaesarConverter": "caesar",
+    "BinaryConverter": "binary",
+    "MorseConverter": "morse",
+    "BrailleConverter": "braille",
+    "EcojiConverter": "ecoji",
+    "Base2048Converter": "base2048",
+    "CharSwapConverter": "char_swap",
+    "RandomCapitalLettersConverter": "random_capital",
+    "FirstLetterConverter": "first_letter",
+    "UnicodeSubstitutionConverter": "unicode_substitution",
+    "UnicodeReplacementConverter": "unicode_replacement",
+    "AskToDecodeConverter": "ask_to_decode",
+    "SneakyBitsSmugglerConverter": "sneaky_bits",
+    "VariationSelectorSmugglerConverter": "variation_selector_smuggler",
+    # 越狱/说服
     "PersuasionConverter": "persuasion",
     "TextJailbreakConverter": "text_jailbreak",
     "MaliciousQuestionGeneratorConverter": "malicious_question_generator",
@@ -155,16 +220,27 @@ CONVERTER_NAME_MAP: Dict[str, str] = {
     "AsciiSmugglerConverter": "ascii_smuggler",
     "ZeroWidthConverter": "zero_width",
     "DiacriticConverter": "diacritic",
-    # 搜索替换
-    "SearchReplaceConverter": "search_replace",
     # 翻译混淆
     "TranslationConverter": "translation",
+    "RandomTranslationConverter": "random_translation",
     # 变异生成
     "VariationConverter": "variation",
     # 多模态
     "AddTextImageConverter": "add_text_image",
     "PDFConverter": "pdf",
     "WordDocConverter": "word_doc",
+    "QRCodeConverter": "qr_code",
+    # 代码伪装
+    "CodeChameleonConverter": "code_chameleon",
+    "MathObfuscationConverter": "math_obfuscation",
+    # 搜索替换
+    "SearchReplaceConverter": "search_replace",
+    # 否定陷阱
+    "DenylistConverter": "denylist",
+    # 风格变异
+    "TenseConverter": "tense",
+    "ToneConverter": "tone",
+    "ColloquialWordswapConverter": "colloquial_swap",
 }
 
 SCORER_NAME_MAP: Dict[str, str] = {

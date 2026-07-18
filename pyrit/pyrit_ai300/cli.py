@@ -148,7 +148,7 @@ Examples:
         "--experiment",
         default=None,
         help="实验配置路径（如 expericing/tier1_goal）。"
-             "加载 config/placeholders/{path}.yaml 中的 objective/placeholders/execution 参数，"
+             "加载 data/owasp/expericing/{path}/experiment.yaml 中的 objective/placeholders/execution 参数，"
              "替代 --objective/--placeholders/--placeholder-file",
     )
     owasp_optional.add_argument(
@@ -212,11 +212,16 @@ Examples:
 
     # Recon command
     recon_parser = subparsers.add_parser("recon", help="Run reconnaissance on target")
-    recon_required = recon_parser.add_argument_group("required arguments")
-    recon_required.add_argument(
+    recon_target = recon_parser.add_argument_group("target specification (required, one of)")
+    recon_target.add_argument(
         "-t", "--target",
-        required=True,
-        help="Target URL or endpoint to recon",
+        default=None,
+        help="Target URL or endpoint to recon (e.g., http://localhost:11434)",
+    )
+    recon_target.add_argument(
+        "--target-file",
+        default=None,
+        help="Target config file from config/targets/ (e.g., config/targets/custom_model_endpoint.yaml)",
     )
     recon_optional = recon_parser.add_argument_group("optional arguments")
     recon_optional.add_argument(
@@ -426,108 +431,40 @@ def _run_wizard(logger):
             print("  ✗ 请输入数字")
         print()
 
-    # ── 步骤 3：选择攻击载荷配置（基于 manifest） ──
+    # ── 步骤 3：确认攻击目标和参数 ──
     import yaml
     from pathlib import Path
 
-    manifest = load_scope_manifest(selected_scope)
-    config_defs = manifest.get("configs", {}) if manifest else {}
-    template_defs = manifest.get("templates", {}) if manifest else {}
-
-    # 收集配置文件（排除 manifest.yaml）
-    placeholders_dir = Path("config/placeholders") / selected_scope
-    yaml_files = sorted(placeholders_dir.glob("*.yaml")) if placeholders_dir.exists() else []
-    yaml_files = [f for f in yaml_files if f.stem != "manifest"]
-
-    # 预加载每个配置的摘要信息（基于 manifest 结构）
-    file_summaries = []
-    for yf in yaml_files:
-        fname = yf.stem
-        cfg_def = config_defs.get(fname, {})
-        cfg_type = cfg_def.get("type", "placeholders")
-        target_templates = cfg_def.get("target_templates", [])
-        description = cfg_def.get("description", "")
-
-        # 读取实际数据
-        try:
-            with open(yf, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except Exception:
-            data = {}
-
-        # 提取预览信息
-        if cfg_type == "objective":
-            obj = data.get("objective", [])
-            if isinstance(obj, list) and obj:
-                preview = obj[0]
-            else:
-                preview = str(obj) if obj else None
-        else:
-            # placeholders 类型：显示提供的参数
-            provides = cfg_def.get("provides", [])
-            preview = ", ".join(provides[:4]) if provides else None
-            if provides and len(provides) > 4:
-                preview += f" +{len(provides)-4}"
-
-        # 检查该配置是否能满足目标模板的需求
-        missing = []
-        if cfg_type == "placeholders" and target_templates:
-            provides_set = set(cfg_def.get("provides", []))
-            for tmpl_name in target_templates:
-                requires = set(template_defs.get(tmpl_name, {}).get("requires", []))
-                missing.extend(requires - provides_set)
-
-        file_summaries.append({
-            "file": yf,
-            "fname": fname,
-            "data": data,
-            "cfg_type": cfg_type,
-            "target_templates": target_templates,
-            "description": description,
-            "preview": preview,
-            "provides": cfg_def.get("provides", []),
-            "missing": missing,
-        })
+    # 加载 scope 的默认 goals 和占位符
+    scope_goals = load_scope_goals(selected_scope)
+    auto_ph = auto_discover_placeholders(selected_scope)
 
     print()
-    print("  [步骤 3/3] 选择攻击载荷配置")
+    print("  [步骤 3/3] 确认攻击配置")
     print("  " + "─" * 40)
 
-    if yaml_files:
-        print(f"    发现 {len(yaml_files)} 个预配置攻击载荷:")
+    # 显示 {goal} 目标列表
+    if scope_goals:
+        print(f"    攻击目标 ({len(scope_goals)} 个，来自 data/owasp/llm/{selected_scope}/_goals.yaml):")
+        for i, g in enumerate(scope_goals[:3], 1):
+            preview = g[:60] + "..." if len(g) > 60 else g
+            print(f"      {i}. {preview}")
+        if len(scope_goals) > 3:
+            print(f"      ... 还有 {len(scope_goals) - 3} 个")
         print()
-        for idx, summary in enumerate(file_summaries, 1):
-            fname = summary["fname"]
-            cfg_type = summary["cfg_type"]
-            desc = summary["description"]
-            preview = summary["preview"]
-            targets = summary["target_templates"]
 
-            # 类型标记
-            if cfg_type == "objective":
-                type_label = "目标"
-            else:
-                type_label = "参数"
+    # 显示 Tier 3 占位符默认值
+    if auto_ph:
+        print(f"    领域参数 (默认值):")
+        for k, v in list(auto_ph.items())[:5]:
+            print(f"      {k} = {v}")
+        if len(auto_ph) > 5:
+            print(f"      ... 还有 {len(auto_ph) - 5} 个")
+        print()
 
-            print(f"    {idx}. {fname} [{type_label}]")
-            if desc:
-                print(f"       {desc}")
-            if preview:
-                if cfg_type == "objective":
-                    if len(preview) > 45:
-                        preview = preview[:42] + "..."
-                    print(f"       目标: {preview}")
-                else:
-                    print(f"       提供: {preview}")
-            if targets:
-                print(f"       适用: {', '.join(targets)}")
-            print()
-        print("    按 Enter 加载全部配置（推荐），输入 q 退出")
-        print()
-    else:
-        print(f"    目录 config/placeholders/{selected_scope}/ 无预配置载荷")
-        print("    输入攻击目标文本（如 whoami），按 Enter 跳过，输入 q 退出")
-        print()
+    print("    按 Enter 使用默认配置，或输入自定义目标")
+    print("    格式: 目标文本（如 whoami）")
+    print()
 
     try:
         choice = input("  > ").strip()
@@ -543,49 +480,31 @@ def _run_wizard(logger):
     selected_placeholders = None
     selected_config_name = None
 
-    if not choice and yaml_files:
-        # 默认：加载全部配置
-        selected_configs = []
-        all_placeholders = {}
-        for summary in file_summaries:
-            fname = summary["fname"]
-            data = summary["data"]
-            cfg_type = summary["cfg_type"]
-            selected_configs.append(fname)
+    if not choice:
+        # 使用默认配置（goals + 占位符默认值）
+        all_placeholders = auto_ph.copy() if auto_ph else {}
 
-            if cfg_type == "objective":
-                obj = data.get("objective", [])
-                if isinstance(obj, list) and obj:
-                    selected_objective = obj[0]
-                elif obj:
-                    selected_objective = str(obj)
-            else:
-                # placeholders 类型：合并所有参数
-                for k, v in data.items():
-                    if k != "objective" and v:
-                        all_placeholders[k] = v
+        if scope_goals:
+            selected_objective = scope_goals[0]  # 预览第一个目标
+            selected_config_name = f"_goals.yaml ({len(scope_goals)} 个目标)"
+            print(f"  ✓ 已加载默认配置: {selected_config_name}")
+        else:
+            selected_config_name = "默认（无目标）"
+            print(f"  ✓ 已加载默认配置")
 
-        selected_placeholders = all_placeholders if all_placeholders else None
-        selected_config_name = ", ".join(selected_configs)
-        print(f"  ✓ 已加载全部 {len(selected_configs)} 个配置: {selected_config_name}")
         if selected_objective:
             preview = selected_objective[:50] + "..." if len(selected_objective) > 50 else selected_objective
             print(f"    攻击目标: {preview}")
-        if selected_placeholders:
-            print(f"    占位符参数: {', '.join(selected_placeholders.keys())}")
-    elif not choice and not yaml_files:
-        # 无预配置，跳过
-        print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
-    elif not yaml_files:
-        # 无预配置目录，直接作为自定义目标
-        if choice:
-            selected_objective = choice
-            selected_config_name = "自定义"
-            print(f"  ✓ 攻击目标: '{choice}'")
-        else:
-            print("  ⚠ 已跳过 — 将使用载荷文本本身作为目标")
+        if all_placeholders:
+            print(f"    占位符参数: {', '.join(all_placeholders.keys())}")
+
+        selected_placeholders = all_placeholders if all_placeholders else None
     else:
-        print("  ✗ 无效输入，将使用载荷文本本身")
+        # 自定义目标
+        selected_objective = choice
+        selected_placeholders = auto_ph if auto_ph else None
+        selected_config_name = "自定义"
+        print(f"  ✓ 攻击目标: '{choice}'")
 
     # ── 确认并执行 ──
     print()
@@ -644,79 +563,114 @@ def _run_wizard(logger):
 
 def _run_wizard_recon(logger):
     """
-    侦察引导向导
+    侦察引导向导（AIMAP → Garak 顺序侦察，已整合到 ReconEngine.run() 内部）
 
     引导用户逐步完成：
-    1. 输入目标 URL
-    2. 选择侦察深度
-    3. 确认并执行侦察
+    1. 选择目标（菜单选择 config/targets/ 或手动输入 URL）
+    2. 确认并执行侦察（AIMAP 优先 → Garak 配置 → 剩余工具）
     """
     from pyrit_ai300.reconnaissance import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
+    from pathlib import Path
 
-    # ── 步骤 1：输入目标 ──
+    # ── 步骤 1：选择目标 ──
     print()
-    print("  [步骤 1/2] 输入侦察目标")
+    print("  [步骤 1/2] 选择侦察目标")
     print("  " + "─" * 40)
-    print("    输入目标 URL 或 endpoint")
-    print("    例如: http://target.com 或 http://localhost:11434")
+
+    targets_dir = Path("config/targets")
+    yaml_files = sorted(targets_dir.glob("*.yaml")) if targets_dir.exists() else []
+
+    target = None
+    if yaml_files:
+        # 显示目标菜单
+        for idx, yf in enumerate(yaml_files, 1):
+            try:
+                import yaml
+                with open(yf, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                name = data.get("target", {}).get("name", "")
+                desc = data.get("target", {}).get("description", "")
+                label = f" ({name})" if name else ""
+                if desc:
+                    label += f" — {desc}"
+            except Exception:
+                label = ""
+            print(f"    {idx}. {yf.name}{label}")
+        print(f"    {len(yaml_files) + 1}. [手动输入 URL]")
+        print()
+        print(f"    输入 1-{len(yaml_files) + 1} 选择目标，输入 q 退出")
+        print()
+
+        try:
+            choice = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已取消")
+            return
+
+        if choice.lower() == "q":
+            print("  已退出")
+            return
+
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(yaml_files):
+                target_file = str(yaml_files[idx - 1])
+                target = ReconEngine.load_target(target_file)
+                print(f"\n  ✓ 已选择: {yaml_files[idx - 1].name}")
+            elif idx == len(yaml_files) + 1:
+                print()
+                print("    输入目标 URL 或 endpoint")
+                print("    例如: http://target.com 或 http://localhost:11434")
+                print()
+                try:
+                    target = input("  > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n  已取消")
+                    return
+                if target.lower() == "q":
+                    print("  已退出")
+                    return
+                if not target:
+                    print("  ✗ 目标不能为空")
+                    return
+                print(f"\n  ✓ 侦察目标: {target}")
+            else:
+                print(f"  ✗ 无效选择，请输入 1-{len(yaml_files) + 1}")
+                return
+        except ValueError:
+            print("  ✗ 请输入数字")
+            return
+    else:
+        print("    config/targets/ 目录不存在或为空")
+        print("    请手动输入目标 URL")
+        print("    例如: http://target.com 或 http://localhost:11434")
+        print()
+        print("    输入目标 URL，输入 q 退出")
+        print()
+
+        try:
+            target = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已取消")
+            return
+
+        if target.lower() == "q":
+            print("  已退出")
+            return
+
+        if not target:
+            print("  ✗ 目标不能为空")
+            return
+
+        print(f"\n  ✓ 侦察目标: {target}")
+
+    # ── 步骤 2：确认并执行 ──
     print()
-    print("    输入目标 URL，输入 q 退出")
-    print()
-
-    try:
-        target = input("  > ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\n  已取消")
-        return
-
-    if target.lower() == "q":
-        print("  已退出")
-        return
-
-    if not target:
-        print("  ✗ 目标不能为空")
-        return
-
-    print(f"\n  ✓ 侦察目标: {target}")
-
-    # ── 步骤 2：选择侦察深度 ──
-    print()
-    print("  [步骤 2/2] 选择侦察深度")
-    print("  " + "─" * 40)
-    print("    1. quick    - 快速扫描（仅基础探测）")
-    print("    2. standard - 标准扫描（推荐，Garak + DeepTeam）")
-    print("    3. deep     - 深度扫描（全部探针，耗时较长）")
-    print()
-    print("    输入 1-3 选择深度（默认 2），输入 q 退出")
-    print()
-
-    depth = "standard"
-    try:
-        depth_choice = input("  > ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\n  已取消")
-        return
-
-    if depth_choice.lower() == "q":
-        print("  已退出")
-        return
-
-    depth_map = {"1": "quick", "2": "standard", "3": "deep"}
-    if depth_choice in depth_map:
-        depth = depth_map[depth_choice]
-    elif depth_choice:
-        print(f"  ⚠ 无效输入，使用默认深度: standard")
-
-    print(f"\n  ✓ 侦察深度: {depth}")
-
-    # ── 确认并执行 ──
-    print()
+    print("  [步骤 2/2] 侦察执行确认")
     print("  " + "=" * 40)
-    print("  侦察执行确认")
-    print("  " + "=" * 40)
-    print(f"    目标:   {target}")
-    print(f"    深度:   {depth}")
+    print(f"    目标:     {target}")
+    print(f"    侦察模式: AIMAP → Garak → DeepTeam（自动顺序执行）")
     print()
     print("    输入 y 开始执行，输入 n 取消")
     print()
@@ -735,7 +689,7 @@ def _run_wizard_recon(logger):
     print("  🔍 开始侦察...")
     print()
 
-    # 执行侦察
+    # 执行侦察（AIMAP → Garak 顺序已整合到 ReconEngine.run() 内部）
     tracker = PipelineTracker(verbose=True)
     engine = ReconEngine()
 
@@ -750,9 +704,11 @@ def _run_wizard_recon(logger):
     print(f"  可用工具: {', '.join(available_tools)}")
     print()
 
+    # 运行侦察（AIMAP 优先 → Garak 配置 → 剩余工具，全部由 engine.run() 处理）
     profile = engine.run(
         target=target,
-        depth=depth,
+        depth="standard",
+        tools=None,  # 运行全部启用工具
         tracker=tracker,
     )
 
@@ -773,6 +729,19 @@ def _run_wizard_recon(logger):
     print(f"  风险等级:     {profile.risk_level}")
     print(f"  OWASP 映射:   {', '.join(profile.get_owasp_mappings())}")
     print(f"  画像保存至:   {output_path}")
+    print()
+
+    # 打印冲突检测和交叉验证结果
+    conflicts = [v for v in profile.vulnerabilities if v.conflict]
+    cross_validated = [v for v in profile.vulnerabilities if len(v.source_tools) >= 2 and not v.conflict]
+    if conflicts:
+        print(f"  ⚠ 工具间冲突 (severity 差异 ≥ 2):")
+        for v in conflicts:
+            print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → severity={v.severity}")
+    if cross_validated:
+        print(f"  ✓ 交叉验证 (置信度提升):")
+        for v in cross_validated:
+            print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → confidence={v.confidence:.2f}")
     print()
     print("  提示: 使用以下命令基于画像执行攻击:")
     print(f"    ai300 owasp llm01 --target-url {target} --profile {output_path}")
@@ -1038,6 +1007,8 @@ def _interactive_prompt_placeholders(args, logger) -> tuple:
     """
     交互式提示用户补齐缺失的占位符（中文界面）
 
+    对于已在模板 placeholders 段声明默认值的占位符，不提示用户输入。
+
     Returns:
         (objective, placeholders) 元组
     """
@@ -1056,10 +1027,29 @@ def _interactive_prompt_placeholders(args, logger) -> tuple:
     if not all_ph:
         return args.objective, _parse_placeholders(getattr(args, "placeholders", None))
 
+    # 收集已声明默认值的占位符（从模板 placeholders 段）
+    declared_defaults = set()
+    from pathlib import Path
+    import yaml
+    scope_dir = Path("data/owasp/llm") / args.scope
+    if scope_dir.exists():
+        for yaml_file in scope_dir.rglob("*.yaml"):
+            if yaml_file.name.startswith("_"):
+                continue
+            try:
+                with open(yaml_file, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                ph_defs = data.get("placeholders", {})
+                declared_defaults.update(ph_defs.keys())
+            except Exception:
+                pass
+
     # 分类
     tier1_found = {k: v for k, v in all_ph.items() if k in tier1_names}
+    # Tier 3：排除已有默认值的占位符
     tier3_found = {k: v for k, v in all_ph.items()
-                   if k not in tier1_names and k not in tier2_encodings}
+                   if k not in tier1_names and k not in tier2_encodings
+                   and k not in declared_defaults}
 
     objective = args.objective
     placeholders = _parse_placeholders(getattr(args, "placeholders", None)) or {}
@@ -1211,30 +1201,32 @@ def load_experiment_config(experiment_path: str) -> Dict[str, Any]:
     实验配置是一个 YAML 文件，定义了一次实验所需的全部参数：
     - objective: Tier 1 攻击目标
     - placeholders: Tier 3 领域参数
-    - experiment_data: 关联的实验数据目录名
+    - payloads: 关联的实验数据文件列表
     - execution: 执行参数覆盖
 
     Args:
-        experiment_path: 实验配置路径（相对于 config/placeholders/）
-                         如 "expericing/tier1_goal"
+        experiment_path: 实验配置路径（相对于 data/owasp/expericing/）
+                         如 "tier1_goal" → data/owasp/expericing/tier1_goal/experiment.yaml
 
     Returns:
-        实验配置字典，包含 objective, placeholders, experiment_data, execution
+        实验配置字典，包含 objective, placeholders, payloads, execution
     """
     import yaml
     from pathlib import Path
 
-    # 构建完整路径
-    config_path = Path("config/placeholders") / f"{experiment_path}.yaml"
+    # 构建完整路径：data/owasp/expericing/{path}/experiment.yaml
+    config_path = Path("data/owasp/expericing") / experiment_path / "experiment.yaml"
     if not config_path.exists():
-        # 尝试不带 .yaml 后缀
-        config_path = Path("config/placeholders") / experiment_path
+        # 尝试旧路径（向后兼容）
+        config_path = Path("config/placeholders") / f"{experiment_path}.yaml"
+        if not config_path.exists():
+            config_path = Path("config/placeholders") / experiment_path
 
     if not config_path.exists():
         raise FileNotFoundError(
             f"实验配置不存在: {experiment_path}\n"
-            f"查找路径: config/placeholders/{experiment_path}.yaml\n"
-            f"请确保文件存在于 config/placeholders/ 目录下"
+            f"查找路径: data/owasp/expericing/{experiment_path}/experiment.yaml\n"
+            f"请确保文件存在"
         )
 
     with open(config_path, "r", encoding="utf-8") as f:
@@ -1248,6 +1240,7 @@ def load_experiment_config(experiment_path: str) -> Dict[str, Any]:
         "objective": [],
         "placeholders": {},
         "experiment_data": config.get("experiment_data"),
+        "payloads": config.get("payloads", []),
         "execution": config.get("execution", {}),
         "config_path": str(config_path),
     }
@@ -1270,75 +1263,114 @@ def load_experiment_config(experiment_path: str) -> Dict[str, Any]:
     return result
 
 
-def load_scope_manifest(scope: str) -> Dict[str, Any]:
+def load_scope_goals(scope: str) -> list:
     """
-    加载 scope 的 manifest.yaml（唯一配置真相源）
+    加载 scope 的攻击目标列表（{goal} / {objective} 的值）
 
-    manifest 声明了：
-    - scope: 元数据（id, name, description）
-    - templates: 每个模板的占位符需求
-    - configs: 每个配置文件的类型（objective/placeholders）和目标模板
+    自动合并框架默认值和用户自定义值：
+    1. 框架默认：data/owasp/llm/{scope}/_goals.yaml
+    2. 用户自定义：config/placeholders/{scope}/_goals.yaml
+       - merge_strategy: append（默认）— 框架默认 + 用户新增
+       - merge_strategy: prepend — 用户新增 + 框架默认
+       - merge_strategy: replace — 仅使用用户自定义
 
     Args:
-        scope: OWASP scope (如 "llm01", "llm02")
+        scope: OWASP scope (如 "llm01", "llm05")
 
     Returns:
-        manifest 字典，不存在返回空字典
+        攻击目标字符串列表
     """
     import yaml
     from pathlib import Path
 
-    manifest_path = Path("config/placeholders") / scope / "manifest.yaml"
-    if not manifest_path.exists():
-        return {}
+    # 1. 加载框架默认值
+    default_path = Path("data/owasp/llm") / scope / "_goals.yaml"
+    defaults = []
+    if default_path.exists():
+        try:
+            with open(default_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            defaults = data.get("goals", [])
+        except Exception:
+            pass
+
+    # 2. 加载用户自定义
+    custom_path = Path("config/placeholders") / scope / "_goals.yaml"
+    if not custom_path.exists():
+        return defaults
+
     try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+        with open(custom_path, "r", encoding="utf-8") as f:
+            custom = yaml.safe_load(f) or {}
     except Exception:
-        return {}
+        return defaults
+
+    strategy = custom.get("merge_strategy", "append")
+    user_goals = custom.get("goals", [])
+
+    if not user_goals:
+        return defaults
+
+    # 3. 按策略合并
+    if strategy == "replace":
+        return user_goals
+    elif strategy == "prepend":
+        return user_goals + defaults
+    else:  # append (默认)
+        return defaults + user_goals
 
 
 def discover_scopes() -> list[Dict[str, str]]:
     """
-    扫描 config/placeholders/ 目录，发现所有可用 scope
+    扫描 data/owasp/llm/ 目录，发现所有可用 scope
 
-    只返回包含 manifest.yaml 的目录，按 scope id 排序。
+    返回包含模板文件的目录，按 scope id 排序。
 
     Returns:
         scope 列表，每项包含 id, name, description
-        例如: [{"id": "llm01", "name": "提示注入", "description": "Prompt Injection"}, ...]
     """
     from pathlib import Path
 
-    placeholders_dir = Path("config/placeholders")
-    if not placeholders_dir.exists():
+    llm_dir = Path("data/owasp/llm")
+    if not llm_dir.exists():
         return []
 
     scopes = []
-    for entry in sorted(placeholders_dir.iterdir()):
+    scope_names = {
+        "llm01": ("提示注入", "Prompt Injection"),
+        "llm02": ("敏感信息泄露", "Sensitive Information Disclosure"),
+        "llm03": ("供应链攻击", "Supply Chain"),
+        "llm04": ("数据与模型投毒", "Data & Model Poisoning"),
+        "llm05": ("不安全输出处理", "Insecure Output Handling"),
+        "llm06": ("过度代理", "Excessive Agency"),
+        "llm07": ("系统提示泄露", "System Prompt Leak"),
+        "llm08": ("向量与嵌入弱点", "Vector & Embedding Weaknesses"),
+        "llm09": ("错误信息误导", "Misinformation"),
+        "llm10": ("无界消耗", "Unbounded Consumption"),
+    }
+
+    for entry in sorted(llm_dir.iterdir()):
         if not entry.is_dir():
             continue
-        manifest_path = entry / "manifest.yaml"
-        if not manifest_path.exists():
+        # 检查是否有模板文件（至少一个 .yaml 文件）
+        yaml_files = list(entry.glob("*.yaml")) + list(entry.glob("**/*.yaml"))
+        if not yaml_files:
             continue
-        manifest = load_scope_manifest(entry.name)
-        scope_meta = manifest.get("scope", {})
+        name, desc = scope_names.get(entry.name, (entry.name, ""))
         scopes.append({
-            "id": scope_meta.get("id", entry.name),
-            "name": scope_meta.get("name", entry.name),
-            "description": scope_meta.get("description", ""),
+            "id": entry.name,
+            "name": name,
+            "description": desc,
         })
     return scopes
 
 
 def auto_discover_placeholders(scope: str) -> Dict[str, Any]:
     """
-    自动发现 scope 对应的占位符配置文件
+    自动发现 scope 对应的占位符默认值
 
-    基于 manifest.yaml 的结构加载配置：
-    - objective 类型配置 → 提取 objective 字段
-    - placeholders 类型配置 → 提取占位符参数
-    跳过 manifest.yaml 本身。
+    从模板 YAML 的 placeholders 段中提取默认值。
+    同时加载用户自定义覆盖（config/placeholders/{scope}/_goals.yaml）。
 
     Args:
         scope: OWASP scope (如 "llm01", "asi01")
@@ -1349,58 +1381,42 @@ def auto_discover_placeholders(scope: str) -> Dict[str, Any]:
     import yaml
     from pathlib import Path
 
-    config_dir = Path("config/placeholders") / scope
-    if not config_dir.exists() or not config_dir.is_dir():
-        return {}
-
-    # 读取 manifest 获取配置结构
-    manifest = load_scope_manifest(scope)
-    config_defs = manifest.get("configs", {})
-
-    # 确定加载顺序：objective 配置优先，其余按字母顺序
-    def _sort_key(yf):
-        stem = yf.stem
-        if stem == "manifest":
-            return (2, stem)  # 最后（会被跳过）
-        cfg = config_defs.get(stem, {})
-        is_objective = cfg.get("type") == "objective"
-        return (0 if is_objective else 1, stem)
-
-    yaml_files = sorted(config_dir.glob("*.yaml"), key=_sort_key)
-
-    if not yaml_files:
-        return {}
-
     merged = {}
-    for yaml_file in yaml_files:
-        if yaml_file.stem == "manifest":
-            continue  # 跳过 manifest 本身
-        try:
-            with open(yaml_file, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            cfg_def = config_defs.get(yaml_file.stem, {})
-            cfg_type = cfg_def.get("type", "placeholders")
 
-            if cfg_type == "objective":
-                # objective 配置：只提取 objective 字段
-                obj = data.get("objective", [])
-                if isinstance(obj, list):
-                    objectives = [x for x in obj if x and str(x).strip()]
-                    if objectives:
-                        merged["objective"] = objectives
-                elif obj:
-                    merged["objective"] = obj
-            else:
-                # placeholders 配置：提取所有非 objective 字段
-                for k, v in data.items():
-                    if k == "objective":
-                        continue
-                    if not v:
-                        continue
-                    if isinstance(v, (str, int, float)):
+    # 1. 从模板中提取 Tier 3 占位符默认值
+    scope_dir = Path("data/owasp/llm") / scope
+    if scope_dir.exists():
+        for yaml_file in sorted(scope_dir.rglob("*.yaml")):
+            if yaml_file.name.startswith("_"):
+                continue  # 跳过 _goals.yaml
+            try:
+                with open(yaml_file, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                ph_defs = data.get("placeholders", {})
+                for k, v in ph_defs.items():
+                    if isinstance(v, dict) and "default" in v:
+                        merged[k] = v["default"]
+                    elif isinstance(v, (str, int, float)):
                         merged[k] = v
-        except Exception:
-            pass
+            except Exception:
+                pass
+
+    # 2. 加载用户自定义覆盖（config/placeholders/{scope}/ 下的 YAML）
+    custom_dir = Path("config/placeholders") / scope
+    if custom_dir.exists():
+        for yaml_file in sorted(custom_dir.glob("*.yaml")):
+            if yaml_file.name.startswith("_"):
+                continue
+            try:
+                with open(yaml_file, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                for k, v in data.items():
+                    if k in ("merge_strategy", "goals"):
+                        continue
+                    if v is not None and str(v).strip():
+                        merged[k] = v
+            except Exception:
+                pass
 
     return merged
 
@@ -1409,36 +1425,45 @@ def validate_placeholders(scope: str, placeholders: Dict[str, str]) -> tuple:
     """
     校验占位符是否满足 scope 需求
 
+    从模板 YAML 的 placeholders 段和 payload 文本中提取占位符需求。
+
     Args:
         scope: OWASP scope
         placeholders: 用户提供的占位符字典
 
     Returns:
         (missing_required, extra_placeholders) 元组
-        - missing_required: 缺失的必需占位符列表
-        - extra_placeholders: 多余（未使用）的占位符列表
     """
     import re
-    from pyrit_ai300.payloads.payload_manager import PayloadManager
+    from pathlib import Path
 
-    pm = PayloadManager()
-    pm.load_data_dir("data/")
-    refs = pm.get_scope_refs(scope)
-
-    if not refs:
+    scope_dir = Path("data/owasp/llm") / scope
+    if not scope_dir.exists():
         return [], list(placeholders.keys())
 
     # 收集 scope 中所有实际使用的占位符
     used_placeholders = set()
-    for ref in refs:
-        data = pm._payload_store.get(ref, {})
-        for entry in data.get("payloads", []):
-            if isinstance(entry, dict):
-                text = entry.get("payload", "")
-            else:
-                text = str(entry)
-            matches = re.findall(r'\{([a-z_][a-z0-9_]{1,})\}', text)
-            used_placeholders.update(matches)
+    declared_placeholders = set()
+
+    for yaml_file in scope_dir.rglob("*.yaml"):
+        if yaml_file.name.startswith("_"):
+            continue
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            # 从 placeholders 段收集已声明占位符
+            ph_defs = data.get("placeholders", {})
+            declared_placeholders.update(ph_defs.keys())
+            # 从 payload 文本收集所有占位符引用
+            for entry in data.get("payloads", []):
+                if isinstance(entry, dict):
+                    text = entry.get("payload", "")
+                else:
+                    text = str(entry)
+                matches = re.findall(r'\{([a-z_][a-z0-9_]{1,})\}', text)
+                used_placeholders.update(matches)
+        except Exception:
+            pass
 
     # 编码变体占位符（Tier 2）由 objective 自动衍生，不算缺失
     tier2_encodings = {
@@ -1449,20 +1474,21 @@ def validate_placeholders(scope: str, placeholders: Dict[str, str]) -> tuple:
         "interlinear_ws_goal", "multi_tag_mix_goal",
     }
 
-    # 检查缺失（排除 Tier 2 编码变体）
+    # 检查缺失（排除 Tier 2 编码变体，排除已声明有默认值的占位符）
     missing = []
     for ph in used_placeholders:
         if ph in tier2_encodings:
             continue
-        if ph == "objective" or ph == "goal":
+        if ph in ("objective", "goal"):
             obj = placeholders.get("objective")
             if not obj or (isinstance(obj, list) and not any(obj)):
                 missing.append(ph)
-        elif ph not in placeholders:
+        elif ph not in placeholders and ph not in declared_placeholders:
             missing.append(ph)
 
     # 检查多余
-    extra = [k for k in placeholders.keys() if k not in used_placeholders]
+    extra = [k for k in placeholders.keys()
+             if k not in used_placeholders and k != "objective"]
 
     return missing, extra
 
@@ -1511,17 +1537,21 @@ def _run_owasp(args, logger):
         logger.info("Loaded experiment config: %s (%s)", experiment_config["name"], experiment_config["description"])
         print(f"\n  🧪 实验模式: {experiment_config['name']}")
         print(f"     {experiment_config['description']}")
-        if experiment_config["experiment_data"]:
-            print(f"     实验数据: data/owasp/expericing/{experiment_config['experiment_data']}/")
+        if experiment_config.get("payloads"):
+            print(f"     实验数据: data/owasp/expericing/{experiment_arg}/")
 
-    # 1. 自动发现 config/placeholders/{scope}/ 目录下的配置文件
+    # 1. 自动发现占位符默认值（从模板 placeholders 段）
     auto_placeholders = auto_discover_placeholders(args.scope)
+
+    # 1.5 加载 scope 的 {goal} 目标列表（从 _goals.yaml）
+    scope_goals = load_scope_goals(args.scope)
 
     # 2. 根据优先级合并配置
     if experiment_config:
         # 实验模式：实验配置为基础，CLI 参数可覆盖
         placeholders = experiment_config["placeholders"].copy()
-        placeholders["objective"] = experiment_config["objective"]
+        exp_obj = experiment_config["objective"]
+        placeholders["objective"] = exp_obj if exp_obj else scope_goals
         # CLI 参数优先级高于实验配置
         if objective:
             placeholders["objective"] = objective
@@ -1534,13 +1564,18 @@ def _run_owasp(args, logger):
         # CLI 参数优先级高于文件
         if objective:
             file_placeholders["objective"] = objective
+        elif scope_goals:
+            file_placeholders["objective"] = scope_goals
         file_placeholders.update(placeholders)
         placeholders = file_placeholders
         objective = placeholders.get("objective", "")
-    elif auto_placeholders:
-        # 使用自动发现的配置
+    elif auto_placeholders or scope_goals:
+        # 使用自动发现的配置 + scope goals
         placeholders = auto_placeholders
-        # CLI --objective 优先级高于自动发现的配置
+        # 使用 scope goals 作为默认 objective
+        if scope_goals:
+            placeholders["objective"] = scope_goals
+        # CLI --objective 优先级高于默认配置
         if objective:
             placeholders["objective"] = objective
         objective = placeholders.get("objective", objective)
@@ -1566,44 +1601,15 @@ def _run_owasp(args, logger):
             elif args.placeholder_file:
                 print(f"      请编辑 {args.placeholder_file} 补齐以下字段: {', '.join(missing)}")
             else:
-                print(f"      请编辑 config/placeholders/{args.scope}/ 下的配置文件")
+                print(f"      请编辑 data/owasp/llm/{args.scope}/ 下模板的 placeholders 段")
             if not getattr(args, "no_prompt", False):
                 print(f"      或使用 --no-prompt 跳过（缺失占位符将保持原样输出）")
                 raise ValueError(f"占位符配置不完整，缺失: {', '.join(missing)}")
         if extra:
             logger.info("ℹ️  %d 个未使用的占位符已自动忽略: %s", len(extra), ", ".join(extra))
 
-    # ── Manifest 校验：检查占位符是否满足模板声明的需求 ──
-    manifest = load_scope_manifest(args.scope)
-    if manifest and placeholders:
-        template_defs = manifest.get("templates", {})
-        config_defs = manifest.get("configs", {})
-        # 收集所有模板的占位符需求
-        all_requires = set()
-        for tmpl_name, tmpl_info in template_defs.items():
-            all_requires.update(tmpl_info.get("requires", []))
-        # 检查是否有声明的需求未被满足（排除 Tier 2 编码变体）
-        tier2_encodings = {
-            "base64_goal", "base32_goal", "ascii85_goal", "french_goal",
-            "bidi_override_goal", "unicode_tag_goal", "zalgo_goal",
-            "chain_encoded_goal", "ascii_tag_deep_goal",
-            "hex_goal", "rot13_goal", "sneaky_bits_goal",
-            "interlinear_ws_goal", "multi_tag_mix_goal",
-        }
-        unresolved = [ph for ph in all_requires if ph not in placeholders and ph not in tier2_encodings]
-        if unresolved:
-            logger.warning(
-                "⚠️ 以下占位符在 manifest 中声明但未被提供: %s",
-                ", ".join(unresolved),
-            )
-            logger.warning("   相关模板可能输出未替换的占位符文本")
-            # 列出哪些模板受影响
-            affected = []
-            for tmpl_name, tmpl_info in template_defs.items():
-                if set(tmpl_info.get("requires", [])) & set(unresolved):
-                    affected.append(tmpl_name)
-            if affected:
-                logger.warning("   受影响模板: %s", ", ".join(affected))
+    # ── 占位符校验：检查模板中声明的占位符是否有值 ──
+    # （已集成到 validate_placeholders 中，此处不再重复）
 
     # 3. 交互式占位符提示（除非 --no-prompt 或无配置）
     if not getattr(args, "no_prompt", False) and not experiment_arg and not args.placeholder_file and not auto_placeholders:
@@ -1640,16 +1646,30 @@ def _run_owasp(args, logger):
         # 每个目标独立 tracker
         tracker = PipelineTracker(verbose=True)
 
-        # 自动侦察（--auto-recon）
+        # 自动侦察（--auto-recon）— 流式模式
         profile_path = args.profile
         if args.auto_recon and not profile_path:
-            logger.info("Running auto-recon before attack...")
+            logger.info("Running auto-recon (streaming mode) before attack...")
             recon_engine = ReconEngine()
             recon_target = target_url or target_file
-            profile = recon_engine.run(
+            profile = None
+            first_tool = None
+            for tool_name, partial_profile, is_complete in recon_engine.run_streaming(
                 target=recon_target,
                 tracker=tracker,
-            )
+            ):
+                if first_tool is None:
+                    first_tool = tool_name
+                    print(f"\n  🔍 侦察启动: {recon_target}")
+                print(f"  ✓ {tool_name} 完成 — "
+                      f"已发现 {partial_profile.vulnerability_count} 个漏洞, "
+                      f"风险={partial_profile.risk_level}")
+                profile = partial_profile
+
+                # 第一个工具完成时，可立即开始攻击准备
+                if tool_name == first_tool and not is_complete:
+                    logger.info("First tool complete, attack preparation can start...")
+
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             profile_path = f"results/recon/auto_profile_{timestamp}.json"
@@ -1658,6 +1678,21 @@ def _run_owasp(args, logger):
 
             if tracker.recon_log:
                 tracker.recon_log.profile_path = profile_path
+
+            print(f"  📄 侦察画像已保存: {profile_path}")
+
+            # 打印冲突检测和交叉验证结果（流式模式）
+            if profile:
+                conflicts = [v for v in profile.vulnerabilities if v.conflict]
+                cross_validated = [v for v in profile.vulnerabilities if len(v.source_tools) >= 2 and not v.conflict]
+                if conflicts:
+                    print(f"\n  ⚠ 工具间冲突 (severity 差异 ≥ 2):")
+                    for v in conflicts:
+                        print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → severity={v.severity}")
+                if cross_validated:
+                    print(f"\n  ✓ 交叉验证 (置信度提升):")
+                    for v in cross_validated:
+                        print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → confidence={v.confidence:.2f}")
 
         # 创建 AI300Engine（遍历每个 objective）
         results = []
@@ -1841,6 +1876,18 @@ def _run_recon(args, logger):
     from pyrit_ai300.reconnaissance import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
 
+    # 解析目标：--target 或 --target-file（二选一）
+    target = args.target
+    if args.target_file:
+        target = ReconEngine.load_target(args.target_file)
+        logger.info("Loaded target from %s: %s", args.target_file, target)
+    elif not target:
+        logger.error("Either --target or --target-file is required")
+        print("Error: Either --target or --target-file is required")
+        print("  --target URL        Direct target URL")
+        print("  --target-file YAML  Target config from config/targets/")
+        return
+
     # 创建 PipelineTracker（仅侦察阶段）
     tracker = PipelineTracker(verbose=True)
 
@@ -1856,7 +1903,7 @@ def _run_recon(args, logger):
 
     # 执行侦察（传入 tracker）
     profile = engine.run(
-        target=args.target,
+        target=target,
         depth=args.depth,
         tools=args.tools,
         tracker=tracker,
@@ -1884,6 +1931,20 @@ def _run_recon(args, logger):
     print(f"  Risk Level: {profile.risk_level}")
     print(f"  OWASP Mappings: {', '.join(profile.get_owasp_mappings())}")
     print(f"  Profile saved to: {output_path}")
+
+    # 打印冲突检测和交叉验证结果
+    conflicts = [v for v in profile.vulnerabilities if v.conflict]
+    cross_validated = [v for v in profile.vulnerabilities if len(v.source_tools) >= 2 and not v.conflict]
+    if conflicts:
+        print(f"\n  ⚠ Tool Conflicts (severity diff ≥ 2):")
+        for v in conflicts:
+            print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → severity={v.severity}")
+            if v.description:
+                print(f"      {v.description[:80]}")
+    if cross_validated:
+        print(f"\n  ✓ Cross-Validated (confidence boost):")
+        for v in cross_validated:
+            print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → confidence={v.confidence:.2f}")
 
 
 if __name__ == "__main__":

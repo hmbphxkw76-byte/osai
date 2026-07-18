@@ -3,6 +3,13 @@ name: "Model Denial of Service"
 owasp: LLM04
 technique_group: rag_poisoning
 description: RAG 知识库投毒载荷 — AI-300 Ch5
+
+# ── 占位符声明 ──
+placeholders:
+  captured_token:
+    default: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    description: "捕获的认证 token（用于间接注入）"
+
 payloads:
   - technique: ranking_manipulation
     name: 检索排名操纵

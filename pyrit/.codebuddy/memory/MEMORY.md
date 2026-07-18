@@ -56,30 +56,50 @@
 - `AttackOrchestrator.build_scorers(asi_category=)` — ASI 自动选择
 - `AI300Engine.__init__(scorer_url=, scorer_key=, scorer_model=)` — 传递给 Orchestrator
 
-## 占位符系统（Placeholder System）
+## 占位符系统（Placeholder System v2.0，2026-07-18）
 - **三级分类**：
-  - Tier 1：`{goal}` / `{objective}` — 用 `--objective` 参数
-  - Tier 2：编码变体（14 种）— 从 objective 自动编码
-  - Tier 3：领域参数（50+ 种）— 用 `--placeholders key=value`
+  - Tier 1：`{goal}` / `{objective}` — scope 级，定义在 `data/owasp/llm/{scope}/_goals.yaml`
+  - Tier 2：编码变体（39 种 PyRIT 转换器）— 智能选择（见下方）
+  - Tier 3：领域参数（50+ 种）— 模板级，声明在模板 `placeholders:` 段
+- **自动发现**：框架扫描模板 `placeholders:` 段提取默认值
+- **用户覆盖**：`config/placeholders/{scope}/_goals.yaml`（merge_strategy: append/prepend/replace）
 - **CLI 参数**：`--experiment` > `--objective` > `auto_discover` > `--placeholder-file` > interactive
-- **实验模式**：`load_experiment_config(path)` 加载 `config/placeholders/{path}.yaml`
+- **实验模式**：`load_experiment_config(path)` 加载 `data/owasp/expericing/{path}/experiment.yaml`
+- **加载函数**：`load_scope_goals(scope)` — 合并框架默认 + 用户自定义
 - **中文界面**：`PLACEHOLDER_LABELS_CN` 字典映射 50+ 占位符到中文名
 
-## 目录结构（简化）
+## 智能编码选择器（Encoding Selector v1.0，2026-07-18）
+- **问题**：当前 Tier 2 是固定列表暴力枚举（每个 payload 试全部编码），请求量大
+- **方案**：三级过滤 — OWASP 类别静态过滤 → 语言兼容性过滤 → 目标自适应探测
+- **核心模块**：`pyrit_ai300/orchestrators/encoding_selector.py`
+- **静态映射**：`CONVERTER_OWASP_COMPATIBILITY`（39 转换器 × OWASP 类别）
+- **语言过滤**：`LANGUAGE_INCOMPATIBLE_CONVERTERS`（CJK 排除 rot13/leetspeak 等拉丁编码）
+- **目标画像**：`TargetProfile` — 运行时探测编码通过率
+- **选择逻辑**：`select_encodings_for_payload()` — 综合三级过滤选最优编码
+- **集成点**：`build_attack_list_from_refs()` 使用智能选择器替代静态配置
+- **扩展转换器**：component_registry.py 从 17 增到 39 个 PyRIT 转换器
+- **Pipeline 追踪**：4 个日志方法 + show_encoding_summary() 集成到 PipelineTracker
+- **追踪阶段**：encoding_filter_owasp → encoding_filter_language → encoding_probe → encoding_selection
+- **测试**：35 个新测试（27 选择器 + 8 Pipeline），221 total passed
+
+## 目录结构（简化，v2.0）
 ```
 data/                 # 数据层
-  ├── owasp/          #   唯一真相源（LLM01-10 + ASI01-10 + recon_templates/）
+  ├── owasp/          #   唯一真相源
+  │   ├── llm/        #   LLM01-10（每 scope 含 _goals.yaml + 模板 YAML）
+  │   ├── agentic/    #   ASI01-10
+  │   └── expericing/ #   实验数据（含 experiment.yaml）
   └── recon_templates/#   侦察探测模板
-config/               # 配置层（唯一配置源）
+config/               # 配置层（用户覆盖）
   ├── attack/         #   攻击策略配置（defaults.yaml + patterns.yaml）
-  ├── placeholders/   #   占位符配置（llm01-llm10/ + expericing/）
+  ├── placeholders/   #   用户自定义覆盖（每 scope 可选 _goals.yaml）
   ├── recon/          #   侦察配置
   ├── scores/         #   评分器 LLM 后端（每后端一个 YAML）
   ├── headers/        #   认证头文件
   ├── output/         #   输出报告配置
   └── targets/        #   目标配置
 pyrit_ai300/          # 代码层（纯执行引擎）
-  ├── reconnaissance/ #   侦察引擎（独立）
+  ├── reconnaissance/ #   侦察引擎（独立，3 个适配器：Garak + DeepTeam + ProtocolFingerprint）
   ├── attack/         #   攻击引擎扩展
   ├── orchestrators/  #   编排器（attack_orchestrator/smart_matcher/component_registry）
   ├── payloads/       #   载荷管理
@@ -123,6 +143,18 @@ pyrit_ai300/          # 代码层（纯执行引擎）
 - **净减代码**：约 50 行硬编码 → 1 个 YAML 文件 + 5 行加载逻辑
 - **测试**：168 passed, 1 skipped（无回归）
 
+## 已删除的死代码（2026-07-18 Placeholder 重构）
+- `config/placeholders/` 下 37 个文件：
+  - 10 个 `*_tier1_goal.yaml` → 迁移为 `data/owasp/llm/{scope}/_goals.yaml`（3 个 scope 使用 {goal}）
+  - 20 个 Tier 3 占位符配置 → 内联到模板 `placeholders:` 段
+  - 10 个 `manifest.yaml` → 删除（占位符自声明）
+  - 1 个 `expericing/tier1_goal.yaml` → 迁移到 `data/owasp/expericing/tier1_goal/experiment.yaml`
+- `load_scope_manifest()` 函数 → 删除（不再需要）
+- `discover_scopes()` → 重写（扫描 data/owasp/llm/）
+- `auto_discover_placeholders()` → 重写（从模板 placeholders 段读取）
+- `validate_placeholders()` → 重写（从模板 placeholders 段读取）
+- 向导步骤 3 → 简化（不再基于 manifest）
+
 ## 已删除的死代码（2026-07-17 二次清理）
 - `AttackOrchestrator._execute_with_fallback()` 同步版本（约52行）
 - `AttackOrchestrator._execute_single_attack()` 同步版本（约101行）
@@ -165,8 +197,44 @@ ai300 report -r <json>   # 生成报告
 - AI-300 Module: 11/11 | OWASP LLM: 10/10 | OWASP Agentic: 10/10
 - 载荷库: 590 个有效载荷（LLM 537 + Agentic 105）
 - Jailbreak 模板: 165 个（统一 YAML 格式）
-- 侦察工具: 2 个（Garak + DeepTeam）✅
-- 测试: 168 passed, 1 skipped
+- 侦察工具: 3 个（Garak + DeepTeam + ProtocolFingerprint）✅
+- 占位符系统: v2.0（模板自包含 + _goals.yaml）✅
+- 智能编码选择器: v1.0（OWASP 过滤 + 语言感知 + 目标自适应）✅
+- 测试: 220 passed, 1 skipped
+
+## ProtocolFingerprintAdapter（2026-07-18）
+- **来源**：BishopFox/aimap 的指纹探测逻辑（无 Shodan 依赖）
+- **功能**：协议识别（MCP/Ollama/vLLM/LangServe/Gradio/Streamlit/OpenWebUI/TGI）、模型提取、认证检测、系统提示泄露、MCP 工具枚举
+- **依赖**：零外部依赖（复用 http_client.py，stdlib urllib）
+- **注册**：ReconEngine.ADAPTER_MAP["protocol_fingerprint"]
+- **配置**：config/recon/recon.yaml → tools.protocol_fingerprint
+
+## 流式侦察优化（Streaming Recon，2026-07-18）
+- **原策略**：3 适配器并行，等全部完成后一次性合并（最慢工具决定总耗时）
+- **新策略**：每个适配器完成后立即 yield 部分画像
+  - ProtocolFingerprint（~30s）→ 部分画像可驱动攻击准备
+  - Garak/DeepTeam（1-5min）→ 补充漏洞发现
+- **新增方法**：
+  - `ReconEngine.run_streaming()` — 生成器，yield `(tool_name, partial_profile, is_complete)`
+  - `ProfileMerger.merge_incremental()` — 增量合并新结果到现有 TargetProfile
+- **CLI**：`--auto-recon` 使用流式模式，打印每个工具完成进度
+- **测试**：220 passed, 1 skipped（新增 10 个测试）
+
+## AIMAP→Garak 顺序侦察整合（2026-07-18）
+- **原问题**：wizard 中手动执行 AIMAP → 提取端点 → 配置 Garak → 再调用 `engine.run()`（AIMAP 执行两次，桥接未追踪）
+- **新方案**：AIMAP→Garak 顺序侦察整合到 `ReconEngine.run()` 和 `run_streaming()` 内部
+- **流程**：
+  1. AIMAP 优先执行（协议识别）
+  2. `extract_garak_endpoints()` → 提取可探测端点
+  3. 配置 Garak（model_type/model_name/endpoint）
+  4. `log_recon_aimap_garak_bridge()` → 记录到 PipelineTracker
+  5. 执行剩余工具（Garak + DeepTeam）
+  6. 合并结果 → TargetProfile
+- **新增方法**：
+  - `ReconEngine._run_single_adapter()` — 内部方法，统一处理单个适配器执行 + tracker 记录
+  - `PipelineTracker.log_recon_aimap_garak_bridge()` — 记录 AIMAP→Garak 端点桥接步骤
+- **wizard 简化**：`_run_wizard_recon()` 从三步简化为两步（目标选择 → 确认执行）
+- **测试**：224 passed, 1 skipped（无回归）
 
 ## Garak 独立 venv 架构
 - **原因**：garak 0.15.1 与 pyrit 0.14.0 的 datasets 版本冲突

@@ -25,6 +25,16 @@ name: "Insecure Plugin Design"
 owasp: LLM07
 technique_group: system_prompt_leakage
 description: 系统提示泄露攻击载荷 — AI-300 Ch3.1+Ch7，LLM07 专有技术（与 LLM01 注入型提取互补）
+
+# ── 占位符声明 ──
+placeholders:
+  user_name:
+    default: "admin"
+    description: "用户名（模板变量）"
+  current_date:
+    default: "2026-07-17"
+    description: "当前日期（模板变量）"
+
 payloads:
   - technique: direct_request
     name: 直接请求

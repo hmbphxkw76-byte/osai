@@ -1,6 +1,0 @@
-# Tier 3 — LLM08 CVE-2026-45829 ChromaDB RCE
-# 用于 cve_2026_45829_chromadb_rce.yaml 中的领域参数
-
-target_db: "production_db"
-target_host: "10.0.0.5"
-target_port: "8000"

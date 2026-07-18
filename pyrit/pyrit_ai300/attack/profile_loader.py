@@ -25,6 +25,32 @@ if sys.platform == "win32":
 logger = logging.getLogger(__name__)
 
 
+def _get_alternative_families(owasp_id: str) -> List[str]:
+    """
+    获取 OWASP ID 的备选攻击探针族
+
+    当存在冲突时，除了主探针族外还激活备选族，
+    确保覆盖多种攻击路径。
+    """
+    ALTERNATIVE_MAP = {
+        "LLM01": ["PROGRESSIVE"],       # Injection 备选渐进
+        "LLM02": ["DIRECT_SINGLE"],     # Leakage 备选直接
+        "LLM03": ["DIRECT_SINGLE"],     # Poisoning 备选直接
+        "LLM04": ["PROGRESSIVE"],       # Insecure Output 备选渐进
+        "LLM05": ["TREE_SEARCH"],       # Excessive Agency 备选树搜索
+        "LLM06": ["DIRECT_SINGLE"],     # System Prompt 备选直接
+        "LLM07": ["PROGRESSIVE"],       # RAG 备选渐进
+        "LLM08": ["EXPLORATORY"],       # Bias 备选探索
+        "LLM09": ["DIRECT_SINGLE"],     # Overreliance 备选直接
+        "LLM10": ["EXPLORATORY"],       # Model Theft 备选探索
+        "ASI01": ["TREE_SEARCH"],       # Goal Hijack 备选树搜索
+        "ASI02": ["PROGRESSIVE"],       # Recursive Hijack 备选渐进
+        "ASI03": ["TREE_SEARCH"],       # Tool Abuse 备选树搜索
+        "ASI04": ["PROGRESSIVE"],       # Identity Abuse 备选渐进
+    }
+    return ALTERNATIVE_MAP.get(owasp_id, ["DIRECT_SINGLE"])
+
+
 class ProfileLoader:
     """
     TargetProfile 加载器
@@ -59,6 +85,8 @@ class ProfileLoader:
     @staticmethod
     def _to_smartmatcher_params(profile) -> Dict[str, Any]:
         """将 TargetProfile 转换为 SmartMatcher 参数"""
+        from pyrit_ai300.reconnaissance.owasp_taxonomy import OwaspTaxonomy
+
         params = {
             # 目标信息
             "target_model": profile.fingerprint.model_name,
@@ -70,13 +98,15 @@ class ProfileLoader:
             # 攻击面
             "surfaces": profile.surfaces,
 
-            # 已知漏洞
+            # 已知漏洞（含 OWASP 对齐信息）
             "known_vulnerabilities": [
                 {
                     "category": v.category,
                     "severity": v.severity,
                     "owasp_mapping": v.owasp_mapping,
                     "confidence": v.confidence,
+                    "source_tools": v.source_tools,
+                    "conflict": v.conflict,
                 }
                 for v in profile.vulnerabilities
             ],
@@ -92,30 +122,43 @@ class ProfileLoader:
             "detected_filters": profile.fingerprint.detected_filters,
         }
 
-        # 基于漏洞类别推荐攻击探针族
+        # 基于 OWASP ID 推荐攻击探针族
         params["preferred_probe_families"] = ProfileLoader._suggest_probe_families(profile)
 
         # 基于风险等级调整攻击强度
         params["aggression_level"] = ProfileLoader._risk_to_aggression(profile.risk_level)
 
+        # 冲突信息：存在冲突时，SmartMatcher 应激活多个探针族
+        params["has_conflicts"] = any(v.conflict for v in profile.vulnerabilities)
+        params["conflict_owasp_ids"] = [
+            v.owasp_mapping for v in profile.vulnerabilities if v.conflict
+        ]
+
         return params
 
     @staticmethod
     def _suggest_probe_families(profile) -> List[str]:
-        """基于漏洞类别推荐攻击探针族"""
+        """基于 OWASP ID 推荐攻击探针族"""
+        from pyrit_ai300.reconnaissance.owasp_taxonomy import OwaspTaxonomy
+
         families = set()
-        categories = {v.category for v in profile.vulnerabilities}
 
-        if "prompt_injection" in categories:
-            families.add("DIRECT_SINGLE")
-        if "jailbreak" in categories:
-            families.add("PROGRESSIVE")
-        if "leakage" in categories:
-            families.add("EXPLORATORY")
-        if "context_overflow" in categories:
-            families.add("TREE_SEARCH")
+        # 基于 OWASP ID 映射探针族
+        for v in profile.vulnerabilities:
+            owasp_id = v.owasp_mapping
+            # 兜底：如果没有 owasp_mapping，从 category 推导
+            if not owasp_id and v.category:
+                owasp_id = OwaspTaxonomy.normalize(v.category, tool=v.tool)
 
-        # 基于攻击面
+            if owasp_id:
+                family = OwaspTaxonomy.get_probe_family(owasp_id)
+                families.add(family)
+
+                # 冲突漏洞：额外激活备选探针族
+                if v.conflict:
+                    families.update(_get_alternative_families(owasp_id))
+
+        # 基于攻击面补充
         if "agent" in profile.surfaces:
             families.add("TREE_SEARCH")
         if "rag" in profile.surfaces:

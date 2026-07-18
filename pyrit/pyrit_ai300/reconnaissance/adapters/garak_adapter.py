@@ -161,16 +161,22 @@ class GarakAdapter(BaseAdapter):
         probes = config.get("probes", DEFAULT_PROBES)
         detectors = config.get("detectors", [])
         model_name = config.get("model_name", "")
+        model_type = config.get("model_type", "")
         timeout = config.get("timeout", 600)
 
         try:
             # 构建 Garak CLI 参数
-            garak_args = self._build_garak_args(target, probes, detectors, model_name)
+            garak_args = self._build_garak_args(target, probes, detectors, model_name, model_type)
 
             # 环境变量（支持目标 endpoint）
             env = os.environ.copy()
             if target and target.startswith("http"):
                 env["OPENAI_BASE_URL"] = target
+
+            # Ollama 预热：确保模型已加载（避免首次请求超时）
+            warmup = config.get("warmup", True)
+            if warmup and self._is_ollama_target(target):
+                self._warmup_ollama(target, model_name)
 
             # 执行 garak（subprocess）
             cmd = [garak_python, "-m", "garak"] + garak_args
@@ -202,7 +208,8 @@ class GarakAdapter(BaseAdapter):
                 data={
                     "probes_used": probes,
                     "detectors_used": detectors or "default",
-                    "model_name": model_name,
+                    "model_name": model_name or "auto-detected",
+                    "model_type": model_type or "auto-detected",
                     "garak_args": garak_args,
                     "exit_code": result.returncode,
                     "stdout_tail": result.stdout[-1000:] if result.stdout else "",
@@ -238,11 +245,23 @@ class GarakAdapter(BaseAdapter):
         probes: List[str],
         detectors: List[str],
         model_name: str,
+        model_type: str = "",
     ) -> List[str]:
-        """构建 Garak CLI 参数"""
+        """
+        构建 Garak CLI 参数
+
+        自动检测目标类型：
+        - Ollama 本地端点（含 /api/tags 或端口 11434）→ --model_type ollama
+        - 其他 OpenAI 兼容 → --model_type openai
+        """
+        # 自动检测目标类型
+        detected_type, detected_model = self._detect_target_model(
+            target, model_name, model_type
+        )
+
         args = [
-            "--model_type", "openai",
-            "--model_name", model_name or "gpt-4o",
+            "--model_type", detected_type,
+            "--model_name", detected_model,
             "--probes", ",".join(probes),
         ]
         # 支持直接 URL 目标（如 http://www.example.com）
@@ -251,6 +270,87 @@ class GarakAdapter(BaseAdapter):
         if detectors:
             args.extend(["--detectors", ",".join(detectors)])
         return args
+
+    @staticmethod
+    def _detect_target_model(
+        target: str, config_model: str, config_type: str
+    ) -> tuple:
+        """
+        自动检测目标 LLM 类型，返回 (model_type, model_name)
+
+        策略：
+        1. 用户显式配置 model_type 且非空 → 使用用户配置
+        2. 目标包含 ollama 特征（/api/tags, 端口 11434）→ ollama 类型
+        3. 默认 → openai/gpt-4o
+
+        Returns:
+            (model_type, model_name) 元组
+        """
+        # 1. 用户显式配置 model_type 优先
+        if config_type and config_model:
+            return (config_type, config_model)
+
+        # 2. 检测 Ollama 特征
+        ollama_indicators = [
+            "11434",           # 默认 Ollama 端口
+            "/api/tags",       # Ollama API 路径
+            "/api/show",       # Ollama API 路径
+            "ollama",          # 主机名含 ollama
+        ]
+        target_lower = target.lower()
+        if any(indicator in target_lower for indicator in ollama_indicators):
+            logger.info("Detected Ollama endpoint, using model_type=ollama")
+            return ("ollama", config_model or "llama3.2")
+
+        # 3. 默认 OpenAI
+        return ("openai", config_model or "gpt-4o")
+
+    @staticmethod
+    def _is_ollama_target(target: str) -> bool:
+        """检测目标是否为 Ollama 端点"""
+        ollama_indicators = ["11434", "/api/tags", "/api/show", "ollama"]
+        target_lower = target.lower()
+        return any(indicator in target_lower for indicator in ollama_indicators)
+
+    @staticmethod
+    def _warmup_ollama(target: str, model_name: str) -> None:
+        """
+        预热 Ollama 模型：发送短请求确保模型已加载到内存
+
+        Ollama 默认 5 分钟空闲后卸载模型，首次请求返回 done_reason:"load" + 空 response。
+        预热请求提前触发模型加载，避免 Garak 扫描时超时。
+        """
+        import json
+        import urllib.request
+
+        # 规范化目标 URL（移除 /v1 后缀，使用 /api/generate）
+        base_url = target.rstrip("/").replace("/v1", "")
+        if not base_url.endswith("/api/generate"):
+            warmup_url = f"{base_url}/api/generate"
+        else:
+            warmup_url = base_url
+
+        try:
+            payload = json.dumps({
+                "model": model_name or "llama3.2",
+                "prompt": "hi",
+                "stream": False,
+                "options": {"num_predict": 1},  # 最小化响应
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                warmup_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            logger.info("Warming up Ollama model at %s", warmup_url)
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                resp.read()  # 读取完整响应确保模型加载
+            logger.info("Ollama warmup complete")
+        except Exception as e:
+            logger.warning("Ollama warmup failed (non-fatal): %s", str(e))
 
     def _parse_garak_output(self) -> List[Dict[str, Any]]:
         """解析 Garak JSONL 输出"""

@@ -250,11 +250,11 @@ def _precise_model_match(
             if has_adversarial:
                 # 有对抗 LLM，使用侦察推荐的首选族
                 family = preferred_probe_families[0]
-                rule_result["reason"] += " | 侦察推荐: 基于漏洞发现"
+                rule_result["reason"] += " | 侦察推荐: 基于 OWASP 漏洞发现"
             elif not has_adversarial and preferred_probe_families[0] == AttackProbeFamily.DIRECT_SINGLE:
                 # 无对抗 LLM 时，如果侦察推荐是单轮则切换
                 family = AttackProbeFamily.DIRECT_SINGLE
-                rule_result["reason"] += " | 侦察推荐: 基于漏洞发现"
+                rule_result["reason"] += " | 侦察推荐: 基于 OWASP 漏洞发现"
 
     # ── ASI 类别约束（借鉴 DeepTeam 框架映射）──
     if asi_category and asi_category in ASI_STRATEGY_HINTS:
@@ -295,8 +295,11 @@ def _precise_model_match(
     # ── 动态参数计算 ──
     params = _compute_dynamic_params(family, profile, rule_result)
 
-    # ── 策略链 Fallback ──
-    fallback_chain = _build_fallback_chain(family, has_adversarial, profile)
+    # ── 策略链 Fallback（支持冲突驱动）──
+    fallback_chain = _build_fallback_chain(
+        family, has_adversarial, profile,
+        preferred_probe_families=preferred_probe_families,
+    )
 
     attack_class = FAMILY_ATTACK_CLASS_MAP.get(family, PyRITAttack.PROMPT_SENDING)
 
@@ -414,12 +417,16 @@ def _build_fallback_chain(
     primary_family: str,
     has_adversarial: bool,
     profile: Any,
+    preferred_probe_families: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    构建策略链 Fallback（v3.0 新增）
+    构建策略链 Fallback（v3.1：支持冲突驱动的多路径备选）
 
     当主策略失败时，按优先级尝试备选策略。
     借鉴红队最佳实践：快速 → 渐进 → 深度搜索
+
+    冲突驱动：当存在工具间冲突时，增加更多备选策略，
+    确保覆盖多种攻击路径。
     """
     chain = []
 
@@ -443,18 +450,54 @@ def _build_fallback_chain(
             "params": {"max_iterations": 3},
             "reason": "TAP失败后备选PAIR",
         })
+    elif primary_family == AttackProbeFamily.EXPLORATORY:
+        # RedTeaming 失败后尝试 Crescendo
+        chain.append({
+            "class": PyRITAttack.CRESCENDO,
+            "family": AttackProbeFamily.PROGRESSIVE,
+            "params": {"max_turns": 5, "max_backtracks": 3},
+            "reason": "RedTeaming失败后备选Crescendo",
+        })
+
+    # 冲突驱动：存在冲突时，增加侦察推荐的备选探针族
+    if preferred_probe_families:
+        existing_families = {primary_family} | {c.get("family") for c in chain}
+        for fam in preferred_probe_families:
+            if fam not in existing_families:
+                attack_class = FAMILY_ATTACK_CLASS_MAP.get(fam)
+                if attack_class:
+                    chain.append({
+                        "class": attack_class,
+                        "family": fam,
+                        "params": _get_default_params_for_family(fam),
+                        "reason": "冲突驱动: 多工具结论不一致，增加备选路径",
+                    })
 
     # 低置信度载荷增加更多备选
     if profile.needs_multi_strategy:
         if primary_family != AttackProbeFamily.DIRECT_SINGLE:
-            chain.append({
-                "class": PyRITAttack.PROMPT_SENDING,
-                "family": AttackProbeFamily.DIRECT_SINGLE,
-                "params": {"max_attempts_on_failure": 1},
-                "reason": "低置信度备选: 单轮尝试",
-            })
+            # 避免重复添加
+            if not any(c.get("family") == AttackProbeFamily.DIRECT_SINGLE for c in chain):
+                chain.append({
+                    "class": PyRITAttack.PROMPT_SENDING,
+                    "family": AttackProbeFamily.DIRECT_SINGLE,
+                    "params": {"max_attempts_on_failure": 1},
+                    "reason": "低置信度备选: 单轮尝试",
+                })
 
     return chain
+
+
+def _get_default_params_for_family(family: str) -> Dict[str, Any]:
+    """获取探针族的默认参数"""
+    defaults = {
+        AttackProbeFamily.DIRECT_SINGLE: {"max_attempts_on_failure": 2},
+        AttackProbeFamily.PROGRESSIVE: {"max_turns": 5, "max_backtracks": 3},
+        AttackProbeFamily.TREE_SEARCH: {"tree_width": 2, "tree_depth": 3, "branching_factor": 2},
+        AttackProbeFamily.ITERATIVE: {"max_iterations": 3},
+        AttackProbeFamily.EXPLORATORY: {"max_turns": 5},
+    }
+    return defaults.get(family, {})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

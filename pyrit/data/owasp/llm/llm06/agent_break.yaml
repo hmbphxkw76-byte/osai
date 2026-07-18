@@ -18,6 +18,26 @@ name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: agent_break
 description: Agent 系统破坏载荷 — 工具分析/权限探测/迭代攻击/自动发现 — AI-300 Ch4+Ch7（Garak agent_breaker 移植扩充）
+
+# ── 占位符声明 ──
+# {goal} 由框架从 _goals.yaml 获取
+placeholders:
+  target_tool:
+    default: "file_system"
+    description: "目标工具名称"
+  tool_name:
+    default: "read_file"
+    description: "工具名称（权限探测）"
+  functionality:
+    default: "read arbitrary files"
+    description: "工具功能描述"
+  exploit_strategies:
+    default: "path traversal"
+    description: "利用策略"
+  vulnerabilities:
+    default: "insufficient access control"
+    description: "已知漏洞"
+
 payloads:
   - technique: agent_tool_discovery
     name: "Agent 工具自我发现"

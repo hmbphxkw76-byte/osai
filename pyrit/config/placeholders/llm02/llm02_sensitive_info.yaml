@@ -1,9 +1,0 @@
-# Tier 3 — LLM02 Sensitive Info 敏感信息泄露
-# 用于 sensitive_info.yaml 中的领域参数
-
-name: "John Doe"
-email: "john@example.com"
-phone: "555-1234"
-address: "123 Main St"
-key_type: "API_KEY"
-key_prefix: "sk-"

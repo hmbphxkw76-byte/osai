@@ -108,7 +108,8 @@ class DeepTeamAdapter(BaseAdapter):
         Returns:
             AdapterResult
         """
-        vulnerabilities = config.get("vulnerabilities", DEFAULT_VULNERABILITIES)
+        # 优先使用 attack_types（recon.yaml 配置），fallback 到 vulnerabilities，最后默认
+        attack_types = config.get("attack_types") or config.get("vulnerabilities") or DEFAULT_VULNERABILITIES
         attacks = config.get("attacks", [])
         start_time = time.time()
 
@@ -118,11 +119,11 @@ class DeepTeamAdapter(BaseAdapter):
             # 构建 model_callback（目标 LLM 的调用函数）
             model_callback = self._build_model_callback(target, config)
 
-            # 执行红队扫描
+            # 执行红队扫描（传递配置的漏洞类型）
             result = red_team(
                 model_callback=model_callback,
-                vulnerabilities=None,  # 使用默认全部
-                attacks=None,  # 使用默认全部
+                vulnerabilities=attack_types,
+                attacks=attacks or None,
                 async_mode=False,  # 同步模式（适配框架）
                 max_concurrent=5,
             )
@@ -136,7 +137,7 @@ class DeepTeamAdapter(BaseAdapter):
                 tool=self.name,
                 success=True,
                 data={
-                    "vulnerabilities_tested": vulnerabilities,
+                    "vulnerabilities_tested": attack_types,
                     "attacks_used": attacks or "default",
                     "scan_result": str(result),
                 },
