@@ -26,7 +26,7 @@ if sys.platform == "win32":
 
 logger = logging.getLogger(__name__)
 
-# 分类/策略/评分器元数据（从 display 模块迁移）
+# 分类/策略/评分器元数据
 CATEGORY_META: Dict[str, Dict[str, str]] = {
     "direct_short": {"label": "Direct Short", "desc": "直接注入短文本"},
     "role_play": {"label": "Role Play", "desc": "角色扮演类"},
