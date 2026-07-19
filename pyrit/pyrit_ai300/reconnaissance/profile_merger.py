@@ -40,6 +40,7 @@ class ProfileMerger:
         "garak": 0.85,
         "deepteam": 0.85,
         "protocol_fingerprint": 0.90,
+        "spa_chat_recon": 0.90,
     }
 
     def __init__(self, weights: Optional[Dict[str, float]] = None):

@@ -1,0 +1,68 @@
+# ════════════════════════════════════════════════════════════════
+# SPA 聊天攻击目标配置（攻击阶段使用）
+# ════════════════════════════════════════════════════════════════
+# 用途：攻击阶段通过 Playwright 浏览器自动化发送攻击 payload
+# 与 sso_login.yaml（侦察阶段）配合使用：
+#   1. 先用 sso_login.yaml 侦察 → 获取认证凭据 + LLM 端点信息
+#   2. 再用 spa_chat_attack.yaml 攻击 → 通过浏览器发送 jailbreak payload
+#
+# 认证方式：
+#   自动复用 credentials/{域名}.txt（侦察阶段自动导出的凭据）
+#   或手动指定 header_file 路径
+#
+# 使用方式：
+#   ai300 owasp llm01 --target-file config/targets/spa_chat_attack.yaml
+# ════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════
+# 用户配置区 — 只需修改下方变量，无需改动 target 部分
+# ════════════════════════════════════════════════════════════════
+vars:
+  # 目标聊天页面 URL（与侦察阶段 sso_login.yaml 中的 target_url 保持一致）
+  # 示例: https://student.syxy.ouchn.cn/, https://www.qianwen.com/chat
+  target_url: &target_url "https://student.syxy.ouchn.cn/"
+
+  # 是否无头模式（凭据有效时 true=后台静默攻击，调试时 false 看浏览器行为）
+  # false=显示浏览器窗口 / true=后台运行
+  headless: &headless true
+
+  # 认证凭据文件路径（指向 credentials/ 目录下按域名命名的文件）
+  # 系统也会自动发现 credentials/{域名}.txt，此处可显式指定
+  # 示例: config/targets/credentials/student.syxy.ouchn.cn.txt
+  credential_file: &credential_file "config/targets/credentials/student.syxy.ouchn.cn.txt"
+
+  # 发送攻击 payload 后等待 LLM 响应的延迟（秒）
+  # 示例: 5.0, 8.0, 3.0
+  response_wait_delay: &response_wait_delay 5.0
+
+# ════════════════════════════════════════════════════════════════
+
+target:
+  name: "spa_chat_attack"
+  type: "playwright"
+  description: "SPA 聊天攻击目标（Playwright 浏览器自动化）"
+
+  connection:
+    url: *target_url
+    browser: "chromium"
+    headless: *headless
+    wait_until: "networkidle"
+    ignore_https_errors: true
+
+  selectors:
+    input: "textarea, input[type='text'], [contenteditable='true']"
+    send_button: "button[type='submit'], .send-btn"
+    response: ".response, .ai-message, .assistant-message"
+
+  # ── 认证配置（可选）──
+  # 自动从 credentials/ 目录复用侦察阶段导出的凭据
+  auth:
+    header_file: *credential_file
+    auto_extract: true
+
+  interaction:
+    wait_timeout: 30000
+    response_wait_delay: *response_wait_delay
+
+  rate_control:
+    max_concurrent: 1                          # 浏览器目标必须串行

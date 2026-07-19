@@ -863,7 +863,7 @@ class TestHeaderParser(unittest.TestCase):
     def test_parse_header_file_exists(self):
         """测试解析真实文件"""
         from pyrit_ai300.orchestrators.auth import parse_header_file
-        profile = parse_header_file("config/headers/syxy.txt")
+        profile = parse_header_file("config/targets/credentials/student.syxy.ouchn.cn.txt")
         self.assertIsNotNone(profile)
         self.assertEqual(profile.host, "student.syxy.ouchn.cn")
         self.assertTrue(profile.has_auth())
@@ -1008,7 +1008,7 @@ class TestPlaywrightTargetConfig(unittest.TestCase):
     def test_config_loads(self):
         """验证 playwright 目标配置可正常加载"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
         self.assertIn("target", config)
         self.assertEqual(config["target"]["type"], "playwright")
         self.assertIn("auth", config["target"])
@@ -1017,7 +1017,7 @@ class TestPlaywrightTargetConfig(unittest.TestCase):
     def test_config_has_header_file(self):
         """验证配置引用了 header 文件"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
         auth = config["target"]["auth"]
         self.assertIn("header_file", auth)
         self.assertTrue(auth["header_file"].endswith(".txt"))
@@ -1134,14 +1134,14 @@ class TestRateControlConfig(unittest.TestCase):
     def test_playwright_config_has_rate_control(self):
         """验证 playwright 目标配置包含 rate_control"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/playwright_web_chat.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
         self.assertIn("rate_control", config["target"])
         self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 1)
 
     def test_custom_model_config_has_rate_control(self):
         """验证 custom_model 目标配置包含 rate_control"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/custom_model_endpoint.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/ollama.yaml")
         self.assertIn("rate_control", config["target"])
         self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 2)
 

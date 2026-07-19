@@ -416,7 +416,7 @@ ai300 report -r <results.json> -o <output>
 from pyrit_ai300 import AI300Engine
 
 engine = AI300Engine(
-    target_config="config/targets/ollama_local.yaml",
+    target_config="config/targets/ollama.yaml",
     profile_path="results/recon/profile.json",
     target_url="http://target.com",
     scorer_url="http://localhost:11434/v1",

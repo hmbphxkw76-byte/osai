@@ -90,7 +90,7 @@ class AI300Engine:
     def __init__(
         self,
         config_path: str = None,
-        target_config: str = "config/targets/ollama_local.yaml",
+        target_config: str = "config/targets/ollama.yaml",
         tracker: Optional[Any] = None,
         profile_path: Optional[str] = None,
         target_url: Optional[str] = None,

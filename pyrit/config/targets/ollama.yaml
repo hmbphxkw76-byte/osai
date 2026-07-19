@@ -1,0 +1,43 @@
+# ════════════════════════════════════════════════════════════════
+# 场景 1: 本地模型节点（Ollama / LM Studio / vLLM）
+# ════════════════════════════════════════════════════════════════
+# 特征：直接部署在服务器上的开源模型，通常无需认证
+# 适用于：Ollama、LM Studio、vLLM、text-generation-webui 等
+#
+# 使用方式：
+#   ai300 recon -t "http://192.168.0.23:11434" --tools ollama_fingerprint
+#   ai300 owasp llm01 --target-file config/targets/ollama.yaml
+# ════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════
+# 用户配置区 — 只需修改下方变量，无需改动 target 部分
+# ════════════════════════════════════════════════════════════════
+vars:
+  # 模型服务地址（必须含 /v1 路径）
+  # 示例: http://192.168.0.23:11434/v1, http://localhost:1234/v1
+  endpoint: &endpoint "http://192.168.0.23:11434/v1"
+
+  # 模型名称（通过 `ollama list` 或服务文档获取）
+  # 示例: qwen3:0.6b, llama3:8b, glm4:9b, deepseek-r1:7b
+  model: &model "qwen3:0.6b"
+
+  # API Key（Ollama 本地通常不需要；vLLM 可设 Bearer token）
+  # 示例: not-needed, sk-xxxxxxxxxxxx
+  api_key: &api_key "not-needed"
+
+# ════════════════════════════════════════════════════════════════
+
+target:
+  name: "ollama_local"
+  type: "ollama"
+  description: "本地/内网模型节点（Ollama / LM Studio / vLLM）"
+
+  connection:
+    endpoint: *endpoint
+    model: *model
+    api_key: *api_key
+    temperature: 0.7
+    max_tokens: 2048
+
+  rate_control:
+    max_concurrent: 2                          # 本地 GPU 建议 2，避免 OOM

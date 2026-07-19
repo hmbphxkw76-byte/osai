@@ -50,7 +50,7 @@ def main():
 
 Examples:
   # 单目标攻击（指定配置文件）
-  ai300 owasp llm01 --target-file config/targets/ollama_local.yaml
+  ai300 owasp llm01 --target-file config/targets/ollama.yaml
 
   # 单目标攻击（指定 URL）
   ai300 owasp llm01 --target-url http://www.example.com
@@ -65,25 +65,25 @@ Examples:
   ai300 owasp llm01 --target-url http://target.com --auto-recon
 
   # 使用侦察生成的 profile（19项优化画像）
-  ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --profile results/recon/profile.json
+  ai300 owasp llm01 --target-file config/targets/ollama.yaml --profile results/recon/profile.json
 
   # 全量 LLM Top 10 攻击
-  ai300 owasp llm --target-file config/targets/ollama_local.yaml
+  ai300 owasp llm --target-file config/targets/ollama.yaml
 
   # 全量攻击（LLM + Agentic）
-  ai300 owasp all --target-file config/targets/ollama_local.yaml
+  ai300 owasp all --target-file config/targets/ollama.yaml
 
   # 单文件精确攻击
-  ai300 owasp owasp:llm:llm04:rag_poison --target-file config/targets/ollama_local.yaml
+  ai300 owasp owasp:llm:llm04:rag_poison --target-file config/targets/ollama.yaml
 
   # 实验模式（一个参数替代 --objective/--placeholders）
-  ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --experiment expericing/tier1_goal
+  ai300 owasp llm01 --target-file config/targets/ollama.yaml --experiment expericing/tier1_goal
 
   # 多目标攻击（逗号分隔）
-  ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --objective "whoami,id,uname"
+  ai300 owasp llm01 --target-file config/targets/ollama.yaml --objective "whoami,id,uname"
 
   # 全量攻击 + HTML 报告 + 外部 LLM 评分器（启用集成+语义评分）
-  ai300 owasp all --target-file config/targets/ollama_local.yaml \\
+  ai300 owasp all --target-file config/targets/ollama.yaml \\
     --format html -o report.html \\
     --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
     --scorer-key $ZHIPUAI_API_KEY \\
@@ -112,7 +112,7 @@ Examples:
     owasp_target.add_argument(
         "-t", "--target-file",
         default=None,
-        help="Target configuration file path (e.g., config/targets/ollama_local.yaml)",
+        help="Target configuration file path (e.g., config/targets/ollama.yaml)",
     )
     owasp_target.add_argument(
         "--target-dir",
@@ -260,7 +260,7 @@ Examples:
     recon_target.add_argument(
         "--target-file",
         default=None,
-        help="Target config file from config/targets/ (e.g., config/targets/custom_model_endpoint.yaml)",
+        help="Target config file from config/targets/ (e.g., config/targets/ollama.yaml)",
     )
     recon_optional = recon_parser.add_argument_group("optional arguments")
     recon_optional.add_argument(
@@ -284,6 +284,16 @@ Examples:
         "--config",
         default="config/recon/recon.yaml",
         help="Recon configuration file path (default: config/recon/recon.yaml)",
+    )
+    recon_optional.add_argument(
+        "--spa-config",
+        default=None,
+        help="SPA chat recon config file (e.g., config/targets/sso_login.yaml). "
+             "Triggers SPA smart assistant recon mode: credential pre-check → "
+             "browser auto-login → network traffic capture → LLM model identification. "
+             "凭据优先从 config/targets/credentials/{域名}.txt 自动复用，"
+             "失败再走认证流程，成功后自动导出凭据。"
+             "适用于需登录的 SPA 智能助手场景（如教育平台/企业门户 AI 聊天）",
     )
     recon_optional.add_argument(
         "-v", "--verbose",
@@ -1742,7 +1752,7 @@ def _run_owasp(args, logger):
                 logger.info("─" * 40)
 
             engine = AI300Engine(
-                target_config=target_file or "config/targets/ollama_local.yaml",
+                target_config=target_file or "config/targets/ollama.yaml",
                 tracker=tracker,
                 profile_path=profile_path,
                 target_url=target_url,
@@ -1924,10 +1934,225 @@ def _generate_report(args, logger):
     logger.info("Report generated: %s", args.output)
 
 
+def _run_spa_recon(args, spa_config_path, logger):
+    """
+    执行 SPA 智能助手侦察
+
+    通过浏览器自动化登录 SPA 应用，导航到智能助手聊天界面，
+    捕获网络流量识别后端 LLM 模型和 API 端点。
+
+    流程：
+    1. 加载 SPA 配置（登录凭证、选择器、探测策略）
+    2. Playwright 浏览器启动 + 登录
+    3. 点击智能助手入口
+    4. 发送探测消息 + 捕获网络流量
+    5. 分析后端 LLM API（模型名称/端点/认证/能力）
+    6. 输出 TargetProfile JSON
+    """
+    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.pipeline import PipelineTracker
+
+    print("\n" + "=" * 60)
+    print("  🔍 SPA 智能助手侦察模式")
+    print("=" * 60)
+    print(f"  配置文件: {spa_config_path}")
+
+    # 预检 Playwright 可用性
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        print("\n  ✗ Playwright 未安装")
+        print("    请安装: pip install playwright && playwright install chromium")
+        return
+
+    # 加载配置预览
+    try:
+        spa_config = ReconEngine.load_spa_config(spa_config_path)
+    except FileNotFoundError as e:
+        print(f"\n  ✗ 配置文件不存在: {e}")
+        return
+
+    target_url = spa_config.get("connection", {}).get("url", "")
+    login_mode = spa_config.get("login", {}).get("mode", "manual")
+    chat_selector = spa_config.get("chat_entry", {}).get("selector", "")
+
+    print(f"  目标 URL: {target_url}")
+    print(f"  登录模式: {login_mode}")
+    if spa_config.get("login", {}).get("username"):
+        print(f"  账号: {spa_config['login']['username']}")
+    if chat_selector:
+        print(f"  助手入口: {chat_selector[:60]}...")
+    print()
+
+    # 创建 tracker
+    tracker = PipelineTracker(verbose=True)
+
+    # 执行 SPA 侦察
+    engine = ReconEngine()
+    try:
+        profile = engine.run_spa_recon(
+            spa_config_path=spa_config_path,
+            tracker=tracker,
+        )
+    except Exception as e:
+        print(f"\n  ✗ SPA 侦察失败: {e}")
+        logger.error("SPA recon failed: %s", str(e), exc_info=True)
+        return
+
+    # 保存结果
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = args.output or f"results/recon/spa_profile_{timestamp}.json"
+    profile.save(output_path)
+
+    if tracker.recon_log:
+        tracker.recon_log.profile_path = output_path
+
+    # 打印摘要
+    print("\n" + "=" * 60)
+    print("  ✅ SPA 智能助手侦察完成")
+    print("=" * 60)
+    print(f"  目标:         {profile.target}")
+    print(f"  风险等级:     {profile.risk_level} | 发现: {profile.vulnerability_count} 项")
+
+    # 指纹信息（重点突出）
+    fp = profile.fingerprint
+    if fp.model_name or fp.model_family or fp.provider:
+        print(f"\n  🤖 AI 模型信息")
+        if fp.model_name:
+            print(f"     模型名称: {fp.model_name}")
+        if fp.model_family:
+            print(f"     模型家族: {fp.model_family}")
+        if fp.provider:
+            print(f"     API 格式: {fp.provider}")
+        if fp.capabilities:
+            print(f"     能力:     {', '.join(fp.capabilities)}")
+        if fp.system_prompt:
+            print(f"     系统提示: {fp.system_prompt[:80]}...")
+
+    # AI 应用端点（重点突出）
+    raw = profile.raw_results.get("spa_chat_recon", {})
+    if raw:
+        data = raw.get("data", {})
+        traffic = data.get("traffic_summary", {})
+
+        # LLM API 端点
+        if profile.entry_points or (traffic and traffic.get("llm_endpoints")):
+            print(f"\n  🎯 AI 应用端点")
+            if profile.entry_points:
+                for ep in profile.entry_points[:5]:
+                    print(f"     • {ep.get('url', '')} [{ep.get('method', '')}]")
+            elif traffic and traffic.get("llm_endpoints"):
+                for ep_url in traffic["llm_endpoints"][:5]:
+                    print(f"     • {ep_url}")
+
+        # RAG 端点
+        rag_endpoints = data.get("rag_endpoints", [])
+        if rag_endpoints:
+            print(f"\n  📚 RAG 端点")
+            for ep in rag_endpoints[:5]:
+                print(f"     • {ep.get('path', '')} [状态: {ep.get('status', '')}]")
+
+        # 攻击面
+        if profile.surfaces:
+            print(f"\n  📋 攻击面: {', '.join(profile.surfaces)}")
+
+        # OWASP 映射
+        owasp_mappings = profile.get_owasp_mappings()
+        if owasp_mappings:
+            print(f"  OWASP 映射: {', '.join(owasp_mappings)}")
+
+        # 探测回复摘要
+        probe_responses = data.get("probe_responses", [])
+        if probe_responses:
+            responded = sum(1 for r in probe_responses if r.get("response", "").strip())
+            total = len(probe_responses)
+            print(f"\n  📨 探测回复: {responded}/{total} 条有回复")
+            for resp in probe_responses:
+                purpose = resp.get("purpose", "")
+                response_text = resp.get("response", "")
+                has_response = bool(response_text.strip())
+                icon = "✅" if has_response else "❌"
+                # 用途中文
+                purpose_cn = {
+                    "connectivity": "连通性",
+                    "model_identify": "模型识别",
+                    "system_prompt_leak": "系统提示泄露",
+                    "capability_probe": "能力探测",
+                    "custom": "自定义",
+                }.get(purpose, purpose)
+                if has_response:
+                    preview = response_text.strip()[:60]
+                    if len(response_text.strip()) > 60:
+                        preview += "..."
+                    print(f"     {icon} {purpose_cn}: {preview}")
+                else:
+                    print(f"     {icon} {purpose_cn}: 无回复")
+
+    print(f"\n  📁 画像保存: {output_path}")
+
+    # 截图和浏览器状态
+    if raw:
+        data = raw.get("data", {})
+        if data.get("screenshot_path"):
+            print(f"  📸 截图:     {data['screenshot_path']}")
+        if data.get("storage_state_path"):
+            print(f"  💾 浏览器状态: {data['storage_state_path']}")
+
+    # 发现详情（按严重度分组）
+    if profile.vulnerabilities:
+        # 按严重度分组
+        severity_order = ["critical", "high", "medium", "low"]
+        severity_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+        severity_names = {"critical": "严重", "high": "高危", "medium": "中危", "low": "低危"}
+
+        grouped = {}
+        for v in profile.vulnerabilities:
+            sev = v.severity if v.severity in severity_order else "low"
+            if sev not in grouped:
+                grouped[sev] = []
+            grouped[sev].append(v)
+
+        print(f"\n  📋 发现详情 ({profile.vulnerability_count} 项)")
+        for sev in severity_order:
+            if sev not in grouped:
+                continue
+            items = grouped[sev]
+            icon = severity_icons[sev]
+            name = severity_names[sev]
+            print(f"\n  {icon} {name} ({len(items)} 项)")
+            for v in items:
+                # 分类中文名
+                category_cn = {
+                    "preflight_auth_valid": "预检认证有效",
+                    "preflight_auth_partial": "预检认证部分有效",
+                    "chat_entry_not_found": "聊天入口未找到",
+                    "no_llm_api_detected": "未检测到 LLM API",
+                    "rag_endpoint_exposed": "RAG 端点暴露",
+                    "system_prompt_leak": "系统提示泄露",
+                    "model_identified": "模型已识别",
+                }.get(v.category, v.category)
+                print(f"     • {category_cn}")
+                if v.description:
+                    print(f"       {v.description[:120]}")
+    print()
+
+    # 后续步骤（精简）
+    print("  💡 后续步骤:")
+    print(f"     ai300 owasp llm01 --target-url {target_url} --profile {output_path}")
+    print()
+
+
 def _run_recon(args, logger):
     """执行侦察（独立模式，无攻击阶段）"""
     from pyrit_ai300.reconnaissance import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
+
+    # ── SPA 智能助手侦察模式 ──
+    spa_config = getattr(args, "spa_config", None)
+    if spa_config:
+        _run_spa_recon(args, spa_config, logger)
+        return
 
     # 解析目标：--target 或 --target-file（二选一）
     target = args.target

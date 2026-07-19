@@ -75,6 +75,42 @@ class AuthProfile:
         """是否有认证信息"""
         return self.auth_type != "none"
 
+    def is_token_expired(self) -> bool:
+        """
+        检查 JWT Token 是否已过期
+
+        Returns:
+            True 如果 Token 已过期或即将过期（5 分钟内）
+            False 如果 Token 有效或无 Token（无 Token 时不阻塞）
+        """
+        if not self.token_expiry:
+            return False  # 无 Token 或解析失败，不阻塞流程
+
+        import time
+        current_time = int(time.time())
+        # 5 分钟缓冲，避免临界过期
+        return current_time >= (self.token_expiry - 300)
+
+    def get_domain(self) -> str:
+        """
+        获取认证凭据对应的目标域名
+
+        优先从 Host 头提取，回退到 cookie domain
+
+        Returns:
+            域名字符串（如 student.syxy.ouchn.cn），无则返回空字符串
+        """
+        if self.host:
+            return self.host.split(":")[0]  # 移除端口号
+
+        # 回退：从 cookie domain 提取
+        for cookie in self.cookies:
+            domain = cookie.get("domain", "")
+            if domain:
+                return domain.lstrip(".")
+
+        return ""
+
     def summary(self) -> str:
         """摘要信息"""
         parts = []
@@ -301,3 +337,82 @@ def _parse_jwt_expiry(token: str) -> Optional[int]:
         return claims.get("exp")
     except Exception:
         return None
+
+
+# ── 域名匹配与凭据文件查找 ──
+
+def normalize_domain(url_or_domain: str) -> str:
+    """
+    从 URL 或域名中提取规范化的域名（去掉端口、路径、协议）
+
+    Args:
+        url_or_domain: URL 或域名字符串
+            "https://student.syxy.ouchn.cn/#/home" → "student.syxy.ouchn.cn"
+            "www.qianwen.com:443/chat" → "www.qianwen.com"
+
+    Returns:
+        规范化域名字符串（小写，无端口，无路径）
+    """
+    domain = url_or_domain.strip().lower()
+
+    # 如果是完整 URL，先提取 netloc
+    if "://" in domain:
+        domain = extract_domain_from_url(domain)
+
+    # 去掉端口
+    if ":" in domain:
+        domain = domain.split(":")[0]
+
+    # 去掉路径和查询参数（安全回退）
+    domain = domain.split("/")[0].split("?")[0].split("#")[0]
+
+    return domain.strip()
+
+
+def find_credential_file(
+    target_domain: str,
+    credentials_dir: str = "config/targets/credentials",
+) -> Optional[str]:
+    """
+    基于目标域名精准匹配凭据文件
+
+    匹配策略（按优先级）：
+    1. 精确匹配：{credentials_dir}/{target_domain}.txt
+    2. 文件内 Host 头匹配：扫描目录下所有 .txt，解析 Host 头与目标域名比对
+
+    设计原则：域名 A 只读取 A 的凭据文件，绝不交叉读取 B 的
+
+    Args:
+        target_domain: 目标域名（如 student.syxy.ouchn.cn）
+        credentials_dir: 凭据目录路径
+
+    Returns:
+        匹配的凭据文件绝对路径，或 None（未找到时）
+    """
+    if not target_domain or not os.path.isdir(credentials_dir):
+        return None
+
+    target_domain = normalize_domain(target_domain)
+
+    # 策略 1：精确文件名匹配（最快速，最精准）
+    exact_path = os.path.join(credentials_dir, f"{target_domain}.txt")
+    if os.path.isfile(exact_path):
+        logger.debug("Credential file matched by filename: %s", exact_path)
+        return os.path.abspath(exact_path)
+
+    # 策略 2：扫描所有 .txt，解析 Host 头匹配（处理命名不规范的情况）
+    for fname in os.listdir(credentials_dir):
+        if not fname.endswith(".txt"):
+            continue
+        fpath = os.path.join(credentials_dir, fname)
+        try:
+            profile = parse_header_file(fpath)
+            file_domain = normalize_domain(profile.get_domain())
+            if file_domain and file_domain == target_domain:
+                logger.debug("Credential file matched by Host header: %s → %s", fname, target_domain)
+                return os.path.abspath(fpath)
+        except Exception:
+            continue
+
+    logger.debug("No credential file found for domain: %s", target_domain)
+    return None

@@ -8,7 +8,14 @@ AI-300 Framework - Auth Module
 - playwright_injector: AuthProfile → Playwright 认证注入
 """
 
-from .header_parser import AuthProfile, parse_header_file, parse_header_text, extract_domain_from_url
+from .header_parser import (
+    AuthProfile,
+    parse_header_file,
+    parse_header_text,
+    extract_domain_from_url,
+    normalize_domain,
+    find_credential_file,
+)
 from .playwright_injector import inject_auth
 
 __all__ = [
@@ -17,4 +24,6 @@ __all__ = [
     "parse_header_text",
     "inject_auth",
     "extract_domain_from_url",
+    "normalize_domain",
+    "find_credential_file",
 ]

@@ -1,0 +1,93 @@
+# ════════════════════════════════════════════════════════════════
+# 场景 4: Web 聊天平台（千问 / 类似 OAuth 认证的 AI 聊天应用）
+# ════════════════════════════════════════════════════════════════
+# 特征：页面本身即聊天页，通过第三方 OAuth（支付宝/微信等）认证
+# 适用于：qianwen.com/chat、通义千问、类似的新一代 AI 聊天平台
+#
+# 认证流程：
+#   1. 访问 https://www.qianwen.com/chat
+#   2. 用户手动完成支付宝 OAuth 授权（人工干预点）
+#   3. OAuth 回调返回 /chat 页面
+#   4. 直接在聊天界面发送探测消息
+#
+# 首次使用流程：
+#   1. 使用 oauth 模式，浏览器打开后手动完成支付宝登录
+#   2. 登录成功后按 Enter，系统自动保存 storage_state
+#   3. F12 → Network → 复制 Cookie → 存入 credentials/www.qianwen.com.txt
+#   4. 后续系统自动发现并复用凭据，免重复登录
+#
+# 使用方式：
+#   ai300 recon --spa-config config/targets/qianwen_chat.yaml
+# ════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════
+# 用户配置区 — 只需修改下方变量，无需改动 target 部分
+# ════════════════════════════════════════════════════════════════
+vars:
+  # 目标聊天页面 URL（完整地址，含路径）
+  # 示例: https://www.qianwen.com/chat, https://chat.example.com
+  target_url: &target_url "https://www.qianwen.com/chat"
+
+  # 是否无头模式（OAuth 登录必须 false，凭据复用后可改 true）
+  # false=显示浏览器窗口 / true=后台运行
+  headless: &headless false
+
+  # OAuth 提供商（决定登录入口的识别策略）
+  # 可选: alipay, wechat, qq, github, google
+  oauth_provider: &oauth_provider "alipay"
+
+  # OAuth 回调 URL 关键词（回调 URL 中应包含此词，用于判断登录成功）
+  # 示例: qianwen, callback, auth
+  redirect_url_pattern: &redirect_url_pattern "qianwen"
+
+  # LLM 响应等待延迟（秒，千问建议 8s，快速模型可设 3-5s）
+  # 示例: 8.0, 5.0, 3.0
+  response_wait_delay: &response_wait_delay 8.0
+
+# ════════════════════════════════════════════════════════════════
+
+target:
+  name: "qianwen_chat"
+  type: "spa_chat_recon"
+  description: "千问聊天平台侦察（OAuth 认证 + 页面即聊天页）"
+
+  connection:
+    url: *target_url
+    browser: "chromium"
+    headless: *headless
+    wait_until: "networkidle"
+    ignore_https_errors: true
+
+  # ── 登录配置 ──
+  # 选一种模式，其余注释掉即可
+  login:
+    # 【推荐】首次使用：OAuth 手动登录
+    mode: "oauth"
+    oauth_provider: *oauth_provider
+    redirect_url_pattern: *redirect_url_pattern
+
+    # 【快速复用】凭据文件（系统也会自动发现 credentials/{域名}.txt）
+    # mode: "header_file"
+    # header_file: "config/targets/credentials/www.qianwen.com.txt"
+
+    # 【免登录】复用浏览器状态（首次侦察后自动保存）
+    # mode: "storage_state"
+    # storage_state: "results/recon/storage_states/qianwen_state.json"
+
+  # ── 聊天入口 ──
+  chat_entry:
+    mode: "none"                        # none: 页面本身即是聊天页，无需点击入口
+
+  # ── 聊天 DOM 选择器 ──
+  selectors:
+    input: "textarea, [contenteditable='true'], [class*='chat-input']"
+    send_button: "button[type='submit'], .send-btn, [aria-label='发送']"
+    response: ".response, .ai-message, .assistant-message, [class*='answer']"
+    wait_timeout: 15000
+    response_wait_delay: *response_wait_delay
+
+  # ── 侦察选项 ──
+  probe:
+    enabled: true
+  screenshot_dir: "results/recon/screenshots"
+  save_storage_state: true              # 首次侦察后自动保存，后续可复用

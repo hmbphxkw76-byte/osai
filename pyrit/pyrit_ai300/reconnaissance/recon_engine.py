@@ -28,6 +28,7 @@ from .adapters import (
     DeepTeamAdapter,
     GarakAdapter,
     ProtocolFingerprintAdapter,
+    SPAChatReconAdapter,
 )
 from .profile_merger import ProfileMerger
 from .target_profile import TargetProfile
@@ -64,6 +65,7 @@ class ReconEngine:
         "garak": GarakAdapter,
         "deepteam": DeepTeamAdapter,
         "protocol_fingerprint": ProtocolFingerprintAdapter,
+        "spa_chat_recon": SPAChatReconAdapter,
     }
 
     def __init__(self, config_path: str = "config/recon/recon.yaml"):
@@ -547,6 +549,125 @@ class ReconEngine:
         tool_config = config or self._get_tool_config(tool)
         return adapter.run(target, tool_config)
 
+    def run_spa_recon(
+        self,
+        spa_config_path: str,
+        tracker: Optional[Any] = None,
+    ) -> TargetProfile:
+        """
+        执行 SPA 智能助手侦察
+
+        从 YAML 配置文件加载完整的 SPA 配置（登录凭证、选择器、探测策略等），
+        通过 SPAChatReconAdapter 执行浏览器自动化侦察。
+
+        流程：
+        1. 加载 SPA 配置文件（login / chat_entry / selectors / probe）
+        2. 合并 recon.yaml 中的 spa_chat_recon 默认配置
+        3. 执行 SPAChatReconAdapter
+        4. 合并结果到 TargetProfile
+
+        Args:
+            spa_config_path: SPA 目标配置文件路径（如 config/targets/sso_login.yaml）
+            tracker: PipelineTracker 实例（可选）
+
+        Returns:
+            TargetProfile 包含后端 LLM 模型信息、API 端点、能力等
+
+        Example:
+            engine = ReconEngine()
+            profile = engine.run_spa_recon("config/targets/sso_login.yaml")
+            profile.save("results/recon/spa_profile.json")
+        """
+        start_time = time.time()
+        logger.info("Starting SPA chat recon with config: %s", spa_config_path)
+
+        # 加载 SPA 配置
+        spa_config = self.load_spa_config(spa_config_path)
+        target_url = spa_config.get("connection", {}).get("url", "")
+
+        if tracker:
+            tracker.log_recon_start(target_url, ["spa_chat_recon"])
+
+        # 合并 recon.yaml 中的默认配置
+        tool_config = self._get_tool_config("spa_chat_recon")
+        merged_config = {**tool_config, **spa_config}
+
+        # 执行 SPA 侦察适配器
+        adapter = self._get_adapter("spa_chat_recon")
+        result = self._run_single_adapter(
+            "spa_chat_recon",
+            target_url,
+            tracker,
+            config=merged_config,
+        )
+
+        # 合并结果到 TargetProfile
+        profile = self.merger.merge(
+            target=target_url,
+            results=[result] if result else [],
+            depth="standard",
+        )
+
+        total_duration = (time.time() - start_time) * 1000
+        logger.info(
+            "SPA recon complete: %d findings, risk=%s, %.1fs",
+            profile.vulnerability_count,
+            profile.risk_level,
+            total_duration / 1000,
+        )
+
+        if tracker:
+            tracker.log_recon_complete(
+                profile_path="",
+                success=True,
+                duration_ms=total_duration,
+            )
+
+        return profile
+
+    @staticmethod
+    def load_spa_config(config_path: str) -> dict:
+        """
+        从 YAML 文件加载 SPA 侦察配置
+
+        支持两种格式：
+        1. 带 target: 顶层键的标准格式（如 config/targets/sso_login.yaml）
+        2. 不带 target: 的扁平格式（直接包含 connection/login/chat_entry 等）
+
+        Args:
+            config_path: YAML 配置文件路径
+
+        Returns:
+            扁平化的配置字典，包含 connection / login / chat_entry / selectors / probe
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 配置格式错误
+        """
+        import yaml
+        from pathlib import Path
+
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"SPA config not found: {config_path}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        # 如果有 target 顶层键，提取内部配置
+        if "target" in data:
+            target_data = data["target"]
+            # 提取所有子配置（connection / login / auth / chat_entry / selectors / probe 等）
+            result = {}
+            for key in ("connection", "login", "auth", "chat_entry", "selectors", "probe",
+                        "screenshot_dir", "save_storage_state"):
+                if key in target_data:
+                    result[key] = target_data[key]
+            return result
+        else:
+            # 扁平格式，直接返回
+            return data
+
     def _run_single_adapter(
         self,
         tool: str,
@@ -700,6 +821,20 @@ class ReconEngine:
                     metadata={"enabled": True},
                 )
 
+            elif tool == "spa_chat_recon":
+                # SPA 智能助手侦察：浏览器自动化 + 网络流量捕获
+                tracker.log_recon_optimization(
+                    stage="recon_spa_chat_browser",
+                    optimization_id="SPA-RECON",
+                    input_summary=f"target={target}",
+                    output_summary="playwright+traffic_capture+llm_identify",
+                    metadata={
+                        "browser": tool_config.get("browser", "chromium"),
+                        "headless": tool_config.get("headless", False),
+                        "login_mode": tool_config.get("login", {}).get("mode", "manual"),
+                    },
+                )
+
         tool_start = time.time()
         result = adapter.run(target, tool_config)
         duration_ms = (time.time() - tool_start) * 1000
@@ -849,7 +984,7 @@ class ReconEngine:
         从 config/targets/ 目录加载目标 URL
 
         Args:
-            target_file: 目标配置文件路径（如 config/targets/custom_model_endpoint.yaml）
+            target_file: 目标配置文件路径（如 config/targets/ollama.yaml）
 
         Returns:
             目标 URL 字符串
