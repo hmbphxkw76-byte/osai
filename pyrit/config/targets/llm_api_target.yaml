@@ -1,0 +1,28 @@
+# ════════════════════════════════════════════════════════════════
+# LLM API 目标（Ollama 本地 / OpenAI 兼容云端平台）
+# ════════════════════════════════════════════════════════════════
+#
+# 用户只需修改下方 4 个字段，其余由系统自动处理。
+#
+# type 取值：
+#   ollama → 本地模型节点（Ollama / LM Studio / vLLM），通常无需认证
+#   openai → 云端 OpenAI 兼容平台（智谱/百度/DeepSeek/Moonshot/MiniMax 等）
+#
+# 使用方式：
+#   ai300 recon -t "http://192.168.0.23:11434" --tools ollama_fingerprint
+#   ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
+#
+# 各平台速查表（修改下方字段即可切换）：
+#   智谱 GLM:    type=openai  endpoint="https://open.bigmodel.cn/api/paas/v4"  model="glm-4-flash"
+#   百度文心:    type=openai  endpoint="https://qianfan.baidubce.com/v2"       model="ernie-speed-128"
+#   DeepSeek:    type=openai  endpoint="https://api.deepseek.com/v1"           model="deepseek-chat"
+#   Moonshot:    type=openai  endpoint="https://api.moonshot.cn/v1"             model="moonshot-v1-8k"
+#   MiniMax:     type=openai  endpoint="https://api.minimax.chat/v1"            model="abab6.5-chat"
+#   Ollama 本地: type=ollama  endpoint="http://192.168.0.23:11434/v1"           model="qwen3:0.6b"
+# ════════════════════════════════════════════════════════════════
+
+target:
+  type: "ollama"                              # ollama / openai
+  endpoint: "http://192.168.0.23:11434/v1"    # 必须含 /v1 路径
+  model: "qwen3:0.6b"                         # ollama list 查看，或平台控制台获取
+  api_key: "not-needed"                       # Ollama 填 "not-needed"；云端填 sk-xxx

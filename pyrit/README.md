@@ -140,14 +140,13 @@ ai300 recon -t http://localhost:11434 -d quick
 # 首次：人工完成验证码/OAuth → 系统自动导出凭据到 credentials/
 # 后续：自动从 credentials/{域名}.txt 复用，免重复登录
 # 无认证降级：认证失败不终止流程，以未认证状态继续有限侦察
-ai300 recon --spa-config config/targets/sso_login.yaml
-ai300 recon --spa-config config/targets/qianwen_chat.yaml
+ai300 recon --spa-config config/targets/spa_target.yaml
 
 # SPA 聊天攻击（配合侦察阶段使用，复用认证凭据）
-ai300 owasp llm01 --target-file config/targets/spa_chat_attack.yaml
+ai300 owasp llm01 --target-file config/targets/spa_target.yaml
 
 # OWASP 标准攻击（单目标）
-ai300 owasp llm01 --target-file config/targets/ollama.yaml
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
 
 # OWASP 标准攻击（直接 URL）
 ai300 owasp llm01 --target-url http://www.example.com
@@ -159,16 +158,16 @@ ai300 owasp llm01 --target-dir config/targets/
 ai300 owasp llm01 --target-url http://target.com --auto-recon
 
 # 使用侦察生成的 profile
-ai300 owasp llm01 --target-file config/targets/ollama.yaml --profile results/recon/profile.json
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --profile results/recon/profile.json
 
 # 全量 LLM Top 10 攻击
-ai300 owasp llm --target-file config/targets/ollama.yaml
+ai300 owasp llm --target-file config/targets/llm_api_target.yaml
 
 # 全量攻击 + HTML 报告
-ai300 owasp all --target-file config/targets/ollama.yaml --format html -o report.html
+ai300 owasp all --target-file config/targets/llm_api_target.yaml --format html -o report.html
 
 # 实验模式（推荐）
-ai300 owasp llm01 --target-file config/targets/ollama.yaml --experiment expericing/tier1_goal
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --experiment expericing/tier1_goal
 
 # 列出占位符
 ai300 owasp llm01 --list-placeholders
@@ -183,7 +182,7 @@ ai300 report -r results.json -o report.md
 from pyrit_ai300 import AI300Engine
 
 # 初始化引擎
-engine = AI300Engine(target_config="config/targets/ollama.yaml")
+engine = AI300Engine(target_config="config/targets/llm_api_target.yaml")
 
 # 执行攻击
 results = engine.run(scope="llm01")

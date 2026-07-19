@@ -91,6 +91,14 @@
 - `header_parser.py`：解析 Bearer Token / Cookie / 组合认证
 - JWT Token 过期时间解析
 - `playwright_injector.py`：浏览器认证注入
+- **凭据自动导出**（v1.3 新增）：`auto_spa_recon.py` 的 `export_credentials()` 函数
+  - 认证完成后自动将 Cookie/JWT/API Key 导出到 `config/targets/credentials/{domain}.txt`
+  - 格式为 HTTP Request Headers（与 `header_parser.py` 兼容）
+  - 来源优先级：localStorage JWT > API 请求头 Authorization > Playwright Cookie
+  - 自动过滤跟踪类 Cookie（_ga / _gid / _gat 等）
+- **凭据自动发现**（v1.3 新增）：`target_builder.py` 的 `find_credential_file()`
+  - 攻击阶段按目标 URL 域名自动匹配 `credentials/{domain}.txt`
+  - 优先级：显式 `auth.header_file` > 域名自动发现
 
 ### 8. Web 交互 (`orchestrators/interactions/web_chat.py`) [NEW]
 - `create_web_chat_interaction(selectors)` 构建 Playwright 交互函数
@@ -230,7 +238,11 @@
 ```
 pyrit/                          # 项目根目录
 ├── config/                     # 配置层
-│   ├── targets/               #   目标端点配置 YAML
+│   ├── targets/               #   目标端点配置 YAML（3 个极简模板）
+│   │   ├── spa_target.yaml    #     SPA 聊天（4 字段：url/username/password/auth_mode）
+│   │   ├── llm_api_target.yaml#     LLM API（4 字段：type/endpoint/model/api_key）
+│   │   ├── http_target.yaml   #     HTTP API（2 字段：use_tls/http_request）
+│   │   └── credentials/       #     凭据文件（侦察自动导出，域名命名）
 │   ├── recon/                 #   侦察配置（recon.yaml + garak.yaml）
 │   ├── scores/                #   评分器 LLM 后端（每后端一个 YAML）
 │   ├── headers/               #   认证头文件
@@ -366,6 +378,15 @@ ai300 report -r <results.json> -o <output>
 
 ## 已删除的死代码历史
 
+### 2026-07-19（v1.3 配置极简化 + 凭据自动导出）
+- `config/targets/sso_login.yaml` — 被 `spa_target.yaml` 极简版替代
+- `config/targets/spa_chat_attack.yaml` — 被 `spa_target.yaml` 极简版替代
+- `config/targets/qianwen_chat.yaml` — 被 `spa_target.yaml` 的 manual 模式替代
+- `config/targets/ollama.yaml` — 被 `llm_api_target.yaml` 替代
+- `config/targets/openai_compatible.yaml` — 被 `llm_api_target.yaml` 替代
+- `config/targets/http_api.yaml` — 被 `http_target.yaml` 替代
+- `auto_spa_recon.py` 中从 credentials 文件按 `username:password` 格式提取的死代码 — 凭据文件是 HTTP Headers 格式，不是 username:password
+
 ### 2026-07-18
 - `reporting/chapter_mapper.py` — OWASP→AI-300 章节映射（集成到报告生成器）
 - `config/attack/defaults.yaml` — 攻击默认配置（不再需要）
@@ -416,7 +437,7 @@ ai300 report -r <results.json> -o <output>
 from pyrit_ai300 import AI300Engine
 
 engine = AI300Engine(
-    target_config="config/targets/ollama.yaml",
+    target_config="config/targets/llm_api_target.yaml",
     profile_path="results/recon/profile.json",
     target_url="http://target.com",
     scorer_url="http://localhost:11434/v1",
@@ -460,10 +481,51 @@ attacks = AttackOrchestrator.build_attack_list_from_refs(refs, payload_mgr, targ
 
 ## 常用目标配置类型
 
-| 类型 | 并发 | 速率 | 说明 |
-|------|------|------|------|
-| ollama | 2 | 0 | 本地 Ollama |
-| openai | 5 | 10 req/s | OpenAI 兼容 API |
-| http | 3 | 0 | 自定义 HTTP 端点 |
-| playwright | 1 | 0 | 浏览器自动化（强制串行）|
+| 类型 | 配置文件 | 并发 | 速率 | 说明 |
+|------|---------|------|------|------|
+| ollama | `llm_api_target.yaml` | 2 | 0 | 本地 Ollama |
+| openai | `llm_api_target.yaml` | 5 | 10 req/s | OpenAI 兼容 API |
+| http | `http_target.yaml` | 3 | 0 | 自定义 HTTP 端点 |
+| spa_chat | `spa_target.yaml` | 1 | 0 | 浏览器自动化（强制串行）|
+
+### 配置极简化架构（v1.3，2026-07-19）
+
+**3 个极简模板**（用户只需填 2-4 个字段）：
+
+| 模板 | 字段 | 认证方式 |
+|------|------|---------|
+| `spa_target.yaml` | url / username / password / auth_mode | 侦察自动登录 → 自动导出凭据 |
+| `llm_api_target.yaml` | type / endpoint / model / api_key | api_key 字段直接填 |
+| `http_target.yaml` | use_tls / http_request | 认证写在 http_request 的 Header 中 |
+
+**SPA 认证模式（auth_mode）**：
+| 模式 | 适用场景 | 验证码 |
+|------|---------|--------|
+| sso | passport SSO 跳转 | 人工完成（滑窗/图形/拼图） |
+| credentials | 简单账号密码 | 自动检测，有则等人工 |
+| manual | 扫码/手机号+短信/OAuth | 完全手动 |
+| none | 公开页面 | 无需认证 |
+
+**凭据自动导出/复用流程**：
+```
+侦察阶段（auto_spa_recon.py）
+  → 认证完成（sso/credentials/manual）
+  → export_credentials() 导出 Cookie/JWT/API Key 到 credentials/{domain}.txt
+  → update_yaml_with_results() 回写选择器到 spa_target.yaml 的 auto_detected 段
+
+攻击阶段（target_builder.py）
+  → find_credential_file(domain) 自动发现凭据文件
+  → parse_header_file() 解析为 AuthProfile
+  → inject_auth() 注入到 Playwright 浏览器
+```
+
+**已删除的旧配置文件**（v1.3）：
+- `sso_login.yaml` → 被 `spa_target.yaml` 极简版替代
+- `spa_chat_attack.yaml` → 被 `spa_target.yaml` 极简版替代
+- `qianwen_chat.yaml` → 被 `spa_target.yaml` 的 manual 模式替代
+- `ollama.yaml` → 被 `llm_api_target.yaml` 替代
+- `openai_compatible.yaml` → 被 `llm_api_target.yaml` 替代
+- `http_api.yaml` → 被 `http_target.yaml` 替代
+
+> 代码向后兼容旧格式，但推荐使用极简模板。
 

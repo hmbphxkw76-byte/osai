@@ -166,8 +166,8 @@ def create_rate_controller(
 
 def get_default_concurrency(target_type: str) -> int:
     """获取目标类型的默认并发数"""
-    if target_type == "playwright":
-        return 1
+    if target_type in ("playwright", "spa_chat"):
+        return 1  # 浏览器目标必须串行
     return DEFAULT_CONCURRENCY.get(target_type, 1)
 
 

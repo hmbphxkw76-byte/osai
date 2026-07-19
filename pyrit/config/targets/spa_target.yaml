@@ -1,0 +1,36 @@
+# ════════════════════════════════════════════════════════════════
+# SPA 聊天目标配置（侦察 + 攻击合一）
+# ════════════════════════════════════════════════════════════════
+#
+# 用户只需修改下方 4 个字段，其余由系统自动处理。
+#
+# 使用方式：
+#   1. 填好下方 4 个字段
+#   2. 运行侦察：python scripts/auto_spa_recon.py --config config/targets/spa_target.yaml
+#   3. 侦察完成后，选择器自动回写到文件底部 auto_detected 段
+#   4. 运行攻击：ai300 owasp llm01 --target-file config/targets/spa_target.yaml
+#
+# 认证模式（auth_mode）：
+#   sso         → SSO/passport 跳转 + 验证码人工配合（滑窗/图形/拼图都支持）
+#   credentials → 简单账号密码（全自动，检测到验证码才等人工）
+#   manual      → 完全手动（扫码登录/手机号+短信验证码/OAuth 授权）
+#   none        → 无需认证（公开聊天页面）
+# ════════════════════════════════════════════════════════════════
+
+target:
+  url: "https://student.syxy.ouchn.cn/#/home"
+  username: "2680201200754"
+  password: "Ouchn@274914"
+  auth_mode: "sso"          # sso / credentials / manual / none
+
+# ════════════════════════════════════════════════════════════════
+# ↓↓↓ 以下由侦察脚本自动填充，无需手动修改 ↓↓↓
+# ════════════════════════════════════════════════════════════════
+# auto_detected:
+#   chat_entry: ""
+#   input: ""
+#   send_button: ""
+#   response: ""
+#   llm_endpoint: ""
+#   model: ""
+#   last_recon: ""

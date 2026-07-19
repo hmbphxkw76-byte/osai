@@ -175,6 +175,30 @@ profile = TargetProfile.load("results/profiles/target.json")
   - `to_dict` 导出 `recon_optimizations` 字段
   - `export_markdown` 导出优化阶段表格
 
+### 10. SPA 侦察凭据自动导出（v1.3 新增）
+
+**规则编号**: ARCH-002
+**生效日期**: 2026-07-19
+**优先级**: 强制（MUST）
+
+**核心原则**：认证完成后，凭据（Cookie/JWT/API Key）必须自动导出到 `config/targets/credentials/{domain}.txt`，攻击阶段自动发现并复用。
+
+**导出流程**（`scripts/auto_spa_recon.py` 的 `export_credentials()`）：
+1. 从 Playwright `context.cookies()` 提取 Cookie（过滤跟踪类 _ga/_gid 等）
+2. 从 `localStorage` 提取 JWT（以 `eyJ` 开头的三段式）
+3. 从 LLM API 请求头提取 `Authorization`
+4. 优先级：localStorage JWT > API 请求头 > Cookie
+5. 导出格式：HTTP Request Headers（与 `header_parser.py` 兼容）
+6. 文件命名：`{target_domain}.txt`
+
+**复用流程**（`orchestrators/target_builder.py`）：
+1. 从目标 URL 提取域名
+2. `find_credential_file(domain)` 按域名匹配 `credentials/{domain}.txt`
+3. `parse_header_file()` 解析为 `AuthProfile`
+4. `inject_auth()` 注入到 Playwright 浏览器
+
+**优先级**：显式 `auth.header_file` > 域名自动发现
+
 ---
 
 ## 考试映射

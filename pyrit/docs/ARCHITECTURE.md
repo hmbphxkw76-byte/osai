@@ -827,19 +827,19 @@ pyrit/                    # PyRIT 框架（独立安装）
 ai300 recon -t http://target:11434 -d quick
 
 # OWASP 标准攻击（单目标）
-ai300 owasp llm01 --target-file config/targets/ollama.yaml
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
 
 # 先侦察再攻击
 ai300 owasp llm01 --target-url http://target.com --auto-recon
 
 # 使用侦察生成的 profile
-ai300 owasp llm01 --target-file config/targets/ollama.yaml --profile results/recon/profile.json
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --profile results/recon/profile.json
 
 # 全量 LLM Top 10 攻击
-ai300 owasp llm --target-file config/targets/ollama.yaml
+ai300 owasp llm --target-file config/targets/llm_api_target.yaml
 
 # 全量攻击 + HTML 报告 + 外部 LLM 评分器
-ai300 owasp all --target-file config/targets/ollama.yaml \
+ai300 owasp all --target-file config/targets/llm_api_target.yaml \
   --format html -o report.html \
   --scorer-url https://open.bigmodel.cn/api/paas/v4 \
   --scorer-key $ZHIPUAI_API_KEY \

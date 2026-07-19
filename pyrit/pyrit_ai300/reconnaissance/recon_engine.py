@@ -567,7 +567,7 @@ class ReconEngine:
         4. 合并结果到 TargetProfile
 
         Args:
-            spa_config_path: SPA 目标配置文件路径（如 config/targets/sso_login.yaml）
+            spa_config_path: SPA 目标配置文件路径（如 config/targets/spa_target.yaml）
             tracker: PipelineTracker 实例（可选）
 
         Returns:
@@ -575,7 +575,7 @@ class ReconEngine:
 
         Example:
             engine = ReconEngine()
-            profile = engine.run_spa_recon("config/targets/sso_login.yaml")
+            profile = engine.run_spa_recon("config/targets/spa_target.yaml")
             profile.save("results/recon/spa_profile.json")
         """
         start_time = time.time()
@@ -630,9 +630,10 @@ class ReconEngine:
         """
         从 YAML 文件加载 SPA 侦察配置
 
-        支持两种格式：
-        1. 带 target: 顶层键的标准格式（如 config/targets/sso_login.yaml）
-        2. 不带 target: 的扁平格式（直接包含 connection/login/chat_entry 等）
+        支持三种格式：
+        1. 极简格式（spa_target.yaml v2）：target.url / target.username / auto_detected
+        2. 标准格式（spa_target.yaml v1）：target.connection / target.auth / target.spa
+        3. 扁平格式（无 target 顶层键）
 
         Args:
             config_path: YAML 配置文件路径
@@ -654,15 +655,76 @@ class ReconEngine:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
+        # 提取 auto_detected 段（极简格式的自动回写选择器）
+        auto_detected = data.get("auto_detected", {})
+
         # 如果有 target 顶层键，提取内部配置
         if "target" in data:
             target_data = data["target"]
-            # 提取所有子配置（connection / login / auth / chat_entry / selectors / probe 等）
+
+            # ── 极简格式检测：target.url 直接存在 ──
+            if "url" in target_data and "connection" not in target_data:
+                from urllib.parse import urlparse
+
+                _url = target_data.get("url", "")
+                _parsed = urlparse(_url)
+                # 从 URL 自动提取 target_domain（与 auto_spa_recon.py 一致）
+                _target_domain = (
+                    target_data.get("target_domain")
+                    or _parsed.hostname
+                    or ""
+                )
+                # SSO 子域名默认 "passport"（通用 SSO 认证中心子域名）
+                _sso_domain = target_data.get("sso_domain", "passport")
+
+                result = {
+                    "connection": {
+                        "url": _url,
+                        "browser": "chromium",
+                        "headless": False,
+                        "wait_until": "networkidle",
+                        "ignore_https_errors": True,
+                    },
+                    "auth": {
+                        "mode": target_data.get("auth_mode", "sso"),
+                        "username": target_data.get("username", ""),
+                        "password": target_data.get("password", ""),
+                        "target_domain": _target_domain,
+                        "sso_domain": _sso_domain,
+                    },
+                }
+                # 从 auto_detected 读取选择器
+                if auto_detected:
+                    result["chat_entry"] = {
+                        "mode": "selector" if auto_detected.get("chat_entry") else "auto",
+                        "selector": auto_detected.get("chat_entry", ""),
+                        "wait_after_click": 3000,
+                    }
+                    result["selectors"] = {
+                        "input": auto_detected.get("input", ""),
+                        "send_button": auto_detected.get("send_button", ""),
+                        "response": auto_detected.get("response", ""),
+                    }
+                return result
+
+            # ── 标准格式 ──
             result = {}
             for key in ("connection", "login", "auth", "chat_entry", "selectors", "probe",
-                        "screenshot_dir", "save_storage_state"):
+                        "screenshot_dir", "save_storage_state", "spa", "interaction", "rate_control"):
                 if key in target_data:
                     result[key] = target_data[key]
+            # 如果有 auto_detected 且没有显式 selectors，用 auto_detected
+            if auto_detected and "selectors" not in result:
+                result["chat_entry"] = {
+                    "mode": "selector" if auto_detected.get("chat_entry") else "auto",
+                    "selector": auto_detected.get("chat_entry", ""),
+                    "wait_after_click": 3000,
+                }
+                result["selectors"] = {
+                    "input": auto_detected.get("input", ""),
+                    "send_button": auto_detected.get("send_button", ""),
+                    "response": auto_detected.get("response", ""),
+                }
             return result
         else:
             # 扁平格式，直接返回
@@ -984,7 +1046,7 @@ class ReconEngine:
         从 config/targets/ 目录加载目标 URL
 
         Args:
-            target_file: 目标配置文件路径（如 config/targets/ollama.yaml）
+            target_file: 目标配置文件路径（如 config/targets/llm_api_target.yaml）
 
         Returns:
             目标 URL 字符串

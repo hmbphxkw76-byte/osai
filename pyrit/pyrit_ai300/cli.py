@@ -50,7 +50,7 @@ def main():
 
 Examples:
   # 单目标攻击（指定配置文件）
-  ai300 owasp llm01 --target-file config/targets/ollama.yaml
+  ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
 
   # 单目标攻击（指定 URL）
   ai300 owasp llm01 --target-url http://www.example.com
@@ -65,25 +65,25 @@ Examples:
   ai300 owasp llm01 --target-url http://target.com --auto-recon
 
   # 使用侦察生成的 profile（19项优化画像）
-  ai300 owasp llm01 --target-file config/targets/ollama.yaml --profile results/recon/profile.json
+  ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --profile results/recon/profile.json
 
   # 全量 LLM Top 10 攻击
-  ai300 owasp llm --target-file config/targets/ollama.yaml
+  ai300 owasp llm --target-file config/targets/llm_api_target.yaml
 
   # 全量攻击（LLM + Agentic）
-  ai300 owasp all --target-file config/targets/ollama.yaml
+  ai300 owasp all --target-file config/targets/llm_api_target.yaml
 
   # 单文件精确攻击
-  ai300 owasp owasp:llm:llm04:rag_poison --target-file config/targets/ollama.yaml
+  ai300 owasp owasp:llm:llm04:rag_poison --target-file config/targets/llm_api_target.yaml
 
   # 实验模式（一个参数替代 --objective/--placeholders）
-  ai300 owasp llm01 --target-file config/targets/ollama.yaml --experiment expericing/tier1_goal
+  ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --experiment expericing/tier1_goal
 
   # 多目标攻击（逗号分隔）
-  ai300 owasp llm01 --target-file config/targets/ollama.yaml --objective "whoami,id,uname"
+  ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml --objective "whoami,id,uname"
 
   # 全量攻击 + HTML 报告 + 外部 LLM 评分器（启用集成+语义评分）
-  ai300 owasp all --target-file config/targets/ollama.yaml \\
+  ai300 owasp all --target-file config/targets/llm_api_target.yaml \\
     --format html -o report.html \\
     --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
     --scorer-key $ZHIPUAI_API_KEY \\
@@ -112,7 +112,7 @@ Examples:
     owasp_target.add_argument(
         "-t", "--target-file",
         default=None,
-        help="Target configuration file path (e.g., config/targets/ollama.yaml)",
+        help="Target configuration file path (e.g., config/targets/llm_api_target.yaml)",
     )
     owasp_target.add_argument(
         "--target-dir",
@@ -260,7 +260,7 @@ Examples:
     recon_target.add_argument(
         "--target-file",
         default=None,
-        help="Target config file from config/targets/ (e.g., config/targets/ollama.yaml)",
+        help="Target config file from config/targets/ (e.g., config/targets/llm_api_target.yaml)",
     )
     recon_optional = recon_parser.add_argument_group("optional arguments")
     recon_optional.add_argument(
@@ -288,7 +288,7 @@ Examples:
     recon_optional.add_argument(
         "--spa-config",
         default=None,
-        help="SPA chat recon config file (e.g., config/targets/sso_login.yaml). "
+        help="SPA chat recon config file (e.g., config/targets/spa_target.yaml). "
              "Triggers SPA smart assistant recon mode: credential pre-check → "
              "browser auto-login → network traffic capture → LLM model identification. "
              "凭据优先从 config/targets/credentials/{域名}.txt 自动复用，"
@@ -1752,7 +1752,7 @@ def _run_owasp(args, logger):
                 logger.info("─" * 40)
 
             engine = AI300Engine(
-                target_config=target_file or "config/targets/ollama.yaml",
+                target_config=target_file or "config/targets/llm_api_target.yaml",
                 tracker=tracker,
                 profile_path=profile_path,
                 target_url=target_url,

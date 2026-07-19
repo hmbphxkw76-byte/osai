@@ -1,6 +1,8 @@
 # SPA 智能助手侦察指南
 
-> **最后更新**: 2026-07-19 / 版本: v1.9 / 关联模块: `pyrit_ai300/reconnaissance/adapters/spa_chat_recon_adapter.py` / 状态: 已完成
+> **最后更新**: 2026-07-19 / 版本: v2.2 / 关联模块: `pyrit_ai300/reconnaissance/adapters/spa_chat_recon_adapter.py` / 状态: 已完成
+
+> 📖 **快速入门**: 新用户请先阅读 [SPA 侦察完整解决方案](./spa_recon_solution.md)，5 分钟上手新目标。
 
 ## 1. 概述
 
@@ -67,7 +69,7 @@ playwright install chromium
 
 ### 2.2 配置目标
 
-编辑 `config/targets/sso_login.yaml`：
+编辑 `config/targets/spa_target.yaml`：
 
 ```yaml
 target:
@@ -97,7 +99,7 @@ target:
 ### 2.3 执行侦察
 
 ```bash
-ai300 recon --spa-config config/targets/sso_login.yaml
+ai300 recon --spa-config config/targets/spa_target.yaml
 ```
 
 输出示例：
@@ -106,7 +108,7 @@ ai300 recon --spa-config config/targets/sso_login.yaml
 ============================================================
   🔍 SPA 智能助手侦察模式
 ============================================================
-  配置文件: config/targets/sso_login.yaml
+  配置文件: config/targets/spa_target.yaml
   目标 URL: https://student.syxy.ouchn.cn/#/home
   登录模式: credentials
   账号: your_account
@@ -255,7 +257,7 @@ ai300 owasp llm01 --target-url "https://student.syxy.ouchn.cn/#/home" \
 
 | 优先级 | 来源 | 说明 |
 |--------|------|------|
-| 1 | `config.auth.header_file` | YAML 配置中显式指定的路径（如 `spa_chat_attack.yaml` 中的 `auth.header_file`） |
+| 1 | `config.auth.header_file` | YAML 配置中显式指定的路径（如 `spa_target.yaml` 中的 `auth.header_file`） |
 | 2 | `credentials/{域名}.txt` | 按目标域名自动匹配（如 `student.syxy.ouchn.cn.txt`） |
 
 ### 3.0.5 预检结果与后续流程的关系
@@ -386,7 +388,7 @@ Cookie: SESSION=xxx; TOKEN=yyy
 
 ```bash
 # 1. 首次侦察（sso 模式，人工完成验证码）
-ai300 recon --spa-config config/targets/sso_login.yaml
+ai300 recon --spa-config config/targets/spa_target.yaml
 
 # 2. 认证成功后，系统自动导出 Cookie 到 credentials/
 #    输出: 💾 凭据已自动导出到: config/targets/credentials/student.syxy.ouchn.cn.txt
@@ -396,7 +398,7 @@ ai300 recon --spa-config config/targets/sso_login.yaml
 #    粘贴到 credentials/student.syxy.ouchn.cn.txt
 
 # 4. 下次侦察自动复用，无需重新登录
-ai300 recon --spa-config config/targets/sso_login.yaml
+ai300 recon --spa-config config/targets/spa_target.yaml
 #    输出: Found cached credential: ...student.syxy.ouchn.cn.txt
 #    输出: Cached credentials are VALID for domain: student.syxy.ouchn.cn
 ```
@@ -954,37 +956,92 @@ img[title*='助手']
 [class*='ask-ai']     [class*='new-chat']   [class*='start-chat'] [class*='chat-with']
 ```
 
-### 4.3 auto 模式自动检测逻辑
+### 4.3 auto 模式自动检测逻辑（v2.0 混合架构重构）
 
-当 `chat_entry.mode=auto` 时，按以下顺序检测：
+当 `chat_entry.mode=auto` 时，采用 **四层渐进式检测**（高置信度优先，逐层放宽）：
 
-1. **URL 模式匹配**：检查 URL 是否匹配聊天页模式（v1.9 扩充至 160+ 模式）
-   - 基础：`/chat`、`/chatbot`、`/assistant`、`/ai-chat`、`/ai-assistant`
-   - **AI Copilot**：`/copilot`、`/copilot-chat`、`/m365-copilot`、`/github-copilot`、`/genai`、`/llm`
-   - **RAG / Knowledge**：`/rag`、`/knowledge`、`/knowledge-base`、`/doc-chat`、`/pdf-chat`、`/semantic-search`、`/ai-search`
-   - **Agent**：`/agent`、`/agents`、`/ai-agent`、`/agent-chat`、`/ai-workflow`
-   - **Playground / Studio**：`/playground`、`/ai-playground`、`/studio`、`/ai-studio`、`/workbench`、`/prompt-studio`
-   - **主流 AI 产品**：`/gemini`、`/claude`、`/chatgpt`、`/perplexity`、`/grok`、`/mistral`、`/qwen`、`/chatglm`、`/kimi`、`/spark`、`/hunyuan`、`/doubao`
-   - **中文路径**：`/智能助手`、`/智能客服`、`/知识库`、`/智能体`、`/问答`、`/对话`
-   - hash 路由：`#/chat`、`#/copilot`、`#/playground`、`#/agent`、`#/knowledge`、`#/rag`
-   - 查询参数：`?chat=1`、`?ai=1`、`?copilot=1`、`?tab=ai`、`?panel=copilot`、`?open=chat`
-   - 子域名：`chat.`、`ai.`、`copilot.`、`agent.`、`playground.`、`knowledge.`、`rag.`、`gemini.`、`claude.`
+#### Phase 1: 高置信度 URL 匹配（直接跳过 DOM 检查）
 
-2. **DOM 特征检测**：检查页面是否包含聊天界面元素（v1.9 扩充至 220+ 特征）
-   - 输入框：`textarea`、`[contenteditable='true']`、中文/英文 placeholder 匹配
-   - **AI 应用专属 placeholder**：`Ask AI`、`Ask anything`、`Chat with AI`、`Enter your prompt`、`How can I help`、`Generate`、`Compose`、`Search knowledge`
-   - 聊天容器：`[class*='chat-input']`、`[class*='message-input']`、`[class*='chat-container']`、`[class*='conversation']`
-   - **AI Copilot 特征**：`[class*='copilot']`、`[class*='genai']`、`[class*='llm']`、`[class*='sparkle']`、`[class*='ai-generate']`
-   - **RAG / Knowledge 特征**：`[class*='rag']`、`[class*='knowledge']`、`[class*='doc-chat']`、`[class*='semantic-search']`
-   - **Agent 特征**：`[class*='agent']`、`[class*='ai-agent']`、`[class*='agent-workflow']`
-   - **Playground / Studio 特征**：`[class*='playground']`、`[class*='studio']`、`[class*='inference']`、`[class*='completion']`
-   - **AI 面板特征**：`[class*='ai-sidebar']`、`[class*='ai-panel']`、`[class*='ai-drawer']`、`[class*='ai-modal']`
-   - **Streaming / SSE 特征**：`[class*='streaming']`、`[class*='typing']`、`[class*='generating']`、`[class*='thinking']`
-   - **Markdown 渲染容器**：`[class*='markdown']`、`[class*='prose']`、`[class*='code-block']`、`[class*='hljs']`
-   - ARIA 角色：`[role='log']`、`[role='textbox']`、`[aria-live='polite']`
+匹配 `HIGH_CONFIDENCE_CHAT_URL_PATTERNS`（~50 个模式），命中即返回 `True`，**跳过全部 DOM 检查**：
 
-3. 如果检测到是聊天页，跳过入口点击
-4. 如果不是聊天页，使用 `selector` 或 `DEFAULT_CHAT_ENTRY_SELECTORS` 尝试点击
+- 明确聊天路径：`/chat`、`/chatbot`、`/ai-chat`、`/ai-assistant`
+- 明确 AI 产品路径：`/copilot`、`/gemini`、`/claude`、`/chatgpt`、`/perplexity`
+- 明确 RAG/KB 路径：`/rag-chat`、`/doc-chat`、`/pdf-chat`
+- 明确 Agent 路径：`/agent-chat`、`/ai-agent`
+- 明确 Playground 路径：`/playground`、`/ai-playground`、`/prompt-studio`
+- 明确子域名：`chat.*`、`copilot.*`、`claude.*`、`chatgpt.*`
+- 中文路径：`/智能助手`、`/智能问答`、`/知识库`、`/智能体`
+
+> **AI Red Team 最佳实践**：高置信度 URL 匹配省去 220+ 次 DOM 查询，显著降低 WAF 触发概率。
+
+#### Phase 2: 普通 URL 模式匹配
+
+匹配 `CHAT_URL_PATTERNS`（200+ 模式），覆盖更宽泛的 URL 特征：
+
+- AI Copilot：`/copilot`、`/genai`、`/llm`、`copilot.*`
+- RAG / Knowledge：`/rag`、`/knowledge`、`/doc-chat`、`/semantic-search`、`knowledge.*`
+- Agent：`/agent`、`/ai-agent`、`/ai-workflow`、`agent.*`
+- Playground / Studio：`/playground`、`/studio`、`/workbench`、`playground.*`
+- 主流 AI 产品：`/gemini`、`/claude`、`/chatgpt`、`/qwen`、`/chatglm`
+- 中文路径、hash 路由、查询参数、子域名
+
+#### Phase 3: 高信号 DOM 特征快速检查
+
+匹配 `HIGH_SIGNAL_DOM_FEATURES`（~18 个高频特征），命中即返回 `True`：
+
+- 输入框：`textarea`、`[contenteditable='true']`、`[role='textbox']`
+- 发送按钮：`[class*='send-btn']`、`[aria-label='Send']`、`[aria-label='发送']`
+- 聊天容器：`[class*='chat-container']`、`[class*='chat-window']`、`[class*='message-list']`
+- AI 消息：`[class*='ai-message']`、`[class*='assistant-message']`
+
+> 这 18 个特征覆盖 90%+ 的聊天界面，远优先于 220+ 全量特征扫描。
+
+#### Phase 4: 全量 DOM 特征兜底
+
+匹配 `CHAT_PAGE_DOM_FEATURES`（220+ 特征），作为最后兜底：
+
+- AI 应用专属 placeholder、Copilot/RAG/Agent/Playground 特征
+- Streaming/SSE 指标、Markdown 渲染容器、ARIA 角色
+- 仅当前 3 个 Phase 都未命中时才执行
+
+### 4.3.1 AI 应用类型预判系统（v2.0 新增）
+
+#### 设计动机
+
+`DEFAULT_CHAT_ENTRY_SELECTORS` 包含 900+ 个选择器。v1.2 将它们作为一个字符串传给 `page.wait_for_selector()`，导致：
+
+1. **暴力搜索** — 不区分 AI 应用类型，所有选择器平等竞争
+2. **效率低下** — 15s 超时等待全量选择器，即使目标明确是 Copilot
+3. **误匹配风险** — 模糊选择器可能在非目标类型页面上误匹配
+
+#### 类型预判规则
+
+`_detect_ai_app_type(url)` 基于 URL 将目标分类为 6 种 AI 应用类型：
+
+| 类型 | 描述 | 典型 URL |
+|------|------|---------|
+| `copilot` | AI Copilot / GenAI | `/copilot`、`copilot.*`、`/genai` |
+| `rag` | RAG / 知识库 | `/rag`、`/knowledge`、`/doc-chat` |
+| `agent` | Agent / 智能体 | `/agent`、`/ai-agent`、`/ai-workflow` |
+| `playground` | AI Playground / Studio | `/playground`、`/studio`、`/workbench` |
+| `saas_chatbot` | 第三方 AI SaaS SDK | 嵌入式，URL 无指示 |
+| `generic_chat` | 通用 AI 聊天（兜底） | `/assistant`、`/chat`、`chat.*` |
+
+置信度计算：基础 0.6 + 每个额外匹配 +0.15（上限 0.95），始终包含 `generic_chat` (0.1) 作为兜底。
+
+### 4.3.2 渐进式入口匹配（v2.0 新增）
+
+`_try_click_chat_entry()` 在使用默认选择器集时自动启用三阶段渐进式匹配：
+
+| Phase | 选择器来源 | 数量 | 超时 | 说明 |
+|-------|-----------|------|------|------|
+| 1 | 类型专属 | ~50 | 5s | URL 预判 → 类型专属选择器（精准优先） |
+| 2 | 通用核心 | ~200 | 5s | 排除类型专属后的高频通用选择器 |
+| 3 | 全量兜底 | 900+ | 5s | 所有选择器，确保不遗漏 |
+
+每个阶段独立超时，命中即停止。Phase 1 命中可节省 95% 的选择器匹配时间。
+
+> **AI Red Team 最佳实践**：精准优先，逐步放宽。最小化 DOM 交互，降低 WAF 触发概率。
 
 ### 4.4 定位策略
 
@@ -1004,109 +1061,91 @@ img[title*='助手']
 3. 如果入口未找到，检查 `findings` 中的 `chat_entry_not_found` 发现
 4. 使用 `auto` 模式自动检测是否已是聊天页
 
-### 4.6 选择器自动探测（v1.8 增强）
+### 4.6 DOM 选择器自动发现（v1.4 新增）
 
-当内置默认选择器无法匹配目标页面的聊天入口时，适配器会**自动启动页面元素探测**，扫描所有可交互元素并输出详细报告，辅助用户配置正确的选择器。
+v1.4 引入**单次 `page.evaluate()` 批量提取 + Python 侧多信号加权评分**的架构，完全替代 v1.3 的逐元素 IPC 探测方案。
 
-#### 触发条件
+#### 架构变更
 
-- `chat_entry.mode=selector` 且入口点击失败时
-- 入口点击成功后（探测弹出的聊天窗口元素，辅助配置 `selectors.input` / `selectors.send_button` / `selectors.response`）
+| 对比项 | v1.3（_probe_page_selectors） | v1.4（_auto_detect_selectors） |
+|--------|------|------|
+| IPC 调用次数 | ~600 次（逐元素提取） | **1 次**（单次 page.evaluate） |
+| 代码行数 | 671 行 | ~280 行 |
+| 输出 | 调试报告（需手动配置） | **自动生成 CSS 选择器** |
+| 降级链 | 无 | 自动发现 > YAML > 默认值 |
+| 辅助函数 | 5 个（_detect_viewport_corner 等） | 0 个（全部内联到 JS/Python） |
 
-#### 探测范围（v1.8 大幅增强）
-
-| 类型 | 扫描选择器 | 用途 |
-|------|-----------|------|
-| 按钮和可点击元素 | `button`, `[role=button]`, `a[href]`, `[class*=btn]`, `[class*=icon]`, `[class*=fab]`, `[onclick]` | 定位聊天入口按钮 |
-| **纯图标按钮** | 检测无文字但包含 SVG/IMG 的可点击元素 | 定位纯图标入口 |
-| **浮动按钮(FAB)** | 检测 `position:fixed/absolute` + 高 z-index 的元素 | 定位四角浮动按钮 |
-| 输入框 | `textarea`, `input[type=text]`, `[contenteditable]`, `[class*=input]`, `[class*=editor]` | 定位消息输入框 |
-| **SVG/IMG 图标** | `svg[class]`, `img[alt]`, `i[class*=icon]` | 检测图标内容特征 |
-| 聊天入口候选 | 含"助手/客服/帮助/问答/咨询/机器人/chat/assistant/bot/help/support/copilot/genai/llm/knowledge/rag/agent/playground/studio/prompt/compose/generate/gemini/claude/chatgpt"等 139 个关键词 | 智能匹配聊天入口 |
-| 模糊类名匹配 | `[class*=assistant]`、`[class*=chat]`、`[class*=copilot]`、`[class*=rag]`、`[class*=knowledge]`、`[class*=agent]`、`[class*=playground]`、`[class*=ai-]` 等 67 个模式 | 兜底匹配 |
-| iframe | 所有非主 frame | 检测聊天窗口是否在 iframe 内 |
-
-#### 位置检测（v1.8 新增）
-
-每个检测到的按钮都会分析其 CSS 定位信息：
-
-- **position**: `fixed` / `absolute` / `static` / `relative`
-- **z-index**: 判断是否是浮动层
-- **viewport_corner**: 自动判断元素在视口的位置
-  - `bottom-right`（右下角，最常见）
-  - `top-right`（右上角）
-  - `bottom-left`（左下角）
-  - `top-left`（左上角）
-  - `right` / `left` / `top` / `bottom`（边缘）
-  - `center`（页面中央）
-
-#### 浮动按钮启发式匹配（v1.8 新增）
-
-当检测到以下特征的元素时，自动标记为聊天入口候选：
-
-1. `position: fixed` 或 `position: absolute`
-2. z-index 较高（非 auto/0）
-3. 尺寸在 25-120px 之间（典型 FAB 尺寸）
-4. 位于视口角落
-5. 包含 SVG 或 IMG 图标
-
-#### 输出示例（v1.8）
+#### 四层架构
 
 ```
-------------------------------------------------------------
-  🔎 页面元素探测 [入口点击前]
-  当前 URL: https://student.syxy.ouchn.cn/#/home
-------------------------------------------------------------
-
-  📊 探测结果:
-     按钮总数: 23
-     纯图标按钮: 5
-     浮动按钮(FAB): 3
-     输入框: 0
-     SVG/IMG 图标: 12
-     聊天入口候选: 4
-     iframe: 0
-
-  📌 浮动按钮（固定/绝对定位，按位置分组）:
-     [bottom-right] 2 个:
-       - div class='chat-fab-wrapper' 56x56 has_svg=True
-       - button class='back-to-top' 48x48 has_svg=True
-     [top-right] 1 个:
-       - button class='header-action' 40x40 has_svg=True
-
-  🎯 可能的聊天入口（建议配置到 chat_entry.selector）:
-     [1] .chat-fab-wrapper [bottom-right]
-         class: chat-fab-wrapper float-right-bottom
-         ⭐ 纯图标按钮（无文字）
-         匹配原因: floating_fab_at_bottom-right
-     [2] [aria-label='智能助手']
-         class: header-action-btn
-         文本: 智能助手
-         匹配原因: keyword_match
-     [3] button:has(svg) [top-right]
-         class: header-icon-btn
-         ⭐ 纯图标按钮（无文字）
-         匹配原因: keyword_match
-     [4] .chat-widget [bottom-right]
-         class: chat-widget launcher
-         匹配原因: class_pattern_match
-------------------------------------------------------------
+Phase A: _extract_dom_snapshot(page)
+    |  单次 page.evaluate() 批量提取所有可交互元素
+    |  提取：inputs / buttons / containers
+    v
+Phase B: _score_elements(snapshot, role, url)
+    |  多信号加权评分（0 次 IPC）
+    |  信号：tag / class / aria-label / placeholder / text / parent / role / markdown / send-icon / near-input
+    |  AI 应用类型预判加权（URL -> 类型 -> 专属关键词）
+    v
+Phase C: _generate_selector(top_element)
+    |  从最高分元素生成稳健 CSS 选择器
+    |  优先级：#id > [data-testid] > [aria-label] > tag.class > [placeholder] > [role] > tag
+    v
+Phase D: _auto_detect_selectors(page, url, yaml_selectors)
+    |  编排 A->B->C + 降级链
+    |  自动发现（score >= 0.3 且验证通过）-> YAML -> 默认值
+    v
+  返回 {input, send_button, response, *_source}
 ```
 
-#### 使用探测结果配置选择器
+#### 评分权重矩阵
 
-根据探测报告，在 `spa_chat_attack.yaml` 中配置：
+| 角色 | 信号 | 权重 |
+|------|------|------|
+| input | tag=textarea | 0.30 |
+| input | contenteditable | 0.25 |
+| input | placeholder 匹配 | 0.20 |
+| input | class 匹配 | 0.15 |
+| input | parent-class 匹配 | 0.05 |
+| input | 近邻 send-button | 0.05 |
+| send_button | aria-label 匹配 | 0.30 |
+| send_button | class 匹配 | 0.25 |
+| send_button | text 匹配 | 0.20 |
+| send_button | type=submit | 0.10 |
+| send_button | 近邻 input | 0.10 |
+| send_button | send-icon | 0.05 |
+| response | class 匹配 | 0.25 |
+| response | role=log | 0.20 |
+| response | aria-live=polite | 0.20 |
+| response | has-markdown | 0.15 |
+| response | parent-class 匹配 | 0.10 |
+| response | text_length > 50 | 0.10 |
 
-```yaml
-chat_entry:
-  mode: "selector"
-  selector: ".chat-fab-wrapper, [aria-label='智能助手']"   # ← 从探测报告中选取
+#### 输出示例（v1.4）
 
-selectors:
-  input: "textarea.chat-input"                      # ← 从"入口点击后"探测报告中选取
-  send_button: "button.send-msg-btn"
-  response: ".msg-content.assistant-msg"
 ```
+  🔍 聊天 DOM 选择器自动发现
+  ──────────────────────────────────────────
+  ✅ input:         [auto] #chat-input, textarea.chat-composer
+  ✅ send_button:   [auto] button.send-btn, [aria-label="发送"]
+  ✅ response:      [auto] .assistant-message, [role="log"]
+  ──────────────────────────────────────────
+```
+
+#### 降级链说明
+
+| 来源 | 条件 | 说明 |
+|------|------|------|
+| `auto` | score >= 0.3 且 `page.wait_for_selector` 验证通过 | 自动发现，无需手动配置 |
+| `yaml` | 自动发现失败，YAML 配置中存在 | 使用用户手动配置的选择器 |
+| `default` | 自动发现和 YAML 均无 | 使用硬编码默认选择器 |
+| `fallback` | _auto_detect_selectors 异常 | 异常降级 |
+
+#### 交互式手工输入（保留）
+
+当自动发现和默认选择器均未匹配到聊天入口时，仍保留交互式手工输入功能：
+- 展示评分排序后的候选元素（含 score 和 signals）
+- 支持输入候选编号或直接输入 CSS 选择器
 
 ### 4.7 弹出式聊天窗口适配策略
 
@@ -1179,14 +1218,10 @@ v1.8 的探测功能会自动检测**所有四个角落**的浮动按钮，不�
 #### 调试步骤
 
 1. 第一次运行：`headless: false`，`chat_entry.selector` 留空
-2. 查看探测报告，关注：
-   - 📌 浮动按钮（按位置分组）— 找到可能是聊天入口的 FAB
-   - 🎯 聊天入口候选 — 查看匹配原因和位置
-   - 🔘 纯图标按钮 — 如果没有候选，查看所有纯图标按钮
-3. 配置 `chat_entry.selector`，再次运行
-4. 查看第二次探测报告（入口点击后），找到输入框和响应区域选择器
-5. 配置 `selectors.input` / `selectors.send_button` / `selectors.response`
-6. 验证探测响应是否成功捕获
+2. v1.4 自动发现选择器，查看输出中的 `[auto]`/`[yaml]`/`[default]` 标注
+3. 如果自动发现成功（`[auto]`），无需手动配置选择器
+4. 如果降级到 `[default]`，可通过交互式手工输入指定选择器
+5. 验证探测响应是否成功捕获
 
 ---
 
@@ -1373,7 +1408,7 @@ SPA 侦察可与协议指纹探测组合使用：
 
 ```bash
 # 先 SPA 侦察识别后端 API 端点
-ai300 recon --spa-config config/targets/sso_login.yaml -o results/recon/spa_profile.json
+ai300 recon --spa-config config/targets/spa_target.yaml -o results/recon/spa_profile.json
 
 # 再对识别到的 API 端点进行协议指纹探测
 ai300 recon -t "https://student.syxy.ouchn.cn/api/chat/completions" -d deep
@@ -1389,9 +1424,8 @@ ai300 owasp all --target-url "https://student.syxy.ouchn.cn" \
 
 ```
 config/targets/
-  ├── sso_login.yaml               # SSO/OIDC 单点登录场景
-  ├── qianwen_chat.yaml            # OAuth 聊天平台场景
-  └── credentials/                 # 认证凭据（统一管理，域名命名）
+  ├── spa_target.yaml              # 极简配置（4 字段，SSO/credentials/manual/none）
+  └── credentials/                 # 认证凭据（侦察后自动导出，域名命名）
       ├── student.syxy.ouchn.cn.txt     # F12 复制的 Headers
       └── www.qianwen.com.txt
 ```
@@ -1448,7 +1482,7 @@ probe:
 
 ```bash
 # 详细日志
-ai300 recon --spa-config config/targets/sso_login.yaml -v
+ai300 recon --spa-config config/targets/spa_target.yaml -v
 
 # 查看截图
 ls results/recon/screenshots/
@@ -1568,7 +1602,7 @@ SPA 侦察适配器通过 `TargetProfile` JSON 与攻击引擎通信：
 ### 10.2 方式一：OAuth 手动登录
 
 ```yaml
-# config/targets/qianwen_chat.yaml
+# config/targets/spa_target.yaml (manual 模式示例)
 target:
   connection:
     url: "https://www.qianwen.com/chat"
@@ -1592,7 +1626,7 @@ target:
 执行：
 
 ```bash
-ai300 recon --spa-config config/targets/qianwen_chat.yaml
+ai300 recon --spa-config config/targets/spa_target.yaml
 ```
 
 流程：

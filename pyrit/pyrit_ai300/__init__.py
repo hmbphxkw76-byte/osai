@@ -90,7 +90,7 @@ class AI300Engine:
     def __init__(
         self,
         config_path: str = None,
-        target_config: str = "config/targets/ollama.yaml",
+        target_config: str = "config/targets/llm_api_target.yaml",
         tracker: Optional[Any] = None,
         profile_path: Optional[str] = None,
         target_url: Optional[str] = None,
@@ -381,6 +381,59 @@ class AI300Engine:
                 target_cfg["target"]["connection"] = {}
             target_cfg["target"]["connection"]["model"] = self._model
             logger.info("CLI model override: %s", self._model)
+
+        # ── 极简格式归一化 ──
+        # 支持三种极简格式（无 target.connection 层，字段直接放在 target 下）：
+        #   1. spa_target.yaml  → target.url 存在
+        #   2. llm_api_target.yaml → target.endpoint 存在（ollama/openai）
+        #   3. http_target.yaml  → target.http_request 存在（http）
+        # 归一化为标准格式：target.connection + target.auth + target.selectors
+        target_data = target_cfg.get("target", {})
+        if "connection" not in target_data:
+            if "url" in target_data:
+                # ── 1. SPA 极简格式 ──
+                auto = target_cfg.get("auto_detected", {})
+                from urllib.parse import urlparse
+                _parsed = urlparse(target_data["url"])
+                _domain = _parsed.hostname or target_data["url"].split("/")[2]
+                target_cfg["target"]["connection"] = {
+                    "url": target_data["url"],
+                    "browser": "chromium",
+                    "headless": True,
+                    "wait_until": "networkidle",
+                    "ignore_https_errors": True,
+                }
+                target_cfg["target"]["type"] = "spa_chat"
+                # 凭据文件路径：侦察后自动导出到 credentials/{domain}.txt
+                target_cfg["target"]["auth"] = {
+                    "mode": "header_file",
+                    "header_file": f"config/targets/credentials/{_domain}.txt",
+                }
+                # 从 auto_detected 读取选择器
+                if auto:
+                    target_cfg["target"]["selectors"] = {
+                        "input": auto.get("input", ""),
+                        "send_button": auto.get("send_button", ""),
+                        "response": auto.get("response", ""),
+                    }
+                logger.info("Normalized minimal spa_target.yaml format → standard format")
+
+            elif "endpoint" in target_data:
+                # ── 2. LLM API 极简格式（ollama/openai）──
+                target_cfg["target"]["connection"] = {
+                    "endpoint": target_data["endpoint"],
+                    "model": target_data.get("model", ""),
+                    "api_key": target_data.get("api_key", "not-needed"),
+                }
+                logger.info("Normalized minimal llm_api_target.yaml format → standard format")
+
+            elif "http_request" in target_data:
+                # ── 3. HTTP 极简格式 ──
+                target_cfg["target"]["connection"] = {
+                    "http_request": target_data["http_request"],
+                    "use_tls": target_data.get("use_tls", True),
+                }
+                logger.info("Normalized minimal http_target.yaml format → standard format")
 
         return target_cfg
 

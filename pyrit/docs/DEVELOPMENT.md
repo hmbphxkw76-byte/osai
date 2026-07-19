@@ -140,7 +140,7 @@ scorer_llm_backends:
 **CLI 参数覆盖**（优先级最高）：
 ```bash
 # 使用智谱 GLM 作为评分器
-ai300 owasp llm01 --target-file config/targets/ollama.yaml \
+ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml \
   --scorer-url https://open.bigmodel.cn/api/paas/v4 \
   --scorer-key $ZHIPUAI_API_KEY \
   --scorer-model glm-4-flash
@@ -157,7 +157,7 @@ api_key: "${OPENAI_API_KEY}"
 
 ### 3.4 YAML 多文档加载
 
-目标配置文件（如 `ollama.yaml`）使用 `---` 分隔多个文档，必须用：
+目标配置文件（如 `llm_api_target.yaml`）使用 `---` 分隔多个文档，必须用：
 
 ```python
 import yaml
@@ -556,7 +556,7 @@ make setup-garak
 ### 14.2 Playwright 目标配置示例
 
 ```yaml
-# config/targets/spa_chat_attack.yaml
+# config/targets/spa_target.yaml (极简格式)
 target:
   type: playwright
   connection:

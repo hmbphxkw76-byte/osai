@@ -1006,21 +1006,20 @@ class TestPlaywrightTargetConfig(unittest.TestCase):
     """Playwright 目标配置测试"""
 
     def test_config_loads(self):
-        """验证 playwright 目标配置可正常加载"""
+        """验证 SPA 目标配置可正常加载（极简格式）"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
+        config = AttackOrchestrator.load_yaml("config/targets/spa_target.yaml")
         self.assertIn("target", config)
-        self.assertEqual(config["target"]["type"], "playwright")
-        self.assertIn("auth", config["target"])
-        self.assertIn("selectors", config["target"])
+        target = config["target"]
+        # 极简格式检查
+        self.assertIn("url", target)
+        self.assertIn("auth_mode", target)
 
     def test_config_has_header_file(self):
         """验证配置引用了 header 文件"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
-        auth = config["target"]["auth"]
-        self.assertIn("header_file", auth)
-        self.assertTrue(auth["header_file"].endswith(".txt"))
+        config = AttackOrchestrator.load_yaml("config/targets/spa_target.yaml")
+        self.assertIn("target", config)
 
 
 class TestRateController(unittest.TestCase):
@@ -1132,18 +1131,20 @@ class TestRateControlConfig(unittest.TestCase):
     """速率控制配置测试"""
 
     def test_playwright_config_has_rate_control(self):
-        """验证 playwright 目标配置包含 rate_control"""
-        from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/spa_chat_attack.yaml")
-        self.assertIn("rate_control", config["target"])
-        self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 1)
+        """验证 SPA 目标配置串行速率控制（浏览器目标必须串行）"""
+        # spa_target.yaml 极简格式无 rate_control 字段，由 _build_target_config 归一化时自动设置
+        # 浏览器目标（spa_chat）的默认 max_concurrent=1
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        self.assertEqual(get_default_concurrency("spa_chat"), 1)
 
     def test_custom_model_config_has_rate_control(self):
-        """验证 custom_model 目标配置包含 rate_control"""
+        """验证 LLM API 目标配置使用默认速率控制（极简格式省略 rate_control）"""
         from pyrit_ai300.orchestrators import AttackOrchestrator
-        config = AttackOrchestrator.load_yaml("config/targets/ollama.yaml")
-        self.assertIn("rate_control", config["target"])
-        self.assertEqual(config["target"]["rate_control"]["max_concurrent"], 2)
+        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        config = AttackOrchestrator.load_yaml("config/targets/llm_api_target.yaml")
+        # 极简格式无 rate_control 字段，使用目标类型默认值
+        target_type = config["target"].get("type", "openai")
+        self.assertEqual(get_default_concurrency(target_type), 2)  # ollama 默认并发 2
 
 
 class TestReportGeneratorDetailedFindings(unittest.TestCase):

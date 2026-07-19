@@ -1,0 +1,357 @@
+{
+  "timestamp": "2026-07-19 20:08:42",
+  "target": "https://student.syxy.ouchn.cn/#/home",
+  "username": "2680201200754",
+  "current_url": "https://student.syxy.ouchn.cn/#/home",
+  "local_storage": {
+    "deviceId": "19f7a48104a-375d8f521fa25",
+    "userid": "2680201200754",
+    "istushuguan": "false",
+    "hasStoreLoginDevice": "1"
+  },
+  "cookies_count": 8,
+  "has_oidc_token": true,
+  "chat_input_found": true,
+  "input_selector": "textarea.send-box-default-text",
+  "llm_api_calls": [
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Passport/ThesisdeFenseUrl",
+      "method": "GET",
+      "status": 401,
+      "content_type": "",
+      "body_preview": "",
+      "timestamp": 1784462954.6412964
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/StoreLogingDevice?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "PUT",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": true\n}",
+      "timestamp": 1784462971.3115003
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Student/JudgeIsSingleSubjectStudentAdnStudent?Phone=13684078559",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "false",
+      "timestamp": 1784462971.3407946
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Student/AddLoginLogII",
+      "method": "POST",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": true\n}",
+      "timestamp": 1784462971.8510394
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Passport/ThesisdeFenseUrl",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": \"https://thesisdefense.syxy.ouchn.cn:18088/onlineLogin?code=56a20077642e9d372a0d38df6ee6c3cd4a380500ab9a493a0d86efa433a708c96326642db4a31ef3f02130beb839b17da221b01d37271d27fe115001b25c8c57b362520b41ced06829ce4240fb0e3c3dc2f71c4711d544a202fa2d1f23eb51d143bbf73ca1458c7600326a808043b1460fd126a46f9e103ff18b45826178b41d\",\n  \"Data\": null\n}",
+      "timestamp": 1784462972.6742685
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Student/ProvinceOrganizationCode",
+      "method": "GET",
+      "status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "body_preview": "802",
+      "timestamp": 1784462972.6742685
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse/FindSchoolRollProjectSelectCourse",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": []\n}",
+      "timestamp": 1784462972.675267
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"Student\": {\n      \"GenderName\": \"男\",\n      \"PoliticsOfStatusName\": \"群众\",\n      \"NationName\": \"汉族\",\n      \"AccountPropertiesName\": \"农村户口\",\n      \"MaritalStatusName\": \"其他\",\n      \"NativePlaceName\": \"江西省\",\n      \"Name\": \"刘海华\",\n      \"Birthday\": \"1982-05-27\",\n      \"Gender\": \"1\",\n      \"MaritalStatus\": \"9\",\n      \"NativePlace\": \"36\",\n      \"Nation\": \"01\",\n      \"AccountProperties\": \"2\",\n      \"StandardO",
+      "timestamp": 1784462972.675267
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse/SingleSubject",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": [\n    {\n      \"MyCourses\": [],\n      \"MyWCourses\": [],\n      \"SemesterName\": \"2026春\",\n      \"SemesterId\": \"260\",\n      \"Current\": true,\n      \"CourseIds\": \"50864,05288,05369,05408,00939,04623,04996,01883,04633,04969,05208,00371,01000,00522,00520,00182,02788,00696,01578,00880,00853,51762,04998,01707,00413,02727,01383,04664,04392,51780,02105,00009,50441,00000,02644,05287,02648,01189,01182,90070,02539,02465,0",
+      "timestamp": 1784462972.6762688
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": [\n    {\n      \"MyCourses\": [\n        {\n          \"Credit\": 4.0000000000000000000000000000,\n          \"CourseNature\": \"1\",\n          \"CourseNatureName\": \"必修\",\n          \"Signature\": \"260a4aee81ba03ac00b7646f73c347878d8366ba\",\n          \"StudyPlatform\": null,\n          \"CourseClassCode\": null,\n          \"CourseClassName\": null,\n          \"ExamScore\": 96.0,\n          \"CompletedResourceCount\": 0,\n          \"Co",
+      "timestamp": 1784462972.7552843
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Student/IsYearReportDisplay",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 1001,\n  \"State\": false,\n  \"Message\": \"验证失败\",\n  \"Data\": false\n}",
+      "timestamp": 1784462972.833264
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/NoticeMessage/Moodle/StudentStatusNoticeMessage/Student/FindStudentNotice?NonPage=0&PageNum=1&PageSize=10",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"PageListInfos\": [],\n    \"PageNum\": 1,\n    \"PageSize\": 2147483647,\n    \"PageCount\": 1,\n    \"Total\": 0,\n    \"Start\": 0,\n    \"End\": 2147483647,\n    \"PageUrl\": null\n  }\n}",
+      "timestamp": 1784462972.8717422
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentActivity/Paging?Type=&StartTime=&EndTime=&Form=&SelectDate=&Week=&pageNum=1&pageSize=1000",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"PageListInfos\": [],\n    \"PageNum\": 1,\n    \"PageSize\": 100,\n    \"PageCount\": 1,\n    \"Total\": 0,\n    \"Start\": 0,\n    \"End\": 100,\n    \"PageUrl\": null\n  }\n}",
+      "timestamp": 1784462972.8942082
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"Student\": {\n      \"GenderName\": \"男\",\n      \"PoliticsOfStatusName\": \"群众\",\n      \"NationName\": \"汉族\",\n      \"AccountPropertiesName\": \"农村户口\",\n      \"MaritalStatusName\": \"其他\",\n      \"NativePlaceName\": \"江西省\",\n      \"Name\": \"刘海华\",\n      \"Birthday\": \"1982-05-27\",\n      \"Gender\": \"1\",\n      \"MaritalStatus\": \"9\",\n      \"NativePlace\": \"36\",\n      \"Nation\": \"01\",\n      \"AccountProperties\": \"2\",\n      \"StandardO",
+      "timestamp": 1784462972.9042404
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/app/curr",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\"authorization\":true,\"stateCode\":0,\"state\":true,\"message\":null,\"data\":{\"name\":\"综合服务问答\",\"description\":null,\"status\":\"Draft\",\"type\":\"Chat\",\"icon\":null,\"setting\":\"{\\\"FAQ\\\": {\\\"Enabled\\\": false, \\\"Categories\\\": []}, \\\"Model\\\": {\\\"Name\\\": \\\"deepseek-r1-250120\\\", \\\"Params\\\": {\\\"top_p\\\": \\\"0.7\\\", \\\"stream\\\": \\\"true\\\", \\\"max_tokens\\\": \\\"3071\\\", \\\"temperature\\\": \\\"0.7\\\", \\\"maxChatHistoryCount\\\": \\\"10\\\"}, \\\"Provider\\\": \\\"volcengine\\\", \\\"ModelType\\\": \\\"LLM\\\", \\\"RerankCount\\\": 0, \\\"IntentRecognitionModelNa",
+      "timestamp": 1784462972.9213226
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/app/sharing/style/curr",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\"authorization\":true,\"stateCode\":0,\"state\":true,\"message\":null,\"data\":{\"sharingStyleType\":\"Browser\",\"enabledFloatingWindowExpand\":true,\"historyChatSetting\":{\"sharingDialogType\":\"Light\",\"sharingDialogAlign\":\"LeftFixed\",\"enableShowHistoryChat\":false},\"iconSetting\":{\"enabledDrag\":true,\"enabledDefaultIcon\":true,\"iconUrl\":null,\"iconUrlBase64\":\"\",\"enabledAIIcon\":false,\"lastAIIconPrompt\":null,\"enabled\":true},\"cartoonSetting\":{\"cartoonHumanType\":\"Girl\",\"cartoonHumanUrl\":null,\"enabledAICartoonHuman\":fal",
+      "timestamp": 1784462972.9233847
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/chat/paging?userId=2680201200754&pageNum=1&pageSize=10",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\"authorization\":true,\"stateCode\":0,\"state\":true,\"message\":null,\"data\":{\"pageListInfos\":[{\"description\":\"查成绩\",\"appId\":\"08dcdc89-1a3b-4f7b-8aa0-387fd13e3cd1\",\"extendedAttributeData\":\"{\\\"Items\\\":{\\\"stuNo\\\":{\\\"Name\\\":\\\"stuNo\\\",\\\"Key\\\":\\\"stuNo\\\",\\\"Value\\\":\\\"2680201200754\\\"}}}\",\"modifyTime\":null,\"createTime\":\"2026-07-19T17:17:17\",\"userId\":\"2680201200754\",\"createUser\":\"AppSharing:11\",\"hasLabeled\":false,\"hasLiked\":false,\"hasDisliked\":false,\"id\":\"08dee576-8775-4eae-80f6-f67b27a463ab\"},{\"description\":\"介绍",
+      "timestamp": 1784462973.0066226
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/IsEnabledFace?Type=login",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "false",
+      "timestamp": 1784462973.0576851
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse/LearningArchives",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"Name\": \"刘海华\",\n    \"SpecialtyName\": \"人工智能（应用方向)\",\n    \"SpecialtyLevelName\": \"本科(专科起点)\",\n    \"SemesterName\": \"2026春\",\n    \"OrganizationName\": \"实验学院(全网)\",\n    \"EarnedCredit\": 0.0,\n    \"TotalCredit\": 73.000000000000000000000000000,\n    \"EarnedCompulsoryCredit\": 0.0,\n    \"CompulsoryCredit\": 30.000000000000000000000000000,\n    \"EarnedElectiveCredit\": 0.0,\n    \"ElectiveCredit\": 43.0000000000000000000000000",
+      "timestamp": 1784462973.252053
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/Cooper/Name",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": \"\",\n  \"Data\": null\n}",
+      "timestamp": 1784462973.3387175
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/Istushuguan?phone=13684078559",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784462973.3751347
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/student/GetPromotionInfo",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 1001,\n  \"State\": false,\n  \"Message\": \"不符合推广条件\",\n  \"Data\": null\n}",
+      "timestamp": 1784462973.568886
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"Student\": {\n      \"GenderName\": \"男\",\n      \"PoliticsOfStatusName\": \"群众\",\n      \"NationName\": \"汉族\",\n      \"AccountPropertiesName\": \"农村户口\",\n      \"MaritalStatusName\": \"其他\",\n      \"NativePlaceName\": \"江西省\",\n      \"Name\": \"刘海华\",\n      \"Birthday\": \"1982-05-27\",\n      \"Gender\": \"1\",\n      \"MaritalStatus\": \"9\",\n      \"NativePlace\": \"36\",\n      \"Nation\": \"01\",\n      \"AccountProperties\": \"2\",\n      \"StandardO",
+      "timestamp": 1784462973.6518042
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/NoticeMessage/FindByUserId",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": []\n}",
+      "timestamp": 1784462974.2419558
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": [\n    {\n      \"MyCourses\": [\n        {\n          \"Credit\": 4.0000000000000000000000000000,\n          \"CourseNature\": \"1\",\n          \"CourseNatureName\": \"必修\",\n          \"Signature\": \"260a4aee81ba03ac00b7646f73c347878d8366ba\",\n          \"StudyPlatform\": null,\n          \"CourseClassCode\": null,\n          \"CourseClassName\": null,\n          \"ExamScore\": 96.0,\n          \"CompletedResourceCount\": 0,\n          \"Co",
+      "timestamp": 1784462974.3155684
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/NoticeMessage/FindNoticeMessageReadStatus",
+      "method": "PUT",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 1001,\n  \"State\": false,\n  \"Message\": \"消息为空\",\n  \"Data\": null\n}",
+      "timestamp": 1784462974.5100636
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": [\n    {\n      \"MyCourses\": [\n        {\n          \"Credit\": 4.0000000000000000000000000000,\n          \"CourseNature\": \"1\",\n          \"CourseNatureName\": \"必修\",\n          \"Signature\": \"260a4aee81ba03ac00b7646f73c347878d8366ba\",\n          \"StudyPlatform\": null,\n          \"CourseClassCode\": null,\n          \"CourseClassName\": null,\n          \"ExamScore\": 96.0,\n          \"CompletedResourceCount\": 0,\n          \"Co",
+      "timestamp": 1784462974.660425
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse/FindSchoolRollProjectSelectCourse",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": []\n}",
+      "timestamp": 1784462974.6898499
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/MyCourse/CourseBehaviors",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "[\n  {\n    \"Id\": \"04392\",\n    \"ExamScore\": 81.20,\n    \"CompletedResourceCount\": 0,\n    \"CompletedActivityCount\": 0,\n    \"CompletedAssignCount\": 0,\n    \"CompletedQuizCount\": 6,\n    \"CompletedFormativeTestCount\": 6,\n    \"CompletionProgress\": 100\n  },\n  {\n    \"Id\": \"04681\",\n    \"ExamScore\": 91.58,\n    \"CompletedResourceCount\": 0,\n    \"CompletedActivityCount\": 0,\n    \"CompletedAssignCount\": 0,\n    \"CompletedQuizCount\": 10,\n    \"CompletedFormativeTestCount\": 10,\n    \"CompletionProgress\": 100\n  },\n  {\n",
+      "timestamp": 1784462975.0020156
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/IsTextbookSub",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": true\n}",
+      "timestamp": 1784462975.056363
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/Student/JudgeIsSingleSubjectStudentAdnStudent?Phone=13684078559",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "false",
+      "timestamp": 1784462975.3104725
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/StudentStatusPlan/SelfselectedCoursepop",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": {\n    \"Id\": \"08de9931-7549-469c-88ce-034d2527f172\",\n    \"SemesterId\": \"260\",\n    \"StudentStatusType\": \"SelfselectedCoursepop\",\n    \"OrganizationCode\": \"8020200\",\n    \"SettingConfigs\": [\n      {\n        \"StartTime\": \"2026-04-13 15:00:00\",\n        \"EndTime\": \"2026-04-17 17:00:00\",\n        \"Key\": \"SelfselectedCoursepop\",\n        \"Name\": \"自主选课弹窗\",\n        \"IsEnabled\": true\n      }\n    ]\n  }\n}",
+      "timestamp": 1784462975.356594
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/CheckUserLogingOtherStatus?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784462977.6487575
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/CheckUserLogingOtherStatus?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784462983.9664164
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/CheckUserLogingOtherStatus?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784462989.4949615
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/CheckUserLogingOtherStatus?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784462995.5423825
+    },
+    {
+      "url": "https://student.syxy.ouchn.cn/api/StudentStatus/CheckUserLogingOtherStatus?UserName=2680201200754&DeviceId=19f7a48104a-375d8f521fa25&DeviceType=PC",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\n  \"Authorization\": true,\n  \"StateCode\": 0,\n  \"State\": true,\n  \"Message\": null,\n  \"Data\": false\n}",
+      "timestamp": 1784463001.9156964
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/chat/completions/with-knowledge",
+      "method": "POST",
+      "status": 200,
+      "content_type": "text/event-stream",
+      "body_preview": "",
+      "timestamp": 1784463003.511467
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/chat/record/08dee58e-a6b6-4b51-8643-5d768d422016/citationRecords",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\"authorization\":true,\"stateCode\":0,\"state\":true,\"message\":null,\"data\":[{\"dataCollectionId\":\"08ddb208-94e0-4da0-8b97-e5463de88a90\",\"dataCollectionName\":\"2、魏公村-1-综办.xlsx\",\"items\":[{\"id\":\"d=08ddb208-94e0-4da0-8b97-e5463de88a90//p=251d9dd606644e8b9bce5a9ea765c935\",\"text\":\"<p>（2）受理接待。认真、耐心听取来访来电者的叙述，了解其反映的主要问题和诉求。对于反映纪检监察信访工作受理范围以外问题的，应予解释或告知，耐心做好思想工作。\\n（3）送阅审批。纪检监察部门根据信访举报内容、反映问题的性质提出拟办意见，呈报纪委书记阅批，同时向党委书记汇报。\\n（4）调查核实。纪检监察部门按照批示直接调查核实。反映有关教学业务或管理方面的一般问题信访件，可按程序转办。需要相关部门协助办理的信访件，及时请相关部门协助调查，并催办调查结果。&",
+      "timestamp": 1784463003.723079
+    },
+    {
+      "url": "https://appsharing-ai.ouchn.edu.cn/v0/chat/paging?userId=2680201200754&pageNum=1&pageSize=10",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_preview": "{\"authorization\":true,\"stateCode\":0,\"state\":true,\"message\":null,\"data\":{\"pageListInfos\":[{\"description\":\"你好\",\"appId\":\"08dcdc89-1a3b-4f7b-8aa0-387fd13e3cd1\",\"extendedAttributeData\":\"{\\\"Items\\\":{\\\"stuNo\\\":{\\\"Name\\\":\\\"stuNo\\\",\\\"Key\\\":\\\"stuNo\\\",\\\"Value\\\":\\\"2680201200754\\\"}}}\",\"modifyTime\":null,\"createTime\":\"2026-07-19T20:09:57\",\"userId\":\"2680201200754\",\"createUser\":\"AppSharing:11\",\"hasLabeled\":false,\"hasLiked\":false,\"hasDisliked\":false,\"id\":\"08dee58e-a6b3-4448-8da3-cb09f5c54190\"},{\"description\":\"查成绩",
+      "timestamp": 1784463004.9642239
+    }
+  ],
+  "all_api_calls_count": 47,
+  "response_containers": [
+    {
+      "selector": "[class*=\"answer\"]",
+      "class": "answer-box",
+      "text": "你好呀😉！我是你的AI学习助手，有什么关于在线课程学习或者学校事务的问题都可以告诉我哦~\n\n2、魏公村-1-综办.xlsx\n学习指南第四部分-学生服务.txt\n2、魏公村-1-综办.xlsx"
+    },
+    {
+      "selector": "[class*=\"answer\"]",
+      "class": "answer-text",
+      "text": "你好呀😉！我是你的AI学习助手，有什么关于在线课程学习或者学校事务的问题都可以告诉我哦~\n\n2、魏公村-1-综办.xlsx\n学习指南第四部分-学生服务.txt\n2、魏公村-1-综办.xlsx"
+    }
+  ],
+  "screenshots": {
+    "login": "D:\\我的文档\\GitHub\\osai\\pyrit\\results\\recon\\screenshots\\auto_login_1784462922.png",
+    "entry": "D:\\我的文档\\GitHub\\osai\\pyrit\\results\\recon\\screenshots\\auto_entry_1784462922.png",
+    "input": "D:\\我的文档\\GitHub\\osai\\pyrit\\results\\recon\\screenshots\\auto_input_1784462922.png",
+    "send": "D:\\我的文档\\GitHub\\osai\\pyrit\\results\\recon\\screenshots\\auto_send_1784462922.png"
+  }
+}

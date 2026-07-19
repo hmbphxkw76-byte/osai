@@ -54,7 +54,7 @@ class TargetBuilder:
         支持类型：
         - ollama / openai → OpenAIChatTarget
         - http → HTTPTarget（原始 HTTP 请求）
-        - playwright → PlaywrightTarget（浏览器自动化，SPA 支持）
+        - playwright / spa_chat / spa_chat_recon → PlaywrightTarget（浏览器自动化，SPA 支持）
 
         Args:
             target_config: 目标配置字典（包含 type, connection, auth 等字段）
@@ -72,7 +72,8 @@ class TargetBuilder:
             return self._build_openai_target(connection)
         elif target_type == "http":
             return self._build_http_target(connection)
-        elif target_type == "playwright":
+        elif target_type in ("playwright", "spa_chat", "spa_chat_recon"):
+            # spa_chat / spa_chat_recon 是新统一类型，复用 playwright builder
             return self._build_playwright_target(target_config)
         else:
             raise ValueError(f"Unsupported target type: {target_type}")
@@ -92,7 +93,7 @@ class TargetBuilder:
         rate_limit = rate_config.get("rate_limit", 0.0)
 
         return create_rate_controller(
-            target_type=target_type,
+            target_type=target_type if target_type != "spa_chat" else "playwright",
             max_concurrent=max_concurrent,
             rate_limit=rate_limit,
         )
@@ -136,15 +137,25 @@ class TargetBuilder:
 
         connection = target_config.get("connection", {})
         auth_config = target_config.get("auth", {})
-        selectors = target_config.get("selectors", {})
+        # 兼容新旧格式：新格式 spa.selectors / 旧格式 selectors
+        spa_config = target_config.get("spa", {})
+        selectors = spa_config.get("selectors") or target_config.get("selectors", {})
 
         # 1. 解析认证配置
+        # 优先级：显式 header_file > 域名自动发现 credentials/{domain}.txt
         auth_profile = None
         header_file = auth_config.get("header_file", "")
+        if not header_file:
+            # 自动发现：基于目标 URL 域名匹配 credentials 文件
+            from .auth import find_credential_file
+            from urllib.parse import urlparse
+            _domain = urlparse(connection.get("url", "")).hostname or ""
+            if _domain:
+                header_file = find_credential_file(_domain) or ""
         if header_file:
             from .auth import parse_header_file
             auth_profile = parse_header_file(header_file)
-            logger.info("Auth loaded: %s", auth_profile.summary())
+            logger.info("Auth loaded: %s (from %s)", auth_profile.summary(), header_file)
 
         # 2. 启动 Playwright 浏览器
         page = self._launch_playwright_browser(connection, auth_profile)
