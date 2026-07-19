@@ -1,6 +1,6 @@
 # SPA 智能助手侦察指南
 
-> **最后更新**: 2026-07-19 / 版本: v1.8 / 关联模块: `pyrit_ai300/reconnaissance/adapters/spa_chat_recon_adapter.py` / 状态: 已完成
+> **最后更新**: 2026-07-19 / 版本: v1.9 / 关联模块: `pyrit_ai300/reconnaissance/adapters/spa_chat_recon_adapter.py` / 状态: 已完成
 
 ## 1. 概述
 
@@ -31,7 +31,7 @@
 | **无认证降级模式** | **认证失败不终止流程，以未认证状态继续有限侦察并告知局限性** |
 | **认证状态清晰打印** | **凭据预检/认证/导出各阶段结果实时打印到终端** |
 | 验证码检测 | 自动检测滑窗拼图/图形验证码/行为验证，提示用户手动完成 |
-| 智能助手入口定位 | 内置 50+ 种入口选择器，覆盖智能助手/在线帮助/客服/AI助手等 |
+| 智能助手入口定位 | 内置 900+ 种入口选择器，覆盖智能助手/AI Copilot/RAG 知识库/Agent 智能体/Playground/SaaS 客服 SDK 等 16 大类 |
 | 聊天页自动检测 | URL 模式匹配 + DOM 特征检测，自动判断是否已是聊天页 |
 | 网络流量捕获 | 监听所有 HTTP 请求/响应，识别 LLM API 调用 |
 | 后端 LLM 模型识别 | 从请求 body `model` 字段 + 探测响应中提取模型名称 |
@@ -742,7 +742,7 @@ chat_entry:
 ### 4.2 内置默认选择器
 
 当 `chat_entry.selector` 留空时，使用内置 `DEFAULT_CHAT_ENTRY_SELECTORS`，
-覆盖 **200+ 种入口模式**（v1.8 大幅扩展），分 9 大类：
+覆盖 **900+ 种入口模式**（v1.9 / adapter v1.2 全面扩充），分 16 大类：
 
 #### 4.2.1 精确类名匹配
 
@@ -752,6 +752,7 @@ chat_entry:
 - `.virtual-assistant`、`.va-button`、`.bot-fab`、`.assistant-fab`
 - Element UI / Ant Design / Naive UI 类名：`.el-chat-fab`、`.ant-chat-fab`
 - 第三方客服 SDK：`.crisp-chat`、`.intercom-launcher`、`.tawk-chat`、`.udesk-chat`、`.zendesk-chat` 等
+- **国内 AI 厂商 SDK（v1.9 新增）**：`.bytedance-chat`（豆包）、`.volcengine-ark`（火山方舟）、`.baidu-ai`、`.aliyun-qwen`（通义千问）、`.iflytek-spark`（讯飞星火）、`.zhipu-chatglm`（智谱）、`.minimax-abab`、`.baichuan-btn`、`.moonshot-kimi`、`.sensetime-nova`、`.tencent-hunyuan`（腾讯混元）
 
 #### 4.2.2 ARIA 标签匹配（中文）
 
@@ -769,11 +770,12 @@ chat_entry:
 - `[aria-label='Chatbot']`、`[aria-label='Bot']`
 - `[aria-label='Live chat']`、`[aria-label='Open chat']`
 - `[aria-label='Message']`、`[aria-label='Send message']`
+- **AI 应用专属 ARIA（v1.9 新增）**：`[aria-label='Ask AI']`、`[aria-label='Chat with AI']`、`[aria-label='AI Chat']`、`[aria-label='Copilot']`、`[aria-label='AI Copilot']`、`[aria-label='GenAI']`、`[aria-label='Knowledge Base']`、`[aria-label='Smart Search']`、`[aria-label='AI Search']`、`[aria-label='Agent']`、`[aria-label='AI Agent']`、`[aria-label='Playground']`、`[aria-label='AI Studio']`、`[aria-label='Compose']`、`[aria-label='Generate']`、`[aria-label='New chat']`、`[aria-label='Talk to AI']`、`[aria-label='Get help']`、`[aria-label='AI Tutor']`、`[aria-label='AI Writer']` 等共 68 个
 
 #### 4.2.4 文本匹配（中英文）
 
-中文：`button:has-text('智能助手')`、`button:has-text('客服')`、`button:has-text('机器人')` 等
-英文：`button:has-text('Assistant')`、`button:has-text('Chat')`、`button:has-text('Live Chat')` 等
+中文：`button:has-text('智能助手')`、`button:has-text('客服')`、`button:has-text('机器人')`、`button:has-text('智能对话')`、`button:has-text('知识库')`、`button:has-text('智能体')`、`button:has-text('智能搜索')`、`button:has-text('AI搜索')`、`button:has-text('文档问答')`、`button:has-text('智能学伴')`、`button:has-text('智能导诊')` 等
+英文：`button:has-text('Assistant')`、`button:has-text('Chat')`、`button:has-text('Live Chat')`、`button:has-text('Ask AI')`、`button:has-text('Chat with AI')`、`button:has-text('Copilot')`、`button:has-text('Knowledge Base')`、`button:has-text('AI Agent')`、`button:has-text('Playground')`、`button:has-text('Compose')`、`button:has-text('Generate')`、`button:has-text('New chat')`、`button:has-text('Talk to AI')`、`button:has-text('Gemini')`、`button:has-text('Claude')`、`button:has-text('ChatGPT')` 等
 同时支持 `a:has-text(...)`、`div[role='button']:has-text(...)`、`span[role='button']:has-text(...)`
 
 #### 4.2.5 纯图标选择器（v1.8 新增）
@@ -845,27 +847,141 @@ img[title*='助手']
 [data-chatbot]
 ```
 
+**AI 应用专属 data 属性（v1.9 新增）**：
+```css
+[data-action='ask-ai']       [data-action='open-copilot']   [data-action='compose']
+[data-type='ai']             [data-type='copilot']          [data-type='agent']
+[data-type='playground']     [data-type='knowledge']        [data-type='rag']
+[data-ai]                    [data-copilot]                 [data-agent]
+[data-knowledge]             [data-rag]                     [data-playground]
+[data-testid='ai-assistant'] [data-testid='copilot-button'] [data-testid='chat-fab']
+```
+
 #### 4.2.8 模糊类名匹配（兜底）
 
 - `[class*='assistant']`、`[class*='chatbot']`、`[class*='robot']`
 - `[class*='chat-btn']`、`[class*='chat-trigger']`、`[class*='chat-launch']`
 - `[class*='ai-btn']`、`[class*='ai-fab']`、`[class*='ai-trigger']`
-- 拼音：`[class*='kefu']`（客服）、`[class*='zhushou']`（助手）、`[class*='jiqiren']`（机器人）、`[class*='wenda']`（问答）、`[class*='liaotian']`（聊天）
+- 拼音：`[class*='kefu']`（客服）、`[class*='zhushou']`（助手）、`[class*='jiqiren']`（机器人）、`[class*='wenda']`（问答）、`[class*='liaotian']`（聊天）、`[class*='duihua']`（对话）、`[class*='zhineng']`（智能）、`[class*='zhishiku']`（知识库）、`[class*='zhinengti']`（智能体）
+
+#### 4.2.9 AI Copilot / GenAI 专用类名（v1.9 新增）
+
+覆盖 GitHub Copilot / Microsoft Copilot / Bing Copilot / Edge Copilot / Windows Copilot 等：
+
+```css
+.copilot              .copilot-btn          .copilot-fab          .copilot-launcher
+.github-copilot       .m365-copilot         .microsoft-copilot    .bing-copilot
+.copilot-chat         .copilot-panel         .copilot-sidebar      .copilot-drawer
+.genai-btn            .genai-chat            .llm-chat             .llm-btn
+.ai-spark             .ai-sparkle            .ai-magic             .ai-wand
+.sparkle-btn          .magic-btn             .wand-btn             .ai-generate
+```
+
+#### 4.2.10 RAG / Knowledge Base 专用类名（v1.9 新增）
+
+覆盖知识库 / 文档问答 / 语义搜索 / 向量检索等 RAG 应用入口：
+
+```css
+.knowledge-base       .knowledge-btn        .knowledge-chat       .knowledge-search
+.kb-btn               .kb-chat              .rag-btn              .rag-chat
+.doc-chat             .doc-qa               .document-chat        .pdf-chat
+.semantic-search      .vector-search        .smart-search         .ai-search
+.ask-doc              .ask-docs             .chat-with-docs       .chat-with-pdf
+.chat-with-knowledge  .chat-with-data       .knowledge-qa         .rag-qa
+```
+
+#### 4.2.11 Agent / Agentic 专用类名（v1.9 新增）
+
+覆盖智能体 / 自动化代理 / AI 工作流等 Agent 应用入口：
+
+```css
+.agent                .agent-btn            .agent-fab            .agent-launcher
+.ai-agent             .ai-agent-btn         .agent-panel          .agent-sidebar
+.agent-runner         .agent-executor       .agent-workflow       .agent-orchestrator
+.ai-tasks             .ai-workflow          .ai-automation        .ai-flow
+```
+
+#### 4.2.12 AI Playground / Studio 专用类名（v1.9 新增）
+
+覆盖模型试验场 / 工作台 / 控制台等 AI 开发者工具入口：
+
+```css
+.playground           .ai-playground        .model-playground     .studio
+.ai-studio            .model-studio         .workbench            .ai-workbench
+.ai-lab               .ai-console           .ai-portal            .ai-hub
+.inference-btn        .completion-btn       .prompt-btn           .prompt-studio
+.prompt-lab           .prompt-playground
+```
+
+#### 4.2.13 现代 AI SaaS 平台类名（v1.9 新增）
+
+覆盖海外主流 AI 聊天 SaaS 嵌入 SDK（共 30+ 平台）：
+
+```css
+.chatbase-launcher    .dante-launcher       .customgpt-launcher   .sitegpt-launcher
+.docsbot-launcher     .botsonic-launcher    .chatfast-launcher    .voiceflow-launcher
+.dialogflow-btn       .kore-ai-btn          .yellow-ai-btn        .servicenow-chat
+.einstein-chat        .botframework-btn     .amazon-lex           .rasa-chat
+.botpress-btn         .ada-bot              .landbot-btn          .freshchat-btn
+.zoho-salesiq         .livechat-inc         .channel-io-btn       .verloop-btn
+```
+
+#### 4.2.14 AI 侧边栏 / 面板 / 抽屉模式（v1.9 新增）
+
+覆盖现代 AI 应用常见的侧边栏/面板/抽屉/浮层布局：
+
+```css
+.ai-sidebar           .ai-panel             .ai-drawer            .ai-modal
+.ai-right-panel       .ai-right-sidebar     .ai-left-panel        .ai-left-sidebar
+.ai-window            .ai-box               .ai-view              .ai-container
+.ai-popup             .ai-overlay           .ai-flyout            .ai-toast
+.ai-toolbar           .ai-action            .ai-quick-action      .ai-menu
+.side-ai              .side-assistant       .side-copilot         .side-agent
+.floating-ai          .floating-assistant   .floating-copilot     .floating-agent
+.fixed-ai             .fixed-assistant      .fixed-copilot        .fixed-agent
+```
+
+#### 4.2.15 模糊类名匹配（AI 应用兜底，v1.9 新增）
+
+放在最后避免误匹配，覆盖所有 AI 相关 class 模糊匹配：
+
+```css
+[class*='copilot']    [class*='genai']      [class*='llm']        [class*='rag']
+[class*='knowledge']  [class*='agent']      [class*='playground'] [class*='inference']
+[class*='completion'] [class*='compose']    [class*='ai-search']  [class*='ai-panel']
+[class*='ai-sidebar'] [class*='ai-drawer']  [class*='ai-modal']   [class*='ai-chat']
+[class*='ai-assistant'] [class*='sparkle']  [class*='magic-']     [class*='doc-chat']
+[class*='ask-ai']     [class*='new-chat']   [class*='start-chat'] [class*='chat-with']
+```
 
 ### 4.3 auto 模式自动检测逻辑
 
 当 `chat_entry.mode=auto` 时，按以下顺序检测：
 
-1. **URL 模式匹配**：检查 URL 是否匹配聊天页模式
-   - `/chat`、`/chatbot`、`/assistant`、`/ai-chat`、`/ai-assistant`
-   - `/smart-assistant`、`/conversation`、`/dialogue`、`/chat/12345`
-   - `#/chat`、`#/assistant`、`#/ai`、`#chat`
+1. **URL 模式匹配**：检查 URL 是否匹配聊天页模式（v1.9 扩充至 160+ 模式）
+   - 基础：`/chat`、`/chatbot`、`/assistant`、`/ai-chat`、`/ai-assistant`
+   - **AI Copilot**：`/copilot`、`/copilot-chat`、`/m365-copilot`、`/github-copilot`、`/genai`、`/llm`
+   - **RAG / Knowledge**：`/rag`、`/knowledge`、`/knowledge-base`、`/doc-chat`、`/pdf-chat`、`/semantic-search`、`/ai-search`
+   - **Agent**：`/agent`、`/agents`、`/ai-agent`、`/agent-chat`、`/ai-workflow`
+   - **Playground / Studio**：`/playground`、`/ai-playground`、`/studio`、`/ai-studio`、`/workbench`、`/prompt-studio`
+   - **主流 AI 产品**：`/gemini`、`/claude`、`/chatgpt`、`/perplexity`、`/grok`、`/mistral`、`/qwen`、`/chatglm`、`/kimi`、`/spark`、`/hunyuan`、`/doubao`
+   - **中文路径**：`/智能助手`、`/智能客服`、`/知识库`、`/智能体`、`/问答`、`/对话`
+   - hash 路由：`#/chat`、`#/copilot`、`#/playground`、`#/agent`、`#/knowledge`、`#/rag`
+   - 查询参数：`?chat=1`、`?ai=1`、`?copilot=1`、`?tab=ai`、`?panel=copilot`、`?open=chat`
+   - 子域名：`chat.`、`ai.`、`copilot.`、`agent.`、`playground.`、`knowledge.`、`rag.`、`gemini.`、`claude.`
 
-2. **DOM 特征检测**：检查页面是否包含聊天界面元素
-   - `textarea`、`[contenteditable='true']`
-   - `input[type='text'][placeholder*='输入']`
-   - `[class*='chat-input']`、`[class*='message-input']`
-   - `[class*='chat-container']`、`[class*='chat-window']`、`[class*='conversation']`
+2. **DOM 特征检测**：检查页面是否包含聊天界面元素（v1.9 扩充至 220+ 特征）
+   - 输入框：`textarea`、`[contenteditable='true']`、中文/英文 placeholder 匹配
+   - **AI 应用专属 placeholder**：`Ask AI`、`Ask anything`、`Chat with AI`、`Enter your prompt`、`How can I help`、`Generate`、`Compose`、`Search knowledge`
+   - 聊天容器：`[class*='chat-input']`、`[class*='message-input']`、`[class*='chat-container']`、`[class*='conversation']`
+   - **AI Copilot 特征**：`[class*='copilot']`、`[class*='genai']`、`[class*='llm']`、`[class*='sparkle']`、`[class*='ai-generate']`
+   - **RAG / Knowledge 特征**：`[class*='rag']`、`[class*='knowledge']`、`[class*='doc-chat']`、`[class*='semantic-search']`
+   - **Agent 特征**：`[class*='agent']`、`[class*='ai-agent']`、`[class*='agent-workflow']`
+   - **Playground / Studio 特征**：`[class*='playground']`、`[class*='studio']`、`[class*='inference']`、`[class*='completion']`
+   - **AI 面板特征**：`[class*='ai-sidebar']`、`[class*='ai-panel']`、`[class*='ai-drawer']`、`[class*='ai-modal']`
+   - **Streaming / SSE 特征**：`[class*='streaming']`、`[class*='typing']`、`[class*='generating']`、`[class*='thinking']`
+   - **Markdown 渲染容器**：`[class*='markdown']`、`[class*='prose']`、`[class*='code-block']`、`[class*='hljs']`
+   - ARIA 角色：`[role='log']`、`[role='textbox']`、`[aria-live='polite']`
 
 3. 如果检测到是聊天页，跳过入口点击
 4. 如果不是聊天页，使用 `selector` 或 `DEFAULT_CHAT_ENTRY_SELECTORS` 尝试点击
@@ -906,8 +1022,8 @@ img[title*='助手']
 | **浮动按钮(FAB)** | 检测 `position:fixed/absolute` + 高 z-index 的元素 | 定位四角浮动按钮 |
 | 输入框 | `textarea`, `input[type=text]`, `[contenteditable]`, `[class*=input]`, `[class*=editor]` | 定位消息输入框 |
 | **SVG/IMG 图标** | `svg[class]`, `img[alt]`, `i[class*=icon]` | 检测图标内容特征 |
-| 聊天入口候选 | 含"助手/客服/帮助/问答/咨询/机器人/chat/assistant/bot/help/support"等关键词 | 智能匹配聊天入口 |
-| 模糊类名匹配 | `[class*=assistant]`, `[class*=chat]`, `[class*=fab]`, `[class*=widget]`, `[class*=launcher]` 等 | 兜底匹配 |
+| 聊天入口候选 | 含"助手/客服/帮助/问答/咨询/机器人/chat/assistant/bot/help/support/copilot/genai/llm/knowledge/rag/agent/playground/studio/prompt/compose/generate/gemini/claude/chatgpt"等 139 个关键词 | 智能匹配聊天入口 |
+| 模糊类名匹配 | `[class*=assistant]`、`[class*=chat]`、`[class*=copilot]`、`[class*=rag]`、`[class*=knowledge]`、`[class*=agent]`、`[class*=playground]`、`[class*=ai-]` 等 67 个模式 | 兜底匹配 |
 | iframe | 所有非主 frame | 检测聊天窗口是否在 iframe 内 |
 
 #### 位置检测（v1.8 新增）
