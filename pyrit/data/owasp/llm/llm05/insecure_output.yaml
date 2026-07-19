@@ -2,7 +2,7 @@ id: "LLM05"
 name: "Supply Chain Vulnerabilities"
 owasp: LLM05
 technique_group: insecure_output_handling
-description: 输出处理不当攻击载荷 — AI-300 Ch3+Ch7，利用LLM输出触发下游漏洞（XSS/SQLi/RCE）
+description: 输出处理不当攻击载荷
 
 # ── 占位符声明 ──
 # {goal} 由框架从 _goals.yaml 获取

@@ -398,17 +398,35 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 
     def _detailed_findings(self) -> str:
         """
-        详细发现（优化格式）
+        详细发现（优化格式 + REV-6 CVSS + REV-7 ATLAS）
         
         格式对齐最佳实践：
         - 标题格式: {简洁描述}: {攻击面}
-        - 属性表（Severity / Source / Category / OWASP / MITRE ATLAS / Endpoint）
+        - 属性表（Severity / Source / Category / OWASP / MITRE ATLAS / CVSS / Endpoint）
         - 具体描述（基于攻击类型，简洁独立）
         - 证据（原始响应数据，不截断、不加前缀）
         - 针对性修复建议
+        
+        REV-6: 集成 CVSS 3.1 量化评分
+        REV-7: 集成 MITRE ATLAS 全量映射
+        REV-10: 收集 finding 数据用于 ROI 排序
         """
+        # REV-6/REV-7: 初始化计算器
+        try:
+            from .cvss_calculator import CVSSCalculator
+            cvss_calc = CVSSCalculator()
+        except ImportError:
+            cvss_calc = None
+        try:
+            from .atlas_mapper import ATLASMapper
+            atlas_mapper = ATLASMapper()
+        except ImportError:
+            atlas_mapper = None
+        
         findings_text = []
         finding_index = 0
+        # REV-10: 缓存 finding 数据用于 ROI 排序
+        self._findings_cache = []
         
         for result in self.results:
             scope = result.get("scope", "unknown")
@@ -431,9 +449,29 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
                 # 提取攻击元数据
                 source = self._extract_source(attack_name)
                 category = self._extract_category(attack_name)
-                mitre_atlas = self._map_mitre_atlas(attack_name, category)
                 owasp_id = self._extract_owasp_id(attack_name, owasp_mapping)
                 endpoint = self._extract_endpoint(attack, target_endpoint)
+
+                # REV-7: 使用 ATLASMapper 替代硬编码映射
+                if atlas_mapper:
+                    atlas_mapping = atlas_mapper.map_owasp(owasp_id)
+                    mitre_atlas = atlas_mapping.to_markdown()
+                else:
+                    mitre_atlas = self._map_mitre_atlas(attack_name, category)
+
+                # REV-6: 计算 CVSS 3.1 评分
+                cvss_line = "N/A"
+                cvss_score = 0.0
+                if cvss_calc and owasp_id != "N/A":
+                    try:
+                        cvss_result = cvss_calc.calculate(
+                            owasp_id=owasp_id,
+                            success_rate=rate / 100.0 if total > 0 else 0.0,
+                        )
+                        cvss_score = cvss_result.base_score
+                        cvss_line = f"{cvss_result.base_score:.1f} ({cvss_result.severity}) — `{cvss_result.vector_string}`"
+                    except Exception as e:
+                        logger.debug("CVSS calculation failed for %s: %s", owasp_id, e)
 
                 # 生成标题描述和修复建议
                 title_text = self._generate_title(category)
@@ -446,7 +484,19 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
                 # 构建标题
                 title = title_text
                 
-                # 构建发现文本
+                # REV-10: 缓存 finding 数据
+                self._findings_cache.append({
+                    "finding_id": f"F{finding_index}",
+                    "finding_name": title,
+                    "owasp_id": owasp_id,
+                    "cvss_score": cvss_score,
+                    "severity": severity,
+                    "description": description,
+                    "remediation_text": remediation,
+                    "category": category,
+                })
+                
+                # 构建发现文本（含 CVSS 行）
                 finding_text = f"""#### ⚡ Finding #{finding_index}: {title}
 
 | Attribute | Value |
@@ -456,6 +506,7 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 | Category | {category} |
 | OWASP LLM | {owasp_id} |
 | MITRE ATLAS | {mitre_atlas} |
+| CVSS 3.1 | {cvss_line} |
 | Endpoint | {endpoint} |
 
 **Description**: {description}
@@ -827,18 +878,51 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
         return "No response data available"
 
     def _attack_path(self) -> str:
-        """攻击路径"""
-        return """## 6. Attack Path Visualization
+        """
+        攻击路径可视化（REV-8: Mermaid 图形化）
+        
+        REV-8: 集成 AttackChainGenerator 生成 Mermaid 流程图
+        """
+        # REV-8: 尝试生成 Mermaid 攻击链图表
+        mermaid_code = ""
+        try:
+            from .attack_chain_graph import AttackChainGenerator
+            graph_gen = AttackChainGenerator()
+            # 收集所有攻击结果
+            all_attacks = []
+            for result in self.results:
+                all_attacks.extend(result.get("attacks", []))
+            if all_attacks:
+                mermaid_code = graph_gen.generate_chain(all_attacks)
+        except ImportError:
+            logger.debug("AttackChainGenerator not available")
+        except Exception as e:
+            logger.debug("Mermaid generation failed: %s", e)
+        
+        mermaid_section = ""
+        if mermaid_code:
+            mermaid_section = f"""
+### 6.1 Attack Chain (Mermaid)
 
-### 6.1 Kill Chain
+```mermaid
+{mermaid_code}
+```
 
+### 6.2 Kill Chain
+"""
+        else:
+            mermaid_section = """### 6.1 Kill Chain
+"""
+        
+        return f"""## 6. Attack Path Visualization
+{mermaid_section}
 ```
 [Reconnaissance] → [Initial Access] → [Prompt Injection] → [Agent Hijacking]
                                                         ↓
 [Impact] ← [Data Exfiltration] ← [Privilege Escalation] ← [RAG Poisoning]
 ```
 
-### 6.2 Multi-Stage Attack Flow
+### 6.{3 if mermaid_code else 2} Multi-Stage Attack Flow
 
 1. **Reconnaissance** - Identify AI agent endpoints and capabilities
 2. **Initial Access** - Exploit public-facing AI interface
@@ -877,7 +961,81 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 """
 
     def _remediation(self) -> str:
-        """修复建议"""
+        """
+        修复建议（REV-10: ROI 排序）
+        
+        REV-10: 基于实际 finding 数据计算 ROI，按降序排序修复建议
+        """
+        # REV-10: 尝试使用 ROICalculator 生成 ROI 排序的修复建议
+        try:
+            from .remediation_roi import ROICalculator, RemediationSuggestion
+            
+            # 从 _detailed_findings 缓存的 finding 数据构建建议
+            findings = getattr(self, "_findings_cache", [])
+            if findings:
+                # 难度/有效性推断（基于 category 和 severity）
+                difficulty_map = {
+                    "prompt_injection": "medium",
+                    "direct_injection": "easy",
+                    "jailbreak": "hard",
+                    "code_execution": "hard",
+                    "supply_chain": "complex",
+                    "data_poisoning": "hard",
+                    "memory_poisoning": "medium",
+                    "rag_exploitation": "medium",
+                    "embedding_info_leakage": "easy",
+                    "infrastructure_misconfiguration": "medium",
+                }
+                
+                suggestions = []
+                for f in findings:
+                    difficulty = difficulty_map.get(f.get("category", ""), "medium")
+                    suggestions.append(RemediationSuggestion(
+                        finding_id=f["finding_id"],
+                        finding_name=f["finding_name"],
+                        owasp_id=f["owasp_id"],
+                        cvss_score=f["cvss_score"],
+                        severity=f["severity"],
+                        description=f["description"],
+                        remediation_text=f["remediation_text"],
+                        difficulty=difficulty,
+                        effectiveness="high",
+                        business_impact="low",
+                    ))
+                
+                roi_calc = ROICalculator(hourly_rate=100.0)
+                ranked = roi_calc.calculate_and_rank(suggestions)
+                roi_report = roi_calc.get_remediation_priority_report(ranked)
+                
+                # 添加标准时间维度建议作为补充
+                return roi_report + """
+
+### 8.{4} Time-Based Action Plan
+
+#### Immediate Actions (0-30 days)
+1. **Input Validation** - Implement strict input filtering for all AI endpoints
+2. **Output Scanning** - Deploy output content scanners to prevent data leakage
+3. **MCP Tool Auditing** - Review and restrict MCP tool permissions
+4. **RAG Access Control** - Implement knowledge base access controls
+
+#### Short-Term Actions (30-90 days)
+1. **Prompt Injection Defense** - Deploy prompt injection detection models
+2. **Agent Monitoring** - Implement behavioral monitoring for AI agents
+3. **Supply Chain Verification** - Verify integrity of all AI/ML components
+4. **Embedding Protection** - Encrypt embedding vectors at rest and in transit
+
+#### Long-Term Actions (90+ days)
+1. **AI Security Framework** - Establish comprehensive AI security program
+2. **Red Team Program** - Regular AI red team assessments
+3. **Security Training** - AI security awareness for developers
+4. **Incident Response** - AI-specific incident response procedures
+"""
+        except ImportError:
+            logger.debug("ROICalculator not available, using static remediation")
+        except Exception as e:
+            logger.debug("ROI calculation failed: %s", e)
+        
+        # 降级：使用静态修复建议
         return """## 8. Remediation Recommendations
 
 ### 8.1 Immediate Actions (0-30 days)

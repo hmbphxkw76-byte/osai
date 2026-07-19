@@ -1,4 +1,4 @@
-# Crescendo 渐进式越狱载荷（AI-300 Ch3: 多轮高级越狱技术）
+# Crescendo 渐进式越狱载荷
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
@@ -19,7 +19,7 @@ name: "Crescendo Jailbreak"
 
 owasp: LLM01
 technique_group: crescendo_jailbreak
-description: Crescendo 渐进式越狱载荷 — 多轮技术 — AI-300 Ch3
+description: Crescendo 渐进式越狱载荷 — 多轮技术
 payloads:
   - technique: crescendo_standard
     name: "标准 Crescendo 5轮渐进"

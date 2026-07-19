@@ -9,13 +9,13 @@
 # 技术来源：
 #   - 论文: arXiv:2404.02151 (Andriushchenko, Croce, Flammarion)
 #   - Garak probes/adaptive_attacks.py: 实现论文的模板式自适应越狱
-# AI-300 Ch3 考试场景：高级越狱技术 — 自适应 Prompt 优化
+# 考试场景：高级越狱技术 — 自适应 Prompt 优化
 id: "LLM01"
 name: "Adaptive Jailbreak"
 
 owasp: LLM01
 technique_group: adaptive_jailbreak
-description: 自适应越狱攻击载荷 — 前缀模板+对抗后缀组合 — AI-300 Ch3（Garak adaptive_attacks / ICML 2024 移植扩充）
+description: 自适应越狱攻击载荷 — 前缀模板+对抗后缀组合
 payloads:
   - technique: adaptive_jailbreak_template
     name: "自适应越狱 — 基础模板"

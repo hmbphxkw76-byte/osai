@@ -1,4 +1,4 @@
-# Token Smuggling 绕过载荷（AI-300 Ch3 Evasion - PI-08）
+# Token Smuggling 绕过载荷（ Evasion - PI-08）
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
@@ -15,7 +15,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: token_smuggling
-description: "Token Smuggling 绕过载荷 — 同形字/零宽字符/拆分/Unicode规范化/RTL覆盖 — AI-300 Ch3（PI-08）"
+description: "Token Smuggling 绕过载荷 — 同形字/零宽字符/拆分/Unicode规范化/RTL覆盖
 payloads:
   - technique: homoglyph_ignore
     name: "同形字 — 忽略指令"

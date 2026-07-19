@@ -1,5 +1,10 @@
 # AI-300 Framework - 开发规范
 
+> **最后更新**: 2026-07-19
+> **版本**: v3.5
+> **关联模块**: pyrit_ai300/
+> **状态**: 已完成
+
 ## 1. 编码规范
 
 ### 1.1 强制 UTF-8（Windows 必须）
@@ -43,7 +48,7 @@ if sys.platform == "win32":
 | 类型 | 示例 | 处理方式 |
 |------|------|---------|
 | 未使用的 import | `import xxx` 后全文无引用 | 删除 |
-| 未调用的函数/方法 | 定义后无任何地方调用 | 删除 |
+| 未调用的函数/方法 | 定义后任何地方调用 | 删除 |
 | 未使用的类 | 定义后无实例化/继承 | 删除 |
 | 注释掉的代码 | `# 旧代码...` | 删除（git 历史可恢复） |
 | 废弃的模块文件 | 整个文件不再被引用 | 删除文件 |
@@ -103,6 +108,10 @@ vulture pyrit_ai300/ --min-confidence 80
 | true_false | `SelfAskTrueFalseScorer` | LLM | 需要 LLM 目标 |
 | substring | `SubStringScorer` | 规则 | 纯文本匹配，无需 LLM |
 | category | `SelfAskCategoryScorer` | LLM | 需要 LLM 目标 |
+| **ensemble** (REV-4) | **`EnsembleScorer`** | 集成 | 多评分器并行 + 投票策略（多数/加权/一致），由 `ScorerBuilder` 自动启用 |
+| **semantic** (REV-5) | **`SemanticScorer`** | 语义 | LLM 语义判定 + 关键词降级模式，由 `ScorerBuilder` 自动启用 |
+
+> **REV-4/REV-5 说明**（v3.5）：`ScorerBuilder.build()` 默认为关键类别（LLM01/02/06/07/08, ASI01/02/05/06）自动启用集成评分和语义评分，无需手动配置。配置详见 `ai300 list scorers` 命令输出。
 
 ### 3.3 评分器自动选择 + 外部 LLM 配置
 
@@ -158,45 +167,73 @@ with open(path, "r", encoding="utf-8") as f:
     config = docs[0] if docs else {}
 ```
 
-## 4. 目录结构规范（v3.0）
+## 4. 目录结构规范（v3.1）
 
 ```
 pyrit/                          # 项目根目录
 ├── config/                     # 配置层（唯一配置源）
-│   ├── attack/                #   攻击策略配置
-│   │   ├── defaults.yaml  #   默认转换器/评分器/ASI映射
-│   │   └── patterns.yaml  #   攻击分类正则模式
 │   ├── targets/               #   目标端点配置 YAML
-│   ├── placeholders/          #   占位符配置（llm01-llm10/ + expericing/）
-│   ├── recon/                 #   侦察配置（recon.yaml）
-│   ├── scores/                #   评分器 LLM 后端（每后端一个 YAML）
+│   ├── recon/                 #   侦察配置（recon.yaml + 19项优化开关）
+│   ├── scores/                #   评分器 LLM 后端 + ASI 映射
+│   ├── placeholders/          #   占位符配置（llm01-10/ + expericing/）
 │   ├── headers/               #   认证头文件
 │   └── output/                #   输出报告配置
 ├── data/                       # 数据层
-│   ├── owasp/                 #   载荷唯一真相源（590+ YAML）
+│   ├── owasp/                 #   载荷唯一真相源（82 YAML，632 payloads）
+│   │   ├── _registry.core.yaml #   注册表 v2.0.0
 │   │   ├── llm/               #     LLM01-LLM10
-│   │   ├── agentic/           #     ASI01-ASI10
-│   │   └── recon_templates/    #     侦察探测模板
-│   └── recon_templates/       #   侦察探测模板（根目录）
+│   │   │   ├── llm01/          #     32 文件（Skeleton Key/BoN/Bad Likert/...）
+│   │   │   │   ├── jailbreak/  #     75 活跃 + 90 归档
+│   │   │   │   │   ├── _metadata_defaults.yaml
+│   │   │   │   │   └── archive/ #   6 子目录归档
+│   │   │   │   └── _goals.yaml #     6层分类结构
+│   │   │   └── llm02-10/       #     各 OWASP 类别
+│   │   └── agentic/           #     ASI01-ASI10
 ├── pyrit_ai300/                # 代码层（纯执行引擎）
 │   ├── reconnaissance/        #   侦察引擎（完全独立）
-│   │   ├── recon_engine.py    #   统一调度入口
+│   │   ├── recon_engine.py    #   统一调度入口 (OPT-E1-E3)
 │   │   ├── target_profile.py  #   TargetProfile 数据模型
-│   │   ├── profile_merger.py  #   多工具结果合并
+│   │   ├── profile_merger.py  #   多工具结果合并 (OPT-M1-M2)
+│   │   ├── owasp_taxonomy.py  #   OWASP 分类法
 │   │   ├── adapters/          #   薄壳适配器
+│   │   │   ├── protocol_fingerprint_adapter.py  # AIMAP (OPT-A1-A6)
+│   │   │   ├── garak_adapter.py                  # Garak (OPT-G1-G6)
+│   │   │   └── deepteam_adapter.py               # DeepTeam (OPT-D1-D5)
 │   │   └── utils/             #   工具函数
 │   ├── attack/                #   攻击引擎扩展
 │   │   └── profile_loader.py  #   TargetProfile → SmartMatcher
 │   ├── orchestrators/         #   编排器
-│   │   ├── attack_orchestrator.py
-│   │   ├── smart_matcher.py
+│   │   ├── attack_orchestrator.py  # 攻击编排 + 执行
+│   │   ├── smart_matcher.py        # 两层策略选择 + 转换器选择
+│   │   ├── scorer_builder.py       # ASI 感知评分器构建 (v3.1)
+│   │   ├── converter_builder.py    # 转换器构建 (v3.1)
+│   │   ├── target_builder.py       # 目标构建 (v3.1)
+│   │   ├── pyrit_initializer.py    # PyRIT 初始化 (v3.1)
+│   │   ├── plugin_loader.py        # 插件加载 (v3.1)
 │   │   ├── attack_registry.py
 │   │   ├── component_registry.py
-│   │   └── rate_controller.py
+│   │   ├── encoding_selector.py    # 三阶段编码选择器
+│   │   ├── rate_controller.py      # 速率控制器
+│   │   ├── auth/              #   认证配置解析
+│   │   └── interactions/      #   交互函数
 │   ├── payloads/              #   载荷管理
+│   │   ├── payload_manager.py      # 载荷加载/分类/渲染
+│   │   ├── payload_classifier.py   # 五维分类器
+│   │   ├── payload_dedup.py        # 语义去重 (Jaccard ≥ 0.85)
+│   │   ├── payload_mutator.py      # 载荷变异器 (P1-F)
+│   │   ├── payload_generator.py    # 载荷生成器
+│   │   ├── template_renderer.py    # 模板渲染器
+│   │   ├── models.py               # PayloadProfile 数据模型
+│   │   ├── normalizer.py           # 载荷标准化
+│   │   └── patterns.py             # 攻击分类模式
 │   ├── pipeline/              #   流水线追踪
+│   │   ├── tracker.py              # 全链路追踪 (20 stage)
+│   │   └── feedback_analyzer.py    # 反馈分析 + 变异生成 (P1-F)
 │   ├── reporting/             #   报告生成
-│   ├── tests/                 #   单元测试（168 tests）
+│   │   ├── report_generator.py     # OffSec 9段标准报告
+│   │   └── execution_report.py     # 执行报告保存
+│   ├── tests/                 #   单元测试（220+ tests）
+│   ├── tests/                 #   单元测试（220+ tests）
 │   ├── utils/                 #   工具函数
 │   ├── __init__.py            #   AI300Engine 入口
 │   └── cli.py                 #   命令行接口
@@ -205,6 +242,7 @@ pyrit/                          # 项目根目录
 │   ├── DEVELOPMENT.md         #   开发规范文档（本文档）
 │   └── OFFLINE_INSTALL.md     #   离线安装指南
 ├── examples/                   # 使用示例
+├── .garak/                     #   Garak 独立 venv（隔离 datasets 冲突）
 ├── results/                    # 输出结果
 ├── Makefile                    # 自动化命令
 ├── pyproject.toml              # 项目配置
@@ -220,6 +258,9 @@ pyrit/                          # 项目根目录
 ```
 data/owasp/          ← 唯一真相源
   ├── llm/           ← LLM01-LLM10（含多级子目录）
+  │   └── llm08/
+  │       ├── _goals.yaml  ← 攻击目标占位符
+  │       └── *.yaml       ← 载荷文件
   ├── agentic/       ← ASI01-ASI10
   └── recon_templates/ ← 侦察探测模板
 ```
@@ -229,6 +270,7 @@ data/owasp/          ← 唯一真相源
 2. **OWASP ID 隐含攻击面** — 不存储 `surfaces` 和 `ai300_chapters` 字段
 3. **多级子目录扫描** — `load_data_dir()` 使用 `rglob` 递归
 4. **顶层文件跳过规则** — 有子目录时顶层 YAML 不加载
+5. **占位符迁移** — 攻击目标统一存放在 `_goals.yaml` 而非 `config/placeholders/`
 
 **YAML 三要素规范（强制）**：
 
@@ -263,7 +305,7 @@ data/owasp/          ← 唯一真相源
 4. 新增攻击技术：只改 `data/owasp/` 下的 YAML，不改代码
 5. 新增目标类型：只改 `config/targets/*.yaml`，不改代码
 6. 侦察层不 import 攻击层，两者通过 TargetProfile JSON 通信
-7. config/ 为唯一配置源：策略配置（转换器/评分器/ASI映射）全部在 `config/attack/defaults.yaml`
+7. config/ 为唯一配置源：策略配置（转换器/评分器/ASI映射）内置在代码常量中
 
 **端到端数据驱动流程**：
 ```
@@ -274,8 +316,9 @@ data/owasp/          ← 唯一真相源
     → TargetProfile JSON
   → ai300 owasp <scope> --target-file <yaml>
     → ProfileLoader 加载画像
-    → 从 config/attack/defaults.yaml 加载默认策略
+    → 模板渲染（_goals.yaml + 14种编码变体）
     → SmartMatcher 选择策略
+    → RateController 控制并发
     → PyRIT 原生攻击执行
     → 自动评分
     → 自动生成报告 → results/
@@ -297,8 +340,6 @@ data/owasp/          ← 唯一真相源
 - 新增侦察工具配置：只改 `config/recon/recon.yaml`
 - 新增外部 LLM 评分器后端：只改 `config/scores/*.yaml`（或使用 CLI `--scorer-url`/`--scorer-key`/`--scorer-model`）
 - 新增转换器/评分器映射：只改 `pyrit_ai300/orchestrators/component_registry.py` 的 `CONVERTER_MAP` / `SCORER_MAP`
-- 新增默认攻击策略：只改 `config/attack/defaults.yaml`（OWASP ID → 转换器/评分器映射）
-- 新增攻击分类模式：只改 `config/attack/patterns.yaml`
 - **不修改代码逻辑**即可扩展攻击能力
 
 ## 9. 日志规范
@@ -346,6 +387,12 @@ logger.error("Attack failed: %s", str(e))
 pip install -e ".[recon]"
 ```
 
+**Garak 独立 venv**：
+```bash
+# garak 与 pyrit 存在 datasets 版本冲突，使用独立 venv
+make setup-garak
+```
+
 ## 11. 测试规范
 
 ### 11.1 测试文件规范
@@ -363,7 +410,7 @@ pip install -e ".[recon]"
 | **提交前 / 合并前** | Lint + 单元测试 | `make ci` | ~20s | 代码质量 + 正确性 |
 | **发布前** | 覆盖率报告 | `make test-cov` | ~20s | 确认覆盖无退化 |
 
-**核心原则：本项目的单元测试就是回归测试。** 168 个测试覆盖侦察引擎、适配器、ProfileMerger、攻击编排、载荷管理等核心模块。
+**核心原则：本项目的单元测试就是回归测试。** 220+ 个测试覆盖侦察引擎、适配器、ProfileMerger、攻击编排、载荷管理、速率控制、认证解析、报告生成等核心模块。
 
 ### 11.3 回归测试执行时机
 
@@ -379,6 +426,26 @@ pip install -e ".[recon]"
 **执行时机**：
 - 考试前用真实目标跑一次 `ai300 owasp llm01 --target-file config/targets/xxx.yaml` 验证端到端
 - 日常开发只跑单元测试
+
+### 11.5 测试模块覆盖（2026-07-18 更新）
+
+| 测试类 | 覆盖模块 | 测试数 |
+|--------|---------|--------|
+| TestPayloadClassifier | 载荷分类器基础功能 | 7 |
+| TestPayloadAnalyzerV3 | 载荷多维分析器 | 16 |
+| TestSmartMatcherV3 | 智能匹配引擎 v3.0 | 18 |
+| TestAttackProbeFamilies | 攻击探针族 | 3 |
+| TestNormalizePayload | 载荷归一化 | 3 |
+| TestPayloadManager | 载荷管理器 | 12 |
+| TestPipelineTrackerScorer | 流水线追踪（评分器） | 4 |
+| TestPipelineEncodingSelection | 流水线追踪（编码选择） | 7 |
+| TestHeaderParser | 认证头解析 | 12 |
+| TestWebChatInteraction | Web 聊天交互 | 3 |
+| TestPlaywrightTargetConfig | Playwright 目标配置 | 2 |
+| TestRateController | 速率控制器 | 14 |
+| TestRateControlConfig | 速率控制配置 | 2 |
+| TestReportGeneratorDetailedFindings | 报告详细发现 | 4 |
+| **总计** | | **107+** |
 
 ## 12. 载荷跟踪与添加规则（强制）
 
@@ -400,9 +467,8 @@ pip install -e ".[recon]"
 ### 12.2 添加流程
 
 ```
-发现新技术 → 创建跟踪清单（data/owasp/_tracking/<ID>.yaml）
-  → 评估有效性 → 编写 YAML 载荷 → 更新 _registry.core.yaml
-  → 测试验证 → 标记 done
+发现新技术 → 评估有效性 → 编写 YAML 载荷
+  → 更新 _registry.core.yaml → 测试验证 → 标记完成
 ```
 
 ### 12.3 跟踪清单状态
@@ -416,17 +482,7 @@ pip install -e ".[recon]"
 | `done` | 已添加并验证通过 |
 | `rejected` | 评估后不添加（记录原因） |
 
-### 12.4 模板文件
-
-跟踪清单模板位于 `data/owasp/_tracking.template.yaml`，包含：
-- 基本信息（ID、状态、优先级）
-- 来源信息（CVE/论文/博客链接）
-- OWASP 分类映射
-- 技术评估（有效性、规避级别、检测风险）
-- 载荷信息（技术名、文件路径）
-- 验证记录（测试目标、结果）
-
-### 12.5 定期审计
+### 12.4 定期审计
 
 | 频率 | 操作 |
 |------|------|
@@ -441,7 +497,7 @@ pip install -e ".[recon]"
 **生效日期**: 2026-07-17
 **优先级**: 强制（MUST）
 
-### 12.1 搜索优先级
+### 13.1 搜索优先级
 
 当需要查找 AI 红队相关技术资料时，**必须**按以下优先级顺序搜索：
 
@@ -451,7 +507,7 @@ pip install -e ".[recon]"
 | **2** | [github.com](https://github.com) | 开源项目、代码实现 | 仓库搜索 |
 | **3（兜底）** | 其他来源 | 前两者未覆盖的资料 | 自行查询 |
 
-### 12.2 搜索流程
+### 13.2 搜索流程
 
 ```
 1. 确定搜索关键词（中英文均可）
@@ -467,7 +523,7 @@ pip install -e ".[recon]"
 5. 如前两者结果不足，自行扩展搜索（Google、技术博客等）
 ```
 
-### 12.3 搜索关键词建议
+### 13.3 搜索关键词建议
 
 | 主题 | 推荐关键词 |
 |------|-----------|
@@ -479,9 +535,88 @@ pip install -e ".[recon]"
 | 安全评估 | `AI Safety Evaluation`, `LLM Safety Benchmark` |
 | 对抗攻击 | `Adversarial Attack`, `Evasion Attack` |
 
-### 12.4 结果记录规范
+### 13.4 结果记录规范
 
 搜索结果需记录到三库：
 - **开发规范**（本文档）：搜索规则和流程
 - **规则库** `.codebuddy/rules/research-sources.md`：规则编号 RES-001
 - **记忆库** `.codebuddy/memory/MEMORY.md`：搜索日期和关键发现
+
+## 14. 目标配置类型（v3.0 更新）
+
+### 14.1 支持的类型
+
+| 类型 | 说明 | 并发 | 速率 |
+|------|------|------|------|
+| ollama | 本地 Ollama 服务 | 2 | 0 |
+| openai | OpenAI 兼容 API | 5 | 10 req/s |
+| http | 自定义 HTTP 端点 | 3 | 0 |
+| playwright | 浏览器自动化（SPA） | 1 | 0 |
+
+### 14.2 Playwright 目标配置示例
+
+```yaml
+# config/targets/playwright_web_chat.yaml
+target:
+  type: playwright
+  connection:
+    url: "https://chat.example.com"
+    browser: chromium
+    headless: true
+    ignore_https_errors: true
+  auth:
+    header_file: "config/headers/syxy.txt"
+  selectors:
+    input: "#chat-input"
+    send_button: "#send-btn"
+    response: ".response"
+  rate_control:
+    max_concurrent: 1
+```
+
+## 15. 报告生成格式（v2.0）
+
+### 15.1 Detailed Findings 格式
+
+```markdown
+### Findings Details
+
+#### ⚡ Finding #1: {中文标题}
+
+| Severity | Source | Category | OWASP LLM | MITRE ATLAS | Endpoint |
+|----------|--------|----------|-----------|-------------|----------|
+| **{SEVERITY}** | {Attack Name} | {Category} | {OWASP ID} | {MITRE} | {URL} |
+
+**Description**: {攻击描述}
+
+**Evidence**:
+```{language}
+{原始响应，不截断}
+```
+
+**Remediation**: {修复建议}
+```
+
+### 15.2 标题映射表
+
+| OWASP 技术 ID | 自动生成标题 |
+|---------------|-------------|
+| embedding_inversion | 嵌入系统信息泄露 |
+| prompt_injection | 提示注入 |
+| agent_goal_hijack | Agent 目标劫持 |
+| system_prompt_leak | 系统提示泄露 |
+| tool_hijack | 工具劫持 |
+| goal_hijack | 目标劫持 |
+| resource_exhaustion | 资源耗尽 |
+| unknown | 安全风险 |
+
+### 15.3 严重度计算
+
+| 优先级 | 条件 | 结果 |
+|--------|------|------|
+| 1 | YAML catalog 中定义 severity | 使用定义值 |
+| 2 | 成功率 ≥ 80% | CRITICAL |
+| 3 | 成功率 ≥ 50% | HIGH |
+| 4 | 成功率 ≥ 20% | MEDIUM |
+| 5 | 成功率 < 20% | LOW |
+

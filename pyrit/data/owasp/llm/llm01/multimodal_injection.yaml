@@ -1,8 +1,8 @@
-# 多模态提示注入载荷（AI-300 Ch3+Ch5: 跨模态攻击）
+# 多模态提示注入载荷
 # OWASP LLM Top 10: LLM01 (Prompt Injection), LLM04 (Data Poisoning)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
-# 跨模态注入是 AI-300 考试的新兴考点：
+# 跨模态注入是考试的新兴考点：
 #   多模态 LLM (GPT-4V, Claude 3.5, Gemini) 接受图像/音频/视频输入，
 #   攻击者可将提示注入到非文本模态中，绕过纯文本护栏。
 #
@@ -23,7 +23,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: multimodal_injection
-description: 跨模态提示注入载荷 — 图像/音频/文档/视频中的隐藏指令 — AI-300 Ch3+Ch5
+description: 跨模态提示注入载荷 — 图像/音频/文档/视频中的隐藏指令
 payloads:
   - technique: image_text_injection
     name: "图像文字注入（白底黑字）"

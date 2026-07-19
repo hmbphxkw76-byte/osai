@@ -1,4 +1,4 @@
-# RAG 间接提示注入载荷（AI-300 Ch5: 通过检索文档实现间接提示注入）
+# RAG 间接提示注入载荷
 # OWASP LLM Top 10: LLM04 (Data Poisoning)
 # MITRE ATLAS: AML.T0020 (Poison Training Data)
 #
@@ -13,7 +13,7 @@ name: "Model Denial of Service"
 
 owasp: LLM04
 technique_group: indirect_injection
-description: RAG 间接提示注入载荷（检索文档中的隐藏指令）— AI-300 Ch5
+description: RAG 间接提示注入载荷（检索文档中的隐藏指令）
 
 payloads:
   - technique: html_comment_injection

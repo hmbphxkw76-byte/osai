@@ -1,4 +1,4 @@
-# 依赖混淆攻击载荷（AI-300 Ch8: Supply Chain Attacks）
+# 依赖混淆攻击载荷
 # OWASP LLM Top 10: LLM03 (Supply Chain)
 # MITRE ATLAS: AML.T0015 (ML Supply Chain Compromise)
 # 
@@ -19,7 +19,7 @@ name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: dependency_confusion
-description: 依赖混淆/命名空间复用攻击载荷 — AI-300 Ch8（P0 考试场景）
+description: 依赖混淆/命名空间复用攻击载荷
 payloads:
   - technique: pip_confusion
     name: "PyPI 依赖混淆基础版"

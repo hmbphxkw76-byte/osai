@@ -1,4 +1,4 @@
-# MCP 会话固定攻击载荷（AI-300 Ch7 - MCP-08）
+# MCP 会话固定攻击载荷
 # OWASP LLM Top 10: LLM06 (Excessive Agency)
 # OWASP Agentic Top 10: ASI03 (Identity Abuse)
 # MITRE ATLAS: AML.T0056 (LLM Plugin Compromise)
@@ -12,7 +12,7 @@ name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_session_fix
-description: "MCP 会话固定载荷 — 会话注入/重用/URL泄露/通知劫持 — AI-300 Ch7（MCP-08）"
+description: "MCP 会话固定载荷 — 会话注入/重用/URL泄露/通知劫持
 payloads:
   - technique: session_id_injection
     name: "会话ID注入"

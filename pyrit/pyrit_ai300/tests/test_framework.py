@@ -1208,23 +1208,6 @@ class TestReportGeneratorDetailedFindings(unittest.TestCase):
         self.assertNotIn("[Response]", findings)
         self.assertIn('{"object":"list","data":[{"id":"qwen3:0.6b","object":"model"}]}', findings)
 
-    def test_chapter_mapper(self):
-        """测试 OWASP ID → AI-300 章节映射"""
-        from pyrit_ai300.reporting.chapter_mapper import get_chapters, get_chapters_str
-        
-        # LLM01 → Ch3
-        self.assertEqual(get_chapters("LLM01"), ["Ch3"])
-        
-        # ASI01 → Ch3
-        self.assertEqual(get_chapters("ASI01"), ["Ch3"])
-        
-        # ASI02 → Ch7
-        self.assertEqual(get_chapters("ASI02"), ["Ch7"])
-        
-        # 字符串格式
-        self.assertEqual(get_chapters_str("LLM01"), "Ch3")
-        self.assertEqual(get_chapters_str(""), "N/A")
-
     def test_generate_title(self):
         """测试标题生成"""
         from pyrit_ai300.reporting.report_generator import ReportGenerator

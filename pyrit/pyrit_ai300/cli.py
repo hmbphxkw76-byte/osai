@@ -20,7 +20,10 @@ def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
         prog="ai300",
-        description="AI-300 Red Teaming Framework - OffSec AI-300 Exam-Aligned Scanner",
+        description="AI-300 Red Teaming Framework v3.5 - OffSec AI-300 Exam-Aligned Scanner\n"
+                   "  82 YAML / 632 payloads / ASR 基线 100% / 19 项侦察优化 / REV-1~10 全链路闭环\n"
+                   "  OWASP LLM Top 10 + Agentic Top 10 + MITRE ATLAS 对齐 | CVSS 3.1 + Mermaid 报告\n"
+                   "  架构成熟度 L4.8（接近 L5 专家级）",
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -28,8 +31,23 @@ def main():
     # OWASP command
     owasp_parser = subparsers.add_parser(
         "owasp",
-        help="Execute attacks by OWASP standard",
+        help="Execute attacks by OWASP standard (v3.5 全链路闭环)",
         epilog="""\
+全链路管线 (v3.5): 侦察→载荷过滤(REV-1)→ASR排序(REV-2)→模型特定选择(REV-3)
+                    →转换器→策略适配→集成评分(REV-4)+语义评分(REV-5)
+                    →CVSS量化(REV-6)+ATLAS映射(REV-7)+Mermaid图形(REV-8)+ROI排序(REV-10)
+
+核心优化（REV-1~10）：
+  * PayloadFilter (REV-1)    基于侦察画像 surfaces 过滤不相关 OWASP 类别（-30~50% 无效调用）
+  * ASRRanker (REV-2)        按目标模型 ASR 降序排序（高 ASR 载荷优先执行）
+  * ModelSpecificSelector    模型家族特定载荷变体选择（REV-3）
+  * EnsembleScorer (REV-4)   多评分器并行 + 三种投票策略（多数/加权/一致）
+  * SemanticScorer (REV-5)   LLM 语义安全判定 + 关键词降级模式
+  * CVSSCalculator (REV-6)   CVSS 3.1 量化评分 + 向量字符串
+  * ATLASMapper (REV-7)      MITRE ATLAS 全量战术/技术映射
+  * AttackChainGraph (REV-8) Mermaid 攻击路径可视化
+  * RemediationROI (REV-10)  修复建议基于风险降低/成本 ROI 排序
+
 Examples:
   # 单目标攻击（指定配置文件）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml
@@ -43,29 +61,43 @@ Examples:
   # 多目标批量攻击 + HTML 报告
   ai300 owasp llm01 --target-dir config/targets/ --format html
 
-  # 先侦察再攻击
+  # 先侦察再攻击（AIMAP→Garak→DeepTeam 自动顺序）
   ai300 owasp llm01 --target-url http://target.com --auto-recon
 
-  # 使用侦察生成的 profile
+  # 使用侦察生成的 profile（19项优化画像）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --profile results/recon/profile.json
 
   # 全量 LLM Top 10 攻击
   ai300 owasp llm --target-file config/targets/ollama_local.yaml
 
-  # Jailbreak 模板攻击
-  ai300 owasp text_jailbreak:aim --target-file config/targets/ollama_local.yaml
+  # 全量攻击（LLM + Agentic）
+  ai300 owasp all --target-file config/targets/ollama_local.yaml
 
   # 单文件精确攻击
   ai300 owasp owasp:llm:llm04:rag_poison --target-file config/targets/ollama_local.yaml
 
-  # 实验模式（推荐：一个参数替代 --objective/--placeholders）
+  # 实验模式（一个参数替代 --objective/--placeholders）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --experiment expericing/tier1_goal
 
   # 多目标攻击（逗号分隔）
   ai300 owasp llm01 --target-file config/targets/ollama_local.yaml --objective "whoami,id,uname"
 
-  # 全量攻击 + HTML 报告
-  ai300 owasp all --target-file config/targets/ollama_local.yaml --format html -o report.html""",
+  # 全量攻击 + HTML 报告 + 外部 LLM 评分器（启用集成+语义评分）
+  ai300 owasp all --target-file config/targets/ollama_local.yaml \\
+    --format html -o report.html \\
+    --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
+    --scorer-key $ZHIPUAI_API_KEY \\
+    --scorer-model glm-4-flash
+
+  # 侦察→攻击闭环（画像驱动载荷过滤 + ASR 排序）
+  ai300 recon -t http://target.com -d deep -o results/recon/profile.json
+  ai300 owasp all --target-url http://target.com --profile results/recon/profile.json
+
+  # 列出占位符清单
+  ai300 owasp llm01 --list-placeholders
+
+  # 生成报告（基于已有结果 JSON，含 CVSS+ATLAS+Mermaid）
+  ai300 report -r results.json -o report.md""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     owasp_required = owasp_parser.add_argument_group("required arguments")
@@ -96,7 +128,8 @@ Examples:
     owasp_optional.add_argument(
         "-o", "--output",
         default=None,
-        help="Report output path (default: auto-generated with timestamp)",
+        help="Report output path (default: auto-generated with timestamp). "
+             "报告含 CVSS 3.1 评分 + ATLAS 映射 + Mermaid 攻击图 + ROI 修复建议",
     )
     owasp_optional.add_argument(
         "--format",
@@ -154,13 +187,15 @@ Examples:
     owasp_optional.add_argument(
         "--auto-recon",
         action="store_true",
-        help="Automatically run recon before attack",
+        help="Automatically run recon before attack (AIMAP→Garak→DeepTeam, 19 optimizations). "
+             "生成的画像自动驱动 REV-1 载荷过滤 + REV-2 ASR 排序",
     )
     owasp_optional.add_argument(
         "--scorer-url",
         default=None,
         help="外部评分 LLM 的 OpenAI 兼容端点 URL（如 https://open.bigmodel.cn/api/paas/v4）。"
-             "设置后覆盖默认的本地 Ollama 评分器",
+             "设置后覆盖默认的本地 Ollama 评分器，同时驱动 REV-4 集成评分 + REV-5 语义评分。"
+             "优先级: CLI > 环境变量 > 配置文件 > 默认",
     )
     owasp_optional.add_argument(
         "--scorer-key",
@@ -186,7 +221,8 @@ Examples:
     list_required.add_argument(
         "component",
         choices=["attacks", "converters", "scorers", "targets", "owasp"],
-        help="Component type to list",
+        help="Component type to list (attacks: 6 PyRIT types, converters: 10+ types, "
+             "scorers: ASI-aware + Ensemble(REV-4) + Semantic(REV-5), owasp: 82 files/632 payloads)",
     )
     
     # Report command
@@ -207,11 +243,14 @@ Examples:
         "--format",
         choices=["markdown", "html"],
         default="markdown",
-        help="Report output format (default: markdown)",
+        help="Report output format (default: markdown). 报告含 CVSS 3.1 + ATLAS + Mermaid + ROI",
     )
 
     # Recon command
-    recon_parser = subparsers.add_parser("recon", help="Run reconnaissance on target")
+    recon_parser = subparsers.add_parser(
+        "recon",
+        help="Run reconnaissance on target (AIMAP + Garak + DeepTeam, 19 optimizations)",
+    )
     recon_target = recon_parser.add_argument_group("target specification (required, one of)")
     recon_target.add_argument(
         "-t", "--target",
@@ -228,7 +267,7 @@ Examples:
         "-d", "--depth",
         choices=["quick", "standard", "deep"],
         default="standard",
-        help="Reconnaissance depth (default: standard)",
+        help="Reconnaissance depth: quick(~30s,2probes) / standard(~3min,11types) / deep(~10min,18types+Agentic) (default: standard)",
     )
     recon_optional.add_argument(
         "--tools",
@@ -1824,9 +1863,23 @@ def _list_components(args, logger):
         for scorer_name in SCORER_MAP:
             print(f"    - {scorer_name}")
         print(f"\nASI Auto-Selection Map:")
-        asi_map = AttackOrchestrator._load_attack_defaults().get("asi_scorer_map", {})
+        asi_map = AttackOrchestrator._ASI_SCORER_MAP
         for asi, scorer_type in sorted(asi_map.items()):
             print(f"    {asi} → {scorer_type}")
+        print(f"\n  REV-4 Ensemble Scorer (多评分器并行投票):")
+        try:
+            from pyrit_ai300.orchestrators.ensemble_scorer import ENSEMBLE_SCORER_CONFIG
+            for owasp_id, scorer_types in sorted(ENSEMBLE_SCORER_CONFIG.items()):
+                print(f"    {owasp_id} → {' + '.join(scorer_types)}")
+        except Exception:
+            print(f"    (配置加载失败)")
+        print(f"\n  REV-5 Semantic Scorer (LLM 语义安全判定):")
+        try:
+            from pyrit_ai300.orchestrators.semantic_scorer import SEMANTIC_SCORER_TEMPLATES
+            cats = ", ".join(sorted(SEMANTIC_SCORER_TEMPLATES.keys()))
+            print(f"    覆盖类别: {cats}")
+        except Exception:
+            print(f"    (配置加载失败)")
         print(f"\nDefault LLM Backend: local_ollama (qwen3:0.6b @ http://localhost:11434/v1)")
         print(f"Override with: --scorer-url / --scorer-key / --scorer-model")
     

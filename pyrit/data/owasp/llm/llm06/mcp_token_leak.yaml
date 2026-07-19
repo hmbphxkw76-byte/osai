@@ -1,4 +1,4 @@
-# MCP Token 泄露检测载荷（AI-300 Ch7 - MCP-01）
+# MCP Token 泄露检测载荷
 # OWASP LLM Top 10: LLM06 (Excessive Agency), LLM02 (Sensitive Information)
 # OWASP Agentic Top 10: ASI02 (Tool Misuse)
 # MITRE ATLAS: AML.T0048 (Exfiltration)
@@ -12,7 +12,7 @@ name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_token_leak
-description: "MCP Token 泄露检测载荷 — 工具参数/错误消息/请求头/调试信息 — AI-300 Ch7（MCP-01）"
+description: "MCP Token 泄露检测载荷 — 工具参数/错误消息/请求头/调试信息
 payloads:
   - technique: mcp_token_in_params
     name: "工具参数Token泄露"

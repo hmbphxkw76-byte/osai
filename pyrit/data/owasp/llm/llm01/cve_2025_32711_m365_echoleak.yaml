@@ -1,5 +1,4 @@
 # CVE-2025-32711: EchoLeak — M365 Copilot Zero-Click Data Exfiltration
-# AI-300 章节映射：Ch3: 单 Agent 攻击 — 零点击提示注入数据泄露 (P0)
 # OWASP: LLM01 (提示注入) + LLM07 (系统提示泄露)  |  MITRE ATLAS: Exfiltration
 # CVSS: 9.3 (AV:N/AC:M/PR:N/UI:N/S:C/C:H/I:N/A:N)
 # Source: frontier/CVE-2025-32711_prompt_injection
@@ -28,13 +27,13 @@ frontier:
     关键特征： - 零点击：受害者无需打开或阅读邮件，Copilot 自动处理即触发 - 间接注入：恶意指令隐藏在正常邮件内容中 - 远程利用：攻击者无需任何认证
     - 数据泄露：Copilot 将敏感数据包含在响应中返回
 
-    对 AI-300 考试极其重要：这是提示注入(LLM01) + 系统提示词泄露(LLM07) + 数据泄露(Exfiltration) 三重组合的教科书级案例。
+ 对考试极其重要：这是提示注入(LLM01) + 系统提示词泄露(LLM07) + 数据泄露(Exfiltration) 三重组合的教科书级案例。
 
     '
 
 owasp: LLM01
 technique_group: indirect_prompt_injection
-description: "EchoLeak 零点击间接提示注入 — 恶意邮件 → Copilot 自动处理 → 隐藏注入 → 敏感数据泄露 — AI-300 Ch3 (LLM01+LLM07, CVSS 9.3)"
+description: "EchoLeak 零点击间接提示注入 — 恶意邮件 → Copilot 自动处理 → 隐藏注入 → 敏感数据泄露
 payloads:
   # ── 基础：直接数据泄露请求 ──
   - technique: data_harvesting

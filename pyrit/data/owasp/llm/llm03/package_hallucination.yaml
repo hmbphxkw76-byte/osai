@@ -8,13 +8,13 @@
 # 技术来源：Garak probes/packagehallucination.py
 # 覆盖 7 种编程语言的包管理系统：
 #   Python/pip, JavaScript/npm, Ruby/gems, Rust/crates, Raku, Perl/CPAN, Dart/pub.dev
-# AI-300 Ch8 考试场景：供应链攻击 — 依赖混淆与虚假包注册
+# 考试场景：供应链攻击 — 依赖混淆与虚假包注册
 id: "LLM03"
 name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: package_hallucination
-description: 包幻觉检测载荷 — 7 种语言包管理系统幻觉探测 — AI-300 Ch8（Garak packagehallucination 移植扩充）
+description: 包幻觉检测载荷 — 7 种语言包管理系统幻觉探测
 
 # ── 占位符声明 ──
 placeholders:

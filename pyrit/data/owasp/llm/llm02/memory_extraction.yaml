@@ -2,7 +2,7 @@ id: "LLM02"
 name: "Insecure Output Handling"
 owasp: LLM02
 technique_group: cross_session_leakage
-description: 跨会话记忆泄露攻击载荷 — AI-300 Ch3.1，利用Agent长期记忆组件泄露跨会话数据
+description: 跨会话记忆泄露攻击载荷
 payloads:
   - technique: memory_replay
     name: 记忆重放

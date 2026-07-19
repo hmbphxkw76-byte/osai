@@ -87,8 +87,7 @@
 pyrit/                          # 项目根目录
 ├── config/                     # 配置层（唯一配置源）
 │   ├── attack/                 #   攻击策略配置
-│   │   ├── defaults.yaml   #   默认转换器/评分器/ASI映射
-│   │   └── patterns.yaml   #   攻击分类正则模式
+│   │   └── defaults.yaml   #   默认转换器/评分器/ASI映射
 │   ├── targets/               #   目标端点配置 YAML
 │   ├── placeholders/          #   占位符配置（llm01-llm10/ + expericing/）
 │   ├── recon/                 #   侦察配置（recon.yaml）
@@ -102,13 +101,13 @@ pyrit/                          # 项目根目录
 │   │   └── recon_templates/    #     侦察探测模板
 │   └── recon_templates/       #   侦察探测模板
 ├── pyrit_ai300/                # 代码层（纯执行引擎）
-│   ├── reconnaissance/        #   侦察引擎
-│   ├── attack/                #   攻击引擎扩展
-│   ├── orchestrators/         #   编排器（AttackOrchestrator, SmartMatcher）
-│   ├── payloads/              #   载荷管理
-│   ├── pipeline/              #   流水线追踪
-│   ├── reporting/             #   报告生成
-│   ├── tests/                 #   单元测试（168 tests）
+│   ├── reconnaissance/        #   侦察引擎 (AIMAP/Garak/DeepTeam)
+│   ├── attack/                #   攻击引擎扩展 (ProfileLoader)
+│   ├── orchestrators/         #   编排器 (AttackOrchestrator/SmartMatcher/ScorerBuilder)
+│   ├── payloads/              #   载荷管理 (Manager/Classifier/Dedup/Mutator)
+│   ├── pipeline/              #   流水线追踪 (Tracker/FeedbackAnalyzer)
+│   ├── reporting/             #   报告生成 (OffSec 9段标准)
+│   ├── tests/                 #   单元测试（220+ tests）
 │   ├── utils/                 #   工具函数
 │   ├── __init__.py            #   AI300Engine 入口
 │   └── cli.py                 #   命令行接口

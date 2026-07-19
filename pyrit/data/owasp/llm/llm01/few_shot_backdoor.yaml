@@ -1,4 +1,4 @@
-# Few-shot Backdoor 后门植入载荷（AI-300 Ch3 - PI-09）
+# Few-shot Backdoor 后门植入载荷
 # OWASP LLM Top 10: LLM01 (Prompt Injection), LLM04 (Data Poisoning)
 # OWASP Agentic Top 10: ASI06 (Memory and Context Poisoning)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0020 (Poison Training Data)
@@ -13,7 +13,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: few_shot_backdoor
-description: "Few-shot 后门植入载荷 — 触发词/格式/数字代码/语言切换/情绪/渐进信任 — AI-300 Ch3（PI-09）"
+description: "Few-shot 后门植入载荷 — 触发词/格式/数字代码/语言切换/情绪/渐进信任
 payloads:
   - technique: trigger_word_backdoor
     name: "触发词后门"

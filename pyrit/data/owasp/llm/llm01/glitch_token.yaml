@@ -16,7 +16,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: glitch_token
-description: "Glitch Token 攻击载荷 — 通用异常 token 探测触发信息泄露 — AI-300 Ch3（已删除已修复的特定 token）"
+description: "Glitch Token 攻击载荷 — 通用异常 token 探测触发信息泄露
 payloads:
   - technique: glitch_repeat_attack
     name: "Glitch Token 重复 — 基础攻击"

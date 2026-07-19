@@ -1,5 +1,4 @@
 # FRONTIER-2025-002: EchoLeak (回声泄露) 攻击
-# AI-300 章节映射：Ch3: 单 Agent 攻击 — 系统提示词提取 (P0 高频场景)
 # OWASP: LLM07 (系统提示词泄露)  |  MITRE ATLAS: Exfiltration
 # CVSS: 7.5 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N)
 # Source: frontier/FRONTIER-2025-002_echoleak
@@ -26,7 +25,7 @@ frontier:
 
 owasp: LLM07
 technique_group: system_prompt_echo
-description: "EchoLeak 回声泄露 — 诱导模型重复/回声其内部系统提示词泄露敏感配置 — AI-300 Ch3 (LLM07, CVSS 7.5)"
+description: "EchoLeak 回声泄露 — 诱导模型重复/回声其内部系统提示词泄露敏感配置
 payloads:
   # ── 基础：直接回声请求 ──
   - technique: direct_echo

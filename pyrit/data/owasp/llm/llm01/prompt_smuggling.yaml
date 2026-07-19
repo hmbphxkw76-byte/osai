@@ -6,13 +6,13 @@
 # 假设场景等方式将恶意指令"走私"到 LLM 上下文中。
 #
 # 技术来源：Garak probes/smuggling.py — FunctionMasking/Homoglyph/HypotheticalResponse
-# AI-300 Ch3 考试场景：输出绕过、内容过滤规避
+# 考试场景：输出绕过、内容过滤规避
 id: "LLM01"
 name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: prompt_smuggling
-description: 提示词走私载荷 — 函数伪装/同形字/假设场景走私 — AI-300 Ch3（Garak smuggling probes 移植扩充）
+description: 提示词走私载荷 — 函数伪装/同形字/假设场景走私
 
 # ── 占位符声明（模板自包含） ──
 # {goal} 由框架自动从 _goals.yaml 获取，此处仅声明 Tier 3 领域参数

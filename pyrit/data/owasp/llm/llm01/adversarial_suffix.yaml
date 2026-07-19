@@ -1,4 +1,4 @@
-# 对抗后缀 / GCG 风格载荷（AI-300 Ch3: 高级越狱技术）
+# 对抗后缀 / GCG 风格载荷
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
@@ -16,7 +16,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: adversarial_suffix
-description: "GCG 风格对抗后缀载荷 — 语义级对抗包装绕过对齐 — AI-300 Ch3（已删除过时预计算后缀）"
+description: "GCG 风格对抗后缀载荷 — 语义级对抗包装绕过对齐
 payloads:
   - technique: gcg_natural
     name: "自然语言对抗包装"

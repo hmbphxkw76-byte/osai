@@ -1,4 +1,4 @@
-# 结构化字段注入载荷（AI-300 Ch3 - PI-05）
+# 结构化字段注入载荷
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection)
 #
@@ -12,7 +12,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: structured_field_injection
-description: "结构化字段注入载荷 — YAML/JSON/XML数据字段嵌入恶意指令 — AI-300 Ch3（PI-05）"
+description: "结构化字段注入载荷 — YAML/JSON/XML数据字段嵌入恶意指令
 payloads:
   - technique: yaml_field_injection
     name: "YAML字段注入"

@@ -85,14 +85,58 @@ class PayloadProfile:
             "token_count": self.token_count,
             "char_count": self.char_count,
             "tags": sorted(self.tags),
-            "confidence": self.confidence,
+            "confidence": dict(self.confidence),
             "context_window": self.context_window,
             "asi_category": self.asi_category,
+            "normalized_text": self.normalized_text,
             "attack_surface_score": self.attack_surface_score,
+            "avg_confidence": self.avg_confidence,
+            "needs_multi_strategy": self.needs_multi_strategy,
         }
         if self.threat_model:
             result["threat_model"] = self.threat_model.to_dict()
         return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PayloadProfile":
+        """
+        从字典重建 PayloadProfile（与 to_dict 互补）
+
+        用于编排器从攻击计划中恢复完整的 PayloadProfile 实例，
+        避免手动逐字段构造导致的信息丢失。
+        """
+        threat_model = None
+        tm_dict = d.get("threat_model")
+        if tm_dict and isinstance(tm_dict, dict):
+            threat_model = ThreatModel(
+                access_level=tm_dict.get("access_level", "black_box"),
+                cost_budget=tm_dict.get("cost_budget", 1.0),
+                knowledge_level=tm_dict.get("knowledge_level", "public"),
+                execution_constraints=tm_dict.get("execution_constraints", {}),
+            )
+        tags_val = d.get("tags", [])
+        if isinstance(tags_val, list):
+            tags_val = set(tags_val)
+        elif not isinstance(tags_val, set):
+            tags_val = set()
+        conf_val = d.get("confidence", {})
+        if not isinstance(conf_val, dict):
+            conf_val = {}
+        return cls(
+            length_class=d.get("length_class", "short"),
+            encoding_state=d.get("encoding_state", "plain"),
+            language=d.get("language", "en"),
+            technique=d.get("technique", "direct"),
+            complexity=d.get("complexity", "simple"),
+            token_count=d.get("token_count", 0),
+            char_count=d.get("char_count", 0),
+            tags=tags_val,
+            confidence=conf_val,
+            context_window=d.get("context_window", 8192),
+            asi_category=d.get("asi_category", ""),
+            normalized_text=d.get("normalized_text", ""),
+            threat_model=threat_model,
+        )
 
     @property
     def primary_category(self) -> str:

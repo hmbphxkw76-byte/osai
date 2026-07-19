@@ -427,6 +427,55 @@ class PipelineTracker:
             )
             self._print_header("侦察阶段完成", "green")
 
+    def log_recon_optimization(
+        self,
+        stage: str,
+        optimization_id: str,
+        input_summary: str = "",
+        output_summary: str = "",
+        reason: str = "",
+        confidence: float = 1.0,
+        duration_ms: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        记录侦察优化阶段执行结果（OPT-A1~A6, OPT-G1~G6, OPT-D1~D5, OPT-M1~M2, OPT-E1~E3）
+
+        Args:
+            stage: 优化阶段名称（如 recon_parallel_dispatch / recon_cache_hit / recon_adaptive_timeout）
+            optimization_id: 优化项 ID（如 OPT-A1 / OPT-E1）
+            input_summary: 输入摘要
+            output_summary: 输出摘要
+            reason: 说明原因
+            confidence: 置信度
+            duration_ms: 耗时（毫秒）
+            metadata: 附加元数据
+        """
+        if not self._recon_log:
+            # 如果没有 recon_log，创建一个
+            self._recon_log = ReconLog(target="")
+
+        step = PipelineStep(
+            stage=stage,
+            input_summary=input_summary,
+            output_summary=output_summary,
+            reason=reason or f"{optimization_id}: {stage}",
+            confidence=confidence,
+            duration_ms=duration_ms,
+            metadata={
+                "optimization_id": optimization_id,
+                **(metadata or {}),
+            },
+        )
+        self._recon_log.add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                f"recon_opt:{optimization_id}",
+                f"{optimization_id} | {input_summary}",
+                f"{output_summary}" + (f" ({duration_ms:.0f}ms)" if duration_ms else ""),
+            )
+
     def log_profile_loaded(self, profile_path: str, recommendations: List[str]) -> None:
         """
         记录 ProfileLoader 加载画像（侦察→攻击的桥梁）
@@ -827,6 +876,292 @@ class PipelineTracker:
         )
         self._add_step(step)
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # P0-P3 优化阶段记录方法
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def log_dedup(
+        self,
+        before_count: int,
+        after_count: int,
+        threshold: float = 0.85,
+        removed_samples: Optional[List[str]] = None,
+        duration_ms: float = 0.0,
+    ) -> None:
+        """
+        记录载荷去重步骤 (P3-J)
+
+        Args:
+            before_count: 去重前载荷数量
+            after_count: 去重后载荷数量
+            threshold: Jaccard 相似度阈值
+            removed_samples: 被移除的载荷样本（最多 5 个）
+            duration_ms: 耗时
+        """
+        removed_count = before_count - after_count
+        step = PipelineStep(
+            stage="dedup",
+            input_summary=f"before={before_count}",
+            output_summary=f"after={after_count}, removed={removed_count}",
+            reason=f"Jaccard 相似度 >= {threshold:.2f} 视为重复，移除 {removed_count} 个",
+            confidence=1.0,
+            duration_ms=duration_ms,
+            metadata={
+                "before_count": before_count,
+                "after_count": after_count,
+                "removed_count": removed_count,
+                "threshold": threshold,
+                "removed_samples": (removed_samples or [])[:5],
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "dedup",
+                f"{before_count} → {after_count} (去除 {removed_count} 个)",
+                f"阈值={threshold:.2f}",
+            )
+
+    def log_converter_selection(
+        self,
+        payload_idx: int,
+        language: str,
+        technique: str,
+        owasp_id: str,
+        candidates_count: int,
+        selected_converters: List[str],
+        reason: str = "",
+    ) -> None:
+        """
+        记录逐载荷转换器选择步骤 (P0-A)
+
+        Args:
+            payload_idx: 载荷索引
+            language: 载荷语言
+            technique: 载荷技术类别
+            owasp_id: OWASP ID
+            candidates_count: 候选转换器数量
+            selected_converters: 最终选中的转换器列表
+            reason: 选择原因
+        """
+        step = PipelineStep(
+            stage="converter_selection",
+            input_summary=(
+                f"idx={payload_idx}, lang={language}, technique={technique}, "
+                f"owasp={owasp_id}, candidates={candidates_count}"
+            ),
+            output_summary=f"selected={len(selected_converters)} [{', '.join(selected_converters)}]",
+            reason=reason or f"基于 {technique}/{language} 选择 {len(selected_converters)} 个转换器",
+            confidence=0.9,
+            metadata={
+                "payload_idx": payload_idx,
+                "language": language,
+                "technique": technique,
+                "owasp_id": owasp_id,
+                "candidates_count": candidates_count,
+                "selected_converters": selected_converters,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "converter_select",
+                f"[{payload_idx}] {language}/{technique} → {len(selected_converters)} 转换器",
+                ", ".join(selected_converters),
+            )
+
+    def log_fallback_enrich(
+        self,
+        payload_idx: int,
+        fallback_count: int,
+        converter_combos: int,
+        enriched_chain: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """
+        记录 Fallback 链增强步骤 (P0-B)
+
+        Args:
+            payload_idx: 载荷索引
+            fallback_count: 回退项数量
+            converter_combos: 转换器组合总数
+            enriched_chain: 增强后的回退链（可选）
+        """
+        total_attempts = fallback_count + converter_combos
+        step = PipelineStep(
+            stage="fallback_enrich",
+            input_summary=f"idx={payload_idx}, fallback_items={fallback_count}",
+            output_summary=f"converter_combos={converter_combos}, total_attempts={total_attempts}",
+            reason=f"每个回退项附加 converter_override，覆盖编码被过滤场景",
+            confidence=0.85,
+            metadata={
+                "payload_idx": payload_idx,
+                "fallback_count": fallback_count,
+                "converter_combos": converter_combos,
+                "total_attempts": total_attempts,
+                "enriched_chain": enriched_chain or [],
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "fallback_enrich",
+                f"[{payload_idx}] {fallback_count} 回退项 x {converter_combos} 转换器 = {total_attempts} 种尝试",
+            )
+
+    def log_early_stop(
+        self,
+        consecutive_failures: int,
+        skipped_count: int,
+        threshold: int = 5,
+    ) -> None:
+        """
+        记录早停触发步骤 (P1-E)
+
+        Args:
+            consecutive_failures: 连续失败次数
+            skipped_count: 被跳过的载荷数量
+            threshold: 触发阈值
+        """
+        step = PipelineStep(
+            stage="early_stop",
+            input_summary=f"consecutive_failures={consecutive_failures}",
+            output_summary=f"skipped={skipped_count}",
+            reason=f"连续 {consecutive_failures} 次失败（>= {threshold}），触发早停",
+            confidence=1.0,
+            metadata={
+                "consecutive_failures": consecutive_failures,
+                "skipped_count": skipped_count,
+                "threshold": threshold,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "early_stop",
+                f"WARNING: 连续 {consecutive_failures} 次失败，触发早停（跳过 {skipped_count} 个载荷）",
+            )
+
+    def log_best_combinations(
+        self,
+        combinations: List[Dict[str, Any]],
+        top_count: int = 10,
+    ) -> None:
+        """
+        记录高成功率攻击组合步骤 (P0-C)
+
+        Args:
+            combinations: 组合列表，每项含 category/attack_family/attack_class/success/failure/total/rate
+            top_count: 返回的 Top-N 数量
+        """
+        top = combinations[:top_count]
+        # 构建 top 摘要（避免 f-string 中使用反斜杠）
+        top_parts = []
+        for c in top[:5]:
+            cat = c.get("category", "?")
+            rate = c.get("rate", 0)
+            top_parts.append(f"{cat}:{rate:.0%}")
+        top_summary = ", ".join(top_parts)
+        step = PipelineStep(
+            stage="best_combinations",
+            input_summary=f"total_combos={len(combinations)}",
+            output_summary=f"top_{top_count}=[{top_summary}]",
+            reason=f"从执行结果提取 Top-{top_count} 高成功率组合",
+            confidence=1.0,
+            metadata={
+                "combinations": combinations,
+                "top_count": top_count,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "best_combos",
+                f"Top-{top_count} 组合已计算",
+                f"最优: {top[0]['category']}/{top[0].get('attack_class','?')} {top[0].get('rate',0):.0%}" if top else "无数据",
+            )
+
+    def log_feedback(
+        self,
+        success_rate: float,
+        recommended_families: List[str],
+        recommended_aggression: str,
+        best_strategies: Optional[List[str]] = None,
+        worst_strategies: Optional[List[str]] = None,
+        best_combinations: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """
+        记录反馈分析步骤
+
+        Args:
+            success_rate: 总体成功率
+            recommended_families: 推荐的攻击族列表
+            recommended_aggression: 推荐的攻击强度
+            best_strategies: 最优策略列表
+            worst_strategies: 最差策略列表
+            best_combinations: 最优组合列表
+        """
+        step = PipelineStep(
+            stage="feedback",
+            input_summary=f"results_analyzed",
+            output_summary=f"rate={success_rate:.1%}, families={','.join(recommended_families[:3])}",
+            reason=f"成功率 {success_rate:.1%} → 推荐 {recommended_aggression} 强度",
+            confidence=0.9,
+            metadata={
+                "success_rate": success_rate,
+                "recommended_families": recommended_families,
+                "recommended_aggression": recommended_aggression,
+                "best_strategies": best_strategies or [],
+                "worst_strategies": worst_strategies or [],
+                "best_combinations": best_combinations or [],
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "feedback",
+                f"成功率: {success_rate:.1%} | 推荐: {','.join(recommended_families[:3])} | 强度: {recommended_aggression}",
+            )
+
+    def log_mutation(
+        self,
+        mutation_count: int,
+        strategies: List[str],
+        source_count: int = 0,
+    ) -> None:
+        """
+        记录变异体生成步骤 (P1-F)
+
+        Args:
+            mutation_count: 生成的变异体数量
+            strategies: 使用的变异策略列表
+            source_count: 源载荷数量
+        """
+        step = PipelineStep(
+            stage="mutation",
+            input_summary=f"source={source_count}, strategies={','.join(strategies)}",
+            output_summary=f"mutations={mutation_count}",
+            reason=f"从 {source_count} 个成功载荷生成 {mutation_count} 个变异体",
+            confidence=0.9,
+            metadata={
+                "mutation_count": mutation_count,
+                "strategies": strategies,
+                "source_count": source_count,
+            },
+        )
+        self._add_step(step)
+
+        if self.verbose:
+            self._print_step(
+                "mutation",
+                f"生成 {mutation_count} 个变异体 ({'+'.join(strategies)})",
+            )
+
     def _add_step(self, step: PipelineStep) -> None:
         """添加步骤到当前日志"""
         if self._current_log:
@@ -1049,6 +1384,58 @@ class PipelineTracker:
                     tools = ", ".join(cv.get("tools", []))
                     conf = cv.get("confidence", 0)
                     print(f"    • {owasp_id}: {tools} → confidence={conf:.2f}")
+
+    def show_recon_optimizations(self) -> None:
+        """
+        展示侦察优化阶段摘要（OPT-A1~A6, OPT-G1~G6, OPT-D1~D5, OPT-M1~M2, OPT-E1~E3）
+
+        从 recon_log 中提取所有 stage 以 recon_ 开头且含 optimization_id 的步骤，
+        按 optimization_id 分组展示。
+        """
+        if not self._recon_log:
+            return
+
+        # 收集所有优化步骤
+        opt_steps = []
+        for step in self._recon_log.steps:
+            opt_id = step.metadata.get("optimization_id", "")
+            if opt_id:
+                opt_steps.append(step)
+
+        if not opt_steps:
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold magenta]######## 侦察阶段优化（OPT-A/G/D/M/E） ########[/bold magenta]")
+            self.console.print()
+
+            table = Table(
+                title=f"共 {len(opt_steps)} 项优化已执行",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold magenta",
+            )
+            table.add_column("OPT-ID", style="bold", min_width=8)
+            table.add_column("Stage", min_width=20)
+            table.add_column("Input", min_width=25)
+            table.add_column("Output", min_width=25)
+            table.add_column("耗时", justify="right", min_width=8)
+
+            for step in opt_steps:
+                opt_id = step.metadata.get("optimization_id", "?")
+                stage = step.stage
+                inp = step.input_summary[:40] if step.input_summary else ""
+                outp = step.output_summary[:40] if step.output_summary else ""
+                dur = f"{step.duration_ms:.0f}ms" if step.duration_ms else "-"
+                table.add_row(opt_id, stage, inp, outp, dur)
+
+            self.console.print(table)
+        else:
+            print("\n######## 侦察阶段优化（OPT-A/G/D/M/E） ########")
+            for step in opt_steps:
+                opt_id = step.metadata.get("optimization_id", "?")
+                print(f"  {opt_id} | {step.stage}: {step.output_summary}")
 
     def show_classification_summary(self) -> None:
         """展示分类结果摘要（用户友好格式）"""
@@ -1413,20 +1800,235 @@ class PipelineTracker:
                 for name, count in sorted(encoding_usage.items(), key=lambda x: x[1], reverse=True):
                     print(f"    {name}: {count} 次")
 
+    def show_converter_summary(self) -> None:
+        """展示逐载荷转换器选择摘要 (P0-A)"""
+        selection_steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "converter_selection":
+                    selection_steps.append(step)
+
+        if not selection_steps:
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold magenta]######## 逐载荷转换器选择 ########[/bold magenta]")
+            self.console.print(
+                "[dim]说明：基于每个载荷的 PayloadProfile（语言/技术/OWASP）独立选择最优转换器[/dim]"
+            )
+            self.console.print()
+
+            table = Table(box=box.SIMPLE, show_header=True, header_style="bold magenta")
+            table.add_column("#", justify="right", min_width=4)
+            table.add_column("语言", min_width=6)
+            table.add_column("技术", min_width=12)
+            table.add_column("OWASP", min_width=8)
+            table.add_column("选中转换器", min_width=40)
+
+            for step in selection_steps:
+                meta = step.metadata
+                table.add_row(
+                    str(meta.get("payload_idx", "?")),
+                    meta.get("language", "?"),
+                    meta.get("technique", "?"),
+                    meta.get("owasp_id", "?"),
+                    ", ".join(meta.get("selected_converters", [])),
+                )
+            self.console.print(table)
+        else:
+            print("\n######## 逐载荷转换器选择 ########")
+            for step in selection_steps:
+                meta = step.metadata
+                print(
+                    f"  [{meta.get('payload_idx', '?')}] "
+                    f"{meta.get('language', '?')}/{meta.get('technique', '?')} → "
+                    f"{', '.join(meta.get('selected_converters', []))}"
+                )
+
+    def show_best_combinations(self) -> None:
+        """展示高成功率攻击组合 (P0-C)"""
+        combo_steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "best_combinations":
+                    combo_steps.append(step)
+
+        if not combo_steps:
+            return
+
+        # 取最后一个 best_combinations 步骤（最终结果）
+        last_step = combo_steps[-1]
+        combinations = last_step.metadata.get("combinations", [])
+
+        if not combinations:
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold green]######## 高成功率攻击组合 (Top-10) ########[/bold green]")
+            self.console.print(
+                "[dim]说明：从执行结果提取 payload_category x attack_family x attack_class 的成功率[/dim]"
+            )
+            self.console.print()
+
+            table = Table(box=box.SIMPLE, show_header=True, header_style="bold green")
+            table.add_column("#", justify="right", min_width=4)
+            table.add_column("载荷类别", min_width=20)
+            table.add_column("攻击族", min_width=10)
+            table.add_column("攻击类", min_width=22)
+            table.add_column("成功", justify="right", min_width=6)
+            table.add_column("失败", justify="right", min_width=6)
+            table.add_column("成功率", justify="right", min_width=8)
+
+            for i, c in enumerate(combinations[:10], 1):
+                rate = c.get("rate", 0)
+                rate_str = f"{rate:.0%}"
+                table.add_row(
+                    str(i),
+                    c.get("category", "?"),
+                    c.get("attack_family", "?"),
+                    c.get("attack_class", "?"),
+                    str(c.get("success", 0)),
+                    str(c.get("failure", 0)),
+                    rate_str,
+                )
+            self.console.print(table)
+        else:
+            print("\n######## 高成功率攻击组合 (Top-10) ########")
+            for i, c in enumerate(combinations[:10], 1):
+                print(
+                    f"  {i}. {c.get('category', '?')}/{c.get('attack_class', '?')} "
+                    f"{c.get('rate', 0):.0%} ({c.get('success', 0)}/{c.get('total', 0)})"
+                )
+
+    def show_feedback_summary(self) -> None:
+        """展示反馈分析与变异摘要 (P1-F)"""
+        feedback_steps = []
+        mutation_steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "feedback":
+                    feedback_steps.append(step)
+                elif step.stage == "mutation":
+                    mutation_steps.append(step)
+
+        if not feedback_steps and not mutation_steps:
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold yellow]######## 反馈分析与变异 ########[/bold yellow]")
+
+            if feedback_steps:
+                last_fb = feedback_steps[-1]
+                meta = last_fb.metadata
+                self.console.print(
+                    f"  成功率: [bold]{meta.get('success_rate', 0):.1%}[/bold] | "
+                    f"推荐强度: [bold]{meta.get('recommended_aggression', '?')}[/bold]"
+                )
+                families = meta.get("recommended_families", [])
+                if families:
+                    self.console.print(f"  推荐攻击族: {', '.join(families)}")
+                best_strats = meta.get("best_strategies", [])
+                if best_strats:
+                    self.console.print(f"  最优策略: {', '.join(best_strats[:5])}")
+
+            if mutation_steps:
+                last_mut = mutation_steps[-1]
+                meta = last_mut.metadata
+                self.console.print(
+                    f"  变异体: [bold]{meta.get('mutation_count', 0)}[/bold] 个 "
+                    f"(策略: {', '.join(meta.get('strategies', []))})"
+                )
+        else:
+            print("\n######## 反馈分析与变异 ########")
+            if feedback_steps:
+                meta = feedback_steps[-1].metadata
+                print(f"  成功率: {meta.get('success_rate', 0):.1%} | 强度: {meta.get('recommended_aggression', '?')}")
+            if mutation_steps:
+                meta = mutation_steps[-1].metadata
+                print(f"  变异体: {meta.get('mutation_count', 0)} 个 ({', '.join(meta.get('strategies', []))})")
+
+    def show_dedup_summary(self) -> None:
+        """展示载荷去重摘要 (P3-J)"""
+        dedup_steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "dedup":
+                    dedup_steps.append(step)
+
+        if not dedup_steps:
+            return
+
+        last_step = dedup_steps[-1]
+        meta = last_step.metadata
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold cyan]######## 载荷去重 ########[/bold cyan]")
+            self.console.print(
+                f"  {meta.get('before_count', '?')} → {meta.get('after_count', '?')} "
+                f"(去除 {meta.get('removed_count', 0)} 个, 阈值={meta.get('threshold', 0.85):.2f})"
+            )
+        else:
+            print("\n######## 载荷去重 ########")
+            print(f"  {meta.get('before_count', '?')} → {meta.get('after_count', '?')} (去除 {meta.get('removed_count', 0)} 个)")
+
+    def show_early_stop_summary(self) -> None:
+        """展示早停触发摘要 (P1-E)"""
+        es_steps = []
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage == "early_stop":
+                    es_steps.append(step)
+
+        if not es_steps:
+            return
+
+        if self.console and HAS_RICH:
+            self.console.print()
+            self.console.print("[bold red]######## 早停触发 ########[/bold red]")
+            for step in es_steps:
+                meta = step.metadata
+                self.console.print(
+                    f"  连续 {meta.get('consecutive_failures', 0)} 次失败 "
+                    f"(阈值 {meta.get('threshold', 5)}) → 跳过 {meta.get('skipped_count', 0)} 个载荷"
+                )
+        else:
+            print("\n######## 早停触发 ########")
+            for step in es_steps:
+                meta = step.metadata
+                print(f"  连续 {meta.get('consecutive_failures', 0)} 次失败 → 跳过 {meta.get('skipped_count', 0)} 个")
+
     def show_full_report(self) -> None:
-        """展示完整流水线报告（侦察 + 攻击 + 编码选择）"""
+        """展示完整流水线报告（全阶段 ######## 格式标题）"""
         # 侦察摘要
         if self.has_recon:
             self.show_recon_summary()
+            self.show_recon_optimizations()
+
+        # 载荷去重
+        self.show_dedup_summary()
 
         # 攻击摘要
         if self.has_attack:
             self.show_classification_summary()
+            self.show_converter_summary()
             self.show_strategy_summary()
             self.show_scorer_summary()
 
         # 编码选择摘要
         self.show_encoding_summary()
+
+        # 早停
+        self.show_early_stop_summary()
+
+        # 高成功率组合
+        self.show_best_combinations()
+
+        # 反馈与变异
+        self.show_feedback_summary()
 
         # 总摘要
         if self.console and HAS_RICH:
@@ -1515,6 +2117,24 @@ class PipelineTracker:
                 ],
             }
 
+            # 添加侦察优化阶段日志（OPT-A/G/D/M/E）
+            opt_steps = [
+                {
+                    "stage": s.stage,
+                    "optimization_id": s.metadata.get("optimization_id", ""),
+                    "input": s.input_summary,
+                    "output": s.output_summary,
+                    "reason": s.reason,
+                    "confidence": s.confidence,
+                    "duration_ms": s.duration_ms,
+                    "metadata": s.metadata,
+                }
+                for s in self._recon_log.steps
+                if s.metadata.get("optimization_id")
+            ]
+            if opt_steps:
+                result["recon_optimizations"] = opt_steps
+
         # 添加编码选择日志（如果有）
         enc_steps = self.encoding_steps
         if enc_steps:
@@ -1540,6 +2160,32 @@ class PipelineTracker:
                     result["encoding_selection"]["probe"].append(entry)
                 elif step.stage == "encoding_selection":
                     result["encoding_selection"]["selection"].append(entry)
+
+        # 添加 P0-P3 优化阶段日志
+        p0_p3_stages = {
+            "converter_selection": [],
+            "fallback_enrich": [],
+            "best_combinations": [],
+            "early_stop": [],
+            "feedback": [],
+            "mutation": [],
+            "dedup": [],
+        }
+        for log in self._logs:
+            for step in log.steps:
+                if step.stage in p0_p3_stages:
+                    p0_p3_stages[step.stage].append({
+                        "stage": step.stage,
+                        "input": step.input_summary,
+                        "output": step.output_summary,
+                        "reason": step.reason,
+                        "metadata": step.metadata,
+                    })
+
+        # 只添加非空的阶段
+        for stage_name, entries in p0_p3_stages.items():
+            if entries:
+                result[stage_name] = entries
 
         return result
 
@@ -1602,6 +2248,30 @@ class PipelineTracker:
                     conf = cv.get("confidence", 0)
                     lines.append(f"| {owasp_id} | {tools} | {conf:.2f} |")
                 lines.append("")
+
+            # 侦察优化阶段（OPT-A/G/D/M/E）
+            if self._recon_log:
+                opt_steps = [
+                    s for s in self._recon_log.steps
+                    if s.metadata.get("optimization_id")
+                ]
+                if opt_steps:
+                    lines.extend([
+                        "### Reconnaissance Optimizations (OPT-A/G/D/M/E)",
+                        "",
+                        f"**Total optimizations applied:** {len(opt_steps)}",
+                        "",
+                        "| OPT-ID | Stage | Input | Output | Duration |",
+                        "|--------|-------|-------|--------|----------|",
+                    ])
+                    for step in opt_steps:
+                        opt_id = step.metadata.get("optimization_id", "?")
+                        stage = step.stage
+                        inp = step.input_summary[:50] if step.input_summary else "-"
+                        outp = step.output_summary[:50] if step.output_summary else "-"
+                        dur = f"{step.duration_ms:.0f}ms" if step.duration_ms else "-"
+                        lines.append(f"| {opt_id} | {stage} | {inp} | {outp} | {dur} |")
+                    lines.append("")
 
         # 攻击部分
         lines.extend([

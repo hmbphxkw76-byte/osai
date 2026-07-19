@@ -2,7 +2,7 @@ id: "LLM05"
 name: "Supply Chain Vulnerabilities"
 owasp: LLM05
 technique_group: plugin_output_exploitation
-description: 插件输出利用攻击载荷 — AI-300 Ch7，通过LLM插件/工具链输出触发下游代码执行
+description: 插件输出利用攻击载荷
 
 # ── 占位符声明 ──
 placeholders:

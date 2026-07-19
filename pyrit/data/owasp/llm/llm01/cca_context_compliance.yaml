@@ -1,7 +1,6 @@
 # CCA 上下文服从攻击载荷（移植自 promptfoo 插件灵感，纯原生 YAML）
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0054 (Infer Training Data Membership)
-# AI-300 章节映射：Ch3 — 单 Agent 攻击 (记忆投毒/多轮操控)
 #
 # 攻击原理：
 #   CCA (Context Compliance Attack) 通过逐步构建「已建立的对话历史上下文」，
@@ -23,7 +22,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: cca_context_compliance
-description: CCA 上下文服从攻击载荷 — 多轮历史污染诱导模型服从 — AI-300 Ch3
+description: CCA 上下文服从攻击载荷 — 多轮历史污染诱导模型服从
 payloads:
   - technique: trust_establishment_cca
     name: "信任建立 → 边缘请求 → 恶意指令（3 轮 CCA）"

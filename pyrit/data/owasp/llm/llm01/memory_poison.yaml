@@ -2,7 +2,7 @@ id: "LLM01"
 name: "Prompt Injection"
 owasp: LLM01
 technique_group: memory_poisoning
-description: 记忆投毒载荷 — AI-300 Ch3
+description: 记忆投毒载荷
 
 # ── 占位符声明 ──
 placeholders:

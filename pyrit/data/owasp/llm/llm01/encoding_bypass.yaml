@@ -2,7 +2,7 @@
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
 #
-# 编码绕过是 AI-300 Ch3 考试高频场景：
+# 编码绕过是考试高频场景：
 #   将恶意指令编码后嵌入提示词，绕过文本级别的护栏检测，
 #   利用 LLM 的自然解码能力还原并执行隐藏指令。
 #
@@ -17,7 +17,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: encoding_bypass
-description: "编码绕过载荷 — 14 种 Unicode 语义级绕过技术 — AI-300 Ch3（已删除 9 种无效编码）"
+description: "编码绕过载荷 — 14 种 Unicode 语义级绕过技术
 payloads:
   - technique: base64_injection
     name: "Base64 编码绕过"

@@ -2,7 +2,7 @@ id: "LLM06"
 name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: cross_agent
-description: 跨智能体攻击载荷 — AI-300 Ch4
+description: 跨智能体攻击载荷
 payloads:
   - technique: cross_agent_injection
     name: 智能体间注入

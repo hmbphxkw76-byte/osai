@@ -621,6 +621,10 @@ def _assess_complexity(text: str, profile: PayloadProfile) -> Tuple[str, float]:
         "payload_splitting": 2,
         "indirect_injection": 2,
         "adversarial": 2,
+        # v3.1 新增技术类别（之前遗漏，导致复杂度被低估）
+        "data_exfiltration": 2,
+        "cross_context_contamination": 3,
+        "context_manipulation": 2,
     }
     score += technique_scores.get(profile.technique, 1)
 

@@ -1,4 +1,4 @@
-# 模型反序列化攻击载荷（AI-300 Ch8: Supply Chain Attacks）
+# 模型反序列化攻击载荷
 # OWASP LLM Top 10: LLM03 (Supply Chain)
 # MITRE ATLAS: AML.T0015 (ML Supply Chain Compromise), AML.T0018 (Execution)
 # 
@@ -18,7 +18,7 @@ name: "Training Data Poisoning"
 
 owasp: LLM03
 technique_group: model_deserialization
-description: 模型反序列化攻击载荷（Pickle/Joblib/TF/Keras RCE）— AI-300 Ch8（P0 考试场景）
+description: 模型反序列化攻击载荷（Pickle/Joblib/TF/Keras RCE）
 payloads:
   - technique: pickle_rce
     name: "PyTorch Pickle 反序列化 RCE"

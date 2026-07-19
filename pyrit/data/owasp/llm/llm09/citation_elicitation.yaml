@@ -1,4 +1,4 @@
-# Citation Elicitation 载荷（AI-300 Ch3 - LLM09 DonkAI）
+# Citation Elicitation 载荷
 # OWASP LLM Top 10: LLM09 (Misinformation)
 # OWASP Agentic Top 10: ASI09 (Trust Exploitation)
 # MITRE ATLAS: AML.T0048 (Exfiltration)
@@ -13,7 +13,7 @@ name: "Overreliance"
 
 owasp: LLM09
 technique_group: citation_elicitation
-description: "引文诱导载荷 — 虚构引用/幽灵来源/虚假权威/学术伪造 — AI-300 Ch3（LLM09）"
+description: "引文诱导载荷 — 虚构引用/幽灵来源/虚假权威/学术伪造"
 payloads:
   - technique: fake_source_citation
     name: "虚假来源引用"

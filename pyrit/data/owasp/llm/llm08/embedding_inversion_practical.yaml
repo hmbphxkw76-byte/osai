@@ -1,4 +1,4 @@
-# 嵌入反演与攻击实操载荷（AI-300 Ch6: Embedding Attacks — 实操级）
+# 嵌入反演与攻击实操载荷
 # OWASP LLM Top 10: LLM08 (Vector and Embedding Weaknesses)
 # MITRE ATLAS: AML.T0025 (Exfiltrate ML Model), AML.T0043 (Craft Adversarial Data)
 #
@@ -7,7 +7,7 @@
 #   - vector_weakness.yaml: 向量数据库探测/枚举（侦察侧）
 #   - 本文件 (NEW): 嵌入反演实操 + 成员推断统计方法 + 向量DB API利用（实操侧）
 #
-# 技术覆盖（AI-300 Ch6 核心考点）：
+# 技术覆盖：
 #   1. 嵌入反演 (Embedding Inversion) — 从向量重建原始文本
 #   2. 成员推断 (Membership Inference) — 统计法判断数据是否在训练集中
 #   3. 属性推断 (Attribute Inference) — 从向量预测元数据
@@ -18,7 +18,7 @@ name: "Excessive Agency"
 
 owasp: LLM08
 technique_group: embedding_inversion
-description: 嵌入实操攻击载荷 — 嵌入反演/成员推断/属性推断/向量DB利用 — AI-300 Ch6
+description: 嵌入实操攻击载荷 — 嵌入反演/成员推断/属性推断/向量DB利用
 
 # ── 占位符声明 ──
 placeholders:

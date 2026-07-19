@@ -2,7 +2,7 @@ id: "LLM06"
 name: "Sensitive Information Disclosure"
 owasp: LLM06
 technique_group: tool_hijacking
-description: 工具调用劫持载荷 — AI-300 Ch3
+description: 工具调用劫持载荷
 
 # ── 占位符声明 ──
 placeholders:

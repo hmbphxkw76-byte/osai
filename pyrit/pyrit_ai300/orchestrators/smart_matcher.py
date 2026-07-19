@@ -151,13 +151,17 @@ ASI_STRATEGY_HINTS: Dict[str, Dict[str, Any]] = {
 # 第一层：快速规则筛选
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _fast_rule_filter(profile: Any) -> Dict[str, Any]:
+def _fast_rule_filter(profile: Any, aggression_level: str = "medium") -> Dict[str, Any]:
     """
     第一层：基于规则的快速筛选
 
     根据载荷特征快速确定攻击策略类别，不做复杂计算。
     返回初步策略建议，供第二层精确匹配使用。
+
+    aggression_level 影响默认重试次数：
+    - low: 1, medium: 2, high: 3
     """
+    _aggression_attempts = {"low": 1, "medium": 2, "high": 3}
     technique = profile.technique
     encoding = profile.encoding_state
     length = profile.length_class
@@ -217,8 +221,9 @@ def _fast_rule_filter(profile: Any) -> Dict[str, Any]:
     if technique == "context_manipulation":
         return {"family": AttackProbeFamily.PROGRESSIVE, "max_attempts": 0, "reason": "上下文操纵，渐进注入"}
 
-    # 默认：单轮 + 重试
-    return {"family": AttackProbeFamily.DIRECT_SINGLE, "max_attempts": 2, "reason": "标准载荷，单轮+重试"}
+    # 默认：单轮 + 重试（受 aggression_level 影响）
+    default_attempts = _aggression_attempts.get(aggression_level, 2)
+    return {"family": AttackProbeFamily.DIRECT_SINGLE, "max_attempts": default_attempts, "reason": f"标准载荷，单轮+重试 (aggression={aggression_level})"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -289,8 +294,9 @@ def _precise_model_match(
     # ── 转换器预设影响 ──
     preset_complexity = _assess_preset_complexity(converter_presets)
     if preset_complexity == "high" and family == AttackProbeFamily.PROGRESSIVE:
-        # 已有复杂转换器，可以简化攻击策略
-        rule_result["reason"] += " | 转换器已复杂: 简化攻击"
+        # 已有复杂转换器，降级为单轮攻击（减少不必要的多轮开销）
+        family = AttackProbeFamily.DIRECT_SINGLE
+        rule_result["reason"] += " | 转换器已复杂: 降级为单轮"
 
     # ── 动态参数计算 ──
     params = _compute_dynamic_params(family, profile, rule_result)
@@ -500,6 +506,31 @@ def _get_default_params_for_family(family: str) -> Dict[str, Any]:
     return defaults.get(family, {})
 
 
+def _enrich_fallback_chain_with_converters(
+    fallback_chain: List[Dict[str, Any]],
+    converter_candidates: List[str],
+) -> List[Dict[str, Any]]:
+    """
+    用转换器候选增强 Fallback 链（P0-B）
+
+    当主攻击策略失败时，除了切换攻击类，还尝试不同的转换器组合。
+    覆盖"编码被过滤"这一最常见的失败原因。
+    """
+    if not converter_candidates or len(converter_candidates) <= 1:
+        return fallback_chain
+
+    primary_converter = converter_candidates[0]
+    for alt_converter in converter_candidates[1:3]:
+        fallback_chain.append({
+            "class": PyRITAttack.PROMPT_SENDING,
+            "family": AttackProbeFamily.DIRECT_SINGLE,
+            "params": {"max_attempts_on_failure": 1},
+            "converter_override": [alt_converter],
+            "reason": f"转换器降级: {primary_converter} -> {alt_converter}",
+        })
+    return fallback_chain
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 主策略选择接口
 # ──────────────────────────────────────────────────────────────────────────────
@@ -536,8 +567,8 @@ def select_attack_strategy(
             "confidence": float,    # 置信度
         }
     """
-    # 第一层：快速规则筛选
-    rule_result = _fast_rule_filter(profile)
+    # 第一层：快速规则筛选（传入 aggression_level）
+    rule_result = _fast_rule_filter(profile, aggression_level)
 
     # 第二层：精确模型匹配
     result = _precise_model_match(
@@ -675,6 +706,69 @@ class SmartMatcher:
 
         return strategy
 
+    def select_converters_for_payload(
+        self,
+        profile: Any,
+        owasp_id: str = "",
+        converter_presets: Optional[Dict[str, List[str]]] = None,
+        max_converters: int = 5,
+    ) -> List[str]:
+        """
+        逐载荷选择最优转换器（P0-A）
+
+        基于 PayloadProfile 的语言、技术类别、OWASP 类别，
+        从 encoding_selector 获取兼容的转换器候选，
+        并按技术特征调整优先级。
+        """
+        from .encoding_selector import get_converter_candidates, filter_converters_by_language
+        from .component_registry import CONVERTER_MAP
+
+        registered = set(CONVERTER_MAP.keys())
+        language = getattr(profile, "language", "en")
+        technique = getattr(profile, "technique", "direct")
+
+        if owasp_id:
+            candidates = get_converter_candidates(
+                owasp_id=owasp_id.upper(),
+                language=language,
+                registered_converters=registered,
+            )
+        else:
+            candidates = filter_converters_by_language(list(registered), language)
+
+        if not candidates:
+            if converter_presets:
+                first_preset = list(converter_presets.values())[0]
+                return first_preset[:max_converters]
+            return ["base64"]
+
+        # 技术特征调整优先级
+        if technique == "encoded":
+            re_encode = {"base64", "rot13", "atbash", "caesar", "binary", "morse", "braille"}
+            candidates = [c for c in candidates if c not in re_encode]
+        elif technique == "role_play":
+            priority = [c for c in ("persuasion", "text_jailbreak") if c in candidates]
+            candidates = priority + [c for c in candidates if c not in priority]
+        elif technique == "prompt_leaking":
+            no_encode = {"base64", "rot13", "atbash", "caesar", "binary", "morse"}
+            candidates = [c for c in candidates if c not in no_encode]
+        elif technique == "adversarial":
+            candidates = []
+
+        if converter_presets:
+            for preset_converters in converter_presets.values():
+                for c in preset_converters:
+                    if c not in candidates and c in registered:
+                        candidates.append(c)
+
+        if not candidates:
+            if converter_presets:
+                first_preset = list(converter_presets.values())[0]
+                return first_preset[:max_converters]
+            return ["base64"]
+
+        return candidates[:max_converters]
+
     def select_preset_strategy(
         self,
         preset_count: int,
@@ -688,6 +782,7 @@ class SmartMatcher:
         converter_presets: Dict[str, List[str]],
         custom_rules: Optional[List[Dict[str, Any]]] = None,
         asi_category: str = "",
+        owasp_id: str = "",
     ) -> List[Dict[str, Any]]:
         """
         构建攻击计划（v3.0：两层策略选择 + ASI 感知）
@@ -711,8 +806,21 @@ class SmartMatcher:
                 asi_category=asi_category,
             )
 
+            # 逐载荷选择最优转换器（P0-A）
+            selected_converters = self.select_converters_for_payload(
+                profile=profile,
+                owasp_id=owasp_id,
+                converter_presets=converter_presets,
+            )
+
             # 两层策略选择
             strategy = self.select_strategy(profile, converter_presets)
+
+            # 用转换器候选增强 Fallback 链（P0-B）
+            fallback_chain = _enrich_fallback_chain_with_converters(
+                strategy.get("fallback_chain", []),
+                selected_converters,
+            )
 
             plan.append({
                 "payload": payload,
@@ -721,10 +829,11 @@ class SmartMatcher:
                 "attack_class": strategy["class"],
                 "attack_family": strategy["family"],
                 "attack_params": strategy["params"],
-                "attack_fallback_chain": strategy.get("fallback_chain", []),
+                "attack_fallback_chain": fallback_chain,
                 "attack_reason": strategy["reason"],
                 "attack_confidence": strategy["confidence"],
                 "converter_presets": converter_presets,
+                "selected_converters": selected_converters,
                 "target_model": self.target_model,
             })
 

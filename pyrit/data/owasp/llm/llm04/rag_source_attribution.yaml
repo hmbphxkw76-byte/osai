@@ -1,7 +1,6 @@
 # RAG 源归因伪造载荷（移植自 promptfoo 插件灵感，纯原生 YAML）
 # OWASP LLM Top 10: LLM04 (Model & Data Poisoning), LLM09 (Misinformation & Overreliance)
 # MITRE ATLAS: AML.T0044 (Hallucination Exploitation), AML.T0043 (Craft Adversarial Data)
-# AI-300 章节映射：Ch5 — RAG 管道利用 (知识库投毒/检索-生成间隙攻击)
 #
 # 攻击原理：
 #   RAG 系统在检索阶段从知识库获取文档，在生成阶段基于文档产生回答。
@@ -25,7 +24,7 @@ name: "Model Denial of Service"
 
 owasp: LLM04
 technique_group: rag_source_attribution
-description: RAG 源归因伪造载荷 — 诱使检索增强系统编造不存在的文档引用和虚假来源 — AI-300 Ch5
+description: RAG 源归因伪造载荷 — 诱使检索增强系统编造不存在的文档引用和虚假来源
 payloads:
   - technique: fake_document_citation
     name: "虚假文档引用伪造"

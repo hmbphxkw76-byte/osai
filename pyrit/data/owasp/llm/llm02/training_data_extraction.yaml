@@ -4,17 +4,17 @@
 #
 # 训练数据提取攻击利用 LLM 对训练语料的记忆，
 # 通过填空（Cloze）或续写（Complete）方式逐字恢复训练数据片段。
-# 这是 AI-300 Ch3+Ch6 考试场景的核心内容。
+# 这是考试场景的核心内容。
 #
 # 技术来源：Garak probes/leakreplay.py — Cloze/Complete 双模式
 # 覆盖 4 个数据源：文学/Literature、NYT新闻、Guardian新闻、Potter小说
-# AI-300 Ch6: Embedding 攻击与成员推断的前置数据收集技术
+# Embedding 攻击与成员推断的前置数据收集技术
 id: "LLM02"
 name: "Insecure Output Handling"
 
 owasp: LLM02
 technique_group: training_data_extraction
-description: 训练数据提取载荷 — Cloze填空/Complete续写双模式 — AI-300 Ch3+Ch6（Garak leakreplay 移植扩充）
+description: 训练数据提取载荷 — Cloze填空/Complete续写双模式
 
 # ── 占位符声明 ──
 placeholders:

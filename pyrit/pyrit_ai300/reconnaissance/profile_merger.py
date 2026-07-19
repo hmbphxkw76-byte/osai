@@ -379,7 +379,13 @@ class ProfileMerger:
         profile.surfaces = list(surfaces_set)
 
     def _deduplicate_findings(self, findings: List[VulnerabilityFinding]) -> List[VulnerabilityFinding]:
-        """去重：相同 category + 相似描述合并（用于无 OWASP 映射的发现）"""
+        """
+        去重：相同 category + 相似描述合并（用于无 OWASP 映射的发现）
+
+        OPT-M1 优化（2026-07-19）：使用 Jaccard 相似度进行语义去重，
+        阈值 0.80（比載荷去重更宽松，因为漏洞描述更结构化）。
+        保留原有的前缀匹配作为快速路径。
+        """
         if not findings:
             return []
 
@@ -404,7 +410,71 @@ class ProfileMerger:
                             existing.source_tools.append(finding.tool)
                         break
 
+        # OPT-M1: Jaccard 语义去重（二次去重，去除前缀不同但语义相同的发现）
+        unique = self._jaccard_dedup(unique, threshold=0.80)
+
         return unique
+
+    @staticmethod
+    def _jaccard_dedup(
+        findings: List[VulnerabilityFinding],
+        threshold: float = 0.80,
+    ) -> List[VulnerabilityFinding]:
+        """
+        Jaccard 语义去重（OPT-M1）
+
+        对同一 category 的发现，使用 Jaccard 相似度检测语义重复。
+        相似度 >= threshold 的发现合并为一个。
+        """
+        if len(findings) <= 1:
+            return findings
+
+        result: List[VulnerabilityFinding] = []
+
+        for finding in findings:
+            merged = False
+            for existing in result:
+                # 仅对相同 category 进行 Jaccard 比较
+                if existing.category != finding.category:
+                    continue
+
+                # 计算 Jaccard 相似度
+                sim = ProfileMerger._jaccard_similarity(
+                    existing.description.lower(),
+                    finding.description.lower(),
+                )
+
+                if sim >= threshold:
+                    # 合并：取更高置信度 + 更长 evidence
+                    existing.confidence = max(existing.confidence, finding.confidence)
+                    if len(finding.evidence) > len(existing.evidence):
+                        existing.evidence = finding.evidence
+                    if finding.tool not in existing.source_tools:
+                        existing.source_tools.append(finding.tool)
+                    merged = True
+                    break
+
+            if not merged:
+                result.append(finding)
+
+        return result
+
+    @staticmethod
+    def _jaccard_similarity(s1: str, s2: str) -> float:
+        """计算两个字符串的 Jaccard 相似度（基于词集）"""
+        # 分词（按空格 + 标点）
+        import re
+        words1 = set(re.findall(r"[a-z0-9_]+", s1))
+        words2 = set(re.findall(r"[a-z0-9_]+", s2))
+
+        if not words1 and not words2:
+            return 1.0
+        if not words1 or not words2:
+            return 0.0
+
+        intersection = words1 & words2
+        union = words1 | words2
+        return len(intersection) / len(union) if union else 0.0
 
     def _calculate_risk(self, profile: TargetProfile) -> str:
         """计算综合风险等级"""
@@ -424,7 +494,17 @@ class ProfileMerger:
             return "unknown"
 
     def _generate_recommendations(self, profile: TargetProfile) -> List[str]:
-        """基于 OWASP ID 生成攻击建议"""
+        """
+        基于完整画像动态生成攻击建议（OPT-M2 优化）
+
+        增强：
+        - 基于 OWASP ID 推荐（原有）
+        - 基于模型家族推荐（新增）
+        - 基于模型能力推荐（新增）
+        - 基于攻击面推荐（原有 + 增强）
+        - 基于风险等级推荐（新增）
+        - 冲突提醒（原有）
+        """
         from .owasp_taxonomy import OwaspTaxonomy
 
         recommendations = []
@@ -452,6 +532,28 @@ class ProfileMerger:
             if owasp_id in owasp_recommendations:
                 recommendations.append(owasp_recommendations[owasp_id])
 
+        # OPT-M2: 基于模型家族推荐
+        model_family = (profile.fingerprint.model_family or "").lower()
+        if model_family == "llama":
+            recommendations.append("Llama 系列对 crescendo 攻击敏感，优先使用 CrescendoAttack")
+        elif model_family == "gpt":
+            recommendations.append("GPT 系列对 TAP/PAIR 攻击敏感，优先使用 TAP 策略")
+        elif model_family == "claude":
+            recommendations.append("Claude 系列对多轮渐进攻击敏感，优先使用 PROGRESSIVE 策略")
+        elif model_family == "qwen":
+            recommendations.append("Qwen 系列对中文越狱载荷敏感，优先使用中文载荷")
+
+        # OPT-M2: 基于模型能力推荐
+        capabilities = profile.fingerprint.capabilities or []
+        if "function_calling" in capabilities:
+            recommendations.append("支持 function calling，增加 ASI03 工具滥用攻击")
+        if "vision" in capabilities:
+            recommendations.append("支持多模态，增加图像注入攻击（multimodal_injection）")
+        if "json_mode" in capabilities:
+            recommendations.append("支持 JSON 模式，增加结构化字段注入攻击")
+        if "streaming" in capabilities:
+            recommendations.append("支持流式响应，增加流式注入检测")
+
         # 冲突提醒
         conflicts = [v for v in profile.vulnerabilities if v.conflict]
         if conflicts:
@@ -460,11 +562,23 @@ class ProfileMerger:
                 f"⚠ 工具间冲突: {conflict_ids} — 已激活多路径备选策略"
             )
 
-        # 基于攻击面推荐
+        # 基于攻击面推荐（增强）
         if "agent" in profile.surfaces:
             recommendations.append("目标为 Agent，使用多轮树搜索攻击（TREE_SEARCH）")
         if "rag" in profile.surfaces:
-            recommendations.append("目标包含 RAG，增加上下文溢出攻击")
+            recommendations.append("目标包含 RAG，增加上下文溢出攻击 + RAG 投毒")
+        if "vector" in profile.surfaces:
+            recommendations.append("目标包含向量 DB，增加嵌入反演攻击（embedding_inversion）")
+        if "mcp" in profile.surfaces:
+            recommendations.append("目标包含 MCP，增加 MCP 工具注入 + 能力混淆攻击")
+        if "model_extraction" in profile.surfaces:
+            recommendations.append("目标可提取模型，增加模型窃取攻击")
+
+        # OPT-M2: 基于风险等级推荐
+        if profile.risk_level == "critical":
+            recommendations.append("⚠ 高风险目标，启用全量 Fallback 链 + 闭环变异")
+        elif profile.risk_level == "high":
+            recommendations.append("高风险目标，启用增强 Fallback 链")
 
         if not recommendations:
             recommendations.append("使用标准攻击链（Fallback Chain）")

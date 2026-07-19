@@ -1,22 +1,34 @@
 # -*- coding: utf-8 -*-
 """
-AI-300 Red Teaming Framework v3.0
+AI-300 Red Teaming Framework v3.5
 ==================================
 
 基于 PyRIT 0.14.0 的 OffSec AI-300 (OSAI+) 考试全覆盖红队评估框架。
 
 核心特性：
-- Smart Match v3.0：payload 自动分类 → PyRIT 原生攻击策略选择
+- Smart Match v3.5：payload 自动分类 → PyRIT 原生攻击策略选择 → 全链路优化
 - 直接复用 PyRIT 0.14.0 原生攻击（Crescendo/TAP/PromptSending/Sequential）
 - 完全对齐 OffSec AI-300 考试 11 个 Module
-- 完整覆盖 OWASP Top 10 for LLM Applications + Agentic Top 10
+- 完整覆盖 OWASP Top 10 for LLM Applications + Agentic Top 10 + MITRE ATLAS
 - 数据驱动，攻击载荷修改后全流程自动化
-- 自动生成符合 OffSec 标准的专业红队评估报告
+- 自动生成符合 OffSec 标准的专业红队评估报告（CVSS 3.1 + ATLAS + Mermaid）
 
-架构改进（v3.0）：
-- SmartMatcher：从"执行计划构建器"变为"PyRIT 攻击策略选择器"
-- AttackOrchestrator：不再手动循环执行，全部使用 PyRIT 原生攻击
-- 继承 PyRIT 全部能力：重试、渐进升级、自动回退、树搜索剪枝、早停
+架构改进（v3.5 - REV-1~10 全链路闭环）：
+- 侦察层：19 项优化（AIMAP/Garak/DeepTeam + ProfileMerger + 交叉验证）
+- 载荷层：
+  * PayloadFilter (REV-1) → 基于攻击面过滤不相关 OWASP 类别
+  * ASRRanker (REV-2) → 按目标模型 ASR 降序排序
+  * ModelSpecificSelector (REV-3) → 模型家族特定载荷选择
+- 评分层：
+  * EnsembleScorer (REV-4) → 多评分器并行 + 三种投票策略
+  * SemanticScorer (REV-5) → LLM 语义安全判定 + 关键词降级
+- 报告层：
+  * CVSSCalculator (REV-6) → CVSS 3.1 量化评分 + 向量字符串
+  * ATLASMapper (REV-7) → MITRE ATLAS 全量战术/技术映射
+  * AttackChainGenerator (REV-8) → Mermaid 攻击路径可视化
+  * RemediationROI (REV-10) → 修复建议 ROI 排序
+
+架构成熟度：L4.8（接近 L5 专家级）
 
 使用方式：
     from pyrit_ai300 import AI300Engine
@@ -26,8 +38,12 @@ AI-300 Red Teaming Framework v3.0
     engine.generate_report(output_path="results/assessment_report.md")
 """
 
-__version__ = "3.0.0"
+__version__ = "3.5.0"
 __author__ = "AI-300 Framework Team"
+
+# v3.1: 统一 UTF-8 设置（Windows 兼容），替代各模块中重复的 sys.stdout.reconfigure
+from .utils.platform import setup_windows_utf8
+setup_windows_utf8()
 
 import logging
 from typing import Any, Dict, Optional
@@ -206,8 +222,15 @@ class AI300Engine:
         else:
             logger.info("Target model for SmartMatcher: %s", target_model_name)
 
+        # REV-1: 从侦察画像提取攻击面，用于载荷过滤
+        surfaces = None
+        if self._profile_params:
+            surfaces = self._profile_params.get("surfaces", [])
+
         attacks = AttackOrchestrator.build_attack_list_from_refs(
-            refs, self.orchestrator._payload_mgr, target_model=target_model_name,
+            refs, self.orchestrator._payload_mgr,
+            target_model=target_model_name,
+            surfaces=surfaces,
         )
 
         # 执行攻击链

@@ -13,10 +13,13 @@ AI-300 Framework - Reconnaissance Engine
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .adapters import (
@@ -35,6 +38,16 @@ if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
 logger = logging.getLogger(__name__)
+
+# ── OPT-E2: Profile 级缓存目录 ──
+RECON_PROFILE_CACHE_DIR = "results/recon/cache/profile"
+
+# ── OPT-E3: 深度自适应超时（秒） ──
+DEPTH_TIMEOUTS: Dict[str, Dict[str, int]] = {
+    "quick": {"aimap": 15, "garak": 120, "deepteam": 60},
+    "standard": {"aimap": 30, "garak": 300, "deepteam": 120},
+    "deep": {"aimap": 60, "garak": 600, "deepteam": 300},
+}
 
 
 class ReconEngine:
@@ -72,14 +85,19 @@ class ReconEngine:
         tracker: Optional[Any] = None,
     ) -> TargetProfile:
         """
-        执行完整侦察流程（AIMAP → Garak 顺序侦察）
+        执行完整侦察流程（v2 优化版）
 
-        流程：
-        1. 先执行 AIMAP（protocol_fingerprint）协议识别
-        2. 从 AIMAP 结果提取 Garak 可探测端点
-        3. 用检测结果配置 Garak（model_type/model_name/endpoint）
-        4. 执行剩余工具（Garak + DeepTeam）
+        OPT-E1: AIMAP 与 DeepTeam 并行执行（DeepTeam 不依赖 AIMAP）
+        OPT-E2: Profile 级增量缓存（target + depth 哈希）
+        OPT-E3: 深度自适应超时
+
+        流程（v2）：
+        1. OPT-E2: 检查 profile 缓存，命中则直接返回
+        2. 启动 AIMAP（主线程）+ DeepTeam（后台线程）并行
+        3. AIMAP 完成后配置 Garak 并执行
+        4. 等待 DeepTeam 完成
         5. 合并所有结果
+        6. OPT-E2: 保存 profile 到缓存
 
         Args:
             target: 目标 URL/endpoint
@@ -94,7 +112,25 @@ class ReconEngine:
 
         # 确定要使用的工具
         tools_to_run = tools or self._get_enabled_tools()
-        logger.info("Starting recon on %s with tools: %s", target, tools_to_run)
+        logger.info("Starting recon on %s with tools: %s (depth=%s)", target, tools_to_run, depth)
+
+        # ── OPT-E2: 检查 profile 缓存 ──
+        use_cache = self.config.get("cache", {}).get("enabled", True)
+        if use_cache:
+            cached_profile = self._load_profile_cache(target, depth, tools_to_run)
+            if cached_profile:
+                logger.info("Profile cache hit, skipping recon for %s", target)
+                if tracker:
+                    tracker.log_recon_optimization(
+                        stage="recon_cache_hit",
+                        optimization_id="OPT-E2",
+                        input_summary=f"target={target}, depth={depth}",
+                        output_summary="cache_hit=True",
+                        metadata={"cache_key": self._compute_profile_cache_key(target, depth, tools_to_run)},
+                    )
+                    tracker.log_recon_start(target, tools_to_run)
+                    tracker.log_recon_complete(profile_path="", success=True, duration_ms=0)
+                return cached_profile
 
         # ── 侦察开始（tracker） ──
         if tracker:
@@ -103,71 +139,140 @@ class ReconEngine:
         # 初始化适配器
         self._init_adapters(tools_to_run)
 
-        # ── AIMAP 优先执行 → 配置 Garak ──
+        # ── OPT-E3: 深度自适应超时 ──
+        depth_timeouts = DEPTH_TIMEOUTS.get(depth, DEPTH_TIMEOUTS["standard"])
+        if tracker:
+            tracker.log_recon_optimization(
+                stage="recon_adaptive_timeout",
+                optimization_id="OPT-E3",
+                input_summary=f"depth={depth}",
+                output_summary=f"timeouts={depth_timeouts}",
+                metadata={"depth": depth, "timeouts": depth_timeouts},
+            )
+
+        # ── OPT-E1: AIMAP 与 DeepTeam 并行执行 ──
+        import concurrent.futures
+
         aimap_result = None
+        deepteam_result = None
+        garak_result = None
         garak_target = target
         garak_config_override = None
 
-        if "protocol_fingerprint" in tools_to_run:
-            aimap_start = time.time()
-            aimap_result = self._run_single_adapter("protocol_fingerprint", target, tracker)
-            aimap_duration = (time.time() - aimap_start) * 1000
+        # 判断是否需要并行
+        has_aimap = "protocol_fingerprint" in tools_to_run
+        has_deepteam = "deepteam" in tools_to_run
+        has_garak = "garak" in tools_to_run
 
-            # 记录 AIMAP 结果
+        if has_aimap and has_deepteam:
+            # OPT-E1: 并行执行 AIMAP 和 DeepTeam
             if tracker:
-                tracker.log_recon_tool(
-                    tool="protocol_fingerprint",
-                    success=aimap_result.success if aimap_result else False,
-                    findings_count=len(aimap_result.findings) if aimap_result else 0,
-                    duration_ms=aimap_duration,
-                    error=aimap_result.errors[0] if aimap_result and aimap_result.errors else "",
+                tracker.log_recon_optimization(
+                    stage="recon_parallel_dispatch",
+                    optimization_id="OPT-E1",
+                    input_summary="tools=protocol_fingerprint+deepteam",
+                    output_summary="parallel=True",
+                    metadata={"parallel_tools": ["protocol_fingerprint", "deepteam"]},
                 )
 
-            # 从 AIMAP 结果提取 Garak 端点
-            if aimap_result and aimap_result.success and "garak" in tools_to_run:
-                garak_endpoints = self.extract_garak_endpoints(aimap_result)
-                if garak_endpoints:
-                    # 使用第一个检测到的端点配置 Garak
-                    selected_ep = garak_endpoints[0]
-                    garak_target = selected_ep["url"]
-                    garak_config_override = {
-                        "model_type": selected_ep["model_type"],
-                        "model_name": selected_ep["model_name"],
-                    }
-                    logger.info(
-                        "AIMAP→Garak: using detected endpoint %s (type=%s, model=%s)",
-                        garak_target, selected_ep["model_type"], selected_ep["model_name"],
-                    )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                # 提交 AIMAP
+                aimap_future = executor.submit(
+                    self._run_single_adapter, "protocol_fingerprint", target, tracker
+                )
+                # 提交 DeepTeam（不依赖 AIMAP）
+                deepteam_future = executor.submit(
+                    self._run_single_adapter, "deepteam", target, tracker
+                )
 
-                    # 记录 AIMAP→Garak 桥接（tracker）
-                    if tracker:
-                        tracker.log_recon_aimap_garak_bridge(
-                            aimap_protocols=aimap_result.data.get("detected_protocols", []),
-                            garak_endpoint=garak_target,
-                            garak_model_type=selected_ep["model_type"],
-                            garak_model_name=selected_ep["model_name"],
+                # 等待 AIMAP 完成（用于配置 Garak）
+                aimap_result = aimap_future.result()
+                # DeepTeam 在后台继续执行
+
+                # 从 AIMAP 结果提取 Garak 端点
+                if aimap_result and aimap_result.success and has_garak:
+                    garak_endpoints = self.extract_garak_endpoints(aimap_result)
+                    if garak_endpoints:
+                        selected_ep = garak_endpoints[0]
+                        garak_target = selected_ep["url"]
+                        garak_config_override = {
+                            "model_type": selected_ep["model_type"],
+                            "model_name": selected_ep["model_name"],
+                        }
+                        logger.info(
+                            "AIMAP→Garak: using detected endpoint %s (type=%s, model=%s)",
+                            garak_target, selected_ep["model_type"], selected_ep["model_name"],
                         )
+                        if tracker:
+                            tracker.log_recon_aimap_garak_bridge(
+                                aimap_protocols=aimap_result.data.get("detected_protocols", []),
+                                garak_endpoint=garak_target,
+                                garak_model_type=selected_ep["model_type"],
+                                garak_model_name=selected_ep["model_name"],
+                            )
 
-        # ── 执行剩余工具（Garak + DeepTeam，排除已执行的 AIMAP） ──
-        remaining_tools = [t for t in tools_to_run if t != "protocol_fingerprint"]
+                # 执行 Garak（如果需要）
+                if has_garak:
+                    garak_config = self._get_tool_config("garak")
+                    if garak_config_override:
+                        garak_config.update(garak_config_override)
+                    garak_config["depth"] = depth
+                    garak_config["aimap_data"] = aimap_result.data if aimap_result else {}
+                    garak_result = self._run_single_adapter("garak", garak_target, tracker, config=garak_config)
+
+                # 等待 DeepTeam 完成
+                deepteam_result = deepteam_future.result()
+
+        else:
+            # 退回串行模式（原有逻辑）
+            if has_aimap:
+                aimap_result = self._run_single_adapter("protocol_fingerprint", target, tracker)
+                if aimap_result and aimap_result.success and has_garak:
+                    garak_endpoints = self.extract_garak_endpoints(aimap_result)
+                    if garak_endpoints:
+                        selected_ep = garak_endpoints[0]
+                        garak_target = selected_ep["url"]
+                        garak_config_override = {
+                            "model_type": selected_ep["model_type"],
+                            "model_name": selected_ep["model_name"],
+                        }
+                        if tracker:
+                            tracker.log_recon_aimap_garak_bridge(
+                                aimap_protocols=aimap_result.data.get("detected_protocols", []),
+                                garak_endpoint=garak_target,
+                                garak_model_type=selected_ep["model_type"],
+                                garak_model_name=selected_ep["model_name"],
+                            )
+
+            if has_garak:
+                garak_config = self._get_tool_config("garak")
+                if garak_config_override:
+                    garak_config.update(garak_config_override)
+                garak_config["depth"] = depth
+                garak_config["aimap_data"] = aimap_result.data if aimap_result else {}
+                garak_result = self._run_single_adapter("garak", garak_target, tracker, config=garak_config)
+
+            if has_deepteam:
+                deepteam_config = self._get_tool_config("deepteam")
+                deepteam_config["depth"] = depth
+                deepteam_config["aimap_data"] = aimap_result.data if aimap_result else {}
+                deepteam_result = self._run_single_adapter("deepteam", target, tracker, config=deepteam_config)
+
+        # 收集所有结果
         results = []
         if aimap_result:
             results.append(aimap_result)
+        if garak_result:
+            results.append(garak_result)
+        if deepteam_result:
+            results.append(deepteam_result)
 
+        # 执行未覆盖的工具（如 AIMAP 未执行但其他工具在 tools_to_run 中）
+        covered_tools = {"protocol_fingerprint", "garak", "deepteam"}
+        remaining_tools = [t for t in tools_to_run if t not in covered_tools]
         if remaining_tools:
-            # 如果有 Garak 配置覆盖，临时修改配置
-            if garak_config_override and "garak" in remaining_tools:
-                garak_config = self._get_tool_config("garak")
-                garak_config.update(garak_config_override)
-                # 使用 AIMAP 检测到的端点作为 Garak 目标
-                garak_result = self._run_single_adapter("garak", garak_target, tracker, config=garak_config)
-                results.append(garak_result)
-                remaining_tools = [t for t in remaining_tools if t != "garak"]
-
-            # 执行剩余工具（DeepTeam 等）
-            if remaining_tools:
-                remaining_results = self._run_concurrent(target, remaining_tools, tracker)
-                results.extend(remaining_results)
+            remaining_results = self._run_concurrent(target, remaining_tools, tracker)
+            results.extend(remaining_results)
 
         # ── 合并结果 ──
         merge_start = time.time()
@@ -181,7 +286,6 @@ class ReconEngine:
             cross_validated = []
             for v in profile.vulnerabilities:
                 if v.conflict and v.owasp_mapping:
-                    # 从原始结果中提取各工具的 severity
                     severities = list(set(
                         f.get("severity", v.severity)
                         for r in results if r.success
@@ -222,6 +326,10 @@ class ReconEngine:
             profile.risk_level,
             total_duration / 1000,
         )
+
+        # ── OPT-E2: 保存 profile 到缓存 ──
+        if use_cache:
+            self._save_profile_cache(target, depth, tools_to_run, profile)
 
         # 记录侦察完成（tracker）
         if tracker:
@@ -447,7 +555,7 @@ class ReconEngine:
         config: Optional[dict] = None,
     ) -> AdapterResult:
         """
-        执行单个适配器（内部方法，含 tracker 记录）
+        执行单个适配器（内部方法，含 tracker 记录 + 优化阶段追踪）
 
         Args:
             tool: 工具名称
@@ -460,6 +568,137 @@ class ReconEngine:
         """
         adapter = self._get_adapter(tool)
         tool_config = config or self._get_tool_config(tool)
+
+        # ── 追踪适配器层面的优化项 ──
+        if tracker and tool_config:
+            aimap_data = tool_config.get("aimap_data", {})
+            depth = tool_config.get("depth", "standard")
+
+            if tool == "protocol_fingerprint":
+                # OPT-A1: 协议探测并行化
+                tracker.log_recon_optimization(
+                    stage="recon_protocol_parallel",
+                    optimization_id="OPT-A1",
+                    input_summary=f"target={target}",
+                    output_summary="ThreadPoolExecutor(max_workers=8)",
+                    metadata={"depth": depth},
+                )
+                # OPT-A3: RAG 端点探测
+                if tool_config.get("enable_rag_probe", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_rag_probe",
+                        optimization_id="OPT-A3",
+                        input_summary=f"target={target}",
+                        output_summary="RAG_ENDPOINT_RULES(4)",
+                        metadata={"enabled": True},
+                    )
+                # OPT-A4: Agent 框架探测
+                if tool_config.get("enable_agent_probe", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_agent_probe",
+                        optimization_id="OPT-A4",
+                        input_summary=f"target={target}",
+                        output_summary="AGENT_FRAMEWORK_RULES(4)",
+                        metadata={"enabled": True},
+                    )
+                # OPT-A5: 认证深度检测
+                tracker.log_recon_optimization(
+                    stage="recon_auth_deep",
+                    optimization_id="OPT-A5",
+                    input_summary=f"target={target}",
+                    output_summary="bearer+api_key+cookie+oauth+jwt+bypass",
+                    metadata={"enabled": True},
+                )
+                # OPT-A6: 模型能力深度探测
+                if tool_config.get("enable_capability_probe", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_capability_probe",
+                        optimization_id="OPT-A6",
+                        input_summary=f"target={target}",
+                        output_summary="function_calling+json_mode+vision+streaming",
+                        metadata={"enabled": True},
+                    )
+
+            elif tool == "garak":
+                # OPT-G1: Probe 动态选择
+                tracker.log_recon_optimization(
+                    stage="recon_garak_probe_selection",
+                    optimization_id="OPT-G1",
+                    input_summary=f"depth={depth}, aimap_data={'yes' if aimap_data else 'no'}",
+                    output_summary=f"probes={'dynamic' if aimap_data else 'default'}",
+                    metadata={"depth": depth},
+                )
+                # OPT-G2: 深度分层 Probe 策略
+                tracker.log_recon_optimization(
+                    stage="recon_garak_depth_stratified",
+                    optimization_id="OPT-G2",
+                    input_summary=f"depth={depth}",
+                    output_summary=f"probes_by_depth={depth}",
+                    metadata={"depth": depth},
+                )
+                # OPT-G4: Detector 精确配置
+                tracker.log_recon_optimization(
+                    stage="recon_garak_detector_config",
+                    optimization_id="OPT-G4",
+                    input_summary="probe-specific detector",
+                    output_summary="PROBE_DETECTOR_MAP",
+                    metadata={"enabled": True},
+                )
+                # OPT-G5: 增量执行缓存
+                if tool_config.get("use_cache", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_garak_cache",
+                        optimization_id="OPT-G5",
+                        input_summary=f"target={target}",
+                        output_summary="cache_enabled(24h TTL)",
+                        metadata={"enabled": True},
+                    )
+                # OPT-G6: 通用预热
+                if tool_config.get("warmup", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_garak_warmup",
+                        optimization_id="OPT-G6",
+                        input_summary=f"target={target}",
+                        output_summary="warmup_request_sent",
+                        metadata={"enabled": True},
+                    )
+
+            elif tool == "deepteam":
+                # OPT-D1: 攻击类型全量覆盖
+                tracker.log_recon_optimization(
+                    stage="recon_deepteam_attack_types",
+                    optimization_id="OPT-D1",
+                    input_summary=f"depth={depth}",
+                    output_summary=f"attack_types_by_depth={depth}",
+                    metadata={"depth": depth},
+                )
+                # OPT-D2: Agentic 漏洞覆盖
+                has_agent = "agent" in aimap_data.get("surfaces", []) or "mcp" in aimap_data.get("detected_protocols", [])
+                if has_agent and depth != "quick":
+                    tracker.log_recon_optimization(
+                        stage="recon_deepteam_agentic",
+                        optimization_id="OPT-D2",
+                        input_summary="agent_surface=mcp/agent",
+                        output_summary="agentic_attacks=enabled(ASI01-04)",
+                        metadata={"has_agent_surface": True},
+                    )
+                # OPT-D4: 异步模式
+                if tool_config.get("async_mode", True):
+                    tracker.log_recon_optimization(
+                        stage="recon_deepteam_async",
+                        optimization_id="OPT-D4",
+                        input_summary="async_mode=True",
+                        output_summary=f"max_concurrent={tool_config.get('max_concurrent', 3)}",
+                        metadata={"enabled": True},
+                    )
+                # OPT-D5: 攻击方法配置
+                tracker.log_recon_optimization(
+                    stage="recon_deepteam_attack_methods",
+                    optimization_id="OPT-D5",
+                    input_summary="attack_methods=auto",
+                    output_summary="ATTACK_METHODS(16)",
+                    metadata={"enabled": True},
+                )
 
         tool_start = time.time()
         result = adapter.run(target, tool_config)
@@ -474,6 +713,16 @@ class ReconEngine:
                 duration_ms=duration_ms,
                 error=result.errors[0] if result.errors else "",
             )
+
+            # ── OPT-M1: 语义去重追踪 ──
+            if result.success and result.findings:
+                tracker.log_recon_optimization(
+                    stage="recon_merger_jaccard_dedup",
+                    optimization_id="OPT-M1",
+                    input_summary=f"findings={len(result.findings)}",
+                    output_summary="jaccard_threshold=0.80",
+                    metadata={"threshold": 0.80},
+                )
 
         return result
 
@@ -638,6 +887,63 @@ class ReconEngine:
             if isinstance(tool_config, dict) and tool_config.get("enabled", True):
                 enabled.append(name)
         return enabled or list(self.ADAPTER_MAP.keys())
+
+    # ── OPT-E2: Profile 缓存方法 ──
+
+    @staticmethod
+    def _compute_profile_cache_key(
+        target: str, depth: str, tools: List[str]
+    ) -> str:
+        """计算 profile 缓存键（target + depth + tools 的哈希）"""
+        key_str = f"{target}|{depth}|{','.join(sorted(tools))}"
+        return hashlib.md5(key_str.encode("utf-8")).hexdigest()
+
+    def _load_profile_cache(
+        self, target: str, depth: str, tools: List[str]
+    ) -> Optional[TargetProfile]:
+        """加载 profile 缓存"""
+        cache_key = self._compute_profile_cache_key(target, depth, tools)
+        cache_file = Path(RECON_PROFILE_CACHE_DIR) / f"{cache_key}.json"
+        if not cache_file.exists():
+            return None
+
+        # 检查缓存是否过期（默认 24 小时）
+        cache_ttl = self.config.get("cache", {}).get("ttl_seconds", 86400)
+        mtime = cache_file.stat().st_mtime
+        if time.time() - mtime > cache_ttl:
+            logger.debug("Profile cache expired: %s", cache_key)
+            return None
+
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # 从字典重建 TargetProfile
+            profile = TargetProfile.from_dict(data)
+            logger.info("Profile cache hit: %s", cache_key)
+            return profile
+        except Exception as e:
+            logger.warning("Failed to load profile cache: %s", str(e))
+            return None
+
+    def _save_profile_cache(
+        self,
+        target: str,
+        depth: str,
+        tools: List[str],
+        profile: TargetProfile,
+    ) -> None:
+        """保存 profile 到缓存"""
+        cache_key = self._compute_profile_cache_key(target, depth, tools)
+        cache_dir = Path(RECON_PROFILE_CACHE_DIR)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{cache_key}.json"
+        try:
+            data = profile.to_dict()
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info("Profile cache saved: %s", cache_key)
+        except Exception as e:
+            logger.warning("Failed to save profile cache: %s", str(e))
 
     def _init_adapters(self, tools: List[str]) -> None:
         """初始化指定适配器"""

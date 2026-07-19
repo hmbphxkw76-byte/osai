@@ -1,7 +1,6 @@
 # 特殊 Token 注入载荷（移植自 promptfoo 插件灵感，纯原生 YAML）
 # OWASP LLM Top 10: LLM01 (Prompt Injection)
 # MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Defense Evasion)
-# AI-300 章节映射：Ch3 — 单 Agent 攻击 (提示注入绕过护栏)
 #
 # 攻击原理：
 #   LLM tokenizer 对特殊格式分隔符（<|im_start|>、[INST]、</s> 等）有特殊处理逻辑。
@@ -21,7 +20,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: special_token_injection
-description: 特殊 Token 注入载荷 — 利用对话格式分隔符打破系统/用户边界 — AI-300 Ch3
+description: 特殊 Token 注入载荷 — 利用对话格式分隔符打破系统/用户边界
 payloads:
   - technique: chatml_boundary_break
     name: "ChatML 格式边界突破"
