@@ -177,7 +177,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
         try:
             # 通过 run_async 桥接异步 Playwright API
-            from ...utils.async_helper import run_async
+            from ....utils.async_helper import run_async
             result = run_async(self._execute_recon(full_config, data, findings, errors))
 
             if result:
@@ -308,7 +308,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             #      headless 浏览器无可见窗口，人工干预不可能完成
             #   4. 减少用户参与：有凭据就用，无凭据才考虑登录流程
 
-            from ...orchestrators.auth import normalize_domain
+            from ....orchestrators.auth import normalize_domain
             login_mode = login_config.get("mode", "manual")
             login_url = login_config.get("url", target_url)
             auth_errors_before = len(errors)
@@ -348,7 +348,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             elif preflight.get("auth_valid") and preflight.get("auth_profile"):
                 print("\n  [1/3] 预检认证有效，注入凭据并继续...")
                 try:
-                    from ...orchestrators.auth import inject_auth
+                    from ....orchestrators.auth import inject_auth
                     await inject_auth(context, page, preflight["auth_profile"])
 
                     # 导航到目标页面

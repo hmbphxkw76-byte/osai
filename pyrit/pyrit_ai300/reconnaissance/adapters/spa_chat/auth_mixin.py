@@ -490,7 +490,7 @@ class AuthMixin:
             - redirect_url: 重定向 URL（如有）
             - auth_profile: AuthProfile 实例（认证有效时返回，供后续注入）
         """
-        from ...orchestrators.auth import (
+        from ....orchestrators.auth import (
             parse_header_file,
             normalize_domain,
             find_credential_file,
@@ -809,7 +809,7 @@ class AuthMixin:
         Returns:
             True 如果凭据有效并已成功注入；False 如果无凭据或凭据无效
         """
-        from ...orchestrators.auth import (
+        from ....orchestrators.auth import (
             parse_header_file,
             inject_auth,
             normalize_domain,
@@ -940,7 +940,7 @@ class AuthMixin:
         Returns:
             保存的凭据文件路径，或 None（失败时）
         """
-        from ...orchestrators.auth import normalize_domain
+        from ....orchestrators.auth import normalize_domain
 
         target_domain = normalize_domain(target_url)
         if not target_domain:
@@ -1011,7 +1011,7 @@ class AuthMixin:
             return
 
         try:
-            from ...orchestrators.auth import parse_header_file, inject_auth
+            from ....orchestrators.auth import parse_header_file, inject_auth
             auth_profile = parse_header_file(header_file)
             await inject_auth(context, page, auth_profile)
             logger.info("Auth injected from header file: %s", auth_profile.summary())
@@ -1311,7 +1311,7 @@ class AuthMixin:
                         cookies_to_add.append(cookie)
             elif cookie_string:
                 # Cookie 字符串解析
-                from ...orchestrators.auth.header_parser import _parse_cookies
+                from ....orchestrators.auth.header_parser import _parse_cookies
                 cookies_to_add = _parse_cookies(cookie_string, domain)
 
             if cookies_to_add:
@@ -1357,8 +1357,8 @@ class AuthMixin:
             return
 
         try:
-            from ...orchestrators.auth.header_parser import parse_header_text
-            from ...orchestrators.auth import inject_auth
+            from ....orchestrators.auth.header_parser import parse_header_text
+            from ....orchestrators.auth import inject_auth
 
             auth_profile = parse_header_text(raw_text)
             await inject_auth(context, page, auth_profile)
