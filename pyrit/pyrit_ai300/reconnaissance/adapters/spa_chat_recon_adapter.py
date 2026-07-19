@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AI-300 Framework - SPA Chat Recon Adapter v1.1
+AI-300 Framework - SPA Chat Recon Adapter v1.2
 SPA 智能助手侦察适配器：针对需要认证登录的 SPA 架构 AI 聊天应用
 
 适用场景：
@@ -97,13 +97,21 @@ RAG_PATH_KEYWORDS: List[str] = [
 
 # ── 默认智能助手入口选择器（覆盖多种入口类型） ──
 # 顺序：从精确到模糊，优先匹配高置信度选择器
-# 覆盖策略：
-#   1. 精确类名（含常见框架命名）
-#   2. ARIA 标签（中英文 + 常见变体）
-#   3. 文本匹配（中英文 + 缩写）
-#   4. 纯图标选择器（SVG/IMG + 浮动按钮）
-#   5. 位置无关的浮动元素（FAB/固定定位）
-#   6. 模糊类名匹配（兜底）
+# 覆盖策略（v1.2 全面扩充，覆盖 AI 应用全场景）：
+#   1. 精确类名（含常见框架命名 + 国内 AI 厂商 SDK）
+#   2. ARIA 标签（中英文 + AI 应用专属标签）
+#   3. 文本匹配（中英文 + AI 应用专属文本）
+#   4. 纯图标选择器（SVG/IMG + AI 图标如 sparkle/magic/wand）
+#   5. 浮动按钮 / FAB（位置无关的浮动元素）
+#   6. data 属性匹配（含 data-testid / data-ai / data-copilot）
+#   7. 模糊类名匹配（拼音 + 通用兜底）
+#   8. AI Copilot / GenAI 专用类名（GitHub/Microsoft/Bing Copilot）
+#   9. RAG / Knowledge Base 专用类名（知识库/文档问答/语义搜索）
+#  10. Agent / Agentic 专用类名（智能体/自动化代理/工作流）
+#  11. AI Playground / Studio 专用类名（模型试验场/工作台）
+#  12. 现代 AI SaaS 平台类名（Chatbase/Dante/CustomGPT/Dialogflow 等）
+#  13. AI 侧边栏 / 面板 / 抽屉模式（现代 AI 应用常见布局）
+#  14. 模糊类名匹配（AI 应用兜底）
 DEFAULT_CHAT_ENTRY_SELECTORS: str = ", ".join([
     # ════════════════════════════════════════════════════════════
     # 1. 精确类名匹配（常见 UI 框架命名）
