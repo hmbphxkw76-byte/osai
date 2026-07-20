@@ -295,3 +295,67 @@ mgr.for_playwright(resolution)     # → Optional[AuthProfile]
 
 ### 配置文件
 - `config/recon/recon.yaml`：所有优化项均有独立开关（默认全部启用）
+
+### 12. 提供商推断全球覆盖（v3.7.1 新增）
+
+**规则编号**: ARCH-004
+**生效日期**: 2026-07-20
+**优先级**: 强制（MUST）
+
+**核心原则**：SPA 侦察的提供商推断必须覆盖全球主流 AI 厂商，采用模型名+域名双重策略。
+
+**推断策略**：
+1. **模型名匹配（优先）**：直接从请求 body 的 `model` 字段推断，覆盖 30+ 提供商
+2. **API 域名匹配（补充）**：从 API 端点 URL 域名推断，覆盖 25+ 域名
+
+**覆盖范围**：
+- **中国厂商**：火山引擎/DeepSeek/阿里/智谱/百度/月之暗面/MiniMax/百川/讯飞/腾讯/零一/阶跃
+- **欧美厂商**：OpenAI/Anthropic/Google/Meta/Mistral/Microsoft/Cohere/Amazon/IBM/Perplexity/Stability/AI21/Reka/Databricks/xAI
+- **托管平台**：Together/Fireworks/Groq/DeepInfra/HuggingFace/OpenRouter
+
+**代码位置**: `spa_chat/traffic_capture.py` → `_infer_provider()`
+
+### 13. AI 响应容器全面覆盖（v3.7.1 新增）
+
+**规则编号**: ARCH-005
+**生效日期**: 2026-07-20
+**优先级**: 强制（MUST）
+
+**核心原则**：SPA 侦察的响应容器自动检测必须覆盖全球主流 AI 应用框架的命名模式。
+
+**选择器列表**（`response_fallback_sels`，40+ 个）：
+- 通用语义模式（answer/response/message/markdown/prose 等）
+- ChatGPT / OpenAI 风格（markdown-body / data-testid）
+- Claude / Anthropic 风格（human-turn / assistant-turn）
+- 国产 AI 应用风格（answer-box / chat-msg / msg-content / bubble）
+- Vercel AI SDK / Next.js（data-stream / ai-output）
+- LangChain / Gradio / Streamlit（gradio / stMarkdown / langchain）
+- 推理/思维链容器（thinking / reasoning / reflection）
+- ARIA 语义角色（role=article / role=region / role=log）
+
+**降级链**：配置选择器 → fallback_sels 列表 → page.evaluate 批量扫描
+
+**代码位置**: `spa_chat/probe_mixin.py` → `response_fallback_sels` + `page.evaluate`
+
+### 14. 自适应侦察编排（v3.7.1 新增）
+
+**规则编号**: ARCH-006
+**生效日期**: 2026-07-20
+**优先级**: 强制（MUST）
+
+**核心原则**：编排器必须根据目标类型自动选择最优侦察路径，避免冗余工具调用。
+
+**路径选择**：
+- **SPA 目标**（`--spa-config` 或 URL 含 `#`）：SPA Recon → Garak + DeepTeam（跳过 AIMAP）
+- **API 目标**（无 `#`，指向 API 端点）：AIMAP → Garak + DeepTeam
+
+**SPA 路径数据流**：
+```
+SPAChatReconAdapter 结果
+  → 提取 LLM 端点 + 模型名 + 提供商
+  → 直接配置 Garak（endpoint + model + credential_bearer）
+  → 直接配置 DeepTeam（base_url + model + credential_headers）
+  → 跳过 AIMAP（SPA Recon 已完成协议识别和端点提取）
+```
+
+**代码位置**: `pipeline/orchestrator.py` → `_detect_target_type()` + `_run_spa_recon_with_followup()` + `_run_api_recon()`

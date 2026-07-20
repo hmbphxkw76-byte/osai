@@ -72,8 +72,10 @@ class ProbeMixin:
         )
 
         # 响应选择器降级列表（当配置的选择器不匹配时依次尝试）
+        # 覆盖全球主流 AI 应用框架的响应容器命名模式
         response_fallback_sels = [
             response_sel,
+            # ── 通用语义模式 ──
             '[class*="answer"]', '[class*="response"]',
             '[class*="message"]', '[class*="markdown"]',
             '[class*="prose"]', '[class*="chat-content"]',
@@ -81,6 +83,29 @@ class ProbeMixin:
             '[class*="reply"]', '[class*="bot-msg"]',
             '[class*="model-output"]', '[class*="generated"]',
             '[role="log"]', '[aria-live="polite"]',
+            # ── ChatGPT / OpenAI 风格 ──
+            '[class*="markdown-body"]', '[class*="markdown-content"]',
+            '[data-testid*="conversation"]', '[data-testid*="message"]',
+            # ── Claude / Anthropic 风格 ──
+            '[class*="human-turn"]', '[class*="assistant-turn"]',
+            '[class*="response-content"]',
+            # ── 国产 AI 应用风格 ──
+            '[class*="answer-box"]', '[class*="answer-text"]',
+            '[class*="chat-msg"]', '[class*="chat-record"]',
+            '[class*="msg-content"]', '[class*="msg-text"]',
+            '[class*="bubble"]', '[class*="dialog-content"]',
+            '[class*="result"]', '[class*="output"]',
+            '[class*="content-text"]', '[class*="reply-text"]',
+            # ── Vercel AI SDK / Next.js ──
+            '[data-stream="true"]', '[class*="ai-output"]',
+            # ── LangChain / Gradio / Streamlit ──
+            '[class*="gradio"]', '[class*="stMarkdown"]',
+            '[class*="langchain"]',
+            # ── 通用语义角色 ──
+            '[role="article"]', '[role="region"]',
+            '[class*="completion"]', '[class*="generation"]',
+            '[class*="thinking"]', '[class*="reasoning"]',
+            '[class*="reflection"]',
         ]
 
         wait_timeout = selectors.get("wait_timeout", 15000)
@@ -226,6 +251,20 @@ class ProbeMixin:
                 if not message_sent:
                     logger.warning("Failed to send message via any method (button/enter/container)")
                     print("  ⚠️  消息发送失败（按钮/回车/容器点击均失败）")
+
+                # ── 发送后验证：检查是否触发了 LLM API 调用 ──
+                # 如果 UI 发送后 3 秒内没有新的 API 调用，尝试通过 fetch() 直接发送
+                if message_sent and traffic:
+                    await page.wait_for_timeout(3000)
+                    new_llm_count = len(traffic.llm_api_calls)
+                    if new_llm_count == llm_count_before:
+                        logger.warning(
+                            "UI send detected no LLM API call (before=%d, after=%d), "
+                            "trying direct API fallback",
+                            llm_count_before, new_llm_count,
+                        )
+                        print("  ⚠️  UI 发送未触发 API 调用，尝试直接 API 发送...")
+                        await self._try_direct_api_send(page, text, traffic)
 
                 # 等待响应（WAF 安全随机延迟）
                 response_wait_ms = self._waf_safe_delay_ms("response_wait")
@@ -379,6 +418,7 @@ class ProbeMixin:
         """
         response_info = await page.evaluate("""() => {
             const selectors = [
+                // ── 通用语义模式 ──
                 '[class*="answer"]', '[class*="response"]',
                 '[class*="message"]', '[class*="markdown"]',
                 '[class*="prose"]', '[class*="chat-content"]',
@@ -386,6 +426,29 @@ class ProbeMixin:
                 '[class*="reply"]', '[class*="bot-msg"]',
                 '[class*="model-output"]', '[class*="generated"]',
                 '[role="log"]', '[aria-live="polite"]',
+                // ── ChatGPT / OpenAI 风格 ──
+                '[class*="markdown-body"]', '[class*="markdown-content"]',
+                '[data-testid*="conversation"]', '[data-testid*="message"]',
+                // ── Claude / Anthropic 风格 ──
+                '[class*="human-turn"]', '[class*="assistant-turn"]',
+                '[class*="response-content"]',
+                // ── 国产 AI 应用风格 ──
+                '[class*="answer-box"]', '[class*="answer-text"]',
+                '[class*="chat-msg"]', '[class*="chat-record"]',
+                '[class*="msg-content"]', '[class*="msg-text"]',
+                '[class*="bubble"]', '[class*="dialog-content"]',
+                '[class*="result"]', '[class*="output"]',
+                '[class*="content-text"]', '[class*="reply-text"]',
+                // ── Vercel AI SDK / Next.js ──
+                '[data-stream="true"]', '[class*="ai-output"]',
+                // ── LangChain / Gradio / Streamlit ──
+                '[class*="gradio"]', '[class*="stMarkdown"]',
+                '[class*="langchain"]',
+                // ── 通用语义角色 ──
+                '[role="article"]', '[role="region"]',
+                '[class*="completion"]', '[class*="generation"]',
+                '[class*="thinking"]', '[class*="reasoning"]',
+                '[class*="reflection"]',
             ];
             const results = [];
             for (const sel of selectors) {
@@ -528,3 +591,99 @@ class ProbeMixin:
                 return family
         # 兜底
         return name.split("-")[0].split("_")[0].split(":")[0] if name else ""
+
+    async def _try_direct_api_send(
+        self,
+        page: Any,
+        message: str,
+        traffic: Any,
+    ) -> None:
+        """
+        直接 API 发送降级策略
+
+        当 UI 发送（Enter/按钮/容器点击）未能触发 LLM API 调用时，
+        通过浏览器 fetch() 直接调用已发现的 LLM API 端点发送消息。
+
+        这确保即使 UI 交互失败，探测消息仍能到达后端 LLM，
+        从而捕获模型回复和参数信息。
+
+        Args:
+            page: Playwright 页面
+            message: 要发送的消息文本
+            traffic: 网络流量捕获器
+        """
+        # 获取已发现的 LLM API 端点
+        primary_endpoint = traffic.get_primary_llm_endpoint() if traffic else None
+        if not primary_endpoint:
+            logger.warning("Direct API send: no LLM endpoint discovered yet")
+            return
+
+        url = primary_endpoint.get("url", "")
+        if not url:
+            return
+
+        # 从已捕获的请求中提取认证信息
+        req_headers = primary_endpoint.get("request_headers") or {}
+        auth_header = (
+            req_headers.get("authorization")
+            or req_headers.get("Authorization")
+            or ""
+        )
+
+        # 复用已捕获的请求体格式
+        req_body = primary_endpoint.get("request_body")
+        if req_body and isinstance(req_body, dict):
+            body = dict(req_body)
+            body["messages"] = [{"role": "user", "content": message}]
+            body["stream"] = True
+        else:
+            body = {
+                "messages": [{"role": "user", "content": message}],
+                "stream": True,
+            }
+
+        logger.info("Direct API send to: %s", url[:80])
+
+        try:
+            result = await page.evaluate("""async (params) => {
+                const { url, authHeader, body } = params;
+                const headers = { "Content-Type": "application/json" };
+                if (authHeader) headers["Authorization"] = authHeader;
+
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: headers,
+                        body: JSON.stringify(body),
+                    });
+                    const text = await response.text();
+                    return { success: true, status: response.status, body: text.substring(0, 5000) };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }""", {"url": url, "authHeader": auth_header, "body": body})
+
+            if result and result.get("success"):
+                logger.info(
+                    "Direct API send success: status=%s, body_len=%d",
+                    result.get("status", 0),
+                    len(result.get("body", "")),
+                )
+                # 将响应体注入到 traffic 中，让后续响应提取逻辑能获取到
+                body_text = result.get("body", "")
+                if body_text and traffic:
+                    # 找到对应的 LLM API 调用记录并附加响应体
+                    for call in traffic.llm_api_calls:
+                        if call.get("url") == url and not call.get("response_body"):
+                            call["response_body"] = body_text[:10000]
+                            # 尝试提取响应文本
+                            extracted = traffic._extract_response_text(body_text, "text/event-stream")
+                            if extracted:
+                                call["response_text_extracted"] = extracted
+                            break
+            else:
+                error = result.get("error", "unknown") if result else "no result"
+                logger.warning("Direct API send failed: %s", error)
+
+        except Exception as e:
+            logger.warning("Direct API send exception: %s", str(e)[:100])

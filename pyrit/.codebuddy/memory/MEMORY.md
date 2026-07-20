@@ -200,6 +200,30 @@
 - 结果突出显示：Rich 格式化各阶段关键指标（漏洞数/风险/成功率/耗时）
 - 便捷方法：`run_recon_only()` / `run_attack_only()`
 - CLI 命令：`ai300 pipeline --target-url ... --scope all`
+- **自适应编排（v3.7.1）**：目标类型自动检测（SPA vs API）
+  - SPA 路径：SPA Recon → Garak + DeepTeam（跳过 AIMAP，凭据+端点直接传递）
+  - API 路径：AIMAP → Garak + DeepTeam（传统流程）
+  - 探测消息发送验证 + API 降级重试（`_try_direct_api_send`）
+
+### 13.6 SPA Chat 侦察适配器增强（v3.7.1）
+
+#### 提供商推断 v2（全球覆盖）
+- `_infer_provider(model_name, api_url)` 双重策略：
+  - **模型名匹配**（优先）：覆盖 30+ 提供商
+    - 中国：火山引擎/DeepSeek/阿里/智谱/百度/月之暗面/MiniMax/百川/讯飞/腾讯/零一/阶跃
+    - 欧美：OpenAI(gpt/o1/o3/dall-e/whisper/tts/sora)/Anthropic(claude)/Google(gemini/gemma/palm)/Meta(llama)/Mistral(mistral/ministral/mixtral/codestral/pixtral)/Microsoft(phi)/Cohere(command)/Amazon(nova/titan)/IBM(granite)/Perplexity(pplx/sonar)/Stability/AI21/Reka/Databricks/xAI(grok)
+  - **API 域名匹配**（补充）：覆盖 25+ 域名
+    - 欧美域名：api.openai.com / api.anthropic.com / generativelanguage.googleapis.com / api.mistral.ai / api.cohere.ai / bedrock-runtime.amazonaws.com / api.perplexity.ai / api.x.ai / api.together.xyz / api.fireworks.ai / api.groq.com / api.deepinfra.com / openrouter.ai 等
+
+#### AI 响应容器选择器 v2（全面覆盖）
+- `response_fallback_sels` 降级列表从 14 个扩展到 40+ 个选择器
+- 覆盖框架：ChatGPT/OpenAI、Claude/Anthropic、国产 AI 应用、Vercel AI SDK、LangChain/Gradio/Streamlit、推理/思维链容器、ARIA 语义角色
+- `page.evaluate` 批量扫描同步扩展（两处保持一致）
+
+#### 探测消息发送增强
+- 发送后验证逻辑：UI 发送后短时间内未检测到 LLM API 调用则触发降级
+- `_try_direct_api_send`：通过 `page.evaluate` 使用 `fetch` 直接调用 LLM API
+- `_direct_api_probe`：三重策略（非流式请求 → 流式请求+增强解析 → JS 全局变量提取）
 
 ### 14. 报告生成器 (`reporting/report_generator.py`)
 - 符合 OffSec AI-300 考试报告标准

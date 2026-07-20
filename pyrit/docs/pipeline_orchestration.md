@@ -1,6 +1,6 @@
 # AI-300 全链路编排文档
 
-> **最后更新**: 2026-07-20 / 版本: v1.0 / 关联模块: pyrit_ai300/pipeline/ / 状态: 已完成
+> **最后更新**: 2026-07-20 / 版本: v1.1 / 关联模块: pyrit_ai300/pipeline/ + spa_chat/ / 状态: 已完成
 
 ## 1. 概述
 
@@ -190,3 +190,119 @@ ReconEngine.run()
 | 侦察失败 | 记录错误，跳过攻击阶段（可配置） |
 | 攻击失败 | 保存部分结果，生成报告 |
 | 报告失败 | 打印错误，返回已有结果 |
+
+## 6. 自适应侦察编排（v1.1 新增）
+
+### 6.1 目标类型自动检测
+
+编排器在侦察阶段开始前自动检测目标类型，选择最优侦察路径：
+
+| 目标类型 | 检测条件 | 侦察路径 |
+|----------|----------|----------|
+| SPA | `--spa-config` 参数或 URL 含 `#` 片段 | SPA Recon → Garak + DeepTeam |
+| API | URL 无 `#` 片段，指向 `/v1/chat/completions` 等端点 | AIMAP → Garak + DeepTeam |
+
+### 6.2 SPA 路径流程
+
+```
+SPA 目标
+  → CredentialManager 凭据检查/认证
+  → SPAChatReconAdapter 全流程侦察
+    → 认证（SSO/credentials/manual）
+    → DOM 自动检测（选择器评分 + 降级链）
+    → 网络流量捕获（LLM API 端点 + RAG 端点）
+    → 探测消息发送（UI → API 降级重试）
+    → 直接 API 探测（fetch 三重策略）
+    → LLM 信息提取（模型名/提供商/参数）
+  → SPA Recon 结果直接驱动 Garak + DeepTeam（跳过 AIMAP）
+  → 凭据注入（Bearer Token → 环境变量/请求头）
+```
+
+### 6.3 API 路径流程
+
+```
+API 端点目标（Ollama / OpenAI 兼容 / 自定义端点）
+  → AIMAP 协议识别 + 端点提取
+  → Garak + DeepTeam 并行侦察（AIMAP 结果驱动）
+  → 凭据注入（API Key → 环境变量/请求头）
+```
+
+## 7. 提供商推断（v2 全球覆盖）
+
+### 7.1 双重策略推断
+
+`_infer_provider(model_name, api_url)` 采用 **模型名称 + API 域名** 双重策略推断提供商：
+
+1. **模型名称匹配**（优先）：直接反映底层模型，适用于自建代理平台
+2. **API 域名匹配**（补充）：当模型名无法识别时，通过域名推断
+
+### 7.2 覆盖范围
+
+#### 中国厂商（模型名 + 域名）
+
+| 提供商 | 模型名模式 | API 域名 |
+|--------|-----------|----------|
+| 火山引擎 | `deepseek-r1-*` | `volcengineapi.com` / `ark.volces.com` |
+| DeepSeek | `deepseek` | `api.deepseek.com` |
+| 阿里 | `qwen` / `通义` | `dashscope.aliyuncs.com` |
+| 智谱 | `glm` / `chatglm` | `open.bigmodel.cn` |
+| 百度 | `ernie` / `wenxin` | `qianfan.baidubce.com` |
+| 月之暗面 | `moonshot` / `kimi` | `api.moonshot.cn` |
+| MiniMax | `abab` / `minimax` | `api.minimax.chat` |
+| 百川 | `baichuan` | — |
+| 讯飞 | `spark` / `星火` | — |
+| 腾讯 | `hunyuan` / `混元` | — |
+| 零一 | `yi-*` | `api.01.ai` |
+| 阶跃 | `step-*` | `api.stepfun.com` |
+
+#### 欧美厂商（模型名 + 域名）
+
+| 提供商 | 模型名模式 | API 域名 |
+|--------|-----------|----------|
+| OpenAI | `gpt` / `o1` / `o3` / `dall-e` / `whisper` / `tts-1` / `text-embedding` / `sora` | `api.openai.com` / `openai.azure.com` |
+| Anthropic | `claude` | `api.anthropic.com` |
+| Google | `gemini` / `gemma` / `palm` / `bard` | `generativelanguage.googleapis.com` / `aiplatform.googleapis.com` |
+| Meta | `llama` | — |
+| Mistral | `mistral` / `ministral` / `mixtral` / `codestral` / `pixtral` | `api.mistral.ai` |
+| Microsoft | `phi-3` / `phi` | — |
+| Cohere | `command` / `coral` | `api.cohere.ai` / `api.cohere.com` |
+| Amazon | `nova` / `titan` | `bedrock-runtime.*.amazonaws.com` |
+| IBM | `granite` / `merlinite` | `ml.cloud.ibm.com` |
+| Perplexity | `pplx` / `sonar` | `api.perplexity.ai` |
+| Stability | `stablelm` / `stablecode` | `api.stability.ai` |
+| AI21 | `jamba` / `jurassic` | `api.ai21.com` / `api.ai21.ai` |
+| Reka | `reka` | `api.reka.ai` |
+| Databricks | `dbrx` | — |
+| xAI | `grok` | `api.x.ai` |
+| Together | — | `api.together.xyz` |
+| Fireworks | — | `api.fireworks.ai` |
+| Groq | — | `api.groq.com` |
+| DeepInfra | — | `api.deepinfra.com` |
+| Hugging Face | — | `api-inference.huggingface.co` |
+| OpenRouter | — | `openrouter.ai` |
+
+## 8. AI 响应容器选择器（v2 全面覆盖）
+
+### 8.1 选择器覆盖范围
+
+SPA 侦察的响应容器自动检测覆盖以下 AI 应用框架：
+
+| 框架/风格 | 选择器示例 |
+|-----------|-----------|
+| 通用语义 | `[class*="answer"]` / `[class*="response"]` / `[class*="message"]` / `[class*="markdown"]` |
+| ChatGPT / OpenAI | `[class*="markdown-body"]` / `[data-testid*="conversation"]` |
+| Claude / Anthropic | `[class*="human-turn"]` / `[class*="assistant-turn"]` |
+| 国产 AI 应用 | `[class*="answer-box"]` / `[class*="chat-msg"]` / `[class*="msg-content"]` / `[class*="bubble"]` |
+| Vercel AI SDK | `[data-stream="true"]` / `[class*="ai-output"]` |
+| LangChain / Gradio | `[class*="gradio"]` / `[class*="stMarkdown"]` / `[class*="langchain"]` |
+| 推理/思维链 | `[class*="thinking"]` / `[class*="reasoning"]` / `[class*="reflection"]` |
+| ARIA 语义角色 | `[role="log"]` / `[aria-live="polite"]` / `[role="article"]` |
+
+### 8.2 降级链机制
+
+```
+配置选择器（YAML auto_detected）
+  → 失败 → response_fallback_sels 列表依次尝试
+    → 失败 → page.evaluate 批量扫描全部选择器
+      → 按文本长度降序选择最佳元素
+```

@@ -370,12 +370,27 @@ class PipelineOrchestrator:
         credential_resolution: Optional[CredentialResolution],
     ) -> PhaseResult:
         """
-        阶段 2：侦察
+        阶段 2：侦察（自适应编排 v2）
 
-        最佳实践：
-        - SPA 目标：使用 spa_config 触发浏览器自动化侦察
-        - LLM API 目标：使用 AIMAP + Garak + DeepTeam 并行侦察
-        - 凭据注入：有效凭据自动注入 Garak（环境变量）和 DeepTeam（请求头）
+        最佳实践 — 根据目标类型自动选择最优路径：
+
+        ┌─ SPA 目标（有 spa_config 或 URL 含 /#/）──────────────────┐
+        │                                                           │
+        │  SPA Recon (浏览器) ──→ 提取 LLM 端点 + 模型 + 凭据       │
+        │       │                                                   │
+        │       ├──→ Garak (subprocess) ← SPA 端点 + 凭据           │
+        │       └──→ DeepTeam (Python)  ← SPA 端点 + 凭据           │
+        │                                                           │
+        │  跳过 AIMAP（SPA 已发现端点，无需重复 HTTP 探测）          │
+        └───────────────────────────────────────────────────────────┘
+
+        ┌─ 非 SPA 目标（API 端点，如 Ollama / vLLM / OpenAI）──────┐
+        │                                                           │
+        │  AIMAP (HTTP 探测) ──→ 框架识别 + 端点 + 模型能力         │
+        │       │                                                   │
+        │       ├──→ Garak (subprocess) ← AIMAP 端点                │
+        │       └──→ DeepTeam (Python)  ← 目标 URL + 凭据           │
+        └───────────────────────────────────────────────────────────┘
         """
         start = time.time()
         self._print_phase_start("🔍 侦察", target_url)
@@ -390,29 +405,28 @@ class PipelineOrchestrator:
             # 构建侦察配置（注入凭据）
             recon_config_extra = self._inject_credentials_to_config(credential_resolution)
 
-            # 执行侦察
-            if spa_config:
-                # SPA 智能助手侦察模式
-                self._print_info("模式: SPA 智能助手侦察（浏览器自动化）")
-                profile = engine.run_spa_recon(
-                    spa_config_path=spa_config,
+            # ── 自适应路径选择 ──
+            target_type = self._detect_target_type(target_url, spa_config)
+
+            if target_type == "spa":
+                # ═══ SPA 路径：SPA Recon → Garak + DeepTeam ═══
+                profile = self._run_spa_recon_with_followup(
+                    engine=engine,
                     tracker=tracker,
+                    spa_config=spa_config,
+                    target_url=target_url,
+                    depth=depth,
+                    credential_resolution=credential_resolution,
+                    recon_config_extra=recon_config_extra,
                 )
             else:
-                # 标准 LLM API 侦察模式
-                self._print_info(f"模式: 标准侦察（深度={depth}）")
-
-                # 将凭据注入到工具配置中
-                if recon_config_extra:
-                    # 修改引擎内部配置以注入凭据
-                    for tool_name, extra_config in recon_config_extra.items():
-                        tool_config = engine._get_tool_config(tool_name)
-                        tool_config.update(extra_config)
-
-                profile = engine.run(
-                    target=target_url,
-                    depth=depth,
+                # ═══ 非 SPA 路径：AIMAP → Garak + DeepTeam ═══
+                profile = self._run_api_recon(
+                    engine=engine,
                     tracker=tracker,
+                    target_url=target_url,
+                    depth=depth,
+                    recon_config_extra=recon_config_extra,
                 )
 
             # 保存画像
@@ -446,6 +460,7 @@ class PipelineOrchestrator:
                     "vulnerability_count": profile.vulnerability_count,
                     "risk_level": profile.risk_level,
                     "owasp_mappings": owasp_mappings,
+                    "target_type": target_type,
                 },
             )
 
@@ -460,6 +475,328 @@ class PipelineOrchestrator:
                 errors=[str(e)],
                 summary=f"error: {e}",
             )
+
+    @staticmethod
+    def _detect_target_type(
+        target_url: str,
+        spa_config: Optional[str],
+    ) -> str:
+        """
+        自动检测目标类型（Web/SPA 应用 vs API 端点）
+
+        检测策略（优先级递减）：
+        1. 显式 spa_config → "spa"
+        2. 明确的 API 端点特征 → "api"
+        3. 明确的 Web 应用特征 → "spa"
+        4. 默认 → "spa"（绝大多数互联网 AI 应用是 Web 应用）
+
+        API 端点特征：
+        - 路径含 /v1/、/api/、/chat/completions 等 API 路由
+        - localhost / 127.0.0.1 / 0.0.0.0（本地部署 LLM 服务）
+        - 已知 LLM 服务端口（11434/8080/3000/5000/7860 等）
+        - api. 子域名
+        - 路径以 /v1/chat/completions 等结尾
+
+        Web 应用特征：
+        - Hash 路由（/#/、#/）
+        - 常见 Web 应用路径（/chat、/home、/dashboard、/assistant 等）
+        - 公网域名 + 非 API 路径
+
+        Returns:
+            "spa" 或 "api"
+        """
+        from urllib.parse import urlparse
+
+        # 1. 显式 SPA 配置
+        if spa_config:
+            return "spa"
+
+        if not target_url:
+            return "api"
+
+        url_lower = target_url.lower()
+        parsed = urlparse(target_url)
+        hostname = (parsed.hostname or "").lower()
+        path = (parsed.path or "").lower().rstrip("/")
+        port = parsed.port
+
+        # ── 2. 明确的 API 端点特征 → "api" ──
+
+        # 2a. API 路径模式
+        api_path_patterns = [
+            "/v1/chat/completions", "/v1/completions", "/v1/models",
+            "/v1/embeddings", "/v1/generate",
+            "/api/generate", "/api/chat", "/api/tags", "/api/show",
+            "/api/embeddings", "/api/pull", "/api/push",
+            "/chat/completions", "/completions",
+        ]
+        if any(p in path for p in api_path_patterns):
+            return "api"
+
+        # 2b. localhost / 内网 IP（本地部署的 LLM 服务）
+        if hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
+            return "api"
+
+        # 2c. 已知 LLM 服务端口
+        known_llm_ports = {11434, 8080, 3000, 5000, 7860, 8000, 1234, 2333, 9997}
+        if port and port in known_llm_ports:
+            return "api"
+
+        # 2d. api. 子域名
+        if hostname.startswith("api."):
+            return "api"
+
+        # 2e. URL 明确包含 API 路径前缀
+        if path.startswith("/v1/") or path.startswith("/api/"):
+            return "api"
+
+        # ── 3. 明确的 Web 应用特征 → "spa" ──
+
+        # 3a. Hash 路由（Vue/React/Angular SPA）
+        if "/#" in url_lower or "#/" in url_lower:
+            return "spa"
+
+        # 3b. 常见 Web 应用路径
+        web_app_paths = {
+            "/chat", "/home", "/dashboard", "/app", "/portal",
+            "/assistant", "/playground", "/chatbot", "/ai",
+            "/copilot", "/chat-room", "/conversation",
+        }
+        if path in web_app_paths:
+            return "spa"
+
+        # 3c. 公网域名 + 根路径或非 API 路径 → 默认 Web 应用
+        # （ChatGPT/Claude/Gemini/通义/文心/Kimi 等都是 Web 应用）
+        if hostname and not hostname.startswith("api."):
+            # 有域名但无 API 特征 → Web 应用
+            return "spa"
+
+        # 4. 兜底
+        return "spa"
+
+    def _run_spa_recon_with_followup(
+        self,
+        engine: Any,
+        tracker: Any,
+        spa_config: Optional[str],
+        target_url: str,
+        depth: str,
+        credential_resolution: Optional[CredentialResolution],
+        recon_config_extra: Dict[str, Dict[str, Any]],
+    ) -> Any:
+        """
+        SPA 路径：SPA Recon → Garak + DeepTeam（自适应编排）
+
+        流程：
+        1. SPA Recon（浏览器自动化）：发现 LLM 端点 + 模型 + 凭据
+        2. 从 SPA 结果提取 LLM API 端点和模型信息
+        3. Garak + DeepTeam 并行（使用 SPA 发现的端点 + 凭据）
+        4. 合并所有结果到统一 TargetProfile
+
+        最佳实践：
+        - 跳过 AIMAP（SPA 已被动发现端点，主动探测冗余且有 WAF 风险）
+        - Garak 使用 SPA 发现的 LLM 端点（而非 SPA 页面 URL）
+        - DeepTeam 使用 SPA 发现的 LLM 端点 + 凭据
+        """
+        # ── 步骤 1：SPA Recon ──
+        self._print_info("模式: SPA 智能助手侦察（浏览器自动化）")
+        if spa_config:
+            profile = engine.run_spa_recon(
+                spa_config_path=spa_config,
+                tracker=tracker,
+            )
+        else:
+            # 无 spa_config 但 URL 是 SPA — 直接用 URL 侦察
+            from ..reconnaissance import ReconEngine as RE
+            spa_config_data = {
+                "connection": {
+                    "url": target_url,
+                    "browser": "chromium",
+                    "headless": False,
+                    "wait_until": "networkidle",
+                    "ignore_https_errors": True,
+                },
+                "auth": {"mode": "manual"},
+            }
+            # 临时保存配置
+            import tempfile
+            import yaml
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+            ) as f:
+                yaml.dump({"target": {"url": target_url, "auth_mode": "manual"}}, f)
+                temp_path = f.name
+            profile = engine.run_spa_recon(
+                spa_config_path=temp_path,
+                tracker=tracker,
+            )
+
+        # ── 步骤 2：从 SPA 结果提取 LLM 端点 ──
+        spa_endpoint = self._extract_spa_llm_endpoint(profile)
+        spa_model = self._extract_spa_model_name(profile)
+
+        if spa_endpoint:
+            self._print_info(f"SPA 发现 LLM 端点: {spa_endpoint[:80]}")
+            if spa_model:
+                self._print_info(f"SPA 发现模型: {spa_model}")
+        else:
+            self._print_info("SPA 未发现 LLM 端点，跳过 Garak/DeepTeam 侦察")
+            return profile
+
+        # ── 步骤 3：Garak + DeepTeam 并行 ──
+        self._print_info("启动 Garak + DeepTeam 侦察（使用 SPA 发现的端点）...")
+
+        import concurrent.futures
+
+        # 构建 Garak 配置
+        garak_config = engine._get_tool_config("garak")
+        garak_config["depth"] = depth
+        garak_config["model_name"] = spa_model or "gpt-4o"
+        garak_config["model_type"] = "openai"
+        # 注入凭据
+        if recon_config_extra.get("garak"):
+            garak_config.update(recon_config_extra["garak"])
+        # SPA 发现的端点
+        garak_config["spa_discovered_endpoint"] = spa_endpoint
+
+        # 构建 DeepTeam 配置
+        deepteam_config = engine._get_tool_config("deepteam")
+        deepteam_config["depth"] = depth
+        deepteam_config["model"] = spa_model or ""
+        if recon_config_extra.get("deepteam"):
+            deepteam_config.update(recon_config_extra["deepteam"])
+
+        # 并行执行
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            garak_future = executor.submit(
+                engine._run_single_adapter, "garak", spa_endpoint, tracker, config=garak_config
+            )
+            deepteam_future = executor.submit(
+                engine._run_single_adapter, "deepteam", spa_endpoint, tracker, config=deepteam_config
+            )
+
+            garak_result = garak_future.result()
+            deepteam_result = deepteam_future.result()
+
+        # ── 步骤 4：合并所有结果 ──
+        results = [r for r in [garak_result, deepteam_result] if r is not None]
+        if results:
+            from ..reconnaissance import ProfileMerger
+            merger = ProfileMerger()
+            # 增量合并：在 SPA profile 基础上追加 Garak/DeepTeam 结果
+            profile = merger.merge_incremental(
+                target=target_url,
+                existing_profile=profile,
+                new_result=results[0],
+                depth=depth,
+            )
+            if len(results) > 1:
+                profile = merger.merge_incremental(
+                    target=target_url,
+                    existing_profile=profile,
+                    new_result=results[1],
+                    depth=depth,
+                )
+
+        return profile
+
+    def _run_api_recon(
+        self,
+        engine: Any,
+        tracker: Any,
+        target_url: str,
+        depth: str,
+        recon_config_extra: Dict[str, Dict[str, Any]],
+    ) -> Any:
+        """
+        非 SPA 路径：AIMAP → Garak + DeepTeam（标准 API 侦察）
+
+        流程：
+        1. AIMAP（HTTP 协议探测）：框架识别 + 端点发现 + 模型能力
+        2. 从 AIMAP 结果提取 Garak 端点配置
+        3. Garak + DeepTeam 并行
+        4. 合并所有结果
+
+        最佳实践：
+        - AIMAP 先执行以识别框架协议（Ollama/vLLM/MCP 等）
+        - AIMAP 结果驱动 Garak 的 model_type 和 probe 选择
+        - DeepTeam 与 AIMAP 并行或之后执行
+        """
+        self._print_info(f"模式: 标准 API 侦察（深度={depth}）")
+
+        # 将凭据注入到工具配置中
+        if recon_config_extra:
+            for tool_name, extra_config in recon_config_extra.items():
+                tool_config = engine._get_tool_config(tool_name)
+                tool_config.update(extra_config)
+
+        profile = engine.run(
+            target=target_url,
+            depth=depth,
+            tracker=tracker,
+        )
+
+        return profile
+
+    @staticmethod
+    def _extract_spa_llm_endpoint(profile: Any) -> Optional[str]:
+        """
+        从 SPA 侦察画像中提取 LLM API 端点 URL
+
+        查找顺序：
+        1. profile.entry_points[0].url
+        2. profile.fingerprint.endpoint
+        3. profile.raw_data 中的 entry_points
+        """
+        # 1. 从 entry_points 提取
+        if hasattr(profile, 'entry_points') and profile.entry_points:
+            for ep in profile.entry_points:
+                url = ep.get("url", "") if isinstance(ep, dict) else ""
+                if url and url.startswith("http"):
+                    return url
+
+        # 2. 从 fingerprint 提取
+        if hasattr(profile, 'fingerprint') and profile.fingerprint:
+            fp = profile.fingerprint
+            if hasattr(fp, 'endpoint') and fp.endpoint:
+                return fp.endpoint
+
+        # 3. 从 raw_data / extra 提取
+        if hasattr(profile, 'raw_data') and profile.raw_data:
+            entry_points = profile.raw_data.get("entry_points", [])
+            for ep in entry_points:
+                url = ep.get("url", "") if isinstance(ep, dict) else ""
+                if url and url.startswith("http"):
+                    return url
+
+        return None
+
+    @staticmethod
+    def _extract_spa_model_name(profile: Any) -> Optional[str]:
+        """
+        从 SPA 侦察画像中提取模型名称
+
+        查找顺序：
+        1. profile.fingerprint.model_name
+        2. profile.raw_data 中的 model_name
+        """
+        # 1. 从 fingerprint 提取
+        if hasattr(profile, 'fingerprint') and profile.fingerprint:
+            fp = profile.fingerprint
+            if hasattr(fp, 'model_name') and fp.model_name:
+                return fp.model_name
+
+        # 2. 从 raw_data 提取
+        if hasattr(profile, 'raw_data') and profile.raw_data:
+            model = (
+                profile.raw_data.get("model_name")
+                or profile.raw_data.get("model_name_from_traffic")
+                or profile.raw_data.get("model_name_from_probe")
+            )
+            if model:
+                return model
+
+        return None
 
     def _run_attack_phase(
         self,

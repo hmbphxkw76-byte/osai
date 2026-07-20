@@ -444,18 +444,22 @@ class NetworkTrafficCapture:
     @staticmethod
     def _infer_provider(model_name: Optional[str], api_url: str) -> Optional[str]:
         """
-        从模型名称和 API 端点 URL 推断提供商
+        从模型名称和 API 端点 URL 双重策略推断提供商（v2 全球覆盖版）
 
         推断策略（优先模型名，更精确）：
         1. 模型名称模式匹配（最可靠，直接反映底层模型）
+           - 中国厂商：DeepSeek/阿里/智谱/百度/月之暗面/MiniMax/百川/讯飞/腾讯/零一/阶跃
+           - 欧美厂商：OpenAI/Anthropic/Google/Meta/Mistral/Microsoft/Cohere/Amazon/IBM/Perplexity/Stability/AI21
         2. API 端点域名匹配（补充，适用于自建代理平台）
+           - 中国域名：volcengineapi.com / dashscope.aliyuncs.com / api.deepseek.com 等
+           - 欧美域名：api.openai.com / api.anthropic.com / generativelanguage.googleapis.com 等
 
         Args:
             model_name: 请求 body 中的 model 字段值
             api_url: API 端点 URL
 
         Returns:
-            提供商名称（如 volcengine / openai / deepseek / zhipu 等）
+            提供商名称（如 openai / anthropic / google / volcengine / deepseek 等）
         """
         import re as _re
         from urllib.parse import urlparse as _urlparse
@@ -463,27 +467,88 @@ class NetworkTrafficCapture:
         # 1. 模型名称模式匹配（优先，因为自建代理平台的域名不反映真实提供商）
         if model_name:
             name_lower = model_name.lower()
-            # 精确模式优先（版本号后缀的 DeepSeek R1 通常是火山引擎托管）
+
+            # ── 精确模式优先（版本号后缀的 DeepSeek R1 通常是火山引擎托管）──
             model_rules = [
+                # ═══ 中国厂商 ═══
+                # DeepSeek（火山引擎托管的 R1 带版本号）
                 (r"deepseek-r1-\d+", "volcengine"),      # deepseek-r1-250120 → 火山引擎
                 (r"deepseek-r\d", "volcengine"),          # deepseek-r1 → 火山引擎
                 (r"deepseek", "deepseek"),                  # DeepSeek 官方 API
-                (r"gpt", "openai"),
-                (r"claude", "anthropic"),
+                # 阿里通义千问
                 (r"qwen|通义", "alibaba"),
+                # 智谱 GLM
                 (r"glm|chatglm", "zhipu"),
+                # 百度文心
                 (r"ernie|wenxin|文心", "baidu"),
+                # 月之暗面 Kimi
                 (r"moonshot|kimi", "moonshot"),
-                (r"abab", "minimax"),
+                # MiniMax
+                (r"abab|minimax", "minimax"),
+                # 百川
                 (r"baichuan", "baichuan"),
+                # 科大讯飞星火
                 (r"spark|星火", "iflytek"),
+                # 腾讯混元
                 (r"hunyuan|混元", "tencent"),
-                (r"gemini", "google"),
-                (r"llama", "meta"),
-                (r"mistral", "mistral"),
+                # 零一万物
                 (r"yi[-_]", "lingyi"),
-                (r"phi", "microsoft"),
-                (r"gemma", "google"),
+                # 阶跃星辰
+                (r"step[-_]", "stepfun"),
+
+                # ═══ 欧美厂商 ═══
+                # OpenAI（GPT 系列 + o 系列推理模型 + DALL-E + Whisper + TTS）
+                (r"gpt", "openai"),                         # gpt-4o, gpt-3.5-turbo
+                (r"^o\d", "openai"),                        # o1, o3, o4-mini
+                (r"dall[-_]?e", "openai"),                  # dall-e-3
+                (r"whisper", "openai"),                     # whisper-1
+                (r"tts[-_]?1", "openai"),                   # tts-1, tts-1-hd
+                (r"text-embedding", "openai"),              # text-embedding-3
+                (r"sora", "openai"),                        # sora
+                # Anthropic Claude
+                (r"claude", "anthropic"),                   # claude-3.5-sonnet
+                # Google Gemini / Gemma / PaLM
+                (r"gemini", "google"),                      # gemini-1.5-pro
+                (r"gemma", "google"),                       # gemma-2
+                (r"palm", "google"),                        # palm-2 (legacy)
+                (r"bard", "google"),                        # bard (legacy)
+                # Meta LLaMA
+                (r"llama", "meta"),                         # llama-3.1-70b
+                # Mistral AI / Ministral
+                (r"ministral", "mistral"),                  # ministral-8b
+                (r"mistral", "mistral"),                    # mistral-large
+                (r"mixtral", "mistral"),                    # mixtral-8x7b
+                (r"codestral", "mistral"),                  # codestral
+                (r"pixtral", "mistral"),                    # pixtral
+                # Microsoft Phi
+                (r"phi[-_]?\d", "microsoft"),               # phi-3
+                (r"^phi$", "microsoft"),                    # phi
+                # Cohere Command
+                (r"command", "cohere"),                     # command-r-plus
+                (r"coral", "cohere"),                       # coral
+                # Amazon Nova / Titan
+                (r"nova", "amazon"),                        # nova-pro
+                (r"titan", "amazon"),                       # titan-text
+                # IBM Granite / Merlinite
+                (r"granite", "ibm"),                        # granite-3b
+                (r"merlinite", "ibm"),                      # merlinite-7b
+                # Perplexity
+                (r"pplx", "perplexity"),                    # pplx-7b-online
+                (r"sonar", "perplexity"),                   # sonar-small
+                # Stability AI
+                (r"stable[-_]?lm", "stability"),            # stablelm-2
+                (r"stable[-_]?code", "stability"),          # stablecode-3b
+                # AI21 Labs
+                (r"jamba", "ai21"),                         # jamba-instruct
+                (r"jurassic", "ai21"),                      # jurassic-2
+                # Reka
+                (r"reka", "reka"),                          # reka-core
+                # Databricks
+                (r"dbrx", "databricks"),                    # dbrx-instruct
+                # xAI Grok
+                (r"grok", "xai"),                           # grok-2
+                # Together AI / Anyscale / Fireworks（开源模型托管平台，保持平台名）
+                # 这些通常通过模型名前缀识别，但域名更可靠，放域名规则中
             ]
             for pattern, provider in model_rules:
                 if _re.search(pattern, name_lower, _re.IGNORECASE):
@@ -492,10 +557,10 @@ class NetworkTrafficCapture:
         # 2. API 端点域名匹配（补充）
         domain = (_urlparse(api_url).hostname or "").lower()
         domain_rules = [
+            # ═══ 中国域名 ═══
             ("volcengineapi.com", "volcengine"),
             ("ark.volces.com", "volcengine"),
             ("api.deepseek.com", "deepseek"),
-            ("api.openai.com", "openai"),
             ("open.bigmodel.cn", "zhipu"),
             ("qianfan.baidubce.com", "baidu"),
             ("api.moonshot.cn", "moonshot"),
@@ -504,6 +569,55 @@ class NetworkTrafficCapture:
             ("api.siliconflow.cn", "siliconflow"),
             ("api.lingyiwanwu.com", "lingyiwanwu"),
             ("api.01.ai", "lingyi"),
+            ("api.stepfun.com", "stepfun"),
+
+            # ═══ 欧美域名 ═══
+            # OpenAI
+            ("api.openai.com", "openai"),
+            ("openai.azure.com", "openai"),                 # Azure OpenAI
+            ("oai.azure.com", "openai"),                    # Azure OpenAI 短域名
+            # Anthropic
+            ("api.anthropic.com", "anthropic"),
+            # Google
+            ("generativelanguage.googleapis.com", "google"),
+            ("aiplatform.googleapis.com", "google"),        # Vertex AI
+            ("us-central1-aiplatform.googleapis.com", "google"),
+            # Mistral AI
+            ("api.mistral.ai", "mistral"),
+            # Cohere
+            ("api.cohere.ai", "cohere"),
+            ("api.cohere.com", "cohere"),
+            # Amazon Bedrock
+            ("bedrock-runtime.", "amazon"),                 # bedrock-runtime.us-east-1.amazonaws.com
+            ("amazonaws.com", "amazon"),                    # 兜底 AWS
+            # IBM watsonx
+            ("us-south.ml.cloud.ibm.com", "ibm"),
+            ("ml.cloud.ibm.com", "ibm"),
+            # Perplexity
+            ("api.perplexity.ai", "perplexity"),
+            # Stability AI
+            ("api.stability.ai", "stability"),
+            # AI21 Labs
+            ("api.ai21.com", "ai21"),
+            ("api.ai21.ai", "ai21"),
+            # Reka
+            ("api.reka.ai", "reka"),
+            # xAI
+            ("api.x.ai", "xai"),
+            # Together AI
+            ("api.together.xyz", "together"),
+            # Fireworks AI
+            ("api.fireworks.ai", "fireworks"),
+            # Anyscale
+            ("api.endpoints.anyscale.com", "anyscale"),
+            # Groq
+            ("api.groq.com", "groq"),
+            # DeepInfra
+            ("api.deepinfra.com", "deepinfra"),
+            # Hugging Face
+            ("api-inference.huggingface.co", "huggingface"),
+            # OpenRouter
+            ("openrouter.ai", "openrouter"),
             # 注意：appsharing-ai 等自建代理平台不映射为 custom，
             # 让模型名推断来决定真实提供商
         ]
