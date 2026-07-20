@@ -1099,9 +1099,14 @@ class PipelineOrchestrator:
             try:
                 from ..reconnaissance import ReconEngine
                 spa_data = ReconEngine.load_spa_config(spa_config)
-                return spa_data.get("connection", {}).get("url", spa_config)
-            except Exception:
-                return spa_config
+                url = spa_data.get("connection", {}).get("url", "")
+                if url and url.startswith("http"):
+                    return url
+                logger.warning("SPA config loaded but URL is empty or invalid: %s", url)
+                return ""
+            except Exception as e:
+                logger.warning("Failed to load SPA config for URL resolution: %s", str(e))
+                return ""
 
         if target_file:
             try:

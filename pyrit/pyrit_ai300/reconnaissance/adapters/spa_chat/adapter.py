@@ -887,7 +887,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 if best_rc.get("class"):
                     cls = best_rc["class"].split()[0]
                     if cls:
-                        result_data["auto_detected_selectors"]["response"] = ".%s" % cls
+                        result_data.setdefault("auto_detected_selectors", {})["response"] = ".%s" % cls
                         result_data["auto_detected_selectors"]["response_source"] = "post_probe"
                         result_data["auto_detected_selectors"]["response_score"] = best_rc.get("textLength", 0)
 
@@ -984,7 +984,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
             # 合并模型参数
             if result_data.get("model_parameters"):
-                result_data["model_capabilities"]["parameters"] = result_data["model_parameters"]
+                result_data.setdefault("model_capabilities", {})["parameters"] = result_data["model_parameters"]
 
             # ── 12.5 确定应用类型（必须在黄金信息报告之前）──
             result_data["app_type"] = self._determine_app_type(

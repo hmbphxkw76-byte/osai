@@ -236,10 +236,10 @@ class AuthMixin:
         login_selectors = login_config.get("selectors", {})
         captcha_timeout = login_config.get("captcha_timeout", 120)
 
-        # 调试日志：显示实际接收到的凭据值
-        logger.info("SSO credentials check: username=%s, password=%s",
-                    username[:3] + "***" if username else "(empty)",
-                    "***" if password else "(empty)")
+        # 调试日志：显示实际接收到的凭据值（脱敏）
+        logger.debug("SSO credentials: username=%s, password=%s",
+                     username[:3] + "***" if username else "(empty)",
+                     "***" if password else "(empty)")
 
         # SSO 配置
         sso_login_url = login_config.get("sso_login_url", "")
@@ -294,15 +294,15 @@ class AuthMixin:
             target_domain, sso_domain, sso_login_url or "(auto-redirect)",
         )
 
-        # 等待页面稳定（SPA 重定向可能需要时间）
-        await page.wait_for_timeout(2000)
-
         # 步骤 1：导航到 SSO 登录页（复用当前页面，避免重复导航）
         #
         # 根因分析 v1.6.1：多次 page.goto(target_url) 会导致 SPA 多次重定向到 SSO 登录页，
         # SSO 系统每次重定向都会重置验证码状态，导致用户需要多次滑窗。
         # 修复策略：检测当前 URL 是否已在 SSO 登录页，如果是则不重新导航。
-        current_url = page.url or ""
+        try:
+            current_url = page.url or ""
+        except Exception:
+            current_url = ""
         url_lower = current_url.lower()
 
         # 判断当前是否已在 SSO 登录页
@@ -316,7 +316,7 @@ class AuthMixin:
 
         if already_on_sso_login:
             logger.info("Already on SSO login page, skipping navigation: %s", current_url)
-            print("  ✅ 当前已在 SSO 登录页，跳过导航（避免重复触发验证码）", flush=True)
+            print("  ✅ 当前已在 SSO 登录页，跳过导航（避免重复触发验证码）")
         elif sso_login_url:
             logger.info("Navigating to SSO login URL: %s", sso_login_url)
             await page.goto(sso_login_url, wait_until="networkidle")
@@ -351,9 +351,6 @@ class AuthMixin:
             if not _login_form_detected:
                 logger.info("No login form detected after 30s, may already be logged in")
                 print("  ℹ️  30s 未检测到登录页，可能已登录")
-
-        current_url = page.url
-        logger.info("Current URL after SSO redirect: %s", current_url)
 
         # 步骤 2：填写账号密码（如果配置了）
         # 使用选择器列表依次尝试 + page.type(delay=30) 逐字输入

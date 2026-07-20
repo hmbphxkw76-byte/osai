@@ -2,14 +2,16 @@ import subprocess, sys, os, time
 
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
+env = {**os.environ, 'PYTHONIOENCODING': 'utf-8', 'PYTHONUNBUFFERED': '1'}
+
 p = subprocess.Popen(
-    [sys.executable, '-m', 'pyrit_ai300.cli', 'recon', '--spa-config', 'config/targets/spa_target.yaml'],
+    [sys.executable, '-u', '-m', 'pyrit_ai300.cli', 'recon', '--spa-config', 'config/targets/spa_target.yaml'],
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,
     encoding='utf-8',
     errors='replace',
-    env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    env=env
 )
 
 time.sleep(25)
