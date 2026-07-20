@@ -61,6 +61,50 @@ python -c "from pyrit_ai300.payloads import PayloadManager; m = PayloadManager()
 
 ---
 
+## Playwright 浏览器环境（SPA 攻击必需）
+
+SPA 聊天应用攻击和 SPA 侦察依赖 Playwright 浏览器自动化。离线环境下需提前准备。
+
+### 有网环境准备
+
+```bash
+# 1. 安装 Playwright Python 包
+uv pip install playwright
+# 或: pip install playwright
+
+# 2. 下载 Chromium 浏览器引擎（约 150MB）
+playwright install chromium
+
+# 3. 找到 Chromium 安装路径（用于离线拷贝）
+#    Windows: %USERPROFILE%\AppData\Local\ms-playwright\
+#    Linux:   ~/.cache/ms-playwright/
+```
+
+### 考试机器离线安装
+
+```bash
+# 1. 安装 Playwright Python 包（从 wheels 目录）
+pip install --no-index --find-links=./wheels playwright
+
+# 2. 将下载好的 Chromium 目录拷贝到考试机器对应位置
+#    Windows: 复制到 %USERPROFILE%\AppData\Local\ms-playwright\
+#    Linux:   复制到 ~/.cache/ms-playwright/
+
+# 3. 验证 Playwright 可用
+python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); print('OK'); b.close(); p.stop()"
+```
+
+### 适用场景
+
+| 场景 | 是否需要 Playwright |
+|------|-------------------|
+| SPA 聊天攻击（`spa_target.yaml`） | ✅ 必需 |
+| SPA 侦察（`--spa-config`） | ✅ 必需 |
+| LLM API 攻击（`llm_api_target.yaml`） | ❌ 不需要 |
+| HTTP API 攻击（`http_target.yaml`） | ❌ 不需要 |
+
+---
+
 ## 常见问题
 
 **Q: 提示 `Could not find a version that satisfies the requirement pyrit`？**

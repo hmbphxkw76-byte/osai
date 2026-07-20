@@ -236,6 +236,11 @@ class AuthMixin:
         login_selectors = login_config.get("selectors", {})
         captcha_timeout = login_config.get("captcha_timeout", 120)
 
+        # 调试日志：显示实际接收到的凭据值
+        logger.info("SSO credentials check: username=%s, password=%s",
+                    username[:3] + "***" if username else "(empty)",
+                    "***" if password else "(empty)")
+
         # SSO 配置
         sso_login_url = login_config.get("sso_login_url", "")
         sso_domain = login_config.get("sso_domain", "")
@@ -289,6 +294,9 @@ class AuthMixin:
             target_domain, sso_domain, sso_login_url or "(auto-redirect)",
         )
 
+        # 等待页面稳定（SPA 重定向可能需要时间）
+        await page.wait_for_timeout(2000)
+
         # 步骤 1：导航到 SSO 登录页（复用当前页面，避免重复导航）
         #
         # 根因分析 v1.6.1：多次 page.goto(target_url) 会导致 SPA 多次重定向到 SSO 登录页，
@@ -308,15 +316,41 @@ class AuthMixin:
 
         if already_on_sso_login:
             logger.info("Already on SSO login page, skipping navigation: %s", current_url)
-            print("  ✅ 当前已在 SSO 登录页，跳过导航（避免重复触发验证码）")
+            print("  ✅ 当前已在 SSO 登录页，跳过导航（避免重复触发验证码）", flush=True)
         elif sso_login_url:
             logger.info("Navigating to SSO login URL: %s", sso_login_url)
             await page.goto(sso_login_url, wait_until="networkidle")
         else:
             # 已经在 _execute_recon 中导航到 login_url 或 target_url
-            # 等待重定向到 SSO 登录页
+            # 轮询等待重定向到 SSO 登录页（最多 30s）
             logger.info("Waiting for SSO redirect from target page...")
-            await page.wait_for_timeout(3000)
+            print("  ⏳ 等待 SSO 重定向到登录页（最多 30s）...")
+            _login_form_detected = False
+            for _i in range(30):
+                await page.wait_for_timeout(1000)
+                _cur = page.url.lower()
+                # URL 级检测
+                if any(k in _cur for k in ("passport", "login", "signin", "/account/login", "/auth")):
+                    if not any(p in _cur for p in OIDC_CALLBACK_PATTERNS):
+                        logger.info("Login page detected via URL: %s", page.url)
+                        print("  ✅ 检测到登录页: %s" % page.url[:80])
+                        _login_form_detected = True
+                        break
+                # DOM 级降级检测（URL 不含关键词但有密码输入框）
+                try:
+                    _pw = await page.query_selector("input[type='password']")
+                    if _pw:
+                        logger.info("Login form detected via DOM (password input)")
+                        print("  ✅ DOM 检测到密码输入框，识别为登录页")
+                        _login_form_detected = True
+                        break
+                except Exception:
+                    pass
+                if _i % 5 == 0 and _i > 0:
+                    print("  ⏳ 等待中 (%ds)... 当前: %s" % (_i, page.url[:60]))
+            if not _login_form_detected:
+                logger.info("No login form detected after 30s, may already be logged in")
+                print("  ℹ️  30s 未检测到登录页，可能已登录")
 
         current_url = page.url
         logger.info("Current URL after SSO redirect: %s", current_url)

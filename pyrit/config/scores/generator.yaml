@@ -42,9 +42,8 @@ vars:
   # 智谱 API 地址
   zhipu_base_url: &zhipu_base_url "https://open.bigmodel.cn/api/paas/v4"
 
-  # API Key（留空则需设置环境变量 ZHIPUAI_API_KEY）
-  # ⚠️ 请勿提交到公开仓库
-  zhipu_api_key: &zhipu_api_key ""
+  # API Key（从 .env 环境变量 ZHIPUAI_API_KEY 读取，避免硬编码泄露）
+  zhipu_api_key: &zhipu_api_key "${ZHIPUAI_API_KEY}"
 
   # 模型名称（智谱控制台 → 模型列表获取）
   # 示例: glm-4-flash, glm-4, glm-4-plus

@@ -55,7 +55,7 @@
 搜索结果需记录到三库：
 - **开发规范** `docs/DEVELOPMENT.md`：搜索规则和流程
 - **规则库** 本文件：规则编号 RES-001
-- **记忆库** `.codebuddy/memory/MEMORY.md`：搜索日期和关键发现
+- **记忆库** `.ai-assistant/memory/MEMORY.md`：搜索日期和关键发现
 
 ## 示例
 

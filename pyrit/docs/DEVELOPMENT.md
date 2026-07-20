@@ -243,6 +243,11 @@ pyrit/                          # 项目根目录
 │   └── OFFLINE_INSTALL.md     #   离线安装指南
 ├── examples/                   # 使用示例
 ├── .garak/                     #   Garak 独立 venv（隔离 datasets 冲突）
+├── .ai-assistant/              #   AI 助手知识库（VSCode 等 IDE 用）
+│   ├── memory/                 #     记忆库（每日日志 + MEMORY.md）
+│   ├── plans/                  #     实施计划文档
+│   ├── rules/                  #     规则库（DATA-001/ARCH-001/TEST-001 等）
+│   └── scripts/                #     工具脚本
 ├── results/                    # 输出结果
 ├── Makefile                    # 自动化命令
 ├── pyproject.toml              # 项目配置
@@ -332,7 +337,48 @@ data/owasp/          ← 唯一真相源
 - **函数/变量**：小写 + 下划线（`build_target`）
 - **配置键名**：小写 + 下划线（`pyrit_converters`）
 
-## 8. 配置驱动原则
+## 8. Playwright 浏览器环境（SPA 攻击必需）
+
+### 8.1 安装步骤
+
+SPA 聊天应用攻击（`spa_target.yaml`）和 SPA 侦察（`--spa-config`）依赖 Playwright 浏览器自动化，需额外安装：
+
+```bash
+# 1. 安装 Playwright Python 包
+uv pip install playwright
+# 或使用 pip: pip install playwright
+
+# 2. 安装 Chromium 浏览器引擎（约 150MB，仅需一次）
+playwright install chromium
+```
+
+### 8.2 适用场景
+
+| 场景 | 命令 | 是否需要 Playwright |
+|------|------|-------------------|
+| SPA 聊天攻击 | `ai300 owasp llm01 --target-file config/targets/spa_target.yaml` | ✅ 必需 |
+| SPA 侦察 | `ai300 recon --spa-config config/targets/spa_target.yaml` | ✅ 必需 |
+| LLM API 攻击 | `ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml` | ❌ 不需要 |
+| HTTP API 攻击 | `ai300 owasp llm01 --target-file config/targets/http_target.yaml` | ❌ 不需要 |
+| 全链路编排（SPA） | `ai300 pipeline --spa-config config/targets/spa_target.yaml` | ✅ 必需 |
+| 全链路编排（API） | `ai300 pipeline --target-url http://api.example.com` | ❌ 不需要 |
+
+### 8.3 底层依赖说明
+
+Playwright 是 PyRIT `PlaywrightTarget` 的底层依赖，用于：
+- **浏览器自动化**：启动 Chromium、导航到目标 URL
+- **认证注入**：通过 `playwright_injector.py` 注入 Cookie + Authorization
+- **选择器交互**：通过 `web_chat.py` 工厂函数定位输入框/发送按钮/响应容器
+- **流量捕获**：通过 `traffic_capture.py` 拦截 LLM API 请求/响应
+
+### 8.4 Makefile 快捷命令
+
+```bash
+# 一键安装 Playwright + Chromium
+make setup-playwright
+```
+
+## 9. 配置驱动原则
 
 见第 4 节「数据与代码分离」。核心要点：
 - 新增攻击技术：只改 `data/owasp/` 下的 YAML
@@ -342,7 +388,7 @@ data/owasp/          ← 唯一真相源
 - 新增转换器/评分器映射：只改 `pyrit_ai300/orchestrators/component_registry.py` 的 `CONVERTER_MAP` / `SCORER_MAP`
 - **不修改代码逻辑**即可扩展攻击能力
 
-## 9. 日志规范
+## 10. 日志规范
 
 ```python
 import logging
@@ -354,9 +400,9 @@ logger.info("Executing attack: %s with %d payloads", attack_name, len(payloads))
 logger.error("Attack failed: %s", str(e))
 ```
 
-## 10. 调度器 + 格式转换器原则（强制）
+## 11. 调度器 + 格式转换器原则（强制）
 
-**规则编号**: ARCH-001（详见 `.codebuddy/rules/recon-architecture.md`）
+**规则编号**: ARCH-001（详见 `.ai-assistant/rules/recon-architecture.md`）
 
 **生效日期**: 2026-07-17
 **优先级**: 强制（MUST）
@@ -393,16 +439,16 @@ pip install -e ".[recon]"
 make setup-garak
 ```
 
-## 11. 测试规范
+## 12. 测试规范
 
-### 11.1 测试文件规范
+### 12.1 测试文件规范
 
 - 测试文件命名：`test_<module>.py`
 - 测试函数命名：`test_<function>_<scenario>`
 - 使用 `pytest` 框架
 - 运行：`make test` 或 `python -m pytest pyrit_ai300/tests/ -v`
 
-### 11.2 测试分层策略（强制）
+### 12.2 测试分层策略（强制）
 
 | 阶段 | 跑什么 | 命令 | 耗时 | 定位 |
 |------|--------|------|------|------|
@@ -412,14 +458,14 @@ make setup-garak
 
 **核心原则：本项目的单元测试就是回归测试。** 220+ 个测试覆盖侦察引擎、适配器、ProfileMerger、攻击编排、载荷管理、速率控制、认证解析、报告生成等核心模块。
 
-### 11.3 回归测试执行时机
+### 12.3 回归测试执行时机
 
 - **每次修改代码后**：必须跑 `make test`，确认全部通过
 - **每次重构完成后**：跑 `make ci`（lint + test）
 - **每次合并前**：全量扫描 + 确认清理
 - **每次发布前**：跑 `make test-cov`，确认覆盖率无退化
 
-### 11.4 集成测试
+### 12.4 集成测试
 
 集成测试 = 连接真实目标执行攻击，需要目标在线且耗时长，不适合"每次修改后"跑。
 
@@ -427,7 +473,7 @@ make setup-garak
 - 考试前用真实目标跑一次 `ai300 owasp llm01 --target-file config/targets/xxx.yaml` 验证端到端
 - 日常开发只跑单元测试
 
-### 11.5 测试模块覆盖（2026-07-18 更新）
+### 12.5 测试模块覆盖（2026-07-18 更新）
 
 | 测试类 | 覆盖模块 | 测试数 |
 |--------|---------|--------|
@@ -447,14 +493,14 @@ make setup-garak
 | TestReportGeneratorDetailedFindings | 报告详细发现 | 4 |
 | **总计** | | **107+** |
 
-## 12. 载荷跟踪与添加规则（强制）
+## 13. 载荷跟踪与添加规则（强制）
 
-**规则编号**: DATA-002（详见 `.codebuddy/rules/payload-tracking.md`）
+**规则编号**: DATA-002（详见 `.ai-assistant/rules/payload-tracking.md`）
 
 **生效日期**: 2026-07-17
 **优先级**: 强制（MUST）
 
-### 12.1 跟踪来源优先级
+### 13.1 跟踪来源优先级
 
 | 优先级 | 来源 | 评估标准 | 典型周期 |
 |--------|------|---------|---------|
@@ -464,14 +510,14 @@ make setup-garak
 | **P3** | 红队工具更新 | Garak/DeepTeam/PyRIT 新版本 | 随版本更新 |
 | **P4** | 实战发现 | 自行测试有效 | 按需添加 |
 
-### 12.2 添加流程
+### 13.2 添加流程
 
 ```
 发现新技术 → 评估有效性 → 编写 YAML 载荷
   → 更新 _registry.core.yaml → 测试验证 → 标记完成
 ```
 
-### 12.3 跟踪清单状态
+### 13.3 跟踪清单状态
 
 | 状态 | 含义 |
 |------|------|
@@ -482,7 +528,7 @@ make setup-garak
 | `done` | 已添加并验证通过 |
 | `rejected` | 评估后不添加（记录原因） |
 
-### 12.4 定期审计
+### 13.4 定期审计
 
 | 频率 | 操作 |
 |------|------|
@@ -490,14 +536,14 @@ make setup-garak
 | 每月 | 检查 arXiv 新论文 |
 | 每季度 | 审计现有载荷，删除已被修复的过时内容 |
 
-## 13. 研究资料搜索规则（强制）
+## 14. 研究资料搜索规则（强制）
 
-**规则编号**: RES-001（详见 `.codebuddy/rules/research-sources.md`）
+**规则编号**: RES-001（详见 `.ai-assistant/rules/research-sources.md`）
 
 **生效日期**: 2026-07-17
 **优先级**: 强制（MUST）
 
-### 13.1 搜索优先级
+### 14.1 搜索优先级
 
 当需要查找 AI 红队相关技术资料时，**必须**按以下优先级顺序搜索：
 
@@ -507,7 +553,7 @@ make setup-garak
 | **2** | [github.com](https://github.com) | 开源项目、代码实现 | 仓库搜索 |
 | **3（兜底）** | 其他来源 | 前两者未覆盖的资料 | 自行查询 |
 
-### 13.2 搜索流程
+### 14.2 搜索流程
 
 ```
 1. 确定搜索关键词（中英文均可）
@@ -523,7 +569,7 @@ make setup-garak
 5. 如前两者结果不足，自行扩展搜索（Google、技术博客等）
 ```
 
-### 13.3 搜索关键词建议
+### 14.3 搜索关键词建议
 
 | 主题 | 推荐关键词 |
 |------|-----------|
@@ -535,16 +581,16 @@ make setup-garak
 | 安全评估 | `AI Safety Evaluation`, `LLM Safety Benchmark` |
 | 对抗攻击 | `Adversarial Attack`, `Evasion Attack` |
 
-### 13.4 结果记录规范
+### 14.4 结果记录规范
 
 搜索结果需记录到三库：
 - **开发规范**（本文档）：搜索规则和流程
-- **规则库** `.codebuddy/rules/research-sources.md`：规则编号 RES-001
-- **记忆库** `.codebuddy/memory/MEMORY.md`：搜索日期和关键发现
+- **规则库** `.ai-assistant/rules/research-sources.md`：规则编号 RES-001
+- **记忆库** `.ai-assistant/memory/MEMORY.md`：搜索日期和关键发现
 
-## 14. 目标配置类型（v3.0 更新）
+## 15. 目标配置类型（v3.0 更新）
 
-### 14.1 支持的类型
+### 15.1 支持的类型
 
 | 类型 | 说明 | 并发 | 速率 |
 |------|------|------|------|
@@ -553,7 +599,7 @@ make setup-garak
 | http | 自定义 HTTP 端点 | 3 | 0 |
 | playwright | 浏览器自动化（SPA） | 1 | 0 |
 
-### 14.2 Playwright 目标配置示例
+### 15.2 Playwright 目标配置示例
 
 ```yaml
 # config/targets/spa_target.yaml (极简格式)
@@ -574,9 +620,9 @@ target:
     max_concurrent: 1
 ```
 
-## 15. 报告生成格式（v2.0）
+## 16. 报告生成格式（v2.0）
 
-### 15.1 Detailed Findings 格式
+### 16.1 Detailed Findings 格式
 
 ```markdown
 ### Findings Details
@@ -597,7 +643,7 @@ target:
 **Remediation**: {修复建议}
 ```
 
-### 15.2 标题映射表
+### 16.2 标题映射表
 
 | OWASP 技术 ID | 自动生成标题 |
 |---------------|-------------|
@@ -610,7 +656,7 @@ target:
 | resource_exhaustion | 资源耗尽 |
 | unknown | 安全风险 |
 
-### 15.3 严重度计算
+### 16.3 严重度计算
 
 | 优先级 | 条件 | 结果 |
 |--------|------|------|

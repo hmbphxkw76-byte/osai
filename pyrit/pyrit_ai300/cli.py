@@ -430,6 +430,11 @@ Examples:
         action="store_true",
         help="Enable verbose logging",
     )
+    pipeline_optional.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable reconnaissance cache (force fresh recon on every run)",
+    )
 
     args = parser.parse_args()
     
@@ -2415,6 +2420,7 @@ def _run_pipeline(args, logger):
             scorer_model=args.scorer_model,
             skip_recon=bool(args.profile),
             profile_path=args.profile,
+            use_cache=False if getattr(args, "no_cache", False) else None,
         )
     except KeyboardInterrupt:
         print("\n\n  ⚠ 用户中断")

@@ -58,6 +58,10 @@ __author__ = "AI-300 Framework Team"
 from .utils.platform import setup_windows_utf8
 setup_windows_utf8()
 
+# v3.8: 自动加载 .env 文件（敏感配置通过环境变量注入，避免硬编码泄露）
+from .utils.env_loader import load_dotenv, resolve_env_vars
+load_dotenv()
+
 import logging
 from typing import Any, Dict, Optional
 

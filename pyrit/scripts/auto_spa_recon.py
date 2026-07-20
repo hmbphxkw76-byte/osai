@@ -146,6 +146,14 @@ def load_config_from_yaml(yaml_path: str) -> dict:
     with open(yaml_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
+    # 环境变量替换（${SPA_USERNAME} / ${SPA_PASSWORD} → 实际值）
+    try:
+        from pyrit_ai300.utils.env_loader import load_dotenv, resolve_env_vars
+        load_dotenv()
+        cfg = resolve_env_vars(cfg)
+    except ImportError:
+        pass  # 独立运行时可能没有 pyrit_ai300
+
     target = cfg.get("target", {})
 
     # ═══ 极简格式（spa_target.yaml v2）═══
@@ -641,15 +649,44 @@ async def main():
         except Exception:
             pass  # SSO 重定向会导致超时，正常
 
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(2000)
         current_url = page.url
         print(f"  当前 URL: {current_url[:100]}")
 
         # ── 3. 认证流程（根据 auth_mode 分发）──
-        url_lower = current_url.lower()
-        is_login_page = any(k in url_lower for k in [
-            "passport", "login", "signin", "account/login", "auth",
-        ]) and not any(p in url_lower for p in OIDC_CALLBACK_PATTERNS)
+        def _check_login_page(url_str: str) -> bool:
+            """检查 URL 是否为登录页"""
+            u = url_str.lower()
+            return any(k in u for k in [
+                "passport", "login", "signin", "account/login", "auth",
+            ]) and not any(p in u for p in OIDC_CALLBACK_PATTERNS)
+
+        is_login_page = _check_login_page(current_url)
+
+        # SSO/credentials 模式：如果还没到登录页，轮询等待重定向
+        if not is_login_page and auth_mode in ("sso", "credentials") and username:
+            print(f"\n[3/10] 等待 SSO 重定向到登录页（最多 30s）...")
+            for i in range(30):
+                await page.wait_for_timeout(1000)
+                current_url = page.url
+                is_login_page = _check_login_page(current_url)
+                if is_login_page:
+                    print(f"  ✅ 检测到登录页: {current_url[:80]}")
+                    break
+                if i % 5 == 0 and i > 0:
+                    print(f"  ⏳ 等待中 ({i}s)... 当前: {current_url[:60]}")
+            else:
+                print(f"  ℹ️  30s 未检测到登录页 URL，尝试 DOM 检测...")
+                # DOM 降级检测：检查页面是否有密码输入框（URL 不含 login 关键词但有表单）
+                try:
+                    pw_el = await page.query_selector("input[type='password']")
+                    if pw_el:
+                        is_login_page = True
+                        print(f"  ✅ DOM 检测到密码输入框，识别为登录页")
+                    else:
+                        print(f"  ℹ️  未检测到登录表单，可能已登录或无需 SSO 重定向")
+                except Exception:
+                    pass
 
         if auth_mode == "none":
             print("\n[3/10] 认证模式: none（无需认证），跳过登录 ...")

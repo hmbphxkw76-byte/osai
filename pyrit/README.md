@@ -121,6 +121,75 @@ pyrit/                          # 项目根目录
 
 ---
 
+## 环境准备
+
+### 基础安装
+
+```bash
+# 安装框架及依赖（含 PyRIT、Rich、PyYAML 等）
+pip install -e ".[dev,pdf,recon]"
+```
+
+### Playwright 浏览器环境（SPA 攻击必需）
+
+SPA 聊天应用攻击（`spa_target.yaml`）和 SPA 侦察（`--spa-config`）依赖 Playwright 浏览器自动化，需额外安装：
+
+```bash
+# 1. 安装 Playwright Python 包
+uv pip install playwright
+# 或使用 pip: pip install playwright
+
+# 2. 安装 Chromium 浏览器引擎（约 150MB，仅需一次）
+playwright install chromium
+```
+
+> **说明**：Playwright 是 PyRIT `PlaywrightTarget` 的底层依赖，用于浏览器自动化（Cookie 注入、选择器交互、流量捕获）。不安装将无法执行 SPA 相关的侦察和攻击。
+
+### 敏感配置（.env 环境变量）
+
+所有目标配置文件（`spa_target.yaml` / `llm_api_target.yaml` / `http_target.yaml`）中的敏感信息（账号、密码、API Key、Bearer Token）通过 `.env` 环境变量注入，避免硬编码泄露：
+
+```bash
+# 1. 复制模板
+cp .env.example .env
+
+# 2. 编辑 .env，填入真实凭据
+#    SPA_USERNAME=your_username
+#    SPA_PASSWORD=your_password
+#    LLM_API_KEY=not-needed          # Ollama 填 not-needed，云端填 sk-xxx
+#    HTTP_API_TOKEN=your_token
+#    ZHIPUAI_API_KEY=your_key
+
+# 3. 在 YAML 配置中通过 ${VAR} 引用（框架自动替换）
+#    username: "${SPA_USERNAME}"
+#    api_key: "${LLM_API_KEY}"
+```
+
+> **安全说明**：`.env` 文件已在 `.gitignore` 中排除，不会被提交到版本库。框架在导入时自动加载 `.env` 文件（`pyrit_ai300/utils/env_loader.py`）。
+
+### Garak 独立环境（可选，侦察增强）
+
+```bash
+# garak 与 pyrit 存在 datasets 版本冲突，使用独立 venv
+make setup-garak
+```
+
+### UV 快速安装（推荐）
+
+```bash
+# 创建虚拟环境并安装全部依赖
+uv venv .venv
+uv pip install -e ".[dev,pdf,recon]"
+uv pip install playwright
+playwright install chromium
+
+# 配置敏感信息（账号密码 / API Key）
+cp .env.example .env
+# 编辑 .env 填入真实凭据
+```
+
+---
+
 ## 快速开始
 
 ```bash
@@ -266,6 +335,7 @@ CrescendoAttack → TAP → PAIR → PromptSendingAttack
 - Jinja2 >= 3.1.0
 - Rich >= 13.0.0
 - pydantic >= 2.0.0
+- Playwright（SPA 攻击必需，`uv pip install playwright && playwright install chromium`）
 
 ---
 

@@ -213,6 +213,7 @@ class PipelineOrchestrator:
         scorer_model: Optional[str] = None,
         skip_recon: bool = False,
         profile_path: Optional[str] = None,
+        use_cache: Optional[bool] = None,
     ) -> PipelineResult:
         """
         执行全链路 AI 红队评估
@@ -234,6 +235,7 @@ class PipelineOrchestrator:
             scorer_model: 外部评分 LLM 模型名
             skip_recon: 跳过侦察阶段（使用已有 profile_path）
             profile_path: 已有侦察画像路径（跳过侦察时使用）
+            use_cache: 是否使用侦察缓存（None=使用配置文件设置，True=启用，False=禁用）
 
         Returns:
             PipelineResult 全链路执行结果
@@ -270,6 +272,7 @@ class PipelineOrchestrator:
                 spa_config=spa_config,
                 depth=depth,
                 credential_resolution=result.credential_resolution,
+                use_cache=use_cache,
             )
             result.phases.append(phase_result)
             if phase_result.success:
@@ -368,6 +371,7 @@ class PipelineOrchestrator:
         spa_config: Optional[str],
         depth: str,
         credential_resolution: Optional[CredentialResolution],
+        use_cache: Optional[bool] = None,
     ) -> PhaseResult:
         """
         阶段 2：侦察（自适应编排 v2）
@@ -418,6 +422,7 @@ class PipelineOrchestrator:
                     depth=depth,
                     credential_resolution=credential_resolution,
                     recon_config_extra=recon_config_extra,
+                    use_cache=use_cache,
                 )
             else:
                 # ═══ 非 SPA 路径：AIMAP → Garak + DeepTeam ═══
@@ -427,6 +432,7 @@ class PipelineOrchestrator:
                     target_url=target_url,
                     depth=depth,
                     recon_config_extra=recon_config_extra,
+                    use_cache=use_cache,
                 )
 
             # 保存画像
@@ -583,6 +589,7 @@ class PipelineOrchestrator:
         depth: str,
         credential_resolution: Optional[CredentialResolution],
         recon_config_extra: Dict[str, Dict[str, Any]],
+        use_cache: Optional[bool] = None,
     ) -> Any:
         """
         SPA 路径：SPA Recon → Garak + DeepTeam（自适应编排）
@@ -597,6 +604,16 @@ class PipelineOrchestrator:
         - 跳过 AIMAP（SPA 已被动发现端点，主动探测冗余且有 WAF 风险）
         - Garak 使用 SPA 发现的 LLM 端点（而非 SPA 页面 URL）
         - DeepTeam 使用 SPA 发现的 LLM 端点 + 凭据
+
+        Args:
+            engine: ReconEngine 实例
+            tracker: PipelineTracker 实例
+            spa_config: SPA 配置文件路径
+            target_url: 目标 URL
+            depth: 侦察深度
+            credential_resolution: 凭据解析结果
+            recon_config_extra: 额外的侦察配置（凭据注入）
+            use_cache: 是否使用缓存
         """
         # ── 步骤 1：SPA Recon ──
         self._print_info("模式: SPA 智能助手侦察（浏览器自动化）")
@@ -604,6 +621,7 @@ class PipelineOrchestrator:
             profile = engine.run_spa_recon(
                 spa_config_path=spa_config,
                 tracker=tracker,
+                use_cache=use_cache,
             )
         else:
             # 无 spa_config 但 URL 是 SPA — 直接用 URL 侦察
@@ -629,6 +647,7 @@ class PipelineOrchestrator:
             profile = engine.run_spa_recon(
                 spa_config_path=temp_path,
                 tracker=tracker,
+                use_cache=use_cache,
             )
 
         # ── 步骤 2：从 SPA 结果提取 LLM 端点 ──
@@ -707,6 +726,7 @@ class PipelineOrchestrator:
         target_url: str,
         depth: str,
         recon_config_extra: Dict[str, Dict[str, Any]],
+        use_cache: Optional[bool] = None,
     ) -> Any:
         """
         非 SPA 路径：AIMAP → Garak + DeepTeam（标准 API 侦察）
@@ -721,6 +741,14 @@ class PipelineOrchestrator:
         - AIMAP 先执行以识别框架协议（Ollama/vLLM/MCP 等）
         - AIMAP 结果驱动 Garak 的 model_type 和 probe 选择
         - DeepTeam 与 AIMAP 并行或之后执行
+
+        Args:
+            engine: ReconEngine 实例
+            tracker: PipelineTracker 实例
+            target_url: 目标 URL
+            depth: 侦察深度
+            recon_config_extra: 额外的侦察配置（凭据注入）
+            use_cache: 是否使用缓存
         """
         self._print_info(f"模式: 标准 API 侦察（深度={depth}）")
 
@@ -734,6 +762,7 @@ class PipelineOrchestrator:
             target=target_url,
             depth=depth,
             tracker=tracker,
+            use_cache=use_cache,
         )
 
         return profile

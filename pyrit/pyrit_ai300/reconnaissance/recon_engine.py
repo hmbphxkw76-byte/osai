@@ -85,6 +85,7 @@ class ReconEngine:
         depth: str = "standard",
         tools: Optional[List[str]] = None,
         tracker: Optional[Any] = None,
+        use_cache: Optional[bool] = None,
     ) -> TargetProfile:
         """
         执行完整侦察流程（v2 优化版）
@@ -106,6 +107,7 @@ class ReconEngine:
             depth: 侦察深度（quick/standard/deep）
             tools: 指定工具列表（None=全部启用）
             tracker: PipelineTracker 实例（可选，用于全链路追踪）
+            use_cache: 是否使用缓存（None=使用配置文件设置，True=启用，False=禁用）
 
         Returns:
             TargetProfile 合并后的目标画像
@@ -117,8 +119,9 @@ class ReconEngine:
         logger.info("Starting recon on %s with tools: %s (depth=%s)", target, tools_to_run, depth)
 
         # ── OPT-E2: 检查 profile 缓存 ──
-        use_cache = self.config.get("cache", {}).get("enabled", True)
-        if use_cache:
+        # 参数优先级：use_cache > 配置文件 > 默认 True
+        _use_cache = use_cache if use_cache is not None else self.config.get("cache", {}).get("enabled", True)
+        if _use_cache:
             cached_profile = self._load_profile_cache(target, depth, tools_to_run)
             if cached_profile:
                 logger.info("Profile cache hit, skipping recon for %s", target)
@@ -330,7 +333,7 @@ class ReconEngine:
         )
 
         # ── OPT-E2: 保存 profile 到缓存 ──
-        if use_cache:
+        if _use_cache:
             self._save_profile_cache(target, depth, tools_to_run, profile)
 
         # 记录侦察完成（tracker）
@@ -553,6 +556,7 @@ class ReconEngine:
         self,
         spa_config_path: str,
         tracker: Optional[Any] = None,
+        use_cache: Optional[bool] = None,
     ) -> TargetProfile:
         """
         执行 SPA 智能助手侦察
@@ -569,6 +573,7 @@ class ReconEngine:
         Args:
             spa_config_path: SPA 目标配置文件路径（如 config/targets/spa_target.yaml）
             tracker: PipelineTracker 实例（可选）
+            use_cache: 是否使用缓存（None=使用配置文件设置，True=启用，False=禁用）
 
         Returns:
             TargetProfile 包含后端 LLM 模型信息、API 端点、能力等
@@ -584,6 +589,25 @@ class ReconEngine:
         # 加载 SPA 配置
         spa_config = self.load_spa_config(spa_config_path)
         target_url = spa_config.get("connection", {}).get("url", "")
+
+        # ── OPT-E2: 检查 profile 缓存 ──
+        # 参数优先级：use_cache > 配置文件 > 默认 True
+        _use_cache = use_cache if use_cache is not None else self.config.get("cache", {}).get("enabled", True)
+        if _use_cache:
+            cached_profile = self._load_profile_cache(target_url, "standard", ["spa_chat_recon"])
+            if cached_profile:
+                logger.info("Profile cache hit, skipping SPA recon for %s", target_url)
+                if tracker:
+                    tracker.log_recon_start(target_url, ["spa_chat_recon"])
+                    tracker.log_recon_optimization(
+                        stage="recon_cache_hit",
+                        optimization_id="OPT-E2",
+                        input_summary=f"target={target_url}, spa_config={spa_config_path}",
+                        output_summary="cache_hit=True",
+                        metadata={"cache_key": self._compute_profile_cache_key(target_url, "standard", ["spa_chat_recon"])},
+                    )
+                    tracker.log_recon_complete(profile_path="", success=True, duration_ms=0)
+                return cached_profile
 
         if tracker:
             tracker.log_recon_start(target_url, ["spa_chat_recon"])
@@ -615,6 +639,10 @@ class ReconEngine:
             profile.risk_level,
             total_duration / 1000,
         )
+
+        # ── OPT-E2: 保存 profile 到缓存 ──
+        if _use_cache:
+            self._save_profile_cache(target_url, "standard", ["spa_chat_recon"], profile)
 
         if tracker:
             tracker.log_recon_complete(
@@ -654,6 +682,10 @@ class ReconEngine:
 
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+
+        # 环境变量替换（${VAR} → 实际值，如 ${SPA_USERNAME} → 真实用户名）
+        from ..utils.env_loader import resolve_env_vars
+        data = resolve_env_vars(data)
 
         # 提取 auto_detected 段（极简格式的自动回写选择器）
         auto_detected = data.get("auto_detected", {})

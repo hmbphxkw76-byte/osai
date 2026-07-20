@@ -21,6 +21,11 @@ env/
 .vscode/
 .idea/
 
+# Environment variables (secrets — never commit)
+.env
+.env.local
+.env.*.local
+
 # OS
 Thumbs.db
 .DS_Store

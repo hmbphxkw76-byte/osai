@@ -3,14 +3,16 @@
 # ════════════════════════════════════════════════════════════════
 #
 # 用户只需修改下方 4 个字段，其余由系统自动处理。
+# 敏感信息（API Key）通过 .env 环境变量注入，避免硬编码泄露。
 #
 # type 取值：
 #   ollama → 本地模型节点（Ollama / LM Studio / vLLM），通常无需认证
 #   openai → 云端 OpenAI 兼容平台（智谱/百度/DeepSeek/Moonshot/MiniMax 等）
 #
 # 使用方式：
-#   ai300 recon -t "http://192.168.0.23:11434" --tools ollama_fingerprint
-#   ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
+#   1. 复制 .env.example 为 .env，填入 LLM_API_KEY
+#   2. 修改下方 type / endpoint / model
+#   3. 运行：ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
 #
 # 各平台速查表（修改下方字段即可切换）：
 #   智谱 GLM:    type=openai  endpoint="https://open.bigmodel.cn/api/paas/v4"  model="glm-4-flash"
@@ -25,4 +27,4 @@ target:
   type: "ollama"                              # ollama / openai
   endpoint: "http://192.168.0.23:11434/v1"    # 必须含 /v1 路径
   model: "qwen3:0.6b"                         # ollama list 查看，或平台控制台获取
-  api_key: "not-needed"                       # Ollama 填 "not-needed"；云端填 sk-xxx
+  api_key: "${LLM_API_KEY}"                   # 从 .env 读取；Ollama 填 not-needed，云端填 sk-xxx

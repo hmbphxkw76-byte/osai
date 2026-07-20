@@ -239,14 +239,17 @@ class AttackOrchestrator:
         config_path: Optional[str],
         config_dict: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """加载配置"""
+        """加载配置（支持 ${VAR} 环境变量替换）"""
         if config_dict:
             return config_dict
         if config_path:
             path = Path(config_path)
             if path.suffix in (".yaml", ".yml"):
                 with open(path, "r", encoding="utf-8") as f:
-                    return yaml.safe_load(f)
+                    config = yaml.safe_load(f)
+                # 环境变量替换（${VAR} → 实际值）
+                from ..utils.env_loader import resolve_env_vars
+                return resolve_env_vars(config)
             raise ValueError(f"Unsupported config format: {path.suffix}")
         return {}
 
@@ -1321,7 +1324,7 @@ class AttackOrchestrator:
 
     @staticmethod
     def load_yaml(path: str) -> Dict[str, Any]:
-        """加载 YAML 文件（支持多文档分隔符 ---）"""
+        """加载 YAML 文件（支持多文档分隔符 --- 和 ${VAR} 环境变量替换）"""
         from pathlib import Path
         file_path = Path(path)
         if not file_path.exists():
@@ -1330,7 +1333,10 @@ class AttackOrchestrator:
         with open(file_path, "r", encoding="utf-8") as f:
             import yaml
             docs = list(yaml.safe_load_all(f))
-            return docs[0] if docs else {}
+            config = docs[0] if docs else {}
+        # 环境变量替换（${VAR} → 实际值）
+        from ..utils.env_loader import resolve_env_vars
+        return resolve_env_vars(config)
 
     @classmethod
     def build_attack_list_from_refs(
