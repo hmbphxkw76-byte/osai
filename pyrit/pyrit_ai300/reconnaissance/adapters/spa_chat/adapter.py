@@ -258,6 +258,9 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
         result_data: Dict[str, Any] = {}
 
+        # 初始化聊天入口选择器跟踪变量
+        self._chat_entry_hit_selector: str = ""
+
         async with async_playwright() as p:
             # ── 0. 认证预检（HTTP 请求验证，在浏览器启动前执行） ──
             # 读取 credentials 文件 → 用 HTTP 请求携带认证头访问目标 URL → 显示认证状态
@@ -423,10 +426,14 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     print("  ⚠️  预检凭据注入异常: %s" % str(e))
 
             # ── 3b. 预检无效/无预检 → 尝试凭据缓存 → 走认证流程 ──
+            #
+            # SSO 模式跳过缓存复用：SSO 认证的核心是在 SSO 认证中心（如 passport.xxx.cn）
+            # 完成登录，缓存的应用 Cookie/JWT 无法绕过 SSO 登录流程。重复导航到 target_url
+            # 只会导致 SPA 多次重定向到 SSO 登录页，触发多次验证码弹出（根因分析 v1.6.1）。
             if not auth_succeeded:
                 # 尝试从 credentials/ 目录复用已有凭据（兼容旧流程）
                 cached_auth_ok = False
-                if login_mode not in ("manual", "oauth"):
+                if login_mode not in ("manual", "oauth", "sso"):
                     print("\n  [1/3] 检查本地凭据缓存...")
                     cached_auth_ok = await self._try_cached_credentials(
                         page, context, target_url, errors
@@ -463,11 +470,31 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                         print("\n  [2/3] 执行认证流程 (%s)..." % login_mode)
                         errors_before_login = len(errors)
 
-                        # 导航到登录页/目标页
-                        try:
-                            await page.goto(login_url, wait_until=connection.get("wait_until", "networkidle"))
-                        except Exception as e:
-                            logger.warning("Initial navigation failed: %s", str(e))
+                        # 导航到登录页/目标页（复用当前页面，避免重复导航）
+                        #
+                        # 根因分析 v1.6.1：SSO 模式下，3a 预检降级可能已经导航到
+                        # target_url 并重定向到 SSO 登录页。此时 3c 再 page.goto
+                        # 会导致 SPA 再次重定向，触发验证码重置。
+                        # 修复：检测当前 URL 是否已在登录页，是则跳过导航。
+                        current_url_before_login = page.url or ""
+                        url_lower = current_url_before_login.lower()
+                        already_on_login_page = any(ind in url_lower for ind in (
+                            "/account/login", "/login", "/signin",
+                            "/connect/authorize", "passport.",
+                        ))
+
+                        if already_on_login_page and login_mode == "sso":
+                            logger.info(
+                                "Already on login page (from 3a fallback), "
+                                "skipping navigation: %s",
+                                current_url_before_login,
+                            )
+                            print("  ✅ 当前已在登录页，跳过导航（避免重复触发验证码）")
+                        else:
+                            try:
+                                await page.goto(login_url, wait_until=connection.get("wait_until", "networkidle"))
+                            except Exception as e:
+                                logger.warning("Initial navigation failed: %s", str(e))
 
                         if login_mode == "credentials":
                             await self._login_with_credentials(page, login_config, errors)
@@ -717,6 +744,18 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 result_data["chat_entry_skipped"] = True
                 result_data["chat_entry_mode"] = chat_mode
 
+            # ── 4.6 记录聊天入口选择器（用于黄金信息报告） ──
+            # 优先使用 _try_click_chat_entry 中记录的实际匹配选择器
+            hit_selector = getattr(self, "_chat_entry_hit_selector", "")
+            if hit_selector:
+                result_data["chat_entry_clicked"] = hit_selector
+            elif chat_mode == "selector" and chat_selector:
+                result_data["chat_entry_clicked"] = chat_selector[:200] if isinstance(chat_selector, str) else ""
+            elif chat_mode == "auto":
+                result_data["chat_entry_clicked"] = "auto"
+            elif chat_mode == "none":
+                result_data["chat_entry_clicked"] = "none (已是聊天页)"
+
             # ── 4.5 自动发现聊天 DOM 选择器（v1.4 新增）──
             # 入口点击后或聊天页确认后，自动发现 input/send_button/response 选择器
             # 降级链：自动发现 > YAML 配置 > 硬编码默认值
@@ -727,6 +766,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             # ── 5. 发送探测消息 ──
             probe_enabled = probe_config.get("enabled", True)
             probe_messages = probe_config.get("messages")
+            probe_responses: List[Dict[str, str]] = []
             if probe_enabled:
                 if probe_messages and isinstance(probe_messages, list):
                     # 使用自定义探测消息
@@ -785,6 +825,12 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 ))
                 if primary_endpoint.get("model_extracted"):
                     print("        模型: %s" % primary_endpoint["model_extracted"])
+                if primary_endpoint.get("provider_inferred"):
+                    print("        提供商: %s" % primary_endpoint["provider_inferred"])
+                if primary_endpoint.get("model_parameters"):
+                    params = primary_endpoint["model_parameters"]
+                    param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+                    print("        参数: %s" % param_str)
                 # 显示所有 LLM 端点
                 all_llm_urls = traffic_summary.get("llm_endpoints", [])
                 if len(all_llm_urls) > 1:
@@ -803,6 +849,57 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     "owasp_mapping": "",
                     "confidence": 0.5,
                 })
+
+            # ── 8.5 直接 API 探测（当流量捕获未提取到模型名时） ──
+            # 根因：Playwright 对 SSE 流式 POST 请求的 post_data 和 response.text()
+            # 可能返回 None/空，导致模型名和参数无法从流量中提取。
+            # 解决方案：通过浏览器 fetch() 直接调用 LLM API，从响应中提取模型信息。
+            if primary_endpoint and not primary_endpoint.get("model_extracted"):
+                probe_result = await self._direct_api_probe(page, primary_endpoint)
+                if probe_result:
+                    model_name, provider, model_params = probe_result
+                    if model_name:
+                        # 更新 primary_endpoint 中的模型信息
+                        primary_endpoint["model_extracted"] = model_name
+                        primary_endpoint["model_source"] = "direct_probe"
+                        primary_endpoint["provider_inferred"] = provider
+                        if model_params:
+                            primary_endpoint["model_parameters"] = model_params
+                        # 同步更新 traffic 中的 llm_api_calls
+                        for call in traffic.llm_api_calls:
+                            if call.get("url") == primary_endpoint.get("url"):
+                                call["model_extracted"] = model_name
+                                call["model_source"] = "direct_probe"
+                                call["provider_inferred"] = provider
+                                if model_params:
+                                    call["model_parameters"] = model_params
+                                break
+                        # 重新提取 LLM 信息（更新 findings）
+                        result_data.update(self._extract_llm_info(primary_endpoint, findings))
+                        logger.info("Direct API probe extracted model: %s, provider: %s", model_name, provider)
+
+            # ── 8.6 扫描响应容器（探测后页面已有 AI 回复） ──
+            response_containers = await self._scan_response_containers(page)
+            if response_containers:
+                result_data["response_containers"] = response_containers
+                # 更新 response 选择器为实际发现的最优选择器
+                best_rc = response_containers[0]
+                if best_rc.get("class"):
+                    cls = best_rc["class"].split()[0]
+                    if cls:
+                        result_data["auto_detected_selectors"]["response"] = ".%s" % cls
+                        result_data["auto_detected_selectors"]["response_source"] = "post_probe"
+                        result_data["auto_detected_selectors"]["response_score"] = best_rc.get("textLength", 0)
+
+            # ── 8.6 提取应用名称（从 DOM） ──
+            app_name = await self._extract_app_name(page)
+            if app_name:
+                result_data["app_name"] = app_name
+
+            # ── 8.7 提取 localStorage 认证信息 ──
+            local_storage_info = await self._extract_auth_info(page, login_mode)
+            if local_storage_info:
+                result_data["auth_info"] = local_storage_info
 
             # ── 9. RAG 端点分析 ──
             if traffic.rag_api_calls:
@@ -880,6 +977,26 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 result_data["model_name"] = final_model
                 result_data["model_family"] = self._extract_model_family(final_model)
 
+            # 合并提供商信息
+            provider = result_data.get("provider_inferred")
+            if provider:
+                result_data["provider"] = provider
+
+            # 合并模型参数
+            if result_data.get("model_parameters"):
+                result_data["model_capabilities"]["parameters"] = result_data["model_parameters"]
+
+            # ── 12.5 确定应用类型（必须在黄金信息报告之前）──
+            result_data["app_type"] = self._determine_app_type(
+                target_url, traffic, result_data,
+            )
+
+            # ── 12.6 生成黄金信息汇总报告 ──
+            self._generate_golden_summary(
+                page, target_url, result_data, traffic, traffic_summary,
+                primary_endpoint, selectors, probe_responses,
+            )
+
             # ── 13. 能力汇总 ──
             capabilities: List[str] = []
             if primary_endpoint:
@@ -920,6 +1037,8 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     "has_cookie": bool(primary_endpoint.get("request_headers", {}).get("cookie")),
                 }
 
+            # ── 14.5 应用类型已在 12.5 设置（提前到黄金信息报告之前）──
+
             # ── 15. 截图保存（调试用） ──
             screenshot_dir = config.get("screenshot_dir", "results/recon/screenshots")
             try:
@@ -950,6 +1069,746 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             await browser.close()
 
         return result_data
+
+    # ── 黄金信息提取方法 ──
+
+    async def _extract_app_name(self, page: Any) -> Optional[str]:
+        """
+        从 DOM 提取应用名称
+
+        提取策略（按优先级）：
+        1. 页面 <title> 标签
+        2. 聊天面板标题文本（class 含 chat-title/header/title/name）
+        3. 页面主标题（h1/h2）
+
+        Returns:
+            应用名称字符串，或 None
+        """
+        try:
+            app_name = await page.evaluate("""() => {
+                // 1. 聊天面板标题
+                const titleSelectors = [
+                    '[class*="chat-title"]', '[class*="chat-header"]',
+                    '[class*="chat-name"]', '[class*="assistant-title"]',
+                    '[class*="panel-title"]', '[class*="dialog-title"]',
+                    '[class*="sidebar-title"]', '[class*="header-title"]',
+                ];
+                for (const sel of titleSelectors) {
+                    const el = document.querySelector(sel);
+                    if (el && el.innerText && el.innerText.trim().length > 0) {
+                        return el.innerText.trim().substring(0, 100);
+                    }
+                }
+                // 2. 页面标题
+                if (document.title && document.title.trim().length > 0) {
+                    return document.title.trim().substring(0, 100);
+                }
+                // 3. h1/h2
+                const h1 = document.querySelector('h1');
+                if (h1 && h1.innerText && h1.innerText.trim().length > 0) {
+                    return h1.innerText.trim().substring(0, 100);
+                }
+                const h2 = document.querySelector('h2');
+                if (h2 && h2.innerText && h2.innerText.trim().length > 0) {
+                    return h2.innerText.trim().substring(0, 100);
+                }
+                return null;
+            }""")
+            if app_name:
+                logger.info("App name extracted: %s", app_name)
+            return app_name
+        except Exception as e:
+            logger.debug("App name extraction failed: %s", str(e))
+            return None
+
+    async def _extract_auth_info(self, page: Any, login_mode: str = "") -> Optional[Dict[str, Any]]:
+        """
+        从 localStorage 提取认证信息
+
+        识别 OIDC 隐式流 token、JWT、Access Token 等。
+
+        OIDC 隐式流特征：
+        - localStorage 中存在 id_token / access_token
+        - token 为 JWT 格式（以 eyJ 开头，3 段以 . 分隔）
+        - 可能存在 userid / user_info 等用户标识
+        - 当 login_mode="sso" 时，userid 等用户标识也暗示 OIDC 流
+
+        Args:
+            page: Playwright 页面
+            login_mode: 登录模式（sso/credentials/manual 等），用于辅助判断
+
+        Returns:
+            {"type": "oidc/jwt/token", "key": "...", "preview": "...",
+             "storage": "localStorage", "flow": "implicit/..."}
+        """
+        try:
+            auth_info = await page.evaluate("""(loginMode) => {
+                const tokenKeywords = [
+                    'token', 'access', 'id_token', 'bearer', 'auth', 'jwt', 'userid',
+                    'user_id', 'session', 'oidc', 'openid',
+                ];
+                const items = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    items[key] = localStorage.getItem(key);
+                }
+                // 优先查找 OIDC 相关 key
+                const oidcKeys = ['id_token', 'access_token', 'oidc.user', 'openid'];
+                for (const [key, value] of Object.entries(items)) {
+                    const keyLower = key.toLowerCase();
+                    if (oidcKeys.some(ok => keyLower.includes(ok))) {
+                        const isJwt = typeof value === 'string' && value.startsWith('eyJ') && value.split('.').length === 3;
+                        return {
+                            type: isJwt ? 'oidc' : 'token',
+                            key: key,
+                            preview: typeof value === 'string' ? value.substring(0, 80) : '',
+                            storage: 'localStorage',
+                            flow: isJwt ? 'implicit' : 'unknown',
+                        };
+                    }
+                }
+                // SSO 模式下，userid / user_id 等也暗示 OIDC 隐式流
+                if (loginMode === 'sso') {
+                    const ssoUserKeys = ['userid', 'user_id', 'user_info', 'profile', 'session_state'];
+                    for (const [key, value] of Object.entries(items)) {
+                        const keyLower = key.toLowerCase();
+                        if (ssoUserKeys.some(sk => keyLower === sk || keyLower.includes(sk))) {
+                            const isJwt = typeof value === 'string' && value.startsWith('eyJ') && value.split('.').length === 3;
+                            return {
+                                type: 'oidc',
+                                key: key,
+                                preview: typeof value === 'string' ? value.substring(0, 80) : '',
+                                storage: 'localStorage',
+                                flow: 'implicit',
+                            };
+                        }
+                    }
+                }
+                // 通用 token 检测
+                for (const [key, value] of Object.entries(items)) {
+                    const keyLower = key.toLowerCase();
+                    if (tokenKeywords.some(kw => keyLower.includes(kw))) {
+                        const isJwt = typeof value === 'string' && value.startsWith('eyJ') && value.split('.').length === 3;
+                        return {
+                            type: isJwt ? 'jwt' : 'token',
+                            key: key,
+                            preview: typeof value === 'string' ? value.substring(0, 80) : '',
+                            storage: 'localStorage',
+                            flow: isJwt ? 'likely_oidc_implicit' : 'unknown',
+                        };
+                    }
+                }
+                return null;
+            }""", login_mode)
+            return auth_info
+        except Exception as e:
+            logger.debug("Auth info extraction failed: %s", str(e))
+            return None
+
+    async def _direct_api_probe(
+        self,
+        page: Any,
+        primary_endpoint: Dict[str, Any],
+    ) -> Optional[Tuple]:
+        """
+        直接 API 探测：通过浏览器 fetch() 直接调用 LLM API 提取模型信息（v2 三重策略）
+
+        根因：某些自定义 API 平台（如 Go 风格封装）在 SSE 响应中不返回 model 字段。
+        Playwright 对流式 POST 请求的 post_data 也可能返回 None。
+
+        三重策略（依次尝试）：
+        1. 非流式请求 (stream=false)：完整 JSON 响应更可能包含 model 字段
+        2. 流式请求 (stream=true) + 增强解析：解析所有 SSE 块 + 正则搜索
+        3. 从已捕获的请求体/原始 post_data 中提取（含 Go 风格大写字段名）
+
+        Returns:
+            (model_name, provider, model_params) 元组，或 None
+        """
+        url = primary_endpoint.get("url", "")
+        if not url:
+            return None
+
+        req_headers = primary_endpoint.get("request_headers") or {}
+        req_body = primary_endpoint.get("request_body")
+
+        # 提取 Authorization 头
+        auth_header = (
+            req_headers.get("authorization")
+            or req_headers.get("Authorization")
+            or ""
+        )
+
+        print("\n  🔬 直接 API 探测（提取模型信息）...")
+        print("     端点: %s" % url[:80])
+        logger.info("Direct API probe to: %s", url)
+
+        # ── 策略 0: 先从已捕获的请求体中提取 ──
+        if req_body and isinstance(req_body, dict):
+            model_from_req = self._extract_model_from_request_body(req_body)
+            if model_from_req:
+                provider = NetworkTrafficCapture._infer_provider(model_from_req, url)
+                family = self._extract_model_family(model_from_req)
+                model_desc = self._format_model_desc(model_from_req, family)
+                print("  ✅ 模型提取成功（来源: 请求体）: %s" % model_desc)
+                if provider:
+                    print("     提供商: %s" % provider)
+                logger.info("Model extracted from request body: %s", model_from_req)
+                # 仍尝试获取参数
+                params = self._extract_params_from_body(req_body)
+                return (model_from_req, provider, params)
+
+        # 也尝试从原始 post_data 字符串中正则提取
+        raw_post_data = primary_endpoint.get("post_data") or ""
+        if raw_post_data and isinstance(raw_post_data, str):
+            model_from_raw = self._regex_extract_model(raw_post_data)
+            if model_from_raw:
+                provider = NetworkTrafficCapture._infer_provider(model_from_raw, url)
+                family = self._extract_model_family(model_from_raw)
+                model_desc = self._format_model_desc(model_from_raw, family)
+                print("  ✅ 模型提取成功（来源: 原始请求）: %s" % model_desc)
+                if provider:
+                    print("     提供商: %s" % provider)
+                logger.info("Model extracted from raw post_data: %s", model_from_raw)
+                return (model_from_raw, provider, None)
+
+        # ── 策略 1: 非流式请求 ──
+        body_non_stream = dict(req_body) if req_body and isinstance(req_body, dict) else {}
+        body_non_stream["messages"] = [{"role": "user", "content": "1+1=?"}]
+        body_non_stream["stream"] = False
+
+        model_name, model_params, body_text = await self._fetch_and_extract(
+            page, url, auth_header, body_non_stream, "非流式",
+        )
+
+        # ── 策略 2: 流式请求（如果非流式未提取到） ──
+        if not model_name:
+            body_stream = dict(req_body) if req_body and isinstance(req_body, dict) else {}
+            body_stream["messages"] = [{"role": "user", "content": "1+1=?"}]
+            body_stream["stream"] = True
+
+            model_name, model_params, body_text = await self._fetch_and_extract(
+                page, url, auth_header, body_stream, "流式",
+            )
+
+        # ── 策略 3: 从 SPA JavaScript 全局变量中提取 ──
+        if not model_name:
+            model_name = await self._extract_model_from_js_globals(page)
+            if model_name:
+                logger.info("Model extracted from JS globals: %s", model_name)
+
+        if model_name:
+            provider = NetworkTrafficCapture._infer_provider(model_name, url)
+            family = self._extract_model_family(model_name)
+            model_desc = self._format_model_desc(model_name, family)
+            print("  ✅ 模型提取成功: %s" % model_desc)
+            if provider:
+                print("     提供商: %s" % provider)
+            if model_params:
+                param_str = ", ".join(f"{k}={v}" for k, v in model_params.items())
+                print("     参数: %s" % param_str)
+            return (model_name, provider, model_params if model_params else None)
+        else:
+            print("  ❌ 所有策略均未提取到模型名")
+            if body_text:
+                preview = body_text[:300].replace("\n", " ")
+                print("     响应预览: %s..." % preview)
+                logger.warning("All strategies failed. Response preview: %s", preview)
+            return None
+
+    async def _fetch_and_extract(
+        self,
+        page: Any,
+        url: str,
+        auth_header: str,
+        body: dict,
+        strategy_label: str,
+    ) -> Tuple[Optional[str], Dict[str, Any], str]:
+        """
+        执行 fetch 请求并从响应中提取模型信息
+
+        Returns:
+            (model_name, model_params, body_text) 元组
+        """
+        logger.info("Direct API probe [%s]: %s", strategy_label, url)
+        try:
+            result = await page.evaluate("""async (params) => {
+                const { url, authHeader, body } = params;
+                const headers = { "Content-Type": "application/json" };
+                if (authHeader) headers["Authorization"] = authHeader;
+
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: headers,
+                        body: JSON.stringify(body),
+                    });
+
+                    const contentType = response.headers.get("content-type") || "";
+                    const text = await response.text();
+
+                    return {
+                        status: response.status,
+                        contentType: contentType,
+                        body: text.substring(0, 15000),
+                        success: true,
+                    };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }""", {"url": url, "authHeader": auth_header, "body": body})
+
+            if not result or not result.get("success"):
+                error = result.get("error", "unknown") if result else "no result"
+                logger.warning("Direct API probe [%s] failed: %s", strategy_label, error)
+                return (None, {}, "")
+
+            body_text = result.get("body", "")
+            resp_status = result.get("status", 0)
+            resp_ct = result.get("contentType", "")
+
+            if not body_text:
+                logger.warning("Direct API probe [%s]: empty body (status=%s, ct=%s)",
+                               strategy_label, resp_status, resp_ct)
+                return (None, {}, "")
+
+            logger.info(
+                "Direct API probe [%s] response: status=%s, ct=%s, body_len=%d",
+                strategy_label, resp_status, resp_ct, len(body_text),
+            )
+
+            # 从响应体提取模型名（增强版 v2）
+            model_name = NetworkTrafficCapture._extract_model_from_response_body(body_text)
+
+            # 提取模型参数
+            model_params = self._extract_params_from_response(body_text)
+
+            return (model_name, model_params, body_text)
+
+        except Exception as e:
+            logger.warning("Direct API probe [%s] exception: %s", strategy_label, str(e)[:200])
+            return (None, {}, "")
+
+    @staticmethod
+    def _extract_model_from_request_body(req_body: dict) -> Optional[str]:
+        """从请求体中提取模型名（兼容标准 + Go 风格字段名）"""
+        model_fields = [
+            "model", "Model", "MODEL",
+            "model_name", "ModelName", "modelName",
+            "model_id", "ModelId", "modelId",
+        ]
+        for field in model_fields:
+            val = req_body.get(field)
+            if val and isinstance(val, str) and len(val) > 1:
+                return val
+        # 嵌套字段
+        for nested_key in ("extra_body", "ExtraBody", "config", "Config", "options", "Options"):
+            nested = req_body.get(nested_key)
+            if isinstance(nested, dict):
+                for field in model_fields:
+                    val = nested.get(field)
+                    if val and isinstance(val, str) and len(val) > 1:
+                        return val
+        return None
+
+    @staticmethod
+    def _regex_extract_model(text: str) -> Optional[str]:
+        """从原始文本中正则提取模型名"""
+        import re as _re
+        pattern = r'["\']?(?:model|Model|model_name|ModelName)["\']?\s*:\s*["\']([\w\-.:/]+)["\']'
+        matches = _re.findall(pattern, text)
+        for match in matches:
+            if match.lower() not in ("chat", "completion", "text", "stream", "json"):
+                return match
+        return None
+
+    @staticmethod
+    def _extract_params_from_response(body_text: str) -> Dict[str, Any]:
+        """从响应体中提取模型参数"""
+        import json as _json
+        params: Dict[str, Any] = {}
+        param_keys = ("top_p", "temperature", "max_tokens", "stream", "top_k",
+                      "frequency_penalty", "presence_penalty")
+
+        try:
+            if "data:" in body_text:
+                for line in body_text.split("\n"):
+                    if line.startswith("data:"):
+                        data = line[5:].strip()
+                        if data and data != "[DONE]":
+                            chunk = _json.loads(data)
+                            for k in param_keys:
+                                if k in chunk:
+                                    params[k] = chunk[k]
+                            # 也检查 Go 风格大写
+                            go_map = {"TopP": "top_p", "Temperature": "temperature",
+                                      "MaxTokens": "max_tokens", "Stream": "stream"}
+                            for go_key, py_key in go_map.items():
+                                if go_key in chunk:
+                                    params[py_key] = chunk[go_key]
+                            if params:
+                                break
+            else:
+                parsed = _json.loads(body_text)
+                for k in param_keys:
+                    if k in parsed:
+                        params[k] = parsed[k]
+        except Exception:
+            pass
+        return params
+
+    @staticmethod
+    def _extract_params_from_body(req_body: dict) -> Dict[str, Any]:
+        """从请求体中提取模型参数"""
+        params: Dict[str, Any] = {}
+        param_keys = ("top_p", "temperature", "max_tokens", "stream", "top_k",
+                      "frequency_penalty", "presence_penalty", "stop", "n", "seed")
+        for k in param_keys:
+            val = req_body.get(k)
+            if val is not None:
+                params[k] = val
+        return params
+
+    async def _extract_model_from_js_globals(self, page: Any) -> Optional[str]:
+        """
+        从 SPA 页面的 JavaScript 全局变量中提取模型名
+
+        某些 SPA 应用会在 window 对象或 Vue/React 状态中存储模型配置。
+        """
+        try:
+            result = await page.evaluate("""() => {
+                // 搜索 window 对象上的模型相关属性
+                const modelKeys = ['model', 'Model', 'modelName', 'model_name',
+                                   'modelId', 'model_id', 'currentModel', 'llmModel'];
+                const found = [];
+
+                // 1. 直接搜索 window 属性
+                for (const key of modelKeys) {
+                    if (window[key] && typeof window[key] === 'string') {
+                        found.push({source: 'window.' + key, value: window[key]});
+                    }
+                }
+
+                // 2. 搜索 Vue 实例（如果存在）
+                const app = document.querySelector('#app');
+                if (app && app.__vue_app__) {
+                    const config = app.__vue_app__.config;
+                    if (config && config.globalProperties) {
+                        const gp = config.globalProperties;
+                        for (const key of modelKeys) {
+                            if (gp[key] && typeof gp[key] === 'string') {
+                                found.push({source: 'vue.' + key, value: gp[key]});
+                            }
+                        }
+                    }
+                }
+
+                // 3. 搜索 localStorage 中的模型配置
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.toLowerCase().includes('model')) {
+                        const v = localStorage.getItem(k);
+                        if (v && v.length > 1 && v.length < 100) {
+                            found.push({source: 'localStorage.' + k, value: v});
+                        }
+                    }
+                }
+
+                // 4. 搜索 sessionStorage
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (k && k.toLowerCase().includes('model')) {
+                        const v = sessionStorage.getItem(k);
+                        if (v && v.length > 1 && v.length < 100) {
+                            found.push({source: 'sessionStorage.' + k, value: v});
+                        }
+                    }
+                }
+
+                return found.length > 0 ? found : null;
+            }""")
+
+            if result and isinstance(result, list):
+                for item in result:
+                    value = item.get("value", "")
+                    # 排除明显的非模型名值
+                    if value.lower() not in ("chat", "completion", "text", "stream", "json", "true", "false"):
+                        logger.info("JS global model candidate: %s (from %s)",
+                                    value, item.get("source"))
+                        return value
+            return None
+        except Exception as e:
+            logger.debug("JS global extraction failed: %s", str(e)[:100])
+            return None
+
+    @staticmethod
+    def _extract_model_family(model_name: str) -> str:
+        """从模型名称提取家族标识（用于描述和日志）"""
+        name_lower = model_name.lower()
+        families = [
+            ("deepseek", "deepseek"),
+            ("gpt", "gpt"),
+            ("claude", "claude"),
+            ("qwen", "qwen"),
+            ("glm", "glm"),
+            ("llama", "llama"),
+            ("gemini", "gemini"),
+            ("moonshot", "moonshot"),
+            ("ernie", "ernie"),
+            ("spark", "spark"),
+            ("hunyuan", "hunyuan"),
+            ("baichuan", "baichuan"),
+            ("mistral", "mistral"),
+            ("yi", "yi"),
+            ("phi", "phi"),
+            ("gemma", "gemma"),
+        ]
+        for keyword, family in families:
+            if keyword in name_lower:
+                return family
+        return "unknown"
+
+    @staticmethod
+    def _format_model_desc(model_name: str, family: str) -> str:
+        """
+        生成模型描述字符串（包含家族中文名和版本信息）
+
+        示例：
+            deepseek-r1-250120 → "deepseek-r1-250120（DeepSeek R1，250120 版本）"
+            gpt-4o → "gpt-4o（OpenAI GPT）"
+            qwen-72b → "qwen-72b（通义千问）"
+        """
+        family_cn = {
+            "deepseek": "DeepSeek",
+            "gpt": "OpenAI GPT",
+            "claude": "Anthropic Claude",
+            "qwen": "通义千问",
+            "glm": "智谱 GLM",
+            "llama": "Meta Llama",
+            "gemini": "Google Gemini",
+            "moonshot": "月之暗面 Kimi",
+            "ernie": "百度文心",
+            "spark": "科大讯飞星火",
+            "hunyuan": "腾讯混元",
+            "baichuan": "百川",
+            "mistral": "Mistral",
+            "yi": "零一万物",
+            "phi": "微软 Phi",
+            "gemma": "Google Gemma",
+        }.get(family, family)
+
+        # 尝试提取版本号后缀
+        import re as _re
+        version_match = _re.search(r'-(\d{4,})$', model_name)
+        if version_match:
+            version = version_match.group(1)
+            # deepseek-r1-250120 → "DeepSeek R1，250120 版本"
+            if family == "deepseek" and "r1" in model_name.lower():
+                return "%s（DeepSeek R1，%s 版本）" % (model_name, version)
+            return "%s（%s，%s 版本）" % (model_name, family_cn, version)
+
+        # 特殊处理 deepseek-r1（无版本号）
+        if family == "deepseek" and "r1" in model_name.lower():
+            return "%s（DeepSeek R1）" % model_name
+
+        return "%s（%s）" % (model_name, family_cn)
+
+    @staticmethod
+    def _determine_app_type(
+        target_url: str,
+        traffic: NetworkTrafficCapture,
+        result_data: Dict[str, Any],
+    ) -> str:
+        """
+        确定应用类型
+
+        基于流量特征和 URL 模式判断：
+        - Chat（RAG 增强问答）：LLM API 路径含 knowledge/rag/with-knowledge
+        - Chat（普通对话）：LLM API 路径含 chat/completions/message
+        - Agent：LLM API 请求含 tools/functions
+        - Playground：URL 含 playground/studio
+        """
+        llm_calls = traffic.llm_api_calls
+        if llm_calls:
+            primary = llm_calls[0]
+            path = (primary.get("path") or "").lower()
+            req_body = primary.get("request_body") or {}
+
+            if primary.get("has_tools") or req_body.get("tools") or req_body.get("functions"):
+                return "Agent（工具调用）"
+            if any(kw in path for kw in ("with-knowledge", "rag", "knowledge", "kb")):
+                return "Chat（RAG 增强问答）"
+            if any(kw in path for kw in ("chat", "completions", "message", "conversation")):
+                return "Chat（普通对话）"
+
+        # URL 模式判断
+        url_lower = target_url.lower()
+        if "playground" in url_lower or "studio" in url_lower:
+            return "Playground / Studio"
+        if "agent" in url_lower:
+            return "Agent"
+
+        return "Chat"
+
+    def _generate_golden_summary(
+        self,
+        page: Any,
+        target_url: str,
+        result_data: Dict[str, Any],
+        traffic: NetworkTrafficCapture,
+        traffic_summary: Dict[str, Any],
+        primary_endpoint: Optional[Dict[str, Any]],
+        selectors: Dict[str, Any],
+        probe_responses: List[Dict[str, str]],
+    ) -> None:
+        """
+        生成黄金信息汇总报告（对标 auto_spa_recon.py 的侦察总结）
+
+        将所有侦察发现整合为一个结构化的终端输出，包括：
+        - LLM 端点 / 模型 / 提供商 / 参数
+        - 应用类型 / 应用名
+        - 聊天入口 / 输入框 / 发送方式 / 响应容器
+        - 知识库 / 认证方式
+        """
+        print("\n" + "═" * 60)
+        print("  🏆 侦察成功！关键发现汇总")
+        print("═" * 60)
+
+        # ── LLM 端点 ──
+        if primary_endpoint:
+            method = primary_endpoint.get("method", "")
+            url = primary_endpoint.get("url", "")
+            print("\n  📌 LLM 端点")
+            print("     %s %s" % (method, url))
+
+            # 模型
+            model = primary_endpoint.get("model_extracted")
+            if model:
+                family = self._extract_model_family(model)
+                # 生成模型描述（包含版本信息）
+                model_desc = self._format_model_desc(model, family)
+                print("     模型: %s" % model_desc)
+            else:
+                print("     模型: (未从请求体提取到 model 字段)")
+
+            # 提供商
+            provider = primary_endpoint.get("provider_inferred")
+            provider_cn = {
+                "volcengine": "火山引擎/字节跳动",
+                "deepseek": "DeepSeek",
+                "openai": "OpenAI",
+                "anthropic": "Anthropic",
+                "alibaba": "阿里云",
+                "zhipu": "智谱",
+                "baidu": "百度",
+                "moonshot": "月之暗面",
+                "minimax": "MiniMax",
+                "custom": "自建平台",
+            }.get(provider, provider or "未知")
+            print("     提供商: %s" % provider_cn)
+
+            # 参数
+            params = primary_endpoint.get("model_parameters")
+            if params:
+                param_parts = []
+                for k in ("top_p", "temperature", "max_tokens", "max_new_tokens", "stream"):
+                    if k in params:
+                        param_parts.append(f"{k}={params[k]}")
+                if param_parts:
+                    print("     参数: %s" % ", ".join(param_parts))
+        else:
+            print("\n  📌 LLM 端点: ❌ 未检测到")
+
+        # ── 应用类型 / 应用名 ──
+        app_type = result_data.get("app_type", "Chat")
+        print("\n  📌 应用类型: %s" % app_type)
+        app_name = result_data.get("app_name")
+        if app_name:
+            print("     应用名: \"%s\"" % app_name)
+
+        # ── 聊天入口 ──
+        print("\n  📌 聊天入口")
+        chat_entry_sel = result_data.get("chat_entry_clicked", "")
+        if chat_entry_sel:
+            print("     选择器: %s" % chat_entry_sel)
+        else:
+            print("     选择器: (自动检测模式)")
+
+        # ── 输入框 ──
+        input_sel = selectors.get("input", "")
+        input_src = selectors.get("input_source", "")
+        print("     输入框: %s [%s]" % (input_sel[:60], input_src))
+
+        # ── 发送方式 ──
+        send_methods = []
+        for resp in probe_responses:
+            sm = resp.get("send_method", "")
+            if sm and sm not in send_methods:
+                send_methods.append(sm)
+        if send_methods:
+            method_cn = {
+                "button": "发送按钮",
+                "enter": "Enter 键（无独立发送按钮）",
+                "container": "父容器点击",
+                "failed": "发送失败",
+            }
+            method_labels = [method_cn.get(m, m) for m in send_methods]
+            print("     发送方式: %s" % " / ".join(method_labels))
+
+        # ── 响应容器 ──
+        response_containers = result_data.get("response_containers", [])
+        if response_containers:
+            print("     响应容器:", end="")
+            for rc in response_containers[:3]:
+                cls = rc.get("class", "")
+                if cls:
+                    first_cls = cls.split()[0]
+                    print(" .%s" % first_cls, end="")
+            print()
+        else:
+            resp_sel = selectors.get("response", "")
+            print("     响应容器: %s [%s]" % (resp_sel[:60], selectors.get("response_source", "")))
+
+        # ── 知识库 ──
+        rag_endpoints = result_data.get("rag_endpoints", [])
+        has_rag = bool(traffic.rag_api_calls) or any(
+            "knowledge" in ep.get("url", "").lower() or "rag" in ep.get("url", "").lower()
+            for ep in rag_endpoints
+        )
+        if has_rag:
+            print("\n  📌 知识库: 有 RAG")
+            # 尝试从响应中提取引用文档名
+            for call in traffic.llm_api_calls:
+                body = call.get("response_body", "")
+                if body and (".xlsx" in body or ".doc" in body or ".pdf" in body):
+                    import re
+                    docs = re.findall(r'[\u4e00-\u9fa5\w]+\.(?:xlsx|docx?|pdf|csv|txt)', body)
+                    if docs:
+                        print("     引用文档: %s" % ", ".join(docs[:5]))
+                        break
+        else:
+            print("\n  📌 知识库: 无")
+
+        # ── 认证 ──
+        print("\n  📌 认证")
+        auth_type = result_data.get("auth_type", "none")
+        auth_info = result_data.get("auth_info", {})
+        if auth_info:
+            flow = auth_info.get("flow", "")
+            if flow == "implicit" or auth_info.get("type") == "oidc":
+                print("     OIDC 隐式流, token 在 localStorage %s" % auth_info.get("key", ""))
+            elif flow == "likely_oidc_implicit":
+                print("     JWT token（疑似 OIDC 隐式流）, 在 localStorage %s" % auth_info.get("key", ""))
+            else:
+                print("     类型: %s, token 在 localStorage %s" % (
+                    auth_info.get("type", ""), auth_info.get("key", ""),
+                ))
+        elif auth_type != "none":
+            auth_type_cn = {"bearer": "Bearer Token", "cookie": "Cookie", "basic": "Basic Auth", "api_key": "API Key"}.get(auth_type, auth_type)
+            print("     类型: %s" % auth_type_cn)
+        else:
+            print("     类型: (未检测到)")
+
+        print("\n" + "═" * 60 + "\n")
 
     # ── 登录方法 ──
 

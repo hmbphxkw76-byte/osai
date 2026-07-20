@@ -199,6 +199,47 @@ profile = TargetProfile.load("results/profiles/target.json")
 
 **优先级**：显式 `auth.header_file` > 域名自动发现
 
+### 11. 凭据跨阶段注入（v3.7 新增）
+
+**规则编号**: ARCH-003
+**生效日期**: 2026-07-20
+**优先级**: 强制（MUST）
+
+**核心原则**：侦察和攻击阶段的工具必须通过 `CredentialManager` 注入有效凭据，确保认证目标的高成功率。
+
+**注入策略**：
+
+| 工具 | 注入方式 | 配置参数 | 代码位置 |
+|------|----------|----------|----------|
+| Garak | `OPENAI_API_KEY` 环境变量 | `credential_bearer` / `credential_headers` | `garak/adapter.py` |
+| DeepTeam | `base_headers` 请求头 | `credential_bearer` / `credential_headers` | `deepteam/adapter.py` |
+| PyRIT OpenAIChatTarget | `api_key` 构造参数 | `CredentialManager.for_openai_target()` | `target_builder.py` |
+| PyRIT HTTPTarget | `Authorization` 头 | `CredentialManager.for_http_target()` | `target_builder.py` |
+| PlaywrightTarget | `inject_auth()` | `CredentialManager.for_playwright()` | `playwright_injector.py` |
+
+**CredentialManager API**：
+```python
+from pyrit_ai300.pipeline import CredentialManager
+
+mgr = CredentialManager()
+resolution = mgr.resolve(target_url)
+# resolution.has_credentials → bool
+# resolution.is_expired → bool
+# resolution.profile → AuthProfile
+
+# 工具适配
+mgr.for_garak(resolution)       # → Dict[str, str] 环境变量
+mgr.for_deepteam(resolution)    # → Dict[str, str] 请求头
+mgr.for_openai_target(resolution)  # → Dict[str, Any] 构造参数
+mgr.for_http_target(resolution)    # → Optional[str] Authorization 头
+mgr.for_playwright(resolution)     # → Optional[AuthProfile]
+```
+
+**JWT 过期检查**：
+- 预留 300 秒（5 分钟）缓冲，临界过期视为已过期
+- 无 Token 的 Cookie-only 凭据视为有效（Cookie 过期由服务端控制）
+- 可选 HTTP 预检验证（`validate_with_http()`）
+
 ---
 
 ## 考试映射

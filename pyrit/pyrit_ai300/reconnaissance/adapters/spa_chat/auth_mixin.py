@@ -161,8 +161,16 @@ class AuthMixin:
             # 等待页面响应
             await page.wait_for_timeout(2000)
 
-            # 检测是否出现验证码
-            captcha_found = await self._detect_captcha(page)
+            # 检测是否出现验证码（轮询检测，避免因弹出延迟漏检）
+            # 根因分析 v1.6.1：与 SSO 模式保持一致，轮询 3 次共 6 秒
+            captcha_found = False
+            for attempt in range(3):
+                captcha_found = await self._detect_captcha(page)
+                if captcha_found:
+                    break
+                await page.wait_for_timeout(2000)
+                logger.debug("Captcha detection attempt %d/3: not found, retrying...", attempt + 1)
+
             if captcha_found:
                 logger.info("Captcha detected after login submit, waiting for human")
                 await self._wait_for_human(
@@ -281,10 +289,27 @@ class AuthMixin:
             target_domain, sso_domain, sso_login_url or "(auto-redirect)",
         )
 
-        # 步骤 1：导航到 SSO 登录页
-        # 如果配置了 sso_login_url，直接导航到该 URL
-        # 否则导航到 target_url，让应用自动重定向到 SSO 登录页
-        if sso_login_url:
+        # 步骤 1：导航到 SSO 登录页（复用当前页面，避免重复导航）
+        #
+        # 根因分析 v1.6.1：多次 page.goto(target_url) 会导致 SPA 多次重定向到 SSO 登录页，
+        # SSO 系统每次重定向都会重置验证码状态，导致用户需要多次滑窗。
+        # 修复策略：检测当前 URL 是否已在 SSO 登录页，如果是则不重新导航。
+        current_url = page.url or ""
+        url_lower = current_url.lower()
+
+        # 判断当前是否已在 SSO 登录页
+        already_on_sso_login = False
+        if sso_domain and sso_domain.lower() in url_lower:
+            already_on_sso_login = True
+        elif any(ind in url_lower for ind in (
+            "/account/login", "/login", "/signin", "/connect/authorize"
+        )):
+            already_on_sso_login = True
+
+        if already_on_sso_login:
+            logger.info("Already on SSO login page, skipping navigation: %s", current_url)
+            print("  ✅ 当前已在 SSO 登录页，跳过导航（避免重复触发验证码）")
+        elif sso_login_url:
             logger.info("Navigating to SSO login URL: %s", sso_login_url)
             await page.goto(sso_login_url, wait_until="networkidle")
         else:
@@ -395,8 +420,23 @@ class AuthMixin:
                 await self._wait_for_landing(page, target_domain)
             return
 
-        # 步骤 3：检测验证码
-        captcha_found = await self._detect_captcha(page)
+        # 步骤 3：检测验证码（轮询检测，避免因弹出延迟漏检）
+        #
+        # 根因分析 v1.6.1：某些 SSO 系统验证码弹出需要 3-5 秒，原代码只等 2 秒就检测，
+        # 可能漏检。改为轮询检测（最多 3 次 × 2 秒 = 6 秒），增加检测成功率。
+        captcha_found = False
+        for attempt in range(3):
+            captcha_found = await self._detect_captcha(page)
+            if captcha_found:
+                break
+            # 检测是否已经落地（可能无验证码直接登录成功）
+            if target_domain and target_domain in page.url:
+                # 已落地，无需继续检测验证码
+                logger.info("Already landed on target domain, no captcha needed")
+                break
+            await page.wait_for_timeout(2000)
+            logger.debug("Captcha detection attempt %d/3: not found, retrying...", attempt + 1)
+
         if captcha_found:
             logger.info("Captcha detected during SSO login, waiting for human")
             await self._wait_for_human(

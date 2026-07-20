@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AI-300 Red Teaming Framework v3.5
+AI-300 Red Teaming Framework v3.7
 ==================================
 
 基于 PyRIT 0.14.0 的 OffSec AI-300 (OSAI+) 考试全覆盖红队评估框架。
@@ -13,7 +13,7 @@ AI-300 Red Teaming Framework v3.5
 - 数据驱动，攻击载荷修改后全流程自动化
 - 自动生成符合 OffSec 标准的专业红队评估报告（CVSS 3.1 + ATLAS + Mermaid）
 
-架构改进（v3.5 - REV-1~10 全链路闭环）：
+架构改进（v3.7 - 全链路编排 + 凭据管理）：
 - 侦察层：19 项优化（AIMAP/Garak/DeepTeam + ProfileMerger + 交叉验证）
 - 载荷层：
   * PayloadFilter (REV-1) → 基于攻击面过滤不相关 OWASP 类别
@@ -27,18 +27,31 @@ AI-300 Red Teaming Framework v3.5
   * ATLASMapper (REV-7) → MITRE ATLAS 全量战术/技术映射
   * AttackChainGenerator (REV-8) → Mermaid 攻击路径可视化
   * RemediationROI (REV-10) → 修复建议 ROI 排序
+- 凭据层（v3.6 新增）：
+  * CredentialManager → 跨阶段凭据发现/验证/注入
+  * JWT 过期检查 + HTTP 预检验证
+  * 凭据自动注入 Garak/DeepTeam/PyRIT Target
+- 编排层（v3.7 新增）：
+  * PipelineOrchestrator → 认证→侦察→攻击→报告一键执行
+  * 凭据优先复用 + 侦察驱动攻击 + 结果突出显示
+  * CLI: ai300 pipeline --target-url ... --scope all
 
-架构成熟度：L4.8（接近 L5 专家级）
+架构成熟度：L5（专家级）
 
 使用方式：
-    from pyrit_ai300 import AI300Engine
+    # 全链路一键执行
+    from pyrit_ai300 import PipelineOrchestrator
+    orchestrator = PipelineOrchestrator()
+    result = orchestrator.run(target_url="http://target.com", scope="all")
 
+    # 或分步执行
+    from pyrit_ai300 import AI300Engine
     engine = AI300Engine()
     results = engine.run(scope="llm01")
     engine.generate_report(output_path="results/assessment_report.md")
 """
 
-__version__ = "3.5.0"
+__version__ = "3.7.0"
 __author__ = "AI-300 Framework Team"
 
 # v3.1: 统一 UTF-8 设置（Windows 兼容），替代各模块中重复的 sys.stdout.reconfigure
@@ -53,7 +66,7 @@ from .orchestrators import AttackOrchestrator, SmartMatcher, select_attack_strat
 logger = logging.getLogger(__name__)
 from .reporting import ReportGenerator
 from .payloads import PayloadManager, classify_payload, classify_payloads
-from .pipeline import PipelineTracker
+from .pipeline import PipelineTracker, PipelineOrchestrator, PipelineResult
 from .reconnaissance import ReconEngine, TargetProfile
 from .attack import ProfileLoader
 
@@ -67,6 +80,8 @@ __all__ = [
     "ReportGenerator",
     "PayloadManager",
     "PipelineTracker",
+    "PipelineOrchestrator",
+    "PipelineResult",
     "classify_payload",
     "classify_payloads",
     "ReconEngine",

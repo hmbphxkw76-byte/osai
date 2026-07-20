@@ -242,6 +242,25 @@ class GarakAdapter(BaseAdapter):
             if target and target.startswith("http"):
                 env["OPENAI_BASE_URL"] = target
 
+            # ── 凭据注入：从 credentials/ 目录注入认证信息 ──
+            # 最佳实践：优先复用已有凭据，确保侦察阶段成功率
+            credential_headers = config.get("credential_headers", {})
+            credential_bearer = config.get("credential_bearer", "")
+            if credential_bearer:
+                env["OPENAI_API_KEY"] = credential_bearer
+                logger.info("Garak credential: Bearer token injected (%d chars)", len(credential_bearer))
+            elif credential_headers.get("Authorization", "").startswith("Bearer "):
+                token = credential_headers["Authorization"][7:].strip()
+                env["OPENAI_API_KEY"] = token
+                logger.info("Garak credential: Bearer token from headers (%d chars)", len(token))
+            elif credential_headers.get("Cookie"):
+                # Cookie 认证：Garak 的 OpenAI generator 不直接支持 Cookie，
+                # 但可以通过 OPENAI_API_KEY 传递（服务端可能忽略）
+                env["OPENAI_API_KEY"] = credential_headers["Cookie"]
+                logger.info("Garak credential: Cookie injected as API key (fallback)")
+            else:
+                logger.debug("Garak: no credentials to inject")
+
             # ── OPT-G6: 通用预热 ──
             warmup = config.get("warmup", True)
             if warmup:

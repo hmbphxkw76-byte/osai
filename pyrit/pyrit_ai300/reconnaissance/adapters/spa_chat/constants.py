@@ -48,9 +48,9 @@ LLM_RESPONSE_FIELDS: List[str] = [
 
 # ── RAG 相关路径关键词 ──
 RAG_PATH_KEYWORDS: List[str] = [
-    "embed", "embedding", "vector", "retrieve", "retrieval",
-    "search", "knowledge", "rag", "index", "collection",
-    "chroma", "pinecone", "weaviate", "milvus", "qdrant",
+"embed", "embedding", "vector", "retrieve", "retrieval",
+"search", "knowledge", "rag", "collection",
+"chroma", "pinecone", "weaviate", "milvus", "qdrant",
 ]
 
 # ── 默认智能助手入口选择器（覆盖多种入口类型） ──
@@ -1999,15 +1999,25 @@ SIGNAL_KEYWORDS: Dict[str, List[str]] = {
         "chat-box", "input-box", "msg-input", "text-area",
         "ask", "message", "输入", "消息", "提问", "对话", "prompt",
         "type a message", "type your", "enter", "说点什么",
+        # v1.5 新增：更多常见聊天输入框 class 模式
+        "send-box", "chat-area", "input-area", "chat-textarea",
+        "edit-area", "content-input", "query-input", "question",
+        "send-text", "chat-field", "message-box", "talk",
+        "请输入", "请提问", "请描述",
     ],
     "send_button": [
         "send", "submit", "发送", "提交", "go", "发送消息",
         "send-btn", "send-button", "submit-btn", "chat-send",
+        # v1.5 新增
+        "send-icon", "send-arrow", "chat-submit", "message-send",
     ],
     "response": [
         "response", "answer", "reply", "ai-message", "assistant",
         "bot-message", "chat-message", "model-response", "completion",
         "回答", "回复", "答复", "消息", "markdown", "prose",
+        # v1.5 新增
+        "answer-box", "answer-text", "chat-content", "output",
+        "result", "generated", "content-area",
     ],
 }
 

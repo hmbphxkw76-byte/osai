@@ -55,7 +55,8 @@
 ## 核心模块架构
 
 ### 1. CLI 入口 (`pyrit_ai300/cli.py`)
-- 命令：`ai300 owasp` / `ai300 recon` / `ai300 list` / `ai300 report`
+- 命令：`ai300 owasp` / `ai300 recon` / `ai300 list` / `ai300 report` / `ai300 pipeline`
+- `pipeline` 命令（v3.7）：全链路一键执行（凭据→侦察→攻击→报告）
 - 专家引导向导（无子命令时自动启动）
 
 ### 2. 主引擎 (`pyrit_ai300/__init__.py` → AI300Engine)
@@ -87,18 +88,28 @@
 - 目标类型默认值：ollama=2, openai=5, http=3, playwright=1（强制串行）
 - CLI 可覆盖：max_concurrent / rate_limit
 
-### 7. 认证系统 (`orchestrators/auth/`) [NEW]
+### 7. 认证系统 + 凭据管理 (`orchestrators/auth/` + `pipeline/credential_manager.py`) [v3.7]
 - `header_parser.py`：解析 Bearer Token / Cookie / 组合认证
 - JWT Token 过期时间解析
 - `playwright_injector.py`：浏览器认证注入
-- **凭据自动导出**（v1.3 新增）：`auto_spa_recon.py` 的 `export_credentials()` 函数
+- **CredentialManager**（v3.6 新增）：统一凭据管理器
+  - 跨阶段（认证→侦察→攻击）的凭据发现、验证与注入
+  - JWT 过期检查（预留 5 分钟缓冲）
+  - 工具适配方法：`for_garak()` / `for_deepteam()` / `for_openai_target()` / `for_http_target()` / `for_playwright()`
+  - HTTP 预检验证（`validate_with_http()`，向目标发送带认证的 GET 请求验证有效性）
+  - 凭据状态打印（`print_status()`，终端友好格式）
+- **凭据自动导出**（v1.3）：`auto_spa_recon.py` 的 `export_credentials()` 函数
   - 认证完成后自动将 Cookie/JWT/API Key 导出到 `config/targets/credentials/{domain}.txt`
   - 格式为 HTTP Request Headers（与 `header_parser.py` 兼容）
   - 来源优先级：localStorage JWT > API 请求头 Authorization > Playwright Cookie
   - 自动过滤跟踪类 Cookie（_ga / _gid / _gat 等）
-- **凭据自动发现**（v1.3 新增）：`target_builder.py` 的 `find_credential_file()`
+- **凭据自动发现**（v1.3）：`target_builder.py` 的 `find_credential_file()`
   - 攻击阶段按目标 URL 域名自动匹配 `credentials/{domain}.txt`
   - 优先级：显式 `auth.header_file` > 域名自动发现
+- **凭据注入到侦察工具**（v3.7）：
+  - Garak：通过 `OPENAI_API_KEY` 环境变量注入 Bearer Token
+  - DeepTeam：通过 `base_headers` 请求头注入 Authorization + Cookie
+  - PyRIT Target：通过 `api_key` 构造参数注入
 
 ### 8. Web 交互 (`orchestrators/interactions/web_chat.py`) [NEW]
 - `create_web_chat_interaction(selectors)` 构建 Playwright 交互函数
@@ -179,6 +190,16 @@
   - `export_markdown` 导出优化阶段表格
 - 展示方法：`show_full_report()` 按顺序展示全部 11 个 `########` 标题段落
 - JSON 导出 `to_dict()` 包含全部 P0-P3 阶段数据
+
+### 13.5 全链路编排器 (`pipeline/orchestrator.py`) [v3.7 新增]
+- **PipelineOrchestrator**：一键编排 凭据→侦察→攻击→报告
+- 四阶段执行：credential → recon → attack → report（可配置跳过）
+- 凭据优先复用：从 `credentials/` 目录发现有效凭据，JWT 过期检查
+- 凭据自动注入：Garak（环境变量）/ DeepTeam（请求头）/ PyRIT（api_key）
+- 侦察驱动攻击：画像自动驱动 REV-1 载荷过滤 + REV-2 ASR 排序
+- 结果突出显示：Rich 格式化各阶段关键指标（漏洞数/风险/成功率/耗时）
+- 便捷方法：`run_recon_only()` / `run_attack_only()`
+- CLI 命令：`ai300 pipeline --target-url ... --scope all`
 
 ### 14. 报告生成器 (`reporting/report_generator.py`)
 - 符合 OffSec AI-300 考试报告标准

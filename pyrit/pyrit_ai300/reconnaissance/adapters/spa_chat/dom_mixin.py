@@ -18,6 +18,7 @@ SPA Chat Recon - DOM 侦测 Mixin
 from __future__ import annotations
 
 import logging
+import random
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -371,7 +372,7 @@ class DOMMixin:
         # AI 应用类型预判（加权类型专属关键词）
         type_keywords: List[str] = []
         if url:
-            type_ranking = SPAChatReconAdapter._detect_ai_app_type(url)
+            type_ranking = DOMMixin._detect_ai_app_type(url)
             top_type = type_ranking[0][0]
             type_keywords = AI_APP_TYPE_RULES.get(top_type, {}).get("selector_keywords", [])
 

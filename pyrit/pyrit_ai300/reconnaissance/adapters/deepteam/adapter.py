@@ -289,6 +289,7 @@ class DeepTeamAdapter(BaseAdapter):
         3. 支持 streaming 响应（SSE 解析）
         4. 超时自适应（quick=30s, standard=60s, deep=120s）
         5. 错误重试（429 Rate Limit -> 指数退避）
+        6. 凭据注入（v3.6：从 credentials/ 目录注入 Cookie/Bearer）
         """
         import urllib.request
 
@@ -303,6 +304,32 @@ class DeepTeamAdapter(BaseAdapter):
         model_caps = aimap_data.get("model_capabilities", {})
         supports_function_calling = model_caps.get("function_calling", False)
         supports_streaming = model_caps.get("streaming", False)
+
+        # ── 凭据注入：从 credentials/ 目录获取认证头 ──
+        # 最佳实践：优先复用已有凭据，确保侦察阶段成功率
+        credential_headers = config.get("credential_headers", {})
+        credential_bearer = config.get("credential_bearer", "")
+
+        # 构建基础请求头
+        base_headers: Dict[str, str] = {"Content-Type": "application/json"}
+
+        # 注入 Bearer Token
+        if credential_bearer:
+            base_headers["Authorization"] = f"Bearer {credential_bearer}"
+            logger.info("DeepTeam credential: Bearer token injected")
+        elif credential_headers.get("Authorization", "").startswith("Bearer "):
+            base_headers["Authorization"] = credential_headers["Authorization"]
+            logger.info("DeepTeam credential: Bearer token from headers")
+
+        # 注入 Cookie
+        if credential_headers.get("Cookie"):
+            base_headers["Cookie"] = credential_headers["Cookie"]
+            logger.info("DeepTeam credential: Cookie injected")
+
+        # api_key 作为后备
+        if "Authorization" not in base_headers and api_key:
+            base_headers["Authorization"] = f"Bearer {api_key}"
+            logger.info("DeepTeam credential: api_key from config injected")
 
         def model_callback(prompt: str) -> str:
             """调用目标 LLM 并返回回答（增强版）"""
@@ -335,11 +362,9 @@ class DeepTeamAdapter(BaseAdapter):
                     req = urllib.request.Request(
                         target,
                         data=payload,
-                        headers={"Content-Type": "application/json"},
+                        headers=base_headers,
                         method="POST",
                     )
-                    if api_key:
-                        req.add_header("Authorization", f"Bearer {api_key}")
 
                     with urllib.request.urlopen(req, timeout=timeout) as resp:
                         response = json.loads(resp.read().decode("utf-8"))

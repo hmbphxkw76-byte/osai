@@ -20,10 +20,11 @@ def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
         prog="ai300",
-        description="AI-300 Red Teaming Framework v3.5 - OffSec AI-300 Exam-Aligned Scanner\n"
+        description="AI-300 Red Teaming Framework v3.7 - OffSec AI-300 Exam-Aligned Scanner\n"
                    "  82 YAML / 632 payloads / ASR 基线 100% / 19 项侦察优化 / REV-1~10 全链路闭环\n"
                    "  OWASP LLM Top 10 + Agentic Top 10 + MITRE ATLAS 对齐 | CVSS 3.1 + Mermaid 报告\n"
-                   "  架构成熟度 L4.8（接近 L5 专家级）",
+                   "  全链路编排: ai300 pipeline (凭据→侦察→攻击→报告一键执行)\n"
+                   "  架构成熟度 L5（专家级）",
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -301,6 +302,135 @@ Examples:
         help="Enable verbose logging",
     )
 
+    # Pipeline command (v3.7: 全链路一键执行)
+    pipeline_parser = subparsers.add_parser(
+        "pipeline",
+        help="Run full pipeline: credential → recon → attack → report (v3.7)",
+        epilog="""\
+全链路一键执行 (v3.7): 凭据检查 → 侦察(AIMAP/Garak/DeepTeam) → 攻击(PyRIT) → 报告
+
+核心特性：
+  * 凭据优先复用  从 config/targets/credentials/ 自动发现有效凭据（JWT 过期检查）
+  * 凭据自动注入  Garak(环境变量) / DeepTeam(请求头) / PyRIT(api_key)
+  * 侦察驱动攻击  侦察画像自动驱动 REV-1 载荷过滤 + REV-2 ASR 排序
+  * 结果突出显示  每个阶段的关键指标用 Rich 格式清晰展示
+
+Examples:
+  # 全链路执行（LLM API 目标）
+  ai300 pipeline --target-url http://localhost:11434 --scope all
+
+  # 全链路执行（SPA 智能助手目标，含认证）
+  ai300 pipeline --spa-config config/targets/spa_target.yaml --scope llm01
+
+  # 指定侦察深度 + HTML 报告
+  ai300 pipeline --target-url http://target.com --scope all -d deep --format html
+
+  # 仅执行侦察阶段
+  ai300 pipeline --target-url http://target.com --recon-only
+
+  # 跳过侦察，直接攻击（使用已有画像）
+  ai300 pipeline --target-url http://target.com --scope llm01 \\
+    --profile results/recon/profile.json
+
+  # 使用外部评分器
+  ai300 pipeline --target-url http://target.com --scope all \\
+    --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
+    --scorer-key $ZHIPUAI_API_KEY --scorer-model glm-4-flash""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pipeline_target = pipeline_parser.add_argument_group("target specification (required, at least one)")
+    pipeline_target.add_argument(
+        "-t", "--target-url",
+        default=None,
+        help="Direct target URL (e.g., http://localhost:11434 or https://app.example.com)",
+    )
+    pipeline_target.add_argument(
+        "--target-file",
+        default=None,
+        help="Target config YAML file (e.g., config/targets/llm_api_target.yaml)",
+    )
+    pipeline_target.add_argument(
+        "--spa-config",
+        default=None,
+        help="SPA chat recon config (e.g., config/targets/spa_target.yaml). "
+             "Triggers SPA mode: credential check → browser login → traffic capture → attack",
+    )
+    pipeline_scope = pipeline_parser.add_argument_group("attack scope (required for attack phase)")
+    pipeline_scope.add_argument(
+        "-s", "--scope",
+        default="llm01",
+        help="OWASP scope: single ID (llm01/asi01), group (llm/agentic), all (default: llm01)",
+    )
+    pipeline_optional = pipeline_parser.add_argument_group("optional arguments")
+    pipeline_optional.add_argument(
+        "-d", "--depth",
+        choices=["quick", "standard", "deep"],
+        default="standard",
+        help="Reconnaissance depth (default: standard)",
+    )
+    pipeline_optional.add_argument(
+        "--recon-only",
+        action="store_true",
+        help="Run only credential + recon phases (skip attack and report)",
+    )
+    pipeline_optional.add_argument(
+        "--profile",
+        default=None,
+        help="Existing TargetProfile JSON path (skip recon, go straight to attack)",
+    )
+    pipeline_optional.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Report output path (default: auto-generated with timestamp)",
+    )
+    pipeline_optional.add_argument(
+        "--format",
+        choices=["markdown", "html"],
+        default="markdown",
+        help="Report output format (default: markdown)",
+    )
+    pipeline_optional.add_argument(
+        "--objective",
+        default=None,
+        help="Attack objective (replaces {goal}/{objective} placeholder in payloads)",
+    )
+    pipeline_optional.add_argument(
+        "--placeholders",
+        default=None,
+        help="Custom placeholders, key=value format, comma-separated "
+             "(e.g., 'domain=evil.com,task=whoami')",
+    )
+    pipeline_optional.add_argument(
+        "--model",
+        default=None,
+        help="Override target model name (e.g., qwen3:1.7b)",
+    )
+    pipeline_optional.add_argument(
+        "--scorer-url",
+        default=None,
+        help="External scorer LLM endpoint URL (OpenAI compatible)",
+    )
+    pipeline_optional.add_argument(
+        "--scorer-key",
+        default=None,
+        help="External scorer LLM API Key",
+    )
+    pipeline_optional.add_argument(
+        "--scorer-model",
+        default=None,
+        help="External scorer LLM model name (e.g., glm-4-flash)",
+    )
+    pipeline_optional.add_argument(
+        "--config",
+        default="config/recon/recon.yaml",
+        help="Recon configuration file path (default: config/recon/recon.yaml)",
+    )
+    pipeline_optional.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+
     args = parser.parse_args()
     
     # Setup logging
@@ -315,6 +445,8 @@ Examples:
         _generate_report(args, logger)
     elif args.command == "recon":
         _run_recon(args, logger)
+    elif args.command == "pipeline":
+        _run_pipeline(args, logger)
     else:
         # 无子命令时启动专家引导向导
         _run_wizard(logger)
@@ -2223,6 +2355,81 @@ def _run_recon(args, logger):
         print(f"\n  ✓ Cross-Validated (confidence boost):")
         for v in cross_validated:
             print(f"    • {v.owasp_mapping}: {', '.join(v.source_tools)} → confidence={v.confidence:.2f}")
+
+
+def _run_pipeline(args, logger):
+    """
+    执行全链路 AI 红队评估（v3.7）
+
+    一键编排：凭据检查 → 侦察 → 攻击 → 报告
+
+    核心优势：
+    - 凭据优先复用：从 credentials/ 自动发现有效凭据
+    - 凭据自动注入：Garak / DeepTeam / PyRIT Target
+    - 侦察驱动攻击：REV-1 载荷过滤 + REV-2 ASR 排序
+    - 结果突出显示：Rich 格式化各阶段关键指标
+    """
+    from pyrit_ai300.pipeline import PipelineOrchestrator
+
+    # 验证目标参数
+    if not args.target_url and not args.target_file and not args.spa_config:
+        print("Error: At least one target specification is required:")
+        print("  --target-url URL       Direct target URL")
+        print("  --target-file YAML     Target config file")
+        print("  --spa-config YAML      SPA chat recon config")
+        return
+
+    # 解析占位符
+    placeholders = _parse_placeholders(args.placeholders) if args.placeholders else None
+
+    # 确定执行阶段
+    if args.recon_only:
+        phases = ["credential", "recon"]
+    elif args.profile:
+        phases = ["credential", "attack", "report"]
+    else:
+        phases = None  # 全部阶段
+
+    # 创建编排器
+    orchestrator = PipelineOrchestrator(
+        recon_config=args.config,
+        verbose=True,
+    )
+
+    # 执行全链路
+    try:
+        result = orchestrator.run(
+            target_url=args.target_url,
+            target_file=args.target_file,
+            spa_config=args.spa_config,
+            scope=args.scope,
+            depth=args.depth,
+            phases=phases,
+            output=args.output,
+            format=args.format,
+            objective=args.objective,
+            placeholders=placeholders,
+            model=args.model,
+            scorer_url=args.scorer_url,
+            scorer_key=args.scorer_key,
+            scorer_model=args.scorer_model,
+            skip_recon=bool(args.profile),
+            profile_path=args.profile,
+        )
+    except KeyboardInterrupt:
+        print("\n\n  ⚠ 用户中断")
+        logger.warning("Pipeline interrupted by user (KeyboardInterrupt)")
+        return
+    except Exception as e:
+        print(f"\n  ✗ 全链路执行失败: {e}")
+        logger.error("Pipeline failed: %s", str(e), exc_info=True)
+        return
+
+    # 最终摘要已由 orchestrator 打印，此处补充后续步骤提示
+    if result.recon_success and not result.attack_success and not args.recon_only:
+        print("\n  💡 后续步骤:")
+        print(f"     ai300 owasp {args.scope} --target-url {result.target} --profile {result.profile_path}")
+        print()
 
 
 if __name__ == "__main__":

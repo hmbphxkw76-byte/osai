@@ -13,6 +13,7 @@ SPA Chat Recon - 聊天入口点击 Mixin
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -138,6 +139,9 @@ class ChatEntryMixin:
         """
         尝试通过选择器定位并点击聊天入口按钮（v1.3 渐进式匹配优化）
 
+        成功点击后，会将实际匹配到的选择器存储在 self._chat_entry_hit_selector 中，
+        供后续黄金信息报告使用。
+
         当使用默认选择器集（DEFAULT_CHAT_ENTRY_SELECTORS，900+ 个）且提供 url 时，
         自动启用渐进式匹配：
           Phase 1: URL 预判 AI 应用类型 → 类型专属选择器（~50 个，5s 超时）
@@ -145,11 +149,6 @@ class ChatEntryMixin:
           Phase 3: 全量选择器兜底（900+ 个，5s 超时）
 
         当使用用户自定义选择器或未提供 url 时，使用传统单次匹配（15s 超时）。
-
-        AI Red Team 最佳实践：
-        - 精准优先：类型专属选择器优先匹配，减少暴力搜索
-        - 最小交互：每个阶段独立超时，命中即停，降低 WAF 触发概率
-        - 平衡准确性与效率：三阶段确保不遗漏，同时避免无谓等待
 
         Args:
             page: Playwright 页面
@@ -180,9 +179,14 @@ class ChatEntryMixin:
 
         try:
             await page.wait_for_selector(selector, state="visible", timeout=15000)
+            # 点击前记录实际匹配的元素选择器
+            hit_selector = await self._find_hit_selector(page, selector)
             await page.click(selector)
             logger.info("Clicked chat entry button")
             print("  ✅ 聊天入口点击成功")
+            if hit_selector:
+                self._chat_entry_hit_selector = hit_selector
+                print("     实际匹配: %s" % hit_selector)
             await page.wait_for_timeout(wait_after_click)
             return True
         except Exception as e:
@@ -255,9 +259,14 @@ class ChatEntryMixin:
                 await page.wait_for_selector(
                     phase_selectors, state="visible", timeout=phase_timeout,
                 )
+                # 点击前记录实际匹配的元素选择器
+                hit_selector = await self._find_hit_selector(page, phase_selectors)
                 await page.click(phase_selectors)
                 logger.info("Chat entry clicked in Phase %d (%s)", idx, phase_label)
                 print("  ✅ 聊天入口点击成功 [Phase %d: %s]" % (idx, phase_label))
+                if hit_selector:
+                    self._chat_entry_hit_selector = hit_selector
+                    print("     实际匹配: %s" % hit_selector)
                 await page.wait_for_timeout(wait_after_click)
 
                 findings.append({
@@ -294,6 +303,47 @@ class ChatEntryMixin:
             "confidence": 0.6,
         })
         return False
+
+    @staticmethod
+    async def _find_hit_selector(page: Any, selector_list: str) -> str:
+        """
+        从逗号分隔的选择器列表中找到实际匹配到元素的第一个选择器
+
+        在 page.wait_for_selector 成功后调用，逐个检查每个选择器，
+        返回第一个在页面上找到可见元素的选择器。
+
+        Args:
+            page: Playwright 页面
+            selector_list: 逗号分隔的 CSS 选择器字符串
+
+        Returns:
+            实际匹配的选择器字符串，或空字符串
+        """
+        selectors = [s.strip() for s in selector_list.split(",") if s.strip()]
+        for sel in selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    is_visible = await el.is_visible()
+                    if is_visible:
+                        # 尝试生成更具体的选择器（包含 tag.class）
+                        tag_class = await page.evaluate("""(sel) => {
+                            const el = document.querySelector(sel);
+                            if (!el) return sel;
+                            const tag = el.tagName.toLowerCase();
+                            const cls = el.className;
+                            if (typeof cls === 'string' && cls.trim()) {
+                                const firstClass = cls.trim().split(/\\s+/)[0];
+                                if (firstClass && firstClass.length > 2) {
+                                    return tag + '.' + firstClass;
+                                }
+                            }
+                            return sel;
+                        }""", sel)
+                        return tag_class or sel
+            except Exception:
+                continue
+        return ""
 
     @staticmethod
     def _extract_playwright_error_brief(error_str: str) -> str:

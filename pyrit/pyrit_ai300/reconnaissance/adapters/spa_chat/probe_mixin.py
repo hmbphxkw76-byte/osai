@@ -18,6 +18,7 @@ import json
 import logging
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from .constants import (
     MODEL_FAMILY_PATTERNS,
@@ -70,6 +71,18 @@ class ProbeMixin:
             ".response, .ai-message, .assistant-message, .chat-message-ai"
         )
 
+        # 响应选择器降级列表（当配置的选择器不匹配时依次尝试）
+        response_fallback_sels = [
+            response_sel,
+            '[class*="answer"]', '[class*="response"]',
+            '[class*="message"]', '[class*="markdown"]',
+            '[class*="prose"]', '[class*="chat-content"]',
+            '[class*="ai-msg"]', '[class*="assistant"]',
+            '[class*="reply"]', '[class*="bot-msg"]',
+            '[class*="model-output"]', '[class*="generated"]',
+            '[role="log"]', '[aria-live="polite"]',
+        ]
+
         wait_timeout = selectors.get("wait_timeout", 15000)
 
         results: List[Dict[str, str]] = []
@@ -89,7 +102,8 @@ class ProbeMixin:
             print("  说明: WAF/CDN 层 Cookie 通过了预检，但应用 Session/JWT 已过期或无效")
             print("  建议:")
             print("    1. 在浏览器中手动登录目标应用，从 F12 → Network 复制完整 Request Headers")
-            print("    2. 保存到 config/targets/credentials/%s.txt" % urlparse(page.url).hostname or "target")
+            hostname = urlparse(page.url).hostname or "target"
+            print("    2. 保存到 config/targets/credentials/%s.txt" % hostname)
             print("    3. 重新运行侦察（系统将自动注入新的认证凭据）")
             print("  ──────────────────────────────────────────\n")
             logger.warning("Skipping probes: page redirected to login page (%s)", page.url)
@@ -217,13 +231,15 @@ class ProbeMixin:
                 response_wait_ms = self._waf_safe_delay_ms("response_wait")
                 await page.wait_for_timeout(response_wait_ms)
 
-                # ── 策略 1：从 DOM 获取响应文本 ──
+                # ── 策略 1：从 DOM 获取响应文本（多选择器降级） ──
                 response_text = ""
                 response_source = ""
+
+                # 先尝试配置的选择器
                 try:
-                    # 等待响应元素出现
-                    await page.wait_for_selector(response_sel, state="visible", timeout=wait_timeout)
-                    # 额外等待确保响应完整（WAF 安全随机延迟）
+                    # 等待响应元素出现（缩短超时以快速降级）
+                    await page.wait_for_selector(response_sel, state="visible", timeout=min(wait_timeout, 8000))
+                    # 额外等待确保响应完整
                     await page.wait_for_timeout(self._waf_safe_delay_ms("post_click"))
 
                     # 获取最后一个响应元素（可能是多轮对话）
@@ -236,7 +252,25 @@ class ProbeMixin:
                     if response_text.strip():
                         response_source = "dom"
                 except Exception as dom_err:
-                    logger.debug("DOM response extraction failed: %s", str(dom_err))
+                    logger.debug("DOM response extraction failed with primary selector: %s", str(dom_err))
+
+                # 配置选择器失败，依次尝试降级选择器
+                if not response_text.strip():
+                    for fb_sel in response_fallback_sels:
+                        if fb_sel == response_sel:
+                            continue
+                        try:
+                            elements = await page.query_selector_all(fb_sel)
+                            if elements:
+                                # 获取最后一个元素的文本（最新的回复）
+                                text = await elements[-1].inner_text()
+                                if text and text.strip() and len(text.strip()) > 5:
+                                    response_text = text
+                                    response_source = "dom_fallback"
+                                    logger.info("Response found via fallback selector: %s", fb_sel)
+                                    break
+                        except Exception:
+                            continue
 
                 # ── 策略 2：DOM 失败时，从网络流量提取 ──
                 if not response_text.strip() and traffic:
@@ -271,6 +305,7 @@ class ProbeMixin:
                     "text": text,
                     "response": response_text.strip() if response_text else "",
                     "source": response_source,
+                    "send_method": send_method if message_sent else "failed",
                 })
 
                 # ── 输出回复状态 ──
@@ -329,6 +364,50 @@ class ProbeMixin:
 
         return results
 
+    async def _scan_response_containers(self, page: Any) -> List[Dict[str, Any]]:
+        """
+        扫描页面中的 AI 响应容器，提取选择器和内容
+
+        在探测消息发送后调用，用于发现实际的响应容器选择器。
+        覆盖多种常见命名模式（answer/response/message/markdown 等）。
+
+        Args:
+            page: Playwright 页面
+
+        Returns:
+            [{selector, class, text, tag}, ...] 按文本长度降序排列
+        """
+        response_info = await page.evaluate("""() => {
+            const selectors = [
+                '[class*="answer"]', '[class*="response"]',
+                '[class*="message"]', '[class*="markdown"]',
+                '[class*="prose"]', '[class*="chat-content"]',
+                '[class*="ai-msg"]', '[class*="assistant"]',
+                '[class*="reply"]', '[class*="bot-msg"]',
+                '[class*="model-output"]', '[class*="generated"]',
+                '[role="log"]', '[aria-live="polite"]',
+            ];
+            const results = [];
+            for (const sel of selectors) {
+                const els = document.querySelectorAll(sel);
+                for (const el of els) {
+                    const text = (el.innerText || '').trim();
+                    if (text.length > 10) {
+                        results.push({
+                            selector: sel,
+                            class: (typeof el.className === 'string' ? el.className : '').substring(0, 100),
+                            tag: el.tagName.toLowerCase(),
+                            text: text.substring(0, 500),
+                            textLength: text.length,
+                        });
+                    }
+                }
+            }
+            results.sort((a, b) => b.textLength - a.textLength);
+            return results.slice(0, 10);
+        }""")
+        return response_info
+
     # ── 信息提取方法 ──
 
     def _extract_llm_info(
@@ -351,6 +430,25 @@ class ProbeMixin:
                 "owasp_mapping": "LLM02",
                 "confidence": 0.9,
             })
+
+        # 模型参数
+        model_params = endpoint.get("model_parameters")
+        if model_params:
+            info["model_parameters"] = model_params
+            param_str = ", ".join(f"{k}={v}" for k, v in model_params.items())
+            findings.append({
+                "category": "model_parameters_captured",
+                "severity": "low",
+                "description": f"Model parameters captured: {param_str}",
+                "evidence": param_str,
+                "owasp_mapping": "LLM02",
+                "confidence": 0.9,
+            })
+
+        # 提供商
+        provider = endpoint.get("provider_inferred")
+        if provider:
+            info["provider_inferred"] = provider
 
         # 系统提示
         system_prompt = endpoint.get("system_prompt_extracted")

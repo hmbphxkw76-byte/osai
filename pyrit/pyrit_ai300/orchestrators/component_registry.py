@@ -11,14 +11,50 @@ PyRIT 0.14.0 兼容
 
 import os
 import sys
-from typing import Dict, Set
+import importlib
+from typing import Dict, Set, Any
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
+
+class _LazyConverter:
+    """
+    延迟导入代理：仅在实例化时才触发实际导入。
+
+    背景：TextJailbreakConverter → pyrit.datasets → HuggingFace datasets →
+    pyarrow.dataset → _csv DLL，该 DLL 可能被 Windows 应用控制策略
+    (AppLocker/WDAC) 间歇性阻止。使用延迟导入确保仅在真正使用
+    text_jailbreak 转换器时才触发该导入链，避免框架启动即崩溃。
+    """
+
+    def __init__(self, module_path: str, class_name: str):
+        self._module_path = module_path
+        self._class_name = class_name
+        self._resolved: type | None = None
+
+    def _resolve(self) -> type:
+        if self._resolved is None:
+            mod = importlib.import_module(self._module_path)
+            self._resolved = getattr(mod, self._class_name)
+        return self._resolved
+
+    def __call__(self, *args: Any, **kwargs: Any):
+        return self._resolve()(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._resolve(), name)
+
+    def __repr__(self) -> str:
+        return f"<LazyConverter {self._module_path}.{self._class_name}>"
+
+
 # PyRIT 转换器导入
+# 注意：TextJailbreakConverter 使用延迟导入，因为它会触发
+# pyrit.datasets → datasets → pyarrow.dataset 导入链，
+# 其 _csv DLL 可能被 Windows 应用控制策略阻止。
 from pyrit.prompt_converter import (
     Base64Converter,
     ROT13Converter,
@@ -30,7 +66,6 @@ from pyrit.prompt_converter import (
     WordDocConverter,
     PersuasionConverter,
     SearchReplaceConverter,
-    TextJailbreakConverter,
     AsciiSmugglerConverter,
     ZeroWidthConverter,
     DiacriticConverter,
@@ -61,6 +96,9 @@ from pyrit.prompt_converter import (
     RandomTranslationConverter,
     QRCodeConverter,
 )
+
+# TextJailbreakConverter 延迟导入（避免 pyarrow DLL 加载问题）
+TextJailbreakConverter = _LazyConverter("pyrit.prompt_converter", "TextJailbreakConverter")
 
 # PyRIT 评分器导入
 from pyrit.score import (
