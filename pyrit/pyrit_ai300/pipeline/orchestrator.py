@@ -19,7 +19,7 @@ AI-300 Framework - Pipeline Orchestrator v1.0
 使用方式：
     orchestrator = PipelineOrchestrator()
     result = orchestrator.run(
-        target_url="https://student.syxy.ouchn.cn/#/home",
+        target_url="https://www.example.com/#/home",
         scope="llm01",
         depth="standard",
     )
@@ -164,7 +164,7 @@ class PipelineOrchestrator:
     使用方式：
         orchestrator = PipelineOrchestrator()
         result = orchestrator.run(
-            target_url="https://student.syxy.ouchn.cn/#/home",
+            target_url="https://www.example.com/#/home",
             scope="llm01",
             depth="standard",
         )

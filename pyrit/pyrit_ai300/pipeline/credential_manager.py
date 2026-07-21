@@ -17,7 +17,7 @@ AI-300 Framework - Credential Manager
 
 使用方式：
     mgr = CredentialManager()
-    profile = mgr.resolve(target_url="https://student.syxy.ouchn.cn/#/home")
+    profile = mgr.resolve(target_url="https://www.example.com/#/home")
     if profile:
         # 注入到 Garak
         garak_env = mgr.for_garak(profile)

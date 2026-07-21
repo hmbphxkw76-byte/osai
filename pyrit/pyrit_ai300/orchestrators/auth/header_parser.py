@@ -98,7 +98,7 @@ class AuthProfile:
         优先从 Host 头提取，回退到 cookie domain
 
         Returns:
-            域名字符串（如 student.syxy.ouchn.cn），无则返回空字符串
+            域名字符串（如 www.example.com），无则返回空字符串
         """
         if self.host:
             return self.host.split(":")[0]  # 移除端口号

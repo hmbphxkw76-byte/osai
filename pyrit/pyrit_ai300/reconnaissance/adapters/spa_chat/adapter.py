@@ -162,7 +162,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
         执行 SPA 智能助手侦察
 
         Args:
-            target: 目标 URL（如 https://student.syxy.ouchn.cn/#/home）
+            target: 目标 URL（如 https://www.example.com/#/home）
             config: 配置字典，包含 login / chat_entry / selectors / probe 等
 
         Returns:

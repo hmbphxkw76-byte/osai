@@ -378,6 +378,7 @@ class AuthMixin:
 
         典型场景：
           - student.syxy.ouchn.cn → passport.syxy.ouchn.cn/Account/Login → 滑窗验证 → 回调
+- www.example.com → www.example.com → www.example.com/Account/Login → 滑窗验证 → 回调
           - 企业应用 → 钉钉/企业微信 SSO → 验证码 → 回调
           - SaaS 应用 → Okta/Auth0 SSO → MFA → 回调
 
@@ -387,9 +388,9 @@ class AuthMixin:
               url: ""                           # 留空则从 connection.url 触发重定向
               username: "student001"
               password: "password123"
-              sso_login_url: "https://passport.syxy.ouchn.cn/Account/Login"
-              sso_domain: "passport.syxy.ouchn.cn"    # SSO 认证域名
-              target_domain: "student.syxy.ouchn.cn"  # 目标应用域名（回调后检测）
+sso_login_url: "https://www.example.com/Account/Login"
+    sso_domain: "www.example.com"
+              target_domain: "www.example.com"  # 目标应用域名（回调后检测）
               selectors:
                 username_input: "#username, input[name='username']"
                 password_input: "#password, input[name='password']"
