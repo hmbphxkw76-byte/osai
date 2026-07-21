@@ -36,42 +36,41 @@ class TestReconEngine(unittest.TestCase):
         self.assertIn("garak", status)
         self.assertIn("deepteam", status)
 
-    @patch.object(ReconEngine, '_run_concurrent')
-    def test_run_with_mocked_adapters(self, mock_concurrent):
+    @patch.object(ReconEngine, '_run_single_adapter')
+    def test_run_with_mocked_adapters(self, mock_single):
         """测试 run 方法（模拟适配器）"""
         # 模拟适配器结果
-        mock_results = [
-            AdapterResult(
-                tool="garak",
-                success=True,
-                data={},
-                findings=[
-                    {
-                        "category": "prompt_injection",
-                        "severity": "high",
-                        "description": "Test finding",
-                        "evidence": "Test evidence",
-                        "owasp_mapping": "LLM01",
-                        "confidence": 0.8,
-                    }
-                ],
-                duration=2.0,
-            ),
-        ]
-        mock_concurrent.return_value = mock_results
+        mock_result = AdapterResult(
+            tool="garak",
+            success=True,
+            data={},
+            findings=[
+                {
+                    "category": "prompt_injection",
+                    "severity": "high",
+                    "description": "Test finding",
+                    "evidence": "Test evidence",
+                    "owasp_mapping": "LLM01",
+                    "confidence": 0.8,
+                }
+            ],
+            duration=2.0,
+        )
+        mock_single.return_value = mock_result
 
         engine = ReconEngine(config_path="nonexistent.yaml")
-        profile = engine.run(target="https://example.com", tools=["garak"])
+        profile = engine.run(target="https://example.com", tools=["garak"], use_cache=False)
 
         self.assertIsInstance(profile, TargetProfile)
         self.assertEqual(profile.target, "https://example.com")
         self.assertIn("garak", profile.tools_used)
         self.assertEqual(profile.vulnerability_count, 1)
 
-    @patch.object(ReconEngine, '_run_concurrent')
-    def test_run_with_failed_tool(self, mock_concurrent):
+    @patch.object(ReconEngine, '_run_single_adapter')
+    def test_run_with_failed_tool(self, mock_single):
         """测试部分工具失败时的 run 方法"""
-        mock_results = [
+        # 第一次调用返回 deepteam 成功，第二次返回 garak 失败
+        mock_single.side_effect = [
             AdapterResult(
                 tool="deepteam",
                 success=True,
@@ -86,10 +85,9 @@ class TestReconEngine(unittest.TestCase):
                 duration=0.0,
             ),
         ]
-        mock_concurrent.return_value = mock_results
 
         engine = ReconEngine(config_path="nonexistent.yaml")
-        profile = engine.run(target="https://example.com", tools=["deepteam", "garak"])
+        profile = engine.run(target="https://example.com", tools=["deepteam", "garak"], use_cache=False)
 
         # 只有成功的工具被记录
         self.assertIn("deepteam", profile.tools_used)

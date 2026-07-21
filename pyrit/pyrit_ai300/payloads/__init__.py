@@ -14,7 +14,8 @@ AI-300 Framework - Payloads Module
 - payload_mutator: 基于成功载荷的智能变异器（v3.3 新增）
 - payload_dedup: 载荷去重器（v3.3 新增）
 - payload_filter: 侦察→载荷过滤闭环（v3.4 REV-1 新增）
-- asr_ranker: ASR 感知载荷排序器（v3.4 REV-2 新增）
+- asr_ranker: ASR 感知载荷排序器（v3.4 REV-2 新增，v3.8 指数衰减+置信度增强）
+- asr_updater: 动态 ASR 更新闭环（v3.8 REV-12 新增）
 """
 
 from .payload_manager import PayloadManager
@@ -37,6 +38,7 @@ from .payload_mutator import PayloadMutator, MutatedPayload, MutationResult, MUT
 from .payload_dedup import deduplicate_payloads, deduplicate_with_profiles
 from .payload_filter import PayloadFilter, OWASP_SURFACE_MAP, normalize_surfaces
 from .asr_ranker import ASRRanker
+from .asr_updater import ASRUpdater
 from .model_specific_selector import ModelSpecificSelector
 
 __all__ = [
@@ -71,8 +73,10 @@ __all__ = [
     "PayloadFilter",
     "OWASP_SURFACE_MAP",
     "normalize_surfaces",
-    # ASR Ranker (v3.4 REV-2)
+    # ASR Ranker (v3.4 REV-2, v3.8 enhanced)
     "ASRRanker",
+    # ASR Updater (v3.8 REV-12)
+    "ASRUpdater",
     # Model Specific Selector (REV-3)
     "ModelSpecificSelector",
 ]

@@ -494,7 +494,9 @@ class TestPayloadManager(unittest.TestCase):
         self.manager.load_data_dir("data/")
         refs = ["owasp:agentic:asi01:goal_hijack", "owasp:agentic:asi01:goal_hijack"]
         payloads = self.manager.resolve_refs(refs)
-        self.assertEqual(len(payloads), len(set(payloads)))
+        # payloads can be dicts (unhashable), so compare via string representation
+        str_payloads = [str(p) if not isinstance(p, str) else p for p in payloads]
+        self.assertEqual(len(payloads), len(set(str_payloads)))
 
     def test_get_stats(self):
         self.manager.load_data_dir("data/")

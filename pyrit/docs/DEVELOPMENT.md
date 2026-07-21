@@ -124,11 +124,14 @@ vulture pyrit_ai300/ --min-confidence 80
 | ASI03, ASI08, ASI10, LLM05, LLM08 | category | 身份滥用/级联失败 → 多类别判断 |
 | ASI05, LLM04, LLM07 | substring | 代码执行/RAG → 检测 system prompt 泄露 |
 
-**外部 LLM 评分器配置**（`config/scores/` 目录，每后端一个 YAML）：
+**外部 LLM 评分器配置**（`config/scores/` 目录，2 个 YAML 文件）：
+- `scorer_backends.yaml` — 评分器后端（local_provider + openai_compatible）
+- `generator_backends.yaml` — 生成器后端（generator_local + generator_openai）
+- ASI 类别映射已移至 `pyrit_ai300/orchestrators/asi_mapping.yaml`（包内部配置）
 
 ```yaml
 scorer_llm_backends:
-  local_ollama:
+  local_provider:
     provider: "ollama"
     base_url: "http://localhost:11434/v1"
     api_key: "not-needed"
@@ -142,11 +145,11 @@ scorer_llm_backends:
 # 使用智谱 GLM 作为评分器
 ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml \
   --scorer-url https://open.bigmodel.cn/api/paas/v4 \
-  --scorer-key $ZHIPUAI_API_KEY \
+  --scorer-key $SCORES_API_KEY \
   --scorer-model glm-4-flash
 ```
 
-**优先级**：CLI 参数 > 环境变量 > 配置文件 > 默认 local_ollama
+**优先级**：CLI 参数 > 环境变量 > 配置文件 > 默认 local_provider
 
 **环境变量支持**：`api_key` 支持 `${ENV_VAR}` 格式，运行时自动替换：
 ```yaml
@@ -154,6 +157,60 @@ api_key: "${OPENAI_API_KEY}"
 ```
 
 **回退机制**：如果指定的后端不存在，自动回退到 objective_target。
+
+#### 3.3.1 评分器多级回退链（v3.8 新增）
+
+为确保评分器失效不中断流水线，`ScorerBuilder` 实现了 5 级回退链：
+
+```
+LLM 评分器构建回退链：
+
+  ┌─ 1. openai_compatible ─────────────────────────────────┐
+  │    云端高精度 API（智谱/DeepSeek/Moonshot 等）          │
+  │    需要 SCORES_API_KEY，未配置则跳过                    │
+  └──────────────────────────────────────────────────────┘
+           │ 失败（无 API Key / 网络不可达）
+           ▼
+  ┌─ 2. local_provider ───────────────────────────────────┐
+  │    本地模型服务（Ollama / LM Studio / vLLM）          │
+  │    无需认证，开箱即用                                   │
+  └──────────────────────────────────────────────────────┘
+           │ 失败（本地服务未启动）
+           ▼
+  ┌─ 3. objective_target ─────────────────────────────────┐
+  │    复用攻击目标作为评分器后端                           │
+  │    精度较低但不中断流水线                               │
+  └──────────────────────────────────────────────────────┘
+           │ 失败（无目标）
+           ▼
+  ┌─ 4. static_prompt_injection ──────────────────────────┐
+  │    规则评分器兑底（无需 LLM）                           │
+  │    内置 6 类注入检测模式（指令覆盖/系统提示提取/越狱等）│
+  │    适用于 refusal/true_false/category 等 LLM 评分器降级 │
+  └──────────────────────────────────────────────────────┘
+           │ 不适用
+           ▼
+  ┌─ 5. 无评分器 ─────────────────────────────────────────┐
+  │    PyRIT 默认行为（攻击照常执行，仅缺少评分）           │
+  │    AttackScoringConfig() 不传 objective_scorer          │
+  └──────────────────────────────────────────────────────┘
+```
+
+**设计原则**：
+- 评分器构建 **永不抛异常**，所有失败路径均被捕获
+- 优先使用高精度后端，逐步降级到高可用方案
+- 规则评分器兑底确保至少有基本的检测能力
+- 即使无评分器，攻击流水线也能正常执行
+
+**降级映射**（LLM 评分器 → 规则评分器）：
+
+| LLM 评分器 | 规则评分器兑底 | 原因 |
+|-----------|--------------|------|
+| refusal | static_prompt_injection | 检测注入模式（指令覆盖/越狱等）|
+| true_false | static_prompt_injection | 检测注入模式 |
+| category | static_prompt_injection | 检测注入模式 |
+
+> 选择 `StaticPromptInjectionScorer` 作为通用兑底的原因：无需必需参数、内置 6 类注入检测模式、适用于大多数 LLM 攻击场景。
 
 ### 3.4 YAML 多文档加载
 
@@ -329,6 +386,141 @@ data/owasp/          ← 唯一真相源
     → 自动生成报告 → results/
 ```
 
+### 6.1 PayloadGenerator 与 data/ 目录的关系
+
+**核心问题**：`PayloadGenerator`（LLM 自动生成载荷）与 `data/owasp/`（手工策展载荷库）的关系是什么？如何协调？
+
+#### 角色定位
+
+| 组件 | 位置 | 角色 | 数据来源 |
+|------|------|------|---------|
+| **PayloadManager** | `pyrit_ai300/payloads/` | 载荷库管理器 | 从 `data/owasp/` 加载 YAML |
+| **PayloadGenerator** | `pyrit_ai300/payloads/` | 载荷草稿生成器 | LLM 从 CVE/论文/描述生成 |
+| **data/owasp/** | `data/` | 载荷唯一真相源 | 手工策展 + 社区贡献 |
+| **PayloadMutator** | `pyrit_ai300/payloads/` | 载荷变异器 | 基于反馈对已有载荷变异 |
+
+#### 数据流向
+
+```
+                   ┌─────────────────────────────────────────┐
+                   │           载荷生命周期                    │
+                   └─────────────────────────────────────────┘
+
+  [手工策展]                    [LLM 生成]                    [变异增强]
+      │                             │                             │
+      ▼                             ▼                             ▼
+ data/owasp/*.yaml          PayloadGenerator              PayloadMutator
+ (唯一真相源)               .generate_from_cve()          .mutate_from_feedback()
+      │                             │                             │
+      │                    ┌────────┴────────┐                    │
+      │                    │                 │                    │
+      │                    ▼                 ▼                    │
+      │             保存到 data/      直接用于攻击              保存到 data/
+      │             owasp/ 对应目录    (临时，不入库)           owasp/ 对应目录
+      │                    │                                   │
+      ▼                    ▼                                   ▼
+ PayloadManager.load_data_dir()  ← 统一加载入口
+      │
+      ▼
+ resolve_refs() → 攻击执行
+```
+
+#### 协调方案
+
+**1. data/ 是唯一真相源（DATA-001 规则不变）**
+
+- `data/owasp/` 下的 YAML 文件是所有攻击载荷的唯一来源
+- `PayloadManager` 从该目录加载所有载荷
+- `PayloadGenerator` 生成的载荷**不是**直接用于攻击，而是保存为 YAML 文件后由 `PayloadManager` 统一加载
+
+**2. Generator 是"载荷工厂"，不是"载荷仓库"**
+
+- `PayloadGenerator` 的职责：从 CVE/论文/描述自动生成载荷草稿
+- 生成结果通过 `save_to_file()` 保存到 `data/owasp/` 对应目录
+- 保存后即可被 `PayloadManager` 自动发现和加载（无需修改代码）
+- Generator 复用 `config/scores/generator_backends.yaml` 的 LLM 后端配置
+
+**3. 使用场景**
+
+| 场景 | 使用方式 | 说明 |
+|------|---------|------|
+| **标准测试** | 直接使用 `data/owasp/` 中的载荷 | PayloadManager 加载已有 YAML |
+| **新漏洞响应** | `ai300 payload generate --cve CVE-2026-XXXX` | Generator 生成草稿 → 保存到 data/ → 自动可用 |
+| **论文复现** | `ai300 payload generate --paper "..."` | 从论文摘要生成载荷 |
+| **变异增强** | FeedbackAnalyzer → PayloadMutator | 基于攻击反馈变异已有载荷 |
+
+**4. Generator 与 data/ 的接口**
+
+```python
+# Generator 生成载荷 → 保存到 data/ 目录 → PayloadManager 自动加载
+from pyrit_ai300.payloads import PayloadGenerator
+
+# 1. 从 CVE 生成载荷草稿
+generator = PayloadGenerator.from_backend_config(backends, "generator_local")
+result = generator.generate_from_cve("CVE-2026-25253", description="...", owasp_id="LLM01")
+
+# 2. 保存到 data/owasp/ 对应目录（成为唯一真相源的一部分）
+generator.save_to_file(result, "data/owasp/llm/llm01/")
+
+# 3. PayloadManager 自动发现并加载（下次运行时自动可用）
+#    无需修改任何代码
+```
+
+**5. 配置共享**
+
+- `PayloadGenerator` 复用 `scorer_llm_backends` 配置体系（`config/scores/*.yaml`）
+- 独立温度参数：Generator 使用 0.7（创造性），Scorer 使用 0.0（确定性）
+- 环境变量统一：`${SCORES_BASE_URL}` / `${SCORES_API_KEY}` / `${SCORES_MODEL_NAME}`
+
+**6. CVE 获取机制**
+
+> **重要**：`PayloadGenerator` **不会自动获取最新 CVE**。它是按需触发的被动工具。
+
+| 问题 | 答案 |
+|------|------|
+| 是否自动定时获取 CVE？ | ❌ 否。无定时任务、无 CVE API 集成、无自动轮询 |
+| 如何触发生成？ | 用户手动调用 `generate_from_cve(cve_id, description)` |
+| CVE 描述从哪里来？ | 用户手动提供（可从 NVD/CNNVD/安全公告复制） |
+| 生成频率？ | 完全由用户控制，按需触发 |
+
+**典型工作流（新 CVE 响应）**：
+
+```
+1. 安全研究员发现新 CVE（如 NVD 公告 CVE-2026-XXXXX）
+2. 复制 CVE 描述 → 调用 generate_from_cve()
+3. Generator 用 LLM 生成 9 个载荷草稿（basic/advanced/stealth 三层）
+4. save_to_file() 保存到 data/owasp/llm/{LLM0X}/ 目录
+5. 下次运行 ai300 owasp 时，PayloadManager 自动加载新载荷
+```
+
+**7. 命名规范（载荷文件）**
+
+`save_to_file()` 自动生成的文件名遵循以下规范，与 `data/owasp/` 现有 CVE 载荷对齐：
+
+| 来源类型 | 命名格式 | 示例 |
+|---------|---------|------|
+| CVE | `cve_{year}_{number}_{short_name}.yaml` | `cve_2026_25253_openclaw_token_theft.yaml` |
+| 论文 | `paper_{technique_group}.yaml` | `paper_many_shot_jailbreak.yaml` |
+| 描述 | `gen_{technique_group}.yaml` | `gen_hidden_injection.yaml` |
+
+其中 `{short_name}` 取自 LLM 生成的 `technique_group` 字段（snake_case）。
+
+**8. 重复处理策略**
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| **保存时** | `save_to_file(overwrite=False)` | 文件名已存在时跳过（默认），`overwrite=True` 可覆盖 |
+| **加载时** | `PayloadManager.resolve_refs()` | 按 `payload` 字段内容去重，相同载荷文本只保留首次出现 |
+| **文件级** | OWASP ID + 文件名唯一 | 同一 OWASP 目录下文件名唯一，不同目录可同名 |
+
+```python
+# 保存时去重示例
+result = generator.generate_from_cve("CVE-2026-25253", description="...")
+path = generator.save_to_file(result, "data/owasp/llm/llm06/")
+# → 如果 cve_2026_25253_*.yaml 已存在，跳过并返回原路径
+# → 如需覆盖：save_to_file(result, output_dir, overwrite=True)
+```
+
 ## 7. 命名规范
 
 - **目录名**：小写 + 下划线（`orchestrators/` ✓）
@@ -464,6 +656,36 @@ make setup-garak
 - **每次重构完成后**：跑 `make ci`（lint + test）
 - **每次合并前**：全量扫描 + 确认清理
 - **每次发布前**：跑 `make test-cov`，确认覆盖率无退化
+
+### 12.3.1 回归测试优先原则（强制）
+
+**规则编号**: TEST-002（详见 `.ai-assistant/rules/regression-testing.md`）
+
+**核心原则：每次代码改动前，先准备回归测试；每次改动后，立即运行验证。**
+
+执行流程：
+
+```bash
+# 1. 改动前：运行现有测试确认基线绿
+python -m pytest pyrit_ai300/tests/ -v --tb=short
+
+# 2. 编写回归测试（针对即将改动的行为，先写"期望正确"的测试）
+#    放入 pyrit_ai300/tests/test_regression.py
+
+# 3. 改动中：每完成一个逻辑点，运行回归测试
+python -m pytest pyrit_ai300/tests/test_regression.py -v  # ~5s
+
+# 4. 改动后：全量验证
+make test  # ~25s
+```
+
+**必须新增回归测试的场景**：
+- 修复 bug（测试空值/边界条件不崩溃）
+- 配置格式变更（测试变量解析 + 模板一致性）
+- 安全相关修复（测试不泄露/不回退到不安全值）
+- API 行为变更（测试返回结构完整性）
+
+**禁止**：改完代码不跑测试直接提交。
 
 ### 12.4 集成测试
 
@@ -665,4 +887,109 @@ target:
 | 3 | 成功率 ≥ 50% | HIGH |
 | 4 | 成功率 ≥ 20% | MEDIUM |
 | 5 | 成功率 < 20% | LOW |
+
+## 17. 深度优化实现规范（v3.7.1 整合）
+
+> 本节整合自 payload_optimization_implementation.md、recon_optimization_implementation.md（已归并）
+
+### 17.1 载荷优化成果汇总
+
+| 指标 | 优化前 | 优化后 | 变化 |
+|------|--------|--------|------|
+| 载荷文件总数 | 69 | 82 | +13 |
+| 载荷总数 | 537 | 632 | +95 |
+| Jailbreak 活跃模板 | 165 | 75 | -90 (归档) |
+| ASR 基线覆盖率 | 0% | 100% | +100% |
+| 预期整体 ASR | 15-30% | 50-75% | +35-45% |
+
+### 17.2 载荷归档规则（强制）
+
+**归档标准**：对 2026 模型 ASR < 10% 的模板必须归档至 `archive/` 目录。
+
+| 归档目录 | 模板数 | 归档原因 |
+|---------|--------|---------|
+| archive/dan/ | 11 | RLHF 已完全覆盖 |
+| archive/dude/ | 3 | DAN 衍生变体 |
+| archive/stan/ | 4 | "无限制 AI" 变体 |
+| archive/dev_mode/ | 5 | "开发者模式"套路 |
+| archive/early_pliny/ | 15 | 针对 2023-2024 早期模型 |
+| archive/legacy/ | 52 | 2022-2023 经典角色扮演 |
+
+### 17.3 ASR 基线数据规范
+
+所有载荷必须包含 `asr_baseline` 字段，格式如下：
+
+```yaml
+asr_baseline:
+  gpt_4o: 0.85        # OpenAI GPT-4o
+  claude_3_5_sonnet: 0.70  # Anthropic Claude 3.5
+  default: 0.50        # 默认值（无精确匹配时使用）
+```
+
+**ASR 排序公式**（红队最佳实践）：
+```
+effective_asr = base_asr × decay_factor × confidence_factor − uncertainty_penalty
+```
+
+- `decay_factor`: 指数衰减（半衰期 6 个月），最低 0.3
+- `confidence_factor`: 基于 test_count（10 次后完全置信），最低 0.5
+- `uncertainty_penalty`: 无 ASR 数据时扣减 0.15
+
+### 17.4 侦察优化项清单（OPT-A~E 共 19 项）
+
+| 分类 | 优化项 | 优先级 | 核心文件 |
+|------|--------|--------|----------|
+| AIMAP | OPT-A1 协议探测并行化 | P0 | `protocol_fingerprint_adapter.py` |
+| AIMAP | OPT-A2 深度 MCP 探测 | P1 | `protocol_fingerprint_adapter.py` |
+| AIMAP | OPT-A3 RAG 端点探测 | P1 | `protocol_fingerprint_adapter.py` |
+| AIMAP | OPT-A4 Agent 框架探测 | P1 | `protocol_fingerprint_adapter.py` |
+| AIMAP | OPT-A5 认证深度检测 | P1 | `protocol_fingerprint_adapter.py` |
+| AIMAP | OPT-A6 模型能力深度探测 | P2 | `protocol_fingerprint_adapter.py` |
+| Garak | OPT-G1 Probe 动态选择 | P0 | `garak_adapter.py` |
+| Garak | OPT-G2 深度分层 Probe | P1 | `garak_adapter.py` |
+| Garak | OPT-G3 结果解析增强 | P1 | `garak_adapter.py` |
+| Garak | OPT-G4 Detector 精确配置 | P2 | `garak_adapter.py` |
+| Garak | OPT-G5 增量执行缓存 | P1 | `garak_adapter.py` |
+| Garak | OPT-G6 通用预热 | P1 | `garak_adapter.py` |
+| DeepTeam | OPT-D1 攻击类型全量覆盖 | P0 | `deepteam_adapter.py` |
+| DeepTeam | OPT-D2 Agentic 漏洞覆盖 | P1 | `deepteam_adapter.py` |
+| DeepTeam | OPT-D3 model_callback 增强 | P2 | `deepteam_adapter.py` |
+| DeepTeam | OPT-D4 异步模式启用 | P1 | `deepteam_adapter.py` |
+| DeepTeam | OPT-D5 攻击方法配置 | P2 | `deepteam_adapter.py` |
+| Merger | OPT-M1 语义去重 | P1 | `profile_merger.py` |
+| Merger | OPT-M2 动态攻击建议 | P1 | `profile_merger.py` |
+| Engine | OPT-E1 AIMAP 与 DeepTeam 并行 | P0 | `recon_engine.py` |
+| Engine | OPT-E2 增量缓存 | P1 | `recon_engine.py` |
+| Engine | OPT-E3 深度自适应超时 | P2 | `recon_engine.py` |
+
+### 17.5 新增高 ASR 载荷技术清单
+
+| 技术 | 文件 | OWASP | 预期 ASR |
+|------|------|-------|---------|
+| Skeleton Key | skeleton_key.yaml | LLM01 | 90% (GPT-4o) |
+| Best-of-N (BoN) | bon_jailbreak.yaml | LLM01 | 75% |
+| Bad Likert Judge | bad_likert_judge.yaml | LLM01 | 80% |
+| Wrapping | wrapping_attack.yaml | LLM01 | 70% |
+| PAIR/TAP | pair_tap.yaml | LLM01 | 65% |
+| CipherChat | cipherchat.yaml | LLM01 | 60% |
+| DeepInception | deepinception.yaml | LLM01 | 55% |
+| AutoDAN | autodan.yaml | LLM01 | 50% |
+| FigStep-V2 | multimodal_jailbreak_v2.yaml | LLM01 | 75% |
+| A2A Injection | a2a_injection.yaml | LLM06 | 85% (MCP) |
+| Vector DB Query Injection | vector_db_query_injection.yaml | LLM08 | 85% (ChromaDB) |
+
+### 17.6 ASI 载荷结构升级规范
+
+ASI 载荷必须使用带元数据的对象列表格式：
+
+```yaml
+payloads:
+  - id: asi01_001
+    text: "载荷文本内容"
+    metadata:
+      technique: "goal_hijack"
+      complexity: "low"
+      asr_baseline:
+        gpt_4o: 0.85
+```
 

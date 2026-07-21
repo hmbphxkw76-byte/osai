@@ -33,7 +33,7 @@ frontier:
 
 owasp: LLM01
 technique_group: indirect_prompt_injection
-description: "EchoLeak 零点击间接提示注入 — 恶意邮件 → Copilot 自动处理 → 隐藏注入 → 敏感数据泄露
+description: "EchoLeak 零点击间接提示注入 — 恶意邮件 → Copilot 自动处理 → 隐藏注入 → 敏感数据泄露"
 payloads:
   # ── 基础：直接数据泄露请求 ──
   - technique: data_harvesting

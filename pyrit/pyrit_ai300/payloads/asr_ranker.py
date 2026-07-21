@@ -87,9 +87,27 @@ MODEL_FAMILY_PREFIXES: Dict[str, List[str]] = {
 # 默认 ASR 值（无数据时使用）
 DEFAULT_ASR = 0.3
 
-# 时间衰减参数
-DECAY_MONTHLY_RATE = 0.05  # 每月衰减 5%
-DECAY_MIN_FACTOR = 0.3     # 最低衰减到 30%
+# ── 时间衰减参数（指数衰减，符合红队最佳实践）──
+# 使用半衰期模型：ASR 每 6 个月减半
+# effective_asr = base_asr * 0.5^(months / HALF_LIFE_MONTHS)
+DECAY_HALF_LIFE_MONTHS = 6.0  # 半衰期：6 个月
+DECAY_MIN_FACTOR = 0.3        # 最低衰减到 30%（防止过度衰减）
+
+# ── 置信度参数 ──
+# 载荷测试次数越多，ASR 数据越可靠
+# test_count >= CONFIDENCE_FULL_COUNT 时，置信度=1.0
+# test_count < CONFIDENCE_FULL_COUNT 时，置信度线性增长
+CONFIDENCE_FULL_COUNT = 10    # 10 次测试后完全置信
+CONFIDENCE_MIN_FACTOR = 0.5   # 最低置信度因子 50%
+
+# ── 不确定性惩罚 ──
+# 无 ASR 数据的载荷应用惩罚，降低优先级
+# 防止未测试载荷排在已验证高 ASR 载荷之前
+UNCERTAINTY_PENALTY = 0.15    # 不确定性惩罚扣减 0.15
+
+# ── 排序稳定性参数 ──
+# 当 ASR 差异很小时（< ASR_EPSILON），保持原始顺序
+ASR_EPSILON = 0.01
 
 
 class ASRRanker:
@@ -200,7 +218,7 @@ class ASRRanker:
 
         查找优先级：
         1. asr_baseline[model_key] — 精确匹配
-        2. asr_baseline[family_prefix*] — 家族前缀匹配
+        2. asr_baseline[family_prefix*] — 家族前缀匹配（加权平均）
         3. asr_baseline["default"] — 默认值
         4. asr_baseline 平均值 — 所有模型 ASR 平均
         5. DEFAULT_ASR (0.3) — 无数据时的保守默认
@@ -226,18 +244,22 @@ class ASRRanker:
 
         model_key = ASRRanker._normalize_model_key(target_model)
 
-        # 1. 精确匹配
+        # 1. 精确匹配（最高优先级）
         if model_key in asr_baseline:
             return float(asr_baseline[model_key])
 
-        # 2. 家族前缀匹配
+        # 2. 家族前缀匹配（加权平均，提升精度）
         family = ASRRanker._detect_model_family(target_model)
         if family:
             prefixes = MODEL_FAMILY_PREFIXES.get(family, [])
+            family_values: List[float] = []
             for prefix in prefixes:
                 for key, value in asr_baseline.items():
                     if key.startswith(prefix) and isinstance(value, (int, float)):
-                        return float(value)
+                        family_values.append(float(value))
+            if family_values:
+                # 加权平均：多个家族成员 ASR 取平均
+                return sum(family_values) / len(family_values)
 
         # 3. default 键
         if "default" in asr_baseline:
@@ -247,26 +269,84 @@ class ASRRanker:
         values = [v for v in asr_baseline.values() if isinstance(v, (int, float))]
         return sum(values) / len(values) if values else DEFAULT_ASR
 
-    def get_asr_with_decay(self, payload: Any) -> float:
+    @staticmethod
+    def _get_confidence_factor(payload: Any) -> float:
         """
-        获取考虑时间衰减的 ASR
+        获取载荷 ASR 数据的置信度因子
 
-        衰减公式：effective_asr = base_asr * max(DECAY_MIN_FACTOR, 1 - DECAY_MONTHLY_RATE * months)
+        基于 test_count 字段（载荷被测试的次数）计算置信度：
+        - test_count >= CONFIDENCE_FULL_COUNT (10): 置信度 = 1.0
+        - test_count < CONFIDENCE_FULL_COUNT: 置信度线性增长
+        - 无 test_count: 置信度 = CONFIDENCE_MIN_FACTOR (0.5)
+
+        置信度影响有效 ASR：
+        effective_asr = base_asr * confidence_factor
 
         Args:
             payload: 载荷字典
 
         Returns:
-            考虑时间衰减后的 ASR
+            置信度因子 (0.5 - 1.0)
+        """
+        if not isinstance(payload, dict):
+            return CONFIDENCE_MIN_FACTOR
+
+        test_count = payload.get("test_count", 0)
+        if not isinstance(test_count, (int, float)) or test_count <= 0:
+            return CONFIDENCE_MIN_FACTOR
+
+        if test_count >= CONFIDENCE_FULL_COUNT:
+            return 1.0
+
+        # 线性增长：0.5 + 0.5 * (test_count / FULL_COUNT)
+        return CONFIDENCE_MIN_FACTOR + (1.0 - CONFIDENCE_MIN_FACTOR) * (test_count / CONFIDENCE_FULL_COUNT)
+
+    @staticmethod
+    def _has_asr_data(payload: Any) -> bool:
+        """检查载荷是否有 ASR 基线数据"""
+        if not isinstance(payload, dict):
+            return False
+        asr_baseline = payload.get("asr_baseline")
+        return bool(asr_baseline and isinstance(asr_baseline, dict) and len(asr_baseline) > 0)
+
+    def get_asr_with_decay(self, payload: Any) -> float:
+        """
+        获取考虑时间衰减和置信度的有效 ASR
+
+        综合评分公式（红队最佳实践）：
+        effective_asr = base_asr * decay_factor * confidence_factor - uncertainty_penalty
+
+        其中：
+        - decay_factor: 指数衰减（半衰期模型），旧数据权重降低
+        - confidence_factor: 基于测试次数的置信度（0.5-1.0）
+        - uncertainty_penalty: 无 ASR 数据时的惩罚（降低优先级）
+
+        衰减公式：decay_factor = max(DECAY_MIN_FACTOR, 0.5^(months / HALF_LIFE_MONTHS))
+
+        Args:
+            payload: 载荷字典
+
+        Returns:
+            考虑时间衰减和置信度后的有效 ASR
         """
         base_asr = self.get_payload_asr(payload, self.target_model)
 
-        if not self.apply_time_decay or not isinstance(payload, dict):
-            return base_asr
+        # 无 ASR 数据的载荷应用不确定性惩罚
+        has_data = self._has_asr_data(payload)
+        if not has_data:
+            return max(0.0, DEFAULT_ASR - UNCERTAINTY_PENALTY)
 
+        # 置信度因子
+        confidence = self._get_confidence_factor(payload)
+
+        if not self.apply_time_decay or not isinstance(payload, dict):
+            return base_asr * confidence
+
+        # 指数时间衰减（半衰期模型）
         last_tested = payload.get("last_tested")
         if not last_tested:
-            return base_asr
+            # 无测试日期，使用保守估计
+            return base_asr * confidence
 
         try:
             if isinstance(last_tested, str):
@@ -274,17 +354,19 @@ class ASRRanker:
             elif isinstance(last_tested, date):
                 parsed_date = last_tested
             else:
-                return base_asr
+                return base_asr * confidence
 
             months_ago = (self.current_date - parsed_date).days / 30.0
             if months_ago <= 0:
-                return base_asr
+                # 近期测试的载荷，置信度加成
+                return base_asr * confidence
 
-            decay_factor = max(DECAY_MIN_FACTOR, 1.0 - DECAY_MONTHLY_RATE * months_ago)
-            return base_asr * decay_factor
+            # 指数衰减：0.5^(months / half_life)
+            decay_factor = max(DECAY_MIN_FACTOR, 0.5 ** (months_ago / DECAY_HALF_LIFE_MONTHS))
+            return base_asr * decay_factor * confidence
 
         except (ValueError, TypeError):
-            return base_asr
+            return base_asr * confidence
 
     # ──────────────────────────────────────────────────────────────────────────
     # 排序接口

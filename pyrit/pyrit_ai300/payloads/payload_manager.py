@@ -104,6 +104,9 @@ class PayloadManager:
                 # 加载顶层 YAML（如 llm01.yaml）
                 # 跳过有对应子目录的文件（子目录是唯一载荷源）
                 for yaml_file in sorted(standard_dir.glob("*.yaml")):
+                    # 跳过以 _ 开头的文件（配置/元数据文件，不含 payloads）
+                    if yaml_file.name.startswith("_"):
+                        continue
                     if yaml_file.stem in subdir_names:
                         logger.debug(
                             "Skipping %s: subdirectory exists (subdirectory is single source of truth)",
@@ -117,6 +120,14 @@ class PayloadManager:
                     if sub_dir.is_dir() and not sub_dir.name.startswith("_"):
                         sub_name = sub_dir.name  # e.g. "llm01"
                         for yaml_file in sorted(sub_dir.rglob("*.yaml")):
+                            # 跳过以 _ 开头的文件（如 _goals.yaml, _metadata_defaults.yaml）
+                            # 这些是配置/元数据文件，不含 payloads
+                            if yaml_file.name.startswith("_"):
+                                logger.debug(
+                                    "Skipping metadata file %s (no payloads expected)",
+                                    yaml_file.name,
+                                )
+                                continue
                             # 计算相对路径作为 subcategory
                             # 如 llm01/jailbreak/aim.yaml → subcategory: "llm01:jailbreak"
                             rel_dir = yaml_file.parent.relative_to(sub_dir)

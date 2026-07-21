@@ -17,7 +17,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: encoding_bypass
-description: "编码绕过载荷 — 14 种 Unicode 语义级绕过技术
+description: "编码绕过载荷 — 14 种 Unicode 语义级绕过技术"
 payloads:
   - technique: base64_injection
     name: "Base64 编码绕过"

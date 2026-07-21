@@ -13,7 +13,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: few_shot_backdoor
-description: "Few-shot 后门植入载荷 — 触发词/格式/数字代码/语言切换/情绪/渐进信任
+description: "Few-shot 后门植入载荷 — 触发词/格式/数字代码/语言切换/情绪/渐进信任"
 payloads:
   - technique: trigger_word_backdoor
     name: "触发词后门"

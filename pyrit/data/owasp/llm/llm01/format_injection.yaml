@@ -11,7 +11,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: format_injection
-description: "格式注入载荷 — 强制JSON/CSV/表格/模板输出格式泄露密钥
+description: "格式注入载荷 — 强制JSON/CSV/表格/模板输出格式泄露密钥"
 payloads:
   - technique: json_output_extraction
     name: "JSON格式提取"

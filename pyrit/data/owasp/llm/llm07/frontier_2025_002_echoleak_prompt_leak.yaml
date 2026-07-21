@@ -25,7 +25,7 @@ frontier:
 
 owasp: LLM07
 technique_group: system_prompt_echo
-description: "EchoLeak 回声泄露 — 诱导模型重复/回声其内部系统提示词泄露敏感配置
+description: "EchoLeak 回声泄露 — 诱导模型重复/回声其内部系统提示词泄露敏感配置"
 payloads:
   # ── 基础：直接回声请求 ──
   - technique: direct_echo

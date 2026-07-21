@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -78,6 +79,8 @@ class ReconEngine:
         self._garak_config = self._load_garak_config()
         self.merger = ProfileMerger(weights=self.config.get("merger", {}).get("confidence_weights"))
         self._adapters: Dict[str, BaseAdapter] = {}
+        # L5: 线程安全锁，保护 _adapters dict 并发访问
+        self._adapters_lock = threading.Lock()
 
     def run(
         self,
@@ -1175,19 +1178,32 @@ class ReconEngine:
             logger.warning("Failed to save profile cache: %s", str(e))
 
     def _init_adapters(self, tools: List[str]) -> None:
-        """初始化指定适配器"""
-        self._adapters = {}
-        for tool in tools:
-            if tool in self.ADAPTER_MAP:
-                self._adapters[tool] = self.ADAPTER_MAP[tool]()
+        """初始化指定适配器（线程安全）"""
+        with self._adapters_lock:
+            self._adapters = {}
+            for tool in tools:
+                if tool in self.ADAPTER_MAP:
+                    self._adapters[tool] = self.ADAPTER_MAP[tool]()
 
     def _get_adapter(self, tool: str) -> BaseAdapter:
-        """获取适配器实例"""
-        if tool not in self._adapters:
+        """
+        获取适配器实例（线程安全）
+
+        在多线程环境下，使用 Lock 保护 _adapters dict 的读写操作。
+        采用 double-checked locking 模式减少锁竞争。
+        """
+        # Fast path: adapter already initialized (no lock)
+        if tool in self._adapters:
+            return self._adapters[tool]
+        # Slow path: acquire lock and re-check
+        with self._adapters_lock:
+            # Double-checked locking
+            if tool in self._adapters:
+                return self._adapters[tool]
             if tool not in self.ADAPTER_MAP:
                 raise ValueError(f"Unknown tool: {tool}")
             self._adapters[tool] = self.ADAPTER_MAP[tool]()
-        return self._adapters[tool]
+            return self._adapters[tool]
 
     def _get_tool_config(self, tool: str) -> dict:
         """获取工具配置（Garak 合并独立配置文件）"""

@@ -189,6 +189,46 @@ CONVERTERS_NEEDING_TARGET: Set[str] = {
     "variation",
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 转换器默认参数：必需参数的默认值
+# ──────────────────────────────────────────────────────────────────────────────
+# 某些 PyRIT 转换器有必需的 keyword-only 参数（无默认值），
+# 如果用户配置中未提供 params，ConverterBuilder 使用这些默认值。
+# 新增有必需参数的转换器时，在此添加对应默认值。
+
+def _default_text_jailbreak_template():
+    """创建默认的 TextJailBreak 模板（延迟导入，避免 pyarrow DLL 问题）"""
+    from pyrit.datasets.jailbreak.text_jailbreak import TextJailBreak
+    return TextJailBreak(random_template=True)
+
+
+CONVERTER_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
+    # CaesarConverter 需要 caesar_offset（经典凯撒位移=3）
+    "caesar": {"caesar_offset": 3},
+    # TextJailbreakConverter 需要 jailbreak_template（随机选择内置模板）
+    # 使用 lambda 延迟创建，避免在模块加载时触发 HuggingFace datasets 导入
+    "text_jailbreak": {"jailbreak_template": _default_text_jailbreak_template},
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 产生 binary_path 输出的转换器
+# ──────────────────────────────────────────────────────────────────────────────
+# 这些转换器输出 binary_path 数据类型，PlaywrightTarget（SPA）不支持。
+# PlaywrightTarget 只支持 image_path 和 text。
+# 当目标类型为 spa_chat / spa_chat_recon / playwright 时，自动过滤这些转换器。
+
+CONVERTERS_PRODUCING_BINARY_PATH: Set[str] = {
+    "pdf",       # PDFConverter → binary_path
+    "word_doc",  # WordDocConverter → binary_path
+}
+
+# SPA 目标类型（PlaywrightTarget），不支持 binary_path
+SPA_TARGET_TYPES: Set[str] = {
+    "spa_chat",
+    "spa_chat_recon",
+    "playwright",
+}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 评分器映射表：配置名称 → 实际类

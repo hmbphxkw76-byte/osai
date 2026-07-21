@@ -11,7 +11,7 @@ v3.1 重构改进：
   - scorer_builder.py: 评分器构建（含 LLM 后端）
   - template_renderer.py: 三级占位符渲染（位于 payloads/）
 - 消除 UTF-8 重复代码（utils/platform.py 统一处理）
-- ASI_SCORER_MAP 外置到 config/scores/asi_mapping.yaml
+- ASI_SCORER_MAP 外置到 pyrit_ai300/orchestrators/asi_mapping.yaml（包内部配置）
 
 核心改进（v3.0）：
 - 不再手动循环执行，全部使用 PyRIT 原生攻击
@@ -131,7 +131,7 @@ class AttackOrchestrator:
     # 类级别 PayloadManager 实例（共享缓存）
     _payload_manager: Optional[Any] = None
 
-    # ASI/LLM 类别 → 评分器类型自动映射（v3.1: 从 config/scores/asi_mapping.yaml 加载）
+    # ASI/LLM 类别 → 评分器类型自动映射（v3.2: 从 pyrit_ai300/orchestrators/asi_mapping.yaml 加载）
     _ASI_SCORER_MAP: Dict[str, str] = {
         "ASI01": "refusal", "ASI02": "true_false", "ASI03": "category",
         "ASI04": "true_false", "ASI05": "substring", "ASI06": "refusal",
@@ -205,13 +205,13 @@ class AttackOrchestrator:
 
     def _load_asi_scorer_map(self) -> None:
         """
-        加载 ASI 评分器映射（v3.1: 从 config/scores/asi_mapping.yaml 加载）
+        加载 ASI 评分器映射（v3.2: 从包内部 asi_mapping.yaml 加载）
 
         优先级：
-        1. config/scores/asi_mapping.yaml
+        1. pyrit_ai300/orchestrators/asi_mapping.yaml（包内部配置）
         2. 内置默认值（_ASI_SCORER_MAP / _DEFAULT_SCORERS）
         """
-        mapping_path = Path("config/scores/asi_mapping.yaml")
+        mapping_path = Path(__file__).parent / "asi_mapping.yaml"
         if mapping_path.exists():
             try:
                 with open(mapping_path, "r", encoding="utf-8") as f:
@@ -263,7 +263,9 @@ class AttackOrchestrator:
         根据配置构建 PyRIT PromptTarget（委托给 TargetBuilder）
 
         同时创建速率控制器（RateController），基于目标类型自动选择最优并发值。
+        同时记录目标类型，用于后续转换器过滤（SPA 目标过滤 binary_path）。
         """
+        self._target_type = target_config.get("type", "openai")
         target = self._target_builder.build(target_config)
         self._rate_controller = self._target_builder.rate_controller
         return target
@@ -275,8 +277,12 @@ class AttackOrchestrator:
     ) -> List[PromptConverterConfiguration]:
         """
         根据配置列表构建转换器配置（委托给 ConverterBuilder）
+        自动传递当前目标类型，用于 SPA binary_path 过滤。
         """
-        return self._converter_builder.build(converter_configs, converter_target)
+        target_type = getattr(self, "_target_type", "")
+        return self._converter_builder.build(
+            converter_configs, converter_target, target_type=target_type
+        )
 
     def build_scorers(
         self,

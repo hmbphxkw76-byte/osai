@@ -16,7 +16,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: adversarial_suffix
-description: "GCG 风格对抗后缀载荷 — 语义级对抗包装绕过对齐
+description: "GCG 风格对抗后缀载荷 — 语义级对抗包装绕过对齐"
 payloads:
   - technique: gcg_natural
     name: "自然语言对抗包装"

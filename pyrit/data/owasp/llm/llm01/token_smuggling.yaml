@@ -15,7 +15,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: token_smuggling
-description: "Token Smuggling 绕过载荷 — 同形字/零宽字符/拆分/Unicode规范化/RTL覆盖
+description: "Token Smuggling 绕过载荷 — 同形字/零宽字符/拆分/Unicode规范化/RTL覆盖"
 payloads:
   - technique: homoglyph_ignore
     name: "同形字 — 忽略指令"

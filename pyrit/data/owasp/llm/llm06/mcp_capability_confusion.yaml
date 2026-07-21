@@ -12,7 +12,7 @@ name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_capability_confusion
-description: "MCP 能力混淆载荷 — 同名工具/范围绕过/描述欺骗/权限重叠
+description: "MCP 能力混淆载荷 — 同名工具/范围绕过/描述欺骗/权限重叠"
 payloads:
   - technique: capability_same_name_different_server
     name: "同名工具不同服务器混淆"

@@ -115,7 +115,7 @@ class PayloadGenerator:
     LLM backend sharing: Reuses ScorerBuilder config/scores/*.yaml config system.
 
     Usage:
-        generator = PayloadGenerator.from_backend_config(backends, "local_ollama")
+        generator = PayloadGenerator.from_backend_config(backends, "local_provider")
         result = generator.generate_from_cve("CVE-2026-25253", description="...")
         print(result.to_yaml())
     """
@@ -145,7 +145,7 @@ class PayloadGenerator:
     def from_backend_config(
         cls,
         backends: Dict[str, Any],
-        backend_name: str = "local_ollama",
+        backend_name: str = "local_provider",
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         payload_count: int = DEFAULT_PAYLOAD_COUNT,
@@ -155,7 +155,7 @@ class PayloadGenerator:
 
         Reuses ScorerBuilder config format:
             backends = {
-                "local_ollama": {
+                "local_provider": {
                     "base_url": "http://localhost:11434/v1",
                     "api_key": "not-needed",
                     "model_name": "qwen3:0.6b",
@@ -167,16 +167,29 @@ class PayloadGenerator:
             logger.warning("Backend '%s' not found in config", backend_name)
             return cls(temperature=temperature, max_tokens=max_tokens, payload_count=payload_count)
 
-        api_key = backend.get("api_key", "not-needed")
-        if api_key.startswith("${") and api_key.endswith("}"):
-            env_var = api_key[2:-1]
-            api_key = os.environ.get(env_var, "")
-            if not api_key:
-                logger.warning("Environment variable %s not set", env_var)
-                return cls(temperature=temperature, max_tokens=max_tokens, payload_count=payload_count)
-
+        # 环境变量已由 ScorerBuilder.load_config() 通过 resolve_env_vars 统一解析
+        provider = str(backend.get("provider", "ollama")).lower()
+        api_key = str(backend.get("api_key", "")).strip()
         base_url = backend.get("base_url", "http://localhost:11434/v1")
         model_name = backend.get("model_name", "qwen3:0.6b")
+
+        # 按提供商类型判断是否需要 API Key
+        if provider == "ollama":
+            # 本地部署（Ollama / LM Studio / vLLM）：无需认证，跳过校验
+            if not api_key:
+                api_key = "not-needed"
+        else:
+            # 云端平台（openai / 智谱 / DeepSeek 等）：必须配置 API Key
+            if not api_key:
+                logger.error(
+                    "═══════════════════════════════════════════════════════════\n"
+                    "  PayloadGenerator 后端 '%s'（provider=%s）需要 API Key，但未配置。\n"
+                    "  请在 .env 文件中设置 SCORES_API_KEY：\n"
+                    "    SCORES_API_KEY=your_api_key_here\n"
+                    "═══════════════════════════════════════════════════════════",
+                    backend_name, provider,
+                )
+                return cls(temperature=temperature, max_tokens=max_tokens, payload_count=payload_count)
 
         try:
             from pyrit.prompt_target import OpenAIChatTarget
@@ -451,15 +464,86 @@ class PayloadGenerator:
         result: GenerationResult,
         output_dir: str,
         filename: Optional[str] = None,
+        overwrite: bool = False,
     ) -> str:
-        """Save generation result as YAML file"""
+        """Save generation result as YAML file
+
+        命名规范（与 data/owasp/ 现有 CVE 载荷对齐）：
+            CVE 来源:  cve_{year}_{id}_{short_name}.yaml
+                       例: cve_2026_25253_openclaw_token_theft.yaml
+            论文来源:  paper_{technique_group}.yaml
+                       例: paper_many_shot_jailbreak.yaml
+            描述来源:  gen_{technique_group}.yaml
+                       例: gen_hidden_injection.yaml
+
+        重复处理策略：
+            overwrite=False（默认）: 文件已存在时跳过，返回原路径
+            overwrite=True: 覆盖已有文件
+
+        Args:
+            result: 生成结果
+            output_dir: 输出目录（如 data/owasp/llm/llm01/）
+            filename: 自定义文件名（不指定则按命名规范自动生成）
+            overwrite: 是否覆盖已存在的文件
+
+        Returns:
+            保存的文件路径
+        """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
+
         if not filename:
-            safe_ref = re.sub(r'[^a-zA-Z0-9_]', '_', result.source_ref.lower())[:40]
-            filename = f"generated_{result.source_type}_{safe_ref}.yaml"
+            filename = self._generate_filename(result)
+
         file_path = output_path / filename
+
+        # 重复检测
+        if file_path.exists() and not overwrite:
+            logger.warning(
+                "File already exists, skipping (use overwrite=True to replace): %s",
+                file_path,
+            )
+            return str(file_path)
+
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(result.to_yaml())
         logger.info("Generated payloads saved to %s", file_path)
         return str(file_path)
+
+    @staticmethod
+    def _generate_filename(result: GenerationResult) -> str:
+        """根据来源类型和命名规范自动生成文件名
+
+        命名规范：
+            - CVE 来源: cve_{year}_{number}_{short_name}.yaml
+              例: cve_2026_25253_openclaw_token_theft.yaml
+            - 论文来源: paper_{technique_group}.yaml
+              例: paper_many_shot_jailbreak.yaml
+            - 描述来源: gen_{technique_group}.yaml
+              例: gen_hidden_injection.yaml
+        """
+        if result.source_type == "cve":
+            # 从 CVE ID 提取年份和编号
+            # CVE-2026-25253 → cve_2026_25253
+            cve_match = re.match(r'CVE-(\d{4})-(\d+)', result.source_ref, re.IGNORECASE)
+            if cve_match:
+                year = cve_match.group(1)
+                number = cve_match.group(2)
+                # 使用 technique_group 作为短名，清理特殊字符
+                short_name = re.sub(r'[^a-zA-Z0-9_]', '_', result.technique_group.lower())[:40]
+                short_name = short_name.strip('_') or "generated"
+                return f"cve_{year}_{number}_{short_name}.yaml"
+            # 无法解析 CVE ID，使用通用格式
+            safe_ref = re.sub(r'[^a-zA-Z0-9_]', '_', result.source_ref.lower())[:40]
+            return f"cve_{safe_ref}.yaml"
+
+        elif result.source_type == "paper":
+            safe_tg = re.sub(r'[^a-zA-Z0-9_]', '_', result.technique_group.lower())[:40]
+            safe_tg = safe_tg.strip('_') or "generated"
+            return f"paper_{safe_tg}.yaml"
+
+        else:
+            # description 或其他来源
+            safe_tg = re.sub(r'[^a-zA-Z0-9_]', '_', result.technique_group.lower())[:40]
+            safe_tg = safe_tg.strip('_') or "generated"
+            return f"gen_{safe_tg}.yaml"

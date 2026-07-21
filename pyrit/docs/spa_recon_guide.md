@@ -1706,9 +1706,61 @@ target:
 
 ---
 
-## 12. 相关文档
+## 12. 核心技术要点（v1.6 整合）
 
-- [架构设计](./ARCHITECTURE.md) — 框架整体架构 v3.5
-- [侦察流程](./pipeline_recon_flow.md) — 侦察引擎详细流程
-- [侦察优化分析](./recon_optimization_analysis.md) — 19 项优化项分析
-- [载荷优化实施](./payload_optimization_implementation.md) — 载荷优化 v2.0
+> 本节整合自 spa_recon_solution.md（已归并）
+
+### 12.1 OIDC 隐式流认证穿透
+
+SPA 应用常使用 OIDC 隐式流认证，侦察时需穿透登录中间页：
+
+- **OIDC 回调特征**：URL 含 `auth_callback`、`redirect_uri`、`code=`
+- **落地检测**：目标域名 + 非 OIDC 回调 URL = 认证成功
+- **SSO 模式特殊处理**：仅有 WAF cookie 时跳过 preflight 判定（WAF 假阳性规避）
+
+### 12.2 浮动按钮式聊天入口发现
+
+部分 SPA 应用的聊天入口为浮动按钮，需多策略匹配：
+
+1. 精确类名匹配（如 `chat-fab`、`ai-assistant-btn`）
+2. ARIA 标签匹配（中文："智能助手"、"在线客服"；英文："Chat"、"AI Assistant"）
+3. 文本匹配（中英文关键词）
+4. 浮动定位特征（`position: fixed` + 右下角坐标）
+
+### 12.3 无发送按钮的三级降级发送
+
+当聊天界面无显式发送按钮时：
+1. **Enter 键发送**（首选）
+2. **Ctrl+Enter 组合键**
+3. **查找隐藏的 submit 按钮**（`display:none` 或 `visibility:hidden`）
+
+### 12.4 跨域 LLM 端点识别
+
+综合判断 LLM API 端点（路径 + 方法 + body + 响应类型）：
+- **路径关键词**：`/chat/completions`、`/v1/chat`、`/api/chat`、`/message`
+- **请求方法**：POST
+- **body 字段**：`messages`、`model`、`stream`
+- **响应类型**：`text/event-stream` (SSE) 或 `application/json`
+
+### 12.5 RAG 知识库引用识别
+
+- **RAG 端点检测**：路径含 `embeddings`、`knowledge`、`rag`、`kb`
+- **引用记录 API**：`GET /v0/chat/record/{id}/citationRecords` → 确认 RAG 知识库
+
+### 12.6 诊断报告关键字段
+
+| 字段 | 说明 | 用途 |
+|------|------|------|
+| `auth_success` | 认证是否成功 | 判断凭据有效性 |
+| `chat_input_selector` | 聊天输入框选择器 | 回写到配置文件供攻击使用 |
+| `llm_endpoints` | 发现的 LLM API 端点 | 攻击目标定位 |
+| `model_name` | 探测到的模型名 | 模型特定载荷选择 |
+| `app_type` | 应用类型（Chat/Agent/RAG/Playground） | 攻击策略选择 |
+| `storage_state` | 浏览器状态文件路径 | 凭据复用 |
+
+## 13. 相关文档
+
+- [架构设计](./ARCHITECTURE.md) — 框架整体架构 v3.7.1（含 Pipeline 流程设计）
+- [开发规范](./DEVELOPMENT.md) — 开发规范 v3.7.1（含深度优化实现规范）
+- [架构审查报告](./architecture_review.md) — L5 成熟度审查报告
+- [离线安装指南](./OFFLINE_INSTALL.md) — 离线环境安装配置

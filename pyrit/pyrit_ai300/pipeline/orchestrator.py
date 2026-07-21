@@ -290,6 +290,7 @@ class PipelineOrchestrator:
             phase_result = self._run_attack_phase(
                 target_url=resolved_target,
                 target_file=target_file,
+                spa_config=spa_config,
                 scope=scope,
                 profile_path=result.profile_path,
                 credential_resolution=result.credential_resolution,
@@ -840,6 +841,7 @@ class PipelineOrchestrator:
         scorer_url: Optional[str],
         scorer_key: Optional[str],
         scorer_model: Optional[str],
+        spa_config: Optional[str] = None,
     ) -> PhaseResult:
         """
         阶段 3：攻击
@@ -848,6 +850,10 @@ class PipelineOrchestrator:
         - 侦察画像驱动：REV-1 载荷过滤 + REV-2 ASR 排序
         - 凭据注入：有效凭据注入到 OpenAIChatTarget（api_key）或 HTTPTarget（Authorization 头）
         - PyRIT 原生攻击策略：Smart Match / Crescendo / TAP / Sequential
+        - 目标类型一致性：SPA 目标始终使用 spa_chat 类型，不回退到 LLM API 配置
+
+        修复 bug：之前 target_file 为 None 时默认使用 llm_api_target.yaml，
+        导致 SPA 目标被当作 LLM API 处理（Model: llama3.2:latest, Endpoint: localhost:11434）
         """
         start = time.time()
         self._print_phase_start("⚔️ 攻击", f"{target_url} | scope={scope}")
@@ -858,8 +864,17 @@ class PipelineOrchestrator:
 
             tracker = PipelineTracker(verbose=self.verbose)
 
-            # 构建 AI300Engine
-            target_cfg = target_file or "config/targets/llm_api_target.yaml"
+            # 根据目标类型选择正确的配置文件
+            # SPA 目标 → spa_config 或 spa_target.yaml（使用 PlaywrightTarget）
+            # API 目标 → target_file 或 llm_api_target.yaml（使用 OpenAIChatTarget）
+            target_type = self._detect_target_type(target_url, spa_config)
+            if target_type == "spa":
+                target_cfg = spa_config or "config/targets/spa_target.yaml"
+                logger.info("Attack phase: SPA target detected, using config: %s", target_cfg)
+            else:
+                target_cfg = target_file or "config/targets/llm_api_target.yaml"
+                logger.info("Attack phase: API target detected, using config: %s", target_cfg)
+
             engine = AI300Engine(
                 target_config=target_cfg,
                 tracker=tracker,

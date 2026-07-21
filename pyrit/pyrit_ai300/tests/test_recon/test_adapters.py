@@ -59,7 +59,7 @@ class TestGarakAdapter(unittest.TestCase):
         """测试 probe → OWASP 映射"""
         self.assertEqual(PROBE_OWASP_MAP["promptinject"], "LLM01")
         self.assertEqual(PROBE_OWASP_MAP["dan"], "LLM01")
-        self.assertEqual(PROBE_OWASP_MAP["malgen"], "LLM06")
+        self.assertEqual(PROBE_OWASP_MAP["malgen"], "LLM02")
         self.assertEqual(PROBE_OWASP_MAP["hallucination"], "LLM09")
         self.assertEqual(PROBE_OWASP_MAP["misinformation"], "LLM08")
         self.assertEqual(PROBE_OWASP_MAP["toxicity"], "LLM03")

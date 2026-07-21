@@ -850,7 +850,7 @@ ai300 owasp llm --target-file config/targets/llm_api_target.yaml
 ai300 owasp all --target-file config/targets/llm_api_target.yaml \
   --format html -o report.html \
   --scorer-url https://open.bigmodel.cn/api/paas/v4 \
-  --scorer-key $ZHIPUAI_API_KEY \
+  --scorer-key $SCORES_API_KEY \
   --scorer-model glm-4-flash
 
 # 生成报告
@@ -920,4 +920,118 @@ ai300 report -r results.json -o report.md
 | archive/early_pliny/ | 15 | 针对 2023-2024 早期模型 |
 | archive/legacy/ | 52 | 2022-2023 经典角色扮演 |
 | **合计** | **90** | ASR < 10% |
+
+## 15. Pipeline 全链路流程设计（v3.7.1 整合）
+
+> 本节整合自 pipeline_orchestration.md、pipeline_attack_flow.md、pipeline_recon_flow.md（已归并）
+
+### 15.1 全链路编排架构
+
+```
+CLI (ai300 pipeline)
+  └── PipelineOrchestrator
+        ├── CredentialManager    → 凭据发现/验证/注入
+        ├── ReconEngine          → AIMAP/Garak/DeepTeam 并行侦察
+        ├── AI300Engine          → PyRIT 攻击执行
+        └── ReportGenerator      → CVSS+ATLAS+Mermaid+ROI 报告
+```
+
+### 15.2 执行阶段
+
+| 阶段 | 名称 | 说明 | 可跳过 |
+|------|------|------|--------|
+| credential | 凭据检查 | 从 credentials/ 发现并验证凭据 | 是 |
+| recon | 侦察 | AIMAP/Garak/DeepTeam 并行执行 | 是（`--profile`） |
+| attack | 攻击 | PyRIT OWASP 标准攻击 | 是（`--recon-only`） |
+| report | 报告 | CVSS+ATLAS+Mermaid+ROI | 是 |
+
+### 15.3 攻击流水线全局流程
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        AI-300 Attack Pipeline                        │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Recon Phase]     侦察阶段（可选，--auto-recon / --profile）        │
+│       ▼                                                              │
+│  [Profile Load]    TargetProfile 加载 → ProfileParams                │
+│       ▼                                                              │
+│  [Payload Load]    YAML 载荷加载 → 归一化 → 去重(P3-J)               │
+│       ▼                                                              │
+│  [Classify]        PayloadClassifier → PayloadProfile                │
+│       ▼                                                              │
+│  [Converter Select] SmartMatcher.select_converters_for_payload(P0-A) │
+│       ▼                                                              │
+│  [Strategy Select]  SmartMatcher.select_strategy（两层选择）          │
+│       ▼                                                              │
+│  [Fallback Enrich]  _enrich_fallback_chain_with_converters(P0-B)     │
+│       ▼                                                              │
+│  [Scorer Select]    ScorerBuilder → ASI 感知评分器                   │
+│       ▼                                                              │
+│  [Execute]          PyRIT 原生攻击执行 + Fallback + 早停(P1-E)        │
+│       ▼                                                              │
+│  [Scoring]          评分器判定 → bypass / blocked                    │
+│       ▼                                                              │
+│  [Best Combos]      _compute_best_combinations(P0-C)                 │
+│       ▼                                                              │
+│  [Feedback Loop]    FeedbackAnalyzer → generate_mutations(P1-F)      │
+│       ▼                                                              │
+│  [Full Report]      PipelineTracker.show_full_report()               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 15.4 侦察流水线并发架构
+
+```
+  [recon_start]  target=http://localhost:11434/v1  tools=protocol_fingerprint,garak,deepteam
+
+                    │  ThreadPoolExecutor (max_workers=3)
+                    │  并发执行，as_completed() 逐个返回
+                    │
+         ┌──────────┴──────────┐
+         │                     │
+    ┌────▼────┐          ┌─────▼─────┐          ┌─────────────┐
+    │Protocol │          │  Garak    │          │  DeepTeam   │
+    │Fingerprint         │  Adapter  │          │  Adapter    │
+    │Adapter  │          │           │          │             │
+    │─────────│          │───────────│          │─────────────│
+    │~30s     │          │~1-3min    │          │~2-5min      │
+    └────┬────┘          └─────┬─────┘          └──────┬──────┘
+         │                     │                       │
+         ▼                     ▼                       ▼
+    [Fingerprint]         [Probe Results]         [Vuln Results]
+```
+
+### 15.5 凭据注入策略
+
+| 目标工具 | 注入方式 | 代码位置 |
+|----------|----------|----------|
+| Garak | `OPENAI_API_KEY` 环境变量 | `garak/adapter.py` |
+| DeepTeam | `base_headers` 请求头 | `deepteam/adapter.py` |
+| PyRIT OpenAIChatTarget | `api_key` 构造参数 | `target_builder.py` |
+| PyRIT HTTPTarget | `Authorization` 头 | `target_builder.py` |
+| PlaywrightTarget | `inject_auth()` 注入 | `playwright_injector.py` |
+
+### 15.6 凭据管理设计原则
+
+1. **域名隔离**：域名 A 只读取 A 的凭据文件，绝不交叉读取
+2. **JWT 缓冲**：Token 预留 5 分钟缓冲，临界过期视为已过期
+3. **优先复用**：有效凭据直接使用，避免重复登录
+4. **自动导出**：认证成功后凭据自动导出到 `credentials/` 目录
+
+### 15.7 CLI 使用示例
+
+```bash
+# 全链路执行（LLM API 目标）
+ai300 pipeline --target-url http://localhost:11434 --scope all
+
+# 全链路执行（SPA 智能助手目标，含认证）
+ai300 pipeline --spa-config config/targets/spa_target.yaml --scope llm01
+
+# 仅执行侦察阶段
+ai300 pipeline --target-url http://target.com --recon-only
+
+# 跳过侦察，直接攻击（使用已有画像）
+ai300 pipeline --target-url http://target.com --scope llm01 \
+  --profile results/recon/profile.json
+```
 

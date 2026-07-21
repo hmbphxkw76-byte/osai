@@ -1,7 +1,7 @@
 # AI-300 Red Teaming Framework - Makefile
 # OffSec AI-300 (OSAI+) Exam-Aligned Scanner
 
-.PHONY: help install install-dev test lint format clean run list report docs check
+.PHONY: help install install-dev test test-cov test-cov-gate test-cov-xml lint format clean run list report docs check
 
 # Default target
 help: ## Show this help message
@@ -90,6 +90,13 @@ test: ## Run unit tests
 
 test-cov: ## Run tests with coverage report
 	python -m pytest pyrit_ai300/tests/ -v --tb=short --cov=pyrit_ai300 --cov-report=html --cov-report=term-missing
+
+test-cov-gate: ## Run tests with coverage gate (CI, fail under 80%)
+	python -m pytest pyrit_ai300/tests/ -v --tb=short --cov=pyrit_ai300 --cov-report=term --cov-report=xml --cov-fail-under=80
+	@echo "[OK] Coverage gate passed (>=80%)"
+
+test-cov-xml: ## Generate coverage XML for CI
+	python -m pytest pyrit_ai300/tests/ -q --tb=no --cov=pyrit_ai300 --cov-report=xml --cov-report=term-missing
 
 test-module: ## Run specific test module (usage: make test-module MODULE=test_framework)
 	python -m pytest pyrit_ai300/tests/$(MODULE).py -v --tb=short

@@ -87,7 +87,7 @@ Examples:
   ai300 owasp all --target-file config/targets/llm_api_target.yaml \\
     --format html -o report.html \\
     --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
-    --scorer-key $ZHIPUAI_API_KEY \\
+    --scorer-key $SCORES_API_KEY \\
     --scorer-model glm-4-flash
 
   # 侦察→攻击闭环（画像驱动载荷过滤 + ASR 排序）
@@ -202,13 +202,13 @@ Examples:
         "--scorer-key",
         default=None,
         help="外部评分 LLM 的 API Key（如智谱 GLM 的 API Key）。"
-             "也可通过环境变量 SCORER_API_KEY 设置",
+             "也可通过环境变量 SCORES_API_KEY 设置",
     )
     owasp_optional.add_argument(
         "--scorer-model",
         default=None,
         help="外部评分 LLM 的模型名称（如 glm-4-flash）。"
-             "也可通过环境变量 SCORER_MODEL_NAME 设置",
+             "也可通过环境变量 SCORES_MODEL_NAME 设置",
     )
     owasp_optional.add_argument(
         "-v", "--verbose",
@@ -335,7 +335,7 @@ Examples:
   # 使用外部评分器
   ai300 pipeline --target-url http://target.com --scope all \\
     --scorer-url https://open.bigmodel.cn/api/paas/v4 \\
-    --scorer-key $ZHIPUAI_API_KEY --scorer-model glm-4-flash""",
+    --scorer-key $SCORES_API_KEY --scorer-model glm-4-flash""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     pipeline_target = pipeline_parser.add_argument_group("target specification (required, at least one)")
@@ -2027,7 +2027,7 @@ def _list_components(args, logger):
             print(f"    覆盖类别: {cats}")
         except Exception:
             print(f"    (配置加载失败)")
-        print(f"\nDefault LLM Backend: local_ollama (qwen3:0.6b @ http://localhost:11434/v1)")
+        print(f"\nDefault LLM Backend: local_provider (qwen3:0.6b @ http://localhost:11434/v1)")
         print(f"Override with: --scorer-url / --scorer-key / --scorer-model")
     
     elif args.component == "targets":
@@ -2285,6 +2285,49 @@ def _run_recon(args, logger):
     from pyrit_ai300.reconnaissance import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
 
+    # ── 智能检测：用户可能用 -t/--target 传入了 YAML 文件路径 ──
+    # 若 target 以 .yaml/.yml 结尾且文件存在，自动重定向到正确的参数。
+    _target_raw = getattr(args, "target", None)
+    if _target_raw:
+        _url_val = str(_target_raw).replace("\\", "/").lower()
+        if _url_val.endswith(".yaml") or _url_val.endswith(".yml"):
+            from pathlib import Path
+            _candidate = Path(_target_raw)
+            if _candidate.exists():
+                _is_spa = False
+                try:
+                    import yaml as _yaml
+                    with open(_candidate, "r", encoding="utf-8") as _f:
+                        _data = _yaml.safe_load(_f) or {}
+                    _tgt = _data.get("target", {}) if isinstance(_data, dict) else {}
+                    if isinstance(_tgt, dict) and (
+                        "auth_mode" in _tgt
+                        or str(_tgt.get("url", "")).startswith("${SPA_")
+                    ):
+                        _is_spa = True
+                except Exception:
+                    _is_spa = "spa" in _candidate.stem.lower()
+
+                if _is_spa and not getattr(args, "spa_config", None):
+                    args.spa_config = _target_raw
+                    args.target = None
+                    logger.info(
+                        "检测到 -t 传入的是 SPA 配置文件，已自动重定向到 --spa-config: %s",
+                        args.spa_config,
+                    )
+                elif not _is_spa and not getattr(args, "target_file", None):
+                    args.target_file = _target_raw
+                    args.target = None
+                    logger.info(
+                        "检测到 -t 传入的是目标配置文件，已自动重定向到 --target-file: %s",
+                        args.target_file,
+                    )
+            else:
+                logger.warning(
+                    "-t/--target 值以 .yaml 结尾但文件不存在: %s，将按 URL 处理",
+                    _target_raw,
+                )
+
     # ── SPA 智能助手侦察模式 ──
     spa_config = getattr(args, "spa_config", None)
     if spa_config:
@@ -2383,6 +2426,52 @@ def _run_pipeline(args, logger):
         print("  --target-file YAML     Target config file")
         print("  --spa-config YAML      SPA chat recon config")
         return
+
+    # ── 智能检测：用户可能用 -t/--target-url 传入了 YAML 文件路径 ──
+    # -t 是最常用的短选项，用户常误用它来指定目标配置文件而非 URL。
+    # 若 target_url 以 .yaml/.yml 结尾且文件存在，自动重定向到正确的参数。
+    if args.target_url:
+        url_val = str(args.target_url).replace("\\", "/").lower()
+        if url_val.endswith(".yaml") or url_val.endswith(".yml"):
+            from pathlib import Path
+            candidate = Path(args.target_url)
+            if candidate.exists():
+                # 读取 YAML 内容判断目标类型
+                is_spa = False
+                try:
+                    import yaml as _yaml
+                    with open(candidate, "r", encoding="utf-8") as _f:
+                        _data = _yaml.safe_load(_f) or {}
+                    _tgt = _data.get("target", {}) if isinstance(_data, dict) else {}
+                    # SPA 配置特征：有 auth_mode 字段，或 url 值含 ${SPA_ 环境变量占位符
+                    if isinstance(_tgt, dict) and (
+                        "auth_mode" in _tgt
+                        or str(_tgt.get("url", "")).startswith("${SPA_")
+                    ):
+                        is_spa = True
+                except Exception:
+                    # 无法读取时按文件名启发式判断
+                    is_spa = "spa" in candidate.stem.lower()
+
+                if is_spa and not args.spa_config:
+                    args.spa_config = args.target_url
+                    args.target_url = None
+                    logger.info(
+                        "检测到 -t 传入的是 SPA 配置文件，已自动重定向到 --spa-config: %s",
+                        args.spa_config,
+                    )
+                elif not is_spa and not args.target_file:
+                    args.target_file = args.target_url
+                    args.target_url = None
+                    logger.info(
+                        "检测到 -t 传入的是目标配置文件，已自动重定向到 --target-file: %s",
+                        args.target_file,
+                    )
+            else:
+                logger.warning(
+                    "-t/--target-url 值以 .yaml 结尾但文件不存在: %s，将按 URL 处理",
+                    args.target_url,
+                )
 
     # 解析占位符
     placeholders = _parse_placeholders(args.placeholders) if args.placeholders else None

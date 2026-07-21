@@ -158,7 +158,7 @@ cp .env.example .env
 #    SPA_PASSWORD=your_password
 #    LLM_API_KEY=not-needed          # Ollama 填 not-needed，云端填 sk-xxx
 #    HTTP_API_TOKEN=your_token
-#    ZHIPUAI_API_KEY=your_key
+#    SCORES_API_KEY=your_key
 
 # 3. 在 YAML 配置中通过 ${VAR} 引用（框架自动替换）
 #    username: "${SPA_USERNAME}"

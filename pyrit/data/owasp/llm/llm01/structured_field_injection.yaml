@@ -12,7 +12,7 @@ name: "Prompt Injection"
 
 owasp: LLM01
 technique_group: structured_field_injection
-description: "结构化字段注入载荷 — YAML/JSON/XML数据字段嵌入恶意指令
+description: "结构化字段注入载荷 — YAML/JSON/XML数据字段嵌入恶意指令"
 payloads:
   - technique: yaml_field_injection
     name: "YAML字段注入"

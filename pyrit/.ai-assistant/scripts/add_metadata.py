@@ -65,7 +65,7 @@ MAPPING = {
     "llm/llm08/adversarial_embedding.yaml": {"surfaces": ["embedding"], "ai300_chapters": ["Ch6"]},
     "llm/llm08/vector_weakness.yaml": {"surfaces": ["rag", "embedding"], "ai300_chapters": ["Ch5"]},
     "llm/llm08/cve_2026_45829_chromadb_rce.yaml": {"surfaces": ["rag", "embedding"], "ai300_chapters": ["Ch5"]},
-    "llm/llm08/embedding_verify.yaml": {"surfaces": ["embedding"], "ai300_chapters": ["Ch6"]},
+    "llm/llm08/_embedding_verify.yaml": {"surfaces": ["embedding"], "ai300_chapters": ["Ch6"]},
     "llm/llm09/hallucination_exploitation.yaml": {"surfaces": ["agent", "rag"], "ai300_chapters": ["Ch3"]},
     "llm/llm09/deepfake_social_engineering.yaml": {"surfaces": ["agent"], "ai300_chapters": ["Ch3"]},
     "llm/llm09/misinformation.yaml": {"surfaces": ["agent", "rag"], "ai300_chapters": ["Ch5"]},

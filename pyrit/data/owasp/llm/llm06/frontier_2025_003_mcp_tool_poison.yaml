@@ -25,7 +25,7 @@ frontier:
 
 owasp: LLM06
 technique_group: mcp_tool_poisoning
-description: "MCP 工具投毒 — 恶意工具注册 → 诱导调用 → 未授权操作/数据窃取
+description: "MCP 工具投毒 — 恶意工具注册 → 诱导调用 → 未授权操作/数据窃取"
 payloads:
   # ── 基础：直接工具调用滥用 ──
   - technique: tool_invocation

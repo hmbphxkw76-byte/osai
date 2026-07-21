@@ -62,6 +62,10 @@ setup_windows_utf8()
 from .utils.env_loader import load_dotenv, resolve_env_vars
 load_dotenv()
 
+# L5: 结构化日志初始化（JSON/TEXT 双模式，通过 AI300_LOG_FORMAT 环境变量切换）
+from .utils.structured_log import setup_structured_logging
+setup_structured_logging()
+
 import logging
 from typing import Any, Dict, Optional
 
@@ -159,10 +163,24 @@ class AI300Engine:
             logger.info("Loaded target profile from %s", profile_path)
 
             # 侦察驱动：用侦察发现的 endpoint 覆盖 target_config
+            # 但不能覆盖 SPA 目标 — SPA 目标需要保持浏览器自动化模式
+            # （PlaywrightTarget），不能切换为 LLM API 模式（OpenAIChatTarget）
             profile_endpoint = self._profile_params.get("target_endpoint")
             if profile_endpoint:
-                self._target_url = profile_endpoint
-                logger.info("Recon-driven target endpoint: %s", profile_endpoint)
+                from .pipeline.orchestrator import PipelineOrchestrator
+                _original_type = PipelineOrchestrator._detect_target_type(
+                    self._target_url or "", None
+                )
+                if _original_type == "spa":
+                    # SPA 目标：保持 SPA URL 不被 LLM endpoint 覆盖
+                    logger.info(
+                        "Recon found LLM endpoint '%s' but target is SPA, "
+                        "keeping SPA URL: %s",
+                        profile_endpoint, self._target_url,
+                    )
+                else:
+                    self._target_url = profile_endpoint
+                    logger.info("Recon-driven target endpoint: %s", profile_endpoint)
 
             # 记录画像加载（tracker）
             if self.tracker and hasattr(self.tracker, 'log_profile_loaded'):
@@ -361,47 +379,19 @@ class AI300Engine:
         2. 侦察画像中的 endpoint（profile_params）
         3. target_config.yaml 文件（默认）
 
+        目标类型一致性保障：
+        - SPA URL（含 #/、公网域名等）→ type=spa_chat, connection.url
+        - API URL（localhost、已知端口等）→ type=ollama/openai, connection.endpoint
+        - 侦察发现的 model 可安全覆盖（不影响目标类型）
+        - 侦察发现的 endpoint 不覆盖 SPA 目标（保持 PlaywrightTarget）
+
         Returns:
             目标配置字典
         """
         # 加载基础配置
         target_cfg = AttackOrchestrator.load_yaml(self.target_config)
 
-        # 侦察驱动：覆盖 endpoint 和 model
-        if self._profile_params:
-            profile_endpoint = self._profile_params.get("target_endpoint")
-            profile_model = self._profile_params.get("target_model")
-            if profile_endpoint or profile_model:
-                if "target" not in target_cfg:
-                    target_cfg["target"] = {}
-                if "connection" not in target_cfg["target"]:
-                    target_cfg["target"]["connection"] = {}
-                if profile_endpoint:
-                    target_cfg["target"]["connection"]["endpoint"] = profile_endpoint
-                    logger.info("Recon-driven endpoint: %s", profile_endpoint)
-                if profile_model:
-                    target_cfg["target"]["connection"]["model"] = profile_model
-                    logger.info("Recon-driven model: %s", profile_model)
-
-        # CLI --target-url 最高优先级
-        if self._target_url:
-            if "target" not in target_cfg:
-                target_cfg["target"] = {}
-            if "connection" not in target_cfg["target"]:
-                target_cfg["target"]["connection"] = {}
-            target_cfg["target"]["connection"]["endpoint"] = self._target_url
-            logger.info("CLI target-url override: %s", self._target_url)
-
-        # CLI --model 覆盖模型名
-        if self._model:
-            if "target" not in target_cfg:
-                target_cfg["target"] = {}
-            if "connection" not in target_cfg["target"]:
-                target_cfg["target"]["connection"] = {}
-            target_cfg["target"]["connection"]["model"] = self._model
-            logger.info("CLI model override: %s", self._model)
-
-        # ── 极简格式归一化 ──
+        # ── 极简格式归一化（先归一化，再覆盖，避免提前创建 connection 阻止归一化）──
         # 支持三种极简格式（无 target.connection 层，字段直接放在 target 下）：
         #   1. spa_target.yaml  → target.url 存在
         #   2. llm_api_target.yaml → target.endpoint 存在（ollama/openai）
@@ -453,6 +443,56 @@ class AI300Engine:
                     "use_tls": target_data.get("use_tls", True),
                 }
                 logger.info("Normalized minimal http_target.yaml format → standard format")
+
+        # ── 侦察驱动覆盖（仅 model，不覆盖 endpoint 以保护 SPA 目标类型）──
+        if self._profile_params:
+            profile_model = self._profile_params.get("target_model")
+            if profile_model:
+                if "target" not in target_cfg:
+                    target_cfg["target"] = {}
+                if "connection" not in target_cfg["target"]:
+                    target_cfg["target"]["connection"] = {}
+                target_cfg["target"]["connection"]["model"] = profile_model
+                logger.info("Recon-driven model: %s", profile_model)
+
+        # ── CLI --target-url 最高优先级（根据类型设置正确的 type 和 connection）──
+        if self._target_url:
+            from .pipeline.orchestrator import PipelineOrchestrator
+            _url_type = PipelineOrchestrator._detect_target_type(self._target_url, None)
+
+            if "target" not in target_cfg:
+                target_cfg["target"] = {}
+            if "connection" not in target_cfg["target"]:
+                target_cfg["target"]["connection"] = {}
+
+            if _url_type == "spa":
+                # SPA 目标：设置 type=spa_chat 和 connection.url
+                target_cfg["target"]["type"] = "spa_chat"
+                target_cfg["target"]["connection"]["url"] = self._target_url
+                _conn = target_cfg["target"]["connection"]
+                _conn.setdefault("browser", "chromium")
+                _conn.setdefault("headless", True)
+                _conn.setdefault("wait_until", "networkidle")
+                _conn.setdefault("ignore_https_errors", True)
+                logger.info("CLI target-url (SPA): %s → type=spa_chat", self._target_url)
+            else:
+                # API 目标：设置 type=ollama（如未设置）和 connection.endpoint
+                if "type" not in target_cfg["target"]:
+                    target_cfg["target"]["type"] = "ollama"
+                target_cfg["target"]["connection"]["endpoint"] = self._target_url
+                logger.info(
+                    "CLI target-url (API): %s → type=%s",
+                    self._target_url, target_cfg["target"]["type"],
+                )
+
+        # ── CLI --model 覆盖模型名 ──
+        if self._model:
+            if "target" not in target_cfg:
+                target_cfg["target"] = {}
+            if "connection" not in target_cfg["target"]:
+                target_cfg["target"]["connection"] = {}
+            target_cfg["target"]["connection"]["model"] = self._model
+            logger.info("CLI model override: %s", self._model)
 
         return target_cfg
 

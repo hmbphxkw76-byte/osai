@@ -2,29 +2,34 @@
 # LLM API 目标（Ollama 本地 / OpenAI 兼容云端平台）
 # ════════════════════════════════════════════════════════════════
 #
-# 用户只需修改下方 4 个字段，其余由系统自动处理。
-# 敏感信息（API Key）通过 .env 环境变量注入，避免硬编码泄露。
+# 全部字段通过 .env 环境变量注入（带默认值），本文件通常无需修改。
+# 仅 type 硬编码（ollama/openai 二选一，两者均构建 OpenAIChatTarget）。
+#
+# 变量说明（统一 ${LLM_API_*} 风格，见 .env.example）：
+#   ${LLM_API_ENDPOINT}  — 模型服务地址（默认 http://192.168.0.23:11434/v1）
+#   ${LLM_API_MODEL}     — 模型名称（默认 qwen3:0.6b）
+#   ${LLM_API_KEY}       — API Key（Ollama 填 not-needed，云端填 sk-xxx）
 #
 # type 取值：
 #   ollama → 本地模型节点（Ollama / LM Studio / vLLM），通常无需认证
 #   openai → 云端 OpenAI 兼容平台（智谱/百度/DeepSeek/Moonshot/MiniMax 等）
 #
 # 使用方式：
-#   1. 复制 .env.example 为 .env，填入 LLM_API_KEY
-#   2. 修改下方 type / endpoint / model
+#   1. 复制 .env.example 为 .env
+#   2. 修改 .env 中的 LLM_API_ENDPOINT / LLM_API_MODEL / LLM_API_KEY
 #   3. 运行：ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
 #
-# 各平台速查表（修改下方字段即可切换）：
-#   智谱 GLM:    type=openai  endpoint="https://open.bigmodel.cn/api/paas/v4"  model="glm-4-flash"
-#   百度文心:    type=openai  endpoint="https://qianfan.baidubce.com/v2"       model="ernie-speed-128"
-#   DeepSeek:    type=openai  endpoint="https://api.deepseek.com/v1"           model="deepseek-chat"
-#   Moonshot:    type=openai  endpoint="https://api.moonshot.cn/v1"             model="moonshot-v1-8k"
-#   MiniMax:     type=openai  endpoint="https://api.minimax.chat/v1"            model="abab6.5-chat"
-#   Ollama 本地: type=ollama  endpoint="http://192.168.0.23:11434/v1"           model="qwen3:0.6b"
+# 各平台速查表（修改 .env 中对应变量即可切换）：
+#   智谱 GLM:    type=openai  LLM_API_ENDPOINT=https://open.bigmodel.cn/api/paas/v4  LLM_API_MODEL=glm-4-flash
+#   百度文心:    type=openai  LLM_API_ENDPOINT=https://qianfan.baidubce.com/v2       LLM_API_MODEL=ernie-speed-128
+#   DeepSeek:    type=openai  LLM_API_ENDPOINT=https://api.deepseek.com/v1           LLM_API_MODEL=deepseek-chat
+#   Moonshot:    type=openai  LLM_API_ENDPOINT=https://api.moonshot.cn/v1             LLM_API_MODEL=moonshot-v1-8k
+#   MiniMax:     type=openai  LLM_API_ENDPOINT=https://api.minimax.chat/v1            LLM_API_MODEL=abab6.5-chat
+#   Ollama 本地: type=ollama  LLM_API_ENDPOINT=http://192.168.0.23:11434/v1           LLM_API_MODEL=qwen3:0.6b
 # ════════════════════════════════════════════════════════════════
 
 target:
-  type: "ollama"                              # ollama / openai
-  endpoint: "http://192.168.0.23:11434/v1"    # 必须含 /v1 路径
-  model: "qwen3:0.6b"                         # ollama list 查看，或平台控制台获取
-  api_key: "${LLM_API_KEY}"                   # 从 .env 读取；Ollama 填 not-needed，云端填 sk-xxx
+  type: "ollama"  # ollama / openai（仅标签，两者均构建 OpenAIChatTarget）
+  endpoint: "${LLM_API_ENDPOINT:-http://192.168.0.23:11434/v1}"  # 必须含 /v1 路径
+  model: "${LLM_API_MODEL:-qwen3:0.6b}"  # ollama list / 平台控制台
+  api_key: "${LLM_API_KEY}"  # Ollama=not-needed，云端=sk-xxx

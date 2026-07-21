@@ -212,7 +212,7 @@ class PayloadMutator:
 
     使用方式：
         # 1. 从后端配置创建
-        mutator = PayloadMutator.from_backend_config(backends, "local_ollama")
+        mutator = PayloadMutator.from_backend_config(backends, "local_provider")
 
         # 2. 从已有 target 创建
         mutator = PayloadMutator(llm_target=target)
@@ -254,7 +254,7 @@ class PayloadMutator:
     def from_backend_config(
         cls,
         backends: Dict[str, Any],
-        backend_name: str = "local_ollama",
+        backend_name: str = "local_provider",
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         variant_count: int = DEFAULT_VARIANT_COUNT,

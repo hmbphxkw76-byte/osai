@@ -173,7 +173,7 @@ class PayloadFilter:
             surfaces: 目标可用攻击面列表（来自 TargetProfile.surfaces）
 
         Returns:
-            True 表示应跳过此攻击，False 表示保留
+            bool: True 表示应跳过此攻击，False 表示保留
         """
         self._filter_stats["total_attacks"] += 1
 
@@ -218,7 +218,7 @@ class PayloadFilter:
             surfaces: 目标可用攻击面列表
 
         Returns:
-            过滤后的攻击列表
+            List[Dict]: 过滤后的攻击列表
         """
         if not surfaces:
             return attacks
@@ -261,7 +261,7 @@ class PayloadFilter:
             context_window: 目标模型上下文窗口大小
 
         Returns:
-            过滤后的载荷列表
+            List[Any]: 过滤后的载荷列表
         """
         if not context_window or context_window <= 0:
             return payloads
@@ -308,7 +308,7 @@ class PayloadFilter:
             capabilities: 目标模型支持的能力列表
 
         Returns:
-            过滤后的载荷列表
+            List[Any]: 过滤后的载荷列表
         """
         if not capabilities:
             return payloads
@@ -358,7 +358,7 @@ class PayloadFilter:
             profile_params: 侦察画像参数（来自 ProfileLoader）
 
         Returns:
-            过滤后的载荷列表
+            List[Any]: 过滤后的载荷列表
         """
         if not profile_params:
             return payloads
@@ -406,7 +406,11 @@ class PayloadFilter:
         return filtered
 
     def get_filter_report(self) -> Dict[str, Any]:
-        """生成过滤报告（供 tracker 使用）"""
+        """生成过滤报告（供 tracker 使用）
+
+        Returns:
+            Dict[str, Any]: 过滤统计和总过滤数
+        """
         return {
             "filter_stats": dict(self._filter_stats),
             "total_filtered": (

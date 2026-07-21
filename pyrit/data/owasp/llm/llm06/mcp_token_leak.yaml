@@ -12,7 +12,7 @@ name: "Sensitive Information Disclosure"
 
 owasp: LLM06
 technique_group: mcp_token_leak
-description: "MCP Token 泄露检测载荷 — 工具参数/错误消息/请求头/调试信息
+description: "MCP Token 泄露检测载荷 — 工具参数/错误消息/请求头/调试信息"
 payloads:
   - technique: mcp_token_in_params
     name: "工具参数Token泄露"

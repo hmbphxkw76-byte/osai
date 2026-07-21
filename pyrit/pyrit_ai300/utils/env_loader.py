@@ -55,7 +55,7 @@ def load_dotenv(env_file: Optional[str] = None) -> bool:
         env_file: .env 文件路径。为 None 时自动查找项目根目录的 .env
 
     Returns:
-        是否成功加载
+        bool: 是否成功加载
     """
     global _dotenv_loaded
     if _dotenv_loaded and env_file is None:
@@ -132,7 +132,7 @@ def get_env(key: str, default: str = "") -> str:
         default: 默认值（变量未设置时返回）
 
     Returns:
-        环境变量值或默认值
+        str: 环境变量值或默认值
     """
     if not _dotenv_loaded:
         load_dotenv()
@@ -153,7 +153,7 @@ def resolve_env_vars(obj: Any) -> Any:
         obj: 任意 Python 对象（通常从 yaml.safe_load 返回）
 
     Returns:
-        替换后的对象
+        Any: 替换后的对象（类型与输入一致）
 
     示例：
         >>> config = {"api_key": "${LLM_API_KEY}", "nested": {"url": "${BASE_URL}"}}
@@ -207,7 +207,7 @@ def resolve_env_in_text(text: str) -> str:
         text: 原始文本
 
     Returns:
-        替换后的文本
+        str: 替换后的文本
     """
     if not _dotenv_loaded:
         load_dotenv()
