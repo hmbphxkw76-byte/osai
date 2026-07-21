@@ -1407,6 +1407,7 @@ class AttackOrchestrator:
                 "scorers": scorer_configs,
                 "asi_category": data.get("id", ""),
                 "target_model": target_model,
+                "_surface_filtered": True,  # REV-1 已在此处过滤，execute_attack 无需重复
             })
 
         if skipped_by_filter:

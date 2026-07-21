@@ -244,20 +244,45 @@ class GarakAdapter(BaseAdapter):
 
             # ── 凭据注入：从 credentials/ 目录注入认证信息 ──
             # 最佳实践：优先复用已有凭据，确保侦察阶段成功率
+            # 偏差④修复：改进 Cookie 认证处理 — 提取 Bearer + 清晰日志 + 优雅降级
             credential_headers = config.get("credential_headers", {})
             credential_bearer = config.get("credential_bearer", "")
+            auth_method = "none"
             if credential_bearer:
                 env["OPENAI_API_KEY"] = credential_bearer
+                auth_method = "bearer_direct"
                 logger.info("Garak credential: Bearer token injected (%d chars)", len(credential_bearer))
             elif credential_headers.get("Authorization", "").startswith("Bearer "):
                 token = credential_headers["Authorization"][7:].strip()
                 env["OPENAI_API_KEY"] = token
+                auth_method = "bearer_from_header"
                 logger.info("Garak credential: Bearer token from headers (%d chars)", len(token))
             elif credential_headers.get("Cookie"):
-                # Cookie 认证：Garak 的 OpenAI generator 不直接支持 Cookie，
-                # 但可以通过 OPENAI_API_KEY 传递（服务端可能忽略）
-                env["OPENAI_API_KEY"] = credential_headers["Cookie"]
-                logger.info("Garak credential: Cookie injected as API key (fallback)")
+                # ── 偏差④修复：Cookie 认证增强 ──
+                # Garak 的 OpenAI generator 仅支持 Authorization: Bearer <api_key>，
+                # 不原生支持 Cookie 认证。尝试以下策略：
+                # 1. 从 Cookie 中提取 Bearer/JWT token
+                # 2. 提取失败则将 Cookie 作为 API key 传递（服务端可能忽略）
+                cookie_str = credential_headers["Cookie"]
+                extracted_token = self._extract_bearer_from_cookie(cookie_str)
+                if extracted_token:
+                    env["OPENAI_API_KEY"] = extracted_token
+                    auth_method = "bearer_from_cookie"
+                    logger.info(
+                        "Garak credential: Bearer token extracted from Cookie (%d chars)",
+                        len(extracted_token),
+                    )
+                else:
+                    # 无法从 Cookie 提取 Bearer，降级为 Cookie-as-api-key
+                    env["OPENAI_API_KEY"] = cookie_str
+                    auth_method = "cookie_fallback"
+                    logger.warning(
+                        "Garak credential: Cookie-only auth (no Bearer extractable). "
+                        "Using Cookie as OPENAI_API_KEY fallback — "
+                        "this may fail on backends requiring Bearer auth. "
+                        "Cookie length: %d chars",
+                        len(cookie_str),
+                    )
             else:
                 logger.debug("Garak: no credentials to inject")
 
@@ -300,6 +325,7 @@ class GarakAdapter(BaseAdapter):
                 "stdout_tail": result.stdout[-1000:] if result.stdout else "",
                 "depth": depth,
                 "cache_key": cache_key,
+                "auth_method": auth_method,
             }
 
             # ── OPT-G5: 保存缓存 ──
@@ -427,6 +453,58 @@ class GarakAdapter(BaseAdapter):
 
         logger.info("Garak detectors selected: %s", detectors)
         return detectors
+
+    @staticmethod
+    def _extract_bearer_from_cookie(cookie_str: str) -> Optional[str]:
+        """
+        从 Cookie 字符串中提取 Bearer/JWT token（偏差④修复）
+
+        常见模式：
+        - access_token=eyJhbGciOi... (JWT in cookie value)
+        - token=Bearer eyJhbGciOi... (Bearer prefix in cookie value)
+        - Authorization=Bearer%20eyJ... (URL-encoded)
+
+        Args:
+            cookie_str: Cookie 字符串（如 "key1=val1; key2=val2"）
+
+        Returns:
+            提取到的 token 字符串，未找到则返回 None
+        """
+        import re
+
+        if not cookie_str:
+            return None
+
+        # JWT 模式：header.payload.signature（Base64URL）
+        jwt_pattern = r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+
+        # 先尝试从 "Bearer xxx" 模式提取
+        bearer_match = re.search(r"Bearer\s+(eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", cookie_str)
+        if bearer_match:
+            return bearer_match.group(1)
+
+        # 从常见 token cookie 名中提取 JWT
+        token_cookie_names = [
+            "access_token",
+            "id_token",
+            "auth_token",
+            "token",
+            "jwt",
+            "bearer_token",
+        ]
+        for name in token_cookie_names:
+            # 匹配 name=JWT 格式
+            pattern = rf"{name}={({jwt_pattern})}"
+            match = re.search(pattern, cookie_str)
+            if match:
+                return match.group(1)
+
+        # 最后尝试：在 cookie 中查找任何 JWT 模式
+        jwt_match = re.search(jwt_pattern, cookie_str)
+        if jwt_match:
+            return jwt_match.group(0)
+
+        return None
 
     def _build_garak_args(
         self,

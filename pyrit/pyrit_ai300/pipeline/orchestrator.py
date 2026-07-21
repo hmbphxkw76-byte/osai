@@ -655,34 +655,48 @@ class PipelineOrchestrator:
         spa_endpoint = self._extract_spa_llm_endpoint(profile)
         spa_model = self._extract_spa_model_name(profile)
 
-        if spa_endpoint:
-            self._print_info(f"SPA 发现 LLM 端点: {spa_endpoint[:80]}")
-            if spa_model:
-                self._print_info(f"SPA 发现模型: {spa_model}")
-        else:
+        # ── 偏差①修复：SPA 未发现端点时确保 surfaces 填充基础值 ──
+        # 即使未发现后端 LLM 端点，SPA 应用本身也是 prompt 攻击面
+        # 攻击引擎可通过 PlaywrightTarget 直接攻击（不依赖后端 API 端点）
+        if not spa_endpoint:
             self._print_info("SPA 未发现 LLM 端点，跳过 Garak/DeepTeam 侦察")
+            if hasattr(profile, 'surfaces') and not profile.surfaces:
+                profile.surfaces = ["prompt"]
+                logger.info("SPA profile surfaces defaulted to ['prompt'] (no LLM endpoint found)")
+            if hasattr(profile, 'fingerprint') and profile.fingerprint:
+                if not profile.fingerprint.capabilities:
+                    profile.fingerprint.capabilities = ["chat"]
             return profile
+
+        self._print_info(f"SPA 发现 LLM 端点: {spa_endpoint[:80]}")
+        if spa_model:
+            self._print_info(f"SPA 发现模型: {spa_model}")
 
         # ── 步骤 3：Garak + DeepTeam 并行 ──
         self._print_info("启动 Garak + DeepTeam 侦察（使用 SPA 发现的端点）...")
 
         import concurrent.futures
 
+        # ── 偏差②修复：从 SPA profile 构建 aimap_data 传递给 Garak/DeepTeam ──
+        # SPA Recon 已被动发现协议/能力等信息，构建等价 aimap_data
+        # 驱动 OPT-G1 动态 probe 选择和 OPT-D2 Agentic 漏洞触发
+        spa_aimap_data = self._build_aimap_data_from_spa_profile(profile)
+
         # 构建 Garak 配置
         garak_config = engine._get_tool_config("garak")
         garak_config["depth"] = depth
         garak_config["model_name"] = spa_model or "gpt-4o"
         garak_config["model_type"] = "openai"
+        garak_config["aimap_data"] = spa_aimap_data
         # 注入凭据
         if recon_config_extra.get("garak"):
             garak_config.update(recon_config_extra["garak"])
-        # SPA 发现的端点
-        garak_config["spa_discovered_endpoint"] = spa_endpoint
 
         # 构建 DeepTeam 配置
         deepteam_config = engine._get_tool_config("deepteam")
         deepteam_config["depth"] = depth
         deepteam_config["model"] = spa_model or ""
+        deepteam_config["aimap_data"] = spa_aimap_data
         if recon_config_extra.get("deepteam"):
             deepteam_config.update(recon_config_extra["deepteam"])
 
@@ -827,6 +841,72 @@ class PipelineOrchestrator:
                 return model
 
         return None
+
+    @staticmethod
+    def _build_aimap_data_from_spa_profile(profile: Any) -> Dict[str, Any]:
+        """
+        从 SPA 侦察画像构建等价 aimap_data（偏差②修复）
+
+        SPA Recon 已被动发现协议/能力/攻击面等信息，
+        将其转换为 Garak/DeepTeam 适配器期望的 aimap_data 格式，
+        驱动 OPT-G1 动态 probe 选择和 OPT-D2 Agentic 漏洞触发。
+
+        Args:
+            profile: SPA 侦察产出的 TargetProfile
+
+        Returns:
+            aimap_data 字典，包含 detected_protocols / surfaces / capabilities / model_family
+        """
+        aimap_data: Dict[str, Any] = {
+            "detected_protocols": [],
+            "surfaces": [],
+            "capabilities": [],
+            "model_family": "",
+        }
+
+        if not profile:
+            return aimap_data
+
+        # 提取 surfaces
+        if hasattr(profile, 'surfaces') and profile.surfaces:
+            aimap_data["surfaces"] = list(profile.surfaces)
+
+        # 提取 fingerprint 信息
+        if hasattr(profile, 'fingerprint') and profile.fingerprint:
+            fp = profile.fingerprint
+            if hasattr(fp, 'capabilities') and fp.capabilities:
+                aimap_data["capabilities"] = list(fp.capabilities)
+            if hasattr(fp, 'model_family') and fp.model_family:
+                aimap_data["model_family"] = fp.model_family
+
+        # 从 raw_results 提取更多协议信息（SPA traffic_capture 可能发现）
+        if hasattr(profile, 'raw_results') and profile.raw_results:
+            spa_raw = profile.raw_results.get("spa_chat_recon", {})
+            if isinstance(spa_raw, dict):
+                data = spa_raw.get("data", {})
+                if isinstance(data, dict):
+                    # SPA 可能检测到的协议
+                    detected = data.get("detected_protocols", [])
+                    if detected:
+                        aimap_data["detected_protocols"] = detected
+                    # SPA 可能发现 mcp/agent 等攻击面
+                    extra_surfaces = data.get("surfaces", [])
+                    for s in extra_surfaces:
+                        if s not in aimap_data["surfaces"]:
+                            aimap_data["surfaces"].append(s)
+
+        # 确保 prompt 攻击面存在（SPA 聊天应用必定有 prompt 攻击面）
+        if "prompt" not in aimap_data["surfaces"]:
+            aimap_data["surfaces"].insert(0, "prompt")
+
+        logger.info(
+            "SPA→aimap_data: protocols=%s, surfaces=%s, capabilities=%s, model_family=%s",
+            aimap_data["detected_protocols"],
+            aimap_data["surfaces"],
+            aimap_data["capabilities"],
+            aimap_data["model_family"],
+        )
+        return aimap_data
 
     def _run_attack_phase(
         self,
