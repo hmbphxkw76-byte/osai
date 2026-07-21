@@ -43,3 +43,9 @@ test_output*.txt
 test_recon*.txt
 
 .result/*
+
+# Recon results (profiles, screenshots, storage states — never commit)
+results/
+
+# Credentials (real auth tokens — never commit)
+config/targets/credentials/
