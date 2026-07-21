@@ -38,6 +38,155 @@ logger = logging.getLogger(__name__)
 class AuthMixin:
     """认证 Mixin：为 SPAChatReconAdapter 提供认证相关方法。"""
 
+    # ── 增强版登录表单选择器（问题②修复） ──
+    #
+    # 扩充覆盖京东、淘宝、拼多等国内主流平台的非标准命名模式，
+    # 同时覆盖 iframe 内嵌登录表单、动态渲染表单等场景。
+
+    # 用户名输入框选择器（v2 扩充：覆盖京东/淘宝等非标准命名）
+    ENHANCED_USERNAME_SELECTORS = [
+        # 标准命名
+        "input[name='username']", "input[name='account']",
+        "input[name='userName']", "#username", "#account",
+        # placeholder 匹配
+        "input[type='text'][placeholder*='账号']",
+        "input[type='text'][placeholder*='用户']",
+        "input[type='text'][placeholder*='学号']",
+        "input[type='text'][placeholder*='手机']",
+        "input[type='text'][placeholder*='邮箱']",
+        "input[type='text'][placeholder*='手机号']",
+        "input[type='text'][placeholder*='邮箱/手机']",
+        # 京东/电商专属
+        "input[name='loginname']", "#loginname",
+        "input[name='mobile']", "#mobile",
+        "input[class*='login-name']", "input[class*='account-input']",
+        # 通配
+        "input[type='text']",
+        "input[type='tel']",  # 手机号输入可能用 tel 类型
+    ]
+
+    # 密码输入框选择器（v2 扩充）
+    ENHANCED_PASSWORD_SELECTORS = [
+        "input[name='password']", "input[name='passwd']",
+        "#password", "input[type='password']",
+        # 非标准命名
+        "input[name='pwd']", "#pwd",
+        "input[class*='password']", "input[class*='pwd']",
+    ]
+
+    # 提交按钮选择器（v2 扩充：覆盖更多中文按钮文本）
+    ENHANCED_SUBMIT_SELECTORS = [
+        "button[type='submit']", "input[type='submit']",
+        "button.login-btn", ".submit-btn",
+        # 中文文本匹配
+        "button:has-text('登录')", "button:has-text('Login')",
+        "button:has-text('登 录')", "button:has-text('登入')",
+        "a:has-text('登录')", "a:has-text('Login')",
+        "button:has-text('Sign')", "button:has-text('确定')",
+        # 京东/电商专属
+        ".btn-login", ".J-login-btn",
+        "button[class*='login']", "a[class*='login']",
+        "div[class*='login-btn']", "span[class*='login-btn']",
+        # 带图标的登录按钮
+        "[role='button']:has-text('登录')",
+    ]
+
+    # 账号登录标签页选择器（部分平台默认显示扫码登录，需切换到账号登录）
+    ACCOUNT_LOGIN_TAB_SELECTORS = [
+        "a:has-text('账号登录')",
+        "li:has-text('账号登录')",
+        "span:has-text('账号登录')",
+        "div:has-text('账号登录')",
+        "a:has-text('密码登录')",
+        "li:has-text('密码登录')",
+        "span:has-text('密码登录')",
+        "a:has-text('账户登录')",
+        "li:has-text('账户登录')",
+        "div:has-text('账户登录')",
+        "a:has-text('普通登录')",
+        "li:has-text('普通登录')",
+        "a:has-text('账号密码登录')",
+        "[data-type='account']",
+        "[data-login-type='account']",
+        "[data-tab='account']",
+        ".tab-account",
+        ".tab-password",
+    ]
+
+    async def _switch_to_account_login_tab(self, page: Any) -> bool:
+        """
+        切换到账号密码登录标签页
+
+        部分平台（如京东、淘宝）默认显示扫码登录，
+        需要先点击"账号登录"标签页才能看到用户名/密码输入框。
+
+        Args:
+            page: Playwright 页面
+
+        Returns:
+            True 如果成功切换到账号登录标签页
+        """
+        for sel in self.ACCOUNT_LOGIN_TAB_SELECTORS:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    await el.click()
+                    logger.info("Switched to account login tab via: %s", sel)
+                    print("  ✅ 切换到账号登录标签页 (%s)" % sel)
+                    await page.wait_for_timeout(1000)  # 等待表单渲染
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def _find_element_in_iframes(
+        self,
+        page: Any,
+        selectors: list,
+        timeout: int = 3000,
+    ) -> Tuple[Optional[Any], Optional[Any]]:
+        """
+        在主页面和所有 iframe 中查找元素
+
+        部分平台（如京东、银行系统）将登录表单嵌套在 iframe 中，
+        Playwright 默认只在主页面查找，需要遍历 iframe。
+
+        Args:
+            page: Playwright 页面
+            selectors: 选择器列表（依次尝试）
+            timeout: 每个选择器的等待超时（毫秒）
+
+        Returns:
+            (element, frame) 元组，如果找到则返回元素和所在的 frame（None 表示主页面）
+        """
+        # 1. 先在主页面查找
+        for sel in selectors:
+            try:
+                el = await page.wait_for_selector(sel, state="visible", timeout=timeout)
+                if el:
+                    return el, None  # None 表示主页面
+            except Exception:
+                continue
+
+        # 2. 遍历 iframe 查找
+        try:
+            frames = page.frames
+            for frame in frames:
+                if frame == page.main_frame:
+                    continue  # 跳过主框架（已在步骤 1 搜索）
+                for sel in selectors:
+                    try:
+                        el = await frame.wait_for_selector(sel, state="visible", timeout=timeout)
+                        if el:
+                            logger.info("Element found in iframe: %s (frame URL: %s)", sel, frame.url[:80])
+                            return el, frame
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.debug("iframe search failed: %s", str(e))
+
+        return None, None
+
     async def _login_with_credentials(
         self,
         page: Any,
@@ -60,25 +209,9 @@ class AuthMixin:
         login_selectors = login_config.get("selectors", {})
 
         # 登录表单选择器（与 _login_with_sso / auto_spa_recon.py 一致的选择器列表）
-        default_username_selectors = [
-            "input[name='username']", "input[name='account']",
-            "input[name='userName']", "#username", "#account",
-            "input[type='text'][placeholder*='账号']",
-            "input[type='text'][placeholder*='用户']",
-            "input[type='text'][placeholder*='学号']",
-            "input[type='text'][placeholder*='手机']",
-            "input[type='text']",
-        ]
-        default_password_selectors = [
-            "input[name='password']", "input[name='passwd']",
-            "#password", "input[type='password']",
-        ]
-        default_submit_selectors = [
-            "button[type='submit']", "input[type='submit']",
-            "button.login-btn", ".submit-btn",
-            "button:has-text('登录')", "button:has-text('Login')",
-            "a:has-text('登录')", "button:has-text('Sign')",
-        ]
+        default_username_selectors = self.ENHANCED_USERNAME_SELECTORS
+        default_password_selectors = self.ENHANCED_PASSWORD_SELECTORS
+        default_submit_selectors = self.ENHANCED_SUBMIT_SELECTORS
 
         cfg_username = login_selectors.get("username_input")
         cfg_password = login_selectors.get("password_input")
@@ -101,9 +234,13 @@ class AuthMixin:
             return
 
         try:
+            # ── 先尝试切换到账号登录标签页（问题②修复） ──
+            # 京东/淘宝等平台默认扫码登录，需先切换到账号密码登录
+            await self._switch_to_account_login_tab(page)
+
             logger.info("Filling login form (selector list + type delay)...")
 
-            # 填用户名（依次尝试选择器列表）
+            # 填用户名（依次尝试选择器列表 + iframe 降级）
             username_ok = False
             for sel in username_selectors:
                 try:
@@ -118,6 +255,17 @@ class AuthMixin:
                         break
                 except Exception:
                     continue
+            # 主页面未找到 → 尝试 iframe
+            if not username_ok:
+                el, frame = await self._find_element_in_iframes(page, username_selectors, timeout=2000)
+                if el:
+                    target = frame if frame else page
+                    await el.click()
+                    await el.fill("")
+                    await target.type(username_selectors[0], username, delay=30)
+                    logger.info("Username filled via iframe: %s", username_selectors[0])
+                    print("  ✅ 用户名已填入 (iframe)")
+                    username_ok = True
             if not username_ok:
                 print("  ⚠️ 未找到用户名输入框，请手动填写")
 
@@ -136,6 +284,17 @@ class AuthMixin:
                         break
                 except Exception:
                     continue
+            # 主页面未找到 → 尝试 iframe
+            if not password_ok:
+                el, frame = await self._find_element_in_iframes(page, password_selectors, timeout=2000)
+                if el:
+                    target = frame if frame else page
+                    await el.click()
+                    await el.fill("")
+                    await target.type(password_selectors[0], password, delay=30)
+                    logger.info("Password filled via iframe: %s", password_selectors[0])
+                    print("  ✅ 密码已填入 (iframe)")
+                    password_ok = True
             if not password_ok:
                 print("  ⚠️ 未找到密码输入框，请手动填写")
 
@@ -153,6 +312,14 @@ class AuthMixin:
                         break
                 except Exception:
                     continue
+            # 主页面未找到 → 尝试 iframe
+            if not submit_ok:
+                el, frame = await self._find_element_in_iframes(page, submit_selectors, timeout=2000)
+                if el:
+                    await el.click()
+                    logger.info("Submit button clicked via iframe")
+                    print("  ✅ 已点击登录按钮 (iframe)")
+                    submit_ok = True
             if not submit_ok:
                 print("  ⚠️ 未找到登录按钮，请手动点击登录")
 
@@ -250,27 +417,11 @@ class AuthMixin:
         if not target_domain and target_url:
             target_domain = urlparse(target_url).netloc
 
-        # 登录表单选择器（支持配置覆盖，默认与 auto_spa_recon.py 一致的选择器列表）
+        # 登录表单选择器（支持配置覆盖，默认使用增强版选择器列表）
         # 使用列表依次尝试，比逗号分隔的单选择器更稳健（避免 fill 选中错误元素）
-        default_username_selectors = [
-            "input[name='username']", "input[name='account']",
-            "input[name='userName']", "#username", "#account",
-            "input[type='text'][placeholder*='账号']",
-            "input[type='text'][placeholder*='用户']",
-            "input[type='text'][placeholder*='学号']",
-            "input[type='text'][placeholder*='手机']",
-            "input[type='text']",
-        ]
-        default_password_selectors = [
-            "input[name='password']", "input[name='passwd']",
-            "#password", "input[type='password']",
-        ]
-        default_submit_selectors = [
-            "button[type='submit']", "input[type='submit']",
-            "button.login-btn", ".submit-btn",
-            "button:has-text('登录')", "button:has-text('Login')",
-            "a:has-text('登录')", "button:has-text('Sign')",
-        ]
+        default_username_selectors = self.ENHANCED_USERNAME_SELECTORS
+        default_password_selectors = self.ENHANCED_PASSWORD_SELECTORS
+        default_submit_selectors = self.ENHANCED_SUBMIT_SELECTORS
 
         # 如果配置了单个选择器字符串，拆成列表；否则用默认列表
         cfg_username = login_selectors.get("username_input")
@@ -349,18 +500,103 @@ class AuthMixin:
                 if _i % 5 == 0 and _i > 0:
                     print("  ⏳ 等待中 (%ds)... 当前: %s" % (_i, page.url[:60]))
             if not _login_form_detected:
-                logger.info("No login form detected after 30s, may already be logged in")
-                print("  ℹ️  30s 未检测到登录页，可能已登录")
+                # ── 问题①修复：游客可访问平台检测 ──
+                # 某些平台（如京东）允许游客访问，不会重定向到登录页。
+                # 此时不应误判为"已登录"，而应检测是否是游客访问模式。
+                logger.info("No login form detected after 30s, checking guest access...")
+                print("  ℹ️  30s 未检测到登录页，检查是否为游客可访问平台...")
+
+                # 检测当前页面是否有 AI/聊天元素（游客可访问的 AI 应用）
+                _has_chat_elements = False
+                try:
+                    # 检测常见的聊天输入框/按钮
+                    _chat_selectors = [
+                        "textarea", "input[type='text'][placeholder*='问']",
+                        "input[type='text'][placeholder*='输入']",
+                        "input[type='text'][placeholder*='chat']",
+                        "[contenteditable='true']",
+                        ".chat-fab", ".ai-assistant", ".chat-entry",
+                        "button:has-text('聊天')", "button:has-text('对话')",
+                        "button:has-text('问')", "button:has-text('AI')",
+                    ]
+                    for _sel in _chat_selectors:
+                        try:
+                            _el = await page.query_selector(_sel)
+                            if _el:
+                                _has_chat_elements = True
+                                logger.info("Guest access detected: found chat element '%s'", _sel)
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+                if _has_chat_elements:
+                    logger.info("Guest access mode detected (AI elements found without login)")
+                    print("  ✅ 检测到游客可访问的 AI 聊天元素，跳过登录流程")
+                    print("     当前页面可能为游客模式，将直接进行侦察")
+                    # 不等待登录，直接返回让侦察流程继续
+                    return
+                else:
+                    # ── 游客可访问但无聊天元素：需手动导航到登录页/聊天页 ──
+                    # 典型场景：京东首页允许游客访问，但 AI 聊天需要登录后导航
+                    logger.info("No login form and no chat elements — manual navigation needed")
+                    print("  ℹ️  未检测到登录页或聊天元素，可能需要手动导航")
+                    print("     请在浏览器中手动操作：")
+                    print("       1. 导航到登录页并完成登录")
+                    print("       2. 或直接导航到 AI 聊天页面")
+                    print("     完成后按 Enter，代码将接管后续流程")
+                    await self._wait_for_human(
+                        "未检测到登录页或聊天入口，请手动导航到目标页面后按 Enter",
+                        timeout=login_config.get("manual_timeout", 180),
+                    )
+
+                    # ── 关键修复：手动操作后检查用户是否已完成登录 ──
+                    # 用户可能已经手动完成了登录（输入账号密码+验证码），
+                    # 此时不应再执行自动填表（Step 2），应直接进入后续流程。
+                    try:
+                        _post_manual_url = (page.url or "").lower()
+                    except Exception:
+                        _post_manual_url = ""
+
+                    # 检查是否已落地到目标域名（用户已完成登录+回调）
+                    if target_domain and target_domain in _post_manual_url:
+                        logger.info("After manual intervention, landed on target domain: %s", _post_manual_url[:80])
+                        print("  ✅ 手动操作完成，已落地到目标域名")
+                        return  # 跳过自动填表，直接进入后续侦察流程
+
+                    # 检查是否仍在登录页（用户可能只是导航到了登录页，尚未完成登录）
+                    _on_login_page = any(ind in _post_manual_url for ind in (
+                        "passport", "login", "signin", "/account/login", "/auth",
+                    )) and not any(p in _post_manual_url for p in OIDC_CALLBACK_PATTERNS)
+
+                    if not _on_login_page:
+                        # 不在登录页，可能已经登录并导航到了其他页面
+                        logger.info("After manual intervention, not on login page: %s", _post_manual_url[:80])
+                        print("  ✅ 手动操作完成，当前页面: %s" % _post_manual_url[:80])
+                        return  # 跳过自动填表
+
+                    # 仍在登录页 → 继续执行 Step 2 自动填表
+                    logger.info("Still on login page after manual intervention, proceeding with auto form fill")
+                    print("  ▶️  仍在登录页，尝试自动填写表单...")
 
         # 步骤 2：填写账号密码（如果配置了）
         # 使用选择器列表依次尝试 + page.type(delay=30) 逐字输入
         # （与 auto_spa_recon.py 一致，确保触发 Vue/React 前端校验）
+        #
+        # v2 增强（问题②修复）：
+        #   1. 先尝试切换到账号登录标签页（京东/淘宝默认扫码登录）
+        #   2. 使用增强版选择器列表（覆盖非标准命名）
+        #   3. 支持 iframe 内嵌表单（通过 _find_element_in_iframes 降级）
         if username and password:
+            # ── 先尝试切换到账号登录标签页 ──
+            await self._switch_to_account_login_tab(page)
+
             form_filled = False
             try:
                 logger.info("Filling SSO login form (selector list + type delay)...")
 
-                # 填用户名（依次尝试选择器列表）
+                # 填用户名（依次尝试选择器列表，含 iframe 降级）
                 username_ok = False
                 for sel in username_selectors:
                     try:
@@ -375,6 +611,19 @@ class AuthMixin:
                             break
                     except Exception:
                         continue
+
+                # 主页面未找到 → 尝试 iframe 查找
+                if not username_ok:
+                    el, frame = await self._find_element_in_iframes(page, username_selectors, timeout=2000)
+                    if el:
+                        target = frame if frame else page
+                        await el.click()
+                        await el.fill("")
+                        await target.type(username_selectors[0], username, delay=30)
+                        logger.info("Username filled via iframe: %s", username_selectors[0])
+                        print("  ✅ 用户名已填入 (iframe: %s)" % username_selectors[0])
+                        username_ok = True
+
                 if not username_ok:
                     print("  ⚠️ 未找到用户名输入框，请手动填写")
 
@@ -393,6 +642,19 @@ class AuthMixin:
                             break
                     except Exception:
                         continue
+
+                # 主页面未找到 → 尝试 iframe 查找
+                if not password_ok:
+                    el, frame = await self._find_element_in_iframes(page, password_selectors, timeout=2000)
+                    if el:
+                        target = frame if frame else page
+                        await el.click()
+                        await el.fill("")
+                        await target.type(password_selectors[0], password, delay=30)
+                        logger.info("Password filled via iframe: %s", password_selectors[0])
+                        print("  ✅ 密码已填入 (iframe: %s)" % password_selectors[0])
+                        password_ok = True
+
                 if not password_ok:
                     print("  ⚠️ 未找到密码输入框，请手动填写")
 
@@ -410,6 +672,16 @@ class AuthMixin:
                             break
                     except Exception:
                         continue
+
+                # 主页面未找到 → 尝试 iframe 查找
+                if not submit_ok:
+                    el, frame = await self._find_element_in_iframes(page, submit_selectors, timeout=2000)
+                    if el:
+                        await el.click()
+                        logger.info("Submit button clicked via iframe: %s", submit_selectors[0])
+                        print("  ✅ 已点击登录按钮 (iframe: %s)" % submit_selectors[0])
+                        submit_ok = True
+
                 if not submit_ok:
                     print("  ⚠️ 未找到登录按钮，请手动点击登录")
 
@@ -1099,6 +1371,7 @@ class AuthMixin:
         self,
         page: Any,
         login_config: dict,
+        target_url: str,
         errors: List[str],
     ) -> None:
         """
@@ -1106,14 +1379,143 @@ class AuthMixin:
 
         浏览器以非 headless 模式启动，用户手动完成登录后，
         在终端按 Enter 继续侦察流程。
+
+        按 Enter 后，自动验证登录状态：
+        1. 检查是否已落地到目标域名（非登录页）
+        2. 检查 Cookie 数量变化（登录前后对比）
+        3. 检查常见登录成功 DOM 指示器（用户名/头像/退出按钮等）
+        4. 如果仍在登录页，警告用户但不阻塞（可能用户已完成部分操作）
         """
         timeout = login_config.get("manual_timeout", 120)
         logger.info("Manual login mode: waiting up to %ds for user to login", timeout)
+
+        # ── 记录登录前的 Cookie 数量（用于后续对比） ──
+        from ....orchestrators.auth import normalize_domain
+        target_domain = normalize_domain(target_url) if target_url else ""
+        cookie_count_before = 0
+        try:
+            context = page.context
+            cookie_count_before = len(await context.cookies())
+        except Exception:
+            pass
 
         await self._wait_for_human(
             "请在浏览器中完成登录，进入智能助手聊天界面",
             timeout=timeout,
         )
+
+        # ── 登录成功验证（按 Enter 后） ──
+        print("\n  🔍 验证登录状态...")
+
+        # 等待页面稳定
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(2000)
+
+        current_url = page.url or ""
+        url_lower = current_url.lower()
+
+        # 检查 1: 是否仍在登录页
+        login_page_indicators = [
+            "/login", "/signin", "/account/login", "/auth",
+            "#/login", "#/signin", "#login",
+            "passport.", "/connect/authorize",
+        ]
+        is_on_login_page = any(ind in url_lower for ind in login_page_indicators)
+
+        # 检查 2: Cookie 数量变化
+        cookie_count_after = 0
+        try:
+            cookie_count_after = len(await page.context.cookies())
+        except Exception:
+            pass
+        cookie_increased = cookie_count_after > cookie_count_before
+
+        # 检查 3: 登录成功 DOM 指示器
+        # 常见的登录后元素：用户名/昵称、头像、退出/登出按钮、个人中心链接等
+        login_success_selectors = [
+            # 通用登录成功指示器
+            "[class*='logout']", "[class*='sign-out']", "[class*='login-out']",
+            "[class*='user-name']", "[class*='username']", "[class*='nickname']",
+            "[class*='user-info']", "[class*='user-avatar']", "[class*='avatar']",
+            "[class*='account-info']", "[class*='profile']",
+            # 京东特有
+            "[class*='ttbar-login'] .link-login", ".nickname",
+            "[class*='cw-icon']", "[class*='user-name-text']",
+            # 通用退出/账户链接
+            "a[href*='logout']", "a[href*='signout']",
+            "a[href*='/account']", "a[href*='/profile']",
+            "a[href*='/user/center']",
+        ]
+        login_success_dom_found = False
+        for sel in login_success_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    login_success_dom_found = True
+                    logger.info("Login success indicator found: %s", sel)
+                    break
+            except Exception:
+                continue
+
+        # 检查 4: 是否在目标域名
+        on_target_domain = bool(target_domain) and target_domain.lower() in url_lower
+
+        # ── 综合判断登录状态 ──
+        if is_on_login_page and not login_success_dom_found:
+            # 仍在登录页且未检测到登录成功指示器
+            print("  ⚠️  当前仍在登录页，登录可能未完成")
+            print("     当前 URL: %s" % current_url[:80])
+            print("     Cookie 变化: %d → %d" % (cookie_count_before, cookie_count_after))
+            logger.warning(
+                "Manual login: still on login page after Enter (url=%s, "
+                "cookies=%d→%d)",
+                current_url[:80], cookie_count_before, cookie_count_after,
+            )
+            # 不添加到 errors（用户可能有意按 Enter，不阻塞流程）
+            # 但记录到 findings 供后续参考
+            print("  ℹ️  将以当前状态继续侦察（可能捕获部分 API 流量）")
+        elif login_success_dom_found or (cookie_increased and on_target_domain):
+            # 检测到登录成功指示器 或 Cookie 增加且在目标域名
+            print("  ✅ 登录成功")
+            print("     当前 URL: %s" % current_url[:80])
+            print("     Cookie 变化: %d → %d" % (cookie_count_before, cookie_count_after))
+            if login_success_dom_found:
+                print("     登录指示器: 已检测到")
+            logger.info(
+                "Manual login verified: url=%s, cookies=%d→%d, dom_indicator=%s",
+                current_url[:80], cookie_count_before, cookie_count_after,
+                login_success_dom_found,
+            )
+        elif cookie_increased:
+            # Cookie 增加但不在目标域名（可能在中间页/SSO 回调）
+            print("  ✅ 登录可能成功（Cookie 已增加）")
+            print("     当前 URL: %s" % current_url[:80])
+            print("     Cookie 变化: %d → %d" % (cookie_count_before, cookie_count_after))
+            logger.info(
+                "Manual login: cookies increased (%d→%d), url=%s",
+                cookie_count_before, cookie_count_after, current_url[:80],
+            )
+            # 尝试等待落地到目标域名
+            if target_domain and target_domain.lower() not in url_lower:
+                print("  ⏳ 等待落地到目标域名 (%s)..." % target_domain)
+                landed = await self._wait_for_landing(page, target_domain, timeout=30)
+                if landed:
+                    print("  ✅ 已落地到目标域名: %s" % page.url[:80])
+                else:
+                    print("  ⚠️  未落地到目标域名，以当前状态继续")
+        else:
+            # 无法确定登录状态
+            print("  ❓ 无法确定登录状态")
+            print("     当前 URL: %s" % current_url[:80])
+            print("     Cookie 变化: %d → %d" % (cookie_count_before, cookie_count_after))
+            logger.warning(
+                "Manual login: status unclear (url=%s, cookies=%d→%d)",
+                current_url[:80], cookie_count_before, cookie_count_after,
+            )
+            print("  ℹ️  将以当前状态继续侦察")
 
     # ── 人工干预与落地等待辅助方法 ──
     #

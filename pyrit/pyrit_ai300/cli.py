@@ -301,8 +301,13 @@ Examples:
         action="store_true",
         help="Enable verbose logging",
     )
+    recon_optional.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable reconnaissance cache (force fresh recon on every run)",
+    )
 
-    # Pipeline command (v3.7: 全链路一键执行)
+    # Pipeline command
     pipeline_parser = subparsers.add_parser(
         "pipeline",
         help="Run full pipeline: credential → recon → attack → report (v3.7)",
@@ -2130,6 +2135,7 @@ def _run_spa_recon(args, spa_config_path, logger):
         profile = engine.run_spa_recon(
             spa_config_path=spa_config_path,
             tracker=tracker,
+            use_cache=False if getattr(args, "no_cache", False) else None,
         )
     except Exception as e:
         print(f"\n  ✗ SPA 侦察失败: {e}")

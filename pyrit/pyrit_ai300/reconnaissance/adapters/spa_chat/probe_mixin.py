@@ -155,6 +155,15 @@ class ProbeMixin:
         print("\n  📨 探测消息发送 (WAF 安全模式: 随机延迟)")
         print("  ──────────────────────────────────────────")
 
+        # ── 获取聊天操作上下文（page 或 iframe frame） ──
+        # 某些网站（如京东京言AI）将聊天界面嵌入 iframe，
+        # 此时输入/点击/读取响应等操作需要在 iframe 内执行
+        chat_ctx = await self._get_chat_context(page)
+        is_iframe_ctx = chat_ctx != page
+        if is_iframe_ctx:
+            print("  📋 检测到聊天 iframe，使用 iframe 上下文: %s" % getattr(chat_ctx, 'url', '')[:60])
+            logger.info("Probe messages will use iframe context: %s", getattr(chat_ctx, 'url', '')[:80])
+
         for probe in probe_list:
             text = probe["text"]
             purpose = probe.get("purpose", "unknown")
@@ -176,17 +185,17 @@ class ProbeMixin:
                 # 记录发送前的 LLM API 调用数量（用于后续定位新调用）
                 llm_count_before = len(traffic.llm_api_calls) if traffic else 0
 
-                # 等待输入框
-                await page.wait_for_selector(input_sel, state="visible", timeout=wait_timeout)
+                # 等待输入框（在聊天上下文中查找：page 或 iframe）
+                await chat_ctx.wait_for_selector(input_sel, state="visible", timeout=wait_timeout)
 
                 # 点击前模拟人类思考延迟
                 await page.wait_for_timeout(self._waf_safe_delay_ms("pre_click"))
 
                 # 清空并输入（WAF 安全打字速度）
-                await page.click(input_sel)
-                await page.fill(input_sel, "")
+                await chat_ctx.click(input_sel)
+                await chat_ctx.fill(input_sel, "")
                 typing_delay = self._waf_safe_typing_delay()
-                await page.type(input_sel, text, delay=typing_delay)
+                await chat_ctx.type(input_sel, text, delay=typing_delay)
 
                 # 点击发送前模拟人类短暂停顿
                 await page.wait_for_timeout(self._waf_safe_delay_ms("pre_click"))
@@ -198,11 +207,11 @@ class ProbeMixin:
                 message_sent = False
                 send_method = ""
 
-                # 策略 1：点击 send_button
+                # 策略 1：点击 send_button（在聊天上下文中查找）
                 if send_sel:
                     try:
-                        await page.wait_for_selector(send_sel, state="visible", timeout=5000)
-                        await page.click(send_sel)
+                        await chat_ctx.wait_for_selector(send_sel, state="visible", timeout=5000)
+                        await chat_ctx.click(send_sel)
                         message_sent = True
                         send_method = "button"
                         logger.info("Message sent via send_button click")
@@ -215,19 +224,19 @@ class ProbeMixin:
                 # 策略 2：按 Enter 键发送（Ctrl+Enter 或 Shift+Enter 部分应用要求）
                 if not message_sent:
                     try:
-                        # 先尝试普通 Enter
-                        await page.press(input_sel, "Enter")
+                        # 先尝试普通 Enter（在聊天上下文中）
+                        await chat_ctx.press(input_sel, "Enter")
                         message_sent = True
                         send_method = "enter"
                         logger.info("Message sent via Enter key")
                     except Exception as enter_err:
                         logger.debug("Enter key press failed (%s), trying container click", str(enter_err)[:80])
 
-                # 策略 3：点击输入框的可点击父容器
+                # 策略 3：点击输入框的可点击父容器（在聊天上下文中）
                 if not message_sent:
                     try:
                         # 查找 cursor:pointer 的父容器（常见于无独立按钮的 SPA 聊天）
-                        clicked_container = await page.evaluate("""(inputSel) => {
+                        clicked_container = await chat_ctx.evaluate("""(inputSel) => {
                             const input = document.querySelector(inputSel);
                             if (!input) return false;
                             let node = input;
@@ -274,32 +283,32 @@ class ProbeMixin:
                 response_text = ""
                 response_source = ""
 
-                # 先尝试配置的选择器
+                # 先尝试配置的选择器（在聊天上下文中查找）
                 try:
                     # 等待响应元素出现（缩短超时以快速降级）
-                    await page.wait_for_selector(response_sel, state="visible", timeout=min(wait_timeout, 8000))
+                    await chat_ctx.wait_for_selector(response_sel, state="visible", timeout=min(wait_timeout, 8000))
                     # 额外等待确保响应完整
                     await page.wait_for_timeout(self._waf_safe_delay_ms("post_click"))
 
                     # 获取最后一个响应元素（可能是多轮对话）
-                    response_elements = await page.query_selector_all(response_sel)
+                    response_elements = await chat_ctx.query_selector_all(response_sel)
                     if response_elements:
                         response_text = await response_elements[-1].inner_text()
                     else:
-                        response_text = await page.inner_text(response_sel)
+                        response_text = await chat_ctx.inner_text(response_sel)
 
                     if response_text.strip():
                         response_source = "dom"
                 except Exception as dom_err:
                     logger.debug("DOM response extraction failed with primary selector: %s", str(dom_err))
 
-                # 配置选择器失败，依次尝试降级选择器
+                # 配置选择器失败，依次尝试降级选择器（在聊天上下文中查找）
                 if not response_text.strip():
                     for fb_sel in response_fallback_sels:
                         if fb_sel == response_sel:
                             continue
                         try:
-                            elements = await page.query_selector_all(fb_sel)
+                            elements = await chat_ctx.query_selector_all(fb_sel)
                             if elements:
                                 # 获取最后一个元素的文本（最新的回复）
                                 text = await elements[-1].inner_text()

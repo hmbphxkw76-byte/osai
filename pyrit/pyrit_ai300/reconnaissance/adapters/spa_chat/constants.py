@@ -33,11 +33,49 @@ LLM_PATH_KEYWORDS: List[str] = [
     "rag", "knowledge", "qa", "question-answering",
 ]
 
-# ── 请求 body 中指示 LLM API 的字段 ──
+# ── LLM API 路径负向关键词（v3 新增） ──
+# 当路径同时匹配 LLM_PATH_KEYWORDS 和这些负向关键词时，判定为非 LLM API。
+# 解决问题：千问 aide.qianwen.com/api/general/config/query 含 "query" 但实际是配置查询；
+# api.qianwen.com/api/account/login/v2/qrcode/generate 含 "ai" 和 "generate" 但实际是二维码生成。
+# 设计原则：config/login/health/benefit/growth/session 等管理端点不是 LLM 聊天 API。
+LLM_PATH_NEGATIVE_KEYWORDS: List[str] = [
+    "config",           # /api/general/config/query（配置查询）
+    "login",            # /api/account/login（登录接口）
+    "logout",           # /api/account/logout（登出接口）
+    "register",         # /api/account/register（注册接口）
+    "qrcode",           # /qrcode/generate（二维码生成）
+    "health",           # /health（健康检查）
+    "benefit",          # /growth/benefit/query（权益查询）
+    "growth",           # /growth/benefit/query（成长体系查询）
+    "session/group",    # /session/group/config（会话分组配置）
+    "heartbeat",        # /heartbeat（心跳检测）
+    "metrics",          # /metrics（监控指标）
+    "analytics",        # /analytics（分析统计）
+    "statistic",        # /statistic（统计）
+    "report",           # /report（报告上报）
+]
+
+# ── 请求 body 中指示 LLM API 的字段（v2 扩充：覆盖非标准端点） ──
+# 扩充字段覆盖京东 pc-joy-center、自建 AI 平台等非标准命名的端点
 LLM_BODY_FIELDS: List[str] = [
+    # OpenAI 兼容标准字段
     "messages", "model", "prompt", "max_tokens", "temperature",
     "top_p", "stream", "tools", "functions", "n",
     "response_format", "system", "context",
+    # 非标准但高置信度字段
+    "input", "query", "question", "instruction",
+    "conversation_id", "session_id", "chat_id",
+    "user_input", "user_message", "user_query",
+    "history", "dialogue", "dialog",
+    "max_new_tokens", "max_length", "do_sample",
+    "frequency_penalty", "presence_penalty", "top_k",
+    "stop_sequences", "stop", "seed",
+    "knowledge", "knowledge_base", "retrieval",
+    # 国产平台常见字段
+    "input_text", "input_str", "text", "content",
+    "bot_id", "agent_id", "assistant_id",
+    # 京东/电商 AI 常见字段
+    "ask", "answer", "reply", "response_text",
 ]
 
 # ── 响应中指示 LLM API 的字段 ──
@@ -52,6 +90,115 @@ RAG_PATH_KEYWORDS: List[str] = [
 "search", "knowledge", "rag", "collection",
 "chroma", "pinecone", "weaviate", "milvus", "qdrant",
 ]
+
+# ── 流量噪声 URL 模式（用于过滤分析/追踪/广告/遥测请求） ──
+# 这些 URL 模式匹配的请求不会被捕获，减少噪声、提升信噪比
+# 参考：OWasp WSTG-04 (Testing for Data Validation) — 减少不相关流量
+NOISE_URL_PATTERNS: List[str] = [
+    # ── 全球分析/追踪平台 ──
+    "/analytics", "/track", "/tracking", "/telemetry", "/beacon",
+    "/collect", "/log event", "/event.gif", "/pixel",
+    "google-analytics.com", "googletagmanager.com", "googlesyndication.com",
+    "doubleclick.net", "adservice.google.", "adsense.google.",
+    "facebook.com/tr", "connect.facebook.net",
+    "hotjar.com", "mixpanel.com", "segment.io", "amplitude.com",
+    "sentry.io", "sentry-cdn.com", "browser-intake-datadoghq.com",
+    "fullstory.com", "logrocket.com", "clarity.ms",
+    # ── 国内分析/追踪平台 ──
+    "hm.baidu.com", "zz.bdstatic.com", "push.zhanzhang.baidu.com",
+    "datax.baidu.com", "sp0.baidu.com", "hmma.baidu.com",
+    "tongji.baidu.com", "monitor.tencent.com", "report.tmall.com",
+    "acookie.taobao.com", "ynuf.alipay.com", "amdmta.qq.com",
+    "beacon.qq.com", "pingjs.qq.com", "report.qq.com",
+    # ── 京东专属追踪/统计域名（基于实际流量分析） ──
+    "cactus.jd.com", "sgm-w.jd.com", "h5log.jd.com",
+    "dmp-collector.jd.com", "biao.jd.com", "mercury.jd.com",
+    "uranus.jd.com", "l-x.jd.com", "m-x.jd.com",
+    "a-x.jd.com", "iv.jd.com", "rm.jd.com",
+    "mbd.jd.com", "ls.jd.com", "pop.jd.com",
+    "wl.jd.com", "m.360buyimg.com",
+    # ── 阿里/千问专属追踪/统计域名（基于实际流量分析） ──
+    "gm.mmstat.com",              # 阿里妈妈统计（跟踪像素）
+    "s-gm.mmstat.com",            # 阿里妈妈统计
+    "px.effirst.com",             # UC 浏览器/阿里云前端监控
+    "arms.mmstat.com",            # ARMS 前端监控
+    "z12.cnzz.com",               # CNZZ 站长统计
+    "cnzz.com",                   # CNZZ 统计
+    # ── 通用追踪/监控域名 ──
+    "mmstat.com",                 # 阿里妈妈统计通用
+    "effirst.com",                # UC/阿里云前端监控通用
+    # ── 通用广告/推荐域名 ──
+    "adsystem.", "adserver.", "adnxs.", "admob.", "pubmatic.",
+    "rubiconproject.", "criteo.", "taboola.", "outbrain.",
+    # ── CDN 静态资源（非 API 调用） ──
+    ".css", ".js.map", ".woff", ".woff2", ".ttf", ".eot",
+    "favicon", ".ico", "robots.txt", "sitemap.xml",
+    # ── Web Vitals / 性能监控 ──
+    "web-vitals", "performance.", "/rum/", "/perf/",
+    # ── 推送/通知服务 ──
+    "/push.", "/sw.js", "/service-worker", "/workbox-",
+    "firebaseio.com", "fcm.googleapis.com",
+    # ── 日志/错误收集 ──
+    "/api/log", "/api/error", "/api/exception",
+    "/log/record", "/error/report",
+]
+
+# ── 噪声域名后缀（整个域名的请求都跳过） ──
+NOISE_DOMAIN_SUFFIXES: List[str] = [
+    ".cdn.bcebos.com", ".clouddn.com", ".qiniucdn.com",
+    ".alicdn.com", ".oss-cn-", ".cos.myqcloud.com",
+    ".wp.com", ".akamaihd.net", ".cloudfront.net",
+    ".fastly.net", ".jsdelivr.net", ".unpkg.com",
+    ".cdnjs.cloudflare.com", ".bootcdn.net",
+]
+
+# ── Chromium 反检测启动参数（stealth 模式） ──
+# 参考：playwright-stealth 文档 + OWasp WSTG-07 (Testing for Bot Protection)
+# 这些参数禁用自动化标志、禁用信息栏、模拟真实浏览器行为
+STEALTH_LAUNCH_ARGS: List[str] = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--disable-infobars",
+    "--disable-extensions",
+    "--disable-popup-blocking",
+    "--disable-default-apps",
+    "--disable-component-extensions-with-background-pages",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-hang-monitor",
+    "--disable-prompt-on-repost",
+    "--disable-domain-reliability",
+    "--disable-sync",
+    "--metrics-recording-only",
+    "--disable-background-networking",
+    "--disable-client-side-phishing-detection",
+    "--disable-translate",
+    "--disable-voice-input",
+    "--disable-safe-browsing",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--window-size=1280,800",
+    "--lang=zh-CN",
+    "--disable-web-security",
+]
+
+# ── 人类行为模拟参数 ──
+# 参考：OWasp WSTG-07-01 (Testing for Bot Protection) — 行为分析规避
+HUMAN_BEHAVIOR_SIM: Dict[str, Any] = {
+    # 鼠标移动轨迹模拟
+    "mouse_move_steps": (3, 8),        # 每次移动的步数范围
+    "mouse_move_delay_ms": (10, 50),   # 每步延迟（毫秒）
+    # 滚动行为模拟
+    "scroll_steps": (2, 5),            # 滚动次数
+    "scroll_delay_ms": (500, 2000),    # 滚动间隔
+    # 页面加载后初始行为
+    "initial_wait_ms": (1000, 3000),   # 页面加载后等待时间
+    "initial_mouse_move": True,        # 是否模拟初始鼠标移动
+    # 输入行为模拟
+    "focus_before_type": True,         # 输入前先点击聚焦
+    "clear_before_type": True,         # 输入前先清空
+}
 
 # ── 默认智能助手入口选择器（覆盖多种入口类型） ──
 # 顺序：从精确到模糊，优先匹配高置信度选择器
@@ -83,6 +230,10 @@ DEFAULT_CHAT_ENTRY_SELECTORS: str = ", ".join([
     ".chatbot-btn",
     ".help-bot",
     ".customer-service",
+    # ── 京东 京言AI 专属 ──
+    ".jingyan-trigger",              # 京东首页"京言AI"入口按钮
+    ".jingyan-trigger-img",          # 京言AI 图标
+    "[class*='jingyan']",            # 京言AI 相关元素（模糊匹配）
     # ── 常见 UI 库类名 ──
     ".chat-widget",
     ".chat-trigger",
@@ -327,6 +478,12 @@ DEFAULT_CHAT_ENTRY_SELECTORS: str = ", ".join([
     "button:has-text('智能导师')",
     "button:has-text('文档问答')",
     "button:has-text('知识问答')",
+    "button:has-text('京言AI')",           # 京东 京言AI 入口
+    "button:has-text('京言')",             # 京东 京言AI（简写）
+    "div:has-text('京言AI')",              # 京东 京言AI（div 形式）
+    "div[role='button']:has-text('京言AI')", # 京东 京言AI（role=button 形式）
+    "a:has-text('京言AI')",                # 京东 京言AI（链接形式）
+    "span:has-text('京言AI')",             # 京东 京言AI（span 形式）
     "button:has-text('智能导诊')",
     "button:has-text('智能审批')",
     "button:has-text('智能办事')",
@@ -1335,6 +1492,9 @@ CHAT_URL_PATTERNS: List[str] = [
     r"perplexity\.",             # perplexity.ai
     r"grok\.",                   # grok.x.com
     r"mistral\.",                # chat.mistral.ai
+    r"aishopping\.",              # 京东 京言AI (aishopping.jd.com)
+    r"aichat\.",                  # 通用 AI 聊天子域名
+    r"ai-shopping\.",             # 电商 AI 购物助手
     # ── 文件后缀模式（部分应用使用 .html 路由）──
     r"/chat\.html",
     r"/assistant\.html",
@@ -1772,6 +1932,10 @@ HIGH_CONFIDENCE_CHAT_URL_PATTERNS: List[str] = [
     r"/智能对话",
     r"/知识库",
     r"/智能体",
+    # ── 电商 AI 购物助手子域名 ──
+    r"aishopping\.",                   # 京东 京言AI (aishopping.jd.com)
+    r"aichat\.",                       # 通用 AI 聊天子域名
+    r"ai-shopping\.",                  # 电商 AI 购物助手
 ]
 
 # ── AI 应用类型预判规则 ──
@@ -1901,6 +2065,20 @@ AI_APP_TYPE_RULES: Dict[str, Dict[str, Any]] = {
             "udesk-chat", "comm100-chat", "z9-chat-btn",
             "qiyu-iframe", "meiqia-btn", "rongcloud-btn", "easemob-btn",
             "im-btn", "gensee-chat", "duoke-btn", "wxp-chat",
+        ],
+    },
+    "ecommerce_ai": {
+        "description": "电商 AI 购物助手（京东京言AI、淘宝问问等）",
+        "url_patterns": [
+            r"aishopping\.", r"ai-shopping\.", r"aichat\.",
+            r"/jingyan", r"/wenwen", r"/ask-ai",
+            r"jd\.com", r"taobao\.com", r"tmall\.com",
+        ],
+        "selector_keywords": [
+            "jingyan-trigger", "jingyan", "jingyan-btn",
+            "wenwen", "wenwen-btn", "wenwen-trigger",
+            "ai-shopping", "ai-shop", "shopping-ai",
+            "ai-assistant-btn", "ai-helper-btn",
         ],
     },
     "generic_chat": {

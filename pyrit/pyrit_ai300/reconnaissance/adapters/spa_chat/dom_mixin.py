@@ -319,6 +319,59 @@ class DOMMixin:
                 '[aria-live="polite"], [aria-live="assertive"], [class*="markdown"], [class*="prose"]'
             ).forEach(el => { if (isVisible(el)) results.containers.push(extractAttrs(el)); });
 
+            // ── iframe 内扫描（如京东京言AI） ──
+            // 某些网站将聊天界面嵌入 iframe，需要扫描 iframe 内的可交互元素
+            for (const iframe of document.querySelectorAll('iframe')) {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (!doc) continue;
+
+                    // 检查 iframe 是否可见
+                    const iframeRect = iframe.getBoundingClientRect();
+                    if (iframeRect.width <= 0 || iframeRect.height <= 0) continue;
+
+                    // iframe 内输入框
+                    doc.querySelectorAll(
+                        'textarea, input[type="text"], input:not([type]), [contenteditable="true"]'
+                    ).forEach(el => {
+                        if (isVisible(el)) {
+                            const attrs = extractAttrs(el);
+                            attrs.inIframe = true;
+                            attrs.iframeSrc = (iframe.src || '').substring(0, 120);
+                            results.inputs.push(attrs);
+                        }
+                    });
+
+                    // iframe 内按钮
+                    doc.querySelectorAll(
+                        'button, [role="button"], [class*="btn"], [class*="button"], [onclick], a[href]'
+                    ).forEach(el => {
+                        if (isVisible(el)) {
+                            const attrs = extractAttrs(el);
+                            attrs.inIframe = true;
+                            attrs.iframeSrc = (iframe.src || '').substring(0, 120);
+                            results.buttons.push(attrs);
+                        }
+                    });
+
+                    // iframe 内响应容器
+                    doc.querySelectorAll(
+                        '[class*="response"], [class*="message"], [class*="answer"], [class*="reply"], ' +
+                        '[class*="chat-msg"], [class*="ai-msg"], [class*="assistant"], [role="log"], ' +
+                        '[aria-live="polite"], [aria-live="assertive"], [class*="markdown"], [class*="prose"]'
+                    ).forEach(el => {
+                        if (isVisible(el)) {
+                            const attrs = extractAttrs(el);
+                            attrs.inIframe = true;
+                            attrs.iframeSrc = (iframe.src || '').substring(0, 120);
+                            results.containers.push(attrs);
+                        }
+                    });
+                } catch(e) {
+                    // 跨域 iframe 无法访问 contentDocument，跳过
+                }
+            }
+
             return results;
         }"""
 
@@ -606,6 +659,18 @@ class DOMMixin:
         }
 
         try:
+            # ── 获取聊天操作上下文（page 或 iframe frame） ──
+            # 某些网站（如京东京言AI）将聊天界面嵌入 iframe，
+            # 此时选择器验证需要在 iframe 内执行
+            chat_ctx = await self._get_chat_context(page)
+            is_iframe_ctx = chat_ctx != page
+            if is_iframe_ctx:
+                logger.info(
+                    "Auto-detect selectors using iframe context: %s",
+                    getattr(chat_ctx, 'url', '')[:80],
+                )
+            result["chat_context"] = "iframe" if is_iframe_ctx else "page"
+
             # Phase A: 批量提取
             snapshot = await self._extract_dom_snapshot(page)
 
@@ -616,9 +681,9 @@ class DOMMixin:
                 auto_found = False
                 if scored and scored[0]["score"] >= 0.3:
                     selector = self._generate_selector(scored[0]["element"])
-                    # 验证选择器在页面上有效
+                    # 验证选择器在上下文中有效（page 或 frame）
                     try:
-                        await page.wait_for_selector(selector, timeout=2000)
+                        await chat_ctx.wait_for_selector(selector, timeout=2000)
                         result[role] = selector
                         result[role + "_source"] = "auto"
                         result[role + "_score"] = round(scored[0]["score"], 2)
@@ -629,10 +694,29 @@ class DOMMixin:
                         )
                         auto_found = True
                     except Exception:
-                        logger.debug(
-                            "Auto-detected %s selector validation failed: %s",
-                            role, selector,
-                        )
+                        # 如果在 iframe 上下文中验证失败，尝试在 page 上验证
+                        if is_iframe_ctx:
+                            try:
+                                await page.wait_for_selector(selector, timeout=2000)
+                                result[role] = selector
+                                result[role + "_source"] = "auto"
+                                result[role + "_score"] = round(scored[0]["score"], 2)
+                                result[role + "_signals"] = scored[0]["signals"]
+                                logger.info(
+                                    "Auto-detected %s selector (on page): %s (score=%.2f)",
+                                    role, selector, scored[0]["score"],
+                                )
+                                auto_found = True
+                            except Exception:
+                                logger.debug(
+                                    "Auto-detected %s selector validation failed (page+iframe): %s",
+                                    role, selector,
+                                )
+                        else:
+                            logger.debug(
+                                "Auto-detected %s selector validation failed: %s",
+                                role, selector,
+                            )
 
                 if not auto_found:
                     # 降级到 YAML
@@ -721,7 +805,135 @@ class DOMMixin:
             except Exception:
                 continue
 
+        # ── Phase 5: iframe 检查（如京东京言AI） ──
+        # 某些网站（如京东）将聊天界面嵌入 iframe 中
+        # 检查可见的 iframe 是否包含聊天 DOM 特征
+        if await self._detect_chat_iframe(page):
+            logger.info("Chat page detected via iframe (chat-like iframe found)")
+            return True
+
         return False
+
+    async def _detect_chat_iframe(self, page: Any) -> Optional[Any]:
+        """
+        检测页面中是否存在聊天相关的 iframe
+
+        某些网站（如京东京言AI）将聊天界面嵌入 iframe 中，
+        需要检查 iframe 的 URL 和内容来判断是否为聊天界面。
+
+        检测策略：
+        1. iframe URL 匹配聊天 URL 模式（如 aishopping.jd.com）
+        2. iframe 的 id/name/class 包含聊天关键词
+        3. iframe 内容包含聊天 DOM 特征
+
+        Args:
+            page: Playwright 页面
+
+        Returns:
+            匹配的 Frame 对象，如果未找到则返回 None
+        """
+        try:
+            frames = page.frames
+            for frame in frames:
+                if frame == page.main_frame:
+                    continue
+
+                frame_url = frame.url or ""
+                frame_url_lower = frame_url.lower()
+
+                # 策略 1: iframe URL 匹配聊天 URL 模式
+                for pattern in HIGH_CONFIDENCE_CHAT_URL_PATTERNS:
+                    if re.search(pattern, frame_url_lower, re.IGNORECASE):
+                        logger.info(
+                            "Chat iframe detected by URL pattern: %s → %s",
+                            pattern, frame_url[:80],
+                        )
+                        return frame
+
+                for pattern in CHAT_URL_PATTERNS:
+                    if re.search(pattern, frame_url_lower, re.IGNORECASE):
+                        logger.debug(
+                            "Chat iframe detected by URL pattern: %s → %s",
+                            pattern, frame_url[:80],
+                        )
+                        return frame
+
+                # 策略 2: iframe 的 id/name/class 包含聊天关键词
+                try:
+                    iframe_element = await page.query_selector(
+                        f'iframe[src*="{frame_url_lower[:50]}"]'
+                    )
+                    if iframe_element:
+                        iframe_id = await iframe_element.get_attribute("id") or ""
+                        iframe_class = await iframe_element.get_attribute("class") or ""
+                        iframe_name = await iframe_element.get_attribute("name") or ""
+                        iframe_attrs = (iframe_id + " " + iframe_class + " " + iframe_name).lower()
+
+                        chat_keywords = [
+                            "chat", "jingyan", "assistant", "ai", "bot",
+                            "dialog", "message", "support",
+                        ]
+                        if any(kw in iframe_attrs for kw in chat_keywords):
+                            logger.info(
+                                "Chat iframe detected by attribute: %s",
+                                iframe_attrs[:60],
+                            )
+                            return frame
+                except Exception:
+                    pass
+
+                # 策略 3: iframe 内容包含聊天 DOM 特征
+                try:
+                    for selector in HIGH_SIGNAL_DOM_FEATURES:
+                        element = await frame.query_selector(selector)
+                        if element:
+                            logger.info(
+                                "Chat iframe detected by DOM feature: %s (url=%s)",
+                                selector, frame_url[:60],
+                            )
+                            return frame
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.debug("Chat iframe detection failed: %s", str(e))
+
+        return None
+
+    async def _get_chat_context(self, page: Any) -> Any:
+        """
+        获取聊天操作上下文（page 或 frame）
+
+        某些网站（如京东京言AI）将聊天界面嵌入 iframe 中，
+        此时需要在 iframe 内执行 DOM 操作（输入/点击/读取响应）。
+
+        检测逻辑：
+        1. 先检查页面本身是否有聊天 DOM 特征（非 iframe 场景）
+        2. 如果没有，检查是否存在聊天 iframe
+        3. 返回 page 或匹配的 frame
+
+        Args:
+            page: Playwright 页面
+
+        Returns:
+            page 或 frame 对象（都支持 wait_for_selector/click/fill 等）
+        """
+        # 先检查页面本身是否有高信号 DOM 特征
+        try:
+            for selector in HIGH_SIGNAL_DOM_FEATURES:
+                element = await page.query_selector(selector)
+                if element:
+                    return page
+        except Exception:
+            pass
+
+        # 检查是否有聊天 iframe
+        frame = await self._detect_chat_iframe(page)
+        if frame:
+            logger.info("Using iframe context for chat operations: %s", frame.url[:80])
+            return frame
+
+        # 默认返回 page
+        return page
 
     # ── WAF 安全延迟辅助 ──
     #

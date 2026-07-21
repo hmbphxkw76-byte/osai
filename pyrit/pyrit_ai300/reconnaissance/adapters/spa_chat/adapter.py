@@ -48,6 +48,8 @@ from .constants import (
     DEFAULT_CHAT_ENTRY_SELECTORS,
     OIDC_CALLBACK_WHITELIST,
     PROBE_MESSAGES,
+    STEALTH_LAUNCH_ARGS,
+    HUMAN_BEHAVIOR_SIM,
 )
 
 if sys.platform == "win32":
@@ -269,9 +271,18 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             )
             result_data["preflight_auth_check"] = preflight
 
-            # ── 1. 启动浏览器 ──
-            logger.info("Launching browser: %s (headless=%s)", browser_type, headless)
+            # ── 1. 启动浏览器（问题④修复：stealth 模式 + 反检测参数） ──
+            #
+            # 使用 playwright-stealth 开源框架 + Chromium 反检测启动参数，
+            # 确保不被京东等反爬网站检测为自动化工具。
+            # 参考：playwright-stealth v2.0.3 + OWasp WSTG-07 (Bot Protection)
+            logger.info("Launching browser: %s (headless=%s, stealth=enabled)", browser_type, headless)
             launch_kwargs: Dict[str, Any] = {"headless": headless}
+
+            # Chromium 专属：添加反检测启动参数
+            if browser_type in ("chromium", "chrome", ""):
+                launch_kwargs["args"] = STEALTH_LAUNCH_ARGS
+
             if browser_type == "firefox":
                 browser = await p.firefox.launch(**launch_kwargs)
             elif browser_type == "webkit":
@@ -279,10 +290,26 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             else:
                 browser = await p.chromium.launch(**launch_kwargs)
 
+            # ── 上下文创建：设置真实浏览器指纹（问题④修复） ──
             context_kwargs: Dict[str, Any] = {
                 "ignore_https_errors": ignore_https,
                 # 视口大小通过 new_context 参数设置（Playwright 不支持 set_default_viewport_size）
                 "viewport": {"width": 1280, "height": 800},
+                # 真实 User-Agent（避免 HeadlessChrome 标志被检测）
+                "user_agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                # 真实 locale 和 timezone
+                "locale": "zh-CN",
+                "timezone_id": "Asia/Shanghai",
+                # 权限设置（避免权限拒绝被检测）
+                "permissions": ["geolocation"],
+                # 额外 HTTP 头
+                "extra_http_headers": {
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
             }
 
             # 加载 storage_state（如有）
@@ -295,9 +322,45 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
             page = await context.new_page()
 
+            # ── 应用 playwright-stealth（问题④修复） ──
+            # playwright-stealth v2.0.3 会注入多个反检测脚本：
+            # - navigator.webdriver = false
+            # - chrome.runtime / chrome.app 模拟
+            # - navigator.plugins / languages 模拟
+            # - WebGL renderer / vendor 模拟
+            # - iframe.contentWindow 修补
+            try:
+                from playwright_stealth import Stealth
+                stealth = Stealth()
+                await stealth.apply_stealth_async(page)
+                logger.info("playwright-stealth applied successfully")
+            except ImportError:
+                logger.warning("playwright-stealth not installed, running without stealth")
+            except Exception as e:
+                logger.warning("playwright-stealth apply failed: %s, continuing without", str(e)[:100])
+
+            # ── 人类行为模拟：页面加载后随机鼠标移动（问题④修复） ──
+            # 模拟真实用户行为：页面加载后移动鼠标、滚动页面，
+            # 避免被行为分析系统检测为机器人。
+            try:
+                import random as _random
+                # 随机鼠标移动（3-5次）
+                for _ in range(_random.randint(3, 5)):
+                    x = _random.randint(100, 1180)
+                    y = _random.randint(100, 700)
+                    await page.mouse.move(x, y, steps=_random.randint(3, 8))
+                    await page.wait_for_timeout(_random.randint(50, 200))
+                logger.debug("Human behavior simulation: mouse movements injected")
+            except Exception:
+                pass
+
             # ── 2. 注册网络流量捕获 ──
             page.on("request", traffic.on_request)
             page.on("response", traffic.on_response)
+            # ── 2b. WebSocket 流量捕获（v3 新增） ──
+            # 某些 AI 平台（如千问）使用 WebSocket 进行实时聊天通信，
+            # 需要单独监听 WebSocket 事件
+            page.on("websocket", traffic.on_websocket)
 
             # ── 3. 认证流程（注入即继续策略 v1.6） ──
             #
@@ -512,7 +575,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                         elif login_mode == "raw_headers":
                             await self._login_with_raw_headers(page, context, login_config, errors)
                         elif login_mode == "manual":
-                            await self._login_manual(page, login_config, errors)
+                            await self._login_manual(page, login_config, target_url, errors)
                         else:
                             logger.warning("Unknown login mode: %s, skipping", login_mode)
 
@@ -653,6 +716,81 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     logger.info(
                         "User chose to continue despite login page detection"
                     )
+
+            # ── 3.7 多步导航支持（问题⑤修复） ──
+            #
+            # 某些平台（如京东）登录后不会自动跳转到 AI 聊天页面，
+            # 需要手动导航到特定的聊天页面 URL。
+            # 支持两种配置方式：
+            #   1. chat_page_url: 单个 URL（导航到指定聊天页）
+            #   2. nav_steps: URL 列表（多步导航，依次访问每个 URL）
+            #
+            # 配置示例：
+            #   spa:
+            #     chat_entry:
+            #       chat_page_url: "https://www.jd.com/..."
+            #   或：
+            #   spa:
+            #     chat_entry:
+            #       nav_steps:
+            #         - "https://www.jd.com/"
+            #         - "https://www.jd.com/ai-chat"
+            chat_page_url = chat_entry.get("chat_page_url", "")
+            nav_steps = chat_entry.get("nav_steps", [])
+
+            if nav_steps and isinstance(nav_steps, list):
+                # 多步导航：依次访问每个 URL
+                print("\n  🧭 多步导航 (%d 步)" % len(nav_steps))
+                print("  ──────────────────────────────────────────")
+                for i, nav_url in enumerate(nav_steps):
+                    if not isinstance(nav_url, str) or not nav_url:
+                        continue
+                    print("  [%d/%d] 导航到: %s" % (i + 1, len(nav_steps), nav_url[:80]))
+                    logger.info("Multi-step nav [%d/%d]: %s", i + 1, len(nav_steps), nav_url)
+                    try:
+                        await page.goto(nav_url, wait_until="networkidle", timeout=30000)
+                        await page.wait_for_timeout(2000)
+                        # 人类行为模拟：每次导航后随机鼠标移动
+                        try:
+                            import random as _r
+                            for _ in range(_r.randint(2, 4)):
+                                await page.mouse.move(
+                                    _r.randint(100, 1180),
+                                    _r.randint(100, 700),
+                                    steps=_r.randint(3, 6),
+                                )
+                                await page.wait_for_timeout(_r.randint(100, 300))
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        logger.warning("Nav step %d failed: %s", i + 1, str(e))
+                        print("  ⚠️ 导航失败: %s" % str(e)[:60])
+                print("  ──────────────────────────────────────────\n")
+                result_data["multi_step_nav"] = len(nav_steps)
+
+            elif chat_page_url:
+                # 单 URL 导航
+                print("\n  🧭 导航到聊天页面: %s" % chat_page_url[:80])
+                logger.info("Navigating to chat_page_url: %s", chat_page_url)
+                try:
+                    await page.goto(chat_page_url, wait_until="networkidle", timeout=30000)
+                    await page.wait_for_timeout(2000)
+                    # 人类行为模拟
+                    try:
+                        import random as _r
+                        for _ in range(_r.randint(2, 4)):
+                            await page.mouse.move(
+                                _r.randint(100, 1180),
+                                _r.randint(100, 700),
+                                steps=_r.randint(3, 6),
+                            )
+                            await page.wait_for_timeout(_r.randint(100, 300))
+                    except Exception:
+                        pass
+                except Exception as e:
+                    logger.warning("chat_page_url navigation failed: %s", str(e))
+                    print("  ⚠️ 导航失败: %s" % str(e)[:60])
+                result_data["chat_page_url_navigated"] = chat_page_url
 
             # ── 4. 导航到智能助手 ──
             chat_mode = chat_entry.get("mode", "selector")
@@ -799,11 +937,19 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 traffic_summary["llm_api_calls"],
                 traffic_summary["rag_api_calls"],
             ))
+            # WebSocket 统计（v3 新增）
+            ws_count = traffic_summary.get("websocket_connections", 0)
+            ws_msgs = traffic_summary.get("websocket_messages", 0)
+            if ws_count > 0:
+                ws_llm = len(traffic_summary.get("websocket_llm_endpoints", []))
+                print("     WebSocket: %d 连接 | %d 消息 | LLM WS: %d" % (ws_count, ws_msgs, ws_llm))
             logger.info(
-                "Traffic captured: %d requests, %d LLM API calls, %d RAG calls",
+                "Traffic captured: %d requests, %d LLM API calls, %d RAG calls, "
+                "%d WebSocket connections (%d messages)",
                 traffic_summary["total_requests"],
                 traffic_summary["llm_api_calls"],
                 traffic_summary["rag_api_calls"],
+                ws_count, ws_msgs,
             )
 
             # ── 8. 提取 LLM API 信息 ──
@@ -840,7 +986,16 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
             else:
                 # 没有捕获到 LLM API 调用
                 print("\n  🤖 AI 应用端点: ❌ 未检测到 LLM API 调用")
-                print("     可能原因: 聊天窗口未打开 / 消息未发送 / API 通过 WebSocket 调用")
+                ws_count = traffic_summary.get("websocket_connections", 0)
+                if ws_count > 0:
+                    print("     可能原因: API 通过 WebSocket 调用（检测到 %d 个 WS 连接）" % ws_count)
+                    ws_llm_urls = traffic_summary.get("websocket_llm_endpoints", [])
+                    if ws_llm_urls:
+                        print("     📋 LLM WebSocket 端点:")
+                        for ws_url in ws_llm_urls[:3]:
+                            print("        • %s" % ws_url[:80])
+                else:
+                    print("     可能原因: 聊天窗口未打开 / 消息未发送 / API 通过 WebSocket 调用")
                 findings.append({
                     "category": "no_llm_api_detected",
                     "severity": "low",
@@ -1276,9 +1431,29 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
         body_non_stream["messages"] = [{"role": "user", "content": "1+1=?"}]
         body_non_stream["stream"] = False
 
+        # 从原始请求头中提取 Content-Type（京东等自研 API 使用 form-urlencoded）
+        original_ct = (
+            req_headers.get("content-type")
+            or req_headers.get("Content-Type")
+            or "application/json"
+        )
+        # raw_post_data 用于检测 JD 风格 body=<JSON> 格式
+        raw_pd = raw_post_data or ""
+
         model_name, model_params, body_text = await self._fetch_and_extract(
             page, url, auth_header, body_non_stream, "非流式",
+            content_type=original_ct, raw_post_data=raw_pd,
         )
+
+        # ── 策略 1b: 如果 JSON 被 Content-Type 拒绝，用 form-urlencoded 重试 ──
+        # 京东等 API 返回 {"code":"1","echo":"request Content-Type is not compatible with application/x-www-form-urlencoded"}
+        if not model_name and body_text and "not compatible with application/x-www-form-urlencoded" in body_text:
+            logger.info("Original Content-Type rejected, retrying with form-urlencoded")
+            print("  🔄 切换到 form-urlencoded 格式重试...")
+            model_name, model_params, body_text = await self._fetch_and_extract(
+                page, url, auth_header, body_non_stream, "非流式(form)",
+                content_type="application/x-www-form-urlencoded", raw_post_data=raw_pd,
+            )
 
         # ── 策略 2: 流式请求（如果非流式未提取到） ──
         if not model_name:
@@ -1288,7 +1463,15 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
             model_name, model_params, body_text = await self._fetch_and_extract(
                 page, url, auth_header, body_stream, "流式",
+                content_type=original_ct, raw_post_data=raw_pd,
             )
+
+            # 流式也尝试 form-urlencoded 降级
+            if not model_name and body_text and "not compatible with application/x-www-form-urlencoded" in body_text:
+                model_name, model_params, body_text = await self._fetch_and_extract(
+                    page, url, auth_header, body_stream, "流式(form)",
+                    content_type="application/x-www-form-urlencoded", raw_post_data=raw_pd,
+                )
 
         # ── 策略 3: 从 SPA JavaScript 全局变量中提取 ──
         if not model_name:
@@ -1313,6 +1496,15 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 preview = body_text[:300].replace("\n", " ")
                 print("     响应预览: %s..." % preview)
                 logger.warning("All strategies failed. Response preview: %s", preview)
+
+            # ── 针对 functionId 风格 API（京东等）的提示 ──
+            # 京东 API 使用 functionId 参数指定功能，模型名在服务端选择，
+            # 不暴露给客户端。这是自研 RPC 框架的特征，不是安全防护。
+            if "functionId" in url:
+                print("  ℹ️  检测到 functionId 参数（自研 RPC 框架，如京东 api-ai.jd.com）")
+                print("     此类 API 的模型选择在服务端完成，请求/响应中不包含 model 字段")
+                print("     这是 API 设计特征，不是安全防护措施")
+
             return None
 
     async def _fetch_and_extract(
@@ -1322,25 +1514,63 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
         auth_header: str,
         body: dict,
         strategy_label: str,
+        content_type: str = "application/json",
+        raw_post_data: str = "",
     ) -> Tuple[Optional[str], Dict[str, Any], str]:
         """
         执行 fetch 请求并从响应中提取模型信息
 
+        支持两种 Content-Type：
+        - application/json（默认，OpenAI 兼容 API）
+        - application/x-www-form-urlencoded（京东等自研 RPC 框架）
+
+        当 Content-Type 为 form-urlencoded 时，支持两种 body 格式：
+        1. 直接表单字段（key=value&key=value）
+        2. JD 风格 body=<JSON 字符串>（京东 api-ai.jd.com 标准 RPC 格式）
+
+        Args:
+            content_type: 请求的 Content-Type（从原始请求头继承）
+            raw_post_data: 原始请求体字符串（用于检测 JD 风格 body=<JSON> 格式）
+
         Returns:
             (model_name, model_params, body_text) 元组
         """
-        logger.info("Direct API probe [%s]: %s", strategy_label, url)
+        logger.info("Direct API probe [%s]: %s (Content-Type: %s)", strategy_label, url, content_type)
         try:
             result = await page.evaluate("""async (params) => {
-                const { url, authHeader, body } = params;
-                const headers = { "Content-Type": "application/json" };
+                const { url, authHeader, body, contentType, rawPostData } = params;
+                const headers = { "Content-Type": contentType };
                 if (authHeader) headers["Authorization"] = authHeader;
+
+                // 根据 Content-Type 构造请求体
+                let requestBody;
+                if (contentType.includes("x-www-form-urlencoded")) {
+                    // ── form-urlencoded 格式 ──
+                    // 检测是否是 JD 风格：原始 body 是 body=<JSON> 格式
+                    if (rawPostData && rawPostData.startsWith("body=")) {
+                        // JD 风格：body=<JSON 字符串>
+                        // 替换 JSON 内容但保持外层结构
+                        const innerJson = JSON.stringify(body);
+                        requestBody = "body=" + encodeURIComponent(innerJson);
+                    } else {
+                        // 标准表单格式：直接 URL 编码每个字段
+                        const formBody = [];
+                        for (const key in body) {
+                            const val = typeof body[key] === 'object' ? JSON.stringify(body[key]) : String(body[key]);
+                            formBody.push(encodeURIComponent(key) + "=" + encodeURIComponent(val));
+                        }
+                        requestBody = formBody.join("&");
+                    }
+                } else {
+                    // ── JSON 格式（默认） ──
+                    requestBody = JSON.stringify(body);
+                }
 
                 try {
                     const response = await fetch(url, {
                         method: "POST",
                         headers: headers,
-                        body: JSON.stringify(body),
+                        body: requestBody,
                     });
 
                     const contentType = response.headers.get("content-type") || "";
@@ -1355,7 +1585,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 } catch (e) {
                     return { success: false, error: e.message };
                 }
-            }""", {"url": url, "authHeader": auth_header, "body": body})
+            }""", {"url": url, "authHeader": auth_header, "body": body, "contentType": content_type, "rawPostData": raw_post_data})
 
             if not result or not result.get("success"):
                 error = result.get("error", "unknown") if result else "no result"
