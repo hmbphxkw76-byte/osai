@@ -130,6 +130,32 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
         except ImportError:
             return False
 
+    @staticmethod
+    async def _goto_resilient(page: Any, url: str, timeout: int = 30000) -> None:
+        """弹性导航：先尝试 networkidle，超时后降级到 domcontentloaded。
+
+        解决问题：千问、京东等高流量站点持续有后台请求（心跳/统计/WebSocket），
+        networkidle 永远不会触发，导致 30s 超时。
+        策略：先试 networkidle（理想情况），超时则降级 domcontentloaded（保证 DOM 可用）。
+        """
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=timeout)
+        except Exception as e:
+            err_str = str(e)
+            # 仅对超时降级，其他错误（如导航中断）直接抛出
+            if "Timeout" in err_str or "timeout" in err_str.lower():
+                logger.warning(
+                    "Navigation timeout with networkidle, falling back to domcontentloaded: %s",
+                    err_str[:100],
+                )
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=min(timeout, 15000))
+                except Exception as e2:
+                    logger.warning("Fallback navigation also failed: %s", str(e2)[:100])
+                    # 不抛出，让调用方继续（页面可能已部分加载）
+            else:
+                logger.warning("Navigation error (non-timeout): %s", err_str[:100])
+
     def run(self, target: str, config: dict) -> AdapterResult:
         """
         执行 SPA 智能助手侦察
@@ -417,9 +443,9 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     from ....orchestrators.auth import inject_auth
                     await inject_auth(context, page, preflight["auth_profile"])
 
-                    # 导航到目标页面
+                    # 导航到目标页面（弹性导航：networkidle → domcontentloaded 降级）
                     try:
-                        await page.goto(target_url, wait_until="networkidle", timeout=30000)
+                        await self._goto_resilient(page, target_url, timeout=30000)
                     except Exception as e:
                         logger.warning("Navigation after preflight auth failed: %s", str(e))
 
@@ -555,7 +581,11 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                             print("  ✅ 当前已在登录页，跳过导航（避免重复触发验证码）")
                         else:
                             try:
-                                await page.goto(login_url, wait_until=connection.get("wait_until", "networkidle"))
+                                _wait = connection.get("wait_until", "networkidle")
+                                if _wait == "networkidle":
+                                    await self._goto_resilient(page, login_url, timeout=30000)
+                                else:
+                                    await page.goto(login_url, wait_until=_wait)
                             except Exception as e:
                                 logger.warning("Initial navigation failed: %s", str(e))
 
@@ -609,7 +639,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 if target_domain and target_domain not in page.url.lower():
                     logger.info("Post-auth redirect to target: %s", target_url)
                     try:
-                        await page.goto(target_url, wait_until="networkidle", timeout=30000)
+                        await self._goto_resilient(page, target_url, timeout=30000)
                         await page.wait_for_timeout(2000)
                     except Exception as e:
                         logger.warning("Post-auth navigation failed: %s", str(e))
@@ -649,7 +679,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
 
                 # 尝试导航到目标页面（即使未认证，也可能有公开内容）
                 try:
-                    await page.goto(target_url, wait_until="networkidle", timeout=15000)
+                    await self._goto_resilient(page, target_url, timeout=15000)
                     await page.wait_for_timeout(2000)
                 except Exception as e:
                     logger.warning("Degraded navigation failed: %s", str(e))
@@ -748,7 +778,7 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                     print("  [%d/%d] 导航到: %s" % (i + 1, len(nav_steps), nav_url[:80]))
                     logger.info("Multi-step nav [%d/%d]: %s", i + 1, len(nav_steps), nav_url)
                     try:
-                        await page.goto(nav_url, wait_until="networkidle", timeout=30000)
+                        await self._goto_resilient(page, nav_url, timeout=30000)
                         await page.wait_for_timeout(2000)
                         # 人类行为模拟：每次导航后随机鼠标移动
                         try:
@@ -772,8 +802,8 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 # 单 URL 导航
                 print("\n  🧭 导航到聊天页面: %s" % chat_page_url[:80])
                 logger.info("Navigating to chat_page_url: %s", chat_page_url)
-                try:
-                    await page.goto(chat_page_url, wait_until="networkidle", timeout=30000)
+                    try:
+                        await self._goto_resilient(page, chat_page_url, timeout=30000)
                     await page.wait_for_timeout(2000)
                     # 人类行为模拟
                     try:
