@@ -865,9 +865,9 @@ class TestHeaderParser(unittest.TestCase):
     def test_parse_header_file_exists(self):
         """测试解析真实文件"""
         from pyrit_ai300.orchestrators.auth import parse_header_file
-        profile = parse_header_file("config/targets/credentials/student.syxy.ouchn.cn.txt")
+        profile = parse_header_file("config/targets/credentials/www.example.com.txt")
         self.assertIsNotNone(profile)
-        self.assertEqual(profile.host, "student.syxy.ouchn.cn")
+        self.assertEqual(profile.host, "www.example.com")
         self.assertTrue(profile.has_auth())
 
     def test_parse_header_text_bearer(self):
@@ -927,11 +927,11 @@ class TestHeaderParser(unittest.TestCase):
         from pyrit_ai300.orchestrators.auth import parse_header_text
         raw = (
             "GET /api HTTP/1.1\r\n"
-            "Host: student.syxy.ouchn.cn\r\n"
+            "Host: www.example.com\r\n"
             "Cookie: sid=abc\r\n"
         )
         profile = parse_header_text(raw)
-        self.assertEqual(profile.cookies[0]["domain"], ".student.syxy.ouchn.cn")
+        self.assertEqual(profile.cookies[0]["domain"], ".www.example.com")
 
     def test_parse_header_text_ip_host(self):
         """测试 IP 地址 host 不设置 domain"""

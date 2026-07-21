@@ -225,9 +225,9 @@ class TestEnvLoaderUrlWithHash(unittest.TestCase):
     """
     def test_url_with_hash_resolved(self):
         from pyrit_ai300.utils.env_loader import resolve_env_vars
-        with patch.dict(os.environ, {"SPA_TARGET_URL": "https://student.syxy.ouchn.cn/#/home"}):
+        with patch.dict(os.environ, {"SPA_TARGET_URL": "https://www.example.com/#/home"}):
             result = resolve_env_vars({"url": "${SPA_TARGET_URL}"})
-            self.assertEqual(result["url"], "https://student.syxy.ouchn.cn/#/home")
+            self.assertEqual(result["url"], "https://www.example.com/#/home")
             self.assertTrue(result["url"].startswith("https://"))
             self.assertIn("#/home", result["url"])
 
@@ -626,7 +626,7 @@ class TestPipelineAttackTargetConsistency(unittest.TestCase):
         """URL 含 #/ 检测为 spa 类型"""
         from pyrit_ai300.pipeline.orchestrator import PipelineOrchestrator
         result = PipelineOrchestrator._detect_target_type(
-            "https://student.syxy.ouchn.cn/#/home", None
+            "https://www.example.com/#/home", None
         )
         self.assertEqual(result, "spa")
 
@@ -666,7 +666,7 @@ class TestPipelineAttackTargetConsistency(unittest.TestCase):
 
             engine = AI300Engine(
                 target_config=str(llm_cfg),
-                target_url="https://student.syxy.ouchn.cn/#/home",
+                target_url="https://www.example.com/#/home",
             )
             cfg = engine._build_target_config()
             target_type = cfg.get("target", {}).get("type", "")
@@ -709,7 +709,7 @@ class TestPipelineAttackTargetConsistency(unittest.TestCase):
         from pyrit_ai300 import AI300Engine
         import tempfile
 
-        spa_url = "https://student.syxy.ouchn.cn/#/home"
+        spa_url = "https://www.example.com/#/home"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             llm_cfg = Path(tmpdir) / "llm_api_target.yaml"
@@ -738,7 +738,7 @@ class TestPipelineAttackTargetConsistency(unittest.TestCase):
         from pyrit_ai300.pipeline.orchestrator import PipelineOrchestrator
 
         # 模拟 _run_attack_phase 的配置选择逻辑
-        target_url = "https://student.syxy.ouchn.cn/#/home"
+        target_url = "https://www.example.com/#/home"
         spa_config = "config/targets/spa_target.yaml"
         target_file = None  # 用户没有指定 --target-file
 
