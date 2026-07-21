@@ -3,7 +3,7 @@
 """
 AI-300 通用 SPA 聊天侦察脚本（v2.0）
 
-基于国开 syxy 实战经验提炼的通用诊断工具，适配任何「SPA + SSO/OIDC + 浮动聊天入口」目标。
+基于实战经验提炼的通用诊断工具，适配任何「SPA + SSO/OIDC + 浮动聊天入口」目标。
 
 支持三种使用方式：
   1. 命令行参数：   python scripts/auto_spa_recon.py --url https://xxx.com --user admin --pass pwd
@@ -23,14 +23,14 @@ AI-300 通用 SPA 聊天侦察脚本（v2.0）
   10. 抓取 API 请求（LLM 端点）+ AI 响应文本 + storage_state + 诊断报告
 
 实战验证目标（2026-07-19）：
-  - 国开 syxy: deepseek-r1-250120 (volcengine) + RAG 知识库
-  - LLM 端点: POST https://appsharing-ai.ouchn.edu.cn/v0/chat/completions/with-knowledge
+- 示例目标: deepseek-r1-250120 (volcengine) + RAG 知识库
+- LLM 端点: POST https://api.example.com/v0/chat/completions/with-knowledge
 
 用法示例:
     cd d:\\我的文档\\GitHub\\osai\\pyrit
 
     # 方式 1: 命令行参数（SSO + 验证码模式）
-    python scripts/auto_spa_recon.py --url https://student.syxy.ouchn.cn/#/home \\
+    python scripts/auto_spa_recon.py --url https://www.example.com/#/home \\
         --user 2680201200754 --pass PASSWORD --mode sso
 
     # 方式 2: 命令行参数（简单账号密码模式，无验证码）
@@ -393,7 +393,7 @@ def export_credentials(
     3. API Key（从 LLM API 请求头提取 Authorization）
 
     Args:
-        target_domain: 目标域名（如 student.syxy.ouchn.cn）
+        target_domain: 目标域名（如 www.example.com）
         target_url: 目标 URL（用于提取 path）
         cookies: Playwright context.cookies() 返回的 cookie 列表
         local_storage: page.evaluate 返回的 localStorage 字典
