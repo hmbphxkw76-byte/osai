@@ -75,12 +75,12 @@ playwright install chromium
 target:
   type: "spa_chat_recon"
   connection:
-    url: "https://student.syxy.ouchn.cn/#/home"
+    url: "https://www.example.com/#/home"
     browser: "chromium"
     headless: false                     # 登录场景建议 false
   login:
     mode: "credentials"
-    url: "https://student.syxy.ouchn.cn/#/login"
+    url: "https://www.example.com/#/login"
     username: "your_account"            # ← 填入账号
     password: "your_password"           # ← 填入密码
     selectors:

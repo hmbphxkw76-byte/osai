@@ -135,7 +135,7 @@ class CredentialManager:
         验证有效性后返回。如果凭据已过期或不存在，返回空结果。
 
         Args:
-            target_url: 目标 URL（如 https://student.syxy.ouchn.cn/#/home）
+            target_url: 目标 URL（如 https://www.example.com/#/home）
 
         Returns:
             CredentialResolution 实例

@@ -833,7 +833,7 @@ target:
     headless: true
     ignore_https_errors: true
   auth:
-    header_file: "config/targets/credentials/student.syxy.ouchn.cn.txt"
+    header_file: "config/targets/credentials/www.example.com.txt"
   selectors:
     input: "#chat-input"
     send_button: "#send-btn"
