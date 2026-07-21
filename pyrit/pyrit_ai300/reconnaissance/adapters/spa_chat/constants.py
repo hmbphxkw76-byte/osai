@@ -47,12 +47,25 @@ LLM_PATH_NEGATIVE_KEYWORDS: List[str] = [
     "health",           # /health（健康检查）
     "benefit",          # /growth/benefit/query（权益查询）
     "growth",           # /growth/benefit/query（成长体系查询）
-    "session/group",    # /session/group/config（会话分组配置）
+    "session",          # /session/group/config, /session/page/list（会话管理）
     "heartbeat",        # /heartbeat（心跳检测）
     "metrics",          # /metrics（监控指标）
     "analytics",        # /analytics（分析统计）
     "statistic",        # /statistic（统计）
     "report",           # /report（报告上报）
+    # v3.2 新增：千问 chat2-api 域名下的管理端点（域名含 chat 但不是聊天 API）
+    "file/record",      # /api/v2/file/record/list（文件记录列表）
+    "file/upload",      # /api/v2/file/upload（文件上传）
+    "history",          # /api/v1/history/sync（历史同步）
+    "token",            # /api/v1/rmb/token/get（Token 获取）
+    "sync",             # /api/v1/history/sync（同步）
+    "rmb",              # /api/v1/rmb/token/get（RMB Token）
+    "page/list",        # /api/v2/session/page/list（分页列表）
+    "sidebar",          # /api/v1/sidebar（侧边栏）
+    "favorite",         # /api/v1/favorite（收藏）
+    "feedback",         # /api/v1/feedback（反馈）
+    "upload",           # /upload（上传）
+    "download",         # /download（下载）
 ]
 
 # ── 请求 body 中指示 LLM API 的字段（v2 扩充：覆盖非标准端点） ──

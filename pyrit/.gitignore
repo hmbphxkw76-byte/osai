@@ -42,5 +42,4 @@ test_final.txt
 test_output*.txt
 test_recon*.txt
 
-
-result/*
+.result/*

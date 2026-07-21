@@ -50,6 +50,7 @@ from .constants import (
     PROBE_MESSAGES,
     STEALTH_LAUNCH_ARGS,
     HUMAN_BEHAVIOR_SIM,
+    LLM_PATH_NEGATIVE_KEYWORDS,
 )
 
 if sys.platform == "win32":
@@ -802,8 +803,8 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
                 # 单 URL 导航
                 print("\n  🧭 导航到聊天页面: %s" % chat_page_url[:80])
                 logger.info("Navigating to chat_page_url: %s", chat_page_url)
-                    try:
-                        await self._goto_resilient(page, chat_page_url, timeout=30000)
+                try:
+                    await self._goto_resilient(page, chat_page_url, timeout=30000)
                     await page.wait_for_timeout(2000)
                     # 人类行为模拟
                     try:
@@ -1411,6 +1412,16 @@ class SPAChatReconAdapter(BaseAdapter, AuthMixin, DOMMixin, ChatEntryMixin, Prob
         """
         url = primary_endpoint.get("url", "")
         if not url:
+            return None
+
+        # v3 安全检查：排除配置/登录等非聊天 API 端点
+        url_lower = url.lower()
+        if any(nk in url_lower for nk in LLM_PATH_NEGATIVE_KEYWORDS):
+            logger.warning(
+                "Direct API probe skipped: endpoint appears to be non-chat API: %s",
+                url[:80],
+            )
+            print("  ⏭️ 跳过直接 API 探测（端点为配置/管理 API，非聊天 API）")
             return None
 
         req_headers = primary_endpoint.get("request_headers") or {}

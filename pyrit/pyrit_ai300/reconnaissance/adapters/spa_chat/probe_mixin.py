@@ -185,6 +185,27 @@ class ProbeMixin:
                 # 记录发送前的 LLM API 调用数量（用于后续定位新调用）
                 llm_count_before = len(traffic.llm_api_calls) if traffic else 0
 
+                # ── 发送前快照：记录各选择器的元素数量和文本（v3.3 重构） ──
+                # v3.2 用文本比较检测 stale，但千问 [aria-live="polite"] 如果已有
+                # 之前对话的文本 "你好，我是千问"，新回复恰好相同时会被误判为 stale。
+                # v3.3 改用元素计数：count 增加说明有新元素，一定是新回复。
+                # count 不变（单元素更新型）则接受文本（宁可读到旧文本也不漏掉回复）。
+                pre_send_counts: Dict[str, int] = {}
+                pre_send_texts: Dict[str, str] = {}
+                all_snap_sels = [response_sel] + [s for s in response_fallback_sels if s != response_sel]
+                for snap_sel in all_snap_sels:
+                    try:
+                        els = await chat_ctx.query_selector_all(snap_sel)
+                        pre_send_counts[snap_sel] = len(els)
+                        if els:
+                            t = await els[-1].inner_text()
+                            pre_send_texts[snap_sel] = t.strip() if t else ""
+                        else:
+                            pre_send_texts[snap_sel] = ""
+                    except Exception:
+                        pre_send_counts[snap_sel] = 0
+                        pre_send_texts[snap_sel] = ""
+
                 # 等待输入框（在聊天上下文中查找：page 或 iframe）
                 await chat_ctx.wait_for_selector(input_sel, state="visible", timeout=wait_timeout)
 
@@ -275,7 +296,47 @@ class ProbeMixin:
                         print("  ⚠️  UI 发送未触发 API 调用，尝试直接 API 发送...")
                         await self._try_direct_api_send(page, text, traffic)
 
-                # 等待响应（WAF 安全随机延迟）
+                # ── v3.3: 轮询等待响应渲染（元素计数法） ──
+                # 千问等持久连接聊天应用：发送消息不产生新 HTTP 请求，
+                # 但回复会在 DOM 中渐进渲染。
+                # 检测策略：元素计数增加 → 一定是新回复；计数不变但有文本 → 也接受。
+                import asyncio as _aio
+                poll_deadline = _aio.get_event_loop().time() + 12.0  # 最多等 12 秒
+                response_detected = False
+                while _aio.get_event_loop().time() < poll_deadline:
+                    await page.wait_for_timeout(500)  # 每 500ms 检查一次
+                    all_sels = [response_sel] + [s for s in response_fallback_sels if s != response_sel]
+                    for sel in all_sels:
+                        try:
+                            elements = await chat_ctx.query_selector_all(sel)
+                            cur_count = len(elements)
+                            pre_count = pre_send_counts.get(sel, 0)
+                            if cur_count > pre_count:
+                                # 元素数量增加 → 一定有新回复
+                                response_detected = True
+                                logger.debug(
+                                    "Response detected: element count increased for %s (%d → %d)",
+                                    sel, pre_count, cur_count,
+                                )
+                                break
+                            if elements:
+                                current_text = await elements[-1].inner_text()
+                                if current_text and current_text.strip() and len(current_text.strip()) > 5:
+                                    pre = pre_send_texts.get(sel, "")
+                                    if current_text.strip() != pre:
+                                        # 文本变化 → 新回复
+                                        response_detected = True
+                                        logger.debug(
+                                            "Response detected: text changed for %s (%d chars)",
+                                            sel, len(current_text.strip()),
+                                        )
+                                        break
+                        except Exception:
+                            continue
+                    if response_detected:
+                        break
+
+                # 额外等待确保流式响应完整
                 response_wait_ms = self._waf_safe_delay_ms("response_wait")
                 await page.wait_for_timeout(response_wait_ms)
 
@@ -292,8 +353,18 @@ class ProbeMixin:
 
                     # 获取最后一个响应元素（可能是多轮对话）
                     response_elements = await chat_ctx.query_selector_all(response_sel)
+                    pre_count = pre_send_counts.get(response_sel, 0)
                     if response_elements:
-                        response_text = await response_elements[-1].inner_text()
+                        # v3.3: 如果元素数量增加，取新增的元素
+                        if len(response_elements) > pre_count:
+                            response_text = await response_elements[-1].inner_text()
+                        else:
+                            response_text = await response_elements[-1].inner_text()
+                            # 元素数量没变，检查文本是否变化
+                            pre_text = pre_send_texts.get(response_sel, "")
+                            if response_text.strip() == pre_text:
+                                # 文本也没变，可能是旧文本，但仍接受（宁可读到旧文本也不漏掉）
+                                logger.debug("Primary selector text unchanged, accepting anyway")
                     else:
                         response_text = await chat_ctx.inner_text(response_sel)
 
@@ -313,6 +384,7 @@ class ProbeMixin:
                                 # 获取最后一个元素的文本（最新的回复）
                                 text = await elements[-1].inner_text()
                                 if text and text.strip() and len(text.strip()) > 5:
+                                    # v3.3: 不再跳过相同文本，直接接受
                                     response_text = text
                                     response_source = "dom_fallback"
                                     logger.info("Response found via fallback selector: %s", fb_sel)
@@ -341,6 +413,27 @@ class ProbeMixin:
                         for call in reversed(new_llm_calls):
                             body = call.get("response_body", "")
                             if body and body.strip():
+                                # v3.2: 过滤 JSON 状态元数据（非聊天内容）
+                                # 千问 /session/page/list 返回 {"trace_id":...,"code":0,"msg":"success"}
+                                # 这不是聊天回复，是 API 状态响应
+                                body_stripped = body.strip()
+                                is_status_json = (
+                                    body_stripped.startswith("{")
+                                    and body_stripped.endswith("}")
+                                    and any(kw in body_stripped for kw in (
+                                        '"trace_id"', '"httpCode"', '"errorCode"',
+                                    ))
+                                    and not any(kw in body_stripped for kw in (
+                                        '"choices"', '"output"', '"delta"',
+                                        '"content"', '"text"',
+                                    ))
+                                )
+                                if is_status_json:
+                                    logger.debug(
+                                        "Skipping status metadata response from %s",
+                                        call.get("url", "")[:60],
+                                    )
+                                    continue
                                 # 直接使用原始 body（可能包含有用信息）
                                 response_text = body[:2000]
                                 response_source = "network_raw"

@@ -449,6 +449,9 @@ class NetworkTrafficCapture:
         - 增加 response body 字段检测（LLM_RESPONSE_FIELDS）
         - 增加 SSE/JSON 响应内容特征检测
         - 降低误报率：POST 请求需要至少 2 个 LLM body 字段才判定
+        v3.2 增强：
+        - 域名关键词匹配（hostname_match）：chat2-api.qianwen.com 等域名含 "chat"
+          但路径可能不含关键词，需同时检查域名
         """
         url = req_info.get("url", "")
         path = req_info.get("path", "").lower()
@@ -457,8 +460,20 @@ class NetworkTrafficCapture:
         post_data = req_info.get("post_data") or ""
         content_type = resp_info.get("content_type", "").lower()
 
+        # 提取 hostname 用于域名级关键词匹配（v3.2 新增）
+        try:
+            hostname = urlparse(url).hostname or ""
+            hostname_lower = hostname.lower()
+        except Exception:
+            hostname_lower = ""
+
         # 1. 路径关键词匹配
         path_match = any(kw in path for kw in LLM_PATH_KEYWORDS)
+
+        # 1a. 域名关键词匹配（v3.2 新增）
+        # 千问 chat2-api.qianwen.com 域名含 "chat"，但 API 路径可能不含关键词
+        # 如 /api/v1/sse/send → path 不匹配，但 hostname 匹配 "chat"
+        hostname_match = any(kw in hostname_lower for kw in LLM_PATH_KEYWORDS)
 
         # 1b. 路径负向关键词排除（v3 新增）
         # 千问 aide.qianwen.com/api/general/config/query 含 "query" 但实际是配置查询；
@@ -506,7 +521,10 @@ class NetworkTrafficCapture:
         # v3.1: 新增负向关键词降权
         #   - 路径同时匹配 LLM 关键词和负向关键词（如 config/query）时，
         #     仅当 body 有强 LLM 信号（≥2 个 LLM body 字段）才判定为 LLM API
-        path_llm = path_match and method == "POST"
+        # v3.2: 新增域名关键词匹配
+        #   - hostname 含 LLM 关键词（如 chat2-api）也作为判定信号
+        #   - 负向关键词同样适用于域名匹配
+        path_llm = (path_match or hostname_match) and method == "POST"
         if path_negative and body_match_score < 2:
             # 负向关键词 + 弱 body 信号 → 大概率不是 LLM API
             path_llm = False
@@ -535,6 +553,8 @@ class NetworkTrafficCapture:
             # 记录检测信号
             if path_match:
                 call_info["detection_signals"].append("path_keyword")
+            if hostname_match and not path_match:
+                call_info["detection_signals"].append("hostname_keyword")
             if path_negative:
                 call_info["detection_signals"].append("negative_keyword")
             if body_match:
