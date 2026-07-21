@@ -631,6 +631,17 @@ class ProbeMixin:
         if not url:
             return
 
+        # v3 安全检查：排除配置/登录等非聊天 API 端点
+        # 即使 traffic 已过滤，这里再兜底检查一次
+        url_lower = url.lower()
+        from .constants import LLM_PATH_NEGATIVE_KEYWORDS
+        if any(nk in url_lower for nk in LLM_PATH_NEGATIVE_KEYWORDS):
+            logger.warning(
+                "Direct API send skipped: endpoint appears to be non-chat API: %s",
+                url[:80],
+            )
+            return
+
         # 从已捕获的请求中提取认证信息
         req_headers = primary_endpoint.get("request_headers") or {}
         auth_header = (
