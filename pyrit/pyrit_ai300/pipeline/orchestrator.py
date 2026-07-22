@@ -865,6 +865,7 @@ class PipelineOrchestrator:
         }
 
         if not profile:
+            aimap_data["surfaces"] = ["prompt"]
             return aimap_data
 
         # 提取 surfaces
@@ -981,16 +982,25 @@ class PipelineOrchestrator:
             total_payloads = 0
             successful = 0
             failed = 0
+            all_pyrit_attack_results = []
             for result_item in results:
                 summary_data = result_item.get("summary", {})
                 total_payloads += summary_data.get("total_payloads", 0)
                 successful += summary_data.get("successful_payloads", 0)
                 failed += summary_data.get("failed_payloads", 0)
+                # REV-16: 收集 PyRIT 原生 AttackResult 对象
+                pyrit_results = result_item.get("pyrit_attack_results", [])
+                if pyrit_results:
+                    all_pyrit_attack_results.extend(pyrit_results)
 
             success_rate = (successful / total_payloads * 100) if total_payloads > 0 else 0
             summary = f"载荷={total_payloads}, 成功={successful} ({success_rate:.0f}%), 失败={failed}"
 
-            self._print_attack_results(total_payloads, successful, failed, success_rate)
+            # REV-16: 使用 PyRIT 原生 output 模块渲染详细攻击结果
+            self._print_attack_results_native(
+                total_payloads, successful, failed, success_rate,
+                all_pyrit_attack_results, scope,
+            )
             self._print_phase_complete("攻击", duration_ms, True)
 
             # 保存原始结果到 data
@@ -1006,6 +1016,8 @@ class PipelineOrchestrator:
                     "success_rate": success_rate,
                     "scope": scope,
                     "results": results,
+                    # REV-16: 保留 AttackResult 供报告阶段使用
+                    "pyrit_attack_results": all_pyrit_attack_results,
                 },
             )
 
@@ -1046,9 +1058,12 @@ class PipelineOrchestrator:
 
             # 收集攻击结果
             attack_data = None
+            pyrit_attack_results = []
             for p in self._current_result.phases if hasattr(self, '_current_result') else []:
                 if p.phase == PHASE_ATTACK:
                     attack_data = p.data.get("results", [])
+                    # REV-16: 收集 PyRIT 原生 AttackResult 供报告使用
+                    pyrit_attack_results = p.data.get("pyrit_attack_results", [])
                     break
 
             if not attack_data:
@@ -1061,6 +1076,9 @@ class PipelineOrchestrator:
                 )
 
             generator = ReportGenerator(results=attack_data)
+            # REV-16: 传递 PyRIT AttackResult 对象供报告嵌入原生 Markdown
+            if pyrit_attack_results:
+                generator.set_pyrit_attack_results(pyrit_attack_results)
             generator.generate(output_path=output, format=format)
 
             duration_ms = (time.time() - start) * 1000
@@ -1316,7 +1334,7 @@ class PipelineOrchestrator:
         failed: int,
         rate: float,
     ) -> None:
-        """打印攻击结果摘要"""
+        """打印攻击结果摘要（保留用于兼容性）"""
         if self._console:
             table = Table(title="攻击结果摘要", box=box.ROUNDED)
             table.add_column("指标", style="cyan")
@@ -1328,6 +1346,54 @@ class PipelineOrchestrator:
             self._console.print(table)
         else:
             print(f"  攻击结果: {success}/{total} ({rate:.0f}%)")
+
+    def _print_attack_results_native(
+        self,
+        total: int,
+        success: int,
+        failed: int,
+        rate: float,
+        pyrit_attack_results: list,
+        scope: str,
+    ) -> None:
+        """
+        REV-16: 使用 PyRIT 原生 output 模块渲染攻击结果
+
+        先打印摘要表格，再调用 PyRIT output_attack_async 渲染详细结果。
+        对齐 OWASP LLM Top 10，叠加分类信息。
+        """
+        # 1. 摘要表格（保留 Rich 格式）
+        self._print_attack_results(total, success, failed, rate)
+
+        # 2. PyRIT 原生详细输出
+        if not pyrit_attack_results:
+            logger.debug("No PyRIT AttackResult objects to render")
+            return
+
+        try:
+            from ..reporting import AttackOutputAdapter, OWASP_LLM_MAPPINGS
+
+            adapter = AttackOutputAdapter()
+
+            # 构建 OWASP 映射
+            scope_upper = scope.upper() if scope else ""
+            owasp_meta = OWASP_LLM_MAPPINGS.get(scope_upper, {})
+            owasp_mapping = {}
+            if owasp_meta:
+                owasp_mapping[scope] = owasp_meta.get("title", scope)
+
+            # 调用 PyRIT 原生 output
+            adapter.print_results_console(
+                pyrit_attack_results,
+                owasp_mapping=owasp_mapping,
+                include_adversarial=True,
+                include_auxiliary_scores=False,
+                include_pruned=False,
+            )
+        except ImportError:
+            logger.debug("AttackOutputAdapter not available, skipping native output")
+        except Exception as e:
+            logger.warning("PyRIT native output failed: %s", e)
 
     def _print_summary(self, result: PipelineResult) -> None:
         """打印全链路摘要"""

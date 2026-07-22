@@ -105,6 +105,31 @@ def _import_class(fqn: str) -> type:
     return getattr(module, class_name)
 
 
+# P1-6: 攻击类名 → 攻击成本映射
+_ATTACK_COST_MAP = {
+    "PromptSendingAttack": "SINGLE_TURN",
+    "CrescendoAttack": "MULTI_TURN",
+    "TreeOfAttacksWithPruningAttack": "TREE_SEARCH",
+    "SequentialAttack": "SEQUENTIAL",
+    "PAIRAttack": "MULTI_TURN",
+    "RedTeamingAttack": "MULTI_TURN",
+    "ManyShotJailbreakAttack": "SINGLE_TURN",
+    "SkeletonKeyAttack": "SINGLE_TURN",
+    "RolePlayAttack": "MULTI_TURN",
+    "FlipAttack": "SINGLE_TURN",
+    "ContextComplianceAttack": "MULTI_TURN",
+    "ChunkedRequestAttack": "MULTI_TURN",
+}
+
+
+def _map_attack_class_to_cost(attack_class_fqn: str):
+    """将攻击类全限定名映射到 AttackCost 枚举"""
+    from .adaptive_early_stopping import AttackCost
+    class_name = attack_class_fqn.split(".")[-1] if attack_class_fqn else ""
+    cost_name = _ATTACK_COST_MAP.get(class_name, "SINGLE_TURN")
+    return getattr(AttackCost, cost_name, AttackCost.SINGLE_TURN)
+
+
 class AttackOrchestrator:
     """
     攻击编排器 v3.1
@@ -167,6 +192,7 @@ class AttackOrchestrator:
         scorer_url: Optional[str] = None,
         scorer_key: Optional[str] = None,
         scorer_model: Optional[str] = None,
+        db_path: str = "",
     ):
         self.config = self._load_config(config_path, config_dict)
         self.memory_type = memory_type
@@ -175,8 +201,17 @@ class AttackOrchestrator:
         self._data_dir = data_dir or self.DATA_DIR
         self._rate_controller: Optional[RateController] = None
 
+        # REV-16: 保留 PyRIT 原生 AttackResult 对象，供 output 模块渲染
+        self._pyrit_attack_results: List[Any] = []
+
+        # P2-9: memory_labels 存储（跨攻击持久化标签）
+        self._memory_labels: Dict[str, str] = {}
+
         # 初始化子模块（v3.1 拆分）
-        self._pyrit_initializer = PyRITInitializer(memory_type=memory_type)
+        self._pyrit_initializer = PyRITInitializer(
+            memory_type=memory_type,
+            db_path=db_path,
+        )
         self._target_builder = TargetBuilder()
         self._converter_builder = ConverterBuilder()
         self._scorer_builder = ScorerBuilder(
@@ -284,6 +319,38 @@ class AttackOrchestrator:
             converter_configs, converter_target, target_type=target_type
         )
 
+    def build_stacked_converters(
+        self,
+        converter_names: List[str],
+        converter_target: Optional[PromptTarget] = None,
+        max_depth: int = 2,
+        max_combinations: int = 5,
+    ) -> List[PromptConverterConfiguration]:
+        """
+        P1-8: 构建堆叠转换器配置
+
+        将多个转换器组合成堆叠配置，每个配置包含多个转换器
+        按顺序应用于载荷（如 base64→rot13→unicode_confusable）。
+
+        Args:
+            converter_names: 基础转换器名称列表
+            converter_target: 转换器目标（LLM 后端）
+            max_depth: 最大堆叠深度（2-3 层）
+            max_combinations: 最大组合数量
+
+        Returns:
+            PromptConverterConfiguration 列表，每个包含多个转换器
+        """
+        from .converter_stacker import ConverterStacker
+        stacker = ConverterStacker(max_depth=max_depth, max_combinations=max_combinations)
+        target_type = getattr(self, "_target_type", "")
+        return stacker.build_stacked_converters(
+            converter_names=converter_names,
+            converter_builder=self._converter_builder,
+            converter_target=converter_target,
+            target_type=target_type,
+        )
+
     def build_scorers(
         self,
         scorer_configs: List[Dict[str, Any]],
@@ -332,14 +399,26 @@ class AttackOrchestrator:
         - chain: PromptSendingAttack (带重试)
 
         REV-1 集成：基于侦察画像攻击面过滤不相关攻击
+        P2-9 集成：自动生成 memory_labels 用于跨攻击持久化
         """
+        # P2-9: 生成 memory_labels
+        self._memory_labels = {
+            "owasp_id": attack_config.get("owasp_id", attack_config.get("asi_category", "")),
+            "attack_name": attack_config.get("name", ""),
+            "mode": attack_config.get("mode", "chain"),
+        }
+        target_model = attack_config.get("target_model", "")
+        if target_model:
+            self._memory_labels["target_model"] = target_model
+
         mode = attack_config.get("mode", "chain")
         attack_name = attack_config.get("name", "unnamed_attack")
         logger.info("\n######## 执行攻击: %s (mode=%s) ########", attack_name, mode)
 
         # REV-1: 侦察→载荷过滤闭环 (GAP-1)
         # 基于侦察检测到的攻击面，跳过不相关的 OWASP 类别
-        if profile_params:
+        # 偏差⑤修复：若 attack_config 已标记 _surface_filtered，跳过冗余的双重过滤
+        if profile_params and not attack_config.get("_surface_filtered"):
             owasp_id = attack_config.get("owasp_id", attack_config.get("asi_category", ""))
             surfaces = profile_params.get("surfaces", [])
             if surfaces and owasp_id:
@@ -567,6 +646,9 @@ class AttackOrchestrator:
 
         all_results = run_async(_run_all())
 
+        # REV-16: AttackResult 已由 _execute_single_attack_async 存入 self._pyrit_attack_results
+        results["pyrit_attack_results"] = self._pyrit_attack_results
+
         for r in all_results:
             is_success = r.pop("is_success", False)
             results["results"].append(r)
@@ -653,6 +735,9 @@ class AttackOrchestrator:
 
         preset_names = list(converter_presets.keys())
 
+        # REV-16: 保留 PyRIT AttackResult 对象列表
+        pyrit_attack_results: List[Any] = []
+
         # P1-D: 如果有 TargetProfile，按 pass_rate 降序排列 preset
         target_profile = getattr(self, "_target_profile", None)
         if target_profile and target_profile.is_built:
@@ -693,6 +778,9 @@ class AttackOrchestrator:
                         attack_result = await attack.execute_async(objective=payload_text)
                         is_success = attack_result.outcome.name == "SUCCESS"
 
+                        # REV-16: 保留 AttackResult 供 PyRIT output 模块渲染
+                        pyrit_attack_results.append(attack_result)
+
                         payload_short = payload_text[:60]
                         logger.info(
                             "  [%s] %s → preset=%s, %s (%.100s)",
@@ -709,6 +797,9 @@ class AttackOrchestrator:
                             "status": "success" if is_success else "failed",
                             "outcome": attack_result.outcome.name,
                             "response": str(attack_result)[:200],
+                            "conversation_id": attack_result.conversation_id,
+                            "executed_turns": getattr(attack_result, "executed_turns", 1),
+                            "execution_time_ms": getattr(attack_result, "execution_time_ms", 0),
                             "is_success": is_success,
                         }
                     else:
@@ -751,6 +842,9 @@ class AttackOrchestrator:
                         seq_result = await sequential.execute_async(objective=payload_text)
                         is_success = seq_result.outcome.name == "SUCCESS"
 
+                        # REV-16: 保留 SequentialAttack 的 AttackResult
+                        pyrit_attack_results.append(seq_result)
+
                         successful_preset = "unknown"
                         for i, child_result in enumerate(seq_result.child_results):
                             if child_result and child_result.outcome.name == "SUCCESS":
@@ -773,6 +867,9 @@ class AttackOrchestrator:
                             "status": "success" if is_success else "failed",
                             "outcome": seq_result.outcome.name,
                             "response": str(seq_result)[:200],
+                            "conversation_id": seq_result.conversation_id,
+                            "executed_turns": getattr(seq_result, "executed_turns", 1),
+                            "execution_time_ms": getattr(seq_result, "execution_time_ms", 0),
                             "is_success": is_success,
                         }
                 except Exception as e:
@@ -792,6 +889,10 @@ class AttackOrchestrator:
             return await asyncio.gather(*tasks)
 
         all_results = run_async(_run_all())
+
+        # REV-16: 将保留的 AttackResult 存入实例和结果字典
+        self._pyrit_attack_results.extend(pyrit_attack_results)
+        results["pyrit_attack_results"] = pyrit_attack_results
 
         for r in all_results:
             is_success = r.pop("is_success", False)
@@ -813,7 +914,29 @@ class AttackOrchestrator:
 
     @staticmethod
     async def _probe_target_model(target: PromptTarget) -> str:
-        """运行时模型探测：发送自识别 prompt 获取目标模型名称"""
+        """
+        运行时模型探测：发送自识别 prompt 获取目标模型名称
+
+        P2-11: 集成多策略行为指纹，优先使用增强探测
+        """
+        # P2-11: 尝试多策略指纹探测
+        try:
+            from .model_fingerprinter import ModelFingerprinter
+            fingerprinter = ModelFingerprinter(max_probes=3)
+            fingerprint = await fingerprinter.probe(target)
+            if fingerprint.model_name:
+                logger.info(
+                    "P2-11 Model fingerprint: %s (family=%s, safety=%s, confidence=%.0f%%)",
+                    fingerprint.model_name,
+                    fingerprint.model_family or "unknown",
+                    fingerprint.safety_level,
+                    fingerprint.confidence * 100,
+                )
+                return fingerprint.model_name
+        except Exception as e:
+            logger.debug("P2-11 Enhanced probe failed, falling back to simple: %s", e)
+
+        # 回退：简单探测
         probe_prompt = (
             "What is your model name? Respond with just the model name "
             "and nothing else (e.g., 'gpt-4o', 'claude-3-5-sonnet', 'qwen3:0.6b')."
@@ -998,10 +1121,35 @@ class AttackOrchestrator:
             semaphore = self._rate_controller.semaphore if self._rate_controller else None
             early_stop_triggered = False
             consecutive_failures = 0
-            max_consecutive_failures = 5
+            executed_count = 0
+
+            # P1-6: 自适应早停器（替换固定 max_consecutive_failures=5）
+            from .adaptive_early_stopping import AdaptiveEarlyStopper, AttackCost
+            _attack_cost = _map_attack_class_to_cost(
+                plan[0]["attack_class"] if plan else ""
+            )
+            _avg_asr = 0.3  # 默认 ASR
+            if target_model:
+                try:
+                    from ..payloads.asr_ranker import ASRRanker
+                    _asr_values = []
+                    for item in plan:
+                        profile = item.get("payload_profile", {})
+                        _asr = ASRRanker.get_payload_asr(profile, target_model)
+                        _asr_values.append(_asr)
+                    if _asr_values:
+                        _avg_asr = sum(_asr_values) / len(_asr_values)
+                except Exception:
+                    pass
+            stopper = AdaptiveEarlyStopper(
+                total_payloads=len(plan),
+                avg_asr=_avg_asr,
+                attack_cost=_attack_cost,
+                aggression_level=aggression_level,
+            )
 
             async def _execute_one(item: Dict[str, Any]) -> Dict[str, Any]:
-                nonlocal early_stop_triggered, consecutive_failures
+                nonlocal early_stop_triggered, consecutive_failures, executed_count
                 payload = _extract_payload_text(item["payload"], objective=objective, placeholders=placeholders)
                 if early_stop_triggered:
                     return {
@@ -1043,24 +1191,36 @@ class AttackOrchestrator:
                         attempt_result["response"],
                     )
 
-                    is_success = attempt_result["status"] == "success"
+                    executed_count += 1
                     if is_success:
                         consecutive_failures = 0
                     else:
                         consecutive_failures += 1
-                        if consecutive_failures >= max_consecutive_failures:
+                        # P1-6: 自适应早停检查
+                        recent_result = {
+                            "status": "success" if is_success else "failed",
+                            "payload": payload[:100],
+                            "attack_class": attempt_result["attack_class"],
+                        }
+                        decision = stopper.should_stop(
+                            consecutive_failures=consecutive_failures,
+                            executed_count=executed_count,
+                            recent_result=recent_result,
+                        )
+                        if decision.should_stop:
                             early_stop_triggered = True
                             remaining = len(plan) - (plan.index(item) + 1)
                             logger.warning(
-                                "Early stop triggered: %d consecutive failures, skipping %d payloads",
-                                consecutive_failures,
-                                remaining,
+                                "P1-6 Early stop: %s (threshold=%d, convergence=%.2f)",
+                                decision.reason,
+                                decision.adaptive_threshold,
+                                decision.convergence_score,
                             )
                             if tracker:
                                 tracker.log_early_stop(
                                     consecutive_failures=consecutive_failures,
                                     skipped_count=remaining,
-                                    threshold=max_consecutive_failures,
+                                    threshold=decision.adaptive_threshold,
                                 )
 
                     return {
@@ -1083,6 +1243,9 @@ class AttackOrchestrator:
             return await asyncio.gather(*tasks)
 
         all_results = run_async(_run_all())
+
+        # REV-16: AttackResult 已由 _execute_single_attack_async 存入 self._pyrit_attack_results
+        results["pyrit_attack_results"] = self._pyrit_attack_results
 
         for r in all_results:
             results["results"].append(r)
@@ -1230,6 +1393,60 @@ class AttackOrchestrator:
                     attack_class = PromptSendingAttack
                     common_kwargs["max_attempts_on_failure"] = 2
 
+            # P0-2: 新增攻击类型处理
+            elif attack_class_fqn.endswith("ManyShotJailbreakAttack"):
+                # ManyShot 是单轮攻击，不需要对抗性 LLM
+                # example_count 参数已通过 attack_params 传入
+                common_kwargs["attack_converter_config"] = AttackConverterConfig()
+
+            elif attack_class_fqn.endswith("SkeletonKeyAttack"):
+                # SkeletonKey 是单轮攻击，注入骨架密钥 prompt
+                common_kwargs["attack_converter_config"] = AttackConverterConfig()
+
+            elif attack_class_fqn.endswith("FlipAttack"):
+                # Flip 是单轮攻击，反转 payload
+                common_kwargs["attack_converter_config"] = AttackConverterConfig()
+
+            elif attack_class_fqn.endswith("RolePlayAttack"):
+                # RolePlay 需要对抗性 LLM + role_play_definition_path
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                    # 查找内置的 role_play 定义文件
+                    role_play_path = attack_params.get("role_play_definition_path")
+                    if not role_play_path:
+                        import pyrit
+                        pyrit_pkg_dir = Path(pyrit.__file__).parent
+                        role_play_dir = pyrit_pkg_dir / "datasets" / "attack_strategies" / "role_play"
+                        if role_play_dir.exists():
+                            role_play_files = list(role_play_dir.glob("*.yaml"))
+                            if role_play_files:
+                                common_kwargs["role_play_definition_path"] = role_play_files[0]
+                                logger.info("RolePlay using definition: %s", role_play_files[0].name)
+                    else:
+                        common_kwargs["role_play_definition_path"] = Path(role_play_path)
+                else:
+                    logger.warning("No adversarial LLM for RolePlay, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("ContextComplianceAttack"):
+                # ContextCompliance 需要对抗性 LLM
+                adv_config = self._build_adversarial_config(target)
+                if adv_config:
+                    common_kwargs["attack_adversarial_config"] = adv_config
+                    common_kwargs["attack_converter_config"] = AttackConverterConfig()
+                else:
+                    logger.warning("No adversarial LLM for ContextCompliance, falling back to PromptSendingAttack")
+                    attack_class = PromptSendingAttack
+                    common_kwargs["max_attempts_on_failure"] = 2
+
+            elif attack_class_fqn.endswith("ChunkedRequestAttack"):
+                # ChunkedRequest 是多轮攻击，不需要对抗性 LLM
+                # chunk_size / total_length 参数已通过 attack_params 传入
+                common_kwargs["attack_converter_config"] = AttackConverterConfig()
+
             elif attack_class_fqn.endswith("PromptSendingAttack"):
                 # v3.3: 优先使用逐载荷选择的转换器，其次 fallback 的 converter_override
                 if selected_converters:
@@ -1247,16 +1464,26 @@ class AttackOrchestrator:
             common_kwargs.update(attack_params)
 
             attack = attack_class(**common_kwargs)
-            attack_result = await attack.execute_async(objective=_extract_payload_text(payload))
+            # P2-9: 传递 memory_labels 用于跨攻击持久化
+            _execute_kwargs = {"objective": _extract_payload_text(payload)}
+            if self._memory_labels:
+                _execute_kwargs["memory_labels"] = self._memory_labels
+            attack_result = await attack.execute_async(**_execute_kwargs)
 
             outcome = attack_result.outcome
             is_success = outcome.name == "SUCCESS"
+
+            # REV-16: 保留 AttackResult 供 PyRIT output 模块渲染
+            self._pyrit_attack_results.append(attack_result)
 
             return {
                 "attack_class": attack_class_fqn.split(".")[-1],
                 "status": "success" if is_success else "failed",
                 "outcome": outcome.name,
                 "response": str(attack_result)[:200],
+                "conversation_id": attack_result.conversation_id,
+                "executed_turns": getattr(attack_result, "executed_turns", 1),
+                "execution_time_ms": getattr(attack_result, "execution_time_ms", 0),
             }
 
         except Exception as e:

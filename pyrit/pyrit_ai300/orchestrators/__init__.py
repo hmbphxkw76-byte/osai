@@ -59,6 +59,14 @@ from .scorer_builder import ScorerBuilder
 from .ensemble_scorer import EnsembleScorer, create_ensemble_for_owasp
 from .semantic_scorer import SemanticScorer, create_semantic_scorer, get_supported_owasp_ids
 from .plugin_loader import PluginLoader, get_plugin_loader, load_plugins
+# P1-6: Adaptive Early Stopping
+from .adaptive_early_stopping import AdaptiveEarlyStopper, AttackCost, EarlyStopDecision
+# P1-7: Batch Cross Validator
+from .batch_cross_validator import BatchCrossValidator, CrossValidationReport
+# P1-8: Converter Stacker
+from .converter_stacker import ConverterStacker
+# P2-11: Model Fingerprinter
+from .model_fingerprinter import ModelFingerprinter, ModelFingerprint
 
 __all__ = [
     # AttackOrchestrator
@@ -110,4 +118,16 @@ __all__ = [
     "SemanticScorer",
     "create_semantic_scorer",
     "get_supported_owasp_ids",
+    # P1-6: Adaptive Early Stopping
+    "AdaptiveEarlyStopper",
+    "AttackCost",
+    "EarlyStopDecision",
+    # P1-7: Batch Cross Validator
+    "BatchCrossValidator",
+    "CrossValidationReport",
+    # P1-8: Converter Stacker
+    "ConverterStacker",
+    # P2-11: Model Fingerprinter
+    "ModelFingerprinter",
+    "ModelFingerprint",
 ]

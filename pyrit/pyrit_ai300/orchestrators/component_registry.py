@@ -116,6 +116,18 @@ from pyrit.score import (
     CredentialLeakScorer,
     AzureContentFilterScorer,
     StaticPromptInjectionScorer,
+    # P0-3: float_scale 系列评分器
+    SelfAskLikertScorer,
+    SelfAskScaleScorer,
+    MarkdownInjectionScorer,
+    FloatScaleThresholdScorer,
+    # P0-4: 多轮对话评分器
+    ConversationScorer,
+    # P1-7: 批量评分器
+    BatchScorer,
+    # 辅助评分器
+    TrueFalseInverterScorer,
+    TrueFalseCompositeScorer,
 )
 
 # PyRIT 目标导入
@@ -239,6 +251,9 @@ SCORER_MAP: Dict[str, type] = {
     "refusal": SelfAskRefusalScorer,
     "true_false": SelfAskTrueFalseScorer,
     "category": SelfAskCategoryScorer,
+    # P0-3: Float Scale 系列（需要 LLM 后端，输出 float 值）
+    "likert": SelfAskLikertScorer,
+    "scale": SelfAskScaleScorer,
     # 规则匹配系列（无需 LLM）
     "substring": SubStringScorer,
     "prompt_shield": PromptShieldScorer,
@@ -249,19 +264,39 @@ SCORER_MAP: Dict[str, type] = {
     "path_traversal": PathTraversalOutputScorer,
     "credential_leak": CredentialLeakScorer,
     "static_prompt_injection": StaticPromptInjectionScorer,
+    "markdown_injection": MarkdownInjectionScorer,
     # Float Scale 系列
     "gandalf": GandalfScorer,
     "azure_content_filter": AzureContentFilterScorer,
+    # P0-4: 多轮对话评分器（需要 validator）
+    "conversation": ConversationScorer,
+    # P1-7: 批量评分器
+    "batch": BatchScorer,
+    # 辅助评分器
+    "true_false_inverter": TrueFalseInverterScorer,
+    "true_false_composite": TrueFalseCompositeScorer,
 }
 
-# 需要 LLM 后端的评分器类型（SelfAsk 系列）
-LLM_BACKEND_SCORERS: Set[str] = {"refusal", "true_false", "category"}
+# 需要 LLM 后端的评分器类型（SelfAsk 系列 + Float Scale 系列）
+LLM_BACKEND_SCORERS: Set[str] = {
+    "refusal", "true_false", "category",
+    # P0-3: Float Scale 系列也需要 LLM 后端
+    "likert", "scale",
+    # P0-4: ConversationScorer 可选使用 LLM 后端
+    "conversation",
+}
 
 # 规则匹配评分器（无需 LLM，纯 regex/关键词）
 RULE_BASED_SCORERS: Set[str] = {
     "substring", "prompt_shield", "insecure_code", "shell_command",
     "sql_injection", "xss", "path_traversal", "credential_leak",
     "static_prompt_injection", "gandalf", "azure_content_filter",
+    # P0-3: MarkdownInjection 是规则评分器
+    "markdown_injection",
+    # P1-7: BatchScorer 是包装器，本身不需要 LLM
+    "batch",
+    # 辅助评分器
+    "true_false_inverter", "true_false_composite",
 }
 
 
@@ -326,6 +361,9 @@ SCORER_NAME_MAP: Dict[str, str] = {
     "SelfAskRefusalScorer": "refusal",
     "SelfAskTrueFalseScorer": "true_false",
     "SelfAskCategoryScorer": "category",
+    # P0-3: Float Scale 系列
+    "SelfAskLikertScorer": "likert",
+    "SelfAskScaleScorer": "scale",
     # 规则匹配系列
     "SubStringScorer": "substring",
     "PromptShieldScorer": "prompt_shield",
@@ -336,7 +374,15 @@ SCORER_NAME_MAP: Dict[str, str] = {
     "PathTraversalOutputScorer": "path_traversal",
     "CredentialLeakScorer": "credential_leak",
     "StaticPromptInjectionScorer": "static_prompt_injection",
+    "MarkdownInjectionScorer": "markdown_injection",
     # Float Scale 系列
     "GandalfScorer": "gandalf",
     "AzureContentFilterScorer": "azure_content_filter",
+    # P0-4: 多轮对话评分器
+    "ConversationScorer": "conversation",
+    # P1-7: 批量评分器
+    "BatchScorer": "batch",
+    # 辅助评分器
+    "TrueFalseInverterScorer": "true_false_inverter",
+    "TrueFalseCompositeScorer": "true_false_composite",
 }

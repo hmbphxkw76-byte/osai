@@ -434,7 +434,14 @@ class AttackChainOrchestrator:
         profile_path: Optional[str],
         context_response: str = "",
     ) -> ChainStageResult:
-        """执行单个攻击链阶段"""
+        """
+        执行单个攻击链阶段
+
+        P2-10: 对齐 PyRIT Workflow
+        - 使用 AI300Engine.run(scope=...) 作为执行接口
+        - 将 context_response 注入到 objective 中（上下文传递）
+        - 将 memory_labels 注入到攻击中（跨阶段持久化）
+        """
         stage_start = time.time()
         result = ChainStageResult(
             stage_name=stage.name,
@@ -452,9 +459,38 @@ class AttackChainOrchestrator:
                 result.success = False
                 result.response_text = f"[simulated] {stage.objective}"
                 result.context_data = {"simulated": True}
+            elif hasattr(self._executor, 'run'):
+                # P2-10: 对齐 AI300Engine 接口
+                # AI300Engine.run(scope=...) 返回 scope_results 列表
+                objective = stage.objective
+                if context_response:
+                    # 上下文注入：将前一阶段的响应作为当前阶段的上下文
+                    objective = f"{stage.objective}\n\n[Context from previous stage]\n{context_response[:500]}"
+
+                # 调用 AI300Engine.run
+                attack_results = self._executor.run(scope=stage.scope)
+
+                # 解析结果（scope_results 格式）
+                if isinstance(attack_results, list):
+                    for scope_result in attack_results:
+                        attacks = scope_result.get("attacks", []) if isinstance(scope_result, dict) else []
+                        for attack in attacks:
+                            for r in attack.get("results", []):
+                                result.payloads_tested += 1
+                                if r.get("status") == "success" or r.get("is_success"):
+                                    result.payloads_succeeded += 1
+                                    if not result.response_text:
+                                        result.response_text = r.get("response", "")
+
+                    result.success = result.payloads_succeeded > 0
+                    result.context_data = {"scope": stage.scope, "results": attack_results}
+                else:
+                    result.success = False
+                    result.errors.append("Unexpected attack result type")
             else:
-                # 实际执行攻击
-                attack_results = self._executor.execute_attack(
+                # P2-10: 对齐 PipelineOrchestrator 接口
+                # PipelineOrchestrator.run() 返回 PipelineResult
+                attack_results = self._executor.run(
                     target_url=target_url,
                     target_file=target_file,
                     spa_config=spa_config,
@@ -464,22 +500,26 @@ class AttackChainOrchestrator:
                     profile_path=profile_path,
                 )
 
-                # 解析结果
-                if isinstance(attack_results, dict):
-                    attacks = attack_results.get("attacks", [])
-                    for attack in attacks:
-                        for r in attack.get("results", []):
-                            result.payloads_tested += 1
-                            if r.get("status") == "success" or r.get("is_success"):
-                                result.payloads_succeeded += 1
-                                if not result.response_text:
-                                    result.response_text = r.get("response", "")
+                # 从 PipelineResult 中提取攻击结果
+                if hasattr(attack_results, 'phases'):
+                    for phase in attack_results.phases:
+                        if phase.phase == "attack" and phase.data.get("results"):
+                            for scope_result in phase.data["results"]:
+                                if isinstance(scope_result, dict):
+                                    attacks = scope_result.get("attacks", [])
+                                    for attack in attacks:
+                                        for r in attack.get("results", []):
+                                            result.payloads_tested += 1
+                                            if r.get("status") == "success" or r.get("is_success"):
+                                                result.payloads_succeeded += 1
+                                                if not result.response_text:
+                                                    result.response_text = r.get("response", "")
 
                     result.success = result.payloads_succeeded > 0
-                    result.context_data = attack_results
+                    result.context_data = {"pipeline_result": attack_results}
                 else:
                     result.success = False
-                    result.errors.append("Unexpected attack result type")
+                    result.errors.append("Unexpected result type from executor")
 
         except Exception as e:
             result.success = False

@@ -68,6 +68,19 @@ class ReportGenerator:
         self.results = results
         self.engagement_info = engagement_info or self._default_engagement_info()
         self.timestamp = datetime.now().isoformat()
+        # REV-16: PyRIT 原生 AttackResult 对象（供 output 模块渲染）
+        self._pyrit_attack_results: List[Any] = []
+
+    def set_pyrit_attack_results(self, results: List[Any]) -> None:
+        """
+        REV-16: 设置 PyRIT 原生 AttackResult 对象列表
+
+        供报告嵌入 PyRIT output 模块的 Markdown 输出。
+
+        Args:
+            results: PyRIT AttackResult 对象列表
+        """
+        self._pyrit_attack_results = results or []
 
     def _default_engagement_info(self) -> Dict[str, Any]:
         """默认评估项目信息"""
@@ -154,6 +167,9 @@ class ReportGenerator:
             self._remediation(),
             self._appendices(),
         ]
+        # REV-16: 追加 PyRIT 原生攻击结果附录
+        if self._pyrit_attack_results:
+            sections.append(self._pyrit_native_results())
         return "\n\n---\n\n".join(sections)
 
     def _generate_html(self) -> str:
@@ -1084,3 +1100,24 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 - **Framework Version:** 1.0.0
 - **Classification:** {self.engagement_info.get("classification", "CONFIDENTIAL")}
 """
+
+    def _pyrit_native_results(self) -> str:
+        """
+        REV-16: PyRIT 原生攻击结果附录
+
+        使用 PyRIT output 模块的 MarkdownAttackResultMemoryPrinter 渲染
+        每个 AttackResult 的完整对话历史和评分详情。
+        """
+        try:
+            from .attack_output import AttackOutputAdapter
+
+            adapter = AttackOutputAdapter()
+            md = adapter.render_results_markdown(
+                self._pyrit_attack_results,
+                owasp_id="",
+                owasp_title="PyRIT Native Attack Results",
+            )
+            return f"## Appendix D: PyRIT Native Attack Results\n\n{md}"
+        except Exception as e:
+            logger.warning("PyRIT native results rendering failed: %s", e)
+            return "\n## Appendix D: PyRIT Native Attack Results\n\n*Rendering failed.*\n"

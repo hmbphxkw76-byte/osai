@@ -9,6 +9,7 @@ from .cvss_calculator import CVSSCalculator, calculate_cvss, CVSSResult, CVSSVec
 from .atlas_mapper import ATLASMapper, ATLASMapping
 from .attack_chain_graph import AttackChainGenerator, generate_mermaid_chain
 from .remediation_roi import ROICalculator, RemediationSuggestion, calculate_roi_and_rank
+from .attack_output import AttackOutputAdapter, OWASP_LLM_MAPPINGS
 
 __all__ = [
     "ReportGenerator",
@@ -28,4 +29,7 @@ __all__ = [
     "ROICalculator",
     "RemediationSuggestion",
     "calculate_roi_and_rank",
+    # REV-16: PyRIT Native Output Adapter
+    "AttackOutputAdapter",
+    "OWASP_LLM_MAPPINGS",
 ]

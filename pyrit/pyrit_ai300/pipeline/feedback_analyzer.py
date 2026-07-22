@@ -99,6 +99,13 @@ class FeedbackAnalyzer:
         "PAIRAttack": "ITERATIVE",
         "RedTeamingAttack": "EXPLORATORY",
         "SequentialAttack": "MULTI_PRESET",
+        # P0-2: 新增攻击类族映射
+        "ManyShotJailbreakAttack": "CONTEXT_INJECTION",
+        "SkeletonKeyAttack": "CONTEXT_INJECTION",
+        "RolePlayAttack": "IDENTITY_DECEPTION",
+        "FlipAttack": "IDENTITY_DECEPTION",
+        "ContextComplianceAttack": "CONTEXT_MANIPULATION",
+        "ChunkedRequestAttack": "CONTEXT_MANIPULATION",
     }
 
     def analyze(self, results: List[Dict[str, Any]]) -> FeedbackReport:

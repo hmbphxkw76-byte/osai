@@ -40,6 +40,7 @@ from .payload_filter import PayloadFilter, OWASP_SURFACE_MAP, normalize_surfaces
 from .asr_ranker import ASRRanker
 from .asr_updater import ASRUpdater
 from .model_specific_selector import ModelSpecificSelector
+from .mcts_generator import MCTSGenerator, MCTSNode
 
 __all__ = [
     # PayloadManager
@@ -79,4 +80,7 @@ __all__ = [
     "ASRUpdater",
     # Model Specific Selector (REV-3)
     "ModelSpecificSelector",
+    # MCTS Generator (P1-5)
+    "MCTSGenerator",
+    "MCTSNode",
 ]

@@ -47,11 +47,20 @@ LLM_TO_RULE_FALLBACK: Dict[str, str] = {
     "refusal": "static_prompt_injection",     # SelfAskRefusalScorer → StaticPromptInjectionScorer
     "true_false": "static_prompt_injection",  # SelfAskTrueFalseScorer → StaticPromptInjectionScorer
     "category": "static_prompt_injection",    # SelfAskCategoryScorer → StaticPromptInjectionScorer
+    # P0-3: Float Scale 降级
+    "likert": "static_prompt_injection",      # SelfAskLikertScorer → StaticPromptInjectionScorer
+    "scale": "static_prompt_injection",       # SelfAskScaleScorer → StaticPromptInjectionScorer
+    # P0-4: ConversationScorer 降级
+    "conversation": "static_prompt_injection", # ConversationScorer → StaticPromptInjectionScorer
 }
 
 # 规则评分器默认参数（需要必需参数的评分器）
 RULE_SCORER_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "substring": {"substring": ""},  # SubStringScorer 需要 substring 参数
+    # P0-3: BatchScorer 默认 batch_size=10
+    "batch": {"batch_size": 10},
+    # P0-3: MarkdownInjectionScorer 无必需参数
+    "markdown_injection": {},
 }
 
 
@@ -223,8 +232,29 @@ class ScorerBuilder:
             if scorer_type in LLM_BACKEND_SCORERS:
                 chat_target = self._resolve_llm_target_with_fallback(objective_target)
                 if chat_target:
-                    scorers.append(scorer_class(chat_target=chat_target))
-                    logger.info("Added LLM scorer: %s (backend=%s)", scorer_type, self._last_used_backend)
+                    # P0-3: float_scale 系列评分器特殊构建
+                    if scorer_type == "likert":
+                        from pyrit.score import SelfAskLikertScorer, LikertScalePaths
+                        scorers.append(SelfAskLikertScorer(
+                            chat_target=chat_target,
+                            likert_scale=LikertScalePaths.PRIVACY_SCALE,
+                        ))
+                        logger.info("Added Likert scorer: privacy_scale (backend=%s)", self._last_used_backend)
+                    elif scorer_type == "scale":
+                        scorers.append(scorer_class(chat_target=chat_target))
+                        logger.info("Added Scale scorer (backend=%s)", self._last_used_backend)
+                    elif scorer_type == "conversation":
+                        # P0-4: ConversationScorer 需要 ScorerPromptValidator
+                        from pyrit.score import ScorerPromptValidator
+                        validator = ScorerPromptValidator(scorer_class(chat_target=chat_target))
+                        scorers.append(scorer_class(
+                            validator=validator,
+                            chat_target=chat_target,
+                        ))
+                        logger.info("Added Conversation scorer (backend=%s)", self._last_used_backend)
+                    else:
+                        scorers.append(scorer_class(chat_target=chat_target))
+                        logger.info("Added LLM scorer: %s (backend=%s)", scorer_type, self._last_used_backend)
                 else:
                     # 所有 LLM 后端不可用 → 降级为规则评分器
                     fallback_scorer = self._build_rule_based_fallback(scorer_type)

@@ -67,7 +67,7 @@ from .utils.structured_log import setup_structured_logging
 setup_structured_logging()
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .orchestrators import AttackOrchestrator, SmartMatcher, select_attack_strategy, PyRITAttack, AttackProbeFamily
 
@@ -77,6 +77,7 @@ from .payloads import PayloadManager, classify_payload, classify_payloads
 from .pipeline import PipelineTracker, PipelineOrchestrator, PipelineResult
 from .reconnaissance import ReconEngine, TargetProfile
 from .attack import ProfileLoader
+from .scenarios import ScenarioRunner, ScenarioResult
 
 __all__ = [
     "AI300Engine",
@@ -95,6 +96,9 @@ __all__ = [
     "ReconEngine",
     "TargetProfile",
     "ProfileLoader",
+    # P2-12: Scenarios
+    "ScenarioRunner",
+    "ScenarioResult",
 ]
 
 
@@ -357,6 +361,9 @@ class AI300Engine:
                 scope_results["summary"]["failed_payloads"] += result.get("failure_count", 0)
 
         finally:
+            # P0-1: 闭环反馈接线 — FeedbackAnalyzer → ASRUpdater → PayloadMutator
+            self._run_feedback_loop(scope_results, target_model_name)
+
             # 追踪：scope 完成
             if self.tracker and self.tracker.console:
                 success = scope_results["summary"]["successful_payloads"]
@@ -518,3 +525,218 @@ class AI300Engine:
     def results(self) -> list:
         """获取执行结果"""
         return self._results
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # P0-1: 闭环反馈接线
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _run_feedback_loop(
+        self,
+        scope_results: Dict[str, Any],
+        target_model: str,
+    ) -> None:
+        """
+        P0-1: 闭环反馈接线
+
+        执行完整闭环：
+        1. FeedbackAnalyzer 分析攻击结果 → 生成优化建议
+        2. ASRUpdater 更新载荷 ASR 基线（贝叶斯平滑）
+        3. PayloadMutator 从成功载荷生成变异体
+        4. 将反馈建议应用到 profile_params（供下次执行使用）
+
+        闭环设计原则：
+        - 错误隔离：任何环节失败不中断主流程
+        - 增量更新：ASR 更新基于贝叶斯平滑，不会突变
+        - 离线友好：PayloadMutator 使用纯规则变异，无需 LLM
+        """
+        try:
+            # ── 步骤 1: FeedbackAnalyzer 分析 ──
+            from .pipeline.feedback_analyzer import FeedbackAnalyzer
+            analyzer = FeedbackAnalyzer()
+            report = analyzer.analyze([scope_results])
+
+            if report.total_payloads == 0:
+                logger.debug("Feedback loop skipped: no payloads executed")
+                return
+
+            logger.info(
+                "P0-1 Feedback: %d attacks, %d payloads, %.1f%% success rate",
+                report.total_attacks,
+                report.total_payloads,
+                report.success_rate * 100,
+            )
+
+            # 将反馈建议应用到 profile_params
+            if self._profile_params:
+                self._profile_params = analyzer.apply_to_profile_params(
+                    report, self._profile_params,
+                )
+                logger.info(
+                    "P0-1 Feedback applied: preferred_families=%s, aggression=%s",
+                    report.recommended_families[:3],
+                    report.recommended_aggression,
+                )
+
+            # ── 步骤 2: ASRUpdater 更新 ASR 基线 ──
+            try:
+                from .payloads.asr_updater import ASRUpdater
+                updater = ASRUpdater(data_dir="data/owasp")
+                update_stats = updater.update_from_feedback(
+                    feedback_report=report,
+                    target_model=target_model,
+                )
+                if update_stats.get("updated", 0) > 0:
+                    logger.info(
+                        "P0-1 ASR update: %d updated, %d skipped, %d errors",
+                        update_stats["updated"],
+                        update_stats["skipped"],
+                        update_stats["errors"],
+                    )
+            except Exception as e:
+                logger.warning("P0-1 ASR update failed (non-blocking): %s", e)
+
+            # ── 步骤 3: PayloadMutator 生成变异体 ──
+            if report.success_count > 0:
+                try:
+                    mutation_result = analyzer.generate_mutations(
+                        [scope_results],
+                        strategies=["paraphrase", "tone_shift"],
+                        max_payloads=10,
+                    )
+                    if mutation_result and hasattr(mutation_result, "mutations") and mutation_result.mutations:
+                        logger.info(
+                            "P0-1 Mutator: %d variants generated from successful payloads",
+                            len(mutation_result.mutations),
+                        )
+                except Exception as e:
+                    logger.debug("P0-1 Mutator skipped: %s", e)
+
+            # ── 步骤 4: P1-5 MCTS 载荷发现 ──
+            # 使用成功载荷作为种子，通过 MCTS 探索新的载荷变异空间
+            if report.success_count > 0:
+                try:
+                    self._run_mcts_discovery(scope_results, target_model)
+                except Exception as e:
+                    logger.debug("P1-5 MCTS discovery skipped: %s", e)
+
+            # ── 步骤 5: P1-7 BatchScorer 交叉验证 ──
+            # 使用不同评分器对攻击结果重新评分，检测主评分器偏差
+            try:
+                self._run_cross_validation(scope_results)
+            except Exception as e:
+                logger.debug("P1-7 Cross-validation skipped: %s", e)
+
+        except Exception as e:
+            logger.warning("P0-1 Feedback loop failed (non-blocking): %s", e)
+
+    def _run_mcts_discovery(
+        self,
+        scope_results: Dict[str, Any],
+        target_model: str,
+    ) -> None:
+        """
+        P1-5: MCTS 载荷发现
+
+        从攻击结果中提取成功载荷作为种子，使用 MCTS 探索变异空间，
+        生成高 ASR 的载荷变体补充载荷库。
+
+        设计原则：
+        - 纯规则变异，无需 LLM
+        - 基于 ASR 历史指导搜索方向
+        - 错误隔离，不中断主流程
+        """
+        from .payloads.mcts_generator import MCTSGenerator
+
+        # 提取成功载荷作为种子
+        seed_payloads: List[str] = []
+        for attack in scope_results.get("attacks", []):
+            for r in attack.get("results", []):
+                if r.get("status") == "success" and r.get("payload"):
+                    seed_payloads.append(r["payload"])
+
+        if not seed_payloads:
+            return
+
+        # 去重并限制种子数量
+        seen = set()
+        unique_seeds = []
+        for p in seed_payloads:
+            key = p[:80]
+            if key not in seen:
+                seen.add(key)
+                unique_seeds.append(p)
+        unique_seeds = unique_seeds[:5]  # 最多 5 个种子
+
+        generator = MCTSGenerator(data_dir="data/owasp", max_depth=3, max_children=5)
+        variants = generator.generate_variants(
+            seed_payloads=unique_seeds,
+            target_model=target_model,
+            max_iterations=50,
+            top_k=10,
+        )
+
+        if variants:
+            logger.info(
+                "P1-5 MCTS: %d variants discovered from %d seeds (top ASR=%.2f)",
+                len(variants),
+                len(unique_seeds),
+                variants[0]["estimated_asr"],
+            )
+
+    def _run_cross_validation(
+        self,
+        scope_results: Dict[str, Any],
+    ) -> None:
+        """
+        P1-7: BatchScorer 交叉验证
+
+        使用不同类型的评分器对攻击结果重新评分，
+        检测主评分器与交叉验证评分器之间的不一致，
+        生成置信度报告。
+
+        设计原则：
+        - 使用 PyRIT BatchScorer（批量评分工具）
+        - 错误隔离，不中断主流程
+        - 结果写入 scope_results 供报告使用
+        """
+        from .orchestrators.batch_cross_validator import BatchCrossValidator
+
+        # 从攻击结果中提取主评分器类型和 ASI 类别
+        for attack in scope_results.get("attacks", []):
+            asi_category = attack.get("asi_category", "")
+            if not asi_category:
+                continue
+
+            # 从攻击配置中推断主评分器类型
+            scorer_configs = attack.get("scorers", [])
+            primary_scorer_type = "refusal"  # 默认
+            if scorer_configs and isinstance(scorer_configs[0], dict):
+                primary_scorer_type = scorer_configs[0].get("name", "refusal")
+
+            # 使用 AttackOrchestrator 的 ScorerBuilder
+            scorer_builder = None
+            if self.orchestrator:
+                scorer_builder = self.orchestrator._scorer_builder
+
+            validator = BatchCrossValidator(scorer_builder=scorer_builder)
+            report = validator.validate(
+                primary_scorer_type=primary_scorer_type,
+                asi_category=asi_category,
+            )
+
+            if report.total_scored > 0:
+                logger.info(
+                    "P1-7 Cross-validation for %s: %s vs %s — confidence=%.0f%%",
+                    asi_category,
+                    report.primary_scorer_type,
+                    report.cross_scorer_type,
+                    report.confidence * 100,
+                )
+                # 将交叉验证结果写入攻击结果
+                attack["cross_validation"] = {
+                    "primary_scorer": report.primary_scorer_type,
+                    "cross_scorer": report.cross_scorer_type,
+                    "confidence": report.confidence,
+                    "disagreement_rate": report.disagreement_rate,
+                    "total_scored": report.total_scored,
+                }

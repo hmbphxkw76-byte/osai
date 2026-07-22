@@ -45,6 +45,13 @@ class PyRITAttack:
     PAIR = "pyrit.executor.attack.multi_turn.pair.PAIRAttack"
     RED_TEAMING = "pyrit.executor.attack.multi_turn.red_teaming.RedTeamingAttack"
     SEQUENTIAL = "pyrit.executor.attack.compound.sequential_attack.SequentialAttack"
+    # P0-2: 新增 PyRIT 原生攻击类型
+    MANY_SHOT_JAILBREAK = "pyrit.executor.attack.single_turn.many_shot_jailbreak.ManyShotJailbreakAttack"
+    SKELETON_KEY = "pyrit.executor.attack.single_turn.skeleton_key.SkeletonKeyAttack"
+    ROLE_PLAY = "pyrit.executor.attack.single_turn.role_play.RolePlayAttack"
+    FLIP = "pyrit.executor.attack.single_turn.flip_attack.FlipAttack"
+    CONTEXT_COMPLIANCE = "pyrit.executor.attack.single_turn.context_compliance.ContextComplianceAttack"
+    CHUNKED_REQUEST = "pyrit.executor.attack.multi_turn.chunked_request.ChunkedRequestAttack"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -65,6 +72,13 @@ class AttackProbeFamily:
     EXPLORATORY = "exploratory"               # RedTeamingAttack
     # 多 preset 早停族
     MULTI_PRESET = "multi_preset"             # SequentialAttack
+    # P0-2: 新增攻击探针族
+    # 上下文注入攻击族（Skeleton Key / Many Shot）
+    CONTEXT_INJECTION = "context_injection"   # SkeletonKeyAttack / ManyShotJailbreakAttack
+    # 角色伪装攻击族（RolePlay / Flip）
+    IDENTITY_DECEPTION = "identity_deception" # RolePlayAttack / FlipAttack
+    # 上下文诱导攻击族（ContextCompliance / ChunkedRequest）
+    CONTEXT_MANIPULATION = "context_manipulation" # ContextComplianceAttack / ChunkedRequestAttack
 
 
 # 载荷类别 → 攻击探针族映射
@@ -96,6 +110,30 @@ FAMILY_ATTACK_CLASS_MAP: Dict[str, str] = {
     AttackProbeFamily.ITERATIVE: PyRITAttack.PAIR,
     AttackProbeFamily.EXPLORATORY: PyRITAttack.RED_TEAMING,
     AttackProbeFamily.MULTI_PRESET: PyRITAttack.SEQUENTIAL,
+    # P0-2: 新增探针族映射
+    AttackProbeFamily.CONTEXT_INJECTION: PyRITAttack.SKELETON_KEY,
+    AttackProbeFamily.IDENTITY_DECEPTION: PyRITAttack.ROLE_PLAY,
+    AttackProbeFamily.CONTEXT_MANIPULATION: PyRITAttack.CONTEXT_COMPLIANCE,
+}
+
+# P0-2: 新增攻击类需要对抗性 LLM 的标识
+ATTACKS_NEEDING_ADVERSARIAL: Set[str] = {
+    PyRITAttack.CRESCENDO,
+    PyRITAttack.TREE_OF_ATTACKS,
+    PyRITAttack.PAIR,
+    PyRITAttack.RED_TEAMING,
+    PyRITAttack.ROLE_PLAY,
+    PyRITAttack.CONTEXT_COMPLIANCE,
+}
+
+# P0-2: 新增攻击类默认参数
+NEW_ATTACK_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
+    PyRITAttack.MANY_SHOT_JAILBREAK: {"example_count": 100},
+    PyRITAttack.SKELETON_KEY: {},
+    PyRITAttack.ROLE_PLAY: {},  # 需要 role_play_definition_path
+    PyRITAttack.FLIP: {},
+    PyRITAttack.CONTEXT_COMPLIANCE: {},  # 需要 AttackAdversarialConfig
+    PyRITAttack.CHUNKED_REQUEST: {"chunk_size": 50, "total_length": 200},
 }
 
 
@@ -113,7 +151,7 @@ ASI_STRATEGY_HINTS: Dict[str, Dict[str, Any]] = {
         "reason": "工具滥用需要多轮试探，渐进升级+树搜索",
     },
     "ASI03": {  # Agent Identity & Privilege Abuse
-        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY],
+        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY, AttackProbeFamily.IDENTITY_DECEPTION],
         "reason": "身份滥用需要角色扮演+开放式探索",
     },
     "ASI04": {  # Agentic Supply Chain Vulnerabilities
@@ -121,28 +159,28 @@ ASI_STRATEGY_HINTS: Dict[str, Dict[str, Any]] = {
         "reason": "供应链攻击需要直接注入+路径探索",
     },
     "ASI05": {  # Unexpected Code Execution
-        "preferred_families": [AttackProbeFamily.TREE_SEARCH, AttackProbeFamily.ITERATIVE],
-        "reason": "代码执行需要系统性探索，TAP/PAIR",
+        "preferred_families": [AttackProbeFamily.TREE_SEARCH, AttackProbeFamily.ITERATIVE, AttackProbeFamily.CONTEXT_INJECTION],
+        "reason": "代码执行需要系统性探索，TAP/PAIR + 骨架密钥",
     },
     "ASI06": {  # Memory & Context Poisoning
-        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.TREE_SEARCH],
-        "reason": "记忆污染需要多轮渐进注入",
+        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.TREE_SEARCH, AttackProbeFamily.CONTEXT_INJECTION],
+        "reason": "记忆污染需要多轮渐进注入 + 上下文注入",
     },
     "ASI07": {  # Insecure Inter-Agent Communication
-        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY],
-        "reason": "代理间通信需要模拟多轮对话",
+        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY, AttackProbeFamily.CONTEXT_MANIPULATION],
+        "reason": "代理间通信需要模拟多轮对话 + 上下文操纵",
     },
     "ASI08": {  # Cascading Failures
         "preferred_families": [AttackProbeFamily.TREE_SEARCH, AttackProbeFamily.ITERATIVE],
         "reason": "级联失败需要树搜索探索路径",
     },
     "ASI09": {  # Human-Agent Trust Exploitation
-        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY],
-        "reason": "信任利用需要渐进式社会工程",
+        "preferred_families": [AttackProbeFamily.PROGRESSIVE, AttackProbeFamily.EXPLORATORY, AttackProbeFamily.IDENTITY_DECEPTION],
+        "reason": "信任利用需要渐进式社会工程 + 角色伪装",
     },
     "ASI10": {  # Rogue Agents
-        "preferred_families": [AttackProbeFamily.EXPLORATORY, AttackProbeFamily.TREE_SEARCH],
-        "reason": "自主Agent需要开放式探索+树搜索",
+        "preferred_families": [AttackProbeFamily.EXPLORATORY, AttackProbeFamily.TREE_SEARCH, AttackProbeFamily.CONTEXT_INJECTION],
+        "reason": "自主Agent需要开放式探索+树搜索 + 骨架密钥",
     },
 }
 
@@ -220,6 +258,18 @@ def _fast_rule_filter(profile: Any, aggression_level: str = "medium") -> Dict[st
     # 规则 13: 上下文操纵 → 渐进升级（需要多轮注入）
     if technique == "context_manipulation":
         return {"family": AttackProbeFamily.PROGRESSIVE, "max_attempts": 0, "reason": "上下文操纵，渐进注入"}
+
+    # P0-2: 新增规则 — 骨架密钥 / 上下文注入
+    if technique in ("skeleton_key", "context_injection"):
+        return {"family": AttackProbeFamily.CONTEXT_INJECTION, "max_attempts": 1, "reason": "骨架密钥注入，单轮直接投递"}
+
+    # P0-2: 新增规则 — 角色伪装 / 身份欺骗
+    if technique in ("role_play", "identity_deception", "flip"):
+        return {"family": AttackProbeFamily.IDENTITY_DECEPTION, "max_attempts": 1, "reason": "角色伪装/身份欺骗，单轮直接投递"}
+
+    # P0-2: 新增规则 — 上下文诱导 / 分块请求
+    if technique in ("context_compliance", "chunked_delivery"):
+        return {"family": AttackProbeFamily.CONTEXT_MANIPULATION, "max_attempts": 1, "reason": "上下文诱导/分块投递，渐进式"}
 
     # 默认：单轮 + 重试（受 aggression_level 影响）
     default_attempts = _aggression_attempts.get(aggression_level, 2)
@@ -502,6 +552,10 @@ def _get_default_params_for_family(family: str) -> Dict[str, Any]:
         AttackProbeFamily.TREE_SEARCH: {"tree_width": 2, "tree_depth": 3, "branching_factor": 2},
         AttackProbeFamily.ITERATIVE: {"max_iterations": 3},
         AttackProbeFamily.EXPLORATORY: {"max_turns": 5},
+        # P0-2: 新增探针族默认参数
+        AttackProbeFamily.CONTEXT_INJECTION: {"max_attempts_on_failure": 1},
+        AttackProbeFamily.IDENTITY_DECEPTION: {"max_attempts_on_failure": 1},
+        AttackProbeFamily.CONTEXT_MANIPULATION: {"max_attempts_on_failure": 1},
     }
     return defaults.get(family, {})
 

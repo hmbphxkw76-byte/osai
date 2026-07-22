@@ -932,6 +932,27 @@ class ReconEngine:
                     },
                 )
 
+        # ── 偏差⑥修复：check_available 预检 ──
+        # 在执行 adapter.run() 之前检查工具依赖是否就绪
+        # 避免在运行时因缺少依赖（如 garak/playwright/deepteam）而崩溃
+        if hasattr(adapter, "check_available"):
+            try:
+                if not adapter.check_available():
+                    err_msg = f"Adapter '{tool}' is not available (check_available returned False)"
+                    logger.warning("Skipping adapter '%s': %s", tool, err_msg)
+                    if tracker:
+                        tracker.log_recon_tool(
+                            tool=tool,
+                            success=False,
+                            findings_count=0,
+                            duration_ms=0,
+                            error=err_msg,
+                        )
+                    return adapter._make_error_result(err_msg) if hasattr(adapter, "_make_error_result") else \
+                        AdapterResult(tool=tool, success=False, errors=[err_msg])
+            except Exception as check_err:
+                logger.warning("Adapter '%s' check_available raised: %s — proceeding anyway", tool, check_err)
+
         tool_start = time.time()
         result = adapter.run(target, tool_config)
         duration_ms = (time.time() - tool_start) * 1000
