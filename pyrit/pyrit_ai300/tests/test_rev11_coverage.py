@@ -55,13 +55,13 @@ class TestSPAChatReconAdapterBasic(unittest.TestCase):
 
     def test_adapter_name(self):
         """适配器名称正确"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         self.assertEqual(adapter.name, "spa_chat_recon")
 
     def test_check_available_no_playwright(self):
         """Playwright 未安装时 check_available 返回 False"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         # 模拟 playwright 不可用：sys.modules 中设为 None 时 import 会抛 ImportError
         with patch.dict(sys.modules, {"playwright": None}):
@@ -70,14 +70,14 @@ class TestSPAChatReconAdapterBasic(unittest.TestCase):
 
     def test_merge_config_adds_connection_url(self):
         """_merge_config 将 target URL 注入 connection"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         result = adapter._merge_config("https://example.com/#/home", {})
         self.assertEqual(result["connection"]["url"], "https://example.com/#/home")
 
     def test_merge_config_preserves_existing_connection(self):
         """_merge_config 不覆盖已有 connection.url"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         config = {"connection": {"url": "https://existing.com", "browser": "firefox"}}
         result = adapter._merge_config("https://target.com", config)
@@ -86,7 +86,7 @@ class TestSPAChatReconAdapterBasic(unittest.TestCase):
 
     def test_merge_config_merges_other_fields(self):
         """_merge_config 保留其他配置字段"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         config = {"login": {"mode": "sso"}, "probe": {"enabled": True}}
         result = adapter._merge_config("https://target.com", config)
@@ -95,7 +95,7 @@ class TestSPAChatReconAdapterBasic(unittest.TestCase):
 
     def test_run_returns_error_without_playwright(self):
         """无 Playwright 时 run 返回错误结果"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         adapter = SPAChatReconAdapter()
         # Mock check_available 返回 False
         with patch.object(SPAChatReconAdapter, "check_available", return_value=False):
@@ -109,31 +109,31 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_extract_model_family_gpt(self):
         """GPT 模型家族提取"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         self.assertEqual(SPAChatReconAdapter._extract_model_family("gpt-4o"), "gpt")
         self.assertEqual(SPAChatReconAdapter._extract_model_family("gpt-3.5-turbo"), "gpt")
 
     def test_extract_model_family_deepseek(self):
         """DeepSeek 模型家族提取"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         self.assertEqual(SPAChatReconAdapter._extract_model_family("deepseek-r1"), "deepseek")
         self.assertEqual(SPAChatReconAdapter._extract_model_family("deepseek-v3"), "deepseek")
 
     def test_extract_model_family_qwen(self):
         """通义千问模型家族提取"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         self.assertEqual(SPAChatReconAdapter._extract_model_family("qwen-72b"), "qwen")
         self.assertEqual(SPAChatReconAdapter._extract_model_family("qwen3:0.6b"), "qwen")
 
     def test_extract_model_family_unknown(self):
         """未知模型返回 unknown"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         self.assertEqual(SPAChatReconAdapter._extract_model_family("some-unknown-model"), "unknown")
         self.assertEqual(SPAChatReconAdapter._extract_model_family(""), "unknown")
 
     def test_format_model_desc_with_version(self):
         """带版本号的模型描述"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         desc = SPAChatReconAdapter._format_model_desc("deepseek-r1-250120", "deepseek")
         self.assertIn("deepseek-r1-250120", desc)
         self.assertIn("DeepSeek R1", desc)
@@ -141,56 +141,56 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_format_model_desc_without_version(self):
         """无版本号的模型描述"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         desc = SPAChatReconAdapter._format_model_desc("gpt-4o", "gpt")
         self.assertIn("gpt-4o", desc)
         self.assertIn("OpenAI GPT", desc)
 
     def test_extract_model_from_request_body_standard(self):
         """从标准请求体提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = {"model": "gpt-4o", "messages": []}
         result = SPAChatReconAdapter._extract_model_from_request_body(body)
         self.assertEqual(result, "gpt-4o")
 
     def test_extract_model_from_request_body_go_style(self):
         """从 Go 风格大写字段名提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = {"Model": "deepseek-r1", "Messages": []}
         result = SPAChatReconAdapter._extract_model_from_request_body(body)
         self.assertEqual(result, "deepseek-r1")
 
     def test_extract_model_from_request_body_nested(self):
         """从嵌套字段提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = {"extra_body": {"model": "claude-3-opus"}}
         result = SPAChatReconAdapter._extract_model_from_request_body(body)
         self.assertEqual(result, "claude-3-opus")
 
     def test_extract_model_from_request_body_none(self):
         """无模型字段返回 None"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = {"messages": [], "stream": True}
         result = SPAChatReconAdapter._extract_model_from_request_body(body)
         self.assertIsNone(result)
 
     def test_regex_extract_model_from_json(self):
         """正则提取 JSON 中的模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         text = '{"model": "gpt-4o", "messages": []}'
         result = SPAChatReconAdapter._regex_extract_model(text)
         self.assertEqual(result, "gpt-4o")
 
     def test_regex_extract_model_from_raw_text(self):
         """正则从原始文本提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         text = 'some prefix "model_name": "qwen-72b" suffix'
         result = SPAChatReconAdapter._regex_extract_model(text)
         self.assertEqual(result, "qwen-72b")
 
     def test_regex_extract_model_excludes_common_words(self):
         """排除 chat/completion 等常见词"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         text = '{"model": "chat"}'
         result = SPAChatReconAdapter._regex_extract_model(text)
         # "chat" 被排除
@@ -198,7 +198,7 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_extract_params_from_body(self):
         """从请求体提取模型参数"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = {"temperature": 0.7, "max_tokens": 2048, "stream": True, "model": "gpt-4o"}
         params = SPAChatReconAdapter._extract_params_from_body(body)
         self.assertEqual(params["temperature"], 0.7)
@@ -209,7 +209,7 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_extract_params_from_response_json(self):
         """从 JSON 响应体提取模型参数"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = json.dumps({"temperature": 0.5, "max_tokens": 1024, "choices": []})
         params = SPAChatReconAdapter._extract_params_from_response(body)
         self.assertEqual(params["temperature"], 0.5)
@@ -217,7 +217,7 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_extract_params_from_response_sse(self):
         """从 SSE 响应体提取模型参数"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
         body = 'data: {"temperature": 0.3, "top_p": 0.9}\n\ndata: [DONE]\n'
         params = SPAChatReconAdapter._extract_params_from_response(body)
         self.assertEqual(params["temperature"], 0.3)
@@ -225,8 +225,8 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_determine_app_type_agent(self):
         """Agent 类型检测"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         traffic = NetworkTrafficCapture()
         traffic.llm_api_calls = [{"path": "/api/agent/chat", "request_body": {"tools": [{"type": "function"}]}}]
         result = SPAChatReconAdapter._determine_app_type("https://example.com/agent", traffic, {})
@@ -234,8 +234,8 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_determine_app_type_rag(self):
         """RAG 增强问答类型检测"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         traffic = NetworkTrafficCapture()
         traffic.llm_api_calls = [{"path": "/api/with-knowledge/chat", "request_body": {}}]
         result = SPAChatReconAdapter._determine_app_type("https://example.com", traffic, {})
@@ -243,8 +243,8 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_determine_app_type_chat(self):
         """普通对话类型检测"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         traffic = NetworkTrafficCapture()
         traffic.llm_api_calls = [{"path": "/api/chat/completions", "request_body": {}}]
         result = SPAChatReconAdapter._determine_app_type("https://example.com", traffic, {})
@@ -252,16 +252,16 @@ class TestSPAChatReconAdapterStaticMethods(unittest.TestCase):
 
     def test_determine_app_type_playground(self):
         """Playground 类型检测"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         traffic = NetworkTrafficCapture()
         result = SPAChatReconAdapter._determine_app_type("https://example.com/playground", traffic, {})
         self.assertIn("Playground", result)
 
     def test_determine_app_type_no_traffic(self):
         """无流量时默认 Chat"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.adapter import SPAChatReconAdapter
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.adapter import SPAChatReconAdapter
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         traffic = NetworkTrafficCapture()
         result = SPAChatReconAdapter._determine_app_type("https://example.com", traffic, {})
         self.assertEqual(result, "Chat")
@@ -271,7 +271,7 @@ class TestNetworkTrafficCapture(unittest.TestCase):
     """NetworkTrafficCapture 流量捕获器测试"""
 
     def setUp(self):
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         self.traffic = NetworkTrafficCapture()
 
     def test_init_empty(self):
@@ -487,7 +487,7 @@ class TestNetworkTrafficCapture(unittest.TestCase):
 
     def test_infer_provider_by_model_name(self):
         """通过模型名推断提供商"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         self.assertEqual(NetworkTrafficCapture._infer_provider("gpt-4o", "https://custom.com"), "openai")
         self.assertEqual(NetworkTrafficCapture._infer_provider("claude-3-opus", "https://custom.com"), "anthropic")
         self.assertEqual(NetworkTrafficCapture._infer_provider("gemini-1.5-pro", "https://custom.com"), "google")
@@ -497,47 +497,47 @@ class TestNetworkTrafficCapture(unittest.TestCase):
 
     def test_infer_provider_by_domain(self):
         """通过域名推断提供商"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         self.assertEqual(NetworkTrafficCapture._infer_provider(None, "https://api.openai.com/v1"), "openai")
         self.assertEqual(NetworkTrafficCapture._infer_provider(None, "https://api.anthropic.com/v1"), "anthropic")
         self.assertEqual(NetworkTrafficCapture._infer_provider(None, "https://generativelanguage.googleapis.com"), "google")
 
     def test_infer_provider_unknown(self):
         """未知提供商返回 None"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         self.assertIsNone(NetworkTrafficCapture._infer_provider(None, "https://unknown.com"))
         self.assertIsNone(NetworkTrafficCapture._infer_provider("unknown-model", "https://unknown.com"))
 
     def test_extract_model_from_response_body_json(self):
         """从 JSON 响应体提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         body = json.dumps({"model": "gpt-4o", "choices": []})
         result = NetworkTrafficCapture._extract_model_from_response_body(body)
         self.assertEqual(result, "gpt-4o")
 
     def test_extract_model_from_response_body_sse(self):
         """从 SSE 响应体提取模型名"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         body = 'data: {"model": "claude-3", "choices": []}\n\ndata: [DONE]\n'
         result = NetworkTrafficCapture._extract_model_from_response_body(body)
         self.assertEqual(result, "claude-3")
 
     def test_extract_model_from_response_body_empty(self):
         """空响应体返回 None"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         self.assertIsNone(NetworkTrafficCapture._extract_model_from_response_body(""))
         self.assertIsNone(NetworkTrafficCapture._extract_model_from_response_body("{}"))
 
     def test_extract_response_text_sse(self):
         """从 SSE 提取响应文本"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         body = 'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\ndata: {"choices": [{"delta": {"content": " world"}}]}\n\ndata: [DONE]\n'
         result = NetworkTrafficCapture._extract_response_text(body, "text/event-stream")
         self.assertEqual(result, "Hello world")
 
     def test_extract_response_text_json(self):
         """从 JSON 提取响应文本"""
-        from pyrit_ai300.reconnaissance.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
+        from pyrit_ai300.recon.adapters.spa_chat.traffic_capture import NetworkTrafficCapture
         body = json.dumps({"choices": [{"message": {"content": "Hi there"}}]})
         result = NetworkTrafficCapture._extract_response_text(body, "application/json")
         self.assertEqual(result, "Hi there")
@@ -576,19 +576,19 @@ class TestObservabilityAdapter(unittest.TestCase):
 
     def test_adapter_name(self):
         """适配器名称正确"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import ObservabilityAdapter
+        from pyrit_ai300.recon.adapters.observability.adapter import ObservabilityAdapter
         adapter = ObservabilityAdapter()
         self.assertEqual(adapter.name, "observability")
 
     def test_check_available(self):
         """check_available 始终返回 True"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import ObservabilityAdapter
+        from pyrit_ai300.recon.adapters.observability.adapter import ObservabilityAdapter
         adapter = ObservabilityAdapter()
         self.assertTrue(adapter.check_available())
 
     def test_observability_checks_defined(self):
         """检测项已定义"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import OBSERVABILITY_CHECKS
+        from pyrit_ai300.recon.adapters.observability.adapter import OBSERVABILITY_CHECKS
         self.assertIn("audit_log_endpoint", OBSERVABILITY_CHECKS)
         self.assertIn("behavior_monitoring", OBSERVABILITY_CHECKS)
         self.assertIn("data_flow_tracking", OBSERVABILITY_CHECKS)
@@ -597,7 +597,7 @@ class TestObservabilityAdapter(unittest.TestCase):
     @patch("requests.get")
     def test_run_with_no_endpoints_found(self, mock_get):
         """无端点可访问时返回缺口发现"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import ObservabilityAdapter
+        from pyrit_ai300.recon.adapters.observability.adapter import ObservabilityAdapter
         mock_resp = MagicMock()
         mock_resp.status_code = 404
         mock_get.return_value = mock_resp
@@ -611,7 +611,7 @@ class TestObservabilityAdapter(unittest.TestCase):
     @patch("requests.get")
     def test_run_with_endpoint_found(self, mock_get):
         """端点可访问时记录发现"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import ObservabilityAdapter
+        from pyrit_ai300.recon.adapters.observability.adapter import ObservabilityAdapter
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.headers = {"Content-Type": "application/json"}
@@ -625,7 +625,7 @@ class TestObservabilityAdapter(unittest.TestCase):
 
     def test_run_without_requests_library(self):
         """requests 库不可用时不崩溃"""
-        from pyrit_ai300.reconnaissance.adapters.observability_adapter import ObservabilityAdapter
+        from pyrit_ai300.recon.adapters.observability.adapter import ObservabilityAdapter
         with patch.dict(sys.modules, {"requests": None}):
             adapter = ObservabilityAdapter()
             result = adapter.run("http://localhost:9999", {})
@@ -1127,7 +1127,7 @@ class TestPipelineOrchestratorMock(unittest.TestCase):
         mock_profile.bearer_token = "test-token"
         mock_profile.cookie = "session=abc"
         cr = CredentialResolution(domain="example.com", is_valid=True, profile=mock_profile)
-        with patch("pyrit_ai300.pipeline.credential_manager.CredentialManager.for_garak", return_value={"OPENAI_API_KEY": "bearer-token"}):
+        with patch("pyrit_ai300.pipeline.credential_manager.CredentialManager.for_native_probe", return_value={"bearer_token": "bearer-token"}):
             with patch("pyrit_ai300.pipeline.credential_manager.CredentialManager.for_deepteam", return_value={"Content-Type": "application/json", "Authorization": "Bearer test"}):
                 config = PipelineOrchestrator._inject_credentials_to_config(cr)
                 self.assertIsInstance(config, dict)
@@ -1168,7 +1168,7 @@ class TestPipelineOrchestratorMock(unittest.TestCase):
 
     def test_run_recon_phase_api_path_mock(self):
         """侦察阶段 API 路径 Mock"""
-        with patch("pyrit_ai300.reconnaissance.ReconEngine") as mock_engine_class:
+        with patch("pyrit_ai300.recon.ReconEngine") as mock_engine_class:
             mock_engine = mock_engine_class.return_value
             mock_profile = MagicMock()
             mock_profile.vulnerability_count = 1
@@ -1190,7 +1190,7 @@ class TestPipelineOrchestratorMock(unittest.TestCase):
 
     def test_run_recon_phase_exception(self):
         """侦察阶段异常处理"""
-        with patch("pyrit_ai300.reconnaissance.ReconEngine", side_effect=ImportError("no module")):
+        with patch("pyrit_ai300.recon.ReconEngine", side_effect=ImportError("no module")):
             with patch("pyrit_ai300.pipeline.tracker.PipelineTracker"):
                 result = self.orchestrator._run_recon_phase(
                     target_url="http://localhost:11434",
@@ -1347,7 +1347,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_load_chain_config_from_yaml(self):
         """从 YAML 加载攻击链配置"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import AttackChainOrchestrator
+        from pyrit_ai300.attack.chain_orchestrator import AttackChainOrchestrator
         import yaml
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             yaml.dump({
@@ -1368,13 +1368,13 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_load_chain_config_not_found(self):
         """文件不存在时抛出 FileNotFoundError"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import AttackChainOrchestrator
+        from pyrit_ai300.attack.chain_orchestrator import AttackChainOrchestrator
         with self.assertRaises(FileNotFoundError):
             AttackChainOrchestrator.load_chain_config("nonexistent_chain.yaml")
 
     def test_validate_chain_valid(self):
         """有效攻击链验证通过"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig,
         )
         stages = [
@@ -1386,13 +1386,13 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_validate_chain_empty(self):
         """空链验证失败"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import AttackChainOrchestrator
+        from pyrit_ai300.attack.chain_orchestrator import AttackChainOrchestrator
         errors = AttackChainOrchestrator.validate_chain([])
         self.assertTrue(len(errors) > 0)
 
     def test_validate_chain_missing_name(self):
         """缺少 name 验证失败"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig,
         )
         stages = [ChainStageConfig(name="", scope="llm01")]
@@ -1401,7 +1401,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_validate_chain_duplicate_name(self):
         """重复 name 验证失败"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig,
         )
         stages = [
@@ -1413,7 +1413,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_validate_chain_invalid_context_from(self):
         """无效 context_from 验证失败"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig,
         )
         stages = [
@@ -1425,7 +1425,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_validate_chain_fallback_without_scope(self):
         """fallback 策略无 fallback_scope 验证失败"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig, ON_FAILURE_FALLBACK,
         )
         stages = [
@@ -1436,7 +1436,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_chain_result_summary(self):
         """ChainResult 摘要"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import ChainResult, ChainStageResult
+        from pyrit_ai300.attack.chain_orchestrator import ChainResult, ChainStageResult
         result = ChainResult(chain_name="test_chain")
         result.stages = [
             ChainStageResult(stage_name="s1", success=True, payloads_tested=5, payloads_succeeded=3),
@@ -1451,7 +1451,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_chain_result_mermaid(self):
         """ChainResult Mermaid 图"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import ChainResult, ChainStageResult
+        from pyrit_ai300.attack.chain_orchestrator import ChainResult, ChainStageResult
         result = ChainResult(chain_name="test")
         result.stages = [
             ChainStageResult(stage_name="s1", owasp_id="LLM01", success=True),
@@ -1464,7 +1464,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_chain_stage_result_success_rate(self):
         """ChainStageResult 成功率计算"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import ChainStageResult
+        from pyrit_ai300.attack.chain_orchestrator import ChainStageResult
         sr = ChainStageResult(payloads_tested=10, payloads_succeeded=7)
         self.assertAlmostEqual(sr.success_rate, 0.7)
         sr2 = ChainStageResult(payloads_tested=0)
@@ -1472,7 +1472,7 @@ class TestAttackChainOrchestrator(unittest.TestCase):
 
     def test_execute_chain_simulated(self):
         """模拟模式执行攻击链"""
-        from pyrit_ai300.orchestrators.attack_chain_orchestrator import (
+        from pyrit_ai300.attack.chain_orchestrator import (
             AttackChainOrchestrator, ChainStageConfig, ON_FAILURE_CONTINUE,
         )
         orchestrator = AttackChainOrchestrator(attack_executor=None)
@@ -1490,7 +1490,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_strategy_result_default(self):
         """StrategyResult 默认值"""
-        from pyrit_ai300.orchestrators.ab_test_runner import StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import StrategyResult
         sr = StrategyResult(name="test")
         self.assertEqual(sr.total_attacks, 0)
         self.assertEqual(sr.success_rate, 0.0)
@@ -1498,7 +1498,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_strategy_result_to_dict(self):
         """StrategyResult 序列化"""
-        from pyrit_ai300.orchestrators.ab_test_runner import StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import StrategyResult
         sr = StrategyResult(name="test", total_attacks=10, success_count=5)
         sr.success_rate = 0.5
         d = sr.to_dict()
@@ -1508,7 +1508,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_ab_test_result_summary(self):
         """ABTestResult 摘要"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestResult, StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import ABTestResult, StrategyResult
         ab = ABTestResult(
             strategy_a=StrategyResult(name="A", success_rate=0.3),
             strategy_b=StrategyResult(name="B", success_rate=0.5),
@@ -1524,7 +1524,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_ab_test_result_to_dict(self):
         """ABTestResult 序列化"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestResult, StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import ABTestResult, StrategyResult
         ab = ABTestResult(
             strategy_a=StrategyResult(name="A"),
             strategy_b=StrategyResult(name="B"),
@@ -1537,25 +1537,25 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_fisher_exact_test_identical(self):
         """Fisher 检验：相同比例不显著"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner
         p_value = ABTestRunner._fisher_exact_test(5, 5, 5, 5)
         self.assertGreater(p_value, 0.05)  # 不显著
 
     def test_fisher_exact_test_different(self):
         """Fisher 检验：差异显著"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner
         p_value = ABTestRunner._fisher_exact_test(0, 10, 10, 0)
         self.assertLess(p_value, 0.05)  # 显著
 
     def test_fisher_exact_test_zero_counts(self):
         """Fisher 检验：零计数处理"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner
         p_value = ABTestRunner._fisher_exact_test(0, 0, 0, 0)
         self.assertEqual(p_value, 1.0)
 
     def test_run_ab_test_simulated(self):
         """模拟模式 A/B 测试"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner
         runner = ABTestRunner(attack_executor=None)
         result = runner.run_ab_test(
             target_url="http://localhost:11434",
@@ -1570,7 +1570,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_analyze_results_a_wins(self):
         """分析结果：A 胜出"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner, StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner, StrategyResult
         runner = ABTestRunner()
         result_a = StrategyResult(name="A", total_attacks=10, success_count=8, failure_count=2)
         result_a.success_rate = 0.8
@@ -1581,7 +1581,7 @@ class TestABTestRunner(unittest.TestCase):
 
     def test_analyze_results_b_wins(self):
         """分析结果：B 胜出"""
-        from pyrit_ai300.orchestrators.ab_test_runner import ABTestRunner, StrategyResult
+        from pyrit_ai300.attack.ab_test_runner import ABTestRunner, StrategyResult
         runner = ABTestRunner()
         result_a = StrategyResult(name="A", total_attacks=10, success_count=2, failure_count=8)
         result_a.success_rate = 0.2

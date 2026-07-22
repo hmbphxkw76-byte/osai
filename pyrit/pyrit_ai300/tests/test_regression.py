@@ -258,7 +258,7 @@ class TestSpaConfigLoading(unittest.TestCase):
 
     def test_load_spa_config_resolves_env_vars(self):
         """load_spa_config 正确解析 ${VAR} 环境变量"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         with patch.dict(os.environ, {
             "SPA_TEST_URL": "https://example.com/#/home",
             "SPA_TEST_USER": "testuser",
@@ -278,7 +278,7 @@ class TestSpaConfigLoading(unittest.TestCase):
 
     def test_load_spa_config_url_is_valid_http(self):
         """解析后的 URL 必须是 http 开头的有效 URL，不能是文件路径"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         with patch.dict(os.environ, {
             "SPA_TEST_URL": "https://example.com/#/home",
             "SPA_TEST_USER": "u",
@@ -292,7 +292,7 @@ class TestSpaConfigLoading(unittest.TestCase):
 
     def test_load_spa_config_connection_structure(self):
         """load_spa_config 返回正确的 connection 结构"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         with patch.dict(os.environ, {
             "SPA_TEST_URL": "https://example.com/#/home",
             "SPA_TEST_USER": "u",
@@ -309,7 +309,7 @@ class TestSpaConfigLoading(unittest.TestCase):
 
     def test_load_spa_config_auth_structure(self):
         """load_spa_config 返回正确的 auth 结构"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         with patch.dict(os.environ, {
             "SPA_TEST_URL": "https://example.com/#/home",
             "SPA_TEST_USER": "student001",
@@ -497,7 +497,7 @@ class TestEndToEndConfigChain(unittest.TestCase):
     def test_full_chain_env_to_config(self):
         """.env → YAML ${VAR} → load_spa_config → 正确结构"""
         import pyrit_ai300.utils.env_loader as el
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 1. 创建 .env
@@ -778,34 +778,34 @@ class TestConverterDefaultParams(unittest.TestCase):
 
     def test_caesar_converter_default_params_defined(self):
         """CONVERTER_DEFAULT_PARAMS 中有 caesar 的默认参数"""
-        from pyrit_ai300.orchestrators.component_registry import CONVERTER_DEFAULT_PARAMS
+        from pyrit_ai300.attack.pyrit.component_registry import CONVERTER_DEFAULT_PARAMS
         self.assertIn("caesar", CONVERTER_DEFAULT_PARAMS)
         self.assertIn("caesar_offset", CONVERTER_DEFAULT_PARAMS["caesar"])
         self.assertIsInstance(CONVERTER_DEFAULT_PARAMS["caesar"]["caesar_offset"], int)
 
     def test_text_jailbreak_converter_default_params_defined(self):
         """CONVERTER_DEFAULT_PARAMS 中有 text_jailbreak 的默认参数"""
-        from pyrit_ai300.orchestrators.component_registry import CONVERTER_DEFAULT_PARAMS
+        from pyrit_ai300.attack.pyrit.component_registry import CONVERTER_DEFAULT_PARAMS
         self.assertIn("text_jailbreak", CONVERTER_DEFAULT_PARAMS)
         self.assertIn("jailbreak_template", CONVERTER_DEFAULT_PARAMS["text_jailbreak"])
 
     def test_converter_builder_creates_caesar_with_default(self):
         """ConverterBuilder 使用默认参数成功创建 CaesarConverter"""
-        from pyrit_ai300.orchestrators.converter_builder import ConverterBuilder
+        from pyrit_ai300.attack.pyrit.converter_builder import ConverterBuilder
         builder = ConverterBuilder()
         converters = builder.build([{"name": "caesar"}])
         self.assertEqual(len(converters), 1, "CaesarConverter should be created with default params")
 
     def test_converter_builder_creates_text_jailbreak_with_default(self):
         """ConverterBuilder 使用默认参数成功创建 TextJailbreakConverter"""
-        from pyrit_ai300.orchestrators.converter_builder import ConverterBuilder
+        from pyrit_ai300.attack.pyrit.converter_builder import ConverterBuilder
         builder = ConverterBuilder()
         converters = builder.build([{"name": "text_jailbreak"}])
         self.assertEqual(len(converters), 1, "TextJailbreakConverter should be created with default params")
 
     def test_converter_builder_custom_params_override_defaults(self):
         """用户自定义参数覆盖默认参数"""
-        from pyrit_ai300.orchestrators.converter_builder import ConverterBuilder
+        from pyrit_ai300.attack.pyrit.converter_builder import ConverterBuilder
         builder = ConverterBuilder()
         converters = builder.build([{"name": "caesar", "params": {"caesar_offset": 13}}])
         self.assertEqual(len(converters), 1, "CaesarConverter should be created with custom params")
@@ -829,13 +829,13 @@ class TestSpaBinaryPathFilter(unittest.TestCase):
 
     def test_binary_path_producers_set_defined(self):
         """CONVERTERS_PRODUCING_BINARY_PATH 集合已定义"""
-        from pyrit_ai300.orchestrators.component_registry import CONVERTERS_PRODUCING_BINARY_PATH
+        from pyrit_ai300.attack.pyrit.component_registry import CONVERTERS_PRODUCING_BINARY_PATH
         self.assertIn("pdf", CONVERTERS_PRODUCING_BINARY_PATH)
         self.assertIn("word_doc", CONVERTERS_PRODUCING_BINARY_PATH)
 
     def test_converter_builder_filters_binary_path_for_spa(self):
         """SPA 目标时过滤掉产生 binary_path 的转换器"""
-        from pyrit_ai300.orchestrators.converter_builder import ConverterBuilder
+        from pyrit_ai300.attack.pyrit.converter_builder import ConverterBuilder
         builder = ConverterBuilder()
         # 模拟 SPA 目标
         from unittest.mock import MagicMock
@@ -851,7 +851,7 @@ class TestSpaBinaryPathFilter(unittest.TestCase):
 
     def test_converter_builder_keeps_binary_path_for_api(self):
         """API 目标时保留产生 binary_path 的转换器"""
-        from pyrit_ai300.orchestrators.converter_builder import ConverterBuilder
+        from pyrit_ai300.attack.pyrit.converter_builder import ConverterBuilder
         builder = ConverterBuilder()
         from unittest.mock import MagicMock
         api_target = MagicMock()

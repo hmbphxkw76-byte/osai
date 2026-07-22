@@ -6,16 +6,16 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from pyrit_ai300.reconnaissance.adapters import (
+from pyrit_ai300.recon.adapters import (
     BaseAdapter,
     AdapterResult,
-    GarakAdapter,
+    NativeProbeAdapter,
     DeepTeamAdapter,
     ProtocolFingerprintAdapter,
 )
-from pyrit_ai300.reconnaissance.adapters.garak_adapter import PROBE_OWASP_MAP, DEFAULT_PROBES
-from pyrit_ai300.reconnaissance.adapters.deepteam_adapter import VULNERABILITY_OWASP_MAP, DEFAULT_VULNERABILITIES
-from pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter import PROTOCOL_RULES
+from pyrit_ai300.recon.adapters.native_probe.adapter import PROBE_OWASP_MAP, DEFAULT_PROBES
+from pyrit_ai300.recon.adapters.deepteam.adapter import VULNERABILITY_OWASP_MAP, DEFAULT_VULNERABILITIES
+from pyrit_ai300.recon.adapters.aimap.adapter import PROTOCOL_RULES
 
 
 class TestAdapterResult(unittest.TestCase):
@@ -41,51 +41,33 @@ class TestAdapterResult(unittest.TestCase):
         self.assertEqual(len(d["findings"]), 1)
 
 
-class TestGarakAdapter(unittest.TestCase):
-    """Garak 适配器测试"""
+class TestNativeProbeAdapter(unittest.TestCase):
+    """NativeProbe 适配器测试"""
 
     def test_name(self):
-        adapter = GarakAdapter()
-        self.assertEqual(adapter.name, "garak")
+        adapter = NativeProbeAdapter()
+        self.assertEqual(adapter.name, "native_probe")
 
-    def test_map_severity(self):
-        adapter = GarakAdapter()
-        self.assertEqual(adapter._map_severity(0.9), "critical")
-        self.assertEqual(adapter._map_severity(0.7), "high")
-        self.assertEqual(adapter._map_severity(0.5), "medium")
-        self.assertEqual(adapter._map_severity(0.2), "low")
+    def test_check_available(self):
+        """NativeProbe 始终可用（零外部依赖）"""
+        adapter = NativeProbeAdapter()
+        self.assertTrue(adapter.check_available())
 
-    def test_probe_owasp_map(self):
+    def test_PROBE_OWASP_MAP(self):
         """测试 probe → OWASP 映射"""
-        self.assertEqual(PROBE_OWASP_MAP["promptinject"], "LLM01")
-        self.assertEqual(PROBE_OWASP_MAP["dan"], "LLM01")
-        self.assertEqual(PROBE_OWASP_MAP["malgen"], "LLM02")
-        self.assertEqual(PROBE_OWASP_MAP["hallucination"], "LLM09")
-        self.assertEqual(PROBE_OWASP_MAP["misinformation"], "LLM08")
-        self.assertEqual(PROBE_OWASP_MAP["toxicity"], "LLM03")
+        self.assertEqual(PROBE_OWASP_MAP["packagehallucination"], "LLM09")
+        self.assertEqual(PROBE_OWASP_MAP["apikey"], "LLM02")
+        self.assertEqual(PROBE_OWASP_MAP["smuggling"], "LLM01")
+        self.assertEqual(PROBE_OWASP_MAP["suffix"], "LLM01")
+        self.assertEqual(PROBE_OWASP_MAP["web_injection"], "LLM06")
+        self.assertEqual(PROBE_OWASP_MAP["propile"], "LLM06")
+        self.assertEqual(PROBE_OWASP_MAP["sysprompt_extraction"], "LLM07")
 
-    def test_default_probes(self):
+    def test_DEFAULT_PROBES(self):
         """测试默认 probe 列表"""
-        self.assertIn("promptinject", DEFAULT_PROBES)
-        self.assertIn("dan", DEFAULT_PROBES)
-        self.assertIn("malgen", DEFAULT_PROBES)
-        self.assertIn("hallucination", DEFAULT_PROBES)
-
-    def test_build_garak_args(self):
-        """测试 Garak CLI 参数构建"""
-        adapter = GarakAdapter()
-        args = adapter._build_garak_args(
-            "https://example.com",
-            ["promptinject", "dan"],
-            [],
-            "gpt-4o",
-        )
-        self.assertIn("--model_type", args)
-        self.assertIn("openai", args)
-        self.assertIn("--model_name", args)
-        self.assertIn("gpt-4o", args)
-        self.assertIn("--probes", args)
-        self.assertIn("promptinject,dan", args)
+        self.assertIn("sysprompt_extraction", DEFAULT_PROBES)
+        self.assertIn("apikey", DEFAULT_PROBES)
+        self.assertIn("packagehallucination", DEFAULT_PROBES)
 
 
 class TestDeepTeamAdapter(unittest.TestCase):
@@ -100,17 +82,17 @@ class TestDeepTeamAdapter(unittest.TestCase):
         self.assertEqual(VULNERABILITY_OWASP_MAP["prompt_injection"], "LLM01")
         self.assertEqual(VULNERABILITY_OWASP_MAP["jailbreak"], "LLM01")
         self.assertEqual(VULNERABILITY_OWASP_MAP["leakage"], "LLM02")
-        self.assertEqual(VULNERABILITY_OWASP_MAP["poisoning"], "LLM03")
-        self.assertEqual(VULNERABILITY_OWASP_MAP["excessive_agency"], "LLM05")
-        self.assertEqual(VULNERABILITY_OWASP_MAP["system_prompt"], "LLM06")
-        self.assertEqual(VULNERABILITY_OWASP_MAP["rag"], "LLM07")
+        self.assertEqual(VULNERABILITY_OWASP_MAP["poisoning"], "LLM04")
+        self.assertEqual(VULNERABILITY_OWASP_MAP["excessive_agency"], "LLM06")
+        self.assertEqual(VULNERABILITY_OWASP_MAP["system_prompt"], "LLM07")
+        self.assertEqual(VULNERABILITY_OWASP_MAP["rag"], "LLM08")
         self.assertEqual(VULNERABILITY_OWASP_MAP["hallucination"], "LLM09")
 
     def test_default_vulnerabilities(self):
         """测试默认漏洞类型列表"""
         self.assertIn("prompt_injection", DEFAULT_VULNERABILITIES)
         self.assertIn("jailbreak", DEFAULT_VULNERABILITIES)
-        self.assertIn("leakage", DEFAULT_VULNERABILITIES)
+        self.assertIn("prompt_leakage", DEFAULT_VULNERABILITIES)
         self.assertIn("excessive_agency", DEFAULT_VULNERABILITIES)
 
     def test_build_model_callback(self):
@@ -152,8 +134,8 @@ class TestProtocolFingerprintAdapter(unittest.TestCase):
         self.assertEqual(adapter._map_protocol_to_owasp("langserve"), "LLM01")
         self.assertEqual(adapter._map_protocol_to_owasp("unknown"), "")
 
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_post")
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_get")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_post")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_get")
     def test_detect_ollama(self, mock_get, mock_post):
         """测试 Ollama 协议检测"""
         ollama_models = {"models": [{"name": "llama3.2:latest"}]}
@@ -172,8 +154,8 @@ class TestProtocolFingerprintAdapter(unittest.TestCase):
         self.assertEqual(result.data["provider"], "ollama")
         self.assertEqual(result.data["model_family"], "llama")
 
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_post")
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_get")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_post")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_get")
     def test_detect_no_auth(self, mock_get, mock_post):
         """测试无认证检测"""
         ollama_models = {"models": [{"name": "test"}]}
@@ -190,8 +172,8 @@ class TestProtocolFingerprintAdapter(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertFalse(result.data["auth_required"])
 
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_post")
-    @patch("pyrit_ai300.reconnaissance.adapters.protocol_fingerprint_adapter.http_get")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_post")
+    @patch("pyrit_ai300.recon.adapters.aimap.adapter.http_get")
     def test_detect_auth_required(self, mock_get, mock_post):
         """测试认证检测"""
 

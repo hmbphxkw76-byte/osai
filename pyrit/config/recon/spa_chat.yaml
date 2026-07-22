@@ -1,0 +1,32 @@
+# AI-300 Framework - SPA Chat Recon Adapter Configuration
+# SPA 智能助手侦察适配器配置
+#
+# 适用于：教育平台/企业门户等集成智能助手的 SPA 应用
+# 通过 Playwright 浏览器自动化登录 + 网络流量捕获识别后端 LLM
+#
+# 前置条件：
+#   uv pip install playwright
+#   playwright install chromium
+
+spa_chat_recon:
+  enabled: false                    # 默认禁用（需 Playwright 安装）
+  timeout: 120                      # 浏览器自动化超时（秒）
+
+  # 浏览器配置
+  browser: chromium                 # chromium / firefox / webkit
+  headless: false                   # SPA 登录建议 headless=false 便于调试
+  wait_until: networkidle           # SPA 等 API 请求完成
+
+  # 探测策略
+  probe:
+    enabled: true
+    # 探测消息（默认使用内置 PROBE_MESSAGES，也可自定义）
+    # messages:
+    #   - "你好"
+    #   - "你是什么模型？"
+
+  # 截图保存（调试用）
+  screenshot_dir: results/recon/screenshots
+
+  # 保存浏览器 storage_state（供后续复用认证状态）
+  save_storage_state: true

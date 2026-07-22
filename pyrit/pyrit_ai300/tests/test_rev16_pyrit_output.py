@@ -207,7 +207,7 @@ class TestAttackOrchestratorRetention(unittest.TestCase):
 
     def test_pyrit_attack_results_init(self):
         """验证 _pyrit_attack_results 在 __init__ 中初始化"""
-        from pyrit_ai300.orchestrators.attack_orchestrator import AttackOrchestrator
+        from pyrit_ai300.attack.engine import AttackOrchestrator
 
         with patch.object(AttackOrchestrator, '_initialize_pyrit'):
             with patch.object(AttackOrchestrator, '_init_payload_manager'):

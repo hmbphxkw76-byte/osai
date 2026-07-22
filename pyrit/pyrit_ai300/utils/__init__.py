@@ -35,6 +35,7 @@ from .structured_log import (
     TextLogFormatter,
     setup_structured_logging,
 )
+from .pyrit_log_adapter import PyRITLogAdapter, get_pyrit_log_adapter
 from .config_validator import (
     ConfigValidator,
     ReconConfigSchema,
@@ -91,6 +92,9 @@ __all__ = [
     "StructuredLogFormatter",
     "TextLogFormatter",
     "setup_structured_logging",
+    # L5: PyRIT 原生日志适配器
+    "PyRITLogAdapter",
+    "get_pyrit_log_adapter",
     # L5: 配置验证
     "ConfigValidator",
     "ReconConfigSchema",

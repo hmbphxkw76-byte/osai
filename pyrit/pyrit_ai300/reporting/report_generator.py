@@ -23,6 +23,17 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# ── P0: 从权威来源导入 OWASP 2025 映射 ──
+from ..standards.owasp_2025 import (
+    OWASP_LLM_2025,
+    OWASP_ASI_2026,
+    get_owasp_display_name,
+    get_owasp_title,
+    get_owasp_description,
+    get_owasp_entry,
+    get_all_owasp_ids,
+)
+
 
 class ReportGenerator:
     """
@@ -70,6 +81,8 @@ class ReportGenerator:
         self.timestamp = datetime.now().isoformat()
         # REV-16: PyRIT 原生 AttackResult 对象（供 output 模块渲染）
         self._pyrit_attack_results: List[Any] = []
+        # Phase 4.3: 人工审查发现
+        self._human_review_findings: Optional[Dict[str, Any]] = None
 
     def set_pyrit_attack_results(self, results: List[Any]) -> None:
         """
@@ -81,6 +94,17 @@ class ReportGenerator:
             results: PyRIT AttackResult 对象列表
         """
         self._pyrit_attack_results = results or []
+
+    def set_human_review_findings(self, findings: Dict[str, Any]) -> None:
+        """
+        Phase 4.3: 设置人工审查发现
+
+        供报告嵌入高风险发现审查清单。
+
+        Args:
+            findings: HumanReviewer.review() 返回的审查报告字典
+        """
+        self._human_review_findings = findings or None
 
     def _default_engagement_info(self) -> Dict[str, Any]:
         """默认评估项目信息"""
@@ -164,12 +188,17 @@ class ReportGenerator:
             self._detailed_findings(),
             self._attack_path(),
             self._risk_assessment(),
+            self._owasp_coverage_matrix(),
+            self._remediation_roadmap(),
             self._remediation(),
             self._appendices(),
         ]
         # REV-16: 追加 PyRIT 原生攻击结果附录
         if self._pyrit_attack_results:
             sections.append(self._pyrit_native_results())
+        # Phase 4.3: 追加人工审查清单
+        if self._human_review_findings:
+            sections.append(self._human_review_section())
         return "\n\n---\n\n".join(sections)
 
     def _generate_html(self) -> str:
@@ -324,14 +353,24 @@ The assessment revealed multiple critical vulnerabilities that could allow attac
 
     def _methodology(self) -> str:
         """方法论"""
-        return """## 3. Methodology
+        # ── P0: 动态生成 OWASP 2025 覆盖表 ──
+        llm_rows = "\n".join(
+            f"| {oid} | {entry.title} | {entry.severity} | ✅ Fully Covered |"
+            for oid, entry in OWASP_LLM_2025.items()
+        )
+        asi_rows = "\n".join(
+            f"| {oid} | {entry.title} | {entry.severity} | ✅ Fully Covered |"
+            for oid, entry in OWASP_ASI_2026.items()
+        )
+        return f"""## 3. Methodology
 
 ### 3.1 Framework
 
 This assessment leverages the **AI-300 Red Teaming Framework**, built on Microsoft's PyRIT (Python Risk Identification Tool) framework. The methodology aligns with:
 
 - **MITRE ATLAS** - Adversarial AI technique taxonomy
-- **OWASP Top 10 for LLM** - Application-level vulnerability categories
+- **OWASP Top 10 for LLMs 2025** - Application-level vulnerability categories
+- **OWASP Top 10 for Agentic Applications 2026** - Agent-specific security risks
 - **NVIDIA AI Kill Chain** - Attack sequencing framework
 
 ### 3.2 Attack Lifecycle
@@ -355,45 +394,82 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 | Ch10 | Threat Modeling for AI-Enabled Targets | ✅ Complete |
 | Ch11 | Capstone Red Team Engagement | ✅ Complete |
 
-### 3.4 OWASP LLM Top 10 Coverage
+### 3.4 OWASP Top 10 for LLMs 2025 Coverage
 
-| OWASP ID | Category | Coverage |
-|----------|----------|----------|
-| LLM01 | Prompt Injection | ✅ Fully Covered |
-| LLM02 | Insecure Output Handling | ✅ Fully Covered |
-| LLM03 | Training Data Poisoning | ✅ Fully Covered |
-| LLM04 | Model Denial of Service | ✅ Fully Covered |
-| LLM05 | Supply Chain Vulnerabilities | ✅ Fully Covered |
-| LLM06 | Sensitive Information Disclosure | ✅ Fully Covered |
-| LLM07 | Insecure Plugin Design | ✅ Fully Covered |
-| LLM08 | Excessive Agency | ✅ Fully Covered |
-| LLM09 | Overreliance | ✅ Fully Covered |
-| LLM10 | Model Theft | ✅ Fully Covered |
+| OWASP ID | Category | Severity | Coverage |
+|----------|----------|----------|----------|
+{llm_rows}
+
+### 3.5 OWASP Top 10 for Agentic Applications 2026 Coverage
+
+| OWASP ID | Category | Severity | Coverage |
+|----------|----------|----------|----------|
+{asi_rows}
+
+> **Note:** OWASP mappings are sourced from the unified `standards/owasp_2025.py` module (Single Source of Truth), aligned with DeepTeam v1.0.7+ framework definitions.
 """
 
     def _findings_summary(self) -> str:
-        """发现摘要"""
+        """发现摘要（动态风险分布 + ASR 多维度统计）"""
         findings = []
+        # 收集所有攻击结果用于 ASR 统计
+        all_attack_results = []
         for result in self.results:
-            module = result.get("module", "unknown")
-            module_name = result.get("module_name", module)
+            scope = result.get("scope", result.get("module", "unknown"))
+            module_name = result.get("module_name", scope)
             summary = result.get("summary", {})
-            owasp = result.get("owasp_mapping", "N/A")
-            
+            owasp_ids = result.get("owasp_ids", [])
+            owasp = ", ".join(owasp_ids) if owasp_ids else result.get("owasp_mapping", "N/A")
+
             findings.append({
-                "module": module,
+                "module": scope,
                 "name": module_name,
                 "owasp": owasp,
                 "total_payloads": summary.get("total_payloads", 0),
                 "successful": summary.get("successful_payloads", 0),
                 "failed": summary.get("failed_payloads", 0),
             })
-        
+
+            # 收集攻击级结果用于 ASR 统计
+            for attack in result.get("attacks", []):
+                attack_owasp = attack.get("asi_category", "")
+                for r in attack.get("results", []):
+                    r_copy = dict(r)
+                    r_copy["_owasp_id"] = attack_owasp or owasp
+                    all_attack_results.append(r_copy)
+
         table_rows = "\n".join(
             f"| {f['module']} | {f['name']} | {f['owasp']} | {f['total_payloads']} | {f['successful']} | {f['failed']} |"
             for f in findings
         )
-        
+
+        # ── 动态计算风险分布 ──
+        risk_dist = self._compute_risk_distribution(findings)
+        risk_rows = "\n".join(
+            f"| {sev} | {count} | {pct:.0f}% |"
+            for sev, count, pct in risk_dist
+        )
+
+        # ── ASR 多维度统计 ──
+        asr_by_owasp = self._compute_asr_by_dimension(all_attack_results, "owasp")
+        asr_by_strategy = self._compute_asr_by_dimension(all_attack_results, "strategy")
+        asr_by_encoding = self._compute_asr_by_dimension(all_attack_results, "encoding")
+
+        owasp_asr_rows = "\n".join(
+            f"| {item['dimension']} | {item['total']} | {item['success']} | {item['asr']:.1f}% |"
+            for item in asr_by_owasp
+        ) or "| (no data) | 0 | 0 | 0.0% |"
+
+        strategy_asr_rows = "\n".join(
+            f"| {item['dimension']} | {item['total']} | {item['success']} | {item['asr']:.1f}% |"
+            for item in asr_by_strategy
+        ) or "| (no data) | 0 | 0 | 0.0% |"
+
+        encoding_asr_rows = "\n".join(
+            f"| {item['dimension']} | {item['total']} | {item['success']} | {item['asr']:.1f}% |"
+            for item in asr_by_encoding
+        ) or "| (no data) | 0 | 0 | 0.0% |"
+
         return f"""## 4. Findings Summary
 
 ### 4.1 Results by Module
@@ -402,15 +478,100 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 |--------|------|-------|----------|---------|--------|
 {table_rows}
 
-### 4.2 Risk Distribution
+### 4.2 Risk Distribution (Dynamic)
 
 | Severity | Count | Percentage |
 |----------|-------|------------|
-| Critical | 4 | 40% |
-| High | 3 | 30% |
-| Medium | 2 | 20% |
-| Low | 1 | 10% |
+{risk_rows}
+
+### 4.3 ASR by OWASP Category
+
+| OWASP ID | Total | Success | ASR |
+|----------|-------|---------|-----|
+{owasp_asr_rows}
+
+### 4.4 ASR by Attack Strategy
+
+| Attack Strategy | Total | Success | ASR |
+|-----------------|-------|---------|-----|
+{strategy_asr_rows}
+
+### 4.5 ASR by Encoding Method
+
+| Encoding | Total | Success | ASR |
+|----------|-------|---------|-----|
+{encoding_asr_rows}
 """
+
+    def _compute_risk_distribution(self, findings: List[Dict[str, Any]]) -> List[tuple]:
+        """从实际发现动态计算风险等级分布"""
+        sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        for f in findings:
+            total = f["total_payloads"]
+            success = f["successful"]
+            rate = (success / total * 100) if total > 0 else 0
+            if rate >= 70:
+                sev_counts["CRITICAL"] += 1
+            elif rate >= 40:
+                sev_counts["HIGH"] += 1
+            elif rate >= 10:
+                sev_counts["MEDIUM"] += 1
+            else:
+                sev_counts["LOW"] += 1
+
+        total_findings = sum(sev_counts.values()) or 1
+        result = []
+        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+            count = sev_counts[sev]
+            pct = (count / total_findings * 100) if total_findings > 0 else 0
+            if count > 0 or sev in ("CRITICAL", "HIGH"):
+                result.append((sev, count, pct))
+        return result
+
+    def _compute_asr_by_dimension(
+        self, attack_results: List[Dict[str, Any]], dimension: str
+    ) -> List[Dict[str, Any]]:
+        """按维度计算 ASR（Attack Success Rate）
+
+        Args:
+            attack_results: 所有攻击结果列表
+            dimension: 统计维度 ("owasp" / "strategy" / "encoding")
+        """
+        stats: Dict[str, Dict[str, int]] = {}
+
+        for r in attack_results:
+            if dimension == "owasp":
+                key = r.get("_owasp_id", "N/A") or "N/A"
+            elif dimension == "strategy":
+                key = r.get("attack_family", r.get("attack_class", "unknown").split(".")[-1])
+            elif dimension == "encoding":
+                # 从 payload_category 推断编码方式
+                cat = r.get("payload_category", "direct")
+                if "encoded" in cat or "encoding" in cat:
+                    key = "encoded"
+                elif "multi" in cat:
+                    key = "multi_encoded"
+                else:
+                    key = "plaintext"
+            else:
+                continue
+
+            if key not in stats:
+                stats[key] = {"total": 0, "success": 0}
+            stats[key]["total"] += 1
+            if r.get("status") == "success":
+                stats[key]["success"] += 1
+
+        result = []
+        for key, s in sorted(stats.items(), key=lambda x: x[1]["success"] / max(x[1]["total"], 1), reverse=True):
+            asr = (s["success"] / s["total"] * 100) if s["total"] > 0 else 0
+            result.append({
+                "dimension": key,
+                "total": s["total"],
+                "success": s["success"],
+                "asr": asr,
+            })
+        return result
 
     def _detailed_findings(self) -> str:
         """
@@ -951,8 +1112,79 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 """
 
     def _risk_assessment(self) -> str:
-        """风险评估"""
-        return """## 7. Risk Assessment
+        """风险评估（P2: 动态生成，基于结构化 RiskAssessment 模型）"""
+        # ── P2: 构建结构化风险评估 ──
+        try:
+            from .risk_assessment import build_risk_assessment
+            assessment = build_risk_assessment(self.results)
+
+            # 严重等级分布
+            sev = assessment.get_severity_breakdown()
+            owasp_bd = assessment.get_owasp_breakdown()
+            cat_bd = assessment.get_risk_category_breakdown()
+
+            # 构建动态严重等级表
+            sev_rows = "\n".join(
+                f"| {k.upper()} | {v} |"
+                for k, v in sev.items()
+            )
+
+            # 构建动态 OWASP 分布表
+            if owasp_bd:
+                owasp_rows = "\n".join(
+                    f"| {oid} | {count} |"
+                    for oid, count in owasp_bd.items()
+                )
+            else:
+                owasp_rows = "| (no findings mapped) | 0 |"
+
+            # 构建动态风险类别表
+            if cat_bd:
+                cat_rows = "\n".join(
+                    f"| {cat} | {count} |"
+                    for cat, count in cat_bd.items()
+                )
+            else:
+                cat_rows = "| (no categories mapped) | 0 |"
+
+            return f"""## 7. Risk Assessment
+
+### 7.1 Overall Risk Level
+
+**{assessment.overall_risk_level.upper()}** — {assessment.total_findings} total findings identified.
+
+### 7.2 Severity Breakdown
+
+| Severity | Count |
+|----------|-------|
+{sev_rows}
+
+### 7.3 OWASP ID Distribution
+
+| OWASP ID | Findings |
+|----------|----------|
+{owasp_rows}
+
+### 7.4 Risk Category Distribution
+
+| Risk Category | Findings |
+|---------------|----------|
+{cat_rows}
+
+### 7.5 Business Impact Analysis
+
+| Question | Assessment |
+|----------|------------|
+| What data is at risk? | System prompts, credentials, proprietary knowledge base content |
+| What systems are affected? | AI agents, RAG pipelines, MCP servers, inference endpoints |
+| What is the financial impact? | Potential regulatory fines, data breach costs, reputational damage |
+| What is the operational impact? | Compromised AI decisions, manipulated business processes |
+| What is the compliance impact? | GDPR, HIPAA, SOC 2 violations possible |
+| What is the recovery time? | Days to weeks depending on compromise scope |
+"""
+        except Exception as e:
+            logger.warning("Dynamic risk assessment failed, using static: %s", e)
+            return """## 7. Risk Assessment
 
 ### 7.1 Risk Matrix
 
@@ -975,6 +1207,107 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 | What is the compliance impact? | GDPR, HIPAA, SOC 2 violations possible |
 | What is the recovery time? | Days to weeks depending on compromise scope |
 """
+
+    def _owasp_coverage_matrix(self) -> str:
+        """
+        P2: OWASP 覆盖矩阵（动态生成）
+
+        基于实际评估结果，展示哪些 OWASP 类别被测试覆盖、
+        发现了多少问题、严重等级如何。
+        """
+        try:
+            from .risk_assessment import build_risk_assessment
+            assessment = build_risk_assessment(self.results)
+            owasp_bd = assessment.get_owasp_breakdown()
+
+            # 合并 LLM 和 ASI 的所有 OWASP ID
+            all_ids = list(OWASP_LLM_2025.keys()) + list(OWASP_ASI_2026.keys())
+
+            rows = []
+            for oid in all_ids:
+                entry = get_owasp_entry(oid)
+                if entry is None:
+                    continue
+                count = owasp_bd.get(oid, 0)
+                status = "🔴 Issues Found" if count > 0 else "✅ No Issues"
+                rows.append(
+                    f"| {oid} | {entry.title} | {entry.severity} | {count} | {status} |"
+                )
+
+            table_rows = "\n".join(rows)
+            return f"""## 8. OWASP Coverage Matrix
+
+### 8.1 Assessment Coverage
+
+| OWASP ID | Category | Severity | Findings | Status |
+|----------|----------|----------|----------|--------|
+{table_rows}
+
+> **Legend:** 🔴 Issues Found = vulnerabilities identified; ✅ No Issues = tested, no vulnerabilities found.
+> Coverage data is dynamically generated from assessment results using `standards/owasp_2025.py`.
+"""
+        except Exception as e:
+            logger.warning("OWASP coverage matrix generation failed: %s", e)
+            return "## 8. OWASP Coverage Matrix\n\n(Coverage matrix unavailable)\n"
+
+    def _remediation_roadmap(self) -> str:
+        """
+        P2: 修复路线图（按严重等级优先级排序）
+
+        基于实际发现，生成按优先级排序的修复建议路线图。
+        """
+        try:
+            from .risk_assessment import build_risk_assessment
+            assessment = build_risk_assessment(self.results)
+
+            if not assessment.findings:
+                return """## 9. Remediation Roadmap
+
+No findings to remediate. Continue monitoring and periodic reassessment.
+"""
+
+            # 按严重等级分组
+            priority_order = ["critical", "high", "medium", "low"]
+            priority_labels = {
+                "critical": "P0 — Immediate (Critical)",
+                "high": "P1 — Short-term (High)",
+                "medium": "P2 — Medium-term (Medium)",
+                "low": "P3 — Long-term (Low)",
+            }
+
+            sections = ["## 9. Remediation Roadmap\n"]
+            for priority in priority_order:
+                findings = assessment.get_findings_by_severity(priority)
+                if not findings:
+                    continue
+
+                sections.append(f"### {priority_labels[priority]}\n")
+                sections.append("| OWASP ID | Finding | Remediation |")
+                sections.append("|----------|---------|-------------|")
+
+                for f in findings[:10]:  # 最多显示 10 个
+                    remediation = f.remediation[:80] + "..." if len(f.remediation) > 80 else f.remediation
+                    sections.append(f"| {f.owasp_id} | {f.owasp_title} | {remediation} |")
+
+                if len(findings) > 10:
+                    sections.append(f"\n*...and {len(findings) - 10} more findings at this priority level.*\n")
+
+            sections.append("""
+### Roadmap Summary
+
+| Priority | Count |
+|----------|-------|"""
+            )
+            for priority in priority_order:
+                count = len(assessment.get_findings_by_severity(priority))
+                if count > 0:
+                    sections.append(f"| {priority_labels[priority]} | {count} |")
+
+            return "\n".join(sections) + "\n"
+
+        except Exception as e:
+            logger.warning("Remediation roadmap generation failed: %s", e)
+            return "## 9. Remediation Roadmap\n\n(Roadmap unavailable)\n"
 
     def _remediation(self) -> str:
         """
@@ -1089,7 +1422,8 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
 ### B. References
 
 - OffSec AI-300 Course Materials
-- OWASP Top 10 for LLM Applications v1.1
+- OWASP Top 10 for LLMs 2025 (v2025.1)
+- OWASP Top 10 for Agentic Applications 2026
 - MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
 - NVIDIA AI Kill Chain
 - NIST AI Risk Management Framework
@@ -1121,3 +1455,71 @@ Reconnaissance → Poisoning → Hijacking → Persistence → Impact
         except Exception as e:
             logger.warning("PyRIT native results rendering failed: %s", e)
             return "\n## Appendix D: PyRIT Native Attack Results\n\n*Rendering failed.*\n"
+
+    def _human_review_section(self) -> str:
+        """
+        Phase 4.3: 人工审查清单附录
+
+        渲染高风险发现的人工审查结果，包含：
+        - 审查摘要（总数/已确认/已拒绝/待审查）
+        - 逐条发现详情（ID/Scope/OWASP/攻击名/严重度/ASR/审查状态/证据）
+        """
+        hr = self._human_review_findings
+        if not hr:
+            return ""
+
+        total = hr.get("total_findings", 0)
+        confirmed = hr.get("confirmed", 0)
+        rejected = hr.get("rejected", 0)
+        pending = hr.get("pending", 0)
+        review_file = hr.get("review_file", "N/A")
+        findings = hr.get("high_risk_findings", [])
+
+        # 摘要表
+        summary_table = f"""| Metric | Value |
+|--------|-------|
+| Total High-Risk Findings | {total} |
+| Confirmed | {confirmed} |
+| Rejected | {rejected} |
+| Pending Review | {pending} |
+| Review File | `{review_file}` |"""
+
+        # 逐条发现详情
+        finding_rows = []
+        for f in findings:
+            status_icon = {
+                "confirmed": "✅",
+                "rejected": "❌",
+                "pending_review": "⏳",
+            }.get(f.get("review_status", "pending_review"), "⏳")
+
+            owasp = ", ".join(f.get("owasp_ids", [])) or "N/A"
+            evidence_preview = ""
+            if f.get("evidence"):
+                ev = f["evidence"][0]
+                evidence_preview = ev.get("payload", "")[:80]
+
+            finding_rows.append(
+                f"| {f.get('finding_id', '')} | {status_icon} {f.get('review_status', '')} | "
+                f"{f.get('scope', '')} | {owasp} | {f.get('attack_name', '')} | "
+                f"{f.get('severity', '')} | {f.get('success_rate', 0)}% | "
+                f"{evidence_preview}... |"
+            )
+
+        findings_table = "\n".join(finding_rows) if finding_rows else "| (no findings) |"
+
+        return f"""## Appendix E: Human-in-the-Loop Review
+
+### E.1 Review Summary
+
+{summary_table}
+
+### E.2 High-Risk Findings Detail
+
+| ID | Status | Scope | OWASP | Attack | Severity | ASR | Evidence |
+|----|--------|-------|-------|--------|----------|------|----------|
+{findings_table}
+
+> **Note:** Findings marked as "pending_review" require human confirmation before final remediation planning.
+> Review file location: `{review_file}`
+"""

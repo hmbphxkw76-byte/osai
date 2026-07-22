@@ -5,9 +5,9 @@ ProfileMerger 多工具结果合并器测试
 
 import unittest
 
-from pyrit_ai300.reconnaissance.profile_merger import ProfileMerger
-from pyrit_ai300.reconnaissance.adapters import AdapterResult
-from pyrit_ai300.reconnaissance.target_profile import (
+from pyrit_ai300.recon.profile_merger import ProfileMerger
+from pyrit_ai300.recon.adapters import AdapterResult
+from pyrit_ai300.recon.target_profile import (
     TargetProfile,
     FingerprintData,
     VulnerabilityFinding,
@@ -18,7 +18,7 @@ def _make_finding(
     category="prompt_injection",
     severity="high",
     description="Test finding",
-    tool="garak",
+    tool="native_probe",
     owasp_mapping="LLM01",
     confidence=0.8,
 ):
@@ -38,13 +38,13 @@ class TestProfileMergerInit(unittest.TestCase):
 
     def test_default_weights(self):
         merger = ProfileMerger()
-        self.assertEqual(merger.weights["garak"], 0.85)
+        self.assertEqual(merger.weights["native_probe"], 0.80)
         self.assertEqual(merger.weights["deepteam"], 0.85)
 
     def test_custom_weights(self):
-        custom = {"garak": 0.7, "deepteam": 0.8}
+        custom = {"native_probe": 0.7, "deepteam": 0.8}
         merger = ProfileMerger(weights=custom)
-        self.assertEqual(merger.weights["garak"], 0.7)
+        self.assertEqual(merger.weights["native_probe"], 0.7)
         self.assertEqual(merger.weights["deepteam"], 0.8)
 
 
@@ -64,7 +64,7 @@ class TestProfileMergerMerge(unittest.TestCase):
         """单工具结果合并"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding()],
@@ -74,13 +74,13 @@ class TestProfileMergerMerge(unittest.TestCase):
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
         self.assertEqual(profile.vulnerability_count, 1)
-        self.assertIn("garak", profile.tools_used)
+        self.assertIn("native_probe", profile.tools_used)
 
     def test_merge_multiple_tools(self):
         """多工具结果合并（OWASP ID 对齐：同一 OWASP ID 合并）"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={
                     "model_name": "gpt-4",
@@ -109,7 +109,7 @@ class TestProfileMergerMerge(unittest.TestCase):
         # 验证交叉验证信息
         vuln = profile.vulnerabilities[0]
         self.assertEqual(vuln.owasp_mapping, "LLM01")
-        self.assertIn("garak", vuln.source_tools)
+        self.assertIn("native_probe", vuln.source_tools)
         self.assertIn("deepteam", vuln.source_tools)
         self.assertFalse(vuln.conflict)  # 相同严重等级，无冲突
 
@@ -117,7 +117,7 @@ class TestProfileMergerMerge(unittest.TestCase):
         """多工具结果合并（不同 OWASP ID 独立保留）"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(category="prompt_injection", owasp_mapping="LLM01")],
@@ -142,7 +142,7 @@ class TestProfileMergerMerge(unittest.TestCase):
         """冲突检测：同一 OWASP ID 严重等级差异 ≥ 2 级"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(
@@ -178,7 +178,7 @@ class TestProfileMergerMerge(unittest.TestCase):
         """交叉验证置信度提升：双工具一致发现，置信度 +0.10"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(
@@ -205,9 +205,9 @@ class TestProfileMergerMerge(unittest.TestCase):
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
         vuln = profile.vulnerabilities[0]
-        # garak 权重 0.85 * 0.8 = 0.68; deepteam 权重 0.85 * 0.75 = 0.6375
+        # NativeProbe 权重 0.85 * 0.8 = 0.68; deepteam 权重 0.85 * 0.75 = 0.6375
         # max = 0.68, 交叉验证提升 +0.10 = 0.78
-        self.assertAlmostEqual(vuln.confidence, 0.78, places=2)
+        self.assertAlmostEqual(vuln.confidence, 0.74, places=2)
         self.assertFalse(vuln.conflict)  # 相同严重等级，无冲突
 
     def test_failed_tools_excluded(self):
@@ -220,7 +220,7 @@ class TestProfileMergerMerge(unittest.TestCase):
                 findings=[],
             ),
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=False,
                 errors=["Not installed"],
             ),
@@ -228,13 +228,13 @@ class TestProfileMergerMerge(unittest.TestCase):
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
         self.assertIn("deepteam", profile.tools_used)
-        self.assertNotIn("garak", profile.tools_used)
+        self.assertNotIn("native_probe", profile.tools_used)
 
     def test_raw_results_stored(self):
         """原始结果存入 raw_results"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={"scan": "data"},
                 findings=[_make_finding()],
@@ -242,8 +242,8 @@ class TestProfileMergerMerge(unittest.TestCase):
         ]
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
-        self.assertIn("garak", profile.raw_results)
-        self.assertEqual(profile.raw_results["garak"]["data"]["scan"], "data")
+        self.assertIn("native_probe", profile.raw_results)
+        self.assertEqual(profile.raw_results["native_probe"]["data"]["scan"], "data")
 
 
 class TestProfileMergerFingerprint(unittest.TestCase):
@@ -253,7 +253,7 @@ class TestProfileMergerFingerprint(unittest.TestCase):
         """工具指纹数据合并"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={
                     "model_name": "claude-3",
@@ -281,7 +281,7 @@ class TestProfileMergerFingerprint(unittest.TestCase):
         """指纹置信度来自工具权重"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={"model_name": "test"},
                 findings=[],
@@ -289,13 +289,13 @@ class TestProfileMergerFingerprint(unittest.TestCase):
         ]
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
-        self.assertAlmostEqual(profile.fingerprint.confidence, 0.85)
+        self.assertAlmostEqual(profile.fingerprint.confidence, 0.80)
 
     def test_fingerprint_not_overwritten(self):
         """已有指纹不被覆盖"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={"model_name": "first-model"},
                 findings=[],
@@ -319,7 +319,7 @@ class TestProfileMergerDeduplication(unittest.TestCase):
         """相同 category + 描述前缀的 finding 去重"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -344,7 +344,7 @@ class TestProfileMergerDeduplication(unittest.TestCase):
         """不同 OWASP ID 的 finding 独立保留"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -379,7 +379,7 @@ class TestProfileMergerDeduplication(unittest.TestCase):
         """去重时取最大置信度"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -409,7 +409,7 @@ class TestProfileMergerRiskCalculation(unittest.TestCase):
         """2个不同 OWASP ID 的 critical → critical"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -434,7 +434,7 @@ class TestProfileMergerRiskCalculation(unittest.TestCase):
         """1个 critical → high"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -450,7 +450,7 @@ class TestProfileMergerRiskCalculation(unittest.TestCase):
         """1个 high → medium"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -466,7 +466,7 @@ class TestProfileMergerRiskCalculation(unittest.TestCase):
         """1个 medium → low"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[
@@ -482,7 +482,7 @@ class TestProfileMergerRiskCalculation(unittest.TestCase):
         """无漏洞 → unknown"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[],
@@ -500,7 +500,7 @@ class TestProfileMergerRecommendations(unittest.TestCase):
         """prompt_injection 漏洞 → DIRECT_SINGLE 建议"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(category="prompt_injection")],
@@ -514,7 +514,7 @@ class TestProfileMergerRecommendations(unittest.TestCase):
         """excessive_agency 漏洞 → PROGRESSIVE 建议（LLM05）"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(category="excessive_agency", owasp_mapping="LLM05")],
@@ -542,7 +542,7 @@ class TestProfileMergerRecommendations(unittest.TestCase):
         """无漏洞 → 标准攻击链建议"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[],
@@ -560,7 +560,7 @@ class TestProfileMergerSurfaces(unittest.TestCase):
         """攻击面从所有工具结果合并（去重）"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={"surfaces": ["prompt", "rag"]},
                 findings=[],
@@ -584,7 +584,7 @@ class TestProfileMergerSurfaces(unittest.TestCase):
         """失败工具的 attack 攻击面不计入"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={"surfaces": ["prompt"]},
                 findings=[],
@@ -605,11 +605,11 @@ class TestProfileMergerSurfaces(unittest.TestCase):
 class TestProfileMergerWeightedConfidence(unittest.TestCase):
     """置信度加权测试"""
 
-    def test_garak_confidence_weighted(self):
-        """Garak finding 置信度乘以 garak 权重"""
+    def test_native_probe_confidence_weighted(self):
+        """NativeProbe finding 置信度乘以 NativeProbe 权重"""
         results = [
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=True,
                 data={},
                 findings=[_make_finding(confidence=0.8)],
@@ -617,8 +617,8 @@ class TestProfileMergerWeightedConfidence(unittest.TestCase):
         ]
         merger = ProfileMerger()
         profile = merger.merge(target="https://example.com", results=results)
-        # garak 权重 0.85 × finding 置信度 0.8 = 0.68
-        self.assertAlmostEqual(profile.vulnerabilities[0].confidence, 0.68, places=2)
+        # NativeProbe 权重 0.85 × finding 置信度 0.8 = 0.68
+        self.assertAlmostEqual(profile.vulnerabilities[0].confidence, 0.64, places=2)
 
     def test_deepteam_confidence_weighted(self):
         """DeepTeam finding 置信度乘以 deepteam 权重"""
@@ -684,9 +684,9 @@ class TestProfileMergerIncremental(unittest.TestCase):
             new_result=result1,
         )
 
-        # 第二次：Garak（不同 OWASP ID）
+        # 第二次：NativeProbe（不同 OWASP ID）
         result2 = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={"context_window": 8192},
             findings=[_make_finding(
@@ -704,7 +704,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 验证合并结果
         self.assertIn("protocol_fingerprint", profile.tools_used)
-        self.assertIn("garak", profile.tools_used)
+        self.assertIn("native_probe", profile.tools_used)
         self.assertEqual(profile.fingerprint.model_name, "qwen3")  # 来自第一个
         self.assertEqual(profile.fingerprint.context_window, 8192)  # 来自第二个
         self.assertEqual(profile.vulnerability_count, 2)
@@ -731,7 +731,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 失败的工具
         result_fail = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=False,
             errors=["Tool crashed"],
             duration=0.0,
@@ -744,7 +744,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 画像不变
         self.assertEqual(profile.vulnerability_count, initial_count)
-        self.assertNotIn("garak", profile.tools_used)
+        self.assertNotIn("native_probe", profile.tools_used)
 
     def test_incremental_duplicate_findings_deduplicated(self):
         """增量合并时重复 finding 去重"""
@@ -766,7 +766,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 第二个工具（相同 finding）
         result2 = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={},
             findings=[_make_finding(description="Same finding across tools")],
@@ -801,7 +801,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 第二个工具尝试设置 model_name（应被忽略）
         result2 = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={"model_name": "second-model"},
             findings=[],
@@ -834,7 +834,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
         )
 
         result2 = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={"surfaces": ["prompt", "rag"]},
             findings=[],
@@ -872,7 +872,7 @@ class TestProfileMergerIncremental(unittest.TestCase):
 
         # 第二个工具：添加 critical finding（不同描述，避免去重）
         result2 = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={},
             findings=[_make_finding(severity="critical", description="Critical severity finding")],

@@ -20,7 +20,7 @@ AI-300 Framework - Payload Classifier v3.0
 
 设计原则（v3.0）：
 - 借鉴 Promptfoo 分层思想：快速规则筛选 → 精确模型匹配
-- 借鉴 garak 探针族概念：按载荷类别自动选择攻击探针族
+- 借鉴 native_probe 探针族概念：按载荷类别自动选择攻击探针族
 - 借鉴 DeepTeam 框架映射：OWASP/ASI 分类作为策略约束
 
 PyRIT 0.14.0 兼容

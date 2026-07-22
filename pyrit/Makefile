@@ -15,7 +15,6 @@ help: ## Show this help message
 	@echo "  make install-uv       Install with uv (fast)"
 	@echo "  make venv-uv          Create uv venv + install all"
 	@echo "  make setup-playwright Install Playwright + Chromium (SPA attacks)"
-	@echo "  make setup-garak      Create garak venv (recon)"
 	@echo "  make test             Run unit tests"
 	@echo "  make lint             Run linters"
 
@@ -147,17 +146,6 @@ venv-uv: ## Create venv with uv and install all dependencies
 	uv venv .venv
 	uv pip install -e ".[dev,pdf]"
 	@echo "[OK] UV virtual environment ready"
-
-# Garak 独立 venv（datasets<4.0 与 pyrit 冲突，必须隔离）
-setup-garak: ## Create garak venv with pinned dependencies
-	uv venv .garak --python 3.12
-	.garak/Scripts/pip install -r garak-requirements.txt
-	@echo "[OK] Garak venv ready (.garak/)"
-
-setup-garak-unix: ## Create garak venv (Linux/Mac)
-	uv venv .garak --python 3.12
-	.garak/bin/pip install -r garak-requirements.txt
-	@echo "[OK] Garak venv ready (.garak/)"
 
 # Playwright 浏览器环境（SPA 攻击必需）
 setup-playwright: ## Install Playwright + Chromium browser (required for SPA attacks)

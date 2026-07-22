@@ -760,7 +760,7 @@ def _run_wizard_recon(logger):
     1. 选择目标（菜单选择 config/targets/ 或手动输入 URL）
     2. 确认并执行侦察（AIMAP 优先 → Garak 配置 → 剩余工具）
     """
-    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.recon import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
     from pathlib import Path
 
@@ -1080,7 +1080,7 @@ def _list_placeholders(args, logger):
     """
     import re
     from pyrit_ai300.payloads.payload_manager import PayloadManager
-    from pyrit_ai300.orchestrators.attack_orchestrator import _extract_payload_text
+    from pyrit_ai300.attack.engine import _extract_payload_text
 
     pm = PayloadManager()
     pm.load_data_dir("data/")
@@ -1709,7 +1709,7 @@ def _run_owasp(args, logger):
     """执行 OWASP 标准攻击（支持多目标逐一分批）"""
     from pyrit_ai300 import AI300Engine
     from pyrit_ai300.pipeline import PipelineTracker
-    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.recon import ReconEngine
 
     # --list-placeholders：列出占位符后退出
     if getattr(args, "list_placeholders", False):
@@ -1992,7 +1992,7 @@ def _run_owasp(args, logger):
 def _list_components(args, logger):
     """列出可用组件"""
     if args.component == "attacks":
-        from pyrit_ai300.orchestrators.attack_registry import list_attacks, get_attack_info
+        from pyrit_ai300.attack.registry import list_attacks, get_attack_info
         print("Available Attacks:")
         for category in ["single_turn", "multi_turn", "compound", "streaming"]:
             attacks = list_attacks(category)
@@ -2003,14 +2003,14 @@ def _list_components(args, logger):
                     print(f"    - {attack}: {info.get('description', '')}")
     
     elif args.component == "converters":
-        from pyrit_ai300.orchestrators.component_registry import CONVERTER_MAP
+        from pyrit_ai300.attack.pyrit.component_registry import CONVERTER_MAP
         print("Available Converters:")
         for converter_name in CONVERTER_MAP:
             print(f"    - {converter_name}")
     
     elif args.component == "scorers":
-        from pyrit_ai300.orchestrators.attack_orchestrator import AttackOrchestrator
-        from pyrit_ai300.orchestrators.component_registry import SCORER_MAP
+        from pyrit_ai300.attack.engine import AttackOrchestrator
+        from pyrit_ai300.attack.pyrit.component_registry import SCORER_MAP
         print("Available Scorer Types:")
         for scorer_name in SCORER_MAP:
             print(f"    - {scorer_name}")
@@ -2020,14 +2020,14 @@ def _list_components(args, logger):
             print(f"    {asi} → {scorer_type}")
         print(f"\n  REV-4 Ensemble Scorer (多评分器并行投票):")
         try:
-            from pyrit_ai300.orchestrators.ensemble_scorer import ENSEMBLE_SCORER_CONFIG
+            from pyrit_ai300.attack.scoring.ensemble_scorer import ENSEMBLE_SCORER_CONFIG
             for owasp_id, scorer_types in sorted(ENSEMBLE_SCORER_CONFIG.items()):
                 print(f"    {owasp_id} → {' + '.join(scorer_types)}")
         except Exception:
             print(f"    (配置加载失败)")
         print(f"\n  REV-5 Semantic Scorer (LLM 语义安全判定):")
         try:
-            from pyrit_ai300.orchestrators.semantic_scorer import SEMANTIC_SCORER_TEMPLATES
+            from pyrit_ai300.attack.scoring.semantic_scorer import SEMANTIC_SCORER_TEMPLATES
             cats = ", ".join(sorted(SEMANTIC_SCORER_TEMPLATES.keys()))
             print(f"    覆盖类别: {cats}")
         except Exception:
@@ -2036,7 +2036,7 @@ def _list_components(args, logger):
         print(f"Override with: --scorer-url / --scorer-key / --scorer-model")
     
     elif args.component == "targets":
-        from pyrit_ai300.orchestrators.attack_registry import list_types
+        from pyrit_ai300.attack.registry import list_types
         print("Available Target Types:")
         for target_type in list_types():
             print(f"    - {target_type}")
@@ -2091,7 +2091,7 @@ def _run_spa_recon(args, spa_config_path, logger):
     5. 分析后端 LLM API（模型名称/端点/认证/能力）
     6. 输出 TargetProfile JSON
     """
-    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.recon import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
 
     print("\n" + "=" * 60)
@@ -2288,7 +2288,7 @@ def _run_spa_recon(args, spa_config_path, logger):
 
 def _run_recon(args, logger):
     """执行侦察（独立模式，无攻击阶段）"""
-    from pyrit_ai300.reconnaissance import ReconEngine
+    from pyrit_ai300.recon import ReconEngine
     from pyrit_ai300.pipeline import PipelineTracker
 
     # ── 智能检测：用户可能用 -t/--target 传入了 YAML 文件路径 ──

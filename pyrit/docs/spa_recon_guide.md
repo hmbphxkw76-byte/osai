@@ -49,7 +49,7 @@
 ReconEngine (统一调度器)
   ├── ProtocolFingerprintAdapter   ← 直接暴露的 AI API（Ollama/vLLM/MCP）
   ├── SPAChatReconAdapter          ← 需登录的 SPA 智能助手（本次新增）
-  ├── GarakAdapter                 ← LLM 漏洞扫描
+  ├── NativeProbeAdapter           ← 轻量级探针扫描（零依赖）
   └── DeepTeamAdapter              ← OWASP 红队
 ```
 

@@ -8,7 +8,7 @@ import tempfile
 import os
 
 from pyrit_ai300.attack.profile_loader import ProfileLoader
-from pyrit_ai300.reconnaissance.target_profile import (
+from pyrit_ai300.recon.target_profile import (
     TargetProfile,
     FingerprintData,
     VulnerabilityFinding,
@@ -77,11 +77,11 @@ class TestProfileLoader(unittest.TestCase):
         profile = TargetProfile()
         profile.vulnerabilities = [
             VulnerabilityFinding(category="prompt_injection", owasp_mapping="LLM01"),
-            VulnerabilityFinding(category="excessive_agency", owasp_mapping="LLM05"),
+            VulnerabilityFinding(category="excessive_agency", owasp_mapping="LLM06"),
         ]
         families = ProfileLoader._suggest_probe_families(profile)
         self.assertIn("DIRECT_SINGLE", families)  # LLM01
-        self.assertIn("PROGRESSIVE", families)    # LLM05
+        self.assertIn("PROGRESSIVE", families)    # LLM06
 
     def test_suggest_probe_families_fallback(self):
         """测试探针族推荐（无 owasp_mapping 时从 category 推导）"""

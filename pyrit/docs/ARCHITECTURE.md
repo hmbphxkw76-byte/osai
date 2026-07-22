@@ -1,19 +1,19 @@
 # AI-300 Framework Architecture Design
 
-> **最后更新**: 2026-07-20
-> **版本**: v3.7.1
+> **最后更新**: 2026-07-22
+> **版本**: v3.8.0
 > **关联模块**: pyrit_ai300/
 > **状态**: 已完成
 
-## 1. 架构总览（v3.7.1）
+## 1. 架构总览（v3.8.0）
 
 ### 1.1 设计哲学
 
-本框架以 **PyRIT 0.14.0** 为核心引擎，采用 **三层分离 + 数据驱动** 设计，实现 OffSec AI-300 考试场景的全覆盖。
+本框架以 **PyRIT 0.14.0** 为核心引擎，采用 **四层分离 + 数据驱动** 设计，实现 OffSec AI-300 考试场景的全覆盖。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     AI-300 Framework v3.7.1 Architecture               │
+│                     AI-300 Framework v3.8.0 Architecture               │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                       │
 │  ┌─────────────────────────────────────────────────────────────┐    │
@@ -21,36 +21,45 @@
 │  │    命令: owasp / list / report / recon / pipeline / wizard   │    │
 │  └──────────────────────────┬──────────────────────────────────┘    │
 │                             │                                        │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │           Core 共享库 (core/)  v3.8.0 新增                   │    │
+│  │  ┌──────────┐  ┌────────────┐  ┌───────────────────────┐    │    │
+│  │  │ utils    │  │ protocols  │  │ models                │    │    │
+│  │  │ (纯函数) │  │ (Stage I/O)│  │ (DataContracts)       │    │    │
+│  │  └──────────┘  └────────────┘  └───────────────────────┘    │    │
+│  │         ↑            ↑                ↑                       │    │
+│  └─────────┼────────────┼────────────────┼───────────────────────┘    │
+│            │            │                │                            │
+│  ┌─────────┴────────────┴────────────────┴───────────────────────┐  │
+│  │              编排层 + 凭据层 (v3.8.0 纯编排器)                │  │
+│  │  PipelineOrchestrator → 凭据→侦察→攻击→报告 一键执行           │  │
+│  │  CredentialManager → JWT 过期检查 + 凭据自动注入                │  │
+│  │    ├── for_native_probe() → Bearer Token + Cookie             │  │
+│  │    ├── for_deepteam()    → 请求头 Authorization + Cookie      │  │
+│  │    └── for_openai()      → api_key 构造参数                    │  │
+│  └──────────────────────────────────────────────────────────────┘  │
 │              ┌──────────────┴──────────────┐                        │
 │              ▼                              ▼                        │
 │  ┌──────────────────────┐      ┌──────────────────────────────┐    │
 │  │   侦察层 (recon)      │      │       攻击层 (attack)         │    │
-│  │  v3.1 (19项优化)      │      │  v3.5 (REV-1~10 全量闭环)   │    │
+│  │  v3.8 自适应侦察      │      │  v3.5 (REV-1~10 全量闭环)   │    │
 │  │                      │      │                              │    │
 │  │  ReconEngine         │      │  AI300Engine                 │    │
-│  │    ├── AIMAP (A1-A6) │      │    ├── AttackOrchestrator    │    │
-│  │    ├── Garak (G1-G6) │      │    ├── SmartMatcher (两层)    │    │
-│  │    ├── DeepTeam(D1-D5)│     │    ├── ScorerBuilder (ASI感知)│    │
-│  │    └── ProfileMerger │      │    │   ├── EnsembleScorer(Rev4)│   │
-│  │      (M1-M2, E1-E3)  │      │    │   └── SemanticScorer(Rev5)│   │
-│  │           ↓          │      │    ├── ProfileLoader ◄──────┼──┐ │
+│  │  .run_adaptive()     │      │    ├── AttackOrchestrator    │    │
+│  │    ├── AIMAP (A1-A6) │      │    ├── SmartMatcher (两层)    │    │
+│  │    ├── NativeProbe   │      │    ├── ScorerBuilder (ASI感知)│    │
+│  │    ├── DeepTeam(D1-D5)│     │    │   ├── EnsembleScorer(Rev4)│   │
+│  │    ├── SPA Chat      │      │    │   └── SemanticScorer(Rev5)│   │
+│  │    └── ProfileMerger │      │    ├── ProfileLoader ◄──────┼──┐ │
+│  │      (M1-M2, E1-E3)  │      │    ├── PayloadFilter (REV-1) │  │ │
+│  │           ↓          │      │    ├── ASRRanker (REV-2)     │  │ │
 │  │   TargetProfile JSON │──────┼───→PayloadClassifier     │  │ │
-│  │   + fingerprint      │      │    ├── PayloadFilter (REV-1) │  │ │
-│  │   + capabilities     │      │    ├── ASRRanker (REV-2)     │  │ │
-│  │   + attack_surfaces  │      │    ├── ModelSpecificSelector(Rev3)│ │
-│  └──────────────────────┘      │    ├── PayloadMutator (P1-F) │  │ │
-│                                │    ├── PayloadDedup (P3-J)    │  │ │
-│                                │    └── FeedbackAnalyzer      │  │ │
+│  │   + fingerprint      │      │    ├── ModelSpecificSelector(Rev3)│ │
+│  │   + capabilities     │      │    ├── PayloadMutator (P1-F) │  │ │
+│  │   + attack_surfaces  │      │    ├── PayloadDedup (P3-J)    │  │ │
+│  └──────────────────────┘      │    └── FeedbackAnalyzer      │  │ │
 │                                └──────────────────────────────┘  │ │
 │                                                                   │ │
-│  ┌─────────────────────────────────────────────────────────────┐  │ │
-│  │              编排层 + 凭据层 (v3.7 新增)                      │  │ │
-│  │  PipelineOrchestrator → 凭据→侦察→攻击→报告 一键执行         │  │ │
-│  │  CredentialManager → JWT 过期检查 + 凭据自动注入              │  │ │
-│  │    ├── for_garak()     → OPENAI_API_KEY 环境变量             │  │ │
-│  │    ├── for_deepteam()  → 请求头 Authorization + Cookie       │  │ │
-│  │    └── for_openai()    → api_key 构造参数                    │  │ │
-│  └─────────────────────────────────────────────────────────────┘  │ │
 │  ┌─────────────────────────────────────────────────────────────┐  │ │
 │  │                     数据层 + 配置层                           │  │ │
 │  │  data/owasp/ (82 YAML, 632 payloads) │  config/targets/      │  │ │
@@ -75,14 +84,40 @@
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### 1.1.1 Core 共享库 (v3.8.0 新增)
+
+**P0-P3 架构解耦重构** 引入 `core/` 共享库作为**单一真相来源 (SSoT)**：
+
+```
+core/
+├── utils.py       # 纯函数：detect_target_type, extract_spa_*, inject_credentials_*
+├── protocols.py   # 流水线协议：StageInput, StageOutput, PipelineResult, PipelineStage
+├── models.py      # 数据契约：EndpointInfo, FingerprintContract, ProfileContract
+└── __init__.py    # 统一导出
+```
+
+**依赖规则**：
+- 所有业务模块（reconnaissance/pipeline/orchestrators）**单向依赖** core/
+- core/ **不依赖任何业务模块**，避免循环依赖
+- core/ 仅依赖 Python 标准库
+
+**关键改进**：
+1. **P0 切断循环依赖**：`AI300Engine` 不再 `import PipelineOrchestrator`，工具函数下沉到 `core/utils.py`
+2. **P1 侦察独立化**：`ReconEngine.run_adaptive()` 封装完整 SPA/API 路径选择逻辑，编排器只需单一入口调用
+3. **P2 协议标准化**：`StageInput`/`StageOutput` 作为阶段间通信统一契约，`PipelineStage` Protocol 定义阶段接口
+4. **P3 数据模型**：`ProfileContract` Protocol 定义 TargetProfile 必须实现的接口契约
+
 ### 1.2 核心设计原则
 
 | 原则 | 实现方式 |
 |------|---------|
 | **不重复造轮子** | 所有攻击/转换器/评分器/目标均通过 `import pyrit` 直接调用 |
 | **调度器 + 格式转换器** | 框架只做编排+格式转换，能力来自 PyRIT + 外部工具（ARCH-001） |
-| **三层分离** | 数据层（data/）+ 配置层（config/）+ 引擎层（pyrit_ai300/） |
+| **四层分离** | 数据层（data/）+ 配置层（config/）+ 引擎层（pyrit_ai300/）+ 共享核心库（core/） |
+| **单向依赖** | 业务模块 → core/，core/ 不依赖业务模块，消除循环依赖（v3.8.0 新增） |
 | **侦察-攻击解耦** | 侦察层不 import 攻击层，通过 TargetProfile JSON 通信 |
+| **侦察自适应** | ReconEngine.run_adaptive() 自动选择 SPA/API 路径（v3.8.0 新增） |
+| **协议标准化** | StageInput/StageOutput 作为阶段间通信统一契约（v3.8.0 新增） |
 | **数据驱动** | 攻击载荷、目标配置、评分规则全部从 YAML 配置加载 |
 | **ASR 驱动** | 632 个载荷全标注 ASR 基线，Top-5 ASR ≥ 90%（v3.1 新增） |
 | **全流程自动化** | 修改载荷后，侦察→攻击→评分→报告生成全程无需人工干预 |
@@ -274,10 +309,14 @@ Module 9: Infrastructure
 
 ## 4. 侦察引擎设计（v3.0）
 
-### 4.1 架构（v3.1 — 19 项优化已实施）
+### 4.1 架构（v3.8.0 — 自适应侦察 + 独立化）
 
 ```
-ReconEngine (统一调度器, v3.1)
+ReconEngine (统一调度器, v3.8.0)
+  ├── run_adaptive()           v3.8.0 新增：自适应编排单一入口
+  │   ├── _run_spa_adaptive()   SPA 路径：浏览器侦察→端点提取→并行探针
+  │   └── _run_api_adaptive()  API 路径：AIMAP→并行探针
+  │
   ├── [并行] ProtocolFingerprintAdapter (AIMAP)
   │     ├── OPT-A1: 协议探测并行化 (ThreadPoolExecutor, 30s→8s)
   │     ├── OPT-A2: 深度 MCP 探测 (权限隔离+session固定+注入风险)
@@ -286,6 +325,11 @@ ReconEngine (统一调度器, v3.1)
   │     ├── OPT-A5: 认证深度检测 (Bearer/APIKey/Cookie/OAuth/JWT)
   │     └── OPT-A6: 模型能力探测 (function_calling/vision/json_mode)
   │
+  ├── [并行] NativeProbeAdapter (轻量级探针)
+  │     ├── 6 种 Probe (suffix/smuggling/apikey/web_injection/propile/sysprompt)
+  │     ├── 正则/关键词检测器 (零 ML 依赖)
+  │     └── YAML 驱动 probe 数据 (零外部依赖)
+  │
   ├── [并行] DeepTeamAdapter (OWASP 红队)
   │     ├── OPT-D1: 攻击类型全量覆盖 (quick=2/standard=11/deep=18)
   │     ├── OPT-D2: Agentic 漏洞覆盖 (条件触发 ASI01-04)
@@ -293,38 +337,36 @@ ReconEngine (统一调度器, v3.1)
   │     ├── OPT-D4: 异步模式 (async_mode=True, max_concurrent=3)
   │     └── OPT-D5: 攻击方法配置 (16种攻击方法自动匹配)
   │
-  ├── [串行] GarakAdapter (依赖 AIMAP 结果)
-  │     ├── OPT-G1: Probe 动态选择 (AIMAP 驱动扩展)
-  │     ├── OPT-G2: 深度分层 Probe (quick=2/standard=6/deep=14)
-  │     ├── OPT-G3: 结果解析增强 (hitlog+report.html+fail记录)
-  │     ├── OPT-G4: Detector 精确配置 (PROBE_DETECTOR_MAP)
-  │     ├── OPT-G5: 增量执行缓存 (24h TTL, MD5 哈希)
-  │     └── OPT-G6: 通用预热 (Ollama/vLLM/OpenAI-compat)
+  ├── [条件] SPAChatReconAdapter (浏览器自动化)
+  │     ├── Playwright 自动化 (登录/聊天/流量捕获)
+  │     ├── LLM 端点发现 (网络流量被动提取)
+  │     └── 模型指纹提取 (从 API 请求中提取)
   │
   └── ProfileMerger (合并器)
         ├── OPT-M1: 语义去重 (Jaccard threshold=0.80)
         ├── OPT-M2: 动态攻击建议 (模型/能力/攻击面/风险多维)
-        ├── OPT-E1: AIMAP 与 DeepTeam 并行调度
+        ├── OPT-E1: NativeProbe 与 DeepTeam 并行调度
         ├── OPT-E2: 增量缓存 (Profile 级, 24h TTL)
         └── OPT-E3: 深度自适应超时 (quick/standard/deep 三级)
 ```
 
-### 4.2 侦察工具（v3.1）
+### 4.2 侦察工具（v3.8.0）
 
-| 工具 | 版本 | 定位 | 集成方式 | 优化项 | AI-300 对应 |
-|------|------|------|---------|--------|------------|
-| ProtocolFingerprint (AIMAP) | 内置 | 协议/框架/能力识别 | HTTP 并行探测 | OPT-A1~A6 (6项) | 侦察前置+攻击面发现 |
-| Garak | ≥0.15.1 | 漏洞扫描 | subprocess venv (.garak/) | OPT-G1~G6 (6项) | LLM01/LLM03/LLM06/LLM08/LLM09 |
-| DeepTeam | ≥1.0.7 | OWASP 红队 | Python API (`red_team()`) | OPT-D1~D5 (5项) | OWASP Top 10 LLM + Agentic |
-| ProfileMerger | 内置 | 多工具合并 | Jaccard 去重+加权 | OPT-M1~M2 (2项) | 交叉验证+冲突检测 |
-| ReconEngine | 内置 | 统一调度 | ThreadPoolExecutor | OPT-E1~E3 (3项) | 并行调度+缓存+超时 |
+| 工具 | 定位 | 集成方式 | 优化项 | AI-300 对应 |
+|------|------|---------|--------|------------|
+| ProtocolFingerprint (AIMAP) | 协议/框架/能力识别 | HTTP 并行探测 | OPT-A1~A6 (6项) | 侦察前置+攻击面发现 |
+| NativeProbe | 轻量级探针扫描 | YAML 驱动 + 正则检测 | 6 种 Probe + 零依赖 | LLM01/LLM03/LLM06/LLM08/LLM09 |
+| DeepTeam | OWASP 红队 | Python API (`red_team()`) | OPT-D1~D5 (5项) | OWASP Top 10 LLM + Agentic |
+| SPAChatRecon | 浏览器自动化侦察 | Playwright | 登录/聊天/流量捕获/端点发现 | SPA 应用全链路侦察 |
+| ProfileMerger | 多工具合并 | Jaccard 去重+加权 | OPT-M1~M2 (2项) | 交叉验证+冲突检测 |
+| ReconEngine | 统一调度 | ThreadPoolExecutor | OPT-E1~E3 + run_adaptive | 并行调度+缓存+超时+自适应 |
 
 ### 4.3 TargetProfile JSON Schema
 
 ```json
 {
   "target": "http://localhost:11434",
-  "tools_used": ["garak", "deepteam"],
+  "tools_used": ["native_probe", "deepteam"],
   "risk_level": "high",
   "vulnerability_count": 12,
   "vulnerabilities": [
@@ -332,40 +374,32 @@ ReconEngine (统一调度器, v3.1)
       "id": "vuln_001",
       "category": "prompt_injection",
       "severity": "critical",
-      "owasp": "LLM01",
+      "owasp_mapping": "LLM01",
       "confidence": 0.85,
-      "source": "garak",
+      "source_tools": ["native_probe"],
       "description": "Direct prompt injection successful"
     }
   ],
-  "attack_surface": ["agent", "rag"],
+  "surfaces": ["prompt", "rag"],
   "attack_recommendations": [
-    {
-      "strategy": "DIRECT_SINGLE",
-      "priority": 1,
-      "reason": "High confidence prompt injection vulnerability"
-    }
+    "DIRECT_SINGLE: High confidence prompt injection vulnerability"
   ],
-  "metadata": {
-    "target_model": "qwen3:0.6b",
-    "preferred_probe_families": ["PROGRESSIVE", "TREE_SEARCH"],
-    "aggression_level": "medium",
-    "scan_duration": 45.2,
-    "timestamp": "2026-07-17T09:40:21"
-  }
+  "risk_level": "high"
 }
 ```
 
-### 4.4 Probe → OWASP 映射（Garak）
+### 4.4 Probe → OWASP 映射（NativeProbe）
 
-| Garak Probe | OWASP | AI-300 考点 |
+| NativeProbe | OWASP | AI-300 考点 |
 |-------------|-------|------------|
-| promptinject | LLM01 | Prompt Injection |
-| dan / jailbreak | LLM01 | Jailbreak |
-| malgen | LLM06 | Sensitive Information Disclosure |
-| hallucination | LLM09 | Overreliance |
-| misinformation | LLM08 | Excessive Agency |
-| toxicity | LLM03 | Training Data Poisoning |
+| suffix (GCG) | LLM01 | Prompt Injection (后缀注入) |
+| smuggling | LLM01 | Prompt Injection (封装绕过) |
+| apikey | LLM02 | Sensitive Information (密钥泄露) |
+| web_injection | LLM06 | Excessive Agency (Web 注入) |
+| propile | LLM06 | Excessive Agency (属性探测) |
+| sysprompt_extraction | LLM06 | Sensitive Information (系统提示提取) |
+
+> 注：NativeProbe 探针数据提取自 garak v0.15.1 开源项目，已内建为 YAML 静态数据，零外部依赖。
 
 ### 4.5 Vulnerability → OWASP 映射（DeepTeam）
 
@@ -716,16 +750,22 @@ payloads: [...]                   # 载荷列表
 
 ```
 pyrit_ai300/                      # 代码层（纯执行引擎）
+├── core/                        #   共享核心库 (v3.8.0 新增)
+│   ├── utils.py                #   纯函数：detect_target_type, extract_spa_*, inject_credentials_*
+│   ├── protocols.py            #   流水线协议：StageInput, StageOutput, PipelineResult, PipelineStage
+│   ├── models.py               #   数据契约：EndpointInfo, FingerprintContract, ProfileContract
+│   └── __init__.py             #   统一导出
 ├── reconnaissance/               #   侦察引擎（完全独立，不 import attack/）
-│   ├── recon_engine.py           #   统一调度入口
+│   ├── recon_engine.py           #   统一调度入口 + run_adaptive()
 │   ├── target_profile.py         #   TargetProfile 数据模型（唯一接口契约）
 │   ├── profile_merger.py         #   多工具结果合并
 │   ├── owasp_taxonomy.py         #   OWASP 分类法
 │   ├── adapters/                 #   薄壳适配器
 │   │   ├── base_adapter.py       #   抽象基类
-│   │   ├── garak_adapter.py      #   → import garak
-│   │   ├── deepteam_adapter.py   #   → import deepteam
-│   │   └── protocol_fingerprint_adapter.py  # 协议识别
+│   │   ├── native_probe/         #   轻量级探针（YAML 驱动，零依赖）
+│   │   ├── deepteam/             #   → import deepteam
+│   │   ├── spa_chat/             #   → Playwright 自动化
+│   │   └── protocol_fingerprint/ #   协议识别
 │   └── utils/                    #   工具函数
 ├── attack/                       #   攻击引擎扩展
 │   ├── profile_loader.py         #   读 TargetProfile → SmartMatcher 参数
@@ -762,19 +802,32 @@ pyrit_ai300/                      # 代码层（纯执行引擎）
 │   ├── payload_mutator.py       #   载荷变异器
 │   ├── payload_dedup.py         #   载荷去重
 │   └── template_renderer.py     #   模板渲染器
-├── pipeline/                     #   流水线追踪
+├── pipeline/                     #   流水线编排
+│   ├── orchestrator.py          #   纯编排器 (v3.8.0)
 │   ├── tracker.py               #   执行追踪 + 终端输出
-│   └── feedback_analyzer.py     #   反馈分析器（闭环优化）
+│   ├── credential_manager.py   #   凭据管理
+│   ├── feedback_analyzer.py     #   反馈分析器（闭环优化）
+│   └── __init__.py              #   协议导出 (StageInput/StageOutput/PipelineStage)
 ├── reporting/                    #   报告生成（v3.5）
 │   ├── report_generator.py      #   评估报告生成（OffSec 9 段）
 │   ├── execution_report.py      #   执行报告保存
 │   ├── cvss_calculator.py       #   CVSS 3.1 量化评分（REV-6）
 │   ├── atlas_mapper.py          #   MITRE ATLAS 全量映射（REV-7）
 │   ├── attack_chain_graph.py    #   Mermaid 攻击路径图（REV-8）
-│   └── remediation_roi.py       #   修复建议 ROI 排序（REV-10）
-├── tests/                        #   单元测试（220+ tests）
+│   ├── remediation_roi.py       #   修复建议 ROI 排序（REV-10）
+│   └── risk_assessment.py       #   风险评估模型 (v3.8.0 新增)
+├── standards/                    #   标准定义 (v3.8.0 新增)
+│   ├── owasp_2025.py            #   OWASP 2025/2026 单一真相来源 (SSoT)
+│   ├── framework_base.py        #   AISafetyFramework 抽象基类
+│   └── __init__.py              #   统一导出
+├── scenarios/                    #   标准化评估场景 (v3.8.0 新增)
+│   └── standardized_scenarios.py #   7 个预定义场景
+├── tests/                        #   单元测试（900+ tests）
 │   ├── test_framework.py
 │   ├── test_encoding_selector.py
+│   ├── test_core_library.py     #   core/ 核心库测试 (v3.8.0 新增)
+│   ├── test_comprehensive.py
+│   ├── test_l5_improvements.py
 │   └── test_recon/
 ├── utils/                        #   工具函数
 │   └── logger.py                #   日志配置
@@ -786,10 +839,15 @@ pyrit_ai300/                      # 代码层（纯执行引擎）
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| Framework (test_framework.py) | 140+ | 编排器、载荷管理、SmartMatcher、报告、速率控制、认证 |
-| Encoding Selector | 20+ | 三阶段过滤 |
-| Recon (test_recon/) | 60+ | 侦察引擎、适配器、ProfileMerger |
-| **总计** | **220+** | **全部通过** |
+| Framework (test_comprehensive.py) | ~230 | 18 模块 + 端到端数据流 |
+| L5 Improvements | ~80 | 异常/日志/验证/并发/Protocol |
+| Regression (test_regression.py) | ~30 | env_loader/SPA配置/pipeline/adapter |
+| Core Library (test_core_library.py) | ~35 | core/ 独立性、协议、模型 |
+| OWASP Mapping | ~20 | 标准映射一致性 |
+| Framework Abstraction | ~15 | 框架抽象层 |
+| NativeProbe | ~10 | 探针适配器 |
+| Recon (test_recon/) | ~60 | 侦察引擎、适配器、ProfileMerger |
+| **总计** | **900+** | **全部通过** |
 
 ---
 
@@ -799,13 +857,16 @@ pyrit_ai300/                      # 代码层（纯执行引擎）
 
 ```
 pyrit_ai300/             # 本框架
+├── core/                 # 共享核心库（v3.8.0 新增）
 ├── config/               # 配置文件（项目根目录）
 ├── orchestrators/        # 编排器（调用 PyRIT）
 ├── reporting/            # 报告生成
 ├── payloads/             # 载荷管理
 ├── reconnaissance/       # 侦察引擎（调用外部工具）
+├── standards/            # 标准定义（v3.8.0 新增）
+├── scenarios/            # 评估场景（v3.8.0 新增）
 ├── attack/               # 攻击引擎扩展
-├── pipeline/             # 执行追踪
+├── pipeline/             # 流水线编排
 └── tests/                # 单元测试
 
 pyrit/                    # PyRIT 框架（独立安装）
@@ -929,9 +990,9 @@ ai300 report -r results.json -o report.md
 
 ```
 CLI (ai300 pipeline)
-  └── PipelineOrchestrator
+  └── PipelineOrchestrator (纯编排器, v3.8.0)
         ├── CredentialManager    → 凭据发现/验证/注入
-        ├── ReconEngine          → AIMAP/Garak/DeepTeam 并行侦察
+        ├── ReconEngine          → run_adaptive() 自适应侦察 (AIMAP/NativeProbe/DeepTeam)
         ├── AI300Engine          → PyRIT 攻击执行
         └── ReportGenerator      → CVSS+ATLAS+Mermaid+ROI 报告
 ```
@@ -982,7 +1043,7 @@ CLI (ai300 pipeline)
 ### 15.4 侦察流水线并发架构
 
 ```
-  [recon_start]  target=http://localhost:11434/v1  tools=protocol_fingerprint,garak,deepteam
+  [recon_start]  target=http://localhost:11434/v1  tools=protocol_fingerprint,native_probe,deepteam
 
                     │  ThreadPoolExecutor (max_workers=3)
                     │  并发执行，as_completed() 逐个返回
@@ -990,11 +1051,11 @@ CLI (ai300 pipeline)
          ┌──────────┴──────────┐
          │                     │
     ┌────▼────┐          ┌─────▼─────┐          ┌─────────────┐
-    │Protocol │          │  Garak    │          │  DeepTeam   │
-    │Fingerprint         │  Adapter  │          │  Adapter    │
-    │Adapter  │          │           │          │             │
+    │Protocol │          │ Native    │          │  DeepTeam   │
+    │Fingerprint         │ Probe     │          │  Adapter    │
+    │Adapter  │          │ Adapter   │          │             │
     │─────────│          │───────────│          │─────────────│
-    │~30s     │          │~1-3min    │          │~2-5min      │
+    │~8s      │          │~30-60s    │          │~2-5min      │
     └────┬────┘          └─────┬─────┘          └──────┬──────┘
          │                     │                       │
          ▼                     ▼                       ▼
@@ -1005,7 +1066,7 @@ CLI (ai300 pipeline)
 
 | 目标工具 | 注入方式 | 代码位置 |
 |----------|----------|----------|
-| Garak | `OPENAI_API_KEY` 环境变量 | `garak/adapter.py` |
+| NativeProbe | Bearer Token + Cookie | `native_probe/adapter.py` |
 | DeepTeam | `base_headers` 请求头 | `deepteam/adapter.py` |
 | PyRIT OpenAIChatTarget | `api_key` 构造参数 | `target_builder.py` |
 | PyRIT HTTPTarget | `Authorization` 头 | `target_builder.py` |

@@ -179,9 +179,9 @@ class PipelineTracker:
         tracker = PipelineTracker(verbose=True)
 
         # 侦察阶段
-        tracker.log_recon_start(target, tools=["garak", "deepteam"])
-        tracker.log_recon_tool("garak", True, findings_count=5)
-        tracker.log_recon_merge(tools_used=["garak", "deepteam"], vuln_count=8, risk_level="high")
+tracker.log_recon_start(target, tools=["native_probe", "deepteam"])
+tracker.log_recon_tool("native_probe", True, findings_count=5)
+tracker.log_recon_merge(tools_used=["native_probe", "deepteam"], vuln_count=8, risk_level="high")
         tracker.log_recon_complete(profile_path="results/recon/profile.json")
 
         # 攻击阶段
@@ -276,45 +276,42 @@ class PipelineTracker:
                 f"发现: {findings_count}" + (f", 错误: {error}" if error else ""),
             )
 
-    def log_recon_aimap_garak_bridge(
+    def log_recon_aimap_probe_bridge(
         self,
         aimap_protocols: List[str],
-        garak_endpoint: str,
-        garak_model_type: str,
-        garak_model_name: str,
+        probe_endpoint: str,
+        probe_model_name: str,
     ) -> None:
         """
-        记录 AIMAP→Garak 端点桥接步骤
+        记录 AIMAP→NativeProbe 端点桥接步骤
 
         Args:
             aimap_protocols: AIMAP 检测到的协议列表
-            garak_endpoint: Garak 使用的端点 URL
-            garak_model_type: Garak 模型类型
-            garak_model_name: Garak 模型名称
+            probe_endpoint: NativeProbe 使用的端点 URL
+            probe_model_name: NativeProbe 模型名称
         """
         if not self._recon_log:
             return
 
         step = PipelineStep(
-            stage="recon_aimap_garak_bridge",
+            stage="recon_aimap_probe_bridge",
             input_summary=f"aimap_protocols={','.join(aimap_protocols)}",
-            output_summary=f"garak_endpoint={garak_endpoint}",
-            reason=f"AIMAP 检测到 {', '.join(aimap_protocols)} → Garak 使用 {garak_model_type}/{garak_model_name}",
+            output_summary=f"probe_endpoint={probe_endpoint}",
+            reason=f"AIMAP 检测到 {', '.join(aimap_protocols)} → NativeProbe 使用 {probe_model_name}",
             confidence=0.9,
             metadata={
                 "aimap_protocols": aimap_protocols,
-                "garak_endpoint": garak_endpoint,
-                "garak_model_type": garak_model_type,
-                "garak_model_name": garak_model_name,
+                "probe_endpoint": probe_endpoint,
+                "probe_model_name": probe_model_name,
             },
         )
         self._recon_log.add_step(step)
 
         if self.verbose:
             self._print_step(
-                "aimap→garak",
-                f"协议: {', '.join(aimap_protocols)} → Garak: {garak_model_type}/{garak_model_name}",
-                f"端点: {garak_endpoint}",
+                "aimap→probe",
+                f"协议: {', '.join(aimap_protocols)} → NativeProbe: {probe_model_name}",
+                f"端点: {probe_endpoint}",
             )
 
     def log_recon_merge(

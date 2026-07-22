@@ -20,7 +20,7 @@
 │  ┌──────────────────────┐      ┌──────────────────────────────┐    │
 │  │   侦察层 (recon)      │      │       攻击层 (attack)         │    │
 │  │  ReconEngine         │      │  AI300Engine                 │    │
-│  │    ├── Garak         │      │    ├── AttackOrchestrator    │    │
+│  │    ├── NativeProbe   │      │    ├── AttackOrchestrator    │    │
 │  │    ├── DeepTeam      │      │    ├── SmartMatcher          │    │
 │  │    └── ProfileMerger │      │    └── ProfileLoader         │    │
 │  │           ↓          │      │           ↑                  │    │
@@ -101,13 +101,16 @@ pyrit/                          # 项目根目录
 │   │   └── recon_templates/    #     侦察探测模板
 │   └── recon_templates/       #   侦察探测模板
 ├── pyrit_ai300/                # 代码层（纯执行引擎）
-│   ├── reconnaissance/        #   侦察引擎 (AIMAP/Garak/DeepTeam)
+│   ├── reconnaissance/        #   侦察引擎 (AIMAP/NativeProbe/DeepTeam)
+│   ├── core/                  #   共享核心库 (utils/protocols/models) (v3.8.0)
 │   ├── attack/                #   攻击引擎扩展 (ProfileLoader)
 │   ├── orchestrators/         #   编排器 (AttackOrchestrator/SmartMatcher/ScorerBuilder)
 │   ├── payloads/              #   载荷管理 (Manager/Classifier/Dedup/Mutator)
-│   ├── pipeline/              #   流水线追踪 (Tracker/FeedbackAnalyzer)
+│   ├── pipeline/              #   流水线编排 (Orchestrator/Tracker/CredentialManager)
 │   ├── reporting/             #   报告生成 (OffSec 9段标准)
-│   ├── tests/                 #   单元测试（220+ tests）
+│   ├── standards/             #   标准定义 (OWASP SSoT) (v3.8.0)
+│   ├── scenarios/             #   评估场景 (v3.8.0)
+│   ├── tests/                 #   单元测试（900+ tests）
 │   ├── utils/                 #   工具函数
 │   ├── __init__.py            #   AI300Engine 入口
 │   └── cli.py                 #   命令行接口
@@ -167,11 +170,11 @@ cp .env.example .env
 
 > **安全说明**：`.env` 文件已在 `.gitignore` 中排除，不会被提交到版本库。框架在导入时自动加载 `.env` 文件（`pyrit_ai300/utils/env_loader.py`）。
 
-### Garak 独立环境（可选，侦察增强）
+### Playwright 环境（SPA 侦察）
 
 ```bash
-# garak 与 pyrit 存在 datasets 版本冲突，使用独立 venv
-make setup-garak
+uv pip install playwright
+playwright install chromium
 ```
 
 ### UV 快速安装（推荐）
@@ -320,10 +323,11 @@ CrescendoAttack → TAP → PAIR → PromptSendingAttack
 
 ## 侦察工具
 
-| 工具 | 版本 | 定位 | AI-300 对应 |
-|------|------|------|------------|
-| Garak | ≥0.15.1 | 漏洞扫描 | LLM01/LLM03/LLM06/LLM08/LLM09 |
-| DeepTeam | ≥1.0.7 | OWASP 红队 | OWASP Top 10 LLM + Agentic |
+| 工具 | 定位 | AI-300 对应 |
+|------|------|------------|
+| NativeProbe | 轻量级探针扫描 (内置) | LLM01/LLM03/LLM06/LLM08/LLM09 |
+| DeepTeam | OWASP 红队 | OWASP Top 10 LLM + Agentic |
+| SPAChatRecon | 浏览器自动化侦察 | SPA 应用全链路 |
 
 ---
 
@@ -360,4 +364,4 @@ make ci
 - OWASP Agentic: 10/10
 - 载荷库: 590 个有效载荷
 - Jailbreak 模板: 165 个
-- 侦察工具: 2 个（Garak + DeepTeam）
+- 侦察工具: 3 个（NativeProbe + DeepTeam + SPAChatRecon）

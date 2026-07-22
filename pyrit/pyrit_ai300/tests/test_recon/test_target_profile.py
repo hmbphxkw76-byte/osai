@@ -9,7 +9,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from pyrit_ai300.reconnaissance.target_profile import (
+from pyrit_ai300.recon.target_profile import (
     TargetProfile,
     FingerprintData,
     VulnerabilityFinding,
@@ -50,7 +50,7 @@ class TestVulnerabilityFinding(unittest.TestCase):
 
     def test_creation_with_values(self):
         vf = VulnerabilityFinding(
-            tool="garak",
+            tool="native_probe",
             category="prompt_injection",
             severity="high",
             description="Direct prompt injection successful",
@@ -58,7 +58,7 @@ class TestVulnerabilityFinding(unittest.TestCase):
             owasp_mapping="LLM01",
             confidence=0.85,
         )
-        self.assertEqual(vf.tool, "garak")
+        self.assertEqual(vf.tool, "native_probe")
         self.assertEqual(vf.severity, "high")
         self.assertEqual(vf.owasp_mapping, "LLM01")
 
@@ -88,7 +88,7 @@ class TestTargetProfile(unittest.TestCase):
         original = TargetProfile(
             target="https://example.com",
             recon_depth="deep",
-            tools_used=["garak"],
+            tools_used=["native_probe"],
         )
         json_str = original.to_json()
         restored = TargetProfile.from_json(json_str)
@@ -103,7 +103,7 @@ class TestTargetProfile(unittest.TestCase):
         try:
             original = TargetProfile(
                 target="https://example.com",
-                tools_used=["garak"],
+                tools_used=["native_probe"],
             )
             original.save(temp_path)
 
@@ -164,7 +164,7 @@ class TestTargetProfile(unittest.TestCase):
         original = TargetProfile(
             target="https://api.openai.com/v1/chat/completions",
             recon_depth="deep",
-            tools_used=["garak", "deepteam"],
+            tools_used=["native_probe", "deepteam"],
             fingerprint=FingerprintData(
                 model_name="gpt-4",
                 model_family="gpt",
@@ -176,7 +176,7 @@ class TestTargetProfile(unittest.TestCase):
             surfaces=["prompt", "rag"],
             vulnerabilities=[
                 VulnerabilityFinding(
-                    tool="garak",
+                    tool="native_probe",
                     category="prompt_injection",
                     severity="high",
                     owasp_mapping="LLM01",

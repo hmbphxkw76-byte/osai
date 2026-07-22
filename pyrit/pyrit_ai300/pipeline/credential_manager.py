@@ -6,7 +6,7 @@ AI-300 Framework - Credential Manager
 核心职责：
 1. 凭据发现：按域名从 config/targets/credentials/ 目录匹配凭据文件
 2. 凭据验证：JWT 过期检查 + HTTP 预检验证（可选）
-3. 凭据注入：为不同工具（Garak / DeepTeam / PyRIT Target）提供适配的认证格式
+3. 凭据注入：为不同工具（NativeProbe / DeepTeam / PyRIT Target）提供适配的认证格式
 4. 最佳实践：优先复用已有有效凭据，仅在过期/缺失时触发重新认证
 
 设计原则（ARCH-002 凭据自动导出/复用规则）：
@@ -18,11 +18,11 @@ AI-300 Framework - Credential Manager
 使用方式：
     mgr = CredentialManager()
     profile = mgr.resolve(target_url="https://www.example.com/#/home")
-    if profile:
-        # 注入到 Garak
-        garak_env = mgr.for_garak(profile)
-        # 注入到 DeepTeam
-        dt_headers = mgr.for_deepteam(profile)
+if profile:
+    # 注入到 NativeProbe
+    probe_env = mgr.for_native_probe(profile)
+    # 注入到 DeepTeam
+    dt_headers = mgr.for_deepteam(profile)
         # 注入到 PyRIT OpenAIChatTarget
         oai_kwargs = mgr.for_openai_target(profile)
     else:
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-from ..orchestrators.auth import (
+from ..attack.auth import (
     AuthProfile,
     find_credential_file,
     normalize_domain,
@@ -202,19 +202,18 @@ class CredentialManager:
     # ── 工具适配方法 ──
 
     @staticmethod
-    def for_garak(resolution: CredentialResolution) -> Dict[str, str]:
+    def for_native_probe(resolution: CredentialResolution) -> Dict[str, str]:
         """
-        为 Garak 适配器生成环境变量
+        为 NativeProbe 适配器生成认证信息
 
-        Garak 通过环境变量接收认证信息：
-        - OPENAI_API_KEY: Bearer Token（从 Authorization 头提取）
-        - OPENAI_BASE_URL: 目标端点
+        NativeProbe 通过 HTTP 直接调用目标 LLM，
+        认证信息通过 Bearer Token 或 Cookie 注入。
 
         Args:
             resolution: 凭据解析结果
 
         Returns:
-            环境变量字典（合并到 os.environ）
+            认证信息字典（bearer_token / cookie）
         """
         env: Dict[str, str] = {}
         if not resolution.has_credentials or not resolution.profile:
@@ -222,18 +221,18 @@ class CredentialManager:
 
         profile = resolution.profile
 
-        # 提取 Bearer Token 作为 API Key
+        # 提取 Bearer Token
         auth_header = profile.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
             if token:
-                env["OPENAI_API_KEY"] = token
-                logger.info("Garak auth: Bearer token injected (%d chars)", len(token))
+                env["bearer_token"] = token
+                logger.info("NativeProbe auth: Bearer token injected (%d chars)", len(token))
 
-        # Cookie 也通过环境变量传递（Garak 的 openai generator 支持）
+        # Cookie 也可以传递
         if profile.raw_cookies:
-            env["OPENAI_API_KEY"] = env.get("OPENAI_API_KEY", "") or profile.raw_cookies
-            logger.info("Garak auth: Cookie injected (%d chars)", len(profile.raw_cookies))
+            env["cookie"] = profile.raw_cookies
+            logger.info("NativeProbe auth: Cookie injected (%d chars)", len(profile.raw_cookies))
 
         return env
 

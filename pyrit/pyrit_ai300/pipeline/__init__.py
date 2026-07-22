@@ -22,6 +22,8 @@ from .orchestrator import (
     PipelineResult,
     PhaseResult,
 )
+from .human_review import HumanReviewer
+from ..core.protocols import StageInput, StageOutput, PipelineStage
 
 __all__ = [
     "PipelineTracker",
@@ -34,4 +36,10 @@ __all__ = [
     "PipelineOrchestrator",
     "PipelineResult",
     "PhaseResult",
+    # P2: 标准化协议类型
+    "StageInput",
+    "StageOutput",
+    "PipelineStage",
+    # Phase 4.3: 人工审查
+    "HumanReviewer",
 ]

@@ -58,94 +58,20 @@ try:
 except ImportError:
     HAS_RICH = False
 
-# ── 阶段常量 ──
-PHASE_CREDENTIAL = "credential"
-PHASE_RECON = "recon"
-PHASE_ATTACK = "attack"
-PHASE_REPORT = "report"
+# ── 阶段常量 & 协议类型（从 core.protocols 导入，保持后向兼容）──
+from ..core.protocols import (
+    PHASE_CREDENTIAL as PHASE_CREDENTIAL,
+    PHASE_RECON as PHASE_RECON,
+    PHASE_ATTACK as PHASE_ATTACK,
+    PHASE_REPORT as PHASE_REPORT,
+    ALL_PHASES as ALL_PHASES,
+    StageInput as StageInput,
+    StageOutput as StageOutput,
+    PipelineResult as PipelineResult,
+)
 
-ALL_PHASES = [PHASE_CREDENTIAL, PHASE_RECON, PHASE_ATTACK, PHASE_REPORT]
-
-
-@dataclass
-class PhaseResult:
-    """
-    单个阶段的执行结果
-
-    Attributes:
-        phase: 阶段名称
-        success: 是否成功
-        duration_ms: 耗时（毫秒）
-        summary: 结果摘要
-        data: 原始数据
-        errors: 错误列表
-    """
-    phase: str
-    success: bool
-    duration_ms: float = 0.0
-    summary: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-
-
-@dataclass
-class PipelineResult:
-    """
-    全链路编排结果
-
-    Attributes:
-        target: 目标 URL
-        phases: 各阶段结果列表
-        profile_path: 侦察画像路径
-        report_path: 报告路径
-        total_duration_ms: 总耗时
-        overall_success: 总体是否成功
-        credential_resolution: 凭据解析结果
-    """
-    target: str = ""
-    phases: List[PhaseResult] = field(default_factory=list)
-    profile_path: str = ""
-    report_path: str = ""
-    total_duration_ms: float = 0.0
-    overall_success: bool = False
-    credential_resolution: Optional[CredentialResolution] = None
-
-    @property
-    def recon_success(self) -> bool:
-        """侦察阶段是否成功"""
-        for p in self.phases:
-            if p.phase == PHASE_RECON:
-                return p.success
-        return False
-
-    @property
-    def attack_success(self) -> bool:
-        """攻击阶段是否成功"""
-        for p in self.phases:
-            if p.phase == PHASE_ATTACK:
-                return p.success
-        return False
-
-    def summary_table(self) -> str:
-        """生成摘要表格文本"""
-        lines = []
-        lines.append("═" * 60)
-        lines.append("  AI Red Team 全链路执行摘要")
-        lines.append("═" * 60)
-        lines.append(f"  目标:       {self.target}")
-        lines.append(f"  总耗时:     {self.total_duration_ms / 1000:.1f}s")
-        lines.append(f"  总体状态:   {'✅ 成功' if self.overall_success else '⚠️ 部分完成'}")
-        lines.append("")
-        for p in self.phases:
-            icon = "✅" if p.success else "❌"
-            lines.append(f"  {icon} {p.phase:<12} {p.duration_ms / 1000:>8.1f}s  {p.summary}")
-        lines.append("")
-        if self.profile_path:
-            lines.append(f"  侦察画像:   {self.profile_path}")
-        if self.report_path:
-            lines.append(f"  评估报告:   {self.report_path}")
-        lines.append("═" * 60)
-        return "\n".join(lines)
+# 后向兼容别名：PhaseResult = StageOutput
+PhaseResult = StageOutput
 
 
 class PipelineOrchestrator:
@@ -214,6 +140,8 @@ class PipelineOrchestrator:
         skip_recon: bool = False,
         profile_path: Optional[str] = None,
         use_cache: Optional[bool] = None,
+        framework_id: Optional[str] = None,
+        enable_human_review: bool = False,
     ) -> PipelineResult:
         """
         执行全链路 AI 红队评估
@@ -242,6 +170,11 @@ class PipelineOrchestrator:
         """
         start_time = time.time()
         result = PipelineResult()
+
+        # P2: 存储框架 ID 供侦察/报告阶段使用
+        self._framework_id = framework_id or ""
+        # Phase 4.3: 人工审查开关
+        self._enable_human_review = enable_human_review
 
         # 确定目标
         resolved_target = self._resolve_target(target_url, target_file, spa_config)
@@ -303,8 +236,14 @@ class PipelineOrchestrator:
             )
             result.phases.append(phase_result)
 
+        # ── Phase 4.3: 人工审查（可选）──
+        if self._enable_human_review and PHASE_ATTACK in active_phases:
+            self._run_human_review_phase(result)
+
         # ── 阶段 4：报告 ──
         if PHASE_REPORT in active_phases:
+            # BUG-FIX: 设置 _current_result 供报告阶段收集攻击结果
+            self._current_result = result
             phase_result = self._run_report_phase(
                 output=output,
                 format=format,
@@ -377,31 +316,14 @@ class PipelineOrchestrator:
         """
         阶段 2：侦察（自适应编排 v2）
 
-        最佳实践 — 根据目标类型自动选择最优路径：
-
-        ┌─ SPA 目标（有 spa_config 或 URL 含 /#/）──────────────────┐
-        │                                                           │
-        │  SPA Recon (浏览器) ──→ 提取 LLM 端点 + 模型 + 凭据       │
-        │       │                                                   │
-        │       ├──→ Garak (subprocess) ← SPA 端点 + 凭据           │
-        │       └──→ DeepTeam (Python)  ← SPA 端点 + 凭据           │
-        │                                                           │
-        │  跳过 AIMAP（SPA 已发现端点，无需重复 HTTP 探测）          │
-        └───────────────────────────────────────────────────────────┘
-
-        ┌─ 非 SPA 目标（API 端点，如 Ollama / vLLM / OpenAI）──────┐
-        │                                                           │
-        │  AIMAP (HTTP 探测) ──→ 框架识别 + 端点 + 模型能力         │
-        │       │                                                   │
-        │       ├──→ Garak (subprocess) ← AIMAP 端点                │
-        │       └──→ DeepTeam (Python)  ← 目标 URL + 凭据           │
-        └───────────────────────────────────────────────────────────┘
+        委托到 ReconEngine.run_adaptive()，由引擎内部自动选择
+        SPA 路径或 API 路径，编排器仅负责凭据注入、结果保存和日志输出。
         """
         start = time.time()
         self._print_phase_start("🔍 侦察", target_url)
 
         try:
-            from ..reconnaissance import ReconEngine
+            from ..recon import ReconEngine
             from .tracker import PipelineTracker
 
             tracker = PipelineTracker(verbose=self.verbose)
@@ -410,31 +332,24 @@ class PipelineOrchestrator:
             # 构建侦察配置（注入凭据）
             recon_config_extra = self._inject_credentials_to_config(credential_resolution)
 
-            # ── 自适应路径选择 ──
-            target_type = self._detect_target_type(target_url, spa_config)
+            # 获取框架 ID
+            framework_id = getattr(self, '_framework_id', None)
 
-            if target_type == "spa":
-                # ═══ SPA 路径：SPA Recon → Garak + DeepTeam ═══
-                profile = self._run_spa_recon_with_followup(
-                    engine=engine,
-                    tracker=tracker,
-                    spa_config=spa_config,
-                    target_url=target_url,
-                    depth=depth,
-                    credential_resolution=credential_resolution,
-                    recon_config_extra=recon_config_extra,
-                    use_cache=use_cache,
-                )
-            else:
-                # ═══ 非 SPA 路径：AIMAP → Garak + DeepTeam ═══
-                profile = self._run_api_recon(
-                    engine=engine,
-                    tracker=tracker,
-                    target_url=target_url,
-                    depth=depth,
-                    recon_config_extra=recon_config_extra,
-                    use_cache=use_cache,
-                )
+            # ── 委托到 ReconEngine.run_adaptive() ──
+            profile = engine.run_adaptive(
+                target_url=target_url,
+                spa_config=spa_config,
+                depth=depth,
+                tracker=tracker,
+                credential_config=recon_config_extra,
+                framework_id=framework_id,
+                use_cache=use_cache,
+                verbose=self.verbose,
+            )
+
+            # 检测目标类型用于结果摘要
+            from ..core.utils import detect_target_type
+            target_type = detect_target_type(target_url, spa_config)
 
             # 保存画像
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -488,426 +403,27 @@ class PipelineOrchestrator:
         target_url: str,
         spa_config: Optional[str],
     ) -> str:
-        """
-        自动检测目标类型（Web/SPA 应用 vs API 端点）
-
-        检测策略（优先级递减）：
-        1. 显式 spa_config → "spa"
-        2. 明确的 API 端点特征 → "api"
-        3. 明确的 Web 应用特征 → "spa"
-        4. 默认 → "spa"（绝大多数互联网 AI 应用是 Web 应用）
-
-        API 端点特征：
-        - 路径含 /v1/、/api/、/chat/completions 等 API 路由
-        - localhost / 127.0.0.1 / 0.0.0.0（本地部署 LLM 服务）
-        - 已知 LLM 服务端口（11434/8080/3000/5000/7860 等）
-        - api. 子域名
-        - 路径以 /v1/chat/completions 等结尾
-
-        Web 应用特征：
-        - Hash 路由（/#/、#/）
-        - 常见 Web 应用路径（/chat、/home、/dashboard、/assistant 等）
-        - 公网域名 + 非 API 路径
-
-        Returns:
-            "spa" 或 "api"
-        """
-        from urllib.parse import urlparse
-
-        # 1. 显式 SPA 配置
-        if spa_config:
-            return "spa"
-
-        if not target_url:
-            return "api"
-
-        url_lower = target_url.lower()
-        parsed = urlparse(target_url)
-        hostname = (parsed.hostname or "").lower()
-        path = (parsed.path or "").lower().rstrip("/")
-        port = parsed.port
-
-        # ── 2. 明确的 API 端点特征 → "api" ──
-
-        # 2a. API 路径模式
-        api_path_patterns = [
-            "/v1/chat/completions", "/v1/completions", "/v1/models",
-            "/v1/embeddings", "/v1/generate",
-            "/api/generate", "/api/chat", "/api/tags", "/api/show",
-            "/api/embeddings", "/api/pull", "/api/push",
-            "/chat/completions", "/completions",
-        ]
-        if any(p in path for p in api_path_patterns):
-            return "api"
-
-        # 2b. localhost / 内网 IP（本地部署的 LLM 服务）
-        if hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
-            return "api"
-
-        # 2c. 已知 LLM 服务端口
-        known_llm_ports = {11434, 8080, 3000, 5000, 7860, 8000, 1234, 2333, 9997}
-        if port and port in known_llm_ports:
-            return "api"
-
-        # 2d. api. 子域名
-        if hostname.startswith("api."):
-            return "api"
-
-        # 2e. URL 明确包含 API 路径前缀
-        if path.startswith("/v1/") or path.startswith("/api/"):
-            return "api"
-
-        # ── 3. 明确的 Web 应用特征 → "spa" ──
-
-        # 3a. Hash 路由（Vue/React/Angular SPA）
-        if "/#" in url_lower or "#/" in url_lower:
-            return "spa"
-
-        # 3b. 常见 Web 应用路径
-        web_app_paths = {
-            "/chat", "/home", "/dashboard", "/app", "/portal",
-            "/assistant", "/playground", "/chatbot", "/ai",
-            "/copilot", "/chat-room", "/conversation",
-        }
-        if path in web_app_paths:
-            return "spa"
-
-        # 3c. 公网域名 + 根路径或非 API 路径 → 默认 Web 应用
-        # （ChatGPT/Claude/Gemini/通义/文心/Kimi 等都是 Web 应用）
-        if hostname and not hostname.startswith("api."):
-            # 有域名但无 API 特征 → Web 应用
-            return "spa"
-
-        # 4. 兜底
-        return "spa"
-
-    def _run_spa_recon_with_followup(
-        self,
-        engine: Any,
-        tracker: Any,
-        spa_config: Optional[str],
-        target_url: str,
-        depth: str,
-        credential_resolution: Optional[CredentialResolution],
-        recon_config_extra: Dict[str, Dict[str, Any]],
-        use_cache: Optional[bool] = None,
-    ) -> Any:
-        """
-        SPA 路径：SPA Recon → Garak + DeepTeam（自适应编排）
-
-        流程：
-        1. SPA Recon（浏览器自动化）：发现 LLM 端点 + 模型 + 凭据
-        2. 从 SPA 结果提取 LLM API 端点和模型信息
-        3. Garak + DeepTeam 并行（使用 SPA 发现的端点 + 凭据）
-        4. 合并所有结果到统一 TargetProfile
-
-        最佳实践：
-        - 跳过 AIMAP（SPA 已被动发现端点，主动探测冗余且有 WAF 风险）
-        - Garak 使用 SPA 发现的 LLM 端点（而非 SPA 页面 URL）
-        - DeepTeam 使用 SPA 发现的 LLM 端点 + 凭据
-
-        Args:
-            engine: ReconEngine 实例
-            tracker: PipelineTracker 实例
-            spa_config: SPA 配置文件路径
-            target_url: 目标 URL
-            depth: 侦察深度
-            credential_resolution: 凭据解析结果
-            recon_config_extra: 额外的侦察配置（凭据注入）
-            use_cache: 是否使用缓存
-        """
-        # ── 步骤 1：SPA Recon ──
-        self._print_info("模式: SPA 智能助手侦察（浏览器自动化）")
-        if spa_config:
-            profile = engine.run_spa_recon(
-                spa_config_path=spa_config,
-                tracker=tracker,
-                use_cache=use_cache,
-            )
-        else:
-            # 无 spa_config 但 URL 是 SPA — 直接用 URL 侦察
-            from ..reconnaissance import ReconEngine as RE
-            spa_config_data = {
-                "connection": {
-                    "url": target_url,
-                    "browser": "chromium",
-                    "headless": False,
-                    "wait_until": "networkidle",
-                    "ignore_https_errors": True,
-                },
-                "auth": {"mode": "manual"},
-            }
-            # 临时保存配置
-            import tempfile
-            import yaml
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-            ) as f:
-                yaml.dump({"target": {"url": target_url, "auth_mode": "manual"}}, f)
-                temp_path = f.name
-            profile = engine.run_spa_recon(
-                spa_config_path=temp_path,
-                tracker=tracker,
-                use_cache=use_cache,
-            )
-
-        # ── 步骤 2：从 SPA 结果提取 LLM 端点 ──
-        spa_endpoint = self._extract_spa_llm_endpoint(profile)
-        spa_model = self._extract_spa_model_name(profile)
-
-        # ── 偏差①修复：SPA 未发现端点时确保 surfaces 填充基础值 ──
-        # 即使未发现后端 LLM 端点，SPA 应用本身也是 prompt 攻击面
-        # 攻击引擎可通过 PlaywrightTarget 直接攻击（不依赖后端 API 端点）
-        if not spa_endpoint:
-            self._print_info("SPA 未发现 LLM 端点，跳过 Garak/DeepTeam 侦察")
-            if hasattr(profile, 'surfaces') and not profile.surfaces:
-                profile.surfaces = ["prompt"]
-                logger.info("SPA profile surfaces defaulted to ['prompt'] (no LLM endpoint found)")
-            if hasattr(profile, 'fingerprint') and profile.fingerprint:
-                if not profile.fingerprint.capabilities:
-                    profile.fingerprint.capabilities = ["chat"]
-            return profile
-
-        self._print_info(f"SPA 发现 LLM 端点: {spa_endpoint[:80]}")
-        if spa_model:
-            self._print_info(f"SPA 发现模型: {spa_model}")
-
-        # ── 步骤 3：Garak + DeepTeam 并行 ──
-        self._print_info("启动 Garak + DeepTeam 侦察（使用 SPA 发现的端点）...")
-
-        import concurrent.futures
-
-        # ── 偏差②修复：从 SPA profile 构建 aimap_data 传递给 Garak/DeepTeam ──
-        # SPA Recon 已被动发现协议/能力等信息，构建等价 aimap_data
-        # 驱动 OPT-G1 动态 probe 选择和 OPT-D2 Agentic 漏洞触发
-        spa_aimap_data = self._build_aimap_data_from_spa_profile(profile)
-
-        # 构建 Garak 配置
-        garak_config = engine._get_tool_config("garak")
-        garak_config["depth"] = depth
-        garak_config["model_name"] = spa_model or "gpt-4o"
-        garak_config["model_type"] = "openai"
-        garak_config["aimap_data"] = spa_aimap_data
-        # 注入凭据
-        if recon_config_extra.get("garak"):
-            garak_config.update(recon_config_extra["garak"])
-
-        # 构建 DeepTeam 配置
-        deepteam_config = engine._get_tool_config("deepteam")
-        deepteam_config["depth"] = depth
-        deepteam_config["model"] = spa_model or ""
-        deepteam_config["aimap_data"] = spa_aimap_data
-        if recon_config_extra.get("deepteam"):
-            deepteam_config.update(recon_config_extra["deepteam"])
-
-        # 并行执行
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            garak_future = executor.submit(
-                engine._run_single_adapter, "garak", spa_endpoint, tracker, config=garak_config
-            )
-            deepteam_future = executor.submit(
-                engine._run_single_adapter, "deepteam", spa_endpoint, tracker, config=deepteam_config
-            )
-
-            garak_result = garak_future.result()
-            deepteam_result = deepteam_future.result()
-
-        # ── 步骤 4：合并所有结果 ──
-        results = [r for r in [garak_result, deepteam_result] if r is not None]
-        if results:
-            from ..reconnaissance import ProfileMerger
-            merger = ProfileMerger()
-            # 增量合并：在 SPA profile 基础上追加 Garak/DeepTeam 结果
-            profile = merger.merge_incremental(
-                target=target_url,
-                existing_profile=profile,
-                new_result=results[0],
-                depth=depth,
-            )
-            if len(results) > 1:
-                profile = merger.merge_incremental(
-                    target=target_url,
-                    existing_profile=profile,
-                    new_result=results[1],
-                    depth=depth,
-                )
-
-        return profile
-
-    def _run_api_recon(
-        self,
-        engine: Any,
-        tracker: Any,
-        target_url: str,
-        depth: str,
-        recon_config_extra: Dict[str, Dict[str, Any]],
-        use_cache: Optional[bool] = None,
-    ) -> Any:
-        """
-        非 SPA 路径：AIMAP → Garak + DeepTeam（标准 API 侦察）
-
-        流程：
-        1. AIMAP（HTTP 协议探测）：框架识别 + 端点发现 + 模型能力
-        2. 从 AIMAP 结果提取 Garak 端点配置
-        3. Garak + DeepTeam 并行
-        4. 合并所有结果
-
-        最佳实践：
-        - AIMAP 先执行以识别框架协议（Ollama/vLLM/MCP 等）
-        - AIMAP 结果驱动 Garak 的 model_type 和 probe 选择
-        - DeepTeam 与 AIMAP 并行或之后执行
-
-        Args:
-            engine: ReconEngine 实例
-            tracker: PipelineTracker 实例
-            target_url: 目标 URL
-            depth: 侦察深度
-            recon_config_extra: 额外的侦察配置（凭据注入）
-            use_cache: 是否使用缓存
-        """
-        self._print_info(f"模式: 标准 API 侦察（深度={depth}）")
-
-        # 将凭据注入到工具配置中
-        if recon_config_extra:
-            for tool_name, extra_config in recon_config_extra.items():
-                tool_config = engine._get_tool_config(tool_name)
-                tool_config.update(extra_config)
-
-        profile = engine.run(
-            target=target_url,
-            depth=depth,
-            tracker=tracker,
-            use_cache=use_cache,
-        )
-
-        return profile
+        """自动检测目标类型（委托到 core.utils，保持后向兼容）"""
+        from ..core.utils import detect_target_type
+        return detect_target_type(target_url, spa_config)
 
     @staticmethod
     def _extract_spa_llm_endpoint(profile: Any) -> Optional[str]:
-        """
-        从 SPA 侦察画像中提取 LLM API 端点 URL
-
-        查找顺序：
-        1. profile.entry_points[0].url
-        2. profile.fingerprint.endpoint
-        3. profile.raw_data 中的 entry_points
-        """
-        # 1. 从 entry_points 提取
-        if hasattr(profile, 'entry_points') and profile.entry_points:
-            for ep in profile.entry_points:
-                url = ep.get("url", "") if isinstance(ep, dict) else ""
-                if url and url.startswith("http"):
-                    return url
-
-        # 2. 从 fingerprint 提取
-        if hasattr(profile, 'fingerprint') and profile.fingerprint:
-            fp = profile.fingerprint
-            if hasattr(fp, 'endpoint') and fp.endpoint:
-                return fp.endpoint
-
-        # 3. 从 raw_data / extra 提取
-        if hasattr(profile, 'raw_data') and profile.raw_data:
-            entry_points = profile.raw_data.get("entry_points", [])
-            for ep in entry_points:
-                url = ep.get("url", "") if isinstance(ep, dict) else ""
-                if url and url.startswith("http"):
-                    return url
-
-        return None
+        """从 SPA 侦察画像中提取 LLM API 端点（委托到 core.utils）"""
+        from ..core.utils import extract_spa_llm_endpoint
+        return extract_spa_llm_endpoint(profile)
 
     @staticmethod
     def _extract_spa_model_name(profile: Any) -> Optional[str]:
-        """
-        从 SPA 侦察画像中提取模型名称
-
-        查找顺序：
-        1. profile.fingerprint.model_name
-        2. profile.raw_data 中的 model_name
-        """
-        # 1. 从 fingerprint 提取
-        if hasattr(profile, 'fingerprint') and profile.fingerprint:
-            fp = profile.fingerprint
-            if hasattr(fp, 'model_name') and fp.model_name:
-                return fp.model_name
-
-        # 2. 从 raw_data 提取
-        if hasattr(profile, 'raw_data') and profile.raw_data:
-            model = (
-                profile.raw_data.get("model_name")
-                or profile.raw_data.get("model_name_from_traffic")
-                or profile.raw_data.get("model_name_from_probe")
-            )
-            if model:
-                return model
-
-        return None
+        """从 SPA 侦察画像中提取模型名称（委托到 core.utils）"""
+        from ..core.utils import extract_spa_model_name
+        return extract_spa_model_name(profile)
 
     @staticmethod
     def _build_aimap_data_from_spa_profile(profile: Any) -> Dict[str, Any]:
-        """
-        从 SPA 侦察画像构建等价 aimap_data（偏差②修复）
-
-        SPA Recon 已被动发现协议/能力/攻击面等信息，
-        将其转换为 Garak/DeepTeam 适配器期望的 aimap_data 格式，
-        驱动 OPT-G1 动态 probe 选择和 OPT-D2 Agentic 漏洞触发。
-
-        Args:
-            profile: SPA 侦察产出的 TargetProfile
-
-        Returns:
-            aimap_data 字典，包含 detected_protocols / surfaces / capabilities / model_family
-        """
-        aimap_data: Dict[str, Any] = {
-            "detected_protocols": [],
-            "surfaces": [],
-            "capabilities": [],
-            "model_family": "",
-        }
-
-        if not profile:
-            aimap_data["surfaces"] = ["prompt"]
-            return aimap_data
-
-        # 提取 surfaces
-        if hasattr(profile, 'surfaces') and profile.surfaces:
-            aimap_data["surfaces"] = list(profile.surfaces)
-
-        # 提取 fingerprint 信息
-        if hasattr(profile, 'fingerprint') and profile.fingerprint:
-            fp = profile.fingerprint
-            if hasattr(fp, 'capabilities') and fp.capabilities:
-                aimap_data["capabilities"] = list(fp.capabilities)
-            if hasattr(fp, 'model_family') and fp.model_family:
-                aimap_data["model_family"] = fp.model_family
-
-        # 从 raw_results 提取更多协议信息（SPA traffic_capture 可能发现）
-        if hasattr(profile, 'raw_results') and profile.raw_results:
-            spa_raw = profile.raw_results.get("spa_chat_recon", {})
-            if isinstance(spa_raw, dict):
-                data = spa_raw.get("data", {})
-                if isinstance(data, dict):
-                    # SPA 可能检测到的协议
-                    detected = data.get("detected_protocols", [])
-                    if detected:
-                        aimap_data["detected_protocols"] = detected
-                    # SPA 可能发现 mcp/agent 等攻击面
-                    extra_surfaces = data.get("surfaces", [])
-                    for s in extra_surfaces:
-                        if s not in aimap_data["surfaces"]:
-                            aimap_data["surfaces"].append(s)
-
-        # 确保 prompt 攻击面存在（SPA 聊天应用必定有 prompt 攻击面）
-        if "prompt" not in aimap_data["surfaces"]:
-            aimap_data["surfaces"].insert(0, "prompt")
-
-        logger.info(
-            "SPA→aimap_data: protocols=%s, surfaces=%s, capabilities=%s, model_family=%s",
-            aimap_data["detected_protocols"],
-            aimap_data["surfaces"],
-            aimap_data["capabilities"],
-            aimap_data["model_family"],
-        )
-        return aimap_data
+        """从 SPA 侦察画像构建等价 aimap_data（委托到 core.utils）"""
+        from ..core.utils import build_aimap_data_from_spa_profile
+        return build_aimap_data_from_spa_profile(profile)
 
     def _run_attack_phase(
         self,
@@ -1056,15 +572,17 @@ class PipelineOrchestrator:
                 ext = "html" if format == "html" else "md"
                 output = f"results/pipeline_report_{timestamp}.{ext}"
 
-            # 收集攻击结果
+            # 收集攻击结果（从 PipelineResult 中提取攻击阶段数据）
             attack_data = None
             pyrit_attack_results = []
-            for p in self._current_result.phases if hasattr(self, '_current_result') else []:
-                if p.phase == PHASE_ATTACK:
-                    attack_data = p.data.get("results", [])
-                    # REV-16: 收集 PyRIT 原生 AttackResult 供报告使用
-                    pyrit_attack_results = p.data.get("pyrit_attack_results", [])
-                    break
+            _pipeline_result = getattr(self, '_current_result', None)
+            if _pipeline_result:
+                for p in _pipeline_result.phases:
+                    if p.phase == PHASE_ATTACK:
+                        attack_data = p.data.get("results", [])
+                        # REV-16: 收集 PyRIT 原生 AttackResult 供报告使用
+                        pyrit_attack_results = p.data.get("pyrit_attack_results", [])
+                        break
 
             if not attack_data:
                 return PhaseResult(
@@ -1079,6 +597,14 @@ class PipelineOrchestrator:
             # REV-16: 传递 PyRIT AttackResult 对象供报告嵌入原生 Markdown
             if pyrit_attack_results:
                 generator.set_pyrit_attack_results(pyrit_attack_results)
+            # Phase 4.3: 传递人工审查发现供报告嵌入审查清单
+            _hr_report = getattr(self, '_human_review_report', None)
+            if _hr_report:
+                generator.set_human_review_findings(_hr_report)
+            # P2: 传递框架 ID 给报告生成器（用于风险评估结构化）
+            _fw_id = getattr(self, '_framework_id', '')
+            if _fw_id:
+                generator._framework_id = _fw_id
             generator.generate(output_path=output, format=format)
 
             duration_ms = (time.time() - start) * 1000
@@ -1104,89 +630,78 @@ class PipelineOrchestrator:
                 summary=f"error: {e}",
             )
 
-    # ── 凭据注入方法 ──
+    def _run_human_review_phase(self, result: PipelineResult) -> None:
+        """
+        Phase 4.3: 人工审查高风险发现
+
+        从攻击结果中提取高风险发现，生成审查清单。
+        非交互式模式下自动标记为 pending_review，不阻塞流水线。
+        审查发现存储在 self._human_review_report 中，供报告阶段使用。
+
+        Args:
+            result: PipelineResult 全链路结果
+        """
+        start = time.time()
+        self._print_phase_start("🔍 人工审查", "高风险发现筛选")
+
+        try:
+            from .human_review import HumanReviewer
+
+            # 从 PipelineResult 中提取攻击阶段的结果数据
+            attack_data = None
+            for p in result.phases:
+                if p.phase == PHASE_ATTACK:
+                    attack_data = p.data.get("results", [])
+                    break
+
+            if not attack_data:
+                self._print_info("无攻击结果，跳过人工审查")
+                return
+
+            # 创建审查器（非交互式，不阻塞流水线）
+            reviewer = HumanReviewer(interactive=False)
+            review_report = reviewer.review(attack_data)
+
+            # 存储审查报告供报告阶段使用
+            self._human_review_report = review_report
+
+            duration_ms = (time.time() - start) * 1000
+            total = review_report.get("total_findings", 0)
+            confirmed = review_report.get("confirmed", 0)
+            rejected = review_report.get("rejected", 0)
+            pending = review_report.get("pending", 0)
+
+            summary = f"高风险发现={total}, 已确认={confirmed}, 已拒绝={rejected}, 待审查={pending}"
+            self._print_phase_complete("人工审查", duration_ms, True)
+
+            if total > 0:
+                self._print_info(f"审查清单: {review_report.get('review_file', 'N/A')}")
+
+        except Exception as e:
+            duration_ms = (time.time() - start) * 1000
+            logger.error("Human review phase error: %s", str(e), exc_info=True)
+            self._print_phase_error("人工审查", e)
+
+    # ── 凭据注入方法（委托到 core.utils）──
 
     @staticmethod
     def _inject_credentials_to_config(
         resolution: Optional[CredentialResolution],
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        将凭据注入到侦察工具配置中
-
-        为 Garak 和 DeepTeam 适配器生成凭据配置参数。
-
-        Args:
-            resolution: 凭据解析结果
-
-        Returns:
-            工具名 → 凭据配置参数的字典
-        """
-        if not resolution or not resolution.has_credentials:
-            return {}
-
-        config: Dict[str, Dict[str, Any]] = {}
-
-        # Garak 凭据注入（环境变量方式）
-        garak_env = CredentialManager.for_garak(resolution)
-        if garak_env:
-            bearer = garak_env.get("OPENAI_API_KEY", "")
-            config["garak"] = {
-                "credential_bearer": bearer,
-                "credential_headers": {
-                    "Authorization": f"Bearer {bearer}" if bearer else "",
-                },
-            }
-
-        # DeepTeam 凭据注入（请求头方式）
-        deepteam_headers = CredentialManager.for_deepteam(resolution)
-        if deepteam_headers:
-            config["deepteam"] = {
-                "credential_headers": deepteam_headers,
-                "credential_bearer": "",
-            }
-
-        return config
+        """将凭据注入到侦察工具配置中（委托到 core.utils）"""
+        from ..core.utils import inject_credentials_to_recon
+        return inject_credentials_to_recon(resolution)
 
     def _inject_credentials_to_attack(
         self,
         resolution: CredentialResolution,
         engine: Any,
     ) -> None:
-        """
-        将凭据注入到攻击阶段的目标配置中
-
-        最佳实践：
-        - Bearer Token → OpenAIChatTarget 的 api_key 参数
-        - Cookie → HTTPTarget 的 Authorization 头
-        - AuthProfile → PlaywrightTarget 的 inject_auth()
-
-        Args:
-            resolution: 凭据解析结果
-            engine: AI300Engine 实例
-        """
-        if not resolution or not resolution.has_credentials:
-            return
-
-        # 获取 OpenAI Target 格式的凭据
-        oai_kwargs = CredentialManager.for_openai_target(resolution)
-        if oai_kwargs.get("api_key"):
-            # 注入到引擎的目标配置中
-            # AI300Engine._build_target_config 会读取 target.connection.api_key
-            logger.info("Injecting credential to attack target: api_key (Bearer token)")
-            # 通过修改引擎内部状态实现注入
-            if hasattr(engine, '_target_url') and engine._target_url:
-                # URL 模式：无法直接注入 api_key，需要通过 target_config
-                pass
-            # 标记引擎需要使用凭据
-            engine._credential_api_key = oai_kwargs.get("api_key", "")
-
-        # HTTP Target 格式
-        http_auth = CredentialManager.for_http_target(resolution)
-        if http_auth:
-            logger.info("Injecting credential to HTTP target: Authorization header")
-            engine._credential_http_auth = http_auth
-
-        logger.info("Credentials injected to attack phase: %s", resolution.summary())
+        """将凭据注入到攻击阶段的目标配置中（委托到 core.utils）"""
+        from ..core.utils import inject_credentials_to_attack as _inject
+        _inject(resolution, engine)
+        if resolution and resolution.has_credentials:
+            logger.info("Credentials injected to attack phase: %s", resolution.summary())
 
     # ── 辅助方法 ──
 
@@ -1210,7 +725,7 @@ class PipelineOrchestrator:
         if spa_config:
             # 从 SPA 配置提取 URL
             try:
-                from ..reconnaissance import ReconEngine
+                from ..recon import ReconEngine
                 spa_data = ReconEngine.load_spa_config(spa_config)
                 url = spa_data.get("connection", {}).get("url", "")
                 if url and url.startswith("http"):
@@ -1223,7 +738,7 @@ class PipelineOrchestrator:
 
         if target_file:
             try:
-                from ..reconnaissance import ReconEngine
+                from ..recon import ReconEngine
                 return ReconEngine.load_target(target_file)
             except Exception:
                 return target_file

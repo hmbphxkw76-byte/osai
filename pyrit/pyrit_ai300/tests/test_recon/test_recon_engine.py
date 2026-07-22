@@ -6,9 +6,9 @@ ReconEngine 统一调度器测试
 import unittest
 from unittest.mock import patch, MagicMock
 
-from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
-from pyrit_ai300.reconnaissance.adapters import AdapterResult
-from pyrit_ai300.reconnaissance.target_profile import TargetProfile
+from pyrit_ai300.recon.engine import ReconEngine
+from pyrit_ai300.recon.adapters import AdapterResult
+from pyrit_ai300.recon.target_profile import TargetProfile
 
 
 class TestReconEngine(unittest.TestCase):
@@ -33,7 +33,7 @@ class TestReconEngine(unittest.TestCase):
         engine = ReconEngine(config_path="nonexistent.yaml")
         status = engine.check_tools()
         self.assertIsInstance(status, dict)
-        self.assertIn("garak", status)
+        self.assertIn("native_probe", status)
         self.assertIn("deepteam", status)
 
     @patch.object(ReconEngine, '_run_single_adapter')
@@ -41,7 +41,7 @@ class TestReconEngine(unittest.TestCase):
         """测试 run 方法（模拟适配器）"""
         # 模拟适配器结果
         mock_result = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={},
             findings=[
@@ -59,17 +59,17 @@ class TestReconEngine(unittest.TestCase):
         mock_single.return_value = mock_result
 
         engine = ReconEngine(config_path="nonexistent.yaml")
-        profile = engine.run(target="https://example.com", tools=["garak"], use_cache=False)
+        profile = engine.run(target="https://example.com", tools=["native_probe"], use_cache=False)
 
         self.assertIsInstance(profile, TargetProfile)
         self.assertEqual(profile.target, "https://example.com")
-        self.assertIn("garak", profile.tools_used)
+        self.assertIn("native_probe", profile.tools_used)
         self.assertEqual(profile.vulnerability_count, 1)
 
     @patch.object(ReconEngine, '_run_single_adapter')
     def test_run_with_failed_tool(self, mock_single):
         """测试部分工具失败时的 run 方法"""
-        # 第一次调用返回 deepteam 成功，第二次返回 garak 失败
+        # 第一次调用返回 deepteam 成功，第二次返回 NativeProbe 失败
         mock_single.side_effect = [
             AdapterResult(
                 tool="deepteam",
@@ -79,7 +79,7 @@ class TestReconEngine(unittest.TestCase):
                 duration=1.0,
             ),
             AdapterResult(
-                tool="garak",
+                tool="native_probe",
                 success=False,
                 errors=["Tool not installed"],
                 duration=0.0,
@@ -87,11 +87,11 @@ class TestReconEngine(unittest.TestCase):
         ]
 
         engine = ReconEngine(config_path="nonexistent.yaml")
-        profile = engine.run(target="https://example.com", tools=["deepteam", "garak"], use_cache=False)
+        profile = engine.run(target="https://example.com", tools=["deepteam", "native_probe"], use_cache=False)
 
         # 只有成功的工具被记录
         self.assertIn("deepteam", profile.tools_used)
-        self.assertNotIn("garak", profile.tools_used)
+        self.assertNotIn("native_probe", profile.tools_used)
 
     def test_run_single(self):
         """测试单工具执行"""
@@ -99,18 +99,18 @@ class TestReconEngine(unittest.TestCase):
 
         # Mock 适配器
         mock_adapter = MagicMock()
-        mock_adapter.name = "garak"
+        mock_adapter.name = "native_probe"
         mock_adapter.run.return_value = AdapterResult(
-            tool="garak",
+            tool="native_probe",
             success=True,
             data={"scan": "test"},
             findings=[],
         )
 
         with patch.object(engine, '_get_adapter', return_value=mock_adapter):
-            result = engine.run_single("https://example.com", "garak")
+            result = engine.run_single("https://example.com", "native_probe")
             self.assertTrue(result.success)
-            self.assertEqual(result.tool, "garak")
+            self.assertEqual(result.tool, "native_probe")
 
 
 class TestReconEngineStreaming(unittest.TestCase):
@@ -142,27 +142,27 @@ class TestReconEngineStreaming(unittest.TestCase):
             "owasp_mapping": "LLM01",
             "confidence": 0.8,
         }]
-        findings_garak = [{
+        findings_probe = [{
             "category": "leakage",
             "severity": "medium",
-            "description": "Garak probe finding",
+            "description": "NativeProbe probe finding",
             "evidence": "evidence",
             "owasp_mapping": "LLM02",
             "confidence": 0.7,
         }]
 
         mock_fp = make_mock_adapter("protocol_fingerprint", findings_fp)
-        mock_garak = make_mock_adapter("garak", findings_garak)
+        mock_probe = make_mock_adapter("native_probe", findings_probe)
 
         def get_adapter_side_effect(tool):
             if tool == "protocol_fingerprint":
                 return mock_fp
-            return mock_garak
+            return mock_probe
 
         with patch.object(engine, '_get_adapter', side_effect=get_adapter_side_effect):
             results = list(engine.run_streaming(
                 target="https://example.com",
-                tools=["protocol_fingerprint", "garak"],
+                tools=["protocol_fingerprint", "native_probe"],
             ))
 
         # 应该有 2 个 yield（每个工具一个）
@@ -177,13 +177,13 @@ class TestReconEngineStreaming(unittest.TestCase):
 
         # 验证 partial 结果
         tool_partial, profile_partial, _ = partial_results[0]
-        self.assertIn(tool_partial, ["protocol_fingerprint", "garak"])
+        self.assertIn(tool_partial, ["protocol_fingerprint", "native_probe"])
         self.assertIsInstance(profile_partial, TargetProfile)
         self.assertGreaterEqual(profile_partial.vulnerability_count, 1)
 
         # 验证 complete 结果
         tool_complete, profile_complete, _ = complete_results[0]
-        self.assertIn(tool_complete, ["protocol_fingerprint", "garak"])
+        self.assertIn(tool_complete, ["protocol_fingerprint", "native_probe"])
         self.assertIsInstance(profile_complete, TargetProfile)
         self.assertEqual(len(profile_complete.tools_used), 2)
         self.assertEqual(profile_complete.vulnerability_count, 2)
@@ -215,7 +215,7 @@ class TestReconEngineStreaming(unittest.TestCase):
             return mock
 
         mock_ok = make_mock_adapter("protocol_fingerprint", success=True)
-        mock_fail = make_mock_adapter("garak", success=False)
+        mock_fail = make_mock_adapter("native_probe", success=False)
 
         def get_adapter_side_effect(tool):
             if tool == "protocol_fingerprint":
@@ -225,7 +225,7 @@ class TestReconEngineStreaming(unittest.TestCase):
         with patch.object(engine, '_get_adapter', side_effect=get_adapter_side_effect):
             results = list(engine.run_streaming(
                 target="https://example.com",
-                tools=["protocol_fingerprint", "garak"],
+                tools=["protocol_fingerprint", "native_probe"],
             ))
 
         # 两个工具都应该 yield（一个成功，一个失败）
@@ -252,7 +252,7 @@ class TestReconEngineStreaming(unittest.TestCase):
         )
 
         mock_unavailable = MagicMock()
-        mock_unavailable.name = "garak"
+        mock_unavailable.name = "native_probe"
         mock_unavailable.check_available.return_value = False
 
         def get_adapter_side_effect(tool):
@@ -263,7 +263,7 @@ class TestReconEngineStreaming(unittest.TestCase):
         with patch.object(engine, '_get_adapter', side_effect=get_adapter_side_effect):
             results = list(engine.run_streaming(
                 target="https://example.com",
-                tools=["protocol_fingerprint", "garak"],
+                tools=["protocol_fingerprint", "native_probe"],
             ))
 
         # 只有可用工具 yield 结果
@@ -283,7 +283,7 @@ class TestReconEngineIntegration(unittest.TestCase):
         profile = engine.run(
             target="http://localhost:11434",
             depth="quick",
-            tools=["garak"],
+            tools=["native_probe"],
         )
         self.assertIsInstance(profile, TargetProfile)
         self.assertTrue(len(profile.tools_used) > 0)

@@ -614,21 +614,20 @@ logger.error("Attack failed: %s", str(e))
 
 **推荐工具组合（AI-300 考试）**：
 
-| 工具 | 版本 | 定位 | 集成方式 | 复用程度 |
-|------|------|------|---------|---------|
-| Garak | ≥0.15.1 | 漏洞扫描 | Python SDK (`garak.cli.main`) | 100% |
-| DeepTeam | ≥1.0.7 | OWASP 红队 | Python API (`red_team()`) | 100% |
+| 工具 | 定位 | 集成方式 | 复用程度 |
+|------|------|---------|---------|
+| NativeProbe | 轻量级探针扫描 | YAML 驱动 + 正则检测 (内置) | 100% |
+| DeepTeam | OWASP 红队 | Python API (`red_team()`) | 100% |
+| Playwright | SPA 自动化 | 浏览器自动化 | 100% |
 
 **安装方式**：
 ```bash
-# Garak + DeepTeam（PyPI）
+# DeepTeam（PyPI）
 pip install -e ".[recon]"
-```
 
-**Garak 独立 venv**：
-```bash
-# garak 与 pyrit 存在 datasets 版本冲突，使用独立 venv
-make setup-garak
+# Playwright
+uv pip install playwright
+playwright install chromium
 ```
 
 ## 12. 测试规范
@@ -729,7 +728,7 @@ make test  # ~25s
 | **P0** | CVE（NVD） | 有 CVE 编号 + PoC 公开 | 即时响应 |
 | **P1** | 学术论文（arXiv） | 对主流模型有效 + 可复现 | 1-3 天 |
 | **P2** | 安全博客/PoC | 实战验证有效 | 1 周内 |
-| **P3** | 红队工具更新 | Garak/DeepTeam/PyRIT 新版本 | 随版本更新 |
+| **P3** | 红队工具更新 | DeepTeam/PyRIT 新版本 | 随版本更新 |
 | **P4** | 实战发现 | 自行测试有效 | 按需添加 |
 
 ### 13.2 添加流程
@@ -945,12 +944,12 @@ effective_asr = base_asr × decay_factor × confidence_factor − uncertainty_pe
 | AIMAP | OPT-A4 Agent 框架探测 | P1 | `protocol_fingerprint_adapter.py` |
 | AIMAP | OPT-A5 认证深度检测 | P1 | `protocol_fingerprint_adapter.py` |
 | AIMAP | OPT-A6 模型能力深度探测 | P2 | `protocol_fingerprint_adapter.py` |
-| Garak | OPT-G1 Probe 动态选择 | P0 | `garak_adapter.py` |
-| Garak | OPT-G2 深度分层 Probe | P1 | `garak_adapter.py` |
-| Garak | OPT-G3 结果解析增强 | P1 | `garak_adapter.py` |
-| Garak | OPT-G4 Detector 精确配置 | P2 | `garak_adapter.py` |
-| Garak | OPT-G5 增量执行缓存 | P1 | `garak_adapter.py` |
-| Garak | OPT-G6 通用预热 | P1 | `garak_adapter.py` |
+| NativeProbe | OPT-G1 Probe 动态选择 | P0 | `native_probe/adapter.py` |
+| NativeProbe | OPT-G2 深度分层 Probe | P1 | `native_probe/adapter.py` |
+| NativeProbe | OPT-G3 结果解析增强 | P1 | `native_probe/adapter.py` |
+| NativeProbe | OPT-G4 Detector 精确配置 | P2 | `native_probe/detectors/` |
+| NativeProbe | OPT-G5 增量执行缓存 | P1 | `native_probe/adapter.py` |
+| NativeProbe | OPT-G6 零依赖探针 | P0 | `native_probe/probe_data/` |
 | DeepTeam | OPT-D1 攻击类型全量覆盖 | P0 | `deepteam_adapter.py` |
 | DeepTeam | OPT-D2 Agentic 漏洞覆盖 | P1 | `deepteam_adapter.py` |
 | DeepTeam | OPT-D3 model_callback 增强 | P2 | `deepteam_adapter.py` |

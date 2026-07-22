@@ -81,9 +81,9 @@ class TestExceptionHierarchy(unittest.TestCase):
     def test_adapter_error_carries_tool(self):
         """AdapterError 携带工具名"""
         from pyrit_ai300.utils.exceptions import AdapterError
-        err = AdapterError("garak", "timeout")
-        self.assertIn("garak", str(err))
-        self.assertEqual(err.context["tool"], "garak")
+        err = AdapterError("native_probe", "timeout")
+        self.assertIn("native_probe", str(err))
+        self.assertEqual(err.context["tool"], "native_probe")
 
     def test_adapter_timeout_error(self):
         """AdapterTimeoutError 携带超时时间"""
@@ -299,7 +299,7 @@ class TestConfigValidator(unittest.TestCase):
         """有效侦察配置不报错"""
         from pyrit_ai300.utils.config_validator import ConfigValidator
         config = {
-            "tools": {"garak": {"enabled": True, "timeout": 300}},
+            "tools": {"native_probe": {"enabled": True, "timeout": 300}},
             "cache": {"enabled": True, "ttl_hours": 24},
             "depth": "standard",
         }
@@ -310,7 +310,7 @@ class TestConfigValidator(unittest.TestCase):
         """无效 timeout 值报错"""
         from pyrit_ai300.utils.config_validator import ConfigValidator
         config = {
-            "tools": {"garak": {"enabled": True, "timeout": -10}},
+            "tools": {"native_probe": {"enabled": True, "timeout": -10}},
         }
         errors = ConfigValidator.validate_recon_config(config)
         self.assertTrue(any("timeout" in e for e in errors))
@@ -427,21 +427,21 @@ class TestConcurrencySafety(unittest.TestCase):
 
     def test_recon_engine_has_lock(self):
         """ReconEngine 实例有 _adapters_lock"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         engine = ReconEngine(config_path="nonexistent.yaml")
         self.assertTrue(hasattr(engine, "_adapters_lock"))
         self.assertIsInstance(engine._adapters_lock, type(threading.Lock()))
 
     def test_get_adapter_thread_safe(self):
         """多线程 _get_adapter 不竞态"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         engine = ReconEngine(config_path="nonexistent.yaml")
 
         errors = []
         def worker():
             try:
-                adapter = engine._get_adapter("garak")
-                self.assertEqual(adapter.name, "garak")
+                adapter = engine._get_adapter("native_probe")
+                self.assertEqual(adapter.name, "native_probe")
             except Exception as e:
                 errors.append(str(e))
 
@@ -455,13 +455,13 @@ class TestConcurrencySafety(unittest.TestCase):
 
     def test_init_adapters_thread_safe(self):
         """_init_adapters 线程安全"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         engine = ReconEngine(config_path="nonexistent.yaml")
 
         errors = []
         def worker():
             try:
-                engine._init_adapters(["garak"])
+                engine._init_adapters(["native_probe"])
             except Exception as e:
                 errors.append(str(e))
 
@@ -475,15 +475,15 @@ class TestConcurrencySafety(unittest.TestCase):
 
     def test_double_checked_locking_pattern(self):
         """double-checked locking 模式正确"""
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
         engine = ReconEngine(config_path="nonexistent.yaml")
 
         # 第一次调用：创建适配器
-        adapter1 = engine._get_adapter("garak")
+        adapter1 = engine._get_adapter("native_probe")
         self.assertIsNotNone(adapter1)
 
         # 第二次调用：返回同一实例（fast path，不获取锁）
-        adapter2 = engine._get_adapter("garak")
+        adapter2 = engine._get_adapter("native_probe")
         self.assertIs(adapter1, adapter2)
 
 
@@ -515,7 +515,7 @@ class TestProtocolInterfaces(unittest.TestCase):
     def test_recon_engine_satisfies_protocol(self):
         """ReconEngine 满足 ReconEngineProtocol"""
         from pyrit_ai300.utils.protocols import ReconEngineProtocol
-        from pyrit_ai300.reconnaissance.recon_engine import ReconEngine
+        from pyrit_ai300.recon.engine import ReconEngine
 
         engine = ReconEngine(config_path="nonexistent.yaml")
         # runtime_checkable Protocol 可以用 isinstance 检查
@@ -571,7 +571,7 @@ class TestTypeAnnotations(unittest.TestCase):
 
     def test_rate_controller_return_types(self):
         """rate_controller 返回类型注解"""
-        from pyrit_ai300.orchestrators.rate_controller import get_default_concurrency
+        from pyrit_ai300.attack.rate_controller import get_default_concurrency
         import typing
 
         # get_default_concurrency 返回 int
@@ -597,7 +597,7 @@ class TestFaultToleranceDegradation(unittest.TestCase):
 
     def test_scorer_builder_typeerror_handling(self):
         """ScorerBuilder TypeError 降级处理"""
-        from pyrit_ai300.orchestrators.scorer_builder import ScorerBuilder
+        from pyrit_ai300.attack.pyrit.scorer_builder import ScorerBuilder
         builder = ScorerBuilder()
         builder.load_config()
         # 传入一个会触发 TypeError 的配置（缺少必需参数）
@@ -607,7 +607,7 @@ class TestFaultToleranceDegradation(unittest.TestCase):
 
     def test_scorer_builder_unknown_type_returns_empty(self):
         """未知评分器类型返回空列表（不崩溃）"""
-        from pyrit_ai300.orchestrators.scorer_builder import ScorerBuilder
+        from pyrit_ai300.attack.pyrit.scorer_builder import ScorerBuilder
         builder = ScorerBuilder()
         builder.load_config()
         scorers = builder.build([{"name": "completely_unknown_scorer_xyz"}])

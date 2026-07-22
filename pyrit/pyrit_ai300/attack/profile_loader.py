@@ -75,7 +75,7 @@ class ProfileLoader:
             return ProfileLoader._default_params()
 
         try:
-            from pyrit_ai300.reconnaissance.target_profile import TargetProfile
+            from pyrit_ai300.recon.target_profile import TargetProfile
             profile = TargetProfile.load(profile_path)
             return ProfileLoader._to_smartmatcher_params(profile)
         except Exception as e:
@@ -85,7 +85,7 @@ class ProfileLoader:
     @staticmethod
     def _to_smartmatcher_params(profile) -> Dict[str, Any]:
         """将 TargetProfile 转换为 SmartMatcher 参数"""
-        from pyrit_ai300.reconnaissance.owasp_taxonomy import OwaspTaxonomy
+        from pyrit_ai300.recon.owasp_taxonomy import OwaspTaxonomy
 
         params = {
             # 目标信息
@@ -139,7 +139,7 @@ class ProfileLoader:
     @staticmethod
     def _suggest_probe_families(profile) -> List[str]:
         """基于 OWASP ID 推荐攻击探针族"""
-        from pyrit_ai300.reconnaissance.owasp_taxonomy import OwaspTaxonomy
+        from pyrit_ai300.recon.owasp_taxonomy import OwaspTaxonomy
 
         families = set()
 

@@ -10,15 +10,6 @@
 #   ${LLM_API_MODEL}     — 模型名称（默认 qwen3:0.6b）
 #   ${LLM_API_KEY}       — API Key（Ollama 填 not-needed，云端填 sk-xxx）
 #
-# type 取值：
-#   ollama → 本地模型节点（Ollama / LM Studio / vLLM），通常无需认证
-#   openai → 云端 OpenAI 兼容平台（智谱/百度/DeepSeek/Moonshot/MiniMax 等）
-#
-# 使用方式：
-#   1. 复制 .env.example 为 .env
-#   2. 修改 .env 中的 LLM_API_ENDPOINT / LLM_API_MODEL / LLM_API_KEY
-#   3. 运行：ai300 owasp llm01 --target-file config/targets/llm_api_target.yaml
-#
 # 各平台速查表（修改 .env 中对应变量即可切换）：
 #   智谱 GLM:    type=openai  LLM_API_ENDPOINT=https://open.bigmodel.cn/api/paas/v4  LLM_API_MODEL=glm-4-flash
 #   百度文心:    type=openai  LLM_API_ENDPOINT=https://qianfan.baidubce.com/v2       LLM_API_MODEL=ernie-speed-128
@@ -30,6 +21,6 @@
 
 target:
   type: "ollama"  # ollama / openai（仅标签，两者均构建 OpenAIChatTarget）
-  endpoint: "${LLM_API_ENDPOINT:-http://192.168.0.23:11434/v1}"  # 必须含 /v1 路径
+  endpoint: "${LLM_API_ENDPOINT:-http://192.168.40.198:11434/v1}"  # 必须含 /v1 路径
   model: "${LLM_API_MODEL:-qwen3:0.6b}"  # ollama list / 平台控制台
   api_key: "${LLM_API_KEY}"  # Ollama=not-needed，云端=sk-xxx

@@ -1,0 +1,108 @@
+# AI-300 Framework - Attack Framework Configuration
+#
+# 攻击框架配置文件：通过 YAML 配置选择安全框架，
+# 支持动态框架选择和自定义漏洞类型筛选。
+#
+# 使用方式（CLI）：
+#   python -m pyrit_ai300.cli run --framework-config config/attack/framework_config.yaml
+#
+# 使用方式（Python API）：
+#   from pyrit_ai300.standards.framework_registry import select_framework_from_config
+#   fw = select_framework_from_config(yaml.safe_load(open("config/attack/framework_config.yaml")))
+#
+# 标准对齐：
+#   映射表统一来源：pyrit_ai300.standards.owasp_2025
+#   框架定义来源：pyrit_ai300.standards.framework_base (AISafetyFramework)
+
+# ── 框架选择 ──
+# 可选值：
+#   owasp_llm_2025: OWASP Top 10 for LLMs 2025（LLM01-LLM10）
+#   owasp_asi_2026: OWASP Top 10 for Agentic Applications 2026（ASI01-ASI10）
+#   自定义框架 ID（通过 register_framework 注册的）
+framework: owasp_llm_2025
+
+# ── 深度分层 ──
+# quick:     快速扫描（仅 LLM01-LLM02）
+# standard:  标准扫描（LLM01-LLM09）
+# deep:      深度扫描（LLM01-LLM10 + ASI01-ASI10，全量覆盖）
+depth: standard
+
+# ── 漏洞类型筛选（可选，覆盖框架默认值） ──
+# 如果指定了 vulnerabilities，则覆盖框架默认的漏洞列表。
+# 留空则使用框架定义的漏洞类型。
+# vulnerabilities:
+#   - LLM01
+#   - LLM02
+#   - ASI01
+
+# ── 攻击方法配置（可选） ──
+# 如果指定了 attacks，则覆盖框架默认的攻击方法列表。
+# attacks:
+#   - prompt_injection
+#   - jailbreak
+#   - base64
+#   - rot13
+
+# ── 风险类别筛选（可选） ──
+# 按风险类别筛选漏洞类型。
+# 可选值：Responsible AI / Security / Data Privacy / Agentic Security
+# risk_categories:
+#   - Security
+#   - Agentic Security
+
+# ── 严重等级筛选（可选） ──
+# 只测试指定严重等级的漏洞。
+# 可选值：critical / high / medium / low
+# severity_filter:
+#   - critical
+#   - high
+
+# ── 报告配置 ──
+report:
+  # 是否在报告中包含框架信息
+  include_framework_info: true
+  # 是否生成 OWASP 覆盖矩阵
+  include_coverage_matrix: true
+  # 是否生成修复路线图
+  include_remediation_roadmap: true
+  # 是否生成结构化风险评估
+  include_risk_assessment: true
+
+# ── DeepTeam 适配器配置 ──
+deepteam:
+  # 异步模式
+  async_mode: true
+  # 最大并发数
+  max_concurrent: 3
+  # 错误重试次数
+  max_retries: 2
+
+# ── 示例：多框架配置 ──
+# 可以定义多个命名配置，在运行时选择使用。
+profiles:
+  # LLM 快速评估
+  llm_quick:
+    framework: owasp_llm_2025
+    depth: quick
+
+  # LLM 标准评估
+  llm_standard:
+    framework: owasp_llm_2025
+    depth: standard
+
+  # LLM 深度评估
+  llm_deep:
+    framework: owasp_llm_2025
+    depth: deep
+
+  # Agentic 评估
+  agentic:
+    framework: owasp_asi_2026
+    depth: deep
+
+  # 全量评估（LLM + Agentic）
+  full:
+    framework: owasp_llm_2025
+    depth: deep
+    # 全量评估时自动包含 Agentic 漏洞
+    include_agentic: true

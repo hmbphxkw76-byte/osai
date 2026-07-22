@@ -18,7 +18,7 @@ class TestFilterConvertersByOwasp(unittest.TestCase):
     """OWASP 类别静态过滤测试"""
 
     def test_llm01_has_encoding_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters = filter_converters_by_owasp("LLM01")
         # LLM01 是注入类，应有编码混淆转换器
         self.assertIn("base64", converters)
@@ -27,14 +27,14 @@ class TestFilterConvertersByOwasp(unittest.TestCase):
         self.assertIn("zero_width", converters)
 
     def test_llm01_has_jailbreak_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters = filter_converters_by_owasp("LLM01")
         # LLM01 也应有越狱类转换器
         self.assertIn("persuasion", converters)
         self.assertIn("text_jailbreak", converters)
 
     def test_llm04_has_multimodal_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters = filter_converters_by_owasp("LLM04")
         # LLM04 是 RAG 投毒，应有多模态转换器
         self.assertIn("add_text_image", converters)
@@ -42,20 +42,20 @@ class TestFilterConvertersByOwasp(unittest.TestCase):
         self.assertIn("word_doc", converters)
 
     def test_llm03_has_code_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters = filter_converters_by_owasp("LLM03")
         # LLM03 是供应链，应有代码伪装转换器
         self.assertIn("code_chameleon", converters)
         self.assertIn("math_obfuscation", converters)
 
     def test_case_insensitive(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters_lower = filter_converters_by_owasp("llm01")
         converters_upper = filter_converters_by_owasp("LLM01")
         self.assertEqual(converters_lower, converters_upper)
 
     def test_unknown_owasp_returns_empty(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_owasp
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_owasp
         converters = filter_converters_by_owasp("UNKNOWN")
         self.assertEqual(converters, [])
 
@@ -64,7 +64,7 @@ class TestFilterConvertersByLanguage(unittest.TestCase):
     """语言兼容性过滤测试"""
 
     def test_chinese_excludes_rot13(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_language
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_language
         converters = ["base64", "rot13", "leetspeak", "zero_width"]
         filtered = filter_converters_by_language(converters, "zh")
         self.assertIn("base64", filtered)
@@ -73,13 +73,13 @@ class TestFilterConvertersByLanguage(unittest.TestCase):
         self.assertNotIn("leetspeak", filtered)
 
     def test_english_keeps_all(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_language
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_language
         converters = ["base64", "rot13", "leetspeak", "atbash"]
         filtered = filter_converters_by_language(converters, "en")
         self.assertEqual(set(converters), set(filtered))
 
     def test_japanese_excludes_latin_only(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_language
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_language
         converters = ["base64", "rot13", "caesar", "first_letter", "zero_width"]
         filtered = filter_converters_by_language(converters, "ja")
         self.assertIn("base64", filtered)
@@ -89,7 +89,7 @@ class TestFilterConvertersByLanguage(unittest.TestCase):
         self.assertNotIn("first_letter", filtered)
 
     def test_mixed_language_partial_exclude(self):
-        from pyrit_ai300.orchestrators.encoding_selector import filter_converters_by_language
+        from pyrit_ai300.attack.matching.encoding_selector import filter_converters_by_language
         converters = ["base64", "rot13", "leetspeak", "zero_width"]
         filtered = filter_converters_by_language(converters, "mixed")
         self.assertIn("base64", filtered)
@@ -102,14 +102,14 @@ class TestGetConverterCandidates(unittest.TestCase):
     """候选转换器获取测试（合并 OWASP + 语言过滤）"""
 
     def test_llm01_english(self):
-        from pyrit_ai300.orchestrators.encoding_selector import get_converter_candidates
+        from pyrit_ai300.attack.matching.encoding_selector import get_converter_candidates
         candidates = get_converter_candidates("LLM01", "en")
         self.assertIn("base64", candidates)
         self.assertIn("rot13", candidates)
         self.assertIn("unicode_confusable", candidates)
 
     def test_llm01_chinese(self):
-        from pyrit_ai300.orchestrators.encoding_selector import get_converter_candidates
+        from pyrit_ai300.attack.matching.encoding_selector import get_converter_candidates
         candidates = get_converter_candidates("LLM01", "zh")
         self.assertIn("base64", candidates)
         self.assertIn("zero_width", candidates)
@@ -118,14 +118,14 @@ class TestGetConverterCandidates(unittest.TestCase):
         self.assertNotIn("leetspeak", candidates)
 
     def test_with_registered_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import get_converter_candidates
+        from pyrit_ai300.attack.matching.encoding_selector import get_converter_candidates
         # 只允许 base64 和 rot13
         registered = {"base64", "rot13"}
         candidates = get_converter_candidates("LLM01", "en", registered)
         self.assertEqual(set(candidates), {"base64", "rot13"})
 
     def test_empty_registered_returns_empty(self):
-        from pyrit_ai300.orchestrators.encoding_selector import get_converter_candidates
+        from pyrit_ai300.attack.matching.encoding_selector import get_converter_candidates
         candidates = get_converter_candidates("LLM01", "en", set())
         self.assertEqual(candidates, [])
 
@@ -134,7 +134,7 @@ class TestTargetProfile(unittest.TestCase):
     """目标过滤画像测试"""
 
     def test_record_and_finalize(self):
-        from pyrit_ai300.orchestrators.encoding_selector import TargetProfile
+        from pyrit_ai300.attack.matching.encoding_selector import TargetProfile
         profile = TargetProfile()
         profile.record_result("base64", True)
         profile.record_result("base64", True)
@@ -148,7 +148,7 @@ class TestTargetProfile(unittest.TestCase):
         self.assertTrue(profile.is_built)
 
     def test_is_effective(self):
-        from pyrit_ai300.orchestrators.encoding_selector import TargetProfile
+        from pyrit_ai300.attack.matching.encoding_selector import TargetProfile
         profile = TargetProfile()
         profile.record_result("base64", True)
         profile.record_result("base64", True)
@@ -159,7 +159,7 @@ class TestTargetProfile(unittest.TestCase):
         self.assertFalse(profile.is_effective("rot13", threshold=0.3))
 
     def test_get_effective_converters(self):
-        from pyrit_ai300.orchestrators.encoding_selector import TargetProfile
+        from pyrit_ai300.attack.matching.encoding_selector import TargetProfile
         profile = TargetProfile()
         profile.record_result("base64", True)
         profile.record_result("base64", True)
@@ -176,7 +176,7 @@ class TestTargetProfile(unittest.TestCase):
         self.assertEqual(effective[0], "base64")
 
     def test_get_summary(self):
-        from pyrit_ai300.orchestrators.encoding_selector import TargetProfile
+        from pyrit_ai300.attack.matching.encoding_selector import TargetProfile
         profile = TargetProfile()
         profile.record_result("base64", True)
         profile.record_result("rot13", False)
@@ -190,7 +190,7 @@ class TestSelectEncodingsForPayload(unittest.TestCase):
     """智能编码选择测试"""
 
     def test_select_with_profile(self):
-        from pyrit_ai300.orchestrators.encoding_selector import (
+        from pyrit_ai300.attack.matching.encoding_selector import (
             TargetProfile, select_encodings_for_payload
         )
         profile = TargetProfile()
@@ -211,7 +211,7 @@ class TestSelectEncodingsForPayload(unittest.TestCase):
         self.assertNotIn("rot13", encodings)
 
     def test_select_without_profile_fallback(self):
-        from pyrit_ai300.orchestrators.encoding_selector import (
+        from pyrit_ai300.attack.matching.encoding_selector import (
             TargetProfile, select_encodings_for_payload
         )
         profile = TargetProfile()  # 空画像
@@ -228,7 +228,7 @@ class TestSelectEncodingsForPayload(unittest.TestCase):
         self.assertTrue(len(encodings) > 0)
 
     def test_select_chinese_excludes_latin(self):
-        from pyrit_ai300.orchestrators.encoding_selector import (
+        from pyrit_ai300.attack.matching.encoding_selector import (
             TargetProfile, select_encodings_for_payload
         )
         profile = TargetProfile()
@@ -247,7 +247,7 @@ class TestSelectEncodingsForPayload(unittest.TestCase):
         self.assertNotIn("leetspeak", encodings)
 
     def test_max_encodings_limit(self):
-        from pyrit_ai300.orchestrators.encoding_selector import (
+        from pyrit_ai300.attack.matching.encoding_selector import (
             TargetProfile, select_encodings_for_payload
         )
         profile = TargetProfile()
@@ -268,7 +268,7 @@ class TestSelectEncodingsBatch(unittest.TestCase):
     """批量编码选择测试"""
 
     def test_batch_mixed_languages(self):
-        from pyrit_ai300.orchestrators.encoding_selector import (
+        from pyrit_ai300.attack.matching.encoding_selector import (
             TargetProfile, select_encodings_batch
         )
         profile = TargetProfile()
@@ -299,7 +299,7 @@ class TestConverterOwaspCompatibility(unittest.TestCase):
     """静态映射完整性测试"""
 
     def test_all_owasp_ids_covered(self):
-        from pyrit_ai300.orchestrators.encoding_selector import CONVERTER_OWASP_COMPATIBILITY
+        from pyrit_ai300.attack.matching.encoding_selector import CONVERTER_OWASP_COMPATIBILITY
         # 收集所有 OWASP ID
         all_owasp = set()
         for categories in CONVERTER_OWASP_COMPATIBILITY.values():
@@ -310,7 +310,7 @@ class TestConverterOwaspCompatibility(unittest.TestCase):
             self.assertIn(f"LLM{i:02d}", all_owasp, f"LLM{i:02d} not covered")
 
     def test_base64_universal(self):
-        from pyrit_ai300.orchestrators.encoding_selector import CONVERTER_OWASP_COMPATIBILITY
+        from pyrit_ai300.attack.matching.encoding_selector import CONVERTER_OWASP_COMPATIBILITY
         # base64 应该对所有 OWASP 类别都可用
         categories = CONVERTER_OWASP_COMPATIBILITY.get("base64", [])
         self.assertTrue(len(categories) >= 8, "base64 should be compatible with most OWASP categories")
@@ -320,14 +320,14 @@ class TestLanguageIncompatibleConverters(unittest.TestCase):
     """语言不兼容映射测试"""
 
     def test_chinese_excludes_more_than_mixed(self):
-        from pyrit_ai300.orchestrators.encoding_selector import LANGUAGE_INCOMPATIBLE_CONVERTERS
+        from pyrit_ai300.attack.matching.encoding_selector import LANGUAGE_INCOMPATIBLE_CONVERTERS
         zh_incompatible = LANGUAGE_INCOMPATIBLE_CONVERTERS.get("zh", set())
         mixed_incompatible = LANGUAGE_INCOMPATIBLE_CONVERTERS.get("mixed", set())
         # 中文排除的应该比 mixed 多
         self.assertTrue(len(zh_incompatible) >= len(mixed_incompatible))
 
     def test_english_excludes_none(self):
-        from pyrit_ai300.orchestrators.encoding_selector import LANGUAGE_INCOMPATIBLE_CONVERTERS
+        from pyrit_ai300.attack.matching.encoding_selector import LANGUAGE_INCOMPATIBLE_CONVERTERS
         en_incompatible = LANGUAGE_INCOMPATIBLE_CONVERTERS.get("en", set())
         self.assertEqual(len(en_incompatible), 0)
 

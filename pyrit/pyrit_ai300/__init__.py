@@ -14,7 +14,7 @@ AI-300 Red Teaming Framework v3.7
 - 自动生成符合 OffSec 标准的专业红队评估报告（CVSS 3.1 + ATLAS + Mermaid）
 
 架构改进（v3.7 - 全链路编排 + 凭据管理）：
-- 侦察层：19 项优化（AIMAP/Garak/DeepTeam + ProfileMerger + 交叉验证）
+- 侦察层：19 项优化（AIMAP/NativeProbe/DeepTeam + ProfileMerger + 交叉验证）
 - 载荷层：
   * PayloadFilter (REV-1) → 基于攻击面过滤不相关 OWASP 类别
   * ASRRanker (REV-2) → 按目标模型 ASR 降序排序
@@ -30,7 +30,7 @@ AI-300 Red Teaming Framework v3.7
 - 凭据层（v3.6 新增）：
   * CredentialManager → 跨阶段凭据发现/验证/注入
   * JWT 过期检查 + HTTP 预检验证
-  * 凭据自动注入 Garak/DeepTeam/PyRIT Target
+  * 凭据自动注入 NativeProbe/DeepTeam/PyRIT Target
 - 编排层（v3.7 新增）：
   * PipelineOrchestrator → 认证→侦察→攻击→报告一键执行
   * 凭据优先复用 + 侦察驱动攻击 + 结果突出显示
@@ -69,13 +69,15 @@ setup_structured_logging()
 import logging
 from typing import Any, Dict, List, Optional
 
-from .orchestrators import AttackOrchestrator, SmartMatcher, select_attack_strategy, PyRITAttack, AttackProbeFamily
+from .attack import AttackOrchestrator, SmartMatcher, select_attack_strategy, PyRITAttack, AttackProbeFamily
+from .attack.feedback import GeneticMutator
+from .utils.pyrit_log_adapter import PyRITLogAdapter
 
 logger = logging.getLogger(__name__)
 from .reporting import ReportGenerator
 from .payloads import PayloadManager, classify_payload, classify_payloads
 from .pipeline import PipelineTracker, PipelineOrchestrator, PipelineResult
-from .reconnaissance import ReconEngine, TargetProfile
+from .recon import ReconEngine, TargetProfile
 from .attack import ProfileLoader
 from .scenarios import ScenarioRunner, ScenarioResult
 
@@ -99,6 +101,8 @@ __all__ = [
     # P2-12: Scenarios
     "ScenarioRunner",
     "ScenarioResult",
+    # P1-3: Genetic Mutator
+    "GeneticMutator",
 ]
 
 
@@ -160,6 +164,9 @@ class AI300Engine:
         self._scorer_key = scorer_key
         self._scorer_model = scorer_model
 
+        # L5: PyRIT 原生日志适配器
+        self._log_adapter = PyRITLogAdapter(logger)
+
         # 加载 Profile（如果提供）
         if profile_path:
             from .attack import ProfileLoader
@@ -171,8 +178,8 @@ class AI300Engine:
             # （PlaywrightTarget），不能切换为 LLM API 模式（OpenAIChatTarget）
             profile_endpoint = self._profile_params.get("target_endpoint")
             if profile_endpoint:
-                from .pipeline.orchestrator import PipelineOrchestrator
-                _original_type = PipelineOrchestrator._detect_target_type(
+                from .core.utils import detect_target_type
+                _original_type = detect_target_type(
                     self._target_url or "", None
                 )
                 if _original_type == "spa":
@@ -239,20 +246,19 @@ class AI300Engine:
         target_cfg = self._build_target_config()
         target_endpoint = target_cfg.get("target", {}).get("connection", {}).get("endpoint", "N/A")
 
-        # 追踪：scope 开始
-        if self.tracker and self.tracker.console:
-            self.tracker.console.print()
-            self.tracker.console.print(
-                f"[bold cyan]######## OWASP Scope: {scope} | Payloads: {len(refs)} ########[/bold cyan]"
-            )
-
-        # 构建攻击列表（从 OWASP refs）
         # 提取目标模型名（用于 SmartMatcher 策略选择）
         target_model_name = ""
         if target_cfg.get("target", {}).get("connection", {}).get("model"):
             target_model_name = target_cfg["target"]["connection"]["model"]
         elif self._profile_params:
             target_model_name = self._profile_params.get("target_model", "")
+
+        # 追踪：scope 开始（PyRIT 原生日志格式）
+        self._log_adapter.log_scope_start(
+            scope, len(refs),
+            target_endpoint=target_endpoint,
+            target_model=target_model_name,
+        )
 
         if not target_model_name:
             logger.warning(
@@ -307,7 +313,7 @@ class AI300Engine:
                 if self.tracker and self.tracker.console:
                     attack_name = attack.get("name", "unnamed")
                     self.tracker.console.print(
-                        f"\n######## 攻击信息 ########\n  [bold yellow]Attack:[/bold yellow] {attack_name} [dim](mode: {mode})[/dim]"
+                        f"\n[bold yellow]Attack:[/bold yellow] {attack_name} [dim](mode: {mode})[/dim]"
                     )
 
                 # 构建评分器（ASI 感知）
@@ -365,15 +371,12 @@ class AI300Engine:
             self._run_feedback_loop(scope_results, target_model_name)
 
             # 追踪：scope 完成
-            if self.tracker and self.tracker.console:
-                success = scope_results["summary"]["successful_payloads"]
-                total = scope_results["summary"]["total_payloads"]
-                rate = (success / total * 100) if total > 0 else 0
-                self.tracker.console.print()
-                self.tracker.console.print(
-                    f"[bold green]######## Scope 完成: {scope} ########[/bold green]\n"
-                    f"  Payloads: {total} | Successful: {success} | Rate: {rate:.1f}%"
-                )
+            success = scope_results["summary"]["successful_payloads"]
+            total = scope_results["summary"]["total_payloads"]
+            self._log_adapter.log_scope_complete(
+                scope, total, success, total - success,
+                execution_time_ms=0,
+            )
 
         return [scope_results]
 
@@ -464,8 +467,8 @@ class AI300Engine:
 
         # ── CLI --target-url 最高优先级（根据类型设置正确的 type 和 connection）──
         if self._target_url:
-            from .pipeline.orchestrator import PipelineOrchestrator
-            _url_type = PipelineOrchestrator._detect_target_type(self._target_url, None)
+            from .core.utils import detect_target_type
+            _url_type = detect_target_type(self._target_url, None)
 
             if "target" not in target_cfg:
                 target_cfg["target"] = {}
@@ -699,7 +702,7 @@ class AI300Engine:
         - 错误隔离，不中断主流程
         - 结果写入 scope_results 供报告使用
         """
-        from .orchestrators.batch_cross_validator import BatchCrossValidator
+        from .attack.feedback.batch_cross_validator import BatchCrossValidator
 
         # 从攻击结果中提取主评分器类型和 ASI 类别
         for attack in scope_results.get("attacks", []):
