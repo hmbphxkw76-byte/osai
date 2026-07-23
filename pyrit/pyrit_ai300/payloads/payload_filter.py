@@ -80,6 +80,40 @@ SURFACE_ALIASES: Dict[str, str] = {
     "dify": "agent",
 }
 
+# ── 靶机类型 → 默认攻击面映射 ──
+# 用于无侦察画像时从目标配置类型推断攻击面
+TARGET_TYPE_SURFACES: Dict[str, Set[str]] = {
+    # OWASP DonkAI: REST API，规则引擎，系统提示词含敏感信息
+    "rest_api": {"prompt", "api"},
+    # AIVP: SSE 流式聊天，含 Agent/RAG/MCP 多阶段
+    "sse_chat": {"prompt", "agent", "rag", "mcp"},
+    # LLM API (Ollama/OpenAI)
+    "ollama": {"prompt", "api"},
+    "openai": {"prompt", "api"},
+    # HTTP 自定义端点
+    "http": {"prompt", "api"},
+    # SPA 浏览器自动化
+    "spa_chat": {"prompt"},
+    "playwright": {"prompt"},
+}
+
+
+def infer_surfaces_from_target_type(target_type: str) -> List[str]:
+    """
+    从目标配置类型推断可用攻击面
+
+    当没有侦察画像时，使用目标类型推断攻击面，
+    使 PayloadFilter 仍能进行基本过滤。
+
+    Args:
+        target_type: 目标类型（rest_api / sse_chat / ollama / openai / http / spa_chat）
+
+    Returns:
+        攻击面列表
+    """
+    surfaces = TARGET_TYPE_SURFACES.get(target_type.lower(), set())
+    return list(surfaces)
+
 
 def normalize_surfaces(surfaces: List[str]) -> Set[str]:
     """

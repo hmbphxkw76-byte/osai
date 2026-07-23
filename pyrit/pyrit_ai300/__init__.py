@@ -468,32 +468,44 @@ class AI300Engine:
         # ── CLI --target-url 最高优先级（根据类型设置正确的 type 和 connection）──
         if self._target_url:
             from .core.utils import detect_target_type
-            _url_type = detect_target_type(self._target_url, None)
 
-            if "target" not in target_cfg:
-                target_cfg["target"] = {}
-            if "connection" not in target_cfg["target"]:
-                target_cfg["target"]["connection"] = {}
-
-            if _url_type == "spa":
-                # SPA 目标：设置 type=spa_chat 和 connection.url
-                target_cfg["target"]["type"] = "spa_chat"
-                target_cfg["target"]["connection"]["url"] = self._target_url
-                _conn = target_cfg["target"]["connection"]
-                _conn.setdefault("browser", "chromium")
-                _conn.setdefault("headless", True)
-                _conn.setdefault("wait_until", "networkidle")
-                _conn.setdefault("ignore_https_errors", True)
-                logger.info("CLI target-url (SPA): %s → type=spa_chat", self._target_url)
-            else:
-                # API 目标：设置 type=ollama（如未设置）和 connection.endpoint
-                if "type" not in target_cfg["target"]:
-                    target_cfg["target"]["type"] = "ollama"
-                target_cfg["target"]["connection"]["endpoint"] = self._target_url
+            # rest_api / sse_chat 类型不覆盖 type，仅更新 base_url
+            _existing_type = target_cfg.get("target", {}).get("type", "")
+            if _existing_type in ("rest_api", "sse_chat"):
+                if "connection" not in target_cfg.get("target", {}):
+                    target_cfg["target"]["connection"] = {}
+                target_cfg["target"]["connection"]["base_url"] = self._target_url
                 logger.info(
-                    "CLI target-url (API): %s → type=%s",
-                    self._target_url, target_cfg["target"]["type"],
+                    "CLI target-url (%s): base_url=%s",
+                    _existing_type, self._target_url,
                 )
+            else:
+                _url_type = detect_target_type(self._target_url, None)
+
+                if "target" not in target_cfg:
+                    target_cfg["target"] = {}
+                if "connection" not in target_cfg["target"]:
+                    target_cfg["target"]["connection"] = {}
+
+                if _url_type == "spa":
+                    # SPA 目标：设置 type=spa_chat 和 connection.url
+                    target_cfg["target"]["type"] = "spa_chat"
+                    target_cfg["target"]["connection"]["url"] = self._target_url
+                    _conn = target_cfg["target"]["connection"]
+                    _conn.setdefault("browser", "chromium")
+                    _conn.setdefault("headless", True)
+                    _conn.setdefault("wait_until", "networkidle")
+                    _conn.setdefault("ignore_https_errors", True)
+                    logger.info("CLI target-url (SPA): %s → type=spa_chat", self._target_url)
+                else:
+                    # API 目标：设置 type=ollama（如未设置）和 connection.endpoint
+                    if "type" not in target_cfg["target"]:
+                        target_cfg["target"]["type"] = "ollama"
+                    target_cfg["target"]["connection"]["endpoint"] = self._target_url
+                    logger.info(
+                        "CLI target-url (API): %s → type=%s",
+                        self._target_url, target_cfg["target"]["type"],
+                    )
 
         # ── CLI --model 覆盖模型名 ──
         if self._model:

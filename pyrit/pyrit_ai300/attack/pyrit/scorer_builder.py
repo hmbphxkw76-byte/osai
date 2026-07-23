@@ -10,11 +10,15 @@ PyRIT 评分器构建模块
 - 多级回退链：openai_compatible → local_provider → objective_target → 规则评分器
 
 回退链设计（确保评分器失效不中断流水线）：
-    1. openai_compatible  — 云端高精度 API（需要 SCORES_API_KEY）
-    2. local_provider     — 本地模型服务（Ollama/LM Studio，无需认证）
-    3. objective_target   — 复用攻击目标作为评分器后端
+    1. openai_compatible  — 云端高精度 API（需要 SCORES_API_KEY，含连通性探测）
+    2. local_provider     — 本地模型服务（Ollama/LM Studio，无需认证，含连通性探测）
+    3. objective_target   — 复用攻击目标作为评分器后端（仅 OpenAIChatTarget，排除 PlaywrightTarget）
     4. substring          — 规则评分器兜底（纯文本匹配，无需 LLM）
     5. 空列表             — PyRIT 默认行为（无评分器，攻击照常执行）
+
+    自适应机制：每个 LLM 后端在返回前进行轻量级连通性探测（GET /v1/models，
+    3 秒超时）。探测失败的后端被跳过，自动尝试下一个回退选项。
+    当所有 LLM 后端不可用时，自动降级为规则评分器（static_prompt_injection）。
 
 从 AttackOrchestrator 拆分，遵循单一职责原则。
 
@@ -32,6 +36,9 @@ import yaml
 
 from pyrit.prompt_target import PromptTarget, OpenAIChatTarget
 from pyrit.score import Scorer
+
+# 连通性探测超时（秒）
+_PROBE_TIMEOUT = 3.0
 
 from .component_registry import SCORER_MAP, LLM_BACKEND_SCORERS, RULE_BASED_SCORERS
 from ...utils.env_loader import resolve_env_vars
@@ -389,7 +396,7 @@ class ScorerBuilder:
                 return None
 
         try:
-            return OpenAIChatTarget(
+            target = OpenAIChatTarget(
                 endpoint=base_url,
                 api_key=api_key,
                 model_name=model_name,
@@ -397,6 +404,50 @@ class ScorerBuilder:
         except Exception as e:
             logger.debug("Failed to create OpenAIChatTarget for '%s': %s", backend_name, e)
             return None
+
+        # 运行时连通性探测：确保端点实际可达，避免评分器在运行时才崩溃
+        if not self._probe_backend_connectivity(base_url, api_key):
+            logger.warning(
+                "Scorer backend '%s' unreachable at %s (connectivity probe failed), "
+                "trying next fallback...",
+                backend_name, base_url,
+            )
+            return None
+
+        logger.debug("Scorer backend '%s' connectivity verified at %s", backend_name, base_url)
+        return target
+
+    def _probe_backend_connectivity(self, base_url: str, api_key: str) -> bool:
+        """
+        轻量级连通性探测：发送 GET /v1/models 请求验证端点可达
+
+        设计原则：
+        - 快速失败（3 秒超时），不阻塞流水线
+        - 不发送实际评分请求，只验证服务存活
+        - 兼容 Ollama / OpenAI / 智谱 / DeepSeek 等所有 OpenAI 兼容端点
+
+        Args:
+            base_url: LLM 端点 URL（如 http://localhost:11434/v1）
+            api_key: API Key（Ollama 可为 not-needed）
+
+        Returns:
+            True 如果端点可达，False 如果不可达
+        """
+        try:
+            import httpx
+
+            # 构造 /models 端点（OpenAI 标准健康检查）
+            models_url = base_url.rstrip("/") + "/models"
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key and api_key != "not-needed" else {}
+
+            with httpx.Client(timeout=_PROBE_TIMEOUT) as client:
+                resp = client.get(models_url, headers=headers)
+                # 200 = 可达，401/403 = 可达但认证问题（仍可用）
+                return resp.status_code in (200, 401, 403)
+
+        except Exception as e:
+            logger.debug("Connectivity probe failed for %s: %s", base_url, str(e)[:100])
+            return False
 
     def _resolve_llm_target_with_fallback(
         self,
@@ -429,11 +480,18 @@ class ScorerBuilder:
                 logger.debug("Backend '%s' failed: %s", backend_name, e)
                 continue
 
-        # 阶段 3: 复用攻击目标
-        if objective_target:
+        # 阶段 3: 复用攻击目标（仅当它是 OpenAIChatTarget 时）
+        # PlaywrightTarget（SPA 浏览器自动化）不能作为评分器 LLM 后端
+        if objective_target and isinstance(objective_target, OpenAIChatTarget):
             self._last_used_backend = "objective_target"
             logger.info("Scorer LLM backend resolved: objective_target (fallback)")
             return objective_target
+        elif objective_target and not isinstance(objective_target, OpenAIChatTarget):
+            logger.info(
+                "objective_target is %s (not OpenAIChatTarget), "
+                "cannot use as scorer LLM backend, skipping",
+                type(objective_target).__name__,
+            )
 
         # 全部不可用
         self._last_used_backend = "none"

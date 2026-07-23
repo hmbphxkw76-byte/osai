@@ -54,6 +54,8 @@ class TargetBuilder:
         支持类型：
         - ollama / openai → OpenAIChatTarget
         - http → HTTPTarget（原始 HTTP 请求）
+        - rest_api → ApiTargetAdapter（REST JSON 请求/响应，如 OWASP DonkAI）
+        - sse_chat → ApiTargetAdapter（SSE 流式响应，如 AIVP）
         - playwright / spa_chat / spa_chat_recon → PlaywrightTarget（浏览器自动化，SPA 支持）
 
         Args:
@@ -72,6 +74,8 @@ class TargetBuilder:
             return self._build_openai_target(connection)
         elif target_type == "http":
             return self._build_http_target(connection)
+        elif target_type in ("rest_api", "sse_chat"):
+            return self._build_api_target(target_config)
         elif target_type in ("playwright", "spa_chat", "spa_chat_recon"):
             # spa_chat / spa_chat_recon 是新统一类型，复用 playwright builder
             return self._build_playwright_target(target_config)
@@ -92,8 +96,15 @@ class TargetBuilder:
         max_concurrent = rate_config.get("max_concurrent", 0)
         rate_limit = rate_config.get("rate_limit", 0.0)
 
+        # rest_api / sse_chat 使用 http 速率控制器配置
+        rate_target_type = target_type
+        if target_type in ("spa_chat", "spa_chat_recon"):
+            rate_target_type = "playwright"
+        elif target_type in ("rest_api", "sse_chat"):
+            rate_target_type = "http"
+
         return create_rate_controller(
-            target_type=target_type if target_type != "spa_chat" else "playwright",
+            target_type=rate_target_type,
             max_concurrent=max_concurrent,
             rate_limit=rate_limit,
         )
@@ -105,6 +116,26 @@ class TargetBuilder:
             api_key=connection.get("api_key", "not-needed"),
             model_name=connection.get("model", "llama3.2:latest"),
         )
+
+    def _build_api_target(self, target_config: Dict[str, Any]) -> Any:
+        """
+        构建 API 目标适配器（REST API / SSE Chat）
+
+        支持 OWASP DonkAI (REST JSON) 和 AIVP (SSE Streaming) 两种靶机。
+        使用 ApiTargetAdapter 封装 HTTP 请求/响应，返回解析后的纯文本。
+
+        配置格式见 api_target_builder.build_api_target() 文档。
+        """
+        from .api_target_builder import build_api_target
+        adapter = build_api_target(target_config)
+        logger.info(
+            "ApiTarget created: type=%s, base_url=%s, endpoint=%s, response_format=%s",
+            target_config.get("type", "rest_api"),
+            adapter.config.base_url,
+            adapter.config.endpoint_path,
+            adapter.config.response_format,
+        )
+        return adapter
 
     def _build_http_target(self, connection: Dict[str, Any]) -> Any:
         """构建 HTTPTarget"""
