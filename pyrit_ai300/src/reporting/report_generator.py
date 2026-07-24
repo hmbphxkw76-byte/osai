@@ -177,7 +177,9 @@ class EvidenceExporter:
             exam_id: 考试 ID
         """
         self.exam_id = exam_id
-        self.evidence_dir = Path("evidence") / exam_id
+        config_loader = get_config_loader()
+        evidence_base = config_loader.get_global_value("pyrit", "evidence_dir", default="output/evidence")
+        self.evidence_dir = Path(evidence_base) / exam_id
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
 
     async def export_all_evidence(self) -> Path:

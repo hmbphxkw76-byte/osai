@@ -381,7 +381,15 @@ class ConfigLoader:
 
     def get_db_path(self) -> str:
         """获取数据库文件路径"""
-        return self.get_global_value("pyrit", "db_path", default="output/exam_results.db")
+        return self.get_global_value("pyrit", "db_path", default="output/db/exam_results.db")
+
+    def get_evidence_dir(self) -> str:
+        """获取证据输出目录"""
+        return self.get_global_value("pyrit", "evidence_dir", default="output/evidence")
+
+    def get_logs_dir(self) -> str:
+        """获取日志输出目录"""
+        return self.get_global_value("pyrit", "logs_dir", default="output/logs")
 
     def get_max_concurrency(self) -> int:
         """获取最大并发数"""

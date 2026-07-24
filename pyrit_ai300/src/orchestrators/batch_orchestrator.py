@@ -15,6 +15,8 @@ Batch Attack Orchestrator
 
 import asyncio
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 from pyrit.executor.attack import (
@@ -40,6 +42,12 @@ from src.scorers import (
 from src.core.config_loader import get_config_loader
 
 logger = logging.getLogger(__name__)
+
+
+def _truncate(text: str, max_len: int = 60) -> str:
+    """截断文本用于终端显示"""
+    text = text.replace("\n", " ").replace("\r", " ").strip()
+    return text[:max_len] + "..." if len(text) > max_len else text
 
 
 # ============================================================
@@ -68,6 +76,7 @@ class BatchAttackOrchestrator:
         max_concurrency: int = 4,
         fail_fast: bool = False,
         per_attack_timeout: int = 300,
+        verbose: bool = False,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
@@ -86,15 +95,69 @@ class BatchAttackOrchestrator:
             max_concurrency: 最大并发数
             fail_fast: 单个攻击失败是否终止全部
             per_attack_timeout: 单次攻击超时（秒）
+            verbose: 是否输出每个攻击的完整详情（Attack Type/Score/对话历史）
 
         Returns:
             批量攻击结果
         """
-        result = BatchAttackResult(total_plans=len(attack_plans))
+        total = len(attack_plans)
+        result = BatchAttackResult(total_plans=total)
         semaphore = asyncio.Semaphore(max_concurrency)
+        batch_start = time.time()
+        completed_count = [0]  # 可变容器，供内部函数递增
+
+        def _plan_brief(plan: AttackPlan) -> str:
+            """格式化计划摘要用于终端显示"""
+            owasp = plan.owasp_id or "N/A"
+            mode = plan.prompt_item.attack_mode.value
+            tech = plan.attack_technique
+            obj = _truncate(plan.prompt_item.objective)
+            return f"{owasp} | {mode} | {tech} | \"{obj}\""
+
+        def _plan_detail(plan: AttackPlan) -> str:
+            """格式化计划详细信息（包含 Attack 类名/Converter/Scorer）"""
+            owasp = plan.owasp_id or "N/A"
+            mode = plan.prompt_item.attack_mode.value
+            tech = plan.attack_technique
+            attack_class_name = ATTACK_CLASS_MAP.get(tech, type(None)).__name__
+            scorer = plan.scorer_type
+            converter = plan.converter_chain_name or "none"
+            # 尝试获取 Converter 链中的具体 Converter 列表
+            converter_list = ""
+            if plan.converter_chain_name:
+                chain_cfg = self.config_loader.get_converter_chain_config(plan.converter_chain_name)
+                if chain_cfg and chain_cfg.get("converters"):
+                    converter_list = f" -> [{', '.join(chain_cfg['converters'])}]"
+            obj = _truncate(plan.prompt_item.objective, max_len=80)
+            lines = [
+                f"  ┌─ Plan ──────────────────────────────────────────────",
+                f"  │ OWASP:      {owasp}",
+                f"  │ Attack:     {attack_class_name}  ({mode})",
+                f"  │ Technique:  {tech}",
+                f"  │ Scorer:     {scorer}",
+                f"  │ Converter:  {converter}{converter_list}",
+                f"  │ Objective:  \"{obj}\"",
+                f"  └─────────────────────────────────────────────────────",
+            ]
+            return "\n".join(lines)
+
+        def _print_progress():
+            """打印进度汇总"""
+            elapsed = time.time() - batch_start
+            pct = completed_count[0] / total * 100 if total > 0 else 0
+            print(
+                f"  --- 进度 {completed_count[0]}/{total} ({pct:.1f}%) "
+                f"| OK: {result.succeeded} | FAIL: {result.failed} | ERR: {result.errored} "
+                f"| 用时 {elapsed:.1f}s ---"
+            )
 
         async def _run_one(plan: AttackPlan) -> None:
             async with semaphore:
+                brief = _plan_brief(plan)
+                print(_plan_detail(plan))
+                print(f"  [START]  {brief}")
+                plan_start = time.time()
+
                 try:
                     attack_result = await asyncio.wait_for(
                         self._execute_single_plan(
@@ -102,8 +165,10 @@ class BatchAttackOrchestrator:
                         ),
                         timeout=per_attack_timeout,
                     )
+                    elapsed = time.time() - plan_start
                     result.executed += 1
                     result.results.append(attack_result)
+                    completed_count[0] += 1
 
                     # 判断成功/失败
                     outcome = getattr(attack_result, "outcome", None)
@@ -111,12 +176,24 @@ class BatchAttackOrchestrator:
                         outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
                         if outcome_str == "SUCCESS":
                             result.succeeded += 1
+                            print(f"  [OK]    [{completed_count[0]}/{total}]  {brief} -> SUCCESS ({elapsed:.1f}s)")
+                            # verbose 模式或 VERBOSE_SUCCESS 环境变量: 输出完整详情
+                            if verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes"):
+                                try:
+                                    from pyrit.output import output_attack_async
+                                    await output_attack_async(attack_result, format="pretty")
+                                except Exception as e:
+                                    print(f"  [!]      详情输出失败: {_truncate(str(e), 80)}")
                         else:
                             result.failed += 1
+                            print(f"  [FAIL]  [{completed_count[0]}/{total}]  {brief} -> {outcome_str} ({elapsed:.1f}s)")
                             # 反馈循环：攻击失败，尝试升级重试
                             upgraded_plans = self._generate_upgrade_plans(plan, attack_result)
                             for upgraded_plan in upgraded_plans:
                                 result.upgrade_attempts += 1
+                                up_brief = _plan_brief(upgraded_plan)
+                                print(f"  [UPG]        {up_brief}  (升级自 {plan.attack_technique})")
+                                up_start = time.time()
                                 try:
                                     upgraded_result = await asyncio.wait_for(
                                         self._execute_single_plan(
@@ -124,6 +201,7 @@ class BatchAttackOrchestrator:
                                         ),
                                         timeout=per_attack_timeout,
                                     )
+                                    up_elapsed = time.time() - up_start
                                     result.executed += 1
                                     result.results.append(upgraded_result)
                                     upgraded_outcome = getattr(upgraded_result, "outcome", None)
@@ -132,34 +210,58 @@ class BatchAttackOrchestrator:
                                         if upgraded_outcome_str == "SUCCESS":
                                             result.succeeded += 1
                                             result.upgrade_success += 1
+                                            print(f"  [OK]         {up_brief} -> SUCCESS (升级, {up_elapsed:.1f}s)")
+                                            # verbose 模式: 升级成功也输出详情
+                                            if verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes"):
+                                                try:
+                                                    from pyrit.output import output_attack_async
+                                                    await output_attack_async(upgraded_result, format="pretty")
+                                                except Exception as e:
+                                                    print(f"  [!]          详情输出失败: {_truncate(str(e), 80)}")
                                         else:
                                             result.failed += 1
+                                            print(f"  [FAIL]       {up_brief} -> {upgraded_outcome_str} (升级, {up_elapsed:.1f}s)")
                                 except Exception as upgrade_error:
                                     result.errored += 1
                                     result.errors.append({
                                         "plan_id": upgraded_plan.plan_id,
                                         "error": f"Upgrade failed: {upgrade_error}",
                                     })
+                                    print(f"  [ERR]        {up_brief} -> 升级失败: {_truncate(str(upgrade_error), 80)}")
                     else:
                         result.failed += 1
+                        print(f"  [FAIL]  [{completed_count[0]}/{total}]  {brief} -> no outcome ({elapsed:.1f}s)")
+
+                    if completed_count[0] % 10 == 0:
+                        _print_progress()
 
                 except asyncio.TimeoutError:
+                    elapsed = time.time() - plan_start
                     result.executed += 1
                     result.errored += 1
+                    completed_count[0] += 1
                     result.errors.append({
                         "plan_id": plan.plan_id,
                         "error": f"Timeout after {per_attack_timeout}s",
                     })
+                    print(f"  [TOUT]  [{completed_count[0]}/{total}]  {brief} -> 超时 ({elapsed:.1f}s)")
+                    if completed_count[0] % 10 == 0:
+                        _print_progress()
                 except Exception as e:
                     # 修复：评分器异常不中断流程，标记为 error 并继续
+                    elapsed = time.time() - plan_start
                     result.executed += 1
                     result.errored += 1
+                    completed_count[0] += 1
                     error_msg = str(e)
                     result.errors.append({
                         "plan_id": plan.plan_id,
                         "error": error_msg,
                     })
                     logger.warning(f"Plan {plan.plan_id} failed (non-fatal): {e}")
+                    print(f"  [ERR]   [{completed_count[0]}/{total}]  {brief} -> {_truncate(error_msg, 80)} ({elapsed:.1f}s)")
+                    if completed_count[0] % 10 == 0:
+                        _print_progress()
 
                     if fail_fast:
                         raise
@@ -168,6 +270,8 @@ class BatchAttackOrchestrator:
         tasks = [_run_one(plan) for plan in attack_plans]
         await asyncio.gather(*tasks, return_exceptions=not fail_fast)
 
+        # 最终进度汇总
+        _print_progress()
         return result
 
     # -----------------------------------------------------------------
@@ -609,6 +713,7 @@ async def execute_batch_attacks(
     max_concurrency: int = 4,
     fail_fast: bool = False,
     per_attack_timeout: int = 300,
+    verbose: bool = False,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -620,6 +725,7 @@ async def execute_batch_attacks(
         max_concurrency: 最大并发数
         fail_fast: 单个攻击失败是否终止全部
         per_attack_timeout: 单次攻击超时（秒）
+        verbose: 是否输出每个攻击的完整详情
 
     Returns:
         批量攻击结果
@@ -632,4 +738,5 @@ async def execute_batch_attacks(
         max_concurrency,
         fail_fast,
         per_attack_timeout,
+        verbose=verbose,
     )

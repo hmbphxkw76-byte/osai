@@ -225,6 +225,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="单次攻击超时秒数 (默认从配置文件读取)",
     )
 
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        default=False,
+        help="输出每个成功攻击的完整详情 (Attack Type/Score/对话历史)",
+    )
+
     return parser
 
 
@@ -284,6 +291,8 @@ def main():
         os.environ["BATCH_MAX_CONCURRENCY"] = str(args.concurrency)
     if args.timeout:
         os.environ["BATCH_PER_ATTACK_TIMEOUT"] = str(args.timeout)
+    if args.verbose:
+        os.environ["VERBOSE"] = "1"
 
     # 运行管道
     asyncio.run(run_attack_pipeline(target_url, owasp_ids=owasp_ids))

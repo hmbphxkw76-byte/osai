@@ -20,6 +20,12 @@ PyRIT 端到端全自动 AI 红队框架 - 主入口
 Usage:
   python pipeline.py
   python pipeline.py http://192.168.0.22:11434
+
+环境变量:
+  VERBOSE=1               # 输出每个成功攻击的完整详情
+  VERBOSE_SUCCESS=1       # 同上，仅对成功攻击输出详情
+  BATCH_MAX_CONCURRENCY=4 # 覆盖配置文件中的并发数
+  BATCH_PER_ATTACK_TIMEOUT=300  # 覆盖配置文件中的超时
 """
 
 import asyncio
@@ -49,6 +55,52 @@ if sys.platform == "win32":
 
 
 # ============================================================
+# 日志 Tee 输出 - 同时写入终端和文件
+# ============================================================
+
+
+class TeeOutput:
+    """将 stdout/stderr 同时输出到终端和日志文件"""
+
+    def __init__(self, terminal, log_file):
+        self.terminal = terminal
+        self.log_file = log_file
+
+    def write(self, data):
+        self.terminal.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log_file.flush()
+
+    def reconfigure(self, **kwargs):
+        if hasattr(self.terminal, "reconfigure"):
+            self.terminal.reconfigure(**kwargs)
+
+
+def setup_logging(config_loader, start_time: datetime) -> Path:
+    """
+    设置日志文件，将 stdout/stderr 同时输出到终端和文件
+
+    Returns:
+        日志文件路径
+    """
+    logs_dir = Path(config_loader.get_logs_dir())
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_filename = f"pipeline-{start_time.strftime('%Y%m%d_%H%M%S')}.log"
+    log_path = logs_dir / log_filename
+
+    log_file = open(log_path, "w", encoding="utf-8", errors="replace")
+
+    sys.stdout = TeeOutput(sys.stdout, log_file)
+    sys.stderr = TeeOutput(sys.stderr, log_file)
+
+    return log_path
+
+
+# ============================================================
 # 顺序管道
 # ============================================================
 
@@ -66,6 +118,12 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     """
     config_loader = get_config_loader()
     start_time = datetime.now()
+
+    # 设置日志文件
+    log_path = setup_logging(config_loader, start_time)
+
+    # 读取 verbose 配置
+    verbose = os.getenv("VERBOSE", "").lower() in ("1", "true", "yes")
 
     # 从环境变量读取配置
     target_endpoint = os.getenv("TARGET_ENDPOINT", f"{target_url.rstrip('/')}/v1")
@@ -85,12 +143,14 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"评分器端点: {judge_endpoint}")
     print(f"评分器模型: {judge_model}")
     print(f"开始时间: {start_time.isoformat()}")
+    print(f"日志文件: {log_path}")
+    print(f"Verbose 模式: {'开启' if verbose else '关闭'}")
 
     # ---------------------------------------------------------
     # 1. 初始化 PyRIT
     # ---------------------------------------------------------
     print("\n[1/9] 初始化 PyRIT...")
-    db_path = Path(os.getenv("MEMORY_DB_PATH", "output/exam_results.db"))
+    db_path = Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     await initialize_pyrit_async(
@@ -232,6 +292,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
     print(f"  [OK] 最大并发: {max_concurrency}")
     print(f"  [OK] 单次超时: {per_attack_timeout}s")
+    print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
     print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
 
     batch_result = await execute_batch_attacks(
@@ -241,6 +302,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         max_concurrency=max_concurrency,
         fail_fast=fail_fast,
         per_attack_timeout=per_attack_timeout,
+        verbose=verbose,
     )
 
     print(f"\n  [OK] 批量攻击完成")
@@ -250,6 +312,8 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 失败: {batch_result.failed}")
     print(f"  [OK] 错误: {batch_result.errored}")
     print(f"  [OK] 成功率: {batch_result.success_rate * 100:.1f}%")
+    if batch_result.upgrade_attempts > 0:
+        print(f"  [OK] 升级重试: {batch_result.upgrade_attempts} 次, 成功 {batch_result.upgrade_success} 次")
 
     if batch_result.errors:
         print(f"\n  [!] 错误详情 ({len(batch_result.errors)} 个):")
@@ -259,22 +323,25 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
             print(f"    ... 还有 {len(batch_result.errors) - 5} 个错误")
 
     # ---------------------------------------------------------
-    # 7. 输出执行结果
+    # 7. 输出执行结果（非 verbose 模式下输出前 5 个成功结果）
     # ---------------------------------------------------------
     print("\n[7/9] 输出执行结果...")
 
-    from pyrit.output import output_attack_async
-    # 输出前 5 个成功的结果
-    success_results = [r for r in batch_result.results if r is not None]
-    for i, result in enumerate(success_results[:5]):
-        print(f"\n  --- 结果 {i + 1}/{min(5, len(success_results))} ---")
-        try:
-            await output_attack_async(result, format="pretty")
-        except Exception:
-            print(f"  [!] 输出结果 {i + 1} 时出错")
+    if not verbose:
+        from pyrit.output import output_attack_async
+        # 非 verbose 模式: 输出前 5 个成功的结果
+        success_results = [r for r in batch_result.results if r is not None]
+        for i, result in enumerate(success_results[:5]):
+            print(f"\n  --- 结果 {i + 1}/{min(5, len(success_results))} ---")
+            try:
+                await output_attack_async(result, format="pretty")
+            except Exception:
+                print(f"  [!] 输出结果 {i + 1} 时出错")
 
-    if len(success_results) > 5:
-        print(f"\n  ... 还有 {len(success_results) - 5} 个结果未显示")
+        if len(success_results) > 5:
+            print(f"\n  ... 还有 {len(success_results) - 5} 个结果未显示")
+    else:
+        print("  [OK] verbose 模式下已在执行过程中输出详情，跳过重复输出")
 
     print("\n  [OK] 执行结果输出完成")
 
@@ -313,6 +380,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"执行结果: {batch_result.succeeded}/{batch_result.executed} 成功")
     print(f"报告: {report_result.report_path}")
     print(f"证据: {report_result.evidence_archive}")
+    print(f"日志: {log_path}")
 
     return report_result
 

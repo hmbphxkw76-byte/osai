@@ -177,15 +177,19 @@ pyrit:
   # Memory 后端类型：InMemory / SQLite / AzureSQL
   memory_db_type: SQLite
   # SQLite 数据库文件路径（通过 kwargs 传递给 SQLiteMemory）
-  db_path: output/exam_results.db
+  db_path: output/db/exam_results.db
   # 并发控制
   max_concurrency: 4
+  # 证据输出目录
+  evidence_dir: output/evidence
+  # 日志输出目录
+  logs_dir: output/logs
 
 # ------------------------------------------------------------
 # 报告配置
 # ------------------------------------------------------------
 report:
-  output_dir: reports
+  output_dir: output/reports
   format: markdown
   include_owasp: true
   include_evidence: true
