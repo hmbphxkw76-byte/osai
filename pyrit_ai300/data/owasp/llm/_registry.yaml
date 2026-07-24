@@ -1,0 +1,38 @@
+# OWASP LLM Top 10 2025 注册表
+# 统一管理所有 LLM 分类的元数据（整合了 _meta.yaml 内容）
+# 修改元数据只需编辑此文件，无需逐目录维护
+
+framework: "llm"
+version: "2025"
+
+categories:
+  llm01:
+    owasp_id: "LLM01"
+    name: "Prompt Injection"
+  llm02:
+    owasp_id: "LLM02"
+    name: "Sensitive Information Disclosure"
+  llm03:
+    owasp_id: "LLM03"
+    name: "Supply Chain"
+  llm04:
+    owasp_id: "LLM04"
+    name: "Data and Model Poisoning"
+  llm05:
+    owasp_id: "LLM05"
+    name: "Improper Output Handling"
+  llm06:
+    owasp_id: "LLM06"
+    name: "Excessive Agency"
+  llm07:
+    owasp_id: "LLM07"
+    name: "System Prompt Leakage"
+  llm08:
+    owasp_id: "LLM08"
+    name: "Vector and Embedding Weaknesses"
+  llm09:
+    owasp_id: "LLM09"
+    name: "Misinformation"
+  llm10:
+    owasp_id: "LLM10"
+    name: "Unbounded Consumption"

@@ -1,0 +1,38 @@
+# OWASP Agentic AI Top 10 (2025) 注册表
+# 统一管理所有 Agentic AI 分类的元数据（整合了 _meta.yaml 内容）
+# 修改元数据只需编辑此文件，无需逐目录维护
+
+framework: "agentic"
+version: "2025"
+
+categories:
+  asi01:
+    owasp_id: "ASI01"
+    name: "Goal Hijacking"
+  asi02:
+    owasp_id: "ASI02"
+    name: "Tool Misuse"
+  asi03:
+    owasp_id: "ASI03"
+    name: "Identity Abuse"
+  asi04:
+    owasp_id: "ASI04"
+    name: "Supply Chain (Agentic)"
+  asi05:
+    owasp_id: "ASI05"
+    name: "Code Execution"
+  asi06:
+    owasp_id: "ASI06"
+    name: "Agentic Memory Attack"
+  asi07:
+    owasp_id: "ASI07"
+    name: "Agent Communication"
+  asi08:
+    owasp_id: "ASI08"
+    name: "Cascading Failures"
+  asi09:
+    owasp_id: "ASI09"
+    name: "Trust Exploitation"
+  asi10:
+    owasp_id: "ASI10"
+    name: "Rogue AI Agent"

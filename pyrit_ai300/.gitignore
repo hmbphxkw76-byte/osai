@@ -1,0 +1,19 @@
+# Environment
+.env
+.env.local
+
+
+# Output
+output/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/

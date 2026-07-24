@@ -1,0 +1,228 @@
+# ============================================================
+# PyRIT 端到端全自动AI红队框架 - 全局配置文件
+# ============================================================
+# 本文件包含所有全局可配置参数
+# 遵循开发规则 1.4.2 避免硬编码原则：所有可变参数从此文件读取
+# ============================================================
+
+# ------------------------------------------------------------
+# 全局配置
+# ------------------------------------------------------------
+global:
+  debug: false
+  log_level: INFO
+  max_concurrent_attacks: 4
+  timeout: 300  # 单次攻击超时时间（秒）
+  request_interval_ms: 2000  # 请求间隔，避免触发WAF
+
+# ------------------------------------------------------------
+# 考试模式配置
+# ------------------------------------------------------------
+exam:
+  enabled: false
+  duration_hours: 24
+  report_format: markdown
+  evidence_collection: true
+  time_warning_interval_minutes: 30
+
+# ------------------------------------------------------------
+# 认证配置模板
+# ------------------------------------------------------------
+authentication:
+  # API Key 认证
+  api_key:
+    header_name: Authorization
+    header_format: "Bearer {token}"
+
+  # Bearer Token 认证
+  bearer_token:
+    header_name: Authorization
+    header_format: "Bearer {token}"
+
+  # Cookie 认证
+  cookie:
+    header_name: Cookie
+
+  # OAuth 认证
+  oauth:
+    token_url: ""
+    grant_type: client_credentials
+    client_id_env: OAUTH_CLIENT_ID
+    client_secret_env: OAUTH_CLIENT_SECRET
+
+# ------------------------------------------------------------
+# 目标配置
+# ------------------------------------------------------------
+target:
+  default_endpoint: "/v1/chat"
+  default_method: POST
+  # 支持的端点列表（用于端点探测）
+  supported_endpoints:
+    - "/v1/chat/completions"
+    - "/v1/chat"
+    - "/v1/completions"
+    - "/chat/completions"
+    - "/api/chat"
+    - "/v1/query"
+    - "/v1/embeddings"
+    - "/v1/agent"
+    - "/v1/task"
+    - "/v1/workflow"
+    - "/mcp"
+    - "/tools"
+    - "/mcp/v1"
+    - "/.well-known/mcp"
+    - "/v1/search"
+    - "/v1/retrieve"
+    - "/v1/vectors"
+    - "/v1/models"
+    - "/health"
+    - "/v1/inference"
+
+# ------------------------------------------------------------
+# AI系统类型识别规则（标注PyRIT攻击能力）
+# ------------------------------------------------------------
+ai_type_detection:
+  # LLM 系统 [★ PyRIT核心攻击目标]
+  llm:
+    endpoint_patterns:
+      - "/v1/chat/completions"
+      - "/v1/chat"
+      - "/chat/completions"
+      - "/v1/completions"
+    pyrit_attackable: true
+    recommended_attacks:
+      - PromptSendingAttack
+      - RedTeamingAttack
+      - CrescendoAttack
+
+  # Multi-agent 系统 [★ PyRIT可攻击（XPIA + 直接注入）]
+  multi_agent:
+    endpoint_patterns:
+      - "/v1/agent"
+      - "/v1/task"
+      - "/v1/workflow"
+    response_indicators:
+      - "planner"
+      - "executor"
+      - "reviewer"
+      - "agent"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+      - RedTeamingAttack
+
+  # MCP 服务器系统 [★ PyRIT可攻击（工具描述注入）]
+  mcp_server:
+    endpoint_patterns:
+      - "/mcp"
+      - "/tools"
+      - "/mcp/v1"
+      - "/.well-known/mcp"
+    response_indicators:
+      - "mcp"
+      - "tool_use"
+      - "function_call"
+      - "tool_call"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+
+  # RAG 系统 [★ PyRIT可攻击（上下文注入）]
+  rag:
+    endpoint_patterns:
+      - "/v1/query"
+      - "/v1/search"
+      - "/v1/retrieve"
+    response_indicators:
+      - "context"
+      - "retrieved"
+      - "documents"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+      - ChunkedRequestAttack
+
+  # Embeddings 系统 [❌ 非PyRIT优势，仅识别端点]
+  embeddings:
+    endpoint_patterns:
+      - "/v1/embeddings"
+      - "/v1/vectors"
+      - "/vectors"
+    pyrit_attackable: false
+    external_tools:
+      - textattack
+      - adversarial-robustness-toolbox
+
+  # AI 基础设施 [❌ 非PyRIT优势，仅识别端点]
+  infrastructure:
+    endpoint_patterns:
+      - "/v1/models"
+      - "/health"
+      - "/v1/inference"
+    pyrit_attackable: false
+    external_tools:
+      - kubeaudit
+      - prowler
+      - checkov
+      - impacket
+
+# ------------------------------------------------------------
+# PyRIT 配置
+# ------------------------------------------------------------
+pyrit:
+  # Memory 后端类型：InMemory / SQLite / AzureSQL
+  memory_db_type: SQLite
+  # SQLite 数据库文件路径（通过 kwargs 传递给 SQLiteMemory）
+  db_path: output/exam_results.db
+  # 并发控制
+  max_concurrency: 4
+
+# ------------------------------------------------------------
+# 报告配置
+# ------------------------------------------------------------
+report:
+  output_dir: reports
+  format: markdown
+  include_owasp: true
+  include_evidence: true
+  include_timeline: true
+  # CVSS 评分基准
+  cvss_base:
+    critical: 9.0
+    high: 7.0
+    medium: 4.0
+    low: 0.1
+
+# ------------------------------------------------------------
+# 数据源配置 (批量多源攻击)
+# ------------------------------------------------------------
+payload_sources:
+  # OWASP 目录数据源
+  owasp:
+    enabled: true
+    base_path: "data/owasp"
+    frameworks:
+      - llm          # 加载 LLM01-LLM10
+      - agentic      # 加载 ASI01-ASI10 (OWASP Agentic AI Top 10)
+    # 指定加载的 OWASP ID（空 = 全部）
+    owasp_ids: []
+    # 排除的 OWASP ID
+    exclude_ids: []
+
+  # 自定义载荷
+  custom:
+    enabled: true
+    path: "data/custom"
+
+# ------------------------------------------------------------
+# 批量执行配置
+# ------------------------------------------------------------
+batch_execution:
+  max_concurrency: 4
+  fail_fast: false           # 单个攻击失败是否终止全部
+  per_attack_timeout: 300    # 单次攻击超时（秒）
+  retry_on_error: false      # 失败重试

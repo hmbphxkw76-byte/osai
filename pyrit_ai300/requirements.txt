@@ -1,0 +1,10 @@
+# PyRIT AI-300 - Dependencies
+# Install: pip install -r requirements.txt
+
+pyrit>=0.14.0
+httpx>=0.24.0
+pydantic>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+pytz>=2023.3
+aiofiles>=23.0.0

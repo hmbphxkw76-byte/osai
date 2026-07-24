@@ -1,0 +1,917 @@
+# ============================================================
+# 载荷策略矩阵配置文件
+# ============================================================
+# 本文件定义 AI 系统类型到 Scenario、Attack 技术、数据集、Scorer、Converter 链的映射
+# 遵循开发规则 1.4.2 避免硬编码原则：所有策略从此文件读取
+# 仅保留 PyRIT 可攻击的 AI 系统类型
+# ============================================================
+
+# ------------------------------------------------------------
+# AI 系统类型到 Scenario 的映射
+# 仅包含 PyRIT 有攻击优势的类型（遵循开发规则 1.4.3）
+# ------------------------------------------------------------
+ai_type_to_scenario:
+  llm:
+    - airt.jailbreak
+    - airt.leakage
+    - airt.rapid_response
+    - airt.cyber
+  multi_agent:
+    - airt.jailbreak
+    - foundry.red_team_agent
+    - asi.goal_hijack
+    - asi.tool_misuse
+    - asi.code_execution
+    - asi.memory_attack
+    - asi.trust_exploit
+    - asi.rogue_agent
+  mcp_server:
+    - airt.jailbreak
+    - asi.tool_misuse
+  rag:
+    - airt.leakage
+    - airt.rapid_response
+  # embeddings 和 infrastructure 不在此映射中，由外部工具处理
+
+# ------------------------------------------------------------
+# Scenario 详细配置
+# ------------------------------------------------------------
+scenario_matrix:
+  # ----------------------------------------------------------
+  # airt.jailbreak - 越狱攻击场景
+  # ----------------------------------------------------------
+  airt.jailbreak:
+    description: "越狱攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - multi_prompt_sending
+      - many_shot
+      - skeleton
+      - role_play
+      - flip
+      - barge_in
+      - chunked_request
+      - context_compliance
+      - sequential
+      - red_teaming
+    datasets:
+      - airt_harms
+    scoring:
+      - SelfAskTrueFalseScorer
+    converters:
+      - unicode_confusable
+      - base64
+      - rot13
+      - caesar
+      - ascii_art
+      - suffix_append
+      - persuasion
+      - tone
+      - translation
+    converter_chains:
+      - stealth_evasion
+      - encoding_bypass
+      - llm_assisted
+    default_strategy: simple
+
+  # ----------------------------------------------------------
+  # airt.leakage - 数据泄露攻击场景
+  # ----------------------------------------------------------
+  airt.leakage:
+    description: "数据泄露攻击场景"
+    attack_techniques:
+      - role_play
+      - many_shot
+      - tap
+      - pair
+      - crescendo_simulated
+      - red_teaming
+      - tree_of_attacks_pruned
+    datasets:
+      - airt_leakage
+    scoring:
+      - CredentialLeakScorer
+      - SelfAskTrueFalseScorer
+    converters:
+      - base64
+      - rot13
+      - translation
+      - tone
+      - tense
+    converter_chains:
+      - encoding_bypass
+      - llm_assisted
+    default_strategy: default
+
+  # ----------------------------------------------------------
+  # airt.rapid_response - 快速响应攻击场景
+  # ----------------------------------------------------------
+  airt.rapid_response:
+    description: "快速响应攻击场景"
+    attack_techniques:
+      - role_play
+      - many_shot
+      - tap
+      - pair
+      - crescendo_simulated
+      - red_teaming
+    datasets:
+      - airt_hate
+      - airt_fairness
+      - airt_violence
+      - airt_sexual
+      - airt_harassment
+      - airt_misinformation
+      - airt_leakage
+    scoring:
+      - SelfAskTrueFalseScorer
+    converters:
+      - unicode_confusable
+      - base64
+      - leetspeak
+      - emoji
+      - zalgo
+    converter_chains:
+      - stealth_evasion
+      - encoding_bypass
+    default_strategy: default
+
+  # ----------------------------------------------------------
+  # airt.cyber - 网络安全攻击场景
+  # ----------------------------------------------------------
+  airt.cyber:
+    description: "网络安全攻击场景"
+    attack_techniques:
+      - red_teaming
+      - context_compliance
+    datasets:
+      - airt_malware
+    scoring:
+      - SelfAskTrueFalseScorer
+      - InsecureCodeScorer
+    converters:
+      - base64
+      - rot13
+      - code_chameleon
+      - math_obfuscation
+    converter_chains:
+      - encoding_bypass
+    default_strategy: all
+
+  # ----------------------------------------------------------
+  # foundry.red_team_agent - Foundry 红队代理场景
+  # ----------------------------------------------------------
+  foundry.red_team_agent:
+    description: "Foundry 红队代理场景"
+    attack_techniques:
+      - ansi_attack
+      - ascii_art
+      - base64
+      - rot13
+      - jailbreak
+      - crescendo
+      - pair
+      - tap
+      - flip
+      - chunked_request
+    datasets:
+      - harmbench
+    scoring:
+      - SelfAskTrueFalseScorer
+    converters:
+      - ansi_attack
+      - base64
+      - rot13
+      - leetspeak
+      - emoji
+      - zalgo
+      - qr_code
+      - pdf
+    converter_chains:
+      - format_injection
+      - encoding_bypass
+      - stealth_evasion
+    default_strategy: easy
+
+  # ----------------------------------------------------------
+  # asi.goal_hijack - Agent 目标劫持场景
+  # ----------------------------------------------------------
+  asi.goal_hijack:
+    description: "Agent 目标劫持攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - crescendo
+      - pair
+      - sequential
+    datasets:
+      - airt_harms
+    scoring:
+      - SelfAskTrueFalseScorer
+    converters:
+      - unicode_confusable
+      - base64
+      - suffix_append
+    converter_chains:
+      - stealth_evasion
+      - encoding_bypass
+    default_strategy: simple
+
+  # ----------------------------------------------------------
+  # asi.tool_misuse - Agent 工具滥用场景
+  # ----------------------------------------------------------
+  asi.tool_misuse:
+    description: "Agent 工具滥用攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - sequential
+    datasets:
+      - airt_harms
+    scoring:
+      - SelfAskTrueFalseScorer
+      - SQLInjectionOutputScorer
+    converters:
+      - base64
+      - rot13
+      - search_replace
+    converter_chains:
+      - encoding_bypass
+    default_strategy: simple
+
+  # ----------------------------------------------------------
+  # asi.code_execution - Agent 代码执行场景
+  # ----------------------------------------------------------
+  asi.code_execution:
+    description: "Agent 代码执行攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - sequential
+    datasets:
+      - airt_malware
+    scoring:
+      - SelfAskTrueFalseScorer
+      - InsecureCodeScorer
+      - ShellCommandOutputScorer
+    converters:
+      - base64
+      - code_chameleon
+      - math_obfuscation
+    converter_chains:
+      - encoding_bypass
+    default_strategy: all
+
+  # ----------------------------------------------------------
+  # asi.memory_attack - Agent 记忆攻击场景
+  # ----------------------------------------------------------
+  asi.memory_attack:
+    description: "Agent 记忆攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - crescendo
+      - pair
+    datasets:
+      - airt_leakage
+    scoring:
+      - CredentialLeakScorer
+      - SelfAskTrueFalseScorer
+    converters:
+      - unicode_confusable
+      - base64
+    converter_chains:
+      - stealth_evasion
+      - encoding_bypass
+    default_strategy: default
+
+  # ----------------------------------------------------------
+  # asi.trust_exploit - Agent 信任利用场景
+  # ----------------------------------------------------------
+  asi.trust_exploit:
+    description: "Agent 信任利用攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - crescendo
+      - pair
+    datasets:
+      - airt_leakage
+    scoring:
+      - CredentialLeakScorer
+      - SelfAskTrueFalseScorer
+    converters:
+      - unicode_confusable
+      - base64
+    converter_chains:
+      - stealth_evasion
+    default_strategy: default
+
+  # ----------------------------------------------------------
+  # asi.rogue_agent - 恶意 Agent 场景
+  # ----------------------------------------------------------
+  asi.rogue_agent:
+    description: "恶意 Agent 攻击场景"
+    attack_techniques:
+      - prompt_sending
+      - red_teaming
+      - sequential
+    datasets:
+      - airt_malware
+    scoring:
+      - SelfAskTrueFalseScorer
+      - InsecureCodeScorer
+    converters:
+      - base64
+      - code_chameleon
+    converter_chains:
+      - stealth_evasion
+      - encoding_bypass
+    default_strategy: all
+
+# ------------------------------------------------------------
+# 能力到 Scenario 的映射
+# ------------------------------------------------------------
+capability_to_scenario:
+  supports_multi_turn:
+    - airt.leakage
+    - airt.rapid_response
+  supports_system_prompt:
+    - airt.jailbreak
+    - airt.leakage
+  supports_json_output:
+    - airt.cyber
+  supports_editable_history:
+    - airt.leakage
+    - airt.rapid_response
+  supports_multi_modal:
+    - airt.jailbreak
+
+# ------------------------------------------------------------
+# Converter 链配置（预置链）
+# ------------------------------------------------------------
+converter_chains:
+  # 隐身规避链（使用 Unicode 混淆 + Base64 + 后缀追加）
+  stealth_evasion:
+    converters:
+      - UnicodeConfusableConverter
+      - Base64Converter
+      - SuffixAppendConverter
+    params:
+      SuffixAppendConverter:
+        suffix: "!"
+
+  # 编码绕过链（Base64 + ROT13 + Caesar）
+  encoding_bypass:
+    converters:
+      - Base64Converter
+      - ROT13Converter
+      - CaesarConverter
+    params:
+      CaesarConverter:
+        caesar_offset: 13
+
+  # 格式注入链（ASCII 艺术 + QR 码 + PDF）
+  format_injection:
+    converters:
+      - AsciiArtConverter
+      - QRCodeConverter
+      - PDFConverter
+
+  # LLM 辅助链（说服转换 + 语气转换 + 翻译）
+  llm_assisted:
+    converters:
+      - PersuasionConverter
+      - ToneConverter
+      - TranslationConverter
+    params:
+      TranslationConverter:
+        language: "en"
+      ToneConverter:
+        tone: "formal"
+      PersuasionConverter:
+        persuasion_technique: "authority"
+
+  # Unicode 攻击链（Unicode 混淆 + 双向文本 + 零宽字符）
+  unicode_attack:
+    converters:
+      - UnicodeConfusableConverter
+      - BidiConverter
+      - ZeroWidthConverter
+
+  # 多层编码链（Base64 + ROT13 + Caesar + Atbash）
+  multi_encoding:
+    converters:
+      - Base64Converter
+      - ROT13Converter
+      - CaesarConverter
+      - AtbashConverter
+    params:
+      CaesarConverter:
+        caesar_offset: 5
+
+  # 语义混淆链（翻译 + 语气 + 时态 + 变体）
+  semantic_obfuscation:
+    converters:
+      - TranslationConverter
+      - ToneConverter
+      - TenseConverter
+      - VariationConverter
+    params:
+      TranslationConverter:
+        language: "fr"
+
+  # 特殊字符链（Zalgo + Tatweel + Diacritic + Emoji）
+  special_chars:
+    converters:
+      - ZalgoConverter
+      - TatweelConverter
+      - DiacriticConverter
+      - EmojiConverter
+
+  # Leetspeak 链（Leetspeak + Flip + RepeatToken）
+  leetspeak_chain:
+    converters:
+      - LeetspeakConverter
+      - FlipConverter
+      - RepeatTokenConverter
+    params:
+      RepeatTokenConverter:
+        token_to_repeat: "."
+        times_to_repeat: 3
+        token_insert_mode: "append"
+
+# ------------------------------------------------------------
+# Scorer 选择配置（按攻击类型）
+# ------------------------------------------------------------
+scorer_selection:
+  # 通用评分
+  general:
+    - SelfAskTrueFalseScorer
+    - SelfAskQuestionAnswerScorer
+
+  # 凭证泄露检测
+  leakage_detection:
+    - CredentialLeakScorer
+    - SelfAskTrueFalseScorer
+
+  # 注入检测
+  injection_detection:
+    - XSSOutputScorer
+    - SQLInjectionOutputScorer
+    - MarkdownInjectionScorer
+    - PathTraversalOutputScorer
+    - StaticPromptInjectionScorer
+
+  # 内容安全
+  content_safety:
+    - AzureContentFilterScorer
+    - SelfAskRefusalScorer
+
+  # 综合评分
+  composite:
+    - TrueFalseCompositeScorer
+    - FloatScaleScorer
+
+  # 不安全代码检测
+  code_safety:
+    - InsecureCodeScorer
+    - ShellCommandOutputScorer
+
+# ------------------------------------------------------------
+# Attack 技术配置
+# ------------------------------------------------------------
+attack_techniques:
+  prompt_sending:
+    class: PromptSendingAttack
+    multi_turn: false
+    description: "单轮批量提示发送"
+
+  multi_prompt_sending:
+    class: MultiPromptSendingAttack
+    multi_turn: false
+    description: "批量多提示发送"
+
+  many_shot:
+    class: ManyShotJailbreakAttack
+    multi_turn: false
+    description: "多示例越狱"
+
+  skeleton:
+    class: SkeletonKeyAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "骨架密钥攻击"
+
+  role_play:
+    class: RolePlayAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "角色扮演攻击"
+
+  flip:
+    class: FlipAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "翻转攻击"
+
+  barge_in:
+    class: BargeInAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "打断式攻击"
+
+  chunked_request:
+    class: ChunkedRequestAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "分块请求攻击"
+
+  context_compliance:
+    class: ContextComplianceAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "上下文合规攻击"
+
+  red_teaming:
+    class: RedTeamingAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "多轮红队攻击"
+
+  crescendo:
+    class: CrescendoAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "渐进式攻击"
+
+  crescendo_simulated:
+    class: CrescendoAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "渐进式攻击（模拟）"
+
+  tap:
+    class: TAPAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "树状攻击"
+
+  pair:
+    class: PAIRAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "PAIR 攻击"
+
+  tree_of_attacks_pruned:
+    class: TreeOfAttacksWithPruningAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "剪枝攻击树"
+
+  sequential:
+    class: SequentialAttack
+    multi_turn: true
+    requires_adversarial: false
+    description: "顺序组合攻击"
+
+  ansi_attack:
+    class: PromptSendingAttack
+    multi_turn: false
+    description: "ANSI 转义序列攻击（使用 AnsiAttackConverter）"
+
+  ascii_art:
+    class: PromptSendingAttack
+    multi_turn: false
+    description: "ASCII 艺术攻击（使用 AsciiArtConverter）"
+
+# ------------------------------------------------------------
+# OWASP ID 到 Scorer 类型的映射
+# ------------------------------------------------------------
+ownasp_scorer_map:
+  # --- LLM Top 10 2025 ---
+  LLM01: "general"                # Prompt Injection → 通用真/假判断
+  LLM02: "leakage_detection"      # Sensitive Info Disclosure → 凭证泄露检测
+  LLM03: "general"                # Supply Chain → 通用
+  LLM04: "general"                # Data Poisoning → 通用
+  LLM05: "injection_detection"    # Improper Output Handling → 注入检测
+  LLM06: "general"                # Excessive Agency → 通用
+  LLM07: "leakage_detection"      # System Prompt Leakage → 泄露检测
+  LLM08: "general"                # Vector/Embedding → 通用
+  LLM09: "general"                # Misinformation → 通用
+  LLM10: "general"                # Unbounded Consumption → 通用
+  # --- Agentic AI Top 10 ---
+  ASI01: "general"                # Goal Hijacking → 通用
+  ASI02: "injection_detection"    # Tool Misuse → 注入检测（SQL/命令注入）
+  ASI03: "general"                # Identity Abuse → 通用
+  ASI04: "general"                # Supply Chain (Agentic) → 通用
+  ASI05: "code_safety"            # Code Execution → 代码安全检测
+  ASI06: "leakage_detection"      # Memory Attack → 泄露检测
+  ASI07: "general"                # Agent Communication → 通用
+  ASI08: "general"                # Cascading Failures → 通用
+  ASI09: "leakage_detection"      # Trust Exploitation → 泄露检测
+  ASI10: "code_safety"            # Rogue Agent → 代码安全检测
+
+# ------------------------------------------------------------
+# 载荷 metadata.technique 到攻击技术的智能匹配
+# ------------------------------------------------------------
+technique_hint_map:
+  # --- LLM 技术提示 ---
+  # 身份/权限建立类 → SkeletonKeyAttack
+  skeleton: "skeleton"
+  authority_override: "skeleton"
+  developer_mode: "skeleton"
+  # flip → FlipAttack
+  flip: "flip"
+  # many_shot → ManyShotJailbreakAttack
+  many_shot: "many_shot"
+  # role_play → RolePlayAttack
+  role_play: "role_play"
+  # crescendo → CrescendoAttack
+  crescendo: "crescendo"
+  # chunked → ChunkedRequestAttack
+  chunked: "chunked_request"
+  chunked_request: "chunked_request"
+
+  # --- Agentic 技术提示 ---
+  # 身份冒充类 → SkeletonKeyAttack（建立权限上下文）
+  admin_impersonation: "skeleton"
+  developer_impersonation: "skeleton"
+  # Agent 冒充 / 角色扮演类 → RolePlayAttack
+  agent_impersonation: "role_play"
+  roleplay_then_extract: "role_play"
+  # 渐进式多轮攻击类 → RedTeamingAttack
+  progressive_hijack: "red_teaming"
+  progressive_identity_assumption: "red_teaming"
+  progressive_memory_injection: "red_teaming"
+  trust_audit_escalation: "red_teaming"
+  gradual_extraction: "red_teaming"
+  role_play_escalation: "red_teaming"
+  # 直接注入类 → PromptSendingAttack
+  direct: "prompt_sending"
+  direct_extraction: "prompt_sending"
+  direct_ask: "prompt_sending"
+  direct_goal_override: "prompt_sending"
+  objective_replacement: "prompt_sending"
+  task_switch: "prompt_sending"
+  command_execution_via_tool: "prompt_sending"
+  direct_code_execution: "prompt_sending"
+  remote_code_download: "prompt_sending"
+  reverse_shell_generation: "prompt_sending"
+  memory_poisoning: "prompt_sending"
+  policy_overwrite: "prompt_sending"
+  role_escalation_via_memory: "prompt_sending"
+  malicious_message_injection: "prompt_sending"
+  message_interception: "prompt_sending"
+  broadcast_hijack: "prompt_sending"
+  resource_exhaustion_via_agent: "prompt_sending"
+  crash_propagation: "prompt_sending"
+  circuit_breaker_bypass: "prompt_sending"
+  trust_delegation_abuse: "prompt_sending"
+  cross_agent_trust_chain: "prompt_sending"
+  trusted_status_bypass: "prompt_sending"
+  rogue_agent_creation: "prompt_sending"
+  agent_backdoor_injection: "prompt_sending"
+  constraint_override: "prompt_sending"
+  stealth_rogue_agent: "prompt_sending"
+  unauthorized_file_access: "prompt_sending"
+  tool_parameter_injection: "prompt_sending"
+  dependency_exploitation: "prompt_sending"
+  dependency_enumeration: "prompt_sending"
+  service_enumeration: "prompt_sending"
+  malicious_plugin_injection: "prompt_sending"
+  unsafe_deserialization: "prompt_sending"
+  data_injection: "prompt_sending"
+  database_enumeration: "prompt_sending"
+  hidden_instruction_probe: "prompt_sending"
+  command_injection: "prompt_sending"
+  unauthorized_access: "prompt_sending"
+  xss_injection: "prompt_sending"
+  sql_injection: "prompt_sending"
+  markdown_injection: "prompt_sending"
+  large_output_request: "prompt_sending"
+  excessive_generation: "prompt_sending"
+  encoded_command: "prompt_sending"
+  encoded_goal_hijack: "prompt_sending"
+  encoded_leakage: "prompt_sending"
+  base64_encoded_execution: "prompt_sending"
+  encoded_sql_injection_via_tool: "prompt_sending"
+  verbatim_request: "prompt_sending"
+  partial_extraction: "prompt_sending"
+  translation_trick: "prompt_sending"
+
+# ------------------------------------------------------------
+# 攻击升级策略（反馈循环）
+# ------------------------------------------------------------
+attack_upgrade_strategies:
+  # 从单轮升级到多轮
+  single_turn_to_multi_turn:
+    from:
+      - "prompt_sending"
+      - "many_shot"
+      - "role_play"
+      - "skeleton"
+      - "flip"
+      - "chunked_request"
+    to:
+      - "red_teaming"
+      - "crescendo"
+      - "pair"
+    reason: "单轮攻击失败，尝试多轮对抗性攻击"
+
+  # 从基础多轮升级到高级多轮
+  multi_turn_upgrade:
+    from:
+      - "red_teaming"
+    to:
+      - "crescendo"
+      - "pair"
+      - "tap"
+    reason: "基础多轮攻击失败，尝试树状/渐进式攻击"
+
+  # 添加 Converter 重试
+  add_converter:
+    from:
+      - "prompt_sending"
+      - "many_shot"
+      - "role_play"
+    converter_chains:
+      - "stealth_evasion"
+      - "encoding_bypass"
+      - "llm_assisted"
+    reason: "直接攻击失败，尝试编码/混淆绕过"
+
+# ------------------------------------------------------------
+# OWASP ID → 完整策略自动匹配（新架构）
+# ------------------------------------------------------------
+# 系统根据此映射自动为每个载荷选择最佳攻击模式、技术、转换器和评分器
+# 优先级：YAML 显式声明 > technique_hint_map > owasp_strategy_map 默认值
+# ------------------------------------------------------------
+owasp_strategy_map:
+  # --- LLM Top 10 2025 ---
+  LLM01:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "stealth_evasion"
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+      - "crescendo"
+      - "pair"
+  LLM02:
+    scorer_type: "leakage_detection"
+    default_attack_mode: "multi_turn"
+    default_attack_technique: "red_teaming"
+    recommended_converter_chains:
+      - "encoding_bypass"
+      - "llm_assisted"
+    upgrade_techniques:
+      - "crescendo"
+      - "pair"
+      - "tap"
+  LLM03:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques:
+      - "red_teaming"
+  LLM04:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques:
+      - "red_teaming"
+  LLM05:
+    scorer_type: "injection_detection"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+  LLM06:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+      - "crescendo"
+  LLM07:
+    scorer_type: "leakage_detection"
+    default_attack_mode: "multi_turn"
+    default_attack_technique: "red_teaming"
+    recommended_converter_chains:
+      - "stealth_evasion"
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "crescendo"
+      - "pair"
+  LLM08:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques:
+      - "red_teaming"
+  LLM09:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques: []
+  LLM10:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques: []
+  # --- Agentic AI Top 10 ---
+  ASI01:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "stealth_evasion"
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+      - "crescendo"
+  ASI02:
+    scorer_type: "injection_detection"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+  ASI03:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "stealth_evasion"
+    upgrade_techniques:
+      - "red_teaming"
+      - "crescendo"
+  ASI04:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+  ASI05:
+    scorer_type: "code_safety"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "encoding_bypass"
+    upgrade_techniques:
+      - "red_teaming"
+  ASI06:
+    scorer_type: "leakage_detection"
+    default_attack_mode: "multi_turn"
+    default_attack_technique: "red_teaming"
+    recommended_converter_chains:
+      - "stealth_evasion"
+    upgrade_techniques:
+      - "crescendo"
+      - "pair"
+  ASI07:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques:
+      - "red_teaming"
+  ASI08:
+    scorer_type: "general"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains: []
+    upgrade_techniques: []
+  ASI09:
+    scorer_type: "leakage_detection"
+    default_attack_mode: "multi_turn"
+    default_attack_technique: "red_teaming"
+    recommended_converter_chains:
+      - "stealth_evasion"
+    upgrade_techniques:
+      - "crescendo"
+      - "pair"
+  ASI10:
+    scorer_type: "code_safety"
+    default_attack_mode: "single_turn"
+    default_attack_technique: "prompt_sending"
+    recommended_converter_chains:
+      - "stealth_evasion"
+    upgrade_techniques:
+      - "red_teaming"
+      - "crescendo"
