@@ -210,9 +210,12 @@ class OutputManager:
         logs_dir = Path(config_loader.get_logs_dir())
         logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # 文件通道 - 全量 Markdown 日志
+        # 文件通道 - 全量 Markdown 日志（追加模式，避免多次写入截断文件）
         self.terminal_log_path = logs_dir / f"{exam_id}_attacks.md"
-        self.file_sink = FileSink(path=self.terminal_log_path, mode="w")
+        # 如果文件已存在则先清空（新 pipeline 运行应从头开始）
+        if self.terminal_log_path.exists():
+            self.terminal_log_path.unlink()
+        self.file_sink = FileSink(path=self.terminal_log_path, mode="a")
 
         # 终端通道 - 自动检测环境（IPythonMarkdownSink in notebook, StdoutSink otherwise）
         self.stdout_sink = get_default_sink(StdoutSink)

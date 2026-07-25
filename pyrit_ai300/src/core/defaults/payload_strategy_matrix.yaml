@@ -820,6 +820,34 @@ attack_upgrade_strategies:
       - "llm_assisted"
     reason: "直接攻击失败，尝试编码/混淆绕过"
 
+  # P1-1: 按失败类型路由的升级策略
+  # 根据失败原因选择最优升级路径，避免盲目升级
+  failure_type_routing:
+    # 目标拒绝响应 → 优先添加 Converter 编码绕过
+    model_refusal:
+      prefer_converter_chains:
+        - "stealth_evasion"
+        - "encoding_bypass"
+        - "llm_assisted"
+
+    # 超时 → 降级到更简单的技术（减少计算开销）
+    timeout:
+      downgrade_to:
+        - "prompt_sending"
+
+    # 评分器验证错误 → 换技术避免评分器兼容问题
+    scorer_validation_error:
+      alternative_techniques:
+        - "prompt_sending"
+        - "many_shot"
+
+    # 目标未达成 → 升级到更强的多轮攻击
+    objective_not_achieved:
+      upgrade_to:
+        - "crescendo"
+        - "red_teaming"
+        - "pair"
+
 # ------------------------------------------------------------
 # OWASP ID → 完整策略自动匹配（新架构）
 # ------------------------------------------------------------

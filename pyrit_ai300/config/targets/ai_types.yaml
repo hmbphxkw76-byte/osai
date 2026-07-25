@@ -1,0 +1,83 @@
+# ============================================================
+# AI 系统类型识别规则（可扩展列表）
+# ============================================================
+# 侦察阶段根据端点模式和响应特征自动识别 AI 系统类型
+# 每个条目标注是否可用 PyRIT 攻击
+#
+# endpoint_names: 引用 endpoints.yaml 中 endpoints 段的 key 名
+#                 （修改路径只需改 endpoints.yaml 一处）
+#
+# 扩展方式：在列表末尾追加新条目即可
+# ============================================================
+
+ai_types:
+  # ─── PyRIT 可攻击类型 ───────────────────────────────
+
+  - name: llm
+    description: "LLM 系统 [★ PyRIT核心攻击目标]"
+    endpoint_names: [chat_completions, chat, chat_alt, completions]
+    pyrit_attackable: true
+    recommended_attacks:
+      - PromptSendingAttack
+      - RedTeamingAttack
+      - CrescendoAttack
+
+  - name: multi_agent
+    description: "Multi-agent 系统 [★ PyRIT可攻击（XPIA + 直接注入）]"
+    endpoint_names: [agent, task, workflow]
+    response_indicators:
+      - "planner"
+      - "executor"
+      - "reviewer"
+      - "agent"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+      - RedTeamingAttack
+
+  - name: mcp_server
+    description: "MCP 服务器系统 [★ PyRIT可攻击（工具描述注入）]"
+    endpoint_names: [mcp, tools, mcp_v1, mcp_well_known]
+    response_indicators:
+      - "mcp"
+      - "tool_use"
+      - "function_call"
+      - "tool_call"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+
+  - name: rag
+    description: "RAG 系统 [★ PyRIT可攻击（上下文注入）]"
+    endpoint_names: [query, search, retrieve]
+    response_indicators:
+      - "context"
+      - "retrieved"
+      - "documents"
+    pyrit_attackable: true
+    recommended_attacks:
+      - XPIATestWorkflow
+      - PromptSendingAttack
+      - ChunkedRequestAttack
+
+  # ─── 非 PyRIT 优势类型（仅识别端点）────────────────
+
+  - name: embeddings
+    description: "Embeddings 系统 [❌ 非PyRIT优势，仅识别端点]"
+    endpoint_names: [embeddings, vectors, vectors_alt]
+    pyrit_attackable: false
+    external_tools:
+      - textattack
+      - adversarial-robustness-toolbox
+
+  - name: infrastructure
+    description: "AI 基础设施 [❌ 非PyRIT优势，仅识别端点]"
+    endpoint_names: [models, health, inference]
+    pyrit_attackable: false
+    external_tools:
+      - kubeaudit
+      - prowler
+      - checkov
+      - impacket

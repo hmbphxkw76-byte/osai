@@ -1,0 +1,41 @@
+# ============================================================
+# 模型推理参数默认值
+# ============================================================
+# 红队测试最优默认值：temperature=0 确保可复现
+# 目标模型和评分器模型各自独立配置
+#
+# 优先级：.env 环境变量 > 本文件默认值
+# ============================================================
+
+# --- 目标模型参数 (被攻击的 LLM) ---
+target:
+  temperature: 0          # 0=确定性，确保攻击可复现
+  top_p: 1.0             # 1.0=不限制核采样，让模型自然响应
+  max_completion_tokens: 4096   # Chat Completions API
+  max_output_tokens: 16384      # Responses API (o1/o3)
+  frequency_penalty: 0
+  presence_penalty: 0
+  seed: null              # null=不固定种子；设为整数确保完全可复现
+
+  # Responses API 专用 (o1/o3/o4-mini 推理模型)
+  reasoning_effort: medium   # minimal / low / medium / high
+  reasoning_summary: auto    # auto / concise / detailed
+
+  # JSON 输出（结构化响应测试）
+  force_json_output: false
+
+# --- 评分器模型参数 (Judge LLM) ---
+# 评分器需要稳定、可复现的判断
+judge:
+  temperature: 0          # 0=确定性，确保评分一致
+  top_p: 1.0
+  max_completion_tokens: 4096
+  force_json_output: true    # 强制 JSON 输出，确保评分格式可解析
+  seed: null
+
+# --- 对抗模型参数 (Adversarial Chat - 多轮攻击的军师 LLM) ---
+# 多轮攻击中生成对抗性提示词的 LLM，需要一定创造性
+adversarial:
+  temperature: 0.7        # 适度随机，增加攻击多样性
+  top_p: 0.95
+  max_completion_tokens: 2048

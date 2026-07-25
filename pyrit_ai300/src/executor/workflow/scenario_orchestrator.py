@@ -75,25 +75,41 @@ class ScenarioOrchestrator:
     - SequentialAttack 使用原生异构技术链
     """
 
-    def __init__(self):
+    def __init__(self, output_manager: Any = None):
+        """
+        初始化 Scenario 编排器
+
+        Args:
+            output_manager: 可选的 OutputManager 实例（依赖注入）。
+                如果传入 None（默认），将在首次批量执行时延迟初始化。
+                传入实例便于单元测试中注入 Mock。
+        """
         self.config_loader = get_config_loader()
         attack_techniques = self.config_loader.get_strategy_config().get("attack_techniques", {})
         self.adversarial_techniques = {
             tech for tech, config in attack_techniques.items()
             if config.get("requires_adversarial", False)
         }
-        self._output_manager = None
+        # 依赖注入：允许外部传入 OutputManager（测试友好）
+        # 如果未传入，保持延迟初始化（向后兼容）
+        self._output_manager = output_manager
         # 委托原生攻击执行器（并发数=1，由 ScenarioOrchestrator 控制并发）
         self._executor = NativeAttackExecutor(max_concurrency=1)
         # L5 对齐：ScenarioEventHandler 实现事件可观测性
         self._event_handler = ScenarioEventHandler(verbose=False)
 
     def _get_output_manager(self, exam_id: str = None, verbose: bool = False):
-        """延迟初始化 OutputManager"""
-        if self._output_manager is None:
-            from src.reporting.output_manager import OutputManager
-            eid = exam_id or f"batch_{int(time.time())}"
-            self._output_manager = OutputManager(exam_id=eid, verbose=verbose)
+        """
+        获取 OutputManager（延迟初始化，向后兼容）
+
+        如果构造函数传入了 output_manager（依赖注入），直接返回。
+        否则在首次调用时延迟初始化。
+        """
+        if self._output_manager is not None:
+            return self._output_manager
+        from src.reporting.output_manager import OutputManager
+        eid = exam_id or f"batch_{int(time.time())}"
+        self._output_manager = OutputManager(exam_id=eid, verbose=verbose)
         return self._output_manager
 
     # ------------------------------------------------------------------
@@ -244,57 +260,14 @@ class ScenarioOrchestrator:
                                 attack_result, to_terminal=False, to_file=True,
                                 include_auxiliary=True, include_adversarial=False,
                             )
-                            # 攻击失败 → 尝试升级重试
-                            upgraded_plans = self._generate_upgrade_plans(plan, attack_result)
-                            for upgraded_plan in upgraded_plans:
-                                result.upgrade_attempts += 1
-                                dashboard.update(upgrade_attempts=1)
-                            up_brief = _plan_brief(upgraded_plan)
-                            print(f"  [UPG]        {up_brief}  (升级自 {plan.attack_technique})")
-                            up_effective_timeout = self._resolve_timeout(upgraded_plan, per_attack_timeout, timeout_overrides)
-                            up_start = time.time()
-                            try:
-                                upgraded_result = await asyncio.wait_for(
-                                    self._execute_single_plan(
-                                        upgraded_plan, objective_target, judge_target,
-                                        completion_policy=completion_policy,
-                                        attribution=_create_attribution(upgraded_plan),
-                                    ),
-                                    timeout=up_effective_timeout,
-                                )
-                                up_elapsed = time.time() - up_start
-                                result.executed += 1
-                                result.results.append(upgraded_result)
-                                upgraded_outcome = getattr(upgraded_result, "outcome", None)
-                                if upgraded_outcome is not None:
-                                    upgraded_outcome_str = str(upgraded_outcome.value).upper() if hasattr(upgraded_outcome, "value") else str(upgraded_outcome).upper()
-                                    if upgraded_outcome_str == "SUCCESS":
-                                        result.succeeded += 1
-                                        result.upgrade_success += 1
-                                        dashboard.update(succeeded=1, upgrade_success=1)
-                                        _update_mode_stats(upgraded_plan, succeeded=True, failed=False)
-                                        print(f"  [OK]         {up_brief} -> SUCCESS (升级, {up_elapsed:.1f}s)")
-                                        await output_manager.output_attack_result(
-                                            upgraded_result,
-                                            to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
-                                            to_file=True, include_auxiliary=True, include_adversarial=True,
-                                        )
-                                    else:
-                                        result.failed += 1
-                                        dashboard.update(failed=1)
-                                        _update_mode_stats(upgraded_plan, succeeded=False, failed=True)
-                                        print(f"  [FAIL]       {up_brief} -> {upgraded_outcome_str} (升级, {up_elapsed:.1f}s)")
-                                        await output_manager.output_attack_result(
-                                            upgraded_result, to_terminal=False, to_file=True,
-                                        )
-                            except Exception as upgrade_error:
-                                result.errored += 1
-                                dashboard.update(errored=1)
-                                result.errors.append({
-                                    "plan_id": upgraded_plan.plan_id,
-                                    "error": f"Upgrade failed: {upgrade_error}",
-                                })
-                                print(f"  [ERR]        {up_brief} -> 升级失败: {_truncate(str(upgrade_error), 80)}")
+                            # P1-1: 攻击失败 → 智能升级重试（多候选+递归）
+                            await self._try_upgrade_plans(
+                                plan, attack_result, objective_target, judge_target,
+                                result, dashboard, output_manager, verbose,
+                                per_attack_timeout, timeout_overrides, completed_count,
+                                total, _plan_brief, _update_mode_stats, _create_attribution,
+                                completion_policy,
+                            )
                     else:
                         result.failed += 1
                         dashboard.update(failed=1)
@@ -771,7 +744,7 @@ class ScenarioOrchestrator:
         return last_result
 
     # ------------------------------------------------------------------
-    # 攻击升级策略（自研：失败后自动升级）
+    # 攻击升级策略（委托 upgrade_strategy.py 模块）
     # ------------------------------------------------------------------
 
     def _generate_upgrade_plans(
@@ -779,47 +752,11 @@ class ScenarioOrchestrator:
         original_plan: AttackPlan,
         failed_result: Any,
     ) -> List[AttackPlan]:
-        """根据失败结果生成升级的攻击计划"""
-        upgrade_strategies = self.config_loader.get_strategy_config().get("attack_upgrade_strategies", {})
-        current_technique = original_plan.attack_technique
-        current_mode = original_plan.prompt_item.attack_mode
-        upgraded_plans = []
-
-        # 策略 1: 单轮 → 多轮升级
-        if current_mode in (AttackMode.SINGLE_TURN, AttackMode.CONVERTER_ENHANCED):
-            strategy = upgrade_strategies.get("single_turn_to_multi_turn", {})
-            if current_technique in strategy.get("from", []):
-                for tech in strategy.get("to", [])[:1]:
-                    upgraded_plans.append(self._create_upgraded_plan(
-                        original_plan, new_technique=tech,
-                        new_mode=AttackMode.MULTI_TURN, reason=strategy.get("reason", ""),
-                    ))
-                    break
-
-        # 策略 2: 基础多轮 → 高级多轮升级
-        elif current_mode == AttackMode.MULTI_TURN and not original_plan.prompt_item.multi_turn_steps:
-            strategy = upgrade_strategies.get("multi_turn_upgrade", {})
-            if current_technique in strategy.get("from", []):
-                for tech in strategy.get("to", [])[:1]:
-                    upgraded_plans.append(self._create_upgraded_plan(
-                        original_plan, new_technique=tech,
-                        new_mode=AttackMode.MULTI_TURN, reason=strategy.get("reason", ""),
-                    ))
-                    break
-
-        # 策略 3: 添加 Converter 链
-        if not original_plan.converter_chain_name and current_mode == AttackMode.SINGLE_TURN:
-            strategy = upgrade_strategies.get("add_converter", {})
-            if current_technique in strategy.get("from", []):
-                for chain in strategy.get("converter_chains", [])[:1]:
-                    upgraded_plans.append(self._create_upgraded_plan(
-                        original_plan, new_technique=current_technique,
-                        new_mode=AttackMode.CONVERTER_ENHANCED,
-                        converter_chain=chain, reason=strategy.get("reason", ""),
-                    ))
-                    break
-
-        return upgraded_plans
+        """根据失败结果生成升级的攻击计划（委托 AttackUpgradeStrategy）"""
+        if not hasattr(self, "_upgrade_strategy"):
+            from src.executor.workflow.upgrade_strategy import AttackUpgradeStrategy
+            self._upgrade_strategy = AttackUpgradeStrategy(self.config_loader)
+        return self._upgrade_strategy.generate_upgrade_plans(original_plan, failed_result)
 
     def _create_upgraded_plan(
         self,
@@ -829,42 +766,190 @@ class ScenarioOrchestrator:
         converter_chain: Optional[str] = None,
         reason: str = "",
     ) -> AttackPlan:
-        """创建升级的攻击计划"""
-        new_labels = {
-            **original_plan.memory_labels,
-            "upgraded_from": original_plan.attack_technique,
-            "upgrade_reason": reason,
-        }
-        if converter_chain:
-            new_labels["converter_chain_name"] = converter_chain
-
-        new_prompt_item = PromptItem(
-            id=original_plan.prompt_item.id,
-            objective=original_plan.prompt_item.objective,
-            owasp_id=original_plan.prompt_item.owasp_id,
-            attack_mode=new_mode,
-            source_id=original_plan.prompt_item.source_id,
-            category=original_plan.prompt_item.category,
-            converter_chains=original_plan.prompt_item.converter_chains.copy() if original_plan.prompt_item.converter_chains else [],
-            multi_turn_steps=original_plan.prompt_item.multi_turn_steps.copy() if original_plan.prompt_item.multi_turn_steps else [],
-            sequential_steps=original_plan.prompt_item.sequential_steps.copy() if original_plan.prompt_item.sequential_steps else [],
-            metadata=original_plan.prompt_item.metadata.copy(),
+        """创建升级的攻击计划（委托 AttackUpgradeStrategy）"""
+        from src.executor.workflow.upgrade_strategy import AttackUpgradeStrategy
+        return AttackUpgradeStrategy.create_upgraded_plan(
+            original_plan, new_technique, new_mode,
+            converter_chain=converter_chain, reason=reason,
         )
 
-        upgraded_max_turns = 3 if new_mode == AttackMode.MULTI_TURN else 1
+    # ------------------------------------------------------------------
+    # P1-1: 智能升级重试（多候选+递归）
+    # ------------------------------------------------------------------
 
-        return AttackPlan(
-            plan_id=f"{original_plan.plan_id}_upgrade",
-            prompt_item=new_prompt_item,
-            attack_technique=new_technique,
-            converter_chain_name=converter_chain,
-            memory_labels=new_labels,
-            max_turns=upgraded_max_turns,
-            priority=original_plan.priority - 5,
-            owasp_id=original_plan.owasp_id,
-            scorer_type=original_plan.scorer_type,
-            scenario_name=original_plan.scenario_name,
+    async def _try_upgrade_plans(
+        self,
+        original_plan: AttackPlan,
+        failed_result: Any,
+        objective_target: Any,
+        judge_target: Any,
+        result: Any,
+        dashboard: Any,
+        output_manager: Any,
+        verbose: bool,
+        per_attack_timeout: int,
+        timeout_overrides: Optional[Dict[str, int]],
+        completed_count: list,
+        total: int,
+        plan_brief_fn: Any,
+        update_mode_stats_fn: Any,
+        create_attribution_fn: Any,
+        completion_policy: Any,
+        _depth: int = 0,
+        _tried: Optional[set] = None,
+    ) -> bool:
+        """
+        P1-1: 智能升级重试 — 遍历多个候选方案，逐个尝试直到成功或耗尽
+
+        支持递归升级：如果某个升级方案也失败，可以继续生成更深层的升级方案。
+        受 MAX_UPGRADE_DEPTH 限制，防止无限递归。
+
+        Args:
+            original_plan: 原始失败的攻击计划
+            failed_result: 失败的 AttackResult
+            objective_target: 目标 PromptTarget
+            judge_target: 评审 LLM Target
+            result: BatchAttackResult 实例（用于统计）
+            dashboard: ProgressDashboard 实例
+            output_manager: OutputManager 实例
+            verbose: 是否详细输出
+            per_attack_timeout: 单次攻击超时
+            timeout_overrides: 差异化超时配置
+            completed_count: 完成计数器 [int]
+            total: 总计划数
+            plan_brief_fn: 计划摘要函数
+            update_mode_stats_fn: 模式统计更新函数
+            create_attribution_fn: Attribution 创建函数
+            completion_policy: SequentialAttack 完成策略
+            _depth: 当前升级深度（内部使用）
+            _tried: 已尝试过的 (technique, mode) 组合集合（内部使用）
+
+        Returns:
+            True 如果某个升级方案成功，False 如果所有方案都失败
+        """
+        from src.executor.workflow.upgrade_strategy import MAX_UPGRADE_DEPTH
+
+        if _depth >= MAX_UPGRADE_DEPTH:
+            logger.debug(f"Upgrade depth limit reached ({_depth}), stopping recursive upgrade")
+            return False
+
+        tried = _tried or set()
+        # 标记原始计划为已尝试
+        tried.add((original_plan.attack_technique, original_plan.prompt_item.attack_mode.value))
+
+        # 生成升级候选方案（传入已尝试组合和当前深度）
+        if not hasattr(self, "_upgrade_strategy"):
+            from src.executor.workflow.upgrade_strategy import AttackUpgradeStrategy
+            self._upgrade_strategy = AttackUpgradeStrategy(self.config_loader)
+
+        upgraded_plans = self._upgrade_strategy.generate_upgrade_plans(
+            original_plan=original_plan,
+            failed_result=failed_result,
+            tried_combinations=tried,
+            current_depth=_depth,
         )
+
+        if not upgraded_plans:
+            logger.info(f"No upgrade candidates available for {original_plan.plan_id} at depth {_depth}")
+            return False
+
+        for upgraded_plan in upgraded_plans:
+            # 标记当前候选为已尝试
+            combo = (upgraded_plan.attack_technique, upgraded_plan.prompt_item.attack_mode.value)
+            tried.add(combo)
+
+            result.upgrade_attempts += 1
+            dashboard.update(upgrade_attempts=1)
+
+            up_brief = plan_brief_fn(upgraded_plan)
+            indent = "    " * _depth
+            print(f"  [UPG]{indent}  {up_brief}  (升级自 {original_plan.attack_technique}, depth={_depth + 1})")
+
+            up_effective_timeout = self._resolve_timeout(upgraded_plan, per_attack_timeout, timeout_overrides)
+            up_start = time.time()
+
+            try:
+                upgraded_result = await asyncio.wait_for(
+                    self._execute_single_plan(
+                        upgraded_plan, objective_target, judge_target,
+                        completion_policy=completion_policy,
+                        attribution=create_attribution_fn(upgraded_plan),
+                    ),
+                    timeout=up_effective_timeout,
+                )
+                up_elapsed = time.time() - up_start
+                result.executed += 1
+                result.results.append(upgraded_result)
+                upgraded_outcome = getattr(upgraded_result, "outcome", None)
+
+                if upgraded_outcome is not None:
+                    upgraded_outcome_str = (
+                        str(upgraded_outcome.value).upper()
+                        if hasattr(upgraded_outcome, "value")
+                        else str(upgraded_outcome).upper()
+                    )
+
+                    if upgraded_outcome_str == "SUCCESS":
+                        # 升级成功！
+                        result.succeeded += 1
+                        result.upgrade_success += 1
+                        dashboard.update(succeeded=1, upgrade_success=1)
+                        update_mode_stats_fn(upgraded_plan, succeeded=True, failed=False)
+                        print(f"  [OK]{indent}   {up_brief} -> SUCCESS (升级, {up_elapsed:.1f}s)")
+                        await output_manager.output_attack_result(
+                            upgraded_result,
+                            to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
+                            to_file=True, include_auxiliary=True, include_adversarial=True,
+                        )
+                        return True  # 成功，停止尝试其他候选
+
+                    else:
+                        # 升级也失败
+                        result.failed += 1
+                        dashboard.update(failed=1)
+                        update_mode_stats_fn(upgraded_plan, succeeded=False, failed=True)
+                        print(f"  [FAIL]{indent} {up_brief} -> {upgraded_outcome_str} (升级, {up_elapsed:.1f}s)")
+                        await output_manager.output_attack_result(
+                            upgraded_result, to_terminal=False, to_file=True,
+                        )
+
+                        # 递归升级：尝试升级这个失败的升级方案
+                        recursive_success = await self._try_upgrade_plans(
+                            upgraded_plan, upgraded_result, objective_target, judge_target,
+                            result, dashboard, output_manager, verbose,
+                            per_attack_timeout, timeout_overrides, completed_count,
+                            total, plan_brief_fn, update_mode_stats_fn, create_attribution_fn,
+                            completion_policy,
+                            _depth=_depth + 1,
+                            _tried=tried,
+                        )
+                        if recursive_success:
+                            return True
+                else:
+                    result.failed += 1
+                    dashboard.update(failed=1)
+                    update_mode_stats_fn(upgraded_plan, succeeded=False, failed=True)
+                    print(f"  [FAIL]{indent} {up_brief} -> no outcome (升级, {up_elapsed:.1f}s)")
+
+            except asyncio.TimeoutError:
+                elapsed = time.time() - up_start
+                result.errored += 1
+                dashboard.update(errored=1)
+                result.errors.append({
+                    "plan_id": upgraded_plan.plan_id,
+                    "error": f"Upgrade timeout after {up_effective_timeout}s",
+                })
+                print(f"  [TOUT]{indent} {up_brief} -> 超时 ({elapsed:.1f}s, limit={up_effective_timeout}s)")
+            except Exception as upgrade_error:
+                result.errored += 1
+                dashboard.update(errored=1)
+                result.errors.append({
+                    "plan_id": upgraded_plan.plan_id,
+                    "error": f"Upgrade failed: {upgrade_error}",
+                })
+                print(f"  [ERR]{indent}  {up_brief} -> 升级失败: {_truncate(str(upgrade_error), 80)}")
+
+        return False
 
     # ------------------------------------------------------------------
     # L5 对齐：事件可观测性 + AttackIdentifier 去重
@@ -953,6 +1038,7 @@ async def execute_batch_attacks(
     exam_id: str = None,
     completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
     timeout_overrides: Optional[Dict[str, int]] = None,
+    output_manager: Any = None,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -968,11 +1054,12 @@ async def execute_batch_attacks(
         exam_id: 考试 ID
         completion_policy: SequentialAttack 完成策略
         timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
+        output_manager: 可选的 OutputManager 实例（依赖注入，测试友好）
 
     Returns:
         BatchAttackResult
     """
-    orchestrator = ScenarioOrchestrator()
+    orchestrator = ScenarioOrchestrator(output_manager=output_manager)
     return await orchestrator.execute_batch(
         attack_plans, objective_target, judge_target,
         max_concurrency, fail_fast, per_attack_timeout,

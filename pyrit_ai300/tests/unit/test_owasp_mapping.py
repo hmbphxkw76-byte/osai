@@ -26,14 +26,16 @@ class TestOWASPMappingConfig:
 
     @pytest.fixture
     def owasp_config(self):
-        """加载 OWASP 映射配置文件"""
-        config_path = Path(__file__).parent.parent.parent / "config" / "owasp_mapping.yaml"
+        """加载 OWASP 映射配置文件（系统默认在 src/core/defaults/）"""
+        from src.core.config_loader import ConfigLoader
+        config_path = ConfigLoader().owasp_file
         with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def test_config_file_exists(self):
         """测试配置文件存在"""
-        config_path = Path(__file__).parent.parent.parent / "config" / "owasp_mapping.yaml"
+        from src.core.config_loader import ConfigLoader
+        config_path = ConfigLoader().owasp_file
         assert config_path.exists(), f"OWASP 映射配置文件不存在: {config_path}"
 
     def test_llm_top_10_has_10_entries(self, owasp_config):

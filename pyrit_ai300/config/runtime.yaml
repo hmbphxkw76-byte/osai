@@ -1,0 +1,58 @@
+# ============================================================
+# PyRIT 端到端全自动AI红队框架 - 运行时配置
+# ============================================================
+# 本文件仅包含运行时参数（全局开关 / 考试模式 / PyRIT Memory / 报告）
+#
+# 其他配置文件：
+#   target.yaml         → 目标连接 + 认证模板 + 端点列表 + 攻击映射
+#   ai_types.yaml        → AI 系统类型识别规则（可扩展列表）
+#   defaults/*.yaml      → 调优默认值 (模型参数 / Pipeline / HTTP / 路径)
+#
+# 数据源默认值已融入代码（ConfigLoader 硬编码），.env 仍可覆盖。
+# 配置优先级：.env > config/defaults/ > config/*.yaml > src/core/defaults/
+# ============================================================
+
+# ------------------------------------------------------------
+# 全局配置
+# ------------------------------------------------------------
+global:
+  debug: false
+  log_level: INFO
+  request_interval_ms: 2000  # 请求间隔，避免触发WAF
+  # 注意：max_concurrent_attacks / timeout 已移至 config/defaults/pipeline.yaml
+
+# ------------------------------------------------------------
+# 考试模式配置
+# ------------------------------------------------------------
+exam:
+  enabled: false
+  duration_hours: 24
+  report_format: markdown
+  evidence_collection: true
+  time_warning_interval_minutes: 30
+
+# ------------------------------------------------------------
+# PyRIT 配置
+# ------------------------------------------------------------
+pyrit:
+  # Memory 后端类型：InMemory / SQLite / AzureSQL
+  memory_db_type: SQLite
+  # 并发控制（fallback：config/defaults/pipeline.yaml 优先）
+  max_concurrency: 4
+  # 注意：db_path / evidence_dir / logs_dir 已移至 config/defaults/paths.yaml
+
+# ------------------------------------------------------------
+# 报告配置
+# ------------------------------------------------------------
+report:
+  format: markdown
+  include_owasp: true
+  include_evidence: true
+  include_timeline: true
+  # 注意：output_dir 已移至 config/defaults/paths.yaml
+  # CVSS 评分基准
+  cvss_base:
+    critical: 9.0
+    high: 7.0
+    medium: 4.0
+    low: 0.1

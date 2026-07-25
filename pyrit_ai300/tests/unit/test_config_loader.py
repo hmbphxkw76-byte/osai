@@ -34,9 +34,31 @@ class TestConfigLoaderInit:
     def test_config_files_exist(self):
         """测试配置文件存在"""
         loader = ConfigLoader()
+        # config.yaml 始终从 config/ 加载
         assert loader.config_file.exists(), f"config.yaml 不存在: {loader.config_file}"
+        # owasp_mapping.yaml 和 payload_strategy_matrix.yaml 从 src/core/defaults/ 加载
+        # （或 config/ 下用户覆盖，如果存在）
         assert loader.owasp_file.exists(), f"owasp_mapping.yaml 不存在: {loader.owasp_file}"
         assert loader.strategy_file.exists(), f"payload_strategy_matrix.yaml 不存在: {loader.strategy_file}"
+
+    def test_system_defaults_dir_exists(self):
+        """测试系统默认配置目录存在"""
+        loader = ConfigLoader()
+        assert loader.defaults_dir.exists(), f"系统默认目录不存在: {loader.defaults_dir}"
+        # 系统默认文件必须存在
+        assert (loader.defaults_dir / "owasp_mapping.yaml").exists()
+        assert (loader.defaults_dir / "payload_strategy_matrix.yaml").exists()
+
+    def test_config_resolves_to_system_defaults(self):
+        """测试无用户覆盖时，解析到系统默认路径"""
+        loader = ConfigLoader()
+        # 如果 config/ 下没有用户覆盖文件，应回退到 src/core/defaults/
+        # 注意：用户可能创建了覆盖文件，所以检查路径指向的文件存在即可
+        assert loader.owasp_file.exists()
+        assert loader.strategy_file.exists()
+        # 系统默认路径应指向 src/core/defaults/
+        assert loader.defaults_dir.name == "defaults"
+        assert loader.defaults_dir.parent.name == "core"
 
 
 # ============================================================

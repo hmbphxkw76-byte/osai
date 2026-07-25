@@ -184,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
   python cli.py --target http://host:11434         # 指定目标
   python cli.py --list                             # 列出可用分类
   python cli.py --owasp llm01 --concurrency 2      # 自定义并发
+  python cli.py --no-interactive                   # CI/CD 模式（禁用交互选择）
 """,
     )
 
@@ -293,9 +294,9 @@ def main():
     # 延迟导入 pipeline（避免 --list 时加载 PyRIT）
     from pipeline import run_attack_pipeline
 
-    # 如果指定了并发/超时，通过环境变量覆盖配置文件
+    # 如果指定了并发/超时，通过环境变量覆盖配置文件默认值
     if args.concurrency:
-        os.environ["BATCH_MAX_CONCURRENCY"] = str(args.concurrency)
+        os.environ["MAX_CONCURRENCY"] = str(args.concurrency)
     if args.timeout:
         os.environ["BATCH_PER_ATTACK_TIMEOUT"] = str(args.timeout)
     if args.verbose:

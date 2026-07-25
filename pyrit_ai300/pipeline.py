@@ -79,7 +79,11 @@ if sys.platform == "win32":
 
 
 class TeeOutput:
-    """将 stdout/stderr 同时输出到终端和日志文件"""
+    """将 stdout/stderr 同时输出到终端和日志文件
+
+    透传原始 terminal 的关键属性（encoding / errors / isatty / fileno 等），
+    确保第三方库（如 PyRIT StdoutSink）能正常访问 sys.stdout.encoding。
+    """
 
     def __init__(self, terminal, log_file):
         self.terminal = terminal
@@ -97,6 +101,28 @@ class TeeOutput:
     def reconfigure(self, **kwargs):
         if hasattr(self.terminal, "reconfigure"):
             self.terminal.reconfigure(**kwargs)
+
+    # ---- 属性透传 ----
+
+    @property
+    def encoding(self):
+        """透传 encoding（PyRIT StdoutSink 需要）"""
+        return getattr(self.terminal, "encoding", "utf-8")
+
+    @property
+    def errors(self):
+        """透传 errors"""
+        return getattr(self.terminal, "errors", "replace")
+
+    def isatty(self):
+        return getattr(self.terminal, "isatty", lambda: False)()
+
+    def fileno(self):
+        return self.terminal.fileno()
+
+    def __getattr__(self, name):
+        """其他未显式定义的属性回退到原始 terminal"""
+        return getattr(self.terminal, name)
 
 
 def setup_logging(config_loader, start_time: datetime) -> Path:
@@ -144,10 +170,11 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # 设置日志文件
     log_path = setup_logging(config_loader, start_time)
 
-    # 读取 verbose 配置
-    verbose = os.getenv("VERBOSE", "").lower() in ("1", "true", "yes")
+    # 读取 verbose 配置（.env > config/defaults/pipeline.yaml）
+    verbose = config_loader.get_verbose()
+    verbose_success = config_loader.get_verbose_success()
 
-    # 从环境变量读取配置
+    # 从环境变量读取目标/评分器配置（.env 必填）
     target_endpoint = os.getenv("TARGET_ENDPOINT", f"{target_url.rstrip('/')}/v1")
     target_model = os.getenv("TARGET_MODEL", "qwen3:0.6b")
     target_api_key = os.getenv("TARGET_API_KEY", "ollama")
@@ -167,13 +194,14 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"开始时间: {start_time.isoformat()}")
     print(f"日志文件: {log_path}")
     print(f"Verbose 模式: {'开启' if verbose else '关闭'}")
+    print(f"Verbose Success: {'开启' if verbose_success else '关闭'}  (成功攻击详情输出)")
 
     # ---------------------------------------------------------
     # 1. 初始化 PyRIT
     # ---------------------------------------------------------
     print("\n[1/9] 初始化 PyRIT...")
     # 使用每次运行独立的数据库路径，彻底避免旧数据残留和文件锁定问题
-    db_base_path = Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
+    db_base_path = Path(config_loader.get_memory_db_path())
     db_path = db_base_path.parent / f"{exam_id}.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -281,13 +309,9 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 查询种子组: {len(all_seed_groups)} 个")
 
     # ②.5 交互式选择层 - 让用户选择攻击组合
-    # 环境变量 INTERACTIVE_SELECTION=false 可覆盖配置（CI/CD 兼容）
+    # 优先级：.env INTERACTIVE_SELECTION > config/defaults/pipeline.yaml > config.yaml
     interactive_cfg = config_loader.get_interactive_selection_config()
-    interactive_enabled = os.getenv(
-        "INTERACTIVE_SELECTION", ""
-    ).lower() in ("", "1", "true", "yes") and interactive_cfg.get("enabled", True)
-    if os.getenv("INTERACTIVE_SELECTION", "").lower() in ("0", "false", "no"):
-        interactive_enabled = False
+    interactive_enabled = config_loader.get_interactive_selection_enabled()
 
     selector = SeedGroupSelector(
         enabled=interactive_enabled,
@@ -380,9 +404,14 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 目标 Target: {type(objective_target).__name__} ({target_type})")
     print(f"  [OK] 目标模型: {target_model}")
 
-    # 创建评分器 Target（L5: 强制 temperature=0 确保评分可复现）
-    # 能力探测在外部 Judge API 上会触发 multimodal 500 错误，已知 Judge 支持 JSON 输出
-    judge_params = TargetParams(temperature=0.0, force_json_output=True, discover_capabilities=False)
+    # 创建评分器 Target（L5: 从 config/defaults/ 读取评分器最优参数）
+    # temperature=0 确保评分可复现，force_json_output 确保评分格式可解析
+    judge_params = TargetParams(
+        temperature=config_loader.get_judge_temperature(),
+        top_p=config_loader.get_judge_top_p(),
+        force_json_output=config_loader.get_judge_force_json_output(),
+        discover_capabilities=False,
+    )
     judge_target, judge_type = await create_judge_target(
         judge_url=judge_endpoint,
         api_key=judge_api_key,
@@ -393,18 +422,11 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 评分器模型: {judge_model}")
     print(f"  [OK] 评分器同时用作 adversarial chat (多轮攻击)")
 
-    # 批量执行（CLI 环境变量可覆盖配置文件值）
-    # 兼容 .env 中的 MAX_CONCURRENCY 和 BATCH_MAX_CONCURRENCY
-    max_concurrency = int(os.getenv(
-        "BATCH_MAX_CONCURRENCY",
-        os.getenv("MAX_CONCURRENCY", config_loader.get_batch_max_concurrency()),
-    ))
-    fail_fast = config_loader.is_batch_fail_fast()
-    per_attack_timeout = int(os.getenv(
-        "BATCH_PER_ATTACK_TIMEOUT",
-        config_loader.get_batch_per_attack_timeout(),
-    ))
-    timeout_overrides = config_loader.get_batch_timeout_overrides()
+    # 批量执行配置（.env > config/defaults/pipeline.yaml > config.yaml）
+    max_concurrency = config_loader.get_pipeline_max_concurrency()
+    fail_fast = config_loader.get_pipeline_fail_fast()
+    per_attack_timeout = config_loader.get_pipeline_per_attack_timeout()
+    timeout_overrides = config_loader.get_pipeline_timeout_overrides()
 
     print(f"  [OK] 最大并发: {max_concurrency}")
     if timeout_overrides:
@@ -413,6 +435,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     else:
         print(f"  [OK] 单次超时: {per_attack_timeout}s")
     print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
+    print(f"  [OK] Verbose Success: {'开启' if verbose_success else '关闭'}  (成功时输出完整详情)")
     print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
 
     # exam_id 已在函数开头预先生成
@@ -456,7 +479,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
     # 非 verbose 模式下补充展示前 5 个成功结果
     if not verbose:
-        from pyrit.output import output_attack_async
+        from pyrit.output import output_attack_async, StdoutSink
         success_results = [
             r for r in batch_result.results
             if r is not None and hasattr(r, "outcome") and
@@ -472,11 +495,12 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
                 await output_attack_async(
                     result,
                     format="pretty",
+                    sink=StdoutSink(),
                     include_auxiliary_scores=True,
                     include_adversarial_conversation=True,
                 )
-            except Exception:
-                print(f"  [!] 输出结果 {shown} 时出错")
+            except Exception as e:
+                print(f"  [!] 输出结果 {shown} 时出错: {e}")
 
         if len(success_results) > 5:
             print(f"\n  ... 还有 {len(success_results) - 5} 个结果未显示（完整内容见 Markdown 日志文件）")

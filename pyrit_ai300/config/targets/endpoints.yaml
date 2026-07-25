@@ -1,0 +1,80 @@
+# ============================================================
+# 公共端点定义 — 端点的唯一定义源
+# ============================================================
+# 本文件定义所有已知 AI 系统端点路径
+# 其他文件（ai_types.yaml / connection.yaml）引用此处定义
+#
+# 使用方式：
+#   ConfigLoader 自动合并 endpoints.yaml + ai_types.yaml + connection.yaml
+#   get_supported_endpoints() 返回 supported_endpoints 列表
+#   get_ai_type_detection_rules() 自动将 endpoint_names 解析为实际路径
+# ============================================================
+
+# ------------------------------------------------------------
+# 端点定义（name → path 映射）
+# ------------------------------------------------------------
+# 每个 AI 类型在 ai_types.yaml 中通过 endpoint_names 引用此处的 key
+# 修改端点路径只需改这一处
+endpoints:
+  # --- LLM Chat 端点 ---
+  chat_completions: "/v1/chat/completions"
+  chat: "/v1/chat"
+  chat_alt: "/chat/completions"
+  api_chat: "/api/chat"
+  completions: "/v1/completions"
+  responses: "/v1/responses"          # Responses API (o1/o3)
+
+  # --- Agentic 端点 ---
+  agent: "/v1/agent"
+  task: "/v1/task"
+  workflow: "/v1/workflow"
+
+  # --- MCP 端点 ---
+  mcp: "/mcp"
+  tools: "/tools"
+  mcp_v1: "/mcp/v1"
+  mcp_well_known: "/.well-known/mcp"
+
+  # --- RAG 端点 ---
+  query: "/v1/query"
+  search: "/v1/search"
+  retrieve: "/v1/retrieve"
+
+  # --- Embeddings 端点 ---
+  embeddings: "/v1/embeddings"
+  vectors: "/v1/vectors"
+  vectors_alt: "/vectors"
+
+  # --- 基础设施端点 ---
+  models: "/v1/models"
+  health: "/health"
+  inference: "/v1/inference"
+
+# ------------------------------------------------------------
+# 侦察探测的完整端点列表
+# ------------------------------------------------------------
+# 侦察阶段会探测此列表中的所有端点
+# 默认包含上方所有端点路径（自动展开）
+# 如需缩减探测范围，可手动指定子集
+supported_endpoints:
+  - "/v1/chat/completions"
+  - "/v1/chat"
+  - "/v1/completions"
+  - "/v1/responses"
+  - "/chat/completions"
+  - "/api/chat"
+  - "/v1/query"
+  - "/v1/embeddings"
+  - "/v1/agent"
+  - "/v1/task"
+  - "/v1/workflow"
+  - "/mcp"
+  - "/tools"
+  - "/mcp/v1"
+  - "/.well-known/mcp"
+  - "/v1/search"
+  - "/v1/retrieve"
+  - "/v1/vectors"
+  - "/v1/models"
+  - "/health"
+  - "/v1/inference"

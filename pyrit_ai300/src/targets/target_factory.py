@@ -1118,9 +1118,16 @@ _TARGET_CREATORS: Dict[str, Callable[[str, TargetParams], PromptTarget]] = {
 
 
 def _apply_env_defaults(params: TargetParams) -> None:
-    """从环境变量补充缺失参数（不覆盖已有值）"""
+    """从环境变量 + config/defaults/ 补充缺失参数（不覆盖已有值）
 
-    # httpx 客户端配置
+    优先级：显式参数 > .env 环境变量 > config/defaults/*.yaml > 硬编码兜底
+    """
+
+    # 延迟导入避免循环依赖
+    from src.core.config_loader import get_config_loader
+    cfg = get_config_loader()
+
+    # httpx 客户端配置（.env > config/defaults/http_client.yaml）
     if params.httpx_timeout is None:
         env_val = os.getenv("TARGET_HTTPX_TIMEOUT", "").strip()
         if env_val:
@@ -1128,6 +1135,8 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.httpx_timeout = float(env_val)
             except ValueError:
                 pass
+        else:
+            params.httpx_timeout = float(cfg.get_target_httpx_timeout())
 
     if params.httpx_verify is None:
         env_val = os.getenv("TARGET_HTTPX_VERIFY", "").strip().lower()
@@ -1135,11 +1144,17 @@ def _apply_env_defaults(params: TargetParams) -> None:
             params.httpx_verify = False
         elif env_val in ("true", "1", "yes"):
             params.httpx_verify = True
+        else:
+            params.httpx_verify = cfg.get_target_httpx_verify()
 
     if params.httpx_proxy is None:
         env_val = os.getenv("TARGET_HTTPX_PROXY", "").strip()
         if env_val:
             params.httpx_proxy = env_val
+        else:
+            proxy = cfg.get_target_httpx_proxy()
+            if proxy:
+                params.httpx_proxy = proxy
 
     # 认证模式
     if params.auth_mode == "auto":
@@ -1147,7 +1162,7 @@ def _apply_env_defaults(params: TargetParams) -> None:
         if env_val in ("api_key", "identity"):
             params.auth_mode = env_val
 
-    # 推理参数
+    # 推理参数（.env > config/defaults/model_params.yaml）
     if params.temperature is None:
         env_val = os.getenv("TARGET_TEMPERATURE", "").strip()
         if env_val:
@@ -1155,6 +1170,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.temperature = float(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_temperature()
+            if val is not None:
+                params.temperature = val
 
     if params.top_p is None:
         env_val = os.getenv("TARGET_TOP_P", "").strip()
@@ -1163,6 +1182,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.top_p = float(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_top_p()
+            if val is not None:
+                params.top_p = val
 
     if params.max_completion_tokens is None:
         env_val = os.getenv("TARGET_MAX_COMPLETION_TOKENS", "").strip()
@@ -1171,6 +1194,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.max_completion_tokens = int(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_max_completion_tokens()
+            if val is not None:
+                params.max_completion_tokens = val
 
     if params.max_output_tokens is None:
         env_val = os.getenv("TARGET_MAX_OUTPUT_TOKENS", "").strip()
@@ -1179,6 +1206,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.max_output_tokens = int(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_max_output_tokens()
+            if val is not None:
+                params.max_output_tokens = val
 
     if params.seed is None:
         env_val = os.getenv("TARGET_SEED", "").strip()
@@ -1187,6 +1218,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.seed = int(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_seed()
+            if val is not None:
+                params.seed = val
 
     if params.frequency_penalty is None:
         env_val = os.getenv("TARGET_FREQUENCY_PENALTY", "").strip()
@@ -1195,6 +1230,10 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.frequency_penalty = float(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_frequency_penalty()
+            if val is not None:
+                params.frequency_penalty = val
 
     if params.presence_penalty is None:
         env_val = os.getenv("TARGET_PRESENCE_PENALTY", "").strip()
@@ -1203,17 +1242,29 @@ def _apply_env_defaults(params: TargetParams) -> None:
                 params.presence_penalty = float(env_val)
             except ValueError:
                 pass
+        else:
+            val = cfg.get_target_presence_penalty()
+            if val is not None:
+                params.presence_penalty = val
 
     # Responses API 专用
     if params.reasoning_effort is None:
         env_val = os.getenv("TARGET_REASONING_EFFORT", "").strip().lower()
         if env_val in ("minimal", "low", "medium", "high"):
             params.reasoning_effort = env_val
+        else:
+            val = cfg.get_target_reasoning_effort()
+            if val is not None:
+                params.reasoning_effort = val
 
     if params.reasoning_summary is None:
         env_val = os.getenv("TARGET_REASONING_SUMMARY", "").strip().lower()
         if env_val in ("auto", "concise", "detailed"):
             params.reasoning_summary = env_val
+        else:
+            val = cfg.get_target_reasoning_summary()
+            if val is not None:
+                params.reasoning_summary = val
 
     # extra_body_parameters
     if params.extra_body_parameters is None:

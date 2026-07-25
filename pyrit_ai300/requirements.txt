@@ -10,6 +10,10 @@ python-dotenv>=1.0.0
 pytz>=2023.3
 aiofiles>=23.0.0
 
+# Reporting (报告格式转换)
+markdown>=3.5.0
+xhtml2pdf>=0.2.11
+
 # Optional: LiteLLM (100+ LLM Provider 统一接入)
 # pip install litellm
 # litellm>=1.0.0

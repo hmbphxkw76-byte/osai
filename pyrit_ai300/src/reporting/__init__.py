@@ -22,6 +22,19 @@ from src.reporting.output_manager import (
     ProgressDashboard,
     SummaryTable,
 )
+from src.reporting.format_converter import (
+    convert_markdown_to_html,
+    convert_markdown_to_pdf,
+    convert_report_formats,
+    check_pdf_engine_available,
+)
+from src.reporting.diversity_analyzer import (
+    DiversityAnalyzer,
+    DiversityAnalysisResult,
+    calculate_shannon_entropy,
+    calculate_normalized_entropy,
+    render_diversity_section,
+)
 
 # Re-export PyRIT 原生 output 公共 API（便于上层统一导入）
 from pyrit.output import (
@@ -50,6 +63,17 @@ __all__ = [
     "OutputManager",
     "ProgressDashboard",
     "SummaryTable",
+    # 格式转换
+    "convert_markdown_to_html",
+    "convert_markdown_to_pdf",
+    "convert_report_formats",
+    "check_pdf_engine_available",
+    # 多样性分析
+    "DiversityAnalyzer",
+    "DiversityAnalysisResult",
+    "calculate_shannon_entropy",
+    "calculate_normalized_entropy",
+    "render_diversity_section",
     # PyRIT 原生 output 公共 API（re-export）
     "FileSink",
     "IPythonMarkdownSink",

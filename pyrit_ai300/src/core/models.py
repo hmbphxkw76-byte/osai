@@ -203,6 +203,9 @@ class ReportSummary(BaseModel):
     # 失败分析
     failure_analysis: Dict[str, Any] = Field(default_factory=dict)
 
+    # P1-3: 多样性分析指标
+    diversity_metrics: Dict[str, Any] = Field(default_factory=dict)
+
 
 class ReportResult(BaseModel):
     """报告结果（报告层最终输出）"""
@@ -216,6 +219,10 @@ class ReportResult(BaseModel):
     duration_seconds: float
 
     attack_evidence: List[AttackEvidence] = Field(default_factory=list)
+
+    # P1-6: 多格式报告输出路径
+    report_html_path: Optional[str] = None
+    report_pdf_path: Optional[str] = None
 
 
 # ============================================================

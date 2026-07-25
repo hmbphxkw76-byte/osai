@@ -23,6 +23,7 @@ def config_dir():
 
 
 @pytest.fixture
-def owasp_mapping_file(config_dir):
-    """返回 OWASP 映射配置文件路径"""
-    return config_dir / "owasp_mapping.yaml"
+def owasp_mapping_file():
+    """返回 OWASP 映射配置文件路径（系统默认在 src/core/defaults/）"""
+    from src.core.config_loader import ConfigLoader
+    return ConfigLoader().owasp_file

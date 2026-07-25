@@ -1,0 +1,108 @@
+# ============================================================
+# 目标连接配置 — 认证模板 + 目标参数 + 攻击映射
+# ============================================================
+# 本文件定义攻击目标的连接方式和能力识别
+#
+# 注意：HTTP 客户端参数 (timeout/verify/proxy) 见 config/defaults/http_client.yaml
+#       模型推理参数 (temperature/top_p/max_tokens) 见 config/defaults/model_params.yaml
+#       端点定义见 config/targets/endpoints.yaml（公共唯一定义源）
+# ============================================================
+
+# ------------------------------------------------------------ 1/3
+# 认证配置模板
+# ------------------------------------------------------------
+authentication:
+  # API Key 认证
+  api_key:
+    header_name: Authorization
+    header_format: "Bearer {token}"
+
+  # Bearer Token 认证
+  bearer_token:
+    header_name: Authorization
+    header_format: "Bearer {token}"
+
+  # Cookie 认证
+  cookie:
+    header_name: Cookie
+
+  # OAuth 认证
+  oauth:
+    token_url: ""
+    grant_type: client_credentials
+    client_id_env: OAUTH_CLIENT_ID
+    client_secret_env: OAUTH_CLIENT_SECRET
+
+# ------------------------------------------------------------ 2/3
+# 目标基础配置 (对齐 PyRIT 1.0.0 全部 Target 类型)
+# ------------------------------------------------------------
+# 三级配置优先级：显式参数 > 环境变量 > 配置文件
+# 支持的 Target 类型 (PyRIT 1.0.0):
+#   openai_chat         - OpenAIChatTarget (Chat Completions API, Ollama/vLLM/Azure)
+#   openai_responses    - OpenAIResponseTarget (Responses API, o1/o3 + Agentic Tool Calling)
+#   litellm             - LiteLLMChatTarget (100+ Provider)
+#   http_api            - HTTPXAPITarget (结构化 HTTP API)
+#   http_raw            - HTTPTarget (原始 HTTP / Burp Suite)
+#   playwright          - PlaywrightTarget (Web UI 自动化)
+#   websocket_copilot   - WebSocketCopilotTarget (M365 Copilot)
+#   playwright_copilot  - PlaywrightCopilotTarget (Copilot Web)
+#   azure_blob          - AzureBlobStorageTarget (XPIA 载荷投递)
+#   prompt_shield       - PromptShieldTarget (防御测试)
+#   text                - TextTarget (调试输出)
+target:
+  # 目标类型 (留空 = 自动检测)
+  # type: openai_chat
+
+  # 认证模式 (auto / api_key / identity)
+  # auto: Azure 端点无 API Key 时自动使用 Entra ID
+  # identity: 强制 Entra ID / Managed Identity (Azure OpenAI)
+  auth_mode: auto
+
+  # 通用透传
+  extra_body_parameters: null  # JSON dict, 注入到 API 请求体
+  underlying_model: null       # Azure 部署名 ≠ 模型名时用于标识
+
+  # 能力探测
+  capability_discovery:
+    enabled: true              # 是否执行能力探测
+    apply: true                # 是否将探测结果应用到 Target
+    per_probe_timeout_s: 10.0  # 单个探针超时
+
+  # 速率限制
+  max_requests_per_minute: null
+
+  # 回调函数默认配置 (http_api / http_raw)
+  callbacks:
+    default_json_response_key: "choices[0].message.content"
+    default_regex_pattern: "[\\s\\S]*"
+
+# ------------------------------------------------------------ 3/3
+# 目标类型 → 推荐的 Attack 类
+# ------------------------------------------------------------
+target_to_attack_mapping:
+  openai_chat:
+    - prompt_sending
+    - multi_prompt_sending
+    - many_shot
+    - skeleton
+    - red_teaming
+    - crescendo
+    - pair
+    - tap
+    - tree_of_attacks_pruned
+  openai_responses:
+    - prompt_sending
+    - red_teaming
+    - crescendo
+  litellm:
+    - prompt_sending
+    - red_teaming
+  http_api:
+    - prompt_sending
+    - barge_in
+    - chunked_request
+  http_raw:
+    - prompt_sending
+  playwright:
+    - prompt_sending
+    - red_teaming

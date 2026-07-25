@@ -22,10 +22,10 @@ python pipeline.py http://192.168.0.22:11434 LLM01,LLM06  # 指定 OWASP IDs
 
 ```
 pyrit_ai300/
-├── config/              # 配置文件
-│   ├── config.yaml                    # 全局配置（三级配置优先级）
-│   ├── owasp_mapping.yaml             # OWASP 双标准映射
-│   └── payload_strategy_matrix.yaml   # 载荷策略矩阵
+├── config/              # 用户配置文件
+│   └── config.yaml                    # 全局配置（用户可调参数）
+│       # OWASP 映射和策略矩阵已移至 src/core/defaults/（系统默认）
+│       # 如需覆盖，可在 config/ 下放置同名文件
 ├── data/                # 攻击数据集
 │   ├── owasp/            # OWASP 本地数据集
 │   │   ├── llm/          # OWASP Top 10 for LLM (LLM01-LLM10)
@@ -34,6 +34,9 @@ pyrit_ai300/
 │   └── burp/             # Burp Suite 原始请求
 ├── src/                  # 源代码
 │   ├── core/             # 核心模型和配置加载 (Pydantic)
+│   │   ├── defaults/      # 系统默认配置（不可误删）
+│   │   │   ├── owasp_mapping.yaml           # OWASP 双标准映射
+│   │   │   └── payload_strategy_matrix.yaml # 载荷策略矩阵
 │   ├── converters/       # Converter 链配置（80+ 原生）
 │   ├── scorers/          # Scorer 配置（52 个公共 API）
 │   ├── executor/         # 攻击执行子系统（五层架构）

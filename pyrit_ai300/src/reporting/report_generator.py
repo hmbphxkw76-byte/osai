@@ -755,8 +755,8 @@ class ReportGenerator:
         # 构建 OWASP 覆盖矩阵
         coverage_matrix = self.owasp_mapper.build_coverage_matrix(attack_results)
 
-        # 生成摘要
-        summary = self._generate_summary(findings, attack_results, scenario_result)
+        # 生成摘要（传入覆盖矩阵用于多样性分析）
+        summary = self._generate_summary(findings, attack_results, scenario_result, coverage_matrix)
 
         # 收集攻击详情（三级证据链 - 第二级 + 第三级）
         attack_details = self._collect_attack_details(attack_results)
@@ -767,13 +767,34 @@ class ReportGenerator:
             scenario_result, attack_details, coverage_matrix,
         )
 
-        # 保存报告文件
+        # 保存 Markdown 报告文件
         output_dir = Path(self.config_loader.get_global_value("report", "output_dir", default="output/reports"))
         output_dir.mkdir(parents=True, exist_ok=True)
         report_path = output_dir / f"{exam_id}_report.md"
 
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
+
+        # P1-6: 多格式转换（Markdown → HTML / PDF）
+        html_path = None
+        pdf_path = None
+        try:
+            from src.reporting.format_converter import convert_report_formats
+            format_result = convert_report_formats(
+                report_content,
+                output_dir / f"{exam_id}_report",
+                generate_html=True,
+                generate_pdf=True,
+                title=f"AI Red Team Assessment Report - {exam_id}",
+            )
+            if format_result.get("html"):
+                html_path = str(format_result["html"])
+            if format_result.get("pdf"):
+                pdf_path = str(format_result["pdf"])
+        except ImportError as e:
+            logger.warning(f"Format conversion skipped (dependency missing): {e}")
+        except Exception as e:
+            logger.warning(f"Format conversion failed: {e}")
 
         # 导出证据（传入覆盖矩阵 + L5 参数）
         evidence_exporter = EvidenceExporter(
@@ -791,6 +812,8 @@ class ReportGenerator:
             start_time=start_time,
             end_time=end_time,
             duration_seconds=(end_time - start_time).total_seconds(),
+            report_html_path=html_path,
+            report_pdf_path=pdf_path,
         )
 
     def _generate_summary(
@@ -798,8 +821,16 @@ class ReportGenerator:
         findings: List[OWASPFinding],
         attack_results: List[Any],
         scenario_result: Any,
+        coverage_matrix: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> ReportSummary:
-        """生成报告摘要"""
+        """生成报告摘要
+
+        Args:
+            findings: OWASP Finding 列表
+            attack_results: AttackResult 列表
+            scenario_result: 场景结果
+            coverage_matrix: OWASP 覆盖矩阵（用于多样性分析）
+        """
         total_findings = len(findings)
         critical_count = sum(1 for f in findings if f.severity == "CRITICAL")
         high_count = sum(1 for f in findings if f.severity == "HIGH")
@@ -848,6 +879,18 @@ class ReportGenerator:
                     reason = "objective_not_achieved"
                 failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
 
+        # P1-3: 多样性分析
+        from src.reporting.diversity_analyzer import DiversityAnalyzer
+        diversity_analyzer = DiversityAnalyzer()
+        diversity_result = diversity_analyzer.analyze(
+            attack_results=attack_results,
+            technique_distribution=technique_distribution,
+            converter_usage=converter_usage,
+            failure_reasons=failure_reasons,
+            coverage_matrix=coverage_matrix,
+            total_attacks=total_attacks,
+        )
+
         return ReportSummary(
             total_targets=1,
             pyrit_attackable_targets=1,
@@ -866,6 +909,7 @@ class ReportGenerator:
             attack_technique_distribution=technique_distribution,
             converter_chain_usage=converter_usage,
             failure_analysis={"failure_reasons": failure_reasons},
+            diversity_metrics=diversity_result.to_dict(),
         )
 
     def _collect_attack_details(self, attack_results: List[Any]) -> Dict[str, List[Dict[str, Any]]]:
@@ -1058,6 +1102,26 @@ class ReportGenerator:
                 lines.append(f"| {reason_str} | {count} |")
             lines.append("")
 
+        # P1-3: Diversity & Coverage Analysis
+        if summary.diversity_metrics:
+            from src.reporting.diversity_analyzer import DiversityAnalysisResult, render_diversity_section
+            diversity_result = DiversityAnalysisResult(
+                technique_entropy=summary.diversity_metrics.get("technique_entropy", 0.0),
+                technique_normalized_entropy=summary.diversity_metrics.get("technique_normalized_entropy", 0.0),
+                technique_coverage_ratio=summary.diversity_metrics.get("technique_coverage_ratio", 0.0),
+                unique_techniques_used=summary.diversity_metrics.get("unique_techniques_used", 0),
+                owasp_covered_count=summary.diversity_metrics.get("owasp_covered_count", 0),
+                owasp_total_count=summary.diversity_metrics.get("owasp_total_count", 20),
+                owasp_coverage_ratio=summary.diversity_metrics.get("owasp_coverage_ratio", 0.0),
+                converter_diversity_ratio=summary.diversity_metrics.get("converter_diversity_ratio", 0.0),
+                unique_converters_used=summary.diversity_metrics.get("unique_converters_used", 0),
+                failure_concentration=summary.diversity_metrics.get("failure_concentration", 0.0),
+                top_failure_reason=summary.diversity_metrics.get("top_failure_reason", ""),
+                success_technique_distribution=summary.diversity_metrics.get("success_technique_distribution", {}),
+                failure_technique_distribution=summary.diversity_metrics.get("failure_technique_distribution", {}),
+            )
+            lines.append(render_diversity_section(diversity_result))
+
         # ============================================================
         # 3. OWASP Coverage Matrix
         # ============================================================
@@ -1211,6 +1275,71 @@ class ReportGenerator:
                 )
                 idx += 1
         lines.append("")
+
+        # ============================================================
+        # 5.5 Successful Attack Highlights (完整成功攻击详情)
+        # ============================================================
+        lines.extend([
+            "## 5.5 Successful Attack Highlights",
+            "",
+            "This section provides full details for every successful attack, including",
+            "the complete conversation history between the attacker and the target model.",
+            "This serves as primary evidence for the assessment findings.",
+            "",
+        ])
+
+        success_idx = 0
+        for attack_type, details_list in attack_details.items():
+            for detail in details_list:
+                if detail.get("outcome", "").upper() != "SUCCESS":
+                    continue
+                success_idx += 1
+                lines.extend([
+                    f"### 5.5.{success_idx} Successful Attack #{success_idx}",
+                    "",
+                    f"- **Attack Type**: {attack_type}",
+                    f"- **Objective**: {detail['objective']}",
+                    f"- **Outcome**: ✅ SUCCESS",
+                    f"- **Outcome Reason**: {detail.get('outcome_reason', 'Objective achieved')}",
+                    f"- **Turns Executed**: {detail.get('executed_turns', 'N/A')}",
+                    f"- **Execution Time**: {_format_time(detail.get('execution_time_ms'))}",
+                    f"- **Conversation ID**: `{detail.get('conversation_id', 'N/A')}`",
+                ])
+
+                # 评分详情
+                score = detail.get("score", {})
+                if score and score.get("value") is not None:
+                    lines.extend([
+                        "",
+                        f"- **Score Value**: {score.get('value')}",
+                        f"- **Score Type**: {score.get('type', 'N/A')}",
+                        f"- **Score Category**: {score.get('category', 'N/A')}",
+                        f"- **Score Rationale**: {score.get('rationale', 'N/A')}",
+                    ])
+                lines.append("")
+
+                # 完整对话历史
+                conv = detail.get("conversation", [])
+                if conv:
+                    lines.extend(["**Conversation History**:", ""])
+                    for msg in conv:
+                        role = msg.get("role", "unknown").upper()
+                        text = msg.get("text", "")
+                        lines.extend([
+                            f"**[{role}]**",
+                            "```",
+                            text,
+                            "```",
+                            "",
+                        ])
+                else:
+                    lines.extend(["*No conversation history available*", ""])
+
+                lines.append("---")
+                lines.append("")
+
+        if success_idx == 0:
+            lines.extend(["*No successful attacks to display.*", ""])
 
         # ============================================================
         # 6. MITRE ATT&CK Mapping
