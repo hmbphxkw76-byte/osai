@@ -138,6 +138,9 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     config_loader = get_config_loader()
     start_time = datetime.now()
 
+    # 预先生成 exam_id，供数据库路径和报告使用
+    exam_id = f"exam_{start_time.strftime('%Y%m%d_%H%M%S')}"
+
     # 设置日志文件
     log_path = setup_logging(config_loader, start_time)
 
@@ -169,7 +172,9 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # 1. 初始化 PyRIT
     # ---------------------------------------------------------
     print("\n[1/9] 初始化 PyRIT...")
-    db_path = Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
+    # 使用每次运行独立的数据库路径，彻底避免旧数据残留和文件锁定问题
+    db_base_path = Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
+    db_path = db_base_path.parent / f"{exam_id}.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     await initialize_pyrit_async(
@@ -364,7 +369,8 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print("\n[6/9] 创建攻击组件并批量执行...")
 
     # 创建目标 Target（L5: 使用 TargetParams 完整参数 + 环境变量自动加载）
-    target_params = TargetParams()
+    # 能力探测在已知目标类型时可关闭以加速启动
+    target_params = TargetParams(discover_capabilities=False)
     objective_target, target_type = await create_prompt_target(
         target_url=target_url,
         api_key=target_api_key,
@@ -375,7 +381,8 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 目标模型: {target_model}")
 
     # 创建评分器 Target（L5: 强制 temperature=0 确保评分可复现）
-    judge_params = TargetParams(temperature=0.0, force_json_output=True)
+    # 能力探测在外部 Judge API 上会触发 multimodal 500 错误，已知 Judge 支持 JSON 输出
+    judge_params = TargetParams(temperature=0.0, force_json_output=True, discover_capabilities=False)
     judge_target, judge_type = await create_judge_target(
         judge_url=judge_endpoint,
         api_key=judge_api_key,
@@ -403,8 +410,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
     print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
 
-    # 预先生成 exam_id，供 batch_orchestrator 和报告使用
-    exam_id = f"exam_{start_time.strftime('%Y%m%d_%H%M%S')}"
+    # exam_id 已在函数开头预先生成
 
     batch_result = await execute_batch_attacks(
         attack_plans=attack_plans,
@@ -512,7 +518,14 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
 
 def main():
-    """主入口（简易模式，完整 CLI 见 cli.py）"""
+    """
+    主入口
+
+    Usage:
+      python pipeline.py                              # 使用 .env 中的目标
+      python pipeline.py http://192.168.0.22:11434    # 指定目标 URL
+      python pipeline.py http://192.168.0.22:11434 LLM01,LLM06  # 指定 OWASP IDs
+    """
     # 加载环境变量 (从项目根目录的 .env 文件)
     project_root = Path(__file__).parent
     env_path = project_root / ".env"
@@ -532,8 +545,14 @@ def main():
         else:
             target_url = target_endpoint
 
+    # 解析 OWASP IDs（可选第二参数，逗号分隔）
+    owasp_ids = None
+    if len(sys.argv) > 2:
+        owasp_ids = [x.strip().upper() for x in sys.argv[2].split(",") if x.strip()]
+        print(f"CLI 指定 OWASP IDs: {owasp_ids}")
+
     # 运行管道
-    asyncio.run(run_attack_pipeline(target_url))
+    asyncio.run(run_attack_pipeline(target_url, owasp_ids=owasp_ids))
 
 
 if __name__ == "__main__":

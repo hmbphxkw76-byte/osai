@@ -43,4 +43,5 @@ NO_REFUSAL_SCORER_ATTACKS = frozenset({
 })
 
 # PyRIT 1.0.0: 不接受 attack_scoring_config 的 Attack
-NO_SCORING_ATTACKS = frozenset({"barge_in"})
+# SequentialAttack 不接受 attack_scoring_config（评分配置在每个 child attack 上单独设置）
+NO_SCORING_ATTACKS = frozenset({"barge_in", "sequential"})

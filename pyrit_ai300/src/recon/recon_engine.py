@@ -7,6 +7,7 @@ Recon Module
 仅包含 PyRIT 原生支持的部分（端点识别、能力探测）。
 """
 
+import asyncio
 import httpx
 import re
 import logging
@@ -218,10 +219,13 @@ class ReconEngine:
                     json_data={"messages": [{"role": "user", "content": "{PROMPT}"}]},
                 )
 
-            # 使用 PyRIT 原生能力发现
-            capabilities = await discover_target_capabilities_async(
-                target=temp_target,
-                per_probe_timeout_s=10.0,
+            # 使用 PyRIT 原生能力发现（添加整体超时避免小模型卡死）
+            capabilities = await asyncio.wait_for(
+                discover_target_capabilities_async(
+                    target=temp_target,
+                    per_probe_timeout_s=10.0,
+                ),
+                timeout=30.0,
             )
 
             # 提取模态列表

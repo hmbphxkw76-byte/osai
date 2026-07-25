@@ -42,6 +42,7 @@ from src.targets.target_factory import (
     create_judge_target,
     create_target_params_from_env,
     # 常量
+    OPENAI_COMPATIBLE_TYPES,
     TARGET_TYPE_OPENAI_CHAT,
     TARGET_TYPE_OPENAI_RESPONSES,
     TARGET_TYPE_LITELLM,
@@ -70,6 +71,7 @@ __all__ = [
     "create_http_target_from_burp",
     "create_http_target_from_raw_request",
     # 类型常量
+    "OPENAI_COMPATIBLE_TYPES",
     "TARGET_TYPE_OPENAI_CHAT",
     "TARGET_TYPE_OPENAI_RESPONSES",
     "TARGET_TYPE_LITELLM",

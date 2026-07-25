@@ -103,6 +103,9 @@ _LEGACY_TYPE_ALIASES: Dict[str, str] = {
 # 使用 OpenAI SDK 的类型（支持推理参数 / extra_body_parameters / httpx_client_kwargs）
 _OPENAI_SDK_TYPES = frozenset({TARGET_TYPE_OPENAI_CHAT, TARGET_TYPE_OPENAI_RESPONSES, TARGET_TYPE_LITELLM})
 
+# 向后兼容别名（recon_engine 等模块使用此名称）
+OPENAI_COMPATIBLE_TYPES = _OPENAI_SDK_TYPES
+
 # 自动检测可探测的类型
 _DETECTABLE_TYPES = frozenset({
     TARGET_TYPE_OPENAI_CHAT,
@@ -1398,9 +1401,8 @@ async def create_judge_target(
         if not env_temp:
             params.temperature = 0.0  # 评分器需要确定性
 
-    # 强制能力探测（评分器需要 JSON 输出能力）
-    if params.force_json_output:
-        params.discover_capabilities = True
+    # 能力探测（仅在未被显式禁用时开启）
+    if params.force_json_output and params.discover_capabilities:
         params.apply_discovered_capabilities = True
 
     return await TargetFactory.create_target_with_detection(

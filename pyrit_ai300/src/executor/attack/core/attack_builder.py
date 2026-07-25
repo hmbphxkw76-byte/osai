@@ -273,9 +273,14 @@ def create_attack_instance(
 
     # L5 对齐：单轮攻击使用 AttackParameters.excluding() 显式排除多轮字段
     # 防止 from_seed_group_async() 误传 prepended_conversation 给单轮攻击
+    # 注意：部分 Attack 子类（如 SkeletonKeyAttack）不接受 params_type 参数，
+    # 它们在 __init__ 内部自行设置 params_type，需用 inspect 检测
     if technique_name in SINGLE_TURN_ATTACKS:
-        single_turn_params = AttackParameters.excluding("prepended_conversation")
-        params["params_type"] = single_turn_params
+        import inspect
+        init_sig = inspect.signature(attack_class.__init__)
+        if "params_type" in init_sig.parameters:
+            single_turn_params = AttackParameters.excluding("prepended_conversation")
+            params["params_type"] = single_turn_params
 
     attack = attack_class(**params)
 
