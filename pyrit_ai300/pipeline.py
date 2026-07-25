@@ -3,28 +3,41 @@
 PyRIT 端到端全自动 AI 红队框架 - 主入口
 ============================================
 
-本框架基于 PyRIT 0.14.0 构建，为 OffSec AI-300 考试和实际 AI 红队评估提供
+本框架基于 PyRIT 1.0.0 构建，为 OffSec AI-300 考试和实际 AI 红队评估提供
 数据驱动的端到端全自动提示词层面攻击流程。
 
+对齐 PyRIT 1.0.0 五层架构（含 ②.5 交互选择层）：
+  ① 数据准备层 → DatasetManager.load_datasets() (OWASP / 自定义 / PyRIT 远程)
+  ② 数据管理层 → CentralMemory (add_seed_datasets_to_memory / get_seed_groups)
+  ②.5 交互选择层 → SeedGroupSelector (build_catalog / filter / prompt_user)
+  ③ 攻击准备层 → AttackPreparator.prepare() (SeedGroup → AttackSeedGroup)
+  ④ 攻击执行层 → ScenarioOrchestrator (原生 AttackExecutor + AttackSeedGroup)
+  ⑤ 评估与追踪层 → Scorer + PyRIT Memory 审计链
+
+④ 层架构（PyRIT 原生优先 + 自建 Scenario 扩展）：
+  NativeAttackExecutor → 使用原生 AttackExecutor.execute_attack_from_seed_groups_async()
+  ScenarioOrchestrator → 批量调度 + 升级重试 + 进度仪表盘 + AttackResultAttribution
+
 流程:
-  1. 加载配置（.env 环境变量）
-  2. 初始化 PyRIT（SQLite Memory）
-  3. 侦察阶段（端点发现 + AI 类型识别）
-  4. 分析阶段（策略选择 + 优先级评估）
-  5. 加载数据源（从 OWASP 目录批量加载提示词）
-  6. 载荷规划（将提示词转化为攻击计划）
-  7. 批量执行攻击（单轮/多轮/编码增强/顺序组合）
-  8. 输出执行结果
-  9. 报告生成（OWASP 映射 + 证据导出）
+  [1/9] 初始化 PyRIT (CentralMemory + SQLite)
+  [2/9] 侦察阶段 (端点发现 + AI 类型识别)
+  [3/9] 分析阶段 (策略选择 + 优先级评估)
+  [4/9] ①→② 数据准备 + 管理 (DatasetManager → CentralMemory)
+  [5/9] ②→②.5→③ 查询 + 交互选择 + 攻击准备 (SeedGroupSelector → AttackPreparator → AttackPlan)
+  [6/9] ④ 批量执行攻击 (单轮/多轮/编码增强/顺序组合)
+  [7/9] 输出执行结果
+  [8/9] 报告生成 (OWASP 映射 + 证据导出)
+  [9/9] 总结
 
 Usage:
-  python pipeline.py
-  python pipeline.py http://192.168.0.22:11434
+  python pipeline.py                              # 使用 .env 中的目标
+  python pipeline.py http://192.168.0.22:11434    # 指定目标 URL
 
 环境变量:
-  VERBOSE=1               # 输出每个成功攻击的完整详情
-  VERBOSE_SUCCESS=1       # 同上，仅对成功攻击输出详情
-  BATCH_MAX_CONCURRENCY=4 # 覆盖配置文件中的并发数
+  VERBOSE=1                  # 输出每个成功攻击的完整详情
+  VERBOSE_SUCCESS=1          # 同上，仅对成功攻击输出详情
+  INTERACTIVE_SELECTION=false # 禁用交互式选择（CI/CD 模式，全选）
+  BATCH_MAX_CONCURRENCY=2    # 覆盖配置文件中的并发数
   BATCH_PER_ATTACK_TIMEOUT=300  # 覆盖配置文件中的超时
 """
 
@@ -37,16 +50,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from pyrit.setup import initialize_pyrit_async
-from pyrit.prompt_target import OpenAIChatTarget
 
 # 导入框架模块
 from src.core.config_loader import get_config_loader
 from src.core.models import AuthResult, AuthStatus, AuthType
 from src.recon import recon_target
 from src.analysis import select_strategy, evaluate_priority
-from src.payloads import load_payloads, plan_attacks
-from src.orchestrators import execute_batch_attacks
+from src.payloads import (
+    DatasetManager,
+    SeedGroupSelector,
+    AttackPreparator,
+    SeedPromptAdapter,
+    plan_attacks,
+)
+from src.executor import execute_batch_attacks
 from src.reporting import generate_report
+from src.targets import create_prompt_target, create_judge_target, TargetParams
 
 # Fix Windows terminal Unicode encoding
 if sys.platform == "win32":
@@ -165,7 +184,9 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # 2. 侦察阶段（端点发现 + AI 类型识别）
     # ---------------------------------------------------------
     print("\n[2/9] 执行侦察...")
-    recon_result = await recon_target(target_url)
+    recon_result = await recon_target(
+        target_url, api_key=target_api_key, model_name=target_model
+    )
     print(f"  [OK] 检测端点: {recon_result.detected_endpoint}")
     print(f"  [OK] 认证类型: {recon_result.auth_type.value}")
     print(f"  [OK] AI 系统类型: {recon_result.ai_system_type.value}")
@@ -200,29 +221,110 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 目标优先级: {priority_score}/100")
 
     # ---------------------------------------------------------
-    # 4. 加载数据源（从 OWASP 目录批量加载提示词）
+    # 4. ①→② 数据准备 + 管理（DatasetManager → CentralMemory）
     # ---------------------------------------------------------
-    print("\n[4/9] 加载数据源...")
+    print("\n[4/9] ①→② 数据准备 + 管理 (DatasetManager → CentralMemory)...")
 
-    # CLI 参数优先于配置文件
-    config_owasp_ids = owasp_ids if owasp_ids else config_loader.get_owasp_source_ids()
-    exclude_ids = config_loader.get_owasp_exclude_ids()
-    include_custom = config_loader.is_custom_source_enabled()
+    # CLI 参数优先于配置文件（统一从 dataset_manager 配置段读取）
+    dm_owasp_cfg = config_loader.get_dataset_manager_owasp_config()
+    dm_custom_cfg = config_loader.get_dataset_manager_custom_config()
+    dm_remote_cfg = config_loader.get_dataset_manager_remote_config()
+
+    config_owasp_ids = owasp_ids if owasp_ids else dm_owasp_cfg.get("owasp_ids", [])
+    exclude_ids = dm_owasp_cfg.get("exclude_ids", [])
+    include_custom = dm_custom_cfg.get("enabled", True)
+
+    # 远程数据集配置
+    include_remote = dm_remote_cfg.get("enabled", False)
+    remote_dataset_names = dm_remote_cfg.get("datasets", [])
 
     if config_owasp_ids:
         print(f"  [OK] OWASP 筛选: {', '.join(config_owasp_ids)}")
+    if include_remote:
+        if remote_dataset_names:
+            print(f"  [OK] 远程数据集: {', '.join(remote_dataset_names)}")
+        else:
+            print(f"  [OK] 远程数据集: 全部已注册")
 
-    prompt_batches = load_payloads(
-        owasp_ids=config_owasp_ids if config_owasp_ids else None,
-        exclude_ids=exclude_ids if exclude_ids else None,
-        include_custom=include_custom,
+    # ① 数据准备层 + ② 数据管理层: 加载数据源 → CentralMemory
+    manager = DatasetManager()
+    await manager.load_datasets(
+        owasp=True,
+        owasp_frameworks=dm_owasp_cfg.get("frameworks", ["llm", "agentic"]),
+        owasp_ids=config_owasp_ids or None,
+        exclude_ids=exclude_ids or None,
+        custom=include_custom,
+        remote=include_remote,
+        remote_dataset_names=remote_dataset_names if include_remote else None,
     )
 
-    total_prompts = sum(len(batch.prompts) for batch in prompt_batches)
-    print(f"  [OK] 加载批次: {len(prompt_batches)} 个")
-    print(f"  [OK] 提示词总数: {total_prompts} 个")
+    total_seeds = len(manager.get_seeds())
+    total_groups = len(manager.get_seed_groups())
+    print(f"  [OK] CentralMemory: {total_seeds} seeds, {total_groups} seed groups")
 
-    # 统计各攻击模式的数量
+    if total_groups == 0:
+        print("  [!] 未加载到任何种子数据，跳过攻击")
+        return None
+
+    # ---------------------------------------------------------
+    # 5. ②→②.5→③ 查询 + 交互选择 + 攻击准备
+    # ---------------------------------------------------------
+    print("\n[5/9] ②→②.5→③ 查询 + 交互选择 + 攻击准备...")
+
+    # ② 从 CentralMemory 查询种子组
+    all_seed_groups = manager.get_seed_groups()
+    print(f"  [OK] 查询种子组: {len(all_seed_groups)} 个")
+
+    # ②.5 交互式选择层 - 让用户选择攻击组合
+    # 环境变量 INTERACTIVE_SELECTION=false 可覆盖配置（CI/CD 兼容）
+    interactive_cfg = config_loader.get_interactive_selection_config()
+    interactive_enabled = os.getenv(
+        "INTERACTIVE_SELECTION", ""
+    ).lower() in ("", "1", "true", "yes") and interactive_cfg.get("enabled", True)
+    if os.getenv("INTERACTIVE_SELECTION", "").lower() in ("0", "false", "no"):
+        interactive_enabled = False
+
+    selector = SeedGroupSelector(
+        enabled=interactive_enabled,
+        auto_select_if_single=interactive_cfg.get("auto_select_if_single", True),
+        page_size=interactive_cfg.get("page_size", 20),
+    )
+    catalog = selector.build_catalog(all_seed_groups)
+
+    # 预设选择（从 CLI 参数或配置）
+    preset_owasp = owasp_ids if owasp_ids else None
+    preset_modes = None  # 可通过 CLI 扩展
+
+    selected_groups = await selector.prompt_user(
+        catalog,
+        preset_owasp=preset_owasp,
+        preset_modes=preset_modes,
+    )
+    print(f"  [OK] 用户选择: {len(selected_groups)}/{len(all_seed_groups)} 个种子组")
+
+    if not selected_groups:
+        print("  [!] 未选择任何种子组，跳过攻击")
+        return None
+
+    # ③ AttackPreparator 准备（仅处理选中的种子组）
+    attack_groups = await AttackPreparator.prepare_batch(selected_groups)
+    has_objective = sum(1 for ag in attack_groups if ag.objective is not None)
+    synthetic = sum(1 for ag in attack_groups
+                    if any(getattr(s, 'metadata', {}).get("synthetic_objective", False)
+                           for s in ag.seeds))
+    multi_turn = sum(1 for ag in attack_groups if AttackPreparator.is_multi_turn(ag))
+    print(f"  [OK] AttackSeedGroup 转换: {len(attack_groups)} 个")
+    print(f"    - 有原生 objective: {has_objective} 个")
+    print(f"    - 合成 objective: {synthetic} 个")
+    print(f"    - 多轮攻击: {multi_turn} 个")
+    print(f"    - 单轮攻击: {len(attack_groups) - multi_turn} 个")
+
+    # 桥接 ③→④: SeedGroup → PromptBatch → AttackPlan（兼容现有执行层）
+    prompt_batches = SeedPromptAdapter.seed_groups_to_batches(selected_groups)
+    total_prompts = sum(len(batch.prompts) for batch in prompt_batches)
+    print(f"  [OK] 桥接 PromptBatch: {len(prompt_batches)} 批次, {total_prompts} 提示词")
+
+    # 统计各攻击模式
     from src.payloads.models import AttackMode
     mode_counts = {}
     for batch in prompt_batches:
@@ -231,14 +333,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     for mode, count in sorted(mode_counts.items()):
         print(f"    - {mode}: {count} 个")
 
-    if not prompt_batches:
-        print("  [!] 未加载到任何提示词数据，跳过攻击")
-        return None
-
-    # ---------------------------------------------------------
-    # 5. 载荷规划（将提示词转化为攻击计划）
-    # ---------------------------------------------------------
-    print("\n[5/9] 载荷规划...")
+    # 载荷规划（PromptBatch → AttackPlan）
     attack_plans = plan_attacks(prompt_batches, strategy_selection)
     print(f"  [OK] 生成攻击计划: {len(attack_plans)} 个")
 
@@ -268,32 +363,48 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # ---------------------------------------------------------
     print("\n[6/9] 创建攻击组件并批量执行...")
 
-    # 创建目标 Target
-    objective_target = OpenAIChatTarget(
-        endpoint=target_endpoint,
+    # 创建目标 Target（L5: 使用 TargetParams 完整参数 + 环境变量自动加载）
+    target_params = TargetParams()
+    objective_target, target_type = await create_prompt_target(
+        target_url=target_url,
         api_key=target_api_key,
         model_name=target_model,
+        params=target_params,
     )
-    print(f"  [OK] 目标 Target: OpenAIChatTarget ({target_model})")
+    print(f"  [OK] 目标 Target: {type(objective_target).__name__} ({target_type})")
+    print(f"  [OK] 目标模型: {target_model}")
 
-    # 创建评分器 Target
-    judge_target = OpenAIChatTarget(
-        endpoint=judge_endpoint,
+    # 创建评分器 Target（L5: 强制 temperature=0 确保评分可复现）
+    judge_params = TargetParams(temperature=0.0, force_json_output=True)
+    judge_target, judge_type = await create_judge_target(
+        judge_url=judge_endpoint,
         api_key=judge_api_key,
         model_name=judge_model,
+        params=judge_params,
     )
-    print(f"  [OK] 评分器 Target: OpenAIChatTarget ({judge_model})")
+    print(f"  [OK] 评分器 Target: {type(judge_target).__name__} ({judge_type})")
+    print(f"  [OK] 评分器模型: {judge_model}")
     print(f"  [OK] 评分器同时用作 adversarial chat (多轮攻击)")
 
     # 批量执行（CLI 环境变量可覆盖配置文件值）
-    max_concurrency = int(os.getenv("BATCH_MAX_CONCURRENCY", config_loader.get_batch_max_concurrency()))
+    # 兼容 .env 中的 MAX_CONCURRENCY 和 BATCH_MAX_CONCURRENCY
+    max_concurrency = int(os.getenv(
+        "BATCH_MAX_CONCURRENCY",
+        os.getenv("MAX_CONCURRENCY", config_loader.get_batch_max_concurrency()),
+    ))
     fail_fast = config_loader.is_batch_fail_fast()
-    per_attack_timeout = int(os.getenv("BATCH_PER_ATTACK_TIMEOUT", config_loader.get_batch_per_attack_timeout()))
+    per_attack_timeout = int(os.getenv(
+        "BATCH_PER_ATTACK_TIMEOUT",
+        config_loader.get_batch_per_attack_timeout(),
+    ))
 
     print(f"  [OK] 最大并发: {max_concurrency}")
     print(f"  [OK] 单次超时: {per_attack_timeout}s")
     print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
     print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
+
+    # 预先生成 exam_id，供 batch_orchestrator 和报告使用
+    exam_id = f"exam_{start_time.strftime('%Y%m%d_%H%M%S')}"
 
     batch_result = await execute_batch_attacks(
         attack_plans=attack_plans,
@@ -303,6 +414,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         fail_fast=fail_fast,
         per_attack_timeout=per_attack_timeout,
         verbose=verbose,
+        exam_id=exam_id,
     )
 
     print(f"\n  [OK] 批量攻击完成")
@@ -323,25 +435,35 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
             print(f"    ... 还有 {len(batch_result.errors) - 5} 个错误")
 
     # ---------------------------------------------------------
-    # 7. 输出执行结果（非 verbose 模式下输出前 5 个成功结果）
+    # 7. 输出执行结果（双通道输出已在批量执行中完成）
     # ---------------------------------------------------------
     print("\n[7/9] 输出执行结果...")
+    print("  [OK] 双通道输出已在批量执行过程中完成:")
+    print(f"  [OK] 终端通道: pretty 格式实时输出")
+    print(f"  [OK] 文件通道: Markdown 全量日志 (output/logs/{exam_id}_attacks.md)")
 
+    # 非 verbose 模式下补充展示前 5 个成功结果
     if not verbose:
         from pyrit.output import output_attack_async
-        # 非 verbose 模式: 输出前 5 个成功的结果
         success_results = [r for r in batch_result.results if r is not None]
-        for i, result in enumerate(success_results[:5]):
-            print(f"\n  --- 结果 {i + 1}/{min(5, len(success_results))} ---")
+        shown = 0
+        for result in success_results:
+            if shown >= 5:
+                break
+            shown += 1
+            print(f"\n  --- 结果 {shown}/{min(5, len(success_results))} ---")
             try:
-                await output_attack_async(result, format="pretty")
+                await output_attack_async(
+                    result,
+                    format="pretty",
+                    include_auxiliary_scores=True,
+                    include_adversarial_conversation=True,
+                )
             except Exception:
-                print(f"  [!] 输出结果 {i + 1} 时出错")
+                print(f"  [!] 输出结果 {shown} 时出错")
 
         if len(success_results) > 5:
-            print(f"\n  ... 还有 {len(success_results) - 5} 个结果未显示")
-    else:
-        print("  [OK] verbose 模式下已在执行过程中输出详情，跳过重复输出")
+            print(f"\n  ... 还有 {len(success_results) - 5} 个结果未显示（完整内容见 Markdown 日志文件）")
 
     print("\n  [OK] 执行结果输出完成")
 
@@ -350,9 +472,8 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # ---------------------------------------------------------
     print("\n[8/9] 生成报告...")
     end_time = datetime.now()
-    exam_id = f"exam_{start_time.strftime('%Y%m%d_%H%M%S')}"
 
-    # 生成报告
+    # 生成报告（exam_id 已在 [6] 阶段预先生成）
     report_result = await generate_report(
         scenario_result=batch_result.results,
         exam_id=exam_id,

@@ -1,11 +1,11 @@
 # PyRIT端到端全自动AI红队框架设计文档
 
 **版本**: v7.0 (L5专家级 - OffSec AI-300考试版 - PyRIT优势聚焦 - API验证修正 - 含开发规则)  
-**PyRIT版本**: 0.14.0（已安装验证）  
+**PyRIT版本**: 1.0.0（已安装验证）  
 **设计原则**: 原生优先、数据驱动、顺序管道、可扩展、优势聚焦  
 **对齐标准**: OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) + OWASP Top 10 for Agentic AI (ASI01-ASI10) + OffSec AI-300考试范围  
 **核心定位**: 仅覆盖PyRIT框架有实现优势的提示词层面攻击，非优势领域推荐外部工具  
-**API验证状态**: 所有代码示例已通过PyRIT 0.14.0实际安装验证
+**API验证状态**: 所有代码示例已通过PyRIT 1.0.0实际安装验证
 **文档状态**: 整合后单一架构设计文档（含开发规则）
 
 ---
@@ -175,7 +175,7 @@ pyrit_ai300/
 │   ├── scorers/         # Scorer配置和注册
 │   ├── orchestrators/   # 攻击编排（Attack、Scenario、XPIA）
 │   ├── recon/           # 侦察层（仅PyRIT原生支持的部分）
-│   ├── auth/            # 认证适配层
+│   ├── targets/         # 目标Target工厂（含PyRIT原生认证）
 │   ├── analysis/        # 分析层
 │   ├── reporting/       # 报告层
 │   └── exam/            # 考试专用功能
@@ -289,10 +289,10 @@ tests/
 │                                    │                                           │
 │                                    ▼                                           │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐            │
-│  │   侦察层        │───▶│   认证适配层    │───▶│   分析层        │            │
-│  │ ReconLayer      │    │ AuthAdapter     │    │ AnalysisLayer   │            │
-│  │ 端点发现/能力探测│    │ 原子化认证流程   │    │ 策略矩阵匹配     │            │
-│  │ AI系统类型识别   │    │                  │    │ AI类型适配       │            │
+│  │   侦察层        │───▶│  Target接入层   │───▶│   分析层        │            │
+│  │ ReconLayer      │    │ TargetFactory   │    │ AnalysisLayer   │            │
+│  │ 端点发现/能力探测│    │ PyRIT原生认证   │    │ 策略矩阵匹配     │            │
+│  │ AI系统类型识别   │    │ (api_key/EntraID)│    │ AI类型适配       │            │
 │  └─────────────────┘    └─────────────────┘    └─────────────────┘            │
 │                                    │                                           │
 │                                    ▼                                           │
@@ -349,12 +349,13 @@ tests/
            │ ReconResult(target_url, endpoint, auth_type, capabilities, ai_system_type)
            ▼
 ┌─────────────────────┐
-│   AuthAdapter       │
-│  1.原子化认证流程    │ ← 登录→提取Token→构造auth_headers
-│  2.支持多种认证      │ ← API_KEY/BEARER_TOKEN/COOKIE/OAUTH/FORM_BASED
-│  3.返回已认证Target │ ← HTTPXAPITarget(http_url=..., headers=auth_headers)
+│   TargetFactory     │
+│  1.类型自动检测      │ ← GET /v1/models, /v1/responses (side-effect-free)
+│  2.双重认证模式      │ ← api_key / identity(Entra ID) / auto
+│  3.能力探测         │ ← discover_target_capabilities_async(apply=True)
+│  4.创建已认证Target │ ← 11种PyRIT原生PromptTarget类型
 └──────────┬──────────┘
-           │ AuthResult(target: PromptTarget, status)
+           │ (PromptTarget, target_type)
            ▼
 ┌─────────────────────┐
 │   AnalysisLayer     │
@@ -937,28 +938,29 @@ capabilities.output_modalities          # list
 |----------|------------|----------|----------|
 | `NONE` | HTTPXAPITarget | 直接创建 | - |
 | `API_KEY` | HTTPXAPITarget | 注入Authorization头 | `config.yaml.authentication.api_key` |
-| `BEARER_TOKEN` | HTTPXAPITarget | 注入Authorization头 | `config.yaml.authentication.bearer_token` |
-| `COOKIE` | HTTPXAPITarget | 注入Cookie头 | 用户提供或环境变量 |
-| `OAUTH` | HTTPXAPITarget | 先获取Token再注入 | `config.yaml.authentication.oauth` |
-| `FORM_BASED` | PlaywrightTarget | 表单登录→提取Cookie→注入 | 用户提供credentials |
-| `SPA_WEB` | PlaywrightTarget | 浏览器自动化认证 | 用户提供credentials |
+| `api_key` | OpenAIChatTarget / HTTPXAPITarget | 直接传递API Key | `config.yaml.target` 或环境变量 |
+| `identity` (Entra ID) | OpenAIChatTarget / OpenAIResponseTarget | PyRIT原生`resolve_openai_auth`自动获取Token | Azure OpenAI端点(无API Key) |
+| `auto` (默认) | 自动选择 | Azure+无key→identity，否则→api_key | 混合环境 |
 
-**原子化认证流程时序图**：
+> **注意**：认证由`TargetFactory`统一处理，使用PyRIT原生`pyrit.auth`模块（`get_azure_openai_auth` / `CopilotAuthenticator` / `ManualCopilotAuthenticator`），不重复造轮子。
+
+**TargetFactory认证流程时序图**：
 
 ```
-用户/框架                    AuthAdapter                    目标系统
+用户/框架                    TargetFactory                   目标系统
     │                           │                             │
-    │  authenticate(target_url, auth_type, credentials, ai_system_type)
+    │  create_target_with_detection(target_url, api_key, params)
     │──────────────────────────▶│                             │
-    │                           │  构造登录请求                 │
-    │                           │─────────────────────────────▶│
-    │                           │  接收登录响应                 │
-    │                           │◀─────────────────────────────│
-    │                           │  extract_token/cookie        │
-    │                           │  构造auth_headers            │
-    │                           │  根据AI系统类型创建Target      │
-    │                           │  HTTPXAPITarget(http_url=...) │
-    │  AuthResult(target: PromptTarget, status)                │
+    │                           │  detect_target_type()        │
+    │                           │  GET /v1/models ────────────▶│
+    │                           │◀──────────── 200/405/401 ───│
+    │                           │  detect_auth_mode()           │
+    │                           │  (Azure+无key → Entra ID)     │
+    │                           │  create_target()              │
+    │                           │  OpenAIChatTarget/ResponseTarget│
+    │                           │  discover_capabilities()      │
+    │                           │  (5 probes, apply=True)       │
+    │  (PromptTarget, type)     │                             │
     │◀──────────────────────────│                             │
     │  PyRIT PromptTarget实例   │                             │
     │◀──────────────────────────│                             │
@@ -1841,9 +1843,10 @@ pyrit_auto_attack/
 │   ├── __init__.py
 │   ├── messages.py                # Pydantic消息模型
 │   └── config_loader.py           # 配置加载器
-├── auth/                          # 认证适配层
+├── targets/                       # 目标Target工厂（含PyRIT原生认证）
 │   ├── __init__.py
-│   └── auth_adapter.py            # 认证适配器
+│   ├── target_factory.py          # TargetFactory + TargetParams
+│   └── burp_target.py             # Burp Target构建器
 ├── recon/                         # 侦察层
 │   ├── __init__.py
 │   └── recon_engine.py            # 侦察引擎
@@ -1877,10 +1880,10 @@ pyrit_auto_attack/
 
 ### 10.1 新增认证类型
 
-1. 在`AuthType`枚举中添加新类型
-2. 在`config.yaml.authentication`中添加配置模板
-3. 在`AuthAdapter.authenticate()`中添加适配逻辑
-4. 在`AuthAdapter.create_authenticated_target()`中添加Target创建逻辑
+1. 在`TargetParams.auth_mode`中添加新模式
+2. 在`config.yaml.target`中添加配置模板
+3. 在`TargetFactory.detect_auth_mode()`中添加检测逻辑
+4. 使用PyRIT原生`pyrit.auth`模块处理实际认证（不重复造轮子）
 
 ### 10.2 新增AI系统类型
 
@@ -2114,7 +2117,7 @@ pyrit:
 
 ### 14.1 为什么使用PyRIT Scenario系统
 
-PyRIT 0.14.0的Scenario系统是核心编排器：
+PyRIT 1.0.0的Scenario系统是核心编排器：
 
 - **Scenario**：顶层编排器，组织多个AtomicAttack
 - **AtomicAttack**：原子攻击单元，组合Attack + Objectives + Parameters
@@ -2176,19 +2179,19 @@ OffSec AI-300考试要求覆盖5种AI系统类型，但PyRIT框架的核心优�
 
 | PyRIT版本 | 兼容性 | 说明 |
 |-----------|--------|------|
-| 0.14.0 | ✅ 完全兼容 | 原生支持Scenario、Attack、Registry、Output |
+| 1.0.0 | ✅ 完全兼容 | 原生支持Scenario、Attack、Registry、Output |
 | 0.13.0 | ⚠️ 部分兼容 | 需适配PromptChatTarget弃用 |
 | 0.12.0及以下 | ❌ 不兼容 | 缺少核心功能 |
 
 ## 附录B：参考文档
 
-- [PyRIT官方文档](https://microsoft.github.io/PyRIT/0.14.0/)
-- [PyRIT框架架构](https://microsoft.github.io/PyRIT/0.14.0/code/framework/)
-- [PyRIT Targets](https://microsoft.github.io/PyRIT/0.14.0/code/targets/prompt-targets/)
-- [PyRIT Registry](https://microsoft.github.io/PyRIT/0.14.0/code/registry/registry/)
-- [PyRIT Executor](https://microsoft.github.io/PyRIT/0.14.0/code/executor/executor/)
-- [PyRIT Scenarios](https://microsoft.github.io/PyRIT/0.14.0/code/scenarios/scenarios/)
-- [PyRIT Output](https://microsoft.github.io/PyRIT/0.14.0/code/output/output/)
+- [PyRIT官方文档](https://microsoft.github.io/PyRIT/1.0.0/)
+- [PyRIT框架架构](https://microsoft.github.io/PyRIT/1.0.0/code/framework/)
+- [PyRIT Targets](https://microsoft.github.io/PyRIT/1.0.0/code/targets/prompt-targets/)
+- [PyRIT Registry](https://microsoft.github.io/PyRIT/1.0.0/code/registry/registry/)
+- [PyRIT Executor](https://microsoft.github.io/PyRIT/1.0.0/code/executor/executor/)
+- [PyRIT Scenarios](https://microsoft.github.io/PyRIT/1.0.0/code/scenarios/scenarios/)
+- [PyRIT Output](https://microsoft.github.io/PyRIT/1.0.0/code/output/output/)
 - [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 - [OffSec AI-300课程](https://www.offsec.com/courses/ai-300/)
 
@@ -2270,7 +2273,7 @@ OffSec AI-300考试要求覆盖5种AI系统类型，但PyRIT框架的核心优�
 ## 附录F：OffSec AI-300考试检查清单
 
 ### 考前准备
-- [ ] PyRIT 0.14.0安装验证
+- [ ] PyRIT 1.0.0安装验证
 - [ ] SQLite数据库路径配置（修正: DuckDB不存在）
 - [ ] 环境变量配置（API密钥等）
 - [ ] config.yaml配置检查
@@ -2652,7 +2655,7 @@ attack_to_owasp:
   # 注: embedding_inversion, model_extraction 等非提示词攻击不在PyRIT优势范围内
 ```
 
-## 附录J：PyRIT 0.14.0 Converter完整清单（80+）
+## 附录J：PyRIT 1.0.0 Converter完整清单（80+）
 
 | 类别 | Converter | 说明 |
 |------|-----------|------|
@@ -2738,7 +2741,7 @@ attack_to_owasp:
 | | ZalgoConverter | Zalgo文本 |
 | | TransparencyAttackConverter | 透明度攻击 |
 
-## 附录K：PyRIT 0.14.0 Scorer完整清单（40+）
+## 附录K：PyRIT 1.0.0 Scorer完整清单（40+）
 
 | 类别 | Scorer | 适用场景 |
 |------|--------|---------|
@@ -2780,9 +2783,9 @@ attack_to_owasp:
 | | BatchScorer | 批量评分 |
 | | DecodingScorer | 解码评分 |
 
-## 附录L：PyRIT 0.14.0 Workflow系统
+## 附录L：PyRIT 1.0.0 Workflow系统
 
-PyRIT 0.14.0提供Workflow系统用于跨域提示注入(XPIA)等复杂攻击场景：
+PyRIT 1.0.0提供Workflow系统用于跨域提示注入(XPIA)等复杂攻击场景：
 
 ```python
 from pyrit.executor.workflow.xpia import (

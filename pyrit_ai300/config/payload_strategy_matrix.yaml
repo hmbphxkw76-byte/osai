@@ -47,11 +47,8 @@ scenario_matrix:
       - multi_prompt_sending
       - many_shot
       - skeleton
-      - role_play
-      - flip
       - barge_in
       - chunked_request
-      - context_compliance
       - sequential
       - red_teaming
     datasets:
@@ -72,6 +69,7 @@ scenario_matrix:
       - stealth_evasion
       - encoding_bypass
       - llm_assisted
+      - persuasion_chain
     default_strategy: simple
 
   # ----------------------------------------------------------
@@ -80,7 +78,6 @@ scenario_matrix:
   airt.leakage:
     description: "数据泄露攻击场景"
     attack_techniques:
-      - role_play
       - many_shot
       - tap
       - pair
@@ -109,7 +106,6 @@ scenario_matrix:
   airt.rapid_response:
     description: "快速响应攻击场景"
     attack_techniques:
-      - role_play
       - many_shot
       - tap
       - pair
@@ -143,7 +139,7 @@ scenario_matrix:
     description: "网络安全攻击场景"
     attack_techniques:
       - red_teaming
-      - context_compliance
+      - prompt_sending
     datasets:
       - airt_malware
     scoring:
@@ -172,7 +168,6 @@ scenario_matrix:
       - crescendo
       - pair
       - tap
-      - flip
       - chunked_request
     datasets:
       - harmbench
@@ -429,6 +424,60 @@ converter_chains:
       - DiacriticConverter
       - EmojiConverter
 
+  # 说服攻击链（Persuasion + Tone + Translation）— role_play Attack 的功能替代
+  persuasion_chain:
+    converters:
+      - PersuasionConverter
+      - ToneConverter
+      - TranslationConverter
+    params:
+      PersuasionConverter:
+        persuasion_technique: "authority"
+      ToneConverter:
+        tone: "formal"
+      TranslationConverter:
+        language: "en"
+
+  # 策略傀儡链（PolicyPuppetryConverter）— PyRIT 1.0.0 新增
+  # 完全替代 deprecated RolePlayAttack 的角色扮演能力
+  # 通过模拟系统策略格式来绕过安全检查
+  policy_puppetry:
+    converters:
+      - PolicyPuppetryConverter
+
+  # 噪声注入链（NoiseConverter）— PyRIT 1.0.0 新增
+  # 在 prompt 中注入随机噪声字符，干扰内容过滤器的检测
+  # 适合与编码链组合使用
+  noise_bypass:
+    converters:
+      - NoiseConverter
+      - Base64Converter
+      - ROT13Converter
+    params:
+      NoiseConverter:
+        number_errors: 5
+
+  # 分解重构链（DecompositionConverter）— PyRIT 1.0.0 新增
+  # 将有害请求分解为看似无害的子任务
+  decomposition_chain:
+    converters:
+      - DecompositionConverter
+
+  # 随机大写链（RandomCapitalLettersConverter）— PyRIT 1.0.0 新增
+  # 随机将部分字符大写，绕过关键词检测
+  random_case:
+    converters:
+      - RandomCapitalLettersConverter
+    params:
+      RandomCapitalLettersConverter:
+        percentage: 30.0
+
+  # 任务重构链（TaskFramingConverter）— PyRIT 1.0.0 新增
+  # 将请求包装为任务格式
+  task_framing:
+    converters:
+      - TaskFramingConverter
+
   # Leetspeak 链（Leetspeak + Flip + RepeatToken）
   leetspeak_chain:
     converters:
@@ -440,6 +489,56 @@ converter_chains:
         token_to_repeat: "."
         times_to_repeat: 3
         token_insert_mode: "append"
+
+  # PolicyPuppetry 链（PyRIT 1.0.0 新增）
+  # 替代 deprecated RolePlayAttack 的角色扮演能力
+  policy_puppetry_chain:
+    converters:
+      - PolicyPuppetryConverter
+      - ToneConverter
+    params:
+      PolicyPuppetryConverter:
+        policy_type: "system_instruction"
+      ToneConverter:
+        tone: "authoritative"
+
+  # 分解+重构链（PyRIT 1.0.0 新增）
+  # 将恶意请求分解为看似无害的子任务，再重新包装
+  decomposition_policy_chain:
+    converters:
+      - DecompositionConverter
+      - TaskFramingConverter
+    params:
+      DecompositionConverter:
+        strategy: "task_breakdown"
+      TaskFramingConverter:
+        frame_as: "data_analysis"
+
+  # 噪声+大写链（PyRIT 1.0.0 新增）
+  # 在 prompt 中注入随机噪声和大写字符，干扰内容过滤器
+  noise_case_chain:
+    converters:
+      - NoiseConverter
+      - RandomCapitalLettersConverter
+      - Base64Converter
+    params:
+      NoiseConverter:
+        number_errors: 5
+        error_types: ["typo", "homophone"]
+      RandomCapitalLettersConverter:
+        percentage: 40.0
+
+  # 任务框架链（PyRIT 1.0.0 新增）
+  # 将请求包装为特定任务格式
+  task_framing_chain:
+    converters:
+      - TaskFramingConverter
+      - PersuasionConverter
+    params:
+      TaskFramingConverter:
+        frame_as: "data_process"
+      PersuasionConverter:
+        persuasion_technique: "authority"
 
 # ------------------------------------------------------------
 # Scorer 选择配置（按攻击类型）
@@ -503,18 +602,6 @@ attack_techniques:
     requires_adversarial: false
     description: "骨架密钥攻击"
 
-  role_play:
-    class: RolePlayAttack
-    multi_turn: false
-    requires_adversarial: false
-    description: "角色扮演攻击"
-
-  flip:
-    class: FlipAttack
-    multi_turn: false
-    requires_adversarial: false
-    description: "翻转攻击"
-
   barge_in:
     class: BargeInAttack
     multi_turn: false
@@ -526,12 +613,6 @@ attack_techniques:
     multi_turn: false
     requires_adversarial: false
     description: "分块请求攻击"
-
-  context_compliance:
-    class: ContextComplianceAttack
-    multi_turn: true
-    requires_adversarial: true
-    description: "上下文合规攻击"
 
   red_teaming:
     class: RedTeamingAttack
@@ -588,7 +669,7 @@ attack_techniques:
 # ------------------------------------------------------------
 # OWASP ID 到 Scorer 类型的映射
 # ------------------------------------------------------------
-ownasp_scorer_map:
+owasp_scorer_map:
   # --- LLM Top 10 2025 ---
   LLM01: "general"                # Prompt Injection → 通用真/假判断
   LLM02: "leakage_detection"      # Sensitive Info Disclosure → 凭证泄露检测
@@ -621,12 +702,13 @@ technique_hint_map:
   skeleton: "skeleton"
   authority_override: "skeleton"
   developer_mode: "skeleton"
-  # flip → FlipAttack
-  flip: "flip"
   # many_shot → ManyShotJailbreakAttack
   many_shot: "many_shot"
-  # role_play → RolePlayAttack
-  role_play: "role_play"
+  # role_play (deprecated) → prompt_sending + PolicyPuppetryConverter/persuasion_chain
+  role_play: "prompt_sending"
+  roleplay_then_extract: "prompt_sending"
+  # flip (deprecated) → prompt_sending + FlipConverter
+  flip: "prompt_sending"
   # crescendo → CrescendoAttack
   crescendo: "crescendo"
   # chunked → ChunkedRequestAttack
@@ -637,9 +719,8 @@ technique_hint_map:
   # 身份冒充类 → SkeletonKeyAttack（建立权限上下文）
   admin_impersonation: "skeleton"
   developer_impersonation: "skeleton"
-  # Agent 冒充 / 角色扮演类 → RolePlayAttack
-  agent_impersonation: "role_play"
-  roleplay_then_extract: "role_play"
+  # Agent 冒充 / 角色扮演类 (deprecated) → prompt_sending + PolicyPuppetryConverter
+  agent_impersonation: "prompt_sending"
   # 渐进式多轮攻击类 → RedTeamingAttack
   progressive_hijack: "red_teaming"
   progressive_identity_assumption: "red_teaming"
@@ -709,9 +790,8 @@ attack_upgrade_strategies:
     from:
       - "prompt_sending"
       - "many_shot"
-      - "role_play"
+      - "prompt_sending"
       - "skeleton"
-      - "flip"
       - "chunked_request"
     to:
       - "red_teaming"
@@ -734,7 +814,6 @@ attack_upgrade_strategies:
     from:
       - "prompt_sending"
       - "many_shot"
-      - "role_play"
     converter_chains:
       - "stealth_evasion"
       - "encoding_bypass"

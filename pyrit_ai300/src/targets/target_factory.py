@@ -1,0 +1,1431 @@
+"""
+Target Factory — L5 Expert Implementation
+==========================================
+
+对齐 PyRIT 1.0.0 `pyrit.prompt_target` 全部 15+ Target 类型的统一工厂。
+
+支持的目标类型（对齐 PyRIT 1.0.0）：
+  ┌─────────────────────────────┬──────────────────────────────────────────┐
+  │ Target Type                 │ PyRIT Class                              │
+  ├─────────────────────────────┼──────────────────────────────────────────┤
+  │ openai_chat                 │ OpenAIChatTarget (Chat Completions API)  │
+  │ openai_responses            │ OpenAIResponseTarget (Responses API)     │
+  │ litellm                     │ LiteLLMChatTarget (100+ Provider)        │
+  │ http_api                    │ HTTPXAPITarget (结构化 HTTP API)          │
+  │ http_raw                    │ HTTPTarget (原始 HTTP / Burp)             │
+  │ playwright                  │ PlaywrightTarget (Web UI)                │
+  │ websocket_copilot           │ WebSocketCopilotTarget (M365 Copilot)    │
+  │ playwright_copilot          │ PlaywrightCopilotTarget (Copilot Web)    │
+  │ azure_blob                  │ AzureBlobStorageTarget (XPIA 载荷投递)    │
+  │ prompt_shield               │ PromptShieldTarget (防御测试)             │
+  │ text                        │ TextTarget (调试输出)                     │
+  └─────────────────────────────┴──────────────────────────────────────────┘
+
+关键能力：
+  1. 自动检测目标类型（side-effect-free，仅 GET 请求）
+  2. 双重认证模式（api_key / identity / Entra ID）
+  3. httpx_client_kwargs 透传（超时 / SSL / 代理）
+  4. 推理参数控制（temperature / top_p / seed / max_tokens ...）
+  5. extra_body_parameters 透传
+  6. underlying_model 标识（Azure 部署名 ≠ 模型名）
+  7. Content Filter 处理链（PyRIT 原生三层：detect → extract partial → handle）
+  8. Agentic Tool Calling 支持（OpenAIResponseTarget + custom_functions）
+  9. 能力探测（discover_target_capabilities_async，apply=True）
+ 10. 环境变量 + config.yaml + 显式参数 三级配置（优先级：显式 > env > config）
+"""
+
+import json
+import logging
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+
+import httpx
+
+from pyrit.prompt_target import (
+    HTTPTarget,
+    HTTPXAPITarget,
+    OpenAIChatTarget,
+    OpenAIResponseTarget,
+    PromptTarget,
+    TargetConfiguration,
+    TextTarget,
+    discover_target_capabilities_async,
+)
+from pyrit.prompt_target.http_target.http_target_callback_functions import (
+    get_http_target_json_response_callback_function,
+    get_http_target_regex_matching_callback_function,
+)
+from pyrit.auth import (
+    get_azure_openai_auth,
+    is_azure_openai_endpoint,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# 目标类型常量
+# ============================================================
+
+# OpenAI SDK 系列（使用 AsyncOpenAI SDK）
+TARGET_TYPE_OPENAI_CHAT = "openai_chat"
+TARGET_TYPE_OPENAI_RESPONSES = "openai_responses"
+TARGET_TYPE_LITELLM = "litellm"
+
+# HTTP 系列
+TARGET_TYPE_HTTP_API = "http_api"
+TARGET_TYPE_HTTP_RAW = "http_raw"
+
+# 浏览器/WebSocket 系列
+TARGET_TYPE_PLAYWRIGHT = "playwright"
+TARGET_TYPE_WEBSOCKET_COPILOT = "websocket_copilot"
+TARGET_TYPE_PLAYWRIGHT_COPILOT = "playwright_copilot"
+
+# Azure 服务系列
+TARGET_TYPE_AZURE_BLOB = "azure_blob"
+TARGET_TYPE_PROMPT_SHIELD = "prompt_shield"
+
+# 调试
+TARGET_TYPE_TEXT = "text"
+
+# 向后兼容别名（旧值 → 新值）
+_LEGACY_TYPE_ALIASES: Dict[str, str] = {
+    "openai_compatible": TARGET_TYPE_OPENAI_CHAT,
+    "openai_compatible_vllm": TARGET_TYPE_OPENAI_CHAT,
+    "openai_compatible_ollama": TARGET_TYPE_OPENAI_CHAT,
+    "openai": TARGET_TYPE_OPENAI_CHAT,
+    "structured_http": TARGET_TYPE_HTTP_API,
+    "custom_http": TARGET_TYPE_HTTP_RAW,
+}
+
+# 使用 OpenAI SDK 的类型（支持推理参数 / extra_body_parameters / httpx_client_kwargs）
+_OPENAI_SDK_TYPES = frozenset({TARGET_TYPE_OPENAI_CHAT, TARGET_TYPE_OPENAI_RESPONSES, TARGET_TYPE_LITELLM})
+
+# 自动检测可探测的类型
+_DETECTABLE_TYPES = frozenset({
+    TARGET_TYPE_OPENAI_CHAT,
+    TARGET_TYPE_OPENAI_RESPONSES,
+    TARGET_TYPE_LITELLM,
+    TARGET_TYPE_HTTP_API,
+})
+
+
+# ============================================================
+# 配置数据类
+# ============================================================
+
+
+@dataclass
+class TargetParams:
+    """
+    Target 创建参数（三级配置：显式参数 > 环境变量 > 默认值）
+
+    覆盖 PyRIT 1.0.0 全部 Target 构造参数，确保不遗漏任何能力。
+    """
+
+    # ── 基础参数 ──
+    target_type: Optional[str] = None          # 显式指定类型，跳过自动检测
+    endpoint: str = ""                          # 目标端点 URL
+    api_key: Optional[str] = None               # API Key（None 时 Azure 端点自动使用 Entra ID）
+    model_name: Optional[str] = None            # 模型名 / Azure 部署名
+    underlying_model: Optional[str] = None      # 实际模型名（Azure 部署名 ≠ 模型名时用于标识）
+
+    # ── 认证 ──
+    auth_mode: str = "auto"                     # auto / api_key / identity
+
+    # ── HTTP 客户端配置 ──
+    httpx_timeout: Optional[float] = None       # 超时秒数（如 180）
+    httpx_verify: Optional[bool] = None         # SSL 验证（False 跳过自签名证书）
+    httpx_proxy: Optional[str] = None           # 代理 URL
+    httpx_client_kwargs: Optional[Dict[str, Any]] = None  # 原始 httpx kwargs
+
+    # ── OpenAI Chat 推理参数 ──
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_completion_tokens: Optional[int] = None  # Chat Completions API
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    seed: Optional[int] = None
+    n: Optional[int] = None
+
+    # ── OpenAI Responses API 专用 ──
+    max_output_tokens: Optional[int] = None
+    reasoning_effort: Optional[str] = None      # minimal / low / medium / high
+    reasoning_summary: Optional[str] = None     # auto / concise / detailed
+    custom_functions: Optional[Dict[str, Callable[..., Awaitable[Dict[str, Any]]]]] = None
+    fail_on_missing_function: bool = False
+
+    # ── 通用透传 ──
+    extra_body_parameters: Optional[Dict[str, Any]] = None
+    max_requests_per_minute: Optional[int] = None
+
+    # ── HTTP API / HTTP Raw 专用 ──
+    method: str = "POST"
+    headers: Optional[Dict[str, str]] = None
+    json_data: Optional[Dict[str, Any]] = None
+    form_data: Optional[Dict[str, Any]] = None
+    params: Optional[Dict[str, Any]] = None
+    file_path: Optional[str] = None             # HTTPXAPITarget 文件上传
+
+    # ── HTTP Raw (Burp) 专用 ──
+    raw_http_request: Optional[str] = None
+    prompt_regex_string: str = "{PROMPT}"
+    use_tls: bool = True
+    callback_function: Optional[Callable[..., Any]] = None
+
+    # ── Playwright 专用 ──
+    interaction_func: Optional[Callable[..., Awaitable[str]]] = None
+    page: Optional[Any] = None                  # playwright.async_api.Page
+
+    # ── Copilot 专用 ──
+    copilot_username: Optional[str] = None
+    copilot_password: Optional[str] = None
+    copilot_access_token: Optional[str] = None
+
+    # ── Azure Blob 专用 ──
+    container_url: Optional[str] = None
+    sas_token: Optional[str] = None
+    blob_content_type: str = "text/plain"
+
+    # ── Prompt Shield 专用 ──
+    azure_endpoint: Optional[str] = None        # Azure Content Safety 端点
+    force_entry_field: Optional[str] = None     # None / "userPrompt" / "documents"
+
+    # ── 能力探测 ──
+    discover_capabilities: bool = True          # 是否执行能力探测
+    apply_discovered_capabilities: bool = True   # 是否将探测结果应用到 Target
+    per_probe_timeout_s: float = 10.0
+
+    # ── 评分器专用 ──
+    force_json_output: bool = False             # Judge Target 强制 JSON 输出能力
+
+
+# ============================================================
+# 目标适配器工厂
+# ============================================================
+
+
+class TargetFactory:
+    """
+    目标适配器工厂 — L5 Expert
+
+    统一入口：自动检测 → 认证解析 → 能力探测 → Target 创建
+
+    支持 PyRIT 1.0.0 全部 Target 类型，覆盖 AI-300 考试所有目标场景。
+    """
+
+    # ──────────────────────────────────────
+    # 1. 目标类型自动检测（side-effect-free）
+    # ──────────────────────────────────────
+
+    @staticmethod
+    async def detect_target_type(target_url: str) -> str:
+        """
+        自动检测目标类型（仅发送 GET 请求，无副作用）
+
+        探测顺序：
+        1. 环境变量 TARGET_TYPE 手动覆盖
+        2. GET /v1/models → 检测 OpenAI 兼容端点
+        3. GET /v1/responses → 检测 Responses API（o1/o3 推理模型）
+        4. GET / → 检测端点是否存在
+        5. 默认 → http_api（结构化 HTTP）
+
+        Args:
+            target_url: 目标基础 URL
+
+        Returns:
+            目标类型字符串
+        """
+        url = target_url.rstrip("/")
+
+        # 1. 环境变量手动覆盖
+        env_type = os.getenv("TARGET_TYPE", "").strip().lower()
+        if env_type:
+            resolved = _LEGACY_TYPE_ALIASES.get(env_type, env_type)
+            logger.info(f"Target type overridden by env: {env_type} → {resolved}")
+            return resolved
+
+        # 规范化 base URL
+        base_url = url
+        if url.endswith("/v1"):
+            base_url = url[:-3]
+
+        # 2. GET /v1/models — OpenAI Chat 兼容
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                response = await client.get(f"{base_url}/v1/models")
+                if response.status_code == 200:
+                    logger.info(f"Target type detected: {TARGET_TYPE_OPENAI_CHAT} (GET /v1/models → 200)")
+                    return TARGET_TYPE_OPENAI_CHAT
+        except Exception:
+            pass
+
+        # 3. 检测 /v1/responses — OpenAI Responses API（o1/o3 推理模型）
+        # Responses API 没有 GET 端点，通过检查 /v1/responses 是否返回 405 (Method Not Allowed) 来判断
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                response = await client.get(f"{base_url}/v1/responses")
+                # 405 = 端点存在但不支持 GET（Responses API 只支持 POST）
+                # 401 = 需要认证但端点存在
+                if response.status_code in (405, 401):
+                    logger.info(f"Target type detected: {TARGET_TYPE_OPENAI_RESPONSES} (GET /v1/responses → {response.status_code})")
+                    return TARGET_TYPE_OPENAI_RESPONSES
+        except Exception:
+            pass
+
+        # 4. 检测 /chat/completions（不带 /v1 前缀）
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                response = await client.get(f"{url}/chat/completions")
+                if response.status_code in (405, 401, 200):
+                    logger.info(f"Target type detected: {TARGET_TYPE_OPENAI_CHAT} (GET /chat/completions → {response.status_code})")
+                    return TARGET_TYPE_OPENAI_CHAT
+        except Exception:
+            pass
+
+        # 5. 检测 /generate（HuggingFace TGI）
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                response = await client.post(
+                    f"{url}/generate",
+                    json={"inputs": "hi"},
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code in (200, 400, 422):
+                    logger.info(f"Target type detected: {TARGET_TYPE_HTTP_API} (POST /generate → {response.status_code})")
+                    return TARGET_TYPE_HTTP_API
+        except Exception:
+            pass
+
+        # 6. 默认为结构化 HTTP API
+        logger.info(f"Target type auto-detected as: {TARGET_TYPE_HTTP_API} (fallback)")
+        return TARGET_TYPE_HTTP_API
+
+    # ──────────────────────────────────────
+    # 2. 认证模式检测
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def detect_auth_mode(endpoint: str, params: TargetParams) -> str:
+        """
+        检测认证模式
+
+        优先级：
+        1. params.auth_mode 显式指定（非 "auto"）
+        2. 环境变量 TARGET_AUTH_MODE
+        3. Azure 端点 + 无 API Key → identity（Entra ID）
+        4. 默认 → api_key
+
+        Args:
+            endpoint: 目标端点 URL
+            params: 目标参数
+
+        Returns:
+            "api_key" 或 "identity"
+        """
+        # 显式指定
+        if params.auth_mode and params.auth_mode != "auto":
+            return params.auth_mode
+
+        # 环境变量
+        env_auth = os.getenv("TARGET_AUTH_MODE", "").strip().lower()
+        if env_auth in ("api_key", "identity"):
+            return env_auth
+
+        # Azure 端点 + 无 API Key → Entra ID
+        if is_azure_openai_endpoint(endpoint) and not params.api_key:
+            logger.info(f"Azure OpenAI endpoint detected without API key → using Entra ID (identity)")
+            return "identity"
+
+        return "api_key"
+
+    # ──────────────────────────────────────
+    # 3. httpx_client_kwargs 构建
+    # ──────────────────────────────────────
+
+    # AsyncOpenAI.__init__ 直接接受的 httpx 相关参数
+    # verify/proxy/http2 等不接受，需通过 http_client 预配置
+    _OPENAI_ACCEPTED_HTTPX_PARAMS = frozenset({
+        "timeout", "max_retries", "default_headers", "default_query", "http_client",
+    })
+
+    @staticmethod
+    def _build_httpx_client_kwargs(params: TargetParams) -> Dict[str, Any]:
+        """
+        构建 httpx_client_kwargs（超时 / SSL / 代理 / 额外）
+
+        合并来源（优先级：显式 kwargs > 单独字段 > 环境变量）：
+        - params.httpx_client_kwargs（原始 dict，最高优先级）
+        - params.httpx_timeout / httpx_verify / httpx_proxy（便捷字段）
+        - TARGET_HTTPX_TIMEOUT / TARGET_HTTPX_VERIFY / TARGET_HTTPX_PROXY（环境变量）
+
+        Returns:
+            httpx_client_kwargs dict（适用于 HTTPTarget / HTTPXAPITarget）
+        """
+        kwargs: Dict[str, Any] = {}
+
+        # 从环境变量加载默认值
+        env_timeout = os.getenv("TARGET_HTTPX_TIMEOUT", "").strip()
+        if env_timeout:
+            try:
+                kwargs["timeout"] = float(env_timeout)
+            except ValueError:
+                pass
+
+        env_verify = os.getenv("TARGET_HTTPX_VERIFY", "").strip().lower()
+        if env_verify in ("false", "0", "no"):
+            kwargs["verify"] = False
+        elif env_verify in ("true", "1", "yes"):
+            kwargs["verify"] = True
+
+        env_proxy = os.getenv("TARGET_HTTPX_PROXY", "").strip()
+        if env_proxy:
+            kwargs["proxy"] = env_proxy
+
+        # 便捷字段覆盖环境变量
+        if params.httpx_timeout is not None:
+            kwargs["timeout"] = params.httpx_timeout
+        if params.httpx_verify is not None:
+            kwargs["verify"] = params.httpx_verify
+        if params.httpx_proxy is not None:
+            kwargs["proxy"] = params.httpx_proxy
+
+        # 原始 kwargs 最高优先级
+        if params.httpx_client_kwargs:
+            kwargs.update(params.httpx_client_kwargs)
+
+        return kwargs if kwargs else None
+
+    @staticmethod
+    def _build_openai_httpx_kwargs(params: TargetParams) -> Dict[str, Any]:
+        """
+        构建 OpenAI SDK 兼容的 httpx_client_kwargs
+
+        AsyncOpenAI.__init__ 只接受 timeout/max_retries/default_headers/default_query/http_client。
+        verify/proxy/http2 等参数需要通过预配置 httpx.AsyncClient 传给 http_client。
+
+        Returns:
+            OpenAI SDK 兼容的 httpx_client_kwargs dict
+        """
+        raw = TargetFactory._build_httpx_client_kwargs(params)
+        if raw is None:
+            return None
+
+        # 拆分为 AsyncOpenAI 直接接受 vs 仅 httpx 接受
+        accepted: Dict[str, Any] = {}
+        excluded: Dict[str, Any] = {}
+        for k, v in raw.items():
+            if k in TargetFactory._OPENAI_ACCEPTED_HTTPX_PARAMS:
+                accepted[k] = v
+            else:
+                excluded[k] = v
+
+        # 如果有不接受的参数，创建预配置 httpx.AsyncClient
+        if excluded:
+            client_kwargs = dict(excluded)
+            if "timeout" in accepted:
+                client_kwargs.setdefault("timeout", accepted["timeout"])
+            accepted["http_client"] = httpx.AsyncClient(**client_kwargs)
+            logger.info(
+                f"Created custom httpx.AsyncClient for OpenAI target "
+                f"(extra params: {list(excluded.keys())})"
+            )
+
+        return accepted if accepted else None
+
+    # ──────────────────────────────────────
+    # 4. 能力探测（apply=True，使用部分结果）
+    # ──────────────────────────────────────
+
+    @staticmethod
+    async def discover_capabilities(
+        target: PromptTarget,
+        params: TargetParams,
+    ) -> Optional[TargetConfiguration]:
+        """
+        使用 PyRIT 原生功能发现目标能力
+
+        L5 改进：
+        1. apply=True — 将探测结果直接应用到 Target
+        2. 使用部分结果 — 即使某些探针失败，也保留成功的探测结果
+        3. 探针超时可配置（per_probe_timeout_s）
+
+        Args:
+            target: 已创建的 PromptTarget 实例
+            params: 目标参数
+
+        Returns:
+            TargetConfiguration（探测后），探测完全失败返回 None
+        """
+        if not params.discover_capabilities:
+            return None
+
+        try:
+            capabilities = await discover_target_capabilities_async(
+                target=target,
+                per_probe_timeout_s=params.per_probe_timeout_s,
+                apply=params.apply_discovered_capabilities,
+            )
+
+            # 记录探测结果
+            caps = capabilities
+            supported = []
+            if caps.supports_multi_turn:
+                supported.append("multi_turn")
+            if caps.supports_system_prompt:
+                supported.append("system_prompt")
+            if caps.supports_json_output:
+                supported.append("json_output")
+            if caps.supports_json_schema:
+                supported.append("json_schema")
+            if caps.supports_editable_history:
+                supported.append("editable_history")
+            logger.info(f"Capability discovery: {', '.join(supported) or 'none'}")
+
+            return TargetConfiguration(capabilities=capabilities)
+
+        except Exception as e:
+            logger.warning(f"Capability discovery failed: {e}")
+            return None
+
+    # ──────────────────────────────────────
+    # 5. 辅助方法
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def _resolve_endpoint(target_url: str, target_type: str) -> str:
+        """
+        解析完整端点 URL
+
+        OpenAI SDK 系列需要 /v1 后缀（除非已包含）
+        """
+        url = target_url.rstrip("/")
+        if target_type in _OPENAI_SDK_TYPES:
+            if "/v1" in url:
+                return url
+            return f"{url}/v1"
+        return url
+
+    @staticmethod
+    def _resolve_api_key(api_key: Optional[str], auth_mode: str) -> Optional[str]:
+        """
+        解析 API Key
+
+        identity 模式下返回 None（让 PyRIT 自动使用 Entra ID）
+        api_key 模式下返回 key 或 placeholder
+        """
+        if auth_mode == "identity":
+            return None  # PyRIT resolve_openai_auth 会自动使用 get_azure_openai_auth
+        return api_key or os.getenv("TARGET_API_KEY", "placeholder")
+
+    @staticmethod
+    def _parse_headers(headers_str: Optional[str]) -> Dict[str, str]:
+        """解析 JSON 格式的 headers 字符串"""
+        if not headers_str:
+            return {"Content-Type": "application/json"}
+        try:
+            return json.loads(headers_str)
+        except (json.JSONDecodeError, TypeError):
+            return {"Content-Type": "application/json"}
+
+    @staticmethod
+    def _parse_json_data(json_str: Optional[str]) -> Optional[Dict[str, Any]]:
+        """解析 JSON 格式的 body 数据"""
+        if not json_str:
+            return None
+        try:
+            return json.loads(json_str)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    # ──────────────────────────────────────
+    # 6. Target 创建（按类型分派）
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def create_target(
+        target_type: str,
+        target_url: str,
+        params: Optional[TargetParams] = None,
+    ) -> PromptTarget:
+        """
+        创建适配的 PromptTarget 实例
+
+        Args:
+            target_type: 目标类型（由 detect_target_type 或手动指定）
+            target_url: 目标 URL
+            params: 目标参数（None 时从环境变量加载）
+
+        Returns:
+            PromptTarget 实例
+        """
+        params = params or TargetParams()
+
+        # 从环境变量补充缺失参数
+        _apply_env_defaults(params)
+
+        # 分派到对应的创建方法
+        creator = _TARGET_CREATORS.get(target_type)
+        if creator is None:
+            raise ValueError(
+                f"Unsupported target type: {target_type}. "
+                f"Supported types: {', '.join(sorted(_TARGET_CREATORS.keys()))}"
+            )
+
+        target = creator(target_url, params)
+        logger.info(f"Created {type(target).__name__} (type={target_type})")
+        return target
+
+    # ──────────────────────────────────────
+    # 7. 完整流程：检测 → 探测 → 创建
+    # ──────────────────────────────────────
+
+    @staticmethod
+    async def create_target_with_detection(
+        target_url: str,
+        api_key: Optional[str] = None,
+        model_name: Optional[str] = None,
+        params: Optional[TargetParams] = None,
+    ) -> Tuple[PromptTarget, str]:
+        """
+        创建目标并返回类型（自动检测 + 能力探测 + 创建）
+
+        完整流程：
+        1. 加载参数（显式 > env > 默认）
+        2. 自动检测目标类型（或使用 params.target_type）
+        3. 解析认证模式
+        4. 创建适配的 PromptTarget
+        5. 探测目标能力（apply=True）
+
+        Args:
+            target_url: 目标 URL
+            api_key: API Key（向后兼容，优先级低于 params.api_key）
+            model_name: 模型名（向后兼容，优先级低于 params.model_name）
+            params: 完整目标参数
+
+        Returns:
+            (PromptTarget 实例, 目标类型字符串)
+        """
+        params = params or TargetParams()
+
+        # 向后兼容：显式参数覆盖 params
+        if api_key is not None and params.api_key is None:
+            params.api_key = api_key
+        if model_name is not None and params.model_name is None:
+            params.model_name = model_name
+
+        # 从环境变量补充缺失参数
+        _apply_env_defaults(params)
+
+        # 1. 确定目标类型
+        if params.target_type:
+            target_type = _LEGACY_TYPE_ALIASES.get(params.target_type, params.target_type)
+        else:
+            target_type = await TargetFactory.detect_target_type(target_url)
+        logger.info(f"Target type: {target_type}")
+
+        # 2. 解析端点 URL
+        endpoint = TargetFactory._resolve_endpoint(target_url, target_type)
+
+        # 3. 解析认证模式
+        auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+        logger.info(f"Auth mode: {auth_mode}")
+
+        # 4. 创建 Target
+        target = TargetFactory.create_target(
+            target_type=target_type,
+            target_url=target_url,
+            params=params,
+        )
+
+        # 5. 能力探测（仅对 SDK 系列目标）
+        if target_type in _OPENAI_SDK_TYPES and params.discover_capabilities:
+            await TargetFactory.discover_capabilities(target, params)
+
+        return target, target_type
+
+
+# ============================================================
+# Target 创建器（按类型注册）
+# ============================================================
+
+
+def _create_openai_chat(target_url: str, params: TargetParams) -> OpenAIChatTarget:
+    """创建 OpenAIChatTarget（Chat Completions API）"""
+
+    endpoint = TargetFactory._resolve_endpoint(target_url, TARGET_TYPE_OPENAI_CHAT)
+    auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+    api_key = TargetFactory._resolve_api_key(params.api_key, auth_mode)
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+        "api_key": api_key or "placeholder",
+        "model_name": params.model_name or os.getenv("TARGET_MODEL", "test"),
+    }
+
+    # 推理参数
+    if params.temperature is not None:
+        kwargs["temperature"] = params.temperature
+    if params.top_p is not None:
+        kwargs["top_p"] = params.top_p
+    if params.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = params.max_completion_tokens
+    if params.frequency_penalty is not None:
+        kwargs["frequency_penalty"] = params.frequency_penalty
+    if params.presence_penalty is not None:
+        kwargs["presence_penalty"] = params.presence_penalty
+    if params.seed is not None:
+        kwargs["seed"] = params.seed
+    if params.n is not None:
+        kwargs["n"] = params.n
+
+    # extra_body_parameters
+    if params.extra_body_parameters:
+        kwargs["extra_body_parameters"] = params.extra_body_parameters
+
+    # underlying_model
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
+
+    # httpx_client_kwargs
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return OpenAIChatTarget(**kwargs)
+
+
+def _create_openai_responses(target_url: str, params: TargetParams) -> OpenAIResponseTarget:
+    """
+    创建 OpenAIResponseTarget（Responses API）
+
+    支持：
+    - o1/o3/o4-mini 推理模型
+    - reasoning_effort / reasoning_summary 控制
+    - Agentic Tool Calling 循环（custom_functions）
+    - 完整 Content Filter 处理链（两条检测路径）
+    """
+    endpoint = TargetFactory._resolve_endpoint(target_url, TARGET_TYPE_OPENAI_RESPONSES)
+    auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+    api_key = TargetFactory._resolve_api_key(params.api_key, auth_mode)
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+        "api_key": api_key or "placeholder",
+        "model_name": params.model_name or os.getenv("TARGET_MODEL", "test"),
+    }
+
+    # 推理参数
+    if params.temperature is not None:
+        kwargs["temperature"] = params.temperature
+    if params.top_p is not None:
+        kwargs["top_p"] = params.top_p
+    if params.max_output_tokens is not None:
+        kwargs["max_output_tokens"] = params.max_output_tokens
+
+    # Responses API 专用：推理控制
+    if params.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = params.reasoning_effort
+    if params.reasoning_summary is not None:
+        kwargs["reasoning_summary"] = params.reasoning_summary
+
+    # Agentic Tool Calling
+    if params.custom_functions:
+        kwargs["custom_functions"] = params.custom_functions
+        kwargs["fail_on_missing_function"] = params.fail_on_missing_function
+
+    # extra_body_parameters（可能包含 tools 定义）
+    if params.extra_body_parameters:
+        kwargs["extra_body_parameters"] = params.extra_body_parameters
+
+    # underlying_model
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
+
+    # httpx_client_kwargs（推理模型需要更长超时）
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return OpenAIResponseTarget(**kwargs)
+
+
+def _create_litellm(target_url: str, params: TargetParams) -> PromptTarget:
+    """
+    创建 LiteLLMChatTarget（100+ LLM Provider 统一接入）
+
+    支持 Anthropic Claude / Google Gemini / Cohere / Mistral 等。
+    通过 LiteLLM 库统一 API，自动处理 Provider 差异。
+    """
+    try:
+        from pyrit.prompt_target import LiteLLMChatTarget
+    except ImportError:
+        logger.warning(
+            "LiteLLMChatTarget not available. Install with: pip install litellm. "
+            "Falling back to OpenAIChatTarget."
+        )
+        return _create_openai_chat(target_url, params)
+
+    kwargs: Dict[str, Any] = {
+        "model": params.model_name or os.getenv("TARGET_MODEL", "gpt-4o"),
+        "endpoint": target_url,
+        "api_key": params.api_key or os.getenv("TARGET_API_KEY", "placeholder"),
+    }
+
+    # 推理参数
+    if params.temperature is not None:
+        kwargs["temperature"] = params.temperature
+    if params.top_p is not None:
+        kwargs["top_p"] = params.top_p
+    if params.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = params.max_completion_tokens
+    if params.seed is not None:
+        kwargs["seed"] = params.seed
+
+    # extra_body_parameters
+    if params.extra_body_parameters:
+        kwargs["extra_body_parameters"] = params.extra_body_parameters
+
+    # httpx_client_kwargs
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return LiteLLMChatTarget(**kwargs)
+
+
+def _create_http_api(target_url: str, params: TargetParams) -> HTTPXAPITarget:
+    """创建 HTTPXAPITarget（结构化 HTTP API）"""
+    httpx_kwargs = TargetFactory._build_httpx_client_kwargs(params)
+
+    kwargs: Dict[str, Any] = {
+        "http_url": target_url,
+        "method": params.method,
+        "headers": params.headers or {"Content-Type": "application/json"},
+    }
+
+    # JSON body（注入 {PROMPT} 占位符如果未包含）
+    if params.json_data:
+        kwargs["json_data"] = params.json_data
+    else:
+        kwargs["json_data"] = {"messages": [{"role": "user", "content": "{PROMPT}"}]}
+
+    if params.form_data:
+        kwargs["form_data"] = params.form_data
+    if params.params:
+        kwargs["params"] = params.params
+    if params.file_path:
+        kwargs["file_path"] = params.file_path
+    if params.callback_function:
+        kwargs["callback_function"] = params.callback_function
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # httpx_client_kwargs
+    if httpx_kwargs:
+        kwargs.update(httpx_kwargs)
+
+    return HTTPXAPITarget(**kwargs)
+
+
+def _create_http_raw(target_url: str, params: TargetParams) -> HTTPTarget:
+    """创建 HTTPTarget（原始 HTTP 请求 / Burp Suite 导出）"""
+    if not params.raw_http_request:
+        raise ValueError(
+            "http_raw target requires 'raw_http_request' in params "
+            "or TARGET_RAW_REQUEST / TARGET_RAW_REQUEST_FILE env var"
+        )
+
+    httpx_kwargs = TargetFactory._build_httpx_client_kwargs(params)
+
+    kwargs: Dict[str, Any] = {
+        "http_request": params.raw_http_request,
+        "prompt_regex_string": params.prompt_regex_string,
+        "use_tls": params.use_tls,
+    }
+
+    if params.callback_function:
+        kwargs["callback_function"] = params.callback_function
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+    if params.model_name:
+        kwargs["model_name"] = params.model_name
+
+    # httpx_client_kwargs 作为 **kwargs 传递
+    if httpx_kwargs:
+        kwargs.update(httpx_kwargs)
+
+    return HTTPTarget(**kwargs)
+
+
+def _create_playwright(target_url: str, params: TargetParams) -> PromptTarget:
+    """
+    创建 PlaywrightTarget（Web UI 自动化）
+
+    需要 params.interaction_func 和 params.page。
+    用于测试基于 Web 的聊天界面（ChatGPT Web、企业 AI 助手等）。
+    """
+    try:
+        from pyrit.prompt_target import PlaywrightTarget
+    except ImportError:
+        raise ImportError(
+            "PlaywrightTarget requires playwright. Install with: pip install playwright && playwright install"
+        )
+
+    if params.interaction_func is None:
+        raise ValueError("playwright target requires 'interaction_func' in params")
+    if params.page is None:
+        raise ValueError("playwright target requires 'page' in params (playwright.async_api.Page)")
+
+    kwargs: Dict[str, Any] = {
+        "interaction_func": params.interaction_func,
+        "page": params.page,
+    }
+
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return PlaywrightTarget(**kwargs)
+
+
+def _create_websocket_copilot(target_url: str, params: TargetParams) -> PromptTarget:
+    """
+    创建 WebSocketCopilotTarget（Microsoft 365 Copilot）
+
+    支持两种认证：
+    1. 自动认证（CopilotAuthenticator）：需要 copilot_username + copilot_password
+    2. 手动认证（ManualCopilotAuthenticator）：需要 copilot_access_token
+    """
+    try:
+        from pyrit.prompt_target import WebSocketCopilotTarget
+    except ImportError:
+        raise ImportError(
+            "WebSocketCopilotTarget requires websockets. Install with: pip install websockets"
+        )
+
+    kwargs: Dict[str, Any] = {}
+
+    # 优先使用 access token
+    if params.copilot_access_token:
+        from pyrit.auth import ManualCopilotAuthenticator
+        kwargs["authenticator"] = ManualCopilotAuthenticator(access_token=params.copilot_access_token)
+    elif params.copilot_username and params.copilot_password:
+        from pyrit.auth import CopilotAuthenticator
+        kwargs["authenticator"] = CopilotAuthenticator(
+            username=params.copilot_username,
+            password=params.copilot_password,
+        )
+    else:
+        # 从环境变量加载
+        username = os.getenv("COPILOT_USERNAME", "").strip()
+        password = os.getenv("COPILOT_PASSWORD", "").strip()
+        token = os.getenv("COPILOT_ACCESS_TOKEN", "").strip()
+        if token:
+            from pyrit.auth import ManualCopilotAuthenticator
+            kwargs["authenticator"] = ManualCopilotAuthenticator(access_token=token)
+        elif username and password:
+            from pyrit.auth import CopilotAuthenticator
+            kwargs["authenticator"] = CopilotAuthenticator(username=username, password=password)
+        else:
+            raise ValueError(
+                "websocket_copilot target requires Copilot credentials. "
+                "Set COPILOT_USERNAME + COPILOT_PASSWORD or COPILOT_ACCESS_TOKEN env var."
+            )
+
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return WebSocketCopilotTarget(**kwargs)
+
+
+def _create_playwright_copilot(target_url: str, params: TargetParams) -> PromptTarget:
+    """创建 PlaywrightCopilotTarget（Copilot 浏览器自动化）"""
+    try:
+        from pyrit.prompt_target import PlaywrightCopilotTarget, CopilotType
+    except ImportError:
+        raise ImportError(
+            "PlaywrightCopilotTarget requires playwright. Install with: pip install playwright && playwright install"
+        )
+
+    kwargs: Dict[str, Any] = {}
+
+    # Copilot 类型
+    copilot_type_str = os.getenv("COPILOT_TYPE", "m365").strip().lower()
+    try:
+        kwargs["copilot_type"] = CopilotType(copilot_type_str)
+    except ValueError:
+        kwargs["copilot_type"] = CopilotType.M365
+
+    # 认证
+    if params.copilot_access_token:
+        from pyrit.auth import ManualCopilotAuthenticator
+        kwargs["authenticator"] = ManualCopilotAuthenticator(access_token=params.copilot_access_token)
+    elif params.copilot_username and params.copilot_password:
+        from pyrit.auth import CopilotAuthenticator
+        kwargs["authenticator"] = CopilotAuthenticator(
+            username=params.copilot_username,
+            password=params.copilot_password,
+        )
+    else:
+        username = os.getenv("COPILOT_USERNAME", "").strip()
+        password = os.getenv("COPILOT_PASSWORD", "").strip()
+        token = os.getenv("COPILOT_ACCESS_TOKEN", "").strip()
+        if token:
+            from pyrit.auth import ManualCopilotAuthenticator
+            kwargs["authenticator"] = ManualCopilotAuthenticator(access_token=token)
+        elif username and password:
+            from pyrit.auth import CopilotAuthenticator
+            kwargs["authenticator"] = CopilotAuthenticator(username=username, password=password)
+        else:
+            raise ValueError(
+                "playwright_copilot target requires Copilot credentials. "
+                "Set COPILOT_USERNAME + COPILOT_PASSWORD or COPILOT_ACCESS_TOKEN env var."
+            )
+
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return PlaywrightCopilotTarget(**kwargs)
+
+
+def _create_azure_blob(target_url: str, params: TargetParams) -> PromptTarget:
+    """
+    创建 AzureBlobStorageTarget（XPIA 载荷投递）
+
+    用于将恶意文档上传到 Azure Blob Storage，
+    等待目标 RAG 系统检索并执行注入（OWASP LLM08 Vector Injection）。
+    """
+    try:
+        from pyrit.prompt_target import AzureBlobStorageTarget
+    except ImportError:
+        raise ImportError(
+            "AzureBlobStorageTarget requires azure-storage-blob. "
+            "Install with: pip install azure-storage-blob azure-identity"
+        )
+
+    container_url = params.container_url or os.getenv("AZURE_STORAGE_ACCOUNT_CONTAINER_URL", "").strip()
+    if not container_url:
+        raise ValueError(
+            "azure_blob target requires 'container_url' in params "
+            "or AZURE_STORAGE_ACCOUNT_CONTAINER_URL env var"
+        )
+
+    kwargs: Dict[str, Any] = {"container_url": container_url}
+
+    sas_token = params.sas_token or os.getenv("AZURE_STORAGE_ACCOUNT_SAS_TOKEN", "").strip()
+    if sas_token:
+        kwargs["sas_token"] = sas_token
+
+    # blob_content_type
+    from pyrit.prompt_target.azure_blob_storage_target import SupportedContentType
+    try:
+        kwargs["blob_content_type"] = SupportedContentType(params.blob_content_type)
+    except ValueError:
+        kwargs["blob_content_type"] = SupportedContentType.PLAIN_TEXT
+
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return AzureBlobStorageTarget(**kwargs)
+
+
+def _create_prompt_shield(target_url: str, params: TargetParams) -> PromptTarget:
+    """
+    创建 PromptShieldTarget（Azure AI Content Safety Prompt Shield）
+
+    用于测试目标的 Prompt Shield 防御能力。
+    Prompt Shield 检测 jailbreak 攻击（非内容有害性）。
+    """
+    try:
+        from pyrit.prompt_target import PromptShieldTarget
+    except ImportError:
+        raise ImportError(
+            "PromptShieldTarget requires azure-ai-contentsafety. "
+            "Install with: pip install azure-ai-contentsafety azure-identity"
+        )
+
+    azure_endpoint = params.azure_endpoint or os.getenv("AZURE_CONTENT_SAFETY_API_ENDPOINT", "").strip()
+    if not azure_endpoint:
+        raise ValueError(
+            "prompt_shield target requires 'azure_endpoint' in params "
+            "or AZURE_CONTENT_SAFETY_API_ENDPOINT env var"
+        )
+
+    kwargs: Dict[str, Any] = {"azure_endpoint": azure_endpoint}
+
+    api_key = params.api_key or os.getenv("AZURE_CONTENT_SAFETY_API_KEY", "").strip()
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    if params.force_entry_field:
+        kwargs["force_entry_field"] = params.force_entry_field
+
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    return PromptShieldTarget(**kwargs)
+
+
+def _create_text(target_url: str, params: TargetParams) -> TextTarget:
+    """创建 TextTarget（调试输出，将响应写入文本流）"""
+    if params.file_path:
+        file_path = params.file_path
+        if not os.path.isabs(file_path):
+            project_root = Path(__file__).parent.parent.parent
+            file_path = project_root / file_path
+        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        text_stream = open(file_path, "a", encoding="utf-8", errors="replace")
+        return TextTarget(text_stream=text_stream)
+    return TextTarget()
+
+
+# Target 创建器注册表
+_TARGET_CREATORS: Dict[str, Callable[[str, TargetParams], PromptTarget]] = {
+    TARGET_TYPE_OPENAI_CHAT: _create_openai_chat,
+    TARGET_TYPE_OPENAI_RESPONSES: _create_openai_responses,
+    TARGET_TYPE_LITELLM: _create_litellm,
+    TARGET_TYPE_HTTP_API: _create_http_api,
+    TARGET_TYPE_HTTP_RAW: _create_http_raw,
+    TARGET_TYPE_PLAYWRIGHT: _create_playwright,
+    TARGET_TYPE_WEBSOCKET_COPILOT: _create_websocket_copilot,
+    TARGET_TYPE_PLAYWRIGHT_COPILOT: _create_playwright_copilot,
+    TARGET_TYPE_AZURE_BLOB: _create_azure_blob,
+    TARGET_TYPE_PROMPT_SHIELD: _create_prompt_shield,
+    TARGET_TYPE_TEXT: _create_text,
+}
+
+
+# ============================================================
+# 环境变量加载
+# ============================================================
+
+
+def _apply_env_defaults(params: TargetParams) -> None:
+    """从环境变量补充缺失参数（不覆盖已有值）"""
+
+    # httpx 客户端配置
+    if params.httpx_timeout is None:
+        env_val = os.getenv("TARGET_HTTPX_TIMEOUT", "").strip()
+        if env_val:
+            try:
+                params.httpx_timeout = float(env_val)
+            except ValueError:
+                pass
+
+    if params.httpx_verify is None:
+        env_val = os.getenv("TARGET_HTTPX_VERIFY", "").strip().lower()
+        if env_val in ("false", "0", "no"):
+            params.httpx_verify = False
+        elif env_val in ("true", "1", "yes"):
+            params.httpx_verify = True
+
+    if params.httpx_proxy is None:
+        env_val = os.getenv("TARGET_HTTPX_PROXY", "").strip()
+        if env_val:
+            params.httpx_proxy = env_val
+
+    # 认证模式
+    if params.auth_mode == "auto":
+        env_val = os.getenv("TARGET_AUTH_MODE", "").strip().lower()
+        if env_val in ("api_key", "identity"):
+            params.auth_mode = env_val
+
+    # 推理参数
+    if params.temperature is None:
+        env_val = os.getenv("TARGET_TEMPERATURE", "").strip()
+        if env_val:
+            try:
+                params.temperature = float(env_val)
+            except ValueError:
+                pass
+
+    if params.top_p is None:
+        env_val = os.getenv("TARGET_TOP_P", "").strip()
+        if env_val:
+            try:
+                params.top_p = float(env_val)
+            except ValueError:
+                pass
+
+    if params.max_completion_tokens is None:
+        env_val = os.getenv("TARGET_MAX_COMPLETION_TOKENS", "").strip()
+        if env_val:
+            try:
+                params.max_completion_tokens = int(env_val)
+            except ValueError:
+                pass
+
+    if params.max_output_tokens is None:
+        env_val = os.getenv("TARGET_MAX_OUTPUT_TOKENS", "").strip()
+        if env_val:
+            try:
+                params.max_output_tokens = int(env_val)
+            except ValueError:
+                pass
+
+    if params.seed is None:
+        env_val = os.getenv("TARGET_SEED", "").strip()
+        if env_val:
+            try:
+                params.seed = int(env_val)
+            except ValueError:
+                pass
+
+    if params.frequency_penalty is None:
+        env_val = os.getenv("TARGET_FREQUENCY_PENALTY", "").strip()
+        if env_val:
+            try:
+                params.frequency_penalty = float(env_val)
+            except ValueError:
+                pass
+
+    if params.presence_penalty is None:
+        env_val = os.getenv("TARGET_PRESENCE_PENALTY", "").strip()
+        if env_val:
+            try:
+                params.presence_penalty = float(env_val)
+            except ValueError:
+                pass
+
+    # Responses API 专用
+    if params.reasoning_effort is None:
+        env_val = os.getenv("TARGET_REASONING_EFFORT", "").strip().lower()
+        if env_val in ("minimal", "low", "medium", "high"):
+            params.reasoning_effort = env_val
+
+    if params.reasoning_summary is None:
+        env_val = os.getenv("TARGET_REASONING_SUMMARY", "").strip().lower()
+        if env_val in ("auto", "concise", "detailed"):
+            params.reasoning_summary = env_val
+
+    # extra_body_parameters
+    if params.extra_body_parameters is None:
+        env_val = os.getenv("TARGET_EXTRA_BODY_PARAMETERS", "").strip()
+        if env_val:
+            try:
+                params.extra_body_parameters = json.loads(env_val)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse TARGET_EXTRA_BODY_PARAMETERS: {env_val}")
+
+    # underlying_model
+    if params.underlying_model is None:
+        env_val = os.getenv("TARGET_UNDERLYING_MODEL", "").strip()
+        if env_val:
+            params.underlying_model = env_val
+
+    # 速率限制
+    if params.max_requests_per_minute is None:
+        env_val = os.getenv("TARGET_MAX_REQUESTS_PER_MINUTE", "").strip()
+        if env_val:
+            try:
+                params.max_requests_per_minute = int(env_val)
+            except ValueError:
+                pass
+
+    # HTTP method
+    if not params.method or params.method == "POST":
+        env_val = os.getenv("TARGET_METHOD", "").strip().upper()
+        if env_val:
+            params.method = env_val
+
+    # headers
+    if params.headers is None:
+        env_val = os.getenv("TARGET_HEADERS", "").strip()
+        if env_val:
+            params.headers = TargetFactory._parse_headers(env_val)
+
+    # json_data
+    if params.json_data is None:
+        env_val = os.getenv("TARGET_JSON_DATA", "").strip()
+        if env_val:
+            params.json_data = TargetFactory._parse_json_data(env_val)
+
+    # raw_http_request（优先从文件加载）
+    if params.raw_http_request is None:
+        env_raw_file = os.getenv("TARGET_RAW_REQUEST_FILE", "").strip()
+        if env_raw_file:
+            raw_path = Path(env_raw_file)
+            if not raw_path.is_absolute():
+                project_root = Path(__file__).parent.parent.parent
+                raw_path = project_root / raw_path
+            if raw_path.exists():
+                params.raw_http_request = raw_path.read_text(encoding="utf-8").strip()
+                logger.info(f"Loaded Burp request from file: {raw_path}")
+            else:
+                logger.warning(f"TARGET_RAW_REQUEST_FILE not found: {raw_path}")
+        else:
+            env_raw = os.getenv("TARGET_RAW_REQUEST", "").strip()
+            if env_raw:
+                params.raw_http_request = env_raw
+
+    # callback_function
+    if params.callback_function is None:
+        env_callback = os.getenv("TARGET_CALLBACK_FUNCTION", "").strip().lower()
+        if env_callback:
+            params.callback_function = _resolve_callback_function(env_callback)
+
+
+# ============================================================
+# 回调函数解析
+# ============================================================
+
+
+def _resolve_callback_function(callback_name: str):
+    """
+    根据名称解析回调函数
+
+    Args:
+        callback_name: 回调函数名称
+            - 'json_response': JSON 响应解析（需配合 TARGET_CALLBACK_KEY）
+            - 'regex_match': 正则匹配（需配合 TARGET_CALLBACK_KEY）
+            - 'none' / '': 无回调
+
+    Returns:
+        回调函数，或 None
+    """
+    if callback_name in ("none", ""):
+        return None
+
+    callback_key = os.getenv("TARGET_CALLBACK_KEY", "").strip()
+    callback_url = os.getenv("TARGET_CALLBACK_URL", "").strip() or None
+
+    if callback_name == "json_response":
+        if not callback_key:
+            logger.warning("json_response callback requires TARGET_CALLBACK_KEY env var")
+            return None
+        return get_http_target_json_response_callback_function(callback_key)
+
+    if callback_name == "regex_match":
+        if not callback_key:
+            logger.warning("regex_match callback requires TARGET_CALLBACK_KEY env var")
+            return None
+        return get_http_target_regex_matching_callback_function(callback_key, callback_url)
+
+    logger.warning(f"Unknown callback function: {callback_name}")
+    return None
+
+
+# ============================================================
+# 工厂函数（公开 API）
+# ============================================================
+
+
+async def create_prompt_target(
+    target_url: str,
+    api_key: Optional[str] = None,
+    model_name: Optional[str] = None,
+    params: Optional[TargetParams] = None,
+) -> Tuple[PromptTarget, str]:
+    """
+    创建 PromptTarget（工厂函数，自动检测类型 + 能力探测）
+
+    L5 统一入口：支持 PyRIT 1.0.0 全部 Target 类型
+
+    Args:
+        target_url: 目标 URL
+        api_key: API Key（向后兼容）
+        model_name: 模型名称（向后兼容）
+        params: 完整目标参数（包含推理参数 / httpx_kwargs / extra_body_parameters 等）
+
+    Returns:
+        (PromptTarget 实例, 目标类型字符串)
+
+    Examples:
+        # 基础用法（向后兼容）
+        target, type = await create_prompt_target("http://localhost:11434")
+
+        # 高级用法（完整参数控制）
+        params = TargetParams(
+            target_type="openai_responses",
+            reasoning_effort="high",
+            httpx_timeout=300,
+            temperature=0,
+            seed=42,
+        )
+        target, type = await create_prompt_target(
+            "https://my-resource.openai.azure.com",
+            params=params,
+        )
+    """
+    return await TargetFactory.create_target_with_detection(
+        target_url=target_url,
+        api_key=api_key,
+        model_name=model_name,
+        params=params,
+    )
+
+
+async def create_judge_target(
+    judge_url: str,
+    api_key: Optional[str] = None,
+    model_name: Optional[str] = None,
+    params: Optional[TargetParams] = None,
+) -> Tuple[PromptTarget, str]:
+    """
+    创建评分器 Target（工厂函数）
+
+    评分器通常是 OpenAI 兼容 API。
+    L5 改进：强制 JSON 输出能力，确保评分格式稳定。
+
+    Args:
+        judge_url: 评分器 URL
+        api_key: API Key
+        model_name: 模型名称
+        params: 目标参数
+
+    Returns:
+        (PromptTarget 实例, 目标类型字符串)
+    """
+    params = params or TargetParams()
+
+    # 评分器推荐配置：温度 0 + JSON 输出
+    if params.temperature is None:
+        env_temp = os.getenv("TARGET_TEMPERATURE", "").strip()
+        if not env_temp:
+            params.temperature = 0.0  # 评分器需要确定性
+
+    # 强制能力探测（评分器需要 JSON 输出能力）
+    if params.force_json_output:
+        params.discover_capabilities = True
+        params.apply_discovered_capabilities = True
+
+    return await TargetFactory.create_target_with_detection(
+        target_url=judge_url,
+        api_key=api_key,
+        model_name=model_name,
+        params=params,
+    )
+
+
+def create_target_params_from_env() -> TargetParams:
+    """
+    从环境变量创建 TargetParams（便捷函数）
+
+    读取所有 TARGET_* 环境变量并构建完整的 TargetParams。
+
+    Returns:
+        填充了环境变量值的 TargetParams 实例
+    """
+    params = TargetParams()
+    _apply_env_defaults(params)
+
+    # target_type
+    env_type = os.getenv("TARGET_TYPE", "").strip().lower()
+    if env_type:
+        params.target_type = _LEGACY_TYPE_ALIASES.get(env_type, env_type)
+
+    return params

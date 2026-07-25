@@ -1,0 +1,8 @@
+POST /api/v1/chat/completions HTTP/1.1
+Host: api.example.com
+Content-Type: application/json
+Authorization: Bearer sk-your-api-key-here
+Accept: application/json
+User-Agent: PyRIT-RedTeam/1.0
+
+{"model": "target-model", "messages": [{"role": "user", "content": "{PROMPT}"}], "max_tokens": 2048}

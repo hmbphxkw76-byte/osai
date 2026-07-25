@@ -7,19 +7,21 @@ Payload Planner
 根据提示词的 attack_mode、OWASP ID 和策略选择结果（StrategySelection），
 为每个提示词分配攻击技术、Scorer 配置和 Converter 配置。
 
-核心改进（回归 PyRIT 原生框架 + 策略自动匹配）：
+核心改进（回归 PyRIT 原生框架 + 策略自动匹配 + Jailbreak 集成）：
 1. 消费 StrategySelection 中的 attack_techniques 列表，作为可选技术池
 2. 使用 PayloadStrategyMatcher 自动匹配最佳 Scorer、Attack 技术、Converter 链
 3. 根据 OWASP ID 从 owasp_strategy_map 映射到合适的 Scorer 类型
 4. 根据载荷 metadata 中的 technique 字段智能匹配最优攻击技术
 5. 为 CONVERTER_ENHANCED 模式自动匹配最佳 Converter 链（向后兼容 YAML 显式声明）
 6. 将 scenario_name 传递到执行层，供 Orchestrator 使用
+7. 集成 PyRIT 1.0.0 TextJailBreak（160+ 越狱模板），可选增强提示词
 
 向后兼容：
 - YAML 中显式声明的 attack_mode / converter_chains / step.attack_technique 仍被优先使用
 - 未显式声明时，由 PayloadStrategyMatcher 自动匹配
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from src.payloads.models import (
@@ -31,6 +33,8 @@ from src.payloads.models import (
 )
 from src.core.config_loader import get_config_loader
 from src.analysis.strategy_matcher import PayloadStrategyMatcher
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -45,7 +49,7 @@ class PayloadPlanner:
         """初始化载荷规划器"""
         self.config_loader = get_config_loader()
         # 从 YAML 加载映射表（向后兼容）
-        self.owasp_scorer_map = self.config_loader.get_strategy_config().get("ownasp_scorer_map", {})
+        self.owasp_scorer_map = self.config_loader.get_strategy_config().get("owasp_scorer_map", {})
         self.technique_hint_map = self.config_loader.get_strategy_config().get("technique_hint_map", {})
         # 策略自动匹配器
         self.strategy_matcher = PayloadStrategyMatcher()
@@ -92,6 +96,13 @@ class PayloadPlanner:
             # 使用策略匹配器自动匹配 OWASP 策略
             matched = self.strategy_matcher.match(
                 owasp_id=batch.owasp_id,
+            )
+
+            # 检查是否有 objective 类型的 seed（来自 SeedObjective）
+            # objective seed 适用于目标导向攻击（RedTeaming/Crescendo/PAIR/TAP）
+            has_objective_seeds = any(
+                item.metadata.get("is_objective_seed") or item.metadata.get("seed_type") == "objective"
+                for item in batch.prompts
             )
 
             # 确定 scorer_type（优先使用 owasp_scorer_map，回退到 owasp_strategy_map）
@@ -237,6 +248,17 @@ class PayloadPlanner:
 
         # 2. MULTI_TURN 模式特殊处理
         if item.attack_mode == AttackMode.MULTI_TURN:
+            # 如果是 objective seed（来自 SeedObjective），优先使用目标导向攻击
+            is_objective = item.metadata.get("is_objective_seed") or item.metadata.get("seed_type") == "objective"
+            has_objective = item.metadata.get("has_objective", False)
+            if is_objective or (has_objective and not item.multi_turn_steps):
+                # objective seed → 目标导向攻击
+                if "red_teaming" in available_techniques or not available_techniques:
+                    return "red_teaming"
+                if "crescendo" in available_techniques:
+                    return "crescendo"
+                if "pair" in available_techniques:
+                    return "pair"
             if item.multi_turn_steps:
                 # 有显式 turns → 逐轮发送
                 return "prompt_sending"
@@ -345,6 +367,153 @@ class PayloadPlanner:
         }
 
 
+    # -----------------------------------------------------------------
+    # Jailbreak 模板增强（PyRIT 1.0.0 TextJailBreak 集成）
+    # -----------------------------------------------------------------
+
+    def enhance_with_jailbreak(
+        self,
+        prompt_batches: List[PromptBatch],
+        template_file_name: Optional[str] = None,
+        random_template: bool = False,
+        template_types: Optional[List[str]] = None,
+        max_batches_per_template: Optional[int] = None,
+    ) -> List[PromptBatch]:
+        """
+        使用 PyRIT 1.0.0 TextJailBreak 模板增强提示词
+
+        将每个单轮提示词包装在越狱模板中（DAN, AIM 等 100+ 模板），
+        绕过 LLM 安全过滤。仅对 single_turn 模式应用。
+
+        PyRIT 1.0.0 TextJailBreak 支持的模板来源：
+        - template_file_name: 指定模板文件名（如 "aim.yaml"）
+        - random_template: 从 100+ 模板中随机选择
+        - template_types: 按模板名称关键词过滤（如 ["dan", "aim"]），
+          然后从匹配的模板中随机选择
+
+        ⚠️ 重要：不要将 template_types 作为 **kwargs 传给 TextJailBreak.__init__，
+          因为 PyRIT 会将其当作 Jinja 模板变量而非过滤器。
+          本方法在调用 TextJailBreak 之前完成模板过滤。
+
+        增强逻辑：
+        - 跳过已包含 jailbreak 标记的提示词
+        - 保留原始 objective 到 metadata，便于溯源
+        - 可选限制每个模板增强的批次数量
+
+        Args:
+            prompt_batches: 原始提示词批次列表
+            template_file_name: 指定模板文件名（如 "aim.yaml"），None = 不指定
+            random_template: 是否随机选择模板
+            template_types: 按名称关键词过滤模板类型（如 ["dan", "aim", "role_play"]），
+                           从匹配的模板中随机选择。优先级低于 template_file_name。
+            max_batches_per_template: 每个模板最多增强的批次数量
+
+        Returns:
+            增强后的 PromptBatch 列表
+        """
+        if not template_file_name and not random_template and not template_types:
+            return prompt_batches
+
+        try:
+            from pyrit.datasets import TextJailBreak
+        except ImportError:
+            logger.warning("TextJailBreak not available, skipping jailbreak enhancement")
+            return prompt_batches
+
+        # template_types 过滤：在调用 TextJailBreak 之前筛选模板
+        # PyRIT TextJailBreak.__init__ 不支持类型过滤参数，
+        # 传入的 **kwargs 会被当作 Jinja 模板变量而非过滤器
+        if template_types and not template_file_name:
+            try:
+                all_templates = TextJailBreak.get_jailbreak_templates()
+                # 按名称关键词过滤（大小写不敏感）
+                matched = [
+                    name for name in all_templates
+                    if any(t.lower() in name.lower() for t in template_types)
+                ]
+                if not matched:
+                    logger.warning(
+                        f"No jailbreak templates matched types {template_types}, "
+                        f"falling back to random_template"
+                    )
+                    random_template = True
+                else:
+                    import random as _random
+                    template_file_name = _random.choice(matched)
+                    logger.info(
+                        f"Template type filter {template_types} matched {len(matched)} templates, "
+                        f"selected: {template_file_name}"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to filter templates by types: {e}, using random_template")
+                random_template = True
+
+        enhanced_batches: List[PromptBatch] = []
+        template_count = {}
+
+        for batch in prompt_batches:
+            enhanced_items: List[PromptItem] = []
+
+            for item in batch.prompts:
+                if item.attack_mode == AttackMode.SINGLE_TURN:
+                    # 跳过已增强的提示词
+                    if item.metadata and "jailbreak_enhanced" in item.metadata:
+                        enhanced_items.append(item)
+                        continue
+
+                    try:
+                        # 使用 PyRIT 1.0.0 原生 TextJailBreak API
+                        jb = TextJailBreak(
+                            template_file_name=template_file_name,
+                            random_template=random_template,
+                        )
+                        enhanced_objective = jb.get_jailbreak(item.objective)
+                        template_source = getattr(jb, "template_source", "unknown")
+
+                        # 可选：限制每个模板使用次数
+                        if max_batches_per_template:
+                            count = template_count.get(template_source, 0)
+                            if count >= max_batches_per_template:
+                                enhanced_items.append(item)
+                                continue
+                            template_count[template_source] = count + 1
+
+                        new_item = PromptItem(
+                            id=f"{item.id}_jb",
+                            objective=enhanced_objective,
+                            attack_mode=item.attack_mode,
+                            owasp_id=item.owasp_id,
+                            source_id=item.source_id,
+                            category=item.category,
+                            converter_chains=item.converter_chains.copy() if item.converter_chains else [],
+                            multi_turn_steps=item.multi_turn_steps.copy() if item.multi_turn_steps else [],
+                            sequential_steps=item.sequential_steps.copy() if item.sequential_steps else [],
+                            metadata={
+                                **item.metadata,
+                                "jailbreak_template": template_source,
+                                "original_objective": item.objective,
+                                "jailbreak_enhanced": True,
+                            },
+                        )
+                        enhanced_items.append(new_item)
+
+                    except Exception as e:
+                        logger.warning(f"Failed to enhance item {item.id} with jailbreak: {e}")
+                        enhanced_items.append(item)
+                else:
+                    enhanced_items.append(item)
+
+            enhanced_batches.append(PromptBatch(
+                source_id=batch.source_id,
+                owasp_id=batch.owasp_id,
+                category=batch.category,
+                description=batch.description,
+                prompts=enhanced_items,
+            ))
+
+        return enhanced_batches
+
+
 # ============================================================
 # 工厂函数
 # ============================================================
@@ -353,6 +522,10 @@ class PayloadPlanner:
 def plan_attacks(
     prompt_batches: List[PromptBatch],
     strategy_selection: Any = None,
+    jailbreak_template: Optional[str] = None,
+    jailbreak_random: bool = False,
+    jailbreak_template_types: Optional[List[str]] = None,
+    jailbreak_max_batches: Optional[int] = None,
 ) -> List[AttackPlan]:
     """
     将提示词批次转化为攻击计划（工厂函数）
@@ -360,9 +533,24 @@ def plan_attacks(
     Args:
         prompt_batches: 提示词批次列表
         strategy_selection: 策略选择结果（StrategySelection）
+        jailbreak_template: 可选的 Jailbreak 模板文件名（如 "aim.yaml"）
+        jailbreak_random: 是否随机选择 Jailbreak 模板
+        jailbreak_template_types: 按名称关键词过滤模板类型（如 ["dan", "aim"]）
+        jailbreak_max_batches: 每个模板最多增强的批次数量
 
     Returns:
         AttackPlan 列表
     """
     planner = PayloadPlanner()
+
+    # Jailbreak 模板增强（可选）
+    if jailbreak_template or jailbreak_random or jailbreak_template_types:
+        prompt_batches = planner.enhance_with_jailbreak(
+            prompt_batches,
+            template_file_name=jailbreak_template,
+            random_template=jailbreak_random,
+            template_types=jailbreak_template_types,
+            max_batches_per_template=jailbreak_max_batches,
+        )
+
     return planner.plan_attacks(prompt_batches, strategy_selection)

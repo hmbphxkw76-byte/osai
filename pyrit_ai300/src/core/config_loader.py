@@ -456,6 +456,162 @@ class ConfigLoader:
         return self.get_payload_sources_config().get("custom", {}).get("path", "data/custom")
 
     # -----------------------------------------------------------------
+    # 远程数据集配置 (PyRIT 1.0.0 SeedDatasetProvider)
+    # -----------------------------------------------------------------
+
+    def get_remote_datasets_config(self) -> Dict[str, Any]:
+        """获取远程数据集配置"""
+        return self.get_payload_sources_config().get("remote", {})
+
+    def is_remote_datasets_enabled(self) -> bool:
+        """远程数据集是否启用"""
+        return self.get_remote_datasets_config().get("enabled", False)
+
+    def get_remote_dataset_names(self) -> List[str]:
+        """获取指定的远程数据集名称列表（空 = 全部）"""
+        return self.get_remote_datasets_config().get("datasets", [])
+
+    def get_remote_max_concurrency(self) -> int:
+        """获取远程加载并发数"""
+        return self.get_remote_datasets_config().get("max_concurrency", 3)
+
+    def is_remote_cache_enabled(self) -> bool:
+        """远程数据集是否使用缓存"""
+        return self.get_remote_datasets_config().get("cache", True)
+
+    # -----------------------------------------------------------------
+    # TextJailBreak 模板包装配置 (可选，用于增强单轮提示词)
+    # -----------------------------------------------------------------
+
+    def get_text_jailbreak_config(self) -> Dict[str, Any]:
+        """获取 TextJailBreak 模板包装配置"""
+        return self.get_payload_sources_config().get("text_jailbreak", {})
+
+    def is_text_jailbreak_enabled(self) -> bool:
+        """TextJailBreak 模板包装是否启用"""
+        return self.get_text_jailbreak_config().get("enabled", False)
+
+    def get_text_jailbreak_template(self) -> str:
+        """获取指定的 TextJailBreak 模板文件名"""
+        return self.get_text_jailbreak_config().get("template_file", "")
+
+    def is_text_jailbreak_random(self) -> bool:
+        """是否随机选择 TextJailBreak 模板"""
+        return self.get_text_jailbreak_config().get("random", False)
+
+    # 向后兼容别名（旧代码可能仍调用 get_jailbreak_* 方法）
+    def is_jailbreak_enabled(self) -> bool:
+        """向后兼容: 等同于 is_text_jailbreak_enabled()"""
+        return self.is_text_jailbreak_enabled()
+
+    def get_jailbreak_template(self) -> str:
+        """向后兼容: 等同于 get_text_jailbreak_template()"""
+        return self.get_text_jailbreak_template()
+
+    def is_jailbreak_random(self) -> bool:
+        """向后兼容: 等同于 is_text_jailbreak_random()"""
+        return self.is_text_jailbreak_random()
+
+    # -----------------------------------------------------------------
+    # DatasetManager 配置 (CentralMemory 五层架构)
+    # -----------------------------------------------------------------
+
+    def get_dataset_manager_config(self) -> Dict[str, Any]:
+        """获取 DatasetManager 配置 (dataset_manager 配置段)"""
+        return self.get_global_value("dataset_manager", default={})
+
+    def get_dataset_manager_owasp_config(self) -> Dict[str, Any]:
+        """获取 DatasetManager OWASP 配置"""
+        return self.get_dataset_manager_config().get("owasp", {})
+
+    def get_dataset_manager_custom_config(self) -> Dict[str, Any]:
+        """获取 DatasetManager 自定义载荷配置"""
+        return self.get_dataset_manager_config().get("custom", {})
+
+    def get_dataset_manager_remote_config(self) -> Dict[str, Any]:
+        """获取 DatasetManager 远程数据集配置"""
+        return self.get_dataset_manager_config().get("remote", {})
+
+    def get_interactive_selection_config(self) -> Dict[str, Any]:
+        """获取 ②.5 交互式选择层配置"""
+        return self.get_dataset_manager_config().get("interactive_selection", {})
+
+    # -----------------------------------------------------------------
+    # Simulated Conversation 配置 (PyRIT 1.0.0 SeedSimulatedConversation)
+    # -----------------------------------------------------------------
+
+    def get_simulated_conversation_config(self) -> Dict[str, Any]:
+        """获取模拟对话配置（SeedSimulatedConversation）"""
+        return self.get_payload_sources_config().get("simulated_conversation", {})
+
+    def is_simulated_conversation_enabled(self) -> bool:
+        """是否启用模拟对话"""
+        return self.get_simulated_conversation_config().get("enabled", False)
+
+    def get_simulated_conversation_default_turns(self) -> int:
+        """获取模拟对话默认轮数"""
+        return self.get_simulated_conversation_config().get("default_turns", 3)
+
+    # -----------------------------------------------------------------
+    # SeedDatasetFilter 集成 (PyRIT 1.0.0 数据集发现)
+    # -----------------------------------------------------------------
+
+    async def discover_datasets_by_filter_async(
+        self,
+        tags: Optional[set] = None,
+        size: Optional[set] = None,
+        modalities: Optional[set] = None,
+        source_type: Optional[set] = None,
+        strict_match: bool = False,
+    ) -> List[str]:
+        """
+        使用 PyRIT 1.0.0 SeedDatasetFilter 发现数据集
+
+        通过元数据过滤发现所有已注册的数据集（包括 OWASP 本地和远程），
+        返回匹配的数据集名称列表。
+
+        Args:
+            tags: 标签过滤（如 {"safety", "prompt_injection"}）
+            size: 大小过滤（如 {"small", "medium"}）
+            modalities: 模态过滤（如 {"text"}）
+            source_type: 来源类型过滤（如 {"local", "remote"}）
+            strict_match: 是否严格匹配（AND vs OR）
+
+        Returns:
+            匹配的数据集名称列表
+        """
+        try:
+            from pyrit.datasets import SeedDatasetFilter, SeedDatasetProvider
+        except ImportError:
+            return []
+
+        # 构建 filter kwargs
+        filter_kwargs: Dict[str, Any] = {"strict_match": strict_match}
+        if tags:
+            filter_kwargs["tags"] = tags
+        if size:
+            filter_kwargs["size"] = size
+        if modalities:
+            filter_kwargs["modalities"] = modalities
+        if source_type:
+            filter_kwargs["source_type"] = source_type
+
+        filters = SeedDatasetFilter(**filter_kwargs)
+        return await SeedDatasetProvider.get_all_dataset_names_async(filters)
+
+    async def discover_owasp_datasets_async(self) -> List[str]:
+        """
+        发现所有已注册的 OWASP 本地数据集
+
+        Returns:
+            OWASP 数据集名称列表
+        """
+        return await self.discover_datasets_by_filter_async(
+            source_type={"local"},
+            tags={"safety", "prompt_injection", "agent_security"},
+        )
+
+    # -----------------------------------------------------------------
     # 批量执行配置
     # -----------------------------------------------------------------
 

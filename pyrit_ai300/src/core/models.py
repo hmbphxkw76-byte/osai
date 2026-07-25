@@ -94,12 +94,13 @@ class ReconResult(BaseModel):
 
 
 # ============================================================
-# 认证层模型
+# 认证元数据模型（用于侦察 → 分析层数据传递）
+# 注意：实际 Target 认证由 TargetFactory + PyRIT 原生 pyrit.auth 处理
 # ============================================================
 
 
 class AuthResult(BaseModel):
-    """认证结果（认证层 → 分析层）"""
+    """认证结果元数据（侦察层 → 分析层）"""
 
     target_url: str
     auth_type: AuthType
@@ -108,10 +109,6 @@ class AuthResult(BaseModel):
     auth_headers: Dict[str, str] = Field(default_factory=dict)
     session_data: Dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-    # 注意：实际的 PromptTarget 实例不包含在 Pydantic 模型中
-    # AuthAdapter 直接返回 PromptTarget 实例给上层使用
-    # 这里只存储认证成功的元数据
 
 
 # ============================================================

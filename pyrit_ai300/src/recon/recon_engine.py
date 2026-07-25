@@ -9,6 +9,7 @@ Recon Module
 
 import httpx
 import re
+import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -27,6 +28,8 @@ from src.core.models import (
 )
 
 from src.core.config_loader import get_config_loader
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -177,38 +180,101 @@ class ReconEngine:
 
         return AuthType.UNKNOWN
 
-    async def discover_capabilities(self, target_url: str) -> TargetCapabilities:
+    async def discover_capabilities(
+        self, target_url: str, api_key: Optional[str] = None, model_name: Optional[str] = None
+    ) -> TargetCapabilities:
         """
         发现目标能力（使用 PyRIT 原生功能）
 
+        L5 优化：根据目标类型选择合适的探测 Target，避免对所有目标都用 HTTPXAPITarget
+        - OpenAI 兼容目标 → 使用 OpenAIChatTarget 探测（支持多轮/系统提示等能力）
+        - 非 OpenAI 目标 → 使用 HTTPXAPITarget 探测（基础能力）
+
         Args:
             target_url: 目标 URL
+            api_key: 目标 API Key（用于能力探测认证）
+            model_name: 目标模型名称（用于能力探测，避免无效模型错误）
 
         Returns:
             目标能力对象
         """
         try:
-            # 创建临时 Target 用于探测
-            temp_target = HTTPXAPITarget(
-                http_url=target_url,
-                method="POST",
-                headers={"Content-Type": "application/json"},
-                json_data={"messages": [{"role": "user", "content": "{PROMPT}"}]},
-            )
+            # 检测目标类型
+            from src.targets.target_factory import TargetFactory, OPENAI_COMPATIBLE_TYPES
+            target_type = await TargetFactory.detect_target_type(target_url)
+
+            # 根据目标类型创建合适的探测 Target
+            if target_type in OPENAI_COMPATIBLE_TYPES:
+                temp_target = OpenAIChatTarget(
+                    endpoint=f"{target_url.rstrip('/')}/v1",
+                    api_key=api_key or "placeholder",
+                    model_name=model_name or "test",
+                )
+            else:
+                temp_target = HTTPXAPITarget(
+                    http_url=target_url,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                    json_data={"messages": [{"role": "user", "content": "{PROMPT}"}]},
+                )
 
             # 使用 PyRIT 原生能力发现
-            capabilities = await discover_target_capabilities_async(target=temp_target)
+            capabilities = await discover_target_capabilities_async(
+                target=temp_target,
+                per_probe_timeout_s=10.0,
+            )
 
-            return TargetCapabilities(
+            # 提取模态列表
+            input_modalities = []
+            output_modalities = []
+            try:
+                input_modalities = [
+                    list(m) if isinstance(m, (set, frozenset)) else [m]
+                    for m in capabilities.input_modalities
+                ]
+                input_modalities = [item for sublist in input_modalities for item in sublist]
+            except Exception:
+                pass
+            try:
+                output_modalities = [
+                    list(m) if isinstance(m, (set, frozenset)) else [m]
+                    for m in capabilities.output_modalities
+                ]
+                output_modalities = [item for sublist in output_modalities for item in sublist]
+            except Exception:
+                pass
+
+            result = TargetCapabilities(
                 supports_multi_turn=capabilities.supports_multi_turn,
                 supports_editable_history=capabilities.supports_editable_history,
                 supports_system_prompt=capabilities.supports_system_prompt,
                 supports_json_output=capabilities.supports_json_output,
-                input_modalities=list(capabilities.input_modalities),
-                output_modalities=list(capabilities.output_modalities),
-                raw_response={"supports_conversation": True},
+                input_modalities=input_modalities,
+                output_modalities=output_modalities,
+                raw_response={
+                    "supports_conversation": True,
+                    "target_type": target_type,
+                },
             )
+
+            # L5: 如果所有探测都失败（探针触发空响应），回退到 OpenAI 兼容默认值
+            # 某些 API（如 LongCat）对探针格式返回空响应，但实际支持这些能力
+            if target_type in OPENAI_COMPATIBLE_TYPES:
+                if not any([result.supports_multi_turn, result.supports_editable_history,
+                           result.supports_system_prompt, result.supports_json_output]):
+                    logger.info("All capability probes failed; using OpenAI-compatible defaults")
+                    result.supports_multi_turn = True
+                    result.supports_editable_history = True
+                    result.supports_system_prompt = True
+                    result.supports_json_output = True
+                    if not result.input_modalities:
+                        result.input_modalities = ["text"]
+                    if not result.output_modalities:
+                        result.output_modalities = ["text"]
+
+            return result
         except Exception as e:
+            logger.warning(f"Capability discovery failed: {e}")
             # 如果 PyRIT 探测失败，返回默认值
             return TargetCapabilities()
 
@@ -275,12 +341,16 @@ class ReconEngine:
 
         return AISystemType.UNKNOWN
 
-    async def execute_recon(self, target_url: str) -> ReconResult:
+    async def execute_recon(
+        self, target_url: str, api_key: Optional[str] = None, model_name: Optional[str] = None
+    ) -> ReconResult:
         """
         执行完整侦察流程
 
         Args:
             target_url: 目标 URL
+            api_key: 目标 API Key（用于能力探测认证）
+            model_name: 目标模型名称（用于能力探测）
 
         Returns:
             侦察结果
@@ -292,7 +362,9 @@ class ReconEngine:
         auth_type = await self.detect_auth_type(target_url, detected_endpoint)
 
         # 3. 发现能力
-        capabilities = await self.discover_capabilities(target_url)
+        capabilities = await self.discover_capabilities(
+            target_url, api_key=api_key, model_name=model_name
+        )
 
         # 4. 识别 AI 系统类型
         ai_system_type = self.identify_ai_system_type(detected_endpoint)
@@ -319,15 +391,19 @@ class ReconEngine:
 # ============================================================
 
 
-async def recon_target(target_url: str) -> ReconResult:
+async def recon_target(
+    target_url: str, api_key: Optional[str] = None, model_name: Optional[str] = None
+) -> ReconResult:
     """
     侦察目标（工厂函数）
 
     Args:
         target_url: 目标 URL
+        api_key: 目标 API Key（用于能力探测认证）
+        model_name: 目标模型名称（用于能力探测）
 
     Returns:
         侦察结果
     """
     engine = ReconEngine()
-    return await engine.execute_recon(target_url)
+    return await engine.execute_recon(target_url, api_key=api_key, model_name=model_name)
