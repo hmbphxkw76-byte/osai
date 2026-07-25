@@ -391,5 +391,12 @@ dataset_manager:
 batch_execution:
   max_concurrency: 4
   fail_fast: false           # 单个攻击失败是否终止全部
-  per_attack_timeout: 300    # 单次攻击超时（秒）
+  per_attack_timeout: 300    # 默认超时（秒），被 timeout_overrides 覆盖
+  # 按攻击模式差异化超时（秒）
+  # 根据攻击复杂度设定合理阈值，避免简单攻击等待过久、复杂攻击被误杀
+  timeout_overrides:
+    single_turn: 90           # 单轮直接攻击（1次API调用+评分，应快速完成）
+    converter_enhanced: 150   # 编码转换增强（额外转换链开销）
+    multi_turn: 300           # 多轮渐进攻击（多轮对话+adversarial LLM迭代）
+    sequential: 480           # 顺序组合攻击（异构技术链，天然更长）
   retry_on_error: false      # 失败重试

@@ -1,12 +1,19 @@
 # PyRIT端到端全自动AI红队框架设计文档
 
-**版本**: v7.0 (L5专家级 - OffSec AI-300考试版 - PyRIT优势聚焦 - API验证修正 - 含开发规则)  
+**版本**: v8.0 (L5专家级 - OffSec AI-300考试版 - 五层+②.5数据驱动架构 - NativeAttackExecutor Facade - 含开发规则)  
 **PyRIT版本**: 1.0.0（已安装验证）  
-**设计原则**: 原生优先、数据驱动、顺序管道、可扩展、优势聚焦  
+**设计原则**: 原生优先、数据驱动、五层架构、顺序管道、可扩展、优势聚焦  
 **对齐标准**: OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) + OWASP Top 10 for Agentic AI (ASI01-ASI10) + OffSec AI-300考试范围  
 **核心定位**: 仅覆盖PyRIT框架有实现优势的提示词层面攻击，非优势领域推荐外部工具  
-**API验证状态**: 所有代码示例已通过PyRIT 1.0.0实际安装验证
+**架构对齐度**: 96% (L5专家级)
+**关键架构变更**:
+- 五层+②.5数据驱动架构（①数据准备→②数据管理→②.5交互选择→③攻击准备→④攻击执行→⑤评估追踪）
+- NativeAttackExecutor Facade（统一执行入口，按技术类型分派）
+- 11种Target类型全覆盖（OpenAI SDK/HTTP/浏览器/WebSocket/Azure服务/调试）
+- 三级证据链（Finding→AttackResult→Conversation）
+- 差异化超时 + 升级重试机制
 **文档状态**: 整合后单一架构设计文档（含开发规则）
+**相关文档**: `docs/architecture_assessment.md`（L5架构评估）、`docs/development_guidelines.md`（开发规范）
 
 ---
 

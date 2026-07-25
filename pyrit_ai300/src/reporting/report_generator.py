@@ -1273,10 +1273,14 @@ class ReportGenerator:
             f"- Database Path: {self.config_loader.get_db_path()}",
             f"- Evidence Directory: {self.config_loader.get_evidence_dir()}",
             f"- Max Concurrency: {self.config_loader.get_batch_max_concurrency()}",
-            f"- Per-Attack Timeout: {self.config_loader.get_batch_per_attack_timeout()}s",
-            "",
         ])
-
+        timeout_overrides = self.config_loader.get_batch_timeout_overrides()
+        if timeout_overrides:
+            lines.append(f"- Default Timeout: {self.config_loader.get_batch_per_attack_timeout()}s")
+            for mode, timeout in timeout_overrides.items():
+                lines.append(f"  - {mode}: {timeout}s")
+        else:
+            lines.append(f"- Per-Attack Timeout: {self.config_loader.get_batch_per_attack_timeout()}s")
         lines.append("")
         return "\n".join(lines)
 

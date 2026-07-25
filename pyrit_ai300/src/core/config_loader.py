@@ -631,6 +631,16 @@ class ConfigLoader:
         """获取单次攻击超时（秒）"""
         return self.get_batch_execution_config().get("per_attack_timeout", 300)
 
+    def get_batch_timeout_overrides(self) -> Dict[str, int]:
+        """
+        获取按攻击模式差异化的超时配置
+
+        Returns:
+            攻击模式到超时秒数的映射字典，如 {"single_turn": 90, "multi_turn": 300}
+            如果未配置则返回空字典，调用方应回退到 per_attack_timeout
+        """
+        return self.get_batch_execution_config().get("timeout_overrides", {})
+
     # -----------------------------------------------------------------
     # 缓存管理
     # -----------------------------------------------------------------

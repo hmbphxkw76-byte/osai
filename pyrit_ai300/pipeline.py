@@ -404,9 +404,14 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         "BATCH_PER_ATTACK_TIMEOUT",
         config_loader.get_batch_per_attack_timeout(),
     ))
+    timeout_overrides = config_loader.get_batch_timeout_overrides()
 
     print(f"  [OK] 最大并发: {max_concurrency}")
-    print(f"  [OK] 单次超时: {per_attack_timeout}s")
+    if timeout_overrides:
+        override_str = ", ".join(f"{k}={v}s" for k, v in timeout_overrides.items())
+        print(f"  [OK] 差异化超时: {override_str}  (默认: {per_attack_timeout}s)")
+    else:
+        print(f"  [OK] 单次超时: {per_attack_timeout}s")
     print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
     print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
 
@@ -421,6 +426,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         per_attack_timeout=per_attack_timeout,
         verbose=verbose,
         exam_id=exam_id,
+        timeout_overrides=timeout_overrides if timeout_overrides else None,
     )
 
     print(f"\n  [OK] 批量攻击完成")
@@ -451,7 +457,11 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # 非 verbose 模式下补充展示前 5 个成功结果
     if not verbose:
         from pyrit.output import output_attack_async
-        success_results = [r for r in batch_result.results if r is not None]
+        success_results = [
+            r for r in batch_result.results
+            if r is not None and hasattr(r, "outcome") and
+            str(getattr(r.outcome, "value", r.outcome)).upper() == "SUCCESS"
+        ]
         shown = 0
         for result in success_results:
             if shown >= 5:

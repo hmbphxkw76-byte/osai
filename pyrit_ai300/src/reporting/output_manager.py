@@ -244,7 +244,10 @@ class OutputManager:
         self._attack_count += 1
 
         # 终端通道 - pretty 格式
-        if to_terminal and (self.verbose or self._should_show_terminal(result)):
+        # to_terminal=True 时直接输出（verbose / VERBOSE_SUCCESS 显式请求）
+        # to_terminal=False 时由 _should_show_terminal 兜底（非 verbose 模式下前 5 个成功结果）
+        should_show_terminal = to_terminal or self._should_show_terminal(result)
+        if should_show_terminal:
             try:
                 await output_attack_async(
                     result,

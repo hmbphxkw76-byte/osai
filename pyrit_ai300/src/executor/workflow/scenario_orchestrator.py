@@ -88,12 +88,12 @@ class ScenarioOrchestrator:
         # L5 对齐：ScenarioEventHandler 实现事件可观测性
         self._event_handler = ScenarioEventHandler(verbose=False)
 
-    def _get_output_manager(self, exam_id: str = None):
+    def _get_output_manager(self, exam_id: str = None, verbose: bool = False):
         """延迟初始化 OutputManager"""
         if self._output_manager is None:
             from src.reporting.output_manager import OutputManager
             eid = exam_id or f"batch_{int(time.time())}"
-            self._output_manager = OutputManager(exam_id=eid)
+            self._output_manager = OutputManager(exam_id=eid, verbose=verbose)
         return self._output_manager
 
     # ------------------------------------------------------------------
@@ -111,6 +111,7 @@ class ScenarioOrchestrator:
         verbose: bool = False,
         exam_id: str = None,
         completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
+        timeout_overrides: Optional[Dict[str, int]] = None,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
@@ -124,10 +125,11 @@ class ScenarioOrchestrator:
             judge_target: 评审用 LLM Target
             max_concurrency: 最大并发数
             fail_fast: 是否快速失败
-            per_attack_timeout: 单次攻击超时秒数
+            per_attack_timeout: 默认单次攻击超时秒数（被 timeout_overrides 覆盖）
             verbose: 是否输出详细结果
             exam_id: 考试 ID（用于输出目录命名）
             completion_policy: SequentialAttack 完成策略
+            timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
 
         Returns:
             BatchAttackResult 包含执行统计和结果列表
@@ -137,7 +139,7 @@ class ScenarioOrchestrator:
         semaphore = asyncio.Semaphore(max_concurrency)
 
         from src.reporting.output_manager import ProgressDashboard, SummaryTable
-        output_manager = self._get_output_manager(exam_id)
+        output_manager = self._get_output_manager(exam_id, verbose=verbose)
         dashboard = ProgressDashboard(total)
         mode_stats: Dict[str, Dict[str, int]] = {}
 
@@ -199,6 +201,7 @@ class ScenarioOrchestrator:
             async with semaphore:
                 brief = _plan_brief(plan)
                 print(_plan_detail(plan))
+                effective_timeout = self._resolve_timeout(plan, per_attack_timeout, timeout_overrides)
                 print(f"  [START]  {brief}")
                 plan_start = time.time()
 
@@ -209,7 +212,7 @@ class ScenarioOrchestrator:
                             completion_policy=completion_policy,
                             attribution=_create_attribution(plan),
                         ),
-                        timeout=per_attack_timeout,
+                        timeout=effective_timeout,
                     )
                     elapsed = time.time() - plan_start
                     result.executed += 1
@@ -246,51 +249,52 @@ class ScenarioOrchestrator:
                             for upgraded_plan in upgraded_plans:
                                 result.upgrade_attempts += 1
                                 dashboard.update(upgrade_attempts=1)
-                                up_brief = _plan_brief(upgraded_plan)
-                                print(f"  [UPG]        {up_brief}  (升级自 {plan.attack_technique})")
-                                up_start = time.time()
-                                try:
-                                    upgraded_result = await asyncio.wait_for(
-                                        self._execute_single_plan(
-                                            upgraded_plan, objective_target, judge_target,
-                                            completion_policy=completion_policy,
-                                            attribution=_create_attribution(upgraded_plan),
-                                        ),
-                                        timeout=per_attack_timeout,
-                                    )
-                                    up_elapsed = time.time() - up_start
-                                    result.executed += 1
-                                    result.results.append(upgraded_result)
-                                    upgraded_outcome = getattr(upgraded_result, "outcome", None)
-                                    if upgraded_outcome is not None:
-                                        upgraded_outcome_str = str(upgraded_outcome.value).upper() if hasattr(upgraded_outcome, "value") else str(upgraded_outcome).upper()
-                                        if upgraded_outcome_str == "SUCCESS":
-                                            result.succeeded += 1
-                                            result.upgrade_success += 1
-                                            dashboard.update(succeeded=1, upgrade_success=1)
-                                            _update_mode_stats(upgraded_plan, succeeded=True, failed=False)
-                                            print(f"  [OK]         {up_brief} -> SUCCESS (升级, {up_elapsed:.1f}s)")
-                                            await output_manager.output_attack_result(
-                                                upgraded_result,
-                                                to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
-                                                to_file=True, include_auxiliary=True, include_adversarial=True,
-                                            )
-                                        else:
-                                            result.failed += 1
-                                            dashboard.update(failed=1)
-                                            _update_mode_stats(upgraded_plan, succeeded=False, failed=True)
-                                            print(f"  [FAIL]       {up_brief} -> {upgraded_outcome_str} (升级, {up_elapsed:.1f}s)")
-                                            await output_manager.output_attack_result(
-                                                upgraded_result, to_terminal=False, to_file=True,
-                                            )
-                                except Exception as upgrade_error:
-                                    result.errored += 1
-                                    dashboard.update(errored=1)
-                                    result.errors.append({
-                                        "plan_id": upgraded_plan.plan_id,
-                                        "error": f"Upgrade failed: {upgrade_error}",
-                                    })
-                                    print(f"  [ERR]        {up_brief} -> 升级失败: {_truncate(str(upgrade_error), 80)}")
+                            up_brief = _plan_brief(upgraded_plan)
+                            print(f"  [UPG]        {up_brief}  (升级自 {plan.attack_technique})")
+                            up_effective_timeout = self._resolve_timeout(upgraded_plan, per_attack_timeout, timeout_overrides)
+                            up_start = time.time()
+                            try:
+                                upgraded_result = await asyncio.wait_for(
+                                    self._execute_single_plan(
+                                        upgraded_plan, objective_target, judge_target,
+                                        completion_policy=completion_policy,
+                                        attribution=_create_attribution(upgraded_plan),
+                                    ),
+                                    timeout=up_effective_timeout,
+                                )
+                                up_elapsed = time.time() - up_start
+                                result.executed += 1
+                                result.results.append(upgraded_result)
+                                upgraded_outcome = getattr(upgraded_result, "outcome", None)
+                                if upgraded_outcome is not None:
+                                    upgraded_outcome_str = str(upgraded_outcome.value).upper() if hasattr(upgraded_outcome, "value") else str(upgraded_outcome).upper()
+                                    if upgraded_outcome_str == "SUCCESS":
+                                        result.succeeded += 1
+                                        result.upgrade_success += 1
+                                        dashboard.update(succeeded=1, upgrade_success=1)
+                                        _update_mode_stats(upgraded_plan, succeeded=True, failed=False)
+                                        print(f"  [OK]         {up_brief} -> SUCCESS (升级, {up_elapsed:.1f}s)")
+                                        await output_manager.output_attack_result(
+                                            upgraded_result,
+                                            to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
+                                            to_file=True, include_auxiliary=True, include_adversarial=True,
+                                        )
+                                    else:
+                                        result.failed += 1
+                                        dashboard.update(failed=1)
+                                        _update_mode_stats(upgraded_plan, succeeded=False, failed=True)
+                                        print(f"  [FAIL]       {up_brief} -> {upgraded_outcome_str} (升级, {up_elapsed:.1f}s)")
+                                        await output_manager.output_attack_result(
+                                            upgraded_result, to_terminal=False, to_file=True,
+                                        )
+                            except Exception as upgrade_error:
+                                result.errored += 1
+                                dashboard.update(errored=1)
+                                result.errors.append({
+                                    "plan_id": upgraded_plan.plan_id,
+                                    "error": f"Upgrade failed: {upgrade_error}",
+                                })
+                                print(f"  [ERR]        {up_brief} -> 升级失败: {_truncate(str(upgrade_error), 80)}")
                     else:
                         result.failed += 1
                         dashboard.update(failed=1)
@@ -308,8 +312,8 @@ class ScenarioOrchestrator:
                     dashboard.increment_completed()
                     dashboard.update(errored=1)
                     _update_mode_stats(plan, succeeded=False, failed=True)
-                    result.errors.append({"plan_id": plan.plan_id, "error": f"Timeout after {per_attack_timeout}s"})
-                    print(f"  [TOUT]  [{completed_count[0]}/{total}]  {brief} -> 超时 ({elapsed:.1f}s)")
+                    result.errors.append({"plan_id": plan.plan_id, "error": f"Timeout after {effective_timeout}s"})
+                    print(f"  [TOUT]  [{completed_count[0]}/{total}]  {brief} -> 超时 ({elapsed:.1f}s, limit={effective_timeout}s)")
                     if completed_count[0] % 10 == 0 or completed_count[0] == total:
                         dashboard.print_progress()
                 except Exception as e:
@@ -363,6 +367,7 @@ class ScenarioOrchestrator:
         per_attack_timeout: int = 300,
         verbose: bool = False,
         exam_id: str = None,
+        timeout_overrides: Optional[Dict[str, int]] = None,
     ) -> BatchAttackResult:
         """
         按技术分组批量执行攻击计划
@@ -382,9 +387,10 @@ class ScenarioOrchestrator:
             judge_target: 评审用 LLM Target
             max_concurrency: 最大并发数
             fail_fast: 是否快速失败
-            per_attack_timeout: 单次攻击超时秒数
+            per_attack_timeout: 默认单次攻击超时秒数（被 timeout_overrides 覆盖）
             verbose: 是否输出详细结果
             exam_id: 考试 ID
+            timeout_overrides: 按攻击模式差异化超时配置
 
         Returns:
             BatchAttackResult 包含执行统计和结果列表
@@ -393,7 +399,7 @@ class ScenarioOrchestrator:
         result = BatchAttackResult(total_plans=total)
 
         from src.reporting.output_manager import ProgressDashboard, SummaryTable
-        output_manager = self._get_output_manager(exam_id)
+        output_manager = self._get_output_manager(exam_id, verbose=verbose)
         dashboard = ProgressDashboard(total)
         mode_stats: Dict[str, Dict[str, int]] = {}
         scenario_parent_id = str(uuid.uuid4())
@@ -552,6 +558,7 @@ class ScenarioOrchestrator:
             try:
                 import time as _time
                 batch_start = _time.time()
+                group_timeout = self._resolve_timeout(first_plan, per_attack_timeout, timeout_overrides)
                 executor_result = await asyncio.wait_for(
                     self._executor.execute_batch_same_technique(
                         attack=attack,
@@ -562,7 +569,7 @@ class ScenarioOrchestrator:
                         attribution=attribution,
                         return_partial_on_failure=True,
                     ),
-                    timeout=per_attack_timeout * len(seed_groups),
+                    timeout=group_timeout * len(seed_groups),
                 )
                 batch_elapsed = _time.time() - batch_start
 
@@ -601,6 +608,7 @@ class ScenarioOrchestrator:
                 for plan in plans_in_group:
                     try:
                         plan_start = _time.time()
+                        plan_timeout = self._resolve_timeout(plan, per_attack_timeout, timeout_overrides)
                         attack_result = await asyncio.wait_for(
                             self._executor.execute_single_attack(
                                 plan, objective_target, judge_target,
@@ -610,7 +618,7 @@ class ScenarioOrchestrator:
                                     parent_eval_hash=plan.owasp_id,
                                 ),
                             ),
-                            timeout=per_attack_timeout,
+                            timeout=plan_timeout,
                         )
                         elapsed = _time.time() - plan_start
                         await _process_result(plan, attack_result, elapsed)
@@ -629,6 +637,7 @@ class ScenarioOrchestrator:
             try:
                 import time as _time
                 plan_start = _time.time()
+                seq_timeout = self._resolve_timeout(plan, per_attack_timeout, timeout_overrides)
                 attack_result = await asyncio.wait_for(
                     self._executor.execute_sequential_attack(
                         plan, objective_target, judge_target,
@@ -638,7 +647,7 @@ class ScenarioOrchestrator:
                             parent_eval_hash=plan.owasp_id,
                         ),
                     ),
-                    timeout=per_attack_timeout,
+                    timeout=seq_timeout,
                 )
                 elapsed = _time.time() - plan_start
                 await _process_result(plan, attack_result, elapsed)
@@ -660,6 +669,34 @@ class ScenarioOrchestrator:
         await output_manager.close()
         result.errors.append({"plan_id": "_meta", "error": f"output_log: {output_manager.log_path}"})
         return result
+
+    # ------------------------------------------------------------------
+    # 超时解析 - 按攻击模式差异化
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_timeout(
+        plan: AttackPlan,
+        default_timeout: int,
+        timeout_overrides: Optional[Dict[str, int]] = None,
+    ) -> int:
+        """
+        根据攻击计划的模式解析有效超时时间
+
+        优先级：timeout_overrides[mode] > default_timeout
+
+        Args:
+            plan: 攻击计划
+            default_timeout: 默认超时秒数
+            timeout_overrides: 按攻击模式差异化超时配置
+
+        Returns:
+            有效超时秒数
+        """
+        if not timeout_overrides:
+            return default_timeout
+        mode_str = plan.prompt_item.attack_mode.value
+        return timeout_overrides.get(mode_str, default_timeout)
 
     # ------------------------------------------------------------------
     # 单计划执行 - 委托 NativeAttackExecutor
@@ -915,6 +952,7 @@ async def execute_batch_attacks(
     verbose: bool = False,
     exam_id: str = None,
     completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
+    timeout_overrides: Optional[Dict[str, int]] = None,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -925,10 +963,11 @@ async def execute_batch_attacks(
         judge_target: 评审用 LLM Target
         max_concurrency: 最大并发数
         fail_fast: 是否快速失败
-        per_attack_timeout: 单次攻击超时秒数
+        per_attack_timeout: 默认单次攻击超时秒数（被 timeout_overrides 覆盖）
         verbose: 是否输出详细结果
         exam_id: 考试 ID
         completion_policy: SequentialAttack 完成策略
+        timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
 
     Returns:
         BatchAttackResult
@@ -939,4 +978,5 @@ async def execute_batch_attacks(
         max_concurrency, fail_fast, per_attack_timeout,
         verbose=verbose, exam_id=exam_id,
         completion_policy=completion_policy,
+        timeout_overrides=timeout_overrides,
     )

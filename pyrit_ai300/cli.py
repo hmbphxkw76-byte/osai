@@ -232,6 +232,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="输出每个成功攻击的完整详情 (Attack Type/Score/对话历史)",
     )
 
+    parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        default=False,
+        help="禁用交互式选择 (CI/CD 模式，全选所有种子组)",
+    )
+
     return parser
 
 
@@ -293,6 +300,8 @@ def main():
         os.environ["BATCH_PER_ATTACK_TIMEOUT"] = str(args.timeout)
     if args.verbose:
         os.environ["VERBOSE"] = "1"
+    if args.no_interactive:
+        os.environ["INTERACTIVE_SELECTION"] = "false"
 
     # 运行管道
     asyncio.run(run_attack_pipeline(target_url, owasp_ids=owasp_ids))

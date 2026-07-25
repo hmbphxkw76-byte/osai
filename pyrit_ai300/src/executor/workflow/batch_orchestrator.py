@@ -11,7 +11,7 @@ Batch Attack Orchestrator
 """
 
 import logging
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 from pyrit.executor.attack import SequenceCompletionPolicy
 
@@ -43,6 +43,7 @@ class BatchAttackOrchestrator:
         per_attack_timeout: int = 300,
         verbose: bool = False,
         exam_id: str = None,
+        timeout_overrides: Optional[Dict[str, int]] = None,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
@@ -53,6 +54,7 @@ class BatchAttackOrchestrator:
             attack_plans, objective_target, judge_target,
             max_concurrency, fail_fast, per_attack_timeout,
             verbose=verbose, exam_id=exam_id,
+            timeout_overrides=timeout_overrides,
         )
 
 
@@ -70,6 +72,7 @@ async def execute_batch_attacks(
     per_attack_timeout: int = 300,
     verbose: bool = False,
     exam_id: str = None,
+    timeout_overrides: Optional[Dict[str, int]] = None,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -82,9 +85,10 @@ async def execute_batch_attacks(
         judge_target: 评审用 LLM Target
         max_concurrency: 最大并发数
         fail_fast: 是否快速失败
-        per_attack_timeout: 单次攻击超时秒数
+        per_attack_timeout: 默认单次攻击超时秒数（被 timeout_overrides 覆盖）
         verbose: 是否输出详细结果
         exam_id: 考试 ID
+        timeout_overrides: 按攻击模式差异化超时配置
 
     Returns:
         BatchAttackResult
@@ -94,4 +98,5 @@ async def execute_batch_attacks(
         attack_plans, objective_target, judge_target,
         max_concurrency, fail_fast, per_attack_timeout,
         verbose=verbose, exam_id=exam_id,
+        timeout_overrides=timeout_overrides,
     )
