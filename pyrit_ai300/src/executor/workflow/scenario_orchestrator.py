@@ -312,7 +312,10 @@ class ScenarioOrchestrator:
                                 total_for_owasp = owasp_total[oid]
                                 success_for_owasp = owasp_success[oid]
                                 ratio = success_for_owasp / total_for_owasp if total_for_owasp > 0 else 0.0
-                                required = math.ceil(total_for_owasp * owasp_success_threshold)
+                                # Cap required successes to prevent excessive attempts for large plan counts
+                                # e.g., 37 plans * 0.5 = 19 (too many) → capped to 5
+                                _raw_required = math.ceil(total_for_owasp * owasp_success_threshold)
+                                required = min(_raw_required, 5)
                                 if success_for_owasp >= required and not owasp_skip.get(oid, False):
                                     owasp_skip[oid] = True
                                     remaining = total_for_owasp - success_for_owasp
@@ -368,6 +371,22 @@ class ScenarioOrchestrator:
                     print(f"  [TOUT]  [{completed_count[0]}/{total}]  {brief} -> 超时 ({elapsed:.1f}s, limit={effective_timeout}s)")
                     if completed_count[0] % 10 == 0 or completed_count[0] == total:
                         dashboard.print_progress()
+                    # Timeout → try single downgrade to simpler technique (depth=0, no recursion)
+                    # Only for multi-turn attacks that timed out; skip if already single_turn
+                    if plan.prompt_item.attack_mode.value != "single_turn" and not owasp_skip.get(plan.owasp_id or "UNKNOWN", False):
+                        # Create a lightweight timeout indicator for failure type routing
+                        _timeout_indicator = type("TimeoutResult", (), {
+                            "error_message": f"Timeout after {effective_timeout}s",
+                            "outcome_reason": "Timeout",
+                            "outcome": None,
+                        })()
+                        await self._try_upgrade_plans(
+                            plan, _timeout_indicator, objective_target, judge_target,
+                            result, dashboard, output_manager, verbose,
+                            per_attack_timeout, timeout_overrides, completed_count,
+                            total, _plan_brief, _update_mode_stats, _create_attribution,
+                            completion_policy,
+                        )
                 except Exception as e:
                     elapsed = time.time() - plan_start
                     result.executed += 1
@@ -930,6 +949,7 @@ class ScenarioOrchestrator:
         completion_policy: Any,
         _depth: int = 0,
         _tried: Optional[set] = None,
+        _cumulative_time: float = 0.0,
     ) -> bool:
         """
         P1-1: 智能升级重试 — 遍历多个候选方案，逐个尝试直到成功或耗尽
@@ -960,10 +980,19 @@ class ScenarioOrchestrator:
         Returns:
             True 如果某个升级方案成功，False 如果所有方案都失败
         """
-        from src.executor.workflow.upgrade_strategy import MAX_UPGRADE_DEPTH
+        from src.executor.workflow.upgrade_strategy import MAX_UPGRADE_DEPTH, MAX_UPGRADE_TOTAL_TIME
 
         if _depth >= MAX_UPGRADE_DEPTH:
             logger.debug(f"Upgrade depth limit reached ({_depth}), stopping recursive upgrade")
+            return False
+
+        # Per-plan total upgrade time budget check
+        if _cumulative_time >= MAX_UPGRADE_TOTAL_TIME:
+            logger.info(
+                f"Upgrade time budget exhausted ({_cumulative_time:.0f}s >= {MAX_UPGRADE_TOTAL_TIME}s), "
+                f"stopping upgrade for plan {original_plan.plan_id}"
+            )
+            print(f"  [STOP]  升级时间预算耗尽 ({_cumulative_time:.0f}s) → 放弃升级")
             return False
 
         tried = _tried or set()
@@ -1055,6 +1084,7 @@ class ScenarioOrchestrator:
                             completion_policy,
                             _depth=_depth + 1,
                             _tried=tried,
+                            _cumulative_time=_cumulative_time + up_elapsed,
                         )
                         if recursive_success:
                             return True

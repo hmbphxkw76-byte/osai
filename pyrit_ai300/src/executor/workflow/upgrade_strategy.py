@@ -55,7 +55,14 @@ FAILURE_OBJECTIVE_NOT_ACHIEVED = "objective_not_achieved"
 FAILURE_UNKNOWN = "unknown"
 
 # 最大升级深度（防止无限递归�?
-MAX_UPGRADE_DEPTH = 2
+MAX_UPGRADE_DEPTH = 1
+
+# Maximum upgrade candidates per depth level (prevent upgrade chain bloat)
+MAX_UPGRADE_CANDIDATES = 3
+
+# Per-plan total upgrade time budget (seconds)
+# If cumulative upgrade time exceeds this, stop upgrading
+MAX_UPGRADE_TOTAL_TIME = 600  # 10 minutes
 
 
 # ============================================================
@@ -255,6 +262,14 @@ class AttackUpgradeStrategy:
                 f"for technique='{current_technique}', mode={current_mode.value}, "
                 f"failure_type={failure_type}"
             )
+
+        # Cap the number of candidates to prevent upgrade chain bloat
+        if len(final_candidates) > MAX_UPGRADE_CANDIDATES:
+            logger.info(
+                f"Upgrade strategy: capping from {len(final_candidates)} to "
+                f"{MAX_UPGRADE_CANDIDATES} candidates"
+            )
+            final_candidates = final_candidates[:MAX_UPGRADE_CANDIDATES]
 
         return final_candidates
 

@@ -10,13 +10,14 @@
 max_concurrency: 1            # 最大并发攻击数（1=串行，避免触发目标限流）
 
 # --- 超时控制 ---
-per_attack_timeout: 300       # 默认单次攻击超时（秒）
+per_attack_timeout: 180       # 默认单次攻击超时（秒）
 # 按攻击模式差异化超时（秒）
+# 多轮攻击（crescendo/TAP/PAIR）消耗大，300s 过长易导致单计划耗时 20+ 分钟
 timeout_overrides:
   single_turn: 90             # 单轮直接攻击
   converter_enhanced: 150     # 编码转换增强
-  multi_turn: 300             # 多轮渐进攻击
-  sequential: 480             # 顺序组合攻击
+  multi_turn: 180             # 多轮渐进攻击（从 300s 降至 180s）
+  sequential: 300             # 顺序组合攻击（从 480s 降至 300s）
 
 # --- 失败处理 ---
 fail_fast: false              # 单个攻击失败是否终止全部
@@ -63,6 +64,7 @@ scenario_max_retries: 0
 #       0.5 = 考试推荐（6个中3个即停，平衡效率与置信度）
 #       0.8 = 深度审计（6个中5个即停，时间充裕时使用，覆盖最全面）
 #     不同 OWASP 分类独立计算，所有 OWASP 均有成功时停止降级链
+#     注意: 所需成功数上限为 5（防止大计划数场景下阈值过高）
 # L3: stop_on_first_success — 全局首成功即停（最激进模式，忽略 OWASP 分类）
 #     适用于快速验证场景，不推荐用于正式考试
 owasp_success_threshold: 0.5       # L2: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
