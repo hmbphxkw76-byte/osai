@@ -25,7 +25,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from src.auth import AuthProfile, normalize_domain
+from src.auth.header_parser import AuthProfile, normalize_domain
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ class CredentialExtractor:
 
     def parse_saved_profile(self, target_url: str) -> Optional[AuthProfile]:
         """读取已保存的凭据文件并解析为 AuthProfile"""
-        from src.auth import find_credential_file, parse_header_file
+        from src.auth.header_parser import find_credential_file, parse_header_file
 
         domain = normalize_domain(target_url)
         file_path = find_credential_file(domain, self.credentials_dir)

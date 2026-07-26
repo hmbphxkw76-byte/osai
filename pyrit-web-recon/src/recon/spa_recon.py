@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.auth import CredentialExtractor
 from src.dom import DOMDetector
 from src.network import HTTPInterceptor
 from src.utils import wait_for_manual_login
@@ -185,6 +186,27 @@ class SPARecon:
         llm_endpoints = interceptor.get_llm_endpoints()
         profile.fingerprint.llm_api_endpoints = llm_endpoints
         profile.fingerprint.model_name = interceptor.get_model_name()
+        profile.fingerprint.protocols = interceptor.get_protocols()
+        profile.fingerprint.rag_features = interceptor.get_rag_features()
+        profile.fingerprint.agent_features = interceptor.get_agent_features()
+        profile.fingerprint.extracted_credentials = interceptor.get_extracted_credentials()
+
+        # 如果拦截流量中提取到 Authorization，追加保存凭据
+        if profile.fingerprint.extracted_credentials:
+            try:
+                extractor = CredentialExtractor()
+                await extractor.extract_from_browser(
+                    self.browser.context,
+                    url,
+                    captured_entries=interceptor.captured,
+                )
+            except Exception as e:
+                logger.warning("Failed to save credentials from intercepted traffic: %s", str(e)[:120])
+
+        # WebSocket 帧记录
+        ws_frames = interceptor.get_websocket_frames()
+        if ws_frames:
+            profile.raw_results["websocket_frames"] = ws_frames
 
         for ep in llm_endpoints:
             profile.add_entry_point(
@@ -193,7 +215,14 @@ class SPARecon:
                 api_type=ep.get("api_type", ""),
                 model_name=ep.get("model_name", ""),
                 score=0.95,
-                extra={"method": ep.get("method"), "status": ep.get("response_status")},
+                extra={
+                    "method": ep.get("method"),
+                    "status": ep.get("response_status"),
+                    "protocol": ep.get("protocol"),
+                    "rag_features": ep.get("rag_features", []),
+                    "agent_features": ep.get("agent_features", []),
+                    "api_keys": ep.get("api_keys", []),
+                },
             )
 
         # 7. 攻击面推断
@@ -306,6 +335,17 @@ class SPARecon:
         except Exception as e:
             logger.warning("Failed to save storage state after login: %s", str(e)[:120])
 
+        # 自动提取并保存凭据到 credentials/{domain}.txt，供后续复用
+        try:
+            extractor = CredentialExtractor()
+            cred_path = await extractor.extract_from_browser(self.browser.context, url)
+            if cred_path:
+                profile.raw_results["extracted_credentials_path"] = cred_path
+                profile.fingerprint.auth_mode = "cookie"
+                print(f"  🔑 凭据已自动提取并保存: {cred_path}")
+        except Exception as e:
+            logger.warning("Failed to extract credentials after login: %s", str(e)[:120])
+
         print("  🚀 登录完成，继续侦察流程...")
         return True
 
@@ -365,6 +405,8 @@ class SPARecon:
         surfaces: List[str] = []
         has_chat = bool(detection.get("input_selector"))
         has_api = bool(profile.fingerprint.llm_api_endpoints)
+        has_rag = bool(profile.fingerprint.rag_features)
+        has_agent = bool(profile.fingerprint.agent_features)
 
         if has_chat:
             surfaces.append("prompt_injection")
@@ -372,6 +414,12 @@ class SPARecon:
         if has_api:
             surfaces.append("api_prompt_injection")
             surfaces.append("model_extraction")
+        if has_rag:
+            surfaces.append("rag_poisoning")
+            surfaces.append("knowledge_base_extraction")
+        if has_agent:
+            surfaces.append("agent_tool_misuse")
+            surfaces.append("mcp_hijacking")
         if chat_entry.get("selector"):
             entry_signals = str(chat_entry.get("signals", "")).lower()
             if any(kw in entry_signals for kw in ["knowledge", "rag", "知识库", "doc"]):

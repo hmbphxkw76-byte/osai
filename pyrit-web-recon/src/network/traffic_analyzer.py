@@ -63,17 +63,43 @@ class TrafficAnalyzer:
             "modelVersion",
         ]
 
+        # RAG 相关 URL/Body 关键词
+        self.rag_keywords = [
+            "rag", "retrieval", "knowledge", "knowledge_base", "knowledgebase",
+            "document", "doc", "embedding", "vector", "index", "search",
+            "知识库", "检索", "向量", "文档",
+        ]
+
+        # Agent / Copilot / MCP 相关关键词
+        self.agent_keywords = [
+            "agent", "copilot", "assistant", "tool", "function_call", "plugin",
+            "mcp", "model_context_protocol", "action", "workflow",
+            "智能体", "助手", "插件", "工具", "工作流",
+        ]
+
+        # API Key 正则（仅识别前缀，避免完整泄露敏感 token）
+        self.api_key_patterns = [
+            re.compile(r'(sk-[a-zA-Z0-9]{20,})', re.IGNORECASE),
+            re.compile(r'(Bearer\s+)([a-zA-Z0-9_\-]{20,})', re.IGNORECASE),
+            re.compile(r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([a-zA-Z0-9_\-]{8,})', re.IGNORECASE),
+        ]
+
     def analyze_request(self, entry: Dict[str, Any]) -> Dict[str, Any]:
         """分析单个请求条目，返回 LLM 识别结果"""
         url = entry.get("url", "")
         body = entry.get("request_body", "")
         response = entry.get("response_body", "")
-        headers = entry.get("response_headers", {})
+        req_headers = entry.get("request_headers", {})
+        resp_headers = entry.get("response_headers", {})
 
         result = {
             "is_llm_api": False,
             "api_type": "",
             "model_name": "",
+            "api_keys": [],
+            "protocol": self._detect_protocol(resp_headers, url),
+            "rag_features": [],
+            "agent_features": [],
         }
 
         # 1. URL 模式匹配
@@ -100,9 +126,16 @@ class TrafficAnalyzer:
             result["is_llm_api"] = True
 
         # 5. 响应头线索
-        content_type = headers.get("content-type", "")
+        content_type = resp_headers.get("content-type", "")
         if "text/event-stream" in content_type.lower() and api_type:
             result["is_llm_api"] = True
+
+        # 6. API Key 提取
+        result["api_keys"] = self._extract_api_keys(req_headers, body)
+
+        # 7. RAG / Agent 特征识别
+        result["rag_features"] = self._detect_rag_features(url, body, response)
+        result["agent_features"] = self._detect_agent_features(url, body, response)
 
         return result
 
@@ -174,6 +207,67 @@ class TrafficAnalyzer:
                 if model:
                     return model
         return ""
+
+    def _detect_protocol(self, response_headers: Dict[str, str], url: str) -> str:
+        """识别通信协议"""
+        ct = response_headers.get("content-type", "").lower()
+        if "text/event-stream" in ct:
+            return "sse"
+        if "grpc-web" in ct or "/grpc/" in url.lower():
+            return "grpc-web"
+        if url.lower().startswith("wss://") or url.lower().startswith("ws://"):
+            return "websocket"
+        return "http"
+
+    def _extract_api_keys(self, headers: Dict[str, str], body: str) -> List[Dict[str, Any]]:
+        """从请求头和请求体中提取 API Key 线索"""
+        findings: List[Dict[str, Any]] = []
+        text_pool = " ".join([f"{k}: {v}" for k, v in headers.items()])
+        text_pool += " " + body
+
+        for pattern in self.api_key_patterns:
+            for match in pattern.finditer(text_pool):
+                full = match.group(0)
+                key_value = match.group(2) if len(match.groups()) > 1 else full
+                prefix = key_value[:8]
+                findings.append({
+                    "type": "api_key",
+                    "prefix": prefix,
+                    "length": len(key_value),
+                    "source": "header" if full in str(headers) else "body",
+                })
+
+        # 显式 API Key 头
+        for name in ["x-api-key", "api-key", "x-auth-token", "x-access-token"]:
+            value = headers.get(name) or headers.get(name.title()) or headers.get(name.upper())
+            if value:
+                findings.append({
+                    "type": "api_key_header",
+                    "header": name,
+                    "prefix": str(value)[:8],
+                    "length": len(str(value)),
+                    "source": "header",
+                })
+
+        return findings
+
+    def _detect_rag_features(self, url: str, body: str, response: str) -> List[Dict[str, Any]]:
+        """识别 RAG 相关特征"""
+        findings: List[Dict[str, Any]] = []
+        combined = f"{url} {body} {response}".lower()
+        for keyword in self.rag_keywords:
+            if keyword.lower() in combined:
+                findings.append({"keyword": keyword, "context": "url/body/response"})
+        return findings
+
+    def _detect_agent_features(self, url: str, body: str, response: str) -> List[Dict[str, Any]]:
+        """识别 Agent / Copilot / MCP 相关特征"""
+        findings: List[Dict[str, Any]] = []
+        combined = f"{url} {body} {response}".lower()
+        for keyword in self.agent_keywords:
+            if keyword.lower() in combined:
+                findings.append({"keyword": keyword, "context": "url/body/response"})
+        return findings
 
     def extract_response_text(self, response_body: str) -> str:
         """从 LLM 响应体中提取最终文本"""

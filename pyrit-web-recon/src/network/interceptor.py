@@ -29,15 +29,33 @@ class HTTPInterceptor:
         self.page = page
         self.config = config or {}
         self.captured = []
+        self.websocket_frames: List[Dict[str, Any]] = []
         self._route_active = False
+        self._ws_handlers = []
 
     async def start(self):
-        """启用页面路由拦截"""
+        """启用页面路由拦截与 WebSocket 监听"""
         if self._route_active:
             return
         await self.page.route("**/*", self._handle_route)
         self._route_active = True
-        logger.info("HTTP interception started")
+
+        # 监听 WebSocket
+        def on_ws(ws):
+            logger.info("WebSocket opened: %s", ws.url)
+
+            def on_frame_sent(payload):
+                self._record_ws_frame(ws.url, "sent", payload)
+
+            def on_frame_received(payload):
+                self._record_ws_frame(ws.url, "received", payload)
+
+            ws.on("framesent", on_frame_sent)
+            ws.on("framereceived", on_frame_received)
+            self._ws_handlers.append((ws, on_frame_sent, on_frame_received))
+
+        self.page.on("websocket", on_ws)
+        logger.info("HTTP interception and WebSocket monitoring started")
 
     async def stop(self):
         """停止页面路由拦截"""
@@ -136,3 +154,58 @@ class HTTPInterceptor:
                 seen.add(url)
                 results.append(e)
         return results
+
+    def _record_ws_frame(self, url: str, direction: str, payload: str):
+        """记录 WebSocket 帧"""
+        self.websocket_frames.append({
+            "timestamp": time.time(),
+            "url": url,
+            "direction": direction,
+            "payload": payload[:2000],
+        })
+        logger.debug("WebSocket %s: %s", direction, url)
+
+    def get_websocket_frames(self) -> List[Dict[str, Any]]:
+        """获取 WebSocket 帧记录"""
+        return self.websocket_frames
+
+    def get_extracted_credentials(self) -> List[Dict[str, Any]]:
+        """汇总所有拦截流量中提取到的 API Key 线索"""
+        findings = []
+        for e in self.captured:
+            keys = e.get("api_keys", [])
+            if keys:
+                findings.append({
+                    "url": e.get("url"),
+                    "keys": keys,
+                })
+        return findings
+
+    def get_rag_features(self) -> List[Dict[str, Any]]:
+        """汇总 RAG 特征"""
+        results = []
+        for e in self.captured:
+            features = e.get("rag_features", [])
+            if features:
+                results.append({"url": e.get("url"), "features": features})
+        return results
+
+    def get_agent_features(self) -> List[Dict[str, Any]]:
+        """汇总 Agent 特征"""
+        results = []
+        for e in self.captured:
+            features = e.get("agent_features", [])
+            if features:
+                results.append({"url": e.get("url"), "features": features})
+        return results
+
+    def get_protocols(self) -> List[str]:
+        """获取检测到的通信协议列表"""
+        protocols = set()
+        for e in self.captured:
+            protocol = e.get("protocol")
+            if protocol:
+                protocols.add(protocol)
+        if self.websocket_frames:
+            protocols.add("websocket")
+        return sorted(list(protocols))
