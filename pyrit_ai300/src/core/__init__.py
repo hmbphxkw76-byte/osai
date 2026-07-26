@@ -35,6 +35,11 @@ from src.core.registry_manager import (
     reset_registry_manager,
 )
 
+from src.core.logging_utils import (
+    TeeOutput,
+    setup_logging,
+)
+
 __all__ = [
     # 枚举类型
     "AISystemType",
@@ -62,4 +67,7 @@ __all__ = [
     "RegistryManager",
     "get_registry_manager",
     "reset_registry_manager",
+    # 日志工具
+    "TeeOutput",
+    "setup_logging",
 ]

@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from src.utils import truncate_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,10 +76,11 @@ class WebChatInteraction:
             send_selector=self.send_selector,
         )
 
-    async def get_last_response(self, timeout_ms: int = 5000) -> str:
+    async def get_last_response(self, timeout_ms: Optional[int] = None) -> str:
         """获取响应区最新文本"""
         if not self.response_selector:
             return ""
+        timeout_ms = timeout_ms or self.config.get("response_timeout_ms", 5000)
         try:
             await self.page.wait_for_selector(
                 self.response_selector,
@@ -87,7 +90,7 @@ class WebChatInteraction:
             text = await self.page.text_content(self.response_selector)
             return (text or "").strip()
         except Exception as e:
-            logger.warning("Failed to get response: %s", str(e)[:120])
+            logger.warning("Failed to get response: %s", truncate_error(str(e), self.config))
             return ""
 
     async def clear_input(self) -> bool:
@@ -98,5 +101,39 @@ class WebChatInteraction:
             await self.page.fill(self.input_selector, "")
             return True
         except Exception as e:
-            logger.warning("Failed to clear input: %s", str(e)[:120])
+            logger.warning("Failed to clear input: %s", truncate_error(str(e), self.config))
             return False
+
+
+async def send_chat_message(
+    page: Any,
+    input_selector: str = "",
+    send_selector: str = "",
+    response_selector: str = "",
+    text: str = "",
+    post_send_wait_ms: int = 3000,
+    type_delay_ms: int = 50,
+    send_strategy_wait_ms: int = 1500,
+    click_timeout_ms: int = 3000,
+) -> Dict[str, Any]:
+    """
+    模块级便捷函数：向 Web 聊天界面发送消息。
+
+    自动检测缺失的选择器，发送消息后等待响应。
+    """
+    interaction = WebChatInteraction(
+        page=page,
+        input_selector=input_selector,
+        send_selector=send_selector,
+        response_selector=response_selector,
+        config={
+            "post_send_wait_ms": post_send_wait_ms,
+            "type_delay_ms": type_delay_ms,
+            "send_strategy_wait_ms": send_strategy_wait_ms,
+            "click_timeout_ms": click_timeout_ms,
+        },
+    )
+    result = await interaction.send(message=text)
+    if result.get("success"):
+        result["response_text"] = result.get("response", {}).get("response_text", "")
+    return result

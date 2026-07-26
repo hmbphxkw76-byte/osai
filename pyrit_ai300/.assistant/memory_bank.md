@@ -244,7 +244,7 @@ PyRIT 1.0.0 的 `AttackScoringConfig` 对单轮攻击和 `red_teaming` 设置 `r
 8. **代码审查**: 提交前过检查清单
 9. **测试先行**: 每次修改后运行测试
 
-详见: `docs/development_guidelines.md`
+详见: `docs/development_guidelines.md`（含原 `.catpawrules` 全部规则，已整合）
 
 ---
 
@@ -339,16 +339,17 @@ python pipeline.py http://192.168.0.22:11434 LLM01,LLM06
 
 ---
 
-## 十、三库定义
+## 十、双库定义
 
-当说"写入三库"时，指以下三个文件，必须同时更新：
-1. `.catpawrules` — 规则库（CatPaw 自动加载）
-2. `.assistant/memory_bank.md` — 记忆库（本文件，跨平台共享）
-3. `docs/development_guidelines.md` — 开发规范文档
+当说"写入双库"时，指以下两个文件，必须同时更新：
+1. `.assistant/memory_bank.md` — 记忆库（本文件，跨平台共享，任意 IDE 可读取）
+2. `docs/development_guidelines.md` — 开发规范文档
+
+> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到双库。
 
 ---
 
-## 十、跨平台同步说明
+## 十一、跨平台同步说明
 
 本文件设计为跨开发平台共享的记忆库，可在以下平台中使用：
 

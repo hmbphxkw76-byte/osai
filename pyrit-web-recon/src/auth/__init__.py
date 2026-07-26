@@ -4,6 +4,7 @@
 """
 
 from .credential_extractor import CredentialExtractor
+from .form_filler import fill_login_form
 from .header_parser import (
     AuthProfile,
     extract_domain_from_url,
@@ -18,6 +19,7 @@ __all__ = [
     "AuthProfile",
     "CredentialExtractor",
     "extract_domain_from_url",
+    "fill_login_form",
     "find_credential_file",
     "inject_auth",
     "normalize_domain",

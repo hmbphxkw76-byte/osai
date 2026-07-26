@@ -49,10 +49,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from pyrit.setup import initialize_pyrit_async
-
 # 导入框架模块
 from src.core.config_loader import get_config_loader
+from src.core.logging_utils import TeeOutput, setup_logging
 from src.core.models import AuthResult, AuthStatus, AuthType
 from src.recon import recon_target
 from src.analysis import select_strategy, evaluate_priority
@@ -71,78 +70,6 @@ from src.targets import create_prompt_target, create_judge_target, TargetParams
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-
-# ============================================================
-# 日志 Tee 输出 - 同时写入终端和文件
-# ============================================================
-
-
-class TeeOutput:
-    """将 stdout/stderr 同时输出到终端和日志文件
-
-    透传原始 terminal 的关键属性（encoding / errors / isatty / fileno 等），
-    确保第三方库（如 PyRIT StdoutSink）能正常访问 sys.stdout.encoding。
-    """
-
-    def __init__(self, terminal, log_file):
-        self.terminal = terminal
-        self.log_file = log_file
-
-    def write(self, data):
-        self.terminal.write(data)
-        self.log_file.write(data)
-        self.log_file.flush()
-
-    def flush(self):
-        self.terminal.flush()
-        self.log_file.flush()
-
-    def reconfigure(self, **kwargs):
-        if hasattr(self.terminal, "reconfigure"):
-            self.terminal.reconfigure(**kwargs)
-
-    # ---- 属性透传 ----
-
-    @property
-    def encoding(self):
-        """透传 encoding（PyRIT StdoutSink 需要）"""
-        return getattr(self.terminal, "encoding", "utf-8")
-
-    @property
-    def errors(self):
-        """透传 errors"""
-        return getattr(self.terminal, "errors", "replace")
-
-    def isatty(self):
-        return getattr(self.terminal, "isatty", lambda: False)()
-
-    def fileno(self):
-        return self.terminal.fileno()
-
-    def __getattr__(self, name):
-        """其他未显式定义的属性回退到原始 terminal"""
-        return getattr(self.terminal, name)
-
-
-def setup_logging(config_loader, start_time: datetime) -> Path:
-    """
-    设置日志文件，将 stdout/stderr 同时输出到终端和文件
-
-    Returns:
-        日志文件路径
-    """
-    logs_dir = Path(config_loader.get_logs_dir())
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_filename = f"pipeline-{start_time.strftime('%Y%m%d_%H%M%S')}.log"
-    log_path = logs_dir / log_filename
-
-    log_file = open(log_path, "w", encoding="utf-8", errors="replace")
-
-    sys.stdout = TeeOutput(sys.stdout, log_file)
-    sys.stderr = TeeOutput(sys.stderr, log_file)
-
-    return log_path
 
 
 # ============================================================
@@ -197,7 +124,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"Verbose Success: {'开启' if verbose_success else '关闭'}  (成功攻击详情输出)")
 
     # ---------------------------------------------------------
-    # 1. 初始化 PyRIT
+    # 1. 初始化 PyRIT (对齐 PyRIT 1.0.0 Setup 三步流程)
     # ---------------------------------------------------------
     print("\n[1/9] 初始化 PyRIT...")
     # 使用每次运行独立的数据库路径，彻底避免旧数据残留和文件锁定问题
@@ -205,6 +132,19 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     db_path = db_base_path.parent / f"{exam_id}.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # 对齐 PyRIT 1.0.0 Setup 文档：
+    #   Step 1: 自动发现并加载 .env / .env_local
+    #   Step 2: 数据库配置 (SQLite + 每次独立路径)
+    #   Step 3: 重试配置传播 (RETRY_MAX_NUM_ATTEMPTS 等环境变量)
+    from src.setup.retry_config import configure_retry_env_vars
+    retry_config = configure_retry_env_vars()
+    print(f"  [OK] 重试配置: {retry_config}")
+
+    # Scenario 级别重试 (对齐 PyRIT max_retries)
+    scenario_max_retries = config_loader.get_scenario_max_retries()
+    print(f"  [OK] Scenario 重试: max_retries={scenario_max_retries} (total={1 + scenario_max_retries})")
+
+    from pyrit.setup import initialize_pyrit_async
     await initialize_pyrit_async(
         memory_db_type=config_loader.get_memory_db_type(),
         db_path=str(db_path),
@@ -450,6 +390,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         verbose=verbose,
         exam_id=exam_id,
         timeout_overrides=timeout_overrides if timeout_overrides else None,
+        max_retries=scenario_max_retries,
     )
 
     print(f"\n  [OK] 批量攻击完成")

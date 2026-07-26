@@ -3,36 +3,63 @@
 pyrit-web-recon CLI
 ===================
 
-统一命令行入口：
+统一命令行入口，使用 PipelineRunner 串行执行侦察阶段：
+
   python main.py <URL> [--type auto|spa|web_ui|api] [--headless] ...
+
+流水线阶段：
+  1. credential_discovery   发现已有凭据与浏览器状态
+  2. authentication         初始化认证方式
+  3. api_probe              API 目标探测（非 API 目标自动跳过）
+  4. navigation             启动浏览器并导航到目标
+  5. entry_discovery        发现 AI 聊天入口
+  6. dom_recon              检测 DOM 元素与登录页
+  7. network_interception   拦截 LLM API 网络流量
+  8. probe_interaction      发送探测消息触发 LLM API
+  9. analysis               分析流量、提取模型名与攻击面
+ 10. credential_extraction 提取并保存浏览器凭据
+ 11. export                 导出 TargetProfile / 模板 / PyRIT 配置
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 from typing import Any, Dict
 
 import yaml
+from dotenv import load_dotenv
 
-from src.credential_manager import CredentialManager
-from src.export import ProfileExporter, TemplateExporter
-from src.recon import ReconEngine
+from src.pipeline import PipelineContext, PipelineRunner
+from src.pipeline.stages import (
+    APIProbeStage,
+    AnalysisStage,
+    AuthenticationStage,
+    CredentialDiscoveryStage,
+    CredentialExtractionStage,
+    DOMReconStage,
+    EntryDiscoveryStage,
+    ExportStage,
+    NavigationStage,
+    NetworkInterceptionStage,
+    ProbeInteractionStage,
+)
 
 
 def _default_config() -> Dict[str, Any]:
     """默认配置"""
-    defaults = {
+    return {
         "auth_mode": "auto",
         "credentials_dir": "credentials",
         "output_dir": "results/recon",
         "template_dir": "data/burp",
         "profile_dir": "results/recon/profiles",
+        "export_profile": True,
+        "export_template": True,
+        "export_pyrit": True,
     }
-    return defaults
 
 
 def load_yaml_config(path: str) -> Dict[str, Any]:
@@ -43,42 +70,141 @@ def load_yaml_config(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    """从环境变量读取布尔值"""
+    value = os.getenv(name, "").lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """构建命令行参数解析器"""
+    """构建命令行参数解析器（支持 .env 默认值）"""
     parser = argparse.ArgumentParser(
         prog="pyrit-web-recon",
         description="全面侦察基于 LLM 的 Web 应用目标",
     )
-    parser.add_argument("url", help="目标 URL")
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=os.getenv("RECON_TARGET_URL", ""),
+        help="目标 URL 或站点别名（如 kimi；也可通过 RECON_TARGET_URL 设置）",
+    )
     parser.add_argument(
         "--type",
         dest="target_type",
-        default="auto",
+        default=os.getenv("RECON_TARGET_TYPE", "auto"),
         choices=["auto", "spa", "web_ui", "api"],
-        help="目标类型（默认 auto）",
+        help=(
+            "LLM 应用目标类型（默认 auto；也可通过 RECON_TARGET_TYPE 设置）。"
+            "spa=单页 LLM 聊天应用；web_ui=传统多页 LLM 聊天页面；api=直接暴露的 LLM API。"
+        ),
     )
-    parser.add_argument("--headless", action="store_true", help="无头模式")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=_env_bool("RECON_HEADLESS"),
+        help="无头模式（也可通过 RECON_HEADLESS=true 设置）",
+    )
     parser.add_argument("--config", default="config/recon.yaml", help="全局配置文件")
     parser.add_argument("--spa-config", default="config/spa_chat.yaml", help="SPA 配置文件")
     parser.add_argument("--sites", default="config/sites.yaml", help="已知站点配置")
-    parser.add_argument("--auth-mode", default="auto", choices=["auto", "none", "header"], help="认证模式")
-    parser.add_argument("--storage-state", default="", help="浏览器状态文件")
-    parser.add_argument("--probe", default="你好，请介绍一下你自己。", help="探测消息")
+    parser.add_argument(
+        "--auth-mode",
+        default=os.getenv("RECON_AUTH_MODE", "auto"),
+        choices=["auto", "none", "header"],
+        help="认证模式（也可通过 RECON_AUTH_MODE 设置）",
+    )
+    parser.add_argument("--storage-state", default=os.getenv("RECON_STORAGE_STATE", ""), help="浏览器状态文件")
+    parser.add_argument(
+        "--probe",
+        default=os.getenv("RECON_PROBE", "你好，请介绍一下你自己。"),
+        help="探测消息（也可通过 RECON_PROBE 设置）",
+    )
     parser.add_argument("--no-send", action="store_true", help="不发送探测消息")
     parser.add_argument("--no-template", action="store_true", help="不导出攻击模板")
     parser.add_argument("--no-profile", action="store_true", help="不导出 TargetProfile")
-    parser.add_argument("--manual-login", action="store_true", help="检测到登录页时等待人工完成登录")
-    parser.add_argument("--manual-login-timeout", type=int, default=300, help="人工登录最大等待秒数（默认 300）")
-    parser.add_argument("--manual-login-no-enter", action="store_true", help="自动检测登录完成后不等待 Enter 确认")
-    parser.add_argument("--login-url", type=str, default="", help="显式指定登录页 URL（如 https://passport.jd.com）")
+    parser.add_argument("--no-pyrit", action="store_true", help="不导出 PyRIT 配置")
+    parser.add_argument(
+        "--manual-login",
+        action="store_true",
+        default=_env_bool("RECON_MANUAL_LOGIN"),
+        help="检测到登录页时等待人工完成登录（也可通过 RECON_MANUAL_LOGIN=true 设置）",
+    )
+    parser.add_argument(
+        "--manual-login-timeout",
+        type=int,
+        default=int(os.getenv("RECON_MANUAL_LOGIN_TIMEOUT", "300")),
+        help="人工登录最大等待秒数（默认 300；也可通过 RECON_MANUAL_LOGIN_TIMEOUT 设置）",
+    )
+    parser.add_argument(
+        "--manual-login-require-enter",
+        action="store_true",
+        default=_env_bool("RECON_MANUAL_LOGIN_REQUIRE_ENTER"),
+        help="自动检测到登录完成后仍需按 Enter 确认才继续（默认自动接管）",
+    )
+    parser.add_argument(
+        "--login-url",
+        type=str,
+        default=os.getenv("RECON_LOGIN_URL", ""),
+        help="显式指定登录页 URL（如 https://passport.jd.com；也可通过 RECON_LOGIN_URL 设置）",
+    )
+    parser.add_argument(
+        "--username",
+        type=str,
+        default=os.getenv("RECON_USERNAME", ""),
+        help="登录用户名（也可通过 RECON_USERNAME 设置）",
+    )
+    parser.add_argument(
+        "--password",
+        type=str,
+        default=os.getenv("RECON_PASSWORD", ""),
+        help="登录密码（也可通过 RECON_PASSWORD 设置）",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志")
     return parser
 
 
+def _infer_target_type(url: str) -> str:
+    """根据 URL 自动推断目标类型"""
+    lower = url.lower()
+    if any(kw in lower for kw in ["/api/", "/v1/", "/v2/", "/graphql", "/chat/completions"]):
+        return "api"
+    return "spa"
+
+
+
+
+def _build_pipeline() -> PipelineRunner:
+    """构建侦察 Pipeline"""
+    stages = [
+        CredentialDiscoveryStage(),
+        AuthenticationStage(),
+        APIProbeStage(),
+        NavigationStage(),
+        NetworkInterceptionStage(),  # 尽早启动流量拦截
+        EntryDiscoveryStage(),
+        DOMReconStage(),
+        ProbeInteractionStage(),
+        AnalysisStage(),
+        CredentialExtractionStage(),
+        ExportStage(),
+    ]
+    return PipelineRunner(stages=stages)
+
+
 async def main():
     """主入口"""
+    # 加载 .env 文件，CLI 参数优先级高于环境变量
+    load_dotenv()
+
     parser = build_parser()
     args = parser.parse_args()
+
+    if not args.url:
+        parser.error("必须提供目标 URL，或设置 RECON_TARGET_URL 环境变量/.env")
 
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
@@ -106,69 +232,71 @@ async def main():
         merged_config["spa_config"]["enable_probe_send"] = False
     if args.manual_login:
         merged_config["spa_config"]["manual_login"] = True
-        merged_config["spa_config"]["manual_login_timeout_ms"] = args.manual_login_timeout * 1000
-        merged_config["spa_config"]["manual_login_require_enter"] = not args.manual_login_no_enter
+    merged_config["spa_config"]["manual_login_timeout_ms"] = args.manual_login_timeout * 1000
+    merged_config["spa_config"]["manual_login_require_enter"] = args.manual_login_require_enter
     if args.login_url:
         merged_config["spa_config"]["login_url"] = args.login_url
 
-    # 凭据管理
-    cred_manager = CredentialManager(merged_config.get("credentials_dir", "credentials"))
-    cred_resolution = cred_manager.resolve(target_url)
+    # 用户名/密码（用于登录页自动填充，点击登录/验证码仍需人工完成）
+    if args.username:
+        merged_config["username"] = args.username
+    if args.password:
+        merged_config["password"] = args.password
 
-    auth_mode = args.auth_mode
-    if auth_mode == "auto":
-        auth_mode = "header" if cred_resolution.has_credentials else "none"
+    # 认证模式
+    merged_config["auth_mode"] = args.auth_mode
+    if args.storage_state:
+        merged_config["storage_state"] = args.storage_state
 
-    if auth_mode == "none":
-        cred_resolution.is_valid = True
-        cred_resolution.profile = None
+    # 导出开关
+    if args.no_profile:
+        merged_config["export_profile"] = False
+    if args.no_template:
+        merged_config["export_template"] = False
+    if args.no_pyrit:
+        merged_config["export_pyrit"] = False
 
-    cred_manager.print_status(cred_resolution, auth_mode=auth_mode)
+    # 自动推断目标类型
+    target_type = args.target_type
+    if target_type == "auto":
+        target_type = _infer_target_type(target_url)
 
-    auth_profile = cred_resolution.profile if cred_resolution.has_credentials else None
-
-    # 启动侦察引擎
-    engine = ReconEngine(
-        config=merged_config,
-        credential_manager=cred_manager,
-    )
-
-    profile = await engine.probe(
-        url=target_url,
-        target_type=args.target_type,
+    # 构建并执行 Pipeline
+    context = PipelineContext(
+        target_url=target_url,
+        target_type=target_type,
         headless=args.headless,
-        auth_profile=auth_profile,
-        storage_state=args.storage_state,
+        config=merged_config,
     )
 
-    # 输出结果
-    print("\n" + "=" * 60)
-    print("  🎯 侦察结果")
-    print("=" * 60)
-    print(profile.summarize())
-    print("=" * 60)
+    runner = _build_pipeline()
+    final_context = context
+    try:
+        final_context = await runner.run(context)
+    finally:
+        # 确保浏览器与网络拦截器被妥善关闭，减少 Windows 下的 pipe 警告
+        if final_context.interceptor:
+            try:
+                await final_context.interceptor.stop()
+            except Exception:
+                pass
+        if final_context.browser_manager:
+            try:
+                await final_context.browser_manager.close()
+            except Exception:
+                pass
 
-    # 导出
-    if not args.no_profile:
-        exporter = ProfileExporter(merged_config.get("profile_dir", "results/recon/profiles"))
-        profile_path = exporter.export(profile, fmt="json")
-        print(f"  Profile 导出: {profile_path}")
-
-    if not args.no_template:
-        template_exporter = TemplateExporter(merged_config.get("template_dir", "data/burp"))
-        template_paths = template_exporter.export(profile)
-        for p in template_paths:
-            print(f"  模板导出: {p}")
-
-    # 保存 summary
-    summary_path = os.path.join(merged_config.get("output_dir", "results/recon"), "latest_summary.txt")
-    os.makedirs(os.path.dirname(summary_path), exist_ok=True)
-    with open(summary_path, "w", encoding="utf-8") as f:
-        f.write(profile.summarize())
-        f.write("\n\nRaw:\n")
-        json.dump(profile.to_dict(), f, ensure_ascii=False, indent=2)
-    print(f"  摘要保存: {summary_path}")
+    # 最终摘要输出
+    profile = final_context.profile
+    if profile:
+        print("\n" + "=" * 70)
+        print("  🎯 侦察结果摘要")
+        print("=" * 70)
+        print(profile.summarize())
+        print("=" * 70)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+

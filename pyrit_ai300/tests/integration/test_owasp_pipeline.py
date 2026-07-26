@@ -49,8 +49,9 @@ class TestOWASPPipeline:
         assert details["version"] == "2025"
 
         # 4. 映射到 Finding
+        # 对齐 PyRIT 原生 API：AttackResult 通过 get_attack_strategy_identifier() 暴露攻击类型
         mock_result = MagicMock()
-        mock_result.attack_type = "prompt_injection"
+        mock_result.get_attack_strategy_identifier = MagicMock(return_value="prompt_injection")
         findings = mapper.map_attacks_to_findings([mock_result])
 
         assert len(findings) > 0
@@ -76,8 +77,9 @@ class TestOWASPPipeline:
         assert details["name"] == "Goal Hijacking"
 
         # 4. 映射到 Finding
+        # 对齐 PyRIT 原生 API：AttackResult 通过 get_attack_strategy_identifier() 暴露攻击类型
         mock_result = MagicMock()
-        mock_result.attack_type = "goal_hijack"
+        mock_result.get_attack_strategy_identifier = MagicMock(return_value="goal_hijack")
         findings = mapper.map_attacks_to_findings([mock_result])
 
         assert len(findings) > 0
@@ -107,8 +109,9 @@ class TestOWASPPipeline:
         """测试同时生成 LLM 和 Agentic AI 的 Finding"""
         results = []
         for attack_type in ["prompt_injection", "goal_hijack", "tool_misuse"]:
+            # 对齐 PyRIT 原生 API：AttackResult 通过 get_attack_strategy_identifier() 暴露攻击类型
             mock = MagicMock()
-            mock.attack_type = attack_type
+            mock.get_attack_strategy_identifier = MagicMock(return_value=attack_type)
             results.append(mock)
 
         findings = mapper.map_attacks_to_findings(results)

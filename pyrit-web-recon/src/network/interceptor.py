@@ -3,15 +3,18 @@
 HTTP Interceptor
 ================
 
-基于 Playwright page.route 拦截网络流量，识别 LLM API 端点，
-捕获请求头、请求体、响应体。
+基于 Playwright response/request 事件拦截网络流量，识别 LLM API 端点，
+捕获请求头、请求体、响应体。对 event-stream / SSE / 跨域请求更友好。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional
+
+from src.utils import truncate_error
 
 from .traffic_analyzer import TrafficAnalyzer
 
@@ -32,13 +35,25 @@ class HTTPInterceptor:
         self.websocket_frames: List[Dict[str, Any]] = []
         self._route_active = False
         self._ws_handlers = []
+        # 缓存 request 事件中的请求体，供 response 事件匹配使用
+        self._request_bodies: Dict[str, str] = {}
+        # 跟踪未完成的异步响应处理任务，stop() 时等待它们完成
+        self._pending_tasks: set = set()
+
+        # 从配置读取截断长度，未配置时使用最优默认值
+        network_cfg = self.config.get("network", {})
+        self.request_body_limit = network_cfg.get("request_body_limit", 5000)
+        self.response_body_limit = network_cfg.get("response_body_limit", 5000)
+        self.websocket_payload_limit = network_cfg.get("websocket_payload_limit", 2000)
 
     async def start(self):
-        """启用页面路由拦截与 WebSocket 监听"""
+        """启用 response/request 事件监听、WebSocket 监听与页面 fetch 拦截"""
         if self._route_active:
             return
-        await self.page.route("**/*", self._handle_route)
-        self._route_active = True
+
+        # 使用 response/request 事件监听，对 event-stream / SSE / 跨域请求更友好
+        self.page.on("response", self._handle_response)
+        self.page.on("request", self._handle_request)
 
         # 监听 WebSocket
         def on_ws(ws):
@@ -55,83 +70,141 @@ class HTTPInterceptor:
             self._ws_handlers.append((ws, on_frame_sent, on_frame_received))
 
         self.page.on("websocket", on_ws)
+
+        # 安装页面级 fetch 拦截，专门解决 SSE 响应体被页面消费后 Playwright 读不到的问题
+        await self._install_fetch_interceptor()
+
+        self._route_active = True
         logger.info("HTTP interception and WebSocket monitoring started")
 
     async def stop(self):
-        """停止页面路由拦截"""
-        if not self._route_active:
-            return
-        await self.page.unroute("**/*", self._handle_route)
+        """停止监听并等待未完成的响应处理任务（保证 SSE 体被完整记录）"""
         self._route_active = False
+
+        # 等待未完成的异步任务，超时 15 秒避免无限阻塞
+        if self._pending_tasks:
+            pending = list(self._pending_tasks)
+            logger.debug("Waiting for %d pending response tasks", len(pending))
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=15.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Some pending response tasks timed out")
+
+        # 合并页面级 fetch 拦截到的数据（尤其是 SSE 响应体）
+        await self._merge_fetch_intercepted()
+
         logger.info("HTTP interception stopped")
 
-    async def _handle_route(self, route: Any, request: Any):
-        """处理每个请求"""
+    def _handle_request(self, request: Any):
+        """缓存请求体，便于 response 事件匹配"""
+        task = asyncio.create_task(self._cache_request_body(request))
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+
+    async def _cache_request_body(self, request: Any):
+        """异步缓存请求体"""
         try:
-            response = await route.fetch()
-            await self._record(request, response)
-            await route.fulfill(
-                status=response.status,
-                headers=response.headers,
-                body=await response.body(),
-            )
-        except Exception as e:
-            logger.warning("Route fetch failed, falling back to continue: %s", str(e)[:120])
-            await route.continue_()
+            key = f"{request.method} {request.url}"
+            post_data = request.post_data
+            if post_data:
+                self._request_bodies[key] = post_data[: self.request_body_limit]
+        except Exception:
+            pass
 
-    async def _record(self, request: Any, response: Any):
-        """记录请求响应"""
-        url = request.url
-        method = request.method
-        resource_type = request.resource_type
+    def _handle_response(self, response: Any):
+        """Playwright response 事件回调"""
+        task = asyncio.create_task(self._record_response_async(response))
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
-        # 只关注 XHR / fetch / document / other
-        if resource_type not in ("xhr", "fetch", "other", "document"):
-            return
-
+    async def _record_response_async(self, response: Any):
+        """异步记录 response 事件中的请求/响应信息"""
         try:
+            url = response.url
+            request = response.request
+            method = request.method
+            resource_type = request.resource_type
+
+            if resource_type not in ("xhr", "fetch", "other", "document"):
+                return
+
+            # 静态资源过滤
+            if self._is_static_url(url):
+                return
+
+            status = response.status
+            content_type = response.headers.get("content-type", "")
+            req_headers = dict(request.headers)
+
             body_text = ""
             try:
-                post_data = request.post_data
-                if post_data:
-                    body_text = post_data[:5000]
+                if "json" in content_type or "text" in content_type or "event-stream" in content_type:
+                    body_text = (await response.text())[: self.response_body_limit]
             except Exception:
                 pass
 
-            resp_body = ""
-            try:
-                if response.status < 400:
-                    body = await response.body()
-                    if body:
-                        resp_body = body.decode("utf-8", errors="replace")[:5000]
-            except Exception:
-                pass
+            # 从缓存读取请求体；若缓存未命中，尝试直接读取 request.post_data
+            request_key = f"{method} {url}"
+            request_body = self._request_bodies.pop(request_key, "")
+            if not request_body:
+                try:
+                    post_data = request.post_data
+                    if post_data:
+                        request_body = post_data[: self.request_body_limit]
+                except Exception:
+                    pass
 
             entry = {
                 "timestamp": time.time(),
                 "url": url,
                 "method": method,
                 "resource_type": resource_type,
-                "request_headers": dict(request.headers),
-                "request_body": body_text,
-                "response_status": response.status,
+                "request_headers": req_headers,
+                "request_body": request_body,
+                "response_status": status,
                 "response_headers": dict(response.headers),
-                "response_body": resp_body,
+                "response_body": body_text,
                 "is_llm_api": False,
                 "api_type": "",
                 "model_name": "",
+                "intercept_source": "response_event",
             }
 
-            # LLM API 识别
-            analyzer = TrafficAnalyzer()
+            analyzer = TrafficAnalyzer(config=self.config.get("network", {}))
             llm_info = analyzer.analyze_request(entry)
             entry.update(llm_info)
 
-            self.captured.append(entry)
-            if entry["is_llm_api"]:
-                logger.info("LLM API captured: %s %s model=%s", method, url, entry.get("model_name") or "unknown")
+            if not self._has_similar_entry(entry):
+                self.captured.append(entry)
+                if entry["is_llm_api"]:
+                    logger.info("LLM API captured: %s %s model=%s", method, url, entry.get("model_name") or "unknown")
         except Exception as e:
-            logger.warning("Failed to record request: %s", str(e)[:120])
+            logger.debug("Failed to record response event: %s", truncate_error(str(e), self.config))
+
+    def _is_static_url(self, url: str) -> bool:
+        """过滤静态资源 URL"""
+        static_exts = (
+            ".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2",
+            ".ico", ".gif", ".ttf", ".map", ".mp4", ".webp", ".eot", ".otf",
+            ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz",
+        )
+        clean = url.split("?")[0].split("#")[0].lower()
+        return any(clean.endswith(ext) for ext in static_exts)
+
+    def _has_similar_entry(self, entry: Dict[str, Any]) -> bool:
+        """检查是否已有相似记录"""
+        url = entry.get("url", "")
+        method = entry.get("method", "")
+        for existing in self.captured:
+            if existing.get("url") == url and existing.get("method") == method:
+                # 如果新记录更完整（有模型名），允许覆盖
+                if entry.get("model_name") and not existing.get("model_name"):
+                    existing.update(entry)
+                return True
+        return False
 
     def get_llm_endpoints(self) -> List[Dict[str, Any]]:
         """获取识别到的 LLM API 端点列表"""
@@ -161,7 +234,7 @@ class HTTPInterceptor:
             "timestamp": time.time(),
             "url": url,
             "direction": direction,
-            "payload": payload[:2000],
+            "payload": payload[: self.websocket_payload_limit],
         })
         logger.debug("WebSocket %s: %s", direction, url)
 

@@ -28,8 +28,16 @@ verbose_success: true         # 仅成功攻击输出完整详情（推荐开启
 # --- 交互式选择 ---
 interactive_selection: true   # 是否启用种子组交互选择（false=全选，CI/CD 兼容）
 
-# --- 重试配置 (PyRIT 原生 HTTP 重试) ---
+# --- 重试配置 (PyRIT 三层重试机制) ---
+# Low-level: target HTTP 重试（指数退避，处理 RateLimit / EmptyResponse）
+# Mid-level: JSON 解析重试（立即重试，处理 InvalidJson）
+# High-level: Scenario 工作流重试（恢复式重试，跳过已完成目标）
 retry:
-  max_num_attempts: 3         # 空响应/限流时的最大重试次数
-  wait_min_seconds: 1         # 重试最小等待秒数
-  wait_max_seconds: 10        # 重试最大等待秒数
+  max_num_attempts: 3         # 低层重试最大次数（RateLimit / EmptyResponse）
+  wait_min_seconds: 1         # 低层重试最小等待秒数
+  wait_max_seconds: 10        # 低层重试最大等待秒数
+
+# Scenario 级别重试（高层工作流弫性恢复）
+# max_retries=0: 快速失败（开发推荐）
+# max_retries=3: 弫性恢复（生产推荐）
+scenario_max_retries: 0

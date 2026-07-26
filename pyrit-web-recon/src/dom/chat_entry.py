@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from .selector_pool import CHAT_ENTRY_SELECTORS
+from .selector_pool import CHAT_ENTRY_FALLBACK_SELECTORS, CHAT_ENTRY_SELECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,9 @@ async def discover_chat_entry(
     page: Any,
     yaml_selector: str = "",
     timeout_ms: int = 5000,
+    click_verify: bool = False,
+    click_timeout_ms: int = 5000,
+    post_click_wait_ms: int = 3000,
 ) -> Dict[str, Any]:
     """
     发现 AI 聊天入口按钮。
@@ -36,36 +39,122 @@ async def discover_chat_entry(
     策略：
       1. YAML 显式配置优先
       2. 使用 CHAT_ENTRY_SELECTORS 渐进式匹配
-      3. 评分扫描兜底
+      3. 评分扫描兜底，返回前 N 个候选
+      4. 若 click_verify=True，则逐个点击候选并验证聊天输入框是否出现
 
     Returns:
-        {"selector": str, "source": str, "score": float}
+        {"selector": str, "source": str, "score": float, "candidates": list}
     """
+    # 1. YAML 显式配置优先
     if yaml_selector:
         try:
             el = await page.wait_for_selector(yaml_selector, state="visible", timeout=timeout_ms)
             if el:
-                return {"selector": yaml_selector, "source": "yaml", "score": 1.0}
+                if click_verify:
+                    clicked = await _try_click_and_verify(
+                        page, yaml_selector, click_timeout_ms, post_click_wait_ms
+                    )
+                    if clicked:
+                        return {"selector": yaml_selector, "source": "yaml", "score": 1.0}
+                else:
+                    return {"selector": yaml_selector, "source": "yaml", "score": 1.0}
         except Exception:
             pass
 
+    # 2. 内置选择器池渐进式匹配
     for sel in CHAT_ENTRY_SELECTORS:
         try:
             el = await page.query_selector(sel)
             if el and await el.is_visible():
+                if click_verify:
+                    clicked = await _try_click_and_verify(page, sel, click_timeout_ms, post_click_wait_ms)
+                    if clicked:
+                        return {"selector": sel, "source": "selector_pool", "score": 0.9}
+                    continue
                 return {"selector": sel, "source": "selector_pool", "score": 0.9}
         except Exception:
             continue
 
-    candidate = await _score_scan_chat_entry(page)
-    if candidate:
-        return candidate
+    # 3. 评分扫描候选
+    candidates = await _score_scan_chat_entry(page)
+    if candidates:
+        if click_verify:
+            for candidate in candidates:
+                sel = candidate.get("selector", "")
+                if not sel:
+                    continue
+                clicked = await _try_click_and_verify(page, sel, click_timeout_ms, post_click_wait_ms)
+                if clicked:
+                    return {
+                        "selector": sel,
+                        "source": "score_scan",
+                        "score": min(candidate.get("score", 0) / 20.0, 1.0),
+                        "signals": candidate.get("signals", ""),
+                        "candidates": candidates,
+                    }
+            # 评分扫描未命中，尝试兜底选择器
+            for sel in CHAT_ENTRY_FALLBACK_SELECTORS:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        clicked = await _try_click_and_verify(
+                            page, sel, click_timeout_ms, post_click_wait_ms
+                        )
+                        if clicked:
+                            return {"selector": sel, "source": "fallback", "score": 0.5}
+                except Exception:
+                    continue
+        else:
+            best = candidates[0]
+            return {
+                "selector": best.get("selector", ""),
+                "source": "score_scan",
+                "score": min(best.get("score", 0) / 20.0, 1.0),
+                "signals": best.get("signals", ""),
+                "candidates": candidates,
+            }
 
-    return {"selector": "", "source": "none", "score": 0.0}
+    return {"selector": "", "source": "none", "score": 0.0, "candidates": []}
 
 
-async def _score_scan_chat_entry(page: Any) -> Optional[Dict[str, Any]]:
-    """全屏评分扫描聊天入口候选"""
+async def _try_click_and_verify(
+    page: Any,
+    selector: str,
+    click_timeout_ms: int = 5000,
+    post_click_wait_ms: int = 3000,
+) -> bool:
+    """点击候选入口并验证聊天输入框是否出现"""
+    try:
+        el = await page.query_selector(selector)
+        if not el or not await el.is_visible():
+            return False
+        await el.scroll_into_view_if_needed()
+        await el.click(timeout=click_timeout_ms)
+        await page.wait_for_timeout(post_click_wait_ms)
+
+        has_input = await page.evaluate(
+            """() => {
+                const sels = [
+                    'textarea.send-box-default-text', 'textarea[class*="send-box"]',
+                    'textarea[class*="chat-input"]', 'textarea[class*="chat"]',
+                    '[placeholder*="请输入"]', '[placeholder*="输入"]',
+                    'textarea:not([disabled])', '[contenteditable="true"]'
+                ];
+                for (const sel of sels) {
+                    const e = document.querySelector(sel);
+                    if (e && e.offsetParent !== null) return true;
+                }
+                return false;
+            }"""
+        )
+        return bool(has_input)
+    except Exception as exc:
+        logger.debug("Click and verify failed for %s: %s", selector, exc)
+        return False
+
+
+async def _score_scan_chat_entry(page: Any) -> Optional[List[Dict[str, Any]]]:
+    """全屏评分扫描聊天入口候选，返回排序后的候选列表"""
     candidates = await page.evaluate(
         """
         (keywords) => {
@@ -119,18 +208,16 @@ async def _score_scan_chat_entry(page: Any) -> Optional[Dict[str, Any]]:
         _CHAT_ENTRY_KEYWORDS,
     )
 
-    if candidates:
-        best = candidates[0]
+    # 过滤掉不可见或无法 query 的候选
+    valid = []
+    for candidate in candidates:
+        sel = candidate.get("selector", "")
+        if not sel:
+            continue
         try:
-            el = await page.query_selector(best["selector"])
+            el = await page.query_selector(sel)
             if el and await el.is_visible():
-                return {
-                    "selector": best["selector"],
-                    "source": "score_scan",
-                    "score": min(best["score"] / 20.0, 1.0),
-                    "signals": best["signals"],
-                }
+                valid.append(candidate)
         except Exception:
-            pass
-
-    return None
+            continue
+    return valid if valid else None

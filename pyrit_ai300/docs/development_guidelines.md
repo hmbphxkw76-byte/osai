@@ -8,17 +8,18 @@
 
 ---
 
-## 〇、三库定义
+## 〇、双库定义
 
-当说"写入三库"时，指以下三个文件，必须同时更新：
+当说"写入双库"时，指以下两个文件，必须同时更新：
 
 | 序号 | 文件 | 用途 |
 |------|------|------|
-| 1 | `.catpawrules` | 规则库（CatPaw 自动加载） |
-| 2 | `.assistant/memory_bank.md` | 记忆库（跨平台共享） |
-| 3 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
+| 1 | `.assistant/memory_bank.md` | 记忆库（跨平台共享，任意 IDE 可读取） |
+| 2 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
 
-**同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上三个文件。
+**同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上两个文件。
+
+> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到本文件和 `.assistant/memory_bank.md`。
 
 ---
 
@@ -453,11 +454,39 @@ TREE_DEPTH_ATTACKS = frozenset({"tap", "tree_of_attacks_pruned"})
 
 | 变更类型 | 需更新文档 |
 |---------|------------|
-| 新增/修改 Target 类型 | `docs/targets.md` + `.catpawrules` + `.assistant/memory_bank.md` |
+| 新增/修改 Target 类型 | `docs/targets.md` + 双库 |
 | 新增/修改 Attack 技术 | `docs/executor.md` + `config/payload_strategy_matrix.yaml` |
 | 新增/修改数据集层 | `docs/datasets_architecture.md` |
-| 架构变更 | `docs/architecture_design.md` + `docs/architecture_assessment.md` + 三库 |
-| 开发规则变更 | 三库（`.catpawrules` + `.assistant/memory_bank.md` + `docs/development_guidelines.md`） |
+| 架构变更 | `docs/architecture_design.md` + `docs/architecture_assessment.md` + 双库 |
+| 开发规则变更 | 双库（`.assistant/memory_bank.md` + `docs/development_guidelines.md`） |
+
+### 3.8.1 新增数据源规则
+
+新增数据源时：
+1. 在 `DatasetManager` 中添加 `load_*_datasets()` 方法
+2. 方法内部调用 `memory.add_seed_datasets_to_memory_async()` 存入 CentralMemory
+3. 在 `load_datasets()` 统一入口中添加开关参数
+4. 在 `config.yaml` 的 `dataset_manager` 中添加配置段
+5. 确保数据格式为 PyRIT 原生 `SeedDataset`
+
+### 3.8.2 新增种子组元数据规则
+
+新增 YAML 种子时，metadata 字段应包含：
+```yaml
+metadata:
+  owasp_id: "LLM01"           # 必填
+  technique: "direct"          # 必填
+  severity: "high"             # 必填
+  attack_mode: "single_turn"   # 必填
+  rationale: "..."             # 可选
+```
+
+### 3.8.3 选择层扩展规则
+
+扩展选择层功能时：
+1. 新增过滤维度: 在 `SeedGroupSelector` 中添加 `filter_by_*()` 静态方法
+2. 新增展示维度: 在 `SeedGroupEntry` 中添加字段，在 `_build_entry()` 中提取
+3. 不修改 `AttackPreparator` 的接口和逻辑
 
 ### 3.9 XPIA/RAG 攻击开发规范
 

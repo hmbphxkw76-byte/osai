@@ -1,26 +1,23 @@
 """
-AI-300 Adaptive Scenario — 对齐 pyrit.scenario.scenarios.adaptive
-==================================================================
+AI-300 Adaptive Scenario — 原生 AdaptiveScenario + FailureTypeRoutingSelector
+============================================================================
 
-P2: Adaptive Scenario 集成 — AdaptiveScenario + EpsilonGreedyTechniqueSelector
+P0+P2: 用原生 AdaptiveScenario 替代自建 AttackUpgradeStrategy
 
-AI300AdaptiveScenario 是 PyRIT 原生 AdaptiveScenario 的 AI-300 考试适配子类。
-自适应 Scenario 不对每个 objective 运行所有攻击技术，而是：
-  1. 按 objective 选择下一个要尝试的技术
-  2. 从有效结果中学习（epsilon-greedy）
-  3. 成功时立即停止
+原生 AdaptiveTechniqueDispatcher 构建 SequentialAttack(FIRST_SUCCESS)：
+  - 自动按 selector 排序尝试多个技术
+  - 成功即停止（提前停止）
+  - epsilon-greedy 跨 objective 学习
 
-这使考试花费集中在实际有效的技术上。
+FailureTypeRoutingSelector 增加失败类型路由：
+  - model_refusal → 编码攻击优先（Converter 绕过）
+  - timeout → 单轮攻击优先（减少执行时间）
+  - objective_not_achieved → 强技术优先（多轮升级）
 
-核心参数：
-  - max_attempts_per_objective: 每个 objective 尝试的最大技术数（默认 3）
-  - epsilon: 探索概率（默认 0.2）
-  - random_seed: 随机种子（可复现）
+移除自建 AttackUpgradeStrategy 的多候选递归逻辑，
+依赖原生 SequentialAttack(FIRST_SUCCESS) 天然实现。
 
-考试策略映射：
-  Phase 1 (探索): 尝试 rot13/base64（快速编码攻击）
-  Phase 2 (利用): 尝试 role_play（角色扮演）
-  Phase 3 (升级): 尝试 crescendo/red_teaming（多轮渐进）
+保留自建：per_attack_timeout（考试时间约束优化）
 """
 
 import logging
@@ -36,20 +33,24 @@ from pyrit.scenario.scenarios.adaptive import (
 )
 
 from src.scenarios.ai300_technique import AI300Technique
+from src.scenarios.failure_type_selector import FailureTypeRoutingSelector
 
 logger = logging.getLogger(__name__)
 
 
-class AI300EpsilonGreedySelector(EpsilonGreedyTechniqueSelector):
+class AI300EpsilonGreedySelector(FailureTypeRoutingSelector):
     """
-    AI-300 Epsilon-Greedy 技术选择器
+    AI-300 Epsilon-Greedy 技术选择器（增强版）
 
-    对齐 PyRIT 1.0.0 EpsilonGreedyTechniqueSelector，
-    预设 AI-300 考试最优参数。
+    继承 FailureTypeRoutingSelector，在 EpsilonGreedyTechniqueSelector 基础上增加：
+    1. 失败类型路由（替代自建 AttackUpgradeStrategy 的失败类型分析）
+    2. 考试最优参数预设（epsilon=0.2, random_seed=42）
+    3. 编码攻击优先策略（考试快速高成功率）
 
-    考试推荐：
-      - epsilon=0.2（20% 探索，80% 利用）
-      - random_seed=42（可复现）
+    原生替代说明：
+    - 自建 AttackUpgradeStrategy 的多候选递归 → 原生 SequentialAttack(FIRST_SUCCESS)
+    - 自建 extract_failure_type → FailureTypeRoutingSelector.update_failure_type
+    - 自建 generate_upgrade_plans → 原生 AdaptiveTechniqueDispatcher 自动构建
     """
 
     def __init__(self, epsilon: float = 0.2, random_seed: int | None = 42) -> None:
@@ -58,15 +59,20 @@ class AI300EpsilonGreedySelector(EpsilonGreedyTechniqueSelector):
 
 class AI300AdaptiveScenario(AdaptiveScenario):
     """
-    AI-300 自适应 Scenario
+    AI-300 自适应 Scenario — 原生 AdaptiveScenario + 失败类型路由
 
-    对齐 PyRIT 1.0.0 AdaptiveScenario 基类 + TextAdaptive 子类。
-    使用 epsilon-greedy 策略按 objective 选择技术，成功即停止。
-
-    考试优势：
+    用原生 AdaptiveScenario 替代自建 AttackUpgradeStrategy + ScenarioOrchestrator 升级重试。
+    原生 AdaptiveTechniqueDispatcher 自动构建 SequentialAttack(FIRST_SUCCESS)：
+      - 按 selector 排序尝试多个技术
+      - 成功即停止（提前停止）
       - 成本 O(max_attempts x objectives) 而非 O(techniques x objectives)
-      - 自动学习哪些技术对当前目标最有效
-      - 未尝试的技术优先尝试（前几个 objective 轮询所有技术）
+
+    FailureTypeRoutingSelector 在 epsilon-greedy 基础上增加失败类型路由：
+      - model_refusal → 编码攻击优先
+      - timeout → 单轮攻击优先
+      - objective_not_achieved → 强技术优先
+
+    保留自建 per_attack_timeout（考试时间约束优化）。
 
     Usage:
         scenario = AI300AdaptiveScenario()
@@ -76,6 +82,9 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         })
         await scenario.initialize_async()
         result = await scenario.run_async()
+        # 原生 tqdm 进度条自动显示
+        # 原生 max_retries 自动重试
+        # 原生自动恢复（中断后可 resume）
     """
 
     VERSION: int = 1
@@ -92,10 +101,11 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         初始化 AI-300 自适应 Scenario
 
         Args:
-            selector: 技术选择器，None 时使用 AI300EpsilonGreedySelector(epsilon=0.2)
+            selector: 技术选择器，None 时使用 AI300EpsilonGreedySelector（含失败类型路由）
             objective_scorer: 目标评分器
             scenario_result_id: 恢复 ID
         """
+        # 使用 FailureTypeRoutingSelector 替代自建 AttackUpgradeStrategy
         self._selector = selector or AI300EpsilonGreedySelector()
         self._objective_scorer = (
             objective_scorer if objective_scorer else self._get_default_objective_scorer()
@@ -121,9 +131,12 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         """
         P3: 声明自适应专用参数
 
+        保留自建：per_attack_timeout（考试时间约束优化）
+        其余参数（max_retries, max_concurrency 等）由原生 Scenario 基类提供。
+
         Returns:
             - max_attempts_per_objective: 每个 objective 最大尝试次数（默认 3）
-            - per_attack_timeout: 单次攻击超时（默认 300）
+            - per_attack_timeout: 单次攻击超时（默认 300）— 自建保留
         """
         return [
             Parameter(
@@ -134,7 +147,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
             ),
             Parameter(
                 name="per_attack_timeout",
-                description="Per-attack timeout in seconds.",
+                description="Per-attack timeout in seconds. Exam optimization.",
                 param_type=int,
                 default=300,
             ),

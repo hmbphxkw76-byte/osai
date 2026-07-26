@@ -56,10 +56,26 @@ RESPONSE_SELECTORS = [
     {"sel": "[class*='response']", "score": 0.70, "signals": ["response-class"]},
     {"sel": "[class*='message-content']", "score": 0.70, "signals": ["message-content"]},
     {"sel": "[class*='chat-message']", "score": 0.65, "signals": ["chat-message"]},
+    {"sel": "#messages", "score": 0.70, "signals": ["messages-id"]},
+    {"sel": "#chat-container", "score": 0.60, "signals": ["chat-container-id"]},
     {"sel": "[class*='markdown']", "score": 0.60, "signals": ["markdown"]},
     {"sel": "[class*='prose']", "score": 0.55, "signals": ["prose"]},
     {"sel": "[role='log']", "score": 0.60, "signals": ["role-log"]},
     {"sel": "[aria-live='polite']", "score": 0.55, "signals": ["aria-live"]},
+]
+
+# 聊天入口兜底选择器（评分扫描未命中时使用，按常见命名排序）
+CHAT_ENTRY_FALLBACK_SELECTORS = [
+    ".show-chat-button", ".show-chat", ".show-chat-btn",
+    ".open-chat", ".open-chat-button", ".toggle-chat",
+    ".chat-fab", ".chat-widget", ".chat-trigger", ".chat-launcher",
+    ".ai-assistant", ".ai-chat-btn", ".ai-trigger",
+    ".floating-btn", ".fab", ".fab-btn",
+    "[class*='show-chat']", "[class*='open-chat']",
+    "[class*='chat-fab']", "[class*='ai-fab']",
+    "[aria-label*='助手']", "[aria-label*='聊天']",
+    "[aria-label*='AI']", "[aria-label*='Chat']",
+    "[title*='助手']", "[title*='聊天']",
 ]
 
 # 聊天入口按钮选择器（按优先级：精确 → 通用 → 兜底）

@@ -22,7 +22,28 @@ logger = logging.getLogger(__name__)
 class TrafficAnalyzer:
     """网络流量分析器：识别 LLM API、解析响应、提取模型名、API Key、RAG/Agent 特征"""
 
-    def __init__(self):
+    DEPLOYMENT_PATTERNS = {
+        "ollama": ["localhost:11434", "127.0.0.1:11434", ":11434"],
+        "openai": ["api.openai.com", "openai.com"],
+        "azure_openai": ["openai.azure.com", ".azure.com/openai"],
+        "aws_bedrock": ["bedrock-runtime", ".amazonaws.com"],
+        "cloudflare": ["workers.ai", "cloudflare"],
+        "aliyun": ["tongyi.aliyun.com", "dashscope.aliyuncs.com", "aliyun.com", "qianwen"],
+        "baidu": ["yiyan.baidu.com", "qianfan.baidu.com", "baidu.com"],
+        "iflytek": ["xinghuo.xfyun.cn", "xfyun.cn"],
+        "moonshot": ["kimi.moonshot.cn", "moonshot.cn"],
+        "zhipu": ["chatglm.cn", "zhipu"],
+        "deepseek": ["deepseek.com", "api.deepseek.com"],
+        "volcengine": ["volcengine.com", "volces.com", "appsharing-ai"],
+        "google": ["gemini.google.com", "generativelanguage.googleapis.com"],
+        "anthropic": ["claude.ai", "api.anthropic.com"],
+    }
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or {}
+        # 文本分析长度限制，未配置时使用最优默认值
+        self.text_length_limit = self.config.get("text_length_limit", 5000)
+
         self.llm_api_patterns = [
             # OpenAI 兼容
             r"/v\d+/chat/completions",
@@ -63,18 +84,19 @@ class TrafficAnalyzer:
             "modelVersion",
         ]
 
-        # RAG 相关 URL/Body 关键词
+        # RAG 相关 URL/Body 关键词（避免与通用 JSON 字段冲突，如 index/search）
         self.rag_keywords = [
-            "rag", "retrieval", "knowledge", "knowledge_base", "knowledgebase",
-            "document", "doc", "embedding", "vector", "index", "search",
-            "知识库", "检索", "向量", "文档",
+            "rag", "retrieval", "knowledge_base", "knowledgebase", "knowledge base",
+            "embedding", "vector", "vector_store", "vectorstore",
+            "知识库", "检索", "向量", "向量库",
         ]
 
-        # Agent / Copilot / MCP 相关关键词
+        # Agent / Copilot / MCP 相关关键词（避免与 message.role=assistant 等冲突）
         self.agent_keywords = [
-            "agent", "copilot", "assistant", "tool", "function_call", "plugin",
-            "mcp", "model_context_protocol", "action", "workflow",
-            "智能体", "助手", "插件", "工具", "工作流",
+            "agent", "copilot", "function_call", "functioncall", "plugin",
+            "mcp", "model_context_protocol", "model-context-protocol",
+            "workflow", "tool_call", "toolcall",
+            "智能体", "插件", "工作流", "工具调用",
         ]
 
         # API Key 正则（仅识别前缀，避免完整泄露敏感 token）
@@ -169,7 +191,7 @@ class TrafficAnalyzer:
 
     def _extract_model_from_text(self, text: str) -> str:
         """从 JSON 文本中提取 model 字段"""
-        if not text or len(text) > 5000:
+        if not text or len(text) > self.text_length_limit:
             return ""
         try:
             data = json.loads(text)
@@ -311,3 +333,85 @@ class TrafficAnalyzer:
         """判断响应是否为流式"""
         ct = response_headers.get("content-type", "").lower()
         return "text/event-stream" in ct or "chunked" in ct
+
+    def detect_deployment_platform(self, url: str) -> str:
+        """
+        根据 URL / Host 推断 LLM 部署平台。
+        返回最匹配的平台名，无法识别时返回 unknown。
+        """
+        if not url:
+            return "unknown"
+        lower_url = url.lower()
+        for platform, markers in self.DEPLOYMENT_PATTERNS.items():
+            for marker in markers:
+                if marker.lower() in lower_url:
+                    return platform
+        return "unknown"
+
+    def detect_chat_urls(self, entries: List[Dict[str, Any]]) -> List[str]:
+        """
+        从拦截流量中提取疑似聊天/对话相关的 URL。
+        包含 LLM API 端点和页面内的聊天路由。
+        """
+        chat_urls: List[str] = []
+        seen = set()
+        for entry in entries:
+            url = entry.get("url", "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            lower_url = url.lower()
+            if entry.get("is_llm_api"):
+                chat_urls.append(url)
+                continue
+            # 页面内聊天路由关键词
+            chat_keywords = [
+                "/chat", "/conversation", "/dialog", "/message", "/ask",
+                "/completion", "/generate", "/stream", "/v1/",
+            ]
+            if any(kw in lower_url for kw in chat_keywords):
+                chat_urls.append(url)
+        return chat_urls
+
+    def aggregate_llm_features(self, entries: List[Dict[str, Any]]) -> List[str]:
+        """
+        聚合 LLM 特征标签，用于快速刻画目标能力。
+        """
+        features: set = set()
+        protocols = set()
+        has_api = False
+        has_streaming = False
+        has_rag = False
+        has_agent = False
+
+        for entry in entries:
+            if entry.get("is_llm_api"):
+                has_api = True
+                api_type = entry.get("api_type", "")
+                if api_type:
+                    features.add(api_type)
+                if entry.get("model_name"):
+                    features.add(f"model:{entry['model_name']}")
+            if entry.get("protocol"):
+                protocols.add(entry["protocol"])
+            if self.is_streaming_response(entry.get("response_headers", {})):
+                has_streaming = True
+            if entry.get("rag_features"):
+                has_rag = True
+            if entry.get("agent_features"):
+                has_agent = True
+
+        if has_api:
+            features.add("llm_api_exposed")
+        if has_streaming or "sse" in protocols:
+            features.add("sse_streaming")
+        if "websocket" in protocols:
+            features.add("websocket")
+        if "grpc-web" in protocols:
+            features.add("grpc-web")
+        if has_rag:
+            features.add("rag_enabled")
+        if has_agent:
+            features.add("agent_enabled")
+
+        return sorted(features)

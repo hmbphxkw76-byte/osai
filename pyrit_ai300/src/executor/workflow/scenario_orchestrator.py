@@ -128,12 +128,17 @@ class ScenarioOrchestrator:
         exam_id: str = None,
         completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
         timeout_overrides: Optional[Dict[str, int]] = None,
+        max_retries: int = 0,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
 
         使用 asyncio.Semaphore 控制并发，委托 NativeAttackExecutor 执行单次攻击。
         SequentialAttack 模式使用原生异构技术链 + 可配置 completion_policy。
+
+        对齐 PyRIT 1.0.0 Resiliency 文档的 scenario-level retry：
+          max_retries=0 (默认): 快速失败，不重试
+          max_retries=3: 弹性恢复，跳过已完成攻击从异常点恢复
 
         Args:
             attack_plans: 攻击计划列表
@@ -146,6 +151,8 @@ class ScenarioOrchestrator:
             exam_id: 考试 ID（用于输出目录命名）
             completion_policy: SequentialAttack 完成策略
             timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
+            max_retries: Scenario 级别重试次数（0=快速失败，3=弹性恢复）
+                对齐 PyRIT max_retries 参数，重试时跳过已完成的攻击。
 
         Returns:
             BatchAttackResult 包含执行统计和结果列表
@@ -307,8 +314,44 @@ class ScenarioOrchestrator:
                         raise
 
         completed_count = [0]
-        tasks = [_run_one(plan) for plan in attack_plans]
-        await asyncio.gather(*tasks, return_exceptions=not fail_fast)
+        # Scenario-level retry (对齐 PyRIT max_retries)
+        # max_retries=0: 快速失败；max_retries>0: 弫性恢复，跳过已完成计划
+        remaining_plans = list(attack_plans)
+        attempt = 0
+        total_attempts = 1 + max_retries
+
+        while remaining_plans and attempt < total_attempts:
+            attempt += 1
+            if attempt > 1:
+                logger.info(
+                    f"Scenario retry attempt {attempt}/{total_attempts} "
+                    f"({len(remaining_plans)} plans remaining)"
+                )
+                print(f"\n  [RETRY] Scenario attempt {attempt}/{total_attempts} "
+                      f"({len(remaining_plans)} plans remaining)")
+                # 重置信号量和仪表盘
+                semaphore = asyncio.Semaphore(max_concurrency)
+                dashboard = ProgressDashboard(len(remaining_plans))
+
+            try:
+                tasks = [_run_one(plan) for plan in remaining_plans]
+                await asyncio.gather(*tasks, return_exceptions=not fail_fast)
+                break  # 成功完成，退出重试循环
+            except Exception as e:
+                if attempt >= total_attempts:
+                    logger.error(f"Scenario failed after {attempt} attempts: {e}")
+                    raise
+                # 筛选出未完成的计划用于重试
+                completed_plan_ids = {r for r in result.results if r is not None}
+                remaining_plans = [
+                    p for p in remaining_plans
+                    if p not in completed_plan_ids
+                ]
+                logger.warning(
+                    f"Scenario failed on attempt {attempt} "
+                    f"({e.__class__.__name__}: {e}). "
+                    f"Retrying... ({total_attempts - attempt} retries remaining)"
+                )
 
         dashboard.print_progress()
         if mode_stats:
@@ -324,6 +367,7 @@ class ScenarioOrchestrator:
 
         await output_manager.close()
         result.errors.append({"plan_id": "_meta", "error": f"output_log: {output_manager.log_path}"})
+        result.errors.append({"plan_id": "_meta_scenario", "error": f"attempts: {attempt}/{total_attempts}"})
         return result
 
     # ------------------------------------------------------------------
@@ -1039,6 +1083,7 @@ async def execute_batch_attacks(
     completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
     timeout_overrides: Optional[Dict[str, int]] = None,
     output_manager: Any = None,
+    max_retries: int = 0,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -1055,6 +1100,9 @@ async def execute_batch_attacks(
         completion_policy: SequentialAttack 完成策略
         timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
         output_manager: 可选的 OutputManager 实例（依赖注入，测试友好）
+        max_retries: Scenario 级别重试次数（0=快速失败，3=弫性恢复）
+            对齐 PyRIT 1.0.0 Resiliency 文档的 max_retries 参数。
+            重试时跳过已完成的攻击，从异常点恢复。
 
     Returns:
         BatchAttackResult
@@ -1066,4 +1114,5 @@ async def execute_batch_attacks(
         verbose=verbose, exam_id=exam_id,
         completion_policy=completion_policy,
         timeout_overrides=timeout_overrides,
+        max_retries=max_retries,
     )

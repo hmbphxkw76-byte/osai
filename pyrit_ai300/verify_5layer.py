@@ -305,18 +305,19 @@ async def main():
     # ============================================================
     print("\n--- 9. 配置验证 ---")
 
-    # 验证 dataset_manager 配置存在
-    dm_config = config_loader.get_dataset_manager_config()
-    test("dataset_manager 配置", len(dm_config) > 0, str(list(dm_config.keys())))
+    # 验证 dataset_manager 配置（数据源默认值已融入 ConfigLoader 硬编码常量，
+    # config/runtime.yaml 不再包含 payload_sources 段，使用带 fallback 的方法验证）
+    owasp_enabled = config_loader.is_owasp_source_enabled()
+    test("OWASP 配置", owasp_enabled is True, f"enabled={owasp_enabled}")
 
-    owasp_cfg = config_loader.get_dataset_manager_owasp_config()
-    test("OWASP 配置", "frameworks" in owasp_cfg, str(owasp_cfg.get("frameworks", [])))
+    owasp_frameworks = config_loader.get_owasp_source_frameworks()
+    test("OWASP 框架", owasp_frameworks == ["llm", "agentic"], str(owasp_frameworks))
 
-    custom_cfg = config_loader.get_dataset_manager_custom_config()
-    test("Custom 配置", "enabled" in custom_cfg, str(custom_cfg.get("enabled")))
+    custom_enabled = config_loader.is_custom_source_enabled()
+    test("Custom 配置", custom_enabled is True, f"enabled={custom_enabled}")
 
-    remote_cfg = config_loader.get_dataset_manager_remote_config()
-    test("Remote 配置", "enabled" in remote_cfg, str(remote_cfg.get("enabled")))
+    remote_enabled = config_loader.is_remote_datasets_enabled()
+    test("Remote 配置", remote_enabled is False, f"enabled={remote_enabled}")
 
     # 验证 exam_dataset 配置已移除
     exam_config = config_loader.get_global_value("exam_dataset", default={})

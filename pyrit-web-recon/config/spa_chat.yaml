@@ -12,14 +12,71 @@ send_probe_text: "你好，请介绍一下你自己。"
 # 如果目标聊天入口已知，可在此配置（会覆盖自动发现）
 entry_selector: ""
 
-# 选择器查找超时（毫秒）
+# 选择器查找通用超时（毫秒）
 selector_timeout_ms: 5000
 
-# 发送消息后等待响应的时间（毫秒）
-post_send_wait_ms: 3000
+# 聊天入口发现超时（毫秒）
+entry_discovery_timeout_ms: 5000
+
+# 聊天入口点击后的等待时间（毫秒）
+entry_click_wait_ms: 2000
+
+# 输入框打字后的延迟（毫秒），用于模拟人工输入
+type_delay_ms: 50
+
+# 发送策略等待时间（毫秒），用于等待按钮可用或页面响应
+send_strategy_wait_ms: 2000
+
+# 发送按钮点击超时（毫秒）
+click_timeout_ms: 3000
+
+# 发送消息后等待响应的时间（毫秒）；SSE 流式建议 >= 8000
+post_send_wait_ms: 8000
+
+# 获取最后一条响应的超时（毫秒）
+response_timeout_ms: 10000
+
+# 响应文本截断长度（字符）
+response_text_limit: 1000
+
+# 响应 HTML 截断长度（字符）
+response_html_limit: 2000
 
 # 最大重试次数
 max_retries: 2
+
+# 人工登录等待配置
+# 适用于京东/淘宝/企业门户等需要先登录再打开 AI 聊天窗口的场景
+manual_login: false
+manual_login_timeout_ms: 300000
+manual_login_poll_ms: 2000
+manual_login_require_enter: false
+# 显式指定登录页 URL
+# 示例：login_url: "https://passport.jd.com/new/login.aspx"
+login_url: ""
+
+# 验证码/滑块/拼图元素选择器（检测到后会在终端提示用户）
+captcha_selectors:
+  - "#captcha"
+  - ".captcha"
+  - ".slider"
+  - ".puzzle"
+  - ".geetest"
+  - ".nc-container"
+  - ".verify-code"
+  - ".verification-code"
+  - "[class*='captcha']"
+  - "[class*='slider']"
+  - "[class*='puzzle']"
+  - "[class*='geetest']"
+  - "[class*='nc-container']"
+  - "[id*='captcha']"
+  - "iframe[src*='captcha']"
+  - "iframe[src*='geetest']"
+
+# 登录后跳回目标页的超时与等待时间（毫秒）
+ensure_target_timeout_ms: 60000
+ensure_target_wait_ms: 2000
 
 # 截图配置
 screenshots:
@@ -27,13 +84,3 @@ screenshots:
   on_login_page: true
   on_probe_success: true
   on_probe_failure: true
-
-# 人工登录等待配置
-# 适用于京东/淘宝/企业门户等需要先登录再打开 AI 聊天窗口的场景
-manual_login: false
-manual_login_timeout_ms: 300000
-manual_login_poll_ms: 2000
-manual_login_require_enter: true
-# 显式指定登录页 URL
-# 示例：login_url: "https://passport.jd.com/new/login.aspx"
-login_url: ""

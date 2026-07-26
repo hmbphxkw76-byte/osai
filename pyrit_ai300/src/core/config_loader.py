@@ -1082,6 +1082,20 @@ class ConfigLoader:
             return bool(defaults_val)
         return self.is_batch_fail_fast()
 
+    def get_scenario_max_retries(self) -> int:
+        """
+        获取 Scenario 级别重试次数（高层工作流弫性恢复）
+
+        优先级：.env SCENARIO_MAX_RETRIES > config/defaults/pipeline.yaml > 0
+
+        Returns:
+            Scenario 最大重试次数（0=快速失败，3=弫性恢复）
+        """
+        env_val = os.getenv("SCENARIO_MAX_RETRIES")
+        if env_val is not None and env_val.strip():
+            return int(env_val)
+        return self.get_pipeline_defaults().get("scenario_max_retries", 0)
+
     # --- HTTP 客户端参数查询（.env > config/defaults/ > 硬编码）---
 
     def get_target_httpx_timeout(self) -> int:

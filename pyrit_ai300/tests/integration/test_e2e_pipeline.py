@@ -61,8 +61,13 @@ class TestFiveLayerArchitecture:
         assert config_loader.get_strategy_config() is not None
 
     def test_config_layer_batch_timeout_overrides(self, config_loader):
-        """① 配置层：差异化超时配置正确加载"""
-        overrides = config_loader.get_batch_timeout_overrides()
+        """① 配置层：差异化超时配置正确加载
+
+        配置已从 config.yaml 的 batch_execution 段迁移到
+        config/defaults/pipeline.yaml（对齐 PyRIT 1.0.0 defaults 优先策略）。
+        使用 get_pipeline_timeout_overrides() 读取。
+        """
+        overrides = config_loader.get_pipeline_timeout_overrides()
         assert "single_turn" in overrides
         assert "converter_enhanced" in overrides
         assert "multi_turn" in overrides

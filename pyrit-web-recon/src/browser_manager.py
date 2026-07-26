@@ -18,6 +18,8 @@ import os
 import time
 from typing import Any, Dict, Optional
 
+from src.utils import truncate_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +32,7 @@ class BrowserManager:
         auth_profile: Optional[Any] = None,
         storage_state_path: str = "",
         browser_type: str = "chromium",
+        config: Optional[Dict[str, Any]] = None,
     ):
         """
         Args:
@@ -37,11 +40,13 @@ class BrowserManager:
             auth_profile: AuthProfile 实例（可选）
             storage_state_path: 浏览器状态文件路径（可选）
             browser_type: chromium / firefox / webkit
+            config: 全局配置，用于读取日志截断等参数
         """
         self.headless = headless
         self.auth_profile = auth_profile
         self.storage_state_path = storage_state_path
         self.browser_type = browser_type
+        self.config = config or {}
         self._playwright = None
         self._browser = None
         self._context = None
@@ -49,14 +54,14 @@ class BrowserManager:
 
     async def start(
         self,
-        url: str,
+        url: str = "",
         connection: Optional[Dict[str, Any]] = None,
     ) -> "BrowserManager":
         """
         启动浏览器并导航到目标 URL
 
         Args:
-            url: 目标 URL
+            url: 目标 URL（为空时仅启动浏览器）
             connection: 扩展连接配置（viewport、wait_until、timeout 等）
 
         Returns:
@@ -99,24 +104,47 @@ class BrowserManager:
         self._context = context
         self._page = page
 
-        # 设置反检测 UA
-        await page.set_extra_http_headers({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-            )
-        })
+        # 设置反检测 UA（优先从 connection 读取，保留默认兜底）
+        user_agent = connection.get(
+            "user_agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        )
+        await page.set_extra_http_headers({"User-Agent": user_agent})
 
-        logger.info("Browser started, navigating to: %s", url)
+        if url:
+            await self.navigate(url, connection=connection)
+        return self
+
+    async def navigate(
+        self,
+        url: str,
+        connection: Optional[Dict[str, Any]] = None,
+    ) -> "BrowserManager":
+        """
+        导航到指定 URL
+
+        Args:
+            url: 目标 URL
+            connection: 导航配置（wait_until、timeout、post_load_wait 等）
+
+        Returns:
+            self
+        """
+        if not self._page:
+            raise RuntimeError("Browser not started")
+
+        connection = connection or {}
+        logger.info("Navigating to: %s", url)
         wait_until = connection.get("wait_until", "domcontentloaded")
         timeout = connection.get("timeout", 30000)
         try:
-            await page.goto(url, wait_until=wait_until, timeout=timeout)
+            await self._page.goto(url, wait_until=wait_until, timeout=timeout)
         except Exception as e:
             # SSO 重定向可能触发超时，属于正常情况
-            logger.warning("Navigation timeout/exception (common for SSO redirects): %s", str(e)[:120])
+            logger.warning("Navigation timeout/exception (common for SSO redirects): %s", truncate_error(str(e), self.config))
 
-        await page.wait_for_load_state("domcontentloaded")
+        await self._page.wait_for_load_state("domcontentloaded")
         await asyncio.sleep(connection.get("post_load_wait", 2))
         return self
 
@@ -153,13 +181,31 @@ class BrowserManager:
         return filename
 
     async def close(self):
-        """关闭浏览器"""
-        if self._context:
-            await self._context.close()
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
+        """关闭浏览器：按 page → context → browser → playwright 顺序关闭，减少资源警告。"""
+        try:
+            if self._page and not self._page.is_closed():
+                await self._page.close()
+        except Exception:
+            pass
+        try:
+            if self._context:
+                await self._context.close()
+        except Exception:
+            pass
+        try:
+            if self._browser:
+                await self._browser.close()
+        except Exception:
+            pass
+        try:
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception:
+            pass
+        self._page = None
+        self._context = None
+        self._browser = None
+        self._playwright = None
         logger.info("Browser closed")
 
     async def __aenter__(self):

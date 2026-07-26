@@ -1,23 +1,22 @@
 """
-Scenario Result Bridge — BatchAttackResult <-> ScenarioResult 桥接
-====================================================================
+Scenario Result Bridge — BatchAttackResult ↔ ScenarioResult 桥接 + OWASP 集成
+==============================================================================
 
-P4: 结果标准化与弹性恢复 — ScenarioResult 适配层
+P4: 结果标准化与弹性恢复 + OWASP 映射优化
 
 桥接当前项目的 BatchAttackResult 和 PyRIT 原生 ScenarioResult：
-  - batch_result_to_scenario_result: 将 BatchAttackResult 转换为 ScenarioResult
+  - batch_result_to_scenario_result: 将 BatchAttackResult 转换为 ScenarioResultBridge
   - ScenarioResultBridge: 双向桥接器，提供统一接口
 
-保留自建优势：
-  - BatchAttackResult 的升级重试统计
-  - AttackResultAttribution 父级关联
-  - OWASP 映射
-  - 错误详情
+OWASP 映射优化：
+  - 通过原生 memory_labels 标记 OWASP ID
+  - 从 memory 中提取 OWASP 映射
+  - 保留自建 owasp_mapping.yaml 配置
 
-桥接到原生 API：
-  - ScenarioResult 的 get_display_groups()
-  - ScenarioResult 的 objective_achieved_rate()
-  - ScenarioResult 的 attack_results 列表
+弹性恢复优化：
+  - 原生 scenario_result_id 支持自动恢复
+  - 原生 max_retries 自动重试
+  - Bridge 保存 scenario_result_id 用于 resume
 """
 
 import logging
@@ -31,31 +30,42 @@ logger = logging.getLogger(__name__)
 
 class ScenarioResultBridge:
     """
-    BatchAttackResult <-> ScenarioResult 双向桥接器
+    BatchAttackResult ↔ ScenarioResult 双向桥接器
 
     提供统一接口，使当前项目的 BatchAttackResult 可以被
     PyRIT 原生 output_scenario_async 等函数使用。
 
-    核心方法：
-      - to_display_groups(): 返回按 display_group 分组的结果
-      - get_success_rate(): 返回整体成功率
-      - get_per_group_stats(): 返回每组统计
-      - get_attack_results(): 返回扁平化结果列表
+    优化：
+    - 保存 _native_result 引用，使 output_scenario_async 可直接使用原生 ScenarioResult
+    - 保存 _scenario_result_id，支持原生 resume
+    - OWASP 映射通过 memory_labels 集成
     """
 
-    def __init__(self, batch_result: BatchAttackResult) -> None:
+    def __init__(
+        self,
+        batch_result: BatchAttackResult,
+        *,
+        native_result: Any = None,
+        scenario_result_id: str | None = None,
+        memory_labels: dict[str, str] | None = None,
+    ) -> None:
         """
         初始化桥接器
 
         Args:
             batch_result: 当前项目的 BatchAttackResult
+            native_result: 可选的原生 ScenarioResult（如果通过原生 Scenario 运行）
+            scenario_result_id: 可选的 ScenarioResult ID（用于 resume）
+            memory_labels: 可选的 memory_labels（含 OWASP ID 等）
         """
         self._batch_result = batch_result
-        self._id = str(uuid.uuid4())
+        self._native_result = native_result
+        self._id = scenario_result_id or str(uuid.uuid4())
+        self._memory_labels = memory_labels or {}
 
     @property
     def id(self) -> str:
-        """ScenarioResult ID"""
+        """ScenarioResult ID（用于 resume）"""
         return self._id
 
     @property
@@ -88,6 +98,16 @@ class ScenarioResultBridge:
         """失败攻击数"""
         return self._batch_result.failed
 
+    @property
+    def native_result(self) -> Any:
+        """原生 ScenarioResult（如果可用）"""
+        return self._native_result
+
+    @property
+    def memory_labels(self) -> dict[str, str]:
+        """memory_labels（含 OWASP ID 等）"""
+        return self._memory_labels
+
     def objective_achieved_rate(self) -> float:
         """目标达成率（成功率）"""
         if self._batch_result.executed == 0:
@@ -98,10 +118,12 @@ class ScenarioResultBridge:
         """
         按 display_group 分组结果
 
-        模拟 PyRIT ScenarioResult.get_display_groups() 的行为。
-        由于 BatchAttackResult 不原生支持 display_group，
-        按 attack_technique 分组。
+        如果有原生 ScenarioResult，委托给原生 get_display_groups()。
+        否则按 attack_technique 分组。
         """
+        if self._native_result is not None:
+            return self._native_result.get_display_groups()
+
         groups: dict[str, list] = {}
         for result in self.attack_results:
             technique = "unknown"
@@ -112,22 +134,34 @@ class ScenarioResultBridge:
             elif hasattr(result, "attack_strategy_type"):
                 technique = str(result.attack_strategy_type)
 
-            group_name = technique
-            groups.setdefault(group_name, []).append(result)
+            groups.setdefault(technique, []).append(result)
         return groups
 
     def get_per_group_stats(self) -> list[dict[str, Any]]:
         """
         获取每组的统计信息
 
-        Returns:
-            每组统计列表，每项包含：
-            - group_name: 组名
-            - total: 总数
-            - success: 成功数
-            - failure: 失败数
-            - success_rate: 成功率
+        如果有原生 ScenarioResult，使用原生 Per-Group Breakdown。
         """
+        if self._native_result is not None:
+            display_groups = self._native_result.get_display_groups()
+            stats = []
+            for group_name, results in display_groups.items():
+                total = len(results)
+                success = sum(
+                    1 for r in results
+                    if hasattr(r, "outcome") and
+                    str(getattr(r.outcome, "value", r.outcome)).upper() == "SUCCESS"
+                )
+                stats.append({
+                    "group_name": group_name,
+                    "total": total,
+                    "success": success,
+                    "failure": total - success,
+                    "success_rate": success / total if total > 0 else 0.0,
+                })
+            return stats
+
         groups = self.get_display_groups()
         stats = []
         for group_name, results in groups.items():
@@ -159,11 +193,28 @@ class ScenarioResultBridge:
         """获取错误列表"""
         return self._batch_result.errors
 
+    def get_owasp_mapping(self) -> dict[str, str]:
+        """
+        获取 OWASP 映射
+
+        从 memory_labels 中提取 OWASP ID 映射。
+        保留自建 OWASP 映射功能，通过原生 memory_labels 集成。
+
+        Returns:
+            OWASP ID -> 攻击结果数 的映射
+        """
+        owasp_mapping: dict[str, str] = {}
+        owasp_id = self._memory_labels.get("owasp_id", "")
+        if owasp_id:
+            owasp_mapping[owasp_id] = f"{self.successful_attacks}/{self.total_attacks}"
+        return owasp_mapping
+
     def get_summary(self) -> dict[str, Any]:
         """获取完整摘要"""
         return {
             "scenario_name": self.scenario_name,
             "scenario_version": self.scenario_version,
+            "scenario_result_id": self._id,
             "total_attacks": self.total_attacks,
             "successful_attacks": self.successful_attacks,
             "failed_attacks": self.failed_attacks,
@@ -172,6 +223,8 @@ class ScenarioResultBridge:
             "upgrade_attempts": self._batch_result.upgrade_attempts,
             "upgrade_success": self._batch_result.upgrade_success,
             "errors_count": len(self._batch_result.errors),
+            "has_native_result": self._native_result is not None,
+            "memory_labels": dict(self._memory_labels),
         }
 
 
@@ -181,14 +234,54 @@ class ScenarioResultBridge:
 
 def batch_result_to_scenario_result(
     batch_result: BatchAttackResult,
+    *,
+    native_result: Any = None,
+    scenario_result_id: str | None = None,
+    memory_labels: dict[str, str] | None = None,
 ) -> ScenarioResultBridge:
     """
     将 BatchAttackResult 转换为 ScenarioResultBridge
 
     Args:
         batch_result: 当前项目的 BatchAttackResult
+        native_result: 可选的原生 ScenarioResult
+        scenario_result_id: 可选的 ScenarioResult ID（用于 resume）
+        memory_labels: 可选的 memory_labels（含 OWASP ID 等）
 
     Returns:
         ScenarioResultBridge 实例，提供原生 ScenarioResult 兼容接口
     """
-    return ScenarioResultBridge(batch_result)
+    return ScenarioResultBridge(
+        batch_result,
+        native_result=native_result,
+        scenario_result_id=scenario_result_id,
+        memory_labels=memory_labels,
+    )
+
+
+def build_memory_labels(
+    owasp_id: str = "",
+    exam_id: str = "",
+    **extra: str,
+) -> dict[str, str]:
+    """
+    构建 memory_labels（含 OWASP ID 等）
+
+    通过原生 memory_labels 将 OWASP 映射集成到 Scenario 运行中。
+    原生 Scenario 支持 memory_labels 参数，自动标记所有攻击结果。
+
+    Args:
+        owasp_id: OWASP 分类 ID（如 "LLM01"）
+        exam_id: 考试 ID
+        **extra: 额外标签
+
+    Returns:
+        memory_labels 字典
+    """
+    labels: dict[str, str] = {}
+    if owasp_id:
+        labels["owasp_id"] = owasp_id
+    if exam_id:
+        labels["exam_id"] = exam_id
+    labels.update(extra)
+    return labels

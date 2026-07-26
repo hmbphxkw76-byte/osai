@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from src.utils import truncate_error
+
 from .selector_pool import (
     INPUT_BOX_SELECTORS,
     LOGIN_PAGE_SELECTORS,
@@ -54,6 +56,11 @@ class DOMDetector:
         self.config = config or {}
         self.timeout = self.config.get("selector_timeout_ms", 5000)
         self.send_probe = self.config.get("send_probe_text", "你好，请介绍一下你自己")
+        self.type_delay_ms = self.config.get("type_delay_ms", 500)
+        self.send_strategy_wait_ms = self.config.get("send_strategy_wait_ms", 1500)
+        self.click_timeout_ms = self.config.get("click_timeout_ms", 3000)
+        self.response_text_limit = self.config.get("response_text_limit", 1000)
+        self.response_html_limit = self.config.get("response_html_limit", 2000)
 
     async def detect_all(self) -> Dict[str, Any]:
         """执行完整 DOM 侦察"""
@@ -80,19 +87,29 @@ class DOMDetector:
 
     async def detect_input_box(self) -> Dict[str, Any]:
         """评分检测输入框"""
-        # 1. 使用内置选择器池
+        # 1. 使用内置选择器池（优先尝试 wait_for_selector，兼容动画渲染）
         scored = []
         for item in INPUT_BOX_SELECTORS:
             try:
-                el = await self.page.query_selector(item["sel"])
-                if el and await el.is_visible():
+                el = await self.page.wait_for_selector(item["sel"], state="visible", timeout=1500)
+                if el:
                     score = item["score"]
                     rect = await el.bounding_box()
                     if rect and rect["width"] > 50 and rect["height"] > 20:
                         score += 0.05
                     scored.append({"selector": item["sel"], "score": score, "source": "selector_pool"})
             except Exception:
-                continue
+                # wait_for_selector 超时降级为 query_selector
+                try:
+                    el = await self.page.query_selector(item["sel"])
+                    if el and await el.is_visible():
+                        score = item["score"]
+                        rect = await el.bounding_box()
+                        if rect and rect["width"] > 50 and rect["height"] > 20:
+                            score += 0.05
+                        scored.append({"selector": item["sel"], "score": score, "source": "selector_pool"})
+                except Exception:
+                    continue
 
         if scored:
             scored.sort(key=lambda x: x["score"], reverse=True)
@@ -205,20 +222,22 @@ class DOMDetector:
         """检测当前页面是否为登录页"""
         if not self.page:
             return False
-        return await self.page.evaluate(
-            """
-            (selectors) => {
-                const hasUsername = selectors.username.some(s => !!document.querySelector(s));
-                const hasPassword = selectors.password.some(s => !!document.querySelector(s));
-                const hasSubmit = selectors.submit.some(s => {
-                    const el = document.querySelector(s);
-                    return el && el.offsetParent !== null;
-                });
-                return hasPassword && (hasUsername || hasSubmit);
-            }
-            """,
-            LOGIN_PAGE_SELECTORS,
-        )
+
+        has_username = await self._any_visible(LOGIN_PAGE_SELECTORS["username"])
+        has_password = await self._any_visible(LOGIN_PAGE_SELECTORS["password"])
+        has_submit = await self._any_visible(LOGIN_PAGE_SELECTORS["submit"])
+        return has_password and (has_username or has_submit)
+
+    async def _any_visible(self, selectors: list) -> bool:
+        """检查选择器列表中是否有任一可见元素"""
+        for selector in selectors:
+            try:
+                el = await self.page.query_selector(selector)
+                if el and await el.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
 
     async def type_and_send(
         self,
@@ -256,15 +275,15 @@ class DOMDetector:
         try:
             await self.page.fill(input_selector, "")
             await self.page.fill(input_selector, text)
-            await self.page.wait_for_timeout(500)
+            await self.page.wait_for_timeout(self.type_delay_ms)
         except Exception as e:
-            result["error"] = f"Failed to fill input: {str(e)[:120]}"
+            result["error"] = f"Failed to fill input: {truncate_error(str(e), self.config)}"
             return result
 
         # 策略 1：Enter 键
         try:
             await self.page.press(input_selector, "Enter")
-            await self.page.wait_for_timeout(1500)
+            await self.page.wait_for_timeout(self.send_strategy_wait_ms)
             resp = await self._capture_response()
             result["success"] = True
             result["send_strategy"] = "enter_key"
@@ -284,15 +303,15 @@ class DOMDetector:
                 btn = await self.page.query_selector(send_selector)
                 if btn:
                     await btn.scroll_into_view_if_needed()
-                    await btn.click(timeout=3000)
-                    await self.page.wait_for_timeout(1500)
+                    await btn.click(timeout=self.click_timeout_ms)
+                    await self.page.wait_for_timeout(self.send_strategy_wait_ms)
                     resp = await self._capture_response()
                     result["success"] = True
                     result["send_strategy"] = "send_button_click"
                     result["response"] = resp
                     return result
             except Exception as e:
-                result["error"] = f"Send button click failed: {str(e)[:120]}"
+                result["error"] = f"Send button click failed: {truncate_error(str(e), self.config)}"
 
         # 策略 3：父容器点击（cursor: pointer）
         try:
@@ -315,14 +334,14 @@ class DOMDetector:
                 input_selector,
             )
             if clicked:
-                await self.page.wait_for_timeout(1500)
+                await self.page.wait_for_timeout(self.send_strategy_wait_ms)
                 resp = await self._capture_response()
                 result["success"] = True
                 result["send_strategy"] = "parent_container_click"
                 result["response"] = resp
                 return result
         except Exception as e:
-            result["error"] = f"Parent container click failed: {str(e)[:120]}"
+            result["error"] = f"Parent container click failed: {truncate_error(str(e), self.config)}"
 
         result["success"] = False
         if not result["error"]:
@@ -341,8 +360,8 @@ class DOMDetector:
             return {
                 "selector": response_result["selector"],
                 "response_source": "dom",
-                "response_text": (text or "").strip()[:1000],
-                "response_html": (html or "")[:2000],
+                "response_text": (text or "").strip()[: self.response_text_limit],
+                "response_html": (html or "")[: self.response_html_limit],
             }
         except Exception:
             return DEFAULT_RESPONSE_RESULT.copy()
