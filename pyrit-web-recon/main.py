@@ -54,7 +54,7 @@ def _default_config() -> Dict[str, Any]:
         "auth_mode": "auto",
         "credentials_dir": "credentials",
         "output_dir": "results/recon",
-        "template_dir": "data/burp",
+        "template_dir": "templates/burp",
         "profile_dir": "results/recon/profiles",
         "export_profile": True,
         "export_template": True,

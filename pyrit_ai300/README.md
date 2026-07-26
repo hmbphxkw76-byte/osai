@@ -51,6 +51,10 @@ pyrit_ai300/
 │   │   ├── workflow/     # Layer 4: 批量编排
 │   │   └── benchmark/    # Layer 5: 标准测试
 │   ├── payloads/         # 数据集五层架构（①→②→②.5→③）
+│   │   ├── target_profile_router.py    # ②.5 Layer 1: 目标→OWASP映射
+│   │   ├── asr_rank_builder.py         # ②.5 Layer 2: ASR分层排序
+│   │   ├── tiered_selection_wizard.py  # ②.5 Layer 3: 三层渐进式选择
+│   │   └── group_fallback_executor.py # ④增强: 组级ASR降级链
 │   ├── targets/          # 目标 Target 工厂（11 种类型）
 │   ├── recon/            # 侦察层
 │   ├── analysis/         # 分析层
@@ -73,6 +77,8 @@ pyrit_ai300/
 
 - **原生优先**：全栈使用 PyRIT 1.0.0 原生 API（AttackExecutor/CentralMemory/Output/Memory）
 - **五层+②.5数据驱动架构**：①数据准备 → ②数据管理 → ②.5交互选择 → ③攻击准备 → ④攻击执行 → ⑤评估追踪
+- **三层渐进式选择**：目标类型→ASR排序组→降级策略，724载荷→3决策点（~18选项）
+- **组级ASR降级链**：Tier S(≥80%)→A→B→C 逐层降级，首次成功停止
 - **11 种 Target 类型**：覆盖 OpenAI SDK / HTTP / 浏览器 / WebSocket / Azure 服务 / 调试全部场景
 - **80+ Converter + 52 Scorer API**：全系列 PyRIT 原生组件
 - **三级证据链**：Finding → AttackResult → Conversation
@@ -145,7 +151,7 @@ pyrit_ai300/
 | `docs/datasets_architecture.md` | 数据集五层架构 |
 | `docs/executor.md` | Executor 五层架构 |
 | `docs/targets.md` | Target 11 种类型 |
-| `.assistant/memory_bank.md` | 跨平台记忆库 |
+| `.assistant_pyrit/memory_bank.md` | 跨平台记忆库 |
 
 ## OWASP 安全标准对齐
 

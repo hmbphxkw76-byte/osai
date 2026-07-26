@@ -41,9 +41,12 @@
 │  │  → CentralMemory.get_seed_groups() / get_seeds()                 │  │
 │  └────────────────────────────┬──────────────────────────────────────┘  │
 │  ┌────────────────────────────┴──────────────────────────────────────┐  │
-│  │  ②.5 交互式选择层 🟢 (自研增强)                                     │  │
-│  │  "CentralMemory → SeedGroupSelector → 用户选择 → AttackPreparator"  │  │
-│  │  → SeedGroupSelector (build_catalog / filter / prompt_user)        │  │
+│  │  ②.5 交互式选择层 🟢 (自研增强 — 三层渐进式)                         │  │
+│  │  "CentralMemory → TargetProfileRouter → ASRRankBuilder → Wizard"    │  │
+│  │  Layer 1: TargetProfileRouter (目标类型 → OWASP 映射)               │  │
+│  │  Layer 2: ASRRankBuilder (ASR 分层排序 + 启发式代理)                │  │
+│  │  Layer 3: TieredSelectionWizard (三层交互 + 降级策略选择)           │  │
+│  │  Legacy:  SeedGroupSelector (向后兼容)                             │  │
 │  └────────────────────────────┬──────────────────────────────────────┘  │
 │  ┌────────────────────────────┴──────────────────────────────────────┐  │
 │  │  ③ 攻击准备层 🟢                                                   │  │
@@ -73,11 +76,11 @@
 │  └──────────────────┘ └──────────────────┘ └──────────────────┘        │
 │                                                                         │
 │  数据目录：                                                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐                   │
-│  │data/owasp│ │data/custom│ │data/native│ │PyRIT远程  │                   │
-│  │/llm/     │ │/*.yaml   │ │/*.yaml   │ │60+ Provider│                   │
-│  │/agentic/ │ │          │ │          │ │           │                   │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘                   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                                │
+│  │data/owasp│ │data/custom│ │PyRIT远程  │                                │
+│  │/llm/     │ │/*.yaml   │ │60+ Provider│                                │
+│  │/agentic/ │ │          │ │           │                                │
+│  └──────────┘ └──────────┘ └──────────┘                                │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,7 +98,11 @@ src/payloads/                               ← Datasets 子系统核心
 ├── dataset_manager.py                      ← ①② 数据准备+管理层 (推荐管道)
 ├── owasp_provider.py                       ← ① OWASP 本地数据集 Provider 桥接
 │
-├── seed_selector.py                        ← ②.5 交互式选择层
+├── seed_selector.py                        ← ②.5 交互式选择层 (旧版兼容)
+├── target_profile_router.py                ← ②.5 Layer 1: 目标类型→OWASP映射
+├── asr_rank_builder.py                     ← ②.5 Layer 2: ASR分层排序+启发式
+├── tiered_selection_wizard.py              ← ②.5 Layer 3: 三层渐进式交互
+├── group_fallback_executor.py              ← ④增强: 组级ASR降级链
 ├── attack_preparator.py                    ← ③ 攻击准备层
 ├── seed_adapter.py                         ← ③→④ 桥接适配器
 ├── planner.py                              ← ④ 载荷规划器 (兼容管道)
@@ -116,10 +123,8 @@ data/                                       ← 数据目录
 │       ├── asi01/goal_hijack.yaml
 │       ├── ...
 │       └── asi10/rogue_agent.yaml
-├── custom/                                 ← 自定义数据集
-├── native/                                 ← 原生数据集 (考试/Agent)
-│   ├── agentic_attacks.yaml
-│   └── exam_quickstart.yaml
+├── custom/                                 ← 自定义数据集 (含考试快速启动载荷)
+│   └── exam_quickstart.yaml                ← AI-300 考试快速启动载荷
 └── burp/                                   ← Burp Suite 请求样本
 ```
 
@@ -171,8 +176,7 @@ batches = await load_all_payloads_async(
 |:--|:--|:--|:--|
 | OWASP 本地 (LLM) | `data/owasp/llm/llm01-llm10/` | `SeedDataset.from_yaml_file()` | OWASP Top 10 for LLM 2025 |
 | OWASP 本地 (Agentic) | `data/owasp/agentic/asi01-asi10/` | `SeedDataset.from_yaml_file()` | OWASP Top 10 for Agentic AI |
-| 自定义 | `data/custom/*.yaml` | `SeedDataset.from_yaml_file()` | 用户自定义载荷 |
-| 原生 | `data/native/*.yaml` | `SeedDataset.from_yaml_file()` | 考试/Agent 专用载荷 |
+| 自定义 | `data/custom/*.yaml` | `SeedDataset.from_yaml_file()` | 用户自定义载荷 + 考试快速启动载荷 |
 | PyRIT 远程 | `SeedDatasetProvider` | `fetch_datasets_async()` | 100+ 远程数据集 |
 
 ### ② 数据管理层 — `CentralMemory`
@@ -200,7 +204,116 @@ batches = await load_all_payloads_async(
 | `metadata` | dict | 元数据过滤 |
 | `group_length` | Sequence[int] | 组内数量过滤 |
 
-### ②.5 交互式选择层 — `seed_selector.py` (自研增强)
+### ②.5 交互式选择层 — 三层渐进式披露系统 (自研增强)
+
+#### ②.5 架构概览
+
+```
+CentralMemory.get_seed_groups()
+    ↓
+┌───────────────────────────────────────────────────────────────┐
+│  Layer 1: TargetProfileRouter   (目标类型 → OWASP 映射)        │
+│  8 选项: LLM Direct / Agent / RAG / MCP / VectorDB / Safety   │
+│         / WebOutput / Full Sweep                               │
+│  + 能力自动推断 (chat/tool/memory/retrieval → target_type)     │
+└───────────────────────────┬───────────────────────────────────┘
+┌───────────────────────────┴───────────────────────────────────┐
+│  Layer 2: ASRRankBuilder        (ASR 分层排序 + 启发式代理)     │
+│  Tier S (≥80%) → Tier A (50-80%) → Tier B (30-50%) → C → D    │
+│  无 ASR 数据 → 启发式代理 (difficulty/evasion/mode 加权)       │
+└───────────────────────────┬───────────────────────────────────┐
+┌───────────────────────────┴───────────────────────────────────┐
+│  Layer 3: TieredSelectionWizard (交互确认 + 降级策略选择)      │
+│  3 选项: Sequential ASR-desc / Parallel / Adaptive             │
+└───────────────────────────┬───────────────────────────────────┘
+    ↓ List[SeedGroup] + FallbackStrategy
+```
+
+**724 → 3 决策点效果**: Layer 1 (8选项) + Layer 2 (5-10推荐) + Layer 3 (3选项) = ~18选项
+
+#### Layer 1: TargetProfileRouter — `target_profile_router.py`
+
+| 功能 | API | 说明 |
+|:--|:--|:--|
+| 目标类型映射 | `get_profile(TargetType.AGENT)` | → OWASP ASI01-10 |
+| 能力推断 | `infer_profile(capabilities=...)` | chat/tool/memory → agent |
+| OWASP 提示推断 | `infer_profile(owasp_hint="LLM04")` | → RAG |
+| 种子组过滤 | `filter_seed_groups(groups, profile)` | 按目标类型过滤 |
+| 菜单构建 | `get_target_options(groups)` | 含 group/seed 计数的选项列表 |
+
+**TargetType 枚举**: `LLM_DIRECT` / `AGENT` / `RAG` / `MCP_TOOL` / `VECTOR_DB` / `LLM_SAFETY` / `WEB_OUTPUT` / `FULL_SWEEP`
+
+**TargetType → OWASP 映射**:
+
+| 目标类型 | OWASP 类别 | 攻击场景 |
+|:--|:--|:--|
+| `LLM_DIRECT` | LLM01,02,03,07 | 直接 LLM 越狱/泄露/注入 |
+| `AGENT` | ASI01-10 | Agent 目标劫持/工具误用/信任 |
+| `RAG` | LLM04 | RAG 投毒/间接注入 |
+| `MCP_TOOL` | LLM06 | MCP 工具投毒/能力混淆 |
+| `VECTOR_DB` | LLM08 | 向量注入/嵌入反转 |
+| `LLM_SAFETY` | LLM09,10 | 幻觉/资源耗尽 |
+| `WEB_OUTPUT` | LLM05 | XSS/不安全输出 |
+| `FULL_SWEEP` | All | 全覆盖 |
+
+#### Layer 2: ASRRankBuilder — `asr_rank_builder.py`
+
+| 功能 | API | 说明 |
+|:--|:--|:--|
+| 排序构建 | `build_ranked_groups(seed_groups)` | 按有效分数降序排列 |
+| 降级链构建 | `build_fallback_chain(ranked)` | S→A→B→C→D 分层列表 |
+| Top-N 选择 | `get_top_n(ranked, n=5, min_tier=S)` | 取前 N 个组 |
+| 分层统计 | `get_tier_summary(ranked)` | 各层组/种子数统计 |
+
+**ASR 分层体系**:
+
+| Tier | ASR 范围 | 优先级 | 说明 |
+|:--|:--|:--|:--|
+| S | ≥80% | 100 | 近乎成功，首选 |
+| A | 50-80% | 80 | 高成功率，首选降级 |
+| B | 30-50% | 60 | 中等，次级降级 |
+| C | 15-30% | 40 | 低，最后手段 |
+| D | <15% | 20 | 极低，默认跳过 |
+| UNKNOWN | 无数据 | 50 | 启发式代理排序 |
+
+**启发式代理排序** (无 ASR 数据时):
+```
+heuristic_score = avg(difficulty_weight) * 10
+                + avg(evasion_weight) * 10
+                + avg(mode_weight) * 10
+  difficulty: easy(3) > medium(2) > hard(1)
+  evasion:   high(3) > medium(2) > low(1)
+  mode:      single_turn(3) > converter(2.5) > sequential(2) > multi_turn(1.5)
+```
+
+#### Layer 3: TieredSelectionWizard — `tiered_selection_wizard.py`
+
+| 功能 | API | 说明 |
+|:--|:--|:--|
+| 三层选择 | `wizard.select(seed_groups)` | → TieredSelectionResult |
+| 预设模式 | `SelectionPreset(target_type=AGENT, top_n=3)` | 非交互自动选择 |
+| 全自动 | `TieredSelectionWizard(enabled=False)` | 全选 + 默认策略 |
+
+**FallbackStrategy 枚举**:
+
+| 策略 | 说明 | 适用场景 |
+|:--|:--|:--|
+| `SEQUENTIAL_ASR_DESC` | S→A→B→C 逐层执行，首次成功停止 | 考试安全 (默认) |
+| `PARALLEL` | 全部组并行执行 | 最快 |
+| `ADAPTIVE` | 顺序执行 + FailureTypeRoutingSelector 升级 | 智能升级 |
+
+**TieredSelectionResult**: `selected_groups` + `fallback_strategy` + `fallback_chain` + `target_profile`
+
+#### ④ 增强: GroupFallbackExecutor — `group_fallback_executor.py`
+
+| 功能 | API | 说明 |
+|:--|:--|:--|
+| 组级降级执行 | `execute_with_fallback(plans, chain, strategy, ...)` | → FallbackExecutionResult |
+| 计划分区 | `_partition_plans(plans, chain)` | 按技术组分区 |
+
+**设计原则**: 组级降级（非种子级）—— 同一技术组失败后切换技术原理，而非同原理变体
+
+#### 旧版兼容: SeedGroupSelector — `seed_selector.py`
 
 | 功能 | API | 说明 |
 |:--|:--|:--|
@@ -209,28 +322,8 @@ batches = await load_all_payloads_async(
 | 多维过滤 | `filter_by_owasp/harm/mode/severity` | 按 OWASP ID/危害/模式/严重度过滤 |
 | 交互选择 | `prompt_user(catalog)` | 终端交互界面选择 |
 | 预设选择 | `preset_owasp/preset_modes` | 脚本模式非交互选择 |
-| 全选 | `select_all(catalog)` | 全选种子组 |
-| 按序号 | `select_by_indices(catalog, [0,3,5])` | 支持范围 `0,3,5-8` |
 
-**设计原则**：
-- **过滤器而非转换器**：不修改 `SeedGroup` 对象
-- **溯源链完整**：`source_seed_group` 字段保留原始引用
-- **CI/CD 兼容**：`enabled=false` 全选跳过交互
-
-**SeedGroupEntry 维度**:
-
-| 维度 | 来源 | 示例 |
-|:--|:--|:--|
-| owasp_id | `seed.metadata["owasp_id"]` | `LLM01` |
-| owasp_name | registry 映射 | `Prompt Injection` |
-| framework | 从 dataset_name 推断 | `llm` / `agentic` / `remote` |
-| harm_categories | `seed_group.harm_categories` | `["prompt_injection"]` |
-| attack_mode | `seed.metadata["attack_mode"]` | `single_turn` / `multi_turn` |
-| technique | `seed.metadata["technique"]` | `direct` / `role_play_escalation` |
-| severity | `seed.metadata["severity"]` | `high` / `critical` |
-| is_multi_turn | `seed_group.prepended_conversation` 非空 | `True` / `False` |
-| has_objective | `seed_group.objective is not None` | `True` / `False` |
-| seed_count | `len(seed_group.seeds)` | `1`, `2`, `3` |
+> **配置控制**: `tiered_selection.enabled: false` 时回退到旧版 SeedGroupSelector，零影响
 
 ### ③ 攻击准备层 — `attack_preparator.py`
 
@@ -761,6 +854,5 @@ P3（长期优化 — 原生管道迁移）
 | `src/payloads/planner.py` | ④ | 载荷规划器 (兼容管道) | 🟡 |
 | `src/executor/attack/component/seed_group_builder.py` | 横切 | AttackSeedGroup 构建 | 🟢 |
 | `data/owasp/llm/` | 数据 | OWASP Top 10 for LLM | 🟢 |
-| `data/owasp/agentic/` | 数据 | OWASP Top 10 for Agentic AI | 🟢 |
-| `data/native/` | 数据 | 考试/Agent 专用载荷 | 🟢 |
-| `data/custom/` | 数据 | 自定义载荷目录 | 🟢 |
+| `data/owasp/agentic/` | 数据 | OWASP Top 10 for Agentic AI (含考试补充载荷) | 🟢 |
+| `data/custom/` | 数据 | 自定义载荷目录 (含考试快速启动载荷) | 🟢 |

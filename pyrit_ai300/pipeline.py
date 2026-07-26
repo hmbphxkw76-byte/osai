@@ -51,7 +51,7 @@ from dotenv import load_dotenv
 
 # 导入框架模块
 from src.core.config_loader import get_config_loader
-from src.core.logging_utils import TeeOutput, setup_logging
+from src.core.logging_utils import setup_logging
 from src.core.models import AuthResult, AuthStatus, AuthType
 from src.recon import recon_target
 from src.analysis import select_strategy, evaluate_priority
@@ -61,6 +61,11 @@ from src.payloads import (
     AttackPreparator,
     SeedPromptAdapter,
     plan_attacks,
+    TargetType,
+    TieredSelectionWizard,
+    SelectionPreset,
+    FallbackStrategy,
+    GroupFallbackExecutor,
 )
 from src.executor import execute_batch_attacks
 from src.reporting import generate_report
@@ -144,6 +149,11 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     scenario_max_retries = config_loader.get_scenario_max_retries()
     print(f"  [OK] Scenario 重试: max_retries={scenario_max_retries} (total={1 + scenario_max_retries})")
 
+    # 停止策略 (三层最优策略)
+    owasp_success_threshold = config_loader.get_owasp_success_threshold()
+    stop_on_first_success = config_loader.get_stop_on_first_success()
+    print(f"  [OK] 停止策略: L2 OWASP阈值={owasp_success_threshold:.0%}, L3 全局首停={stop_on_first_success}")
+
     from pyrit.setup import initialize_pyrit_async
     await initialize_pyrit_async(
         memory_db_type=config_loader.get_memory_db_type(),
@@ -217,7 +227,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         if remote_dataset_names:
             print(f"  [OK] 远程数据集: {', '.join(remote_dataset_names)}")
         else:
-            print(f"  [OK] 远程数据集: 全部已注册")
+            print("  [OK] 远程数据集: 全部已注册")
 
     # ① 数据准备层 + ② 数据管理层: 加载数据源 → CentralMemory
     manager = DatasetManager()
@@ -235,6 +245,32 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     total_groups = len(manager.get_seed_groups())
     print(f"  [OK] CentralMemory: {total_seeds} seeds, {total_groups} seed groups")
 
+    # 数据源多样性报告
+    _all_seeds = manager.get_seeds()
+    _owasp_counts: dict[str, int] = {}
+    _technique_counts: dict[str, int] = {}
+    _asr_high = 0
+    for _s in _all_seeds:
+        _meta = getattr(_s, "metadata", {}) or {}
+        _oid = _meta.get("owasp_id", "unknown")
+        _owasp_counts[_oid] = _owasp_counts.get(_oid, 0) + 1
+        _tg = _meta.get("technique_group", _meta.get("technique", "unknown"))
+        _technique_counts[_tg] = _technique_counts.get(_tg, 0) + 1
+        _asr = _meta.get("asr_baseline", {})
+        if _asr and max(_asr.values()) >= 0.65:
+            _asr_high += 1
+    print(f"  [OK] OWASP 覆盖: {len(_owasp_counts)} 分类")
+    for _oid in sorted(_owasp_counts):
+        print(f"    {_oid}: {_owasp_counts[_oid]} seeds")
+    print(f"  [OK] 技术覆盖: {len(_technique_counts)} 种技术组")
+    print(f"  [OK] 高 ASR 载荷 (>=65%): {_asr_high} seeds")
+
+    # Burp HTTP 请求模板补充（data/burp/）
+    _burp_dir = Path(__file__).parent / "data" / "burp"
+    _burp_files = list(_burp_dir.glob("*.txt")) if _burp_dir.exists() else []
+    if _burp_files:
+        print(f"  [OK] Burp HTTP 模板: {len(_burp_files)} 个 (data/burp/)")
+
     if total_groups == 0:
         print("  [!] 未加载到任何种子数据，跳过攻击")
         return None
@@ -248,35 +284,83 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     all_seed_groups = manager.get_seed_groups()
     print(f"  [OK] 查询种子组: {len(all_seed_groups)} 个")
 
-    # ②.5 交互式选择层 - 让用户选择攻击组合
-    # 优先级：.env INTERACTIVE_SELECTION > config/defaults/pipeline.yaml > config.yaml
+    # ②.5 交互式选择层 - 三层渐进式或旧版 SeedGroupSelector
+    # 优先级：.env > config/defaults/pipeline.yaml > config.yaml
+    tiered_cfg = config_loader.get_tiered_selection_config()
+    tiered_enabled = tiered_cfg.get("enabled", True)
     interactive_cfg = config_loader.get_interactive_selection_config()
     interactive_enabled = config_loader.get_interactive_selection_enabled()
 
-    selector = SeedGroupSelector(
-        enabled=interactive_enabled,
-        auto_select_if_single=interactive_cfg.get("auto_select_if_single", True),
-        page_size=interactive_cfg.get("page_size", 20),
-    )
-    catalog = selector.build_catalog(all_seed_groups)
+    # 三层渐进式选择路径（新）
+    if tiered_enabled:
+        print("  [OK] 选择模式: 三层渐进式 (Tiered Progressive Disclosure)")
 
-    # 预设选择（从 CLI 参数或配置）
-    preset_owasp = owasp_ids if owasp_ids else None
-    preset_modes = None  # 可通过 CLI 扩展
+        # 构建 preset（从配置或 CLI 参数）
+        preset_target = tiered_cfg.get("target_type")
+        if preset_target:
+            # 非交互模式：预设目标类型
+            try:
+                tt = TargetType.from_string(preset_target)
+            except ValueError:
+                tt = None
+            wizard_preset = SelectionPreset(
+                target_type=tt,
+                top_n=tiered_cfg.get("top_n", 3),
+                fallback_strategy=FallbackStrategy(
+                    tiered_cfg.get("fallback_strategy", "sequential_asr_desc")
+                ),
+            )
+            wizard = TieredSelectionWizard(enabled=False, preset=wizard_preset)
+        else:
+            # 交互模式
+            wizard = TieredSelectionWizard(enabled=interactive_enabled)
 
-    selected_groups = await selector.prompt_user(
-        catalog,
-        preset_owasp=preset_owasp,
-        preset_modes=preset_modes,
-    )
-    print(f"  [OK] 用户选择: {len(selected_groups)}/{len(all_seed_groups)} 个种子组")
+        selection_result = await wizard.select(all_seed_groups)
+        selected_groups = selection_result.selected_groups
+        fallback_strategy = selection_result.fallback_strategy
+        fallback_chain = selection_result.fallback_chain
+
+        print(f"  [OK] 目标类型: {selection_result.target_profile.target_type.display_name}")
+        print(f"  [OK] 选中: {len(selected_groups)}/{len(all_seed_groups)} 个种子组 (top-{tiered_cfg.get('top_n', 3)})")
+        print(f"  [OK] 降级策略: {fallback_strategy.display_name}")
+        print(f"  [OK] ASR 分层: {len(fallback_chain)} 个 Tier")
+        if fallback_strategy != FallbackStrategy.PARALLEL:
+            planning_groups = selection_result.planning_groups
+            print(f"  [OK] 全链计划组: {len(planning_groups)} 个 (含降级后备组)")
+        else:
+            planning_groups = selected_groups
+
+    else:
+        # 旧版 SeedGroupSelector 路径（向后兼容）
+        print("  [OK] 选择模式: 旧版 SeedGroupSelector (向后兼容)")
+        fallback_strategy = FallbackStrategy.PARALLEL  # 旧版不使用组级降级
+        fallback_chain = []
+
+        selector = SeedGroupSelector(
+            enabled=interactive_enabled,
+            auto_select_if_single=interactive_cfg.get("auto_select_if_single", True),
+            page_size=interactive_cfg.get("page_size", 20),
+        )
+        catalog = selector.build_catalog(all_seed_groups)
+
+        # 预设选择（从 CLI 参数或配置）
+        preset_owasp = owasp_ids if owasp_ids else None
+        preset_modes = None  # 可通过 CLI 扩展
+
+        selected_groups = await selector.prompt_user(
+            catalog,
+            preset_owasp=preset_owasp,
+            preset_modes=preset_modes,
+        )
+        print(f"  [OK] 用户选择: {len(selected_groups)}/{len(all_seed_groups)} 个种子组")
+        planning_groups = selected_groups
 
     if not selected_groups:
         print("  [!] 未选择任何种子组，跳过攻击")
         return None
 
-    # ③ AttackPreparator 准备（仅处理选中的种子组）
-    attack_groups = await AttackPreparator.prepare_batch(selected_groups)
+    # ③ AttackPreparator 准备（使用 planning_groups 生成全链计划）
+    attack_groups = await AttackPreparator.prepare_batch(planning_groups)
     has_objective = sum(1 for ag in attack_groups if ag.objective is not None)
     synthetic = sum(1 for ag in attack_groups
                     if any(getattr(s, 'metadata', {}).get("synthetic_objective", False)
@@ -288,13 +372,12 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"    - 多轮攻击: {multi_turn} 个")
     print(f"    - 单轮攻击: {len(attack_groups) - multi_turn} 个")
 
-    # 桥接 ③→④: SeedGroup → PromptBatch → AttackPlan（兼容现有执行层）
-    prompt_batches = SeedPromptAdapter.seed_groups_to_batches(selected_groups)
+    # 桥接 ③→④: SeedGroup → PromptBatch → AttackPlan（使用 planning_groups 生成全链计划）
+    prompt_batches = SeedPromptAdapter.seed_groups_to_batches(planning_groups)
     total_prompts = sum(len(batch.prompts) for batch in prompt_batches)
     print(f"  [OK] 桥接 PromptBatch: {len(prompt_batches)} 批次, {total_prompts} 提示词")
 
     # 统计各攻击模式
-    from src.payloads.models import AttackMode
     mode_counts = {}
     for batch in prompt_batches:
         for item in batch.prompts:
@@ -320,10 +403,10 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     for plan in attack_plans:
         technique_counts[plan.attack_technique] = technique_counts.get(plan.attack_technique, 0) + 1
         scorer_counts[plan.scorer_type] = scorer_counts.get(plan.scorer_type, 0) + 1
-    print(f"  [OK] 攻击技术分布:")
+    print("  [OK] 攻击技术分布:")
     for tech, count in sorted(technique_counts.items(), key=lambda x: -x[1]):
         print(f"    - {tech}: {count} 个")
-    print(f"  [OK] 评分器类型分布:")
+    print("  [OK] 评分器类型分布:")
     for s_type, count in sorted(scorer_counts.items(), key=lambda x: -x[1]):
         print(f"    - {s_type}: {count} 个")
 
@@ -360,7 +443,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     )
     print(f"  [OK] 评分器 Target: {type(judge_target).__name__} ({judge_type})")
     print(f"  [OK] 评分器模型: {judge_model}")
-    print(f"  [OK] 评分器同时用作 adversarial chat (多轮攻击)")
+    print("  [OK] 评分器同时用作 adversarial chat (多轮攻击)")
 
     # 批量执行配置（.env > config/defaults/pipeline.yaml > config.yaml）
     max_concurrency = config_loader.get_pipeline_max_concurrency()
@@ -376,24 +459,56 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         print(f"  [OK] 单次超时: {per_attack_timeout}s")
     print(f"  [OK] Verbose: {'开启' if verbose else '关闭'}")
     print(f"  [OK] Verbose Success: {'开启' if verbose_success else '关闭'}  (成功时输出完整详情)")
-    print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...\n")
+    print(f"  [OK] 开始执行 {len(attack_plans)} 个攻击计划...")
+    if fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
+        print(f"  [OK] 组级降级链: {fallback_strategy.display_name}")
+    print()
 
     # exam_id 已在函数开头预先生成
 
-    batch_result = await execute_batch_attacks(
-        attack_plans=attack_plans,
-        objective_target=objective_target,
-        judge_target=judge_target,
-        max_concurrency=max_concurrency,
-        fail_fast=fail_fast,
-        per_attack_timeout=per_attack_timeout,
-        verbose=verbose,
-        exam_id=exam_id,
-        timeout_overrides=timeout_overrides if timeout_overrides else None,
-        max_retries=scenario_max_retries,
-    )
+    # 组级降级链执行（三层选择启用时）
+    if fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
+        fallback_executor = GroupFallbackExecutor()
+        fb_result = await fallback_executor.execute_with_fallback(
+            attack_plans=attack_plans,
+            fallback_chain=fallback_chain,
+            strategy=fallback_strategy,
+            objective_target=objective_target,
+            judge_target=judge_target,
+            max_concurrency=max_concurrency,
+            fail_fast=fail_fast,
+            per_attack_timeout=per_attack_timeout,
+            verbose=verbose,
+            exam_id=exam_id,
+            timeout_overrides=timeout_overrides if timeout_overrides else None,
+            max_retries=scenario_max_retries,
+            owasp_success_threshold=owasp_success_threshold,
+            stop_on_first_success=stop_on_first_success,
+        )
+        batch_result = fb_result.batch_result
+        if fb_result.stopped_at_tier:
+            print(f"  [OK] 降级链停在 Tier {fb_result.stopped_at_tier}")
+        print(f"  [OK] 执行 Tier: {', '.join(fb_result.tiers_executed)}")
+        if batch_result.skipped_by_stop > 0:
+            print(f"  [OK] 停止策略跳过: {batch_result.skipped_by_stop} 个计划")
+    else:
+        # 直接批量执行（旧版兼容 或 Parallel 策略）
+        batch_result = await execute_batch_attacks(
+            attack_plans=attack_plans,
+            objective_target=objective_target,
+            judge_target=judge_target,
+            max_concurrency=max_concurrency,
+            fail_fast=fail_fast,
+            per_attack_timeout=per_attack_timeout,
+            verbose=verbose,
+            exam_id=exam_id,
+            timeout_overrides=timeout_overrides if timeout_overrides else None,
+            max_retries=scenario_max_retries,
+            owasp_success_threshold=owasp_success_threshold,
+            stop_on_first_success=stop_on_first_success,
+        )
 
-    print(f"\n  [OK] 批量攻击完成")
+    print("\n  [OK] 批量攻击完成")
     print(f"  [OK] 总计划: {batch_result.total_plans}")
     print(f"  [OK] 已执行: {batch_result.executed}")
     print(f"  [OK] 成功: {batch_result.succeeded}")
@@ -415,7 +530,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # ---------------------------------------------------------
     print("\n[7/9] 输出执行结果...")
     print("  [OK] 双通道输出已在批量执行过程中完成:")
-    print(f"  [OK] 终端通道: pretty 格式实时输出")
+    print("  [OK] 终端通道: pretty 格式实时输出")
     print(f"  [OK] 文件通道: Markdown 全量日志 (output/logs/{exam_id}_attacks.md)")
 
     # 非 verbose 模式下补充展示前 5 个成功结果

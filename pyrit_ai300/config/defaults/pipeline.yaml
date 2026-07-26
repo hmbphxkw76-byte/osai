@@ -28,6 +28,18 @@ verbose_success: true         # 仅成功攻击输出完整详情（推荐开启
 # --- 交互式选择 ---
 interactive_selection: true   # 是否启用种子组交互选择（false=全选，CI/CD 兼容）
 
+# --- 三层渐进式选择 (②.5 Layer 1-3) ---
+# 将 724+ 载荷记录缩减为 3 层决策（目标类型→ASR排序组→降级策略）
+# 禁用时回退到旧版 SeedGroupSelector
+tiered_selection:
+  enabled: true               # 是否启用三层选择（false=旧版 SeedGroupSelector）
+  target_type: null            # 预设目标类型（null=交互选择）
+  # 可选值: llm_direct / agent / rag_vector / mcp_tool / copilot / multimodal / output_handling / llm_safety / defense_bypass / full_sweep
+  # 向后兼容: rag→rag_vector, vector_db→rag_vector, web_output→output_handling
+  top_n: 3                     # 每次推荐的组数
+  fallback_strategy: sequential_asr_desc  # 降级策略
+  # 可选值: sequential_asr_desc / parallel / adaptive
+
 # --- 重试配置 (PyRIT 三层重试机制) ---
 # Low-level: target HTTP 重试（指数退避，处理 RateLimit / EmptyResponse）
 # Mid-level: JSON 解析重试（立即重试，处理 InvalidJson）
@@ -41,3 +53,17 @@ retry:
 # max_retries=0: 快速失败（开发推荐）
 # max_retries=3: 弫性恢复（生产推荐）
 scenario_max_retries: 0
+
+# --- 停止策略 (三层最优策略) ---
+# L1: completion_policy=FIRST_SUCCESS — 同一 objective 多技术链，首成功即停（PyRIT 原生，不可配置）
+# L2: owasp_success_threshold — 同一 OWASP 分类内成功率达标即跳过剩余计划
+#     0.0=禁用（向后兼容）
+#     合理范围（基于 AI-300 考试 4 小时时限 + 多 OWASP 覆盖需求）:
+#       0.3 = 快速验证（6个中2个即停，时间紧迫时使用，可能遗漏深层漏洞）
+#       0.5 = 考试推荐（6个中3个即停，平衡效率与置信度）
+#       0.8 = 深度审计（6个中5个即停，时间充裕时使用，覆盖最全面）
+#     不同 OWASP 分类独立计算，所有 OWASP 均有成功时停止降级链
+# L3: stop_on_first_success — 全局首成功即停（最激进模式，忽略 OWASP 分类）
+#     适用于快速验证场景，不推荐用于正式考试
+owasp_success_threshold: 0.5       # L2: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
+stop_on_first_success: false       # L3: 全局首成功即停（默认关闭）

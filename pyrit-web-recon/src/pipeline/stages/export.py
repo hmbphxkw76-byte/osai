@@ -42,7 +42,7 @@ class ExportStage(PipelineStage):
 
         output_dir = self._config(context, "output_dir", "results/recon")
         profile_dir = self._config(context, "profile_dir", "results/recon/profiles")
-        template_dir = self._config(context, "template_dir", "data/burp")
+        template_dir = self._config(context, "template_dir", "templates/burp")
         pyrit_dir = os.path.join(output_dir, "pyrit")
 
         os.makedirs(output_dir, exist_ok=True)

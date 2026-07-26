@@ -14,6 +14,7 @@ from .probe_interaction import ProbeInteractionStage
 from .analysis import AnalysisStage
 from .credential_extraction import CredentialExtractionStage
 from .export import ExportStage
+from .external_dispatch import ExternalDispatchStage
 
 __all__ = [
     "CredentialDiscoveryStage",
@@ -27,4 +28,5 @@ __all__ = [
     "AnalysisStage",
     "CredentialExtractionStage",
     "ExportStage",
+    "ExternalDispatchStage",
 ]

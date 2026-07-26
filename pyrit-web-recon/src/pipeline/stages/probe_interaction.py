@@ -99,6 +99,14 @@ class ProbeInteractionStage(PipelineStage):
             # 5. 如果主探测成功，再发送一条模型自识别探测（可选，失败不影响主流程）
             await self._send_model_probe(context, page, detection)
 
+            # 6. 等待异步网络流量落盘，确保 SSE/LLM API 被捕获后再进入 analysis
+            if context.interceptor:
+                await context.interceptor.await_traffic(
+                    wait_for_llm=True,
+                    timeout_ms=self._spa_config(context, "traffic_settle_timeout_ms", 15000),
+                    poll_interval_ms=self._spa_config(context, "traffic_poll_interval_ms", 500),
+                )
+
             if result.get("success"):
                 preview_limit = self._spa_config(context, "response_text_limit", 1000)
                 return StageResult(

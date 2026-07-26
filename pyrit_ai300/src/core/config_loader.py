@@ -1020,6 +1020,40 @@ class ConfigLoader:
             return env_val.lower() in ("1", "true", "yes")
         return self.get_pipeline_defaults().get("interactive_selection", True)
 
+    def get_tiered_selection_config(self) -> Dict[str, Any]:
+        """
+        获取三层渐进式选择配置
+
+        配置优先级：.env > config/defaults/pipeline.yaml > 默认值
+
+        配置项：
+            enabled: 是否启用三层选择（False=回退到旧版 SeedGroupSelector）
+            target_type: 预设目标类型（None=交互选择）
+            top_n: 每次推荐的组数
+            fallback_strategy: 降级策略
+        """
+        defaults = {
+            "enabled": True,
+            "target_type": None,       # None = interactive, or "agent"/"rag"/"mcp_tool"/...
+            "top_n": 3,
+            "fallback_strategy": "sequential_asr_desc",
+        }
+        # 从 pipeline defaults 读取
+        tiered_cfg = self.get_pipeline_defaults().get("tiered_selection", {})
+        if tiered_cfg:
+            defaults.update(tiered_cfg)
+        # .env 覆盖
+        env_tiered = os.getenv("TIERED_SELECTION_ENABLED")
+        if env_tiered is not None:
+            defaults["enabled"] = env_tiered.lower() in ("1", "true", "yes")
+        env_target = os.getenv("TIERED_SELECTION_TARGET")
+        if env_target is not None and env_target.strip():
+            defaults["target_type"] = env_target.strip()
+        env_strategy = os.getenv("TIERED_FALLBACK_STRATEGY")
+        if env_strategy is not None and env_strategy.strip():
+            defaults["fallback_strategy"] = env_strategy.strip()
+        return defaults
+
     def get_retry_max_attempts(self) -> int:
         """获取最大重试次数"""
         env_val = os.getenv("RETRY_MAX_NUM_ATTEMPTS")
@@ -1095,6 +1129,37 @@ class ConfigLoader:
         if env_val is not None and env_val.strip():
             return int(env_val)
         return self.get_pipeline_defaults().get("scenario_max_retries", 0)
+
+    def get_owasp_success_threshold(self) -> float:
+        """
+        获取 OWASP 分类成功率阈值（L2 停止策略）
+
+        优先级：.env OWASP_SUCCESS_THRESHOLD > config/defaults/pipeline.yaml > 0.0
+
+        同一 OWASP 分类内成功率 >= threshold 时跳过该分类剩余计划。
+        不同 OWASP 分类独立计算，所有 OWASP 均有成功时停止降级链。
+
+        Returns:
+            成功率阈值（0.0=禁用，0.5=考试推荐）
+        """
+        env_val = os.getenv("OWASP_SUCCESS_THRESHOLD")
+        if env_val is not None and env_val.strip():
+            return float(env_val)
+        return float(self.get_pipeline_defaults().get("owasp_success_threshold", 0.0))
+
+    def get_stop_on_first_success(self) -> bool:
+        """
+        获取全局首成功即停开关（L3 停止策略）
+
+        优先级：.env STOP_ON_FIRST_SUCCESS > config/defaults/pipeline.yaml > False
+
+        Returns:
+            True=全局首成功即停（最激进模式），False=默认
+        """
+        env_val = os.getenv("STOP_ON_FIRST_SUCCESS")
+        if env_val is not None and env_val.strip():
+            return env_val.lower() in ("1", "true", "yes")
+        return bool(self.get_pipeline_defaults().get("stop_on_first_success", False))
 
     # --- HTTP 客户端参数查询（.env > config/defaults/ > 硬编码）---
 

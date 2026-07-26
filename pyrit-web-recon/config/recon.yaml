@@ -53,5 +53,5 @@ logging:
 
 # 输出目录
 output_dir: results/recon
-template_dir: data/burp
+template_dir: templates/burp
 profile_dir: results/recon/profiles

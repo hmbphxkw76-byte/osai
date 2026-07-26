@@ -27,9 +27,11 @@ Scenario Orchestrator
 
 import asyncio
 import logging
+import math
 import os
 import time
 import uuid
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from pyrit.executor.attack import SequenceCompletionPolicy
@@ -129,6 +131,8 @@ class ScenarioOrchestrator:
         completion_policy: SequenceCompletionPolicy = SequenceCompletionPolicy.FIRST_SUCCESS,
         timeout_overrides: Optional[Dict[str, int]] = None,
         max_retries: int = 0,
+        owasp_success_threshold: float = 0.0,
+        stop_on_first_success: bool = False,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
@@ -139,6 +143,12 @@ class ScenarioOrchestrator:
         对齐 PyRIT 1.0.0 Resiliency 文档的 scenario-level retry：
           max_retries=0 (默认): 快速失败，不重试
           max_retries=3: 弹性恢复，跳过已完成攻击从异常点恢复
+
+        停止策略（三层）：
+          L1: completion_policy=FIRST_SUCCESS — 同一 objective 多技术，首成功即停（PyRIT 原生）
+          L2: owasp_success_threshold — 同一 OWASP 分类内成功率达标即跳过剩余计划
+              默认 0.0=禁用；0.8=80% 成功率即停（考试推荐）
+          L3: stop_on_first_success — 全局首成功即停（不考虑 OWASP，最激进）
 
         Args:
             attack_plans: 攻击计划列表
@@ -153,6 +163,10 @@ class ScenarioOrchestrator:
             timeout_overrides: 按攻击模式差异化超时配置，如 {"single_turn": 90, "multi_turn": 300}
             max_retries: Scenario 级别重试次数（0=快速失败，3=弹性恢复）
                 对齐 PyRIT max_retries 参数，重试时跳过已完成的攻击。
+            owasp_success_threshold: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
+                同一 OWASP 分类内成功率 >= threshold 时跳过该分类剩余计划。
+                不同 OWASP 分类独立计算，互不影响。
+            stop_on_first_success: 全局首成功即停（最激进模式，忽略 OWASP 分类）
 
         Returns:
             BatchAttackResult 包含执行统计和结果列表
@@ -168,6 +182,18 @@ class ScenarioOrchestrator:
 
         # 创建 Scenario 级别的 Attribution parent_id
         scenario_parent_id = str(uuid.uuid4())
+
+        # --- L2/L3 停止策略共享状态 ---
+        # L2: OWASP 感知成功率阈值停止
+        owasp_total: Dict[str, int] = defaultdict(int)
+        owasp_success: Dict[str, int] = defaultdict(int)
+        owasp_skip: Dict[str, bool] = defaultdict(bool)
+        for p in attack_plans:
+            oid = p.owasp_id or "UNKNOWN"
+            owasp_total[oid] += 1
+        # L3: 全局首成功即停
+        global_stop = False
+        skipped_by_stop = 0
 
         def _plan_brief(plan: AttackPlan) -> str:
             owasp = plan.owasp_id or "N/A"
@@ -221,7 +247,28 @@ class ScenarioOrchestrator:
             )
 
         async def _run_one(plan: AttackPlan) -> None:
+            nonlocal global_stop, skipped_by_stop
+
+            # L3: 全局首成功即停检查
+            if stop_on_first_success and global_stop:
+                skipped_by_stop += 1
+                return
+
+            # L2: OWASP 感知成功率阈值检查
+            oid = plan.owasp_id or "UNKNOWN"
+            if owasp_success_threshold > 0.0 and owasp_skip.get(oid, False):
+                skipped_by_stop += 1
+                return
+
             async with semaphore:
+                # 再次检查（等待信号量期间可能已有其他计划触发了停止）
+                if stop_on_first_success and global_stop:
+                    skipped_by_stop += 1
+                    return
+                if owasp_success_threshold > 0.0 and owasp_skip.get(oid, False):
+                    skipped_by_stop += 1
+                    return
+
                 brief = _plan_brief(plan)
                 print(_plan_detail(plan))
                 effective_timeout = self._resolve_timeout(plan, per_attack_timeout, timeout_overrides)
@@ -258,6 +305,31 @@ class ScenarioOrchestrator:
                                 include_auxiliary=True,
                                 include_adversarial=True,
                             )
+
+                            # --- L2: OWASP 感知成功率阈值检查 ---
+                            if owasp_success_threshold > 0.0:
+                                owasp_success[oid] += 1
+                                total_for_owasp = owasp_total[oid]
+                                success_for_owasp = owasp_success[oid]
+                                ratio = success_for_owasp / total_for_owasp if total_for_owasp > 0 else 0.0
+                                required = math.ceil(total_for_owasp * owasp_success_threshold)
+                                if success_for_owasp >= required and not owasp_skip.get(oid, False):
+                                    owasp_skip[oid] = True
+                                    remaining = total_for_owasp - success_for_owasp
+                                    logger.info(
+                                        "OWASP %s 达到成功率阈值 (%d/%d=%.0f%% >= %.0f%%) → 跳过该分类剩余 %d 个计划",
+                                        oid, success_for_owasp, total_for_owasp,
+                                        ratio * 100, owasp_success_threshold * 100, remaining,
+                                    )
+                                    print(f"  [SKIP]  OWASP {oid} 达到成功率阈值 "
+                                          f"({success_for_owasp}/{total_for_owasp}={ratio:.0%} >= {owasp_success_threshold:.0%}) "
+                                          f"→ 跳过该分类剩余 {remaining} 个计划")
+
+                            # --- L3: 全局首成功即停 ---
+                            if stop_on_first_success:
+                                global_stop = True
+                                logger.info("全局首成功即停 (stop_on_first_success=True) → 取消剩余计划")
+                                print("  [STOP]  全局首成功即停 (stop_on_first_success=True) → 取消剩余计划")
                         else:
                             result.failed += 1
                             dashboard.update(failed=1)
@@ -353,6 +425,17 @@ class ScenarioOrchestrator:
                     f"Retrying... ({total_attempts - attempt} retries remaining)"
                 )
 
+        # 停止策略摘要
+        if skipped_by_stop > 0:
+            skip_reasons = []
+            if owasp_success_threshold > 0.0:
+                skipped_owasps = [oid for oid, skip in owasp_skip.items() if skip]
+                skip_reasons.append(f"OWASP 阈值跳过: {skipped_owasps}")
+            if stop_on_first_success:
+                skip_reasons.append("全局首成功即停")
+            logger.info("停止策略跳过 %d 个计划 (%s)", skipped_by_stop, "; ".join(skip_reasons))
+            print(f"  [SKIP]  停止策略跳过 {skipped_by_stop} 个计划 ({'; '.join(skip_reasons)})")
+
         dashboard.print_progress()
         if mode_stats:
             print(SummaryTable.render_mode_table(mode_stats))
@@ -368,6 +451,12 @@ class ScenarioOrchestrator:
         await output_manager.close()
         result.errors.append({"plan_id": "_meta", "error": f"output_log: {output_manager.log_path}"})
         result.errors.append({"plan_id": "_meta_scenario", "error": f"attempts: {attempt}/{total_attempts}"})
+
+        # 填充 L2/L3 停止策略元数据
+        result.owasp_success_map = dict(owasp_success)
+        result.owasp_total_map = dict(owasp_total)
+        result.skipped_by_stop = skipped_by_stop
+
         return result
 
     # ------------------------------------------------------------------
@@ -1084,6 +1173,8 @@ async def execute_batch_attacks(
     timeout_overrides: Optional[Dict[str, int]] = None,
     output_manager: Any = None,
     max_retries: int = 0,
+    owasp_success_threshold: float = 0.0,
+    stop_on_first_success: bool = False,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -1103,6 +1194,9 @@ async def execute_batch_attacks(
         max_retries: Scenario 级别重试次数（0=快速失败，3=弫性恢复）
             对齐 PyRIT 1.0.0 Resiliency 文档的 max_retries 参数。
             重试时跳过已完成的攻击，从异常点恢复。
+        owasp_success_threshold: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
+            同一 OWASP 分类内成功率 >= threshold 时跳过该分类剩余计划。
+        stop_on_first_success: 全局首成功即停（最激进模式）
 
     Returns:
         BatchAttackResult
@@ -1115,4 +1209,6 @@ async def execute_batch_attacks(
         completion_policy=completion_policy,
         timeout_overrides=timeout_overrides,
         max_retries=max_retries,
+        owasp_success_threshold=owasp_success_threshold,
+        stop_on_first_success=stop_on_first_success,
     )

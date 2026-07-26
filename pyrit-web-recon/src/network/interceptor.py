@@ -77,6 +77,47 @@ class HTTPInterceptor:
         self._route_active = True
         logger.info("HTTP interception and WebSocket monitoring started")
 
+    async def await_traffic(
+        self,
+        wait_for_llm: bool = True,
+        timeout_ms: int = 15000,
+        poll_interval_ms: int = 500,
+    ):
+        """等待异步响应处理完成，并可选等待至少一个 LLM API 被捕获。
+
+        在 probe_interaction 后调用，确保 analysis 阶段能读到已捕获的 LLM API。
+        """
+        deadline = time.time() + (timeout_ms / 1000.0)
+        poll_seconds = max(0.1, poll_interval_ms / 1000.0)
+
+        while time.time() < deadline:
+            # 1. 等待当前未完成的响应处理任务
+            if self._pending_tasks:
+                pending = list(self._pending_tasks)
+                logger.debug("Awaiting %d pending response tasks", len(pending))
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=2.0,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+            # 2. 合并页面级 fetch/XHR 拦截数据（SSE 体通常在这里）
+            await self._merge_fetch_intercepted()
+
+            if not wait_for_llm:
+                return
+
+            # 3. 若已捕获 LLM API，可提前结束
+            if any(e.get("is_llm_api") for e in self.captured):
+                logger.info("LLM API traffic settled")
+                return
+
+            await asyncio.sleep(poll_seconds)
+
+        logger.debug("Traffic await timed out after %d ms", timeout_ms)
+
     async def stop(self):
         """停止监听并等待未完成的响应处理任务（保证 SSE 体被完整记录）"""
         self._route_active = False
@@ -183,6 +224,207 @@ class HTTPInterceptor:
                     logger.info("LLM API captured: %s %s model=%s", method, url, entry.get("model_name") or "unknown")
         except Exception as e:
             logger.debug("Failed to record response event: %s", truncate_error(str(e), self.config))
+
+    async def _install_fetch_interceptor(self):
+        """在页面注入 fetch/XHR 拦截脚本，捕获 SSE 等流式响应体"""
+        script = """
+        () => {
+            if (window.__pyrit_fetch_hook_installed) return;
+            window.__pyrit_fetch_hook_installed = true;
+            window.__pyrit_intercepted_calls = window.__pyrit_intercepted_calls || [];
+
+            const push = (obj) => {
+                try {
+                    window.__pyrit_intercepted_calls.push(obj);
+                    if (window.__pyrit_intercepted_calls.length > 200) {
+                        window.__pyrit_intercepted_calls.shift();
+                    }
+                } catch (e) {}
+            };
+
+            const isStatic = (url) => {
+                const exts = ['.js','.css','.png','.jpg','.jpeg','.svg','.woff','.woff2','.ico','.gif','.ttf','.map','.mp4','.webp','.eot','.otf','.pdf','.zip'];
+                const clean = (url.split('?')[0].split('#')[0] || '').toLowerCase();
+                return exts.some(ext => clean.endsWith(ext));
+            };
+
+            const cloneHeaders = (h) => {
+                const out = {};
+                try { h.forEach((v, k) => out[k] = v); } catch (e) {}
+                return out;
+            };
+
+            const readBody = async (response) => {
+                const ct = (response.headers.get('content-type') || '').toLowerCase();
+                let text = '';
+                try {
+                    if (ct.includes('event-stream')) {
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        const chunks = [];
+                        let done = false;
+                        while (!done && chunks.length < 50) {
+                            const { value, done: d } = await reader.read();
+                            done = d;
+                            if (value) chunks.push(decoder.decode(value, { stream: !done }));
+                        }
+                        text = chunks.join('');
+                    } else {
+                        const cloned = response.clone();
+                        text = await cloned.text();
+                    }
+                } catch (e) {}
+                return text.slice(0, 5000);
+            };
+
+            // fetch 拦截
+            const origFetch = window.fetch;
+            window.fetch = async function(...args) {
+                let url = args[0];
+                if (typeof url === 'object' && url.url) url = url.url;
+                const init = args[1] || {};
+                const method = (init.method || 'GET').toUpperCase();
+                let body = init.body || '';
+                if (typeof body !== 'string') body = '';
+                if (isStatic(url)) return origFetch.apply(this, args);
+
+                const start = Date.now();
+                try {
+                    const resp = await origFetch.apply(this, args);
+                    const text = await readBody(resp);
+                    push({
+                        timestamp: start / 1000,
+                        url: url,
+                        method: method,
+                        requestBody: body.slice(0, 5000),
+                        responseStatus: resp.status,
+                        responseHeaders: cloneHeaders(resp.headers),
+                        responseBody: text,
+                        source: 'fetch_hook'
+                    });
+                    return resp;
+                } catch (err) {
+                    push({
+                        timestamp: start / 1000,
+                        url: url,
+                        method: method,
+                        requestBody: body.slice(0, 5000),
+                        error: String(err.message || err),
+                        source: 'fetch_hook'
+                    });
+                    throw err;
+                }
+            };
+
+            // XHR 拦截
+            const origOpen = XMLHttpRequest.prototype.open;
+            const origSend = XMLHttpRequest.prototype.send;
+            const xhrMap = new WeakMap();
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                try { xhrMap.set(this, { method, url }); } catch (e) {}
+                return origOpen.call(this, method, url, ...rest);
+            };
+            XMLHttpRequest.prototype.send = function(body) {
+                const meta = xhrMap.get(this) || { method: 'GET', url: '' };
+                if (isStatic(meta.url)) return origSend.call(this, body);
+                const start = Date.now();
+                const reqBody = (typeof body === 'string' ? body : '').slice(0, 5000);
+                const onLoad = () => {
+                    try {
+                        const ct = (this.getResponseHeader('content-type') || '').toLowerCase();
+                        let text = '';
+                        if (ct.includes('json') || ct.includes('text') || ct.includes('event-stream')) {
+                            text = String(this.responseText || '').slice(0, 5000);
+                        }
+                        push({
+                            timestamp: start / 1000,
+                            url: meta.url,
+                            method: meta.method,
+                            requestBody: reqBody,
+                            responseStatus: this.status,
+                            responseHeaders: {},
+                            responseBody: text,
+                            source: 'xhr_hook'
+                        });
+                    } catch (e) {}
+                };
+                this.addEventListener('load', onLoad);
+                this.addEventListener('error', () => {
+                    push({ timestamp: start / 1000, url: meta.url, method: meta.method, requestBody: reqBody, error: 'xhr error', source: 'xhr_hook' });
+                });
+                return origSend.call(this, body);
+            };
+        }
+        """
+        try:
+            # 对当前已加载的页面立即执行
+            await self.page.evaluate(script)
+            # 对未来新页面/iframe 也生效
+            await self.page.add_init_script(script)
+            logger.debug("Page-level fetch/XHR interceptor installed")
+        except Exception as exc:
+            logger.warning("Failed to install fetch interceptor: %s", exc)
+
+    async def _merge_fetch_intercepted(self):
+        """读取页面级拦截数据并合并到 captured 列表"""
+        try:
+            calls = await self.page.evaluate("() => window.__pyrit_intercepted_calls || []")
+        except Exception as exc:
+            logger.debug("Failed to read fetch intercepted calls: %s", exc)
+            return
+
+        logger.debug("Fetch hook captured %d calls", len(calls))
+        if not calls:
+            return
+
+        analyzer = TrafficAnalyzer(config=self.config.get("network", {}))
+        for call in calls:
+            try:
+                url = call.get("url", "")
+                method = call.get("method", "GET")
+                if not url or self._is_static_url(url):
+                    continue
+
+                # 避免与已有 response_event 重复；若已有则用 hook 的响应体补充
+                existing = None
+                for e in self.captured:
+                    if e.get("url") == url and e.get("method") == method:
+                        existing = e
+                        break
+
+                hook_body = call.get("responseBody", "")
+                hook_req_body = call.get("requestBody", "")
+
+                if existing:
+                    # 用 hook 的 body 补充空 body
+                    if hook_body and not existing.get("response_body"):
+                        existing["response_body"] = hook_body[: self.response_body_limit]
+                    if hook_req_body and not existing.get("request_body"):
+                        existing["request_body"] = hook_req_body[: self.request_body_limit]
+                    continue
+
+                entry = {
+                    "timestamp": call.get("timestamp", time.time()),
+                    "url": url,
+                    "method": method,
+                    "resource_type": "fetch",
+                    "request_headers": {},
+                    "request_body": hook_req_body[: self.request_body_limit],
+                    "response_status": call.get("responseStatus", 0),
+                    "response_headers": call.get("responseHeaders", {}),
+                    "response_body": hook_body[: self.response_body_limit],
+                    "is_llm_api": False,
+                    "api_type": "",
+                    "model_name": "",
+                    "intercept_source": call.get("source", "fetch_hook"),
+                }
+                llm_info = analyzer.analyze_request(entry)
+                entry.update(llm_info)
+                self.captured.append(entry)
+                if entry["is_llm_api"]:
+                    logger.info("LLM API captured via hook: %s %s model=%s", method, url, entry.get("model_name") or "unknown")
+            except Exception as exc:
+                logger.debug("Failed to merge fetch call: %s", exc)
 
     def _is_static_url(self, url: str) -> bool:
         """过滤静态资源 URL"""

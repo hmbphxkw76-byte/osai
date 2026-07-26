@@ -2,35 +2,35 @@
 Attack Upgrade Strategy
 =======================
 
-攻击升级重试策略模块 — 从 ScenarioOrchestrator 提取
+攻击升级重试策略模块 �?�?ScenarioOrchestrator 提取
 
-自研功能（PyRIT 原生不支持）：
-  攻击失败后自动升级到更强的攻击技术。
+自研功能（PyRIT 原生不支持）�?
+  攻击失败后自动升级到更强的攻击技术�?
 
 P1-1 增强：数据驱动的智能升级策略
-  1. 失败类型提取与分类（model_refusal / timeout / scorer_validation_error / objective_not_achieved）
-  2. 按失败类型路由升级策略（拒绝→Converter绕过 / 超时→降级 / 评分错误→换scorer / 未达成→升级技术）
+  1. 失败类型提取与分类（model_refusal / timeout / scorer_validation_error / objective_not_achieved�?
+  2. 按失败类型路由升级策略（拒绝→Converter绕过 / 超时→降�?/ 评分错误→换scorer / 未达成→升级技术）
   3. 返回多个候选方案（不再仅取第一个）
-  4. 升级历史追踪（避免重复尝试已失败的技术+模式组合）
+  4. 升级历史追踪（避免重复尝试已失败的技�?模式组合�?
 
-升级策略类型：
-  1. 单轮 → 多轮升级 (single_turn_to_multi_turn)
-     如: prompt_sending → crescendo
-  2. 基础多轮 → 高级多轮升级 (multi_turn_upgrade)
-     如: red_teaming → tap
-  3. 添加 Converter 链 (add_converter)
-     如: 添加 stealth_evasion 编码链
-  4. 失败类型路由升级 (failure_type_routing) — P1-1 新增
-     如: model_refusal → 优先添加 Converter 链
+升级策略类型�?
+  1. 单轮 �?多轮升级 (single_turn_to_multi_turn)
+     �? prompt_sending �?crescendo
+  2. 基础多轮 �?高级多轮升级 (multi_turn_upgrade)
+     �? red_teaming �?tap
+  3. 添加 Converter �?(add_converter)
+     �? 添加 stealth_evasion 编码�?
+  4. 失败类型路由升级 (failure_type_routing) �?P1-1 新增
+     �? model_refusal �?优先添加 Converter �?
 
-策略配置来源: src/core/defaults/payload_strategy_matrix.yaml → attack_upgrade_strategies
-  （config/ 下同名文件可覆盖系统默认）
+策略配置来源: src/core/defaults/payload_strategy_matrix.yaml �?attack_upgrade_strategies
+  （config/ 下同名文件可覆盖系统默认�?
 
 设计原则:
-  - 纯函数设计：不依赖 orchestrator 实例状态
+  - 纯函数设计：不依�?orchestrator 实例状�?
   - 配置驱动：策略从配置文件读取
-  - 向后兼容：ScenarioOrchestrator 委托此模块
-  - 安全限制：最大升级深度 max_upgrade_depth 防止无限递归
+  - 向后兼容：ScenarioOrchestrator 委托此模�?
+  - 安全限制：最大升级深�?max_upgrade_depth 防止无限递归
 """
 
 import logging
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # 失败类型常量
 # ============================================================
 
-# 失败类型枚举（字符串常量，避免引入 Enum 依赖）
+# 失败类型枚举（字符串常量，避免引�?Enum 依赖�?
 FAILURE_MODEL_REFUSAL = "model_refusal"
 FAILURE_TIMEOUT = "timeout"
 FAILURE_SCORER_VALIDATION_ERROR = "scorer_validation_error"
@@ -54,7 +54,7 @@ FAILURE_MODEL_RESPONSE_ERROR = "model_response_error"
 FAILURE_OBJECTIVE_NOT_ACHIEVED = "objective_not_achieved"
 FAILURE_UNKNOWN = "unknown"
 
-# 最大升级深度（防止无限递归）
+# 最大升级深度（防止无限递归�?
 MAX_UPGRADE_DEPTH = 2
 
 
@@ -65,17 +65,17 @@ MAX_UPGRADE_DEPTH = 2
 
 def extract_failure_type(failed_result: Any) -> str:
     """
-    从失败的 AttackResult 中提取失败类型
+    从失败的 AttackResult 中提取失败类�?
 
-    分类逻辑（与 report_generator.py 的失败分析对齐）：
-    - ValidationError / score_rationale → scorer_validation_error
-    - Timeout → timeout
-    - Status Code: 500 / finish_reason → model_response_error
-    - Refusal / refused → model_refusal
-    - 其他 → objective_not_achieved
+    分类逻辑（与 report_generator.py 的失败分析对齐）�?
+    - ValidationError / score_rationale �?scorer_validation_error
+    - Timeout �?timeout
+    - Status Code: 500 / finish_reason �?model_response_error
+    - Refusal / refused �?model_refusal
+    - 其他 �?objective_not_achieved
 
     Args:
-        failed_result: 失败的 AttackResult 实例
+        failed_result: 失败�?AttackResult 实例
 
     Returns:
         失败类型字符串（见上方常量定义）
@@ -83,7 +83,7 @@ def extract_failure_type(failed_result: Any) -> str:
     if failed_result is None:
         return FAILURE_UNKNOWN
 
-    # 安全提取属性
+    # 安全提取属�?
     def _safe_get(obj, attr, default=None):
         try:
             return getattr(obj, attr, default)
@@ -96,7 +96,7 @@ def extract_failure_type(failed_result: Any) -> str:
     )
 
     if not raw_error:
-        # 检查 outcome 是否为 error
+        # 检�?outcome 是否�?error
         outcome = _safe_get(failed_result, "outcome")
         if outcome is not None:
             outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
@@ -117,23 +117,23 @@ def extract_failure_type(failed_result: Any) -> str:
 
 
 # ============================================================
-# 升级策略生成器
+# 升级策略生成�?
 # ============================================================
 
 
 class AttackUpgradeStrategy:
     """
-    攻击升级策略 — 根据失败结果生成升级的攻击计划
+    攻击升级策略 �?根据失败结果生成升级的攻击计�?
 
-    P1-1 增强：
-    - 按失败类型路由不同升级策略
-    - 返回多个候选方案（按优先级排序）
+    P1-1 增强�?
+    - 按失败类型路由不同升级策�?
+    - 返回多个候选方案（按优先级排序�?
     - 支持升级历史追踪（避免重复尝试）
 
-    从 payload_strategy_matrix.yaml 的 attack_upgrade_strategies 段读取策略配置
-  （系统默认: src/core/defaults/，用户覆盖: config/）。
+    �?payload_strategy_matrix.yaml �?attack_upgrade_strategies 段读取策略配�?
+  （系统默�? src/core/defaults/，用户覆�? config/）�?
 
-    用法：
+    用法�?
         strategy = AttackUpgradeStrategy()
         upgraded_plans = strategy.generate_upgrade_plans(
             original_plan=failed_plan,
@@ -144,10 +144,10 @@ class AttackUpgradeStrategy:
 
     def __init__(self, config_loader=None):
         """
-        初始化升级策略
+        初始化升级策�?
 
         Args:
-            config_loader: 配置加载器（可选，默认使用全局单例）
+            config_loader: 配置加载器（可选，默认使用全局单例�?
         """
         self._config_loader = config_loader or get_config_loader()
 
@@ -171,22 +171,22 @@ class AttackUpgradeStrategy:
         current_depth: int = 0,
     ) -> List[AttackPlan]:
         """
-        根据失败结果生成升级的攻击计划列表
+        根据失败结果生成升级的攻击计划列�?
 
-        P1-1 增强：
+        P1-1 增强�?
         1. 提取失败类型，按类型路由优先策略
         2. 返回多个候选方案（不再仅取第一个）
-        3. 过滤已尝试过的技术+模式组合
-        4. 检查升级深度限制
+        3. 过滤已尝试过的技�?模式组合
+        4. 检查升级深度限�?
 
         Args:
-            original_plan: 原始（失败的）攻击计划
-            failed_result: 失败的 AttackResult（用于提取失败类型）
-            tried_combinations: 已尝试过的 (technique, mode) 组合集合
-            current_depth: 当前升级深度（0=首次升级）
+            original_plan: 原始（失败的）攻击计�?
+            failed_result: 失败�?AttackResult（用于提取失败类型）
+            tried_combinations: 已尝试过�?(technique, mode) 组合集合
+            current_depth: 当前升级深度�?=首次升级�?
 
         Returns:
-            按优先级排序的升级攻击计划列表（可能为空）
+            按优先级排序的升级攻击计划列表（可能为空�?
         """
         if current_depth >= MAX_UPGRADE_DEPTH:
             logger.debug(
@@ -206,28 +206,28 @@ class AttackUpgradeStrategy:
             f"depth={current_depth}, tried={len(tried)} combinations"
         )
 
-        # 生成候选方案（按优先级排序）
+        # 生成候选方案（按优先级排序�?
         candidates: List[AttackPlan] = []
 
-        # P1-1: 按失败类型路由优先策略
+        # P1-1: 按失败类型路由优先策�?
         routed_plans = self._generate_failure_type_routed_plans(
             original_plan, failure_type, tried
         )
         candidates.extend(routed_plans)
 
-        # 策略 1: 单轮 → 多轮升级
+        # 策略 1: 单轮 �?多轮升级
         if current_mode in (AttackMode.SINGLE_TURN, AttackMode.CONVERTER_ENHANCED):
             candidates.extend(
                 self._generate_single_turn_upgrades(original_plan, tried)
             )
 
-        # 策略 2: 基础多轮 → 高级多轮升级
+        # 策略 2: 基础多轮 �?高级多轮升级
         elif current_mode == AttackMode.MULTI_TURN and not original_plan.prompt_item.multi_turn_steps:
             candidates.extend(
                 self._generate_multi_turn_upgrades(original_plan, tried)
             )
 
-        # 策略 3: 添加 Converter 链
+        # 策略 3: 添加 Converter �?
         if not original_plan.converter_chain_name and current_mode == AttackMode.SINGLE_TURN:
             candidates.extend(
                 self._generate_converter_upgrades(original_plan, tried)
@@ -259,7 +259,7 @@ class AttackUpgradeStrategy:
         return final_candidates
 
     # ------------------------------------------------------------------
-    # 失败类型路由策略（P1-1 新增）
+    # 失败类型路由策略（P1-1 新增�?
     # ------------------------------------------------------------------
 
     def _generate_failure_type_routed_plans(
@@ -269,13 +269,13 @@ class AttackUpgradeStrategy:
         tried: Set[Tuple[str, str]],
     ) -> List[AttackPlan]:
         """
-        按失败类型生成优先升级方案
+        按失败类型生成优先升级方�?
 
-        路由逻辑：
-        - model_refusal → 优先添加 Converter 链（编码绕过）
-        - timeout → 降级到更简单的技术（减少多轮深度）
-        - scorer_validation_error → 保持技术但标记换 scorer
-        - objective_not_achieved → 升级到更强的攻击技术
+        路由逻辑�?
+        - model_refusal �?优先添加 Converter 链（编码绕过�?
+        - timeout �?降级到更简单的技术（减少多轮深度�?
+        - scorer_validation_error �?保持技术但标记�?scorer
+        - objective_not_achieved �?升级到更强的攻击技�?
         """
         candidates: List[AttackPlan] = []
         routing_config = self._failure_type_routing.get(failure_type, {})
@@ -283,7 +283,7 @@ class AttackUpgradeStrategy:
         if not routing_config:
             return candidates
 
-        # 优先策略：添加 Converter
+        # 优先策略：添�?Converter
         if failure_type == FAILURE_MODEL_REFUSAL:
             converter_chains = routing_config.get("prefer_converter_chains", [])
             current_technique = original_plan.attack_technique
@@ -298,7 +298,7 @@ class AttackUpgradeStrategy:
                     )
                     candidates.append(plan)
 
-        # 超时：降级到更简单的技术
+        # 超时：降级到更简单的技�?
         elif failure_type == FAILURE_TIMEOUT:
             downgrade_techniques = routing_config.get("downgrade_to", [])
             for tech in downgrade_techniques:
@@ -311,7 +311,7 @@ class AttackUpgradeStrategy:
                     )
                     candidates.append(plan)
 
-        # 评分验证错误：换技术但保持简单模式
+        # 评分验证错误：换技术但保持简单模�?
         elif failure_type == FAILURE_SCORER_VALIDATION_ERROR:
             alternative_techniques = routing_config.get("alternative_techniques", [])
             for tech in alternative_techniques:
@@ -324,7 +324,7 @@ class AttackUpgradeStrategy:
                     )
                     candidates.append(plan)
 
-        # 目标未达成：升级到更强的技术
+        # 目标未达成：升级到更强的技�?
         elif failure_type == FAILURE_OBJECTIVE_NOT_ACHIEVED:
             upgrade_to = routing_config.get("upgrade_to", [])
             for tech in upgrade_to:
@@ -340,7 +340,7 @@ class AttackUpgradeStrategy:
         return candidates
 
     # ------------------------------------------------------------------
-    # 基础升级策略（保留原有逻辑，移除 [:1] 限制）
+    # 基础升级策略（保留原有逻辑，移�?[:1] 限制�?
     # ------------------------------------------------------------------
 
     def _generate_single_turn_upgrades(
@@ -348,7 +348,7 @@ class AttackUpgradeStrategy:
         original_plan: AttackPlan,
         tried: Set[Tuple[str, str]],
     ) -> List[AttackPlan]:
-        """单轮 → 多轮升级"""
+        """单轮 �?多轮升级"""
         candidates: List[AttackPlan] = []
         current_technique = original_plan.attack_technique
         strategy = self._upgrade_strategies.get("single_turn_to_multi_turn", {})
@@ -372,7 +372,7 @@ class AttackUpgradeStrategy:
         original_plan: AttackPlan,
         tried: Set[Tuple[str, str]],
     ) -> List[AttackPlan]:
-        """基础多轮 → 高级多轮升级"""
+        """基础多轮 �?高级多轮升级"""
         candidates: List[AttackPlan] = []
         current_technique = original_plan.attack_technique
         strategy = self._upgrade_strategies.get("multi_turn_upgrade", {})
@@ -396,7 +396,7 @@ class AttackUpgradeStrategy:
         original_plan: AttackPlan,
         tried: Set[Tuple[str, str]],
     ) -> List[AttackPlan]:
-        """添加 Converter 链"""
+        """添加 Converter �?""
         candidates: List[AttackPlan] = []
         current_technique = original_plan.attack_technique
         strategy = self._upgrade_strategies.get("add_converter", {})
@@ -417,7 +417,7 @@ class AttackUpgradeStrategy:
         return candidates
 
     # ------------------------------------------------------------------
-    # 过滤与去重
+    # 过滤与去�?
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -455,17 +455,17 @@ class AttackUpgradeStrategy:
         reason: str = "",
     ) -> AttackPlan:
         """
-        创建升级的攻击计划
+        创建升级的攻击计�?
 
-        保留原始计划的 objective/owasp_id/scenario_name，
-        更新攻击技术、模式和 Converter 链。
-        标记 upgraded_from 和 upgrade_reason 到 memory_labels。
+        保留原始计划�?objective/owasp_id/scenario_name�?
+        更新攻击技术、模式和 Converter 链�?
+        标记 upgraded_from �?upgrade_reason �?memory_labels�?
 
         Args:
             original_plan: 原始攻击计划
-            new_technique: 新的攻击技术名称
+            new_technique: 新的攻击技术名�?
             new_mode: 新的攻击模式
-            converter_chain: 可选的 Converter 链名称
+            converter_chain: 可选的 Converter 链名�?
             reason: 升级原因
 
         Returns:

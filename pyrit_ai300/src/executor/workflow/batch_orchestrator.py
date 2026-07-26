@@ -44,6 +44,8 @@ class BatchAttackOrchestrator:
         verbose: bool = False,
         exam_id: str = None,
         timeout_overrides: Optional[Dict[str, int]] = None,
+        owasp_success_threshold: float = 0.0,
+        stop_on_first_success: bool = False,
     ) -> BatchAttackResult:
         """
         批量执行攻击计划
@@ -55,6 +57,8 @@ class BatchAttackOrchestrator:
             max_concurrency, fail_fast, per_attack_timeout,
             verbose=verbose, exam_id=exam_id,
             timeout_overrides=timeout_overrides,
+            owasp_success_threshold=owasp_success_threshold,
+            stop_on_first_success=stop_on_first_success,
         )
 
 
@@ -73,6 +77,8 @@ async def execute_batch_attacks(
     verbose: bool = False,
     exam_id: str = None,
     timeout_overrides: Optional[Dict[str, int]] = None,
+    owasp_success_threshold: float = 0.0,
+    stop_on_first_success: bool = False,
 ) -> BatchAttackResult:
     """
     批量执行攻击计划（工厂函数）
@@ -89,6 +95,8 @@ async def execute_batch_attacks(
         verbose: 是否输出详细结果
         exam_id: 考试 ID
         timeout_overrides: 按攻击模式差异化超时配置
+        owasp_success_threshold: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
+        stop_on_first_success: 全局首成功即停（最激进模式）
 
     Returns:
         BatchAttackResult
@@ -99,4 +107,6 @@ async def execute_batch_attacks(
         max_concurrency, fail_fast, per_attack_timeout,
         verbose=verbose, exam_id=exam_id,
         timeout_overrides=timeout_overrides,
+        owasp_success_threshold=owasp_success_threshold,
+        stop_on_first_success=stop_on_first_success,
     )

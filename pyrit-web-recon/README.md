@@ -21,11 +21,22 @@
 
 ```text
 pyrit-web-recon/
-├── config/
+├── .assistant_recon/           # 项目规则、架构设计与集成计划
+│   ├── rules.md
+│   ├── ai_300_alignment_analysis.md
+│   ├── ai_redteam_integration_framework_design.md
+│   └── ai_redteam_integration_architecture_plan.md
+├── config/                     # 项目配置
 │   ├── recon.yaml              # 全局侦察配置
 │   ├── sites.yaml              # 已知站点选择器
 │   └── spa_chat.yaml           # SPA 侦察配置
-├── credentials/                # 按域名存放 Headers 凭据
+├── credentials/                # 按域名存放 Headers 凭据（gitignored）
+├── templates/burp/             # Burp / Repeater 攻击模板（gitignored）
+├── examples/                   # 使用示例
+│   └── run_recon_with_skillspector.py
+├── redamon/                    # RedAmon 源码克隆目录（运行期拉取）
+├── results/                    # 侦察结果输出（gitignored）
+├── skillspector/               # SkillSpector 源码（子进程/Docker 调用）
 ├── src/
 │   ├── auth/                   # 认证解析、注入、自动填充与自动提取
 │   │   ├── header_parser.py
@@ -42,7 +53,8 @@ pyrit-web-recon/
 │   │   ├── interceptor.py
 │   │   └── traffic_analyzer.py
 │   ├── utils/                  # 通用工具
-│   │   └── login_waiter.py
+│   │   ├── login_waiter.py
+│   │   └── text.py
 │   ├── recon/                  # 侦察数据契约
 │   │   └── target_profile.py
 │   ├── interaction/            # Web 聊天交互
@@ -50,6 +62,14 @@ pyrit-web-recon/
 │   ├── export/                 # 结果导出
 │   │   ├── template_exporter.py
 │   │   └── profile_exporter.py
+│   ├── integration/            # 外部工具集成适配器
+│   │   ├── schemas/            # 跨工具统一数据模型
+│   │   │   └── unified_finding.py
+│   │   ├── aig/                # AI-Infra-Guard 集成
+│   │   ├── redamon/            # RedAmon 集成
+│   │   └── skillspector/       # SkillSpector 集成
+│   ├── orchestrator/           # 一体化作业编排
+│   │   └── job_scheduler.py
 │   └── pipeline/               # 流水线引擎与阶段
 │       ├── base.py             # PipelineStage 基类
 │       ├── context.py          # PipelineContext / StageResult
@@ -65,13 +85,16 @@ pyrit-web-recon/
 │           ├── probe_interaction.py
 │           ├── analysis.py
 │           ├── credential_extraction.py
-│           └── export.py
+│           ├── export.py
+│           └── external_dispatch.py
 ├── tests/
-│   └── mock_llm_server.py      # 本地 Mock LLM 服务器（完整流水线测试）
-├── .assistant/
-│   └── rules.md                # 项目规则（跨 IDE 可读）
+│   └── integration/
+│       └── mock_llm_server.py  # 本地 Mock LLM 服务器（完整流水线测试）
 ├── .env.example                # 环境变量配置示例
+├── .env.example.integration    # 一体化集成环境变量示例
+├── docker-compose.integration.yml  # 一体化基础设施编排
 ├── main.py                     # CLI 入口（PipelineRunner 编排）
+├── README.md
 └── requirements.txt
 ```
 
@@ -153,7 +176,7 @@ python main.py kimi --type spa
 
 ```bash
 # 终端 1：启动 Mock 服务器
-python tests/mock_llm_server.py
+python tests/integration/mock_llm_server.py
 
 # 终端 2：运行完整流水线
 python main.py http://127.0.0.1:18080 --type spa --headless
@@ -215,8 +238,8 @@ credentials/example.com.txt
 - `results/recon/profiles/*.json`：标准化 TargetProfile
 - `results/recon/profiles/*.yaml`：YAML 格式 TargetProfile
 - `results/recon/pyrit/*_pyrit_target.json`：PyRIT 兼容 target 配置
-- `data/burp/*_api.txt`：API 攻击模板
-- `data/burp/*_webui.txt`：Web UI 选择器模板
+- `templates/burp/*_api.txt`：API 攻击模板
+- `templates/burp/*_webui.txt`：Web UI 选择器模板
 - `results/recon/screenshots/`：侦察截图
 - `results/recon/storage_states/`：浏览器状态
 - `results/recon/latest_summary.txt`：文本摘要
@@ -305,6 +328,6 @@ flowchart TD
 
     PROF --> |results/recon/profiles/*.json| Attack["PyRIT 攻击阶段"]
     PYRIT --> |results/recon/pyrit/*.json| Attack
-    TMPL --> |data/burp/*.txt| Attack
+    TMPL --> |templates/burp/*.txt| Attack
     CREDS_OUT --> |credentials/*.txt| Attack
 ```

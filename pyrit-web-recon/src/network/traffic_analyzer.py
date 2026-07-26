@@ -190,29 +190,41 @@ class TrafficAnalyzer:
         return ""
 
     def _extract_model_from_text(self, text: str) -> str:
-        """从 JSON 文本中提取 model 字段"""
+        """从 JSON 文本中提取 model 字段（大小写不敏感）"""
         if not text or len(text) > self.text_length_limit:
             return ""
+
+        def _find_in_dict(data: Dict[str, Any]) -> str:
+            # 构建大小写不敏感的键映射，兼容 "Model" / "model" / "MODEL"
+            key_map = {k.lower(): k for k in data.keys() if isinstance(k, str)}
+            for key in self.model_name_keys:
+                actual_key = key_map.get(key.lower())
+                if actual_key and data[actual_key]:
+                    return str(data[actual_key])
+            return ""
+
         try:
             data = json.loads(text)
             if isinstance(data, dict):
-                for key in self.model_name_keys:
-                    if key in data and data[key]:
-                        return str(data[key])
-                # 兼容 {"data": {"model": "xxx"}}
-                for nested_key in ["data", "payload", "body", "params"]:
+                model = _find_in_dict(data)
+                if model:
+                    return model
+                # 兼容嵌套结构：{"data": {"model": "xxx"}}
+                for nested_key in ["data", "payload", "body", "params", "result", "response"]:
                     nested = data.get(nested_key)
                     if isinstance(nested, dict):
-                        for key in self.model_name_keys:
-                            if key in nested and nested[key]:
-                                return str(nested[key])
+                        model = _find_in_dict(nested)
+                        if model:
+                            return model
         except json.JSONDecodeError:
-            # 非 JSON 尝试正则
-            for key in self.model_name_keys:
-                pattern = rf'"{key}"\s*:\s*"([^"]+)"'
-                match = re.search(pattern, text)
-                if match:
-                    return match.group(1)
+            pass
+
+        # 非 JSON 或 SSE 多行体：使用大小写不敏感正则兜底
+        for key in self.model_name_keys:
+            pattern = rf'"{re.escape(key)}"\s*:\s*"([^"]+)"'
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1)
         return ""
 
     def _extract_model_from_sse(self, text: str) -> str:

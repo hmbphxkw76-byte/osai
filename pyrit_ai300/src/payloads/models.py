@@ -110,6 +110,13 @@ class BatchAttackResult(BaseModel):
     upgrade_attempts: int = 0          # 升级重试次数
     upgrade_success: int = 0           # 升级重试成功次数
 
+    # L2 停止策略：per-OWASP 成功计数（owasp_id → success_count）
+    owasp_success_map: Dict[str, int] = Field(default_factory=dict)
+    # L2 停止策略：per-OWASP 总计划数（owasp_id → total_count）
+    owasp_total_map: Dict[str, int] = Field(default_factory=dict)
+    # L2/L3 停止策略：被跳过的计划数
+    skipped_by_stop: int = 0
+
     @property
     def success_rate(self) -> float:
         if self.executed == 0:
@@ -121,3 +128,8 @@ class BatchAttackResult(BaseModel):
         if self.upgrade_attempts == 0:
             return 0.0
         return self.upgrade_success / self.upgrade_attempts
+
+    @property
+    def succeeded_owasp_ids(self) -> set:
+        """返回至少有 1 个成功的 OWASP ID 集合"""
+        return {oid for oid, cnt in self.owasp_success_map.items() if cnt > 0}

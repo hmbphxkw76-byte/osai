@@ -25,6 +25,17 @@ venv/
 env/
 ENV/
 .venv/
+.recon/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
 
 # IDE
 .vscode/
@@ -42,6 +53,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!.env.example.integration
 *.key
 *.pem
 *.crt
@@ -55,7 +67,7 @@ credentials/*
 # Project outputs (contains screenshots, storage states, profiles, extracted credentials)
 results/
 output/
-data/burp/
+templates/burp/
 *.har
 *.pcap
 *.pcapng
@@ -63,3 +75,8 @@ data/burp/
 # Logs
 *.log
 logs/
+
+# Vendored third-party tools (cloned at runtime)
+skillspector/
+redamon/*
+!redamon/README.md

@@ -233,7 +233,7 @@ class AnalysisStage(PipelineStage):
         return sorted(protocols)
 
     def _infer_capabilities(self, captured: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """从请求体中推断模型能力参数，如 stream"""
+        """从请求体中推断模型能力参数，如 stream（大小写不敏感）"""
         capabilities: Dict[str, Any] = {}
         for entry in captured:
             if not entry.get("is_llm_api"):
@@ -242,13 +242,14 @@ class AnalysisStage(PipelineStage):
             try:
                 import json
                 data = json.loads(body)
-                if isinstance(data, dict):
-                    if "stream" in data:
-                        capabilities["stream"] = data["stream"]
-                    if "temperature" in data:
-                        capabilities["temperature"] = data["temperature"]
-                    if "max_tokens" in data:
-                        capabilities["max_tokens"] = data["max_tokens"]
+                if not isinstance(data, dict):
+                    continue
+                # 大小写不敏感键映射
+                key_map = {k.lower(): k for k in data.keys() if isinstance(k, str)}
+                for canon, target in [("stream", "stream"), ("temperature", "temperature"), ("max_tokens", "max_tokens")]:
+                    actual = key_map.get(canon)
+                    if actual is not None and data[actual] is not None:
+                        capabilities[target] = data[actual]
             except Exception:
                 continue
         return capabilities

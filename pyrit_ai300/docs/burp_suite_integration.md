@@ -10,7 +10,7 @@ PyRIT 与 Burp Suite 的集成实现了 **"请求捕获 → 模板化 → 批量
 |------|------|------|
 | 请求捕获器 | Burp Suite | 截获浏览器→LLM 的真实 HTTP 请求（含 Auth/Cookie/头部） |
 | 攻击执行器 | PyRIT | 读取模板 → 加载提示词 → 批量发送 → 评分 → 报告 |
-| 攻击载荷库 | YAML 数据集 | 存放大量攻击提示词（`data/owasp/`、`data/native/`、`data/custom/`） |
+| 攻击载荷库 | YAML 数据集 | 存放大量攻击提示词（`data/owasp/`、`data/custom/`） |
 | 请求模板库 | `data/burp/*.txt` | 存放 Burp 导出的原始 HTTP 请求模板（含 `{PROMPT}` 占位符） |
 
 ---
@@ -56,7 +56,7 @@ PyRIT 与 Burp Suite 的集成实现了 **"请求捕获 → 模板化 → 批量
 │  │     - value: "Ignore all instructions..." │  ← 提示词 1                  │
 │  │     - value: "You are now in maint..."    │  ← 提示词 2                  │
 │  │     - value: "Disregard the above..."     │  ← 提示词 3                  │
-│  │ data/native/exam_quickstart.yaml          │  ← 更多提示词...            │
+│  │ data/custom/exam_quickstart.yaml           │  ← 更多提示词...            │
 │  │ data/custom/*.yaml                        │                               │
 │  └──────────────────┬───────────────────────┘                               │
 │                     │                                                       │
@@ -164,9 +164,8 @@ seeds:
 
 放置位置：
 - `data/owasp/llm/` — OWASP LLM Top 10 标准攻击载荷
-- `data/owasp/agentic/` — OWASP Agentic AI Top 10 攻击载荷
-- `data/native/` — AI-300 考试专用攻击载荷
-- `data/custom/` — 用户自定义攻击载荷
+- `data/owasp/agentic/` — OWASP Agentic AI Top 10 攻击载荷（含考试补充载荷）
+- `data/custom/` — 用户自定义 + AI-300 考试快速启动载荷
 
 ### 步骤 4：PyRIT 执行攻击
 
@@ -229,7 +228,7 @@ prompt = SeedPrompt(value="Ignore all instructions", role="user")
 
 ## 六、Burp 请求模板 vs YAML 提示词 — 区别
 
-| 维度 | `data/burp/*.txt` | `data/owasp/`, `data/native/*.yaml` |
+| 维度 | `data/burp/*.txt` | `data/owasp/`, `data/custom/*.yaml` |
 |------|-------------------|-------------------------------------|
 | **内容** | HTTP 请求模板（含头部+认证） | 攻击提示词文本 |
 | **格式** | 原始 HTTP 文本（`.txt`） | PyRIT SeedDataset YAML |
@@ -247,7 +246,7 @@ prompt = SeedPrompt(value="Ignore all instructions", role="user")
                                       │
 2. YAML 提示词加载                       │
    data/owasp/llm/llm01/*.yaml         │
-   data/native/exam_quickstart.yaml    │
+   data/custom/exam_quickstart.yaml    │
    data/custom/*.yaml                  │
           │                            │
           ▼                            ▼
@@ -285,7 +284,7 @@ prompt = SeedPrompt(value="Ignore all instructions", role="user")
 
 ### Q3: 能以 YAML 方式载入吗？
 
-**可以，这是主要方式。** `data/owasp/`、`data/native/`、`data/custom/` 下的所有 `.yaml` 文件都通过 PyRIT 原生的 `SeedDataset.from_yaml_file()` 加载，符合 PyRIT 1.0.0 SeedDataset schema。
+**可以，这是主要方式。** `data/owasp/`、`data/custom/` 下的所有 `.yaml` 文件都通过 PyRIT 原生的 `SeedDataset.from_yaml_file()` 加载，符合 PyRIT 1.0.0 SeedDataset schema。
 
 ### Q4: 需要修改 Burp 导出的请求吗？
 
@@ -343,6 +342,10 @@ target = create_http_target_from_raw_request(
 | `src/targets/burp_target.py` | Burp → HTTPTarget 构建器 |
 | `src/targets/target_factory.py` | Target 工厂（含 `http_raw` 类型） |
 | `data/owasp/llm/llm01/direct_injection.yaml` | OWASP LLM01 提示注入载荷 |
-| `data/native/exam_quickstart.yaml` | AI-300 考试快速启动载荷 |
-| `data/native/agentic_attacks.yaml` | AI-300 考试 Agentic AI 载荷 |
+| `data/custom/exam_quickstart.yaml` | AI-300 考试快速启动载荷 |
+| `data/owasp/agentic/asi01/exam_native_attacks.yaml` | AI-300 考试 ASI01 目标劫持补充载荷 |
+| `data/owasp/agentic/asi02/exam_native_attacks.yaml` | AI-300 考试 ASI02 工具滥用补充载荷 |
+| `data/owasp/agentic/asi05/exam_native_attacks.yaml` | AI-300 考试 ASI05 代码执行补充载荷 |
+| `data/owasp/agentic/asi06/exam_native_attacks.yaml` | AI-300 考试 ASI06 记忆攻击补充载荷 |
+| `data/owasp/agentic/asi09/exam_native_attacks.yaml` | AI-300 考试 ASI09 信任利用补充载荷 |
 | `config/targets/connection.yaml` | 目标连接配置（认证/能力探测） |

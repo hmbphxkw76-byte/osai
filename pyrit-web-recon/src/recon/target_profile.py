@@ -235,7 +235,28 @@ class TargetProfile:
             "headers": {},
         }
 
-        # 从提取到的凭据中恢复 Authorization / Cookie
+        # 从 LLM API 端点原始请求头中恢复 Authorization（优先）
+        primary_endpoint = None
+        for ep in self.fingerprint.llm_api_endpoints:
+            if ep.get("url") == primary_api.get("url"):
+                primary_endpoint = ep
+                break
+        if not primary_endpoint and self.fingerprint.llm_api_endpoints:
+            primary_endpoint = self.fingerprint.llm_api_endpoints[0]
+
+        if primary_endpoint:
+            req_headers = primary_endpoint.get("request_headers", {})
+            for hname, hvalue in req_headers.items():
+                lower = hname.lower()
+                if lower in ("authorization", "x-api-key", "api-key") and hvalue:
+                    # 导出时掩码敏感 token，只保留前 12 个字符
+                    parts = hvalue.split()
+                    if len(parts) == 2 and parts[0].lower() in ("bearer", "token"):
+                        target["headers"][hname] = f"{parts[0]} {parts[1][:12]}..."
+                    else:
+                        target["headers"][hname] = f"{hvalue[:12]}..."
+
+        # 从提取到的凭据中恢复 Authorization / Cookie（兜底）
         for cred in self.fingerprint.extracted_credentials:
             for key in cred.get("keys", []):
                 if key.get("type") == "api_key_header" and key.get("header"):

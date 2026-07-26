@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TemplateExporter:
     """导出 Burp / Repeater / 攻击工具可用的模板"""
 
-    def __init__(self, output_dir: str = "data/burp"):
+    def __init__(self, output_dir: str = "templates/burp"):
         self.output_dir = output_dir
 
     def export(
@@ -34,8 +34,8 @@ class TemplateExporter:
         根据 TargetProfile 导出攻击模板。
 
         输出文件：
-          - data/burp/{domain}_api.txt
-          - data/burp/{domain}_webui.txt
+          - templates/burp/{domain}_api.txt
+          - templates/burp/{domain}_webui.txt
         """
         os.makedirs(self.output_dir, exist_ok=True)
         created = []

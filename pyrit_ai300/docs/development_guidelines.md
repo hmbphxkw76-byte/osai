@@ -14,12 +14,12 @@
 
 | 序号 | 文件 | 用途 |
 |------|------|------|
-| 1 | `.assistant/memory_bank.md` | 记忆库（跨平台共享，任意 IDE 可读取） |
+| 1 | `.assistant_pyrit/memory_bank.md` | 记忆库（跨平台共享，任意 IDE 可读取） |
 | 2 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
 
 **同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上两个文件。
 
-> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到本文件和 `.assistant/memory_bank.md`。
+> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到本文件和 `.assistant_pyrit/memory_bank.md`。
 
 ---
 
@@ -458,7 +458,7 @@ TREE_DEPTH_ATTACKS = frozenset({"tap", "tree_of_attacks_pruned"})
 | 新增/修改 Attack 技术 | `docs/executor.md` + `config/payload_strategy_matrix.yaml` |
 | 新增/修改数据集层 | `docs/datasets_architecture.md` |
 | 架构变更 | `docs/architecture_design.md` + `docs/architecture_assessment.md` + 双库 |
-| 开发规则变更 | 双库（`.assistant/memory_bank.md` + `docs/development_guidelines.md`） |
+| 开发规则变更 | 双库（`.assistant_pyrit/memory_bank.md` + `docs/development_guidelines.md`） |
 
 ### 3.8.1 新增数据源规则
 

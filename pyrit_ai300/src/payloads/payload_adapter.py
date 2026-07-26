@@ -38,6 +38,27 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+
+# ── 自定义 YAML 字符串表示器 ──
+# 使用双引号样式处理含特殊字符的字符串，避免单引号转义导致的解析问题
+class _SafeStrDumper(yaml.SafeDumper):
+    """YAML dumper that uses double-quote style for strings with special chars."""
+    pass
+
+
+def _str_representer(dumper: yaml.Dumper, data: str) -> yaml.ScalarNode:
+    """选择最安全的字符串表示样式。"""
+    # 含单引号或特殊字符 → 双引号样式
+    if "'" in data or "\\n" in data or "{" in data or "}" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="\"")
+    # 多行字符串 → 块标量样式
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_SafeStrDumper.add_representer(str, _str_representer)
+
 # ── OWASP ID → harm_categories 映射 ──
 _OWASP_HARM_MAP: Dict[str, List[str]] = {
     "LLM01": ["prompt_injection"],
@@ -142,6 +163,14 @@ def _clean_placeholder(text: str) -> str:
         text = text.replace(placeholder, default)
     # 清理剩余的 {xxx} 占位符
     text = re.sub(r"\{[a-z_]+\}", "", text)
+
+    # 转义 Jinja2 模板语法 — PyRIT 将 seed value 视为 Jinja2 模板
+    # {{ }}, {%%}, {##} 会被 Jinja2 解析器解释为模板表达式
+    # 用 { { 和 } } 替换以保持视觉外观同时避免 Jinja2 解析错误
+    text = text.replace("{{", "{ {").replace("}}", "} }")
+    text = text.replace("{%", "{ %").replace("%}", "% }")
+    text = text.replace("{#", "{ #").replace("#}", "# }")
+
     return text.strip()
 
 
@@ -211,6 +240,20 @@ def _build_metadata(
     return metadata
 
 
+def _build_seed_metadata(
+    payload_entry: Dict[str, Any],
+    owasp_id: str,
+    technique_group: str,
+    attack_mode: str,
+    frontier: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """构建 seed metadata，可选包含 frontier 信息。"""
+    metadata = _build_metadata(payload_entry, owasp_id, technique_group, attack_mode)
+    if frontier:
+        metadata["frontier"] = frontier
+    return metadata
+
+
 def convert_payload_file(
     source_path: Path,
     output_path: Path,
@@ -268,7 +311,7 @@ def convert_payload_file(
                 "seed_type": "objective",
                 "value": objective_text,
                 "prompt_group_alias": group_alias,
-                "metadata": _build_metadata(payload_entry, owasp_id, technique_group, "multi_turn"),
+                "metadata": _build_seed_metadata(payload_entry, owasp_id, technique_group, "multi_turn", frontier),
             })
 
             # 添加每轮 seed
@@ -279,7 +322,7 @@ def convert_payload_file(
                     "prompt_group_alias": group_alias,
                     "sequence": turn_num,
                     "role": "user",
-                    "metadata": _build_metadata(payload_entry, owasp_id, technique_group, "multi_turn"),
+                    "metadata": _build_seed_metadata(payload_entry, owasp_id, technique_group, "multi_turn", frontier),
                 })
                 seed_count += 1
             seed_count += 1  # objective
@@ -291,14 +334,14 @@ def convert_payload_file(
             seeds.append({
                 "value": instantiated,
                 "role": "user",
-                "metadata": _build_metadata(payload_entry, owasp_id, technique_group, "single_turn"),
+                "metadata": _build_seed_metadata(payload_entry, owasp_id, technique_group, "single_turn", frontier),
             })
             seed_count += 1
 
     if not seeds:
         return 0
 
-    # 构建 PyRIT SeedDataset YAML
+    # 构建 PyRIT SeedDataset YAML（不添加 top-level frontier，PyRIT 不允许 extra fields）
     dataset: Dict[str, Any] = {
         "dataset_name": dataset_name,
         "name": f"OWASP {owasp_id} {source_name}",
@@ -312,10 +355,6 @@ def convert_payload_file(
         "seeds": seeds,
     }
 
-    # 保留 frontier 元数据到顶层
-    if frontier:
-        dataset["frontier"] = frontier
-
     # 写入输出文件
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -326,7 +365,7 @@ def convert_payload_file(
         if frontier:
             f.write(f"# Frontier/CVE: {frontier.get('id', 'N/A')}\n")
         f.write("\n")
-        yaml.dump(dataset, f, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
+        yaml.dump(dataset, f, Dumper=_SafeStrDumper, default_flow_style=False, allow_unicode=True, sort_keys=False, width=1000)
 
     logger.info(f"Converted {source_path.name} → {output_path.name} ({seed_count} seeds)")
     return seed_count
@@ -427,7 +466,7 @@ def convert_jailbreak_directory(
         f.write(f"# PyRIT SeedDataset format — OWASP LLM01 Jailbreak Templates ({label})\n")
         f.write(f"# Auto-merged from {len(template_files)} template files\n")
         f.write(f"# Total seeds: {seed_count}\n\n")
-        yaml.dump(dataset, f, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
+        yaml.dump(dataset, f, Dumper=_SafeStrDumper, default_flow_style=False, allow_unicode=True, sort_keys=False, width=1000)
 
     logger.info(f"Merged {len(template_files)} jailbreak templates → {output_path.name} ({seed_count} seeds)")
     return seed_count
