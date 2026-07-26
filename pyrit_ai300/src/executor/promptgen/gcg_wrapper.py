@@ -9,9 +9,11 @@ Layer 1: 白盒攻击种子生成器
   使目标 LLM 生成期望输出。与黑盒攻击不同，GCG 需要访问模型权重和梯度。
 
 PyRIT 原生定位：
-  PyRIT 1.0.0 目前未提供原生 GCG 实现（作为 future work 规划）。
-  本模块实现了完整的 GCG 算法逻辑，基于 torch + transformers，
-  在条件满足时自动执行梯度优化，在条件不满足时安全降级。
+  PyRIT 1.0.0 提供了 pyrit.executor.promptgen.gcg 实验性模块（GCGConfig + AML 管道）。
+  本模块同时支持两条路径：
+  (1) 原生 AML 管道：委托 pyrit.executor.promptgen.gcg.GCGGenerator（Azure ML 提交作业）
+  (2) 本地 torch 实现：基于 torch + transformers 的完整 GCG 算法（不需 AML）
+  两者都生成 SeedPrompt + 对抗性后缀，可通过 SuffixAppendConverter 集成到攻击链。
 
 设计原则：
   1. 延迟导入：torch/transformers 在实际使用时才导入，不影响无 GPU 环境
@@ -614,6 +616,206 @@ class GCGWrapper:
             return loss.item()
 
     # ------------------------------------------------------------------
+    # Azure ML (AML) 管道支持 — 对齐 pyrit.executor.promptgen.gcg
+    # ------------------------------------------------------------------
+
+    async def generate_via_aml_async(
+        self,
+        objective: str,
+        *,
+        aml_config: Optional[Any] = None,
+        harm_categories: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> List[Seed]:
+        """
+        通过 Azure ML 管道执行 GCG 优化
+
+        委托 PyRIT 原生 pyrit.executor.promptgen.gcg.GCGGenerator，
+        该模块将 GCG 优化作业提交到 Azure ML 计算集群。
+
+        需要：
+        - Azure ML workspace 配置
+        - pyrit.executor.promptgen.gcg 可用（实验性模块）
+
+        Args:
+            objective: 攻击目标
+            aml_config: GCGConfig（PyRIT 原生配置），如不提供则从 self._config 构建
+            harm_categories: 危害类别
+            **kwargs: 额外参数传递给 GCGGenerator
+
+        Returns:
+            SeedPrompt 列表（含对抗性后缀）
+        """
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=Warning)
+                from pyrit.executor.promptgen.gcg import (
+                    GCGConfig as PyritGCGConfig,
+                    GCGDataConfig,
+                    GCGModelConfig,
+                    GCGAlgorithmConfig,
+                    GCGOutputConfig,
+                )
+                from pyrit.executor.promptgen.gcg.gcg_generator import GCGGenerator
+        except ImportError as e:
+            logger.warning(f"PyRIT GCG AML module not available: {e}")
+            return []
+
+        # 构建 PyRIT 原生 GCGConfig
+        if aml_config is not None:
+            pyrit_config = aml_config
+        else:
+            pyrit_config = self._build_pyrit_gcg_config(objective, **kwargs)
+
+        # 创建 GCGGenerator 实例
+        try:
+            generator = GCGGenerator(
+                objective_target=None,  # AML 模式不需要本地 target
+                gcg_config=pyrit_config,
+            )
+            logger.info("GCG AML pipeline initialized, submitting job...")
+
+            result = await generator.execute_async(**kwargs)
+
+            seeds: List[Seed] = []
+            generated_content = getattr(result, "generated_content", None)
+            if generated_content:
+                text = str(generated_content)
+                seed = SeedPrompt(
+                    value=text,
+                    dataset_name="gcg_aml_generated",
+                    harm_categories=harm_categories or [],
+                    metadata={
+                        "gcg_pipeline": "aml",
+                        "objective": objective,
+                        "attack_type": "gcg_white_box",
+                        "transferable": True,
+                    },
+                )
+                seeds.append(seed)
+                logger.info(f"GCG AML generated 1 seed (length={len(text)})")
+
+            return seeds
+
+        except Exception as e:
+            logger.warning(f"GCG AML pipeline failed: {e}")
+            return []
+
+    def _build_pyrit_gcg_config(
+        self,
+        objective: str,
+        **kwargs: Any,
+    ) -> Any:
+        """构建 PyRIT 原生 GCGConfig"""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=Warning)
+            from pyrit.executor.promptgen.gcg import (
+                GCGConfig as PyritGCGConfig,
+                GCGDataConfig,
+                GCGModelConfig,
+                GCGAlgorithmConfig,
+                GCGOutputConfig,
+            )
+
+        cfg = self._config
+
+        data_config = GCGDataConfig(
+            train_data=kwargs.get("train_data", []),
+            goal=objective,
+            target_response=cfg.target_response,
+        )
+
+        model_config = GCGModelConfig(
+            model_path=kwargs.get("model_path", ""),
+            tokenizer_path=kwargs.get("tokenizer_path", ""),
+            device=cfg.device,
+        )
+
+        algo_config = GCGAlgorithmConfig(
+            num_steps=kwargs.get("num_steps", cfg.num_steps),
+            batch_size=kwargs.get("batch_size", cfg.batch_size),
+            topk=kwargs.get("topk", cfg.topk),
+        )
+
+        output_config = GCGOutputConfig(
+            output_dir=kwargs.get("output_dir", "./output/gcg"),
+        )
+
+        return PyritGCGConfig(
+            data_config=data_config,
+            model_config=model_config,
+            algorithm_config=algo_config,
+            output_config=output_config,
+        )
+
+    @staticmethod
+    def create_suffix_append_converter(suffix: str) -> Any:
+        """
+        创建 SuffixAppendConverter — 将 GCG 生成的后缀附加到后续攻击 prompt
+
+        对齐 PyRIT: pyrit.converter.SuffixAppendConverter
+
+        GCG 生成的对抗性后缀可以通过此 Converter 集成到黑盒攻击链中：
+        1. GCG 优化生成后缀
+        2. SuffixAppendConverter 将后缀附加到每个攻击 prompt
+        3. 后续攻击（如 prompt_sending）使用带后缀的 prompt
+
+        Args:
+            suffix: GCG 生成的对抗性后缀字符串
+
+        Returns:
+            SuffixAppendConverter 实例
+        """
+        from pyrit.converter import SuffixAppendConverter
+
+        return SuffixAppendConverter(suffix=suffix)
+
+    async def generate_and_create_converter_async(
+        self,
+        objective: str,
+        *,
+        use_aml: bool = False,
+        harm_categories: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> tuple[List[Seed], Optional[Any]]:
+        """
+        生成 GCG 后缀并创建 SuffixAppendConverter
+
+        一站式方法：生成对抗性后缀 → 创建 Converter → 可直接用于攻击链。
+
+        Args:
+            objective: 攻击目标
+            use_aml: 是否使用 AML 管道（True=AML, False=本地 torch）
+            harm_categories: 危害类别
+            **kwargs: 额外参数
+
+        Returns:
+            (SeedPrompt 列表, SuffixAppendConverter 或 None)
+        """
+        if use_aml:
+            seeds = await self.generate_via_aml_async(
+                objective, harm_categories=harm_categories, **kwargs
+            )
+        else:
+            seeds = await self.generate_async(
+                objective, harm_categories=harm_categories, **kwargs
+            )
+
+        if not seeds:
+            return seeds, None
+
+        # 从第一个种子提取后缀（objective + suffix 中的 suffix 部分）
+        full_prompt = seeds[0].value
+        suffix = full_prompt[len(objective):].strip() if full_prompt.startswith(objective) else full_prompt
+
+        converter = self.create_suffix_append_converter(suffix)
+        logger.info(f"Created SuffixAppendConverter with suffix (length={len(suffix)})")
+
+        return seeds, converter
+
+    # ------------------------------------------------------------------
     # 辅助方法
     # ------------------------------------------------------------------
 
@@ -623,7 +825,7 @@ class GCGWrapper:
         """
         return {
             "wrapper": "GCGWrapper",
-            "status": "implemented (requires torch + model + tokenizer)",
+            "status": "implemented (local torch + AML pipeline)",
             "is_available": self.is_available,
             "target_model": type(self._target_model).__name__ if self._target_model else None,
             "tokenizer": type(self._tokenizer).__name__ if self._tokenizer else None,
@@ -637,6 +839,8 @@ class GCGWrapper:
                 "success_threshold": self._config.success_threshold,
                 "target_response": self._config.target_response,
             },
+            "aml_pipeline": "available (pyrit.executor.promptgen.gcg)",
+            "suffix_converter": "SuffixAppendConverter integration ready",
             "reference": "Zou et al. 2023 'Universal and Transferable Adversarial Attacks'",
             "transferable": True,
         }

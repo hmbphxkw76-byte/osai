@@ -43,6 +43,7 @@ from pyrit.models import (
     SeedGroup,
     SeedObjective,
     SeedPrompt,
+    SeedSimulatedConversation,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,27 +132,62 @@ class AttackPreparator:
         AttackParameters.from_seed_group_async() 自动提取三要素。
 
         流程：
-        1. 检查 seed_group 是否有 objective
-        2. 无 objective → 从第一个 prompt 创建合成 objective
-        3. 构建 AttackSeedGroup（PyRIT 原生，强制恰好一个 objective）
+        1. 检查 seed_group 是否有 SeedSimulatedConversation
+        2. 如有，验证 adversarial_chat 和 objective_scorer 已提供
+        3. 检查 seed_group 是否有 objective
+        4. 无 objective → 从第一个 prompt 创建合成 objective
+        5. 构建 AttackSeedGroup（PyRIT 原生，强制恰好一个 objective）
+
+        SeedSimulatedConversation 处理（PyRIT 1.0.0 原生集成）：
+        - 当 seed_group 包含 SeedSimulatedConversation 时，执行阶段的
+          AttackParameters.from_seed_group_async() 会自动调用
+          generate_simulated_conversation_async() 生成对话前缀
+        - 本方法仅负责验证依赖（adversarial_chat + objective_scorer），
+          不在此处生成对话（延迟到执行时生成，确保使用正确的执行上下文）
+        - 如需预计算对话，请使用 simulated_conversation.precompute_simulated_conversation_async()
 
         Args:
             seed_group: CentralMemory 查询出的 SeedGroup
-            adversarial_chat: 对抗 LLM target（用于 SeedSimulatedConversation 生成，
-                由 from_seed_group_async 在执行时使用，此处仅透传）
-            objective_scorer: 评分器（同上）
+            adversarial_chat: 对抗 LLM target（SeedSimulatedConversation 需要，
+                在执行时由 from_seed_group_async 使用）
+            objective_scorer: TrueFalseScorer 评分器（SeedSimulatedConversation 需要）
 
         Returns:
             AttackSeedGroup 实例（PyRIT 原生对象）
+
+        Raises:
+            ValueError: 如果 seed_group 有 SeedSimulatedConversation 但未提供
+                adversarial_chat 或 objective_scorer
         """
         seeds = list(seed_group.seeds)
 
-        # 1. 确保有 objective
+        # 1. 检测 SeedSimulatedConversation 并验证依赖
+        has_simulated = any(isinstance(s, SeedSimulatedConversation) for s in seeds)
+        if has_simulated:
+            if adversarial_chat is None:
+                raise ValueError(
+                    "SeedGroup contains SeedSimulatedConversation but adversarial_chat is None. "
+                    "from_seed_group_async() requires adversarial_chat to generate the simulated "
+                    "conversation at execution time. Provide adversarial_chat or use "
+                    "precompute_simulated_conversation_async() for pre-generation."
+                )
+            if objective_scorer is None:
+                raise ValueError(
+                    "SeedGroup contains SeedSimulatedConversation but objective_scorer is None. "
+                    "from_seed_group_async() requires objective_scorer to evaluate the simulated "
+                    "conversation at execution time."
+                )
+            logger.info(
+                "SeedGroup has SeedSimulatedConversation config — "
+                "conversation will be generated at execution time by from_seed_group_async()"
+            )
+
+        # 2. 确保有 objective
         has_objective = any(isinstance(s, SeedObjective) for s in seeds)
         if not has_objective:
             seeds = AttackPreparator._create_synthetic_objective(seeds, seed_group)
 
-        # 2. 构建 AttackSeedGroup（PyRIT 原生，强制恰好一个 objective）
+        # 3. 构建 AttackSeedGroup（PyRIT 原生，强制恰好一个 objective）
         return AttackSeedGroup(seeds=seeds)
 
     @staticmethod
@@ -195,6 +231,7 @@ class AttackPreparator:
         根据 AttackSeedGroup 特征自动选择攻击技术
 
         选择逻辑（对齐 PyRIT 原生条件执行模式）：
+        - 有 SeedSimulatedConversation → red_teaming（对话将在执行时自动生成）
         - 有 prepended_conversation → 多轮攻击（crescendo）
         - 有 next_message 但无 prepended → 单轮直接攻击（prompt_sending）
         - 无 next_message 且无 prepended → 目标导向攻击（red_teaming）
@@ -205,6 +242,10 @@ class AttackPreparator:
         Returns:
             攻击技术名称（对应 ATTACK_CLASS_MAP 的键）
         """
+        # 有 SeedSimulatedConversation → red_teaming（延迟生成对话）
+        if attack_group.has_simulated_conversation:
+            return "red_teaming"
+
         # 有前置对话 → 多轮渐进攻击
         if attack_group.prepended_conversation:
             return "crescendo"

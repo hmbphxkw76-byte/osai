@@ -28,6 +28,7 @@ from src.executor.attack.core.attack_builder import (
     create_xpia_attack,
 )
 from src.executor.attack.core.scenario_event_handler import ScenarioEventHandler
+from src.executor.attack.core.modality_router import ModalityRouter
 from src.executor.attack.core.native_executor import (
     NativeAttackExecutor,
     DirectAttackExecutor,
@@ -59,6 +60,7 @@ __all__ = [
     "validate_attack_plan",
     "get_attack_execution_summary",
     "ScenarioEventHandler",
+    "ModalityRouter",
     "SINGLE_TURN_ATTACKS",
     "TAP_FAMILY_ATTACKS",
     "TREE_DEPTH_ATTACKS",

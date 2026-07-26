@@ -16,6 +16,7 @@ Output Manager
 
 import asyncio
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, List, Optional
@@ -175,6 +176,7 @@ class OutputManager:
     L5 对齐 PyRIT 1.0.0 output 模块：
     - 支持 include_reasoning_trace（o1/o3 推理模型推理轨迹）
     - 支持 blur_images（图片模糊，保护审查者）
+    - 支持 blurred_dir（模糊图片副本重定向到专用目录，markdown 格式专用）
     - 支持 include_pruned_conversations（树形攻击剪枝分支）
     - 集成 output_scenario_async 输出原生场景级摘要
     - 集成 output_scorer_async 输出评分器评估指标
@@ -189,9 +191,13 @@ class OutputManager:
         include_reasoning_trace: bool = False,
         blur_images: bool = False,
         blur_radius: int = 20,
+        blurred_dir: Optional[os.PathLike[str]] = None,
     ):
         """
         初始化输出管理器
+
+        L5 对齐 PyRIT 1.0.0 output 模块：
+        - 支持 blurred_dir 将模糊图片副本重定向到专用目录（markdown 格式专用）
 
         Args:
             exam_id: 考试 ID
@@ -199,12 +205,16 @@ class OutputManager:
             include_reasoning_trace: 是否包含推理模型的推理轨迹（o1/o3）
             blur_images: 是否模糊图片内容（保护审查者）
             blur_radius: 高斯模糊半径
+            blurred_dir: 模糊图片副本存放目录（仅 markdown 格式生效）。
+                None 表示写在原图旁边（<stem>_blurred.png）。
+                传入路径则在该目录下创建模糊副本。
         """
         self.exam_id = exam_id
         self.verbose = verbose
         self.include_reasoning_trace = include_reasoning_trace
         self.blur_images = blur_images
         self.blur_radius = blur_radius
+        self.blurred_dir = os.fspath(blurred_dir) if blurred_dir is not None else None
 
         config_loader = get_config_loader()
         logs_dir = Path(config_loader.get_logs_dir())
@@ -249,6 +259,7 @@ class OutputManager:
         # 终端通道 - pretty 格式
         # to_terminal=True 时直接输出（verbose / VERBOSE_SUCCESS 显式请求）
         # to_terminal=False 时由 _should_show_terminal 兜底（非 verbose 模式下前 5 个成功结果）
+        # 注意：blurred_dir 仅对 markdown 格式生效（pretty 格式在内存中模糊）
         should_show_terminal = to_terminal or self._should_show_terminal(result)
         if should_show_terminal:
             try:
@@ -266,6 +277,7 @@ class OutputManager:
                 logger.warning(f"Terminal output failed for attack #{self._attack_count}: {e}")
 
         # 文件通道 - markdown 格式（全量，包含辅助评分、对抗对话、剪枝对话）
+        # L5 对齐：传递 blurred_dir 将模糊图片副本重定向到专用目录
         if to_file:
             try:
                 await output_attack_async(
@@ -277,6 +289,7 @@ class OutputManager:
                     include_pruned_conversations=include_pruned,
                     blur_images=self.blur_images,
                     blur_radius=self.blur_radius,
+                    blurred_dir=self.blurred_dir,
                 )
             except Exception as e:
                 logger.warning(f"File output failed for attack #{self._attack_count}: {e}")

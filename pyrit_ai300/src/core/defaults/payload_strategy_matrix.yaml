@@ -366,12 +366,12 @@ converter_chains:
       CaesarConverter:
         caesar_offset: 13
 
-  # 格式注入链（ASCII 艺术 + QR 码 + PDF）
+  # 格式注入链（ASCII 艺术）
+  # 注意: QRCodeConverter 输出 image_path，PDFConverter 输入 text，串联会产生模态不匹配
+  # 需要独立使用 QRCodeConverter 或 PDFConverter
   format_injection:
     converters:
       - AsciiArtConverter
-      - QRCodeConverter
-      - PDFConverter
 
   # LLM 辅助链（说服转换 + 语气转换 + 翻译）
   llm_assisted:
@@ -385,7 +385,7 @@ converter_chains:
       ToneConverter:
         tone: "formal"
       PersuasionConverter:
-        persuasion_technique: "authority"
+        persuasion_technique: "authority_endorsement"
 
   # Unicode 攻击链（Unicode 混淆 + 双向文本 + 零宽字符）
   unicode_attack:
@@ -432,7 +432,7 @@ converter_chains:
       - TranslationConverter
     params:
       PersuasionConverter:
-        persuasion_technique: "authority"
+        persuasion_technique: "authority_endorsement"
       ToneConverter:
         tone: "formal"
       TranslationConverter:
@@ -497,10 +497,8 @@ converter_chains:
       - PolicyPuppetryConverter
       - ToneConverter
     params:
-      PolicyPuppetryConverter:
-        policy_type: "system_instruction"
       ToneConverter:
-        tone: "authoritative"
+        tone: "formal"
 
   # 分解+重构链（PyRIT 1.0.0 新增）
   # 将恶意请求分解为看似无害的子任务，再重新包装
@@ -510,9 +508,9 @@ converter_chains:
       - TaskFramingConverter
     params:
       DecompositionConverter:
-        strategy: "task_breakdown"
+        use_word_game: true
       TaskFramingConverter:
-        frame_as: "data_analysis"
+        task_template: "TASK is '{{ prompt }}'"
 
   # 噪声+大写链（PyRIT 1.0.0 新增）
   # 在 prompt 中注入随机噪声和大写字符，干扰内容过滤器
@@ -524,7 +522,6 @@ converter_chains:
     params:
       NoiseConverter:
         number_errors: 5
-        error_types: ["typo", "homophone"]
       RandomCapitalLettersConverter:
         percentage: 40.0
 
@@ -536,9 +533,58 @@ converter_chains:
       - PersuasionConverter
     params:
       TaskFramingConverter:
-        frame_as: "data_process"
+        task_template: "TASK is '{{ prompt }}'"
       PersuasionConverter:
-        persuasion_technique: "authority"
+        persuasion_technique: "authority_endorsement"
+
+  # PDF 注入链（高级 File Converter — 修改现有 PDF）
+  # 在现有 PDF 的指定坐标注入攻击文本，用于 XPIA/RAG 文档投递攻击
+  # existing_pdf 和 injection_items 需在运行时通过 create_pdf_injection_chain() 设置
+  pdf_injection:
+    converters:
+      - PDFConverter
+    params:
+      PDFConverter:
+        font_color: [255, 255, 255]
+        font_size: 6
+
+  # WordDoc 注入链（高级 File Converter — 占位符替换）
+  # 在现有 Word 文档中替换占位符为攻击内容
+  # existing_docx 需在运行时通过 create_worddoc_injection_chain() 设置
+  worddoc_injection:
+    converters:
+      - WordDocConverter
+    params:
+      WordDocConverter:
+        placeholder: "{{INJECTION_PLACEHOLDER}}"
+
+  # TextJailbreak 链（使用越狱模板包装）
+  # jailbreak_template 需在运行时通过 create_text_jailbreak_chain() 设置
+  text_jailbreak:
+    converters:
+      - TextJailbreakConverter
+
+  # Response Converter 链（响应转换器）
+  # 对目标响应应用 DenylistConverter 过滤敏感内容
+  response_filter:
+    converters:
+      - DenylistConverter
+    apply_to_response: true
+
+  # 高级字段示例链（ConverterConfiguration 高级字段）
+  # indexes_to_apply 指定应用到哪些响应片段
+  # prompt_data_types_to_apply 按数据类型过滤
+  advanced_selective:
+    converters:
+      - Base64Converter
+    indexes_to_apply: [0, 2]
+    prompt_data_types_to_apply: ["text"]
+
+  # 多模态图片攻击链（text → image_path）
+  # 将文本 prompt 转换为 QR 码图片，用于多模态攻击
+  multimodal_image_attack:
+    converters:
+      - QRCodeConverter
 
 # ------------------------------------------------------------
 # Scorer 选择配置（按攻击类型）

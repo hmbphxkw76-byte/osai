@@ -18,6 +18,10 @@ Target Factory — L5 Expert Implementation
   │ playwright_copilot          │ PlaywrightCopilotTarget (Copilot Web)    │
   │ azure_blob                  │ AzureBlobStorageTarget (XPIA 载荷投递)    │
   │ prompt_shield               │ PromptShieldTarget (防御测试)             │
+  │ openai_image                │ OpenAIImageTarget (DALL-E 图片生成)       │
+  │ openai_video                │ OpenAIVideoTarget (Sora 视频生成)         │
+  │ openai_tts                  │ OpenAITTSTarget (文本转语音)              │
+  │ azure_ml                    │ AzureMLChatTarget (Azure ML 对话)         │
   │ text                        │ TextTarget (调试输出)                     │
   └─────────────────────────────┴──────────────────────────────────────────┘
 
@@ -32,6 +36,13 @@ Target Factory — L5 Expert Implementation
   8. Agentic Tool Calling 支持（OpenAIResponseTarget + custom_functions）
   9. 能力探测（discover_target_capabilities_async，apply=True）
  10. 环境变量 + config.yaml + 显式参数 三级配置（优先级：显式 > env > config）
+ 11. custom_configuration 透传（TargetConfiguration 包含 capabilities + policy + normalizer）
+ 12. CapabilityHandlingPolicy（ADAPT vs RAISE — 不支持能力时的处理策略）
+ 13. TargetRequirements 验证（CHAT_TARGET_REQUIREMENTS — 多轮对话能力检查）
+ 14. get_known_capabilities 模型档案查询（gpt-4o / gpt-5 / sora-2 / tts 等）
+ 15. MessageNormalizer 集成（ChatMessageNormalizer / GenericSystemSquashNormalizer / ConversationContextNormalizer）
+ 16. 多模态目标支持（Image / Video / TTS）
+ 17. Azure ML Managed Endpoint 支持
 """
 
 import json
@@ -39,19 +50,30 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 import httpx
 
 from pyrit.prompt_target import (
+    CHAT_TARGET_REQUIREMENTS,
     HTTPTarget,
     HTTPXAPITarget,
     OpenAIChatTarget,
+    OpenAIImageTarget,
     OpenAIResponseTarget,
+    OpenAITTSTarget,
+    OpenAIVideoTarget,
     PromptTarget,
     TargetConfiguration,
+    TargetRequirements,
     TextTarget,
     discover_target_capabilities_async,
+    get_known_capabilities,
+)
+from pyrit.prompt_target.common.target_capabilities import (
+    CapabilityHandlingPolicy,
+    CapabilityName,
+    UnsupportedCapabilityBehavior,
 )
 from pyrit.prompt_target.http_target.http_target_callback_functions import (
     get_http_target_json_response_callback_function,
@@ -60,6 +82,11 @@ from pyrit.prompt_target.http_target.http_target_callback_functions import (
 from pyrit.auth import (
     get_azure_openai_auth,
     is_azure_openai_endpoint,
+)
+from pyrit.message_normalizer import (
+    ChatMessageNormalizer,
+    ConversationContextNormalizer,
+    GenericSystemSquashNormalizer,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +113,12 @@ TARGET_TYPE_PLAYWRIGHT_COPILOT = "playwright_copilot"
 # Azure 服务系列
 TARGET_TYPE_AZURE_BLOB = "azure_blob"
 TARGET_TYPE_PROMPT_SHIELD = "prompt_shield"
+TARGET_TYPE_AZURE_ML = "azure_ml"
+
+# 多模态
+TARGET_TYPE_OPENAI_IMAGE = "openai_image"
+TARGET_TYPE_OPENAI_VIDEO = "openai_video"
+TARGET_TYPE_OPENAI_TTS = "openai_tts"
 
 # 调试
 TARGET_TYPE_TEXT = "text"
@@ -96,12 +129,31 @@ _LEGACY_TYPE_ALIASES: Dict[str, str] = {
     "openai_compatible_vllm": TARGET_TYPE_OPENAI_CHAT,
     "openai_compatible_ollama": TARGET_TYPE_OPENAI_CHAT,
     "openai": TARGET_TYPE_OPENAI_CHAT,
+    "openai_dalle": TARGET_TYPE_OPENAI_IMAGE,
+    "dalle": TARGET_TYPE_OPENAI_IMAGE,
+    "image_generation": TARGET_TYPE_OPENAI_IMAGE,
+    "sora": TARGET_TYPE_OPENAI_VIDEO,
+    "video_generation": TARGET_TYPE_OPENAI_VIDEO,
+    "tts": TARGET_TYPE_OPENAI_TTS,
+    "audio_generation": TARGET_TYPE_OPENAI_TTS,
+    "azure_ml": TARGET_TYPE_AZURE_ML,
+    "azureml": TARGET_TYPE_AZURE_ML,
     "structured_http": TARGET_TYPE_HTTP_API,
     "custom_http": TARGET_TYPE_HTTP_RAW,
 }
 
 # 使用 OpenAI SDK 的类型（支持推理参数 / extra_body_parameters / httpx_client_kwargs）
 _OPENAI_SDK_TYPES = frozenset({TARGET_TYPE_OPENAI_CHAT, TARGET_TYPE_OPENAI_RESPONSES, TARGET_TYPE_LITELLM})
+
+# 使用 OpenAI SDK 的多模态类型（OpenAITarget 基类，支持 endpoint/api_key/httpx_client_kwargs/custom_configuration）
+_OPENAI_MULTIMODAL_TYPES = frozenset({
+    TARGET_TYPE_OPENAI_IMAGE,
+    TARGET_TYPE_OPENAI_VIDEO,
+    TARGET_TYPE_OPENAI_TTS,
+})
+
+# 所有支持 custom_configuration 的类型
+_CUSTOM_CONFIG_TYPES = _OPENAI_SDK_TYPES | _OPENAI_MULTIMODAL_TYPES | {TARGET_TYPE_AZURE_ML}
 
 # 向后兼容别名（recon_engine 等模块使用此名称）
 OPENAI_COMPATIBLE_TYPES = _OPENAI_SDK_TYPES
@@ -196,10 +248,48 @@ class TargetParams:
     azure_endpoint: Optional[str] = None        # Azure Content Safety 端点
     force_entry_field: Optional[str] = None     # None / "userPrompt" / "documents"
 
+    # ── OpenAI Image 专用 (DALL-E / GPT-Image) ──
+    image_size: Optional[str] = None            # auto / 1024x1024 / 1536x1024 / 1024x1536
+    output_format: Optional[str] = None         # png / jpeg / webp
+    image_quality: Optional[str] = None         # auto / low / medium / high
+    image_background: Optional[str] = None      # transparent / opaque / auto
+
+    # ── OpenAI Video 专用 (Sora) ──
+    video_resolution: Optional[str] = None      # 720x1280 / 1280x720 / 1024x1792 / 1792x1024
+    video_n_seconds: Optional[int] = None       # 4 / 8 / 12
+
+    # ── OpenAI TTS 专用 ──
+    tts_voice: Optional[str] = None             # alloy / echo / fable / onyx / nova / shimmer
+    tts_response_format: Optional[str] = None   # flac / mp3 / mp4 / mpeg / mpga / m4a / ogg / wav / webm
+    tts_language: Optional[str] = None          # ISO 639-1 语言代码 (如 'en', 'zh')
+    tts_speed: Optional[float] = None           # 0.25 ~ 4.0
+
+    # ── Azure ML 专用 ──
+    azure_ml_endpoint: Optional[str] = None     # Azure ML Managed Endpoint URL
+    azure_ml_api_key: Optional[str] = None      # Azure ML API Key
+    azure_ml_max_new_tokens: Optional[int] = None  # 最大生成 token 数
+    azure_ml_temperature: Optional[float] = None   # 温度
+    azure_ml_top_p: Optional[float] = None         # top_p
+    azure_ml_repetition_penalty: Optional[float] = None  # 重复惩罚
+
+    # ── LiteLLM 专用 ──
+    drop_unsupported_params: bool = True        # 自动丢弃不支持的参数
+    stop: Optional[Any] = None                  # 停止序列 (str 或 list[str])
+    litellm_max_tokens: Optional[int] = None    # LiteLLM 使用 max_tokens (非 max_completion_tokens)
+
+    # ── TargetConfiguration / CapabilityHandlingPolicy ──
+    custom_configuration: Optional[TargetConfiguration] = None  # 显式传入完整配置
+    capability_policy: Optional[str] = None     # "adapt" / "raise" — 不支持能力时的处理策略
+    use_developer_role: bool = False            # 是否使用 developer role（替代 system role）
+    system_message_behavior: Optional[str] = None  # "keep" / "squash" / "ignore" — 系统消息处理策略
+    message_normalizer: Optional[str] = None    # "default" / "system_squash" / "context" — 消息规范化器类型
+    validate_requirements: bool = True          # 是否对 chat 类型目标验证 CHAT_TARGET_REQUIREMENTS
+
     # ── 能力探测 ──
     discover_capabilities: bool = True          # 是否执行能力探测
     apply_discovered_capabilities: bool = True   # 是否将探测结果应用到 Target
     per_probe_timeout_s: float = 10.0
+    use_model_profile: bool = True              # 是否使用 get_known_capabilities 模型档案查询
 
     # ── 评分器专用 ──
     force_json_output: bool = False             # Judge Target 强制 JSON 输出能力
@@ -494,6 +584,237 @@ class TargetFactory:
             return None
 
     # ──────────────────────────────────────
+    # 4b. 模型能力档案查询 (P1-5: get_known_capabilities)
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def _resolve_model_capabilities(
+        target_type: str,
+        params: TargetParams,
+    ) -> Optional[TargetConfiguration]:
+        """
+        根据模型名称查询原生能力档案，构建 TargetConfiguration
+
+        查询顺序：
+        1. params.custom_configuration（显式传入，最高优先级）
+        2. get_known_capabilities(underlying_model)（PyRIT 原生模型档案）
+        3. Target 类的 get_default_configuration()（类默认配置）
+        4. None（让 Target 使用自身默认值）
+
+        如果同时指定了 capability_policy / message_normalizer / system_message_behavior，
+        会在此基础上叠加用户配置。
+
+        Args:
+            target_type: 目标类型
+            params: 目标参数
+
+        Returns:
+            TargetConfiguration 实例，或 None
+        """
+        # 1. 显式传入的完整配置 — 直接返回（但叠加 policy/normalizer 覆盖）
+        if params.custom_configuration is not None:
+            return TargetFactory._overlay_configuration(params.custom_configuration, params)
+
+        # 2. 使用 get_known_capabilities 查询模型档案
+        model_name = params.underlying_model or params.model_name
+        if params.use_model_profile and model_name:
+            known_caps = get_known_capabilities(model_name)
+            if known_caps is not None:
+                logger.info(f"Model profile found for '{model_name}': "
+                            f"input={known_caps.supported_input_modalities}, "
+                            f"output={known_caps.supported_output_modalities}")
+                policy = TargetFactory._build_capability_policy(params)
+                normalizer_overrides = TargetFactory._build_normalizer_overrides(params)
+                return TargetConfiguration(
+                    capabilities=known_caps,
+                    policy=policy,
+                    normalizer_overrides=normalizer_overrides,
+                )
+            else:
+                logger.debug(f"No model profile found for '{model_name}', using class default")
+
+        # 3. 如果有 policy / normalizer 配置，也需要叠加到类默认配置上
+        policy = TargetFactory._build_capability_policy(params)
+        normalizer_overrides = TargetFactory._build_normalizer_overrides(params)
+        if policy is not None or normalizer_overrides is not None:
+            # 获取类默认配置
+            target_cls = _TARGET_CLASSES.get(target_type)
+            if target_cls is not None and hasattr(target_cls, "get_default_configuration"):
+                default_config = target_cls.get_default_configuration()
+                return TargetConfiguration(
+                    capabilities=default_config.capabilities,
+                    policy=policy or default_config.policy,
+                    normalizer_overrides=normalizer_overrides,
+                )
+
+        return None
+
+    @staticmethod
+    def _overlay_configuration(
+        base: TargetConfiguration,
+        params: TargetParams,
+    ) -> TargetConfiguration:
+        """在已有 TargetConfiguration 基础上叠加用户的 policy / normalizer 配置"""
+        policy = TargetFactory._build_capability_policy(params)
+        normalizer_overrides = TargetFactory._build_normalizer_overrides(params)
+        if policy is None and normalizer_overrides is None:
+            return base
+        return TargetConfiguration(
+            capabilities=base.capabilities,
+            policy=policy or base.policy,
+            normalizer_overrides=normalizer_overrides,
+        )
+
+    # ──────────────────────────────────────
+    # 4c. CapabilityHandlingPolicy 构建 (P1-3: ADAPT vs RAISE)
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def _build_capability_policy(params: TargetParams) -> Optional[CapabilityHandlingPolicy]:
+        """
+        构建 CapabilityHandlingPolicy
+
+        根据 params.capability_policy 设置不支持能力时的行为：
+        - "adapt": 自动适配（如 system prompt 不支持时 squash 到 user 消息）
+        - "raise": 抛出异常
+
+        默认策略（不设置时）：
+        - SYSTEM_PROMPT → RAISE
+        - MULTI_TURN → RAISE
+        - JSON_SCHEMA → ADAPT
+
+        Args:
+            params: 目标参数
+
+        Returns:
+            CapabilityHandlingPolicy 实例，或 None（使用默认）
+        """
+        if not params.capability_policy:
+            return None
+
+        behavior = UnsupportedCapabilityBehavior.ADAPT if params.capability_policy == "adapt" else UnsupportedCapabilityBehavior.RAISE
+
+        # 对所有可选能力统一应用用户指定策略
+        behaviors = {
+            CapabilityName.MULTI_TURN: behavior,
+            CapabilityName.SYSTEM_PROMPT: behavior,
+            CapabilityName.JSON_SCHEMA: behavior,
+            CapabilityName.JSON_OUTPUT: behavior,
+            CapabilityName.EDITABLE_HISTORY: behavior,
+            CapabilityName.MULTI_MESSAGE_PIECES: behavior,
+            CapabilityName.STREAMING_AUDIO: behavior,
+        }
+
+        logger.info(f"CapabilityHandlingPolicy: {params.capability_policy} for all capabilities")
+        return CapabilityHandlingPolicy(behaviors=behaviors)
+
+    # ──────────────────────────────────────
+    # 4d. MessageNormalizer 构建 (P2-6: ChatMessageNormalizer 集成)
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def _build_message_normalizer(params: TargetParams) -> Optional[ChatMessageNormalizer]:
+        """
+        构建 ChatMessageNormalizer
+
+        根据 params.message_normalizer 和 params.system_message_behavior 选择规范化器：
+        - "default": ChatMessageNormalizer(use_developer_role=..., system_message_behavior=...)
+        - "system_squash": GenericSystemSquashNormalizer（将 system 消息压入第一个 user 消息）
+        - "context": ConversationContextNormalizer（保留对话上下文）
+
+        如果 params.system_message_behavior 或 params.use_developer_role 被设置但 message_normalizer 未设置，
+        默认使用 ChatMessageNormalizer。
+
+        Args:
+            params: 目标参数
+
+        Returns:
+            ChatMessageNormalizer 实例，或 None
+        """
+        normalizer_type = params.message_normalizer
+
+        # 如果没有显式指定 normalizer 类型，但设置了行为参数，默认使用 ChatMessageNormalizer
+        if normalizer_type is None:
+            if params.use_developer_role or params.system_message_behavior:
+                normalizer_type = "default"
+            else:
+                return None
+
+        system_behavior = params.system_message_behavior or "keep"
+
+        if normalizer_type == "system_squash":
+            logger.info(f"MessageNormalizer: GenericSystemSquashNormalizer (use_developer_role={params.use_developer_role})")
+            # GenericSystemSquashNormalizer 是预配置类，不接受构造参数
+            # 它硬编码了 squash 行为，use_developer_role 需通过 ChatMessageNormalizer 使用
+            return GenericSystemSquashNormalizer()
+        elif normalizer_type == "context":
+            logger.info(f"MessageNormalizer: ConversationContextNormalizer")
+            return ConversationContextNormalizer()
+        else:
+            # default
+            logger.info(f"MessageNormalizer: ChatMessageNormalizer "
+                        f"(use_developer_role={params.use_developer_role}, behavior={system_behavior})")
+            return ChatMessageNormalizer(
+                use_developer_role=params.use_developer_role,
+                system_message_behavior=system_behavior,
+            )
+
+    @staticmethod
+    def _build_normalizer_overrides(params: TargetParams) -> Optional[Dict[CapabilityName, Any]]:
+        """
+        构建 normalizer_overrides 映射
+
+        将 MessageNormalizer 映射到 CapabilityName.SYSTEM_PROMPT，
+        当目标不支持 system_prompt 时使用该 normalizer 进行消息规范化。
+
+        Args:
+            params: 目标参数
+
+        Returns:
+            {CapabilityName: MessageListNormalizer} 映射，或 None
+        """
+        normalizer = TargetFactory._build_message_normalizer(params)
+        if normalizer is None:
+            return None
+
+        # 将 normalizer 映射到 SYSTEM_PROMPT 能力
+        # 当目标不支持 system_prompt 时，PyRIT 会使用此 normalizer 处理消息
+        return {CapabilityName.SYSTEM_PROMPT: normalizer}
+
+    # ──────────────────────────────────────
+    # 4e. TargetRequirements 验证 (P1-4: CHAT_TARGET_REQUIREMENTS)
+    # ──────────────────────────────────────
+
+    @staticmethod
+    def validate_target_requirements(
+        target: PromptTarget,
+        requirements: Optional[TargetRequirements] = None,
+    ) -> None:
+        """
+        验证目标是否满足指定的能力要求
+
+        默认使用 CHAT_TARGET_REQUIREMENTS（多轮对话 + 可编辑历史），
+        也可传入自定义 TargetRequirements。
+
+        验证失败时抛出 ValueError，列出所有缺失的能力。
+
+        Args:
+            target: 已创建的 PromptTarget 实例
+            requirements: 能力要求（None 时使用 CHAT_TARGET_REQUIREMENTS）
+
+        Raises:
+            ValueError: 如果目标不满足能力要求
+        """
+        requirements = requirements or CHAT_TARGET_REQUIREMENTS
+        try:
+            requirements.validate(target=target)
+            logger.info(f"Target {type(target).__name__} satisfies CHAT_TARGET_REQUIREMENTS")
+        except ValueError as e:
+            logger.warning(f"Target {type(target).__name__} does not satisfy requirements: {e}")
+            # 不抛出异常，只记录警告 — 允许用户使用不完全兼容的目标
+            # 如果需要严格模式，用户可以在调用层捕获并处理
+
+    # ──────────────────────────────────────
     # 5. 辅助方法
     # ──────────────────────────────────────
 
@@ -636,12 +957,23 @@ class TargetFactory:
         auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
         logger.info(f"Auth mode: {auth_mode}")
 
+        # 3b. 解析模型能力档案（P1-5: get_known_capabilities + P1-3: CapabilityHandlingPolicy + P2-6: MessageNormalizer）
+        if params.custom_configuration is None and target_type in _CUSTOM_CONFIG_TYPES:
+            resolved_config = TargetFactory._resolve_model_capabilities(target_type, params)
+            if resolved_config is not None:
+                params.custom_configuration = resolved_config
+                logger.info(f"Custom configuration resolved for {target_type}")
+
         # 4. 创建 Target
         target = TargetFactory.create_target(
             target_type=target_type,
             target_url=target_url,
             params=params,
         )
+
+        # 4b. 验证 CHAT_TARGET_REQUIREMENTS（P1-4）
+        if params.validate_requirements and target_type in _OPENAI_SDK_TYPES:
+            TargetFactory.validate_target_requirements(target)
 
         # 5. 能力探测（仅对 SDK 系列目标）
         if target_type in _OPENAI_SDK_TYPES and params.discover_capabilities:
@@ -700,6 +1032,10 @@ def _create_openai_chat(target_url: str, params: TargetParams) -> OpenAIChatTarg
     # 速率限制
     if params.max_requests_per_minute:
         kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2: 包含 CapabilityHandlingPolicy + MessageNormalizer + 模型档案）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
 
     return OpenAIChatTarget(**kwargs)
 
@@ -760,6 +1096,10 @@ def _create_openai_responses(target_url: str, params: TargetParams) -> OpenAIRes
     if params.max_requests_per_minute:
         kwargs["max_requests_per_minute"] = params.max_requests_per_minute
 
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
+
     return OpenAIResponseTarget(**kwargs)
 
 
@@ -769,6 +1109,12 @@ def _create_litellm(target_url: str, params: TargetParams) -> PromptTarget:
 
     支持 Anthropic Claude / Google Gemini / Cohere / Mistral 等。
     通过 LiteLLM 库统一 API，自动处理 Provider 差异。
+
+    P3-10 增强：
+    - 修复 model → model_name 参数名
+    - 补全 frequency_penalty / presence_penalty / n / stop / underlying_model
+    - 补全 drop_unsupported_params / custom_configuration
+    - reasoning_effort 通过 extra_body_parameters 透传
     """
     try:
         from pyrit.prompt_target import LiteLLMChatTarget
@@ -780,24 +1126,46 @@ def _create_litellm(target_url: str, params: TargetParams) -> PromptTarget:
         return _create_openai_chat(target_url, params)
 
     kwargs: Dict[str, Any] = {
-        "model": params.model_name or os.getenv("TARGET_MODEL", "gpt-4o"),
-        "endpoint": target_url,
+        "model_name": params.model_name or os.getenv("TARGET_MODEL", "gpt-4o"),
+        "endpoint": target_url or None,
         "api_key": params.api_key or os.getenv("TARGET_API_KEY", "placeholder"),
     }
 
-    # 推理参数
+    # 推理参数（LiteLLM 使用 max_tokens 而非 max_completion_tokens）
     if params.temperature is not None:
         kwargs["temperature"] = params.temperature
     if params.top_p is not None:
         kwargs["top_p"] = params.top_p
-    if params.max_completion_tokens is not None:
-        kwargs["max_completion_tokens"] = params.max_completion_tokens
+    if params.litellm_max_tokens is not None:
+        kwargs["max_tokens"] = params.litellm_max_tokens
+    elif params.max_completion_tokens is not None:
+        kwargs["max_tokens"] = params.max_completion_tokens
+    if params.frequency_penalty is not None:
+        kwargs["frequency_penalty"] = params.frequency_penalty
+    if params.presence_penalty is not None:
+        kwargs["presence_penalty"] = params.presence_penalty
     if params.seed is not None:
         kwargs["seed"] = params.seed
+    if params.n is not None:
+        kwargs["n"] = params.n
+    if params.stop is not None:
+        kwargs["stop"] = params.stop
 
-    # extra_body_parameters
-    if params.extra_body_parameters:
-        kwargs["extra_body_parameters"] = params.extra_body_parameters
+    # drop_unsupported_params（LiteLLM 专用）
+    kwargs["drop_unsupported_params"] = params.drop_unsupported_params
+
+    # extra_body_parameters（合并 reasoning_effort 等推理参数）
+    extra_body = dict(params.extra_body_parameters or {})
+    if params.reasoning_effort is not None and "reasoning" not in extra_body:
+        extra_body["reasoning_effort"] = params.reasoning_effort
+    if params.reasoning_summary is not None and "reasoning_summary" not in extra_body:
+        extra_body["reasoning_summary"] = params.reasoning_summary
+    if extra_body:
+        kwargs["extra_body_parameters"] = extra_body
+
+    # underlying_model
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
 
     # httpx_client_kwargs
     httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
@@ -807,6 +1175,10 @@ def _create_litellm(target_url: str, params: TargetParams) -> PromptTarget:
     # 速率限制
     if params.max_requests_per_minute:
         kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
 
     return LiteLLMChatTarget(**kwargs)
 
@@ -1096,6 +1468,244 @@ def _create_text(target_url: str, params: TargetParams) -> TextTarget:
     return TextTarget()
 
 
+def _create_openai_image(target_url: str, params: TargetParams) -> OpenAIImageTarget:
+    """创建 OpenAIImageTarget（DALL-E / GPT-Image 图片生成目标）
+
+    用于多模态攻击测试：向图片生成模型发送提示，获取生成的图片。
+    支持的参数：image_size, output_format, quality, background。
+
+    P0-1 修复：
+    - 修复 detect_auth_mode 调用错误（NameError）
+    - 修复 _build_openai_httpx_kwargs 调用错误
+    - 修复 deployment → model_name 参数名
+    - 补全 max_requests_per_minute / custom_configuration
+    - 修复认证逻辑（identity 模式下 api_key=None 让 PyRIT 自动使用 Entra ID）
+    """
+    endpoint = target_url.rstrip("/")
+    auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+    }
+
+    # 认证
+    if auth_mode == "api_key":
+        api_key = params.api_key or os.getenv("TARGET_API_KEY", "placeholder")
+        kwargs["api_key"] = api_key
+    # identity 模式下不传 api_key，让 PyRIT 自动使用 Entra ID
+
+    # 图片生成参数
+    if params.image_size:
+        kwargs["image_size"] = params.image_size
+    if params.output_format:
+        kwargs["output_format"] = params.output_format
+    if params.image_quality:
+        kwargs["quality"] = params.image_quality
+    if params.image_background:
+        kwargs["background"] = params.image_background
+
+    # model_name（OpenAITarget 基类参数，不是 deployment）
+    model = params.model_name or os.getenv("TARGET_MODEL", "dall-e-3")
+    kwargs["model_name"] = model
+
+    # underlying_model（Azure 部署名 ≠ 模型名时使用）
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
+
+    # httpx_client_kwargs 透传
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
+
+    logger.info(f"Creating OpenAIImageTarget: endpoint={endpoint}, model={model}")
+    return OpenAIImageTarget(**kwargs)
+
+
+def _create_openai_video(target_url: str, params: TargetParams) -> OpenAIVideoTarget:
+    """创建 OpenAIVideoTarget（Sora 视频生成目标）
+
+    用于多模态攻击测试：向视频生成模型发送提示，获取生成的视频。
+    支持的参数：resolution_dimensions, n_seconds。
+
+    P2-7 新增：
+    - 支持 Sora 视频生成模型
+    - 支持 text + image → video 混合模态输入
+    - 完整认证 / httpx_client_kwargs / custom_configuration 透传
+    """
+    endpoint = target_url.rstrip("/")
+    auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+    }
+
+    # 认证
+    if auth_mode == "api_key":
+        api_key = params.api_key or os.getenv("TARGET_API_KEY", "placeholder")
+        kwargs["api_key"] = api_key
+
+    # 视频生成参数
+    if params.video_resolution:
+        kwargs["resolution_dimensions"] = params.video_resolution
+    if params.video_n_seconds is not None:
+        kwargs["n_seconds"] = params.video_n_seconds
+
+    # model_name
+    model = params.model_name or os.getenv("TARGET_MODEL", "sora-2")
+    kwargs["model_name"] = model
+
+    # underlying_model
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
+
+    # httpx_client_kwargs
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
+
+    logger.info(f"Creating OpenAIVideoTarget: endpoint={endpoint}, model={model}")
+    return OpenAIVideoTarget(**kwargs)
+
+
+def _create_openai_tts(target_url: str, params: TargetParams) -> OpenAITTSTarget:
+    """创建 OpenAITTSTarget（文本转语音目标）
+
+    用于多模态攻击测试：向 TTS 模型发送提示，获取生成的音频。
+    支持的参数：voice, response_format, language, speed。
+
+    P2-8 新增：
+    - 支持 OpenAI TTS 模型
+    - 完整认证 / httpx_client_kwargs / custom_configuration 透传
+    """
+    endpoint = target_url.rstrip("/")
+    auth_mode = TargetFactory.detect_auth_mode(endpoint, params)
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+    }
+
+    # 认证
+    if auth_mode == "api_key":
+        api_key = params.api_key or os.getenv("TARGET_API_KEY", "placeholder")
+        kwargs["api_key"] = api_key
+
+    # TTS 参数
+    if params.tts_voice:
+        kwargs["voice"] = params.tts_voice
+    if params.tts_response_format:
+        kwargs["response_format"] = params.tts_response_format
+    if params.tts_language:
+        kwargs["language"] = params.tts_language
+    if params.tts_speed is not None:
+        kwargs["speed"] = params.tts_speed
+
+    # model_name
+    model = params.model_name or os.getenv("TARGET_MODEL", "tts-1")
+    kwargs["model_name"] = model
+
+    # underlying_model
+    if params.underlying_model:
+        kwargs["underlying_model"] = params.underlying_model
+
+    # httpx_client_kwargs
+    httpx_kwargs = TargetFactory._build_openai_httpx_kwargs(params)
+    if httpx_kwargs:
+        kwargs["httpx_client_kwargs"] = httpx_kwargs
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
+
+    logger.info(f"Creating OpenAITTSTarget: endpoint={endpoint}, model={model}")
+    return OpenAITTSTarget(**kwargs)
+
+
+def _create_azure_ml(target_url: str, params: TargetParams) -> PromptTarget:
+    """创建 AzureMLChatTarget（Azure ML Managed Endpoint 对话目标）
+
+    用于攻击部署在 Azure ML 上的开源模型（Llama, Mistral 等）。
+    Azure ML 使用独立的认证体系（AZURE_ML_KEY / AZURE_ML_MANAGED_ENDPOINT）。
+
+    P3-9 新增：
+    - 支持 Azure ML Managed Endpoint
+    - 完整推理参数透传（max_new_tokens / temperature / top_p / repetition_penalty）
+    - custom_configuration 透传
+    """
+    try:
+        from pyrit.prompt_target import AzureMLChatTarget
+    except ImportError:
+        raise ImportError(
+            "AzureMLChatTarget requires azure-identity. "
+            "Install with: pip install azure-identity"
+        )
+
+    # 端点（优先显式参数 > 环境变量 > target_url）
+    endpoint = params.azure_ml_endpoint or os.getenv("AZURE_ML_MANAGED_ENDPOINT", "").strip() or target_url
+    if not endpoint:
+        raise ValueError(
+            "azure_ml target requires 'azure_ml_endpoint' in params "
+            "or AZURE_ML_MANAGED_ENDPOINT env var"
+        )
+
+    kwargs: Dict[str, Any] = {
+        "endpoint": endpoint,
+    }
+
+    # 认证
+    api_key = params.azure_ml_api_key or os.getenv("AZURE_ML_KEY", "").strip()
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    # 模型名
+    if params.model_name:
+        kwargs["model_name"] = params.model_name
+
+    # 推理参数
+    if params.azure_ml_max_new_tokens is not None:
+        kwargs["max_new_tokens"] = params.azure_ml_max_new_tokens
+    if params.azure_ml_temperature is not None:
+        kwargs["temperature"] = params.azure_ml_temperature
+    elif params.temperature is not None:
+        kwargs["temperature"] = params.temperature
+    if params.azure_ml_top_p is not None:
+        kwargs["top_p"] = params.azure_ml_top_p
+    elif params.top_p is not None:
+        kwargs["top_p"] = params.top_p
+    if params.azure_ml_repetition_penalty is not None:
+        kwargs["repetition_penalty"] = params.azure_ml_repetition_penalty
+
+    # 速率限制
+    if params.max_requests_per_minute:
+        kwargs["max_requests_per_minute"] = params.max_requests_per_minute
+
+    # custom_configuration（P0-2）
+    if params.custom_configuration is not None:
+        kwargs["custom_configuration"] = params.custom_configuration
+
+    logger.info(f"Creating AzureMLChatTarget: endpoint={endpoint}")
+    return AzureMLChatTarget(**kwargs)
+
+
 # Target 创建器注册表
 _TARGET_CREATORS: Dict[str, Callable[[str, TargetParams], PromptTarget]] = {
     TARGET_TYPE_OPENAI_CHAT: _create_openai_chat,
@@ -1108,7 +1718,20 @@ _TARGET_CREATORS: Dict[str, Callable[[str, TargetParams], PromptTarget]] = {
     TARGET_TYPE_PLAYWRIGHT_COPILOT: _create_playwright_copilot,
     TARGET_TYPE_AZURE_BLOB: _create_azure_blob,
     TARGET_TYPE_PROMPT_SHIELD: _create_prompt_shield,
+    TARGET_TYPE_OPENAI_IMAGE: _create_openai_image,
+    TARGET_TYPE_OPENAI_VIDEO: _create_openai_video,
+    TARGET_TYPE_OPENAI_TTS: _create_openai_tts,
+    TARGET_TYPE_AZURE_ML: _create_azure_ml,
     TARGET_TYPE_TEXT: _create_text,
+}
+
+# Target 类映射（用于 get_default_configuration 查询）
+_TARGET_CLASSES: Dict[str, type] = {
+    TARGET_TYPE_OPENAI_CHAT: OpenAIChatTarget,
+    TARGET_TYPE_OPENAI_RESPONSES: OpenAIResponseTarget,
+    TARGET_TYPE_OPENAI_IMAGE: OpenAIImageTarget,
+    TARGET_TYPE_OPENAI_VIDEO: OpenAIVideoTarget,
+    TARGET_TYPE_OPENAI_TTS: OpenAITTSTarget,
 }
 
 
@@ -1332,6 +1955,83 @@ def _apply_env_defaults(params: TargetParams) -> None:
         if env_callback:
             params.callback_function = _resolve_callback_function(env_callback)
 
+    # ── P1-3: CapabilityHandlingPolicy ──
+    if params.capability_policy is None:
+        env_val = os.getenv("TARGET_CAPABILITY_POLICY", "").strip().lower()
+        if env_val in ("adapt", "raise"):
+            params.capability_policy = env_val
+
+    # ── P2-6: MessageNormalizer ──
+    if params.message_normalizer is None:
+        env_val = os.getenv("TARGET_MESSAGE_NORMALIZER", "").strip().lower()
+        if env_val in ("default", "system_squash", "context"):
+            params.message_normalizer = env_val
+
+    if not params.use_developer_role:
+        env_val = os.getenv("TARGET_USE_DEVELOPER_ROLE", "").strip().lower()
+        if env_val in ("true", "1", "yes"):
+            params.use_developer_role = True
+
+    if params.system_message_behavior is None:
+        env_val = os.getenv("TARGET_SYSTEM_MESSAGE_BEHAVIOR", "").strip().lower()
+        if env_val in ("keep", "squash", "ignore"):
+            params.system_message_behavior = env_val
+
+    # ── P2-7: OpenAIVideoTarget 参数 ──
+    if params.video_resolution is None:
+        env_val = os.getenv("TARGET_VIDEO_RESOLUTION", "").strip()
+        if env_val:
+            params.video_resolution = env_val
+
+    if params.video_n_seconds is None:
+        env_val = os.getenv("TARGET_VIDEO_N_SECONDS", "").strip()
+        if env_val:
+            try:
+                params.video_n_seconds = int(env_val)
+            except ValueError:
+                pass
+
+    # ── P2-8: OpenAITTSTarget 参数 ──
+    if params.tts_voice is None:
+        env_val = os.getenv("TARGET_TTS_VOICE", "").strip()
+        if env_val:
+            params.tts_voice = env_val
+
+    if params.tts_response_format is None:
+        env_val = os.getenv("TARGET_TTS_RESPONSE_FORMAT", "").strip()
+        if env_val:
+            params.tts_response_format = env_val
+
+    if params.tts_language is None:
+        env_val = os.getenv("TARGET_TTS_LANGUAGE", "").strip()
+        if env_val:
+            params.tts_language = env_val
+
+    if params.tts_speed is None:
+        env_val = os.getenv("TARGET_TTS_SPEED", "").strip()
+        if env_val:
+            try:
+                params.tts_speed = float(env_val)
+            except ValueError:
+                pass
+
+    # ── P3-9: AzureMLChatTarget 参数 ──
+    if params.azure_ml_endpoint is None:
+        env_val = os.getenv("AZURE_ML_MANAGED_ENDPOINT", "").strip()
+        if env_val:
+            params.azure_ml_endpoint = env_val
+
+    if params.azure_ml_api_key is None:
+        env_val = os.getenv("AZURE_ML_KEY", "").strip()
+        if env_val:
+            params.azure_ml_api_key = env_val
+
+    # ── P3-10: LiteLLM 参数 ──
+    if params.stop is None:
+        env_val = os.getenv("TARGET_STOP", "").strip()
+        if env_val:
+            params.stop = env_val
+
 
 # ============================================================
 # 回调函数解析
@@ -1482,3 +2182,249 @@ def create_target_params_from_env() -> TargetParams:
         params.target_type = _LEGACY_TYPE_ALIASES.get(env_type, env_type)
 
     return params
+
+
+# ============================================================
+# PyRIT TargetRegistry 集成（PyRIT 1.0.0 Registry）
+# ============================================================
+
+
+def register_target_instance_to_registry(
+    target: Any,
+    *,
+    name: Optional[str] = None,
+    tags: Optional[Union[Dict[str, str], List[str]]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    注册预配置 Target 实例到 PyRIT TargetRegistry.instances
+
+    PyRIT 1.0.0 Instance Registry 允许注册已配置好认证、端点等依赖的
+    Target 实例，后续可通过名称或标签检索，也可用于引用解析
+    （如 Scorer 的 chat_target 参数传入注册名而非实例）。
+
+    Args:
+        target: 已配置的 PromptTarget 实例
+        name: 注册名（None 则使用 unique_name）
+        tags: 标签（如 ["judge", "gpt4o"]）
+        metadata: 额外元数据
+
+    Returns:
+        注册名
+
+    Example:
+        >>> target = OpenAIChatTarget()
+        >>> register_target_instance_to_registry(
+        ...     target, name="judge_target", tags=["judge"]
+        ... )
+        >>> # 后续构建 Scorer 时可引用名称：
+        >>> # scorer = ScorerRegistry.create_instance(
+        >>> #     "SelfAskRefusalScorer", chat_target="judge_target"
+        >>> # )
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    registry.instances.register(target, name=name, tags=tags, metadata=metadata)
+    return name or target.get_identifier().unique_name
+
+
+def get_registered_target_instance(name: str) -> Optional[Any]:
+    """
+    从 TargetRegistry.instances 获取预配置 Target 实例
+
+    Args:
+        name: 注册名
+
+    Returns:
+        Target 实例，如果未找到则返回 None
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    return registry.instances.get(name)
+
+
+def list_registered_target_instances() -> List[str]:
+    """
+    列出 TargetRegistry.instances 中所有已注册实例名
+
+    Returns:
+        排序后的实例名列表
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    return registry.instances.get_names()
+
+
+def list_target_instance_metadata(
+    *,
+    include_filters: Optional[Dict[str, Any]] = None,
+    exclude_filters: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    列出 TargetRegistry.instances 中所有实例的元数据（支持过滤）
+
+    元数据来自实例的 ComponentIdentifier，包含 model_name、
+    endpoint_uri、supported_auth_modes、eval_hash 等。
+
+    Args:
+        include_filters: 必须全部匹配的过滤条件
+        exclude_filters: 匹配任一即排除的过滤条件
+
+    Returns:
+        实例元数据字典列表
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    identifiers = registry.instances.list_metadata(
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+    )
+
+    result: List[Dict[str, Any]] = []
+    for identifier in identifiers:
+        entry: Dict[str, Any] = {
+            "unique_name": identifier.unique_name,
+            "class_name": identifier.__class__.__name__,
+        }
+        if hasattr(identifier, "eval_hash") and identifier.eval_hash:
+            entry["eval_hash"] = identifier.eval_hash
+        params = getattr(identifier, "params", None)
+        if isinstance(params, dict):
+            for key, value in params.items():
+                if isinstance(value, (str, int, float, bool)):
+                    entry[key] = value
+                elif isinstance(value, (list, tuple)):
+                    entry[key] = list(value)
+        result.append(entry)
+
+    return result
+
+
+def query_target_instances_by_tags(query: Any) -> List[Any]:
+    """
+    使用 TagQuery 组合谓词查询 Target 实例
+
+    Args:
+        query: TagQuery 对象（可用 & 和 | 组合）
+
+    Returns:
+        匹配的 Target 实例列表
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    entries = registry.instances.query_by_tags(query=query)
+    return [entry.instance for entry in entries]
+
+
+def get_target_instances_by_tag(
+    tag: str,
+    value: Optional[str] = None,
+) -> List[Any]:
+    """
+    按标签获取 Target 实例
+
+    Args:
+        tag: 标签键
+        value: 标签值（None 则匹配任意值）
+
+    Returns:
+        Target 实例列表
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    entries = registry.instances.get_by_tag(tag=tag, value=value)
+    return [entry.instance for entry in entries]
+
+
+def get_target_class_metadata_from_registry(name: str) -> Optional[Dict[str, Any]]:
+    """
+    从 TargetRegistry 获取 Target 类的元数据
+
+    使用原生 TargetMetadata，包含：
+    - class_name / class_module / class_description / registry_name
+    - parameters（构建契约）
+    - supported_auth_modes（支持的认证模式，从类属性投影）
+
+    Args:
+        name: Target 类名（如 "OpenAIChatTarget"）
+
+    Returns:
+        元数据字典，如果未找到则返回 None
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    metadata = registry.get_registered_class_metadata(name)
+    if metadata is None:
+        return None
+
+    result: Dict[str, Any] = {
+        "class_name": metadata.class_name,
+        "class_module": metadata.class_module,
+        "class_description": metadata.class_description,
+        "registry_name": metadata.registry_name,
+        "supported_auth_modes": list(metadata.supported_auth_modes),
+    }
+
+    params: List[Dict[str, Any]] = []
+    for param in metadata.parameters:
+        param_dict: Dict[str, Any] = {
+            "name": param.name,
+            "description": param.description,
+            "default": param.default if param.default is not None else None,
+        }
+        if param.param_type is not None:
+            param_dict["param_type"] = str(param.param_type)
+        if param.reference is not None:
+            param_dict["reference"] = str(param.reference.component_type)
+        params.append(param_dict)
+    result["parameters"] = params
+
+    if hasattr(metadata, "class_attributes"):
+        result["class_attributes"] = dict(metadata.class_attributes)
+
+    return result
+
+
+def list_all_target_class_metadata(
+    *,
+    include_filters: Optional[Dict[str, Any]] = None,
+    exclude_filters: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    列出 TargetRegistry 中所有 Target 类的元数据（支持过滤）
+
+    Example:
+        # 列出支持 api_key 认证的 Target
+        api_key_targets = list_all_target_class_metadata(
+            include_filters={"supported_auth_modes": "api_key"}
+        )
+    """
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+    metadata_list = registry.get_all_registered_class_metadata(
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+    )
+
+    results: List[Dict[str, Any]] = []
+    for metadata in metadata_list:
+        entry: Dict[str, Any] = {
+            "class_name": metadata.class_name,
+            "class_module": metadata.class_module,
+            "class_description": metadata.class_description,
+            "registry_name": metadata.registry_name,
+            "supported_auth_modes": list(metadata.supported_auth_modes),
+        }
+        if hasattr(metadata, "class_attributes"):
+            entry["class_attributes"] = dict(metadata.class_attributes)
+        results.append(entry)
+
+    return results

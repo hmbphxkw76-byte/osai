@@ -45,12 +45,14 @@ class AnecdoctorWrapper:
         )
     """
 
-    def __init__(self, chat_target: Any = None):
+    def __init__(self, chat_target: Any = None, processing_model: Any = None):
         """
         Args:
             chat_target: 用于生成种子的 LLM Target（通常是 judge_target）
+            processing_model: 可选的处理模型（用于 AnecdoctorGenerator 的 processing_model 参数）
         """
         self._chat_target = chat_target
+        self._processing_model = processing_model
         self._generator = None
 
     def _ensure_generator(self):
@@ -59,7 +61,10 @@ class AnecdoctorWrapper:
             if self._chat_target is None:
                 raise ValueError("AnecdoctorWrapper 需要 chat_target 才能生成种子")
             from pyrit.executor.promptgen.anecdoctor import AnecdoctorGenerator, AnecdoctorContext
-            self._generator = AnecdoctorGenerator(chat_target=self._chat_target)
+            self._generator = AnecdoctorGenerator(
+                objective_target=self._chat_target,
+                processing_model=self._processing_model,
+            )
             logger.info("AnecdoctorGenerator 初始化完成")
 
     async def generate_async(

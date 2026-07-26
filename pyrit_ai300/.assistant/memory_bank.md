@@ -2,7 +2,7 @@
 
 > **用途**: 本文件是跨开发平台（CatPaw / Trae IDE / Cursor / Claude Code / Copilot 等）共享的项目记忆库。  
 > **更新规则**: 每次架构变更后必须同步更新此文件。  
-> **版本**: v1.0 | **更新日期**: 2026-07-25
+> **版本**: v2.0 | **更新日期**: 2026-07-26
 
 ---
 
@@ -11,7 +11,7 @@
 - **项目名称**: PyRIT AI-300 — 端到端全自动 AI 红队框架
 - **基础框架**: PyRIT 1.0.0
 - **用途**: OffSec AI-300 考试和实际 AI 红队评估
-- **总体对齐度**: 96% (L5 专家级)
+- **总体对齐度**: 98% (L5 专家级)
 - **主入口**: `pipeline.py`（九阶段顺序管道）
 - **Python 版本**: 3.11+
 - **配置体系**: 三级配置（显式参数 > 环境变量 > config.yaml）
@@ -91,15 +91,16 @@ Layer 5: Benchmarks         → FairnessBiasWrapper / QuestionAnsweringWrapper
 | `attack/core/attack_builder.py` | 横切配置 | `ATTACK_CLASS_MAP`/`create_attack_instance`/`create_attack_adversarial_config` |
 | `attack/core/constants.py` | 技术分类 | `SINGLE_TURN_ATTACKS`/`MULTI_TURN_TECHNIQUES`/`TAP_FAMILY_ATTACKS` |
 | `attack/core/scenario_event_handler.py` | 事件可观测 | `ScenarioEventHandler` |
+| `attack/core/modality_router.py` | 模态路由 | `ModalityRouter` (TargetCapabilities/模态检查/多模态消息构建/攻击路由) |
 | `attack/single_turn/single_turn_executor.py` | 单轮执行 | `SingleTurnExecutor` |
 | `attack/multi_turn/multi_turn_executor.py` | 多轮执行 | `MultiTurnExecutor` |
 | `attack/compound/sequential_executor.py` | 顺序组合 | `SequentialExecutor` |
 | `attack/component/seed_group_builder.py` | SeedGroup构建 | `SeedGroupBuilder` |
 | `workflow/scenario_orchestrator.py` | 批量调度 | `ScenarioOrchestrator` / `execute_batch_attacks` |
 | `workflow/batch_orchestrator.py` | 批量编排 | `BatchAttackOrchestrator` |
-| `workflow/xpia_workflow.py` | XPIA工作流 | `XPIAWorkflowWrapper` |
+| `workflow/xpia_workflow.py` | XPIA工作流 | `XPIAWorkflowWrapper` / `RAGXPIAWorkflowWrapper` / `ProcessingCallbackBuilder` |
 
-### 3.3 src/targets/（11种Target类型）
+### 3.3 src/targets/（12种Target类型）
 
 | 类型 | PyRIT 类 | 用途 |
 |------|---------|------|
@@ -113,14 +114,15 @@ Layer 5: Benchmarks         → FairnessBiasWrapper / QuestionAnsweringWrapper
 | `playwright_copilot` | `PlaywrightCopilotTarget` | Copilot Web |
 | `azure_blob` | `AzureBlobStorageTarget` | XPIA 载荷投递 |
 | `prompt_shield` | `PromptShieldTarget` | 防御测试 |
+| `openai_image` | `OpenAIImageTarget` | DALL-E 图片生成（多模态） |
 | `text` | `TextTarget` | 调试输出 |
 
 **关键设计**:
-- `TargetParams` 48 字段覆盖全部构造参数
+- `TargetParams` 52 字段覆盖全部构造参数（新增 4 个图片参数：image_size/output_format/image_quality/image_background）
 - `detect_auth_mode`: Azure → Entra ID, 非Azure → api_key
 - `_build_openai_httpx_kwargs`: SDK参数 vs httpx-only参数双路径拆分
 - `detect_target_type`: side-effect-free (仅GET请求)
-- `_LEGACY_TYPE_ALIASES`: 旧类型名向后兼容
+- `_LEGACY_TYPE_ALIASES`: 旧类型名向后兼容（含 dalle/image_generation 别名）
 
 ### 3.4 src/scorers/（52个公共API）
 
@@ -197,6 +199,36 @@ Layer 5: Benchmarks         → FairnessBiasWrapper / QuestionAnsweringWrapper
 ### 4.5 为什么单轮攻击不接受 refusal_scorer？
 
 PyRIT 1.0.0 的 `AttackScoringConfig` 对单轮攻击和 `red_teaming` 设置 `refusal_scorer` 会触发 `warn_if_set` 警告。`NO_REFUSAL_SCORER_ATTACKS` 常量集合自动剥离。
+
+### 4.6 为什么 XPIA 使用原生 XPIAWorkflow？
+
+原生 `XPIAWorkflow` 提供：
+- 结构化工作流阶段（setup → attack → process → score → teardown）
+- `StrategyConverterConfig` 原生 Converter 集成
+- `ProcessingCallback` 灵活回调机制
+- `XPIAResult` 标准化结果（含 `success`/`status` 属性）
+- `XPIAContext` 上下文管理
+
+自实现会错过这些原生能力，且无法保证与 PyRIT 后续版本兼容。
+
+### 4.7 为什么需要模态路由？
+
+不同 Target 支持不同模态（文本/图片/音频/视频）：
+- `OpenAIChatTarget`: 仅文本
+- `OpenAIResponseTarget` (GPT-4o): 文本+图片
+- `OpenAIImageTarget` (DALL-E): 文本输入→图片输出
+
+`ModalityRouter` 在攻击前检查兼容性：
+- 不支持多轮 → 降级到单轮
+- 不支持图片 → 降级到纯文本
+- 全部不支持 → 跳过攻击
+
+### 4.8 为什么 GCG 支持双路径？
+
+- **本地 torch 路径**: 无需 Azure ML，适合本地 GPU 测试和快速迭代
+- **AML 管道路径**: 委托原生 `GCGGenerator`，利用 Azure ML 集群算力
+
+两者生成相同的 `SeedPrompt` + 对抗性后缀，通过 `SuffixAppendConverter` 无缝集成到攻击链。
 
 ---
 
@@ -290,10 +322,29 @@ python pipeline.py http://192.168.0.22:11434 LLM01,LLM06
 
 ## 九、待完成事项
 
-- [ ] GCG 白盒攻击完整实现 (`src/executor/promptgen/gcg_wrapper.py`)
+- [x] GCG 白盒攻击完整实现 (`src/executor/promptgen/gcg_wrapper.py`) — 双路径（本地 torch + AML 管道）
+- [x] XPIA 原生工作流对齐 — `XPIAWorkflowWrapper` 委托原生 `XPIAWorkflow`
+- [x] RAG XPIA 专用工作流 — `RAGXPIAWorkflowWrapper`
+- [x] ProcessingCallback 构建 — `ProcessingCallbackBuilder`（Agent/RAG/Simple 三种回调）
+- [x] 模态路由系统 — `ModalityRouter`（TargetCapabilities + 模态检查 + 多模态消息构建）
+- [x] OpenAIImageTarget 集成 — `openai_image` 类型注册到 TargetFactory
+- [x] GCG AML 管道 — `generate_via_aml_async` + `SuffixAppendConverter` 集成
+- [x] Benchmark 原生返回 — `run_native_async` 返回 `AttackResult`
+- [x] WMDP 数据集支持 — `QuestionAnsweringWrapper.run_wmdp_async`
+- [x] FuzzerResultPrinter — `FuzzerWrapper.print_result` / `print_templates`
+- [x] Anecdoctor processing_model 参数支持
 - [ ] 集成测试覆盖增强 (`tests/integration/`)
 - [ ] `cli.py` 保留/删除决策评估
 - [ ] `scenario_orchestrator.py` 拆分升级重试逻辑（983行较长）
+
+---
+
+## 十、三库定义
+
+当说"写入三库"时，指以下三个文件，必须同时更新：
+1. `.catpawrules` — 规则库（CatPaw 自动加载）
+2. `.assistant/memory_bank.md` — 记忆库（本文件，跨平台共享）
+3. `docs/development_guidelines.md` — 开发规范文档
 
 ---
 

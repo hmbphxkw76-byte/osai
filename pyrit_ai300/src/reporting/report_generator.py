@@ -23,6 +23,7 @@ import csv
 import io
 import json
 import logging
+import os
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -282,15 +283,23 @@ class EvidenceExporter:
         include_reasoning_trace: bool = True,
         blur_images: bool = False,
         blur_radius: int = 20,
+        blurred_dir: Optional[os.PathLike[str]] = None,
     ):
         """
         初始化证据导出器
+
+        L5 对齐 PyRIT 1.0.0 output 模块：
+        - 支持 blurred_dir 将模糊图片副本重定向到专用目录
+        - 模糊图片副本纳入证据 zip 包
+        - 独立 Score 证据导出（MarkdownScorePrinter.render_async）
 
         Args:
             exam_id: 考试 ID
             include_reasoning_trace: 是否包含推理模型的推理轨迹（o1/o3）
             blur_images: 是否模糊图片内容（保护审查者）
             blur_radius: 高斯模糊半径
+            blurred_dir: 模糊图片副本存放目录。None 时自动创建
+                evidence_dir/blurred/ 子目录。传入路径则使用指定目录。
         """
         self.exam_id = exam_id
         self.include_reasoning_trace = include_reasoning_trace
@@ -307,6 +316,16 @@ class EvidenceExporter:
         self.attacks_dir.mkdir(parents=True, exist_ok=True)
         self.conversations_dir = self.evidence_dir / "conversations"
         self.conversations_dir.mkdir(parents=True, exist_ok=True)
+        self.scores_dir = self.evidence_dir / "scores"
+        self.scores_dir.mkdir(parents=True, exist_ok=True)
+
+        # L5 对齐：模糊图片副本专用目录
+        if blurred_dir is not None:
+            self.blurred_dir = os.fspath(blurred_dir)
+        else:
+            self.blurred_dir_path = self.evidence_dir / "blurred"
+            self.blurred_dir_path.mkdir(parents=True, exist_ok=True)
+            self.blurred_dir = str(self.blurred_dir_path)
 
     async def export_all_evidence(self, owasp_coverage: Optional[Dict] = None) -> Path:
         """
@@ -366,14 +385,20 @@ class EvidenceExporter:
             memory, attack_results, conversation_ids, scores_for_pieces,
         )
 
-        # 5. 生成攻击摘要 CSV（完整列）
+        # 5. 生成独立 Score Markdown 文件（L5 对齐：MarkdownScorePrinter.render_async）
+        score_md_files = await self._export_score_markdowns(scores_for_pieces)
+
+        # 6. 生成攻击摘要 CSV（完整列）
         attack_csv = self._render_attack_summary_csv(attack_results)
 
-        # 6. 生成 OWASP 覆盖矩阵 CSV
+        # 7. 生成 OWASP 覆盖矩阵 CSV
         coverage_csv = self._render_coverage_matrix_csv(owasp_coverage or {})
 
-        # 7. 生成攻击时间线 CSV
+        # 8. 生成攻击时间线 CSV
         timeline_csv = self._render_attack_timeline_csv(attack_results)
+
+        # 9. 收集模糊图片副本（L5 对齐：纳入证据 zip 包）
+        blurred_image_files = self._collect_blurred_images()
 
         # 打包为 zip
         archive_path = self.evidence_dir.parent / f"{self.exam_id}_evidence.zip"
@@ -392,6 +417,14 @@ class EvidenceExporter:
             # 每个对话的 Markdown
             for filename, content in conversation_md_files:
                 zipf.writestr(f"conversations/{filename}", content)
+
+            # 每个评分的 Markdown
+            for filename, content in score_md_files:
+                zipf.writestr(f"scores/{filename}", content)
+
+            # 模糊图片副本
+            for arcname, file_path in blurred_image_files:
+                zipf.write(file_path, arcname)
 
         return archive_path
 
@@ -437,12 +470,14 @@ class EvidenceExporter:
         L5 对齐：使用 render_async() 直接获取渲染字符串，
         同时写入独立文件和 zip 包，消除 write_async()+read-back 冗余 I/O。
         支持 include_reasoning_trace（o1/o3 推理模型）和 blur_images（图片模糊）。
+        支持 blurred_dir 将模糊图片副本重定向到专用目录。
         """
         files = []
         # 创建 printer 实例（sink 不影响 render_async，仅 write_async 使用）
         printer = MarkdownAttackResultMemoryPrinter(
             blur_images=self.blur_images,
             blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
         )
 
         for i, ar in enumerate(attack_results, 1):
@@ -477,6 +512,7 @@ class EvidenceExporter:
         L5 对齐：使用 render_async() 直接获取渲染字符串，
         同时写入独立文件和 zip 包，消除 write_async()+read-back 冗余 I/O。
         支持 include_reasoning_trace（o1/o3 推理模型）和 blur_images（图片模糊）。
+        支持 blurred_dir 将模糊图片副本重定向到专用目录。
         """
         files = []
         # 创建共享的 score_printer 和 conversation printer
@@ -485,6 +521,7 @@ class EvidenceExporter:
             score_printer=score_printer,
             blur_images=self.blur_images,
             blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
         )
 
         for conv_id in conversation_ids:
@@ -541,6 +578,7 @@ class EvidenceExporter:
             score_printer=score_printer,
             blur_images=self.blur_images,
             blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
         )
 
         # 构建 conversation_id → attack_result 映射
@@ -600,6 +638,68 @@ class EvidenceExporter:
             lines.append("")
 
         return "\n".join(lines)
+
+    async def _export_score_markdowns(self, scores: List[Any]) -> List[tuple]:
+        """
+        使用 MarkdownScorePrinter.render_async() 生成每个评分的独立 Markdown 文件
+
+        L5 对齐 PyRIT 1.0.0 output 模块：
+        - 使用原生 MarkdownScorePrinter.render_async() 渲染评分
+        - 每个评分生成独立 Markdown 文件，纳入证据 zip 包
+        - 与官方 output_score_async 的 markdown 路径对齐
+
+        Args:
+            scores: Score 对象列表
+
+        Returns:
+            [(filename, content), ...] 列表
+        """
+        files = []
+        if not scores:
+            return files
+
+        score_printer = MarkdownScorePrinter()
+
+        for i, score in enumerate(scores, 1):
+            filename = f"score_{i:04d}.md"
+            file_path = self.scores_dir / filename
+
+            try:
+                content = await score_printer.render_async([score])
+                file_path.write_text(content, encoding="utf-8")
+                files.append((filename, content))
+            except Exception as e:
+                logger.warning(f"Failed to export score #{i} as markdown: {e}")
+                fallback = f"# Score {i}\n\n*Export failed: {e}*\n"
+                files.append((filename, fallback))
+
+        return files
+
+    def _collect_blurred_images(self) -> List[tuple]:
+        """
+        收集模糊图片副本文件列表，用于纳入证据 zip 包
+
+        L5 对齐 PyRIT 1.0.0 output 模块：
+        - Markdown 格式下 blur_images=True 时，打印机将模糊副本写入 blurred_dir
+        - 模糊副本文件名格式为 <stem>_blurred.png
+        - 此方法扫描 blurred_dir 收集所有模糊副本，返回 (arcname, file_path) 列表
+
+        Returns:
+            [(zip内路径, 磁盘路径), ...] 列表
+        """
+        if not self.blur_images:
+            return []
+
+        blurred_path = Path(self.blurred_dir)
+        if not blurred_path.exists():
+            return []
+
+        files = []
+        for img_file in sorted(blurred_path.glob("*_blurred.png")):
+            arcname = f"blurred/{img_file.name}"
+            files.append((arcname, str(img_file)))
+
+        return files
 
     def _render_attack_summary_csv(self, attack_results: List[Any]) -> str:
         """渲染完整列的攻击摘要 CSV"""
@@ -697,6 +797,8 @@ class ReportGenerator:
         *,
         include_reasoning_trace: bool = True,
         blur_images: bool = False,
+        blur_radius: int = 20,
+        blurred_dir: Optional[os.PathLike[str]] = None,
     ) -> ReportResult:
         """
         生成报告
@@ -704,7 +806,7 @@ class ReportGenerator:
         L5 对齐 PyRIT 1.0.0 output 模块：
         - 集成 output_scenario_async 输出原生场景级摘要
         - 集成 output_scorer_async 输出评分器评估指标
-        - EvidenceExporter 支持 include_reasoning_trace 和 blur_images
+        - EvidenceExporter 支持 include_reasoning_trace / blur_images / blur_radius / blurred_dir
 
         Args:
             scenario_result: ScenarioResult 实例或 AttackResult 列表
@@ -713,6 +815,8 @@ class ReportGenerator:
             end_time: 结束时间
             include_reasoning_trace: 是否包含推理轨迹（o1/o3）
             blur_images: 是否模糊图片内容
+            blur_radius: 高斯模糊半径
+            blurred_dir: 模糊图片副本存放目录（None 时自动创建）
         """
         memory = CentralMemory.get_memory_instance()
         attack_results = memory.get_attack_results()
@@ -797,10 +901,13 @@ class ReportGenerator:
             logger.warning(f"Format conversion failed: {e}")
 
         # 导出证据（传入覆盖矩阵 + L5 参数）
+        # L5 对齐：传递 blur_radius 和 blurred_dir 给 EvidenceExporter
         evidence_exporter = EvidenceExporter(
             exam_id,
             include_reasoning_trace=include_reasoning_trace,
             blur_images=blur_images,
+            blur_radius=blur_radius,
+            blurred_dir=blurred_dir,
         )
         evidence_archive = await evidence_exporter.export_all_evidence(owasp_coverage=coverage_matrix)
 
@@ -1445,6 +1552,8 @@ async def generate_report(
     *,
     include_reasoning_trace: bool = True,
     blur_images: bool = False,
+    blur_radius: int = 20,
+    blurred_dir: Optional[os.PathLike[str]] = None,
 ) -> ReportResult:
     """生成报告（工厂函数）"""
     generator = ReportGenerator()
@@ -1455,6 +1564,8 @@ async def generate_report(
         end_time,
         include_reasoning_trace=include_reasoning_trace,
         blur_images=blur_images,
+        blur_radius=blur_radius,
+        blurred_dir=blurred_dir,
     )
 
 

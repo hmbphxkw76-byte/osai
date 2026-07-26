@@ -1,5 +1,48 @@
 # PyRIT AI-300 开发规则
 
+> **三库定义**: 当说"写入三库"时，指以下三个文件，必须同时更新：
+> 1. `.catpawrules` — 规则库（本文件，CatPaw 自动加载）
+> 2. `.assistant/memory_bank.md` — 记忆库（跨平台共享）
+> 3. `docs/development_guidelines.md` — 开发规范文档
+
+## L5 专家对齐规则（必须遵循）
+
+### 0. L5 专家级标准
+
+所有代码必须对齐 PyRIT 1.0.0 原生 API，达到 L5 专家级水准：
+- **原生优先**: 使用 PyRIT 原生组件，不造轮子
+- **MessagePiece 新 API**: 使用 `Message(message_pieces=[MessagePiece(...)])` 替代旧版 `Message(role=..., content=...)`
+- **TargetCapabilities**: 使用原生 `TargetCapabilities` 进行模态路由
+- **原生返回类型**: Benchmark 返回 `AttackResult`，PromptGen 返回原生 `PromptGeneratorStrategyResult`
+- **Converter 集成**: XPIA/攻击工作流支持 `StrategyConverterConfig`
+
+### 0.1 XPIA/RAG 攻击规则
+
+- XPIAWorkflowWrapper **必须**委托原生 `XPIAWorkflow` 类（不可自行实现工作流逻辑）
+- XPIA 攻击内容**必须**使用 `MessagePiece` 新 API 构建
+- RAG 攻击**必须**使用 `RAGXPIAWorkflowWrapper`（专用 RAG 检索模拟）
+- ProcessingCallback**必须**使用 `ProcessingCallbackBuilder` 工厂方法构建
+- Converter 链**必须**通过 `converter_config` 参数传入（`StrategyConverterConfig`）
+
+### 0.2 多模态攻击规则
+
+- 攻击前**必须**通过 `ModalityRouter.route_attack()` 检查目标能力兼容性
+- 多模态种子**必须**使用 `ModalityRouter.build_multimodal_message()` 构建
+- 不支持的模态**必须**降级到纯文本（不可跳过攻击）
+- `OpenAIImageTarget` 通过 `openai_image` 类型注册到 TargetFactory
+
+### 0.3 GCG/AML 管道规则
+
+- GCG 支持**双路径**: 本地 torch 实现 + AML 管道（`generate_via_aml_async`）
+- GCG 生成的后缀**必须**可通过 `SuffixAppendConverter` 集成到攻击链
+- `generate_and_create_converter_async` 是一站式方法（生成+创建Converter）
+
+### 0.4 Benchmark 返回类型规则
+
+- `run_native_async` 返回原生 `AttackResult`
+- `run_async` 返回 dict（向后兼容），但**必须**附带 `native_result` 字段
+- `run_batch_native_async` 返回 `(List[AttackResult], summary_dict)` 元组
+
 ## 数据驱动架构规则（必须遵循）
 
 ### 1. 五层架构流转（不可跳过）
@@ -68,4 +111,4 @@ metadata:
 
 ## 架构文档
 
-详细架构文档参见 `docs/datasets_architecture.md`。
+详细架构文档参见 `docs/datasets_architecture.md` 和 `docs/development_guidelines.md`。

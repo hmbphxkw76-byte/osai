@@ -59,10 +59,32 @@ from src.converters.converter_registry import (
     create_task_framing_chain,
     create_selective_encoding_chain,
     create_multimodal_text_to_image_chain,
+    # P0-1: File Converter 高级功能
+    create_pdf_injection_chain,
+    create_text_to_pdf_chain,
+    create_worddoc_injection_chain,
+    create_text_to_worddoc_chain,
+    # P2-1: Response Converter API
+    create_response_converter_config,
+    # P2-2: TextJailbreak 集成
+    create_text_jailbreak_chain,
+    # P1-3: 多模态链工厂
+    create_multimodal_image_attack_chain,
+    create_multimodal_steganography_chain,
     # PyRIT Registry 集成
     register_converters_to_pyrit_registry,
     get_converter_from_pyrit_registry,
     list_registered_converters,
+    # Instance Registry 集成（PyRIT 1.0.0 实例注册表）
+    register_converter_instance_to_registry,
+    get_registered_converter_instance,
+    list_registered_converter_instances,
+    list_converter_instance_metadata,
+    query_converter_instances_by_tags,
+    get_converter_instances_by_tag,
+    find_converter_dependents,
+    get_converter_class_metadata_from_registry,
+    list_all_converter_class_metadata,
 )
 
 # PyRIT 1.0.0 枚举和基类直接导出
@@ -134,10 +156,32 @@ __all__ = [
     "create_task_framing_chain",
     "create_selective_encoding_chain",
     "create_multimodal_text_to_image_chain",
+    # P0-1: File Converter 高级功能
+    "create_pdf_injection_chain",
+    "create_text_to_pdf_chain",
+    "create_worddoc_injection_chain",
+    "create_text_to_worddoc_chain",
+    # P2-1: Response Converter API
+    "create_response_converter_config",
+    # P2-2: TextJailbreak 集成
+    "create_text_jailbreak_chain",
+    # P1-3: 多模态链工厂
+    "create_multimodal_image_attack_chain",
+    "create_multimodal_steganography_chain",
     # PyRIT Registry 集成
     "register_converters_to_pyrit_registry",
     "get_converter_from_pyrit_registry",
     "list_registered_converters",
+    # Instance Registry 集成
+    "register_converter_instance_to_registry",
+    "get_registered_converter_instance",
+    "list_registered_converter_instances",
+    "list_converter_instance_metadata",
+    "query_converter_instances_by_tags",
+    "get_converter_instances_by_tag",
+    "find_converter_dependents",
+    "get_converter_class_metadata_from_registry",
+    "list_all_converter_class_metadata",
     # PyRIT 1.0.0 枚举和基类
     "PolicyPuppetryTemplate",
     "Converter",

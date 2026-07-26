@@ -1,0 +1,39 @@
+# 全局侦察配置
+
+# 浏览器启动配置
+browser_connection:
+  wait_until: domcontentloaded
+  timeout: 30000
+  ignore_https_errors: true
+  post_load_wait: 2
+  viewport:
+    width: 1366
+    height: 768
+
+# 凭据目录
+credentials_dir: credentials
+
+# 输出目录
+output_dir: results/recon
+template_dir: data/burp
+profile_dir: results/recon/profiles
+
+# SPA 侦察默认配置
+spa_config:
+  selector_timeout_ms: 5000
+  send_probe_text: "你好，请介绍一下你自己。"
+  entry_selector: ""
+  enable_entry_discovery: true
+  enable_probe_send: true
+  post_send_wait_ms: 3000
+  max_retries: 2
+  # 是否在检测到登录页时等待人工完成登录
+  manual_login: false
+  # 人工登录最大等待时间（毫秒），默认 5 分钟
+  manual_login_timeout_ms: 300000
+  # 登录完成轮询间隔（毫秒）
+  manual_login_poll_ms: 2000
+  # 自动检测成功后是否仍需用户按 Enter 确认
+  manual_login_require_enter: true
+  # 显式指定登录页 URL（用于跨域登录场景）
+  login_url: ""

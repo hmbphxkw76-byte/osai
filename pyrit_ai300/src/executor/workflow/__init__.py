@@ -8,7 +8,7 @@ Layer 4: 批量编排层
 子模块：
 - scenario_orchestrator.py  批量编排 + 升级重试 + 进度仪表盘
 - batch_orchestrator.py     兼容层（委托 ScenarioOrchestrator）
-- xpia_workflow.py          XPIA 跨域提示注入专用工作流
+- xpia_workflow.py          XPIA 跨域提示注入专用工作流（含 RAG/ProcessingCallback）
 """
 
 from src.executor.workflow.scenario_orchestrator import (
@@ -18,11 +18,17 @@ from src.executor.workflow.scenario_orchestrator import (
 from src.executor.workflow.batch_orchestrator import (
     BatchAttackOrchestrator,
 )
-from src.executor.workflow.xpia_workflow import XPIAWorkflowWrapper
+from src.executor.workflow.xpia_workflow import (
+    ProcessingCallbackBuilder,
+    RAGXPIAWorkflowWrapper,
+    XPIAWorkflowWrapper,
+)
 
 __all__ = [
     "ScenarioOrchestrator",
     "execute_batch_attacks",
     "BatchAttackOrchestrator",
     "XPIAWorkflowWrapper",
+    "RAGXPIAWorkflowWrapper",
+    "ProcessingCallbackBuilder",
 ]

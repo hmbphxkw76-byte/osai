@@ -1,0 +1,39 @@
+# SPA 聊天侦察专用配置
+
+# 是否启用聊天入口自动发现（浮动按钮 / 侧边栏 / Copilot 入口）
+enable_entry_discovery: true
+
+# 是否发送探测消息
+enable_probe_send: true
+
+# 探测消息内容
+send_probe_text: "你好，请介绍一下你自己。"
+
+# 如果目标聊天入口已知，可在此配置（会覆盖自动发现）
+entry_selector: ""
+
+# 选择器查找超时（毫秒）
+selector_timeout_ms: 5000
+
+# 发送消息后等待响应的时间（毫秒）
+post_send_wait_ms: 3000
+
+# 最大重试次数
+max_retries: 2
+
+# 截图配置
+screenshots:
+  full_page: true
+  on_login_page: true
+  on_probe_success: true
+  on_probe_failure: true
+
+# 人工登录等待配置
+# 适用于京东/淘宝/企业门户等需要先登录再打开 AI 聊天窗口的场景
+manual_login: false
+manual_login_timeout_ms: 300000
+manual_login_poll_ms: 2000
+manual_login_require_enter: true
+# 显式指定登录页 URL
+# 示例：login_url: "https://passport.jd.com/new/login.aspx"
+login_url: ""

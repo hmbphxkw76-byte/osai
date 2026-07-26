@@ -145,6 +145,11 @@ class SeedPromptAdapter:
         - seed_group.simulated_conversation_config: SeedSimulatedConversation | None
         - seed_group.is_single_turn(): bool
         - seed_group.is_single_request(): bool
+
+        多模态支持（PyRIT 1.0.0 对齐）：
+        - SeedPrompt.data_type="image_path" → 保留图片路径
+        - SeedPrompt.data_type="audio_path" → 保留音频路径
+        - 多模态信息存入 metadata["multimodal"]
         """
         objective = seed_group.objective
         prompts = list(seed_group.prompts)
@@ -166,6 +171,9 @@ class SeedPromptAdapter:
         # 提取 simulated_conversation 配置
         sim_config = SeedPromptAdapter._extract_simulated_config(simulated_config) if simulated_config else None
 
+        # 检测多模态种子（image_path / audio_path）
+        multimodal_pieces = SeedPromptAdapter._extract_multimodal_pieces(prompts)
+
         # 构建 metadata
         meta = {**first_meta}
         if objective_value is not None:
@@ -178,6 +186,10 @@ class SeedPromptAdapter:
 
         if sim_config:
             meta["simulated_conversation"] = sim_config
+
+        if multimodal_pieces:
+            meta["multimodal"] = multimodal_pieces
+            meta["has_multimodal"] = True
 
         # 根据 attack_mode 构建不同结构
         if attack_mode == AttackMode.MULTI_TURN and prompts:
@@ -232,6 +244,15 @@ class SeedPromptAdapter:
             # 每个 prompt 生成独立 item
             p = prompts[0]
             p_meta = p.metadata or {}
+            item_meta = {
+                **p_meta,
+                "has_objective": objective_value is not None,
+                "objective_value": objective_value,
+                "role": getattr(p, "role", "user"),
+            }
+            if multimodal_pieces:
+                item_meta["multimodal"] = multimodal_pieces
+                item_meta["has_multimodal"] = True
             return PromptItem(
                 id=str(getattr(p, "id", "")) or p.value[:50],
                 objective=p.value,
@@ -240,13 +261,38 @@ class SeedPromptAdapter:
                 source_id=dataset_name,
                 category=p_meta.get("category"),
                 converter_chains=p_meta.get("converter_chains", []),
-                metadata={
-                    **p_meta,
-                    "has_objective": objective_value is not None,
-                    "objective_value": objective_value,
-                    "role": getattr(p, "role", "user"),
-                },
+                metadata=item_meta,
             )
+
+    @staticmethod
+    def _extract_multimodal_pieces(prompts: Sequence[SeedPrompt]) -> List[dict[str, Any]]:
+        """
+        从 SeedPrompt 列表中提取多模态信息
+
+        检测 data_type 为 image_path / audio_path 的 SeedPrompt，
+        返回多模态片段列表供下游处理。
+
+        Args:
+            prompts: SeedPrompt 列表
+
+        Returns:
+            多模态片段列表，每个片段包含：
+            - data_type: 数据类型（image_path / audio_path）
+            - value: 文件路径或 URL
+            - sequence: 序列号
+            - role: 角色
+        """
+        pieces: List[dict[str, Any]] = []
+        for p in prompts:
+            data_type = getattr(p, "data_type", "text") or "text"
+            if data_type in ("image_path", "audio_path", "video_path", "file_path"):
+                pieces.append({
+                    "data_type": data_type,
+                    "value": p.value,
+                    "sequence": getattr(p, "sequence", 0),
+                    "role": getattr(p, "role", "user"),
+                })
+        return pieces
 
     @staticmethod
     def _extract_simulated_config(sim: SeedSimulatedConversation) -> dict[str, Any]:

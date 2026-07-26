@@ -1,9 +1,24 @@
 # 开发文档规范
 
-**版本**: v1.0  
+**版本**: v2.0  
 **创建日期**: 2026-07-25  
+**更新日期**: 2026-07-26  
 **适用范围**: PyRIT AI-300 全部源码、配置、测试和文档  
 **对齐标准**: PyRIT 1.0.0 原生 API + OWASP 双标准 + L5 专家级软件工程实践
+
+---
+
+## 〇、三库定义
+
+当说"写入三库"时，指以下三个文件，必须同时更新：
+
+| 序号 | 文件 | 用途 |
+|------|------|------|
+| 1 | `.catpawrules` | 规则库（CatPaw 自动加载） |
+| 2 | `.assistant/memory_bank.md` | 记忆库（跨平台共享） |
+| 3 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
+
+**同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上三个文件。
 
 ---
 
@@ -303,10 +318,12 @@ batch_execution:
 **原则**: 旧 API 和类型名保留向后兼容，不破坏现有代码。
 
 **实现方式**:
-- `_LEGACY_TYPE_ALIASES`: 旧 Target 类型名映射
+- `_LEGACY_TYPE_ALIASES`: 旧 Target 类型名映射（含 `dalle` / `image_generation` → `openai_image`）
 - `DirectAttackExecutor = NativeAttackExecutor`: 旧名称别名
 - `AttackExecutionParams`: 废弃但保留过渡层
 - `src/orchestrators/__init__.py`: 保留为兼容 shim
+- Benchmark `run_async` 返回 dict（向后兼容），附带 `native_result` 字段
+- Benchmark `run_native_async` 返回原生 `AttackResult`
 
 ### 2.9 每次运行独立数据库
 
@@ -435,12 +452,73 @@ TREE_DEPTH_ATTACKS = frozenset({"tap", "tree_of_attacks_pruned"})
 每次代码变更后，相关文档必须同步更新：
 
 | 变更类型 | 需更新文档 |
-|---------|-----------|
-| 新增/修改 Target 类型 | `docs/targets.md` |
+|---------|------------|
+| 新增/修改 Target 类型 | `docs/targets.md` + `.catpawrules` + `.assistant/memory_bank.md` |
 | 新增/修改 Attack 技术 | `docs/executor.md` + `config/payload_strategy_matrix.yaml` |
 | 新增/修改数据集层 | `docs/datasets_architecture.md` |
-| 架构变更 | `docs/architecture_design.md` + `docs/architecture_assessment.md` |
-| 开发规则变更 | `docs/development_guidelines.md` + `.assistant/memory_bank.md` |
+| 架构变更 | `docs/architecture_design.md` + `docs/architecture_assessment.md` + 三库 |
+| 开发规则变更 | 三库（`.catpawrules` + `.assistant/memory_bank.md` + `docs/development_guidelines.md`） |
+
+### 3.9 XPIA/RAG 攻击开发规范
+
+**原则**: XPIA 工作流必须委托原生 `XPIAWorkflow`，使用 `MessagePiece` 新 API。
+
+**必须遵循**:
+- `XPIAWorkflowWrapper` 内部委托原生 `XPIAWorkflow`（不可自行实现工作流逻辑）
+- 攻击内容使用 `MessagePiece` 新 API 构建（`Message(message_pieces=[MessagePiece(...)])`）
+- Converter 链通过 `converter_config` 参数传入（`StrategyConverterConfig`）
+- RAG 攻击使用 `RAGXPIAWorkflowWrapper`（专用 RAG 检索模拟）
+- ProcessingCallback 使用 `ProcessingCallbackBuilder` 工厂方法构建
+
+**ProcessingCallback 类型**:
+| 类型 | 方法 | 场景 |
+|------|------|------|
+| Agent function calling | `agent_function_calling_callback` | OpenAI Responses API + Tool Calling |
+| RAG 检索 | `rag_retrieval_callback` | RAG 检索+生成模拟 |
+| 简单处理 | `simple_processing_callback` | 已有 PromptTarget 直接处理 |
+
+### 3.10 多模态攻击开发规范
+
+**原则**: 攻击前必须检查目标能力兼容性，不支持的模态自动降级。
+
+**必须遵循**:
+- 攻击前调用 `ModalityRouter.route_attack()` 检查兼容性
+- 多模态种子使用 `ModalityRouter.build_multimodal_message()` 构建
+- 不支持的模态降级到纯文本（不跳过攻击）
+- `OpenAIImageTarget` 通过 `openai_image` 类型注册到 TargetFactory
+
+**TargetCapabilities 预设**:
+| 预设 | 用途 |
+|------|------|
+| `TEXT_ONLY_CAPABILITIES` | 纯文本目标（Ollama, vLLM） |
+| `GPT4O_CAPABILITIES` | GPT-4o 多模态目标 |
+| `IMAGE_GENERATION_CAPABILITIES` | DALL-E 图片生成目标 |
+| `REASONING_MODEL_CAPABILITIES` | o1/o3 推理模型 |
+
+### 3.11 GCG/AML 管道开发规范
+
+**原则**: GCG 支持双路径（本地 torch + AML 管道），后缀可通过 Converter 集成。
+
+**必须遵循**:
+- 本地 torch 路径: `generate_async`（需要 torch + model + tokenizer）
+- AML 管道路径: `generate_via_aml_async`（委托原生 `GCGGenerator`）
+- 一站式方法: `generate_and_create_converter_async`（生成 + 创建 `SuffixAppendConverter`）
+- 不满足条件时安全降级（返回空列表，不抛异常）
+
+### 3.12 Benchmark 返回类型规范
+
+**原则**: Benchmark 封装返回原生 `AttackResult`，同时保留 dict 向后兼容。
+
+**方法对应**:
+| 方法 | 返回类型 | 用途 |
+|------|---------|------|
+| `run_native_async` | `AttackResult` | 原生结果（L5 对齐） |
+| `run_async` | `Dict[str, Any]` | 向后兼容（附带 `native_result` 字段） |
+| `run_batch_native_async` | `Tuple[List[AttackResult], Dict]` | 批量原生结果 + 摘要 |
+| `run_batch_async` | `Dict[str, Any]` | 批量向后兼容 |
+
+**特殊方法**:
+- `QuestionAnsweringWrapper.run_wmdp_async`: WMDP 危险知识代理测试（含风险评估）
 
 ---
 

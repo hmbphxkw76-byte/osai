@@ -54,6 +54,21 @@ from src.converters.converter_registry import (
     create_selective_encoding_chain,
     create_multimodal_text_to_image_chain,
     create_llm_assisted_chain,
+    # P0-1: File Converter 高级功能
+    create_pdf_injection_chain,
+    create_text_to_pdf_chain,
+    create_worddoc_injection_chain,
+    create_text_to_worddoc_chain,
+    # P2-1: Response Converter API
+    create_response_converter_config,
+    # P2-2: TextJailbreak 集成
+    create_text_jailbreak_chain,
+    # P1-3: 多模态链工厂
+    create_multimodal_image_attack_chain,
+    create_multimodal_steganography_chain,
+    # PEP 562 延迟导入
+    _LazyConverterClass,
+    _LAZY_AUDIO_MAP,
 )
 
 from pyrit.converter import (
@@ -124,10 +139,13 @@ class TestConverterMap:
         assert CONVERTER_CLASS_MAP["selective_text"] is SelectiveTextConverter
 
     def test_all_values_are_converter_subclasses(self):
-        """映射表中所有值都是 Converter 的子类"""
+        """映射表中所有值都是 Converter 的子类（Audio Converter 使用延迟导入）"""
         for name, cls in CONVERTER_CLASS_MAP.items():
             if name.startswith("_"):
                 continue
+            # _LazyConverterClass 是 Audio Converter 的延迟导入包装器
+            if isinstance(cls, _LazyConverterClass):
+                continue  # 跳过延迟导入的 Audio Converter
             assert isinstance(cls, type), f"{name} 的值不是类: {cls}"
             assert issubclass(cls, Converter), f"{name} 的值不是 Converter 子类: {cls}"
 
@@ -647,9 +665,145 @@ class TestChainModalityValidation:
         assert len(warnings) <= 1  # 最多一个警告（第一个的输入不匹配 text）
 
     def test_audio_chain(self):
-        """audio_path → audio_path 链"""
+        """audio_path → audio_path 链（延迟导入触发）"""
         config = create_converter_chain_config(
             converter_names=["audio_white_noise"],
             validate_modality=True,
         )
         assert config is not None
+
+
+# ============================================================
+# 12. PEP 562 Audio Converter 延迟导入
+# ============================================================
+
+class TestPEP562LazyImport:
+    """PEP 562 Audio Converter 延迟导入测试"""
+
+    def test_lazy_audio_map_not_empty(self):
+        """延迟导入映射表非空"""
+        assert len(_LAZY_AUDIO_MAP) >= 7
+
+    def test_audio_converters_are_lazy_wrapped(self):
+        """Audio Converter 使用 _LazyConverterClass 包装"""
+        for name in ["audio_echo", "audio_frequency", "audio_speed",
+                      "audio_volume", "audio_white_noise",
+                      "azure_speech_text_to_audio", "azure_speech_audio_to_text"]:
+            assert name in CONVERTER_CLASS_MAP
+            val = CONVERTER_CLASS_MAP[name]
+            assert isinstance(val, _LazyConverterClass), (
+                f"{name} 应使用 _LazyConverterClass 包装，实际: {type(val)}"
+            )
+
+    def test_audio_class_name_aliases_exist(self):
+        """Audio Converter 类名别名存在"""
+        assert "AudioEchoConverter" in CONVERTER_CLASS_MAP
+        assert "AudioWhiteNoiseConverter" in CONVERTER_CLASS_MAP
+        assert "AzureSpeechTextToAudioConverter" in CONVERTER_CLASS_MAP
+
+    def test_audio_snake_and_class_name_same_object(self):
+        """snake_case 和类名指向同一个 _LazyConverterClass 实例"""
+        assert CONVERTER_CLASS_MAP["audio_echo"] is CONVERTER_CLASS_MAP["AudioEchoConverter"]
+
+
+# ============================================================
+# 13. P0-1: File Converter 高级功能
+# ============================================================
+
+class TestFileConverterChains:
+    """File Converter 高级功能链工厂测试"""
+
+    def test_create_text_to_pdf_chain(self):
+        """创建文本→PDF 链"""
+        config = create_text_to_pdf_chain(font_size=14)
+        assert config is not None
+        chain = config.request_converters[0]
+        assert len(chain.converters) == 1
+
+    def test_create_text_to_worddoc_chain(self):
+        """创建文本→WordDoc 链"""
+        config = create_text_to_worddoc_chain()
+        assert config is not None
+        chain = config.request_converters[0]
+        assert len(chain.converters) == 1
+
+    def test_create_pdf_injection_chain_requires_existing_pdf(self):
+        """PDF 注入链需要 existing_pdf 参数"""
+        sig = inspect.signature(create_pdf_injection_chain)
+        params = list(sig.parameters.keys())
+        assert "existing_pdf" in params
+        assert "injection_items" in params
+        assert "font_color" in params
+        assert "font_size" in params
+
+    def test_create_worddoc_injection_chain_signature(self):
+        """WordDoc 注入链方法签名正确"""
+        sig = inspect.signature(create_worddoc_injection_chain)
+        params = list(sig.parameters.keys())
+        assert "existing_docx" in params
+        assert "placeholder" in params
+        assert "prompt_template" in params
+
+
+# ============================================================
+# 14. P2-1: Response Converter API
+# ============================================================
+
+class TestResponseConverterAPI:
+    """Response Converter 编程式控制 API 测试"""
+
+    def test_create_response_converter_config(self):
+        """创建 Response Converter 配置"""
+        config = create_response_converter_config(
+            converter_names=["base64"],
+        )
+        assert config is not None
+        # 应该有 response_converters，没有 request_converters
+        assert len(config.response_converters) > 0
+        assert len(config.request_converters) == 0
+
+    def test_create_response_converter_with_indexes(self):
+        """带 indexes_to_apply 的 Response Converter"""
+        config = create_response_converter_config(
+            converter_names=["base64"],
+            indexes_to_apply=[0, 1],
+        )
+        chain = config.response_converters[0]
+        assert chain.indexes_to_apply == [0, 1]
+
+
+# ============================================================
+# 15. P2-2: TextJailbreak 集成
+# ============================================================
+
+class TestTextJailbreakChain:
+    """TextJailbreakConverter 数据集集成测试"""
+
+    def test_create_text_jailbreak_chain_signature(self):
+        """TextJailbreak 链方法签名正确"""
+        sig = inspect.signature(create_text_jailbreak_chain)
+        params = list(sig.parameters.keys())
+        assert "jailbreak_template_name" in params
+        assert sig.parameters["jailbreak_template_name"].default is None
+
+
+# ============================================================
+# 16. P1-3: 多模态 Converter 链工厂
+# ============================================================
+
+class TestMultimodalChainFactories:
+    """多模态 Converter 链工厂测试"""
+
+    def test_create_multimodal_image_attack_chain(self):
+        """创建多模态图片攻击链"""
+        config = create_multimodal_image_attack_chain("qr_code")
+        assert config is not None
+        chain = config.request_converters[0]
+        assert len(chain.converters) == 1
+
+    def test_create_multimodal_steganography_chain_signature(self):
+        """多模态隐写术链方法签名正确"""
+        sig = inspect.signature(create_multimodal_steganography_chain)
+        params = list(sig.parameters.keys())
+        assert "base_image_path" in params
+        assert "text" in params

@@ -51,13 +51,33 @@ class FuzzerWrapper:
     # 变异操作类型映射
     MUTATION_TYPES = ["expand", "shorten", "rephrase", "similar"]
 
-    def __init__(self, chat_target: Any = None):
+    def __init__(
+        self,
+        chat_target: Any = None,
+        *,
+        template_converters: Optional[List[Any]] = None,
+        scorer: Any = None,
+        scoring_success_threshold: float = 0.8,
+        batch_size: int = 10,
+        target_jailbreak_goal_count: int = 1,
+    ):
         """
         Args:
             chat_target: 用于变异生成的 LLM Target（通常是 judge_target）
+            template_converters: Fuzzer 变异 Converter 列表（FuzzerConverter）
+            scorer: 可选评分器
+            scoring_success_threshold: 成功阈值
+            batch_size: 批量大小
+            target_jailbreak_goal_count: 目标越狱成功数
         """
         self._chat_target = chat_target
+        self._template_converters = template_converters or []
+        self._scorer = scorer
+        self._scoring_success_threshold = scoring_success_threshold
+        self._batch_size = batch_size
+        self._target_jailbreak_goal_count = target_jailbreak_goal_count
         self._generator = None
+        self._last_result: Optional[Any] = None
 
     def _ensure_generator(self):
         """延迟初始化 FuzzerGenerator"""
@@ -65,7 +85,14 @@ class FuzzerWrapper:
             if self._chat_target is None:
                 raise ValueError("FuzzerWrapper 需要 chat_target 才能生成种子")
             from pyrit.executor.promptgen.fuzzer import FuzzerGenerator
-            self._generator = FuzzerGenerator(chat_target=self._chat_target)
+            self._generator = FuzzerGenerator(
+                objective_target=self._chat_target,
+                template_converters=self._template_converters,
+                scorer=self._scorer,
+                scoring_success_threshold=self._scoring_success_threshold,
+                batch_size=self._batch_size,
+                target_jailbreak_goal_count=self._target_jailbreak_goal_count,
+            )
             logger.info("FuzzerGenerator 初始化完成")
 
     async def mutate_async(
@@ -101,6 +128,7 @@ class FuzzerWrapper:
         )
 
         result = await self._generator.execute_async(context=context)
+        self._last_result = result  # 保存原生 FuzzerResult 供 print_result 使用
 
         # 转换为 SeedPrompt 列表
         variants: List[SeedPrompt] = []
@@ -118,6 +146,43 @@ class FuzzerWrapper:
 
         logger.info(f"Fuzzer 从 {len(seeds)} 个种子生成 {len(variants)} 个变体")
         return variants
+
+    @property
+    def last_result(self) -> Optional[Any]:
+        """返回最后一次 Fuzzer 执行的原生 FuzzerResult"""
+        return self._last_result
+
+    def print_result(
+        self,
+        *,
+        enable_colors: bool = True,
+        width: int = 100,
+    ) -> None:
+        """
+        使用 FuzzerResultPrinter 打印上次执行结果
+
+        对齐 PyRIT: pyrit.executor.promptgen.fuzzer.FuzzerResultPrinter
+
+        Args:
+            enable_colors: 是否启用 ANSI 颜色输出
+            width: 文本换行宽度
+        """
+        if self._last_result is None:
+            print("No Fuzzer result available. Run mutate_async first.")
+            return
+
+        from pyrit.executor.promptgen.fuzzer import FuzzerResultPrinter
+
+        printer = FuzzerResultPrinter(enable_colors=enable_colors, width=width)
+        printer.print_result(self._last_result)
+
+    def print_templates(self) -> None:
+        """仅打印成功的模板列表"""
+        if self._last_result is None:
+            print("No Fuzzer result available. Run mutate_async first.")
+            return
+
+        self._last_result.print_templates()
 
     async def crossover_async(
         self,

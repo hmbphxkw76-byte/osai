@@ -18,9 +18,12 @@ Payloads Module
 - dataset_manager.py: CentralMemory 数据枢纽 (②层)
 - seed_selector.py: 交互式种子组选择 (②.5层)
 - attack_preparator.py: AttackSeedGroup 攻击准备 (③层)
-- seed_adapter.py: PyRIT SeedDataset ↔ PromptBatch 双向适配器
+- seed_adapter.py: PyRIT SeedDataset ↔ PromptBatch 双向适配器（含多模态支持）
 - owasp_provider.py: OWASP 本地数据集 SeedDatasetProvider 桥接层
 - planner.py: 载荷规划器 (PromptItem → AttackPlan) [兼容模式]
+- simulated_conversation.py: 模拟对话生成与重放 (P0 新增)
+- remote_loaders.py: 项目自定义远程数据集加载器 (P1 新增)
+- native_pipeline.py: 原生管道快捷路径 (P3 新增)
 """
 
 from src.payloads.models import (
@@ -55,6 +58,30 @@ from src.payloads.planner import (
     PayloadPlanner,
     plan_attacks,
 )
+from src.payloads.simulated_conversation import (
+    generate_simulated_conversation_async,
+    precompute_simulated_conversation_async,
+    precompute_batch_async,
+    replay_to_target_async,
+    create_simulated_conversation_seed,
+    inject_simulated_conversation_into_group,
+    create_attack_with_simulated_conversation,
+    get_preset,
+    get_preset_combos,
+)
+from src.payloads.remote_loaders import (
+    AI300OWASPCustomDataset,
+    AI300AgenticThreatsDataset,
+    AI300ExamSimDataset,
+    get_project_dataset_names,
+    is_project_dataset_registered,
+)
+from src.payloads.native_pipeline import (
+    NativePipelineExecutor,
+    get_native_pipeline,
+    execute_native_async,
+    evaluate_attack_plan_necessity,
+)
 
 __all__ = [
     # 数据模型
@@ -82,4 +109,25 @@ __all__ = [
     # 兼容模式规划器
     "PayloadPlanner",
     "plan_attacks",
+    # 模拟对话生成与重放 (P0)
+    "generate_simulated_conversation_async",
+    "precompute_simulated_conversation_async",
+    "precompute_batch_async",
+    "replay_to_target_async",
+    "create_simulated_conversation_seed",
+    "inject_simulated_conversation_into_group",
+    "create_attack_with_simulated_conversation",
+    "get_preset",
+    "get_preset_combos",
+    # 项目自定义远程数据集加载器 (P1)
+    "AI300OWASPCustomDataset",
+    "AI300AgenticThreatsDataset",
+    "AI300ExamSimDataset",
+    "get_project_dataset_names",
+    "is_project_dataset_registered",
+    # 原生管道 (P3)
+    "NativePipelineExecutor",
+    "get_native_pipeline",
+    "execute_native_async",
+    "evaluate_attack_plan_necessity",
 ]

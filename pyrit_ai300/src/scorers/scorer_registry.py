@@ -57,9 +57,14 @@ PyRIT 1.0.0 Scoring 架构完整对齐（L5 Expert Level）：
 - get_scorer_from_pyrit_registry() 同时支持类名和 snake_case
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from pyrit.score import (
+    # 多模态评分器（PyRIT 1.0.0）
+    AudioTrueFalseScorer,
+    VideoTrueFalseScorer,
+    AudioFloatScaleScorer,
+    VideoFloatScaleScorer,
     # 通用类 Scorer
     SelfAskTrueFalseScorer,
     SelfAskGeneralTrueFalseScorer,
@@ -135,6 +140,8 @@ from pyrit.score import (
     find_objective_metrics_by_eval_hash,
     # 对话评分工厂
     create_conversation_scorer,
+    # 评分器参考表生成（PyRIT 1.0.0）
+    get_scorer_info,
 )
 
 from src.core.config_loader import get_config_loader
@@ -195,6 +202,11 @@ SCORER_CLASS_MAP: Dict[str, Any] = {
     "conversation": ConversationScorer,
     "batch": BatchScorer,
     "decoding": DecodingScorer,
+    # 多模态评分器（PyRIT 1.0.0）
+    "audio_true_false": AudioTrueFalseScorer,
+    "video_true_false": VideoTrueFalseScorer,
+    "audio_float_scale": AudioFloatScaleScorer,
+    "video_float_scale": VideoFloatScaleScorer,
 }
 
 
@@ -208,96 +220,130 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "通用真/假判断（最常用）",
         "requires_chat_target": True,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "self_ask_general_true_false": {
         "description": "通用真/假判断（增强版）",
         "requires_chat_target": True,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "self_ask_category": {
         "description": "分类评分",
         "requires_chat_target": True,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "substring": {
         "description": "子字符串匹配",
         "requires_chat_target": False,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "regex": {
         "description": "正则表达式匹配",
         "requires_chat_target": False,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "true_false_composite": {
         "description": "组合真/假评分",
         "requires_chat_target": True,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "true_false_inverter": {
         "description": "反转真/假评分",
         "requires_chat_target": True,
         "category": "general",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     # 专用检测类元数据
     "credential_leak": {
         "description": "凭证泄露检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["data_leakage", "credential_leak"],
     },
     "markdown_injection": {
         "description": "Markdown 注入检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection", "converter_evasion"],
     },
     "sql_injection_output": {
         "description": "SQL 注入输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "xss_output": {
         "description": "XSS 输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "path_traversal_output": {
         "description": "路径遍历输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "insecure_code": {
         "description": "不安全代码检测",
         "requires_chat_target": True,
         "category": "detection",
+        "score_type": "float_scale",
+        "uses_llm": True,
         "attack_types": ["code_injection", "insecure_output"],
     },
     "shell_command_output": {
         "description": "Shell 命令输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection", "code_execution"],
     },
     "static_prompt_injection": {
         "description": "静态注入检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["prompt_injection"],
     },
     "prompt_shield": {
         "description": "Prompt Shield 检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["prompt_injection"],
     },
     "plagiarism": {
         "description": "抄袭检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "float_scale",
+        "uses_llm": False,
         "attack_types": ["data_leakage"],
     },
     # 专用检测类元数据（PyRIT 1.0.0 新增）
@@ -305,30 +351,40 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "LDAP 注入输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "open_redirect_output": {
         "description": "开放重定向输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "ssrf_output": {
         "description": "SSRF 输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "ssti_output": {
         "description": "SSTI 输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     "xxe_output": {
         "description": "XXE 输出检测",
         "requires_chat_target": False,
         "category": "detection",
+        "score_type": "true_false",
+        "uses_llm": False,
         "attack_types": ["injection"],
     },
     # 评分类元数据
@@ -336,105 +392,178 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "浮点评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     "float_scale_all_categories": {
         "description": "全分类浮点评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     "float_scale_by_category": {
         "description": "分类浮点评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     "float_scale_threshold": {
         "description": "阈值浮点评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "self_ask_likert": {
         "description": "Likert 量表评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     "self_ask_scale": {
         "description": "自评量表",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     "self_ask_general_float_scale": {
         "description": "通用浮点评分",
         "requires_chat_target": True,
         "category": "scoring",
+        "score_type": "float_scale",
+        "uses_llm": True,
     },
     # 内容安全类元数据
     "azure_content_filter": {
         "description": "Azure 内容过滤",
         "requires_chat_target": False,
         "category": "content_safety",
+        "score_type": "float_scale",
+        "uses_llm": False,
     },
     "self_ask_refusal": {
         "description": "拒绝检测",
         "requires_chat_target": True,
         "category": "content_safety",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "llama_guard": {
         "description": "Llama Guard 3 内容安全分类",
         "requires_chat_target": True,
         "category": "content_safety",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     # 问答类元数据
     "self_ask_question_answer": {
         "description": "问答评分",
         "requires_chat_target": True,
         "category": "qa",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "question_answer": {
         "description": "问答（基类）",
         "requires_chat_target": True,
         "category": "qa",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     # 关键词类元数据
     "anthrax_keyword": {
         "description": "炭疽关键词检测",
         "requires_chat_target": False,
         "category": "keyword",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "fentanyl_keyword": {
         "description": "芬太尼关键词检测",
         "requires_chat_target": False,
         "category": "keyword",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "meth_keyword": {
         "description": "冰毒关键词检测",
         "requires_chat_target": False,
         "category": "keyword",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     "nerve_agent_keyword": {
         "description": "神经毒剂关键词检测",
         "requires_chat_target": False,
         "category": "keyword",
+        "score_type": "true_false",
+        "uses_llm": False,
     },
     # 特殊类元数据
     "gandalf": {
         "description": "Gandalf 专用评分",
         "requires_chat_target": True,
         "category": "special",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "conversation": {
         "description": "对话评分",
         "requires_chat_target": True,
         "category": "special",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "batch": {
         "description": "批量评分",
         "requires_chat_target": True,
         "category": "special",
+        "score_type": "true_false",
+        "uses_llm": True,
     },
     "decoding": {
         "description": "解码评分",
         "requires_chat_target": True,
         "category": "special",
+        "score_type": "true_false",
+        "uses_llm": False,
+    },
+    # 多模态评分器元数据（PyRIT 1.0.0）
+    "audio_true_false": {
+        "description": "音频转写 true/false 评分",
+        "requires_chat_target": False,
+        "category": "multimodal",
+        "score_type": "true_false",
+        "uses_llm": False,
+        "requires_azure_speech": True,
+    },
+    "video_true_false": {
+        "description": "视频帧 true/false 评分",
+        "requires_chat_target": False,
+        "category": "multimodal",
+        "score_type": "true_false",
+        "uses_llm": False,
+        "requires_video_processing": True,
+    },
+    "audio_float_scale": {
+        "description": "音频转写浮点评分",
+        "requires_chat_target": False,
+        "category": "multimodal",
+        "score_type": "float_scale",
+        "uses_llm": False,
+        "requires_azure_speech": True,
+    },
+    "video_float_scale": {
+        "description": "视频帧浮点评分",
+        "requires_chat_target": False,
+        "category": "multimodal",
+        "score_type": "float_scale",
+        "uses_llm": False,
+        "requires_video_processing": True,
     },
 }
 
@@ -2212,3 +2341,501 @@ def list_registered_scorers() -> List[str]:
 
     registry = ScorerRegistry.get_registry_singleton()
     return registry.get_class_names()
+
+
+# ============================================================
+# Scorer 参考表生成（PyRIT 1.0.0 get_scorer_info 集成）
+# ============================================================
+
+
+def generate_scorer_reference_table(
+    score_type_filter: Optional[str] = None,
+    uses_llm_filter: Optional[bool] = None,
+    category_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    生成 Scorer 参考表（PyRIT 1.0.0 原生 get_scorer_info 集成）
+
+    调用 PyRIT 原生 get_scorer_info() 在不实例化评分器的情况下
+    检查每个评分器类，返回 name/score_type/uses_llm 三元组列表。
+    本方法将其与项目 SCORER_METADATA 合并，提供更丰富的参考表。
+
+    Args:
+        score_type_filter: 按返回类型过滤（"true_false" / "float_scale"，None 不过滤）
+        uses_llm_filter: 按是否使用 LLM 过滤（True/False，None 不过滤）
+        category_filter: 按类别过滤（如 "general" / "detection"，None 不过滤）
+
+    Returns:
+        评分器参考表列表，每个条目包含：
+        - name: Scorer 类名
+        - score_type: 返回类型（true_false / float_scale）
+        - uses_llm: 是否使用 LLM
+        - description: 描述（来自 SCORER_METADATA）
+        - category: 类别（来自 SCORER_METADATA）
+        - requires_chat_target: 是否需要 chat_target
+        - snake_case: snake_case 名称（来自 SCORER_CLASS_MAP 反查）
+    """
+    # 从原生 API 获取评分器信息
+    native_info_list = get_scorer_info()
+
+    # 构建 snake_case 反查映射（类名 → snake_case）
+    class_name_to_snake = {
+        cls.__name__: snake for snake, cls in SCORER_CLASS_MAP.items()
+    }
+
+    # 合并原生信息与项目元数据
+    table: List[Dict[str, Any]] = []
+    for info in native_info_list:
+        snake_case = class_name_to_snake.get(info.name, "")
+        metadata = SCORER_METADATA.get(snake_case, {})
+
+        entry = {
+            "name": info.name,
+            "score_type": info.score_type,
+            "uses_llm": info.uses_llm,
+            "description": metadata.get("description", ""),
+            "category": metadata.get("category", ""),
+            "requires_chat_target": metadata.get("requires_chat_target", False),
+            "snake_case": snake_case,
+        }
+
+        # 应用过滤器
+        if score_type_filter is not None and entry["score_type"] != score_type_filter:
+            continue
+        if uses_llm_filter is not None and entry["uses_llm"] != uses_llm_filter:
+            continue
+        if category_filter is not None and entry["category"] != category_filter:
+            continue
+
+        table.append(entry)
+
+    return table
+
+
+def format_scorer_reference_table(table: Optional[List[Dict[str, Any]]] = None) -> str:
+    """
+    格式化 Scorer 参考表为可读字符串
+
+    Args:
+        table: generate_scorer_reference_table() 返回的列表，None 则生成全量表
+
+    Returns:
+        格式化的参考表字符串
+    """
+    if table is None:
+        table = generate_scorer_reference_table()
+
+    lines = [f"{'Scorer':<35} {'Return type':<15} {'Uses LLM?':<10} {'Category':<15} Description"]
+    lines.append("-" * 100)
+    for entry in table:
+        llm_str = "yes" if entry["uses_llm"] else "no"
+        lines.append(
+            f"{entry['name']:<35} {entry['score_type']:<15} {llm_str:<10} "
+            f"{entry['category']:<15} {entry['description']}"
+        )
+    return "\n".join(lines)
+
+
+def get_scorer_score_type(scorer_name: str) -> Optional[str]:
+    """
+    获取 Scorer 的返回类型（true_false / float_scale）
+
+    PyRIT 1.0.0 通过 get_scorer_info() 在不实例化评分器的情况下获取返回类型。
+    本方法首先从 SCORER_METADATA 查询，如果不存在则从原生 API 查询。
+
+    Args:
+        scorer_name: Scorer 名称（SCORER_CLASS_MAP 的键）
+
+    Returns:
+        "true_false" / "float_scale"，如果不存在则返回 None
+    """
+    # 首先从项目元数据查询
+    metadata = SCORER_METADATA.get(scorer_name)
+    if metadata and "score_type" in metadata:
+        return metadata["score_type"]
+
+    # 回退到原生 API 查询
+    scorer_class = SCORER_CLASS_MAP.get(scorer_name)
+    if scorer_class is None:
+        return None
+
+    native_info_list = get_scorer_info()
+    for info in native_info_list:
+        if info.name == scorer_class.__name__:
+            return info.score_type
+
+    return None
+
+
+def get_scorer_uses_llm(scorer_name: str) -> Optional[bool]:
+    """
+    获取 Scorer 是否使用 LLM
+
+    PyRIT 1.0.0 通过 get_scorer_info() 在不实例化评分器的情况下获取此信息。
+    本方法首先从 SCORER_METADATA 查询，如果不存在则从原生 API 查询。
+
+    Args:
+        scorer_name: Scorer 名称（SCORER_CLASS_MAP 的键）
+
+    Returns:
+        True/False，如果不存在则返回 None
+    """
+    # 首先从项目元数据查询
+    metadata = SCORER_METADATA.get(scorer_name)
+    if metadata and "uses_llm" in metadata:
+        return metadata["uses_llm"]
+
+    # 回退到原生 API 查询
+    scorer_class = SCORER_CLASS_MAP.get(scorer_name)
+    if scorer_class is None:
+        return None
+
+    native_info_list = get_scorer_info()
+    for info in native_info_list:
+        if info.name == scorer_class.__name__:
+            return info.uses_llm
+
+    return None
+
+
+def list_scorers_by_score_type(score_type: str) -> List[str]:
+    """
+    列出指定返回类型的所有 Scorer
+
+    Args:
+        score_type: 返回类型（"true_false" / "float_scale"）
+
+    Returns:
+        Scorer 名称列表
+    """
+    return [
+        name
+        for name, metadata in SCORER_METADATA.items()
+        if metadata.get("score_type") == score_type
+    ]
+
+
+def list_scorers_by_uses_llm(uses_llm: bool) -> List[str]:
+    """
+    列出使用或不使用 LLM 的所有 Scorer
+
+    Args:
+        uses_llm: True 列出使用 LLM 的，False 列出不使用的
+
+    Returns:
+        Scorer 名称列表
+    """
+    return [
+        name
+        for name, metadata in SCORER_METADATA.items()
+        if metadata.get("uses_llm") == uses_llm
+    ]
+
+
+# ============================================================
+# Instance Registry 集成（PyRIT 1.0.0 实例注册表）
+# ============================================================
+
+
+def register_scorer_instance_to_registry(
+    scorer: Any,
+    *,
+    name: Optional[str] = None,
+    tags: Optional[Union[Dict[str, str], List[str]]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    注册预配置 Scorer 实例到 PyRIT ScorerRegistry.instances
+
+    PyRIT 1.0.0 Instance Registry 允许注册已配置好 chat_target 等依赖的
+    评分器实例，后续可通过名称或标签检索。
+
+    注册名默认为实例的 unique_name（格式为 ClassName::hash）。
+    也可手动指定名称以便引用解析使用。
+
+    Args:
+        scorer: 已配置的 Scorer 实例
+        name: 注册名（None 则使用 unique_name）
+        tags: 标签（dict[str, str] 或 list[str]）
+        metadata: 额外元数据
+
+    Returns:
+        注册名
+
+    Example:
+        >>> target = OpenAIChatTarget()
+        >>> refusal = SelfAskRefusalScorer(chat_target=target)
+        >>> register_scorer_instance_to_registry(
+        ...     refusal, name="refusal_scorer", tags=["refusal", "core"]
+        ... )
+        >>> # 后续可通过名称引用：
+        >>> # registry.create_instance("TrueFalseCompositeScorer",
+        >>> #     scorers=["refusal_scorer", "leakage_scorer"])
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    registry.instances.register(scorer, name=name, tags=tags, metadata=metadata)
+    registered_name = name or scorer.get_identifier().unique_name
+    return registered_name
+
+
+def get_registered_scorer_instance(name: str) -> Optional[Any]:
+    """
+    从 ScorerRegistry.instances 获取预配置 Scorer 实例
+
+    Args:
+        name: 注册名
+
+    Returns:
+        Scorer 实例，如果未找到则返回 None
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    return registry.instances.get(name)
+
+
+def list_registered_scorer_instances() -> List[str]:
+    """
+    列出 ScorerRegistry.instances 中所有已注册实例名
+
+    Returns:
+        排序后的实例名列表
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    return registry.instances.get_names()
+
+
+def list_scorer_instance_metadata(
+    *,
+    include_filters: Optional[Dict[str, Any]] = None,
+    exclude_filters: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    列出 ScorerRegistry.instances 中所有实例的元数据（支持过滤）
+
+    元数据来自实例的 ComponentIdentifier，包含 scorer_type、
+    score_aggregator、model_name、eval_hash 等。
+
+    过滤规则：
+    - 简单类型：精确匹配
+    - 序列类型：成员检查
+    - include_filters：ALL 匹配（AND）
+    - exclude_filters：ANY 匹配即排除
+
+    Args:
+        include_filters: 必须全部匹配的过滤条件
+        exclude_filters: 匹配任一即排除的过滤条件
+
+    Returns:
+        实例元数据字典列表
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    identifiers = registry.instances.list_metadata(
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+    )
+
+    result: List[Dict[str, Any]] = []
+    for identifier in identifiers:
+        entry: Dict[str, Any] = {
+            "unique_name": identifier.unique_name,
+            "class_name": identifier.__class__.__name__,
+        }
+        if hasattr(identifier, "eval_hash") and identifier.eval_hash:
+            entry["eval_hash"] = identifier.eval_hash
+        params = getattr(identifier, "params", None)
+        if isinstance(params, dict):
+            for key, value in params.items():
+                if isinstance(value, (str, int, float, bool)):
+                    entry[key] = value
+                elif isinstance(value, (list, tuple)):
+                    entry[key] = list(value)
+        result.append(entry)
+
+    return result
+
+
+def query_scorer_instances_by_tags(query: Any) -> List[Any]:
+    """
+    使用 TagQuery 组合谓词查询 Scorer 实例
+
+    Args:
+        query: TagQuery 对象（可用 & 和 | 组合）
+
+    Returns:
+        匹配的 Scorer 实例列表
+
+    Example:
+        >>> from pyrit.registry import TagQuery
+        >>> q = TagQuery.all("refusal") & TagQuery.any_of("core", "strict")
+        >>> scorers = query_scorer_instances_by_tags(q)
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    entries = registry.instances.query_by_tags(query=query)
+    return [entry.instance for entry in entries]
+
+
+def get_scorer_instances_by_tag(
+    tag: str,
+    value: Optional[str] = None,
+) -> List[Any]:
+    """
+    按标签获取 Scorer 实例
+
+    Args:
+        tag: 标签键
+        value: 标签值（None 则匹配任意值）
+
+    Returns:
+        Scorer 实例列表
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    entries = registry.instances.get_by_tag(tag=tag, value=value)
+    return [entry.instance for entry in entries]
+
+
+def find_scorer_dependents(tag: str) -> List[Any]:
+    """
+    发现依赖指定标签的 Scorer 实例
+
+    扫描每个实例的 ComponentIdentifier 树，检查是否有子节点的
+    eval_hash 匹配携带指定标签的实例。
+
+    典型用途：标记基础评分器（如 refusal_scorer）后，
+    自动发现所有包装器（Inverter、Composite）。
+
+    Args:
+        tag: 标识"基础"实例的标签键
+
+    Returns:
+        依赖指定标签的 Scorer 实例列表
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    entries = registry.instances.find_dependents_of_tag(tag=tag)
+    return [entry.instance for entry in entries]
+
+
+def add_tags_to_scorer_instance(
+    name: str,
+    tags: Union[Dict[str, str], List[str]],
+) -> None:
+    """
+    向已注册 Scorer 实例添加标签
+
+    Args:
+        name: 实例名
+        tags: 要添加的标签
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    registry.instances.add_tags(name=name, tags=tags)
+
+
+def get_scorer_class_metadata_from_registry(name: str) -> Optional[Dict[str, Any]]:
+    """
+    从 ScorerRegistry 获取 Scorer 类的元数据
+
+    使用原生 ScorerMetadata，包含：
+    - class_name / class_module / class_description / registry_name
+    - parameters（构建契约）
+    - is_llm_based（是否需要 LLM 目标，从参数契约投影）
+
+    Args:
+        name: Scorer 类名（如 "SelfAskRefusalScorer"）
+
+    Returns:
+        元数据字典，如果未找到则返回 None
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    metadata = registry.get_registered_class_metadata(name)
+    if metadata is None:
+        return None
+
+    result: Dict[str, Any] = {
+        "class_name": metadata.class_name,
+        "class_module": metadata.class_module,
+        "class_description": metadata.class_description,
+        "registry_name": metadata.registry_name,
+        "is_llm_based": metadata.is_llm_based,
+    }
+
+    # 参数契约
+    params: List[Dict[str, Any]] = []
+    for param in metadata.parameters:
+        param_dict: Dict[str, Any] = {
+            "name": param.name,
+            "description": param.description,
+            "default": param.default if param.default is not None else None,
+        }
+        if param.param_type is not None:
+            param_dict["param_type"] = str(param.param_type)
+        if param.reference is not None:
+            param_dict["reference"] = str(param.reference.component_type)
+        params.append(param_dict)
+    result["parameters"] = params
+
+    # 类属性
+    if hasattr(metadata, "class_attributes"):
+        result["class_attributes"] = dict(metadata.class_attributes)
+
+    return result
+
+
+def list_all_scorer_class_metadata(
+    *,
+    include_filters: Optional[Dict[str, Any]] = None,
+    exclude_filters: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    列出 ScorerRegistry 中所有 Scorer 类的元数据（支持过滤）
+
+    Args:
+        include_filters: 必须全部匹配（如 {"is_llm_based": True}）
+        exclude_filters: 匹配任一即排除
+
+    Returns:
+        元数据字典列表
+
+    Example:
+        # 列出所有 LLM 评分器
+        llm_scorers = list_all_scorer_class_metadata(
+            include_filters={"is_llm_based": True}
+        )
+    """
+    from pyrit.registry import ScorerRegistry
+
+    registry = ScorerRegistry.get_registry_singleton()
+    metadata_list = registry.get_all_registered_class_metadata(
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+    )
+
+    results: List[Dict[str, Any]] = []
+    for metadata in metadata_list:
+        entry: Dict[str, Any] = {
+            "class_name": metadata.class_name,
+            "class_module": metadata.class_module,
+            "class_description": metadata.class_description,
+            "registry_name": metadata.registry_name,
+            "is_llm_based": metadata.is_llm_based,
+        }
+        if hasattr(metadata, "class_attributes"):
+            entry["class_attributes"] = dict(metadata.class_attributes)
+        results.append(entry)
+
+    return results

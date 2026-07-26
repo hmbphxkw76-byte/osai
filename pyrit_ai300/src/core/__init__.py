@@ -29,6 +29,12 @@ from src.core.config_loader import (
     get_config_loader,
 )
 
+from src.core.registry_manager import (
+    RegistryManager,
+    get_registry_manager,
+    reset_registry_manager,
+)
+
 __all__ = [
     # 枚举类型
     "AISystemType",
@@ -52,4 +58,8 @@ __all__ = [
     # 配置加载器
     "ConfigLoader",
     "get_config_loader",
+    # 注册表管理器
+    "RegistryManager",
+    "get_registry_manager",
+    "reset_registry_manager",
 ]
