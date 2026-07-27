@@ -5,7 +5,7 @@
 
 from ai300_schemas import FingerprintData, TargetProfile
 
-from ai300_eval_kit.strategies import select_strategies
+from ai300_eval.strategies import select_strategies
 
 
 def test_select_strategies_for_api_target():

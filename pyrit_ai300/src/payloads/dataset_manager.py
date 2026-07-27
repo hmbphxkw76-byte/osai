@@ -24,6 +24,7 @@ PyRIT 原生 API：
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -129,8 +130,13 @@ class DatasetManager:
                         continue
                     try:
                         dataset = SeedDataset.from_yaml_file(yaml_file)
-                        datasets.append(dataset)
-                        self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
+                        # 过滤包含未渲染 Jinja2 控制结构的种子
+                        # 这些种子需要外部数据池（如 _pools/many_shot_examples.yaml）
+                        # 但数据池不存在时，模板会原样发送到 API 导致 500 错误
+                        dataset = self._filter_unrendered_templates(dataset, yaml_file)
+                        if dataset is not None:
+                            datasets.append(dataset)
+                            self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
                     except Exception as e:
                         logger.warning(f"Failed to load OWASP dataset {yaml_file}: {e}")
 
@@ -163,8 +169,10 @@ class DatasetManager:
                 continue
             try:
                 dataset = SeedDataset.from_yaml_file(yaml_file)
-                datasets.append(dataset)
-                self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
+                dataset = self._filter_unrendered_templates(dataset, yaml_file)
+                if dataset is not None:
+                    datasets.append(dataset)
+                    self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
             except Exception as e:
                 logger.warning(f"Failed to load custom dataset {yaml_file}: {e}")
 
@@ -386,3 +394,59 @@ class DatasetManager:
             return data.get("categories", {})
         except Exception:
             return {}
+
+    @staticmethod
+    def _filter_unrendered_templates(
+        dataset: SeedDataset,
+        yaml_file: Path,
+    ) -> Optional[SeedDataset]:
+        """
+        过滤掉包含未渲染 Jinja2 控制结构的种子
+
+        某些 YAML 种子（如 many_shot_jailbreak.yaml）包含 Jinja2 模板
+        {%- for example in examples[:128] %}...{% endfor %}，需要外部数据池
+        （如 _pools/many_shot_examples.yaml）才能渲染。当数据池不存在时，
+        PyRIT 的 render_template_value_silent 会保留原始模板字符串，
+        导致模板被原样发送到 API，触发 500 错误。
+
+        本方法检测种子中是否仍包含 Jinja2 控制结构，如果包含则移除该种子。
+        如果整个数据集的所有种子都被移除，返回 None。
+
+        Args:
+            dataset: 已加载的 SeedDataset
+            yaml_file: YAML 文件路径（用于日志）
+
+        Returns:
+            过滤后的 SeedDataset（可能为 None 如果所有种子都被移除）
+        """
+        # Jinja2 控制结构正则: {% for/if/block/macro/call ... %}
+        control_pattern = re.compile(r"\{%[-\s]*(for|if|block|macro|call)\b")
+
+        filtered_seeds: list[Any] = []
+        removed_count = 0
+
+        for seed in dataset.seeds:
+            value = getattr(seed, "value", "")
+            if isinstance(value, str) and control_pattern.search(value):
+                removed_count += 1
+                continue
+            filtered_seeds.append(seed)
+
+        if removed_count > 0:
+            logger.info(
+                f"Filtered {removed_count} unrendered Jinja2 template seed(s) "
+                f"from {yaml_file.name}"
+            )
+
+        if not filtered_seeds:
+            logger.warning(
+                f"All seeds in {yaml_file.name} were unrendered Jinja2 templates, "
+                f"skipping dataset entirely"
+            )
+            return None
+
+        if removed_count > 0:
+            # 重建 dataset — SeedDataset.seeds 是可写字段，seed_groups 是派生属性
+            dataset = dataset.model_copy(update={"seeds": filtered_seeds})
+
+        return dataset

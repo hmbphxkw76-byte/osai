@@ -418,6 +418,35 @@ class ConfigLoader:
         """
         return self.get_strategy_config().get("owasp_strategy_map", {})
 
+    def get_target_aware_converter_profiles(self) -> Dict[str, Dict[str, Any]]:
+        """
+        R3: 获取 Target-Aware Converter Profiles（从 YAML 读取，消除重复定义）
+
+        YAML target_aware_converter_profiles 段定义了每个 Target 分组的:
+        - description: 描述
+        - bypass_mechanism: 绕过机制
+        - high_asr: 高 ASR 链列表
+        - medium_asr: 中 ASR 链列表
+        - llm_assisted: LLM 辅助链列表
+        - target_types: 该分组包含的 PyRIT Target 类型
+
+        Returns:
+            Target 分组 → Profile 字典
+        """
+        return self.get_strategy_config().get("target_aware_converter_profiles", {})
+
+    def get_target_aware_profile(self, group_name: str) -> Optional[Dict[str, Any]]:
+        """
+        R3: 获取特定 Target 分组的 Converter Profile
+
+        Args:
+            group_name: 分组名（如 "llm_direct", "agent_web"）
+
+        Returns:
+            Profile 字典，不存在则返回 None
+        """
+        return self.get_target_aware_converter_profiles().get(group_name)
+
     def get_owasp_strategy(self, owasp_id: str) -> Optional[Dict[str, Any]]:
         """
         获取特定 OWASP ID 的策略配置

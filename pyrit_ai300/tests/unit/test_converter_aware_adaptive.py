@@ -523,64 +523,30 @@ class TestP5AbstractMethodsAndDisplay(unittest.TestCase):
         summary = AI300AdaptiveScenario.get_converter_variants_summary()
         self.assertEqual(count, len(summary))
 
-    def test_extract_used_converters_none_result(self):
-        """Test extract_used_converters_from_result with None"""
-        from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
-        records = AI300AdaptiveScenario.extract_used_converters_from_result(None)
-        self.assertEqual(records, [])
+    def test_extract_converters_from_identifier_none(self):
+        """Test _extract_converters_from_identifier with no converter children"""
+        from src.scenarios.scenario_output import _extract_converters_from_identifier
+        from unittest.mock import MagicMock
 
-    def test_extract_used_converters_mock_result(self):
-        """Test extract_used_converters_from_result with mock data"""
-        from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
+        mock_id = MagicMock()
+        mock_id.children = {}
+        result = _extract_converters_from_identifier(mock_id)
+        self.assertEqual(result, [])
 
-        # Create mock result with display_groups
-        mock_identifier = MagicMock()
-        mock_identifier.unique_name = "prompt_sending+stealth_evasion"
+    def test_extract_converters_from_identifier_with_converters(self):
+        """Test _extract_converters_from_identifier with request_converters"""
+        from src.scenarios.scenario_output import _extract_converters_from_identifier
+        from unittest.mock import MagicMock
 
-        mock_result_obj = MagicMock()
-        mock_result_obj.get_attack_strategy_identifier.return_value = mock_identifier
-        mock_result_obj.outcome = MagicMock()
-        mock_result_obj.outcome.value = "success"
+        mock_conv1 = MagicMock()
+        mock_conv1.class_name = "Base64Converter"
+        mock_conv2 = MagicMock()
+        mock_conv2.class_name = "ROT13Converter"
 
-        mock_native = MagicMock()
-        mock_native.get_display_groups.return_value = {
-            "airt_hate": [mock_result_obj],
-        }
-
-        records = AI300AdaptiveScenario.extract_used_converters_from_result(mock_native)
-        self.assertEqual(len(records), 1)
-        self.assertTrue(records[0]["is_converter_variant"])
-        self.assertEqual(records[0]["base_technique"], "prompt_sending")
-        self.assertEqual(records[0]["converter_chain"], "stealth_evasion")
-        self.assertEqual(records[0]["outcome"], "SUCCESS")
-
-    def test_extract_used_converters_base_technique(self):
-        """Test extract_used_converters_from_result with base (non-variant) technique"""
-        from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
-
-        mock_identifier = MagicMock()
-        mock_identifier.unique_name = "prompt_sending"
-
-        mock_result_obj = MagicMock()
-        mock_result_obj.get_attack_strategy_identifier.return_value = mock_identifier
-        mock_result_obj.outcome = MagicMock()
-        mock_result_obj.outcome.value = "success"
-
-        mock_native = MagicMock()
-        mock_native.get_display_groups.return_value = {
-            "airt_hate": [mock_result_obj],
-        }
-
-        records = AI300AdaptiveScenario.extract_used_converters_from_result(mock_native)
-        self.assertEqual(len(records), 1)
-        self.assertFalse(records[0]["is_converter_variant"])
-        self.assertEqual(records[0]["technique_name"], "prompt_sending")
-
-    def test_display_used_converters_none(self):
-        """Test display_used_converters with None doesn't crash"""
-        from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
-        # Should not raise
-        AI300AdaptiveScenario.display_used_converters(None)
+        mock_id = MagicMock()
+        mock_id.children = {"request_converters": [mock_conv1, mock_conv2]}
+        result = _extract_converters_from_identifier(mock_id)
+        self.assertEqual(result, ["Base64Converter", "ROT13Converter"])
 
     def test_is_not_abstract(self):
         """Test AI300AdaptiveScenario is not abstract (all methods implemented)"""

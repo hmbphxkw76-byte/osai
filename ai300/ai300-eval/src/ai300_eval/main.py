@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ai300-eval-kit 入口
+ai300-eval 入口
 """
 
 from __future__ import annotations

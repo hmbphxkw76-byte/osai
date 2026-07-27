@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ai300_schemas import FingerprintData, PyRITTargetConfig, TargetProfile
 
-from ai300_eval_kit.loaders import load_pyrit_target, load_target_profile
+from ai300_eval.loaders import load_pyrit_target, load_target_profile
 
 
 def test_load_target_profile_from_json():

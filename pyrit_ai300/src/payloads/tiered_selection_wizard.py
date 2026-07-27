@@ -436,18 +436,12 @@ class TieredSelectionWizard:
             print(f"\n  --- Tier {tier_labels.get(tier_val, tier_val)} ---")
             print(f"  {'#':>3}  {'OWASP':6}  {'Technique Group':36}  {'ASR':>5}  {'Seeds':>5}  {'Modes':12}")
 
-            for g in tier_groups[:8]:  # Show max 8 per tier
+            for g in tier_groups:
                 rank += 1
                 modes = ",".join(g.attack_modes[:2])
                 print(f"  {rank:>3}  {g.owasp_id:6}  {g.technique_group:36}  {g.display_asr:>5}  "
                       f"{g.seed_count:>5}  {modes:12}")
                 all_displayed.append(g)
-
-            if len(tier_groups) > 8:
-                print(f"       ... +{len(tier_groups) - 8} more in this tier")
-                # Still count them for tier range
-                rank += len(tier_groups) - 8
-                all_displayed.extend(tier_groups[8:])
 
             tier_ranges[tier_short.get(tier_val, tier_val)] = (tier_start, rank)
 

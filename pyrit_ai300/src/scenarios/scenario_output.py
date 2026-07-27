@@ -151,6 +151,268 @@ def get_per_group_breakdown(result: Any) -> list[dict[str, Any]]:
     return bridge.get_per_group_stats()
 
 
+# OWASP ID → 名称映射
+_OWASP_NAMES: dict[str, str] = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Info Disclosure",
+    "LLM03": "Supply Chain",
+    "LLM04": "Data & Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector & Embedding Weakness",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+    "ASI01": "Goal Hijacking",
+    "ASI02": "Tool Misuse",
+    "ASI03": "Identity Abuse",
+    "ASI04": "Supply Chain (Agentic)",
+    "ASI05": "Code Execution",
+    "ASI06": "Data Exfiltration",
+    "ASI07": "Overreliance",
+    "ASI08": "Authorization Bypass",
+    "ASI09": "Memory Poisoning",
+    "ASI10": "Trust Boundary Violation",
+}
+
+
+def _clean_technique_name(raw_name: str) -> tuple[str, str]:
+    """
+    清理技术名，去掉 hash 后缀，分离 Converter 变体
+
+    PyRIT 原生 unique_name 格式: "ClassName::hash" 或 "ClassName::hash+converter_chain"
+
+    Returns:
+        (base_technique, converter_chain) — converter_chain 为空表示基础技术
+    """
+    if not raw_name:
+        return ("", "")
+    # 去掉 hash 后缀: "PromptSendingAttack::49fe4c34" → "PromptSendingAttack"
+    base = raw_name.split("::")[0] if "::" in raw_name else raw_name
+    # 分离 Converter 变体: "PromptSendingAttack+stealth_evasion" → ("PromptSendingAttack", "stealth_evasion")
+    if "+" in base:
+        parts = base.split("+", 1)
+        return (parts[0], parts[1])
+    return (base, "")
+
+
+def _extract_converters_from_identifier(identifier: Any) -> list[str]:
+    """
+    从 ComponentIdentifier 提取 Converter 类名列表（PyRIT 原生 API）
+
+    当 attack 配置了 attack_converter_config 时，identifier.children 中
+    会包含 'request_converters' 键，其值为 ConverterIdentifier 列表。
+    每个 ConverterIdentifier.class_name 即为 Converter 的类名。
+
+    Args:
+        identifier: AttackResult 的 ComponentIdentifier
+
+    Returns:
+        Converter 类名列表（如 ["Base64Converter", "ROT13Converter"]）
+    """
+    converters: list[str] = []
+    children = getattr(identifier, "children", None) or {}
+
+    # 检查 request_converters
+    req_converters = children.get("request_converters")
+    if req_converters:
+        if isinstance(req_converters, list):
+            for conv_id in req_converters:
+                cn = getattr(conv_id, "class_name", "")
+                if cn:
+                    converters.append(cn)
+        else:
+            cn = getattr(req_converters, "class_name", "")
+            if cn:
+                converters.append(cn)
+
+    # 检查 response_converters
+    resp_converters = children.get("response_converters")
+    if resp_converters:
+        if isinstance(resp_converters, list):
+            for conv_id in resp_converters:
+                cn = getattr(conv_id, "class_name", "")
+                if cn:
+                    converters.append(cn)
+
+    return converters
+
+
+# 数据集名 → OWASP ID 映射（AIRT 数据集无显式 OWASP 标签时的回退映射）
+_DATASET_OWASP_MAP: dict[str, str] = {
+    "airt_leakage": "LLM02",
+    "airt_misinformation": "LLM09",
+    "airt_violence": "LLM09",
+    "airt_hate": "LLM09",
+    "airt_harassment": "LLM09",
+    "llm01": "LLM01",
+    "llm02": "LLM02",
+    "llm03": "LLM03",
+    "llm04": "LLM04",
+    "llm05": "LLM05",
+    "llm06": "LLM06",
+    "llm07": "LLM07",
+    "llm08": "LLM08",
+    "llm09": "LLM09",
+    "llm10": "LLM10",
+    "asi01": "ASI01",
+    "asi02": "ASI02",
+    "asi03": "ASI03",
+    "asi04": "ASI04",
+    "asi05": "ASI05",
+    "asi06": "ASI06",
+    "asi07": "ASI07",
+    "asi08": "ASI08",
+    "asi09": "ASI09",
+    "asi10": "ASI10",
+}
+
+
+def display_enhanced_group_breakdown(
+    native_result: Any,
+    *,
+    owasp_id: str = "",
+    sort_by_success_rate: bool = True,
+) -> None:
+    """
+    统一 Per-Group Breakdown 展示（含攻击技术+Converter组合+OWASP 对齐）
+
+    合并原生 Per-Group Breakdown 和增强列为一次输出，避免重复：
+    - Group / Results / Success / Failure / Rate（原生信息）
+    - Techniques: 该组使用的攻击技术列表（去掉 hash 后缀）
+    - Converters: 该组使用的 Converter 列表（从 identifier.children 提取）
+    - OWASP: 该组关联的 OWASP ID + 名称
+
+    使用 PyRIT 原生 API 提取信息：
+    - ScenarioResult.get_display_groups() 获取分组
+    - AttackResult.get_attack_strategy_identifier() 获取技术名 + converter children
+    - AttackResult.labels["owasp_id"] 获取 OWASP ID（回退到数据集名映射）
+
+    Args:
+        native_result: 原生 ScenarioResult
+        owasp_id: 默认 OWASP ID（当 result 中无 labels 时使用）
+        sort_by_success_rate: 是否按成功率降序排列
+    """
+    if native_result is None:
+        return
+
+    if not hasattr(native_result, "get_display_groups"):
+        return
+
+    display_groups = native_result.get_display_groups()
+    if not display_groups:
+        return
+
+    # 收集每组统计信息
+    group_stats: list[dict[str, Any]] = []
+    for group_name, results in display_groups.items():
+        total = len(results)
+        success = 0
+        techniques: set[str] = set()
+        converters: set[str] = set()
+        owasp_ids: set[str] = set()
+
+        for r in results:
+            if r is None:
+                continue
+            # 成功统计
+            outcome = getattr(r, "outcome", None)
+            outcome_str = ""
+            if outcome is not None:
+                outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+                if outcome_str == "SUCCESS":
+                    success += 1
+
+            # 技术名 + Converter 检测（原生 API）
+            identifier = None
+            if hasattr(r, "get_attack_strategy_identifier"):
+                identifier = r.get_attack_strategy_identifier()
+            if identifier is not None:
+                name = getattr(identifier, "unique_name", "") or ""
+                base_tech, _ = _clean_technique_name(name)
+                if base_tech:
+                    techniques.add(base_tech)
+
+                # 从 identifier.children 提取 Converter 类名
+                conv_names = _extract_converters_from_identifier(identifier)
+                for cn in conv_names:
+                    converters.add(cn)
+
+            # OWASP ID（原生 labels API）
+            labels = getattr(r, "labels", None) or {}
+            r_owasp = labels.get("owasp_id", "")
+            if r_owasp:
+                owasp_ids.add(r_owasp)
+
+        # OWASP 回退：从数据集名推断
+        if not owasp_ids:
+            for ds_name_part in group_name.split("::"):
+                ds_name = ds_name_part.replace("ai300_adaptive_", "")
+                mapped = _DATASET_OWASP_MAP.get(ds_name)
+                if mapped:
+                    owasp_ids.add(mapped)
+                    break
+
+        failure = total - success
+        rate = success / total if total > 0 else 0.0
+        # OWASP ID + 名称
+        owasp_id_str = ", ".join(sorted(owasp_ids)) if owasp_ids else owasp_id
+        owasp_names = []
+        for oid in owasp_id_str.split(", "):
+            oid = oid.strip()
+            if oid:
+                name = _OWASP_NAMES.get(oid, "")
+                owasp_names.append(f"{oid}: {name}" if name else oid)
+        owasp_display = " | ".join(owasp_names) if owasp_names else ""
+
+        group_stats.append({
+            "group_name": group_name,
+            "total": total,
+            "success": success,
+            "failure": failure,
+            "success_rate": rate,
+            "techniques": sorted(techniques),
+            "converters": sorted(converters),
+            "owasp_id": owasp_id_str,
+            "owasp_display": owasp_display,
+        })
+
+    # 按成功率降序排列
+    if sort_by_success_rate:
+        group_stats.sort(key=lambda s: s["success_rate"], reverse=True)
+
+    # 输出 Per-Group Breakdown（合并原生+增强）
+    print(f"\n  {'=' * 76}")
+    print(f"  Per-Group Breakdown (Techniques + Converters + OWASP)")
+    print(f"  {'=' * 76}")
+
+    for stat in group_stats:
+        rate_pct = stat["success_rate"] * 100
+        print(f"\n  Group: {stat['group_name']}")
+        print(f"    Results: {stat['total']}, "
+              f"Success: {stat['success']}, "
+              f"Failure: {stat['failure']}, "
+              f"Rate: {rate_pct:.0f}%")
+
+        # 攻击技术（去掉 hash 后缀）
+        if stat["techniques"]:
+            print(f"    Techniques:  {', '.join(stat['techniques'])}")
+        else:
+            print(f"    Techniques:  (unknown)")
+
+        # Converter 变体
+        if stat["converters"]:
+            print(f"    Converters:  {', '.join(stat['converters'])}")
+        else:
+            print(f"    Converters:  (none - base techniques only)")
+
+        # OWASP 对齐（ID + 名称）
+        if stat["owasp_display"]:
+            print(f"    OWASP:       {stat['owasp_display']}")
+
+    print(f"\n  {'=' * 76}")
+
+
 # ============================================================
 # 内部辅助函数
 # ============================================================

@@ -6,7 +6,7 @@
 |---|---|---|---|
 | **ai300-recon** | `ai300-recon/` | 侦察 LLM Web 应用，输出 TargetProfile 与 PyRIT target | `python ai300-recon/main.py <URL>` |
 | **ai300-attack** | `ai300-attack/` | 基于侦察结果调用 Garak / PyRIT 执行对话层攻击 | `ai300-attack` |
-| **ai300-eval-kit** | `ai300-eval-kit/` | 基于侦察结果调用 Giskard / ART 执行模型评估 | `ai300-eval` |
+| **ai300-eval** | `ai300-eval/` | 基于侦察结果调用 Giskard / ART 执行模型评估 | `ai300-eval` |
 | **ai300-schemas** | `ai300-schemas/` | 三项目共享的数据契约 | 无 CLI |
 
 ## 设计原则
@@ -32,8 +32,8 @@
 │   ├── src/ai300_attack/
 │   ├── tests/
 │   └── pyproject.toml
-├── ai300-eval-kit/             # 评估阶段
-│   ├── src/ai300_eval_kit/
+├── ai300-eval/             # 评估阶段
+│   ├── src/ai300_eval/
 │   ├── tests/
 │   └── pyproject.toml
 ├── third_party/skillspector/   # SkillSpector 源码（子进程/Docker 调用）
@@ -58,7 +58,7 @@ make install
 pip install -e ./ai300-schemas
 pip install -r ./ai300-recon/requirements.txt
 pip install -e "./ai300-attack[dev]"
-pip install -e "./ai300-eval-kit[dev]"
+pip install -e "./ai300-eval[dev]"
 ```
 
 ### 2. 配置目标 URL
@@ -120,12 +120,12 @@ TargetProfile + PyRITTargetConfig
       │
       ├──► ai300-attack ──► UnifiedFinding
       │
-      └──► ai300-eval-kit ────────► UnifiedFinding
+      └──► ai300-eval ────────► UnifiedFinding
 ```
 
 ## 扩展新的攻击/评估工具
 
-1. 在 `ai300-attack/src/ai300_attack/adapters/` 或 `ai300-eval-kit/src/ai300_eval_kit/adapters/` 中继承基类实现适配器。
+1. 在 `ai300-attack/src/ai300_attack/adapters/` 或 `ai300-eval/src/ai300_eval/adapters/` 中继承基类实现适配器。
 2. 在 `strategies/strategy_selector.py` 中添加对应的策略。
 3. 在 `reporting/unified_converter.py` 中添加工具输出到 `UnifiedFinding` 的转换。
 4. 补充单元测试与集成测试。

@@ -51,7 +51,7 @@ class GiskardAdapter(EvalAdapter):
             except ImportError as exc:
                 raise RuntimeError(
                     "Giskard is not installed. "
-                    "Install with: pip install 'ai300-eval-kit[giskard]'"
+                    "Install with: pip install 'ai300-eval[giskard]'"
                 ) from exc
         return self._giskard
 

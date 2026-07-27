@@ -90,10 +90,8 @@ from pyrit.score import (
     SSRFOutputScorer,
     SSTIOutputScorer,
     XXEOutputScorer,
-    # 评分类 Scorer
-    FloatScaleScorer,
-    FloatScaleScorerAllCategories,
-    FloatScaleScorerByCategory,
+    # 评分类 Scorer（FloatScaleScorer/AllCategories/ByCategory 为抽象基类/工厂代理类，
+    # 不在原生 get_scorer_info() 列表中，不可直接实例化，故不纳入 SCORER_CLASS_MAP）
     FloatScaleThresholdScorer,
     SelfAskLikertScorer,
     SelfAskScaleScorer,
@@ -110,10 +108,9 @@ from pyrit.score import (
     FentanylKeywordScorer,
     MethKeywordScorer,
     NerveAgentKeywordScorer,
-    # 特殊类 Scorer
+    # 特殊类 Scorer（ConversationScorer 为抽象基类，BatchScorer 为工具类，
+    # 均不在原生 get_scorer_info() 列表中，不可通过 create_scorer_instance 直接实例化）
     GandalfScorer,
-    ConversationScorer,
-    BatchScorer,
     DecodingScorer,
     # PyRIT 1.0.0 新增类型
     TrueFalseQuestion,
@@ -177,10 +174,7 @@ SCORER_CLASS_MAP: Dict[str, Any] = {
     "ssrf_output": SSRFOutputScorer,
     "ssti_output": SSTIOutputScorer,
     "xxe_output": XXEOutputScorer,
-    # 评分类
-    "float_scale": FloatScaleScorer,
-    "float_scale_all_categories": FloatScaleScorerAllCategories,
-    "float_scale_by_category": FloatScaleScorerByCategory,
+    # 评分类（float_scale / float_scale_all_categories / float_scale_by_category 为抽象基类/工厂代理类，不纳入 SCORER_CLASS_MAP）
     "float_scale_threshold": FloatScaleThresholdScorer,
     "self_ask_likert": SelfAskLikertScorer,
     "self_ask_scale": SelfAskScaleScorer,
@@ -197,10 +191,9 @@ SCORER_CLASS_MAP: Dict[str, Any] = {
     "fentanyl_keyword": FentanylKeywordScorer,
     "meth_keyword": MethKeywordScorer,
     "nerve_agent_keyword": NerveAgentKeywordScorer,
-    # 特殊类
+    # 特殊类（ConversationScorer 通过 create_conversation_scorer() 工厂创建，
+    # BatchScorer 为批量评分工具类，均不在原生 get_scorer_info() 列表中，不纳入 SCORER_CLASS_MAP）
     "gandalf": GandalfScorer,
-    "conversation": ConversationScorer,
-    "batch": BatchScorer,
     "decoding": DecodingScorer,
     # 多模态评分器（PyRIT 1.0.0）
     "audio_true_false": AudioTrueFalseScorer,
@@ -252,15 +245,15 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "uses_llm": False,
     },
     "true_false_composite": {
-        "description": "组合真/假评分",
-        "requires_chat_target": True,
+        "description": "组合真/假评分（接受 aggregator + scorers，不直接接受 chat_target）",
+        "requires_chat_target": False,
         "category": "general",
         "score_type": "true_false",
         "uses_llm": False,
     },
     "true_false_inverter": {
-        "description": "反转真/假评分",
-        "requires_chat_target": True,
+        "description": "反转真/假评分（接受 scorer + validator，不直接接受 chat_target）",
+        "requires_chat_target": False,
         "category": "general",
         "score_type": "true_false",
         "uses_llm": False,
@@ -387,31 +380,11 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "uses_llm": False,
         "attack_types": ["injection"],
     },
-    # 评分类元数据
-    "float_scale": {
-        "description": "浮点评分",
-        "requires_chat_target": True,
-        "category": "scoring",
-        "score_type": "float_scale",
-        "uses_llm": True,
-    },
-    "float_scale_all_categories": {
-        "description": "全分类浮点评分",
-        "requires_chat_target": True,
-        "category": "scoring",
-        "score_type": "float_scale",
-        "uses_llm": True,
-    },
-    "float_scale_by_category": {
-        "description": "分类浮点评分",
-        "requires_chat_target": True,
-        "category": "scoring",
-        "score_type": "float_scale",
-        "uses_llm": True,
-    },
+    # 评分类元数据（float_scale / float_scale_all_categories / float_scale_by_category
+    # 为抽象基类/工厂代理类，不在原生 get_scorer_info() 列表中，已从 SCORER_CLASS_MAP 移除）
     "float_scale_threshold": {
-        "description": "阈值浮点评分",
-        "requires_chat_target": True,
+        "description": "阈值浮点评分（接受 scorer + threshold，不直接接受 chat_target）",
+        "requires_chat_target": False,
         "category": "scoring",
         "score_type": "true_false",
         "uses_llm": False,
@@ -468,8 +441,8 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "uses_llm": True,
     },
     "question_answer": {
-        "description": "问答（基类）",
-        "requires_chat_target": True,
+        "description": "问答匹配（非 LLM，接受 correct_answer_matching_patterns，不直接接受 chat_target）",
+        "requires_chat_target": False,
         "category": "qa",
         "score_type": "true_false",
         "uses_llm": False,
@@ -503,7 +476,8 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "score_type": "true_false",
         "uses_llm": False,
     },
-    # 特殊类元数据
+    # 特殊类元数据（conversation / batch 为抽象基类/工具类，不在原生 get_scorer_info() 列表中，
+    # 已从 SCORER_CLASS_MAP 和 SCORER_METADATA 移除）
     "gandalf": {
         "description": "Gandalf 专用评分",
         "requires_chat_target": True,
@@ -511,23 +485,9 @@ SCORER_METADATA: Dict[str, Dict[str, Any]] = {
         "score_type": "true_false",
         "uses_llm": True,
     },
-    "conversation": {
-        "description": "对话评分",
-        "requires_chat_target": True,
-        "category": "special",
-        "score_type": "true_false",
-        "uses_llm": True,
-    },
-    "batch": {
-        "description": "批量评分",
-        "requires_chat_target": True,
-        "category": "special",
-        "score_type": "true_false",
-        "uses_llm": True,
-    },
     "decoding": {
-        "description": "解码评分",
-        "requires_chat_target": True,
+        "description": "解码评分（接受 text_matcher + categories，不直接接受 chat_target）",
+        "requires_chat_target": False,
         "category": "special",
         "score_type": "true_false",
         "uses_llm": False,

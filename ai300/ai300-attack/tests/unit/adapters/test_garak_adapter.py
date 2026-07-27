@@ -41,5 +41,6 @@ def test_garak_adapter_run_returns_error_when_missing():
 def test_infer_garak_model_type():
     """根据 target 推断 Garak model_type"""
     adapter = GarakAdapter({})
-    assert adapter._infer_garak_model_type(PyRITTargetConfig(api_type="openai_compatible")) == "openai"
+    assert adapter._infer_garak_model_type(PyRITTargetConfig(api_type="openai_compatible")) == "openai.OpenAICompatible"
     assert adapter._infer_garak_model_type(PyRITTargetConfig(target_type="AzureOpenAITarget")) == "azure"
+    assert adapter._infer_garak_model_type(PyRITTargetConfig(endpoint="http://127.0.0.1:8000/v1/chat/completions")) == "openai.OpenAICompatible"

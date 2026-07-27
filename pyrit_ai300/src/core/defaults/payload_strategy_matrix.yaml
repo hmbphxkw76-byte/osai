@@ -1123,13 +1123,15 @@ owasp_strategy_map:
     default_attack_mode: "single_turn"
     default_attack_technique: "prompt_sending"
     recommended_converter_chains: []
-    upgrade_techniques: []
+    upgrade_techniques:
+      - "red_teaming"
   LLM10:
     scorer_type: "general"
     default_attack_mode: "single_turn"
     default_attack_technique: "prompt_sending"
     recommended_converter_chains: []
-    upgrade_techniques: []
+    upgrade_techniques:
+      - "red_teaming"
   # --- Agentic AI Top 10 ---
   ASI01:
     scorer_type: "general"

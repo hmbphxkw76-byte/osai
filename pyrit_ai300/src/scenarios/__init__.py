@@ -54,6 +54,9 @@ from src.scenarios.technique_factories import (
     is_converter_variant,
     get_base_technique_from_variant,
     get_converter_chain_from_variant,
+    # R0+R2: Target 感知动态链选择 + 模态兼容性检测
+    _is_chain_modality_compatible,
+    _get_dynamic_chain_mapping,
 )
 from src.scenarios.technique_initializer import (
     AI300TechniqueInitializer,
@@ -82,6 +85,7 @@ from src.scenarios.scenario_output import (
     output_scenario_summary,
     sort_results_by_success_rate,
     get_per_group_breakdown,
+    display_enhanced_group_breakdown,
 )
 from src.scenarios.scenario_result_bridge import (
     ScenarioResultBridge,
@@ -110,6 +114,9 @@ __all__ = [
     "is_converter_variant",
     "get_base_technique_from_variant",
     "get_converter_chain_from_variant",
+    # R0+R2
+    "_is_chain_modality_compatible",
+    "_get_dynamic_chain_mapping",
     "AI300TechniqueInitializer",
     "initialize_techniques_async",
     # P0: 失败类型路由
@@ -124,8 +131,9 @@ __all__ = [
     "output_scenario_async",
     "output_scenario_summary",
     "sort_results_by_success_rate",
-    "get_per_group_breakdown",
-    "ScenarioResultBridge",
+"get_per_group_breakdown",
+"display_enhanced_group_breakdown",
+"ScenarioResultBridge",
     "batch_result_to_scenario_result",
     "build_memory_labels",
 ]

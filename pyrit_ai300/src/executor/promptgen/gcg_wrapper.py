@@ -41,6 +41,7 @@ PyRIT 原生定位：
 
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from pyrit.models import (
@@ -50,6 +51,24 @@ from pyrit.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# L5: GCG Backend 枚举
+# ============================================================
+
+
+class GCGBackend(Enum):
+    """
+    GCG 执行后端选择
+
+    - AUTO: 自动选择 — 优先原生 AML 管道，不可用时回退到本地 torch
+    - AML: 强制使用原生 pyrit.executor.promptgen.gcg AML 管道
+    - LOCAL: 强制使用本地 torch 实现（无 GPU 集群环境）
+    """
+    AUTO = "auto"
+    AML = "aml"
+    LOCAL = "local"
 
 
 # ============================================================
@@ -137,6 +156,7 @@ class GCGWrapper:
         target_model: Any = None,
         tokenizer: Any = None,
         config: Optional[GCGConfig] = None,
+        backend: GCGBackend | str = GCGBackend.AUTO,
     ):
         """
         初始化 GCG 包装器
@@ -145,10 +165,19 @@ class GCGWrapper:
             target_model: 白盒目标模型（需要支持梯度计算，如 HuggingFace AutoModelForCausalLM）
             tokenizer: 模型对应的 tokenizer（如 HuggingFace AutoTokenizer）
             config: GCG 配置参数
+            backend: 执行后端（L5 统一接口）
+                - "auto" / GCGBackend.AUTO: 优先原生 AML，回退本地 torch
+                - "aml" / GCGBackend.AML: 强制原生 AML 管道
+                - "local" / GCGBackend.LOCAL: 强制本地 torch
         """
         self._target_model = target_model
         self._tokenizer = tokenizer
         self._config = config or GCGConfig()
+
+        # L5: 解析 backend 参数
+        if isinstance(backend, str):
+            backend = GCGBackend(backend.lower())
+        self._backend = backend
 
         if target_model is None:
             logger.warning(
@@ -240,6 +269,64 @@ class GCGWrapper:
     ) -> List[Seed]:
         """
         使用 GCG 优化生成对抗性 prompt 种子
+
+        L5: 根据 backend 参数自动分派到原生 AML 管道或本地 torch 实现。
+        - AUTO: 优先 AML，不可用时回退 LOCAL
+        - AML: 强制 AML 管道（不可用时返回空列表）
+        - LOCAL: 强制本地 torch
+
+        Args:
+            objective: 攻击目标描述
+            num_seeds: 生成的种子数量
+            harm_categories: 危害类别
+            **kwargs: 覆盖配置参数
+
+        Returns:
+            SeedPrompt 列表（含对抗性后缀），如果 GCG 不可用则返回空列表
+        """
+        # L5: Backend 自动分派
+        if self._backend == GCGBackend.AML:
+            return await self.generate_via_aml_async(
+                objective, harm_categories=harm_categories, **kwargs
+            )
+        elif self._backend == GCGBackend.LOCAL:
+            return await self._generate_local_async(
+                objective, num_seeds=num_seeds,
+                harm_categories=harm_categories, **kwargs
+            )
+        else:  # AUTO
+            # 优先原生 AML 管道
+            try:
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=Warning)
+                    from pyrit.executor.promptgen.gcg.gcg_generator import GCGGenerator  # noqa: F401
+                aml_seeds = await self.generate_via_aml_async(
+                    objective, harm_categories=harm_categories, **kwargs
+                )
+                if aml_seeds:
+                    return aml_seeds
+                logger.info("GCG AML pipeline returned no seeds, falling back to local torch")
+            except ImportError:
+                logger.debug("GCG AML pipeline not available, using local torch")
+            except Exception as e:
+                logger.warning(f"GCG AML pipeline failed: {e}, falling back to local torch")
+            # 回退到本地 torch
+            return await self._generate_local_async(
+                objective, num_seeds=num_seeds,
+                harm_categories=harm_categories, **kwargs
+            )
+
+    async def _generate_local_async(
+        self,
+        objective: str,
+        *,
+        num_seeds: int = 1,
+        harm_categories: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> List[Seed]:
+        """
+        本地 torch GCG 优化生成（原有 generate_async 逻辑）
 
         Args:
             objective: 攻击目标描述
@@ -785,23 +872,28 @@ class GCGWrapper:
 
         一站式方法：生成对抗性后缀 → 创建 Converter → 可直接用于攻击链。
 
+        L5: use_aml 参数已被 backend 参数取代（向后兼容保留）。
+        当 use_aml=True 时临时切换到 AML backend。
+
         Args:
             objective: 攻击目标
-            use_aml: 是否使用 AML 管道（True=AML, False=本地 torch）
+            use_aml: 是否使用 AML 管道（deprecated, 使用 backend 参数替代）
             harm_categories: 危害类别
             **kwargs: 额外参数
 
         Returns:
             (SeedPrompt 列表, SuffixAppendConverter 或 None)
         """
+        # L5: 向后兼容 use_aml 参数
+        original_backend = self._backend
         if use_aml:
-            seeds = await self.generate_via_aml_async(
-                objective, harm_categories=harm_categories, **kwargs
-            )
-        else:
+            self._backend = GCGBackend.AML
+        try:
             seeds = await self.generate_async(
                 objective, harm_categories=harm_categories, **kwargs
             )
+        finally:
+            self._backend = original_backend
 
         if not seeds:
             return seeds, None

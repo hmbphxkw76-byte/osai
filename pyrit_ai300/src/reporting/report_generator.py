@@ -109,6 +109,10 @@ class OWASPMapper:
     支持两个 OWASP 安全标准：
     - OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10)
     - OWASP Top 10 for Agentic AI (ASI01-ASI10)
+
+    v2.0 改进：统一策略层与报告层 OWASP 数据源
+    - attack_to_owasp() 同时查询 owasp_mapping.yaml 和 owasp_strategy_map
+    - 确保策略层选择的技术与报告层映射的 OWASP ID 一致
     """
 
     ATTACK_CLASS_TO_CATEGORY = {
@@ -135,13 +139,37 @@ class OWASPMapper:
         self.config_loader = get_config_loader()
 
     def attack_to_owasp(self, attack_type: str) -> List[str]:
-        """将攻击类型映射到 OWASP ID"""
+        """将攻击类型映射到 OWASP ID
+
+        v2.0: 同时查询 owasp_mapping.yaml 和 owasp_strategy_map，
+        确保策略层与报告层映射一致性。
+        """
         attack_to_owasp = self.config_loader.get_owasp_mapping()
         if attack_type in attack_to_owasp:
             return attack_to_owasp[attack_type]
         category = self.ATTACK_CLASS_TO_CATEGORY.get(attack_type, "")
         if category and category in attack_to_owasp:
             return attack_to_owasp[category]
+        # v2.0: 查询 owasp_strategy_map 中的 reverse 映射
+        # 检查是否有 OWASP ID 的 default_attack_technique 匹配此攻击类型
+        owasp_strategy_map = self.config_loader.get_owasp_strategy_map()
+        for owasp_id, strategy in owasp_strategy_map.items():
+            default_tech = strategy.get("default_attack_technique", "")
+            # 将技术名转换为攻击类名（如 prompt_sending -> PromptSendingAttack）
+            tech_to_class = {
+                "prompt_sending": "PromptSendingAttack",
+                "red_teaming": "RedTeamingAttack",
+                "crescendo": "CrescendoAttack",
+                "tap": "TAPAttack",
+                "pair": "PAIRAttack",
+                "tree_of_attacks_pruned": "TreeOfAttacksWithPruningAttack",
+                "many_shot": "ManyShotJailbreakAttack",
+                "skeleton": "SkeletonKeyAttack",
+                "chunked_request": "ChunkedRequestAttack",
+            }
+            expected_class = tech_to_class.get(default_tech)
+            if expected_class and expected_class == attack_type:
+                return [owasp_id]
         return []
 
     def get_owasp_details(self, owasp_id: str) -> Optional[Dict[str, Any]]:
@@ -481,7 +509,10 @@ class EvidenceExporter:
         )
 
         for i, ar in enumerate(attack_results, 1):
-            filename = f"attack_{i:04d}.md"
+            # 成功攻击追加 _success 后缀，便于快速检索
+            is_success = _get_outcome_str(ar).upper() == "SUCCESS"
+            suffix = "_success" if is_success else ""
+            filename = f"attack_{i:04d}{suffix}.md"
             file_path = self.attacks_dir / filename
 
             try:
@@ -830,16 +861,22 @@ class ReportGenerator:
         except Exception:
             pass
 
-        # L5 对齐：使用原生 output_scenario_async 输出场景级摘要
+        # L5 对齐：输出场景级 Per-Group Breakdown
+        # 合并原生 output_scenario_async 和增强列（技术+Converter+OWASP）为一次输出
         if native_scenario_result is not None:
             try:
-                await output_scenario_async(
-                    native_scenario_result,
-                    format="pretty",
-                    sort_groups_by_success_rate=True,
-                )
+                from src.scenarios.scenario_output import display_enhanced_group_breakdown
+                display_enhanced_group_breakdown(native_scenario_result)
             except Exception as e:
-                logger.warning(f"Scenario output failed: {e}")
+                logger.warning(f"Enhanced group breakdown failed, falling back to native: {e}")
+                try:
+                    await output_scenario_async(
+                        native_scenario_result,
+                        format="pretty",
+                        sort_groups_by_success_rate=True,
+                    )
+                except Exception as e2:
+                    logger.warning(f"Scenario output failed: {e2}")
 
         # L5 对齐：使用原生 output_scorer_async 输出评分器评估指标
         if native_scenario_result is not None:

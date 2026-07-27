@@ -224,6 +224,129 @@ class NativeAttackExecutor:
         )
 
     # ------------------------------------------------------------------
+    # L5: 批量分组辅助方法（供 ScenarioOrchestrator 使用）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def group_plans_by_technique(
+        attack_plans: List[AttackPlan],
+    ) -> tuple[Dict[str, List[AttackPlan]], List[AttackPlan]]:
+        """
+        L5: 按攻击技术分组计划 — 提取到 NativeAttackExecutor 供复用
+
+        将攻击计划按 attack_technique 分组，SEQUENTIAL 模式的计划单独返回。
+        相同技术的计划可共享 Attack 实例，提升批量执行效率。
+
+        Args:
+            attack_plans: 攻击计划列表
+
+        Returns:
+            (groups, sequential_plans) 元组:
+            - groups: {technique: [plans]} 字典
+            - sequential_plans: SEQUENTIAL 模式的计划列表
+        """
+        from collections import defaultdict
+        from src.payloads.models import AttackMode
+
+        groups: Dict[str, List[AttackPlan]] = defaultdict(list)
+        sequential_plans: List[AttackPlan] = []
+
+        for plan in attack_plans:
+            if plan.prompt_item.attack_mode == AttackMode.SEQUENTIAL:
+                sequential_plans.append(plan)
+            else:
+                groups[plan.attack_technique].append(plan)
+
+        return dict(groups), sequential_plans
+
+    def build_attack_for_group(
+        self,
+        technique: str,
+        first_plan: AttackPlan,
+        objective_target: Any,
+        judge_target: Any,
+        event_handler: Any = None,
+    ) -> tuple[Any, Any, Any]:
+        """
+        L5: 为技术分组创建共享 Attack 实例 — 减少重复创建开销
+
+        为同一技术的多个计划创建一个共享的 Attack 实例，
+        供 execute_batch_same_technique() 使用。
+
+        Args:
+            technique: 攻击技术名
+            first_plan: 该组的第一个计划（用于提取配置）
+            objective_target: 目标 PromptTarget
+            judge_target: 评审用 LLM Target
+            event_handler: 可选的事件处理器
+
+        Returns:
+            (attack, adversarial_chat, objective_scorer) 元组
+        """
+        from src.executor.attack.core.attack_builder import (
+            create_attack_instance,
+            create_attack_adversarial_config,
+        )
+        from src.executor.attack.core.constants import (
+            SINGLE_TURN_ATTACKS as _SINGLE_TURN,
+            MAX_TURNS_ATTACKS as _MAX_TURNS,
+            TREE_DEPTH_ATTACKS as _TREE_DEPTH,
+            TAP_FAMILY_ATTACKS as _TAP_FAMILY,
+        )
+        from src.converters import load_preset_converter_chain
+        from pyrit.executor.attack import AttackConverterConfig
+
+        scoring_config = self._create_scoring_config(
+            first_plan.scorer_type, judge_target, first_plan, technique
+        )
+
+        converter_config = None
+        if first_plan.converter_chain_name:
+            converter_config = load_preset_converter_chain(
+                first_plan.converter_chain_name, converter_target=judge_target
+            )
+
+        attack_kwargs: Dict[str, Any] = {}
+        if converter_config:
+            attack_kwargs["attack_converter_config"] = converter_config
+
+        if technique not in _SINGLE_TURN and technique in self.adversarial_techniques:
+            attack_kwargs["attack_adversarial_config"] = create_attack_adversarial_config(
+                judge_target=judge_target,
+                metadata=first_plan.prompt_item.metadata or {},
+            )
+
+        if technique in _MAX_TURNS:
+            attack_kwargs["max_turns"] = first_plan.max_turns
+        elif technique in _TREE_DEPTH:
+            attack_kwargs["tree_depth"] = first_plan.max_turns
+
+        if technique in _TAP_FAMILY:
+            tap_metadata = first_plan.prompt_item.metadata or {}
+            for param_key in ("tree_width", "branching_factor", "batch_size"):
+                param_value = tap_metadata.get(param_key)
+                if param_value is not None and isinstance(param_value, int) and param_value > 0:
+                    attack_kwargs[param_key] = param_value
+
+        if event_handler is not None:
+            attack_kwargs["event_handler"] = event_handler
+
+        attack = create_attack_instance(
+            technique_name=technique,
+            objective_target=objective_target,
+            attack_scoring_config=scoring_config,
+            **attack_kwargs,
+        )
+
+        adversarial_chat = judge_target if (
+            technique not in _SINGLE_TURN and technique in self.adversarial_techniques
+        ) else None
+
+        objective_scorer = scoring_config.objective_scorer if scoring_config else None
+
+        return attack, adversarial_chat, objective_scorer
+
+    # ------------------------------------------------------------------
     # 共享辅助方法
     # ------------------------------------------------------------------
 

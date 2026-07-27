@@ -43,16 +43,24 @@ logger = logging.getLogger(__name__)
 
 
 class PayloadPlanner:
-    """载荷规划器 - 将提示词批次转化为攻击执行计划"""
+    """载荷规划器 - 将提示词批次转化为攻击执行计划
 
-    def __init__(self):
-        """初始化载荷规划器"""
+    v2.0 改进：支持 target_type 参数，传递给 PayloadStrategyMatcher
+    启用 Target 感知 Converter 链选择（与 Adaptive 路径统一）
+    """
+
+    def __init__(self, target_type: Optional[str] = None):
+        """初始化载荷规划器
+
+        Args:
+            target_type: PyRIT Target 类型名（v2.0 — Target 感知）
+        """
         self.config_loader = get_config_loader()
         # 从 YAML 加载映射表（向后兼容）
         self.owasp_scorer_map = self.config_loader.get_strategy_config().get("owasp_scorer_map", {})
         self.technique_hint_map = self.config_loader.get_strategy_config().get("technique_hint_map", {})
-        # 策略自动匹配器
-        self.strategy_matcher = PayloadStrategyMatcher()
+        # 策略自动匹配器（v2.0 — Target 感知）
+        self.strategy_matcher = PayloadStrategyMatcher(target_type=target_type)
 
     def plan_attacks(
         self,
@@ -526,6 +534,7 @@ def plan_attacks(
     jailbreak_random: bool = False,
     jailbreak_template_types: Optional[List[str]] = None,
     jailbreak_max_batches: Optional[int] = None,
+    target_type: Optional[str] = None,
 ) -> List[AttackPlan]:
     """
     将提示词批次转化为攻击计划（工厂函数）
@@ -537,11 +546,12 @@ def plan_attacks(
         jailbreak_random: 是否随机选择 Jailbreak 模板
         jailbreak_template_types: 按名称关键词过滤模板类型（如 ["dan", "aim"]）
         jailbreak_max_batches: 每个模板最多增强的批次数量
+        target_type: PyRIT Target 类型名（v2.0 — Target 感知 Converter 链选择）
 
     Returns:
         AttackPlan 列表
     """
-    planner = PayloadPlanner()
+    planner = PayloadPlanner(target_type=target_type)
 
     # Jailbreak 模板增强（可选）
     if jailbreak_template or jailbreak_random or jailbreak_template_types:

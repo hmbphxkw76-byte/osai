@@ -272,6 +272,18 @@ class AI300TechniqueInitializerWrapper(PyRITInitializer):
                 description="Technique groups to register: ['core'], ['core', 'extra'], ['all'], ['encoding']",
                 default=["core"],
             ),
+            Parameter(
+                name="target_type",
+                description="PyRIT Target type for Target-aware dynamic chain selection (R0)",
+                default=None,
+                required=False,
+            ),
+            Parameter(
+                name="objective_target",
+                description="Objective PromptTarget instance for modality compatibility detection (R2)",
+                default=None,
+                required=False,
+            ),
         ]
 
     async def initialize_async(self) -> None:
@@ -283,15 +295,22 @@ class AI300TechniqueInitializerWrapper(PyRITInitializer):
         from src.scenarios.technique_initializer import AI300TechniqueInitializer
 
         tags = self.params.get("tags", ["core"])
+        target_type = self.params.get("target_type")
+        objective_target = self.params.get("objective_target")
 
         # 委托给 AI300TechniqueInitializer
         inner = AI300TechniqueInitializer()
-        inner.set_params_from_args(args={"tags": tags})
+        init_args: dict[str, Any] = {"tags": tags}
+        if target_type is not None:
+            init_args["target_type"] = target_type
+        if objective_target is not None:
+            init_args["objective_target"] = objective_target
+        inner.set_params_from_args(args=init_args)
         await inner.initialize_async()
 
         logger.info(
             f"AI300TechniqueInitializerWrapper: registered {inner.registered_count} techniques "
-            f"(tags={tags})"
+            f"(tags={tags}, target_type={target_type or 'None'})"
         )
 
 

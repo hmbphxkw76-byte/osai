@@ -57,10 +57,10 @@ HTML_PAGE = """<!DOCTYPE html>
             appendMessage('user', text);
             input.value = '';
             try {
-                const resp = await fetch('/api/chat', {
+                const resp = await fetch('/v1/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ model: 'gpt-mock-model', messages: [{ role: 'user', content: text }] })
                 });
                 const data = await resp.json();
                 appendMessage('assistant', data.choices?.[0]?.message?.content || '无响应');
@@ -111,28 +111,40 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _build_openai_response(self, user_msg: str) -> dict:
+        """构造 OpenAI 兼容 chat.completion 响应"""
+        return {
+            "id": "chatcmpl-mock",
+            "object": "chat.completion",
+            "model": "gpt-mock-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Mock 回复：已收到你的消息 \"{user_msg}\"。",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    def _extract_user_message(self, request: dict) -> str:
+        """从 OpenAI 兼容请求体中提取用户消息"""
+        messages = request.get("messages", [])
+        for msg in messages:
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                return msg.get("content", "")
+        return request.get("message", "")
+
     def do_POST(self):
-        if self.path == "/api/chat":
+        if self.path in ("/api/chat", "/v1/chat/completions"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = self.rfile.read(length)
                 request = json.loads(payload.decode("utf-8"))
-                user_msg = request.get("message", "")
-                response = {
-                    "id": "chatcmpl-mock",
-                    "object": "chat.completion",
-                    "model": "gpt-mock-model",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": f"Mock 回复：已收到你的消息 \"{user_msg}\"。",
-                            },
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
+                user_msg = self._extract_user_message(request)
+                response = self._build_openai_response(user_msg)
                 self._send_json(200, response)
             except Exception:
                 self._send_json(500, {"error": "internal server error"})

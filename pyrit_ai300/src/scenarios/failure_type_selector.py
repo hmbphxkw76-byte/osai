@@ -27,6 +27,11 @@ P3 增强：Target 类型感知
   - 未设置 target_type 时回退到全局 CONVERTER_VARIANT_CHAINS 优先级
 
 Selector 是无状态的：它查询 memory 获取历史成功率，而非维护内部计数。
+
+v2.0 改进（消除双轨风险）：
+  - 集成 owasp_strategy_map 初始偏好权重
+  - 首次尝试（无失败记录）时，优先 owasp_strategy_map 的 default_attack_technique
+  - 使 Adaptive 路径的初始技术排序与 Legacy 路径（PayloadStrategyMatcher）一致
 """
 
 import logging
@@ -110,6 +115,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         epsilon: float = 0.2,
         random_seed: int | None = 42,
         target_type: str | None = None,
+        owasp_id: str | None = None,
     ) -> None:
         super().__init__(epsilon=epsilon, random_seed=random_seed)
         self._last_failure_type: str | None = None
@@ -118,6 +124,46 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         self._target_group: str | None = (
             get_target_group(target_type) if target_type else None
         )
+        # v2.0: OWASP 策略映射初始偏好
+        self._owasp_id: str | None = owasp_id
+        self._owasp_default_technique: str | None = None
+        self._owasp_upgrade_techniques: list[str] = []
+        self._load_owasp_strategy()
+
+    def _load_owasp_strategy(self) -> None:
+        """
+        v2.0: 从 owasp_strategy_map 加载 OWASP 策略偏好
+
+        读取 default_attack_technique 和 upgrade_techniques 作为初始偏好权重，
+        使首次尝试时优先 owasp_strategy_map 推荐的技术。
+        """
+        if not self._owasp_id:
+            return
+        try:
+            from src.core.config_loader import get_config_loader
+            strategy_config = get_config_loader().get_strategy_config()
+            owasp_map = strategy_config.get("owasp_strategy_map", {})
+            owasp_strategy = owasp_map.get(self._owasp_id, {})
+            self._owasp_default_technique = owasp_strategy.get("default_attack_technique")
+            self._owasp_upgrade_techniques = owasp_strategy.get("upgrade_techniques", [])
+            if self._owasp_default_technique:
+                logger.debug(
+                    f"FailureTypeRoutingSelector: OWASP {self._owasp_id} "
+                    f"default_technique={self._owasp_default_technique}, "
+                    f"upgrades={self._owasp_upgrade_techniques}"
+                )
+        except Exception as e:
+            logger.debug(f"OWASP strategy loading failed: {e}")
+
+    def set_owasp_id(self, owasp_id: str) -> None:
+        """
+        v2.0: 设置 OWASP ID，加载策略偏好
+
+        Args:
+            owasp_id: OWASP ID（如 "LLM01", "ASI05"）
+        """
+        self._owasp_id = owasp_id
+        self._load_owasp_strategy()
 
     def set_target_type(self, target_type: str) -> None:
         """
@@ -230,18 +276,30 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         failure_type = self._last_failure_type
 
         if failure_type is None:
-            # 无失败类型 -> P3: Target 感知默认排序
+            # 无失败类型 -> v2.0: OWASP 偏好 + Target 感知默认排序
+            # 优先 owasp_strategy_map 的 default_attack_technique
+            owasp_preferred: list[str] = []
+            if self._owasp_default_technique:
+                owasp_preferred = [
+                    t for t in tech_list
+                    if t == self._owasp_default_technique
+                    or (is_converter_variant(t) and 
+                        t.startswith(self._owasp_default_technique + "+"))
+                ]
+            # Target 感知 Converter 变体排序
             converter_variants = [t for t in tech_list if is_converter_variant(t)]
             encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
             others = [
                 t for t in tech_list
                 if not is_converter_variant(t) and t not in _ENCODING_TECHNIQUES
+                and t not in owasp_preferred
             ]
             # P3: Target 感知优先级排序
             converter_variants.sort(
                 key=lambda t: self._target_aware_sort_key(t)
             )
-            return converter_variants + encoding_base + others
+            # v2.0: OWASP 偏好优先，然后 Converter 变体，然后编码，最后其他
+            return owasp_preferred + converter_variants + encoding_base + others
 
         if failure_type == FAILURE_MODEL_REFUSAL:
             # 模型拒绝 -> Converter 变体优先（编码/混淆绕过内容过滤）
@@ -299,25 +357,6 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
 
         # 未知失败类型 -> 保持默认排序
         return tech_list
-
-    @staticmethod
-    def _reorder_by_priority(
-        techniques: list[str],
-        priority_set: set[str],
-    ) -> list[str]:
-        """
-        将优先集合中的技术排到前面，其余保持原顺序
-
-        Args:
-            techniques: 原始技术列表
-            priority_set: 优先技术名称集合
-
-        Returns:
-            重新排序的技术列表
-        """
-        prioritized = [t for t in techniques if t in priority_set]
-        others = [t for t in techniques if t not in priority_set]
-        return prioritized + others
 
 
 def extract_failure_type_from_result(failed_result) -> str:

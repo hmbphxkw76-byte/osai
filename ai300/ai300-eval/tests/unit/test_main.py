@@ -5,9 +5,9 @@
 
 import pytest
 
-from ai300_eval_kit.adapters import ARTAdapter, GiskardAdapter
-from ai300_eval_kit.config import EvalConfig
-from ai300_eval_kit.main import get_adapter
+from ai300_eval.adapters import ARTAdapter, GiskardAdapter
+from ai300_eval.config import EvalConfig
+from ai300_eval.main import get_adapter
 
 
 def test_get_adapter_returns_giskard():

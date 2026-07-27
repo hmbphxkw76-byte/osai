@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ai300-eval-kit
+ai300-eval
 ==============
 
 基于 ai300-recon 侦察结果，对 LLM 应用执行自动化评估。

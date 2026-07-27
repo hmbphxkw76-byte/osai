@@ -73,6 +73,33 @@ async def my_execute_attack(attack, objective):
     ...
 ```
 
+### 1.1.1 研究工作流规则 (arXiv 优先 → GitHub 验证)
+
+**规则**: 在进行新功能开发、架构设计或技术选型前，必须遵循「arXiv 优先 → GitHub 验证」的研究工作流。
+
+**工作流步骤**:
+1. **arXiv 优先查找**: 在 `https://arxiv.org/` 优先搜索相关学术论文和文献，了解该领域的最新学术研究进展、方法论基础和理论基础。搜索关键词应覆盖攻击策略选择（attack strategy selection）、自适应红队（adaptive red teaming）、越狱攻击（jailbreaking）、多轮对抗攻击（multi-turn adversarial attack）等主题。
+2. **GitHub 查找相关代码**: 在 arXiv 获取理论基础后，到 GitHub 搜索相关主题的开源实现代码（特别是 PyRIT 官方仓库 `Azure/PyRIT`），验证学术方法在生产级框架中的实际落地方式。
+3. **学术与实践对齐**: 将 arXiv 的理论方法与 GitHub 的工程实现进行交叉验证，确保自建实现既有学术依据又有工程验证。
+
+**相关 arXiv 文献参考**（LLM 红队/越狱/攻击策略选择领域）:
+
+| 技术名称 | arXiv ID | 论文标题 | 在项目中的对应实现 |
+|----------|----------|---------|-------------------|
+| PAIR | 2310.08437 | Jailbreaking Black Box LLMs in Twenty Queries | `PAIRAttack` |
+| TAP | 2312.02191 | Tree of Attacks: Jailbreaking Black-Box LLMs | `TAPAttack` |
+| Many-Shot | 2402.05124 | Many-shot Jailbreaking | `ManyShotJailbreakAttack` |
+| GCG | 2307.15043 | Universal and Transferable Adversarial Attacks | `GCGWrapper` (双路径) |
+| Red Teaming | 2202.01241 | Red Teaming Language Models to Reduce Harms | `RedTeamingAttack` |
+| JailbreakBench | 2402.01135 | An Open Robustness Benchmark | `Benchmark` 模块 |
+| Crescendo | 2402.12109 | Great, Now We Have to Sing | `CrescendoAttack` |
+| Skeleton Key | 2407.01576 | Skeleton Key: A Multilingual LLM Jailbreak | `SkeletonKeyAttack` |
+
+**GitHub 参考仓库**:
+- `Azure/PyRIT` — 原生 `AdaptiveScenario` / `EpsilonGreedyTechniqueSelector` / `SequentialAttack(FIRST_SUCCESS)` / `AttackTechniqueRegistry`
+- `JailbreakBench/art` — 攻击成功率（ASR）基准测试
+- `textgrad-dev/textgrad` — LLM 梯度引导优化
+
 ### 1.2 避免硬编码原则
 
 **规则**: 所有可变参数必须从配置文件读取，严禁硬编码在代码中。

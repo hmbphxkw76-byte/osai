@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ai300_eval_kit.adapters.base import EvalStrategy
-from ai300_eval_kit.adapters.giskard_adapter import GiskardAdapter
+from ai300_eval.adapters.base import EvalStrategy
+from ai300_eval.adapters.giskard_adapter import GiskardAdapter
 from ai300_schemas import PyRITTargetConfig
 
 
@@ -66,7 +66,7 @@ def test_call_endpoint_parses_openai_response():
         ]
     }
 
-    with patch("ai300_eval_kit.adapters.giskard_adapter.httpx.post", return_value=mock_response) as mock_post:
+    with patch("ai300_eval.adapters.giskard_adapter.httpx.post", return_value=mock_response) as mock_post:
         output = adapter._call_endpoint(target, "What is the capital of France?")
 
     assert output == "Paris"

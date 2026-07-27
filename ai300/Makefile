@@ -11,7 +11,7 @@
 PYTHON := python
 RECON_DIR := ai300-recon
 ATTACK_DIR := ai300-attack
-EVAL_DIR := ai300-eval-kit
+EVAL_DIR := ai300-eval
 SCHEMAS_DIR := ai300-schemas
 
 .PHONY: install test test-unit test-integration test-system run-recon run-attack-dry run-eval-dry run-all-dry clean

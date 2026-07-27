@@ -267,8 +267,14 @@ def convert_markdown_to_pdf(
     html_content = _markdown_to_html_string(markdown_content, title)
 
     if engine == "auto":
-        # 按优先级尝试
-        for eng in ("weasyprint", "xhtml2pdf"):
+        # Windows 上 weasyprint 需要 GTK 系统依赖，优先使用 xhtml2pdf（纯 Python）
+        # 其他平台 weasyprint 质量更高，优先使用
+        import sys
+        if sys.platform == "win32":
+            engines = ("xhtml2pdf", "weasyprint")
+        else:
+            engines = ("weasyprint", "xhtml2pdf")
+        for eng in engines:
             result = _try_generate_pdf(html_content, output_path, eng)
             if result is not None:
                 return result

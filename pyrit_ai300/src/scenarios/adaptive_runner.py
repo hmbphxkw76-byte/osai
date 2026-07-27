@@ -1,24 +1,31 @@
 """
-Adaptive Runner — P3+P4: 原生 AI300AdaptiveScenario 执行入口 + per_attack_timeout 包裹
-==================================================================================
+Adaptive Runner — P3+P4: 原生 AI300AdaptiveScenario 执行入口
+============================================================
 
 P3: 消除双轨 — pipeline.py 调用此模块替代 ScenarioOrchestrator.execute_batch()
-P4: per_attack_timeout 包裹 — PyRIT 无 per-attack 超时，通过 asyncio.wait_for 补充
+P4: 原生优先 — 使用 DatasetAttackConfiguration(seed_groups=) 内联传入 attack_plans
+
+核心设计（方案 A — PyRIT 原生优先）：
+  PyRIT DatasetAttackConfiguration 原生支持 seed_groups= 参数，
+  用于内联传入种子组（不触碰 Memory）。本模块将 pipeline 交互选择
+  的 attack_plans 转换为 AttackSeedGroup 列表，通过 dataset_config
+  参数传入 Scenario，完全对齐 PyRIT 原生数据流。
 
 执行流程：
-  1. 创建 AI300AdaptiveScenario（含 Converter 变体）
-  2. 注册技术到 AttackTechniqueRegistry（含 Converter 变体）
-  3. scenario.initialize_async() → 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
-  4. scenario.run_async() → 原生执行（含 tqdm + max_retries + 自动恢复）
-  5. per_attack_timeout 包裹（自建保留）
-  6. ScenarioResult → ScenarioResultBridge → BatchAttackResult（向后兼容）
+  1. attack_plans → AttackSeedGroup 列表（SeedGroupBuilder.build）
+  2. DatasetAttackConfiguration(seed_groups=...) 内联配置
+  3. 创建 AI300AdaptiveScenario（含 Converter 变体）
+  4. 注册技术到 AttackTechniqueRegistry（含 Converter 变体）
+  5. scenario.set_params_from_args(dataset_config=..., max_retries=..., max_concurrency=...)
+  6. scenario.initialize_async() → 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
+  7. scenario.run_async() → 原生执行（含 tqdm + max_retries + 自动恢复）
+  8. ScenarioResult → BatchAttackResult（向后兼容）
 
 保留自建：
-  - per_attack_timeout（PyRIT 无 per-attack 超时）
+  - per_attack_timeout 参数声明（PyRIT 无 per-attack 超时，保留为文档/未来扩展）
   - OWASP 映射（通过 memory_labels）
 """
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -68,6 +75,7 @@ async def run_adaptive_scenario_async(
     max_attempts_per_objective: int = 3,
     per_attack_timeout: int = 300,
     max_retries: int = 0,
+    max_concurrency: int = 4,
     verbose: bool = False,
     converter_target: Any = None,
     memory_labels: dict[str, str] | None = None,
@@ -93,6 +101,7 @@ async def run_adaptive_scenario_async(
         max_attempts_per_objective: 每个 objective 最大尝试次数
         per_attack_timeout: 单次攻击超时（自建保留）
         max_retries: Scenario 级别重试次数
+        max_concurrency: 原生 AttackExecutor 并发数（默认 4）
         verbose: 是否详细输出
         converter_target: LLM 辅助 Converter 的 Target（默认为 judge_target）
         memory_labels: 额外 memory_labels
@@ -120,9 +129,128 @@ async def run_adaptive_scenario_async(
     if converter_target is None:
         converter_target = judge_target
 
+    # ──────────────────────────────────────────────────────────
+    # 方案 A 核心：attack_plans → AttackSeedGroup → DatasetAttackConfiguration(seed_groups=)
+    # ──────────────────────────────────────────────────────────
+    # PyRIT 原生 DatasetAttackConfiguration 支持三种互斥数据源：
+    #   seeds= / seed_groups= / dataset_names=
+    # seed_groups= 用于内联传入，完全不触碰 Memory，是官方设计的注入点。
+    # ──────────────────────────────────────────────────────────
+    from pyrit.scenario import DatasetAttackConfiguration
+    from src.executor.attack.component.seed_group_builder import SeedGroupBuilder
+    from src.scenarios.ai300_technique import AI300Technique
+
+    attack_seed_groups: list[Any] = []
+    pipeline_techniques: set[str] = set()
+
+    if seed_groups:
+        # 原生路径：直接使用传入的 seed_groups
+        attack_seed_groups = list(seed_groups)
+    elif attack_plans:
+        # 兼容路径：从 attack_plans 转换为 AttackSeedGroup
+        for plan in attack_plans:
+            objective = plan.prompt_item.objective
+            sg = SeedGroupBuilder.build(plan, objective, include_conversation=True)
+            attack_seed_groups.append(sg)
+            pipeline_techniques.add(plan.attack_technique)
+
+    if not attack_seed_groups:
+        logger.error("No attack seed groups to execute (both attack_plans and seed_groups are empty)")
+        return AdaptiveRunResult(
+            batch_result=BatchAttackResult(
+                total_plans=len(attack_plans or []),
+                executed=0,
+                succeeded=0,
+                failed=0,
+                errored=1,
+                results=[],
+                errors=[{"error": "No attack seed groups provided"}],
+            ),
+            execution_time=time.time() - start_time,
+        )
+
+    # ──────────────────────────────────────────────────────────
+    # PyRIT AtomicAttack 要求：同一技术下每个 seed group 的 objective 文本
+    # 必须唯一（SHA256 去重）。多个 attack_plans 可能共享相同 objective 文本，
+    # 需要在传入 DatasetAttackConfiguration 之前去重。
+    # ──────────────────────────────────────────────────────────
+    from pyrit.common.utils import to_sha256
+
+    seen_objectives: set[str] = set()
+    deduped_seed_groups: list[Any] = []
+    duplicates_removed = 0
+
+    for sg in attack_seed_groups:
+        # 提取 objective 文本
+        obj_value = None
+        for seed in sg.seeds:
+            if hasattr(seed, "value") and seed.__class__.__name__ == "SeedObjective":
+                obj_value = seed.value
+                break
+        if obj_value is None:
+            # 无法提取 objective，保留（让 PyRIT 自行处理）
+            deduped_seed_groups.append(sg)
+            continue
+
+        obj_hash = to_sha256(obj_value)
+        if obj_hash in seen_objectives:
+            duplicates_removed += 1
+            continue
+        seen_objectives.add(obj_hash)
+        deduped_seed_groups.append(sg)
+
+    if duplicates_removed > 0:
+        logger.info(
+            f"AdaptiveRunner: removed {duplicates_removed} duplicate objective(s) "
+            f"({len(attack_seed_groups)} → {len(deduped_seed_groups)} unique)"
+        )
+
+    attack_seed_groups = deduped_seed_groups
+
+    # 创建内联 DatasetAttackConfiguration（不触碰 Memory）
+    dataset_config = DatasetAttackConfiguration(seed_groups=attack_seed_groups)
+    logger.info(
+        f"AdaptiveRunner: {len(attack_seed_groups)} inline seed groups "
+        f"(source: {'seed_groups' if seed_groups else 'attack_plans'})"
+    )
+
+    # 将 pipeline 选中的技术映射到 AI300Technique 枚举
+    valid_technique_values = {t.value for t in AI300Technique}
+    scenario_techniques: list[Any] = []
+    for tech_name in pipeline_techniques:
+        if tech_name in valid_technique_values:
+            for member in AI300Technique:
+                if member.value == tech_name:
+                    scenario_techniques.append(member)
+                    break
+        else:
+            logger.debug(f"Technique '{tech_name}' not in AI300Technique enum, skipping")
+
+    if not scenario_techniques:
+        # 无可映射技术时使用 DEFAULT（让 AI300Technique.default() 展开）
+        scenario_techniques = None
+        logger.info("No mappable pipeline techniques, using AI300Technique.DEFAULT")
+    else:
+        logger.info(f"Mapped {len(scenario_techniques)} pipeline techniques: {[t.value for t in scenario_techniques]}")
+
+    # ──────────────────────────────────────────────────────────
+    # 注册 judge_target 到 TargetRegistry — PyRIT 原生 target 解析
+    # AdaptiveScenario 通过 get_default_adversarial_target() 和
+    # get_default_scorer_target() 从 TargetRegistry.instances 查找:
+    #   - "adversarial_chat" → 多轮技术的军师 Target
+    #   - "objective_scorer_chat" → 评分器 Target
+    # 如果未注册，PyRIT 会回退创建 OpenAIChatTarget，需要 OPENAI_CHAT_MODEL 环境变量。
+    # ──────────────────────────────────────────────────────────
+    try:
+        from pyrit.registry import TargetRegistry
+        registry = TargetRegistry.get_registry_singleton()
+        registry.instances.register(judge_target, name="adversarial_chat")
+        registry.instances.register(judge_target, name="objective_scorer_chat")
+        logger.info("Registered judge_target as 'adversarial_chat' + 'objective_scorer_chat' in TargetRegistry")
+    except Exception as e:
+        logger.warning(f"Failed to register judge_target in TargetRegistry: {e}")
+
     # 创建 objective_scorer（从 judge_target 构建 SelfAskTrueFalseScorer）
-    # PyRIT AdaptiveScenario 需要 objective_scorer，否则会尝试从 TargetRegistry
-    # 获取默认 scorer，回退时创建 OpenAIChatTarget 需要 OPENAI_CHAT_MODEL 环境变量
     objective_scorer = None
     try:
         from pyrit.score import SelfAskTrueFalseScorer
@@ -130,18 +258,6 @@ async def run_adaptive_scenario_async(
         logger.debug("Created SelfAskTrueFalseScorer from judge_target")
     except Exception as e:
         logger.warning(f"Failed to create objective_scorer from judge_target: {e}")
-        # Fallback: 注册 judge_target 为 'objective_scorer_chat' 到 TargetRegistry
-        # 这样 PyRIT AdaptiveScenario._get_default_objective_scorer() 可以找到它
-        try:
-            from pyrit.registry import TargetRegistry
-            registry = TargetRegistry.get_registry_singleton()
-            registry.register_instance(
-                name="objective_scorer_chat",
-                instance=judge_target,
-            )
-            logger.info("Registered judge_target as 'objective_scorer_chat' in TargetRegistry")
-        except Exception as e2:
-            logger.warning(f"Failed to register judge_target as 'objective_scorer_chat': {e2}")
 
     # 1. 注册技术（含 Converter 变体）到 AttackTechniqueRegistry
     try:
@@ -150,6 +266,8 @@ async def run_adaptive_scenario_async(
             reset=False,
             converter_target=converter_target,
             include_variants=True,
+            target_type=target_type,
+            objective_target=objective_target,
         )
     except Exception as e:
         logger.warning(f"Technique registration failed (non-fatal): {e}")
@@ -159,19 +277,36 @@ async def run_adaptive_scenario_async(
     if memory_labels:
         labels.update(memory_labels)
 
-    # 3. 创建 AI300AdaptiveScenario（传入 objective_scorer + target_type）
+    # 3. 创建 AI300AdaptiveScenario（传入 objective_scorer + target_type + owasp_id）
     scenario = AI300AdaptiveScenario(
         converter_target=converter_target,
         objective_scorer=objective_scorer,
         target_type=target_type,
+        owasp_id=owasp_id,
     )
 
-    # 设置参数
-    scenario.set_params_from_args(args={
+    # ──────────────────────────────────────────────────────────
+    # 原生参数传递：dataset_config + scenario_techniques + max_retries + max_concurrency
+    # ──────────────────────────────────────────────────────────
+    # 所有参数通过 set_params_from_args 传入，完全对齐 PyRIT 原生 Scenario 生命周期。
+    # dataset_config: 内联 seed_groups（方案 A 核心）
+    # scenario_techniques: pipeline 选中的技术（映射到 AI300Technique 枚举）
+    # max_retries: Scenario 级别重试（原生弹性恢复）
+    # max_concurrency: 原生 AttackExecutor 并发控制
+    # ──────────────────────────────────────────────────────────
+    scenario_params: dict[str, Any] = {
         "objective_target": objective_target,
         "max_attempts_per_objective": max_attempts_per_objective,
         "per_attack_timeout": per_attack_timeout,
-    })
+        "memory_labels": labels,
+        "dataset_config": dataset_config,
+        "max_retries": max_retries,
+        "max_concurrency": max_concurrency,
+    }
+    if scenario_techniques is not None:
+        scenario_params["scenario_techniques"] = scenario_techniques
+
+    scenario.set_params_from_args(args=scenario_params)
 
     if verbose:
         print(f"  [ADAPT] AI300AdaptiveScenario: max_attempts={max_attempts_per_objective}, "
@@ -224,21 +359,32 @@ async def run_adaptive_scenario_async(
             execution_time=time.time() - start_time,
         )
 
-    # 5. 执行 Scenario（per_attack_timeout 包裹 — 自建保留）
+    # 5. 执行 Scenario（原生 run_async — 含 tqdm + max_retries + 自动恢复）
+    #    不使用 asyncio.wait_for 包裹整个 scenario：
+    #    - 原生 Scenario 已有 max_retries 弹性恢复机制
+    #    - 原生 Scenario 有自动恢复（中断后可 resume）
+    #    - per_attack_timeout 作为参数声明保留，未来可用于自定义 executor
+    scenario_error = None
     try:
-        if per_attack_timeout > 0:
-            native_result = await asyncio.wait_for(
-                scenario.run_async(),
-                timeout=per_attack_timeout,
-            )
-        else:
-            native_result = await scenario.run_async()
-    except asyncio.TimeoutError:
-        logger.warning(f"Scenario timed out after {per_attack_timeout}s")
-        native_result = getattr(scenario, "_scenario_result", None)
+        native_result = await scenario.run_async()
     except Exception as e:
         logger.error(f"Scenario execution failed: {e}")
-        native_result = getattr(scenario, "_scenario_result", None)
+        scenario_error = str(e)
+        # Scenario 失败时，部分结果已存入 PyRIT Memory 数据库
+        # 尝试从 Memory 检索最新的 ScenarioResult（包含已完成的攻击结果）
+        native_result = None
+        try:
+            from pyrit.memory import CentralMemory
+            memory = CentralMemory.get_memory_instance()
+            scenario_results = memory.get_scenario_results()
+            if scenario_results:
+                native_result = scenario_results[-1]
+                logger.info(
+                    f"Retrieved partial ScenarioResult from memory "
+                    f"({len(scenario_results)} total results available)"
+                )
+        except Exception as e2:
+            logger.warning(f"Failed to retrieve partial results from memory: {e2}")
 
     elapsed = time.time() - start_time
 
@@ -248,6 +394,8 @@ async def run_adaptive_scenario_async(
         attack_plans=attack_plans,
         owasp_id=owasp_id,
     )
+    if scenario_error:
+        batch_result.errors.append({"error": f"Scenario failed: {scenario_error}"})
 
     # 统计 Converter 变体使用情况
     converter_variants = 0
@@ -257,17 +405,21 @@ async def run_adaptive_scenario_async(
         for group_name, results in display_groups.items():
             for r in results:
                 total_techniques += 1
-                identifier = r.get_attack_strategy_identifier() if hasattr(r, "get_attack_strategy_identifier") else None
-                if identifier and "+" in (identifier.unique_name or ""):
-                    converter_variants += 1
+                # Converter 检测：从 identifier.children['request_converters'] 提取
+                identifier = None
+                if hasattr(r, "get_attack_strategy_identifier"):
+                    identifier = r.get_attack_strategy_identifier()
+                if identifier is not None:
+                    children = getattr(identifier, "children", None) or {}
+                    if children.get("request_converters"):
+                        converter_variants += 1
 
     if verbose:
         print(f"  [ADAPT] 完成: {batch_result.succeeded}/{batch_result.executed} 成功, "
               f"{converter_variants} converter variants used, {elapsed:.1f}s")
-        # 展示执行后实际使用的 Converter 变体及其结果
-        AI300AdaptiveScenario.display_used_converters(native_result)
-        # 增强展示：Per-Group Breakdown 含技术+Converter+OWASP
-        _display_enhanced_group_breakdown(native_result, owasp_id=owasp_id)
+        # 统一展示：Per-Group Breakdown 含技术+Converter+OWASP
+        from src.scenarios.scenario_output import display_enhanced_group_breakdown
+        display_enhanced_group_breakdown(native_result, owasp_id=owasp_id)
 
     return AdaptiveRunResult(
         native_result=native_result,
@@ -346,117 +498,3 @@ def _convert_native_to_batch_result(
         results=all_results,
         errors=[],
     )
-
-
-def _display_enhanced_group_breakdown(
-    native_result: Any,
-    *,
-    owasp_id: str = "",
-) -> None:
-    """
-    增强 Per-Group Breakdown 展示（含攻击技术+Converter组合+OWASP 对齐）
-
-    使用 PyRIT 原生 ScenarioResult.get_display_groups() 获取分组，
-    然后从每个 AttackResult 中提取：
-    - 攻击技术名（get_attack_strategy_identifier().unique_name）
-    - Converter 变体（技术名中 "+" 后的部分）
-    - OWASP ID（从 labels 提取，fallback 到传入的 owasp_id）
-
-    Args:
-        native_result: 原生 ScenarioResult
-        owasp_id: 默认 OWASP ID（当 result 中无 labels 时使用）
-    """
-    if native_result is None:
-        return
-
-    if not hasattr(native_result, "get_display_groups"):
-        return
-
-    display_groups = native_result.get_display_groups()
-    if not display_groups:
-        return
-
-    # 收集每组统计信息
-    group_stats: list[dict[str, Any]] = []
-    for group_name, results in display_groups.items():
-        total = len(results)
-        success = 0
-        techniques: set[str] = set()
-        converters: set[str] = set()
-        owasp_ids: set[str] = set()
-
-        for r in results:
-            if r is None:
-                continue
-            # 成功统计
-            outcome = getattr(r, "outcome", None)
-            if outcome is not None:
-                outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
-                if outcome_str == "SUCCESS":
-                    success += 1
-
-            # 技术名 + Converter 变体
-            identifier = None
-            if hasattr(r, "get_attack_strategy_identifier"):
-                identifier = r.get_attack_strategy_identifier()
-            if identifier is not None:
-                name = getattr(identifier, "unique_name", "") or ""
-                if "+" in name:
-                    base_tech, converter_chain = name.split("+", 1)
-                    techniques.add(base_tech)
-                    converters.add(converter_chain)
-                else:
-                    techniques.add(name)
-
-            # OWASP ID
-            labels = getattr(r, "labels", None) or {}
-            r_owasp = labels.get("owasp_id", "")
-            if r_owasp:
-                owasp_ids.add(r_owasp)
-
-        failure = total - success
-        rate = success / total if total > 0 else 0.0
-        group_stats.append({
-            "group_name": group_name,
-            "total": total,
-            "success": success,
-            "failure": failure,
-            "success_rate": rate,
-            "techniques": sorted(techniques),
-            "converters": sorted(converters),
-            "owasp_id": ", ".join(sorted(owasp_ids)) if owasp_ids else owasp_id,
-        })
-
-    # 按成功率降序排列
-    group_stats.sort(key=lambda s: s["success_rate"], reverse=True)
-
-    # 输出增强版 Per-Group Breakdown
-    print(f"\n  {'=' * 76}")
-    print(f"  Enhanced Per-Group Breakdown (Techniques + Converters + OWASP)")
-    print(f"  {'=' * 76}")
-
-    for stat in group_stats:
-        rate_pct = stat["success_rate"] * 100
-        print(f"\n  Group: {stat['group_name']}")
-        print(f"    Results: {stat['total']}, "
-              f"Success: {stat['success']}, "
-              f"Failure: {stat['failure']}, "
-              f"Rate: {rate_pct:.0f}%")
-
-        # 攻击技术
-        if stat["techniques"]:
-            print(f"    Techniques:  {', '.join(stat['techniques'])}")
-        else:
-            print(f"    Techniques:  (unknown)")
-
-        # Converter 变体
-        if stat["converters"]:
-            print(f"    Converters:  {', '.join(stat['converters'])}")
-        else:
-            print(f"    Converters:  (none - base techniques only)")
-
-        # OWASP 对齐
-        if stat["owasp_id"]:
-            print(f"    OWASP:       {stat['owasp_id']}")
-
-    print(f"\n  {'=' * 76}\n")

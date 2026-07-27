@@ -36,6 +36,9 @@ class AI300TechniqueInitializer:
     def __init__(self) -> None:
         self._tags: list[str] = ["core"]
         self._registered_count: int = 0
+        # R0+R2: Target 感知参数
+        self._target_type: str | None = None
+        self._objective_target: Any = None
 
     def set_params_from_args(self, *, args: dict[str, Any]) -> None:
         """
@@ -44,14 +47,20 @@ class AI300TechniqueInitializer:
         Args:
             args: 参数字典，支持：
                 - tags (list[str]): 注册的组别 ["core"|"extra"|"all"|"encoding"]
+                - target_type (str): PyRIT Target 类型名（R0 Target 感知动态链选择）
+                - objective_target: 目标 PromptTarget 实例（R2 模态兼容性检测）
         """
         if "tags" in args and args["tags"] is not None:
             self._tags = args["tags"]
+        if "target_type" in args and args["target_type"] is not None:
+            self._target_type = args["target_type"]
+        if "objective_target" in args and args["objective_target"] is not None:
+            self._objective_target = args["objective_target"]
 
     @property
     def supported_parameters(self) -> list[str]:
         """返回支持的参数名列表"""
-        return ["tags"]
+        return ["tags", "target_type", "objective_target"]
 
     @property
     def tags(self) -> list[str]:
@@ -70,7 +79,11 @@ class AI300TechniqueInitializer:
         将选定组别的技术工厂注册到 PyRIT AttackTechniqueRegistry。
         注册是按名称幂等的。
         """
-        self._registered_count = register_ai300_techniques(tags=self._tags)
+        self._registered_count = register_ai300_techniques(
+            tags=self._tags,
+            target_type=self._target_type,
+            objective_target=self._objective_target,
+        )
         logger.info(
             f"AI300TechniqueInitializer: registered {self._registered_count} techniques "
             f"(tags={self._tags})"
@@ -84,6 +97,8 @@ class AI300TechniqueInitializer:
 async def initialize_techniques_async(
     tags: list[str] | None = None,
     reset: bool = False,
+    target_type: str | None = None,
+    objective_target: Any = None,
 ) -> int:
     """
     初始化 AI-300 技术注册（便捷函数）
@@ -95,18 +110,25 @@ async def initialize_techniques_async(
               ["all"] - core + extra 简写
               ["encoding"] - 仅编码攻击技术
         reset: 是否重置注册表（主要用于测试）
+        target_type: PyRIT Target 类型名（R0 Target 感知动态链选择）
+        objective_target: 目标 PromptTarget 实例（R2 模态兼容性检测）
 
     Returns:
         新注册的技术数量
 
     Usage:
         # 在管道初始化中
-        await initialize_techniques_async(tags=["all"])
+        await initialize_techniques_async(tags=["all"], target_type="openai_chat")
 
         # 仅编码攻击
         await initialize_techniques_async(tags=["encoding"])
     """
-    return register_ai300_techniques(tags=tags, reset=reset)
+    return register_ai300_techniques(
+        tags=tags,
+        reset=reset,
+        target_type=target_type,
+        objective_target=objective_target,
+    )
 
 
 # ============================================================

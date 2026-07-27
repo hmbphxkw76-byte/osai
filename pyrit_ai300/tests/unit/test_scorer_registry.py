@@ -5,7 +5,7 @@
 测试 PyRIT 1.0.0 Scoring 子系统的 scorer_registry.py 模块。
 
 覆盖范围：
-  1. SCORER_CLASS_MAP 完整性（44+ 映射，含多模态）
+  1. SCORER_CLASS_MAP 完整性（41 映射对齐原生 get_scorer_info()，含多模态）
   2. SCORER_METADATA 完整性（score_type + uses_llm 字段全覆盖）
   3. Scorer 实例创建（create_scorer_instance）
   4. AttackScoringConfig 创建（create_attack_scoring_config）
@@ -113,8 +113,8 @@ class TestScorerClassMap:
         assert len(SCORER_CLASS_MAP) > 0
 
     def test_class_map_has_minimum_entries(self):
-        """SCORER_CLASS_MAP 至少有 44 个映射"""
-        assert len(SCORER_CLASS_MAP) >= 44
+        """SCORER_CLASS_MAP 至少有 41 个映射（对齐原生 get_scorer_info()）"""
+        assert len(SCORER_CLASS_MAP) >= 41
 
     def test_class_map_contains_general_scorers(self):
         """包含通用评分器"""
@@ -160,11 +160,8 @@ class TestScorerClassMap:
             assert name in SCORER_CLASS_MAP, f"缺少新增注入评分器: {name}"
 
     def test_class_map_contains_float_scale_scorers(self):
-        """包含浮点评分器"""
+        """包含浮点评分器（float_scale/AllCategories/ByCategory 为抽象/工厂类已移除）"""
         expected_float = [
-            "float_scale",
-            "float_scale_all_categories",
-            "float_scale_by_category",
             "float_scale_threshold",
             "self_ask_likert",
             "self_ask_scale",
@@ -195,11 +192,9 @@ class TestScorerClassMap:
             assert name in SCORER_CLASS_MAP, f"缺少关键词评分器: {name}"
 
     def test_class_map_contains_special_scorers(self):
-        """包含特殊评分器"""
+        """包含特殊评分器（conversation/batch 为抽象/工具类已移除）"""
         expected_special = [
             "gandalf",
-            "conversation",
-            "batch",
             "decoding",
         ]
         for name in expected_special:
@@ -948,3 +943,108 @@ class TestQuickMethods:
         """创建 LlamaGuard Scorer"""
         scorer = create_llama_guard_scorer(MagicMock())
         assert scorer is not None
+
+
+# ============================================================
+# 19. PyRIT 原生对齐验证（L5 Expert Level）
+# ============================================================
+
+class TestNativeAlignment:
+    """
+    验证 SCORER_CLASS_MAP / SCORER_METADATA 与 PyRIT 原生 get_scorer_info() 对齐。
+
+    PyRIT 原生 get_scorer_info() 返回 41 个标准评分器。
+    本测试确保：
+    1. SCORER_CLASS_MAP 中的每个评分器类名都在原生列表中
+    2. SCORER_METADATA 中的 score_type / uses_llm 与原生一致
+    3. requires_chat_target 标记与构造函数签名一致（非 LLM 评分器不应标记为 True）
+    """
+
+    def test_all_class_map_entries_in_native_info(self):
+        """SCORER_CLASS_MAP 中所有评分器类都在原生 get_scorer_info() 列表中"""
+        from pyrit.score import get_scorer_info
+        native_names = {info.name for info in get_scorer_info()}
+        for snake_name, scorer_class in SCORER_CLASS_MAP.items():
+            assert scorer_class.__name__ in native_names, (
+                f"SCORER_CLASS_MAP['{snake_name}'] -> {scorer_class.__name__} "
+                f"不在原生 get_scorer_info() 列表中。"
+                f"抽象基类/工具类不应纳入 SCORER_CLASS_MAP。"
+            )
+
+    def test_score_type_matches_native(self):
+        """SCORER_METADATA 中的 score_type 与原生 get_scorer_info() 一致"""
+        from pyrit.score import get_scorer_info
+        native_map = {info.name: info.score_type for info in get_scorer_info()}
+        class_name_to_snake = {
+            cls.__name__: snake for snake, cls in SCORER_CLASS_MAP.items()
+        }
+        for native_name, native_score_type in native_map.items():
+            snake = class_name_to_snake.get(native_name)
+            if snake is None:
+                continue
+            our_score_type = SCORER_METADATA.get(snake, {}).get("score_type")
+            assert our_score_type == native_score_type, (
+                f"{snake} ({native_name}): score_type 不一致 — "
+                f"原生={native_score_type}, 项目={our_score_type}"
+            )
+
+    def test_uses_llm_matches_native(self):
+        """SCORER_METADATA 中的 uses_llm 与原生 get_scorer_info() 一致"""
+        from pyrit.score import get_scorer_info
+        native_map = {info.name: info.uses_llm for info in get_scorer_info()}
+        class_name_to_snake = {
+            cls.__name__: snake for snake, cls in SCORER_CLASS_MAP.items()
+        }
+        for native_name, native_uses_llm in native_map.items():
+            snake = class_name_to_snake.get(native_name)
+            if snake is None:
+                continue
+            our_uses_llm = SCORER_METADATA.get(snake, {}).get("uses_llm")
+            assert our_uses_llm == native_uses_llm, (
+                f"{snake} ({native_name}): uses_llm 不一致 — "
+                f"原生={native_uses_llm}, 项目={our_uses_llm}"
+            )
+
+    def test_non_llm_scorers_do_not_require_chat_target(self):
+        """非 LLM 评分器不应标记 requires_chat_target=True"""
+        for name, meta in SCORER_METADATA.items():
+            if not meta.get("uses_llm", False):
+                assert meta.get("requires_chat_target") is False, (
+                    f"{name}: uses_llm=False 但 requires_chat_target=True — "
+                    f"非 LLM 评分器构造函数不接受 chat_target 参数"
+                )
+
+    def test_class_map_count_matches_native(self):
+        """SCORER_CLASS_MAP 条目数不超过原生 get_scorer_info() 返回数"""
+        from pyrit.score import get_scorer_info
+        native_count = len(list(get_scorer_info()))
+        assert len(SCORER_CLASS_MAP) <= native_count, (
+            f"SCORER_CLASS_MAP 有 {len(SCORER_CLASS_MAP)} 条目，"
+            f"但原生 get_scorer_info() 只返回 {native_count} 个评分器。"
+            f"多余条目可能是抽象基类或工具类，不应纳入 SCORER_CLASS_MAP。"
+        )
+
+    def test_no_abstract_classes_in_class_map(self):
+        """SCORER_CLASS_MAP 中不包含抽象基类"""
+        import inspect
+        for name, scorer_class in SCORER_CLASS_MAP.items():
+            assert not inspect.isabstract(scorer_class), (
+                f"{name} -> {scorer_class.__name__} 是抽象类，"
+                f"不应纳入 SCORER_CLASS_MAP"
+            )
+
+    def test_conversation_scorer_not_in_class_map(self):
+        """ConversationScorer 不在 SCORER_CLASS_MAP 中（通过 create_conversation_scorer() 创建）"""
+        assert "conversation" not in SCORER_CLASS_MAP
+        assert "conversation" not in SCORER_METADATA
+
+    def test_batch_scorer_not_in_class_map(self):
+        """BatchScorer 不在 SCORER_CLASS_MAP 中（工具类，非标准评分器）"""
+        assert "batch" not in SCORER_CLASS_MAP
+        assert "batch" not in SCORER_METADATA
+
+    def test_float_scale_abstract_not_in_class_map(self):
+        """FloatScaleScorer / AllCategories / ByCategory 不在 SCORER_CLASS_MAP 中"""
+        for name in ["float_scale", "float_scale_all_categories", "float_scale_by_category"]:
+            assert name not in SCORER_CLASS_MAP, f"{name} 不应纳入 SCORER_CLASS_MAP"
+            assert name not in SCORER_METADATA, f"{name} 不应纳入 SCORER_METADATA"

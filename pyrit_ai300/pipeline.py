@@ -121,7 +121,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     judge_api_key = os.getenv("JUDGE_API_KEY", "ollama")
 
     print("\n" + "=" * 60)
-    print("  PyRIT 端到端全自动 AI 红队框架 (批量多源攻击)")
+    print("  PyRIT 端到端全自动 AI 红队框架 ")
     print("=" * 60)
     print(f"\n目标 URL: {target_url}")
     print(f"目标端点: {target_endpoint}")
@@ -328,10 +328,16 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         print(f"  [OK] 目标类型: {selection_result.target_profile.target_type.display_name}")
         print(f"  [OK] 选中: {len(selected_groups)}/{len(all_seed_groups)} 个种子组 (top-{tiered_cfg.get('top_n', 3)})")
         print(f"  [OK] 降级策略: {fallback_strategy.display_name}")
-        print(f"  [OK] ASR 分层: {len(fallback_chain)} 个 Tier")
         if fallback_strategy != FallbackStrategy.PARALLEL:
-            planning_groups = selection_result.planning_groups
-            print(f"  [OK] 全链计划组: {len(planning_groups)} 个 (含降级后备组)")
+            # L5: 统一走原生 AdaptiveScenario 路径（消除双轨）
+            # all_chain_groups 仅用于 GroupFallbackExecutor 的 tier fallback 语义
+            _legacy_preview = os.getenv("USE_LEGACY_DIRECT", "false").lower() in ("1", "true", "yes")
+            if not _legacy_preview:
+                planning_groups = selected_groups
+                print(f"  [OK] 计划组: {len(planning_groups)} (选中组, 原生 AdaptiveScenario)")
+            else:
+                planning_groups = selection_result.planning_groups
+                print(f"  [OK] 计划组: {len(planning_groups)} (全链, 降级链执行)")
         else:
             planning_groups = selected_groups
 
@@ -366,54 +372,75 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
     # ③ AttackPreparator 准备（使用 planning_groups 生成全链计划）
     attack_groups = await AttackPreparator.prepare_batch(planning_groups)
-    has_objective = sum(1 for ag in attack_groups if ag.objective is not None)
-    synthetic = sum(1 for ag in attack_groups
-                    if any(getattr(s, 'metadata', {}).get("synthetic_objective", False)
-                           for s in ag.seeds))
     multi_turn = sum(1 for ag in attack_groups if AttackPreparator.is_multi_turn(ag))
-    print(f"  [OK] AttackSeedGroup 转换: {len(attack_groups)} 个")
-    print(f"    - 有原生 objective: {has_objective} 个")
-    print(f"    - 合成 objective: {synthetic} 个")
-    print(f"    - 多轮攻击: {multi_turn} 个")
-    print(f"    - 单轮攻击: {len(attack_groups) - multi_turn} 个")
 
-    # 桥接 ③→④: SeedGroup → PromptBatch → AttackPlan（使用 planning_groups 生成全链计划）
+    # 桥接 ③→④: SeedGroup → PromptBatch → AttackPlan
     prompt_batches = SeedPromptAdapter.seed_groups_to_batches(planning_groups)
     total_prompts = sum(len(batch.prompts) for batch in prompt_batches)
-    print(f"  [OK] 桥接 PromptBatch: {len(prompt_batches)} 批次, {total_prompts} 提示词")
-
-    # 统计各攻击模式
-    mode_counts = {}
-    for batch in prompt_batches:
-        for item in batch.prompts:
-            mode_counts[item.attack_mode.value] = mode_counts.get(item.attack_mode.value, 0) + 1
-    for mode, count in sorted(mode_counts.items()):
-        print(f"    - {mode}: {count} 个")
-
-    # 载荷规划（PromptBatch → AttackPlan）
     attack_plans = plan_attacks(prompt_batches, strategy_selection)
-    print(f"  [OK] 生成攻击计划: {len(attack_plans)} 个")
 
-    # 按攻击模式统计计划数
-    plan_mode_counts = {}
-    for plan in attack_plans:
-        mode = plan.prompt_item.attack_mode.value
-        plan_mode_counts[mode] = plan_mode_counts.get(mode, 0) + 1
-    for mode, count in sorted(plan_mode_counts.items()):
-        print(f"    - {mode}: {count} 个计划")
+    # --- 精简摘要：只显示本轮攻击密切相关的信息 ---
+    print(f"  [OK] 攻击计划: {len(attack_plans)} 个 "
+          f"(选中 {len(selected_groups)} 组 → 全链 {len(planning_groups)} 组, "
+          f"{total_prompts} 提示词, {multi_turn} 多轮 / {len(attack_groups) - multi_turn} 单轮)")
 
-    # 统计攻击技术分布（回归 PyRIT 原生 Attack 类）
-    technique_counts = {}
-    scorer_counts = {}
-    for plan in attack_plans:
-        technique_counts[plan.attack_technique] = technique_counts.get(plan.attack_technique, 0) + 1
-        scorer_counts[plan.scorer_type] = scorer_counts.get(plan.scorer_type, 0) + 1
-    print("  [OK] 攻击技术分布:")
-    for tech, count in sorted(technique_counts.items(), key=lambda x: -x[1]):
-        print(f"    - {tech}: {count} 个")
-    print("  [OK] 评分器类型分布:")
-    for s_type, count in sorted(scorer_counts.items(), key=lambda x: -x[1]):
-        print(f"    - {s_type}: {count} 个")
+    # 本轮选中的技术组 + OWASP 覆盖（只显示选中组，不展开降级链）
+    if tiered_enabled and selection_result.ranked_groups:
+        # 从 ranked_groups 中提取选中组的技术信息
+        selected_tech_names = set()
+        selected_owasp_ids = set()
+        for sg in selected_groups:
+            for seed in sg.seeds:
+                meta = getattr(seed, "metadata", {}) or {}
+                tech = meta.get("technique_group", meta.get("technique", ""))
+                if tech:
+                    selected_tech_names.add(tech)
+                owasp = meta.get("owasp_id", "")
+                if owasp:
+                    selected_owasp_ids.add(owasp)
+        if selected_tech_names:
+            print(f"  [OK] 攻击技术: {', '.join(sorted(selected_tech_names))}")
+        if selected_owasp_ids:
+            print(f"  [OK] OWASP 覆盖: {', '.join(sorted(selected_owasp_ids))}")
+
+        # 降级链摘要（只显示 Tier 级别，不展开全部组）
+        if fallback_chain:
+            tier_summary = []
+            for tier_groups in fallback_chain:
+                if not tier_groups:
+                    continue
+                tier_val = tier_groups[0].tier.value
+                tier_summary.append(f"{tier_val}={len(tier_groups)}组")
+            if tier_summary:
+                print(f"  [OK] 降级链: {' → '.join(tier_summary)} ({fallback_strategy.display_name})")
+    else:
+        # 旧版路径：显示技术分布
+        technique_counts = {}
+        for plan in attack_plans:
+            technique_counts[plan.attack_technique] = technique_counts.get(plan.attack_technique, 0) + 1
+        if technique_counts:
+            tech_str = ", ".join(f"{t}({c})" for t, c in sorted(technique_counts.items(), key=lambda x: -x[1]))
+            print(f"  [OK] 攻击技术: {tech_str}")
+
+    # verbose 模式下补充完整统计
+    if verbose:
+        has_objective = sum(1 for ag in attack_groups if ag.objective is not None)
+        synthetic = sum(1 for ag in attack_groups
+                        if any(getattr(s, 'metadata', {}).get("synthetic_objective", False)
+                               for s in ag.seeds))
+        print(f"  [DETAIL] AttackSeedGroup: {len(attack_groups)} 个 "
+              f"(原生objective: {has_objective}, 合成: {synthetic})")
+        mode_counts = {}
+        for batch in prompt_batches:
+            for item in batch.prompts:
+                mode_counts[item.attack_mode.value] = mode_counts.get(item.attack_mode.value, 0) + 1
+        for mode, count in sorted(mode_counts.items()):
+            print(f"  [DETAIL]   {mode}: {count} 个")
+        scorer_counts = {}
+        for plan in attack_plans:
+            scorer_counts[plan.scorer_type] = scorer_counts.get(plan.scorer_type, 0) + 1
+        for s_type, count in sorted(scorer_counts.items(), key=lambda x: -x[1]):
+            print(f"  [DETAIL] 评分器 {s_type}: {count} 个")
 
     # ---------------------------------------------------------
     # 6. 创建攻击组件 + 批量执行攻击
@@ -508,16 +535,27 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # exam_id 已在函数开头预先生成
 
     # ──────────────────────────────────────────────────────
-    # P3: 原生优先执行路径 — AI300AdaptiveScenario + Converter 变体
+    # L5: 原生优先执行路径 — AI300AdaptiveScenario + Converter 变体
     # ──────────────────────────────────────────────────────
     # 原生 AdaptiveScenario + SequentialAttack(FIRST_SUCCESS) 替代自建升级重试
     # Converter 变体预注册 → 原生 FIRST_SUCCESS 自动在首个成功变体处停止
     # 保留自建：per_attack_timeout 包裹 + OWASP 映射 + L2/L3 停止策略
+    # L5: 统一走 Adaptive 路径（消除双轨），Legacy 直接批量执行仅作为紧急回退
     # ──────────────────────────────────────────────────────
-    use_adaptive_path = os.getenv("USE_ADAPTIVE_SCENARIO", "true").lower() in ("1", "true", "yes")
+    _legacy_direct = os.getenv("USE_LEGACY_DIRECT", "false").lower() in ("1", "true", "yes")
+    adaptive_result = None  # 原生 AdaptiveScenario 执行结果（用于 [7/9] 输出判断）
 
-    if use_adaptive_path:
+    if not _legacy_direct and (fallback_strategy == FallbackStrategy.PARALLEL or not fallback_chain):
         print("  [OK] 执行模式: 原生 AdaptiveScenario (P3 原生优先, Converter 变体)")
+
+        # 原生 AdaptiveScenario 路径使用独立的并发数：
+        # pipeline max_concurrency=1 是为降级链设计的（串行避免限流），
+        # 但原生 Scenario 的 AttackExecutor 已有 Semaphore 控制并发 API 调用，
+        # 且 Target 已有独立 RateLimitConfig(max_concurrent_requests=api_max_concurrent) 保护。
+        # 使用 ADAPTIVE_MAX_CONCURRENCY（默认 4）提高吞吐量，API 级限速仍由 Target 层保护。
+        adaptive_max_concurrency = int(os.getenv("ADAPTIVE_MAX_CONCURRENCY", "4"))
+        print(f"  [OK] 原生并发: {adaptive_max_concurrency} (API 级限速: {api_max_concurrent})")
+
         # P3: 执行前展示 Target 感知 Converter 路由信息
         try:
             from src.converters.target_aware_router import (
@@ -551,11 +589,23 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
             verbose=verbose,
             converter_target=judge_target,
             target_type=target_type,
+            max_concurrency=adaptive_max_concurrency,
         )
         batch_result = adaptive_result.batch_result
         print(f"  [OK] Converter 变体使用: {adaptive_result.converter_variants_used} 次")
         print(f"  [OK] 原生执行时间: {adaptive_result.execution_time:.1f}s")
-    elif fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
+
+        # 原生 output_scenario_async — 展示 Per-Group Breakdown + 场景摘要
+        if adaptive_result.native_result is not None:
+            try:
+                from src.scenarios.scenario_output import display_enhanced_group_breakdown
+                display_enhanced_group_breakdown(
+                    adaptive_result.native_result,
+                    owasp_id=",".join(config_owasp_ids) if config_owasp_ids else "",
+                )
+            except Exception as e:
+                print(f"  [!] Per-Group Breakdown 输出失败: {e}")
+    elif not _legacy_direct and fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
         # 降级链执行路径（三层选择启用时，向后兼容）
         fallback_executor = GroupFallbackExecutor()
         fb_result = await fallback_executor.execute_with_fallback(
@@ -581,7 +631,13 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         if batch_result.skipped_by_stop > 0:
             print(f"  [OK] 停止策略跳过: {batch_result.skipped_by_stop} 个计划")
     else:
-        # 直接批量执行（旧版兼容 或 Parallel 策略）
+        # Legacy 直接批量执行（deprecated, 仅作为紧急回退）
+        # L5: 此路径使用自建 ScenarioOrchestrator + AttackUpgradeStrategy，
+        # 已被原生 AdaptiveScenario 替代。设置 USE_LEGACY_DIRECT=true 可强制启用。
+        if not _legacy_direct:
+            print("  [!] Adaptive 路径异常，回退到 Legacy 直接批量执行 (deprecated)")
+        else:
+            print("  [!] USE_LEGACY_DIRECT=true — Legacy 直接批量执行 (deprecated)")
         batch_result = await execute_batch_attacks(
             attack_plans=attack_plans,
             objective_target=objective_target,
@@ -615,12 +671,25 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
             print(f"    ... 还有 {len(batch_result.errors) - 5} 个错误")
 
     # ---------------------------------------------------------
-    # 7. 输出执行结果（双通道输出已在批量执行中完成）
+    # 7. 输出执行结果
     # ---------------------------------------------------------
     print("\n[7/9] 输出执行结果...")
-    print("  [OK] 双通道输出已在批量执行过程中完成:")
-    print("  [OK] 终端通道: pretty 格式实时输出")
-    print(f"  [OK] 文件通道: Markdown 全量日志 (output/logs/{exam_id}_attacks.md)")
+
+    # 原生 AdaptiveScenario 路径：原生 ScenarioResult 已在执行过程中通过 tqdm 实时输出
+    if not _legacy_direct and adaptive_result and adaptive_result.native_result is not None:
+        print("  [OK] 原生 AdaptiveScenario 执行结果:")
+        print(f"  [OK] 场景结果 ID: {adaptive_result.scenario_result_id}")
+        print(f"  [OK] 总技术尝试: {adaptive_result.total_techniques_tried}")
+        print(f"  [OK] Converter 变体使用: {adaptive_result.converter_variants_used} 次")
+        print("  [OK] Per-Group Breakdown 已在执行后展示")
+    elif not _legacy_direct and adaptive_result and batch_result.executed == 0:
+        print("  [!] 原生 AdaptiveScenario 执行失败 — 无可用结果")
+        print("  [!] 可能原因: API 超时 / 网络错误 / max_retries 不足")
+        print(f"  [!] 建议: 检查网络连接，增大 SCENARIO_MAX_RETRIES (当前={scenario_max_retries})")
+    else:
+        print("  [OK] 双通道输出已在批量执行过程中完成:")
+        print("  [OK] 终端通道: pretty 格式实时输出")
+        print(f"  [OK] 文件通道: Markdown 全量日志 (output/logs/{exam_id}_attacks.md)")
 
     # 非 verbose 模式下补充展示前 5 个成功结果
     if not verbose:

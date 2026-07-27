@@ -69,6 +69,7 @@ P1-1
 
 
 import logging
+import warnings
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -81,6 +82,16 @@ from src.payloads.models import AttackMode, AttackPlan, PromptItem
 
 
 logger = logging.getLogger(__name__)
+
+
+# L5: Deprecation warning — replaced by native AdaptiveScenario + FailureTypeRoutingSelector
+warnings.warn(
+    "src.executor.workflow.upgrade_strategy is deprecated. "
+    "Use native AdaptiveScenario + FailureTypeRoutingSelector instead. "
+    "Set USE_LEGACY_DIRECT=true to force legacy path.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 

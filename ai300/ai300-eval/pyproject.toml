@@ -1,4 +1,4 @@
-# ai300-eval-kit
+# ai300-eval
 # =============
 #
 # 基于侦察结果对 LLM 应用执行自动化评估（Giskard / ART）。
@@ -13,7 +13,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai300-eval-kit"
+name = "ai300-eval"
 version = "0.1.0"
 description = "Evaluation toolkit for AI-300 red teaming using Giskard and ART"
 readme = "README.md"
@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.scripts]
-ai300-eval = "ai300_eval_kit.main:main"
+ai300-eval = "ai300_eval.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

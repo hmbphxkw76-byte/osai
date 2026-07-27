@@ -1145,19 +1145,58 @@ class ScenarioOrchestrator:
         return self._event_handler.get_errors()
 
     @staticmethod
+    def compute_identifier_hash(plan: AttackPlan) -> str:
+        """
+        L5: 计算攻击计划的原生兼容标识符哈希
+
+        对齐 PyRIT 1.0.0 ComponentIdentifier 的内容哈希方法：
+        使用 hashlib.sha256 对 (attack_class, target, scorer, converter, objective)
+        的规范字符串计算确定性哈希。
+
+        与原生 AttackStrategy.get_identifier() 的区别：
+        - 原生方法在 Attack 实例创建后可用（含已解析的 target/scorer 对象）
+        - 本方法在 AttackPlan 阶段可用（仅含配置字符串，无需创建实例）
+        - 两者语义一致：相同配置 → 相同哈希 → 相同执行行为
+
+        Args:
+            plan: 攻击计划
+
+        Returns:
+            SHA-256 哈希字符串（16 字符截断，对齐 ComponentIdentifier.eval_hash）
+        """
+        import hashlib
+
+        # 规范化去重键（对齐 ComponentIdentifier 的内容哈希输入）
+        identifier_content = "|".join([
+            plan.attack_technique,
+            plan.prompt_item.objective[:200],  # 截断防止过长哈希输入
+            plan.scorer_type,
+            plan.converter_chain_name or "",
+            plan.owasp_id or "",
+            plan.prompt_item.attack_mode.value,
+        ])
+
+        return hashlib.sha256(
+            identifier_content.encode("utf-8")
+        ).hexdigest()[:16]
+
+    @staticmethod
     def deduplicate_plans_by_identifier(
         attack_plans: List[AttackPlan],
     ) -> tuple[List[AttackPlan], List[AttackPlan]]:
         """
-        L5 对齐：利用 AttackIdentifier 体系进行攻击计划去重
+        L5 对齐：利用原生 ComponentIdentifier 体系进行攻击计划去重
 
         PyRIT 1.0.0 的 AttackStrategy.get_identifier() 返回 ComponentIdentifier，
         包含 attack class / target / scorer / converter 的内容哈希。
         相同 identifier 的攻击计划会产生相同的执行行为，可以安全跳过。
 
+        L5 改进：使用 compute_identifier_hash() 计算原生兼容的 SHA-256 哈希，
+        替代原有的元组键。增加 attack_mode 到去重维度。
+
         去重策略：
-        1. 按 (technique, objective, scorer_type, converter_chain_name) 分组
-        2. 每组保留第一个计划（最高优先级）
+        1. 计算每个计划的 identifier_hash（SHA-256, 对齐 ComponentIdentifier.eval_hash）
+        2. 相同 hash 的计划保留第一个（最高优先级）
         3. 返回 (unique_plans, duplicates)
 
         Args:
@@ -1166,33 +1205,29 @@ class ScenarioOrchestrator:
         Returns:
             (unique_plans, duplicates) 元组
         """
-        seen_keys: set = set()
+        seen_hashes: set[str] = set()
         unique: List[AttackPlan] = []
         duplicates: List[AttackPlan] = []
 
         for plan in attack_plans:
-            # 构建去重键：技术 + 目标 + 评分器 + 转换器链
-            dedup_key = (
-                plan.attack_technique,
-                plan.prompt_item.objective,
-                plan.scorer_type,
-                plan.converter_chain_name or "",
-                plan.owasp_id or "",
-            )
-            if dedup_key in seen_keys:
+            # L5: 使用原生兼容的哈希去重
+            identifier_hash = ScenarioOrchestrator.compute_identifier_hash(plan)
+            if identifier_hash in seen_hashes:
                 duplicates.append(plan)
                 logger.debug(
                     f"Dedup: skipping duplicate plan {plan.plan_id} "
-                    f"(technique={plan.attack_technique}, owasp={plan.owasp_id})"
+                    f"(hash={identifier_hash}, technique={plan.attack_technique}, "
+                    f"owasp={plan.owasp_id})"
                 )
             else:
-                seen_keys.add(dedup_key)
+                seen_hashes.add(identifier_hash)
                 unique.append(plan)
 
         if duplicates:
             logger.info(
                 f"AttackIdentifier dedup: {len(attack_plans)} plans → "
-                f"{len(unique)} unique, {len(duplicates)} duplicates removed"
+                f"{len(unique)} unique, {len(duplicates)} duplicates removed "
+                f"(using native-compatible SHA-256 hash)"
             )
 
         return unique, duplicates

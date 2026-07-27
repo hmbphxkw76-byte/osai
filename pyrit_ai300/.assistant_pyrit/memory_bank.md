@@ -239,6 +239,7 @@ PyRIT 1.0.0 的 `AttackScoringConfig` 对单轮攻击和 `red_teaming` 设置 `r
 ## 五、开发规则速查
 
 1. **原生优先**: 使用 PyRIT 原生组件，不造轮子
+2. **研究工作流**: 新功能开发前，arXiv 优先查找文献 → GitHub 查找相关代码 → 交叉验证后实施（arXiv 文献参考: PAIR 2310.08437 / TAP 2312.02191 / Many-Shot 2402.05124 / GCG 2307.15043 / Red Teaming 2202.01241 / JailbreakBench 2402.01135 / Crescendo 2402.12109 / Skeleton Key 2407.01576）
 2. **避免硬编码**: 所有参数从配置文件读取
 3. **PyRIT 优势边界**: 非优势领域推荐外部工具
 4. **数据结构传递**: 使用 Pydantic 模型或原生对象

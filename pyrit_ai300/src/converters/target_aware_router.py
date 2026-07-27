@@ -10,8 +10,14 @@ P0: 根据不同 Target 类型自动选择成功率最高的 Converter 链。
 
   Target 类型 → 安全机制分析 → 最优 Converter 链序列
 
+R3: 数据源统一 — Profile 定义从 YAML (target_aware_converter_profiles) 加载，
+    消除 Python 硬编码与 YAML 的重复定义。YAML 为唯一数据源 (Single Source of Truth)。
+R4: 动态链组合 — 基于 Target 能力（多模态支持）动态扩展链池
+R6: 模态验证 — Converter 链输出模态与 Target 能力验证
+
 设计原则：
 - 纯函数式路由：输入 target_type → 输出有序链名列表
+- R3: YAML 为唯一数据源，Python 硬编码仅作 fallback
 - 与现有 owasp_strategy_map 叠加使用，Target 感知作为优先排序层
 - 非 LLM 链优先（快速高成功率），LLM 链作为兜底
 - 支持 converter_target 可用性检测（LLM 链需要 converter_target）
@@ -51,209 +57,99 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# Target Type → Target Group 映射
+# R3: Fallback 常量（仅当 YAML 加载失败时使用）
 # ============================================================
 
-TARGET_TYPE_GROUPS: Dict[str, str] = {
-    # ── LLM Direct ──
+_FALLBACK_TARGET_TYPE_GROUPS: Dict[str, str] = {
     "openai_chat": "llm_direct",
     "openai_responses": "llm_direct",
     "litellm": "llm_direct",
     "azure_ml": "llm_direct",
-    # ── LLM Safety ──
     "prompt_shield": "llm_safety",
-    # ── Agent (Web) ──
     "playwright": "agent_web",
     "playwright_copilot": "agent_web",
-    # ── Agent (Copilot) ──
     "websocket_copilot": "agent_copilot",
-    # ── Agent (API) ──
     "http_api": "agent_api",
-    # ── RAG ──
     "azure_blob": "rag",
-    # ── Output Handling ──
     "http_raw": "output_handling",
-    # ── Multimodal ──
     "openai_image": "multimodal_image",
     "openai_video": "multimodal_video",
     "openai_tts": "multimodal_audio",
-    # ── Fallback ──
     "text": "llm_direct",
 }
 
-
-# ============================================================
-# Target Group → Converter 链 Profile
-# ============================================================
-
-TARGET_CONVERTER_PROFILES: Dict[str, Dict[str, Any]] = {
-    # ── LLM Direct ──────────────────────────────────────────────
+_FALLBACK_TARGET_CONVERTER_PROFILES: Dict[str, Dict[str, Any]] = {
     "llm_direct": {
-        "high_asr_chains": [
-            "multi_encoding_v2",
-            "stealth_evasion",
-            "encoding_bypass",
-        ],
-        "medium_asr_chains": [
-            "policy_puppetry",
-            "noise_case_chain",
-            "unicode_attack",
-        ],
-        "llm_assisted_chains": [
-            "persuasion_authority",
-            "decomposition_chain",
-            "llm_assisted",
-        ],
+        "high_asr_chains": ["multi_encoding_v2", "stealth_evasion", "encoding_bypass"],
+        "medium_asr_chains": ["policy_puppetry", "noise_case_chain", "unicode_attack"],
+        "llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted"],
         "bypass_mechanism": "content_filter",
         "description": "LLM 直连 — 内容过滤 + 关键词检测 + 拒绝分类器",
     },
-
-    # ── LLM Safety ──────────────────────────────────────────────
     "llm_safety": {
-        "high_asr_chains": [
-            "stealth_evasion",
-            "multi_encoding_v2",
-            "encoding_bypass",
-        ],
-        "medium_asr_chains": [
-            "noise_case_chain",
-            "unicode_attack",
-            "random_case",
-        ],
-        "llm_assisted_chains": [
-            "decomposition_chain",
-            "persuasion_authority",
-        ],
+        "high_asr_chains": ["stealth_evasion", "multi_encoding_v2", "encoding_bypass"],
+        "medium_asr_chains": ["noise_case_chain", "unicode_attack", "random_case"],
+        "llm_assisted_chains": ["decomposition_chain", "persuasion_authority"],
         "bypass_mechanism": "prompt_shield_detection",
         "description": "LLM Safety — Prompt Shield 检测绕过",
     },
-
-    # ── Agent (Web) ─────────────────────────────────────────────
     "agent_web": {
-        "high_asr_chains": [
-            "agent_injection_chain",
-            "stealth_evasion",
-        ],
-        "medium_asr_chains": [
-            "decomposition_policy_chain",
-            "policy_puppetry_chain",
-            "task_framing_chain",
-        ],
-        "llm_assisted_chains": [
-            "persuasion_authority",
-        ],
+        "high_asr_chains": ["agent_injection_chain", "stealth_evasion"],
+        "medium_asr_chains": ["decomposition_policy_chain", "policy_puppetry_chain", "task_framing_chain"],
+        "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "input_validation",
         "description": "Agent (Web UI) — 前端输入验证 + 后端双重检查",
     },
-
-    # ── Agent (Copilot) ─────────────────────────────────────────
     "agent_copilot": {
-        "high_asr_chains": [
-            "agent_injection_chain",
-            "unicode_attack",
-        ],
-        "medium_asr_chains": [
-            "policy_puppetry_chain",
-            "task_framing_chain",
-            "decomposition_policy_chain",
-        ],
-        "llm_assisted_chains": [
-            "persuasion_authority",
-        ],
+        "high_asr_chains": ["agent_injection_chain", "unicode_attack"],
+        "medium_asr_chains": ["policy_puppetry_chain", "task_framing_chain", "decomposition_policy_chain"],
+        "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "grounding_safety",
         "description": "Agent (Copilot) — 系统提示 + Grounding + 工具权限",
     },
-
-    # ── Agent (API) ─────────────────────────────────────────────
     "agent_api": {
-        "high_asr_chains": [
-            "agent_injection_chain",
-            "encoding_bypass",
-        ],
-        "medium_asr_chains": [
-            "task_framing_chain",
-            "decomposition_policy_chain",
-        ],
-        "llm_assisted_chains": [
-            "persuasion_authority",
-        ],
+        "high_asr_chains": ["agent_injection_chain", "encoding_bypass"],
+        "medium_asr_chains": ["task_framing_chain", "decomposition_policy_chain"],
+        "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "api_schema_validation",
         "description": "Agent (API) — API 层验证 + Schema 约束",
     },
-
-    # ── RAG ─────────────────────────────────────────────────────
     "rag": {
-        "high_asr_chains": [
-            "xpia_stealth_chain",
-            "pdf_injection",
-        ],
-        "medium_asr_chains": [
-            "worddoc_injection",
-            "text_jailbreak",
-        ],
+        "high_asr_chains": ["xpia_stealth_chain", "pdf_injection"],
+        "medium_asr_chains": ["worddoc_injection", "text_jailbreak"],
         "llm_assisted_chains": [],
         "bypass_mechanism": "no_content_check",
         "description": "RAG — 文档投毒 / XPIA 载荷投递",
     },
-
-    # ── Output Handling ─────────────────────────────────────────
     "output_handling": {
-        "high_asr_chains": [
-            "format_injection",
-            "text_jailbreak",
-        ],
-        "medium_asr_chains": [
-            "pdf_injection",
-            "xpia_stealth_chain",
-        ],
+        "high_asr_chains": ["format_injection", "text_jailbreak"],
+        "medium_asr_chains": ["pdf_injection", "xpia_stealth_chain"],
         "llm_assisted_chains": [],
         "bypass_mechanism": "man_in_middle",
         "description": "Output Handling — 中间人位置 / 原始 HTTP",
     },
-
-    # ── Multimodal (Image) ──────────────────────────────────────
     "multimodal_image": {
-        "high_asr_chains": [
-            "multimodal_image_attack",
-        ],
-        "medium_asr_chains": [
-            "multimodal_steganography",
-        ],
+        "high_asr_chains": ["multimodal_image_attack"],
+        "medium_asr_chains": ["multimodal_steganography"],
         "llm_assisted_chains": [],
         "bypass_mechanism": "image_content_policy",
         "description": "Multimodal (Image) — 图片内容策略 + 安全分类器",
     },
-
-    # ── Multimodal (Video) ──────────────────────────────────────
     "multimodal_video": {
-        "high_asr_chains": [
-            "multimodal_image_attack",
-        ],
+        "high_asr_chains": ["multimodal_image_attack"],
         "medium_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "pre_generation_review",
         "description": "Multimodal (Video) — 生成前审核",
     },
-
-    # ── Multimodal (Audio/TTS) ──────────────────────────────────
     "multimodal_audio": {
-        "high_asr_chains": [
-            "stealth_evasion",
-            "encoding_bypass",
-        ],
-        "medium_asr_chains": [
-            "unicode_attack",
-        ],
+        "high_asr_chains": ["stealth_evasion", "encoding_bypass"],
+        "medium_asr_chains": ["unicode_attack"],
         "llm_assisted_chains": [],
         "bypass_mechanism": "voice_content_review",
         "description": "Multimodal (Audio/TTS) — 语音内容审核",
     },
 }
-
-
-# ============================================================
-# 默认 Profile（未识别 Target 类型时使用）
-# ============================================================
 
 _DEFAULT_PROFILE: Dict[str, Any] = {
     "high_asr_chains": ["stealth_evasion", "encoding_bypass"],
@@ -262,6 +158,162 @@ _DEFAULT_PROFILE: Dict[str, Any] = {
     "bypass_mechanism": "unknown",
     "description": "默认 — 通用混淆 + 编码绕过",
 }
+
+
+# ============================================================
+# R3: YAML 数据加载（单一数据源）
+# ============================================================
+
+_profiles_cache: Optional[Dict[str, Dict[str, Any]]] = None
+_groups_cache: Optional[Dict[str, str]] = None
+
+
+def _load_profiles_from_yaml() -> Dict[str, Dict[str, Any]]:
+    """
+    R3: 从 YAML 加载 Target Converter Profiles
+
+    YAML target_aware_converter_profiles 段使用:
+      high_asr / medium_asr / llm_assisted (YAML 键名)
+    转换为内部格式:
+      high_asr_chains / medium_asr_chains / llm_assisted_chains (Python 键名)
+
+    Returns:
+        Target 分组 → Profile 字典（内部格式）
+    """
+    global _profiles_cache
+    if _profiles_cache is not None:
+        return _profiles_cache
+
+    try:
+        from src.core.config_loader import get_config_loader
+        config = get_config_loader()
+        yaml_profiles = config.get_target_aware_converter_profiles()
+
+        if not yaml_profiles:
+            logger.debug("R3: No target_aware_converter_profiles in YAML, using fallback")
+            _profiles_cache = dict(_FALLBACK_TARGET_CONVERTER_PROFILES)
+            return _profiles_cache
+
+        profiles: Dict[str, Dict[str, Any]] = {}
+        for group, yaml_profile in yaml_profiles.items():
+            profiles[group] = {
+                "high_asr_chains": list(yaml_profile.get("high_asr", [])),
+                "medium_asr_chains": list(yaml_profile.get("medium_asr", [])),
+                "llm_assisted_chains": list(yaml_profile.get("llm_assisted", [])),
+                "bypass_mechanism": yaml_profile.get("bypass_mechanism", "unknown"),
+                "description": yaml_profile.get("description", ""),
+                "target_types": list(yaml_profile.get("target_types", [])),
+            }
+
+        _profiles_cache = profiles
+        logger.info(f"R3: Loaded {len(profiles)} target converter profiles from YAML")
+    except Exception as e:
+        logger.debug(f"R3: Failed to load profiles from YAML, using fallback: {e}")
+        _profiles_cache = dict(_FALLBACK_TARGET_CONVERTER_PROFILES)
+
+    return _profiles_cache
+
+
+def _load_groups_from_yaml() -> Dict[str, str]:
+    """
+    R3: 从 YAML 加载 Target Type → Group 映射
+
+    从 YAML target_aware_converter_profiles 的 target_types 字段
+    反向构建 target_type → group_name 映射。
+
+    Returns:
+        Target 类型 → 分组名 字典
+    """
+    global _groups_cache
+    if _groups_cache is not None:
+        return _groups_cache
+
+    try:
+        profiles = _load_profiles_from_yaml()
+        groups: Dict[str, str] = {}
+
+        for group_name, profile in profiles.items():
+            for target_type in profile.get("target_types", []):
+                groups[target_type] = group_name
+
+        # 添加 fallback
+        groups.setdefault("text", "llm_direct")
+
+        if not groups:
+            _groups_cache = dict(_FALLBACK_TARGET_TYPE_GROUPS)
+        else:
+            _groups_cache = groups
+            logger.info(f"R3: Loaded {len(groups)} target type → group mappings from YAML")
+    except Exception as e:
+        logger.debug(f"R3: Failed to load groups from YAML, using fallback: {e}")
+        _groups_cache = dict(_FALLBACK_TARGET_TYPE_GROUPS)
+
+    return _groups_cache
+
+
+def _reload_from_yaml() -> None:
+    """强制重新从 YAML 加载（用于测试）"""
+    global _profiles_cache, _groups_cache
+    _profiles_cache = None
+    _groups_cache = None
+    _load_profiles_from_yaml()
+    _load_groups_from_yaml()
+
+
+# ============================================================
+# 向后兼容: 模块级常量（懒加载从 YAML）
+# ============================================================
+
+class _LazyDict(dict):
+    """懒加载字典 — 首次访问时从 YAML 加载"""
+
+    def __init__(self, loader_func):
+        self._loader_func = loader_func
+        self._loaded = False
+        super().__init__()
+
+    def _ensure_loaded(self):
+        if not self._loaded:
+            data = self._loader_func()
+            super().update(data)
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self._ensure_loaded()
+        return super().__contains__(key)
+
+    def get(self, key, default=None):
+        self._ensure_loaded()
+        return super().get(key, default)
+
+    def keys(self):
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self):
+        self._ensure_loaded()
+        return super().values()
+
+    def items(self):
+        self._ensure_loaded()
+        return super().items()
+
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def __len__(self):
+        self._ensure_loaded()
+        return super().__len__()
+
+
+# 模块级常量 — 懒加载从 YAML（向后兼容）
+TARGET_TYPE_GROUPS: Dict[str, str] = _LazyDict(_load_groups_from_yaml)
+TARGET_CONVERTER_PROFILES: Dict[str, Dict[str, Any]] = _LazyDict(_load_profiles_from_yaml)
 
 
 # ============================================================
@@ -404,6 +456,70 @@ def get_target_group_summary() -> List[Dict[str, Any]]:
     return summary
 
 
+# ============================================================
+# R4+R6: 动态链组合 + 模态验证
+# ============================================================
+
+
+def select_dynamic_converter_chains(
+    target_type: str,
+    objective_target: Any = None,
+    converter_target_available: bool = True,
+    max_chains: int = 12,
+) -> List[str]:
+    """
+    R4+R6: 动态选择 Converter 链 — Target 感知 + 模态验证
+
+    在 select_converter_chains_for_target 基础上增加:
+    1. R4: 基于 Target 能力动态扩展链池（如多模态 Target 追加图片链）
+    2. R6: 模态验证 — 过滤输出模态与 Target 不兼容的链
+
+    Args:
+        target_type: PyRIT Target 类型名
+        objective_target: 目标 PromptTarget 实例（用于 R6 模态验证）
+        converter_target_available: 是否有可用的 converter_target
+        max_chains: 返回的最大链数量
+
+    Returns:
+        经过模态验证的有序 Converter 链名列表
+    """
+    # Step 1: 获取 Target 感知推荐链
+    chains = select_converter_chains_for_target(
+        target_type=target_type,
+        converter_target_available=converter_target_available,
+        max_chains=max_chains,
+    )
+
+    # Step 2 (R6): 模态验证 — 过滤不兼容链
+    if objective_target is not None:
+        from src.scenarios.technique_factories import CONVERTER_VARIANT_CHAINS, _is_chain_modality_compatible
+
+        filtered: List[str] = []
+        for chain_name in chains:
+            chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
+            if chain_info is None:
+                # 未知链，保留（可能是 YAML 中新增的链）
+                filtered.append(chain_name)
+                continue
+
+            if _is_chain_modality_compatible(
+                chain_name=chain_name,
+                chain_info=chain_info,
+                objective_target=objective_target,
+                target_type=target_type,
+            ):
+                filtered.append(chain_name)
+            else:
+                logger.debug(
+                    f"R6: Filtered out modality-incompatible chain '{chain_name}' "
+                    f"for target_type='{target_type}'"
+                )
+
+        chains = filtered
+
+    return chains[:max_chains]
+
+
 class TargetAwareConverterRouter:
     """
     Target-Aware Converter 路由器
@@ -411,10 +527,20 @@ class TargetAwareConverterRouter:
     根据不同 Target 类型选择成功率最高的 Converter 链。
     可作为 ScenarioOrchestrator / AdaptiveScenario 的顾问组件。
 
+    R3: Profile 数据从 YAML 加载（单一数据源）
+    R4+R6: 支持动态链组合 + 模态验证
+
     Usage:
         router = TargetAwareConverterRouter()
         chains = router.select_chains("openai_chat", converter_target_available=True)
         # ["multi_encoding_v2", "stealth_evasion", "encoding_bypass", ...]
+
+        # R4+R6: 动态链选择（含模态验证）
+        chains = router.select_dynamic_chains(
+            "openai_chat",
+            objective_target=target,
+            converter_target_available=True,
+        )
     """
 
     def select_chains(
@@ -426,6 +552,21 @@ class TargetAwareConverterRouter:
         """选择最优 Converter 链序列"""
         return select_converter_chains_for_target(
             target_type=target_type,
+            converter_target_available=converter_target_available,
+            max_chains=max_chains,
+        )
+
+    def select_dynamic_chains(
+        self,
+        target_type: str,
+        objective_target: Any = None,
+        converter_target_available: bool = True,
+        max_chains: int = 12,
+    ) -> List[str]:
+        """R4+R6: 动态链选择（含模态验证）"""
+        return select_dynamic_converter_chains(
+            target_type=target_type,
+            objective_target=objective_target,
             converter_target_available=converter_target_available,
             max_chains=max_chains,
         )
@@ -465,7 +606,7 @@ def display_target_converter_profiles() -> None:
     summary = get_target_group_summary()
 
     print("\n" + "=" * 80)
-    print("  Target-Aware Converter 链 Profile")
+    print("  Target-Aware Converter 链 Profile (R3: YAML-driven)")
     print("=" * 80)
 
     for item in summary:

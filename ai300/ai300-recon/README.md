@@ -21,7 +21,7 @@
 
 ```text
 ai300-recon/
-├── .assistant_recon/           # 项目规则、架构设计与集成计划
+├── .assistant_ai300/           # 项目规则、架构设计与集成计划
 │   ├── rules.md
 │   ├── ai_300_alignment_analysis.md
 │   ├── ai_redteam_integration_framework_design.md

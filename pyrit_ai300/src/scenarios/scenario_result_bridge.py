@@ -298,19 +298,37 @@ def _extract_technique_name(result: Any) -> str:
 
 def _extract_converter_from_result(result: Any) -> str:
     """
-    从 AttackResult 提取 Converter 变体信息（PyRIT 原生 API）
+    从 AttackResult 提取 Converter 信息（PyRIT 原生 API）
 
-    如果技术名含 "+"，返回 "+" 后的 Converter 链名。
-    否则返回空字符串（基础技术无 Converter）。
+    从 identifier.children['request_converters'] 检测 Converter。
+    当 attack 配置了 attack_converter_config 时，identifier.children 中
+    会包含 'request_converters' 键，其值为 ConverterIdentifier 列表。
+
+    Returns:
+        Converter 类名列表（逗号分隔），无 Converter 时返回空字符串
     """
     identifier = None
     if hasattr(result, "get_attack_strategy_identifier"):
         identifier = result.get_attack_strategy_identifier()
-    if identifier is not None:
-        name = getattr(identifier, "unique_name", "") or ""
-        if "+" in name:
-            return name.split("+", 1)[1]
-    return ""
+    if identifier is None:
+        return ""
+
+    children = getattr(identifier, "children", None) or {}
+    req_converters = children.get("request_converters")
+    if not req_converters:
+        return ""
+
+    names: list[str] = []
+    if isinstance(req_converters, list):
+        for conv_id in req_converters:
+            cn = getattr(conv_id, "class_name", "")
+            if cn:
+                names.append(cn)
+    else:
+        cn = getattr(req_converters, "class_name", "")
+        if cn:
+            names.append(cn)
+    return ", ".join(names)
 
 
 def _extract_owasp_from_result(result: Any) -> str:

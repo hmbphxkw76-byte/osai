@@ -3,7 +3,7 @@
 UnifiedFinding Schema
 =====================
 
-跨工具（ai300-recon、ai300-attack、ai300-eval-kit、
+跨工具（ai300-recon、ai300-attack、ai300-eval、
 AI-Infra-Guard、RedAmon、SkillSpector、Garak、PyRIT、Giskard、ART）
 统一发现格式，作为 Result Layer 去重、关联、评分、入库的公共数据契约。
 """
@@ -47,7 +47,7 @@ class UnifiedFinding:
     # 基础身份
     finding_id: str = ""
     # 来源工具
-    source_tool: str = ""  # ai300-recon / ai300-attack / ai300-eval-kit /
+    source_tool: str = ""  # ai300-recon / ai300-attack / ai300-eval /
                            # ai-infra-guard / redamon / skillspector / garak / pyrit /
                            # giskard / art / deepeval
     task_type: str = ""    # recon / ai_infra_scan / agent_scan / model_redteam_report /

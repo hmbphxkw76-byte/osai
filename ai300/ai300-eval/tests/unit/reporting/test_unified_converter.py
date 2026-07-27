@@ -5,7 +5,7 @@ UnifiedFinding 转换器单元测试
 
 from unittest.mock import MagicMock
 
-from ai300_eval_kit.reporting.unified_converter import finding_from_giskard
+from ai300_eval.reporting.unified_converter import finding_from_giskard
 
 
 def test_finding_from_giskard_maps_category():

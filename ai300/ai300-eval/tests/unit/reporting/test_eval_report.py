@@ -3,8 +3,8 @@
 EvalReport 单元测试
 """
 
-from ai300_eval_kit.adapters.base import EvalResult
-from ai300_eval_kit.reporting.eval_report import EvalReport
+from ai300_eval.adapters.base import EvalResult
+from ai300_eval.reporting.eval_report import EvalReport
 from ai300_schemas import UnifiedFinding
 
 

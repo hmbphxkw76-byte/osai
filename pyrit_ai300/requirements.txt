@@ -14,6 +14,7 @@ aiofiles>=23.0.0
 # Reporting (报告格式转换)
 markdown>=3.5.0
 xhtml2pdf>=0.2.11
+weasyprint>=69.0
 
 # Optional: LiteLLM (100+ LLM Provider 统一接入)
 # pip install litellm

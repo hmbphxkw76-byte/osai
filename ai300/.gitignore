@@ -77,6 +77,5 @@ templates/burp/
 logs/
 
 # Vendored third-party tools (cloned at runtime)
-/skillspector/                  # 仅忽略仓库根目录下的 skillspector 克隆
-redamon/*
-!redamon/README.md
+/third_party/                  # 仅忽略仓库根目录下的 skillspector 克隆
+ 
