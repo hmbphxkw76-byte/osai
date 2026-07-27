@@ -1878,6 +1878,147 @@ def create_multimodal_steganography_chain(
 
 
 # ============================================================
+# P1: Target-Aware 高成功率 Converter 链
+# ============================================================
+
+
+def create_multi_encoding_v2_chain() -> AttackConverterConfig:
+    """
+    创建多层编码 V2 链（Base64 + ROT13 + Caesar(5) + Atbash）
+
+    四层编码，几乎所有内容过滤器失效。针对强内容过滤（如 Azure OpenAI
+    Content Filter）效果最佳。
+
+    模态: text -> text -> text -> text -> text
+
+    Returns:
+        AttackConverterConfig 实例
+    """
+    return create_attack_converter_config(
+        converter_names=[
+            "base64",
+            "rot13",
+            "caesar",
+            "atbash",
+        ],
+        converter_params={
+            "caesar": {"caesar_offset": 5},
+        },
+    )
+
+
+def create_persuasion_authority_chain(
+    converter_target: Any = None,
+    persuasion_technique: str = "authority_endorsement",
+    tone: str = "formal",
+    language: str = "en",
+) -> AttackConverterConfig:
+    """
+    创建权威说服链（Persuasion + Tone + Translation）
+
+    使用权威背书策略 + 正式语气 + 语言切换，绕过语义安全分类器
+    和拒绝分类器。需要 converter_target（LLM 辅助）。
+
+    模态: text -> text -> text -> text
+
+    Args:
+        converter_target: LLM 辅助转换用的 PromptTarget
+        persuasion_technique: 说服技术（默认 authority_endorsement）
+        tone: 语气（默认 formal）
+        language: 翻译目标语言（默认 en）
+
+    Returns:
+        AttackConverterConfig 实例
+    """
+    return create_attack_converter_config(
+        converter_names=[
+            "persuasion",
+            "tone",
+            "translation",
+        ],
+        converter_params={
+            "persuasion": {"persuasion_technique": persuasion_technique},
+            "tone": {"tone": tone},
+            "translation": {"language": language},
+        },
+        converter_target=converter_target,
+    )
+
+
+def create_agent_injection_chain(
+    task_template: str = "TASK is '{{ prompt }}'",
+) -> AttackConverterConfig:
+    """
+    创建 Agent 注入链（UnicodeConfusable + SuffixAppend + TaskFraming）
+
+    针对智能体系统的专用注入链：Unicode 混淆隐藏注入指令 +
+    指令追加 + 任务格式伪装。适合 Agent 目标劫持和工具参数注入。
+
+    模态: text -> text -> text -> text
+
+    Args:
+        task_template: 任务框架模板，必须包含 {{ prompt }} 占位符
+
+    Returns:
+        AttackConverterConfig 实例
+    """
+    return create_attack_converter_config(
+        converter_names=[
+            "unicode_confusable",
+            "suffix_append",
+            "task_framing",
+        ],
+        converter_params={
+            "suffix_append": {"suffix": "!"},
+            "task_framing": {
+                "task_template": task_template,
+                "strip_characters": "",
+            },
+        },
+    )
+
+
+def create_xpia_stealth_chain(
+    font_color: tuple = (255, 255, 255),
+    font_size: int = 6,
+) -> AttackConverterConfig:
+    """
+    创建 XPIA 隐写链（TextJailbreak + PDFConverter）
+
+    将越狱模板包装的攻击内容嵌入白色小字 PDF，用于 XPIA/RAG
+    文档投递攻击。双重绕过：越狱模板绕过语义检测 + PDF 隐写绕过
+    可见性检查。
+
+    注意: TextJailbreakConverter 和 PDFConverter 需要运行时参数
+    （jailbreak_template / font 配置），此函数创建基础配置，
+    完整链需在运行时补充参数。
+
+    模态: text -> text -> binary_path
+
+    Args:
+        font_color: PDF 字体颜色 RGB 列表（默认白色 [255, 255, 255]）
+        font_size: PDF 字体大小（默认 6pt，极小字）
+
+    Returns:
+        AttackConverterConfig 实例
+    """
+    if font_color is None:
+        font_color = (255, 255, 255)
+
+    return create_attack_converter_config(
+        converter_names=[
+            "pdf",
+        ],
+        converter_params={
+            "pdf": {
+                "font_color": font_color,
+                "font_size": font_size,
+            },
+        },
+    )
+
+
+# ============================================================
 # 注册到 PyRIT ConverterRegistry
 # ============================================================
 

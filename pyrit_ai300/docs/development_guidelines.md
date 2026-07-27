@@ -1,25 +1,26 @@
 # 开发文档规范
 
-**版本**: v2.0  
+**版本**: v3.0  
 **创建日期**: 2026-07-25  
-**更新日期**: 2026-07-26  
+**更新日期**: 2026-07-27  
 **适用范围**: PyRIT AI-300 全部源码、配置、测试和文档  
 **对齐标准**: PyRIT 1.0.0 原生 API + OWASP 双标准 + L5 专家级软件工程实践
 
 ---
 
-## 〇、双库定义
+## 〇、三库定义
 
-当说"写入双库"时，指以下两个文件，必须同时更新：
+当说“写入三库”时，指以下三个文件，必须同时更新：
 
 | 序号 | 文件 | 用途 |
 |------|------|------|
-| 1 | `.assistant_pyrit/memory_bank.md` | 记忆库（跨平台共享，任意 IDE 可读取） |
-| 2 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
+| 1 | `.catpawrules` | CatPaw IDE 规则文件（项目级 AI 规则） |
+| 2 | `.assistant_pyrit/memory_bank.md` | 记忆库（跨平台共享，任意 IDE 可读取） |
+| 3 | `docs/development_guidelines.md` | 开发规范文档（本文件） |
 
-**同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上两个文件。
+**同步规则**: 架构变更、新增模块、新增规则时，必须同时更新以上三个文件。
 
-> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到本文件和 `.assistant_pyrit/memory_bank.md`。
+> **更新说明**: v3.0 恢复 `.catpawrules` 文件（包含原生优先规则），三库同步更新。
 
 ---
 
@@ -27,9 +28,20 @@
 
 ### 1.1 原生优先原则
 
-**规则**: 优先使用 PyRIT 原生组件，避免重复造轮子。
+**规则**: 原生优先，消除双轨，保留自建的不可替代部分。
 
-**说明**: PyRIT 1.0.0 已提供丰富的组件（80+ Converter、40+ Scorer、20+ Attack、11+ Target 类型），直接使用可确保兼容性和可维护性。
+**说明**: PyRIT 1.0.0 已提供丰富的组件（80+ Converter、40+ Scorer、20+ Attack、15+ Target 类型），直接使用可确保兼容性和可维护性。当原生机制能完全替代自建逻辑时，必须移除自建代码，不允许同时保留两套实现。仅当原生框架无法覆盖时才保留自建逻辑。
+
+**当前保留的自建部分**（原生框架无法覆盖）：
+- `per_attack_timeout` — PyRIT 原生无 per-attack 超时机制
+- OWASP 映射 — 通过原生 `memory_labels` 集成
+- `RateLimitedTarget` 并发信号量 + 503 重试 — PyRIT 原生不覆盖
+
+**已消除的双轨**（自建 → 原生替代）：
+- 自建 `AttackUpgradeStrategy` 多候选递归 → 原生 `SequentialAttack(FIRST_SUCCESS)` 提前停止
+- 自建 `add_converter` 升级策略 → Converter 变体预注册 + 原生 `FIRST_SUCCESS`
+- 自建 `generate_upgrade_plans` → 原生 `AdaptiveTechniqueDispatcher` 自动构建
+- 自建失败类型路由 → `FailureTypeRoutingSelector`（extends `EpsilonGreedyTechniqueSelector`）
 
 **必须使用原生 API 的场景**:
 

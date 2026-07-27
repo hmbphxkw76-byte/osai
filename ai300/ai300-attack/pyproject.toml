@@ -1,0 +1,54 @@
+# ai300-attack
+# ====================
+#
+# 基于侦察结果调用 PyRIT / Garak 执行对话层攻击的工具包。
+#
+# 设计原则：
+#   - 不封装 PyRIT / Garak，只做适配器和编排
+#   - 所有重依赖均为 optional，默认安装不引入
+#   - 输出统一为 UnifiedFinding
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai300-attack"
+version = "0.1.0"
+description = "Attack execution toolkit for AI-300 red teaming using PyRIT and Garak"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "AI-300 team"},
+]
+keywords = ["ai-redteam", "offsec-ai300", "pyrit", "garak", "prompt-injection"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "ai300-schemas",
+    "pyyaml>=6.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+pyrit = ["pyrit>=0.14.0"]
+garak = ["garak>=0.10.0"]
+all = ["pyrit>=0.14.0", "garak>=0.10.0"]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+ai300-attack = "ai300_attack.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,31 @@
+# CatPaw Rules — PyRIT AI-300 项目规则
+
+## 原生优先规则 (Native-First Principle)
+
+**规则**: 原生优先，消除双轨，保留自建的不可替代部分。
+
+**说明**: 在实施 Converter 升级、失败路由、自适应攻击等功能时，必须遵循以下原则：
+
+1. **原生优先**: 优先使用 PyRIT 原生组件（AdaptiveScenario、AdaptiveTechniqueDispatcher、SequentialAttack、FIRST_SUCCESS 等），避免重复造轮子。
+
+2. **消除双轨**: 当原生机制能完全替代自建逻辑时，必须移除自建代码，不允许同时保留两套实现。具体包括：
+   - 自建 `AttackUpgradeStrategy` 多候选递归 → 原生 `SequentialAttack(FIRST_SUCCESS)` 提前停止
+   - 自建 `add_converter` 升级策略 → Converter 变体预注册 + 原生 `FIRST_SUCCESS`
+   - 自建 `generate_upgrade_plans` → 原生 `AdaptiveTechniqueDispatcher` 自动构建
+   - 自建失败类型路由 → `FailureTypeRoutingSelector`（extends `EpsilonGreedyTechniqueSelector`）
+
+3. **保留自建**: 仅当原生框架无法覆盖时才保留自建逻辑。当前必须保留的自建部分：
+   - `per_attack_timeout` — PyRIT 原生无 per-attack 超时机制
+   - OWASP 映射 — 通过原生 `memory_labels` 集成
+   - `RateLimitedTarget` 并发信号量 + 503 重试 — PyRIT 原生不覆盖
+
+4. **Converter 变体注册**: 为每个基础攻击技术注册多个 Converter 变体作为独立的 `AttackTechniqueFactory`，将 `AttackConverterConfig` 烘焙到 `attack_kwargs` 中，使原生 `FIRST_SUCCESS` 自动在首个成功变体处停止。
+
+5. **执行路径**: `pipeline.py` 默认使用 `USE_ADAPTIVE_SCENARIO=true` 走原生 `AI300AdaptiveScenario` 路径，旧版路径仅作为向后兼容保留。
+
+## 其他规则
+
+- PyRIT 1.0.0 五层架构对齐
+- 80+ Converter / 40+ Scorer / 20+ Attack / 15+ Target 类型
+- OWASP 双标准对齐
+- L5 专家级软件工程实践

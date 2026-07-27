@@ -1,7 +1,0 @@
-﻿# pyrit-web-recon 依赖
-# 独立项目，不依赖任何 LLM 攻击框架运行时
-
-playwright>=1.40.0
-pyyaml>=6.0
-httpx>=0.27.0
-python-dotenv>=1.0.0

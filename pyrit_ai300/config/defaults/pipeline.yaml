@@ -7,7 +7,21 @@
 # ============================================================
 
 # --- 并发控制 ---
-max_concurrency: 1            # 最大并发攻击数（1=串行，避免触发目标限流）
+max_concurrency: 1            # 最大并发攻击计划数（1=串行，避免触发目标限流）
+# 注意：max_concurrency 只限制并发"攻击计划"数
+# 单个攻击内部（尤其是 TAP/PAIR）仍有大量并发 API 调用
+# 使用 API_MAX_CONCURRENCY 环境变量控制 API 级别并发
+
+# --- API 级别限速（对齐 PyRIT Resiliency 文档）---
+# PyRIT 原生已处理（通过 @limit_requests_per_minute + @pyrit_target_retry 装饰器）：
+#   - RPM 限速：通过 TargetParams.max_requests_per_minute 激活
+#   - 429 重试：tenacity 指数退避，RETRY_MAX_NUM_ATTEMPTS / RETRY_WAIT_MIN/MAX_SECONDS 控制
+#   - EmptyResponse 重试：同上
+# 自建补充（rate_limited_target.py，PyRIT 原生不覆盖）：
+#   API_MAX_CONCURRENCY=10     # API 并发信号量上限（防止 503 scheduler queue full）
+#   TARGET_MAX_RPM=60          # 目标 API RPM（透传到 TargetParams → PyRIT 原生装饰器）
+#   JUDGE_MAX_RPM=60           # 评分器 API RPM（同上）
+# 503/502 重试复用 PyRIT 的 RETRY_MAX_NUM_ATTEMPTS 环境变量（统一配置源）
 
 # --- 超时控制 ---
 per_attack_timeout: 180       # 默认单次攻击超时（秒）

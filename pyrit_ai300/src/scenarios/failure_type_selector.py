@@ -1,17 +1,30 @@
 """
-Failure-Type Routing Technique Selector — 用原生 AdaptiveScenario 替代智能升级重试
+Failure-Type Routing Technique Selector — 原生 AdaptiveScenario 替代智能升级重试
 =============================================================================
 
 P0: 实现 FailureTypeRoutingSelector(TechniqueSelector)
+P1: 增强 Converter 变体感知排序
+P3: 增强 Target 类型感知优先级
 
 用 PyRIT 原生 AdaptiveScenario + AdaptiveTechniqueDispatcher 替代自建 AttackUpgradeStrategy。
 原生的 SequentialAttack(FIRST_SUCCESS) 天然实现 "尝试不同技术直到成功" 的逻辑。
 
 本 Selector 在 EpsilonGreedyTechniqueSelector 基础上增加失败类型分析：
-  - model_refusal → 优先编码攻击技术（Converter 绕过内容过滤）
-  - timeout → 优先单轮攻击技术（减少多轮深度）
-  - scorer_validation_error → 保持技术多样性
-  - objective_not_achieved → 优先升级到更强技术
+  - model_refusal -> 优先 Converter 变体（编码/混淆绕过内容过滤）
+  - timeout -> 优先无 Converter 的基础技术（减少开销）
+  - scorer_validation_error -> 保持技术多样性
+  - objective_not_achieved -> 优先强技术 + Converter 变体
+
+P1 增强：Converter 变体感知
+  - 技术名称中含 "+" 的为 Converter 变体（如 "prompt_sending+stealth_evasion"）
+  - model_refusal 路由：优先 Converter 变体，按 Converter 链优先级排序
+  - timeout 路由：优先基础技术（无 Converter），减少转换开销
+  - 首次尝试（无失败记录）：优先编码变体（快速高成功率）
+
+P3 增强：Target 类型感知
+  - 设置 target_type 后，Converter 变体按 Target 类型对应的 ASR 优先级排序
+  - 不同 Target 类型（LLM Direct / Agent / RAG / Multimodal）使用不同的链优先级
+  - 未设置 target_type 时回退到全局 CONVERTER_VARIANT_CHAINS 优先级
 
 Selector 是无状态的：它查询 memory 获取历史成功率，而非维护内部计数。
 """
@@ -22,7 +35,16 @@ from typing import Sequence
 
 from pyrit.scenario.scenarios.adaptive import EpsilonGreedyTechniqueSelector
 
-from src.scenarios.technique_factories import AI300_TECHNIQUE_METADATA
+from src.scenarios.technique_factories import (
+    AI300_TECHNIQUE_METADATA,
+    CONVERTER_VARIANT_CHAINS,
+    is_converter_variant,
+    get_converter_chain_from_variant,
+)
+from src.converters.target_aware_router import (
+    get_target_group,
+    get_chain_priority_for_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +78,12 @@ _STRONG_TECHNIQUES = {
     "many_shot", "crescendo_simulated",
 }
 
+# P1: Converter 链全局优先级（当 target_type 未设置时的回退值）
+_CONVERTER_CHAIN_PRIORITY: dict[str, int] = {
+    chain_name: info.get("priority", 99)
+    for chain_name, info in CONVERTER_VARIANT_CHAINS.items()
+}
+
 
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     """
@@ -64,14 +92,14 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     在 EpsilonGreedyTechniqueSelector 基础上增加失败类型分析。
     当检测到特定失败类型时，重新排列技术优先级：
 
-    策略路由：
-      model_refusal     → 编码攻击优先（Converter 绕过内容过滤）
-      timeout           → 单轮攻击优先（减少执行时间）
-      scorer_validation → 保持 epsilon-greedy 默认排序
-      objective_not_achieved → 强技术优先（多轮升级）
+    策略路由（P1 增强 Converter 感知 + P3 Target 感知）：
+      model_refusal     -> Converter 变体优先（按 Target 感知优先级排序）+ 编码技术
+      timeout           -> 基础单轮技术优先（无 Converter，减少开销）
+      scorer_validation -> 保持 epsilon-greedy 默认排序
+      objective_not_achieved -> 强技术 + Converter 变体优先
 
     考试策略：
-      Phase 1 (探索): 编码攻击（快速高成功率 50-100%）
+      Phase 1 (探索): 编码攻击 + Converter 变体（快速高成功率 50-100%）
       Phase 2 (利用): 角色扮演（中等成本 71-100%）
       Phase 3 (升级): 多轮渐进（高成本兜底）
     """
@@ -81,9 +109,32 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         *,
         epsilon: float = 0.2,
         random_seed: int | None = 42,
+        target_type: str | None = None,
     ) -> None:
         super().__init__(epsilon=epsilon, random_seed=random_seed)
         self._last_failure_type: str | None = None
+        # P3: Target 类型感知
+        self._target_type: str | None = target_type
+        self._target_group: str | None = (
+            get_target_group(target_type) if target_type else None
+        )
+
+    def set_target_type(self, target_type: str) -> None:
+        """
+        P3: 设置 Target 类型，启用 Target 感知排序
+
+        设置后，Converter 变体将按 Target 类型对应的 ASR 优先级排序，
+        而非使用全局静态优先级。
+
+        Args:
+            target_type: PyRIT Target 类型名（如 "openai_chat", "playwright"）
+        """
+        self._target_type = target_type
+        self._target_group = get_target_group(target_type)
+        logger.debug(
+            f"FailureTypeRoutingSelector: target_type={target_type}, "
+            f"group={self._target_group}"
+        )
 
     def update_failure_type(self, failure_type: str) -> None:
         """
@@ -133,9 +184,41 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         # 返回前 N 个
         return reordered[:num_top_techniques]
 
+    def _target_aware_sort_key(self, technique_name: str) -> int:
+        """
+        P3: 计算技术名称的 Target 感知排序键
+
+        如果设置了 target_type，使用 Target 感知优先级；
+        否则回退到全局 CONVERTER_VARIANT_CHAINS 优先级。
+
+        Args:
+            technique_name: 技术名称（可能含 "+" 变体）
+
+        Returns:
+            排序键（数字越小越优先）
+        """
+        chain_name = get_converter_chain_from_variant(technique_name)
+        if chain_name is None:
+            return 99
+
+        # P3: 如果有 target_type，使用 Target 感知优先级
+        if self._target_type:
+            return get_chain_priority_for_target(chain_name, self._target_type)
+
+        # 回退到全局优先级
+        return _CONVERTER_CHAIN_PRIORITY.get(chain_name, 99)
+
     def _reorder_by_failure_type(self, techniques: Sequence[str]) -> list[str]:
         """
         根据最近失败类型重新排列技术优先级
+
+        P1 增强：Converter 变体感知
+        P3 增强：Target 类型感知优先级
+        - 技术名称中含 "+" 的为 Converter 变体
+        - model_refusal: 优先 Converter 变体（按 Target 感知优先级排序）+ 编码技术
+        - timeout: 优先无 Converter 的基础技术（减少转换开销）
+        - objective_not_achieved: 优先强技术 + Converter 变体
+        - None（首次）: 按 Target 类型感知优先级排序
 
         Args:
             techniques: 原始排序的技术列表
@@ -147,42 +230,74 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         failure_type = self._last_failure_type
 
         if failure_type is None:
-            # 无失败类型 → 默认考试策略：编码攻击优先
-            return self._reorder_by_priority(
-                tech_list,
-                priority_set=_ENCODING_TECHNIQUES,
+            # 无失败类型 -> P3: Target 感知默认排序
+            converter_variants = [t for t in tech_list if is_converter_variant(t)]
+            encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
+            others = [
+                t for t in tech_list
+                if not is_converter_variant(t) and t not in _ENCODING_TECHNIQUES
+            ]
+            # P3: Target 感知优先级排序
+            converter_variants.sort(
+                key=lambda t: self._target_aware_sort_key(t)
             )
+            return converter_variants + encoding_base + others
 
         if failure_type == FAILURE_MODEL_REFUSAL:
-            # 模型拒绝 → 编码攻击优先（Converter 绕过内容过滤）
-            logger.info("FailureTypeRouting: model_refusal → prioritizing encoding techniques")
-            return self._reorder_by_priority(
-                tech_list,
-                priority_set=_ENCODING_TECHNIQUES,
+            # 模型拒绝 -> Converter 变体优先（编码/混淆绕过内容过滤）
+            logger.info("FailureTypeRouting: model_refusal -> prioritizing converter variants + encoding")
+            converter_variants = [t for t in tech_list if is_converter_variant(t)]
+            encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
+            others = [
+                t for t in tech_list
+                if not is_converter_variant(t) and t not in _ENCODING_TECHNIQUES
+            ]
+            # P3: Target 感知优先级排序
+            converter_variants.sort(
+                key=lambda t: self._target_aware_sort_key(t)
             )
+            return converter_variants + encoding_base + others
 
         if failure_type == FAILURE_TIMEOUT:
-            # 超时 → 单轮攻击优先（减少执行时间）
-            logger.info("FailureTypeRouting: timeout → prioritizing single_turn techniques")
-            return self._reorder_by_priority(
-                tech_list,
-                priority_set=_SINGLE_TURN_TECHNIQUES,
-            )
+            # 超时 -> 优先无 Converter 的基础单轮技术（减少转换开销和执行时间）
+            logger.info("FailureTypeRouting: timeout -> prioritizing base single_turn (no converter)")
+            # 先取无 Converter 的单轮技术
+            base_single = [
+                t for t in tech_list
+                if not is_converter_variant(t) and t in _SINGLE_TURN_TECHNIQUES
+            ]
+            # 再取 Converter 变体（作为后备）
+            converter_variants = [t for t in tech_list if is_converter_variant(t)]
+            # 最后是多轮和其他
+            others = [
+                t for t in tech_list
+                if not is_converter_variant(t) and t not in _SINGLE_TURN_TECHNIQUES
+            ]
+            return base_single + converter_variants + others
 
         if failure_type == FAILURE_OBJECTIVE_NOT_ACHIEVED:
-            # 目标未达成 → 强技术优先（多轮升级）
-            logger.info("FailureTypeRouting: objective_not_achieved → prioritizing strong techniques")
-            return self._reorder_by_priority(
-                tech_list,
-                priority_set=_STRONG_TECHNIQUES,
+            # 目标未达成 -> 强技术 + Converter 变体优先
+            logger.info("FailureTypeRouting: objective_not_achieved -> prioritizing strong techniques + converter variants")
+            # 强技术（多轮升级）
+            strong = [t for t in tech_list if t in _STRONG_TECHNIQUES]
+            # Converter 变体（编码绕过）
+            converter_variants = [t for t in tech_list if is_converter_variant(t)]
+            # P3: Target 感知优先级排序
+            converter_variants.sort(
+                key=lambda t: self._target_aware_sort_key(t)
             )
+            others = [
+                t for t in tech_list
+                if not is_converter_variant(t) and t not in _STRONG_TECHNIQUES
+            ]
+            return strong + converter_variants + others
 
         if failure_type == FAILURE_SCORER_VALIDATION_ERROR:
-            # 评分器验证错误 → 保持 epsilon-greedy 默认排序
-            logger.info("FailureTypeRouting: scorer_validation_error → keeping epsilon-greedy order")
+            # 评分器验证错误 -> 保持 epsilon-greedy 默认排序
+            logger.info("FailureTypeRouting: scorer_validation_error -> keeping epsilon-greedy order")
             return tech_list
 
-        # 未知失败类型 → 保持默认排序
+        # 未知失败类型 -> 保持默认排序
         return tech_list
 
     @staticmethod

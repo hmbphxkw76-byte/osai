@@ -139,9 +139,12 @@ class ScenarioResultBridge:
 
     def get_per_group_stats(self) -> list[dict[str, Any]]:
         """
-        获取每组的统计信息
+        获取每组的统计信息（增强版：含攻击技术+Converter组合+OWASP 对齐）
 
-        如果有原生 ScenarioResult，使用原生 Per-Group Breakdown。
+        如果有原生 ScenarioResult，使用原生 Per-Group Breakdown 并增强：
+        - techniques: 该组使用的攻击技术列表
+        - converter_variants: 该组使用的 Converter 变体列表
+        - owasp_id: 该组关联的 OWASP ID（从 labels 提取）
         """
         if self._native_result is not None:
             display_groups = self._native_result.get_display_groups()
@@ -153,12 +156,34 @@ class ScenarioResultBridge:
                     if hasattr(r, "outcome") and
                     str(getattr(r.outcome, "value", r.outcome)).upper() == "SUCCESS"
                 )
+                # 提取攻击技术 + Converter 变体信息
+                techniques_used: list[str] = []
+                converters_used: list[str] = []
+                owasp_ids: set[str] = set()
+                for r in results:
+                    if r is None:
+                        continue
+                    # 提取技术名
+                    tech_name = _extract_technique_name(r)
+                    if tech_name and tech_name not in techniques_used:
+                        techniques_used.append(tech_name)
+                    # 提取 Converter 变体
+                    conv = _extract_converter_from_result(r)
+                    if conv and conv not in converters_used:
+                        converters_used.append(conv)
+                    # 提取 OWASP ID
+                    owasp = _extract_owasp_from_result(r)
+                    if owasp:
+                        owasp_ids.add(owasp)
                 stats.append({
                     "group_name": group_name,
                     "total": total,
                     "success": success,
                     "failure": total - success,
                     "success_rate": success / total if total > 0 else 0.0,
+                    "techniques": techniques_used,
+                    "converter_variants": converters_used,
+                    "owasp_id": ", ".join(sorted(owasp_ids)) if owasp_ids else "",
                 })
             return stats
 
@@ -173,12 +198,31 @@ class ScenarioResultBridge:
             )
             failure = total - success
             rate = success / total if total > 0 else 0.0
+            # 提取攻击技术 + Converter 变体信息
+            techniques_used: list[str] = []
+            converters_used: list[str] = []
+            owasp_ids: set[str] = set()
+            for r in results:
+                if r is None:
+                    continue
+                tech_name = _extract_technique_name(r)
+                if tech_name and tech_name not in techniques_used:
+                    techniques_used.append(tech_name)
+                conv = _extract_converter_from_result(r)
+                if conv and conv not in converters_used:
+                    converters_used.append(conv)
+                owasp = _extract_owasp_from_result(r)
+                if owasp:
+                    owasp_ids.add(owasp)
             stats.append({
                 "group_name": group_name,
                 "total": total,
                 "success": success,
                 "failure": failure,
                 "success_rate": rate,
+                "techniques": techniques_used,
+                "converter_variants": converters_used,
+                "owasp_id": ", ".join(sorted(owasp_ids)) if owasp_ids else "",
             })
         return stats
 
@@ -226,6 +270,63 @@ class ScenarioResultBridge:
             "has_native_result": self._native_result is not None,
             "memory_labels": dict(self._memory_labels),
         }
+
+
+# ============================================================
+# 结果提取辅助函数（PyRIT 原生 API 优先）
+# ============================================================
+
+
+def _extract_technique_name(result: Any) -> str:
+    """
+    从 AttackResult 提取攻击技术名称（PyRIT 原生 API）
+
+    使用原生 get_attack_strategy_identifier().unique_name 获取技术名。
+    如果技术名含 "+"（Converter 变体），只返回基础技术部分。
+    """
+    identifier = None
+    if hasattr(result, "get_attack_strategy_identifier"):
+        identifier = result.get_attack_strategy_identifier()
+    if identifier is not None:
+        name = getattr(identifier, "unique_name", "") or ""
+        # Converter 变体格式: "prompt_sending+stealth_evasion"
+        if "+" in name:
+            return name.split("+")[0]
+        return name
+    return ""
+
+
+def _extract_converter_from_result(result: Any) -> str:
+    """
+    从 AttackResult 提取 Converter 变体信息（PyRIT 原生 API）
+
+    如果技术名含 "+"，返回 "+" 后的 Converter 链名。
+    否则返回空字符串（基础技术无 Converter）。
+    """
+    identifier = None
+    if hasattr(result, "get_attack_strategy_identifier"):
+        identifier = result.get_attack_strategy_identifier()
+    if identifier is not None:
+        name = getattr(identifier, "unique_name", "") or ""
+        if "+" in name:
+            return name.split("+", 1)[1]
+    return ""
+
+
+def _extract_owasp_from_result(result: Any) -> str:
+    """
+    从 AttackResult 提取 OWASP ID（PyRIT 原生 labels API）
+
+    PyRIT 原生 AttackResult.labels 是 dict[str, str]，
+    我们通过 memory_labels 注入了 owasp_id。
+    """
+    labels = getattr(result, "labels", None) or {}
+    owasp_id = labels.get("owasp_id", "")
+    if owasp_id:
+        return owasp_id
+    # Fallback: 检查 metadata
+    metadata = getattr(result, "metadata", None) or {}
+    return str(metadata.get("owasp_id", ""))
 
 
 # ============================================================

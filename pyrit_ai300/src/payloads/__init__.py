@@ -113,6 +113,16 @@ from src.payloads.tiered_selection_wizard import (
     TieredSelectionWizard,
     select_with_wizard,
 )
+from src.payloads.preset_schemes import (
+    AttackMechanism,
+    PresetScheme,
+    PresetSchemeDefinition,
+    PresetSchemeBuilder,
+    build_preset_schemes,
+    get_scheme_by_letter,
+    get_mechanism,
+    TECHNIQUE_MECHANISM_MAP,
+)
 from src.payloads.group_fallback_executor import (
     FallbackExecutionResult,
     GroupFallbackExecutor,
@@ -189,6 +199,15 @@ __all__ = [
     "SelectionPreset",
     "TieredSelectionWizard",
     "select_with_wizard",
+    # ②.5 Layer 3 增强: 预设方案 (A/B/C)
+    "AttackMechanism",
+    "PresetScheme",
+    "PresetSchemeDefinition",
+    "PresetSchemeBuilder",
+    "build_preset_schemes",
+    "get_scheme_by_letter",
+    "get_mechanism",
+    "TECHNIQUE_MECHANISM_MAP",
     # ④层增强: 组级降级链
     "FallbackExecutionResult",
     "GroupFallbackExecutor",

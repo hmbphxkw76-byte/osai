@@ -1480,3 +1480,105 @@ class TestParseAndExecuteSelection:
             "xyz", displayed, displayed, ranges, top_3,
         )
         assert len(result) == 3
+
+
+# ============================================================
+# Preset Scheme Backward Compatibility Tests
+# ============================================================
+
+
+class TestPresetSchemeBackwardCompat:
+    """Test that preset schemes don't break existing functionality."""
+
+    def test_parse_without_schemes_param(self):
+        """_parse_and_execute_selection should work without preset_schemes param."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        # Call without preset_schemes (should default to None -> [])
+        result = wizard._parse_and_execute_selection(
+            "", displayed, displayed, ranges, top_3,
+        )
+        # Should fall back to top-3 when no schemes
+        assert len(result) == 3
+
+    def test_parse_with_empty_schemes(self):
+        """Empty preset_schemes list should not affect behavior."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        result = wizard._parse_and_execute_selection(
+            "", displayed, displayed, ranges, top_3, [],
+        )
+        assert len(result) == 3
+
+    def test_tier_s_still_works_with_schemes(self):
+        """Tier S should still work when schemes are available."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        # Build actual preset schemes from displayed groups
+        from src.payloads.preset_schemes import PresetSchemeBuilder
+        schemes = PresetSchemeBuilder.build_schemes(displayed)
+        result = wizard._parse_and_execute_selection(
+            "S", displayed, displayed, ranges, top_3, schemes,
+        )
+        # Tier S has 3 groups
+        assert len(result) >= 1
+
+    def test_tier_s_a_still_works_with_schemes(self):
+        """Tier S,A combination should still work with schemes."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        from src.payloads.preset_schemes import PresetSchemeBuilder
+        schemes = PresetSchemeBuilder.build_schemes(displayed)
+        result = wizard._parse_and_execute_selection(
+            "S,A", displayed, displayed, ranges, top_3, schemes,
+        )
+        assert len(result) >= 1
+
+    def test_numbers_still_work_with_schemes(self):
+        """Number selection should still work with schemes available."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        from src.payloads.preset_schemes import PresetSchemeBuilder
+        schemes = PresetSchemeBuilder.build_schemes(displayed)
+        result = wizard._parse_and_execute_selection(
+            "1,3,5", displayed, displayed, ranges, top_3, schemes,
+        )
+        assert len(result) == 3
+
+    def test_all_still_works_with_schemes(self):
+        """'all' should still select all groups with schemes available."""
+        displayed, ranges = _make_test_displayed()
+        wizard = TieredSelectionWizard(enabled=False)
+        top_3 = displayed[:3]
+        from src.payloads.preset_schemes import PresetSchemeBuilder
+        schemes = PresetSchemeBuilder.build_schemes(displayed)
+        result = wizard._parse_and_execute_selection(
+            "all", displayed, displayed, ranges, top_3, schemes,
+        )
+        assert len(result) == 8  # All 8 displayed groups
+
+
+class TestTieredSelectionResultWithSchemes:
+    """Test that TieredSelectionResult includes preset_schemes field."""
+
+    @pytest.mark.asyncio
+    async def test_auto_select_has_empty_schemes(self):
+        """Auto select should have empty preset_schemes (non-interactive)."""
+        groups = _make_seed_groups_with_asr()
+        wizard = TieredSelectionWizard(enabled=False)
+        result = await wizard.select(groups)
+        assert result.preset_schemes == []
+
+    @pytest.mark.asyncio
+    async def test_preset_select_has_empty_schemes(self):
+        """Preset select should have empty preset_schemes (non-interactive)."""
+        groups = _make_seed_groups_with_asr()
+        preset = SelectionPreset(target_type=TargetType.LLM_DIRECT, top_n=2)
+        wizard = TieredSelectionWizard(enabled=False, preset=preset)
+        result = await wizard.select(groups)
+        assert result.preset_schemes == []

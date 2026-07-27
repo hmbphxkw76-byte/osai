@@ -1,0 +1,49 @@
+# ai300-schemas
+# =============
+#
+# AI-300 三项目共享数据契约包。
+#
+# 提供跨项目复用的数据模型：
+#   - TargetProfile / FingerprintData / VulnerabilityFinding
+#   - UnifiedFinding / Evidence
+#   - PyRITTargetConfig
+#
+# 设计原则：
+#   - 不依赖任何 recon/attack/eval 业务代码
+#   - 只依赖 Python 标准库
+#   - 所有 dataclass 提供 to_dict / from_dict / to_json / from_json
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai300-schemas"
+version = "0.1.0"
+description = "Shared data contracts for AI-300 reconnaissance, attack, and evaluation toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "AI-300 team"},
+]
+keywords = ["ai-redteam", "offsec-ai300", "pyrit", "reconnaissance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# 共享契约包只依赖标准库，保持最轻量
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

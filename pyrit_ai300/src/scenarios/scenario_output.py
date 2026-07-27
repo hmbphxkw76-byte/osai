@@ -227,7 +227,7 @@ def _format_bridge_output(
     bridge: ScenarioResultBridge,
     stats: list[dict[str, Any]],
 ) -> list[str]:
-    """格式化 ScenarioResultBridge 输出（回退路径）"""
+    """格式化 ScenarioResultBridge 输出（增强版：含技术+Converter+OWASP）"""
     summary = bridge.get_summary()
     lines = [
         "=" * 80,
@@ -272,6 +272,20 @@ def _format_bridge_output(
             f"Failure: {stat['failure']}, "
             f"Rate: {rate_pct:.0f}%"
         )
+        # 增强列：攻击技术
+        techniques = stat.get("techniques", [])
+        if techniques:
+            lines.append(f"    Techniques: {', '.join(techniques)}")
+        # 增强列：Converter 变体
+        converters = stat.get("converter_variants", [])
+        if converters:
+            lines.append(f"    Converters: {', '.join(converters)}")
+        else:
+            lines.append(f"    Converters: (none)")
+        # 增强列：OWASP 对齐
+        owasp = stat.get("owasp_id", "")
+        if owasp:
+            lines.append(f"    OWASP: {owasp}")
 
     lines.extend(["", "=" * 80])
     return lines

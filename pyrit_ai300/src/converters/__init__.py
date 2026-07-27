@@ -71,6 +71,11 @@ from src.converters.converter_registry import (
     # P1-3: 多模态链工厂
     create_multimodal_image_attack_chain,
     create_multimodal_steganography_chain,
+    # P1: Target-Aware 高成功率链
+    create_multi_encoding_v2_chain,
+    create_persuasion_authority_chain,
+    create_agent_injection_chain,
+    create_xpia_stealth_chain,
     # PyRIT Registry 集成
     register_converters_to_pyrit_registry,
     get_converter_from_pyrit_registry,
@@ -85,6 +90,19 @@ from src.converters.converter_registry import (
     find_converter_dependents,
     get_converter_class_metadata_from_registry,
     list_all_converter_class_metadata,
+)
+
+# P0: Target-Aware Converter Router
+from src.converters.target_aware_router import (
+    TargetAwareConverterRouter,
+    TARGET_TYPE_GROUPS,
+    TARGET_CONVERTER_PROFILES,
+    get_target_group,
+    get_target_converter_profile,
+    select_converter_chains_for_target,
+    get_chain_priority_for_target,
+    get_target_group_summary,
+    display_target_converter_profiles,
 )
 
 # PyRIT 1.0.0 枚举和基类直接导出
@@ -168,6 +186,21 @@ __all__ = [
     # P1-3: 多模态链工厂
     "create_multimodal_image_attack_chain",
     "create_multimodal_steganography_chain",
+    # P1: Target-Aware 高成功率链
+    "create_multi_encoding_v2_chain",
+    "create_persuasion_authority_chain",
+    "create_agent_injection_chain",
+    "create_xpia_stealth_chain",
+    # P0: Target-Aware Converter Router
+    "TargetAwareConverterRouter",
+    "TARGET_TYPE_GROUPS",
+    "TARGET_CONVERTER_PROFILES",
+    "get_target_group",
+    "get_target_converter_profile",
+    "select_converter_chains_for_target",
+    "get_chain_priority_for_target",
+    "get_target_group_summary",
+    "display_target_converter_profiles",
     # PyRIT Registry 集成
     "register_converters_to_pyrit_registry",
     "get_converter_from_pyrit_registry",

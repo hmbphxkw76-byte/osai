@@ -1,0 +1,54 @@
+# ai300-eval-kit
+# =============
+#
+# 基于侦察结果对 LLM 应用执行自动化评估（Giskard / ART）。
+#
+# 设计原则：
+#   - 不封装 Giskard / ART，只做适配器和编排
+#   - 所有重依赖均为 optional，默认安装不引入
+#   - 输出统一为 UnifiedFinding
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai300-eval-kit"
+version = "0.1.0"
+description = "Evaluation toolkit for AI-300 red teaming using Giskard and ART"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "AI-300 team"},
+]
+keywords = ["ai-redteam", "offsec-ai300", "giskard", "art", "llm-evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "ai300-schemas",
+    "pyyaml>=6.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+giskard = ["giskard[llm]>=2.16.0"]
+art = ["adversarial-robustness-toolbox>=1.18.0"]
+all = ["giskard[llm]>=2.16.0", "adversarial-robustness-toolbox>=1.18.0"]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+ai300-eval = "ai300_eval_kit.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

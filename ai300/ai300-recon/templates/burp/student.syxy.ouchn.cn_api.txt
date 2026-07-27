@@ -1,0 +1,14 @@
+URL: https://appsharing-ai.ouchn.edu.cn/v0/chat/completions/with-knowledge
+TYPE: openai_compatible
+MODEL: deepseek-r1-250120
+BODY: {
+  "model": "{MODEL}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "{PROMPT}"
+    }
+  ],
+  "temperature": 0.7
+}
+----------------------------------------

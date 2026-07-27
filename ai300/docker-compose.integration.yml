@@ -1,0 +1,239 @@
+# AI 红队侦察一体化集成部署（迭代 2/3 基础设施）
+#
+# 本文件启动共享层与执行层中的外部工具：
+#   - Redis：消息总线
+#   - MinIO：对象存储（Profile / 截图 / HAR / 原始响应）
+#   - AI-Infra-Guard：AI 基础设施 / MCP / Agent / 模型红队扫描
+#   - RedAmon：外部攻击面图谱 + AI Gauntlet + Agent 编排
+#
+# 使用方式：
+#   docker compose -f docker-compose.integration.yml up -d
+#
+# 注意：RedAmon 与 AI-Infra-Guard 的具体镜像和路径需要根据官方仓库调整。
+
+services:
+  # ------------------------------------------------------------------
+  # Shared Layer：消息总线
+  # ------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ai300_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Shared Layer：对象存储
+  # ------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: ai300_minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: pyritadmin
+      MINIO_ROOT_PASSWORD: pyritadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Execution Layer：AI-Infra-Guard
+  # ------------------------------------------------------------------
+  # 官方镜像：zhuquelab/aig-server / zhuquelab/aig-agent
+  # 源码：https://github.com/Tencent/AI-Infra-Guard
+  # 首次启动会自动拉取镜像；如想从源码构建，将 image 改为 build: ./AI-Infra-Guard
+  ai-infra-guard-webserver:
+    image: zhuquelab/aig-server:latest
+    container_name: ai300_aig_webserver
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/app/db/tasks.db
+      - UPLOAD_DIR=/app/uploads
+      - AIG_AGENT_ADDR=ai-infra-guard-agent:8089
+    volumes:
+      - aig_db:/app/db
+      - aig_uploads:/app/uploads
+      - aig_data:/app/data
+      - aig_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ai300_recon_net
+
+  ai-infra-guard-agent:
+    image: zhuquelab/aig-agent:latest
+    container_name: ai300_aig_agent
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - AIG_SERVER=http://ai-infra-guard-webserver:8088
+    depends_on:
+      ai-infra-guard-webserver:
+        condition: service_healthy
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Execution Layer：RedAmon 图数据库（Neo4j）
+  # ------------------------------------------------------------------
+  redamon-neo4j:
+    image: neo4j:5-community
+    container_name: ai300_redamon_neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/redamon
+      NEO4J_PLUGINS: '["apoc"]'  # APOC 用于图算法与数据导入
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 1G
+    volumes:
+      - redamon_neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "redamon", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Execution Layer：RedAmon 关系数据库（PostgreSQL）
+  # ------------------------------------------------------------------
+  redamon-postgres:
+    image: postgres:15-alpine
+    container_name: ai300_redamon_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: redamon
+      POSTGRES_PASSWORD: redamon
+      POSTGRES_DB: redamon
+    volumes:
+      - redamon_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U redamon -d redamon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Execution Layer：SkillSpector（AI agent skill / MCP skill 安全扫描）
+  # ------------------------------------------------------------------
+  # SkillSpector 是 CLI 工具，默认不自动启动，按需由 JobScheduler 调用。
+  # 说明：NVIDIA 官方仓库目前未提供 Docker Hub 预构建镜像，推荐直接使用源码构建。
+  # 用户已将源码放在 ./third_party/skillspector，因此使用本地 build context。
+  # 构建命令：docker compose -f docker-compose.integration.yml build skillspector
+  # 如需使用 NGC 镜像（如 nvcr.io/nvidia/skillspector:latest），请先验证可用性后替换 image 字段。
+  skillspector:
+    build:
+      context: ./third_party/skillspector
+      dockerfile: Dockerfile
+    image: skillspector:latest
+    container_name: ai300_skillspector
+    profiles:
+      - scan
+    environment:
+      - SKILLSPECTOR_PROVIDER=openai
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./results/skillspector:/scan/results
+    networks:
+      - ai300_recon_net
+
+  # ------------------------------------------------------------------
+  # Execution Layer：RedAmon API / Webapp / Agent（单容器简化版）
+  # ------------------------------------------------------------------
+  # RedAmon 官方仓库：https://github.com/samugit83/redamon
+  # 需要先把源码克隆到 ./redamon 目录：
+  #   git clone https://github.com/samugit83/redamon.git redamon
+  # 实际部署时应拆分为 redamon-webapp、redamon-api、redamon-agent、redamon-kali 等服务。
+  # 此处为简化版单容器；生产环境请使用 redamon 官方 docker-compose.yml。
+  redamon:
+    build:
+      context: ./redamon
+      dockerfile: Dockerfile
+    image: redamon:latest
+    container_name: ai300_redamon
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Web UI
+      - "8010:8010"   # REST API
+      - "8090:8090"   # Agent 编排器
+    environment:
+      - TZ=Asia/Shanghai
+      - REDAMON_API_PORT=8010
+      - REDAMON_AGENT_PORT=8090
+      - REDAMON_WEBAPP_PORT=3000
+      - REDAMON_NEO4J_URI=bolt://redamon-neo4j:7687
+      - REDAMON_NEO4J_USER=neo4j
+      - REDAMON_NEO4J_PASSWORD=redamon
+      - REDAMON_POSTGRES_HOST=redamon-postgres
+      - REDAMON_POSTGRES_USER=redamon
+      - REDAMON_POSTGRES_PASSWORD=redamon
+      - REDAMON_POSTGRES_DB=redamon
+      - REDAMON_REDIS_HOST=redis
+      # LLM provider keys（至少配置一个）
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      redamon-neo4j:
+        condition: service_healthy
+      redamon-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai300_recon_net
+
+# ------------------------------------------------------------------
+# 共享 Docker 网络
+# ------------------------------------------------------------------
+networks:
+  ai300_recon_net:
+    driver: bridge
+    name: ai300_recon_net
+
+# ------------------------------------------------------------------
+# 持久化卷
+# ------------------------------------------------------------------
+volumes:
+  redis_data:
+  minio_data:
+  aig_db:
+  aig_uploads:
+  aig_data:
+  aig_logs:
+  redamon_neo4j_data:
+  redamon_postgres_data:

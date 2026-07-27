@@ -15,6 +15,11 @@ from src.executor.workflow.scenario_orchestrator import (
     ScenarioOrchestrator,
     execute_batch_attacks,
 )
+from src.executor.workflow.stop_strategy import (
+    StopStrategyContext,
+    SuccessRecordResult,
+    ThresholdReachedInfo,
+)
 from src.executor.workflow.batch_orchestrator import (
     BatchAttackOrchestrator,
 )
@@ -27,6 +32,9 @@ from src.executor.workflow.xpia_workflow import (
 __all__ = [
     "ScenarioOrchestrator",
     "execute_batch_attacks",
+    "StopStrategyContext",
+    "SuccessRecordResult",
+    "ThresholdReachedInfo",
     "BatchAttackOrchestrator",
     "XPIAWorkflowWrapper",
     "RAGXPIAWorkflowWrapper",

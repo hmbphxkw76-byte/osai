@@ -70,6 +70,11 @@ from src.payloads import (
 from src.executor import execute_batch_attacks
 from src.reporting import generate_report
 from src.targets import create_prompt_target, create_judge_target, TargetParams
+from src.targets.rate_limited_target import (
+    RateLimitConfig,
+    wrap_target_with_rate_limiting,
+    create_rate_limit_config_from_env,
+)
 
 # Fix Windows terminal Unicode encoding
 if sys.platform == "win32":
@@ -415,9 +420,21 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     # ---------------------------------------------------------
     print("\n[6/9] 创建攻击组件并批量执行...")
 
+    # API 级别限速配置（对齐 PyRIT Resiliency 文档）
+    # PyRIT 原生已处理：RPM 限速(@limit_requests_per_minute) + 429 重试(@pyrit_target_retry)
+    # 自建补充：API 并发信号量 + 503/502 重试（PyRIT 原生不覆盖）
+    api_max_concurrent = int(os.getenv("API_MAX_CONCURRENCY", "10"))
+    target_rpm = os.getenv("TARGET_MAX_RPM")
+    target_rpm = int(target_rpm) if target_rpm else None
+    judge_rpm = os.getenv("JUDGE_MAX_RPM")
+    judge_rpm = int(judge_rpm) if judge_rpm else None
+
     # 创建目标 Target（L5: 使用 TargetParams 完整参数 + 环境变量自动加载）
-    # 能力探测在已知目标类型时可关闭以加速启动
-    target_params = TargetParams(discover_capabilities=False)
+    # max_requests_per_minute → 激活 PyRIT 原生 @limit_requests_per_minute 装饰器
+    target_params = TargetParams(
+        discover_capabilities=False,
+        max_requests_per_minute=target_rpm,
+    )
     objective_target, target_type = await create_prompt_target(
         target_url=target_url,
         api_key=target_api_key,
@@ -426,14 +443,28 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     )
     print(f"  [OK] 目标 Target: {type(objective_target).__name__} ({target_type})")
     print(f"  [OK] 目标模型: {target_model}")
+    if target_rpm:
+        print(f"  [OK] 目标 RPM 限速: {target_rpm} req/min (PyRIT 原生 @limit_requests_per_minute)")
+
+    # API 并发信号量 + 503 重试包装（补充 PyRIT 原生盲区）
+    # max_concurrency=1 只限制并发攻击计划数，不限制单攻击内的并发 API 调用
+    # TAP/PAIR 的 tree_width/branching_factor/batch_size 会在单次攻击内产生大量并发请求
+    objective_target = wrap_target_with_rate_limiting(
+        objective_target,
+        config=RateLimitConfig(max_concurrent_requests=api_max_concurrent),
+        semaphore_key=f"objective:{target_endpoint}",
+    )
+    print(f"  [OK] API 并发信号量: max_concurrent={api_max_concurrent} + 503 重试 (RETRY_* env)")
 
     # 创建评分器 Target（L5: 从 config/defaults/ 读取评分器最优参数）
     # temperature=0 确保评分可复现，force_json_output 确保评分格式可解析
+    # max_requests_per_minute → 激活 PyRIT 原生 @limit_requests_per_minute 装饰器
     judge_params = TargetParams(
         temperature=config_loader.get_judge_temperature(),
         top_p=config_loader.get_judge_top_p(),
         force_json_output=config_loader.get_judge_force_json_output(),
         discover_capabilities=False,
+        max_requests_per_minute=judge_rpm,
     )
     judge_target, judge_type = await create_judge_target(
         judge_url=judge_endpoint,
@@ -444,6 +475,16 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
     print(f"  [OK] 评分器 Target: {type(judge_target).__name__} ({judge_type})")
     print(f"  [OK] 评分器模型: {judge_model}")
     print("  [OK] 评分器同时用作 adversarial chat (多轮攻击)")
+
+    # 评分器 API 并发信号量 + 503 重试包装
+    judge_target = wrap_target_with_rate_limiting(
+        judge_target,
+        config=RateLimitConfig(max_concurrent_requests=api_max_concurrent),
+        semaphore_key=f"judge:{judge_endpoint}",
+    )
+    if judge_rpm:
+        print(f"  [OK] 评分器 RPM 限速: {judge_rpm} req/min (PyRIT 原生)")
+    print(f"  [OK] 评分器并发信号量: max_concurrent={api_max_concurrent} + 503 重试")
 
     # 批量执行配置（.env > config/defaults/pipeline.yaml > config.yaml）
     max_concurrency = config_loader.get_pipeline_max_concurrency()
@@ -466,8 +507,56 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
     # exam_id 已在函数开头预先生成
 
-    # 组级降级链执行（三层选择启用时）
-    if fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
+    # ──────────────────────────────────────────────────────
+    # P3: 原生优先执行路径 — AI300AdaptiveScenario + Converter 变体
+    # ──────────────────────────────────────────────────────
+    # 原生 AdaptiveScenario + SequentialAttack(FIRST_SUCCESS) 替代自建升级重试
+    # Converter 变体预注册 → 原生 FIRST_SUCCESS 自动在首个成功变体处停止
+    # 保留自建：per_attack_timeout 包裹 + OWASP 映射 + L2/L3 停止策略
+    # ──────────────────────────────────────────────────────
+    use_adaptive_path = os.getenv("USE_ADAPTIVE_SCENARIO", "true").lower() in ("1", "true", "yes")
+
+    if use_adaptive_path:
+        print("  [OK] 执行模式: 原生 AdaptiveScenario (P3 原生优先, Converter 变体)")
+        # P3: 执行前展示 Target 感知 Converter 路由信息
+        try:
+            from src.converters.target_aware_router import (
+                get_target_group,
+                get_target_converter_profile,
+                select_converter_chains_for_target,
+            )
+            if target_type:
+                _group = get_target_group(target_type)
+                _profile = get_target_converter_profile(target_type)
+                _chains = select_converter_chains_for_target(
+                    target_type,
+                    converter_target_available=True,
+                )
+                print(f"  [OK] Target 感知路由: {target_type} → {_group}")
+                print(f"  [OK] 安全机制: {_profile.get('bypass_mechanism', 'unknown')}")
+                print(f"  [OK] 推荐 Converter 链: {', '.join(_chains[:5])}")
+        except Exception:
+            pass  # 非关键路径，静默失败
+        from src.scenarios.adaptive_runner import run_adaptive_scenario_async
+
+        adaptive_result = await run_adaptive_scenario_async(
+            objective_target=objective_target,
+            judge_target=judge_target,
+            attack_plans=attack_plans,
+            owasp_id=",".join(config_owasp_ids) if config_owasp_ids else "",
+            exam_id=exam_id,
+            max_attempts_per_objective=3,
+            per_attack_timeout=per_attack_timeout,
+            max_retries=scenario_max_retries,
+            verbose=verbose,
+            converter_target=judge_target,
+            target_type=target_type,
+        )
+        batch_result = adaptive_result.batch_result
+        print(f"  [OK] Converter 变体使用: {adaptive_result.converter_variants_used} 次")
+        print(f"  [OK] 原生执行时间: {adaptive_result.execution_time:.1f}s")
+    elif fallback_strategy != FallbackStrategy.PARALLEL and fallback_chain:
+        # 降级链执行路径（三层选择启用时，向后兼容）
         fallback_executor = GroupFallbackExecutor()
         fb_result = await fallback_executor.execute_with_fallback(
             attack_plans=attack_plans,

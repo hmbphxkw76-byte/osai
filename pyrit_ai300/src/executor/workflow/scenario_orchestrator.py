@@ -27,11 +27,9 @@ Scenario Orchestrator
 
 import asyncio
 import logging
-import math
 import os
 import time
 import uuid
-from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from pyrit.executor.attack import SequenceCompletionPolicy
@@ -52,6 +50,7 @@ from src.executor.attack.core.constants import (
     TAP_FAMILY_ATTACKS as _TAP_FAMILY_ATTACKS,
 )
 from src.core.config_loader import get_config_loader
+from src.executor.workflow.stop_strategy import StopStrategyContext
 
 logger = logging.getLogger(__name__)
 
@@ -184,23 +183,23 @@ class ScenarioOrchestrator:
         scenario_parent_id = str(uuid.uuid4())
 
         # --- L2/L3 停止策略共享状态 ---
-        # L2: OWASP 感知成功率阈值停止
-        owasp_total: Dict[str, int] = defaultdict(int)
-        owasp_success: Dict[str, int] = defaultdict(int)
-        owasp_skip: Dict[str, bool] = defaultdict(bool)
-        for p in attack_plans:
-            oid = p.owasp_id or "UNKNOWN"
-            owasp_total[oid] += 1
-        # L3: 全局首成功即停
-        global_stop = False
-        skipped_by_stop = 0
+        # StopStrategyContext 封装所有停止策略状态
+        # 关键修复：升级成功（_try_upgrade_plans）也通过 stop_ctx.record_success() 计入 L2 阈值
+        stop_ctx = StopStrategyContext(
+            owasp_success_threshold=owasp_success_threshold,
+            stop_on_first_success=stop_on_first_success,
+        )
+        stop_ctx.register_plans(attack_plans)
 
         def _plan_brief(plan: AttackPlan) -> str:
             owasp = plan.owasp_id or "N/A"
             mode = plan.prompt_item.attack_mode.value
             tech = plan.attack_technique
             obj = _truncate(plan.prompt_item.objective)
-            return f"{owasp} | {mode} | {tech} | \"{obj}\""
+            # Extract technique group name from source_id (e.g. owasp_llm01_many_shot_jailbreak -> many_shot_jailbreak)
+            src = plan.prompt_item.source_id or ""
+            group_name = src.split("_", 2)[-1] if src.startswith("owasp_") else src
+            return f"{owasp} | {group_name} | {mode} | {tech} | \"{obj}\""
 
         def _plan_detail(plan: AttackPlan) -> str:
             owasp = plan.owasp_id or "N/A"
@@ -215,9 +214,13 @@ class ScenarioOrchestrator:
                 if chain_cfg and chain_cfg.get("converters"):
                     converter_list = f" -> [{', '.join(chain_cfg['converters'])}]"
             obj = _truncate(plan.prompt_item.objective, max_len=80)
+            # Extract technique group name from source_id
+            src = plan.prompt_item.source_id or ""
+            group_name = src.split("_", 2)[-1] if src.startswith("owasp_") else (src or "unknown")
             lines = [
                 f"  ┌─ Plan ──────────────────────────────────────────────",
                 f"  │ OWASP:      {owasp}",
+                f"  │ Group:      {group_name}",
                 f"  │ Attack:     {attack_class_name}  ({mode})",
                 f"  │ Technique:  {tech}",
                 f"  │ Scorer:     {scorer}",
@@ -247,26 +250,17 @@ class ScenarioOrchestrator:
             )
 
         async def _run_one(plan: AttackPlan) -> None:
-            nonlocal global_stop, skipped_by_stop
-
-            # L3: 全局首成功即停检查
-            if stop_on_first_success and global_stop:
-                skipped_by_stop += 1
-                return
-
-            # L2: OWASP 感知成功率阈值检查
             oid = plan.owasp_id or "UNKNOWN"
-            if owasp_success_threshold > 0.0 and owasp_skip.get(oid, False):
-                skipped_by_stop += 1
+
+            # L2/L3: 停止策略检查（StopStrategyContext 统一管理 L2+L3）
+            if stop_ctx.should_skip(oid):
+                stop_ctx.record_skip()
                 return
 
             async with semaphore:
                 # 再次检查（等待信号量期间可能已有其他计划触发了停止）
-                if stop_on_first_success and global_stop:
-                    skipped_by_stop += 1
-                    return
-                if owasp_success_threshold > 0.0 and owasp_skip.get(oid, False):
-                    skipped_by_stop += 1
+                if stop_ctx.should_skip(oid):
+                    stop_ctx.record_skip()
                     return
 
                 brief = _plan_brief(plan)
@@ -306,32 +300,11 @@ class ScenarioOrchestrator:
                                 include_adversarial=True,
                             )
 
-                            # --- L2: OWASP 感知成功率阈值检查 ---
-                            if owasp_success_threshold > 0.0:
-                                owasp_success[oid] += 1
-                                total_for_owasp = owasp_total[oid]
-                                success_for_owasp = owasp_success[oid]
-                                ratio = success_for_owasp / total_for_owasp if total_for_owasp > 0 else 0.0
-                                # Cap required successes to prevent excessive attempts for large plan counts
-                                # e.g., 37 plans * 0.5 = 19 (too many) → capped to 5
-                                _raw_required = math.ceil(total_for_owasp * owasp_success_threshold)
-                                required = min(_raw_required, 5)
-                                if success_for_owasp >= required and not owasp_skip.get(oid, False):
-                                    owasp_skip[oid] = True
-                                    remaining = total_for_owasp - success_for_owasp
-                                    logger.info(
-                                        "OWASP %s 达到成功率阈值 (%d/%d=%.0f%% >= %.0f%%) → 跳过该分类剩余 %d 个计划",
-                                        oid, success_for_owasp, total_for_owasp,
-                                        ratio * 100, owasp_success_threshold * 100, remaining,
-                                    )
-                                    print(f"  [SKIP]  OWASP {oid} 达到成功率阈值 "
-                                          f"({success_for_owasp}/{total_for_owasp}={ratio:.0%} >= {owasp_success_threshold:.0%}) "
-                                          f"→ 跳过该分类剩余 {remaining} 个计划")
-
-                            # --- L3: 全局首成功即停 ---
-                            if stop_on_first_success:
-                                global_stop = True
-                                logger.info("全局首成功即停 (stop_on_first_success=True) → 取消剩余计划")
+                            # --- L2/L3: 停止策略 — 记录成功（直接计划成功） ---
+                            _sr = stop_ctx.record_success(oid)
+                            if _sr.threshold_reached:
+                                print(f"  [SKIP]  {_sr.threshold_reached.format_message()}")
+                            if _sr.global_stop_triggered:
                                 print("  [STOP]  全局首成功即停 (stop_on_first_success=True) → 取消剩余计划")
                         else:
                             result.failed += 1
@@ -348,7 +321,7 @@ class ScenarioOrchestrator:
                                 result, dashboard, output_manager, verbose,
                                 per_attack_timeout, timeout_overrides, completed_count,
                                 total, _plan_brief, _update_mode_stats, _create_attribution,
-                                completion_policy,
+                                completion_policy, stop_ctx,
                             )
                     else:
                         result.failed += 1
@@ -373,7 +346,7 @@ class ScenarioOrchestrator:
                         dashboard.print_progress()
                     # Timeout → try single downgrade to simpler technique (depth=0, no recursion)
                     # Only for multi-turn attacks that timed out; skip if already single_turn
-                    if plan.prompt_item.attack_mode.value != "single_turn" and not owasp_skip.get(plan.owasp_id or "UNKNOWN", False):
+                    if plan.prompt_item.attack_mode.value != "single_turn" and not stop_ctx.should_skip(plan.owasp_id):
                         # Create a lightweight timeout indicator for failure type routing
                         _timeout_indicator = type("TimeoutResult", (), {
                             "error_message": f"Timeout after {effective_timeout}s",
@@ -385,7 +358,7 @@ class ScenarioOrchestrator:
                             result, dashboard, output_manager, verbose,
                             per_attack_timeout, timeout_overrides, completed_count,
                             total, _plan_brief, _update_mode_stats, _create_attribution,
-                            completion_policy,
+                            completion_policy, stop_ctx,
                         )
                 except Exception as e:
                     elapsed = time.time() - plan_start
@@ -445,15 +418,10 @@ class ScenarioOrchestrator:
                 )
 
         # 停止策略摘要
-        if skipped_by_stop > 0:
-            skip_reasons = []
-            if owasp_success_threshold > 0.0:
-                skipped_owasps = [oid for oid, skip in owasp_skip.items() if skip]
-                skip_reasons.append(f"OWASP 阈值跳过: {skipped_owasps}")
-            if stop_on_first_success:
-                skip_reasons.append("全局首成功即停")
-            logger.info("停止策略跳过 %d 个计划 (%s)", skipped_by_stop, "; ".join(skip_reasons))
-            print(f"  [SKIP]  停止策略跳过 {skipped_by_stop} 个计划 ({'; '.join(skip_reasons)})")
+        if stop_ctx.skipped_by_stop > 0:
+            skip_reasons = stop_ctx.get_skip_reasons()
+            logger.info("停止策略跳过 %d 个计划 (%s)", stop_ctx.skipped_by_stop, "; ".join(skip_reasons))
+            print(f"  [SKIP]  停止策略跳过 {stop_ctx.skipped_by_stop} 个计划 ({'; '.join(skip_reasons)})")
 
         dashboard.print_progress()
         if mode_stats:
@@ -472,9 +440,9 @@ class ScenarioOrchestrator:
         result.errors.append({"plan_id": "_meta_scenario", "error": f"attempts: {attempt}/{total_attempts}"})
 
         # 填充 L2/L3 停止策略元数据
-        result.owasp_success_map = dict(owasp_success)
-        result.owasp_total_map = dict(owasp_total)
-        result.skipped_by_stop = skipped_by_stop
+        result.owasp_success_map = stop_ctx.owasp_success_map
+        result.owasp_total_map = stop_ctx.owasp_total_map
+        result.skipped_by_stop = stop_ctx.skipped_by_stop
 
         return result
 
@@ -546,7 +514,10 @@ class ScenarioOrchestrator:
             mode = plan.prompt_item.attack_mode.value
             tech = plan.attack_technique
             obj = _truncate(plan.prompt_item.objective)
-            return f"{owasp} | {mode} | {tech} | \"{obj}\""
+            # Extract technique group name from source_id (e.g. owasp_llm01_many_shot_jailbreak -> many_shot_jailbreak)
+            src = plan.prompt_item.source_id or ""
+            group_name = src.split("_", 2)[-1] if src.startswith("owasp_") else src
+            return f"{owasp} | {group_name} | {mode} | {tech} | \"{obj}\""
 
         def _update_mode_stats(plan: AttackPlan, succeeded: bool, failed: bool):
             mode = plan.prompt_item.attack_mode.value
@@ -947,6 +918,7 @@ class ScenarioOrchestrator:
         update_mode_stats_fn: Any,
         create_attribution_fn: Any,
         completion_policy: Any,
+        stop_ctx: Optional[StopStrategyContext] = None,
         _depth: int = 0,
         _tried: Optional[set] = None,
         _cumulative_time: float = 0.0,
@@ -956,6 +928,9 @@ class ScenarioOrchestrator:
 
         支持递归升级：如果某个升级方案也失败，可以继续生成更深层的升级方案。
         受 MAX_UPGRADE_DEPTH 限制，防止无限递归。
+
+        关键修复（v2）：升级成功时通过 stop_ctx.record_success() 计入 L2/L3 停止策略统计，
+        确保升级成功也能触发 OWASP 阈值跳过和全局首成功即停。
 
         Args:
             original_plan: 原始失败的攻击计划
@@ -1015,7 +990,26 @@ class ScenarioOrchestrator:
             logger.info(f"No upgrade candidates available for {original_plan.plan_id} at depth {_depth}")
             return False
 
-        for upgraded_plan in upgraded_plans:
+        _local_cumulative = _cumulative_time
+        for _cand_idx, upgraded_plan in enumerate(upgraded_plans):
+            # Time budget check between candidates
+            if _local_cumulative >= MAX_UPGRADE_TOTAL_TIME:
+                logger.info(
+                    f"Upgrade time budget exhausted ({_local_cumulative:.0f}s >= {MAX_UPGRADE_TOTAL_TIME}s), "
+                    f"stopping upgrade for plan {original_plan.plan_id}"
+                )
+                print(f"  [STOP]  升级时间预算耗尽 ({_local_cumulative:.0f}s) → 放弃剩余 {len(upgraded_plans) - _cand_idx} 个候选")
+                return False
+
+            # Stop strategy: check if OWASP threshold or global stop was triggered
+            # (e.g., by a parallel plan or by a previous upgrade success in the same batch)
+            if stop_ctx is not None and stop_ctx.should_skip(original_plan.owasp_id):
+                logger.info(
+                    f"Upgrade stopped for {original_plan.plan_id}: stop strategy triggered"
+                )
+                print(f"  [STOP]  升级停止 (停止策略已触发) → 放弃剩余 {len(upgraded_plans) - _cand_idx} 个候选")
+                return False
+
             # 标记当前候选为已尝试
             combo = (upgraded_plan.attack_technique, upgraded_plan.prompt_item.attack_mode.value)
             tried.add(combo)
@@ -1052,6 +1046,7 @@ class ScenarioOrchestrator:
                     )
 
                     if upgraded_outcome_str == "SUCCESS":
+                        _local_cumulative += up_elapsed
                         # 升级成功！
                         result.succeeded += 1
                         result.upgrade_success += 1
@@ -1063,9 +1058,20 @@ class ScenarioOrchestrator:
                             to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
                             to_file=True, include_auxiliary=True, include_adversarial=True,
                         )
+
+                        # --- 关键修复：升级成功计入 L2/L3 停止策略统计 ---
+                        # 此前升级成功不计入 owasp_success，导致 L2 阈值几乎无法触发
+                        if stop_ctx is not None:
+                            _sr = stop_ctx.record_success(upgraded_plan.owasp_id)
+                            if _sr.threshold_reached:
+                                print(f"  [SKIP]{indent} {_sr.threshold_reached.format_message()}")
+                            if _sr.global_stop_triggered:
+                                print(f"  [STOP]{indent} 全局首成功即停 (stop_on_first_success=True)")
+
                         return True  # 成功，停止尝试其他候选
 
                     else:
+                        _local_cumulative += up_elapsed
                         # 升级也失败
                         result.failed += 1
                         dashboard.update(failed=1)
@@ -1076,15 +1082,19 @@ class ScenarioOrchestrator:
                         )
 
                         # 递归升级：尝试升级这个失败的升级方案
+                        # Stop strategy: skip recursion if threshold already reached
+                        if stop_ctx is not None and stop_ctx.should_skip(upgraded_plan.owasp_id):
+                            logger.debug(f"Skipping recursive upgrade: stop strategy triggered for {upgraded_plan.owasp_id}")
+                            continue
                         recursive_success = await self._try_upgrade_plans(
                             upgraded_plan, upgraded_result, objective_target, judge_target,
                             result, dashboard, output_manager, verbose,
                             per_attack_timeout, timeout_overrides, completed_count,
                             total, plan_brief_fn, update_mode_stats_fn, create_attribution_fn,
-                            completion_policy,
+                            completion_policy, stop_ctx,
                             _depth=_depth + 1,
                             _tried=tried,
-                            _cumulative_time=_cumulative_time + up_elapsed,
+                            _cumulative_time=_local_cumulative,
                         )
                         if recursive_success:
                             return True
@@ -1096,14 +1106,17 @@ class ScenarioOrchestrator:
 
             except asyncio.TimeoutError:
                 elapsed = time.time() - up_start
+                _local_cumulative += elapsed
                 result.errored += 1
                 dashboard.update(errored=1)
                 result.errors.append({
                     "plan_id": upgraded_plan.plan_id,
                     "error": f"Upgrade timeout after {up_effective_timeout}s",
                 })
-                print(f"  [TOUT]{indent} {up_brief} -> 超时 ({elapsed:.1f}s, limit={up_effective_timeout}s)")
+                print(f"  [TOUT]{indent} {up_brief} -> 超时 ({elapsed:.1f}s, limit={up_effective_timeout}s, 累计 {_local_cumulative:.0f}s)")
             except Exception as upgrade_error:
+                elapsed = time.time() - up_start
+                _local_cumulative += elapsed
                 result.errored += 1
                 dashboard.update(errored=1)
                 result.errors.append({

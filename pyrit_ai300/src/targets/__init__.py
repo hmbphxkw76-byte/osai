@@ -72,6 +72,13 @@ from src.targets.burp_target import (
     create_http_target_from_burp,
     create_http_target_from_raw_request,
 )
+from src.targets.rate_limited_target import (
+    RateLimitConfig,
+    wrap_target_with_rate_limiting,
+    create_rate_limit_config_from_env,
+    get_shared_semaphore,
+    reset_semaphore_registry,
+)
 
 __all__ = [
     # 工厂
@@ -83,6 +90,12 @@ __all__ = [
     # Burp Target
     "create_http_target_from_burp",
     "create_http_target_from_raw_request",
+    # API 限速包装
+    "RateLimitConfig",
+    "wrap_target_with_rate_limiting",
+    "create_rate_limit_config_from_env",
+    "get_shared_semaphore",
+    "reset_semaphore_registry",
     # 类型常量
     "OPENAI_COMPATIBLE_TYPES",
     "TARGET_TYPE_OPENAI_CHAT",

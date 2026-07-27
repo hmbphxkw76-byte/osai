@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Set
 
 from pyrit.models import SeedGroup
 
@@ -41,6 +41,12 @@ from src.payloads.asr_rank_builder import (
     ASRRankBuilder,
     ASRTier,
     TechniqueGroupInfo,
+)
+from src.payloads.preset_schemes import (
+    PresetScheme,
+    PresetSchemeDefinition,
+    PresetSchemeBuilder,
+    get_scheme_by_letter,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,6 +116,7 @@ class TieredSelectionResult:
     ranked_groups: List[TechniqueGroupInfo]
     fallback_chain: List[List[TechniqueGroupInfo]]
     all_chain_groups: List[SeedGroup] = field(default_factory=list)
+    preset_schemes: List[PresetSchemeDefinition] = field(default_factory=list)
 
     @property
     def total_seeds(self) -> int:
@@ -307,10 +314,11 @@ class TieredSelectionWizard:
             filtered = list(seed_groups)
             profile = TargetProfileRouter.get_profile(TargetType.FULL_SWEEP)
 
-        # Layer 2: ASR-ranked group selection
+        # Layer 2: ASR-ranked group selection (with preset schemes)
         ranked = ASRRankBuilder.build_ranked_groups(filtered)
         chain = ASRRankBuilder.build_fallback_chain(ranked)
-        selected = await self._layer2_group_selection(ranked, chain)
+        preset_schemes = PresetSchemeBuilder.build_schemes(ranked)
+        selected = await self._layer2_group_selection(ranked, chain, preset_schemes)
 
         # Layer 3: Fallback strategy selection
         strategy = await self._layer3_strategy_selection()
@@ -325,6 +333,7 @@ class TieredSelectionWizard:
             ranked_groups=ranked,
             fallback_chain=chain,
             all_chain_groups=all_chain,
+            preset_schemes=preset_schemes,
         )
 
     async def _layer1_target_selection(
@@ -363,18 +372,36 @@ class TieredSelectionWizard:
         self,
         ranked_groups: List[TechniqueGroupInfo],
         fallback_chain: List[List[TechniqueGroupInfo]],
+        preset_schemes: Optional[List[PresetSchemeDefinition]] = None,
     ) -> List[SeedGroup]:
         """Layer 2: ASR-ranked group recommendation and selection.
 
         Supports multiple selection formats:
-        - Quick: [enter]=top-3, [all]=all, [top-5]=top 5
+        - Preset: [A]=Fast, [B]=Recommended (default), [C]=Deep
+        - Preset+Ext: [B,8]=Scheme B + group #8
+        - Quick: [all]=all, [top-5]=top 5
         - Tier:  [S], [A], [S,A], [S-B], [S,A,C]
         - Custom: 1-11,14  or  1,3,5  or  2-6,10
         """
+        if preset_schemes is None:
+            preset_schemes = []
 
         print("\n" + "=" * 70)
         print("  Layer 2/3: ASR-Ranked Attack Groups")
         print("=" * 70)
+
+        # --- Display Preset Schemes (primary selection) ---
+        if preset_schemes:
+            print("\n  Preset Schemes (recommended):")
+            for scheme_def in preset_schemes:
+                letter = scheme_def.scheme.letter
+                marker = "  <- default" if scheme_def.scheme == PresetScheme.RECOMMENDED else ""
+                print(f"    [{letter}] {scheme_def.scheme.display_name} "
+                      f"({scheme_def.group_count} groups, {scheme_def.est_time_min}, "
+                      f"ASR~{scheme_def.display_asr}){marker}")
+                print(f"        {scheme_def.group_names}")
+                print(f"        Mechanisms: {scheme_def.mechanism_names}")
+            print()
 
         # Display tiered groups and track tier boundaries
         rank = 0
@@ -432,14 +459,22 @@ class TieredSelectionWizard:
                 count = end - start + 1
                 tier_summary_parts.append(f"{short_name}={count} groups (#{start}-#{end})")
 
-        # Default recommendation: top-3 (Tier S or highest available)
+        # Default recommendation: scheme R (Recommended) if available, else top-3
         top_3 = ASRRankBuilder.get_top_n(ranked_groups, n=3)
         default_names = [g.technique_group for g in top_3]
 
-        print(f"\n  Default: Top-3 = {', '.join(default_names)}")
+        has_schemes = len(preset_schemes) > 0
+        if has_schemes:
+            default_scheme = preset_schemes[min(1, len(preset_schemes) - 1)]  # B or last
+            print(f"  Default: [{default_scheme.scheme.letter}] {default_scheme.scheme.display_name} "
+                  f"({default_scheme.group_names})")
+        else:
+            print(f"  Default: Top-3 = {', '.join(default_names)}")
         print()
-        print("  Quick:  [enter]=top-3   [all]=all groups   [top-5]=top 5")
-        print("  Tier:   [S]  [A]  [S,A]  [S-B]  (select by tier)")
+        if has_schemes:
+            print("  Preset: [F]=Fast   [R]=Recommended   [D]=Deep   [R,8]=R+ext#8")
+        print("  Quick:  [all]=all groups   [top-5]=top 5")
+        print("  Tier:   [S]  [S,A]  [S-B]  (select by tier)")
         print("  Custom: 1-11,14  or  1,3,5  or  2-6,10  (pick by number)")
         if tier_summary_parts:
             print(f"  Tiers:  {' | '.join(tier_summary_parts)}")
@@ -451,7 +486,7 @@ class TieredSelectionWizard:
 
         # Parse and execute selection
         return self._parse_and_execute_selection(
-            choice, all_displayed, ranked_groups, tier_ranges, top_3,
+            choice, all_displayed, ranked_groups, tier_ranges, top_3, preset_schemes,
         )
 
     def _parse_and_execute_selection(
@@ -461,24 +496,36 @@ class TieredSelectionWizard:
         ranked_groups: List[TechniqueGroupInfo],
         tier_ranges: Dict[str, tuple],
         top_3: List[TechniqueGroupInfo],
+        preset_schemes: Optional[List[PresetSchemeDefinition]] = None,
     ) -> List[SeedGroup]:
         """
         Parse user selection input and return selected seed groups.
 
         Supports:
-        - Empty / "default" -> top-3
+        - Empty / "default" -> scheme R (if available) or top-3
+        - Preset: F, R, D (case-insensitive) -> preset scheme
+        - Preset+Ext: R,8 or F,1,3 -> scheme + extension groups
         - "all" -> all groups
         - "top-5" -> top 5
-        - Tier names: S, A, B, C, D, H (case-insensitive)
-        - Tier combos: S,A  S-B  S,A,C
+        - Tier names: S, D, H (case-insensitive) or combos S,A  S-B
         - Numbers: 1,3,5  1-11  1-11,14
         - "custom" -> prompt for numbers
         """
+        if preset_schemes is None:
+            preset_schemes = []
+
         raw = choice
         choice_lower = choice.lower().strip()
 
         # --- Empty / default ---
         if choice_lower == "" or choice_lower == "default":
+            # Default to scheme R if available, else top-3
+            if preset_schemes:
+                default_scheme = preset_schemes[min(1, len(preset_schemes) - 1)]
+                print(f"\n  [OK] Default: [{default_scheme.scheme.letter}] "
+                      f"{default_scheme.scheme.display_name}")
+                print(f"       {default_scheme.group_names}")
+                return self._extract_seed_groups(default_scheme.groups)
             names = [g.technique_group for g in top_3]
             print(f"\n  [OK] Using top-3: {', '.join(names)}")
             return self._extract_seed_groups(top_3)
@@ -499,6 +546,14 @@ class TieredSelectionWizard:
         if choice_lower == "custom":
             return self._custom_selection(all_displayed)
 
+        # --- Preset scheme selection (F/R/D or F,8 or R,1,3) ---
+        # Check BEFORE tier selection to avoid F/R/D vs S/A/B/C/D conflict
+        scheme_selected = self._try_scheme_selection(
+            choice_lower, all_displayed, preset_schemes,
+        )
+        if scheme_selected is not None:
+            return scheme_selected
+
         # --- Tier selection (S, A, S,A, S-B, etc.) ---
         tier_selected = self._try_tier_selection(choice_lower, tier_ranges, all_displayed)
         if tier_selected is not None:
@@ -510,10 +565,92 @@ class TieredSelectionWizard:
             return number_selected
 
         # --- Invalid ---
-        print(f"  [!] Invalid choice: '{raw}', using default top-3")
+        print(f"  [!] Invalid choice: '{raw}', using default")
+        if preset_schemes:
+            default_scheme = preset_schemes[min(1, len(preset_schemes) - 1)]
+            print(f"  [OK] Default: [{default_scheme.scheme.letter}] "
+                  f"{default_scheme.scheme.display_name}")
+            return self._extract_seed_groups(default_scheme.groups)
         names = [g.technique_group for g in top_3]
         print(f"  [OK] Using top-3: {', '.join(names)}")
         return self._extract_seed_groups(top_3)
+
+    def _try_scheme_selection(
+        self,
+        choice: str,
+        all_displayed: List[TechniqueGroupInfo],
+        preset_schemes: List[PresetSchemeDefinition],
+    ) -> Optional[List[SeedGroup]]:
+        """
+        Try to parse choice as a preset scheme selection.
+
+        Formats:
+        - Single scheme:  F, R, D (case-insensitive)
+        - Scheme + extensions:  R,8  or  F,1,3  or  D,5,7,9
+
+        Returns None if not a scheme selection.
+
+        Note: This is checked BEFORE tier selection so that F/R/D
+        always maps to preset schemes. To select Tier A/B/C specifically,
+        use combination syntax like S,A or range syntax like S-B.
+        Preset letters F/R/D are distinct from Tier letters S/A/B/C/D.
+        """
+        if not preset_schemes:
+            return None
+
+        # Split by comma
+        parts = choice.split(",")
+        first = parts[0].strip()
+
+        # Check if first part is a scheme letter
+        target_scheme = PresetScheme.from_letter(first)
+        if target_scheme is None:
+            return None
+
+        # Find the matching scheme definition
+        scheme_def = None
+        for sd in preset_schemes:
+            if sd.scheme == target_scheme:
+                scheme_def = sd
+                break
+
+        if scheme_def is None:
+            return None
+
+        # If only the scheme letter, return scheme groups
+        if len(parts) == 1:
+            print(f"\n  [OK] Scheme {scheme_def.scheme.letter}: "
+                  f"{scheme_def.scheme.display_name}")
+            print(f"       Groups: {scheme_def.group_names}")
+            print(f"       ASR: {scheme_def.display_asr}, "
+                  f"Est: {scheme_def.est_time_min}")
+            return self._extract_seed_groups(scheme_def.groups)
+
+        # Scheme + extensions: parse remaining parts as numbers
+        ext_str = ",".join(parts[1:])
+        ext_indices = self._parse_indices(ext_str, len(all_displayed))
+
+        if not ext_indices:
+            # Extensions were not valid numbers — not a scheme selection
+            return None
+
+        # Build combined selection (scheme groups + extension groups)
+        selected_tg: List[TechniqueGroupInfo] = list(scheme_def.groups)
+        existing_names: Set[str] = {g.technique_group for g in selected_tg}
+
+        for idx in ext_indices:
+            if 0 <= idx < len(all_displayed):
+                g = all_displayed[idx]
+                if g.technique_group not in existing_names:
+                    selected_tg.append(g)
+                    existing_names.add(g.technique_group)
+
+        names = [g.technique_group for g in selected_tg]
+        print(f"\n  [OK] Scheme {scheme_def.scheme.letter} + {len(ext_indices)} ext: "
+              f"{len(selected_tg)} groups")
+        print(f"       {', '.join(names[:8])}{'...' if len(names) > 8 else ''}")
+
+        return self._extract_seed_groups(selected_tg)
 
     def _try_tier_selection(
         self,

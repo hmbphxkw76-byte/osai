@@ -2,7 +2,7 @@
 
 > **用途**: 本文件是跨开发平台（CatPaw / Trae IDE / Cursor / Claude Code / Copilot 等）共享的项目记忆库。  
 > **更新规则**: 每次架构变更后必须同步更新此文件。  
-> **版本**: v3.0 | **更新日期**: 2026-07-26
+> **版本**: v4.0 | **更新日期**: 2026-07-27
 
 ---
 
@@ -359,17 +359,32 @@ python pipeline.py http://192.168.0.22:11434 LLM01,LLM06
 - [x] Anecdoctor processing_model 参数支持
 - [ ] 集成测试覆盖增强 (`tests/integration/`)
 - [ ] `cli.py` 保留/删除决策评估
-- [ ] `scenario_orchestrator.py` 拆分升级重试逻辑（983行较长）
+- [x] `scenario_orchestrator.py` 拆分升级重试逻辑 — 已由原生 AdaptiveScenario + Converter 变体替代
+
+### Converter-Aware Adaptive Architecture (v4.0 新增)
+
+**原生优先，消除双轨，保留自建不可替代部分**
+
+- **P0**: Converter 变体工厂注册 — `technique_factories.py` 新增 `build_converter_variant_factories()` / `CONVERTER_VARIANT_CHAINS` / `BASE_TECHNIQUES_FOR_VARIANTS`
+- **P1**: `FailureTypeRoutingSelector` Converter 感知排序 — `model_refusal` → Converter 变体优先（按链优先级排序）; `timeout` → 基础技术优先
+- **P2**: `AI300AdaptiveScenario` 覆盖 `_get_attack_technique_factories()` 追加 Converter 变体 bundles
+- **P3**: `pipeline.py` 新增 `USE_ADAPTIVE_SCENARIO=true` 原生执行路径（`adaptive_runner.py`）
+- **P4**: `adaptive_runner.py` 实现 per_attack_timeout 包裹 + `_convert_native_to_batch_result()` 向后兼容
+- **消除双轨**: 自建 `AttackUpgradeStrategy` 多候选递归 → 原生 `SequentialAttack(FIRST_SUCCESS)` 提前停止
+- **保留自建**: `per_attack_timeout` + OWASP 映射 + `RateLimitedTarget`
+- **测试**: 33 新增测试 + 77 场景测试全部通过，0 linter 错误
+- **文档**: `docs/converter_aware_adaptive_architecture.md`
 
 ---
 
-## 十、双库定义
+## 十、三库定义
 
-当说"写入双库"时，指以下两个文件，必须同时更新：
-1. `.assistant_pyrit/memory_bank.md` — 记忆库（本文件，跨平台共享，任意 IDE 可读取）
-2. `docs/development_guidelines.md` — 开发规范文档
+当说“写入三库”时，指以下三个文件，必须同时更新：
+1. `.catpawrules` — CatPaw IDE 规则文件（项目级 AI 规则）
+2. `.assistant_pyrit/memory_bank.md` — 记忆库（本文件，跨平台共享，任意 IDE 可读取）
+3. `docs/development_guidelines.md` — 开发规范文档
 
-> **历史说明**: 原 `.catpawrules` 文件已删除（避免 IDE 名称锁定），内容已整合到双库。
+> **更新说明**: v4.0 恢复 `.catpawrules` 文件（包含原生优先规则），三库同步更新。
 
 ---
 

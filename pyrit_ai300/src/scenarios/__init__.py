@@ -47,6 +47,13 @@ from src.scenarios.technique_factories import (
     get_all_technique_factories,
     register_ai300_techniques,
     AI300_TECHNIQUE_METADATA,
+    CONVERTER_VARIANT_CHAINS,
+    BASE_TECHNIQUES_FOR_VARIANTS,
+    build_converter_variant_factories,
+    get_converter_variant_names,
+    is_converter_variant,
+    get_base_technique_from_variant,
+    get_converter_chain_from_variant,
 )
 from src.scenarios.technique_initializer import (
     AI300TechniqueInitializer,
@@ -63,6 +70,10 @@ from src.scenarios.failure_type_selector import (
 from src.scenarios.ai300_adaptive_scenario import (
     AI300AdaptiveScenario,
     AI300EpsilonGreedySelector,
+)
+from src.scenarios.adaptive_runner import (
+    run_adaptive_scenario_async,
+    AdaptiveRunResult,
 )
 
 # P4: 结果标准化与输出（原生 output_scenario_async 双通道）
@@ -92,6 +103,13 @@ __all__ = [
     "get_all_technique_factories",
     "register_ai300_techniques",
     "AI300_TECHNIQUE_METADATA",
+    "CONVERTER_VARIANT_CHAINS",
+    "BASE_TECHNIQUES_FOR_VARIANTS",
+    "build_converter_variant_factories",
+    "get_converter_variant_names",
+    "is_converter_variant",
+    "get_base_technique_from_variant",
+    "get_converter_chain_from_variant",
     "AI300TechniqueInitializer",
     "initialize_techniques_async",
     # P0: 失败类型路由
@@ -100,6 +118,8 @@ __all__ = [
     # P2: Adaptive Scenario
     "AI300AdaptiveScenario",
     "AI300EpsilonGreedySelector",
+    "run_adaptive_scenario_async",
+    "AdaptiveRunResult",
     # P4: 结果标准化与输出
     "output_scenario_async",
     "output_scenario_summary",

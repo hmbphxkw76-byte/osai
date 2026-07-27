@@ -1,0 +1,6 @@
+URL: https://student.syxy.ouchn.cn/
+INPUT: textarea.send-box-default-text
+SEND: 
+RESPONSE: 
+TEMPLATE: {PROMPT}
+----------------------------------------
