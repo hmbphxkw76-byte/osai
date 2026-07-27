@@ -112,14 +112,16 @@ CONVERTER_VARIANT_CHAINS: Dict[str, Dict[str, Any]] = {
         "priority": 3,
         "modality": "text",
         "description": "越狱模板包装",
+        "requires_runtime_params": True,
     },
     # ── 非 LLM 链 (file modality) — XPIA/RAG 文档投递 ──
-    "xpia_stealth_chain": {
-        "requires_llm": False,
-        "priority": 1,
-        "modality": "file",
-        "description": "XPIA 隐写: PDF 白色小字嵌入攻击内容",
-    },
+"xpia_stealth_chain": {
+"requires_llm": False,
+"priority": 1,
+"modality": "file",
+"description": "XPIA 隐写: PDF 白色小字嵌入攻击内容",
+"requires_runtime_params": True,
+},
     "pdf_injection": {
         "requires_llm": False,
         "priority": 2,
@@ -208,7 +210,9 @@ BASE_TECHNIQUES_FOR_VARIANTS: Dict[str, List[str]] = {
         "multi_encoding_v2", "stealth_evasion", "encoding_bypass",
         # 非 LLM text 链 (中 ASR)
         "agent_injection_chain", "policy_puppetry", "unicode_attack",
-        "random_case", "format_injection", "text_jailbreak",
+        "random_case", "format_injection",
+        # 非 LLM file 链 (XPIA/RAG 场景)
+        "xpia_stealth_chain",
         # LLM 链
         "llm_assisted", "persuasion_authority", "decomposition_chain",
         "noise_case_chain", "task_framing_chain",

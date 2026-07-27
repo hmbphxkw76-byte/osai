@@ -276,13 +276,11 @@ class AI300TechniqueInitializerWrapper(PyRITInitializer):
                 name="target_type",
                 description="PyRIT Target type for Target-aware dynamic chain selection (R0)",
                 default=None,
-                required=False,
             ),
             Parameter(
                 name="objective_target",
                 description="Objective PromptTarget instance for modality compatibility detection (R2)",
                 default=None,
-                required=False,
             ),
         ]
 

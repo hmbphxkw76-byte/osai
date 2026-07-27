@@ -559,5 +559,312 @@ class TestP5AbstractMethodsAndDisplay(unittest.TestCase):
                          f"Unimplemented abstract methods: {abstract_methods}")
 
 
+# ============================================================
+# R0-R6: Target-Aware Dynamic Chain Selection + Modality Filtering
+# ============================================================
+
+
+class TestR0DynamicChainMapping(unittest.TestCase):
+    """R0: target_type 驱动动态链选择"""
+
+    def test_get_dynamic_chain_mapping_without_target_type(self):
+        """Test _get_dynamic_chain_mapping returns None when target_type is None"""
+        from src.scenarios.technique_factories import _get_dynamic_chain_mapping
+        result = _get_dynamic_chain_mapping(None, converter_target_available=False)
+        self.assertIsNone(result)
+
+    def test_get_dynamic_chain_mapping_with_openai_chat(self):
+        """Test _get_dynamic_chain_mapping returns dynamic mapping for openai_chat"""
+        from src.scenarios.technique_factories import _get_dynamic_chain_mapping
+        result = _get_dynamic_chain_mapping("openai_chat", converter_target_available=False)
+        self.assertIsNotNone(result)
+        # prompt_sending should be in the mapping
+        self.assertIn("prompt_sending", result)
+        # Chains should be from the recommended list for llm_direct
+        recommended = ["multi_encoding_v2", "stealth_evasion", "encoding_bypass",
+                       "policy_puppetry", "noise_case_chain", "unicode_attack"]
+        for chain in result["prompt_sending"]:
+            self.assertIn(chain, recommended + ["llm_assisted", "persuasion_authority",
+                                                "decomposition_chain", "task_framing_chain"])
+
+    def test_get_dynamic_chain_mapping_with_rag_target(self):
+        """Test _get_dynamic_chain_mapping for RAG target returns xpia/file chains"""
+        from src.scenarios.technique_factories import _get_dynamic_chain_mapping
+        result = _get_dynamic_chain_mapping("azure_blob", converter_target_available=False)
+        self.assertIsNotNone(result)
+        # RAG recommended chains include xpia_stealth_chain
+        all_chains = []
+        for chains in result.values():
+            all_chains.extend(chains)
+        # xpia_stealth_chain should be present for RAG
+        self.assertIn("xpia_stealth_chain", all_chains)
+
+    def test_build_converter_variant_factories_with_target_type(self):
+        """Test build_converter_variant_factories accepts target_type parameter"""
+        from src.scenarios.technique_factories import build_converter_variant_factories
+        factories = build_converter_variant_factories(
+            converter_target=None,
+            target_type="openai_chat",
+            objective_target=None,
+        )
+        names = [f.name for f in factories]
+        # Should have variants from llm_direct recommended chains
+        self.assertTrue(any("stealth_evasion" in n for n in names))
+        self.assertTrue(any("encoding_bypass" in n for n in names))
+
+
+class TestR1ConverterVariantChainsFullCoverage(unittest.TestCase):
+    """R1: CONVERTER_VARIANT_CHAINS 全覆盖"""
+
+    def test_converter_variant_chains_count(self):
+        """Test CONVERTER_VARIANT_CHAINS has at least 22 entries"""
+        self.assertGreaterEqual(len(CONVERTER_VARIANT_CHAINS), 22)
+
+    def test_all_chains_have_modality_field(self):
+        """Test every chain has a modality field"""
+        for name, info in CONVERTER_VARIANT_CHAINS.items():
+            self.assertIn("modality", info, f"Chain {name} missing modality field")
+            self.assertIn(info["modality"], ["text", "image", "file"],
+                          f"Chain {name} has invalid modality: {info['modality']}")
+
+    def test_new_chains_present(self):
+        """Test newly added chains (R1) are present"""
+        new_chains = [
+            "policy_puppetry", "unicode_attack", "random_case",
+            "format_injection", "text_jailbreak",
+            "xpia_stealth_chain", "pdf_injection", "worddoc_injection",
+            "multimodal_image_attack", "multimodal_steganography",
+            "decomposition_chain", "decomposition_policy_chain",
+            "policy_puppetry_chain", "task_framing_chain", "noise_case_chain",
+        ]
+        for chain in new_chains:
+            self.assertIn(chain, CONVERTER_VARIANT_CHAINS,
+                          f"Chain {chain} not in CONVERTER_VARIANT_CHAINS")
+
+    def test_runtime_params_chains_marked(self):
+        """Test chains requiring runtime params are marked"""
+        self.assertTrue(CONVERTER_VARIANT_CHAINS["pdf_injection"].get("requires_runtime_params"))
+        self.assertTrue(CONVERTER_VARIANT_CHAINS["worddoc_injection"].get("requires_runtime_params"))
+        self.assertTrue(CONVERTER_VARIANT_CHAINS["multimodal_steganography"].get("requires_runtime_params"))
+        # Chains without runtime params should not have this flag
+        self.assertFalse(CONVERTER_VARIANT_CHAINS["stealth_evasion"].get("requires_runtime_params", False))
+
+
+class TestR2ModalityCompatibility(unittest.TestCase):
+    """R2: ModalityRouter 能力检测"""
+
+    def test_is_chain_modality_compatible_text(self):
+        """Test text modality chains are always compatible"""
+        from src.scenarios.technique_factories import _is_chain_modality_compatible
+        mock_target = MagicMock()
+        result = _is_chain_modality_compatible(
+            chain_name="stealth_evasion",
+            chain_info={"modality": "text"},
+            objective_target=mock_target,
+            target_type="openai_chat",
+        )
+        self.assertTrue(result)
+
+    def test_is_chain_modality_compatible_image_with_multimodal_group(self):
+        """Test image modality chains are compatible with multimodal target group"""
+        from src.scenarios.technique_factories import _is_chain_modality_compatible
+        mock_target = MagicMock()
+        result = _is_chain_modality_compatible(
+            chain_name="multimodal_image_attack",
+            chain_info={"modality": "image"},
+            objective_target=mock_target,
+            target_type="openai_image",
+        )
+        self.assertTrue(result)
+
+    def test_is_chain_modality_compatible_file_with_rag_group(self):
+        """Test file modality chains are compatible with RAG target group"""
+        from src.scenarios.technique_factories import _is_chain_modality_compatible
+        mock_target = MagicMock()
+        result = _is_chain_modality_compatible(
+            chain_name="xpia_stealth_chain",
+            chain_info={"modality": "file"},
+            objective_target=mock_target,
+            target_type="azure_blob",
+        )
+        self.assertTrue(result)
+
+    def test_build_variant_factories_skips_runtime_params_chains(self):
+        """Test build_converter_variant_factories skips requires_runtime_params chains"""
+        from src.scenarios.technique_factories import build_converter_variant_factories
+        factories = build_converter_variant_factories(
+            converter_target=None,
+            target_type=None,
+            objective_target=None,
+        )
+        names = [f.name for f in factories]
+        # pdf_injection and worddoc_injection require runtime params, should be skipped
+        self.assertFalse(any("pdf_injection" in n for n in names))
+        self.assertFalse(any("worddoc_injection" in n for n in names))
+
+
+class TestR3YamlDrivenProfiles(unittest.TestCase):
+    """R3: target_aware_router.py 从 YAML 读取 Profile"""
+
+    def test_target_type_groups_is_lazy_dict(self):
+        """Test TARGET_TYPE_GROUPS is loaded from YAML (lazy)"""
+        from src.converters.target_aware_router import TARGET_TYPE_GROUPS
+        # Should contain openai_chat mapping
+        self.assertEqual(TARGET_TYPE_GROUPS["openai_chat"], "llm_direct")
+        self.assertEqual(TARGET_TYPE_GROUPS["playwright"], "agent_web")
+        self.assertEqual(TARGET_TYPE_GROUPS["azure_blob"], "rag")
+
+    def test_target_converter_profiles_is_lazy_dict(self):
+        """Test TARGET_CONVERTER_PROFILES is loaded from YAML (lazy)"""
+        from src.converters.target_aware_router import TARGET_CONVERTER_PROFILES
+        # Should contain llm_direct profile
+        profile = TARGET_CONVERTER_PROFILES["llm_direct"]
+        self.assertIn("high_asr_chains", profile)
+        self.assertIn("multi_encoding_v2", profile["high_asr_chains"])
+
+    def test_config_loader_has_target_aware_methods(self):
+        """Test ConfigLoader has get_target_aware_converter_profiles method"""
+        from src.core.config_loader import get_config_loader
+        config = get_config_loader()
+        profiles = config.get_target_aware_converter_profiles()
+        self.assertGreater(len(profiles), 0)
+        self.assertIn("llm_direct", profiles)
+        # YAML uses high_asr (not high_asr_chains)
+        self.assertIn("high_asr", profiles["llm_direct"])
+
+    def test_config_loader_get_target_aware_profile(self):
+        """Test ConfigLoader.get_target_aware_profile returns specific profile"""
+        from src.core.config_loader import get_config_loader
+        config = get_config_loader()
+        profile = config.get_target_aware_profile("agent_web")
+        self.assertIsNotNone(profile)
+        self.assertIn("high_asr", profile)
+
+    def test_profile_data_matches_between_yaml_and_python(self):
+        """Test YAML-loaded profiles match fallback constants"""
+        from src.converters.target_aware_router import (
+            TARGET_CONVERTER_PROFILES,
+            _FALLBACK_TARGET_CONVERTER_PROFILES,
+        )
+        # llm_direct high_asr_chains should match
+        yaml_chains = TARGET_CONVERTER_PROFILES["llm_direct"]["high_asr_chains"]
+        fallback_chains = _FALLBACK_TARGET_CONVERTER_PROFILES["llm_direct"]["high_asr_chains"]
+        self.assertEqual(yaml_chains, fallback_chains)
+
+
+class TestR4R6DynamicChainSelection(unittest.TestCase):
+    """R4+R6: 动态链组合 + 模态验证"""
+
+    def test_select_dynamic_converter_chains_exists(self):
+        """Test select_dynamic_converter_chains function exists"""
+        from src.converters.target_aware_router import select_dynamic_converter_chains
+        self.assertTrue(callable(select_dynamic_converter_chains))
+
+    def test_select_dynamic_converter_chains_without_target(self):
+        """Test select_dynamic_converter_chains without objective_target returns same as select_converter_chains_for_target"""
+        from src.converters.target_aware_router import (
+            select_dynamic_converter_chains,
+            select_converter_chains_for_target,
+        )
+        chains_dynamic = select_dynamic_converter_chains("openai_chat", objective_target=None, max_chains=8)
+        chains_static = select_converter_chains_for_target("openai_chat", max_chains=8)
+        self.assertEqual(chains_dynamic, chains_static)
+
+    def test_select_dynamic_converter_chains_with_text_target(self):
+        """Test dynamic chains for text-only target don't filter text chains"""
+        from src.converters.target_aware_router import select_dynamic_converter_chains
+        mock_target = MagicMock()
+        chains = select_dynamic_converter_chains(
+            "openai_chat",
+            objective_target=mock_target,
+            converter_target_available=False,
+        )
+        # Text chains should still be present
+        self.assertIn("stealth_evasion", chains)
+        self.assertIn("encoding_bypass", chains)
+
+    def test_target_aware_router_has_select_dynamic_chains(self):
+        """Test TargetAwareConverterRouter has select_dynamic_chains method"""
+        from src.converters.target_aware_router import TargetAwareConverterRouter
+        router = TargetAwareConverterRouter()
+        self.assertTrue(hasattr(router, "select_dynamic_chains"))
+        self.assertTrue(callable(router.select_dynamic_chains))
+
+    def test_select_dynamic_chains_returns_list(self):
+        """Test select_dynamic_chains returns a list"""
+        from src.converters.target_aware_router import TargetAwareConverterRouter
+        router = TargetAwareConverterRouter()
+        chains = router.select_dynamic_chains("openai_chat", objective_target=None)
+        self.assertIsInstance(chains, list)
+        self.assertGreater(len(chains), 0)
+
+
+class TestRegisterWithTargetType(unittest.TestCase):
+    """register_ai300_techniques 支持 target_type + objective_target"""
+
+    def test_register_accepts_target_type(self):
+        """Test register_ai300_techniques accepts target_type parameter"""
+        count = register_ai300_techniques(
+            tags=["core"],
+            reset=True,
+            converter_target=None,
+            include_variants=True,
+            target_type="openai_chat",
+            objective_target=None,
+        )
+        self.assertGreater(count, 0)
+        from pyrit.registry import AttackTechniqueRegistry
+        registry = AttackTechniqueRegistry.get_registry_singleton()
+        factory_names = set(registry.get_factories().keys())
+        # Should include variant names from llm_direct recommended chains
+        self.assertIn("prompt_sending+stealth_evasion", factory_names)
+
+    def test_register_with_rag_target_type(self):
+        """Test register with RAG target produces file-modality-aware variant set"""
+        count = register_ai300_techniques(
+            tags=["core"],
+            reset=True,
+            converter_target=None,
+            include_variants=True,
+            target_type="azure_blob",
+            objective_target=None,
+        )
+        self.assertGreater(count, 0)
+        from pyrit.registry import AttackTechniqueRegistry
+        registry = AttackTechniqueRegistry.get_registry_singleton()
+        factory_names = set(registry.get_factories().keys())
+        # RAG target's recommended chains include xpia_stealth_chain and pdf_injection,
+        # but both require_runtime_params, so they're skipped at build time.
+        # The dynamic mapping intersects recommended chains with BASE_TECHNIQUES_FOR_VARIANTS,
+        # so text chains like stealth_evasion (in BASE list) that are also in rag profile
+        # should appear. RAG profile medium_asr includes text_jailbreak (also skipped).
+        # Verify that at least some variants were created for the RAG target
+        variant_names = [n for n in factory_names if "+" in n]
+        self.assertGreater(len(variant_names), 0,
+                           f"Expected converter variants for RAG target, got: {sorted(factory_names)[:20]}")
+
+    def test_technique_initializer_supports_target_type(self):
+        """Test AI300TechniqueInitializer supports target_type parameter"""
+        from src.scenarios.technique_initializer import AI300TechniqueInitializer
+        init = AI300TechniqueInitializer()
+        self.assertIn("target_type", init.supported_parameters)
+        self.assertIn("objective_target", init.supported_parameters)
+
+
+class TestExportCompleteness(unittest.TestCase):
+    """验证 __init__.py 导出完整性"""
+
+    def test_converters_init_exports_select_dynamic(self):
+        """Test converters __init__ exports select_dynamic_converter_chains"""
+        from src.converters import select_dynamic_converter_chains
+        self.assertTrue(callable(select_dynamic_converter_chains))
+
+    def test_scenarios_init_exports_helper_functions(self):
+        """Test scenarios __init__ exports R0/R2 helper functions"""
+        from src.scenarios import _is_chain_modality_compatible, _get_dynamic_chain_mapping
+        self.assertTrue(callable(_is_chain_modality_compatible))
+        self.assertTrue(callable(_get_dynamic_chain_mapping))
+
+
 if __name__ == "__main__":
     unittest.main()

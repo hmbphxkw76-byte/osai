@@ -77,5 +77,6 @@ templates/burp/
 logs/
 
 # Vendored third-party tools (cloned at runtime)
-/third_party/                  # 仅忽略仓库根目录下的 skillspector 克隆
- 
+/third_party/
+third_party/
+
