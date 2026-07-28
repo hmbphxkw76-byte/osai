@@ -205,6 +205,35 @@ _OWASP_HINT_DEFAULT: Dict[str, TargetType] = {
     "LLM10": TargetType.LLM_SAFETY,
 }
 
+# ── Recon target_type (TargetFactory string) → TargetType ──
+# Maps the target_type string detected by ReconEngine (via TargetFactory.detect_target_type)
+# to the TargetType enum used by the tiered selection wizard.
+# This enables automatic non-interactive selection when recon already detected the target type.
+_RECON_TYPE_TO_TARGET_TYPE: Dict[str, TargetType] = {
+    # LLM 直连
+    "openai_chat": TargetType.LLM_DIRECT,
+    "openai_responses": TargetType.LLM_DIRECT,
+    "litellm": TargetType.LLM_DIRECT,
+    "azure_ml": TargetType.LLM_DIRECT,
+    "text": TargetType.LLM_DIRECT,
+    # Agent / Web
+    "playwright": TargetType.AGENT,
+    # Copilot
+    "playwright_copilot": TargetType.COPILOT,
+    "websocket_copilot": TargetType.COPILOT,
+    # RAG / Vector
+    "azure_blob": TargetType.RAG_VECTOR,
+    # Output Handling
+    "http_raw": TargetType.OUTPUT_HANDLING,
+    # Defense Bypass
+    "prompt_shield": TargetType.DEFENSE_BYPASS,
+    # Multimodal
+    "openai_image": TargetType.MULTIMODAL,
+    "openai_video": TargetType.MULTIMODAL,
+    "openai_tts": TargetType.MULTIMODAL,
+    # http_api → ambiguous, don't map (let user decide)
+}
+
 
 # ============================================================
 # Target Profile
@@ -308,18 +337,29 @@ class TargetProfileRouter:
         cls,
         capabilities: Optional[Dict[str, bool]] = None,
         owasp_hint: Optional[str] = None,
+        recon_target_type: Optional[str] = None,
     ) -> TargetProfile:
         """
-        Infer target profile from capabilities or OWASP hint.
+        Infer target profile from capabilities, OWASP hint, or recon target_type.
+
+        Priority: recon_target_type > owasp_hint > capabilities > default(full_sweep)
 
         Args:
             capabilities: Dict of capability → bool from TargetFactory
             owasp_hint: OWASP ID hint (e.g., "LLM01" → LLM_DIRECT)
+            recon_target_type: Target type string from ReconEngine
+                (e.g., "openai_chat", "openai_responses", "playwright")
 
         Returns:
             TargetProfile with inferred type and OWASP categories
         """
-        # Try OWASP hint first (most direct)
+        # Try recon target_type first (most direct — from actual endpoint probing)
+        if recon_target_type:
+            inferred_type = cls._infer_from_recon_type(recon_target_type)
+            if inferred_type is not None:
+                return cls.get_profile(inferred_type)
+
+        # Try OWASP hint
         if owasp_hint:
             inferred_type = cls._infer_from_owasp_hint(owasp_hint)
             return cls.get_profile(inferred_type)
@@ -333,6 +373,22 @@ class TargetProfileRouter:
 
         # Default: full sweep
         return cls.get_profile(TargetType.FULL_SWEEP)
+
+    @classmethod
+    def _infer_from_recon_type(cls, recon_type: str) -> Optional[TargetType]:
+        """
+        Infer TargetType from recon-detected target_type string.
+
+        Uses _RECON_TYPE_TO_TARGET_TYPE mapping. Returns None for
+        ambiguous types (e.g., "http_api") that can't be mapped.
+
+        Args:
+            recon_type: Target type string from TargetFactory.detect_target_type
+
+        Returns:
+            TargetType enum member, or None if no mapping exists
+        """
+        return _RECON_TYPE_TO_TARGET_TYPE.get(recon_type)
 
     @classmethod
     def _infer_from_capabilities(cls, caps: Dict[str, bool]) -> TargetType:
@@ -521,9 +577,10 @@ def get_target_profile(target_type: TargetType) -> TargetProfile:
 def infer_target_profile(
     capabilities: Optional[Dict[str, bool]] = None,
     owasp_hint: Optional[str] = None,
+    recon_target_type: Optional[str] = None,
 ) -> TargetProfile:
     """Convenience: infer target profile."""
-    return TargetProfileRouter.infer_profile(capabilities, owasp_hint)
+    return TargetProfileRouter.infer_profile(capabilities, owasp_hint, recon_target_type)
 
 
 def filter_groups_by_target(

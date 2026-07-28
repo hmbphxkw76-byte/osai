@@ -292,7 +292,7 @@ def main():
     print("=" * 60)
 
     # 延迟导入 pipeline（避免 --list 时加载 PyRIT）
-    from pipeline import run_attack_pipeline
+    from pipeline import run_attack_pipeline  # noqa: F401 — 延迟导入避免 --list 时加载 PyRIT
 
     # 如果指定了并发/超时，通过环境变量覆盖配置文件默认值
     if args.concurrency:
