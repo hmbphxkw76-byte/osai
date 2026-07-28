@@ -2,6 +2,8 @@
 
 > 对齐 `pyrit.datasets` + `pyrit.models` — PyRIT 1.0.0 完整五层数据驱动架构
 > 含当前代码与官方标准差距分析
+> 
+> **v2.0 变更**：response_json_schema 结构化输出约束 + .prompt 文件扩展名支持 + CentralMemory 桥接 (sync_batches_to_memory_async)
 
 ---
 

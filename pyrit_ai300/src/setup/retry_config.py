@@ -32,7 +32,7 @@ PyRIT 1.0.0 Resiliency 文档定义三层重试：
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from src.core.config_loader import get_config_loader

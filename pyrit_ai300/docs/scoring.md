@@ -1,7 +1,8 @@
 # Scoring 子系统架构文档
 
 > 对齐 `pyrit.score` — PyRIT 1.0.0 完整评分架构  
-> 文档版本：v1.0 | 更新日期：2026-07-26
+> 文档版本：v2.0 | 更新日期：2026-07-27  
+> **v2.0 变更**：36 评分器映射（移除5个抽象类）+ requires_chat_target 修正（6个非LLM评分器）+ TestNativeAlignment 9个测试
 
 ---
 

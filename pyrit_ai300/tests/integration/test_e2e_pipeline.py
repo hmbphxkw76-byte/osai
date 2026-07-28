@@ -10,17 +10,11 @@
 
 import asyncio
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.core.config_loader import ConfigLoader, get_config_loader
+from src.core.config_loader import get_config_loader
 from src.core.models import (
     AISystemType,
-    AuthResult,
-    AuthStatus,
     AuthType,
-    ReconResult,
-    StrategySelection,
     TargetCapabilities,
     create_recon_result,
     create_strategy_selection,

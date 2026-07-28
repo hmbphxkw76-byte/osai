@@ -17,7 +17,7 @@ Roadmap Implementation Tests
 import asyncio
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 from pyrit.models import (
     AttackSeedGroup,
@@ -693,3 +693,229 @@ class TestInitExports:
         assert callable(get_native_pipeline)
         assert callable(execute_native_async)
         assert callable(evaluate_attack_plan_necessity)
+
+
+# ============================================================
+# L5 Gap Fixes: response_json_schema + CentralMemory bridge + .prompt
+# ============================================================
+
+
+class TestResponseJsonSchemaSupport:
+    """P2: response_json_schema / response_json_schema_name 支持"""
+
+    def test_prompt_item_has_response_json_schema_field(self):
+        """PromptItem 模型应包含 response_json_schema 字段"""
+        from src.payloads.models import PromptItem, AttackMode
+
+        item = PromptItem(
+            id="test",
+            objective="test objective",
+            attack_mode=AttackMode.SINGLE_TURN,
+            response_json_schema={"type": "object", "properties": {"x": {"type": "string"}}},
+        )
+        assert item.response_json_schema is not None
+        assert item.response_json_schema["type"] == "object"
+
+    def test_prompt_item_response_json_schema_default_none(self):
+        """response_json_schema 默认为 None"""
+        from src.payloads.models import PromptItem, AttackMode
+
+        item = PromptItem(
+            id="test",
+            objective="test",
+            attack_mode=AttackMode.SINGLE_TURN,
+        )
+        assert item.response_json_schema is None
+
+    def test_extract_response_json_schema_from_prompt(self):
+        """从 SeedPrompt 提取 response_json_schema"""
+        from src.payloads.seed_adapter import SeedPromptAdapter
+
+        schema = {"type": "object", "properties": {"result": {"type": "string"}}}
+        prompt = SeedPrompt(
+            value="test prompt",
+            role="user",
+            response_json_schema=schema,
+        )
+        extracted = SeedPromptAdapter._extract_response_json_schema([prompt])
+        assert extracted is not None
+        assert extracted == schema
+
+    def test_extract_response_json_schema_from_objective(self):
+        """从 SeedObjective 回退提取 response_json_schema (SeedObjective 无此字段，返回 None)"""
+        from src.payloads.seed_adapter import SeedPromptAdapter
+
+        objective = SeedObjective(value="test objective")
+        extracted = SeedPromptAdapter._extract_response_json_schema([], objective=objective)
+        # SeedObjective 没有 response_json_schema 字段
+        assert extracted is None
+
+    def test_extract_response_json_schema_none(self):
+        """无 schema 时返回 None"""
+        from src.payloads.seed_adapter import SeedPromptAdapter
+
+        prompt = SeedPrompt(value="test", role="user")
+        extracted = SeedPromptAdapter._extract_response_json_schema([prompt])
+        assert extracted is None
+
+    def test_yaml_loads_response_json_schema_inline(self):
+        """YAML 内联 response_json_schema 正确加载"""
+        ds = SeedDataset.from_yaml_file(
+            "data/owasp/llm/llm05/structured_output_extraction.yaml"
+        )
+        # seed 1 有内联 schema
+        prompt_with_schema = ds.seeds[1]
+        assert hasattr(prompt_with_schema, "response_json_schema")
+        assert prompt_with_schema.response_json_schema is not None
+        assert prompt_with_schema.response_json_schema["type"] == "object"
+
+    def test_yaml_loads_response_json_schema_name(self):
+        """YAML response_json_schema_name 正确解析为 response_json_schema"""
+        ds = SeedDataset.from_yaml_file(
+            "data/owasp/llm/llm05/structured_output_extraction.yaml"
+        )
+        # seed 0 使用 response_json_schema_name: true_false_with_rationale
+        prompt_with_name = ds.seeds[0]
+        assert prompt_with_name.response_json_schema is not None
+        # 解析后应该是 dict
+        assert isinstance(prompt_with_name.response_json_schema, dict)
+
+    def test_adapter_propagates_schema_to_prompt_item(self):
+        """SeedPromptAdapter 将 response_json_schema 传播到 PromptItem"""
+        from src.payloads.seed_adapter import SeedPromptAdapter
+
+        ds = SeedDataset.from_yaml_file(
+            "data/owasp/llm/llm05/structured_output_extraction.yaml"
+        )
+        batches = SeedPromptAdapter.dataset_to_batches(ds)
+        assert len(batches) > 0
+        batch = batches[0]
+        # 至少有一些 prompts 有 schema
+        items_with_schema = [p for p in batch.prompts if p.response_json_schema is not None]
+        assert len(items_with_schema) > 0
+
+    def test_metadata_has_schema_flag(self):
+        """metadata 中设置 has_response_json_schema 标志"""
+        from src.payloads.seed_adapter import SeedPromptAdapter
+
+        ds = SeedDataset.from_yaml_file(
+            "data/owasp/llm/llm05/structured_output_extraction.yaml"
+        )
+        batches = SeedPromptAdapter.dataset_to_batches(ds)
+        batch = batches[0]
+        items_with_flag = [
+            p for p in batch.prompts
+            if p.metadata.get("has_response_json_schema")
+        ]
+        assert len(items_with_flag) > 0
+
+    def test_seed_group_builder_propagates_schema(self):
+        """SeedGroupBuilder 将 response_json_schema 传播到 SeedPrompt"""
+        from src.payloads.models import PromptItem, AttackMode, AttackPlan
+        from src.executor.attack.component.seed_group_builder import SeedGroupBuilder
+
+        schema = {"type": "object", "properties": {"result": {"type": "string"}}}
+        item = PromptItem(
+            id="test",
+            objective="test objective",
+            attack_mode=AttackMode.SINGLE_TURN,
+            multi_turn_steps=["step1", "step2"],
+            response_json_schema=schema,
+        )
+        plan = AttackPlan(
+            plan_id="test_plan",
+            prompt_item=item,
+            attack_technique="prompt_sending",
+        )
+        seed_group = SeedGroupBuilder.build(plan, "test objective")
+        # 找到最后一个 user SeedPrompt（next_message）
+        user_prompts = [
+            s for s in seed_group.seeds
+            if isinstance(s, SeedPrompt) and s.role == "user"
+        ]
+        assert len(user_prompts) > 0
+        last_user = user_prompts[-1]
+        assert last_user.response_json_schema is not None
+        assert last_user.response_json_schema == schema
+
+    def test_seed_group_builder_no_schema_when_none(self):
+        """无 response_json_schema 时不设置"""
+        from src.payloads.models import PromptItem, AttackMode, AttackPlan
+        from src.executor.attack.component.seed_group_builder import SeedGroupBuilder
+
+        item = PromptItem(
+            id="test",
+            objective="test objective",
+            attack_mode=AttackMode.SINGLE_TURN,
+            multi_turn_steps=["step1", "step2"],
+        )
+        plan = AttackPlan(
+            plan_id="test_plan",
+            prompt_item=item,
+            attack_technique="prompt_sending",
+        )
+        seed_group = SeedGroupBuilder.build(plan, "test objective")
+        user_prompts = [
+            s for s in seed_group.seeds
+            if isinstance(s, SeedPrompt) and s.role == "user"
+        ]
+        for p in user_prompts:
+            assert p.response_json_schema is None
+
+
+class TestCentralMemoryBridge:
+    """P3: 兼容管道 CentralMemory 桥接"""
+
+    def test_sync_batches_to_memory_async_exported(self):
+        """sync_batches_to_memory_async 已导出"""
+        from src.payloads import sync_batches_to_memory_async
+        assert callable(sync_batches_to_memory_async)
+
+    def test_load_all_payloads_async_has_sync_to_memory_param(self):
+        """load_all_payloads_async 支持 sync_to_memory 参数"""
+        import inspect
+        from src.payloads.source_loader import load_all_payloads_async
+        sig = inspect.signature(load_all_payloads_async)
+        assert "sync_to_memory" in sig.parameters
+        assert sig.parameters["sync_to_memory"].default is False
+
+    def test_load_payloads_deprecation_warning(self):
+        """load_payloads 发出 DeprecationWarning"""
+        import warnings
+        from src.payloads.source_loader import load_payloads
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                load_payloads(owasp_ids=["LLM01"], include_custom=False)
+            except Exception:
+                pass  # May fail on env, just check warning
+            deprecation_warnings = [
+                x for x in w if issubclass(x.category, DeprecationWarning)
+            ]
+            assert len(deprecation_warnings) > 0
+
+
+class TestPromptExtensionSupport:
+    """P4: .prompt 文件扩展名支持"""
+
+    def test_dataset_manager_supports_prompt_glob(self):
+        """DatasetManager 源码包含 .prompt glob"""
+        import inspect
+        from src.payloads.dataset_manager import DatasetManager
+        src = inspect.getsource(DatasetManager)
+        assert "*.prompt" in src
+
+    def test_source_loader_supports_prompt_glob(self):
+        """PayloadSourceLoader 源码包含 .prompt glob"""
+        import inspect
+        from src.payloads.source_loader import PayloadSourceLoader
+        src = inspect.getsource(PayloadSourceLoader)
+        assert "*.prompt" in src
+
+    def test_owasp_provider_supports_prompt_glob(self):
+        """OwaspLocalDatasetProvider 注册支持 .prompt"""
+        import inspect
+        from src.payloads.owasp_provider import _register_owasp_datasets
+        src = inspect.getsource(_register_owasp_datasets)
+        assert "*.prompt" in src

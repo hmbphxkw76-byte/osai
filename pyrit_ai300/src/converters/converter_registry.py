@@ -83,7 +83,6 @@ from pyrit.converter import (
     SelectiveTextConverter,
     TextSelectionStrategy,
     TokenSelectionStrategy,
-    WordSelectionStrategy,
     AllWordsSelectionStrategy,
     IndexSelectionStrategy,
     RegexSelectionStrategy,
@@ -115,7 +114,6 @@ from pyrit.converter import (
     NoiseConverter,
     DecompositionConverter,
     PolicyPuppetryConverter,
-    PolicyPuppetryTemplate,
     RandomCapitalLettersConverter,
     TaskFramingConverter,
     # 多模态 Converter — Image (text → image_path / image_path → image_path)
@@ -134,7 +132,6 @@ from pyrit.converter import (
     # 工具函数
     get_converter_modalities,
 )
-from pyrit.converter.converter import Converter, ConverterResult
 
 from pyrit.prompt_normalizer import ConverterConfiguration
 

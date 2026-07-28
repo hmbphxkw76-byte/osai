@@ -126,8 +126,6 @@ from pyrit.score import (
     # 浮点聚合器
     FloatScaleScoreAggregator,
     # 评估框架
-    MetricsType,
-    RegistryUpdateBehavior,
     ScorerMetrics,
     ObjectiveScorerMetrics,
     HarmScorerMetrics,
@@ -594,7 +592,7 @@ def create_scorers_for_scenario(
         try:
             scorer = create_scorer_instance(scorer_name, chat_target=chat_target)
             scorers.append(scorer)
-        except ValueError as e:
+        except ValueError:
             # 忽略无法创建的 Scorer
             pass
 
@@ -623,7 +621,7 @@ def create_scorers_by_type(
         try:
             scorer = create_scorer_instance(scorer_name, chat_target=chat_target)
             scorers.append(scorer)
-        except ValueError as e:
+        except ValueError:
             # 忽略无法创建的 Scorer
             pass
 

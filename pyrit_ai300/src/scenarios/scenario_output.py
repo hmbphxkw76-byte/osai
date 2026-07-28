@@ -268,6 +268,73 @@ _DATASET_OWASP_MAP: dict[str, str] = {
 }
 
 
+def _extract_result_info(
+    r: Any,
+    *,
+    techniques: set[str],
+    converters: set[str],
+    owasp_ids: set[str],
+) -> None:
+    """
+    从单个 AttackResult 提取技术名、Converter 名、OWASP ID
+
+    处理两种结果类型：
+    1. 普通 AttackResult — 直接从 identifier 提取
+    2. SequentialAttackResult — atomic_attack_identifier 为 None，
+       需要从 child_attack_results 提取子结果信息
+    """
+    if r is None:
+        return
+
+    # 技术名 + Converter 检测（原生 API）
+    identifier = None
+    if hasattr(r, "get_attack_strategy_identifier"):
+        identifier = r.get_attack_strategy_identifier()
+    if identifier is not None:
+        name = getattr(identifier, "unique_name", "") or ""
+        base_tech, _ = _clean_technique_name(name)
+        if base_tech:
+            techniques.add(base_tech)
+
+        # 从 identifier.children 提取 Converter 类名
+        conv_names = _extract_converters_from_identifier(identifier)
+        for cn in conv_names:
+            converters.add(cn)
+
+    # OWASP ID（原生 labels API）
+    labels = getattr(r, "labels", None) or {}
+    r_owasp = labels.get("owasp_id", "")
+    if r_owasp:
+        owasp_ids.add(r_owasp)
+
+    # SequentialAttackResult: 从 child_attack_results 提取子结果信息
+    # SequentialAttack 是包装器，自身没有 atomic_attack_identifier
+    # 实际的技术名和 Converter 信息在子结果的 identifier 中
+    child_results = getattr(r, "child_attack_results", None) or []
+    for child in child_results:
+        if child is None:
+            continue
+        child_identifier = None
+        if hasattr(child, "get_attack_strategy_identifier"):
+            child_identifier = child.get_attack_strategy_identifier()
+        if child_identifier is not None:
+            child_name = getattr(child_identifier, "unique_name", "") or ""
+            child_tech, _ = _clean_technique_name(child_name)
+            if child_tech:
+                techniques.add(child_tech)
+
+            # 子结果的 Converter 信息
+            child_conv_names = _extract_converters_from_identifier(child_identifier)
+            for cn in child_conv_names:
+                converters.add(cn)
+
+        # 子结果的 OWASP labels
+        child_labels = getattr(child, "labels", None) or {}
+        child_owasp = child_labels.get("owasp_id", "")
+        if child_owasp:
+            owasp_ids.add(child_owasp)
+
+
 def display_enhanced_group_breakdown(
     native_result: Any,
     *,
@@ -287,6 +354,7 @@ def display_enhanced_group_breakdown(
     - ScenarioResult.get_display_groups() 获取分组
     - AttackResult.get_attack_strategy_identifier() 获取技术名 + converter children
     - AttackResult.labels["owasp_id"] 获取 OWASP ID（回退到数据集名映射）
+    - SequentialAttackResult.child_attack_results 获取子结果技术+Converter+OWASP
 
     Args:
         native_result: 原生 ScenarioResult
@@ -323,26 +391,13 @@ def display_enhanced_group_breakdown(
                 if outcome_str == "SUCCESS":
                     success += 1
 
-            # 技术名 + Converter 检测（原生 API）
-            identifier = None
-            if hasattr(r, "get_attack_strategy_identifier"):
-                identifier = r.get_attack_strategy_identifier()
-            if identifier is not None:
-                name = getattr(identifier, "unique_name", "") or ""
-                base_tech, _ = _clean_technique_name(name)
-                if base_tech:
-                    techniques.add(base_tech)
-
-                # 从 identifier.children 提取 Converter 类名
-                conv_names = _extract_converters_from_identifier(identifier)
-                for cn in conv_names:
-                    converters.add(cn)
-
-            # OWASP ID（原生 labels API）
-            labels = getattr(r, "labels", None) or {}
-            r_owasp = labels.get("owasp_id", "")
-            if r_owasp:
-                owasp_ids.add(r_owasp)
+            # 提取技术名、Converter、OWASP（含 SequentialAttackResult 子结果）
+            _extract_result_info(
+                r,
+                techniques=techniques,
+                converters=converters,
+                owasp_ids=owasp_ids,
+            )
 
         # OWASP 回退：从数据集名推断
         if not owasp_ids:
@@ -383,7 +438,7 @@ def display_enhanced_group_breakdown(
 
     # 输出 Per-Group Breakdown（合并原生+增强）
     print(f"\n  {'=' * 76}")
-    print(f"  Per-Group Breakdown (Techniques + Converters + OWASP)")
+    print("  Per-Group Breakdown (Techniques + Converters + OWASP)")
     print(f"  {'=' * 76}")
 
     for stat in group_stats:
@@ -395,16 +450,18 @@ def display_enhanced_group_breakdown(
               f"Rate: {rate_pct:.0f}%")
 
         # 攻击技术（去掉 hash 后缀）
+        # 当攻击在 Converter 阶段失败时，AttackResult 无 strategy_identifier，
+        # 此时使用 group_name 作为回退技术名（PyRIT display_group 通常即为技术/数据集名）
         if stat["techniques"]:
             print(f"    Techniques:  {', '.join(stat['techniques'])}")
         else:
-            print(f"    Techniques:  (unknown)")
+            print(f"    Techniques:  {stat['group_name']} (identifier unavailable — attacks may have failed before execution)")
 
         # Converter 变体
         if stat["converters"]:
             print(f"    Converters:  {', '.join(stat['converters'])}")
         else:
-            print(f"    Converters:  (none - base techniques only)")
+            print("    Converters:  (none - base techniques only)")
 
         # OWASP 对齐（ID + 名称）
         if stat["owasp_display"]:
@@ -543,7 +600,7 @@ def _format_bridge_output(
         if converters:
             lines.append(f"    Converters: {', '.join(converters)}")
         else:
-            lines.append(f"    Converters: (none)")
+            lines.append("    Converters: (none)")
         # 增强列：OWASP 对齐
         owasp = stat.get("owasp_id", "")
         if owasp:

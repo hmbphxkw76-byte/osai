@@ -29,7 +29,6 @@ PyRIT 1.0.0 Configuration 文档要求：
   scenario_max_retries: 3
 """
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional

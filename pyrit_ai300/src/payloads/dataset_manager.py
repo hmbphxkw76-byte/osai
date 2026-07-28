@@ -22,7 +22,6 @@ PyRIT 原生 API：
   memory.get_seed_groups(harm_categories, dataset_name, added_by, ...)
 """
 
-import asyncio
 import logging
 import re
 from pathlib import Path
@@ -125,20 +124,33 @@ class DatasetManager:
                 if owasp_id.upper() in exclude_set:
                     continue
 
-                for yaml_file in sorted(category_dir.glob("*.yaml")):
-                    if yaml_file.name.startswith("_"):
-                        continue
-                    try:
-                        dataset = SeedDataset.from_yaml_file(yaml_file)
-                        # 过滤包含未渲染 Jinja2 控制结构的种子
-                        # 这些种子需要外部数据池（如 _pools/many_shot_examples.yaml）
-                        # 但数据池不存在时，模板会原样发送到 API 导致 500 错误
-                        dataset = self._filter_unrendered_templates(dataset, yaml_file)
-                        if dataset is not None:
-                            datasets.append(dataset)
-                            self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
-                    except Exception as e:
-                        logger.warning(f"Failed to load OWASP dataset {yaml_file}: {e}")
+            for yaml_file in sorted(category_dir.glob("*.yaml")):
+                if yaml_file.name.startswith("_"):
+                    continue
+                try:
+                    dataset = SeedDataset.from_yaml_file(yaml_file)
+                    # 过滤包含未渲染 Jinja2 控制结构的种子
+                    # 这些种子需要外部数据池（如 _pools/many_shot_examples.yaml）
+                    # 但数据池不存在时，模板会原样发送到 API 导致 500 错误
+                    dataset = self._filter_unrendered_templates(dataset, yaml_file)
+                    if dataset is not None:
+                        datasets.append(dataset)
+                        self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
+                except Exception as e:
+                    logger.warning(f"Failed to load OWASP dataset {yaml_file}: {e}")
+
+            # 同时支持 .prompt 扩展名（PyRIT 官方约定）
+            for prompt_file in sorted(category_dir.glob("*.prompt")):
+                if prompt_file.name.startswith("_"):
+                    continue
+                try:
+                    dataset = SeedDataset.from_yaml_file(prompt_file)
+                    dataset = self._filter_unrendered_templates(dataset, prompt_file)
+                    if dataset is not None:
+                        datasets.append(dataset)
+                        self._loaded_dataset_names.append(dataset.dataset_name or prompt_file.stem)
+                except Exception as e:
+                    logger.warning(f"Failed to load OWASP dataset {prompt_file}: {e}")
 
         if datasets:
             await self.memory.add_seed_datasets_to_memory_async(
@@ -176,11 +188,64 @@ class DatasetManager:
             except Exception as e:
                 logger.warning(f"Failed to load custom dataset {yaml_file}: {e}")
 
+        # 同时支持 .prompt 扩展名（PyRIT 官方约定）
+        for prompt_file in sorted(custom_dir.glob("*.prompt")):
+            if prompt_file.name.startswith("_"):
+                continue
+            try:
+                dataset = SeedDataset.from_yaml_file(prompt_file)
+                dataset = self._filter_unrendered_templates(dataset, prompt_file)
+                if dataset is not None:
+                    datasets.append(dataset)
+                    self._loaded_dataset_names.append(dataset.dataset_name or prompt_file.stem)
+            except Exception as e:
+                logger.warning(f"Failed to load custom dataset {prompt_file}: {e}")
+
         if datasets:
             await self.memory.add_seed_datasets_to_memory_async(
                 datasets=datasets, added_by=self.added_by
             )
             logger.info(f"Loaded {len(datasets)} custom datasets into CentralMemory")
+
+        return datasets
+
+    async def load_academic_datasets(self, path: Optional[str] = None) -> List[SeedDataset]:
+        """
+        加载本地学术载荷数据集 → CentralMemory
+
+        从 data/academic/ 目录加载已下载的高 ASR 学术载荷
+        (JailbreakBench / HarmBench / AdvBench)。
+
+        Args:
+            path: 学术数据目录，默认 data/academic/
+
+        Returns:
+            加载的 SeedDataset 列表
+        """
+        project_root = Path(__file__).parent.parent.parent
+        academic_dir = Path(path) if path else project_root / "data" / "academic"
+        if not academic_dir.exists():
+            return []
+
+        datasets: List[SeedDataset] = []
+        # 递归扫描所有子目录的 YAML 文件
+        for yaml_file in sorted(academic_dir.rglob("*.yaml")):
+            if yaml_file.name.startswith("_"):
+                continue
+            try:
+                dataset = SeedDataset.from_yaml_file(yaml_file)
+                dataset = self._filter_unrendered_templates(dataset, yaml_file)
+                if dataset is not None:
+                    datasets.append(dataset)
+                    self._loaded_dataset_names.append(dataset.dataset_name or yaml_file.stem)
+            except Exception as e:
+                logger.warning(f"Failed to load academic dataset {yaml_file}: {e}")
+
+        if datasets:
+            await self.memory.add_seed_datasets_to_memory_async(
+                datasets=datasets, added_by=self.added_by
+            )
+            logger.info(f"Loaded {len(datasets)} academic datasets into CentralMemory")
 
         return datasets
 
@@ -229,6 +294,7 @@ class DatasetManager:
         owasp_ids: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
         custom: bool = False,
+        academic: bool = False,
         remote: bool = False,
         remote_dataset_names: Optional[List[str]] = None,
     ) -> List[SeedDataset]:
@@ -243,6 +309,7 @@ class DatasetManager:
             owasp_ids: 指定 OWASP ID
             exclude_ids: 排除的 OWASP ID
             custom: 是否加载自定义数据集
+            academic: 是否加载学术载荷数据集 (data/academic/)
             remote: 是否加载远程数据集
             remote_dataset_names: 远程数据集名称列表
 
@@ -263,13 +330,17 @@ class DatasetManager:
             ds = await self.load_custom_datasets()
             all_datasets.extend(ds)
 
+        if academic:
+            ds = await self.load_academic_datasets()
+            all_datasets.extend(ds)
+
         if remote:
             ds = await self.load_remote_datasets(dataset_names=remote_dataset_names)
             all_datasets.extend(ds)
 
         logger.info(
             f"DatasetManager: loaded {len(all_datasets)} datasets total | "
-            f"owasp={owasp}, custom={custom}, remote={remote}"
+            f"owasp={owasp}, custom={custom}, academic={academic}, remote={remote}"
         )
         return all_datasets
 

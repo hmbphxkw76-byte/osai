@@ -27,7 +27,7 @@ Alignment with PyRIT 1.0.0:
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Set
 
 from src.payloads.asr_rank_builder import TechniqueGroupInfo
 
@@ -375,9 +375,26 @@ class PresetSchemeDefinition:
 
     @property
     def display_asr(self) -> str:
-        """Human-readable weighted ASR."""
+        """Human-readable weighted ASR.
+
+        v4.0: 当无 YAML ASR 数据时，回退到学术先验 ASR。
+        """
         if self.weighted_asr > 0:
             return f"{self.weighted_asr:.0%}"
+        # v4.0: 回退到学术先验
+        try:
+            from src.payloads.technique_name_mapper import get_normalized_asr
+            total_weight = 0
+            weighted_sum = 0.0
+            for g in self.groups:
+                academic_asr = get_normalized_asr(g.technique_group, "gpt-4o")
+                if academic_asr != 0.3:  # 非中性先验
+                    weighted_sum += academic_asr * g.seed_count
+                    total_weight += g.seed_count
+            if total_weight > 0:
+                return f"{weighted_sum / total_weight:.0%}"
+        except Exception:
+            pass
         return "--"
 
     @property
@@ -427,12 +444,16 @@ class PresetSchemeBuilder:
     def build_schemes(
         cls,
         ranked_groups: List[TechniqueGroupInfo],
+        model_name: str = "gpt-4o",
     ) -> List[PresetSchemeDefinition]:
         """
         Build all three preset schemes from ranked groups.
 
+        v4.0: model_name 参数传递（向后兼容，不影响选择逻辑）
+
         Args:
             ranked_groups: Sorted list from ASRRankBuilder.build_ranked_groups()
+            model_name: 目标模型名称 (保留参数, 供未来扩展)
 
         Returns:
             List of 3 PresetSchemeDefinition (FAST, RECOMMENDED, DEEP).
@@ -622,9 +643,10 @@ class PresetSchemeBuilder:
 
 def build_preset_schemes(
     ranked_groups: List[TechniqueGroupInfo],
+    model_name: str = "gpt-4o",
 ) -> List[PresetSchemeDefinition]:
     """Convenience: build all preset schemes."""
-    return PresetSchemeBuilder.build_schemes(ranked_groups)
+    return PresetSchemeBuilder.build_schemes(ranked_groups, model_name=model_name)
 
 
 def get_scheme_by_letter(

@@ -12,7 +12,7 @@ Analysis Module
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from src.core.models import (
     AISystemType,
@@ -40,6 +40,13 @@ class StrategySelector:
     - Scenario 智能选择：基于 AI 类型 + 目标能力 + 数据集可用性评分
     - PyRIT 原生 ScenarioRegistry 验证：优先使用原生注册表查找已注册 Scenario
     - 能力感知技术池筛选：根据目标能力过滤不兼容的技术
+
+    改进 (v3.0 — 适配链驱动):
+    - model_tier 驱动策略模式推荐: 根据 recon_result.model_tier 自动推荐
+      strategy_mode (academic/exam/balanced)
+    - strong -> academic (多轮迭代+Converter增强优先)
+    - weak -> exam (编码优先快速验证)
+    - moderate/unknown -> balanced (均衡)
     """
 
     # 多轮技术集合 — 需要目标支持 multi_turn
@@ -105,7 +112,7 @@ class StrategySelector:
         )
 
         # 构建策略选择结果
-        return create_strategy_selection(
+        selection = create_strategy_selection(
             ai_system_type=ai_system_type,
             scenario_name=scenario_name,
             attack_techniques=attack_techniques,
@@ -116,6 +123,53 @@ class StrategySelector:
                 "ai_system_type": ai_system_type.value,
             },
         )
+
+        # v3.0: model_tier 驱动策略模式推荐（写入 memory_labels 供后续阶段使用）
+        recommended_mode = self.recommend_strategy_mode(recon_result)
+        selection.memory_labels["recommended_strategy_mode"] = recommended_mode
+        selection.memory_labels["model_tier"] = recon_result.model_tier
+
+        return selection
+
+    @staticmethod
+    def recommend_strategy_mode(recon_result: ReconResult) -> str:
+        """
+        v3.0: 根据 model_tier 推荐策略模式
+
+        适配链断裂 1 修复：model_tier 从 Recon 传递到 Analysis 层，
+        驱动策略模式推荐，影响后续 ASR 排序和技术选择。
+
+        推荐逻辑：
+        - strong:    academic (多轮迭代+Converter增强优先，高 ASR 技术优先尝试)
+        - moderate:  balanced (策略+编码交替，兼顾覆盖与效率)
+        - weak:      exam (编码优先快速验证，弱过滤模型编码攻击即可生效)
+        - unknown:   academic (默认保守策略)
+
+        注意：环境变量 STRATEGY_MODE 优先于自动推荐。
+
+        Args:
+            recon_result: 侦察结果（含 model_tier）
+
+        Returns:
+            推荐的策略模式 ("academic" / "exam" / "balanced")
+        """
+        import os
+
+        # 环境变量优先
+        env_mode = os.getenv("STRATEGY_MODE", "").lower().strip()
+        if env_mode in ("academic", "exam", "balanced"):
+            return env_mode
+
+        # 自动推荐
+        tier = recon_result.model_tier
+        if tier == "strong":
+            return "academic"
+        elif tier == "weak":
+            return "exam"
+        elif tier == "moderate":
+            return "balanced"
+        else:
+            return "academic"  # 默认保守
 
     def _select_best_scenario(
         self,
@@ -282,7 +336,7 @@ class StrategySelector:
             # 不支持 system_prompt → 移除 skeleton
             if tech == "skeleton" and not capabilities.supports_system_prompt:
                 logger.debug(
-                    f"Filtered out 'skeleton' — target doesn't support system_prompt"
+                    "Filtered out 'skeleton' — target doesn't support system_prompt"
                 )
                 continue
 

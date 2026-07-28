@@ -2,49 +2,53 @@
 Failure-Type Routing Technique Selector — 原生 AdaptiveScenario 替代智能升级重试
 =============================================================================
 
-P0: 实现 FailureTypeRoutingSelector(TechniqueSelector)
-P1: 增强 Converter 变体感知排序
-P3: 增强 Target 类型感知优先级
+ASR引导策略 v4.0: 学术+PyRIT 融合优化
+- 策略级优先排序（多轮迭代攻击 >> LLM辅助 > 编码兜底）
+- JailbreakBench 学术先验 Q 值初始化（消除首次运行纯随机探索）
+- Converter 增强高 ASR 多轮技术（crescendo+encoding, pair+persuasion）
+- strategy_mode 切换（academic/exam/balanced）
 
 用 PyRIT 原生 AdaptiveScenario + AdaptiveTechniqueDispatcher 替代自建 AttackUpgradeStrategy。
 原生的 SequentialAttack(FIRST_SUCCESS) 天然实现 "尝试不同技术直到成功" 的逻辑。
 
-本 Selector 在 EpsilonGreedyTechniqueSelector 基础上增加失败类型分析：
-  - model_refusal -> 优先 Converter 变体（编码/混淆绕过内容过滤）
-  - timeout -> 优先无 Converter 的基础技术（减少开销）
-  - scorer_validation_error -> 保持技术多样性
-  - objective_not_achieved -> 优先强技术 + Converter 变体
+学术依据:
+- JailbreakBench (arXiv:2402.01135): GPT-4o 上 Crescendo ASR 82%, PAIR 53%, TAP 62%
+- HarmBench (arXiv:2402.04249): 编码攻击在 GPT-4o 上 ASR 3-12%
+- Zeng et al. (arXiv:2402.19181): 说服策略 ASR 30-40%
+- 关键发现: 策略级变换(多轮迭代) >> 表示级变换(编码/混淆)
 
-P1 增强：Converter 变体感知
-  - 技术名称中含 "+" 的为 Converter 变体（如 "prompt_sending+stealth_evasion"）
-  - model_refusal 路由：优先 Converter 变体，按 Converter 链优先级排序
-  - timeout 路由：优先基础技术（无 Converter），减少转换开销
-  - 首次尝试（无失败记录）：优先编码变体（快速高成功率）
+v4.0 排序策略（academic 模式, 默认）:
+  Tier S (ASR >= 0.70): crescendo, red_teaming — 多轮迭代
+  Tier A (ASR 0.40-0.70): tap, pair, many_shot, crescendo_simulated
+  Tier B (ASR 0.15-0.40): persuasion, role_play, context_compliance, wrapping
+  Tier C (ASR < 0.15): encoding, prompt_sending — 兜底
 
-P3 增强：Target 类型感知
-  - 设置 target_type 后，Converter 变体按 Target 类型对应的 ASR 优先级排序
-  - 不同 Target 类型（LLM Direct / Agent / RAG / Multimodal）使用不同的链优先级
-  - 未设置 target_type 时回退到全局 CONVERTER_VARIANT_CHAINS 优先级
+v4.0 排序策略（exam 模式）:
+  编码优先（快速验证）→ 角色扮演 → 多轮兜底
+  适用于弱过滤模型或考试时间受限场景
 
-Selector 是无状态的：它查询 memory 获取历史成功率，而非维护内部计数。
+v4.0 排序策略（balanced 模式）:
+  策略 + 编码交替，兼顾 ASR 和速度
 
-v2.0 改进（消除双轨风险）：
-  - 集成 owasp_strategy_map 初始偏好权重
-  - 首次尝试（无失败记录）时，优先 owasp_strategy_map 的 default_attack_technique
-  - 使 Adaptive 路径的初始技术排序与 Legacy 路径（PayloadStrategyMatcher）一致
+失败类型路由:
+  model_refusal -> 策略升级优先（换策略比换编码有效 10x）
+  timeout -> 基础单轮技术优先（减少执行时间）
+  objective_not_achieved -> 强技术 + Converter 变体优先
+  scorer_validation_error -> 保持 epsilon-greedy 默认排序
+  None（首次）-> 学术先验排序（JailbreakBench Q 值）
 """
 
 import logging
-import random
 from typing import Sequence
 
 from pyrit.scenario.scenarios.adaptive import EpsilonGreedyTechniqueSelector
+from pyrit.scenario.scenarios.adaptive.selectors import SelectorScope
 
 from src.scenarios.technique_factories import (
-    AI300_TECHNIQUE_METADATA,
     CONVERTER_VARIANT_CHAINS,
     is_converter_variant,
     get_converter_chain_from_variant,
+    get_base_technique_from_variant,
 )
 from src.converters.target_aware_router import (
     get_target_group,
@@ -54,19 +58,57 @@ from src.converters.target_aware_router import (
 logger = logging.getLogger(__name__)
 
 
-# 失败类型常量（对齐自建 upgrade_strategy.py）
+# ============================================================
+# 失败类型常量
+# ============================================================
+
 FAILURE_MODEL_REFUSAL = "model_refusal"
 FAILURE_TIMEOUT = "timeout"
 FAILURE_SCORER_VALIDATION_ERROR = "scorer_validation_error"
 FAILURE_OBJECTIVE_NOT_ACHIEVED = "objective_not_achieved"
 FAILURE_UNKNOWN = "unknown"
 
-# 技术优先级分组（考试策略映射）
+
+# ============================================================
+# ASR引导策略: 学术 ASR 分层（基于 JailbreakBench GPT-4o 数据）
+# ============================================================
+
+# Tier S: ASR >= 0.70 — 多轮迭代攻击（学术验证最高 ASR）
+_TIER_S_TECHNIQUES = {
+    "crescendo", "red_teaming",
+}
+
+# Tier A: ASR 0.40-0.70 — 树搜索/迭代/模拟对话
+_TIER_A_TECHNIQUES = {
+    "tap", "pair", "tree_of_attacks_pruned",
+    "many_shot", "best_of_n_jailbreak",
+    "crescendo_simulated", "context_compliance",
+}
+
+# Tier B: ASR 0.15-0.40 — 说服/角色扮演/包装
+_TIER_B_TECHNIQUES = {
+    "skeleton_key", "bad_likert_judge",
+    "persuasion_authority", "decomposition_chain",
+    "role_play_movie_script", "role_play_persuasion",
+    "role_play_persuasion_written", "role_play_trivia_game",
+    "role_play_video_game",
+    "crescendo_movie_director", "crescendo_history_lecture",
+    "crescendo_journalist_interview",
+    "wrapping_attack", "agent_injection_chain",
+    "direct_injection", "direct_injection_expanded",
+}
+
+# 合并: 所有非 Tier-C 技术（用于快速判断）
+_HIGH_ASR_TECHNIQUES = _TIER_S_TECHNIQUES | _TIER_A_TECHNIQUES | _TIER_B_TECHNIQUES
+
+# 编码技术（Tier C: 对现代商业模型 ASR < 15%）
 _ENCODING_TECHNIQUES = {
     "rot13", "base64", "caesar", "binary", "morse", "leetspeak",
     "flip", "char_swap", "diacritic", "character_space",
     "string_join", "suffix_append", "atbash", "url",
 }
+
+# 单轮技术集合（用于 timeout 路由）
 _SINGLE_TURN_TECHNIQUES = {
     "prompt_sending", "role_play_movie_script", "role_play_persuasion",
     "role_play_persuasion_written", "role_play_trivia_game", "role_play_video_game",
@@ -75,13 +117,14 @@ _SINGLE_TURN_TECHNIQUES = {
     "multi_prompt_sending", "chunked_request",
     *_ENCODING_TECHNIQUES,
 }
+
+# 多轮技术集合（用于模态过滤）
 _MULTI_TURN_TECHNIQUES = {
     "red_teaming", "crescendo", "tap", "pair", "tree_of_attacks_pruned", "many_shot",
 }
-_STRONG_TECHNIQUES = {
-    "crescendo", "red_teaming", "tap", "pair", "tree_of_attacks_pruned",
-    "many_shot", "crescendo_simulated",
-}
+
+# 强技术（用于 objective_not_achieved 路由）
+_STRONG_TECHNIQUES = _TIER_S_TECHNIQUES | _TIER_A_TECHNIQUES
 
 # P1: Converter 链全局优先级（当 target_type 未设置时的回退值）
 _CONVERTER_CHAIN_PRIORITY: dict[str, int] = {
@@ -90,23 +133,34 @@ _CONVERTER_CHAIN_PRIORITY: dict[str, int] = {
 }
 
 
+# ============================================================
+# Strategy Mode 枚举
+# ============================================================
+
+STRATEGY_ACADEMIC = "academic"    # 策略级优先, JailbreakBench 先验 (默认)
+STRATEGY_EXAM = "exam"            # 编码优先, 快速验证
+STRATEGY_BALANCED = "balanced"    # 策略 + 编码交替
+
+_VALID_STRATEGIES = {STRATEGY_ACADEMIC, STRATEGY_EXAM, STRATEGY_BALANCED}
+
+
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     """
-    失败类型路由技术选择器
+    失败类型路由技术选择器（ASR引导策略 v4.0）
 
-    在 EpsilonGreedyTechniqueSelector 基础上增加失败类型分析。
-    当检测到特定失败类型时，重新排列技术优先级：
+    在 EpsilonGreedyTechniqueSelector 基础上增加:
+    1. 学术 ASR 先验排序（首次运行用 JailbreakBench 数据初始化）
+    2. 策略级优先排序（多轮迭代 >> LLM辅助 > 编码兜底）
+    3. 失败类型路由（model_refusal → 策略升级, 非 Converter 变换）
+    4. strategy_mode 切换（academic/exam/balanced）
+    5. Target 类型感知 Converter 变体排序
 
-    策略路由（P1 增强 Converter 感知 + P3 Target 感知）：
-      model_refusal     -> Converter 变体优先（按 Target 感知优先级排序）+ 编码技术
-      timeout           -> 基础单轮技术优先（无 Converter，减少开销）
-      scorer_validation -> 保持 epsilon-greedy 默认排序
-      objective_not_achieved -> 强技术 + Converter 变体优先
-
-    考试策略：
-      Phase 1 (探索): 编码攻击 + Converter 变体（快速高成功率 50-100%）
-      Phase 2 (利用): 角色扮演（中等成本 71-100%）
-      Phase 3 (升级): 多轮渐进（高成本兜底）
+    排序策略 (academic 模式, 默认):
+      None（首次）→ JailbreakBench 先验排序
+      model_refusal → 策略升级优先（crescendo/PAIR/TAP 多轮迭代绕过单轮拒绝）
+      timeout → 基础单轮技术优先（减少执行时间）
+      objective_not_achieved → 强技术 + Converter 变体优先
+      scorer_validation_error → 保持 epsilon-greedy 默认排序
     """
 
     def __init__(
@@ -116,27 +170,46 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         random_seed: int | None = 42,
         target_type: str | None = None,
         owasp_id: str | None = None,
+        scope: SelectorScope | None = None,
+        strategy_mode: str = STRATEGY_ACADEMIC,
+        model_name: str = "gpt-4o",
+        model_tier: str = "unknown",
     ) -> None:
-        super().__init__(epsilon=epsilon, random_seed=random_seed)
+        """
+        Args:
+            epsilon: 探索概率
+            random_seed: 随机种子
+            target_type: PyRIT Target 类型名
+            owasp_id: OWASP ID（如 "LLM01"）
+            scope: SelectorScope 限定学习范围
+            strategy_mode: 策略模式
+                - "academic": 策略级优先, JailbreakBench 先验 (默认)
+                - "exam": 编码优先, 快速验证
+                - "balanced": 策略 + 编码交替
+            model_name: 目标模型名称（影响 ASR 先验值）
+        """
+        if strategy_mode not in _VALID_STRATEGIES:
+            raise ValueError(
+                f"Invalid strategy_mode '{strategy_mode}'. "
+                f"Must be one of {_VALID_STRATEGIES}"
+            )
+
+        super().__init__(epsilon=epsilon, scope=scope, random_seed=random_seed)
         self._last_failure_type: str | None = None
-        # P3: Target 类型感知
         self._target_type: str | None = target_type
         self._target_group: str | None = (
             get_target_group(target_type) if target_type else None
         )
-        # v2.0: OWASP 策略映射初始偏好
         self._owasp_id: str | None = owasp_id
         self._owasp_default_technique: str | None = None
         self._owasp_upgrade_techniques: list[str] = []
+        self._strategy_mode: str = strategy_mode
+        self._model_name: str = model_name
+        self._model_tier: str = model_tier
         self._load_owasp_strategy()
 
     def _load_owasp_strategy(self) -> None:
-        """
-        v2.0: 从 owasp_strategy_map 加载 OWASP 策略偏好
-
-        读取 default_attack_technique 和 upgrade_techniques 作为初始偏好权重，
-        使首次尝试时优先 owasp_strategy_map 推荐的技术。
-        """
+        """从 owasp_strategy_map 加载 OWASP 策略偏好"""
         if not self._owasp_id:
             return
         try:
@@ -156,25 +229,12 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             logger.debug(f"OWASP strategy loading failed: {e}")
 
     def set_owasp_id(self, owasp_id: str) -> None:
-        """
-        v2.0: 设置 OWASP ID，加载策略偏好
-
-        Args:
-            owasp_id: OWASP ID（如 "LLM01", "ASI05"）
-        """
+        """设置 OWASP ID，加载策略偏好"""
         self._owasp_id = owasp_id
         self._load_owasp_strategy()
 
     def set_target_type(self, target_type: str) -> None:
-        """
-        P3: 设置 Target 类型，启用 Target 感知排序
-
-        设置后，Converter 变体将按 Target 类型对应的 ASR 优先级排序，
-        而非使用全局静态优先级。
-
-        Args:
-            target_type: PyRIT Target 类型名（如 "openai_chat", "playwright"）
-        """
+        """设置 Target 类型，启用 Target 感知排序"""
         self._target_type = target_type
         self._target_group = get_target_group(target_type)
         logger.debug(
@@ -182,13 +242,19 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             f"group={self._target_group}"
         )
 
-    def update_failure_type(self, failure_type: str) -> None:
-        """
-        更新最近失败类型（由外部调用，如 AttackResult 分析后）
+    def set_strategy_mode(self, mode: str) -> None:
+        """设置策略模式"""
+        if mode not in _VALID_STRATEGIES:
+            raise ValueError(f"Invalid strategy_mode '{mode}'")
+        self._strategy_mode = mode
 
-        Args:
-            failure_type: 失败类型字符串
-        """
+    def set_model_tier(self, tier: str) -> None:
+        """设置模型分层（影响初始技术偏好）"""
+        self._model_tier = tier
+        logger.debug(f"FailureTypeRoutingSelector: model_tier={tier}")
+
+    def update_failure_type(self, failure_type: str) -> None:
+        """更新最近失败类型"""
         self._last_failure_type = failure_type
         logger.debug(f"FailureTypeRoutingSelector: failure_type updated to {failure_type}")
 
@@ -201,170 +267,305 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         scenario_result_id: str | None = None,
     ) -> Sequence[str]:
         """
-        选择技术，考虑失败类型路由
+        选择技术，考虑失败类型路由 + 学术先验
 
-        1. 先调用父类 epsilon-greedy 获取基础排序
-        2. 根据最近失败类型重新排列优先级
+        1. 调用父类 epsilon-greedy 获取基础排序
+        2. 根据策略模式和失败类型重新排列优先级
         3. 返回前 num_top_techniques 个技术
-
-        Args:
-            technique_identifiers: 可用技术标识符列表
-            objective: 目标文本
-            num_top_techniques: 返回的最大技术数
-            scenario_result_id: Scenario 结果 ID
-
-        Returns:
-            按优先级排序的技术标识符列表
         """
-        # 调用父类 epsilon-greedy 获取基础排序
         base_order = await super().select_async(
             technique_identifiers=technique_identifiers,
             objective=objective,
-            num_top_techniques=len(technique_identifiers),  # 获取全部排序
+            num_top_techniques=len(technique_identifiers),
             scenario_result_id=scenario_result_id,
         )
 
-        # 根据失败类型重新排列
         reordered = self._reorder_by_failure_type(base_order)
 
-        # 返回前 N 个
         return reordered[:num_top_techniques]
 
     def _target_aware_sort_key(self, technique_name: str) -> int:
-        """
-        P3: 计算技术名称的 Target 感知排序键
-
-        如果设置了 target_type，使用 Target 感知优先级；
-        否则回退到全局 CONVERTER_VARIANT_CHAINS 优先级。
-
-        Args:
-            technique_name: 技术名称（可能含 "+" 变体）
-
-        Returns:
-            排序键（数字越小越优先）
-        """
+        """计算技术名称的 Target 感知排序键"""
         chain_name = get_converter_chain_from_variant(technique_name)
         if chain_name is None:
             return 99
 
-        # P3: 如果有 target_type，使用 Target 感知优先级
         if self._target_type:
             return get_chain_priority_for_target(chain_name, self._target_type)
 
-        # 回退到全局优先级
         return _CONVERTER_CHAIN_PRIORITY.get(chain_name, 99)
+
+    def _prior_sort_key(self, technique_name: str) -> float:
+        """
+        ASR引导策略 P4: 使用学术 ASR 先验计算排序键
+
+        优先级:
+        1. 实测 ASR（运行后更新）
+        2. 学术先验 ASR（JailbreakBench/HarmBench）
+        3. 中性先验 0.3
+
+        Returns:
+            ASR 值 (越高越优先)
+        """
+        from src.payloads.asr_prior_registry import get_initial_q_value
+        return get_initial_q_value(technique_name, self._model_name)
 
     def _reorder_by_failure_type(self, techniques: Sequence[str]) -> list[str]:
         """
-        根据最近失败类型重新排列技术优先级
+        根据策略模式 + 失败类型重新排列技术优先级
 
-        P1 增强：Converter 变体感知
-        P3 增强：Target 类型感知优先级
-        - 技术名称中含 "+" 的为 Converter 变体
-        - model_refusal: 优先 Converter 变体（按 Target 感知优先级排序）+ 编码技术
-        - timeout: 优先无 Converter 的基础技术（减少转换开销）
-        - objective_not_achieved: 优先强技术 + Converter 变体
-        - None（首次）: 按 Target 类型感知优先级排序
+        ASR引导策略 v4.0 排序逻辑:
+        - academic 模式: 策略级优先（多轮迭代 >> LLM辅助 > 编码兜底）
+        - exam 模式: 编码优先 → 角色扮演 → 多轮兜底
+        - balanced 模式: 学术先验排序
 
-        Args:
-            techniques: 原始排序的技术列表
-
-        Returns:
-            重新排序的技术列表
+        失败类型路由（覆盖策略模式）:
+        - model_refusal → 策略升级优先（学术: 换策略比换编码有效 10x）
+        - timeout → 基础单轮技术优先
+        - objective_not_achieved → 强技术 + Converter 变体优先
         """
         tech_list = list(techniques)
         failure_type = self._last_failure_type
 
-        if failure_type is None:
-            # 无失败类型 -> v2.0: OWASP 偏好 + Target 感知默认排序
-            # 优先 owasp_strategy_map 的 default_attack_technique
-            owasp_preferred: list[str] = []
-            if self._owasp_default_technique:
-                owasp_preferred = [
-                    t for t in tech_list
-                    if t == self._owasp_default_technique
-                    or (is_converter_variant(t) and 
-                        t.startswith(self._owasp_default_technique + "+"))
-                ]
-            # Target 感知 Converter 变体排序
-            converter_variants = [t for t in tech_list if is_converter_variant(t)]
-            encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
-            others = [
-                t for t in tech_list
-                if not is_converter_variant(t) and t not in _ENCODING_TECHNIQUES
-                and t not in owasp_preferred
-            ]
-            # P3: Target 感知优先级排序
-            converter_variants.sort(
-                key=lambda t: self._target_aware_sort_key(t)
-            )
-            # v2.0: OWASP 偏好优先，然后 Converter 变体，然后编码，最后其他
-            return owasp_preferred + converter_variants + encoding_base + others
+        # ── 失败类型路由（覆盖策略模式）──
 
         if failure_type == FAILURE_MODEL_REFUSAL:
-            # 模型拒绝 -> Converter 变体优先（编码/混淆绕过内容过滤）
-            logger.info("FailureTypeRouting: model_refusal -> prioritizing converter variants + encoding")
-            converter_variants = [t for t in tech_list if is_converter_variant(t)]
-            encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
-            others = [
-                t for t in tech_list
-                if not is_converter_variant(t) and t not in _ENCODING_TECHNIQUES
-            ]
-            # P3: Target 感知优先级排序
-            converter_variants.sort(
-                key=lambda t: self._target_aware_sort_key(t)
-            )
-            return converter_variants + encoding_base + others
+            return self._reorder_for_model_refusal(tech_list)
 
         if failure_type == FAILURE_TIMEOUT:
-            # 超时 -> 优先无 Converter 的基础单轮技术（减少转换开销和执行时间）
-            logger.info("FailureTypeRouting: timeout -> prioritizing base single_turn (no converter)")
-            # 先取无 Converter 的单轮技术
-            base_single = [
-                t for t in tech_list
-                if not is_converter_variant(t) and t in _SINGLE_TURN_TECHNIQUES
-            ]
-            # 再取 Converter 变体（作为后备）
-            converter_variants = [t for t in tech_list if is_converter_variant(t)]
-            # 最后是多轮和其他
-            others = [
-                t for t in tech_list
-                if not is_converter_variant(t) and t not in _SINGLE_TURN_TECHNIQUES
-            ]
-            return base_single + converter_variants + others
+            return self._reorder_for_timeout(tech_list)
 
         if failure_type == FAILURE_OBJECTIVE_NOT_ACHIEVED:
-            # 目标未达成 -> 强技术 + Converter 变体优先
-            logger.info("FailureTypeRouting: objective_not_achieved -> prioritizing strong techniques + converter variants")
-            # 强技术（多轮升级）
-            strong = [t for t in tech_list if t in _STRONG_TECHNIQUES]
-            # Converter 变体（编码绕过）
-            converter_variants = [t for t in tech_list if is_converter_variant(t)]
-            # P3: Target 感知优先级排序
-            converter_variants.sort(
-                key=lambda t: self._target_aware_sort_key(t)
-            )
-            others = [
-                t for t in tech_list
-                if not is_converter_variant(t) and t not in _STRONG_TECHNIQUES
-            ]
-            return strong + converter_variants + others
+            return self._reorder_for_objective_not_achieved(tech_list)
 
         if failure_type == FAILURE_SCORER_VALIDATION_ERROR:
-            # 评分器验证错误 -> 保持 epsilon-greedy 默认排序
-            logger.info("FailureTypeRouting: scorer_validation_error -> keeping epsilon-greedy order")
-            return tech_list
+            return tech_list  # 保持 epsilon-greedy 默认排序
 
-        # 未知失败类型 -> 保持默认排序
-        return tech_list
+        # ── 无失败类型（首次运行或重置后）──
+
+        if self._strategy_mode == STRATEGY_ACADEMIC:
+            # model_tier 影响初始技术偏好:
+            # - strong: 多轮迭代优先 (Tier S→A→B→encoding, 当前行为)
+            # - moderate: 策略+编码交替 (Tier S→A→encoding→B)
+            # - weak: 编码优先 (encoding→Tier B→A→S, 类似 exam 模式)
+            if self._model_tier == "weak":
+                return self._reorder_exam(tech_list)
+            elif self._model_tier == "moderate":
+                return self._reorder_academic_moderate(tech_list)
+            else:
+                return self._reorder_academic(tech_list)
+        elif self._strategy_mode == STRATEGY_EXAM:
+            return self._reorder_exam(tech_list)
+        else:  # STRATEGY_BALANCED
+            return self._reorder_balanced(tech_list)
+
+    # ------------------------------------------------------------------
+    # 策略模式排序
+    # ------------------------------------------------------------------
+
+    def _reorder_academic(self, tech_list: list[str]) -> list[str]:
+        """
+        academic 模式: 策略级优先 — JailbreakBench 学术 ASR 排序
+
+        Tier S (多轮迭代) → Tier A (树搜索/模拟) → Tier B (说服/角色)
+        → Converter(高ASR技术) → 编码 → Converter(低ASR) → 基线
+        """
+        # OWASP 偏好
+        owasp_preferred = self._get_owasp_preferred(tech_list)
+
+        # 分层
+        tier_s = [t for t in tech_list if t in _TIER_S_TECHNIQUES and t not in owasp_preferred]
+        tier_a = [t for t in tech_list if t in _TIER_A_TECHNIQUES and t not in owasp_preferred]
+        tier_b = [t for t in tech_list if t in _TIER_B_TECHNIQUES and t not in owasp_preferred]
+
+        # Converter 变体: 挂载在高 ASR 技术上的优先
+        converter_on_high = [
+            t for t in tech_list
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) in _HIGH_ASR_TECHNIQUES
+        ]
+        converter_on_high.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        converter_on_low = [
+            t for t in tech_list
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) not in _HIGH_ASR_TECHNIQUES
+        ]
+        converter_on_low.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        # 编码技术（对现代模型 ASR 低, 作为兜底）
+        encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
+
+        # 其他（含 prompt_sending 基线）
+        used = set(owasp_preferred + tier_s + tier_a + tier_b +
+                   converter_on_high + converter_on_low + encoding_base)
+        others = [t for t in tech_list if t not in used]
+
+        # 在每个 Tier 内使用学术先验排序
+        tier_s.sort(key=lambda t: -self._prior_sort_key(t))
+        tier_a.sort(key=lambda t: -self._prior_sort_key(t))
+        tier_b.sort(key=lambda t: -self._prior_sort_key(t))
+
+        return owasp_preferred + tier_s + tier_a + tier_b + converter_on_high + encoding_base + converter_on_low + others
+
+    def _reorder_academic_moderate(self, tech_list: list[str]) -> list[str]:
+        """
+        academic + moderate 模式: 策略+编码交替
+
+        Tier S → Tier A → 编码 → Tier B → Converter → 基线
+        中等过滤模型: 多轮策略可能失效, 编码也有一定 ASR
+        """
+        owasp_preferred = self._get_owasp_preferred(tech_list)
+
+        tier_s = [t for t in tech_list if t in _TIER_S_TECHNIQUES and t not in owasp_preferred]
+        tier_a = [t for t in tech_list if t in _TIER_A_TECHNIQUES and t not in owasp_preferred]
+        tier_b = [t for t in tech_list if t in _TIER_B_TECHNIQUES and t not in owasp_preferred]
+
+        converter_variants = [t for t in tech_list if is_converter_variant(t)]
+        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
+
+        used = set(owasp_preferred + tier_s + tier_a + tier_b + converter_variants + encoding_base)
+        others = [t for t in tech_list if t not in used]
+
+        tier_s.sort(key=lambda t: -self._prior_sort_key(t))
+        tier_a.sort(key=lambda t: -self._prior_sort_key(t))
+        tier_b.sort(key=lambda t: -self._prior_sort_key(t))
+
+        # moderate: 编码提前到 Tier B 之前
+        return owasp_preferred + tier_s + tier_a + encoding_base + tier_b + converter_variants + others
+
+    def _reorder_exam(self, tech_list: list[str]) -> list[str]:
+        """
+        exam 模式: 编码优先 → 角色扮演 → 多轮兜底
+
+        适用于弱过滤模型或考试时间受限场景。
+        编码攻击对弱过滤模型 ASR 50-100%，速度快（15s/plan）。
+        """
+        owasp_preferred = self._get_owasp_preferred(tech_list)
+
+        # OWASP 偏好 → 编码 → Converter 变体 → 角色扮演 → 多轮 → 基线
+        encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES and t not in owasp_preferred]
+        converter_variants = [t for t in tech_list if is_converter_variant(t)]
+        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        role_play = [
+            t for t in tech_list
+            if t in _TIER_B_TECHNIQUES and t not in owasp_preferred
+        ]
+        multi_turn = [
+            t for t in tech_list
+            if t in (_TIER_S_TECHNIQUES | _TIER_A_TECHNIQUES) and t not in owasp_preferred
+        ]
+        used = set(owasp_preferred + encoding_base + converter_variants + role_play + multi_turn)
+        others = [t for t in tech_list if t not in used]
+
+        return owasp_preferred + encoding_base + converter_variants + role_play + multi_turn + others
+
+    def _reorder_balanced(self, tech_list: list[str]) -> list[str]:
+        """
+        balanced 模式: 学术先验排序（全局 Q 值排序）
+
+        直接使用 JailbreakBench ASR 先验对全部技术排序，
+        不区分 Tier，让 Q 值自然排列。
+        """
+        owasp_preferred = self._get_owasp_preferred(tech_list)
+        remaining = [t for t in tech_list if t not in owasp_preferred]
+        remaining.sort(key=lambda t: -self._prior_sort_key(t))
+        return owasp_preferred + remaining
+
+    # ------------------------------------------------------------------
+    # 失败类型路由排序
+    # ------------------------------------------------------------------
+
+    def _reorder_for_model_refusal(self, tech_list: list[str]) -> list[str]:
+        """
+        model_refusal → 策略升级优先
+
+        学术依据: 换策略比换编码有效 10x
+        - Crescendo/PAIR/TAP 的多轮迭代天然绕过单轮拒绝
+        - 编码只改变输入表示, 不改变模型拒绝决策
+        """
+        logger.info("FailureTypeRouting: model_refusal -> prioritizing strategy escalation")
+
+        # 策略升级: Tier S + Tier A 优先
+        tier_s = [t for t in tech_list if t in _TIER_S_TECHNIQUES]
+        tier_a = [t for t in tech_list if t in _TIER_A_TECHNIQUES]
+        tier_b = [t for t in tech_list if t in _TIER_B_TECHNIQUES]
+
+        # Converter 变体（挂载在高 ASR 技术上的）
+        converter_on_high = [
+            t for t in tech_list
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) in _HIGH_ASR_TECHNIQUES
+        ]
+        converter_on_high.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        # 编码兜底
+        encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
+        converter_on_low = [
+            t for t in tech_list
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) not in _HIGH_ASR_TECHNIQUES
+        ]
+        converter_on_low.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        used = set(tier_s + tier_a + tier_b + converter_on_high + encoding_base + converter_on_low)
+        others = [t for t in tech_list if t not in used]
+
+        return tier_s + tier_a + tier_b + converter_on_high + encoding_base + converter_on_low + others
+
+    def _reorder_for_timeout(self, tech_list: list[str]) -> list[str]:
+        """timeout → 基础单轮技术优先（减少执行时间）"""
+        logger.info("FailureTypeRouting: timeout -> prioritizing base single_turn (no converter)")
+
+        base_single = [
+            t for t in tech_list
+            if not is_converter_variant(t) and t in _SINGLE_TURN_TECHNIQUES
+        ]
+        converter_variants = [t for t in tech_list if is_converter_variant(t)]
+        others = [
+            t for t in tech_list
+            if not is_converter_variant(t) and t not in _SINGLE_TURN_TECHNIQUES
+        ]
+        return base_single + converter_variants + others
+
+    def _reorder_for_objective_not_achieved(self, tech_list: list[str]) -> list[str]:
+        """objective_not_achieved → 强技术 + Converter 变体优先"""
+        logger.info("FailureTypeRouting: objective_not_achieved -> prioritizing strong techniques + converter variants")
+
+        strong = [t for t in tech_list if t in _STRONG_TECHNIQUES]
+        strong.sort(key=lambda t: -self._prior_sort_key(t))
+
+        converter_variants = [t for t in tech_list if is_converter_variant(t)]
+        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+
+        others = [
+            t for t in tech_list
+            if not is_converter_variant(t) and t not in _STRONG_TECHNIQUES
+        ]
+        return strong + converter_variants + others
+
+    # ------------------------------------------------------------------
+    # 辅助方法
+    # ------------------------------------------------------------------
+
+    def _get_owasp_preferred(self, tech_list: list[str]) -> list[str]:
+        """获取 OWASP 策略偏好技术"""
+        if not self._owasp_default_technique:
+            return []
+        return [
+            t for t in tech_list
+            if t == self._owasp_default_technique
+            or (is_converter_variant(t) and
+                t.startswith(self._owasp_default_technique + "+"))
+        ]
 
 
 def extract_failure_type_from_result(failed_result) -> str:
     """
     从失败的 AttackResult 提取失败类型
-
-    对齐自建 upgrade_strategy.py 的 extract_failure_type 函数，
-    供 FailureTypeRoutingSelector 使用。
 
     Args:
         failed_result: 失败的 AttackResult 实例

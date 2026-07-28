@@ -96,7 +96,6 @@ class SequentialExecutor:
         steps = plan.prompt_item.sequential_steps
         if not steps:
             # 无步骤时退化为单次攻击（委托 NativeAttackExecutor）
-            from src.executor.attack.core.native_executor import NativeAttackExecutor
             # 使用模块级便捷函数避免循环依赖
             return await self._fallback_single_attack(
                 plan, objective_target, judge_target, attribution=attribution

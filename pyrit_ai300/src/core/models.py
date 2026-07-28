@@ -9,10 +9,17 @@ Core Models
 
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
+
+# PyRIT 原生 TargetCapabilities（对齐 L5 专家水准）
+# 原生模型为 frozen=True，使用 frozenset[frozenset[str]] 模态表示
+# 详见 pyrit.models.target.target_capabilities
+from pyrit.models import TargetCapabilities as _PyRITTargetCapabilities
+
+# Re-export 原生 TargetCapabilities，使项目代码统一使用原生类型
+TargetCapabilities = _PyRITTargetCapabilities
 
 # ============================================================
 # 枚举类型
@@ -64,17 +71,8 @@ class AuthStatus(str, Enum):
 # ============================================================
 
 
-class TargetCapabilities(BaseModel):
-    """目标能力模型（PyRIT 原生）"""
-
-    supports_multi_turn: bool = False
-    supports_editable_history: bool = False
-    supports_system_prompt: bool = False
-    supports_json_output: bool = False
-    input_modalities: List[str] = Field(default_factory=list)
-    output_modalities: List[str] = Field(default_factory=list)
-    # 扩展字段
-    raw_response: Optional[Dict[str, Any]] = None
+# TargetCapabilities 已使用 PyRIT 原生类型（上方 re-export）
+# 如需可变能力对象，请使用 model_copy(update={...}) 创建新实例
 
 
 class ReconResult(BaseModel):
@@ -87,10 +85,27 @@ class ReconResult(BaseModel):
     ai_system_type: AISystemType
     capabilities: TargetCapabilities = Field(default_factory=TargetCapabilities)
     tech_stack: List[str] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # 外部工具推荐（仅非 PyRIT 优势类型）
     external_tools: Optional[List[str]] = None
+
+    # 原始能力探测响应（扩展字段，不在原生 TargetCapabilities 中）
+    raw_capability_response: Optional[Dict[str, Any]] = None
+
+    # 模型过滤强度等级（探测式或静态推断）
+    # "strong" — 强内容过滤 (GPT-4o, Claude 4, Gemini 2.5 Pro 等)
+    # "moderate" — 中等过滤 (Llama 3.3, Qwen 3, DeepSeek V3 等)
+    # "weak" — 弱过滤 (小参数开源模型等)
+    # "unknown" — 未知
+    model_tier: str = "unknown"
+    # 探测详情（探针响应摘要，供调试/展示使用）
+    model_tier_probe_detail: Optional[Dict[str, Any]] = None
+
+    # v3.0: PyRIT Target 类型名（由 TargetFactory.detect_target_type 检测）
+    # 用于载荷预筛选 + Target 感知 Converter 路由
+    # 如 "openai_chat", "http_api", "playwright" 等
+    target_type: str = ""
 
 
 # ============================================================
@@ -108,7 +123,7 @@ class AuthResult(BaseModel):
     error_message: Optional[str] = None
     auth_headers: Dict[str, str] = Field(default_factory=dict)
     session_data: Dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============================================================
@@ -129,7 +144,7 @@ class StrategySelection(BaseModel):
     # 注意：AttackScoringConfig 和 AttackConverterConfig 是 PyRIT 原生类型
     # 不包含在 Pydantic 模型中，由 analysis 层直接构造
 
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============================================================
@@ -277,6 +292,10 @@ def create_recon_result(
     capabilities: TargetCapabilities,
     tech_stack: Optional[List[str]] = None,
     external_tools: Optional[List[str]] = None,
+    raw_capability_response: Optional[Dict[str, Any]] = None,
+    model_tier: str = "unknown",
+    model_tier_probe_detail: Optional[Dict[str, Any]] = None,
+    target_type: str = "",
 ) -> ReconResult:
     """创建侦察结果"""
     return ReconResult(
@@ -287,6 +306,10 @@ def create_recon_result(
         capabilities=capabilities,
         tech_stack=tech_stack or [],
         external_tools=external_tools,
+        raw_capability_response=raw_capability_response,
+        model_tier=model_tier,
+        model_tier_probe_detail=model_tier_probe_detail,
+        target_type=target_type,
     )
 
 

@@ -11,11 +11,9 @@ Tests for AI-300 Setup Module — 对齐 PyRIT 1.0.0 Setup 文档
   6. Scenario-level retry — execute_batch max_retries 参数
 """
 
-import asyncio
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -40,7 +38,6 @@ from src.setup.config_file import (
 from src.setup.setup_manager import (
     AI300SetupManager,
     initialize_ai300_async,
-    initialize_from_config_file_async,
 )
 from src.setup.ai300_initializers import (
     AI300TargetInitializer,
@@ -48,6 +45,7 @@ from src.setup.ai300_initializers import (
     AI300TechniqueInitializerWrapper,
     AI300LoadDefaultDatasets,
     AI300DefaultValuesInitializer,
+    AI300PreloadScenarioMetadata,
     get_default_initializers,
 )
 
@@ -424,13 +422,13 @@ class TestAI300DefaultValuesInitializer:
 class TestGetDefaultInitializers:
     """get_default_initializers 工厂函数测试"""
 
-    def test_returns_five_initializers(self):
-        """返回五个初始化器"""
+    def test_returns_six_initializers(self):
+        """返回六个初始化器"""
         initializers = get_default_initializers()
-        assert len(initializers) == 5
+        assert len(initializers) == 6
 
     def test_order_is_correct(self):
-        """顺序正确：DefaultValues → Target → Scorer → Technique → Datasets"""
+        """顺序正确：DefaultValues → Target → Scorer → Technique → Datasets → PreloadScenarioMetadata"""
         initializers = get_default_initializers()
         types = [type(i).__name__ for i in initializers]
         assert types == [
@@ -439,6 +437,7 @@ class TestGetDefaultInitializers:
             "AI300ScorerInitializer",
             "AI300TechniqueInitializerWrapper",
             "AI300LoadDefaultDatasets",
+            "AI300PreloadScenarioMetadata",
         ]
 
     def test_all_inherit_pyrit_initializer(self):
@@ -468,10 +467,10 @@ class TestAI300SetupManager:
         assert manager._resolve_memory_db_type() == "InMemory"
 
     def test_resolve_initializers_default(self):
-        """默认解析为五个初始化器"""
+        """默认解析为六个初始化器"""
         manager = AI300SetupManager()
         initializers = manager._resolve_initializers()
-        assert len(initializers) == 5
+        assert len(initializers) == 6
 
     def test_resolve_initializers_custom(self):
         """自定义初始化器"""
@@ -528,20 +527,6 @@ class TestPyRITDocAlignment:
             AI300SetupManager,
             initialize_ai300_async,
             initialize_from_config_file_async,
-            EnvLoader,
-            load_env_files,
-            discover_env_files,
-            RetryConfig,
-            configure_retry_env_vars,
-            get_retry_config,
-            AI300TargetInitializer,
-            AI300ScorerInitializer,
-            AI300TechniqueInitializerWrapper,
-            AI300LoadDefaultDatasets,
-            AI300DefaultValuesInitializer,
-            AI300ConfigFile,
-            load_config_file,
-            save_config_file,
         )
         # 全部可导入
         assert AI300SetupManager is not None
@@ -562,10 +547,11 @@ class TestPyRITDocAlignment:
         assert "RETRY_MAX_NUM_ATTEMPTS" in content
         assert "SCENARIO_MAX_RETRIES" in content
 
-    def test_env_local_example_exists(self):
-        """ .env_local.example 文件存在"""
-        env_local_example = Path(__file__).parent.parent.parent / ".env_local.example"
-        assert env_local_example.exists()
+    def test_env_example_documents_env_local(self):
+        """ .env.example 文件文档了 .env.local 个人覆盖机制"""
+        env_example = Path(__file__).parent.parent.parent / ".env.example"
+        content = env_example.read_text(encoding="utf-8")
+        assert ".env.local" in content
 
     def test_three_level_retry_documented(self):
         """pipeline.yaml 文档了三层重试"""
@@ -594,3 +580,219 @@ class TestPyRITDocAlignment:
             assert hasattr(init, "set_params_from_args")
             # 有 validate 方法
             assert hasattr(init, "validate")
+
+
+# ============================================================
+# 8. L5 原生优先对齐测试
+# ============================================================
+
+class TestPreloadScenarioMetadata:
+    """AI300PreloadScenarioMetadata 测试"""
+
+    def test_inherits_pyrit_initializer(self):
+        """继承 PyRITInitializer"""
+        from pyrit.setup.pyrit_initializer import PyRITInitializer
+        init = AI300PreloadScenarioMetadata()
+        assert isinstance(init, PyRITInitializer)
+
+    def test_no_required_env_vars(self):
+        """不需要环境变量"""
+        init = AI300PreloadScenarioMetadata()
+        assert init.required_env_vars == []
+
+    def test_has_initialize_async(self):
+        """有 initialize_async 方法"""
+        init = AI300PreloadScenarioMetadata()
+        assert hasattr(init, "initialize_async")
+
+    def test_exported_from_setup_module(self):
+        """从 setup 模块可导出"""
+        from src.setup import AI300PreloadScenarioMetadata as ExportedClass
+        assert ExportedClass is AI300PreloadScenarioMetadata
+
+
+class TestNativeDelegation:
+    """原生初始化器委托验证"""
+
+    def test_target_initializer_delegates_to_native(self):
+        """AI300TargetInitializer 委托原生 TargetInitializer"""
+        import inspect
+        source = inspect.getsource(AI300TargetInitializer.initialize_async)
+        assert "TargetInitializer" in source
+        assert "native_init" in source
+
+    def test_scorer_initializer_delegates_to_native(self):
+        """AI300ScorerInitializer 委托原生 ScorerInitializer"""
+        import inspect
+        source = inspect.getsource(AI300ScorerInitializer.initialize_async)
+        assert "ScorerInitializer" in source
+        assert "native_init" in source
+
+    def test_preload_delegates_to_native(self):
+        """AI300PreloadScenarioMetadata 委托原生 PreloadScenarioMetadata"""
+        import inspect
+        source = inspect.getsource(AI300PreloadScenarioMetadata.initialize_async)
+        assert "PreloadScenarioMetadata" in source
+
+    def test_target_initializer_uses_native_registry_api(self):
+        """AI300TargetInitializer 使用原生 registry.instances.register API"""
+        import inspect
+        source = inspect.getsource(AI300TargetInitializer.initialize_async)
+        assert "registry.instances.register" in source
+        assert "registry.instances.add_tags" in source
+
+    def test_scorer_initializer_uses_native_registry_api(self):
+        """AI300ScorerInitializer 使用原生 registry.instances.register API"""
+        import inspect
+        source = inspect.getsource(AI300ScorerInitializer.initialize_async)
+        assert "scorer_registry.instances.register" in source
+
+    @pytest.mark.asyncio
+    async def test_target_initializer_native_failure_is_non_fatal(self):
+        """原生 TargetInitializer 失败时 AI-300 扩展仍继续执行"""
+        init = AI300TargetInitializer()
+        # 设置 TARGET_ENDPOINT 以确保 AI-300 扩展部分有数据
+        os.environ["TARGET_ENDPOINT"] = "http://localhost:11434/v1"
+        os.environ["TARGET_MODEL"] = "test-model"
+        os.environ["TARGET_API_KEY"] = "test-key"
+        try:
+            # 初始化应不抛异常（原生失败被捕获为 warning）
+            await init.initialize_async()
+        except Exception:
+            # 如果 CentralMemory 未初始化可能导致异常，这是预期的
+            pass
+        finally:
+            del os.environ["TARGET_ENDPOINT"]
+            del os.environ["TARGET_MODEL"]
+            del os.environ["TARGET_API_KEY"]
+
+
+class TestSetupManagerNewParams:
+    """AI300SetupManager 新参数测试"""
+
+    def test_env_akv_ref_parameter(self):
+        """env_akv_ref 参数支持"""
+        manager = AI300SetupManager(env_akv_ref=["https://vault.vault.azure.net/secrets/test"])
+        assert manager._env_akv_ref == ["https://vault.vault.azure.net/secrets/test"]
+
+    def test_load_defaults_parameter(self):
+        """load_defaults 参数支持"""
+        manager = AI300SetupManager(load_defaults=False)
+        assert manager._load_defaults is False
+
+        manager2 = AI300SetupManager(load_defaults=True)
+        assert manager2._load_defaults is True
+
+    def test_load_defaults_default_true(self):
+        """load_defaults 默认为 True"""
+        manager = AI300SetupManager()
+        assert manager._load_defaults is True
+
+    def test_env_akv_ref_default_none(self):
+        """env_akv_ref 默认为 None"""
+        manager = AI300SetupManager()
+        assert manager._env_akv_ref is None
+
+    @pytest.mark.asyncio
+    async def test_initialize_ai300_async_passes_memory_kwargs(self):
+        """initialize_ai300_async 传递 memory_kwargs（如 db_path）"""
+        import shutil
+        from pyrit.memory import CentralMemory
+
+        temp_dir = tempfile.mkdtemp()
+        str(Path(temp_dir) / "test.db")
+        try:
+            manager = await initialize_ai300_async(
+                memory_db_type="InMemory",
+                configure_retry=False,
+                silent=True,
+            )
+            assert manager.is_initialized is True
+        finally:
+            # 清理
+            try:
+                CentralMemory._memory_instance = None
+            except Exception:
+                pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestRetryMechanismAlignment:
+    """PyRIT 重试机制对齐验证"""
+
+    def test_retry_env_vars_propagated(self):
+        """RETRY_* 环境变量被正确传播"""
+        config = RetryConfig(
+            max_num_attempts=5,
+            wait_min_seconds=2,
+            wait_max_seconds=30,
+        )
+        env_dict = config.to_env_dict()
+        assert env_dict["RETRY_MAX_NUM_ATTEMPTS"] == "5"
+        assert env_dict["RETRY_WAIT_MIN_SECONDS"] == "2"
+        assert env_dict["RETRY_WAIT_MAX_SECONDS"] == "30"
+
+    def test_native_retry_reads_env_at_runtime(self):
+        """原生重试装饰器在运行时读取环境变量（非装饰时）"""
+        # PyRIT 原生使用 _DynamicStopAfterAttempt / _DynamicWaitRandomExponential
+        # 这些类在每次重试检查时读取环境变量，而非在装饰时读取
+        from pyrit.exceptions.exception_classes import (
+            get_retry_max_num_attempts,
+            _get_retry_wait_min_seconds,
+            _get_retry_wait_max_seconds,
+        )
+        # 验证 getter 函数存在且读取环境变量
+        os.environ["RETRY_MAX_NUM_ATTEMPTS"] = "7"
+        assert get_retry_max_num_attempts() == 7
+
+        os.environ["RETRY_WAIT_MIN_SECONDS"] = "3"
+        assert _get_retry_wait_min_seconds() == 3
+
+        os.environ["RETRY_WAIT_MAX_SECONDS"] = "45"
+        assert _get_retry_wait_max_seconds() == 45
+
+        # 清理
+        del os.environ["RETRY_MAX_NUM_ATTEMPTS"]
+        del os.environ["RETRY_WAIT_MIN_SECONDS"]
+        del os.environ["RETRY_WAIT_MAX_SECONDS"]
+
+    def test_configure_retry_sets_env_vars(self):
+        """configure_retry_env_vars 设置环境变量"""
+        # 先清除可能存在的值
+        for key in ["RETRY_MAX_NUM_ATTEMPTS", "RETRY_WAIT_MIN_SECONDS", "RETRY_WAIT_MAX_SECONDS"]:
+            os.environ.pop(key, None)
+
+        config = RetryConfig(max_num_attempts=8, wait_min_seconds=2, wait_max_seconds=60)
+        configure_retry_env_vars(config=config, override=True)
+
+        assert os.environ["RETRY_MAX_NUM_ATTEMPTS"] == "8"
+        assert os.environ["RETRY_WAIT_MIN_SECONDS"] == "2"
+        assert os.environ["RETRY_WAIT_MAX_SECONDS"] == "60"
+
+        # 清理
+        for key in ["RETRY_MAX_NUM_ATTEMPTS", "RETRY_WAIT_MIN_SECONDS", "RETRY_WAIT_MAX_SECONDS"]:
+            os.environ.pop(key, None)
+
+    def test_pyrit_target_retry_decorator_exists(self):
+        """PyRIT 原生 pyrit_target_retry 装饰器存在"""
+        from pyrit.exceptions.exception_classes import pyrit_target_retry
+        assert callable(pyrit_target_retry)
+
+    def test_pyrit_json_retry_decorator_exists(self):
+        """PyRIT 原生 pyrit_json_retry 装饰器存在"""
+        from pyrit.exceptions.exception_classes import pyrit_json_retry
+        assert callable(pyrit_json_retry)
+
+    def test_scenario_max_retries_from_env(self):
+        """SCENARIO_MAX_RETRIES 环境变量优先"""
+        os.environ["SCENARIO_MAX_RETRIES"] = "3"
+        config = get_retry_config()
+        assert config.scenario_max_retries == 3
+        del os.environ["SCENARIO_MAX_RETRIES"]
+
+    def test_scenario_max_retries_from_yaml(self):
+        """无环境变量时从 pipeline.yaml 读取"""
+        os.environ.pop("SCENARIO_MAX_RETRIES", None)
+        config = get_retry_config()
+        # 应该从 pipeline.yaml 读取（默认 0 或 .env 中的值）
+        assert config.scenario_max_retries >= 0

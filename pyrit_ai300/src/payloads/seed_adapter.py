@@ -20,7 +20,6 @@ from typing import Any, List, Optional, Sequence
 
 # 全部从 pyrit.models 公共 API 导入（SeedGroup/AttackSeedGroup 已在 pyrit.models.__init__ 中导出）
 from pyrit.models import (
-    AttackSeedGroup,
     SeedDataset,
     SeedGroup,
     SeedObjective,
@@ -174,6 +173,10 @@ class SeedPromptAdapter:
         # 检测多模态种子（image_path / audio_path）
         multimodal_pieces = SeedPromptAdapter._extract_multimodal_pieces(prompts)
 
+        # 提取结构化输出约束（PyRIT 1.0.0 response_json_schema）
+        # SeedPrompt.response_json_schema 由 YAML 加载时自动解析（含 response_json_schema_name → response_json_schema）
+        response_json_schema = SeedPromptAdapter._extract_response_json_schema(prompts, objective)
+
         # 构建 metadata
         meta = {**first_meta}
         if objective_value is not None:
@@ -191,6 +194,9 @@ class SeedPromptAdapter:
             meta["multimodal"] = multimodal_pieces
             meta["has_multimodal"] = True
 
+        if response_json_schema:
+            meta["has_response_json_schema"] = True
+
         # 根据 attack_mode 构建不同结构
         if attack_mode == AttackMode.MULTI_TURN and prompts:
             return PromptItem(
@@ -201,6 +207,7 @@ class SeedPromptAdapter:
                 source_id=dataset_name,
                 category=first_meta.get("category"),
                 multi_turn_steps=[p.value for p in prompts],
+                response_json_schema=response_json_schema,
                 metadata=meta,
             )
 
@@ -221,6 +228,7 @@ class SeedPromptAdapter:
                 source_id=dataset_name,
                 category=first_meta.get("category"),
                 sequential_steps=steps,
+                response_json_schema=response_json_schema,
                 metadata=meta,
             )
 
@@ -237,6 +245,7 @@ class SeedPromptAdapter:
                         source_id=dataset_name,
                         category=first_meta.get("category"),
                         converter_chains=first_meta.get("converter_chains", []),
+                        response_json_schema=response_json_schema,
                         metadata=meta,
                     )
                 return None
@@ -253,6 +262,8 @@ class SeedPromptAdapter:
             if multimodal_pieces:
                 item_meta["multimodal"] = multimodal_pieces
                 item_meta["has_multimodal"] = True
+            if response_json_schema:
+                item_meta["has_response_json_schema"] = True
             return PromptItem(
                 id=str(getattr(p, "id", "")) or p.value[:50],
                 objective=p.value,
@@ -261,8 +272,47 @@ class SeedPromptAdapter:
                 source_id=dataset_name,
                 category=p_meta.get("category"),
                 converter_chains=p_meta.get("converter_chains", []),
+                response_json_schema=response_json_schema,
                 metadata=item_meta,
             )
+
+    @staticmethod
+    def _extract_response_json_schema(
+        prompts: Sequence[SeedPrompt],
+        objective: Optional[Any] = None,
+    ) -> Optional[dict[str, Any]]:
+        """
+        从 SeedPrompt 列表或 SeedObjective 中提取 response_json_schema
+
+        PyRIT 1.0.0 SeedPrompt 支持 response_json_schema 字段（内联 JSON Schema），
+        用于约束 Target 的响应格式。YAML 中的 response_json_schema_name 由
+        SeedPrompt 的 _resolve_response_json_schema_name 验证器在加载时自动解析
+        为 response_json_schema。
+
+        提取策略：
+        1. 优先从 SeedPrompt.response_json_schema 提取（第一个非 None 的）
+        2. 回退到 SeedObjective.response_json_schema（如果 objective 有此字段）
+
+        Args:
+            prompts: SeedPrompt 列表
+            objective: 可选的 SeedObjective
+
+        Returns:
+            JSON Schema 字典，或 None 如果未设置
+        """
+        # 从 SeedPrompt 提取
+        for p in prompts:
+            schema = getattr(p, "response_json_schema", None)
+            if schema is not None:
+                return schema
+
+        # 从 SeedObjective 回退提取
+        if objective is not None:
+            schema = getattr(objective, "response_json_schema", None)
+            if schema is not None:
+                return schema
+
+        return None
 
     @staticmethod
     def _extract_multimodal_pieces(prompts: Sequence[SeedPrompt]) -> List[dict[str, Any]]:

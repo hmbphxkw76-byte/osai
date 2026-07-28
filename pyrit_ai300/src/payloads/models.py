@@ -57,6 +57,11 @@ class PromptItem(BaseModel):
     # 仅 SEQUENTIAL 模式
     sequential_steps: List[SequentialStep] = Field(default_factory=list)
 
+    # 结构化输出约束（PyRIT 1.0.0 对齐）
+    # response_json_schema: 内联 JSON Schema，约束 Target 响应格式
+    # 设置后传播到 MessagePiece.prompt_metadata，由 Target 原生处理
+    response_json_schema: Optional[Dict[str, Any]] = None
+
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

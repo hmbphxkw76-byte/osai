@@ -73,6 +73,7 @@ from src.executor.attack.core.native_executor import (
     execute_single_attack,
     validate_attack_plan,
     get_attack_execution_summary,
+    reset_executor,
 )
 from src.executor.attack.core.scenario_event_handler import ScenarioEventHandler
 
@@ -119,6 +120,7 @@ __all__ = [
     "execute_single_attack",
     "validate_attack_plan",
     "get_attack_execution_summary",
+    "reset_executor",
     "ScenarioEventHandler",
     # Layer 3: Compound
     "SequentialExecutor",

@@ -20,7 +20,7 @@ Test coverage:
 
 import inspect
 import math
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -511,7 +511,7 @@ class TestGroupFallbackExecutorOWASPAware:
             return tier_a_result
 
         with patch("src.executor.execute_batch_attacks", side_effect=mock_execute):
-            result = await executor.execute_with_fallback(
+            await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
                 strategy=__import__(

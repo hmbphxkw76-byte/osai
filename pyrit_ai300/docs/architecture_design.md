@@ -1,21 +1,24 @@
 # PyRIT端到端全自动AI红队框架设计文档
 
-**版本**: v9.0 (L5专家级 - OffSec AI-300考试版 - 五层+②.5数据驱动架构 - 三层渐进式选择 - NativeAttackExecutor Facade - 含开发规则)  
+**版本**: v10.0 (L5专家级 - OffSec AI-300考试版 - 统一AdaptiveScenario路径 - Converter-Aware v3.0 - 15种Target - 含开发规则)  
 **PyRIT版本**: 1.0.0（已安装验证）  
 **设计原则**: 原生优先、数据驱动、五层架构、顺序管道、可扩展、优势聚焦  
 **对齐标准**: OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) + OWASP Top 10 for Agentic AI (ASI01-ASI10) + OffSec AI-300考试范围  
 **核心定位**: 仅覆盖PyRIT框架有实现优势的提示词层面攻击，非优势领域推荐外部工具  
 **架构对齐度**: 98% (L5专家级)
 **关键架构变更**:
+- 统一AdaptiveScenario执行路径（双轨已消除 — AI300AdaptiveScenario extends AdaptiveScenario）
+- Converter-Aware Adaptive Architecture v3.0（原生extra_request_converters渐进式升级 + 失败类型路由 + SelectorScope）
 - 五层+②.5数据驱动架构（①数据准备→②数据管理→②.5交互选择→③攻击准备→④攻击执行→⑤评估追踪）
-- ②.5 三层渐进式披露系统（Layer 1: TargetProfileRouter → Layer 2: ASRRankBuilder → Layer 3: TieredSelectionWizard）— 724载荷→3决策点
-- ④ 组级ASR降级链执行器（GroupFallbackExecutor — S→A→B→C 逐层降级，首次成功停止）
-- NativeAttackExecutor Facade（统一执行入口，按技术类型分派）
-- 11种Target类型全覆盖（OpenAI SDK/HTTP/浏览器/WebSocket/Azure服务/调试）
+- ②.5 三层渐进式披露系统（Layer 1: TargetProfileRouter → Layer 2: ASRRankBuilder → Layer 3: TieredSelectionWizard）
+- 15种Target类型全覆盖（OpenAI SDK/HTTP/浏览器/WebSocket/Azure服务/多模态/调试）
+- TargetParams 70+字段（推理参数/httpx_client_kwargs/extra_body_parameters/TokenizerTemplateNormalizer）
+- 三层最优停止策略（L1 FIRST_SUCCESS + L2 OWASP阈值 + L3 全局首停）
+- 6个初始化器原生优先（AI300SetupManager + 委托原生TargetInitializer/ScorerInitializer）
+- Core原生集成（TargetCapabilities/ConfigLoader/RegistryManager/Logger 全部原生）
 - 三级证据链（Finding→AttackResult→Conversation）
-- 差异化超时 + 升级重试机制
 **文档状态**: 整合后单一架构设计文档（含开发规则）
-**相关文档**: `docs/architecture_assessment.md`（L5架构评估）、`docs/development_guidelines.md`（开发规范）
+**相关文档**: `docs/architecture_assessment.md`（L5架构评估v2.0）、`docs/development_guidelines.md`（开发规范）、`docs/scenario.md`（Scenario子系统）、`docs/converter_aware_adaptive_architecture.md`（v3.0架构）
 
 ---
 

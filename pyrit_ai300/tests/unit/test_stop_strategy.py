@@ -19,10 +19,8 @@ Test coverage:
   9. Disabled state (threshold=0.0, stop_on_first_success=False)
 """
 
-import math
 from unittest.mock import MagicMock
 
-import pytest
 
 from src.executor.workflow.stop_strategy import (
     MAX_REQUIRED_SUCCESSES,

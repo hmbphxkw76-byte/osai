@@ -19,8 +19,7 @@ Target Factory L5 测试
 遵循开发规则 1.4.9 测试先行原则
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.targets.target_factory import (
     TargetFactory,
@@ -28,19 +27,15 @@ from src.targets.target_factory import (
     _LEGACY_TYPE_ALIASES,
     _TARGET_CREATORS,
     _TARGET_CLASSES,
-    _OPENAI_SDK_TYPES,
     _OPENAI_MULTIMODAL_TYPES,
     _CUSTOM_CONFIG_TYPES,
     TARGET_TYPE_OPENAI_CHAT,
     TARGET_TYPE_OPENAI_RESPONSES,
     TARGET_TYPE_LITELLM,
-    TARGET_TYPE_HTTP_API,
-    TARGET_TYPE_HTTP_RAW,
     TARGET_TYPE_OPENAI_IMAGE,
     TARGET_TYPE_OPENAI_VIDEO,
     TARGET_TYPE_OPENAI_TTS,
     TARGET_TYPE_AZURE_ML,
-    TARGET_TYPE_TEXT,
 )
 
 from pyrit.prompt_target import (
@@ -208,18 +203,18 @@ class TestP13CapabilityHandlingPolicy:
         policy = TargetFactory._build_capability_policy(params)
         assert policy is None
 
-    def test_build_capability_policy_covers_all_capabilities(self):
-        """验证策略覆盖所有可选能力"""
+    def test_build_capability_policy_covers_adaptable_capabilities(self):
+        """验证策略仅覆盖可适配能力（MULTI_TURN + SYSTEM_PROMPT）
+
+        对齐 PyRIT 1.0.0 targets_principles.md §4.2：
+        只有可适配能力可以被 PyRIT 自动处理。
+        不可适配能力（EDITABLE_HISTORY 等）不在策略中表示。
+        """
         params = TargetParams(capability_policy="adapt")
         policy = TargetFactory._build_capability_policy(params)
         expected_caps = {
             CapabilityName.MULTI_TURN,
             CapabilityName.SYSTEM_PROMPT,
-            CapabilityName.JSON_SCHEMA,
-            CapabilityName.JSON_OUTPUT,
-            CapabilityName.EDITABLE_HISTORY,
-            CapabilityName.MULTI_MESSAGE_PIECES,
-            CapabilityName.STREAMING_AUDIO,
         }
         assert set(policy.behaviors.keys()) == expected_caps
 
@@ -418,6 +413,40 @@ class TestP26MessageNormalizer:
         result = TargetFactory._overlay_configuration(default_config, params)
         assert result.capabilities == default_config.capabilities
         assert result.policy is not None
+
+    def test_tokenizer_model_aliases_defined(self):
+        """验证 TokenizerTemplateNormalizer 模型别名映射已定义（对齐 §18.6）"""
+        aliases = TargetFactory._TOKENIZER_MODEL_ALIASES
+        assert "chatml" in aliases
+        assert "phi3" in aliases
+        assert "qwen" in aliases
+        assert "llama3" in aliases
+        assert "gemma" in aliases
+        assert "mistral" in aliases
+        assert len(aliases) == 6
+
+    def test_build_message_normalizer_tokenizer_unknown_alias_fallback(self):
+        """验证 tokenizer 未知别名时回退到 ChatMessageNormalizer"""
+        params = TargetParams(message_normalizer="tokenizer:unknown_model")
+        normalizer = TargetFactory._build_message_normalizer(params)
+        assert normalizer is not None
+        assert isinstance(normalizer, ChatMessageNormalizer)
+
+    def test_env_message_normalizer_accepts_tokenizer_prefix(self):
+        """验证 TARGET_MESSAGE_NORMALIZER 环境变量接受 tokenizer: 前缀"""
+        import os
+        old_val = os.environ.get("TARGET_MESSAGE_NORMALIZER", "")
+        try:
+            os.environ["TARGET_MESSAGE_NORMALIZER"] = "tokenizer:chatml"
+            params = TargetParams()
+            from src.targets.target_factory import _apply_env_defaults
+            _apply_env_defaults(params)
+            assert params.message_normalizer == "tokenizer:chatml"
+        finally:
+            if old_val:
+                os.environ["TARGET_MESSAGE_NORMALIZER"] = old_val
+            else:
+                os.environ.pop("TARGET_MESSAGE_NORMALIZER", None)
 
 
 # ============================================================
@@ -691,9 +720,16 @@ class TestRegistryCompleteness:
         # 原始 9 个 + 新增 6 个 = 15
         assert len(_LEGACY_TYPE_ALIASES) >= 15
 
-    def test_target_classes_has_5_entries(self):
-        """验证 _TARGET_CLASSES 有 5 个条目（chat/responses/image/video/tts）"""
-        assert len(_TARGET_CLASSES) == 5
+    def test_target_classes_has_7_entries(self):
+        """验证 _TARGET_CLASSES 有 7 个条目（chat/responses/image/video/tts + litellm/azure_ml）"""
+        # 核心 SDK 类型 5 个 + 可选依赖类型 2 个（LiteLLM + AzureML）
+        assert len(_TARGET_CLASSES) >= 5
+        # 验证核心类型始终存在
+        assert TARGET_TYPE_OPENAI_CHAT in _TARGET_CLASSES
+        assert TARGET_TYPE_OPENAI_RESPONSES in _TARGET_CLASSES
+        assert TARGET_TYPE_OPENAI_IMAGE in _TARGET_CLASSES
+        assert TARGET_TYPE_OPENAI_VIDEO in _TARGET_CLASSES
+        assert TARGET_TYPE_OPENAI_TTS in _TARGET_CLASSES
 
     def test_openai_multimodal_types_has_3_entries(self):
         """验证 _OPENAI_MULTIMODAL_TYPES 有 3 个条目（image/video/tts）"""

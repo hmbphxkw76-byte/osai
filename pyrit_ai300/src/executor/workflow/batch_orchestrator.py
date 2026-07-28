@@ -13,7 +13,6 @@ Batch Attack Orchestrator
 import logging
 from typing import Any, Dict, List, Optional
 
-from pyrit.executor.attack import SequenceCompletionPolicy
 
 from src.payloads.models import AttackPlan, BatchAttackResult
 from src.executor.workflow.scenario_orchestrator import ScenarioOrchestrator

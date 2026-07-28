@@ -19,8 +19,6 @@ from typing import Any, Dict, List, Optional
 from pyrit.executor.attack import (
     AttackAdversarialConfig,
     AttackConverterConfig,
-    AttackExecutor,
-    AttackExecutorResult,
     AttackParameters,
     AttackScoringConfig,
     AttackStrategy,
@@ -32,9 +30,7 @@ from pyrit.executor.attack import (
     PrependedConversationConfig,
     PromptSendingAttack,
     RedTeamingAttack,
-    SequenceCompletionPolicy,
     SequentialAttack,
-    SequentialChildAttack,
     SkeletonKeyAttack,
     TAPAttack,
     TreeOfAttacksWithPruningAttack,

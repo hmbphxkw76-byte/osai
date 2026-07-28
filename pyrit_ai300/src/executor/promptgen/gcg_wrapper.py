@@ -42,11 +42,10 @@ PyRIT 原生定位：
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from pyrit.models import (
     Seed,
-    SeedObjective,
     SeedPrompt,
 )
 
@@ -344,7 +343,6 @@ class GCGWrapper:
             )
             return []
 
-        torch = self._torch
         cfg = self._config
 
         # 合并 kwargs 覆盖
@@ -512,7 +510,6 @@ class GCGWrapper:
 
                 # 4b. 创建 embedding（使用 one-hot trick 计算梯度）
                 embed_layer = model.get_input_embeddings()
-                input_embeds = embed_layer(full_input).to(device)
 
                 # 4c. 前向传播 + 计算梯度
                 # 使用 one-hot trick：对 adv_tokens 位置创建可微的 one-hot
@@ -562,7 +559,6 @@ class GCGWrapper:
                     # 4h. 采样 search_width 个候选
                     # 每个候选随机选择 adv_len 个位置中的一些位置进行替换
                     candidates = []
-                    candidate_losses = []
 
                     for _ in range(min(batch_size, cfg.search_width)):
                         # 随机选择替换位置（至少替换 1 个）
@@ -737,13 +733,6 @@ class GCGWrapper:
             import warnings
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=Warning)
-                from pyrit.executor.promptgen.gcg import (
-                    GCGConfig as PyritGCGConfig,
-                    GCGDataConfig,
-                    GCGModelConfig,
-                    GCGAlgorithmConfig,
-                    GCGOutputConfig,
-                )
                 from pyrit.executor.promptgen.gcg.gcg_generator import GCGGenerator
         except ImportError as e:
             logger.warning(f"PyRIT GCG AML module not available: {e}")

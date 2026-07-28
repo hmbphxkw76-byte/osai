@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.local
+.env_local
 
 
 # Output

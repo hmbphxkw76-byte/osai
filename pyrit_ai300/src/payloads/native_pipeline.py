@@ -36,7 +36,6 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence
 
 from pyrit.models import (
-    AttackSeedGroup,
     SeedGroup,
 )
 

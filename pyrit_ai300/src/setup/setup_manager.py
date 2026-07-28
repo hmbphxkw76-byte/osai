@@ -39,10 +39,10 @@ from typing import Any, Optional, Sequence
 from pyrit.setup import initialize_pyrit_async
 from pyrit.setup.pyrit_initializer import PyRITInitializer
 
-from src.setup.env_loader import EnvLoader, discover_env_files, load_env_files
-from src.setup.retry_config import RetryConfig, configure_retry_env_vars, get_retry_config
+from src.setup.env_loader import EnvLoader, discover_env_files
+from src.setup.retry_config import RetryConfig, configure_retry_env_vars
 from src.setup.ai300_initializers import get_default_initializers
-from src.setup.config_file import AI300ConfigFile, load_config_file
+from src.setup.config_file import load_config_file
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,8 @@ class AI300SetupManager:
         initializers: Optional[Sequence[PyRITInitializer]] = None,
         initialization_scripts: Optional[Sequence[str | Path]] = None,
         env_files: Optional[Sequence[Path | str]] = None,
+        env_akv_ref: Optional[Sequence[str]] = None,
+        load_defaults: bool = True,
         silent: bool = False,
         configure_retry: bool = True,
     ) -> None:
@@ -87,6 +89,8 @@ class AI300SetupManager:
             initializers: 初始化器列表；None 时使用默认序列
             initialization_scripts: 外部初始化脚本路径列表
             env_files: 显式环境文件路径；None 时自动发现
+            env_akv_ref: Azure Key Vault 密钥 URL 列表（对齐原生）
+            load_defaults: 无 initializers 时是否加载原生默认初始化器
             silent: 是否静默模式（不打印日志）
             configure_retry: 是否自动配置重试环境变量
         """
@@ -95,6 +99,8 @@ class AI300SetupManager:
         self._initializers = initializers
         self._initialization_scripts = initialization_scripts
         self._env_files = env_files
+        self._env_akv_ref = env_akv_ref
+        self._load_defaults = load_defaults
         self._silent = silent
         self._configure_retry = configure_retry
 
@@ -143,20 +149,14 @@ class AI300SetupManager:
             logger.warning("AI300SetupManager: already initialized, skipping")
             return {"status": "already_initialized"}
 
-        # Step 1: 环境变量加载
+        # Step 1: 发现环境文件（不预加载，交给原生 initialize_pyrit_async 统一加载）
         self._loaded_env_files = self._resolve_env_files()
-        if self._loaded_env_files:
-            for env_file in self._loaded_env_files:
-                load_env_files([env_file])
-            if not self._silent:
-                print(f"Found environment files: {[str(f) for f in self._loaded_env_files]}")
-                for f in self._loaded_env_files:
-                    print(f"Loaded environment file: {f}")
-        else:
-            if not self._silent:
-                print("No default environment files found. Using system environment variables only.")
+        if self._loaded_env_files and not self._silent:
+            print(f"Found environment files: {[str(f) for f in self._loaded_env_files]}")
+        elif not self._silent:
+            print("No default environment files found. Using system environment variables only.")
 
-        # Step 1.5: 重试配置传播
+        # Step 1.5: 重试配置传播（设置 RETRY_* 环境变量）
         if self._configure_retry:
             self._retry_config = configure_retry_env_vars()
             if not self._silent:
@@ -171,15 +171,24 @@ class AI300SetupManager:
         if db_path and memory_db_type in ("SQLite", "sqlite"):
             memory_kwargs["db_path"] = db_path
 
+        # 合并从 initialize_ai300_async 传入的额外 memory_kwargs（如 db_path）
+        extra_kwargs = getattr(self, "_extra_memory_kwargs", None)
+        if extra_kwargs:
+            memory_kwargs.update(extra_kwargs)
+
         # Step 3: 初始化器执行
         initializers = self._resolve_initializers()
 
-        # 调用 PyRIT 原生 initialize_pyrit_async
+        # 调用 PyRIT 原生 initialize_pyrit_async（统一处理 env 文件加载）
+        # 注意：不在本地预加载 env 文件，由原生 _load_environment_files 统一处理
+        # 这避免了同一文件被 dotenv.load_dotenv 加载两次的问题
         await initialize_pyrit_async(
             memory_db_type=memory_db_type,
             initializers=initializers if initializers else None,
             initialization_scripts=self._initialization_scripts,
             env_files=self._loaded_env_files if self._loaded_env_files else None,
+            env_akv_ref=self._env_akv_ref,
+            load_defaults=self._load_defaults,
             silent=self._silent,
             **memory_kwargs,
         )
@@ -231,12 +240,15 @@ async def initialize_ai300_async(
     initializers: Optional[Sequence[PyRITInitializer]] = None,
     initialization_scripts: Optional[Sequence[str | Path]] = None,
     project_root: Optional[Path] = None,
+    env_files: Optional[Sequence[Path | str]] = None,
+    env_akv_ref: Optional[Sequence[str]] = None,
+    load_defaults: bool = True,
     silent: bool = False,
     configure_retry: bool = True,
     **memory_kwargs: Any,
 ) -> AI300SetupManager:
     """
-    AI-300 一站式初始化
+    AI-300 一站式初始化（L5 原生优先）
 
     对齐 PyRIT 文档的 Quick Start:
       from pyrit.setup import initialize_pyrit_async
@@ -247,18 +259,21 @@ async def initialize_ai300_async(
       )
 
     本函数封装了完整的三步初始化流程：
-      1. 自动发现并加载 .env / .env_local
+      1. 自动发现并加载 .env / .env_local（由原生统一加载）
       2. 从配置读取数据库类型和路径
-      3. 使用默认 AI-300 初始化器序列
+      3. 使用默认 AI-300 初始化器序列（原生优先 + AI-300 扩展）
 
     Args:
         memory_db_type: 数据库类型 ("InMemory" / "SQLite" / "AzureSQL")
         initializers: 初始化器列表；None 时使用默认序列
         initialization_scripts: 外部初始化脚本路径
         project_root: 项目根目录
+        env_files: 显式环境文件路径
+        env_akv_ref: Azure Key Vault 密钥 URL 列表
+        load_defaults: 无 initializers 时是否加载原生默认初始化器
         silent: 静默模式
         configure_retry: 是否自动配置重试
-        **memory_kwargs: 传递给 initialize_pyrit_async 的额外参数
+        **memory_kwargs: 传递给 initialize_pyrit_async 的额外参数（如 db_path）
 
     Returns:
         AI300SetupManager 实例（可用于查询初始化结果）
@@ -268,8 +283,8 @@ async def initialize_ai300_async(
         from src.setup import initialize_ai300_async
         await initialize_ai300_async()
 
-        # 指定 InMemory 数据库
-        await initialize_ai300_async(memory_db_type="InMemory")
+        # 指定 SQLite + 自定义 db_path
+        await initialize_ai300_async(memory_db_type="SQLite", db_path="/tmp/exam.db")
 
         # 使用自定义初始化器
         from src.setup import AI300TargetInitializer, AI300ScorerInitializer
@@ -282,15 +297,18 @@ async def initialize_ai300_async(
         memory_db_type=memory_db_type,
         initializers=initializers,
         initialization_scripts=initialization_scripts,
+        env_files=env_files,
+        env_akv_ref=env_akv_ref,
+        load_defaults=load_defaults,
         silent=silent,
         configure_retry=configure_retry,
     )
 
-    # 传递额外的 memory_kwargs
+    # 传递额外的 memory_kwargs（如 db_path）
     if memory_kwargs:
-        # 如果有额外的 memory 参数，需要绕过 manager 直接调用
-        # 但大部分情况不需要
-        pass
+        # 直接注入到 manager 的 initialize_async 中
+        # 通过临时属性传递，initialize_async 已支持 **memory_kwargs
+        manager._extra_memory_kwargs = memory_kwargs
 
     await manager.initialize_async()
     return manager
@@ -343,6 +361,8 @@ async def initialize_from_config_file_async(
         initializers=initializers if initializers else None,
         initialization_scripts=config.initialization_scripts if config.initialization_scripts else None,
         env_files=[Path(f) for f in config.env_files] if config.env_files else None,
+        env_akv_ref=config.env_akv_ref if config.env_akv_ref else None,
+        load_defaults=False,
         silent=config.silent,
         configure_retry=True,
     )

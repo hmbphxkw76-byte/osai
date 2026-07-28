@@ -48,7 +48,7 @@ Target Factory — L5 Expert Implementation
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
@@ -80,7 +80,6 @@ from pyrit.prompt_target.http_target.http_target_callback_functions import (
     get_http_target_regex_matching_callback_function,
 )
 from pyrit.auth import (
-    get_azure_openai_auth,
     is_azure_openai_endpoint,
 )
 from pyrit.message_normalizer import (
@@ -429,7 +428,7 @@ class TargetFactory:
 
         # Azure 端点 + 无 API Key → Entra ID
         if is_azure_openai_endpoint(endpoint) and not params.api_key:
-            logger.info(f"Azure OpenAI endpoint detected without API key → using Entra ID (identity)")
+            logger.info("Azure OpenAI endpoint detected without API key → using Entra ID (identity)")
             return "identity"
 
         return "api_key"
@@ -678,10 +677,13 @@ class TargetFactory:
         - "adapt": 自动适配（如 system prompt 不支持时 squash 到 user 消息）
         - "raise": 抛出异常
 
-        默认策略（不设置时）：
-        - SYSTEM_PROMPT → RAISE
-        - MULTI_TURN → RAISE
-        - JSON_SCHEMA → ADAPT
+        对齐 PyRIT 1.0.0 原理（targets_principles.md §4.2）：
+        只有 *可适配* 能力可以被 PyRIT 自动处理：
+        - MULTI_TURN → HistorySquashNormalizer（将对话历史扁平化为单条提示）
+        - SYSTEM_PROMPT → GenericSystemSquashNormalizer（将系统消息合并到用户消息）
+
+        不可适配能力（如 EDITABLE_HISTORY、MULTI_MESSAGE_PIECES、STREAMING_AUDIO、
+        JSON_OUTPUT、JSON_SCHEMA）不在策略中表示；在不支持的目标上请求它们总是抛出异常。
 
         Args:
             params: 目标参数
@@ -694,33 +696,42 @@ class TargetFactory:
 
         behavior = UnsupportedCapabilityBehavior.ADAPT if params.capability_policy == "adapt" else UnsupportedCapabilityBehavior.RAISE
 
-        # 对所有可选能力统一应用用户指定策略
+        # 仅对可适配能力应用策略（对齐 PyRIT 1.0.0 §4.2）
+        # 不可适配能力（EDITABLE_HISTORY 等）不在策略中表示，
+        # 在不支持的目标上请求它们总是抛出异常
         behaviors = {
             CapabilityName.MULTI_TURN: behavior,
             CapabilityName.SYSTEM_PROMPT: behavior,
-            CapabilityName.JSON_SCHEMA: behavior,
-            CapabilityName.JSON_OUTPUT: behavior,
-            CapabilityName.EDITABLE_HISTORY: behavior,
-            CapabilityName.MULTI_MESSAGE_PIECES: behavior,
-            CapabilityName.STREAMING_AUDIO: behavior,
         }
 
-        logger.info(f"CapabilityHandlingPolicy: {params.capability_policy} for all capabilities")
+        logger.info(f"CapabilityHandlingPolicy: {params.capability_policy} for adaptable capabilities (MULTI_TURN, SYSTEM_PROMPT)")
         return CapabilityHandlingPolicy(behaviors=behaviors)
 
     # ──────────────────────────────────────
-    # 4d. MessageNormalizer 构建 (P2-6: ChatMessageNormalizer 集成)
+    # 4d. MessageNormalizer 构建 (P2-6: ChatMessageNormalizer 集成 + TokenizerTemplateNormalizer)
     # ──────────────────────────────────────
 
+    # TokenizerTemplateNormalizer 模型别名映射（对齐 targets_principles.md §18.6）
+    _TOKENIZER_MODEL_ALIASES: Dict[str, str] = {
+        "chatml": "HuggingFaceH4/zephyr-7b-beta",
+        "phi3": "microsoft/Phi-3-mini-4k-instruct",
+        "qwen": "Qwen/Qwen2-7B-Instruct",
+        "llama3": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "gemma": "google/gemma-7b-it",
+        "mistral": "mistralai/Mistral-7B-Instruct-v0.2",
+    }
+
     @staticmethod
-    def _build_message_normalizer(params: TargetParams) -> Optional[ChatMessageNormalizer]:
+    def _build_message_normalizer(params: TargetParams) -> Optional[Any]:
         """
-        构建 ChatMessageNormalizer
+        构建 MessageNormalizer
 
         根据 params.message_normalizer 和 params.system_message_behavior 选择规范化器：
         - "default": ChatMessageNormalizer(use_developer_role=..., system_message_behavior=...)
         - "system_squash": GenericSystemSquashNormalizer（将 system 消息压入第一个 user 消息）
         - "context": ConversationContextNormalizer（保留对话上下文）
+        - "tokenizer:<alias>": TokenizerTemplateNormalizer（使用 HuggingFace tokenizer chat template）
+          支持的别名: chatml, phi3, qwen, llama3, gemma, mistral（对齐 §18.6）
 
         如果 params.system_message_behavior 或 params.use_developer_role 被设置但 message_normalizer 未设置，
         默认使用 ChatMessageNormalizer。
@@ -729,7 +740,7 @@ class TargetFactory:
             params: 目标参数
 
         Returns:
-            ChatMessageNormalizer 实例，或 None
+            MessageNormalizer 实例，或 None
         """
         normalizer_type = params.message_normalizer
 
@@ -742,13 +753,57 @@ class TargetFactory:
 
         system_behavior = params.system_message_behavior or "keep"
 
+        # TokenizerTemplateNormalizer（使用 HuggingFace tokenizer chat template）
+        if normalizer_type.startswith("tokenizer:"):
+            alias = normalizer_type.split(":", 1)[1].strip().lower()
+            model_id = TargetFactory._TOKENIZER_MODEL_ALIASES.get(alias)
+            if model_id is None:
+                logger.warning(
+                    f"Unknown tokenizer alias '{alias}'. "
+                    f"Supported: {', '.join(TargetFactory._TOKENIZER_MODEL_ALIASES.keys())}. "
+                    f"Falling back to ChatMessageNormalizer."
+                )
+                return ChatMessageNormalizer(
+                    use_developer_role=params.use_developer_role,
+                    system_message_behavior=system_behavior,
+                )
+            try:
+                from transformers import AutoTokenizer
+                from pyrit.message_normalizer import TokenizerTemplateNormalizer
+
+                tokenizer = AutoTokenizer.from_pretrained(model_id)
+                logger.info(f"MessageNormalizer: TokenizerTemplateNormalizer (alias={alias}, model={model_id})")
+                return TokenizerTemplateNormalizer(
+                    tokenizer=tokenizer,
+                    system_message_behavior=system_behavior,
+                )
+            except ImportError:
+                logger.warning(
+                    "TokenizerTemplateNormalizer requires transformers. "
+                    "Install with: pip install transformers. "
+                    "Falling back to ChatMessageNormalizer."
+                )
+                return ChatMessageNormalizer(
+                    use_developer_role=params.use_developer_role,
+                    system_message_behavior=system_behavior,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load tokenizer for '{alias}' ({model_id}): {e}. "
+                    f"Falling back to ChatMessageNormalizer."
+                )
+                return ChatMessageNormalizer(
+                    use_developer_role=params.use_developer_role,
+                    system_message_behavior=system_behavior,
+                )
+
         if normalizer_type == "system_squash":
             logger.info(f"MessageNormalizer: GenericSystemSquashNormalizer (use_developer_role={params.use_developer_role})")
             # GenericSystemSquashNormalizer 是预配置类，不接受构造参数
             # 它硬编码了 squash 行为，use_developer_role 需通过 ChatMessageNormalizer 使用
             return GenericSystemSquashNormalizer()
         elif normalizer_type == "context":
-            logger.info(f"MessageNormalizer: ConversationContextNormalizer")
+            logger.info("MessageNormalizer: ConversationContextNormalizer")
             return ConversationContextNormalizer()
         else:
             # default
@@ -1726,6 +1781,7 @@ _TARGET_CREATORS: Dict[str, Callable[[str, TargetParams], PromptTarget]] = {
 }
 
 # Target 类映射（用于 get_default_configuration 查询）
+# 核心 SDK 类型直接引用；可选依赖类型使用延迟加载
 _TARGET_CLASSES: Dict[str, type] = {
     TARGET_TYPE_OPENAI_CHAT: OpenAIChatTarget,
     TARGET_TYPE_OPENAI_RESPONSES: OpenAIResponseTarget,
@@ -1733,6 +1789,18 @@ _TARGET_CLASSES: Dict[str, type] = {
     TARGET_TYPE_OPENAI_VIDEO: OpenAIVideoTarget,
     TARGET_TYPE_OPENAI_TTS: OpenAITTSTarget,
 }
+
+# 可选依赖 Target 类的延迟加载（LiteLLM / AzureML 可能未安装）
+for _type_name, _import_path in [
+    (TARGET_TYPE_LITELLM, "pyrit.prompt_target.LiteLLMChatTarget"),
+    (TARGET_TYPE_AZURE_ML, "pyrit.prompt_target.AzureMLChatTarget"),
+]:
+    try:
+        _module_path, _class_name = _import_path.rsplit(".", 1)
+        _module = __import__(_module_path, fromlist=[_class_name])
+        _TARGET_CLASSES[_type_name] = getattr(_module, _class_name)
+    except (ImportError, AttributeError):
+        pass  # 可选依赖未安装时跳过
 
 
 # ============================================================
@@ -1964,7 +2032,7 @@ def _apply_env_defaults(params: TargetParams) -> None:
     # ── P2-6: MessageNormalizer ──
     if params.message_normalizer is None:
         env_val = os.getenv("TARGET_MESSAGE_NORMALIZER", "").strip().lower()
-        if env_val in ("default", "system_squash", "context"):
+        if env_val in ("default", "system_squash", "context") or env_val.startswith("tokenizer:"):
             params.message_normalizer = env_val
 
     if not params.use_developer_role:

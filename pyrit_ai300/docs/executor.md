@@ -20,7 +20,8 @@
 │  ┌────────────────────────────┴──────────────────────────────────────┐  │
 │  │  Layer 4: Workflow（批量编排层）🟡                                  │  │
 │  │  "N 个 objectives × 1 套攻击流程"                                  │  │
-│  │  → ScenarioOrchestrator, BatchAttackOrchestrator, XPIAWorkflow    │  │
+│  │  → ScenarioOrchestrator [DEPRECATED], BatchAttackOrchestrator,    │  │
+│  │    XPIAWorkflow, AI300AdaptiveScenario (原生统一路径)               │  │
 │  └────────────────────────────┬──────────────────────────────────────┘  │
 │  ┌────────────────────────────┴──────────────────────────────────────┐  │
 │  │  Layer 3: Compound（策略编排层）🟢                                  │  │

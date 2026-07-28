@@ -21,7 +21,6 @@ from src.converters.target_aware_router import (
     get_target_converter_profile,
     select_converter_chains_for_target,
     get_chain_priority_for_target,
-    get_target_group_summary,
     TargetAwareConverterRouter,
 )
 from src.converters import (
@@ -35,7 +34,6 @@ from src.scenarios.technique_factories import (
     BASE_TECHNIQUES_FOR_VARIANTS,
     build_converter_variant_factories,
     is_converter_variant,
-    get_converter_chain_from_variant,
 )
 from src.scenarios.failure_type_selector import FailureTypeRoutingSelector
 
@@ -49,10 +47,10 @@ class TestTargetGroupMapping:
     """P0: Target 类型到分组映射"""
 
     def test_llm_direct_group(self):
-        assert get_target_group("openai_chat") == "llm_direct"
-        assert get_target_group("openai_responses") == "llm_direct"
-        assert get_target_group("litellm") == "llm_direct"
-        assert get_target_group("azure_ml") == "llm_direct"
+        assert get_target_group("openai_chat") == "llm_direct_strong"
+        assert get_target_group("openai_responses") == "llm_direct_strong"
+        assert get_target_group("litellm") == "llm_direct_weak"
+        assert get_target_group("azure_ml") == "llm_direct_strong"
 
     def test_llm_safety_group(self):
         assert get_target_group("prompt_shield") == "llm_safety"
@@ -78,13 +76,13 @@ class TestTargetGroupMapping:
         assert get_target_group("openai_video") == "multimodal_video"
         assert get_target_group("openai_tts") == "multimodal_audio"
 
-    def test_unknown_type_defaults_to_llm_direct(self):
-        assert get_target_group("unknown_target") == "llm_direct"
+    def test_unknown_type_defaults_to_llm_direct_strong(self):
+        assert get_target_group("unknown_target") == "llm_direct_strong"
 
-    def test_all_10_groups_present(self):
+    def test_all_11_groups_present(self):
         groups = set(TARGET_TYPE_GROUPS.values())
         expected = {
-            "llm_direct", "llm_safety",
+            "llm_direct_strong", "llm_direct_weak", "llm_safety",
             "agent_web", "agent_copilot", "agent_api",
             "rag", "output_handling",
             "multimodal_image", "multimodal_video", "multimodal_audio",
@@ -98,8 +96,9 @@ class TestTargetConverterProfile:
     def test_llm_direct_profile(self):
         profile = get_target_converter_profile("openai_chat")
         assert "high_asr_chains" in profile
-        assert "multi_encoding_v2" in profile["high_asr_chains"]
-        assert profile["bypass_mechanism"] == "content_filter"
+        assert "medium_asr_chains" in profile
+        assert "multi_encoding_v2" in profile["medium_asr_chains"]
+        assert "content_filter" in profile["bypass_mechanism"]
 
     def test_rag_profile(self):
         profile = get_target_converter_profile("azure_blob")
@@ -127,7 +126,7 @@ class TestSelectConverterChains:
         chains = select_converter_chains_for_target("openai_chat")
         assert "multi_encoding_v2" in chains
         assert "stealth_evasion" in chains
-        assert chains[0] == "multi_encoding_v2"  # 最高 ASR
+        assert chains[0] == "persuasion_authority"  # llm_assisted highest priority
 
     def test_rag_chain_selection(self):
         chains = select_converter_chains_for_target("azure_blob")
@@ -165,8 +164,10 @@ class TestChainPriority:
     """P0: 链优先级查询"""
 
     def test_high_asr_priority(self):
+        # multi_encoding_v2 is in medium_asr_chains for llm_direct_strong
+        # priority = len(high) + len(llm_assisted) + index + 1 = 0 + 3 + 1 + 1 = 5
         priority = get_chain_priority_for_target("multi_encoding_v2", "openai_chat")
-        assert priority == 1
+        assert priority == 5
 
     def test_medium_asr_priority(self):
         priority = get_chain_priority_for_target("policy_puppetry", "openai_chat")
@@ -177,10 +178,10 @@ class TestChainPriority:
         assert priority == 99
 
     def test_different_target_different_priority(self):
-        # stealth_evasion is high_asr for llm_direct but not for rag
+        # stealth_evasion is medium_asr for llm_direct_strong but not in rag profile
         p_llm = get_chain_priority_for_target("stealth_evasion", "openai_chat")
         p_rag = get_chain_priority_for_target("stealth_evasion", "azure_blob")
-        assert p_llm < p_rag  # stealth_evasion is more effective on LLM Direct
+        assert p_llm < p_rag  # stealth_evasion is in llm_direct profile (lower=prioritized)
 
 
 class TestTargetAwareConverterRouter:
@@ -195,7 +196,7 @@ class TestTargetAwareConverterRouter:
     def test_router_get_priority(self):
         router = TargetAwareConverterRouter()
         priority = router.get_priority("multi_encoding_v2", "openai_chat")
-        assert priority == 1
+        assert priority == 5  # medium_asr for llm_direct_strong (0+3+1+1)
 
     def test_router_get_profile(self):
         router = TargetAwareConverterRouter()
@@ -209,7 +210,7 @@ class TestTargetAwareConverterRouter:
     def test_router_get_summary(self):
         router = TargetAwareConverterRouter()
         summary = router.get_summary()
-        assert len(summary) == 10  # 10 target groups
+        assert len(summary) == 11  # 11 target groups
 
 
 # ============================================================
@@ -315,7 +316,7 @@ class TestFailureTypeRoutingSelectorTargetAware:
     def test_selector_with_target_type(self):
         selector = FailureTypeRoutingSelector(target_type="openai_chat")
         assert selector._target_type == "openai_chat"
-        assert selector._target_group == "llm_direct"
+        assert selector._target_group == "llm_direct_strong"
 
     def test_selector_set_target_type(self):
         selector = FailureTypeRoutingSelector()
@@ -325,9 +326,9 @@ class TestFailureTypeRoutingSelectorTargetAware:
 
     def test_target_aware_sort_key(self):
         selector = FailureTypeRoutingSelector(target_type="openai_chat")
-        # multi_encoding_v2 is priority 1 for llm_direct
+        # multi_encoding_v2 is medium_asr (priority 5) for llm_direct_strong
         key = selector._target_aware_sort_key("prompt_sending+multi_encoding_v2")
-        assert key == 1
+        assert key == 5
 
     def test_target_aware_sort_key_different_target(self):
         selector = FailureTypeRoutingSelector(target_type="azure_blob")
@@ -396,10 +397,10 @@ class TestYAMLConfigConsistency:
         loader = get_config_loader()
         strategy = loader.get_strategy_config()
         profiles = strategy.get("target_aware_converter_profiles", {})
-        assert "llm_direct" in profiles
+        assert "llm_direct_strong" in profiles
         assert "rag" in profiles
         assert "agent_web" in profiles
-        assert len(profiles) == 10
+        assert len(profiles) == 11
 
     def test_yaml_profiles_match_code_profiles(self):
         from src.core.config_loader import get_config_loader

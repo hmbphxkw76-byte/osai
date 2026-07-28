@@ -442,7 +442,6 @@ class TestScenarioIntegration(unittest.TestCase):
         """Test technique factories use PyRIT native attack classes"""
         from pyrit.executor.attack import (
             PromptSendingAttack, RedTeamingAttack, CrescendoAttack,
-            TAPAttack, PAIRAttack, ManyShotJailbreakAttack,
         )
         # Check metadata references correct classes
         self.assertEqual(
@@ -503,16 +502,16 @@ class TestP0FailureTypeRoutingSelector(unittest.TestCase):
         selector.update_failure_type("model_refusal")
         self.assertEqual(selector._last_failure_type, "model_refusal")
 
-    def test_reorder_model_refusal_prioritizes_encoding(self):
-        """Test model_refusal routes to encoding techniques first"""
+    def test_reorder_model_refusal_prioritizes_strategy(self):
+        """Test model_refusal routes to strategy escalation (Tier S) first"""
         selector = FailureTypeRoutingSelector()
         selector.update_failure_type("model_refusal")
         # Simulate reorder
         techniques = ["red_teaming", "rot13", "crescendo", "base64", "prompt_sending"]
         reordered = selector._reorder_by_failure_type(techniques)
-        # Encoding techniques should be first
-        self.assertEqual(reordered[0], "rot13")
-        self.assertEqual(reordered[1], "base64")
+        # Tier S techniques should be first (strategy escalation)
+        self.assertIn(reordered[0], {"red_teaming", "crescendo"})
+        self.assertIn(reordered[1], {"red_teaming", "crescendo"})
 
     def test_reorder_timeout_prioritizes_single_turn(self):
         """Test timeout routes to single_turn techniques first"""
@@ -535,11 +534,12 @@ class TestP0FailureTypeRoutingSelector(unittest.TestCase):
         self.assertIn(reordered[0], {"crescendo", "red_teaming"})
 
     def test_reorder_no_failure_type_prioritizes_encoding(self):
-        """Test no failure type defaults to encoding priority"""
+        """Test no failure type defaults to academic ASR priority"""
         selector = FailureTypeRoutingSelector()
         techniques = ["red_teaming", "rot13", "crescendo", "base64"]
         reordered = selector._reorder_by_failure_type(techniques)
-        self.assertIn(reordered[0], {"rot13", "base64"})
+        # Tier S (red_teaming, crescendo) should be first by academic ASR
+        self.assertIn(reordered[0], {"red_teaming", "crescendo"})
 
     def test_extract_failure_type_from_result_refusal(self):
         """Test extract_failure_type_from_result detects model_refusal"""

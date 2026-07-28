@@ -24,12 +24,10 @@ Alignment with PyRIT 1.0.0:
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from src.payloads.models import AttackPlan, BatchAttackResult
 from src.payloads.asr_rank_builder import (
-    ASRRankBuilder,
-    ASRTier,
     TechniqueGroupInfo,
 )
 from src.payloads.tiered_selection_wizard import FallbackStrategy
@@ -133,7 +131,6 @@ class GroupFallbackExecutor:
             FallbackExecutionResult with tier-level metadata
         """
         # Import here to avoid circular dependency
-        from src.executor import execute_batch_attacks
 
         # Partition plans by technique_group
         plan_partitions = self._partition_plans(attack_plans, fallback_chain)
@@ -311,7 +308,7 @@ class GroupFallbackExecutor:
             # L3: 全局首成功即停
             if stop_on_first_success and tier_result.succeeded > 0:
                 stopped_at_tier = tier_name
-                print(f"  [STOP] L3 全局首成功即停 → 停止降级链")
+                print("  [STOP] L3 全局首成功即停 → 停止降级链")
                 break
 
             # L2: 检查是否所有 OWASP 分类都有成功

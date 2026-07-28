@@ -68,12 +68,9 @@ async def main():
         from src.payloads import (
             DatasetManager,
             SeedGroupSelector,
-            SeedGroupEntry,
             AttackPreparator,
-            AttackExecutionParams,
             SeedPromptAdapter,
             plan_attacks,
-            load_all_payloads_async,
         )
         test("导入 DatasetManager", True)
         test("导入 SeedGroupSelector", True)
@@ -108,7 +105,7 @@ async def main():
     from src.core.config_loader import get_config_loader
 
     config_loader = get_config_loader()
-    db_path = Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
+    Path(os.getenv("MEMORY_DB_PATH", config_loader.get_db_path()))
 
     # 使用临时数据库避免污染
     test_db = project_root / "output" / "db" / "verify_5layer.db"
@@ -281,7 +278,6 @@ async def main():
     test("PromptBatch 提示词数", total_prompts > 0, f"{total_prompts} prompts")
 
     # 验证 PromptBatch → AttackPlan
-    from src.payloads.models import PromptBatch
     from src.core.models import StrategySelection, AISystemType
 
     # 创建简化策略选择

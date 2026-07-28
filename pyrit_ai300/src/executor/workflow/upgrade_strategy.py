@@ -71,7 +71,7 @@ P1-1
 import logging
 import warnings
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 
 
@@ -86,9 +86,9 @@ logger = logging.getLogger(__name__)
 
 # L5: Deprecation warning — replaced by native AdaptiveScenario + FailureTypeRoutingSelector
 warnings.warn(
-    "src.executor.workflow.upgrade_strategy is deprecated. "
-    "Use native AdaptiveScenario + FailureTypeRoutingSelector instead. "
-    "Set USE_LEGACY_DIRECT=true to force legacy path.",
+"src.executor.workflow.upgrade_strategy is deprecated. "
+"Use native AdaptiveScenario + FailureTypeRoutingSelector instead. "
+"Legacy direct execution path has been removed (L5 dual-track elimination).",
     DeprecationWarning,
     stacklevel=2,
 )

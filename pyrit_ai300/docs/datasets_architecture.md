@@ -1,6 +1,8 @@
 # Datasets 数据驱动架构文档
 
 > 对齐 PyRIT 1.0.0 五层架构，为 OffSec AI-300 考试和实际 AI 红队评估提供数据驱动的端到端全自动攻击流程。
+>
+> **v2.0 变更**: response_json_schema 结构化输出约束 + .prompt 文件扩展名 + CentralMemory 桥接
 
 ---
 

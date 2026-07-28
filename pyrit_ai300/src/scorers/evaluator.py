@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from pyrit.models import Message, MessagePiece, Score
+from pyrit.models import Message, MessagePiece
 from pyrit.score import (
     Scorer,
     TrueFalseScorer,
@@ -27,7 +27,6 @@ from pyrit.score import (
     ScorerEvalDatasetFiles,
     HumanLabeledDataset,
     HumanLabeledEntry,
-    HarmHumanLabeledEntry,
     ObjectiveHumanLabeledEntry,
     # 指标类型
     MetricsType,

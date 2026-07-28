@@ -4,33 +4,44 @@ Config Loader
 
 本模块负责从 YAML 配置文件加载配置（遵循开发规则 1.4.2）。
 
-配置分层架构（最佳实践）：
-  ┌─────────────────────────────────────────────────────────┐
-  │  .env                        ← 运行时必改参数（唯一入口）│
-  │    TARGET_ENDPOINT / API_KEY / JUDGE_* / ...            │
-  ├─────────────────────────────────────────────────────────┤
-  │  config/defaults/            ← 调优默认值（可覆盖）      │
-  │    model_params.yaml           模型推理参数（temp/top_p）│
-  │    pipeline.yaml               Pipeline 运行参数         │
-  │    http_client.yaml            HTTP 客户端参数           │
-  │    paths.yaml                  路径与输出                │
-  ├─────────────────────────────────────────────────────────┤
-  │  config/config.yaml          ← 架构级配置（攻击映射等）  │
-  │  config/owasp_mapping.yaml   ← 可选用户覆盖（高优先级） │
-  │  config/payload_strategy_matrix.yaml ← 可选用户覆盖      │
-  ├─────────────────────────────────────────────────────────┤
-  │  src/core/defaults/          ← 系统默认配置（不可变）    │
-  │    owasp_mapping.yaml          OWASP 标准定义（官方）     │
-  │    payload_strategy_matrix.yaml  攻击策略矩阵（系统级）  │
-  └─────────────────────────────────────────────────────────┘
+配置分层架构（最佳实践，对齐 PyRIT 1.0.0 原生框架）：
+  ┌──────────────────────────────────────────────────────────────┐
+  │  ~/.pyrit/.pyrit_conf       ← PyRIT 原生用户级配置（可选）   │
+  │    memory_db_type / initializers / env_files / ...          │
+  ├──────────────────────────────────────────────────────────────┤
+  │  .env                        ← 运行时必改参数（唯一入口）   │
+  │    TARGET_ENDPOINT / API_KEY / JUDGE_* / ...                │
+  ├──────────────────────────────────────────────────────────────┤
+  │  config/defaults/            ← 调优默认值（可覆盖）         │
+  │    model_params.yaml           模型推理参数（temp/top_p）   │
+  │    pipeline.yaml               Pipeline 运行参数            │
+  │    http_client.yaml            HTTP 客户端参数              │
+  │    paths.yaml                  路径与输出                   │
+  ├──────────────────────────────────────────────────────────────┤
+  │  config/runtime.yaml         ← 架构级配置（攻击映射等）     │
+  │  config/owasp_mapping.yaml   ← 可选用户覆盖（高优先级）     │
+  │  config/payload_strategy_matrix.yaml ← 可选用户覆盖         │
+  ├──────────────────────────────────────────────────────────────┤
+  │  src/core/defaults/          ← 系统默认配置（不可变）       │
+  │    owasp_mapping.yaml          OWASP 标准定义（官方）        │
+  │    payload_strategy_matrix.yaml  攻击策略矩阵（系统级）     │
+  └──────────────────────────────────────────────────────────────┘
 
-加载优先级：.env > config/defaults/ > config/config.yaml > src/core/defaults/
+加载优先级：.env > config/defaults/ > config/*.yaml > src/core/defaults/ > ~/.pyrit/.pyrit_conf
+
+PyRIT 原生集成：
+  - 路径验证: pyrit.common.utils.verify_and_resolve_path
+  - 环境变量: pyrit.common.default_values.get_non_required_value
+  - 默认值注册: pyrit.common.apply_defaults.set_default_value / GlobalDefaultValues
+  - 配置桥接: to_configuration_loader() → pyrit.setup.ConfigurationLoader
+  - 内存桥接: configure_central_memory_async() → pyrit.memory.CentralMemory
 
 设计原则：
   - .env 只放用户每次必改的参数（URL / API Key / 认证）
   - config/defaults/ 放调优过的默认值（temperature=0、超时等）
-  - config/config.yaml 放架构级配置（攻击技术映射、端点探测）
+  - config/*.yaml 放架构级配置（攻击技术映射、端点探测）
   - src/core/defaults/ 放系统级配置（OWASP 标准、策略矩阵），防止误改/误删
+  - ~/.pyrit/.pyrit_conf 放 PyRIT 原生初始化配置（memory_db_type / initializers）
 """
 
 import os
@@ -38,6 +49,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
+# PyRIT 原生工具导入（对齐 L5 专家水准）
+from pyrit.common.default_values import get_non_required_value
+from pyrit.common.path import DEFAULT_CONFIG_PATH as PYRIT_DEFAULT_CONFIG_PATH
+from pyrit.common.utils import verify_and_resolve_path
 
 # ============================================================
 # 路径常量
@@ -54,6 +70,9 @@ _PROJECT_ROOT = _CORE_DIR.parent.parent
 
 # 用户配置目录
 _CONFIG_DIR = _PROJECT_ROOT / "config"
+
+# PyRIT 原生用户级配置路径 (~/.pyrit/.pyrit_conf)
+_PYRIT_CONFIG_PATH = PYRIT_DEFAULT_CONFIG_PATH
 
 
 # ============================================================
@@ -104,6 +123,7 @@ class ConfigLoader:
         self._owasp_config: Optional[Dict[str, Any]] = None
         self._strategy_config: Optional[Dict[str, Any]] = None
         self._defaults_cache: Dict[str, Dict[str, Any]] = {}
+        self._pyrit_config: Optional[Dict[str, Any]] = None
 
     # -----------------------------------------------------------------
     # 路径解析（核心：系统默认 + 用户覆盖）
@@ -144,8 +164,9 @@ class ConfigLoader:
         )
 
     def _load_yaml(self, file_path: Path) -> Dict[str, Any]:
-        """加载 YAML 文件（内部工具方法）"""
-        with open(file_path, "r", encoding="utf-8") as f:
+        """加载 YAML 文件（内部工具方法，使用 PyRIT 原生路径验证）"""
+        resolved = verify_and_resolve_path(file_path)
+        with open(resolved, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     # -----------------------------------------------------------------
@@ -639,6 +660,8 @@ class ConfigLoader:
     _DS_OWASP_FRAMEWORKS = ["llm", "agentic"]
     _DS_CUSTOM_ENABLED = True
     _DS_CUSTOM_PATH = "data/custom"
+    _DS_ACADEMIC_ENABLED = True  # ASR引导策略 v4.0: 学术载荷默认开启（高 ASR 攻击载荷）
+    _DS_ACADEMIC_PATH = "data/academic"
     _DS_REMOTE_ENABLED = False
     _DS_REMOTE_MAX_CONCURRENCY = 3
     _DS_REMOTE_CACHE = True
@@ -766,6 +789,11 @@ class ConfigLoader:
     def get_dataset_manager_remote_config(self) -> Dict[str, Any]:
         """获取 DatasetManager 远程数据集配置（委托 payload_sources）"""
         return self.get_remote_datasets_config()
+
+    def get_dataset_manager_academic_config(self) -> Dict[str, Any]:
+        """获取 DatasetManager 学术载荷配置（ASR引导策略）"""
+        academic = self.get_payload_sources_config().get("academic", {})
+        return academic if academic else {"enabled": self._DS_ACADEMIC_ENABLED}
 
     def get_interactive_selection_config(self) -> Dict[str, Any]:
         """获取 ②.5 交互式选择层配置（硬编码默认值 + 遗留 YAML 覆盖）"""
@@ -1029,11 +1057,8 @@ class ConfigLoader:
     # --- Pipeline 参数查询（.env > config/defaults/ > config.yaml > 硬编码）---
 
     def get_verbose(self) -> bool:
-        """获取 verbose 模式（.env VERBOSE > defaults > false）"""
-        env_val = os.getenv("VERBOSE")
-        if env_val is not None and env_val.strip():
-            return env_val.lower() in ("1", "true", "yes")
-        return self.get_pipeline_defaults().get("verbose", False)
+        """获取 verbose 模式 — 已合并到 verbose_success（向后兼容委托）"""
+        return self.get_verbose_success()
 
     def get_verbose_success(self) -> bool:
         """获取 verbose_success 模式（.env VERBOSE_SUCCESS > defaults > true）"""
@@ -1260,6 +1285,197 @@ class ConfigLoader:
         return self.get_evidence_dir()
 
     # -----------------------------------------------------------------
+    # PyRIT 原生集成（L5 专家水准对齐）
+    # -----------------------------------------------------------------
+
+    def load_pyrit_config(self) -> Dict[str, Any]:
+        """
+        加载 PyRIT 原生用户级配置文件 (~/.pyrit/.pyrit_conf)
+
+        PyRIT 1.0.0 原生 ConfigurationLoader 从此文件加载：
+        - memory_db_type: 内存数据库类型 (sqlite/in_memory/azure_sql)
+        - initializers: 初始化器列表
+        - initialization_scripts: 初始化脚本路径
+        - env_files: 环境变量文件路径
+        - silent: 是否静默初始化
+        - operator / operation: 操作者/操作名称
+
+        Returns:
+            PyRIT 配置字典，文件不存在时返回空字典
+        """
+        if self._pyrit_config is not None:
+            return self._pyrit_config
+        if not _PYRIT_CONFIG_PATH.exists():
+            self._pyrit_config = {}
+            return self._pyrit_config
+        try:
+            self._pyrit_config = self._load_yaml(_PYRIT_CONFIG_PATH)
+            return self._pyrit_config
+        except Exception:
+            self._pyrit_config = {}
+            return self._pyrit_config
+
+    def get_pyrit_memory_db_type(self) -> str:
+        """
+        获取 PyRIT 原生内存数据库类型
+
+        优先级：.env MEMORY_DB_TYPE > ~/.pyrit/.pyrit_conf > config.yaml > 默认 sqlite
+
+        Returns:
+            数据库类型字符串 (sqlite/in_memory/azure_sql)
+        """
+        env_val = get_non_required_value(
+            env_var_name="MEMORY_DB_TYPE",
+            passed_value=os.getenv("MEMORY_DB_TYPE"),
+        )
+        if env_val:
+            return env_val.lower().replace("-", "_")
+        pyrit_cfg = self.load_pyrit_config()
+        if pyrit_cfg.get("memory_db_type"):
+            return pyrit_cfg["memory_db_type"]
+        return self.get_memory_db_type().lower().replace("-", "_")
+
+    def to_configuration_loader(self) -> Any:
+        """
+        将当前配置转换为主 PyRIT 原生 ConfigurationLoader 实例
+
+        桥接 AI-300 项目配置到 PyRIT 1.0.0 原生 ConfigurationLoader，
+        使项目配置可直接使用原生 initialize_pyrit_async() 初始化。
+
+        Returns:
+            pyrit.setup.ConfigurationLoader 实例
+
+        Example::
+
+            loader = get_config_loader()
+            pyrit_config = loader.to_configuration_loader()
+            await pyrit_config.initialize_pyrit_async()
+        """
+        from pyrit.setup import ConfigurationLoader as PyRITConfigurationLoader
+
+        pyrit_cfg = self.load_pyrit_config()
+
+        # 从项目配置桥接关键字段
+        memory_db_type = self.get_pyrit_memory_db_type()
+
+        # 构建原生 ConfigurationLoader
+        return PyRITConfigurationLoader.from_dict({
+            "memory_db_type": memory_db_type,
+            "initializers": pyrit_cfg.get("initializers", []),
+            "initialization_scripts": pyrit_cfg.get("initialization_scripts"),
+            "env_files": pyrit_cfg.get("env_files"),
+            "silent": pyrit_cfg.get("silent", False),
+            "operator": pyrit_cfg.get("operator"),
+            "operation": pyrit_cfg.get("operation"),
+        })
+
+    async def configure_central_memory_async(self) -> Any:
+        """
+        配置 PyRIT CentralMemory（原生内存实例桥接）
+
+        根据当前配置创建并设置 CentralMemory 实例，
+        使后续所有 PyRIT 组件自动使用统一的内存后端。
+
+        对齐 PyRIT 1.0.0 原生 initialize_pyrit_async 的内存创建逻辑：
+        - in_memory → SQLiteMemory(db_path=":memory:")
+        - sqlite → SQLiteMemory(db_path=db_path)
+        - azure_sql → AzureSQLMemory()
+
+        Returns:
+            pyrit.memory.MemoryInterface 实例
+
+        Raises:
+            ValueError: 如果数据库类型无效
+        """
+        from pyrit.memory import AzureSQLMemory, CentralMemory, SQLiteMemory
+
+        db_type = self.get_pyrit_memory_db_type()
+        db_path = self.get_memory_db_path()
+
+        if db_type in ("in_memory", "inmemory"):
+            memory = SQLiteMemory(db_path=":memory:")
+        elif db_type in ("sqlite",):
+            memory = SQLiteMemory(db_path=db_path)
+        elif db_type in ("azure_sql", "azuresql"):
+            memory = AzureSQLMemory()
+        else:
+            raise ValueError(f"不支持的内存数据库类型: {db_type}")
+
+        CentralMemory.set_memory_instance(memory)
+        return memory
+
+    def register_default_values(self) -> None:
+        """
+        将模型推理参数注册到 PyRIT 原生 GlobalDefaultValues 系统
+
+        使用 pyrit.common.apply_defaults.set_default_value 注册默认值，
+        使所有使用 @apply_defaults 装饰器的类自动获得这些默认值。
+
+        注册的参数：
+        - OpenAIChatTarget.temperature → get_target_temperature()
+        - OpenAIChatTarget.top_p → get_target_top_p()
+        - OpenAIChatTarget.max_completion_tokens → get_target_max_completion_tokens()
+        - OpenAIChatTarget.frequency_penalty → get_target_frequency_penalty()
+        - OpenAIChatTarget.presence_penalty → get_target_presence_penalty()
+
+        可安全多次调用（幂等，每次覆盖旧值）。
+        """
+        from pyrit.common.apply_defaults import set_default_value
+
+        try:
+            from pyrit.prompt_target import OpenAIChatTarget
+        except ImportError:
+            return
+
+        temp = self.get_target_temperature()
+        if temp is not None:
+            set_default_value(
+                class_type=OpenAIChatTarget,
+                parameter_name="temperature",
+                value=temp,
+            )
+
+        top_p = self.get_target_top_p()
+        if top_p is not None:
+            set_default_value(
+                class_type=OpenAIChatTarget,
+                parameter_name="top_p",
+                value=top_p,
+            )
+
+        max_tokens = self.get_target_max_completion_tokens()
+        if max_tokens is not None:
+            set_default_value(
+                class_type=OpenAIChatTarget,
+                parameter_name="max_completion_tokens",
+                value=max_tokens,
+            )
+
+        freq_penalty = self.get_target_frequency_penalty()
+        if freq_penalty is not None:
+            set_default_value(
+                class_type=OpenAIChatTarget,
+                parameter_name="frequency_penalty",
+                value=freq_penalty,
+            )
+
+        pres_penalty = self.get_target_presence_penalty()
+        if pres_penalty is not None:
+            set_default_value(
+                class_type=OpenAIChatTarget,
+                parameter_name="presence_penalty",
+                value=pres_penalty,
+            )
+
+    def get_pyrit_config_path(self) -> Path:
+        """获取 PyRIT 原生配置文件路径 (~/.pyrit/.pyrit_conf)"""
+        return _PYRIT_CONFIG_PATH
+
+    def is_pyrit_config_available(self) -> bool:
+        """检查 PyRIT 原生配置文件是否存在"""
+        return _PYRIT_CONFIG_PATH.exists()
+
+    # -----------------------------------------------------------------
     # 缓存管理
     # -----------------------------------------------------------------
 
@@ -1269,6 +1485,7 @@ class ConfigLoader:
         self._owasp_config = None
         self._strategy_config = None
         self._defaults_cache = {}
+        self._pyrit_config = None
 
         # 重新解析路径（用户可能在此期间创建了覆盖文件）
         self.owasp_file = self._resolve_config_path("owasp_mapping.yaml")

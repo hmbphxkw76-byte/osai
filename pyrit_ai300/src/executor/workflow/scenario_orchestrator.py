@@ -1,28 +1,23 @@
 """
-Scenario Orchestrator
-=====================
+Scenario Orchestrator [DEPRECATED]
+==================================
 
-④ 攻击执行层 - Scenario 编排器
+.. deprecated:: L5
+    此模块已被原生 ``AI300AdaptiveScenario`` 完全替代。
+    新代码应使用 ``src.scenarios.adaptive_runner.run_adaptive_scenario_async()``。
 
-核心设计（PyRIT 原生优先 + 自建 Scenario 扩展）：
-1. 委托 NativeAttackExecutor 执行单次攻击（使用原生 AttackExecutor）
-2. 保留自建批量调度（asyncio.Semaphore + ProgressDashboard）
-3. 保留自建升级重试（失败后自动升级到更强的攻击技术）
-4. 保留自建双通道输出（终端 + Markdown 文件）
-5. 集成 AttackResultAttribution 实现父级编排器关联
-6. 支持原生 SequentialAttack 异构技术链 + completion_policy 可配置
+    迁移对照表::
 
-架构分层（PyRIT 架构师视角）：
-    NativeAttackExecutor: 单次执行（原生 AttackExecutor + AttackSeedGroup）
-    ScenarioOrchestrator: 批量调度（并发 + 超时 + 升级重试 + 输出 + Attribution）
+        ScenarioOrchestrator.execute_batch()  →  run_adaptive_scenario_async()
+        asyncio.Semaphore 并发               →  原生 worker pool + shared AttackExecutor
+        AttackUpgradeStrategy 升级重试        →  原生 SequentialAttack(FIRST_SUCCESS)
+        ProgressDashboard                    →  原生 tqdm
+        ScenarioEventHandler                 →  原生 _DefaultAttackStrategyEventHandler
+        max_retries + 恢复                   →  原生 Scenario max_retries + resume
 
-对齐 PyRIT 1.0.0 五层架构：
-  ① 数据准备层 → DatasetManager.load_datasets()
-  ② 数据管理层 → CentralMemory (add_seed_datasets_to_memory / get_seed_groups)
-  ②.5 交互选择层 → SeedGroupSelector (build_catalog / filter / prompt_user)
-  ③ 攻击准备层 → AttackPreparator (SeedGroup → AttackSeedGroup)
-  ④ 攻击执行层 → ScenarioOrchestrator (本模块)
-  ⑤ 评估与追踪层 → Scorer + PyRIT Memory 审计链
+    保留此模块仅用于向后兼容和 GroupFallbackExecutor 的 tier fallback 场景。
+
+④ 攻击执行层 - Scenario 编排器 (Legacy)
 """
 
 import asyncio
@@ -39,13 +34,11 @@ from src.payloads.models import (
     AttackMode,
     AttackPlan,
     BatchAttackResult,
-    PromptItem,
 )
-from src.executor.attack.core.attack_builder import ATTACK_CLASS_MAP, ATTACK_METADATA, create_attack_instance
+from src.executor.attack.core.attack_builder import ATTACK_CLASS_MAP, create_attack_instance
 from src.executor.attack.core.native_executor import NativeAttackExecutor
 from src.executor.attack.core.scenario_event_handler import ScenarioEventHandler
 from src.executor.attack.core.constants import (
-    MULTI_TURN_TECHNIQUES as _MULTI_TURN_TECHNIQUES,
     SINGLE_TURN_ATTACKS as _SINGLE_TURN_ATTACKS,
     TAP_FAMILY_ATTACKS as _TAP_FAMILY_ATTACKS,
 )
@@ -63,9 +56,13 @@ def _truncate(text: str, max_len: int = 60) -> str:
 
 class ScenarioOrchestrator:
     """
-    Scenario 编排器 - 委托 NativeAttackExecutor 执行批量攻击
+    [DEPRECATED] Scenario 编排器 - 委托 NativeAttackExecutor 执行批量攻击
 
-    自研部分（PyRIT 原生不支持）：
+    .. deprecated:: L5
+        使用 ``run_adaptive_scenario_async()`` 替代。
+        原生 AdaptiveScenario 已提供并行/弹性/resume/升级重试。
+
+    自研部分（PyRIT 原生不支持）— 保留用于 GroupFallbackExecutor tier fallback：
     - 批量并发调度 + 进度仪表盘（asyncio.Semaphore + ProgressDashboard）
     - 攻击升级重试（失败后自动升级到更强的攻击技术）
     - 双通道输出（终端 + Markdown 文件）
@@ -218,7 +215,7 @@ class ScenarioOrchestrator:
             src = plan.prompt_item.source_id or ""
             group_name = src.split("_", 2)[-1] if src.startswith("owasp_") else (src or "unknown")
             lines = [
-                f"  ┌─ Plan ──────────────────────────────────────────────",
+                "  ┌─ Plan ──────────────────────────────────────────────",
                 f"  │ OWASP:      {owasp}",
                 f"  │ Group:      {group_name}",
                 f"  │ Attack:     {attack_class_name}  ({mode})",
@@ -226,7 +223,7 @@ class ScenarioOrchestrator:
                 f"  │ Scorer:     {scorer}",
                 f"  │ Converter:  {converter}{converter_list}",
                 f"  │ Objective:  \"{obj}\"",
-                f"  └─────────────────────────────────────────────────────",
+                "  └─────────────────────────────────────────────────────",
             ]
             return "\n".join(lines)
 
@@ -294,7 +291,7 @@ class ScenarioOrchestrator:
                             print(f"  [OK]    [{completed_count[0]}/{total}]  {brief} -> SUCCESS ({elapsed:.1f}s)")
                             await output_manager.output_attack_result(
                                 attack_result,
-                                to_terminal=(verbose or os.getenv("VERBOSE_SUCCESS", "").lower() in ("1", "true", "yes")),
+                                to_terminal=verbose,
                                 to_file=True,
                                 include_auxiliary=True,
                                 include_adversarial=True,
@@ -574,17 +571,14 @@ class ScenarioOrchestrator:
 
             # 为该组创建共享的 Attack 实例
             from src.executor.attack.core.constants import (
-                SINGLE_TURN_ATTACKS as _SINGLE_TURN_ATTACKS,
-                TAP_FAMILY_ATTACKS as _TAP_FAMILY_ATTACKS,
                 MAX_TURNS_ATTACKS as _MAX_TURNS_ATTACKS,
                 TREE_DEPTH_ATTACKS as _TREE_DEPTH_ATTACKS,
             )
             from src.executor.attack.core.attack_builder import (
-                create_attack_instance, create_attack_adversarial_config,
+                create_attack_adversarial_config,
                 create_attack_result_attribution,
             )
             from src.converters import load_preset_converter_chain
-            from pyrit.models import AttackSeedGroup, SeedObjective, SeedPrompt
 
             first_plan = plans_in_group[0]
             scoring_config = self._executor._create_scoring_config(
@@ -1127,111 +1121,6 @@ class ScenarioOrchestrator:
 
         return False
 
-    # ------------------------------------------------------------------
-    # L5 对齐：事件可观测性 + AttackIdentifier 去重
-    # ------------------------------------------------------------------
-
-    def get_event_summary(self) -> Dict[str, Any]:
-        """
-        获取 ScenarioEventHandler 的事件统计摘要
-
-        Returns:
-            包含 total_events / total_errors / executions / successes / failures 的字典
-        """
-        return self._event_handler.get_summary()
-
-    def get_event_errors(self) -> List[Any]:
-        """获取所有错误事件记录"""
-        return self._event_handler.get_errors()
-
-    @staticmethod
-    def compute_identifier_hash(plan: AttackPlan) -> str:
-        """
-        L5: 计算攻击计划的原生兼容标识符哈希
-
-        对齐 PyRIT 1.0.0 ComponentIdentifier 的内容哈希方法：
-        使用 hashlib.sha256 对 (attack_class, target, scorer, converter, objective)
-        的规范字符串计算确定性哈希。
-
-        与原生 AttackStrategy.get_identifier() 的区别：
-        - 原生方法在 Attack 实例创建后可用（含已解析的 target/scorer 对象）
-        - 本方法在 AttackPlan 阶段可用（仅含配置字符串，无需创建实例）
-        - 两者语义一致：相同配置 → 相同哈希 → 相同执行行为
-
-        Args:
-            plan: 攻击计划
-
-        Returns:
-            SHA-256 哈希字符串（16 字符截断，对齐 ComponentIdentifier.eval_hash）
-        """
-        import hashlib
-
-        # 规范化去重键（对齐 ComponentIdentifier 的内容哈希输入）
-        identifier_content = "|".join([
-            plan.attack_technique,
-            plan.prompt_item.objective[:200],  # 截断防止过长哈希输入
-            plan.scorer_type,
-            plan.converter_chain_name or "",
-            plan.owasp_id or "",
-            plan.prompt_item.attack_mode.value,
-        ])
-
-        return hashlib.sha256(
-            identifier_content.encode("utf-8")
-        ).hexdigest()[:16]
-
-    @staticmethod
-    def deduplicate_plans_by_identifier(
-        attack_plans: List[AttackPlan],
-    ) -> tuple[List[AttackPlan], List[AttackPlan]]:
-        """
-        L5 对齐：利用原生 ComponentIdentifier 体系进行攻击计划去重
-
-        PyRIT 1.0.0 的 AttackStrategy.get_identifier() 返回 ComponentIdentifier，
-        包含 attack class / target / scorer / converter 的内容哈希。
-        相同 identifier 的攻击计划会产生相同的执行行为，可以安全跳过。
-
-        L5 改进：使用 compute_identifier_hash() 计算原生兼容的 SHA-256 哈希，
-        替代原有的元组键。增加 attack_mode 到去重维度。
-
-        去重策略：
-        1. 计算每个计划的 identifier_hash（SHA-256, 对齐 ComponentIdentifier.eval_hash）
-        2. 相同 hash 的计划保留第一个（最高优先级）
-        3. 返回 (unique_plans, duplicates)
-
-        Args:
-            attack_plans: 待去重的攻击计划列表
-
-        Returns:
-            (unique_plans, duplicates) 元组
-        """
-        seen_hashes: set[str] = set()
-        unique: List[AttackPlan] = []
-        duplicates: List[AttackPlan] = []
-
-        for plan in attack_plans:
-            # L5: 使用原生兼容的哈希去重
-            identifier_hash = ScenarioOrchestrator.compute_identifier_hash(plan)
-            if identifier_hash in seen_hashes:
-                duplicates.append(plan)
-                logger.debug(
-                    f"Dedup: skipping duplicate plan {plan.plan_id} "
-                    f"(hash={identifier_hash}, technique={plan.attack_technique}, "
-                    f"owasp={plan.owasp_id})"
-                )
-            else:
-                seen_hashes.add(identifier_hash)
-                unique.append(plan)
-
-        if duplicates:
-            logger.info(
-                f"AttackIdentifier dedup: {len(attack_plans)} plans → "
-                f"{len(unique)} unique, {len(duplicates)} duplicates removed "
-                f"(using native-compatible SHA-256 hash)"
-            )
-
-        return unique, duplicates
-
 
 # ============================================================
 # 工厂函数
@@ -1255,6 +1144,12 @@ async def execute_batch_attacks(
     stop_on_first_success: bool = False,
 ) -> BatchAttackResult:
     """
+    [DEPRECATED] 批量执行攻击计划（工厂函数）
+
+    .. deprecated:: L5
+        使用 ``src.scenarios.adaptive_runner.run_adaptive_scenario_async()`` 替代。
+        此函数仅保留用于向后兼容和测试。
+
     批量执行攻击计划（工厂函数）
 
     Args:

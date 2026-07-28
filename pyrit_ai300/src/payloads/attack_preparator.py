@@ -35,7 +35,7 @@ PyRIT 原生 API（L5 对齐）：
 
 import logging
 import warnings
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 from pyrit.models import (
     AttackSeedGroup,

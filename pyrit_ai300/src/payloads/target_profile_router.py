@@ -35,7 +35,7 @@ Alignment with PyRIT 1.0.0:
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence
 
 from pyrit.models import SeedGroup
 

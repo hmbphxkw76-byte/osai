@@ -2,17 +2,20 @@
 
 ## 📋 文档概述
 
-本文档整合了 **Recon 侦察层**、**Analysis 分析层**、**Target 接入层**、**Datasets 五层+②.5架构**、**Converters 转换器层**、**Executor 子系统五层架构** 与 **Reporting 报告层**，形成完整的端到端数据驱动攻击流程，达到 **L5 专家水平** 对齐度 96%。
+本文档整合了 **Recon 侦察层**、**Analysis 分析层**、**Target 接入层**、**Datasets 五层+②.5架构**、**Converters 转换器层**、**Executor 子系统五层架构** 与 **Reporting 报告层**，形成完整的端到端数据驱动攻击流程，达到 **L5 专家水平** 对齐度 98%。
 
-**最新架构变更**（v3.0）:
+**最新架构变更**（v4.0 — 统一Adaptive路径 + Converter-Aware v3.0）:
+- 统一AdaptiveScenario执行路径（双轨已消除 — AI300AdaptiveScenario extends AdaptiveScenario）
+- Converter-Aware Adaptive Architecture v3.0（原生extra_request_converters渐进式升级 + 失败类型路由）
 - 五层+②.5数据驱动架构完成（①数据准备→②数据管理→②.5交互选择→③攻击准备→④攻击执行→⑤评估追踪）
-- NativeAttackExecutor Facade 替代 DirectAttackOrchestrator（统一执行入口）
-- 11种Target类型全覆盖（TargetParams 48字段）
-- 52个Scorer公共API
+- 15种Target类型全覆盖（TargetParams 70+字段，新增openai_image/openai_video/openai_tts/azure_ml）
+- 6个初始化器原生优先（AI300SetupManager + 委托原生TargetInitializer/ScorerInitializer）
+- Core原生集成（TargetCapabilities/ConfigLoader/RegistryManager/Logger 全部原生）
+- 三层最优停止策略（L1 FIRST_SUCCESS + L2 OWASP阈值 + L3 全局首停）
+- 52个Scorer公共API（36评分器映射 + requires_chat_target修正）
 - EvidenceExporter 使用 render_async() 替代 write_async()+read-back
 - 三级证据链（Finding→AttackResult→Conversation）
-- 差异化超时 + 升级重试机制
-- 详见 `docs/architecture_assessment.md`
+- 详见 `docs/architecture_assessment.md`（v2.0 L5评估报告）
 
 **对齐原则**：
 - 严格遵循 PyRIT 1.0.0 原生 API 设计（Strategy 模式 / AttackExecutor / AttackParameters）
@@ -68,13 +71,14 @@
 │    - detect_target_type() (GET-only side-effect-free 探测)                  │
 │    - detect_auth_mode() (api_key / identity Entra ID)                       │
 │    - _build_openai_httpx_kwargs() (双路径: SDK 直传 + http_client)           │
-│    - create_target() (11 类型分派)                                           │
+│    - create_target() (15 类型分派)                                           │
 │    - discover_capabilities() (5 探针, apply=True)                            │
 │                                                                              │
-│ 11 种 Target 类型:                                                            │
+│ 15 种 Target 类型:                                                            │
 │  openai_chat | openai_responses | litellm | http_api | http_raw              │
 │  playwright | websocket_copilot | playwright_copilot                         │
-│  azure_blob | prompt_shield | text                                           │
+│  azure_blob | prompt_shield | azure_ml                                        │
+│  openai_image | openai_video | openai_tts | text                              │
 │                                                                              │
 │ 产出: objective_target (攻击目标) + judge_target (评分目标)                  │
 │       judge_target 同时用作 adversarial_chat (多轮攻击) 和 converter_target   │

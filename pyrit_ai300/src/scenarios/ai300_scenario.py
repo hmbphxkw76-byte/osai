@@ -21,9 +21,10 @@ AI300Scenario 是 PyRIT 原生 Scenario 基类的 AI-300 考试适配子类。
 """
 
 import logging
-from typing import Any
 
 from pyrit.common import apply_defaults
+from pyrit.prompt_target.common.target_requirements import TargetRequirements
+from pyrit.models.target.target_capabilities import CapabilityName
 from pyrit.scenario import (
     BaselineAttackPolicy,
     DatasetAttackConfiguration,
@@ -45,6 +46,7 @@ class AI300Scenario(Scenario):
     - 原生 initialize_async / run_async 生命周期
     - build_matrix_atomic_attacks 矩阵构建
     - BASELINE_ATTACK_POLICY = Enabled
+    - TARGET_REQUIREMENTS 能力验证（MULTI_TURN + SYSTEM_PROMPT）
     - 考试专用参数声明（max_turns, timeout_overrides）
     - 与 ScenarioOrchestrator 桥接接口
 
@@ -57,6 +59,12 @@ class AI300Scenario(Scenario):
     VERSION: int = 1
 
     BASELINE_ATTACK_POLICY = BaselineAttackPolicy.Enabled
+
+    # L5: 能力需求 — 通用 Scenario 需要目标支持多轮对话 + 系统提示词
+    # 初始化时由原生 Scenario.initialize_async() 验证，不兼容则报 ValueError
+    TARGET_REQUIREMENTS: TargetRequirements = TargetRequirements(
+        required=frozenset({CapabilityName.MULTI_TURN, CapabilityName.SYSTEM_PROMPT})
+    )
 
     @apply_defaults
     def __init__(
@@ -221,10 +229,17 @@ class AI300EncodingScenario(AI300Scenario):
     对齐 PyRIT 原生 garak.encoding Scenario。
 
     适用于考试中快速冒烟测试，编码攻击成功率 50-100%。
+
+    编码攻击仅需文本能力，不需要多轮对话。
     """
 
     VERSION: int = 1
     BASELINE_ATTACK_POLICY = BaselineAttackPolicy.Enabled
+
+    # L5: 编码攻击仅需 SYSTEM_PROMPT，不需要 MULTI_TURN
+    TARGET_REQUIREMENTS: TargetRequirements = TargetRequirements(
+        required=frozenset({CapabilityName.SYSTEM_PROMPT})
+    )
 
     def _get_default_dataset_config(self) -> DatasetAttackConfiguration:
         return DatasetAttackConfiguration(

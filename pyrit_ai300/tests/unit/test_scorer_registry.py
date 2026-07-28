@@ -25,7 +25,7 @@
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.scorers.scorer_registry import (
     # 类映射与元数据
@@ -33,17 +33,7 @@ from src.scorers.scorer_registry import (
     SCORER_METADATA,
     # 实例创建
     create_scorer_instance,
-    create_scorers_for_scenario,
-    create_scorers_by_type,
-    # AttackScoringConfig
     create_attack_scoring_config,
-    create_attack_scoring_config_for_scenario,
-    # 元数据查询
-    get_scorer_metadata,
-    list_scorers_by_category,
-    list_scorers_for_attack_type,
-    requires_chat_target,
-    # 快捷方法
     create_general_scorer,
     create_leakage_scorer,
     create_injection_scorer,
@@ -55,8 +45,6 @@ from src.scorers.scorer_registry import (
     SCORER_VALIDATOR_PRESETS,
     get_validator_preset,
     create_validator,
-    create_scorer_with_validator,
-    # ResponseHandler
     create_json_response_handler,
     create_callable_response_handler,
     # 组合评分器
@@ -76,7 +64,6 @@ from src.scorers.scorer_registry import (
     configure_for_red_teaming,
     configure_for_strict,
     # score_response
-    score_response_with_scorers,
     score_text_with_scorer,
     score_batch_with_scorer,
     # ConversationScorer
@@ -86,9 +73,6 @@ from src.scorers.scorer_registry import (
     get_scorer_eval_hash,
     list_all_scorer_evaluation_metrics,
     find_scorer_metrics_by_hash,
-    compare_scorer_metrics,
-    # Registry
-    register_scorers_to_pyrit_registry,
     get_scorer_from_pyrit_registry,
     list_registered_scorers,
     # P3 新增：参考表生成
@@ -468,7 +452,8 @@ class TestResponseHandler:
 
     def test_create_callable_response_handler(self):
         """创建 Callable 响应处理器"""
-        parser = lambda text: {"score_value": "True"}
+        def parser(text):
+            return {"score_value": "True"}
         handler = create_callable_response_handler(parser=parser)
         assert handler is not None
 

@@ -9,14 +9,12 @@ Covers:
   P1-2: GroupFallbackExecutor (plan partitioning)
 """
 
-import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.payloads.target_profile_router import (
     TargetType,
-    TargetProfile,
     TargetProfileRouter,
     get_target_profile,
     infer_target_profile,
@@ -32,7 +30,6 @@ from src.payloads.asr_rank_builder import (
 )
 from src.payloads.tiered_selection_wizard import (
     FallbackStrategy,
-    TieredSelectionResult,
     SelectionPreset,
     TieredSelectionWizard,
     select_with_wizard,
@@ -734,22 +731,22 @@ class TestConvenienceFunctions:
 class TestASRTier:
     def test_from_asr_s(self):
         assert ASRTier.from_asr(0.95) == ASRTier.S
-        assert ASRTier.from_asr(0.80) == ASRTier.S
+        assert ASRTier.from_asr(0.70) == ASRTier.S
 
     def test_from_asr_a(self):
         assert ASRTier.from_asr(0.65) == ASRTier.A
-        assert ASRTier.from_asr(0.50) == ASRTier.A
+        assert ASRTier.from_asr(0.40) == ASRTier.A
 
     def test_from_asr_b(self):
-        assert ASRTier.from_asr(0.45) == ASRTier.B
-        assert ASRTier.from_asr(0.30) == ASRTier.B
+        assert ASRTier.from_asr(0.35) == ASRTier.B
+        assert ASRTier.from_asr(0.15) == ASRTier.B
 
     def test_from_asr_c(self):
-        assert ASRTier.from_asr(0.20) == ASRTier.C
-        assert ASRTier.from_asr(0.15) == ASRTier.C
+        assert ASRTier.from_asr(0.10) == ASRTier.C
+        assert ASRTier.from_asr(0.05) == ASRTier.C
 
     def test_from_asr_d(self):
-        assert ASRTier.from_asr(0.05) == ASRTier.D
+        assert ASRTier.from_asr(0.04) == ASRTier.D
         assert ASRTier.from_asr(0.0) == ASRTier.D
 
     def test_priority_ordering(self):
@@ -779,16 +776,17 @@ class TestASRRankBuilder:
         assert tiers["skeleton_key"] == ASRTier.S
         assert tiers["crescendo"] == ASRTier.A
         assert tiers["goal_hijack"] == ASRTier.S
-        assert tiers["direct_injection"] == ASRTier.UNKNOWN
+        assert tiers["direct_injection"] == ASRTier.B  # ASR 0.30 → Tier B (now correctly resolved from registry)
 
     def test_heuristic_score_for_no_asr(self):
         groups = _make_seed_groups_with_asr()
         ranked = ASRRankBuilder.build_ranked_groups(groups)
 
         di = next(g for g in ranked if g.technique_group == "direct_injection")
-        assert not di.has_asr_data
-        assert di.heuristic_score > 0
-        assert di.effective_score == di.heuristic_score
+        # direct_injection now correctly resolves to academic ASR 0.30 (Tier B)
+        assert di.has_asr_data
+        assert di.max_asr == 0.30
+        assert di.effective_score == 30.0
 
     def test_build_fallback_chain(self):
         groups = _make_seed_groups_with_asr()

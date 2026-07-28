@@ -45,6 +45,8 @@ from src.scenarios.technique_factories import (
     get_core_technique_factories,
     get_extra_technique_factories,
     get_all_technique_factories,
+    get_encoding_technique_factories,
+    get_simulated_conversation_factories,
     register_ai300_techniques,
     AI300_TECHNIQUE_METADATA,
     CONVERTER_VARIANT_CHAINS,
@@ -67,6 +69,9 @@ from src.scenarios.technique_initializer import (
 from src.scenarios.failure_type_selector import (
     FailureTypeRoutingSelector,
     extract_failure_type_from_result,
+    STRATEGY_ACADEMIC,
+    STRATEGY_EXAM,
+    STRATEGY_BALANCED,
 )
 
 # P2: Adaptive Scenario（原生 AdaptiveScenario + 失败类型路由）
@@ -92,6 +97,12 @@ from src.scenarios.scenario_result_bridge import (
     batch_result_to_scenario_result,
     build_memory_labels,
 )
+from src.scenarios.asr_strategy_display import (
+    display_analysis_stage,
+    display_selection_stage,
+    display_execution_stage,
+    display_post_execution,
+)
 
 __all__ = [
     # P0: Scenario 基类
@@ -105,6 +116,8 @@ __all__ = [
     "get_core_technique_factories",
     "get_extra_technique_factories",
     "get_all_technique_factories",
+    "get_encoding_technique_factories",
+    "get_simulated_conversation_factories",
     "register_ai300_techniques",
     "AI300_TECHNIQUE_METADATA",
     "CONVERTER_VARIANT_CHAINS",
@@ -122,6 +135,9 @@ __all__ = [
     # P0: 失败类型路由
     "FailureTypeRoutingSelector",
     "extract_failure_type_from_result",
+    "STRATEGY_ACADEMIC",
+    "STRATEGY_EXAM",
+    "STRATEGY_BALANCED",
     # P2: Adaptive Scenario
     "AI300AdaptiveScenario",
     "AI300EpsilonGreedySelector",
@@ -133,7 +149,12 @@ __all__ = [
     "sort_results_by_success_rate",
 "get_per_group_breakdown",
 "display_enhanced_group_breakdown",
-"ScenarioResultBridge",
+    "ScenarioResultBridge",
     "batch_result_to_scenario_result",
     "build_memory_labels",
+    # ASR Strategy Display
+    "display_analysis_stage",
+    "display_selection_stage",
+    "display_execution_stage",
+    "display_post_execution",
 ]

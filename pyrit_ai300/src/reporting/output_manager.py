@@ -14,25 +14,20 @@ Output Manager
 遵循开发规则 1.4.1（原生优先）：使用 PyRIT 原生 output_attack_async / FileSink。
 """
 
-import asyncio
 import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, List, Optional
 
-from colorama import Back, Fore, Style
+from colorama import Fore, Style
 
 from pyrit.output import (
     FileSink,
-    IPythonMarkdownSink,
     StdoutSink,
     get_default_sink,
     output_attack_async,
-    output_conversation_async,
-    output_scenario_async,
     output_score_async,
-    output_scorer_async,
 )
 
 from src.core.config_loader import get_config_loader
@@ -312,79 +307,6 @@ class OutputManager:
                 await output_score_async(scores, format="pretty", sink=self.stdout_sink)
             except Exception as e:
                 logger.warning(f"Score output failed: {e}")
-
-    async def output_conversation(self, messages: List[Any]) -> None:
-        """输出对话历史到终端"""
-        if messages:
-            try:
-                await output_conversation_async(
-                    messages,
-                    format="pretty",
-                    sink=self.stdout_sink,
-                    include_scores=True,
-                    include_reasoning_trace=self.include_reasoning_trace,
-                    blur_images=self.blur_images,
-                    blur_radius=self.blur_radius,
-                )
-            except Exception as e:
-                logger.warning(f"Conversation output failed: {e}")
-
-    async def output_scenario_result(
-        self,
-        scenario_result: Any,
-        *,
-        sort_groups_by_success_rate: bool = False,
-    ) -> None:
-        """
-        输出场景级摘要到终端（原生 output_scenario_async）
-
-        使用 PyRIT 原生 PrettyScenarioResultMemoryPrinter 渲染：
-        - 场景信息（名称/版本/PyRIT版本/描述）
-        - 目标信息（类型/模型/端点）
-        - 评分器信息与评估指标
-        - 逐组统计（成功率/结果数）
-        - 总体统计（技术数/攻击结果数/总体成功率）
-
-        Args:
-            scenario_result: ScenarioResult 实例
-            sort_groups_by_success_rate: 是否按成功率排序分组
-        """
-        try:
-            await output_scenario_async(
-                scenario_result,
-                format="pretty",
-                sink=self.stdout_sink,
-                sort_groups_by_success_rate=sort_groups_by_success_rate,
-            )
-        except Exception as e:
-            logger.warning(f"Scenario result output failed: {e}")
-
-    async def output_scorer_info(
-        self,
-        scorer_identifier: Any,
-        harm_category: Optional[str] = None,
-    ) -> None:
-        """
-        输出评分器信息与评估指标到终端（原生 output_scorer_async）
-
-        使用 PyRIT 原生 PrettyScorerMemoryPrinter 渲染：
-        - 评分器标识（类型/参数/子评分器）
-        - 目标信息（模型/温度）
-        - 性能指标（Objective: accuracy/F1/precision/recall 或 Harm: MAE/Krippendorff α）
-
-        Args:
-            scorer_identifier: ComponentIdentifier 评分器标识
-            harm_category: 危害类别（None 表示 Objective 评分器）
-        """
-        try:
-            await output_scorer_async(
-                scorer_identifier=scorer_identifier,
-                harm_category=harm_category,
-                format="pretty",
-                sink=self.stdout_sink,
-            )
-        except Exception as e:
-            logger.warning(f"Scorer info output failed: {e}")
 
     async def close(self) -> None:
         """关闭文件通道"""

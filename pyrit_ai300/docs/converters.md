@@ -1,7 +1,8 @@
 # Converter 子系统架构文档
 
 > 对齐 `pyrit.converter` — PyRIT 1.0.0 完整 Converter 转换架构  
-> 文档版本：v1.0 | 更新日期：2026-07-26
+> 文档版本：v2.0 | 更新日期：2026-07-27  
+> **v2.0 变更**：Target-Aware Router R0-R6 全覆盖 + PEP562 延迟导入 + File Converter 高级功能 + 多模态链工厂 + TextJailbreak 集成
 
 ## 1. 架构概览
 

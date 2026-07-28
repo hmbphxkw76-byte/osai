@@ -37,8 +37,7 @@ timeout_overrides:
 fail_fast: false              # 单个攻击失败是否终止全部
 
 # --- 输出控制 ---
-verbose: false                # 全量 verbose（输出每个攻击的完整详情，含失败）
-verbose_success: true         # 仅成功攻击输出完整详情（推荐开启）
+verbose_success: true         # 成功攻击输出完整详情（推荐开启，合并原 verbose/verbose_success）
 
 # --- 交互式选择 ---
 interactive_selection: true   # 是否启用种子组交互选择（false=全选，CI/CD 兼容）

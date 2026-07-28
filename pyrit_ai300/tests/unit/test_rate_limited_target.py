@@ -405,7 +405,7 @@ class TestWrapTarget:
         )
 
         conv = [MagicMock()]
-        result = await target._send_prompt_to_target_async(normalized_conversation=conv)
+        await target._send_prompt_to_target_async(normalized_conversation=conv)
         assert original_method.call_count == 2  # failed once, succeeded on retry
 
     @pytest.mark.asyncio

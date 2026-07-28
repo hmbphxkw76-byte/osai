@@ -1,7 +1,8 @@
 # PyRIT Scenario 原理说明文档
 
 > 基于 PyRIT 1.0.0 官方文档（5 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
-> 文档版本：v1.0 | 更新日期：2026-07-26
+> 文档版本：v2.0 | 更新日期：2026-07-27  
+> **v2.0 变更**：统一 AdaptiveScenario 路径 + Converter-Aware v3.0 + extra_request_converters + 失败类型路由 + SelectorScope
 
 ---
 

@@ -31,7 +31,7 @@ AI-300 考试知识点：
 """
 
 import logging
-from typing import Any, List
+from typing import List
 
 from typing_extensions import override
 

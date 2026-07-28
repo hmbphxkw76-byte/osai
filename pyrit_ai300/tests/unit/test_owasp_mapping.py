@@ -13,7 +13,6 @@ OWASP 映射测试
 
 import yaml
 import pytest
-from pathlib import Path
 
 
 # ============================================================

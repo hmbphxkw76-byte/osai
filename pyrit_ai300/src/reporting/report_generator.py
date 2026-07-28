@@ -31,11 +31,6 @@ from typing import Any, Dict, List, Optional
 
 from pyrit.memory import CentralMemory
 from pyrit.output import (
-    FileSink,
-    StdoutSink,
-    get_default_sink,
-    output_attack_async,
-    output_scenario_async,
     output_scorer_async,
 )
 from pyrit.output.attack_result.markdown import MarkdownAttackResultMemoryPrinter
@@ -861,22 +856,8 @@ class ReportGenerator:
         except Exception:
             pass
 
-        # L5 对齐：输出场景级 Per-Group Breakdown
-        # 合并原生 output_scenario_async 和增强列（技术+Converter+OWASP）为一次输出
-        if native_scenario_result is not None:
-            try:
-                from src.scenarios.scenario_output import display_enhanced_group_breakdown
-                display_enhanced_group_breakdown(native_scenario_result)
-            except Exception as e:
-                logger.warning(f"Enhanced group breakdown failed, falling back to native: {e}")
-                try:
-                    await output_scenario_async(
-                        native_scenario_result,
-                        format="pretty",
-                        sort_groups_by_success_rate=True,
-                    )
-                except Exception as e2:
-                    logger.warning(f"Scenario output failed: {e2}")
+        # Per-Group Breakdown 已在 pipeline.py [6/9] 执行后展示，此处不再重复输出
+        # 仅保留评分器评估指标输出（report_generator 专属）
 
         # L5 对齐：使用原生 output_scorer_async 输出评分器评估指标
         if native_scenario_result is not None:
@@ -1443,7 +1424,7 @@ class ReportGenerator:
                     "",
                     f"- **Attack Type**: {attack_type}",
                     f"- **Objective**: {detail['objective']}",
-                    f"- **Outcome**: ✅ SUCCESS",
+                    "- **Outcome**: ✅ SUCCESS",
                     f"- **Outcome Reason**: {detail.get('outcome_reason', 'Objective achieved')}",
                     f"- **Turns Executed**: {detail.get('executed_turns', 'N/A')}",
                     f"- **Execution Time**: {_format_time(detail.get('execution_time_ms'))}",

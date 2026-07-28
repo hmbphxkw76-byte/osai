@@ -20,7 +20,6 @@ Burp Target Builder — L5 Expert
 
 import json
 import logging
-import re
 from typing import Any, Dict, Optional
 
 from pyrit.prompt_target import HTTPTarget

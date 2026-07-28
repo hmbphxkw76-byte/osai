@@ -26,11 +26,10 @@ Seed Group Selector
 
 import logging
 import re
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
-from pyrit.models import SeedGroup, SeedObjective, SeedPrompt
+from pyrit.models import SeedGroup
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +411,7 @@ class SeedGroupSelector:
 
         # 自动选择：只有 1 个种子组
         if self.auto_select_if_single and len(catalog) == 1:
-            print(f"  [OK] 仅 1 个种子组 → 自动选择")
+            print("  [OK] 仅 1 个种子组 → 自动选择")
             return self.select_all(catalog)
 
         # 预设选择（脚本模式）
@@ -427,7 +426,7 @@ class SeedGroupSelector:
                 self._display_selected(filtered)
                 return self.select_by_entries(filtered)
             else:
-                print(f"  [!] 预设过滤无结果，使用全部种子组")
+                print("  [!] 预设过滤无结果，使用全部种子组")
                 return self.select_all(catalog)
 
         # 交互式选择
@@ -476,7 +475,7 @@ class SeedGroupSelector:
     def _prompt_indices(self, catalog: List[SeedGroupEntry]) -> List[SeedGroup]:
         """按序号选择"""
         try:
-            raw = input(f"  输入序号 (逗号分隔，支持范围 如 0,3,5-8): ").strip()
+            raw = input("  输入序号 (逗号分隔，支持范围 如 0,3,5-8): ").strip()
         except (EOFError, KeyboardInterrupt):
             return []
 

@@ -13,13 +13,6 @@ from pydantic import ValidationError
 from src.core.models import (
     OWASPFinding,
     AISystemType,
-    AuthType,
-    AuthStatus,
-    ReconResult,
-    AuthResult,
-    StrategySelection,
-    ReportResult,
-    ReportSummary,
 )
 
 

@@ -97,6 +97,9 @@ class SeedGroupBuilder:
             # 提取 system 角色信息（如果有）
             system_message = (plan.prompt_item.metadata or {}).get("system_message")
 
+            # 提取结构化输出约束（如果有）
+            response_json_schema = plan.prompt_item.response_json_schema
+
             # 如果有 system 消息，添加到种子列表最前面（在 objective 之后）
             # system 消息使用负序列号避免与 user/assistant 消息冲突
             if system_message:
@@ -128,11 +131,29 @@ class SeedGroupBuilder:
                 if multimodal_match and data_type != "text":
                     actual_value = multimodal_match.get("value", turn_value)
 
+                # 构建带 response_json_schema 的 SeedPrompt（仅在最后一轮 user 消息上设置）
+                prompt_kwargs: dict = {
+                    "value": actual_value,
+                    "sequence": i,
+                    "role": role,
+                    "data_type": data_type,
+                }
+                # response_json_schema 仅设置在最后一轮 user 消息上（即 next_message）
+                if response_json_schema and i == last_idx:
+                    prompt_kwargs["response_json_schema"] = response_json_schema
+
+                seeds.append(SeedPrompt(**prompt_kwargs))
+
+        elif not include_conversation:
+            # 即使不包含对话，也传递 response_json_schema 到第一个 SeedPrompt
+            response_json_schema = plan.prompt_item.response_json_schema
+            if response_json_schema:
                 seeds.append(SeedPrompt(
-                    value=actual_value,
-                    sequence=i,
-                    role=role,
-                    data_type=data_type,
+                    value=plan.prompt_item.objective,
+                    sequence=0,
+                    role="user",
+                    data_type="text",
+                    response_json_schema=response_json_schema,
                 ))
 
         return AttackSeedGroup(seeds=seeds)

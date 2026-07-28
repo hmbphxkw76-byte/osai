@@ -60,7 +60,7 @@ class AnecdoctorWrapper:
         if self._generator is None:
             if self._chat_target is None:
                 raise ValueError("AnecdoctorWrapper 需要 chat_target 才能生成种子")
-            from pyrit.executor.promptgen.anecdoctor import AnecdoctorGenerator, AnecdoctorContext
+            from pyrit.executor.promptgen.anecdoctor import AnecdoctorGenerator
             self._generator = AnecdoctorGenerator(
                 objective_target=self._chat_target,
                 processing_model=self._processing_model,

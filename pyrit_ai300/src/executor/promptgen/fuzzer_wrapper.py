@@ -115,7 +115,6 @@ class FuzzerWrapper:
         self._ensure_generator()
 
         from pyrit.executor.promptgen.fuzzer import FuzzerContext
-        from pyrit.executor.promptgen.fuzzer.fuzzer_converter_base import FuzzerConverter
 
         # 提取种子文本
         seed_texts = [s.value for s in seeds]
@@ -204,10 +203,8 @@ class FuzzerWrapper:
         self._ensure_generator()
 
         from pyrit.executor.promptgen.fuzzer.fuzzer_crossover_converter import FuzzerCrossOverConverter
-        from pyrit.prompt_normalizer import PromptNormalizer
 
         # 使用交叉 Converter
-        normalizer = PromptNormalizer()
         crossover_converter = FuzzerCrossOverConverter(converter_target=self._chat_target)
 
         # 执行交叉

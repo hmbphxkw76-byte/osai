@@ -1,29 +1,24 @@
-# config/defaults/ — 默认配置目录
+# config/defaults/ — 优化默认值
 
-本目录存放**已调优的默认参数**，遵循最佳实践原则。
+本目录存放调优过的默认参数，按功能分类管理。
 
-## 配置文件说明
+## 配置文件
 
-| 文件 | 说明 | 典型参数 |
+| 文件 | 说明 | 关键参数 |
 |------|------|----------|
-| `model_params.yaml` | 模型推理参数 | temperature / top_p / max_tokens / reasoning_effort |
-| `pipeline.yaml` | Pipeline 运行参数 | 并发数 / 超时 / verbose / 重试 |
-| `http_client.yaml` | HTTP 客户端参数 | 超时 / SSL验证 / 代理 |
-| `paths.yaml` | 路径与输出 | 数据库 / 日志 / 报告路径 |
+| `pipeline.yaml` | 执行流水线参数 | 并发数、超时、停止策略、交互选择、重试配置 |
+| `model_params.yaml` | 模型推理参数 | temperature、top_p、max_tokens、reasoning_effort |
+| `http_client.yaml` | HTTP 客户端参数 | 超时、SSL验证、HTTP/2、速率限制 |
+| `paths.yaml` | 输出路径配置 | 数据库路径、日志目录、报告目录、证据目录 |
 
 ## 配置优先级
 
 ```
-显式 CLI 参数 > .env 环境变量 > config/defaults/*.yaml > 硬编码兜底
+.env 环境变量 > config/defaults/*.yaml > config/runtime.yaml
 ```
-
-## 设计原则
-
-1. **`.env` 只放用户每次必改的参数**：目标 URL、API Key、认证信息
-2. **`config/defaults/` 放调优过的默认值**：temperature=0、超时阈值等
-3. **`config/config.yaml` 放架构级配置**：攻击技术映射、端点探测、数据源
 
 ## 修改方式
 
-- **临时修改**：在 `.env` 中覆盖对应环境变量
-- **长期修改**：直接编辑本目录下的 YAML 文件
+1. **快速覆盖**: 在 `.env` 中设置同名环境变量（大写 + 下划线）
+2. **持久修改**: 直接编辑本目录下的 YAML 文件
+3. **全局配置**: 编辑 `config/runtime.yaml`

@@ -71,6 +71,13 @@ class NativeAttackExecutor:
     3. SequentialAttack 委托 SequentialExecutor
     4. 共享 _create_scoring_config() 和 SeedGroupBuilder
     5. 支持 AttackResultAttribution 父级编排器关联
+
+    L5 事件循环安全：
+    原生 AttackExecutor 使用延迟信号量创建（_get_semaphore），
+    在首次 await 时绑定到当前事件循环，并在检测到事件循环变更时自动重建。
+    因此 NativeAttackExecutor 实例可安全跨 asyncio.run() 调用复用。
+    模块级单例 (get_direct_executor) 同样安全。
+    如需强制重建，调用 reset_executor() 即可。
     """
 
     def __init__(self, max_concurrency: int = 1):
@@ -87,7 +94,10 @@ class NativeAttackExecutor:
             if config.get("requires_adversarial", False)
         }
         # PyRIT 原生 AttackExecutor 实例
+        # L5: 原生 AttackExecutor 的信号量是延迟创建的（_get_semaphore），
+        # 在首次 await 时绑定到当前事件循环。跨事件循环复用时自动重建。
         self._native_executor = AttackExecutor(max_concurrency=max_concurrency)
+        self._max_concurrency = max_concurrency
         # SeedGroup 构建器
         self._seed_builder = SeedGroupBuilder()
         # 子执行器
@@ -109,6 +119,23 @@ class NativeAttackExecutor:
             scoring_config_factory=self._create_scoring_config,
             adversarial_techniques=self.adversarial_techniques,
         )
+
+    def reset(self) -> None:
+        """
+        L5: 重置原生 AttackExecutor — 丢弃旧的信号量绑定
+
+        原生 AttackExecutor 的信号量在首次 await 时绑定到事件循环。
+        正常情况下跨事件循环复用会自动重建信号量（_get_semaphore 检测 loop 变更）。
+        此方法提供显式重置接口，用于:
+        - 测试场景中确保每次测试使用独立执行器
+        - 长时间运行的服务中定期清理
+        - 怀疑信号量泄漏时的手动干预
+        """
+        self._native_executor = AttackExecutor(max_concurrency=self._max_concurrency)
+        self._single_turn._native_executor = self._native_executor
+        self._multi_turn._native_executor = self._native_executor
+        self._sequential._native_executor = self._native_executor
+        logger.debug("NativeAttackExecutor reset: recreated AttackExecutor")
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -224,129 +251,6 @@ class NativeAttackExecutor:
         )
 
     # ------------------------------------------------------------------
-    # L5: 批量分组辅助方法（供 ScenarioOrchestrator 使用）
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def group_plans_by_technique(
-        attack_plans: List[AttackPlan],
-    ) -> tuple[Dict[str, List[AttackPlan]], List[AttackPlan]]:
-        """
-        L5: 按攻击技术分组计划 — 提取到 NativeAttackExecutor 供复用
-
-        将攻击计划按 attack_technique 分组，SEQUENTIAL 模式的计划单独返回。
-        相同技术的计划可共享 Attack 实例，提升批量执行效率。
-
-        Args:
-            attack_plans: 攻击计划列表
-
-        Returns:
-            (groups, sequential_plans) 元组:
-            - groups: {technique: [plans]} 字典
-            - sequential_plans: SEQUENTIAL 模式的计划列表
-        """
-        from collections import defaultdict
-        from src.payloads.models import AttackMode
-
-        groups: Dict[str, List[AttackPlan]] = defaultdict(list)
-        sequential_plans: List[AttackPlan] = []
-
-        for plan in attack_plans:
-            if plan.prompt_item.attack_mode == AttackMode.SEQUENTIAL:
-                sequential_plans.append(plan)
-            else:
-                groups[plan.attack_technique].append(plan)
-
-        return dict(groups), sequential_plans
-
-    def build_attack_for_group(
-        self,
-        technique: str,
-        first_plan: AttackPlan,
-        objective_target: Any,
-        judge_target: Any,
-        event_handler: Any = None,
-    ) -> tuple[Any, Any, Any]:
-        """
-        L5: 为技术分组创建共享 Attack 实例 — 减少重复创建开销
-
-        为同一技术的多个计划创建一个共享的 Attack 实例，
-        供 execute_batch_same_technique() 使用。
-
-        Args:
-            technique: 攻击技术名
-            first_plan: 该组的第一个计划（用于提取配置）
-            objective_target: 目标 PromptTarget
-            judge_target: 评审用 LLM Target
-            event_handler: 可选的事件处理器
-
-        Returns:
-            (attack, adversarial_chat, objective_scorer) 元组
-        """
-        from src.executor.attack.core.attack_builder import (
-            create_attack_instance,
-            create_attack_adversarial_config,
-        )
-        from src.executor.attack.core.constants import (
-            SINGLE_TURN_ATTACKS as _SINGLE_TURN,
-            MAX_TURNS_ATTACKS as _MAX_TURNS,
-            TREE_DEPTH_ATTACKS as _TREE_DEPTH,
-            TAP_FAMILY_ATTACKS as _TAP_FAMILY,
-        )
-        from src.converters import load_preset_converter_chain
-        from pyrit.executor.attack import AttackConverterConfig
-
-        scoring_config = self._create_scoring_config(
-            first_plan.scorer_type, judge_target, first_plan, technique
-        )
-
-        converter_config = None
-        if first_plan.converter_chain_name:
-            converter_config = load_preset_converter_chain(
-                first_plan.converter_chain_name, converter_target=judge_target
-            )
-
-        attack_kwargs: Dict[str, Any] = {}
-        if converter_config:
-            attack_kwargs["attack_converter_config"] = converter_config
-
-        if technique not in _SINGLE_TURN and technique in self.adversarial_techniques:
-            attack_kwargs["attack_adversarial_config"] = create_attack_adversarial_config(
-                judge_target=judge_target,
-                metadata=first_plan.prompt_item.metadata or {},
-            )
-
-        if technique in _MAX_TURNS:
-            attack_kwargs["max_turns"] = first_plan.max_turns
-        elif technique in _TREE_DEPTH:
-            attack_kwargs["tree_depth"] = first_plan.max_turns
-
-        if technique in _TAP_FAMILY:
-            tap_metadata = first_plan.prompt_item.metadata or {}
-            for param_key in ("tree_width", "branching_factor", "batch_size"):
-                param_value = tap_metadata.get(param_key)
-                if param_value is not None and isinstance(param_value, int) and param_value > 0:
-                    attack_kwargs[param_key] = param_value
-
-        if event_handler is not None:
-            attack_kwargs["event_handler"] = event_handler
-
-        attack = create_attack_instance(
-            technique_name=technique,
-            objective_target=objective_target,
-            attack_scoring_config=scoring_config,
-            **attack_kwargs,
-        )
-
-        adversarial_chat = judge_target if (
-            technique not in _SINGLE_TURN and technique in self.adversarial_techniques
-        ) else None
-
-        objective_scorer = scoring_config.objective_scorer if scoring_config else None
-
-        return attack, adversarial_chat, objective_scorer
-
-    # ------------------------------------------------------------------
     # 共享辅助方法
     # ------------------------------------------------------------------
 
@@ -446,11 +350,34 @@ _executor_instance: Optional[NativeAttackExecutor] = None
 
 
 def get_direct_executor() -> NativeAttackExecutor:
-    """获取 NativeAttackExecutor 单例"""
+    """
+    获取 NativeAttackExecutor 单例
+
+    L5 事件循环安全：
+    单例在首次调用时创建，后续复用。原生 AttackExecutor 的信号量
+    是延迟创建的，跨事件循环复用时自动重建。因此单例可安全跨
+    asyncio.run() 调用复用。如需强制重建，调用 reset_executor()。
+    """
     global _executor_instance
     if _executor_instance is None:
         _executor_instance = NativeAttackExecutor()
     return _executor_instance
+
+
+def reset_executor() -> None:
+    """
+    L5: 重置模块级 NativeAttackExecutor 单例
+
+    丢弃现有单例并置为 None，下次调用 get_direct_executor() 时重建。
+    用于:
+    - 测试场景中确保每个测试套件使用独立执行器
+    - 事件循环变更后强制重建
+    - 信号量泄漏排查
+    """
+    global _executor_instance
+    if _executor_instance is not None:
+        _executor_instance.reset()
+    _executor_instance = None
 
 
 async def execute_single_attack(

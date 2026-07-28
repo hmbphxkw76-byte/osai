@@ -269,6 +269,46 @@ def _register_owasp_datasets() -> None:
                 except Exception as e:
                     logger.warning(f"Failed to register OWASP dataset {yaml_file}: {e}")
 
+            # 同时支持 .prompt 扩展名（PyRIT 官方约定）
+            for prompt_file in sorted(category_dir.glob("*.prompt")):
+                if prompt_file.name.startswith("_"):
+                    continue
+
+                try:
+                    class_name = (
+                        f"OwaspDataset_{framework}_{category_name}_{prompt_file.stem}"
+                        .replace("-", "_")
+                        .replace(" ", "_")
+                    )
+
+                    inferred = _infer_metadata(prompt_file, owasp_id)
+
+                    def _make_init_p(fp: Path, oid: str, fw: str):
+                        def __init__(self) -> None:
+                            super(self.__class__, self).__init__(
+                                file_path=fp, owasp_id=oid, framework=fw
+                            )
+                        return __init__
+
+                    type(
+                        class_name,
+                        (_OwaspLocalDatasetProvider,),
+                        {
+                            "__init__": _make_init_p(prompt_file, owasp_id, framework),
+                            "should_register": True,
+                            "__module__": __name__,
+                            "tags": inferred["tags"],
+                            "size": inferred["size"],
+                            "modalities": inferred["modalities"],
+                            "source_type": "local",
+                            "load_time": SeedDatasetLoadTime.FAST,
+                        },
+                    )
+
+                    logger.debug(f"Registered OWASP dataset provider: {class_name} for {prompt_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to register OWASP dataset {prompt_file}: {e}")
+
 
 # 执行注册
 _register_owasp_datasets()

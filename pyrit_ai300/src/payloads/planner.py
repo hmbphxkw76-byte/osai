@@ -29,7 +29,6 @@ from src.payloads.models import (
     AttackPlan,
     PromptBatch,
     PromptItem,
-    SequentialStep,
 )
 from src.core.config_loader import get_config_loader
 from src.analysis.strategy_matcher import PayloadStrategyMatcher
@@ -108,7 +107,7 @@ class PayloadPlanner:
 
             # 检查是否有 objective 类型的 seed（来自 SeedObjective）
             # objective seed 适用于目标导向攻击（RedTeaming/Crescendo/PAIR/TAP）
-            has_objective_seeds = any(
+            _has_objective_seeds = any(
                 item.metadata.get("is_objective_seed") or item.metadata.get("seed_type") == "objective"
                 for item in batch.prompts
             )

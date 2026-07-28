@@ -2,7 +2,7 @@
 Targets Module — L5 Expert
 ==========================
 
-统一目标适配器模块，对齐 PyRIT 1.0.0 全部 Target 类型。
+统一目标适配器模块，对齐 PyRIT 1.0.0 全部 15 种 Target 类型。
 
 支持的目标类型：
   1. OpenAI SDK 系列
@@ -19,7 +19,12 @@ Targets Module — L5 Expert
   4. Azure 服务系列
      - azure_blob         → AzureBlobStorageTarget (XPIA 载荷投递)
      - prompt_shield      → PromptShieldTarget (防御测试)
-  5. 调试
+     - azure_ml           → AzureMLChatTarget (Azure ML Managed Endpoint)
+  5. 多模态系列
+     - openai_image       → OpenAIImageTarget (DALL-E / GPT-Image 图片生成)
+     - openai_video       → OpenAIVideoTarget (Sora 视频生成)
+     - openai_tts         → OpenAITTSTarget (文本转语音)
+  6. 调试
      - text               → TextTarget (本地文本输出)
 
 L5 核心能力：

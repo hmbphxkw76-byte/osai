@@ -10,7 +10,6 @@ Evidence Exporter 测试
 遵循开发规则 1.4.9 测试先行原则
 """
 
-import asyncio
 import json
 import zipfile
 from pathlib import Path

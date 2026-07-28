@@ -17,8 +17,7 @@
 """
 
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from uuid import uuid4
+from unittest.mock import MagicMock
 
 from src.scorers.evaluator import (
     ScorerAccuracyEvaluator,

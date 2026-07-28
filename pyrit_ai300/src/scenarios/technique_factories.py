@@ -23,7 +23,6 @@ import logging
 from typing import Any, Dict, List
 
 from pyrit.executor.attack import (
-    AttackStrategy,
     ChunkedRequestAttack,
     CrescendoAttack,
     ManyShotJailbreakAttack,
@@ -35,9 +34,11 @@ from pyrit.executor.attack import (
     TAPAttack,
     TreeOfAttacksWithPruningAttack,
 )
-from pyrit.executor.attack.core.attack_config import AttackConverterConfig
 from pyrit.registry import AttackTechniqueRegistry
-from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
+from pyrit.scenario.core.attack_technique_factory import (
+    AttackTechniqueFactory,
+    ScorerOverridePolicy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,10 +202,47 @@ CONVERTER_VARIANT_CHAINS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# LLM 密集型链 — 需要强模型（≥70B 或商业模型）才能通过 recall 检查
+# DecompositionConverter 的 _MIN_RECALL=0.8 对小模型几乎不可通过
+_LLM_INTENSIVE_CHAINS = {"decomposition_chain", "decomposition_policy_chain"}
+
+
+
+def _extract_target_model_name(target: Any) -> str:
+    """从 PromptTarget 实例提取模型名称（类型安全）"""
+    for attr in ("_model_name", "model_name", "_deployment_name"):
+        val = getattr(target, attr, "")
+        if isinstance(val, str) and val:
+            return val
+    return ""
+
+
 # 基础技术 → 适用的 Converter 变体链名列表 (静态默认)
-# 只有单轮技术适合追加 Converter（多轮技术内部已有 adversarial chat 迭代）
+# ASR引导策略 v4.0: 多轮高 ASR 技术 + Converter 增强（学术验证有效组合）
 # R0: 当 target_type 提供时，此映射与 Target 推荐链交集动态生成变体池
+#
+# 学术依据:
+# - Crescendo + encoding: 多轮渐进最后一轮编码, ASR 提升 3-5x (Russinovich et al., arXiv:2402.12109)
+# - PAIR + persuasion: adversarial chat 使用说服策略引导迭代 (Chao et al., arXiv:2310.08437)
+# - TAP + stealth_evasion: 树搜索中使用混淆分支增加多样性 (Mehrotra et al., arXiv:2312.02191)
 BASE_TECHNIQUES_FOR_VARIANTS: Dict[str, List[str]] = {
+    # ── 多轮高 ASR 技术 + Converter 增强 (学术验证) ──
+    "crescendo": [
+        # Crescendo 最后一轮使用编码, 多轮迭代 + 编码绕过 = 3-5x ASR 提升
+        "encoding_bypass", "stealth_evasion",
+        # Crescendo + 说服: 渐进升级中的说服框架
+        "persuasion_authority",
+    ],
+    "pair": [
+        # PAIR adversarial chat 使用说服策略引导迭代
+        "persuasion_authority", "decomposition_chain",
+    ],
+    "tap": [
+        # TAP 树搜索中使用混淆分支增加多样性
+        "stealth_evasion",
+    ],
+
+    # ── 单轮技术 (保留, 但降为兜底) ──
     "prompt_sending": [
         # 非 LLM text 链 (高 ASR)
         "multi_encoding_v2", "stealth_evasion", "encoding_bypass",
@@ -460,6 +498,8 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "树状攻击（剪枝）",
         "uses_adversarial": True,
         "category": "jailbreak",
+        # L5: TAP 强依赖特定评分器类型 (true_false)，不兼容时应报错
+        "scorer_override_policy": ScorerOverridePolicy.RAISE,
     },
     "pair": {
         "attack_class": PAIRAttack,
@@ -467,6 +507,8 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "PAIR 攻击",
         "uses_adversarial": True,
         "category": "jailbreak",
+        # L5: PAIR 强依赖特定评分器类型 (true_false)，不兼容时应报错
+        "scorer_override_policy": ScorerOverridePolicy.RAISE,
     },
     "tree_of_attacks_pruned": {
         "attack_class": TreeOfAttacksWithPruningAttack,
@@ -474,6 +516,8 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "剪枝攻击树",
         "uses_adversarial": True,
         "category": "jailbreak",
+        # L5: 剪枝攻击树强依赖特定评分器类型 (true_false)，不兼容时应报错
+        "scorer_override_policy": ScorerOverridePolicy.RAISE,
     },
     # ── 额外技术 ──
     "skeleton_key": {
@@ -506,12 +550,18 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
 
 def _build_factory(name: str, metadata: Dict[str, Any]) -> AttackTechniqueFactory:
     """从元数据构建单个 AttackTechniqueFactory"""
+    # L5: ScorerOverridePolicy 类型安全
+    # TAP/PAIR 等树状攻击强依赖特定评分器类型，不兼容时应报错
+    # 其他技术使用默认 WARN（记录警告但继续执行）
+    scorer_policy = metadata.get("scorer_override_policy", ScorerOverridePolicy.WARN)
+
     return AttackTechniqueFactory(
         name=name,
         attack_class=metadata["attack_class"],
         description=metadata.get("description"),
         technique_tags=metadata.get("tags", []),
         uses_adversarial=metadata.get("uses_adversarial"),
+        scorer_override_policy=scorer_policy,
     )
 
 
@@ -586,6 +636,94 @@ def get_encoding_technique_factories() -> List[AttackTechniqueFactory]:
         meta = AI300_TECHNIQUE_METADATA.get(name)
         if meta:
             factories.append(_build_factory(name, meta))
+    return factories
+
+
+# ============================================================
+# P4: 模拟对话技术工厂 — 原生 with_simulated_conversation()
+# ============================================================
+
+# 技术名 → 模拟对话配置
+# 这些技术需要预生成对抗性对话（SeedSimulatedConversation），
+# 使用原生 with_simulated_conversation() 替代手动构建 seed_technique。
+#
+# YAML 文件路径: EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml
+# 原生方法自动处理: YAML 加载 → SeedSimulatedConversation → AttackTechniqueSeedGroup
+_SIMULATED_CONVERSATION_TECHNIQUES: Dict[str, Dict[str, Any]] = {
+    "crescendo_simulated": {
+        "attack_class": CrescendoAttack,
+        "description": "渐进式攻击（模拟对话）",
+        "tags": ["single_turn", "core", "simulated_conversation"],
+        "num_turns": 3,
+    },
+    "crescendo_movie_director": {
+        "attack_class": CrescendoAttack,
+        "description": "渐进式攻击：电影导演",
+        "tags": ["single_turn", "core", "simulated_conversation"],
+        "num_turns": 3,
+    },
+    "crescendo_history_lecture": {
+        "attack_class": CrescendoAttack,
+        "description": "渐进式攻击：历史讲座",
+        "tags": ["single_turn", "core", "simulated_conversation"],
+        "num_turns": 3,
+    },
+    "crescendo_journalist_interview": {
+        "attack_class": CrescendoAttack,
+        "description": "渐进式攻击：记者采访",
+        "tags": ["single_turn", "core", "simulated_conversation"],
+        "num_turns": 3,
+    },
+    "red_teaming": {
+        "attack_class": RedTeamingAttack,
+        "description": "多轮红队攻击（模拟对话）",
+        "tags": ["multi_turn", "light", "core", "simulated_conversation"],
+        "num_turns": 3,
+    },
+    "context_compliance": {
+        "attack_class": PromptSendingAttack,
+        "description": "上下文合规攻击（模拟对话 + 固定末轮）",
+        "tags": ["single_turn", "light", "core", "simulated_conversation"],
+        "num_turns": 3,
+        "final_user_message": "Yes, I can help with that.",
+    },
+}
+
+
+def get_simulated_conversation_factories() -> List[AttackTechniqueFactory]:
+    """
+    P4: 获取模拟对话技术工厂列表 — 使用原生 with_simulated_conversation()
+
+    对齐 PyRIT 1.0.0 原生 with_simulated_conversation() 构造器：
+    - 自动加载 EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml
+    - 构建 SeedSimulatedConversation → AttackTechniqueSeedGroup
+    - 设置 seed_technique 使 AttackTechniqueFactory.create() 能正确提取模拟对话
+
+    Returns:
+        使用原生 with_simulated_conversation() 构建的工厂列表
+    """
+    factories: List[AttackTechniqueFactory] = []
+    for name, config in _SIMULATED_CONVERSATION_TECHNIQUES.items():
+        try:
+            factory = AttackTechniqueFactory.with_simulated_conversation(
+                name=name,
+                attack_class=config["attack_class"],
+                description=config.get("description"),
+                num_turns=config.get("num_turns", 3),
+                technique_tags=config.get("tags", []),
+                final_user_message=config.get("final_user_message"),
+            )
+            factories.append(factory)
+            logger.debug(f"P4: Created simulated conversation factory for '{name}'")
+        except Exception as e:
+            logger.warning(
+                f"P4: Failed to create simulated conversation factory for '{name}': {e}. "
+                f"Falling back to standard factory."
+            )
+            # 回退到标准工厂构建
+            meta = AI300_TECHNIQUE_METADATA.get(name)
+            if meta:
+                factories.append(_build_factory(name, meta))
     return factories
 
 
@@ -685,7 +823,6 @@ def _get_dynamic_chain_mapping(
         target_type=target_type,
         converter_target_available=converter_target_available,
     )
-    recommended_set = set(recommended_chains)
 
     dynamic_mapping: Dict[str, List[str]] = {}
     for base_tech, static_chains in BASE_TECHNIQUES_FOR_VARIANTS.items():
@@ -789,6 +926,22 @@ def build_converter_variant_factories(
                     )
                     continue
 
+            # 过滤 4: LLM 密集型链需要强模型（DecompositionConverter recall 检查 _MIN_RECALL=0.8）
+            # 小模型（≤14B）分解 recall 过低 → InvalidJsonException → 整个 Scenario 崩溃
+            if chain_name in _LLM_INTENSIVE_CHAINS and converter_target is not None:
+                _conv_model = _extract_target_model_name(converter_target)
+                if _conv_model:
+                    from src.recon.recon_engine import infer_model_tier_static
+                    _conv_tier = infer_model_tier_static(_conv_model)
+                    if _conv_tier == "weak":
+                        skipped_llm += 1
+                        logger.info(
+                            f"Filter-4: Skipping LLM-intensive chain '{chain_name}' — "
+                            f"converter model '{_conv_model}' is tier 'weak' "
+                            f"(too small for decomposition recall >= 0.8)"
+                        )
+                        continue
+
             try:
                 converter_config = load_preset_converter_chain(
                     chain_name=chain_name,
@@ -818,6 +971,71 @@ def build_converter_variant_factories(
                 uses_adversarial=meta.get("uses_adversarial"),
             )
             variant_factories.append(factory)
+
+    # R0 fallback: 如果动态映射的所有链都被过滤（如 RAG 目标的所有推荐链都需要运行时参数），
+    # 回退到静态映射，确保 Target 仍获得基本的 Converter 变体保护
+    if not variant_factories and dynamic_mapping is not None:
+        logger.info(
+            "R0: Dynamic mapping produced 0 variants after filtering, "
+            "falling back to static mapping"
+        )
+        for base_tech, chain_names in BASE_TECHNIQUES_FOR_VARIANTS.items():
+            meta_fb = AI300_TECHNIQUE_METADATA.get(base_tech)
+            if meta_fb is None:
+                continue
+
+            for chain_name in chain_names:
+                chain_info_fb = CONVERTER_VARIANT_CHAINS.get(chain_name)
+                if chain_info_fb is None:
+                    continue
+
+                if chain_info_fb.get("requires_runtime_params", False):
+                    skipped_runtime += 1
+                    continue
+
+                if chain_info_fb["requires_llm"] and converter_target is None:
+                    skipped_llm += 1
+                    continue
+
+                if objective_target is not None:
+                    if not _is_chain_modality_compatible(
+                        chain_name=chain_name,
+                        chain_info=chain_info_fb,
+                        objective_target=objective_target,
+                        target_type=target_type,
+                    ):
+                        skipped_modality += 1
+                        continue
+
+                try:
+                    converter_config_fb = load_preset_converter_chain(
+                        chain_name=chain_name,
+                        converter_target=converter_target,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to load converter chain '{chain_name}' for "
+                        f"variant '{base_tech}+{chain_name}': {e}"
+                    )
+                    continue
+
+                if converter_config_fb is None:
+                    continue
+
+                variant_name = f"{base_tech}+{chain_name}"
+                variant_tags_fb = list(meta_fb.get("tags", []))
+                if "converter_enhanced" not in variant_tags_fb:
+                    variant_tags_fb.append("converter_enhanced")
+
+                factory_fb = AttackTechniqueFactory(
+                    name=variant_name,
+                    attack_class=meta_fb["attack_class"],
+                    description=f"{meta_fb.get('description', '')} + {chain_info_fb['description']}",
+                    technique_tags=variant_tags_fb,
+                    attack_kwargs={"attack_converter_config": converter_config_fb},
+                    uses_adversarial=meta_fb.get("uses_adversarial"),
+                )
+                variant_factories.append(factory_fb)
 
     logger.info(
         f"Built {len(variant_factories)} converter variant factories "
@@ -931,6 +1149,16 @@ def register_ai300_techniques(
             factories.extend(get_extra_technique_factories())
         if "encoding" in tags:
             factories.extend(get_encoding_technique_factories())
+
+    # P4: 用原生 with_simulated_conversation() 工厂替换需要模拟对话的标准工厂
+    # 这些工厂（crescendo_*, red_teaming, context_compliance）使用原生
+    # with_simulated_conversation() 构建 SeedSimulatedConversation → AttackTechniqueSeedGroup，
+    # 提供比标准 _build_factory() 更完整的 seed_technique 设置。
+    sim_factories = get_simulated_conversation_factories()
+    sim_factory_names = {f.name for f in sim_factories}
+    # 移除被模拟对话工厂替换的标准工厂（同名）
+    factories = [f for f in factories if f.name not in sim_factory_names]
+    factories.extend(sim_factories)
 
     # P0+R0+R2: 追加 Converter 变体工厂（Target 感知 + 模态过滤）
     if include_variants:

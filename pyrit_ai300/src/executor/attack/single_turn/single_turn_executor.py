@@ -17,7 +17,6 @@ from pyrit.executor.attack import AttackConverterConfig
 from pyrit.executor.attack.core.attack_result_attribution import AttackResultAttribution
 
 from src.payloads.models import AttackPlan
-from src.executor.attack.core.constants import NO_REFUSAL_SCORER_ATTACKS
 from src.executor.attack.core.attack_builder import (
     create_attack_instance,
 )

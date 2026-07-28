@@ -1,6 +1,7 @@
 # PyRIT 1.0.0 Registry 架构设计文档
 
-> **版本**: v1.0.0 | **对齐 PyRIT 1.0.0 官方 Registry 模块** | **L5 Expert Level**
+> **版本**: v2.0.0 | **对齐 PyRIT 1.0.0 官方 Registry 模块** | **L5 Expert Level**  
+> **v2.0 变更**: RegistryManager Facade + 6大域单例缓存 + 原生 registry.instances.register/add_tags API + 懒发现策略
 
 ---
 

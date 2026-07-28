@@ -371,7 +371,7 @@ def _generate_pdf_xhtml2pdf(html_content: str, output_path: Path) -> Path:
     # 将 CSS 内联到 body 元素上
     inline_html = html_content.replace(
         '<body>',
-        f'<body style="font-family: Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5;">',
+        '<body style="font-family: Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5;">',
     )
 
     with open(output_path, "wb") as f:

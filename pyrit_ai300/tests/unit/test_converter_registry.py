@@ -75,7 +75,6 @@ from pyrit.converter import (
     PolicyPuppetryTemplate,
     SelectiveTextConverter,
     Converter,
-    TextSelectionStrategy,
     TokenSelectionStrategy,
     AllWordsSelectionStrategy,
     WordProportionSelectionStrategy,

@@ -13,8 +13,7 @@
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.reporting.format_converter import (
     convert_markdown_to_html,

@@ -10,9 +10,8 @@ Converter-Aware Adaptive Architecture 单元测试
   P4: 结果转换 + 向后兼容
 """
 
-import asyncio
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock
 
 from src.scenarios.technique_factories import (
     AI300_TECHNIQUE_METADATA,
@@ -27,14 +26,12 @@ from src.scenarios.technique_factories import (
 )
 from src.scenarios.failure_type_selector import (
     FailureTypeRoutingSelector,
-    extract_failure_type_from_result,
     FAILURE_MODEL_REFUSAL,
     FAILURE_TIMEOUT,
     FAILURE_OBJECTIVE_NOT_ACHIEVED,
     FAILURE_SCORER_VALIDATION_ERROR,
 )
 from src.scenarios.adaptive_runner import (
-    run_adaptive_scenario_async,
     AdaptiveRunResult,
     _convert_native_to_batch_result,
 )
@@ -64,9 +61,10 @@ class TestP0ConverterVariantFactories(unittest.TestCase):
         """Test BASE_TECHNIQUES_FOR_VARIANTS has expected entries"""
         self.assertIn("prompt_sending", BASE_TECHNIQUES_FOR_VARIANTS)
         self.assertIn("many_shot", BASE_TECHNIQUES_FOR_VARIANTS)
-        # Multi-turn techniques should NOT be in variants (they have adversarial chat)
+        # red_teaming should NOT be in variants (it has adversarial chat)
         self.assertNotIn("red_teaming", BASE_TECHNIQUES_FOR_VARIANTS)
-        self.assertNotIn("crescendo", BASE_TECHNIQUES_FOR_VARIANTS)
+        # crescendo IS in variants (crescendo + encoding = 3-5x ASR, arXiv:2402.12109)
+        self.assertIn("crescendo", BASE_TECHNIQUES_FOR_VARIANTS)
 
     def test_get_converter_variant_names(self):
         """Test get_converter_variant_names returns expected names"""
@@ -182,8 +180,8 @@ class TestP1FailureTypeRoutingConverterAware(unittest.TestCase):
     def setUp(self):
         self.selector = FailureTypeRoutingSelector()
 
-    def test_model_refusal_prioritizes_converter_variants(self):
-        """Test model_refusal routes converter variants first"""
+    def test_model_refusal_prioritizes_strategy_escalation(self):
+        """Test model_refusal routes strategy escalation (Tier S) first"""
         self.selector.update_failure_type(FAILURE_MODEL_REFUSAL)
         techniques = [
             "red_teaming",
@@ -193,12 +191,11 @@ class TestP1FailureTypeRoutingConverterAware(unittest.TestCase):
             "crescendo",
         ]
         reordered = self.selector._reorder_by_failure_type(techniques)
-        # Converter variants should be first
-        self.assertTrue(is_converter_variant(reordered[0]))
-        self.assertTrue(is_converter_variant(reordered[1]))
-        # stealth_evasion (priority=1) before encoding_bypass (priority=2)
-        self.assertEqual(reordered[0], "prompt_sending+stealth_evasion")
-        self.assertEqual(reordered[1], "prompt_sending+encoding_bypass")
+        # Tier S techniques should be first (strategy escalation)
+        self.assertIn(reordered[0], {"red_teaming", "crescendo"})
+        self.assertIn(reordered[1], {"red_teaming", "crescendo"})
+        # Base prompt_sending should be last (lowest priority for model_refusal)
+        self.assertEqual(reordered[-1], "prompt_sending")
 
     def test_timeout_prioritizes_base_techniques(self):
         """Test timeout routes base (non-converter) single-turn first"""
@@ -231,7 +228,7 @@ class TestP1FailureTypeRoutingConverterAware(unittest.TestCase):
         self.assertTrue(is_converter_variant(reordered[1]))
 
     def test_no_failure_type_prioritizes_converter_and_encoding(self):
-        """Test no failure type prioritizes converter variants + encoding"""
+        """Test no failure type defaults to academic ASR priority"""
         self.selector._last_failure_type = None
         techniques = [
             "red_teaming",
@@ -240,10 +237,8 @@ class TestP1FailureTypeRoutingConverterAware(unittest.TestCase):
             "base64",
         ]
         reordered = self.selector._reorder_by_failure_type(techniques)
-        # Converter variants first
-        self.assertEqual(reordered[0], "prompt_sending+stealth_evasion")
-        # Then encoding
-        self.assertEqual(reordered[1], "base64")
+        # Tier S (red_teaming) should be first by academic ASR priority
+        self.assertEqual(reordered[0], "red_teaming")
 
     def test_scorer_validation_keeps_order(self):
         """Test scorer_validation_error keeps epsilon-greedy order"""
@@ -293,12 +288,11 @@ class TestP2AI300AdaptiveScenario(unittest.TestCase):
         from src.scenarios.ai300_adaptive_scenario import AI300EpsilonGreedySelector
         self.assertTrue(issubclass(AI300EpsilonGreedySelector, FailureTypeRoutingSelector))
 
-    def test_additional_parameters_includes_per_attack_timeout(self):
-        """Test additional_parameters includes per_attack_timeout"""
+    def test_additional_parameters_includes_max_attempts(self):
+        """Test additional_parameters includes max_attempts_per_objective"""
         from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
         params = AI300AdaptiveScenario.additional_parameters()
         param_names = [p.name for p in params]
-        self.assertIn("per_attack_timeout", param_names)
         self.assertIn("max_attempts_per_objective", param_names)
 
 
@@ -551,7 +545,6 @@ class TestP5AbstractMethodsAndDisplay(unittest.TestCase):
     def test_is_not_abstract(self):
         """Test AI300AdaptiveScenario is not abstract (all methods implemented)"""
         from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
-        from abc import ABC
         # The class should not have unimplemented abstract methods
         # (it still extends ABC via Scenario, but all abstract methods are implemented)
         abstract_methods = getattr(AI300AdaptiveScenario, "__abstractmethods__", set())
@@ -580,12 +573,14 @@ class TestR0DynamicChainMapping(unittest.TestCase):
         self.assertIsNotNone(result)
         # prompt_sending should be in the mapping
         self.assertIn("prompt_sending", result)
-        # Chains should be from the recommended list for llm_direct
+        # Chains should be from the recommended list for llm_direct_strong
         recommended = ["multi_encoding_v2", "stealth_evasion", "encoding_bypass",
-                       "policy_puppetry", "noise_case_chain", "unicode_attack"]
+                       "policy_puppetry", "noise_case_chain", "unicode_attack",
+                       "agent_injection_chain", "random_case",
+                       "llm_assisted", "persuasion_authority",
+                       "decomposition_chain", "task_framing_chain"]
         for chain in result["prompt_sending"]:
-            self.assertIn(chain, recommended + ["llm_assisted", "persuasion_authority",
-                                                "decomposition_chain", "task_framing_chain"])
+            self.assertIn(chain, recommended)
 
     def test_get_dynamic_chain_mapping_with_rag_target(self):
         """Test _get_dynamic_chain_mapping for RAG target returns xpia/file chains"""
@@ -710,17 +705,18 @@ class TestR3YamlDrivenProfiles(unittest.TestCase):
         """Test TARGET_TYPE_GROUPS is loaded from YAML (lazy)"""
         from src.converters.target_aware_router import TARGET_TYPE_GROUPS
         # Should contain openai_chat mapping
-        self.assertEqual(TARGET_TYPE_GROUPS["openai_chat"], "llm_direct")
+        self.assertEqual(TARGET_TYPE_GROUPS["openai_chat"], "llm_direct_strong")
         self.assertEqual(TARGET_TYPE_GROUPS["playwright"], "agent_web")
         self.assertEqual(TARGET_TYPE_GROUPS["azure_blob"], "rag")
 
     def test_target_converter_profiles_is_lazy_dict(self):
         """Test TARGET_CONVERTER_PROFILES is loaded from YAML (lazy)"""
         from src.converters.target_aware_router import TARGET_CONVERTER_PROFILES
-        # Should contain llm_direct profile
-        profile = TARGET_CONVERTER_PROFILES["llm_direct"]
+        # Should contain llm_direct_strong profile
+        profile = TARGET_CONVERTER_PROFILES["llm_direct_strong"]
         self.assertIn("high_asr_chains", profile)
-        self.assertIn("multi_encoding_v2", profile["high_asr_chains"])
+        self.assertIn("medium_asr_chains", profile)
+        self.assertIn("multi_encoding_v2", profile["medium_asr_chains"])
 
     def test_config_loader_has_target_aware_methods(self):
         """Test ConfigLoader has get_target_aware_converter_profiles method"""
@@ -728,9 +724,9 @@ class TestR3YamlDrivenProfiles(unittest.TestCase):
         config = get_config_loader()
         profiles = config.get_target_aware_converter_profiles()
         self.assertGreater(len(profiles), 0)
-        self.assertIn("llm_direct", profiles)
+        self.assertIn("llm_direct_strong", profiles)
         # YAML uses high_asr (not high_asr_chains)
-        self.assertIn("high_asr", profiles["llm_direct"])
+        self.assertIn("high_asr", profiles["llm_direct_strong"])
 
     def test_config_loader_get_target_aware_profile(self):
         """Test ConfigLoader.get_target_aware_profile returns specific profile"""
@@ -747,8 +743,8 @@ class TestR3YamlDrivenProfiles(unittest.TestCase):
             _FALLBACK_TARGET_CONVERTER_PROFILES,
         )
         # llm_direct high_asr_chains should match
-        yaml_chains = TARGET_CONVERTER_PROFILES["llm_direct"]["high_asr_chains"]
-        fallback_chains = _FALLBACK_TARGET_CONVERTER_PROFILES["llm_direct"]["high_asr_chains"]
+        yaml_chains = TARGET_CONVERTER_PROFILES["llm_direct_strong"]["high_asr_chains"]
+        fallback_chains = _FALLBACK_TARGET_CONVERTER_PROFILES["llm_direct_strong"]["high_asr_chains"]
         self.assertEqual(yaml_chains, fallback_chains)
 
 

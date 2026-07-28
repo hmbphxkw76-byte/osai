@@ -1,19 +1,21 @@
 """
-AI-300 Initializers — 对齐 PyRIT built-in initializers
-=======================================================
+AI-300 Initializers — 对齐 PyRIT built-in initializers (L5 原生优先)
+===================================================================
 
-PyRIT 1.0.0 PyRIT Initializers 文档定义四大内置初始化器：
+PyRIT 1.0.0 PyRIT Initializers 文档定义五大内置初始化器：
   1. TargetInitializer — 从环境变量注册 Target 到 TargetRegistry
   2. ScorerInitializer — 注册默认 Scorer 到 ScorerRegistry
   3. TechniqueInitializer — 注册攻击技术到 AttackTechniqueRegistry
   4. LoadDefaultDatasets — 加载数据集到 CentralMemory
+  5. PreloadScenarioMetadata — 预热 ScenarioRegistry 元数据缓存
 
-本模块提供 AI-300 专用 PyRITInitializer 子类，封装上述功能
-同时设置 AI-300 考试专用默认值。
+本模块提供 AI-300 专用 PyRITInitializer 子类，采用「原生优先 + AI-300 扩展」
+策略：先委托原生初始化器执行标准注册，再追加 AI-300 考试专有配置。
 
-设计原则（PyRIT 最佳实践）：
-  - 每个 Initializer 是离散的、有序的启动配置单元
-  - 执行一次，准备好共享状态
+设计原则（L5 原生优先）：
+  - 每个 Initializer 先委托原生实现，再追加 AI-300 专有扩展
+  - 原生初始化器处理标准 PyRIT 环境变量（OPENAI_CHAT_* / AZURE_OPENAI_*）
+  - AI-300 扩展处理考试专有环境变量（TARGET_* / JUDGE_*）
   - 下游消费者通过 Registry 按名称或标签拉取实例
   - 不自动注入到手写攻击中
 
@@ -41,18 +43,22 @@ logger = logging.getLogger(__name__)
 
 class AI300TargetInitializer(PyRITInitializer):
     """
-    AI-300 Target 初始化器
+    AI-300 Target 初始化器（L5 原生优先 + AI-300 扩展）
 
-    对齐 PyRIT TargetInitializer，从环境变量注册 Target 到 TargetRegistry。
+    执行流程：
+      Step 1: 委托原生 TargetInitializer — 从标准 PyRIT 环境变量
+              （OPENAI_CHAT_* / AZURE_OPENAI_* 等 40+ 配置）注册 Target
+              + auto-grouping（RoundRobinTarget）
+      Step 2: AI-300 扩展 — 从 TARGET_* / JUDGE_* 环境变量注册考试专用 Target
+              + set_default_value(temperature=0.7)
 
-    AI-300 扩展：
-      - 支持 TARGET_ENDPOINT / TARGET_MODEL / TARGET_API_KEY 环境变量
-      - 支持 JUDGE_ENDPOINT / JUDGE_MODEL / JUDGE_API_KEY 环境变量
-      - 自动注册为 "objective_target" 和 "judge_target" 名称
-      - 设置 temperature 默认值（target=0.7, judge=0）
+    原生优先策略确保：
+      - 用户配置了标准 PyRIT 环境变量时获得完整原生体验
+      - 仅配置 TARGET_*/JUDGE_* 时获得 AI-300 考试体验
+      - 两者兼有时获得叠加体验
 
     Supported Parameters:
-      - tags: 注册的 Target 标签列表
+      - tags: 注册的 Target 标签列表（对齐原生 TargetInitializerTags）
       - auto_group: 是否自动创建 round-robin 分组
     """
 
@@ -73,21 +79,33 @@ class AI300TargetInitializer(PyRITInitializer):
 
     @property
     def required_env_vars(self) -> list[str]:
-        """AI-300 只需要 TARGET_ENDPOINT 和 JUDGE_ENDPOINT"""
-        vars_needed = []
+        """AI-300 需要 TARGET_ENDPOINT（JUDGE_ENDPOINT 可回退到 TARGET_ENDPOINT）"""
         if not os.getenv("TARGET_ENDPOINT"):
-            vars_needed.append("TARGET_ENDPOINT")
-        if not os.getenv("JUDGE_ENDPOINT"):
-            vars_needed.append("JUDGE_ENDPOINT")
-        return vars_needed
+            return ["TARGET_ENDPOINT"]
+        return []
 
     async def initialize_async(self) -> None:
         """
-        注册 AI-300 Target 到 TargetRegistry
+        注册 Target 到 TargetRegistry
 
-        从 .env 读取 TARGET_* 和 JUDGE_* 环境变量，
-        创建 OpenAIChatTarget 实例并注册到 TargetRegistry。
+        Step 1: 委托原生 TargetInitializer（处理标准 PyRIT 环境变量）
+        Step 2: AI-300 扩展（处理 TARGET_* / JUDGE_* 环境变量）
         """
+        # Step 1: 委托原生 TargetInitializer
+        from pyrit.setup.initializers.targets import TargetInitializer
+
+        native_init = TargetInitializer()
+        native_init.set_params_from_args(args={
+            "tags": self.params.get("tags", ["default"]),
+            "auto_group": self.params.get("auto_group", True),
+        })
+        try:
+            await native_init.initialize_async()
+            logger.info("AI300TargetInitializer: native TargetInitializer completed")
+        except Exception as e:
+            logger.warning(f"AI300TargetInitializer: native TargetInitializer failed (non-fatal): {e}")
+
+        # Step 2: AI-300 扩展 — 注册考试专用 Target
         from pyrit.registry import TargetRegistry
         from src.targets import create_prompt_target, create_judge_target, TargetParams
 
@@ -110,11 +128,9 @@ class AI300TargetInitializer(PyRITInitializer):
                     model_name=target_model,
                     params=target_params,
                 )
-                registry.register_instance(
-                    name="objective_target",
-                    instance=target,
-                    tags=["default", "objective"],
-                )
+                # 使用原生 API 注册
+                registry.instances.register(target, name="objective_target")
+                registry.instances.add_tags(name="objective_target", tags=["default", "objective"])
                 logger.info(f"AI300TargetInitializer: registered 'objective_target' ({target_type})")
             except Exception as e:
                 logger.warning(f"AI300TargetInitializer: failed to register objective_target: {e}")
@@ -138,16 +154,13 @@ class AI300TargetInitializer(PyRITInitializer):
                     model_name=judge_model,
                     params=judge_params,
                 )
-                registry.register_instance(
-                    name="judge_target",
-                    instance=judge,
-                    tags=["default", "scorer"],
-                )
+                registry.instances.register(judge, name="judge_target")
+                registry.instances.add_tags(name="judge_target", tags=["default", "scorer"])
                 logger.info(f"AI300TargetInitializer: registered 'judge_target' ({judge_type})")
             except Exception as e:
                 logger.warning(f"AI300TargetInitializer: failed to register judge_target: {e}")
 
-        # 设置默认 temperature
+        # 设置默认 temperature（对齐原生 set_default_value 模式）
         set_default_value(
             class_type=OpenAIChatTarget,
             parameter_name="temperature",
@@ -161,14 +174,16 @@ class AI300TargetInitializer(PyRITInitializer):
 
 class AI300ScorerInitializer(PyRITInitializer):
     """
-    AI-300 Scorer 初始化器
+    AI-300 Scorer 初始化器（L5 原生优先 + AI-300 扩展）
 
-    对齐 PyRIT ScorerInitializer，注册默认评分器到 ScorerRegistry。
-
-    AI-300 扩展：
-      - 从 judge_target 注册 TrueFalseInverterScorer（拒绝检测）
-      - 注册 SelfAskTrueFalseScorer（任务完成检测）
-      - 标签体系对齐 ScorerInitializerTags
+    执行流程：
+      Step 1: 委托原生 ScorerInitializer — 注册 20+ 评分器变体
+              （refusal/scale/ACS/likert/task_achieved/compound）
+              + best-per-category 标签 + F1 选择
+              仅在 TargetRegistry 非空时执行
+      Step 2: AI-300 扩展 — 从 judge_target 注册考试专用评分器
+              TrueFalseInverterScorer (拒绝检测) +
+              SelfAskTrueFalseScorer (任务完成检测)
 
     注意：必须在 AI300TargetInitializer 之后运行（scorer 需要 chat target）。
     """
@@ -185,48 +200,75 @@ class AI300ScorerInitializer(PyRITInitializer):
 
     @property
     def required_env_vars(self) -> list[str]:
-        """JUDGE_ENDPOINT 必须存在"""
-        if not os.getenv("JUDGE_ENDPOINT"):
+        """JUDGE_ENDPOINT 必须存在（或 TARGET_ENDPOINT 作为回退）"""
+        if not os.getenv("JUDGE_ENDPOINT") and not os.getenv("TARGET_ENDPOINT"):
             return ["JUDGE_ENDPOINT"]
         return []
 
     async def initialize_async(self) -> None:
         """
-        注册 AI-300 Scorer 到 ScorerRegistry
+        注册 Scorer 到 ScorerRegistry
 
-        从 TargetRegistry 拉取 judge_target，创建评分器实例并注册。
+        Step 1: 委托原生 ScorerInitializer（注册 20+ 评分器变体）
+        Step 2: AI-300 扩展（注册考试专用评分器）
         """
         from pyrit.registry import TargetRegistry, ScorerRegistry
-        from pyrit.prompt_normalizer import PromptNormalizer
+
+        target_registry = TargetRegistry.get_registry_singleton()
+
+        # Step 1: 委托原生 ScorerInitializer
+        # 原生 ScorerInitializer 要求 TargetRegistry 非空
+        if len(target_registry.instances) > 0:
+            from pyrit.setup.initializers.scorers import ScorerInitializer
+
+            native_init = ScorerInitializer()
+            native_init.set_params_from_args(args={
+                "tags": self.params.get("tags", ["default"]),
+            })
+            try:
+                await native_init.initialize_async()
+                logger.info("AI300ScorerInitializer: native ScorerInitializer completed")
+            except Exception as e:
+                logger.warning(f"AI300ScorerInitializer: native ScorerInitializer failed (non-fatal): {e}")
+        else:
+            logger.warning(
+                "AI300ScorerInitializer: TargetRegistry is empty, skipping native ScorerInitializer. "
+                "Ensure AI300TargetInitializer runs first."
+            )
+
+        # Step 2: AI-300 扩展 — 注册考试专用评分器
         from pyrit.score import (
+            SelfAskRefusalScorer,
             SelfAskTrueFalseScorer,
             TrueFalseInverterScorer,
+            TrueFalseQuestion,
             TrueFalseQuestionPaths,
         )
 
         scorer_registry = ScorerRegistry.get_registry_singleton()
-        target_registry = TargetRegistry.get_registry_singleton()
 
         # 从 TargetRegistry 拉取 judge target
         judge_entry = target_registry.instances.get("judge_target")
         if judge_entry is None:
             logger.warning(
                 "AI300ScorerInitializer: 'judge_target' not found in TargetRegistry. "
-                "Run AI300TargetInitializer first."
+                "Skipping AI-300 specific scorer registration."
             )
             return
 
         judge_target = judge_entry.instance if hasattr(judge_entry, "instance") else judge_entry
 
         # 注册 TrueFalseInverterScorer (拒绝检测)
+        # PyRIT 1.0.0: TrueFalseInverterScorer 接受 scorer 参数 (TrueFalseScorer 实例)，
+        # 而非 chat_target/true_false_question_path。
+        # 原生模式: TrueFalseInverterScorer(scorer=SelfAskRefusalScorer(chat_target=...))
         try:
             refusal_scorer = TrueFalseInverterScorer(
-                chat_target=judge_target,
-                true_false_question_path=TrueFalseQuestionPaths.RESPECT_CONTEXT,
+                scorer=SelfAskRefusalScorer(chat_target=judge_target),
             )
-            scorer_registry.register_instance(
+            scorer_registry.instances.register(
+                refusal_scorer,
                 name="refusal_scorer",
-                instance=refusal_scorer,
                 tags=["default", "refusal", "objective"],
             )
             logger.info("AI300ScorerInitializer: registered 'refusal_scorer'")
@@ -234,14 +276,16 @@ class AI300ScorerInitializer(PyRITInitializer):
             logger.warning(f"AI300ScorerInitializer: failed to register refusal_scorer: {e}")
 
         # 注册 SelfAskTrueFalseScorer (任务完成检测)
+        # PyRIT 1.0.0: SelfAskTrueFalseScorer.__init__ 不再接受 true_false_question_path 参数。
+        # 使用 from_question() 工厂方法 + TrueFalseQuestion.from_yaml() 加载问题模板。
         try:
-            task_scorer = SelfAskTrueFalseScorer(
+            task_scorer = SelfAskTrueFalseScorer.from_question(
                 chat_target=judge_target,
-                true_false_question_path=TrueFalseQuestionPaths.TASK_ACHIEVED,
+                question=TrueFalseQuestion.from_yaml(TrueFalseQuestionPaths.TASK_ACHIEVED.value),
             )
-            scorer_registry.register_instance(
+            scorer_registry.instances.register(
+                task_scorer,
                 name="task_achieved_scorer",
-                instance=task_scorer,
                 tags=["default", "task_achieved", "objective"],
             )
             logger.info("AI300ScorerInitializer: registered 'task_achieved_scorer'")
@@ -380,6 +424,37 @@ class AI300LoadDefaultDatasets(PyRITInitializer):
 
 
 # ============================================================
+# AI300PreloadScenarioMetadata — 对齐 PreloadScenarioMetadata
+# ============================================================
+
+class AI300PreloadScenarioMetadata(PyRITInitializer):
+    """
+    AI-300 Scenario 元数据预热初始化器
+
+    对齐 PyRIT PreloadScenarioMetadata，在启动时实例化所有已注册 Scenario
+    一次，预热 ScenarioRegistry 元数据缓存。
+
+    这样首次 --list-scenarios / GUI 调用是缓存命中，而非冷启动。
+    每个 Scenario 的实例化失败在启动时暴露，而非运行时。
+    """
+
+    @property
+    def required_env_vars(self) -> list[str]:
+        return []
+
+    async def initialize_async(self) -> None:
+        """委托原生 PreloadScenarioMetadata 预热元数据缓存。"""
+        from pyrit.setup.initializers.preload_scenario_metadata import PreloadScenarioMetadata
+
+        native_init = PreloadScenarioMetadata()
+        try:
+            await native_init.initialize_async()
+            logger.info("AI300PreloadScenarioMetadata: native PreloadScenarioMetadata completed")
+        except Exception as e:
+            logger.warning(f"AI300PreloadScenarioMetadata: native PreloadScenarioMetadata failed (non-fatal): {e}")
+
+
+# ============================================================
 # AI300DefaultValuesInitializer — 默认值初始化器
 # ============================================================
 
@@ -426,14 +501,17 @@ class AI300DefaultValuesInitializer(PyRITInitializer):
 
 def get_default_initializers() -> list[PyRITInitializer]:
     """
-    获取 AI-300 默认初始化器列表
+    获取 AI-300 默认初始化器列表（L5 原生优先）
 
-    返回推荐的四阶段初始化器序列：
-      1. AI300DefaultValuesInitializer — 设置默认值
-      2. AI300TargetInitializer — 注册 Target
-      3. AI300ScorerInitializer — 注册 Scorer（依赖 Target）
-      4. AI300TechniqueInitializerWrapper — 注册 Technique
-      5. AI300LoadDefaultDatasets — 加载数据集
+    返回推荐的六阶段初始化器序列：
+      1. AI300DefaultValuesInitializer     — 设置默认值（set_default_value）
+      2. AI300TargetInitializer            — 委托原生 + 注册 AI-300 Target
+      3. AI300ScorerInitializer            — 委托原生 + 注册 AI-300 Scorer
+      4. AI300TechniqueInitializerWrapper  — 注册 AI-300 Technique
+      5. AI300LoadDefaultDatasets          — 加载 OWASP 数据集
+      6. AI300PreloadScenarioMetadata      — 预热 Scenario 元数据缓存
+
+    对齐 PyRIT 原生五大初始化器 + AI-300 专有扩展。
 
     Returns:
         PyRITInitializer 子类实例列表（按执行顺序）
@@ -444,4 +522,5 @@ def get_default_initializers() -> list[PyRITInitializer]:
         AI300ScorerInitializer(),
         AI300TechniqueInitializerWrapper(),
         AI300LoadDefaultDatasets(),
+        AI300PreloadScenarioMetadata(),
     ]

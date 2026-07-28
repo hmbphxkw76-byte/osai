@@ -28,13 +28,11 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-logger = logging.getLogger(__name__)
-
 from src.payloads.models import (
-    AttackMode,
     PromptBatch,
-    PromptItem,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -112,6 +110,32 @@ class PayloadSourceLoader:
                     if batch.prompts:
                         batches.append(batch)
 
+            # 同时支持 .prompt 扩展名（PyRIT 官方约定）
+            for prompt_file in sorted(category_dir.glob("*.prompt")):
+                if prompt_file.name.startswith("_"):
+                    continue
+
+                try:
+                    dataset = SeedDataset.from_yaml_file(prompt_file)
+                except Exception as e:
+                    logger.warning(f"Failed to load SeedDataset from {prompt_file}: {e}")
+                    continue
+
+                owasp_id_override = meta.get("owasp_id")
+                file_batches = SeedPromptAdapter.dataset_to_batches(
+                    dataset, owasp_id=owasp_id_override
+                )
+
+                for batch in file_batches:
+                    if not batch.owasp_id:
+                        batch.owasp_id = owasp_id_override
+                    if not batch.source_id:
+                        batch.source_id = dataset.dataset_name or prompt_file.stem
+                    if not batch.description:
+                        batch.description = dataset.description or ""
+                    if batch.prompts:
+                        batches.append(batch)
+
         return batches
 
     def load_from_custom(self, path: Optional[str] = None) -> List[PromptBatch]:
@@ -137,6 +161,21 @@ class PayloadSourceLoader:
                         batches.append(batch)
             except Exception as e:
                 logger.warning(f"Failed to load custom payload {yaml_file}: {e}")
+
+        # 同时支持 .prompt 扩展名（PyRIT 官方约定）
+        for prompt_file in sorted(custom_dir.glob("*.prompt")):
+            if prompt_file.name.startswith("_"):
+                continue
+            try:
+                dataset = SeedDataset.from_yaml_file(prompt_file)
+                file_batches = SeedPromptAdapter.dataset_to_batches(dataset)
+                for batch in file_batches:
+                    if not batch.source_id:
+                        batch.source_id = dataset.dataset_name or prompt_file.stem
+                    if batch.prompts:
+                        batches.append(batch)
+            except Exception as e:
+                logger.warning(f"Failed to load custom payload {prompt_file}: {e}")
 
         return batches
 
@@ -169,7 +208,27 @@ def load_payloads(
     include_custom: bool = True,
     frameworks: Optional[List[str]] = None,
 ) -> List[PromptBatch]:
-    """加载所有数据源提示词（工厂函数）"""
+    """加载所有数据源提示词（工厂函数）
+
+    .. deprecated::
+        此函数返回 PromptBatch（绕过 CentralMemory），不符合 PyRIT 1.0.0
+        "database as source of truth" 最佳实践。
+
+        推荐使用 ``DatasetManager.load_datasets()`` 替代，它将数据加载到
+        CentralMemory 中，支持多维查询和审计追踪。
+
+    保留此函数仅为向后兼容。如需同步到 CentralMemory，
+    请使用 ``sync_batches_to_memory_async()``。
+    """
+    import warnings
+    warnings.warn(
+        "load_payloads() returns PromptBatch bypassing CentralMemory. "
+        "Use DatasetManager.load_datasets() for PyRIT-native data management. "
+        "See 'database as source of truth' best practice in PyRIT docs.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     from src.core.config_loader import get_config_loader
 
     loader = PayloadSourceLoader()
@@ -199,7 +258,11 @@ async def load_payloads_async(
     include_custom: bool = True,
     frameworks: Optional[List[str]] = None,
 ) -> List[PromptBatch]:
-    """异步加载所有数据源提示词（工厂函数）"""
+    """异步加载所有数据源提示词（工厂函数）
+
+    .. deprecated::
+        使用 ``DatasetManager.load_datasets()`` 替代以获得 CentralMemory 集成。
+    """
     return await asyncio.to_thread(
         load_payloads,
         owasp_ids=owasp_ids,
@@ -207,6 +270,51 @@ async def load_payloads_async(
         include_custom=include_custom,
         frameworks=frameworks,
     )
+
+
+async def sync_batches_to_memory_async(
+    batches: List[PromptBatch],
+    *,
+    added_by: str = "pyrit_ai300",
+) -> None:
+    """
+    将 PromptBatch 数据同步到 CentralMemory（兼容管道桥接）
+
+    PyRIT 1.0.0 最佳实践要求 "database as source of truth"。
+    兼容管道（load_payloads_async → PromptBatch）绕过了 CentralMemory，
+    此函数提供桥接：将已加载的 PromptBatch 转换为 SeedDataset 并存入 CentralMemory。
+
+    使用场景：
+    - 现有管道使用 load_payloads_async() 加载数据
+    - 后续需要通过 CentralMemory 查询/审计这些数据
+    - 混合使用兼容管道和原生管道时统一数据源
+
+    Args:
+        batches: PromptBatch 列表
+        added_by: 数据添加者标识
+    """
+    from pyrit.memory import CentralMemory
+    from src.payloads.seed_adapter import SeedPromptAdapter
+
+    memory = CentralMemory.get_memory_instance()
+    datasets: list = []
+
+    for batch in batches:
+        dataset = SeedPromptAdapter.items_to_dataset(
+            items=batch.prompts,
+            dataset_name=batch.source_id or "compat_pipeline",
+            description=batch.description or "",
+            harm_categories=[],
+        )
+        datasets.append(dataset)
+
+    if datasets:
+        await memory.add_seed_datasets_to_memory_async(
+            datasets=datasets, added_by=added_by
+        )
+        logger.info(
+            f"Synced {len(datasets)} datasets from compat pipeline to CentralMemory"
+        )
 
 
 async def load_remote_datasets_async(
@@ -240,9 +348,14 @@ async def load_all_payloads_async(
     include_remote: bool = False,
     remote_dataset_names: Optional[List[str]] = None,
     frameworks: Optional[List[str]] = None,
+    sync_to_memory: bool = False,
 ) -> List[PromptBatch]:
     """
-    异步加载入口 - 自由组合数据源（兼容现有管道）
+    异步加载入口 - 自由组合数据源（兼容管道）
+
+    .. deprecated::
+        推荐使用 ``DatasetManager.load_datasets()`` 替代以获得原生 CentralMemory 集成。
+        设置 ``sync_to_memory=True`` 可将数据同步到 CentralMemory（桥接模式）。
 
     各数据源独立选择，非一次性打包。
 
@@ -253,6 +366,7 @@ async def load_all_payloads_async(
         include_remote: 是否包含 PyRIT 远程数据集
         remote_dataset_names: 远程数据集名称列表
         frameworks: 框架列表
+        sync_to_memory: 是否同步到 CentralMemory（桥接模式，对齐 "database as source of truth"）
 
     Returns:
         PromptBatch 列表
@@ -275,5 +389,9 @@ async def load_all_payloads_async(
     all_batches: List[PromptBatch] = []
     for batches in results:
         all_batches.extend(batches)
+
+    # 桥接模式：同步到 CentralMemory
+    if sync_to_memory and all_batches:
+        await sync_batches_to_memory_async(all_batches)
 
     return all_batches

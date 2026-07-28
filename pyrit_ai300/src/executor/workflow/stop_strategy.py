@@ -25,7 +25,7 @@ Logging/printing is left to the caller via the returned result objects.
 import logging
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)

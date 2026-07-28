@@ -14,7 +14,7 @@
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.executor.workflow.upgrade_strategy import (
     AttackUpgradeStrategy,

@@ -47,6 +47,7 @@ from src.setup.ai300_initializers import (
     AI300TechniqueInitializerWrapper,
     AI300LoadDefaultDatasets,
     AI300DefaultValuesInitializer,
+    AI300PreloadScenarioMetadata,
 )
 from src.setup.config_file import (
     AI300ConfigFile,
@@ -73,6 +74,7 @@ __all__ = [
     "AI300TechniqueInitializerWrapper",
     "AI300LoadDefaultDatasets",
     "AI300DefaultValuesInitializer",
+    "AI300PreloadScenarioMetadata",
     # Config File
     "AI300ConfigFile",
     "load_config_file",

@@ -46,7 +46,6 @@ from src.payloads.preset_schemes import (
     PresetScheme,
     PresetSchemeDefinition,
     PresetSchemeBuilder,
-    get_scheme_by_letter,
 )
 
 logger = logging.getLogger(__name__)
@@ -191,6 +190,7 @@ class TieredSelectionWizard:
         *,
         enabled: bool = True,
         preset: Optional[SelectionPreset] = None,
+        model_name: str = "gpt-4o",
     ):
         """
         Initialize wizard.
@@ -198,9 +198,11 @@ class TieredSelectionWizard:
         Args:
             enabled: Whether to show interactive prompts (False = use preset/auto)
             preset: Non-interactive configuration (skip all prompts)
+            model_name: 目标模型名称 (影响学术 ASR 查询)
         """
         self.enabled = enabled
         self.preset = preset or SelectionPreset()
+        self.model_name = model_name
 
     async def select(
         self,
@@ -239,7 +241,7 @@ class TieredSelectionWizard:
         """Full auto: select all groups with default strategy."""
         groups = list(seed_groups)
         profile = TargetProfileRouter.get_profile(TargetType.FULL_SWEEP)
-        ranked = ASRRankBuilder.build_ranked_groups(groups)
+        ranked = ASRRankBuilder.build_ranked_groups(groups, model_name=self.model_name)
         chain = ASRRankBuilder.build_fallback_chain(ranked)
 
         return TieredSelectionResult(
@@ -259,7 +261,7 @@ class TieredSelectionWizard:
         profile = TargetProfileRouter.get_profile(self.preset.target_type)
         filtered = TargetProfileRouter.filter_seed_groups(seed_groups, profile)
 
-        ranked = ASRRankBuilder.build_ranked_groups(filtered)
+        ranked = ASRRankBuilder.build_ranked_groups(filtered, model_name=self.model_name)
         chain = ASRRankBuilder.build_fallback_chain(ranked)
 
         # Select top-N groups
@@ -315,9 +317,9 @@ class TieredSelectionWizard:
             profile = TargetProfileRouter.get_profile(TargetType.FULL_SWEEP)
 
         # Layer 2: ASR-ranked group selection (with preset schemes)
-        ranked = ASRRankBuilder.build_ranked_groups(filtered)
+        ranked = ASRRankBuilder.build_ranked_groups(filtered, model_name=self.model_name)
         chain = ASRRankBuilder.build_fallback_chain(ranked)
-        preset_schemes = PresetSchemeBuilder.build_schemes(ranked)
+        preset_schemes = PresetSchemeBuilder.build_schemes(ranked, model_name=self.model_name)
         selected = await self._layer2_group_selection(ranked, chain, preset_schemes)
 
         # Layer 3: Fallback strategy selection
@@ -409,11 +411,11 @@ class TieredSelectionWizard:
         tier_ranges: Dict[str, tuple] = {}  # tier_name -> (start_rank, end_rank)
 
         tier_labels = {
-            "S": "S (>=80%)",
-            "A": "A (50-80%)",
-            "B": "B (30-50%)",
-            "C": "C (15-30%)",
-            "D": "D (<15%)",
+            "S": "S (>=70%)",
+            "A": "A (40-70%)",
+            "B": "B (15-40%)",
+            "C": "C (5-15%)",
+            "D": "D (<5%)",
             "UNKNOWN": "Heuristic (no ASR data)",
         }
         # Short tier aliases for menu display
@@ -885,7 +887,8 @@ async def select_with_wizard(
     *,
     enabled: bool = True,
     preset: Optional[SelectionPreset] = None,
+    model_name: str = "gpt-4o",
 ) -> TieredSelectionResult:
     """Convenience: run tiered selection wizard."""
-    wizard = TieredSelectionWizard(enabled=enabled, preset=preset)
+    wizard = TieredSelectionWizard(enabled=enabled, preset=preset, model_name=model_name)
     return await wizard.select(seed_groups)

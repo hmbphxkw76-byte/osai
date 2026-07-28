@@ -284,7 +284,7 @@ def main():
     if owasp_ids:
         print(f"  OWASP: {', '.join(oid.upper() for oid in owasp_ids)}")
     else:
-        print(f"  OWASP: 全部")
+        print("  OWASP: 全部")
     if args.concurrency:
         print(f"  并发: {args.concurrency}")
     if args.timeout:

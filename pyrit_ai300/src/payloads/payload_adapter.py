@@ -360,7 +360,7 @@ def convert_payload_file(
     with open(output_path, "w", encoding="utf-8") as f:
         # 写注释头
         f.write(f"# PyRIT SeedDataset format — OWASP {owasp_id} {source_name}\n")
-        f.write(f"# Auto-converted from payload template format\n")
+        f.write("# Auto-converted from payload template format\n")
         f.write(f"# Original technique_group: {technique_group}\n")
         if frontier:
             f.write(f"# Frontier/CVE: {frontier.get('id', 'N/A')}\n")

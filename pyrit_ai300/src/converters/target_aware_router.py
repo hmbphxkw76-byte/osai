@@ -61,10 +61,10 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 _FALLBACK_TARGET_TYPE_GROUPS: Dict[str, str] = {
-    "openai_chat": "llm_direct",
-    "openai_responses": "llm_direct",
-    "litellm": "llm_direct",
-    "azure_ml": "llm_direct",
+    "openai_chat": "llm_direct_strong",
+    "openai_responses": "llm_direct_strong",
+    "litellm": "llm_direct_weak",
+    "azure_ml": "llm_direct_strong",
     "prompt_shield": "llm_safety",
     "playwright": "agent_web",
     "playwright_copilot": "agent_web",
@@ -75,88 +75,129 @@ _FALLBACK_TARGET_TYPE_GROUPS: Dict[str, str] = {
     "openai_image": "multimodal_image",
     "openai_video": "multimodal_video",
     "openai_tts": "multimodal_audio",
-    "text": "llm_direct",
+    "text": "llm_direct_strong",
 }
 
 _FALLBACK_TARGET_CONVERTER_PROFILES: Dict[str, Dict[str, Any]] = {
-    "llm_direct": {
-        "high_asr_chains": ["multi_encoding_v2", "stealth_evasion", "encoding_bypass"],
-        "medium_asr_chains": ["policy_puppetry", "noise_case_chain", "unicode_attack"],
+    "llm_direct_strong": {
+        "high_asr_chains": [],
+        "medium_asr_chains": ["stealth_evasion", "multi_encoding_v2", "agent_injection_chain"],
+        "low_asr_chains": ["encoding_bypass", "unicode_attack", "random_case", "policy_puppetry"],
         "llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted"],
-        "bypass_mechanism": "content_filter",
-        "description": "LLM 直连 — 内容过滤 + 关键词检测 + 拒绝分类器",
+        "bypass_mechanism": "content_filter + semantic_classifier",
+        "description": "强过滤商业模型 — 内容过滤 + 语义安全分类器 + 拒绝分类器",
+        "model_filter": "gpt-4o|gpt-4|claude-3|claude-4|gemini",
+    },
+    "llm_direct_weak": {
+        "high_asr_chains": ["multi_encoding_v2", "stealth_evasion", "encoding_bypass"],
+        "medium_asr_chains": ["persuasion_authority", "decomposition_chain", "agent_injection_chain"],
+        "low_asr_chains": [],
+        "llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted"],
+        "bypass_mechanism": "basic_keyword_filter",
+        "description": "弱过滤/开源模型 — 基础关键词过滤, 编码攻击仍有效",
+        "model_filter": "gpt-3.5|llama|vicuna|mistral|uncensored|phi",
+    },
+    # 向后兼容: llm_direct 默认映射到 strong
+    "llm_direct": {
+        "high_asr_chains": [],
+        "medium_asr_chains": ["stealth_evasion", "multi_encoding_v2", "agent_injection_chain"],
+        "low_asr_chains": ["encoding_bypass", "unicode_attack", "random_case", "policy_puppetry"],
+        "llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted"],
+        "bypass_mechanism": "content_filter + semantic_classifier",
+        "description": "LLM 直连 (默认=强过滤) — 内容过滤 + 语义安全分类器",
+        "model_filter": "",
     },
     "llm_safety": {
-        "high_asr_chains": ["stealth_evasion", "multi_encoding_v2", "encoding_bypass"],
+        "high_asr_chains": ["stealth_evasion", "multi_encoding_v2"],
         "medium_asr_chains": ["noise_case_chain", "unicode_attack", "random_case"],
+        "low_asr_chains": ["encoding_bypass"],
         "llm_assisted_chains": ["decomposition_chain", "persuasion_authority"],
         "bypass_mechanism": "prompt_shield_detection",
         "description": "LLM Safety — Prompt Shield 检测绕过",
+        "model_filter": "",
     },
     "agent_web": {
         "high_asr_chains": ["agent_injection_chain", "stealth_evasion"],
         "medium_asr_chains": ["decomposition_policy_chain", "policy_puppetry_chain", "task_framing_chain"],
+        "low_asr_chains": [],
         "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "input_validation",
         "description": "Agent (Web UI) — 前端输入验证 + 后端双重检查",
+        "model_filter": "",
     },
     "agent_copilot": {
         "high_asr_chains": ["agent_injection_chain", "unicode_attack"],
         "medium_asr_chains": ["policy_puppetry_chain", "task_framing_chain", "decomposition_policy_chain"],
+        "low_asr_chains": [],
         "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "grounding_safety",
         "description": "Agent (Copilot) — 系统提示 + Grounding + 工具权限",
+        "model_filter": "",
     },
     "agent_api": {
         "high_asr_chains": ["agent_injection_chain", "encoding_bypass"],
         "medium_asr_chains": ["task_framing_chain", "decomposition_policy_chain"],
+        "low_asr_chains": [],
         "llm_assisted_chains": ["persuasion_authority"],
         "bypass_mechanism": "api_schema_validation",
         "description": "Agent (API) — API 层验证 + Schema 约束",
+        "model_filter": "",
     },
     "rag": {
         "high_asr_chains": ["xpia_stealth_chain", "pdf_injection"],
         "medium_asr_chains": ["worddoc_injection", "text_jailbreak"],
+        "low_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "no_content_check",
         "description": "RAG — 文档投毒 / XPIA 载荷投递",
+        "model_filter": "",
     },
     "output_handling": {
         "high_asr_chains": ["format_injection", "text_jailbreak"],
         "medium_asr_chains": ["pdf_injection", "xpia_stealth_chain"],
+        "low_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "man_in_middle",
         "description": "Output Handling — 中间人位置 / 原始 HTTP",
+        "model_filter": "",
     },
     "multimodal_image": {
         "high_asr_chains": ["multimodal_image_attack"],
         "medium_asr_chains": ["multimodal_steganography"],
+        "low_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "image_content_policy",
         "description": "Multimodal (Image) — 图片内容策略 + 安全分类器",
+        "model_filter": "",
     },
     "multimodal_video": {
         "high_asr_chains": ["multimodal_image_attack"],
         "medium_asr_chains": [],
+        "low_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "pre_generation_review",
         "description": "Multimodal (Video) — 生成前审核",
+        "model_filter": "",
     },
     "multimodal_audio": {
         "high_asr_chains": ["stealth_evasion", "encoding_bypass"],
         "medium_asr_chains": ["unicode_attack"],
+        "low_asr_chains": [],
         "llm_assisted_chains": [],
         "bypass_mechanism": "voice_content_review",
         "description": "Multimodal (Audio/TTS) — 语音内容审核",
+        "model_filter": "",
     },
 }
 
 _DEFAULT_PROFILE: Dict[str, Any] = {
-    "high_asr_chains": ["stealth_evasion", "encoding_bypass"],
-    "medium_asr_chains": ["policy_puppetry", "unicode_attack"],
+    "high_asr_chains": ["persuasion_authority", "decomposition_chain"],
+    "medium_asr_chains": ["stealth_evasion", "multi_encoding_v2"],
+    "low_asr_chains": ["encoding_bypass", "unicode_attack"],
     "llm_assisted_chains": ["llm_assisted"],
     "bypass_mechanism": "unknown",
-    "description": "默认 — 通用混淆 + 编码绕过",
+    "description": "默认 — 策略级变换优先 + 编码兜底",
+    "model_filter": "",
 }
 
 
@@ -199,10 +240,12 @@ def _load_profiles_from_yaml() -> Dict[str, Dict[str, Any]]:
             profiles[group] = {
                 "high_asr_chains": list(yaml_profile.get("high_asr", [])),
                 "medium_asr_chains": list(yaml_profile.get("medium_asr", [])),
+                "low_asr_chains": list(yaml_profile.get("low_asr", [])),
                 "llm_assisted_chains": list(yaml_profile.get("llm_assisted", [])),
                 "bypass_mechanism": yaml_profile.get("bypass_mechanism", "unknown"),
                 "description": yaml_profile.get("description", ""),
                 "target_types": list(yaml_profile.get("target_types", [])),
+                "model_filter": yaml_profile.get("model_filter", ""),
             }
 
         _profiles_cache = profiles
@@ -237,7 +280,7 @@ def _load_groups_from_yaml() -> Dict[str, str]:
                 groups[target_type] = group_name
 
         # 添加 fallback
-        groups.setdefault("text", "llm_direct")
+        groups.setdefault("text", "llm_direct_strong")
 
         if not groups:
             _groups_cache = dict(_FALLBACK_TARGET_TYPE_GROUPS)
@@ -331,7 +374,7 @@ def get_target_group(target_type: str) -> str:
     Returns:
         Target 分组名（如 "llm_direct", "agent_web"）
     """
-    return TARGET_TYPE_GROUPS.get(target_type, "llm_direct")
+    return TARGET_TYPE_GROUPS.get(target_type, "llm_direct_strong")
 
 
 def get_target_converter_profile(target_type: str) -> Dict[str, Any]:
@@ -384,6 +427,8 @@ def select_converter_chains_for_target(
         chains.extend(profile.get("llm_assisted_chains", []))
     # 3. 中等 ASR 链
     chains.extend(profile.get("medium_asr_chains", []))
+    # 4. 低 ASR 链（兜底, ASR引导策略 新增）
+    chains.extend(profile.get("low_asr_chains", []))
 
     # 去重（保持顺序）
     seen: set[str] = set()
@@ -417,6 +462,7 @@ def get_chain_priority_for_target(
     high_asr = profile.get("high_asr_chains", [])
     llm_assisted = profile.get("llm_assisted_chains", [])
     medium_asr = profile.get("medium_asr_chains", [])
+    low_asr = profile.get("low_asr_chains", [])
 
     if chain_name in high_asr:
         return high_asr.index(chain_name) + 1
@@ -424,6 +470,8 @@ def get_chain_priority_for_target(
         return len(high_asr) + llm_assisted.index(chain_name) + 1
     if chain_name in medium_asr:
         return len(high_asr) + len(llm_assisted) + medium_asr.index(chain_name) + 1
+    if chain_name in low_asr:
+        return len(high_asr) + len(llm_assisted) + len(medium_asr) + low_asr.index(chain_name) + 1
     return 99
 
 
@@ -449,9 +497,11 @@ def get_target_group_summary() -> List[Dict[str, Any]]:
             "targets": sorted(group_to_types.get(group, [])),
             "high_asr": profile.get("high_asr_chains", []),
             "medium_asr": profile.get("medium_asr_chains", []),
+            "low_asr": profile.get("low_asr_chains", []),
             "llm_assisted": profile.get("llm_assisted_chains", []),
             "bypass_mechanism": profile.get("bypass_mechanism", ""),
             "description": profile.get("description", ""),
+            "model_filter": profile.get("model_filter", ""),
         })
     return summary
 

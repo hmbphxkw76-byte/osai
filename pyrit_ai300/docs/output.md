@@ -1,7 +1,8 @@
 # Output 子系统架构文档
 
 > 对齐 `pyrit.output` — PyRIT 1.0.0 完整 Output 渲染与报告生成架构  
-> 文档版本：v1.0 | 更新日期：2026-07-26
+> 文档版本：v2.0 | 更新日期：2026-07-27  
+> **v2.0 变更**：output_scenario_async + Per-Group Breakdown 集成 + 失败类型分布诊断
 
 ---
 

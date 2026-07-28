@@ -1,7 +1,7 @@
 # Target 架构设计文档
 
-**版本**: v2.0.0 (L5 Expert — PyRIT 1.0.0 全面对齐 + 路线图全实施)  
-**最后更新**: 2026-07  
+**版本**: v2.1.0 (L5 Expert — PyRIT 1.0.0 全面对齐 + 15种Target + TokenizerTemplateNormalizer + CapabilityHandlingPolicy修正)  
+**最后更新**: 2026-07-27  
 **对齐度**: 98%+  
 
 ---
@@ -427,7 +427,7 @@ Layer 3: _handle_content_filter_response(response, request)
 | 环境变量 | 说明 | 默认值 |
 |---------|------|--------|
 | `TARGET_CAPABILITY_POLICY` | 不支持能力时的策略 (adapt/raise) | — |
-| `TARGET_MESSAGE_NORMALIZER` | 消息规范化器 (default/system_squash/context) | — |
+| `TARGET_MESSAGE_NORMALIZER` | 消息规范化器 (default/system_squash/context/tokenizer:\<alias\>) | — |
 | `TARGET_USE_DEVELOPER_ROLE` | 使用 developer role (true/false) | false |
 | `TARGET_SYSTEM_MESSAGE_BEHAVIOR` | 系统消息处理 (keep/squash/ignore) | — |
 
@@ -658,7 +658,7 @@ target, target_type = await create_prompt_target(
 | CapabilityHandlingPolicy | ✅ | ✅ (ADAPT/RAISE) | 100% |
 | TargetRequirements 验证 | ✅ | ✅ (CHAT_TARGET_REQUIREMENTS) | 100% |
 | get_known_capabilities | ✅ | ✅ (模型档案查询) | 100% |
-| MessageNormalizer | ✅ | ✅ (3 种规范化器) | 100% |
+| MessageNormalizer | ✅ | ✅ (4 种规范化器) | 100% |
 | OpenAIVideoTarget | ✅ | ✅ | 100% |
 | OpenAITTSTarget | ✅ | ✅ | 100% |
 | AzureMLChatTarget | ✅ | ✅ | 100% |

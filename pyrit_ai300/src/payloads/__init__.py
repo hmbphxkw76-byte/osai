@@ -43,6 +43,7 @@ from src.payloads.source_loader import (
     load_payloads,
     load_payloads_async,
     load_all_payloads_async,
+    sync_batches_to_memory_async,
 )
 from src.payloads.dataset_manager import (
     DatasetManager,
@@ -106,6 +107,17 @@ from src.payloads.asr_rank_builder import (
     build_fallback_chain,
     get_top_n_groups,
 )
+from src.payloads.technique_name_mapper import (
+    TECHNIQUE_NAME_MAP,
+    TIER_S_THRESHOLD,
+    TIER_A_THRESHOLD,
+    TIER_B_THRESHOLD,
+    TIER_C_THRESHOLD,
+    normalize_technique_name,
+    get_normalized_asr,
+    get_normalized_tier,
+    is_high_asr_technique,
+)
 from src.payloads.tiered_selection_wizard import (
     FallbackStrategy,
     TieredSelectionResult,
@@ -128,6 +140,21 @@ from src.payloads.group_fallback_executor import (
     GroupFallbackExecutor,
     execute_with_fallback,
 )
+from src.payloads.asr_prior_registry import (
+    ASRPrior,
+    get_asr_prior,
+    get_initial_q_value,
+    get_prior_ordered_techniques,
+    get_all_priors,
+    get_prior_summary,
+    update_empirical_asr,
+    batch_update_empirical_asr,
+)
+from src.payloads.payload_downloader import (
+    download_academic_payloads_async,
+    list_local_academic_payloads,
+    get_academic_data_dir,
+)
 
 __all__ = [
     # 数据模型
@@ -142,6 +169,7 @@ __all__ = [
     "load_payloads",
     "load_payloads_async",
     "load_all_payloads_async",
+    "sync_batches_to_memory_async",
     # ② 数据管理层
     "DatasetManager",
     # ②.5 交互式选择层
@@ -193,6 +221,16 @@ __all__ = [
     "build_ranked_groups",
     "build_fallback_chain",
     "get_top_n_groups",
+    # v4.0: 技术名标准化映射
+    "TECHNIQUE_NAME_MAP",
+    "TIER_S_THRESHOLD",
+    "TIER_A_THRESHOLD",
+    "TIER_B_THRESHOLD",
+    "TIER_C_THRESHOLD",
+    "normalize_technique_name",
+    "get_normalized_asr",
+    "get_normalized_tier",
+    "is_high_asr_technique",
     # ②.5 Layer 3: 三层选择
     "FallbackStrategy",
     "TieredSelectionResult",
@@ -212,4 +250,17 @@ __all__ = [
     "FallbackExecutionResult",
     "GroupFallbackExecutor",
     "execute_with_fallback",
+    # 学术 ASR 先验 (ASR引导策略 P0)
+    "ASRPrior",
+    "get_asr_prior",
+    "get_initial_q_value",
+    "get_prior_ordered_techniques",
+    "get_all_priors",
+    "get_prior_summary",
+    "update_empirical_asr",
+    "batch_update_empirical_asr",
+    # 学术载荷下载器 (ASR引导策略)
+    "download_academic_payloads_async",
+    "list_local_academic_payloads",
+    "get_academic_data_dir",
 ]
