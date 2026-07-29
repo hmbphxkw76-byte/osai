@@ -129,11 +129,7 @@ async def run_adaptive_scenario_async(
         build_memory_labels,
     )
     from src.scenarios.failure_type_selector import extract_failure_type_from_result
-    from src.converters.target_aware_router import (
-        get_target_group,
-        select_converter_chains_for_target,
-        get_target_converter_profile,
-    )
+    # v5.0: Target 路由展示已统一到 s6_execute.py，此处不再导入 target_aware_router
     # v3.0: PayloadStrategyMatcher 在 Adaptive 路径恢复使用
     from src.analysis.strategy_matcher import PayloadStrategyMatcher
 
@@ -342,39 +338,6 @@ async def run_adaptive_scenario_async(
 
     scenario.set_params_from_args(args=scenario_params)
 
-    if verbose:
-        print(f"  [ADAPT] AI300AdaptiveScenario: max_attempts={max_attempts_per_objective}, "
-              f"retries={max_retries}, concurrency={max_concurrency}")
-        print(f"  [ADAPT] OWASP: {owasp_id}, Converter variants: extra_request_converters (v3.0)")
-
-        # P3: 展示 Target 感知 Converter 路由信息
-        if target_type:
-            target_group = get_target_group(target_type)
-            profile = get_target_converter_profile(target_type)
-            recommended_chains = select_converter_chains_for_target(
-                target_type,
-                converter_target_available=(converter_target is not None),
-            )
-            print(f"\n  {'=' * 68}")
-            print("  Target-Aware Converter 路由")
-            print(f"  {'=' * 68}")
-            print(f"  Target Type:  {target_type}")
-            print(f"  Target Group: {target_group}")
-            print(f"  Bypass:       {profile.get('bypass_mechanism', 'unknown')}")
-            print(f"  Description:  {profile.get('description', '')}")
-            print(f"  {'-' * 68}")
-            print("  推荐 Converter 链序列 (按 ASR 优先级排序):")
-            for i, chain in enumerate(recommended_chains, 1):
-                is_llm = chain in profile.get("llm_assisted_chains", [])
-                tag = " (LLM)" if is_llm else ""
-                print(f"    {i}. {chain}{tag}")
-            print(f"  {'=' * 68}\n")
-        else:
-            print("  [ADAPT] Target 类型未指定，使用全局 Converter 优先级")
-
-        # 展示可用的 Converter 变体类型/组合
-        AI300AdaptiveScenario.display_converter_variants(verbose=True)
-
     # 4. 初始化 Scenario
     try:
         await scenario.initialize_async()
@@ -392,6 +355,9 @@ async def run_adaptive_scenario_async(
             ),
             execution_time=time.time() - start_time,
         )
+
+    # ── 执行前准备卡片（从 scenario 诊断属性读取） ──
+    _display_pre_execution_card(scenario, len(attack_seed_groups))
 
     # 5. 执行 Scenario（原生 run_async — 含 tqdm + max_retries + 自动恢复）
     #
@@ -514,13 +480,8 @@ async def run_adaptive_scenario_async(
                 f"(for resume scenarios)"
             )
 
-    if verbose:
-        print(f"  [ADAPT] 完成: {batch_result.succeeded}/{batch_result.executed} 成功, "
-              f"{converter_variants} converter variants used, {elapsed:.1f}s")
-        # P0-A: 展示失败类型分布
-        if failure_type_counter:
-            print(f"  [ADAPT] 失败类型分布: {dict(failure_type_counter)}")
-        # Per-Group Breakdown 由 pipeline.py [7/9] 统一展示，避免重复输出
+    # v5.0: 执行后展示已统一到 s6_execute.py 的执行结果概要 info_box
+    # 此处不再重复输出 [ADAPT] 完成统计和失败类型分布
 
     return AdaptiveRunResult(
         native_result=native_result,
@@ -601,3 +562,64 @@ def _convert_native_to_batch_result(
         results=all_results,
         errors=[],
     )
+
+
+# ============================================================
+# L5 展示辅助函数
+# ============================================================
+
+_W = 68
+
+
+def _display_pre_execution_card(scenario: Any, seed_group_count: int) -> None:
+    """
+    执行前准备卡片 — 从 scenario 诊断属性读取并结构化展示
+
+    在 scenario.initialize_async() 完成后、run_async() 之前调用，
+    替代之前 _build_techniques_dict 中的 [DIAG] 裸 print。
+
+    展示内容：
+    - Converter Target 类型和模型
+    - LLM 链是否跳过
+    - 技术注册统计（基础+变体+跳过原因）
+    - 内联种子组数
+    """
+    try:
+        conv_type = getattr(scenario, "_diag_converter_type", "N/A")
+        conv_model = getattr(scenario, "_diag_converter_model", "N/A")
+        skip_llm = getattr(scenario, "_diag_skip_llm_chains", False)
+        total_tech = getattr(scenario, "_diag_total_techniques", 0)
+        variant_cnt = getattr(scenario, "_diag_variant_count", 0)
+        sk_llm = getattr(scenario, "_diag_skipped_llm", 0)
+        sk_small = getattr(scenario, "_diag_skipped_small_model", 0)
+        sk_modality = getattr(scenario, "_diag_skipped_modality", 0)
+        sk_runtime = getattr(scenario, "_diag_skipped_runtime", 0)
+        sk_no_factory = getattr(scenario, "_diag_skipped_no_factory", 0)
+
+        base_count = total_tech - variant_cnt
+
+        llm_status = "✓ 保留" if not skip_llm else "✗ 跳过 (弱模型/小参数)"
+        skip_parts = []
+        if sk_llm:
+            skip_parts.append(f"llm={sk_llm}")
+        if sk_small:
+            skip_parts.append(f"小模型={sk_small}")
+        if sk_modality:
+            skip_parts.append(f"模态={sk_modality}")
+        if sk_runtime:
+            skip_parts.append(f"运行时={sk_runtime}")
+        if sk_no_factory:
+            skip_parts.append(f"无工厂={sk_no_factory}")
+        skip_str = ", ".join(skip_parts) if skip_parts else "无"
+
+        print()
+        print(f"  ┌─ 执行前准备 {'─' * max(1, _W - 22)}┐")
+        print(f"  │ Converter Target: {conv_type} ({conv_model})")
+        print(f"  │ LLM 辅助链:     {llm_status}")
+        print(f"  │ 技术注册:        {base_count} 基础 + {variant_cnt} Converter 变体 = {total_tech} 总计")
+        print(f"  │ 跳过统计:        {skip_str}")
+        print(f"  │ 内联种子组:      {seed_group_count} 个")
+        print(f"  │ 初始化:          ✓ 完成 (DatasetAttackConfiguration 已就绪)")
+        print(f"  └{'─' * _W}┘")
+    except Exception:
+        pass

@@ -71,6 +71,14 @@ _RETRYABLE_EXCEPTION_NAMES = frozenset({
     "ServerErrorException",  # PyRIT 的 5xx 异常
 })
 
+# 超时类异常的最大重试次数（每次超时等待 300s+，重试过多不可行）
+# 重试 3 次（1 次原始 + 2 次重试），平衡可用性与总耗时
+_TIMEOUT_EXCEPTION_NAMES = frozenset({
+    "APITimeoutError",
+    "APIConnectionError",
+})
+_TIMEOUT_MAX_RETRIES = 3
+
 
 @dataclass
 class RateLimitConfig:
@@ -102,7 +110,7 @@ class RateLimitConfig:
             - 默认从 PyRIT RETRY_WAIT_MAX_SECONDS 环境变量读取
         retry_jitter: 抖动系数（0.0-1.0，防止重试风暴）
     """
-    max_concurrent_requests: Optional[int] = 10
+    max_concurrent_requests: Optional[int] = 5
     retry_max_attempts: int = 0  # 0 = 从 RETRY_MAX_NUM_ATTEMPTS 环境变量读取
     retry_initial_wait: float = 0  # 0 = 从 RETRY_WAIT_MIN_SECONDS 环境变量读取
     retry_max_wait: float = 0  # 0 = 从 RETRY_WAIT_MAX_SECONDS 环境变量读取
@@ -289,6 +297,20 @@ async def _retry_with_backoff(
                 # 不可重试的错误，直接抛出
                 raise
 
+            # 超时类异常限制重试次数（每次超时 300s+，重试过多不可行）
+            err_type = type(e).__name__
+            is_timeout_err = err_type in _TIMEOUT_EXCEPTION_NAMES
+            if is_timeout_err and attempt >= _TIMEOUT_MAX_RETRIES - 1:
+                logger.warning(
+                    f"⚠ {call_description} got {err_type} (attempt {attempt + 1}/{_TIMEOUT_MAX_RETRIES}), "
+                    f"timeout retry limit reached: {e}"
+                )
+                print(
+                    f"  [!] {call_description}: API timeout after {attempt + 1} attempts "
+                    f"({_TIMEOUT_MAX_RETRIES} max). Last error: {e}"
+                )
+                raise
+
             if attempt >= max_attempts - 1:
                 # 最后一次重试也失败了
                 logger.warning(
@@ -307,10 +329,20 @@ async def _retry_with_backoff(
             if retry_after is not None:
                 wait_time = max(wait_time, retry_after)
 
+            # 超时类异常使用更长的退避时间（给 API 更多恢复时间）
+            if is_timeout_err:
+                wait_time = max(wait_time, 10.0 * (attempt + 1))
+
+            effective_max = _TIMEOUT_MAX_RETRIES if is_timeout_err else max_attempts
             logger.warning(
-                f"{call_description} got {type(e).__name__} (attempt {attempt + 1}/{max_attempts}), "
+                f"⚠ {call_description} got {type(e).__name__} (attempt {attempt + 1}/{effective_max}), "
                 f"retrying in {wait_time:.1f}s: {e}"
             )
+            if is_timeout_err:
+                print(
+                    f"  [!] {call_description}: API timeout (attempt {attempt + 1}/{effective_max}), "
+                    f"retrying in {wait_time:.1f}s..."
+                )
             await asyncio.sleep(wait_time)
 
     # 理论上不会到达这里

@@ -261,7 +261,26 @@ src/
 - 多模块改动（如跨模块重构、批量清理死代码、架构调整）：运行完整回归测试
 - 测试失败时必须修复后才能继续后续工作，不允许跳过失败测试
 
-### 1.10 死代码即时清理原则
+### 1.10 `__pycache__` 清理原则
+
+**规则**: 每次运行测试（单元测试、集成测试、回归测试）前必须清理所有 `__pycache__` 目录，测试结束后也必须自动清理，确保 Python 运行时加载最新源码而非陈旧字节码缓存。
+
+**清理命令**:
+```bash
+# Windows PowerShell
+Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+# Linux / macOS
+find . -type d -name "__pycache__" -exec rm -rf {} +
+```
+
+**执行要求**:
+- 测试前清理：消除陈旧 `.pyc` 文件导致加载旧代码的风险
+- 测试后清理：保持工作区整洁，避免 `.pyc` 残留干扰后续开发
+- 修改 `.py` 文件后立即运行测试前，必须先清理 `__pycache__`
+- `.gitignore` 已排除 `__pycache__/`，不会误提交
+
+### 1.11 死代码即时清理原则
 
 **规则**: 每次代码改动后必须自动清理冗余代码和死代码，确保代码简洁。
 
@@ -282,6 +301,7 @@ src/
 - 删除函数/方法后，同步清理 `__init__.py` 中对应的导出
 - 删除模块后，同步清理所有导入该模块的文件
 - 清理后必须运行对应层级的测试验证（遵循 §1.9）
+- 清理前后必须清理 `__pycache__`（遵循 §1.10）
 
 ---
 
@@ -683,7 +703,19 @@ print("something")  # 禁止在 src/ 中使用！
 
 ## 五、验证与测试
 
-### 5.1 分层测试命令
+### 5.1 `__pycache__` 清理命令
+
+**规则**: 每次运行测试前和测试后必须清理所有 `__pycache__` 目录（§1.10）。
+
+```bash
+# Windows PowerShell
+Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+# Linux / macOS
+find . -type d -name "__pycache__" -exec rm -rf {} +
+```
+
+### 5.2 分层测试命令
 
 | 改动范围 | 命令 | 说明 |
 |----------|------|------|
@@ -691,7 +723,7 @@ print("something")  # 禁止在 src/ 中使用！
 | 模块间改动 | `pytest tests/integration/ -x -q` | 集成测试 |
 | 多模块改动 | `pytest tests/ -x -q` | 完整回归测试 |
 
-### 5.2 死代码清理命令
+### 5.3 死代码清理命令
 
 ```bash
 # 自动修复（未使用导入/变量/f-string）

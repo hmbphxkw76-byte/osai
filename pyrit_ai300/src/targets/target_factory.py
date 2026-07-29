@@ -320,9 +320,11 @@ class TargetFactory:
         探测顺序：
         1. 环境变量 TARGET_TYPE 手动覆盖
         2. GET /v1/models → 检测 OpenAI 兼容端点
-        3. GET /v1/responses → 检测 Responses API（o1/o3 推理模型）
-        4. GET / → 检测端点是否存在
-        5. 默认 → http_api（结构化 HTTP）
+        3. GET /v1/chat/completions → 检测 Chat Completions API（优先，兼容性好）
+        4. GET /v1/responses → 检测 Responses API（o1/o3 推理模型，回退）
+        5. GET /chat/completions → 兼容非标准 URL
+        6. GET /generate → 检测 HuggingFace TGI
+        7. 默认 → http_api（结构化 HTTP）
 
         Args:
             target_url: 目标基础 URL
@@ -354,8 +356,23 @@ class TargetFactory:
         except Exception:
             pass
 
-        # 3. 检测 /v1/responses — OpenAI Responses API（o1/o3 推理模型）
+        # 3. 检测 /v1/chat/completions — OpenAI Chat Completions API（优先于 Responses API）
+        # Chat Completions API 返回标准 text 内容，兼容性更好
+        # Responses API 返回 reasoning 内容，可能导致 Converter 500 错误
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                response = await client.get(f"{base_url}/v1/chat/completions")
+                # 405 = 端点存在但不支持 GET（Chat Completions 只支持 POST）
+                # 401 = 需要认证但端点存在
+                if response.status_code in (405, 401):
+                    logger.info(f"Target type detected: {TARGET_TYPE_OPENAI_CHAT} (GET /v1/chat/completions → {response.status_code})")
+                    return TARGET_TYPE_OPENAI_CHAT
+        except Exception:
+            pass
+
+        # 4. 检测 /v1/responses — OpenAI Responses API（o1/o3 推理模型）
         # Responses API 没有 GET 端点，通过检查 /v1/responses 是否返回 405 (Method Not Allowed) 来判断
+        # 仅在 Chat Completions 不可用时作为回退
         try:
             async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
                 response = await client.get(f"{base_url}/v1/responses")
@@ -367,7 +384,7 @@ class TargetFactory:
         except Exception:
             pass
 
-        # 4. 检测 /chat/completions（不带 /v1 前缀）
+        # 5. 检测 /chat/completions（不带 /v1 前缀，兼容非标准 URL）
         try:
             async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
                 response = await client.get(f"{url}/chat/completions")

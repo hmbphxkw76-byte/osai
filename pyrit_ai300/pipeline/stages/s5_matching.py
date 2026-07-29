@@ -74,8 +74,23 @@ async def run(ctx: PipelineContext) -> None:
     ])
 
     # 传递到 Executor
-    info_box("传递到 Executor", [
+    pass_exec = [
         f"• 变体池: {len(ctx.converter_chains)} 条 Converter 链",
-        f"• 执行顺序: 按策略 {ctx.strategy_info.get('strategy_mode', 'academic')} 排序",
-        "• 失败路由: 4 种 → 自动降级/升级",
-    ])
+    ]
+    # 列出每条 Converter 链的名称和描述
+    try:
+        from src.scenarios.technique_factories import CONVERTER_VARIANT_CHAINS
+        for i, chain in enumerate(ctx.converter_chains[:8]):
+            _info = CONVERTER_VARIANT_CHAINS.get(chain, {})
+            _desc = _info.get("description", "")
+            _llm = " (LLM)" if _info.get("requires_llm") else ""
+            pass_exec.append(f"  {i+1}. {chain}{_llm} — {_desc}")
+        if len(ctx.converter_chains) > 8:
+            pass_exec.append(f"  ... 还有 {len(ctx.converter_chains) - 8} 条")
+    except Exception:
+        for i, chain in enumerate(ctx.converter_chains[:8]):
+            pass_exec.append(f"  {i+1}. {chain}")
+    pass_exec.append(f"• 执行顺序: 按策略 {ctx.strategy_info.get('strategy_mode', 'academic')} 排序")
+    pass_exec.append("• 失败路由: 4 种 → 自动降级/升级")
+    pass_exec.append("• 变体组合 = Target 路由推荐链 × attack_plans 技术 (extra_request_converters)")
+    info_box("传递到 Executor", pass_exec)

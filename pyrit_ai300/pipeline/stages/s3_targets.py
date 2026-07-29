@@ -23,10 +23,26 @@ async def run(ctx: PipelineContext) -> None:
     ctx.target_rpm = int(os.getenv("TARGET_MAX_RPM")) if os.getenv("TARGET_MAX_RPM") else None
     ctx.judge_rpm = int(os.getenv("JUDGE_MAX_RPM")) if os.getenv("JUDGE_MAX_RPM") else None
 
+    # HTTP 客户端参数（从 config/defaults/http_client.yaml 加载）
+    _target_timeout = ctx.config_loader.get_target_httpx_timeout()
+    _target_verify = ctx.config_loader.get_target_httpx_verify()
+    _target_proxy = ctx.config_loader.get_target_httpx_proxy()
+    _judge_timeout = ctx.config_loader.get_judge_httpx_timeout()
+    _judge_verify = ctx.config_loader.get_judge_httpx_verify()
+
     # 创建 Objective Target
+    # discover_capabilities=False: 关闭运行时能力探测
+    # 原因：安全对齐模型（如 LongCat-2.0）对能力探针返回空响应（204），
+    # 导致探测结果错误（如 supports_json_output=False），影响后续评分器。
+    # 使用 OpenAIChatTarget 默认能力（全 True），通过 capability_policy="adapt"
+    # 自动适配不支持的能力（如 system_prompt 不支持时 squash 到 user 消息）。
     target_params = TargetParams(
         max_requests_per_minute=ctx.target_rpm,
         capability_policy="adapt",
+        discover_capabilities=False,
+        httpx_timeout=float(_target_timeout),
+        httpx_verify=_target_verify,
+        httpx_proxy=_target_proxy,
     )
     ctx.objective_target, ctx.target_type = await create_prompt_target(
         target_url=ctx.target_url,
@@ -56,6 +72,8 @@ async def run(ctx: PipelineContext) -> None:
         force_json_output=ctx.config_loader.get_judge_force_json_output(),
         discover_capabilities=False,
         max_requests_per_minute=ctx.judge_rpm,
+        httpx_timeout=float(_judge_timeout),
+        httpx_verify=_judge_verify,
     )
     ctx.judge_target, _ = await create_judge_target(
         judge_url=ctx.judge_endpoint,
@@ -70,33 +88,44 @@ async def run(ctx: PipelineContext) -> None:
     )
 
     # 创建 Converter Target
+    # 始终创建独立的 Converter Target（不复用 objective target）
+    # 原因：objective target 的运行时能力探测（discover_target_capabilities_async）
+    # 可能错误地将 supports_json_output 设为 False（探针请求失败时），
+    # 而 PyRIT Converter（DecompositionConverter/PersuasionConverter 等）
+    # 需要 supports_json_output=True 才能正常工作。
+    # 独立创建时关闭能力探测（discover_capabilities=False），
+    # 使用 OpenAIChatTarget 默认能力（supports_json_output=True）。
     converter_endpoint = os.getenv("CONVERTER_ENDPOINT", ctx.target_endpoint)
     ctx.converter_model = os.getenv("CONVERTER_MODEL", ctx.target_model)
     converter_api_key = os.getenv("CONVERTER_API_KEY", ctx.target_api_key)
     converter_rpm = os.getenv("CONVERTER_MAX_RPM")
     converter_rpm = int(converter_rpm) if converter_rpm else None
 
-    if converter_endpoint == ctx.target_endpoint and ctx.converter_model == ctx.target_model:
-        ctx.converter_target = ctx.objective_target
-        ctx.converter_target_display = f"复用目标模型 ({ctx.converter_model})"
+    converter_params = TargetParams(
+        temperature=0.7,
+        discover_capabilities=False,
+        max_requests_per_minute=converter_rpm,
+        httpx_timeout=float(_target_timeout),
+        httpx_verify=_target_verify,
+        httpx_proxy=_target_proxy,
+    )
+    ctx.converter_target, _ = await create_prompt_target(
+        target_url=converter_endpoint,
+        api_key=converter_api_key,
+        model_name=ctx.converter_model,
+        params=converter_params,
+    )
+    ctx.converter_target = wrap_target_with_rate_limiting(
+        ctx.converter_target,
+        config=RateLimitConfig(max_concurrent_requests=ctx.api_max_concurrent),
+        semaphore_key=f"converter:{converter_endpoint}",
+    )
+    _conv_class = type(ctx.converter_target).__name__
+    _obj_class = type(ctx.objective_target).__name__
+    if _conv_class == _obj_class and converter_endpoint == ctx.target_endpoint:
+        ctx.converter_target_display = f"{_conv_class} ({ctx.converter_model}) ← 独立实例 (避免能力探测干扰)"
     else:
-        converter_params = TargetParams(
-            temperature=0.7,
-            discover_capabilities=False,
-            max_requests_per_minute=converter_rpm,
-        )
-        ctx.converter_target, _ = await create_prompt_target(
-            target_url=converter_endpoint,
-            api_key=converter_api_key,
-            model_name=ctx.converter_model,
-            params=converter_params,
-        )
-        ctx.converter_target = wrap_target_with_rate_limiting(
-            ctx.converter_target,
-            config=RateLimitConfig(max_concurrent_requests=ctx.api_max_concurrent),
-            semaphore_key=f"converter:{converter_endpoint}",
-        )
-        ctx.converter_target_display = f"{type(ctx.converter_target).__name__} ({ctx.converter_model})"
+        ctx.converter_target_display = f"{_conv_class} ({ctx.converter_model})"
 
     # 展示
     _display_targets(ctx)
@@ -121,7 +150,15 @@ def _display_targets(ctx: PipelineContext) -> None:
         f"模型:     {ctx.target_model}",
         f"安全机制: {ctx.bypass_mechanism}",
     ]
-    caps = getattr(ctx.recon_result, "capabilities", None)
+    # 优先使用 Target 运行时探测的能力（比静态模型档案更准确）
+    caps = None
+    try:
+        caps = getattr(ctx.objective_target, "capabilities", None)
+    except Exception:
+        pass
+    if caps is None:
+        # 回退到侦察静态查询
+        caps = getattr(ctx.recon_result, "capabilities", None)
     if caps:
         mt = "✓" if getattr(caps, "supports_multi_turn", False) else "✗"
         sp = "✓" if getattr(caps, "supports_system_prompt", False) else "✗"

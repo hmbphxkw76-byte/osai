@@ -206,7 +206,18 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         self._strategy_mode: str = strategy_mode
         self._model_name: str = model_name
         self._model_tier: str = model_tier
+        self._hash_to_name: dict[str, str] = {}
         self._load_owasp_strategy()
+
+    def set_hash_name_mapping(self, mapping: dict[str, str]) -> None:
+        """
+        设置 eval_hash → technique_name 映射
+
+        原生 AdaptiveScenario 的 _build_techniques_dict 使用 eval_hash 作为
+        dict 键，但我们的排序逻辑基于技术名（如 "prompt_sending+stealth_evasion"）。
+        此映射在 _build_techniques_dict 完成后由 AI300AdaptiveScenario 设置。
+        """
+        self._hash_to_name = dict(mapping)
 
     def _load_owasp_strategy(self) -> None:
         """从 owasp_strategy_map 加载 OWASP 策略偏好"""
@@ -280,7 +291,17 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             scenario_result_id=scenario_result_id,
         )
 
-        reordered = self._reorder_by_failure_type(base_order)
+        # 原生 AdaptiveScenario 传入的 technique_identifiers 是 eval_hash，
+        # 但我们的排序逻辑基于技术名（如 "prompt_sending+stealth_evasion"）。
+        # 如果有 hash→name 映射，先转换为名称排序再转回 hash。
+        if self._hash_to_name:
+            hash_list = list(base_order)
+            name_list = [self._hash_to_name.get(h, h) for h in hash_list]
+            reordered_names = self._reorder_by_failure_type(name_list)
+            name_to_hash = {v: k for k, v in self._hash_to_name.items()}
+            reordered = [name_to_hash.get(n, n) for n in reordered_names]
+        else:
+            reordered = self._reorder_by_failure_type(base_order)
 
         return reordered[:num_top_techniques]
 
@@ -294,6 +315,31 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             return get_chain_priority_for_target(chain_name, self._target_type)
 
         return _CONVERTER_CHAIN_PRIORITY.get(chain_name, 99)
+
+    def _is_llm_converter_variant(self, technique_name: str) -> bool:
+        """判断 Converter 变体是否使用 LLM 链"""
+        chain_name = get_converter_chain_from_variant(technique_name)
+        if chain_name is None:
+            return False
+        chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name, {})
+        return chain_info.get("requires_llm", False)
+
+    def _converter_sort_key(self, technique_name: str) -> tuple[int, int]:
+        """
+        Converter 变体排序键 — 非 LLM 链优先于 LLM 链
+
+        返回 (is_llm_penalty, target_aware_priority) 元组：
+        - 非 LLM 链: (0, priority) — 始终排在 LLM 链之前
+        - LLM 链:    (1, priority) — 排在非 LLM 链之后
+
+        原因：安全对齐模型（如 LongCat-2.0）会拒绝 LLM Converter
+        的内容生成请求（返回 204 空响应），导致 DecompositionConverter /
+        PersuasionConverter 抛出 InvalidJsonException。非 LLM 链
+        （编码/混淆/注入）不依赖模型生成内容，始终可用。
+        """
+        is_llm = 1 if self._is_llm_converter_variant(technique_name) else 0
+        priority = self._target_aware_sort_key(technique_name)
+        return (is_llm, priority)
 
     def _prior_sort_key(self, technique_name: str) -> float:
         """
@@ -384,14 +430,14 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             if is_converter_variant(t)
             and get_base_technique_from_variant(t) in _HIGH_ASR_TECHNIQUES
         ]
-        converter_on_high.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_on_high.sort(key=lambda t: self._converter_sort_key(t))
 
         converter_on_low = [
             t for t in tech_list
             if is_converter_variant(t)
             and get_base_technique_from_variant(t) not in _HIGH_ASR_TECHNIQUES
         ]
-        converter_on_low.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_on_low.sort(key=lambda t: self._converter_sort_key(t))
 
         # 编码技术（对现代模型 ASR 低, 作为兜底）
         encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
@@ -422,7 +468,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         tier_b = [t for t in tech_list if t in _TIER_B_TECHNIQUES and t not in owasp_preferred]
 
         converter_variants = [t for t in tech_list if is_converter_variant(t)]
-        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_variants.sort(key=lambda t: self._converter_sort_key(t))
 
         encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
 
@@ -448,7 +494,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         # OWASP 偏好 → 编码 → Converter 变体 → 角色扮演 → 多轮 → 基线
         encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES and t not in owasp_preferred]
         converter_variants = [t for t in tech_list if is_converter_variant(t)]
-        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_variants.sort(key=lambda t: self._converter_sort_key(t))
 
         role_play = [
             t for t in tech_list
@@ -500,7 +546,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             if is_converter_variant(t)
             and get_base_technique_from_variant(t) in _HIGH_ASR_TECHNIQUES
         ]
-        converter_on_high.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_on_high.sort(key=lambda t: self._converter_sort_key(t))
 
         # 编码兜底
         encoding_base = [t for t in tech_list if t in _ENCODING_TECHNIQUES]
@@ -509,7 +555,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             if is_converter_variant(t)
             and get_base_technique_from_variant(t) not in _HIGH_ASR_TECHNIQUES
         ]
-        converter_on_low.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_on_low.sort(key=lambda t: self._converter_sort_key(t))
 
         used = set(tier_s + tier_a + tier_b + converter_on_high + encoding_base + converter_on_low)
         others = [t for t in tech_list if t not in used]
@@ -525,6 +571,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             if not is_converter_variant(t) and t in _SINGLE_TURN_TECHNIQUES
         ]
         converter_variants = [t for t in tech_list if is_converter_variant(t)]
+        converter_variants.sort(key=lambda t: self._converter_sort_key(t))
         others = [
             t for t in tech_list
             if not is_converter_variant(t) and t not in _SINGLE_TURN_TECHNIQUES
@@ -539,7 +586,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         strong.sort(key=lambda t: -self._prior_sort_key(t))
 
         converter_variants = [t for t in tech_list if is_converter_variant(t)]
-        converter_variants.sort(key=lambda t: self._target_aware_sort_key(t))
+        converter_variants.sort(key=lambda t: self._converter_sort_key(t))
 
         others = [
             t for t in tech_list

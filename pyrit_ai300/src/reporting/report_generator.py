@@ -79,6 +79,24 @@ def _get_attack_type(ar: Any) -> str:
     return "unknown"
 
 
+def _is_success_score(score: Any) -> bool:
+    """判断评分是否指示攻击成功
+
+    对于 true_false 评分（task_achieved 类别），score_value=True 表示攻击达成目标。
+    对于 float_scale 评分，> 0.5 视为成功。
+    """
+    score_type = _safe_get(score, "score_type", "")
+    score_value = _safe_get(score, "score_value")
+    if score_type == "true_false":
+        return bool(score_value)
+    if score_type == "float_scale":
+        try:
+            return float(score_value) > 0.5
+        except (ValueError, TypeError):
+            return False
+    return False
+
+
 def _format_time(ms: Optional[int]) -> str:
     """格式化毫秒时间为可读字符串"""
     if ms is None:
@@ -398,9 +416,9 @@ class EvidenceExporter:
         # 2. 生成每个攻击的 Markdown 文件
         attack_md_files = await self._export_attack_markdowns(attack_results)
 
-        # 3. 生成每个对话的 Markdown 文件
+        # 3. 生成每个对话的 Markdown 文件（传入 attack_results 用于 _success 后缀）
         conversation_md_files = await self._export_conversation_markdowns(
-            memory, conversation_ids,
+            memory, conversation_ids, attack_results=attack_results,
         )
 
         # 4. 生成汇总对话历史 Markdown（使用原生 MarkdownConversationMemoryPrinter）
@@ -531,7 +549,13 @@ class EvidenceExporter:
 
         return files
 
-    async def _export_conversation_markdowns(self, memory: Any, conversation_ids: List[str]) -> List[tuple]:
+    async def _export_conversation_markdowns(
+        self,
+        memory: Any,
+        conversation_ids: List[str],
+        *,
+        attack_results: Optional[List[Any]] = None,
+    ) -> List[tuple]:
         """
         使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown 文件
 
@@ -539,6 +563,8 @@ class EvidenceExporter:
         同时写入独立文件和 zip 包，消除 write_async()+read-back 冗余 I/O。
         支持 include_reasoning_trace（o1/o3 推理模型）和 blur_images（图片模糊）。
         支持 blurred_dir 将模糊图片副本重定向到专用目录。
+
+        成功攻击对应的对话文件追加 _success 后缀，便于快速检索。
         """
         files = []
         # 创建共享的 score_printer 和 conversation printer
@@ -550,8 +576,19 @@ class EvidenceExporter:
             blurred_dir=self.blurred_dir,
         )
 
+        # 构建成功对话 ID 集合（用于 _success 后缀）
+        success_conv_ids: set = set()
+        if attack_results:
+            for ar in attack_results:
+                if _get_outcome_str(ar).upper() == "SUCCESS":
+                    conv_id = str(_safe_get(ar, "conversation_id", ""))
+                    if conv_id:
+                        success_conv_ids.add(conv_id)
+
         for conv_id in conversation_ids:
-            filename = f"conv_{conv_id[:8]}.md"
+            # 成功攻击对应的对话追加 _success 后缀
+            suffix = "_success" if conv_id in success_conv_ids else ""
+            filename = f"conv_{conv_id[:8]}{suffix}.md"
             file_path = self.conversations_dir / filename
 
             try:
@@ -687,7 +724,10 @@ class EvidenceExporter:
         score_printer = MarkdownScorePrinter()
 
         for i, score in enumerate(scores, 1):
-            filename = f"score_{i:04d}.md"
+            # 成功评分（score_value=True）追加 _success 后缀，便于快速检索
+            is_success = _is_success_score(score)
+            suffix = "_success" if is_success else ""
+            filename = f"score_{i:04d}{suffix}.md"
             file_path = self.scores_dir / filename
 
             try:

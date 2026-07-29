@@ -39,7 +39,7 @@ class TestRateLimitConfig:
 
     def test_default_values(self):
         cfg = RateLimitConfig()
-        assert cfg.max_concurrent_requests == 10
+        assert cfg.max_concurrent_requests == 5
         # retry_max_attempts=0 means "read from env"
         assert cfg.retry_max_attempts == 0
         assert cfg.retry_initial_wait == 0

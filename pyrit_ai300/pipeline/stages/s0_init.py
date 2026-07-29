@@ -30,11 +30,13 @@ async def run(ctx: PipelineContext) -> None:
     print(f"  [OK] 停止策略: L2 OWASP阈值={ctx.owasp_success_threshold:.0%}, "
           f"L3 全局首停={ctx.stop_on_first_success}")
 
+    # silent=True 静默 PyRIT 原生初始化输出（"Skipping scorer" 等噪音）
+    # s0_init 自身的 [OK] 信息仍正常输出，不受 silent 影响
     setup_manager = await initialize_ai300_async(
         memory_db_type=ctx.config_loader.get_memory_db_type(),
         project_root=Path(__file__).parent.parent.parent,  # 项目根目录
         db_path=str(db_path),
-        silent=False,
+        silent=True,
     )
     retry_config = setup_manager.retry_config
     if retry_config:

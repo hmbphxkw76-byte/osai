@@ -8,7 +8,7 @@
 
 # --- 目标 HTTP 客户端 ---
 target:
-  timeout: 180              # HTTP 请求超时（秒）；推理模型 o1/o3 建议 300+
+  timeout: 300              # HTTP 请求超时（秒）；慢速 API（如 LongCat）建议 300+，推理模型 o1/o3 建议 600+
   verify: false             # SSL 证书验证（false=跳过自签名证书）
   http2: false              # HTTP/2 支持
   # proxy: http://proxy:8080  # 代理 URL（按需启用）

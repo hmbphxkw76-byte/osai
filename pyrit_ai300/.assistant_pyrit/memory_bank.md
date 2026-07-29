@@ -257,7 +257,8 @@ PyRIT 1.0.0 的 `AttackScoringConfig` 对单轮攻击和 `red_teaming` 设置 `r
 8. **非PyRIT领域排除**: 不用PyRIT实现非优势功能
 9. **代码审查**: 提交前过检查清单
 10. **分层测试与回归**: 模块内改动→单元测试；模块间改动→集成测试；多模块改动→完整回归测试。测试失败必须修复，不允许跳过
-11. **死代码即时清理**: 每次代码改动后运行 `ruff check --fix` 清理未使用导入/变量，手动清理未使用函数/死分支/过时注释，删除后同步清理 `__init__.py` 导出
+11. **__pycache__ 清理**: 每次运行测试前必须清理所有 `__pycache__` 目录，测试结束后也自动清理（PowerShell: `Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`）
+12. **死代码即时清理**: 每次代码改动后运行 `ruff check --fix` 清理未使用导入/变量，手动清理未使用函数/死分支/过时注释，删除后同步清理 `__init__.py` 导出
 
 详见: `docs/development_guidelines.md`（含全部开发规则，已整合）
 
@@ -322,6 +323,10 @@ return "red_teaming"
 ## 七、验证命令速查
 
 ```bash
+# === __pycache__ 清理（§1.10）===
+# 测试前 + 测试后必须执行
+Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
 # === 分层测试（§1.9）===
 # 模块内改动 → 单元测试
 pytest tests/unit/test_<module>.py -x -q
@@ -332,7 +337,7 @@ pytest tests/integration/ -x -q
 # 多模块改动 → 完整回归测试
 pytest tests/ -x -q
 
-# === 死代码清理（§1.10）===
+# === 死代码清理（§1.11）===
 python -m ruff check src/ pipeline.py --fix
 python -m ruff check src/ pipeline.py --output-format=concise
 

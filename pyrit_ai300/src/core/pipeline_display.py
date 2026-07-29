@@ -23,8 +23,19 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 # PyRIT 内部日志中常见的噪音模式（这些日志不应出现在用户终端）
+# 涵盖原生初始化器输出 + 自建初始化器非致命警告
 _PYRIT_NOISE_PATTERNS: list[str] = [
+    # 原生 ScorerInitializer / TargetInitializer 跳过消息
     "Skipping scorer",
+    "required target not found in TargetRegistry",
+    "No scorers in category",
+    "No composite scorers available",
+    "TargetRegistry entry",
+    "not found. Falling back",
+    # 原生 PreloadScenarioMetadata 预热失败（无 OPENAI_CHAT_MODEL 时正常）
+    "PreloadScenarioMetadata failed",
+    "OPENAI_CHAT_MODEL is required",
+    # 运行时噪音
     "No scoring configuration",
     "Empty response, retrying",
     "Rate limit hit, retrying",
@@ -132,7 +143,17 @@ class PipelineDisplay:
     # ----------------------------------------------------------
 
     def install_noise_filter(self, log_path: Optional[Union[str, Path]] = None) -> None:
-        """安装 PyRIT 噪音日志过滤器"""
+        """安装 PyRIT 噪音日志过滤器
+
+        关键：Python logging 传播机制中，父 Logger 的 Filter 不会被检查，
+        只有 Handler 的 Filter 会被检查。因此必须将过滤器安装到 Handler 上，
+        而非 Logger 上。
+
+        安装位置：
+        1. logging.lastResort — Python 兜底 handler（无其他 handler 时使用）
+        2. pyrit 原生 logger (ai-red-team) 的所有 handler
+        3. root logger 的所有 handler（如有）
+        """
         redirect_path = None
         if log_path:
             log_path_str = str(log_path)
@@ -142,9 +163,29 @@ class PipelineDisplay:
         self._noise_filter = PyRITNoiseFilter(redirect_path=redirect_path)
 
         try:
-            pyrit_logger = logging.getLogger("pyrit")
-            pyrit_logger.addFilter(self._noise_filter)
-            logger.debug("PyRIT noise filter installed")
+            # 1. 安装到 lastResort handler（Python 兜底 handler）
+            # 当 pyrit.* 子 logger 的消息找不到 handler 时，走 lastResort → stderr
+            if logging.lastResort is not None:
+                logging.lastResort.addFilter(self._noise_filter)
+
+            # 2. 安装到 pyrit 原生 logger (ai-red-team) 的所有 handler
+            try:
+                from pyrit.common.logger import logger as _pyrit_native_logger
+                for h in _pyrit_native_logger.handlers:
+                    h.addFilter(self._noise_filter)
+            except Exception:
+                pass
+
+            # 3. 安装到 root logger 的所有 handler（如有）
+            root_logger = logging.getLogger()
+            for h in root_logger.handlers:
+                h.addFilter(self._noise_filter)
+
+            # 4. 也安装到 logger 上（直接在 pyrit/src.setup logger 上 log 的消息）
+            logging.getLogger("pyrit").addFilter(self._noise_filter)
+            logging.getLogger("src.setup").addFilter(self._noise_filter)
+
+            logger.debug("PyRIT noise filter installed (handlers + loggers)")
         except Exception as e:
             logger.debug(f"Failed to install noise filter: {e}")
 
@@ -152,8 +193,22 @@ class PipelineDisplay:
         """卸载 PyRIT 噪音日志过滤器"""
         if self._noise_filter:
             try:
-                pyrit_logger = logging.getLogger("pyrit")
-                pyrit_logger.removeFilter(self._noise_filter)
+                # 从 lastResort handler 移除
+                if logging.lastResort is not None:
+                    logging.lastResort.removeFilter(self._noise_filter)
+                # 从 pyrit 原生 logger 的 handler 移除
+                try:
+                    from pyrit.common.logger import logger as _pyrit_native_logger
+                    for h in _pyrit_native_logger.handlers:
+                        h.removeFilter(self._noise_filter)
+                except Exception:
+                    pass
+                # 从 root logger 的 handler 移除
+                for h in logging.getLogger().handlers:
+                    h.removeFilter(self._noise_filter)
+                # 从 logger 移除
+                logging.getLogger("pyrit").removeFilter(self._noise_filter)
+                logging.getLogger("src.setup").removeFilter(self._noise_filter)
             except Exception:
                 pass
             self._noise_filter = None

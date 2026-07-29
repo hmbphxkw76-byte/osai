@@ -138,11 +138,37 @@ async def run(ctx: PipelineContext) -> bool:
             )
     info_box("4e. 攻击准备", prep_lines)
 
-    info_box("传递到自适应匹配", [
+    # 构建详细的传递信息
+    pass_lines = [
         f"• 选中组: {len(ctx.selected_groups)} 个",
-        f"• attack_plans: {len(ctx.attack_plans)} 个 → 提取技术名用于变体池生成",
-        f"• target_group: {ctx.target_group} → Converter 链选择",
-    ])
+    ]
+    # 列出选中组的具体名称
+    for i, sg in enumerate(ctx.selected_groups[:10]):
+        _meta = {}
+        for s in getattr(sg, "seeds", []):
+            _meta = getattr(s, "metadata", {}) or {}
+            if _meta:
+                break
+        _tech = _meta.get("technique_group", _meta.get("technique", "unknown"))
+        _oid = _meta.get("owasp_id", "?")
+        _nseeds = len(getattr(sg, "seeds", []))
+        pass_lines.append(f"  {i+1}. [{_oid}] {_tech} ({_nseeds} seeds)")
+    if len(ctx.selected_groups) > 10:
+        pass_lines.append(f"  ... 还有 {len(ctx.selected_groups) - 10} 个")
+
+    pass_lines.append(f"• attack_plans: {len(ctx.attack_plans)} 个")
+    # 列出 attack_plans 的技术名和 OWASP ID
+    _seen_tech = set()
+    for plan in ctx.attack_plans:
+        _tech = getattr(plan, "attack_technique", "")
+        _oid = getattr(plan, "owasp_id", "?") or "?"
+        if _tech and _tech not in _seen_tech:
+            _seen_tech.add(_tech)
+            pass_lines.append(f"  [{_oid}] {_tech}")
+    pass_lines.append(f"  → 提取技术名用于变体池生成 ({len(_seen_tech)} 种技术)")
+    pass_lines.append(f"• target_group: {ctx.target_group} → Converter 链选择")
+
+    info_box("传递到自适应匹配", pass_lines)
 
     return True
 

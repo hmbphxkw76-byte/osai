@@ -1245,6 +1245,13 @@ class ConfigLoader:
             return int(env_val)
         return self.get_http_client_defaults().get("judge", {}).get("timeout", 120)
 
+    def get_judge_httpx_verify(self) -> bool:
+        """获取评分器 SSL 验证"""
+        env_val = os.getenv("JUDGE_HTTPX_VERIFY")
+        if env_val is not None and env_val.strip():
+            return env_val.lower() in ("1", "true", "yes")
+        return self.get_http_client_defaults().get("judge", {}).get("verify", True)
+
     def get_rate_limit_per_minute(self) -> Optional[int]:
         """获取速率限制"""
         env_val = os.getenv("TARGET_MAX_REQUESTS_PER_MINUTE")

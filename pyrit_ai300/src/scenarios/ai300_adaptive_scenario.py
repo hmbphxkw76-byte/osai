@@ -531,7 +531,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         # 小模型无法可靠生成 JSON，导致 PersuasionConverter/DecompositionConverter
         # 抛出 InvalidJsonException，使整个 atomic attack 失败
         skip_llm_chains = _should_skip_llm_chains(self._converter_target)
-        # 诊断日志
+        # 诊断信息（存储为实例属性，供 adaptive_runner 在 initialize_async 后结构化展示）
         _conv_type = type(self._converter_target).__name__ if self._converter_target else "None"
         _conv_model_diag = ""
         if self._converter_target is not None:
@@ -540,7 +540,13 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 if isinstance(val, str) and val:
                     _conv_model_diag = val
                     break
-        print(f"  [DIAG] converter_target type={_conv_type}, model={_conv_model_diag}, skip_llm_chains={skip_llm_chains}")
+        self._diag_converter_type = _conv_type
+        self._diag_converter_model = _conv_model_diag
+        self._diag_skip_llm_chains = skip_llm_chains
+        logger.info(
+            f"Converter target: type={_conv_type}, model={_conv_model_diag}, "
+            f"skip_llm_chains={skip_llm_chains}"
+        )
         if skip_llm_chains:
             logger.info(
                 "LLM-based converter chains disabled (small model detected or "
@@ -750,6 +756,15 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                     )
                     variant_count += 1
 
+        # 存储诊断统计供 adaptive_runner 结构化展示
+        self._diag_total_techniques = len(base_techniques)
+        self._diag_variant_count = variant_count
+        self._diag_skipped_llm = skipped_llm
+        self._diag_skipped_small_model = skipped_small_model
+        self._diag_skipped_modality = skipped_modality
+        self._diag_skipped_runtime = skipped_runtime
+        self._diag_skipped_no_factory = skipped_no_factory
+
         logger.info(
             f"AI300AdaptiveScenario._build_techniques_dict: "
             f"{len(base_techniques)} total techniques "
@@ -758,6 +773,15 @@ class AI300AdaptiveScenario(AdaptiveScenario):
             f"modality={skipped_modality}, "
             f"runtime={skipped_runtime}, no_factory={skipped_no_factory})"
         )
+
+        # 将 eval_hash → technique_name 映射传递给 selector
+        # 原生 dispatcher 使用 eval_hash 作为 technique_identifiers，
+        # 但 FailureTypeRoutingSelector 的排序逻辑基于技术名。
+        hash_to_name = {h: b.name for h, b in base_techniques.items()}
+        selector = getattr(self, "_selector", None)
+        if selector is not None and hasattr(selector, "set_hash_name_mapping"):
+            selector.set_hash_name_mapping(hash_to_name)
+
         return base_techniques
 
     def _filter_by_modality(
@@ -862,16 +886,29 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         return summary
 
     @staticmethod
-    def display_converter_variants(*, verbose: bool = True) -> int:
+    def display_converter_variants(
+        *,
+        verbose: bool = True,
+        attack_plans: list[Any] | None = None,
+    ) -> int:
         """
-        展示所有可用的 Converter 变体类型/组合
+        展示所有可用的 Converter 变体类型/组合（分组卡片式）
+
+        v5.0: 支持可选 attack_plans 参数，仅展示实际选中技术的 Converter 组合。
+        当 attack_plans=None 时，保持全局展示行为（向后兼容）。
 
         在 pipeline 执行前调用，让用户了解 executor 将使用哪些 Converter 组合。
         原生 AdaptiveTechniqueDispatcher 会按 selector 排序尝试这些变体，
         FIRST_SUCCESS 策略在首个成功变体处自动停止。
 
+        输出格式：按基础技术分组，每张卡片展示：
+        - 技术名称与描述（人类可读）
+        - 攻击模式（多轮/单轮）与学术 ASR
+        - 该技术将尝试的 Converter 链列表（含描述、LLM 标记、优先级）
+
         Args:
-            verbose: True 时打印格式化表格，False 时仅返回数量
+            verbose: True 时打印格式化卡片，False 时仅返回数量
+            attack_plans: 可选的攻击计划列表，仅展示其中包含的技术
 
         Returns:
             可用变体总数
@@ -880,19 +917,115 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         if not verbose:
             return len(summary)
 
-        print("\n" + "=" * 72)
-        print("  Converter 变体技术池 (extra_request_converters + FIRST_SUCCESS)")
-        print("=" * 72)
-        print(f"  {'#':<4} {'变体名称':<45} {'LLM':<5} {'优先级'}")
-        print("-" * 72)
-        for i, v in enumerate(summary, 1):
-            llm_tag = "是" if v["requires_llm"] else "否"
-            print(f"  {i:<4} {v['variant_name']:<45} {llm_tag:<5} P{v['priority']}")
-        print("-" * 72)
-        print(f"  共 {len(summary)} 个 Converter 变体 "
-              f"(非 LLM: {sum(1 for v in summary if not v['requires_llm'])}, "
-              f"LLM: {sum(1 for v in summary if v['requires_llm'])})")
-        print("  策略: epsilon-greedy 选择 + 失败类型路由 + FIRST_SUCCESS 提前停止")
-        print("  机制: 原生 extra_request_converters 渐进式追加 (v3.0)")
-        print("=" * 72 + "\n")
+        from src.scenarios.technique_factories import (
+            BASE_TECHNIQUES_FOR_VARIANTS,
+            CONVERTER_VARIANT_CHAINS,
+            AI300_TECHNIQUE_METADATA,
+        )
+
+        # ── 技术模式中文名映射 ──
+        _MODE_CN = {"multi_turn": "多轮迭代", "single_turn": "单轮直发"}
+
+        # ── 技术 ASR 查询 (惰性导入, 避免循环依赖) ──
+        try:
+            from src.payloads.technique_name_mapper import get_normalized_asr
+            from src.scenarios.asr_strategy_display import _get_tier
+        except Exception:
+            get_normalized_asr = None  # type: ignore
+            _get_tier = None  # type: ignore
+
+        # v5.0: 如果提供了 attack_plans，仅展示实际选中的技术
+        if attack_plans is not None:
+            selected_techs = set()
+            for plan in attack_plans:
+                tech = getattr(plan, "attack_technique", "")
+                if tech:
+                    selected_techs.add(tech)
+            # 过滤 BASE_TECHNIQUES_FOR_VARIANTS 仅保留选中的技术
+            tech_chain_map = {
+                tech: chains for tech, chains in BASE_TECHNIQUES_FOR_VARIANTS.items()
+                if tech in selected_techs
+            }
+        else:
+            tech_chain_map = dict(BASE_TECHNIQUES_FOR_VARIANTS)
+
+        # 过滤 summary 仅保留选中技术的变体
+        if attack_plans is not None:
+            summary = [v for v in summary if v["base_technique"] in selected_techs]
+
+        total_non_llm = sum(1 for v in summary if not v["requires_llm"])
+        total_llm = sum(1 for v in summary if v["requires_llm"])
+
+        # ── 主标题: 双线装饰框 + ★ 强调 (无右边缘, 避免 CJK 宽度问题) ──
+        W = 68
+        print()
+        print("  ╔" + "═" * W + "╗")
+        print()
+        title = "攻击技术 × Converter 组合矩阵"
+        if attack_plans is not None:
+            title += f" ({len(selected_techs)} 技术)"
+        print(f"       ★  {title}  ★")
+        print()
+        print("    每个目标按优先级依次尝试 · 首次成功即停止 (FIRST_SUCCESS)")
+        print()
+        print("  ╚" + "═" * W + "╝")
+
+        for base_tech, chain_names in tech_chain_map.items():
+            meta = AI300_TECHNIQUE_METADATA.get(base_tech, {})
+            tech_desc = meta.get("description", base_tech)
+            tags = meta.get("tags", [])
+            mode = "multi_turn" if "multi_turn" in tags else "single_turn"
+            mode_cn = _MODE_CN.get(mode, mode)
+
+            # ASR 信息
+            asr_str = ""
+            if get_normalized_asr and _get_tier:
+                try:
+                    asr = get_normalized_asr(base_tech)
+                    tier = _get_tier(asr)
+                    asr_str = f"  |  学术 ASR: {asr:.0%} (Tier {tier})"
+                except Exception:
+                    pass
+
+            # 该技术可用的 Converter 链 (按优先级排序)
+            chains_info = []
+            for cn in chain_names:
+                ci = CONVERTER_VARIANT_CHAINS.get(cn, {})
+                chains_info.append({
+                    "name": cn,
+                    "desc": ci.get("description", ""),
+                    "llm": ci.get("requires_llm", False),
+                    "priority": ci.get("priority", 99),
+                })
+            chains_info.sort(key=lambda x: x["priority"])
+
+            # ── 技术卡片: 双线边框 + ◆ 强调标题 ──
+            print()
+            print("  ┏" + "━" * W)
+            print(f"  ┃  ◆ {base_tech} · {tech_desc}")
+            print(f"  ┃    模式: {mode_cn}{asr_str}")
+            print("  ┃")
+            print("  ┃    将依次尝试以下 Converter 增强:")
+            for ci in chains_info:
+                llm_tag = "[LLM]  " if ci["llm"] else "[非LLM]"
+                print(f"  ┃      P{ci['priority']}  {llm_tag}  {ci['name']}")
+                if ci["desc"]:
+                    print(f"  ┃            └─ {ci['desc']}")
+            if mode == "multi_turn":
+                print("  ┃")
+                print(f"  ┃    执行流程: {base_tech} 逐轮升级 → 末轮注入 Converter → 首次成功即停止")
+            else:
+                print("  ┃")
+                print(f"  ┃    执行流程: {base_tech} + Converter 变换 → 按优先级依次尝试 → 首次成功即停止")
+            print("  ┗" + "━" * W)
+
+        # ── 汇总: ■ 强调 ──
+        print()
+        print("  " + "═" * W)
+        print(f"  ■ 汇总: {len(summary)} 个变体组合 "
+              f"(非 LLM: {total_non_llm} 个 | LLM: {total_llm} 个)")
+        print("  ■ 策略: 自适应选择 → 失败类型路由 → 首次成功停止")
+        print("  ■ 机制: PyRIT 原生 extra_request_converters 渐进式追加")
+        print("  " + "═" * W)
+        print()
         return len(summary)

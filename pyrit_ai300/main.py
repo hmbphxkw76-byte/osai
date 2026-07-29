@@ -12,9 +12,16 @@ Usage:
 import asyncio
 import os
 import sys
+import warnings
 from pathlib import Path
 
-from dotenv import load_dotenv
+# 抑制第三方包 confusables 的 SyntaxWarning（无效转义序列 \* 等）
+# confusables 被 PyRIT unicode_confusable_converter 间接导入，非我们可控代码
+# 注意: module= 参数对编译时 SyntaxWarning 无效（Python 编译源码时 __name__ 尚未设置），
+# 必须使用 message= 参数匹配警告消息文本
+warnings.filterwarnings("ignore", category=SyntaxWarning, message=r"invalid escape sequence")
+
+from dotenv import load_dotenv  # noqa: E402
 
 
 def main():

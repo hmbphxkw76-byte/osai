@@ -436,38 +436,73 @@ def display_enhanced_group_breakdown(
     if sort_by_success_rate:
         group_stats.sort(key=lambda s: s["success_rate"], reverse=True)
 
-    # 输出 Per-Group Breakdown（合并原生+增强）
-    print(f"\n  {'=' * 76}")
-    print("  Per-Group Breakdown (Techniques + Converters + OWASP)")
-    print(f"  {'=' * 76}")
+    # ── v5.0: Per-Group Breakdown 格式对齐统一卡片 ──
+    # 使用 ┏━━┃━━┗ 双线框，与 s6_execute.py 的 _display_unified_attack_matrix 一致
+    _W = 68
+
+    print()
+    print("  ╔" + "═" * _W + "╗")
+    print()
+    print("       ★  Per-Group Breakdown (执行结果统计)  ★")
+    print()
+    print("  ╚" + "═" * _W + "╝")
 
     for stat in group_stats:
         rate_pct = stat["success_rate"] * 100
-        print(f"\n  Group: {stat['group_name']}")
-        print(f"    Results: {stat['total']}, "
+
+        # 成功率标记
+        if rate_pct >= 50:
+            rate_mark = "✅"
+        elif rate_pct > 0:
+            rate_mark = "⚠️"
+        else:
+            rate_mark = "❌"
+
+        # 技术名（去掉 hash 后缀）
+        # 当攻击在 Converter 阶段失败时，AttackResult 无 strategy_identifier，
+        # 此时使用 group_name 作为回退技术名
+        if stat["techniques"]:
+            tech_display = ', '.join(stat["techniques"])
+        else:
+            tech_display = f"{stat['group_name']} (identifier unavailable)"
+
+        # 技术卡片: 双线边框 + ◆ 强调标题（对齐 s6_execute.py 格式）
+        print()
+        print("  ┏" + "━" * _W)
+        print(f"  ┃  ◆ {tech_display}  {rate_mark} {rate_pct:.0f}% ({stat['success']}/{stat['total']})")
+        print("  ┃")
+        print(f"  ┃    ┌─ 结果统计 ─{'─' * max(0, _W - 24)}┐")
+        print(f"  ┃    │ Results: {stat['total']}, "
               f"Success: {stat['success']}, "
               f"Failure: {stat['failure']}, "
               f"Rate: {rate_pct:.0f}%")
+        print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
-        # 攻击技术（去掉 hash 后缀）
-        # 当攻击在 Converter 阶段失败时，AttackResult 无 strategy_identifier，
-        # 此时使用 group_name 作为回退技术名（PyRIT display_group 通常即为技术/数据集名）
+        # 攻击技术
+        print(f"  ┃    ┌─ 攻击技术 ─{'─' * max(0, _W - 24)}┐")
         if stat["techniques"]:
-            print(f"    Techniques:  {', '.join(stat['techniques'])}")
+            for t in stat["techniques"]:
+                print(f"  ┃    │   {t}")
         else:
-            print(f"    Techniques:  {stat['group_name']} (identifier unavailable — attacks may have failed before execution)")
+            print(f"  ┃    │   {stat['group_name']} (identifier unavailable)")
+        print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
         # Converter 变体
         if stat["converters"]:
-            print(f"    Converters:  {', '.join(stat['converters'])}")
+            print(f"  ┃    ┌─ Converter 变体 ({len(stat['converters'])} 条) ─{'─' * max(0, _W - 36)}┐")
+            for cv in stat["converters"]:
+                print(f"  ┃    │   {cv}")
+            print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
         else:
-            print("    Converters:  (none - base techniques only)")
+            print("  ┃    (无 Converter — 仅基线技术)")
 
         # OWASP 对齐（ID + 名称）
         if stat["owasp_display"]:
-            print(f"    OWASP:       {stat['owasp_display']}")
+            print(f"  ┃    OWASP:  {stat['owasp_display']}")
 
-    print(f"\n  {'=' * 76}")
+        print("  ┗" + "━" * _W)
+
+    print()
 
 
 # ============================================================

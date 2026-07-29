@@ -111,12 +111,12 @@ class TestExportScoreMarkdowns:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_export_single_score(self, exporter):
-        """测试导出单个评分"""
+    async def test_export_single_score_success_suffix(self, exporter):
+        """测试导出成功评分（score_value=True）时追加 _success 后缀"""
         mock_score = MagicMock()
         mock_score.score_type = "true_false"
         mock_score.score_value = True
-        mock_score.score_category = ["refusal"]
+        mock_score.score_category = ["task_achieved"]
         mock_score.score_rationale = "Test rationale"
         mock_score.score_metadata = None
         mock_score.get_value = MagicMock(return_value=True)
@@ -124,53 +124,87 @@ class TestExportScoreMarkdowns:
         result = await exporter._export_score_markdowns([mock_score])
         assert len(result) == 1
         filename, content = result[0]
-        assert filename == "score_0001.md"
+        assert filename == "score_0001_success.md"
         assert "Score Type" in content or "Export failed" in content
 
     @pytest.mark.asyncio
-    async def test_export_multiple_scores(self, exporter):
-        """测试导出多个评分"""
-        scores = []
-        for i in range(3):
-            mock_score = MagicMock()
-            mock_score.score_type = "true_false"
-            mock_score.score_value = True
-            mock_score.score_category = [f"cat_{i}"]
-            mock_score.score_rationale = f"Rationale {i}"
-            mock_score.score_metadata = None
-            mock_score.get_value = MagicMock(return_value=True)
-            scores.append(mock_score)
+    async def test_export_single_score_no_suffix_for_failure(self, exporter):
+        """测试导出失败评分（score_value=False）时不追加后缀"""
+        mock_score = MagicMock()
+        mock_score.score_type = "true_false"
+        mock_score.score_value = False
+        mock_score.score_category = ["task_achieved"]
+        mock_score.score_rationale = "Test rationale"
+        mock_score.score_metadata = None
+        mock_score.get_value = MagicMock(return_value=False)
 
-        result = await exporter._export_score_markdowns(scores)
+        result = await exporter._export_score_markdowns([mock_score])
+        assert len(result) == 1
+        filename, _ = result[0]
+        assert filename == "score_0001.md"
+
+    @pytest.mark.asyncio
+    async def test_export_multiple_scores_mixed_success(self, exporter):
+        """测试导出多个评分（成功/失败混合）时后缀正确"""
+        # 成功评分
+        success_score = MagicMock()
+        success_score.score_type = "true_false"
+        success_score.score_value = True
+        success_score.score_category = ["task_achieved"]
+        success_score.score_rationale = "Success"
+        success_score.score_metadata = None
+        success_score.get_value = MagicMock(return_value=True)
+
+        # 失败评分
+        failure_score = MagicMock()
+        failure_score.score_type = "true_false"
+        failure_score.score_value = False
+        failure_score.score_category = ["task_achieved"]
+        failure_score.score_rationale = "Failure"
+        failure_score.score_metadata = None
+        failure_score.get_value = MagicMock(return_value=False)
+
+        # 成功评分
+        success_score2 = MagicMock()
+        success_score2.score_type = "true_false"
+        success_score2.score_value = True
+        success_score2.score_category = ["task_achieved"]
+        success_score2.score_rationale = "Success 2"
+        success_score2.score_metadata = None
+        success_score2.get_value = MagicMock(return_value=True)
+
+        result = await exporter._export_score_markdowns([success_score, failure_score, success_score2])
         assert len(result) == 3
-        assert result[0][0] == "score_0001.md"
+        assert result[0][0] == "score_0001_success.md"
         assert result[1][0] == "score_0002.md"
-        assert result[2][0] == "score_0003.md"
+        assert result[2][0] == "score_0003_success.md"
 
     @pytest.mark.asyncio
     async def test_export_score_writes_file(self, exporter):
-        """测试评分文件写入磁盘"""
+        """测试评分文件写入磁盘（成功评分写入 _success 后缀文件）"""
         mock_score = MagicMock()
         mock_score.score_type = "true_false"
         mock_score.score_value = True
-        mock_score.score_category = ["test"]
+        mock_score.score_category = ["task_achieved"]
         mock_score.score_rationale = "Test"
         mock_score.score_metadata = None
         mock_score.get_value = MagicMock(return_value=True)
 
         await exporter._export_score_markdowns([mock_score])
 
-        score_file = exporter.scores_dir / "score_0001.md"
+        score_file = exporter.scores_dir / "score_0001_success.md"
         assert score_file.exists()
 
     @pytest.mark.asyncio
     async def test_export_score_handles_error(self, exporter):
-        """测试评分导出错误处理"""
+        """测试评分导出错误处理（错误评分的 score_value 不可访问，不追加后缀）"""
         # 使用会触发 render_async 异常的 mock
         bad_score = MagicMock()
         bad_score.score_type = MagicMock(side_effect=Exception("Test error"))
+        bad_score.score_value = MagicMock(side_effect=Exception("Test error"))
         bad_score.get_value = MagicMock(side_effect=Exception("Test error"))
 
+        # _is_success_score 会因 score_type 异常返回 False，不追加后缀
         # MarkdownScorePrinter.render_async 会调用 _format_score
         # _format_score 会调用 score.get_value()，如果报异常会被外层 try/except 捕获
         with patch("src.reporting.report_generator.MarkdownScorePrinter") as mock_printer_cls:
@@ -367,3 +401,147 @@ class TestExportAllEvidence:
                 assert "export_time" in evidence_json
                 assert "attack_results" in evidence_json
                 assert "attack_results_count" in evidence_json
+
+
+# ============================================================
+# _success 后缀测试
+# ============================================================
+
+
+class TestSuccessSuffix:
+    """测试成功攻击/评分/对话的 _success 后缀"""
+
+    @pytest.fixture
+    def exporter(self, tmp_path):
+        """创建 EvidenceExporter 实例"""
+        with patch("src.reporting.report_generator.get_config_loader") as mock_loader:
+            mock_loader.return_value.get_global_value.return_value = str(tmp_path)
+            return EvidenceExporter("test_exam")
+
+    @pytest.mark.asyncio
+    async def test_attack_markdown_success_suffix(self, exporter):
+        """测试成功攻击的 attack markdown 文件名包含 _success 后缀"""
+        from src.reporting.report_generator import _get_outcome_str
+
+        # 成功攻击结果
+        success_ar = MagicMock()
+        success_ar.outcome = MagicMock()
+        success_ar.outcome.value = "success"
+        success_ar.conversation_id = "conv_success_123"
+        success_ar.objective = "test objective"
+        success_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        # 失败攻击结果
+        failure_ar = MagicMock()
+        failure_ar.outcome = MagicMock()
+        failure_ar.outcome.value = "failure"
+        failure_ar.conversation_id = "conv_failure_456"
+        failure_ar.objective = "test objective 2"
+        failure_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        # 验证 _get_outcome_str 正确识别
+        assert _get_outcome_str(success_ar).upper() == "SUCCESS"
+        assert _get_outcome_str(failure_ar).upper() == "FAILURE"
+
+        with patch("src.reporting.report_generator.MarkdownAttackResultMemoryPrinter") as mock_printer_cls:
+            mock_printer = MagicMock()
+            mock_printer.render_async = AsyncMock(return_value="# Attack\n\nTest")
+            mock_printer_cls.return_value = mock_printer
+
+            result = await exporter._export_attack_markdowns([success_ar, failure_ar])
+
+        assert len(result) == 2
+        # 第一个（成功）应有 _success 后缀
+        assert result[0][0] == "attack_0001_success.md"
+        # 第二个（失败）不应有后缀
+        assert result[1][0] == "attack_0002.md"
+
+    @pytest.mark.asyncio
+    async def test_conversation_markdown_success_suffix(self, exporter):
+        """测试成功攻击对应的对话文件名包含 _success 后缀"""
+        mock_memory = MagicMock()
+        mock_memory.get_conversation_messages.return_value = [MagicMock()]
+
+        # 成功攻击的 conversation_id
+        success_conv_id = "abcdef12-3456-7890-abcd-ef1234567890"
+        # 失败攻击的 conversation_id
+        failure_conv_id = "deadbeef-1234-5678-9abc-def012345678"
+
+        # 构建攻击结果
+        success_ar = MagicMock()
+        success_ar.outcome = MagicMock()
+        success_ar.outcome.value = "success"
+        success_ar.conversation_id = success_conv_id
+
+        failure_ar = MagicMock()
+        failure_ar.outcome = MagicMock()
+        failure_ar.outcome.value = "failure"
+        failure_ar.conversation_id = failure_conv_id
+
+        with patch("src.reporting.report_generator.MarkdownConversationMemoryPrinter") as mock_printer_cls:
+            mock_printer = MagicMock()
+            mock_printer.render_async = AsyncMock(return_value="## Conversation\n\nTest")
+            mock_printer_cls.return_value = mock_printer
+
+            result = await exporter._export_conversation_markdowns(
+                mock_memory,
+                [success_conv_id, failure_conv_id],
+                attack_results=[success_ar, failure_ar],
+            )
+
+        assert len(result) == 2
+        # 成功攻击对应的对话应有 _success 后缀
+        assert result[0][0] == "conv_abcdef12_success.md"
+        # 失败攻击对应的对话不应有后缀
+        assert result[1][0] == "conv_deadbeef.md"
+
+    @pytest.mark.asyncio
+    async def test_conversation_markdown_no_attack_results(self, exporter):
+        """测试未传入 attack_results 时对话文件不追加后缀"""
+        mock_memory = MagicMock()
+        mock_memory.get_conversation_messages.return_value = [MagicMock()]
+
+        conv_id = "abcdef12-3456-7890-abcd-ef1234567890"
+
+        with patch("src.reporting.report_generator.MarkdownConversationMemoryPrinter") as mock_printer_cls:
+            mock_printer = MagicMock()
+            mock_printer.render_async = AsyncMock(return_value="## Conversation\n\nTest")
+            mock_printer_cls.return_value = mock_printer
+
+            result = await exporter._export_conversation_markdowns(
+                mock_memory,
+                [conv_id],
+            )
+
+        assert len(result) == 1
+        assert result[0][0] == "conv_abcdef12.md"
+
+    @pytest.mark.asyncio
+    async def test_score_markdown_float_scale_success(self, exporter):
+        """测试 float_scale 评分 > 0.5 时追加 _success 后缀"""
+        mock_score = MagicMock()
+        mock_score.score_type = "float_scale"
+        mock_score.score_value = 0.8
+        mock_score.score_category = ["harm"]
+        mock_score.score_rationale = "High harm score"
+        mock_score.score_metadata = None
+        mock_score.get_value = MagicMock(return_value=0.8)
+
+        result = await exporter._export_score_markdowns([mock_score])
+        assert len(result) == 1
+        assert result[0][0] == "score_0001_success.md"
+
+    @pytest.mark.asyncio
+    async def test_score_markdown_float_scale_below_threshold(self, exporter):
+        """测试 float_scale 评分 <= 0.5 时不追加后缀"""
+        mock_score = MagicMock()
+        mock_score.score_type = "float_scale"
+        mock_score.score_value = 0.3
+        mock_score.score_category = ["harm"]
+        mock_score.score_rationale = "Low harm score"
+        mock_score.score_metadata = None
+        mock_score.get_value = MagicMock(return_value=0.3)
+
+        result = await exporter._export_score_markdowns([mock_score])
+        assert len(result) == 1
+        assert result[0][0] == "score_0001.md"
