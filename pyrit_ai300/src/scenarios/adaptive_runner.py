@@ -11,16 +11,23 @@ P4: 原生优先 — 使用 DatasetAttackConfiguration(seed_groups=) 内联传�
   的 attack_plans 转换为 AttackSeedGroup 列表，通过 dataset_config
   参数传入 Scenario，完全对齐 PyRIT 原生数据流。
 
-执行流程：
-  1. attack_plans → AttackSeedGroup 列表（SeedGroupBuilder.build）
-  2. DatasetAttackConfiguration(seed_groups=...) 内联配置
-  3. 创建 AI300AdaptiveScenario（含 Converter 变体）
-  4. 注册基础技术到 AttackTechniqueRegistry（v3.0: 不含变体）
-  5. scenario.set_params_from_args(dataset_config=..., max_retries=..., max_concurrency=...)
-  6. scenario.initialize_async() → 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
-  7. scenario.run_async() → 原生执行（含 tqdm + max_retries + 自动恢复）
-  8. P0-A: 失败类型分析 → 提取失败类型统计 + 更新 selector（供 resume 使用）
-  9. ScenarioResult → BatchAttackResult（向后兼容）
+v8.0 拆分优化 — prepare / execute 分离：
+  prepare_scenario_async():
+    1. attack_plans → AttackSeedGroup 列表（SeedGroupBuilder.build）
+    2. DatasetAttackConfiguration(seed_groups=...) 内联配置
+    3. 创建 AI300AdaptiveScenario（含 Converter 变体）
+    4. 注册基础技术到 AttackTechniqueRegistry（v3.0: 不含变体）
+    5. scenario.set_params_from_args(dataset_config=..., max_retries=..., max_concurrency=...)
+    6. scenario.initialize_async() → 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
+    → 返回 ScenarioPreparation（含 scenario + seed_groups + 诊断信息）
+
+  execute_scenario_async():
+    7. scenario.run_async() → 原生执行（含 tqdm + max_retries + 自动恢复）
+    8. P0-A: 失败类型分析 → 提取失败类型统计 + 更新 selector（供 resume 使用）
+    9. ScenarioResult → BatchAttackResult（向后兼容）
+
+  run_adaptive_scenario_async():
+    向后兼容包装器 = prepare + execute（不含展示）
 
 v3.0 优化：
   - P0-A: 失败类型分析接入 — extract_failure_type_from_result 激活
@@ -82,7 +89,26 @@ class AdaptiveRunResult:
         return self.batch_result.success_rate
 
 
-async def run_adaptive_scenario_async(
+@dataclass
+class ScenarioPreparation:
+    """
+    Scenario 准备结果 — 由 prepare_scenario_async 创建，由 execute_scenario_async 消费。
+
+    在 scenario.initialize_async() 完成后、run_async() 之前返回，
+    让调用方（s6_execute.py）可以展示 PyRIT 实际解析的技术池/变体/跳过统计，
+    并在执行前审查一致性。
+    """
+
+    scenario: Any  # 已初始化的 AI300AdaptiveScenario
+    attack_seed_groups: list  # L2/L3 过滤后的 seed groups
+    original_seed_count: int = 0  # 过滤前的 seed group 数量
+    skipped_by_stop: int = 0  # L2/L3 跳过的数量
+    stop_reasons: list[str] = field(default_factory=list)
+    owasp_threshold: float = 0.0  # P3: L2 阈值（运行时停止用）
+    stop_on_first_success: bool = False  # P3: L3 全局首成功即停
+
+
+async def prepare_scenario_async(
     *,
     objective_target: Any,
     judge_target: Any,
@@ -91,7 +117,6 @@ async def run_adaptive_scenario_async(
     owasp_id: str = "",
     exam_id: str = "",
     max_attempts_per_objective: int = 3,
-    per_attack_timeout: int = 180,
     max_retries: int = 0,
     max_concurrency: int = 4,
     verbose: bool = False,
@@ -103,16 +128,17 @@ async def run_adaptive_scenario_async(
     model_tier: str = "unknown",
     owasp_success_threshold: float = 0.0,
     stop_on_first_success: bool = False,
-) -> AdaptiveRunResult:
+    warm_start_asr: dict[str, float] | None = None,
+) -> ScenarioPreparation:
     """
-    P3: 原生 AI300AdaptiveScenario 执行入口
+    准备 Scenario — 转换 attack_plans → seed_groups → 创建并初始化 Scenario。
 
-    消除自建 AttackUpgradeStrategy 双轨，使用原生 AdaptiveScenario 执行：
-    1. 注册基础技术到 AttackTechniqueRegistry（v3.0: 不含变体）
-    2. 创建 AI300AdaptiveScenario
-    3. scenario.initialize_async() + scenario.run_async()
-    4. P0-A: 失败类型分析 → 提取统计 + 更新 selector
-    5. 结果转换为 BatchAttackResult（向后兼容）
+    执行步骤：
+      1. 注册基础技术到 AttackTechniqueRegistry（v3.0: 不含变体）
+      2. 创建 AI300AdaptiveScenario
+      3. scenario.initialize_async() → 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
+
+    返回 ScenarioPreparation，调用方可在执行前展示诊断信息。
 
     Args:
         objective_target: 目标 PromptTarget
@@ -122,32 +148,35 @@ async def run_adaptive_scenario_async(
         owasp_id: OWASP 分类 ID
         exam_id: 考试 ID
         max_attempts_per_objective: 每个 objective 最大尝试次数
-        per_attack_timeout: [v3.0 deprecated] 单次攻击超时（不再传递给 Scenario，
-                           原生 max_retries + max_concurrency 足够）
         max_retries: Scenario 级别重试次数
         max_concurrency: 原生 AttackExecutor 并发数（默认 4）
         verbose: 是否详细输出
-        converter_target: LLM 辅助 Converter 的 Target（默认为 judge_target，但推荐使用目标模型）
+        converter_target: LLM 辅助 Converter 的 Target
         memory_labels: 额外 memory_labels
-        target_type: PyRIT Target 类型名（如 "openai_chat"），用于 Target 感知排序
+        target_type: PyRIT Target 类型名（如 "openai_chat"）
+        strategy_mode: 策略模式 (academic/exam/balanced)
+        model_name: 目标模型名
+        model_tier: 模型分层 (strong/moderate/weak)
+        owasp_success_threshold: L2 OWASP 分类成功率阈值
+        stop_on_first_success: L3 全局首成功即停
 
     Returns:
-        AdaptiveRunResult 封装原生结果 + 向后兼容 BatchAttackResult
+        ScenarioPreparation 封装已初始化的 scenario + seed_groups
+
+    Raises:
+        ValueError: 如果无 seed groups 或初始化失败
     """
     from src.scenarios.ai300_adaptive_scenario import AI300AdaptiveScenario
     from src.scenarios.technique_factories import register_ai300_techniques
     from src.scenarios.scenario_result_bridge import (
         build_memory_labels,
     )
-    from src.scenarios.failure_type_selector import extract_failure_type_from_result
+    from src.scenarios.failure_type_selector import extract_failure_type_from_result  # noqa: F401 — 保留导入以触发模块初始化
     # v5.0: Target 路由展示已统一到 s6_execute.py，此处不再导入 target_aware_router
     # v3.0: PayloadStrategyMatcher 在 Adaptive 路径恢复使用
     from src.analysis.strategy_matcher import PayloadStrategyMatcher
 
-    start_time = time.time()
-
     # P1-2: converter_target 自动创建 — 优先使用 TARGET_* 环境变量
-    # 被测试模型通常限制较少，能可靠生成 LLM Converter 所需的 JSON 输出
     if converter_target is None:
         _target_endpoint = os.getenv("TARGET_ENDPOINT", "")
         _target_model = os.getenv("TARGET_MODEL", "")
@@ -196,10 +225,8 @@ async def run_adaptive_scenario_async(
     pipeline_techniques: set[str] = set()
 
     if seed_groups:
-        # 原生路径：直接使用传入的 seed_groups
         attack_seed_groups = list(seed_groups)
     elif attack_plans:
-        # 兼容路径：从 attack_plans 转换为 AttackSeedGroup
         for plan in attack_plans:
             objective = plan.prompt_item.objective
             sg = SeedGroupBuilder.build(plan, objective, include_conversation=True)
@@ -207,19 +234,7 @@ async def run_adaptive_scenario_async(
             pipeline_techniques.add(plan.attack_technique)
 
     if not attack_seed_groups:
-        logger.error("No attack seed groups to execute (both attack_plans and seed_groups are empty)")
-        return AdaptiveRunResult(
-            batch_result=BatchAttackResult(
-                total_plans=len(attack_plans or []),
-                executed=0,
-                succeeded=0,
-                failed=0,
-                errored=1,
-                results=[],
-                errors=[{"error": "No attack seed groups provided"}],
-            ),
-            execution_time=time.time() - start_time,
-        )
+        raise ValueError("No attack seed groups to execute (both attack_plans and seed_groups are empty)")
 
     # ──────────────────────────────────────────────────────────
     # PyRIT AtomicAttack 要求：同一技术下每个 seed group 的 objective 文本
@@ -258,9 +273,6 @@ async def run_adaptive_scenario_async(
 
     # ──────────────────────────────────────────────────────────
     # P0-1: L2/L3 停止策略预过滤
-    # 原生 run_async() 是原子批量执行，通过预过滤 seed_groups 实现:
-    #   L2: 每个 OWASP 最多保留 ceil(total * threshold) + buffer 个 seed_groups
-    #   L3: 仅保留第一个 seed_group（最激进）
     # ──────────────────────────────────────────────────────────
     original_seed_count = len(attack_seed_groups)
     skipped_by_stop = 0
@@ -334,6 +346,52 @@ async def run_adaptive_scenario_async(
         logger.info(f"Mapped {len(scenario_techniques)} pipeline techniques: {[t.value for t in scenario_techniques]}")
 
     # ──────────────────────────────────────────────────────────
+    # P3: 自动补充高 ASR 技术到执行池
+    # 当载荷仅映射到低 ASR 技术（如 prompt_sending ASR=2%）时，
+    # 自动补充 Tier S/A 技术（crescendo/red_teaming）以提升攻击成功率。
+    # 设计原则: 载荷驱动为主，但技术池不应仅由载荷决定 —
+    # 高 ASR 多轮技术（crescendo ASR=82-95%）对弱模型最有效，
+    # 应始终在执行池中，即使载荷未映射到它们。
+    # ──────────────────────────────────────────────────────────
+    _HIGH_ASR_TECH_VALUES: frozenset[str] = frozenset({
+        "crescendo", "red_teaming", "tap", "tree_of_attacks_pruned", "pair",
+    })
+    if scenario_techniques is not None:
+        existing_values = {t.value for t in scenario_techniques}
+        missing_high_asr = _HIGH_ASR_TECH_VALUES - existing_values
+        if missing_high_asr:
+            # 检查目标是否支持多轮（crescendo/red_teaming 需要 MULTI_TURN 能力）
+            _supports_multi_turn = True
+            if objective_target is not None:
+                try:
+                    from src.executor.attack.core.modality_router import ModalityRouter
+                    from pyrit.prompt_target.common.target_capabilities import CapabilityName as _CN
+                    _caps = ModalityRouter.get_capabilities(objective_target)
+                    _supports_multi_turn = _caps.includes(capability=_CN.MULTI_TURN)
+                except Exception:
+                    pass
+
+            added_techs: list[str] = []
+            for tech_val in _HIGH_ASR_TECH_VALUES:
+                if tech_val in missing_high_asr:
+                    # crescendo/red_teaming/tap/pair 需要多轮支持
+                    if tech_val in ("crescendo", "red_teaming", "tap", "pair", "tree_of_attacks_pruned"):
+                        if not _supports_multi_turn:
+                            continue
+                    for member in AI300Technique:
+                        if member.value == tech_val:
+                            scenario_techniques.append(member)
+                            added_techs.append(tech_val)
+                            break
+
+            if added_techs:
+                logger.info(
+                    f"P3: Auto-supplemented {len(added_techs)} high-ASR techniques "
+                    f"to execution pool: {added_techs} "
+                    f"(payload-only techniques had low ASR, supplemented for success rate)"
+                )
+
+    # ──────────────────────────────────────────────────────────
     # 注册 judge_target 到 TargetRegistry — PyRIT 原生 target 解析
     # ──────────────────────────────────────────────────────────
     try:
@@ -347,13 +405,11 @@ async def run_adaptive_scenario_async(
 
     # ──────────────────────────────────────────────────────────
     # v3.0: PayloadStrategyMatcher 在 Adaptive 路径恢复使用
-    # 为每个 attack_plan 匹配 OWASP 策略，提取技术提示供 Scenario 使用
     # ──────────────────────────────────────────────────────────
     strategy_matcher = PayloadStrategyMatcher(target_type=target_type)
     matched_techniques: set[str] = set()
     if attack_plans:
         for plan in attack_plans:
-            # 从 plan 中提取 OWASP ID 和技术提示
             plan_owasp = getattr(plan, "owasp_id", "") or owasp_id
             plan_tech_hint = ""
             prompt_item = getattr(plan, "prompt_item", None)
@@ -384,8 +440,6 @@ async def run_adaptive_scenario_async(
         logger.warning(f"Failed to create objective_scorer from judge_target: {e}")
 
     # 1. 注册基础技术到 AttackTechniqueRegistry
-    #    v3.0: include_variants=False — 变体在 _build_techniques_dict 中通过
-    #    原生 extra_request_converters 动态创建，不再预注册到 Registry
     try:
         register_ai300_techniques(
             tags=["all"],
@@ -398,12 +452,19 @@ async def run_adaptive_scenario_async(
     except Exception as e:
         logger.warning(f"Technique registration failed (non-fatal): {e}")
 
-    # 2. 构建 memory_labels（OWASP 映射）
-    labels = build_memory_labels(owasp_id=owasp_id, exam_id=exam_id)
+    # 2. 构建 memory_labels（OWASP 映射 + P6: 扩展标签）
+    # P6: 注入 model_name/strategy_mode/target_type 供跨运行 ASR 追踪
+    labels = build_memory_labels(
+        owasp_id=owasp_id,
+        exam_id=exam_id,
+        model_name=model_name,
+        strategy_mode=strategy_mode,
+        target_type=target_type or "",
+    )
     if memory_labels:
         labels.update(memory_labels)
 
-# 3. 创建 AI300AdaptiveScenario（传入 objective_scorer + target_type + owasp_id + strategy_mode + model_tier）
+    # 3. 创建 AI300AdaptiveScenario
     scenario = AI300AdaptiveScenario(
         converter_target=converter_target,
         objective_scorer=objective_scorer,
@@ -412,11 +473,11 @@ async def run_adaptive_scenario_async(
         strategy_mode=strategy_mode,
         model_name=model_name,
         model_tier=model_tier,
+        warm_start_asr=warm_start_asr,
     )
 
     # ──────────────────────────────────────────────────────────
     # 原生参数传递：dataset_config + scenario_techniques + max_retries + max_concurrency
-    # v3.0: 移除 per_attack_timeout（原生 max_retries + max_concurrency 足够）
     # ──────────────────────────────────────────────────────────
     scenario_params: dict[str, Any] = {
         "objective_target": objective_target,
@@ -431,35 +492,79 @@ async def run_adaptive_scenario_async(
 
     scenario.set_params_from_args(args=scenario_params)
 
-    # 4. 初始化 Scenario
-    try:
-        await scenario.initialize_async()
-    except Exception as e:
-        logger.error(f"Scenario initialization failed: {e}")
-        return AdaptiveRunResult(
-            batch_result=BatchAttackResult(
-                total_plans=len(attack_plans or []),
-                executed=0,
-                succeeded=0,
-                failed=0,
-                errored=1,
-                results=[],
-                errors=[{"error": f"Init failed: {e}"}],
-            ),
-            execution_time=time.time() - start_time,
-        )
+    # 4. 初始化 Scenario — 原生构建 AtomicAttack + SequentialAttack(FIRST_SUCCESS)
+    await scenario.initialize_async()
 
-    # ── 执行前准备卡片（从 scenario 诊断属性读取） ──
-    _display_pre_execution_card(scenario, len(attack_seed_groups))
+    logger.info(
+        f"AdaptiveRunner: scenario initialized "
+        f"({len(attack_seed_groups)} seed groups, "
+        f"{len(getattr(scenario, '_atomic_attacks', []))} atomic attacks)"
+    )
+
+    return ScenarioPreparation(
+        scenario=scenario,
+        attack_seed_groups=attack_seed_groups,
+        original_seed_count=original_seed_count,
+        skipped_by_stop=skipped_by_stop,
+        stop_reasons=stop_reasons,
+        owasp_threshold=owasp_success_threshold,
+        stop_on_first_success=stop_on_first_success,
+    )
+
+
+async def execute_scenario_async(
+    preparation: ScenarioPreparation,
+    *,
+    attack_plans: list[Any] | None = None,
+    owasp_id: str = "",
+    per_attack_timeout: int = 180,
+    max_attempts_per_objective: int = 3,
+) -> AdaptiveRunResult:
+    """
+    执行已准备的 Scenario — run_async + 结果转换 + 失败类型分析。
+
+    Args:
+        preparation: prepare_scenario_async 返回的 ScenarioPreparation
+        attack_plans: 攻击计划列表（用于结果转换的 total_plans 统计）
+        owasp_id: OWASP 分类 ID
+        per_attack_timeout: [v3.0 deprecated] 单次攻击超时（仅用于 asyncio.wait_for 总超时计算）
+        max_attempts_per_objective: 每个 objective 最大尝试次数（用于总超时计算）
+
+    Returns:
+        AdaptiveRunResult 封装原生结果 + 向后兼容 BatchAttackResult
+    """
+    from src.scenarios.failure_type_selector import extract_failure_type_from_result
+
+    scenario = preparation.scenario
+    attack_seed_groups = preparation.attack_seed_groups
+    start_time = time.time()
+
+    # P3-HIGH: 注入运行时停止策略事件处理器
+    # 替代预过滤，实现真正的运行时停止
+    runtime_stop_handler = None
+    try:
+        from src.scenarios.runtime_stop_handler import RuntimeStopEventHandler
+        _owasp_threshold = getattr(preparation, "owasp_threshold", 0.0)
+        _stop_on_first = getattr(preparation, "stop_on_first_success", False)
+        if _owasp_threshold > 0 or _stop_on_first:
+            runtime_stop_handler = RuntimeStopEventHandler(
+                owasp_threshold=_owasp_threshold,
+                stop_on_first_success=_stop_on_first,
+            )
+            # 尝试注册到 Scenario 的 AttackExecutor
+            _executor = getattr(scenario, "_attack_executor", None)
+            if _executor is not None and hasattr(_executor, "_register_event_handler"):
+                _executor._register_event_handler(runtime_stop_handler)
+                logger.info(
+                    f"P3: RuntimeStopEventHandler registered "
+                    f"(L2={_owasp_threshold:.0%}, L3={_stop_on_first})"
+                )
+    except Exception as e:
+        logger.debug(f"P3: RuntimeStopEventHandler registration failed: {e}")
 
     # 5. 执行 Scenario（原生 run_async — 含 tqdm + max_retries + 自动恢复）
     #
     # P0-2: asyncio.wait_for 超时保护
-    #   原生 run_async() 无内置超时，单个 API 调用挂起可能阻塞整个流程。
-    #   总超时 = per_attack_timeout × len(seed_groups) × max_attempts_per_objective
-    #   上限 _MAX_TOTAL_TIMEOUT 防止无限等待
-    #
-    # L5: ScenarioIdentifier 恢复验证
     scenario_result_id = getattr(scenario, "_scenario_result_id", None)
     scenario_error = None
     total_timeout = min(
@@ -471,6 +576,7 @@ async def run_adaptive_scenario_async(
         f"({per_attack_timeout}s × {len(attack_seed_groups)} groups × {max_attempts_per_objective} attempts, "
         f"capped at {_MAX_TOTAL_TIMEOUT}s)"
     )
+    native_result = None
     try:
         native_result = await asyncio.wait_for(
             scenario.run_async(),
@@ -482,7 +588,6 @@ async def run_adaptive_scenario_async(
             f"({per_attack_timeout}s × {len(attack_seed_groups)} × {max_attempts_per_objective})"
         )
         scenario_error = f"Scenario timed out after {total_timeout}s"
-        native_result = None
         try:
             from pyrit.memory import CentralMemory
             memory = CentralMemory.get_memory_instance()
@@ -502,12 +607,10 @@ async def run_adaptive_scenario_async(
     except Exception as e:
         logger.error(f"Scenario execution failed: {e}")
         scenario_error = str(e)
-        native_result = None
         # L5: 使用 scenario_result_id 精确检索当前运行的部分结果
         try:
             from pyrit.memory import CentralMemory
             memory = CentralMemory.get_memory_instance()
-            # 优先使用已捕获的 scenario_result_id 精确查询
             sid = scenario_result_id or getattr(scenario, "_scenario_result_id", None)
             if sid:
                 scenario_results = memory.get_scenario_results(
@@ -536,17 +639,25 @@ async def run_adaptive_scenario_async(
         batch_result.errors.append({"error": f"Scenario failed: {scenario_error}"})
 
     # ──────────────────────────────────────────────────────────
-    # P0-A: 失败类型分析 — 激活 extract_failure_type_from_result
-    # ──────────────────────────────────────────────────────────
-    # 从执行结果中提取失败类型，用于：
-    # 1. 诊断分析 — 了解失败原因分布
-    # 2. Selector 反馈 — 更新 _last_failure_type（供 resume 场景使用）
-    # 3. 跨 run 学习 — 失败类型通过 memory 持久化，未来 run 可受益
+    # P0-A: 失败类型分析 + P4: ConverterHealthMonitor
     # ──────────────────────────────────────────────────────────
     converter_variants = 0
     total_techniques = 0
     failure_type_counter: Counter = Counter()
     most_common_failure_type: str | None = None
+
+    # P4: ConverterHealthMonitor — 执行后分析 Converter 健康状态
+    converter_health: Any = None
+    converter_health_stats: dict[str, Any] | None = None
+    try:
+        from src.scenarios.converter_health_monitor import (
+            ConverterHealthMonitor,
+            extract_converter_name_from_error,
+            extract_chain_name_from_error,
+        )
+        converter_health = ConverterHealthMonitor()
+    except Exception as e:
+        logger.debug(f"P4: ConverterHealthMonitor creation failed: {e}")
 
     if native_result is not None:
         display_groups = native_result.get_display_groups() if hasattr(native_result, "get_display_groups") else {}
@@ -570,12 +681,24 @@ async def run_adaptive_scenario_async(
                 if outcome is not None:
                     outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
                     if outcome_str != "SUCCESS":
-                        # 提取失败类型
                         failure_type = extract_failure_type_from_result(r)
                         failure_type_counter[failure_type] += 1
 
+                        # P4: ConverterHealthMonitor — 记录 Converter 失败
+                        if converter_health is not None:
+                            error_msg = str(
+                                getattr(r, "error_message", "")
+                                or getattr(r, "outcome_reason", "")
+                            )
+                            if error_msg:
+                                conv_name = extract_converter_name_from_error(error_msg)
+                                if conv_name:
+                                    converter_health.record_failure(conv_name, error_msg)
+                                chain_name = extract_chain_name_from_error(error_msg)
+                                if chain_name:
+                                    converter_health.record_failure(chain_name, error_msg)
+
                 # P0-A: 也检查 SequentialAttackResult 的 child_attack_results
-                # 每个 child 是一次技术尝试，提取更细粒度的失败类型
                 child_results = getattr(r, "child_attack_results", None) or []
                 for child in child_results:
                     if child is None:
@@ -586,6 +709,20 @@ async def run_adaptive_scenario_async(
                         if child_outcome_str != "SUCCESS":
                             child_failure_type = extract_failure_type_from_result(child)
                             failure_type_counter[child_failure_type] += 1
+
+                            # P4: ConverterHealthMonitor — 子结果也记录
+                            if converter_health is not None:
+                                child_error = str(
+                                    getattr(child, "error_message", "")
+                                    or getattr(child, "outcome_reason", "")
+                                )
+                                if child_error:
+                                    conv_name = extract_converter_name_from_error(child_error)
+                                    if conv_name:
+                                        converter_health.record_failure(conv_name, child_error)
+                                    chain_name = extract_chain_name_from_error(child_error)
+                                    if chain_name:
+                                        converter_health.record_failure(chain_name, child_error)
 
     # 计算最常见的失败类型
     if failure_type_counter:
@@ -598,9 +735,6 @@ async def run_adaptive_scenario_async(
         )
 
         # P0-A: 更新 selector 的失败类型（供 resume 场景使用）
-        # 注意：原生 AdaptiveScenario 的所有技术选择在 initialize_async() 时已完成，
-        # 所以这个更新不会影响当前 run 的技术排序。但对于 resume 场景
-        # （中断后恢复），selector 会使用此失败类型进行初始排序。
         selector = getattr(scenario, "_selector", None)
         if selector and hasattr(selector, "update_failure_type"):
             selector.update_failure_type(most_common_failure_type)
@@ -609,8 +743,27 @@ async def run_adaptive_scenario_async(
                 f"(for resume scenarios)"
             )
 
-    # v5.0: 执行后展示已统一到 s6_execute.py 的执行结果概要 info_box
-    # 此处不再重复输出 [ADAPT] 完成统计和失败类型分布
+    # P3: 输出运行时停止策略统计
+    if runtime_stop_handler is not None:
+        stop_stats = runtime_stop_handler.get_stats()
+        if stop_stats.get("should_stop"):
+            logger.info(
+                f"P3: Runtime stop triggered — reason: {stop_stats['stop_reason']}"
+            )
+
+    # P4: 输出 Converter 健康统计
+    if converter_health is not None:
+        converter_health_stats = converter_health.get_stats()
+        disabled = converter_health.get_disabled_converters()
+        if disabled:
+            logger.warning(
+                f"P4: ConverterHealthMonitor — {len(disabled)} converters disabled: "
+                f"{disabled}"
+            )
+        if converter_health_stats:
+            logger.info(
+                f"P4: ConverterHealthMonitor stats — {converter_health_stats}"
+            )
 
     return AdaptiveRunResult(
         native_result=native_result,
@@ -621,6 +774,66 @@ async def run_adaptive_scenario_async(
         total_techniques_tried=total_techniques,
         failure_type_distribution=dict(failure_type_counter),
         most_common_failure_type=most_common_failure_type,
+    )
+
+
+async def run_adaptive_scenario_async(
+    *,
+    objective_target: Any,
+    judge_target: Any,
+    attack_plans: list[Any] | None = None,
+    seed_groups: list[Any] | None = None,
+    owasp_id: str = "",
+    exam_id: str = "",
+    max_attempts_per_objective: int = 3,
+    per_attack_timeout: int = 180,
+    max_retries: int = 0,
+    max_concurrency: int = 4,
+    verbose: bool = False,
+    converter_target: Any = None,
+    memory_labels: dict[str, str] | None = None,
+    target_type: str | None = None,
+    strategy_mode: str = "academic",
+    model_name: str = "gpt-4o",
+    model_tier: str = "unknown",
+    owasp_success_threshold: float = 0.0,
+    stop_on_first_success: bool = False,
+    warm_start_asr: dict[str, float] | None = None,
+) -> AdaptiveRunResult:
+    """
+    向后兼容包装器 — prepare + execute（不含展示）。
+
+    供 group_fallback_executor.py 等非 pipeline 调用方使用。
+    pipeline 应直接调用 prepare_scenario_async + execute_scenario_async，
+    以便在两步之间插入"执行前准备"展示。
+    """
+    preparation = await prepare_scenario_async(
+        objective_target=objective_target,
+        judge_target=judge_target,
+        attack_plans=attack_plans,
+        seed_groups=seed_groups,
+        owasp_id=owasp_id,
+        exam_id=exam_id,
+        max_attempts_per_objective=max_attempts_per_objective,
+        max_retries=max_retries,
+        max_concurrency=max_concurrency,
+        verbose=verbose,
+        converter_target=converter_target,
+        memory_labels=memory_labels,
+        target_type=target_type,
+        strategy_mode=strategy_mode,
+        model_name=model_name,
+        model_tier=model_tier,
+        owasp_success_threshold=owasp_success_threshold,
+        stop_on_first_success=stop_on_first_success,
+        warm_start_asr=warm_start_asr,
+    )
+    return await execute_scenario_async(
+        preparation,
+        attack_plans=attack_plans,
+        owasp_id=owasp_id,
+        per_attack_timeout=per_attack_timeout,
+        max_attempts_per_objective=max_attempts_per_objective,
     )
 
 
@@ -691,64 +904,3 @@ def _convert_native_to_batch_result(
         results=all_results,
         errors=[],
     )
-
-
-# ============================================================
-# L5 展示辅助函数
-# ============================================================
-
-_W = 68
-
-
-def _display_pre_execution_card(scenario: Any, seed_group_count: int) -> None:
-    """
-    执行前准备卡片 — 从 scenario 诊断属性读取并结构化展示
-
-    在 scenario.initialize_async() 完成后、run_async() 之前调用，
-    替代之前 _build_techniques_dict 中的 [DIAG] 裸 print。
-
-    展示内容：
-    - Converter Target 类型和模型
-    - LLM 链是否跳过
-    - 技术注册统计（基础+变体+跳过原因）
-    - 内联种子组数
-    """
-    try:
-        conv_type = getattr(scenario, "_diag_converter_type", "N/A")
-        conv_model = getattr(scenario, "_diag_converter_model", "N/A")
-        skip_llm = getattr(scenario, "_diag_skip_llm_chains", False)
-        total_tech = getattr(scenario, "_diag_total_techniques", 0)
-        variant_cnt = getattr(scenario, "_diag_variant_count", 0)
-        sk_llm = getattr(scenario, "_diag_skipped_llm", 0)
-        sk_small = getattr(scenario, "_diag_skipped_small_model", 0)
-        sk_modality = getattr(scenario, "_diag_skipped_modality", 0)
-        sk_runtime = getattr(scenario, "_diag_skipped_runtime", 0)
-        sk_no_factory = getattr(scenario, "_diag_skipped_no_factory", 0)
-
-        base_count = total_tech - variant_cnt
-
-        llm_status = "✓ 保留" if not skip_llm else "✗ 跳过 (弱模型/小参数)"
-        skip_parts = []
-        if sk_llm:
-            skip_parts.append(f"llm={sk_llm}")
-        if sk_small:
-            skip_parts.append(f"小模型={sk_small}")
-        if sk_modality:
-            skip_parts.append(f"模态={sk_modality}")
-        if sk_runtime:
-            skip_parts.append(f"运行时={sk_runtime}")
-        if sk_no_factory:
-            skip_parts.append(f"无工厂={sk_no_factory}")
-        skip_str = ", ".join(skip_parts) if skip_parts else "无"
-
-        print()
-        print(f"  ┌─ 执行前准备 {'─' * max(1, _W - 22)}┐")
-        print(f"  │ Converter Target: {conv_type} ({conv_model})")
-        print(f"  │ LLM 辅助链:     {llm_status}")
-        print(f"  │ 技术注册:        {base_count} 基础 + {variant_cnt} Converter 变体 = {total_tech} 总计")
-        print(f"  │ 跳过统计:        {skip_str}")
-        print(f"  │ 内联种子组:      {seed_group_count} 个")
-        print("  │ 初始化:          ✓ 完成 (DatasetAttackConfiguration 已就绪)")
-        print(f"  └{'─' * _W}┘")
-    except Exception:
-        pass

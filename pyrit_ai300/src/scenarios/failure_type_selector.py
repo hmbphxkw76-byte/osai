@@ -138,7 +138,7 @@ _BASE_WEIGHT = 0.3
 
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     """
-    失败类型路由技术选择器（ASR引导策略 v5.0）
+    失败类型路由技术选择器（ASR引导策略 v6.0）
 
     在 EpsilonGreedyTechniqueSelector 基础上增加:
     1. 学术 ASR 先验排序（首次运行用 JailbreakBench 数据初始化 warm-start）
@@ -146,8 +146,11 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     3. 失败类型路由（加权融合，非完全覆盖 — 保留 epsilon-greedy 探索）
     4. strategy_mode 切换（academic/exam/balanced）
     5. Target 类型感知 Converter 变体排序
+    6. warm_start_asr 注入 — 首次运行时用融合 ASR 替代乐观初始值 1.0
 
-    v5.0 关键改进:
+    v6.0 关键改进 (P0-CRITICAL):
+    - warm_start_asr 注入 _estimate() — 当 Memory 无历史数据时,
+      返回 warm_start_asr[technique] 而非固定 1.0, 确保高 ASR 技术被优先选中
     - select_async() 使用加权融合而非完全覆盖，保留原生探索机制
     - 跨运行学习由 PyRIT 原生 CentralMemory 持久化（非内存态缓存）
     - Tier 动态计算自 asr_prior_registry（非硬编码集合）
@@ -165,6 +168,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         model_name: str = "gpt-4o",
         model_tier: str = "unknown",
         converter_target_name: str | None = None,
+        warm_start_asr: dict[str, float] | None = None,
     ) -> None:
         """
         Args:
@@ -179,6 +183,10 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
                 - "balanced": 策略 + 编码交替
             model_name: 目标模型名称（影响 ASR 先验值）
             model_tier: 模型过滤强度等级 ("strong"/"moderate"/"weak"/"unknown")
+            converter_target_name: Converter Target 模型名（P1 条件性 LLM 惩罚）
+            warm_start_asr: 融合 ASR 字典 (P0-CRITICAL)
+                技术→ASR 映射，当 Memory 无历史数据时注入 _estimate()
+                替代固定乐观初始值 1.0，确保高 ASR 技术被优先选中
         """
         if strategy_mode not in _VALID_STRATEGIES:
             raise ValueError(
@@ -207,6 +215,13 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         self._converter_target_name: str | None = converter_target_name  # P1
         self._last_failed_technique: str | None = None  # P6
         self._hash_to_name: dict[str, str] = {}
+        # P0-CRITICAL: warm_start ASR 注入 — 替代乐观初始值 1.0
+        self._warm_start_asr: dict[str, float] = warm_start_asr or {}
+        if self._warm_start_asr:
+            logger.info(
+                f"P0-CRITICAL: warm_start_asr injected into selector "
+                f"({len(self._warm_start_asr)} techniques)"
+            )
         self._load_owasp_strategy()
 
     def set_hash_name_mapping(self, mapping: dict[str, str]) -> None:
@@ -218,6 +233,39 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         此映射在 _build_techniques_dict 完成后由 AI300AdaptiveScenario 设置。
         """
         self._hash_to_name = dict(mapping)
+
+    def set_warm_start_asr(self, warm_start: dict[str, float]) -> None:
+        """P0-CRITICAL: 设置 warm_start ASR，注入 _estimate() 初始估计"""
+        self._warm_start_asr = dict(warm_start) if warm_start else {}
+        if self._warm_start_asr:
+            logger.info(
+                f"P0-CRITICAL: warm_start_asr updated ({len(self._warm_start_asr)} techniques)"
+            )
+
+    def _warm_start_estimate(self, technique_name: str) -> float | None:
+        """
+        P0-CRITICAL: 查询 warm_start ASR 估计值
+
+        当 Memory 无历史数据时（首次运行），用融合 ASR（学术+经验）
+        替代乐观初始值 1.0。这确保高 ASR 技术（Crescendo 82%）的估计值
+        高于低 ASR 技术（prompt_sending 2%），在 exploitation 时被优先选中。
+
+        支持基础技术名和 Converter 变体名（如 "prompt_sending+stealth_evasion"）。
+
+        Returns:
+            ASR 值 (0.0-1.0)，无匹配时返回 None（回退到原生 1.0）
+        """
+        if not self._warm_start_asr:
+            return None
+        # 直接匹配技术名
+        if technique_name in self._warm_start_asr:
+            return self._warm_start_asr[technique_name]
+        # Converter 变体: 提取基础技术名
+        if "+" in technique_name:
+            base = technique_name.split("+")[0]
+            if base in self._warm_start_asr:
+                return self._warm_start_asr[base]
+        return None
 
     def _load_owasp_strategy(self) -> None:
         """从 owasp_strategy_map 加载 OWASP 策略偏好"""
@@ -286,15 +334,19 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         scenario_result_id: str | None = None,
     ) -> Sequence[str]:
         """
-        选择技术 — 加权融合 epsilon-greedy + 失败类型路由 (P0-1)
+        选择技术 — 加权融合 epsilon-greedy + 失败类型路由 + warm_start ASR (v6.0)
 
-        v5.0 核心改进: 不再完全覆盖父类排序，而是使用加权融合:
+        v6.0 核心改进 (P0-CRITICAL):
         1. 调用父类 epsilon-greedy 获取基础排序 (探索 + 记忆利用)
-        2. 计算失败类型路由 / ASR 先验的优先级排序
-        3. 加权融合: composite = α × base_rank + (1-α) × priority_rank
-        4. 返回前 num_top_techniques 个技术
+        2. P0: 如果有 warm_start_asr，计算 warm-start 排序并注入基础排序
+           - warm-start 排序使用融合 ASR（学术+经验）替代乐观初始值 1.0
+           - 通过加权融合注入: base = 0.5 × epsilon_greedy + 0.5 × warm_start
+        3. 计算失败类型路由 / ASR 先验的优先级排序
+        4. 加权融合: composite = α × base_rank + (1-α) × priority_rank
+        5. 返回前 num_top_techniques 个技术
 
         这确保了:
+        - 首次运行时高 ASR 技术（Crescendo 82%）被优先选中（而非随机）
         - epsilon=0.2 的随机探索仍然有效 (20% 概率随机选择)
         - memory 中的 Q 值学习结果仍然影响排序
         - 失败类型路由提供 70% 的权重引导
@@ -305,6 +357,10 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             num_top_techniques=len(technique_identifiers),
             scenario_result_id=scenario_result_id,
         )
+
+        # P0-CRITICAL: warm_start ASR 注入 — 首次运行时用融合 ASR 排序
+        if self._warm_start_asr and self._hash_to_name:
+            base_order = self._inject_warm_start(base_order)
 
         # 原生 AdaptiveScenario 传入的 technique_identifiers 是 eval_hash，
         # 但我们的排序逻辑基于技术名（如 "prompt_sending+stealth_evasion"）。
@@ -319,6 +375,58 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             blended = self._blend_with_routing(base_order)
 
         return blended[:num_top_techniques]
+
+    def _inject_warm_start(self, base_order: Sequence[str]) -> list[str]:
+        """
+        P0-CRITICAL: 将 warm_start ASR 注入 epsilon-greedy 基础排序
+
+        当 Memory 无历史数据时，原生 epsilon-greedy 对所有技术返回 1.0
+        （乐观初始化），导致 exploitation（80%）的选择实际上是随机的。
+
+        本方法用 warm_start ASR（学术+经验融合）计算一个 warm-start 排序，
+        然后与 epsilon-greedy 基础排序加权融合:
+            final = 0.5 × epsilon_greedy_rank + 0.5 × warm_start_rank
+
+        当 Memory 有历史数据时，warm_start 的影响自然减弱
+        （因为 epsilon-greedy 的 Laplace 平滑值会区分不同技术）。
+        """
+        if not self._warm_start_asr or not self._hash_to_name:
+            return list(base_order)
+
+        # 将 eval_hash 转换为技术名
+        hash_list = list(base_order)
+        tech_names = [self._hash_to_name.get(h, h) for h in hash_list]
+
+        # 计算 warm-start ASR 排序
+        def _ws_score(name: str) -> float:
+            ws = self._warm_start_estimate(name)
+            if ws is not None:
+                return ws
+            # 无 warm_start 数据的技术，使用学术先验
+            return self._asr_sort_key(name)
+
+        ws_sorted = sorted(tech_names, key=lambda n: -_ws_score(n))
+
+        # 加权融合 epsilon-greedy 排序与 warm-start 排序
+        n = len(tech_names)
+        if n <= 1:
+            return hash_list
+
+        eg_rank = {t: i for i, t in enumerate(tech_names)}
+        ws_rank = {t: i for i, t in enumerate(ws_sorted)}
+
+        # 50-50 融合: 当 Memory 有数据时 epsilon-greedy 更准确,
+        # 当 Memory 无数据时 warm_start 更准确
+        alpha = 0.5
+        blended_names = sorted(
+            tech_names,
+            key=lambda t: alpha * (n - eg_rank.get(t, n)) / n + (1 - alpha) * (n - ws_rank.get(t, n)) / n,
+            reverse=True,
+        )
+
+        # 转回 eval_hash
+        name_to_hash = {v: k for k, v in self._hash_to_name.items()}
+        return [name_to_hash.get(n, n) for n in blended_names]
 
     # ------------------------------------------------------------------
     # P0-1: 加权融合核心逻辑

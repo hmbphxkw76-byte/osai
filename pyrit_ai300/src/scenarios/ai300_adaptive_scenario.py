@@ -158,6 +158,59 @@ def _should_skip_llm_chains(converter_target: Any) -> bool:
     return False
 
 
+# ── P2: 编码 Converter 链名集合 — 弱模型自动跳过 ──
+# 弱模型(≤14B)无法解码 Base64/ROT13/Caesar/Atbash 等编码文本，
+# 不仅无效反而增加推理负担（编码文本更长 → 推理更慢 → 更易超时）
+_ENCODING_CHAIN_NAMES: frozenset[str] = frozenset({
+    "stealth_evasion",       # Unicode混淆 + Base64 + 后缀追加
+    "encoding_bypass",       # Base64 + ROT13 + Caesar
+    "multi_encoding_v2",     # 四层编码: Base64 + ROT13 + Caesar + Atbash
+    "unicode_attack",        # Unicode混淆 + 双向文本 + 零宽字符
+})
+
+
+def _should_skip_encoding_chains(
+    objective_target: Any,
+    model_tier: str = "unknown",
+) -> bool:
+    """
+    判断是否应跳过编码类 Converter 链
+
+    跳过条件（任一满足即跳过）：
+    1. model_tier == "weak"（弱模型无法解码编码文本）
+    2. 自动检测：objective_target 的模型为小模型（≤14B）
+
+    编码 Converter（Base64/ROT13/Caesar/Atbash/Unicode混淆）对弱模型：
+    - 模型无法解码 → 攻击必然失败
+    - 编码文本更长 → 推理更慢 → 更易超时
+    - 熔断后浪费执行时间
+    """
+    # 1. model_tier 显式标记为 weak
+    if model_tier == "weak":
+        return True
+
+    # 2. 自动检测：从 objective_target 提取模型名判断
+    if objective_target is not None:
+        model_name = ""
+        for attr in ("_model_name", "model_name", "_deployment_name"):
+            val = getattr(objective_target, attr, "")
+            if isinstance(val, str) and val:
+                model_name = val
+                break
+
+        if model_name:
+            from src.recon.recon_engine import infer_model_tier_static
+            tier = infer_model_tier_static(model_name)
+            if tier == "weak":
+                logger.info(
+                    f"Auto-detected weak objective model '{model_name}' (tier={tier}), "
+                    f"skipping encoding converter chains (model cannot decode encoded text)"
+                )
+                return True
+
+    return False
+
+
 # ============================================================
 # L5: Target 类型自动推断映射
 # ============================================================
@@ -207,6 +260,7 @@ class AI300EpsilonGreedySelector(FailureTypeRoutingSelector):
         strategy_mode: str = "academic",
         model_name: str = "gpt-4o",
         model_tier: str = "unknown",
+        warm_start_asr: dict[str, float] | None = None,
     ) -> None:
         super().__init__(
             epsilon=epsilon,
@@ -217,6 +271,7 @@ class AI300EpsilonGreedySelector(FailureTypeRoutingSelector):
             strategy_mode=strategy_mode,
             model_name=model_name,
             model_tier=model_tier,
+            warm_start_asr=warm_start_asr,
         )
 
 
@@ -313,6 +368,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         strategy_mode: str = "academic",
         model_name: str = "gpt-4o",
         model_tier: str = "unknown",
+        warm_start_asr: dict[str, float] | None = None,
     ) -> None:
         """
         初始化 AI-300 自适应 Scenario
@@ -340,6 +396,8 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         self._converter_target = converter_target
         # L5: 保存 target_type 用于后续自动推断和过滤
         self._target_type = target_type
+        # P2: 保存 model_tier 用于弱模型编码 Converter 跳过
+        self._model_tier = model_tier
         # R2: objective_target 在 _build_techniques_dict 时存储
         self._objective_target: Any = None
 
@@ -352,6 +410,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 strategy_mode=strategy_mode,
                 model_name=model_name,
                 model_tier=model_tier,
+                warm_start_asr=warm_start_asr,
             )
         else:
             if target_type and hasattr(selector, "set_target_type"):
@@ -363,6 +422,9 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 selector.set_strategy_mode(strategy_mode)
             if hasattr(selector, "set_model_tier"):
                 selector.set_model_tier(model_tier)
+            # P0-CRITICAL: 传播 warm_start_asr 到已有 selector
+            if warm_start_asr and hasattr(selector, "set_warm_start_asr"):
+                selector.set_warm_start_asr(warm_start_asr)
 
         # 使用 FailureTypeRoutingSelector 替代自建 AttackUpgradeStrategy
         super().__init__(
@@ -549,6 +611,20 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 "CONVERTER_LLM_CHAINS_ENABLED=false). Only non-LLM chains will be used."
             )
 
+        # P2: 弱模型自动跳过编码 Converter 链
+        # 弱模型(≤14B)无法解码 Base64/ROT13/Caesar/Atbash 等编码文本
+        skip_encoding_chains = _should_skip_encoding_chains(
+            objective_target=objective_target,
+            model_tier=getattr(self, "_model_tier", "unknown"),
+        )
+        self._diag_skip_encoding_chains = skip_encoding_chains
+        if skip_encoding_chains:
+            logger.info(
+                "Encoding converter chains disabled (weak model detected). "
+                "Model cannot decode Base64/ROT13/Caesar/Atbash — skipping to avoid "
+                "guaranteed failures and reduce execution time."
+            )
+
         # R0: 获取 Target 感知动态链映射
         dynamic_mapping = _get_dynamic_chain_mapping(
             target_type=self._target_type,
@@ -564,6 +640,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
             chain_mapping=chain_mapping,
             objective_target=objective_target,
             skip_llm_chains=skip_llm_chains,
+            skip_encoding_chains=skip_encoding_chains,
         )
         skipped_runtime += skip_stats["runtime"]
         skipped_llm += skip_stats["llm"]
@@ -584,6 +661,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 chain_mapping=BASE_TECHNIQUES_FOR_VARIANTS,
                 objective_target=objective_target,
                 skip_llm_chains=skip_llm_chains,
+                skip_encoding_chains=skip_encoding_chains,
             )
 
         # 存储诊断统计供 adaptive_runner 结构化展示
@@ -686,6 +764,7 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         chain_mapping: dict[str, list[str]],
         objective_target: Any,
         skip_llm_chains: bool = False,
+        skip_encoding_chains: bool = False,
     ) -> tuple[int, dict[str, int]]:
         """创建 Converter 变体（P2-1 DRY: 主逻辑和 R0 fallback 共享此方法）"""
         from src.converters.converter_registry import load_preset_converter_chain
@@ -718,6 +797,10 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                     continue
                 if chain_info.get("requires_runtime_params", False):
                     skip_stats["runtime"] += 1
+                    continue
+                # P2: 弱模型跳过编码 Converter 链（Base64/ROT13/Caesar/Atbash/Unicode混淆）
+                if skip_encoding_chains and chain_name in _ENCODING_CHAIN_NAMES:
+                    skip_stats["small_model"] += 1
                     continue
                 if chain_info["requires_llm"] and self._converter_target is None:
                     skip_stats["llm"] += 1

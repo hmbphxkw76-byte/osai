@@ -186,7 +186,7 @@ def create_default_config_file(
 
     包含推荐的初始配置：
       - SQLite 数据库
-      - 四大内置初始化器
+      - 三大内置初始化器
       - Scenario 重试 3 次
 
     Returns:
@@ -196,7 +196,6 @@ def create_default_config_file(
         memory_db_type="SQLite",
         initializers=[
             {"name": "target", "args": {"tags": ["default", "scorer"]}},
-            {"name": "scorer"},
             {"name": "technique"},
             {"name": "load_default_datasets"},
         ],

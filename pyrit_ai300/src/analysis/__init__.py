@@ -2,14 +2,13 @@
 Analysis Module
 ================
 
-本模块负责分析层，包括策略选择、策略自动匹配和优先级评估。
+本模块负责分析层，包括策略选择和策略自动匹配。
 """
 
 from src.analysis.strategy_selector import (
     StrategySelector,
     PriorityEvaluator,
     select_strategy,
-    evaluate_priority,
 )
 
 from src.analysis.strategy_matcher import (
@@ -23,7 +22,6 @@ __all__ = [
     "StrategySelector",
     "PriorityEvaluator",
     "select_strategy",
-    "evaluate_priority",
     "PayloadStrategyMatcher",
     "MatchedStrategy",
     "create_strategy_matcher",

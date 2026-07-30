@@ -550,17 +550,3 @@ def select_strategy(
     """
     selector = StrategySelector()
     return selector.select_strategy(auth_result, recon_result)
-
-
-def evaluate_priority(recon_result: ReconResult) -> int:
-    """
-    评估目标优先级（工厂函数）
-
-    Args:
-        recon_result: 侦察结果
-
-    Returns:
-        优先级分数（0-100）
-    """
-    evaluator = PriorityEvaluator()
-    return evaluator.evaluate(recon_result)

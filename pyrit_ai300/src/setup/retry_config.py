@@ -89,7 +89,7 @@ class RetryConfig:
 def configure_retry_env_vars(
     config: Optional[RetryConfig] = None,
     *,
-    override: bool = False,
+    override: bool = True,
 ) -> RetryConfig:
     """
     将重试配置传播到环境变量
@@ -97,9 +97,14 @@ def configure_retry_env_vars(
     PyRIT 原生 pyrit_target_retry 和 pyrit_json_retry 装饰器
     通过环境变量读取配置。本函数将 YAML 配置传播到这些环境变量。
 
+    P2 对齐：统一配置源为 pipeline.yaml（单一真相源）
+    - override 默认改为 True：强制用 YAML 值覆盖 .env 中可能残留的旧值
+    - 防止 .env 的 RETRY_MAX_NUM_ATTEMPTS 覆盖 pipeline.yaml 的 retry.max_num_attempts
+    - 确保 pipeline.yaml 的 retry 配置段始终生效
+
     Args:
         config: 重试配置；None 时从 ConfigLoader 读取
-        override: 是否覆盖已存在的环境变量
+        override: 是否覆盖已存在的环境变量（默认 True）
 
     Returns:
         生效的 RetryConfig
@@ -120,19 +125,24 @@ def get_retry_config() -> RetryConfig:
     """
     从 ConfigLoader 获取重试配置
 
-    优先级：.env 环境变量 > config/defaults/pipeline.yaml > PyRIT 原生默认值
+    P2 对齐：单一真相源为 config/defaults/pipeline.yaml
+    - 不再从 .env 环境变量读取 RETRY_MAX_NUM_ATTEMPTS 等
+    - 仅从 pipeline.yaml 的 retry 配置段读取
+    - configure_retry_env_vars(override=True) 会将 YAML 值传播到环境变量
+    - 这确保 pipeline.yaml 是唯一配置源，.env 中的 RETRY_* 不会覆盖
 
     Returns:
         RetryConfig 实例
     """
     loader = get_config_loader()
 
-    # Low-level retry (from ConfigLoader)
-    max_attempts = loader.get_retry_max_attempts()
-    wait_min = loader.get_retry_wait_min()
-    wait_max = loader.get_retry_wait_max()
+    # P2: 直接从 pipeline.yaml 读取，不检查 .env 环境变量
+    retry_config = loader.get_pipeline_defaults().get("retry", {})
+    max_attempts = retry_config.get("max_num_attempts", 3)
+    wait_min = retry_config.get("wait_min_seconds", 1)
+    wait_max = retry_config.get("wait_max_seconds", 10)
 
-    # Scenario-level retry (新增: 从 pipeline.yaml 或 .env 读取)
+    # Scenario-level retry
     scenario_retries_env = os.getenv("SCENARIO_MAX_RETRIES")
     if scenario_retries_env is not None and scenario_retries_env.strip():
         scenario_retries = int(scenario_retries_env)

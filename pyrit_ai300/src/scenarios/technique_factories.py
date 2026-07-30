@@ -22,6 +22,7 @@ P0 (Converter-Aware): 为每个基础攻击技术注册多个 Converter 变体�
 import logging
 from typing import Any, Dict, List
 
+from pyrit.common.path import EXECUTOR_RED_TEAM_PATH
 from pyrit.executor.attack import (
     ChunkedRequestAttack,
     CrescendoAttack,
@@ -721,8 +722,14 @@ def get_encoding_technique_factories() -> List[AttackTechniqueFactory]:
 # 这些技术需要预生成对抗性对话（SeedSimulatedConversation），
 # 使用原生 with_simulated_conversation() 替代手动构建 seed_technique。
 #
-# YAML 文件路径: EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml
+# 默认 YAML 路径: EXECUTOR_RED_TEAM_PATH/{name}.yaml
+# 若 YAML 在子目录中，需显式指定 adversarial_chat_system_prompt_path。
 # 原生方法自动处理: YAML 加载 → SeedSimulatedConversation → AttackTechniqueSeedGroup
+#
+# 注意: red_teaming 不在此列表中。RedTeamingAttack 自身就是多轮对抗攻击，
+# 在运行时自行生成对抗对话，用 with_simulated_conversation() 预生成是冗余的，
+# 且 red_teaming.yaml 文件不存在会导致运行时 FileNotFoundError。
+# red_teaming 通过标准 _build_factory() 路径注册即可。
 _SIMULATED_CONVERSATION_TECHNIQUES: Dict[str, Dict[str, Any]] = {
     "crescendo_simulated": {
         "attack_class": CrescendoAttack,
@@ -748,18 +755,16 @@ _SIMULATED_CONVERSATION_TECHNIQUES: Dict[str, Dict[str, Any]] = {
         "tags": ["single_turn", "core", "simulated_conversation"],
         "num_turns": 3,
     },
-    "red_teaming": {
-        "attack_class": RedTeamingAttack,
-        "description": "多轮红队攻击（模拟对话）",
-        "tags": ["multi_turn", "light", "core", "simulated_conversation"],
-        "num_turns": 3,
-    },
     "context_compliance": {
         "attack_class": PromptSendingAttack,
         "description": "上下文合规攻击（模拟对话 + 固定末轮）",
         "tags": ["single_turn", "light", "core", "simulated_conversation"],
         "num_turns": 3,
         "final_user_message": "Yes, I can help with that.",
+        # context_compliance.yaml 在子目录 context_compliance/ 中，需显式指定路径
+        "adversarial_chat_system_prompt_path": EXECUTOR_RED_TEAM_PATH
+        / "context_compliance"
+        / "context_compliance.yaml",
     },
 }
 
@@ -786,6 +791,7 @@ def get_simulated_conversation_factories() -> List[AttackTechniqueFactory]:
                 num_turns=config.get("num_turns", 3),
                 technique_tags=config.get("tags", []),
                 final_user_message=config.get("final_user_message"),
+                adversarial_chat_system_prompt_path=config.get("adversarial_chat_system_prompt_path"),
             )
             factories.append(factory)
             logger.debug(f"P4: Created simulated conversation factory for '{name}'")
@@ -1239,9 +1245,10 @@ def register_ai300_techniques(
             factories.extend(get_encoding_technique_factories())
 
     # P4: 用原生 with_simulated_conversation() 工厂替换需要模拟对话的标准工厂
-    # 这些工厂（crescendo_*, red_teaming, context_compliance）使用原生
+    # 这些工厂（crescendo_*, context_compliance）使用原生
     # with_simulated_conversation() 构建 SeedSimulatedConversation → AttackTechniqueSeedGroup，
     # 提供比标准 _build_factory() 更完整的 seed_technique 设置。
+    # red_teaming 不参与模拟对话替换（RedTeamingAttack 自身生成对抗对话）。
     sim_factories = get_simulated_conversation_factories()
     sim_factory_names = {f.name for f in sim_factories}
     # 移除被模拟对话工厂替换的标准工厂（同名）

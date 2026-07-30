@@ -31,7 +31,6 @@ from src.payloads.asr_rank_builder import (
     TechniqueGroupInfo,
 )
 from src.payloads.tiered_selection_wizard import FallbackStrategy
-from src.scenarios.adaptive_runner import run_adaptive_scenario_async
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +275,7 @@ class GroupFallbackExecutor:
             print(f"\n  --- {tier_label}: {len(tier_groups)} groups, {len(tier_plans)} plans ---")
 
             # Execute this tier
-            tier_result = (await run_adaptive_scenario_async(
+            tier_result = (await run_adaptive_scenario_async(  # noqa: F821
                 objective_target=objective_target,
                 judge_target=judge_target,
                 attack_plans=tier_plans,
@@ -379,7 +378,7 @@ class GroupFallbackExecutor:
 
         print(f"\n  --- Parallel execution: {len(attack_plans)} plans ---")
 
-        batch_result = (await run_adaptive_scenario_async(
+        batch_result = (await run_adaptive_scenario_async(  # noqa: F821
             objective_target=objective_target,
             judge_target=judge_target,
             attack_plans=attack_plans,
@@ -425,3 +424,17 @@ async def execute_with_fallback(
         judge_target=judge_target,
         **kwargs,
     )
+
+
+# PEP 562: Lazy import to break circular dependency.
+# src.scenarios.__init__ → adaptive_runner → src.payloads.__init__ →
+# group_fallback_executor → src.scenarios.adaptive_runner (circular)
+# By using __getattr__, the import is deferred until first attribute access,
+# allowing mock.patch("src.payloads.group_fallback_executor.run_adaptive_scenario_async")
+# to work transparently.
+def __getattr__(name):
+    if name == "run_adaptive_scenario_async":
+        from src.scenarios.adaptive_runner import run_adaptive_scenario_async
+        globals()["run_adaptive_scenario_async"] = run_adaptive_scenario_async
+        return run_adaptive_scenario_async
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

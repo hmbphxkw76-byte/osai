@@ -22,7 +22,7 @@ PyRIT 原生 vs 自建对照（对齐 Resiliency 文档）：
   │                      │    InternalServerError           │    扩展可重试状态码           │
   │ API 并发信号量        │ ❌ AttackExecutor.max_concurrency│ ✅ asyncio.Semaphore         │
   │                      │    只控 objective 级并发          │    + 共享注册表               │
-  │ APITimeoutError 重试 │ ❌ 不在重试列表中                │ ✅ 包含在可重试异常中          │
+  │ APITimeoutError 重试 │ ❌ 不在重试列表中                │ ✅ 独立重试上限 (3 次)         │
   └──────────────────────┴──────────────────────────────────┴──────────────────────────────┘
 
 PyRIT Resiliency 三层重试机制（官方文档）：
@@ -71,13 +71,13 @@ _RETRYABLE_EXCEPTION_NAMES = frozenset({
     "ServerErrorException",  # PyRIT 的 5xx 异常
 })
 
-# 超时类异常的最大重试次数（每次超时等待 300s+，重试过多不可行）
-# 重试 3 次（1 次原始 + 2 次重试），平衡可用性与总耗时
+# 超时类异常的最大重试次数（每次超时等待 120s+，重试过多不可行）
+# 重试 2 次（1 次原始 + 1 次重试），弱模型重试成功率极低，减少无效等待
 _TIMEOUT_EXCEPTION_NAMES = frozenset({
     "APITimeoutError",
     "APIConnectionError",
 })
-_TIMEOUT_MAX_RETRIES = 3
+_TIMEOUT_MAX_RETRIES = 2
 
 
 @dataclass
@@ -259,6 +259,7 @@ async def _retry_with_backoff(
     config: RateLimitConfig,
     *,
     call_description: str = "API request",
+    call_context: str = "",
 ) -> Any:
     """
     带指数退避的重试执行（补充 PyRIT L1 重试盲区）
@@ -268,13 +269,21 @@ async def _retry_with_backoff(
     - 本函数补充重试 InternalServerError(503) + APIStatusError(5xx) + 网络瞬时错误
     - 退避参数复用 PyRIT 的 RETRY_* 环境变量（统一配置源）
 
+    P1 修复：超时类异常使用独立重试上限 (_TIMEOUT_MAX_RETRIES)，
+    不受通用 max_attempts 限制。此前通用限制 (attempt >= max_attempts - 1)
+    先于超时专用限制触发，导致 _TIMEOUT_MAX_RETRIES 实际不生效。
+
+    P5 增强：call_context 参数提供调用上下文诊断（如 "objective"/"converter"/"scorer"），
+    帮助快速定位超时发生在哪个组件。
+
     注意：PyRIT 原生装饰器已在 original_method 中生效，429 和 EmptyResponse
     会被原生重试处理，不会到达本函数。本函数只处理原生不覆盖的错误。
 
     Args:
         api_call: 异步可调用对象（无参数）
         config: 限速/重试配置
-        call_description: 调用描述（用于日志）
+        call_description: 调用描述（用于日志，如 "OpenAIChatTarget/qwen3:0.6b"）
+        call_context: 调用上下文（如 "objective"/"converter"/"scorer"），用于诊断
 
     Returns:
         api_call 的返回值
@@ -286,9 +295,13 @@ async def _retry_with_backoff(
     initial_wait = config.effective_retry_initial_wait
     max_wait = config.effective_retry_max_wait
 
+    # P1: 超时类异常使用独立重试上限，取 max(max_attempts, _TIMEOUT_MAX_RETRIES)
+    # 确保超时专用限制不被通用限制截断
+    effective_loop_max = max(max_attempts, _TIMEOUT_MAX_RETRIES)
+
     last_error: Optional[Exception] = None
 
-    for attempt in range(max_attempts):
+    for attempt in range(effective_loop_max):
         try:
             return await api_call()
         except Exception as e:
@@ -297,25 +310,31 @@ async def _retry_with_backoff(
                 # 不可重试的错误，直接抛出
                 raise
 
-            # 超时类异常限制重试次数（每次超时 300s+，重试过多不可行）
+            # P1: 超时类异常使用独立重试上限
             err_type = type(e).__name__
             is_timeout_err = err_type in _TIMEOUT_EXCEPTION_NAMES
+            effective_max = _TIMEOUT_MAX_RETRIES if is_timeout_err else max_attempts
+
+            # P5: 诊断上下文后缀
+            ctx_suffix = f" [context: {call_context}]" if call_context else ""
+
             if is_timeout_err and attempt >= _TIMEOUT_MAX_RETRIES - 1:
                 logger.warning(
-                    f"⚠ {call_description} got {err_type} (attempt {attempt + 1}/{_TIMEOUT_MAX_RETRIES}), "
-                    f"timeout retry limit reached: {e}"
+                    f"⚠ {call_description} got {err_type} "
+                    f"(attempt {attempt + 1}/{_TIMEOUT_MAX_RETRIES}), "
+                    f"timeout retry limit reached: {e}{ctx_suffix}"
                 )
                 print(
                     f"  [!] {call_description}: API timeout after {attempt + 1} attempts "
-                    f"({_TIMEOUT_MAX_RETRIES} max). Last error: {e}"
+                    f"({_TIMEOUT_MAX_RETRIES} max). Last error: {e}{ctx_suffix}"
                 )
                 raise
 
-            if attempt >= max_attempts - 1:
-                # 最后一次重试也失败了
+            if not is_timeout_err and attempt >= max_attempts - 1:
+                # P1: 非超时类异常使用通用限制（不影响超时类的独立限制）
                 logger.warning(
                     f"{call_description} failed after {max_attempts} attempts: "
-                    f"{type(e).__name__}: {e}"
+                    f"{type(e).__name__}: {e}{ctx_suffix}"
                 )
                 raise
 
@@ -333,15 +352,16 @@ async def _retry_with_backoff(
             if is_timeout_err:
                 wait_time = max(wait_time, 10.0 * (attempt + 1))
 
-            effective_max = _TIMEOUT_MAX_RETRIES if is_timeout_err else max_attempts
             logger.warning(
-                f"⚠ {call_description} got {type(e).__name__} (attempt {attempt + 1}/{effective_max}), "
-                f"retrying in {wait_time:.1f}s: {e}"
+                f"⚠ {call_description} got {type(e).__name__} "
+                f"(attempt {attempt + 1}/{effective_max}), "
+                f"retrying in {wait_time:.1f}s: {e}{ctx_suffix}"
             )
             if is_timeout_err:
                 print(
-                    f"  [!] {call_description}: API timeout (attempt {attempt + 1}/{effective_max}), "
-                    f"retrying in {wait_time:.1f}s..."
+                    f"  [!] {call_description}: API timeout "
+                    f"(attempt {attempt + 1}/{effective_max}), "
+                    f"retrying in {wait_time:.1f}s...{ctx_suffix}"
                 )
             await asyncio.sleep(wait_time)
 
@@ -354,6 +374,7 @@ def wrap_target_with_rate_limiting(
     config: Optional[RateLimitConfig] = None,
     *,
     semaphore_key: Optional[str] = None,
+    call_context: str = "",
 ) -> Any:
     """
     为 PromptTarget 实例添加 API 级别并发控制和 503 重试
@@ -361,12 +382,15 @@ def wrap_target_with_rate_limiting(
     PyRIT 原生优先策略：
     - RPM 限速 → 已由 PyRIT @limit_requests_per_minute 装饰器处理（通过 TargetParams.max_requests_per_minute）
     - 429 重试 → 已由 PyRIT @pyrit_target_retry 装饰器处理（通过 RETRY_* 环境变量）
-    - 我们只补充：API 并发信号量 + 503/502/500/504 重试
+    - 我们只补充：API 并发信号量 + 503/502/500/504 重试 + APITimeoutError 重试
 
     通过替换目标实例的 `_send_prompt_to_target_async` 方法实现：
     - original_method 已包含 PyRIT 原生装饰器链（@limit_requests_per_minute + @pyrit_target_retry）
-    - 我们的包装层在原生装饰器之上添加信号量 + 503 重试
+    - 我们的包装层在原生装饰器之上添加信号量 + 503/timeout 重试
     - 对 Scorer / AdversarialChat 等所有使用该 target 的组件透明
+
+    P5 增强：call_context 参数提供调用上下文诊断（如 "objective"/"converter"/"scorer"），
+    帮助快速定位超时发生在哪个组件。
 
     Args:
         target: PyRIT PromptTarget 实例
@@ -374,6 +398,7 @@ def wrap_target_with_rate_limiting(
         semaphore_key: 共享信号量的唯一标识（通常用 endpoint URL）
             - 相同 key 的多个 target 实例共享同一个信号量
             - None=每次调用创建独立信号量（不推荐）
+        call_context: 调用上下文标签（如 "objective"/"converter"/"scorer"），用于诊断日志
 
     Returns:
         原始 target 实例（已原地修改）
@@ -384,10 +409,15 @@ def wrap_target_with_rate_limiting(
         ...     target,
         ...     config=RateLimitConfig(max_concurrent_requests=10),
         ...     semaphore_key="https://api.nvidia.com/v1",
+        ...     call_context="objective",
         ... )
     """
     if config is None:
         config = RateLimitConfig()
+
+    # P5: 从 semaphore_key 提取上下文标签（如 "objective:https://..." → "objective"）
+    if not call_context and semaphore_key:
+        call_context = semaphore_key.split(":", 1)[0] if ":" in semaphore_key else semaphore_key
 
     # 获取或创建信号量
     semaphore: Optional[asyncio.Semaphore] = None
@@ -414,22 +444,30 @@ def wrap_target_with_rate_limiting(
            a. @limit_requests_per_minute → RPM 限速 sleep（如果配置了 max_requests_per_minute）
            b. @pyrit_target_retry → 429/EmptyResponse 重试（tenacity 指数退避）
            c. 实际 _send_prompt_to_target_async → API 调用
-        3. 如果 original_method 抛出 503/502/500/504 → 自建重试（补充 PyRIT 盲区）
+        3. 如果 original_method 抛出 503/502/500/504/APITimeoutError → 自建重试（补充 PyRIT 盲区）
         4. 释放信号量
         """
-        # 定义带 503 重试的 API 调用
+        # 定义带 503/timeout 重试的 API 调用
         async def _do_api_call() -> Any:
             return await original_method(normalized_conversation=normalized_conversation)
 
         call_desc = f"{target_name}/{target_model}"
 
-        # 并发限制 + 503 重试
+        # 并发限制 + 503/timeout 重试
         try:
             if semaphore is not None:
                 async with semaphore:
-                    return await _retry_with_backoff(_do_api_call, config, call_description=call_desc)
+                    return await _retry_with_backoff(
+                        _do_api_call, config,
+                        call_description=call_desc,
+                        call_context=call_context,
+                    )
             else:
-                return await _retry_with_backoff(_do_api_call, config, call_description=call_desc)
+                return await _retry_with_backoff(
+                    _do_api_call, config,
+                    call_description=call_desc,
+                    call_context=call_context,
+                )
         except Exception as e:
             # 诊断: EmptyResponseException (204) 在 PyRIT 原生重试耗尽后到达此层
             # 通常是安全对齐模型拒绝处理请求（非瞬时错误，重试无意义）
@@ -439,7 +477,8 @@ def wrap_target_with_rate_limiting(
                     f"⚠ {call_desc}: EmptyResponseException after PyRIT native retries — "
                     f"this is likely a safety refusal (model returned 204 empty response). "
                     f"If this is a converter target, consider using a different model "
-                    f"(set CONVERTER_ENDPOINT/CONVERTER_MODEL env vars)."
+                    f"(set CONVERTER_ENDPOINT/CONVERTER_MODEL env vars). "
+                    f"[context: {call_context}]"
                 )
             raise
 
@@ -449,9 +488,11 @@ def wrap_target_with_rate_limiting(
     logger.info(
         f"Rate limiting applied to {target_name}/{target_model}: "
         f"max_concurrent={config.max_concurrent_requests}, "
-        f"503_retry_attempts={config.effective_retry_max_attempts} "
+        f"retry_attempts={config.effective_retry_max_attempts} "
         f"(from RETRY_MAX_NUM_ATTEMPTS env), "
-        f"semaphore_key={semaphore_key}"
+        f"timeout_max_retries={_TIMEOUT_MAX_RETRIES}, "
+        f"semaphore_key={semaphore_key}, "
+        f"context={call_context}"
     )
 
     return target

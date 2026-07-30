@@ -470,6 +470,14 @@ class TargetFactory:
         - params.httpx_timeout / httpx_verify / httpx_proxy（便捷字段）
         - TARGET_HTTPX_TIMEOUT / TARGET_HTTPX_VERIFY / TARGET_HTTPX_PROXY（环境变量）
 
+        R0 对齐 httpx 最佳实践 — 分阶段 Timeout：
+        原先 timeout=float 将所有阶段（connect/read/write/pool）都设为同一值，
+        导致连接失败也需 300s 才超时。现在使用 httpx.Timeout 对象：
+        - connect=10s  快速检测不可达服务器（SDK 默认 5s）
+        - read=<配置值>  等待 API 推理响应（300s+，含队列等待）
+        - write=30s   发送请求体（足够大）
+        - pool=10s    连接池等待（快速检测池耗尽）
+
         Returns:
             httpx_client_kwargs dict（适用于 HTTPTarget / HTTPXAPITarget）
         """
@@ -479,7 +487,14 @@ class TargetFactory:
         env_timeout = os.getenv("TARGET_HTTPX_TIMEOUT", "").strip()
         if env_timeout:
             try:
-                kwargs["timeout"] = float(env_timeout)
+                read_timeout = float(env_timeout)
+                # R0: 构建分阶段 httpx.Timeout（对齐 OpenAI SDK 默认 httpx.Timeout(600, connect=5)）
+                kwargs["timeout"] = httpx.Timeout(
+                    connect=10.0,
+                    read=read_timeout,
+                    write=30.0,
+                    pool=10.0,
+                )
             except ValueError:
                 pass
 
@@ -495,7 +510,13 @@ class TargetFactory:
 
         # 便捷字段覆盖环境变量
         if params.httpx_timeout is not None:
-            kwargs["timeout"] = params.httpx_timeout
+            # R0: 便捷字段也使用分阶段 Timeout
+            kwargs["timeout"] = httpx.Timeout(
+                connect=10.0,
+                read=params.httpx_timeout,
+                write=30.0,
+                pool=10.0,
+            )
         if params.httpx_verify is not None:
             kwargs["verify"] = params.httpx_verify
         if params.httpx_proxy is not None:
@@ -515,34 +536,60 @@ class TargetFactory:
         AsyncOpenAI.__init__ 只接受 timeout/max_retries/default_headers/default_query/http_client。
         verify/proxy/http2 等参数需要通过预配置 httpx.AsyncClient 传给 http_client。
 
+        P0 对齐 PyRIT 三层重试模型：
+        - 显式设置 max_retries=0 禁用 OpenAI SDK 内置重试
+        - 所有重试统一到 PyRIT L1(@pyrit_target_retry) + L2(@pyrit_json_retry) + L3(Scenario max_retries)
+        - SDK 的 max_retries=2 默认值会导致 APITimeoutError 被 SDK 重试 3 次（每次 300s），
+          与自建 _retry_with_backoff 形成双重叠加，单次调用最坏耗时 900s
+
+        P3 消除双重 timeout：
+        - timeout 只在 http_client 上设置（单一真相源）
+        - 避免 SDK 级 timeout 和 http_client 级 timeout 同时存在导致不可预测行为
+
         Returns:
             OpenAI SDK 兼容的 httpx_client_kwargs dict
         """
         raw = TargetFactory._build_httpx_client_kwargs(params)
+
+        # P0: 始终禁用 SDK 内置重试，统一到 PyRIT 三层重试模型
+        # AsyncOpenAI 默认 max_retries=2 会自动重试 APITimeoutError/APIConnectionError/5xx，
+        # 与 PyRIT @pyrit_target_retry + 自建 _retry_with_backoff 形成三层叠加。
+        # 设置 max_retries=0 后，SDK 降级为纯 HTTP 客户端，所有重试由 PyRIT 管控。
+        accepted: Dict[str, Any] = {"max_retries": 0}
+
         if raw is None:
-            return None
+            return accepted
 
         # 拆分为 AsyncOpenAI 直接接受 vs 仅 httpx 接受
-        accepted: Dict[str, Any] = {}
         excluded: Dict[str, Any] = {}
         for k, v in raw.items():
             if k in TargetFactory._OPENAI_ACCEPTED_HTTPX_PARAMS:
-                accepted[k] = v
+                if k == "max_retries":
+                    # 用户显式提供的 max_retries 优先（但不推荐）
+                    accepted["max_retries"] = v
+                else:
+                    accepted[k] = v
             else:
                 excluded[k] = v
 
-        # 如果有不接受的参数，创建预配置 httpx.AsyncClient
+        # P3: timeout 只在有 excluded 参数时放到 http_client 上（单一真相源），
+        # 否则保留在 accepted 中由 SDK 直接接受（timeout 在 _OPENAI_ACCEPTED_HTTPX_PARAMS 中）。
+        # 这避免了双重 timeout（SDK 级 + http_client 级）的不可预测行为，
+        # 同时避免了在无 verify/proxy 参数时创建不必要的 httpx.AsyncClient。
         if excluded:
+            # 有非 SDK 参数（verify/proxy 等），需要创建预配置 httpx.AsyncClient
+            # timeout 也放到 http_client 上，避免双重 timeout
             client_kwargs = dict(excluded)
             if "timeout" in accepted:
-                client_kwargs.setdefault("timeout", accepted["timeout"])
+                client_kwargs["timeout"] = accepted.pop("timeout")
             accepted["http_client"] = httpx.AsyncClient(**client_kwargs)
             logger.info(
                 f"Created custom httpx.AsyncClient for OpenAI target "
-                f"(extra params: {list(excluded.keys())})"
+                f"(params: {list(client_kwargs.keys())}, sdk_max_retries=0)"
             )
+        # else: timeout 留在 accepted 中，SDK 直接接受（无双重 timeout 风险）
 
-        return accepted if accepted else None
+        return accepted
 
     # ──────────────────────────────────────
     # 4. 能力探测（apply=True，使用部分结果）

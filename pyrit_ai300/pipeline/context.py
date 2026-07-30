@@ -51,7 +51,6 @@ class PipelineContext:
     # ── Stage 2: Strategy ──
     strategy_selection: Any = None
     strategy_info: Dict[str, Any] = field(default_factory=dict)
-    priority_score: int = 0
     auth_result: Any = None
     recommended_mode: str = ""
     empirical_asr_data: Any = None  # Tier 2: 加载的经验 ASR (src: Stage 2)
@@ -92,8 +91,10 @@ class PipelineContext:
     owasp_counts: Dict[str, int] = field(default_factory=dict)
     technique_counts: Dict[str, int] = field(default_factory=dict)
     asr_high_count: int = 0
+    plan_pid_map: Dict[int, str] = field(default_factory=dict)  # P0-A: 统一 P 编号映射 (src: Stage 4)
 
     # ── Stage 5: Execute (含执行策略 + 组合矩阵) ──
+    scenario_preparation: Any = None  # ScenarioPreparation (prepare_scenario_async 结果)
     adaptive_result: Any = None
     batch_result: Any = None
     max_concurrency: int = 1

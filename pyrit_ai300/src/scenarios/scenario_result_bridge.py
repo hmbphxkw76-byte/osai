@@ -279,20 +279,47 @@ class ScenarioResultBridge:
 
 def _extract_technique_name(result: Any) -> str:
     """
-    从 AttackResult 提取攻击技术名称（PyRIT 原生 API）
+    从 AttackResult 提取攻击技术名称（三级回退 — P1-CRITICAL）
 
-    使用原生 get_attack_strategy_identifier().unique_name 获取技术名。
+    当攻击在 Converter 阶段失败时，AttackResult 可能没有 strategy_identifier，
+    导致 get_attack_strategy_identifier() 返回 None，技术名变为 "unknown"，
+    污染 ASR 统计。
+
+    三级回退策略:
+    1. labels["technique"] — 从 memory_labels 提取（在执行前注入）
+    2. identifier.unique_name — 原生 API get_attack_strategy_identifier()
+    3. metadata["technique"] — 从 metadata 提取
+
     如果技术名含 "+"（Converter 变体），只返回基础技术部分。
     """
+    # Level 1: 从 labels 提取（P1-CRITICAL — Converter 阶段失败时仍可用）
+    labels = getattr(result, "labels", None) or {}
+    if isinstance(labels, dict):
+        tech = labels.get("technique", "")
+        if tech:
+            if "+" in tech:
+                return tech.split("+")[0]
+            return tech
+
+    # Level 2: 原生 API
     identifier = None
     if hasattr(result, "get_attack_strategy_identifier"):
         identifier = result.get_attack_strategy_identifier()
     if identifier is not None:
         name = getattr(identifier, "unique_name", "") or ""
-        # Converter 变体格式: "prompt_sending+stealth_evasion"
         if "+" in name:
             return name.split("+")[0]
         return name
+
+    # Level 3: 从 metadata 提取
+    metadata = getattr(result, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        tech = metadata.get("technique", "")
+        if tech:
+            if "+" in tech:
+                return tech.split("+")[0]
+            return tech
+
     return ""
 
 
@@ -381,17 +408,23 @@ def batch_result_to_scenario_result(
 def build_memory_labels(
     owasp_id: str = "",
     exam_id: str = "",
+    *,
+    technique: str = "",
     **extra: str,
 ) -> dict[str, str]:
     """
-    构建 memory_labels（含 OWASP ID 等）
+    构建 memory_labels（含 OWASP ID + 技术名 — P1-CRITICAL）
 
-    通过原生 memory_labels 将 OWASP 映射集成到 Scenario 运行中。
+    通过原生 memory_labels 将 OWASP 映射 + 技术名集成到 Scenario 运行中。
     原生 Scenario 支持 memory_labels 参数，自动标记所有攻击结果。
+
+    P1-CRITICAL: 注入 technique 标签确保 Converter 阶段失败时
+    技术名仍可从 labels 提取（三级回退 Level 1）。
 
     Args:
         owasp_id: OWASP 分类 ID（如 "LLM01"）
         exam_id: 考试 ID
+        technique: 攻击技术名（如 "crescendo"）
         **extra: 额外标签
 
     Returns:
@@ -402,5 +435,7 @@ def build_memory_labels(
         labels["owasp_id"] = owasp_id
     if exam_id:
         labels["exam_id"] = exam_id
+    if technique:
+        labels["technique"] = technique
     labels.update(extra)
     return labels

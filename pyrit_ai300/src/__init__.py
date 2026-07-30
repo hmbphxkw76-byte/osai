@@ -34,45 +34,19 @@ PyRIT AI-300 - 端到端全自动 AI 红队框架
 5. 错误处理原则：使用 PyRIT 原生异常
 6. 代码组织原则：按功能模块组织
 7. 非PyRIT领域排除原则：非PyRIT领域不使用PyRIT实现
+
+性能优化 (v8.2):
+  本模块不执行任何 eager import。所有子模块按需加载，
+  避免在 import src 时触发 src.payloads (20+ 模块) 和
+  src.core (registry_manager 等) 的完整加载链。
+  经测试：eager import 导致 ~5s 启动延迟，lazy import 降至 ~0ms。
+  代码应直接从子模块导入，如:
+    from src.core.config_loader import get_config_loader  # ✓
+    from src.core.models import ReconResult               # ✓
+  而非:
+    from src import ReconResult                           # ✗ 不再支持
 """
 
 __version__ = "1.0.0"
 __author__ = "PyRIT AI-300 Team"
 __pyrit_version__ = "1.0.0"
-
-from src.core.models import (
-    AISystemType,
-    AuthStatus,
-    AuthType,
-    ReconResult,
-    AuthResult,
-    StrategySelection,
-    OWASPFinding,
-    ReportResult,
-)
-
-from src.payloads import (
-    AttackMode,
-    AttackPlan,
-    PromptBatch,
-    PromptItem,
-    load_payloads,
-    plan_attacks,
-)
-
-__all__ = [
-    "AISystemType",
-    "AuthStatus",
-    "AuthType",
-    "ReconResult",
-    "AuthResult",
-    "StrategySelection",
-    "OWASPFinding",
-    "ReportResult",
-    "AttackMode",
-    "AttackPlan",
-    "PromptBatch",
-    "PromptItem",
-    "load_payloads",
-    "plan_attacks",
-]

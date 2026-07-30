@@ -152,7 +152,7 @@ class TestConfigLoaderStoppingStrategy:
     """Test ConfigLoader getters for stopping strategy."""
 
     def test_get_owasp_success_threshold_default(self):
-        """get_owasp_success_threshold returns default 0.0 from pipeline.yaml."""
+        """get_owasp_success_threshold returns default 0.5 from pipeline.yaml."""
         import os
         from src.core.config_loader import ConfigLoader
 
@@ -160,8 +160,8 @@ class TestConfigLoaderStoppingStrategy:
         try:
             loader = ConfigLoader()
             val = loader.get_owasp_success_threshold()
-            # P0-1: default is now 0.0 (maximize success rate)
-            assert val == 0.0
+            # pipeline.yaml default is 0.5 (考试推荐)
+            assert val == 0.5
         finally:
             if old_val is not None:
                 os.environ["OWASP_SUCCESS_THRESHOLD"] = old_val

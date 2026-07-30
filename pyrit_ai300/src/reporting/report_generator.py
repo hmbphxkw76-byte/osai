@@ -1718,6 +1718,47 @@ class ReportGenerator:
         else:
             lines.append(f"- Per-Attack Timeout: {self.config_loader.get_batch_per_attack_timeout()}s")
         lines.append("")
+
+        # ============================================================
+        # P7: Reproduction Configuration (Appendix D)
+        # ============================================================
+        lines.extend([
+            "### Appendix D | Reproduction Configuration",
+            "",
+            "The following configuration parameters are required to reproduce this assessment:",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+        ])
+        try:
+            lines.append(f"| Target Endpoint | `{self.config_loader.get_target_endpoint()}` |")
+            lines.append(f"| Target Model | `{self.config_loader.get_target_model()}` |")
+            lines.append(f"| Judge Endpoint | `{self.config_loader.get_judge_endpoint()}` |")
+            lines.append(f"| Judge Model | `{self.config_loader.get_judge_model()}` |")
+        except Exception:
+            pass
+        lines.extend([
+            f"| Memory Backend | {self.config_loader.get_memory_db_type()} |",
+            f"| Max Attempts Per Objective | {self.config_loader.get_batch_max_attempts_per_objective() if hasattr(self.config_loader, 'get_batch_max_attempts_per_objective') else 3} |",
+            f"| Max Concurrency | {self.config_loader.get_batch_max_concurrency()} |",
+            f"| Max Retries | {self.config_loader.get_batch_max_retries() if hasattr(self.config_loader, 'get_batch_max_retries') else 0} |",
+        ])
+        try:
+            _strategy_mode = self.config_loader.get_strategy_mode()
+            lines.append(f"| Strategy Mode | {_strategy_mode} |")
+        except Exception:
+            pass
+        lines.extend([
+            f"| Assessment ID | {exam_id} |",
+            f"| Start Time | {start_time.isoformat()} |",
+            "",
+            "> **Note**: To reproduce, set the above parameters in `.env` and run:",
+            "> ```bash",
+            "> python -m pipeline <target_url> [OWASP_IDs]",
+            "> ```",
+            "",
+        ])
+
         return "\n".join(lines)
 
     def _extract_tool_usage(self, summary: ReportSummary) -> Dict[str, tuple]:

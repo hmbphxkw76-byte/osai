@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 async def output_scenario_async(
     result: Any,
     *,
-    sort_groups_by_success_rate: bool = False,
+    sort_groups_by_success_rate: bool = True,
     to_terminal: bool = True,
     to_file: bool = False,
     file_path: str | Path | None = None,
@@ -42,9 +42,12 @@ async def output_scenario_async(
     使用 PyRIT 原生 output_scenario_async + StdoutSink/FileSink。
     移除自建格式化逻辑，完全依赖原生 PrettyScenarioResultMemoryPrinter。
 
+    P8: sort_groups_by_success_rate 默认改为 True — 按成功率排序
+    使高成功率的攻击技术组在 Per-Group Breakdown 中优先展示。
+
     Args:
         result: Scenario 结果（ScenarioResult / ScenarioResultBridge / BatchAttackResult）
-        sort_groups_by_success_rate: 是否按成功率排序 Per-Group Breakdown
+        sort_groups_by_success_rate: 是否按成功率排序 Per-Group Breakdown (默认 True)
         to_terminal: 是否输出到终端
         to_file: 是否输出到文件
         file_path: 文件路径（to_file=True 时必填）
@@ -274,6 +277,7 @@ def _extract_result_info(
     techniques: set[str],
     converters: set[str],
     owasp_ids: set[str],
+    group_name: str = "",
 ) -> None:
     """
     从单个 AttackResult 提取技术名、Converter 名、OWASP ID
@@ -282,14 +286,33 @@ def _extract_result_info(
     1. 普通 AttackResult — 直接从 identifier 提取
     2. SequentialAttackResult — atomic_attack_identifier 为 None，
        需要从 child_attack_results 提取子结果信息
+
+    P0-1: OWASP ID 提取 — 尝试 labels + memory_labels 双属性
+    P0-2: 技术名 — group_name 回退 (identifier 不可用时)
+    P1-CRITICAL: 技术名 — labels["technique"] 三级回退第一级
+    P3-4: 失败技术名回退到 group_name
     """
     if r is None:
         return
 
-    # 技术名 + Converter 检测（原生 API）
+    # P1-CRITICAL: 从 labels 提取技术名（第一级 — Converter 阶段失败时仍可用）
+    _label_tech = ""
+    labels = getattr(r, "labels", None) or {}
+    if not isinstance(labels, dict):
+        labels = {}
+    _label_tech = labels.get("technique", "")
+    if _label_tech:
+        base_tech, _ = _clean_technique_name(_label_tech)
+        if base_tech:
+            techniques.add(base_tech)
+
+    # 技术名 + Converter 检测（原生 API — 第二级）
     identifier = None
     if hasattr(r, "get_attack_strategy_identifier"):
-        identifier = r.get_attack_strategy_identifier()
+        try:
+            identifier = r.get_attack_strategy_identifier()
+        except Exception:
+            pass
     if identifier is not None:
         name = getattr(identifier, "unique_name", "") or ""
         base_tech, _ = _clean_technique_name(name)
@@ -301,22 +324,35 @@ def _extract_result_info(
         for cn in conv_names:
             converters.add(cn)
 
-    # OWASP ID（原生 labels API）
-    labels = getattr(r, "labels", None) or {}
-    r_owasp = labels.get("owasp_id", "")
+    # P0-2: 技术名为空时回退到 group_name（第三级）
+    if not techniques and group_name:
+        # group_name 通常是技术名或数据集名
+        _fallback_tech = group_name.split("::")[0] if "::" in group_name else group_name
+        _fallback_tech = _fallback_tech.replace("ai300_adaptive_", "")
+        if _fallback_tech:
+            techniques.add(_fallback_tech)
+
+    # P0-1: OWASP ID — 尝试 labels + memory_labels 双属性
+    labels = getattr(r, "labels", None)
+    if not labels:
+        labels = getattr(r, "memory_labels", None)
+    if not labels:
+        labels = {}
+    r_owasp = labels.get("owasp_id", "") if isinstance(labels, dict) else ""
     if r_owasp:
         owasp_ids.add(r_owasp)
 
     # SequentialAttackResult: 从 child_attack_results 提取子结果信息
-    # SequentialAttack 是包装器，自身没有 atomic_attack_identifier
-    # 实际的技术名和 Converter 信息在子结果的 identifier 中
     child_results = getattr(r, "child_attack_results", None) or []
     for child in child_results:
         if child is None:
             continue
         child_identifier = None
         if hasattr(child, "get_attack_strategy_identifier"):
-            child_identifier = child.get_attack_strategy_identifier()
+            try:
+                child_identifier = child.get_attack_strategy_identifier()
+            except Exception:
+                pass
         if child_identifier is not None:
             child_name = getattr(child_identifier, "unique_name", "") or ""
             child_tech, _ = _clean_technique_name(child_name)
@@ -328,9 +364,13 @@ def _extract_result_info(
             for cn in child_conv_names:
                 converters.add(cn)
 
-        # 子结果的 OWASP labels
-        child_labels = getattr(child, "labels", None) or {}
-        child_owasp = child_labels.get("owasp_id", "")
+        # P0-1: 子结果的 OWASP labels — 双属性尝试
+        child_labels = getattr(child, "labels", None)
+        if not child_labels:
+            child_labels = getattr(child, "memory_labels", None)
+        if not child_labels:
+            child_labels = {}
+        child_owasp = child_labels.get("owasp_id", "") if isinstance(child_labels, dict) else ""
         if child_owasp:
             owasp_ids.add(child_owasp)
 
@@ -340,6 +380,8 @@ def display_enhanced_group_breakdown(
     *,
     owasp_id: str = "",
     sort_by_success_rate: bool = True,
+    model_name: str = "",
+    warm_start: dict[str, float] | None = None,
 ) -> None:
     """
     统一 Per-Group Breakdown 展示（含攻击技术+Converter组合+OWASP 对齐）
@@ -397,6 +439,7 @@ def display_enhanced_group_breakdown(
                 techniques=techniques,
                 converters=converters,
                 owasp_ids=owasp_ids,
+                group_name=group_name,
             )
 
         # OWASP 回退：从数据集名推断
@@ -420,6 +463,23 @@ def display_enhanced_group_breakdown(
                 owasp_names.append(f"{oid}: {name}" if name else oid)
         owasp_display = " | ".join(owasp_names) if owasp_names else ""
 
+        # P1-3: ASR 先验查询
+        _asr_prior: float | None = None
+        if techniques:
+            try:
+                from src.payloads.technique_name_mapper import get_normalized_asr
+                _asr_vals = []
+                for t in techniques:
+                    try:
+                        _v = get_normalized_asr(t, model_name)
+                        _asr_vals.append(_v)
+                    except Exception:
+                        pass
+                if _asr_vals:
+                    _asr_prior = sum(_asr_vals) / len(_asr_vals)
+            except Exception:
+                pass
+
         group_stats.append({
             "group_name": group_name,
             "total": total,
@@ -430,6 +490,7 @@ def display_enhanced_group_breakdown(
             "converters": sorted(converters),
             "owasp_id": owasp_id_str,
             "owasp_display": owasp_display,
+            "asr_prior": _asr_prior,
         })
 
     # 按成功率降序排列
@@ -472,10 +533,14 @@ def display_enhanced_group_breakdown(
         print(f"  ┃  ◆ {tech_display}  {rate_mark} {rate_pct:.0f}% ({stat['success']}/{stat['total']})")
         print("  ┃")
         print(f"  ┃    ┌─ 结果统计 ─{'─' * max(0, _W - 24)}┐")
+        # 结果统计 + P1-3: ASR 先验对比
+        _asr_prior_str = ""
+        if stat.get("asr_prior") is not None:
+            _asr_prior_str = f" | 先验: {stat['asr_prior']:.0%}"
         print(f"  ┃    │ Results: {stat['total']}, "
               f"Success: {stat['success']}, "
               f"Failure: {stat['failure']}, "
-              f"Rate: {rate_pct:.0f}%")
+              f"Rate: {rate_pct:.0f}%{_asr_prior_str}")
         print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
         # 攻击技术

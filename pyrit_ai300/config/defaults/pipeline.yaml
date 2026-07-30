@@ -6,11 +6,24 @@
 # 优先级：.env 环境变量 > 本文件默认值
 # ============================================================
 
+# --- 策略模式 ---
+# academic: 高 ASR 技术优先 (Tier S → A → B → C → D)
+# exam: 编码优先, 快速验证 (按执行速度排序)
+# balanced: 策略 + 编码交替
+strategy_mode: academic
+
 # --- 并发控制 ---
 max_concurrency: 1            # 最大并发攻击计划数（1=串行，避免触发目标限流）
 # 注意：max_concurrency 只限制并发"攻击计划"数
 # 单个攻击内部（尤其是 TAP/PAIR）仍有大量并发 API 调用
 # 使用 API_MAX_CONCURRENCY 环境变量控制 API 级别并发
+
+# 原生 AdaptiveScenario 并发数（平衡速度与限速）
+adaptive_max_concurrency: 4
+
+# API 级别并发信号量上限（防止 503 scheduler queue full）
+# 用于 rate_limited_target.py / adaptive_runner.py
+api_max_concurrency: 3
 
 # --- API 级别限速（对齐 PyRIT Resiliency 文档）---
 # PyRIT 原生已处理（通过 @limit_requests_per_minute + @pyrit_target_retry 装饰器）：
@@ -18,7 +31,6 @@ max_concurrency: 1            # 最大并发攻击计划数（1=串行，避免�
 #   - 429 重试：tenacity 指数退避，RETRY_MAX_NUM_ATTEMPTS / RETRY_WAIT_MIN/MAX_SECONDS 控制
 #   - EmptyResponse 重试：同上
 # 自建补充（rate_limited_target.py，PyRIT 原生不覆盖）：
-#   API_MAX_CONCURRENCY=10     # API 并发信号量上限（防止 503 scheduler queue full）
 #   TARGET_MAX_RPM=60          # 目标 API RPM（透传到 TargetParams → PyRIT 原生装饰器）
 #   JUDGE_MAX_RPM=60           # 评分器 API RPM（同上）
 # 503/502 重试复用 PyRIT 的 RETRY_MAX_NUM_ATTEMPTS 环境变量（统一配置源）
@@ -58,15 +70,24 @@ tiered_selection:
 # Low-level: target HTTP 重试（指数退避，处理 RateLimit / EmptyResponse）
 # Mid-level: JSON 解析重试（立即重试，处理 InvalidJson）
 # High-level: Scenario 工作流重试（恢复式重试，跳过已完成目标）
+#
+# P2 对齐：pipeline.yaml 是重试配置的唯一真相源
+# configure_retry_env_vars(override=True) 会将以下值传播到环境变量
+# .env 中的 RETRY_* 环境变量不会被读取（已被移除）
 retry:
-  max_num_attempts: 3         # 低层重试最大次数（RateLimit / EmptyResponse）
+  max_num_attempts: 3         # 低层重试最大次数（RateLimit / EmptyResponse / 503 / APITimeoutError）
   wait_min_seconds: 1         # 低层重试最小等待秒数
   wait_max_seconds: 10        # 低层重试最大等待秒数
 
-# Scenario 级别重试（高层工作流弫性恢复）
-# max_retries=0: 快速失败（开发推荐）
-# max_retries=3: 弫性恢复（生产推荐）
-scenario_max_retries: 0
+# Scenario 级别重试（高层工作流弹性恢复）
+# 0=快速失败（开发推荐）
+# 1=弱模型推荐（≤14B 重试成功率低，减少无效等待）
+# 3=弹性恢复（生产推荐）
+scenario_max_retries: 1
+
+# --- Adaptive 执行参数 ---
+# 每个 objective 最大尝试次数（覆盖高 ASR Converter 变体）
+max_attempts_per_objective: 5
 
 # --- 停止策略 (三层最优策略) ---
 # L1: completion_policy=FIRST_SUCCESS — 同一 objective 多技术链，首成功即停（PyRIT 原生，不可配置）
@@ -80,5 +101,5 @@ scenario_max_retries: 0
 #     注意: 所需成功数上限为 5（防止大计划数场景下阈值过高）
 # L3: stop_on_first_success — 全局首成功即停（最激进模式，忽略 OWASP 分类）
 #     适用于快速验证场景，不推荐用于正式考试
-owasp_success_threshold: 0.0       # L2: OWASP 分类成功率阈值（0.0=禁用=最大化成功率，0.5=考试推荐）
+owasp_success_threshold: 0.5       # L2: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
 stop_on_first_success: false       # L3: 全局首成功即停（默认关闭）

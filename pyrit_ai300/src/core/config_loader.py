@@ -1215,6 +1215,62 @@ class ConfigLoader:
             return env_val.lower() in ("1", "true", "yes")
         return bool(self.get_pipeline_defaults().get("stop_on_first_success", False))
 
+    def get_strategy_mode(self) -> str:
+        """
+        获取策略模式
+
+        优先级：.env STRATEGY_MODE > config/defaults/pipeline.yaml > academic
+
+        Returns:
+            策略模式（academic / exam / balanced）
+        """
+        env_val = os.getenv("STRATEGY_MODE")
+        if env_val is not None and env_val.strip():
+            return env_val.lower()
+        return self.get_pipeline_defaults().get("strategy_mode", "academic")
+
+    def get_max_attempts_per_objective(self) -> int:
+        """
+        获取每个 objective 最大尝试次数
+
+        优先级：.env MAX_ATTEMPTS_PER_OBJECTIVE > config/defaults/pipeline.yaml > 5
+
+        Returns:
+            每个 objective 最大尝试次数
+        """
+        env_val = os.getenv("MAX_ATTEMPTS_PER_OBJECTIVE")
+        if env_val is not None and env_val.strip():
+            return int(env_val)
+        return int(self.get_pipeline_defaults().get("max_attempts_per_objective", 5))
+
+    def get_adaptive_max_concurrency(self) -> int:
+        """
+        获取 AdaptiveScenario 并发数
+
+        优先级：.env ADAPTIVE_MAX_CONCURRENCY > config/defaults/pipeline.yaml > 4
+
+        Returns:
+            原生 AttackExecutor 并发数
+        """
+        env_val = os.getenv("ADAPTIVE_MAX_CONCURRENCY")
+        if env_val is not None and env_val.strip():
+            return int(env_val)
+        return int(self.get_pipeline_defaults().get("adaptive_max_concurrency", 4))
+
+    def get_api_max_concurrency(self) -> int:
+        """
+        获取 API 级别并发信号量上限
+
+        优先级：.env API_MAX_CONCURRENCY > config/defaults/pipeline.yaml > 10
+
+        Returns:
+            API 并发信号量上限（防止 503 scheduler queue full）
+        """
+        env_val = os.getenv("API_MAX_CONCURRENCY")
+        if env_val is not None and env_val.strip():
+            return int(env_val)
+        return int(self.get_pipeline_defaults().get("api_max_concurrency", 10))
+
     # --- HTTP 客户端参数查询（.env > config/defaults/ > 硬编码）---
 
     def get_target_httpx_timeout(self) -> int:

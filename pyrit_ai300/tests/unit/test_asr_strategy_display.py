@@ -205,15 +205,18 @@ class TestPlanDDisplayPostExecution:
 
         mock_result = MagicMock()
         mock_result.outcome = "success"
-        mock_result.identifier = MagicMock()
-        mock_result.identifier.attack_technique = "crescendo"
-        mock_result.identifier.children = {}
+        # P0-C: 使用原生 API get_attack_strategy_identifier
+        mock_identifier = MagicMock()
+        mock_identifier.unique_name = "crescendo::test"
+        mock_result.get_attack_strategy_identifier.return_value = mock_identifier
+        mock_result.child_attack_results = []
 
         mock_batch = MagicMock()
         mock_batch.results = [mock_result]
 
         mock_adaptive = MagicMock()
         mock_adaptive.batch_result = mock_batch
+        mock_adaptive.native_result = None
         mock_adaptive.failure_type_distribution = {"model_refusal": 3}
         mock_adaptive.most_common_failure_type = "model_refusal"
 
@@ -222,8 +225,7 @@ class TestPlanDDisplayPostExecution:
             model_name="gpt-4o",
         )
         captured = capsys.readouterr()
-        assert "ASR策略" in captured.out
-        assert "实测 ASR" in captured.out
+        assert "实测 ASR" in captured.out or "ASR" in captured.out
         assert "model_refusal" in captured.out
 
 

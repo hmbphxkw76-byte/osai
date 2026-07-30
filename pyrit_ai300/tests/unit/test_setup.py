@@ -300,7 +300,7 @@ class TestConfigFile:
         loaded = load_config_file(config_path)
         assert loaded.memory_db_type == "SQLite"
         assert loaded.scenario_max_retries == 3
-        assert len(loaded.initializers) == 4
+        assert len(loaded.initializers) == 3
 
     def test_config_file_to_yaml(self):
         """序列化为 YAML"""
@@ -422,19 +422,18 @@ class TestAI300DefaultValuesInitializer:
 class TestGetDefaultInitializers:
     """get_default_initializers 工厂函数测试"""
 
-    def test_returns_four_initializers(self):
-        """返回四个初始化器"""
+    def test_returns_three_initializers(self):
+        """返回三个初始化器"""
         initializers = get_default_initializers()
-        assert len(initializers) == 4
+        assert len(initializers) == 3
 
     def test_order_is_correct(self):
-        """顺序正确：DefaultValues → Target → Scorer → Technique"""
+        """顺序正确：DefaultValues → Target → Technique"""
         initializers = get_default_initializers()
         types = [type(i).__name__ for i in initializers]
         assert types == [
             "AI300DefaultValuesInitializer",
             "AI300TargetInitializer",
-            "AI300ScorerInitializer",
             "AI300TechniqueInitializerWrapper",
         ]
 
@@ -465,10 +464,10 @@ class TestAI300SetupManager:
         assert manager._resolve_memory_db_type() == "InMemory"
 
     def test_resolve_initializers_default(self):
-        """默认解析为四个初始化器"""
+        """默认解析为三个初始化器"""
         manager = AI300SetupManager()
         initializers = manager._resolve_initializers()
-        assert len(initializers) == 4
+        assert len(initializers) == 3
 
     def test_resolve_initializers_custom(self):
         """自定义初始化器"""
@@ -539,11 +538,13 @@ class TestPyRITDocAlignment:
         assert "scenario_max_retries" in defaults
 
     def test_env_file_has_retry_comments(self):
-        """ .env 文件包含重试配置注释"""
+        """ .env 文件指向 config/defaults/ 管理重试配置"""
         env_path = Path(__file__).parent.parent.parent / ".env"
         content = env_path.read_text(encoding="utf-8")
-        assert "RETRY_MAX_NUM_ATTEMPTS" in content
-        assert "SCENARIO_MAX_RETRIES" in content
+        # .env 应引用 config/defaults/ 作为参数配置位置
+        assert "config/defaults/" in content
+        # SCENARIO_MAX_RETRIES 已迁移至 pipeline.yaml，.env 不再直接包含该参数
+        assert "SCENARIO_MAX_RETRIES=" not in content
 
     def test_env_example_documents_env_local(self):
         """ .env.example 文件文档了 .env.local 个人覆盖机制"""
@@ -633,36 +634,35 @@ class TestNativeDelegation:
         assert "PreloadScenarioMetadata" in source
 
     def test_target_initializer_uses_native_registry_api(self):
-        """AI300TargetInitializer 使用原生 registry.instances.register API"""
+        """AI300TargetInitializer v8.2: 不再创建 AI-300 专用 Target（由 Stage 3 负责）"""
         import inspect
         source = inspect.getsource(AI300TargetInitializer.initialize_async)
-        assert "registry.instances.register" in source
-        assert "registry.instances.add_tags" in source
+        # v8.2 优化: 不再包含 registry.instances.register（Target 创建移至 Pipeline Stage 3）
+        assert "registry.instances.register" not in source
+        # 但仍设置默认 temperature
+        assert "set_default_value" in source
+        assert "temperature" in source
 
     def test_scorer_initializer_uses_native_registry_api(self):
-        """AI300ScorerInitializer 使用原生 registry.instances.register API"""
+        """AI300ScorerInitializer 仍包含原生 registry.instances.register 代码路径"""
         import inspect
         source = inspect.getsource(AI300ScorerInitializer.initialize_async)
         assert "scorer_registry.instances.register" in source
 
     @pytest.mark.asyncio
     async def test_target_initializer_native_failure_is_non_fatal(self):
-        """原生 TargetInitializer 失败时 AI-300 扩展仍继续执行"""
+        """v8.2: AI300TargetInitializer 跳过原生 TargetInitializer（无标准 env vars 时）"""
         init = AI300TargetInitializer()
-        # 设置 TARGET_ENDPOINT 以确保 AI-300 扩展部分有数据
-        os.environ["TARGET_ENDPOINT"] = "http://localhost:11434/v1"
-        os.environ["TARGET_MODEL"] = "test-model"
-        os.environ["TARGET_API_KEY"] = "test-key"
+        # 确保没有标准 PyRIT env vars（触发跳过逻辑）
+        for var in ("OPENAI_CHAT_ENDPOINT", "AZURE_OPENAI_CHAT_ENDPOINT",
+                    "OPENAI_CHAT_MODEL", "AZURE_OPENAI_CHAT_MODEL"):
+            os.environ.pop(var, None)
+        # 初始化应不抛异常
         try:
-            # 初始化应不抛异常（原生失败被捕获为 warning）
             await init.initialize_async()
         except Exception:
-            # 如果 CentralMemory 未初始化可能导致异常，这是预期的
+            # CentralMemory 未初始化可能导致异常，这是预期的
             pass
-        finally:
-            del os.environ["TARGET_ENDPOINT"]
-            del os.environ["TARGET_MODEL"]
-            del os.environ["TARGET_API_KEY"]
 
 
 class TestSetupManagerNewParams:

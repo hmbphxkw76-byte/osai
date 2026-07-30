@@ -10,7 +10,7 @@ ASR-Guided Strategy Display — ASR引导策略关键决策展示
 设计原则:
   - 纯展示层，不修改任何执行逻辑
   - 调用安全：所有展示函数 catch 异常，不影响 pipeline 执行
-  - 可配置：STRATEGY_MODE / MODEL_NAME 环境变量控制
+  - 可配置：STRATEGY_MODE 环境变量 / config/defaults/pipeline.yaml 控制
 """
 
 import os
@@ -41,8 +41,15 @@ def _get_tier(asr: float) -> str:
 
 
 def _get_strategy_mode() -> str:
-    """从环境变量读取策略模式"""
-    return os.getenv("STRATEGY_MODE", "academic").lower()
+    """读取策略模式（.env > config/defaults/pipeline.yaml > academic）"""
+    env_val = os.getenv("STRATEGY_MODE")
+    if env_val is not None and env_val.strip():
+        return env_val.lower()
+    try:
+        from src.core.config_loader import ConfigLoader
+        return ConfigLoader().get_strategy_mode()
+    except Exception:
+        return "academic"
 
 
 def _get_model_name(target_model: str = "") -> str:
@@ -209,14 +216,12 @@ def display_selection_stage(
                 # 标记 patched
                 prior = get_asr_prior(normalized)
                 patched_mark = " [PATCHED]" if prior and prior.patched else ""
-                # 紧凑 10 字符条形图（Tier header 已含 ASR 范围+语义描述）
-                bar_len = int(asr * 10)
-                bar = "█" * bar_len + "░" * (10 - bar_len)
+                # ASR 数值百分比（Tier header 已含 ASR 范围描述）
                 # 映射同行显示（节省垂直空间）
                 if normalized != tech:
-                    print(f"  │   {tech:28s} {bar}  → {normalized}{patched_mark}")
+                    print(f"  │   {tech:28s} ASR {asr:>4.0%}  → {normalized}{patched_mark}")
                 else:
-                    print(f"  │   {tech:28s} {bar}{patched_mark}")
+                    print(f"  │   {tech:28s} ASR {asr:>4.0%}{patched_mark}")
 
         print("  └──────────────────────────────────────────────────┘")
 
@@ -331,9 +336,14 @@ def display_execution_stage(
 def display_post_execution(
     adaptive_result: Any = None,
     model_name: str = "",
+    warm_start: dict[str, float] | None = None,
 ) -> None:
     """
     [7/8] 执行后 — 展示 ASR 实测结果与学术先验对比
+
+    P0-C: 使用原生 API (get_attack_strategy_identifier + unique_name) 提取技术名
+    P1-C: 支持 warm_start ASR (与 Stage 2/4/5 数据源统一)
+    P3-D: 使用 info_box 统一格式
 
     在 AdaptiveScenario 执行完成后，展示：
     1. 各技术的实测 ASR
@@ -349,31 +359,77 @@ def display_post_execution(
         if adaptive_result is None:
             return
 
-        batch_result = getattr(adaptive_result, "batch_result", None)
-        if batch_result is None or not batch_result.results:
+        # P0-C: 优先从 native_result 提取 (使用原生 API)
+        native_result = getattr(adaptive_result, "native_result", None)
+        if native_result is None:
+            batch_result = getattr(adaptive_result, "batch_result", None)
+            if batch_result is None or not batch_result.results:
+                return
+            all_results = batch_result.results
+        else:
+            # 从 display_groups 展平
+            if not hasattr(native_result, "get_display_groups"):
+                return
+            all_results = []
+            for _gn, _results in native_result.get_display_groups().items():
+                for _r in _results:
+                    if _r is not None:
+                        all_results.append(_r)
+
+        if not all_results:
             return
 
-        # 统计各技术的成功/失败
+        # P0-C: 使用原生 API 提取技术名
+        from src.scenarios.scenario_output import _clean_technique_name
+
         tech_stats: dict[str, dict[str, int]] = {}
-        for result in batch_result.results:
+        for result in all_results:
             if result is None:
                 continue
-            # 从 result 获取技术名
+            # P0-C: 原生 API — get_attack_strategy_identifier + unique_name
             tech = ""
-            identifier = getattr(result, "identifier", None)
-            if identifier:
-                tech = getattr(identifier, "attack_technique", "")
-                if not tech:
-                    children = getattr(identifier, "children", {})
-                    tech = children.get("attack_technique", "")
+            identifier = None
+            if hasattr(result, "get_attack_strategy_identifier"):
+                try:
+                    identifier = result.get_attack_strategy_identifier()
+                except Exception:
+                    pass
+            if identifier is not None:
+                raw_name = getattr(identifier, "unique_name", "") or ""
+                tech, _ = _clean_technique_name(raw_name)
+
+            # SequentialAttackResult: 从子结果提取
+            if not tech:
+                child_results = getattr(result, "child_attack_results", None) or []
+                for child in child_results:
+                    if child is None:
+                        continue
+                    child_id = None
+                    if hasattr(child, "get_attack_strategy_identifier"):
+                        try:
+                            child_id = child.get_attack_strategy_identifier()
+                        except Exception:
+                            pass
+                    if child_id is not None:
+                        child_name = getattr(child_id, "unique_name", "") or ""
+                        child_tech, _ = _clean_technique_name(child_name)
+                        if child_tech:
+                            tech = child_tech
+                            break
+
             if not tech:
                 continue
 
             if tech not in tech_stats:
                 tech_stats[tech] = {"success": 0, "fail": 0, "total": 0}
             tech_stats[tech]["total"] += 1
-            outcome = str(getattr(result, "outcome", "")).upper()
-            if "SUCCESS" in outcome:
+            outcome = getattr(result, "outcome", None)
+            outcome_str = (
+                str(outcome.value).upper()
+                if hasattr(outcome, "value")
+                else str(outcome).upper()
+            )
+            if "SUCCESS" in outcome_str:
                 tech_stats[tech]["success"] += 1
             else:
                 tech_stats[tech]["fail"] += 1
@@ -381,41 +437,54 @@ def display_post_execution(
         if not tech_stats:
             return
 
-        print("\n  ┌─ ASR策略: 实测 ASR vs 学术先验 ──────────────────┐")
-        print(f"  │ 模型: {model_name}")
-        print("  │")
-        print(f"  │ {'技术':40s} {'实测ASR':>8s} {'学术先验':>8s} {'差异':>8s} {'样本':>6s}")
-        print(f"  │ {'─'*40} {'─'*8} {'─'*8} {'─'*8} {'─'*6}")
+        # P3-D: 使用 info_box 统一格式
+        _asr_label = "经验融合 ASR" if warm_start else "学术 ASR"
+        lines = [f"模型: {model_name}", ""]
+        lines.append(
+            f"{'技术':40s} {'实测ASR':>8s} {_asr_label:>10s} {'差异':>8s} {'样本':>6s}"
+        )
+        lines.append(f"{'─' * 40} {'─' * 8} {'─' * 10} {'─' * 8} {'─' * 6}")
 
         # 按学术 ASR 降序排列（高 ASR 技术优先展示）
-        for tech in sorted(tech_stats.keys(), key=lambda t: -get_normalized_asr(t, model_name)):
+        for tech in sorted(
+            tech_stats.keys(), key=lambda t: -get_normalized_asr(t, model_name)
+        ):
             stats = tech_stats[tech]
             total = stats["total"]
             if total == 0:
                 continue
             empirical_asr = stats["success"] / total
-            academic_asr = get_normalized_asr(tech, model_name)
-            diff = empirical_asr - academic_asr
+            # P1-C: 优先使用 warm_start ASR
+            if warm_start:
+                from src.payloads.technique_name_mapper import normalize_technique_name
+                _normalized = normalize_technique_name(tech)
+                prior_asr = warm_start.get(_normalized, get_normalized_asr(tech, model_name))
+            else:
+                prior_asr = get_normalized_asr(tech, model_name)
+            diff = empirical_asr - prior_asr
             diff_str = f"{diff:+.0%}"
             if diff > 0.1:
                 diff_str += " ↑"
             elif diff < -0.1:
                 diff_str += " ↓"
-            print(f"  │ {tech:40s} {empirical_asr:7.0%} {academic_asr:7.0%} {diff_str:>8s} {total:6d}")
+            lines.append(
+                f"{tech:40s} {empirical_asr:7.0%} {prior_asr:9.0%} {diff_str:>8s} {total:6d}"
+            )
 
         # 失败类型分布
         failure_dist = getattr(adaptive_result, "failure_type_distribution", None)
         if failure_dist:
-            print("  │")
-            print("  │ 失败类型分布:")
+            lines.append("")
+            lines.append("失败类型分布:")
             for ftype, count in sorted(failure_dist.items(), key=lambda x: -x[1]):
-                print(f"  │   {ftype:30s} {count:4d} 次")
+                lines.append(f"  {ftype:30s} {count:4d} 次")
 
         most_common = getattr(adaptive_result, "most_common_failure_type", None)
         if most_common:
-            print(f"  │ 最常见失败: {most_common}")
+            lines.append(f"最常见失败: {most_common}")
 
-        print("  └──────────────────────────────────────────────────┘")
+        from pipeline.display import info_box
+        info_box(f"实测 ASR vs 先验 ({_asr_label})", lines)
 
     except Exception:
         pass  # 非关键路径

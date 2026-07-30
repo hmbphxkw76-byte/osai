@@ -31,8 +31,10 @@ from typing import Any
 
 from pyrit.common.apply_defaults import set_default_value, set_global_variable
 from pyrit.models import Parameter
-from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.setup.pyrit_initializer import PyRITInitializer
+
+# OpenAIChatTarget 延迟导入（pyrit.prompt_target 是重模块，含 OpenAI SDK + httpx）
+# 仅在 set_default_value 调用时才需要
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +45,20 @@ logger = logging.getLogger(__name__)
 
 class AI300TargetInitializer(PyRITInitializer):
     """
-    AI-300 Target 初始化器（L5 原生优先 + AI-300 扩展）
+    AI-300 Target 初始化器（L5 原生优先 + 性能优化 v8.2）
 
     执行流程：
-      Step 1: 委托原生 TargetInitializer — 从标准 PyRIT 环境变量
-              （OPENAI_CHAT_* / AZURE_OPENAI_* 等 40+ 配置）注册 Target
-              + auto-grouping（RoundRobinTarget）
-      Step 2: AI-300 扩展 — 从 TARGET_* / JUDGE_* 环境变量注册考试专用 Target
-              + set_default_value(temperature=0.7)
+      Step 1: 检查标准 PyRIT 环境变量（OPENAI_CHAT_* / AZURE_OPENAI_*）
+              → 存在时委托原生 TargetInitializer 注册 Target
+              → 不存在时跳过（避免无效注册浪费时间）
+      Step 2: AI-300 扩展 — 设置默认 temperature
 
-    原生优先策略确保：
-      - 用户配置了标准 PyRIT 环境变量时获得完整原生体验
-      - 仅配置 TARGET_*/JUDGE_* 时获得 AI-300 考试体验
-      - 两者兼有时获得叠加体验
+    性能优化 (v8.2):
+      不再在初始化阶段创建 AI-300 专用 Target（objective_target / judge_target）。
+      原因：Pipeline Stage 3 会独立创建这些 Target，初始化阶段的创建是纯粹的重复操作。
+      消除重复创建可节省 ~0.5-1s 启动时间（两次 create_prompt_target + create_judge_target）。
+      ScorerInitializer 依赖 Registry 中的 judge_target，但 adaptive_runner.py
+      会自行创建 objective_scorer，因此跳过注册不影响功能。
 
     Supported Parameters:
       - tags: 注册的 Target 标签列表（对齐原生 TargetInitializerTags）
@@ -88,79 +91,48 @@ class AI300TargetInitializer(PyRITInitializer):
         """
         注册 Target 到 TargetRegistry
 
-        Step 1: 委托原生 TargetInitializer（处理标准 PyRIT 环境变量）
-        Step 2: AI-300 扩展（处理 TARGET_* / JUDGE_* 环境变量）
+        Step 1: 委托原生 TargetInitializer（仅当标准 PyRIT 环境变量存在时）
+        Step 2: 设置默认 temperature
+
+        性能优化 (v8.2):
+          不再创建 AI-300 专用 Target — Pipeline Stage 3 负责创建。
         """
-        # Step 1: 委托原生 TargetInitializer
-        from pyrit.setup.initializers.targets import TargetInitializer
+        # Step 1: 委托原生 TargetInitializer（仅在标准 PyRIT 环境变量存在时）
+        # 性能优化: AI-300 考试场景使用 TARGET_*/JUDGE_* 环境变量，
+        # 原生 TargetInitializer 会尝试注册 40+ target 配置并因缺少 OPENAI_CHAT_* 而失败。
+        # 跳过原生委托可节省 ~200-500ms 异常处理时间（与 ScorerInitializer 相同的优化策略）。
+        _has_standard_target = any(
+            os.getenv(var)
+            for var in (
+                "OPENAI_CHAT_ENDPOINT",
+                "AZURE_OPENAI_CHAT_ENDPOINT",
+                "OPENAI_CHAT_MODEL",
+                "AZURE_OPENAI_CHAT_MODEL",
+            )
+        )
+        if _has_standard_target:
+            from pyrit.setup.initializers.targets import TargetInitializer
 
-        native_init = TargetInitializer()
-        native_init.set_params_from_args(args={
-            "tags": self.params.get("tags", ["default"]),
-            "auto_group": self.params.get("auto_group", True),
-        })
-        try:
-            await native_init.initialize_async()
-            logger.info("AI300TargetInitializer: native TargetInitializer completed")
-        except Exception as e:
-            logger.warning(f"AI300TargetInitializer: native TargetInitializer failed (non-fatal): {e}")
-
-        # Step 2: AI-300 扩展 — 注册考试专用 Target
-        from pyrit.registry import TargetRegistry
-        from src.targets import create_prompt_target, create_judge_target, TargetParams
-
-        registry = TargetRegistry.get_registry_singleton()
-
-        # 注册 objective target
-        target_endpoint = os.getenv("TARGET_ENDPOINT")
-        target_model = os.getenv("TARGET_MODEL", "")
-        target_api_key = os.getenv("TARGET_API_KEY", "")
-
-        if target_endpoint:
+            native_init = TargetInitializer()
+            native_init.set_params_from_args(args={
+                "tags": self.params.get("tags", ["default"]),
+                "auto_group": self.params.get("auto_group", True),
+            })
             try:
-                target_params = TargetParams(
-                    temperature=0.7,
-                    discover_capabilities=False,
-                )
-                target, target_type = await create_prompt_target(
-                    target_url=target_endpoint.rstrip("/v1") if target_endpoint.endswith("/v1") else target_endpoint,
-                    api_key=target_api_key,
-                    model_name=target_model,
-                    params=target_params,
-                )
-                # 使用原生 API 注册
-                registry.instances.register(target, name="objective_target")
-                registry.instances.add_tags(name="objective_target", tags=["default", "objective"])
-                logger.info(f"AI300TargetInitializer: registered 'objective_target' ({target_type})")
+                await native_init.initialize_async()
+                logger.info("AI300TargetInitializer: native TargetInitializer completed")
             except Exception as e:
-                logger.warning(f"AI300TargetInitializer: failed to register objective_target: {e}")
+                logger.warning(f"AI300TargetInitializer: native TargetInitializer failed (non-fatal): {e}")
+        else:
+            logger.info(
+                "AI300TargetInitializer: no standard PyRIT target env vars found, "
+                "skipping native TargetInitializer. Targets will be created by Pipeline Stage 3."
+            )
 
-        # 注册 judge target
-        judge_endpoint = os.getenv("JUDGE_ENDPOINT", target_endpoint)
-        judge_model = os.getenv("JUDGE_MODEL", "")
-        judge_api_key = os.getenv("JUDGE_API_KEY", target_api_key)
+        # Step 2: 设置默认 temperature
+        # (AI-300 专用 Target 创建已移至 Pipeline Stage 3，避免重复创建)
+        from pyrit.prompt_target import OpenAIChatTarget
 
-        if judge_endpoint:
-            try:
-                judge_params = TargetParams(
-                    temperature=0.0,
-                    top_p=1.0,
-                    force_json_output=True,
-                    discover_capabilities=False,
-                )
-                judge, judge_type = await create_judge_target(
-                    judge_url=judge_endpoint.rstrip("/v1") if judge_endpoint.endswith("/v1") else judge_endpoint,
-                    api_key=judge_api_key,
-                    model_name=judge_model,
-                    params=judge_params,
-                )
-                registry.instances.register(judge, name="judge_target")
-                registry.instances.add_tags(name="judge_target", tags=["default", "scorer"])
-                logger.info(f"AI300TargetInitializer: registered 'judge_target' ({judge_type})")
-            except Exception as e:
-                logger.warning(f"AI300TargetInitializer: failed to register judge_target: {e}")
-
-        # 设置默认 temperature（对齐原生 set_default_value 模式）
         set_default_value(
             class_type=OpenAIChatTarget,
             parameter_name="temperature",
@@ -255,11 +227,14 @@ class AI300ScorerInitializer(PyRITInitializer):
         scorer_registry = ScorerRegistry.get_registry_singleton()
 
         # 从 TargetRegistry 拉取 judge target
+        # 注意: v8.2 性能优化后 AI300TargetInitializer 不再在初始化阶段创建 judge_target,
+        # 此处通常不会找到。adaptive_runner.py 会在运行时自行创建 objective_scorer,
+        # 因此跳过此处的考试专用评分器注册不影响功能。
         judge_entry = target_registry.instances.get("judge_target")
         if judge_entry is None:
-            logger.warning(
-                "AI300ScorerInitializer: 'judge_target' not found in TargetRegistry. "
-                "Skipping AI-300 specific scorer registration."
+            logger.debug(
+                "AI300ScorerInitializer: 'judge_target' not in TargetRegistry "
+                "(expected — created at runtime by adaptive_runner). Skipping."
             )
             return
 
@@ -482,6 +457,8 @@ class AI300DefaultValuesInitializer(PyRITInitializer):
 
     async def initialize_async(self) -> None:
         """设置 AI-300 默认值"""
+        from pyrit.prompt_target import OpenAIChatTarget
+
         # 目标模型默认参数
         set_default_value(
             class_type=OpenAIChatTarget,
@@ -510,19 +487,27 @@ def get_default_initializers() -> list[PyRITInitializer]:
     """
     获取 AI-300 默认初始化器列表（L5 原生优先 + 性能优化）
 
-    返回推荐的四阶段初始化器序列：
+    返回推荐的三阶段初始化器序列：
       1. AI300DefaultValuesInitializer     — 设置默认值（set_default_value）
-      2. AI300TargetInitializer            — 委托原生 + 注册 AI-300 Target
-      3. AI300ScorerInitializer            — 委托原生 + 注册 AI-300 Scorer
-      4. AI300TechniqueInitializerWrapper  — 注册 AI-300 Technique
+      2. AI300TargetInitializer            — 跳过原生（无标准 env vars）+ 设置 temperature
+      3. AI300TechniqueInitializerWrapper  — 注册 AI-300 Technique
 
     性能优化（v8.1 — 消除启动 ~30s 延迟）:
       - 移除 AI300LoadDefaultDatasets: 与 Stage 4 DatasetManager.load_datasets() 重复加载
         相同 YAML 到 CentralMemory，浪费 ~10-15s I/O。Stage 4 已完整覆盖。
       - 移除 AI300PreloadScenarioMetadata: 总是因缺少 OPENAI_CHAT_MODEL 环境变量而失败，
         预热无效且浪费 ~5s。
-      - AI300ScorerInitializer: 仅当 TargetRegistry 非空时委托原生 ScorerInitializer,
-        避免 20+ 评分器逐个失败的异常处理开销。
+
+    性能优化（v8.2 — 消除启动 ~1s 重复 Target 创建）:
+      - AI300TargetInitializer: 不再创建 AI-300 专用 Target（objective_target / judge_target）。
+        Pipeline Stage 3 会独立创建这些 Target，初始化阶段的创建是纯粹的重复操作。
+        同时跳过原生 TargetInitializer（当无 OPENAI_CHAT_* 环境变量时）。
+
+    性能优化（v8.3 — 移除空操作 ScorerInitializer）:
+      - 移除 AI300ScorerInitializer: v8.2 后 judge_target 不再注册到 Registry，
+        ScorerInitializer 查找不到 judge_target → 跳过评分器注册 → 纯空操作。
+        每次执行浪费 ~0.2-0.5s 检查开销并产生控制台 warning 噪音。
+        adaptive_runner.py 自行创建 objective_scorer，不依赖 Registry 中的 scorer。
 
     Returns:
         PyRITInitializer 子类实例列表（按执行顺序）
@@ -530,6 +515,5 @@ def get_default_initializers() -> list[PyRITInitializer]:
     return [
         AI300DefaultValuesInitializer(),
         AI300TargetInitializer(),
-        AI300ScorerInitializer(),
         AI300TechniqueInitializerWrapper(),
     ]

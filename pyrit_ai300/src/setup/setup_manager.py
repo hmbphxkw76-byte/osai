@@ -41,7 +41,6 @@ from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 from src.setup.env_loader import EnvLoader, discover_env_files
 from src.setup.retry_config import RetryConfig, configure_retry_env_vars
-from src.setup.ai300_initializers import get_default_initializers
 from src.setup.config_file import load_config_file
 
 logger = logging.getLogger(__name__)
@@ -130,6 +129,7 @@ class AI300SetupManager:
         """解析初始化器列表"""
         if self._initializers is not None:
             return list(self._initializers)
+        from src.setup.ai300_initializers import get_default_initializers
         return get_default_initializers()
 
     def _resolve_env_files(self) -> list[Path]:
@@ -180,8 +180,6 @@ class AI300SetupManager:
         initializers = self._resolve_initializers()
 
         # 调用 PyRIT 原生 initialize_pyrit_async（统一处理 env 文件加载）
-        # 注意：不在本地预加载 env 文件，由原生 _load_environment_files 统一处理
-        # 这避免了同一文件被 dotenv.load_dotenv 加载两次的问题
         await initialize_pyrit_async(
             memory_db_type=memory_db_type,
             initializers=initializers if initializers else None,
@@ -237,7 +235,7 @@ class AI300SetupManager:
 async def initialize_ai300_async(
     *,
     memory_db_type: Optional[str] = None,
-    initializers: Optional[Sequence[PyRITInitializer]] = None,
+    initializers: Optional[Sequence["PyRITInitializer"]] = None,
     initialization_scripts: Optional[Sequence[str | Path]] = None,
     project_root: Optional[Path] = None,
     env_files: Optional[Sequence[Path | str]] = None,
