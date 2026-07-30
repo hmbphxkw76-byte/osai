@@ -422,13 +422,13 @@ class TestAI300DefaultValuesInitializer:
 class TestGetDefaultInitializers:
     """get_default_initializers 工厂函数测试"""
 
-    def test_returns_six_initializers(self):
-        """返回六个初始化器"""
+    def test_returns_four_initializers(self):
+        """返回四个初始化器"""
         initializers = get_default_initializers()
-        assert len(initializers) == 6
+        assert len(initializers) == 4
 
     def test_order_is_correct(self):
-        """顺序正确：DefaultValues → Target → Scorer → Technique → Datasets → PreloadScenarioMetadata"""
+        """顺序正确：DefaultValues → Target → Scorer → Technique"""
         initializers = get_default_initializers()
         types = [type(i).__name__ for i in initializers]
         assert types == [
@@ -436,8 +436,6 @@ class TestGetDefaultInitializers:
             "AI300TargetInitializer",
             "AI300ScorerInitializer",
             "AI300TechniqueInitializerWrapper",
-            "AI300LoadDefaultDatasets",
-            "AI300PreloadScenarioMetadata",
         ]
 
     def test_all_inherit_pyrit_initializer(self):
@@ -467,10 +465,10 @@ class TestAI300SetupManager:
         assert manager._resolve_memory_db_type() == "InMemory"
 
     def test_resolve_initializers_default(self):
-        """默认解析为六个初始化器"""
+        """默认解析为四个初始化器"""
         manager = AI300SetupManager()
         initializers = manager._resolve_initializers()
-        assert len(initializers) == 6
+        assert len(initializers) == 4
 
     def test_resolve_initializers_custom(self):
         """自定义初始化器"""

@@ -61,10 +61,14 @@ class TestP0ConverterVariantFactories(unittest.TestCase):
         """Test BASE_TECHNIQUES_FOR_VARIANTS has expected entries"""
         self.assertIn("prompt_sending", BASE_TECHNIQUES_FOR_VARIANTS)
         self.assertIn("many_shot", BASE_TECHNIQUES_FOR_VARIANTS)
-        # red_teaming should NOT be in variants (it has adversarial chat)
-        self.assertNotIn("red_teaming", BASE_TECHNIQUES_FOR_VARIANTS)
+        # P8: red_teaming IS in variants (multi_turn + encoding = 3.5x ASR, arXiv:2402.12109)
+        self.assertIn("red_teaming", BASE_TECHNIQUES_FOR_VARIANTS)
         # crescendo IS in variants (crescendo + encoding = 3-5x ASR, arXiv:2402.12109)
         self.assertIn("crescendo", BASE_TECHNIQUES_FOR_VARIANTS)
+        # P8: tree_of_attacks_pruned IS in variants (tree search + stealth = 2.5x)
+        self.assertIn("tree_of_attacks_pruned", BASE_TECHNIQUES_FOR_VARIANTS)
+        # P8: crescendo_simulated IS in variants
+        self.assertIn("crescendo_simulated", BASE_TECHNIQUES_FOR_VARIANTS)
 
     def test_get_converter_variant_names(self):
         """Test get_converter_variant_names returns expected names"""
@@ -248,19 +252,20 @@ class TestP1FailureTypeRoutingConverterAware(unittest.TestCase):
         self.assertEqual(reordered, techniques)
 
     def test_converter_chain_priority_ordering(self):
-        """Test converter variants are sorted by chain priority"""
+        """Test converter variants are sorted — P1: ASR-driven when converter_target NOT safety-aligned"""
         self.selector.update_failure_type(FAILURE_MODEL_REFUSAL)
         # Mix of converter variants with different priorities
         techniques = [
-            "prompt_sending+llm_assisted",     # priority=3
-            "prompt_sending+stealth_evasion",  # priority=1
-            "prompt_sending+encoding_bypass",  # priority=2
+            "prompt_sending+llm_assisted",     # priority=3, ASR~35% (persuasion)
+            "prompt_sending+stealth_evasion",  # priority=1, ASR~12% (stealth)
+            "prompt_sending+encoding_bypass",  # priority=2, ASR~8% (encoding)
         ]
         reordered = self.selector._reorder_by_failure_type(techniques)
-        # Should be sorted by priority: stealth < encoding < llm
-        self.assertEqual(reordered[0], "prompt_sending+stealth_evasion")
-        self.assertEqual(reordered[1], "prompt_sending+encoding_bypass")
-        self.assertEqual(reordered[2], "prompt_sending+llm_assisted")
+        # P1: No converter_target_name set → ASR-driven sorting
+        # llm_assisted (persuasion, highest ASR) should come first
+        self.assertEqual(reordered[0], "prompt_sending+llm_assisted")
+        # All three should be present
+        self.assertEqual(len(reordered), 3)
 
 
 # ============================================================
@@ -398,16 +403,18 @@ class TestEndToEndConverterAdaptiveIntegration(unittest.TestCase):
         ]
         reordered = selector._reorder_by_failure_type(techniques)
         
-        # All converter variants should come first, sorted by priority
-        converter_part = [t for t in reordered if is_converter_variant(t)]
-        self.assertEqual(converter_part[0], "prompt_sending+stealth_evasion")
-        self.assertEqual(converter_part[1], "prompt_sending+encoding_bypass")
-        self.assertEqual(converter_part[2], "prompt_sending+llm_assisted")
+        # P5: model_refusal routing — multi_turn (crescendo, red_teaming) should come first
+        self.assertIn(reordered[0], ("crescendo", "red_teaming"))
         
-        # Non-converter techniques should come after
-        non_converter = [t for t in reordered if not is_converter_variant(t)]
-        self.assertIn("prompt_sending", non_converter)
-        self.assertIn("red_teaming", non_converter)
+        # All techniques should be present
+        self.assertEqual(len(reordered), len(techniques))
+        
+        # Multi-turn should come before prompt_sending (which has no converter)
+        crescendo_idx = reordered.index("crescendo")
+        red_teaming_idx = reordered.index("red_teaming")
+        prompt_sending_idx = reordered.index("prompt_sending")
+        self.assertLess(crescendo_idx, prompt_sending_idx)
+        self.assertLess(red_teaming_idx, prompt_sending_idx)
 
     def test_timeout_routes_to_base_first(self):
         """Test timeout scenario routes to base techniques first"""
@@ -574,11 +581,17 @@ class TestR0DynamicChainMapping(unittest.TestCase):
         # prompt_sending should be in the mapping
         self.assertIn("prompt_sending", result)
         # Chains should be from the recommended list for llm_direct_strong
+        # P7: Updated to include new chains (noise_bypass, special_chars, leetspeak_chain,
+        #   policy_puppetry_chain, text_jailbreak, format_injection, decomposition_policy_chain)
+        # Note: converter_target_available=False, so llm_assisted chains are excluded
         recommended = ["multi_encoding_v2", "stealth_evasion", "encoding_bypass",
                        "policy_puppetry", "noise_case_chain", "unicode_attack",
                        "agent_injection_chain", "random_case",
                        "llm_assisted", "persuasion_authority",
-                       "decomposition_chain", "task_framing_chain"]
+                       "decomposition_chain", "task_framing_chain",
+                       "noise_bypass", "special_chars", "leetspeak_chain",
+                       "policy_puppetry_chain", "text_jailbreak", "format_injection",
+                       "decomposition_policy_chain", "semantic_obfuscation"]
         for chain in result["prompt_sending"]:
             self.assertIn(chain, recommended)
 

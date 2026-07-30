@@ -104,6 +104,30 @@ from src.scenarios.asr_strategy_display import (
     display_post_execution,
 )
 
+# P5: L5 执行韧性 Layer 2 — Converter 健康监控
+from src.scenarios.converter_health_monitor import (
+    ConverterHealthMonitor,
+    ConverterStats,
+    extract_converter_name_from_error,
+    extract_chain_name_from_error,
+)
+
+# P6: L5 ASR 反馈回路 Tier 2 — 经验 ASR 存储
+from src.scenarios.empirical_asr_store import (
+    load_empirical_asr,
+    update_empirical_asr,
+    compute_effective_asr,
+    detect_patched_techniques,
+    generate_strategy_recommendation,
+    extract_tech_stats_from_results,
+)
+
+# P7: L5 执行韧性 Layer 3 — 运行时停止 EventHandler
+from src.scenarios.runtime_stop_handler import (
+    RuntimeStopEventHandler,
+    StopStrategyContext,
+)
+
 __all__ = [
     # P0: Scenario 基类
     "AI300Scenario",
@@ -157,4 +181,19 @@ __all__ = [
     "display_selection_stage",
     "display_execution_stage",
     "display_post_execution",
+    # L5 执行韧性 Layer 2: Converter 健康监控
+    "ConverterHealthMonitor",
+    "ConverterStats",
+    "extract_converter_name_from_error",
+    "extract_chain_name_from_error",
+    # L5 ASR 反馈回路 Tier 2: 经验 ASR 存储
+    "load_empirical_asr",
+    "update_empirical_asr",
+    "compute_effective_asr",
+    "detect_patched_techniques",
+    "generate_strategy_recommendation",
+    "extract_tech_stats_from_results",
+    # L5 执行韧性 Layer 3: 运行时停止 EventHandler
+    "RuntimeStopEventHandler",
+    "StopStrategyContext",
 ]

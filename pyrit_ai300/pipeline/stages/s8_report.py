@@ -1,6 +1,6 @@
 """
-Stage 8/8: 报告 + 总结
-=====================
+Stage 7/7: 报告 + 总结
+========================
 
 OWASP 映射 + 证据导出 + 汇总。
 """
@@ -13,7 +13,7 @@ from pipeline.display import banner, info_box, stage_header
 
 async def run(ctx: PipelineContext) -> None:
     """执行报告生成阶段"""
-    stage_header(8, "报告 + 总结", "OWASP 映射 + 证据导出 + 汇总")
+    stage_header(7, "报告 + 总结", "OWASP 映射 + 证据导出 + 汇总")
 
     ctx.end_time = datetime.now()
 

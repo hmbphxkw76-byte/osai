@@ -1,13 +1,13 @@
 """
-Stage 6/8: Executor 执行层
+Stage 5/7: Executor 执行层
 =========================
 
 原生 AdaptiveScenario 批量执行。
 
-显示架构（v6.0 统一卡片式 + 载荷主轴）:
+显示架构 (v8.0 统一优化 — 载荷×Converter 组合矩阵 + 执行策略 + 结果摘要):
   ① 执行配置 + 攻击计划摘要       — 全局统计
-  ② 攻击载荷 × Converter 组合矩阵 — 按技术分组统一卡片（载荷 + Converter + 执行流程）
-  ③ 执行清单 (★ 风格)           — 逐载荷执行计划确认
+  ② 执行策略                     — 技术排序 + 失败路由 + 停止策略
+  ③ ★ 载荷 × Converter 变体交叉组合 ★  — 全局概览 + ×并排 + 公式 + 执行流程箭头 + 详情
   ④ [OK] 开始执行...
   ⑤ 执行前准备卡片              — 从 scenario 诊断属性读取
   ⑥ 执行结果概要               — 执行后统计
@@ -20,6 +20,7 @@ from typing import Any
 
 from pipeline.context import PipelineContext
 from pipeline.display import info_box, stage_header
+from src.reporting.converter_log import format_technique_display
 
 # ── 统一卡片宽度（双线框） ──
 _W = 68
@@ -29,6 +30,29 @@ def _trunc(text: str, limit: int = 60) -> str:
     """截断文本，添加省略号"""
     text = text.replace("\n", " ").strip()
     return text[:limit - 3] + "..." if len(text) > limit else text
+
+
+def _cjk_width(s: str) -> int:
+    """近似计算字符串显示宽度（CJK 字符算 2 列）"""
+    return sum(2 if ord(c) > 0x7F else 1 for c in s)
+
+
+def _pad_right(s: str, width: int) -> str:
+    """将字符串填充到指定显示宽度"""
+    w = _cjk_width(s)
+    return s + " " * max(0, width - w)
+
+
+def _sort_tech_by_asr(tech_counts: dict[str, int], model_name: str) -> list[tuple[str, int]]:
+    """按 ASR 降序排序技术（高 ASR 优先），ASR 相同时按计划数降序"""
+    try:
+        from src.payloads.technique_name_mapper import get_normalized_asr
+        return sorted(
+            tech_counts.items(),
+            key=lambda x: (-get_normalized_asr(x[0], model_name), -x[1]),
+        )
+    except Exception:
+        return sorted(tech_counts.items(), key=lambda x: -x[1])
 
 
 def _resolve_converter_chains_for_technique(
@@ -103,18 +127,22 @@ def _display_unified_attack_matrix(
     tech_set: dict[str, int] | None = None,
 ) -> None:
     """
-    统一攻击载荷 × Converter 组合矩阵展示
+    载荷 × Converter 变体交叉组合矩阵展示 (v2.0)
 
-    合并 DATA PAYLOAD x ATTACK TECHNIQUE 和 display_converter_variants
-    为按技术分组的统一卡片，每张卡片包含：
-    1. 技术头（名称/描述/模式/ASR/Tier）
-    2. 载荷列表（OWASP/Source/Mode/Target/对话轮次/顺序步骤）
-    3. Converter 链（优先级/LLM标记/描述）
-    4. 执行流程说明
+    展示结构:
+      1. 标题
+      2. 全局概览 (所有技术的 载荷×变体=尝试 汇总)
+      3. 每个技术卡片:
+         a. 技术头 (名称/描述/模式/ASR/Tier)
+         b. × 并排布局 (载荷概要 | Converter 概要)
+         c. 公式行 (N × M = K)
+         d. 执行流程箭头 (每行 = 一个载荷的完整尝试链)
+         e. 载荷详情
+         f. Converter 详情
+      4. 底部汇总
     """
     from src.scenarios.technique_factories import AI300_TECHNIQUE_METADATA
 
-    # ── 技术模式中文名映射 ──
     _MODE_CN = {
         "multi_turn": "多轮迭代",
         "single_turn": "单轮直发",
@@ -122,7 +150,9 @@ def _display_unified_attack_matrix(
         "converter_enhanced": "Converter增强",
     }
 
-    # ── 技术 ASR 查询 (惰性导入, 避免循环依赖) ──
+    _CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
+
+    # ── 技术 ASR 查询 (惰性导入) ──
     try:
         from src.payloads.technique_name_mapper import get_normalized_asr
         from src.scenarios.asr_strategy_display import _get_tier
@@ -138,16 +168,18 @@ def _display_unified_attack_matrix(
         tech = getattr(plan, "attack_technique", "unknown")
         payload_groups.setdefault(tech, []).append(plan)
 
+    # ── 为每个技术解析 Converter 链 ──
+    tech_chains: dict[str, list[dict[str, Any]]] = {}
+    for tech in payload_groups:
+        tech_chains[tech] = _resolve_converter_chains_for_technique(
+            tech, payload_groups[tech], target_type, converter_chains_from_router,
+        )
+
     # ── 统计 Converter 变体数 ──
     total_variants = 0
     total_non_llm = 0
     total_llm = 0
-
-    # 为主标题预计算
-    for tech in payload_groups:
-        chains = _resolve_converter_chains_for_technique(
-            tech, payload_groups[tech], target_type, converter_chains_from_router,
-        )
+    for chains in tech_chains.values():
         for ci in chains:
             total_variants += 1
             if ci["llm"]:
@@ -155,28 +187,77 @@ def _display_unified_attack_matrix(
             else:
                 total_non_llm += 1
 
-    # ── 主标题: 双线装饰框 + ★ 强调 ──
+    # ── ASR 降序排序 ──
+    def _asr_sort_for_display(tech_name: str) -> float:
+        if get_normalized_asr:
+            try:
+                return -get_normalized_asr(tech_name, model_name)
+            except Exception:
+                pass
+        return 0.0
+
+    sorted_techs = sorted(payload_groups.keys(), key=_asr_sort_for_display)
+
+    # ════════════════════════════════════════════════════════════════
+    # 1. 标题
+    # ════════════════════════════════════════════════════════════════
     print()
     print("  ╔" + "═" * _W + "╗")
     print()
-    print("       ★  攻击载荷 × Converter 组合矩阵  ★")
+    print("       ★  载荷 × Converter 变体交叉组合  ★")
     print()
-    print("    每个目标按优先级依次尝试 · 首次成功即停止 (FIRST_SUCCESS)")
+    print("    每个载荷独立尝试所有变体 → 首次成功即停止 → 不再尝试后续变体")
     print()
     print("  ╚" + "═" * _W + "╝")
 
-    # ── 按载荷数降序排列技术 ──
-    for tech, plans in sorted(payload_groups.items(), key=lambda x: -len(x[1])):
+    # ════════════════════════════════════════════════════════════════
+    # 2. 全局概览
+    # ════════════════════════════════════════════════════════════════
+    print()
+    print(f"  ┌─ 全局概览 {'─' * max(1, _W - 22)}┐")
+    print("  │")
+    total_payloads = 0
+    total_attempts = 0
+    for i, tech in enumerate(sorted_techs):
+        n_pl = len(payload_groups[tech])
+        n_var = len(tech_chains[tech]) + 1
+        n_att = n_pl * n_var
+        total_payloads += n_pl
+        total_attempts += n_att
+        tech_pad = _pad_right(tech[:20], 20)
+        print(f"  │  技术 {i + 1}: {tech_pad}  "
+              f"{n_pl:>2} 载荷 × {n_var:>2} 变体 = {n_att:>3} 尝试")
+    print(f"  │  {'─' * max(1, _W - 6)}")
+    print(f"  │  合计: {total_payloads} 载荷 × (变体不同) = {total_attempts} 尝试上限")
+    print("  │  实际远少于此 (FIRST_SUCCESS + L2/L3 停止策略)")
+    print(f"  └{'─' * _W}┘")
+
+    # ════════════════════════════════════════════════════════════════
+    # 3. 每个技术卡片
+    # ════════════════════════════════════════════════════════════════
+
+    # ── 并排布局尺寸 ──
+    _LEFT_W = 24
+    _RIGHT_W = 38
+
+    # 全局载荷编号映射 (P1, P2, ... 贯穿全阶段)
+    plan_to_pid: dict[int, str] = {}
+    for g_idx, p in enumerate(attack_plans):
+        plan_to_pid[id(p)] = f"P{g_idx + 1}"
+
+    for tech in sorted_techs:
+        plans = payload_groups[tech]
+        chains = tech_chains[tech]
+        n_variants = len(chains) + 1  # +1 for baseline
+
         meta = AI300_TECHNIQUE_METADATA.get(tech, {})
         tech_desc = meta.get("description", tech)
         tags = meta.get("tags", [])
         raw_mode = "multi_turn" if "multi_turn" in tags else "single_turn"
-        # 检查是否 sequential
         if "sequential" in tags:
             raw_mode = "sequential"
         mode_cn = _MODE_CN.get(raw_mode, raw_mode)
 
-        # 轮次信息
         first_pi = getattr(plans[0], "prompt_item", None)
         plan_turns = getattr(plans[0], "max_turns", 1) if plans else 1
         mode_detail = mode_cn
@@ -185,7 +266,6 @@ def _display_unified_attack_matrix(
         elif first_pi and getattr(first_pi, "sequential_steps", None):
             mode_detail = f"{mode_cn} ({len(first_pi.sequential_steps)} 步)"
 
-        # ASR 信息
         asr_str = ""
         if get_normalized_asr and _get_tier:
             try:
@@ -195,232 +275,233 @@ def _display_unified_attack_matrix(
             except Exception:
                 pass
 
-        # ── 技术卡片: 双线边框 + ◆ 强调标题 ──
+        tech_display = format_technique_display(tech)
+
+        # ── 3a. 技术头 ──
         print()
         print("  ┏" + "━" * _W)
-        print(f"  ┃  ◆ {tech} · {tech_desc}")
+        print(f"  ┃  ◆ {tech_display} · {tech_desc}")
         print(f"  ┃    模式: {mode_detail}{asr_str}")
         print("  ┃")
 
-        # ── 载荷列表 ──
-        print(f"  ┃    ┌─ 载荷 ({len(plans)} 个) ─{'─' * max(0, _W - 24)}┐")
+        # ── 3b. × 并排布局 ──
+        # 构建载荷概要 (左栏)
+        payload_lines: list[str] = []
+        for idx, plan in enumerate(plans[:4]):
+            pi = plan.prompt_item
+            obj = _trunc(getattr(pi, "objective", ""), _LEFT_W - 5)
+            marker = _CIRCLED[idx] if idx < len(_CIRCLED) else f"{idx + 1}."
+            payload_lines.append(f" {marker} {obj}")
+        if len(plans) > 4:
+            payload_lines.append(f" ... ({len(plans) - 4} more)")
+        payload_lines.append(f" {len(plans)} 个载荷")
 
-        # OWASP 分布（全组共享）
+        # 构建 Converter 概要 (右栏)
+        converter_lines: list[str] = [" 基线 (无变换)"]
+        shown_chains = min(len(chains), 8)
+        for ci in chains[:shown_chains]:
+            llm_tag = "[非LLM]" if not ci["llm"] else "[LLM]  "
+            name = ci["name"]
+            max_name = _RIGHT_W - 16
+            if _cjk_width(name) > max_name:
+                name = name[:max_name - 3] + "..."
+            converter_lines.append(
+                f" 优先{ci['priority']}  {_pad_right(name, max_name)} {llm_tag}"
+            )
+        if len(chains) > shown_chains:
+            converter_lines.append(f" ... ({len(chains) - shown_chains} more)")
+        converter_lines.append(
+            f" {n_variants} 个变体 (1基线+{len(chains)} Conv)"
+        )
+
+        # 填充到相同行数
+        max_lines = max(len(payload_lines), len(converter_lines))
+        while len(payload_lines) < max_lines:
+            payload_lines.append("")
+        while len(converter_lines) < max_lines:
+            converter_lines.append("")
+
+        # 打印并排框
+        left_hdr = f"载荷 ({len(plans)})"
+        left_dashes = max(0, _LEFT_W - 3 - _cjk_width(left_hdr))
+        left_top = f"┌─ {left_hdr} {'─' * left_dashes}┐"
+
+        right_hdr = f"Converter 变体池 ({n_variants})"
+        right_dashes = max(0, _RIGHT_W - 3 - _cjk_width(right_hdr))
+        right_top = f"┌─ {right_hdr} {'─' * right_dashes}┐"
+
+        print(f"  ┃    {left_top}  ×  {right_top}")
+
+        for i in range(max_lines):
+            left_content = _pad_right(payload_lines[i], _LEFT_W)
+            right_content = _pad_right(converter_lines[i], _RIGHT_W)
+            print(f"  ┃    │{left_content}│     │{right_content}│")
+
+        left_bot = "└" + "─" * _LEFT_W + "┘"
+        right_bot = "└" + "─" * _RIGHT_W + "┘"
+        print(f"  ┃    {left_bot}     {right_bot}")
+
+        # ── 3c. 公式行 ──
+        print("  ┃")
+        n_attempts = len(plans) * n_variants
+        print(f"  ┃    交叉组合: {len(plans)} × {n_variants} = {n_attempts} "
+              f"尝试上限 (FIRST_SUCCESS)")
+        print("  ┃")
+
+        # ── 3d. 执行流程箭头 ──
+        flow_hdr = "执行流程 (每行 = 一个载荷的完整尝试链)"
+        flow_dashes = max(0, _W - 6 - _cjk_width(flow_hdr) - 2)
+        print(f"  ┃    ┌─ {flow_hdr} {'─' * flow_dashes}┐")
+
+        flow_parts = ["[基线]"]
+        for ci in chains[:5]:
+            short = ci["name"][:8]
+            flow_parts.append(f"[{short}]")
+        if len(chains) > 5:
+            flow_parts.append("...")
+        flow_parts.append("✅停")
+        flow_line = " → ".join(flow_parts)
+
+        for idx in range(min(len(plans), 4)):
+            marker = _CIRCLED[idx] if idx < len(_CIRCLED) else f"{idx + 1}."
+            print(f"  ┃    │ {marker} → {flow_line}")
+        if len(plans) > 4:
+            print(f"  ┃    │ ... ({len(plans) - 4} more)")
+        print("  ┃    │")
+        print(f"  ┃    │ 每行独立 · 变体顺序相同 "
+              f"(优先1→2→3→4) · 最多 {n_variants} 步/行")
+        print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
+
+        # ── 3e. 载荷详情 ──
+        print(f"  ┃    ┌─ 载荷详情 {'─' * max(1, _W - 20)}┐")
+
         owasp_dist: dict[str, int] = {}
         for p in plans:
             oid = getattr(p, "owasp_id", None) or "N/A"
             owasp_dist[oid] = owasp_dist.get(oid, 0) + 1
-        owasp_str = ", ".join(f"{k}({v})" for k, v in sorted(owasp_dist.items()))
+        owasp_str = ", ".join(
+            f"{k}({v})" for k, v in sorted(owasp_dist.items())
+        )
 
-        # Source
-        first_meta = getattr(first_pi, "metadata", {}) or {} if first_pi else {}
+        first_meta = (
+            getattr(first_pi, "metadata", {}) or {} if first_pi else {}
+        )
         source_id = ""
         if first_pi:
             source_id = (
                 getattr(first_pi, "source_id", "")
                 or first_meta.get("source_id", "")
             )
-        src_short = source_id.replace("owasp_", "").replace("_", " ") if source_id else "(unknown)"
+        src_short = (
+            source_id.replace("owasp_", "").replace("_", " ")
+            if source_id
+            else "(unknown)"
+        )
 
-        # 全局载荷编号偏移：在 attack_plans 中的位置
-        global_plan_idx = 0
-        for pg_plans in payload_groups.values():
-            for p in pg_plans:
-                if p in attack_plans:
-                    pass
-        # 构建全局载荷编号映射
-        plan_to_pid = {}
-        for g_idx, p in enumerate(attack_plans):
-            plan_to_pid[id(p)] = f"P{g_idx + 1}"
-
-        max_payloads_display = 4
-        for idx, plan in enumerate(plans[:max_payloads_display]):
+        max_detail = 4
+        for idx, plan in enumerate(plans[:max_detail]):
             pi = plan.prompt_item
             plan_mode = getattr(pi, "attack_mode", None)
             plan_mode_str = plan_mode.value if plan_mode else "unknown"
             obj = getattr(pi, "objective", "")
-            obj_short = _trunc(obj, 55)
-
-            # severity
+            obj_short = _trunc(obj, 50)
             meta_pi = getattr(pi, "metadata", {}) or {}
             severity = meta_pi.get("severity", "")
-
-            # 载荷编号 (P1, P2, ...)
             pid = plan_to_pid.get(id(plan), f"P{idx + 1}")
+            marker = (
+                _CIRCLED[idx] if idx < len(_CIRCLED) else f"{idx + 1}."
+            )
 
-            # 载荷头
+            sev_str = f"  ({severity})" if severity else ""
             if idx == 0:
-                sev_str = f"  ({severity})" if severity else ""
-                print(f"  ┃    │ {pid}{sev_str}")
-                print(f"  ┃    │   OWASP  : {owasp_str}")
-                print(f"  ┃    │   Source : {src_short}")
+                print(f"  ┃    │ {marker}{sev_str}  [{pid}]  OWASP: {owasp_str}")
+                print(f"  ┃    │   Source: {src_short}  |  Mode: {plan_mode_str}")
             else:
-                # 后续载荷：OWASP/Source 与第一个相同则省略
-                sev_str = f"  ({severity})" if severity else ""
-                print(f"  ┃    │ {pid}{sev_str}")
+                print(f"  ┃    │ {marker}{sev_str}  [{pid}]  Mode: {plan_mode_str}")
+            print(f"  ┃    │   Target: \"{obj_short}\"")
 
-            # 模式（每个载荷可能不同）
-            plan_turns_local = getattr(plan, "max_turns", 1)
-            local_mode = plan_mode_str + (f" ({plan_turns_local} turns)" if plan_turns_local > 1 else "")
-            print(f"  ┃    │   Mode   : {local_mode}")
-            print(f"  ┃    │   Target : \"{obj_short}\"")
-
-            # 多轮: 展示对话轮次
-            if plan_mode_str == "multi_turn" and getattr(pi, "multi_turn_steps", None):
-                print("  ┃    │   Turns  :")
-                for t_idx, step in enumerate(pi.multi_turn_steps[:3]):
-                    print(f"  ┃    │     Turn {t_idx + 1}: \"{_trunc(step, 50)}\"")
-                remaining = len(pi.multi_turn_steps) - 3
+            if (
+                plan_mode_str == "multi_turn"
+                and getattr(pi, "multi_turn_steps", None)
+            ):
+                for t_idx, step in enumerate(pi.multi_turn_steps[:2]):
+                    print(f"  ┃    │     Turn {t_idx + 1}: \"{_trunc(step, 45)}\"")
+                remaining = len(pi.multi_turn_steps) - 2
                 if remaining > 0:
                     print(f"  ┃    │     ... ({remaining} more turns)")
-
-            # 顺序: 展示步骤
-            elif plan_mode_str == "sequential" and getattr(pi, "sequential_steps", None):
-                print("  ┃    │   Steps  :")
-                for s_idx, step in enumerate(pi.sequential_steps[:3]):
-                    conv = f" + {step.converter_chain}" if step.converter_chain else ""
-                    print(f"  ┃    │     Step {s_idx + 1}: {step.attack_technique}{conv}")
-                    print(f"  ┃    │       -> \"{_trunc(step.objective, 48)}\"")
-                remaining = len(pi.sequential_steps) - 3
+            elif (
+                plan_mode_str == "sequential"
+                and getattr(pi, "sequential_steps", None)
+            ):
+                for s_idx, step in enumerate(pi.sequential_steps[:2]):
+                    conv = (
+                        f" + {step.converter_chain}"
+                        if step.converter_chain
+                        else ""
+                    )
+                    print(f"  ┃    │     Step {s_idx + 1}: "
+                          f"{step.attack_technique}{conv}")
+                remaining = len(pi.sequential_steps) - 2
                 if remaining > 0:
                     print(f"  ┃    │     ... ({remaining} more steps)")
 
-            # 载荷自带 Converter 链
-            pi_chains = getattr(pi, "converter_chains", None)
-            if pi_chains:
-                print(f"  ┃    │   Conv   : {', '.join(pi_chains[:3])}")
-
-            if idx < min(len(plans), max_payloads_display) - 1:
+            if idx < min(len(plans), max_detail) - 1:
                 print("  ┃    │")
 
-        if len(plans) > max_payloads_display:
-            print(f"  ┃    │   ... {len(plans) - max_payloads_display} more payloads")
-
+        if len(plans) > max_detail:
+            print(f"  ┃    │ ... ({len(plans) - max_detail} more)")
         print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
-        # ── Converter 增强 ──
-        chains_info = _resolve_converter_chains_for_technique(
-            tech, plans, target_type, converter_chains_from_router,
-        )
+        # ── 3f. Converter 详情 ──
+        print(f"  ┃    ┌─ Converter 详情 {'─' * max(1, _W - 24)}┐")
+        print("  ┃    │ 基线        原文直发，无变换")
+        for ci in chains:
+            llm_tag = "[非LLM]" if not ci["llm"] else "[LLM]  "
+            print(f"  ┃    │ 优先{ci['priority']} {llm_tag}  {ci['name']}")
+            if ci["desc"]:
+                print(f"  ┃    │   └─ {ci['desc']}")
+        print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
-        if chains_info:
-            print(f"  ┃    ┌─ Converter 增强 ({len(chains_info)} 条) ─{'─' * max(0, _W - 32)}┐")
-            for ci in chains_info:
-                llm_tag = "[LLM]  " if ci["llm"] else "[非LLM]"
-                print(f"  ┃    │ P{ci['priority']}  {llm_tag}  {ci['name']}")
-                if ci["desc"]:
-                    print(f"  ┃    │       └─ {ci['desc']}")
-            print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-        else:
-            print("  ┃    (无 Converter 增强 — 基线技术)")
-
-        # ── 执行流程 ──
+        # ── 执行流程说明 ──
         print("  ┃")
         if raw_mode == "multi_turn":
-            print(f"  ┃    执行流程: {tech} 逐轮升级 → 末轮注入 Converter → 首次成功即停止")
+            print(f"  ┃    执行流程: {tech} 逐轮升级 → "
+                  f"末轮注入 Converter → 首次成功即停止")
         elif raw_mode == "sequential":
-            print("  ┃    执行流程: 顺序执行各步 → 每步独立评分 → 全部成功则整体成功")
+            print("  ┃    执行流程: 顺序执行各步 → "
+                  "每步独立评分 → 全部成功则整体成功")
         else:
-            print(f"  ┃    执行流程: {tech} + Converter 变换 → 按优先级依次尝试 → 首次成功即停止")
+            print(f"  ┃    执行流程: {tech} + Converter 变换 → "
+                  f"按优先级依次尝试 → 首次成功即停止")
         print("  ┗" + "━" * _W)
 
-    # ── 底部汇总 ──
+    # ════════════════════════════════════════════════════════════════
+    # 4. 底部汇总
+    # ════════════════════════════════════════════════════════════════
     _plan_count = len(attack_plans)
     _total_tech = len(payload_groups)
     _owasp_count = len(owasp_set) if owasp_set else 0
+    _strategy_mode = strategy_info.get("strategy_mode", "academic")
 
     print()
     print("  " + "═" * _W)
     print(f"  ■ 汇总: {_plan_count} 个载荷 | {_total_tech} 种技术 | "
           f"{_owasp_count} 类 OWASP")
     if mode_count:
-        _mode_str = " | ".join(f"{_MODE_CN.get(k, k)}: {v}" for k, v in mode_count.items() if v > 0)
+        _mode_str = " | ".join(
+            f"{_MODE_CN.get(k, k)}: {v}"
+            for k, v in mode_count.items()
+            if v > 0
+        )
         print(f"  ■ 模式: {_mode_str}")
     print(f"  ■ Converter 变体: {total_variants} 个组合 "
           f"(非 LLM: {total_non_llm} | LLM: {total_llm})")
-    print("  ■ 策略: 自适应选择 → 失败类型路由 → 首次成功停止")
+    print(f"  ■ 策略: {_strategy_mode} (Tier S → A → B → C → D)")
+    print("  ■ 停止: FIRST_SUCCESS (首次成功即停止尝试剩余 Converter)")
     print("  ■ 机制: PyRIT 原生 extra_request_converters 渐进式追加")
+    print(f"  ■ 载荷编号: P1-P{_plan_count} (基线) → "
+          f"执行后含 Converter 变体扩展")
     print("  " + "═" * _W)
-    print()
-
-
-def _display_execution_checklist(
-    attack_plans: list[Any],
-    *,
-    strategy_info: dict[str, Any],
-    target_type: str = "",
-    converter_chains_from_router: list[str] | None = None,
-) -> None:
-    """
-    执行清单（★ 风格）— 逐载荷执行计划确认
-
-    在 ★ 组合矩阵 ★ 之后、[OK] 开始执行 之前展示。
-    每个载荷一行，附带 Converter 尝试链（↳ 表示渐进式追加）。
-    """
-    try:
-        from src.payloads.technique_name_mapper import get_normalized_asr
-        from src.scenarios.asr_strategy_display import _get_tier
-    except Exception:
-        get_normalized_asr = None  # type: ignore
-        _get_tier = None  # type: ignore
-
-    model_name = strategy_info.get("model_name", "")
-    strategy_mode = strategy_info.get("strategy_mode", "academic")
-
-    # 主标题
-    print()
-    print("  ╔" + "═" * _W + "╗")
-    print()
-    n_plans = len(attack_plans)
-    # 统计技术数
-    tech_set = set()
-    for p in attack_plans:
-        t = getattr(p, "attack_technique", "")
-        if t:
-            tech_set.add(t)
-    print(f"       ★  执行清单 ({n_plans} 载荷 × {len(tech_set)} 技术 = {n_plans} 原子攻击)  ★")
-    print()
-    print("  ╚" + "═" * _W + "╝")
-
-    print(f"  ┌─ 按执行顺序 ─{'─' * max(1, _W - 22)}┐")
-
-    for idx, plan in enumerate(attack_plans):
-        pid = f"P{idx + 1}"
-        tech = getattr(plan, "attack_technique", "unknown")
-        owasp = getattr(plan, "owasp_id", "") or ""
-        pi = getattr(plan, "prompt_item", None)
-        obj = _trunc(getattr(pi, "objective", ""), 50) if pi else ""
-
-        # ASR
-        asr_str = ""
-        if get_normalized_asr and _get_tier:
-            try:
-                asr = get_normalized_asr(tech, model_name)
-                tier = _get_tier(asr)
-                asr_str = f"  Tier {tier}  ASR {asr:.0%}"
-            except Exception:
-                pass
-
-        print(f"  │ #{idx + 1}  {pid} [{owasp}] {tech}{asr_str}")
-        print(f"  │      \"{obj}\"")
-
-        # Converter 尝试链
-        chains = _resolve_converter_chains_for_technique(
-            tech, [plan], target_type, converter_chains_from_router,
-        )
-        if chains:
-            chain_names = [c["name"] for c in chains[:4]]
-            chain_str = " → ".join(chain_names)
-            if len(chains) > 4:
-                chain_str += f" ... (+{len(chains) - 4})"
-            print(f"  │      ↳ {chain_str}")
-        else:
-            print(f"  │      ↳ (无 Converter — 基线技术)")
-
-    print(f"  │")
-    print(f"  │ 策略: {strategy_mode} (Tier S → A → B → C → D)")
-    print(f"  │ 停止: FIRST_SUCCESS (首次成功即停止尝试剩余 Converter)")
-    print(f"  └{'─' * _W}┘")
     print()
 
 
@@ -545,7 +626,7 @@ def _display_per_payload_results(
             conv_str = ", ".join(sorted(set(child_converters)))
             print(f"  ┃    │ Converter: {conv_str}")
         else:
-            print(f"  ┃    │ Converter: (基线无变换)")
+            print("  ┃    │ Converter: (基线无变换)")
 
         # 评分
         score = getattr(r, "score", None)
@@ -598,9 +679,64 @@ def _display_per_payload_results(
     print()
 
 
+def _display_execution_strategy(ctx: PipelineContext) -> None:
+    """
+    执行策略 — 合并技术排序 + 失败路由 + 停止策略
+    """
+    from src.payloads.technique_name_mapper import get_normalized_asr
+    from src.scenarios.asr_strategy_display import _get_tier
+
+    model_name = ctx.strategy_info.get("model_name", ctx.target_model)
+    strategy_mode = ctx.strategy_info.get("strategy_mode", "academic")
+
+    tech_list = []
+    seen = set()
+    for plan in ctx.attack_plans:
+        tech = getattr(plan, "attack_technique", "")
+        if tech and tech not in seen:
+            seen.add(tech)
+            asr = get_normalized_asr(tech, model_name)
+            tech_list.append((tech, asr, _get_tier(asr)))
+
+    if tech_list:
+        tech_list.sort(key=lambda x: -x[1])
+
+    _TIER_LABELS = {"S": "极高", "A": "高", "B": "中", "C": "低", "D": "极低"}
+
+    strategy_lines = [f"技术排序: {strategy_mode} 模式 (Tier S → A → B → C → D)"]
+
+    if tech_list:
+        for i, (tech, asr, tier) in enumerate(tech_list[:10]):
+            bar_len = int(asr * 10)
+            bar = "█" * bar_len + "░" * (10 - bar_len)
+            _label = _TIER_LABELS.get(tier, "")
+            strategy_lines.append(f"  {i+1}. [{tier} {_label}] {tech:28s} {bar}")
+    else:
+        strategy_lines.append("  (无技术)")
+
+    strategy_lines.append("")
+    strategy_lines.append("失败路由 (参考策略):")
+    strategy_lines.append("  model_refusal     → 策略升级 (Tier S/A 优先)")
+    strategy_lines.append("  timeout           → 降级单轮 (prompt_sending)")
+    strategy_lines.append("  scorer_error      → 换技术 (跳过当前)")
+    strategy_lines.append("  objective_failed  → 强技术+Converter 变体")
+
+    strategy_lines.append("")
+    strategy_lines.append("停止策略: FIRST_SUCCESS (首次成功即停止尝试剩余 Converter)")
+    # L2/L3 停止策略
+    _owasp_threshold = ctx.config_loader.get_owasp_success_threshold()
+    _stop_on_first = ctx.config_loader.get_stop_on_first_success()
+    if _stop_on_first:
+        strategy_lines.append("  L3: 全局首成功即停 (已启用)")
+    elif _owasp_threshold > 0:
+        strategy_lines.append(f"  L2: OWASP 分类阈值 {_owasp_threshold:.0%} (运行时)")
+
+    info_box("执行策略", strategy_lines)
+
+
 async def run(ctx: PipelineContext) -> bool:
-    """执行攻击阶段。返回 False 表示执行失败不可恢复。"""
-    stage_header(6, "Executor 执行层", "原生 AdaptiveScenario 批量执行")
+    """执行攻击阶段（含执行策略展示）。返回 False 表示执行失败不可恢复。"""
+    stage_header(5, "Executor 执行层", "原生 AdaptiveScenario 批量执行")
 
     # ── ① 执行配置 ──
     ctx.max_concurrency = ctx.config_loader.get_pipeline_max_concurrency()
@@ -643,7 +779,7 @@ async def run(ctx: PipelineContext) -> bool:
         f"(多轮: {_mode_count['multi_turn']} | 单轮: {_mode_count['single_turn']} "
         f"| 顺序: {_mode_count['sequential']})",
         f"攻击技术 ({len(_tech_set)} 种): " + ", ".join(
-            f"{t}({c})" for t, c in sorted(_tech_set.items(), key=lambda x: -x[1])
+            f"{t}({c})" for t, c in _sort_tech_by_asr(_tech_set, _exec_model)
         ),
         f"OWASP 覆盖 ({len(_owasp_set)} 类): " + ", ".join(
             f"{o}({c})" for o, c in sorted(_owasp_set.items(), key=lambda x: -x[1])
@@ -651,7 +787,10 @@ async def run(ctx: PipelineContext) -> bool:
     ]
     info_box("攻击计划摘要", plan_lines)
 
-    # ── ② 统一攻击载荷 × Converter 组合矩阵 ──
+    # ── ② 执行策略 ──
+    _display_execution_strategy(ctx)
+
+    # ── ③ 统一攻击载荷 × Converter 组合矩阵 ──
     _display_unified_attack_matrix(
         ctx.attack_plans,
         strategy_info=ctx.strategy_info,
@@ -662,18 +801,16 @@ async def run(ctx: PipelineContext) -> bool:
         tech_set=_tech_set,
     )
 
-    # ── ③ 执行清单（★ 风格） ──
-    _display_execution_checklist(
-        ctx.attack_plans,
-        strategy_info=ctx.strategy_info,
-        target_type=ctx.target_type,
-        converter_chains_from_router=ctx.converter_chains,
-    )
-
-    # ── ④ 开始执行 ──
+    # ── ③ 开始执行 ──
     print(f"  [OK] 开始执行 {_plan_count} 个攻击计划...\n")
 
     from src.scenarios.adaptive_runner import run_adaptive_scenario_async
+
+    # P1-1: max_attempts_per_objective — env > pipeline.yaml > default(5)
+    _max_attempts = int(os.getenv("MAX_ATTEMPTS_PER_OBJECTIVE", "") or ctx.config_loader.get_pipeline_defaults().get("max_attempts_per_objective", 5))
+    # P0-1: L2/L3 停止策略参数从 pipeline.yaml 读取
+    _owasp_threshold = ctx.config_loader.get_owasp_success_threshold()
+    _stop_on_first = ctx.config_loader.get_stop_on_first_success()
 
     ctx.adaptive_result = await run_adaptive_scenario_async(
         objective_target=ctx.objective_target,
@@ -681,7 +818,7 @@ async def run(ctx: PipelineContext) -> bool:
         attack_plans=ctx.attack_plans,
         owasp_id=",".join(ctx.config_owasp_ids) if ctx.config_owasp_ids else "",
         exam_id=ctx.exam_id,
-        max_attempts_per_objective=3,
+        max_attempts_per_objective=_max_attempts,
         per_attack_timeout=ctx.per_attack_timeout,
         max_retries=ctx.scenario_max_retries,
         verbose=ctx.verbose,
@@ -691,8 +828,13 @@ async def run(ctx: PipelineContext) -> bool:
         strategy_mode=ctx.strategy_info.get("strategy_mode", "academic"),
         model_name=ctx.strategy_info.get("model_name", ctx.target_model),
         model_tier=ctx.strategy_info.get("model_tier", ctx.model_tier),
+        owasp_success_threshold=_owasp_threshold,
+        stop_on_first_success=_stop_on_first,
     )
     ctx.batch_result = ctx.adaptive_result.batch_result
+
+    # ── 从执行结果构建停止策略统计 (供 Stage 6 展示) ──
+    _populate_stop_context(ctx)
 
     # ── ⑥ 执行结果概要 ──
     result_lines = [
@@ -751,3 +893,61 @@ async def run(ctx: PipelineContext) -> bool:
             print(f"    ... 还有 {len(ctx.batch_result.errors) - 5} 个错误")
 
     return True
+
+
+def _populate_stop_context(ctx: PipelineContext) -> None:
+    """
+    从执行结果构建停止策略统计 (供 Stage 6 展示)
+
+    Pipeline 数据流修复: RuntimeStopEventHandler 设计为运行时事件处理器,
+    但 AdaptiveScenario 内部执行时无法直接注入。本函数在执行完成后,
+    从 batch_result + native_result 后处理构建 StopStrategyContext,
+    使 Stage 6 的 _display_stop_stats() 能展示有意义的停止策略统计。
+
+    L2/L3 停止的实际执行由 adaptive_runner 的预过滤完成,
+    本函数仅用于展示层面的统计汇总。
+    """
+    if ctx.adaptive_result is None or ctx.adaptive_result.native_result is None:
+        return
+
+    try:
+        from src.scenarios.runtime_stop_handler import StopStrategyContext
+
+        stop_ctx = StopStrategyContext()
+        native_result = ctx.adaptive_result.native_result
+
+        if not hasattr(native_result, "get_display_groups"):
+            return
+
+        display_groups = native_result.get_display_groups()
+        for _group_name, results in display_groups.items():
+            for r in results:
+                if r is None:
+                    continue
+
+                # 从 memory_labels 提取 OWASP ID
+                owasp_id = "UNKNOWN"
+                labels = getattr(r, "memory_labels", {}) or {}
+                if isinstance(labels, dict):
+                    owasp_id = labels.get("owasp_id", "UNKNOWN")
+                else:
+                    # PyRIT MemoryLabels 对象
+                    try:
+                        owasp_id = labels.get("owasp_id", "UNKNOWN")
+                    except Exception:
+                        pass
+
+                stop_ctx.record_attempt(owasp_id)
+
+                outcome = getattr(r, "outcome", None)
+                outcome_str = (
+                    str(outcome.value).upper()
+                    if hasattr(outcome, "value")
+                    else str(outcome).upper()
+                )
+                if outcome_str == "SUCCESS":
+                    stop_ctx.record_success(owasp_id)
+
+        ctx.stop_context = stop_ctx
+    except Exception:
+        pass

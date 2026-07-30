@@ -6,23 +6,22 @@ Layer 4: 批量编排层
 "N 个 objectives × 1 套攻击流程"
 
 子模块：
-- scenario_orchestrator.py  批量编排 + 升级重试 + 进度仪表盘
-- batch_orchestrator.py     兼容层（委托 ScenarioOrchestrator）
+- batch_orchestrator.py     兼容层（已弃用，委托原生路径）
 - xpia_workflow.py          XPIA 跨域提示注入专用工作流（含 RAG/ProcessingCallback）
+- stop_strategy.py          停止策略上下文（L2/L3 预过滤后分析）
+
+P1-3: 已删除场景双轨代码 (scenario_orchestrator.py + upgrade_strategy.py)，
+原生 AI300AdaptiveScenario 通过 DatasetAttackConfiguration 统一所有执行路径。
 """
 
-from src.executor.workflow.scenario_orchestrator import (
-    ScenarioOrchestrator,
-    execute_batch_attacks,
-)
+# 停止策略（保留：用于 L2/L3 预过滤后的结果分析）
 from src.executor.workflow.stop_strategy import (
     StopStrategyContext,
     SuccessRecordResult,
     ThresholdReachedInfo,
 )
-from src.executor.workflow.batch_orchestrator import (
-    BatchAttackOrchestrator,
-)
+
+# XPIA 工作流
 from src.executor.workflow.xpia_workflow import (
     ProcessingCallbackBuilder,
     RAGXPIAWorkflowWrapper,
@@ -30,12 +29,11 @@ from src.executor.workflow.xpia_workflow import (
 )
 
 __all__ = [
-    "ScenarioOrchestrator",
-    "execute_batch_attacks",
+    # 停止策略
     "StopStrategyContext",
     "SuccessRecordResult",
     "ThresholdReachedInfo",
-    "BatchAttackOrchestrator",
+    # XPIA 工作流
     "XPIAWorkflowWrapper",
     "RAGXPIAWorkflowWrapper",
     "ProcessingCallbackBuilder",

@@ -31,15 +31,24 @@ v3.0 优化：
   - OWASP 映射（通过 memory_labels）
 """
 
+import asyncio
 import logging
+import math
+import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
 from src.payloads.models import BatchAttackResult
 
 logger = logging.getLogger(__name__)
+
+# P0-2: 最大总执行时间上限（秒），防止无限等待
+_MAX_TOTAL_TIMEOUT = 3600  # 60 分钟
+
+# P0-1: L2 预过滤的安全缓冲数
+_L2_FILTER_BUFFER = 2
 
 
 @dataclass
@@ -82,7 +91,7 @@ async def run_adaptive_scenario_async(
     owasp_id: str = "",
     exam_id: str = "",
     max_attempts_per_objective: int = 3,
-    per_attack_timeout: int = 300,
+    per_attack_timeout: int = 180,
     max_retries: int = 0,
     max_concurrency: int = 4,
     verbose: bool = False,
@@ -92,6 +101,8 @@ async def run_adaptive_scenario_async(
     strategy_mode: str = "academic",
     model_name: str = "gpt-4o",
     model_tier: str = "unknown",
+    owasp_success_threshold: float = 0.0,
+    stop_on_first_success: bool = False,
 ) -> AdaptiveRunResult:
     """
     P3: 原生 AI300AdaptiveScenario 执行入口
@@ -135,14 +146,44 @@ async def run_adaptive_scenario_async(
 
     start_time = time.time()
 
-    # converter_target 回退到 judge_target（向后兼容，但可能因安全对齐导致 Converter 500 错误）
+    # P1-2: converter_target 自动创建 — 优先使用 TARGET_* 环境变量
+    # 被测试模型通常限制较少，能可靠生成 LLM Converter 所需的 JSON 输出
     if converter_target is None:
-        converter_target = judge_target
-        logger.warning(
-            "converter_target 未指定，回退到 judge_target。"
-            "安全对齐模型可能拒绝生成攻击内容，导致 PersuasionConverter/DecompositionConverter 等 500 错误。"
-            "建议在 pipeline 中传入 converter_target（默认使用目标模型）。"
-        )
+        _target_endpoint = os.getenv("TARGET_ENDPOINT", "")
+        _target_model = os.getenv("TARGET_MODEL", "")
+        _target_api_key = os.getenv("TARGET_API_KEY", "")
+        if _target_endpoint and _target_model and _target_api_key:
+            try:
+                from src.targets import create_prompt_target, TargetParams
+                from src.targets.rate_limited_target import RateLimitConfig, wrap_target_with_rate_limiting
+                _conv_rpm = os.getenv("CONVERTER_MAX_RPM")
+                _conv_rpm = int(_conv_rpm) if _conv_rpm else None
+                _conv_params = TargetParams(
+                    temperature=0.7,
+                    discover_capabilities=False,
+                    max_requests_per_minute=_conv_rpm,
+                )
+                converter_target, _ = await create_prompt_target(
+                    target_url=_target_endpoint,
+                    api_key=_target_api_key,
+                    model_name=_target_model,
+                    params=_conv_params,
+                )
+                converter_target = wrap_target_with_rate_limiting(
+                    converter_target,
+                    config=RateLimitConfig(max_concurrent_requests=int(os.getenv("API_MAX_CONCURRENCY", "10"))),
+                    semaphore_key=f"converter:{_target_endpoint}",
+                )
+                logger.info(f"P1-2: Auto-created converter_target from TARGET_* (model={_target_model})")
+            except Exception as e:
+                logger.warning(f"P1-2: Failed to create converter_target from TARGET_*: {e}, falling back to judge_target")
+                converter_target = judge_target
+        else:
+            converter_target = judge_target
+            logger.warning(
+                "P1-2: converter_target 未指定且 TARGET_* 环境变量不完整，回退到 judge_target。"
+                "安全对齐模型可能拒绝生成攻击内容，导致 LLM Converter 500 错误。"
+            )
 
     # ──────────────────────────────────────────────────────────
     # 方案 A 核心：attack_plans → AttackSeedGroup → DatasetAttackConfiguration(seed_groups=)
@@ -215,12 +256,64 @@ async def run_adaptive_scenario_async(
 
     attack_seed_groups = deduped_seed_groups
 
+    # ──────────────────────────────────────────────────────────
+    # P0-1: L2/L3 停止策略预过滤
+    # 原生 run_async() 是原子批量执行，通过预过滤 seed_groups 实现:
+    #   L2: 每个 OWASP 最多保留 ceil(total * threshold) + buffer 个 seed_groups
+    #   L3: 仅保留第一个 seed_group（最激进）
+    # ──────────────────────────────────────────────────────────
+    original_seed_count = len(attack_seed_groups)
+    skipped_by_stop = 0
+    stop_reasons: list[str] = []
+
+    if stop_on_first_success and len(attack_seed_groups) > 1:
+        skipped_by_stop = len(attack_seed_groups) - 1
+        attack_seed_groups = attack_seed_groups[:1]
+        stop_reasons.append(f"L3 全局首成功即停: 保留 1/{original_seed_count} seed_groups")
+        logger.info(f"P0-1 L3: stop_on_first_success=True, filtered to 1 seed group (from {original_seed_count})")
+    elif owasp_success_threshold > 0.0 and attack_plans:
+        owasp_to_indices: dict[str, list[int]] = defaultdict(list)
+        for idx, plan in enumerate(attack_plans[:original_seed_count]):
+            oid = getattr(plan, "owasp_id", None) or "UNKNOWN"
+            owasp_to_indices[oid].append(idx)
+
+        filtered_indices: list[int] = []
+        for oid, indices in owasp_to_indices.items():
+            total_for_owasp = len(indices)
+            raw_required = math.ceil(total_for_owasp * owasp_success_threshold)
+            required = min(raw_required, 5)
+            keep_count = min(total_for_owasp, required + _L2_FILTER_BUFFER)
+            filtered_indices.extend(indices[:keep_count])
+            if keep_count < total_for_owasp:
+                stop_reasons.append(
+                    f"L2 OWASP {oid}: 保留 {keep_count}/{total_for_owasp} "
+                    f"(threshold={owasp_success_threshold:.0%}, required={required})"
+                )
+
+        if filtered_indices and len(filtered_indices) < original_seed_count:
+            filtered_seed_groups = []
+            for idx in filtered_indices:
+                if idx < len(attack_seed_groups):
+                    filtered_seed_groups.append(attack_seed_groups[idx])
+            skipped_by_stop = original_seed_count - len(filtered_seed_groups)
+            attack_seed_groups = filtered_seed_groups
+            logger.info(
+                f"P0-1 L2: owasp_success_threshold={owasp_success_threshold}, "
+                f"filtered to {len(attack_seed_groups)} seed groups (from {original_seed_count}, skipped {skipped_by_stop})"
+            )
+
     # 创建内联 DatasetAttackConfiguration（不触碰 Memory）
     dataset_config = DatasetAttackConfiguration(seed_groups=attack_seed_groups)
     logger.info(
         f"AdaptiveRunner: {len(attack_seed_groups)} inline seed groups "
-        f"(source: {'seed_groups' if seed_groups else 'attack_plans'})"
+        f"(source: {'seed_groups' if seed_groups else 'attack_plans'}"
+        + (f", L2/L3 filtered: {original_seed_count}→{len(attack_seed_groups)}" if skipped_by_stop > 0 else "")
+        + ")"
     )
+    if stop_reasons:
+        print(f"  [STOP]  停止策略预过滤: 跳过 {skipped_by_stop} 个 seed groups")
+        for reason in stop_reasons:
+            print(f"          • {reason}")
 
     # 将 pipeline 选中的技术映射到 AI300Technique 枚举
     valid_technique_values = {t.value for t in AI300Technique}
@@ -361,20 +454,56 @@ async def run_adaptive_scenario_async(
 
     # 5. 执行 Scenario（原生 run_async — 含 tqdm + max_retries + 自动恢复）
     #
+    # P0-2: asyncio.wait_for 超时保护
+    #   原生 run_async() 无内置超时，单个 API 调用挂起可能阻塞整个流程。
+    #   总超时 = per_attack_timeout × len(seed_groups) × max_attempts_per_objective
+    #   上限 _MAX_TOTAL_TIMEOUT 防止无限等待
+    #
     # L5: ScenarioIdentifier 恢复验证
-    #    scenario._scenario_result_id 在 initialize_async() 中由原生 Scenario 设置，
-    #    是当前运行的唯一标识。失败时用此 ID 精确检索部分结果，
-    #    不再使用 memory.get_scenario_results()[-1]（可能返回前一次运行的结果）。
     scenario_result_id = getattr(scenario, "_scenario_result_id", None)
     scenario_error = None
+    total_timeout = min(
+        per_attack_timeout * len(attack_seed_groups) * max_attempts_per_objective,
+        _MAX_TOTAL_TIMEOUT,
+    )
+    logger.info(
+        f"P0-2: scenario.run_async() timeout={total_timeout}s "
+        f"({per_attack_timeout}s × {len(attack_seed_groups)} groups × {max_attempts_per_objective} attempts, "
+        f"capped at {_MAX_TOTAL_TIMEOUT}s)"
+    )
     try:
-        native_result = await scenario.run_async()
+        native_result = await asyncio.wait_for(
+            scenario.run_async(),
+            timeout=total_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            f"P0-2: Scenario execution timed out after {total_timeout}s "
+            f"({per_attack_timeout}s × {len(attack_seed_groups)} × {max_attempts_per_objective})"
+        )
+        scenario_error = f"Scenario timed out after {total_timeout}s"
+        native_result = None
+        try:
+            from pyrit.memory import CentralMemory
+            memory = CentralMemory.get_memory_instance()
+            sid = scenario_result_id or getattr(scenario, "_scenario_result_id", None)
+            if sid:
+                scenario_results = memory.get_scenario_results(scenario_result_ids=[sid])
+                if scenario_results:
+                    native_result = scenario_results[0]
+                    logger.info(
+                        f"P0-2: Retrieved partial ScenarioResult from memory "
+                        f"(scenario_result_id={sid}, {len(scenario_results)} results found)"
+                    )
+            else:
+                logger.warning("No scenario_result_id available, cannot retrieve partial results")
+        except Exception as e2:
+            logger.warning(f"Failed to retrieve partial results from memory: {e2}")
     except Exception as e:
         logger.error(f"Scenario execution failed: {e}")
         scenario_error = str(e)
         native_result = None
         # L5: 使用 scenario_result_id 精确检索当前运行的部分结果
-        # （不再使用 memory.get_scenario_results()[-1] 避免取到前一次运行的结果）
         try:
             from pyrit.memory import CentralMemory
             memory = CentralMemory.get_memory_instance()
@@ -619,7 +748,7 @@ def _display_pre_execution_card(scenario: Any, seed_group_count: int) -> None:
         print(f"  │ 技术注册:        {base_count} 基础 + {variant_cnt} Converter 变体 = {total_tech} 总计")
         print(f"  │ 跳过统计:        {skip_str}")
         print(f"  │ 内联种子组:      {seed_group_count} 个")
-        print(f"  │ 初始化:          ✓ 完成 (DatasetAttackConfiguration 已就绪)")
+        print("  │ 初始化:          ✓ 完成 (DatasetAttackConfiguration 已就绪)")
         print(f"  └{'─' * _W}┘")
     except Exception:
         pass

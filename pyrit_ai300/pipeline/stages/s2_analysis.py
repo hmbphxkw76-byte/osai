@@ -1,8 +1,8 @@
 """
-Stage 2/8: Analysis 分析层
-==========================
+Stage 2/7: Strategy 策略层
+=========================
 
-策略选择 + 优先级评估 + ASR引导策略分析。
+策略选择 + 优先级评估 + ASR引导策略分析 + ASR经验加载。
 """
 
 from pipeline.context import PipelineContext
@@ -14,7 +14,7 @@ from src.analysis.strategy_selector import StrategySelector
 
 async def run(ctx: PipelineContext) -> None:
     """执行分析阶段"""
-    stage_header(2, "Analysis 分析层", "策略选择 + 优先级评估")
+    stage_header(2, "Strategy 策略层", "策略选择 + 优先级评估 + ASR经验加载")
 
     ctx.auth_result = AuthResult(
         target_url=ctx.target_url,
@@ -33,7 +33,42 @@ async def run(ctx: PipelineContext) -> None:
         target_model=ctx.target_model, recon_result=ctx.recon_result
     )
 
-    # 策略分析盒子
+    # L5 ASR 反馈回路 Tier 2: 加载经验 ASR (warm-start)
+    from src.scenarios.empirical_asr_store import (
+        load_empirical_asr,
+        compute_effective_asr,
+        detect_patched_techniques,
+        generate_strategy_recommendation,
+    )
+    ctx.empirical_asr_data = load_empirical_asr(ctx.target_model)
+
+    # 计算融合 ASR (学术 × 经验)
+    if ctx.empirical_asr_data:
+        from src.payloads.technique_name_mapper import get_normalized_asr
+        from src.payloads.asr_prior_registry import get_all_priors
+        academic_map = {
+            p.technique_name: get_normalized_asr(p.technique_name, ctx.target_model)
+            for p in get_all_priors()
+        }
+        ctx.warm_start_asr = {
+            tech: compute_effective_asr(tech, ctx.target_model, acad, ctx.empirical_asr_data)
+            for tech, acad in academic_map.items()
+        }
+        # 检测 patched 技术
+        ctx.patched_techniques = detect_patched_techniques(
+            academic_map, ctx.empirical_asr_data,
+        )
+        # 生成策略建议
+        ctx.strategy_recommendations = generate_strategy_recommendation(
+            ctx.target_model,
+            ctx.empirical_asr_data,
+            academic_map,
+            ctx.patched_techniques,
+        )
+        if ctx.strategy_recommendations:
+            info_box("ASR 经验反馈 (Tier 2)", ctx.strategy_recommendations)
+
+    # 攻击策略分析盒子
     tech_str = ", ".join(ctx.strategy_selection.attack_techniques[:6])
     if len(ctx.strategy_selection.attack_techniques) > 6:
         tech_str += f" ... (+{len(ctx.strategy_selection.attack_techniques) - 6})"
@@ -61,9 +96,10 @@ async def run(ctx: PipelineContext) -> None:
     }
     analysis_lines.append(inferences.get(ctx.model_tier, "推论依据:     未知 → 默认强过滤策略"))
 
-    info_box("策略分析", analysis_lines)
+    info_box("攻击策略分析", analysis_lines)
 
-    info_box("传递到 Target 接入", [
+    info_box("传递到 Target 接入 (Stage 3)", [
         f"• strategy_mode: {ctx.strategy_info.get('strategy_mode', 'academic')} → 影响 Tier 执行顺序",
         f"• 技术池: {len(ctx.strategy_selection.attack_techniques)} 种 → 能力感知筛选后保留",
+        f"• 预期载荷: {', '.join(ctx.owasp_ids) if ctx.owasp_ids else '全部 OWASP'} → 载荷预映射",
     ])

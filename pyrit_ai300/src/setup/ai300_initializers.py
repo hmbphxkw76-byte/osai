@@ -209,7 +209,7 @@ class AI300ScorerInitializer(PyRITInitializer):
         """
         注册 Scorer 到 ScorerRegistry
 
-        Step 1: 委托原生 ScorerInitializer（注册 20+ 评分器变体）
+        Step 1: 委托原生 ScorerInitializer（仅在 TargetRegistry 有标准 target 时执行）
         Step 2: AI-300 扩展（注册考试专用评分器）
         """
         from pyrit.registry import TargetRegistry, ScorerRegistry
@@ -217,8 +217,15 @@ class AI300ScorerInitializer(PyRITInitializer):
         target_registry = TargetRegistry.get_registry_singleton()
 
         # Step 1: 委托原生 ScorerInitializer
-        # 原生 ScorerInitializer 要求 TargetRegistry 非空
-        if len(target_registry.instances) > 0:
+        # 性能优化: 仅当 TargetRegistry 有标准 PyRIT target (OPENAI_CHAT_* 等) 时执行。
+        # AI-300 考试场景使用 TARGET_*/JUDGE_* 环境变量，原生 ScorerInitializer
+        # 会尝试注册 20+ 评分器，每个都因 "required target not found" 而失败,
+        # 浪费 ~5-8s 异常处理时间。跳过原生委托, 直接走 AI-300 扩展路径。
+        _has_standard_target = any(
+            hasattr(entry, "tags") and "default" in (entry.tags or [])
+            for entry in target_registry.instances
+        )
+        if _has_standard_target and len(target_registry.instances) > 0:
             from pyrit.setup.initializers.scorers import ScorerInitializer
 
             native_init = ScorerInitializer()
@@ -231,9 +238,9 @@ class AI300ScorerInitializer(PyRITInitializer):
             except Exception as e:
                 logger.warning(f"AI300ScorerInitializer: native ScorerInitializer failed (non-fatal): {e}")
         else:
-            logger.warning(
-                "AI300ScorerInitializer: TargetRegistry is empty, skipping native ScorerInitializer. "
-                "Ensure AI300TargetInitializer runs first."
+            logger.info(
+                "AI300ScorerInitializer: no standard PyRIT targets in TargetRegistry, "
+                "skipping native ScorerInitializer (20+ scorer registration attempts avoided)."
             )
 
         # Step 2: AI-300 扩展 — 注册考试专用评分器
@@ -501,17 +508,21 @@ class AI300DefaultValuesInitializer(PyRITInitializer):
 
 def get_default_initializers() -> list[PyRITInitializer]:
     """
-    获取 AI-300 默认初始化器列表（L5 原生优先）
+    获取 AI-300 默认初始化器列表（L5 原生优先 + 性能优化）
 
-    返回推荐的六阶段初始化器序列：
+    返回推荐的四阶段初始化器序列：
       1. AI300DefaultValuesInitializer     — 设置默认值（set_default_value）
       2. AI300TargetInitializer            — 委托原生 + 注册 AI-300 Target
       3. AI300ScorerInitializer            — 委托原生 + 注册 AI-300 Scorer
       4. AI300TechniqueInitializerWrapper  — 注册 AI-300 Technique
-      5. AI300LoadDefaultDatasets          — 加载 OWASP 数据集
-      6. AI300PreloadScenarioMetadata      — 预热 Scenario 元数据缓存
 
-    对齐 PyRIT 原生五大初始化器 + AI-300 专有扩展。
+    性能优化（v8.1 — 消除启动 ~30s 延迟）:
+      - 移除 AI300LoadDefaultDatasets: 与 Stage 4 DatasetManager.load_datasets() 重复加载
+        相同 YAML 到 CentralMemory，浪费 ~10-15s I/O。Stage 4 已完整覆盖。
+      - 移除 AI300PreloadScenarioMetadata: 总是因缺少 OPENAI_CHAT_MODEL 环境变量而失败，
+        预热无效且浪费 ~5s。
+      - AI300ScorerInitializer: 仅当 TargetRegistry 非空时委托原生 ScorerInitializer,
+        避免 20+ 评分器逐个失败的异常处理开销。
 
     Returns:
         PyRITInitializer 子类实例列表（按执行顺序）
@@ -521,6 +532,4 @@ def get_default_initializers() -> list[PyRITInitializer]:
         AI300TargetInitializer(),
         AI300ScorerInitializer(),
         AI300TechniqueInitializerWrapper(),
-        AI300LoadDefaultDatasets(),
-        AI300PreloadScenarioMetadata(),
     ]

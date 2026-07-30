@@ -394,13 +394,21 @@ class ModelTierProbe:
     async def probe_async(self) -> tuple[str, dict]:
         """执行 3 个梯度探针，返回 (tier, detail)
 
+        性能优化: 3 个探针并发执行 (asyncio.gather), 而非串行。
+        串行模式下 3 个探针各等待 API 响应, 总耗时 = sum(t1, t2, t3)。
+        并发模式下总耗时 = max(t1, t2, t3), 约 3x 加速。
+
         Returns:
             tier: "strong" / "moderate" / "weak" / "unknown"
             detail: 各探针的结果摘要
         """
-        benign = await self._send_probe(self._BENIGN_PROMPT)
-        borderline = await self._send_probe(self._BORDERLINE_PROMPT)
-        jailbreak = await self._send_probe(self._JAILBREAK_PROMPT)
+        import asyncio
+
+        benign, borderline, jailbreak = await asyncio.gather(
+            self._send_probe(self._BENIGN_PROMPT),
+            self._send_probe(self._BORDERLINE_PROMPT),
+            self._send_probe(self._JAILBREAK_PROMPT),
+        )
 
         detail = {
             "benign": {"success": benign["success"], "refused": benign["refused"], "error": benign["error"]},

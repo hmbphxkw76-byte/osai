@@ -48,12 +48,14 @@ class PipelineContext:
     model_tier: str = "unknown"
     target_type: str = ""  # recon 检测的 target_type (如 "openai_responses")
 
-    # ── Stage 2: Analysis ──
+    # ── Stage 2: Strategy ──
     strategy_selection: Any = None
     strategy_info: Dict[str, Any] = field(default_factory=dict)
     priority_score: int = 0
     auth_result: Any = None
     recommended_mode: str = ""
+    empirical_asr_data: Any = None  # Tier 2: 加载的经验 ASR (src: Stage 2)
+    warm_start_asr: Dict[str, float] = field(default_factory=dict)  # 融合 ASR (src: Stage 2)
 
     # ── Stage 3: Targets ──
     objective_target: Any = None
@@ -67,6 +69,8 @@ class PipelineContext:
     api_max_concurrent: int = 10
     target_rpm: Optional[int] = None
     judge_rpm: Optional[int] = None
+    converter_chains: List[str] = field(default_factory=list)  # ← 从 Stage 5 移入 (src: Stage 3)
+    converter_health_monitor: Any = None  # L2 韧性: Converter 熔断器 (src: Stage 3)
 
     # ── Stage 4: Datasets ──
     manager: Any = None
@@ -82,22 +86,27 @@ class PipelineContext:
     multi_turn_count: int = 0
     fallback_strategy: Any = None
     fallback_chain: List[Any] = field(default_factory=list)
+    selection_result: Any = None  # Wizard 选择结果 (含 target_profile)
+    selection_mode_info: str = ""  # 选择模式描述 (如 "自动 (LLM Direct preset)"
     config_owasp_ids: List[str] = field(default_factory=list)
     owasp_counts: Dict[str, int] = field(default_factory=dict)
     technique_counts: Dict[str, int] = field(default_factory=dict)
     asr_high_count: int = 0
 
-    # ── Stage 5: Matching ──
-    converter_chains: List[str] = field(default_factory=list)
-
-    # ── Stage 6: Execute ──
+    # ── Stage 5: Execute (含执行策略 + 组合矩阵) ──
     adaptive_result: Any = None
     batch_result: Any = None
     max_concurrency: int = 1
     per_attack_timeout: int = 180
     timeout_overrides: Dict[str, int] = field(default_factory=dict)
     adaptive_max_concurrency: int = 4
+    stop_context: Any = None  # 运行时停止策略状态 (src: s6_execute)
 
-    # ── Stage 8: Report ──
+    # ── Stage 6: Feedback ──
+    tech_stats: Dict[str, Any] = field(default_factory=dict)  # per-technique 统计
+    patched_techniques: List[Any] = field(default_factory=list)  # 被补丁修复的技术
+    strategy_recommendations: List[str] = field(default_factory=list)  # 下次运行建议
+
+    # ── Stage 7: Report ──
     report_result: Any = None
     end_time: Optional[datetime] = None

@@ -92,9 +92,9 @@ class PipelineDisplay:
     2. 适配链决策展示
     """
 
-    STAGE_TOTAL = 8
+    STAGE_TOTAL = 7
 
-    def __init__(self, stage_total: int = 8):
+    def __init__(self, stage_total: int = 7):
         self.stage_total = stage_total
         self._noise_filter: Optional[PyRITNoiseFilter] = None
 
@@ -222,7 +222,7 @@ class PipelineDisplay:
 _display_instance: Optional[PipelineDisplay] = None
 
 
-def get_display(stage_total: int = 8) -> PipelineDisplay:
+def get_display(stage_total: int = 7) -> PipelineDisplay:
     """获取全局 PipelineDisplay 实例"""
     global _display_instance
     if _display_instance is None:

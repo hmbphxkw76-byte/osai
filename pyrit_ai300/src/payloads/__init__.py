@@ -109,10 +109,6 @@ from src.payloads.asr_rank_builder import (
 )
 from src.payloads.technique_name_mapper import (
     TECHNIQUE_NAME_MAP,
-    TIER_S_THRESHOLD,
-    TIER_A_THRESHOLD,
-    TIER_B_THRESHOLD,
-    TIER_C_THRESHOLD,
     normalize_technique_name,
     get_normalized_asr,
     get_normalized_tier,
@@ -147,8 +143,12 @@ from src.payloads.asr_prior_registry import (
     get_prior_ordered_techniques,
     get_all_priors,
     get_prior_summary,
-    update_empirical_asr,
-    batch_update_empirical_asr,
+    tier_from_asr,
+    TIER_S_THRESHOLD,
+    TIER_A_THRESHOLD,
+    TIER_B_THRESHOLD,
+    TIER_C_THRESHOLD,
+    TIER_THRESHOLDS,
 )
 from src.payloads.payload_downloader import (
     download_academic_payloads_async,
@@ -223,10 +223,6 @@ __all__ = [
     "get_top_n_groups",
     # v4.0: 技术名标准化映射
     "TECHNIQUE_NAME_MAP",
-    "TIER_S_THRESHOLD",
-    "TIER_A_THRESHOLD",
-    "TIER_B_THRESHOLD",
-    "TIER_C_THRESHOLD",
     "normalize_technique_name",
     "get_normalized_asr",
     "get_normalized_tier",
@@ -250,15 +246,19 @@ __all__ = [
     "FallbackExecutionResult",
     "GroupFallbackExecutor",
     "execute_with_fallback",
-    # 学术 ASR 先验 (ASR引导策略 P0)
+    # 学术 ASR 先验 (ASR引导策略)
     "ASRPrior",
     "get_asr_prior",
     "get_initial_q_value",
     "get_prior_ordered_techniques",
     "get_all_priors",
     "get_prior_summary",
-    "update_empirical_asr",
-    "batch_update_empirical_asr",
+    "tier_from_asr",
+    "TIER_S_THRESHOLD",
+    "TIER_A_THRESHOLD",
+    "TIER_B_THRESHOLD",
+    "TIER_C_THRESHOLD",
+    "TIER_THRESHOLDS",
     # 学术载荷下载器 (ASR引导策略)
     "download_academic_payloads_async",
     "list_local_academic_payloads",

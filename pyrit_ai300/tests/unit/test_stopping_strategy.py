@@ -10,12 +10,11 @@ L3: stop_on_first_success — global first success stop (most aggressive)
 Test coverage:
   1. BatchAttackResult model fields (owasp_success_map, owasp_total_map, skipped_by_stop)
   2. ConfigLoader getters (get_owasp_success_threshold, get_stop_on_first_success)
-  3. ScenarioOrchestrator.execute_batch signature accepts new params
-  4. execute_batch_attacks factory function accepts new params
-  5. GroupFallbackExecutor OWASP-aware tier stopping logic
-  6. GroupFallbackExecutor backward compatibility (threshold=0.0)
-  7. GroupFallbackExecutor stop_on_first_success
-  8. BatchAttackOrchestrator passes through new params
+  3. AdaptiveRunner signature accepts L2/L3 params
+  4. GroupFallbackExecutor OWASP-aware tier stopping logic
+  5. GroupFallbackExecutor backward compatibility (threshold=0.0)
+  6. GroupFallbackExecutor stop_on_first_success
+  7. Threshold calculation tests
 """
 
 import inspect
@@ -88,6 +87,13 @@ def _make_batch_result(
     )
 
 
+def _make_adaptive_result(batch_result):
+    """Create a mock AdaptiveRunResult wrapping a BatchAttackResult."""
+    mock = MagicMock()
+    mock.batch_result = batch_result
+    return mock
+
+
 # ============================================================
 # 1. BatchAttackResult Model Fields
 # ============================================================
@@ -146,17 +152,16 @@ class TestConfigLoaderStoppingStrategy:
     """Test ConfigLoader getters for stopping strategy."""
 
     def test_get_owasp_success_threshold_default(self):
-        """get_owasp_success_threshold returns default 0.5 from pipeline.yaml."""
+        """get_owasp_success_threshold returns default 0.0 from pipeline.yaml."""
         import os
         from src.core.config_loader import ConfigLoader
 
-        # Save and clear env
         old_val = os.environ.pop("OWASP_SUCCESS_THRESHOLD", None)
         try:
             loader = ConfigLoader()
             val = loader.get_owasp_success_threshold()
-            # Should be 0.5 from config/defaults/pipeline.yaml
-            assert val == 0.5
+            # P0-1: default is now 0.0 (maximize success rate)
+            assert val == 0.0
         finally:
             if old_val is not None:
                 os.environ["OWASP_SUCCESS_THRESHOLD"] = old_val
@@ -211,75 +216,32 @@ class TestConfigLoaderStoppingStrategy:
 
 
 # ============================================================
-# 3. ScenarioOrchestrator Signature Tests
+# 3. AdaptiveRunner Signature Tests
 # ============================================================
 
 
-class TestScenarioOrchestratorSignature:
-    """Test that ScenarioOrchestrator.execute_batch accepts new params."""
+class TestAdaptiveRunnerSignature:
+    """Test that run_adaptive_scenario_async accepts L2/L3 params."""
 
-    def test_execute_batch_has_owasp_success_threshold(self):
-        """execute_batch has owasp_success_threshold parameter."""
-        from src.executor.workflow.scenario_orchestrator import ScenarioOrchestrator
+    def test_has_owasp_success_threshold(self):
+        """run_adaptive_scenario_async has owasp_success_threshold parameter."""
+        from src.scenarios.adaptive_runner import run_adaptive_scenario_async
 
-        sig = inspect.signature(ScenarioOrchestrator.execute_batch)
+        sig = inspect.signature(run_adaptive_scenario_async)
         assert "owasp_success_threshold" in sig.parameters
         assert sig.parameters["owasp_success_threshold"].default == 0.0
 
-    def test_execute_batch_has_stop_on_first_success(self):
-        """execute_batch has stop_on_first_success parameter."""
-        from src.executor.workflow.scenario_orchestrator import ScenarioOrchestrator
+    def test_has_stop_on_first_success(self):
+        """run_adaptive_scenario_async has stop_on_first_success parameter."""
+        from src.scenarios.adaptive_runner import run_adaptive_scenario_async
 
-        sig = inspect.signature(ScenarioOrchestrator.execute_batch)
-        assert "stop_on_first_success" in sig.parameters
-        assert sig.parameters["stop_on_first_success"].default is False
-
-
-class TestExecuteBatchAttacksFactorySignature:
-    """Test that execute_batch_attacks factory function accepts new params."""
-
-    def test_factory_has_owasp_success_threshold(self):
-        """execute_batch_attacks has owasp_success_threshold parameter."""
-        from src.executor.workflow.scenario_orchestrator import execute_batch_attacks
-
-        sig = inspect.signature(execute_batch_attacks)
-        assert "owasp_success_threshold" in sig.parameters
-        assert sig.parameters["owasp_success_threshold"].default == 0.0
-
-    def test_factory_has_stop_on_first_success(self):
-        """execute_batch_attacks has stop_on_first_success parameter."""
-        from src.executor.workflow.scenario_orchestrator import execute_batch_attacks
-
-        sig = inspect.signature(execute_batch_attacks)
+        sig = inspect.signature(run_adaptive_scenario_async)
         assert "stop_on_first_success" in sig.parameters
         assert sig.parameters["stop_on_first_success"].default is False
 
 
 # ============================================================
-# 4. BatchAttackOrchestrator Signature Tests
-# ============================================================
-
-
-class TestBatchAttackOrchestratorSignature:
-    """Test that BatchAttackOrchestrator passes through new params."""
-
-    def test_execute_batch_has_owasp_success_threshold(self):
-        """BatchAttackOrchestrator.execute_batch has owasp_success_threshold."""
-        from src.executor.workflow.batch_orchestrator import BatchAttackOrchestrator
-
-        sig = inspect.signature(BatchAttackOrchestrator.execute_batch)
-        assert "owasp_success_threshold" in sig.parameters
-
-    def test_execute_batch_has_stop_on_first_success(self):
-        """BatchAttackOrchestrator.execute_batch has stop_on_first_success."""
-        from src.executor.workflow.batch_orchestrator import BatchAttackOrchestrator
-
-        sig = inspect.signature(BatchAttackOrchestrator.execute_batch)
-        assert "stop_on_first_success" in sig.parameters
-
-
-# ============================================================
-# 5. GroupFallbackExecutor OWASP-Aware Stopping
+# 4. GroupFallbackExecutor OWASP-Aware Stopping
 # ============================================================
 
 
@@ -310,13 +272,11 @@ class TestGroupFallbackExecutorOWASPAware:
 
         executor = GroupFallbackExecutor()
 
-        # Plans for two OWASP categories
         plans = [
             _make_attack_plan("p1", "LLM01", "skeleton_key"),
             _make_attack_plan("p2", "LLM02", "skeleton_key"),
         ]
 
-        # Mock: Tier S succeeds for both OWASPs
         tier_s_result = _make_batch_result(
             succeeded=2,
             executed=2,
@@ -326,7 +286,10 @@ class TestGroupFallbackExecutorOWASPAware:
 
         fallback_chain = [[_make_tg_info("skeleton_key", ASRTier.S)]]
 
-        with patch("src.executor.execute_batch_attacks", return_value=tier_s_result):
+        with patch(
+            "src.payloads.group_fallback_executor.run_adaptive_scenario_async",
+            return_value=_make_adaptive_result(tier_s_result),
+        ):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
@@ -338,7 +301,6 @@ class TestGroupFallbackExecutorOWASPAware:
                 owasp_success_threshold=0.8,
             )
 
-        # Should stop at Tier S because both OWASPs have success
         assert result.stopped_at_tier == "S"
         assert len(result.tiers_executed) == 1
 
@@ -350,13 +312,11 @@ class TestGroupFallbackExecutorOWASPAware:
 
         executor = GroupFallbackExecutor()
 
-        # Plans in different technique groups (matching fallback chain tiers)
         plans = [
             _make_attack_plan("p1", "LLM01", "skeleton_key"),
             _make_attack_plan("p2", "LLM02", "crescendo"),
         ]
 
-        # Tier S: only LLM01 succeeds
         tier_s_result = _make_batch_result(
             succeeded=1,
             executed=1,
@@ -364,7 +324,6 @@ class TestGroupFallbackExecutorOWASPAware:
             owasp_total_map={"LLM01": 1, "LLM02": 1},
         )
 
-        # Tier A: LLM02 succeeds
         tier_a_result = _make_batch_result(
             succeeded=1,
             executed=1,
@@ -377,8 +336,13 @@ class TestGroupFallbackExecutorOWASPAware:
             [_make_tg_info("crescendo", ASRTier.A)],
         ]
 
-        with patch("src.executor.execute_batch_attacks",
-                    side_effect=[tier_s_result, tier_a_result]):
+        with patch(
+            "src.payloads.group_fallback_executor.run_adaptive_scenario_async",
+            side_effect=[
+                _make_adaptive_result(tier_s_result),
+                _make_adaptive_result(tier_a_result),
+            ],
+        ):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
@@ -390,7 +354,6 @@ class TestGroupFallbackExecutorOWASPAware:
                 owasp_success_threshold=0.8,
             )
 
-        # Should execute both tiers (S for LLM01, A for LLM02)
         assert len(result.tiers_executed) == 2
         assert result.stopped_at_tier == "A"
 
@@ -411,7 +374,10 @@ class TestGroupFallbackExecutorOWASPAware:
             [_make_tg_info("crescendo", ASRTier.A)],
         ]
 
-        with patch("src.executor.execute_batch_attacks", return_value=tier_s_result):
+        with patch(
+            "src.payloads.group_fallback_executor.run_adaptive_scenario_async",
+            return_value=_make_adaptive_result(tier_s_result),
+        ):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
@@ -420,10 +386,9 @@ class TestGroupFallbackExecutorOWASPAware:
                 ).FallbackStrategy.SEQUENTIAL_ASR_DESC,
                 objective_target=MagicMock(),
                 judge_target=MagicMock(),
-                owasp_success_threshold=0.0,  # Disabled
+                owasp_success_threshold=0.0,
             )
 
-        # Old behavior: stop on first success
         assert result.stopped_at_tier == "S"
         assert len(result.tiers_executed) == 1
 
@@ -451,7 +416,10 @@ class TestGroupFallbackExecutorOWASPAware:
             [_make_tg_info("crescendo", ASRTier.A)],
         ]
 
-        with patch("src.executor.execute_batch_attacks", return_value=tier_s_result):
+        with patch(
+            "src.payloads.group_fallback_executor.run_adaptive_scenario_async",
+            return_value=_make_adaptive_result(tier_s_result),
+        ):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
@@ -463,7 +431,6 @@ class TestGroupFallbackExecutorOWASPAware:
                 stop_on_first_success=True,
             )
 
-        # L3: should stop at Tier S even though LLM02 hasn't succeeded
         assert result.stopped_at_tier == "S"
         assert len(result.tiers_executed) == 1
 
@@ -475,13 +442,11 @@ class TestGroupFallbackExecutorOWASPAware:
 
         executor = GroupFallbackExecutor()
 
-        # Plans: LLM01 in skeleton_key, LLM02 in crescendo
         plans = [
             _make_attack_plan("p1", "LLM01", "skeleton_key"),
             _make_attack_plan("p2", "LLM02", "crescendo"),
         ]
 
-        # Tier S: LLM01 succeeds, LLM02 not in this tier
         tier_s_result = _make_batch_result(
             succeeded=1,
             executed=1,
@@ -489,7 +454,6 @@ class TestGroupFallbackExecutorOWASPAware:
             owasp_total_map={"LLM01": 1},
         )
 
-        # Tier A: LLM02 should still execute (not skipped)
         tier_a_result = _make_batch_result(
             succeeded=1,
             executed=1,
@@ -507,10 +471,13 @@ class TestGroupFallbackExecutorOWASPAware:
         async def mock_execute(*args, **kwargs):
             call_args_list.append(kwargs)
             if len(call_args_list) == 1:
-                return tier_s_result
-            return tier_a_result
+                return _make_adaptive_result(tier_s_result)
+            return _make_adaptive_result(tier_a_result)
 
-        with patch("src.executor.execute_batch_attacks", side_effect=mock_execute):
+        with patch(
+            "src.payloads.group_fallback_executor.run_adaptive_scenario_async",
+            side_effect=mock_execute,
+        ):
             await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=fallback_chain,
@@ -522,7 +489,6 @@ class TestGroupFallbackExecutorOWASPAware:
                 owasp_success_threshold=0.8,
             )
 
-        # Tier A should have been called with only LLM02 plans (LLM01 filtered out)
         assert len(call_args_list) == 2
         tier_a_plans = call_args_list[1]["attack_plans"]
         assert all(p.owasp_id != "LLM01" for p in tier_a_plans)
@@ -530,7 +496,7 @@ class TestGroupFallbackExecutorOWASPAware:
 
 
 # ============================================================
-# 6. Threshold Calculation Tests
+# 5. Threshold Calculation Tests
 # ============================================================
 
 

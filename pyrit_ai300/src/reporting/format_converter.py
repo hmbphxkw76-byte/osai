@@ -267,11 +267,12 @@ def convert_markdown_to_pdf(
     html_content = _markdown_to_html_string(markdown_content, title)
 
     if engine == "auto":
-        # Windows 上 weasyprint 需要 GTK 系统依赖，优先使用 xhtml2pdf（纯 Python）
+        # Windows 上 weasyprint 需要 GTK 系统依赖（libgobject-2.0-0），绝大多数 Windows 环境不可用
+        # 直接跳过 weasyprint，仅尝试 xhtml2pdf（纯 Python，无系统依赖）
         # 其他平台 weasyprint 质量更高，优先使用
         import sys
         if sys.platform == "win32":
-            engines = ("xhtml2pdf", "weasyprint")
+            engines = ("xhtml2pdf",)
         else:
             engines = ("weasyprint", "xhtml2pdf")
         for eng in engines:
@@ -279,10 +280,17 @@ def convert_markdown_to_pdf(
             if result is not None:
                 return result
 
-        logger.warning(
-            "No PDF engine available. Install one of: "
-            "pip install weasyprint (recommended) or pip install xhtml2pdf"
-        )
+        if sys.platform == "win32":
+            logger.warning(
+                "PDF generation skipped on Windows. "
+                "xhtml2pdf not available or failed. "
+                "Install with: pip install xhtml2pdf"
+            )
+        else:
+            logger.warning(
+                "No PDF engine available. Install one of: "
+                "pip install weasyprint (recommended) or pip install xhtml2pdf"
+            )
         return None
 
     return _try_generate_pdf(html_content, output_path, engine)
@@ -355,10 +363,24 @@ def _try_generate_pdf(
 
 
 def _generate_pdf_weasyprint(html_content: str, output_path: Path) -> Path:
-    """使用 WeasyPrint 生成 PDF（高质量）"""
-    from weasyprint import HTML
+    """使用 WeasyPrint 生成 PDF（高质量，需要 GTK 系统依赖）"""
+    import io
+    import contextlib
 
-    HTML(string=html_content).write_pdf(str(output_path))
+    # weasyprint 在缺少 GTK 库时会向 stderr 打印大量诊断信息
+    # 用 stderr 重定向抑制这些无用输出（异常仍会正常抛出）
+    _stderr_buf = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(_stderr_buf):
+            from weasyprint import HTML
+            HTML(string=html_content).write_pdf(str(output_path))
+    except Exception:
+        # 将 weasyprint 的诊断信息记录到 debug 而非直接输出
+        diag = _stderr_buf.getvalue().strip()
+        if diag:
+            logger.debug(f"WeasyPrint diagnostics: {diag}")
+        raise
+
     logger.info(f"PDF report generated (weasyprint): {output_path}")
     return output_path
 
@@ -472,18 +494,18 @@ def check_pdf_engine_available() -> dict:
     except ImportError:
         pass
 
-    # 检查 weasyprint
+    # 检查 weasyprint（Windows 上缺 GTK 库会抛 OSError 而非 ImportError）
     try:
         import weasyprint  # noqa: F401
         availability["weasyprint"] = True
-    except ImportError:
+    except (ImportError, OSError, Exception):
         pass
 
     # 检查 xhtml2pdf
     try:
         import xhtml2pdf  # noqa: F401
         availability["xhtml2pdf"] = True
-    except ImportError:
+    except (ImportError, Exception):
         pass
 
     # 推荐引擎

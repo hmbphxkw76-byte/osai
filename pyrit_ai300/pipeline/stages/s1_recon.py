@@ -1,14 +1,38 @@
 """
-Stage 1/8: Recon 侦察层
+Stage 1/7: Recon 侦察层
 =======================
 
 端点发现 + AI类型识别 + 模型分层。
 委托 ReconEngine 执行，展示探针详情和能力信息。
+
+韧性设计 (v8.2):
+  - 目标不可达时立即中断 (fail-fast)，避免后续 6 个阶段全部白跑
+  - 认证/HTTP 错误时交互式确认，让用户决定是否继续
 """
+
+import sys
 
 from pipeline.context import PipelineContext
 from pipeline.display import info_box
 from src.recon import recon_target
+
+
+# 网络不可达错误关键词（检测 benign 探针 error 字段）
+_NETWORK_ERROR_KEYWORDS = [
+    "cannot connect", "connection refused", "connection reset",
+    "timed out", "timeout",
+    "name resolution", "dns", "name or service not known",
+    "network is unreachable", "host unreachable", "no route to host",
+    "errno 10061", "errno 10060", "errno 111", "errno 113",
+    "ssl:default",
+    "remotedisconnected",
+]
+
+
+def _is_network_error(error_str: str) -> bool:
+    """检查错误是否为网络不可达（而非 HTTP 错误或模型拒绝）"""
+    error_lower = error_str.lower()
+    return any(kw in error_lower for kw in _NETWORK_ERROR_KEYWORDS)
 
 
 async def run(ctx: PipelineContext) -> bool:
@@ -65,6 +89,50 @@ async def run(ctx: PipelineContext) -> bool:
 
     info_box("模型分层", probe_lines)
 
+    # ── 韧性检查: 目标不可达时立即中断 (fail-fast) ──
+    # benign 探针是控制探针 ("What is the capital of France?")
+    # 如果连这个都无法响应，说明目标不可达，后续阶段将全部失败
+    if probe_detail:
+        benign_result = probe_detail.get("benign", {})
+        if not benign_result.get("success") and benign_result.get("error"):
+            error_str = benign_result["error"]
+            if _is_network_error(error_str):
+                # 网络不可达 → 立即中断
+                print(f"\n  [FATAL] 目标不可达: {error_str}")
+                print(f"  [FATAL] 目标端点: {ctx.target_url}")
+                print("  [FATAL] 后续 6 个阶段将全部失败，已中断 pipeline。")
+                print("  [FATAL] 请检查:")
+                print("          1. 目标服务是否已启动")
+                print("          2. 端点地址是否正确 (TARGET_ENDPOINT)")
+                print("          3. 网络连接是否通畅 (防火墙/VPN)")
+                return False
+            else:
+                # HTTP 错误 (401/403/500 等) → 目标可达但有问题 → 交互式确认
+                _is_interactive = sys.stdin.isatty() if hasattr(sys.stdin, "isatty") else False
+                print(f"\n  [WARNING] 探针返回错误: {error_str}")
+                print(f"  [WARNING] 目标端点: {ctx.target_url}")
+                if "401" in error_str or "403" in error_str:
+                    print("  [WARNING] 认证失败 — 检查 TARGET_API_KEY 是否正确")
+                elif "404" in error_str:
+                    print("  [WARNING] 端点不存在 — 检查 TARGET_ENDPOINT 路径")
+                elif "500" in error_str or "502" in error_str or "503" in error_str:
+                    print("  [WARNING] 服务端错误 — 目标可能暂时不可用")
+                print("  [WARNING] 后续攻击可能失败。")
+
+                if _is_interactive:
+                    try:
+                        choice = input("\n  是否继续执行? (y/N): ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        choice = "n"
+                    if choice not in ("y", "yes"):
+                        print("  已取消执行。")
+                        return False
+                    print("  继续执行 (用户确认)...")
+                else:
+                    # 非交互模式 (CI/CD) → 直接中断
+                    print("  [FATAL] 非交互模式，自动中断。")
+                    return False
+
     # 能力信息
     caps = getattr(ctx.recon_result, "capabilities", None)
     cap_lines = []
@@ -85,7 +153,7 @@ async def run(ctx: PipelineContext) -> bool:
         pass_lines.append("• capabilities: MULTI_TURN ✓ → 多轮技术可用")
     else:
         pass_lines.append("• capabilities: MULTI_TURN ? → 运行时探测确认")
-    info_box("传递到分析阶段", pass_lines)
+    info_box("传递到 Strategy 策略层 (Stage 2)", pass_lines)
 
     return True
 

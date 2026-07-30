@@ -79,15 +79,15 @@ _FALLBACK_TARGET_TYPE_GROUPS: Dict[str, str] = {
 }
 
 _FALLBACK_TARGET_CONVERTER_PROFILES: Dict[str, Dict[str, Any]] = {
-    "llm_direct_strong": {
-        "high_asr_chains": [],
-        "medium_asr_chains": ["stealth_evasion", "multi_encoding_v2", "agent_injection_chain"],
-        "low_asr_chains": ["encoding_bypass", "unicode_attack", "random_case", "policy_puppetry"],
-        "llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted"],
-        "bypass_mechanism": "content_filter + semantic_classifier",
-        "description": "强过滤商业模型 — 内容过滤 + 语义安全分类器 + 拒绝分类器",
-        "model_filter": "gpt-4o|gpt-4|claude-3|claude-4|gemini",
-    },
+"llm_direct_strong": {
+"high_asr_chains": [],
+"medium_asr_chains": ["agent_injection_chain", "stealth_evasion", "multi_encoding_v2", "noise_bypass", "special_chars", "leetspeak_chain"],
+"low_asr_chains": ["encoding_bypass", "unicode_attack", "random_case", "policy_puppetry", "policy_puppetry_chain", "text_jailbreak", "format_injection"],
+"llm_assisted_chains": ["persuasion_authority", "decomposition_chain", "llm_assisted", "decomposition_policy_chain", "task_framing_chain", "noise_case_chain", "semantic_obfuscation"],
+"bypass_mechanism": "content_filter + semantic_classifier",
+"description": "强过滤商业模型 — 内容过滤 + 语义安全分类器 + 拒绝分类器",
+"model_filter": "gpt-4o|gpt-4|claude-3|claude-4|gemini",
+},
     "llm_direct_weak": {
         "high_asr_chains": ["multi_encoding_v2", "stealth_evasion", "encoding_bypass"],
         "medium_asr_chains": ["persuasion_authority", "decomposition_chain", "agent_injection_chain"],
@@ -399,7 +399,7 @@ def get_target_converter_profile(target_type: str) -> Dict[str, Any]:
 def select_converter_chains_for_target(
     target_type: str,
     converter_target_available: bool = True,
-    max_chains: int = 8,
+    max_chains: int = 15,
 ) -> List[str]:
     """
     根据 Target 类型选择最优 Converter 链序列
@@ -597,7 +597,7 @@ class TargetAwareConverterRouter:
         self,
         target_type: str,
         converter_target_available: bool = True,
-        max_chains: int = 8,
+        max_chains: int = 15,
     ) -> List[str]:
         """选择最优 Converter 链序列"""
         return select_converter_chains_for_target(

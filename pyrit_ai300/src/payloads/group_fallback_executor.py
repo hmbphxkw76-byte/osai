@@ -31,6 +31,7 @@ from src.payloads.asr_rank_builder import (
     TechniqueGroupInfo,
 )
 from src.payloads.tiered_selection_wizard import FallbackStrategy
+from src.scenarios.adaptive_runner import run_adaptive_scenario_async
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,8 @@ class GroupFallbackExecutor:
         - stop_on_first_success=True 时，任一计划成功即停止整个降级链
         """
 
-        from src.executor import execute_batch_attacks
+        # P1-3: 已弃用 execute_batch_attacks，委托原生 AI300AdaptiveScenario
+        # 原生路径不支持 per-batch 超时控制，参数透传
 
         all_results: List[Any] = []
         all_errors: List[Dict[str, Any]] = []
@@ -274,12 +276,11 @@ class GroupFallbackExecutor:
             print(f"\n  --- {tier_label}: {len(tier_groups)} groups, {len(tier_plans)} plans ---")
 
             # Execute this tier
-            tier_result = await execute_batch_attacks(
-                attack_plans=tier_plans,
+            tier_result = (await run_adaptive_scenario_async(
                 objective_target=objective_target,
                 judge_target=judge_target,
+                attack_plans=tier_plans,
                 max_concurrency=max_concurrency,
-                fail_fast=fail_fast,
                 per_attack_timeout=per_attack_timeout,
                 verbose=verbose,
                 exam_id=exam_id,
@@ -287,7 +288,7 @@ class GroupFallbackExecutor:
                 max_retries=max_retries if adaptive else 0,
                 owasp_success_threshold=owasp_success_threshold,
                 stop_on_first_success=stop_on_first_success,
-            )
+            )).batch_result
 
             tier_results[tier_name] = tier_result
             tiers_executed.append(tier_name)
@@ -374,16 +375,15 @@ class GroupFallbackExecutor:
     ) -> FallbackExecutionResult:
         """Execute all plans in parallel (no fallback)."""
 
-        from src.executor import execute_batch_attacks
+        # P1-3: 已弃用 execute_batch_attacks，委托原生路径
 
         print(f"\n  --- Parallel execution: {len(attack_plans)} plans ---")
 
-        batch_result = await execute_batch_attacks(
-            attack_plans=attack_plans,
+        batch_result = (await run_adaptive_scenario_async(
             objective_target=objective_target,
             judge_target=judge_target,
+            attack_plans=attack_plans,
             max_concurrency=max_concurrency,
-            fail_fast=fail_fast,
             per_attack_timeout=per_attack_timeout,
             verbose=verbose,
             exam_id=exam_id,
@@ -391,7 +391,7 @@ class GroupFallbackExecutor:
             max_retries=max_retries,
             owasp_success_threshold=owasp_success_threshold,
             stop_on_first_success=stop_on_first_success,
-        )
+        )).batch_result
 
         return FallbackExecutionResult(
             batch_result=batch_result,

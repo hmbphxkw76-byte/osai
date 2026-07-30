@@ -16,35 +16,28 @@ ASR-Guided Strategy Display — ASR引导策略关键决策展示
 import os
 from typing import Any, Optional
 
-# ── Tier 定义 (统一 ASR 引导策略学术标准) ──
+# ── Tier 定义 (引用 asr_prior_registry 唯一定义点) ──
 
-TIER_S_THRESHOLD = 0.70  # ASR >= 70%
-TIER_A_THRESHOLD = 0.40  # ASR 40-70%
-TIER_B_THRESHOLD = 0.15  # ASR 15-40%
-TIER_C_THRESHOLD = 0.05  # ASR 5-15%
-# Tier D: ASR < 5%
+from src.payloads.asr_prior_registry import (  # noqa: F401 — re-exports for backward compatibility
+    TIER_S_THRESHOLD,
+    TIER_A_THRESHOLD,
+    TIER_B_THRESHOLD,
+    TIER_C_THRESHOLD,
+    tier_from_asr,
+)
 
 TIER_DESCRIPTIONS = {
-    "S": "多轮迭代攻击 (学术验证最高 ASR)",
-    "A": "树搜索/迭代/模拟对话 (高 ASR)",
-    "B": "说服/角色扮演/包装 (中等 ASR)",
-    "C": "编码变换/基线 (低 ASR, 兜底)",
-    "D": "极低 ASR (默认跳过)",
+    "S": "多轮迭代攻击 (极高)",
+    "A": "树搜索/迭代/模拟对话 (高)",
+    "B": "说服/角色扮演/包装 (中)",
+    "C": "编码变换/基线 (低, 兜底)",
+    "D": "极低 (兜底尝试 — ASR 非零即值得尝试)",
 }
 
 
 def _get_tier(asr: float) -> str:
-    """根据 ASR 值返回 Tier 等级 (ASR引导策略统一阈值)"""
-    if asr >= TIER_S_THRESHOLD:
-        return "S"
-    elif asr >= TIER_A_THRESHOLD:
-        return "A"
-    elif asr >= TIER_B_THRESHOLD:
-        return "B"
-    elif asr >= TIER_C_THRESHOLD:
-        return "C"
-    else:
-        return "D"
+    """根据 ASR 值返回 Tier 等级 (引用 asr_prior_registry 唯一定义)"""
+    return tier_from_asr(asr)
 
 
 def _get_strategy_mode() -> str:
@@ -146,11 +139,13 @@ def display_selection_stage(
     all_seed_groups: list[Any] = None,
     model_name: str = "",
     strategy_mode: str = "",
+    warm_start_asr: dict[str, float] | None = None,
 ) -> None:
     """
     [4/8] 选择阶段 — 展示 ASR 先验排序和 Tier 分层
 
-    显示选中种子组中各技术的学术 ASR 先验，按 Tier 分层展示。
+    显示选中种子组中各技术的 ASR, 按 Tier 分层展示。
+    当 warm_start_asr 提供 (Tier 2 融合 ASR) 时, 使用融合 ASR 替代纯学术先验。
     """
     try:
         from src.payloads.technique_name_mapper import get_normalized_asr, normalize_technique_name
@@ -169,8 +164,12 @@ def display_selection_stage(
                     meta = getattr(seed, "metadata", {}) or {}
                     tech = meta.get("technique_group", meta.get("technique", ""))
                     if tech and tech not in tech_asr_map:
-                        asr = get_normalized_asr(tech, model_name)
                         normalized = normalize_technique_name(tech)
+                        # Tier 2 融合 ASR 优先, 回退到 Tier 1 学术先验
+                        if warm_start_asr and normalized in warm_start_asr:
+                            asr = warm_start_asr[normalized]
+                        else:
+                            asr = get_normalized_asr(tech, model_name)
                         tech_asr_map[tech] = (asr, normalized)
 
         if not tech_asr_map:
@@ -188,7 +187,8 @@ def display_selection_stage(
         for tier in tier_groups:
             tier_groups[tier].sort(key=lambda x: -x[1])
 
-        print("\n  ┌─ ASR策略: 学术 ASR 先验排序 ─────────────────────┐")
+        _asr_label = "经验融合 ASR" if warm_start_asr else "学术 ASR 先验"
+        print(f"\n  ┌─ ASR策略: {_asr_label}排序 ─────────────────────┐")
         print(f"  │ 模型: {model_name} | 策略: {strategy_mode}")
         print(f"  │ 共 {len(tech_asr_map)} 个技术 (选中组)")
 
@@ -209,24 +209,25 @@ def display_selection_stage(
                 # 标记 patched
                 prior = get_asr_prior(normalized)
                 patched_mark = " [PATCHED]" if prior and prior.patched else ""
-                bar_len = int(asr * 20)
-                bar = "█" * bar_len + "░" * (20 - bar_len)
-                # 如果标准化名不同于原名，显示映射
+                # 紧凑 10 字符条形图（Tier header 已含 ASR 范围+语义描述）
+                bar_len = int(asr * 10)
+                bar = "█" * bar_len + "░" * (10 - bar_len)
+                # 映射同行显示（节省垂直空间）
                 if normalized != tech:
-                    print(f"  │   {tech:40s} {asr:5.0%} {bar}{patched_mark}")
-                    print(f"  │     → {normalized}")
+                    print(f"  │   {tech:28s} {bar}  → {normalized}{patched_mark}")
                 else:
-                    print(f"  │   {tech:40s} {asr:5.0%} {bar}{patched_mark}")
+                    print(f"  │   {tech:28s} {bar}{patched_mark}")
 
         print("  └──────────────────────────────────────────────────┘")
 
         # 策略模式说明
         if strategy_mode == "academic":
             print("  [策略] academic 模式: Tier S → A → B → C → D 顺序尝试")
+            print("         高 ASR 技术优先, Tier D 兜底 — ASR 非零即值得尝试")
             print("         首次运行使用学术先验 Q 值, 后续 memory 学习优化")
         elif strategy_mode == "exam":
-            print("  [策略] exam 模式: Tier D → C → B → A → S 顺序尝试")
-            print("         编码优先快速验证, 策略攻击兜底")
+            print("  [策略] exam 模式: 单轮 → 编码 → 多轮 (按执行速度排序)")
+            print("         快速验证基础安全, 策略攻击兜底")
         else:
             print("  [策略] balanced 模式: 各 Tier 交替尝试")
 
@@ -300,11 +301,9 @@ def display_execution_stage(
                     tech_list.append((tech, asr, _get_tier(asr)))
 
             if tech_list:
-                # 按策略模式排序展示
-                if strategy_mode == "exam":
-                    tech_list.sort(key=lambda x: x[1])  # 低 ASR 优先
-                else:
-                    tech_list.sort(key=lambda x: -x[1])  # 高 ASR 优先
+                # 始终按 ASR 降序展示（高 ASR 优先）
+                # 即使 exam 模式按速度执行，展示也应高 ASR 优先
+                tech_list.sort(key=lambda x: -x[1])
 
                 print("  │")
                 print(f"  │ 技术执行顺序 ({len(tech_list)} 技术, 按策略 {strategy_mode} 排序):")
@@ -388,7 +387,8 @@ def display_post_execution(
         print(f"  │ {'技术':40s} {'实测ASR':>8s} {'学术先验':>8s} {'差异':>8s} {'样本':>6s}")
         print(f"  │ {'─'*40} {'─'*8} {'─'*8} {'─'*8} {'─'*6}")
 
-        for tech in sorted(tech_stats.keys()):
+        # 按学术 ASR 降序排列（高 ASR 技术优先展示）
+        for tech in sorted(tech_stats.keys(), key=lambda t: -get_normalized_asr(t, model_name)):
             stats = tech_stats[tech]
             total = stats["total"]
             if total == 0:

@@ -200,6 +200,31 @@ CONVERTER_VARIANT_CHAINS: Dict[str, Dict[str, Any]] = {
         "modality": "text",
         "description": "噪声 + 随机大写 + Base64 (LLM 辅助噪声生成)",
     },
+    # P8: 补全 YAML 中已定义但 Python dict 缺失的链
+    "noise_bypass": {
+        "requires_llm": False,
+        "priority": 2,
+        "modality": "text",
+        "description": "噪声注入 + Base64 + ROT13 编码绕过",
+    },
+    "semantic_obfuscation": {
+        "requires_llm": True,
+        "priority": 4,
+        "modality": "text",
+        "description": "语义混淆: 翻译 + 语气 + 时态 + 变体",
+    },
+    "special_chars": {
+        "requires_llm": False,
+        "priority": 3,
+        "modality": "text",
+        "description": "特殊字符: Zalgo + Tatweel + Diacritic + Emoji",
+    },
+    "leetspeak_chain": {
+        "requires_llm": False,
+        "priority": 3,
+        "modality": "text",
+        "description": "Leetspeak + Flip + RepeatToken",
+    },
 }
 
 # LLM 密集型链 — 需要强模型（≥70B 或商业模型）才能通过 recall 检查
@@ -266,6 +291,33 @@ BASE_TECHNIQUES_FOR_VARIANTS: Dict[str, List[str]] = {
         "encoding_bypass", "agent_injection_chain", "format_injection",
     ],
     "multi_prompt_sending": [
+        "encoding_bypass", "stealth_evasion",
+    ],
+    # P8: 补全高 ASR 技术的变体链
+    "red_teaming": [
+        "encoding_bypass", "stealth_evasion",
+        "persuasion_authority", "decomposition_chain",
+    ],
+    "tree_of_attacks_pruned": [
+        "stealth_evasion", "encoding_bypass",
+    ],
+    "crescendo_simulated": [
+        "encoding_bypass", "stealth_evasion",
+        "persuasion_authority",
+    ],
+    "context_compliance": [
+        "stealth_evasion", "encoding_bypass",
+        "persuasion_authority",
+    ],
+    "best_of_n_jailbreak": [
+        "stealth_evasion", "encoding_bypass",
+        "multi_encoding_v2",
+    ],
+    "wrapping_attack": [
+        "stealth_evasion", "encoding_bypass",
+        "persuasion_authority",
+    ],
+    "bad_likert_judge": [
         "encoding_bypass", "stealth_evasion",
     ],
 }
@@ -540,6 +592,28 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "分块请求攻击",
         "uses_adversarial": False,
         "category": "prompt_injection",
+    },
+    # P8: 补全高 ASR 技术的元数据
+    "best_of_n_jailbreak": {
+        "attack_class": PromptSendingAttack,
+        "tags": ["single_turn", "extra"],
+        "description": "Best-of-N 越狱 (N 采样取最优)",
+        "uses_adversarial": False,
+        "category": "jailbreak",
+    },
+    "wrapping_attack": {
+        "attack_class": PromptSendingAttack,
+        "tags": ["single_turn", "extra"],
+        "description": "上下文包装攻击",
+        "uses_adversarial": False,
+        "category": "context_compliance",
+    },
+    "bad_likert_judge": {
+        "attack_class": PromptSendingAttack,
+        "tags": ["single_turn", "extra"],
+        "description": "Likert 评分操控攻击 (patched)",
+        "uses_adversarial": False,
+        "category": "jailbreak",
     },
 }
 
@@ -941,6 +1015,20 @@ def build_converter_variant_factories(
                             f"(too small for decomposition recall >= 0.8)"
                         )
                         continue
+
+            # 过滤 5: LLM 密集型链在 converter=objective 同模型时跳过
+            # 安全对齐模型做 converter 会返回 204 空响应（安全拒绝）
+            if chain_name in _LLM_INTENSIVE_CHAINS and converter_target is not None:
+                _conv_model = _extract_target_model_name(converter_target)
+                _obj_model = _extract_target_model_name(objective_target) if objective_target else ""
+                if _conv_model and _obj_model and _conv_model.lower() == _obj_model.lower():
+                    skipped_llm += 1
+                    logger.info(
+                        f"Filter-5: Skipping LLM-intensive chain '{chain_name}' — "
+                        f"converter target ('{_conv_model}') is the same as objective target "
+                        f"(safety-aligned model will return 204 empty response)"
+                    )
+                    continue
 
             try:
                 converter_config = load_preset_converter_chain(

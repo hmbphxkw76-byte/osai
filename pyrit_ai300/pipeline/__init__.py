@@ -1,20 +1,19 @@
 """
-PyRIT Pipeline — 8 阶段编排器
-=============================
+PyRIT Pipeline — 7 阶段编排器 (v8.0)
+=======================================
 
 将旧版 1000+ 行的单函数 pipeline.py 拆分为独立的阶段模块。
 每个阶段是 pipeline/stages/ 下的一个文件，接收 PipelineContext 并修改其字段。
 
-架构:
+v8.0 架构 (7 阶段):
   Pre   s0_init          初始化 PyRIT (静默)
-  1/8   s1_recon          Recon 侦察层
-  2/8   s2_analysis       Analysis 分析层
-  3/8   s3_targets        Target 接入层
-  4/8   s4_datasets       Datasets 数据载荷端
-  5/8   s5_matching       Target/Converter 自适应匹配
-  6/8   s6_execute        Executor 执行层
-  7/8   s7_post_analysis  执行后分析
-  8/8   s8_report         报告 + 总结
+  1/7   s1_recon          Recon 侦察层
+  2/7   s2_analysis       Strategy 策略层 (含 ASR 经验加载)
+  3/7   s3_targets        Target 接入 + Converter 路由
+  4/7   s4_datasets       Datasets 数据载荷端
+  5/7   s6_execute        Executor 执行层 (含执行策略 + 组合矩阵)
+  6/7   s7_post_analysis  执行后分析 + ASR 经验写回
+  7/7   s8_report         报告 + 总结
 
 向后兼容: run_attack_pipeline() 保持原有签名，供 cli.py 调用。
 """
@@ -38,7 +37,7 @@ if sys.platform == "win32":
 
 async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = None):
     """
-    执行完整的 8 阶段攻击流程。
+    执行完整的 7 阶段攻击流程。
 
     Args:
         target_url: 目标 URL
@@ -52,7 +51,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
 
     # 安装噪音过滤器
     from src.core.pipeline_display import get_display, reset_display
-    display = get_display(stage_total=8)
+    display = get_display(stage_total=7)
     display.install_noise_filter(ctx.log_path)
 
     try:
@@ -69,7 +68,7 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         from pipeline.stages import s2_analysis
         await s2_analysis.run(ctx)
 
-        # Stage 3: Targets
+        # Stage 3: Targets (含 Converter 路由决策)
         from pipeline.stages import s3_targets
         await s3_targets.run(ctx)
 
@@ -78,20 +77,17 @@ async def run_attack_pipeline(target_url: str, owasp_ids: list[str] | None = Non
         if not await s4_datasets.run(ctx):
             return None
 
-        # Stage 5: Matching
-        from pipeline.stages import s5_matching
-        await s5_matching.run(ctx)
-
-        # Stage 6: Execute
+        # Stage 5: Execute (含执行策略 + 组合矩阵)
+        # 原 s5_matching.py 已删除，内容合并到 s3_targets (路由) 和 s6_execute (策略)
         from pipeline.stages import s6_execute
         if not await s6_execute.run(ctx):
             return None
 
-        # Stage 7: Post-analysis
+        # Stage 6: Post-analysis + ASR 经验写回
         from pipeline.stages import s7_post_analysis
         await s7_post_analysis.run(ctx)
 
-        # Stage 8: Report
+        # Stage 7: Report
         from pipeline.stages import s8_report
         await s8_report.run(ctx)
 

@@ -35,6 +35,19 @@ from src.reporting.diversity_analyzer import (
     calculate_normalized_entropy,
     render_diversity_section,
 )
+from src.reporting.converter_log import (
+    ConverterTransformationLog,
+    ConverterVariantPreview,
+    TECHNIQUE_NAME_MAP,
+    extract_converter_info_from_result,
+    format_technique_display,
+    generate_converter_log_for_result,
+    generate_variant_preview_for_technique,
+    get_attack_class_name,
+    get_technique_name,
+    render_transformation_log_markdown,
+    render_variant_preview_markdown,
+)
 
 # Re-export PyRIT 原生 output 公共 API（便于上层统一导入）
 from pyrit.output import (
@@ -74,6 +87,18 @@ __all__ = [
     "calculate_shannon_entropy",
     "calculate_normalized_entropy",
     "render_diversity_section",
+    # Converter 转换日志 & 变体预览
+    "ConverterTransformationLog",
+    "ConverterVariantPreview",
+    "TECHNIQUE_NAME_MAP",
+    "extract_converter_info_from_result",
+    "format_technique_display",
+    "generate_converter_log_for_result",
+    "generate_variant_preview_for_technique",
+    "get_attack_class_name",
+    "get_technique_name",
+    "render_transformation_log_markdown",
+    "render_variant_preview_markdown",
     # PyRIT 原生 output 公共 API（re-export）
     "FileSink",
     "IPythonMarkdownSink",

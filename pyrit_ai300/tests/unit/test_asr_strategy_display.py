@@ -184,10 +184,11 @@ class TestPlanDDisplayExecution:
             attack_plans=[mock_plan1, mock_plan2],
         )
         captured = capsys.readouterr()
-        # exam 模式：低 ASR 优先
+        # 显示层始终按 ASR 降序排列（高 ASR 优先）
+        # crescendo (82%) 应在 encoding_bypass (8%) 之前显示
         encoding_pos = captured.out.find("encoding_bypass")
         crescendo_pos = captured.out.find("crescendo")
-        assert encoding_pos < crescendo_pos
+        assert crescendo_pos < encoding_pos
 
 
 class TestPlanDDisplayPostExecution:

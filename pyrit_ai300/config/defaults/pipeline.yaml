@@ -80,5 +80,5 @@ scenario_max_retries: 0
 #     注意: 所需成功数上限为 5（防止大计划数场景下阈值过高）
 # L3: stop_on_first_success — 全局首成功即停（最激进模式，忽略 OWASP 分类）
 #     适用于快速验证场景，不推荐用于正式考试
-owasp_success_threshold: 0.5       # L2: OWASP 分类成功率阈值（0.0=禁用，0.5=考试推荐）
+owasp_success_threshold: 0.0       # L2: OWASP 分类成功率阈值（0.0=禁用=最大化成功率，0.5=考试推荐）
 stop_on_first_success: false       # L3: 全局首成功即停（默认关闭）

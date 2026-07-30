@@ -1,9 +1,15 @@
 """
-Stage 4/8: Datasets 数据载荷端
+Stage 4/7: Datasets 数据载荷端
 =============================
 
 加载 + 预筛选 + 选择 + 准备。
 整合 DatasetManager → CentralMemory → TieredSelection → AttackPreparator。
+
+显示架构 (v7.0 优化):
+  4a. 数据加载                    — 全量统计
+  4b. target_group 驱动预筛选      — OWASP 覆盖
+  4c. 种子组选择与排序             — 选择结果 + ASR 先验排序 (合并旧 4c/4d)
+  4d. 攻击计划生成                 — 计划数 + P编号 + 传递信息 (合并旧 4e/传递)
 """
 
 from pathlib import Path
@@ -82,35 +88,66 @@ async def run(ctx: PipelineContext) -> bool:
 
     # ── 4b: 预筛选展示 ──
     if ctx.target_group:
-        info_box(
-            "4b. target_group 驱动预筛选",
-            [f"target_group: {ctx.target_group}", f"OWASP 覆盖: {len(ctx.owasp_counts)} 分类"]
-            + [f"  {oid}: {cnt} seeds" for oid, cnt in sorted(ctx.owasp_counts.items())],
-        )
+        b_lines = [
+            f"target_group: {ctx.target_group}",
+            f"OWASP 覆盖: {len(ctx.owasp_counts)} 分类",
+        ]
+        b_lines += [f"  {oid}: {cnt} seeds" for oid, cnt in sorted(ctx.owasp_counts.items())]
 
-    # Burp HTTP 模板
-    _burp_dir = Path(__file__).parent.parent.parent / "data" / "burp"
-    _burp_files = list(_burp_dir.glob("*.txt")) if _burp_dir.exists() else []
-    if _burp_files:
-        print(f"  [OK] Burp HTTP 模板: {len(_burp_files)} 个 (data/burp/)")
+        # Burp HTTP 模板 — 仅当目标类型为 HTTP 相关时展示
+        _burp_dir = Path(__file__).parent.parent.parent / "data" / "burp"
+        _burp_files = list(_burp_dir.glob("*.txt")) if _burp_dir.exists() else []
+        if _burp_files and ("http" in ctx.target_type or "burp" in ctx.target_type):
+            b_lines.append(f"Burp HTTP 模板: {len(_burp_files)} 个 (data/burp/)")
 
-    # ── 4c: 选择 ──
+        info_box("4b. target_group 驱动预筛选", b_lines)
+
+    # ── 4c: 选择 (逻辑在 _select_groups 中，展示在下方合并) ──
     ctx.all_seed_groups = ctx.manager.get_seed_groups()
     await _select_groups(ctx)
     if not ctx.selected_groups:
         print("  [!] 未选择任何种子组，跳过攻击")
         return False
 
-    # ── 4d: ASR 排序展示 ──
+    # ── 4c. 种子组选择与排序 (合并旧 4c 选择结果 + 4d ASR 排序) ──
+    _tiered_cfg = ctx.config_loader.get_tiered_selection_config()
+    _top_n = _tiered_cfg.get("top_n", 3)
+
+    select_lines = []
+    if ctx.selection_mode_info:
+        select_lines.append(f"选择模式: {ctx.selection_mode_info}")
+    select_lines.append(
+        f"选中: {len(ctx.selected_groups)}/{len(ctx.all_seed_groups)} 个种子组 "
+        f"(top-{_top_n})"
+    )
+    select_lines.append(f"降级策略: {ctx.fallback_strategy.display_name}")
+
+    # 降级链展开 (合并旧 4e 中的降级链信息)
+    if ctx.fallback_strategy != FallbackStrategy.PARALLEL and ctx.fallback_chain:
+        tier_summary = []
+        for tier_groups in ctx.fallback_chain:
+            if not tier_groups:
+                continue
+            tier_val = tier_groups[0].tier.value
+            tier_summary.append(f"{tier_val}={len(tier_groups)}组")
+        if tier_summary:
+            select_lines.append(
+                f"降级链: {' → '.join(tier_summary)}"
+            )
+
+    info_box("4c. 种子组选择与排序", select_lines)
+
+    # ASR 先验排序 (display_selection_stage 自带 box 格式，紧接 4c 展示)
     from src.scenarios.asr_strategy_display import display_selection_stage
     display_selection_stage(
         selected_groups=ctx.selected_groups,
         all_seed_groups=ctx.all_seed_groups,
         model_name=ctx.strategy_info.get("model_name", ctx.target_model),
         strategy_mode=ctx.strategy_info.get("strategy_mode", "academic"),
+        warm_start_asr=ctx.warm_start_asr or None,
     )
 
-    # ── 4e: 攻击准备 ──
+    # ── 4d. 攻击计划生成 (合并旧 4e 攻击准备 + 传递信息) ──
     ctx.attack_groups = await AttackPreparator.prepare_batch(ctx.planning_groups)
     ctx.multi_turn_count = sum(
         1 for ag in ctx.attack_groups if AttackPreparator.is_multi_turn(ag)
@@ -120,61 +157,31 @@ async def run(ctx: PipelineContext) -> bool:
     ctx.total_prompts = sum(len(b.prompts) for b in ctx.prompt_batches)
     ctx.attack_plans = plan_attacks(ctx.prompt_batches, ctx.strategy_selection)
 
-    prep_lines = [
+    plan_lines = [
         f"计划: {len(ctx.attack_plans)} 个 "
         f"({ctx.multi_turn_count} 多轮 / {len(ctx.attack_groups) - ctx.multi_turn_count} 单轮)",
         f"提示词: {ctx.total_prompts} 个 | OWASP: {len(ctx.owasp_counts)} 分类",
     ]
-    if ctx.fallback_strategy != FallbackStrategy.PARALLEL and ctx.fallback_chain:
-        tier_summary = []
-        for tier_groups in ctx.fallback_chain:
-            if not tier_groups:
-                continue
-            tier_val = tier_groups[0].tier.value
-            tier_summary.append(f"{tier_val}={len(tier_groups)}组")
-        if tier_summary:
-            prep_lines.append(
-                f"降级链: {' → '.join(tier_summary)} ({ctx.fallback_strategy.display_name})"
-            )
-    info_box("4e. 攻击准备", prep_lines)
 
-    # 构建详细的传递信息
-    pass_lines = [
-        f"• 选中组: {len(ctx.selected_groups)} 个",
-    ]
-    # 列出选中组的具体名称
-    for i, sg in enumerate(ctx.selected_groups[:10]):
-        _meta = {}
-        for s in getattr(sg, "seeds", []):
-            _meta = getattr(s, "metadata", {}) or {}
-            if _meta:
-                break
-        _tech = _meta.get("technique_group", _meta.get("technique", "unknown"))
-        _oid = _meta.get("owasp_id", "?")
-        _nseeds = len(getattr(sg, "seeds", []))
-        pass_lines.append(f"  {i+1}. [{_oid}] {_tech} ({_nseeds} seeds)")
-    if len(ctx.selected_groups) > 10:
-        pass_lines.append(f"  ... 还有 {len(ctx.selected_groups) - 10} 个")
-
-    pass_lines.append(f"• attack_plans: {len(ctx.attack_plans)} 个")
-    # 列出 attack_plans 的技术名和 OWASP ID
+    # P1-Pn 载荷编号列表 (合并旧传递信息中的 attack_plans 列表)
     _seen_tech = set()
-    for plan in ctx.attack_plans:
+    plan_lines.append("")
+    for i, plan in enumerate(ctx.attack_plans):
         _tech = getattr(plan, "attack_technique", "")
-        _oid = getattr(plan, "owasp_id", "?") or "?"
+        _oid = getattr(plan, "owasp_id", "") or "N/A"
+        plan_lines.append(f"  P{i+1}. [{_oid}] {_tech}")
         if _tech and _tech not in _seen_tech:
             _seen_tech.add(_tech)
-            pass_lines.append(f"  [{_oid}] {_tech}")
-    pass_lines.append(f"  → 提取技术名用于变体池生成 ({len(_seen_tech)} 种技术)")
-    pass_lines.append(f"• target_group: {ctx.target_group} → Converter 链选择")
+    plan_lines.append(f"  → {len(_seen_tech)} 种技术 → 提取用于变体池生成")
+    plan_lines.append(f"  → target_group: {ctx.target_group} → Converter 链选择")
 
-    info_box("传递到自适应匹配", pass_lines)
+    info_box("4d. 攻击计划生成", plan_lines)
 
     return True
 
 
 async def _select_groups(ctx: PipelineContext) -> None:
-    """4c: 交互式/自动选择"""
+    """4c: 交互式/自动选择 — 纯逻辑，不输出展示"""
     tiered_cfg = ctx.config_loader.get_tiered_selection_config()
     tiered_enabled = tiered_cfg.get("enabled", True)
     interactive_cfg = ctx.config_loader.get_interactive_selection_config()
@@ -182,7 +189,7 @@ async def _select_groups(ctx: PipelineContext) -> None:
 
     if not tiered_enabled:
         # 旧版 SeedGroupSelector 路径
-        print("  [OK] 选择模式: 旧版 SeedGroupSelector (向后兼容)")
+        ctx.selection_mode_info = "旧版 SeedGroupSelector (向后兼容)"
         ctx.fallback_strategy = FallbackStrategy.PARALLEL
         ctx.fallback_chain = []
         selector = SeedGroupSelector(
@@ -196,19 +203,19 @@ async def _select_groups(ctx: PipelineContext) -> None:
             catalog, preset_owasp=preset_owasp, preset_modes=None,
         )
         ctx.planning_groups = ctx.selected_groups
-        print(f"  [OK] 用户选择: {len(ctx.selected_groups)}/{len(ctx.all_seed_groups)} 个种子组")
         return
 
     # 三层渐进式选择路径
     preset_target = tiered_cfg.get("target_type")
 
     # 优先级：config target_type > recon target_type 推断 > 交互模式
+    _inference_info = ""
     if not preset_target and ctx.target_type:
         from src.payloads.target_profile_router import TargetProfileRouter
         _inferred = TargetProfileRouter.infer_profile(recon_target_type=ctx.target_type)
         if _inferred.target_type != TargetType.FULL_SWEEP:
             preset_target = _inferred.target_type.value
-            print(f"  [OK] 侦察推断目标类型: {ctx.target_type} → {preset_target}")
+            _inference_info = f"{ctx.target_type} → {preset_target}"
 
     if preset_target:
         try:
@@ -226,21 +233,20 @@ async def _select_groups(ctx: PipelineContext) -> None:
             enabled=False, preset=wizard_preset,
             model_name=ctx.strategy_info.get("model_name", ctx.target_model),
         )
+        ctx.selection_mode_info = (
+            f"自动 ({preset_target} preset, top-{tiered_cfg.get('top_n', 3)})"
+            + (f", 推断: {_inference_info}" if _inference_info else "")
+        )
     else:
         wizard = TieredSelectionWizard(
             enabled=interactive_enabled,
             model_name=ctx.strategy_info.get("model_name", ctx.target_model),
         )
+        ctx.selection_mode_info = "交互式"
 
     selection_result = await wizard.select(ctx.all_seed_groups)
     ctx.selected_groups = selection_result.selected_groups
     ctx.fallback_strategy = selection_result.fallback_strategy
     ctx.fallback_chain = selection_result.fallback_chain
     ctx.planning_groups = ctx.selected_groups
-
-    info_box("4c. 选择结果", [
-        f"目标类型: {selection_result.target_profile.target_type.display_name}",
-        f"选中: {len(ctx.selected_groups)}/{len(ctx.all_seed_groups)} 个种子组 "
-        f"(top-{tiered_cfg.get('top_n', 3)})",
-        f"降级策略: {ctx.fallback_strategy.display_name}",
-    ])
+    ctx.selection_result = selection_result

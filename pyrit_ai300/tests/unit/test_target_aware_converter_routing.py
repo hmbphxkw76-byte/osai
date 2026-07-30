@@ -165,9 +165,10 @@ class TestChainPriority:
 
     def test_high_asr_priority(self):
         # multi_encoding_v2 is in medium_asr_chains for llm_direct_strong
-        # priority = len(high) + len(llm_assisted) + index + 1 = 0 + 3 + 1 + 1 = 5
+        # P7: priority = len(high) + len(llm_assisted) + index + 1
+        # = 0 + 7 + 2 + 1 = 10 (llm_assisted grew from 3 to 7 in P7)
         priority = get_chain_priority_for_target("multi_encoding_v2", "openai_chat")
-        assert priority == 5
+        assert priority == 10
 
     def test_medium_asr_priority(self):
         priority = get_chain_priority_for_target("policy_puppetry", "openai_chat")
@@ -196,7 +197,7 @@ class TestTargetAwareConverterRouter:
     def test_router_get_priority(self):
         router = TargetAwareConverterRouter()
         priority = router.get_priority("multi_encoding_v2", "openai_chat")
-        assert priority == 5  # medium_asr for llm_direct_strong (0+3+1+1)
+        assert priority == 10  # P7: medium_asr for llm_direct_strong (0+7+2+1)
 
     def test_router_get_profile(self):
         router = TargetAwareConverterRouter()
@@ -326,9 +327,10 @@ class TestFailureTypeRoutingSelectorTargetAware:
 
     def test_target_aware_sort_key(self):
         selector = FailureTypeRoutingSelector(target_type="openai_chat")
-        # multi_encoding_v2 is medium_asr (priority 5) for llm_direct_strong
+        # multi_encoding_v2 is medium_asr (priority 10) for llm_direct_strong
+        # P7: priority changed from 5 to 10 due to llm_assisted list growth
         key = selector._target_aware_sort_key("prompt_sending+multi_encoding_v2")
-        assert key == 5
+        assert key == 10
 
     def test_target_aware_sort_key_different_target(self):
         selector = FailureTypeRoutingSelector(target_type="azure_blob")

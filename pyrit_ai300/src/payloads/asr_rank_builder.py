@@ -46,7 +46,7 @@ class ASRTier(str, Enum):
     """
     ASR-based technique tier classification.
 
-    v4.0 统一阈值 (ASR引导策略学术标准):
+    v4.0 统一阈值 (引用 asr_prior_registry 唯一定义):
     S: ASR >= 70% — near-guaranteed success, try first
     A: ASR 40-70% — high success, primary fallback
     B: ASR 15-40% — moderate, secondary fallback
@@ -64,15 +64,8 @@ class ASRTier(str, Enum):
 
     @property
     def threshold(self) -> float:
-        thresholds = {
-            "S": 0.70,
-            "A": 0.40,
-            "B": 0.15,
-            "C": 0.05,
-            "D": 0.0,
-            "UNKNOWN": -1.0,
-        }
-        return thresholds.get(self.value, -1.0)
+        from src.payloads.asr_prior_registry import TIER_THRESHOLDS
+        return TIER_THRESHOLDS.get(self.value, -1.0)
 
     @property
     def priority(self) -> int:
@@ -89,17 +82,10 @@ class ASRTier(str, Enum):
 
     @classmethod
     def from_asr(cls, max_asr: float) -> "ASRTier":
-        """Classify an ASR value into a tier."""
-        if max_asr >= 0.70:
-            return cls.S
-        elif max_asr >= 0.40:
-            return cls.A
-        elif max_asr >= 0.15:
-            return cls.B
-        elif max_asr >= 0.05:
-            return cls.C
-        else:
-            return cls.D
+        """Classify an ASR value into a tier (uses asr_prior_registry thresholds)."""
+        from src.payloads.asr_prior_registry import tier_from_asr
+        tier_str = tier_from_asr(max_asr)
+        return cls(tier_str)
 
 
 # ============================================================

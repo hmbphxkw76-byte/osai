@@ -508,13 +508,9 @@ class AI300AdaptiveScenario(AdaptiveScenario):
 
         # 3. 找出已解析的基础技术名
         from src.scenarios.technique_factories import (
-            CONVERTER_VARIANT_CHAINS,
             BASE_TECHNIQUES_FOR_VARIANTS,
-            _is_chain_modality_compatible,
             _get_dynamic_chain_mapping,
         )
-        from pyrit.models.identifiers import compute_inner_attack_eval_hash
-        from pyrit.scenario.scenarios.adaptive import TechniqueBundle
 
         resolved_base_names = {b.name for b in base_techniques.values()}
 
@@ -560,117 +556,20 @@ class AI300AdaptiveScenario(AdaptiveScenario):
         )
         chain_mapping = dynamic_mapping if dynamic_mapping else BASE_TECHNIQUES_FOR_VARIANTS
 
-        from src.converters.converter_registry import load_preset_converter_chain
-
-        for base_tech_name in resolved_base_names:
-            # 只为支持变体的基础技术创建变体
-            if base_tech_name not in chain_mapping:
-                continue
-
-            factory = factories.get(base_tech_name)
-            if factory is None:
-                skipped_no_factory += 1
-                continue
-
-            # 获取该基础技术的推荐 Converter 链
-            chain_names = chain_mapping[base_tech_name]
-
-            for chain_name in chain_names:
-                chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
-                if chain_info is None:
-                    continue
-
-                # 过滤 1: 需要运行时参数的链跳过
-                if chain_info.get("requires_runtime_params", False):
-                    skipped_runtime += 1
-                    continue
-
-                # 过滤 2: LLM 链需要 converter_target
-                if chain_info["requires_llm"] and self._converter_target is None:
-                    skipped_llm += 1
-                    continue
-
-                # 过滤 2b (L5): 小模型跳过 LLM 链
-                # 小模型无法可靠生成 JSON，会导致 InvalidJsonException
-                if chain_info["requires_llm"] and skip_llm_chains:
-                    skipped_small_model += 1
-                    continue
-
-                # 过滤 3 (R2): 模态兼容性检测
-                if objective_target is not None:
-                    if not _is_chain_modality_compatible(
-                        chain_name=chain_name,
-                        chain_info=chain_info,
-                        objective_target=objective_target,
-                        target_type=self._target_type,
-                    ):
-                        skipped_modality += 1
-                        continue
-
-                # 加载 Converter 链配置
-                try:
-                    converter_config = load_preset_converter_chain(
-                        chain_name=chain_name,
-                        converter_target=self._converter_target,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to load converter chain '{chain_name}' for "
-                        f"variant '{base_tech_name}+{chain_name}': {e}"
-                    )
-                    continue
-
-                if converter_config is None:
-                    continue
-
-                # P0-B: 提取 request_converters 用于原生 extra_request_converters
-                extra_converters = converter_config.request_converters
-                if not extra_converters:
-                    continue
-
-                variant_name = f"{base_tech_name}+{chain_name}"
-
-                # 构建变体的 scoring config
-                scoring_config = self._build_scoring_config_for_factory(factory=factory)
-                if scoring_config is None:
-                    continue
-
-                # P0-B: 使用原生 extra_request_converters 创建变体
-                try:
-                    technique = factory.create(
-                        objective_target=objective_target,
-                        attack_scoring_config=scoring_config,
-                        extra_request_converters=extra_converters,
-                    )
-                except (TypeError, ValueError) as exc:
-                    logger.warning(
-                        f"Skipping converter variant '{variant_name}': {exc}"
-                    )
-                    continue
-
-                eval_hash = compute_inner_attack_eval_hash(attack=technique.attack)
-
-                # 不覆盖已有的（幂等）
-                if eval_hash in base_techniques:
-                    continue
-
-                adversarial_chat = factory.adversarial_chat
-                if adversarial_chat is None and factory.uses_adversarial:
-                    try:
-                        from pyrit.executor.attack.core.attack_config import (
-                            get_default_adversarial_target,
-                        )
-                        adversarial_chat = get_default_adversarial_target()
-                    except Exception:
-                        pass
-
-                base_techniques[eval_hash] = TechniqueBundle(
-                    attack=technique.attack,
-                    name=variant_name,
-                    seed_technique=technique.seed_technique,
-                    adversarial_chat=adversarial_chat,
-                )
-                variant_count += 1
+        # P2-1: 统一调用 _create_converter_variants 消除 R0 fallback 代码重复
+        variant_count, skip_stats = self._create_converter_variants(
+            base_techniques=base_techniques,
+            resolved_base_names=resolved_base_names,
+            factories=factories,
+            chain_mapping=chain_mapping,
+            objective_target=objective_target,
+            skip_llm_chains=skip_llm_chains,
+        )
+        skipped_runtime += skip_stats["runtime"]
+        skipped_llm += skip_stats["llm"]
+        skipped_small_model += skip_stats["small_model"]
+        skipped_modality += skip_stats["modality"]
+        skipped_no_factory += skip_stats["no_factory"]
 
         # R0 fallback: 如果动态映射的所有链都被过滤，回退到静态映射
         if variant_count == 0 and dynamic_mapping is not None:
@@ -678,83 +577,14 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 "R0: Dynamic mapping produced 0 variants after filtering, "
                 "falling back to static mapping"
             )
-            for base_tech_name in resolved_base_names:
-                if base_tech_name not in BASE_TECHNIQUES_FOR_VARIANTS:
-                    continue
-
-                factory = factories.get(base_tech_name)
-                if factory is None:
-                    continue
-
-                for chain_name in BASE_TECHNIQUES_FOR_VARIANTS[base_tech_name]:
-                    chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
-                    if chain_info is None:
-                        continue
-
-                    if chain_info.get("requires_runtime_params", False):
-                        continue
-                    if chain_info["requires_llm"] and self._converter_target is None:
-                        continue
-
-                    if objective_target is not None:
-                        if not _is_chain_modality_compatible(
-                            chain_name=chain_name,
-                            chain_info=chain_info,
-                            objective_target=objective_target,
-                            target_type=self._target_type,
-                        ):
-                            continue
-
-                    try:
-                        converter_config = load_preset_converter_chain(
-                            chain_name=chain_name,
-                            converter_target=self._converter_target,
-                        )
-                    except Exception:
-                        continue
-
-                    if converter_config is None:
-                        continue
-
-                    extra_converters = converter_config.request_converters
-                    if not extra_converters:
-                        continue
-
-                    variant_name = f"{base_tech_name}+{chain_name}"
-                    scoring_config = self._build_scoring_config_for_factory(factory=factory)
-                    if scoring_config is None:
-                        continue
-
-                    try:
-                        technique = factory.create(
-                            objective_target=objective_target,
-                            attack_scoring_config=scoring_config,
-                            extra_request_converters=extra_converters,
-                        )
-                    except (TypeError, ValueError):
-                        continue
-
-                    eval_hash = compute_inner_attack_eval_hash(attack=technique.attack)
-                    if eval_hash in base_techniques:
-                        continue
-
-                    adversarial_chat = factory.adversarial_chat
-                    if adversarial_chat is None and factory.uses_adversarial:
-                        try:
-                            from pyrit.executor.attack.core.attack_config import (
-                                get_default_adversarial_target,
-                            )
-                            adversarial_chat = get_default_adversarial_target()
-                        except Exception:
-                            pass
-
-                    base_techniques[eval_hash] = TechniqueBundle(
-                        attack=technique.attack,
-                        name=variant_name,
-                        seed_technique=technique.seed_technique,
-                        adversarial_chat=adversarial_chat,
-                    )
-                    variant_count += 1
+            variant_count, _ = self._create_converter_variants(
+                base_techniques=base_techniques,
+                resolved_base_names=resolved_base_names,
+                factories=factories,
+                chain_mapping=BASE_TECHNIQUES_FOR_VARIANTS,
+                objective_target=objective_target,
+                skip_llm_chains=skip_llm_chains,
+            )
 
         # 存储诊断统计供 adaptive_runner 结构化展示
         self._diag_total_techniques = len(base_techniques)
@@ -842,6 +672,136 @@ class AI300AdaptiveScenario(AdaptiveScenario):
             )
 
         return filtered
+
+    # ------------------------------------------------------------------
+    # P2-1: 创建 Converter 变体的共享辅助方法（消除 R0 fallback 重复）
+    # ------------------------------------------------------------------
+
+    def _create_converter_variants(
+        self,
+        *,
+        base_techniques: dict[str, Any],
+        resolved_base_names: set[str],
+        factories: dict[str, Any],
+        chain_mapping: dict[str, list[str]],
+        objective_target: Any,
+        skip_llm_chains: bool = False,
+    ) -> tuple[int, dict[str, int]]:
+        """创建 Converter 变体（P2-1 DRY: 主逻辑和 R0 fallback 共享此方法）"""
+        from src.converters.converter_registry import load_preset_converter_chain
+        from src.scenarios.technique_factories import (
+            CONVERTER_VARIANT_CHAINS,
+            _LLM_INTENSIVE_CHAINS,
+            _is_chain_modality_compatible,
+            _extract_target_model_name,
+        )
+        from pyrit.models.identifiers import compute_inner_attack_eval_hash
+        from pyrit.scenario.scenarios.adaptive import TechniqueBundle
+
+        variant_count = 0
+        skip_stats: dict[str, int] = {
+            "runtime": 0, "llm": 0, "small_model": 0,
+            "modality": 0, "no_factory": 0,
+        }
+
+        for base_tech_name in resolved_base_names:
+            if base_tech_name not in chain_mapping:
+                continue
+            factory = factories.get(base_tech_name)
+            if factory is None:
+                skip_stats["no_factory"] += 1
+                continue
+
+            for chain_name in chain_mapping[base_tech_name]:
+                chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
+                if chain_info is None:
+                    continue
+                if chain_info.get("requires_runtime_params", False):
+                    skip_stats["runtime"] += 1
+                    continue
+                if chain_info["requires_llm"] and self._converter_target is None:
+                    skip_stats["llm"] += 1
+                    continue
+                if chain_info["requires_llm"] and skip_llm_chains:
+                    skip_stats["small_model"] += 1
+                    continue
+                # 过滤 5: LLM 密集型链（DecompositionConverter）在 converter=objective 同模型时跳过
+                # 原因: 被测试模型是安全对齐的，用它做 converter 会返回 204 空响应（安全拒绝）
+                # 这不受 model_tier 影响 — 即使是 strong 模型，安全拒绝仍然发生
+                if chain_name in _LLM_INTENSIVE_CHAINS:
+                    _conv_model = _extract_target_model_name(self._converter_target) if self._converter_target else ""
+                    _obj_model = _extract_target_model_name(objective_target) if objective_target else ""
+                    if _conv_model and _obj_model and _conv_model.lower() == _obj_model.lower():
+                        skip_stats["small_model"] += 1
+                        logger.info(
+                            f"Filter-5: Skipping LLM-intensive chain '{chain_name}' — "
+                            f"converter target ('{_conv_model}') is the same as objective target "
+                            f"(safety-aligned model will return 204 empty response)"
+                        )
+                        continue
+                if objective_target is not None:
+                    if not _is_chain_modality_compatible(
+                        chain_name=chain_name,
+                        chain_info=chain_info,
+                        objective_target=objective_target,
+                        target_type=self._target_type,
+                    ):
+                        skip_stats["modality"] += 1
+                        continue
+
+                try:
+                    converter_config = load_preset_converter_chain(
+                        chain_name=chain_name,
+                        converter_target=self._converter_target,
+                    )
+                except Exception:
+                    skip_stats["runtime"] += 1
+                    continue
+                if converter_config is None:
+                    continue
+
+                extra_converters = converter_config.request_converters
+                if not extra_converters:
+                    continue
+
+                variant_name = f"{base_tech_name}+{chain_name}"
+                scoring_config = self._build_scoring_config_for_factory(factory=factory)
+                if scoring_config is None:
+                    continue
+
+                try:
+                    technique = factory.create(
+                        objective_target=objective_target,
+                        attack_scoring_config=scoring_config,
+                        extra_request_converters=extra_converters,
+                    )
+                except (TypeError, ValueError):
+                    skip_stats["runtime"] += 1
+                    continue
+
+                eval_hash = compute_inner_attack_eval_hash(attack=technique.attack)
+                if eval_hash in base_techniques:
+                    continue
+
+                adversarial_chat = factory.adversarial_chat
+                if adversarial_chat is None and factory.uses_adversarial:
+                    try:
+                        from pyrit.executor.attack.core.attack_config import (
+                            get_default_adversarial_target,
+                        )
+                        adversarial_chat = get_default_adversarial_target()
+                    except Exception:
+                        pass
+
+                base_techniques[eval_hash] = TechniqueBundle(
+                    attack=technique.attack,
+                    name=variant_name,
+                    seed_technique=technique.seed_technique,
+                    adversarial_chat=adversarial_chat,
+                )
+                variant_count += 1
+
+        return variant_count, skip_stats
 
     # ------------------------------------------------------------------
     # Converter 变体展示

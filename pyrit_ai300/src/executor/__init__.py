@@ -8,6 +8,9 @@ PyRIT 1.0.0 Executor 子系统 — 完整五层架构
 核心 shape 🟢：configured by → consumes Context → produces Result
 管道设计 🔵：Orchestrator + Converter + Scorer（组合式攻击管道）
 
+P1-3: 已删除双轨代码（ScenarioOrchestrator + AttackUpgradeStrategy），
+原生 AdaptiveScenario 统一所有执行路径。
+
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Layer 5: Benchmarks（标准测试层）⚪                                 │
 │  "预定义测试集 + 预定义评分 → 一键出成绩单"                            │
@@ -15,7 +18,7 @@ PyRIT 1.0.0 Executor 子系统 — 完整五层架构
 ├─────────────────────────────────────────────────────────────────────┤
 │  Layer 4: Workflow（批量编排层）🟡                                   │
 │  "N 个 objectives × 1 套攻击流程"                                    │
-│  → ScenarioOrchestrator, BatchAttackOrchestrator, XPIAWorkflow     │
+│  → 停止策略（StopStrategyContext）+ XPIAWorkflow                    │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Layer 3: Compound（策略编排层）🟢                                   │
 │  "1 个 objective × N 个攻击策略（fallback chain）"                    │
@@ -80,13 +83,15 @@ from src.executor.attack.core.scenario_event_handler import ScenarioEventHandler
 # Layer 3: Compound
 from src.executor.attack.compound.sequential_executor import SequentialExecutor
 
-# Layer 4: Workflow
-from src.executor.workflow.scenario_orchestrator import (
-    ScenarioOrchestrator,
-    execute_batch_attacks,
+# Layer 4: Workflow（停止策略 + XPIA）
+from src.executor.workflow import (
+    StopStrategyContext,
+    SuccessRecordResult,
+    ThresholdReachedInfo,
+    XPIAWorkflowWrapper,
+    RAGXPIAWorkflowWrapper,
+    ProcessingCallbackBuilder,
 )
-from src.executor.workflow.batch_orchestrator import BatchAttackOrchestrator
-from src.executor.workflow.xpia_workflow import XPIAWorkflowWrapper
 
 # Layer 5: Benchmarks
 from src.executor.benchmark.fairness_bias import FairnessBiasWrapper
@@ -124,11 +129,13 @@ __all__ = [
     "ScenarioEventHandler",
     # Layer 3: Compound
     "SequentialExecutor",
-    # Layer 4: Workflow
-    "ScenarioOrchestrator",
-    "execute_batch_attacks",
-    "BatchAttackOrchestrator",
+    # Layer 4: Workflow（停止策略 + XPIA）
+    "StopStrategyContext",
+    "SuccessRecordResult",
+    "ThresholdReachedInfo",
     "XPIAWorkflowWrapper",
+    "RAGXPIAWorkflowWrapper",
+    "ProcessingCallbackBuilder",
     # Layer 5: Benchmarks
     "FairnessBiasWrapper",
     "QuestionAnsweringWrapper",

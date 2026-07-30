@@ -424,11 +424,24 @@ def wrap_target_with_rate_limiting(
         call_desc = f"{target_name}/{target_model}"
 
         # 并发限制 + 503 重试
-        if semaphore is not None:
-            async with semaphore:
+        try:
+            if semaphore is not None:
+                async with semaphore:
+                    return await _retry_with_backoff(_do_api_call, config, call_description=call_desc)
+            else:
                 return await _retry_with_backoff(_do_api_call, config, call_description=call_desc)
-        else:
-            return await _retry_with_backoff(_do_api_call, config, call_description=call_desc)
+        except Exception as e:
+            # 诊断: EmptyResponseException (204) 在 PyRIT 原生重试耗尽后到达此层
+            # 通常是安全对齐模型拒绝处理请求（非瞬时错误，重试无意义）
+            _err_name = type(e).__name__
+            if "EmptyResponse" in _err_name:
+                logger.warning(
+                    f"⚠ {call_desc}: EmptyResponseException after PyRIT native retries — "
+                    f"this is likely a safety refusal (model returned 204 empty response). "
+                    f"If this is a converter target, consider using a different model "
+                    f"(set CONVERTER_ENDPOINT/CONVERTER_MODEL env vars)."
+                )
+            raise
 
     # 原地替换方法
     target._send_prompt_to_target_async = rate_limited_send_prompt

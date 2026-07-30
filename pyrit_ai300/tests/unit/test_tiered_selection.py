@@ -1074,13 +1074,15 @@ class TestGroupFallbackExecutor:
 
         plans = [_make_attack_plan("p1"), _make_attack_plan("p2")]
 
-        # Mock execute_batch_attacks
+        # Mock run_adaptive_scenario_async (returns AdaptiveRunResult with .batch_result)
+        mock_batch = MagicMock()
+        mock_batch.succeeded = 1
+        mock_batch.executed = 2
+        mock_batch.success_rate = 0.5
         mock_result = MagicMock()
-        mock_result.succeeded = 1
-        mock_result.executed = 2
-        mock_result.success_rate = 0.5
+        mock_result.batch_result = mock_batch
 
-        with patch("src.executor.execute_batch_attacks", return_value=mock_result):
+        with patch("src.payloads.group_fallback_executor.run_adaptive_scenario_async", return_value=mock_result):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=[],
@@ -1089,7 +1091,7 @@ class TestGroupFallbackExecutor:
                 judge_target=MagicMock(),
             )
 
-        assert result.batch_result == mock_result
+        assert result.batch_result == mock_batch
         assert result.tiers_executed == ["ALL"]
 
     @pytest.mark.asyncio
@@ -1099,12 +1101,14 @@ class TestGroupFallbackExecutor:
 
         plans = [_make_attack_plan("p1")]
 
+        mock_batch = MagicMock()
+        mock_batch.succeeded = 0
+        mock_batch.executed = 1
+        mock_batch.success_rate = 0.0
         mock_result = MagicMock()
-        mock_result.succeeded = 0
-        mock_result.executed = 1
-        mock_result.success_rate = 0.0
+        mock_result.batch_result = mock_batch
 
-        with patch("src.executor.execute_batch_attacks", return_value=mock_result):
+        with patch("src.payloads.group_fallback_executor.run_adaptive_scenario_async", return_value=mock_result):
             result = await executor.execute_with_fallback(
                 attack_plans=plans,
                 fallback_chain=[],

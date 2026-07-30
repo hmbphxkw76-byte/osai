@@ -1,8 +1,8 @@
 """
-Stage 3/8: Target 接入层
-========================
+Stage 3/7: Target 接入 + 路由
+=============================
 
-目标创建 + 能力探测 + 分组确定。
+目标创建 + 能力探测 + 分组确定 + Converter 路由。
 创建 Objective/Judge/Converter 三个 Target 实例。
 """
 
@@ -15,8 +15,8 @@ from src.targets.rate_limited_target import RateLimitConfig, wrap_target_with_ra
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行 Target 接入阶段"""
-    stage_header(3, "Target 接入层", "目标创建 + 能力探测 + 分组确定")
+    """执行 Target 接入阶段（含 Converter 路由决策）"""
+    stage_header(3, "Target 接入 + 路由", "目标创建 + 能力探测 + Converter 路由")
 
     # API 级别限速配置
     ctx.api_max_concurrent = int(os.getenv("API_MAX_CONCURRENCY", "10"))
@@ -127,6 +127,33 @@ async def run(ctx: PipelineContext) -> None:
     else:
         ctx.converter_target_display = f"{_conv_class} ({ctx.converter_model})"
 
+    # ── Target 感知 Converter 路由决策 ──
+    try:
+        from src.converters.target_aware_router import select_converter_chains_for_target
+        ctx.converter_chains = select_converter_chains_for_target(
+            ctx.target_type,
+            converter_target_available=(ctx.converter_target is not None),
+        )
+        chain_lines = [
+            f"target_group: {ctx.target_group}",
+            f"bypass: {ctx.bypass_mechanism}",
+            f"推荐链 ({len(ctx.converter_chains)} 条):",
+        ]
+        for i, chain in enumerate(ctx.converter_chains[:8]):
+            chain_lines.append(f"  {i+1}. {chain}")
+        if len(ctx.converter_chains) > 8:
+            chain_lines.append(f"  ... 还有 {len(ctx.converter_chains) - 8} 条")
+        info_box("Converter 路由决策", chain_lines)
+    except Exception:
+        pass
+
+    # L2 韧性: 初始化 Converter 健康监控器
+    from src.scenarios.converter_health_monitor import ConverterHealthMonitor
+    ctx.converter_health_monitor = ConverterHealthMonitor()
+    # 预注册所有推荐链
+    for chain_name in ctx.converter_chains:
+        ctx.converter_health_monitor.register(chain_name)
+
     # 展示
     _display_targets(ctx)
 
@@ -134,12 +161,20 @@ async def run(ctx: PipelineContext) -> None:
     pass_ds = [
         f"• target_group: {ctx.target_group} → 载荷预筛选",
         f"• bypass_mechanism: {ctx.bypass_mechanism} → Converter 选择依据",
+        f"• converter_chains: {len(ctx.converter_chains)} 条 → 变体池已就绪",
     ]
     if ctx.model_tier == "weak":
         pass_ds.append("• skip_llm_chains: True → 变体池不含 LLM 变体")
     else:
         pass_ds.append("• skip_llm_chains: False → 变体池含 LLM 变体")
-    info_box("传递到 Datasets", pass_ds)
+    # 载荷可用性（从侦察结果获取能力信息）
+    _recon_caps = getattr(ctx.recon_result, "capabilities", None)
+    if _recon_caps and getattr(_recon_caps, "supports_multi_turn", False):
+        pass_ds.append("• 载荷能力: MULTI_TURN ✓ → 多轮载荷可用")
+    else:
+        pass_ds.append("• 载荷能力: MULTI_TURN ? → 运行时探测确认")
+    pass_ds.append("• 载荷模式: single_turn + multi_turn 均可")
+    info_box("传递到 Datasets 载荷端 (Stage 4)", pass_ds)
 
 
 def _display_targets(ctx: PipelineContext) -> None:
@@ -165,9 +200,9 @@ def _display_targets(ctx: PipelineContext) -> None:
         obj_lines.append(f"能力:     MULTI_TURN {mt}, SYSTEM_PROMPT {sp}")
     if ctx.target_rpm:
         obj_lines.append(f"RPM限速:  {ctx.target_rpm} req/min")
-    info_box("Objective Target", obj_lines)
+    info_box("被测目标 (Objective Target)", obj_lines)
 
-    info_box("Judge Target", [
+    info_box("评分器目标 (Judge Target)", [
         f"模型: {ctx.judge_model} | temperature={ctx.config_loader.get_judge_temperature()}",
         "用途: objective scoring 仅",
     ])
@@ -177,4 +212,4 @@ def _display_targets(ctx: PipelineContext) -> None:
         f"分层: {ctx.model_tier} → LLM辅助链: "
         f"{'✓ 保留' if ctx.model_tier != 'weak' else '✗ 跳过 (弱过滤模型避免 500)'}",
     ]
-    info_box("Converter Target", conv_lines)
+    info_box("转换器目标 (Converter Target)", conv_lines)

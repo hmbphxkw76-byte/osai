@@ -11,7 +11,7 @@ _BAR = "═" * 63
 
 def stage_header(num: int, title: str, subtitle: str = "") -> None:
     """打印阶段标题"""
-    label = f"  阶段 {num}/8: {title}"
+    label = f"  阶段 {num}/7: {title}"
     if subtitle:
         label += f" — {subtitle}"
     print(f"\n{_BAR}")
