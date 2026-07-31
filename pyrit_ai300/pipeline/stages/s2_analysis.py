@@ -105,7 +105,7 @@ def _is_multi_turn_tech(tech: str) -> bool:
     """判断技术是否为多轮技术"""
     multi_turn_set = {
         "red_teaming", "crescendo", "tap", "pair",
-        "tree_of_attacks_pruned", "many_shot",
+        "many_shot", "violent_durian",
     }
     return tech in multi_turn_set
 
@@ -217,9 +217,14 @@ def _display_tech_pool_matrix(ctx: PipelineContext) -> None:
         emp_attempts = 0
         if ctx.empirical_asr_data:
             emp_techs = ctx.empirical_asr_data.get("techniques", {})
-            from src.payloads.technique_name_mapper import normalize_technique_name
+            from src.payloads.technique_name_mapper import normalize_technique_name, PASCAL_TO_SNAKE
             normalized = normalize_technique_name(tech)
             emp_data = emp_techs.get(normalized) or emp_techs.get(tech)
+            # P0-2 向后兼容: 旧版 JSON 可能存储 PascalCase 键
+            if emp_data is None:
+                _pascal = next((p for p, s in PASCAL_TO_SNAKE.items() if s == normalized), None)
+                if _pascal:
+                    emp_data = emp_techs.get(_pascal)
             if emp_data:
                 emp_asr = emp_data.get("empirical_asr", 0.0)
                 emp_attempts = emp_data.get("attempts", 0)

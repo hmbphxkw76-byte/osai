@@ -2,39 +2,58 @@
 AI-300 Technique Factories — 对齐 pyrit.setup.initializers.techniques
 =====================================================================
 
-P1: Technique 注册与发现 — AttackTechniqueFactory + AttackTechniqueRegistry
+L5 对齐 PyRIT 1.0.0 原生攻击技术体系。
 
-从项目的 ATTACK_CLASS_MAP 构建 AttackTechniqueFactory 实例，
-注册到 PyRIT 原生 AttackTechniqueRegistry。
+分组模块（对齐 PyRIT 原生 core.py / extra.py / airt.py）：
+  - core: 通用技术（role_play, many_shot, crescendo, red_teaming, tap, flip,
+          context_compliance, 编码攻击, multi_prompt_sending, chunked_request）
+  - extra: 可选技术（pair, skeleton_key, violent_durian）
+  - airt: AIRT 场景专属技术（first_letter, image）
 
-分组模块（对齐 PyRIT 原生 core.py / extra.py）：
-  - core: 通用技术（prompt_sending, role_play, many_shot, crescendo, red_teaming, tap）
-  - extra: 可选技术（pair, skeleton_key, encoding converters）
-  - encoding: 编码攻击技术（rot13, base64, caesar 等）
+原生设计原则：
+  - prompt_sending 不注册为 Factory（由 BASELINE_ATTACK_POLICY 自动发射）
+  - default 不是标签（scenario-relative，由 Scenario 声明）
+  - core/extra/airt 标签由注册时注入
+  - with_simulated_conversation() 是核心技术构造器
 
-P0 (Converter-Aware): 为每个基础攻击技术注册多个 Converter 变体作为
-独立的 AttackTechniqueFactory，将 AttackConverterConfig 烘焙到 attack_kwargs 中。
+P0 (Converter-Aware): 为每个基础攻击技术动态创建 Converter 变体，
+使用原生 extra_request_converters 追加 Converter（渐进式升级）。
 原生 AdaptiveTechniqueDispatcher 的 FIRST_SUCCESS 自动在首个成功变体处停止。
 
 注册是按名称幂等的，所以可组合：运行多次只添加尚未注册的技术。
 """
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 
-from pyrit.common.path import EXECUTOR_RED_TEAM_PATH
+from pyrit.common.path import (
+    DATASETS_PATH,
+    EXECUTOR_RED_TEAM_PATH,
+    EXECUTOR_SEED_PROMPT_PATH,
+    EXECUTOR_SIMULATED_TARGET_PATH,
+)
+from pyrit.converter import (
+    AddImageTextConverter,
+    FlipConverter,
+    FirstLetterConverter,
+    TaskFramingConverter,
+)
 from pyrit.executor.attack import (
+    AttackConverterConfig,
     ChunkedRequestAttack,
     CrescendoAttack,
     ManyShotJailbreakAttack,
     MultiPromptSendingAttack,
     PAIRAttack,
+    PrependedConversationConfig,
     PromptSendingAttack,
     RedTeamingAttack,
     SkeletonKeyAttack,
-    TAPAttack,
     TreeOfAttacksWithPruningAttack,
 )
+from pyrit.models import AttackTechniqueSeedGroup, SeedPrompt
+from pyrit.prompt_normalizer import ConverterConfiguration
 from pyrit.registry import AttackTechniqueRegistry
 from pyrit.scenario.core.attack_technique_factory import (
     AttackTechniqueFactory,
@@ -42,6 +61,9 @@ from pyrit.scenario.core.attack_technique_factory import (
 )
 
 logger = logging.getLogger(__name__)
+
+# AIRT blank image path
+_BLANK_IMAGE_PATH = str(DATASETS_PATH / "seed_datasets" / "local" / "examples" / "blank_canvas.png")
 
 
 # ============================================================
@@ -299,9 +321,7 @@ BASE_TECHNIQUES_FOR_VARIANTS: Dict[str, List[str]] = {
         "encoding_bypass", "stealth_evasion",
         "persuasion_authority", "decomposition_chain",
     ],
-    "tree_of_attacks_pruned": [
-        "stealth_evasion", "encoding_bypass",
-    ],
+    # P1-4: tree_of_attacks_pruned 已移除（与 tap 重复，tap 变体见上方）
     "crescendo_simulated": [
         "encoding_bypass", "stealth_evasion",
         "persuasion_authority",
@@ -330,9 +350,11 @@ BASE_TECHNIQUES_FOR_VARIANTS: Dict[str, List[str]] = {
 
 AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
     # ── 基线技术 ──
+    # L5: prompt_sending 仍注册为 Factory（项目 Converter 变体需要它作为基础技术）
+    # 原生 BASELINE_ATTACK_POLICY.Enabled 也会自动发射等价基线攻击
     "prompt_sending": {
         "attack_class": PromptSendingAttack,
-        "tags": ["single_turn", "default", "light", "core"],
+        "tags": ["single_turn", "light", "core"],
         "description": "基线提示发送（无转换器）",
         "uses_adversarial": False,
         "category": "baseline",
@@ -388,11 +410,22 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
     },
     "flip": {
         "attack_class": PromptSendingAttack,
-        "tags": ["single_turn", "encoding", "light", "core"],
-        "description": "翻转编码攻击",
+        "tags": ["single_turn", "light", "core"],
+        "description": "Reverses the objective text so it slips past filters, then asks the target to flip it back.",
         "uses_adversarial": False,
         "category": "encoding",
-        "converter": "flip",
+        # P0-3: 原生 Converter 驱动配置 — FlipConverter + TaskFramingConverter
+        "attack_kwargs": {
+            "attack_converter_config": AttackConverterConfig(
+                request_converters=ConverterConfiguration.from_converters(
+                    converters=[FlipConverter(), TaskFramingConverter(strip_characters="'")]
+                )
+            ),
+            "prepended_conversation_config": PrependedConversationConfig(apply_converters_to_roles=["user"]),
+        },
+        "seed_technique": AttackTechniqueSeedGroup.from_system_prompt(
+            SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "flip_attack.yaml").value
+        ),
     },
     "char_swap": {
         "attack_class": PromptSendingAttack,
@@ -487,29 +520,31 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "category": "role_play",
     },
     # ── Crescendo 变体 ──
+    # P0-1: crescendo_simulated 等使用原生默认 PromptSendingAttack（非 CrescendoAttack）
+    # 原生 with_simulated_conversation() 默认 attack_class=PromptSendingAttack
     "crescendo_simulated": {
-        "attack_class": CrescendoAttack,
+        "attack_class": PromptSendingAttack,
         "tags": ["single_turn", "core"],
         "description": "渐进式攻击（模拟对话）",
         "uses_adversarial": True,
         "category": "crescendo",
     },
     "crescendo_movie_director": {
-        "attack_class": CrescendoAttack,
+        "attack_class": PromptSendingAttack,
         "tags": ["single_turn", "core"],
         "description": "渐进式攻击：电影导演",
         "uses_adversarial": True,
         "category": "crescendo",
     },
     "crescendo_history_lecture": {
-        "attack_class": CrescendoAttack,
+        "attack_class": PromptSendingAttack,
         "tags": ["single_turn", "core"],
         "description": "渐进式攻击：历史讲座",
         "uses_adversarial": True,
         "category": "crescendo",
     },
     "crescendo_journalist_interview": {
-        "attack_class": CrescendoAttack,
+        "attack_class": PromptSendingAttack,
         "tags": ["single_turn", "core"],
         "description": "渐进式攻击：记者采访",
         "uses_adversarial": True,
@@ -521,6 +556,9 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "渐进式攻击",
         "uses_adversarial": True,
         "category": "crescendo",
+        # P3: 降低 max_turns 从默认 10→5，减少 API 调用次数（5 轮×3 次=15 次 vs 10 轮×3 次=30 次）
+        # Crescendo 通常在 3-5 轮内就能达成目标，10 轮过多且浪费时间
+        "attack_kwargs": {"max_turns": 5},
     },
     # ── 上下文合规 ──
     "context_compliance": {
@@ -544,11 +582,14 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "多轮红队攻击",
         "uses_adversarial": True,
         "category": "jailbreak",
+        # P3: 降低 max_turns 从默认 5→3，减少 API 调用次数（3 轮×3 次=9 次 vs 5 轮×3 次=15 次）
+        # 慢速 API 上每轮 3 次 API 调用（adversarial+target+scorer），减少轮数显著降低超时概率
+        "attack_kwargs": {"max_turns": 3},
     },
     "tap": {
-        "attack_class": TAPAttack,
+        "attack_class": TreeOfAttacksWithPruningAttack,
         "tags": ["multi_turn", "core"],
-        "description": "树状攻击（剪枝）",
+        "description": "Explores a tree of adversarial prompts, pruning weak branches to refine the attack.",
         "uses_adversarial": True,
         "category": "jailbreak",
         # L5: TAP 强依赖特定评分器类型 (true_false)，不兼容时应报错
@@ -563,15 +604,7 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         # L5: PAIR 强依赖特定评分器类型 (true_false)，不兼容时应报错
         "scorer_override_policy": ScorerOverridePolicy.RAISE,
     },
-    "tree_of_attacks_pruned": {
-        "attack_class": TreeOfAttacksWithPruningAttack,
-        "tags": ["multi_turn", "core"],
-        "description": "剪枝攻击树",
-        "uses_adversarial": True,
-        "category": "jailbreak",
-        # L5: 剪枝攻击树强依赖特定评分器类型 (true_false)，不兼容时应报错
-        "scorer_override_policy": ScorerOverridePolicy.RAISE,
-    },
+    # P1-4: tree_of_attacks_pruned 已移除（与 tap 重复，TAPAttack = TreeOfAttacksWithPruningAttack）
     # ── 额外技术 ──
     "skeleton_key": {
         "attack_class": SkeletonKeyAttack,
@@ -579,6 +612,18 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "骨架密钥攻击",
         "uses_adversarial": False,
         "category": "jailbreak",
+    },
+    # P1-1: 新增 violent_durian（对齐原生 extra.py）
+    "violent_durian": {
+        "attack_class": RedTeamingAttack,
+        "tags": ["multi_turn", "extra"],
+        "description": "Red-teams with a 'violent durian' persona role-playing a criminal mastermind.",
+        "uses_adversarial": True,
+        "category": "jailbreak",
+        # P3: 降低 max_turns 从 3→2，减少 API 调用次数（2 轮×3 次=6 次 vs 3 轮×3 次=9 次）
+        "attack_kwargs": {"max_turns": 2},
+        "adversarial_system_prompt": SeedPrompt.from_yaml_file(EXECUTOR_RED_TEAM_PATH / "violent_durian.yaml"),
+        "adversarial_seed_prompt": SeedPrompt.from_yaml_file(EXECUTOR_RED_TEAM_PATH / "violent_durian_seed_prompt.yaml"),
     },
     "multi_prompt_sending": {
         "attack_class": MultiPromptSendingAttack,
@@ -616,6 +661,35 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
         "uses_adversarial": False,
         "category": "jailbreak",
     },
+    # P1-2: 新增 AIRT 场景专属技术（对齐原生 airt.py）
+    "first_letter": {
+        "attack_class": PromptSendingAttack,
+        "tags": ["single_turn", "airt", "leakage"],
+        "description": "Obfuscates the objective by asking for it encoded as the first letter of each word.",
+        "uses_adversarial": False,
+        "category": "leakage",
+        "attack_kwargs": {
+            "attack_converter_config": AttackConverterConfig(
+                request_converters=ConverterConfiguration.from_converters(
+                    converters=[FirstLetterConverter()]
+                )
+            ),
+        },
+    },
+    "image": {
+        "attack_class": PromptSendingAttack,
+        "tags": ["single_turn", "airt", "leakage"],
+        "description": "Carries the objective text inside a blank image so it bypasses text-only input handling.",
+        "uses_adversarial": False,
+        "category": "leakage",
+        "attack_kwargs": {
+            "attack_converter_config": AttackConverterConfig(
+                request_converters=ConverterConfiguration.from_converters(
+                    converters=[AddImageTextConverter(img_to_add=_BLANK_IMAGE_PATH)]
+                )
+            ),
+        },
+    },
 }
 
 
@@ -624,31 +698,46 @@ AI300_TECHNIQUE_METADATA: Dict[str, Dict[str, Any]] = {
 # ============================================================
 
 def _build_factory(name: str, metadata: Dict[str, Any]) -> AttackTechniqueFactory:
-    """从元数据构建单个 AttackTechniqueFactory"""
-    # L5: ScorerOverridePolicy 类型安全
-    # TAP/PAIR 等树状攻击强依赖特定评分器类型，不兼容时应报错
-    # 其他技术使用默认 WARN（记录警告但继续执行）
+    """从元数据构建单个 AttackTechniqueFactory
+
+    L5 对齐原生构造模式：支持 attack_kwargs / seed_technique /
+    adversarial_system_prompt / adversarial_seed_prompt 等原生参数。
+    """
     scorer_policy = metadata.get("scorer_override_policy", ScorerOverridePolicy.WARN)
 
-    return AttackTechniqueFactory(
-        name=name,
-        attack_class=metadata["attack_class"],
-        description=metadata.get("description"),
-        technique_tags=metadata.get("tags", []),
-        uses_adversarial=metadata.get("uses_adversarial"),
-        scorer_override_policy=scorer_policy,
-    )
+    factory_kwargs: Dict[str, Any] = {
+        "name": name,
+        "attack_class": metadata["attack_class"],
+        "description": metadata.get("description"),
+        "technique_tags": metadata.get("tags", []),
+        "uses_adversarial": metadata.get("uses_adversarial"),
+        "scorer_override_policy": scorer_policy,
+    }
+
+    # L5: 传递原生参数（attack_kwargs / seed_technique / adversarial 配置）
+    if "attack_kwargs" in metadata:
+        factory_kwargs["attack_kwargs"] = metadata["attack_kwargs"]
+    if "seed_technique" in metadata:
+        factory_kwargs["seed_technique"] = metadata["seed_technique"]
+    if "adversarial_system_prompt" in metadata:
+        factory_kwargs["adversarial_system_prompt"] = metadata["adversarial_system_prompt"]
+    if "adversarial_seed_prompt" in metadata:
+        factory_kwargs["adversarial_seed_prompt"] = metadata["adversarial_seed_prompt"]
+
+    return AttackTechniqueFactory(**factory_kwargs)
 
 
 def get_core_technique_factories() -> List[AttackTechniqueFactory]:
     """
     获取核心技术工厂列表（对齐 pyrit core.py）
 
+    L5: tree_of_attacks_pruned 已移除（与 tap 重复）
+    L5: prompt_sending 保留注册（项目 Converter 变体需要它作为基础技术）
     包含通用技术：prompt_sending、编码攻击、角色扮演、crescendo、
-    context_compliance、many_shot、red_teaming、tap
+    context_compliance、many_shot、red_teaming、tap、flip
     """
     core_names = [
-        # 基线
+        # 基线（Converter 变体基础技术）
         "prompt_sending",
         # 编码攻击
         "rot13", "base64", "caesar", "binary", "morse",
@@ -666,7 +755,7 @@ def get_core_technique_factories() -> List[AttackTechniqueFactory]:
         # 上下文合规
         "context_compliance",
         # 多轮
-        "many_shot", "red_teaming", "tap", "tree_of_attacks_pruned",
+        "many_shot", "red_teaming", "tap",
         # 其他
         "multi_prompt_sending", "chunked_request",
     ]
@@ -682,9 +771,10 @@ def get_extra_technique_factories() -> List[AttackTechniqueFactory]:
     """
     获取可选技术工厂列表（对齐 pyrit extra.py）
 
-    包含：pair、skeleton_key
+    L5: 新增 violent_durian（对齐原生 extra.py）
+    包含：pair、skeleton_key、violent_durian
     """
-    extra_names = ["pair", "skeleton_key"]
+    extra_names = ["pair", "skeleton_key", "violent_durian"]
     factories = []
     for name in extra_names:
         meta = AI300_TECHNIQUE_METADATA.get(name)
@@ -694,8 +784,27 @@ def get_extra_technique_factories() -> List[AttackTechniqueFactory]:
 
 
 def get_all_technique_factories() -> List[AttackTechniqueFactory]:
-    """获取全部技术工厂列表（core + extra）"""
-    return get_core_technique_factories() + get_extra_technique_factories()
+    """获取全部技术工厂列表（core + extra + airt）"""
+    return (
+        get_core_technique_factories()
+        + get_extra_technique_factories()
+        + get_airt_technique_factories()
+    )
+
+
+def get_airt_technique_factories() -> List[AttackTechniqueFactory]:
+    """
+    获取 AIRT 场景专属技术工厂列表（对齐 pyrit airt.py）
+
+    包含：first_letter、image
+    """
+    airt_names = ["first_letter", "image"]
+    factories = []
+    for name in airt_names:
+        meta = AI300_TECHNIQUE_METADATA.get(name)
+        if meta:
+            factories.append(_build_factory(name, meta))
+    return factories
 
 
 def get_encoding_technique_factories() -> List[AttackTechniqueFactory]:
@@ -731,40 +840,70 @@ def get_encoding_technique_factories() -> List[AttackTechniqueFactory]:
 # 且 red_teaming.yaml 文件不存在会导致运行时 FileNotFoundError。
 # red_teaming 通过标准 _build_factory() 路径注册即可。
 _SIMULATED_CONVERSATION_TECHNIQUES: Dict[str, Dict[str, Any]] = {
+    # P0-4: role_play_* 5 个技术接入 with_simulated_conversation()（对齐原生 core.py）
+    "role_play_movie_script": {
+        "description": "Frames the objective as a movie beat by casting the adversarial chat as a screenwriter.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 2,
+        "adversarial_chat_system_prompt_path": EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_movie_script.yaml",
+        "next_message_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+    },
+    "role_play_video_game": {
+        "description": "Frames the objective as an in-game mechanic by casting the adversarial chat as a designer.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 2,
+        "adversarial_chat_system_prompt_path": EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml",
+        "next_message_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+    },
+    "role_play_trivia_game": {
+        "description": "Frames the objective as a quiz answer by casting the adversarial chat as a trivia host.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 2,
+        "adversarial_chat_system_prompt_path": EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_trivia_game.yaml",
+        "next_message_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+    },
+    "role_play_persuasion": {
+        "description": "Frames a persuasion-resistance test so the target drafts a persuasive spoken script.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 2,
+        "adversarial_chat_system_prompt_path": EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_persuasion.yaml",
+        "next_message_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+    },
+    "role_play_persuasion_written": {
+        "description": "Frames a persuasion-resistance test so the target drafts written persuasive material.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 2,
+        "adversarial_chat_system_prompt_path": EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_persuasion_written.yaml",
+        "next_message_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+    },
+    # P0-1: crescendo_* 使用原生默认 PromptSendingAttack（非 CrescendoAttack）
     "crescendo_simulated": {
-        "attack_class": CrescendoAttack,
-        "description": "渐进式攻击（模拟对话）",
-        "tags": ["single_turn", "core", "simulated_conversation"],
+        "description": "Escalates gradually over a simulated conversation toward the objective.",
+        "tags": ["single_turn", "core"],
         "num_turns": 3,
     },
     "crescendo_movie_director": {
-        "attack_class": CrescendoAttack,
-        "description": "渐进式攻击：电影导演",
-        "tags": ["single_turn", "core", "simulated_conversation"],
+        "description": "Escalates gradually while posing as a movie director coaxing the target scene by scene.",
+        "tags": ["single_turn", "core"],
         "num_turns": 3,
     },
     "crescendo_history_lecture": {
-        "attack_class": CrescendoAttack,
-        "description": "渐进式攻击：历史讲座",
-        "tags": ["single_turn", "core", "simulated_conversation"],
+        "description": "Escalates gradually while framing the ask as an academic history lecture.",
+        "tags": ["single_turn", "core"],
         "num_turns": 3,
     },
     "crescendo_journalist_interview": {
-        "attack_class": CrescendoAttack,
-        "description": "渐进式攻击：记者采访",
-        "tags": ["single_turn", "core", "simulated_conversation"],
+        "description": "Escalates gradually while posing as a journalist drawing the target out.",
+        "tags": ["single_turn", "core"],
         "num_turns": 3,
     },
     "context_compliance": {
-        "attack_class": PromptSendingAttack,
-        "description": "上下文合规攻击（模拟对话 + 固定末轮）",
-        "tags": ["single_turn", "light", "core", "simulated_conversation"],
-        "num_turns": 3,
-        "final_user_message": "Yes, I can help with that.",
-        # context_compliance.yaml 在子目录 context_compliance/ 中，需显式指定路径
-        "adversarial_chat_system_prompt_path": EXECUTOR_RED_TEAM_PATH
-        / "context_compliance"
-        / "context_compliance.yaml",
+        "description": "Injects a fabricated prior exchange so the target continues as if it already agreed.",
+        "tags": ["single_turn", "light", "core"],
+        "num_turns": 1,
+        "final_user_message": "yes.",
+        "adversarial_chat_system_prompt_path": EXECUTOR_RED_TEAM_PATH / "context_compliance" / "context_compliance.yaml",
+        "simulated_target_system_prompt_path": EXECUTOR_SIMULATED_TARGET_PATH / "context_compliance_target.yaml",
     },
 }
 
@@ -784,14 +923,45 @@ def get_simulated_conversation_factories() -> List[AttackTechniqueFactory]:
     factories: List[AttackTechniqueFactory] = []
     for name, config in _SIMULATED_CONVERSATION_TECHNIQUES.items():
         try:
+            # P3-T-4: YAML 文件存在性验证 — 在调用 with_simulated_conversation 前检查
+            # 避免运行时 FileNotFoundError 导致整个 Scenario 崩溃
+            adv_path = config.get("adversarial_chat_system_prompt_path")
+            if adv_path is not None:
+                adv_path = Path(adv_path) if not isinstance(adv_path, Path) else adv_path
+                if not adv_path.exists():
+                    logger.warning(
+                        f"P3-T-4: YAML file not found for '{name}': {adv_path}. "
+                        f"Falling back to standard factory."
+                    )
+                    meta = AI300_TECHNIQUE_METADATA.get(name)
+                    if meta:
+                        factories.append(_build_factory(name, meta))
+                    continue
+
+            sim_path = config.get("simulated_target_system_prompt_path")
+            if sim_path is not None:
+                sim_path = Path(sim_path) if not isinstance(sim_path, Path) else sim_path
+                if not sim_path.exists():
+                    logger.warning(
+                        f"P3-T-4: Simulated target YAML not found for '{name}': {sim_path}. "
+                        f"Falling back to standard factory."
+                    )
+                    meta = AI300_TECHNIQUE_METADATA.get(name)
+                    if meta:
+                        factories.append(_build_factory(name, meta))
+                    continue
+
+            # L5: attack_class 默认为 None（原生默认 PromptSendingAttack）
             factory = AttackTechniqueFactory.with_simulated_conversation(
                 name=name,
-                attack_class=config["attack_class"],
+                attack_class=config.get("attack_class"),
                 description=config.get("description"),
                 num_turns=config.get("num_turns", 3),
                 technique_tags=config.get("tags", []),
                 final_user_message=config.get("final_user_message"),
                 adversarial_chat_system_prompt_path=config.get("adversarial_chat_system_prompt_path"),
+                simulated_target_system_prompt_path=config.get("simulated_target_system_prompt_path"),
+                next_message_system_prompt_path=config.get("next_message_system_prompt_path"),
             )
             factories.append(factory)
             logger.debug(f"P4: Created simulated conversation factory for '{name}'")
@@ -1234,15 +1404,57 @@ def register_ai300_techniques(
         tags = ["core"]
 
     if "all" in tags:
-        factories = get_all_technique_factories()
-    else:
-        factories = []
-        if "core" in tags:
-            factories.extend(get_core_technique_factories())
-        if "extra" in tags:
-            factories.extend(get_extra_technique_factories())
-        if "encoding" in tags:
-            factories.extend(get_encoding_technique_factories())
+        tags = ["core", "extra"]
+
+    # P1-S-1: 按分组获取工厂，并动态注入组标签
+    # 对齐原生 TechniqueInitializer — 聚合时注入组名作为 technique tag
+    # 每个 core 技术获得 "core" tag，每个 extra 技术获得 "extra" tag
+    factories: List[AttackTechniqueFactory] = []
+    group_factory_map: Dict[str, List[AttackTechniqueFactory]] = {}
+
+    if "core" in tags:
+        core_facts = get_core_technique_factories()
+        group_factory_map["core"] = core_facts
+        factories.extend(core_facts)
+    if "extra" in tags:
+        extra_facts = get_extra_technique_factories()
+        group_factory_map["extra"] = extra_facts
+        factories.extend(extra_facts)
+    if "encoding" in tags:
+        enc_facts = get_encoding_technique_factories()
+        group_factory_map["encoding"] = enc_facts
+        factories.extend(enc_facts)
+    if "airt" in tags:
+        airt_facts = get_airt_technique_factories()
+        group_factory_map["airt"] = airt_facts
+        factories.extend(airt_facts)
+
+    # P1-T-1: 动态注入组标签 — 对齐原生 TechniqueInitializer 行为
+    # 原生设计：聚合时注入组名作为 technique tag，使整组可一次选中
+    for group_name, group_factories in group_factory_map.items():
+        for idx, factory in enumerate(group_factories):
+            # 获取当前 tags（可能是 frozenset 或 list）
+            current_tags = getattr(factory, "technique_tags", None)
+            if current_tags is None:
+                current_tags = frozenset()
+            if isinstance(current_tags, frozenset):
+                if group_name not in current_tags:
+                    # frozenset 不可变，使用 model_copy 创建新实例
+                    try:
+                        new_factory = factory.model_copy(
+                            update={"technique_tags": frozenset(current_tags | {group_name})}
+                        )
+                        group_factories[idx] = new_factory
+                    except Exception:
+                        pass
+            elif isinstance(current_tags, list):
+                if group_name not in current_tags:
+                    current_tags.append(group_name)
+
+    # 重建 factories 列表（使用注入组标签后的工厂）
+    factories = []
+    for group_factories in group_factory_map.values():
+        factories.extend(group_factories)
 
     # P4: 用原生 with_simulated_conversation() 工厂替换需要模拟对话的标准工厂
     # 这些工厂（crescendo_*, context_compliance）使用原生

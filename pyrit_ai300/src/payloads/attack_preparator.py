@@ -250,9 +250,9 @@ class AttackPreparator:
         if attack_group.prepended_conversation:
             return "crescendo"
 
-        # 有 next_message → 单轮直接发送
+        # 有 next_message → 单轮直接发送（P2-1: ASR 驱动，crescendo_simulated > prompt_sending）
         if attack_group.next_message is not None:
-            return "prompt_sending"
+            return "crescendo_simulated"
 
         # 无 next_message 且无 prepended → 目标导向多轮
         return "red_teaming"

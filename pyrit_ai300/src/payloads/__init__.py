@@ -109,6 +109,7 @@ from src.payloads.asr_rank_builder import (
 )
 from src.payloads.technique_name_mapper import (
     TECHNIQUE_NAME_MAP,
+    PASCAL_TO_SNAKE,
     normalize_technique_name,
     get_normalized_asr,
     get_normalized_tier,
@@ -223,6 +224,7 @@ __all__ = [
     "get_top_n_groups",
     # v4.0: 技术名标准化映射
     "TECHNIQUE_NAME_MAP",
+    "PASCAL_TO_SNAKE",
     "normalize_technique_name",
     "get_normalized_asr",
     "get_normalized_tier",

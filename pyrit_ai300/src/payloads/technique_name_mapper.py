@@ -186,6 +186,31 @@ TECHNIQUE_NAME_MAP: dict[str, str] = {
 
 
 # ============================================================
+# PascalCase 攻击类名 → snake_case 技术名映射
+# ============================================================
+#
+# PyRIT 原生 AttackResult.get_attack_strategy_identifier().unique_name 返回
+# PascalCase 类名 (如 "PromptSendingAttack::hash")。
+# 本映射表将其转换为 asr_prior_registry 的 snake_case key。
+#
+# 数据来源: ATTACK_CLASS_MAP (src/executor/attack/core/attack_builder.py)
+
+PASCAL_TO_SNAKE: dict[str, str] = {
+    "PromptSendingAttack": "prompt_sending",
+    "MultiPromptSendingAttack": "multi_prompt_sending",
+    "ManyShotJailbreakAttack": "many_shot",
+    "SkeletonKeyAttack": "skeleton",
+    "ChunkedRequestAttack": "chunked_request",
+    "RedTeamingAttack": "red_teaming",
+    "CrescendoAttack": "crescendo",
+    "TAPAttack": "tap",
+    "TreeOfAttacksWithPruningAttack": "tap",
+    "PAIRAttack": "pair",
+    "SequentialAttack": "sequential",
+}
+
+
+# ============================================================
 # 统一 Tier 阈值 — 引用 asr_prior_registry（唯一定义点）
 # ============================================================
 
@@ -195,21 +220,26 @@ TECHNIQUE_NAME_MAP: dict[str, str] = {
 
 def normalize_technique_name(yaml_name: str) -> str:
     """
-    将 YAML technique_group 名称标准化为 asr_prior_registry key。
+    将任意技术名标准化为 asr_prior_registry key。
 
     查询顺序:
-    1. 精确匹配 TECHNIQUE_NAME_MAP
+    0. PascalCase 攻击类名 → snake_case (如 "PromptSendingAttack" → "prompt_sending")
+    1. 精确匹配 TECHNIQUE_NAME_MAP (YAML technique_group → registry key)
     2. 去除 _expanded / _v2 后缀后重试
     3. 原样返回（让 registry 的 fallback 机制处理）
 
     Args:
-        yaml_name: YAML 文件中 metadata.technique_group 的值
+        yaml_name: YAML technique_group 或 PascalCase 攻击类名
 
     Returns:
         asr_prior_registry 中对应的 key
     """
     if not yaml_name:
         return ""
+
+    # 0. PascalCase 攻击类名 → snake_case
+    if yaml_name in PASCAL_TO_SNAKE:
+        return PASCAL_TO_SNAKE[yaml_name]
 
     # 1. 精确匹配
     if yaml_name in TECHNIQUE_NAME_MAP:

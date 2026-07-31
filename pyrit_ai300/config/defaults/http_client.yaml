@@ -15,15 +15,16 @@ target:
   #   read=<timeout> (等待推理响应，含队列等待)
   #   write=30s (发送请求体)
   #   pool=10s (连接池等待)
-  # 弱模型(≤14B)推理慢但 120s 足够；推理模型 o1/o3 建议 600+
-  timeout: 120              # 读取超时（秒）
+  # 针对 LongCat-2.0 等慢 API，从 300s 提升到 600s 减少假性超时
+  # 弱模型(≤14B)可用 120-300；推理模型 o1/o3 建议 600+；慢云 API 建议 600+
+  timeout: 600              # 读取超时（秒）- 慢 API 推荐
   verify: false             # SSL 证书验证（false=跳过自签名证书）
   http2: false              # HTTP/2 支持
   # proxy: http://proxy:8080  # 代理 URL（按需启用）
 
 # --- 评分器 HTTP 客户端 ---
 judge:
-  timeout: 120              # 读取超时（秒）
+  timeout: 180              # 读取超时（秒）— 评分器通常比目标模型快
   verify: true              # 评分器通常使用正规 HTTPS 端点
   http2: false
 

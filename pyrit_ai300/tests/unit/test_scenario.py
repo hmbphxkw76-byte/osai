@@ -27,6 +27,7 @@ from src.scenarios import (
     extract_failure_type_from_result,
     get_core_technique_factories,
     get_extra_technique_factories,
+    get_airt_technique_factories,
     get_all_technique_factories,
     register_ai300_techniques,
     AI300_TECHNIQUE_METADATA,
@@ -145,11 +146,12 @@ class TestP1TechniqueRegistry(unittest.TestCase):
         self.assertIn("skeleton_key", names)
 
     def test_all_factories_is_core_plus_extra(self):
-        """Test all factories = core + extra"""
+        """Test all factories = core + extra + airt"""
         all_f = get_all_technique_factories()
         core_f = get_core_technique_factories()
         extra_f = get_extra_technique_factories()
-        self.assertEqual(len(all_f), len(core_f) + len(extra_f))
+        airt_f = get_airt_technique_factories()
+        self.assertEqual(len(all_f), len(core_f) + len(extra_f) + len(airt_f))
 
     def test_factory_names_unique(self):
         """Test all factory names are unique"""
@@ -286,11 +288,11 @@ class TestP3Parameters(unittest.TestCase):
         for name in expected_common:
             self.assertIn(name, param_names, f"Missing common parameter: {name}")
 
-    def test_max_turns_default_is_5(self):
-        """Test max_turns default value is 5"""
+    def test_max_turns_default_is_3(self):
+        """Test max_turns default value is 3 (P3: reduced from 5 to minimize timeout risk)"""
         params = AI300Scenario.supported_parameters()
         max_turns_param = next(p for p in params if p.name == "max_turns")
-        self.assertEqual(max_turns_param.default, 5)
+        self.assertEqual(max_turns_param.default, 3)
 
     def test_per_attack_timeout_default(self):
         """Test per_attack_timeout default value is 300"""

@@ -77,7 +77,7 @@ _PARADIGM_ENCODING = _ENCODING_TECHNIQUES
 # P6: 多轮迭代范式
 _PARADIGM_MULTI_TURN = {
     "crescendo", "red_teaming", "tap", "pair",
-    "tree_of_attacks_pruned", "many_shot",
+    "many_shot", "violent_durian",
 }
 
 # P6: 说服/角色扮演范式
@@ -111,7 +111,7 @@ _SINGLE_TURN_TECHNIQUES = {
 
 # 多轮技术集合（用于模态过滤）
 _MULTI_TURN_TECHNIQUES = {
-    "red_teaming", "crescendo", "tap", "pair", "tree_of_attacks_pruned",
+    "red_teaming", "crescendo", "tap", "pair", "many_shot", "violent_durian",
 }
 
 # P1: Converter 链全局优先级（当 target_type 未设置时的回退值）
@@ -134,6 +134,16 @@ _VALID_STRATEGIES = {STRATEGY_ACADEMIC, STRATEGY_EXAM, STRATEGY_BALANCED}
 # P0-1: 融合权重 — base_weight 控制 epsilon-greedy 排序的影响力
 # 0.3 = 30% 来自父类 epsilon-greedy (探索+记忆), 70% 来自路由策略
 _BASE_WEIGHT = 0.3
+
+# P0-ASR-1: 动态 alpha 权重 — 先验→经验自然过渡
+# 当 Memory 无历史数据时（首次运行），alpha 降低到 0.15，让路由策略主导（70%+）
+# 当 Memory 有充足历史数据时，alpha 升高到 0.5，让 epsilon-greedy 学习结果主导
+# 这确保了:
+#   - 首次运行: 高 ASR 技术被路由策略优先选中（而非随机探索）
+#   - 多次运行后: 跨运行学习结果逐渐主导排序（更精准的个性化选择）
+_DYNAMIC_ALPHA_MIN = 0.15  # 最小 alpha（首次运行，先验主导）
+_DYNAMIC_ALPHA_MAX = 0.50  # 最大 alpha（充足数据，经验主导）
+_DYNAMIC_ALPHA_DATA_THRESHOLD = 10  # 达到此数据量时 alpha 达到最大值
 
 
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
@@ -268,16 +278,33 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         return None
 
     def _load_owasp_strategy(self) -> None:
-        """从 owasp_strategy_map 加载 OWASP 策略偏好"""
+        """从 owasp_strategy_map 加载 OWASP 策略偏好
+
+        P3-Fix: 处理逗号分隔的多个 OWASP ID（如 "LLM01,LLM06"）
+        当传入多个 OWASP ID 时，依次查找每个 ID 的策略，
+        使用第一个找到的 default_attack_technique，
+        合并所有 upgrade_techniques。
+        """
         if not self._owasp_id:
             return
         try:
             from src.core.config_loader import get_config_loader
             strategy_config = get_config_loader().get_strategy_config()
             owasp_map = strategy_config.get("owasp_strategy_map", {})
-            owasp_strategy = owasp_map.get(self._owasp_id, {})
-            self._owasp_default_technique = owasp_strategy.get("default_attack_technique")
-            self._owasp_upgrade_techniques = owasp_strategy.get("upgrade_techniques", [])
+
+            # P3-Fix: 拆分逗号分隔的 OWASP ID，逐个查找策略
+            owasp_ids = [oid.strip() for oid in self._owasp_id.split(",") if oid.strip()]
+            all_upgrades: list[str] = []
+            for oid in owasp_ids:
+                owasp_strategy = owasp_map.get(oid, {})
+                if not self._owasp_default_technique:
+                    self._owasp_default_technique = owasp_strategy.get("default_attack_technique")
+                upgrades = owasp_strategy.get("upgrade_techniques", [])
+                for u in upgrades:
+                    if u not in all_upgrades:
+                        all_upgrades.append(u)
+            self._owasp_upgrade_techniques = all_upgrades
+
             if self._owasp_default_technique:
                 logger.debug(
                     f"FailureTypeRoutingSelector: OWASP {self._owasp_id} "
@@ -469,7 +496,9 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             priority_order = self._reorder_by_strategy(tech_list)
 
         # ── 加权融合 ──
-        return self._blend_orders(tech_list, priority_order, alpha=_BASE_WEIGHT)
+        # P0-ASR-1: 动态 alpha — 先验→经验自然过渡
+        alpha = self._compute_dynamic_alpha()
+        return self._blend_orders(tech_list, priority_order, alpha=alpha)
 
     def _blend_orders(
         self,
@@ -501,6 +530,47 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             return alpha * b + (1.0 - alpha) * p
 
         return sorted(base_order, key=composite_score, reverse=True)
+
+    def _compute_dynamic_alpha(self) -> float:
+        """
+        P0-ASR-1: 动态计算融合权重 alpha
+
+        基于 Memory 中的历史数据量，实现先验→经验自然过渡:
+        - 无历史数据 (0 samples): alpha = _DYNAMIC_ALPHA_MIN (0.15)
+          → 路由策略主导 (85%), 确保高 ASR 技术被优先选中
+        - 充足历史数据 (>=10 samples): alpha = _DYNAMIC_ALPHA_MAX (0.50)
+          → epsilon-greedy 学习结果主导 (50%), 更精准的个性化选择
+        - 中间: 线性插值
+
+        这解决了固定 alpha=0.3 的问题:
+        - 首次运行时 30% 权重给随机探索太低 → 改为 15%
+        - 多次运行后 30% 权重给学习结果太低 → 改为 50%
+
+        Returns:
+            动态 alpha 值 (0.15 - 0.50)
+        """
+        # 尝试从 Memory 获取历史数据量
+        data_count = 0
+        try:
+            from pyrit.memory import CentralMemory
+            memory = CentralMemory.get_memory_instance()
+            # 查询当前 scenario_result 的历史数据
+            if hasattr(memory, "get_scenario_results"):
+                results = memory.get_scenario_results()
+                if results:
+                    data_count = len(results)
+        except Exception:
+            # Memory 不可用时使用最小 alpha
+            pass
+
+        if data_count <= 0:
+            return _DYNAMIC_ALPHA_MIN
+        if data_count >= _DYNAMIC_ALPHA_DATA_THRESHOLD:
+            return _DYNAMIC_ALPHA_MAX
+
+        # 线性插值
+        ratio = data_count / _DYNAMIC_ALPHA_DATA_THRESHOLD
+        return _DYNAMIC_ALPHA_MIN + ratio * (_DYNAMIC_ALPHA_MAX - _DYNAMIC_ALPHA_MIN)
 
     # ------------------------------------------------------------------
     # 路由策略排序（计算 priority_order）
@@ -602,14 +672,16 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         优先级:
         1. 学术先验 ASR（JailbreakBench/HarmBench）
         2. Converter 变体 ASR（基础技术 ASR × 差异化提升系数）
-        3. 中性先验 0.3
+        3. P1-ASR-4: OWASP 分类感知 ASR 调整
+        4. 中性先验 0.3
 
         Returns:
             ASR 值 (越高越优先)
         """
         from src.payloads.asr_prior_registry import get_initial_q_value
         return get_initial_q_value(
-            technique_name, self._model_name, self._model_tier
+            technique_name, self._model_name, self._model_tier,
+            owasp_id=self._owasp_id or "",
         )
 
     def _is_high_asr(self, technique_name: str) -> bool:
@@ -798,25 +870,57 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
                 encoding_and_nonllm + others)
 
     def _reorder_for_timeout(self, tech_list: list[str]) -> list[str]:
-        """timeout → 基础单轮技术优先（减少执行时间），分类内按 ASR 降序"""
-        logger.info("FailureTypeRouting: timeout -> prioritizing base single_turn (no converter)")
+        """
+        P4: timeout → 强制降级到单轮攻击，多轮技术排最后
 
+        超时通常是因为 API 慢或多轮攻击调用次数过多（每轮 3 次 API 调用）。
+        策略：
+        1. 单轮基础技术最优先（1 次 API 调用，最快完成）
+        2. 单轮 Converter 变体次之（额外 1 次 Converter 调用）
+        3. 多轮技术强制排最后（3-15 次 API 调用，超时风险最高）
+
+        每个分类内部按 ASR 降序排列，确保高 ASR 技术在同类中优先。
+        """
+        logger.info("P4: FailureTypeRouting: timeout -> force degrade to single_turn")
+
+        # P4: 单轮基础技术（无 Converter）— 1 次 API 调用，最快完成
         base_single = [
             t for t in tech_list
             if not is_converter_variant(t) and self._is_single_turn(t)
+            and not self._is_multi_turn(t)
         ]
         base_single.sort(key=lambda t: -self._asr_sort_key(t))
 
-        converter_variants = [t for t in tech_list if is_converter_variant(t)]
-        converter_variants.sort(key=lambda t: self._converter_sort_key(t))
-
-        others = [
+        # 单轮 Converter 变体 — 额外 1 次 Converter 调用
+        single_turn_variants = [
             t for t in tech_list
-            if not is_converter_variant(t) and not self._is_single_turn(t)
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) not in _PARADIGM_MULTI_TURN
         ]
+        single_turn_variants.sort(key=lambda t: self._converter_sort_key(t))
+
+        # P4: 多轮技术强制排最后（超时风险最高）
+        multi_turn_techs = [
+            t for t in tech_list
+            if not is_converter_variant(t) and self._is_multi_turn(t)
+        ]
+        multi_turn_techs.sort(key=lambda t: -self._asr_sort_key(t))
+
+        # 多轮 Converter 变体也排最后
+        multi_turn_variants = [
+            t for t in tech_list
+            if is_converter_variant(t)
+            and get_base_technique_from_variant(t) in _PARADIGM_MULTI_TURN
+        ]
+        multi_turn_variants.sort(key=lambda t: self._converter_sort_key(t))
+
+        # 其他未分类技术
+        used = set(base_single + single_turn_variants + multi_turn_techs + multi_turn_variants)
+        others = [t for t in tech_list if t not in used]
         others.sort(key=lambda t: -self._asr_sort_key(t))
 
-        return base_single + converter_variants + others
+        # 单轮基础 > 单轮变体 > 其他 > 多轮技术（最后）
+        return base_single + single_turn_variants + others + multi_turn_techs + multi_turn_variants
 
     def _reorder_for_objective_not_achieved(self, tech_list: list[str]) -> list[str]:
         """

@@ -71,13 +71,15 @@ _RETRYABLE_EXCEPTION_NAMES = frozenset({
     "ServerErrorException",  # PyRIT 的 5xx 异常
 })
 
-# 超时类异常的最大重试次数（每次超时等待 120s+，重试过多不可行）
-# 重试 2 次（1 次原始 + 1 次重试），弱模型重试成功率极低，减少无效等待
+# 超时类异常的最大重试次数（每次超时等待 600s+，重试过多不可行）
+# 针对 LongCat-2.0 等慢 API，从 3 增大到 4（1 次原始 + 3 次重试）
+# 瞬时超时（队列拥堵/网络抖动）多给一次机会
+# 配合 HTTP read timeout=600s + 退避 15-45s，最坏总耗时 ~2655s（可接受）
 _TIMEOUT_EXCEPTION_NAMES = frozenset({
     "APITimeoutError",
     "APIConnectionError",
 })
-_TIMEOUT_MAX_RETRIES = 2
+_TIMEOUT_MAX_RETRIES = 4
 
 
 @dataclass
@@ -350,7 +352,8 @@ async def _retry_with_backoff(
 
             # 超时类异常使用更长的退避时间（给 API 更多恢复时间）
             if is_timeout_err:
-                wait_time = max(wait_time, 10.0 * (attempt + 1))
+                # 针对 LongCat-2.0 等慢 API，从 10s 增大到 15s
+                wait_time = max(wait_time, 15.0 * (attempt + 1))
 
             logger.warning(
                 f"⚠ {call_description} got {type(e).__name__} "

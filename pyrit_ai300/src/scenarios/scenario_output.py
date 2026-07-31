@@ -463,14 +463,19 @@ def display_enhanced_group_breakdown(
                 owasp_names.append(f"{oid}: {name}" if name else oid)
         owasp_display = " | ".join(owasp_names) if owasp_names else ""
 
-        # P1-3: ASR 先验查询
+        # P1-3: ASR 先验查询 (P1-1: 优先使用 warm_start 经验融合值)
         _asr_prior: float | None = None
         if techniques:
             try:
-                from src.payloads.technique_name_mapper import get_normalized_asr
+                from src.payloads.technique_name_mapper import get_normalized_asr, normalize_technique_name
                 _asr_vals = []
                 for t in techniques:
                     try:
+                        if warm_start:
+                            _norm = normalize_technique_name(t)
+                            if _norm in warm_start:
+                                _asr_vals.append(warm_start[_norm])
+                                continue
                         _v = get_normalized_asr(t, model_name)
                         _asr_vals.append(_v)
                     except Exception:

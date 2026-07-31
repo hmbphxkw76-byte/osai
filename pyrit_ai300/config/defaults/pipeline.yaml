@@ -18,12 +18,14 @@ max_concurrency: 1            # 最大并发攻击计划数（1=串行，避免�
 # 单个攻击内部（尤其是 TAP/PAIR）仍有大量并发 API 调用
 # 使用 API_MAX_CONCURRENCY 环境变量控制 API 级别并发
 
-# 原生 AdaptiveScenario 并发数（平衡速度与限速）
-adaptive_max_concurrency: 4
+# 原生 AdaptiveScenario 并发数（降低并发减少 API 压力）
+# 针对 LongCat-2.0 等慢 API，从 4 降至 2 避免队列拥堵
+adaptive_max_concurrency: 2
 
 # API 级别并发信号量上限（防止 503 scheduler queue full）
 # 用于 rate_limited_target.py / adaptive_runner.py
-api_max_concurrency: 3
+# 针对 LongCat-2.0 等慢 API，从 3 降至 2 减少并发压力
+api_max_concurrency: 2
 
 # --- API 级别限速（对齐 PyRIT Resiliency 文档）---
 # PyRIT 原生已处理（通过 @limit_requests_per_minute + @pyrit_target_retry 装饰器）：
@@ -36,14 +38,15 @@ api_max_concurrency: 3
 # 503/502 重试复用 PyRIT 的 RETRY_MAX_NUM_ATTEMPTS 环境变量（统一配置源）
 
 # --- 超时控制 ---
-per_attack_timeout: 180       # 默认单次攻击超时（秒）
+per_attack_timeout: 300       # 默认单次攻击超时（秒）- 增大从 180
 # 按攻击模式差异化超时（秒）
+# 针对 LongCat-2.0 等慢 API，增大多轮和顺序组合的超时时间
 # 多轮攻击（crescendo/TAP/PAIR）消耗大，300s 过长易导致单计划耗时 20+ 分钟
 timeout_overrides:
-  single_turn: 90             # 单轮直接攻击
-  converter_enhanced: 150     # 编码转换增强
-  multi_turn: 180             # 多轮渐进攻击（从 300s 降至 180s）
-  sequential: 300             # 顺序组合攻击（从 480s 降至 300s）
+  single_turn: 120            # 单轮直接攻击（从 90 增大）
+  converter_enhanced: 300     # 编码转换增强（从 150 增大）
+  multi_turn: 600             # 多轮渐进攻击（从 180 大幅增大）
+  sequential: 900             # 顺序组合攻击（从 300 大幅增大）
 
 # --- 失败处理 ---
 fail_fast: false              # 单个攻击失败是否终止全部
@@ -75,15 +78,16 @@ tiered_selection:
 # configure_retry_env_vars(override=True) 会将以下值传播到环境变量
 # .env 中的 RETRY_* 环境变量不会被读取（已被移除）
 retry:
-  max_num_attempts: 3         # 低层重试最大次数（RateLimit / EmptyResponse / 503 / APITimeoutError）
-  wait_min_seconds: 1         # 低层重试最小等待秒数
-  wait_max_seconds: 10        # 低层重试最大等待秒数
+  max_num_attempts: 5         # 低层重试最大次数（针对慢 API 从 3 增大）
+  wait_min_seconds: 2         # 低层重试最小等待秒数（从 1 增大）
+  wait_max_seconds: 60        # 低层重试最大等待秒数（从 10 大幅增大，给 API 恢复时间）
 
 # Scenario 级别重试（高层工作流弹性恢复）
 # 0=快速失败（开发推荐）
 # 1=弱模型推荐（≤14B 重试成功率低，减少无效等待）
+# 2=慢 API 推荐（LongCat-2.0 等云 API 需要更多恢复时间）
 # 3=弹性恢复（生产推荐）
-scenario_max_retries: 1
+scenario_max_retries: 2
 
 # --- Adaptive 执行参数 ---
 # 每个 objective 最大尝试次数（覆盖高 ASR Converter 变体）

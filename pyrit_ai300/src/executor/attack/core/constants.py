@@ -20,10 +20,10 @@ SINGLE_TURN_ATTACKS = frozenset({
 })
 
 # PyRIT 1.0.0: TAP/PAIR 需要专用的 TAPAttackScoringConfig
-TAP_FAMILY_ATTACKS = frozenset({"tap", "pair", "tree_of_attacks_pruned"})
+TAP_FAMILY_ATTACKS = frozenset({"tap", "pair"})
 
 # PyRIT 1.0.0: 使用 tree_depth 而非 max_turns 的攻击技术
-TREE_DEPTH_ATTACKS = frozenset({"tap", "pair", "tree_of_attacks_pruned"})
+TREE_DEPTH_ATTACKS = frozenset({"tap", "pair"})
 
 # PyRIT 1.0.0: 使用 max_turns 的多轮攻击技术
 MAX_TURNS_ATTACKS = frozenset({"red_teaming", "crescendo", "crescendo_simulated"})
@@ -31,7 +31,7 @@ MAX_TURNS_ATTACKS = frozenset({"red_teaming", "crescendo", "crescendo_simulated"
 # PyRIT 1.0.0: 多轮攻击技术集合（用于 SequentialChildAttack adversarial_chat 传递）
 MULTI_TURN_TECHNIQUES = frozenset({
     "red_teaming", "crescendo", "crescendo_simulated",
-    "tap", "pair", "tree_of_attacks_pruned",
+    "tap", "pair", "many_shot", "violent_durian",
 })
 
 # PyRIT 1.0.0: 不接受 refusal_scorer 的攻击技术（warn_if_set 会发出警告）

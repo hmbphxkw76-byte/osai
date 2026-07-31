@@ -751,11 +751,18 @@ def _display_unified_attack_matrix(
 def _display_per_payload_results(
     attack_plans: list[Any],
     native_result: Any,
+    *,
+    warm_start: dict[str, float] | None = None,
+    model_name: str = "",
 ) -> None:
     """
-    逐载荷执行结果（★ 风格）— 每个载荷的成功/失败 + 对话摘要
+    ASR 排序结果速览 — 成功/失败各一行，按技术 ASR 降序排列
 
-    在执行结果概要之后、Per-Group Breakdown 之前展示。
+    v11.0 优化原则: ASR 驱动 · 成功为王 · 去重精简
+    - 成功结果: ✅ 标记 + 先验→实测 ASR 对比 + Converter 列
+    - 失败结果: ❌ 标记 + 先验 ASR + Converter 列 (一行，不展开)
+    - 排序: 按技术 ASR 先验降序，同 ASR 内成功在前
+    - 成功详情留到 Stage 6 深度展示
     """
     if native_result is None:
         return
@@ -766,158 +773,149 @@ def _display_per_payload_results(
     if not display_groups:
         return
 
-    # 从 scenario_output 导入提取辅助函数
-    from src.scenarios.scenario_output import _extract_result_info, _OWASP_NAMES
+    from src.scenarios.scenario_output import _extract_result_info, _extract_converters_from_identifier
+
+    # ASR 查询函数
+    try:
+        from src.payloads.technique_name_mapper import get_normalized_asr, normalize_technique_name
+    except Exception:
+        get_normalized_asr = None  # type: ignore
+        normalize_technique_name = None  # type: ignore
+
+    def _get_asr(tech_name: str) -> float | None:
+        if not tech_name or not get_normalized_asr:
+            return None
+        try:
+            if warm_start and normalize_technique_name:
+                _norm = normalize_technique_name(tech_name)
+                if _norm in warm_start:
+                    return warm_start[_norm]
+            return get_normalized_asr(tech_name, model_name)
+        except Exception:
+            return None
+
+    # 展平所有结果，收集每条的关键信息
+    rows: list[dict[str, Any]] = []
+    payload_idx = 0
+    for group_name, results in display_groups.items():
+        for r in results:
+            if r is None:
+                continue
+            payload_idx += 1
+            pid = f"P{payload_idx}"
+
+            techniques: set[str] = set()
+            converters: set[str] = set()
+            owasp_ids: set[str] = set()
+            _extract_result_info(r, techniques=techniques, converters=converters, owasp_ids=owasp_ids)
+
+            outcome = getattr(r, "outcome", None)
+            outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+            is_success = outcome_str == "SUCCESS"
+
+            tech_display = ", ".join(sorted(techniques)) if techniques else "(unknown)"
+
+            # SequentialAttackResult: 从子结果提取成功技术名 + Converter
+            child_converters: list[str] = []
+            child_results = getattr(r, "child_attack_results", None) or []
+            for child in child_results:
+                if child is None:
+                    continue
+                child_identifier = None
+                if hasattr(child, "get_attack_strategy_identifier"):
+                    child_identifier = child.get_attack_strategy_identifier()
+                if child_identifier is not None:
+                    child_conv_names = _extract_converters_from_identifier(child_identifier)
+                    child_converters.extend(child_conv_names)
+                    child_outcome = getattr(child, "outcome", None)
+                    if child_outcome is not None:
+                        child_outcome_str = str(child_outcome.value).upper() if hasattr(child_outcome, "value") else str(child_outcome).upper()
+                        if child_outcome_str == "SUCCESS":
+                            child_name = getattr(child_identifier, "unique_name", "") if child_identifier else ""
+                            if child_name:
+                                tech_display = child_name.split("::")[0] if "::" in child_name else child_name
+
+            all_converters = sorted(converters | set(child_converters)) if (converters or child_converters) else []
+
+            # 获取 ASR
+            asr_val = _get_asr(tech_display.split(", ")[0] if ", " in tech_display else tech_display)
+
+            rows.append({
+                "pid": pid,
+                "tech": tech_display,
+                "is_success": is_success,
+                "converters": all_converters,
+                "asr_val": asr_val,
+                "owasp": ", ".join(sorted(owasp_ids)) if owasp_ids else "",
+            })
+
+    if not rows:
+        return
+
+    # 按 ASR 降序排列，同 ASR 内成功在前
+    def _sort_key(row: dict[str, Any]) -> tuple[float, int]:
+        asr = row.get("asr_val")
+        asr_neg = -asr if asr is not None else 0.0
+        success_first = 0 if row["is_success"] else 1
+        return (asr_neg, success_first)
+
+    rows.sort(key=_sort_key)
+
+    # 拆分成功/失败
+    success_rows = [r for r in rows if r["is_success"]]
+    failure_rows = [r for r in rows if not r["is_success"]]
+
+    # 计算每技术的实测 ASR (用于成功行展示)
+    tech_success: dict[str, int] = {}
+    tech_total: dict[str, int] = {}
+    for row in rows:
+        tech = row["tech"]
+        tech_total[tech] = tech_total.get(tech, 0) + 1
+        if row["is_success"]:
+            tech_success[tech] = tech_success.get(tech, 0) + 1
 
     # 主标题
     print()
     print("  ╔" + "═" * _W + "╗")
     print()
-    print("       ★  逐载荷执行结果  ★")
+    print("       ★  攻击结果速览 (ASR 降序)  ★")
+    print()
+    print(f"    按技术 ASR 先验降序 · 成功标 ✅ · 失败标 ❌ · 共 {len(rows)} 个")
     print()
     print("  ╚" + "═" * _W + "╝")
 
-    # 展平所有结果
-    all_results: list[Any] = []
-    for group_name, results in display_groups.items():
-        for r in results:
-            if r is not None:
-                all_results.append(r)
-
-    payload_idx = 0
-    for r in all_results:
-        payload_idx += 1
-        pid = f"P{payload_idx}"
-
-        # 提取信息
-        techniques: set[str] = set()
-        converters: set[str] = set()
-        owasp_ids: set[str] = set()
-        _extract_result_info(r, techniques=techniques, converters=converters, owasp_ids=owasp_ids)
-
-        # 结果
-        outcome = getattr(r, "outcome", None)
-        outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
-        is_success = outcome_str == "SUCCESS"
-
-        status_icon = "✅ 成功" if is_success else "❌ 失败"
-        tech_display = ", ".join(sorted(techniques)) if techniques else "(unknown)"
-
-        # 对话摘要
-        conversation = getattr(r, "conversation", None) or getattr(r, "request_pieces", None)
-        user_msg = ""
-        asst_msg = ""
-        if conversation:
-            try:
-                # 尝试从 conversation 提取消息
-                if hasattr(conversation, "__iter__"):
-                    for piece in conversation:
-                        role = getattr(piece, "role", "") or ""
-                        val = getattr(piece, "value", "") or getattr(piece, "text", "")
-                        if not val:
-                            continue
-                        if role.lower() in ("user", "assistant"):
-                            val_short = _trunc(val, 80)
-                            if role.lower() == "user" and not user_msg:
-                                user_msg = val_short
-                            elif role.lower() == "assistant" and not asst_msg:
-                                asst_msg = val_short
-            except Exception:
-                pass
-
-        # OWASP
-        owasp_id_str = ", ".join(sorted(owasp_ids)) if owasp_ids else ""
-        owasp_name = ""
-        if owasp_id_str:
-            oid = owasp_id_str.split(", ")[0].strip()
-            owasp_name = _OWASP_NAMES.get(oid, "")
-
-        # SequentialAttackResult: 检查子结果的成功 Converter
-        child_converters: list[str] = []
-        child_results = getattr(r, "child_attack_results", None) or []
-        for child in child_results:
-            if child is None:
-                continue
-            child_identifier = None
-            if hasattr(child, "get_attack_strategy_identifier"):
-                child_identifier = child.get_attack_strategy_identifier()
-            if child_identifier is not None:
-                from src.scenarios.scenario_output import _extract_converters_from_identifier
-                child_conv_names = _extract_converters_from_identifier(child_identifier)
-                child_converters.extend(child_conv_names)
-            child_outcome = getattr(child, "outcome", None)
-            if child_outcome is not None:
-                child_outcome_str = str(child_outcome.value).upper() if hasattr(child_outcome, "value") else str(child_outcome).upper()
-                if child_outcome_str == "SUCCESS":
-                    child_name = getattr(child_identifier, "unique_name", "") if child_identifier else ""
-                    if child_name:
-                        tech_display = child_name.split("::")[0] if "::" in child_name else child_name
-
-        # 卡片
+    # 成功区
+    if success_rows:
         print()
-        print("  ┏" + "━" * _W)
-        print(f"  ┃  ◆ {pid} [{owasp_id_str}] {tech_display}  {status_icon}")
-        print(f"  ┃    ┌─ 结果 ─{'─' * max(0, _W - 16)}┐")
+        print(f"  ┌─ 成功 ({len(success_rows)} 个) "
+              f"{'─' * max(1, _W - 18 - len(str(len(success_rows))) * 2)}┐")
+        for row in success_rows:
+            asr_str = f"{row['asr_val']:.0%}" if row['asr_val'] is not None else "N/A"
+            tech = row["tech"]
+            _t_total = tech_total.get(tech, 0)
+            _t_succ = tech_success.get(tech, 0)
+            emp_asr = _t_succ / _t_total if _t_total > 0 else 0
+            emp_str = f"{emp_asr:.0%}"
+            conv_str = ", ".join(row["converters"]) if row["converters"] else "(基线)"
+            pid_pad = _pad_right(row["pid"], 4)
+            tech_pad = _pad_right(tech[:28], 28)
+            print(f"  │  ◆ {pid_pad} ✅ {tech_pad} "
+                  f"ASR {asr_str} → {emp_str}  {conv_str}")
+        print(f"  └{'─' * _W}┘")
 
-        if owasp_name:
-            print(f"  ┃    │ OWASP: {owasp_id_str} ({owasp_name})")
-
-        if converters:
-            conv_str = ", ".join(sorted(converters))
-            print(f"  ┃    │ Converter: {conv_str}")
-        elif child_converters:
-            conv_str = ", ".join(sorted(set(child_converters)))
-            print(f"  ┃    │ Converter: {conv_str}")
-        else:
-            print("  ┃    │ Converter: (基线无变换)")
-
-        # 评分
-        score = getattr(r, "score", None)
-        if score is not None:
-            score_val = getattr(score, "score_value", "")
-            score_rationale = _trunc(getattr(score, "score_rationale", ""), 50)
-            print(f"  ┃    │ 评分: {outcome_str} ({score_val})")
-            if score_rationale:
-                print(f"  ┃    │       {score_rationale}")
-        else:
-            print(f"  ┃    │ 评分: {outcome_str}")
-
-        print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-        # 对话摘要（仅成功时展示）
-        if is_success and (user_msg or asst_msg):
-            print(f"  ┃    ┌─ 攻击对话 ─{'─' * max(0, _W - 20)}┐")
-            if user_msg:
-                print(f"  ┃    │ [USER] {user_msg}")
-            if converters or child_converters:
-                conv_short = ", ".join(sorted(converters or set(child_converters)))
-                print(f"  ┃    │        ↳ [{conv_short}]")
-            if asst_msg:
-                print(f"  ┃    │ [ASST] {asst_msg}")
-            print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-        # 失败: 展示尝试过的 Converter
-        if not is_success:
-            if child_results:
-                print(f"  ┃    ┌─ 尝试记录 ({len(child_results)} 次) ─{'─' * max(0, _W - 34)}┐")
-                for ci, child in enumerate(child_results[:5]):
-                    child_outcome = getattr(child, "outcome", None)
-                    child_status = "✗"
-                    if child_outcome is not None:
-                        child_str = str(child_outcome.value).upper() if hasattr(child_outcome, "value") else str(child_outcome).upper()
-                        if child_str == "SUCCESS":
-                            child_status = "✓"
-                    child_identifier = None
-                    if hasattr(child, "get_attack_strategy_identifier"):
-                        child_identifier = child.get_attack_strategy_identifier()
-                    child_name = getattr(child_identifier, "unique_name", "") if child_identifier else ""
-                    child_tech = child_name.split("::")[0] if "::" in child_name else child_name
-                    print(f"  ┃    │ {ci + 1}. {child_status} {child_tech}")
-                if len(child_results) > 5:
-                    print(f"  ┃    │   ... {len(child_results) - 5} more")
-                print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-        print("  ┗" + "━" * _W)
+    # 失败区
+    if failure_rows:
+        print()
+        print(f"  ┌─ 失败 ({len(failure_rows)} 个) "
+              f"{'─' * max(1, _W - 18 - len(str(len(failure_rows))) * 2)}┐")
+        for row in failure_rows:
+            asr_str = f"{row['asr_val']:.0%}" if row['asr_val'] is not None else "N/A"
+            conv_str = ", ".join(row["converters"]) if row["converters"] else "(基线)"
+            pid_pad = _pad_right(row["pid"], 4)
+            tech_pad = _pad_right(row["tech"][:28], 28)
+            print(f"  │  ○ {pid_pad} ❌ {tech_pad} "
+                  f"ASR {asr_str}  {conv_str}")
+        print(f"  └{'─' * _W}┘")
 
     print()
 
@@ -926,11 +924,12 @@ def _display_execution_strategy(ctx: PipelineContext) -> None:
     """
     执行策略 — 合并技术排序 + 失败路由 + 停止策略
     """
-    from src.payloads.technique_name_mapper import get_normalized_asr
+    from src.payloads.technique_name_mapper import get_normalized_asr, normalize_technique_name
     from src.scenarios.asr_strategy_display import _get_tier
 
     model_name = ctx.strategy_info.get("model_name", ctx.target_model)
     strategy_mode = ctx.strategy_info.get("strategy_mode", "academic")
+    _warm = ctx.warm_start_asr or None
 
     tech_list = []
     seen = set()
@@ -938,7 +937,15 @@ def _display_execution_strategy(ctx: PipelineContext) -> None:
         tech = getattr(plan, "attack_technique", "")
         if tech and tech not in seen:
             seen.add(tech)
-            asr = get_normalized_asr(tech, model_name)
+            # P1-2: 优先使用 warm_start (经验融合 ASR), 与 Stage 2 数据源一致
+            if _warm:
+                _norm = normalize_technique_name(tech)
+                if _norm in _warm:
+                    asr = _warm[_norm]
+                else:
+                    asr = get_normalized_asr(tech, model_name)
+            else:
+                asr = get_normalized_asr(tech, model_name)
             tech_list.append((tech, asr, _get_tier(asr)))
 
     if tech_list:
@@ -1036,6 +1043,23 @@ async def run(ctx: PipelineContext) -> bool:
     # ── ③ 统一攻击载荷 × Converter 组合矩阵 ──
     _owasp_threshold = ctx.config_loader.get_owasp_success_threshold()
     _stop_on_first = ctx.config_loader.get_stop_on_first_success()
+    # P3: 计算 Stage 4 技术 ASR 映射（用于技术映射桥接展示）
+    _stage4_tech_asr: dict[str, float] = {}
+    try:
+        from src.payloads.technique_name_mapper import get_normalized_asr
+        _exec_model_for_asr = ctx.strategy_info.get("model_name", ctx.target_model)
+        _warm_for_asr = ctx.warm_start_asr or None
+        for _tech_name in _tech_set:
+            if _warm_for_asr:
+                from src.payloads.technique_name_mapper import normalize_technique_name
+                _norm = normalize_technique_name(_tech_name)
+                if _norm in _warm_for_asr:
+                    _stage4_tech_asr[_tech_name] = _warm_for_asr[_norm]
+                    continue
+            _stage4_tech_asr[_tech_name] = get_normalized_asr(_tech_name, _exec_model_for_asr)
+    except Exception:
+        pass
+
     _display_unified_attack_matrix(
         ctx.attack_plans,
         strategy_info=ctx.strategy_info,
@@ -1047,6 +1071,7 @@ async def run(ctx: PipelineContext) -> bool:
         warm_start=ctx.warm_start_asr,
         owasp_success_threshold=_owasp_threshold,
         stop_on_first_success=_stop_on_first,
+        stage4_tech_asr=_stage4_tech_asr or None,
     )
 
     # ── ④ 开始执行 ──
@@ -1059,6 +1084,40 @@ async def run(ctx: PipelineContext) -> bool:
         os.getenv("MAX_ATTEMPTS_PER_OBJECTIVE", "")
         or ctx.config_loader.get_pipeline_defaults().get("max_attempts_per_objective", 5)
     )
+
+    # P2: 创建独立 adversarial_target（如有 ADVERSARIAL_* 环境变量）
+    # 多轮攻击（RedTeamingAttack/CrescendoAttack）需要 adversarial_chat 生成攻击 prompt
+    # 默认复用 judge_target（轻量级模型，快速生成攻击 prompt）
+    _adversarial_target = None
+    _adv_endpoint = os.getenv("ADVERSARIAL_ENDPOINT", "").strip()
+    _adv_model = os.getenv("ADVERSARIAL_MODEL", "").strip()
+    _adv_api_key = os.getenv("ADVERSARIAL_API_KEY", "").strip()
+    if _adv_endpoint and _adv_model:
+        try:
+            from src.targets import create_prompt_target, TargetParams
+            from src.targets.rate_limited_target import RateLimitConfig, wrap_target_with_rate_limiting
+            _adv_params = TargetParams(
+                temperature=0.7,
+                discover_capabilities=False,
+                httpx_timeout=float(ctx.config_loader.get_target_httpx_timeout()),
+                httpx_verify=ctx.config_loader.get_target_httpx_verify(),
+            )
+            _adversarial_target, _ = await create_prompt_target(
+                target_url=_adv_endpoint,
+                api_key=_adv_api_key or ctx.judge_api_key,
+                model_name=_adv_model,
+                params=_adv_params,
+            )
+            _adversarial_target = wrap_target_with_rate_limiting(
+                _adversarial_target,
+                config=RateLimitConfig(max_concurrent_requests=ctx.api_max_concurrent),
+                semaphore_key=f"adversarial:{_adv_endpoint}",
+            )
+            print(f"  [P2] 独立 adversarial_chat: {_adv_model} @ {_adv_endpoint}")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"P2: Failed to create adversarial_target: {e}, falling back to judge_target")
+            _adversarial_target = None
 
     ctx.adaptive_result = await run_adaptive_scenario_async(
         objective_target=ctx.objective_target,
@@ -1079,6 +1138,11 @@ async def run(ctx: PipelineContext) -> bool:
         owasp_success_threshold=_owasp_threshold,
         stop_on_first_success=_stop_on_first,
         warm_start_asr=ctx.warm_start_asr or None,
+        strategy_attack_techniques=(
+            getattr(ctx.strategy_selection, "attack_techniques", None)
+            if ctx.strategy_selection else None
+        ),
+        adversarial_target=_adversarial_target,
     )
     ctx.batch_result = ctx.adaptive_result.batch_result
 
@@ -1103,17 +1167,24 @@ async def run(ctx: PipelineContext) -> bool:
         result_lines.append(f"失败类型分布: {ctx.adaptive_result.failure_type_distribution}")
         if ctx.adaptive_result.most_common_failure_type:
             result_lines.append(f"最常见失败类型: {ctx.adaptive_result.most_common_failure_type}")
+    # P0-ASR-2: 显示运行时 ASR 实测数据（实时反馈闭环）
+    if ctx.adaptive_result.runtime_asr:
+        _rasr = ctx.adaptive_result.runtime_asr
+        _rasr_parts = [f"{k}: {v:.0%}" for k, v in sorted(_rasr.items(), key=lambda x: -x[1])[:5]]
+        result_lines.append(f"运行时 ASR (实时反馈): {' | '.join(_rasr_parts)}")
     info_box("执行结果", result_lines)
 
-    # ── ⑥ 逐载荷执行结果（★ 风格） ──
+    # ── ⑥ ASR 排序结果速览 ──
     if ctx.adaptive_result.native_result is not None:
         try:
             _display_per_payload_results(
                 ctx.attack_plans,
                 ctx.adaptive_result.native_result,
+                warm_start=ctx.warm_start_asr or None,
+                model_name=ctx.strategy_info.get("model_name", ctx.target_model),
             )
         except Exception as e:
-            print(f"  [!] 逐载荷结果输出失败: {e}")
+            print(f"  [!] 结果速览输出失败: {e}")
 
     # ── ⑦ Per-Group Breakdown（格式对齐②） ──
     if ctx.adaptive_result.native_result is not None:
@@ -1122,6 +1193,8 @@ async def run(ctx: PipelineContext) -> bool:
             display_enhanced_group_breakdown(
                 ctx.adaptive_result.native_result,
                 owasp_id=",".join(ctx.config_owasp_ids) if ctx.config_owasp_ids else "",
+                model_name=ctx.strategy_info.get("model_name", ctx.target_model),
+                warm_start=ctx.warm_start_asr or None,
             )
         except Exception as e:
             print(f"  [!] Per-Group Breakdown 输出失败: {e}")

@@ -869,7 +869,8 @@ class AI300AdaptiveScenario(AdaptiveScenario):
                 adversarial_chat = factory.adversarial_chat
                 if adversarial_chat is None and factory.uses_adversarial:
                     try:
-                        from pyrit.executor.attack.core.attack_config import (
+                        # P3-S-2: 统一导入路径 — 使用原生 scenario.core.scenario_target_defaults
+                        from pyrit.scenario.core.scenario_target_defaults import (
                             get_default_adversarial_target,
                         )
                         adversarial_chat = get_default_adversarial_target()

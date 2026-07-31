@@ -83,7 +83,7 @@ scenario_matrix:
       - pair
       - crescendo_simulated
       - red_teaming
-      - tree_of_attacks_pruned
+      - violent_durian
     datasets:
       - airt_leakage
     scoring:
@@ -886,7 +886,25 @@ attack_techniques:
     class: TreeOfAttacksWithPruningAttack
     multi_turn: true
     requires_adversarial: true
-    description: "剪枝攻击树"
+    description: "剪枝攻击树 (deprecated, use tap)"
+
+  violent_durian:
+    class: RedTeamingAttack
+    multi_turn: true
+    requires_adversarial: true
+    description: "暴力榴莲角色扮演攻击"
+
+  first_letter:
+    class: PromptSendingAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "首字母编码泄露攻击"
+
+  image:
+    class: PromptSendingAttack
+    multi_turn: false
+    requires_adversarial: false
+    description: "图片载体泄露攻击"
 
   sequential:
     class: SequentialAttack
@@ -1097,7 +1115,8 @@ owasp_strategy_map:
   LLM01:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "stealth_evasion"
       - "encoding_bypass"
@@ -1119,21 +1138,24 @@ owasp_strategy_map:
   LLM03:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
   LLM04:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
   LLM05:
     scorer_type: "injection_detection"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "encoding_bypass"
     upgrade_techniques:
@@ -1141,7 +1163,8 @@ owasp_strategy_map:
   LLM06:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "encoding_bypass"
     upgrade_techniques:
@@ -1160,21 +1183,25 @@ owasp_strategy_map:
   LLM08:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
   LLM09:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
+      - "crescendo"
   LLM10:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
@@ -1182,7 +1209,8 @@ owasp_strategy_map:
   ASI01:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "stealth_evasion"
       - "encoding_bypass"
@@ -1192,7 +1220,8 @@ owasp_strategy_map:
   ASI02:
     scorer_type: "injection_detection"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "encoding_bypass"
     upgrade_techniques:
@@ -1200,7 +1229,8 @@ owasp_strategy_map:
   ASI03:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "stealth_evasion"
     upgrade_techniques:
@@ -1209,7 +1239,8 @@ owasp_strategy_map:
   ASI04:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "encoding_bypass"
     upgrade_techniques:
@@ -1217,7 +1248,8 @@ owasp_strategy_map:
   ASI05:
     scorer_type: "code_safety"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "encoding_bypass"
     upgrade_techniques:
@@ -1234,14 +1266,16 @@ owasp_strategy_map:
   ASI07:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques:
       - "red_teaming"
   ASI08:
     scorer_type: "general"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains: []
     upgrade_techniques: []
   ASI09:
@@ -1256,7 +1290,8 @@ owasp_strategy_map:
   ASI10:
     scorer_type: "code_safety"
     default_attack_mode: "single_turn"
-    default_attack_technique: "prompt_sending"
+    # P2-1: ASR 驱动默认技术（crescendo_simulated ASR ~82% > prompt_sending ~2%）
+    default_attack_technique: "crescendo_simulated"
     recommended_converter_chains:
       - "stealth_evasion"
     upgrade_techniques:

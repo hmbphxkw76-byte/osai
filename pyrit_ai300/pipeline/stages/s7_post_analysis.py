@@ -4,20 +4,19 @@ Stage 6/7: 执行后分析 + ASR 经验写回
 
 ASR 实测 vs 学术先验对比 + 经验 ASR 持久化 + 策略建议。
 
-显示架构 (v9.0 精简优化 — 合并冗余展示):
-  ① ASR 实测 vs 先验对比        — 保留原有对比表
-  ② ★ 攻击结果汇总 ★            — 合并 Per-Group Breakdown + 失败汇总 (消除重复)
-  ③ ★ 成功攻击详细展示 ★        — ┏━ 卡片: 评分 + 完整对话 (仅成功)
-  ④ Converter 健康统计           — 熔断/健康状态
-  ⑤ ASR 经验写回 (Tier 2)       — 持久化 + Top-3
-  ⑥ 运行时停止策略               — L2/L3 统计
+显示架构 (v11.0 — ASR 驱动 · 成功为王 · 去重精简):
+  模块 A: 执行成果概要   — 合并时间分析 + ASR对比 + 攻击结果汇总 Banner + 失败分布
+  模块 B: 高价值成功攻击深度展示 — 按技术 ASR 降序, 完整 Prompt + 对话 + 评分依据
+  模块 C: Converter 韧性分析 — 合并健康统计 + 增量分析
+  模块 D: ASR 经验闭环   — 合并经验写回 + 模型洞察 + 停止策略
+  模块 E: 成果回溯 + 建议 — 成功技术 Top-3 + 失败模式 + 下次运行建议
 
 设计原则:
-  - 成功 = 详细：每个成功攻击都是宝贵经验，展示完整对话 + 评分 rationale
-  - 失败 = 汇总：大量失败按失败类型分组，展示技术/Converter 分布
-  - 消除冗余：原 Stage 5 逐载荷卡片 + Stage 6 载荷摘要 + 失败汇总 = 3 次重复
-    → 精简为 1 次：Stage 5 one-liner + Stage 6 合并汇总
-  - 0% 场景：仅显示统计行，省略逐行展示
+  - ASR 驱动: 所有结果按技术 ASR 降序展示
+  - 成功为王: 成功攻击展示完整 Prompt (200字符) + 完整对话 + 评分依据
+  - 去重精简: Per-Group Breakdown 仅在 Stage 5 展示 (移除 Stage 6 重复调用);
+              失败攻击从完整卡片精简为分布表
+  - 承上启下: 每个结果标注先验 ASR + Tier, 衔接 Stage 2/3/4 数据流
 
 三层数据架构:
   Tier 1: 学术先验 (asr_prior_registry.py, 只读)
@@ -45,33 +44,13 @@ _FAILURE_TYPE_CN = {
     "unknown": "未知失败",
 }
 
-# P2-3: 失败类型改进建议
-_FAILURE_SUGGESTIONS: dict[str, list[str]] = {
-    "model_refusal": [
-        "→ 启用 Converter 变体 (Base64/ROT13/Unicode) 绕过内容过滤",
-        "→ 切换到多轮攻击 (Crescendo/Tree-of-Attacks) 逐步建立上下文",
-        "→ 检查 Converter Target 模型是否为安全对齐模型 (需更换为限制较少的模型)",
-    ],
-    "timeout": [
-        "→ 降低 max_attempts_per_objective (当前可能过高)",
-        "→ 增加 max_concurrency 提高并行度",
-        "→ 对多轮攻击降低 max_turns 参数",
-    ],
-    "scorer_validation_error": [
-        "→ 检查 Judge Target 模型是否正常响应",
-        "→ 验证 true_false_question 模板路径是否正确",
-        "→ 考虑更换为更稳定的评分器类型 (如 SelfAskTrueFalseScorer)",
-    ],
-    "objective_not_achieved": [
-        "→ 升级到更高 ASR 技术 (参考 Stage 2 ASR Tier 排序)",
-        "→ 增加攻击变体覆盖 (启用更多 Converter 链)",
-        "→ 检查目标模型是否有特定防护 (如 system prompt 注入检测)",
-    ],
-    "unknown": [
-        "→ 检查错误日志获取详细失败原因",
-        "→ 验证 Target 端点配置和网络连通性",
-        "→ 考虑增加重试次数 (max_retries)",
-    ],
+# P2-3: 失败类型改进建议 (精简为单行)
+_FAILURE_SUGGESTION_SHORT: dict[str, str] = {
+    "model_refusal": "→ 启用 Converter 编码绕过或多轮渐进",
+    "timeout": "→ 降低 max_attempts 或增加并发",
+    "scorer_validation_error": "→ 检查 Judge Target 和评分模板",
+    "objective_not_achieved": "→ 升级到更高 ASR 技术或增加变体",
+    "unknown": "→ 检查错误日志和 Target 端点",
 }
 
 
@@ -87,81 +66,36 @@ def _trunc(text: str, limit: int = 60) -> str:
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行后分析阶段 + ASR 经验写回"""
+    """执行后分析阶段 + ASR 经验写回 (v11.0 — 5 模块精简架构)"""
     stage_header(6, "执行后分析 + ASR 反馈", "ASR 实测 vs 先验对比 + 经验写回")
 
     # ════════════════════════════════════════════════════════════
-    # P1-B: 合并为 3 个逻辑分组 (减少 info_box 过载)
+    # 模块 A: 执行成果概要 (合并时间 + ASR对比 + 汇总 + 失败分布)
     # ════════════════════════════════════════════════════════════
+    _display_summary_module(ctx)
 
-    # ── 组 1: 执行成果摘要 (时间 + ASR对比 + Per-Group + 失败汇总) ──
-
-    # P1-2: 时间预估 vs 实际对比
-    if ctx.adaptive_result is not None:
-        _exec_s = ctx.adaptive_result.execution_time
-        _exec_min = _exec_s / 60
-        _n_plans = ctx.batch_result.total_plans if ctx.batch_result else 0
-        _n_executed = ctx.batch_result.executed if ctx.batch_result else 0
-        _est_atomic = _n_plans + 1
-        _est_min = (_est_atomic * 45) / 60
-        _est_max = (_est_atomic * 90) / 60
-        _time_lines = [
-            f"实际: {_exec_min:.1f} min ({_exec_s:.0f}s)",
-            f"预估: ~{_est_min:.0f}-{_est_max:.0f} min "
-            f"(基于 {_n_plans} 计划 → {_n_executed} 结果)",
-        ]
-        if _exec_min > _est_max:
-            _ratio = _exec_min / max(_est_max, 0.1)
-            _time_lines.append(
-                f"⚠ 超出预估 {_ratio:.1f}× — "
-                f"可能原因: 多轮攻击深迭代 | Converter 链 LLM 调用 | "
-                f"API 限流重试"
-            )
-        elif _exec_min < _est_min:
-            _time_lines.append(
-                "✓ 优于预估 — 可能原因: FIRST_SUCCESS 提前停止 | "
-                "弱模型快速响应"
-            )
-        info_box("时间分析", _time_lines)
-
-    # ① ASR 实测 vs 学术先验对比
-    # P0-C/P1-C: 传递 warm_start 使 ASR 数据源与 Stage 2/4/5 统一
-    from src.scenarios.asr_strategy_display import display_post_execution
-    display_post_execution(
-        adaptive_result=ctx.adaptive_result,
-        model_name=ctx.strategy_info.get("model_name", ctx.target_model),
-        warm_start=ctx.warm_start_asr or None,
-    )
-
-    # ② ★ 攻击结果汇总（合并 Per-Group Breakdown + 失败汇总）★
-    _display_unified_results(ctx)
-
-    # ── 组 2: 攻击详情 (成功详情 + Converter增量) ──
-
-    # ③ 成功攻击详细展示
+    # ════════════════════════════════════════════════════════════
+    # 模块 B: 高价值成功攻击深度展示 (ASR 降序 · 完整 Prompt + 对话)
+    # ════════════════════════════════════════════════════════════
     _display_success_detail(ctx)
 
-    # ④ L2 韧性: 从执行结果回填 Converter 健康统计
+    # ════════════════════════════════════════════════════════════
+    # 模块 C: Converter 韧性分析 (合并健康 + 增量)
+    # ════════════════════════════════════════════════════════════
     _feed_converter_health_from_results(ctx)
+    _display_converter_resilience(ctx)
 
-    # P4-2: Converter 增量分析区块
-    _display_converter_delta(ctx)
+    # ════════════════════════════════════════════════════════════
+    # 模块 D: ASR 经验闭环 (合并经验写回 + 模型洞察 + 停止策略)
+    # ════════════════════════════════════════════════════════════
+    _display_asr_feedback(ctx)
 
-    # ── 组 3: 经验反馈 (经验写回 + 模型洞察 + 停止策略) ──
-
-    # ⑤ L5 ASR 反馈回路 Tier 2: 经验 ASR 写回
-    _write_empirical_asr(ctx)
-
-    # P4-1: 模型特定洞察区块
-    _display_model_insight(ctx)
-
-    # ⑥ 运行时停止策略统计
-    _display_stop_stats(ctx)
-
-    # P2-C: ★ 成果回溯 + 下次运行建议 ★
+    # ════════════════════════════════════════════════════════════
+    # 模块 E: 成果回溯 + 下次运行建议
+    # ════════════════════════════════════════════════════════════
     _display_retrospective(ctx)
 
-    # P2-A: 阶段间衔接行
+    # 阶段间衔接行
     from pipeline.display import handoff_line
     _sr_pct = (ctx.batch_result.success_rate * 100) if ctx.batch_result else 0
     _n_success = ctx.batch_result.succeeded if ctx.batch_result else 0
@@ -170,19 +104,205 @@ async def run(ctx: PipelineContext) -> None:
 
 
 # ============================================================
-# ③ 成功攻击详细展示 — ┏━ 卡片风格
+# 模块 A: 执行成果概要 — 合并时间 + ASR对比 + 汇总 + 失败分布
+# ============================================================
+
+
+def _display_summary_module(ctx: PipelineContext) -> None:
+    """
+    模块 A: 执行成果概要
+
+    合并原有的:
+      - 时间分析 info_box
+      - ASR 实测 vs 先验对比 (display_post_execution)
+      - 攻击结果汇总 Banner
+      - 失败攻击汇总 (精简为分布表, 不再逐卡片展示)
+      - Per-Group Breakdown (已在 Stage 5 展示, 此处不再重复)
+
+    设计要点:
+      - 所有执行成果信息在一个 info_box 内呈现
+      - 失败攻击仅展示分布统计 (不展开技术/Converter 逐行卡片)
+      - Per-Group Breakdown 已在 Stage 5 ⑦ 展示, 此处不再调用
+    """
+    if ctx.adaptive_result is None:
+        return
+
+    summary_lines: list[str] = []
+
+    # ── 时间分析 ──
+    _exec_s = ctx.adaptive_result.execution_time
+    _exec_min = _exec_s / 60
+    _n_plans = ctx.batch_result.total_plans if ctx.batch_result else 0
+    _n_executed = ctx.batch_result.executed if ctx.batch_result else 0
+    _est_atomic = _n_plans + 1
+    _est_min = (_est_atomic * 45) / 60
+    _est_max = (_est_atomic * 90) / 60
+
+    summary_lines.append(
+        f"实际: {_exec_min:.1f} min ({_exec_s:.0f}s) | "
+        f"预估: ~{_est_min:.0f}-{_est_max:.0f} min"
+    )
+    if _exec_min > _est_max:
+        _ratio = _exec_min / max(_est_max, 0.1)
+        summary_lines.append(
+            f"⚠ 超出预估 {_ratio:.1f}× — "
+            f"多轮深迭代 | Converter LLM | API 限流"
+        )
+    elif _exec_min < _est_min:
+        summary_lines.append("✓ 优于预估 — FIRST_SUCCESS 提前停止")
+
+    # ── 攻击结果汇总 ──
+    _n_success = ctx.batch_result.succeeded if ctx.batch_result else 0
+    _n_fail = ctx.batch_result.failed if ctx.batch_result else 0
+    _rate = ctx.batch_result.success_rate if ctx.batch_result else 0.0
+    _converter_used = ctx.adaptive_result.converter_variants_used
+
+    summary_lines.append("")
+    summary_lines.append(
+        f"总计: {_n_executed} | 成功: {_n_success} ({_rate:.0%}) | "
+        f"失败: {_n_fail} | Converter: {_converter_used} 次"
+    )
+
+    # ── 实测 ASR vs 先验对比表 ──
+    _model_name = ctx.strategy_info.get("model_name", ctx.target_model)
+    _warm = ctx.warm_start_asr or None
+    _asr_lines = _build_asr_comparison(ctx, _model_name, _warm)
+    if _asr_lines:
+        summary_lines.append("")
+        _asr_label = "经验融合 ASR" if _warm else "学术 ASR"
+        summary_lines.append(f"实测 ASR vs 先验 ({_asr_label}):")
+        summary_lines.append(f"  模型: {_model_name}")
+        summary_lines.extend(_asr_lines)
+
+    # ── 失败类型分布 (精简为一行) ──
+    if ctx.adaptive_result.failure_type_distribution:
+        _ftd = ctx.adaptive_result.failure_type_distribution
+        summary_lines.append("")
+        _ftd_parts = [f"{k} ({v})" for k, v in sorted(_ftd.items(), key=lambda x: -x[1])]
+        summary_lines.append(f"失败类型: {' | '.join(_ftd_parts)}")
+        if ctx.adaptive_result.most_common_failure_type:
+            _mcf = ctx.adaptive_result.most_common_failure_type
+            _sug = _FAILURE_SUGGESTION_SHORT.get(_mcf, "")
+            summary_lines.append(f"最常见: {_mcf}  {_sug}")
+
+    info_box("执行成果概要", summary_lines)
+
+
+def _build_asr_comparison(
+    ctx: PipelineContext,
+    model_name: str,
+    warm_start: dict[str, float] | None,
+) -> list[str]:
+    """构建实测 ASR vs 先验对比表行"""
+    try:
+        from src.payloads.technique_name_mapper import (
+            get_normalized_asr,
+            normalize_technique_name,
+        )
+        from src.scenarios.scenario_output import _clean_technique_name
+    except Exception:
+        return []
+
+    native_result = getattr(ctx.adaptive_result, "native_result", None)
+    if native_result is None or not hasattr(native_result, "get_display_groups"):
+        return []
+
+    # 收集 per-technique 统计
+    tech_stats: dict[str, dict[str, int]] = {}
+    for _gn, _results in native_result.get_display_groups().items():
+        for r in _results:
+            if r is None:
+                continue
+            tech = ""
+            identifier = None
+            if hasattr(r, "get_attack_strategy_identifier"):
+                try:
+                    identifier = r.get_attack_strategy_identifier()
+                except Exception:
+                    pass
+            if identifier is not None:
+                raw_name = getattr(identifier, "unique_name", "") or ""
+                tech, _ = _clean_technique_name(raw_name)
+
+            if not tech:
+                child_results = getattr(r, "child_attack_results", None) or []
+                for child in child_results:
+                    if child is None:
+                        continue
+                    child_id = None
+                    if hasattr(child, "get_attack_strategy_identifier"):
+                        try:
+                            child_id = child.get_attack_strategy_identifier()
+                        except Exception:
+                            pass
+                    if child_id is not None:
+                        child_name = getattr(child_id, "unique_name", "") or ""
+                        child_tech, _ = _clean_technique_name(child_name)
+                        if child_tech:
+                            tech = child_tech
+                            break
+
+            if not tech:
+                continue
+
+            if tech not in tech_stats:
+                tech_stats[tech] = {"success": 0, "total": 0}
+            tech_stats[tech]["total"] += 1
+            outcome = getattr(r, "outcome", None)
+            outcome_str = (
+                str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+            )
+            if "SUCCESS" in outcome_str:
+                tech_stats[tech]["success"] += 1
+
+    if not tech_stats:
+        return []
+
+    lines: list[str] = []
+    lines.append(
+        f"  {'技术':36s} {'实测':>6s} {'先验':>6s} {'差异':>6s} {'样本':>4s}"
+    )
+    lines.append(f"  {'─' * 36} {'─' * 6} {'─' * 6} {'─' * 6} {'─' * 4}")
+
+    for tech in sorted(tech_stats.keys(), key=lambda t: -get_normalized_asr(t, model_name)):
+        stats = tech_stats[tech]
+        total = stats["total"]
+        if total == 0:
+            continue
+        empirical_asr = stats["success"] / total
+        if warm_start:
+            _norm = normalize_technique_name(tech)
+            prior_asr = warm_start.get(_norm, get_normalized_asr(tech, model_name))
+        else:
+            prior_asr = get_normalized_asr(tech, model_name)
+        diff = empirical_asr - prior_asr
+        diff_str = f"{diff:+.0%}"
+        if diff > 0.1:
+            diff_str += " ↑"
+        elif diff < -0.1:
+            diff_str += " ↓"
+        lines.append(
+            f"  {tech:36s} {empirical_asr:5.0%} {prior_asr:5.0%} {diff_str:>6s} {total:4d}"
+        )
+
+    return lines
+
+
+# ============================================================
+# 模块 B: 高价值成功攻击深度展示 — ASR 降序 · 完整 Prompt + 对话
 # ============================================================
 
 
 def _display_success_detail(ctx: PipelineContext) -> None:
-    """③ 成功攻击详细展示 — ┏━ 卡片: 评分 + 完整对话
+    """
+    模块 B: 高价值成功攻击深度展示
 
-    每个成功攻击都是宝贵经验，展示:
-      - PID + OWASP + 技术 + ✅ 成功
-      - Converter 使用情况
-      - 评分 (含 score_rationale)
-      - 攻击对话 (USER → Converter标注 → ASST)
-      - SequentialAttack 子结果中的成功 Converter
+    v11.0 核心改造:
+      - 按技术 ASR 先验降序排列成功结果 (高 ASR 技术优先展示)
+      - Prompt 截断从 80→200 字符 (保留更多攻击上下文)
+      - 标注先验 vs 实测 ASR 对比 (如 "30% → 100%")
+      - Converter 链完整展示 (标注变换顺序)
+      - 评分依据不截断 (让用户理解为什么判定为成功)
     """
     if ctx.adaptive_result is None or ctx.adaptive_result.native_result is None:
         return
@@ -201,6 +321,28 @@ def _display_success_detail(ctx: PipelineContext) -> None:
         _OWASP_NAMES,
     )
 
+    # ASR 查询函数
+    try:
+        from src.payloads.technique_name_mapper import get_normalized_asr, normalize_technique_name
+    except Exception:
+        get_normalized_asr = None  # type: ignore
+        normalize_technique_name = None  # type: ignore
+
+    _warm = ctx.warm_start_asr or None
+    _model = ctx.strategy_info.get("model_name", ctx.target_model)
+
+    def _get_asr(tech_name: str) -> float | None:
+        if not tech_name or not get_normalized_asr:
+            return None
+        try:
+            if _warm and normalize_technique_name:
+                _norm = normalize_technique_name(tech_name)
+                if _norm in _warm:
+                    return _warm[_norm]
+            return get_normalized_asr(tech_name, _model)
+        except Exception:
+            return None
+
     # 展平所有结果
     all_results = []
     for _group_name, results in display_groups.items():
@@ -208,51 +350,24 @@ def _display_success_detail(ctx: PipelineContext) -> None:
             if r is not None:
                 all_results.append(r)
 
-    # 筛选成功结果
-    success_results = []
+    # 筛选成功结果 + 收集 ASR
+    success_entries: list[dict[str, Any]] = []
     for idx, r in enumerate(all_results):
         outcome = getattr(r, "outcome", None)
         outcome_str = (
-            str(outcome.value).upper()
-            if hasattr(outcome, "value")
-            else str(outcome).upper()
+            str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
         )
-        if outcome_str == "SUCCESS":
-            success_results.append((idx + 1, r))
+        if outcome_str != "SUCCESS":
+            continue
 
-    if not success_results:
-        print("\n  (无成功攻击结果)")
-        return
-
-    # Banner
-    print()
-    print("  ╔" + "═" * _W + "╗")
-    print()
-    print("       ★  成功攻击详细展示  ★")
-    print()
-    print(f"    共 {len(success_results)} 个成功攻击 · 展示完整对话 + 评分依据")
-    print()
-    print("  ╚" + "═" * _W + "╝")
-
-    for pid_num, r in success_results:
-        pid = f"P{pid_num}"
-
-        # 提取信息
         techniques: set[str] = set()
         converters: set[str] = set()
         owasp_ids: set[str] = set()
         _extract_result_info(r, techniques=techniques, converters=converters, owasp_ids=owasp_ids)
 
-        # OWASP
-        owasp_id_str = ", ".join(sorted(owasp_ids)) if owasp_ids else ""
-        owasp_name = ""
-        if owasp_id_str:
-            oid = owasp_id_str.split(", ")[0].strip()
-            owasp_name = _OWASP_NAMES.get(oid, "")
-
         tech_display = ", ".join(sorted(techniques)) if techniques else "(unknown)"
 
-        # SequentialAttackResult: 检查子结果的成功 Converter
+        # SequentialAttackResult: 从子结果提取成功技术名 + Converter
         child_converters: list[str] = []
         child_results = getattr(r, "child_attack_results", None) or []
         for child in child_results:
@@ -264,26 +379,17 @@ def _display_success_detail(ctx: PipelineContext) -> None:
             if child_identifier is not None:
                 child_conv_names = _extract_converters_from_identifier(child_identifier)
                 child_converters.extend(child_conv_names)
-            child_outcome = getattr(child, "outcome", None)
-            if child_outcome is not None:
-                child_outcome_str = (
-                    str(child_outcome.value).upper()
-                    if hasattr(child_outcome, "value")
-                    else str(child_outcome).upper()
-                )
-                if child_outcome_str == "SUCCESS":
-                    child_name = (
-                        getattr(child_identifier, "unique_name", "")
-                        if child_identifier else ""
+                child_outcome = getattr(child, "outcome", None)
+                if child_outcome is not None:
+                    child_outcome_str = (
+                        str(child_outcome.value).upper() if hasattr(child_outcome, "value") else str(child_outcome).upper()
                     )
-                    if child_name:
-                        tech_display = (
-                            child_name.split("::")[0]
-                            if "::" in child_name
-                            else child_name
-                        )
+                    if child_outcome_str == "SUCCESS":
+                        child_name = getattr(child_identifier, "unique_name", "") if child_identifier else ""
+                        if child_name:
+                            tech_display = child_name.split("::")[0] if "::" in child_name else child_name
 
-        # 对话摘要
+        # 对话提取 (完整, 200 字符截断)
         conversation = getattr(r, "conversation", None) or getattr(r, "request_pieces", None)
         user_msgs: list[str] = []
         asst_msgs: list[str] = []
@@ -300,64 +406,130 @@ def _display_success_detail(ctx: PipelineContext) -> None:
                         if not val:
                             continue
                         if role.lower() == "user":
-                            user_msgs.append(_trunc(val, 80))
+                            user_msgs.append(_trunc(val, 200))
                         elif role.lower() == "assistant":
-                            asst_msgs.append(_trunc(val, 80))
+                            asst_msgs.append(_trunc(val, 200))
             except Exception:
                 pass
+
+        asr_val = _get_asr(tech_display.split(", ")[0] if ", " in tech_display else tech_display)
+
+        success_entries.append({
+            "pid": f"P{idx + 1}",
+            "tech": tech_display,
+            "converters": sorted(converters | set(child_converters)) if (converters or child_converters) else [],
+            "owasp_ids": owasp_ids,
+            "asr_val": asr_val,
+            "score": getattr(r, "score", None),
+            "user_msgs": user_msgs,
+            "asst_msgs": asst_msgs,
+        })
+
+    if not success_entries:
+        print("\n  (无成功攻击结果)")
+        return
+
+    # 按技术 ASR 降序排列
+    success_entries.sort(key=lambda e: (-(e["asr_val"] or 0)))
+
+    # 计算每技术实测 ASR
+    tech_success: dict[str, int] = {}
+    tech_total: dict[str, int] = {}
+    for e in success_entries:
+        tech = e["tech"]
+        tech_total[tech] = tech_total.get(tech, 0) + 1
+        tech_success[tech] = tech_success.get(tech, 0) + 1
+
+    # Banner
+    print()
+    print("  ╔" + "═" * _W + "╗")
+    print()
+    print("       ★  高价值成功攻击深度展示  ★")
+    print()
+    print(f"    共 {len(success_entries)} 个成功攻击 · 按技术 ASR 降序 · 完整 Prompt + 对话")
+    print()
+    print("  ╚" + "═" * _W + "╝")
+
+    for entry in success_entries:
+        pid = entry["pid"]
+        tech = entry["tech"]
+        asr_val = entry["asr_val"]
+        converters = entry["converters"]
+        owasp_ids = entry["owasp_ids"]
+
+        # OWASP
+        owasp_id_str = ", ".join(sorted(owasp_ids)) if owasp_ids else ""
+        owasp_name = ""
+        if owasp_id_str:
+            oid = owasp_id_str.split(", ")[0].strip()
+            owasp_name = _OWASP_NAMES.get(oid, "")
+
+        # ASR 先验 vs 实测
+        asr_prior_str = f"{asr_val:.0%}" if asr_val is not None else "N/A"
+        _t_total = tech_total.get(tech, 0)
+        _t_succ = tech_success.get(tech, 0)
+        emp_asr = _t_succ / _t_total if _t_total > 0 else 0
+        emp_str = f"{emp_asr:.0%}"
+        delta = emp_asr - asr_val if asr_val is not None else None
+        delta_str = f" (Δ{delta:+.0%} ↑)" if delta is not None and delta > 0.1 else ""
 
         # ── 卡片 ──
         print()
         print("  ┏" + "━" * _W)
-        print(f"  ┃  ◆ {pid} [{owasp_id_str}] {tech_display}  ✅ 成功")
+        print(f"  ┃  ◆ {pid}  {tech}  ✅ 成功")
+        print(f"  ┃    先验 ASR: {asr_prior_str} → 实测 ASR: {emp_str}{delta_str}")
 
-        # 结果区域
-        print(f"  ┃    ┌─ 结果 ─{'─' * max(0, _W - 16)}┐")
-
+        # 攻击配置
+        print(f"  ┃    ┌─ 攻击配置 ─{'─' * max(0, _W - 20)}┐")
         if owasp_name:
             print(f"  ┃    │ OWASP: {owasp_id_str} ({owasp_name})")
+        elif owasp_id_str:
+            print(f"  ┃    │ OWASP: {owasp_id_str}")
 
         if converters:
-            conv_str = ", ".join(sorted(converters))
-            print(f"  ┃    │ Converter: {conv_str}")
-        elif child_converters:
-            conv_str = ", ".join(sorted(set(child_converters)))
+            conv_str = " → ".join(converters)
             print(f"  ┃    │ Converter: {conv_str}")
         else:
             print("  ┃    │ Converter: (基线无变换)")
 
         # 评分
-        score = getattr(r, "score", None)
+        score = entry["score"]
         if score is not None:
             score_val = getattr(score, "score_value", "")
             score_rationale = getattr(score, "score_rationale", "")
             print(f"  ┃    │ 评分: SUCCESS ({score_val})")
             if score_rationale:
-                # 评分理由可能较长，截断展示
-                rationale_short = _trunc(score_rationale, _W - 25)
-                print(f"  ┃    │       {rationale_short}")
+                # 评分依据不截断 (让用户理解为什么判定为成功)
+                rationale_lines = score_rationale.split("\n")
+                for rl in rationale_lines[:3]:
+                    rl = rl.strip()
+                    if rl:
+                        print(f"  ┃    │   {rl}")
+                if len(rationale_lines) > 3:
+                    print(f"  ┃    │   ... ({len(rationale_lines) - 3} more lines)")
         else:
             print("  ┃    │ 评分: SUCCESS")
 
         print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
-        # 攻击对话（成功才展示）
+        # 攻击对话 (完整, 200 字符截断)
+        user_msgs = entry["user_msgs"]
+        asst_msgs = entry["asst_msgs"]
         if user_msgs or asst_msgs:
             print(f"  ┃    ┌─ 攻击对话 ─{'─' * max(0, _W - 20)}┐")
             max_turns = max(len(user_msgs), len(asst_msgs))
-            for t_idx in range(min(max_turns, 3)):
+            for t_idx in range(min(max_turns, 4)):
                 if t_idx < len(user_msgs):
                     print(f"  ┃    │ [USER] {user_msgs[t_idx]}")
-                if converters or child_converters:
-                    conv_short = ", ".join(sorted(converters or set(child_converters)))
-                    if t_idx == 0:
-                        print(f"  ┃    │        ↳ [{_trunc(conv_short, 40)}]")
+                if converters and t_idx == 0:
+                    conv_short = " → ".join(converters)
+                    print(f"  ┃    │        ↳ [{_trunc(conv_short, 50)}]")
                 if t_idx < len(asst_msgs):
                     print(f"  ┃    │ [ASST] {asst_msgs[t_idx]}")
-                if t_idx < min(max_turns, 3) - 1:
+                if t_idx < min(max_turns, 4) - 1:
                     print("  ┃    │")
-            if max_turns > 3:
-                print(f"  ┃    │ ... ({max_turns - 3} more turns)")
+            if max_turns > 4:
+                print(f"  ┃    │ ... ({max_turns - 4} more turns)")
             print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
 
         print("  ┗" + "━" * _W)
@@ -366,231 +538,7 @@ def _display_success_detail(ctx: PipelineContext) -> None:
 
 
 # ============================================================
-# ④ 失败攻击汇总 — 按失败类型分组
-# ============================================================
-
-
-def _display_unified_results(ctx: PipelineContext) -> None:
-    """
-    ② ★ 攻击结果汇总（合并 Per-Group Breakdown + 失败汇总）★
-
-    v9.0 精简优化 — 消除原 3 次重复展示:
-      原: 逐载荷卡片(Stage5⑦) + 载荷级摘要(Stage6②) + 失败汇总(Stage6④) = 3 次
-      新: 载荷级 one-liner(Stage5⑦) + 本函数 = 2 次
-
-    本函数合并展示:
-      1. Per-Group Breakdown: 按技术分组统计 (成功率/技术/Converter/OWASP)
-      2. 失败攻击汇总: 按失败类型分组 (技术/Converter 分布)
-      → 一次遍历，交叉展示，避免重复
-
-    0% 场景特殊处理: 仅显示统计行，省略逐行展示
-    """
-    if ctx.adaptive_result is None or ctx.adaptive_result.native_result is None:
-        return
-
-    native_result = ctx.adaptive_result.native_result
-    if not hasattr(native_result, "get_display_groups"):
-        return
-
-    display_groups = native_result.get_display_groups()
-    if not display_groups:
-        return
-
-    from src.scenarios.scenario_output import (
-        _extract_result_info,
-        _extract_converters_from_identifier,
-    )
-    from src.scenarios.failure_type_selector import extract_failure_type_from_result
-
-    # 展平所有结果
-    all_results = []
-    for _group_name, results in display_groups.items():
-        for r in results:
-            if r is not None:
-                all_results.append(r)
-
-    if not all_results:
-        return
-
-    # ── 一次遍历: 同时收集 Per-Group 统计 + 失败类型分组 ──
-    total = len(all_results)
-    success_count = 0
-    failure_groups: dict[str, list[tuple[int, Any, str]]] = {}  # (idx, result, group_name)
-
-    # 构建 idx → group_name 映射
-    _idx_to_group: dict[int, str] = {}
-    _flat_idx = 0
-    for _gn, _results in display_groups.items():
-        for _r in _results:
-            if _r is not None:
-                _idx_to_group[_flat_idx] = _gn
-                _flat_idx += 1
-
-    for idx, r in enumerate(all_results):
-        outcome = getattr(r, "outcome", None)
-        outcome_str = (
-            str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
-        )
-        if outcome_str == "SUCCESS":
-            success_count += 1
-        else:
-            ftype = extract_failure_type_from_result(r)
-            _gn = _idx_to_group.get(idx, "")
-            failure_groups.setdefault(ftype, []).append((idx + 1, r, _gn))
-
-    fail_count = total - success_count
-    rate = success_count / total if total > 0 else 0.0
-
-    # ── Banner ──
-    print()
-    print("  ╔" + "═" * _W + "╗")
-    print()
-    print("       ★  攻击结果汇总  ★")
-    print()
-    print(f"    总计: {total} | 成功: {success_count} ({rate:.0%}) | 失败: {fail_count}")
-    print()
-    print("  ╚" + "═" * _W + "╝")
-
-    # ── Per-Group Breakdown (来自 display_groups) ──
-    from src.scenarios.scenario_output import display_enhanced_group_breakdown
-    try:
-        display_enhanced_group_breakdown(
-            native_result,
-            owasp_id=",".join(ctx.config_owasp_ids) if ctx.config_owasp_ids else "",
-            model_name=ctx.strategy_info.get("model_name", ctx.target_model),
-            warm_start=ctx.warm_start_asr or None,
-        )
-    except Exception as e:
-        logger.warning(f"Per-Group Breakdown 输出失败: {e}")
-
-    # ── 失败攻击汇总 (按失败类型分组) ──
-    if failure_groups:
-        sorted_failures = sorted(failure_groups.items(), key=lambda x: -len(x[1]))
-        total_failures = sum(len(v) for v in failure_groups.values())
-
-        print()
-        print("  ╔" + "═" * _W + "╗")
-        print()
-        print("       ★  失败攻击汇总 (按失败类型分组)  ★")
-        print()
-        print(f"    共 {total_failures} 个失败攻击 · 按失败类型分组展示技术/Converter 分布")
-        print()
-        print("  ╚" + "═" * _W + "╝")
-
-        for ftype, items in sorted_failures:
-            ftype_cn = _FAILURE_TYPE_CN.get(ftype, ftype)
-            count = len(items)
-
-            # ── 卡片头 ──
-            print()
-            print("  ┏" + "━" * _W)
-            print(f"  ┃  ◆ {ftype} ({ftype_cn}) — {count} 次")
-
-            # ── 技术分布 ──
-            tech_dist: dict[str, int] = {}
-            for _pid, r, _gn in items:
-                techniques: set[str] = set()
-                converters: set[str] = set()
-                owasp_ids: set[str] = set()
-                _extract_result_info(
-                    r, techniques=techniques, converters=converters,
-                    owasp_ids=owasp_ids, group_name=_gn,
-                )
-
-                child_results = getattr(r, "child_attack_results", None) or []
-                for child in child_results:
-                    if child is None:
-                        continue
-                    child_identifier = None
-                    if hasattr(child, "get_attack_strategy_identifier"):
-                        child_identifier = child.get_attack_strategy_identifier()
-                    if child_identifier is not None:
-                        child_name = getattr(child_identifier, "unique_name", "") or ""
-                        child_tech = child_name.split("::")[0] if "::" in child_name else child_name
-                        if child_tech:
-                            techniques.add(child_tech)
-
-                for t in sorted(techniques) if techniques else ["(unknown)"]:
-                    tech_dist[t] = tech_dist.get(t, 0) + 1
-
-            print("  ┃")
-            tech_hdr = f"技术分布 ({len(tech_dist)} 种)"
-            tech_dashes = max(1, _W - 6 - _cjk_width(tech_hdr) - 2)
-            print(f"  ┃    ┌─ {tech_hdr} {'─' * tech_dashes}┐")
-
-            sorted_tech = sorted(tech_dist.items(), key=lambda x: -x[1])
-            for t_name, t_count in sorted_tech[:8]:
-                pct = t_count / count * 100
-                print(f"  ┃    │ {t_name:40s} {t_count:>3d} 次  ({pct:.0f}%)")
-            if len(sorted_tech) > 8:
-                print(f"  ┃    │ ... ({len(sorted_tech) - 8} more)")
-            print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-            # ── Converter 分布 ──
-            conv_dist: dict[str, int] = {}
-            baseline_count = 0
-            for _pid, r, _gn in items:
-                techniques = set()
-                converters = set()
-                owasp_ids = set()
-                _extract_result_info(
-                    r, techniques=techniques, converters=converters,
-                    owasp_ids=owasp_ids, group_name=_gn,
-                )
-
-                child_results = getattr(r, "child_attack_results", None) or []
-                for child in child_results:
-                    if child is None:
-                        continue
-                    child_identifier = None
-                    if hasattr(child, "get_attack_strategy_identifier"):
-                        child_identifier = child.get_attack_strategy_identifier()
-                    if child_identifier is not None:
-                        child_conv_names = _extract_converters_from_identifier(child_identifier)
-                        for cn in child_conv_names:
-                            converters.add(cn)
-
-                if converters:
-                    for cv in sorted(converters):
-                        conv_dist[cv] = conv_dist.get(cv, 0) + 1
-                else:
-                    baseline_count += 1
-
-            print("  ┃")
-            conv_hdr = f"Converter 分布 ({len(conv_dist)} 种 + {baseline_count} 基线)"
-            conv_dashes = max(1, _W - 6 - _cjk_width(conv_hdr) - 2)
-            print(f"  ┃    ┌─ {conv_hdr} {'─' * conv_dashes}┐")
-
-            if baseline_count > 0:
-                pct = baseline_count / count * 100
-                print(f"  ┃    │ {'(基线无变换)':40s} {baseline_count:>3d} 次  ({pct:.0f}%)")
-
-            sorted_conv = sorted(conv_dist.items(), key=lambda x: -x[1])
-            for cv_name, cv_count in sorted_conv[:8]:
-                pct = cv_count / count * 100
-                print(f"  ┃    │ {cv_name:40s} {cv_count:>3d} 次  ({pct:.0f}%)")
-            if len(sorted_conv) > 8:
-                print(f"  ┃    │ ... ({len(sorted_conv) - 8} more)")
-            print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-            # P2-3: 失败建议区块
-            _suggestions = _FAILURE_SUGGESTIONS.get(ftype, [])
-            if _suggestions:
-                print("  ┃")
-                sug_hdr = "改进建议"
-                sug_dashes = max(1, _W - 6 - _cjk_width(sug_hdr) - 2)
-                print(f"  ┃    ┌─ {sug_hdr} {'─' * sug_dashes}┐")
-                for sug in _suggestions:
-                    print(f"  ┃    │ {sug}")
-                print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
-
-            print("  ┗" + "━" * _W)
-
-    print()
-
-
-# ============================================================
-# ④ Converter 健康统计 — 保留原有逻辑
+# 模块 C: Converter 韧性分析 — 合并健康统计 + 增量分析
 # ============================================================
 
 
@@ -602,8 +550,6 @@ def _feed_converter_health_from_results(ctx: PipelineContext) -> None:
     但执行阶段（Stage 5 AdaptiveScenario 内部）无法直接调用 record_success/
     record_failure。本函数在 Stage 6 后处理阶段遍历 AttackResult, 从 identifier
     提取 converter 名称, 根据 outcome 反馈到 health_monitor。
-
-    这样 _write_empirical_asr() 中的 get_stats() 能返回有效数据。
     """
     if ctx.converter_health_monitor is None:
         return
@@ -674,257 +620,21 @@ def _feed_converter_health_from_results(ctx: PipelineContext) -> None:
                             else:
                                 monitor.record_failure(cn, child_str)
 
-        # 展示 converter 健康摘要
-        stats = monitor.get_stats()
-        disabled = monitor.get_disabled_converters()
-        if stats and any(s["attempts"] > 0 for s in stats.values()):
-            health_lines = []
-            for name, s in sorted(stats.items(), key=lambda x: -x[1]["attempts"]):
-                if s["attempts"] == 0:
-                    continue
-                status = "✓ 健康" if not s["disabled"] else "✗ 熔断"
-                health_lines.append(
-                    f"  {name:30s} {status}  {s['successes']}/{s['attempts']} "
-                    f"({s['success_rate']:.0%})"
-                )
-            if disabled:
-                health_lines.append(f"\n  [熔断] {', '.join(disabled)}")
-            if health_lines:
-                info_box("Converter 健康统计", health_lines)
-
     except Exception as e:
         print(f"  [!] Converter 健康统计回填失败: {e}")
 
 
-# ============================================================
-# ⑥ ASR 经验写回 — 保留原有逻辑
-# ============================================================
-
-
-def _write_empirical_asr(ctx: PipelineContext) -> None:
+def _display_converter_resilience(ctx: PipelineContext) -> None:
     """
-    L5 ASR 反馈回路: 将本次运行结果写回经验 ASR 存储
+    模块 C: Converter 韧性分析
 
-    融合公式:
-      new_empirical = (old_empirical * old_count + new_data) / (old_count + 1)
+    合并原有的:
+      - Converter 健康统计 (熔断/健康状态)
+      - Converter 增量分析 (基线 vs Converter ASR 差异)
+      - Per-Technology Converter ASR
+
+    设计要点: 增量分析 → 健康状态 → 按技术分解, 一个 info_box 呈现
     """
-    if ctx.adaptive_result is None or ctx.adaptive_result.native_result is None:
-        return
-
-    try:
-        from src.scenarios.empirical_asr_store import (
-            extract_tech_stats_from_results,
-            update_empirical_asr,
-        )
-
-        # 提取 per-technique 统计
-        tech_stats = extract_tech_stats_from_results(
-            ctx.adaptive_result.native_result,
-            ctx.strategy_info.get("model_name", ctx.target_model),
-        )
-
-        if not tech_stats:
-            return
-
-        # 获取 converter 健康统计
-        converter_stats = None
-        if ctx.converter_health_monitor is not None:
-            converter_stats = ctx.converter_health_monitor.get_stats()
-
-        # 写回经验 ASR
-        updated = update_empirical_asr(
-            model_name=ctx.strategy_info.get("model_name", ctx.target_model),
-            model_tier=ctx.strategy_info.get("model_tier", ctx.model_tier),
-            tech_stats=tech_stats,
-            converter_stats=converter_stats,
-        )
-
-        ctx.tech_stats = tech_stats
-
-        # 展示经验 ASR 更新摘要
-        run_count = updated.get("run_count", 0)
-        tech_count = len(updated.get("techniques", {}))
-        conv_count = len(updated.get("converter_effectiveness", {}))
-
-        emp_lines = [
-            f"模型: {updated.get('model_name', '')}",
-            f"运行次数: {run_count}",
-            f"技术统计: {tech_count} 个技术",
-            f"Converter 统计: {conv_count} 个",
-        ]
-
-        # 展示 Top-3 经验 ASR + P1-1: 先验对比
-        emp_techs = updated.get("techniques", {})
-        sorted_techs = sorted(
-            emp_techs.items(),
-            key=lambda x: -x[1].get("empirical_asr", 0.0),
-        )[:3]
-
-        # P1-1: 查询学术先验用于对比
-        _prior_map: dict[str, float] = {}
-        try:
-            from src.payloads.technique_name_mapper import get_normalized_asr
-            _model = ctx.strategy_info.get("model_name", ctx.target_model)
-            for tech, _ in sorted_techs:
-                try:
-                    _prior_map[tech] = get_normalized_asr(tech, _model)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        for tech, data in sorted_techs:
-            asr = data.get("empirical_asr", 0.0)
-            attempts = data.get("attempts", 0)
-            _prior = _prior_map.get(tech)
-            if _prior is not None:
-                _delta = asr - _prior
-                _delta_str = f" | 先验={_prior:.0%} (Δ{_delta:+.0%})"
-            else:
-                _delta_str = ""
-            emp_lines.append(
-                f"  {tech:30s} ASR={asr:.0%} ({attempts} 次){_delta_str}"
-            )
-
-        # Patched 技术
-        patched = ctx.patched_techniques or []
-        if patched:
-            emp_lines.append(f"\n[PATCHED] {len(patched)} 个技术:")
-            for p in patched[:3]:
-                emp_lines.append(
-                    f"  {p['technique']:30s} 学术={p['academic']:.0%} → 实测={p['empirical']:.0%} "
-                    f"(Δ{p['delta']:+.0%})"
-                )
-
-        info_box("ASR 经验写回 (Tier 2)", emp_lines)
-
-    except Exception as e:
-        print(f"  [!] ASR 经验写回失败: {e}")
-
-
-# ============================================================
-# ⑦ 运行时停止策略 — 保留原有逻辑
-# ============================================================
-
-
-def _display_stop_stats(ctx: PipelineContext) -> None:
-    """展示运行时停止策略统计"""
-    if ctx.stop_context is None:
-        return
-    try:
-        stats = ctx.stop_context.get_stats() if hasattr(ctx.stop_context, "get_stats") else {}
-        if stats and (stats.get("should_stop") or stats.get("global_success", 0) > 0):
-            stop_lines = [
-                f"停止原因: {stats.get('stop_reason', 'N/A')}",
-                f"全局成功: {stats.get('global_success', 0)}",
-            ]
-            owasp_stats = stats.get("owasp_success", {})
-            if owasp_stats:
-                stop_lines.append("OWASP 分类成功:")
-                for oid, count in sorted(owasp_stats.items()):
-                    total = stats.get("owasp_total", {}).get(oid, 0)
-                    stop_lines.append(f"  {oid}: {count}/{total}")
-
-            # P4-3: UNKNOWN 停止原因预警
-            stop_reason = stats.get("stop_reason", "")
-            if not stop_reason or stop_reason == "UNKNOWN":
-                stop_lines.append(
-                    "  ⚠ 停止原因为 UNKNOWN — "
-                    "可能 OWASP ID 未传递到停止策略上下文"
-                )
-                stop_lines.append(
-                    "    检查: memory_labels['owasp_id'] 是否正确设置"
-                )
-
-            info_box("运行时停止策略", stop_lines)
-    except Exception:
-        pass
-
-
-# ============================================================
-# P4-1: 模型特定洞察区块
-# ============================================================
-
-
-def _display_model_insight(ctx: PipelineContext) -> None:
-    """P4-1: 模型特定洞察 — 基于模型分层和执行结果生成洞察"""
-    if ctx.adaptive_result is None or ctx.batch_result is None:
-        return
-
-    try:
-        _model = ctx.strategy_info.get("model_name", ctx.target_model)
-        _tier = ctx.strategy_info.get("model_tier", ctx.model_tier)
-        _sr = ctx.batch_result.success_rate
-        _n_total = ctx.batch_result.total_plans
-        _n_success = ctx.batch_result.succeeded
-        _converter_used = ctx.adaptive_result.converter_variants_used
-
-        insight_lines = [
-            f"模型: {_model} (Tier: {_tier})",
-            f"整体 ASR: {_sr:.0%} ({_n_success}/{_n_total})",
-            f"Converter 使用: {_converter_used} 次",
-        ]
-
-        # 基于 Tier 的洞察
-        if _tier == "weak":
-            if _sr < 0.1:
-                insight_lines.append(
-                    "⚠ 弱模型 ASR < 10% — 建议增加 Converter 变体覆盖"
-                )
-            elif _sr > 0.5:
-                insight_lines.append(
-                    "✓ 弱模型 ASR > 50% — 防护较弱，可尝试更复杂技术"
-                )
-            if _converter_used == 0:
-                insight_lines.append(
-                    "⚠ Converter 未使用 — 弱模型应优先启用编码链绕过过滤"
-                )
-        elif _tier == "moderate":
-            if _sr < 0.2:
-                insight_lines.append(
-                    "⚠ 中等模型 ASR < 20% — 建议升级到多轮攻击策略"
-                )
-        elif _tier == "strong":
-            if _sr > 0.3:
-                insight_lines.append(
-                    "⚠ 强模型 ASR > 30% — 重大安全风险，需加固防护"
-                )
-            elif _sr < 0.05:
-                insight_lines.append(
-                    "✓ 强模型 ASR < 5% — 防护较好"
-                )
-
-        # 失败类型洞察
-        if ctx.adaptive_result.failure_type_distribution:
-            _ftd = ctx.adaptive_result.failure_type_distribution
-            _top_failure = ctx.adaptive_result.most_common_failure_type
-            if _top_failure:
-                _top_count = _ftd.get(_top_failure, 0)
-                insight_lines.append(
-                    f"主要失败模式: {_top_failure} ({_top_count} 次)"
-                )
-                if _top_failure == "model_refusal":
-                    insight_lines.append(
-                        "  → 模型主动拒绝 — 需 Converter 编码绕过或多轮渐进"
-                    )
-                elif _top_failure == "timeout":
-                    insight_lines.append(
-                        "  → 执行超时 — 需降低迭代深度或增加并发"
-                    )
-
-        info_box("模型洞察 (P4-1)", insight_lines)
-
-    except Exception as e:
-        logger.debug(f"P4-1 model insight failed: {e}")
-
-
-# ============================================================
-# P4-2: Converter 增量分析区块
-# ============================================================
-
-
-def _display_converter_delta(ctx: PipelineContext) -> None:
-    """P4-2: Converter 增量分析 — 对比基线 vs Converter 变体的 ASR 差异"""
     if ctx.adaptive_result is None or ctx.adaptive_result.native_result is None:
         return
 
@@ -944,7 +654,7 @@ def _display_converter_delta(ctx: PipelineContext) -> None:
         baseline_success = 0
         converter_total = 0
         converter_success = 0
-        converter_tech_asr: dict[str, dict[str, int]] = {}  # {tech: {success, total}}
+        converter_tech_asr: dict[str, dict[str, int]] = {}
 
         for _group_name, results in display_groups.items():
             for r in results:
@@ -981,69 +691,258 @@ def _display_converter_delta(ctx: PipelineContext) -> None:
                     if is_success:
                         baseline_success += 1
 
-        delta_lines: list[str] = []
+        resilience_lines: list[str] = []
 
+        # ── 增量分析 ──
         if baseline_total > 0 or converter_total > 0:
             b_asr = baseline_success / baseline_total if baseline_total > 0 else 0
             c_asr = converter_success / converter_total if converter_total > 0 else 0
             delta = c_asr - b_asr
 
-            delta_lines.append(
-                f"基线 ASR: {b_asr:.0%} ({baseline_success}/{baseline_total})"
-            )
-            delta_lines.append(
+            resilience_lines.append(
+                f"基线 ASR: {b_asr:.0%} ({baseline_success}/{baseline_total}) | "
                 f"Converter ASR: {c_asr:.0%} ({converter_success}/{converter_total})"
             )
 
             if converter_total > 0:
                 if delta > 0:
-                    delta_lines.append(
-                        f"✓ Converter 增量: +{delta:.0%} — Converter 提升了攻击效果"
-                    )
+                    resilience_lines.append(f"✓ Converter 增量: +{delta:.0%} — 提升攻击效果")
                 elif delta < 0:
-                    delta_lines.append(
-                        f"⚠ Converter 负增量: {delta:.0%} — Converter 降低了攻击效果"
-                    )
-                    delta_lines.append(
-                        "  可能原因: Converter 编码被检测 | "
-                        "Converter Target 模型质量差 | "
-                        "编码后语义丢失"
+                    resilience_lines.append(
+                        f"⚠ 负增量: {delta:.0%} — 编码被检测 | Target 质量差 | 语义丢失"
                     )
                 else:
-                    delta_lines.append(
-                        f"→ Converter 无增量 (Δ={delta:.0%}) — "
-                        "Converter 未影响攻击效果"
-                    )
+                    resilience_lines.append(f"→ 无增量 (Δ={delta:.0%})")
             else:
-                delta_lines.append(
-                    "⚠ Converter 变体未使用 (0 次) — "
-                    "建议检查 Stage 3 路由配置"
-                )
+                resilience_lines.append("⚠ Converter 变体未使用 — 检查 Stage 3 路由配置")
 
-            # Per-technology Converter ASR
-            if converter_tech_asr:
-                delta_lines.append("")
-                delta_lines.append("Per-Technology Converter ASR:")
-                sorted_tech = sorted(
-                    converter_tech_asr.items(),
-                    key=lambda x: -x[1]["success"] / max(x[1]["total"], 1),
-                )
-                for tech, stats in sorted_tech[:5]:
-                    t_asr = stats["success"] / stats["total"] if stats["total"] > 0 else 0
-                    delta_lines.append(
-                        f"  {tech:30s} {t_asr:.0%} "
-                        f"({stats['success']}/{stats['total']})"
+        # ── 健康状态 ──
+        if ctx.converter_health_monitor is not None:
+            monitor = ctx.converter_health_monitor
+            stats = monitor.get_stats()
+            disabled = monitor.get_disabled_converters()
+            if stats and any(s["attempts"] > 0 for s in stats.values()):
+                resilience_lines.append("")
+                resilience_lines.append("健康状态:")
+                for name, s in sorted(stats.items(), key=lambda x: -x[1]["attempts"]):
+                    if s["attempts"] == 0:
+                        continue
+                    status = "✓ 健康" if not s["disabled"] else "✗ 熔断"
+                    resilience_lines.append(
+                        f"  {name:30s} {status}  {s['successes']}/{s['attempts']} "
+                        f"({s['success_rate']:.0%})"
                     )
+                if disabled:
+                    resilience_lines.append(f"  [熔断] {', '.join(disabled)}")
 
-        if delta_lines:
-            info_box("Converter 增量分析 (P4-2)", delta_lines)
+        # ── Per-Technology Converter ASR ──
+        if converter_tech_asr:
+            resilience_lines.append("")
+            resilience_lines.append("Per-Technology Converter ASR:")
+            sorted_tech = sorted(
+                converter_tech_asr.items(),
+                key=lambda x: -x[1]["success"] / max(x[1]["total"], 1),
+            )
+            for tech, stats in sorted_tech[:5]:
+                t_asr = stats["success"] / stats["total"] if stats["total"] > 0 else 0
+                resilience_lines.append(
+                    f"  {tech:30s} {t_asr:.0%} ({stats['success']}/{stats['total']})"
+                )
+
+        if resilience_lines:
+            info_box("Converter 韧性分析", resilience_lines)
 
     except Exception as e:
-        logger.debug(f"P4-2 converter delta failed: {e}")
+        logger.debug(f"Converter resilience failed: {e}")
+
+
+# ============================================================
+# 模块 D: ASR 经验闭环 — 合并经验写回 + 模型洞察 + 停止策略
+# ============================================================
+
+
+def _display_asr_feedback(ctx: PipelineContext) -> None:
+    """
+    模块 D: ASR 经验闭环
+
+    合并原有的:
+      - ASR 经验写回 (Tier 2 持久化)
+      - 模型特定洞察 (P4-1)
+      - 运行时停止策略统计
+
+    设计要点: 模型概况 → 经验 ASR → 停止策略, 一个 info_box 呈现
+    """
+    if ctx.adaptive_result is None or ctx.batch_result is None:
+        return
+
+    feedback_lines: list[str] = []
+
+    # ── 模型概况 ──
+    _model = ctx.strategy_info.get("model_name", ctx.target_model)
+    _tier = ctx.strategy_info.get("model_tier", ctx.model_tier)
+    _sr = ctx.batch_result.success_rate
+    _n_total = ctx.batch_result.total_plans
+    _n_success = ctx.batch_result.succeeded
+    _converter_used = ctx.adaptive_result.converter_variants_used
+
+    feedback_lines.append(f"模型: {_model} (Tier: {_tier}) | 运行次数: (pending)")
+
+    # ── 经验写回 ──
+    _run_count = 0
+    try:
+        from src.scenarios.empirical_asr_store import (
+            extract_tech_stats_from_results,
+            update_empirical_asr,
+        )
+
+        tech_stats = extract_tech_stats_from_results(
+            ctx.adaptive_result.native_result,
+            _model,
+        )
+
+        if tech_stats:
+            converter_stats = None
+            if ctx.converter_health_monitor is not None:
+                converter_stats = ctx.converter_health_monitor.get_stats()
+
+            updated = update_empirical_asr(
+                model_name=_model,
+                model_tier=_tier,
+                tech_stats=tech_stats,
+                converter_stats=converter_stats,
+            )
+
+            ctx.tech_stats = tech_stats
+            _run_count = updated.get("run_count", 0)
+            _tech_count = len(updated.get("techniques", {}))
+            _conv_count = len(updated.get("converter_effectiveness", {}))
+
+            # 修正第一行 (模型概况含运行次数)
+            feedback_lines[-1] = f"模型: {_model} (Tier: {_tier}) | 运行次数: {_run_count}"
+            feedback_lines.append(
+                f"整体 ASR: {_sr:.0%} ({_n_success}/{_n_total}) | "
+                f"Converter 使用: {_converter_used} 次 | "
+                f"技术统计: {_tech_count} | Converter 统计: {_conv_count}"
+            )
+
+            # 经验写回 Top-3
+            emp_techs = updated.get("techniques", {})
+            sorted_techs = sorted(
+                emp_techs.items(),
+                key=lambda x: -x[1].get("empirical_asr", 0.0),
+            )[:3]
+
+            _prior_map: dict[str, float] = {}
+            try:
+                from src.payloads.technique_name_mapper import get_normalized_asr
+                for tech, _ in sorted_techs:
+                    try:
+                        _prior_map[tech] = get_normalized_asr(tech, _model)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            feedback_lines.append("")
+            feedback_lines.append("经验写回 Top-3:")
+            for tech, data in sorted_techs:
+                asr = data.get("empirical_asr", 0.0)
+                attempts = data.get("attempts", 0)
+                _prior = _prior_map.get(tech)
+                if _prior is not None:
+                    _delta = asr - _prior
+                    _delta_str = f" | 先验={_prior:.0%} (Δ{_delta:+.0%})"
+                else:
+                    _delta_str = ""
+                feedback_lines.append(
+                    f"  {tech:30s} ASR={asr:.0%} ({attempts} 次){_delta_str}"
+                )
+
+            # Patched 技术
+            patched = ctx.patched_techniques or []
+            if patched:
+                feedback_lines.append(f"\n[PATCHED] {len(patched)} 个技术:")
+                for p in patched[:3]:
+                    feedback_lines.append(
+                        f"  {p['technique']:30s} 学术={p['academic']:.0%} → "
+                        f"实测={p['empirical']:.0%} (Δ{p['delta']:+.0%})"
+                    )
+
+    except Exception as e:
+        print(f"  [!] ASR 经验写回失败: {e}")
+
+    # 修正第一行 (如果经验写回未执行, feedback_lines 只有第一行)
+    if feedback_lines and "(pending)" in feedback_lines[0]:
+        feedback_lines[0] = f"模型: {_model} (Tier: {_tier}) | 运行次数: {_run_count}"
+        feedback_lines.append(
+            f"整体 ASR: {_sr:.0%} ({_n_success}/{_n_total}) | "
+            f"Converter 使用: {_converter_used} 次"
+        )
+
+    # ── 模型洞察 ──
+    if _tier == "weak":
+        if _sr < 0.1:
+            feedback_lines.append("⚠ 弱模型 ASR < 10% — 建议增加 Converter 变体覆盖")
+        elif _sr > 0.5:
+            feedback_lines.append("✓ 弱模型 ASR > 50% — 防护较弱")
+        if _converter_used == 0:
+            feedback_lines.append("⚠ Converter 未使用 — 弱模型应优先启用编码链")
+    elif _tier == "moderate":
+        if _sr < 0.2:
+            feedback_lines.append("⚠ 中等模型 ASR < 20% — 建议升级到多轮攻击策略")
+    elif _tier == "strong":
+        if _sr > 0.3:
+            feedback_lines.append("⚠ 强模型 ASR > 30% — 重大安全风险")
+        elif _sr < 0.05:
+            feedback_lines.append("✓ 强模型 ASR < 5% — 防护较好")
+
+    # 失败类型洞察
+    if ctx.adaptive_result.failure_type_distribution:
+        _ftd = ctx.adaptive_result.failure_type_distribution
+        _top_failure = ctx.adaptive_result.most_common_failure_type
+        if _top_failure:
+            _top_count = _ftd.get(_top_failure, 0)
+            feedback_lines.append(f"主要失败模式: {_top_failure} ({_top_count} 次)")
+
+    # P0-ASR-2: 运行时 ASR 实测数据（实时反馈闭环）
+    if ctx.adaptive_result.runtime_asr:
+        _rasr = ctx.adaptive_result.runtime_asr
+        _rasr_parts = [f"{k}: {v:.0%}" for k, v in sorted(_rasr.items(), key=lambda x: -x[1])[:5]]
+        feedback_lines.append("")
+        feedback_lines.append(f"运行时 ASR (实时反馈): {' | '.join(_rasr_parts)}")
+
+    # ── 停止策略 ──
+    if ctx.stop_context is not None:
+        try:
+            stats = ctx.stop_context.get_stats() if hasattr(ctx.stop_context, "get_stats") else {}
+            if stats and (stats.get("should_stop") or stats.get("global_success", 0) > 0):
+                feedback_lines.append("")
+                feedback_lines.append(f"停止策略: 全局成功={stats.get('global_success', 0)}")
+                owasp_stats = stats.get("owasp_success", {})
+                if owasp_stats:
+                    for oid, count in sorted(owasp_stats.items()):
+                        total = stats.get("owasp_total", {}).get(oid, 0)
+                        feedback_lines.append(f"  {oid}: {count}/{total}")
+
+                stop_reason = stats.get("stop_reason", "")
+                if not stop_reason or stop_reason == "UNKNOWN":
+                    feedback_lines.append(
+                        "  ⚠ 停止原因 UNKNOWN — 检查 memory_labels['owasp_id']"
+                    )
+        except Exception:
+            pass
+
+    info_box("ASR 经验闭环", feedback_lines)
+
+
+# ============================================================
+# 模块 E: 成果回溯 + 下次运行建议
+# ============================================================
 
 
 def _display_retrospective(ctx: PipelineContext) -> None:
-    """P2-C: ★ 成果回溯 + 下次运行建议 ★
+    """
+    模块 E: 成果回溯 + 下次运行建议
 
     以攻击成果为首要目标，形成完整链条：
     - 前期策略选择依据 → 实际结果验证
@@ -1062,14 +961,13 @@ def _display_retrospective(ctx: PipelineContext) -> None:
         _mode = ctx.strategy_info.get("strategy_mode", "academic")
         _tier = ctx.strategy_info.get("model_tier", "unknown")
 
-        # ── 成果回溯 ──
         retro_lines: list[str] = []
 
         # 1. 策略选择验证
         retro_lines.append(f"模型: {_model} | 策略: {_mode} | 分层: {_tier}")
         retro_lines.append("")
 
-        # 2. 成功攻击 Top-3 (技术 + Converter + 成因)
+        # 2. 成功攻击 Top-3 (技术 + Converter)
         _tech_success: dict[str, int] = {}
         _all_results = []
         _native = getattr(ctx.adaptive_result, "native_result", None)
@@ -1157,28 +1055,18 @@ def _display_retrospective(ctx: PipelineContext) -> None:
         retro_lines.append("下次运行建议:")
 
         if _sr < 0.1:
-            retro_lines.append(
-                "  → ASR < 10%: 考虑 STRATEGY_MODE=exam (速度优先)"
-            )
+            retro_lines.append("  → ASR < 10%: 考虑 STRATEGY_MODE=exam (速度优先)")
             if _tier == "strong":
                 retro_lines.append(
                     "  → 强模型: 增加 max_attempts_per_objective, "
                     "启用更强 Converter 链 (persuasion + decomposition)"
                 )
         elif _sr < 0.3:
-            retro_lines.append(
-                "  → ASR 10-30%: 考虑 STRATEGY_MODE=balanced (平衡)"
-            )
-            retro_lines.append(
-                "  → 增加多轮攻击比例, 降级链深度 +1"
-            )
+            retro_lines.append("  → ASR 10-30%: 考虑 STRATEGY_MODE=balanced (平衡)")
+            retro_lines.append("  → 增加多轮攻击比例, 降级链深度 +1")
         elif _sr > 0.7:
-            retro_lines.append(
-                "  → ASR > 70%: 考虑 STRATEGY_MODE=academic (学术先验优先)"
-            )
-            retro_lines.append(
-                "  → 模型可能已修补: 增加 encoding 链和 new techniques"
-            )
+            retro_lines.append("  → ASR > 70%: 考虑 STRATEGY_MODE=academic (学术先验优先)")
+            retro_lines.append("  → 模型可能已修补: 增加 encoding 链和 new techniques")
 
         # Converter 使用建议
         _conv_used = getattr(

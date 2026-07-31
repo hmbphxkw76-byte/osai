@@ -52,7 +52,7 @@ class StrategySelector:
     # 多轮技术集合 — 需要目标支持 multi_turn
     _MULTI_TURN_TECHNIQUES = {
         "red_teaming", "crescendo", "tap", "pair",
-        "tree_of_attacks_pruned", "many_shot",
+        "many_shot", "violent_durian",
     }
 
     def __init__(self):
@@ -101,7 +101,8 @@ class StrategySelector:
         scenario_config = self.config_loader.get_scenario_config(scenario_name)
         if scenario_config is None:
             scenario_config = {
-                "attack_techniques": ["prompt_sending"],
+                # P2-1: ASR 驱动默认技术
+                "attack_techniques": ["crescendo_simulated", "red_teaming", "crescendo"],
                 "datasets": [],
             }
 

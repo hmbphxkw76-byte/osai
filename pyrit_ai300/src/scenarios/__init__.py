@@ -49,6 +49,7 @@ _LAZY_IMPORTS = {
     # ── technique_factories ──
     "get_core_technique_factories": ("src.scenarios.technique_factories", "get_core_technique_factories"),
     "get_extra_technique_factories": ("src.scenarios.technique_factories", "get_extra_technique_factories"),
+    "get_airt_technique_factories": ("src.scenarios.technique_factories", "get_airt_technique_factories"),
     "get_all_technique_factories": ("src.scenarios.technique_factories", "get_all_technique_factories"),
     "get_encoding_technique_factories": ("src.scenarios.technique_factories", "get_encoding_technique_factories"),
     "get_simulated_conversation_factories": ("src.scenarios.technique_factories", "get_simulated_conversation_factories"),
@@ -111,6 +112,8 @@ _LAZY_IMPORTS = {
     # ── runtime_stop_handler ──
     "RuntimeStopEventHandler": ("src.scenarios.runtime_stop_handler", "RuntimeStopEventHandler"),
     "StopStrategyContext": ("src.scenarios.runtime_stop_handler", "StopStrategyContext"),
+    # ── failure_type_event_handler ──
+    "FailureTypeEventHandler": ("src.scenarios.failure_type_event_handler", "FailureTypeEventHandler"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

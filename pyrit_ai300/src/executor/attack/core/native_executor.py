@@ -1,6 +1,18 @@
 """
-Native Attack Executor (Facade)
-===============================
+Native Attack Executor (Facade) [DEPRECATED]
+============================================
+
+.. deprecated:: L5
+    此 Facade 已被原生 ``AI300AdaptiveScenario`` + ``AttackExecutor`` 完全替代。
+    新代码应使用 ``src.scenarios.adaptive_runner.run_adaptive_scenario_async()``。
+
+    迁移对照表::
+
+        NativeAttackExecutor.execute_single_attack()  →  原生 AttackExecutor
+        SingleTurnExecutor / MultiTurnExecutor         →  原生 AtomicAttack.run_async()
+        ScenarioOrchestrator 编排                      →  原生 AdaptiveScenario.run_async()
+
+    保留此模块仅用于向后兼容和非 pipeline 调用方。
 
 统一攻击执行引擎 — 对齐 pyrit.executor.attack.core.attack_executor
 

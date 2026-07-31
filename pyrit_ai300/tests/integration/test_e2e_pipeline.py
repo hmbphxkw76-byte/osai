@@ -236,10 +236,16 @@ class TestAttackTechniqueConstants:
         assert "red_teaming" in NO_REFUSAL_SCORER_ATTACKS
 
     def test_multi_turn_and_single_turn_disjoint(self):
-        """单轮和多轮技术集合合理分布"""
+        """单轮和多轮技术集合合理分布
+
+        L5: many_shot 同时在两个集合中是正确的 —
+        ManyShotJailbreakAttack 继承 PromptSendingAttack（不接受 adversarial_config），
+        但原生标签为 multi_turn（预热多轮示例后再提问）。
+        两个集合用途不同：SINGLE_TURN_ATTACKS 用于分派逻辑，MULTI_TURN_TECHNIQUES 用于模态过滤。
+        """
         common = SINGLE_TURN_ATTACKS & MULTI_TURN_TECHNIQUES
-        # 不应有技术同时属于单轮和多轮（分派逻辑依赖此不变量）
-        assert len(common) == 0
+        # many_shot 是唯一允许的重叠项
+        assert common <= {"many_shot"}
 
 
 # ============================================================

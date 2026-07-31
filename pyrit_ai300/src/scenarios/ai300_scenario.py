@@ -103,7 +103,7 @@ class AI300Scenario(Scenario):
 
         Returns:
             考试专用参数列表：
-            - max_turns: 多轮攻击最大轮数（默认 5）
+            - max_turns: 多轮攻击最大轮数（默认 3，P3 降低以减少超时风险）
             - per_attack_timeout: 单次攻击超时秒数（默认 300）
         """
         return [
@@ -111,7 +111,7 @@ class AI300Scenario(Scenario):
                 name="max_turns",
                 description="Maximum conversation turns for multi-turn attacks.",
                 param_type=int,
-                default=5,
+                default=3,
             ),
             Parameter(
                 name="per_attack_timeout",

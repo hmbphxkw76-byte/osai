@@ -316,7 +316,7 @@ class TestPayloadDownloaderClassify:
         mock_seed = MagicMock()
         mock_seed.metadata = {}
         mock_seed.value = "Some random prompt"
-        assert _classify_seed(mock_seed) == "prompt_sending"
+        assert _classify_seed(mock_seed) == "crescendo_simulated"
 
 
 class TestPayloadDownloaderListLocal:

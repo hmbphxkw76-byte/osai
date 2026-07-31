@@ -38,7 +38,6 @@ v3.0 优化：
   - OWASP 映射（通过 memory_labels）
 """
 
-import asyncio
 import logging
 import math
 import os
@@ -51,8 +50,10 @@ from src.payloads.models import BatchAttackResult
 
 logger = logging.getLogger(__name__)
 
-# P0-2: 最大总执行时间上限（秒），防止无限等待
-_MAX_TOTAL_TIMEOUT = 3600  # 60 分钟
+# P0-E-1: 移除 asyncio.wait_for 超时保护，完全依赖原生 max_retries + max_concurrency 弹性恢复
+# 原生 Scenario.run_async() 已有 max_retries 自动重试 + scenario_result_id 自动恢复机制
+# asyncio.wait_for 会在超时时强制取消整个执行，导致原生弹性恢复被短路
+_MAX_TOTAL_TIMEOUT = 3600  # 保留常量供向后兼容引用
 
 # P0-1: L2 预过滤的安全缓冲数
 _L2_FILTER_BUFFER = 2
@@ -75,6 +76,8 @@ class AdaptiveRunResult:
     # P0-A: 失败类型统计
     failure_type_distribution: dict[str, int] = field(default_factory=dict)
     most_common_failure_type: str | None = None
+    # P0-ASR-2: 运行时 ASR 实测数据
+    runtime_asr: dict[str, float] = field(default_factory=dict)
 
     @property
     def succeeded(self) -> int:
@@ -129,6 +132,8 @@ async def prepare_scenario_async(
     owasp_success_threshold: float = 0.0,
     stop_on_first_success: bool = False,
     warm_start_asr: dict[str, float] | None = None,
+    strategy_attack_techniques: list[str] | None = None,
+    adversarial_target: Any = None,
 ) -> ScenarioPreparation:
     """
     准备 Scenario — 转换 attack_plans → seed_groups → 创建并初始化 Scenario。
@@ -328,9 +333,16 @@ async def prepare_scenario_async(
             print(f"          • {reason}")
 
     # 将 pipeline 选中的技术映射到 AI300Technique 枚举
+    # P2-3: 保留完整技术池 — 优先使用 strategy_attack_techniques（Stage 2 完整技术池），
+    # 其次从 attack_plans 提取（向后兼容）
+    pipeline_techniques_full: set[str] = set()
+    if strategy_attack_techniques:
+        pipeline_techniques_full.update(strategy_attack_techniques)
+    pipeline_techniques_full.update(pipeline_techniques)  # attack_plans 提取的技术
+
     valid_technique_values = {t.value for t in AI300Technique}
     scenario_techniques: list[Any] = []
-    for tech_name in pipeline_techniques:
+    for tech_name in pipeline_techniques_full:
         if tech_name in valid_technique_values:
             for member in AI300Technique:
                 if member.value == tech_name:
@@ -354,7 +366,7 @@ async def prepare_scenario_async(
     # 应始终在执行池中，即使载荷未映射到它们。
     # ──────────────────────────────────────────────────────────
     _HIGH_ASR_TECH_VALUES: frozenset[str] = frozenset({
-        "crescendo", "red_teaming", "tap", "tree_of_attacks_pruned", "pair",
+        "crescendo", "red_teaming", "tap", "pair",
     })
     if scenario_techniques is not None:
         existing_values = {t.value for t in scenario_techniques}
@@ -375,7 +387,7 @@ async def prepare_scenario_async(
             for tech_val in _HIGH_ASR_TECH_VALUES:
                 if tech_val in missing_high_asr:
                     # crescendo/red_teaming/tap/pair 需要多轮支持
-                    if tech_val in ("crescendo", "red_teaming", "tap", "pair", "tree_of_attacks_pruned"):
+                    if tech_val in ("crescendo", "red_teaming", "tap", "pair"):
                         if not _supports_multi_turn:
                             continue
                     for member in AI300Technique:
@@ -392,16 +404,28 @@ async def prepare_scenario_async(
                 )
 
     # ──────────────────────────────────────────────────────────
-    # 注册 judge_target 到 TargetRegistry — PyRIT 原生 target 解析
+    # 注册 adversarial_chat + judge_target 到 TargetRegistry
+    # P2: 支持独立的 ADVERSARIAL_* 环境变量配置 adversarial_chat
+    # 多轮攻击（RedTeamingAttack/CrescendoAttack）的 adversarial_chat
+    # 默认复用 judge_target（轻量级模型，快速生成攻击 prompt）
+    # 如指定了独立的 adversarial_target，则使用独立实例
     # ──────────────────────────────────────────────────────────
     try:
         from pyrit.registry import TargetRegistry
         registry = TargetRegistry.get_registry_singleton()
-        registry.instances.register(judge_target, name="adversarial_chat")
+        # P2: adversarial_chat 使用独立 target（如有）或 judge_target
+        adv_chat_target = adversarial_target or judge_target
+        registry.instances.register(adv_chat_target, name="adversarial_chat")
         registry.instances.register(judge_target, name="objective_scorer_chat")
-        logger.info("Registered judge_target as 'adversarial_chat' + 'objective_scorer_chat' in TargetRegistry")
+        if adversarial_target is not None:
+            logger.info(
+                "P2: Registered independent adversarial_target as 'adversarial_chat' "
+                "+ judge_target as 'objective_scorer_chat' in TargetRegistry"
+            )
+        else:
+            logger.info("Registered judge_target as 'adversarial_chat' + 'objective_scorer_chat' in TargetRegistry")
     except Exception as e:
-        logger.warning(f"Failed to register judge_target in TargetRegistry: {e}")
+        logger.warning(f"Failed to register targets in TargetRegistry: {e}")
 
     # ──────────────────────────────────────────────────────────
     # v3.0: PayloadStrategyMatcher 在 Adaptive 路径恢复使用
@@ -430,14 +454,74 @@ async def prepare_scenario_async(
                 f"from {len(attack_plans)} plans (target_type={target_type})"
             )
 
-    # 创建 objective_scorer（从 judge_target 构建 SelfAskTrueFalseScorer）
+    # 创建 objective_scorer — P0-SC-1 + P0-SC-2: 原生复合评分器
+    # 使用 TrueFalseQuestionPaths.TASK_ACHIEVED 预设评分问题（经过验证的 rubric）
+    # 组合 SelfAskTrueFalseScorer(任务达成) AND SelfAskRefusalScorer(拒绝检测取反)
+    # 复合评分器确保：仅当目标达成 AND 未被拒绝时才判定成功
     objective_scorer = None
     try:
-        from pyrit.score import SelfAskTrueFalseScorer
-        objective_scorer = SelfAskTrueFalseScorer(chat_target=judge_target)
-        logger.debug("Created SelfAskTrueFalseScorer from judge_target")
+        from pyrit.score import (
+            SelfAskTrueFalseScorer,
+            SelfAskRefusalScorer,
+            TrueFalseQuestion,
+            TrueFalseQuestionPaths,
+            TrueFalseCompositeScorer,
+            TrueFalseInverterScorer,
+            TrueFalseScoreAggregator,
+        )
+        # P0-SC-2: 使用预设评分问题（经过验证的 rubric，比默认问题更准确）
+        task_achieved_question = TrueFalseQuestion.from_yaml(
+            TrueFalseQuestionPaths.TASK_ACHIEVED.value
+        )
+        # P2-SC-4: 添加 ResponseHandler 响应契约 — 确保评分器输出结构化
+        response_handler = None
+        try:
+            from pyrit.score import JsonSchemaResponseHandler
+            response_handler = JsonSchemaResponseHandler()
+        except Exception:
+            pass
+        task_scorer = SelfAskTrueFalseScorer.from_question(
+            chat_target=judge_target,
+            question=task_achieved_question,
+            response_handler=response_handler,
+        )
+        # P0-SC-1: 添加拒绝检测评分器，取反后与任务达成 AND 组合
+        refusal_scorer = SelfAskRefusalScorer(chat_target=judge_target)
+        refusal_inverter = TrueFalseInverterScorer(scorer=refusal_scorer)
+        # 复合评分器: task_achieved AND NOT refusal → 真正成功
+        objective_scorer = TrueFalseCompositeScorer(
+            scorers=[task_scorer, refusal_inverter],
+            aggregator=TrueFalseScoreAggregator.AND,
+        )
+        # P1-SC-3: 应用红队测试推荐配置 — 使评分流程更健壮
+        # score_blocked_content=True: 使用 partial_content 评分被拦截响应
+        # raise_if_scorer_blocks=False: 评分器被拦截时返回默认值而非抛异常
+        try:
+            from src.scorers.scorer_registry import configure_for_red_teaming
+            objective_scorer = configure_for_red_teaming(objective_scorer)
+            logger.info("P1-SC-3: Applied configure_for_red_teaming to objective_scorer")
+        except Exception as e_rt:
+            logger.debug(f"P1-SC-3: configure_for_red_teaming failed: {e_rt}")
+        logger.info(
+            "P0-SC-1+SC-2: Created composite objective_scorer "
+            "(SelfAskTrueFalseScorer[TASK_ACHIEVED] AND NOT SelfAskRefusalScorer)"
+        )
     except Exception as e:
-        logger.warning(f"Failed to create objective_scorer from judge_target: {e}")
+        logger.warning(f"Failed to create composite objective_scorer: {e}, falling back to simple scorer")
+        try:
+            from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion, TrueFalseQuestionPaths
+            question = TrueFalseQuestion.from_yaml(TrueFalseQuestionPaths.TASK_ACHIEVED.value)
+            objective_scorer = SelfAskTrueFalseScorer.from_question(
+                chat_target=judge_target, question=question,
+            )
+            logger.info("P0-SC-2: Fallback to SelfAskTrueFalseScorer[TASK_ACHIEVED]")
+        except Exception as e2:
+            logger.warning(f"Failed to create fallback objective_scorer: {e2}")
+            try:
+                from pyrit.score import SelfAskTrueFalseScorer
+                objective_scorer = SelfAskTrueFalseScorer(chat_target=judge_target)
+            except Exception as e3:
+                logger.error(f"Failed to create any objective_scorer: {e3}")
 
     # 1. 注册基础技术到 AttackTechniqueRegistry
     try:
@@ -539,6 +623,21 @@ async def execute_scenario_async(
     attack_seed_groups = preparation.attack_seed_groups
     start_time = time.time()
 
+    # P0-ASR-2: 注入运行时失败类型事件处理器 — 实时 ASR 反馈闭环
+    # 在每个 AtomicAttack 完成后提取失败类型，实时更新 selector
+    failure_type_handler = None
+    try:
+        from src.scenarios.failure_type_event_handler import FailureTypeEventHandler
+        _selector = getattr(scenario, "_selector", None)
+        if _selector is not None:
+            failure_type_handler = FailureTypeEventHandler(selector=_selector)
+            _executor = getattr(scenario, "_attack_executor", None)
+            if _executor is not None and hasattr(_executor, "_register_event_handler"):
+                _executor._register_event_handler(failure_type_handler)
+                logger.info("P0-ASR-2: FailureTypeEventHandler registered for real-time ASR feedback")
+    except Exception as e:
+        logger.debug(f"P0-ASR-2: FailureTypeEventHandler registration failed: {e}")
+
     # P3-HIGH: 注入运行时停止策略事件处理器
     # 替代预过滤，实现真正的运行时停止
     runtime_stop_handler = None
@@ -562,48 +661,23 @@ async def execute_scenario_async(
     except Exception as e:
         logger.debug(f"P3: RuntimeStopEventHandler registration failed: {e}")
 
-    # 5. 执行 Scenario（原生 run_async — 含 tqdm + max_retries + 自动恢复）
-    #
-    # P0-2: asyncio.wait_for 超时保护
+    # 5. 执行 Scenario — P0-E-1: 移除 asyncio.wait_for 超时包裹
+    # 原生 Scenario.run_async() 已有 max_retries 弹性恢复 + AttackExecutor 自动重试
+    # asyncio.wait_for 会在超时时强制取消整个执行，导致:
+    #   - 原生 max_retries 弹性恢复被短路
+    #   - scenario_result_id 自动恢复被跳过
+    #   - tqdm 进度条异常退出
+    # 完全依赖原生弹性恢复机制，仅在外部异常时从 Memory 检索部分结果
     scenario_result_id = getattr(scenario, "_scenario_result_id", None)
     scenario_error = None
-    total_timeout = min(
-        per_attack_timeout * len(attack_seed_groups) * max_attempts_per_objective,
-        _MAX_TOTAL_TIMEOUT,
-    )
     logger.info(
-        f"P0-2: scenario.run_async() timeout={total_timeout}s "
-        f"({per_attack_timeout}s × {len(attack_seed_groups)} groups × {max_attempts_per_objective} attempts, "
-        f"capped at {_MAX_TOTAL_TIMEOUT}s)"
+        f"P0-E-1: scenario.run_async() — native max_retries={getattr(scenario, '_max_retries', 'N/A')}, "
+        f"max_concurrency={getattr(scenario, '_max_concurrency', 'N/A')}, "
+        f"{len(attack_seed_groups)} seed groups"
     )
     native_result = None
     try:
-        native_result = await asyncio.wait_for(
-            scenario.run_async(),
-            timeout=total_timeout,
-        )
-    except asyncio.TimeoutError:
-        logger.error(
-            f"P0-2: Scenario execution timed out after {total_timeout}s "
-            f"({per_attack_timeout}s × {len(attack_seed_groups)} × {max_attempts_per_objective})"
-        )
-        scenario_error = f"Scenario timed out after {total_timeout}s"
-        try:
-            from pyrit.memory import CentralMemory
-            memory = CentralMemory.get_memory_instance()
-            sid = scenario_result_id or getattr(scenario, "_scenario_result_id", None)
-            if sid:
-                scenario_results = memory.get_scenario_results(scenario_result_ids=[sid])
-                if scenario_results:
-                    native_result = scenario_results[0]
-                    logger.info(
-                        f"P0-2: Retrieved partial ScenarioResult from memory "
-                        f"(scenario_result_id={sid}, {len(scenario_results)} results found)"
-                    )
-            else:
-                logger.warning("No scenario_result_id available, cannot retrieve partial results")
-        except Exception as e2:
-            logger.warning(f"Failed to retrieve partial results from memory: {e2}")
+        native_result = await scenario.run_async()
     except Exception as e:
         logger.error(f"Scenario execution failed: {e}")
         scenario_error = str(e)
@@ -743,6 +817,20 @@ async def execute_scenario_async(
                 f"(for resume scenarios)"
             )
 
+    # P0-ASR-2: 输出运行时 ASR 实测数据
+    runtime_asr: dict[str, float] = {}
+    if failure_type_handler is not None:
+        handler_stats = failure_type_handler.get_stats()
+        runtime_asr = handler_stats.get("runtime_asr", {})
+        if runtime_asr:
+            logger.info(
+                f"P0-ASR-2: Runtime ASR feedback — "
+                f"attacks={handler_stats['total_attacks']}, "
+                f"successes={handler_stats['total_successes']}, "
+                f"failures={handler_stats['total_failures']}, "
+                f"runtime_asr={ {k: f'{v:.0%}' for k, v in runtime_asr.items()} }"
+            )
+
     # P3: 输出运行时停止策略统计
     if runtime_stop_handler is not None:
         stop_stats = runtime_stop_handler.get_stats()
@@ -774,6 +862,7 @@ async def execute_scenario_async(
         total_techniques_tried=total_techniques,
         failure_type_distribution=dict(failure_type_counter),
         most_common_failure_type=most_common_failure_type,
+        runtime_asr=runtime_asr,
     )
 
 
@@ -799,6 +888,8 @@ async def run_adaptive_scenario_async(
     owasp_success_threshold: float = 0.0,
     stop_on_first_success: bool = False,
     warm_start_asr: dict[str, float] | None = None,
+    strategy_attack_techniques: list[str] | None = None,
+    adversarial_target: Any = None,
 ) -> AdaptiveRunResult:
     """
     向后兼容包装器 — prepare + execute（不含展示）。
@@ -827,6 +918,8 @@ async def run_adaptive_scenario_async(
         owasp_success_threshold=owasp_success_threshold,
         stop_on_first_success=stop_on_first_success,
         warm_start_asr=warm_start_asr,
+        strategy_attack_techniques=strategy_attack_techniques,
+        adversarial_target=adversarial_target,
     )
     return await execute_scenario_async(
         preparation,

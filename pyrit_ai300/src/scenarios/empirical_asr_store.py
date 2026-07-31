@@ -260,6 +260,15 @@ def compute_effective_asr(
 
     run_count = empirical_data.get("run_count", 0)
     tech_data = empirical_data.get("techniques", {}).get(technique)
+    # P0-2 向后兼容: 旧版 JSON 可能存储 PascalCase 键 (如 "PromptSendingAttack")
+    if tech_data is None:
+        from src.payloads.technique_name_mapper import PASCAL_TO_SNAKE
+        _pascal_name = next(
+            (p for p, s in PASCAL_TO_SNAKE.items() if s == technique),
+            None,
+        )
+        if _pascal_name:
+            tech_data = empirical_data.get("techniques", {}).get(_pascal_name)
     if tech_data is None or tech_data.get("attempts", 0) == 0:
         return academic_asr
 
@@ -314,6 +323,15 @@ def detect_patched_techniques(
 
     for tech, academic in academic_asr_map.items():
         tech_data = emp_techniques.get(tech)
+        # P0-2 向后兼容: 旧版 JSON 可能存储 PascalCase 键
+        if tech_data is None:
+            from src.payloads.technique_name_mapper import PASCAL_TO_SNAKE
+            _pascal_name = next(
+                (p for p, s in PASCAL_TO_SNAKE.items() if s == tech),
+                None,
+            )
+            if _pascal_name:
+                tech_data = emp_techniques.get(_pascal_name)
         if tech_data is None:
             continue
         attempts = tech_data.get("attempts", 0)
@@ -484,7 +502,13 @@ def extract_tech_stats_from_results(
 
 
 def _extract_technique_name(result: Any) -> str:
-    """从 AttackResult 提取技术名"""
+    """从 AttackResult 提取技术名 (标准化为 snake_case)
+
+    P0-2 修复: 统一返回 snake_case 技术名, 与 asr_prior_registry key 一致。
+    原实现返回 PascalCase (如 "PromptSendingAttack"), 导致经验 ASR 读写键名不一致。
+    """
+    from src.payloads.technique_name_mapper import normalize_technique_name
+
     # 方法1: identifier
     identifier = None
     if hasattr(result, "get_attack_strategy_identifier"):
@@ -497,11 +521,15 @@ def _extract_technique_name(result: Any) -> str:
         if name:
             # 格式: "PromptSendingAttack::hash" 或 "PromptSendingAttack+Converter::hash"
             base = name.split("::")[0] if "::" in name else name
-            return base
+            # 分离 Converter 变体: "PromptSendingAttack+stealth_evasion" → "PromptSendingAttack"
+            if "+" in base:
+                base = base.split("+", 1)[0]
+            # 标准化: PascalCase → snake_case
+            return normalize_technique_name(base)
 
-    # 方法2: attack_technique
+    # 方法2: attack_technique (已经是 snake_case)
     tech = getattr(result, "attack_technique", "")
     if tech:
-        return tech
+        return normalize_technique_name(tech)
 
     return ""

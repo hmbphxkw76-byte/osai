@@ -228,15 +228,18 @@ class PayloadPlanner:
         available_techniques: List[str],
     ) -> str:
         """
-        根据攻击模式和策略选择攻击技术
+        P2-2: ASR 驱动的攻击技术选择器
 
         选择逻辑（优先级从高到低）：
-        1. technique_hint_map 中的映射
-        2. owasp_strategy_map 中的 default_attack_technique
-        3. attack_mode 固定逻辑（SEQUENTIAL → "sequential"）
-        4. 全局默认 "prompt_sending"
+        1. technique_hint_map 中的映射（如果暗示技术在可用技术池中）
+        2. attack_mode 固定逻辑（SEQUENTIAL → "sequential"）
+        3. ASR 驱动选择：从 available_techniques 中选择 ASR 最高的技术
+        4. owasp_strategy_map 中的 default_attack_technique
+        5. 全局默认 "crescendo_simulated"（ASR 驱动）
 
-        向后兼容：如果 available_techniques 非空，优先选择在池中的技术
+        P2-2 核心改进：available_techniques 不再仅作为过滤器，
+        而是按 ASR 降序排序选择最优技术。这确保高 ASR 技术（如 crescendo）
+        优先于低 ASR 技术（如 prompt_sending）被选中。
         """
 
         if item.attack_mode == AttackMode.SEQUENTIAL:
@@ -259,7 +262,14 @@ class PayloadPlanner:
             is_objective = item.metadata.get("is_objective_seed") or item.metadata.get("seed_type") == "objective"
             has_objective = item.metadata.get("has_objective", False)
             if is_objective or (has_objective and not item.multi_turn_steps):
-                # objective seed → 目标导向攻击
+                # P2-2: ASR 驱动 — 从可用技术池中选择 ASR 最高的多轮技术
+                if available_techniques:
+                    best_multi = self._select_highest_asr_technique(
+                        available_techniques, prefer_multi_turn=True
+                    )
+                    if best_multi:
+                        return best_multi
+                # 回退到固定优先级
                 if "red_teaming" in available_techniques or not available_techniques:
                     return "red_teaming"
                 if "crescendo" in available_techniques:
@@ -269,16 +279,30 @@ class PayloadPlanner:
             if item.multi_turn_steps:
                 # 有显式 turns → 逐轮发送
                 return "prompt_sending"
-            # 无显式 turns → 如果策略推荐了 red_teaming，使用它
+            # 无显式 turns → ASR 驱动选择
+            if available_techniques:
+                best = self._select_highest_asr_technique(
+                    available_techniques, prefer_multi_turn=True
+                )
+                if best:
+                    return best
             if "red_teaming" in available_techniques:
                 return "red_teaming"
             # 回退到 owasp_strategy_map 的默认技术
             owasp_strategy = self.strategy_matcher.owasp_strategy_map.get(
                 item.owasp_id or "", {}
             )
-            return owasp_strategy.get("default_attack_technique", "prompt_sending")
+            return owasp_strategy.get("default_attack_technique", "crescendo_simulated")
 
-        # 3. 尝试 owasp_strategy_map 的默认技术
+        # 3. P2-2: ASR 驱动选择 — 从可用技术池中选择 ASR 最高的技术
+        if available_techniques:
+            best_tech = self._select_highest_asr_technique(
+                available_techniques, prefer_multi_turn=False
+            )
+            if best_tech:
+                return best_tech
+
+        # 4. 尝试 owasp_strategy_map 的默认技术
         owasp_strategy = self.strategy_matcher.owasp_strategy_map.get(
             item.owasp_id or "", {}
         )
@@ -287,8 +311,56 @@ class PayloadPlanner:
             if not available_techniques or default_tech in available_techniques:
                 return default_tech
 
-        # 4. 全局默认
-        return "prompt_sending"
+        # 5. 全局默认（P2-1: ASR 驱动）
+        return "crescendo_simulated"
+
+    @staticmethod
+    def _select_highest_asr_technique(
+        techniques: List[str],
+        prefer_multi_turn: bool = False,
+    ) -> str | None:
+        """
+        P2-2: 从技术列表中选择 ASR 最高的技术
+
+        使用 asr_prior_registry 中的学术 ASR 先验数据进行排序。
+        如果 prefer_multi_turn=True，优先选择多轮技术。
+
+        Args:
+            techniques: 可用技术名列表
+            prefer_multi_turn: 是否优先选择多轮技术
+
+        Returns:
+            ASR 最高的技术名，或 None 如果列表为空
+        """
+        if not techniques:
+            return None
+
+        try:
+            from src.payloads.asr_prior_registry import get_asr_prior
+
+            # 多轮技术集合（用于 prefer_multi_turn 过滤）
+            multi_turn_techniques = {
+                "crescendo", "red_teaming", "tap", "pair",
+                "many_shot", "violent_durian",
+            }
+
+            # 如果优先多轮且有可用多轮技术，仅从多轮技术中选择
+            candidates = techniques
+            if prefer_multi_turn:
+                multi_turn_available = [t for t in techniques if t in multi_turn_techniques]
+                if multi_turn_available:
+                    candidates = multi_turn_available
+
+            # 按 ASR 降序排序
+            def asr_key(tech_name: str) -> float:
+                prior = get_asr_prior(tech_name)
+                return prior.asr_percent if prior else 0.0
+
+            sorted_techs = sorted(candidates, key=asr_key, reverse=True)
+            return sorted_techs[0] if sorted_techs else None
+        except Exception:
+            # 回退：返回第一个技术
+            return techniques[0] if techniques else None
 
     def _auto_match_sequential_steps(
         self,

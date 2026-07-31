@@ -65,8 +65,8 @@ class TestP0ConverterVariantFactories(unittest.TestCase):
         self.assertIn("red_teaming", BASE_TECHNIQUES_FOR_VARIANTS)
         # crescendo IS in variants (crescendo + encoding = 3-5x ASR, arXiv:2402.12109)
         self.assertIn("crescendo", BASE_TECHNIQUES_FOR_VARIANTS)
-        # P8: tree_of_attacks_pruned IS in variants (tree search + stealth = 2.5x)
-        self.assertIn("tree_of_attacks_pruned", BASE_TECHNIQUES_FOR_VARIANTS)
+        # P8: tree_of_attacks_pruned removed (merged with tap)
+        self.assertIn("tap", BASE_TECHNIQUES_FOR_VARIANTS)
         # P8: crescendo_simulated IS in variants
         self.assertIn("crescendo_simulated", BASE_TECHNIQUES_FOR_VARIANTS)
 

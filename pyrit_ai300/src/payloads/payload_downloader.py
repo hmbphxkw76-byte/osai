@@ -240,7 +240,7 @@ def _classify_seed(seed: Any) -> Optional[str]:
     for keyword, tech in keywords.items():
         if keyword in value_lower:
             return tech
-    return "prompt_sending"  # 默认
+    return "crescendo_simulated"  # P2-1: ASR 驱动默认技术
 
 
 def _seed_to_yaml_dict(seed: Any, technique: str, asr: float, tier: str, source: str) -> Dict[str, Any]:

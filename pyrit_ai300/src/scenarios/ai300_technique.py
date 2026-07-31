@@ -35,19 +35,21 @@ class AI300Technique(ScenarioTechnique):
     LIGHT = ("light", {"light"})
 
     # ── 编码攻击（第一优先级：快速高成功率）──
-    PROMPT_SENDING = ("prompt_sending", {"single_turn", "default", "light", "encoding"})
+    PROMPT_SENDING = ("prompt_sending", {"single_turn", "light", "encoding"})
     ROT13 = ("rot13", {"single_turn", "encoding"})
     BASE64 = ("base64", {"single_turn", "encoding"})
     CAESAR = ("caesar", {"single_turn", "encoding"})
     BINARY = ("binary", {"single_turn", "encoding"})
     MORSE = ("morse", {"single_turn", "encoding"})
     LEETSPEAK = ("leetspeak", {"single_turn", "encoding"})
-    FLIP = ("flip", {"single_turn", "encoding", "light"})
+    FLIP = ("flip", {"single_turn", "light"})
     CHAR_SWAP = ("char_swap", {"single_turn", "encoding"})
     DIACRITIC = ("diacritic", {"single_turn", "encoding"})
     CHARACTER_SPACE = ("character_space", {"single_turn", "encoding"})
     STRING_JOIN = ("string_join", {"single_turn", "encoding"})
     SUFFIX_APPEND = ("suffix_append", {"single_turn", "encoding"})
+    ATBASH = ("atbash", {"single_turn", "encoding"})
+    URL = ("url", {"single_turn", "encoding"})
 
     # ── 单轮攻击（第二优先级：角色扮演等）──
     ROLE_PLAY_MOVIE_SCRIPT = ("role_play_movie_script", {"single_turn", "light"})
@@ -68,7 +70,13 @@ class AI300Technique(ScenarioTechnique):
     CRESCENDO = ("crescendo", {"multi_turn"})
     TAP = ("tap", {"multi_turn"})
     PAIR = ("pair", {"multi_turn"})
-    TREE_OF_ATTACKS_PRUNED = ("tree_of_attacks_pruned", {"multi_turn"})
+    # P1-1: 新增 violent_durian（对齐原生 extra.py）
+    VIOLENT_DURIAN = ("violent_durian", {"multi_turn"})
+    # P1-4: tree_of_attacks_pruned 已移除（与 tap 重复）
+
+    # ── AIRT 场景专属技术（对齐原生 airt.py）──
+    FIRST_LETTER = ("first_letter", {"single_turn", "airt", "leakage"})
+    IMAGE = ("image", {"single_turn", "airt", "leakage"})
 
     @classmethod
     def default(cls) -> "AI300Technique":
@@ -78,7 +86,7 @@ class AI300Technique(ScenarioTechnique):
     @classmethod
     def get_aggregate_tags(cls) -> set[str]:
         """返回聚合标签集合"""
-        return {"all", "default", "single_turn", "multi_turn", "light", "encoding"}
+        return {"all", "default", "single_turn", "multi_turn", "light", "encoding", "airt", "leakage"}
 
 
 class AI300EncodingTechnique(ScenarioTechnique):

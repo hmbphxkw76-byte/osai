@@ -32,7 +32,6 @@ from pyrit.executor.attack import (
     RedTeamingAttack,
     SequentialAttack,
     SkeletonKeyAttack,
-    TAPAttack,
     TreeOfAttacksWithPruningAttack,
 )
 from pyrit.executor.attack.core.attack_result_attribution import AttackResultAttribution
@@ -64,9 +63,9 @@ ATTACK_CLASS_MAP: Dict[str, Any] = {
     "red_teaming": RedTeamingAttack,
     "crescendo": CrescendoAttack,
     "crescendo_simulated": CrescendoAttack,
-    "tap": TAPAttack,
+    "tap": TreeOfAttacksWithPruningAttack,
     "pair": PAIRAttack,
-    "tree_of_attacks_pruned": TreeOfAttacksWithPruningAttack,
+    # P1-4: tree_of_attacks_pruned 已移除（与 tap 重复）
     "sequential": SequentialAttack,
 }
 
@@ -184,13 +183,7 @@ ATTACK_METADATA: Dict[str, Dict[str, Any]] = {
         "requires_scoring_config": False,
         "category": "jailbreak",
     },
-    "tree_of_attacks_pruned": {
-        "description": "剪枝攻击树",
-        "multi_turn": True,
-        "requires_converter_config": False,
-        "requires_scoring_config": False,
-        "category": "jailbreak",
-    },
+    # P1-4: tree_of_attacks_pruned 已移除（与 tap 重复）
     "sequential": {
         "description": "顺序组合攻击",
         "multi_turn": True,
@@ -220,7 +213,7 @@ def create_attack_instance(
     PyRIT 1.0.0 迁移说明：
     - 已移除的 Attack 类（role_play/flip/context_compliance/barge_in）自动回退到 prompt_sending
     - PromptSendingAttack 不再接受 attack_adversarial_config 参数
-    - 多轮攻击（RedTeamingAttack/CrescendoAttack/PAIRAttack/TAPAttack/
+    - 多轮攻击（RedTeamingAttack/CrescendoAttack/PAIRAttack/TreeOfAttacksWithPruningAttack/
       TreeOfAttacksWithPruningAttack）要求 attack_adversarial_config 为必填参数
     - CrescendoAttack 支持 max_backtracks 参数
     - PrependedConversationConfig 可通过 kwargs 传递给支持的 Attack
