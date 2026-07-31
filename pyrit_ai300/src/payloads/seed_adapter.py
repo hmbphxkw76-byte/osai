@@ -64,14 +64,24 @@ def _get_attack_mode(metadata: Optional[dict[str, Any]], default: AttackMode = A
 
 class SeedPromptAdapter:
     """
-    PyRIT SeedDataset ↔ 项目 PromptBatch/PromptItem 双向适配器
+    PyRIT SeedDataset ↔ 项目 PromptBatch/PromptItem 双向适配器  [DEPRECATED]
 
-    用法：
-        # 从 PyRIT SeedDataset 转换
-        batches = SeedPromptAdapter.dataset_to_batches(seed_dataset)
+    .. deprecated::
+        ``dataset_to_batches()`` / ``remote_datasets_to_batches()`` 等方法
+        将原生 ``SeedDataset`` 转换为自定义 ``PromptBatch``/``PromptItem``，
+        绕过了 CentralMemory。
 
-        # 从 PromptItem 反向转换
-        objective = SeedPromptAdapter.item_to_objective(prompt_item)
+        **推荐使用**::
+
+            # Mode A (原生路径)
+            from src.payloads import DatasetManager
+            dm = DatasetManager()
+            await dm.load_datasets(owasp=True)
+            groups = dm.get_seed_groups()           # ← 原生 SeedGroup
+            # AttackPreparator.prepare_batch(groups)  → AttackSeedGroup
+
+        保留 ``seed_groups_to_batches()`` 和 ``items_to_dataset()`` 仅供
+        向后兼容管道使用。
     """
 
     @staticmethod
@@ -80,7 +90,11 @@ class SeedPromptAdapter:
         owasp_id: Optional[str] = None,
     ) -> List[PromptBatch]:
         """
-        将 PyRIT SeedDataset 转换为项目 PromptBatch 列表
+        将 PyRIT SeedDataset 转换为项目 PromptBatch 列表  [DEPRECATED]
+
+        .. deprecated::
+            使用 ``DatasetManager.get_seed_groups()`` 替代以获得原生
+            ``SeedGroup`` 对象（无需 ``PromptBatch`` 适配）。
 
         使用 PyRIT 原生 SeedDataset.seed_groups 进行种子分组，
         利用 SeedGroup.objective / .prompts / .simulated_conversation_config

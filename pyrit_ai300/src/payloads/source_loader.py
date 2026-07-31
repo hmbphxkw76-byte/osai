@@ -1,19 +1,28 @@
 """
-Payload Source Loader
-=====================
+Payload Source Loader  [DEPRECATED]
+=====================================
 
 ① 数据准备层 - 从多种数据源加载 SeedDataset
 
+.. deprecated::
+    本模块提供 **Mode B**（兼容路径），将原生 ``SeedDataset`` 转换为自定义
+    ``PromptBatch``/``PromptItem`` 中间模型，增加了一层不必要的适配。
+
+    **推荐使用 Mode A**（原生路径）::
+
+        from src.payloads import DatasetManager
+        dm = DatasetManager()
+        await dm.load_datasets(owasp=True, academic=True)
+        groups = dm.get_seed_groups()
+
+    Mode B 保留仅为向后兼容，所有新代码应使用 ``DatasetManager``。
+
 对齐 PyRIT 1.0.0 五层架构：
-  ① 数据准备层 → 本模块 (source_loader.py)
+  ① 数据准备层 → 本模块 (source_loader.py)  [DEPRECATED — 使用 DatasetManager]
   ② 数据管理层 → DatasetManager / CentralMemory (dataset_manager.py)
   ③ 攻击准备层 → AttackPreparator (attack_preparator.py)
   ④ 攻击执行层 → AttackStrategy.execute_async()
   ⑤ 评估与追踪层 → Scorer + Memory
-
-本模块提供两种使用模式：
-  模式 A（推荐）: DatasetManager → CentralMemory → get_seed_groups() → AttackPreparator
-  模式 B（兼容）: load_payloads_async() → PromptBatch → plan_attacks()
 
 数据源（自由组合，非一次性打包）：
   - OWASP 本地 YAML → data/owasp/llm/ + data/owasp/agentic/
@@ -23,6 +32,7 @@ Payload Source Loader
 
 import asyncio
 import logging
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -35,15 +45,28 @@ from src.payloads.models import (
 logger = logging.getLogger(__name__)
 
 
+_DEPRECATION_MSG = (
+    "PayloadSourceLoader returns PromptBatch (bypassing CentralMemory). "
+    "Use DatasetManager.load_datasets() for PyRIT-native data management. "
+    "See 'database as source of truth' best practice in PyRIT docs."
+)
+
+
 # ============================================================
-# 数据源加载器（同步 - 返回 PromptBatch，兼容现有管道）
+# 数据源加载器（同步 - 返回 PromptBatch，兼容现有管道） [DEPRECATED]
 # ============================================================
 
 
 class PayloadSourceLoader:
-    """数据源加载器 - 从多目录结构批量加载提示词"""
+    """数据源加载器 - 从多目录结构批量加载提示词 [DEPRECATED]
+
+    .. deprecated::
+        使用 ``DatasetManager`` 替代。本类将原生 ``SeedDataset`` 转换为
+        自定义 ``PromptBatch``/``PromptItem``，绕过了 CentralMemory。
+    """
 
     def __init__(self, base_data_dir: Optional[str] = None):
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         if base_data_dir is None:
             project_root = Path(__file__).parent.parent.parent
             base_data_dir = str(project_root / "data")
@@ -208,11 +231,25 @@ def load_payloads(
     include_custom: bool = True,
     frameworks: Optional[List[str]] = None,
 ) -> List[PromptBatch]:
-    """加载所有数据源提示词（工厂函数）
+    """加载所有数据源提示词（工厂函数）  [DEPRECATED]
 
     .. deprecated::
-        此函数返回 PromptBatch（绕过 CentralMemory），不符合 PyRIT 1.0.0
+        此函数返回 ``PromptBatch``（绕过 CentralMemory），不符合 PyRIT 1.0.0
         "database as source of truth" 最佳实践。
+
+        **迁移对照表**::
+
+            旧 API (Mode B)                          → 新 API (Mode A)
+            ─────────────────────────────────────────────────────────────
+            load_payloads()                          → DatasetManager.load_datasets()
+            load_payloads_async()                    → DatasetManager.load_datasets()
+            load_all_payloads_async()                → DatasetManager.load_datasets()
+            load_remote_datasets_async()             → DatasetManager.load_remote_datasets()
+            PayloadSourceLoader.load_from_owasp()    → DatasetManager.load_owasp_datasets()
+            PayloadSourceLoader.load_from_custom()   → DatasetManager.load_custom_datasets()
+            SeedPromptAdapter.dataset_to_batches()   → DatasetManager.get_seed_groups()
+            PromptBatch / PromptItem                 → SeedGroup / Seed
+            plan_attacks(prompt_batches)             → AttackPreparator.prepare_batch(seed_groups)
 
         推荐使用 ``DatasetManager.load_datasets()`` 替代，它将数据加载到
         CentralMemory 中，支持多维查询和审计追踪。
@@ -220,7 +257,6 @@ def load_payloads(
     保留此函数仅为向后兼容。如需同步到 CentralMemory，
     请使用 ``sync_batches_to_memory_async()``。
     """
-    import warnings
     warnings.warn(
         "load_payloads() returns PromptBatch bypassing CentralMemory. "
         "Use DatasetManager.load_datasets() for PyRIT-native data management. "
@@ -323,12 +359,23 @@ async def load_remote_datasets_async(
     cache: bool = True,
 ) -> List[PromptBatch]:
     """
-    异步加载 PyRIT 远程数据集并转换为 PromptBatch
+    异步加载 PyRIT 远程数据集并转换为 PromptBatch  [DEPRECATED]
+
+    .. deprecated::
+        使用 ``DatasetManager.load_remote_datasets()`` 替代以获得原生
+        CentralMemory 集成（返回原生 ``SeedDataset``，无需 ``PromptBatch`` 适配）。
 
     利用 PyRIT 1.0.0 的 SeedDatasetProvider.fetch_datasets_async()
     加载 60+ 远程数据集（HarmBench, JailbreakBench 等），
     并通过 SeedPromptAdapter 转换为项目 PromptBatch 格式。
     """
+    warnings.warn(
+        "load_remote_datasets_async() returns PromptBatch. "
+        "Use DatasetManager.load_remote_datasets() for native CentralMemory integration.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     from pyrit.datasets import SeedDatasetProvider
     from src.payloads.seed_adapter import SeedPromptAdapter
 
