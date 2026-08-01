@@ -1,0 +1,71 @@
+{
+  "project": "garak-e2e-pipeline",
+  "created": "2026-8-1 12:44",
+  "updated": "2026-8-1 12:44",
+  "entry_points": {
+    "primary": "python main.py",
+    "config": "target.yaml",
+    "advanced": "python -m pipeline.runner --endpoint ... --model ... --api-key ..."
+  },
+  "target": {
+    "endpoint": "https://api.longcat.chat/openai/v1",
+    "model": "LongCat-2.0",
+    "api_key": "ak_2Sz9I59BV4kv99F5bF8sw9We8uf7S"
+  },
+  "architecture": {
+    "framework": "garak 0.15.1",
+    "pattern": "5-stage pipeline",
+    "generator": "openai.OpenAICompatible",
+    "harness": "ProbewiseHarness",
+    "evaluator": "ThresholdEvaluator(0.5)"
+  },
+  "stages": {
+    "recon": {
+      "status": "implemented",
+      "file": "pipeline/stage1_recon.py",
+      "artifacts": "artifacts/01_recon/",
+      "tests": 10
+    },
+    "configure": {
+      "status": "implemented",
+      "file": "pipeline/stage2_configure.py",
+      "artifacts": "artifacts/02_config/",
+      "tests": 10
+    },
+    "execute": {
+      "status": "implemented",
+      "file": "pipeline/stage3_execute.py",
+      "artifacts": "artifacts/03_execution/",
+      "tests": 7
+    },
+    "analyze": {
+      "status": "implemented",
+      "file": "pipeline/stage4_analyze.py",
+      "artifacts": "artifacts/04_analysis/",
+      "tests": 9
+    },
+    "export": {
+      "status": "implemented",
+      "file": "pipeline/stage5_export.py",
+      "artifacts": "artifacts/05_export/",
+      "tests": 11
+    }
+  },
+  "test_results": {
+    "unit": "58 passed",
+    "integration": "5 passed",
+    "regression": "9 passed",
+    "total": "61 passed",
+    "timestamp": "2026-8-1 12:44"
+  },
+  "configs": {
+    "quick": "config/quick.yaml",
+    "standard": "config/standard.yaml",
+    "full": "config/full.yaml"
+  },
+  "docs": {
+    "architecture": "架构设计.md",
+    "readme": "README.md",
+    "rules": ".assistant_garak/rules.md"
+  }
+}

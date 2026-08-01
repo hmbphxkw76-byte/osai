@@ -1,0 +1,77 @@
+# ============================================================================
+# pyrit-pipeline .gitignore — 二次开发项目专属
+# ============================================================================
+
+# ── 密钥与配置（绝不提交）──
+.env
+.env.*
+.pyrit_conf
+.pyrit_cache/
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ── 运行时输出 ──
+/outputs/*
+!/outputs/.gitkeep
+/results/
+dbdata/
+eval/
+default_memory.json.memory
+artifacts/
+
+# ── Python 缓存 ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# ── 测试 / 覆盖率 ──
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.mypy_cache/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ── Jupyter ──
+.ipynb_checkpoints
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──
+**/.DS_Store
+Thumbs.db
+
+# ── PyRIT 数据库 ──
+*.sqlite
+*.sqlite-journal
+*.db
+
+# ── 日志 ──
+*.log
+
+# 外部源码目录（不入库）
+../src/
+
+# 运行产物（统一组织到 outputs/）
+outputs/

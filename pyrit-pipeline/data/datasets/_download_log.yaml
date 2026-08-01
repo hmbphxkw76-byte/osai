@@ -1,0 +1,16 @@
+last_update: '2026-08-01T19:30:53.441188'
+total_datasets: 3
+success: 0
+failed: 3
+mirror_used: 0
+total_seeds: 0
+downloads:
+- name: _jailbreaktemplatesdataset
+  source: failed
+  seeds: 0
+- name: _localdatasetloader
+  source: failed
+  seeds: 0
+- name: _remotedatasetloader
+  source: failed
+  seeds: 0

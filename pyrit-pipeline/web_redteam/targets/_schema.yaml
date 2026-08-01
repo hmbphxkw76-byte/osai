@@ -1,0 +1,95 @@
+# TargetProfile YAML Schema — 自文档化定义
+# 每个字段标注 [必填] 或 [可选]，并附说明。
+
+# ── 目标元信息 ──
+target:
+  name: string                    # [必填] 目标唯一标识
+  description: string             # [可选] 人类可读描述
+  type: string                    # [必填] 目标类型: web_chat | web_rag | api_behind_auth
+
+# ── 认证拓扑 ──
+auth:
+  # [必填] 认证类型:
+  #   auto:         自动探测 (导航到 target_url, 判断是否需要认证及拓扑)
+  #   none:         无需认证 (直接访问 target_url)
+  #   same_domain:  同域认证 (login_url → target_url 在同一域名内)
+  #   cross_domain: 跨域认证 (SSO/OAuth/CAS, 涉及多域名跳转)
+  type: string
+
+  # [条件必填] 登录页 URL (same_domain / cross_domain 必填, auto/none 不需要)
+  login_url: string
+
+  # [必填] 认证完成后的目标页面 URL (聊天/RAG 页面)
+  target_url: string
+
+  # ── 同域认证配置 (type=same_domain 时必填) ──
+  same_domain:
+    # [必填] 认证完成检测策略列表 (多策略 OR, 任一满足即认为完成)
+    detection:
+      # 策略 1: URL 模式匹配
+      - strategy: "url_pattern"       # [必填] 策略类型
+        pattern: string                # [必填] 正则表达式, page.url 匹配时认为完成
+
+      # 策略 2: DOM 元素存在
+      - strategy: "dom_element"
+        selector: string               # [必填] CSS 选择器
+        timeout_seconds: 300           # [可选] 超时秒数, 默认 300
+
+      # 策略 3: Cookie 存在
+      - strategy: "cookie_presence"
+        cookie_names: [string]         # [必填] Cookie 名称列表
+        domain: string                 # [可选] Cookie 域名
+
+  # ── 跨域认证配置 (type=cross_domain 时必填) ──
+  cross_domain:
+    # [必填] 期望的重定向域名跳转序列
+    redirect_chain:
+      - domain: string                 # [必填] 域名
+        auth_action: string            # [必填] 动作: redirect_to_idp | login_form | callback
+        human_steps: [string]          # [可选] 需要人工的步骤: captcha | slider | qr_scan | otp
+
+    # [必填] 认证完成检测策略 (同 same_domain.detection)
+    detection:
+      - strategy: "url_pattern"
+        pattern: string
+      - strategy: "dom_element"
+        selector: string
+
+  # ── 自动填充 (可选, 不配置则全部人工) ──
+  auto_fill:
+    selector: string                   # CSS 选择器 → 值 (支持 ${ENV_VAR} 环境变量替换)
+
+  # ── 人工辅助步骤声明 ──
+  # [可选] 程序在这些步骤暂停, 等待人工完成后自动检测
+  human_assisted_steps:
+    - string                           # captcha | slider | qr_scan | otp
+
+# ── 聊天 UI 交互配置 ──
+interaction:
+  # [必填] 输入框配置
+  input:
+    selector: string                   # [必填] CSS 选择器
+    type: string                       # [可选] textarea | contenteditable | input, 默认 textarea
+
+  # [必填] 发送按钮
+  send:
+    selector: string                   # [必填] CSS 选择器
+    keyboard_shortcut: string          # [可选] 键盘快捷键 (如 "Enter"), 优先于 selector
+
+  # [必填] AI 响应容器
+  response:
+    selector: string                   # [必填] CSS 选择器
+    wait_strategy: string              # [可选] new_element | text_stable | loading_gone, 默认 new_element
+    stability_threshold_ms: 2000       # [可选] text_stable 模式下文本稳定阈值
+    loading_selector: string           # [可选] loading_gone 模式下的加载指示器选择器
+
+  # [可选] 响应文本提取
+  extraction:
+    text_selector: string              # [可选] 从响应容器中提取文本的选择器
+    wait_for_images: false             # [可选] 是否等待图片加载
+
+# ── 攻击默认参数 (可被 CLI 覆盖) ──
+attack_defaults:
+  attack_type: string                  # [可选] prompt_sending | red_teaming | crescendo | tap
+  max_turns: 10                        # [可选] 多轮攻击最大轮次
+  objective: string                    # [可选] 默认攻击目标

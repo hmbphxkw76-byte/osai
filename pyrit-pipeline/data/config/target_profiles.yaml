@@ -1,0 +1,179 @@
+# Target-Aware Converter 路由配置 — P5-1 外部化
+#
+# 定义 Target 类型映射、分组和 Converter 链推荐。
+# Python 代码 (target_aware_router.py) 仅保留路由逻辑,
+# 本文件是唯一数据源。
+#
+# 学术依据:
+# - Wei et al. (arXiv:2307.15043): 编码攻击表示级变换
+# - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同
+# - Zeng et al. (arXiv:2402.19181): 说服策略 ASR
+#
+# 维护: 新增 Target 类型或调整 Converter 链推荐时只需修改本文件
+# ====================================================================
+
+# ── PyRIT Target 类名 → target_type 映射 ──
+# 用于从 Target 实例的类名推断 target_type
+class_name_map:
+  OpenAIChatTarget: openai_chat
+  OpenAIResponseTarget: openai_responses
+  LiteLLMChatTarget: litellm
+  AzureMLChatTarget: azure_ml
+  PromptShieldTarget: prompt_shield
+  PlaywrightTarget: playwright
+  PlaywrightCopilotTarget: playwright_copilot
+  CopilotTarget: websocket_copilot
+  WebSocketCopilotTarget: websocket_copilot
+  HTTPTarget: http_api
+  AzureBlobStorageTarget: azure_blob
+  OpenAIImageTarget: openai_image
+  OpenAIVideoTarget: openai_video
+  OpenAITTSTarget: openai_tts
+
+# ── target_type → 分组映射 ──
+# 将具体 target_type 归类为安全机制分组
+type_groups:
+  openai_chat: llm_direct
+  openai_responses: llm_direct
+  litellm: llm_direct
+  azure_ml: llm_direct
+  prompt_shield: llm_safety
+  playwright: agent_web
+  playwright_copilot: agent_web
+  websocket_copilot: agent_copilot
+  http_api: agent_api
+  azure_blob: rag
+  http_raw: output_handling
+  openai_image: multimodal_image
+  openai_video: multimodal_video
+  openai_tts: multimodal_audio
+  text: llm_direct
+
+# ── Target 分组 → Converter 链推荐 ──
+# 4 层 ASR 链推荐 (model_tier 感知):
+#   high_asr_chains:     ASR >= 40% — 非 LLM 链, 快速高命中率
+#   medium_asr_chains:   ASR 15-40% — 非 LLM 链, 中等命中率
+#   low_asr_chains:      ASR 5-15% — 非 LLM 链, 兜底覆盖
+#   llm_assisted_chains: LLM 辅助 — 仅在 converter_target 可用且非弱模型时推荐
+converter_profiles:
+  llm_direct:
+    high_asr_chains: []
+    medium_asr_chains:
+      - stealth_evasion
+      - multi_encoding_v2
+      - special_chars
+    low_asr_chains:
+      - encoding_bypass
+      - unicode_attack
+      - random_case
+      - format_injection
+    llm_assisted_chains:
+      - persuasion_authority
+      - decomposition_chain
+      - llm_assisted
+      - task_framing_chain
+      - noise_bypass
+    bypass_mechanism: "content_filter + semantic_classifier"
+    description: "LLM 直连 — 内容过滤 + 语义安全分类器"
+
+  llm_safety:
+    high_asr_chains:
+      - stealth_evasion
+      - multi_encoding_v2
+    medium_asr_chains:
+      - unicode_attack
+      - random_case
+    low_asr_chains:
+      - encoding_bypass
+    llm_assisted_chains:
+      - decomposition_chain
+      - persuasion_authority
+      - noise_bypass
+    bypass_mechanism: "prompt_shield_detection"
+    description: "LLM Safety — Prompt Shield 检测绕过"
+
+  agent_web:
+    high_asr_chains:
+      - stealth_evasion
+    medium_asr_chains:
+      - task_framing_chain
+    low_asr_chains: []
+    llm_assisted_chains:
+      - persuasion_authority
+      - noise_bypass
+    bypass_mechanism: "input_validation"
+    description: "Agent (Web UI) — 前端输入验证 + 后端双重检查"
+
+  agent_copilot:
+    high_asr_chains:
+      - stealth_evasion
+      - unicode_attack
+    medium_asr_chains:
+      - task_framing_chain
+    low_asr_chains: []
+    llm_assisted_chains:
+      - persuasion_authority
+    bypass_mechanism: "grounding_safety"
+    description: "Agent (Copilot) — 系统提示 + Grounding + 工具权限"
+
+  agent_api:
+    high_asr_chains:
+      - stealth_evasion
+      - encoding_bypass
+    medium_asr_chains:
+      - task_framing_chain
+    low_asr_chains: []
+    llm_assisted_chains:
+      - persuasion_authority
+    bypass_mechanism: "api_schema_validation"
+    description: "Agent (API) — API 层验证 + Schema 约束"
+
+  rag:
+    high_asr_chains:
+      - stealth_evasion
+    medium_asr_chains: []
+    low_asr_chains:
+      - encoding_bypass
+    llm_assisted_chains:
+      - noise_bypass
+    bypass_mechanism: "document_sanitization"
+    description: "RAG — 文档清理 + 来源验证"
+
+  output_handling:
+    high_asr_chains:
+      - stealth_evasion
+    medium_asr_chains:
+      - random_case
+    low_asr_chains:
+      - encoding_bypass
+    llm_assisted_chains:
+      - decomposition_chain
+      - noise_bypass
+    bypass_mechanism: "output_filtering"
+    description: "Output Handling — 输出过滤 + 转义"
+
+  multimodal_image:
+    high_asr_chains: []
+    medium_asr_chains:
+      - stealth_evasion
+    low_asr_chains: []
+    llm_assisted_chains: []
+    bypass_mechanism: "multimodal_filter"
+    description: "多模态图片 — 图像内容过滤"
+
+  multimodal_video:
+    high_asr_chains: []
+    medium_asr_chains:
+      - stealth_evasion
+    low_asr_chains: []
+    llm_assisted_chains: []
+    bypass_mechanism: "multimodal_filter"
+    description: "多模态视频 — 视频内容过滤"
+
+  multimodal_audio:
+    high_asr_chains: []
+    medium_asr_chains: []
+    low_asr_chains: []
+    llm_assisted_chains: []
+    bypass_mechanism: "audio_filter"
+    description: "多模态音频 — 音频内容过滤"

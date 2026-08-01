@@ -1,0 +1,289 @@
+# Converter 链配置 — P2-10 外部化
+#
+# 定义所有 Converter 变体链的元数据和基础技术→链映射。
+# 实际 Converter 实例化逻辑保留在 pipeline/converter_chains.py 中,
+# 本文件仅管理链的元数据 (优先级、模态、是否需要 LLM 等)。
+#
+# 学术依据:
+# - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同 3-5x ASR
+# - PyRIT 官方 ConverterConfiguration 文档
+# ====================================================================
+
+# ── Converter 变体链定义 ──
+# requires_llm: 是否需要 LLM 辅助 (converter_target)
+# priority: 优先级 (1=最高, 5=最低)
+# modality: 支持的模态 (text/image/audio)
+# description: 链描述
+chains:
+  # ── 非 LLM 链 (text modality) — 高优先级 ──
+  stealth_evasion:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: "Unicode 混淆 + Base64 + 后缀追加"
+
+  multi_encoding_v2:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: "四层编码: Base64 + ROT13 + Caesar(5) + Atbash"
+
+  encoding_bypass:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "Base64 + ROT13 + Caesar 编码绕过"
+
+  unicode_attack:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "Unicode 混淆 + 双向文本 + 零宽字符"
+
+  random_case:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "随机大写字符绕过关键词检测"
+
+  format_injection:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "ASCII 艺术格式注入"
+
+  noise_bypass:
+    requires_llm: true
+    priority: 3
+    modality: text
+    description: "NoiseConverter 噪声注入绕过"
+
+  special_chars:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "特殊字符注入绕过"
+
+  # ── LLM 链 (text modality) — 语义变换 ──
+  persuasion_authority:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "权威说服 (LLM 辅助)"
+
+  decomposition_chain:
+    requires_llm: true
+    priority: 3
+    modality: text
+    description: "分解重构: 将有害请求分解为无害子任务"
+
+  llm_assisted:
+    requires_llm: true
+    priority: 3
+    modality: text
+    description: "说服 + 语气 + 翻译 (LLM 辅助)"
+
+  task_framing_chain:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "任务框架重构 (LLM 辅助)"
+
+  # ── 补全: 非 LLM 链 (text modality) — 更多编码/混淆变体 ──
+  binary_morse_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "Binary + Morse 双层编码"
+
+  braille_nato_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "Braille + Nato 字母表替换"
+
+  leetspeak_zalgo_chain:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "Leetspeak + Zalgo 文本变形"
+
+  emoji_superscript_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "Emoji + Superscript 字符替换"
+
+  char_swap_diacritic_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "CharSwap + Diacritic 字符变形"
+
+  character_space_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "CharacterSpace 字符间距混淆"
+
+  punctuation_insert_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "InsertPunctuation 标点注入绕过"
+
+  repeat_token_chain:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "RepeatToken 重复令牌注入"
+
+  token_smuggling_chain:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: "AsciiSmuggler + SneakyBits 令牌走私"
+
+  url_encoding_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "Url + Base64 URL 编码绕过"
+
+  base2048_ecoji_chain:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "Base2048 + Ecoji 高基数编码"
+
+  unicode_replacement_chain:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: "UnicodeReplacement + Tatweel Unicode 替换"
+
+  search_replace_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "SearchReplace 关键词替换绕过"
+
+  first_letter_chain:
+    requires_llm: false
+    priority: 3
+    modality: text
+    description: "FirstLetter 首字母提取编码"
+
+  # ── 补全: LLM 链 (text modality) — 更多语义变换 ──
+  tense_variation_chain:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "Tense + Variation 时态变换+变体 (LLM 辅助)"
+
+  persuasion_policy_chain:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "Persuasion + PolicyPuppetry 说服+策略模仿"
+
+  math_obfuscation_chain:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "MathObfuscation 数学表达式混淆 (LLM 辅助)"
+
+  scientific_translation_chain:
+    requires_llm: true
+    priority: 4
+    modality: text
+    description: "ScientificTranslation 科学翻译变换"
+
+
+# ── 基础技术 → Converter 链映射 ──
+# 每个基础技术可以分配多个 Converter 链
+# 链的选择基于学术 ASR 先验 (高 ASR 链优先)
+base_techniques_for_variants:
+  prompt_sending:
+    - stealth_evasion
+    - multi_encoding_v2
+    - encoding_bypass
+    - unicode_attack
+    - random_case
+    - persuasion_authority
+    - decomposition_chain
+
+  crescendo:
+    - encoding_bypass
+    - multi_encoding_v2
+    - stealth_evasion
+
+  red_teaming:
+    - persuasion_authority
+    - decomposition_chain
+    - stealth_evasion
+
+  tap:
+    - stealth_evasion
+    - encoding_bypass
+
+  pair:
+    - stealth_evasion
+    - encoding_bypass
+
+  many_shot:
+    - encoding_bypass
+    - stealth_evasion
+
+  best_of_n_jailbreak:
+    - stealth_evasion
+    - persuasion_authority
+
+  role_play_movie_script:
+    - persuasion_authority
+    - decomposition_chain
+
+  context_compliance:
+    - stealth_evasion
+    - encoding_bypass
+
+  tree_of_attacks_pruned:
+    - stealth_evasion
+    - encoding_bypass
+    - multi_encoding_v2
+
+  skeleton_key:
+    - stealth_evasion
+    - persuasion_authority
+    - decomposition_chain
+
+  bad_likert_judge:
+    - persuasion_authority
+    - decomposition_chain
+    - stealth_evasion
+
+  violent_durian:
+    - encoding_bypass
+    - stealth_evasion
+    - multi_encoding_v2
+
+  multi_prompt_sending:
+    - stealth_evasion
+    - encoding_bypass
+    - unicode_attack
+    - random_case
+    - persuasion_authority
+
+  chunked_request:
+    - encoding_bypass
+    - stealth_evasion
+
+  role_play_persuasion:
+    - persuasion_authority
+    - decomposition_chain
+    - stealth_evasion
+
+  wrapping_attack:
+    - stealth_evasion
+    - encoding_bypass
+    - random_case

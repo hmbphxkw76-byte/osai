@@ -1,0 +1,388 @@
+# ASR Prior Data — 学术 ASR 先验数据 (优化2: 可外部配置)
+#
+# 数据来源 (R-007 规则, 优先 arXiv 学术文献):
+# 1. JailbreakBench (arXiv:2402.01135) — 标准化越狱基准排行榜
+# 2. HarmBench (arXiv:2402.04249) — 自动化红队评估框架
+# 3. PyRIT 官方 Scenario 文档展示的成功率数据
+#
+# 数据截止: 2025-06
+# 维护: 更新此文件即可刷新 ASR 先验, 无需修改代码
+# ====================================================================
+
+# ── 统一 Tier 阈值 (唯一权威定义) ──
+tier_thresholds:
+  S: 0.70  # ASR >= 70%
+  A: 0.40  # ASR 40-70%
+  B: 0.15  # ASR 15-40%
+  C: 0.05  # ASR 5-15%
+  D: 0.0   # ASR < 5%
+
+# ── Patched 惩罚系数 (按模型 tier) ──
+patched_penalty_by_tier:
+  strong: 0.3
+  moderate: 0.5
+  weak: 0.8
+  unknown: 0.4
+
+# ── Per-combo 经验乘数表 ──
+# 学术依据:
+# - Crescendo + encoding: 3-5x ASR 提升 (arXiv:2402.12109)
+# - PAIR + persuasion: 1.5-2x (arXiv:2310.08437)
+combo_multipliers:
+  - [multi_turn, encoding, 3.5]
+  - [multi_turn, stealth, 2.5]
+  - [multi_turn, persuasion, 1.8]
+  - [multi_turn, decomposition, 1.5]
+  - [single_turn, persuasion, 2.5]
+  - [single_turn, decomposition, 2.0]
+  - [single_turn, encoding, 1.2]
+  - [single_turn, stealth, 1.3]
+  - [single_turn, multi_encoding, 1.4]
+
+# ── 链类型映射 ──
+chain_type_map:
+  encoding_bypass: encoding
+  multi_encoding_v2: multi_encoding
+  stealth_evasion: stealth
+  unicode_attack: stealth
+  random_case: stealth
+  format_injection: stealth
+  persuasion_authority: persuasion
+  persuasion_chain: persuasion
+  llm_assisted: persuasion
+  decomposition_chain: decomposition
+  decomposition_policy_chain: decomposition
+  agent_injection_chain: agent_injection
+
+# ── 多轮基础技术集合 ──
+multi_turn_base_techs:
+  - crescendo
+  - red_teaming
+  - tap
+  - pair
+  - tree_of_attacks_pruned
+  - many_shot
+
+# ── 独立 Converter 变体 ASR 先验 ──
+converter_variant_priors:
+  crescendo+encoding_bypass:
+    gpt_4o: 0.92
+    gpt_4: 0.93
+    gpt_35: 0.97
+    claude_3_5: 0.88
+    llama_3_1: 0.95
+  crescendo+multi_encoding_v2:
+    gpt_4o: 0.90
+    gpt_4: 0.92
+    gpt_35: 0.96
+    claude_3_5: 0.86
+    llama_3_1: 0.94
+  red_teaming+persuasion_authority:
+    gpt_4o: 0.72
+    gpt_4: 0.75
+    gpt_35: 0.88
+    claude_3_5: 0.68
+    llama_3_1: 0.85
+  prompt_sending+stealth_evasion:
+    gpt_4o: 0.08
+    gpt_4: 0.10
+    gpt_35: 0.35
+    claude_3_5: 0.06
+    llama_3_1: 0.45
+  prompt_sending+encoding_bypass:
+    gpt_4o: 0.06
+    gpt_4: 0.08
+    gpt_35: 0.38
+    claude_3_5: 0.05
+    llama_3_1: 0.50
+
+# ── OWASP 分类感知 ASR 调整系数 ──
+owasp_asr_multipliers:
+  LLM01:
+    prompt_sending: 1.3
+    context_compliance: 1.2
+    crescendo: 1.1
+  LLM02:
+    prompt_sending: 1.1
+    many_shot: 1.2
+  LLM06:
+    red_teaming: 1.2
+    crescendo: 1.15
+  LLM07:
+    prompt_sending: 1.2
+    context_compliance: 1.3
+  LLM09:
+    many_shot: 1.3
+    red_teaming: 1.15
+
+# ── ASR 先验数据 (按技术) ──
+priors:
+  # ── 多轮迭代攻击 (学术验证高 ASR) ──
+  - technique: crescendo
+    gpt_4o: 0.82
+    gpt_4: 0.85
+    gpt_35: 0.95
+    claude_3_5: 0.78
+    llama_3_1: 0.90
+    source: jailbreakbench
+    paper_arxiv: "2402.12109"
+    last_updated: "2025-06"
+    patched: false
+    notes: "多轮渐进式升级; Russinovich et al."
+
+  - technique: red_teaming
+    gpt_4o: 0.55
+    gpt_4: 0.60
+    gpt_35: 0.80
+    claude_3_5: 0.50
+    llama_3_1: 0.75
+    source: harmbench
+    paper_arxiv: "2202.01241"
+    last_updated: "2025-03"
+    patched: false
+    notes: "通用红队对抗; Perez et al."
+
+  - technique: tap
+    gpt_4o: 0.62
+    gpt_4: 0.66
+    gpt_35: 0.80
+    claude_3_5: 0.55
+    llama_3_1: 0.75
+    source: jailbreakbench
+    paper_arxiv: "2312.02191"
+    last_updated: "2025-06"
+    patched: false
+    notes: "树搜索攻击; Mehrotra et al."
+
+  - technique: pair
+    gpt_4o: 0.53
+    gpt_4: 0.60
+    gpt_35: 0.75
+    claude_3_5: 0.48
+    llama_3_1: 0.70
+    source: jailbreakbench
+    paper_arxiv: "2310.08437"
+    last_updated: "2025-06"
+    patched: false
+    notes: "20-query 迭代攻击; Chao et al."
+
+  - technique: tree_of_attacks_pruned
+    gpt_4o: 0.60
+    gpt_4: 0.64
+    gpt_35: 0.78
+    claude_3_5: 0.53
+    llama_3_1: 0.72
+    source: jailbreakbench
+    paper_arxiv: "2312.02191"
+    last_updated: "2025-06"
+    patched: false
+    notes: "TAP 剪枝版本"
+
+  # ── 单轮攻击 ──
+  - technique: many_shot
+    gpt_4o: 0.12
+    gpt_4: 0.15
+    gpt_35: 0.48
+    claude_3_5: 0.10
+    llama_3_1: 0.40
+    source: jailbreakbench
+    paper_arxiv: "2402.05124"
+    last_updated: "2025-06"
+    patched: true
+    notes: "Anthropic 补丁后 ASR 急剧下降"
+
+  - technique: best_of_n_jailbreak
+    gpt_4o: 0.35
+    gpt_4: 0.40
+    gpt_35: 0.65
+    claude_3_5: 0.30
+    llama_3_1: 0.60
+    source: jailbreakbench
+    paper_arxiv: "2402.01135"
+    last_updated: "2025-03"
+    patched: false
+    notes: "N 采样取最优"
+
+  - technique: skeleton_key
+    gpt_4o: 0.05
+    gpt_4: 0.08
+    gpt_35: 0.30
+    claude_3_5: 0.03
+    llama_3_1: 0.25
+    source: jailbreakbench
+    paper_arxiv: "2407.01576"
+    last_updated: "2025-06"
+    patched: true
+    notes: "已被主要模型补丁修复"
+
+  - technique: bad_likert_judge
+    gpt_4o: 0.15
+    gpt_4: 0.20
+    gpt_35: 0.45
+    claude_3_5: 0.12
+    llama_3_1: 0.40
+    source: harmbench
+    paper_arxiv: "2311.08268"
+    last_updated: "2025-03"
+    patched: true
+    notes: "Likert 评分操控"
+
+  # ── 角色扮演 / 模拟对话 (中等 ASR) ──
+  - technique: crescendo_simulated
+    gpt_4o: 0.45
+    gpt_4: 0.50
+    gpt_35: 0.70
+    claude_3_5: 0.40
+    llama_3_1: 0.65
+    source: pyrit_doc
+    paper_arxiv: "2402.12109"
+    last_updated: "2025-06"
+    patched: false
+    notes: "预计算模拟对话重放"
+
+  - technique: context_compliance
+    gpt_4o: 0.40
+    gpt_4: 0.45
+    gpt_35: 0.65
+    claude_3_5: 0.35
+    llama_3_1: 0.60
+    source: pyrit_doc
+    paper_arxiv: "N/A"
+    last_updated: "2025-06"
+    patched: false
+    notes: "上下文合规攻击"
+
+  - technique: role_play_movie_script
+    gpt_4o: 0.35
+    gpt_4: 0.40
+    gpt_35: 0.65
+    claude_3_5: 0.30
+    llama_3_1: 0.60
+    source: pyrit_doc
+    paper_arxiv: "N/A"
+    last_updated: "2025-06"
+    patched: false
+    notes: "电影剧本角色扮演"
+
+  - technique: role_play_persuasion
+    gpt_4o: 0.38
+    gpt_4: 0.42
+    gpt_35: 0.68
+    claude_3_5: 0.33
+    llama_3_1: 0.62
+    source: pyrit_doc
+    paper_arxiv: "2402.19181"
+    last_updated: "2025-06"
+    patched: false
+    notes: "说服角色扮演"
+
+  - technique: wrapping_attack
+    gpt_4o: 0.42
+    gpt_4: 0.45
+    gpt_35: 0.60
+    claude_3_5: 0.38
+    llama_3_1: 0.55
+    source: empirical
+    paper_arxiv: "N/A"
+    last_updated: "2025-06"
+    patched: false
+    notes: "上下文包装攻击"
+
+  # ── 说服攻击 (LLM 辅助) ──
+  - technique: persuasion_authority
+    gpt_4o: 0.35
+    gpt_4: 0.42
+    gpt_35: 0.60
+    claude_3_5: 0.30
+    llama_3_1: 0.55
+    source: harmbench
+    paper_arxiv: "2402.19181"
+    last_updated: "2025-03"
+    patched: false
+    notes: "权威说服; Zeng et al."
+
+  - technique: decomposition_chain
+    gpt_4o: 0.30
+    gpt_4: 0.35
+    gpt_35: 0.55
+    claude_3_5: 0.25
+    llama_3_1: 0.50
+    source: harmbench
+    paper_arxiv: "2311.08268"
+    last_updated: "2025-03"
+    patched: false
+    notes: "任务分解重构"
+
+  # ── 编码攻击 ──
+  - technique: encoding_bypass
+    gpt_4o: 0.08
+    gpt_4: 0.12
+    gpt_35: 0.45
+    claude_3_5: 0.06
+    llama_3_1: 0.55
+    source: harmbench
+    paper_arxiv: "2307.15043"
+    last_updated: "2025-03"
+    patched: false
+    notes: "编码绕过对 GPT-4o 几乎无效"
+
+  - technique: multi_encoding_v2
+    gpt_4o: 0.10
+    gpt_4: 0.14
+    gpt_35: 0.48
+    claude_3_5: 0.08
+    llama_3_1: 0.58
+    source: harmbench
+    paper_arxiv: "2307.15043"
+    last_updated: "2025-03"
+    patched: false
+    notes: "四层编码"
+
+  - technique: stealth_evasion
+    gpt_4o: 0.12
+    gpt_4: 0.16
+    gpt_35: 0.50
+    claude_3_5: 0.10
+    llama_3_1: 0.60
+    source: harmbench
+    paper_arxiv: "2307.15043"
+    last_updated: "2025-03"
+    patched: false
+    notes: "Unicode 混淆 + Base64 + 后缀追加"
+
+  - technique: rot13
+    gpt_4o: 0.03
+    gpt_4: 0.05
+    gpt_35: 0.35
+    claude_3_5: 0.02
+    llama_3_1: 0.50
+    source: harmbench
+    paper_arxiv: "2307.15043"
+    last_updated: "2025-03"
+    patched: false
+    notes: "单层 ROT13 编码"
+
+  - technique: base64
+    gpt_4o: 0.04
+    gpt_4: 0.06
+    gpt_35: 0.38
+    claude_3_5: 0.03
+    llama_3_1: 0.52
+    source: harmbench
+    paper_arxiv: "2307.15043"
+    last_updated: "2025-03"
+    patched: false
+    notes: "单层 Base64 编码"
+
+  # ── 基线 ──
+  - technique: prompt_sending
+    gpt_4o: 0.02
+    gpt_4: 0.03
+    gpt_35: 0.15
+    claude_3_5: 0.01
+    llama_3_1: 0.20
+    source: harmbench
+    paper_arxiv: "N/A"
+    last_updated: "2025-03"
+    patched: false
+    notes: "无转换器基线"

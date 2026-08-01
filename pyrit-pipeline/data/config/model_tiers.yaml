@@ -1,0 +1,82 @@
+# 模型安全过滤强度等级配置 — P2-11 外部化
+#
+# 用于从模型名推断安全过滤强度等级 (strong/moderate/weak/unknown)。
+# 等级影响 ASR 先验选择和失败类型路由策略。
+#
+# 学术依据:
+# - HarmBench (arXiv:2402.04249): 不同模型的安全过滤强度差异
+# - JailbreakBench (arXiv:2402.01135): 模型 ASR 排行榜
+#
+# 推断逻辑:
+# 1. 精确匹配强/中/弱模型模式 (正则)
+# 2. 参数量匹配 (如 "7b" → moderate, "1.5b" → weak)
+# 3. 默认 unknown
+# 维护: 更新此文件即可刷新模型分级, 无需修改代码
+# ====================================================================
+
+# ── 强过滤模型 (ASR 通常较低) ──
+# 闭源旗舰模型, 安全对齐程度高
+strong_patterns:
+  - "gpt-?4o"
+  - "gpt-?4\\.?o"
+  - "gpt-?4(?!\\d)"
+  - "gpt-?4-?turbo"
+  - "claude-?3\\.?5"
+  - "claude-?3-?opus"
+  - "claude-?3-?sonnet"
+  - "gemini-?(1\\.5|2\\.0|ultra|pro)"
+  - "o1-?(preview|mini)"
+  - "o3-?(mini|preview)"
+  - "command-?r\\+"
+  - "inflection"
+  - "longcat-?2"
+
+# ── 中等过滤开源模型 (ASR 通常中等) ──
+moderate_patterns:
+  - "llama-?3(\\.\\d)?-?\\d+b"
+  - "llama-?3"
+  - "mistral-?(large|medium|small)"
+  - "mixtral"
+  - "qwen-?(2|2\\.5|max)"
+  - "deepseek-?(v2|v3|coder)"
+  - "yi-?\\d+b"
+  - "chatglm"
+  - "gemma-?\\d"
+  - "phi-?3"
+  - "command-?r(?! \\+)"
+  - "dbrx"
+  - "olmo"
+
+# ── 弱过滤模型 (ASR 通常较高) ──
+weak_patterns:
+  - "gpt-?3\\.?5"
+  - "gpt-?35"
+  - "llama-?2"
+  - "llama-?3-?\\d+b(?!\\d)"
+  - "vicuna"
+  - "alpaca"
+  - "chatglm-?6b"
+  - "baichuan-?7b"
+  - "qwen-?7b"
+  - "phi-?2"
+  - "tiny-?llama"
+  - "opt-?\\d+b"
+  - "pythia"
+
+# ── 参数量 → Tier 映射 ──
+# 通过正则匹配参数量 (如 "7b", "1.5b")
+# 阈值含义: <= 阈值 → 对应 Tier
+param_tier_map:
+  - threshold: 3.0
+    tier: weak      # <= 3B: weak
+  - threshold: 14.0
+    tier: moderate  # 3-14B: moderate
+  - threshold: inf
+    tier: strong    # > 14B: strong
+
+# ── LLM Converter 使用阈值 ──
+# 当 model_tier 为 strong 或 moderate 时, 使用 LLM 辅助 Converter
+# 当 model_tier 为 weak 时, 跳过 LLM 链 (编码攻击已足够有效)
+llm_converter_tiers:
+  - strong
+  - moderate

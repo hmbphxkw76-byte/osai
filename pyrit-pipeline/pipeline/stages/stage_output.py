@@ -1,0 +1,837 @@
+# Copyright (c) 2026 OSAI Project.
+# Licensed under the MIT license.
+
+"""Stage 5: ASR 驱动的结果输出 + 增强报告系统 + 证据收集。.
+
+职责:
+  - ``output_scenario_async()`` 场景结果汇总 (Per-Group Breakdown, 按 ASR 排序)
+  - ``output_scorer_async()`` 评分器指标
+  - ``output_attack_async(format="markdown")`` 每个攻击的 Markdown 报告
+  - 证据收集 (结构化漏洞证据 JSON + Markdown) — 核心
+  - 组级 ASR 降级链报告 — 核心
+  - 攻击多样性分析 (可选, ``--analyze`` 标志触发)
+  - Converter 转换日志 (可选, ``--analyze`` 标志触发)
+  - 三层渐进式选择向导推荐 (可选, ``--analyze`` 标志触发)
+  - 打印 ASR 总结
+
+优化4: diversity_analyzer / tiered_selection_wizard / converter_log 降级为可选
+  离线分析, 默认不在流水线中执行, 通过 ``--analyze`` 标志触发。
+
+产出 (写入 PipelineContext):
+  - ctx.output_dir = 报告输出目录
+  - ctx.metadata["diversity_metrics"] = 多样性指标
+  - ctx.metadata["converter_log"] = Converter 日志报告
+  - ctx.metadata["evidence_collection"] = 证据集合
+
+依赖的原生 API:
+  - pyrit.output.output_scenario_async
+  - pyrit.output.output_attack_async
+  - pyrit.output.output_scorer_async
+  - pyrit.output.FileSink
+
+自研模块 (报告增强):
+  - pipeline.analysis.evidence_collector.EvidenceCollector — 核心 (必选)
+  - pipeline.asr.rank_builder.GroupFallbackExecutor — 核心 (必选)
+  - pipeline.analysis.diversity_analyzer.DiversityAnalyzer — 可选 (``--analyze``)
+  - pipeline.converters.log.ConverterLogCollector — 可选 (``--analyze``)
+  - pipeline.asr.tiered_selection_wizard.TieredSelectionWizard — 可选 (``--analyze``)
+
+修改此文件不影响 Stage 1–4。
+
+> **日期**: 2026-8-1
+> **更新记录**:
+>   2026-8-1 19:30 — 优化4: diversity/converter_log/tiered_wizard 降级为可选
+>     ``--analyze`` 标志触发, 默认不执行, 缩短流水线执行时间
+"""
+
+import json
+import os
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+# Windows 文件名非法字符: < > : " / \ | ? *
+_FILENAME_SANITIZE_RE = re.compile(r'[<>:"/\\|?*]')
+
+
+def _sanitize_filename(name: str) -> str:
+    """将字符串中 Windows 非法文件名字符替换为下划线。."""
+    return _FILENAME_SANITIZE_RE.sub("_", name)
+
+
+def _is_attack_success(ar: Any) -> bool:
+    """判断 AttackResult 是否成功 (仅 SUCCESS 返回 True)。"""
+    outcome = getattr(ar, "outcome", None)
+    if outcome is None:
+        return False
+    outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+    return outcome_str == "SUCCESS"
+
+
+from pyrit.output import FileSink, output_attack_async, output_scenario_async, output_scorer_async
+
+from pipeline.context import PipelineContext
+
+
+async def run(ctx: PipelineContext) -> None:
+    """执行 Stage 6/6: 结果输出 + 增强报告。."""
+    print("\n" + "=" * 70)
+    print("[6/6] 结果输出 — 证据收集 + 报告生成")
+    print("=" * 70)
+
+    result = ctx.result
+
+    # ── 原生: 场景结果汇总 (按 ASR 排序) ──
+    print("\n--- 场景结果汇总 (按 ASR 排序) ---")
+    await output_scenario_async(
+        result,
+        sort_groups_by_success_rate=True,
+    )
+
+    # ── 原生: 评分器指标 ──
+    if ctx.objective_scorer:
+        print("\n--- 评分器指标 ---")
+        await output_scorer_async(
+            scorer_identifier=ctx.objective_scorer.get_identifier(),
+        )
+
+    # ── 输出目录 (使用 OutputManager) ──
+    output_mgr = ctx.output_manager
+    if output_mgr:
+        # 证据目录: attacks/ conversations/ scores/ blurred/
+        output_dir = output_mgr.evidence_run_dir
+    else:
+        # Fallback: 旧路径逻辑
+        if ctx.args.output_dir:
+            output_dir = Path(ctx.args.output_dir)
+        else:
+            output_dir = Path(f"outputs/redteam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── 原生: 每个攻击结果的 Markdown 详细报告 (输出到 evidence/attacks/) ──
+    print("\n--- 攻击结果 Markdown 报告 ---")
+    attacks_dir = output_dir / "attacks" if (output_dir / "attacks").is_dir() else output_dir
+    attack_seq = 0
+    for attack_id, attack_results in result.attack_results.items():
+        for idx, ar in enumerate(attack_results):
+            attack_seq += 1
+            # 精简文件名: attack_NNN.md (失败) / attack_NNN_success.md (成功)
+            is_success = _is_attack_success(ar)
+            suffix = "_success" if is_success else ""
+            md_path = attacks_dir / f"attack_{attack_seq:03d}{suffix}.md"
+            await output_attack_async(
+                ar,
+                format="markdown",
+                blur_images=True,
+                include_auxiliary_scores=True,
+                include_adversarial_conversation=True,
+                sink=FileSink(path=md_path),
+            )
+    print(f"  报告输出到: {output_dir}")
+    if output_mgr:
+        print(f"  报告 (HTML/PDF/MD): {output_mgr.reports_dir}/")
+        print(f"  证据目录: {output_dir}/")
+
+    # ── 核心: 证据收集 ──
+    _collect_evidence(ctx, output_dir)
+
+    # ── 核心: 组级 ASR 降级链报告 ──
+    _report_group_fallback(ctx, output_dir)
+
+    # ── 可选: 离线分析 (优化4: ``--analyze`` 标志触发) ──
+    if getattr(ctx.args, "analyze", False):
+        _analyze_diversity(ctx, output_dir)
+        _collect_converter_logs(ctx, output_dir)
+        _recommend_tiered_selection(ctx, output_dir)
+
+    # ── P3: HTML/PDF 报告生成 ──
+    _generate_html_pdf_reports(ctx, output_dir)
+
+    ctx.output_dir = output_dir
+
+    # ── 架构汇总: 数据 5 层 + Executor 5 层 ──
+    _print_architecture_summary(ctx)
+
+    # ── ASR 总结 ──
+    print("\n  ┌─ ASR 总结 ──────────────────────────────────────────────┐")
+    print(f"  │ ScenarioResult ID: {result.id}")
+    print(f"  │ 总体 ASR: {ctx.overall_asr}%")
+    if ctx.asr_per_technique:
+        best_technique = max(ctx.asr_per_technique, key=ctx.asr_per_technique.get)
+        best_asr = ctx.asr_per_technique[best_technique]
+        print(f"  最佳技术: {best_technique} ({best_asr:.1f}%)")
+    if output_mgr:
+        print(f"  │ 证据目录: {output_dir}")
+        print(f"  │ 报告目录: {output_mgr.reports_dir}")
+    else:
+        print(f"  │ 报告目录: {output_dir}")
+    print("  └───────────────────────────────────────────────────────────────┘")
+
+    # 列出生成的报告文件
+    report_files = sorted(output_dir.glob("*"))
+    if report_files:
+        print(f"\n  生成的报告文件 ({len(report_files)}):")
+        for f in report_files[:20]:
+            print(f"    • {f.name}")
+        if len(report_files) > 20:
+            print(f"    ... 还有 {len(report_files) - 20} 个文件")
+
+
+# ============================================================
+# 增强报告: 攻击多样性分析
+# ============================================================
+
+
+def _analyze_diversity(ctx: PipelineContext, output_dir: Path) -> None:
+    """执行攻击多样性分析并保存报告。."""
+    print("\n--- 攻击多样性分析 ---")
+    try:
+        from pipeline.analysis.diversity_analyzer import DiversityAnalyzer
+
+        analyzer = DiversityAnalyzer()
+
+        # 获取可用技术列表
+        available_techniques: list[str] = []
+        try:
+            from pyrit.registry import AttackTechniqueRegistry
+
+            available_techniques = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+        except Exception:
+            pass
+
+        metrics = analyzer.analyze(
+            attack_results=ctx.result.attack_results,
+            available_techniques=available_techniques or None,
+        )
+
+        # 打印报告
+        print(analyzer.format_report(metrics))
+
+        # 保存 JSON
+        metrics_path = output_dir / "diversity_metrics.json"
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(metrics.to_dict(), f, indent=2, ensure_ascii=False)
+
+        ctx.metadata["diversity_metrics"] = metrics.to_dict()
+        print(f"  多样性指标已保存: {metrics_path}")
+
+    except Exception as e:
+        print(f"  [警告] 多样性分析失败: {e}")
+
+
+# ============================================================
+# 增强报告: Converter 转换日志
+# ============================================================
+
+
+def _collect_converter_logs(ctx: PipelineContext, output_dir: Path) -> None:
+    """收集 Converter 转换日志并保存报告。."""
+    print("\n--- Converter 转换日志 ---")
+    try:
+        from pipeline.converters.log import ConverterLogCollector
+
+        collector = ConverterLogCollector()
+        report = collector.collect(attack_results=ctx.result.attack_results)
+
+        # 打印报告
+        print(collector.format_report(report))
+
+        # 保存 JSON
+        log_path = output_dir / "converter_log.json"
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(report.to_dict(), f, indent=2, ensure_ascii=False)
+
+        ctx.metadata["converter_log"] = report.to_dict()
+        print(f"  Converter 日志已保存: {log_path}")
+
+    except Exception as e:
+        print(f"  [警告] Converter 日志收集失败: {e}")
+
+
+# ============================================================
+# 增强报告: 证据收集
+# ============================================================
+
+
+def _collect_evidence(ctx: PipelineContext, output_dir: Path) -> None:
+    """收集结构化漏洞证据并保存。."""
+    print("\n--- 证据收集 ---")
+    try:
+        from pipeline.analysis.evidence_collector import EvidenceCollector
+
+        # 获取模型信息
+        model_name = os.getenv("TARGET_MODEL", "unknown")
+        model_tier = ctx.metadata.get("model_tier", "unknown")
+        owasp_id = os.getenv("OWASP_ID", "")
+
+        collector = EvidenceCollector(
+            target_model=model_name,
+            model_tier=model_tier,
+        )
+
+        collection = collector.collect(
+            attack_results=ctx.result.attack_results,
+            scenario_result_id=ctx.result.id,
+            asr_per_technique=ctx.asr_per_technique,
+            overall_asr=ctx.overall_asr,
+            owasp_id=owasp_id,
+        )
+
+        # 保存 JSON
+        json_path = collector.save_json(collection, output_dir=output_dir)
+
+        # 保存 Markdown
+        md_path = collector.save_markdown(collection, output_dir=output_dir)
+
+        ctx.metadata["evidence_collection"] = collection.to_dict()
+        print(f"  证据数: {len(collection.evidence)}")
+        print(f"  JSON: {json_path}")
+        print(f"  Markdown: {md_path}")
+
+    except Exception as e:
+        print(f"  [警告] 证据收集失败: {e}")
+
+
+# ============================================================
+# 增强报告: 组级 ASR 降级链
+# ============================================================
+
+
+def _report_group_fallback(ctx: PipelineContext, output_dir: Path) -> None:
+    """生成组级 ASR 降级链报告。."""
+    print("\n--- 组级 ASR 降级链 ---")
+    try:
+        from pipeline.asr.rank_builder import GroupFallbackExecutor
+
+        model_name = os.getenv("TARGET_MODEL", "gpt-4o")
+        model_tier = ctx.metadata.get("model_tier", "unknown")
+        owasp_id = os.getenv("OWASP_ID", "")
+
+        executor = GroupFallbackExecutor(
+            model_name=model_name,
+            model_tier=model_tier,
+            owasp_id=owasp_id,
+        )
+
+        # 从 ASR 排行榜获取技术列表
+        techniques = list(ctx.asr_per_technique.keys())
+        if not techniques:
+            print("  (无技术数据, 跳过降级链报告)")
+            return
+
+        # 构建降级计划
+        historical_asr = {tech: asr / 100.0 for tech, asr in ctx.asr_per_technique.items()}
+        plan = executor.build_fallback_plan(
+            technique_names=techniques,
+            historical_asr=historical_asr,
+        )
+
+        # 记录执行结果
+        successful = [tech for tech, asr in ctx.asr_per_technique.items() if asr > 0]
+        failed = [tech for tech, asr in ctx.asr_per_technique.items() if asr == 0]
+        plan = executor.record_execution_outcome(plan, successful, failed)
+
+        # 打印报告
+        print(executor.get_fallback_summary(plan))
+
+        # 保存 JSON
+        fallback_data = {
+            "execution_order": plan.execution_order,
+            "fallback_count": plan.fallback_count,
+            "successful_groups": plan.successful_groups,
+            "failed_groups": plan.failed_groups,
+            "total_groups": plan.total_groups,
+            "success_rate": plan.success_rate,
+            "fallback_records": [
+                {
+                    "from_group": r.from_group,
+                    "to_group": r.to_group,
+                    "from_tier": r.from_tier,
+                    "to_tier": r.to_tier,
+                    "reason": r.reason,
+                    "from_asr": r.from_asr,
+                    "to_asr": r.to_asr,
+                }
+                for r in plan.fallback_records
+            ],
+        }
+        fallback_path = output_dir / "group_fallback.json"
+        with open(fallback_path, "w", encoding="utf-8") as f:
+            json.dump(fallback_data, f, indent=2, ensure_ascii=False)
+        print(f"  降级链报告已保存: {fallback_path}")
+
+    except Exception as e:
+        print(f"  [警告] 降级链报告生成失败: {e}")
+
+
+# ============================================================
+# 增强报告: 三层渐进式选择向导
+# ============================================================
+
+
+def _recommend_tiered_selection(ctx: PipelineContext, output_dir: Path) -> None:
+    """生成三层渐进式选择推荐。."""
+    print("\n--- 三层渐进式选择向导 ---")
+    try:
+        from pipeline.asr.tiered_selection_wizard import TieredSelectionWizard
+
+        model_name = os.getenv("TARGET_MODEL", "gpt-4o")
+        model_tier = ctx.metadata.get("model_tier", "unknown")
+        owasp_id = os.getenv("OWASP_ID", "")
+
+        wizard = TieredSelectionWizard(
+            model_name=model_name,
+            model_tier=model_tier,
+        )
+
+        # 获取可用技术
+        available_techniques: list[str] = []
+        try:
+            from pyrit.registry import AttackTechniqueRegistry
+
+            available_techniques = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+        except Exception:
+            pass
+
+        if not available_techniques:
+            print("  (无可用技术, 跳过选择向导)")
+            return
+
+        recommendation = wizard.recommend(
+            available_techniques=available_techniques,
+            owasp_id=owasp_id,
+        )
+
+        # 打印推荐
+        print(wizard.format_recommendation(recommendation))
+
+        # 保存 JSON
+        wizard_path = output_dir / "tiered_recommendation.json"
+        with open(wizard_path, "w", encoding="utf-8") as f:
+            json.dump(recommendation.to_dict(), f, indent=2, ensure_ascii=False)
+        print(f"  选择向导推荐已保存: {wizard_path}")
+
+    except Exception as e:
+        print(f"  [警告] 选择向导推荐失败: {e}")
+
+
+# ============================================================
+# P3: HTML/PDF 报告生成
+# ============================================================
+
+
+def _generate_html_pdf_reports(ctx: PipelineContext, output_dir: Path) -> None:
+    """生成 HTML/PDF 格式报告 (P2: 完整攻击证据 + OWASP 映射 + ASR 矩阵)。."""
+    if not getattr(ctx.args, "html_report", False) and not getattr(ctx.args, "pdf_report", False):
+        return
+
+    print("\n--- HTML/PDF 报告生成 (完整证据 + OWASP + 三级证据链) ---")
+    try:
+        from pipeline.reporting.format_converter import convert_report_formats
+
+        md_parts: list[str] = []
+
+        # ════════════════════════════════════════════
+        # 1. 报告概述
+        # ════════════════════════════════════════════
+        md_parts.append("# AI Red Team 完整报告\n")
+        md_parts.append(f"> **生成时间**: {datetime.now().isoformat()}\n")
+
+        # 指标卡片
+        md_parts.append("\n<div class='summary-grid'>\n")
+        md_parts.append(
+            f"<div class='metric-box'><span class='metric-value'>{ctx.overall_asr}%</span>"
+            f"<span class='metric-label'>总体 ASR</span></div>\n"
+        )
+        total_results = sum(len(v) for v in ctx.result.attack_results.values()) if ctx.result else 0
+        md_parts.append(
+            f"<div class='metric-box'><span class='metric-value'>{total_results}</span>"
+            f"<span class='metric-label'>攻击总数</span></div>\n"
+        )
+        evidence = ctx.metadata.get("evidence_collection", {})
+        success_count = evidence.get("successful_attacks", 0) if evidence else 0
+        md_parts.append(
+            f"<div class='metric-box'><span class='metric-value'>{success_count}</span>"
+            f"<span class='metric-label'>成功攻击</span></div>\n"
+        )
+        evidence_count = len(evidence.get("evidence", [])) if evidence else 0
+        md_parts.append(
+            f"<div class='metric-box'><span class='metric-value'>{evidence_count}</span>"
+            f"<span class='metric-label'>漏洞证据</span></div>\n"
+        )
+        md_parts.append("</div>\n")
+
+        md_parts.append(f"\n**ScenarioResult ID**: `{ctx.result.id}`\n")
+        model_name = ctx.metadata.get("model_name", os.getenv("TARGET_MODEL", "unknown"))
+        model_tier = ctx.metadata.get("model_tier", "unknown")
+        md_parts.append(f"**目标模型**: {model_name} (tier={model_tier})\n")
+        if ctx.target_type:
+            md_parts.append(f"**Target 类型**: `{ctx.target_type}`\n")
+
+        # ════════════════════════════════════════════
+        # 2. ASR 矩阵 (技术 × 成功/失败/ASR + 可视化条)
+        # ════════════════════════════════════════════
+        if ctx.asr_per_technique:
+            md_parts.append("\n## ASR 矩阵 (Attack Success Rate)\n")
+            md_parts.append("\n| 技术 | ASR | 可视化 | 等级 |\n|---|---|---|---|\n")
+            for tech, asr in sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True):
+                bar_width = int(asr / 5) * 5  # 5% steps
+                if asr >= 40:
+                    bar_class = "asr-bar-high"
+                    level = "<span class='asr-high'>高</span>"
+                elif asr >= 15:
+                    bar_class = "asr-bar-medium"
+                    level = "<span class='asr-medium'>中</span>"
+                elif asr > 0:
+                    bar_class = "asr-bar-low"
+                    level = "<span class='asr-low'>低</span>"
+                else:
+                    bar_class = ""
+                    level = "—"
+                bar_html = (
+                    f"<span class='asr-bar {bar_class}' style='width:{bar_width}px;'></span>" if bar_class else ""
+                )
+                md_parts.append(f"| {tech} | {asr:.1f}% | {bar_html} | {level} |\n")
+
+            # 技术成功率详情 (来自证据收集的失败分析)
+            if evidence and evidence.get("failure_analysis"):
+                fa = evidence["failure_analysis"]
+                tech_rates = fa.get("technique_success_rates", [])
+                if tech_rates:
+                    md_parts.append("\n### 技术成功率详情\n")
+                    md_parts.append("\n| 技术 | 成功 | 失败 | 总计 | 成功率 |\n|---|---|---|---|---|\n")
+                    for tr in tech_rates:
+                        sr = tr.get("success_rate", 0)
+                        if sr >= 40:
+                            sr_class = "asr-cell-high"
+                        elif sr >= 15:
+                            sr_class = "asr-cell-medium"
+                        elif sr > 0:
+                            sr_class = "asr-cell-low"
+                        else:
+                            sr_class = "asr-cell-zero"
+                        md_parts.append(
+                            f"| {tr.get('technique', 'N/A')} "
+                            f"| {tr.get('successes', 0)} "
+                            f"| {tr.get('failures', 0)} "
+                            f"| {tr.get('total', 0)} "
+                            f"| <span class='asr-cell {sr_class}'>{sr:.1f}%</span> |\n"
+                        )
+
+        # ════════════════════════════════════════════
+        # 3. OWASP 映射 (覆盖矩阵 + 徽章)
+        # ════════════════════════════════════════════
+        if evidence and evidence.get("owasp_coverage"):
+            md_parts.append("\n## OWASP 分类映射\n")
+            owasp_cov = evidence["owasp_coverage"]
+            md_parts.append("\n| OWASP ID | 分类名称 | 证据数 | 覆盖 |\n|---|---|---|---|\n")
+            for owasp_id, count in sorted(owasp_cov.items()):
+                from pipeline.analysis.evidence_collector import get_owasp_category
+
+                category = get_owasp_category(owasp_id)
+                badge_class = "owasp-asi" if owasp_id.startswith("ASI") else "owasp-llm"
+                badge = f"<span class='owasp-badge {badge_class}'>{owasp_id}</span>"
+                md_parts.append(f"| {badge} | {category} | {count} | ✅ |\n")
+        elif os.getenv("OWASP_ID"):
+            owasp_id = os.getenv("OWASP_ID", "")
+            from pipeline.analysis.evidence_collector import get_owasp_category
+
+            category = get_owasp_category(owasp_id)
+            badge_class = "owasp-asi" if owasp_id.startswith("ASI") else "owasp-llm"
+            badge = f"<span class='owasp-badge {badge_class}'>{owasp_id}</span>"
+            md_parts.append("\n## OWASP 分类映射\n")
+            md_parts.append(f"\n| OWASP ID | 分类名称 |\n|---|---|\n| {badge} | {category} |\n")
+
+        # ════════════════════════════════════════════
+        # 4. 完整攻击证据 (攻击链 + Converter 日志 + 载荷)
+        # ════════════════════════════════════════════
+        if evidence and evidence.get("evidence"):
+            md_parts.append("\n## 完整攻击证据\n")
+            md_parts.append(f"> 共 {len(evidence['evidence'])} 条漏洞证据\n")
+
+            for i, ev in enumerate(evidence["evidence"], 1):
+                ev_id = ev.get("evidence_id", f"EVD-{i:04d}")
+                tech_display = ev.get(
+                    "technique_display_name",
+                    ev.get("technique_name", "N/A"),
+                )
+                asr_val = ev.get("asr", 0)
+                confidence = ev.get("confidence", "medium")
+                converter_chain = ev.get("converter_chain", "")
+                owasp_id = ev.get("owasp_id", "")
+                arxiv_ref = ev.get("arxiv_reference", "")
+
+                md_parts.append(f"\n### 证据 #{i}: `{ev_id}`\n")
+                md_parts.append("<div class='evidence-card vulnerability'>\n")
+                md_parts.append(f"**攻击技术**: {tech_display}\n\n")
+                if converter_chain:
+                    md_parts.append(f"**Converter 链**: `{converter_chain}`\n\n")
+                if owasp_id:
+                    badge_class = "owasp-asi" if owasp_id.startswith("ASI") else "owasp-llm"
+                    md_parts.append(
+                        f"**OWASP**: <span class='owasp-badge {badge_class}'>{owasp_id}</span>"
+                        f" {ev.get('owasp_category', '')}\n\n"
+                    )
+                asr_class = "asr-high" if asr_val >= 40 else ("asr-medium" if asr_val >= 15 else "asr-low")
+                md_parts.append(f"**ASR**: <span class='{asr_class}'>{asr_val:.1f}%</span>\n\n")
+                md_parts.append(f"**置信度**: {confidence}\n\n")
+                if arxiv_ref:
+                    md_parts.append(f"**学术引用**: {arxiv_ref}\n\n")
+
+                # 攻击目标
+                objective = ev.get("objective", "")
+                if objective:
+                    md_parts.append(f"**攻击目标**: {str(objective)[:300]}\n\n")
+
+                # 攻击链路 (SequentialAttack 中尝试的技术序列)
+                attack_chain = ev.get("attack_chain", [])
+                if attack_chain:
+                    md_parts.append("#### 攻击链路 (Attack Chain)\n\n")
+                    md_parts.append("<ul class='attack-chain'>\n")
+                    for step in attack_chain:
+                        outcome = step.get("outcome", "").upper()
+                        step_class = "success" if outcome == "SUCCESS" else "failure"
+                        tech = step.get("technique", "")
+                        role = step.get("role", "")
+                        reason = step.get("failure_reason", "")
+                        reason_str = f" — {reason}" if reason else ""
+                        md_parts.append(
+                            f"<li class='{step_class}'>"
+                            f"<strong>步骤 {step.get('step', '')}</strong>: "
+                            f"{tech} → {outcome} ({role}){reason_str}"
+                            f"</li>\n"
+                        )
+                    md_parts.append("</ul>\n\n")
+
+                # Converter 转换日志
+                conv_log = ev.get("converter_log", [])
+                if conv_log:
+                    md_parts.append("#### Converter 转换日志\n\n")
+                    for cl in conv_log:
+                        transformed = cl.get("transformed", "false") == "true"
+                        step = cl.get("step", "")
+                        role = cl.get("role", "")
+                        original = cl.get("original", "")
+                        converted = cl.get("converted", "")
+                        if transformed:
+                            md_parts.append(
+                                f"<div class='converter-entry'>"
+                                f"<strong>步骤 {step}</strong> ({role})<br>"
+                                f"原始: <code>{original[:200]}</code><br>"
+                                f"<span class='arrow'>→</span> "
+                                f"变换: <code>{converted[:200]}</code>"
+                                f"</div>\n"
+                            )
+                        else:
+                            md_parts.append(
+                                f"<div class='converter-entry'>"
+                                f"<strong>步骤 {step}</strong> ({role}) — "
+                                f"<code>{original[:200]}</code>"
+                                f"</div>\n"
+                            )
+                    md_parts.append("\n")
+
+                # 越狱载荷
+                jailbreak = ev.get("jailbreak_prompt", "")
+                if jailbreak:
+                    md_parts.append("#### 越狱载荷 (Jailbreak Prompt)\n\n")
+                    md_parts.append(f"```\n{jailbreak[:1000]}\n```\n\n")
+
+                # 有害输出
+                harmful = ev.get("harmful_output", "")
+                if harmful:
+                    md_parts.append("#### 目标模型响应 (Harmful Output)\n\n")
+                    md_parts.append(f"```\n{harmful[:1000]}\n```\n\n")
+
+                md_parts.append("</div>\n")
+
+        # ════════════════════════════════════════════
+        # 5. 失败分析
+        # ════════════════════════════════════════════
+        if evidence and evidence.get("failure_analysis"):
+            fa = evidence["failure_analysis"]
+            md_parts.append("\n## 失败分析\n")
+            md_parts.append(f"- 总攻击: {fa.get('total_attacks', 0)}\n")
+            md_parts.append(f"- 成功: {fa.get('total_successes', 0)}\n")
+            md_parts.append(f"- 失败: {fa.get('total_failures', 0)}\n\n")
+
+            ftype_dist = fa.get("failure_type_distribution", {})
+            if ftype_dist:
+                md_parts.append("### 失败类型分布\n\n")
+                md_parts.append("| 失败类型 | 次数 |\n|---|---|\n")
+                for ftype, count in sorted(ftype_dist.items(), key=lambda x: x[1], reverse=True):
+                    md_parts.append(f"| {ftype} | {count} |\n")
+                md_parts.append("\n")
+
+        # ════════════════════════════════════════════
+        # 6. ASR 趋势 (跨运行历史)
+        # ════════════════════════════════════════════
+        if evidence and evidence.get("asr_trend"):
+            md_parts.append("\n## ASR 趋势 (跨运行历史)\n\n")
+            md_parts.append("| 技术 | 历史 ASR | 数据来源 |\n|---|---|---|\n")
+            for item in evidence["asr_trend"]:
+                md_parts.append(
+                    f"| {item.get('technique', 'N/A')} "
+                    f"| {item.get('historical_asr', 0):.1f}% "
+                    f"| {item.get('source', 'N/A')} |\n"
+                )
+            md_parts.append("\n")
+
+        # ════════════════════════════════════════════
+        # 7. 多样性分析 (可选)
+        # ════════════════════════════════════════════
+        diversity = ctx.metadata.get("diversity_metrics")
+        if diversity:
+            md_parts.append("\n## 攻击多样性分析\n\n")
+            md_parts.append(f"- Shannon 熵: {diversity.get('technique_entropy', 0):.3f}\n")
+            md_parts.append(f"- 技术覆盖度: {diversity.get('technique_coverage', 0):.1%}\n")
+            md_parts.append(f"- 范式覆盖度: {diversity.get('paradigm_coverage', 0):.1%}\n")
+
+        # ════════════════════════════════════════════
+        # 8. Converter 路由统计 (可选)
+        # ════════════════════════════════════════════
+        converter_log = ctx.metadata.get("converter_log")
+        if converter_log:
+            md_parts.append("\n## Converter 路由统计\n\n")
+            md_parts.append("| Converter 链 | 使用次数 | 成功 | 失败 | ASR |\n|---|---|---|---|---|\n")
+            for name, stats in sorted(
+                converter_log.get("chain_stats", {}).items(),
+                key=lambda x: x[1].get("success_rate", 0),
+                reverse=True,
+            ):
+                sr = stats.get("success_rate", 0)
+                if sr >= 0.4:
+                    sr_class = "asr-cell-high"
+                elif sr >= 0.15:
+                    sr_class = "asr-cell-medium"
+                elif sr > 0:
+                    sr_class = "asr-cell-low"
+                else:
+                    sr_class = "asr-cell-zero"
+                md_parts.append(
+                    f"| {name} "
+                    f"| {stats.get('total_uses', 0)} "
+                    f"| {stats.get('successes', 0)} "
+                    f"| {stats.get('failures', 0)} "
+                    f"| <span class='asr-cell {sr_class}'>{sr:.1%}</span> |\n"
+                )
+
+        # ════════════════════════════════════════════
+        # 9. 降级链报告 (可选)
+        # ════════════════════════════════════════════
+        fallback_plan = getattr(ctx, "fallback_plan", None)
+        if fallback_plan and hasattr(fallback_plan, "execution_order"):
+            md_parts.append("\n## ASR Tier 降级链\n\n")
+            md_parts.append(
+                f"- 总组数: {fallback_plan.total_groups}\n"
+                f"- 降级点: {fallback_plan.fallback_count}\n"
+                f"- 成功率: {fallback_plan.success_rate:.1%}\n\n"
+            )
+            md_parts.append("| 执行顺序 | 技术 | Tier |\n|---|---|---|\n")
+            for idx, tech in enumerate(fallback_plan.execution_order):
+                md_parts.append(f"| {idx + 1} | {tech} | — |\n")
+            md_parts.append("\n")
+
+        markdown_content = "\n".join(md_parts)
+
+        # 使用 OutputManager 的报告目录 (如果有)
+        report_output_dir = ctx.output_manager.reports_dir if ctx.output_manager else output_dir
+        report_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 使用 format_converter 直接转换 Markdown → HTML/PDF
+        result = convert_report_formats(
+            markdown_content,
+            report_output_dir / "report",
+            generate_html=getattr(ctx.args, "html_report", False),
+            generate_pdf=getattr(ctx.args, "pdf_report", False),
+            title="AI Red Team Report",
+        )
+
+        # 同时保存 Markdown
+        (report_output_dir / "report.md").write_text(markdown_content, encoding="utf-8")
+
+        if result.get("html"):
+            print(f"  HTML 报告: {result['html']}")
+        if result.get("pdf"):
+            print(f"  PDF 报告: {result['pdf']}")
+        if not result.get("html") and not result.get("pdf"):
+            print("  [提示] 安装 weasyprint 或 xhtml2pdf 以生成 PDF")
+
+    except Exception as e:
+        print(f"  [警告] HTML/PDF 报告生成失败: {e}")
+
+
+# ============================================================
+# 架构汇总: 数据 5 层 + Executor 5 层
+# ============================================================
+
+
+def _print_architecture_summary(ctx: PipelineContext) -> None:
+    """打印数据 5 层 + Executor 5 层架构的全景汇总。."""
+    print("\n" + "=" * 70)
+    print("架构汇总 — 数据 5 层 + Executor 5 层")
+    print("=" * 70)
+
+    # ── 数据 5 层架构 ──
+    print("\n  ── 数据 5 层架构 (L1→L5) ──")
+    seed_sources = []
+    if ctx.args and ctx.args.datasets:
+        seed_sources.append(f"{len(ctx.args.datasets)} 远程")
+    if ctx.args and ctx.args.local_datasets:
+        seed_sources.append(f"{len(ctx.args.local_datasets)} 本地")
+    if ctx.gcg_seeds_count > 0:
+        seed_sources.append(f"{ctx.gcg_seeds_count} GCG")
+    if ctx.fuzzer_seeds_count > 0:
+        seed_sources.append(f"{ctx.fuzzer_seeds_count} Fuzzer")
+    print(f"    L1 (Seed Source): {' + '.join(seed_sources) if seed_sources else '(无)'}")
+
+    print("    L2 (Seed Organization): AttackSeedGroup (Stage 1→2)")
+    print(f"    L3 (Dataset Config): CompoundDatasetAttackConfiguration ({len(ctx.sorted_datasets)} datasets)")
+    print(f"    L4 (Memory Persistence): {ctx.config.memory_db_type if ctx.config else 'N/A'} (CentralMemory)")
+    asr_count = len(ctx.asr_per_technique)
+    print(f"    L5 (Analytics & Select): EpsilonGreedy + ASR ({asr_count} 技术统计)")
+
+    # ── Executor 5 层架构 ──
+    print("\n  ── Executor 5 层架构 (L1→L5) ──")
+    print(
+        f"    L1 (Attack Parameters): max_attempts={ctx.max_attempts_per_objective}, "
+        f"max_concurrency={ctx.args.max_concurrency if ctx.args else 'N/A'}"
+    )
+    print(f"    L2 (Attack Strategy): {ctx.scenario_name}")
+    print(
+        f"    L3 (Attack Config): converter_routing={ctx.converter_routing_count}, "
+        f"baseline={'on' if not getattr(ctx.args, 'no_baseline', False) else 'off'}"
+    )
+    atomic_count = ctx.scenario.atomic_attack_count if ctx.scenario else 0
+    total_results = sum(len(v) for v in ctx.result.attack_results.values()) if ctx.result else 0
+    strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"
+    print(f"    L4 (Compound Attack): {atomic_count} AtomicAttack → {total_results} AttackResult ({strategy})")
+    print(f"    L5 (Scenario): {type(ctx.scenario).__name__ if ctx.scenario else 'N/A'}")
+
+    # ── 阶段间数据流 ──
+    print("\n  ── 阶段间数据流 (Stage 1→5) ──")
+    print("    Stage 1 → 2: Registry 初始化 + 种子生成 + 多模态检测")
+    print("    Stage 2 → 3: 场景配置 + 参数注入 + Converter 路由")
+    print("    Stage 3 → 4: AtomicAttack 构建 + ASR 智能调度")
+    print("    Stage 4 → 5: ScenarioResult + ASR 统计 + 失败类型分布")
+    print("    Stage 5    : 报告生成 + 证据收集 + 架构汇总")
+
+    # ── 关键决策点 ──
+    print("\n  ── 关键决策点 ──")
+    if ctx.gcg_seeds_count > 0:
+        print(f"    • GCG 对抗后缀: {ctx.gcg_seeds_count} 组种子注入")
+    if ctx.fuzzer_seeds_count > 0:
+        print(f"    • Fuzzer MCTS: {ctx.fuzzer_seeds_count} 组种子注入")
+    if ctx.is_multimodal:
+        print(f"    • 多模态: {len(ctx.multimodal_converters)} 个 Converter 预设")
+    if ctx.rate_limited:
+        print("    • 限速包装: 已启用")
+    if ctx.http_target_configured:
+        print("    • HTTP Target: 已配置")
+    if ctx.warm_start_asr:
+        print(f"    • Warm-start ASR: {len(ctx.warm_start_asr)} 个技术先验")
+    if ctx.converter_routing_count > 0:
+        print(f"    • Converter 路由: {ctx.converter_routing_count} 个分配")
+    print(f"    • 停止策略: {strategy}")
+    print(f"    • 场景类型: {ctx.scenario_name}")

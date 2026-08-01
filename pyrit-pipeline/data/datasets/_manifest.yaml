@@ -1,0 +1,309 @@
+# ============================================================================
+# 统一数据集清单 — 多源数据集注册表
+# ============================================================================
+# 记录所有可用数据集（本地 + 远程缓存 + 生成），供 Stage 2 加载和排序使用。
+# 数据 5 层架构 L1 (Seed Source) 的唯一注册点。
+#
+# 字段说明:
+#   name:           数据集名称 (与 .prompt 文件中 dataset_name 一致)
+#   source:         数据来源 (local / remote_cached / generated)
+#   path:           本地文件路径 (local / remote_cached 类型)
+#   provider:       PyRIT 原生 Provider 名称 (remote 类型)
+#   owasp_ids:      覆盖的 OWASP 分类 (LLM01-LLM10 / ASI01-ASI10)
+#   technique_groups: 主要攻击技术组
+#   harm_categories: 危害分类
+#   default:        是否在默认运行中加载
+# ============================================================================
+
+datasets:
+  # ── OWASP LLM Top 10 (本地富元数据) ──
+  - name: owasp_llm01_prompt_injection
+    source: local
+    path: data/owasp/llm01_prompt_injection.prompt
+    owasp_ids: [LLM01]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [information_integrity]
+    default: true
+
+  - name: owasp_llm02_insecure_output
+    source: local
+    path: data/owasp/llm02_insecure_output.prompt
+    owasp_ids: [LLM02]
+    technique_groups: [prompt_sending]
+    harm_categories: [information_integrity]
+    default: true
+
+  - name: owasp_llm03_training_data_poisoning
+    source: local
+    path: data/owasp/llm03_training_data_poisoning.prompt
+    owasp_ids: [LLM03]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [information_integrity]
+    default: false
+
+  - name: owasp_llm04_model_dos
+    source: local
+    path: data/owasp/llm04_model_dos.prompt
+    owasp_ids: [LLM04]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [availability]
+    default: false
+
+  - name: owasp_llm05_supply_chain
+    source: local
+    path: data/owasp/llm05_supply_chain.prompt
+    owasp_ids: [LLM05]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [supply_chain]
+    default: false
+
+  - name: owasp_llm06_sensitive_info_disclosure
+    source: local
+    path: data/owasp/llm06_sensitive_info_disclosure.prompt
+    owasp_ids: [LLM06]
+    technique_groups: [prompt_sending]
+    harm_categories: [privacy]
+    default: true
+
+  - name: owasp_llm07_insecure_plugin_design
+    source: local
+    path: data/owasp/llm07_insecure_plugin_design.prompt
+    owasp_ids: [LLM07]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [exploits]
+    default: false
+
+  - name: owasp_llm08_excessive_agency
+    source: local
+    path: data/owasp/llm08_excessive_agency.prompt
+    owasp_ids: [LLM08]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [exploits]
+    default: true
+
+  - name: owasp_llm09_overreliance
+    source: local
+    path: data/owasp/llm09_overreliance.prompt
+    owasp_ids: [LLM09]
+    technique_groups: [prompt_sending]
+    harm_categories: [misinformation]
+    default: false
+
+  - name: owasp_llm10_model_theft
+    source: local
+    path: data/owasp/llm10_model_theft.prompt
+    owasp_ids: [LLM10]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [exploits]
+    default: false
+
+  # ── OWASP Agentic AI Top 10 (本地富元数据) ──
+  - name: owasp_asi01_agent_identity_spoofing
+    source: local
+    path: data/owasp/asi01_agent_identity_spoofing.prompt
+    owasp_ids: [ASI01]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [identity_abuse]
+    default: true
+
+  - name: owasp_asi02_tool_misuse
+    source: local
+    path: data/owasp/asi02_tool_misuse.prompt
+    owasp_ids: [ASI02]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [tool_abuse]
+    default: true
+
+  - name: owasp_asi03_unauthorized_actions
+    source: local
+    path: data/owasp/asi03_unauthorized_actions.prompt
+    owasp_ids: [ASI03]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [privilege_escalation]
+    default: true
+
+  - name: owasp_asi04_data_exfiltration
+    source: local
+    path: data/owasp/asi04_data_exfiltration.prompt
+    owasp_ids: [ASI04]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [data_theft]
+    default: true
+
+  - name: owasp_asi05_privilege_escalation
+    source: local
+    path: data/owasp/asi05_privilege_escalation.prompt
+    owasp_ids: [ASI05]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [privilege_escalation]
+    default: false
+
+  - name: owasp_asi06_memory_poisoning
+    source: local
+    path: data/owasp/asi06_memory_poisoning.prompt
+    owasp_ids: [ASI06]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [memory_attack]
+    default: false
+
+  - name: owasp_asi07_cross_agent_injection
+    source: local
+    path: data/owasp/asi07_cross_agent_injection.prompt
+    owasp_ids: [ASI07]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [cross_agent_attack]
+    default: false
+
+  - name: owasp_asi08_cascading_failure
+    source: local
+    path: data/owasp/asi08_cascading_failure.prompt
+    owasp_ids: [ASI08]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [system_failure]
+    default: false
+
+  - name: owasp_asi09_trust_boundary_violation
+    source: local
+    path: data/owasp/asi09_trust_boundary_violation.prompt
+    owasp_ids: [ASI09]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [trust_exploit]
+    default: false
+
+  - name: owasp_asi10_rogue_agent
+    source: local
+    path: data/owasp/asi10_rogue_agent.prompt
+    owasp_ids: [ASI10]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [rogue_agent]
+    default: false
+
+  # ── CVE 漏洞载荷 (本地富元数据) ──
+  - name: cve_prompt_injection_exfiltration
+    source: local
+    path: data/cve/prompt_injection_exfiltration.prompt
+    owasp_ids: [LLM01, LLM06]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [exploits]
+    default: false
+
+  # ── 自定义载荷 (本地富元数据) ──
+  - name: custom_redteam_objectives
+    source: local
+    path: data/custom/redteam_objectives.prompt
+    owasp_ids: [LLM06, LLM09]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [information_integrity]
+    default: false
+
+  # ── 远程学术基准数据集 (需预下载到 data/datasets/ 目录) ──
+  # 运行 scripts/download_datasets.py 下载后, source 从 remote 变为 remote_cached
+  - name: harmbench
+    source: remote_cached
+    path: data/datasets/harmbench.prompt
+    provider: HarmbenchProvider
+    owasp_ids: []
+    technique_groups: [prompt_sending, red_teaming]
+    harm_categories: [cybercrime, illegal, chemical_biological, harassment]
+    default: true
+
+  - name: jbb_behaviors
+    source: remote_cached
+    path: data/datasets/jbb_behaviors.prompt
+    provider: JbbBehaviorsProvider
+    owasp_ids: []
+    technique_groups: [prompt_sending, red_teaming]
+    harm_categories: [disinformation, harassment, malware, physical_harm, privacy, sexual]
+    default: true
+
+  - name: strong_reject
+    source: remote_cached
+    path: data/datasets/strong_reject.prompt
+    provider: StrongRejectProvider
+    owasp_ids: []
+    technique_groups: [prompt_sending]
+    harm_categories: [disinformation, hate, illegal_goods, violence]
+    default: true
+
+# ── OWASP 分类映射表 (用于 ASR 感知数据集选择) ──
+owasp_mapping:
+  LLM01:
+    title: Prompt Injection
+    primary_techniques: [prompt_sending, context_compliance, crescendo]
+    target_groups: [llm_direct, llm_safety, agent_api]
+  LLM02:
+    title: Insecure Output Handling
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [output_handling, llm_direct]
+  LLM03:
+    title: Training Data Poisoning
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [llm_direct, rag]
+  LLM04:
+    title: Model Denial of Service
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [llm_direct, llm_safety]
+  LLM05:
+    title: Supply Chain Vulnerabilities
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [llm_direct, agent_api, rag]
+  LLM06:
+    title: Sensitive Information Disclosure
+    primary_techniques: [prompt_sending, red_teaming, crescendo]
+    target_groups: [llm_direct, llm_safety]
+  LLM07:
+    title: Insecure Plugin Design
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_api, agent_web]
+  LLM08:
+    title: Excessive Agency
+    primary_techniques: [prompt_sending, context_compliance, crescendo]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  LLM09:
+    title: Overreliance
+    primary_techniques: [prompt_sending, many_shot, red_teaming]
+    target_groups: [llm_direct]
+  LLM10:
+    title: Model Theft
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [llm_direct]
+  ASI01:
+    title: Agent Identity Spoofing
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI02:
+    title: Tool Misuse
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI03:
+    title: Unauthorized Actions
+    primary_techniques: [prompt_sending, context_compliance, crescendo]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI04:
+    title: Data Exfiltration
+    primary_techniques: [prompt_sending, context_compliance, stealth_evasion]
+    target_groups: [agent_web, agent_copilot, agent_api, rag]
+  ASI05:
+    title: Privilege Escalation
+    primary_techniques: [prompt_sending, context_compliance, crescendo]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI06:
+    title: Memory Poisoning
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, rag]
+  ASI07:
+    title: Cross-Agent Injection
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI08:
+    title: Cascading Failures
+    primary_techniques: [context_compliance, crescendo]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI09:
+    title: Trust Boundary Violation
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, agent_api]
+  ASI10:
+    title: Rogue Agent
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [agent_web, agent_copilot, agent_api]
