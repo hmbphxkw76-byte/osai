@@ -1,0 +1,67 @@
+# ============================================================
+# garak 目标侦察 — 目标配置文件
+# 路径: config/target.yaml
+# ============================================================
+# 这是唯一需要修改的配置文件。修改以下参数后直接运行 main.py。
+# 不需要修改 pipeline/ 目录下的任何代码。
+# ============================================================
+
+# --- 目标模型 (被侦察的 LLM) ---
+target:
+  endpoint: "https://api.longcat.chat/openai/v1"
+  model: "LongCat-2.0"
+  api_key: "ak_2Sz9I59BV4kv99F5bF8sw9We8uf7S"
+
+# --- 侦察模式 ---
+# standard : 完整枚举所有活跃 Probe 并按 OWASP Top10 分类
+# quick    : （预留）轻量侦察
+mode: "standard"
+
+# --- 可选: 产物目录 (默认 outputs) ---
+# 全链路产物统一组织到 outputs/ 下：
+#   outputs/01_recon/target_profile_{run_id}.json       — 目标画像
+#   outputs/02_config/probe_selection_{run_id}.json     — 攻击选择 + run_spec
+#   outputs/03_execution/garak_report_{run_id}.jsonl    — garak 原生报告
+#   outputs/04_analysis/analysis_{run_id}.json          — 双框架分析
+#   outputs/05_export/pyrit_air_{run_id}.json           — PyRIT 消费物
+artifacts_dir: "outputs"
+
+# --- 攻击执行参数 (Stage 3) ---
+# 注: 本次为全链路兼容性 + PyRIT 消费验证，临时降速（generations=1, CI=none）。
+# 正式强度扫描请改回 generations:10 + confidence_interval_method:bootstrap。
+execute:
+  generations: 1           # 每探针生成的 payload 数（验证用，正式扫描改 10）
+  timeout: 30              # 单请求超时(秒)
+  parallel_requests: 1     # 并发请求数（保守，规则八自适应速率会动态调节）
+  scan_profile: "balanced" # 效果×时间权衡档位: full | balanced | quick
+                          #   full    : 全量 93 探针 + 双 Buff（最全最慢）
+                          #   balanced: tier1+2 + 单 Buff Base64（默认，约省 40% 时间）
+                          #   quick   : 仅 tier1 + 无 Buff（最快，覆盖最高危面）
+                          # 显式 tier_filter / buff_spec 会覆盖下方 profile 默认值
+  tier_filter: null        # 仅跑指定 tier (如 [1, 2])；null=由 scan_profile 决定
+  buff_spec: null          # Buff 攻击链（garak 0.15 命名）；null=由 scan_profile 决定
+                          # 例: "buffs.encoding.Base64,buffs.lowercase.Lowercase"
+
+  # --- 自适应速率防护 (规则八) ---
+  # 防止被 API 速率限制封禁：令牌桶主动节流 + 被动退避 + 熔断 + 并发降级
+  rate_limit:
+    max_rpm: 60             # 全局每分钟请求上限（令牌桶，从源头不突破配额）
+    base_delay: 1.0         # 退避基数(秒)
+    max_delay: 60.0         # 退避上限(秒)
+    max_retries: 5          # 单请求最大重试次数
+    cooldown: 30.0          # 连续限流达阈值后的静默冷却时长(秒)
+    cooldown_threshold: 5   # 触发冷却的连续失败次数
+    downgrade_at: 3         # 触发并发降级的连续失败次数
+    jitter: true            # 全抖动退避防惊群（重试风暴）
+
+# --- 评估报告参数 (Stage 3/4) ---
+reporting:
+  confidence_interval_method: "none"     # none | bootstrap（验证用 none，正式扫描改 bootstrap）
+  bootstrap_confidence_level: 0.95
+  bootstrap_min_sample_size: 30
+  bootstrap_n_resamples: 1000
+
+# --- 可选: 数据集目录 (默认 data) ---
+# 远程下载的数据集存放于 data/（与 outputs/ 分离，不入库，外部机制周期性更新）
+# 供下游阶段统一引用，避免硬编码路径
+data_dir: "data"
