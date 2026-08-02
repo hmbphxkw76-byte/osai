@@ -29,15 +29,77 @@ def load_config(config_path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    # 验证必填字段
+    # 组合感知校验：不依赖单一 kind 决定必填项，而是按「目标画像分组」独立校验。
+    # 支持任意组合：
+    #   • 仅 openai 填了（web 留空）→ 以 openai 画像运行
+    #   • 仅 web 填了（openai 留空）→ 以 web 画像运行
+    #   • 两者都填 → 两条画像都可用（运行时按 kind 决定走哪条，或 --target-url 触发 web）
+    #   • 两者都留空 → 致命：至少要有一组完整画像
+    # 部分填写的分组视为「未启用」，不计入校验；仅当某分组「有填写迹象」却缺
+    # 关键字段时才报错，避免用户误填一半。
     target = config.get("target", {})
-    required = ["endpoint", "model", "api_key"]
-    missing = [k for k in required if not target.get(k)]
-    if missing:
-        print(f"❌ target.yaml 缺少必填字段: {', '.join(missing)}")
+    from pipeline.env import get_env
+
+    # 每个分组：需要的关键字段 + 对应 .env 回填映射。
+    # api_key 对 openai 不强制（本地 Ollama / 无鉴权网关无需 key）。
+    groups = {
+        "openai": {
+            "fields": ["endpoint", "model"],
+            "env_map": {
+                "endpoint": "OPENAI_TARGET_ENDPOINT",
+                "model": "OPENAI_TARGET_MODEL",
+            },
+        },
+        "web": {
+            "fields": ["target_url"],
+            "env_map": {"target_url": "WEB_TARGET_URL"},
+        },
+    }
+
+    complete = []   # 已满足的分组
+    partial_errors = []  # 有填写迹象但缺字段的分组
+
+    for name, spec in groups.items():
+        fields = spec["fields"]
+        env_map = spec["env_map"]
+        # 该分组是否有「任何填写迹象」（yaml 或 .env 任一非空）
+        has_any = any(
+            target.get(f) or get_env(env_map.get(f, ""), "")
+            for f in fields
+        )
+        if not has_any:
+            continue  # 整组未启用，跳过
+
+        missing = [f for f in fields if not (target.get(f) or get_env(env_map.get(f, ""), ""))]
+        if missing:
+            partial_errors.append((name, missing))
+        else:
+            complete.append(name)
+
+    if complete:
+        return config
+
+    # 没有任何完整分组
+    if partial_errors:
+        # 用户动了某组但没填全 → 指出缺哪些
+        lines = []
+        for name, missing in partial_errors:
+            labels = {
+                "endpoint": "endpoint(或 .env OPENAI_TARGET_ENDPOINT)",
+                "model": "model(或 .env OPENAI_TARGET_MODEL)",
+                "target_url": "target_url(或 .env WEB_TARGET_URL)",
+            }
+            lines.append(f"   • {name}: 缺少 {', '.join(labels.get(f, f) for f in missing)}")
+        print("❌ 目标画像不完整（以下分组已填写但未填全）:")
+        print("\n".join(lines))
+        print("   💡 请补全该分组，或清空该分组字段以使用另一分组")
         raise SystemExit(1)
 
-    return config
+    # 两组都完全没填
+    print("❌ 未配置任何目标画像：需至少填写一组（openai 或 web）")
+    print("   💡 openai: endpoint/model（或 .env 的 OPENAI_TARGET_*）")
+    print("   💡 web:    target_url（或 .env 的 WEB_TARGET_URL）")
+    raise SystemExit(1)
 
 
 # ------------------------------------------------------------------

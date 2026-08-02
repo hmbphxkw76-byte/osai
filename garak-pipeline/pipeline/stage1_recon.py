@@ -171,11 +171,25 @@ class Stage1Recon:
     def _test_connectivity(self) -> dict[str, Any]:
         import openai
 
-        client = openai.OpenAI(
-            base_url=self.target["endpoint"],
-            api_key=self.target["api_key"],
-            timeout=10,
-        )
+        from pipeline.auth.provider import from_config
+
+        api_key = self.target.get("api_key", "")
+
+        client_kwargs: dict = {
+            "base_url": self.target["endpoint"],
+            "api_key": api_key or "cookie-auth",
+            "timeout": 10,
+        }
+
+        # 有 API key 时直接走 SDK 原生 Bearer 认证，不注入额外认证头
+        # （避免 StaticKeyProvider 的 Authorization 与 SDK 自身重复）
+        if not api_key:
+            auth = from_config(self.target.get("auth"), self.target)
+            headers = auth.get_request_headers()
+            if headers:
+                client_kwargs["default_headers"] = dict(headers)
+
+        client = openai.OpenAI(**client_kwargs)
         start = time.time()
         try:
             models = client.models.list()
@@ -191,6 +205,53 @@ class Stage1Recon:
             return {"ok": False, "error": "无法连接到目标端点 (Connection Error)"}
         except openai.APIStatusError as exc:
             return {"ok": False, "error": f"API 返回错误: HTTP {exc.status_code}"}
+        except AttributeError:
+            # 某些非标准端点返回非 JSON 响应（如纯文本/HTML），
+            # openai SDK 解析时抛出 AttributeError（如 str 无 _set_private_attributes）
+            # 此时尝试原始 HTTP 请求降级检测连通性
+            return self._test_connectivity_raw(client_kwargs)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    # ------------------------------------------------------------------
+    # connectivity 降级：非标准端点返回非 JSON 响应时的原始 HTTP 检测
+    # ------------------------------------------------------------------
+
+    def _test_connectivity_raw(self, client_kwargs: dict) -> dict[str, Any]:
+        """对非标准端点（返回纯文本/HTML 而非 JSON）做降级连通性检测。
+
+        部分自建网关 / 反向代理的 /models 端点不返回标准 OpenAI JSON，
+        openai SDK 解析失败后走此路径，用原始 HTTP 请求验证端点可达性。
+        """
+        import requests
+
+        endpoint = client_kwargs["base_url"]
+        url = f"{endpoint.rstrip('/')}/models"
+        headers = {}
+        if "default_headers" in client_kwargs:
+            headers.update(client_kwargs["default_headers"])
+        if client_kwargs.get("api_key"):
+            headers["Authorization"] = f"Bearer {client_kwargs['api_key']}"
+
+        start = time.time()
+        try:
+            resp = requests.get(
+                url, headers=headers,
+                timeout=client_kwargs.get("timeout", 10),
+            )
+            latency = round((time.time() - start) * 1000)
+            if resp.status_code < 400:
+                return {
+                    "ok": True,
+                    "latency_ms": latency,
+                    "available_models": [],
+                    "_note": "端点可达（非标准 /models 响应格式）",
+                }
+            if resp.status_code == 401:
+                return {"ok": False, "error": "API Key 认证失败 (401 Unauthorized)"}
+            return {"ok": False, "error": f"API 返回错误: HTTP {resp.status_code}"}
+        except requests.ConnectionError:
+            return {"ok": False, "error": "无法连接到目标端点 (Connection Error)"}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -216,12 +277,37 @@ class Stage1Recon:
         modality: dict[str, Any] = {"in": {"text"}, "out": {"text"}}
         try:
             from garak import _config, _plugins
+
+            from pipeline.auth.provider import from_config
+            from pipeline.generators_auth import AuthenticatedOpenAICompatible
+
             _config.load_base_config()
             _config.plugins.target_type = "openai.OpenAICompatible"
             _config.plugins.target_name = self.target["model"]
-            gen = _plugins.load_plugin(
-                "generators.openai.OpenAICompatible", config_root=_config
-            )
+            gen_ns = _config.plugins.generators["openai"]["OpenAICompatible"]
+            gen_ns["uri"] = self.target["endpoint"]
+            if hasattr(_config.plugins, "api_key"):
+                _config.plugins.api_key = self.target.get("api_key", "")
+
+            # 有 API key 时直接用原生 generator（SDK 走 Bearer），
+            # 无 key 时才注入 Cookie 认证头（AuthenticatedOpenAICompatible）
+            api_key = self.target.get("api_key", "")
+            if api_key:
+                gen = _plugins.load_plugin(
+                    "generators.openai.OpenAICompatible", config_root=_config
+                )
+            else:
+                auth = from_config(self.target.get("auth"), self.target)
+                headers = auth.get_request_headers()
+                if headers:
+                    gen = AuthenticatedOpenAICompatible(
+                        name=self.target["model"], config_root=_config,
+                        extra_headers=headers,
+                    )
+                else:
+                    gen = _plugins.load_plugin(
+                        "generators.openai.OpenAICompatible", config_root=_config
+                    )
             if hasattr(gen, "modality") and gen.modality:
                 modality["in"] = set(gen.modality.get("in", {"text"}))
                 modality["out"] = set(gen.modality.get("out", {"text"}))

@@ -46,6 +46,7 @@ class PipelineRunner:
         self.artifacts_dir = Path(artifacts_dir)
         self.config = config or {}
         self.run_id = time.strftime("%Y%m%d_%H%M")
+        self.start_time = time.time()
 
     # ------------------------------------------------------------------
     # 路径契约
@@ -84,7 +85,13 @@ class PipelineRunner:
             elif n == 5:
                 ctx = self._run_stage5(ctx)
 
-        print_result(self.run_id, success=True, error=None)
+        print_result(
+            success=True,
+            elapsed=time.time() - self.start_time,
+            run_id=self.run_id,
+            artifacts_dir=self.artifacts_dir,
+            error=None,
+        )
         return ctx
 
     def _parse_stages(self, stages: str) -> list[int]:
@@ -106,7 +113,13 @@ class PipelineRunner:
         )
         res = recon.run()
         if not res["success"]:
-            print_result(self.run_id, success=False, error=res["error"])
+            print_result(
+                success=False,
+                elapsed=0.0,
+                run_id=self.run_id,
+                artifacts_dir=self.artifacts_dir,
+                error=res["error"],
+            )
             raise RuntimeError(f"Stage1 失败: {res['error']}")
 
         tp_path = self._recon_file("target_profile")

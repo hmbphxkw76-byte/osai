@@ -206,7 +206,7 @@ def _load_yaml_priors() -> tuple[
     try:
         with open(_ASR_PRIORS_YAML, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         raise RuntimeError(f"Failed to load ASR priors YAML at {_ASR_PRIORS_YAML}: {e}") from e
 
     # 加载 Tier 阈值

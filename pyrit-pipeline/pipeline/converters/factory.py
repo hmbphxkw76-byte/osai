@@ -121,7 +121,7 @@ def create_converters(converter_names: list[str]) -> list[Converter]:
             converter = cls()
             converters.append(converter)
             logger.info(f"Created converter: {cls.__name__} (from '{name}')")
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"Failed to instantiate converter '{name}' ({cls.__name__}): {e}")
             unknown.append(f"{name} (instantiation failed: {e})")
 
@@ -173,7 +173,7 @@ def build_technique_converter_map(
 
         try:
             asr_by_technique = query_historical_asr_by_technique()
-        except Exception as e:
+        except ImportError as e:
             logger.warning(f"查询历史 ASR 失败, 退化为均匀路由: {e}")
             asr_by_technique = {}
 
@@ -193,21 +193,23 @@ def build_technique_converter_map(
 
     sorted_techniques = sorted(technique_names, key=_tech_asr_score, reverse=True)
 
-    # 2. 构建 per-technique 映射
-    # 每个 converter 对应一个技术时, 形成 ASR 放大效应
-    # 但不是 1:1 映射 — 而是: 高 ASR 技术 → 全部 converters, 低 ASR 技术 → 子集
+    # 2. 构建 per-technique 映射 (G-15: 连续梯度分配替代二分法)
+    # 高 ASR 技术 → 全部 converters (攻击为王, 放大高 ASR)
+    # 低 ASR 技术 → 按 ASR 比例分配 converter 子集 (连续梯度, 非 0.5 二分)
     result: dict[str, list[Converter]] = {}
 
     for idx, tech_name in enumerate(sorted_techniques):
         tech_asr = _tech_asr_score(tech_name)
 
         if tech_asr >= 0.5:
-            # 高 ASR 技术: 分配全部 converters (攻击为王, 放大高 ASR)
+            # 高 ASR 技术: 分配全部 converters
             result[tech_name] = list(converters)
         else:
-            # 低 ASR 技术: 分配 converter 子集 (减少噪声, 保留探索)
-            # 按位置取模, 确保每个低 ASR 技术获得不同的 converter 子集
-            subset_size = max(1, len(converters) // 2)
+            # G-15: 连续梯度 — 按 ASR 比例计算 converter 子集大小
+            # tech_asr=0.0 → 1 个 converter, tech_asr=0.5 → 全部 converters
+            subset_size = max(1, int(tech_asr * 2 * len(converters)))
+            if subset_size >= len(converters):
+                subset_size = len(converters)
             start = idx % len(converters)
             subset = []
             for j in range(subset_size):
@@ -218,9 +220,9 @@ def build_technique_converter_map(
     high_asr_techs = [t for t in sorted_techniques if _tech_asr_score(t) >= 0.5]
     low_asr_techs = [t for t in sorted_techniques if _tech_asr_score(t) < 0.5]
     logger.info(
-        f"Converter ASR 路由: "
+        f"Converter ASR 路由 (G-15 连续梯度): "
         f"{len(high_asr_techs)} 高 ASR 技术 (全 converters), "
-        f"{len(low_asr_techs)} 低 ASR 技术 (子集)"
+        f"{len(low_asr_techs)} 低 ASR 技术 (梯度子集)"
     )
 
     return result

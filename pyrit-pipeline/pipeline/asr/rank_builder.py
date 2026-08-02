@@ -243,7 +243,7 @@ class ASRRankBuilder:
                     avg_asr = academic_asr
                     has_asr = True
                     tier = ASRTier.from_asr(max_asr)
-            except Exception:
+            except (RuntimeError, OSError, ValueError):
                 pass
 
         heuristic = (

@@ -3,7 +3,7 @@
 
 """Pipeline 状态容器。.
 
-``PipelineContext`` 是贯穿五个阶段的唯一状态载体。
+``PipelineContext`` 是贯穿六个阶段的唯一状态载体。
 每个阶段读取上一阶段的产出、写入自己的产出，阶段间不直接耦合。
 
 设计原则:
@@ -15,7 +15,7 @@
   L1: Seed Source       — Stage 1 (远程数据集/本地.prompt/GCG/Fuzzer 生成)
   L2: Seed Organization  — Stage 1→2 (AttackSeedGroup 构造)
   L3: Dataset Config     — Stage 2 (CompoundDatasetAttackConfiguration)
-  L4: Memory Persistence — Stage 1→5 (CentralMemory SQLite)
+  L4: Memory Persistence — Stage 1→6 (CentralMemory SQLite)
   L5: Analytics & Select — Stage 2→4 (EpsilonGreedy + ASR 驱动选择)
 
 Executor 5 层架构 (L1→L5) 贯穿 Stage 2→4:
@@ -27,13 +27,14 @@ Executor 5 层架构 (L1→L5) 贯穿 Stage 2→4:
 
 > **日期**: 2026-8-1
 > **更新记录**:
->   2026-8-1 18:30 — v5.0: 添加 GCG/Fuzzer/多模态/场景类型等显式字段, 对齐 5 层架构
+>   2026-8-1 22:00 — P2-5: 修复 docstring "五个阶段" → "六个阶段" (架构对齐 v7.0)
 >   2026-8-1 20:00 — v6.0: 集成 ASRRankBuilder/GroupFallbackExecutor/target_aware_router 字段
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -121,6 +122,10 @@ class PipelineContext:
 
     # 贯穿全流水线
     output_manager: OutputManager | None = None
+
+    # L5 对齐: 评估时间追踪 (main.py 设置 start_time, stage_output 设置 end_time)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     # 自由扩展
     metadata: dict[str, Any] = field(default_factory=dict)

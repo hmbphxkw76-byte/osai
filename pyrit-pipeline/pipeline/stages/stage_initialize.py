@@ -238,7 +238,7 @@ def _safe_set_atomic_attacks(scenario: Any, sorted_attacks: list) -> None:
     如果 scenario 不支持 _atomic_attacks 属性, 记录警告但不崩溃。
     """
     if hasattr(scenario, "_atomic_attacks"):
-        setattr(scenario, "_atomic_attacks", sorted_attacks)
+        scenario._atomic_attacks = sorted_attacks
     else:
         logger.warning(
             "Scenario %s has no _atomic_attacks attribute, reorder skipped. "

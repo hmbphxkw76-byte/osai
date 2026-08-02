@@ -232,7 +232,7 @@ class RateLimitedTarget:
             endpoint = getattr(target, "_endpoint", None) or getattr(target, "endpoint", None)
             if endpoint:
                 return str(endpoint)
-        except Exception:
+        except (RuntimeError, OSError, ValueError):
             pass
         return f"target_{id(target)}"
 
@@ -274,7 +274,7 @@ class RateLimitedTarget:
             async with semaphore:
                 try:
                     return await self._target.send_prompt_async(*args, **kwargs)
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     last_error = e
 
                     if not _is_retryable_error(e):
@@ -333,7 +333,7 @@ class RateLimitedTarget:
             async with semaphore:
                 try:
                     return await self._target._send_chat_request_async(*args, **kwargs)
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     last_error = e
                     if not _is_retryable_error(e):
                         raise

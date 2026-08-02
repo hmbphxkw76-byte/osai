@@ -174,18 +174,33 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
     print(f"  │ 模型: {model_name} (Tier: {model_tier})")
     print(f"  │ 整体 ASR: {overall}%")
 
-    # 经验写回
+    # 经验写回 (G-05: 按模型分文件存储)
     if ctx.asr_per_technique:
         try:
             from pipeline.asr.optimizer import save_empirical_asr
 
-            save_empirical_asr(ctx.asr_per_technique)
+            save_empirical_asr(ctx.asr_per_technique, model_name=model_name)
             top3 = sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True)[:3]
             print("  │ 经验写回 Top-3:")
             for tech, asr in top3:
                 print(f"  │   {tech:<35} {asr:.1f}%")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"Failed to save empirical ASR: {e}")
+
+    # G-07: ParadigmTracker 跨运行持久化
+    failure_stats = ctx.metadata.get("failure_stats", {})
+    paradigm_data = failure_stats.get("paradigm_performance", {})
+    if paradigm_data:
+        try:
+            from pathlib import Path
+            from pipeline.asr.failure_type_event_handler import ParadigmPerformanceTracker
+
+            tracker = ParadigmPerformanceTracker.from_dict(paradigm_data)
+            tracker_path = Path("outputs/empirical_asr") / "paradigm_performance.json"
+            tracker.save_to_file(tracker_path)
+            print(f"  │ 范式性能跟踪器已持久化 ({len(paradigm_data)} 失败类型)")
+        except (OSError, ValueError) as e:
+            logger.warning(f"Failed to save paradigm tracker: {e}")
 
     # Tier 预警
     if overall < 20:

@@ -1,0 +1,944 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.analysis.evidence_collector &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.analysis.evidence_collector</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.analysis.evidence_collector</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;证据收集器 — 从攻击结果中提取和结构化安全漏洞证据。.</span>
+
+<span class="sd">PyRIT 原生输出 AttackResult 和 Markdown 报告，但不提供结构化的</span>
+<span class="sd">&quot;漏洞证据&quot; 视图。本模块从攻击结果中提取:</span>
+
+<span class="sd">  1. 成功的攻击载荷 (jailbreak prompt)</span>
+<span class="sd">  2. 目标模型的漏洞响应 (harmful output)</span>
+<span class="sd">  3. 使用的攻击技术 + Converter 链</span>
+<span class="sd">  4. OWASP 分类映射</span>
+<span class="sd">  5. ASR 和置信度</span>
+<span class="sd">  6. 完整的对话历史</span>
+
+<span class="sd">这些证据用于:</span>
+<span class="sd">  - 生成结构化漏洞报告 (JSON + Markdown)</span>
+<span class="sd">  - 供安全团队验证和修复</span>
+<span class="sd">  - 供合规审计追溯</span>
+
+<span class="sd">学术依据:</span>
+<span class="sd">  - HarmBench (arXiv:2402.04249): 标准化红队证据收集</span>
+<span class="sd">  - JailbreakBench (arXiv:2402.01135): 漏洞披露最佳实践</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">asdict</span><span class="p">,</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.analysis.technique_name_mapper</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">get_arxiv_reference</span><span class="p">,</span>
+    <span class="n">get_display_name</span><span class="p">,</span>
+    <span class="n">normalize_technique_name</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 数据结构</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="VulnerabilityEvidence">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.VulnerabilityEvidence">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">VulnerabilityEvidence</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单个漏洞证据。.&quot;&quot;&quot;</span>
+
+    <span class="n">evidence_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">attack_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">technique_display_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">converter_chain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">owasp_category</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">objective</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">jailbreak_prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">harmful_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">conversation_history</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">asr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">confidence</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;medium&quot;</span>
+    <span class="n">arxiv_reference</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">target_model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="c1"># P1: 攻击链路 (SequentialAttack 中尝试的技术序列)</span>
+    <span class="n">attack_chain</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="c1"># P1: Converter 转换日志 (原始→变换后的 prompt 记录)</span>
+    <span class="n">converter_log</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+
+<div class="viewcode-block" id="VulnerabilityEvidence.to_dict">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.VulnerabilityEvidence.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="n">asdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="EvidenceCollection">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollection">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EvidenceCollection</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;证据集合。.&quot;&quot;&quot;</span>
+
+    <span class="n">collection_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">target_model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">total_attacks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">successful_attacks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">failed_attacks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">overall_asr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">evidence</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">VulnerabilityEvidence</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">owasp_coverage</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="n">technique_distribution</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="c1"># P1: ASR 趋势 (跨运行历史)</span>
+    <span class="n">asr_trend</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="c1"># P1: 失败分析摘要</span>
+    <span class="n">failure_analysis</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+
+<div class="viewcode-block" id="EvidenceCollection.to_dict">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollection.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;collection_id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">collection_id</span><span class="p">,</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">timestamp</span><span class="p">,</span>
+            <span class="s2">&quot;target_model&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">target_model</span><span class="p">,</span>
+            <span class="s2">&quot;model_tier&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_tier</span><span class="p">,</span>
+            <span class="s2">&quot;total_attacks&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">total_attacks</span><span class="p">,</span>
+            <span class="s2">&quot;successful_attacks&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">successful_attacks</span><span class="p">,</span>
+            <span class="s2">&quot;failed_attacks&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_attacks</span><span class="p">,</span>
+            <span class="s2">&quot;overall_asr&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">overall_asr</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="s2">&quot;evidence_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">evidence</span><span class="p">),</span>
+            <span class="s2">&quot;owasp_coverage&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owasp_coverage</span><span class="p">,</span>
+            <span class="s2">&quot;technique_distribution&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">technique_distribution</span><span class="p">,</span>
+            <span class="s2">&quot;asr_trend&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">asr_trend</span><span class="p">,</span>
+            <span class="s2">&quot;failure_analysis&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">failure_analysis</span><span class="p">,</span>
+            <span class="s2">&quot;evidence&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">evidence</span><span class="p">],</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># OWASP 分类映射</span>
+<span class="c1"># ============================================================</span>
+
+<span class="n">_OWASP_LLM_CATEGORIES</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;LLM01&quot;</span><span class="p">:</span> <span class="s2">&quot;Prompt Injection&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM02&quot;</span><span class="p">:</span> <span class="s2">&quot;Insecure Output Handling&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM03&quot;</span><span class="p">:</span> <span class="s2">&quot;Training Data Poisoning&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM04&quot;</span><span class="p">:</span> <span class="s2">&quot;Model DoS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM05&quot;</span><span class="p">:</span> <span class="s2">&quot;Supply Chain Vulnerabilities&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM06&quot;</span><span class="p">:</span> <span class="s2">&quot;Sensitive Information Disclosure&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM07&quot;</span><span class="p">:</span> <span class="s2">&quot;Insecure Plugin Design&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM08&quot;</span><span class="p">:</span> <span class="s2">&quot;Excessive Agency&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM09&quot;</span><span class="p">:</span> <span class="s2">&quot;Overreliance&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LLM10&quot;</span><span class="p">:</span> <span class="s2">&quot;Model Theft&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">_OWASP_ASI_CATEGORIES</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;ASI01&quot;</span><span class="p">:</span> <span class="s2">&quot;Agent Identity Spoofing&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI02&quot;</span><span class="p">:</span> <span class="s2">&quot;Tool Misuse&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI03&quot;</span><span class="p">:</span> <span class="s2">&quot;Unauthorized Actions&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI04&quot;</span><span class="p">:</span> <span class="s2">&quot;Data Exfiltration&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI05&quot;</span><span class="p">:</span> <span class="s2">&quot;Privilege Escalation&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI06&quot;</span><span class="p">:</span> <span class="s2">&quot;Memory Poisoning&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI07&quot;</span><span class="p">:</span> <span class="s2">&quot;Cross-Agent Injection&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI08&quot;</span><span class="p">:</span> <span class="s2">&quot;Cascading Failures&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI09&quot;</span><span class="p">:</span> <span class="s2">&quot;Trust Boundary Violation&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ASI10&quot;</span><span class="p">:</span> <span class="s2">&quot;Rogue Agent&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="get_owasp_category">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.get_owasp_category">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_owasp_category</span><span class="p">(</span><span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取 OWASP 分类的完整名称。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">owasp_id</span> <span class="ow">in</span> <span class="n">_OWASP_LLM_CATEGORIES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_OWASP_LLM_CATEGORIES</span><span class="p">[</span><span class="n">owasp_id</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">owasp_id</span> <span class="ow">in</span> <span class="n">_OWASP_ASI_CATEGORIES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_OWASP_ASI_CATEGORIES</span><span class="p">[</span><span class="n">owasp_id</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">owasp_id</span></div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># EvidenceCollector</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="EvidenceCollector">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollector">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">EvidenceCollector</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;证据收集器 — 从攻击结果中提取结构化漏洞证据。.</span>
+
+<span class="sd">    使用方式:</span>
+<span class="sd">        collector = EvidenceCollector(</span>
+<span class="sd">            target_model=&quot;gpt-4o&quot;,</span>
+<span class="sd">            model_tier=&quot;strong&quot;,</span>
+<span class="sd">        )</span>
+<span class="sd">        collection = collector.collect(</span>
+<span class="sd">            attack_results=result.attack_results,</span>
+<span class="sd">            scenario_result_id=result.id,</span>
+<span class="sd">            asr_per_technique=ctx.asr_per_technique,</span>
+<span class="sd">            overall_asr=ctx.overall_asr,</span>
+<span class="sd">        )</span>
+<span class="sd">        collector.save_json(collection, output_dir=ctx.output_dir)</span>
+<span class="sd">        collector.save_markdown(collection, output_dir=ctx.output_dir)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">target_model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+        <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_target_model</span> <span class="o">=</span> <span class="n">target_model</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span> <span class="o">=</span> <span class="n">model_tier</span>
+
+<div class="viewcode-block" id="EvidenceCollector.collect">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollector.collect">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">attack_results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]],</span>
+        <span class="n">scenario_result_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="n">asr_per_technique</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">overall_asr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+        <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EvidenceCollection</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;从攻击结果中收集证据。.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            attack_results: ScenarioResult.attack_results 字典</span>
+<span class="sd">            scenario_result_id: ScenarioResult ID</span>
+<span class="sd">            asr_per_technique: 按技术的 ASR 统计</span>
+<span class="sd">            overall_asr: 总体 ASR</span>
+<span class="sd">            owasp_id: OWASP 分类 ID (全局)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            EvidenceCollection: 结构化证据集合</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">collection</span> <span class="o">=</span> <span class="n">EvidenceCollection</span><span class="p">(</span>
+            <span class="n">collection_id</span><span class="o">=</span><span class="n">scenario_result_id</span> <span class="ow">or</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">),</span>
+            <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="n">target_model</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_target_model</span><span class="p">,</span>
+            <span class="n">model_tier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+            <span class="n">overall_asr</span><span class="o">=</span><span class="n">overall_asr</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">evidence_idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">owasp_counter</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">tech_counter</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">attack_id</span><span class="p">,</span> <span class="n">results</span> <span class="ow">in</span> <span class="n">attack_results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">ar</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+                <span class="n">collection</span><span class="o">.</span><span class="n">total_attacks</span> <span class="o">+=</span> <span class="mi">1</span>
+
+                <span class="c1"># 提取技术名</span>
+                <span class="n">tech_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">ar</span><span class="p">)</span>
+                <span class="n">tech_counter</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">tech_counter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+                <span class="c1"># 判断成功</span>
+                <span class="n">is_success</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_success</span><span class="p">(</span><span class="n">ar</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">is_success</span><span class="p">:</span>
+                    <span class="n">collection</span><span class="o">.</span><span class="n">successful_attacks</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">collection</span><span class="o">.</span><span class="n">failed_attacks</span> <span class="o">+=</span> <span class="mi">1</span>
+
+                <span class="c1"># 只收集成功攻击的证据</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">is_success</span><span class="p">:</span>
+                    <span class="k">continue</span>
+
+                <span class="n">evidence_idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">evidence</span> <span class="o">=</span> <span class="n">VulnerabilityEvidence</span><span class="p">(</span>
+                    <span class="n">evidence_id</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;EVD-</span><span class="si">{</span><span class="n">evidence_idx</span><span class="si">:</span><span class="s2">04d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">attack_id</span><span class="o">=</span><span class="n">attack_id</span><span class="p">,</span>
+                    <span class="n">technique_name</span><span class="o">=</span><span class="n">tech_name</span><span class="p">,</span>
+                    <span class="n">technique_display_name</span><span class="o">=</span><span class="n">get_display_name</span><span class="p">(</span><span class="n">normalize_technique_name</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)),</span>
+                    <span class="n">converter_chain</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_converter_chain</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="n">owasp_id</span><span class="o">=</span><span class="n">owasp_id</span><span class="p">,</span>
+                    <span class="n">owasp_category</span><span class="o">=</span><span class="n">get_owasp_category</span><span class="p">(</span><span class="n">owasp_id</span><span class="p">)</span> <span class="k">if</span> <span class="n">owasp_id</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                    <span class="n">objective</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_objective</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="n">jailbreak_prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_jailbreak_prompt</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="n">harmful_output</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_harmful_output</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="n">conversation_history</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_conversation</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="n">asr</span><span class="o">=</span><span class="n">asr_per_technique</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">if</span> <span class="n">asr_per_technique</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="n">confidence</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_compute_confidence</span><span class="p">(</span><span class="n">ar</span><span class="p">,</span> <span class="n">asr_per_technique</span> <span class="ow">or</span> <span class="p">{}),</span>
+                    <span class="n">arxiv_reference</span><span class="o">=</span><span class="n">get_arxiv_reference</span><span class="p">(</span><span class="n">normalize_technique_name</span><span class="p">(</span><span class="n">tech_name</span><span class="p">))</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                    <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                    <span class="n">target_model</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_target_model</span><span class="p">,</span>
+                    <span class="n">model_tier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+                    <span class="c1"># P1: 攻击链路</span>
+                    <span class="n">attack_chain</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_attack_chain</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                    <span class="c1"># P1: Converter 转换日志</span>
+                    <span class="n">converter_log</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_converter_log</span><span class="p">(</span><span class="n">ar</span><span class="p">),</span>
+                <span class="p">)</span>
+
+                <span class="n">collection</span><span class="o">.</span><span class="n">evidence</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">evidence</span><span class="p">)</span>
+
+                <span class="c1"># OWASP 覆盖统计</span>
+                <span class="k">if</span> <span class="n">owasp_id</span><span class="p">:</span>
+                    <span class="n">owasp_counter</span><span class="p">[</span><span class="n">owasp_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">owasp_counter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">owasp_id</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+                <span class="c1"># 子结果 (SequentialAttack 的子攻击)</span>
+                <span class="n">child_results</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ar</span><span class="p">,</span> <span class="s2">&quot;child_attack_results&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">child_results</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">child</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_success</span><span class="p">(</span><span class="n">child</span><span class="p">):</span>
+                        <span class="n">evidence_idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="n">child_evidence</span> <span class="o">=</span> <span class="n">VulnerabilityEvidence</span><span class="p">(</span>
+                            <span class="n">evidence_id</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;EVD-</span><span class="si">{</span><span class="n">evidence_idx</span><span class="si">:</span><span class="s2">04d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                            <span class="n">attack_id</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attack_id</span><span class="si">}</span><span class="s2">_child&quot;</span><span class="p">,</span>
+                            <span class="n">technique_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">technique_display_name</span><span class="o">=</span><span class="n">get_display_name</span><span class="p">(</span>
+                                <span class="n">normalize_technique_name</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">child</span><span class="p">))</span>
+                            <span class="p">),</span>
+                            <span class="n">converter_chain</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_converter_chain</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">owasp_id</span><span class="o">=</span><span class="n">owasp_id</span><span class="p">,</span>
+                            <span class="n">owasp_category</span><span class="o">=</span><span class="n">get_owasp_category</span><span class="p">(</span><span class="n">owasp_id</span><span class="p">)</span> <span class="k">if</span> <span class="n">owasp_id</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                            <span class="n">objective</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_objective</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">jailbreak_prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_jailbreak_prompt</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">harmful_output</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_harmful_output</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">conversation_history</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_conversation</span><span class="p">(</span><span class="n">child</span><span class="p">),</span>
+                            <span class="n">asr</span><span class="o">=</span><span class="n">asr_per_technique</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">if</span> <span class="n">asr_per_technique</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span>
+                            <span class="n">confidence</span><span class="o">=</span><span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+                            <span class="n">arxiv_reference</span><span class="o">=</span><span class="n">get_arxiv_reference</span><span class="p">(</span><span class="n">normalize_technique_name</span><span class="p">(</span><span class="n">tech_name</span><span class="p">))</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                            <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                            <span class="n">target_model</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_target_model</span><span class="p">,</span>
+                            <span class="n">model_tier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+                        <span class="p">)</span>
+                        <span class="n">collection</span><span class="o">.</span><span class="n">evidence</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">child_evidence</span><span class="p">)</span>
+
+        <span class="n">collection</span><span class="o">.</span><span class="n">owasp_coverage</span> <span class="o">=</span> <span class="n">owasp_counter</span>
+        <span class="n">collection</span><span class="o">.</span><span class="n">technique_distribution</span> <span class="o">=</span> <span class="n">tech_counter</span>
+
+        <span class="c1"># P1: 加载 ASR 趋势 (跨运行历史)</span>
+        <span class="n">collection</span><span class="o">.</span><span class="n">asr_trend</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_load_asr_trend</span><span class="p">()</span>
+
+        <span class="c1"># P1: 失败分析摘要</span>
+        <span class="n">collection</span><span class="o">.</span><span class="n">failure_analysis</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_failure_analysis</span><span class="p">(</span>
+            <span class="n">attack_results</span><span class="p">,</span>
+            <span class="n">collection</span><span class="o">.</span><span class="n">total_attacks</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;EvidenceCollector: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">total_attacks</span><span class="si">}</span><span class="s2"> attacks, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">successful_attacks</span><span class="si">}</span><span class="s2"> successful, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">collection</span><span class="o">.</span><span class="n">evidence</span><span class="p">)</span><span class="si">}</span><span class="s2"> evidence items collected&quot;</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">collection</span></div>
+
+
+<div class="viewcode-block" id="EvidenceCollector.save_json">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollector.save_json">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_json</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">collection</span><span class="p">:</span> <span class="n">EvidenceCollection</span><span class="p">,</span>
+        <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;将证据集合保存为 JSON 文件。.&quot;&quot;&quot;</span>
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+        <span class="n">output_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">json_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="s2">&quot;evidence.json&quot;</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">collection</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Evidence saved to </span><span class="si">{</span><span class="n">json_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">json_path</span></div>
+
+
+<div class="viewcode-block" id="EvidenceCollector.save_markdown">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.analysis.evidence_collector.EvidenceCollector.save_markdown">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_markdown</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">collection</span><span class="p">:</span> <span class="n">EvidenceCollection</span><span class="p">,</span>
+        <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;将证据集合保存为 Markdown 报告。.&quot;&quot;&quot;</span>
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+        <span class="n">output_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">md_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="s2">&quot;evidence_report.md&quot;</span>
+
+        <span class="n">lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;# AI 红队漏洞证据报告&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**报告 ID**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">collection_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**生成时间**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**目标模型**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">target_model</span><span class="si">}</span><span class="s2"> (tier=</span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">model_tier</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**总体 ASR**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">overall_asr</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**总攻击数**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">total_attacks</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**成功攻击**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">successful_attacks</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**失败攻击**: </span><span class="si">{</span><span class="n">collection</span><span class="o">.</span><span class="n">failed_attacks</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># OWASP 覆盖</span>
+        <span class="k">if</span> <span class="n">collection</span><span class="o">.</span><span class="n">owasp_coverage</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;## OWASP 分类覆盖&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| OWASP ID | 分类 | 证据数 |&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|----------|------|--------|&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">owasp_id</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">collection</span><span class="o">.</span><span class="n">owasp_coverage</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">owasp_id</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">get_owasp_category</span><span class="p">(</span><span class="n">owasp_id</span><span class="p">)</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> |&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 技术分布</span>
+        <span class="k">if</span> <span class="n">collection</span><span class="o">.</span><span class="n">technique_distribution</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;## 攻击技术分布&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| 技术 | 攻击数 |&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|------|--------|&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">tech</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span>
+                <span class="n">collection</span><span class="o">.</span><span class="n">technique_distribution</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span>
+                <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">):</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tech</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> |&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># P1: ASR 趋势</span>
+        <span class="k">if</span> <span class="n">collection</span><span class="o">.</span><span class="n">asr_trend</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;## ASR 趋势 (跨运行历史)&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| 技术 | 历史 ASR | 数据来源 |&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|------|----------|----------|&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">collection</span><span class="o">.</span><span class="n">asr_trend</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;technique&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;historical_asr&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">% &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;source&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> |&quot;</span>
+                <span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># P1: 失败分析</span>
+        <span class="k">if</span> <span class="n">collection</span><span class="o">.</span><span class="n">failure_analysis</span><span class="p">:</span>
+            <span class="n">fa</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">failure_analysis</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;## 失败分析&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- 总攻击: </span><span class="si">{</span><span class="n">fa</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;total_attacks&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- 成功: </span><span class="si">{</span><span class="n">fa</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;total_successes&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- 失败: </span><span class="si">{</span><span class="n">fa</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;total_failures&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="n">ftype_dist</span> <span class="o">=</span> <span class="n">fa</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;failure_type_distribution&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="k">if</span> <span class="n">ftype_dist</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;### 失败类型分布&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| 失败类型 | 次数 |&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|----------|------|&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">ftype</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ftype_dist</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">ftype</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> |&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="n">tech_rates</span> <span class="o">=</span> <span class="n">fa</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;technique_success_rates&quot;</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="k">if</span> <span class="n">tech_rates</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;### 技术成功率排名&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| 技术 | 成功 | 失败 | 总计 | 成功率 |&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|------|------|------|------|--------|&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">tr</span> <span class="ow">in</span> <span class="n">tech_rates</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;technique&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;successes&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;failures&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;total&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">tr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success_rate&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">% |&quot;</span>
+                    <span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 漏洞证据详情</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;## 漏洞证据详情&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ev</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">collection</span><span class="o">.</span><span class="n">evidence</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;### 证据 #</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">evidence_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**攻击技术**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">technique_display_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**Converter 链**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">converter_chain</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="s1">&#39;无&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">owasp_id</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**OWASP 分类**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">owasp_id</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">owasp_category</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**攻击目标**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">objective</span><span class="p">[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**ASR**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">asr</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**置信度**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">confidence</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">arxiv_reference</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**学术引用**: </span><span class="si">{</span><span class="n">ev</span><span class="o">.</span><span class="n">arxiv_reference</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;#### 越狱载荷 (Jailbreak Prompt)&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;```&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ev</span><span class="o">.</span><span class="n">jailbreak_prompt</span><span class="p">[:</span><span class="mi">1000</span><span class="p">]</span> <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">jailbreak_prompt</span> <span class="k">else</span> <span class="s2">&quot;(未提取)&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;```&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;#### 目标模型响应 (Harmful Output)&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;```&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ev</span><span class="o">.</span><span class="n">harmful_output</span><span class="p">[:</span><span class="mi">1000</span><span class="p">]</span> <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">harmful_output</span> <span class="k">else</span> <span class="s2">&quot;(未提取)&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;```&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">conversation_history</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;#### 完整对话历史&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="n">ev</span><span class="o">.</span><span class="n">conversation_history</span><span class="p">:</span>
+                    <span class="n">role</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+                    <span class="n">content</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;content&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;**</span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2">**: </span><span class="si">{</span><span class="n">content</span><span class="p">[:</span><span class="mi">300</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;---&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="c1"># P1: 攻击链路</span>
+            <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">attack_chain</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;#### 攻击链路 (Attack Chain)&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;| 步骤 | 技术 | 结果 | 角色 | 失败原因 |&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;|------|------|------|------|----------|&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">ev</span><span class="o">.</span><span class="n">attack_chain</span><span class="p">:</span>
+                    <span class="n">reason</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;failure_reason&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;step&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;technique&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;outcome&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;role&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;| </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2"> |&quot;</span>
+                    <span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="c1"># P1: Converter 转换日志</span>
+            <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">converter_log</span><span class="p">:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;#### Converter 转换日志&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">cl</span> <span class="ow">in</span> <span class="n">ev</span><span class="o">.</span><span class="n">converter_log</span><span class="p">:</span>
+                    <span class="n">transformed</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;transformed&quot;</span><span class="p">,</span> <span class="s2">&quot;false&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;true&quot;</span>
+                    <span class="n">marker</span> <span class="o">=</span> <span class="s2">&quot;🔄&quot;</span> <span class="k">if</span> <span class="n">transformed</span> <span class="k">else</span> <span class="s2">&quot;⚫&quot;</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">marker</span><span class="si">}</span><span class="s2"> **步骤 </span><span class="si">{</span><span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;step&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">** (</span><span class="si">{</span><span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;role&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">transformed</span><span class="p">:</span>
+                        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - 原始: `</span><span class="si">{</span><span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;original&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">...`&quot;</span><span class="p">)</span>
+                        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - 变换: `</span><span class="si">{</span><span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;converted&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">...`&quot;</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - 内容: `</span><span class="si">{</span><span class="n">cl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;original&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">...`&quot;</span><span class="p">)</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;---&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">md_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">))</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Evidence Markdown report saved to </span><span class="si">{</span><span class="n">md_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">md_path</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 提取辅助方法</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_success</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;判断攻击是否成功。.&quot;&quot;&quot;</span>
+        <span class="n">outcome</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;outcome&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">outcome</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">outcome_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">outcome</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">outcome</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">outcome_str</span> <span class="o">==</span> <span class="s2">&quot;SUCCESS&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_technique_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;从 AttackResult 提取技术名 (委托给 AttackResultAnalyzer)。.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.analysis.attack_result_analyzer</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttackResultAnalyzer</span>
+
+        <span class="k">return</span> <span class="n">AttackResultAnalyzer</span><span class="o">.</span><span class="n">extract_technique_name</span><span class="p">(</span><span class="n">attack_result</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_converter_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;从 AttackResult 提取 Converter 链名。.&quot;&quot;&quot;</span>
+        <span class="n">identifier</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;get_attack_strategy_identifier&quot;</span><span class="p">):</span>
+            <span class="n">identifier</span> <span class="o">=</span> <span class="n">attack_result</span><span class="o">.</span><span class="n">get_attack_strategy_identifier</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">identifier</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">children</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="s2">&quot;children&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+            <span class="n">request_converters</span> <span class="o">=</span> <span class="n">children</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;request_converters&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">request_converters</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request_converters</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                <span class="n">names</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">conv</span> <span class="ow">in</span> <span class="n">request_converters</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                        <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">conv</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">conv</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+                <span class="k">return</span> <span class="s2">&quot;→&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_objective</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;提取攻击目标。.&quot;&quot;&quot;</span>
+        <span class="n">objective</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;objective&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">objective</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">objective</span><span class="p">)</span>
+        <span class="c1"># 从 last_request 提取</span>
+        <span class="n">last_request</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;last_request&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_request</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_request</span><span class="p">,</span> <span class="s2">&quot;request_pieces&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="n">pieces</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">pieces</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;original_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">pieces</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;converted_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_jailbreak_prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;提取越狱载荷 (变换后的 prompt)。.&quot;&quot;&quot;</span>
+        <span class="n">last_request</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;last_request&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_request</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_request</span><span class="p">,</span> <span class="s2">&quot;request_pieces&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="n">pieces</span><span class="p">:</span>
+                <span class="c1"># 最后一条 user piece 是变换后的</span>
+                <span class="k">for</span> <span class="n">piece</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">pieces</span><span class="p">):</span>
+                    <span class="n">role</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;user&quot;</span><span class="p">:</span>
+                        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;converted_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;original_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_harmful_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;提取目标模型的有害输出。.&quot;&quot;&quot;</span>
+        <span class="n">last_response</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;last_response&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_response</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_response</span><span class="p">,</span> <span class="s2">&quot;request_pieces&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="n">pieces</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">piece</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">pieces</span><span class="p">):</span>
+                    <span class="n">role</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span><span class="p">:</span>
+                        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;converted_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;original_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_conversation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;提取完整对话历史。.&quot;&quot;&quot;</span>
+        <span class="n">history</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">conversation</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;conversation&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">conversation</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">history</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">messages</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">conversation</span><span class="p">,</span> <span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">:</span>
+                <span class="n">role</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+                <span class="n">content</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+                <span class="n">history</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">role</span><span class="p">),</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">content</span><span class="p">)})</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to extract conversation: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">history</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_confidence</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">asr_per_technique</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;计算证据置信度。.&quot;&quot;&quot;</span>
+        <span class="n">tech_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">attack_result</span><span class="p">)</span>
+        <span class="n">asr</span> <span class="o">=</span> <span class="n">asr_per_technique</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="mi">70</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;high&quot;</span>
+        <span class="k">if</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="mi">30</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;medium&quot;</span>
+        <span class="k">if</span> <span class="n">asr</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;low&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;medium&quot;</span>  <span class="c1"># 无 ASR 数据时默认中等</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># P1: 攻击链路 + Converter 日志 + ASR 趋势 + 失败分析</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_attack_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;P1: 提取攻击链路 — SequentialAttack 中尝试的技术序列。.</span>
+
+<span class="sd">        对于 SequentialAttack(FIRST_SUCCESS), 显示在成功之前尝试了哪些技术</span>
+<span class="sd">        以及它们的失败原因, 提供完整的攻击路径可追溯性。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">chain</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># 主结果</span>
+        <span class="n">main_tech</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">attack_result</span><span class="p">)</span>
+        <span class="n">main_outcome</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;outcome&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">main_outcome_str</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">main_outcome</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">main_outcome</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">main_outcome</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">main_outcome</span>
+            <span class="k">else</span> <span class="s2">&quot;UNKNOWN&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">chain</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="s2">&quot;1&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;technique&quot;</span><span class="p">:</span> <span class="n">main_tech</span><span class="p">,</span>
+                <span class="s2">&quot;outcome&quot;</span><span class="p">:</span> <span class="n">main_outcome_str</span><span class="p">,</span>
+                <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;primary&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 子结果 (SequentialAttack 的子攻击)</span>
+        <span class="n">child_results</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;child_attack_results&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">child_results</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">child</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">child_tech</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+            <span class="n">child_outcome</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;outcome&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">child_outcome_str</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">child_outcome</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">child_outcome</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">child_outcome</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">())</span>
+                <span class="k">if</span> <span class="n">child_outcome</span>
+                <span class="k">else</span> <span class="s2">&quot;UNKNOWN&quot;</span>
+            <span class="p">)</span>
+
+            <span class="c1"># 提取失败原因</span>
+            <span class="n">failure_reason</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;error_message&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;outcome_reason&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">error_msg</span><span class="p">:</span>
+                <span class="n">failure_reason</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span>
+
+            <span class="n">chain</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">),</span>
+                    <span class="s2">&quot;technique&quot;</span><span class="p">:</span> <span class="n">child_tech</span><span class="p">,</span>
+                    <span class="s2">&quot;outcome&quot;</span><span class="p">:</span> <span class="n">child_outcome_str</span><span class="p">,</span>
+                    <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;fallback&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;failure_reason&quot;</span><span class="p">:</span> <span class="n">failure_reason</span><span class="p">,</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">chain</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_converter_log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attack_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;P1: 提取 Converter 转换日志 — 原始 prompt → 变换后 prompt 的记录。.</span>
+
+<span class="sd">        从 AttackResult 的 last_request 中提取每个 request_piece 的</span>
+<span class="sd">        original_value 和 converted_value, 展示 Converter 的变换过程。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">log</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="n">last_request</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">attack_result</span><span class="p">,</span> <span class="s2">&quot;last_request&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">last_request</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">log</span>
+
+        <span class="n">pieces</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_request</span><span class="p">,</span> <span class="s2">&quot;request_pieces&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">piece</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">pieces</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">original</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;original_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">converted</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;converted_value&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">role</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">piece</span><span class="p">,</span> <span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+
+            <span class="c1"># 只记录有变换的 piece</span>
+            <span class="k">if</span> <span class="n">original</span> <span class="ow">and</span> <span class="n">converted</span> <span class="ow">and</span> <span class="n">original</span> <span class="o">!=</span> <span class="n">converted</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="p">{</span>
+                        <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">),</span>
+                        <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">role</span><span class="p">),</span>
+                        <span class="s2">&quot;original&quot;</span><span class="p">:</span> <span class="n">original</span><span class="p">[:</span><span class="mi">500</span><span class="p">],</span>
+                        <span class="s2">&quot;converted&quot;</span><span class="p">:</span> <span class="n">converted</span><span class="p">[:</span><span class="mi">500</span><span class="p">],</span>
+                        <span class="s2">&quot;transformed&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+                    <span class="p">}</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">original</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="p">{</span>
+                        <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">),</span>
+                        <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">role</span><span class="p">),</span>
+                        <span class="s2">&quot;original&quot;</span><span class="p">:</span> <span class="n">original</span><span class="p">[:</span><span class="mi">500</span><span class="p">],</span>
+                        <span class="s2">&quot;converted&quot;</span><span class="p">:</span> <span class="n">converted</span><span class="p">[:</span><span class="mi">500</span><span class="p">]</span> <span class="k">if</span> <span class="n">converted</span> <span class="k">else</span> <span class="n">original</span><span class="p">[:</span><span class="mi">500</span><span class="p">],</span>
+                        <span class="s2">&quot;transformed&quot;</span><span class="p">:</span> <span class="s2">&quot;false&quot;</span><span class="p">,</span>
+                    <span class="p">}</span>
+                <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">log</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_asr_trend</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;P1: 加载 ASR 趋势数据 — 跨运行的历史 ASR 变化。.</span>
+
+<span class="sd">        从经验 ASR 文件加载上一次运行的 ASR 数据,</span>
+<span class="sd">        与当前运行的数据合并, 形成 ASR 趋势。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">trend</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.optimizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_empirical_asr</span>
+
+            <span class="n">historical</span> <span class="o">=</span> <span class="n">load_empirical_asr</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">historical</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">tech</span><span class="p">,</span> <span class="n">asr</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">historical</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+                    <span class="n">trend</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="p">{</span>
+                            <span class="s2">&quot;technique&quot;</span><span class="p">:</span> <span class="n">tech</span><span class="p">,</span>
+                            <span class="s2">&quot;historical_asr&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">asr</span> <span class="o">*</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+                            <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;empirical&quot;</span><span class="p">,</span>
+                        <span class="p">}</span>
+                    <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load ASR trend: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">trend</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_failure_analysis</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">attack_results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]],</span>
+        <span class="n">total_attacks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;P1: 构建失败分析摘要 — 统计失败类型和分布。.</span>
+
+<span class="sd">        从攻击结果中提取失败模式, 按失败类型和技术分类统计,</span>
+<span class="sd">        提供可操作的失败分析报告。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
+
+        <span class="n">failure_types</span><span class="p">:</span> <span class="n">Counter</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">()</span>
+        <span class="n">failure_by_tech</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">success_by_tech</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">_attack_id</span><span class="p">,</span> <span class="n">results</span> <span class="ow">in</span> <span class="n">attack_results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">ar</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+                <span class="n">tech_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_technique_name</span><span class="p">(</span><span class="n">ar</span><span class="p">)</span>
+                <span class="n">is_success</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_success</span><span class="p">(</span><span class="n">ar</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">is_success</span><span class="p">:</span>
+                    <span class="n">success_by_tech</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">success_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">failure_by_tech</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">failure_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+                    <span class="c1"># 提取失败类型</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.failure_type_selector</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_failure_type_from_result</span>
+
+                        <span class="n">ftype</span> <span class="o">=</span> <span class="n">extract_failure_type_from_result</span><span class="p">(</span><span class="n">ar</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                        <span class="n">ftype</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span>
+                    <span class="n">failure_types</span><span class="p">[</span><span class="n">ftype</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="n">total_failures</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">failure_by_tech</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">total_successes</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">success_by_tech</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+        <span class="c1"># 技术成功率排名</span>
+        <span class="n">tech_success_rate</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">all_techs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">failure_by_tech</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">success_by_tech</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+        <span class="k">for</span> <span class="n">tech</span> <span class="ow">in</span> <span class="n">all_techs</span><span class="p">:</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">success_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">failure_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">total</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="n">f</span>
+            <span class="n">rate</span> <span class="o">=</span> <span class="p">(</span><span class="n">s</span> <span class="o">/</span> <span class="n">total</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span> <span class="k">if</span> <span class="n">total</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">tech_success_rate</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;technique&quot;</span><span class="p">:</span> <span class="n">tech</span><span class="p">,</span>
+                    <span class="s2">&quot;successes&quot;</span><span class="p">:</span> <span class="n">s</span><span class="p">,</span>
+                    <span class="s2">&quot;failures&quot;</span><span class="p">:</span> <span class="n">f</span><span class="p">,</span>
+                    <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total</span><span class="p">,</span>
+                    <span class="s2">&quot;success_rate&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">rate</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="n">tech_success_rate</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="s2">&quot;success_rate&quot;</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;total_attacks&quot;</span><span class="p">:</span> <span class="n">total_attacks</span><span class="p">,</span>
+            <span class="s2">&quot;total_successes&quot;</span><span class="p">:</span> <span class="n">total_successes</span><span class="p">,</span>
+            <span class="s2">&quot;total_failures&quot;</span><span class="p">:</span> <span class="n">total_failures</span><span class="p">,</span>
+            <span class="s2">&quot;failure_type_distribution&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">failure_types</span><span class="p">),</span>
+            <span class="s2">&quot;technique_success_rates&quot;</span><span class="p">:</span> <span class="n">tech_success_rate</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

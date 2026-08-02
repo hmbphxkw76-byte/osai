@@ -7,6 +7,13 @@ outputs/
 # 预下载数据集（远程资产，本地存放、周期性更新，不入库）
 data/
 
+# 认证会话 Cookie（含敏感凭据，禁止入库）
+sessions/
+
+# 环境变量文件（含敏感凭据，禁止入库）
+.env
+.env.local
+
 # 根目录临时日志（迁移到 outputs/logs/）
 _tmp_*.log
 

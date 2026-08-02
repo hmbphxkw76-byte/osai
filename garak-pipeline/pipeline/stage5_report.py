@@ -13,8 +13,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .recon_garak import OWASP_CATEGORIES
-
 # PyRIT 1.0 Score 字段约束（经 pyrit.score.scorer.Score 实测）：
 #   - score_value : str          (非 float)
 #   - score_category: list[str]  (非 str)
@@ -64,19 +62,22 @@ def render_final_cards(analysis: dict, all_owasp_ids: list[str] | None = None) -
         for label in labels:
             v = llm.get(label)
             if v:
+                # 有效率 = effective_coverage（0-100%），评估有效样本占比
+                eff = v.get("effective_coverage", 0.0)
+                eff_str = f"{eff:.0f}%" if eff > 0 else "—"
                 rows.append([
                     label, str(v["probe_count"]), str(v["evaluated"]),
-                    f'{v["worst_asr"]}%', f'DEFCON {v["defcon"]}',
+                    f'{v["worst_asr"]}%', eff_str, f'DEFCON {v["defcon"]}',
                 ])
             else:
                 na_count += 1
                 rows.append([
-                    label, "0", "0", "N/A",
+                    label, "0", "0", "N/A", "—",
                     "未覆盖(garak 无对应探针)",
                 ])
         print_table_card(
             "OWASP LLM Top 10 (2025) — 攻击面评估",
-            ["分类", "探针数", "已评估", "最差ASR", "评级"],
+            ["分类", "探针数", "已评估", "最差ASR", "有效率", "评级"],
             rows,
         )
         if na_count:
@@ -85,13 +86,33 @@ def render_final_cards(analysis: dict, all_owasp_ids: list[str] | None = None) -
     if agentic:
         rows = [
             [label, str(v["probe_count"]), str(v["evaluated"]),
-             f'{v["worst_asr"]}%', f'DEFCON {v["defcon"]}']
+             f'{v["worst_asr"]}%',
+             f'{v.get("effective_coverage", 0.0):.0f}%' if v.get("effective_coverage") else "—",
+             f'DEFCON {v["defcon"]}']
             for label, v in sorted(agentic.items())
         ]
         print_table_card(
             "OWASP Agentic Top 10 (2026) — 攻击面评估",
-            ["分类", "探针数", "已评估", "最差ASR", "评级"],
+            ["分类", "探针数", "已评估", "最差ASR", "有效率", "评级"],
             rows,
+        )
+
+    # 数据可靠性告警（对齐 garak 0.15.1 官方对 nones 的态度）
+    dq = analysis.get("data_quality", {})
+    rel = dq.get("reliability", "normal")
+    null_rate = dq.get("overall_null_rate", 0.0)
+    eff_cov = dq.get("overall_effective_coverage", 0.0)
+    if rel == "unreliable":
+        print(
+            f"\n  ⚠️  数据可靠性告警: 评估不可靠（nones={null_rate:.1f}%，"
+            f"有效样本率仅 {eff_cov:.1f}%）"
+        )
+        print(f"  → 目标可能不可达或模型响应异常，ASR/DEFCON 评分不代表目标安全性。")
+        print(f"  → 请检查目标连通性与模型可用性后重新评估。")
+    elif rel == "degraded":
+        print(
+            f"\n  ⚠️  数据可靠性告警: 评估质量下降（nones={null_rate:.1f}%，"
+            f"有效样本率 {eff_cov:.1f}%），结果置信度降低。"
         )
 
     print(
@@ -174,6 +195,8 @@ def export_pyrit_air(
                 "defcon": v.get("defcon"),
                 "probe_count": v.get("probe_count", 0),
                 "evaluated": v.get("evaluated", 0),
+                "null_rate": v.get("null_rate", 0.0),
+                "effective_coverage": v.get("effective_coverage", 0.0),
             }
             scores.append({
                 "score_value": _asr_to_score_value(asr),
@@ -201,6 +224,8 @@ def export_pyrit_air(
         meta = {
             "defcon": v.get("defcon"),
             "detectors": json.dumps(v.get("detectors", {}), ensure_ascii=False),
+            "null_rate": v.get("null_rate", 0.0),
+            "effective_coverage": v.get("effective_coverage", 0.0),
         }
         ci = v.get("ci")
         if ci is not None:
@@ -238,6 +263,8 @@ def export_pyrit_air(
         },
         # 覆盖缺口：声明未被 garak 探针覆盖的 OWASP 类（N/A，非评估通过）
         "coverage_gaps": coverage_gaps,
+        # 数据可靠性：nones 占比过高时标注评估不可靠（对齐 garak 0.15.1 官方行为）
+        "data_reliability": analysis.get("data_quality", {}),
         "modality_filter": analysis.get("modality_filter"),
         "scores": scores,
     }

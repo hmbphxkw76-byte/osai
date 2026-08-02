@@ -1,0 +1,468 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>web_redteam.auth.browser_session &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">web_redteam.auth.browser_session</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for web_redteam.auth.browser_session</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;浏览器会话管理器。.</span>
+
+<span class="sd">支持两种模式:</span>
+<span class="sd">  1. launch_with_debug_port(): 启动新浏览器, 开启 CDP 调试端口</span>
+<span class="sd">     → 人工可在浏览器窗口中操作 (滑块/扫码/OTP)</span>
+<span class="sd">  2. connect_via_cdp(): 连接已有浏览器会话 (复用已登录状态)</span>
+
+<span class="sd">认证状态持久化:</span>
+<span class="sd">  - save_storage_state(): 保存 cookies + localStorage 到 JSON</span>
+<span class="sd">  - restore_storage_state(): 从 JSON 恢复, 跳过重复认证</span>
+
+<span class="sd">对齐 PyRIT 原生模式:</span>
+<span class="sd">  - doc/code/targets/10_2_playwright_target_copilot.py 的 connect_to_existing_browser</span>
+<span class="sd">  - Playwright 原生 context.storage_state() API</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">Browser</span><span class="p">,</span> <span class="n">BrowserContext</span><span class="p">,</span> <span class="n">Page</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="BrowserSession">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BrowserSession</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;浏览器会话管理器。.</span>
+
+<span class="sd">    管理 Playwright 浏览器生命周期, 支持 CDP 连接和认证状态持久化。</span>
+
+<span class="sd">    用法:</span>
+<span class="sd">        session = BrowserSession()</span>
+<span class="sd">        page = await session.launch_with_debug_port(port=9222, headless=False)</span>
+<span class="sd">        # ... 认证 + 攻击 ...</span>
+<span class="sd">        await session.save_storage_state(page.context, &quot;auth_state.json&quot;)</span>
+<span class="sd">        await session.close()</span>
+
+<span class="sd">    下次运行:</span>
+<span class="sd">        session = BrowserSession()</span>
+<span class="sd">        page = await session.restore_storage_state(&quot;auth_state.json&quot;)</span>
+<span class="sd">        # ... 直接攻击, 无需再次认证 ...</span>
+<span class="sd">        await session.close()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="p">:</span> <span class="n">Browser</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="p">:</span> <span class="n">BrowserContext</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_page</span><span class="p">:</span> <span class="n">Page</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span><span class="p">:</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="BrowserSession.launch_with_debug_port">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.launch_with_debug_port">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">launch_with_debug_port</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">9222</span><span class="p">,</span>
+        <span class="n">headless</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">browser_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Page</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;启动 Chromium, 开启远程调试端口。.</span>
+
+<span class="sd">        流程:</span>
+<span class="sd">          1. 通过 subprocess 启动 Chrome/Chromium: --remote-debugging-port={port}</span>
+<span class="sd">          2. async_playwright().chromium.connect_over_cdp(f&quot;http://localhost:{port}&quot;)</span>
+<span class="sd">          3. 获取或创建 context + page</span>
+<span class="sd">          4. 返回 page (人工可在浏览器窗口操作)</span>
+
+<span class="sd">        对齐 doc/code/targets/10_2_playwright_target_copilot.py 的</span>
+<span class="sd">        connect_to_existing_browser 模式, 但由程序自动启动浏览器。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            port: CDP 调试端口, 默认 9222。</span>
+<span class="sd">            headless: 是否无头模式 (认证场景建议 False)。</span>
+<span class="sd">            browser_path: 浏览器可执行文件路径 (可选, 默认自动检测)。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Playwright Page 对象。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">async_playwright</span>
+
+        <span class="c1"># 启动浏览器进程 (带远程调试端口)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">headless</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_launch_browser_process</span><span class="p">(</span><span class="n">port</span><span class="p">,</span> <span class="n">browser_path</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="c1"># 等待浏览器就绪</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span> <span class="o">=</span> <span class="k">await</span> <span class="n">async_playwright</span><span class="p">()</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span><span class="p">:</span>
+            <span class="c1"># 连接到刚启动的浏览器</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="o">.</span><span class="n">chromium</span><span class="o">.</span><span class="n">connect_over_cdp</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;http://localhost:</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># 无头模式直接启动</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="o">.</span><span class="n">chromium</span><span class="o">.</span><span class="n">launch</span><span class="p">(</span><span class="n">headless</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="c1"># 获取或创建 context</span>
+        <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">contexts</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="p">,</span> <span class="s2">&quot;contexts&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">contexts</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">pages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">pages</span>
+            <span class="k">if</span> <span class="n">pages</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="n">pages</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">new_page</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">new_context</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">new_page</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;BrowserSession: browser launched (headless=</span><span class="si">{</span><span class="n">headless</span><span class="si">}</span><span class="s2">, port=</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span></div>
+
+
+<div class="viewcode-block" id="BrowserSession.connect_via_cdp">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.connect_via_cdp">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect_via_cdp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">9222</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Page</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;通过 CDP 连接已有浏览器会话。.</span>
+
+<span class="sd">        对齐 doc/code/targets/10_2_playwright_target_copilot.py 的</span>
+<span class="sd">        connect_to_existing_browser 函数。</span>
+
+<span class="sd">        适用于: 用户已手动打开浏览器并登录, 程序直接接管。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            port: CDP 调试端口。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Playwright Page 对象。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">async_playwright</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span> <span class="o">=</span> <span class="k">await</span> <span class="n">async_playwright</span><span class="p">()</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="o">.</span><span class="n">chromium</span><span class="o">.</span><span class="n">connect_over_cdp</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;http://localhost:</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">contexts</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="p">,</span> <span class="s2">&quot;contexts&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">contexts</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">pages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">pages</span>
+            <span class="k">if</span> <span class="n">pages</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="n">pages</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">new_page</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">new_context</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">new_page</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;BrowserSession: connected via CDP (port=</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span></div>
+
+
+<div class="viewcode-block" id="BrowserSession.save_storage_state">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.save_storage_state">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">save_storage_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">BrowserContext</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;保存认证状态 (cookies + localStorage) 到 JSON 文件。.</span>
+
+<span class="sd">        使用 Playwright 原生 API: await context.storage_state(path=path)</span>
+<span class="sd">        下次运行可通过 restore_storage_state() 跳过认证。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            context: 要保存的 BrowserContext。</span>
+<span class="sd">            path: 保存路径。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">storage_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">storage_path</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">context</span><span class="o">.</span><span class="n">storage_state</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">storage_path</span><span class="p">))</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;BrowserSession: storage state saved to </span><span class="si">{</span><span class="n">storage_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BrowserSession.restore_storage_state">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.restore_storage_state">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">restore_storage_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">storage_state_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Page</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;从 JSON 文件恢复认证状态, 创建已认证的 BrowserContext。.</span>
+
+<span class="sd">        使用 Playwright 原生 API: browser.new_context(storage_state=path)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            storage_state_path: 认证状态 JSON 文件路径。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            已认证的 Page 对象。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">async_playwright</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">Path</span><span class="p">(</span><span class="n">storage_state_path</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Storage state file not found: </span><span class="si">{</span><span class="n">storage_state_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span> <span class="o">=</span> <span class="k">await</span> <span class="n">async_playwright</span><span class="p">()</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="o">.</span><span class="n">chromium</span><span class="o">.</span><span class="n">launch</span><span class="p">(</span><span class="n">headless</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">new_context</span><span class="p">(</span><span class="n">storage_state</span><span class="o">=</span><span class="n">storage_state_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_page</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">new_page</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;BrowserSession: storage state restored from </span><span class="si">{</span><span class="n">storage_state_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span></div>
+
+
+<div class="viewcode-block" id="BrowserSession.navigate_cross_domain">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.navigate_cross_domain">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">navigate_cross_domain</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">,</span>
+        <span class="n">target_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">expected_final_domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">timeout_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Page</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;跨域导航: 处理跨域重定向链。.</span>
+
+<span class="sd">        在跨域认证场景中, 登录过程可能涉及多个域名跳转:</span>
+<span class="sd">          app.com → sso.idp.com → app.com</span>
+
+<span class="sd">        此方法:</span>
+<span class="sd">          1. 导航到 target_url</span>
+<span class="sd">          2. 监听 framenavigated 事件, 追踪域名变化</span>
+<span class="sd">          3. 等待重定向链完成 (回到目标域名或超时)</span>
+<span class="sd">          4. 返回最终停留在目标域名的 page</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            page: Playwright Page 对象。</span>
+<span class="sd">            target_url: 目标 URL。</span>
+<span class="sd">            expected_final_domain: 期望的最终域名 (可选, 用于判断重定向完成)。</span>
+<span class="sd">            timeout_seconds: 超时秒数。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            停留在目标域名的 Page。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">domain_transitions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">on_navigated</span><span class="p">(</span><span class="n">frame</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">frame</span> <span class="o">==</span> <span class="n">page</span><span class="o">.</span><span class="n">main_frame</span><span class="p">:</span>
+                <span class="kn">from</span><span class="w"> </span><span class="nn">urllib.parse</span><span class="w"> </span><span class="kn">import</span> <span class="n">urlparse</span>
+
+                <span class="n">domain</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">netloc</span>
+                <span class="k">if</span> <span class="n">domain</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">domain_transitions</span> <span class="ow">or</span> <span class="n">domain_transitions</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">domain</span><span class="p">):</span>
+                    <span class="n">domain_transitions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">domain</span><span class="p">)</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CrossDomain navigation: </span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2"> (chain: </span><span class="si">{</span><span class="s1">&#39; → &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">domain_transitions</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+        <span class="n">page</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s2">&quot;framenavigated&quot;</span><span class="p">,</span> <span class="n">on_navigated</span><span class="p">)</span>
+
+        <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">goto</span><span class="p">(</span><span class="n">target_url</span><span class="p">,</span> <span class="n">wait_until</span><span class="o">=</span><span class="s2">&quot;domcontentloaded&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">expected_final_domain</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">while</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span> <span class="o">&lt;</span> <span class="n">timeout_seconds</span><span class="p">:</span>
+                <span class="kn">from</span><span class="w"> </span><span class="nn">urllib.parse</span><span class="w"> </span><span class="kn">import</span> <span class="n">urlparse</span>
+
+                <span class="n">current_domain</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">netloc</span>
+                <span class="k">if</span> <span class="n">expected_final_domain</span> <span class="ow">in</span> <span class="n">current_domain</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CrossDomain navigation: reached final domain &#39;</span><span class="si">{</span><span class="n">current_domain</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+                    <span class="k">break</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;CrossDomain navigation: timeout waiting for &#39;</span><span class="si">{</span><span class="n">expected_final_domain</span><span class="si">}</span><span class="s2">&#39;, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;current URL: </span><span class="si">{</span><span class="n">page</span><span class="o">.</span><span class="n">url</span><span class="si">}</span><span class="s2">, transitions: </span><span class="si">{</span><span class="n">domain_transitions</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+
+        <span class="n">page</span><span class="o">.</span><span class="n">remove_listener</span><span class="p">(</span><span class="s2">&quot;framenavigated&quot;</span><span class="p">,</span> <span class="n">on_navigated</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">page</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">page</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Page</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">context</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BrowserContext</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span>
+
+<div class="viewcode-block" id="BrowserSession.close">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.browser_session.BrowserSession.close">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;关闭浏览器会话。.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_page</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owns_browser</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_browser</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_playwright</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_subprocess</span><span class="o">.</span><span class="n">kill</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;BrowserSession: closed&quot;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_launch_browser_process</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">port</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">browser_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;启动浏览器进程, 开启远程调试端口。.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">browser_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">browser_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_browser_executable</span><span class="p">()</span>
+
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">browser_path</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;--remote-debugging-port=</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;--no-first-run&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;--no-default-browser-check&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Launching browser: </span><span class="si">{</span><span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">DEVNULL</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">DEVNULL</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_find_browser_executable</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;自动检测系统上的 Chrome/Chromium 可执行文件路径。.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s2">&quot;win32&quot;</span><span class="p">:</span>
+            <span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="sa">r</span><span class="s2">&quot;C:\Program Files\Google\Chrome\Application\chrome.exe&quot;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s2">&quot;C:\Program Files (x86)\Google\Chrome\Application\chrome.exe&quot;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s2">&quot;C:\Program Files\Microsoft\Edge\Application\msedge.exe&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s2">&quot;darwin&quot;</span><span class="p">:</span>
+            <span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="s2">&quot;/Applications/Google Chrome.app/Contents/MacOS/Google Chrome&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="s2">&quot;google-chrome&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;google-chrome-stable&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;chromium-browser&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;chromium&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;microsoft-edge&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_is_in_path</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">path</span>
+
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="s2">&quot;Could not find a browser executable. Please specify browser_path or install Chrome/Chromium.&quot;</span>
+        <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_in_path</span><span class="p">(</span><span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;检查命令是否在 PATH 中。.&quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+
+    <span class="k">return</span> <span class="n">shutil</span><span class="o">.</span><span class="n">which</span><span class="p">(</span><span class="n">command</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

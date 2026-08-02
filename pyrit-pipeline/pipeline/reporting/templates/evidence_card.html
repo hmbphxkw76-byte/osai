@@ -1,0 +1,65 @@
+<div class="evidence-card {{ 'vulnerability' if (ev.asr | default(0)) > 0 else 'safe' }}">
+  <h4>证据 #{{ idx }}: <code>{{ ev.evidence_id or 'EVD-' ~ (idx | string | zfill(4)) }}</code></h4>
+  
+  <p><strong>攻击技术</strong>: {{ ev.technique_display_name or ev.technique_name or 'N/A' }}</p>
+  
+  {% if ev.converter_chain %}
+  <p><strong>Converter 链</strong>: <code>{{ ev.converter_chain }}</code></p>
+  {% endif %}
+  
+  {% if ev.owasp_id %}
+  {% set badge_class = 'owasp-asi' if ev.owasp_id.startswith('ASI') else 'owasp-llm' %}
+  <p><strong>OWASP</strong>: <span class="owasp-badge {{ badge_class }}">{{ ev.owasp_id }}</span> {{ ev.owasp_category or '' }}</p>
+  {% endif %}
+  
+  {% set asr_val = ev.asr | default(0) %}
+  {% set asr_class = 'asr-high' if asr_val >= 40 else ('asr-medium' if asr_val >= 15 else 'asr-low') %}
+  <p><strong>ASR</strong>: <span class="{{ asr_class }}">{{ "%.1f"|format(asr_val) }}%</span></p>
+  
+  <p><strong>置信度</strong>: {{ ev.confidence or 'medium' }}</p>
+  
+  {% if ev.arxiv_reference %}
+  <p><strong>学术引用</strong>: {{ ev.arxiv_reference }}</p>
+  {% endif %}
+  
+  {% if ev.objective %}
+  <p><strong>攻击目标</strong>: {{ ev.objective[:300] }}</p>
+  {% endif %}
+  
+  {% if ev.attack_chain %}
+  <h5>攻击链路 (Attack Chain)</h5>
+  <ul class="attack-chain">
+    {% for step in ev.attack_chain %}
+    {% set outcome = (step.outcome or '').upper() %}
+    {% set step_class = 'success' if outcome == 'SUCCESS' else 'failure' %}
+    {% set reason_str = ' — ' ~ step.failure_reason if step.failure_reason else '' %}
+    <li class="{{ step_class }}"><strong>步骤 {{ step.step or '' }}</strong>: {{ step.technique or '' }} → {{ outcome }} ({{ step.role or '' }}){{ reason_str }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  
+  {% if ev.converter_log %}
+  <h5>Converter 转换日志</h5>
+  {% for cl in ev.converter_log %}
+  <div class="converter-entry">
+    <strong>步骤 {{ cl.step or '' }}</strong> ({{ cl.role or '' }})
+    <br>
+    原始: <code>{{ cl.original[:200] }}</code>
+    {% if cl.transformed == 'true' %}
+    <br>
+    <span class="arrow">→</span> 变换: <code>{{ cl.converted[:200] }}</code>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  
+  {% if ev.jailbreak_prompt %}
+  <h5>越狱载荷 (Jailbreak Prompt)</h5>
+  <pre><code>{{ ev.jailbreak_prompt[:1000] }}</code></pre>
+  {% endif %}
+  
+  {% if ev.harmful_output %}
+  <h5>目标模型响应 (Harmful Output)</h5>
+  <pre><code>{{ ev.harmful_output[:1000] }}</code></pre>
+  {% endif %}
+</div>

@@ -182,7 +182,7 @@ def detect_model_tier_from_registry() -> tuple[str, str]:
             tier = infer_model_tier(str(model_name))
             logger.info(f"Model tier from TargetRegistry: {model_name} → {tier}")
             return str(model_name), tier
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.debug(f"Failed to detect model from TargetRegistry: {e}")
 
     # 3. 默认

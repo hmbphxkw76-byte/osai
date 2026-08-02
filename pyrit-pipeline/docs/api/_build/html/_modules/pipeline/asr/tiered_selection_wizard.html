@@ -1,0 +1,473 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.asr.tiered_selection_wizard &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.asr.tiered_selection_wizard</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.asr.tiered_selection_wizard</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;三层渐进式选择向导 — 按 ASR Tier 分层推荐攻击技术。.</span>
+
+<span class="sd">红队评估面临&quot;技术太多、时间有限&quot;的困境。本模块实现三层渐进式选择:</span>
+
+<span class="sd">  Layer 1 (快速评估): Tier S/A 技术 (ASR &gt;= 40%) — 少量高命中率攻击</span>
+<span class="sd">  Layer 2 (标准评估): + Tier B 技术 (ASR &gt;= 15%) — 覆盖中等有效性攻击</span>
+<span class="sd">  Layer 3 (深度评估): + Tier C/D 技术 (ASR &lt; 15%) — 全面覆盖所有攻击</span>
+
+<span class="sd">每层推荐的技术数量、数据集大小、并发度不同:</span>
+<span class="sd">  Layer 1: 3-5 个技术, 每数据集 5 个种子, 并发 5</span>
+<span class="sd">  Layer 2: 8-12 个技术, 每数据集 10 个种子, 并发 5</span>
+<span class="sd">  Layer 3: 全部技术, 每数据集 20 个种子, 并发 3</span>
+
+<span class="sd">学术依据:</span>
+<span class="sd">  - JailbreakBench (arXiv:2402.01135): Tier 分层标准</span>
+<span class="sd">  - HarmBench (arXiv:2402.04249): ASR 加权采样防止执行爆炸</span>
+<span class="sd">  - Russellinovich et al. (arXiv:2402.12109): 高 ASR 技术优先</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.prior_registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_initial_q_value</span><span class="p">,</span> <span class="n">tier_from_asr</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 层级配置</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="TierLayerConfig">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TierLayerConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TierLayerConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单个层级的配置。.&quot;&quot;&quot;</span>
+
+    <span class="n">layer</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">min_tier</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># 最低包含的 Tier</span>
+    <span class="n">max_techniques</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">max_dataset_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">max_concurrency</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">max_attempts</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">include_baseline</span><span class="p">:</span> <span class="nb">bool</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">tier_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;获取该层包含的所有 Tier。.&quot;&quot;&quot;</span>
+        <span class="n">all_tiers</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">,</span> <span class="s2">&quot;D&quot;</span><span class="p">,</span> <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">]</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">all_tiers</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">min_tier</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_tiers</span><span class="p">[:</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span></div>
+
+
+
+<span class="c1"># 三层默认配置</span>
+<span class="n">LAYER_CONFIGS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">TierLayerConfig</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="mi">1</span><span class="p">:</span> <span class="n">TierLayerConfig</span><span class="p">(</span>
+        <span class="n">layer</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;快速评估&quot;</span><span class="p">,</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Tier S/A 高 ASR 技术, 少量种子, 快速获取结果信号&quot;</span><span class="p">,</span>
+        <span class="n">min_tier</span><span class="o">=</span><span class="s2">&quot;A&quot;</span><span class="p">,</span>
+        <span class="n">max_techniques</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+        <span class="n">max_dataset_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+        <span class="n">max_concurrency</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+        <span class="n">max_attempts</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">include_baseline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="mi">2</span><span class="p">:</span> <span class="n">TierLayerConfig</span><span class="p">(</span>
+        <span class="n">layer</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;标准评估&quot;</span><span class="p">,</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;+ Tier B 中等 ASR 技术, 覆盖更多攻击向量&quot;</span><span class="p">,</span>
+        <span class="n">min_tier</span><span class="o">=</span><span class="s2">&quot;B&quot;</span><span class="p">,</span>
+        <span class="n">max_techniques</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+        <span class="n">max_dataset_size</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+        <span class="n">max_concurrency</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+        <span class="n">max_attempts</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+        <span class="n">include_baseline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="mi">3</span><span class="p">:</span> <span class="n">TierLayerConfig</span><span class="p">(</span>
+        <span class="n">layer</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;深度评估&quot;</span><span class="p">,</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;+ Tier C/D 低 ASR 技术, 全面覆盖所有攻击向量&quot;</span><span class="p">,</span>
+        <span class="n">min_tier</span><span class="o">=</span><span class="s2">&quot;D&quot;</span><span class="p">,</span>
+        <span class="n">max_techniques</span><span class="o">=</span><span class="mi">99</span><span class="p">,</span>
+        <span class="n">max_dataset_size</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+        <span class="n">max_concurrency</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+        <span class="n">max_attempts</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+        <span class="n">include_baseline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 推荐结果</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="LayerRecommendation">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.LayerRecommendation">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LayerRecommendation</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单个层级的推荐结果。.&quot;&quot;&quot;</span>
+
+    <span class="n">layer</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">TierLayerConfig</span>
+    <span class="n">recommended_techniques</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">technique_tiers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="n">estimated_time_minutes</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">estimated_cost</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;low&quot;</span>
+
+<div class="viewcode-block" id="LayerRecommendation.to_dict">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.LayerRecommendation.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;layer&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer</span><span class="p">,</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+            <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+            <span class="s2">&quot;recommended_techniques&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">,</span>
+            <span class="s2">&quot;technique_tiers&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">technique_tiers</span><span class="p">,</span>
+            <span class="s2">&quot;max_techniques&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_techniques</span><span class="p">,</span>
+            <span class="s2">&quot;max_dataset_size&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_dataset_size</span><span class="p">,</span>
+            <span class="s2">&quot;max_concurrency&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_concurrency</span><span class="p">,</span>
+            <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_attempts</span><span class="p">,</span>
+            <span class="s2">&quot;include_baseline&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">include_baseline</span><span class="p">,</span>
+            <span class="s2">&quot;estimated_time_minutes&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">estimated_time_minutes</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="s2">&quot;estimated_cost&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimated_cost</span><span class="p">,</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="TieredRecommendation">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredRecommendation">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TieredRecommendation</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;三层渐进式推荐结果。.&quot;&quot;&quot;</span>
+
+    <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">layers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">LayerRecommendation</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+
+<div class="viewcode-block" id="TieredRecommendation.to_dict">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredRecommendation.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_name</span><span class="p">,</span>
+            <span class="s2">&quot;model_tier&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_tier</span><span class="p">,</span>
+            <span class="s2">&quot;owasp_id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owasp_id</span><span class="p">,</span>
+            <span class="s2">&quot;layers&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">layer</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">layer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">layers</span><span class="p">],</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># TieredSelectionWizard</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="TieredSelectionWizard">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredSelectionWizard">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">TieredSelectionWizard</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;三层渐进式选择向导。.</span>
+
+<span class="sd">    使用方式:</span>
+<span class="sd">        wizard = TieredSelectionWizard(</span>
+<span class="sd">            model_name=&quot;gpt-4o&quot;,</span>
+<span class="sd">            model_tier=&quot;strong&quot;,</span>
+<span class="sd">        )</span>
+<span class="sd">        recommendation = wizard.recommend(</span>
+<span class="sd">            available_techniques=[&quot;crescendo&quot;, &quot;tap&quot;, &quot;many_shot&quot;, ...],</span>
+<span class="sd">            owasp_id=&quot;LLM01&quot;,</span>
+<span class="sd">        )</span>
+<span class="sd">        print(wizard.format_recommendation(recommendation))</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># 单次攻击预估时间 (分钟)</span>
+    <span class="n">_TIME_PER_ATTACK</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;S&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>  <span class="c1"># 高 ASR 技术通常单轮</span>
+        <span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>  <span class="c1"># 中等多轮</span>
+        <span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span>  <span class="c1"># 多轮或 LLM 辅助</span>
+        <span class="s2">&quot;C&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>  <span class="c1"># 低效多轮</span>
+        <span class="s2">&quot;D&quot;</span><span class="p">:</span> <span class="mf">2.5</span><span class="p">,</span>  <span class="c1"># 极低效</span>
+        <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+        <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model_name</span> <span class="o">=</span> <span class="n">model_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span> <span class="o">=</span> <span class="n">model_tier</span>
+
+<div class="viewcode-block" id="TieredSelectionWizard.recommend">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredSelectionWizard.recommend">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">recommend</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">available_techniques</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="n">datasets</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TieredRecommendation</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;生成三层渐进式推荐。.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            available_techniques: 可用技术列表</span>
+<span class="sd">            owasp_id: OWASP 分类 ID</span>
+<span class="sd">            datasets: 数据集列表 (用于估算时间)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            TieredRecommendation: 三层推荐结果</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 计算每个技术的 ASR 和 Tier</span>
+        <span class="n">tech_asr_tier</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">tech</span> <span class="ow">in</span> <span class="n">available_techniques</span><span class="p">:</span>
+            <span class="n">asr</span> <span class="o">=</span> <span class="n">get_initial_q_value</span><span class="p">(</span>
+                <span class="n">tech</span><span class="p">,</span>
+                <span class="n">model_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_name</span><span class="p">,</span>
+                <span class="n">model_tier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+                <span class="n">owasp_id</span><span class="o">=</span><span class="n">owasp_id</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">tier</span> <span class="o">=</span> <span class="n">tier_from_asr</span><span class="p">(</span><span class="n">asr</span><span class="p">)</span>
+            <span class="n">tech_asr_tier</span><span class="p">[</span><span class="n">tech</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">asr</span><span class="p">,</span> <span class="n">tier</span><span class="p">)</span>
+
+        <span class="c1"># 按 ASR 降序排列</span>
+        <span class="n">sorted_techs</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+            <span class="n">tech_asr_tier</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span>
+            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">tech_asr_tier</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">recommendation</span> <span class="o">=</span> <span class="n">TieredRecommendation</span><span class="p">(</span>
+            <span class="n">model_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_name</span><span class="p">,</span>
+            <span class="n">model_tier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+            <span class="n">owasp_id</span><span class="o">=</span><span class="n">owasp_id</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">num_datasets</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">datasets</span><span class="p">)</span> <span class="k">if</span> <span class="n">datasets</span> <span class="k">else</span> <span class="mi">3</span>
+
+        <span class="k">for</span> <span class="n">layer_num</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]:</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">LAYER_CONFIGS</span><span class="p">[</span><span class="n">layer_num</span><span class="p">]</span>
+            <span class="n">tier_filter</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">tier_filter</span>
+
+            <span class="c1"># 筛选该层级的技术</span>
+            <span class="n">layer_techs</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">sorted_techs</span> <span class="k">if</span> <span class="n">tech_asr_tier</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="n">tier_filter</span><span class="p">]</span>
+
+            <span class="c1"># 限制数量</span>
+            <span class="n">layer_techs</span> <span class="o">=</span> <span class="n">layer_techs</span><span class="p">[:</span> <span class="n">config</span><span class="o">.</span><span class="n">max_techniques</span><span class="p">]</span>
+
+            <span class="c1"># 添加 baseline</span>
+            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">include_baseline</span> <span class="ow">and</span> <span class="s2">&quot;prompt_sending&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">layer_techs</span><span class="p">:</span>
+                <span class="n">layer_techs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;prompt_sending&quot;</span><span class="p">)</span>
+
+            <span class="c1"># 估算时间</span>
+            <span class="n">est_time</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_estimate_time</span><span class="p">(</span>
+                <span class="n">layer_techs</span><span class="p">,</span>
+                <span class="n">tech_asr_tier</span><span class="p">,</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">max_dataset_size</span><span class="p">,</span>
+                <span class="n">num_datasets</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="c1"># 估算成本</span>
+            <span class="n">cost</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_estimate_cost</span><span class="p">(</span><span class="n">layer_techs</span><span class="p">,</span> <span class="n">tech_asr_tier</span><span class="p">)</span>
+
+            <span class="n">layer_rec</span> <span class="o">=</span> <span class="n">LayerRecommendation</span><span class="p">(</span>
+                <span class="n">layer</span><span class="o">=</span><span class="n">layer_num</span><span class="p">,</span>
+                <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+                <span class="n">recommended_techniques</span><span class="o">=</span><span class="n">layer_techs</span><span class="p">,</span>
+                <span class="n">technique_tiers</span><span class="o">=</span><span class="p">{</span><span class="n">t</span><span class="p">:</span> <span class="n">tech_asr_tier</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">layer_techs</span><span class="p">},</span>
+                <span class="n">estimated_time_minutes</span><span class="o">=</span><span class="n">est_time</span><span class="p">,</span>
+                <span class="n">estimated_cost</span><span class="o">=</span><span class="n">cost</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">recommendation</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">layer_rec</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;TieredSelectionWizard: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">available_techniques</span><span class="p">)</span><span class="si">}</span><span class="s2"> techniques → &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;L1=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">recommendation</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">)</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;L2=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">recommendation</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">)</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;L3=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">recommendation</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">recommendation</span></div>
+
+
+<div class="viewcode-block" id="TieredSelectionWizard.format_recommendation">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredSelectionWizard.format_recommendation">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_recommendation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rec</span><span class="p">:</span> <span class="n">TieredRecommendation</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;生成推荐报告文本。.&quot;&quot;&quot;</span>
+        <span class="n">lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;--- 三层渐进式选择向导 ---&quot;</span><span class="p">]</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  目标模型: </span><span class="si">{</span><span class="n">rec</span><span class="o">.</span><span class="n">model_name</span><span class="si">}</span><span class="s2"> (tier=</span><span class="si">{</span><span class="n">rec</span><span class="o">.</span><span class="n">model_tier</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">rec</span><span class="o">.</span><span class="n">owasp_id</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  OWASP 分类: </span><span class="si">{</span><span class="n">rec</span><span class="o">.</span><span class="n">owasp_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">layer</span> <span class="ow">in</span> <span class="n">rec</span><span class="o">.</span><span class="n">layers</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  Layer </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">layer</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    预估时间: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">estimated_time_minutes</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> 分钟&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    预估成本: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">estimated_cost</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    最大技术数: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_techniques</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    每数据集种子数: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_dataset_size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    并发数: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_concurrency</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    每目标最大尝试: </span><span class="si">{</span><span class="n">layer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">max_attempts</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    推荐技术 (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">)</span><span class="si">}</span><span class="s2">):&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">tech</span> <span class="ow">in</span> <span class="n">layer</span><span class="o">.</span><span class="n">recommended_techniques</span><span class="p">:</span>
+                <span class="n">tier</span> <span class="o">=</span> <span class="n">layer</span><span class="o">.</span><span class="n">technique_tiers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech</span><span class="p">,</span> <span class="s2">&quot;?&quot;</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;      [</span><span class="si">{</span><span class="n">tier</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">tech</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  建议:&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;    首次评估: 从 Layer 1 开始, 快速获取 ASR 基线&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;    深度评估: 执行 Layer 2/3, 覆盖更多攻击向量&quot;</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;    修复验证: 修复后重新执行 Layer 1 确认 ASR 下降&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="TieredSelectionWizard.get_layer_config">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.tiered_selection_wizard.TieredSelectionWizard.get_layer_config">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_layer_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TierLayerConfig</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;获取指定层级的配置。.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LAYER_CONFIGS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="n">LAYER_CONFIGS</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_estimate_time</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">techniques</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">tech_asr_tier</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+        <span class="n">max_dataset_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">num_datasets</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;估算执行时间 (分钟)。.&quot;&quot;&quot;</span>
+        <span class="n">total_time</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="n">total_seeds</span> <span class="o">=</span> <span class="n">max_dataset_size</span> <span class="o">*</span> <span class="n">num_datasets</span>
+
+        <span class="k">for</span> <span class="n">tech</span> <span class="ow">in</span> <span class="n">techniques</span><span class="p">:</span>
+            <span class="n">tier</span> <span class="o">=</span> <span class="n">tech_asr_tier</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech</span><span class="p">,</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">))[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">time_per</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_TIME_PER_ATTACK</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tier</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+            <span class="n">total_time</span> <span class="o">+=</span> <span class="n">total_seeds</span> <span class="o">*</span> <span class="n">time_per</span>
+
+        <span class="c1"># 并发加速 (粗略估算)</span>
+        <span class="k">return</span> <span class="n">total_time</span> <span class="o">/</span> <span class="mf">5.0</span>  <span class="c1"># 假设平均 5 并发</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_estimate_cost</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">techniques</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">tech_asr_tier</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;估算执行成本。.&quot;&quot;&quot;</span>
+        <span class="n">llm_techs</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">techniques</span> <span class="k">if</span> <span class="n">tech_asr_tier</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;UNKNOWN&quot;</span><span class="p">))[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;A&quot;</span><span class="p">))</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">total</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;minimal&quot;</span>
+        <span class="n">ratio</span> <span class="o">=</span> <span class="n">llm_techs</span> <span class="o">/</span> <span class="n">total</span>
+        <span class="k">if</span> <span class="n">ratio</span> <span class="o">&gt;</span> <span class="mf">0.6</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;high&quot;</span>
+        <span class="k">if</span> <span class="n">ratio</span> <span class="o">&gt;</span> <span class="mf">0.3</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;medium&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;low&quot;</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

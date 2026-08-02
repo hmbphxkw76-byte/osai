@@ -1,0 +1,449 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>web_redteam.auth.auth_detector &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">web_redteam.auth.auth_detector</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for web_redteam.auth.auth_detector</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;多策略认证完成检测器。.</span>
+
+<span class="sd">支持四种检测策略 (OR 逻辑, 任一满足即认为认证完成):</span>
+<span class="sd">  1. URLPatternStrategy     — 检测 page.url 匹配正则 (同域 + 跨域)</span>
+<span class="sd">  2. DOMElementStrategy     — 检测目标 DOM 元素出现</span>
+<span class="sd">  3. CookiePresenceStrategy — 检测特定 Cookie 已设置</span>
+<span class="sd">  4. NetworkTokenStrategy   — 拦截网络响应提取 Token (对齐 CopilotAuthenticator)</span>
+
+<span class="sd">对齐 PyRIT 原生模式:</span>
+<span class="sd">  - CopilotAuthenticator 用 page.on(&quot;response&quot;, handler) 拦截网络响应</span>
+<span class="sd">  - PlaywrightCopilotTarget 用 page.wait_for_selector 等待元素</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">web_redteam.targets.target_profile</span><span class="w"> </span><span class="kn">import</span> <span class="n">DetectionConfig</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">Page</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="AuthDetectionStrategy">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetectionStrategy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AuthDetectionStrategy</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;认证完成检测策略抽象基类。.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="AuthDetectionStrategy.is_auth_complete">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetectionStrategy.is_auth_complete">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_auth_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;检测认证是否已完成。.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            page: Playwright Page 对象。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True 如果认证已完成, False 否则。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="o">...</span></div>
+
+
+<div class="viewcode-block" id="AuthDetectionStrategy.check_immediate">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetectionStrategy.check_immediate">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_immediate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;立即检测一次 (不等待), 用于检查已有认证状态是否有效。.</span>
+
+<span class="sd">        默认实现等同于 is_auth_complete, 子类可覆盖以提供更快的一次性检测。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_auth_complete</span><span class="p">(</span><span class="n">page</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="URLPatternStrategy">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.URLPatternStrategy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">URLPatternStrategy</span><span class="p">(</span><span class="n">AuthDetectionStrategy</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;URL 模式匹配策略。.</span>
+
+<span class="sd">    同域: 检测 page.url 是否匹配目标 URL 正则。</span>
+<span class="sd">    跨域: 同样检测 page.url, 但结合重定向链追踪判断是否回到目标域名。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">pattern</span><span class="p">)</span>
+
+<div class="viewcode-block" id="URLPatternStrategy.is_auth_complete">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.URLPatternStrategy.is_auth_complete">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_auth_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">current_url</span> <span class="o">=</span> <span class="n">page</span><span class="o">.</span><span class="n">url</span>
+        <span class="n">match</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pattern</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">current_url</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;URLPatternStrategy: URL &#39;</span><span class="si">{</span><span class="n">current_url</span><span class="si">}</span><span class="s2">&#39; matches pattern &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_pattern</span><span class="o">.</span><span class="n">pattern</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="DOMElementStrategy">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.DOMElementStrategy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">DOMElementStrategy</span><span class="p">(</span><span class="n">AuthDetectionStrategy</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;DOM 元素存在策略。.</span>
+
+<span class="sd">    检测目标 DOM 元素是否出现 (如 .chat-container)。</span>
+<span class="sd">    对齐 PlaywrightCopilotTarget 的 page.wait_for_selector 模式。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="n">selector</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timeout_ms</span> <span class="o">=</span> <span class="n">timeout_seconds</span> <span class="o">*</span> <span class="mi">1000</span>
+
+<div class="viewcode-block" id="DOMElementStrategy.is_auth_complete">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.DOMElementStrategy.is_auth_complete">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_auth_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">element</span> <span class="o">=</span> <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">query_selector</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">element</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DOMElementStrategy: element &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="si">}</span><span class="s2">&#39; found&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DOMElementStrategy: error checking selector &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="DOMElementStrategy.check_immediate">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.DOMElementStrategy.check_immediate">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_immediate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_auth_complete</span><span class="p">(</span><span class="n">page</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CookiePresenceStrategy">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.CookiePresenceStrategy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CookiePresenceStrategy</span><span class="p">(</span><span class="n">AuthDetectionStrategy</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Cookie 存在策略。.</span>
+
+<span class="sd">    检测特定 Cookie 是否已设置。</span>
+<span class="sd">    使用 Playwright 原生 API: page.context.cookies()。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cookie_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cookie_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">cookie_names</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_domain</span> <span class="o">=</span> <span class="n">domain</span>
+
+<div class="viewcode-block" id="CookiePresenceStrategy.is_auth_complete">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.CookiePresenceStrategy.is_auth_complete">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_auth_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">cookies</span> <span class="o">=</span> <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">cookies</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_domain</span><span class="p">:</span>
+                <span class="n">cookies</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">cookies</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_domain</span> <span class="ow">in</span> <span class="n">c</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;domain&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)]</span>
+            <span class="n">existing_names</span> <span class="o">=</span> <span class="p">{</span><span class="n">c</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">cookies</span><span class="p">}</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cookie_names</span><span class="o">.</span><span class="n">issubset</span><span class="p">(</span><span class="n">existing_names</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CookiePresenceStrategy: all cookies </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_cookie_names</span><span class="si">}</span><span class="s2"> found&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CookiePresenceStrategy: error checking cookies: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="NetworkTokenStrategy">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.NetworkTokenStrategy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">NetworkTokenStrategy</span><span class="p">(</span><span class="n">AuthDetectionStrategy</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;网络响应 Token 拦截策略。.</span>
+
+<span class="sd">    对齐 CopilotAuthenticator 的 response_handler_async 模式:</span>
+<span class="sd">    注册 page.on(&quot;response&quot;, handler) 拦截网络响应, 解析 JSON 提取 Token。</span>
+
+<span class="sd">    适用于: API 认证场景 (如 OAuth Token 端点响应)。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">url_pattern</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;/oauth2/v2.0/token&quot;</span><span class="p">,</span>
+        <span class="n">token_field</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;access_token&quot;</span><span class="p">,</span>
+        <span class="n">token_keyword</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_url_pattern</span> <span class="o">=</span> <span class="n">url_pattern</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_token_field</span> <span class="o">=</span> <span class="n">token_field</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_token_keyword</span> <span class="o">=</span> <span class="n">token_keyword</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_response_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;创建网络响应处理器 (对齐 CopilotAuthenticator.response_handler_async)。.&quot;&quot;&quot;</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handler</span><span class="p">(</span><span class="n">response</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">url</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">url</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_url_pattern</span> <span class="ow">in</span> <span class="n">url</span><span class="p">:</span>
+                    <span class="n">text</span> <span class="o">=</span> <span class="k">await</span> <span class="n">response</span><span class="o">.</span><span class="n">text</span><span class="p">()</span>
+                    <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_token_field</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+                        <span class="n">token</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_token_field</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_token_keyword</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_token_keyword</span> <span class="ow">in</span> <span class="n">text</span><span class="p">:</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span> <span class="o">=</span> <span class="n">token</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;NetworkTokenStrategy: token captured from </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;NetworkTokenStrategy: error handling response: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">handler</span>
+
+<div class="viewcode-block" id="NetworkTokenStrategy.is_auth_complete">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.NetworkTokenStrategy.is_auth_complete">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_auth_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NetworkTokenStrategy.check_immediate">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.NetworkTokenStrategy.check_immediate">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_immediate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NetworkTokenStrategy.attach_to_page">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.NetworkTokenStrategy.attach_to_page">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">attach_to_page</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;将响应处理器附加到 Page (在导航前调用)。.&quot;&quot;&quot;</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_response_handler</span><span class="p">())</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">captured_token</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_captured_token</span></div>
+
+
+
+<div class="viewcode-block" id="AuthDetector">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetector">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AuthDetector</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;多策略认证完成检测器。.</span>
+
+<span class="sd">    使用 OR 逻辑: 任一策略满足即认为认证完成。</span>
+<span class="sd">    轮询检测, 直到任一策略满足或超时。</span>
+
+<span class="sd">    用法:</span>
+<span class="sd">        detector = AuthDetector(strategies=[...], timeout_seconds=300)</span>
+<span class="sd">        is_complete = await detector.wait_for_completion(page)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">strategies</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AuthDetectionStrategy</span><span class="p">],</span>
+        <span class="n">poll_interval_seconds</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">timeout_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">strategies</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;AuthDetector requires at least one strategy&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_strategies</span> <span class="o">=</span> <span class="n">strategies</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_poll_interval</span> <span class="o">=</span> <span class="n">poll_interval_seconds</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timeout</span> <span class="o">=</span> <span class="n">timeout_seconds</span>
+
+<div class="viewcode-block" id="AuthDetector.wait_for_completion">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetector.wait_for_completion">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">wait_for_completion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;轮询检测, 直到任一策略满足或超时。.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            page: Playwright Page 对象。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True 如果认证完成, False 如果超时。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthDetector: waiting for auth completion (timeout=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_timeout</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">)</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">while</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timeout</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">strategy</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_strategies</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="k">await</span> <span class="n">strategy</span><span class="o">.</span><span class="n">is_auth_complete</span><span class="p">(</span><span class="n">page</span><span class="p">):</span>
+                        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthDetector: auth completed after </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="kc">True</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthDetector: strategy </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">strategy</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_poll_interval</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthDetector: timed out after </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_timeout</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="AuthDetector.check_immediate">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetector.check_immediate">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_immediate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;立即检测一次 (不轮询), 用于检查已有认证状态。.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True 如果任一策略立即满足, False 否则。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">strategy</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_strategies</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="k">await</span> <span class="n">strategy</span><span class="o">.</span><span class="n">check_immediate</span><span class="p">(</span><span class="n">page</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="kc">True</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthDetector: check_immediate strategy error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="AuthDetectorFactory">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetectorFactory">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AuthDetectorFactory</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 TargetProfile 的 DetectionConfig 列表创建 AuthDetector。.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="AuthDetectorFactory.from_configs">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_detector.AuthDetectorFactory.from_configs">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_configs</span><span class="p">(</span>
+        <span class="n">configs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DetectionConfig</span><span class="p">],</span>
+        <span class="n">poll_interval_seconds</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">timeout_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AuthDetector</span><span class="p">:</span>
+        <span class="n">strategies</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AuthDetectionStrategy</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">cfg</span> <span class="ow">in</span> <span class="n">configs</span><span class="p">:</span>
+            <span class="n">strategy</span> <span class="o">=</span> <span class="n">AuthDetectorFactory</span><span class="o">.</span><span class="n">_create_strategy</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">strategy</span><span class="p">:</span>
+                <span class="n">strategies</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">strategy</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">strategies</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No valid detection strategies configured&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">AuthDetector</span><span class="p">(</span>
+            <span class="n">strategies</span><span class="o">=</span><span class="n">strategies</span><span class="p">,</span>
+            <span class="n">poll_interval_seconds</span><span class="o">=</span><span class="n">poll_interval_seconds</span><span class="p">,</span>
+            <span class="n">timeout_seconds</span><span class="o">=</span><span class="n">timeout_seconds</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_strategy</span><span class="p">(</span><span class="n">cfg</span><span class="p">:</span> <span class="n">DetectionConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AuthDetectionStrategy</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">strategy</span> <span class="o">==</span> <span class="s2">&quot;url_pattern&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">pattern</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;url_pattern strategy missing &#39;pattern&#39;, skipping&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+            <span class="k">return</span> <span class="n">URLPatternStrategy</span><span class="p">(</span><span class="n">pattern</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">pattern</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">cfg</span><span class="o">.</span><span class="n">strategy</span> <span class="o">==</span> <span class="s2">&quot;dom_element&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">selector</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;dom_element strategy missing &#39;selector&#39;, skipping&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+            <span class="k">return</span> <span class="n">DOMElementStrategy</span><span class="p">(</span><span class="n">selector</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">selector</span><span class="p">,</span> <span class="n">timeout_seconds</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">timeout_seconds</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">cfg</span><span class="o">.</span><span class="n">strategy</span> <span class="o">==</span> <span class="s2">&quot;cookie_presence&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">cookie_names</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;cookie_presence strategy missing &#39;cookie_names&#39;, skipping&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+            <span class="k">return</span> <span class="n">CookiePresenceStrategy</span><span class="p">(</span><span class="n">cookie_names</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">cookie_names</span><span class="p">,</span> <span class="n">domain</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">domain</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">cfg</span><span class="o">.</span><span class="n">strategy</span> <span class="o">==</span> <span class="s2">&quot;network_token&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">NetworkTokenStrategy</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown detection strategy: </span><span class="si">{</span><span class="n">cfg</span><span class="o">.</span><span class="n">strategy</span><span class="si">}</span><span class="s2">, skipping&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

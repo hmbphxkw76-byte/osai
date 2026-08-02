@@ -1,0 +1,18 @@
+PyRIT-Pipeline API 文档
+=======================
+
+ASR 数据驱动的端到端 AI Red Team 流水线。
+
+.. toctree::
+   :maxdepth: 3
+   :caption: 核心模块
+
+   pipeline
+   web_redteam
+
+索引
+====
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

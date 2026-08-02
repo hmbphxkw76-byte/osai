@@ -341,16 +341,22 @@ collector.save_json(collection, output_dir=output_dir)
 collector.save_markdown(collection, output_dir=output_dir)
 ```
 
-### 7.3 HTML/PDF 报告
+### 7.3 L5 报告生成 (ReportGenerator + EvidenceExporter)
 
 ```python
-# 自研: Markdown → HTML/PDF
-convert_report_formats(
-    markdown_content,
-    report_output_dir / "report",
+# L5: 优先使用 ReportGenerator (三级证据链 + OWASP 矩阵 + ZIP 证据包)
+from pipeline.reporting.report_generator import ReportGenerator
+
+generator = ReportGenerator()
+report_result = await generator.generate_report(
+    scenario_result=result,
+    output_dir=report_output_dir,
+    evidence_dir=evidence_dir,
     generate_html=args.html_report,
     generate_pdf=args.pdf_report,
 )
+# 回退: 自研 format_converter (Markdown → HTML/PDF)
+# convert_report_formats(markdown_content, ...)
 ```
 
 报告内容：

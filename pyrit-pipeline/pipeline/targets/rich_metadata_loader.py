@@ -172,8 +172,11 @@ class RichDataset:
 def load_rich_dataset(file_path: str | Path) -> RichDataset:
     """从 .prompt 文件加载富元数据数据集。.
 
-    兼容 PyRIT 原生格式 (无 metadata 的种子也能加载)，
-    同时解析富元数据字段。
+    P3 优化 + R-011 修复:
+      - 复用原生 ``SeedDataset.from_yaml_file()`` 解析种子列表,
+        减少手动解析逻辑
+      - 仅手动解析数据集级富元数据 (references, target_models)
+      - **R-011 回退机制**: 原生解析器失败时回退到手动解析
 
     Args:
         file_path: .prompt 文件路径
@@ -185,34 +188,40 @@ def load_rich_dataset(file_path: str | Path) -> RichDataset:
     if not file_path.exists():
         raise FileNotFoundError(f"Dataset file not found: {file_path}")
 
-    with open(file_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    # P3: 优先使用原生解析器, 失败时回退到手动解析
+    try:
+        from pyrit.models import SeedDataset
 
-    if not data:
-        raise ValueError(f"Empty or invalid YAML in {file_path}")
+        native_dataset = SeedDataset.from_yaml_file(file_path)
+    except (ValueError, Exception) as e:
+        logger.warning(
+            f"Native SeedDataset.from_yaml_file() failed for {file_path}: {e}. "
+            f"Falling back to manual parsing."
+        )
+        native_dataset = _manual_parse_prompt_file(file_path)
+
+    # 手动解析数据集级富元数据 (原生不支持的字段)
+    with open(file_path, encoding="utf-8") as f:
+        raw_data = yaml.safe_load(f)
 
     dataset = RichDataset(
-        dataset_name=data.get("dataset_name", file_path.stem),
-        harm_categories=data.get("harm_categories", ""),
-        source=data.get("source", ""),
-        groups=data.get("groups", ""),
-        data_type=data.get("data_type", "text"),
-        description=data.get("description", ""),
-        seed_type=data.get("seed_type", "objective"),
-        references=data.get("references", []) or [],
-        target_models=data.get("target_models", []) or [],
+        dataset_name=native_dataset.dataset_name,
+        harm_categories=raw_data.get("harm_categories", ""),
+        source=native_dataset.source or "",
+        groups="/".join(native_dataset.groups) if native_dataset.groups else "",
+        data_type=raw_data.get("data_type", "text"),
+        description=native_dataset.description or "",
+        seed_type=raw_data.get("seed_type", "objective"),
+        references=raw_data.get("references", []) or [],
+        target_models=raw_data.get("target_models", []) or [],
     )
 
-    # 解析种子
-    raw_seeds = data.get("seeds", []) or []
-    for seed in raw_seeds:
-        if isinstance(seed, str):
-            dataset.seeds.append({"value": seed})
-            dataset.seed_metadata.append(RichSeedMetadata())
-        elif isinstance(seed, dict):
-            dataset.seeds.append({"value": seed.get("value", "")})
-            metadata_dict = seed.get("metadata", {}) or {}
-            dataset.seed_metadata.append(RichSeedMetadata.from_dict(metadata_dict))
+    # 从原生 dataset 提取 seeds
+    for seed in native_dataset.seeds:
+        dataset.seeds.append({"value": seed.value})
+        # 提取元数据
+        metadata_dict = getattr(seed, "metadata", {}) or {}
+        dataset.seed_metadata.append(RichSeedMetadata.from_dict(metadata_dict))
 
     logger.info(
         f"Loaded rich dataset '{dataset.dataset_name}': "
@@ -306,13 +315,13 @@ def load_rich_prompt_as_native(
 ) -> SeedDataset:
     """加载 .prompt 文件 (兼容富元数据) 为原生 ``SeedDataset``。.
 
-    P3-14: 从 ``rich_metadata_migration.py`` 迁移到本模块,
-    消除格式碎片化, 使富元数据加载逻辑统一管理。
-
-    在原生 ``SeedDataset.from_yaml_file`` 基础上:
-      1. 解析 YAML 中的富元数据字段 (references, target_models, per-seed metadata)
-      2. 将富元数据存入 ``SeedPrompt.metadata`` (原生字段)
-      3. 返回原生 ``SeedDataset`` 实例
+    P3 优化 + R-011 修复:
+      - 优先委托原生 ``SeedDataset.from_yaml_file()`` 解析核心结构,
+        仅手动补充原生不支持的富元数据字段 (references, target_models)
+      - 消除与原生解析器重复的 seeds 构建逻辑
+      - **R-011 回退机制**: 当原生解析器因 YAML 格式严格性失败时
+        (如 seed value 包含未引用的冒号), 回退到手动解析模式,
+        确保向后兼容现有 .prompt 文件
 
     Args:
         file_path: .prompt 文件路径
@@ -320,11 +329,59 @@ def load_rich_prompt_as_native(
     Returns:
         原生 ``SeedDataset`` 实例 (含富元数据)
     """
-    from pyrit.models import (
-        SeedDataset,
-        SeedObjective,
-        SeedPrompt,
+    from pyrit.models import SeedDataset, SeedObjective, SeedPrompt
+
+    # P3: 优先使用原生解析器
+    try:
+        dataset = SeedDataset.from_yaml_file(file_path)
+    except (ValueError, Exception) as e:
+        # R-011: 原生解析器失败时回退到手动解析 (兼容含冒号的 seed value)
+        logger.warning(
+            f"Native SeedDataset.from_yaml_file() failed for {file_path}: {e}. "
+            f"Falling back to manual parsing."
+        )
+        dataset = _manual_parse_prompt_file(file_path)
+
+    # 手动补充数据集级富元数据 (原生不支持的字段)
+    with open(file_path, encoding="utf-8") as f:
+        raw_data = yaml.safe_load(f)
+
+    dataset_metadata: dict[str, Any] = {}
+    for field_name in ("references", "target_models"):
+        val = raw_data.get(field_name)
+        if val:
+            dataset_metadata[field_name] = val
+
+    # 将数据集级元数据存入 description (原生 SeedDataset 无 metadata 字段)
+    if dataset_metadata:
+        meta_str = f" | Metadata: {dataset_metadata}"
+        if dataset.description:
+            dataset.description += meta_str
+        else:
+            dataset.description = f"Metadata: {dataset_metadata}"
+
+    logger.info(
+        f"Loaded rich dataset '{dataset.dataset_name}': {len(dataset.seeds)} seeds, "
+        f"rich_metadata={'yes' if any(getattr(s, 'metadata', None) for s in dataset.seeds) else 'no'}"
     )
+
+    return dataset
+
+
+def _manual_parse_prompt_file(file_path: str | Path) -> "SeedDataset":
+    """手动解析 .prompt 文件为原生 SeedDataset (回退方案)。
+
+    R-011: 当原生 ``SeedDataset.from_yaml_file()`` 因 YAML 格式严格性
+    失败时使用此回退方案。手动解析使用 ``yaml.safe_load`` 的宽松模式,
+    能处理 seed value 中包含未引用冒号的情况。
+
+    Args:
+        file_path: .prompt 文件路径
+
+    Returns:
+        原生 ``SeedDataset`` 实例
+    """
+    from pyrit.models import SeedDataset, SeedObjective, SeedPrompt
 
     file_path = Path(file_path)
     with open(file_path, encoding="utf-8") as f:
@@ -334,23 +391,14 @@ def load_rich_prompt_as_native(
         raise ValueError(f"Empty or invalid YAML in {file_path}")
 
     dataset_name = data.get("dataset_name", file_path.stem)
-
-    # 提取数据集级元数据
-    dataset_metadata: dict[str, Any] = {}
-    for field_name in ("references", "target_models"):
-        val = data.get(field_name)
-        if val:
-            dataset_metadata[field_name] = val
+    seed_type = data.get("seed_type", "objective")
 
     # 构建原生 seeds
     seeds: list[SeedObjective | SeedPrompt] = []
     raw_seeds = data.get("seeds", []) or []
 
-    seed_type = data.get("seed_type", "objective")
-
     for seed in raw_seeds:
         if isinstance(seed, str):
-            # 简单格式: "- value"
             if seed_type == "objective":
                 seeds.append(SeedObjective(value=seed))
             else:
@@ -377,19 +425,6 @@ def load_rich_prompt_as_native(
         source=data.get("source", ""),
         groups=data.get("groups", "").split("/") if data.get("groups") else [],
         description=data.get("description", ""),
-    )
-
-    # 将数据集级元数据存入 dataset 的 description 后面 (原生 SeedDataset 无 metadata 字段)
-    if dataset_metadata:
-        meta_str = f" | Metadata: {dataset_metadata}"
-        if dataset.description:
-            dataset.description += meta_str
-        else:
-            dataset.description = f"Metadata: {dataset_metadata}"
-
-    logger.info(
-        f"Loaded rich dataset '{dataset_name}': {len(seeds)} seeds, "
-        f"rich_metadata={'yes' if any(getattr(s, 'metadata', None) for s in seeds) else 'no'}"
     )
 
     return dataset

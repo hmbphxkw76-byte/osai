@@ -447,7 +447,7 @@ Level 3: Conversation (原生 PyRIT)
 | `report_generator.py` | 报告生成器 | — |
 | `evidence_exporter.py` | 证据导出器 | — |
 | `owasp_data.py` | OWASP 分类数据 | — |
-| `html_report.py` | HTML 报告模板 | — |
+| `format_converter.py` | HTML/PDF 报告转换 | — |
 
 ### 10.5 目标层模块 (`pipeline/targets/`)
 

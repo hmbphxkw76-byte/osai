@@ -1,0 +1,270 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>web_redteam.targets.dynamic_profile &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">web_redteam.targets.dynamic_profile</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for web_redteam.targets.dynamic_profile</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;动态 Profile 生成器。.</span>
+
+<span class="sd">当用户通过 --target-url 快速模式运行时, 从 URL 自动生成最小化 TargetProfile。</span>
+
+<span class="sd">生成的 Profile 包含:</span>
+<span class="sd">  - auth.type = &quot;auto&quot; (自动探测认证)</span>
+<span class="sd">  - auth.target_url = 用户指定的 URL</span>
+<span class="sd">  - interaction = 通用默认选择器 (可被 CLI 覆盖)</span>
+<span class="sd">  - attack_defaults = 合理默认值 (可被 CLI 覆盖)</span>
+
+<span class="sd">设计原则:</span>
+<span class="sd">  快速模式不是&quot;阉割版&quot;, 而是&quot;智能默认版&quot;。</span>
+<span class="sd">  auto 探测 + 通用选择器 覆盖 80% 的 Web 聊天目标。</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">urllib.parse</span><span class="w"> </span><span class="kn">import</span> <span class="n">urlparse</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">web_redteam.targets.target_profile</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AttackDefaults</span><span class="p">,</span>
+    <span class="n">AuthConfig</span><span class="p">,</span>
+    <span class="n">CrossDomainAuthConfig</span><span class="p">,</span>
+    <span class="n">ExtractionConfig</span><span class="p">,</span>
+    <span class="n">InputConfig</span><span class="p">,</span>
+    <span class="n">InteractionConfig</span><span class="p">,</span>
+    <span class="n">ResponseConfig</span><span class="p">,</span>
+    <span class="n">SameDomainAuthConfig</span><span class="p">,</span>
+    <span class="n">SendConfig</span><span class="p">,</span>
+    <span class="n">TargetMeta</span><span class="p">,</span>
+    <span class="n">TargetProfile</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># ── 通用登录表单默认选择器 (覆盖常见前端框架) ──</span>
+<span class="c1"># 用于 auto_fill: 当 .env 中有 TARGET_USERNAME / TARGET_PASSWORD 时自动匹配</span>
+<span class="n">DEFAULT_USERNAME_SELECTORS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;input[name=&quot;username&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[name=&quot;user&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[name=&quot;account&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[type=&quot;email&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[id*=&quot;username&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[id*=&quot;user&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;用户名&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;账号&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;email&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;Username&quot;]&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="n">DEFAULT_PASSWORD_SELECTORS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;input[name=&quot;password&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[type=&quot;password&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[id*=&quot;password&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;密码&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;input[placeholder*=&quot;Password&quot;]&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<span class="c1"># ── 通用 Web 聊天 UI 默认选择器 ──</span>
+<span class="c1"># 覆盖常见前端框架 (React/Vue/原生) 的聊天组件模式</span>
+<span class="n">DEFAULT_INPUT_SELECTOR</span> <span class="o">=</span> <span class="s2">&quot;textarea, [contenteditable=&#39;true&#39;]&quot;</span>
+<span class="n">DEFAULT_SEND_SELECTOR</span> <span class="o">=</span> <span class="s1">&#39;button[type=&quot;submit&quot;], button[class*=&quot;send&quot;], button[aria-label*=&quot;send&quot;]&#39;</span>
+<span class="n">DEFAULT_RESPONSE_SELECTOR</span> <span class="o">=</span> <span class="s1">&#39;[class*=&quot;message&quot;], [class*=&quot;response&quot;], [class*=&quot;chat-msg&quot;], [data-role=&quot;assistant&quot;]&#39;</span>
+
+
+<div class="viewcode-block" id="create_profile_from_url">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.targets.dynamic_profile.create_profile_from_url">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_profile_from_url</span><span class="p">(</span>
+    <span class="n">target_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">attack_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">objective</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_turns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TargetProfile</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 URL 动态生成最小化 TargetProfile。.</span>
+
+<span class="sd">    如果环境变量 TARGET_USERNAME 和 TARGET_PASSWORD 已设置,</span>
+<span class="sd">    自动生成 auto_fill 配置, Playwright 会自动填充登录表单, 无需人工输入。</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        target_url: 目标页面 URL。</span>
+<span class="sd">        attack_type: 攻击类型 (可选, 覆盖默认值)。</span>
+<span class="sd">        objective: 攻击目标 (可选, 覆盖默认值)。</span>
+<span class="sd">        max_turns: 最大轮次 (可选, 覆盖默认值)。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        TargetProfile 实例, auth.type=auto, 使用默认交互选择器。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># 从 URL 提取域名作为目标名称</span>
+    <span class="n">domain</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="n">target_url</span><span class="p">)</span><span class="o">.</span><span class="n">netloc</span> <span class="ow">or</span> <span class="s2">&quot;unknown&quot;</span>
+    <span class="n">target_name</span> <span class="o">=</span> <span class="n">domain</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 检测环境变量中的凭据, 自动注入 auto_fill</span>
+    <span class="n">auto_fill</span> <span class="o">=</span> <span class="n">_build_auto_fill_from_env</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">auto_fill</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;DynamicProfile: detected credentials in env (TARGET_USERNAME/TARGET_PASSWORD), &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;auto_fill configured with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">auto_fill</span><span class="p">)</span><span class="si">}</span><span class="s2"> selectors&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">profile</span> <span class="o">=</span> <span class="n">TargetProfile</span><span class="p">(</span>
+        <span class="n">target</span><span class="o">=</span><span class="n">TargetMeta</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;auto_</span><span class="si">{</span><span class="n">target_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;动态生成 (URL: </span><span class="si">{</span><span class="n">target_url</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+            <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;web_chat&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">auth</span><span class="o">=</span><span class="n">AuthConfig</span><span class="p">(</span>
+            <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+            <span class="n">login_url</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>  <span class="c1"># auto 模式不需要</span>
+            <span class="n">target_url</span><span class="o">=</span><span class="n">target_url</span><span class="p">,</span>
+            <span class="n">same_domain</span><span class="o">=</span><span class="n">SameDomainAuthConfig</span><span class="p">(),</span>
+            <span class="n">cross_domain</span><span class="o">=</span><span class="n">CrossDomainAuthConfig</span><span class="p">(),</span>
+            <span class="n">auto_fill</span><span class="o">=</span><span class="n">auto_fill</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">interaction</span><span class="o">=</span><span class="n">InteractionConfig</span><span class="p">(</span>
+            <span class="nb">input</span><span class="o">=</span><span class="n">InputConfig</span><span class="p">(</span>
+                <span class="n">selector</span><span class="o">=</span><span class="n">DEFAULT_INPUT_SELECTOR</span><span class="p">,</span>
+                <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;textarea&quot;</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">send</span><span class="o">=</span><span class="n">SendConfig</span><span class="p">(</span>
+                <span class="n">selector</span><span class="o">=</span><span class="n">DEFAULT_SEND_SELECTOR</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">response</span><span class="o">=</span><span class="n">ResponseConfig</span><span class="p">(</span>
+                <span class="n">selector</span><span class="o">=</span><span class="n">DEFAULT_RESPONSE_SELECTOR</span><span class="p">,</span>
+                <span class="n">wait_strategy</span><span class="o">=</span><span class="s2">&quot;new_element&quot;</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">extraction</span><span class="o">=</span><span class="n">ExtractionConfig</span><span class="p">(),</span>
+        <span class="p">),</span>
+        <span class="n">attack_defaults</span><span class="o">=</span><span class="n">AttackDefaults</span><span class="p">(</span>
+            <span class="n">attack_type</span><span class="o">=</span><span class="n">attack_type</span> <span class="ow">or</span> <span class="s2">&quot;prompt_sending&quot;</span><span class="p">,</span>
+            <span class="n">max_turns</span><span class="o">=</span><span class="n">max_turns</span> <span class="ow">or</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="n">objective</span><span class="o">=</span><span class="n">objective</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DynamicProfile: generated profile for </span><span class="si">{</span><span class="n">target_url</span><span class="si">}</span><span class="s2"> (auth=auto, name=</span><span class="si">{</span><span class="n">target_name</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">profile</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_auto_fill_from_env</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从环境变量构建 auto_fill 配置。.</span>
+
+<span class="sd">    检测 TARGET_USERNAME 和 TARGET_PASSWORD, 如果存在,</span>
+<span class="sd">    使用通用登录表单选择器构建 auto_fill 字典。</span>
+<span class="sd">    Playwright 会尝试每个选择器, 找到第一个存在的元素并填充。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        {selector: value} 字典, 如果环境变量未设置则返回空字典。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">auto_fill</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">username</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;TARGET_USERNAME&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">password</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;TARGET_PASSWORD&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">username</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">selector</span> <span class="ow">in</span> <span class="n">DEFAULT_USERNAME_SELECTORS</span><span class="p">:</span>
+            <span class="n">auto_fill</span><span class="p">[</span><span class="n">selector</span><span class="p">]</span> <span class="o">=</span> <span class="n">username</span>
+
+    <span class="k">if</span> <span class="n">password</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">selector</span> <span class="ow">in</span> <span class="n">DEFAULT_PASSWORD_SELECTORS</span><span class="p">:</span>
+            <span class="n">auto_fill</span><span class="p">[</span><span class="n">selector</span><span class="p">]</span> <span class="o">=</span> <span class="n">password</span>
+
+    <span class="k">return</span> <span class="n">auto_fill</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,38 @@
+target:
+  kind: web
+  target_url: ''
+  endpoint: https://appsharing-ai.ouchn.edu.cn/v0/chat/paging
+  model: unknown-model
+  auth:
+    type: cookie_file
+    cookie_source: ''
+    cookie_domain: ''
+    username_env: TARGET_USERNAME
+    password_env: TARGET_PASSWORD
+    session_refresh:
+      enabled: true
+      cooldown_seconds: 60
+mode: standard
+artifacts_dir: outputs
+execute:
+  generations: 1
+  timeout: 30
+  parallel_requests: 1
+  scan_profile: balanced
+  tier_filter: null
+  buff_spec: null
+  rate_limit:
+    max_rpm: 60
+    base_delay: 1.0
+    max_delay: 60.0
+    max_retries: 5
+    cooldown: 30.0
+    cooldown_threshold: 5
+    downgrade_at: 3
+    jitter: true
+reporting:
+  confidence_interval_method: none
+  bootstrap_confidence_level: 0.95
+  bootstrap_min_sample_size: 30
+  bootstrap_n_resamples: 1000
+data_dir: data

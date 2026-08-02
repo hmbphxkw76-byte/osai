@@ -3,7 +3,7 @@
 
 """多场景注册表 — 统一管理 PyRIT 原生场景类型。.
 
-PyRIT 1.0.1 原生提供以下场景:
+PyRIT 1.1.0.dev0 原生提供以下场景:
   - ``TextAdaptive``: 文本自适应 (epsilon-greedy, 当前默认)
   - ``AirtJailbreakScenario``: AIRT 越狱攻击
   - ``AirtCyberScenario``: AIRT 网络安全
@@ -103,7 +103,7 @@ def create_scenario(
             kwargs["scenario_result_id"] = scenario_result_id
 
         return scenario_cls(**kwargs)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"Failed to create scenario '{scenario_name}': {e}")
         return None
 

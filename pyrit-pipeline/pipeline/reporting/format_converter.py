@@ -24,30 +24,53 @@ logger = logging.getLogger(__name__)
 
 _HTML_CSS = """
 <style>
+  /* AI Red Team Assessment Report Styles — L5 对齐深蓝主题 */
+  * { box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     line-height: 1.6; color: #333; max-width: 1200px; margin: 0 auto; padding: 20px;
+    background-color: #fafafa;
   }
-  h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 10px; }
-  h2 { color: #16213e; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
-  h3 { color: #0f3460; margin-top: 25px; }
-  table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+  h1 {
+    color: #1a1a2e; border-bottom: 3px solid #0f3460; padding-bottom: 10px;
+    font-size: 1.8em;
+  }
+  h2 {
+    color: #0f3460; border-bottom: 1px solid #ccc; padding-bottom: 5px;
+    margin-top: 2em; font-size: 1.4em;
+  }
+  h3 { color: #16213e; margin-top: 1.5em; font-size: 1.2em; }
+  h4 { color: #333; font-size: 1.05em; }
+  table {
+    border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.9em;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
   th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-  th { background-color: #f8f9fa; font-weight: 600; }
+  th { background-color: #0f3460; color: white; font-weight: 600; }
   tr:nth-child(even) { background-color: #f8f9fa; }
+  tr:hover { background-color: #e8f4f8; }
   code {
     background-color: #f1f1f1; padding: 2px 6px; border-radius: 3px;
     font-family: "Fira Code", "Courier New", monospace; font-size: 0.9em;
+    color: #c0392b;
   }
   pre {
-    background-color: #1e1e2e; color: #cdd6f4; padding: 16px;
-    border-radius: 8px; overflow-x: auto; font-size: 0.85em;
+    background-color: #2d2d2d; color: #f8f8f2; padding: 15px;
+    border-radius: 5px; overflow-x: auto; font-size: 0.85em; line-height: 1.5;
   }
-  pre code { background: none; color: inherit; padding: 0; }
+  pre code { background-color: transparent; color: inherit; padding: 0; }
   blockquote {
-    border-left: 4px solid #e94560; margin: 15px 0; padding: 10px 20px;
-    background-color: #fff5f5; color: #555;
+    border-left: 4px solid #0f3460; margin: 1em 0; padding: 10px 20px;
+    background-color: #eef2f7; color: #555;
   }
+  strong { color: #1a1a2e; }
+  hr { border: none; border-top: 2px solid #e0e0e0; margin: 2em 0; }
+  ul, ol { padding-left: 25px; }
+  li { margin-bottom: 5px; }
+  a { color: #0f3460; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Custom component styles (stage_output section builders) */
   .asr-high { color: #e74c3c; font-weight: bold; }
   .asr-medium { color: #f39c12; font-weight: bold; }
   .asr-low { color: #27ae60; }
@@ -69,14 +92,14 @@ _HTML_CSS = """
     border: 1px solid #dee2e6; border-radius: 8px; padding: 15px;
     margin: 10px 0; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
-  .evidence-card h4 { margin-top: 0; color: #e94560; }
+  .evidence-card h4 { margin-top: 0; color: #0f3460; }
   .vulnerability { border-left: 4px solid #e74c3c; }
   .safe { border-left: 4px solid #27ae60; }
   .owasp-badge {
     display: inline-block; padding: 3px 10px; border-radius: 12px;
     font-size: 0.85em; font-weight: 600; color: #fff; margin: 2px;
   }
-  .owasp-llm { background: #e94560; }
+  .owasp-llm { background: #0f3460; }
   .owasp-asi { background: #6c5ce7; }
   .asr-cell { text-align: center; font-weight: 600; }
   .asr-cell-high { background-color: #fde8e8; color: #e74c3c; }
@@ -95,18 +118,44 @@ _HTML_CSS = """
     background: #f1f3f5; border-left: 3px solid #6c5ce7;
   }
   .converter-entry .arrow { color: #6c5ce7; font-weight: bold; }
+
+  /* Print-specific styles */
+  @media print {
+    body { max-width: none; background-color: #fff; padding: 0; }
+    table, pre { page-break-inside: avoid; }
+    h2, h3 { page-break-after: avoid; }
+  }
 </style>
 """
 
 
 def convert_markdown_to_html(markdown_content: str, *, title: str = "AI Red Team Report") -> str:
-    """将 Markdown 转换为 HTML (内嵌 CSS)。"""
+    """将 Markdown 转换为 HTML (内嵌 CSS)。
+
+    L5 对齐 pyrit_ai300/src/reporting/format_converter.py:
+      - 使用 7 个 Markdown 扩展 (tables, fenced_code, codehilite, toc, nl2br, sane_lists, smarty)
+      - codehilite 配置 monokai 主题 + noclasses
+    """
     try:
         import markdown as md
 
         html_body = md.markdown(
             markdown_content,
-            extensions=["tables", "fenced_code", "codehilite", "toc"],
+            extensions=[
+                "tables",       # 表格支持
+                "fenced_code",  # ``` 代码块
+                "codehilite",   # 代码高亮
+                "toc",          # 目录生成
+                "nl2br",        # 换行转 <br>
+                "sane_lists",   # 智能列表
+                "smarty",       # 智能引号
+            ],
+            extension_configs={
+                "codehilite": {
+                    "noclasses": True,
+                    "pygments_style": "monokai",
+                },
+            },
         )
     except ImportError:
         import html
@@ -135,7 +184,7 @@ def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
         return True
     except ImportError:
         pass
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"weasyprint failed: {e}")
 
     try:
@@ -150,7 +199,7 @@ def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
             logger.warning("xhtml2pdf failed with errors")
     except ImportError:
         pass
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"xhtml2pdf failed: {e}")
 
     logger.error("No PDF library available (install weasyprint or xhtml2pdf)")

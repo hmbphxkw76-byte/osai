@@ -1,0 +1,356 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.stages.stage_initialize &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.stages.stage_initialize</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.stages.stage_initialize</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;Stage 3: 场景初始化 + ASR 驱动的智能调度 + 同次运行 ASR 反馈闭环。.</span>
+
+<span class="sd">职责:</span>
+<span class="sd">  - 调用 ``scenario.initialize_async()`` 构建 AtomicAttack + SequentialAttack</span>
+<span class="sd">  - **P1-闭环: 同次运行 ASR 反馈** — 查询当前运行中已完成的 AttackResult ASR,</span>
+<span class="sd">    写入 ``ctx.metadata[&quot;current_run_asr&quot;]`` 供后续阶段使用</span>
+<span class="sd">    (实现 Stage 3 → Stage 2/4 的动态调参闭环)</span>
+<span class="sd">  - P4: 初始化后, 按 ASR 优先级重排 AtomicAttack 执行顺序</span>
+<span class="sd">    (高 ASR 的攻击优先执行, 快速获取结果信号)</span>
+
+<span class="sd">产出 (写入 PipelineContext):</span>
+<span class="sd">  - ctx.metadata[&quot;current_run_asr&quot;] = 当前运行 ASR 统计 (dict)</span>
+<span class="sd">  - 无新字段 (scenario 内部状态已更新)</span>
+
+<span class="sd">依赖的原生 API:</span>
+<span class="sd">  - TextAdaptive.initialize_async() (间接调用 _build_atomic_attacks_async)</span>
+<span class="sd">  - pipeline.asr.optimizer (ASR 驱动排序 + 同次运行反馈)</span>
+
+<span class="sd">修改此文件不影响 Stage 1–2, 4–6。</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&gt; **更新记录**:</span>
+<span class="sd">&gt;   2026-8-1 15:25 — 添加同次运行 ASR 反馈闭环 (query_current_run_asr_by_technique)</span>
+<span class="sd">&gt;   2026-8-1 22:00 — P0-1: 修复 _feedback_current_run_asr() 死代码, 在 run() 中调用</span>
+<span class="sd">&gt;   2026-8-1 22:00 — P1-5: 消除直接访问 scenario._atomic_attacks, 使用 getattr/setattr</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.optimizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exported for test patching</span>
+    <span class="n">get_current_run_asr_summary</span><span class="p">,</span>
+    <span class="n">query_current_run_asr_by_technique</span><span class="p">,</span>
+    <span class="n">query_historical_asr_by_technique</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">PipelineContext</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="run">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.stages.stage_initialize.run">[docs]</a>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">PipelineContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;执行 Stage 3/6: 场景初始化 + ASR 智能调度。.&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[3/6] 场景初始化 — ASR 智能调度 + AtomicAttack 构建&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+
+    <span class="c1"># ── 原生: 场景初始化 ──</span>
+    <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">scenario</span><span class="o">.</span><span class="n">initialize_async</span><span class="p">()</span>
+
+    <span class="n">atomic_attacks</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">scenario</span><span class="p">,</span> <span class="s2">&quot;_atomic_attacks&quot;</span><span class="p">,</span> <span class="p">[])</span>
+    <span class="n">sequential_count</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">atomic_attacks</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="s2">&quot;child_attacks&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="s2">&quot;attack_sequence&quot;</span><span class="p">))</span>
+    <span class="n">standalone_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">)</span> <span class="o">-</span> <span class="n">sequential_count</span>
+    <span class="n">strategy</span> <span class="o">=</span> <span class="s2">&quot;EXHAUSTIVE&quot;</span> <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">max_attempts_per_objective</span> <span class="o">&gt;=</span> <span class="mi">999</span> <span class="k">else</span> <span class="s2">&quot;FIRST_SUCCESS&quot;</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  ┌─ AtomicAttack 构建 ──────────────────────────────────────┄&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  │ AtomicAttack 总数: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  │ SequentialAttack (复合): </span><span class="si">{</span><span class="n">sequential_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  │ 独立 AtomicAttack: </span><span class="si">{</span><span class="n">standalone_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  │ 停止策略: </span><span class="si">{</span><span class="n">strategy</span><span class="si">}</span><span class="s2"> (max_attempts=</span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">max_attempts_per_objective</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  │ 并发控制: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">max_concurrency</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  └───────────────────────────────────────────────────────────────┄&quot;</span><span class="p">)</span>
+
+    <span class="c1"># ── P0: 同次运行 ASR 反馈闭环 (必须在重排序之前执行, 提供动态反馈数据) ──</span>
+    <span class="n">_feedback_current_run_asr</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+    <span class="c1"># ── ASR 智能调度 ──</span>
+    <span class="n">_reorder_attacks_by_asr</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+    <span class="c1"># ── 衔接块 ──</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  → 传递到 Stage 4/6: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">)</span><span class="si">}</span><span class="s2"> AtomicAttack 已就绪 | &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;策略=</span><span class="si">{</span><span class="n">strategy</span><span class="si">}</span><span class="s2"> | 并发=</span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">max_concurrency</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="mi">5</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_feedback_current_run_asr</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">PipelineContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;同次运行 ASR 反馈闭环。.</span>
+
+<span class="sd">    查询当前运行中已完成的 AttackResult ASR, 写入 ctx.metadata:</span>
+<span class="sd">      - ``ctx.metadata[&quot;current_run_asr&quot;]``: 当前运行 ASR (by technique)</span>
+
+<span class="sd">    在 resume 场景下, 已有部分 AttackResult 完成, 这部分 ASR 数据:</span>
+<span class="sd">      1. 供 Stage 4 做动态展示</span>
+<span class="sd">      2. 供 EpsilonGreedyTechniqueSelector (current_run scope) 做动态调参</span>
+<span class="sd">      3. 供用户了解当前运行的进度和 ASR 趋势</span>
+
+<span class="sd">    冷启动 (首次运行) 时无已完成结果, 返回空字典, 不影响后续流程。</span>
+
+<span class="sd">    参考:</span>
+<span class="sd">      - arXiv:2310.04451 (PAIR) — 自适应策略选择</span>
+<span class="sd">      - arXiv:2406.16241 (TAP) — 基于搜索的攻击优化</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">scenario_result_id</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">resume</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">scenario</span><span class="p">,</span> <span class="s2">&quot;scenario_result_id&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">scenario_result_id</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  同次运行 ASR 反馈: (首次运行, 无 resume ID)&quot;</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;current_run_asr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">return</span>
+
+    <span class="n">asr_by_tech</span> <span class="o">=</span> <span class="n">query_current_run_asr_by_technique</span><span class="p">(</span><span class="n">scenario_result_id</span><span class="p">)</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;current_run_asr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">asr_by_tech</span>
+
+    <span class="k">if</span> <span class="n">asr_by_tech</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">get_current_run_asr_summary</span><span class="p">(</span><span class="n">asr_by_tech</span><span class="p">))</span>
+        <span class="c1"># 趋势分析: 当前运行 ASR vs 历史 ASR</span>
+        <span class="n">historical</span> <span class="o">=</span> <span class="n">query_historical_asr_by_technique</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">historical</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  ASR 趋势分析 (当前运行 vs 历史):&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">tech</span><span class="p">,</span> <span class="n">current_stats</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span>
+                <span class="n">asr_by_tech</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span>
+                <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">success_rate</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">):</span>
+                <span class="k">if</span> <span class="n">current_stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">hist_stats</span> <span class="o">=</span> <span class="n">historical</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech</span><span class="p">)</span>
+                    <span class="n">current_sr</span> <span class="o">=</span> <span class="n">current_stats</span><span class="o">.</span><span class="n">success_rate</span> <span class="ow">or</span> <span class="mi">0</span>
+                    <span class="k">if</span> <span class="n">hist_stats</span> <span class="ow">and</span> <span class="n">hist_stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">hist_sr</span> <span class="o">=</span> <span class="n">hist_stats</span><span class="o">.</span><span class="n">success_rate</span> <span class="ow">or</span> <span class="mi">0</span>
+                        <span class="n">trend</span> <span class="o">=</span> <span class="s2">&quot;↑&quot;</span> <span class="k">if</span> <span class="n">current_sr</span> <span class="o">&gt;</span> <span class="n">hist_sr</span> <span class="k">else</span> <span class="p">(</span><span class="s2">&quot;↓&quot;</span> <span class="k">if</span> <span class="n">current_sr</span> <span class="o">&lt;</span> <span class="n">hist_sr</span> <span class="k">else</span> <span class="s2">&quot;→&quot;</span><span class="p">)</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">tech</span><span class="si">:</span><span class="s2">&lt;35</span><span class="si">}</span><span class="s2"> 当前 </span><span class="si">{</span><span class="n">current_sr</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">100</span><span class="si">:</span><span class="s2">&gt;5.1f</span><span class="si">}</span><span class="s2">% vs 历史 </span><span class="si">{</span><span class="n">hist_sr</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">100</span><span class="si">:</span><span class="s2">&gt;5.1f</span><span class="si">}</span><span class="s2">% </span><span class="si">{</span><span class="n">trend</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  同次运行 ASR 反馈: (冷启动, 无已完成结果)&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_reorder_attacks_by_asr</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">PipelineContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;按 ASR 优先级重排 scenario._atomic_attacks 列表。.</span>
+
+<span class="sd">    排序依据 (优先级递减):</span>
+<span class="sd">      1. GroupFallbackExecutor 降级链 (S→A→B→C→D, Stage 2 已构建)</span>
+<span class="sd">      2. 当前运行 ASR (动态反馈)</span>
+<span class="sd">      3. 历史 ASR (Laplace 平滑)</span>
+<span class="sd">      4. 中等优先级 0.5 (无数据)</span>
+
+<span class="sd">    安全性:</span>
+<span class="sd">      - 仅重排列表顺序, 不修改任何 AtomicAttack 内容</span>
+<span class="sd">      - resume 场景下, 已完成的攻击会被 _get_remaining_atomic_attacks_async 过滤</span>
+<span class="sd">      - 重排不影响 ScenarioResult 的 attack_results 字典 (key 为 attack_name)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">scenario</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">scenario</span>
+    <span class="n">atomic_attacks</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">scenario</span><span class="p">,</span> <span class="s2">&quot;_atomic_attacks&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">atomic_attacks</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c1"># 1. 优先使用 GroupFallbackExecutor 降级链 (Stage 2 构建)</span>
+    <span class="n">fallback_plan</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="s2">&quot;fallback_plan&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">fallback_plan</span> <span class="ow">and</span> <span class="n">fallback_plan</span><span class="o">.</span><span class="n">execution_order</span><span class="p">:</span>
+        <span class="n">order_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">tech</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">tech</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">fallback_plan</span><span class="o">.</span><span class="n">execution_order</span><span class="p">)}</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_fallback_priority</span><span class="p">(</span><span class="n">attack</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+            <span class="n">tech_name</span> <span class="o">=</span> <span class="n">attack</span><span class="o">.</span><span class="n">display_group</span> <span class="ow">or</span> <span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span>
+            <span class="n">base_tech</span> <span class="o">=</span> <span class="n">tech_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">tech_name</span> <span class="k">else</span> <span class="n">tech_name</span>
+            <span class="k">return</span> <span class="n">order_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">base_tech</span><span class="p">,</span> <span class="mi">99</span><span class="p">)</span>
+
+        <span class="n">original_order</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">atomic_attack_name</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">atomic_attacks</span><span class="p">]</span>
+        <span class="n">sorted_attacks</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_fallback_priority</span><span class="p">)</span>
+        <span class="n">_safe_set_atomic_attacks</span><span class="p">(</span><span class="n">scenario</span><span class="p">,</span> <span class="n">sorted_attacks</span><span class="p">)</span>
+        <span class="n">new_order</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">atomic_attack_name</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">sorted_attacks</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">new_order</span> <span class="o">!=</span> <span class="n">original_order</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  ASR 智能调度 (GroupFallbackExecutor 降级链):&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    原始顺序 (前 5): </span><span class="si">{</span><span class="n">original_order</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    优化顺序 (前 5): </span><span class="si">{</span><span class="n">new_order</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">    </span><span class="si">{</span><span class="s1">&#39;AtomicAttack&#39;</span><span class="si">:</span><span class="s2">&lt;50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;技术&#39;</span><span class="si">:</span><span class="s2">&lt;25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;Tier&#39;</span><span class="si">:</span><span class="s2">&gt;5</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">5</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">attack</span> <span class="ow">in</span> <span class="n">sorted_attacks</span><span class="p">:</span>
+                <span class="n">tech_name</span> <span class="o">=</span> <span class="n">attack</span><span class="o">.</span><span class="n">display_group</span> <span class="ow">or</span> <span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span>
+                <span class="n">base_tech</span> <span class="o">=</span> <span class="n">tech_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">tech_name</span> <span class="k">else</span> <span class="n">tech_name</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="n">order_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">base_tech</span><span class="p">,</span> <span class="mi">99</span><span class="p">)</span>
+                <span class="n">tier_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;#</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="mi">99</span> <span class="k">else</span> <span class="s2">&quot;—&quot;</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span><span class="si">:</span><span class="s2">&lt;50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">tech_name</span><span class="si">:</span><span class="s2">&lt;25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">tier_str</span><span class="si">:</span><span class="s2">&gt;5</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  ASR 智能调度: 顺序未变 (降级链已是最优)&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="c1"># 2. 回退: 原始 ASR + Laplace 平滑</span>
+    <span class="n">asr_by_tech</span> <span class="o">=</span> <span class="n">query_historical_asr_by_technique</span><span class="p">()</span>
+    <span class="n">current_run_asr</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;current_run_asr&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_attack_priority</span><span class="p">(</span><span class="n">attack</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;计算 AtomicAttack 的优先级分数 (越高越优先执行)。.&quot;&quot;&quot;</span>
+        <span class="n">tech_name</span> <span class="o">=</span> <span class="n">attack</span><span class="o">.</span><span class="n">display_group</span> <span class="ow">or</span> <span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span>
+
+        <span class="c1"># 优先使用当前运行 ASR (动态反馈)</span>
+        <span class="n">current_stats</span> <span class="o">=</span> <span class="n">current_run_asr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">current_stats</span> <span class="ow">and</span> <span class="n">current_stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">current_stats</span><span class="o">.</span><span class="n">successes</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">current_stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># 回退到历史 ASR</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">asr_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">stats</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mf">0.5</span>  <span class="c1"># 无历史数据: 中等优先级 (Laplace 平滑)</span>
+        <span class="c1"># Laplace 平滑: (successes + 1) / (total + 2)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">successes</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># 按优先级降序排列</span>
+    <span class="n">original_order</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">atomic_attack_name</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">atomic_attacks</span><span class="p">]</span>
+    <span class="n">sorted_attacks</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">atomic_attacks</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_attack_priority</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">_safe_set_atomic_attacks</span><span class="p">(</span><span class="n">scenario</span><span class="p">,</span> <span class="n">sorted_attacks</span><span class="p">)</span>
+    <span class="n">new_order</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">atomic_attack_name</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">sorted_attacks</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">new_order</span> <span class="o">!=</span> <span class="n">original_order</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">  ASR 智能调度 (执行顺序优化):&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    原始顺序 (前 5): </span><span class="si">{</span><span class="n">original_order</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    优化顺序 (前 5): </span><span class="si">{</span><span class="n">new_order</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 显示 ASR 排序详情</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">    </span><span class="si">{</span><span class="s1">&#39;AtomicAttack&#39;</span><span class="si">:</span><span class="s2">&lt;50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;技术&#39;</span><span class="si">:</span><span class="s2">&lt;25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;ASR&#39;</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">8</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">attack</span> <span class="ow">in</span> <span class="n">sorted_attacks</span><span class="p">:</span>
+            <span class="n">tech_name</span> <span class="o">=</span> <span class="n">attack</span><span class="o">.</span><span class="n">display_group</span> <span class="ow">or</span> <span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span>
+
+            <span class="c1"># 优先展示当前运行 ASR</span>
+            <span class="n">current_stats</span> <span class="o">=</span> <span class="n">current_run_asr</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">current_stats</span> <span class="ow">and</span> <span class="n">current_stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">sr</span> <span class="o">=</span> <span class="n">current_stats</span><span class="o">.</span><span class="n">success_rate</span> <span class="ow">or</span> <span class="mi">0</span>
+                <span class="n">asr_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sr</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">% (</span><span class="si">{</span><span class="n">current_stats</span><span class="o">.</span><span class="n">successes</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">current_stats</span><span class="o">.</span><span class="n">total_decided</span><span class="si">}</span><span class="s2">) [当前]&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">stats</span> <span class="o">=</span> <span class="n">asr_by_tech</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">stats</span> <span class="ow">and</span> <span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">sr</span> <span class="o">=</span> <span class="n">stats</span><span class="o">.</span><span class="n">success_rate</span> <span class="ow">or</span> <span class="mi">0</span>
+                    <span class="n">asr_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sr</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">% (</span><span class="si">{</span><span class="n">stats</span><span class="o">.</span><span class="n">successes</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span><span class="si">}</span><span class="s2">) [历史]&quot;</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">asr_str</span> <span class="o">=</span> <span class="s2">&quot;  —  (无历史)&quot;</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">attack</span><span class="o">.</span><span class="n">atomic_attack_name</span><span class="si">:</span><span class="s2">&lt;50</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">tech_name</span><span class="si">:</span><span class="s2">&lt;25</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">asr_str</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  ASR 智能调度: 顺序未变 (无历史数据或已是最优)&quot;</span><span class="p">)</span>
+
+    <span class="n">_print_stage3_summary</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_safe_set_atomic_attacks</span><span class="p">(</span><span class="n">scenario</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">sorted_attacks</span><span class="p">:</span> <span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;安全设置 scenario 的 _atomic_attacks 属性。</span>
+
+<span class="sd">    P1-5: 使用 setattr 替代直接赋值, 避免上游属性名变更时断裂。</span>
+<span class="sd">    如果 scenario 不支持 _atomic_attacks 属性, 记录警告但不崩溃。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">scenario</span><span class="p">,</span> <span class="s2">&quot;_atomic_attacks&quot;</span><span class="p">):</span>
+        <span class="n">scenario</span><span class="o">.</span><span class="n">_atomic_attacks</span> <span class="o">=</span> <span class="n">sorted_attacks</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="s2">&quot;Scenario </span><span class="si">%s</span><span class="s2"> has no _atomic_attacks attribute, reorder skipped. &quot;</span>
+            <span class="s2">&quot;This may indicate an upstream PyRIT version change.&quot;</span><span class="p">,</span>
+            <span class="nb">type</span><span class="p">(</span><span class="n">scenario</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_print_stage3_summary</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">PipelineContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stage 3 交接摘要 — 已在 run() 中输出，此处为兼容保留。.&quot;&quot;&quot;</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

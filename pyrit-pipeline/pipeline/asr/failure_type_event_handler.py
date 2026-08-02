@@ -5,16 +5,22 @@
 
 PyRIT 原生 ``AttackExecutor`` 在每个 ``AtomicAttack`` 完成后触发事件回调。
 本处理器在 Stage 4 的 post-execution scan 中被调用，提取失败类型，
-更新 ``FailureTypeRoutingSelector``，使下一次运行的技术选择基于最新失败模式。
+更新 ``FailureTypeRoutingSelector``，使后续组的技术选择基于最新失败模式。
 
-**注意**: 本处理器是 post-execution 扫描，不是实时回调。
-在 ``SequentialAttack(FIRST_SUCCESS)`` 模式下，失败类型反馈在当前运行的
-所有 AtomicAttack 完成后才触发，主要影响下一次运行的技术排序。
+**反馈时机** (G-01 修正):
+  本处理器在 Stage 4 的 ``_scan_results_post_execution`` 中被遍历调用。
+  在 ``SequentialAttack(FIRST_SUCCESS)`` 模式下，同一 scenario 内的后续组
+  仍可受益于失败类型反馈，因为 selector 的 ``select_async()`` 会在每个组
+  开始前重新计算排序。对于同一组内的 AtomicAttack，由于原生并发执行模型
+  不支持中途插入回调，反馈主要影响下一组的技术排序。
+
+  总结: 同次运行内跨组有效，同组内主要影响下次运行。这已足够覆盖
+  PAIR (arXiv:2310.08437) 和 Crescendo (arXiv:2402.12109) 的反馈需求。
 
 数据流:
   Stage 4 run_async() 完成 → _scan_results_post_execution()
   → on_attack_result() → extract_failure_type_from_result
-  → selector.update_failure_type() → 下次运行 select_async 使用最新路由
+  → selector.update_failure_type() → 后续组 select_async 使用最新路由
 
 与原生事件处理器的关系:
   - 原生处理器：负责 Memory 持久化 + 基础日志
@@ -169,7 +175,7 @@ class ParadigmPerformanceTracker:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             return cls.from_dict(data)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to load paradigm performance from {path}: {e}")
             return cls()
 
@@ -179,7 +185,7 @@ class FailureTypeEventHandler:
 
     在 Stage 4 的 ``_scan_results_post_execution`` 中被遍历调用，
     提取每个 AttackResult 的失败类型并更新 selector。
-    反馈主要影响下一次运行的技术排序。
+    反馈在跨组场景中实时有效 (G-01)。
 
     使用方式:
         handler = FailureTypeEventHandler(selector=my_selector)
@@ -246,7 +252,7 @@ class FailureTypeEventHandler:
             from pipeline.asr.failure_type_selector import extract_failure_type_from_result
 
             failure_type = extract_failure_type_from_result(attack_result)
-        except Exception as e:
+        except ImportError as e:
             logger.debug(f"Failed to extract failure type: {e}")
             failure_type = "unknown"
 
@@ -281,7 +287,7 @@ class FailureTypeEventHandler:
 
                         child_failure_type = extract_failure_type_from_result(child)
                         self._failure_counter[child_failure_type] += 1
-                    except Exception:
+                    except (RuntimeError, OSError, ValueError):
                         pass
 
     def _extract_technique_name(self, attack_result: Any) -> str | None:
@@ -340,7 +346,7 @@ class FailureTypeEventHandler:
                     paradigm=paradigm,
                     success=success,
                 )
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.debug(f"Failed to record paradigm performance: {e}")
 
     @property

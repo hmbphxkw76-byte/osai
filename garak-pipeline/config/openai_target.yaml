@@ -1,0 +1,63 @@
+# ============================================================
+# garak 目标侦察 — OpenAI 兼容目标配置
+# 路径: config/openai_target.yaml
+# ============================================================
+# 适用场景：目标直接暴露 OpenAI 兼容 API（/v1/chat/completions），
+# 使用静态 API Key / Bearer Token 直连，无需浏览器登录。
+#
+# 运行:
+#   python main.py --config config/openai_target.yaml
+# ============================================================
+
+# --- 目标模型 (被侦察的 LLM) ---
+# endpoint / model / api_key 三个必填参数统一从项目根 .env 读取：
+#   OPENAI_TARGET_ENDPOINT / OPENAI_TARGET_MODEL / OPENAICompatible_API_KEY
+# 此处留空时由代码用 .env 值回填；若在此显式填写则优先于 .env。
+target:
+  kind: openai                  # 固定值，标识本配置为 OpenAI 兼容目标
+  endpoint: ""                 # ← 留空则从 .env 的 OPENAI_TARGET_ENDPOINT 读取
+  model: ""                    # ← 留空则从 .env 的 OPENAI_TARGET_MODEL 读取
+  api_key: ""                  # ← 留空则从 .env 的 OPENAICompatible_API_KEY 读取
+
+  # auth 段可省略（默认 static = 直接用上方 api_key）。
+  # 如需显式声明也可写:
+  # auth:
+  #   type: static
+
+# --- 侦察模式 ---
+# standard : 完整枚举所有活跃 Probe 并按 OWASP Top10 分类
+# quick    : （预留）轻量侦察
+mode: "standard"
+
+# --- 可选: 产物目录 (默认 outputs) ---
+artifacts_dir: "outputs"
+
+# --- 攻击执行参数 (Stage 3) ---
+execute:
+  generations: 1           # 每探针生成的 payload 数（验证用，正式扫描改 10）
+  timeout: 30              # 单请求超时(秒)
+  parallel_requests: 1     # 并发请求数（保守，自适应速率会动态调节）
+  scan_profile: "balanced" # 效果×时间权衡档位: full | balanced | quick
+  tier_filter: null        # 仅跑指定 tier (如 [1, 2])；null=由 scan_profile 决定
+  buff_spec: null          # Buff 攻击链；null=由 scan_profile 决定
+
+  # --- 自适应速率防护 ---
+  rate_limit:
+    max_rpm: 60
+    base_delay: 1.0
+    max_delay: 60.0
+    max_retries: 5
+    cooldown: 30.0
+    cooldown_threshold: 5
+    downgrade_at: 3
+    jitter: true
+
+# --- 评估报告参数 (Stage 3/4) ---
+reporting:
+  confidence_interval_method: "none"
+  bootstrap_confidence_level: 0.95
+  bootstrap_min_sample_size: 30
+  bootstrap_n_resamples: 1000
+
+# --- 可选: 数据集目录 (默认 data) ---
+data_dir: "data"

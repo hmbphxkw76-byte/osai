@@ -61,6 +61,9 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.14.4",
     "pre-commit>=4.0.0",
+    "mypy>=1.14.0",
+    "sphinx>=8.0.0",
+    "sphinx-rtd-theme>=3.0.0",
 ]
 
 # ============================================================================
@@ -106,17 +109,28 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # pipeline 代码: 保留 ANN 但豁免 D100 (模块 docstring) 和 D104 (包 docstring)
-"pipeline/**/*.py" = ["D100", "D104", "ANN101", "ANN102"]
+"pipeline/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401"]
 # web_redteam 代码: 同上
 "web_redteam/**/*.py" = ["D100", "D104", "ANN101", "ANN102"]
 # scripts 代码: 放宽
 "scripts/**/*.py" = ["D100", "D104", "ANN"]
-# 测试代码: 豁免 docstring 和部分类型注解
-"tests/**/*.py" = ["D100", "D101", "D102", "D104", "ANN"]
-"web_redteam/tests/**/*.py" = ["D100", "D101", "D102", "D104", "ANN"]
+# 测试代码: 豁免 docstring 风格、类型注解
+"tests/**/*.py" = ["D100", "D101", "D102", "D104", "D403", "D415", "Q003", "ANN"]
+"web_redteam/tests/**/*.py" = ["D100", "D101", "D102", "D104", "D403", "D415", "Q003", "ANN"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+# ============================================================================
+# Mypy 配置 (G-03: 类型安全)
+# ============================================================================
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # P2: 初期放宽, 后续逐步收紧
+check_untyped_defs = true
+ignore_missing_imports = true  # PyRIT 等第三方库无 type stub
 
 # ============================================================================
 # 覆盖率配置
@@ -131,4 +145,4 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 precision = 2
-fail_under = 60
+fail_under = 75

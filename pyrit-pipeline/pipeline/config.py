@@ -146,6 +146,29 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    # ── Web Red Team 目标 (自动认证桥接) ──
+    parser.add_argument(
+        "--web-target-url",
+        type=str,
+        default=None,
+        help=(
+            "Web 目标 URL — 自动检测是否需要认证, 如需要则执行认证流程,\n"
+            "然后将已认证的 PlaywrightTarget 注入主 pipeline.\n"
+            "示例: --web-target-url https://chat.example.com"
+        ),
+    )
+    parser.add_argument(
+        "--web-target-profile",
+        type=str,
+        default=None,
+        help="Web 目标配置文件路径 (YAML), 包含认证策略和交互选择器配置",
+    )
+    parser.add_argument(
+        "--web-headless",
+        action="store_true",
+        help="Web 目标浏览器使用 headless 模式 (不显示浏览器窗口)",
+    )
+
     # ── 场景选择 (P1: 多场景) ──
     parser.add_argument(
         "--scenario",

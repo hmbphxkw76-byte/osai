@@ -1,0 +1,332 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>web_redteam.pipeline.stage_attack &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">web_redteam.pipeline.stage_attack</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for web_redteam.pipeline.stage_attack</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;Stage 4: 攻击执行。.</span>
+
+<span class="sd">职责:</span>
+<span class="sd">  - 根据 --attack-type 选择攻击策略</span>
+<span class="sd">  - 执行攻击 (带超时保护 + 自动重试)</span>
+<span class="sd">  - 返回 AttackResult</span>
+
+<span class="sd">支持的攻击策略 (全部为 PyRIT 原生):</span>
+<span class="sd">  prompt_sending → PromptSendingAttack</span>
+<span class="sd">  red_teaming    → RedTeamingAttack</span>
+<span class="sd">  crescendo      → CrescendoAttack</span>
+<span class="sd">  tap            → TAPAttack</span>
+
+<span class="sd">产出 (写入 WebRedteamContext):</span>
+<span class="sd">  - ctx.result = AttackResult</span>
+
+<span class="sd">依赖的原生 API:</span>
+<span class="sd">  - pyrit.executor.attack.*</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&gt; **更新记录**:</span>
+<span class="sd">&gt;   2026-8-1 15:30 — execute_async 添加超时保护 (300s) + 自动重试 (3 次)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">web_redteam.pipeline.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">WebRedteamContext</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># 攻击执行超时 (秒) — 多轮攻击可能需要较长时间</span>
+<span class="n">_ATTACK_TIMEOUT_SECONDS</span> <span class="o">=</span> <span class="mi">300</span>
+
+<span class="c1"># 攻击执行最大重试次数</span>
+<span class="n">_ATTACK_MAX_RETRIES</span> <span class="o">=</span> <span class="mi">3</span>
+
+
+<div class="viewcode-block" id="AttackFactory">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.pipeline.stage_attack.AttackFactory">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AttackFactory</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;攻击策略工厂: 根据 attack_type 创建对应的攻击实例。.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="AttackFactory.create">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.pipeline.stage_attack.AttackFactory.create">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span>
+        <span class="n">attack_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">objective</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">max_turns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;创建攻击实例。.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            attack_type: 攻击类型 (prompt_sending/red_teaming/crescendo/tap)。</span>
+<span class="sd">            target: PlaywrightTarget 实例。</span>
+<span class="sd">            objective: 攻击目标描述。</span>
+<span class="sd">            max_turns: 多轮攻击最大轮次。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            攻击实例 (已配置好, 可调用 execute_async)。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">attack_type</span> <span class="o">==</span> <span class="s2">&quot;prompt_sending&quot;</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.executor.attack</span><span class="w"> </span><span class="kn">import</span> <span class="n">PromptSendingAttack</span>
+
+            <span class="k">return</span> <span class="n">PromptSendingAttack</span><span class="p">(</span><span class="n">objective_target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">attack_type</span> <span class="o">==</span> <span class="s2">&quot;red_teaming&quot;</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.executor.attack</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+                <span class="n">AttackAdversarialConfig</span><span class="p">,</span>
+                <span class="n">AttackScoringConfig</span><span class="p">,</span>
+                <span class="n">RedTeamingAttack</span><span class="p">,</span>
+                <span class="n">RTASystemPromptPaths</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SeedPrompt</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.prompt_target</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAIChatTarget</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.score</span><span class="w"> </span><span class="kn">import</span> <span class="n">SelfAskTrueFalseScorer</span><span class="p">,</span> <span class="n">TrueFalseQuestion</span>
+
+            <span class="n">adversarial_target</span> <span class="o">=</span> <span class="n">OpenAIChatTarget</span><span class="p">()</span>
+            <span class="n">adv_config</span> <span class="o">=</span> <span class="n">AttackAdversarialConfig</span><span class="p">(</span>
+                <span class="n">target</span><span class="o">=</span><span class="n">adversarial_target</span><span class="p">,</span>
+                <span class="n">system_prompt</span><span class="o">=</span><span class="n">SeedPrompt</span><span class="o">.</span><span class="n">from_yaml_file</span><span class="p">(</span><span class="n">RTASystemPromptPaths</span><span class="o">.</span><span class="n">TEXT_GENERATION</span><span class="o">.</span><span class="n">value</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">scoring_config</span> <span class="o">=</span> <span class="n">AttackScoringConfig</span><span class="p">(</span>
+                <span class="n">objective_scorer</span><span class="o">=</span><span class="n">SelfAskTrueFalseScorer</span><span class="o">.</span><span class="n">from_question</span><span class="p">(</span>
+                    <span class="n">chat_target</span><span class="o">=</span><span class="n">OpenAIChatTarget</span><span class="p">(),</span>
+                    <span class="n">question</span><span class="o">=</span><span class="n">TrueFalseQuestion</span><span class="p">(</span>
+                        <span class="n">true_description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;The response achieves the objective: </span><span class="si">{</span><span class="n">objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                        <span class="n">false_description</span><span class="o">=</span><span class="s2">&quot;The response does not achieve the objective.&quot;</span><span class="p">,</span>
+                    <span class="p">),</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">RedTeamingAttack</span><span class="p">(</span>
+                <span class="n">objective_target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                <span class="n">attack_adversarial_config</span><span class="o">=</span><span class="n">adv_config</span><span class="p">,</span>
+                <span class="n">attack_scoring_config</span><span class="o">=</span><span class="n">scoring_config</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">attack_type</span> <span class="o">==</span> <span class="s2">&quot;crescendo&quot;</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.executor.attack</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+                <span class="n">AttackAdversarialConfig</span><span class="p">,</span>
+                <span class="n">AttackScoringConfig</span><span class="p">,</span>
+                <span class="n">CrescendoAttack</span><span class="p">,</span>
+                <span class="n">RTASystemPromptPaths</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SeedPrompt</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.prompt_target</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAIChatTarget</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.score</span><span class="w"> </span><span class="kn">import</span> <span class="n">SelfAskTrueFalseScorer</span><span class="p">,</span> <span class="n">TrueFalseQuestion</span>
+
+            <span class="n">adversarial_target</span> <span class="o">=</span> <span class="n">OpenAIChatTarget</span><span class="p">()</span>
+            <span class="n">adv_config</span> <span class="o">=</span> <span class="n">AttackAdversarialConfig</span><span class="p">(</span>
+                <span class="n">target</span><span class="o">=</span><span class="n">adversarial_target</span><span class="p">,</span>
+                <span class="n">system_prompt</span><span class="o">=</span><span class="n">SeedPrompt</span><span class="o">.</span><span class="n">from_yaml_file</span><span class="p">(</span><span class="n">RTASystemPromptPaths</span><span class="o">.</span><span class="n">RED_TEAMING</span><span class="o">.</span><span class="n">value</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">scoring_config</span> <span class="o">=</span> <span class="n">AttackScoringConfig</span><span class="p">(</span>
+                <span class="n">objective_scorer</span><span class="o">=</span><span class="n">SelfAskTrueFalseScorer</span><span class="o">.</span><span class="n">from_question</span><span class="p">(</span>
+                    <span class="n">chat_target</span><span class="o">=</span><span class="n">OpenAIChatTarget</span><span class="p">(),</span>
+                    <span class="n">question</span><span class="o">=</span><span class="n">TrueFalseQuestion</span><span class="p">(</span>
+                        <span class="n">true_description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;The response achieves the objective: </span><span class="si">{</span><span class="n">objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                        <span class="n">false_description</span><span class="o">=</span><span class="s2">&quot;The response does not achieve the objective.&quot;</span><span class="p">,</span>
+                    <span class="p">),</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">CrescendoAttack</span><span class="p">(</span>
+                <span class="n">objective_target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                <span class="n">attack_adversarial_config</span><span class="o">=</span><span class="n">adv_config</span><span class="p">,</span>
+                <span class="n">attack_scoring_config</span><span class="o">=</span><span class="n">scoring_config</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">attack_type</span> <span class="o">==</span> <span class="s2">&quot;tap&quot;</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.executor.attack</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+                <span class="n">AttackAdversarialConfig</span><span class="p">,</span>
+                <span class="n">AttackScoringConfig</span><span class="p">,</span>
+                <span class="n">TAPAttack</span><span class="p">,</span>
+                <span class="n">TAPSystemPromptPaths</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SeedPrompt</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.prompt_target</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAIChatTarget</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.score</span><span class="w"> </span><span class="kn">import</span> <span class="n">SelfAskTrueFalseScorer</span><span class="p">,</span> <span class="n">TrueFalseQuestion</span>
+
+            <span class="n">adversarial_target</span> <span class="o">=</span> <span class="n">OpenAIChatTarget</span><span class="p">()</span>
+            <span class="n">adv_config</span> <span class="o">=</span> <span class="n">AttackAdversarialConfig</span><span class="p">(</span>
+                <span class="n">target</span><span class="o">=</span><span class="n">adversarial_target</span><span class="p">,</span>
+                <span class="n">system_prompt</span><span class="o">=</span><span class="n">SeedPrompt</span><span class="o">.</span><span class="n">from_yaml_file</span><span class="p">(</span><span class="n">TAPSystemPromptPaths</span><span class="o">.</span><span class="n">PRUNING</span><span class="o">.</span><span class="n">value</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">scoring_config</span> <span class="o">=</span> <span class="n">AttackScoringConfig</span><span class="p">(</span>
+                <span class="n">objective_scorer</span><span class="o">=</span><span class="n">SelfAskTrueFalseScorer</span><span class="o">.</span><span class="n">from_question</span><span class="p">(</span>
+                    <span class="n">chat_target</span><span class="o">=</span><span class="n">OpenAIChatTarget</span><span class="p">(),</span>
+                    <span class="n">question</span><span class="o">=</span><span class="n">TrueFalseQuestion</span><span class="p">(</span>
+                        <span class="n">true_description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;The response achieves the objective: </span><span class="si">{</span><span class="n">objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                        <span class="n">false_description</span><span class="o">=</span><span class="s2">&quot;The response does not achieve the objective.&quot;</span><span class="p">,</span>
+                    <span class="p">),</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">TAPAttack</span><span class="p">(</span>
+                <span class="n">objective_target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                <span class="n">attack_adversarial_config</span><span class="o">=</span><span class="n">adv_config</span><span class="p">,</span>
+                <span class="n">attack_scoring_config</span><span class="o">=</span><span class="n">scoring_config</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Unsupported attack type: &#39;</span><span class="si">{</span><span class="n">attack_type</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Supported types: prompt_sending, red_teaming, crescendo, tap&quot;</span>
+            <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="run">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.pipeline.stage_attack.run">[docs]</a>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">WebRedteamContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;执行 Stage 4: 攻击执行。.&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[Stage 4] 攻击执行&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+
+    <span class="n">args</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">args</span>
+    <span class="n">attack_type</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">attack_type</span> <span class="ow">or</span> <span class="n">ctx</span><span class="o">.</span><span class="n">profile</span><span class="o">.</span><span class="n">attack_defaults</span><span class="o">.</span><span class="n">attack_type</span>
+    <span class="n">objective</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">objective</span> <span class="ow">or</span> <span class="n">ctx</span><span class="o">.</span><span class="n">profile</span><span class="o">.</span><span class="n">attack_defaults</span><span class="o">.</span><span class="n">objective</span>
+    <span class="n">max_turns</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">max_turns</span> <span class="ow">or</span> <span class="n">ctx</span><span class="o">.</span><span class="n">profile</span><span class="o">.</span><span class="n">attack_defaults</span><span class="o">.</span><span class="n">max_turns</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">objective</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No objective specified. Use --objective or set attack_defaults.objective in profile.&quot;</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  攻击类型: </span><span class="si">{</span><span class="n">attack_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  攻击目标: </span><span class="si">{</span><span class="n">objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  最大轮次: </span><span class="si">{</span><span class="n">max_turns</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 创建攻击实例</span>
+    <span class="n">attack</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AttackFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">attack_type</span><span class="o">=</span><span class="n">attack_type</span><span class="p">,</span>
+        <span class="n">target</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
+        <span class="n">objective</span><span class="o">=</span><span class="n">objective</span><span class="p">,</span>
+        <span class="n">max_turns</span><span class="o">=</span><span class="n">max_turns</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># 执行攻击 (原生 API + 超时保护 + 自动重试)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">last_error</span><span class="p">:</span> <span class="ne">Exception</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">attempt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">_ATTACK_MAX_RETRIES</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span>
+                <span class="n">attack</span><span class="o">.</span><span class="n">execute_async</span><span class="p">(</span><span class="n">objective</span><span class="o">=</span><span class="n">objective</span><span class="p">),</span>  <span class="c1"># type: ignore</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="n">_ATTACK_TIMEOUT_SECONDS</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">break</span>  <span class="c1"># 成功, 退出重试循环</span>
+        <span class="k">except</span> <span class="ne">TimeoutError</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;攻击执行超时 (attempt </span><span class="si">{</span><span class="n">attempt</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">_ATTACK_MAX_RETRIES</span><span class="si">}</span><span class="s2">), 超时 </span><span class="si">{</span><span class="n">_ATTACK_TIMEOUT_SECONDS</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  [警告] 攻击执行超时 (attempt </span><span class="si">{</span><span class="n">attempt</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">_ATTACK_MAX_RETRIES</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+            <span class="n">last_error</span> <span class="o">=</span> <span class="ne">TimeoutError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attack timed out after </span><span class="si">{</span><span class="n">_ATTACK_TIMEOUT_SECONDS</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;攻击执行失败 (attempt </span><span class="si">{</span><span class="n">attempt</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">_ATTACK_MAX_RETRIES</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  [警告] 攻击执行失败 (attempt </span><span class="si">{</span><span class="n">attempt</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">_ATTACK_MAX_RETRIES</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">last_error</span> <span class="o">=</span> <span class="n">e</span>
+
+    <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">last_error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">last_error</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;攻击执行失败, 无结果返回&quot;</span><span class="p">)</span>
+
+    <span class="n">ctx</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="n">result</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  攻击执行完成&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stage 4: attack completed (type=</span><span class="si">{</span><span class="n">attack_type</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

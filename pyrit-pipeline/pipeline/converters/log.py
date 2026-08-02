@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TransformationStep:
-    """单步 Converter 变换记录 (后处理重转换中间步骤)。
+    """单步 Converter 变换记录 (后处理重转换中间步骤)。.
 
     L5 对齐: pyrit_ai300/src/reporting/converter_log.py 方案B
     使用 PyRIT 原生 Converter.convert_async() 对原始 prompt 重新执行转换链,
@@ -343,15 +343,7 @@ class ConverterLogCollector:
     def _check_converter_target_used(self, attack_result: Any) -> bool:
         """检测是否使用了 LLM 辅助 Converter。."""
         chain = self._extract_converter_chain(attack_result)
-        llm_converters = {
-            "PersuasionConverter",
-            "DecompositionConverter",
-            "TranslationConverter",
-            "ToneConverter",
-            "TaskFramingConverter",
-            "CodeChameleonConverter",
-        }
-        return any(conv in llm_converters for conv in chain)
+        return any(conv in self._LLM_CONVERTERS for conv in chain)
 
     def _extract_prompts(self, attack_result: Any) -> tuple[str, str]:
         """提取原始和变换后的 prompt (如果可获取)。."""
@@ -378,7 +370,7 @@ class ConverterLogCollector:
                             if role == "user":
                                 original = getattr(msg, "content", "") or ""
                                 break
-            except Exception:
+            except (RuntimeError, OSError, ValueError):
                 pass
 
         return original[:500], transformed[:500]
@@ -388,16 +380,21 @@ class ConverterLogCollector:
     # ============================================================
 
     #: LLM 辅助 Converter 集合 (需要 converter_target, 非确定性)
-    _LLM_CONVERTERS: set[str] = field(
-        default_factory=lambda: {
-            "PersuasionConverter",
-            "DecompositionConverter",
-            "TranslationConverter",
-            "ToneConverter",
-            "TaskFramingConverter",
-            "CodeChameleonConverter",
-        }
-    )
+    # 修复 P0: 非 dataclass 不能使用 field(), 改为类级常量
+    _LLM_CONVERTERS: set[str] = {
+        "PersuasionConverter",
+        "DecompositionConverter",
+        "TranslationConverter",
+        "ToneConverter",
+        "TaskFramingConverter",
+        "CodeChameleonConverter",
+        "NoiseConverter",
+        "MathObfuscationConverter",
+        "ScientificTranslationConverter",
+        "TenseConverter",
+        "VariationConverter",
+        "PolicyPuppetryConverter",
+    }
 
     async def reconvert_async(
         self,
@@ -405,7 +402,7 @@ class ConverterLogCollector:
         *,
         converter_target: Any | None = None,
     ) -> ConverterLogReport:
-        """后处理重转换 — 对每个有 Converter 链的条目重新执行转换链。
+        """后处理重转换 — 对每个有 Converter 链的条目重新执行转换链。.
 
         L5 对齐: pyrit_ai300/src/reporting/converter_log.py 方案B。
         使用 PyRIT 原生 ``Converter.convert_async()`` 对原始 prompt 重新执行
@@ -439,7 +436,7 @@ class ConverterLogCollector:
         entry: ConverterLogEntry,
         converter_target: Any | None,
     ) -> list[TransformationStep]:
-        """对单个条目执行重转换, 记录每步中间输出。"""
+        """对单个条目执行重转换, 记录每步中间输出。."""
         steps: list[TransformationStep] = []
         current_text = entry.original_prompt
 
@@ -482,7 +479,7 @@ class ConverterLogCollector:
                 else:
                     step.error = "Converter returned empty result"
                     step.output_text = current_text[:500]
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 step.error = str(e)[:200]
                 step.output_text = current_text[:500]
 
@@ -491,51 +488,57 @@ class ConverterLogCollector:
         return steps
 
     def _instantiate_converter(self, conv_name: str, converter_target: Any | None) -> Any:
-        """通过类名实例化 Converter (惰性导入)。"""
+        """通过类名实例化 Converter (复用 chains.py 的 _conv() 惰性导入)。.
+
+        修复 P0:
+          1. 原代码从已废弃的 ``pyrit.prompt_converter`` 导入 (1.0.0+ 迁移到 ``pyrit.converter``),
+             导致 ImportError 被静默吞掉, 函数永远返回 None
+          2. 复用 ``chains.py`` 的 ``_conv()`` 惰性导入机制, 消除重复导入路径
+          3. Converter 覆盖从 8 个扩展到全部 35+ 个
+        """
+        from pipeline.converters.chains import _conv
+
+        # 非 LLM Converter: 无参构造
+        _NON_LLM_NO_ARG: set[str] = {
+            "Base64Converter", "ROT13Converter", "CaesarConverter",
+            "AtbashConverter", "LeetspeakConverter", "UrlConverter",
+            "UnicodeConfusableConverter", "UnicodeSubstitutionConverter",
+            "AsciiArtConverter", "FlipConverter", "EmojiConverter",
+            "ZalgoConverter", "ZeroWidthConverter", "BinaryConverter",
+            "MorseConverter", "BrailleConverter", "NatoConverter",
+            "StringJoinConverter", "SuperscriptConverter",
+            "BidiConverter", "RandomCapitalLettersConverter",
+            "SuffixAppendConverter", "CharacterSpaceConverter",
+            "InsertPunctuationConverter", "RepeatTokenConverter",
+            "AsciiSmugglerConverter", "SneakyBitsSmugglerConverter",
+            "Base2048Converter", "EcojiConverter",
+            "UnicodeReplacementConverter", "TatweelConverter",
+            "SearchReplaceConverter", "FirstLetterConverter",
+            "CharSwapConverter", "DiacriticConverter",
+        }
+
         try:
-            from pyrit.prompt_converter import (
-                Base64Converter,
-                ROT13Converter,
-                CaesarCipherConverter,
-                ColloquialWordswapConverter,
-                LeetspeakConverter,
-                UrlConverter,
-                UnicodeConfusableConverter,
-                AsciiArtConverter,
-                PersuasionConverter,
-                TranslationConverter,
-                ToneConverter,
-            )
-
-            converter_map: dict[str, Any] = {
-                "Base64Converter": Base64Converter,
-                "ROT13Converter": ROT13Converter,
-                "CaesarCipherConverter": CaesarCipherConverter,
-                "ColloquialWordswapConverter": ColloquialWordswapConverter,
-                "LeetspeakConverter": LeetspeakConverter,
-                "UrlConverter": UrlConverter,
-                "UnicodeConfusableConverter": UnicodeConfusableConverter,
-                "AsciiArtConverter": AsciiArtConverter,
-            }
-
-            cls = converter_map.get(conv_name)
-            if cls is not None:
+            if conv_name in _NON_LLM_NO_ARG:
+                cls = _conv(conv_name)
                 return cls()
 
-            if conv_name == "PersuasionConverter" and converter_target is not None:
-                return PersuasionConverter(converter_target=converter_target)
-            if conv_name == "TranslationConverter" and converter_target is not None:
-                return TranslationConverter(converter_target=converter_target)
-            if conv_name == "ToneConverter" and converter_target is not None:
-                return ToneConverter(converter_target=converter_target)
+            # LLM Converter: 需要 converter_target
+            if conv_name in self._LLM_CONVERTERS and converter_target is not None:
+                cls = _conv(conv_name)
+                if conv_name == "PersuasionConverter":
+                    return cls(converter_target=converter_target, persuasion_template="authority_endorsement")
+                if conv_name == "TranslationConverter":
+                    return cls(converter_target=converter_target, languages=["en"])
+                # 其他 LLM Converter: 通用单参构造
+                return cls(converter_target=converter_target)
 
             return None
-        except ImportError:
-            logger.warning(f"Cannot import converter {conv_name}")
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"Cannot import converter {conv_name}: {e}")
             return None
 
     def format_transformation_log_markdown(self, report: ConverterLogReport) -> str:
-        """生成后处理重转换日志 Markdown 章节 (L5 对齐报告集成)。"""
+        """生成后处理重转换日志 Markdown 章节 (L5 对齐报告集成)。."""
         lines: list[str] = ["### Converter Transformation Log", ""]
 
         entries_with_steps = [e for e in report.entries if e.transformation_steps]
@@ -565,3 +568,160 @@ class ConverterLogCollector:
             lines.append("")
 
         return "\n".join(lines)
+
+
+# ============================================================
+# L5 对齐: 命名一致性 + 从 AttackResult 提取 Converter 信息
+# ============================================================
+
+#: snake_case 技术名 → PascalCase 攻击类名映射
+TECHNIQUE_NAME_MAP: dict[str, str] = {
+    "prompt_sending": "PromptSendingAttack",
+    "multi_prompt_sending": "MultiPromptSendingAttack",
+    "many_shot": "ManyShotJailbreakAttack",
+    "skeleton": "SkeletonKeyAttack",
+    "chunked_request": "ChunkedRequestAttack",
+    "red_teaming": "RedTeamingAttack",
+    "crescendo": "CrescendoAttack",
+    "crescendo_simulated": "CrescendoAttack",
+    "tap": "TAPAttack",
+    "pair": "PAIRAttack",
+    "tree_of_attacks_pruned": "TreeOfAttacksWithPruningAttack",
+    "sequential": "SequentialAttack",
+}
+
+#: PascalCase 攻击类名 → snake_case 技术名映射 (反向)
+PASCAL_TO_SNAKE: dict[str, str] = {}
+for _snake, _pascal in TECHNIQUE_NAME_MAP.items():
+    if _pascal not in PASCAL_TO_SNAKE:
+        PASCAL_TO_SNAKE[_pascal] = _snake
+
+
+def get_attack_class_name(technique_name: str) -> str:
+    """将 snake_case 技术名映射为 PascalCase 攻击类名。."""
+    return TECHNIQUE_NAME_MAP.get(technique_name, technique_name)
+
+
+def get_technique_name(class_name: str) -> str:
+    """将 PascalCase 攻击类名映射为 snake_case 技术名。."""
+    return PASCAL_TO_SNAKE.get(class_name, class_name)
+
+
+def format_technique_display(technique_name: str) -> str:
+    """格式化技术名显示 (同时展示 snake_case 和 PascalCase)。
+
+    用于预执行展示和报告, 消除命名不一致。
+    """
+    class_name = get_attack_class_name(technique_name)
+    if class_name != technique_name:
+        return f"{technique_name} ({class_name})"
+    return technique_name
+
+
+def extract_converter_info_from_result(attack_result: Any) -> dict[str, Any]:
+    """从 AttackResult 提取 Converter 信息。
+
+    当 labels 中没有 converter_chain_name 时, 从 identifier.children
+    提取 converter 类名列表, 并尝试反向映射到 chain name。
+
+    数据流:
+      AttackResult.get_attack_strategy_identifier()
+        → identifier.children["request_converters"]
+        → [ConverterIdentifier.class_name, ...]
+
+    Args:
+        attack_result: PyRIT AttackResult 实例
+
+    Returns:
+        包含以下字段的字典:
+        - converter_class_names: list[str] — converter 类名列表
+        - converter_chain_name: str | None — 匹配到的 chain name
+        - has_converters: bool — 是否使用了 converter
+    """
+    result: dict[str, Any] = {
+        "converter_class_names": [],
+        "converter_chain_name": None,
+        "has_converters": False,
+    }
+
+    # 优先从 labels 获取
+    labels = getattr(attack_result, "labels", None) or {}
+    if isinstance(labels, dict):
+        chain_name = labels.get("converter_chain_name")
+        if chain_name:
+            result["converter_chain_name"] = chain_name
+            result["has_converters"] = True
+            class_names_str = labels.get("converter_class_names", "")
+            if class_names_str:
+                result["converter_class_names"] = [
+                    n.strip() for n in class_names_str.split(",") if n.strip()
+                ]
+            return result
+
+    # 从 identifier.children 提取 (PyRIT 原生 API)
+    identifier = None
+    if hasattr(attack_result, "get_attack_strategy_identifier"):
+        try:
+            identifier = attack_result.get_attack_strategy_identifier()
+        except (RuntimeError, OSError, ValueError):
+            pass
+
+    if identifier is not None:
+        class_names = _extract_converter_class_names_from_identifier(identifier)
+        if class_names:
+            result["converter_class_names"] = class_names
+            result["has_converters"] = True
+            result["converter_chain_name"] = "→".join(class_names)
+
+    # SequentialAttackResult: 检查子结果
+    if not result["has_converters"]:
+        child_results = getattr(attack_result, "child_attack_results", None) or []
+        for child in child_results:
+            if child is None:
+                continue
+            child_info = extract_converter_info_from_result(child)
+            if child_info["has_converters"]:
+                result["converter_class_names"].extend(
+                    child_info["converter_class_names"]
+                )
+                if child_info["converter_chain_name"] and not result["converter_chain_name"]:
+                    result["converter_chain_name"] = child_info["converter_chain_name"]
+                result["has_converters"] = True
+
+    # 去重
+    result["converter_class_names"] = list(dict.fromkeys(result["converter_class_names"]))
+
+    return result
+
+
+def _extract_converter_class_names_from_identifier(identifier: Any) -> list[str]:
+    """从 ComponentIdentifier 提取 Converter 类名列表。
+
+    PyRIT 原生 API:
+      identifier.children["request_converters"] = [ConverterIdentifier, ...]
+      ConverterIdentifier.class_name = "Base64Converter" 等
+    """
+    class_names: list[str] = []
+    children = getattr(identifier, "children", None) or {}
+
+    req_converters = children.get("request_converters")
+    if req_converters:
+        if isinstance(req_converters, list):
+            for conv_id in req_converters:
+                cn = getattr(conv_id, "class_name", "")
+                if cn:
+                    class_names.append(cn)
+        else:
+            cn = getattr(req_converters, "class_name", "")
+            if cn:
+                class_names.append(cn)
+
+    resp_converters = children.get("response_converters")
+    if resp_converters:
+        if isinstance(resp_converters, list):
+            for conv_id in resp_converters:
+                cn = getattr(conv_id, "class_name", "")
+                if cn:
+                    class_names.append(cn)
+
+    return class_names

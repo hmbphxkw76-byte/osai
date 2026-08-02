@@ -24,60 +24,59 @@ PyRIT 原生 ``AttackTechniqueFactory.create(extra_request_converters=...)`` 支
 
 from __future__ import annotations
 
+import importlib
 import logging
 from pathlib import Path
 from typing import Any
 
-from pyrit.converter import (
-    AsciiArtConverter,
-    AsciiSmugglerConverter,
-    AtbashConverter,
-    Base64Converter,
-    Base2048Converter,
-    BidiConverter,
-    BinaryConverter,
-    BrailleConverter,
-    CaesarConverter,
-    CharacterSpaceConverter,
-    CharSwapConverter,
-    DecompositionConverter,
-    DiacriticConverter,
-    EcojiConverter,
-    EmojiConverter,
-    FirstLetterConverter,
-    InsertPunctuationConverter,
-    LeetspeakConverter,
-    MathObfuscationConverter,
-    MorseConverter,
-    NatoConverter,
-    NoiseConverter,
-    PersuasionConverter,
-    PolicyPuppetryConverter,
-    RandomCapitalLettersConverter,
-    RepeatTokenConverter,
-    ROT13Converter,
-    ScientificTranslationConverter,
-    SearchReplaceConverter,
-    SneakyBitsSmugglerConverter,
-    StringJoinConverter,
-    SuffixAppendConverter,
-    SuperscriptConverter,
-    TaskFramingConverter,
-    TatweelConverter,
-    TenseConverter,
-    ToneConverter,
-    TranslationConverter,
-    UnicodeConfusableConverter,
-    UnicodeReplacementConverter,
-    UnicodeSubstitutionConverter,
-    UrlConverter,
-    VariationConverter,
-    ZalgoConverter,
-    ZeroWidthConverter,
-)
-from pyrit.prompt_normalizer import ConverterConfiguration
-
 logger = logging.getLogger(__name__)
+
+# P3-1: 惰性导入 Converter 类 — 避免 PyRIT 版本变更时整个模块导入失败
+_converter_mod = None
+
+
+def _conv(name: str) -> type:
+    """惰性获取 PyRIT Converter 类 (首次调用时导入整个模块, 后续从缓存返回).
+
+    如果类不存在, 抛出 AttributeError 并记录警告.
+    """
+    global _converter_mod
+    if _converter_mod is None:
+        _converter_mod = importlib.import_module("pyrit.converter")
+    cls = getattr(_converter_mod, name, None)
+    if cls is None:
+        raise AttributeError(f"PyRIT Converter '{name}' not found in pyrit.converter. Check PyRIT version.")
+    return cls
+
+
+# P3-1: 模块级 __getattr__ — 函数体内引用 Converter 类名时自动惰性解析
+# 无需修改任何 _build_*_chain() 函数体, Python 会在全局命名空间未找到时自动调用
+_CONVERSION_CONFIG_IMPORTED = False
+
+
+def _get_converter_configuration() -> Any:
+    """惰性导入 ConverterConfiguration (仅在使用时导入)."""
+    global _CONVERSION_CONFIG_IMPORTED
+    if not _CONVERSION_CONFIG_IMPORTED:
+        from pyrit.prompt_normalizer import ConverterConfiguration
+        globals()["ConverterConfiguration"] = ConverterConfiguration
+        _CONVERSION_CONFIG_IMPORTED = True
+    return globals().get("ConverterConfiguration")
+
+
+def __getattr__(name: str) -> Any:
+    """模块级惰性导入 (P3-1): Converter 类名在首次引用时从 pyrit.converter 导入.
+
+    支持: UnicodeConfusableConverter, Base64Converter, ROT13Converter, ...
+    以及: ConverterConfiguration (从 pyrit.prompt_normalizer)
+    """
+    if name == "ConverterConfiguration":
+        return _get_converter_configuration()
+    # 尝试从 pyrit.converter 惰性获取
+    try:
+        return _conv(name)
+    except AttributeError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 
 
 # ============================================================
@@ -129,55 +128,55 @@ CONVERTER_VARIANT_CHAINS, BASE_TECHNIQUES_FOR_VARIANTS = _load_chain_config()
 def _build_stealth_evasion_chain() -> list:
     """Unicode 混淆 + Base64 + 后缀追加."""
     return [
-        UnicodeConfusableConverter(),
-        Base64Converter(),
-        SuffixAppendConverter(suffix="!!"),
+        _conv("UnicodeConfusableConverter")(),
+        _conv("Base64Converter")(),
+        _conv("SuffixAppendConverter")(suffix="!!"),
     ]
 
 
 def _build_multi_encoding_v2_chain() -> list:
     """四层编码: Base64 + ROT13 + Caesar(5) + Atbash."""
     return [
-        Base64Converter(),
-        ROT13Converter(),
-        CaesarConverter(caesar_offset=5),
-        AtbashConverter(),
+        _conv("Base64Converter")(),
+        _conv("ROT13Converter")(),
+        _conv("CaesarConverter")(caesar_offset=5),
+        _conv("AtbashConverter")(),
     ]
 
 
 def _build_encoding_bypass_chain() -> list:
     """Base64 + ROT13 + Caesar 编码绕过."""
     return [
-        Base64Converter(),
-        ROT13Converter(),
-        CaesarConverter(caesar_offset=3),
+        _conv("Base64Converter")(),
+        _conv("ROT13Converter")(),
+        _conv("CaesarConverter")(caesar_offset=3),
     ]
 
 
 def _build_unicode_attack_chain() -> list:
     """Unicode 混淆 + 双向文本 + 零宽字符."""
     return [
-        UnicodeSubstitutionConverter(),
-        BidiConverter(),
-        ZeroWidthConverter(),
+        _conv("UnicodeSubstitutionConverter")(),
+        _conv("BidiConverter")(),
+        _conv("ZeroWidthConverter")(),
     ]
 
 
 def _build_random_case_chain() -> list:
     """随机大写字符绕过关键词检测."""
     return [
-        RandomCapitalLettersConverter(),
+        _conv("RandomCapitalLettersConverter")(),
     ]
 
 
 def _build_format_injection_chain() -> list:
     """ASCII 艺术格式注入."""
     return [
-        AsciiArtConverter(),
+        _conv("AsciiArtConverter")(),
     ]
 
 
-def _build_noise_bypass_chain(converter_target=None) -> list:
+def _build_noise_bypass_chain(converter_target: Any = None) -> list:
     """NoiseConverter 噪声注入 (LLM 辅助).
 
     NoiseConverter 需要 converter_target 来生成噪声变体。
@@ -185,61 +184,61 @@ def _build_noise_bypass_chain(converter_target=None) -> list:
     if converter_target is None:
         return []
     return [
-        NoiseConverter(converter_target=converter_target),
+        _conv("NoiseConverter")(converter_target=converter_target),
     ]
 
 
 def _build_special_chars_chain() -> list:
     """特殊字符注入."""
     return [
-        UnicodeConfusableConverter(),
-        StringJoinConverter(),
+        _conv("UnicodeConfusableConverter")(),
+        _conv("StringJoinConverter")(),
     ]
 
 
-def _build_persuasion_authority_chain(converter_target=None) -> list:
+def _build_persuasion_authority_chain(converter_target: Any = None) -> list:
     """权威说服 (LLM 辅助)."""
     if converter_target is None:
         return []
     return [
-        PersuasionConverter(
+        _conv("PersuasionConverter")(
             converter_target=converter_target,
-            persuasion_template="authority_endorsement",
+            persuasion_technique="authority_endorsement",
         ),
     ]
 
 
-def _build_decomposition_chain(converter_target=None) -> list:
+def _build_decomposition_chain(converter_target: Any = None) -> list:
     """分解重构."""
     if converter_target is None:
         return []
     return [
-        DecompositionConverter(
+        _conv("DecompositionConverter")(
             converter_target=converter_target,
         ),
     ]
 
 
-def _build_llm_assisted_chain(converter_target=None) -> list:
+def _build_llm_assisted_chain(converter_target: Any = None) -> list:
     """说服 + 语气 + 翻译 (LLM 辅助)."""
     if converter_target is None:
         return []
     return [
-        PersuasionConverter(
+        _conv("PersuasionConverter")(
             converter_target=converter_target,
-            persuasion_template="authority_endorsement",
+            persuasion_technique="authority_endorsement",
         ),
-        ToneConverter(converter_target=converter_target),
-        TranslationConverter(converter_target=converter_target, languages=["en"]),
+        _conv("ToneConverter")(converter_target=converter_target),
+        _conv("TranslationConverter")(converter_target=converter_target, languages=["en"]),
     ]
 
 
-def _build_task_framing_chain(converter_target=None) -> list:
+def _build_task_framing_chain(converter_target: Any = None) -> list:
     """任务框架重构."""
     if converter_target is None:
         return []
     return [
-        TaskFramingConverter(converter_target=converter_target),
+        _conv("TaskFramingConverter")(converter_target=converter_target),
     ]
 
 
@@ -248,112 +247,112 @@ def _build_task_framing_chain(converter_target=None) -> list:
 
 def _build_binary_morse_chain() -> list:
     """Binary + Morse 双层编码."""
-    return [BinaryConverter(), MorseConverter()]
+    return [_conv("BinaryConverter")(), _conv("MorseConverter")()]
 
 
 def _build_braille_nato_chain() -> list:
     """Braille + Nato 字母表替换."""
-    return [BrailleConverter(), NatoConverter()]
+    return [_conv("BrailleConverter")(), _conv("NatoConverter")()]
 
 
 def _build_leetspeak_zalgo_chain() -> list:
     """Leetspeak + Zalgo 文本变形."""
-    return [LeetspeakConverter(), ZalgoConverter()]
+    return [_conv("LeetspeakConverter")(), _conv("ZalgoConverter")()]
 
 
 def _build_emoji_superscript_chain() -> list:
     """Emoji + Superscript 字符替换."""
-    return [EmojiConverter(), SuperscriptConverter()]
+    return [_conv("EmojiConverter")(), _conv("SuperscriptConverter")()]
 
 
 def _build_char_swap_diacritic_chain() -> list:
     """CharSwap + Diacritic 字符变形."""
-    return [CharSwapConverter(), DiacriticConverter()]
+    return [_conv("CharSwapConverter")(), _conv("DiacriticConverter")()]
 
 
 def _build_character_space_chain() -> list:
     """CharacterSpace 字符间距混淆."""
-    return [CharacterSpaceConverter()]
+    return [_conv("CharacterSpaceConverter")()]
 
 
 def _build_punctuation_insert_chain() -> list:
     """InsertPunctuation 标点注入绕过."""
-    return [InsertPunctuationConverter()]
+    return [_conv("InsertPunctuationConverter")()]
 
 
 def _build_repeat_token_chain() -> list:
     """RepeatToken 重复令牌注入."""
-    return [RepeatTokenConverter()]
+    return [_conv("RepeatTokenConverter")()]
 
 
 def _build_token_smuggling_chain() -> list:
     """AsciiSmuggler + SneakyBits 令牌走私."""
-    return [AsciiSmugglerConverter(), SneakyBitsSmugglerConverter()]
+    return [_conv("AsciiSmugglerConverter")(), _conv("SneakyBitsSmugglerConverter")()]
 
 
 def _build_url_encoding_chain() -> list:
     """Url + Base64 URL 编码绕过."""
-    return [UrlConverter(), Base64Converter()]
+    return [_conv("UrlConverter")(), _conv("Base64Converter")()]
 
 
 def _build_base2048_ecoji_chain() -> list:
     """Base2048 + Ecoji 高基数编码."""
-    return [Base2048Converter(), EcojiConverter()]
+    return [_conv("Base2048Converter")(), _conv("EcojiConverter")()]
 
 
 def _build_unicode_replacement_chain() -> list:
     """UnicodeReplacement + Tatweel Unicode 替换."""
-    return [UnicodeReplacementConverter(), TatweelConverter()]
+    return [_conv("UnicodeReplacementConverter")(), _conv("TatweelConverter")()]
 
 
 def _build_search_replace_chain() -> list:
     """SearchReplace 关键词替换绕过."""
-    return [SearchReplaceConverter(old_value="test", new_value="exam")]
+    return [_conv("SearchReplaceConverter")(old_value="test", new_value="exam")]
 
 
 def _build_first_letter_chain() -> list:
     """FirstLetter 首字母提取编码."""
-    return [FirstLetterConverter()]
+    return [_conv("FirstLetterConverter")()]
 
 
 # ── 补全: LLM 链构建函数 ──
 
 
-def _build_tense_variation_chain(converter_target=None) -> list:
+def _build_tense_variation_chain(converter_target: Any = None) -> list:
     """Tense + Variation 时态变换+变体 (LLM 辅助)."""
     if converter_target is None:
         return []
     return [
-        TenseConverter(converter_target=converter_target),
-        VariationConverter(converter_target=converter_target),
+        _conv("TenseConverter")(converter_target=converter_target),
+        _conv("VariationConverter")(converter_target=converter_target),
     ]
 
 
-def _build_persuasion_policy_chain(converter_target=None) -> list:
+def _build_persuasion_policy_chain(converter_target: Any = None) -> list:
     """Persuasion + PolicyPuppetry 说服+策略模仿."""
     if converter_target is None:
         return []
     return [
-        PersuasionConverter(
+        _conv("PersuasionConverter")(
             converter_target=converter_target,
-            persuasion_template="authority_endorsement",
+            persuasion_technique="authority_endorsement",
         ),
-        PolicyPuppetryConverter(converter_target=converter_target),
+        _conv("PolicyPuppetryConverter")(converter_target=converter_target),
     ]
 
 
-def _build_math_obfuscation_chain(converter_target=None) -> list:
+def _build_math_obfuscation_chain(converter_target: Any = None) -> list:
     """MathObfuscation 数学表达式混淆 (LLM 辅助)."""
     if converter_target is None:
         return []
-    return [MathObfuscationConverter(converter_target=converter_target)]
+    return [_conv("MathObfuscationConverter")(converter_target=converter_target)]
 
 
-def _build_scientific_translation_chain(converter_target=None) -> list:
+def _build_scientific_translation_chain(converter_target: Any = None) -> list:
     """ScientificTranslation 科学翻译变换."""
     if converter_target is None:
         return []
-    return [ScientificTranslationConverter(converter_target=converter_target)]
+    return [_conv("ScientificTranslationConverter")(converter_target=converter_target)]
 
 
 # 链名 → 构建函数映射
@@ -394,9 +393,9 @@ _CHAIN_BUILDERS = {
 
 def load_preset_converter_chain(
     chain_name: str,
-    converter_target=None,
-) -> ConverterConfiguration | None:
-    """从预设链名构建 ConverterConfiguration。.
+    converter_target: Any = None,
+) -> Any:
+    """从预设链名构建 ConverterConfiguration.
 
     使用 PyRIT 原生 ``ConverterConfiguration`` 包装 Converter 列表，
     供 ``AttackTechniqueFactory.create(extra_request_converters=...)`` 使用。
@@ -422,14 +421,14 @@ def load_preset_converter_chain(
 
     try:
         converters = builder(converter_target)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"Failed to build converter chain '{chain_name}': {e}")
         return None
 
     if not converters:
         return None
 
-    return ConverterConfiguration(converters=converters)
+    return _get_converter_configuration()(converters=converters)
 
 
 # ============================================================
@@ -477,7 +476,7 @@ def get_dynamic_chain_mapping(
 
 def build_converters_from_chain_names(
     chain_names: list[str],
-    converter_target=None,
+    converter_target: Any = None,
 ) -> list:
     """从多个链名构建扁平化的 Converter 实例列表。.
 
@@ -516,7 +515,7 @@ def build_converters_from_chain_names(
 
         try:
             converters = builder(converter_target)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"Failed to build converter chain '{chain_name}': {e}")
             continue
 

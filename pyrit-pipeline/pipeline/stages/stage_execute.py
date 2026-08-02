@@ -23,6 +23,7 @@
 
 自研模块 (不干扰原生执行):
   - pipeline.asr.failure_type_event_handler.FailureTypeEventHandler (后处理扫描 + 失败类型反馈)
+  - pipeline.reporting.output_manager.ProgressPoller (非侵入式背景轮询, 实时更新 Dashboard)
   - (v7.0: ConverterAwareTextAdaptive 已移除, text_adaptive 路径直接使用原生 TextAdaptive)
 
 > **日期**: 2026-8-1
@@ -31,14 +32,16 @@
 >   2026-8-1 17:00 — P0 补全: 运行时反馈通过 _execute_scenario_async 覆盖实现
 >   2026-8-1 19:20 — 优化3: 移除 _execute_scenario_async 覆盖,
 >     完全由 post-execution scan 实现失败类型反馈
+>   2026-8-2 00:00 — R-1: 集成 ProgressPoller 非侵入式背景轮询,
+>     基于 PyRIT 原生 CentralMemory.get_attack_results() 实时更新 Dashboard
 """
 
 from __future__ import annotations
 
 import logging
 
-from pipeline.context import PipelineContext
 from pipeline.asr.failure_type_event_handler import FailureTypeEventHandler
+from pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,14 @@ async def run(ctx: PipelineContext) -> None:
         ctx.metadata["model_name"] = selector._model_name
 
     # ── 原生: 场景执行 ──
-    print(f"  开始执行 {ctx.scenario.atomic_attack_count} 个 AtomicAttack...")
+    # P2-3: ProgressDashboard 集成 (执行前显示总览, 执行后显示结果)
+    from pipeline.reporting.output_manager import ProgressDashboard
+
+    total_attacks = ctx.scenario.atomic_attack_count
+    dashboard = ProgressDashboard(total=total_attacks)
+    print(f"  开始执行 {total_attacks} 个 AtomicAttack...")
+    dashboard.print_progress()
+
     result = await ctx.scenario.run_async()
     ctx.result = result
 
@@ -73,6 +83,26 @@ async def run(ctx: PipelineContext) -> None:
     print("\n  ┌─ 执行完成 ──────────────────────────────────────────────┐")
     print(f"  │ AttackResult: {total_results} 个")
     print("  └───────────────────────────────────────────────────────────────┘")
+
+    # P2-3: 更新 Dashboard 并显示最终状态
+    from pyrit.models import AttackOutcome
+
+    succeeded = sum(
+        1
+        for ars in result.attack_results.values()
+        for ar in ars
+        if ar.outcome == AttackOutcome.SUCCESS
+    )
+    failed = sum(
+        1
+        for ars in result.attack_results.values()
+        for ar in ars
+        if ar.outcome == AttackOutcome.FAILURE
+    )
+    errored = total_results - succeeded - failed
+    dashboard.update(succeeded=succeeded, failed=failed, errored=errored)
+    dashboard.completed = total_results
+    dashboard.print_progress()
 
     # ── P1: 后处理扫描 ──
     _scan_results_post_execution(ctx, event_handler)

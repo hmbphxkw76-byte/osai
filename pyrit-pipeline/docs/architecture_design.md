@@ -374,7 +374,7 @@ pyrit-pipeline/
 │   ├── __init__.py                 # 公共接口
 │   ├── context.py                  # PipelineContext 状态容器
 │   ├── config.py                   # 命令行参数
-│   ├── html_report.py              # HTML 报告模板
+│   ├── reporting/                 # HTML/PDF 报告 (format_converter + Jinja2)
 │   ├── stages/                     # 六阶段
 │   ├── asr/                        # ASR 驱动 (6模块)
 │   ├── converters/                 # Converter 路由 (6模块)

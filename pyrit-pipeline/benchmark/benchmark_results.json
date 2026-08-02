@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-08-02T12:14:34.641545",
+  "python_version": "3.13",
+  "benchmarks": {
+    "asr_query": {
+      "error": "Central memory instance has not been set. Use `set_memory_instance` to set it."
+    },
+    "sort_datasets": {
+      "total_seconds": 0.0002531000063754618,
+      "per_call_ms": 0.002531000063754618,
+      "iterations": 100
+    },
+    "evidence_collection_100": {
+      "error": "expected string or bytes-like object, got 'MagicMock'"
+    },
+    "converter_routing_50": {
+      "total_seconds": 0.0001497999983257614,
+      "n_techniques": 50,
+      "per_technique_ms": 0.002995999966515228
+    },
+    "merge_empirical_100": {
+      "total_seconds": 1.9400002202019095e-05,
+      "n_techniques": 100,
+      "per_technique_ms": 0.00019400002202019095
+    }
+  }
+}

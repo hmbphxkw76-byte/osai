@@ -48,6 +48,7 @@ class DiversityMetrics:
 
     # 技术多样性
     technique_entropy: float = 0.0
+    technique_normalized_entropy: float = 0.0
     technique_coverage: float = 0.0
     unique_techniques: int = 0
     total_attacks: int = 0
@@ -59,10 +60,14 @@ class DiversityMetrics:
 
     # OWASP 覆盖
     owasp_coverage: float = 0.0
+    owasp_covered_count: int = 0
+    owasp_total_count: int = 20
     owasp_categories_used: list[str] = field(default_factory=list)
 
     # Converter 链覆盖
     converter_chain_entropy: float = 0.0
+    converter_diversity_ratio: float = 0.0
+    unique_converters: int = 0
     converter_chains_used: list[str] = field(default_factory=list)
 
     # 攻击模式分布
@@ -71,6 +76,11 @@ class DiversityMetrics:
     # L5 对齐: 失败模式集中度 — 最大失败原因占比 (越高越集中, 越低越分散)
     failure_concentration: float = 0.0
     failure_type_distribution: dict[str, int] = field(default_factory=dict)
+    top_failure_reason: str = ""
+
+    # L5 对齐: 成功/失败技术分布
+    success_technique_distribution: dict[str, int] = field(default_factory=dict)
+    failure_technique_distribution: dict[str, int] = field(default_factory=dict)
 
     # 整体评分
     overall_diversity_score: float = 0.0
@@ -80,6 +90,7 @@ class DiversityMetrics:
         """转换为字典 (用于报告序列化)。."""
         return {
             "technique_entropy": round(self.technique_entropy, 4),
+            "technique_normalized_entropy": round(self.technique_normalized_entropy, 4),
             "technique_coverage": round(self.technique_coverage, 4),
             "unique_techniques": self.unique_techniques,
             "total_attacks": self.total_attacks,
@@ -87,15 +98,40 @@ class DiversityMetrics:
             "paradigms_used": self.paradigms_used,
             "paradigms_available": self.paradigms_available,
             "owasp_coverage": round(self.owasp_coverage, 4),
+            "owasp_covered_count": self.owasp_covered_count,
+            "owasp_total_count": self.owasp_total_count,
             "owasp_categories_used": self.owasp_categories_used,
             "converter_chain_entropy": round(self.converter_chain_entropy, 4),
+            "converter_diversity_ratio": round(self.converter_diversity_ratio, 4),
+            "unique_converters": self.unique_converters,
             "converter_chains_used": self.converter_chains_used,
             "attack_mode_distribution": self.attack_mode_distribution,
             "failure_concentration": round(self.failure_concentration, 4),
             "failure_type_distribution": self.failure_type_distribution,
+            "top_failure_reason": self.top_failure_reason,
+            "success_technique_distribution": self.success_technique_distribution,
+            "failure_technique_distribution": self.failure_technique_distribution,
             "overall_diversity_score": round(self.overall_diversity_score, 2),
             "diversity_grade": self.diversity_grade,
         }
+
+    def get_diversity_grade(self) -> str:
+        """根据归一化熵给出多样性等级 (L5 对齐 pyrit_ai300)。
+
+        Returns:
+            等级字符串: "Excellent" / "Good" / "Moderate" / "Low" / "Poor"
+        """
+        e = self.technique_normalized_entropy
+        if e >= 0.8:
+            return "Excellent"
+        elif e >= 0.6:
+            return "Good"
+        elif e >= 0.4:
+            return "Moderate"
+        elif e >= 0.2:
+            return "Low"
+        else:
+            return "Poor"
 
 
 # ============================================================
@@ -197,8 +233,9 @@ class DiversityAnalyzer:
         else:
             metrics.technique_coverage = 1.0
 
-        # Shannon 熵
+        # Shannon 熵 + 归一化熵
         metrics.technique_entropy = self._shannon_entropy(tech_counter)
+        metrics.technique_normalized_entropy = self._normalized_entropy(tech_counter)
 
         # ── 范式覆盖 ──
         paradigm_counter = Counter(_classify_paradigm(t) for t in all_techniques)
@@ -213,6 +250,8 @@ class DiversityAnalyzer:
 
             owasp_counter = Counter(all_owasp)
             metrics.owasp_categories_used = sorted(owasp_counter.keys())
+            metrics.owasp_covered_count = len(metrics.owasp_categories_used)
+            metrics.owasp_total_count = OWASP_LLM_CATEGORY_COUNT
             metrics.owasp_coverage = len(metrics.owasp_categories_used) / OWASP_LLM_CATEGORY_COUNT
 
         # ── Converter 链覆盖 ──
@@ -220,6 +259,18 @@ class DiversityAnalyzer:
             chain_counter = Counter(all_chains)
             metrics.converter_chain_entropy = self._shannon_entropy(chain_counter)
             metrics.converter_chains_used = sorted(chain_counter.keys())
+            metrics.unique_converters = len(chain_counter)
+            # L5 对齐: converter_diversity = 使用了 Converter 的攻击比例 × Converter 种类多样性
+            if metrics.total_attacks > 0 and metrics.unique_converters > 0:
+                converter_attack_count = sum(chain_counter.values())
+                converter_usage_ratio = converter_attack_count / metrics.total_attacks
+                converter_norm_entropy = self._normalized_entropy(chain_counter)
+                metrics.converter_diversity_ratio = round(converter_usage_ratio * converter_norm_entropy, 4)
+
+        # L5 对齐: 成功/失败技术分布拆分
+        success_dist, failure_dist = self._split_technique_distribution_by_outcome(attack_results)
+        metrics.success_technique_distribution = success_dist
+        metrics.failure_technique_distribution = failure_dist
 
         # ── 攻击模式分布 ──
         metrics.attack_mode_distribution = dict(paradigm_counter.most_common())
@@ -228,6 +279,8 @@ class DiversityAnalyzer:
         metrics.failure_concentration, metrics.failure_type_distribution = (
             self._compute_failure_concentration(attack_results)
         )
+        if metrics.failure_type_distribution:
+            metrics.top_failure_reason = max(metrics.failure_type_distribution, key=metrics.failure_type_distribution.get)
 
         # ── 整体评分 ──
         metrics.overall_diversity_score = self._compute_overall_score(metrics)
@@ -311,6 +364,41 @@ class DiversityAnalyzer:
                 entropy -= p * math.log2(p)
         return entropy
 
+    def _normalized_entropy(self, counter: Counter) -> float:
+        """计算归一化 Shannon 熵 (0.0-1.0)。
+
+        L5 对齐 pyrit_ai300/src/reporting/diversity_analyzer.py
+        """
+        n = len(counter)
+        if n <= 1:
+            return 0.0
+        raw = self._shannon_entropy(counter)
+        max_entropy = math.log2(n)
+        return round(raw / max_entropy, 4) if max_entropy > 0 else 0.0
+
+    def _split_technique_distribution_by_outcome(
+        self,
+        attack_results: dict[str, list[Any]],
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        """按成功/失败拆分攻击技术分布 (L5 对齐)。."""
+        success_dist: dict[str, int] = {}
+        failure_dist: dict[str, int] = {}
+
+        for _attack_id, results in attack_results.items():
+            for ar in results:
+                technique = self._extract_technique_name(ar)
+                outcome = getattr(ar, "outcome", None)
+                outcome_str = (
+                    str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+                ) if outcome else "UNKNOWN"
+
+                if outcome_str == "SUCCESS":
+                    success_dist[technique] = success_dist.get(technique, 0) + 1
+                else:
+                    failure_dist[technique] = failure_dist.get(technique, 0) + 1
+
+        return success_dist, failure_dist
+
     def _compute_failure_concentration(
         self,
         attack_results: dict[str, list[Any]],
@@ -337,7 +425,7 @@ class DiversityAnalyzer:
                     try:
                         from pipeline.asr.failure_type_selector import extract_failure_type_from_result
                         ftype = extract_failure_type_from_result(ar)
-                    except Exception:
+                    except ImportError:
                         ftype = "unknown"
                     failure_types[ftype] += 1
 
@@ -355,7 +443,7 @@ class DiversityAnalyzer:
                         try:
                             from pipeline.asr.failure_type_selector import extract_failure_type_from_result
                             ftype = extract_failure_type_from_result(child)
-                        except Exception:
+                        except ImportError:
                             ftype = "unknown"
                         failure_types[ftype] += 1
 
@@ -412,3 +500,195 @@ class DiversityAnalyzer:
         from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
 
         return AttackResultAnalyzer.extract_technique_name(attack_result)
+
+
+# ============================================================
+# L5 对齐: 报告渲染辅助函数 (pyrit_ai300/src/reporting/diversity_analyzer.py)
+# ============================================================
+
+
+def render_diversity_section(metrics: DiversityMetrics) -> str:
+    """渲染多样性分析 Markdown 章节 (L5 对齐 pyrit_ai300)。
+
+    生成一个完整的 Markdown 章节, 可直接插入报告中。
+
+    Args:
+        metrics: DiversityMetrics 实例
+
+    Returns:
+        Markdown 格式的多样性分析章节字符串
+    """
+    grade = metrics.get_diversity_grade()
+
+    lines = [
+        "### Diversity & Coverage Analysis",
+        "",
+        "This section provides quantitative metrics on the diversity and breadth",
+        "of the attack techniques used during the assessment.",
+        "",
+        "| Metric | Value | Description |",
+        "|--------|-------|-------------|",
+        f"| Technique Entropy | {metrics.technique_entropy:.2f} bits | Shannon entropy of technique distribution (higher = more diverse) |",
+        f"| Normalized Entropy | {metrics.technique_normalized_entropy:.2%} | Entropy relative to maximum possible (0-100%) |",
+        f"| Diversity Grade | {grade} | Qualitative assessment of technique diversity |",
+        f"| Unique Techniques | {metrics.unique_techniques} | Number of distinct attack techniques used |",
+        f"| Technique Coverage | {metrics.technique_coverage:.0%} | Ratio of available techniques actually employed |",
+        f"| OWASP Coverage | {metrics.owasp_covered_count} / {metrics.owasp_total_count} ({metrics.owasp_coverage:.0%}) | OWASP IDs covered by at least one attack |",
+        f"| Converter Diversity | {metrics.converter_diversity_ratio:.2%} | Weighted diversity of converter chains used |",
+        f"| Unique Converters | {metrics.unique_converters} | Number of distinct converter chains employed |",
+        f"| Failure Concentration | {metrics.failure_concentration:.0%} | Proportion of failures attributed to the top reason |",
+        "",
+    ]
+
+    # 成功技术分布
+    if metrics.success_technique_distribution:
+        lines.extend([
+            "#### Successful Attack Techniques",
+            "",
+            "| Technique | Count |",
+            "|-----------|-------|",
+        ])
+        for tech, count in sorted(
+            metrics.success_technique_distribution.items(), key=lambda x: -x[1]
+        ):
+            lines.append(f"| {tech} | {count} |")
+        lines.append("")
+
+    # 失败技术分布
+    if metrics.failure_technique_distribution:
+        lines.extend([
+            "#### Failed Attack Techniques",
+            "",
+            "| Technique | Count |",
+            "|-----------|-------|",
+        ])
+        for tech, count in sorted(
+            metrics.failure_technique_distribution.items(), key=lambda x: -x[1]
+        ):
+            lines.append(f"| {tech} | {count} |")
+        lines.append("")
+
+    # 失败模式分析
+    if metrics.top_failure_reason:
+        lines.extend([
+            "#### Failure Mode Analysis",
+            "",
+            f"- **Top Failure Reason**: `{metrics.top_failure_reason}`",
+            f"- **Concentration**: {metrics.failure_concentration:.0%} of failures share the same root cause",
+            "",
+        ])
+
+        if metrics.failure_concentration > 0.5:
+            lines.append(
+                "> ⚠️ **Warning**: High failure concentration suggests a systematic issue. "
+                "Consider adjusting attack parameters or scorer configurations."
+            )
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# L5 对齐: 报告渲染辅助 — render_diversity_section_from_dict()
+# 兼容旧版接口: 从 dict 渲染 (用于 ReportGenerator 内部调用)
+# ============================================================
+
+
+def render_diversity_section_from_dict(metrics_dict: dict[str, Any]) -> str:
+    """从字典渲染多样性分析 Markdown 章节 (兼容旧版接口)。."""
+    grade = metrics_dict.get("diversity_grade", "F")
+    entropy = metrics_dict.get("technique_entropy", 0.0)
+    unique_tech = metrics_dict.get("unique_techniques", 0)
+    tech_coverage = metrics_dict.get("technique_coverage", 0.0)
+    paradigm_coverage = metrics_dict.get("paradigm_coverage", 0.0)
+    paradigms_used = metrics_dict.get("paradigms_used", [])
+    owasp_coverage = metrics_dict.get("owasp_coverage", 0.0)
+    converter_entropy = metrics_dict.get("converter_chain_entropy", 0.0)
+    converter_chains = metrics_dict.get("converter_chains_used", [])
+    failure_concentration = metrics_dict.get("failure_concentration", 0.0)
+    failure_dist = metrics_dict.get("failure_type_distribution", {})
+    overall_score = metrics_dict.get("overall_diversity_score", 0.0)
+    attack_mode_dist = metrics_dict.get("attack_mode_distribution", {})
+    norm_entropy = metrics_dict.get("technique_normalized_entropy", 0.0)
+    owasp_covered = metrics_dict.get("owasp_covered_count", 0)
+    owasp_total = metrics_dict.get("owasp_total_count", 20)
+    converter_diversity = metrics_dict.get("converter_diversity_ratio", 0.0)
+    unique_converters = metrics_dict.get("unique_converters", 0)
+    top_failure = metrics_dict.get("top_failure_reason", "")
+    success_dist = metrics_dict.get("success_technique_distribution", {})
+    failure_tech_dist = metrics_dict.get("failure_technique_distribution", {})
+
+    # 等级映射
+    if norm_entropy >= 0.8:
+        grade_label = "Excellent"
+    elif norm_entropy >= 0.6:
+        grade_label = "Good"
+    elif norm_entropy >= 0.4:
+        grade_label = "Moderate"
+    elif norm_entropy >= 0.2:
+        grade_label = "Low"
+    else:
+        grade_label = "Poor"
+
+    lines = [
+        "### Diversity & Coverage Analysis",
+        "",
+        "This section provides quantitative metrics on the diversity and breadth",
+        "of the attack techniques used during the assessment.",
+        "",
+        "| Metric | Value | Description |",
+        "|--------|-------|-------------|",
+        f"| Technique Entropy | {entropy:.2f} bits | Shannon entropy of technique distribution (higher = more diverse) |",
+        f"| Normalized Entropy | {norm_entropy:.2%} | Entropy relative to maximum possible (0-100%) |",
+        f"| Diversity Grade | {grade_label} | Qualitative assessment of technique diversity |",
+        f"| Unique Techniques | {unique_tech} | Number of distinct attack techniques used |",
+        f"| Technique Coverage | {tech_coverage:.0%} | Ratio of available techniques actually employed |",
+        f"| OWASP Coverage | {owasp_covered} / {owasp_total} ({owasp_coverage:.0%}) | OWASP IDs covered by at least one attack |",
+        f"| Converter Diversity | {converter_diversity:.2%} | Weighted diversity of converter chains used |",
+        f"| Unique Converters | {unique_converters} | Number of distinct converter chains employed |",
+        f"| Failure Concentration | {failure_concentration:.0%} | Proportion of failures attributed to the top reason |",
+        "",
+    ]
+
+    # 成功技术分布
+    if success_dist:
+        lines.extend([
+            "#### Successful Attack Techniques",
+            "",
+            "| Technique | Count |",
+            "|-----------|-------|",
+        ])
+        for tech, count in sorted(success_dist.items(), key=lambda x: -x[1]):
+            lines.append(f"| {tech} | {count} |")
+        lines.append("")
+
+    # 失败技术分布
+    if failure_tech_dist:
+        lines.extend([
+            "#### Failed Attack Techniques",
+            "",
+            "| Technique | Count |",
+            "|-----------|-------|",
+        ])
+        for tech, count in sorted(failure_tech_dist.items(), key=lambda x: -x[1]):
+            lines.append(f"| {tech} | {count} |")
+        lines.append("")
+
+    # 失败模式分析
+    if top_failure:
+        lines.extend([
+            "#### Failure Mode Analysis",
+            "",
+            f"- **Top Failure Reason**: `{top_failure}`",
+            f"- **Concentration**: {failure_concentration:.0%} of failures share the same root cause",
+            "",
+        ])
+
+        if failure_concentration > 0.5:
+            lines.append(
+                "> ⚠️ **Warning**: High failure concentration suggests a systematic issue. "
+                "Consider adjusting attack parameters or scorer configurations."
+            )
+            lines.append("")
+
+    return "\n".join(lines)

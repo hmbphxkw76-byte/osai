@@ -23,6 +23,11 @@ from .adaptive_rate import AdaptiveRateController
 
 logger = logging.getLogger(__name__)
 
+# 模块级活动速率控制器引用，供 atexit / 信号 handler 在进程退出时兜底回收
+# （异常中断 / Ctrl+C 时 stage3 的 try/finally 可能来不及跑完）。
+_active_rate: AdaptiveRateController | None = None
+_rate_cleaned = False
+
 
 def _make_downgrade_cb():
     """生成并发降级回调：将新并发数写回 _config.run.parallel_requests
@@ -56,8 +61,9 @@ def _configure_garak(
     # API key 经环境变量注入（见 execute_attack 中
     # os.environ["OpenAICompatible_API_KEY"]）；garak 0.15.x 的
     # _config.plugins 无 api_key 属性，用 hasattr 守卫以兼容。
+    # Cookie 认证场景下 api_key 为空，留空即可（认证头由 generator 注入）。
     if hasattr(_config.plugins, "api_key"):
-        _config.plugins.api_key = target["api_key"]
+        _config.plugins.api_key = target.get("api_key", "")
 
     # generator 连接参数（nested_dict 字典访问，避免 crystallise 后属性丢失）
     gen_ns = _config.plugins.generators["openai"]["OpenAICompatible"]
@@ -130,19 +136,65 @@ def execute_attack(
         _config.load_base_config()
 
     # OpenAICompatible 要求 API key 在 OpenAICompatible_API_KEY 环境变量
+    # 优先级：
+    #   1. 嗅探到的 api_key（model_probe 从 SPA 前端抓到的 key）→ StaticKeyProvider
+    #   2. yaml target.api_key（显式配置）→ StaticKeyProvider
+    #   3. .env OPENAICompatible_API_KEY → 环境变量注入
+    #   4. Cookie 认证（Web 目标，无 key 可用）
     import os
 
-    os.environ["OpenAICompatible_API_KEY"] = target.get("api_key", "")
+    from pipeline.env import get_env
+
+    sniffed_key = target.get("api_key", "")
+    env_key = get_env("OPENAICompatible_API_KEY", "")
+    api_key = sniffed_key or env_key
+    os.environ["OpenAICompatible_API_KEY"] = api_key
 
     _configure_garak(target, execute_cfg, reporting_cfg, artifacts_dir)
 
-    # 构造 generator（从 _config 读取 endpoint/key/model）
-    generator = _plugins.load_plugin(
-        "generators.openai.OpenAICompatible", config_root=_config
-    )
+    # 构造 generator：优先用嗅探到的 API key 直连，否则走 Cookie 认证
+    from pipeline.auth.provider import from_config
+    from pipeline.generators_auth import AuthenticatedOpenAICompatible
+
+    # 判断是否有可用的 API key（嗅探或配置）
+    use_static_key = bool(api_key)
+    if use_static_key:
+        # 有 API key：直接用原生 OpenAICompatible（key 通过环境变量注入），
+        # 无需 Cookie，彻底绕过会话过期问题
+        generator = _plugins.load_plugin(
+            "generators.openai.OpenAICompatible", config_root=_config
+        )
+        key_label = "嗅探" if sniffed_key else "配置"
+        key_src = target.get("_key_source", "")
+        logger.info(
+            "使用 API key 直连（来源=%s%s），绕过 Cookie 认证",
+            key_label,
+            f", 详情={key_src}" if key_src else "",
+        )
+    else:
+        # 无 API key：走 Cookie / Bearer 认证
+        auth = from_config(target.get("auth"), target)
+        if auth.describe() == "NoAuth" or ("Cookie" not in auth.get_request_headers() and \
+                "Authorization" not in auth.get_request_headers()):
+            generator = _plugins.load_plugin(
+                "generators.openai.OpenAICompatible", config_root=_config
+            )
+        else:
+            generator = AuthenticatedOpenAICompatible(
+                name=target["model"], config_root=_config,
+                extra_headers=auth.get_request_headers(),
+            )
+            logger.info("使用认证 generator: %s", auth.describe())
 
     # 规则八：自适应速率（令牌桶 + Retry-After + 熔断 + 并发降级）
     rate_cfg = execute_cfg.get("rate_limit", {}) or {}
+    # 线程级超时熔断：默认值取 execute.timeout（garak 的 generation timeout），
+    # 但语义不同——它兜底"目标静默挂起、连接 ESTABLISHED 但无响应"的死锁场景，
+    # 而 garak 自身的 timeout 对该场景不生效（见 2026-08-02 实测）。
+    # call_timeout<=0 时关闭线程熔断（沿用 garak 原生 timeout）。
+    call_timeout = execute_cfg.get("call_timeout", 0.0) or rate_cfg.get(
+        "call_timeout", execute_cfg.get("timeout", 30)
+    )
     rate = AdaptiveRateController(
         generator,
         max_rpm=rate_cfg.get("max_rpm", 60.0),
@@ -154,8 +206,41 @@ def execute_attack(
         downgrade_at=rate_cfg.get("downgrade_at", 3),
         jitter=rate_cfg.get("jitter", True),
         on_downgrade=_make_downgrade_cb(),
+        call_timeout=call_timeout,
     )
+
+    # 会话刷新守卫（Web 认证场景：长扫描中 Cookie 过期自动重登录）
+    # 对 generator 的 _call_model 包装一层过期检测，捕获 401/403/登录页重定向，
+    # 触发无头重登录后重试请求，避免 nones 假阴性陷阱。
+    from pipeline.auth.session_refresh import create_session_refresher
+
+    refresher = create_session_refresher(target, cooldown_seconds=60.0)
+    if refresher is not None:
+        _orig_call_model = generator._call_model
+
+        def _call_model_with_refresh(*args, **kwargs):
+            """包装 _call_model：检测 401/403 后自动刷新 Cookie 并重试"""
+            try:
+                return _orig_call_model(*args, **kwargs)
+            except Exception as exc:
+                # 自适应速率控制器已在内部处理 429/503 等限流异常，
+                # 这里只检测认证过期（401/403 → 刷新重试一次）
+                if refresher.is_session_expired(exc):
+                    if not refresher.is_in_cooldown:
+                        logger.warning("检测到会话过期，尝试自动刷新...")
+                        if refresher.refresh_into_generator(generator):
+                            logger.info("会话刷新成功，重试当前请求")
+                            return _orig_call_model(*args, **kwargs)
+                        logger.error("会话刷新失败，跳过当前请求")
+                raise
+
+        generator._call_model = _call_model_with_refresh
+        logger.info("已启用会话刷新守卫: cookie=%s", refresher.cookie_path)
+
     rate.patch()
+    global _active_rate, _rate_cleaned
+    _active_rate = rate
+    _rate_cleaned = False
 
     evaluator = ThresholdEvaluator(_config.run.eval_threshold if hasattr(_config.run, "eval_threshold") else 0.5)
 
@@ -187,9 +272,15 @@ def execute_attack(
     report_filename = str(_config.transient.report_filename)
     try:
         command.probewise_run(generator, probe_names, evaluator, buff_names)
+    except Exception as exc:
+        # 线程级超时熔断可能让整轮探针全部 CallTimeoutError 放弃；
+        # 不打断 finally，仅记录，交由 Stage4 以 nones 形态呈现（而非死锁）。
+        logger.error("Stage3 攻击过程异常（已兜底收尾）: %s", exc)
     finally:
         command.end_run()
         rate.unpatch()
+        _active_rate = None
+        _rate_cleaned = True
 
     # 规范化文件名：garak.<uuid>.report.jsonl → garak_report_{run_id}.jsonl
     # （规则一：保留 garak 原生格式，仅统一命名，不另起拷贝）
@@ -250,3 +341,31 @@ def parse_report_probe_names(report_path: str) -> list[str]:
 def _is_garak_uuid(name: str) -> bool:
     """判断文件名是否含 garak 运行 uuid"""
     return bool(re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", name))
+
+
+def cleanup_garak() -> None:
+    """进程退出兜底清理（atexit / 信号 handler 调用）
+
+    幂等：重复调用安全。负责在异常中断（Ctrl+C / SIGTERM /
+    未捕获异常）时，确保 garak 报告句柄关闭、速率控制器补丁还原、
+    超时线程池回收，避免 report 文件句柄泄漏或僵尸线程累积。
+
+    注意：本函数不尝试"抢救"未完成的扫描——只做资源回收。
+    """
+    global _active_rate, _rate_cleaned
+    if _rate_cleaned:
+        return
+    try:
+        if _active_rate is not None:
+            try:
+                _active_rate.unpatch()
+            except Exception:
+                logger.debug("cleanup_garak: unpatch 失败", exc_info=True)
+            _active_rate = None
+        # 兜底关闭 garak report 句柄（即便 end_run 未跑）
+        try:
+            command.end_run()
+        except Exception:
+            logger.debug("cleanup_garak: end_run 已无操作或失败", exc_info=True)
+    finally:
+        _rate_cleaned = True

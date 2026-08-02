@@ -8,11 +8,24 @@
 - **章节映射**：`reporting/chapter_mapper.py` 动态推导 OWASP ID → AI-300 章节
 - **命令结构**：`ai300 owasp <scope>` — 支持单个 ID（llm01）、分组（llm/agentic）、全部（all）
 
-## garak 版本与 _config 兼容性（重要，实测，2026-08-01 修正）
-- **流水线运行环境是 `.venv`,实际装 garak 0.15.1**(注:此前记忆记成 0.16 是错的)。全局 `python` 亦 0.15.1,API 一致。
-- garak 0.15 `_config` 关键事实:`loaded` 属性存在(bool);`is_loaded` 不存在(故 `stage3_execute` 用 hasattr 区分)。`plugins.api_key` 不存在 → API key 走 `OPENAICOMPATIBLE_API_KEY` 环境变量。`run.parallel_requests` 存在(默认可能 False),generator 实例有 `parallel_requests` 属性(初始 False),harness 每次生成时读取。
+## garak 版本（重要，2026-08-02 用户最终确认）
+- **环境只装 garak 0.15.1，不存在 0.16 / 0.16.0.pre1**。此前记忆里的任何"0.16"字样均为误记，一律作废。
+- 本地 garak 源码对照：`d:/文档/GitHub/osai/src/garak-0.15.1/garak/`（权威参考实现，改 garak 集成代码必须据此核对）。
+- garak 0.15.1 `_config` 关键事实:`loaded` 属性存在(bool);`is_loaded` 不存在(故 `stage3_execute` 用 hasattr 区分)。`plugins.api_key` 不存在 → API key 走 `OPENAICOMPATIBLE_API_KEY` 环境变量。`run.parallel_requests` 存在(默认可能 False),generator 实例有 `parallel_requests` 属性(初始 False),harness 每次生成时读取。
 - generator 构造器仅接受 `(name, config_root)`,URI/key/model 经 `_config.plugins.generators[...]` nested dict 注入,非构造参数。
-- `pipeline/stage3_execute.py` 已做 0.15/0.16 兼容守卫。改 garak 集成代码必须在 venv 的 0.15.1 下验证。
+- `pipeline/stage3_execute.py` 的 0.15/0.16 兼容守卫中"0.16"分支实际不可达，可保留但勿误以为有 0.16 环境。
+
+## garak 0.15.1 官方扫描结果标准（权威，2026-08-02 细读源码确认）
+- **report.jsonl 记录类型（entry_type）**：`start_run`/`init`/`plugin_cache`/`attempt`/`eval`/`probe_summary`/`run`/`home` 等。所有聚合分析均依赖 `entry_type=="eval"` 记录。
+- **eval 记录权威字段**：`probe, detector, passed, fails, nones, total_evaluated, total_processed, intents{}`。
+  - `total_processed` = 该探针+检测器处理的 attempt 总数；`total_evaluated` = 实际得出分数的样本数（=passes+fails，nones 被剔除）；`nones` = 模型输出为 null/未评分的样本。
+  - ASR（官方 `failrate`）= `100 * fails / (passed+fails)` = `100 * fails / total_evaluated`，**nones 不计入分母**。
+- **DEFCON（官方 `analyze/__init__.py`）**：`score_to_defcon(score, ABSOLUTE_DEFCON_BOUNDS)`，score=`pass_rate/100`（`pass_rate=100*passed/total_evaluated`）。
+  - `ABSOLUTE_DEFCON_BOUNDS=(TERRIBLE=0.05, BELOW_AVG=0.4, ABOVE_AVG=0.8, EXCELLENT=0.99)`：
+    - score≥0.99 → DEFCON 5（基本免疫）；0.8≤score<0.99 → DEFCON 4；0.4≤score<0.8 → DEFCON 3；0.05≤score<0.4 → DEFCON 2；score<0.05 → DEFCON 1（崩溃级）。
+- **⚠️ nones 假阴性陷阱（官方强调，对齐 L5 必须处理）**：当 `nones` 很高（如 nones/total_processed≈99%）时，ASR 因分母只取 `total_evaluated` 而显示 0%/DEFCON 5，但这**不代表目标安全**，而是目标不可达/模型返回 null/评估无效。官方 `report_digest` 会显式展示 nones 并告警；本地 stage4 当前**完全忽略 nones**，会把"全 null"误报成"全通过"——这是与官方标准的最大偏差。
+- **probe_summary 记录**：含 `inference_counts`(按 probe 的调用数) 与 `detection_counts`(按 detector 的评分数)，官方用其展示每探针规模与每检测器命中分布。
+- **hitlog.jsonl**：每条命中含 `goal, prompt, output, detector, score, triggered, notes, tags, probe, field{,}`，是官方人工审查命中的来源。
 
 ## PyRIT 版本与 Score 原生消费（重要，实测）
 - **环境实际装的是 PyRIT 1.0.0**（非 0.14.0）。`pyrit.dataset` 模块不存在；数据集在 `pyrit.datasets`。
@@ -32,6 +45,18 @@
 - **产物命名**：阶段目录固定名 `01_recon`/`02_config`/`03_execution`/`04_analysis`/`05_export`（无 `_date_time` 后缀）；文件含 `_date_time`（run_id）。
 - **模态过滤**：`recon_garak.filter_probes_by_modality` 用两阶段解析（显式 modality → 关键词启发式推断），text-only 目标剔除 image/audio 探针。
 - **注意**：`pipeline/stage5_export.py` 是旧版死代码(schema=pyrit-consumable/v1)，runner 实际调 `stage5_report.export_pyrit_air`(产物 `pyrit_air_{run_id}.json`)。
+
+## Web 认证目标 + SPA LLM 应用支持（2026-08-02 实装）
+- **认证模块**：`pipeline/auth/` 提供完整的 Playwright 半自动认证 → Cookie 落盘 → garak 注入链路。
+  - `bootstrap.py`：AuthBootstrap 半自动登录（同域/跨域 SSO + OTP/滑窗/扫码人工配合）
+  - `model_probe.py`：三阶段端点嗅探（标准 /models → SPA JS 变量扫描 → fetch/XHR 拦截）
+  - `session_refresh.py`：SessionRefresher 长扫描会话过期自动重登录（401/403 检测 + cooldown 防风控）
+  - `provider.py`：AuthProvider 抽象工厂（none/cookie_file/static 三型）
+  - `selectors.py`：内置登录页 DOM 选择器（可覆盖）
+- **generators_auth.py**：`AuthenticatedOpenAICompatible` 继承 OpenAICompatible，重写 `_load_unsafe` 注入 `default_headers`（Cookie/Bearer）
+- **stage3_execute.py**：集成 SessionRefresher（对 `_call_model` 包装过期检测 → 刷新 → 重试）
+- **stage4_analyze.py**：`SESSION_LIKELY_EXPIRED` 告警（nones > 30% → 提示会话过期），与 SessionRefresher 联动
+- **config/web_target.yaml**：SPA 场景模板（cookie_domain 留空自动回填，session_refresh 配置段）
 
 ## ⚠️ AI-Infra-Guard 集成已彻底删除（2026-08-01 晚）
 - **决策**：AIG 核心引擎是 Go 后端（无 Go 工具链），Python 子模块是散装 CLI 无统一 SDK；完整能力仅在 Docker 子进程 `:8088` HTTP API 后。源码 import 只拿到 data/ yaml 知识库，非能力本身 → 用户决定回归纯 garak 场景。
@@ -68,3 +93,7 @@
 - 远程下载数据集**已提前下载到本地目录**，且**周期性更新**（由外部机制负责，非本仓库代码）。
 - 因此 `DataManager`/`datasets.yaml`/`--prefetch`/`--sync-data` 等远程下载机制**已删除**，本仓库只做 recon，不负责资产同步。
 - **存储位置（2026-08-01 补充）**：数据集**不存 `outputs/`**，单独放仓库根的 `data/` 目录（与运行产物分离、`.gitignore` 忽略、不入库）。`config/target.yaml` 用 `data_dir: "data"` 登记根路径，供下游阶段统一引用。详见 `data/README.md`。
+
+## 依赖清单（2026-08-02）
+- `requirements.txt` 位于仓库根目录，列出核心依赖：`garak>=0.15.1,<0.16`、`pyyaml>=6.0`、`playwright>=1.40`。
+- 安装命令：`pip install -r requirements.txt`，首次使用 playwright 还需 `playwright install chromium`。

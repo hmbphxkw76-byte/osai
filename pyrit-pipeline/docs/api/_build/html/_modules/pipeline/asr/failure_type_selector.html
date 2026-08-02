@@ -1,0 +1,949 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.asr.failure_type_selector &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.asr.failure_type_selector</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.asr.failure_type_selector</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;失败类型路由技术选择器 — 继承 PyRIT 原生 ``EpsilonGreedyTechniqueSelector``。.</span>
+
+<span class="sd">PyRIT 原生 ``EpsilonGreedyTechniqueSelector`` 的 ``_estimate()`` 对未见技术返回</span>
+<span class="sd">1.0（乐观初始化），且 ``select_async()`` 仅基于 epsilon-greedy 探索+记忆利用，</span>
+<span class="sd">不感知失败类型。本模块在原生基础上增加:</span>
+
+<span class="sd">1. **学术 ASR 先验 warm-start** — 首次运行时用融合 ASR 替代乐观初始值 1.0</span>
+<span class="sd">2. **失败类型路由** — 根据失败模式动态调整技术排序</span>
+<span class="sd">3. **动态 Alpha** — 先验→经验自然过渡</span>
+<span class="sd">4. **加权融合** — composite = α × base_rank + (1-α) × priority_rank</span>
+
+<span class="sd">学术依据 (R-007 规则, 优先 arXiv):</span>
+<span class="sd">- JailbreakBench (arXiv:2402.01135): GPT-4o 上 Crescendo ASR 82%, PAIR 53%, TAP 62%</span>
+<span class="sd">- HarmBench (arXiv:2402.04249): 编码攻击在 GPT-4o 上 ASR 3-12%</span>
+<span class="sd">- Zeng et al. (arXiv:2402.19181): 说服策略 ASR 30-40%</span>
+<span class="sd">- Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同 3-5x</span>
+<span class="sd">- Chao et al. (arXiv:2310.08437): PAIR adversarial chat 根据拒绝反馈迭代</span>
+<span class="sd">- Mehrotra et al. (arXiv:2312.02191): TAP 树搜索探索正交攻击分支</span>
+
+<span class="sd">失败类型路由:</span>
+<span class="sd">  model_refusal → 多轮迭代 &gt;&gt; 说服 &gt;&gt; 编码（最后）</span>
+<span class="sd">  timeout → 单轮技术优先（减少执行时间）</span>
+<span class="sd">  objective_not_achieved → 范式切换（切换到正交攻击范式）</span>
+<span class="sd">  scorer_validation_error → 保持 epsilon-greedy 默认排序</span>
+<span class="sd">  None（首次）→ 学术先验排序</span>
+
+<span class="sd">设计原则:</span>
+<span class="sd">- 继承 ``EpsilonGreedyTechniqueSelector``, 不绕过原生 select_async 生命周期</span>
+<span class="sd">- 调用 ``super().select_async()`` 获取基础排序, 再加权融合路由策略</span>
+<span class="sd">- 跨运行学习由 PyRIT 原生 CentralMemory 持久化</span>
+<span class="sd">- **统一融合函数**: ``_composite_score()`` 统一融合 academic_prior + historical_asr +</span>
+<span class="sd">  current_run_asr + failure_type 路由, 消除多层权重叠加</span>
+<span class="sd">- **缓存动态 alpha**: ``_compute_dynamic_alpha()`` 结果缓存到实例,</span>
+<span class="sd">  每次 ``select_async()`` 不重复查询 CentralMemory</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&gt; **更新记录**:</span>
+<span class="sd">&gt;   2026-8-1 19:00 — 优化1: 统一 ASR 融合权重为单一函数 ``_composite_score()``,</span>
+<span class="sd">&gt;     消除三套权重叠加 (warm-start alpha=0.5 / blend alpha / heuristic 10/10/10)</span>
+<span class="sd">&gt;   2026-8-1 19:05 — 缓存动态 alpha, 避免 select_async 每次调用查询 CentralMemory</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.scenario.scenarios.adaptive</span><span class="w"> </span><span class="kn">import</span> <span class="n">EpsilonGreedyTechniqueSelector</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.scenario.scenarios.adaptive.selectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">SelectorScope</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 失败类型常量</span>
+<span class="c1"># ============================================================</span>
+
+<span class="n">FAILURE_MODEL_REFUSAL</span> <span class="o">=</span> <span class="s2">&quot;model_refusal&quot;</span>
+<span class="n">FAILURE_CONTENT_FILTER_BLOCK</span> <span class="o">=</span> <span class="s2">&quot;content_filter_block&quot;</span>
+<span class="n">FAILURE_TIMEOUT</span> <span class="o">=</span> <span class="s2">&quot;timeout&quot;</span>
+<span class="n">FAILURE_SCORER_VALIDATION_ERROR</span> <span class="o">=</span> <span class="s2">&quot;scorer_validation_error&quot;</span>
+<span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span> <span class="o">=</span> <span class="s2">&quot;objective_not_achieved&quot;</span>
+<span class="n">FAILURE_UNKNOWN</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 范式自动推断 (P2-9: 关键词从 YAML 加载, 唯一数据源)</span>
+<span class="c1"># ============================================================</span>
+<span class="c1"># 学术依据: Wei et al. (arXiv:2307.15043) &quot;Jailbroken&quot;</span>
+<span class="c1">#   - Competing Objectives  → persuasion (说服/角色扮演/上下文操控)</span>
+<span class="c1">#   - Mismatched Generalization → encoding (编码/密码/混淆)</span>
+<span class="c1">#   - Compositional Attacks → multi_turn (多轮渐进/树搜索)</span>
+<span class="c1">#</span>
+<span class="c1"># 推断方式: 关键词模式匹配 (非集合成员检查)</span>
+<span class="c1"># 优势: PyRIT 新增技术时，名称含相似关键词即可自动分类</span>
+<span class="c1"># P2-9: 关键词定义从 data/paradigms.yaml 加载</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_load_paradigm_keywords</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+<span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 ``data/paradigms.yaml`` 加载范式分类关键词。</span>
+
+<span class="sd">    P1-4: 改为惰性加载 — YAML 不存在时使用默认值, 不再在模块导入时崩溃。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">yaml_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;data&quot;</span> <span class="o">/</span> <span class="s2">&quot;config&quot;</span> <span class="o">/</span> <span class="s2">&quot;paradigms.yaml&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">yaml_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Paradigms YAML not found at </span><span class="si">{</span><span class="n">yaml_path</span><span class="si">}</span><span class="s2">, using built-in defaults. &quot;</span>
+            <span class="s2">&quot;Create the file for full keyword coverage.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_yaml</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">yaml_path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">_yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="nb">tuple</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;multi_turn_keywords&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">[</span><span class="mi">0</span><span class="p">])),</span>
+        <span class="nb">tuple</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;persuasion_keywords&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">[</span><span class="mi">1</span><span class="p">])),</span>
+        <span class="nb">tuple</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;encoding_keywords&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">[</span><span class="mi">2</span><span class="p">])),</span>
+        <span class="nb">set</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;multi_turn_names_hinting_single&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">[</span><span class="mi">3</span><span class="p">])),</span>
+        <span class="nb">tuple</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;safety_aligned_markers&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">[</span><span class="mi">4</span><span class="p">])),</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># P1-4: 内置默认关键词 (YAML 缺失时的回退值)</span>
+<span class="n">_DEFAULT_PARADIGM_KEYWORDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+<span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="p">(</span><span class="s2">&quot;crescendo&quot;</span><span class="p">,</span> <span class="s2">&quot;pair&quot;</span><span class="p">,</span> <span class="s2">&quot;tap&quot;</span><span class="p">,</span> <span class="s2">&quot;red_teaming&quot;</span><span class="p">,</span> <span class="s2">&quot;tree&quot;</span><span class="p">,</span> <span class="s2">&quot;multi&quot;</span><span class="p">,</span> <span class="s2">&quot;adversarial&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;role_play&quot;</span><span class="p">,</span> <span class="s2">&quot;persona&quot;</span><span class="p">,</span> <span class="s2">&quot;authority&quot;</span><span class="p">,</span> <span class="s2">&quot;emotional&quot;</span><span class="p">,</span> <span class="s2">&quot;skeleton&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;encoding&quot;</span><span class="p">,</span> <span class="s2">&quot;rot13&quot;</span><span class="p">,</span> <span class="s2">&quot;base64&quot;</span><span class="p">,</span> <span class="s2">&quot;morse&quot;</span><span class="p">,</span> <span class="s2">&quot;binary&quot;</span><span class="p">,</span> <span class="s2">&quot;caesar&quot;</span><span class="p">,</span> <span class="s2">&quot;leetspeak&quot;</span><span class="p">,</span> <span class="s2">&quot;braille&quot;</span><span class="p">),</span>
+    <span class="p">{</span><span class="s2">&quot;many_shot&quot;</span><span class="p">},</span>
+    <span class="p">(</span><span class="s2">&quot;gpt-4&quot;</span><span class="p">,</span> <span class="s2">&quot;claude&quot;</span><span class="p">,</span> <span class="s2">&quot;gemini&quot;</span><span class="p">,</span> <span class="s2">&quot;llama&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="c1"># P1-4: 惰性加载缓存</span>
+<span class="n">_paradigm_keywords_cache</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_paradigm_keywords</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+<span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;惰性获取范式关键词 (P1-4: 首次调用时加载, 后续从缓存返回)。.&quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_paradigm_keywords_cache</span>
+    <span class="k">if</span> <span class="n">_paradigm_keywords_cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_paradigm_keywords_cache</span>
+    <span class="n">_paradigm_keywords_cache</span> <span class="o">=</span> <span class="n">_load_paradigm_keywords</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">_paradigm_keywords_cache</span>
+
+<span class="c1"># ──────────────────────────────────────────────────────────────────</span>
+<span class="c1"># 统一融合权重 — 唯一权威定义 (优化1)</span>
+<span class="c1"># ──────────────────────────────────────────────────────────────────</span>
+<span class="c1"># composite_score = w_eg * eg_rank + w_ws * ws_rank + w_route * route_rank</span>
+<span class="c1"># 归一化: w_eg + w_ws + w_route = 1.0</span>
+<span class="c1">#</span>
+<span class="c1"># 权重含义:</span>
+<span class="c1">#   w_eg     — epsilon-greedy 历史学习 (原生 select_async 排序)</span>
+<span class="c1">#   w_ws     — 学术 ASR 先验 (warm-start, 含 patched 惩罚)</span>
+<span class="c1">#   w_route  — 失败类型路由 (范式切换 / 降级)</span>
+<span class="c1">#</span>
+<span class="c1"># 动态过渡: 无历史数据时 w_ws 主导; 充足数据时 w_eg 主导</span>
+
+<span class="c1"># 范式常量</span>
+<span class="n">PARADIGM_MULTI_TURN</span> <span class="o">=</span> <span class="s2">&quot;multi_turn&quot;</span>
+<span class="n">PARADIGM_PERSUASION</span> <span class="o">=</span> <span class="s2">&quot;persuasion&quot;</span>
+<span class="n">PARADIGM_ENCODING</span> <span class="o">=</span> <span class="s2">&quot;encoding&quot;</span>
+<span class="n">PARADIGM_UNKNOWN</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span>
+
+<span class="n">_DYNAMIC_ALPHA_MIN</span> <span class="o">=</span> <span class="mf">0.15</span>  <span class="c1"># 最小 alpha（首次运行，先验主导）</span>
+<span class="n">_DYNAMIC_ALPHA_MAX</span> <span class="o">=</span> <span class="mf">0.50</span>  <span class="c1"># 最大 alpha（充足数据，经验主导）</span>
+<span class="n">_DYNAMIC_ALPHA_DATA_THRESHOLD</span> <span class="o">=</span> <span class="mi">10</span>  <span class="c1"># 达到此数据量时 alpha 达到最大值</span>
+
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FailureTypeRoutingSelector</span><span class="p">(</span><span class="n">EpsilonGreedyTechniqueSelector</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;失败类型路由技术选择器 — 继承原生 ``EpsilonGreedyTechniqueSelector``。.</span>
+
+<span class="sd">    在原生 epsilon-greedy 基础上增加:</span>
+<span class="sd">    1. 学术 ASR 先验排序（首次运行用 JailbreakBench 数据初始化 warm-start）</span>
+<span class="sd">    2. 策略级优先排序（多轮迭代 &gt;&gt; LLM辅助 &gt; 编码兜底）</span>
+<span class="sd">    3. 失败类型路由（加权融合，保留原生探索机制）</span>
+<span class="sd">    4. warm_start_asr 注入 — 首次运行时用融合 ASR 替代乐观初始值 1.0</span>
+<span class="sd">    5. 动态 alpha — 先验→经验自然过渡</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+        <span class="n">random_seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
+        <span class="n">scope</span><span class="p">:</span> <span class="n">SelectorScope</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">strategy_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;academic&quot;</span><span class="p">,</span>
+        <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+        <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+        <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">converter_target_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">warm_start_asr</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Args:</span>
+<span class="sd">        epsilon: 探索概率</span>
+<span class="sd">        random_seed: 随机种子</span>
+<span class="sd">        scope: SelectorScope 限定学习范围</span>
+<span class="sd">        strategy_mode: 策略模式 (&quot;academic&quot;/&quot;balanced&quot;)</span>
+<span class="sd">        model_name: 目标模型名称（影响 ASR 先验值）</span>
+<span class="sd">        model_tier: 模型过滤强度等级</span>
+<span class="sd">        owasp_id: OWASP ID（如 &quot;LLM01&quot;）</span>
+<span class="sd">        converter_target_name: Converter Target 模型名（条件性 LLM 惩罚）</span>
+<span class="sd">        warm_start_asr: 融合 ASR 字典 (技术→ASR 映射).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">epsilon</span><span class="o">=</span><span class="n">epsilon</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span> <span class="n">random_seed</span><span class="o">=</span><span class="n">random_seed</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_failure_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_failed_technique</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_strategy_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">strategy_mode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">model_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">model_tier</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">owasp_id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_converter_target_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">converter_target_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="n">warm_start_asr</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="c1"># P1: 实例级缓存, 替代模块级 global, 避免多实例共享状态</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dynamic_alpha_cache</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># P1: 范式性能跟踪器 (从运行时数据加载)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warm_start_asr injected into selector (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">)</span><span class="si">}</span><span class="s2"> techniques)&quot;</span><span class="p">)</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># Setter API (供 pipeline 阶段注入)</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.set_hash_name_mapping">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.set_hash_name_mapping">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_hash_name_mapping</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mapping</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;设置 eval_hash → technique_name 映射。.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">mapping</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.set_warm_start_asr">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.set_warm_start_asr">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_warm_start_asr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">warm_start</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;设置 warm_start ASR。.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">warm_start</span><span class="p">)</span> <span class="k">if</span> <span class="n">warm_start</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warm_start_asr updated (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">)</span><span class="si">}</span><span class="s2"> techniques)&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.update_failure_type">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.update_failure_type">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_failure_type</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failure_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;更新最近失败类型。.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_failure_type</span> <span class="o">=</span> <span class="n">failure_type</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;failure_type updated to </span><span class="si">{</span><span class="n">failure_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.set_last_failed_technique">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.set_last_failed_technique">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_last_failed_technique</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;设置最近失败的技术名。.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_failed_technique</span> <span class="o">=</span> <span class="n">technique</span></div>
+
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.set_paradigm_tracker">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.set_paradigm_tracker">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_paradigm_tracker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tracker</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;设置范式性能跟踪器 (P1: 从运行时数据自动推断范式有效性)。.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span> <span class="o">=</span> <span class="n">tracker</span>
+        <span class="k">if</span> <span class="n">tracker</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">tracker</span><span class="p">,</span> <span class="s2">&quot;has_data&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">tracker</span><span class="o">.</span><span class="n">has_data</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;ParadigmPerformanceTracker loaded with runtime data&quot;</span><span class="p">)</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 核心覆盖: select_async</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="FailureTypeRoutingSelector.select_async">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.FailureTypeRoutingSelector.select_async">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">select_async</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">technique_identifiers</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">objective</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">num_top_techniques</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">scenario_result_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;选择技术 — 统一融合 epsilon-greedy + warm-start ASR + 失败类型路由。.</span>
+
+<span class="sd">        优化1: 使用单一 ``_composite_score()`` 函数统一融合,</span>
+<span class="sd">        消除三套权重叠加 (warm-start alpha=0.5 / blend alpha / heuristic)。</span>
+
+<span class="sd">        1. 调用父类 epsilon-greedy 获取基础排序 (探索 + 记忆利用)</span>
+<span class="sd">        2. 计算 warm-start ASR 排序 (学术先验)</span>
+<span class="sd">        3. 计算失败类型路由排序</span>
+<span class="sd">        4. 统一融合: composite = w_eg*eg + w_ws*ws + w_route*route</span>
+<span class="sd">        5. 返回前 num_top_techniques 个技术</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">base_order</span> <span class="o">=</span> <span class="k">await</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">select_async</span><span class="p">(</span>
+            <span class="n">technique_identifiers</span><span class="o">=</span><span class="n">technique_identifiers</span><span class="p">,</span>
+            <span class="n">objective</span><span class="o">=</span><span class="n">objective</span><span class="p">,</span>
+            <span class="n">num_top_techniques</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">technique_identifiers</span><span class="p">),</span>
+            <span class="n">scenario_result_id</span><span class="o">=</span><span class="n">scenario_result_id</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># eval_hash → technique_name 转换</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span><span class="p">:</span>
+            <span class="n">hash_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">base_order</span><span class="p">)</span>
+            <span class="n">name_list</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">)</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">hash_list</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">name_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">base_order</span><span class="p">)</span>
+
+        <span class="c1"># 统一融合排序</span>
+        <span class="n">blended_names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_composite_sort</span><span class="p">(</span><span class="n">name_list</span><span class="p">)</span>
+
+        <span class="c1"># 转回 eval_hash</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span><span class="p">:</span>
+            <span class="n">name_to_hash</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hash_to_name</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+            <span class="n">blended</span> <span class="o">=</span> <span class="p">[</span><span class="n">name_to_hash</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">blended_names</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">blended</span> <span class="o">=</span> <span class="n">blended_names</span>
+
+        <span class="k">return</span> <span class="n">blended</span><span class="p">[:</span><span class="n">num_top_techniques</span><span class="p">]</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 统一融合排序 (优化1: 消除三套权重叠加)</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_composite_sort</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">techniques</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;统一融合排序 — 单一函数替代原来的 _inject_warm_start + _blend_with_routing。.</span>
+
+<span class="sd">        composite = w_eg * eg_rank + w_ws * ws_rank + w_route * route_rank</span>
+<span class="sd">        其中:</span>
+<span class="sd">          w_eg     = alpha (动态, 0.15~0.50)</span>
+<span class="sd">          w_ws     = (1 - alpha) * 0.5</span>
+<span class="sd">          w_route  = (1 - alpha) * 0.5</span>
+<span class="sd">        归一化: w_eg + w_ws + w_route = alpha + (1-alpha) = 1.0</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">techniques</span>
+
+        <span class="n">failure_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_failure_type</span>
+
+        <span class="c1"># scorer_validation_error 时保持 epsilon-greedy 默认排序</span>
+        <span class="k">if</span> <span class="n">failure_type</span> <span class="o">==</span> <span class="n">FAILURE_SCORER_VALIDATION_ERROR</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">techniques</span>
+
+        <span class="c1"># 1. epsilon-greedy 排序 (base_order 即传入的 techniques 顺序)</span>
+        <span class="n">eg_rank</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">techniques</span><span class="p">)}</span>
+
+        <span class="c1"># 2. warm-start ASR 排序</span>
+        <span class="n">ws_sorted</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+            <span class="n">techniques</span><span class="p">,</span>
+            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_estimate_or_fallback</span><span class="p">(</span><span class="n">t</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">ws_rank</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">ws_sorted</span><span class="p">)}</span>
+
+        <span class="c1"># 3. 失败类型路由排序</span>
+        <span class="k">if</span> <span class="n">failure_type</span> <span class="o">==</span> <span class="n">FAILURE_CONTENT_FILTER_BLOCK</span><span class="p">:</span>
+            <span class="n">route_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_for_content_filter_block</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">failure_type</span> <span class="o">==</span> <span class="n">FAILURE_MODEL_REFUSAL</span><span class="p">:</span>
+            <span class="n">route_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_for_model_refusal</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">failure_type</span> <span class="o">==</span> <span class="n">FAILURE_TIMEOUT</span><span class="p">:</span>
+            <span class="n">route_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_for_timeout</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">failure_type</span> <span class="o">==</span> <span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span><span class="p">:</span>
+            <span class="n">route_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_for_objective_not_achieved</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">route_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_by_strategy</span><span class="p">(</span><span class="n">techniques</span><span class="p">)</span>
+        <span class="n">route_rank</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">route_order</span><span class="p">)}</span>
+
+        <span class="c1"># 4. 统一融合</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_dynamic_alpha</span><span class="p">()</span>
+        <span class="n">w_eg</span> <span class="o">=</span> <span class="n">alpha</span>
+        <span class="n">w_ws</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.5</span>
+        <span class="n">w_route</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.5</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">composite_score</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+            <span class="n">eg</span> <span class="o">=</span> <span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="n">eg_rank</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">n</span><span class="p">))</span> <span class="o">/</span> <span class="n">n</span>
+            <span class="n">ws</span> <span class="o">=</span> <span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="n">ws_rank</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">n</span><span class="p">))</span> <span class="o">/</span> <span class="n">n</span>
+            <span class="n">rt</span> <span class="o">=</span> <span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="n">route_rank</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">n</span><span class="p">))</span> <span class="o">/</span> <span class="n">n</span>
+            <span class="k">return</span> <span class="n">w_eg</span> <span class="o">*</span> <span class="n">eg</span> <span class="o">+</span> <span class="n">w_ws</span> <span class="o">*</span> <span class="n">ws</span> <span class="o">+</span> <span class="n">w_route</span> <span class="o">*</span> <span class="n">rt</span>
+
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">techniques</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">composite_score</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_warm_start_estimate_or_fallback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;查询 warm_start ASR, 回退到 asr_prior_registry。.&quot;&quot;&quot;</span>
+        <span class="n">ws</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_estimate</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ws</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ws</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_warm_start_estimate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;查询 warm_start ASR 估计值。.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">technique_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">[</span><span class="n">technique_name</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">technique_name</span><span class="p">:</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="n">technique_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">base</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_warm_start_asr</span><span class="p">[</span><span class="n">base</span><span class="p">]</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_dynamic_alpha</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;动态计算融合权重 alpha — 结果缓存避免 select_async 每次查询 DB。.</span>
+
+<span class="sd">        P1: 缓存存储在实例变量 ``self._dynamic_alpha_cache`` 中,</span>
+<span class="sd">        避免不同 selector 实例共享全局缓存的并发安全问题。</span>
+
+<span class="sd">        无历史数据 → alpha=0.15 (warm-start + 路由主导 85%)</span>
+<span class="sd">        充足数据 → alpha=0.50 (epsilon-greedy 学习结果主导 50%)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dynamic_alpha_cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dynamic_alpha_cache</span>
+
+        <span class="n">data_count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">CentralMemory</span>
+
+            <span class="n">memory</span> <span class="o">=</span> <span class="n">CentralMemory</span><span class="o">.</span><span class="n">get_memory_instance</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">memory</span><span class="p">,</span> <span class="s2">&quot;get_scenario_results&quot;</span><span class="p">):</span>
+                <span class="n">results</span> <span class="o">=</span> <span class="n">memory</span><span class="o">.</span><span class="n">get_scenario_results</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                    <span class="n">data_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">if</span> <span class="n">data_count</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="n">_DYNAMIC_ALPHA_MIN</span>
+        <span class="k">elif</span> <span class="n">data_count</span> <span class="o">&gt;=</span> <span class="n">_DYNAMIC_ALPHA_DATA_THRESHOLD</span><span class="p">:</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="n">_DYNAMIC_ALPHA_MAX</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ratio</span> <span class="o">=</span> <span class="n">data_count</span> <span class="o">/</span> <span class="n">_DYNAMIC_ALPHA_DATA_THRESHOLD</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="n">_DYNAMIC_ALPHA_MIN</span> <span class="o">+</span> <span class="n">ratio</span> <span class="o">*</span> <span class="p">(</span><span class="n">_DYNAMIC_ALPHA_MAX</span> <span class="o">-</span> <span class="n">_DYNAMIC_ALPHA_MIN</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dynamic_alpha_cache</span> <span class="o">=</span> <span class="n">alpha</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dynamic alpha computed: </span><span class="si">{</span><span class="n">alpha</span><span class="si">}</span><span class="s2"> (data_count=</span><span class="si">{</span><span class="n">data_count</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">alpha</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 策略模式排序</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_by_strategy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;无失败类型时，根据策略模式 + model_tier 排序。.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_academic</span><span class="p">(</span><span class="n">tech_list</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_academic</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Academic 模式: 全局 ASR 排序。.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">tech_list</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 失败类型路由排序</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_for_content_filter_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;content_filter_block → 编码/混淆优先路由 (P3: 区分 API 网关拦截)。</span>
+
+<span class="sd">        当 API 网关 (如 LongCat security_audit) 拦截请求时,说明攻击内容</span>
+<span class="sd">        在传输层被检测到。路由策略:</span>
+<span class="sd">          1. 编码/混淆 (Base64, ROT13, Unicode) — 逃避签名检测</span>
+<span class="sd">          2. 噪声注入 (noise_bypass) — 干扰分类器</span>
+<span class="sd">          3. LLM 辅助 (persuasion, decomposition) — 语义层变换</span>
+<span class="sd">          4. 多轮迭代 — 最后尝试</span>
+
+<span class="sd">        学术依据:</span>
+<span class="sd">          - Wei et al. (arXiv:2307.15043): 编码攻击通过表示级变换绕过分类器</span>
+<span class="sd">          - PyRIT (arXiv:2407.01232): response_error=&quot;blocked&quot; 设计</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;FailureTypeRouting: content_filter_block -&gt; encoding/obfuscation routing&quot;</span><span class="p">)</span>
+
+        <span class="c1"># P1: 运行时范式性能优先</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="p">,</span> <span class="s2">&quot;has_data&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="o">.</span><span class="n">has_data</span><span class="p">:</span>
+            <span class="n">static_fallback</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;encoding&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;multi_turn&quot;</span><span class="p">]</span>
+            <span class="n">paradigm_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_runtime_paradigm_order</span><span class="p">(</span>
+                <span class="n">FAILURE_CONTENT_FILTER_BLOCK</span><span class="p">,</span>
+                <span class="n">static_fallback</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_by_paradigm_order</span><span class="p">(</span><span class="n">tech_list</span><span class="p">,</span> <span class="n">paradigm_order</span><span class="p">)</span>
+
+        <span class="c1"># 静态路由: encoding &gt;&gt; persuasion &gt;&gt; multi_turn</span>
+        <span class="n">encoding</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_ENCODING</span><span class="p">]</span>
+        <span class="n">encoding</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+        <span class="n">persuasion</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_PERSUASION</span><span class="p">]</span>
+        <span class="n">persuasion</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+        <span class="n">multi_turn</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_MULTI_TURN</span><span class="p">]</span>
+        <span class="n">multi_turn</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">encoding</span> <span class="o">+</span> <span class="n">persuasion</span> <span class="o">+</span> <span class="n">multi_turn</span><span class="p">)</span>
+        <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+        <span class="n">others</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">encoding</span> <span class="o">+</span> <span class="n">persuasion</span> <span class="o">+</span> <span class="n">others</span> <span class="o">+</span> <span class="n">multi_turn</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_for_model_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;model_refusal → 拒绝感知精确路由 + model_tier 感知 (P1: 运行时数据驱动)。.</span>
+
+<span class="sd">        弱过滤模型: 编码攻击仍可能有效</span>
+<span class="sd">        强/中过滤模型: 多轮迭代 &gt;&gt; 说服/角色扮演 &gt;&gt; 编码(最后)</span>
+
+<span class="sd">        P1: 当有运行时范式性能数据时, 按实际 ASR 排序范式;</span>
+<span class="sd">        无数据时回退到静态 model_tier 感知路由。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;FailureTypeRouting: model_refusal -&gt; refusal-aware routing&quot;</span><span class="p">)</span>
+
+        <span class="c1"># P1: 运行时范式性能优先</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="p">,</span> <span class="s2">&quot;has_data&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="o">.</span><span class="n">has_data</span><span class="p">:</span>
+            <span class="n">static_fallback</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="p">[</span><span class="s2">&quot;multi_turn&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span> <span class="o">==</span> <span class="s2">&quot;weak&quot;</span>
+                <span class="k">else</span> <span class="p">[</span><span class="s2">&quot;multi_turn&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">paradigm_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_runtime_paradigm_order</span><span class="p">(</span>
+                <span class="n">FAILURE_MODEL_REFUSAL</span><span class="p">,</span>
+                <span class="n">static_fallback</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reorder_by_paradigm_order</span><span class="p">(</span><span class="n">tech_list</span><span class="p">,</span> <span class="n">paradigm_order</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span> <span class="o">==</span> <span class="s2">&quot;weak&quot;</span><span class="p">:</span>
+            <span class="n">multi_turn</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_MULTI_TURN</span><span class="p">]</span>
+            <span class="n">multi_turn</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">encoding</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_ENCODING</span><span class="p">]</span>
+            <span class="n">persuasion</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_PERSUASION</span><span class="p">]</span>
+            <span class="n">persuasion</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">multi_turn</span> <span class="o">+</span> <span class="n">encoding</span> <span class="o">+</span> <span class="n">persuasion</span><span class="p">)</span>
+            <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">multi_turn</span> <span class="o">+</span> <span class="n">encoding</span> <span class="o">+</span> <span class="n">persuasion</span> <span class="o">+</span> <span class="n">others</span>
+
+        <span class="c1"># 强/中过滤模型</span>
+        <span class="n">multi_turn_iterative</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_MULTI_TURN</span><span class="p">]</span>
+        <span class="n">multi_turn_iterative</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="n">persuasion_and_roleplay</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_PERSUASION</span><span class="p">]</span>
+        <span class="n">persuasion_and_roleplay</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="n">encoding_and_nonllm</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_ENCODING</span><span class="p">]</span>
+
+        <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">multi_turn_iterative</span> <span class="o">+</span> <span class="n">persuasion_and_roleplay</span> <span class="o">+</span> <span class="n">encoding_and_nonllm</span><span class="p">)</span>
+        <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">multi_turn_iterative</span> <span class="o">+</span> <span class="n">persuasion_and_roleplay</span> <span class="o">+</span> <span class="n">encoding_and_nonllm</span> <span class="o">+</span> <span class="n">others</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_for_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Timeout → 强制降级到单轮攻击，多轮技术排最后。.&quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;FailureTypeRouting: timeout -&gt; force degrade to single_turn&quot;</span><span class="p">)</span>
+
+        <span class="n">base_single</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_turn_mode</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;single&quot;</span><span class="p">]</span>
+        <span class="n">base_single</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="n">multi_turn</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_turn_mode</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;multi&quot;</span><span class="p">]</span>
+        <span class="n">multi_turn</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">base_single</span> <span class="o">+</span> <span class="n">multi_turn</span><span class="p">)</span>
+        <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+        <span class="n">others</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">base_single</span> <span class="o">+</span> <span class="n">others</span> <span class="o">+</span> <span class="n">multi_turn</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_for_objective_not_achieved</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;objective_not_achieved → 范式切换路由 (P1: 运行时数据驱动)。.&quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;FailureTypeRouting: objective_not_achieved -&gt; paradigm switch&quot;</span><span class="p">)</span>
+
+        <span class="n">failed_paradigm</span> <span class="o">=</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_last_failed_technique</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="n">paradigms</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">PARADIGM_MULTI_TURN</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_MULTI_TURN</span><span class="p">],</span>
+            <span class="n">PARADIGM_PERSUASION</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_PERSUASION</span><span class="p">],</span>
+            <span class="n">PARADIGM_ENCODING</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_ENCODING</span><span class="p">],</span>
+        <span class="p">}</span>
+
+        <span class="c1"># P1: 运行时范式性能优先, 无数据时回退到静态切换顺序</span>
+        <span class="n">static_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_paradigm_switch_order</span><span class="p">(</span><span class="n">failed_paradigm</span><span class="p">)</span>
+        <span class="n">paradigm_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_runtime_paradigm_order</span><span class="p">(</span>
+            <span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span><span class="p">,</span>
+            <span class="n">static_order</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">paradigm</span> <span class="ow">in</span> <span class="n">paradigm_order</span><span class="p">:</span>
+            <span class="n">techs</span> <span class="o">=</span> <span class="n">paradigms</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">paradigm</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="n">techs</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">techs</span><span class="p">)</span>
+
+        <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">others</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_paradigm_switch_order</span><span class="p">(</span><span class="n">failed_paradigm</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;获取范式切换顺序 — 与失败范式最不同的排前面。.&quot;&quot;&quot;</span>
+        <span class="n">switch_map</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;multi_turn&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">,</span> <span class="s2">&quot;multi_turn&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;persuasion&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;multi_turn&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;encoding&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;multi_turn&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;unknown&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;multi_turn&quot;</span><span class="p">,</span> <span class="s2">&quot;persuasion&quot;</span><span class="p">,</span> <span class="s2">&quot;encoding&quot;</span><span class="p">],</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">switch_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">failed_paradigm</span><span class="p">,</span> <span class="n">switch_map</span><span class="p">[</span><span class="s2">&quot;unknown&quot;</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_runtime_paradigm_order</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">failure_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">fallback</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;P1: 获取范式顺序 — 运行时数据优先, 无数据时回退到静态顺序。.</span>
+
+<span class="sd">        当 ``_paradigm_tracker`` 有运行时数据时, 使用实际 ASR 排序范式;</span>
+<span class="sd">        否则回退到静态 ``fallback`` 顺序。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="p">,</span> <span class="s2">&quot;get_paradigm_switch_order&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paradigm_tracker</span><span class="o">.</span><span class="n">get_paradigm_switch_order</span><span class="p">(</span>
+                <span class="n">failure_type</span><span class="p">,</span>
+                <span class="n">fallback</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">fallback</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_reorder_by_paradigm_order</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">tech_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">paradigm_order</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;按指定范式顺序重排技术列表, 每个范式内按 ASR 降序。.&quot;&quot;&quot;</span>
+        <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">paradigm</span> <span class="ow">in</span> <span class="n">paradigm_order</span><span class="p">:</span>
+            <span class="n">techs</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">==</span> <span class="n">paradigm</span><span class="p">]</span>
+            <span class="n">techs</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">techs</span><span class="p">)</span>
+        <span class="c1"># 补充未分类的技术</span>
+        <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="n">others</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tech_list</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+        <span class="n">others</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">_asr_sort_key</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">others</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># 辅助方法</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_asr_sort_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;使用 asr_prior_registry 动态计算 ASR 排序键。.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.prior_registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_initial_q_value</span>
+
+        <span class="k">return</span> <span class="n">get_initial_q_value</span><span class="p">(</span>
+            <span class="n">technique_name</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_model_name</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_model_tier</span><span class="p">,</span>
+            <span class="n">owasp_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_owasp_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_encoding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_infer_paradigm</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">PARADIGM_ENCODING</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_single_turn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_infer_turn_mode</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;single&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_multi_turn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_infer_turn_mode</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;multi&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_converter_target_safety_aligned</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;检测 converter_target 是否为安全对齐模型。.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_converter_target_name</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_converter_target_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">marker</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="k">for</span> <span class="n">marker</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">4</span><span class="p">])</span></div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 范式自动推断函数 (消除1: 替代硬编码集合)</span>
+<span class="c1"># ============================================================</span>
+<span class="c1"># 学术依据: Wei et al. (arXiv:2307.15043) &quot;Jailbroken&quot;</span>
+<span class="c1">#   - Competing Objectives  → persuasion (说服/角色扮演/上下文操控)</span>
+<span class="c1">#   - Mismatched Generalization → encoding (编码/密码/混淆)</span>
+<span class="c1">#   - Compositional Attacks → multi_turn (多轮渐进/树搜索)</span>
+<span class="c1">#</span>
+<span class="c1"># 推断方式: 关键词模式匹配 (非集合成员检查)</span>
+<span class="c1"># 优势: PyRIT 新增技术时，名称含相似关键词即可自动分类</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_infer_paradigm</span><span class="p">(</span><span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;根据技术名称的结构关键词自动推断攻击范式。.</span>
+
+<span class="sd">    替代硬编码集合 ``_PARADIGM_MULTI_TURN`` / ``_PARADIGM_PERSUASION`` /</span>
+<span class="sd">    ``_PARADIGM_ENCODING``, 消除对技术名集合的手工维护需求。</span>
+
+<span class="sd">    P1: 使用 ``@lru_cache`` 替代手动 dict 缓存, 线程安全且自动管理缓存大小。</span>
+
+<span class="sd">    学术依据: Wei et al. (arXiv:2307.15043) 三分法:</span>
+<span class="sd">    - Competing Objectives  → persuasion</span>
+<span class="sd">    - Mismatched Generalization → encoding</span>
+<span class="sd">    - Compositional Attacks → multi_turn</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_infer_paradigm_impl</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span>
+
+
+<span class="nd">@functools</span><span class="o">.</span><span class="n">lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_infer_paradigm_impl</span><span class="p">(</span><span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;范式推断实现 (被 ``_infer_paradigm`` 包装)。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">technique_name</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">PARADIGM_UNKNOWN</span>
+
+    <span class="c1"># 处理 Converter 变体: &quot;crescendo+encoding_bypass&quot; → 取基础技术 &quot;crescendo&quot;</span>
+    <span class="n">base_name</span> <span class="o">=</span> <span class="n">technique_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">technique_name</span> <span class="k">else</span> <span class="n">technique_name</span>
+    <span class="n">name_lower</span> <span class="o">=</span> <span class="n">base_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="c1"># 编码范式 (Mismatched Generalization)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">kw</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="k">for</span> <span class="n">kw</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">2</span><span class="p">]):</span>
+        <span class="k">return</span> <span class="n">PARADIGM_ENCODING</span>
+
+    <span class="c1"># 多轮范式 (Compositional Attacks)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">kw</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="k">for</span> <span class="n">kw</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="k">return</span> <span class="n">PARADIGM_MULTI_TURN</span>
+
+    <span class="c1"># 说服范式 (Competing Objectives)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">kw</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="k">for</span> <span class="n">kw</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">1</span><span class="p">]):</span>
+        <span class="k">return</span> <span class="n">PARADIGM_PERSUASION</span>
+
+    <span class="k">return</span> <span class="n">PARADIGM_UNKNOWN</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_infer_turn_mode</span><span class="p">(</span><span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;根据技术名称的结构关键词推断单轮/多轮模式。.</span>
+
+<span class="sd">    多轮技术: 使用 AdversarialChat 迭代 (crescendo, red_teaming, tap, pair, ...)</span>
+<span class="sd">    单轮技术: 无迭代的单次请求 (prompt_sending, encoding, role_play, ...)</span>
+
+<span class="sd">    P1: 使用 ``@lru_cache`` 替代手动 dict 缓存。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_infer_turn_mode_impl</span><span class="p">(</span><span class="n">technique_name</span><span class="p">)</span>
+
+
+<span class="nd">@functools</span><span class="o">.</span><span class="n">lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_infer_turn_mode_impl</span><span class="p">(</span><span class="n">technique_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单轮/多轮推断实现 (被 ``_infer_turn_mode`` 包装)。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">technique_name</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;single&quot;</span>
+
+    <span class="n">base_name</span> <span class="o">=</span> <span class="n">technique_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">technique_name</span> <span class="k">else</span> <span class="n">technique_name</span>
+    <span class="n">name_lower</span> <span class="o">=</span> <span class="n">base_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="c1"># many_shot 虽含 &quot;many&quot; 但实际是单轮 (预计算载荷)</span>
+    <span class="k">if</span> <span class="n">base_name</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">3</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="s2">&quot;single&quot;</span>
+
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">kw</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="k">for</span> <span class="n">kw</span> <span class="ow">in</span> <span class="n">_get_paradigm_keywords</span><span class="p">()[</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="k">return</span> <span class="s2">&quot;multi&quot;</span>
+
+    <span class="k">return</span> <span class="s2">&quot;single&quot;</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 失败类型提取工具函数</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="extract_failure_type_from_result">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.failure_type_selector.extract_failure_type_from_result">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_failure_type_from_result</span><span class="p">(</span><span class="n">failed_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从失败的 AttackResult 提取失败类型。.</span>
+
+<span class="sd">    优先级顺序（从高到低）:</span>
+<span class="sd">    1. scorer_validation_error — 评分器验证失败</span>
+<span class="sd">    2. timeout — 超时</span>
+<span class="sd">    3. content_filter_block — API 网关内容过滤拦截 (P3 新增,区别于模型拒绝)</span>
+<span class="sd">    4. model_refusal — LLM 自身拒绝回答</span>
+<span class="sd">    5. objective_not_achieved — 目标未达成（默认兜底）</span>
+
+<span class="sd">    P3 区分理由:</span>
+<span class="sd">      - content_filter_block: 攻击内容在传输层被检测,路由 → 编码/混淆 converter</span>
+<span class="sd">      - model_refusal: LLM 安全对齐生效,路由 → 多轮迭代/说服 converter</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">failed_result</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FAILURE_UNKNOWN</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_safe_get</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">default</span>
+
+    <span class="n">raw_error</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">_safe_get</span><span class="p">(</span><span class="n">failed_result</span><span class="p">,</span> <span class="s2">&quot;error_message&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_safe_get</span><span class="p">(</span><span class="n">failed_result</span><span class="p">,</span> <span class="s2">&quot;outcome_reason&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">raw_error</span><span class="p">:</span>
+        <span class="n">outcome</span> <span class="o">=</span> <span class="n">_safe_get</span><span class="p">(</span><span class="n">failed_result</span><span class="p">,</span> <span class="s2">&quot;outcome&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">outcome</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">outcome_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">outcome</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">outcome</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">outcome_str</span> <span class="o">==</span> <span class="s2">&quot;ERROR&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span>
+        <span class="k">return</span> <span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span>
+
+    <span class="n">error_lower</span> <span class="o">=</span> <span class="n">raw_error</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="c1"># 优先级 1 — scorer validation</span>
+    <span class="k">if</span> <span class="s2">&quot;validationerror&quot;</span> <span class="ow">in</span> <span class="n">error_lower</span> <span class="ow">or</span> <span class="s2">&quot;score_rationale&quot;</span> <span class="ow">in</span> <span class="n">error_lower</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FAILURE_SCORER_VALIDATION_ERROR</span>
+
+    <span class="c1"># 优先级 2 — timeout</span>
+    <span class="n">_TIMEOUT_PATTERNS</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;timeout&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;timed out&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;deadline exceeded&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;asyncio.timeouterror&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;asyncio.exceptions.timeout&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">error_lower</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">_TIMEOUT_PATTERNS</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">FAILURE_TIMEOUT</span>
+
+    <span class="c1"># 优先级 3 — content filter block (API 网关拦截,区别于模型拒绝)</span>
+    <span class="c1"># 学术依据: PyRIT (arXiv:2407.01232) response_error=&quot;blocked&quot; 语义</span>
+    <span class="c1"># 区分理由: content_filter_block 需要编码/混淆 converter 路由,</span>
+    <span class="c1">#           model_refusal 需要多轮迭代/说服 converter 路由</span>
+    <span class="n">_CONTENT_FILTER_BLOCK_PATTERNS</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;security_audit_fail&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;security_error&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;content_filter&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;content_safety_violation&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;policy_violation&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;moderation_blocked&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;sensitive_content&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;risk_content_detected&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;review_blocked&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;blocked&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;违规信息&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;内容审查&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;敏感&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;拦截&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">error_lower</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">_CONTENT_FILTER_BLOCK_PATTERNS</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">FAILURE_CONTENT_FILTER_BLOCK</span>
+
+    <span class="c1"># 优先级 4 — model refusal (LLM 自身拒绝,非 API 网关拦截)</span>
+    <span class="n">_REFUSAL_PATTERNS</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;refusal&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;refused&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;i can&#39;t&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;i cannot&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;i&#39;m not able to&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;i am not able to&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;content policy&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">error_lower</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">_REFUSAL_PATTERNS</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">FAILURE_MODEL_REFUSAL</span>
+
+    <span class="c1"># 优先级 5 — 默认兜底</span>
+    <span class="k">return</span> <span class="n">FAILURE_OBJECTIVE_NOT_ACHIEVED</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

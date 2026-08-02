@@ -1,0 +1,11 @@
+# garak-pipeline 核心依赖
+# 安装: pip install -r requirements.txt
+
+# garak LLM 红队框架（0.15.1）
+garak>=0.15.1,<0.16
+
+# 配置文件解析（config/target.yaml）
+pyyaml>=6.0
+
+# Playwright 浏览器自动化（auth 模块：半自动登录 + 凭据嗅探 + 模型侦察）
+playwright>=1.40

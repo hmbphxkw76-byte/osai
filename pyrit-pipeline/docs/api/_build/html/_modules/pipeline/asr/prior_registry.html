@@ -1,0 +1,592 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.asr.prior_registry &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.asr.prior_registry</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.asr.prior_registry</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;学术 ASR 先验注册表 — 为 epsilon-greedy selector 提供基于学术基准的初始 Q 值。.</span>
+
+<span class="sd">PyRIT 原生 ``EpsilonGreedyTechniqueSelector._estimate()`` 对未见技术返回 1.0</span>
+<span class="sd">（乐观初始化），导致首次运行时高 ASR 技术（Crescendo 82%）与低 ASR 技术</span>
+<span class="sd">（prompt_sending 2%）被同等对待。本模块提供学术先验数据，注入 selector</span>
+<span class="sd">的 warm-start，消除冷启动随机探索问题。</span>
+
+<span class="sd">数据来源 (R-007 规则, 优先 arXiv 学术文献):</span>
+<span class="sd">1. JailbreakBench (arXiv:2402.01135) — 标准化越狱基准排行榜</span>
+<span class="sd">   Chao et al., NeurIPS 2024</span>
+<span class="sd">2. HarmBench (arXiv:2402.04249) — 自动化红队评估框架</span>
+<span class="sd">   Mazeika et al., ICML 2024</span>
+<span class="sd">3. PyRIT 官方 Scenario 文档展示的成功率数据</span>
+
+<span class="sd">学术引用:</span>
+<span class="sd">- PAIR:        arXiv:2310.08437 — &quot;Jailbreaking Black Box LLMs in Twenty Queries&quot;</span>
+<span class="sd">- TAP:         arXiv:2312.02191 — &quot;Tree of Attacks: Jailbreaking Black-Box LLMs&quot;</span>
+<span class="sd">- Many-shot:   arXiv:2402.05124 — &quot;Many-shot Jailbreaking&quot;</span>
+<span class="sd">- Crescendo:   arXiv:2402.12109 — &quot;Great, Now We Have to Sing&quot;</span>
+<span class="sd">- Skeleton Key: arXiv:2407.01576 — &quot;A Multilingual LLM Jailbreak&quot;</span>
+<span class="sd">- GCG:         arXiv:2307.15043 — &quot;Universal and Transferable Adversarial Attacks&quot;</span>
+<span class="sd">- Persuasion:  arXiv:2402.19181 — &quot;How Johnny Can Persuade LLMs to Jailbreak Them&quot;</span>
+
+<span class="sd">设计原则:</span>
+<span class="sd">- 纯数据层, 不干扰 PyRIT 原生执行生命周期</span>
+<span class="sd">- 跨运行学习由 PyRIT 原生 ``EpsilonGreedyTechniqueSelector`` + ``CentralMemory`` 持久化</span>
+<span class="sd">- 本模块仅提供初始 Q 值 (warm-start), 不维护运行时缓存</span>
+<span class="sd">- Tier 阈值唯一权威定义点</span>
+<span class="sd">- **YAML 唯一数据源**: 所有 ASR 数据从 ``data/asr_priors.yaml`` 加载,</span>
+<span class="sd">  更新 ASR 先验无需修改代码, 只需编辑 YAML 文件。YAML 不存在则报错退出。</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&gt; **更新记录**:</span>
+<span class="sd">&gt;   2026-8-1 19:10 — 优化2: ASR 数据从 ``data/asr_priors.yaml`` 外部加载</span>
+<span class="sd">&gt;   2026-8-1 19:30 — P0+P2: 删除所有 ``_FALLBACK_*`` 硬编码数据, YAML 为唯一数据源;</span>
+<span class="sd">&gt;     修复 ``_CONVERTER_VARIANT_PRIORS`` 和 ``_OWASP_ASR_MULTIPLIERS`` 被硬编码</span>
+<span class="sd">&gt;     覆盖的 Bug; 消除 ``global`` 语句反模式</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 外部 YAML 配置文件路径</span>
+<span class="c1"># ============================================================</span>
+
+<span class="n">_ASR_PRIORS_YAML</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;data&quot;</span> <span class="o">/</span> <span class="s2">&quot;config&quot;</span> <span class="o">/</span> <span class="s2">&quot;asr_priors.yaml&quot;</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 统一 Tier 阈值 (ASR 引导策略学术标准 — 唯一权威定义)</span>
+<span class="c1"># ============================================================</span>
+<span class="c1"># 从 YAML 加载, 支持外部更新</span>
+<span class="c1"># 使用 dataclass 配置对象替代 global 语句</span>
+
+
+<div class="viewcode-block" id="TierConfig">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.TierConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TierConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tier 阈值配置 (从 YAML 加载)。.&quot;&quot;&quot;</span>
+
+    <span class="n">thresholds</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">a</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">b</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">c</span><span class="p">:</span> <span class="nb">float</span>
+
+<div class="viewcode-block" id="TierConfig.default">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.TierConfig.default">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">default</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TierConfig</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">thresholds</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;S&quot;</span><span class="p">:</span> <span class="mf">0.70</span><span class="p">,</span> <span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="mf">0.40</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="mf">0.15</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">:</span> <span class="mf">0.05</span><span class="p">,</span> <span class="s2">&quot;D&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">},</span>
+            <span class="n">s</span><span class="o">=</span><span class="mf">0.70</span><span class="p">,</span>
+            <span class="n">a</span><span class="o">=</span><span class="mf">0.40</span><span class="p">,</span>
+            <span class="n">b</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span>
+            <span class="n">c</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1"># 初始默认值, YAML 加载后会被替换</span>
+<span class="n">_tier_config</span><span class="p">:</span> <span class="n">TierConfig</span> <span class="o">=</span> <span class="n">TierConfig</span><span class="o">.</span><span class="n">default</span><span class="p">()</span>
+
+<span class="c1"># 兼容性别名 (供外部引用)</span>
+<span class="n">TIER_S_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">s</span>
+<span class="n">TIER_A_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">a</span>
+<span class="n">TIER_B_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">b</span>
+<span class="n">TIER_C_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">c</span>
+<span class="n">TIER_THRESHOLDS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">_tier_config</span><span class="o">.</span><span class="n">thresholds</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="tier_from_asr">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.tier_from_asr">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">tier_from_asr</span><span class="p">(</span><span class="n">asr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;根据 ASR 值返回 Tier 等级。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">s</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;S&quot;</span>
+    <span class="k">elif</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">a</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;A&quot;</span>
+    <span class="k">elif</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">b</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;B&quot;</span>
+    <span class="k">elif</span> <span class="n">asr</span> <span class="o">&gt;=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">c</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;C&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;D&quot;</span></div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># ASR Prior Data Class</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="ASRPrior">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.ASRPrior">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ASRPrior</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单技术的学术 ASR 先验数据。.&quot;&quot;&quot;</span>
+
+    <span class="n">technique</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">gpt_4o</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">gpt_4</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">gpt_35</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">claude_3_5</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">llama_3_1</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;jailbreakbench&quot; / &quot;harmbench&quot; / &quot;pyrit_doc&quot; / &quot;empirical&quot;</span>
+    <span class="n">paper_arxiv</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># arXiv ID</span>
+    <span class="n">last_updated</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># YYYY-MM</span>
+    <span class="n">patched</span><span class="p">:</span> <span class="nb">bool</span>  <span class="c1"># 是否已被主要模型补丁修复</span>
+    <span class="n">notes</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+<div class="viewcode-block" id="ASRPrior.for_model">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.ASRPrior.for_model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">for_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;获取特定模型的 ASR。.</span>
+
+<span class="sd">        未知模型根据 model_tier 选择回退:</span>
+<span class="sd">        - strong → gpt_4o (保守)</span>
+<span class="sd">        - moderate → llama_3_1 (开源近似)</span>
+<span class="sd">        - weak → gpt_35 (编码攻击更有效)</span>
+<span class="sd">        - unknown → gpt_4o (保守默认)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">model_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s2">&quot;gpt-4o&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;gpt4o&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_4o</span>
+        <span class="k">if</span> <span class="s2">&quot;gpt-4&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;gpt4&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_4</span>
+        <span class="k">if</span> <span class="s2">&quot;gpt-3.5&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;gpt-35&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;gpt3.5&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_35</span>
+        <span class="k">if</span> <span class="s2">&quot;claude&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">and</span> <span class="p">(</span><span class="s2">&quot;3.5&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;3-5&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">claude_3_5</span>
+        <span class="k">if</span> <span class="s2">&quot;llama-3&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;llama3&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">llama_3_1</span>
+        <span class="k">if</span> <span class="s2">&quot;qwen&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;deepseek&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;yi-&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;chatglm&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">model_tier</span> <span class="o">==</span> <span class="s2">&quot;weak&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_35</span>
+            <span class="k">elif</span> <span class="n">model_tier</span> <span class="o">==</span> <span class="s2">&quot;moderate&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">llama_3_1</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_4o</span>
+        <span class="k">if</span> <span class="s2">&quot;vicuna&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">llama_3_1</span> <span class="o">*</span> <span class="mf">1.1</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;mistral&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span> <span class="ow">or</span> <span class="s2">&quot;mixtral&quot;</span> <span class="ow">in</span> <span class="n">name_lower</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">llama_3_1</span> <span class="o">*</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+        <span class="c1"># 未知模型根据 model_tier 选择回退</span>
+        <span class="k">if</span> <span class="n">model_tier</span> <span class="o">==</span> <span class="s2">&quot;weak&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_35</span>
+        <span class="k">elif</span> <span class="n">model_tier</span> <span class="o">==</span> <span class="s2">&quot;moderate&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">llama_3_1</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gpt_4o</span></div>
+</div>
+
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># YAML 加载器 — 唯一数据源</span>
+<span class="c1"># ============================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_load_yaml_priors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ASRPrior</span><span class="p">],</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">float</span><span class="p">],</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+    <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]],</span>
+    <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]],</span>
+    <span class="n">TierConfig</span><span class="p">,</span>
+<span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 ``data/asr_priors.yaml`` 加载全部 ASR 先验数据。.</span>
+
+<span class="sd">    YAML 是唯一数据源。如果 YAML 不存在或加载失败, 报错退出。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        (priors, combo_multipliers, chain_type_map,</span>
+<span class="sd">         multi_turn_base_techs, patched_penalty_by_tier,</span>
+<span class="sd">         converter_variant_priors, owasp_asr_multipliers, tier_config)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_ASR_PRIORS_YAML</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;ASR priors YAML not found at </span><span class="si">{</span><span class="n">_ASR_PRIORS_YAML</span><span class="si">}</span><span class="s2">. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;This is the required data source. Please create it or restore from git.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
+    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;PyYAML is required to load ASR priors. Install with: pip install pyyaml&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">_ASR_PRIORS_YAML</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load ASR priors YAML at </span><span class="si">{</span><span class="n">_ASR_PRIORS_YAML</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="c1"># 加载 Tier 阈值</span>
+    <span class="n">yt</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tier_thresholds&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">tier_cfg</span> <span class="o">=</span> <span class="n">TierConfig</span><span class="p">(</span>
+        <span class="n">thresholds</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">yt</span><span class="p">)</span> <span class="k">if</span> <span class="n">yt</span> <span class="k">else</span> <span class="n">TierConfig</span><span class="o">.</span><span class="n">default</span><span class="p">()</span><span class="o">.</span><span class="n">thresholds</span><span class="p">,</span>
+        <span class="n">s</span><span class="o">=</span><span class="n">yt</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="mf">0.70</span><span class="p">),</span>
+        <span class="n">a</span><span class="o">=</span><span class="n">yt</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="mf">0.40</span><span class="p">),</span>
+        <span class="n">b</span><span class="o">=</span><span class="n">yt</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mf">0.15</span><span class="p">),</span>
+        <span class="n">c</span><span class="o">=</span><span class="n">yt</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;C&quot;</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">),</span>
+    <span class="p">)</span>
+
+    <span class="c1"># 加载 priors</span>
+    <span class="n">priors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ASRPrior</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;priors&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">ASRPrior</span><span class="p">(</span>
+            <span class="n">technique</span><span class="o">=</span><span class="n">item</span><span class="p">[</span><span class="s2">&quot;technique&quot;</span><span class="p">],</span>
+            <span class="n">gpt_4o</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_4o&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)),</span>
+            <span class="n">gpt_4</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_4&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)),</span>
+            <span class="n">gpt_35</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_35&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)),</span>
+            <span class="n">claude_3_5</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;claude_3_5&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)),</span>
+            <span class="n">llama_3_1</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;llama_3_1&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)),</span>
+            <span class="n">source</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;source&quot;</span><span class="p">,</span> <span class="s2">&quot;empirical&quot;</span><span class="p">),</span>
+            <span class="n">paper_arxiv</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;paper_arxiv&quot;</span><span class="p">,</span> <span class="s2">&quot;N/A&quot;</span><span class="p">),</span>
+            <span class="n">last_updated</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;last_updated&quot;</span><span class="p">,</span> <span class="s2">&quot;2025-06&quot;</span><span class="p">),</span>
+            <span class="n">patched</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;patched&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)),</span>
+            <span class="n">notes</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;notes&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">priors</span><span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">technique</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span>
+
+    <span class="c1"># 加载 combo multipliers</span>
+    <span class="n">combo_multipliers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;combo_multipliers&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">combo_multipliers</span><span class="p">[(</span><span class="n">item</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">item</span><span class="p">[</span><span class="mi">1</span><span class="p">])]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+
+    <span class="c1"># 加载 chain type map</span>
+    <span class="n">chain_type_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;chain_type_map&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+
+    <span class="c1"># 加载 multi-turn base techs</span>
+    <span class="n">multi_turn_base_techs</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;multi_turn_base_techs&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+
+    <span class="c1"># 加载 patched penalty</span>
+    <span class="n">patched_penalty</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;patched_penalty_by_tier&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+    <span class="c1"># 加载 converter variant priors</span>
+    <span class="n">cvp_raw</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;converter_variant_priors&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">converter_variant_priors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="n">kk</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">vv</span><span class="p">)</span> <span class="k">for</span> <span class="n">kk</span><span class="p">,</span> <span class="n">vv</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cvp_raw</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">}</span>
+
+    <span class="c1"># 加载 OWASP multipliers</span>
+    <span class="n">owasp_raw</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;owasp_asr_multipliers&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">owasp_multipliers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="n">kk</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">vv</span><span class="p">)</span> <span class="k">for</span> <span class="n">kk</span><span class="p">,</span> <span class="n">vv</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">owasp_raw</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">priors</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;ASR priors YAML loaded but contains no prior entries&quot;</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;ASR priors loaded from YAML: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">priors</span><span class="p">)</span><span class="si">}</span><span class="s2"> techniques, &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">combo_multipliers</span><span class="p">)</span><span class="si">}</span><span class="s2"> combos, </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">converter_variant_priors</span><span class="p">)</span><span class="si">}</span><span class="s2"> variants&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">priors</span><span class="p">,</span>
+        <span class="n">combo_multipliers</span><span class="p">,</span>
+        <span class="n">chain_type_map</span><span class="p">,</span>
+        <span class="n">multi_turn_base_techs</span><span class="p">,</span>
+        <span class="n">patched_penalty</span><span class="p">,</span>
+        <span class="n">converter_variant_priors</span><span class="p">,</span>
+        <span class="n">owasp_multipliers</span><span class="p">,</span>
+        <span class="n">tier_cfg</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 加载外部 YAML 数据 (模块级唯一初始化)</span>
+<span class="c1"># ============================================================</span>
+
+<span class="p">(</span>
+    <span class="n">_ASR_PRIORS</span><span class="p">,</span>
+    <span class="n">_COMBO_MULTIPLIERS</span><span class="p">,</span>
+    <span class="n">_CHAIN_TYPE_MAP</span><span class="p">,</span>
+    <span class="n">_MULTI_TURN_BASE_TECHS</span><span class="p">,</span>
+    <span class="n">_PATCHED_PENALTY_BY_TIER</span><span class="p">,</span>
+    <span class="n">_CONVERTER_VARIANT_PRIORS</span><span class="p">,</span>
+    <span class="n">_OWASP_ASR_MULTIPLIERS</span><span class="p">,</span>
+    <span class="n">_tier_config</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">=</span> <span class="n">_load_yaml_priors</span><span class="p">()</span>
+
+<span class="c1"># 更新兼容性别名</span>
+<span class="n">TIER_THRESHOLDS</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">_tier_config</span><span class="o">.</span><span class="n">thresholds</span><span class="p">)</span>
+<span class="n">TIER_S_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">s</span>
+<span class="n">TIER_A_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">a</span>
+<span class="n">TIER_B_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">b</span>
+<span class="n">TIER_C_THRESHOLD</span> <span class="o">=</span> <span class="n">_tier_config</span><span class="o">.</span><span class="n">c</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 内部辅助函数</span>
+<span class="c1"># ============================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_classify_chain</span><span class="p">(</span><span class="n">chain_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;分类 Converter 链类型。.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_CHAIN_TYPE_MAP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">chain_name</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_combo_multiplier</span><span class="p">(</span><span class="n">base_tech</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chain_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;查询 (基础技术, Converter链) 组合的 ASR 乘数。.&quot;&quot;&quot;</span>
+    <span class="n">tech_category</span> <span class="o">=</span> <span class="s2">&quot;multi_turn&quot;</span> <span class="k">if</span> <span class="n">base_tech</span> <span class="ow">in</span> <span class="n">_MULTI_TURN_BASE_TECHS</span> <span class="k">else</span> <span class="s2">&quot;single_turn&quot;</span>
+    <span class="n">chain_type</span> <span class="o">=</span> <span class="n">_classify_chain</span><span class="p">(</span><span class="n">chain_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_COMBO_MULTIPLIERS</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="n">tech_category</span><span class="p">,</span> <span class="n">chain_type</span><span class="p">),</span> <span class="mf">1.2</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_owasp_adjustment</span><span class="p">(</span><span class="n">asr</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">technique</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;OWASP 分类感知 ASR 调整。.&quot;&quot;&quot;</span>
+    <span class="n">owasp_ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">oid</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">oid</span> <span class="ow">in</span> <span class="n">owasp_id</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">oid</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">owasp_ids</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">asr</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+    <span class="n">base_tech</span> <span class="o">=</span> <span class="n">technique</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">technique</span> <span class="k">else</span> <span class="n">technique</span>
+    <span class="n">best_multiplier</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="k">for</span> <span class="n">oid</span> <span class="ow">in</span> <span class="n">owasp_ids</span><span class="p">:</span>
+        <span class="n">multipliers</span> <span class="o">=</span> <span class="n">_OWASP_ASR_MULTIPLIERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">oid</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">multiplier</span> <span class="o">=</span> <span class="n">multipliers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">base_tech</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">multiplier</span> <span class="o">&gt;</span> <span class="n">best_multiplier</span><span class="p">:</span>
+            <span class="n">best_multiplier</span> <span class="o">=</span> <span class="n">multiplier</span>
+    <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">asr</span> <span class="o">*</span> <span class="n">best_multiplier</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================</span>
+<span class="c1"># 查询 API</span>
+<span class="c1"># ============================================================</span>
+
+
+<div class="viewcode-block" id="get_asr_prior">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.get_asr_prior">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_asr_prior</span><span class="p">(</span><span class="n">technique</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ASRPrior</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取技术的学术 ASR 先验。.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_ASR_PRIORS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">technique</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_initial_q_value">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.get_initial_q_value">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_initial_q_value</span><span class="p">(</span>
+    <span class="n">technique</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+    <span class="n">owasp_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取技术的初始 Q 值（用于 epsilon-greedy selector warm-start）。.</span>
+
+<span class="sd">    优先级:</span>
+<span class="sd">    1. 学术先验 ASR（含 patched 惩罚）</span>
+<span class="sd">    2. Converter 变体（独立先验 → base × boost）</span>
+<span class="sd">    3. OWASP 分类感知 ASR 调整</span>
+<span class="sd">    4. 中性先验 0.3（未知技术）</span>
+
+<span class="sd">    跨运行学习由 PyRIT 原生 EpsilonGreedyTechniqueSelector + CentralMemory 持久化，</span>
+<span class="sd">    本函数仅提供初始 Q 值（warm-start）。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># 1. 学术先验 (含 patched 惩罚)</span>
+    <span class="n">prior</span> <span class="o">=</span> <span class="n">_ASR_PRIORS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">technique</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">prior</span><span class="p">:</span>
+        <span class="n">asr</span> <span class="o">=</span> <span class="n">prior</span><span class="o">.</span><span class="n">for_model</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">model_tier</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">prior</span><span class="o">.</span><span class="n">patched</span><span class="p">:</span>
+            <span class="n">penalty</span> <span class="o">=</span> <span class="n">_PATCHED_PENALTY_BY_TIER</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_tier</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">)</span>
+            <span class="n">asr</span> <span class="o">=</span> <span class="n">asr</span> <span class="o">*</span> <span class="n">penalty</span>
+        <span class="k">if</span> <span class="n">owasp_id</span><span class="p">:</span>
+            <span class="n">asr</span> <span class="o">=</span> <span class="n">_apply_owasp_adjustment</span><span class="p">(</span><span class="n">asr</span><span class="p">,</span> <span class="n">technique</span><span class="p">,</span> <span class="n">owasp_id</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">asr</span>
+
+    <span class="c1"># 2. Converter 变体</span>
+    <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">technique</span><span class="p">:</span>
+        <span class="c1"># 优先查询独立 ASR 先验条目</span>
+        <span class="n">variant_prior</span> <span class="o">=</span> <span class="n">_CONVERTER_VARIANT_PRIORS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">technique</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">variant_prior</span><span class="p">:</span>
+            <span class="n">variant_asr</span> <span class="o">=</span> <span class="n">ASRPrior</span><span class="p">(</span>
+                <span class="n">technique</span><span class="o">=</span><span class="n">technique</span><span class="p">,</span>
+                <span class="n">gpt_4o</span><span class="o">=</span><span class="n">variant_prior</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_4o&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span>
+                <span class="n">gpt_4</span><span class="o">=</span><span class="n">variant_prior</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_4&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span>
+                <span class="n">gpt_35</span><span class="o">=</span><span class="n">variant_prior</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gpt_35&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span>
+                <span class="n">claude_3_5</span><span class="o">=</span><span class="n">variant_prior</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;claude_3_5&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span>
+                <span class="n">llama_3_1</span><span class="o">=</span><span class="n">variant_prior</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;llama_3_1&quot;</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span>
+                <span class="n">source</span><span class="o">=</span><span class="s2">&quot;empirical&quot;</span><span class="p">,</span>
+                <span class="n">paper_arxiv</span><span class="o">=</span><span class="s2">&quot;2402.12109&quot;</span><span class="p">,</span>
+                <span class="n">last_updated</span><span class="o">=</span><span class="s2">&quot;2025-06&quot;</span><span class="p">,</span>
+                <span class="n">patched</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">notes</span><span class="o">=</span><span class="s2">&quot;Independent variant ASR prior&quot;</span><span class="p">,</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">for_model</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">model_tier</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">owasp_id</span><span class="p">:</span>
+                <span class="n">variant_asr</span> <span class="o">=</span> <span class="n">_apply_owasp_adjustment</span><span class="p">(</span><span class="n">variant_asr</span><span class="p">,</span> <span class="n">technique</span><span class="p">,</span> <span class="n">owasp_id</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">variant_asr</span>
+
+        <span class="c1"># 回退到 base × boost</span>
+        <span class="n">base_tech</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">chain_name</span> <span class="o">=</span> <span class="n">technique</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)</span>
+        <span class="n">prior</span> <span class="o">=</span> <span class="n">_ASR_PRIORS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">base_tech</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">prior</span><span class="p">:</span>
+            <span class="n">base_asr</span> <span class="o">=</span> <span class="n">prior</span><span class="o">.</span><span class="n">for_model</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">model_tier</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">prior</span><span class="o">.</span><span class="n">patched</span><span class="p">:</span>
+                <span class="n">penalty</span> <span class="o">=</span> <span class="n">_PATCHED_PENALTY_BY_TIER</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_tier</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">)</span>
+                <span class="n">base_asr</span> <span class="o">=</span> <span class="n">base_asr</span> <span class="o">*</span> <span class="n">penalty</span>
+            <span class="n">multiplier</span> <span class="o">=</span> <span class="n">_get_combo_multiplier</span><span class="p">(</span><span class="n">base_tech</span><span class="p">,</span> <span class="n">chain_name</span><span class="p">)</span>
+            <span class="n">boosted</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">base_asr</span> <span class="o">*</span> <span class="n">multiplier</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">owasp_id</span><span class="p">:</span>
+                <span class="n">boosted</span> <span class="o">=</span> <span class="n">_apply_owasp_adjustment</span><span class="p">(</span><span class="n">boosted</span><span class="p">,</span> <span class="n">technique</span><span class="p">,</span> <span class="n">owasp_id</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">boosted</span>
+
+    <span class="c1"># 3. 中性先验</span>
+    <span class="k">return</span> <span class="mf">0.3</span></div>
+
+
+
+<div class="viewcode-block" id="get_prior_ordered_techniques">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.get_prior_ordered_techniques">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_prior_ordered_techniques</span><span class="p">(</span>
+    <span class="n">techniques</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;使用学术 ASR 先验对技术列表排序（高 ASR 优先）。.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="n">techniques</span><span class="p">,</span>
+        <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">get_initial_q_value</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">model_name</span><span class="p">,</span> <span class="n">model_tier</span><span class="p">),</span>
+        <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_all_priors">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.get_all_priors">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_all_priors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ASRPrior</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取所有学术 ASR 先验数据。.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">_ASR_PRIORS</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_prior_summary">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.asr.prior_registry.get_prior_summary">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_prior_summary</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取所有先验数据的摘要。.&quot;&quot;&quot;</span>
+    <span class="n">summary</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">tech</span><span class="p">,</span> <span class="n">prior</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="n">_ASR_PRIORS</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span>
+        <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">gpt_4o</span><span class="p">,</span>
+        <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="n">summary</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;technique&quot;</span><span class="p">:</span> <span class="n">tech</span><span class="p">,</span>
+                <span class="s2">&quot;gpt_4o&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">gpt_4o</span><span class="p">,</span>
+                <span class="s2">&quot;gpt_4&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">gpt_4</span><span class="p">,</span>
+                <span class="s2">&quot;gpt_35&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">gpt_35</span><span class="p">,</span>
+                <span class="s2">&quot;claude_3_5&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">claude_3_5</span><span class="p">,</span>
+                <span class="s2">&quot;llama_3_1&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">llama_3_1</span><span class="p">,</span>
+                <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+                <span class="s2">&quot;paper_arxiv&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">paper_arxiv</span><span class="p">,</span>
+                <span class="s2">&quot;patched&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">patched</span><span class="p">,</span>
+                <span class="s2">&quot;notes&quot;</span><span class="p">:</span> <span class="n">prior</span><span class="o">.</span><span class="n">notes</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">summary</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

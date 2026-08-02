@@ -20,8 +20,23 @@ Usage:
   python main.py --resume <scenario_result_id>
 """
 
-import asyncio
+# R-012: 始终使用 UTF-8 编码 — 在所有 import 之前强制设置,
+# 确保 stdout/stderr 在 Windows GBK 终端下也能正确输出 Unicode 字符
+import os as _os
+import logging
 import sys
+
+_logger = logging.getLogger(__name__)
+
+_os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+import asyncio
+import signal
+from datetime import datetime
 from pathlib import Path
 
 from pipeline import PipelineContext
@@ -33,13 +48,33 @@ from pipeline.stages.stage_initialize import run as stage_initialize
 from pipeline.stages.stage_output import run as stage_output
 from pipeline.stages.stage_post_analysis import run as stage_post_analysis
 from pipeline.stages.stage_scenario import run as stage_scenario
+from pipeline.stages.stage_web_auth import run as stage_web_auth
 from pipeline.utils.cleaner import clean_temp_files
 from pipeline.utils.display import print_pipeline_footer, print_pipeline_header
 from pipeline.utils.noise_redirector import redirect_noise_to_file
 
+# P3-2: 全局优雅退出标志
+_shutdown_requested = False
+
+
+def _signal_handler(signum, frame):
+    """P3-2: 信号处理器 — SIGINT/SIGTERM 时优雅退出。."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    sig_name = signal.Signals(signum).name
+    print(f"\n[{sig_name}] 收到退出信号, 等待当前阶段完成后退出...")
+    print("  (再次按 Ctrl+C 立即退出)")
+    # 第二次信号直接退出
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(1))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+
 
 async def main_async() -> None:
-    """串联六个阶段, 全流水线双日志包裹。"""
+    """串联六个阶段, 全流水线双日志包裹。."""
+    # P3-2: 注册信号处理器
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     setup_environment()
     ctx = PipelineContext(args=parse_args())
     ctx.output_manager = OutputManager(
@@ -49,31 +84,63 @@ async def main_async() -> None:
     ctx.metadata["signal_log_path"] = str(ctx.output_manager.log_path)
 
     print_pipeline_header(ctx)
+    ctx.start_time = datetime.now()
     clean_temp_files("pre")
 
-    # 全流水线双日志包裹: 信号行写入终端 + signal log, 噪音行写入 noise log
-    # 内层 (stage_init/scenario) 的 redirect_noise_to_file 不传 signal_log_path,
-    # 信号行透传到本层 NoiseFilter 统一写入信号日志, 避免重复
-    with redirect_noise_to_file(
-        Path(ctx.metadata["noise_log_path"]),
-        Path(ctx.metadata["signal_log_path"]),
-    ):
-        await stage_init(ctx)
+    try:
+        # 全流水线双日志包裹: 信号行写入终端 + signal log, 噪音行写入 noise log
+        # 内层 (stage_init/scenario) 的 redirect_noise_to_file 不传 signal_log_path,
+        # 信号行透传到本层 NoiseFilter 统一写入信号日志, 避免重复
+        with redirect_noise_to_file(
+                Path(ctx.metadata["noise_log_path"]),
+                Path(ctx.metadata["signal_log_path"]),
+            ):
+            await stage_init(ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 1 后退出")
+                return
 
-        # XPIA 工作流 (可选, 提前返回)
-        if getattr(ctx.args, "xpia", False):
-            print("\n" + "=" * 70)
-            print("[XPIA] Cross-Domain Prompt Injection Attack 工作流")
-            print("=" * 70)
-            from pipeline.workflows.xpia import run_xpia
-            await run_xpia(ctx)
-            return
+            # Stage 1.5: Web 目标自动认证桥接 (仅当 --web-target-url 时激活)
+            web_bridged = await stage_web_auth(ctx)
+            if web_bridged and _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 1.5 (Web Auth) 后退出")
+                return
 
-        await stage_scenario(ctx)
-        await stage_initialize(ctx)
-        await stage_execute(ctx)
-        await stage_post_analysis(ctx)
-        await stage_output(ctx)
+            # XPIA 工作流 (可选, 提前返回)
+            if getattr(ctx.args, "xpia", False):
+                print("\n" + "=" * 70)
+                print("[XPIA] Cross-Domain Prompt Injection Attack 工作流")
+                print("=" * 70)
+                from pipeline.workflows.xpia import run_xpia
+                await run_xpia(ctx)
+                return
+
+            await stage_scenario(ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 2 后退出")
+                return
+
+            await stage_initialize(ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 3 后退出")
+                return
+
+            await stage_execute(ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 4 后退出 (结果已保存)")
+                # Stage 4 结果已持久化到 CentralMemory, 可安全退出
+                return
+
+            await stage_post_analysis(ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 5 后退出")
+                return
+
+            await stage_output(ctx)
+
+    finally:
+        # 清理 Web 目标的浏览器会话 (如有)
+        _cleanup_web_session(ctx)
 
     # P3: 持久化动态发现的内容过滤器标记 (供下次运行加载)
     _persist_discovered_content_filter_markers()
@@ -98,8 +165,33 @@ def _persist_discovered_content_filter_markers() -> None:
         from pipeline.utils.content_filter_ext import persist_discovered_markers
 
         persist_discovered_markers()
-    except Exception:
+    except (OSError, RuntimeError):
         pass  # 非关键路径,静默失败
+
+
+def _cleanup_web_session(ctx: PipelineContext) -> None:
+    """清理 Web 目标的浏览器会话 (如有)。
+
+    在 finally 块中调用, 确保 Web 目标的 Playwright 浏览器
+    在流水线结束 (正常或异常) 后正确关闭。
+    """
+    session = ctx.metadata.get("web_browser_session")
+    if session is not None:
+        try:
+            import asyncio
+
+            # 如果有事件循环运行, 异步关闭; 否则同步关闭
+            try:
+                loop = asyncio.get_running_loop()
+                if loop:
+                    loop.create_task(session.close())
+                else:
+                    raise RuntimeError("no loop")
+            except (RuntimeError, OSError):
+                session.close()
+            _logger.debug("Web browser session cleaned up")
+        except (OSError, RuntimeError):
+            pass
 
 
 if __name__ == "__main__":
@@ -108,3 +200,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n用户中断")
         sys.exit(0)
+    except SystemExit:
+        raise

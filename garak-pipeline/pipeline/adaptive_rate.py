@@ -14,12 +14,22 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import random
 import time
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+
+class CallTimeoutError(TimeoutError):
+    """单次 _call_model 调用超过 call_timeout 仍未返回。
+
+    语义：区别于网络层 read timeout（服务端主动断开并抛异常），
+    这是"服务端静默挂起、连接保持 ESTABLISHED 但无响应"的防死锁兜底。
+    被 AdaptiveRateController 视为可重试瞬时错误。
+    """
 
 
 # ----------------------------------------------------------------------
@@ -69,6 +79,9 @@ class AdaptiveRateController:
     :param downgrade_at: 触发并发降级的连续失败次数
     :param jitter: 是否启用全抖动退避（防惊群）
     :param on_downgrade: 并发降级回调（回调收到新的并发数）
+    :param call_timeout: 单次 _call_model 调用的硬超时（秒）。超过则放弃该次
+        调用并视为可重试瞬时错误，防止目标静默挂起导致整条流水线死锁。
+        默认 0 表示不启用线程级超时（沿用 garak 自身 timeout）。
     """
 
     def __init__(
@@ -84,6 +97,7 @@ class AdaptiveRateController:
         downgrade_at: int = 3,
         jitter: bool = True,
         on_downgrade: Callable[[int], None] | None = None,
+        call_timeout: float = 0.0,
     ) -> None:
         self.generator = generator
         self.max_rpm = max_rpm
@@ -95,16 +109,42 @@ class AdaptiveRateController:
         self.downgrade_at = downgrade_at
         self.jitter = jitter
         self.on_downgrade = on_downgrade
+        self.call_timeout = float(call_timeout)
 
         self._original: Callable | None = None
         self._consecutive_failures = 0
         self._bucket = TokenBucket(max_rpm)
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = None
 
     def patch(self) -> None:
-        """打补丁：包装 _call_model 加入令牌桶 + 退避 + 熔断 + 降级"""
+        """打补丁：包装 _call_model 加入令牌桶 + 线程超时 + 退避 + 熔断 + 降级"""
         if self._original is not None:
             return  # 已 patch
         original = self.generator._call_model
+
+        # 线程级超时熔断：用独立线程池托住 original 调用，
+        # 避免目标静默挂起时主线程永久阻塞在 socket.recv()。
+        # 注意：Python 无法强制杀死超时线程，它会在后台成为僵尸线程，
+        # 但主流程能立即返回并走重试/放弃逻辑，不再死锁整条流水线。
+        if self.call_timeout and self.call_timeout > 0:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="garak-call-timeout"
+            )
+
+        def _call_with_timeout(prompt, *args, **kwargs):
+            """在线程池中执行 original，超时即放弃并抛 CallTimeoutError。"""
+            if self._executor is None:
+                return original(prompt, *args, **kwargs)
+            fut = self._executor.submit(original, prompt, *args, **kwargs)
+            try:
+                return fut.result(timeout=self.call_timeout)
+            except concurrent.futures.TimeoutError:
+                # 取消 future（若尚未开始）；已运行的线程不可强杀，置为僵尸。
+                fut.cancel()
+                raise CallTimeoutError(
+                    f"_call_model 超过 {self.call_timeout:.0f}s 未返回，"
+                    f"疑似目标静默挂起（连接 ESTABLISHED 但无响应）"
+                )
 
         def wrapped(prompt: str, *args, **kwargs):
             # 1) 主动节流：令牌桶阻塞
@@ -113,7 +153,7 @@ class AdaptiveRateController:
             attempt = 0
             while True:
                 try:
-                    result = original(prompt, *args, **kwargs)
+                    result = _call_with_timeout(prompt, *args, **kwargs)
                     # 成功：连续失败计数清零
                     self._consecutive_failures = 0
                     # Ollama 兼容：部分版本返回原生 `response` 字段
@@ -164,10 +204,13 @@ class AdaptiveRateController:
         self.generator._call_model = wrapped
 
     def unpatch(self) -> None:
-        """还原补丁"""
+        """还原补丁并关闭线程池"""
         if self._original is not None:
             self.generator._call_model = self._original
             self._original = None
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
+            self._executor = None
 
     def _current_parallel(self) -> int:
         """读取 generator 当前并发数（供降级回调参考）"""
@@ -197,6 +240,9 @@ _HARD_FAIL_SIGNALS = (
 
 def _is_retryable(exc: Exception) -> bool:
     """判断异常是否可重试（限流 / 瞬时错误），硬失败返回 False"""
+    # 线程级超时熔断：目标静默挂起，视为可重试瞬时错误
+    if isinstance(exc, CallTimeoutError):
+        return True
     msg = str(exc).lower()
     if any(s in msg for s in _HARD_FAIL_SIGNALS):
         return False

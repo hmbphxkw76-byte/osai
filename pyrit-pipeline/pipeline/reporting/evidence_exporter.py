@@ -9,6 +9,7 @@ L5 对齐 PyRIT 1.0.0 output 模块:
   - 使用 MarkdownScorePrinter.render_async() 渲染评分
   - 支持 include_reasoning_trace (o1/o3 推理模型)
   - 支持 blur_images (图片模糊, 保护审查者)
+  - 支持 blurred_dir (模糊图片副本重定向到专用目录, 纳入 ZIP)
   - 生成 evidence.json + attack_summary.csv + owasp_coverage_matrix.csv
   - 打包为 ZIP 证据包
 
@@ -23,12 +24,16 @@ import csv
 import io
 import json
 import logging
+import os
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from pyrit.memory import CentralMemory
+from pyrit.output.attack_result.markdown import MarkdownAttackResultMemoryPrinter
+from pyrit.output.conversation.markdown import MarkdownConversationMemoryPrinter
+from pyrit.output.score.markdown import MarkdownScorePrinter
 
 from pipeline.reporting.report_generator import _get_attack_type, _get_outcome_str, _safe_get
 
@@ -43,6 +48,8 @@ class EvidenceExporter:
       - 每个攻击生成独立 Markdown 文件
       - 每个对话生成独立 Markdown 文件
       - 汇总对话历史使用原生 MarkdownConversationMemoryPrinter
+      - blurred_dir 全链路透传给所有打印机
+      - _collect_blurred_images() 收集模糊图片副本纳入 ZIP
     """
 
     def __init__(
@@ -52,6 +59,7 @@ class EvidenceExporter:
         include_reasoning_trace: bool = True,
         blur_images: bool = False,
         blur_radius: int = 20,
+        blurred_dir: os.PathLike[str] | str | None = None,
     ):
         self.evidence_dir = Path(evidence_dir)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -63,7 +71,14 @@ class EvidenceExporter:
         (self.evidence_dir / "attacks").mkdir(parents=True, exist_ok=True)
         (self.evidence_dir / "conversations").mkdir(parents=True, exist_ok=True)
         (self.evidence_dir / "scores").mkdir(parents=True, exist_ok=True)
-        (self.evidence_dir / "blurred").mkdir(parents=True, exist_ok=True)
+
+        # L5 对齐: 模糊图片副本专用目录
+        if blurred_dir is not None:
+            self.blurred_dir = os.fspath(blurred_dir)
+        else:
+            self._blurred_dir_path = self.evidence_dir / "blurred"
+            self._blurred_dir_path.mkdir(parents=True, exist_ok=True)
+            self.blurred_dir = str(self._blurred_dir_path)
 
     async def export_all_evidence(
         self,
@@ -122,6 +137,9 @@ class EvidenceExporter:
         coverage_csv = self._render_coverage_matrix_csv(owasp_coverage or {})
         timeline_csv = self._render_attack_timeline_csv(attack_results)
 
+        # 7. 收集模糊图片副本 (L5 对齐: 纳入 ZIP)
+        blurred_image_files = self._collect_blurred_images()
+
         # 打包为 zip
         archive_path = self.evidence_dir.parent / f"{self.evidence_dir.name}_evidence.zip"
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -137,6 +155,10 @@ class EvidenceExporter:
                 zipf.writestr(f"conversations/{filename}", content)
             for filename, content in score_md_files:
                 zipf.writestr(f"scores/{filename}", content)
+
+            # 模糊图片副本
+            for arcname, file_path in blurred_image_files:
+                zipf.write(file_path, arcname)
 
         logger.info(f"Evidence archive: {archive_path}")
         return archive_path
@@ -168,24 +190,17 @@ class EvidenceExporter:
         }
 
     async def _export_attack_markdowns(self, attack_results: list[Any]) -> list[tuple[str, str]]:
-        """使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击的 Markdown。"""
+        """使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击的 Markdown。
+
+        L5 对齐: 模块级导入打印机, blurred_dir 全链路传递, except Exception 宽口径捕获。
+        """
         files: list[tuple[str, str]] = []
 
-        try:
-            from pyrit.output.attack_result.markdown import MarkdownAttackResultMemoryPrinter
-            printer = MarkdownAttackResultMemoryPrinter(
-                blur_images=self.blur_images,
-                blur_radius=self.blur_radius,
-            )
-        except ImportError:
-            logger.warning("MarkdownAttackResultMemoryPrinter not available, using fallback")
-            for i, ar in enumerate(attack_results, 1):
-                is_success = _get_outcome_str(ar).upper() == "SUCCESS"
-                suffix = "_success" if is_success else ""
-                filename = f"attack_{i:04d}{suffix}.md"
-                content = f"# Attack {i}\n\n- Objective: {_safe_get(ar, 'objective', 'N/A')}\n- Outcome: {_get_outcome_str(ar)}\n"
-                files.append((filename, content))
-            return files
+        printer = MarkdownAttackResultMemoryPrinter(
+            blur_images=self.blur_images,
+            blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
+        )
 
         for i, ar in enumerate(attack_results, 1):
             is_success = _get_outcome_str(ar).upper() == "SUCCESS"
@@ -204,7 +219,11 @@ class EvidenceExporter:
                 files.append((filename, content))
             except Exception as e:
                 logger.warning(f"Failed to export attack #{i}: {e}")
-                fallback = f"# Attack {i}\n\n*Export failed: {e}*\n\n- Objective: {_safe_get(ar, 'objective', 'N/A')}\n- Outcome: {_get_outcome_str(ar)}\n"
+                fallback = (
+                    f"# Attack {i}\n\n*Export failed: {e}*\n\n"
+                    f"- Objective: {_safe_get(ar, 'objective', 'N/A')}\n"
+                    f"- Outcome: {_get_outcome_str(ar)}\n"
+                )
                 files.append((filename, fallback))
 
         return files
@@ -215,22 +234,19 @@ class EvidenceExporter:
         conversation_ids: list[str],
         attack_results: list[Any],
     ) -> list[tuple[str, str]]:
-        """使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown。"""
+        """使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown。
+
+        L5 对齐: 模块级导入打印机, blurred_dir 全链路传递, except Exception 宽口径捕获。
+        """
         files: list[tuple[str, str]] = []
 
-        try:
-            from pyrit.output.conversation.markdown import MarkdownConversationMemoryPrinter
-            from pyrit.output.score.markdown import MarkdownScorePrinter
-
-            score_printer = MarkdownScorePrinter()
-            printer = MarkdownConversationMemoryPrinter(
-                score_printer=score_printer,
-                blur_images=self.blur_images,
-                blur_radius=self.blur_radius,
-            )
-        except ImportError:
-            logger.warning("MarkdownConversationMemoryPrinter not available")
-            return files
+        score_printer = MarkdownScorePrinter()
+        printer = MarkdownConversationMemoryPrinter(
+            score_printer=score_printer,
+            blur_images=self.blur_images,
+            blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
+        )
 
         # 构建成功对话 ID 集合
         success_conv_ids = set()
@@ -281,18 +297,13 @@ class EvidenceExporter:
             "",
         ]
 
-        try:
-            from pyrit.output.conversation.markdown import MarkdownConversationMemoryPrinter
-            from pyrit.output.score.markdown import MarkdownScorePrinter
-
-            score_printer = MarkdownScorePrinter()
-            conv_printer = MarkdownConversationMemoryPrinter(
-                score_printer=score_printer,
-                blur_images=self.blur_images,
-                blur_radius=self.blur_radius,
-            )
-        except ImportError:
-            conv_printer = None
+        score_printer = MarkdownScorePrinter()
+        conv_printer = MarkdownConversationMemoryPrinter(
+            score_printer=score_printer,
+            blur_images=self.blur_images,
+            blur_radius=self.blur_radius,
+            blurred_dir=self.blurred_dir,
+        )
 
         ar_by_conv = {}
         for ar in attack_results:
@@ -309,25 +320,24 @@ class EvidenceExporter:
                     f"**Objective**: {_safe_get(related_ar, 'objective', 'N/A')}",
                     f"**Outcome**: {_get_outcome_str(related_ar)}",
                     f"**Turns**: {_safe_get(related_ar, 'executed_turns', 'N/A')}",
+                    f"**Execution Time**: {_format_time(_safe_get(related_ar, 'execution_time_ms'))}",
                     "",
                 ])
 
-            if conv_printer:
-                try:
-                    messages = list(memory.get_conversation_messages(conversation_id=conv_id))
-                    if messages:
-                        conv_md = await conv_printer.render_async(
-                            messages,
-                            include_scores=True,
-                            include_reasoning_trace=self.include_reasoning_trace,
-                        )
-                        lines.append(conv_md)
-                    else:
-                        lines.append(f"*No messages found for conversation: {conv_id}*\n")
-                except Exception as e:
-                    lines.append(f"*Render failed: {e}*\n")
-            else:
-                lines.append(f"*Native printer not available*\n")
+            try:
+                messages = list(memory.get_conversation_messages(conversation_id=conv_id))
+                if messages:
+                    conv_md = await conv_printer.render_async(
+                        messages,
+                        include_scores=True,
+                        include_reasoning_trace=self.include_reasoning_trace,
+                    )
+                    lines.append(conv_md)
+                else:
+                    lines.append(f"*No messages found for conversation: {conv_id}*\n")
+            except Exception as e:
+                logger.warning(f"Failed to render conversation {conv_id}: {e}")
+                lines.append(f"*Render failed: {e}*\n")
 
             lines.extend(["---", ""])
 
@@ -336,12 +346,14 @@ class EvidenceExporter:
             lines.extend([
                 "## Scoring Summary",
                 "",
-                "| Score Type | Value | Category | Rationale |",
-                "|-----------|-------|----------|-----------|",
+                "| Score ID | Score Type | Value | Category | Rationale |",
+                "|----------|-----------|-------|----------|-----------|",
             ])
             for s in scores:
+                score_id = str(_safe_get(s, "id", "N/A"))
                 lines.append(
-                    f"| {_safe_get(s, 'score_type', 'N/A')} | "
+                    f"| {score_id} | "
+                    f"{_safe_get(s, 'score_type', 'N/A')} | "
                     f"{_safe_get(s, 'score_value', 'N/A')} | "
                     f"{_safe_get(s, 'score_category', 'N/A')} | "
                     f"{str(_safe_get(s, 'score_rationale', ''))[:120]} |"
@@ -351,16 +363,15 @@ class EvidenceExporter:
         return "\n".join(lines)
 
     async def _export_score_markdowns(self, scores: list[Any]) -> list[tuple[str, str]]:
-        """使用 MarkdownScorePrinter.render_async() 生成每个评分的 Markdown。"""
+        """使用 MarkdownScorePrinter.render_async() 生成每个评分的 Markdown。
+
+        L5 对齐: 模块级导入打印机, except Exception 宽口径捕获, 失败时生成 fallback。
+        """
         files: list[tuple[str, str]] = []
         if not scores:
             return files
 
-        try:
-            from pyrit.output.score.markdown import MarkdownScorePrinter
-            score_printer = MarkdownScorePrinter()
-        except ImportError:
-            return files
+        score_printer = MarkdownScorePrinter()
 
         for i, score in enumerate(scores, 1):
             is_success = _is_success_score(score)
@@ -374,6 +385,33 @@ class EvidenceExporter:
                 files.append((filename, content))
             except Exception as e:
                 logger.warning(f"Failed to export score #{i}: {e}")
+                fallback = f"# Score {i}\n\n*Export failed: {e}*\n"
+                files.append((filename, fallback))
+
+        return files
+
+    def _collect_blurred_images(self) -> list[tuple[str, str]]:
+        """收集模糊图片副本文件列表, 用于纳入证据 zip 包。
+
+        L5 对齐 PyRIT 1.0.0 output 模块:
+        - Markdown 格式下 blur_images=True 时, 打印机将模糊副本写入 blurred_dir
+        - 模糊副本文件名格式为 <stem>_blurred.png
+        - 此方法扫描 blurred_dir 收集所有模糊副本, 返回 (arcname, file_path) 列表
+
+        Returns:
+            [(zip内路径, 磁盘路径), ...] 列表
+        """
+        if not self.blur_images:
+            return []
+
+        blurred_path = Path(self.blurred_dir)
+        if not blurred_path.exists():
+            return []
+
+        files = []
+        for img_file in sorted(blurred_path.glob("*_blurred.png")):
+            arcname = f"blurred/{img_file.name}"
+            files.append((arcname, str(img_file)))
 
         return files
 

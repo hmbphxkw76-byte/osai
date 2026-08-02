@@ -1,0 +1,80 @@
+# ============================================================================
+# .dockerignore (生产级排除规则, G-10)
+# ============================================================================
+# 遵循 P2-G10: 容器化不应包含开发文件和数据文件
+# ============================================================================
+
+# ── 开发文件 ──
+.git/
+*.py[cod] *.pyo
+*.pytest_cache/
+__pycache__/
+.venv/
+.venv.bak/
+.ipy/
+.mypy_cache/
+.pytest_cache/
+.coverage/
+.coverage*.xml
+htmlcov/
+.tox/
+dist/
+build/
+dist-info/
+
+# ── 数据文件 ──
+data/
+custom/
+cve/
+datasets/
+outputs/
+empirical_asr/
+*.log
+*.log
+*.log.*
+*.noise.log
+*.json
+*.json.*
+
+# ── 配置文件 ──
+.env
+*.yaml
+*.yml
+*.toml.backup
+*.toml.orig
+
+# ── 开发工具文件 ──
+.svn_cache/
+.src/PyRIT-*/
+
+# ── IDE 文件 ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-project-meta
+
+# ── 测试文件 ──
+tests/
+*.pyc
+.pytest_cache/
+
+# ── 文档 ──
+docs/
+*.md
+*.pdf
+
+# ── Docker 相关 ──
+Dockerfile
+.dockerignore
+
+# ── 临时文件 ──
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# ── PyRIT 源码 ──
+src/
+**/PyRIT-1*/

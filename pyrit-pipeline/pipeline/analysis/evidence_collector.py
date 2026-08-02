@@ -598,7 +598,7 @@ class EvidenceCollector:
                 role = getattr(msg, "role", "unknown")
                 content = getattr(msg, "content", "") or ""
                 history.append({"role": str(role), "content": str(content)})
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.debug(f"Failed to extract conversation: {e}")
 
         return history
@@ -744,7 +744,7 @@ class EvidenceCollector:
                             "source": "empirical",
                         }
                     )
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.debug(f"Failed to load ASR trend: {e}")
 
         return trend
@@ -780,7 +780,7 @@ class EvidenceCollector:
                         from pipeline.asr.failure_type_selector import extract_failure_type_from_result
 
                         ftype = extract_failure_type_from_result(ar)
-                    except Exception:
+                    except ImportError:
                         ftype = "unknown"
                     failure_types[ftype] += 1
 

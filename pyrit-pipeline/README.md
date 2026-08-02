@@ -142,7 +142,7 @@ pyrit-pipeline/
 │   ├── workflows/           # P1: XPIA 工作流集成
 │   │   └── __init__.py      # 原生 pyrit.executor.workflow.xpia
 │   ├── rate_limited_target.py  # P2: 限速 Target 包装器 (自研)
-│   ├── html_report.py       # P3: HTML/PDF 报告生成 (自研)
+│   ├── reporting/              # P3: HTML/PDF 报告生成 (format_converter + Jinja2)
 │   ├── rich_metadata_loader.py     # 富元数据加载器
 │   ├── rich_metadata_migration.py  # 富元数据 → 原生 SeedDataset 迁移
 │   └── tests/              # 单元测试
@@ -323,7 +323,7 @@ pyrit-pipeline/
 | 模块 | 用途 | 学术依据 |
 |------|------|----------|
 | `RateLimitedTarget` | 并发信号量 + 退避重试 | Circuit Breaker Pattern |
-| `html_report.py` | Markdown → HTML/PDF 转换 | OWASP 报告格式最佳实践 |
+| `format_converter.py` | Markdown → HTML/PDF 转换 | OWASP 报告格式最佳实践 |
 | `rich_metadata_migration.py` | 富元数据 → 原生 SeedDataset | HarmBench 元数据标准 |
 | `FailureTypeRoutingSelector` | 失败类型路由技术选择 | arXiv:2310.04451 (PAIR) |
 | `asr_prior_registry.py` | 学术 ASR 先验数据 | JailbreakBench (arXiv:2402.01135) |

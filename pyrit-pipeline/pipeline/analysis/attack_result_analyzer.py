@@ -209,7 +209,7 @@ class AttackResultAnalyzer:
         if hasattr(attack_result, "get_attack_strategy_identifier"):
             try:
                 return attack_result.get_attack_strategy_identifier()
-            except Exception:
+            except (RuntimeError, OSError, ValueError):
                 return None
         return None
 

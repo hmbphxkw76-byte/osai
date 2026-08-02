@@ -402,7 +402,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
                 results = memory.get_scenario_results()
                 if results:
                     data_count = len(results)
-        except Exception:
+        except (RuntimeError, OSError, ValueError):
             pass
 
         if data_count <= 0:
@@ -753,7 +753,7 @@ def extract_failure_type_from_result(failed_result: Any) -> str:
     def _safe_get(obj, attr, default=None):
         try:
             return getattr(obj, attr, default)
-        except Exception:
+        except (RuntimeError, OSError, ValueError):
             return default
 
     raw_error = str(_safe_get(failed_result, "error_message", "") or _safe_get(failed_result, "outcome_reason", ""))

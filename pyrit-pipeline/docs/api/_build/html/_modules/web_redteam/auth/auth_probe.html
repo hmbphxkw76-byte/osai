@@ -1,0 +1,392 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>web_redteam.auth.auth_probe &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">web_redteam.auth.auth_probe</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for web_redteam.auth.auth_probe</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;AuthProbe: 自动认证探测器。.</span>
+
+<span class="sd">当 auth.type = &quot;auto&quot; 时, AuthProbe 会:</span>
+<span class="sd">  1. 导航到 target_url</span>
+<span class="sd">  2. 观察页面行为 (URL 变化 / DOM 特征 / HTTP 状态)</span>
+<span class="sd">  3. 自动判断认证拓扑:</span>
+<span class="sd">     - none:         页面直接加载成功, 无重定向到登录页 → 无需认证</span>
+<span class="sd">     - same_domain:  页面重定向到同域名下的登录页 → 同域认证</span>
+<span class="sd">     - cross_domain: 页面重定向到不同域名的登录页 (SSO/IdP) → 跨域认证</span>
+
+<span class="sd">判断依据 (按优先级):</span>
+<span class="sd">  a) URL 域名变化: target_url 域名 ≠ 最终页面域名 → cross_domain</span>
+<span class="sd">  b) URL 路径变化但域名不变: 同域名下出现 login/auth/signin → same_domain</span>
+<span class="sd">  c) URL 无变化且页面正常加载 → none</span>
+
+<span class="sd">  同时检查 DOM 特征:</span>
+<span class="sd">  - 存在 &lt;input type=&quot;password&quot;&gt; 或登录表单 → 需要认证</span>
+<span class="sd">  - 存在目标交互元素 (如 .chat-container) → 无需认证</span>
+
+<span class="sd">对齐 PyRIT 原生模式:</span>
+<span class="sd">  - CopilotAuthenticator 用 page.url 和 page.wait_for_selector 检测页面状态</span>
+<span class="sd">  - PlaywrightCopilotTarget 检查 page.url 判断是否在正确页面</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">urllib.parse</span><span class="w"> </span><span class="kn">import</span> <span class="n">urlparse</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">playwright.async_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">Page</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># ── 登录页 URL 路径关键词 (用于判断重定向后是否在登录页) ──</span>
+<span class="n">LOGIN_PATH_KEYWORDS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;login&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;signin&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;sign-in&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;sso&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;oauth&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;account/login&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;user/login&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;cas/&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;idp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;authorize&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;callback&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1"># ── 登录表单 DOM 选择器 (用于判断页面是否为登录页) ──</span>
+<span class="n">LOGIN_FORM_SELECTORS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;input[type=&quot;password&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;form[action*=&quot;login&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;form[action*=&quot;auth&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;form[action*=&quot;signin&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;[class*=&quot;login-form&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;[id*=&quot;login-form&quot;]&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;button[type=&quot;submit&quot;][formaction*=&quot;login&quot;]&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="ProbeResult">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_probe.ProbeResult">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ProbeResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;AuthProbe 探测结果。.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        auth_type: 探测到的认证类型 (&quot;none&quot; | &quot;same_domain&quot; | &quot;cross_domain&quot;)</span>
+<span class="sd">        target_domain: target_url 的域名</span>
+<span class="sd">        final_domain: 探测后页面最终停留的域名</span>
+<span class="sd">        final_url: 探测后页面最终 URL</span>
+<span class="sd">        redirected: 是否发生了重定向</span>
+<span class="sd">        login_url_detected: 检测到的登录页 URL (如需认证)</span>
+<span class="sd">        domain_transitions: 域名跳转链 (跨域场景)</span>
+<span class="sd">        detection_reason: 判断依据的人类可读描述</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">auth_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>
+    <span class="n">target_domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">final_domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">final_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">redirected</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">login_url_detected</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">domain_transitions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">detection_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;AuthProbe Result:&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  auth_type:        </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">auth_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  target_domain:    </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">target_domain</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  final_domain:     </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">final_domain</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  redirected:       </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">redirected</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  login_url:        </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">login_url_detected</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="s1">&#39;(none)&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  domain_transitions: </span><span class="si">{</span><span class="s1">&#39; → &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">domain_transitions</span><span class="p">)</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="s1">&#39;(none)&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;  reason:           </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">detection_reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="AuthProbe">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_probe.AuthProbe">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AuthProbe</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;自动认证探测器。.</span>
+
+<span class="sd">    通过导航到 target_url 并观察页面行为, 自动判断认证拓扑。</span>
+
+<span class="sd">    用法:</span>
+<span class="sd">        probe = AuthProbe()</span>
+<span class="sd">        result = await probe.probe(page, target_url)</span>
+<span class="sd">        # result.auth_type → &quot;none&quot; | &quot;same_domain&quot; | &quot;cross_domain&quot;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">navigation_timeout_ms</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">15000</span><span class="p">,</span>
+        <span class="n">settle_wait_ms</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Args:</span>
+<span class="sd">        navigation_timeout_ms: 导航超时 (毫秒)。</span>
+<span class="sd">        settle_wait_ms: 导航后等待页面稳定的时间 (毫秒), 用于捕获重定向链。.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nav_timeout</span> <span class="o">=</span> <span class="n">navigation_timeout_ms</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_settle_wait</span> <span class="o">=</span> <span class="n">settle_wait_ms</span>
+
+<div class="viewcode-block" id="AuthProbe.probe">
+<a class="viewcode-back" href="../../../web_redteam.html#web_redteam.auth.auth_probe.AuthProbe.probe">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">probe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">,</span> <span class="n">target_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProbeResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;探测 target_url 的认证拓扑。.</span>
+
+<span class="sd">        流程:</span>
+<span class="sd">          1. 记录 target_url 的域名</span>
+<span class="sd">          2. 导航到 target_url (不抛异常, 捕获重定向)</span>
+<span class="sd">          3. 等待页面稳定 (settle)</span>
+<span class="sd">          4. 分析最终 URL 和 DOM 特征</span>
+<span class="sd">          5. 返回 ProbeResult</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            page: Playwright Page 对象。</span>
+<span class="sd">            target_url: 目标页面 URL。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ProbeResult 探测结果。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">target_domain</span> <span class="o">=</span> <span class="n">_extract_domain</span><span class="p">(</span><span class="n">target_url</span><span class="p">)</span>
+        <span class="n">domain_transitions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">target_domain</span><span class="p">]</span>
+
+        <span class="c1"># 注册 framenavigated 监听器, 追踪域名跳转</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">on_navigated</span><span class="p">(</span><span class="n">frame</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">frame</span> <span class="o">==</span> <span class="n">page</span><span class="o">.</span><span class="n">main_frame</span><span class="p">:</span>
+                <span class="n">domain</span> <span class="o">=</span> <span class="n">_extract_domain</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">domain</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">domain_transitions</span> <span class="ow">or</span> <span class="n">domain_transitions</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">domain</span><span class="p">):</span>
+                    <span class="n">domain_transitions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">domain</span><span class="p">)</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: domain transition → </span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">page</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s2">&quot;framenavigated&quot;</span><span class="p">,</span> <span class="n">on_navigated</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># 导航到 target_url</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: probing target URL: </span><span class="si">{</span><span class="n">target_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">goto</span><span class="p">(</span><span class="n">target_url</span><span class="p">,</span> <span class="n">wait_until</span><span class="o">=</span><span class="s2">&quot;domcontentloaded&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_nav_timeout</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: navigation raised (may be redirect): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="c1"># 导航异常可能是重定向导致, 继续分析当前 URL</span>
+
+            <span class="c1"># 等待页面稳定 (可能还有 JS 重定向)</span>
+            <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_settle_wait</span> <span class="o">/</span> <span class="mi">1000</span><span class="p">)</span>
+
+            <span class="n">final_url</span> <span class="o">=</span> <span class="n">page</span><span class="o">.</span><span class="n">url</span>
+            <span class="n">final_domain</span> <span class="o">=</span> <span class="n">_extract_domain</span><span class="p">(</span><span class="n">final_url</span><span class="p">)</span>
+            <span class="n">redirected</span> <span class="o">=</span> <span class="n">final_url</span> <span class="o">!=</span> <span class="n">target_url</span> <span class="ow">and</span> <span class="n">final_domain</span> <span class="o">!=</span> <span class="n">target_domain</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: final URL: </span><span class="si">{</span><span class="n">final_url</span><span class="si">}</span><span class="s2"> (domain: </span><span class="si">{</span><span class="n">final_domain</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: domain transitions: </span><span class="si">{</span><span class="s1">&#39; → &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">domain_transitions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># 分析并判断认证类型</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_analyze</span><span class="p">(</span>
+                <span class="n">target_url</span><span class="o">=</span><span class="n">target_url</span><span class="p">,</span>
+                <span class="n">target_domain</span><span class="o">=</span><span class="n">target_domain</span><span class="p">,</span>
+                <span class="n">final_url</span><span class="o">=</span><span class="n">final_url</span><span class="p">,</span>
+                <span class="n">final_domain</span><span class="o">=</span><span class="n">final_domain</span><span class="p">,</span>
+                <span class="n">redirected</span><span class="o">=</span><span class="n">redirected</span><span class="p">,</span>
+                <span class="n">domain_transitions</span><span class="o">=</span><span class="n">domain_transitions</span><span class="p">,</span>
+                <span class="n">page</span><span class="o">=</span><span class="n">page</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="n">page</span><span class="o">.</span><span class="n">remove_listener</span><span class="p">(</span><span class="s2">&quot;framenavigated&quot;</span><span class="p">,</span> <span class="n">on_navigated</span><span class="p">)</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_analyze</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">target_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">target_domain</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">final_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">final_domain</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">redirected</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+        <span class="n">domain_transitions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProbeResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;分析探测结果, 判断认证类型。.&quot;&quot;&quot;</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ProbeResult</span><span class="p">(</span>
+            <span class="n">target_domain</span><span class="o">=</span><span class="n">target_domain</span><span class="p">,</span>
+            <span class="n">final_domain</span><span class="o">=</span><span class="n">final_domain</span><span class="p">,</span>
+            <span class="n">final_url</span><span class="o">=</span><span class="n">final_url</span><span class="p">,</span>
+            <span class="n">redirected</span><span class="o">=</span><span class="n">redirected</span><span class="p">,</span>
+            <span class="n">domain_transitions</span><span class="o">=</span><span class="n">domain_transitions</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># ── 判断 1: 跨域重定向 ──</span>
+        <span class="c1"># 最终域名 ≠ 目标域名 → 跨域 (SSO/IdP)</span>
+        <span class="k">if</span> <span class="n">redirected</span> <span class="ow">and</span> <span class="n">final_domain</span> <span class="o">!=</span> <span class="n">target_domain</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">auth_type</span> <span class="o">=</span> <span class="s2">&quot;cross_domain&quot;</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">login_url_detected</span> <span class="o">=</span> <span class="n">final_url</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">detection_reason</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Redirected from &#39;</span><span class="si">{</span><span class="n">target_domain</span><span class="si">}</span><span class="s2">&#39; to different domain &#39;</span><span class="si">{</span><span class="n">final_domain</span><span class="si">}</span><span class="s2">&#39; &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(likely SSO/IdP). Transitions: </span><span class="si">{</span><span class="s1">&#39; → &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">domain_transitions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;AuthProbe: detected cross_domain auth&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+
+        <span class="c1"># ── 判断 2: 同域重定向到登录页 ──</span>
+        <span class="c1"># 同域名, 但 URL 路径包含登录关键词</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">redirected</span> <span class="ow">or</span> <span class="n">_is_login_path</span><span class="p">(</span><span class="n">final_url</span><span class="p">))</span> <span class="ow">and</span> <span class="p">(</span>
+            <span class="n">_is_login_path</span><span class="p">(</span><span class="n">final_url</span><span class="p">)</span> <span class="ow">or</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_has_login_form</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+        <span class="p">):</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">auth_type</span> <span class="o">=</span> <span class="s2">&quot;same_domain&quot;</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">login_url_detected</span> <span class="o">=</span> <span class="n">final_url</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">detection_reason</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Same-domain redirect to login path: </span><span class="si">{</span><span class="n">final_url</span><span class="si">}</span><span class="s2"> (domain unchanged: </span><span class="si">{</span><span class="n">target_domain</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;AuthProbe: detected same_domain auth&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+
+        <span class="c1"># ── 判断 3: 同域但页面有登录表单 (可能 URL 没变, 但页面内容是登录) ──</span>
+        <span class="k">if</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_has_login_form</span><span class="p">(</span><span class="n">page</span><span class="p">):</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">auth_type</span> <span class="o">=</span> <span class="s2">&quot;same_domain&quot;</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">login_url_detected</span> <span class="o">=</span> <span class="n">final_url</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">detection_reason</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Login form detected on page (URL may be unchanged): </span><span class="si">{</span><span class="n">final_url</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;AuthProbe: detected same_domain auth (login form on page)&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+
+        <span class="c1"># ── 判断 4: 无需认证 ──</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">auth_type</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">detection_reason</span> <span class="o">=</span> <span class="s2">&quot;No redirect and no login form detected. Target URL accessible directly.&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;AuthProbe: detected no auth needed&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_has_login_form</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;检查页面是否存在登录表单。.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">selector</span> <span class="ow">in</span> <span class="n">LOGIN_FORM_SELECTORS</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">element</span> <span class="o">=</span> <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">query_selector</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">element</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AuthProbe: login form element found: </span><span class="si">{</span><span class="n">selector</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="kc">True</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">continue</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_extract_domain</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 URL 中提取域名 (netloc)。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">url</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">parsed</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">netloc</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_login_path</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;检查 URL 路径是否包含登录关键词。.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">url</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="c1"># 也检查完整的 URL (query 参数可能包含 redirect_uri 等)</span>
+    <span class="n">full</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">keyword</span> <span class="ow">in</span> <span class="n">path</span> <span class="ow">or</span> <span class="n">keyword</span> <span class="ow">in</span> <span class="n">full</span> <span class="k">for</span> <span class="n">keyword</span> <span class="ow">in</span> <span class="n">LOGIN_PATH_KEYWORDS</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

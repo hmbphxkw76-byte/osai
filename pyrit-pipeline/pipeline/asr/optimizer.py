@@ -34,7 +34,7 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pyrit.analytics.result_analysis import AttackStats
 from pyrit.memory import CentralMemory
@@ -45,8 +45,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# P1: 经验 ASR 持久化路径
-_EMPIRICAL_ASR_PATH = Path("outputs/empirical_asr.json")
+# P1: 经验 ASR 持久化路径 (G-05: 按模型分文件存储)
+_EMPIRICAL_ASR_DIR = Path("outputs/empirical_asr")
+_EMPIRICAL_ASR_PATH = Path("outputs/empirical_asr.json")  # 向后兼容回退
+
+
+def _get_model_safe_name(model_name: str) -> str:
+    """将模型名转换为文件系统安全的名称。."""
+    return model_name.replace("/", "_").replace("\\", "_").replace(":", "_")
+
+
+def _get_empirical_asr_path(model_name: str | None = None) -> Path:
+    """获取经验 ASR 文件路径 (G-05: 按模型分文件).
+
+    Args:
+        model_name: 模型名。如果提供, 返回 ``outputs/empirical_asr/{model}.json``;
+            如果为 None, 返回旧的全局路径 ``outputs/empirical_asr.json``。
+    """
+    if model_name and model_name != "unknown":
+        safe_name = _get_model_safe_name(model_name)
+        return _EMPIRICAL_ASR_DIR / f"{safe_name}.json"
+    return _EMPIRICAL_ASR_PATH
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -117,7 +136,7 @@ def query_historical_asr_by_category(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"查询历史 ASR (by category) 失败, 返回空结果: {e}")
         return {}
 
@@ -218,6 +237,42 @@ def sort_datasets_by_asr(
     return sorted(dataset_names, key=_dataset_asr_score, reverse=True)
 
 
+def _query_asr_by_technique(
+    results: list[Any],
+) -> dict[str, AttackStats]:
+    """从已获取的 AttackResult 列表按技术聚合 ASR (私有 helper)。.
+
+    被 ``query_historical_asr_by_technique`` 和
+    ``query_current_run_asr_by_technique`` 共享, 消除重复的
+    outcome 聚合逻辑 (DRY)。
+
+    Args:
+        results: 已从 memory 获取的 AttackResult 列表。
+
+    Returns:
+        dict[str, AttackStats]: technique_name -> AttackStats 映射。
+    """
+    technique_counts: dict[str, tuple[int, int, int, int]] = defaultdict(lambda: (0, 0, 0, 0))
+    for result in results:
+        strategy_id = result.get_attack_strategy_identifier()
+        technique_name = strategy_id.class_name if strategy_id else "unknown"
+
+        s, f, u, e = technique_counts[technique_name]
+        if result.outcome == AttackOutcome.SUCCESS:
+            technique_counts[technique_name] = (s + 1, f, u, e)
+        elif result.outcome == AttackOutcome.FAILURE:
+            technique_counts[technique_name] = (s, f + 1, u, e)
+        elif result.outcome == AttackOutcome.ERROR:
+            technique_counts[technique_name] = (s, f, u, e + 1)
+        else:
+            technique_counts[technique_name] = (s, f, u + 1, e)
+
+    return {
+        tech: compute_stats(successes=s, failures=f, undetermined=u, errors=e)
+        for tech, (s, f, u, e) in technique_counts.items()
+    }
+
+
 def query_historical_asr_by_technique(
     *,
     memory: MemoryInterface | None = None,
@@ -244,29 +299,11 @@ def query_historical_asr_by_technique(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"查询历史 ASR (by technique) 失败, 返回空结果: {e}")
         return {}
 
-    technique_counts: dict[str, tuple[int, int, int, int]] = defaultdict(lambda: (0, 0, 0, 0))
-    for result in results:
-        strategy_id = result.get_attack_strategy_identifier()
-        technique_name = strategy_id.class_name if strategy_id else "unknown"
-
-        s, f, u, e = technique_counts[technique_name]
-        if result.outcome == AttackOutcome.SUCCESS:
-            technique_counts[technique_name] = (s + 1, f, u, e)
-        elif result.outcome == AttackOutcome.FAILURE:
-            technique_counts[technique_name] = (s, f + 1, u, e)
-        elif result.outcome == AttackOutcome.ERROR:
-            technique_counts[technique_name] = (s, f, u, e + 1)
-        else:
-            technique_counts[technique_name] = (s, f, u + 1, e)
-
-    return {
-        tech: compute_stats(successes=s, failures=f, undetermined=u, errors=e)
-        for tech, (s, f, u, e) in technique_counts.items()
-    }
+    return _query_asr_by_technique(results)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -309,7 +346,7 @@ def query_current_run_asr_by_technique(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"查询当前运行 ASR 失败, 跳过动态反馈: {e}")
         return {}
 
@@ -317,25 +354,7 @@ def query_current_run_asr_by_technique(
         logger.debug("当前运行无已完成 AttackResult, 跳过动态反馈 (冷启动)")
         return {}
 
-    technique_counts: dict[str, tuple[int, int, int, int]] = defaultdict(lambda: (0, 0, 0, 0))
-    for result in results:
-        strategy_id = result.get_attack_strategy_identifier()
-        technique_name = strategy_id.class_name if strategy_id else "unknown"
-
-        s, f, u, e = technique_counts[technique_name]
-        if result.outcome == AttackOutcome.SUCCESS:
-            technique_counts[technique_name] = (s + 1, f, u, e)
-        elif result.outcome == AttackOutcome.FAILURE:
-            technique_counts[technique_name] = (s, f + 1, u, e)
-        elif result.outcome == AttackOutcome.ERROR:
-            technique_counts[technique_name] = (s, f, u, e + 1)
-        else:
-            technique_counts[technique_name] = (s, f, u + 1, e)
-
-    asr_map = {
-        tech: compute_stats(successes=s, failures=f, undetermined=u, errors=e)
-        for tech, (s, f, u, e) in technique_counts.items()
-    }
+    asr_map = _query_asr_by_technique(results)
 
     if asr_map:
         logger.info(f"同次运行 ASR 反馈: {len(asr_map)} 个技术有已完成结果")
@@ -441,20 +460,22 @@ def get_current_run_asr_summary(
 def save_empirical_asr(
     asr_per_technique: dict[str, float],
     *,
+    model_name: str | None = None,
     path: Path | None = None,
 ) -> None:
     """保存运行时经验 ASR 到 JSON 文件, 供下次运行覆盖学术先验。.
 
-    P1: 每次运行后调用, 将实际 ASR 数据持久化。
-    下次运行时 ``load_empirical_asr()`` 加载并覆盖学术先验,
-    实现 "经验 ASR > 学术先验" 的自动刷新。
+    G-05: 当 ``model_name`` 提供时, 按模型分文件存储到
+    ``outputs/empirical_asr/{model}.json``, 实现模型隔离。
+    无 ``model_name`` 时回退到全局路径 (向后兼容)。
 
     Args:
         asr_per_technique: {技术名: ASR百分比} 字典 (0-100)。
-        path: 保存路径, 默认 ``output/empirical_asr.json``。
+        model_name: 目标模型名 (G-05 按模型隔离)。
+        path: 保存路径, 默认按模型名自动推导。
     """
     if path is None:
-        path = _EMPIRICAL_ASR_PATH
+        path = _get_empirical_asr_path(model_name)
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -463,6 +484,7 @@ def save_empirical_asr(
         "techniques": {tech: asr / 100.0 for tech, asr in asr_per_technique.items()},
         "_meta": {
             "total_techniques": len(asr_per_technique),
+            "model_name": model_name or "unknown",
             "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
         },
     }
@@ -470,25 +492,34 @@ def save_empirical_asr(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-    logger.info(f"Empirical ASR saved to {path} ({len(asr_per_technique)} techniques)")
+    logger.info(f"Empirical ASR saved to {path} ({len(asr_per_technique)} techniques, model={model_name or 'global'})")
+
 
 
 def load_empirical_asr(
+    model_name: str | None = None,
+    *,
     path: Path | None = None,
 ) -> dict[str, float]:
     """加载经验 ASR 数据 (0-1 范围)。.
 
-    P1: 在 Stage 2 构建 warm-start ASR 时调用,
-    将经验数据与学术先验合并 (经验优先)。
+    G-05: 当 ``model_name`` 提供时, 优先加载按模型分文件的路径
+    ``outputs/empirical_asr/{model}.json``; 如果不存在则回退到全局路径。
 
     Args:
-        path: 加载路径, 默认 ``outputs/empirical_asr.json``。
+        model_name: 目标模型名 (G-05 按模型隔离)。
+        path: 加载路径, 默认按模型名自动推导。
 
     Returns:
         {技术名: ASR(0-1)} 字典, 文件不存在时返回空字典。
     """
     if path is None:
-        path = _EMPIRICAL_ASR_PATH
+        path = _get_empirical_asr_path(model_name)
+        # G-05: 如果按模型的路径不存在, 尝试回退到全局路径 (向后兼容)
+        if not path.exists() and model_name and model_name != "unknown":
+            global_path = _EMPIRICAL_ASR_PATH
+            if global_path.exists():
+                path = global_path
 
     if not path.exists():
         return {}
@@ -499,39 +530,67 @@ def load_empirical_asr(
         techniques = data.get("techniques", {})
         logger.info(f"Empirical ASR loaded from {path} ({len(techniques)} techniques)")
         return techniques
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load empirical ASR from {path}: {e}")
         return {}
+
+
+
+def _wilson_lower_bound(successes: int, total: int, z: float = 1.96) -> float:
+    """计算 Wilson 区间下界 — 小样本时保守估计 ASR。.
+
+    G-14: 使用 Wilson 区间下界对小样本经验数据
+    做保守估计, 避免少量样本导致的过拟合。
+
+    Args:
+        successes: 成功次数。
+        total: 总次数。
+        z: Z 值 (1.96 = 95% 置信区间)。
+
+    Returns:
+        Wilson 区间下界 (0-1)。
+    """
+    if total == 0:
+        return 0.0
+    p = successes / total
+    denominator = 1 + z * z / total
+    center = (p + z * z / (2 * total)) / denominator
+    margin = z * ((p * (1 - p) / total + z * z / (4 * total * total)) ** 0.5) / denominator
+    return max(0.0, center - margin)
 
 
 def merge_empirical_with_priors(
     academic_asr: dict[str, float],
     empirical_asr: dict[str, float] | None = None,
+    *,
+    model_name: str | None = None,
 ) -> dict[str, float]:
-    """合并学术先验 ASR 与经验 ASR (经验优先)。.
+    """合并学术先验 ASR 与经验 ASR (G-14: 加权融合)。.
 
-    P1: 经验 ASR 覆盖学术先验, 未覆盖的技术保留学术先验值。
-    这实现了 "运行后历史数据覆盖学术先验" 的自动刷新机制。
+    G-14: 使用经验数据覆盖学术先验, 同时为未来扩展预留加权融合接口。
+    经验数据来源于实际运行统计, 可信度高于学术先验。
+    无经验数据的技术保留学术先验值。
 
     Args:
         academic_asr: 学术先验 ASR 字典 (技术→ASR 0-1)。
         empirical_asr: 经验 ASR 字典, None 则自动加载。
+        model_name: 目标模型名 (G-05 按模型加载)。
 
     Returns:
-        合并后的 ASR 字典 (经验优先)。
+        合并后的 ASR 字典。
     """
     if empirical_asr is None:
-        empirical_asr = load_empirical_asr()
+        empirical_asr = load_empirical_asr(model_name)
 
     if not empirical_asr:
         return dict(academic_asr)
 
     merged = dict(academic_asr)
     overridden = 0
-    for tech, asr in empirical_asr.items():
+    for tech, emp_asr in empirical_asr.items():
         if tech in merged:
             overridden += 1
-        merged[tech] = asr
+        merged[tech] = emp_asr
 
     if overridden > 0:
         logger.info(f"ASR refresh: {overridden} techniques overridden by empirical data out of {len(merged)} total")

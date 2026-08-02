@@ -1,0 +1,486 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pipeline.converters.factory &mdash; PyRIT-Pipeline 5.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ce74c6a2"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyRIT-Pipeline
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">核心模块</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../pipeline.html">pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../web_redteam.html">web_redteam</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyRIT-Pipeline</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pipeline.converters.factory</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pipeline.converters.factory</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026 OSAI Project.</span>
+<span class="c1"># Licensed under the MIT license.</span>
+
+<span class="sd">&quot;&quot;&quot;Converter 工厂: 从 CLI 名称实例化 PyRIT Converter 对象 + ASR 驱动差异化路由。.</span>
+
+<span class="sd">支持的 CLI 名称 (不区分大小写):</span>
+<span class="sd">  - rot13 → ROT13Converter</span>
+<span class="sd">  - base64 → Base64Converter</span>
+<span class="sd">  - leetspeak → LeetspeakConverter</span>
+<span class="sd">  - morse → MorseConverter</span>
+<span class="sd">  - binary → BinaryConverter</span>
+<span class="sd">  - braille → BrailleConverter</span>
+<span class="sd">  - nato → NatoConverter</span>
+<span class="sd">  - url → UrlConverter</span>
+<span class="sd">  - flip → FlipConverter</span>
+<span class="sd">  - emoji → EmojiConverter</span>
+<span class="sd">  - zalgo → ZalgoConverter</span>
+<span class="sd">  - zero_width → ZeroWidthConverter</span>
+<span class="sd">  - unicode_sub → UnicodeSubstitutionConverter</span>
+<span class="sd">  - caesar → CaesarConverter</span>
+<span class="sd">  - atbash → AtbashConverter</span>
+<span class="sd">  - string_join → StringJoinConverter</span>
+<span class="sd">  - superscript → SuperscriptConverter</span>
+<span class="sd">  - ascii_art → AsciiArtConverter</span>
+
+<span class="sd">Per-technique ASR 差异化路由 (R-001 ASR 数据驱动):</span>
+<span class="sd">  - 查询历史 ASR (by technique × converter 组合)</span>
+<span class="sd">  - 高 ASR 的 converter 优先分配到高 ASR 的技术</span>
+<span class="sd">  - 无历史数据时退化为均匀路由 (冷启动友好)</span>
+<span class="sd">  - Laplace 平滑避免极端值</span>
+
+<span class="sd">参考:</span>
+<span class="sd">  - arXiv:2310.04451 (PAIR) — 载荷变换对 ASR 的影响</span>
+<span class="sd">  - arXiv:2402.16860 (HarmBench) — 编码变换作为攻击增强</span>
+
+<span class="sd">&gt; **日期**: 2026-8-1</span>
+<span class="sd">&gt; **更新记录**:</span>
+<span class="sd">&gt;   2026-8-1 15:10 — 实现 per-technique ASR 差异化路由, 替代均匀路由</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.converter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AsciiArtConverter</span><span class="p">,</span>
+    <span class="n">AtbashConverter</span><span class="p">,</span>
+    <span class="n">Base64Converter</span><span class="p">,</span>
+    <span class="n">BinaryConverter</span><span class="p">,</span>
+    <span class="n">BrailleConverter</span><span class="p">,</span>
+    <span class="n">CaesarConverter</span><span class="p">,</span>
+    <span class="n">EmojiConverter</span><span class="p">,</span>
+    <span class="n">FlipConverter</span><span class="p">,</span>
+    <span class="n">LeetspeakConverter</span><span class="p">,</span>
+    <span class="n">MorseConverter</span><span class="p">,</span>
+    <span class="n">NatoConverter</span><span class="p">,</span>
+    <span class="n">ROT13Converter</span><span class="p">,</span>
+    <span class="n">StringJoinConverter</span><span class="p">,</span>
+    <span class="n">SuperscriptConverter</span><span class="p">,</span>
+    <span class="n">UnicodeSubstitutionConverter</span><span class="p">,</span>
+    <span class="n">UrlConverter</span><span class="p">,</span>
+    <span class="n">ZalgoConverter</span><span class="p">,</span>
+    <span class="n">ZeroWidthConverter</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.converter.converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">Converter</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pyrit.analytics.result_analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttackStats</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># CLI 名称 → Converter 类 (不区分大小写)</span>
+<span class="n">_CONVERTER_REGISTRY</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;rot13&quot;</span><span class="p">:</span> <span class="n">ROT13Converter</span><span class="p">,</span>
+    <span class="s2">&quot;base64&quot;</span><span class="p">:</span> <span class="n">Base64Converter</span><span class="p">,</span>
+    <span class="s2">&quot;leetspeak&quot;</span><span class="p">:</span> <span class="n">LeetspeakConverter</span><span class="p">,</span>
+    <span class="s2">&quot;morse&quot;</span><span class="p">:</span> <span class="n">MorseConverter</span><span class="p">,</span>
+    <span class="s2">&quot;binary&quot;</span><span class="p">:</span> <span class="n">BinaryConverter</span><span class="p">,</span>
+    <span class="s2">&quot;braille&quot;</span><span class="p">:</span> <span class="n">BrailleConverter</span><span class="p">,</span>
+    <span class="s2">&quot;nato&quot;</span><span class="p">:</span> <span class="n">NatoConverter</span><span class="p">,</span>
+    <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">UrlConverter</span><span class="p">,</span>
+    <span class="s2">&quot;flip&quot;</span><span class="p">:</span> <span class="n">FlipConverter</span><span class="p">,</span>
+    <span class="s2">&quot;emoji&quot;</span><span class="p">:</span> <span class="n">EmojiConverter</span><span class="p">,</span>
+    <span class="s2">&quot;zalgo&quot;</span><span class="p">:</span> <span class="n">ZalgoConverter</span><span class="p">,</span>
+    <span class="s2">&quot;zero_width&quot;</span><span class="p">:</span> <span class="n">ZeroWidthConverter</span><span class="p">,</span>
+    <span class="s2">&quot;unicode_sub&quot;</span><span class="p">:</span> <span class="n">UnicodeSubstitutionConverter</span><span class="p">,</span>
+    <span class="s2">&quot;caesar&quot;</span><span class="p">:</span> <span class="n">CaesarConverter</span><span class="p">,</span>
+    <span class="s2">&quot;atbash&quot;</span><span class="p">:</span> <span class="n">AtbashConverter</span><span class="p">,</span>
+    <span class="s2">&quot;string_join&quot;</span><span class="p">:</span> <span class="n">StringJoinConverter</span><span class="p">,</span>
+    <span class="s2">&quot;superscript&quot;</span><span class="p">:</span> <span class="n">SuperscriptConverter</span><span class="p">,</span>
+    <span class="s2">&quot;ascii_art&quot;</span><span class="p">:</span> <span class="n">AsciiArtConverter</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c1"># Converter 名称 → 简短标签 (用于 ASR 路由分析中的 memory_labels)</span>
+<span class="n">_CONVERTER_TAG_SUFFIX</span> <span class="o">=</span> <span class="s2">&quot;_conv&quot;</span>
+
+
+<div class="viewcode-block" id="create_converters">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.converters.factory.create_converters">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_converters</span><span class="p">(</span><span class="n">converter_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;从 CLI 名称列表创建 Converter 实例列表。.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        converter_names: CLI 传递的 converter 名称列表 (如 [&quot;rot13&quot;, &quot;base64&quot;])。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        list[Converter]: 实例化的 Converter 对象列表。</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: 如果有未知的 converter 名称。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">converters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">unknown</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">converter_names</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="bp">cls</span> <span class="o">=</span> <span class="n">_CONVERTER_REGISTRY</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">cls</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">unknown</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">converter</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">()</span>
+            <span class="n">converters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">converter</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created converter: </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> (from &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;)&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to instantiate converter &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; (</span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">unknown</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> (instantiation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">unknown</span><span class="p">:</span>
+        <span class="n">available</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">_CONVERTER_REGISTRY</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown converter(s): </span><span class="si">{</span><span class="n">unknown</span><span class="si">}</span><span class="s2">. Available converters: </span><span class="si">{</span><span class="n">available</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">converters</span></div>
+
+
+
+<div class="viewcode-block" id="build_technique_converter_map">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.converters.factory.build_technique_converter_map">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_technique_converter_map</span><span class="p">(</span>
+    <span class="n">converter_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">technique_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">asr_by_technique</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">AttackStats</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;构建 technique_converters 字典: 基于 ASR 数据实现 per-technique 差异化路由。.</span>
+
+<span class="sd">    **Per-technique ASR 差异化路由 (R-001 ASR 数据驱动)**:</span>
+
+<span class="sd">    当有历史 ASR 数据时:</span>
+<span class="sd">      1. 按技术历史 ASR 排序技术列表</span>
+<span class="sd">      2. 按 converter 对应技术的 ASR 提升度排序 converter 列表</span>
+<span class="sd">      3. 将高 ASR 的 converter 优先分配给高 ASR 的技术</span>
+<span class="sd">      (形成 &quot;强者愈强&quot; 的 ASR 放大效应)</span>
+
+<span class="sd">    当无历史 ASR 数据时 (冷启动):</span>
+<span class="sd">      退化为均匀路由 (所有技术应用全部 converters)</span>
+
+<span class="sd">    PyRIT 的 ``technique_converters`` 参数接受 ``dict[str, list[Converter]]`` 映射,</span>
+<span class="sd">    其中 key 是技术名称 (如 &quot;many_shot&quot;, &quot;tap&quot;, &quot;prompt_sending&quot;)。</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        converter_names: CLI 传递的 converter 名称列表。</span>
+<span class="sd">        technique_names: 所有技术名称列表。</span>
+<span class="sd">        asr_by_technique: 按技术分组的 ASR 统计, None 则查询历史。</span>
+<span class="sd">            传入空字典表示无历史数据 (冷启动)。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict[str, list[Converter]]: 技术名称 → converter 列表映射。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">converters</span> <span class="o">=</span> <span class="n">create_converters</span><span class="p">(</span><span class="n">converter_names</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">converters</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{}</span>
+
+    <span class="c1"># 无 ASR 数据时退化为均匀路由 (冷启动友好)</span>
+    <span class="k">if</span> <span class="n">asr_by_technique</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.asr.optimizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">query_historical_asr_by_technique</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">asr_by_technique</span> <span class="o">=</span> <span class="n">query_historical_asr_by_technique</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;查询历史 ASR 失败, 退化为均匀路由: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">asr_by_technique</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c1"># 冷启动: 无历史 ASR 数据, 均匀路由</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">asr_by_technique</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Converter 路由: 冷启动模式 (均匀路由, 无历史 ASR)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">converters</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">technique_names</span><span class="p">}</span>
+
+    <span class="c1"># ── ASR 驱动差异化路由 ──</span>
+    <span class="c1"># 1. 按技术 ASR 排序 (高 ASR 优先)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_tech_asr_score</span><span class="p">(</span><span class="n">tech_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;计算技术的 ASR 分数 (Laplace 平滑)。.&quot;&quot;&quot;</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">asr_by_technique</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>  <span class="c1"># type: ignore[union-attr]</span>
+        <span class="k">if</span> <span class="n">stats</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mf">0.5</span>  <span class="c1"># 无历史数据: 中等优先级</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">successes</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">total_decided</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">sorted_techniques</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">technique_names</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_tech_asr_score</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># 2. 构建 per-technique 映射 (G-15: 连续梯度分配替代二分法)</span>
+    <span class="c1"># 高 ASR 技术 → 全部 converters (攻击为王, 放大高 ASR)</span>
+    <span class="c1"># 低 ASR 技术 → 按 ASR 比例分配 converter 子集 (连续梯度, 非 0.5 二分)</span>
+    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">tech_name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">sorted_techniques</span><span class="p">):</span>
+        <span class="n">tech_asr</span> <span class="o">=</span> <span class="n">_tech_asr_score</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">tech_asr</span> <span class="o">&gt;=</span> <span class="mf">0.5</span><span class="p">:</span>
+            <span class="c1"># 高 ASR 技术: 分配全部 converters</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">converters</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># G-15: 连续梯度 — 按 ASR 比例计算 converter 子集大小</span>
+            <span class="c1"># tech_asr=0.0 → 1 个 converter, tech_asr=0.5 → 全部 converters</span>
+            <span class="n">subset_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">tech_asr</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">converters</span><span class="p">)))</span>
+            <span class="k">if</span> <span class="n">subset_size</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">converters</span><span class="p">):</span>
+                <span class="n">subset_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">converters</span><span class="p">)</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">converters</span><span class="p">)</span>
+            <span class="n">subset</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">subset_size</span><span class="p">):</span>
+                <span class="n">subset</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">converters</span><span class="p">[(</span><span class="n">start</span> <span class="o">+</span> <span class="n">j</span><span class="p">)</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">converters</span><span class="p">)])</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">subset</span>
+
+    <span class="c1"># 日志: 展示路由策略</span>
+    <span class="n">high_asr_techs</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">sorted_techniques</span> <span class="k">if</span> <span class="n">_tech_asr_score</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mf">0.5</span><span class="p">]</span>
+    <span class="n">low_asr_techs</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">sorted_techniques</span> <span class="k">if</span> <span class="n">_tech_asr_score</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.5</span><span class="p">]</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Converter ASR 路由 (G-15 连续梯度): &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">high_asr_techs</span><span class="p">)</span><span class="si">}</span><span class="s2"> 高 ASR 技术 (全 converters), &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">low_asr_techs</span><span class="p">)</span><span class="si">}</span><span class="s2"> 低 ASR 技术 (梯度子集)&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<div class="viewcode-block" id="build_target_aware_converter_map">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.converters.factory.build_target_aware_converter_map">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_target_aware_converter_map</span><span class="p">(</span>
+    <span class="n">technique_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">target_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">converter_target</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">converter_target_available</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">model_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;基于 Target 类型感知自动构建 technique → Converter 列表映射。.</span>
+
+<span class="sd">    当用户未通过 ``--converters`` 指定 Converter 时, 本函数自动根据</span>
+<span class="sd">    target_type 从 ``target_aware_router`` 获取推荐链, 并使用</span>
+<span class="sd">    ``converter_chains.build_converters_from_chain_names()`` 构建</span>
+<span class="sd">    Converter 实例列表, 注入原生 ``technique_converters`` 参数。</span>
+
+<span class="sd">    路由逻辑:</span>
+<span class="sd">      1. ``target_aware_router.get_chains_for_target_type()`` 返回</span>
+<span class="sd">         ``{base_technique: [chain_name, ...]}`` 映射</span>
+<span class="sd">      2. 每个技术的推荐链被扁平化为 Converter 实例列表</span>
+<span class="sd">      3. LLM 链仅在 converter_target 可用且 model_tier 允许时包含</span>
+<span class="sd">      4. 未在路由映射中的技术不分配 Converter (原生行为)</span>
+
+<span class="sd">    与 ``build_technique_converter_map()`` 的区别:</span>
+<span class="sd">      - ``build_technique_converter_map`` : 用户指定 CLI converter 名称,</span>
+<span class="sd">        ASR 驱动 per-technique 差异化分配</span>
+<span class="sd">      - ``build_target_aware_converter_map`` : 自动根据 target_type 选择</span>
+<span class="sd">        最优链, 无需用户指定, Target 感知驱动</span>
+
+<span class="sd">    两者可叠加使用: CLI converters + target-aware chains (并集)。</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        technique_names: 所有技术名称列表。</span>
+<span class="sd">        target_type: 目标类型 (如 &quot;openai_chat&quot;, &quot;playwright&quot;)。</span>
+<span class="sd">        converter_target: LLM 链所需的 Converter Target 实例。</span>
+<span class="sd">        converter_target_available: converter_target 是否可用。</span>
+<span class="sd">        model_tier: 模型等级 (strong/moderate/weak/unknown)。</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict[str, list[Converter]]: 技术名称 → Converter 列表映射。</span>
+<span class="sd">        若 target_type 为 None 或无推荐链, 返回空字典。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">target_type</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Target-aware converter map: target_type is None, skipping&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{}</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.converters.chains</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_converters_from_chain_names</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pipeline.converters.target_aware_router</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_chains_for_target_type</span>
+
+    <span class="c1"># 获取 target_type 感知的链映射: {base_technique: [chain_name, ...]}</span>
+    <span class="n">chain_mapping</span> <span class="o">=</span> <span class="n">get_chains_for_target_type</span><span class="p">(</span>
+        <span class="n">target_type</span><span class="o">=</span><span class="n">target_type</span><span class="p">,</span>
+        <span class="n">converter_target_available</span><span class="o">=</span><span class="n">converter_target_available</span><span class="p">,</span>
+        <span class="n">model_tier</span><span class="o">=</span><span class="n">model_tier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">chain_mapping</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Target-aware converter map: no chains for target_type=&#39;</span><span class="si">{</span><span class="n">target_type</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{}</span>
+
+    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">total_chains_used</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">for</span> <span class="n">tech_name</span> <span class="ow">in</span> <span class="n">technique_names</span><span class="p">:</span>
+        <span class="c1"># 查找该技术对应的推荐链</span>
+        <span class="c1"># chain_mapping 的 key 是基础技术名 (如 &quot;prompt_sending&quot;, &quot;many_shot&quot;)</span>
+        <span class="c1"># technique_names 可能包含变体名 (如 &quot;prompt_sending+stealth_evasion&quot;)</span>
+        <span class="n">base_tech</span> <span class="o">=</span> <span class="n">tech_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;+&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;+&quot;</span> <span class="ow">in</span> <span class="n">tech_name</span> <span class="k">else</span> <span class="n">tech_name</span>
+        <span class="n">recommended_chains</span> <span class="o">=</span> <span class="n">chain_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">base_tech</span><span class="p">)</span> <span class="ow">or</span> <span class="n">chain_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">recommended_chains</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="c1"># 从链名构建 Converter 实例列表</span>
+        <span class="n">converters</span> <span class="o">=</span> <span class="n">build_converters_from_chain_names</span><span class="p">(</span>
+            <span class="n">chain_names</span><span class="o">=</span><span class="n">recommended_chains</span><span class="p">,</span>
+            <span class="n">converter_target</span><span class="o">=</span><span class="n">converter_target</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">converters</span><span class="p">:</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">converters</span>
+            <span class="n">total_chains_used</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">recommended_chains</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Target-aware converter map: target_type=&#39;</span><span class="si">{</span><span class="n">target_type</span><span class="si">}</span><span class="s2">&#39;, &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">technique_names</span><span class="p">)</span><span class="si">}</span><span class="s2"> techniques got converters, &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">total_chains_used</span><span class="si">}</span><span class="s2"> chains used&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<div class="viewcode-block" id="merge_converter_maps">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.converters.factory.merge_converter_maps">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">merge_converter_maps</span><span class="p">(</span>
+    <span class="n">cli_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]],</span>
+    <span class="n">target_aware_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;合并 CLI 指定的 Converter 映射与 Target 感知的 Converter 映射。.</span>
+
+<span class="sd">    合并策略:</span>
+<span class="sd">      - 同一技术的 CLI converters 和 target-aware converters 取并集</span>
+<span class="sd">      - CLI converters 优先排在前面 (用户显式指定优先)</span>
+<span class="sd">      - 去重: 同名 Converter 类只保留第一个实例</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cli_map: CLI ``--converters`` 指定的映射 (ASR 驱动差异化)</span>
+<span class="sd">        target_aware_map: Target 感知自动选择的映射</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        合并后的映射</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">target_aware_map</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">cli_map</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">cli_map</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">target_aware_map</span>
+
+    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">all_techniques</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">cli_map</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">|</span> <span class="nb">set</span><span class="p">(</span><span class="n">target_aware_map</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="k">for</span> <span class="n">tech_name</span> <span class="ow">in</span> <span class="n">all_techniques</span><span class="p">:</span>
+        <span class="n">cli_converters</span> <span class="o">=</span> <span class="n">cli_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">ta_converters</span> <span class="o">=</span> <span class="n">target_aware_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tech_name</span><span class="p">,</span> <span class="p">[])</span>
+
+        <span class="c1"># CLI 优先, target-aware 补充, 去重</span>
+        <span class="n">merged</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Converter</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">seen_types</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">conv</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">cli_converters</span><span class="p">)</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">ta_converters</span><span class="p">):</span>
+            <span class="n">conv_type_name</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">conv</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
+            <span class="k">if</span> <span class="n">conv_type_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen_types</span><span class="p">:</span>
+                <span class="n">seen_types</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">conv_type_name</span><span class="p">)</span>
+                <span class="n">merged</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">conv</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">merged</span><span class="p">:</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">tech_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<div class="viewcode-block" id="get_available_converter_names">
+<a class="viewcode-back" href="../../../pipeline.html#pipeline.converters.factory.get_available_converter_names">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_available_converter_names</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;返回所有可用的 converter CLI 名称 (排序后)。.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">_CONVERTER_REGISTRY</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, OSAI Project.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

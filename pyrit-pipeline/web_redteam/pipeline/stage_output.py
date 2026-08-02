@@ -67,6 +67,33 @@ async def run(ctx: WebRedteamContext) -> None:
 
     ctx.output_dir = output_dir
 
+    # G-09: 桥接到主 pipeline 的证据收集和报告体系
+    try:
+        from pipeline.integrations.web_redteam_bridge import (
+            collect_web_redteam_evidence,
+            create_shared_output_manager,
+            generate_web_redteam_report,
+        )
+
+        shared_mgr = create_shared_output_manager(
+            timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        target_name = ctx.profile.target.name if ctx.profile else "unknown"
+
+        evidence = collect_web_redteam_evidence(
+            ctx,
+            shared_mgr,
+            model_name=f"web_{target_name}",
+        )
+        if evidence:
+            report_path = generate_web_redteam_report(ctx, shared_mgr, evidence=evidence)
+            if report_path:
+                print(f"  [G-09] 主 pipeline 报告: {report_path}")
+                logger.info(f"G-09 bridge: report saved to {report_path}")
+    except (ImportError, OSError, ValueError) as e:
+        logger.debug(f"G-09 bridge skipped: {e}")
+        print(f"  [提示] 主 pipeline 集成跳过: {e}")
+
     print("\n" + "=" * 70)
     print("端到端流程完成")
     print("=" * 70)
