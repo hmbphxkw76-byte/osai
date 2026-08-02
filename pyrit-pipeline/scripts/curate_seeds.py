@@ -190,11 +190,11 @@ def category_balanced_sample(
         by_category[s["category"]].append(s)
 
     print(f"    类别数: {len(by_category)}")
-    for cat, items in sorted(by_category.items()):
-        print(f"      {cat}: {len(items)} → {min(per_category, len(items))}")
+    for _cat, items in sorted(by_category.items()):
+        print(f"      {_cat}: {len(items)} → {min(per_category, len(items))}")
 
     result: list[dict[str, Any]] = []
-    for cat, items in sorted(by_category.items()):
+    for _cat, items in sorted(by_category.items()):
         # 均匀采样: 每隔 N/per_category 取一个
         n = min(per_category, len(items))
         if n >= len(items):
@@ -237,7 +237,7 @@ def diversity_cluster(seeds: list[dict[str, Any]], n_clusters: int = 0) -> list[
     # 每簇取最靠近中心的种子
     result: list[dict[str, Any]] = []
     for cluster_id in range(n_clusters):
-        member_indices = [i for i, l in enumerate(labels) if l == cluster_id]
+        member_indices = [i for i, lbl in enumerate(labels) if lbl == cluster_id]
         if not member_indices:
             continue
 
