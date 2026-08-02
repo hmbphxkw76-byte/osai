@@ -25,8 +25,8 @@ cd pyrit-pipeline
 uv sync
 
 # 复制环境配置模板
-cp config/.env.example config/.env
-# 编辑 config/.env, 填入 API Key 和 Endpoint
+cp .env.example .env
+# 编辑 .env, 填入 API Key 和 Endpoint
 
 # 创建 PyRIT 配置
 cp config/.pyrit_conf  # 已包含在项目中
@@ -147,7 +147,7 @@ pyrit-pipeline/
 │   ├── rich_metadata_migration.py  # 富元数据 → 原生 SeedDataset 迁移
 │   └── tests/              # 单元测试
 ├── web_bridge/            # Playwright Web 红队框架
-├── config/                # 用户认证配置 (.env, .pyrit_conf)
+├── config/                # PyRIT 结构配置 (.pyrit_conf)
 ├── data/                   # 种子数据集 + 系统配置
 ├── docs/                   # 架构文档
 ├── scripts/               # 工具脚本
@@ -169,7 +169,7 @@ pyrit-pipeline/
           ▼
 ┌─────────────────────┐
 │  Stage 1: Init       │  ConfigurationLoader.load_with_overrides()
-│  pipeline/stage_init  │  → config/.env + config/.pyrit_conf
+│  pipeline/stage_init  │  → .env + config/.pyrit_conf
 │                      │  → CentralMemory(SQLite) + 全部 Registry
 │  产出: ctx.config     │  → TargetRegistry / ScorerRegistry / TechniqueRegistry
 └─────────┬────────────┘
@@ -294,7 +294,7 @@ pyrit-pipeline/
 
 | 组件 | 原生 API | 用途 |
 |------|----------|------|
-| 配置加载 | `ConfigurationLoader` | 加载 config/.env + config/.pyrit_conf |
+| 配置加载 | `ConfigurationLoader` | 加载 .env + config/.pyrit_conf |
 | 内存管理 | `CentralMemory` | SQLite 持久化 |
 | 目标注册 | `TargetRegistry` | 目标模型注册 |
 | 评分器注册 | `ScorerRegistry` | 评分器注册 |

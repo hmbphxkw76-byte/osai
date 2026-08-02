@@ -59,8 +59,8 @@ def main() -> int:
 
     # 1. 配置文件
     print("\n--- 配置文件 ---")
-    all_ok &= check_file(cwd / "config" / ".env", "API 密钥配置")
-    all_ok &= check_file(cwd / "config" / ".env.example", "环境模板")
+    all_ok &= check_file(cwd / ".env", "API 密钥配置")
+    all_ok &= check_file(cwd / ".env.example", "环境模板")
     all_ok &= check_file(cwd / "config" / ".pyrit_conf", "PyRIT 结构配置")
     all_ok &= check_file(cwd / ".gitignore", "Git 忽略规则")
 

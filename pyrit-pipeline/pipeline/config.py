@@ -15,14 +15,14 @@ def setup_environment() -> None:
     """全局环境初始化 (必须在任何 PyRIT import 之前调用)。.
 
     1. 抑制第三方库的 SyntaxWarning / DeprecationWarning / FutureWarning
-    2. 提前加载 config/.env 到 os.environ
+    2. 提前加载 .env (项目根目录) 到 os.environ
     """
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     warnings.filterwarnings("ignore", category=FutureWarning)
 
     from dotenv import load_dotenv
-    load_dotenv("config/.env")
+    load_dotenv()
 
 
 def parse_args() -> argparse.Namespace:
@@ -327,7 +327,7 @@ def parse_args() -> argparse.Namespace:
         "--config-file",
         type=str,
         default="config/.pyrit_conf",
-        help="PyRIT 配置文件路径 (默认: config/.pyrit_conf)",
+        help="PyRIT 配置文件路径 (默认: config/.pyrit_conf — 结构配置保留在 config/ 目录)",
     )
 
     # ── 离线分析 (优化4: 可选增强报告) ──

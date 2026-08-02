@@ -98,7 +98,7 @@ async def run(ctx: PipelineContext) -> None:
 
     if not config_path.exists():
         print(f"  [警告] 配置文件不存在: {config_path}")
-        print("  [提示] 请从 examples/.pyrit_conf_example 复制到 config/.pyrit_conf 并修改")
+        print("  [提示] 请从 examples/.pyrit_conf_example 复制到 config/.pyrit_conf 并修改 (密钥在根目录 .env)")
         raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
     # ── 加载配置 ──

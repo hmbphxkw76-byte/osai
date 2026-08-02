@@ -54,8 +54,8 @@ help: ## 显示所有可用命令
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(BOLD)  环境配置$(RESET)"
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-@echo "  $(GREEN)make env-setup$(RESET)         从 config/.env.example 创建 config/.env"
-@echo "  $(GREEN)make env-check$(RESET)         验证环境 (config/.env / config/.pyrit_conf / PyRIT)"
+@echo "  $(GREEN)make env-setup$(RESET)         从 .env.example 创建 .env"
+@echo "  $(GREEN)make env-check$(RESET)         验证环境 (.env / config/.pyrit_conf / PyRIT)"
 	@echo "  $(GREEN)make pre-commit$(RESET)        安装 pre-commit git hooks"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
@@ -190,13 +190,13 @@ endif
 # 环境配置
 # ============================================================================
 .PHONY: env-setup env-check pre-commit
-env-setup: ## 从 config/.env.example 创建 config/.env
+env-setup: ## 从 .env.example 创建 .env
 	@echo "$(CYAN)[ENV]$(RESET) 创建 .env 配置文件..."
-	@if [ -f config/.env ]; then \
-		echo "$(YELLOW)[WARN]$(RESET) config/.env 已存在, 跳过"; \
+	@if [ -f .env ]; then \
+		echo "$(YELLOW)[WARN]$(RESET) .env 已存在, 跳过"; \
 	else \
-		cp config/.env.example config/.env; \
-		echo "$(GREEN)[OK]$(RESET) 已创建 config/.env, 请编辑填入 API Key"; \
+		cp .env.example .env; \
+		echo "$(GREEN)[OK]$(RESET) 已创建 .env, 请编辑填入 API Key"; \
 	fi
 
 env-check: ## 验证环境配置
@@ -338,7 +338,7 @@ docker-build: ## 构建 Docker 镜像
 
 docker-run: ## 运行 Docker 容器
 	@echo "$(CYAN)[DOCKER]$(RESET) 运行容器..."
-	docker run --rm --env-file config/.env $(PROJECT_NAME):$(VERSION)
+	docker run --rm --env-file .env $(PROJECT_NAME):$(VERSION)
 
 # ============================================================================
 # 文档 & 基准

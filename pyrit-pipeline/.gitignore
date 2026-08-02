@@ -3,8 +3,9 @@
 # ============================================================================
 
 # ── 密钥与配置（绝不提交）──
-config/.env
-config/.env.*
+.env
+.env.*
+!.env.example
 config/.pyrit_conf
 .pyrit_cache/
 

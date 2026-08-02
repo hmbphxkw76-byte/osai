@@ -32,8 +32,9 @@ osai/
 │   ├── output/                 #   运行时报告输出
 │   ├── .assistant_pyrit/       #   AI 助手规则与记忆
 │   ├── .github/instructions/   #   IDE 指令文件
-│   ├── .env                     #   API 密钥（.gitignore）
-│   ├── .pyrit_conf             #   PyRIT 结构配置（.gitignore）
+│   ├── .env                     #   API 密钥（.gitignore，根目录）
+│   ├── .env.example            #   环境模板（可提交）
+│   ├── config/.pyrit_conf      #   PyRIT 结构配置（.gitignore）
 │   ├── pyproject.toml           #   依赖管理（pyrit 作为 editable 依赖）
 │   ├── main.py                  #   流水线入口
 │   └── .gitignore
