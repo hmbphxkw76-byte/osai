@@ -334,6 +334,22 @@ def _format_time(ms: Any) -> str:
     return f"{ms_int / 1000:.2f}s"
 
 
+# R3: 对话文本截断阈值 — 超过此长度的单条消息将被截断
+_MAX_CONVERSATION_TEXT_LENGTH = 500
+
+
+def _truncate_text(text: str, max_length: int = _MAX_CONVERSATION_TEXT_LENGTH) -> str:
+    """截断超长文本, 添加截断标注 (R3: 幻觉文本截断机制).
+
+    模型幻觉产生的数千字垃圾文本会严重膨胀报告,
+    超过阈值的文本截断并标注省略字符数。
+    """
+    if len(text) <= max_length:
+        return text
+    omitted = len(text) - max_length
+    return f"{text[:max_length]}\n\n[... truncated: {omitted} chars omitted ...]"
+
+
 # ============================================================
 # 报告生成器
 # ============================================================
@@ -365,7 +381,7 @@ class ReportGenerator:
         evidence_dir: Path | None = None,
         *,
         generate_html: bool = True,
-        generate_pdf: bool = True,
+        generate_pdf: bool = False,
         title: str = "AI Red Team Report",
         include_reasoning_trace: bool = True,
         blur_images: bool = False,
@@ -566,17 +582,23 @@ class ReportGenerator:
                 try:
                     pieces = memory.get_message_pieces(conversation_id=str(conv_id))
                     for p in pieces:
+                        raw_text = str(_safe_get(p, "converted_value", _safe_get(p, "original_value", "")))
+                        # R3: 截断超长对话文本 (幻觉文本截断机制)
                         conversation.append({
                             "role": str(_safe_get(p, "role", "unknown")),
-                            "text": str(_safe_get(p, "converted_value", _safe_get(p, "original_value", ""))),
+                            "text": _truncate_text(raw_text),
                             "timestamp": str(_safe_get(p, "timestamp", "")),
                         })
                     # K1: 使用原生 render_async() 渲染对话 Markdown
+                    # R3: 渲染后截断超长对话内容
                     if pieces:
                         try:
-                            conversation_md = await conv_printer.render_async(
-                                pieces,
-                                include_scores=True,
+                            conversation_md = _truncate_text(
+                                await conv_printer.render_async(
+                                    pieces,
+                                    include_scores=True,
+                                ),
+                                max_length=2000,
                             )
                         except Exception as e:
                             logger.warning(f"Failed to render conversation for {conv_id}: {e}")
@@ -853,17 +875,36 @@ class ReportGenerator:
         lines.append("")
 
         # ============================================================
-        # 4. Detailed Findings (三级证据链)
+        # 4. Detailed Findings (三级证据链) — R1+R2+R5 优化
         # ============================================================
         lines.extend([
             "## 4. Detailed Findings (Attack Narrative)",
             "",
-            "This section describes in detail what exact actions were performed during the",
-            "assessment and what the outcome was. Each finding includes the vulnerability",
-            "description, potential impact, MITRE technique mapping, execution metrics,",
-            "steps to reproduce (with full conversation history), and suggested remediation.",
+            "This section describes confirmed vulnerabilities with full exploitation",
+            "evidence. Each finding includes vulnerability details, MITRE technique mapping,",
+            "successful attack conversations (Steps to Reproduce), failed attempt summary,",
+            "and suggested remediation.",
             "",
         ])
+
+        # R5: Findings 汇总表
+        if findings:
+            lines.extend([
+                "### Findings Summary",
+                "",
+                "| # | OWASP ID | Vulnerability | Severity | CVSS | Confidence | Attacks | Success |",
+                "|---|----------|---------------|----------|------|------------|---------|---------|",
+            ])
+            for i, f in enumerate(findings, 1):
+                # 从 coverage_matrix 获取攻击数和成功数
+                cov = coverage_matrix.get(f.owasp_id, {})
+                lines.append(
+                    f"| {i} | {f.owasp_id} | {f.owasp_name} | {f.severity} | "
+                    f"{f.cvss_score} | {f.confidence:.0%} | "
+                    f"{cov.get('attack_count', 0)} | {cov.get('success_count', 0)} |"
+                )
+            lines.append("")
+
         for i, finding in enumerate(findings, 1):
             lines.extend([
                 f"### 4.{i} {finding.owasp_name}",
@@ -889,17 +930,21 @@ class ReportGenerator:
                 lines.append(f"- {remediation}")
             lines.append("")
 
-            # 三级证据链 - 第二级 + 第三级
+            # R1+R2: 三级证据链 — 仅展示成功攻击的完整对话
             related_attacks = attack_details.get(finding.attack_type, [])
-            if related_attacks:
-                lines.extend(["**Steps to Reproduce**:", ""])
-                for j, detail in enumerate(related_attacks[:3], 1):
+            successful_attacks = [d for d in related_attacks if d.get("outcome", "").upper() == "SUCCESS"]
+            failed_attacks = [d for d in related_attacks if d.get("outcome", "").upper() != "SUCCESS"]
+
+            # R1: 成功攻击 — 完整对话历史 (唯一出现位置)
+            if successful_attacks:
+                lines.extend(["**Confirmed Exploitation (Steps to Reproduce)**:", ""])
+                for j, detail in enumerate(successful_attacks[:5], 1):
                     lines.extend([
-                        f"#### Step {j}",
+                        f"#### Exploit {j}",
                         "",
                         f"- **Objective**: {detail['objective']}",
-                        f"- **Outcome**: {detail['outcome']}",
-                        f"- **Outcome Reason**: {detail.get('outcome_reason', 'N/A')}",
+                        "- **Outcome**: ✅ SUCCESS",
+                        f"- **Outcome Reason**: {detail.get('outcome_reason', 'Objective achieved')}",
                         f"- **Turns Executed**: {detail.get('executed_turns', 'N/A')}",
                         f"- **Execution Time**: {_format_time(detail.get('execution_time_ms'))}",
                         f"- **Conversation ID**: `{detail.get('conversation_id', 'N/A')}`",
@@ -936,102 +981,43 @@ class ReportGenerator:
                             role = msg.get("role", "unknown").upper()
                             text = msg.get("text", "")
                             lines.extend([f"**[{role}]**", "```", text, "```", ""])
-            lines.extend(["---", ""])
+                    else:
+                        lines.extend(["*No conversation history available*", ""])
 
-        # ============================================================
-        # 5. Attack Timeline
-        # ============================================================
-        lines.extend([
-            "## 5. Attack Timeline",
-            "",
-            "| # | Attack Type | Objective | Outcome | Turns | Time |",
-            "|---|-------------|-----------|---------|-------|------|",
-        ])
-        for idx, ar in enumerate(attack_results, 1):
-            obj = str(_safe_get(ar, "objective", "N/A"))[:60].replace("|", "\\|")
-            tech_display = format_technique_display(_get_attack_type(ar))
-            lines.append(
-                f"| {idx} | {tech_display} | {obj} | "
-                f"{_get_outcome_str(ar)} | {_safe_get(ar, 'executed_turns', 'N/A')} | "
-                f"{_format_time(_safe_get(ar, 'execution_time_ms'))} |"
-            )
-        lines.append("")
+                    lines.extend(["---", ""])
 
-        # ============================================================
-        # 5.5 Successful Attack Highlights
-        # ============================================================
-        lines.extend([
-            "## 5.5 Successful Attack Highlights",
-            "",
-            "This section provides full details for every successful attack, including",
-            "the complete conversation history between the attacker and the target model.",
-            "This serves as primary evidence for the assessment findings.",
-            "",
-        ])
-        success_idx = 0
-        for attack_type, details_list in attack_details.items():
-            for detail in details_list:
-                if detail.get("outcome", "").upper() != "SUCCESS":
-                    continue
-                success_idx += 1
+            # R2: 失败攻击 — 仅表格摘要 (不含完整对话)
+            if failed_attacks:
                 lines.extend([
-                    f"### 5.5.{success_idx} Successful Attack #{success_idx}",
+                    "**Failed Attempts Summary**:",
                     "",
-                    f"- **Attack Type**: {detail.get('attack_technique_display', attack_type)}",
-                    f"- **Objective**: {detail['objective']}",
-                    "- **Outcome**: ✅ SUCCESS",
-                    f"- **Outcome Reason**: {detail.get('outcome_reason', 'Objective achieved')}",
-                    f"- **Turns Executed**: {detail.get('executed_turns', 'N/A')}",
-                    f"- **Execution Time**: {_format_time(detail.get('execution_time_ms'))}",
-                    f"- **Conversation ID**: `{detail.get('conversation_id', 'N/A')}`",
+                    "| # | Objective | Outcome | Turns | Time |",
+                    "|---|-----------|---------|-------|------|",
                 ])
+                for j, detail in enumerate(failed_attacks[:10], 1):
+                    obj = str(detail.get("objective", "N/A"))[:60].replace("|", "\\|")
+                    lines.append(
+                        f"| {j} | {obj} | {detail.get('outcome', 'N/A')} | "
+                        f"{detail.get('executed_turns', 'N/A')} | "
+                        f"{_format_time(detail.get('execution_time_ms'))} |"
+                    )
+                if len(failed_attacks) > 10:
+                    lines.append(f"| ... | *{len(failed_attacks) - 10} more failed attempts* | | | |")
+                lines.extend(["", "---", ""])
 
-                # 评分详情
-                score = detail.get("score", {})
-                if score and score.get("value") is not None:
-                    lines.extend([
-                        "",
-                        f"- **Score Value**: {score.get('value')}",
-                        f"- **Score Type**: {score.get('type', 'N/A')}",
-                        f"- **Score Category**: {score.get('category', 'N/A')}",
-                        f"- **Score Rationale**: {score.get('rationale', 'N/A')}",
-                    ])
+            if not successful_attacks and not failed_attacks:
+                lines.extend(["*No attack data available for this finding.*", "", "---", ""])
 
-                # Converter 信息
-                if detail.get("has_converters"):
-                    lines.extend([
-                        "",
-                        f"- **Converter Chain**: `{detail.get('converter_chain_name', 'N/A')}`",
-                        f"- **Converter Classes**: {', '.join(detail.get('converter_class_names', []))}",
-                    ])
-                lines.append("")
-
-                # 完整对话历史 — K1: 使用原生渲染
-                conv_md = detail.get("conversation_md", "")
-                if conv_md:
-                    lines.extend(["**Conversation History**:", "", conv_md, ""])
-                elif detail.get("conversation"):
-                    conv = detail.get("conversation", [])
-                    # 回退: 手动渲染 (向后兼容)
-                    lines.extend(["**Conversation History**:", ""])
-                    for msg in conv:
-                        role = msg.get("role", "unknown").upper()
-                        text = msg.get("text", "")
-                        lines.extend([f"**[{role}]**", "```", text, "```", ""])
-                else:
-                    lines.extend(["*No conversation history available*", ""])
-
-                lines.extend(["---", ""])
-
-        if success_idx == 0:
-            lines.extend(["*No successful attacks to display.*", ""])
+        # R1+R4: Section 5 (Timeline) + Section 5.5 (Successful Highlights) 已移除
+        # Timeline 数据见 attack_timeline.csv (Appendix D 引用)
+        # Successful Highlights 对话已合并到 Section 4 (R1 消除重复)
 
         # ============================================================
-        # 5.6 Converter Analysis
+        # 5. Converter Analysis
         # ============================================================
         if converter_report and converter_report.get("total_with_converters", 0) > 0:
             lines.extend([
-                "## 5.6 Converter Analysis",
+                "## 5. Converter Analysis",
                 "",
                 "This section provides detailed analysis of converter transformations applied",
                 "during the assessment. It includes transformation logs showing intermediate",
@@ -1096,25 +1082,14 @@ class ReportGenerator:
             lines.append("*No MITRE ATT&CK mappings available.*")
         lines.append("")
 
-        # ============================================================
-        # 7. Tool Usage (动态提取)
-        # ============================================================
-        lines.extend([
-            "## 7. Tool Usage",
-            "",
-            "| Tool | Description | Count |",
-            "|------|-------------|-------|",
-        ])
+        # R4+R7: Tool Usage 移至 Appendix E
         tool_usage = self._extract_tool_usage(technique_distribution, converter_usage)
-        for tool, (desc, count) in sorted(tool_usage.items(), key=lambda x: -x[1][1]):
-            lines.append(f"| {tool} | {desc} | {count} |")
-        lines.append("")
 
         # ============================================================
-        # 8. Appendix
+        # 7. Appendix — R6+R7 合并 C+D, 添加 Tool Usage + Timeline 引用
         # ============================================================
         lines.extend([
-            "## 8. Appendix",
+            "## 7. Appendix",
             "",
             "### Appendix A | Evidence Archive",
             "",
@@ -1136,49 +1111,34 @@ class ReportGenerator:
             "| Medium | Moderate risk that may require specific conditions to exploit |",
             "| Low | Limited impact vulnerability, often informational |",
             "",
-            "### Appendix C | Configuration Summary",
-            "",
         ])
 
-        # 配置信息 (从环境变量获取)
+        # R6: 合并 Appendix C+D → Configuration & Reproduction
         memory_db = os.getenv("MEMORY_DB_TYPE", "DuckDB")
         db_path = os.getenv("MEMORY_DB_PATH", "memory.db")
         max_concurrency = os.getenv("MAX_CONCURRENCY", "5")
         per_attack_timeout = os.getenv("PER_ATTACK_TIMEOUT", "300")
-        lines.extend([
-            f"- Memory Backend: {memory_db}",
-            f"- Database Path: {db_path}",
-            f"- Max Concurrency: {max_concurrency}",
-            f"- Per-Attack Timeout: {per_attack_timeout}s",
-            "",
-        ])
+        target_endpoint = os.getenv("TARGET_ENDPOINT", "N/A")
+        target_model = os.getenv("TARGET_MODEL", "N/A")
+        judge_endpoint = os.getenv("JUDGE_ENDPOINT", "N/A")
+        judge_model = os.getenv("JUDGE_MODEL", "N/A")
+        assessment_id = scenario_result.id if hasattr(scenario_result, "id") else "N/A"
 
-        # ============================================================
-        # Appendix D | Reproduction Configuration
-        # ============================================================
         lines.extend([
-            "### Appendix D | Reproduction Configuration",
-            "",
-            "The following configuration parameters are required to reproduce this assessment:",
+            "### Appendix C | Configuration & Reproduction",
             "",
             "| Parameter | Value |",
             "|-----------|-------|",
-        ])
-        target_endpoint = os.getenv("TARGET_ENDPOINT", "N/A")
-        target_model = os.getenv("TARGET_MODEL", "N/A")
-        lines.append(f"| Target Endpoint | `{target_endpoint}` |")
-        lines.append(f"| Target Model | `{target_model}` |")
-        judge_endpoint = os.getenv("JUDGE_ENDPOINT", "N/A")
-        judge_model = os.getenv("JUDGE_MODEL", "N/A")
-        lines.append(f"| Judge Endpoint | `{judge_endpoint}` |")
-        lines.append(f"| Judge Model | `{judge_model}` |")
-        lines.append(f"| Memory Backend | {memory_db} |")
-        lines.append(f"| Max Concurrency | {max_concurrency} |")
-        lines.append(f"| Per-Attack Timeout | {per_attack_timeout}s |")
-        assessment_id = scenario_result.id if hasattr(scenario_result, "id") else "N/A"
-        lines.append(f"| Assessment ID | {assessment_id} |")
-        lines.append(f"| Start Time | {start_time.isoformat()} |")
-        lines.extend([
+            f"| Target Endpoint | `{target_endpoint}` |",
+            f"| Target Model | `{target_model}` |",
+            f"| Judge Endpoint | `{judge_endpoint}` |",
+            f"| Judge Model | `{judge_model}` |",
+            f"| Memory Backend | {memory_db} |",
+            f"| Database Path | {db_path} |",
+            f"| Max Concurrency | {max_concurrency} |",
+            f"| Per-Attack Timeout | {per_attack_timeout}s |",
+            f"| Assessment ID | {assessment_id} |",
+            f"| Start Time | {start_time.isoformat()} |",
             "",
             "> **Note**: To reproduce, set the above parameters in `.env` and run:",
             "> ```bash",
@@ -1186,6 +1146,27 @@ class ReportGenerator:
             "> ```",
             "",
         ])
+
+        # R4: Attack Timeline 引用 CSV
+        lines.extend([
+            "### Appendix D | Attack Timeline",
+            "",
+            "The complete chronological attack timeline is available as `attack_timeline.csv`",
+            "in the evidence archive. The CSV contains: attack index, type, objective,",
+            "outcome, turns executed, and execution time for all attacks.",
+            "",
+        ])
+
+        # R4: Tool Usage 移至 Appendix E
+        lines.extend([
+            "### Appendix E | Tool Usage",
+            "",
+            "| Tool | Description | Count |",
+            "|------|-------------|-------|",
+        ])
+        for tool, (desc, count) in sorted(tool_usage.items(), key=lambda x: -x[1][1]):
+            lines.append(f"| {tool} | {desc} | {count} |")
+        lines.append("")
 
         return "\n".join(lines)
 

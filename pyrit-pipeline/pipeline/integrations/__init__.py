@@ -3,5 +3,5 @@
 
 """pipeline.integrations — 跨子系统集成桥接模块。.
 
-G-09: web_redteam 等子系统与主 pipeline 的集成层。
+G-09: web_bridge 等子系统与主 pipeline 的集成层。
 """

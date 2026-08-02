@@ -354,12 +354,12 @@ silent: false
 
 | 文件 | 说明 |
 |------|------|
-| `data/config/asr_priors.yaml` | 学术 ASR 先验数据 (389行, 20+技术) |
-| `data/config/paradigms.yaml` | 范式分类关键词 |
-| `data/config/converter_chains.yaml` | Converter 链预设 |
-| `data/config/model_tiers.yaml` | 模型安全过滤等级 |
-| `data/config/target_profiles.yaml` | 目标类型配置 |
-| `data/datasets/_manifest.yaml` | 数据集清单 |
+| `data/setting/asr_priors.yaml` | 学术 ASR 先验数据 (389行, 20+技术) |
+| `data/setting/paradigms.yaml` | 范式分类关键词 |
+| `data/setting/converter_chains.yaml` | Converter 链预设 |
+| `data/setting/model_tiers.yaml` | 模型安全过滤等级 |
+| `data/setting/target_profiles.yaml` | 目标类型配置 |
+| `data/seed_datasets/benchmarks/_manifest.yaml` | 数据集清单 |
 
 ---
 
@@ -396,7 +396,7 @@ pyrit-pipeline/
 ├── output/                         # 运行时输出
 ├── scripts/                        # 脚本工具
 ├── tests/                          # 测试
-└── web_redteam/                    # Web 红队模块
+└── web_bridge/                    # Web 红队模块
 ```
 
 ---

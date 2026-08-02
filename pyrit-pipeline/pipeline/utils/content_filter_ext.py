@@ -13,7 +13,7 @@ PyRIT 原生 ``CONTENT_FILTER_MARKERS`` 仅覆盖 OpenAI/Azure MAI 的标记::
 
 本模块在运行时扩展标记集 (monkey-patch),**不修改 PyRIT 源码**:
 
-  1. 读取 ``data/config/content_filter_markers.yaml`` 配置 (静态扩展)
+  1. 读取 ``data/setting/content_filter_markers.yaml`` 配置 (静态扩展)
   2. 合并原生标记 + 扩展标记
   3. 自动发现所有持有 ``CONTENT_FILTER_MARKERS`` 的已加载模块并替换
   4. 自动发现所有持有 ``_is_content_filter_error`` 的已加载模块并包装
@@ -153,7 +153,7 @@ _current_markers: frozenset[str] = _NATIVE_MARKERS | _DEFAULT_EXTRA_MARKERS
 _discovered_markers: set[str] = set()
 
 # 持久化路径
-_DISCOVERED_CACHE_PATH = Path("data/config/content_filter_discovered.json")
+_DISCOVERED_CACHE_PATH = Path("data/setting/content_filter_discovered.json")
 
 # 原始引用备份 — 用于恢复机制 (测试隔离 / 版本回退)
 _original_state: dict[str, Any] = {
@@ -524,7 +524,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
 
     Args:
         config_path: YAML 配置文件路径。如果为 None,使用默认路径
-            ``data/config/content_filter_markers.yaml``。
+            ``data/setting/content_filter_markers.yaml``。
 
     Returns:
         合并后的完整标记集 (静态部分,不含运行时动态发现)。
@@ -548,7 +548,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
 
     # 2. L1: 尝试从 YAML 加载静态配置
     if config_path is None:
-        config_path = Path("data/config/content_filter_markers.yaml")
+        config_path = Path("data/setting/content_filter_markers.yaml")
 
     config_path = Path(config_path)
     if config_path.exists():

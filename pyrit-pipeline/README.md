@@ -25,11 +25,11 @@ cd pyrit-pipeline
 uv sync
 
 # 复制环境配置模板
-cp .env.example .env
-# 编辑 .env, 填入 API Key 和 Endpoint
+cp config/.env.example config/.env
+# 编辑 config/.env, 填入 API Key 和 Endpoint
 
 # 创建 PyRIT 配置
-cp .pyrit_conf  # 已包含在项目中
+cp config/.pyrit_conf  # 已包含在项目中
 ```
 
 ### 2. 运行流水线
@@ -92,10 +92,10 @@ python main.py --html-report --pdf-report
 uv sync --extra web-redteam
 
 # 使用 YAML Profile
-python -m web_redteam.run --target-profile web_redteam/targets/same_domain/example_portal.yaml
+python -m web_bridge.run --target-profile web_bridge/targets/same_domain/example_portal.yaml
 
 # 快速 URL 模式
-python -m web_redteam.run --target-url https://example.com/chat --attack-type prompt_sending
+python -m web_bridge.run --target-url https://example.com/chat --attack-type prompt_sending
 ```
 
 ### 5. 运行测试
@@ -105,13 +105,13 @@ python -m web_redteam.run --target-url https://example.com/chat --attack-type pr
 python -m pytest -v
 
 # 带覆盖率
-python -m pytest --cov=pipeline --cov=web_redteam --cov-report=term-missing
+python -m pytest --cov=pipeline --cov=web_bridge --cov-report=term-missing
 
 # 仅 pipeline 测试
 python -m pytest pipeline/tests/ -v
 
-# 仅 web_redteam 测试
-python -m pytest web_redteam/tests/ -v
+# 仅 web_bridge 测试
+python -m pytest web_bridge/tests/ -v
 ```
 
 ---
@@ -146,13 +146,12 @@ pyrit-pipeline/
 │   ├── rich_metadata_loader.py     # 富元数据加载器
 │   ├── rich_metadata_migration.py  # 富元数据 → 原生 SeedDataset 迁移
 │   └── tests/              # 单元测试
-├── web_redteam/            # Playwright Web 红队框架
-├── data/                   # 自定义数据集 (.prompt 文件)
+├── web_bridge/            # Playwright Web 红队框架
+├── config/                # 用户认证配置 (.env, .pyrit_conf)
+├── data/                   # 种子数据集 + 系统配置
 ├── docs/                   # 架构文档
 ├── scripts/               # 工具脚本
 ├── output/                # 运行时报告输出
-├── .env                    # API 密钥 (.gitignore)
-├── .pyrit_conf             # PyRIT 结构配置 (.gitignore)
 ├── pyproject.toml          # 依赖管理
 └── main.py                 # 流水线入口
 ```
@@ -170,7 +169,7 @@ pyrit-pipeline/
           ▼
 ┌─────────────────────┐
 │  Stage 1: Init       │  ConfigurationLoader.load_with_overrides()
-│  pipeline/stage_init  │  → .env + .pyrit_conf
+│  pipeline/stage_init  │  → config/.env + config/.pyrit_conf
 │                      │  → CentralMemory(SQLite) + 全部 Registry
 │  产出: ctx.config     │  → TargetRegistry / ScorerRegistry / TechniqueRegistry
 └─────────┬────────────┘
@@ -295,7 +294,7 @@ pyrit-pipeline/
 
 | 组件 | 原生 API | 用途 |
 |------|----------|------|
-| 配置加载 | `ConfigurationLoader` | 加载 .env + .pyrit_conf |
+| 配置加载 | `ConfigurationLoader` | 加载 config/.env + config/.pyrit_conf |
 | 内存管理 | `CentralMemory` | SQLite 持久化 |
 | 目标注册 | `TargetRegistry` | 目标模型注册 |
 | 评分器注册 | `ScorerRegistry` | 评分器注册 |
@@ -409,7 +408,7 @@ pyrit-pipeline/
 | `--resume` | None | 断点续跑 ID |
 | `--no-baseline` | False | 禁用 baseline |
 | `--converters` | None | Converter 名称列表 |
-| `--config-file` | .pyrit_conf | 配置文件路径 |
+| `--config-file` | config/.pyrit_conf | 配置文件路径 |
 
 ---
 

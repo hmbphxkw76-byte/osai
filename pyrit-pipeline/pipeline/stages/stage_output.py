@@ -892,7 +892,7 @@ async def _generate_l5_report(ctx: PipelineContext, output_dir: Path) -> None:
         output_dir=report_output_dir,
         evidence_dir=evidence_dir,
         generate_html=True,  # D1 修复: 默认生成 HTML 报告 (对齐参考目录)
-        generate_pdf=getattr(ctx.args, "pdf_report", False) or _has_pdf_support(),  # F4: 自动检测 PDF 依赖
+        generate_pdf=getattr(ctx.args, "pdf_report", False),  # 默认不生成 PDF (格式丑陋), 仅 --pdf-report 显式开启
         title="AI Red Team Report",
         start_time=start_time,
         end_time=end_time,

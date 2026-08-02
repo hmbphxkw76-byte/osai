@@ -1,16 +1,39 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""流水线展示工具 — 头部信息 + 尾部汇总。.
+"""流水线展示工具 — 头部信息 + 尾部汇总 + 统一卡片体系。.
 
-从 main.py 提取，保持编排层纯净。
+对齐 PyRIT 官方 output 模块最佳实践 (1.0.1):
+  - Format vs Sink 分离: 展示逻辑与执行逻辑完全分离
+  - 三层卡片体系: info_box (单线) → decision_card (双线) → handoff_banner (★)
+  - 安全调用: 所有展示函数 catch 异常, 不影响 pipeline 执行
+
+设计原则 (R-010 对齐):
+  - PyRIT 原生优先: 使用原生 output_attack_async / output_scenario_async
+  - 自研展示层: 仅在原生 output 模块之外提供流水线级卡片展示
+  - 统一卡片宽度 _W=68, CJK 宽度对齐
+
+> **日期**: 2026-8-2
+> **更新记录**:
+>   2026-8-2 — O1: 新增统一卡片函数 (info_box / decision_card / handoff_banner / asr_bar)
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
+import sys
+from typing import Any
 
 from pipeline.context import PipelineContext
+
+# ── 统一卡片宽度 (与 pyrit_ai300 对齐) ──
+_W = 68
+
+# ── 确保终端输出 UTF-8 (R-012) ──
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    with contextlib.suppress(Exception):
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 
 
 def print_pipeline_header(ctx: PipelineContext) -> None:
@@ -107,3 +130,179 @@ def print_pipeline_footer(ctx: PipelineContext) -> None:
     if ctx.output_manager:
         print(f"  日志: {ctx.output_manager.log_path}")
         print(f"  噪音日志: {ctx.output_manager.noise_log_path}")
+
+
+# ============================================================
+# 统一卡片体系 — 对齐 PyRIT 官方 output 模块最佳实践
+# ============================================================
+
+# ── CJK 宽度辅助 ──
+
+
+def cjk_width(s: str) -> int:
+    """近似计算字符串显示宽度 (CJK 字符算 2 列)."""
+    return sum(2 if ord(c) > 0x7F else 1 for c in s)
+
+
+def pad_right(s: str, width: int) -> str:
+    """将字符串填充到指定显示宽度."""
+    w = cjk_width(s)
+    return s + " " * max(0, width - w)
+
+
+def trunc(text: str, limit: int = 60) -> str:
+    """截断文本，添加省略号."""
+    text = text.replace("\n", " ").strip()
+    return text[:limit - 3] + "..." if len(text) > limit else text
+
+
+# ── ① 单线信息盒 (info_box) — 普通信息展示 ──
+
+
+def info_box(title: str, lines: list[str]) -> None:
+    """打印单线信息盒子.
+
+    用途: 阶段内部的统计信息、配置摘要等普通信息。
+    对齐 pyrit_ai300 pipeline.display.info_box
+    """
+    try:
+        print(f"\n  ┌─ {title} {'─' * max(1, _W - len(title) - 4)}┐")
+        for line in lines:
+            print(f"  │ {line}")
+        print(f"  └{'─' * _W}┘")
+    except Exception:
+        pass
+
+
+# ── ② 双线决策卡片 (decision_card) — 关键决策展示 ──
+
+
+def decision_card(
+    title: str,
+    subtitle: str = "",
+    fields: dict[str, str] | None = None,
+    sub_sections: list[dict[str, Any]] | None = None,
+) -> None:
+    """打印双线决策卡片 (┏━┃ ┗).
+
+    用途: 技术池矩阵中每个技术的卡片，关键决策点的展示。
+    对齐 pyrit_ai300 的 ┏━ 双线框风格。
+
+    Args:
+        title: 卡片标题 (如技术名)
+        subtitle: 副标题 (如 "ASR: 62% (Tier A) | 模式: 多轮迭代")
+        fields: 字段字典 (如 {"学术先验": "62%", "经验数据": "无"})
+        sub_sections: 子区域列表 [{"header": "...", "lines": [...]}]
+    """
+    try:
+        print()
+        print("  ┏" + "━" * _W)
+        print(f"  ┃  ◆ {title}")
+        if subtitle:
+            print(f"  ┃    {subtitle}")
+        print("  ┃")
+
+        if fields:
+            for key, value in fields.items():
+                print(f"  ┃    {key}: {value}")
+            print("  ┃")
+
+        if sub_sections:
+            for section in sub_sections:
+                header = section.get("header", "")
+                section_lines = section.get("lines", [])
+                hdr_dashes = max(1, _W - 6 - cjk_width(header) - 2)
+                print(f"  ┃    ┌─ {header} {'─' * hdr_dashes}┐")
+                for line in section_lines:
+                    print(f"  ┃    │ {line}")
+                print(f"  ┃    └{'─' * max(0, _W - 3)}┘")
+
+        print("  ┗" + "━" * _W)
+    except Exception:
+        pass
+
+
+# ── ③ ★ 突出传递 Banner (handoff_banner) — 阶段间关键数据传递 ──
+
+
+def handoff_banner(stage_from: int, stage_to: int, title: str, lines: list[str]) -> None:
+    """打印 ★ 突出传递 Banner.
+
+    用途: 阶段间关键数据传递的突出展示。
+    对齐 pyrit_ai300 的 ╔═★═╗ 双线粗框 Banner。
+
+    Args:
+        stage_from: 来源阶段编号
+        stage_to: 目标阶段编号
+        title: Banner 标题 (如 "传递到场景初始化 — 决定后续攻击成功率")
+        lines: 传递字段列表 (如 ["★ 策略模式: academic → 影响 Tier 执行顺序", ...])
+    """
+    try:
+        print()
+        print("  ╔" + "═" * _W + "╗")
+        print()
+        print(f"       ★  {title}  ★")
+        print()
+        print("  ╚" + "═" * _W + "╝")
+
+        handoff_hdr = f"传递到 Stage {stage_to} (★ 关键决策)"
+        handoff_dashes = max(1, _W - 2 - cjk_width(handoff_hdr) - 2)
+        print(f"\n  ┌─ {handoff_hdr} {'─' * handoff_dashes}┐")
+        for line in lines:
+            print(f"  │ {line}")
+        print(f"  └{'─' * _W}┘")
+    except Exception:
+        pass
+
+
+# ── ④ ASR 进度条 ──
+
+
+def asr_bar(asr: float, width: int = 20) -> str:
+    """生成 ASR 进度条字符串.
+
+    Args:
+        asr: ASR 百分比 (0-100)
+        width: 进度条宽度
+
+    Returns:
+        如 "██████████░░░░░░░░░░ 50%"
+    """
+    try:
+        filled = int(asr / 100 * width)
+        bar = "█" * filled + "░" * (width - filled)
+        return f"{bar} {asr:.0f}%"
+    except Exception:
+        return f"{'░' * width} {asr:.0f}%"
+
+
+# ── ⑤ 阶段标题 ──
+
+
+def stage_header(num: int, total: int, title: str, subtitle: str = "") -> None:
+    """打印统一阶段标题.
+
+    对齐 pyrit_ai300 pipeline.display.stage_header
+    """
+    try:
+        label = f"  阶段 {num}/{total}: {title}"
+        if subtitle:
+            label += f" — {subtitle}"
+        print(f"\n{'=' * 70}")
+        print(label)
+        print("=" * 70)
+    except Exception:
+        pass
+
+
+# ── ⑥ 阶段间衔接行 ──
+
+
+def handoff_line(stage_from: int, stage_to: int, msg: str) -> None:
+    """阶段间衔接行 (简洁版).
+
+    用于阶段间快速传递信息的单行摘要。
+    与 handoff_banner 的区别: handoff_banner 是突出展示, handoff_line 是简洁摘要。
+    """
+    with contextlib.suppress(Exception):
+        print(f"\n  → 传递到 Stage {stage_to}: {msg}")

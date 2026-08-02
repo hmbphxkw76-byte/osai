@@ -37,7 +37,7 @@ from typing import Any
 
 # 项目根目录
 _PROJECT_ROOT = Path(__file__).parent.parent
-_YAML_PATH = _PROJECT_ROOT / "data" / "config" / "asr_priors.yaml"
+_YAML_PATH = _PROJECT_ROOT / "data" / "setting" / "asr_priors.yaml"
 
 logger = logging.getLogger(__name__)
 

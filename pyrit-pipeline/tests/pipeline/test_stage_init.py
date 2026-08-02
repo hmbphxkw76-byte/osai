@@ -58,6 +58,11 @@ class TestStageInit:
             patch("pipeline.stages.stage_init.TargetRegistry"),
             patch("pipeline.stages.stage_init.ScorerRegistry"),
             patch("pipeline.stages.stage_init.AttackTechniqueRegistry"),
+            patch(
+                "pipeline.stages.stage_init._load_local_datasets_async",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             mock_loader_cls.load_with_overrides = MagicMock(return_value=mock_config)
 

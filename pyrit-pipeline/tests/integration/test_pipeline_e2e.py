@@ -238,16 +238,16 @@ class TestEvidenceChain:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  5. web_redteam 桥接器集成测试
+#  5. web_bridge 桥接器集成测试
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestWebRedteamBridge:
-    """验证 web_redteam 桥接器与主 pipeline 的集成。."""
+class TestWebBridge:
+    """验证 web_bridge 桥接器与主 pipeline 的集成。."""
 
     def test_create_shared_output_manager(self, tmp_path: Path) -> None:
         """创建共享 OutputManager。."""
-        from pipeline.integrations.web_redteam_bridge import create_shared_output_manager
+        from pipeline.integrations.web_bridge import create_shared_output_manager
 
         mgr = create_shared_output_manager(
             timestamp="20260802_120000",
@@ -257,10 +257,10 @@ class TestWebRedteamBridge:
         assert hasattr(mgr, "timestamp")
         assert hasattr(mgr, "evidence_dir")
 
-    def test_collect_web_redteam_evidence_no_result(self, tmp_path: Path) -> None:
+    def test_collect_web_bridge_evidence_no_result(self, tmp_path: Path) -> None:
         """无结果时返回 None。."""
-        from pipeline.integrations.web_redteam_bridge import (
-            collect_web_redteam_evidence,
+        from pipeline.integrations.web_bridge import (
+            collect_web_bridge_evidence,
             create_shared_output_manager,
         )
 
@@ -272,19 +272,19 @@ class TestWebRedteamBridge:
             base_dir=str(tmp_path),
         )
 
-        result = collect_web_redteam_evidence(web_ctx, mgr)
+        result = collect_web_bridge_evidence(web_ctx, mgr)
         assert result is None
 
-    def test_collect_web_redteam_evidence_with_results(self, tmp_path: Path) -> None:
+    def test_collect_web_bridge_evidence_with_results(self, tmp_path: Path) -> None:
         """有结果时收集证据并保存。."""
         from pyrit.models import AttackOutcome
 
-        from pipeline.integrations.web_redteam_bridge import (
-            collect_web_redteam_evidence,
+        from pipeline.integrations.web_bridge import (
+            collect_web_bridge_evidence,
             create_shared_output_manager,
         )
 
-        # Mock web_redteam context with results
+        # Mock web_bridge context with results
         success_ar = MagicMock()
         success_ar.outcome = AttackOutcome.SUCCESS
         success_ar.last_request = MagicMock(request_pieces=[])
@@ -313,7 +313,7 @@ class TestWebRedteamBridge:
             base_dir=str(tmp_path),
         )
 
-        evidence = collect_web_redteam_evidence(web_ctx, mgr, model_name="web_target")
+        evidence = collect_web_bridge_evidence(web_ctx, mgr, model_name="web_target")
 
         assert evidence is not None
         assert evidence.total_attacks == 2

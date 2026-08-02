@@ -242,12 +242,12 @@ class PipelineContext:
 
 | 数据源 | 文件 | 说明 |
 |--------|------|------|
-| 学术 ASR 先验 | `data/config/asr_priors.yaml` | 389 行，覆盖 20+ 技术的 ASR 基线数据 |
+| 学术 ASR 先验 | `data/setting/asr_priors.yaml` | 389 行，覆盖 20+ 技术的 ASR 基线数据 |
 | 经验 ASR | `output/empirical_asr/*.json` | 每次运行后自动写回 |
-| 范式关键词 | `data/config/paradigms.yaml` | 范式分类关键词定义 |
-| Converter 链 | `data/config/converter_chains.yaml` | Converter 链预设配置 |
-| 模型分层 | `data/config/model_tiers.yaml` | 模型安全过滤等级定义 |
-| 目标配置 | `data/config/target_profiles.yaml` | 目标类型配置 |
+| 范式关键词 | `data/setting/paradigms.yaml` | 范式分类关键词定义 |
+| Converter 链 | `data/setting/converter_chains.yaml` | Converter 链预设配置 |
+| 模型分层 | `data/setting/model_tiers.yaml` | 模型安全过滤等级定义 |
+| 目标配置 | `data/setting/target_profiles.yaml` | 目标类型配置 |
 
 ### 5.4 TieredSelectionWizard
 

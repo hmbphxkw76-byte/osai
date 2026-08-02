@@ -45,7 +45,7 @@ echo "[1/2] 下载远程数据集 (官方源 → 国内镜像)..." | tee -a "$LO
 python scripts/download_datasets.py --update --all 2>&1 | tee -a "$LOG_FILE"
 
 # 检查结果
-DOWNLOAD_LOG="data/datasets/_download_log.yaml"
+DOWNLOAD_LOG="data/seed_datasets/benchmarks/_download_log.yaml"
 if [ -f "$DOWNLOAD_LOG" ]; then
     echo "" | tee -a "$LOG_FILE"
     echo "[2/2] 更新结果:" | tee -a "$LOG_FILE"

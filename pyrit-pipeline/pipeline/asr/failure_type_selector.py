@@ -93,7 +93,7 @@ def _load_paradigm_keywords() -> tuple[
 
     P1-4: 改为惰性加载 — YAML 不存在时使用默认值, 不再在模块导入时崩溃。
     """
-    yaml_path = Path(__file__).parent.parent.parent / "data" / "config" / "paradigms.yaml"
+    yaml_path = Path(__file__).parent.parent.parent / "data" / "setting" / "paradigms.yaml"
     if not yaml_path.exists():
         logger.warning(
             f"Paradigms YAML not found at {yaml_path}, using built-in defaults. "

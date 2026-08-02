@@ -98,7 +98,7 @@ async def run(ctx: PipelineContext) -> None:
 
     if not config_path.exists():
         print(f"  [警告] 配置文件不存在: {config_path}")
-        print("  [提示] 请从 examples/.pyrit_conf_example 复制到项目根目录并修改")
+        print("  [提示] 请从 examples/.pyrit_conf_example 复制到 config/.pyrit_conf 并修改")
         raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
     # ── 加载配置 ──
@@ -141,16 +141,35 @@ async def run(ctx: PipelineContext) -> None:
     # ── 初始化摘要卡片 ──
     _print_initialization_summary(config)
 
-    # ── 衔接块 ──
-    print(f"\n  → 传递到 Stage 2/6: Memory={config.memory_db_type} | 技术池已加载 | 场景={ctx.scenario_name}")
+    # ── 衔接块: ★ 突出传递 Banner ──
+    from pipeline.utils.display import handoff_banner
+
+    target_count = len(TargetRegistry.get_registry_singleton().instances.get_all_instances())
+    try:
+        technique_count = len(
+            AttackTechniqueRegistry.get_registry_singleton().instances.get_all_instances()
+        )
+    except Exception:
+        technique_count = 0
+    handoff_banner(
+        1, 2,
+        "传递到场景配置 — ASR 驱动 + Attack-King",
+        [
+            f"★ Memory: {config.memory_db_type} → 决定数据持久化方式",
+            f"★ Target: {target_count} 个 → 驱动 Converter 路由",
+            f"★ 技术: {technique_count} 个 → 驱动 Tier 分层",
+            f"★ 数据集: {len(ctx.args.datasets) if ctx.args.datasets else 0} 个 → 驱动 P 编号定义",
+            f"★ 场景: {ctx.scenario_name} → 决定执行策略",
+        ],
+    )
 
 
 async def _load_datasets(ctx: PipelineContext) -> None:
     """加载本地数据集 + GCG/Fuzzer/多模态/限速/HTTP Target 配置 (Stage 1 内部)。."""
-    # ── 加载预下载数据集 (--datasets, 从 data/datasets/ 本地加载) ──
+    # ── 加载预下载数据集 (--datasets, 从 data/seed_datasets/benchmarks/ 本地加载) ──
     preloaded_dataset_paths: list[str] = []
     for ds_name in ctx.args.datasets or []:
-        local_prompt = f"data/datasets/{ds_name}.prompt"
+        local_prompt = f"data/seed_datasets/benchmarks/{ds_name}.prompt"
         if Path(local_prompt).exists():
             preloaded_dataset_paths.append(local_prompt)
         else:
@@ -344,10 +363,10 @@ def _extend_content_filter_markers() -> None:
 
 
 def _load_default_datasets_from_manifest() -> list[str]:
-    """从 data/datasets/_manifest.yaml 读取所有 default=true 的本地数据集路径。."""
+    """从 data/seed_datasets/benchmarks/_manifest.yaml 读取所有 default=true 的本地数据集路径。."""
     import yaml as _yaml
 
-    manifest_path = Path("data/datasets/_manifest.yaml")
+    manifest_path = Path("data/seed_datasets/benchmarks/_manifest.yaml")
     if not manifest_path.exists():
         print(f"  [提示] 清单文件不存在: {manifest_path}")
         return []
@@ -417,7 +436,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
 
 
 def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tuple[list[str]]:
-    """从 ``data/config/seed_templates.yaml`` 加载种子模板。.
+    """从 ``data/setting/seed_templates.yaml`` 加载种子模板。.
 
     Args:
         template_type: ``"gcg"`` 或 ``"fuzzer"``
@@ -428,7 +447,7 @@ def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tu
     """
     import yaml
 
-    yaml_path = Path(__file__).parent.parent.parent / "data" / "config" / "seed_templates.yaml"
+    yaml_path = Path(__file__).parent.parent.parent / "data" / "setting" / "seed_templates.yaml"
 
     # 内置默认值 (YAML 不存在时回退)
     if template_type == "gcg":
@@ -473,7 +492,7 @@ def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tu
 async def _generate_gcg_suffixes_async(ctx: PipelineContext) -> None:
     """执行 GCG 对抗后缀生成，注入 CentralMemory。.
 
-    P2-2: goals/targets 从 ``data/config/seed_templates.yaml`` 加载 (不再硬编码)。
+    P2-2: goals/targets 从 ``data/setting/seed_templates.yaml`` 加载 (不再硬编码)。
     """
     from pipeline.promptgen import GCGSuffixGenerator
 
@@ -516,7 +535,7 @@ async def _generate_gcg_suffixes_async(ctx: PipelineContext) -> None:
 async def _run_fuzzer_mutation_async(ctx: PipelineContext) -> None:
     """执行 Fuzzer MCTS 载荷变异，注入 CentralMemory。.
 
-    P2-2: seeds 从 ``data/config/seed_templates.yaml`` 加载 (不再硬编码)。
+    P2-2: seeds 从 ``data/setting/seed_templates.yaml`` 加载 (不再硬编码)。
     """
     from pipeline.promptgen import FuzzerPayloadGenerator
 

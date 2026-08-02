@@ -119,15 +119,15 @@ LoadDefaultDatasets → CentralMemory: airt_hate, airt_fairness, ...
 # 自研: RichMetadataLoader (扩展原生 SeedDataset)
 from pipeline.targets.rich_metadata_loader import load_rich_prompt_as_native
 
-dataset = load_rich_prompt_as_native(file_path="data/owasp/llm01_prompt_injection.prompt")
+dataset = load_rich_prompt_as_native(file_path="data/seed_datasets/owasp/llm01_prompt_injection.prompt")
 await memory.add_seed_datasets_to_memory_async(datasets=[dataset], added_by="pipeline.stages.stage_init")
 ```
 
 支持的数据集类型：
-- **预下载数据集**: `data/datasets/{name}.prompt` (harmbench, jbb_behaviors, strong_reject)
-- **OWASP 本地数据集**: `data/owasp/*.prompt` (LLM01-LLM10, ASI01-ASI10)
-- **CVE 数据集**: `data/cve/*.prompt`
-- **自定义数据集**: `data/custom/*.prompt`
+- **预下载数据集**: `data/seed_datasets/benchmarks/{name}.prompt` (harmbench, jbb_behaviors, strong_reject)
+- **OWASP 本地数据集**: `data/seed_datasets/owasp/*.prompt` (LLM01-LLM10, ASI01-ASI10)
+- **CVE 数据集**: `data/seed_datasets/cve/*.prompt`
+- **自定义数据集**: `data/seed_datasets/custom/*.prompt`
 
 ### 2.3 可选增强
 
@@ -160,7 +160,7 @@ warm_start_asr = merge_empirical_with_priors(warm_start_asr)  # 经验覆盖先�
 ```
 
 数据源：
-- **学术先验**: `data/config/asr_priors.yaml` (JailbreakBench ASR 基线数据)
+- **学术先验**: `data/setting/asr_priors.yaml` (JailbreakBench ASR 基线数据)
 - **经验数据**: `output/empirical_asr/{model_name}.json` (历史运行写回)
 
 ### 3.3 FailureTypeRoutingSelector 构造

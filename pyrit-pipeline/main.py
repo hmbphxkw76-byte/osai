@@ -134,7 +134,7 @@ async def main_async() -> None:
             # 侦察驱动场景选择 (当 recon_result 存在时)
             recon_result = ctx.metadata.get("recon_result")
             if recon_result and not getattr(ctx.args, "scenario", None):
-                from pipeline.integrations.web_redteam_bridge import recommend_scenarios_from_recon
+                from pipeline.integrations.web_bridge import recommend_scenarios_from_recon
                 scenarios = recommend_scenarios_from_recon(recon_result)
                 if scenarios:
                     print("\n  [Recon] 侦察结果推荐场景:")
@@ -199,7 +199,7 @@ def _persist_discovered_content_filter_markers() -> None:
 
     在 Stage 1 初始化时,content_filter_ext 的 heuristic 自动发现机制
     可能识别出未知 API 供应商的安全审查错误码。本函数在流水线结束后
-   将这些标记写入 data/config/content_filter_discovered.json,
+   将这些标记写入 data/setting/content_filter_discovered.json,
     供下次运行直接加载,避免重复 heuristic 检测。
 
     同时,P4: 由于内容过滤响应被正确识别为 blocked (非异常),

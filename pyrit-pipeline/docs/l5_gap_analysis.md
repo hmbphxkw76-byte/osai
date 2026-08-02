@@ -96,7 +96,7 @@
 
 | 差距 | v2.1 影响 | v3.0 状态 | 消除方案 |
 |------|-----------|-----------|---------|
-| Web Red Team 模块文档 | 1% | ✅ 已消除 | N-6: 补充完整的 Web Red Team 架构文档 v2.0 (`docs/web_redteam_architecture.md`), 覆盖 AuthProbe 自动探测、DynamicProfile 快速模式、认证策略详解、交互层架构 |
+| Web Red Team 模块文档 | 1% | ✅ 已消除 | N-6: 补充完整的 Web Red Team 架构文档 v2.0 (`docs/web_bridge_architecture.md`), 覆盖 AuthProbe 自动探测、DynamicProfile 快速模式、认证策略详解、交互层架构 |
 | ProgressPoller 性能基准 | 1% | ✅ 已消除 | N-2: 新增 5 个性能基准测试 (`tests/pipeline/test_progress_poller_perf.py`), 验证背景轮询开销 < 1%、绝对开销 < 50ms、Memory 不可用时零开销、不阻塞主任务、1000 条结果处理 < 10ms |
 | chains.py lint 错误 | — | ✅ 已消除 | N-5: 修复 19 个 lint 错误 (ANN001/ANN202/D415/B904/F821), 包括类型注解补全、`from None` 异常链、`ConverterConfiguration` 惰性引用 |
 | 预存测试失败 | — | ✅ 已消除 | N-5: 修复 11 个预存测试失败 (test_rank_builder.py 语法错误 + import 不匹配, test_prior_registry.py Tier 阈值变更, test_evidence_collector.py mock 设置, test_content_filter_ext.py PyRIT 版本不匹配 skip) |

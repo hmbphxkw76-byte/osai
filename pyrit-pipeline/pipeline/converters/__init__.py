@@ -9,6 +9,8 @@
   - log: Converter 转换日志收集
   - target_aware_router: Target-Aware Converter 路由
   - model_tier_detector: 模型等级自动探测器
+  - converter_health_monitor: Converter 熔断器 (L5 执行韧性)
+  - modality_router: 模态感知技术过滤 (PyRIT TargetCapabilities)
   - steganography_converter: LSB 隐写 Converter (多模态注入增强)
   - audio_steganography_converter: WAV LSB 隐写 Converter (音频注入增强)
 
@@ -24,6 +26,7 @@
 
 from pipeline.converters.audio_steganography_converter import AudioSteganographyConverter
 from pipeline.converters.chains import build_converters_from_chain_names, load_preset_converter_chain
+from pipeline.converters.converter_health_monitor import ConverterHealthMonitor
 from pipeline.converters.factory import (
     build_target_aware_converter_map,
     build_technique_converter_map,
@@ -31,6 +34,7 @@ from pipeline.converters.factory import (
     get_available_converter_names,
     merge_converter_maps,
 )
+from pipeline.converters.modality_router import ModalityRouter
 from pipeline.converters.model_tier_detector import (
     detect_model_tier_from_registry,
     should_use_llm_converters,
@@ -54,6 +58,10 @@ __all__ = [
     # model_tier_detector
     "detect_model_tier_from_registry",
     "should_use_llm_converters",
+    # converter_health_monitor
+    "ConverterHealthMonitor",
+    # modality_router
+    "ModalityRouter",
     # steganography_converter
     "SteganographyConverter",
     # audio_steganography_converter

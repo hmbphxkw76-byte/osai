@@ -28,6 +28,7 @@
 >   2026-8-1 22:00 — P1-5: 消除直接访问 scenario._atomic_attacks, 使用 getattr/setattr
 """
 
+import hashlib
 import logging
 from typing import Any
 
@@ -48,9 +49,35 @@ async def run(ctx: PipelineContext) -> None:
     print("=" * 70)
 
     # ── 原生: 场景初始化 ──
-    await ctx.scenario.initialize_async()
+    # G1 修复: initialize_async 内部会校验 objective hash 唯一性,
+    # 跨数据集重复 seed 会导致 baseline AtomicAttack 校验失败.
+    # 策略: 先正常初始化, 若遇 duplicate hash 错误则关闭 baseline 重试
+    try:
+        await ctx.scenario.initialize_async()
+    except ValueError as e:
+        if "duplicate objective hash" in str(e):
+            print("  [G1 修复] 检测到跨数据集重复 objective hash, 关闭 baseline 重试...")
+            # 修改 scenario 参数: 关闭 baseline
+            params = getattr(ctx.scenario, "params", None) or getattr(ctx.scenario, "_params", None) or {}
+            params = {"include_baseline": False} if not params else dict(params)
+            params["include_baseline"] = False
+            try:
+                ctx.scenario.set_params_from_args(args=params)
+                await ctx.scenario.initialize_async()
+                print("  [G1 修复] baseline 关闭后初始化成功")
+            except Exception as e2:
+                print(f"  [G1 修复] 关闭 baseline 后仍失败: {e2}")
+                raise
+        else:
+            raise
 
     atomic_attacks = getattr(ctx.scenario, "_atomic_attacks", [])
+
+    # ── P0-G1: SHA256 跨数据集种子去重 ──
+    # 跨数据集可能存在相同 objective 的种子, 导致 AtomicAttack 校验失败
+    # 在重排序前去重, 保留首次出现的种子
+    atomic_attacks = _dedup_atomic_attacks(atomic_attacks)
+    _safe_set_atomic_attacks(ctx.scenario, atomic_attacks)
     sequential_count = sum(1 for a in atomic_attacks if hasattr(a, "child_attacks") or hasattr(a, "attack_sequence"))
     standalone_count = len(atomic_attacks) - sequential_count
     strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"
@@ -69,10 +96,19 @@ async def run(ctx: PipelineContext) -> None:
     # ── ASR 智能调度 ──
     _reorder_attacks_by_asr(ctx)
 
-    # ── 衔接块 ──
-    print(
-        f"\n  → 传递到 Stage 4/6: {len(atomic_attacks)} AtomicAttack 已就绪 | "
-        f"策略={strategy} | 并发={ctx.args.max_concurrency if ctx.args else 5}"
+    # ── 衔接块: ★ 突出传递 Banner ──
+    from pipeline.utils.display import handoff_banner
+
+    handoff_banner(
+        3, 4,
+        "传递到场景执行 — AtomicAttack 并发执行",
+        [
+            f"★ AtomicAttack: {len(atomic_attacks)} 个 → 并发执行",
+            f"★ 策略: {strategy} → 决定停止时机",
+            f"★ 并发: {ctx.args.max_concurrency if ctx.args else 5} → 决定吞吐量",
+            f"★ SequentialAttack: {sequential_count} → 复合攻击链",
+            f"★ 停止条件: max_attempts={ctx.max_attempts_per_objective}",
+        ],
     )
 
 
@@ -248,4 +284,69 @@ def _safe_set_atomic_attacks(scenario: Any, sorted_attacks: list) -> None:
 
 
 def _print_stage3_summary(ctx: PipelineContext) -> None:
-    """Stage 3 交接摘要 — 已在 run() 中输出，此处为兼容保留。."""
+    """Stage 3 summary — already printed in run(), kept for compatibility."""
+
+
+def _dedup_atomic_attacks(atomic_attacks: list) -> list:
+    """SHA256 cross-dataset seed deduplication — P0-G1.
+
+    Cross-dataset seeds may have identical objectives (e.g., AdvBench and
+    HarmBench overlap on harmful questions), causing AtomicAttack validation
+    failure (AttackSeedGroup requires unique objective).
+
+    Strategy:
+      1. Extract objective text from each AtomicAttack
+      2. Compute SHA256 hash
+      3. Keep first occurrence, remove subsequent duplicates
+
+    Academic basis:
+      - HarmBench (arXiv:2402.04249): standardized datasets should dedup
+      - JailbreakBench (arXiv:2402.01135): avoid duplicate counting affecting ASR
+
+    Args:
+        atomic_attacks: list of AtomicAttack objects
+
+    Returns:
+        Deduplicated list of AtomicAttack objects
+    """
+    if not atomic_attacks or len(atomic_attacks) <= 1:
+        return atomic_attacks
+
+    seen_hashes: set[str] = set()
+    deduped: list = []
+    removed_count = 0
+
+    for attack in atomic_attacks:
+        objective = ""
+        seed_group = getattr(attack, "seed_group", None)
+        if seed_group is not None:
+            for seed in getattr(seed_group, "seeds", []):
+                if hasattr(seed, "value") and not hasattr(seed, "sequence"):
+                    objective = str(seed.value)
+                    break
+                elif hasattr(seed, "role") and getattr(seed, "role", "") == "":
+                    objective = str(getattr(seed, "value", ""))
+                    break
+
+        if not objective:
+            objective = getattr(attack, "atomic_attack_name", "")
+
+        if not objective:
+            objective = getattr(attack, "display_group", "")
+
+        obj_hash = hashlib.sha256(objective.encode("utf-8")).hexdigest()
+
+        if obj_hash in seen_hashes:
+            removed_count += 1
+            logger.debug(f"Seed dedup: removing duplicate attack '{getattr(attack, 'atomic_attack_name', 'unknown')}'")
+        else:
+            seen_hashes.add(obj_hash)
+            deduped.append(attack)
+
+    if removed_count > 0:
+        print(
+            f"\n  P0-G1 seed dedup: removed {removed_count} duplicate AtomicAttack "
+            f"({len(atomic_attacks)} -> {len(deduped)})"
+        )
+
+    return deduped

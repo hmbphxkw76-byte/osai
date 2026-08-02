@@ -3,7 +3,7 @@
 
 """Pytest 全局 fixtures。.
 
-为 pipeline 和 web_redteam 测试提供共享 fixture。
+为 pipeline 和 web_bridge 测试提供共享 fixture。
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def mock_args() -> argparse.Namespace:
         resume=None,
         no_baseline=False,
         converters=None,
-        config_file=".pyrit_conf",
+        config_file="config/.pyrit_conf",
         output_dir=None,
     )
 

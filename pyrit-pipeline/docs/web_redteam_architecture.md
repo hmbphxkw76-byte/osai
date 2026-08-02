@@ -34,7 +34,7 @@
 ## 三、目录结构
 
 ```
-web_redteam/                              # 消费层根目录 (与 pipeline/ 平级, 不侵入 pyrit/)
+web_bridge/                              # 消费层根目录 (与 pipeline/ 平级, 不侵入 pyrit/)
 │
 ├── targets/                               # 目标档案 (纯 YAML, 零代码)
 │   ├── _schema.yaml                       # TargetProfile YAML Schema
@@ -62,7 +62,7 @@ web_redteam/                              # 消费层根目录 (与 pipeline/ �
 │
 ├── pipeline/                               # 流水线层
 │   ├── __init__.py
-│   ├── context.py                          # WebRedteamContext (状态容器)
+│   ├── context.py                          # WebBridgeContext (状态容器)
 │   ├── stage_init.py                       # Stage 1: PyRIT 初始化
 │   ├── stage_auth.py                       # Stage 2: 认证
 │   ├── stage_target.py                     # Stage 3: 目标创建

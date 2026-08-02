@@ -83,7 +83,7 @@ def __getattr__(name: str) -> Any:
 # Converter 变体链配置 — P2-10: 从 data/converter_chains.yaml 加载
 # ============================================================
 
-_CHAINS_YAML = Path(__file__).parent.parent.parent / "data" / "config" / "converter_chains.yaml"
+_CHAINS_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "converter_chains.yaml"
 
 
 def _load_chain_config() -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:

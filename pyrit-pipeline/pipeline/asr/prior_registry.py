@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # 外部 YAML 配置文件路径
 # ============================================================
 
-_ASR_PRIORS_YAML = Path(__file__).parent.parent.parent / "data" / "config" / "asr_priors.yaml"
+_ASR_PRIORS_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "asr_priors.yaml"
 
 
 # ============================================================

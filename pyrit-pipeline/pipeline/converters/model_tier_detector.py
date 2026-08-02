@@ -46,7 +46,7 @@ TIER_UNKNOWN = "unknown"
 # P2-11: 模型名 → Tier 映射规则 — 从 data/model_tiers.yaml 加载
 # ============================================================
 
-_MODEL_TIERS_YAML = Path(__file__).parent.parent.parent / "data" / "config" / "model_tiers.yaml"
+_MODEL_TIERS_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "model_tiers.yaml"
 
 
 def _load_model_tier_config() -> tuple[

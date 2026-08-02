@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from pipeline.context import PipelineContext
@@ -54,12 +55,24 @@ async def run(ctx: PipelineContext) -> None:
     # ── 5. 成果回溯 + 下次运行建议 ──
     _print_recommendations(ctx)
 
-    # ── 交接块 ──
-    print(
-        f"\n  → 传递到 Stage 6/6: ASR={ctx.overall_asr}% | "
-        f"成功={ctx.metadata.get('post_analysis', {}).get('successes', 0)}/"
-        f"{ctx.metadata.get('post_analysis', {}).get('total', 0)} | "
-        f"报告生成中..."
+    # ── O7: 技术池演化追溯 (对齐 pyrit_ai300 Stage 4 ③) ──
+    _print_tech_pool_evolution(ctx)
+
+    # ── O8: ★ 突出传递 Banner (替代单行交接) ──
+    from pipeline.utils.display import handoff_banner
+
+    post_analysis = ctx.metadata.get("post_analysis", {})
+    handoff_banner(
+        5, 6,
+        "传递到结果输出 — 报告生成 + 证据收集",
+        [
+            f"★ ASR: {ctx.overall_asr}% → 决定报告严重等级",
+            f"★ 成功/总计: {post_analysis.get('successes', 0)}/{post_analysis.get('total', 0)} → 证据收集范围",
+            "★ 最佳技术: "
+            + (max(ctx.asr_per_technique, key=ctx.asr_per_technique.get) if ctx.asr_per_technique else "N/A"),
+            "★ 经验写回: 已保存 → 下次运行 warm-start",
+            "★ 任务: 证据收集 + 报告生成 + 架构汇总",
+        ],
     )
 
 
@@ -249,3 +262,103 @@ def _print_recommendations(ctx: PipelineContext) -> None:
             print("  │   → objective_not_achieved: 升级到更高 ASR 技术或增加变体")
 
     print("  └────────────────────────────────────────────────────────────┘")
+
+
+def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
+    """O7 + Gap 4: 技术池演化追溯 + P编号贯穿.
+
+    展示技术池从 Stage 2 → Stage 4 → Stage 5 的变化,
+    同时展示 P 编号在分析端的消费:
+      - Stage 2 策略选择的技术数 + P编号定义
+      - Stage 4 实际有载荷的技术数 + P编号执行结果
+      - Stage 5 执行后有 ASR 数据的技术数
+    """
+    from pipeline.utils.display import info_box
+
+    # Stage 2: warm-start ASR 中的技术数
+    stage2_techs = set()
+    warm_start = getattr(ctx, "warm_start_asr", None) or {}
+    if warm_start:
+        stage2_techs = set(warm_start.keys())
+
+    # Stage 4: 执行结果中的技术数 (从 result.get_display_groups() 获取)
+    stage4_techs = set()
+    if ctx.result:
+        with contextlib.suppress(Exception):
+            groups = ctx.result.get_display_groups()
+            stage4_techs = set(groups.keys())
+
+    # Stage 5: 有 ASR 数据的技术数
+    stage5_techs = set(ctx.asr_per_technique.keys()) if ctx.asr_per_technique else set()
+
+    lines = [
+        f"Stage 2 策略选择: {len(stage2_techs)} 种 (warm-start ASR 先验)",
+    ]
+
+    # P 编号贯穿: 展示 plan_pid_map
+    pid_map = getattr(ctx, "plan_pid_map", {})
+    if pid_map:
+        pid_summary = " | ".join(
+            f"{ds}={rng}" for ds, rng in list(pid_map.items())[:3]
+        )
+        if len(pid_map) > 3:
+            pid_summary += f" ... (+{len(pid_map) - 3})"
+        lines.append(f"Stage 2 P编号定义: {len(pid_map)} 个数据集 ({pid_summary})")
+
+    # 匹配分析
+    if stage2_techs and stage4_techs:
+        matched = stage2_techs & stage4_techs
+        unmatched = stage2_techs - stage4_techs
+        extra = stage4_techs - stage2_techs
+
+        if matched:
+            matched_str = ", ".join(sorted(list(matched))[:5])
+            if len(matched) > 5:
+                matched_str += f" ... (+{len(matched) - 5})"
+            lines.append(f"Stage 4 载荷匹配: {len(matched)} 种 ✓ ({matched_str})")
+        if unmatched:
+            unmatched_str = ", ".join(sorted(list(unmatched))[:5])
+            if len(unmatched) > 5:
+                unmatched_str += f" ... (+{len(unmatched) - 5})"
+            lines.append(
+                f"Stage 4 无载荷:  {len(unmatched)} 种 ✗ ({unmatched_str}) ← 无种子数据"
+            )
+        if extra:
+            extra_str = ", ".join(sorted(list(extra))[:5])
+            if len(extra) > 5:
+                extra_str += f" ... (+{len(extra) - 5})"
+            lines.append(f"Stage 4 额外:    {len(extra)} 种 (载荷自带: {extra_str})")
+    else:
+        lines.append(f"Stage 4 载荷执行: {len(stage4_techs)} 种")
+
+    lines.append(f"Stage 5 执行:    {len(stage5_techs)} 种 (有 ASR 数据)")
+
+    # P 编号分析端消费: 展示成功的 P 编号分布
+    if ctx.result and pid_map:
+        from pyrit.models import AttackOutcome
+
+        groups = ctx.result.get_display_groups()
+        all_results = []
+        for group_name, attack_results in groups.items():
+            for ar in attack_results:
+                success = ar.outcome == AttackOutcome.SUCCESS
+                all_results.append((group_name, success, ar))
+
+        success_count = sum(1 for _, s, _ in all_results if s)
+        total_count = len(all_results)
+        lines.append(
+            f"P编号结果: {success_count}/{total_count} 成功 "
+            f"({success_count * 100 // max(total_count, 1)}%)"
+        )
+
+    # 演化洞察
+    if stage2_techs and stage5_techs:
+        success_rate = len(stage5_techs & stage2_techs) / max(len(stage2_techs), 1)
+        lines.append("")
+        if success_rate < 0.5:
+            lines.append(f"⚠ 技术匹配率 {success_rate:.0%} — 超过半数策略技术无载荷")
+            lines.append("  → 建议: 增加数据集覆盖或调整策略模式")
+        else:
+            lines.append(f"✓ 技术匹配率 {success_rate:.0%} — 策略技术与载荷对齐")
+
+    info_box("O7 + Gap 4: 技术池演化 + P编号 (Stage 2 → 4 → 5)", lines)

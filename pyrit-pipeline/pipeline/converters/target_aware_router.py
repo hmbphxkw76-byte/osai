@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # P5-1: 从 data/target_profiles.yaml 加载配置 (唯一数据源)
 # ============================================================
 
-_PROFILES_YAML = Path(__file__).parent.parent.parent / "data" / "config" / "target_profiles.yaml"
+_PROFILES_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "target_profiles.yaml"
 
 
 def _load_target_profiles() -> tuple[

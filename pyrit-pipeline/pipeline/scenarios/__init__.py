@@ -50,10 +50,17 @@ if TYPE_CHECKING:
     from pyrit.scenario.core.scenario import Scenario
     from pyrit.score import Scorer
 
+from pipeline.scenarios.composite_scorer import (  # noqa: F401
+    create_composite_objective_scorer,
+    should_use_composite_scorer,
+)
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "create_scenario",
+    "create_composite_objective_scorer",
+    "should_use_composite_scorer",
     "run_multimodal_injection",
     "run_model_extraction",
     "run_data_poisoning_detection",

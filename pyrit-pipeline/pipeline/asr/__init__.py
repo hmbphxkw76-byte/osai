@@ -10,6 +10,7 @@
   - failure_type_selector: 失败类型路由技术选择器 (继承原生 EpsilonGreedy)
   - failure_type_event_handler: Post-execution 失败类型扫描器
   - tiered_selection_wizard: 三层渐进式选择向导
+  - runtime_stop_handler: 运行时停止策略事件处理器 (L5 执行韧性)
 
 统一入口:
     from pipeline.asr import (
@@ -35,6 +36,7 @@ from pipeline.asr.optimizer import (
 )
 from pipeline.asr.prior_registry import get_initial_q_value, tier_from_asr
 from pipeline.asr.rank_builder import ASRRankBuilder, GroupFallbackExecutor
+from pipeline.asr.runtime_stop_handler import RuntimeStopEventHandler, StopStrategyContext
 from pipeline.asr.tiered_selection_wizard import TieredSelectionWizard
 
 __all__ = [
@@ -59,4 +61,7 @@ __all__ = [
     "FailureTypeEventHandler",
     # tiered_selection_wizard
     "TieredSelectionWizard",
+    # runtime_stop_handler
+    "RuntimeStopEventHandler",
+    "StopStrategyContext",
 ]

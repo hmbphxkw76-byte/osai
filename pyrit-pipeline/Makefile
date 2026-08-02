@@ -54,8 +54,8 @@ help: ## 显示所有可用命令
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(BOLD)  环境配置$(RESET)"
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "  $(GREEN)make env-setup$(RESET)         从 .env.example 创建 .env"
-	@echo "  $(GREEN)make env-check$(RESET)         验证环境 (.env / .pyrit_conf / PyRIT)"
+@echo "  $(GREEN)make env-setup$(RESET)         从 config/.env.example 创建 config/.env"
+@echo "  $(GREEN)make env-check$(RESET)         验证环境 (config/.env / config/.pyrit_conf / PyRIT)"
 	@echo "  $(GREEN)make pre-commit$(RESET)        安装 pre-commit git hooks"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
@@ -73,7 +73,7 @@ help: ## 显示所有可用命令
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "  $(GREEN)make test$(RESET)              运行全部测试"
 	@echo "  $(GREEN)make test-pipeline$(RESET)     运行 pipeline 测试"
-	@echo "  $(GREEN)make test-web$(RESET)          运行 web_redteam 测试"
+	@echo "  $(GREEN)make test-web$(RESET)          运行 web_bridge 测试"
 	@echo "  $(GREEN)make test-cov$(RESET)          运行测试并生成覆盖率报告"
 	@echo "  $(GREEN)make test-fast$(RESET)          快速测试 (仅上次失败的)"
 	@echo ""
@@ -190,13 +190,13 @@ endif
 # 环境配置
 # ============================================================================
 .PHONY: env-setup env-check pre-commit
-env-setup: ## 从 .env.example 创建 .env
+env-setup: ## 从 config/.env.example 创建 config/.env
 	@echo "$(CYAN)[ENV]$(RESET) 创建 .env 配置文件..."
-	@if [ -f .env ]; then \
-		echo "$(YELLOW)[WARN]$(RESET) .env 已存在, 跳过"; \
+	@if [ -f config/.env ]; then \
+		echo "$(YELLOW)[WARN]$(RESET) config/.env 已存在, 跳过"; \
 	else \
-		cp .env.example .env; \
-		echo "$(GREEN)[OK]$(RESET) 已创建 .env, 请编辑填入 API Key"; \
+		cp config/.env.example config/.env; \
+		echo "$(GREEN)[OK]$(RESET) 已创建 config/.env, 请编辑填入 API Key"; \
 	fi
 
 env-check: ## 验证环境配置
@@ -230,7 +230,7 @@ run-exhaustive: ## 全技术评估模式
 
 run-web: ## 运行 Web Red Team
 	@echo "$(CYAN)[RUN]$(RESET) 启动 Web Red Team..."
-	$(PYTHON) -m web_redteam.run --target-profile web_redteam/targets/same_domain/example_portal.yaml --attack-type prompt_sending
+	$(PYTHON) -m web_bridge.run --target-profile web_bridge/targets/same_domain/example_portal.yaml --attack-type prompt_sending
 
 run-custom: ## 自定义参数运行 (make run-custom ARGS="--datasets harmbench --max-dataset-size 5")
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (自定义参数)..."
@@ -248,13 +248,13 @@ test-pipeline: ## 运行 pipeline 测试
 	@echo "$(CYAN)[TEST]$(RESET) 运行 pipeline 测试..."
 	$(PYTHON) -m pytest tests/pipeline/ -v
 
-test-web: ## 运行 web_redteam 测试
-	@echo "$(CYAN)[TEST]$(RESET) 运行 web_redteam 测试..."
-	$(PYTHON) -m pytest web_redteam/tests/ -v
+test-web: ## 运行 web_bridge 测试
+	@echo "$(CYAN)[TEST]$(RESET) 运行 web_bridge 测试..."
+	$(PYTHON) -m pytest web_bridge/tests/ -v
 
 test-cov: ## 运行测试并生成覆盖率报告
 	@echo "$(CYAN)[TEST]$(RESET) 运行测试 (含覆盖率)..."
-	$(PYTHON) -m pytest --cov=pipeline --cov=web_redteam --cov-report=term-missing --cov-report=html
+	$(PYTHON) -m pytest --cov=pipeline --cov=web_bridge --cov-report=term-missing --cov-report=html
 
 test-fast: ## 快速测试 (仅上次失败的)
 	@echo "$(CYAN)[TEST]$(RESET) 快速测试 (仅上次失败的)..."
@@ -275,7 +275,7 @@ format: ## 代码格式化 (ruff format)
 
 typecheck: ## 类型检查 (mypy)
 	@echo "$(CYAN)[TYPE]$(RESET) 类型检查 (mypy)..."
-	mypy pipeline/ web_redteam/
+	mypy pipeline/ web_bridge/
 
 check: lint typecheck test ## 一键检查 (lint + typecheck + test)
 	@echo "$(GREEN)[OK]$(RESET) 所有检查通过"
@@ -338,7 +338,7 @@ docker-build: ## 构建 Docker 镜像
 
 docker-run: ## 运行 Docker 容器
 	@echo "$(CYAN)[DOCKER]$(RESET) 运行容器..."
-	docker run --rm --env-file .env $(PROJECT_NAME):$(VERSION)
+	docker run --rm --env-file config/.env $(PROJECT_NAME):$(VERSION)
 
 # ============================================================================
 # 文档 & 基准

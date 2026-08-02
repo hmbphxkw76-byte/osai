@@ -267,8 +267,10 @@ class EvidenceExporter:
         )
 
         for i, ar in enumerate(attack_results, 1):
-            # C1 修复: 移除 _success 后缀, 对齐参考目录命名规范 (attack_0001.md)
-            filename = f"attack_{i:04d}.md"
+            # 成功攻击加 _success 后缀, 失败攻击不加, 便于区分
+            outcome_str = _get_outcome_str(ar).upper()
+            suffix = "_success" if outcome_str == "SUCCESS" else ""
+            filename = f"attack_{i:04d}{suffix}.md"
             file_path = self.evidence_dir / "attacks" / filename
 
             try:

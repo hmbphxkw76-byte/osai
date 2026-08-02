@@ -15,14 +15,14 @@ def setup_environment() -> None:
     """全局环境初始化 (必须在任何 PyRIT import 之前调用)。.
 
     1. 抑制第三方库的 SyntaxWarning / DeprecationWarning / FutureWarning
-    2. 提前加载 .env 到 os.environ
+    2. 提前加载 config/.env 到 os.environ
     """
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     warnings.filterwarnings("ignore", category=FutureWarning)
 
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv("config/.env")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=["harmbench", "jbb_behaviors", "strong_reject"],
         help=(
-            "数据集名称列表 (从 data/datasets/{name}.prompt 本地加载).\n"
+            "数据集名称列表 (从 data/seed_datasets/benchmarks/{name}.prompt 本地加载).\n"
             "需先运行 scripts/download_datasets.py 预下载.\n"
             "默认: harmbench jbb_behaviors strong_reject"
         ),
@@ -96,7 +96,7 @@ def parse_args() -> argparse.Namespace:
         "--epsilon",
         type=float,
         default=0.1,
-        help="Epsilon-greedy 探索概率 (默认: 0.1, 10% 随机探索 / 90% 利用历史 ASR)",
+        help="Epsilon-greedy 探索概率 (默认: 0.1, 10%% 随机探索 / 90%% 利用历史 ASR)",
     )
     parser.add_argument(
         "--selector-scope",
@@ -326,8 +326,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config-file",
         type=str,
-        default=".pyrit_conf",
-        help="PyRIT 配置文件路径 (默认: 项目根目录 .pyrit_conf)",
+        default="config/.pyrit_conf",
+        help="PyRIT 配置文件路径 (默认: config/.pyrit_conf)",
     )
 
     # ── 离线分析 (优化4: 可选增强报告) ──

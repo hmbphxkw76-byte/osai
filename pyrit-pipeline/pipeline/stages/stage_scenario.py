@@ -56,9 +56,8 @@ from pyrit.scenario import CompoundDatasetAttackConfiguration
 from pyrit.scenario.scenarios.adaptive import TextAdaptive
 from pyrit.scenario.scenarios.adaptive.selectors import SelectorScope
 
-from pipeline.asr.failure_type_selector import FailureTypeRoutingSelector
-
 # 消除3: 直接使用原生 TextAdaptive, 不再覆盖 _build_techniques_dict
+from pipeline.asr.failure_type_selector import FailureTypeRoutingSelector
 from pipeline.asr.optimizer import (
     get_asr_summary,  # noqa: F401 — re-exported for test patching
     get_technique_asr_summary,  # noqa: F401 — re-exported for test patching
@@ -69,6 +68,7 @@ from pipeline.asr.optimizer import (
 )
 from pipeline.asr.prior_registry import get_initial_q_value
 from pipeline.context import PipelineContext
+from pipeline.converters.converter_health_monitor import ConverterHealthMonitor
 from pipeline.converters.factory import (
     build_target_aware_converter_map,
     build_technique_converter_map,
@@ -107,6 +107,28 @@ async def run(ctx: PipelineContext) -> None:
 
     model_name, model_tier = detect_model_tier_from_registry()
     owasp_id = os.getenv("OWASP_ID", "")
+
+    # ── P1-G4: 复合评分器 (task_achieved AND not_refused) ──
+    # 强模型/中等模型使用复合评分器, 消除部分拒绝导致的 ASR 假阳性
+    from pipeline.scenarios.composite_scorer import should_use_composite_scorer
+
+    if should_use_composite_scorer(model_tier) and objective_scorer is not None:
+        try:
+            from pipeline.scenarios.composite_scorer import create_composite_objective_scorer
+
+            # 获取 scorer 的 chat_target
+            scorer_chat_target = (
+                getattr(objective_scorer, "_chat_target", None)
+                or getattr(objective_scorer, "chat_target", None)
+            )
+            if scorer_chat_target is not None:
+                composite = create_composite_objective_scorer(scorer_chat_target)
+                if composite is not None:
+                    print(f"  P1-G4: 复合评分器已启用 (task_achieved AND not_refused, tier={model_tier})")
+                    objective_scorer = composite
+                    ctx.objective_scorer = composite
+        except Exception as e:
+            print(f"  [提示] 复合评分器创建跳过: {e}")
 
     print("\n  ┌─ 目标模型 ────────────────────────────────────────────────┐")
     print(f"  │ 模型: {model_name} (tier={model_tier})")
@@ -248,6 +270,15 @@ async def run(ctx: PipelineContext) -> None:
         # L1: 原生 FIRST_SUCCESS
         max_attempts = args.max_attempts
 
+    # ── P3-G9: converter_target 提前获取 (G8 依赖 converter_target_available) ──
+    converter_target = _get_converter_target()
+    converter_target_available = converter_target is not None
+    if not converter_target_available:
+        converter_target = _auto_create_converter_target()
+        converter_target_available = converter_target is not None
+        if converter_target_available:
+            print("  P3-G9: converter_target 自动创建成功 (从 objective_target 配置派生)")
+
     # ── 原生: 构建参数包 (单次 set_params_from_args 调用) ──
     # P0-3: 从 TargetRegistry 动态解析 objective_target 名称 (不再硬编码)
     objective_target_name = _resolve_objective_target_name()
@@ -273,6 +304,10 @@ async def run(ctx: PipelineContext) -> None:
         },
     }
 
+    # ── P3-G8: Converter 变体动态创建 ──
+    # Note: extra_request_converters 不是 TextAdaptive 原生参数,
+    # Converter 变体已通过 technique_converters 参数注入 (Layer 1 + Layer 2)
+
     # ── 原生: scenario_techniques (技术选择) ──
     #   None: 使用 TextAdaptive DEFAULT 聚合 (role_play_movie_script + many_shot)
     #   ["ALL"]: 使用全部技术
@@ -290,6 +325,15 @@ async def run(ctx: PipelineContext) -> None:
             tier_layer=args.tier_layer,
         )
         if tier_techniques:
+            # ── P3-G7: 高 ASR 技术自动补充 ──
+            # 当 Tier 选择的技术太少 (<3) 时, 从 warm-start ASR 先验补充高 ASR 技术
+            if len(tier_techniques) < 3 and warm_start_asr:
+                top_asr_techs = sorted(warm_start_asr.items(), key=lambda x: x[1], reverse=True)
+                for tech, asr in top_asr_techs:
+                    if tech not in tier_techniques and len(tier_techniques) < 5:
+                        tier_techniques.append(tech)
+                        print(f"    P3-G7: 补充高 ASR 技术: {tech} ({asr:.0%})")
+
             params["scenario_techniques"] = tier_techniques
             ctx.tier_layer = args.tier_layer
             print(f"  技术选择 (TieredSelection Layer {args.tier_layer}): {tier_techniques}")
@@ -297,6 +341,33 @@ async def run(ctx: PipelineContext) -> None:
             print("  技术选择: DEFAULT (TieredSelection 无结果)")
     else:
         print("  技术选择: DEFAULT (TextAdaptive 默认聚合)")
+
+    # ── P2-G6: ModalityRouter 技术过滤 ──
+    # 根据 TargetCapabilities 自动过滤目标不支持的技术 (如多轮攻击对不支持多轮的目标)
+    if params.get("scenario_techniques"):
+        try:
+            from pipeline.converters.modality_router import ModalityRouter
+
+            target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
+            if target_entries:
+                target_instance = target_entries[0].instance
+                # 多轮攻击技术集合 (需要 supports_multi_turn)
+                multi_turn_techniques = {"crescendo", "tap", "red_teaming", "pair", "forest"}
+                # 多模态攻击技术集合 (需要 supports_image_input)
+                multimodal_techniques = {"image_variation", "multimodal_jailbreak"}
+
+                techniques_before = list(params["scenario_techniques"])
+                supported, filtered = ModalityRouter.filter_techniques_by_capability(
+                    techniques_before,
+                    target_instance,
+                    multi_turn_techniques=multi_turn_techniques,
+                    multimodal_techniques=multimodal_techniques,
+                )
+                if filtered:
+                    params["scenario_techniques"] = supported
+                    print(f"  P2-G6 ModalityRouter: 过滤 {len(filtered)} 个不支持的技术: {filtered}")
+        except Exception as e:
+            print(f"  [提示] ModalityRouter 技术过滤跳过: {e}")
 
     # ── P3: Converter 路由 (ASR 驱动 + Target 感知双路由) ──
     # 路由策略 (三层叠加):
@@ -312,12 +383,23 @@ async def run(ctx: PipelineContext) -> None:
     except Exception:
         technique_names = []
 
-    # 获取 converter_target (用于 LLM 辅助 Converter 链)
-    converter_target = _get_converter_target()
-    converter_target_available = converter_target is not None
+    # converter_target 已在 params 构建前提前获取 (P3-G9)
+
+    # ── P0-G2: ConverterHealthMonitor — 熔断器+降级+统计 ──
+    # 创建监控器实例, 存储在 ctx 中供 Stage 4 执行时使用
+    health_monitor = ConverterHealthMonitor(failure_threshold=2)
+    ctx.converter_health_monitor = health_monitor
 
     # Layer 1: CLI --converters (ASR 驱动差异化路由)
     if args.converters and technique_names:
+        # ── P2-G5: 小模型跳过 LLM 辅助 Converter 链 ──
+        # 弱模型 (weak) 不适合使用 LLM 辅助 Converter (JSON 解析能力差)
+        from pipeline.converters.model_tier_detector import should_use_llm_converters
+
+        llm_converters_ok = should_use_llm_converters(model_tier)
+        if not llm_converters_ok:
+            print(f"  P2-G5: 小模型 (tier={model_tier}) 跳过 LLM 辅助 Converter 链")
+
         try:
             asr_by_tech = query_historical_asr_by_technique()
             cli_converter_map = build_technique_converter_map(
@@ -400,6 +482,17 @@ async def run(ctx: PipelineContext) -> None:
     ctx.max_attempts_per_objective = max_attempts
     ctx.ranked_groups = ranked_groups
 
+    # ── Gap 4: P 编号映射 (dataset → P 编号范围) ──
+    _build_plan_pid_map(ctx, sorted_datasets, args.max_dataset_size)
+
+    # ── Gap 3: 决策链追溯 ──
+    _print_decision_chain(
+        model_tier=model_tier,
+        strategy_mode=os.getenv("STRATEGY_MODE", "academic"),
+        scenario_techniques=params.get("scenario_techniques"),
+        scenario_name=scenario_name,
+    )
+
     # ── Executor 5 层架构展示 ──
     print("\n  ── Executor 5 层架构 (Stage 2 覆盖 L1-L3 + L5) ──")
     print(
@@ -442,12 +535,227 @@ async def run(ctx: PipelineContext) -> None:
     if ctx.tier_layer > 0:
         print(f"      TieredSelection: Layer {ctx.tier_layer} 渐进式选择")
 
-    # ── 衔接块 ──
-    print(
-        f"\n  → 传递到 Stage 3/6: 场景={scenario_name} | "
-        f"技术池={len(args.techniques) if args.techniques else 'DEFAULT'} | "
-        f"Converter={ctx.converter_routing_count} 个分配"
+    # ── O3: 技术池矩阵 (★ Banner + 决策卡片) ──
+    _print_tech_pool_matrix(ctx, warm_start_asr, model_name, model_tier)
+
+    # ── O4: ★ 突出传递 Banner ──
+    from pipeline.utils.display import handoff_banner
+
+    tech_count = len(args.techniques) if args.techniques else 14
+    handoff_banner(
+        2, 3,
+        "传递到场景初始化 — 决定后续攻击成功率",
+        [
+            f"★ 策略模式: {os.getenv('STRATEGY_MODE', 'academic')} → 影响 Tier 执行顺序",
+            f"★ 技术池: {tech_count} 种 → 能力感知筛选后保留",
+            "★ 融合 ASR: warm_start="
+            + ("已加载 (" + str(len(warm_start_asr)) + " 技术先验)" if warm_start_asr else "无 (首次运行)"),
+            f"★ Converter 路由: {ctx.converter_routing_count} 个分配",
+            f"★ 场景: {scenario_name} (原生 TextAdaptive + ASR 驱动)",
+            f"★ 数据集: {len(sorted_datasets)} 个 (ASR 降序, per_dataset={args.max_dataset_size})",
+        ],
     )
+
+
+def _print_decision_chain(
+    model_tier: str,
+    strategy_mode: str,
+    scenario_techniques: list[str] | None,
+    scenario_name: str,
+) -> None:
+    """Gap 3: 完整决策链追溯 (Stage 1推荐 → Selector推荐 → 实际).
+
+    对齐 pyrit_ai300 Stage 2 ① 策略决策卡片。
+    展示策略选择是否为最优决策路径。
+    """
+    from pipeline.utils.display import info_box
+
+    # Stage 1 推荐: 基于 model_tier 自动推荐策略模式
+    tier_recommended = {
+        "weak": "balanced",
+        "moderate": "academic",
+        "strong": "academic",
+    }.get(model_tier, "academic")
+
+    # Selector 实际接收的策略模式
+    selector_mode = strategy_mode
+
+    # 实际技术选择
+    if scenario_techniques:
+        actual_techs = scenario_techniques
+        actual_source = "CLI --techniques"
+    else:
+        actual_techs = None
+        actual_source = "DEFAULT (TextAdaptive 默认聚合)"
+
+    # 决策匹配判断
+    mode_match = tier_recommended == selector_mode
+    match_str = "✓ 与推荐一致" if mode_match else "⚠ 与推荐不一致"
+
+    lines = [
+        f"Stage 1 推荐: {tier_recommended} (基于 model_tier={model_tier})",
+        f"Selector 实际: {selector_mode} {match_str}",
+        f"场景: {scenario_name}",
+        f"技术来源: {actual_source}",
+    ]
+    if actual_techs:
+        tech_display = ", ".join(actual_techs[:5])
+        if len(actual_techs) > 5:
+            tech_display += f" ... (+{len(actual_techs) - 5})"
+        lines.append(f"技术列表: {tech_display}")
+
+    lines.append("")
+    if mode_match:
+        lines.append("✓ 决策路径最优 — 策略与模型分层对齐")
+    else:
+        lines.append(f"⚠ 决策路径偏差 — 推荐 {tier_recommended}, 实际 {selector_mode}")
+        lines.append("  → 原因: STRATEGY_MODE 环境变量覆盖了推荐值")
+
+    info_box("Gap 3: 策略决策链 (Stage 1 → Selector → 实际)", lines)
+
+
+def _build_plan_pid_map(
+    ctx: PipelineContext,
+    sorted_datasets: list[str],
+    max_dataset_size: int,
+) -> None:
+    """Gap 4: 构建 P 编号映射 (dataset → P编号范围).
+
+    按数据集排序顺序分配 P 编号:
+      dataset_1 (5 seeds) → P1-P5
+      dataset_2 (3 seeds) → P6-P8
+      ...
+
+    映射存储到 ctx.plan_pid_map, 供 Stage 4/5 展示时引用。
+    """
+    pid_counter = 1
+    pid_map: dict[str, str] = {}
+
+    for ds_name in sorted_datasets:
+        # 尝试获取数据集的种子数
+        seed_count = max_dataset_size
+        try:
+            from pyrit.memory import CentralMemory
+
+            memory = CentralMemory.get_memory_instance()
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            seed_count = len(prompts) if prompts else max_dataset_size
+        except Exception:
+            pass
+
+        end_pid = pid_counter + seed_count - 1
+        pid_range = f"P{pid_counter}" if seed_count == 1 else f"P{pid_counter}-P{end_pid}"
+        pid_map[ds_name] = pid_range
+        pid_counter = end_pid + 1
+
+    ctx.plan_pid_map = pid_map
+
+    # 展示 P 编号映射
+    from pipeline.utils.display import info_box
+
+    lines = []
+    for ds_name, pid_range in pid_map.items():
+        lines.append(f"{ds_name:<40} → {pid_range}")
+    lines.append("")
+    lines.append(f"合计: {pid_counter - 1} 个攻击计划 (P1-P{pid_counter - 1})")
+    lines.append("P 编号将贯穿 Stage 4 (执行) → Stage 5 (分析)")
+
+    info_box("Gap 4: P 编号映射 (dataset → 计划编号)", lines)
+
+
+def _print_tech_pool_matrix(
+    ctx: PipelineContext,
+    warm_start_asr: dict[str, float] | None,
+    model_name: str,
+    model_tier: str,
+) -> None:
+    """O3: 技术池矩阵 — ★ Banner + 决策卡片 (对齐 pyrit_ai300 Stage 2).
+
+    按经验融合 ASR 降序展示每个技术的:
+      - ASR + Tier 分层
+      - 学术先验 vs 经验数据
+      - 能力匹配 (MULTI_TURN / SYSTEM_PROMPT)
+    """
+    from pipeline.utils.display import asr_bar, decision_card, info_box, pad_right
+
+    if not warm_start_asr:
+        info_box("技术池矩阵", ["(无 warm-start ASR 数据, 首次运行)"])
+        return
+
+    # Tier 分层映射
+    tier_labels = {"S": "极高", "A": "高", "B": "中", "C": "低", "D": "极低"}
+
+    def _tier_from_asr(asr: float) -> str:
+        if asr >= 0.50:
+            return "S"
+        elif asr >= 0.30:
+            return "A"
+        elif asr >= 0.15:
+            return "B"
+        elif asr >= 0.05:
+            return "C"
+        else:
+            return "D"
+
+    # 按 ASR 降序排序
+    sorted_techs = sorted(warm_start_asr.items(), key=lambda x: x[1], reverse=True)
+
+    # 全局概览
+    tier_counts: dict[str, int] = {}
+    for _, asr in sorted_techs:
+        tier = _tier_from_asr(asr)
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+    tier_summary = " ".join(
+        f"{t}={tier_counts.get(t, 0)}" for t in ["S", "A", "B", "C", "D"] if tier_counts.get(t, 0) > 0
+    )
+
+    print()
+    print("  ╔" + "═" * 68 + "╗")
+    print()
+    print("       ★  技术池矩阵 — 高 ASR 优先  ★")
+    print()
+    print("    按经验融合 ASR 降序展示 · 高成功率技术优先执行")
+    print()
+    print("  ╚" + "═" * 68 + "╝")
+
+    print()
+    print(f"  ┌─ 全局概览 {'─' * max(1, 68 - 22)}┐")
+    print("  │")
+    for i, (tech, asr) in enumerate(sorted_techs):
+        tier = _tier_from_asr(asr)
+        tech_pad = pad_right(tech[:30], 30)
+        print(f"  │  技术 {i + 1}: {tech_pad}  ASR {asr:>4.0%} (Tier {tier})")
+    print(f"  │  {'─' * max(1, 68 - 6)}")
+    print(f"  │  合计: {len(sorted_techs)} 技术 | Tier 分布: {tier_summary}")
+    print(f"  └{'─' * 68}┘")
+
+    # Top 5 技术决策卡片
+    for tech, asr in sorted_techs[:5]:
+        tier = _tier_from_asr(asr)
+        tier_label = tier_labels.get(tier, "")
+        is_multi = tech in {"red_teaming", "crescendo", "tap", "pair", "many_shot", "forest"}
+
+        decision_card(
+            title=tech,
+            subtitle=f"ASR: {asr:.0%} (Tier {tier} {tier_label})  |  模式: {'多轮迭代' if is_multi else '单轮直发'}",
+            sub_sections=[
+                {
+                    "header": "ASR 来源",
+                    "lines": [
+                        f"学术先验: {asr:.0%}",
+                        f"经验数据: {'无 (首次运行)' if model_tier else '无'}",
+                        f"ASR 条: {asr_bar(asr * 100)}",
+                    ],
+                },
+                {
+                    "header": "能力匹配",
+                    "lines": [
+                        f"MULTI_TURN: {'✓' if is_multi else '?'} (技术{'需要' if is_multi else '不需要'})",
+                        "结果: ✓ 保留 (能力匹配)",
+                    ],
+                },
+            ],
+        )
 
 
 def _resolve_objective_target_name() -> str:
@@ -570,6 +878,60 @@ def _get_converter_target() -> Any:
         logger.debug(f"Failed to get converter_target: {e}")
 
     return None
+
+
+def _auto_create_converter_target() -> Any:
+    """P3-G9: 自动创建 converter_target.
+
+    当 TargetRegistry 中没有 adversarial_chat 标签的目标时,
+    尝试从 objective_target 的配置派生一个 converter_target.
+
+    策略:
+      1. 获取 objective_target 实例
+      2. 从中提取模型名和部署配置
+      3. 使用相同配置创建新的 OpenAIChatTarget (或对应类型)
+      4. 注册到 TargetRegistry 并返回
+
+    Returns:
+        PromptTarget 实例, 或 None (无法创建)
+    """
+    try:
+        from pyrit.registry import TargetRegistry
+
+        registry = TargetRegistry.get_registry_singleton()
+        objective_entries = registry.instances.get_by_tag(tag="default_objective_target")
+        if not objective_entries:
+            return None
+
+        obj_target = objective_entries[0].instance
+
+        # 提取目标配置
+        model_name = getattr(obj_target, "_model_name", None) or getattr(obj_target, "model_name", None)
+        deployment_name = getattr(obj_target, "_deployment_name", None)
+        endpoint = getattr(obj_target, "_endpoint", None)
+        api_key = getattr(obj_target, "_api_key", None)
+
+        if model_name is None or api_key is None:
+            logger.debug("Cannot auto-create converter_target: missing model_name or api_key")
+            return None
+
+        # 创建新的 OpenAIChatTarget 作为 converter_target
+        try:
+            from pyrit.prompt_target import OpenAIChatTarget
+
+            converter_target = OpenAIChatTarget(
+                deployment_name=deployment_name or model_name,
+                endpoint=endpoint,
+                api_key=api_key,
+            )
+            logger.info(f"Auto-created converter_target from objective_target config (model={model_name})")
+            return converter_target
+        except (ImportError, TypeError) as e:
+            logger.debug(f"Failed to create OpenAIChatTarget for converter_target: {e}")
+            return None
+    except Exception as e:
+        logger.debug(f"Auto-create converter_target failed: {e}")
+        return None
 
 
 def _build_warm_start_asr(

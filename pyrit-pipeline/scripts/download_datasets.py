@@ -11,8 +11,8 @@
   4. 离线运行: 下载后流水线 100% 本地加载, 不依赖网络
 
 下载策略:
-  Round 1: 官方源直连, 1 次尝试 (超时 15s) — 快速失败, 避免长时间等待
-  Round 2: 国内镜像 (hf-mirror.com), 3 次重试 (超时 60s) — 镜像更稳定
+  Round 1: 官方源直连, 3 次重试 (超时 30s) — 充分尝试官方源
+  Round 2: 国内镜像 (hf-mirror.com), 3 次重试 (超时 60s) — 镜像兜底
   Round 3: 跳过 (记录失败, 下次重试)
 
 使用方式:
@@ -36,7 +36,7 @@
 >   1. fetch_datasets_async (全量) → fetch_dataset_async (单个)
 >   2. __subclasses__() → get_all_providers() + dataset_name 属性匹配
 >   3. 官方源也设置 HF 超时环境变量, 避免等待 HF 库内部 5 次重试
->   4. 官方源 1 次快速失败 → 立即切换镜像 (国内网络优化)
+>   4. 官方源 3 次重试 → 全部失败后切换镜像 (国内网络优化)
 """
 
 from __future__ import annotations
@@ -53,8 +53,8 @@ import yaml
 #: 项目根目录
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-#: 输出目录
-_OUTPUT_DIR = _PROJECT_ROOT / "data" / "datasets"
+#: 输出目录 (远程基准数据集本地缓存)
+_OUTPUT_DIR = _PROJECT_ROOT / "data" / "seed_datasets" / "benchmarks"
 
 #: 下载日志文件
 _DOWNLOAD_LOG = _OUTPUT_DIR / "_download_log.yaml"
@@ -62,14 +62,14 @@ _DOWNLOAD_LOG = _OUTPUT_DIR / "_download_log.yaml"
 #: HuggingFace 国内镜像
 _HF_MIRROR = "https://hf-mirror.com"
 
-#: 官方源单次超时 (秒) — 快速失败, 避免等待 HF 库内部重试
-_OFFICIAL_TIMEOUT = 15
+#: 官方源单次超时 (秒) — 给足时间让 HuggingFace 完成下载
+_OFFICIAL_TIMEOUT = 30
 
-#: 镜像源单次超时 (秒) — 给镜像更充裕的时间
+#: 镜像源单次超时 (秒) — 镜像更稳定, 给更充裕时间
 _MIRROR_TIMEOUT = 60
 
-#: 官方源最大重试次数 (1 次 = 快速探测, 失败立即切镜像)
-_OFFICIAL_RETRIES = 1
+#: 官方源最大重试次数 (3 次 = 充分尝试官方源, 全部失败后切镜像)
+_OFFICIAL_RETRIES = 3
 
 #: 镜像源最大重试次数
 _MIRROR_RETRIES = 3
@@ -116,11 +116,12 @@ def _restore_hf_env(backup: dict[str, str | None]) -> None:
 
 
 def _set_hf_env_for_official() -> None:
-    """设置官方源 HF 环境变量 (短超时, 快速失败)。."""
+    """设置官方源 HF 环境变量 (官方源超时, 充分尝试)。."""
     # 不修改 HF_ENDPOINT (使用默认 https://huggingface.co)
     os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = str(_OFFICIAL_TIMEOUT)
     os.environ["HF_HUB_ETAG_TIMEOUT"] = str(_OFFICIAL_TIMEOUT)
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    _force_update_hf_constants("https://huggingface.co")
 
 
 def _set_hf_env_for_mirror() -> None:
@@ -130,6 +131,53 @@ def _set_hf_env_for_mirror() -> None:
     os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = str(_MIRROR_TIMEOUT)
     os.environ["HF_HUB_ETAG_TIMEOUT"] = str(_MIRROR_TIMEOUT)
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    _force_update_hf_constants(_HF_MIRROR)
+
+
+def _force_update_hf_constants(endpoint: str) -> None:
+    """强制更新 HuggingFace hub + datasets 库的模块级常量。.
+
+    HuggingFace hub 和 datasets 库在 import 时将 HF_ENDPOINT 读取到
+    模块级变量, 后续请求使用这些变量而非 os.environ['HF_ENDPOINT']。
+    仅设置环境变量无法在运行时切换端点。
+
+    本函数直接 patch 所有相关模块级变量, 确保镜像端点立即生效:
+
+    huggingface_hub.constants:
+      - ENDPOINT
+      - HUGGINGFACE_CO_URL_TEMPLATE (下载 URL 模板)
+      - HUGGINGFACE_CO_URL_HOME (主页 URL)
+
+    datasets.config:
+      - HF_ENDPOINT
+      - HF_DATASETS_ENDPOINT
+      - HF_DATASETS_CACHE (不修改, 仅记录)
+    """
+    # Patch huggingface_hub.constants
+    try:
+        import huggingface_hub.constants as hf_constants
+
+        hf_constants.ENDPOINT = endpoint
+        # URL 模板: "{endpoint}/{repo_id}/resolve/{revision}/{filename}"
+        if hasattr(hf_constants, "HUGGINGFACE_CO_URL_TEMPLATE"):
+            hf_constants.HUGGINGFACE_CO_URL_TEMPLATE = (
+                endpoint + "/{repo_id}/resolve/{revision}/{filename}"
+            )
+        # 主页 URL: "{endpoint}/"
+        if hasattr(hf_constants, "HUGGINGFACE_CO_URL_HOME"):
+            hf_constants.HUGGINGFACE_CO_URL_HOME = endpoint + "/"
+    except ImportError:
+        pass
+
+    # Patch datasets.config (datasets 库有自己的 endpoint 缓存)
+    try:
+        import datasets.config as ds_config
+
+        ds_config.HF_ENDPOINT = endpoint
+        if hasattr(ds_config, "HF_DATASETS_ENDPOINT"):
+            ds_config.HF_DATASETS_ENDPOINT = endpoint
+    except ImportError:
+        pass
 
 
 # ============================================================
@@ -340,8 +388,8 @@ async def fetch_dataset_as_prompt(
     """双源拉取单个远程数据集并保存为本地 .prompt 文件。.
 
     下载策略 (优化后):
-      Round 1: 官方源, 1 次快速尝试 (15s 超时) — 快速探测连通性
-      Round 2: 国内镜像, 3 次重试 (60s 超时) — 镜像更稳定, 给足时间
+      Round 1: 官方源, 3 次重试 (30s 超时) — 充分尝试官方源
+      Round 2: 国内镜像, 3 次重试 (60s 超时) — 镜像兜底
       Round 3: 跳过
 
     Args:
@@ -361,7 +409,7 @@ async def fetch_dataset_as_prompt(
     dataset = None
     source = "unknown"
 
-    # Round 1: 官方源, 快速探测 (1 次, 15s 超时)
+    # Round 1: 官方源, 充分重试 (3 次, 30s 超时)
     for attempt in range(1, _OFFICIAL_RETRIES + 1):
         print(f"  [尝试] {dataset_name}: 官方源 (第 {attempt}/{_OFFICIAL_RETRIES} 次, 超时 {_OFFICIAL_TIMEOUT}s)...")
         dataset = await _try_fetch_single_dataset(
@@ -373,8 +421,9 @@ async def fetch_dataset_as_prompt(
             source = "official"
             break
 
-    # Round 2: 国内镜像, 充分重试 (3 次, 60s 超时)
+    # Round 2: 国内镜像, 充分重试 (3 次, 60s 超时) — 官方源 3 次全部失败后切换
     if dataset is None:
+        print(f"  [切换] {dataset_name}: 官方源 {_OFFICIAL_RETRIES} 次均失败, 切换国内镜像 hf-mirror.com...")
         for attempt in range(1, _MIRROR_RETRIES + 1):
             print(
                 f"  [尝试] {dataset_name}: 国内镜像 hf-mirror.com "
@@ -442,7 +491,10 @@ async def download_datasets(
     print(f"  输出目录: {output_dir}")
     print(f"  目标数据集: {len(dataset_names)} 个")
     print(f"  更新模式: {'是 (覆盖已有)' if force_update else '否 (跳过已有)'}")
-    print(f"  双源策略: 官方源 (1 次 {_OFFICIAL_TIMEOUT}s) -> 镜像 ({_MIRROR_RETRIES} 次 {_MIRROR_TIMEOUT}s)")
+    print(
+        f"  双源策略: 官方源 ({_OFFICIAL_RETRIES} 次 {_OFFICIAL_TIMEOUT}s)"
+        f" -> 镜像 ({_MIRROR_RETRIES} 次 {_MIRROR_TIMEOUT}s)"
+    )
     print(f"{'=' * 70}\n")
 
     # 初始化 PyRIT Memory (Provider 可能需要)

@@ -103,5 +103,5 @@ pipeline.utils
 pipeline.integrations
 ---------------------
 
-.. automodule:: pipeline.integrations.web_redteam_bridge
+.. automodule:: pipeline.integrations.web_bridge
    :members:

@@ -8,7 +8,7 @@ ASR 数据驱动的端到端 AI Red Team 流水线。
    :caption: 核心模块
 
    pipeline
-   web_redteam
+   web_bridge
 
 索引
 ====
