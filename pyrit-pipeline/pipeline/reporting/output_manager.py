@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -186,7 +187,7 @@ class ProgressPoller:
                 if results:
                     self._dashboard.update_from_attack_results(results)
                     self._dashboard.print_progress()
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 logger.debug(f"Progress poll failed (non-fatal): {e}")
 
 
@@ -285,7 +286,7 @@ class DualOutputManager:
                     include_auxiliary_scores=True,
                     include_adversarial_conversation=self.verbose,
                 )
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 logger.warning(f"Terminal output failed: {e}")
 
         if to_file and self.file_sink:
@@ -298,7 +299,7 @@ class DualOutputManager:
                     include_auxiliary_scores=True,
                     include_adversarial_conversation=True,
                 )
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 logger.warning(f"File output failed: {e}")
 
     async def close(self) -> None:
@@ -309,7 +310,7 @@ class DualOutputManager:
                     f"\n\n---\n*Total attacks logged: {self._attack_count}*\n"
                     f"*Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}*\n"
                 )
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             pass
 
 
@@ -330,9 +331,13 @@ class OutputManager:
     """
 
     def __init__(self, base_dir: str = "outputs", timestamp: str | None = None) -> None:
-        """初始化输出目录管理器."""
+        """初始化输出目录管理器.
+
+        L5-F2: prefix 可通过 OUTPUT_PREFIX 环境变量配置 (默认: redteam_)。
+        """
         self.base_dir = Path(base_dir)
         self.timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.prefix = os.getenv("OUTPUT_PREFIX", "redteam_")
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
@@ -350,7 +355,7 @@ class OutputManager:
     @property
     def db_path(self) -> Path:
         """本次运行的 SQLite 数据库路径。."""
-        return self.db_dir / f"redteam_{self.timestamp}.db"
+        return self.db_dir / f"{self.prefix}{self.timestamp}.db"
 
     # ── 证据 ──
 
@@ -365,7 +370,7 @@ class OutputManager:
 
         首次访问时自动创建子目录。
         """
-        d = self.evidence_dir / f"redteam_{self.timestamp}"
+        d = self.evidence_dir / f"{self.prefix}{self.timestamp}"
         for subdir in ("attacks", "conversations", "scores", "blurred"):
             (d / subdir).mkdir(parents=True, exist_ok=True)
         return d
@@ -373,7 +378,7 @@ class OutputManager:
     @property
     def evidence_zip_path(self) -> Path:
         """证据打包 zip 路径。."""
-        return self.evidence_dir / f"redteam_{self.timestamp}_evidence.zip"
+        return self.evidence_dir / f"{self.prefix}{self.timestamp}_evidence.zip"
 
     # ── 日志 ──
 
@@ -405,7 +410,7 @@ class OutputManager:
         Args:
             ext: 文件扩展名 (md / html / pdf)
         """
-        return self.reports_dir / f"redteam_{self.timestamp}_report.{ext}"
+        return self.reports_dir / f"{self.prefix}{self.timestamp}_report.{ext}"
 
     # ── 经验 ASR ──
 

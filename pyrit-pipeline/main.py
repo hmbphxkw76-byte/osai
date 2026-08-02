@@ -83,18 +83,16 @@ async def main_async() -> None:
     ctx.metadata["noise_log_path"] = str(ctx.output_manager.noise_log_path)
     ctx.metadata["signal_log_path"] = str(ctx.output_manager.log_path)
 
-    print_pipeline_header(ctx)
     ctx.start_time = datetime.now()
     clean_temp_files("pre")
 
     try:
-        # 全流水线双日志包裹: 信号行写入终端 + signal log, 噪音行写入 noise log
-        # 内层 (stage_init/scenario) 的 redirect_noise_to_file 不传 signal_log_path,
-        # 信号行透传到本层 NoiseFilter 统一写入信号日志, 避免重复
+        # B1 修复: 将 header 和 footer 移入 redirect 上下文, 确保完整日志写入 signal log
         with redirect_noise_to_file(
                 Path(ctx.metadata["noise_log_path"]),
                 Path(ctx.metadata["signal_log_path"]),
             ):
+            print_pipeline_header(ctx)
             await stage_init(ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 1 后退出")
@@ -114,6 +112,53 @@ async def main_async() -> None:
                 from pipeline.workflows.xpia import run_xpia
                 await run_xpia(ctx)
                 return
+
+            # 多模态注入场景 (可选, 提前返回)
+            if getattr(ctx.args, "multimodal", False):
+                print("\n" + "=" * 70)
+                print("[Multimodal] 多模态注入场景")
+                print("=" * 70)
+                from pipeline.scenarios.multimodal_injection import run_multimodal_injection
+                await run_multimodal_injection(ctx)
+                return
+
+            # 模型提取场景 (可选, 提前返回)
+            if getattr(ctx.args, "scenario", "") == "model_extraction":
+                print("\n" + "=" * 70)
+                print("[Model Extraction] 模型提取场景")
+                print("=" * 70)
+                from pipeline.scenarios.model_extraction import run_model_extraction
+                await run_model_extraction(ctx)
+                return
+
+            # 侦察驱动场景选择 (当 recon_result 存在时)
+            recon_result = ctx.metadata.get("recon_result")
+            if recon_result and not getattr(ctx.args, "scenario", None):
+                from pipeline.integrations.web_redteam_bridge import recommend_scenarios_from_recon
+                scenarios = recommend_scenarios_from_recon(recon_result)
+                if scenarios:
+                    print("\n  [Recon] 侦察结果推荐场景:")
+                    for s in scenarios:
+                        print(f"    [P{s['priority']}] {s['scenario']} ({s['owasp_id']}) — {s['rationale'][:80]}")
+
+                    # 自动选择最高优先级场景
+                    top_scenario = scenarios[0]
+                    if top_scenario["scenario"] == "xpia":
+                        print(f"\n  [Recon] 自动选择 XPIA 工作流")
+                        from pipeline.workflows.xpia import run_xpia
+                        await run_xpia(ctx)
+                        return
+                    elif top_scenario["scenario"] == "multimodal":
+                        print(f"\n  [Recon] 自动选择多模态注入场景")
+                        from pipeline.scenarios.multimodal_injection import run_multimodal_injection
+                        await run_multimodal_injection(ctx)
+                        return
+                    elif top_scenario["scenario"] == "model_extraction":
+                        print(f"\n  [Recon] 自动选择模型提取场景")
+                        from pipeline.scenarios.model_extraction import run_model_extraction
+                        await run_model_extraction(ctx)
+                        return
+                    # text_adaptive 继续走标准流水线
 
             await stage_scenario(ctx)
             if _shutdown_requested:
@@ -138,6 +183,7 @@ async def main_async() -> None:
 
             await stage_output(ctx)
 
+            print_pipeline_footer(ctx)
     finally:
         # 清理 Web 目标的浏览器会话 (如有)
         _cleanup_web_session(ctx)
@@ -146,7 +192,6 @@ async def main_async() -> None:
     _persist_discovered_content_filter_markers()
 
     clean_temp_files("post")
-    print_pipeline_footer(ctx)
 
 
 def _persist_discovered_content_filter_markers() -> None:

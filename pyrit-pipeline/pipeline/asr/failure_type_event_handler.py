@@ -72,6 +72,7 @@ class ParadigmPerformanceTracker:
     """
 
     def __init__(self) -> None:
+        """Initialize ParadigmPerformanceTracker."""
         # (failure_type, paradigm) → {"success": int, "failure": int}
         self._data: dict[str, dict[str, dict[str, int]]] = defaultdict(
             lambda: defaultdict(lambda: {"success": 0, "failure": 0})
@@ -195,9 +196,11 @@ class FailureTypeEventHandler:
     """
 
     def __init__(self, selector: Any = None) -> None:
-        """Args:
-        selector: FailureTypeRoutingSelector 实例
-                 （需要支持 update_failure_type 方法）.
+        """Initialize FailureTypeEventHandler.
+
+        Args:
+            selector: FailureTypeRoutingSelector 实例
+                     （需要支持 update_failure_type 方法）.
         """
         self._selector = selector
         self._failure_counter: Counter = Counter()
@@ -209,14 +212,16 @@ class FailureTypeEventHandler:
         # P1: 范式性能跟踪器
         self._paradigm_tracker = ParadigmPerformanceTracker()
 
-    def on_attack_result(self, attack_result: Any, *args, **kwargs) -> None:
-        """处理单个 AttackResult — 提取失败类型并反馈到 selector。.
+    def on_attack_result(self, attack_result: Any, *args: Any, **kwargs: Any) -> None:
+        """处理单个 AttackResult — 提取失败类型并反馈到 selector.
 
         在 Stage 4 post-execution scan 中被遍历调用。
         成功结果只更新计数器，失败结果额外提取失败类型。
 
         Args:
-            attack_result: AttackResult 实例
+            attack_result: AttackResult 实例.
+            *args: Additional positional arguments (ignored).
+            **kwargs: Additional keyword arguments (ignored).
         """
         if attack_result is None:
             return
@@ -287,7 +292,7 @@ class FailureTypeEventHandler:
 
                         child_failure_type = extract_failure_type_from_result(child)
                         self._failure_counter[child_failure_type] += 1
-                    except (RuntimeError, OSError, ValueError):
+                    except Exception:
                         pass
 
     def _extract_technique_name(self, attack_result: Any) -> str | None:
@@ -346,7 +351,7 @@ class FailureTypeEventHandler:
                     paradigm=paradigm,
                     success=success,
                 )
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.debug(f"Failed to record paradigm performance: {e}")
 
     @property

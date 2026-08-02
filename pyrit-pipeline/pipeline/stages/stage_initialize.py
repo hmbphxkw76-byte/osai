@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 3/6: 场景初始化 + ASR 智能调度。."""
     print("\n" + "=" * 70)
-    print("[3/6] 场景初始化 — ASR 智能调度 + AtomicAttack 构建")
+    print("阶段 3/6: 场景初始化 — ASR 智能调度 + AtomicAttack 构建")
     print("=" * 70)
 
     # ── 原生: 场景初始化 ──
@@ -148,7 +148,7 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
     if fallback_plan and fallback_plan.execution_order:
         order_map = {tech: i for i, tech in enumerate(fallback_plan.execution_order)}
 
-        def _fallback_priority(attack) -> float:
+        def _fallback_priority(attack: Any) -> float:
             tech_name = attack.display_group or attack.atomic_attack_name
             base_tech = tech_name.split("+")[0] if "+" in tech_name else tech_name
             return order_map.get(base_tech, 99)
@@ -179,7 +179,7 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
     asr_by_tech = query_historical_asr_by_technique()
     current_run_asr: dict = ctx.metadata.get("current_run_asr", {})
 
-    def _attack_priority(attack) -> float:
+    def _attack_priority(attack: Any) -> float:
         """计算 AtomicAttack 的优先级分数 (越高越优先执行)。."""
         tech_name = attack.display_group or attack.atomic_attack_name
 
@@ -232,7 +232,7 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
 
 
 def _safe_set_atomic_attacks(scenario: Any, sorted_attacks: list) -> None:
-    """安全设置 scenario 的 _atomic_attacks 属性。
+    """安全设置 scenario 的 _atomic_attacks 属性。.
 
     P1-5: 使用 setattr 替代直接赋值, 避免上游属性名变更时断裂。
     如果 scenario 不支持 _atomic_attacks 属性, 记录警告但不崩溃。

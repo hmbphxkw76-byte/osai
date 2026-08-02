@@ -75,6 +75,7 @@ class VulnerabilityEvidence:
     converter_log: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return asdict(self)
 
 
@@ -99,6 +100,7 @@ class EvidenceCollection:
     failure_analysis: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary with detailed fields."""
         return {
             "collection_id": self.collection_id,
             "timestamp": self.timestamp,
@@ -123,15 +125,15 @@ class EvidenceCollection:
 
 _OWASP_LLM_CATEGORIES: dict[str, str] = {
     "LLM01": "Prompt Injection",
-    "LLM02": "Insecure Output Handling",
-    "LLM03": "Training Data Poisoning",
-    "LLM04": "Model DoS",
-    "LLM05": "Supply Chain Vulnerabilities",
-    "LLM06": "Sensitive Information Disclosure",
-    "LLM07": "Insecure Plugin Design",
-    "LLM08": "Excessive Agency",
-    "LLM09": "Overreliance",
-    "LLM10": "Model Theft",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
 }
 
 _OWASP_ASI_CATEGORIES: dict[str, str] = {
@@ -185,6 +187,13 @@ class EvidenceCollector:
         target_model: str = "unknown",
         model_tier: str = "unknown",
     ) -> None:
+        """Initialize EvidenceCollector.
+
+        Args:
+            target_model: Target model name.
+            model_tier: Model filter strength tier.
+            overall_asr: Overall ASR percentage.
+        """
         self._target_model = target_model
         self._model_tier = model_tier
 
@@ -331,7 +340,7 @@ class EvidenceCollector:
         json_path = output_dir / "evidence.json"
 
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(collection.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(collection.to_dict(), f, indent=2, ensure_ascii=False, default=str)
 
         logger.info(f"Evidence saved to {json_path}")
         return json_path
@@ -598,7 +607,7 @@ class EvidenceCollector:
                 role = getattr(msg, "role", "unknown")
                 content = getattr(msg, "content", "") or ""
                 history.append({"role": str(role), "content": str(content)})
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.debug(f"Failed to extract conversation: {e}")
 
         return history
@@ -744,7 +753,7 @@ class EvidenceCollector:
                             "source": "empirical",
                         }
                     )
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.debug(f"Failed to load ASR trend: {e}")
 
         return trend

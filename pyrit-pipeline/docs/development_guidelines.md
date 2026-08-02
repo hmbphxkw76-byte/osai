@@ -1,8 +1,9 @@
 # 开发规范
 
-> **版本**: v2.1
-> **日期**: 2026-8-1
+> **版本**: v2.2
+> **日期**: 2026-8-2
 > **更新记录**:
+>   v2.2 — 新增 R-013: Makefile 自动维护约定
 >   v2.1 — 新增 R-010: 流水线阶段原生框架优先与混合增强准则
 >   v2.0 — 全面增强：新增原生 API 优先级、代码规范、测试规范、模块创建指南、文档规范
 >   v1.0 — 初始版本，包含 R-008 运行前后清理规则、R-009 优化后L5差距分析报告规则
@@ -15,12 +16,13 @@
 2. [R-008: 运行前后自动清理 Python 临时文件](#2-r-008-运行前后自动清理-python-临时文件)
 3. [R-009: 优化后自动生成 L5 差距分析报告](#3-r-009-优化后自动生成-l5-差距分析报告)
 4. [R-010: 流水线阶段原生框架优先与混合增强准则](#4-r-010-流水线阶段原生框架优先与混合增强准则)
-5. [原生 API 优先级原则](#5-原生-api-优先级原则)
-6. [代码规范](#6-代码规范)
-7. [测试规范](#7-测试规范)
-8. [模块创建指南](#8-模块创建指南)
-9. [文档规范](#9-文档规范)
-10. [Git 提交规范](#10-git-提交规范)
+5. [R-013: Makefile 自动维护约定](#5-r-013-makefile-自动维护约定)
+6. [原生 API 优先级原则](#6-原生-api-优先级原则)
+7. [代码规范](#7-代码规范)
+8. [测试规范](#8-测试规范)
+9. [模块创建指南](#9-模块创建指南)
+10. [文档规范](#10-文档规范)
+11. [Git 提交规范](#11-git-提交规范)
 
 ---
 
@@ -166,7 +168,54 @@ PyRIT 原生框架经过学术验证和工程实践检验，直接使用可确�
 
 ---
 
-## 5. 原生 API 优先级原则
+## 5. R-013: Makefile 自动维护约定
+
+### 规则
+
+项目根目录的 `Makefile` 和 `make.ps1` 是自动化命令行入口，须与项目脚本保持同步。具体约定：
+
+1. **自动发现兜底**: 任何放入 `scripts/` 目录的 `.py` 文件，均可通过 `make script-<name>` 直接调用，无需手动注册
+2. **高频脚本注册**: 高频使用的脚本须在 `Makefile` 中注册独立 target（如 `download-datasets`、`env-check`），并在 `help` 中添加说明
+3. **新增脚本时同步**: 每次新增 `scripts/*.py` 脚本时，须同步更新 `Makefile`（注册 target 或确认已通过通配符覆盖）
+4. **定期检查**: 运行 `make scripts-check` 检测 `scripts/` 下未注册的脚本，按需补充独立 target
+5. **make.ps1 同步**: `make.ps1` 是 Windows PowerShell 包装器，无需同步 target 列表（它自动委托给 `make` 或 WSL `make`）
+
+### 维护流程
+
+```
+新增 scripts/my_script.py
+  ├── 自动可用: make script-my_script
+  ├── 运行检查: make scripts-check
+  └── 高频? → 在 Makefile 注册独立 target + help 条目
+```
+
+### Makefile 结构约定
+
+| 区块 | 内容 |
+|------|------|
+| 帮助 | `help` target，分类列出所有命令 |
+| 环境安装 | `install` / `install-dev` / `install-all` 等 |
+| 环境配置 | `env-setup` / `env-check` / `pre-commit` |
+| 流水线运行 | `run` / `run-small` / `run-custom` 等 |
+| 测试 | `test` / `test-pipeline` / `test-cov` 等 |
+| 代码质量 | `lint` / `format` / `typecheck` / `check` |
+| 数据管理 | `download-*` / `sync-asr` |
+| 清理 | `clean` / `clean-output` / `clean-all` |
+| Docker | `docker-build` / `docker-run` |
+| 文档 & 基准 | `docs` / `benchmark` |
+| 验证 | `verify-integration` / `verify-all` |
+| 脚本自动发现 | `script-%` / `scripts-list` / `scripts-check` |
+
+### 相关文件
+
+| 文件 | 作用 |
+|---|---|
+| `Makefile` | 自动化命令行入口（主文件） |
+| `make.ps1` | Windows PowerShell 包装器（通过 WSL 调用 make） |
+
+---
+
+## 6. 原生 API 优先级原则
 
 ### 5.1 核心原则
 
@@ -201,9 +250,9 @@ PyRIT 原生框架经过学术验证和工程实践检验，直接使用可确�
 
 ---
 
-## 6. 代码规范
+## 7. 代码规范
 
-### 6.1 代码风格
+### 7.1 代码风格
 
 - **格式化工具**: `ruff` (配置在 `pyproject.toml`)
 - **行长度**: 120 字符
@@ -211,7 +260,7 @@ PyRIT 原生框架经过学术验证和工程实践检验，直接使用可确�
 - **类型注解**: 所有公共函数必须有类型注解
 - **Docstring**: 所有公共函数/类必须有 docstring
 
-### 6.2 命名规范
+### 7.2 命名规范
 
 | 类型 | 规范 | 示例 |
 |------|------|------|
@@ -222,13 +271,13 @@ PyRIT 原生框架经过学术验证和工程实践检验，直接使用可确�
 | 私有 | _prefix | `_build_warm_start_asr()` |
 | 环境变量 | UPPER_SNAKE | `OPENAI_CHAT_ENDPOINT` |
 
-### 6.3 异步规范
+### 7.3 异步规范
 
 - 所有 I/O 操作使用 `async/await`
 - 不在异步函数中使用 `time.sleep()`，使用 `asyncio.sleep()`
 - 并发使用 `asyncio.Semaphore` 控制并发度
 
-### 6.4 错误处理
+### 7.4 错误处理
 
 ```python
 # 三级 fallback 模式 (评分器获取示例)
@@ -241,7 +290,7 @@ except:
         scorer = registry.get_by_tag("scorer")
 ```
 
-### 6.5 日志规范
+### 7.5 日志规范
 
 - 使用原生 `pyrit.logging` 或 Python `logging`
 - 噪音日志重定向到文件 (R-008 配套: `pipeline/utils/noise_redirector.py`)
@@ -249,9 +298,9 @@ except:
 
 ---
 
-## 7. 测试规范
+## 8. 测试规范
 
-### 7.1 测试结构
+### 8.1 测试结构
 
 ```
 tests/
@@ -265,7 +314,7 @@ tests/
 └── conftest.py            # pytest 配置
 ```
 
-### 7.2 测试准则
+### 8.2 测试准则
 
 | 准则 | 说明 |
 |------|------|
@@ -275,7 +324,7 @@ tests/
 | **覆盖率** | 自研模块测试覆盖率目标 ≥ 80% |
 | **命名** | `test_<模块>_<函数>_<场景>()` |
 
-### 7.3 运行测试
+### 8.3 运行测试
 
 ```bash
 # 运行所有测试
@@ -290,9 +339,9 @@ python -m pytest tests/ --cov=pipeline --cov-report=html
 
 ---
 
-## 8. 模块创建指南
+## 9. 模块创建指南
 
-### 8.1 何时创建新模块
+### 9.1 何时创建新模块
 
 ```
 需要新模块吗？
@@ -317,7 +366,7 @@ python -m pytest tests/ --cov=pipeline --cov-report=html
     └── YES → 这不是 pipeline 模块，应该在 PyRIT 上游实现
 ```
 
-### 8.2 模块结构模板
+### 9.2 模块结构模板
 
 ```python
 # Copyright (c) 2026 OSAI Project.
@@ -371,7 +420,7 @@ class ModuleName:
         ...
 ```
 
-### 8.3 模块注册
+### 9.3 模块注册
 
 新模块需要在以下位置注册：
 - `pipeline/__init__.py` — 公共接口导出
@@ -380,9 +429,9 @@ class ModuleName:
 
 ---
 
-## 9. 文档规范
+## 10. 文档规范
 
-### 9.1 文档结构
+### 10.1 文档结构
 
 | 文档 | 说明 | 位置 |
 |------|------|------|
@@ -394,7 +443,7 @@ class ModuleName:
 | `development_guidelines.md` | 开发规范 (本文档) | `docs/` |
 | `principles/*.md` | PyRIT 组件原理文档 | `docs/principles/` |
 
-### 9.2 文档准则
+### 10.2 文档准则
 
 | 准则 | 说明 |
 |------|------|
@@ -405,7 +454,7 @@ class ModuleName:
 | **表格优先** | 复杂信息优先使用表格呈现 |
 | **更新记录** | 文档头部标注更新记录 |
 
-### 9.3 文档更新时机
+### 10.3 文档更新时机
 
 - 新增模块时
 - 修改阶段逻辑时
@@ -415,9 +464,9 @@ class ModuleName:
 
 ---
 
-## 10. Git 提交规范
+## 11. Git 提交规范
 
-### 10.1 提交信息格式
+### 11.1 提交信息格式
 
 ```
 <type>: <简述>
@@ -425,7 +474,7 @@ class ModuleName:
 <详细说明>
 ```
 
-### 10.2 类型
+### 11.2 类型
 
 | 类型 | 说明 |
 |------|------|
@@ -436,7 +485,7 @@ class ModuleName:
 | `test` | 测试 |
 | `chore` | 构建/工具 |
 
-### 10.3 示例
+### 11.3 示例
 
 ```
 feat: 新增 FailureTypeRoutingSelector 失败类型路由选择器

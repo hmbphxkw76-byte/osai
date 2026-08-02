@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""流水线六阶段子包。
+"""流水线六阶段子包。.
 
 每个阶段是独立模块，通过 ``PipelineContext`` 传递状态。
 修改某个阶段不影响其他阶段。

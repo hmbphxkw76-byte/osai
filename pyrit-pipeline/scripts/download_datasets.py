@@ -506,6 +506,7 @@ async def download_datasets(
 
 
 def main() -> None:
+    """Run dataset download main entry point."""
     parser = argparse.ArgumentParser(
         description="远程数据集全量预下载工具 (官方优先 + 镜像兜底 + 月度更新)",
     )

@@ -26,6 +26,7 @@ Converter 变换日志，为报告系统提供:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -55,6 +56,7 @@ class TransformationStep:
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "step": self.step,
             "converter_class": self.converter_class,
@@ -98,6 +100,7 @@ class ConverterChainStats:
 
     @property
     def success_rate(self) -> float:
+        """Get success rate (successes / total)."""
         total = self.successes + self.failures
         if total == 0:
             return 0.0
@@ -118,6 +121,7 @@ class ConverterLogReport:
 
     @property
     def converter_usage_rate(self) -> float:
+        """Get converter usage rate (attacks with converters / total)."""
         if self.total_attacks == 0:
             return 0.0
         return self.total_with_converters / self.total_attacks
@@ -370,7 +374,7 @@ class ConverterLogCollector:
                             if role == "user":
                                 original = getattr(msg, "content", "") or ""
                                 break
-            except (RuntimeError, OSError, ValueError):
+            except Exception:
                 pass
 
         return original[:500], transformed[:500]
@@ -479,7 +483,7 @@ class ConverterLogCollector:
                 else:
                     step.error = "Converter returned empty result"
                     step.output_text = current_text[:500]
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 step.error = str(e)[:200]
                 step.output_text = current_text[:500]
 
@@ -608,7 +612,7 @@ def get_technique_name(class_name: str) -> str:
 
 
 def format_technique_display(technique_name: str) -> str:
-    """格式化技术名显示 (同时展示 snake_case 和 PascalCase)。
+    """格式化技术名显示 (同时展示 snake_case 和 PascalCase)。.
 
     用于预执行展示和报告, 消除命名不一致。
     """
@@ -619,7 +623,7 @@ def format_technique_display(technique_name: str) -> str:
 
 
 def extract_converter_info_from_result(attack_result: Any) -> dict[str, Any]:
-    """从 AttackResult 提取 Converter 信息。
+    """从 AttackResult 提取 Converter 信息。.
 
     当 labels 中没有 converter_chain_name 时, 从 identifier.children
     提取 converter 类名列表, 并尝试反向映射到 chain name。
@@ -661,10 +665,8 @@ def extract_converter_info_from_result(attack_result: Any) -> dict[str, Any]:
     # 从 identifier.children 提取 (PyRIT 原生 API)
     identifier = None
     if hasattr(attack_result, "get_attack_strategy_identifier"):
-        try:
+        with contextlib.suppress(RuntimeError, OSError, ValueError):
             identifier = attack_result.get_attack_strategy_identifier()
-        except (RuntimeError, OSError, ValueError):
-            pass
 
     if identifier is not None:
         class_names = _extract_converter_class_names_from_identifier(identifier)
@@ -695,7 +697,7 @@ def extract_converter_info_from_result(attack_result: Any) -> dict[str, Any]:
 
 
 def _extract_converter_class_names_from_identifier(identifier: Any) -> list[str]:
-    """从 ComponentIdentifier 提取 Converter 类名列表。
+    """从 ComponentIdentifier 提取 Converter 类名列表。.
 
     PyRIT 原生 API:
       identifier.children["request_converters"] = [ConverterIdentifier, ...]
@@ -717,8 +719,7 @@ def _extract_converter_class_names_from_identifier(identifier: Any) -> list[str]
                 class_names.append(cn)
 
     resp_converters = children.get("response_converters")
-    if resp_converters:
-        if isinstance(resp_converters, list):
+    if resp_converters and isinstance(resp_converters, list):
             for conv_id in resp_converters:
                 cn = getattr(conv_id, "class_name", "")
                 if cn:

@@ -25,7 +25,6 @@ from pipeline.asr.failure_type_selector import (
     extract_failure_type_from_result,
 )
 
-
 # ──────────────────────────────────────────────────────────────────
 #  _infer_paradigm
 # ──────────────────────────────────────────────────────────────────

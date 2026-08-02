@@ -23,7 +23,7 @@ import re
 import sys
 import warnings
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 # ── 噪音模式: 匹配 PyRIT 初始化过程中的非核心输出 ──
 # 这些行不影响程序正常运行, 统一归类到噪音日志
@@ -104,6 +104,7 @@ class NoiseFilter:
         noise_log_path: Path,
         signal_log_path: Path | None = None,
     ) -> None:
+        """Initialize NoiseFilter."""
         self._original = original_stream
         self._noise_log_path = noise_log_path
         self._noise_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,6 +119,7 @@ class NoiseFilter:
             self._signal_file = open(signal_log_path, "a", encoding="utf-8")  # noqa: SIM115
 
     def write(self, text: str) -> int:
+        """Write text to the filter, routing signal vs noise."""
         if not text:
             return 0
         self._buffer += text
@@ -142,6 +144,7 @@ class NoiseFilter:
                 self._signal_file.flush()
 
     def flush(self) -> None:
+        """Flush buffered content to appropriate destinations."""
         if self._buffer:
             self._route_line(self._buffer)
             self._buffer = ""
@@ -149,15 +152,17 @@ class NoiseFilter:
         if self._signal_file:
             self._signal_file.flush()
         with contextlib.suppress(Exception):
+            """Close the filter and associated files."""
             self._original.flush()
 
     def close(self) -> None:
+        """Close the filter and associated files."""
         self.flush()
         self._noise_file.close()
         if self._signal_file:
             self._signal_file.close()
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         """代理原始 stream 的其他属性 (如 isatty, encoding 等)。."""
         return getattr(self._original, name)
 
@@ -166,7 +171,7 @@ class NoiseFilter:
 def redirect_noise_to_file(
     noise_log_path: Path,
     signal_log_path: Path | None = None,
-):
+) -> Any:
     """上下文管理器: 将噪音 stdout/stderr 重定向到文件，信号双写到终端+文件。.
 
     在此上下文内，所有 stdout/stderr 输出经过 NoiseFilter:
@@ -202,7 +207,14 @@ def redirect_noise_to_file(
     # 使用自定义 showwarning 写入噪音文件
     noise_file = filter_stderr._noise_file
 
-    def _noise_warning_handler(message, category, filename, lineno, file=None, line=None) -> None:
+    def _noise_warning_handler(
+        message: Any,
+        category: type[Warning],
+        filename: str,
+        lineno: int,
+        file: Any = None,
+        line: Any = None,
+    ) -> None:
         """将 Python warnings 写入噪音日志而非 stderr。."""
         msg = warnings.formatwarning(message, category, filename, lineno, line)
         noise_file.write(msg)
@@ -234,7 +246,14 @@ def suppress_import_warnings(noise_log_path: Path | None = None) -> None:
         noise_log_path.parent.mkdir(parents=True, exist_ok=True)
         noise_file = open(noise_log_path, "a", encoding="utf-8")  # noqa: SIM115
 
-        def _early_warning_handler(message, category, filename, lineno, file=None, line=None) -> None:
+        def _early_warning_handler(
+            message: Any,
+            category: type[Warning],
+            filename: str,
+            lineno: int,
+            file: Any = None,
+            line: Any = None,
+        ) -> None:
             msg = warnings.formatwarning(message, category, filename, lineno, line)
             noise_file.write(msg)
             noise_file.flush()

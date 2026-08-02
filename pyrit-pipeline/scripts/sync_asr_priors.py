@@ -333,6 +333,7 @@ def bayesian_update_from_central_memory() -> dict[str, Any]:
 
 
 def main() -> int:
+    """Run ASR prior sync main entry point."""
     parser = argparse.ArgumentParser(
         description="ASR 先验数据月度自动同步 + 贝叶斯更新 (消除2)",
     )

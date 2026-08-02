@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""后执行分析与证据子包。
+"""后执行分析与证据子包。.
 
 包含以下模块:
   - attack_result_analyzer: AttackResult 分析基类 (消除跨模块重复)
@@ -18,7 +18,7 @@
     )
 """
 
-from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer, OWASP_LLM_CATEGORY_COUNT
+from pipeline.analysis.attack_result_analyzer import OWASP_LLM_CATEGORY_COUNT, AttackResultAnalyzer
 from pipeline.analysis.diversity_analyzer import DiversityAnalyzer
 from pipeline.analysis.evidence_collector import EvidenceCollector, get_owasp_category
 from pipeline.analysis.technique_name_mapper import normalize_technique_name

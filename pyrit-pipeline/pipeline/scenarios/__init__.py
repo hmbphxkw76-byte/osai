@@ -1,29 +1,44 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""多场景注册表 — 统一管理 PyRIT 原生场景类型。.
+"""主 pipeline 攻击场景模块 — 场景创建 + 补充 PyRIT 原生不覆盖的 OWASP 2025 攻击面。.
 
-PyRIT 1.1.0.dev0 原生提供以下场景:
-  - ``TextAdaptive``: 文本自适应 (epsilon-greedy, 当前默认)
-  - ``AirtJailbreakScenario``: AIRT 越狱攻击
-  - ``AirtCyberScenario``: AIRT 网络安全
-  - ``AirtLeakageScenario``: AIRT 信息泄露
-  - ``AirtPsychosocialScenario``: AIRT 心理社会攻击
-  - ``AirtRapidResponseScenario``: AIRT 快速响应
-  - ``AirtScamScenario``: AIRT 诈骗
-  - ``EncodingScenario``: Garak 编码攻击
-  - ``DoctorScenario``: Garak Doctor 探测
-  - ``WebInjectionScenario``: Garak Web 注入
-  - ``AdversarialBenchmark``: 对抗基准
-  - ``RedTeamAgentScenario``: Foundry 自主红队代理
+本模块提供两类功能:
 
-通过 ``--scenario`` CLI 参数选择场景，统一注入 ``set_params_from_args``。
+1. create_scenario() — PyRIT 原生场景创建工厂函数
+   被 stage_scenario.py 调用, 根据 scenario_name 创建 PyRIT 原生 Scenario 实例。
+   支持的场景:
+     - airt_*           → AIRTBenchmarkScenario (PyRIT 原生)
+     - garak_*          → GarakScenario (PyRIT 原生)
+     - benchmark        → BenchmarkScenario (PyRIT 原生)
+     - foundry          → FoundryScenario (PyRIT 原生)
+   返回 None 表示未知场景 (调用方 fallback 到 text_adaptive)
+
+2. 新增场景模块 (OWASP 2025 补充):
+   - multimodal_injection — 多模态注入 (LLM01/LLM05)
+   - model_extraction — 模型提取 (LLM10)
+   - data_poisoning — 训练数据投毒检测 (LLM04)
+   - pii_extraction — PII 提取 (LLM02)
+   - vector_manipulation — 向量相似度操纵 (LLM08)
+   - context_bomb — 递归上下文膨胀 (LLM10)
+   - hallucination_injection — 幻觉注入 (LLM09)
+   - tool_hijack — Agent 工具调用劫持 (LLM06)
+   - embedding_extraction — 嵌入向量提取检测 (LLM08 扩展)
+   - system_prompt_leakage — 系统提示词泄露 (LLM07)
+
+设计原则 (R-010: PyRIT 原生优先):
+  所有场景的核心组件优先使用 PyRIT 原生 API。
+  自研代码仅负责编排和 OWASP 映射。
 
 学术依据:
-  - PyRIT 官方 Scenario 文档
-  - JailbreakBench (arXiv:2402.01135): 标准化场景评估
+  - Shayegani et al. (arXiv:2306.13254): 多模态组合对抗攻击
+  - Tramèr et al. (arXiv:2012.00314): 模型提取攻击
+  - Wan et al. (arXiv:2401.05566): 训练数据投毒
+  - Carlini et al. (arXiv:2012.07805): 训练数据提取
+  - Greshake et al. (arXiv:2302.12173): RAG 投毒
+  - OWASP Top 10 for LLM Applications 2025
 
-> **日期**: 2026-8-1
+> **日期**: 2026-8-2
 """
 
 from __future__ import annotations
@@ -31,116 +46,169 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
     from pyrit.scenario.core.scenario import Scenario
+    from pyrit.score import Scorer
 
+logger = logging.getLogger(__name__)
 
-# ============================================================
-# 场景注册表
-# ============================================================
-
-
-def get_available_scenarios() -> dict[str, str]:
-    """返回可用场景名称 → 描述映射。.
-
-    Returns:
-        dict[str, str]: 场景名称 → 描述。
-    """
-    return {
-        "text_adaptive": "文本自适应 (epsilon-greedy, 默认, ASR 驱动技术选择)",
-        "airt_jailbreak": "AIRT 越狱攻击场景 (jailbreak 模板 + 编码变体)",
-        "airt_cyber": "AIRT 网络安全攻击场景",
-        "airt_leakage": "AIRT 信息泄露场景 (首字母/图像泄露)",
-        "airt_psychosocial": "AIRT 心理社会攻击场景",
-        "airt_rapid_response": "AIRT 快速响应场景",
-        "airt_scam": "AIRT 诈骗场景",
-        "garak_encoding": "Garak 编码攻击场景 (Base64/ROT13/Morse 等)",
-        "garak_doctor": "Garak Doctor 探测场景",
-        "garak_web_injection": "Garak Web 注入场景",
-        "benchmark_adversarial": "对抗基准场景 (跨对抗模型 ASR 对比)",
-        "foundry_red_team": "Foundry 自主红队代理场景 (Azure AI Foundry)",
-    }
+__all__ = [
+    "create_scenario",
+    "run_multimodal_injection",
+    "run_model_extraction",
+    "run_data_poisoning_detection",
+    "run_pii_extraction",
+    "run_vector_manipulation",
+    "run_context_bomb",
+    "run_hallucination_injection",
+    "run_tool_hijack",
+    "run_embedding_extraction",
+    "run_system_prompt_leakage",
+]
 
 
 def create_scenario(
     scenario_name: str,
     *,
-    objective_scorer: Any = None,
-    selector: Any = None,
+    objective_scorer: Scorer | None = None,
     scenario_result_id: str | None = None,
+    **kwargs: Any,
 ) -> Scenario | None:
-    """创建指定名称的场景实例。.
+    """创建 PyRIT 原生场景实例。.
 
-    所有场景均使用原生 PyRIT 场景类 (v7.0: ``text_adaptive`` 路径已迁移至
-    ``stage_scenario.py`` 直接使用原生 ``TextAdaptive``, 本函数仅处理
-    AIRT/Garak/Benchmark/Foundry 等原生场景)。
+    被 stage_scenario.py 调用, 根据 scenario_name 创建对应的 PyRIT 原生 Scenario。
+    text_adaptive 场景不通过此函数创建 (在 stage_scenario.py 内联构建)。
 
     Args:
-        scenario_name: 场景名称 (见 ``get_available_scenarios``)。
-        objective_scorer: 评分器实例。
-        selector: 技术选择器 (仅 ``text_adaptive`` 使用, 此函数不处理)。
-        scenario_result_id: 断点续跑的 ScenarioResult ID。
+        scenario_name: 场景名称 (airt_*, garak_*, benchmark, foundry 等)。
+        objective_scorer: 目标评分器实例。
+        scenario_result_id: 恢复已有运行结果的 ID (可选)。
+        **kwargs: 额外场景参数。
 
     Returns:
-        场景实例，或 None (如果场景名称无效)。
+        Scenario 实例, 或 None (未知场景)。
     """
-    # 原生场景映射
-    native_scenarios = _get_native_scenario_map()
+    name_lower = scenario_name.lower().strip()
 
-    scenario_cls = native_scenarios.get(scenario_name)
-    if scenario_cls is None:
-        logger.error(f"Unknown scenario: {scenario_name}")
-        return None
+    # ── AIRT 场景 (PyRIT 原生) ──
+    if name_lower.startswith("airt"):
+        try:
+            from pyrit.scenario import AIRTBenchmarkScenario
 
-    try:
-        # 原生场景可能不接受 selector 参数
-        kwargs: dict[str, Any] = {}
-        if objective_scorer is not None:
-            kwargs["objective_scorer"] = objective_scorer
-        if scenario_result_id is not None:
-            kwargs["scenario_result_id"] = scenario_result_id
+            logger.info(f"Creating AIRTBenchmarkScenario: {scenario_name}")
+            return AIRTBenchmarkScenario(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("AIRTBenchmarkScenario not available in PyRIT")
+            return None
 
-        return scenario_cls(**kwargs)
-    except (RuntimeError, OSError, ValueError) as e:
-        logger.error(f"Failed to create scenario '{scenario_name}': {e}")
-        return None
+    # ── Garak 场景 (PyRIT 原生) ──
+    if name_lower.startswith("garak"):
+        try:
+            from pyrit.scenario import GarakScenario
+
+            logger.info(f"Creating GarakScenario: {scenario_name}")
+            return GarakScenario(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("GarakScenario not available in PyRIT")
+            return None
+
+    # ── Benchmark 场景 (PyRIT 原生) ──
+    if name_lower == "benchmark":
+        try:
+            from pyrit.scenario import BenchmarkScenario
+
+            logger.info(f"Creating BenchmarkScenario: {scenario_name}")
+            return BenchmarkScenario(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("BenchmarkScenario not available in PyRIT")
+            return None
+
+    # ── Foundry 场景 (PyRIT 原生) ──
+    if name_lower == "foundry":
+        try:
+            from pyrit.scenario import FoundryScenario
+
+            logger.info(f"Creating FoundryScenario: {scenario_name}")
+            return FoundryScenario(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("FoundryScenario not available in PyRIT")
+            return None
+
+    # ── 未知场景 ──
+    logger.warning(f"Unknown scenario: {scenario_name}")
+    return None
 
 
-def _get_native_scenario_map() -> dict[str, type]:
-    """返回原生场景名称 → 类映射。."""
-    try:
-        from pyrit.scenario.scenarios.airt.cyber import AirtCyberScenario
-        from pyrit.scenario.scenarios.airt.jailbreak import AirtJailbreakScenario
-        from pyrit.scenario.scenarios.airt.leakage import AirtLeakageScenario
-        from pyrit.scenario.scenarios.airt.psychosocial import AirtPsychosocialScenario
-        from pyrit.scenario.scenarios.airt.rapid_response import AirtRapidResponseScenario
-        from pyrit.scenario.scenarios.airt.scam import AirtScamScenario
-        from pyrit.scenario.scenarios.benchmark.adversarial import AdversarialBenchmark
-        from pyrit.scenario.scenarios.foundry.red_team_agent import RedTeamAgentScenario
-        from pyrit.scenario.scenarios.garak.doctor import DoctorScenario
-        from pyrit.scenario.scenarios.garak.encoding import EncodingScenario
-        from pyrit.scenario.scenarios.garak.web_injection import WebInjectionScenario
-
-        return {
-            "airt_jailbreak": AirtJailbreakScenario,
-            "airt_cyber": AirtCyberScenario,
-            "airt_leakage": AirtLeakageScenario,
-            "airt_psychosocial": AirtPsychosocialScenario,
-            "airt_rapid_response": AirtRapidResponseScenario,
-            "airt_scam": AirtScamScenario,
-            "garak_encoding": EncodingScenario,
-            "garak_doctor": DoctorScenario,
-            "garak_web_injection": WebInjectionScenario,
-            "benchmark_adversarial": AdversarialBenchmark,
-            "foundry_red_team": RedTeamAgentScenario,
-        }
-    except ImportError as e:
-        logger.warning(f"Some native scenarios not available: {e}")
-        return {}
+# ── OWASP 2025 补充场景 ──
 
 
-def is_native_scenario(scenario_name: str) -> bool:
-    """检查场景名称是否为原生场景 (非 text_adaptive)。."""
-    return scenario_name != "text_adaptive" and scenario_name in get_available_scenarios()
+def run_multimodal_injection(ctx: Any) -> Any:
+    """多模态注入场景 (LLM01/LLM05) 的延迟导入入口。."""
+    from pipeline.scenarios.multimodal_injection import run_multimodal_injection as _run
+    return _run(ctx)
+
+
+def run_model_extraction(ctx: Any) -> Any:
+    """模型提取场景 (LLM10) 的延迟导入入口。."""
+    from pipeline.scenarios.model_extraction import run_model_extraction as _run
+    return _run(ctx)
+
+
+def run_data_poisoning_detection(ctx: Any) -> Any:
+    """训练数据投毒检测场景 (LLM04) 的延迟导入入口。."""
+    from pipeline.scenarios.data_poisoning import run_data_poisoning_detection as _run
+    return _run(ctx)
+
+
+def run_pii_extraction(ctx: Any) -> Any:
+    """PII 提取场景 (LLM02) 的延迟导入入口。."""
+    from pipeline.scenarios.pii_extraction import run_pii_extraction as _run
+    return _run(ctx)
+
+
+def run_vector_manipulation(ctx: Any) -> Any:
+    """向量相似度操纵场景 (LLM08) 的延迟导入入口。."""
+    from pipeline.scenarios.vector_manipulation import run_vector_manipulation as _run
+    return _run(ctx)
+
+
+def run_context_bomb(ctx: Any) -> Any:
+    """递归上下文膨胀场景 (LLM10) 的延迟导入入口。."""
+    from pipeline.scenarios.context_bomb import run_context_bomb as _run
+    return _run(ctx)
+
+
+def run_hallucination_injection(ctx: Any) -> Any:
+    """幻觉注入场景 (LLM09) 的延迟导入入口。."""
+    from pipeline.scenarios.hallucination_injection import run_hallucination_injection as _run
+    return _run(ctx)
+
+
+def run_tool_hijack(ctx: Any) -> Any:
+    """Agent 工具调用劫持场景 (LLM06) 的延迟导入入口。."""
+    from pipeline.scenarios.tool_hijack import run_tool_hijack as _run
+    return _run(ctx)
+
+
+def run_embedding_extraction(ctx: Any) -> Any:
+    """嵌入向量提取检测场景 (LLM08 扩展) 的延迟导入入口。."""
+    from pipeline.scenarios.vector_manipulation import run_embedding_extraction as _run
+    return _run(ctx)
+
+
+def run_system_prompt_leakage(ctx: Any) -> Any:
+    """系统提示词泄露场景 (LLM07) 的延迟导入入口。."""
+    from pipeline.scenarios.system_prompt_leakage import run_system_prompt_leakage as _run
+    return _run(ctx)

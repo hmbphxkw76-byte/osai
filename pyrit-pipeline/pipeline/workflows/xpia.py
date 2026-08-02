@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""XPIA 工作流编排 (从 main.py 提取)。
+"""XPIA 工作流编排 (从 main.py 提取)。.
 
 使用 PyRIT 原生 ``pyrit.executor.workflow.xpia`` API。
 """
@@ -13,7 +13,7 @@ from pipeline.workflows import run_xpia_workflow_async
 
 
 async def run_xpia(ctx: PipelineContext) -> None:
-    """执行 XPIA 工作流。
+    """执行 XPIA 工作流。.
 
     需要 .env 中配置:
       - ATTACK_SETUP_TARGET_DEPLOYMENT (攻击设置目标)

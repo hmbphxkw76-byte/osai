@@ -1,6 +1,6 @@
 dataset_name: owasp_asi04_data_exfiltration
 harm_categories: data_theft
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI04
 data_type: text
 description: OWASP ASI04 - Data Exfiltration

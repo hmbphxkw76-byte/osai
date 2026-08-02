@@ -33,6 +33,7 @@ class AuthStrategy(ABC):
     """认证策略抽象基类。."""
 
     def __init__(self) -> None:
+        """Initialize AuthStrategy."""
         self._human_auth = HumanAssistedAuth()
 
     @abstractmethod
@@ -64,6 +65,7 @@ class NoAuthStrategy(AuthStrategy):
     """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        """Execute no-auth strategy: navigate to target."""
         logger.info("NoAuthStrategy: no authentication needed, navigating to target URL")
         await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
         return page
@@ -79,6 +81,7 @@ class SameDomainAuthStrategy(AuthStrategy):
     """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        """Execute same-domain authentication."""
         logger.info("SameDomainAuthStrategy: starting same-domain authentication")
         detector = self._create_detector(profile)
         return await self._human_auth.authenticate(page, profile, detector)
@@ -99,10 +102,12 @@ class CrossDomainAuthStrategy(AuthStrategy):
     """
 
     def __init__(self) -> None:
+        """Initialize CrossDomainAuthStrategy."""
         super().__init__()
         self._domain_transitions: list[str] = []
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        """Execute cross-domain authentication."""
         logger.info("CrossDomainAuthStrategy: starting cross-domain authentication")
 
         auth = profile.auth
@@ -180,10 +185,12 @@ class AutoAuthStrategy(AuthStrategy):
     """
 
     def __init__(self) -> None:
+        """Initialize AutoAuthStrategy."""
         super().__init__()
         self._probe = AuthProbe()
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        """Execute auto auth type detection."""
         logger.info("AutoAuthStrategy: starting automatic auth type detection")
 
         # Step 1: 探测认证拓扑

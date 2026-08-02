@@ -39,7 +39,9 @@ class TestGetOwaspCategory:
     def test_llm_categories(self) -> None:
         """OWASP LLM 分类→完整名称。."""
         assert "Prompt Injection" in get_owasp_category("LLM01")
-        assert "Sensitive Information Disclosure" in get_owasp_category("LLM06")
+        assert "Sensitive Information Disclosure" in get_owasp_category("LLM02")
+        assert "System Prompt Leakage" in get_owasp_category("LLM07")
+        assert "Unbounded Consumption" in get_owasp_category("LLM10")
 
     def test_asi_categories(self) -> None:
         """OWASP ASI 分类→完整名称。."""

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""扩展 PyRIT 内容过滤器标记 — 兼容第三方 OpenAI 兼容 API 的安全审查错误格式。
+"""扩展 PyRIT 内容过滤器标记 — 兼容第三方 OpenAI 兼容 API 的安全审查错误格式。.
 
 PyRIT 原生 ``CONTENT_FILTER_MARKERS`` 仅覆盖 OpenAI/Azure MAI 的标记::
 
@@ -169,7 +169,7 @@ _original_state: dict[str, Any] = {
 
 
 def _discover_marker_holders() -> list[ModuleType]:
-    """自动发现所有持有 ``CONTENT_FILTER_MARKERS`` 属性的已加载模块。
+    """自动发现所有持有 ``CONTENT_FILTER_MARKERS`` 属性的已加载模块。.
 
     PyRIT 中 ``CONTENT_FILTER_MARKERS`` 通过 ``from ... import`` 在多个模块
     产生本地绑定。硬编码路径会在 PyRIT 新增消费模块时静默遗漏。
@@ -190,7 +190,7 @@ def _discover_marker_holders() -> list[ModuleType]:
 
 
 def _discover_function_holders() -> list[ModuleType]:
-    """自动发现所有持有 ``_is_content_filter_error`` 属性的已加载模块。
+    """自动发现所有持有 ``_is_content_filter_error`` 属性的已加载模块。.
 
     ``_is_content_filter_error`` 被 ``openai_error_handling`` 定义,
     随后被 ``openai_video_target`` 和 ``openai_response_target`` 通过
@@ -217,7 +217,7 @@ def _discover_function_holders() -> list[ModuleType]:
 
 
 def _check_pyrit_version() -> str | None:
-    """检查 PyRIT 版本兼容性。
+    """检查 PyRIT 版本兼容性。.
 
     Returns:
         版本不匹配时返回警告消息,无问题时返回 None。
@@ -256,7 +256,7 @@ def _check_pyrit_version() -> str | None:
 
 
 def _heuristic_is_content_filter_error(data: dict[str, object] | str) -> tuple[bool, set[str]]:
-    """Heuristic 检测: 错误负载是否看起来像内容过滤拦截。
+    """Heuristic 检测: 错误负载是否看起来像内容过滤拦截。.
 
     在静态标记 (L1+L2) 不匹配时调用。检查错误负载中是否包含
     安全审查相关关键词。如果匹配,返回 True 并给出建议注册的新标记。
@@ -299,7 +299,7 @@ def _heuristic_is_content_filter_error(data: dict[str, object] | str) -> tuple[b
 
 
 def _register_discovered_markers(new_markers: set[str]) -> None:
-    """注册动态发现的新标记并同步到所有 PyRIT 消费模块。
+    """注册动态发现的新标记并同步到所有 PyRIT 消费模块。.
 
     Args:
         new_markers: 新发现的标记集合
@@ -320,19 +320,19 @@ def _register_discovered_markers(new_markers: set[str]) -> None:
 
 
 def _sync_markers_to_pyrit() -> None:
-    """将当前所有标记 (静态 + 动态) 同步到所有已发现的 PyRIT 消费模块。"""
+    """将当前所有标记 (静态 + 动态) 同步到所有已发现的 PyRIT 消费模块。."""
     merged = _current_markers | frozenset(_discovered_markers)
 
     holders = _discover_marker_holders()
     for mod in holders:
         try:
             mod.CONTENT_FILTER_MARKERS = merged
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning("Failed to sync markers to %s: %s", mod.__name__, e)
 
 
 def persist_discovered_markers() -> None:
-    """将动态发现的标记持久化到 JSON 文件,供下次运行加载。"""
+    """将动态发现的标记持久化到 JSON 文件,供下次运行加载。."""
     if not _discovered_markers:
         return
 
@@ -350,7 +350,7 @@ def persist_discovered_markers() -> None:
 
 
 def _load_discovered_markers() -> None:
-    """从 JSON 文件加载上次运行发现的标记。"""
+    """从 JSON 文件加载上次运行发现的标记。."""
     if not _DISCOVERED_CACHE_PATH.exists():
         return
 
@@ -371,7 +371,7 @@ def _load_discovered_markers() -> None:
 
 
 def _verify_patch() -> tuple[bool, str]:
-    """验证补丁是否实际生效。
+    """验证补丁是否实际生效。.
 
     用扩展标记构造测试负载,调用实际 PyRIT 函数,断言返回 True。
     如果验证失败,说明补丁未正确生效(可能 PyRIT 版本变更导致 API 变化)。
@@ -409,7 +409,7 @@ def _verify_patch() -> tuple[bool, str]:
             return False, "handle_bad_request_exception 返回 None (预期非 None)"
     except RuntimeError:
         return False, "handle_bad_request_exception 抛出 RuntimeError — 标记未被识别"
-    except (RuntimeError, OSError, ValueError) as e:
+    except (OSError, ValueError) as e:
         return False, f"调用 handle_bad_request_exception 失败: {e}"
 
     return True, "验证通过"
@@ -421,7 +421,7 @@ def _verify_patch() -> tuple[bool, str]:
 
 
 def restore_content_filter_markers() -> None:
-    """恢复所有补丁到原始状态。
+    """恢复所有补丁到原始状态。.
 
     用于:
       - 单元测试隔离 (每个测试后恢复)
@@ -433,7 +433,7 @@ def restore_content_filter_markers() -> None:
         if mod is not None:
             try:
                 mod.CONTENT_FILTER_MARKERS = original
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 logger.warning("Failed to restore %s.CONTENT_FILTER_MARKERS: %s", mod_qualname, e)
 
     for mod_qualname, original in _original_state["functions"].items():
@@ -441,7 +441,7 @@ def restore_content_filter_markers() -> None:
         if mod is not None:
             try:
                 mod._is_content_filter_error = original
-            except (RuntimeError, OSError, ValueError) as e:
+            except Exception as e:
                 logger.warning("Failed to restore %s._is_content_filter_error: %s", mod_qualname, e)
 
     _original_state["markers"].clear()
@@ -468,7 +468,7 @@ def _print_health_report(
     verified: bool,
     version_warning: str | None,
 ) -> None:
-    """打印补丁健康报告。
+    """打印补丁健康报告。.
 
     Args:
         total_markers: 合并后的总标记数。
@@ -506,7 +506,7 @@ def _print_health_report(
 
 
 def extend_content_filter_markers(config_path: str | Path | None = None) -> frozenset[str]:
-    """扩展 PyRIT 的 ``CONTENT_FILTER_MARKERS`` (三层防御 + 健康检查)。
+    """扩展 PyRIT 的 ``CONTENT_FILTER_MARKERS`` (三层防御 + 健康检查)。.
 
     执行流程:
       0. 幂等检查 — 已补丁则跳过
@@ -563,7 +563,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
                     len(yaml_markers),
                     config_path,
                 )
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning("Failed to load content filter markers config: %s", e)
 
     # 3. 合并静态标记 (L1 + L2)
@@ -598,7 +598,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
             mod.CONTENT_FILTER_MARKERS = merged
             patched_marker_count += 1
             logger.info("Patched CONTENT_FILTER_MARKERS in %s", mod.__name__)
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning("Failed to patch %s.CONTENT_FILTER_MARKERS: %s", mod.__name__, e)
 
     # 8. 补丁所有模块的 _is_content_filter_error (L3 heuristic)
@@ -608,7 +608,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
             _patch_is_content_filter_error(mod)
             patched_function_count += 1
             logger.info("Patched _is_content_filter_error in %s", mod.__name__)
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning("Failed to patch %s._is_content_filter_error: %s", mod.__name__, e)
 
     # 9. 功能验证
@@ -646,7 +646,7 @@ def extend_content_filter_markers(config_path: str | Path | None = None) -> froz
 
 
 def _patch_is_content_filter_error(mod: ModuleType) -> None:
-    """包装模块的 ``_is_content_filter_error`` 函数,增加 heuristic 自动发现 (L3)。
+    """包装模块的 ``_is_content_filter_error`` 函数,增加 heuristic 自动发现 (L3)。.
 
     包装后的函数执行流程:
       1. 调用原始函数 (使用已补丁的静态标记集)
@@ -669,7 +669,7 @@ def _patch_is_content_filter_error(mod: ModuleType) -> None:
         try:
             if original_fn(data):
                 return True
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             pass
 
         # L3: heuristic 自动发现

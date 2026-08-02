@@ -1,6 +1,6 @@
 dataset_name: owasp_asi07_cross_agent_injection
 harm_categories: cross_agent_attack
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI07
 data_type: text
 description: OWASP ASI07 - Cross-Agent Injection

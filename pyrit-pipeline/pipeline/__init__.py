@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""PyRIT 原生端到端流水线 — 六阶段拆分 (ASR 驱动, Attack-King 策略)。
+"""PyRIT 原生端到端流水线 — 六阶段拆分 (ASR 驱动, Attack-King 策略)。.
 
 每个阶段是独立模块，通过 ``PipelineContext`` 传递状态。
 修改某个阶段不影响其他阶段。

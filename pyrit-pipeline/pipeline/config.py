@@ -12,7 +12,7 @@ import warnings
 
 
 def setup_environment() -> None:
-    """全局环境初始化 (必须在任何 PyRIT import 之前调用)。
+    """全局环境初始化 (必须在任何 PyRIT import 之前调用)。.
 
     1. 抑制第三方库的 SyntaxWarning / DeprecationWarning / FutureWarning
     2. 提前加载 .env 到 os.environ
@@ -300,6 +300,14 @@ def parse_args() -> argparse.Namespace:
             "适用于全面评估场景，生成完整 ASR 对比矩阵。\n"
             "注意: 执行时间显著增加。"
         ),
+    )
+
+    # F3 修复: --verbose 参数 (对齐参考日志 Verbose 字段)
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=True,
+        help="开启详细输出 (成功攻击详情, 默认开启)",
     )
 
     # ── 报告格式 (P3: HTML/PDF) ──

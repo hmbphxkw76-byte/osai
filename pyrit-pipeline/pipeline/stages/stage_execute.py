@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 4/6: 场景执行 + ASR 分析。."""
     print("\n" + "=" * 70)
-    print("[4/6] 场景执行 — AttackExecutor 并发 + 攻击为王")
+    print("阶段 4/6: 场景执行 — AttackExecutor 并发 + 攻击为王")
     print("=" * 70)
 
     strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"

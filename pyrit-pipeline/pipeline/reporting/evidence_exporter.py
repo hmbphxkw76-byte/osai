@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""证据导出器 — PyRIT 原生 render_async + 三级证据链集成。
+"""证据导出器 — PyRIT 原生 render_async + 三级证据链集成。.
 
 L5 对齐 PyRIT 1.0.0 output 模块:
   - 使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击 Markdown
@@ -35,13 +35,14 @@ from pyrit.output.attack_result.markdown import MarkdownAttackResultMemoryPrinte
 from pyrit.output.conversation.markdown import MarkdownConversationMemoryPrinter
 from pyrit.output.score.markdown import MarkdownScorePrinter
 
+from pipeline.converters.log import extract_converter_info_from_result
 from pipeline.reporting.report_generator import _get_attack_type, _get_outcome_str, _safe_get
 
 logger = logging.getLogger(__name__)
 
 
 class EvidenceExporter:
-    """证据导出器 — 利用 PyRIT MemoryInterface + 原生 Markdown 打印器。
+    """证据导出器 — 利用 PyRIT MemoryInterface + 原生 Markdown 打印器。.
 
     L5 对齐 PyRIT 1.0.0 output 模块:
       - 使用 render_async() 直接获取渲染字符串, 消除 write_async()+read-back 冗余 I/O
@@ -60,7 +61,8 @@ class EvidenceExporter:
         blur_images: bool = False,
         blur_radius: int = 20,
         blurred_dir: os.PathLike[str] | str | None = None,
-    ):
+    ) -> None:
+        """Initialize EvidenceExporter."""
         self.evidence_dir = Path(evidence_dir)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
         self.include_reasoning_trace = include_reasoning_trace
@@ -85,7 +87,7 @@ class EvidenceExporter:
         attack_results: list[Any],
         owasp_coverage: dict[str, dict[str, Any]] | None = None,
     ) -> Path:
-        """导出完整证据包。
+        """导出完整证据包。.
 
         Returns:
             证据包 zip 文件路径
@@ -98,22 +100,62 @@ class EvidenceExporter:
             for ar in attack_results
             if _safe_get(ar, "conversation_id")
         ))
+        logger.info(f"Evidence export: {len(attack_results)} attack_results, {len(conversation_ids)} conversations")
 
         # 获取消息片段和评分
-        message_pieces = []
-        scores_for_pieces = []
+        message_pieces: list[Any] = []
+        scores_for_pieces: list[Any] = []
         if conversation_ids:
             for conv_id in conversation_ids:
-                pieces = memory.get_message_pieces(conversation_id=conv_id)
-                message_pieces.extend(pieces)
-                piece_ids = [str(p.id) for p in pieces]
-                if piece_ids:
-                    piece_scores = memory.get_prompt_scores(prompt_ids=piece_ids)
-                    scores_for_pieces.extend(piece_scores)
+                try:
+                    pieces = memory.get_message_pieces(conversation_id=conv_id)
+                    message_pieces.extend(pieces)
+                    piece_ids = [str(p.id) for p in pieces if hasattr(p, "id") and p.id]
+                    if piece_ids:
+                        piece_scores = memory.get_prompt_scores(prompt_ids=piece_ids)
+                        scores_for_pieces.extend(piece_scores)
+                except Exception as e:
+                    logger.warning(f"Failed to get message pieces for conv {conv_id}: {e}")
 
-        # 1. 生成 evidence.json
+        logger.info(
+            f"Evidence export: {len(message_pieces)} message_pieces,"
+            f" {len(scores_for_pieces)} scores_for_pieces"
+        )
+
+        # A2 修复: 如果 scores_for_pieces 为空, 从 memory.get_scores() 获取全量评分作为 fallback
+        if not scores_for_pieces:
+            try:
+                all_scores_fallback = list(memory.get_scores())
+                if all_scores_fallback:
+                    logger.info(f"Evidence export: using get_scores() fallback, got {len(all_scores_fallback)} scores")
+                    scores_for_pieces = all_scores_fallback
+            except Exception as e:
+                logger.warning(f"get_scores() fallback failed: {e}")
+
+        # L5 对齐 D1: 获取场景结果和对话统计 (对齐 pyrit_ai300 evidence.json 结构)
+        scenario_results = []
+        try:
+            scenario_results = list(memory.get_scenario_results())
+        except Exception as e:
+            logger.debug(f"get_scenario_results failed: {e}")
+
+        all_scores = []
+        try:
+            all_scores = list(memory.get_scores())
+        except Exception as e:
+            logger.debug(f"get_scores failed: {e}")
+
+        conversation_stats = {}
+        if conversation_ids:
+            try:
+                conversation_stats = memory.get_conversation_stats(conversation_ids=conversation_ids)
+            except Exception as e:
+                logger.debug(f"get_conversation_stats failed: {e}")
+
+        # 1. 生成 evidence.json (L5 对齐 D1: 扩展字段)
         evidence_data = self._build_evidence_json(
-            attack_results, message_pieces, scores_for_pieces, conversation_ids,
+            attack_results, message_pieces, scores_for_pieces,
+            scenario_results, all_scores, conversation_stats, conversation_ids,
         )
 
         # 2. 生成每个攻击的 Markdown
@@ -129,8 +171,12 @@ class EvidenceExporter:
             memory, attack_results, conversation_ids, scores_for_pieces,
         )
 
-        # 5. 生成评分 Markdown
-        score_md_files = await self._export_score_markdowns(scores_for_pieces)
+        # 5. 生成评分 Markdown (A2 修复: 传入全量评分作为 fallback)
+        all_scores_for_export = scores_for_pieces
+        if not all_scores_for_export and all_scores:
+            all_scores_for_export = all_scores
+            logger.info(f"Evidence export: using all_scores for score markdowns, {len(all_scores_for_export)} scores")
+        score_md_files = await self._export_score_markdowns(all_scores_for_export)
 
         # 6. 生成 CSV
         attack_csv = self._render_attack_summary_csv(attack_results)
@@ -142,6 +188,11 @@ class EvidenceExporter:
 
         # 打包为 zip
         archive_path = self.evidence_dir.parent / f"{self.evidence_dir.name}_evidence.zip"
+        logger.info(f"Creating evidence ZIP: {archive_path}")
+        logger.info(
+            f"  ZIP contents: {len(attack_md_files)} attacks,"
+            f" {len(conversation_md_files)} conversations, {len(score_md_files)} scores"
+        )
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             zipf.writestr("evidence.json", json.dumps(evidence_data, indent=2, ensure_ascii=False, default=str))
             zipf.writestr("conversation_history.md", conversation_summary)
@@ -167,12 +218,19 @@ class EvidenceExporter:
         self,
         attack_results: list[Any],
         message_pieces: list[Any],
-        scores: list[Any],
+        scores_for_pieces: list[Any],
+        scenario_results: list[Any],
+        all_scores: list[Any],
+        conversation_stats: Any,
         conversation_ids: list[str],
     ) -> dict[str, Any]:
-        """构建结构化 evidence.json (使用 model_dump)。"""
+        """构建结构化 evidence.json (使用 model_dump)。.
 
-        def _safe_dump(obj):
+        L5 对齐 D1: 扩展字段, 对齐 pyrit_ai300 evidence.json 结构。
+        新增 scenario_results, message_piece_count, conversation_stats 等字段。
+        """
+
+        def _safe_dump(obj: Any) -> Any:
             if hasattr(obj, "model_dump"):
                 try:
                     return obj.model_dump(mode="json")
@@ -185,12 +243,18 @@ class EvidenceExporter:
             "attack_results": [_safe_dump(ar) for ar in attack_results],
             "attack_results_count": len(attack_results),
             "message_pieces": [_safe_dump(p) for p in message_pieces],
-            "scores": [_safe_dump(s) for s in scores],
+            "message_piece_count": len(message_pieces),
+            "message_piece_scores": [_safe_dump(s) for s in scores_for_pieces],
+            "scenario_results": [_safe_dump(sr) for sr in scenario_results],
+            "scores": [_safe_dump(s) for s in all_scores],
+            "conversation_stats": str(conversation_stats)
+            if not isinstance(conversation_stats, dict)
+            else conversation_stats,
             "conversation_ids": conversation_ids,
         }
 
     async def _export_attack_markdowns(self, attack_results: list[Any]) -> list[tuple[str, str]]:
-        """使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击的 Markdown。
+        """使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击的 Markdown。.
 
         L5 对齐: 模块级导入打印机, blurred_dir 全链路传递, except Exception 宽口径捕获。
         """
@@ -203,9 +267,8 @@ class EvidenceExporter:
         )
 
         for i, ar in enumerate(attack_results, 1):
-            is_success = _get_outcome_str(ar).upper() == "SUCCESS"
-            suffix = "_success" if is_success else ""
-            filename = f"attack_{i:04d}{suffix}.md"
+            # C1 修复: 移除 _success 后缀, 对齐参考目录命名规范 (attack_0001.md)
+            filename = f"attack_{i:04d}.md"
             file_path = self.evidence_dir / "attacks" / filename
 
             try:
@@ -215,6 +278,21 @@ class EvidenceExporter:
                     include_pruned_conversations=True,
                     include_adversarial_conversation=True,
                 )
+
+                # L5 对齐 D2: 追加 Converter Transformation Log (对齐 pyrit_ai300 方案B)
+                conv_info = extract_converter_info_from_result(ar)
+                if conv_info["has_converters"]:
+                    chain_name = conv_info.get("converter_chain_name", "unknown")
+                    class_names = conv_info.get("converter_class_names", [])
+                    content += "\n\n---\n\n"
+                    content += f"## Converter Transformation Log: `{chain_name}`\n\n"
+                    content += f"- **Converter Classes**: {', '.join(class_names)}\n\n"
+                    content += "| Step | Converter Class |\n|------|----------------|\n"
+                    for step_idx, cn in enumerate(class_names, 1):
+                        content += f"| {step_idx} | {cn} |\n"
+                    content += "\n*Full transformation log with intermediate text outputs"
+                    content += " is generated via post-processing re-conversion.*\n"
+
                 file_path.write_text(content, encoding="utf-8")
                 files.append((filename, content))
             except Exception as e:
@@ -234,9 +312,10 @@ class EvidenceExporter:
         conversation_ids: list[str],
         attack_results: list[Any],
     ) -> list[tuple[str, str]]:
-        """使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown。
+        """使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown。.
 
-        L5 对齐: 模块级导入打印机, blurred_dir 全链路传递, except Exception 宽口径捕获。
+        A1 修复: 使用 memory.get_message_pieces() 替代不存在的 get_conversation_messages(),
+        对齐 PyRIT 1.0.0 MemoryInterface API。
         """
         files: list[tuple[str, str]] = []
 
@@ -262,12 +341,14 @@ class EvidenceExporter:
             file_path = self.evidence_dir / "conversations" / filename
 
             try:
-                messages = list(memory.get_conversation_messages(conversation_id=conv_id))
-                if not messages:
+                # A1 修复: 使用 get_message_pieces() 替代 get_conversation_messages()
+                pieces = list(memory.get_message_pieces(conversation_id=conv_id))
+                if not pieces:
+                    logger.debug(f"No message pieces for conversation {conv_id}")
                     continue
 
                 content = await printer.render_async(
-                    messages,
+                    pieces,
                     include_scores=True,
                     include_reasoning_trace=self.include_reasoning_trace,
                 )
@@ -276,6 +357,7 @@ class EvidenceExporter:
             except Exception as e:
                 logger.warning(f"Failed to export conversation {conv_id}: {e}")
 
+        logger.info(f"Exported {len(files)} conversation markdowns")
         return files
 
     async def _render_conversation_log(
@@ -285,9 +367,9 @@ class EvidenceExporter:
         conversation_ids: list[str],
         scores: list[Any],
     ) -> str:
-        """渲染汇总对话历史 Markdown。"""
+        """渲染汇总对话历史 Markdown。."""
         lines = [
-            f"# AI Conversation History",
+            "# AI Conversation History",
             "",
             f"Generated: {datetime.now().isoformat()}",
             f"Total Attack Results: {len(attack_results)}",
@@ -325,10 +407,11 @@ class EvidenceExporter:
                 ])
 
             try:
-                messages = list(memory.get_conversation_messages(conversation_id=conv_id))
-                if messages:
+                # A1 修复: 使用 get_message_pieces() 替代不存在的 get_conversation_messages()
+                pieces = list(memory.get_message_pieces(conversation_id=conv_id))
+                if pieces:
                     conv_md = await conv_printer.render_async(
-                        messages,
+                        pieces,
                         include_scores=True,
                         include_reasoning_trace=self.include_reasoning_trace,
                     )
@@ -363,7 +446,7 @@ class EvidenceExporter:
         return "\n".join(lines)
 
     async def _export_score_markdowns(self, scores: list[Any]) -> list[tuple[str, str]]:
-        """使用 MarkdownScorePrinter.render_async() 生成每个评分的 Markdown。
+        """使用 MarkdownScorePrinter.render_async() 生成每个评分的 Markdown。.
 
         L5 对齐: 模块级导入打印机, except Exception 宽口径捕获, 失败时生成 fallback。
         """
@@ -391,7 +474,7 @@ class EvidenceExporter:
         return files
 
     def _collect_blurred_images(self) -> list[tuple[str, str]]:
-        """收集模糊图片副本文件列表, 用于纳入证据 zip 包。
+        """收集模糊图片副本文件列表, 用于纳入证据 zip 包。.
 
         L5 对齐 PyRIT 1.0.0 output 模块:
         - Markdown 格式下 blur_images=True 时, 打印机将模糊副本写入 blurred_dir
@@ -416,7 +499,7 @@ class EvidenceExporter:
         return files
 
     def _render_attack_summary_csv(self, attack_results: list[Any]) -> str:
-        """渲染完整列的攻击摘要 CSV。"""
+        """渲染完整列的攻击摘要 CSV。."""
         output = io.StringIO()
         fieldnames = [
             "attack_id", "conversation_id", "attack_type", "objective",
@@ -446,9 +529,12 @@ class EvidenceExporter:
         return output.getvalue()
 
     def _render_coverage_matrix_csv(self, coverage: dict[str, dict[str, Any]]) -> str:
-        """渲染 OWASP 覆盖矩阵 CSV。"""
+        """渲染 OWASP 覆盖矩阵 CSV。."""
         output = io.StringIO()
-        fieldnames = ["owasp_id", "name", "framework", "severity", "attack_count", "success_count", "success_rate", "covered"]
+        fieldnames = [
+            "owasp_id", "name", "framework", "severity",
+            "attack_count", "success_count", "success_rate", "covered",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
@@ -467,9 +553,12 @@ class EvidenceExporter:
         return output.getvalue()
 
     def _render_attack_timeline_csv(self, attack_results: list[Any]) -> str:
-        """渲染攻击时间线 CSV。"""
+        """渲染攻击时间线 CSV。."""
         output = io.StringIO()
-        fieldnames = ["timestamp", "attack_id", "attack_type", "objective", "outcome", "outcome_reason", "turns", "execution_time"]
+        fieldnames = [
+            "timestamp", "attack_id", "attack_type", "objective",
+            "outcome", "outcome_reason", "turns", "execution_time",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
@@ -490,7 +579,7 @@ class EvidenceExporter:
 
 
 def _is_success_score(score: Any) -> bool:
-    """判断评分是否指示攻击成功。"""
+    """判断评分是否指示攻击成功。."""
     score_type = _safe_get(score, "score_type", "")
     score_value = _safe_get(score, "score_value")
     if score_type == "true_false":
@@ -504,7 +593,7 @@ def _is_success_score(score: Any) -> bool:
 
 
 def _format_time(ms: Any) -> str:
-    """格式化毫秒时间为可读字符串。"""
+    """格式化毫秒时间为可读字符串。."""
     if ms is None:
         return "N/A"
     try:

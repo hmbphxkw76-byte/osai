@@ -91,6 +91,7 @@ class ProbeResult:
     detection_reason: str = ""
 
     def __str__(self) -> str:
+        """Return string representation of probe result."""
         lines = [
             "AuthProbe Result:",
             f"  auth_type:        {self.auth_type}",
@@ -120,9 +121,11 @@ class AuthProbe:
         navigation_timeout_ms: int = 15000,
         settle_wait_ms: int = 2000,
     ) -> None:
-        """Args:
-        navigation_timeout_ms: 导航超时 (毫秒)。
-        settle_wait_ms: 导航后等待页面稳定的时间 (毫秒), 用于捕获重定向链。.
+        """Initialize AuthProbe navigator.
+
+        Args:
+            navigation_timeout_ms: 导航超时 (毫秒)。
+            settle_wait_ms: 导航后等待页面稳定的时间 (毫秒), 用于捕获重定向链。
         """
         self._nav_timeout = navigation_timeout_ms
         self._settle_wait = settle_wait_ms

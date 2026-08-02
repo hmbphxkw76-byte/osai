@@ -1,8 +1,8 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""
-Reporting Module
+"""Reporting Module.
+
 =================
 
 本模块负责报告层，包括报告生成、OWASP 映射、格式转换、双通道输出。
@@ -18,27 +18,12 @@ L5 对齐 PyRIT 原生 output 模块:
 """
 
 # 报告生成
-from pipeline.reporting.report_generator import (
-    OWASPFinding,
-    OWASPMapper,
-    ReportGenerator,
-    ReportResult,
-    generate_report,
-    map_attacks_to_owasp,
-)
+# Re-export PyRIT 原生 output 公共 API (便于上层统一导入)
+import contextlib
 
 # 证据导出
 from pipeline.reporting.evidence_exporter import (
     EvidenceExporter,
-)
-
-# OWASP 数据
-from pipeline.reporting.owasp_data import (
-    ALL_OWASP_DETAILS,
-    OWASP_ASI_DETAILS,
-    OWASP_LLM_DETAILS,
-    get_all_owasp_standards,
-    get_owasp_details,
 )
 
 # 格式转换
@@ -57,8 +42,24 @@ from pipeline.reporting.output_manager import (
     SummaryTable,
 )
 
-# Re-export PyRIT 原生 output 公共 API (便于上层统一导入)
-try:
+# OWASP 数据
+from pipeline.reporting.owasp_data import (
+    ALL_OWASP_DETAILS,
+    OWASP_ASI_DETAILS,
+    OWASP_LLM_DETAILS,
+    get_all_owasp_standards,
+    get_owasp_details,
+)
+from pipeline.reporting.report_generator import (
+    OWASPFinding,
+    OWASPMapper,
+    ReportGenerator,
+    ReportResult,
+    generate_report,
+    map_attacks_to_owasp,
+)
+
+with contextlib.suppress(ImportError):
     from pyrit.output import (
         FileSink,
         OutputFormat,
@@ -71,8 +72,6 @@ try:
         output_score_async,
         output_scorer_async,
     )
-except ImportError:
-    pass
 
 __all__ = [
     # 报告生成

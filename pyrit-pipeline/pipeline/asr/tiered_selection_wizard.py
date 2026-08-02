@@ -116,6 +116,7 @@ class LayerRecommendation:
     estimated_cost: str = "low"
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "layer": self.layer,
             "name": self.config.name,
@@ -142,6 +143,7 @@ class TieredRecommendation:
     layers: list[LayerRecommendation] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "model_name": self.model_name,
             "model_tier": self.model_tier,
@@ -185,6 +187,7 @@ class TieredSelectionWizard:
         model_name: str = "gpt-4o",
         model_tier: str = "unknown",
     ) -> None:
+        """Initialize TieredSelectionWizard."""
         self._model_name = model_name
         self._model_tier = model_tier
 

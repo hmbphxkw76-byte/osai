@@ -41,7 +41,7 @@ Per-technique ASR 差异化路由 (R-001 ASR 数据驱动):
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pyrit.converter import (
     AsciiArtConverter,
@@ -121,7 +121,7 @@ def create_converters(converter_names: list[str]) -> list[Converter]:
             converter = cls()
             converters.append(converter)
             logger.info(f"Created converter: {cls.__name__} (from '{name}')")
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Failed to instantiate converter '{name}' ({cls.__name__}): {e}")
             unknown.append(f"{name} (instantiation failed: {e})")
 
@@ -232,7 +232,7 @@ def build_target_aware_converter_map(
     technique_names: list[str],
     *,
     target_type: str | None = None,
-    converter_target=None,
+    converter_target: Any = None,
     converter_target_available: bool = False,
     model_tier: str = "unknown",
 ) -> dict[str, list[Converter]]:

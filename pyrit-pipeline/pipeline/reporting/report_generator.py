@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""报告生成器 — OWASP 映射 + 三级证据链 + Markdown 报告渲染 + 证据导出。
+"""报告生成器 — OWASP 映射 + 三级证据链 + Markdown 报告渲染 + 证据导出。.
 
 L5 对齐 PyRIT 1.0.0 output 模块:
   1. EvidenceExporter 使用 render_async() 替代 write_async()+read-back, 消除冗余 I/O
@@ -19,7 +19,12 @@ L5 对齐 PyRIT 1.0.0 output 模块:
  13. ReportGenerator 新增 Introduction 章节 (L5 专家级结构对齐)
  14. ReportGenerator 增强 Appendix (Configuration Summary + Reproduction Configuration)
  15. ReportGenerator 使用 extract_converter_info_from_result + format_technique_display
- 16. ReportGenerator 使用 render_diversity_section 渲染多样性分析
+ 16. ReportGenerator 使用 render_diversity_section_from_dict 渲染多样性分析
+ 17. G2: _analyze_diversity 传递 available_techniques + owasp_mapping (覆盖率不再恒为100%)
+ 18. G3: _collect_converter_log 异步化 + reconvert_async 后处理重转换 (transformation_steps 填充)
+ 19. G5: findings 按严重度降序排序 (CRITICAL → HIGH → MEDIUM → LOW)
+ 20. G6: Executive Summary 新增 Overall Risk Assessment (加权 CVSS × confidence)
+ 21. G7: docstring + HTML lang 属性修正 (lang=en 对齐英文报告)
 
 三级证据链:
   1. Finding (OWASP 映射漏洞)
@@ -44,6 +49,8 @@ from typing import Any
 
 from pyrit.memory import CentralMemory
 from pyrit.output import output_scorer_async
+from pyrit.output.conversation.markdown import MarkdownConversationMemoryPrinter
+from pyrit.output.score.markdown import MarkdownScorePrinter
 
 from pipeline.converters.log import extract_converter_info_from_result, format_technique_display
 from pipeline.reporting.format_converter import convert_report_formats
@@ -59,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class OWASPFinding:
-    """OWASP 漏洞发现 — 三级证据链第一级。"""
+    """OWASP 漏洞发现 — 三级证据链第一级。."""
     owasp_id: str
     owasp_name: str = ""
     owasp_framework: str = "llm"
@@ -78,7 +85,7 @@ class OWASPFinding:
 
 @dataclass
 class ReportResult:
-    """报告生成结果。"""
+    """报告生成结果。."""
     report_path: str
     owasp_findings: list[OWASPFinding] = field(default_factory=list)
     evidence_archive: str = ""
@@ -96,7 +103,14 @@ class ReportResult:
 
 
 class OWASPMapper:
-    """将攻击结果映射到 OWASP 安全标准 (LLM01-10 + ASI01-10)。"""
+    """将攻击结果映射到 OWASP 安全标准 (LLM01-10 + ASI01-10)。.
+
+    基于 OWASP Top 10 for LLM Applications 2025 + OWASP Top 10 for Agentic Applications。
+    映射策略:
+      1. 优先从 AttackResult 的 metadata 中提取 owasp_id (来自 prompt 文件 seed 元数据)
+      2. 回退到 ATTACK_CLASS_TO_CATEGORY → CATEGORY_TO_OWASP 硬编码映射
+      3. 最终回退到 LLM01 (Prompt Injection 是最通用的类别)
+    """
 
     ATTACK_CLASS_TO_CATEGORY = {
         "PromptSendingAttack": "prompt_injection",
@@ -108,26 +122,97 @@ class OWASPMapper:
         "TreeOfAttacksWithPruningAttack": "jailbreak",
         "SequentialAttack": "adaptive_attack",
         "ManyShotJailbreakAttack": "goal_hijack",
-        "SkeletonKeyAttack": "goal_hijack",
+        "SkeletonKeyAttack": "privilege_escalation",
         "BargeInAttack": "agent_communication_attack",
         "ChunkedRequestAttack": "context_injection",
     }
 
+    # OWASP Top 10 for LLM Applications 2025 + Agentic Applications 映射
     CATEGORY_TO_OWASP = {
+        # LLM01: Prompt Injection — 直接/间接注入、越狱、自适应攻击
         "prompt_injection": ["LLM01"],
         "jailbreak": ["LLM01"],
         "adaptive_attack": ["LLM01"],
-        "goal_hijack": ["LLM06"],
-        "agent_communication_attack": ["LLM06"],
         "context_injection": ["LLM01"],
+        # LLM02: Sensitive Information Disclosure — 信息提取
+        "info_extraction": ["LLM02"],
+        # LLM03: Supply Chain — 依赖/模型来源
+        "supply_chain": ["LLM03"],
+        # LLM04: Data and Model Poisoning — 后门/投毒触发
+        "data_poisoning": ["LLM04"],
+        # LLM05: Improper Output Handling — XSS/SQL/RCE 输出
+        "output_handling": ["LLM05"],
+        # LLM06: Excessive Agency — 权限提升、Agent 误用
+        #   交叉映射: privilege_escalation → ASI05, agent_communication_attack → ASI07
+        "goal_hijack": ["LLM06"],
+        "agent_communication_attack": ["LLM06", "ASI07"],
+        "privilege_escalation": ["LLM06", "ASI05"],
+        # LLM07: System Prompt Leakage — 系统提示词提取
+        "system_prompt_leakage": ["LLM07"],
+        # LLM08: Vector and Embedding Weaknesses — RAG/向量库
+        "vector_embedding": ["LLM08"],
+        # LLM09: Misinformation — 幻觉/虚假信息
+        "misinformation": ["LLM09"],
+        # LLM10: Unbounded Consumption — 资源耗尽/模型提取
+        "unbounded_consumption": ["LLM10"],
+        # ASI01: Agent Identity Spoofing — 身份冒充
+        "agent_identity_spoofing": ["ASI01"],
+        # ASI02: Tool Misuse — 工具误用
+        "tool_misuse": ["ASI02"],
+        # ASI03: Unauthorized Actions — 未授权操作
+        "unauthorized_actions": ["ASI03"],
+        # ASI04: Data Exfiltration — 数据外泄
+        "data_exfiltration": ["ASI04"],
+        # ASI06: Memory Poisoning — 记忆投毒
+        "memory_poisoning": ["ASI06"],
+        # ASI08: Cascading Failures — 级联故障
+        "cascading_failure": ["ASI08"],
+        # ASI09: Trust Boundary Violation — 信任边界违规
+        "trust_boundary_violation": ["ASI09"],
+        # ASI10: Rogue Agent — 恶意代理
+        "rogue_agent": ["ASI10"],
     }
 
-    def attack_to_owasp(self, attack_type: str) -> list[str]:
-        """将攻击类型映射到 OWASP ID。."""
+    def attack_to_owasp(self, attack_type: str, attack_result: Any = None) -> list[str]:
+        """将攻击类型映射到 OWASP ID。.
+
+        优先从 attack_result 的 metadata 中提取 owasp_id（来自 prompt 文件
+        seed 元数据），回退到硬编码映射。
+
+        Args:
+            attack_type: 攻击类型字符串 (如 "PromptSendingAttack")
+            attack_result: 可选的 AttackResult 对象，用于提取 metadata.owasp_id
+        """
+        # 1. 优先从 metadata 提取 owasp_id
+        if attack_result is not None:
+            owasp_id = self._extract_owasp_id_from_metadata(attack_result)
+            if owasp_id:
+                return [owasp_id]
+
+        # 2. 回退到硬编码映射
         category = self.ATTACK_CLASS_TO_CATEGORY.get(attack_type, "")
         if category and category in self.CATEGORY_TO_OWASP:
             return self.CATEGORY_TO_OWASP[category]
         return ["LLM01"]
+
+    @staticmethod
+    def _extract_owasp_id_from_metadata(attack_result: Any) -> str | None:
+        """从 AttackResult 的 metadata 中提取 owasp_id。."""
+        # 尝试从 memory_labels 获取
+        labels = _safe_get(attack_result, "memory_labels", None)
+        if labels and isinstance(labels, dict):
+            owasp_id = labels.get("owasp_id", "")
+            if owasp_id:
+                return owasp_id
+        # 尝试从 objective 的 metadata 获取
+        objective = _safe_get(attack_result, "objective", None)
+        if objective:
+            metadata = _safe_get(objective, "metadata", None)
+            if metadata and isinstance(metadata, dict):
+                owasp_id = metadata.get("owasp_id", "")
+                if owasp_id:
+                    return owasp_id
+        return None
 
     def map_attacks_to_findings(self, attack_results: list[Any]) -> list[OWASPFinding]:
         """将攻击结果映射到 OWASP 漏洞发现 (三级证据链第一级)。."""
@@ -140,7 +225,9 @@ class OWASPMapper:
 
         findings: list[OWASPFinding] = []
         for attack_type, related in attacks_by_type.items():
-            owasp_ids = self.attack_to_owasp(attack_type)
+            # 优先从第一个 attack_result 的 metadata 提取 owasp_id
+            sample_ar = related[0] if related else None
+            owasp_ids = self.attack_to_owasp(attack_type, attack_result=sample_ar)
             for owasp_id in owasp_ids:
                 details = get_owasp_details(owasp_id)
                 framework = "agentic" if owasp_id.startswith("ASI") else "llm"
@@ -175,7 +262,7 @@ class OWASPMapper:
         owasp_stats: dict[str, dict[str, int]] = {}
         for ar in attack_results:
             attack_type = _get_attack_type(ar)
-            owasp_ids = self.attack_to_owasp(attack_type)
+            owasp_ids = self.attack_to_owasp(attack_type, attack_result=ar)
             outcome = _get_outcome_str(ar).upper()
             for owasp_id in owasp_ids:
                 if owasp_id not in owasp_stats:
@@ -209,7 +296,7 @@ class OWASPMapper:
 def _safe_get(obj: Any, attr: str, default: Any = None) -> Any:
     try:
         return getattr(obj, attr, default)
-    except (RuntimeError, OSError, ValueError):
+    except Exception:
         return default
 
 
@@ -227,7 +314,7 @@ def _get_attack_type(ar: Any) -> str:
         strategy_id = ar.get_attack_strategy_identifier()
         if strategy_id:
             return str(strategy_id).split("::")[0]
-    except (RuntimeError, OSError, ValueError):
+    except Exception:
         pass
     raw = _safe_get(ar, "atomic_attack_identifier")
     if raw:
@@ -253,7 +340,7 @@ def _format_time(ms: Any) -> str:
 
 
 class ReportGenerator:
-    """报告生成器 — 生成 AI Red Team 评估报告 (MD/HTML/PDF) + 证据导出。
+    """报告生成器 — 生成 AI Red Team 评估报告 (MD/HTML/PDF) + 证据导出。.
 
     L5 对齐:
       - 集成 EvidenceExporter (render_async)
@@ -267,7 +354,8 @@ class ReportGenerator:
       - Introduction + 增强 Appendix
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize ReportGenerator."""
         self.owasp_mapper = OWASPMapper()
 
     async def generate_report(
@@ -283,8 +371,9 @@ class ReportGenerator:
         blur_images: bool = False,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
+        report_base_name: str = "report",
     ) -> ReportResult:
-        """生成完整报告 + 证据包。
+        """生成完整报告 + 证据包。.
 
         Args:
             scenario_result: ScenarioResult 实例
@@ -295,37 +384,45 @@ class ReportGenerator:
             title: 报告标题
             include_reasoning_trace: 是否包含推理轨迹
             blur_images: 是否模糊图片
-            start_time: 评估开始时间 (None 时使用当前时间)
-            end_time: 评估结束时间 (None 时使用当前时间)
+            start_time: 评估开始时间 (None 时使用当前时间).
+            end_time: 评估结束时间 (None 时使用当前时间).
+            report_base_name: 报告文件基础名 (不含扩展名).
         """
         if start_time is None:
             start_time = datetime.now()
         if end_time is None:
             end_time = datetime.now()
 
+        logger.info(f"ReportGenerator.generate_report started, output_dir={output_dir}, evidence_dir={evidence_dir}")
+
         memory = CentralMemory.get_memory_instance()
         attack_results = memory.get_attack_results()
+
+        logger.info(f"ReportGenerator: {len(attack_results)} attack_results from memory")
 
         # ── 评分器指标 (PyRIT 原生) ──
         try:
             scorer_identifier = _safe_get(scenario_result, "objective_scorer_identifier")
             if scorer_identifier is not None:
                 await output_scorer_async(scorer_identifier=scorer_identifier, format="pretty")
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Scorer output failed: {e}")
 
         # ── OWASP 映射 + 覆盖矩阵 ──
         findings = self.owasp_mapper.map_attacks_to_findings(attack_results)
+        # G5 修复: 按严重度降序排序 (CRITICAL → HIGH → MEDIUM → LOW)
+        _severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        findings.sort(key=lambda f: _severity_order.get(f.severity, 99))
         coverage_matrix = self.owasp_mapper.build_coverage_matrix(attack_results)
 
-        # ── Converter 变换日志 ──
-        converter_report = self._collect_converter_log(attack_results)
+        # ── Converter 变换日志 (G3: 异步 + reconvert_async) ──
+        converter_report = await self._collect_converter_log(attack_results)
 
         # ── 多样性分析 ──
         diversity_metrics = self._analyze_diversity(attack_results, coverage_matrix)
 
         # ── 攻击详情 (三级证据链第二级 + 第三级) ──
-        attack_details = self._collect_attack_details(attack_results)
+        attack_details = await self._collect_attack_details(attack_results)
 
         # ── 渲染 Markdown 报告 ──
         report_content = self._render_markdown(
@@ -337,11 +434,11 @@ class ReportGenerator:
         # ── 保存 Markdown ──
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        report_path = output_dir / "report.md"
+        report_path = output_dir / f"{report_base_name}.md"
         report_path.write_text(report_content, encoding="utf-8")
 
         # ── 格式转换 (MD → HTML → PDF) ──
-        base_path = output_dir / "report"
+        base_path = output_dir / report_base_name
         format_result = convert_report_formats(
             report_content, base_path,
             generate_html=generate_html,
@@ -363,8 +460,9 @@ class ReportGenerator:
             evidence_archive = str(await exporter.export_all_evidence(
                 attack_results, owasp_coverage=coverage_matrix,
             ))
-        except (RuntimeError, OSError, ValueError) as e:
-            logger.warning(f"Evidence export failed: {e}")
+        except Exception as e:
+            logger.exception(f"Evidence export failed: {e}")
+            print(f"  [警告] 证据导出失败: {e}")
 
         return ReportResult(
             report_path=str(report_path),
@@ -377,16 +475,22 @@ class ReportGenerator:
             duration_seconds=(end_time - start_time).total_seconds(),
         )
 
-    def _collect_converter_log(self, attack_results: list[Any]) -> dict[str, Any]:
-        """收集 Converter 变换日志 (集成 ConverterLogCollector)。."""
+    async def _collect_converter_log(self, attack_results: list[Any]) -> dict[str, Any]:
+        """收集 Converter 变换日志 (集成 ConverterLogCollector + G3 reconvert_async).
+
+        G3 修复: 在 collect() 后执行 reconvert_async() 后处理重转换,
+        填充 transformation_steps 字段, 使报告中 Converter Transformation Log 有数据。
+        """
         try:
             from pipeline.converters.log import ConverterLogCollector
 
             collector = ConverterLogCollector()
             attack_results_dict: dict[str, list[Any]] = {"default": attack_results}
             report = collector.collect(attack_results=attack_results_dict)
+            # G3 修复: 后处理重转换 — 对非 LLM Converter 重新执行变换链, 记录中间步骤
+            report = await collector.reconvert_async(report)
             return report.to_dict()
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Converter log collection failed: {e}")
             return {}
 
@@ -395,24 +499,59 @@ class ReportGenerator:
         attack_results: list[Any],
         coverage_matrix: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
-        """分析攻击多样性 (集成 DiversityAnalyzer)。."""
+        """分析攻击多样性 (集成 DiversityAnalyzer + G2 参数补全).
+
+        G2 修复: 传递 available_techniques 和 owasp_mapping 参数, 确保技术覆盖度
+        和 OWASP 覆盖度不被错误地计算为 100%/0%。
+        """
         try:
             from pipeline.analysis.diversity_analyzer import DiversityAnalyzer
 
             analyzer = DiversityAnalyzer()
             attack_results_dict: dict[str, list[Any]] = {"default": attack_results}
-            metrics = analyzer.analyze(attack_results=attack_results_dict)
+
+            # G2 修复: 获取可用技术列表
+            available_techniques: list[str] = []
+            try:
+                from pyrit.registry import AttackTechniqueRegistry
+                available_techniques = list(
+                    AttackTechniqueRegistry.get_registry_singleton().get_factories().keys()
+                )
+            except (ImportError, RuntimeError):
+                pass
+
+            # G2 修复: 构建 owasp_mapping (attack_type → owasp_id)
+            owasp_mapping: dict[str, str] = {}
+            for ar in attack_results:
+                attack_type = _get_attack_type(ar)
+                owasp_ids = self.owasp_mapper.attack_to_owasp(attack_type, attack_result=ar)
+                if owasp_ids:
+                    owasp_mapping[attack_type] = owasp_ids[0]
+
+            metrics = analyzer.analyze(
+                attack_results=attack_results_dict,
+                available_techniques=available_techniques or None,
+                owasp_mapping=owasp_mapping or None,
+            )
             return metrics.to_dict()
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Diversity analysis failed: {e}")
             return {}
 
-    def _collect_attack_details(self, attack_results: list[Any]) -> dict[str, list[dict[str, Any]]]:
-        """从 Memory 收集攻击详情 (三级证据链第二级 + 第三级)。."""
+    async def _collect_attack_details(self, attack_results: list[Any]) -> dict[str, list[dict[str, Any]]]:
+        """从 Memory 收集攻击详情 (三级证据链第二级 + 第三级).
+
+        K1 优化: 使用原生 MarkdownConversationMemoryPrinter.render_async() 渲染对话,
+        替代手动构建 **[USER]** / **[ASSISTANT]** 格式, 保持与 evidence 文件格式一致。
+        """
         try:
             memory = CentralMemory.get_memory_instance()
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             return {}
+
+        # K1: 原生打印机实例
+        score_printer = MarkdownScorePrinter()
+        conv_printer = MarkdownConversationMemoryPrinter(score_printer=score_printer)
 
         details: dict[str, list[dict[str, Any]]] = {}
         for ar in attack_results:
@@ -422,6 +561,7 @@ class ReportGenerator:
 
             conv_id = _safe_get(ar, "conversation_id")
             conversation: list[dict[str, str]] = []
+            conversation_md: str = ""
             if conv_id:
                 try:
                     pieces = memory.get_message_pieces(conversation_id=str(conv_id))
@@ -431,7 +571,16 @@ class ReportGenerator:
                             "text": str(_safe_get(p, "converted_value", _safe_get(p, "original_value", ""))),
                             "timestamp": str(_safe_get(p, "timestamp", "")),
                         })
-                except (RuntimeError, OSError, ValueError):
+                    # K1: 使用原生 render_async() 渲染对话 Markdown
+                    if pieces:
+                        try:
+                            conversation_md = await conv_printer.render_async(
+                                pieces,
+                                include_scores=True,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to render conversation for {conv_id}: {e}")
+                except Exception:
                     pass
 
             last_score = _safe_get(ar, "last_score")
@@ -454,6 +603,7 @@ class ReportGenerator:
                 "executed_turns": _safe_get(ar, "executed_turns", 0),
                 "execution_time_ms": _safe_get(ar, "execution_time_ms", 0),
                 "conversation": conversation,
+                "conversation_md": conversation_md,
                 "conversation_id": str(conv_id or ""),
                 "score": score_info,
                 "converter_chain_name": conv_info.get("converter_chain_name"),
@@ -541,7 +691,7 @@ class ReportGenerator:
             "This section provides a high-level, non-technical overview of the engagement",
             "suitable for a management audience. The assessment evaluated the target AI",
             "system against the OWASP Top 10 for LLM Applications 2025 and the OWASP Top 10",
-            "for Agentic AI, identifying vulnerabilities that could be exploited by an adversary.",
+            "for Agentic Applications, identifying vulnerabilities that could be exploited by an adversary.",
             "",
             "### High-Level Attack Path",
             "",
@@ -560,6 +710,28 @@ class ReportGenerator:
             f"- Medium: {medium_count}",
             f"- Low: {low_count}",
             "",
+        ])
+
+        # G6 新增: 聚合风险评分 (加权 CVSS × confidence)
+        if findings:
+            weighted_score = sum(f.cvss_score * f.confidence for f in findings) / len(findings)
+            if weighted_score >= 7.0:
+                risk_level = "Critical"
+            elif weighted_score >= 5.0:
+                risk_level = "High"
+            elif weighted_score >= 3.0:
+                risk_level = "Medium"
+            else:
+                risk_level = "Low"
+            lines.extend([
+                "### Overall Risk Assessment",
+                f"- **Weighted Risk Score**: {weighted_score:.2f} / 10.0",
+                f"- **Risk Level**: {risk_level}",
+                "- **Formula**: Σ(CVSS × Confidence) / N(findings)",
+                "",
+            ])
+
+        lines.extend([
             "### Attack Summary",
             f"- Total Attacks: {total_attacks}",
             f"- Successful: {successful}",
@@ -585,7 +757,7 @@ class ReportGenerator:
 
         # Converter Chain Usage
         converter_usage: dict[str, int] = {}
-        for attack_type, details_list in attack_details.items():
+        for _attack_type, details_list in attack_details.items():
             for detail in details_list:
                 if detail.get("has_converters"):
                     chain = detail.get("converter_chain_name", "unknown")
@@ -631,11 +803,11 @@ class ReportGenerator:
                 lines.append(f"| {str(reason)[:50]} | {count} |")
             lines.append("")
 
-        # Diversity & Coverage Analysis
+        # Diversity & Coverage Analysis (L5 对齐: 使用 render_diversity_section_from_dict)
         if diversity_metrics:
             try:
-                from pipeline.analysis.diversity_analyzer import render_diversity_section
-                lines.append(render_diversity_section(diversity_metrics))
+                from pipeline.analysis.diversity_analyzer import render_diversity_section_from_dict
+                lines.append(render_diversity_section_from_dict(diversity_metrics))
             except ImportError:
                 pass
 
@@ -664,7 +836,7 @@ class ReportGenerator:
         lines.append("")
 
         lines.extend([
-            "### OWASP Top 10 for Agentic AI",
+            "### OWASP Top 10 for Agentic Applications",
             "",
             "| OWASP ID | Threat | Severity | Attacks | Success | Success Rate | Covered |",
             "|----------|--------|----------|---------|---------|--------------|---------|",
@@ -753,11 +925,14 @@ class ReportGenerator:
                         ])
                     lines.append("")
 
-                    # 完整对话历史 (三级证据链第三级)
-                    conv = detail.get("conversation", [])
-                    if conv:
+                    # 完整对话历史 (三级证据链第三级) — K1: 使用原生渲染
+                    conv_md = detail.get("conversation_md", "")
+                    if conv_md:
+                        lines.extend(["**Conversation History**:", "", conv_md, ""])
+                    elif detail.get("conversation"):
+                        # 回退: 手动渲染 (向后兼容)
                         lines.extend(["**Conversation History**:", ""])
-                        for msg in conv:
+                        for msg in detail["conversation"]:
                             role = msg.get("role", "unknown").upper()
                             text = msg.get("text", "")
                             lines.extend([f"**[{role}]**", "```", text, "```", ""])
@@ -831,9 +1006,13 @@ class ReportGenerator:
                     ])
                 lines.append("")
 
-                # 完整对话历史
-                conv = detail.get("conversation", [])
-                if conv:
+                # 完整对话历史 — K1: 使用原生渲染
+                conv_md = detail.get("conversation_md", "")
+                if conv_md:
+                    lines.extend(["**Conversation History**:", "", conv_md, ""])
+                elif detail.get("conversation"):
+                    conv = detail.get("conversation", [])
+                    # 回退: 手动渲染 (向后兼容)
                     lines.extend(["**Conversation History**:", ""])
                     for msg in conv:
                         role = msg.get("role", "unknown").upper()
@@ -868,7 +1047,9 @@ class ReportGenerator:
                 "|-------|-------|---------|------|-------|-----|",
             ])
             chain_stats = converter_report.get("chain_stats", {})
-            for chain_name, stats in sorted(chain_stats.items(), key=lambda x: x[1].get("success_rate", 0), reverse=True):
+            for chain_name, stats in sorted(
+                chain_stats.items(), key=lambda x: x[1].get("success_rate", 0), reverse=True
+            ):
                 lines.append(
                     f"| {chain_name} | {stats.get('total_uses', 0)} | "
                     f"{stats.get('successes', 0)} | {stats.get('failures', 0)} | "
@@ -950,7 +1131,7 @@ class ReportGenerator:
             "",
             "| Severity | Definition |",
             "|----------|-----------|",
-            "| Critical | Immediate threat with potential for system compromise, data breach, or unauthorized code execution |",
+            "| Critical | Immediate threat: system compromise, data breach, or unauthorized code execution |",
             "| High | Significant vulnerability that could lead to unauthorized access or data exposure |",
             "| Medium | Moderate risk that may require specific conditions to exploit |",
             "| Low | Limited impact vulnerability, often informational |",
@@ -1048,6 +1229,7 @@ async def generate_report(
     blur_images: bool = False,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    report_base_name: str = "report",
 ) -> ReportResult:
     """生成报告 (工厂函数)。."""
     generator = ReportGenerator()
@@ -1062,6 +1244,7 @@ async def generate_report(
         blur_images=blur_images,
         start_time=start_time,
         end_time=end_time,
+        report_base_name=report_base_name,
     )
 
 

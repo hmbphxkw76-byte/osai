@@ -53,6 +53,7 @@ class BrowserSession:
     """
 
     def __init__(self) -> None:
+        """Initialize BrowserSession."""
         self._playwright: Any = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -257,10 +258,12 @@ class BrowserSession:
 
     @property
     def page(self) -> Page | None:
+        """Get the current page."""
         return self._page
 
     @property
     def context(self) -> BrowserContext | None:
+        """Get the browser context."""
         return self._context
 
     async def close(self) -> None:

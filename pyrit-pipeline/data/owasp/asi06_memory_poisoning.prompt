@@ -1,6 +1,6 @@
 dataset_name: owasp_asi06_memory_poisoning
 harm_categories: memory_attack
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI06
 data_type: text
 description: OWASP ASI06 - Memory Poisoning

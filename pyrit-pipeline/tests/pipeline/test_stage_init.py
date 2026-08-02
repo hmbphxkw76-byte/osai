@@ -35,27 +35,37 @@ class TestStageInit:
             await stage_init(ctx)
 
     async def test_successful_init(self, mock_args: pytest.fixture, tmp_path: Path) -> None:
-        """正常初始化流程 (mock ConfigurationLoader)。."""
+        """正常初始化流程 (mock ConfigurationLoader + per-run DB 初始化)."""
         # 创建临时配置文件
         config_path = tmp_path / "test_conf.yaml"
         config_path.write_text("memory_db_type: in_memory\nsilent: true\n", encoding="utf-8")
         mock_args.config_file = str(config_path)
         ctx = PipelineContext(args=mock_args)
 
-        # Mock ConfigurationLoader
+        # Mock ConfigurationLoader — 对齐 _initialize_with_per_run_db() 调用链
         mock_config = MagicMock()
-        mock_config.initialize_pyrit_async = AsyncMock()
         mock_config.memory_db_type = "in_memory"
+        mock_config.silent = True
+        mock_config.env_akv_ref = None
+        mock_config._MEMORY_DB_TYPE_MAP = {"in_memory": "InMemory", "sqlite": "SQLite"}
+        mock_config.resolve_initializers = MagicMock(return_value={})
+        mock_config.resolve_initialization_scripts = MagicMock(return_value=[])
+        mock_config.resolve_env_files = MagicMock(return_value=[])
 
-        with patch("pipeline.stages.stage_init.ConfigurationLoader") as mock_loader_cls:
+        with (
+            patch("pipeline.stages.stage_init.ConfigurationLoader") as mock_loader_cls,
+            patch("pipeline.stages.stage_init._core_initialize_pyrit", new_callable=AsyncMock) as mock_init,
+            patch("pipeline.stages.stage_init.TargetRegistry"),
+            patch("pipeline.stages.stage_init.ScorerRegistry"),
+            patch("pipeline.stages.stage_init.AttackTechniqueRegistry"),
+        ):
             mock_loader_cls.load_with_overrides = MagicMock(return_value=mock_config)
-            with (
-                patch("pipeline.stages.stage_init.TargetRegistry"),
-                patch("pipeline.stages.stage_init.ScorerRegistry"),
-                patch("pipeline.stages.stage_init.AttackTechniqueRegistry"),
-            ):
-                from pipeline.stages.stage_init import run as stage_init
 
-                await stage_init(ctx)
+            from pipeline.stages.stage_init import run as stage_init
+
+            await stage_init(ctx)
+
+            # 验证 _core_initialize_pyrit 被调用 (对齐 per-run DB 初始化)
+            mock_init.assert_called_once()
 
         assert ctx.config is mock_config

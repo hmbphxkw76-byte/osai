@@ -1,9 +1,9 @@
 dataset_name: owasp_llm01_prompt_injection
 harm_categories: information_integrity
-source: https://owasp.org/www-project-top-10-for-llm-applications/
+source: https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/
 groups: OWASP/LLM01
 data_type: text
-description: OWASP LLM01 - Prompt Injection
+description: OWASP LLM01:2025 - Prompt Injection
 seed_type: objective
 references:
   - arXiv:2402.12109

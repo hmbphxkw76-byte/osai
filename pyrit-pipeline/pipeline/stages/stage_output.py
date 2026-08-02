@@ -6,7 +6,7 @@
 职责:
   - ``output_scenario_async()`` 场景结果汇总 (Per-Group Breakdown, 按 ASR 排序)
   - ``output_scorer_async()`` 评分器指标
-  - ``output_attack_async(format="markdown")`` 每个攻击的 Markdown 报告
+  - EvidenceExporter 统一生成攻击 Markdown 报告 (render_async)
   - 证据收集 (结构化漏洞证据 JSON + Markdown) — 核心
   - 组级 ASR 降级链报告 — 核心
   - 攻击多样性分析 (可选, ``--analyze`` 标志触发)
@@ -25,9 +25,10 @@
 
 依赖的原生 API:
   - pyrit.output.output_scenario_async
-  - pyrit.output.output_attack_async
   - pyrit.output.output_scorer_async
-  - pyrit.output.FileSink
+  - pyrit.output.attack_result.markdown.MarkdownAttackResultMemoryPrinter (via EvidenceExporter)
+  - pyrit.output.conversation.markdown.MarkdownConversationMemoryPrinter (via EvidenceExporter)
+  - pyrit.output.score.markdown.MarkdownScorePrinter (via EvidenceExporter)
 
 自研模块 (报告增强):
   - pipeline.analysis.evidence_collector.EvidenceCollector — 核心 (必选)
@@ -56,6 +57,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from pyrit.output import output_scenario_async, output_scorer_async  # noqa: E402
+
+from pipeline.context import PipelineContext  # noqa: E402
+
 # Windows 文件名非法字符: < > : " / \ | ? *
 _FILENAME_SANITIZE_RE = re.compile(r'[<>:"/\\|?*]')
 
@@ -65,8 +70,25 @@ def _sanitize_filename(name: str) -> str:
     return _FILENAME_SANITIZE_RE.sub("_", name)
 
 
+def _has_pdf_support() -> bool:
+    """F4: 检测是否安装了 PDF 渲染依赖 (weasyprint 或 xhtml2pdf)."""
+    try:
+        import weasyprint  # noqa: F401
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import xhtml2pdf  # noqa: F401
+
+        return True
+    except ImportError:
+        pass
+    return False
+
+
 def _is_attack_success(ar: Any) -> bool:
-    """判断 AttackResult 是否成功 (仅 SUCCESS 返回 True)。"""
+    """判断 AttackResult 是否成功 (仅 SUCCESS 返回 True)。."""
     outcome = getattr(ar, "outcome", None)
     if outcome is None:
         return False
@@ -74,15 +96,10 @@ def _is_attack_success(ar: Any) -> bool:
     return outcome_str == "SUCCESS"
 
 
-from pyrit.output import output_scenario_async, output_scorer_async
-
-from pipeline.context import PipelineContext
-
-
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 6/6: 结果输出 + 增强报告。."""
     print("\n" + "=" * 70)
-    print("[6/6] 结果输出 — 证据收集 + 报告生成")
+    print("阶段 6/6: 结果输出 — 证据收集 + 报告生成")
     print("=" * 70)
 
     result = ctx.result
@@ -111,7 +128,7 @@ async def run(ctx: PipelineContext) -> None:
         if ctx.args.output_dir:
             output_dir = Path(ctx.args.output_dir)
         else:
-            output_dir = Path(f"outputs/redteam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            output_dir = Path(f"outputs/{ctx.output_manager.prefix}{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 攻击结果 Markdown 报告 (由 EvidenceExporter 统一生成, 不再重复写入) ──
@@ -126,6 +143,9 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── 核心: 证据收集 ──
     _collect_evidence(ctx, output_dir)
+
+    # ── E1 修复: 生成 attacks 日志 (逐攻击 Markdown, 对齐参考目录 logs/XXX_attacks.md) ──
+    await _generate_attacks_log(ctx, output_dir)
 
     # ── 核心: 组级 ASR 降级链报告 ──
     _report_group_fallback(ctx, output_dir)
@@ -158,6 +178,32 @@ async def run(ctx: PipelineContext) -> None:
     else:
         print(f"  │ 报告目录: {output_dir}")
     print("  └───────────────────────────────────────────────────────────────┘")
+
+    # ── A3 修复: 报告生成摘要块 (对齐参考日志格式) ──
+    l5_report = ctx.metadata.get("l5_report", {})
+    if l5_report:
+        # F1 修复: 从 ctx.result 提取攻击统计
+        total_attacks = sum(len(v) for v in result.attack_results.values()) if result else 0
+        success_attacks = sum(
+            1 for v in (result.attack_results.values() if result else [])
+            for ar in v if ar.outcome and ar.outcome.name == "SUCCESS"
+        ) if result else 0
+        success_rate = success_attacks / total_attacks * 100 if total_attacks > 0 else 0
+
+        print("\n  ┌─ 报告生成 ──────────────────────────────────────────────┐")
+        if l5_report.get("report_path"):
+            print(f"  │ 报告路径: {l5_report['report_path']}")
+        if l5_report.get("evidence_archive"):
+            print(f"  │ 证据包:   {l5_report['evidence_archive']}")
+        print(f"  │ 发现漏洞: {l5_report.get('owasp_findings_count', 0)} 个")
+        print(f"  │ 攻击总数: {total_attacks}")
+        print(f"  │ 成功攻击: {success_attacks}")
+        print(f"  │ 成功率:   {success_rate:.1f}%")
+        if l5_report.get("report_html_path"):
+            print(f"  │ HTML 报告: {l5_report['report_html_path']}")
+        if l5_report.get("report_pdf_path"):
+            print(f"  │ PDF 报告: {l5_report['report_pdf_path']}")
+        print("  └───────────────────────────────────────────────────────────────┘")
 
     # 列出生成的报告文件
     report_files = sorted(output_dir.glob("*"))
@@ -280,8 +326,65 @@ def _collect_evidence(ctx: PipelineContext, output_dir: Path) -> None:
         print(f"  JSON: {json_path}")
         print(f"  Markdown: {md_path}")
 
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"  [警告] 证据收集失败: {e}")
+
+
+# ============================================================
+# E1 修复: attacks 日志生成 (逐攻击 Markdown 合并文件)
+# ============================================================
+
+
+async def _generate_attacks_log(ctx: PipelineContext, output_dir: Path) -> None:
+    """生成 attacks 日志 — 将所有攻击结果渲染为 Markdown 并合并写入 logs 目录。.
+
+      对齐参考目录 logs/exam_XXX_attacks.md 格式:
+    - 使用 PyRIT 原生 MarkdownAttackResultMemoryPrinter.render_async() 渲染
+    - 所有攻击合并到单个 *_attacks.md 文件
+    - 文件名: redteam_{timestamp}_attacks.md
+    """
+    print("\n--- attacks 日志生成 ---")
+    try:
+        from pyrit.output.attack_result.markdown import MarkdownAttackResultMemoryPrinter
+
+        output_mgr = ctx.output_manager
+        if output_mgr:
+            attacks_log_path = output_mgr.logs_dir / f"{output_mgr.prefix}{output_mgr.timestamp}_attacks.md"
+        else:
+            attacks_log_path = output_dir / "attacks.md"
+
+        # 获取所有攻击结果
+        all_results: list[Any] = []
+        if ctx.result:
+            for group_results in ctx.result.attack_results.values():
+                all_results.extend(group_results)
+
+        if not all_results:
+            print("  (无攻击结果, 跳过 attacks 日志)")
+            return
+
+        printer = MarkdownAttackResultMemoryPrinter()
+        parts: list[str] = []
+
+        for ar in all_results:
+            try:
+                content = await printer.render_async(
+                    ar,
+                    include_auxiliary_scores=True,
+                    include_pruned_conversations=True,
+                    include_adversarial_conversation=True,
+                )
+                parts.append(content)
+            except Exception as e:
+                logger.warning(f"Failed to render attack for log: {e}")
+
+        full_content = "\n\n".join(parts)
+        attacks_log_path.write_text(full_content, encoding="utf-8")
+        print(f"  attacks 日志: {attacks_log_path} ({len(all_results)} 条)")
+
+    except Exception as e:
+        logger.warning(f"Attacks log generation failed: {e}")
+        print(f"  [警告] attacks 日志生成失败: {e}")
 
 
 # ============================================================
@@ -419,7 +522,7 @@ def _recommend_tiered_selection(ctx: PipelineContext, output_dir: Path) -> None:
 
 def _build_report_header(ctx: PipelineContext) -> str:
     """Section 1: 报告概述 + 指标卡片。."""
-    parts: list[str] = ["# AI Red Team 完整报告\n"]
+    parts: list[str] = ["# AI Red Team Assessment Report (Fallback Mode)\n"]
     parts.append(f"> **生成时间**: {datetime.now().isoformat()}\n")
     parts.append("\n<div class='summary-grid'>\n")
 
@@ -484,7 +587,7 @@ def _build_data_layer_section(ctx: PipelineContext) -> str:
     parts.append(f"- 数据集数: {len(ctx.sorted_datasets)}\n")
     if ctx.args:
         parts.append(f"- Per-dataset 预算: {getattr(ctx.args, 'max_dataset_size', 'N/A')}\n")
-    parts.append(f"- 排序策略: ASR 降序 (高优先级数据集优先)\n")
+    parts.append("- 排序策略: ASR 降序 (高优先级数据集优先)\n")
     parts.append(f"- 数据集列表: {', '.join(ctx.sorted_datasets[:10])}\n")
     if len(ctx.sorted_datasets) > 10:
         parts.append(f"  ... 还有 {len(ctx.sorted_datasets) - 10} 个\n")
@@ -738,14 +841,21 @@ def _build_fallback_chain(ctx: PipelineContext) -> str:
 
 
 async def _generate_reports(ctx: PipelineContext, output_dir: Path) -> None:
-    """L5 报告生成 — 优先使用 ReportGenerator (三级证据链 + OWASP 矩阵 + ZIP 证据包),
-    回退到手动 section builder (向后兼容)."""
+    """L5 报告生成.
+
+    优先使用 ReportGenerator (三级证据链 + OWASP 矩阵 + ZIP 证据包),
+    回退到手动 section builder (向后兼容).
+
+    L5 对齐 pyrit_ai300/src/reporting/report_generator.py:
+      - 使用 ``except Exception`` 宽口径捕获, 确保任何异常都不中断流水线
+      - 使用 ``logger.exception`` 记录完整 traceback, 便于定位根因
+    """
     print("\n--- L5 报告生成 ---")
     try:
         await _generate_l5_report(ctx, output_dir)
-    except (RuntimeError, OSError, ValueError) as e:
-        logger.warning(f"ReportGenerator failed, falling back to manual section builder: {e}")
-        print(f"  [提示] ReportGenerator 降级到手动 section builder: {e}")
+    except Exception as e:
+        logger.exception(f"ReportGenerator failed, falling back to manual section builder: {e}")
+        print(f"  [提示] ReportGenerator 降级到手动 section builder: {type(e).__name__}: {e}")
         _generate_html_pdf_reports(ctx, output_dir)
 
 
@@ -761,17 +871,32 @@ async def _generate_l5_report(ctx: PipelineContext, output_dir: Path) -> None:
     """
     from pipeline.reporting.report_generator import ReportGenerator
 
+    # L5 对齐: 记录结束时间, 传递评估时间范围给报告生成器
+    if ctx.end_time is None:
+        ctx.end_time = datetime.now()
+    start_time = ctx.start_time or datetime.now()
+    end_time = ctx.end_time
+
     generator = ReportGenerator()
     report_output_dir = ctx.output_manager.reports_dir if ctx.output_manager else output_dir
     evidence_dir = ctx.output_manager.evidence_run_dir if ctx.output_manager else output_dir
+
+    # 使用 redteam_{timestamp}_report 格式作为报告基础名
+    if ctx.output_manager:
+        report_base_name = f"{ctx.output_manager.prefix}{ctx.output_manager.timestamp}_report"
+    else:
+        report_base_name = f"{os.getenv('OUTPUT_PREFIX', 'redteam_')}{datetime.now().strftime('%Y%m%d_%H%M%S')}_report"
 
     report_result = await generator.generate_report(
         scenario_result=ctx.result,
         output_dir=report_output_dir,
         evidence_dir=evidence_dir,
-        generate_html=getattr(ctx.args, "html_report", False),
-        generate_pdf=getattr(ctx.args, "pdf_report", False),
+        generate_html=True,  # D1 修复: 默认生成 HTML 报告 (对齐参考目录)
+        generate_pdf=getattr(ctx.args, "pdf_report", False) or _has_pdf_support(),  # F4: 自动检测 PDF 依赖
         title="AI Red Team Report",
+        start_time=start_time,
+        end_time=end_time,
+        report_base_name=report_base_name,
     )
 
     print(f"  Markdown 报告: {report_result.report_path}")
@@ -797,8 +922,11 @@ def _generate_html_pdf_reports(ctx: PipelineContext, output_dir: Path) -> None:
 
     当 ReportGenerator 不可用时使用此函数生成报告.
     """
-    if not getattr(ctx.args, "html_report", False) and not getattr(ctx.args, "pdf_report", False):
-        return
+    # L5 对齐: 即使未指定 --html-report / --pdf-report, 也生成 Markdown 报告 (降级回退时)
+    generate_html = getattr(ctx.args, "html_report", False)
+    generate_pdf = getattr(ctx.args, "pdf_report", False)
+    if not generate_html and not generate_pdf:
+        generate_html = True  # 降级时强制生成 HTML
 
     print("\n--- HTML/PDF 报告生成 (完整证据 + OWASP + 三级证据链) ---")
     try:
@@ -824,17 +952,26 @@ def _generate_html_pdf_reports(ctx: PipelineContext, output_dir: Path) -> None:
         report_output_dir = ctx.output_manager.reports_dir if ctx.output_manager else output_dir
         report_output_dir.mkdir(parents=True, exist_ok=True)
 
+        # G8 修复: 使用 redteam_{timestamp}_report 格式 (对齐 L5)
+        if ctx.output_manager:
+            report_base_name = f"{ctx.output_manager.prefix}{ctx.output_manager.timestamp}_report"
+        else:
+            report_base_name = (
+                f"{os.getenv('OUTPUT_PREFIX', 'redteam_')}"
+                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_report"
+            )
+
         # 使用 format_converter 直接转换 Markdown → HTML/PDF
         result = convert_report_formats(
             markdown_content,
-            report_output_dir / "report",
-            generate_html=getattr(ctx.args, "html_report", False),
-            generate_pdf=getattr(ctx.args, "pdf_report", False),
+            report_output_dir / report_base_name,
+            generate_html=generate_html,
+            generate_pdf=generate_pdf,
             title="AI Red Team Report",
         )
 
         # 同时保存 Markdown
-        (report_output_dir / "report.md").write_text(markdown_content, encoding="utf-8")
+        (report_output_dir / f"{report_base_name}.md").write_text(markdown_content, encoding="utf-8")
 
         if result.get("html"):
             print(f"  HTML 报告: {result['html']}")
@@ -843,7 +980,7 @@ def _generate_html_pdf_reports(ctx: PipelineContext, output_dir: Path) -> None:
         if not result.get("html") and not result.get("pdf"):
             print("  [提示] 安装 weasyprint 或 xhtml2pdf 以生成 PDF")
 
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"  [警告] HTML/PDF 报告生成失败: {e}")
 
 
@@ -892,7 +1029,7 @@ def _print_architecture_summary(ctx: PipelineContext) -> None:
     # L3 决策: per-dataset budget
     if ctx.args:
         print(f"      Per-dataset 预算: {getattr(ctx.args, 'max_dataset_size', 'N/A')}"  )
-        print(f"      排序: ASR 降序 (高优先级数据集优先)")
+        print("      排序: ASR 降序 (高优先级数据集优先)")
 
     # L4: Memory Persistence
     print(f"    L4 (Memory Persistence): {ctx.config.memory_db_type if ctx.config else 'N/A'} (CentralMemory)")
@@ -900,7 +1037,7 @@ def _print_architecture_summary(ctx: PipelineContext) -> None:
     if ctx.result:
         print(f"      ScenarioResult ID: {ctx.result.id}")
     if ctx.config:
-        print(f"      Memory labels: run_date + pipeline_version + selector_scope")
+        print("      Memory labels: run_date + pipeline_version + selector_scope")
 
     # L5: Analytics & Select
     asr_count = len(ctx.asr_per_technique)

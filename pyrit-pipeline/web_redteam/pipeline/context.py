@@ -20,15 +20,17 @@ if TYPE_CHECKING:
     from pyrit.prompt_target import PlaywrightTarget
 
     from web_redteam.auth.browser_session import BrowserSession
+    from web_redteam.recon.recon_result import ReconResult
     from web_redteam.targets.target_profile import TargetProfile
 
 
 @dataclass
 class WebRedteamContext:
-    """贯穿流水线五个阶段的状态容器。.
+    """贯穿流水线六个阶段的状态容器。.
 
     Attributes:
         args: 命令行参数 (Config 阶段产出).
+        recon_result: 侦察结果 (Stage 0 产出).
         config: PyRIT 配置实例 (Stage 1 产出).
         profile: TargetProfile (Stage 2 产出).
         browser_session: BrowserSession 实例 (Stage 2 产出).
@@ -41,6 +43,9 @@ class WebRedteamContext:
 
     # Config 阶段产出
     args: Any = None
+
+    # Stage 0 产出 (侦察)
+    recon_result: ReconResult | None = None
 
     # Stage 1 产出
     config: Any = None

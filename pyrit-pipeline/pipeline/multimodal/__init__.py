@@ -136,7 +136,7 @@ def get_multimodal_converter(
             return cls(converter_target=converter_target)
         return cls()
 
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"Failed to build multimodal converter '{preset_name}': {e}")
         return None
 
@@ -159,7 +159,7 @@ def detect_target_modalities(target: PromptTarget) -> set[str]:
         for combo in capabilities.input_modalities:
             modalities.update(combo)
         return modalities if modalities else {"text"}
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.debug(f"Failed to detect target modalities: {e}")
         return {"text"}
 
@@ -205,7 +205,7 @@ async def discover_target_modalities_async(
     except ImportError:
         logger.warning("discover_target_capabilities_async not available, falling back to static capabilities")
         return detect_target_modalities(target)
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"Runtime modality discovery failed: {e}, using static")
         return detect_target_modalities(target)
 

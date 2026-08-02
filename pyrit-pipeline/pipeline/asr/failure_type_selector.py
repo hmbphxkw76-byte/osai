@@ -89,7 +89,7 @@ def _load_paradigm_keywords() -> tuple[
     set[str],
     tuple[str, ...],
 ]:
-    """从 ``data/paradigms.yaml`` 加载范式分类关键词。
+    """从 ``data/paradigms.yaml`` 加载范式分类关键词。.
 
     P1-4: 改为惰性加载 — YAML 不存在时使用默认值, 不再在模块导入时崩溃。
     """
@@ -194,16 +194,18 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         converter_target_name: str | None = None,
         warm_start_asr: dict[str, float] | None = None,
     ) -> None:
-        """Args:
-        epsilon: 探索概率
-        random_seed: 随机种子
-        scope: SelectorScope 限定学习范围
-        strategy_mode: 策略模式 ("academic"/"balanced")
-        model_name: 目标模型名称（影响 ASR 先验值）
-        model_tier: 模型过滤强度等级
-        owasp_id: OWASP ID（如 "LLM01"）
-        converter_target_name: Converter Target 模型名（条件性 LLM 惩罚）
-        warm_start_asr: 融合 ASR 字典 (技术→ASR 映射).
+        """Initialize FailureTypeRoutingSelector.
+
+        Args:
+            epsilon: 探索概率.
+            random_seed: 随机种子.
+            scope: SelectorScope 限定学习范围.
+            strategy_mode: 策略模式 ("academic"/"balanced").
+            model_name: 目标模型名称（影响 ASR 先验值）.
+            model_tier: 模型过滤强度等级.
+            owasp_id: OWASP ID（如 "LLM01"）.
+            converter_target_name: Converter Target 模型名（条件性 LLM 惩罚）.
+            warm_start_asr: 融合 ASR 字典 (技术→ASR 映射).
         """
         super().__init__(epsilon=epsilon, scope=scope, random_seed=random_seed)
         self._last_failure_type: str | None = None
@@ -402,7 +404,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
                 results = memory.get_scenario_results()
                 if results:
                     data_count = len(results)
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             pass
 
         if data_count <= 0:
@@ -434,7 +436,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     # ------------------------------------------------------------------
 
     def _reorder_for_content_filter_block(self, tech_list: list[str]) -> list[str]:
-        """content_filter_block → 编码/混淆优先路由 (P3: 区分 API 网关拦截)。
+        """content_filter_block → 编码/混淆优先路由 (P3: 区分 API 网关拦截)。.
 
         当 API 网关 (如 LongCat security_audit) 拦截请求时,说明攻击内容
         在传输层被检测到。路由策略:
@@ -750,10 +752,10 @@ def extract_failure_type_from_result(failed_result: Any) -> str:
     if failed_result is None:
         return FAILURE_UNKNOWN
 
-    def _safe_get(obj, attr, default=None):
+    def _safe_get(obj: Any, attr: str, default: Any = None) -> Any:
         try:
             return getattr(obj, attr, default)
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             return default
 
     raw_error = str(_safe_get(failed_result, "error_message", "") or _safe_get(failed_result, "outcome_reason", ""))

@@ -27,10 +27,13 @@ from typing import Any
 
 from pyrit.memory import CentralMemory
 from pyrit.registry import AttackTechniqueRegistry, ScorerRegistry, TargetRegistry
+from pyrit.setup import initialize_pyrit_async as _core_initialize_pyrit
 from pyrit.setup.configuration_loader import ConfigurationLoader
 
 from pipeline.context import PipelineContext
 from pipeline.utils.noise_redirector import redirect_noise_to_file
+
+logger = logging.getLogger(__name__)
 
 # 初始化过程中需要静默的 logger 名称 (它们输出 "Skipping scorer..." 等过程信息)
 _SILENT_LOGGERS = [
@@ -41,10 +44,52 @@ _SILENT_LOGGERS = [
 ]
 
 
+async def _initialize_with_per_run_db(ctx: PipelineContext, config: ConfigurationLoader) -> None:
+    """初始化 PyRIT, 使用 per-run DB 路径 (对齐 pyrit_ai300/src/setup/setup_manager.py)。.
+
+    L5 对齐: 每次运行创建独立的 SQLite DB 文件 (outputs/db/redteam_{timestamp}.db),
+    而非使用默认的全局 memory.db。
+
+    ConfigurationLoader.initialize_pyrit_async() 不传递 memory_instance_kwargs,
+    因此这里绕过它直接调用 pyrit.setup.initialize_pyrit_async() 核心函数,
+    传递 db_path 参数。
+
+    Args:
+        ctx: PipelineContext (用于获取 ctx.output_manager.db_path)
+        config: ConfigurationLoader 实例 (用于解析 initializers/scripts/env_files)
+    """
+    # 从 config 解析所有初始化参数 (与 ConfigurationLoader.initialize_pyrit_async 内部逻辑一致)
+    resolved_initializers = config.resolve_initializers()
+    resolved_scripts = config.resolve_initialization_scripts()
+    resolved_env_files = config.resolve_env_files()
+    internal_memory_db_type = config._MEMORY_DB_TYPE_MAP[config.memory_db_type]
+
+    # 构建 memory_instance_kwargs — 传递 per-run db_path
+    memory_kwargs: dict[str, Any] = {}
+    if (
+        internal_memory_db_type == "SQLite"
+        and ctx.output_manager is not None
+    ):
+        db_path = str(ctx.output_manager.db_path)
+        memory_kwargs["db_path"] = db_path
+        print(f"  [OK] Per-run DB: {db_path}")
+
+    # 调用 PyRIT 原生 initialize_pyrit_async (对齐 pyrit_ai300/src/setup/setup_manager.py)
+    await _core_initialize_pyrit(
+        memory_db_type=internal_memory_db_type,
+        initialization_scripts=resolved_scripts,
+        initializers=resolved_initializers if resolved_initializers else None,
+        env_files=resolved_env_files,
+        env_akv_ref=config.env_akv_ref,
+        silent=config.silent,
+        **memory_kwargs,
+    )
+
+
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 1/6: 原生初始化。."""
     print("\n" + "=" * 70)
-    print("[1/6] PyRIT 初始化 — Registry + Memory + 数据集")
+    print("阶段 1/6: PyRIT 初始化 — Registry + Memory + 数据集")
     print("=" * 70)
 
     config_path = Path(ctx.args.config_file)
@@ -73,10 +118,10 @@ async def run(ctx: PipelineContext) -> None:
     try:
         if noise_log_path:
             with redirect_noise_to_file(Path(noise_log_path)):
-                await config.initialize_pyrit_async()
+                await _initialize_with_per_run_db(ctx, config)
                 await _load_datasets(ctx)
         else:
-            await config.initialize_pyrit_async()
+            await _initialize_with_per_run_db(ctx, config)
             await _load_datasets(ctx)
     finally:
         for logger_name, level in saved_levels.items():
@@ -89,6 +134,9 @@ async def run(ctx: PipelineContext) -> None:
     # 必须在场景执行前完成,否则非标准 API 的安全审查 400 错误
     # 会被 PyRIT 视为普通 BadRequestError,导致整个场景崩溃
     _extend_content_filter_markers()
+
+    # ── 供应链 SBOM 扫描 (LLM03: Supply Chain Vulnerabilities) ──
+    _run_sbom_scan(ctx)
 
     # ── 初始化摘要卡片 ──
     _print_initialization_summary(config)
@@ -128,8 +176,11 @@ async def _load_datasets(ctx: PipelineContext) -> None:
     if local_paths:
         print("  [OK] 数据集加载:")
         print(f"       {len(local_paths)} 个本地数据集")
-        await _load_local_datasets_async(local_paths)
+        loaded_names = await _load_local_datasets_async(local_paths)
         ctx.metadata["local_dataset_paths"] = local_paths
+        # R-011: 更新 args.datasets 为实际加载的数据集名称, 确保 Stage 2 使用正确的名称
+        if loaded_names:
+            ctx.args.datasets = loaded_names
 
     # ── P0: GCG 对抗后缀生成 (原生 pyrit.executor.promptgen.gcg) ──
     if getattr(ctx.args, "gcg_model", None):
@@ -165,7 +216,7 @@ async def _load_datasets(ctx: PipelineContext) -> None:
 def _mask_secret(secret: str) -> str:
     """脱敏 API Key / 密钥 (前6后4, 中间掩码)。.
 
-    安全合规: 遵循 OWASP LLM07 (Sensitive Information Disclosure) 和
+    安全合规: 遵循 OWASP LLM02:2025 (Sensitive Information Disclosure) 和
     NIST SP 800-92 (Log Management) 的最小信息泄露原则。
     """
     if not secret:
@@ -272,7 +323,7 @@ def _print_initialization_summary(config: ConfigurationLoader) -> None:
 
 
 def _extend_content_filter_markers() -> None:
-    """扩展 PyRIT 内容过滤器标记, 兼容非标准 OpenAI 兼容 API。
+    """扩展 PyRIT 内容过滤器标记, 兼容非标准 OpenAI 兼容 API。.
 
     PyRIT 原生 CONTENT_FILTER_MARKERS 仅覆盖 OpenAI/Azure MAI 的标记,
     第三方 API (如 LongCat-2.0) 使用不同的错误码 (如 security_audit_fail),
@@ -288,7 +339,7 @@ def _extend_content_filter_markers() -> None:
         # Fail-fast: 补丁验证失败,说明 PyRIT 版本可能不兼容
         print(f"  [警告] 内容过滤器标记扩展验证失败: {e}")
         print("         第三方 API 的内容过滤响应可能不被识别,流水线可能崩溃")
-    except (RuntimeError, OSError, ValueError) as e:
+    except (OSError, ValueError) as e:
         print(f"  [提示] 内容过滤器标记扩展跳过: {e}")
 
 
@@ -320,7 +371,7 @@ def _load_default_datasets_from_manifest() -> list[str]:
     return paths
 
 
-async def _load_local_datasets_async(file_paths: list[str]) -> None:
+async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
     """加载本地 .prompt 数据集到 CentralMemory (富元数据格式)。.
 
     使用 ``rich_metadata_loader.load_rich_prompt_as_native()`` 替代原生
@@ -331,6 +382,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> None:
 
     memory = CentralMemory.get_memory_instance()
     datasets = []
+    loaded_names: list[str] = []
     total_seeds = 0
     total_rich = 0
     for fp in file_paths:
@@ -338,6 +390,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> None:
         if not dataset.dataset_name:
             dataset.dataset_name = Path(fp).stem
         datasets.append(dataset)
+        loaded_names.append(dataset.dataset_name)
         # 检测富元数据
         rich_count = sum(1 for s in dataset.seeds if getattr(s, "metadata", None))
         total_seeds += len(dataset.seeds)
@@ -355,6 +408,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> None:
             f"    L1 汇总: {len(datasets)} 个数据集, {total_seeds} seeds, "
             f"富元数据覆盖 {total_rich}/{total_seeds} ({total_rich * 100 // max(total_seeds, 1)}%)"
         )
+    return loaded_names
 
 
 # ============================================================
@@ -363,7 +417,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> None:
 
 
 def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tuple[list[str]]:
-    """从 ``data/config/seed_templates.yaml`` 加载种子模板。
+    """从 ``data/config/seed_templates.yaml`` 加载种子模板。.
 
     Args:
         template_type: ``"gcg"`` 或 ``"fuzzer"``
@@ -417,7 +471,7 @@ def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tu
 
 
 async def _generate_gcg_suffixes_async(ctx: PipelineContext) -> None:
-    """执行 GCG 对抗后缀生成，注入 CentralMemory。
+    """执行 GCG 对抗后缀生成，注入 CentralMemory。.
 
     P2-2: goals/targets 从 ``data/config/seed_templates.yaml`` 加载 (不再硬编码)。
     """
@@ -449,7 +503,7 @@ async def _generate_gcg_suffixes_async(ctx: PipelineContext) -> None:
         print(f"    GCG 生成: {len(seed_groups)} 个种子组注入 CentralMemory")
         ctx.gcg_seeds_count = len(seed_groups)
         ctx.metadata["gcg_generated"] = True
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"    [警告] GCG 生成失败: {e}")
         print("    [提示] GCG 需要 torch + transformers + GPU + 模型权重")
 
@@ -460,7 +514,7 @@ async def _generate_gcg_suffixes_async(ctx: PipelineContext) -> None:
 
 
 async def _run_fuzzer_mutation_async(ctx: PipelineContext) -> None:
-    """执行 Fuzzer MCTS 载荷变异，注入 CentralMemory。
+    """执行 Fuzzer MCTS 载荷变异，注入 CentralMemory。.
 
     P2-2: seeds 从 ``data/config/seed_templates.yaml`` 加载 (不再硬编码)。
     """
@@ -503,7 +557,7 @@ async def _run_fuzzer_mutation_async(ctx: PipelineContext) -> None:
         print(f"    Fuzzer 变异: {len(seed_groups)} 个种子组注入 CentralMemory")
         ctx.fuzzer_seeds_count = len(seed_groups)
         ctx.metadata["fuzzer_generated"] = True
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"    [警告] Fuzzer 变异失败: {e}")
 
 
@@ -635,6 +689,122 @@ def _setup_http_target(ctx: PipelineContext) -> None:
         print(f"    HTTP Target 已注册: {http_target_path.name}")
         ctx.http_target_configured = True
         ctx.metadata["http_target"] = True
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"    [警告] HTTP Target 配置失败: {e}")
         print("    [提示] 确保文件为 Burp 导出的原始 HTTP 请求格式")
+
+
+def _run_sbom_scan(ctx: PipelineContext) -> None:
+    """执行供应链 SBOM 扫描 (LLM03: Supply Chain Vulnerabilities).
+
+    在 Stage 1 初始化后执行, 扫描项目依赖文件:
+      1. 优先使用 pip-audit (如果已安装)
+      2. 回退到内置规则比对
+    扫描结果保存到 ctx.metadata["sbom_report"]。
+
+    学术依据:
+      - OWASP Top 10 for LLM Applications 2025: LLM03 Supply Chain
+      - MITRE ATT&CK T1195: Supply Chain Compromise
+    """
+    from pathlib import Path
+
+    # 查找依赖文件 (requirements.txt 或 pyproject.toml)
+    project_root = Path.cwd()
+    dep_files: list[Path] = []
+
+    for name in ("requirements.txt", "pyproject.toml"):
+        p = project_root / name
+        if p.exists():
+            dep_files.append(p)
+
+    if not dep_files:
+        print("  [SBOM] 未找到依赖文件, 跳过供应链扫描")
+        return
+
+    try:
+        from pipeline.supply_chain import SBOMScanner
+
+        scanner = SBOMScanner()
+        all_reports = []
+        for dep_file in dep_files:
+            print(f"  [SBOM] 扫描 {dep_file.name}...")
+            report = scanner.scan(dep_file)
+            all_reports.append(report)
+
+            if report.vulnerabilities:
+                print(f"    发现 {len(report.vulnerabilities)} 个漏洞:")
+                for v in report.vulnerabilities[:5]:
+                    print(f"      [{v.severity.upper():>8}] {v.package} {v.installed_version} — {v.vulnerability_id}")
+                if len(report.vulnerabilities) > 5:
+                    print(f"      ... 还有 {len(report.vulnerabilities) - 5} 个漏洞")
+                print(f"    风险评分: {report.risk_score}/100")
+            else:
+                print(f"    未发现已知漏洞 ({report.total_dependencies} 个依赖)")
+
+        # 保存到 context
+        ctx.metadata["sbom_reports"] = [r.to_dict() for r in all_reports]
+
+        # ── 模型权重校验 (LLM03 增强) ──
+        _run_weight_verification(ctx)
+
+    except ImportError:
+        print("  [SBOM] 供应链扫描模块不可用, 跳过")
+    except Exception as e:
+        print(f"  [SBOM] 扫描失败: {e}")
+
+
+def _run_weight_verification(ctx: PipelineContext) -> None:
+    """执行模型权重完整性校验 (LLM03 增强)。.
+
+    查找本地模型权重文件, 执行 SHA256 哈希校验和恶意指纹比对。
+    """
+    from pathlib import Path
+
+    # 查找可能包含模型权重的目录
+    project_root = Path.cwd()
+    model_dirs: list[Path] = []
+
+    # 常见模型存放路径
+    for pattern in ("models", "weights", "checkpoints", ".cache/huggingface"):
+        d = project_root / pattern
+        if d.exists() and d.is_dir():
+            model_dirs.append(d)
+
+    if not model_dirs:
+        print("  [Weight] 未找到本地模型目录, 跳过权重校验")
+        return
+
+    try:
+        from pipeline.supply_chain import WeightVerifier
+
+        verifier = WeightVerifier()
+        all_reports = []
+
+        for model_dir in model_dirs:
+            print(f"  [Weight] 校验 {model_dir.name}...")
+            report = verifier.verify_model(model_dir)
+
+            if report.total_files > 0:
+                if report.malicious_count > 0:
+                    print(f"    [危险] 检测到 {report.malicious_count} 个恶意权重文件!")
+                    for r in report.results:
+                        if r.is_known_malicious:
+                            print(f"      [MALICIOUS] {Path(r.file_path).name} — {r.error}")
+                elif report.verified_count < report.total_files:
+                    print(f"    [警告] {report.verified_count}/{report.total_files} 个文件通过校验")
+                    unverified = [r for r in report.results if not r.is_verified and not r.is_known_malicious]
+                    for r in unverified[:3]:
+                        print(f"      [UNVERIFIED] {Path(r.file_path).name} — {r.error or 'no expected hash'}")
+                else:
+                    print(f"    [OK] {report.verified_count}/{report.total_files} 个文件通过校验")
+                print(f"    风险评分: {report.risk_score}/100")
+
+                all_reports.append(report.to_dict())
+
+        if all_reports:
+            ctx.metadata["weight_verification_reports"] = all_reports
+
+    except ImportError:
+        print("  [Weight] 权重校验模块不可用, 跳过")
+    except Exception as e:
+        print(f"  [Weight] 校验失败: {e}")

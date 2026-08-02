@@ -20,7 +20,7 @@ from typing import Any
 
 # OWASP Top 10 LLM 类别数 (2025 版)
 OWASP_LLM_CATEGORY_COUNT = 10
-# OWASP Agentic AI 类别数 (2025 版)
+# OWASP Agentic Applications 类别数 (2025 版)
 OWASP_ASI_CATEGORY_COUNT = 10
 
 
@@ -209,7 +209,7 @@ class AttackResultAnalyzer:
         if hasattr(attack_result, "get_attack_strategy_identifier"):
             try:
                 return attack_result.get_attack_strategy_identifier()
-            except (RuntimeError, OSError, ValueError):
+            except Exception:
                 return None
         return None
 

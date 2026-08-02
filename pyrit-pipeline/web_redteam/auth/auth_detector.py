@@ -62,9 +62,11 @@ class URLPatternStrategy(AuthDetectionStrategy):
     """
 
     def __init__(self, pattern: str) -> None:
+        """Initialize URLRedirectDetector."""
         self._pattern = re.compile(pattern)
 
     async def is_auth_complete(self, page: Page) -> bool:
+        """Check if auth is complete by URL pattern."""
         current_url = page.url
         match = self._pattern.search(current_url)
         if match:
@@ -81,20 +83,24 @@ class DOMElementStrategy(AuthDetectionStrategy):
     """
 
     def __init__(self, selector: str, timeout_seconds: int = 300) -> None:
+        """Initialize ElementPresenceDetector."""
         self._selector = selector
         self._timeout_ms = timeout_seconds * 1000
 
     async def is_auth_complete(self, page: Page) -> bool:
+        """Check if auth is complete by element presence."""
         try:
             element = await page.query_selector(self._selector)
             if element:
                 logger.debug(f"DOMElementStrategy: element '{self._selector}' found")
                 return True
         except Exception as e:
+            """Check immediately without waiting."""
             logger.debug(f"DOMElementStrategy: error checking selector '{self._selector}': {e}")
         return False
 
     async def check_immediate(self, page: Page) -> bool:
+        """Check immediately without waiting."""
         return await self.is_auth_complete(page)
 
 
@@ -106,10 +112,12 @@ class CookiePresenceStrategy(AuthDetectionStrategy):
     """
 
     def __init__(self, cookie_names: list[str], domain: str | None = None) -> None:
+        """Initialize CookiePresenceDetector."""
         self._cookie_names = set(cookie_names)
         self._domain = domain
 
     async def is_auth_complete(self, page: Page) -> bool:
+        """Check if auth is complete by cookie presence."""
         try:
             cookies = await page.context.cookies()
             if self._domain:
@@ -138,6 +146,7 @@ class NetworkTokenStrategy(AuthDetectionStrategy):
         token_field: str = "access_token",
         token_keyword: str | None = None,
     ) -> None:
+        """Initialize NetworkTokenCaptureDetector."""
         self._url_pattern = url_pattern
         self._token_field = token_field
         self._token_keyword = token_keyword
@@ -162,14 +171,17 @@ class NetworkTokenStrategy(AuthDetectionStrategy):
                             self._captured_token = token
                             logger.info(f"NetworkTokenStrategy: token captured from {url}")
             except Exception as e:
+                """Check if auth is complete by captured token."""
                 logger.debug(f"NetworkTokenStrategy: error handling response: {e}")
 
         return handler
 
     async def is_auth_complete(self, page: Page) -> bool:
+        """Check immediately without waiting."""
         return self._captured_token is not None
 
     async def check_immediate(self, page: Page) -> bool:
+        """Get the captured auth token."""
         return self._captured_token is not None
 
     def attach_to_page(self, page: Page) -> None:
@@ -178,6 +190,7 @@ class NetworkTokenStrategy(AuthDetectionStrategy):
 
     @property
     def captured_token(self) -> str | None:
+        """Get the captured auth token."""
         return self._captured_token
 
 
@@ -198,6 +211,7 @@ class AuthDetector:
         poll_interval_seconds: float = 1.0,
         timeout_seconds: int = 300,
     ) -> None:
+        """Initialize CompositeAuthDetector."""
         if not strategies:
             raise ValueError("AuthDetector requires at least one strategy")
         self._strategies = strategies
@@ -238,6 +252,7 @@ class AuthDetector:
         for strategy in self._strategies:
             try:
                 if await strategy.check_immediate(page):
+                    """Create composite detector from config list."""
                     return True
             except Exception as e:
                 logger.debug(f"AuthDetector: check_immediate strategy error: {e}")
@@ -253,6 +268,7 @@ class AuthDetectorFactory:
         poll_interval_seconds: float = 1.0,
         timeout_seconds: int = 300,
     ) -> AuthDetector:
+        """Create composite detector from config list."""
         strategies: list[AuthDetectionStrategy] = []
         for cfg in configs:
             strategy = AuthDetectorFactory._create_strategy(cfg)

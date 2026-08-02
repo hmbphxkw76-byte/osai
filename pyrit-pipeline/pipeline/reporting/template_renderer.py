@@ -69,7 +69,7 @@ class Jinja2TemplateRenderer:
         except ImportError:
             logger.warning("Jinja2 未安装, 回退到 f-string 模式")
             self._env = None
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Jinja2 初始化失败: {e}, 回退到 f-string 模式")
             self._env = None
 
@@ -94,7 +94,7 @@ class Jinja2TemplateRenderer:
             template = env.get_template(template_name)
             result = await template.render_async(**context)
             return result
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"模板渲染失败: {e}")
             return f"[渲染失败] {template_name}: {e}"
 
@@ -115,7 +115,7 @@ class Jinja2TemplateRenderer:
         try:
             template = env.get_template(template_name)
             return template.render(**context)
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"模板渲染失败: {e}")
             return f"[渲染失败] {template_name}: {e}"
 

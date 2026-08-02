@@ -1,6 +1,6 @@
 dataset_name: owasp_asi09_trust_boundary_violation
 harm_categories: trust_exploit
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI09
 data_type: text
 description: OWASP ASI09 - Trust Boundary Violation

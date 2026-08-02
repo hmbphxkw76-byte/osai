@@ -1,6 +1,6 @@
 dataset_name: owasp_asi01_agent_identity_spoofing
 harm_categories: identity_abuse
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI01
 data_type: text
 description: OWASP ASI01 - Agent Identity Spoofing

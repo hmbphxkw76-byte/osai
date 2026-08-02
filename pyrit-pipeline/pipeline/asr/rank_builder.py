@@ -64,6 +64,7 @@ class ASRTier(str, Enum):
 
     @property
     def priority(self) -> int:
+        """Get numeric priority for this tier (S=100, A=80, ...)."""
         priorities = {
             "S": 100,
             "A": 80,
@@ -76,6 +77,7 @@ class ASRTier(str, Enum):
 
     @classmethod
     def from_asr(cls, max_asr: float) -> ASRTier:
+        """Create ASRTier from maximum ASR value."""
         from pipeline.asr.prior_registry import tier_from_asr
 
         return cls(tier_from_asr(max_asr))
@@ -107,6 +109,7 @@ class TechniqueGroupInfo:
 
     @property
     def effective_score(self) -> float:
+        """Get effective score (ASR-based if data available, else heuristic)."""
         if self.has_asr_data:
             return self.max_asr * 100
         return self.heuristic_score
@@ -243,7 +246,7 @@ class ASRRankBuilder:
                     avg_asr = academic_asr
                     has_asr = True
                     tier = ASRTier.from_asr(max_asr)
-            except (RuntimeError, OSError, ValueError):
+            except Exception:
                 pass
 
         heuristic = (
@@ -518,10 +521,12 @@ class GroupFallbackResult:
 
     @property
     def fallback_count(self) -> int:
+        """Get number of fallback records in the plan."""
         return len(self.fallback_records)
 
     @property
     def success_rate(self) -> float:
+        """Get overall success rate across all groups."""
         if self.total_groups == 0:
             return 0.0
         return len(self.successful_groups) / self.total_groups
@@ -564,6 +569,7 @@ class GroupFallbackExecutor:
         model_tier: str = "unknown",
         owasp_id: str = "",
     ) -> None:
+        """Initialize GroupFallbackExecutor."""
         self._model_name = model_name
         self._model_tier = model_tier
         self._owasp_id = owasp_id

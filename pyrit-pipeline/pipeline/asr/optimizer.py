@@ -136,7 +136,7 @@ def query_historical_asr_by_category(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"查询历史 ASR (by category) 失败, 返回空结果: {e}")
         return {}
 
@@ -299,7 +299,7 @@ def query_historical_asr_by_technique(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"查询历史 ASR (by technique) 失败, 返回空结果: {e}")
         return {}
 
@@ -346,7 +346,7 @@ def query_current_run_asr_by_technique(
 
     try:
         results = memory.get_attack_results(scenario_result_id=scenario_result_id)
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"查询当前运行 ASR 失败, 跳过动态反馈: {e}")
         return {}
 

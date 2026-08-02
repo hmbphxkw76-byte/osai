@@ -116,7 +116,7 @@ class DiversityMetrics:
         }
 
     def get_diversity_grade(self) -> str:
-        """根据归一化熵给出多样性等级 (L5 对齐 pyrit_ai300)。
+        """根据归一化熵给出多样性等级 (L5 对齐 pyrit_ai300)。.
 
         Returns:
             等级字符串: "Excellent" / "Good" / "Moderate" / "Low" / "Poor"
@@ -280,7 +280,8 @@ class DiversityAnalyzer:
             self._compute_failure_concentration(attack_results)
         )
         if metrics.failure_type_distribution:
-            metrics.top_failure_reason = max(metrics.failure_type_distribution, key=metrics.failure_type_distribution.get)
+            ftd = metrics.failure_type_distribution
+            metrics.top_failure_reason = max(ftd, key=ftd.get)
 
         # ── 整体评分 ──
         metrics.overall_diversity_score = self._compute_overall_score(metrics)
@@ -365,7 +366,7 @@ class DiversityAnalyzer:
         return entropy
 
     def _normalized_entropy(self, counter: Counter) -> float:
-        """计算归一化 Shannon 熵 (0.0-1.0)。
+        """计算归一化 Shannon 熵 (0.0-1.0)。.
 
         L5 对齐 pyrit_ai300/src/reporting/diversity_analyzer.py
         """
@@ -403,7 +404,7 @@ class DiversityAnalyzer:
         self,
         attack_results: dict[str, list[Any]],
     ) -> tuple[float, dict[str, int]]:
-        """L5 对齐: 计算失败模式集中度。
+        """L5 对齐: 计算失败模式集中度。.
 
         失败集中度 = 最大失败类型次数 / 总失败次数。
         - 值越高 → 失败原因越集中 (可能存在系统性盲区)
@@ -508,7 +509,7 @@ class DiversityAnalyzer:
 
 
 def render_diversity_section(metrics: DiversityMetrics) -> str:
-    """渲染多样性分析 Markdown 章节 (L5 对齐 pyrit_ai300)。
+    """渲染多样性分析 Markdown 章节 (L5 对齐 pyrit_ai300)。.
 
     生成一个完整的 Markdown 章节, 可直接插入报告中。
 
@@ -528,15 +529,16 @@ def render_diversity_section(metrics: DiversityMetrics) -> str:
         "",
         "| Metric | Value | Description |",
         "|--------|-------|-------------|",
-        f"| Technique Entropy | {metrics.technique_entropy:.2f} bits | Shannon entropy of technique distribution (higher = more diverse) |",
-        f"| Normalized Entropy | {metrics.technique_normalized_entropy:.2%} | Entropy relative to maximum possible (0-100%) |",
+        f"| Technique Entropy | {metrics.technique_entropy:.2f} bits | Shannon entropy of technique distribution |",
+        f"| Normalized Entropy | {metrics.technique_normalized_entropy:.2%} | Entropy / max possible |",
         f"| Diversity Grade | {grade} | Qualitative assessment of technique diversity |",
         f"| Unique Techniques | {metrics.unique_techniques} | Number of distinct attack techniques used |",
-        f"| Technique Coverage | {metrics.technique_coverage:.0%} | Ratio of available techniques actually employed |",
-        f"| OWASP Coverage | {metrics.owasp_covered_count} / {metrics.owasp_total_count} ({metrics.owasp_coverage:.0%}) | OWASP IDs covered by at least one attack |",
-        f"| Converter Diversity | {metrics.converter_diversity_ratio:.2%} | Weighted diversity of converter chains used |",
+        f"| Technique Coverage | {metrics.technique_coverage:.0%} | Ratio of available techniques employed |",
+        f"| OWASP Coverage | {metrics.owasp_covered_count} / {metrics.owasp_total_count}"
+        f" ({metrics.owasp_coverage:.0%}) | OWASP IDs covered by at least one attack |",
+        f"| Converter Diversity | {metrics.converter_diversity_ratio:.2%} | Weighted diversity of converter chains |",
         f"| Unique Converters | {metrics.unique_converters} | Number of distinct converter chains employed |",
-        f"| Failure Concentration | {metrics.failure_concentration:.0%} | Proportion of failures attributed to the top reason |",
+        f"| Failure Concentration | {metrics.failure_concentration:.0%} | Proportion of failures from top reason |",
         "",
     ]
 
@@ -596,19 +598,11 @@ def render_diversity_section(metrics: DiversityMetrics) -> str:
 
 def render_diversity_section_from_dict(metrics_dict: dict[str, Any]) -> str:
     """从字典渲染多样性分析 Markdown 章节 (兼容旧版接口)。."""
-    grade = metrics_dict.get("diversity_grade", "F")
     entropy = metrics_dict.get("technique_entropy", 0.0)
     unique_tech = metrics_dict.get("unique_techniques", 0)
     tech_coverage = metrics_dict.get("technique_coverage", 0.0)
-    paradigm_coverage = metrics_dict.get("paradigm_coverage", 0.0)
-    paradigms_used = metrics_dict.get("paradigms_used", [])
     owasp_coverage = metrics_dict.get("owasp_coverage", 0.0)
-    converter_entropy = metrics_dict.get("converter_chain_entropy", 0.0)
-    converter_chains = metrics_dict.get("converter_chains_used", [])
     failure_concentration = metrics_dict.get("failure_concentration", 0.0)
-    failure_dist = metrics_dict.get("failure_type_distribution", {})
-    overall_score = metrics_dict.get("overall_diversity_score", 0.0)
-    attack_mode_dist = metrics_dict.get("attack_mode_distribution", {})
     norm_entropy = metrics_dict.get("technique_normalized_entropy", 0.0)
     owasp_covered = metrics_dict.get("owasp_covered_count", 0)
     owasp_total = metrics_dict.get("owasp_total_count", 20)
@@ -638,15 +632,16 @@ def render_diversity_section_from_dict(metrics_dict: dict[str, Any]) -> str:
         "",
         "| Metric | Value | Description |",
         "|--------|-------|-------------|",
-        f"| Technique Entropy | {entropy:.2f} bits | Shannon entropy of technique distribution (higher = more diverse) |",
+        f"| Technique Entropy | {entropy:.2f} bits | Shannon entropy of technique distribution |",
         f"| Normalized Entropy | {norm_entropy:.2%} | Entropy relative to maximum possible (0-100%) |",
         f"| Diversity Grade | {grade_label} | Qualitative assessment of technique diversity |",
         f"| Unique Techniques | {unique_tech} | Number of distinct attack techniques used |",
-        f"| Technique Coverage | {tech_coverage:.0%} | Ratio of available techniques actually employed |",
-        f"| OWASP Coverage | {owasp_covered} / {owasp_total} ({owasp_coverage:.0%}) | OWASP IDs covered by at least one attack |",
-        f"| Converter Diversity | {converter_diversity:.2%} | Weighted diversity of converter chains used |",
+        f"| Technique Coverage | {tech_coverage:.0%} | Ratio of available techniques employed |",
+        f"| OWASP Coverage | {owasp_covered} / {owasp_total} ({owasp_coverage:.0%})"
+        f" | OWASP IDs covered by at least one attack |",
+        f"| Converter Diversity | {converter_diversity:.2%} | Weighted diversity of converter chains |",
         f"| Unique Converters | {unique_converters} | Number of distinct converter chains employed |",
-        f"| Failure Concentration | {failure_concentration:.0%} | Proportion of failures attributed to the top reason |",
+        f"| Failure Concentration | {failure_concentration:.0%} | Proportion of failures from top reason |",
         "",
     ]
 

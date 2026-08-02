@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""ASR 驱动选择与优化子包。
+"""ASR 驱动选择与优化子包。.
 
 包含以下模块:
   - prior_registry: 学术 ASR 先验注册表 (arXiv 基准数据)

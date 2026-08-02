@@ -421,7 +421,7 @@ def load_preset_converter_chain(
 
     try:
         converters = builder(converter_target)
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"Failed to build converter chain '{chain_name}': {e}")
         return None
 
@@ -515,7 +515,7 @@ def build_converters_from_chain_names(
 
         try:
             converters = builder(converter_target)
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"Failed to build converter chain '{chain_name}': {e}")
             continue
 

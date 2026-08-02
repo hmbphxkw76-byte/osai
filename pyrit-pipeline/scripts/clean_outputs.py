@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""清理 outputs/ 目录中的旧报告。
+"""清理 outputs/ 目录中的旧报告。.
 
 默认保留最近 7 天的报告, 清理更早的目录。
 
@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 def clean_outputs(output_dir: Path, keep_days: int, dry_run: bool) -> int:
-    """清理 outputs/ 目录, 返回清理的目录数。"""
+    """清理 outputs/ 目录, 返回清理的目录数。."""
     if not output_dir.exists():
         print(f"输出目录不存在: {output_dir}")
         return 0
@@ -47,7 +47,7 @@ def clean_outputs(output_dir: Path, keep_days: int, dry_run: bool) -> int:
 
 
 def main() -> None:
-    """入口。"""
+    """入口。."""
     parser = argparse.ArgumentParser(description="清理 outputs/ 目录中的旧报告")
     parser.add_argument("--days", type=int, default=7, help="保留最近 N 天的报告 (默认: 7)")
     parser.add_argument("--dry-run", action="store_true", help="仅展示, 不实际删除")

@@ -75,6 +75,7 @@ class TierConfig:
 
     @classmethod
     def default(cls) -> TierConfig:
+        """Return default TierConfig with standard thresholds."""
         return cls(
             thresholds={"S": 0.70, "A": 0.40, "B": 0.15, "C": 0.05, "D": 0.0},
             s=0.70,

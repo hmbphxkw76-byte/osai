@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Converter 工厂、链与路由子包。
+"""Converter 工厂、链与路由子包。.
 
 包含以下模块:
   - factory: Converter 工厂 (CLI 名称 → PyRIT Converter 实例)
@@ -9,6 +9,8 @@
   - log: Converter 转换日志收集
   - target_aware_router: Target-Aware Converter 路由
   - model_tier_detector: 模型等级自动探测器
+  - steganography_converter: LSB 隐写 Converter (多模态注入增强)
+  - audio_steganography_converter: WAV LSB 隐写 Converter (音频注入增强)
 
 统一入口:
     from pipeline.converters import (
@@ -20,6 +22,7 @@
     )
 """
 
+from pipeline.converters.audio_steganography_converter import AudioSteganographyConverter
 from pipeline.converters.chains import build_converters_from_chain_names, load_preset_converter_chain
 from pipeline.converters.factory import (
     build_target_aware_converter_map,
@@ -32,6 +35,7 @@ from pipeline.converters.model_tier_detector import (
     detect_model_tier_from_registry,
     should_use_llm_converters,
 )
+from pipeline.converters.steganography_converter import SteganographyConverter
 from pipeline.converters.target_aware_router import get_chains_for_target_type, infer_target_type
 
 __all__ = [
@@ -50,4 +54,8 @@ __all__ = [
     # model_tier_detector
     "detect_model_tier_from_registry",
     "should_use_llm_converters",
+    # steganography_converter
+    "SteganographyConverter",
+    # audio_steganography_converter
+    "AudioSteganographyConverter",
 ]

@@ -1,6 +1,6 @@
 dataset_name: owasp_asi08_cascading_failure
 harm_categories: system_failure
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI08
 data_type: text
 description: OWASP ASI08 - Cascading Failures

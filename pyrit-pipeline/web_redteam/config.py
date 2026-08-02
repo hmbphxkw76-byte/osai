@@ -101,6 +101,19 @@ def parse_args() -> argparse.Namespace:
         help="目标最大请求/分钟 (可选, 用于限速)",
     )
 
+    # ── 侦察参数 ──
+    parser.add_argument(
+        "--recon",
+        action="store_true",
+        help="启用 Stage 0 目标侦察 (发现 API 端点 + DOM 注入面 + 攻击推荐)",
+    )
+    parser.add_argument(
+        "--recon-duration",
+        type=int,
+        default=10,
+        help="侦察持续时间 (秒, 默认: 10)",
+    )
+
     # ── 输出 ──
     parser.add_argument(
         "--output-dir",

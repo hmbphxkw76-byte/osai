@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""格式转换器 — Markdown → HTML → PDF。
+"""格式转换器 — Markdown → HTML → PDF。.
 
 从 pipeline/html_report.py 提取，优先使用 PyRIT 原生 output 体系。
 
@@ -130,7 +130,7 @@ _HTML_CSS = """
 
 
 def convert_markdown_to_html(markdown_content: str, *, title: str = "AI Red Team Report") -> str:
-    """将 Markdown 转换为 HTML (内嵌 CSS)。
+    """将 Markdown 转换为 HTML (内嵌 CSS)。.
 
     L5 对齐 pyrit_ai300/src/reporting/format_converter.py:
       - 使用 7 个 Markdown 扩展 (tables, fenced_code, codehilite, toc, nl2br, sane_lists, smarty)
@@ -162,7 +162,7 @@ def convert_markdown_to_html(markdown_content: str, *, title: str = "AI Red Team
         html_body = f"<pre>{html.escape(markdown_content)}</pre>"
 
     return f"""<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -176,7 +176,7 @@ def convert_markdown_to_html(markdown_content: str, *, title: str = "AI Red Team
 
 
 def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
-    """将 HTML 转换为 PDF (优先 weasyprint, 回退 xhtml2pdf)。"""
+    """将 HTML 转换为 PDF (优先 weasyprint, 回退 xhtml2pdf)。."""
     try:
         from weasyprint import HTML
         HTML(string=html_content).write_pdf(str(output_path))
@@ -184,7 +184,7 @@ def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
         return True
     except ImportError:
         pass
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"weasyprint failed: {e}")
 
     try:
@@ -199,7 +199,7 @@ def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
             logger.warning("xhtml2pdf failed with errors")
     except ImportError:
         pass
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"xhtml2pdf failed: {e}")
 
     logger.error("No PDF library available (install weasyprint or xhtml2pdf)")
@@ -207,7 +207,7 @@ def convert_markdown_to_pdf(html_content: str, output_path: Path) -> bool:
 
 
 def check_pdf_engine_available() -> str | None:
-    """检查可用的 PDF 引擎。返回引擎名称或 None。"""
+    """检查可用的 PDF 引擎。返回引擎名称或 None。."""
     try:
         import weasyprint  # noqa: F401
         return "weasyprint"
@@ -229,7 +229,7 @@ def convert_report_formats(
     generate_pdf: bool = True,
     title: str = "AI Red Team Report",
 ) -> dict[str, Path | None]:
-    """生成 HTML 和 PDF 报告。
+    """生成 HTML 和 PDF 报告。.
 
     Args:
         markdown_content: Markdown 报告内容。

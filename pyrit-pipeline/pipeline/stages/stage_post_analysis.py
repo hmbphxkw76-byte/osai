@@ -36,7 +36,7 @@ async def run(ctx: PipelineContext) -> None:
         return
 
     print("\n" + "=" * 70)
-    print("[5/6] 执行后分析 — ASR 实测 vs 先验对比 + 经验写回")
+    print("阶段 5/6: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回")
     print("=" * 70)
 
     # ── 1. 执行成果概要 ──
@@ -128,7 +128,7 @@ def _print_asr_comparison(ctx: PipelineContext) -> None:
 
 
 def _print_converter_resilience(ctx: PipelineContext) -> None:
-    """Converter 韧性分析卡片。
+    """Converter 韧性分析卡片。.
 
     P1-2: 修正数据路径 — 从 ``failure_stats["runtime_asr"]`` 获取技术级 ASR,
     按 Converter 路由计数 (有 Converter 路由 vs 无 Converter 路由) 计算 Δ。
@@ -193,6 +193,7 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
     if paradigm_data:
         try:
             from pathlib import Path
+
             from pipeline.asr.failure_type_event_handler import ParadigmPerformanceTracker
 
             tracker = ParadigmPerformanceTracker.from_dict(paradigm_data)

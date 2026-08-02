@@ -1,20 +1,25 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""OWASP 数据 — LLM Top 10 + Agentic AI Top 10 完整定义。
+"""OWASP 数据 — LLM Top 10 + Agentic Applications Top 10 完整定义。.
 
 外部化 OWASP 数据, 供 ReportGenerator + OWASPMapper + EvidenceExporter 共享。
-数据源: OWASP Top 10 for LLM Applications 2025 + OWASP Top 10 for Agentic AI。
+数据源: OWASP Top 10 for LLM Applications 2025 + OWASP Top 10 for Agentic Applications。
 
 学术依据:
-  - OWASP Top 10 for LLM Applications 2025 (https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-  - OWASP Top 10 for Agentic AI (https://owasp.org/www-project-top-10-for-agentic-ai/)
+  - OWASP Top 10 for LLM Applications 2025
+    (https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/)
+  - OWASP Agentic AI — Threats and Mitigations v1.0 (2025-02-17)
+    (https://genai.owasp.org/resource/agentic-ai-threats/)
+  - AIUC-1: Crosswalks OWASP Top 10 For Agentic Applications (2026-05-25)
+    (https://genai.owasp.org/resource/aiuc-1-crosswalks-owasp-top-10-for-agentic-applications/)
+  - State of Agentic AI Security and Governance 2.01 (2026-06-01)
+    (https://genai.owasp.org/resource/state-of-agentic-ai-security-and-governance/)
 """
 
 from __future__ import annotations
 
 from typing import Any
-
 
 # ============================================================
 # OWASP Top 10 for LLM Applications 2025
@@ -40,7 +45,7 @@ OWASP_LLM_DETAILS: dict[str, dict[str, Any]] = {
         "mitre_techniques": ["T1003", "T1552"],
     },
     "LLM03": {
-        "name": "Supply Chain Vulnerabilities",
+        "name": "Supply Chain",
         "severity": "HIGH",
         "cvss_base": 7.0,
         "description": "第三方模型、数据集或插件中的漏洞引入供应链风险。",
@@ -115,7 +120,8 @@ OWASP_LLM_DETAILS: dict[str, dict[str, Any]] = {
 
 
 # ============================================================
-# OWASP Top 10 for Agentic AI
+# OWASP Top 10 for Agentic Applications
+# (OWASP Agentic Security Initiative — ASI)
 # ============================================================
 
 OWASP_ASI_DETAILS: dict[str, dict[str, Any]] = {
@@ -156,13 +162,13 @@ OWASP_ASI_DETAILS: dict[str, dict[str, Any]] = {
         "mitre_techniques": ["T1106", "T1543"],
     },
     "ASI05": {
-        "name": "Code Execution",
+        "name": "Privilege Escalation",
         "severity": "CRITICAL",
         "cvss_base": 9.0,
-        "description": "攻击者利用 Agent 的代码执行能力运行恶意代码。",
-        "indicators": ["代码注入", "命令执行", "沙箱逃逸"],
-        "remediation": ["代码沙箱", "执行限制", "代码审查"],
-        "mitre_techniques": ["T1059", "T1106"],
+        "description": "攻击者利用 Agent 的权限缺陷提升访问级别, 获取未授权的系统或资源控制权。",
+        "indicators": ["权限提升", "越权访问", "角色冒充"],
+        "remediation": ["最小权限", "权限隔离", "运行时鉴权"],
+        "mitre_techniques": ["T1078", "T1548"],
     },
     "ASI06": {
         "name": "Memory Poisoning",
@@ -192,13 +198,13 @@ OWASP_ASI_DETAILS: dict[str, dict[str, Any]] = {
         "mitre_techniques": ["T1499"],
     },
     "ASI09": {
-        "name": "Trust Exploit",
+        "name": "Trust Boundary Violation",
         "severity": "HIGH",
         "cvss_base": 7.0,
-        "description": "利用 Agent 间的信任关系实施攻击。",
-        "indicators": ["信任滥用", "权限提升", "代理攻击"],
-        "remediation": ["信任最小化", "权限分级", "审计追踪"],
-        "mitre_techniques": ["T1556"],
+        "description": "攻击者突破 Agent 间的信任边界, 在不同信任域之间实施越权操作。",
+        "indicators": ["信任边界突破", "跨域访问", "信任链断裂"],
+        "remediation": ["信任最小化", "边界隔离", "审计追踪"],
+        "mitre_techniques": ["T1556", "T1557"],
     },
     "ASI10": {
         "name": "Rogue Agent",
@@ -220,7 +226,7 @@ ALL_OWASP_DETAILS: dict[str, dict[str, Any]] = {**OWASP_LLM_DETAILS, **OWASP_ASI
 
 
 def get_owasp_details(owasp_id: str) -> dict[str, Any]:
-    """获取 OWASP 漏洞详细信息。"""
+    """获取 OWASP 漏洞详细信息。."""
     return ALL_OWASP_DETAILS.get(owasp_id, {
         "name": "Unknown",
         "severity": "MEDIUM",
@@ -233,5 +239,5 @@ def get_owasp_details(owasp_id: str) -> dict[str, Any]:
 
 
 def get_all_owasp_standards() -> dict[str, dict[str, Any]]:
-    """获取所有 OWASP 标准定义。"""
+    """获取所有 OWASP 标准定义。."""
     return ALL_OWASP_DETAILS.copy()

@@ -112,24 +112,16 @@ class FuzzerPayloadGenerator:
         if self._converters is not None:
             return self._converters
 
-        from pyrit.executor.promptgen.fuzzer.fuzzer_crossover_converter import (
-            FuzzerCrossoverConverter,
-        )
-        from pyrit.executor.promptgen.fuzzer.fuzzer_expand_converter import (
+        from pyrit.executor.promptgen.fuzzer import (
+            FuzzerCrossOverConverter,
             FuzzerExpandConverter,
-        )
-        from pyrit.executor.promptgen.fuzzer.fuzzer_rephrase_converter import (
             FuzzerRephraseConverter,
-        )
-        from pyrit.executor.promptgen.fuzzer.fuzzer_shorten_converter import (
             FuzzerShortenConverter,
-        )
-        from pyrit.executor.promptgen.fuzzer.fuzzer_similar_converter import (
             FuzzerSimilarConverter,
         )
 
         return [
-            FuzzerCrossoverConverter(),
+            FuzzerCrossOverConverter(),
             FuzzerExpandConverter(),
             FuzzerRephraseConverter(),
             FuzzerShortenConverter(),
@@ -149,11 +141,11 @@ class FuzzerPayloadGenerator:
         Returns:
             FuzzerGenerationResult: 包含原始种子、变异 prompt 和奖励值。
         """
-        from pyrit.executor.promptgen.fuzzer.fuzzer import Fuzzer
+        from pyrit.executor.promptgen.fuzzer import FuzzerGenerator
 
         converters = self._build_converters()
 
-        fuzzer = Fuzzer(
+        fuzzer = FuzzerGenerator(
             target=self._target,
             scorer=self._scorer,
             templates=list(seeds),

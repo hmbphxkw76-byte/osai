@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 2/6: ASR 驱动的场景配置。."""
     print("\n" + "=" * 70)
-    print("[2/6] 场景配置 — ASR 驱动 + Attack-King")
+    print("阶段 2/6: 场景配置 — ASR 驱动 + Attack-King")
     print("=" * 70)
 
     args = ctx.args
@@ -208,7 +208,7 @@ async def run(ctx: PipelineContext) -> None:
                 if tracker.has_data:
                     selector.set_paradigm_tracker(tracker)
                     print("  范式性能数据已加载 (运行时自动学习)")
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             print(f"  [提示] 范式性能数据加载跳过: {e}")
         print("  场景: text_adaptive (原生 TextAdaptive + ASR 驱动 Selector, 零覆盖)")
     else:
@@ -309,7 +309,7 @@ async def run(ctx: PipelineContext) -> None:
 
     try:
         technique_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
-    except (RuntimeError, OSError, ValueError):
+    except Exception:
         technique_names = []
 
     # 获取 converter_target (用于 LLM 辅助 Converter 链)
@@ -336,7 +336,7 @@ async def run(ctx: PipelineContext) -> None:
             )
         except ValueError as e:
             print(f"  Converter CLI 路由: 失败 ({e})")
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             print(f"  Converter CLI 路由: 异常 ({e}), 跳过")
 
     # Layer 2: Target 感知自动路由 (无需 --converters)
@@ -359,7 +359,7 @@ async def run(ctx: PipelineContext) -> None:
                     f"  Converter Target 感知路由: target_type='{ctx.target_type}' → "
                     f"{len(ta_converter_map)} 个技术 ({ta_assignments} 个分配)"
                 )
-        except (RuntimeError, OSError, ValueError) as e:
+        except Exception as e:
             print(f"  Converter Target 感知路由: 异常 ({e}), 跳过")
 
     # 注入合并后的 technique_converters
@@ -422,7 +422,7 @@ async def run(ctx: PipelineContext) -> None:
         f"({len(sorted_datasets)} datasets, per_dataset={args.max_dataset_size})"
     )
     # L3 决策: per-dataset budget breakdown
-    print(f"      数据集排序: ASR 降序 (高优先级优先)")
+    print("      数据集排序: ASR 降序 (高优先级优先)")
     for ds in sorted_datasets[:5]:
         print(f"      • {ds}")
     if len(sorted_datasets) > 5:
@@ -438,7 +438,7 @@ async def run(ctx: PipelineContext) -> None:
     if ctx.fallback_plan and hasattr(ctx.fallback_plan, "total_groups"):
         print(f"      降级链: {ctx.fallback_plan.total_groups} 组, {ctx.fallback_plan.fallback_count} 个降级点")
     if warm_start_asr:
-        print(f"      动态 alpha: 先验主导 (alpha=0.15) → 经验主导 (alpha=0.50)")
+        print("      动态 alpha: 先验主导 (alpha=0.15) → 经验主导 (alpha=0.50)")
     if ctx.tier_layer > 0:
         print(f"      TieredSelection: Layer {ctx.tier_layer} 渐进式选择")
 
@@ -482,7 +482,7 @@ def _resolve_objective_target_name() -> str:
             name = all_entries[0].name
             logger.info(f"objective_target resolved: '{name}' (first available)")
             return name
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.warning(f"Failed to resolve objective_target from TargetRegistry: {e}")
     # 4. 最终回退
     logger.warning("objective_target falling back to 'openai_chat' (no targets in registry)")
@@ -566,7 +566,7 @@ def _get_converter_target() -> Any:
             if id(e.instance) not in objective_ids:
                 logger.info(f"Converter target: '{e.name}' (non-objective fallback)")
                 return e.instance
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         logger.debug(f"Failed to get converter_target: {e}")
 
     return None
@@ -585,7 +585,7 @@ def _build_warm_start_asr(
     warm_start: dict[str, float] = {}
     try:
         technique_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
-    except (RuntimeError, OSError, ValueError):
+    except Exception:
         technique_names = []
 
     for tech in technique_names:
@@ -628,7 +628,7 @@ def _select_techniques_by_tier(
         # 从 AttackTechniqueRegistry 获取可用技术
         try:
             available = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
-        except (RuntimeError, OSError, ValueError):
+        except Exception:
             available = []
 
         if not available:
@@ -646,7 +646,7 @@ def _select_techniques_by_tier(
             return layer.recommended_techniques
 
         return None
-    except (RuntimeError, OSError, ValueError) as e:
+    except Exception as e:
         print(f"  [警告] TieredSelection 失败: {e}")
         return None
 

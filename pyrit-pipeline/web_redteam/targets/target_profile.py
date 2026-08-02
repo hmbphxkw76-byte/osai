@@ -30,6 +30,7 @@ class DetectionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DetectionConfig:
+        """Create DetectionConfig from dictionary."""
         return cls(
             strategy=data.get("strategy", ""),
             pattern=data.get("pattern"),
@@ -50,6 +51,7 @@ class RedirectChainEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RedirectChainEntry:
+        """Create RedirectChainEntry from dictionary."""
         return cls(
             domain=data.get("domain", ""),
             auth_action=data.get("auth_action", ""),
@@ -65,6 +67,7 @@ class SameDomainAuthConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> SameDomainAuthConfig:
+        """Create SameDomainAuthConfig from dictionary."""
         if data is None:
             return cls()
         detection_list = [DetectionConfig.from_dict(d) for d in data.get("detection", [])]
@@ -80,6 +83,7 @@ class CrossDomainAuthConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> CrossDomainAuthConfig:
+        """Create CrossDomainAuthConfig from dictionary."""
         if data is None:
             return cls()
         chain = [RedirectChainEntry.from_dict(e) for e in data.get("redirect_chain", [])]
@@ -108,6 +112,7 @@ class AuthConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> AuthConfig:
+        """Create AuthConfig from dictionary."""
         if data is None:
             return cls()
         auto_fill_raw = data.get("auto_fill", {})
@@ -172,6 +177,7 @@ class InteractionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> InteractionConfig:
+        """Create InteractionConfig from dictionary."""
         if data is None:
             return cls()
         input_data = data.get("input", {})
@@ -210,6 +216,7 @@ class AttackDefaults:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> AttackDefaults:
+        """Create AttackDefaults from dictionary."""
         if data is None:
             return cls()
         return cls(

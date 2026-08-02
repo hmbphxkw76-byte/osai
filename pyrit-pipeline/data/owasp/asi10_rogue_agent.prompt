@@ -1,6 +1,6 @@
 dataset_name: owasp_asi10_rogue_agent
 harm_categories: rogue_agent
-source: https://owasp.org/www-project-top-10-for-agentic-ai/
+source: https://genai.owasp.org/resource/agentic-ai-threats/
 groups: OWASP/ASI10
 data_type: text
 description: OWASP ASI10 - Rogue Agent

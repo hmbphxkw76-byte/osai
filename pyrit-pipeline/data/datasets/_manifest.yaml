@@ -16,7 +16,7 @@
 # ============================================================================
 
 datasets:
-  # ── OWASP LLM Top 10 (本地富元数据) ──
+  # ── OWASP Top 10 for LLM Applications 2025 (本地富元数据) ──
   - name: owasp_llm01_prompt_injection
     source: local
     path: data/owasp/llm01_prompt_injection.prompt
@@ -25,76 +25,76 @@ datasets:
     harm_categories: [information_integrity]
     default: true
 
-  - name: owasp_llm02_insecure_output
+  - name: owasp_llm02_sensitive_info_disclosure
     source: local
-    path: data/owasp/llm02_insecure_output.prompt
+    path: data/owasp/llm02_sensitive_info_disclosure.prompt
     owasp_ids: [LLM02]
-    technique_groups: [prompt_sending]
-    harm_categories: [information_integrity]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [privacy]
     default: true
 
-  - name: owasp_llm03_training_data_poisoning
+  - name: owasp_llm03_supply_chain
     source: local
-    path: data/owasp/llm03_training_data_poisoning.prompt
+    path: data/owasp/llm03_supply_chain.prompt
     owasp_ids: [LLM03]
-    technique_groups: [prompt_sending, context_compliance]
-    harm_categories: [information_integrity]
-    default: false
-
-  - name: owasp_llm04_model_dos
-    source: local
-    path: data/owasp/llm04_model_dos.prompt
-    owasp_ids: [LLM04]
-    technique_groups: [prompt_sending, context_compliance]
-    harm_categories: [availability]
-    default: false
-
-  - name: owasp_llm05_supply_chain
-    source: local
-    path: data/owasp/llm05_supply_chain.prompt
-    owasp_ids: [LLM05]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [supply_chain]
     default: false
 
-  - name: owasp_llm06_sensitive_info_disclosure
+  - name: owasp_llm04_data_model_poisoning
     source: local
-    path: data/owasp/llm06_sensitive_info_disclosure.prompt
-    owasp_ids: [LLM06]
-    technique_groups: [prompt_sending]
-    harm_categories: [privacy]
-    default: true
-
-  - name: owasp_llm07_insecure_plugin_design
-    source: local
-    path: data/owasp/llm07_insecure_plugin_design.prompt
-    owasp_ids: [LLM07]
+    path: data/owasp/llm04_data_model_poisoning.prompt
+    owasp_ids: [LLM04]
     technique_groups: [prompt_sending, context_compliance]
-    harm_categories: [exploits]
+    harm_categories: [information_integrity]
     default: false
 
-  - name: owasp_llm08_excessive_agency
+  - name: owasp_llm05_improper_output_handling
     source: local
-    path: data/owasp/llm08_excessive_agency.prompt
-    owasp_ids: [LLM08]
+    path: data/owasp/llm05_improper_output_handling.prompt
+    owasp_ids: [LLM05]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [information_integrity]
+    default: true
+
+  - name: owasp_llm06_excessive_agency
+    source: local
+    path: data/owasp/llm06_excessive_agency.prompt
+    owasp_ids: [LLM06]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [exploits]
     default: true
 
-  - name: owasp_llm09_overreliance
+  - name: owasp_llm07_system_prompt_leakage
     source: local
-    path: data/owasp/llm09_overreliance.prompt
+    path: data/owasp/llm07_system_prompt_leakage.prompt
+    owasp_ids: [LLM07]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [information_integrity]
+    default: true
+
+  - name: owasp_llm08_vector_embedding_weaknesses
+    source: local
+    path: data/owasp/llm08_vector_embedding_weaknesses.prompt
+    owasp_ids: [LLM08]
+    technique_groups: [prompt_sending, context_compliance]
+    harm_categories: [data_theft]
+    default: false
+
+  - name: owasp_llm09_misinformation
+    source: local
+    path: data/owasp/llm09_misinformation.prompt
     owasp_ids: [LLM09]
     technique_groups: [prompt_sending]
     harm_categories: [misinformation]
     default: false
 
-  - name: owasp_llm10_model_theft
+  - name: owasp_llm10_unbounded_consumption
     source: local
-    path: data/owasp/llm10_model_theft.prompt
+    path: data/owasp/llm10_unbounded_consumption.prompt
     owasp_ids: [LLM10]
     technique_groups: [prompt_sending, context_compliance]
-    harm_categories: [exploits]
+    harm_categories: [availability]
     default: false
 
   # ── OWASP Agentic AI Top 10 (本地富元数据) ──
@@ -225,48 +225,48 @@ datasets:
     harm_categories: [disinformation, hate, illegal_goods, violence]
     default: true
 
-# ── OWASP 分类映射表 (用于 ASR 感知数据集选择) ──
+# ── OWASP Top 10 for LLM Applications 2025 分类映射表 ──
 owasp_mapping:
   LLM01:
     title: Prompt Injection
-    primary_techniques: [prompt_sending, context_compliance, crescendo]
+    primary_techniques: [prompt_sending, context_compliance, crescendo, tap, pair]
     target_groups: [llm_direct, llm_safety, agent_api]
   LLM02:
-    title: Insecure Output Handling
-    primary_techniques: [prompt_sending, context_compliance]
-    target_groups: [output_handling, llm_direct]
-  LLM03:
-    title: Training Data Poisoning
-    primary_techniques: [prompt_sending, context_compliance]
-    target_groups: [llm_direct, rag]
-  LLM04:
-    title: Model Denial of Service
-    primary_techniques: [prompt_sending, context_compliance]
+    title: Sensitive Information Disclosure
+    primary_techniques: [prompt_sending, red_teaming, crescendo, tap, pair]
     target_groups: [llm_direct, llm_safety]
-  LLM05:
-    title: Supply Chain Vulnerabilities
+  LLM03:
+    title: Supply Chain
     primary_techniques: [prompt_sending, context_compliance]
     target_groups: [llm_direct, agent_api, rag]
-  LLM06:
-    title: Sensitive Information Disclosure
-    primary_techniques: [prompt_sending, red_teaming, crescendo]
-    target_groups: [llm_direct, llm_safety]
-  LLM07:
-    title: Insecure Plugin Design
+  LLM04:
+    title: Data and Model Poisoning
     primary_techniques: [prompt_sending, context_compliance]
-    target_groups: [agent_api, agent_web]
-  LLM08:
+    target_groups: [llm_direct, rag]
+  LLM05:
+    title: Improper Output Handling
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [output_handling, llm_direct]
+  LLM06:
     title: Excessive Agency
     primary_techniques: [prompt_sending, context_compliance, crescendo]
     target_groups: [agent_web, agent_copilot, agent_api]
+  LLM07:
+    title: System Prompt Leakage
+    primary_techniques: [prompt_sending, context_compliance, crescendo, tap]
+    target_groups: [llm_direct, llm_safety, agent_api]
+  LLM08:
+    title: Vector and Embedding Weaknesses
+    primary_techniques: [prompt_sending, context_compliance]
+    target_groups: [rag, llm_direct]
   LLM09:
-    title: Overreliance
+    title: Misinformation
     primary_techniques: [prompt_sending, many_shot, red_teaming]
     target_groups: [llm_direct]
   LLM10:
-    title: Model Theft
+    title: Unbounded Consumption
     primary_techniques: [prompt_sending, context_compliance]
-    target_groups: [llm_direct]
+    target_groups: [llm_direct, llm_safety]
   ASI01:
     title: Agent Identity Spoofing
     primary_techniques: [prompt_sending, context_compliance]

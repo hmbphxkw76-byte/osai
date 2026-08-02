@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 1.5: Web 目标自动认证桥接 — 检测 URL → 认证 → 注入主 pipeline。
+"""Stage 1.5: Web 目标自动认证桥接 — 检测 URL → 认证 → 注入主 pipeline。.
 
 当用户提供 ``--web-target-url`` 时, 本阶段:
   1. 加载/动态生成 TargetProfile
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run(ctx: PipelineContext) -> bool:
-    """执行 Stage 1.5: Web 目标自动认证桥接。
+    """执行 Stage 1.5: Web 目标自动认证桥接。.
 
     Args:
         ctx: PipelineContext (需要 args.web_target_url)
@@ -71,7 +71,7 @@ async def run(ctx: PipelineContext) -> bool:
 
 
 async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
-    """执行实际的 web 目标桥接逻辑。"""
+    """执行实际的 web 目标桥接逻辑。."""
     # 1. 加载或生成 TargetProfile
     profile = _load_or_create_profile(ctx, target_url)
     print(f"  认证策略: {profile.auth.type}")
@@ -142,7 +142,7 @@ async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
 
 
 def _load_or_create_profile(ctx: PipelineContext, target_url: str) -> Any:
-    """加载 YAML 配置或从 URL 动态生成 TargetProfile。"""
+    """加载 YAML 配置或从 URL 动态生成 TargetProfile。."""
     profile_path = getattr(ctx.args, "web_target_profile", None)
     if profile_path:
         from web_redteam.targets.target_profile import TargetProfile

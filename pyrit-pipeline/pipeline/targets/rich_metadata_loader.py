@@ -86,6 +86,7 @@ class RichSeedMetadata:
     references: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "asr_baseline": self.asr_baseline,
             "owasp_id": self.owasp_id,
@@ -102,6 +103,7 @@ class RichSeedMetadata:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RichSeedMetadata:
+        """Create RichSeedMetadata from dictionary."""
         return cls(
             asr_baseline=data.get("asr_baseline", {}) or {},
             owasp_id=data.get("owasp_id", ""),
@@ -135,13 +137,16 @@ class RichDataset:
 
     @property
     def seed_count(self) -> int:
+        """Get total number of seeds."""
         return len(self.seeds)
 
     @property
     def has_rich_metadata(self) -> bool:
+        """Check if any seed has rich metadata."""
         return any(m.asr_baseline or m.owasp_id for m in self.seed_metadata)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "dataset_name": self.dataset_name,
             "harm_categories": self.harm_categories,
@@ -329,7 +334,7 @@ def load_rich_prompt_as_native(
     Returns:
         原生 ``SeedDataset`` 实例 (含富元数据)
     """
-    from pyrit.models import SeedDataset, SeedObjective, SeedPrompt
+    from pyrit.models import SeedDataset
 
     # P3: 优先使用原生解析器
     try:
@@ -368,8 +373,8 @@ def load_rich_prompt_as_native(
     return dataset
 
 
-def _manual_parse_prompt_file(file_path: str | Path) -> "SeedDataset":
-    """手动解析 .prompt 文件为原生 SeedDataset (回退方案)。
+def _manual_parse_prompt_file(file_path: str | Path) -> SeedDataset:
+    """手动解析 .prompt 文件为原生 SeedDataset (回退方案)。.
 
     R-011: 当原生 ``SeedDataset.from_yaml_file()`` 因 YAML 格式严格性
     失败时使用此回退方案。手动解析使用 ``yaml.safe_load`` 的宽松模式,
@@ -400,20 +405,20 @@ def _manual_parse_prompt_file(file_path: str | Path) -> "SeedDataset":
     for seed in raw_seeds:
         if isinstance(seed, str):
             if seed_type == "objective":
-                seeds.append(SeedObjective(value=seed))
+                seeds.append(SeedObjective(value=seed, dataset_name=dataset_name))
             else:
-                seeds.append(SeedPrompt(value=seed))
+                seeds.append(SeedPrompt(value=seed, dataset_name=dataset_name))
         elif isinstance(seed, dict):
             value = seed.get("value", "")
             metadata = seed.get("metadata", {}) or {}
 
             if seed_type == "objective":
-                obj = SeedObjective(value=value)
+                obj = SeedObjective(value=value, dataset_name=dataset_name)
                 if metadata:
                     obj.metadata = metadata
                 seeds.append(obj)
             else:
-                prompt = SeedPrompt(value=value)
+                prompt = SeedPrompt(value=value, dataset_name=dataset_name)
                 if metadata:
                     prompt.metadata = metadata
                 seeds.append(prompt)
