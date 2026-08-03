@@ -2,9 +2,8 @@
 # pyrit-pipeline .gitignore — 二次开发项目专属
 # ============================================================================
 
-# ── 密钥与配置 ──
-# 私有仓库: .env 和 .pyrit_conf 可提交, 便于环境迁移
-# 如转为公开仓库, 请重新忽略 .env
+# ── 密钥 (不入库) ──
+# 上层 osai/.gitignore 已全局忽略 .env, 此处不再重复
 .pyrit_cache/
 
 # ── 虚拟环境 ──
@@ -15,8 +14,8 @@ env.bak/
 venv.bak/
 
 # ── 运行时输出 ──
-# 仅 outputs/empirical_asr/ 可提交 (经验 ASR 数据, 便于环境迁移)
-# 其余 outputs/ 内容保持忽略
+# 上层 osai/.gitignore 全局忽略 outputs/
+# 此处强制允许 outputs/empirical_asr/ (经验 ASR 数据, 便于环境迁移)
 outputs/*
 !outputs/empirical_asr/
 /results/

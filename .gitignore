@@ -23,11 +23,8 @@ env/
 *.swp
 *.swo
 
-# 环境变量 / 密钥
-# pyrit-pipeline 为私有仓库, .env 可提交
-# garak-pipeline / recon-pipeline 保持忽略
-garak-pipeline/.env
-recon-pipeline/.env
+# 环境变量 / 密钥（禁止入库）
+.env
 *.secret
 *secret*.yaml
 
@@ -36,9 +33,8 @@ recon-pipeline/.env
 dist/
 build/
 
-# 运行时输出 (各子项目自行管理)
-garak-pipeline/outputs/
-recon-pipeline/outputs/
+# 运行时输出
+outputs/
 *.log
 
 # 操作系统
