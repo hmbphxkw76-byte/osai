@@ -157,6 +157,7 @@ async def run(ctx: PipelineContext) -> None:
     print("  └───────────────────────────────────────────────────────────────┘")
 
     # P2-3: 更新 Dashboard 并显示最终状态
+    # 使用 update_from_attack_results 按 objective 级别计数, 与 Poller 一致
     from pyrit.models import AttackOutcome
 
     succeeded = sum(
@@ -172,8 +173,10 @@ async def run(ctx: PipelineContext) -> None:
         if ar.outcome == AttackOutcome.FAILURE
     )
     errored = total_results - succeeded - failed
-    dashboard.update(succeeded=succeeded, failed=failed, errored=errored)
-    dashboard.completed = total_results
+
+    # Dashboard 按 objective 级别更新 (与 total=atomic_attack_count 同单位)
+    all_attack_results = [ar for ars in result.attack_results.values() for ar in ars]
+    dashboard.update_from_attack_results(all_attack_results)
     dashboard.print_progress()
 
     # C4: 发布执行完成事件

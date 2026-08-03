@@ -67,12 +67,14 @@ class ProgressDashboard:
     def render(self) -> str:
         """渲染进度仪表盘."""
         elapsed = time.time() - self._start_time
-        pct = self.completed / self.total * 100 if self.total > 0 else 0
+        # 安全上限: completed 不超过 total (防御性, 正常情况下不会触发)
+        effective_total = max(self.total, self.completed)
+        pct = self.completed / effective_total * 100 if effective_total > 0 else 0
         rate = self.completed / elapsed * 60 if elapsed > 0 else 0
-        remaining = (elapsed / self.completed * (self.total - self.completed)) if self.completed > 0 else 0
+        remaining = (elapsed / self.completed * (effective_total - self.completed)) if self.completed > 0 else 0
 
         bar_width = 30
-        filled = int(bar_width * pct / 100)
+        filled = min(int(bar_width * pct / 100), bar_width)
         bar = "█" * filled + "░" * (bar_width - filled)
 
         lines = [
@@ -121,7 +123,12 @@ class ProgressDashboard:
 
         重置计数后重新统计, 确保与 CentralMemory 中的实际数据一致。
 
-        L5 P0-2 增强: 同时统计按技术分组的 ASR (基于 PyRIT 原生 display group)。
+        关键设计: completed/succeeded/failed/errored 按 **唯一 objective** 统计,
+        与 ``atomic_attack_count`` (total) 保持同一单位。
+        一个 AtomicAttack 可能产生多个 AttackResult (因 max_attempts_per_objective
+        或多轮攻击技术), 但在进度条上应算作 1 个完成。
+
+        L5 P0-2 增强: 按技术分组 ASR 仍按 AttackResult 级别统计 (更细粒度)。
 
         Args:
             attack_results: 从 CentralMemory 查询到的 AttackResult 列表
@@ -132,19 +139,35 @@ class ProgressDashboard:
         self._asr_tech_success.clear()
         self._asr_tech_total.clear()
 
+        # 按唯一 objective 聚合: 每个 AtomicAttack 共享同一个 objective
+        # 多个 AttackResult 可能属于同一个 AtomicAttack (多次尝试)
+        objective_best_outcome: dict[str, str] = {}
+
         for ar in attack_results:
             outcome = getattr(ar, "outcome", None)
             if outcome is None:
                 continue
             outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
 
-            # L5 P0-2: 按技术分组统计 ASR
+            # 按唯一 objective 聚合: 使用 vars() 避免 MagicMock auto-attr 副作用
+            # (与 _extract_technique 同模式, 性能优化)
+            ar_dict = vars(ar) if hasattr(ar, "__dict__") else {}
+            objective = str(ar_dict.get("objective", "") or "")
+            if objective:
+                if outcome_str == "SUCCESS":
+                    objective_best_outcome[objective] = "SUCCESS"
+                elif objective not in objective_best_outcome:
+                    objective_best_outcome[objective] = outcome_str
+
+            # L5 P0-2: 按技术分组统计 ASR (AttackResult 级别, 更细粒度)
             tech = self._extract_technique(ar)
             if tech:
                 self._asr_tech_total[tech] = self._asr_tech_total.get(tech, 0) + 1
                 if outcome_str == "SUCCESS":
                     self._asr_tech_success[tech] = self._asr_tech_success.get(tech, 0) + 1
 
+        # completed/succeeded/failed/errored = 唯一 objective 级别 (与 total 同单位)
+        for outcome_str in objective_best_outcome.values():
             if outcome_str == "SUCCESS":
                 self.succeeded += 1
             elif outcome_str == "FAILURE":
@@ -333,9 +356,10 @@ class ProgressPoller:
         if now - self._last_heartbeat >= self._HEARTBEAT_INTERVAL:
             self._last_heartbeat = now
             elapsed = now - self._dashboard._start_time
+            effective_total = max(self._dashboard.total, self._dashboard.completed)
             pct = (
-                self._dashboard.completed / self._dashboard.total * 100
-                if self._dashboard.total > 0
+                self._dashboard.completed / effective_total * 100
+                if effective_total > 0
                 else 0
             )
             print(

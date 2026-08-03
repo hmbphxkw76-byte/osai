@@ -1,17 +1,17 @@
 {
   "techniques": {
-    "harmbench": 0.14285714285714285,
-    "jbb_behaviors": 0.21428571428571427,
-    "strong_reject": 0.20689655172413793,
-    "owasp_llm01_prompt_injection": 0.8333333333333335,
-    "owasp_llm02_sensitive_info_disclosure": 0.0,
-    "owasp_llm05_improper_output_handling": 0.09523809523809523,
-    "owasp_llm06_excessive_agency": 0.1111111111111111,
-    "owasp_llm07_system_prompt_leakage": 0.21052631578947367,
-    "owasp_asi01_agent_identity_spoofing": 0.4615384615384615,
-    "owasp_asi02_tool_misuse": 0.0,
-    "owasp_asi03_unauthorized_actions": 0.14285714285714285,
-    "owasp_asi04_data_exfiltration": 0.0
+    "harmbench": 0.4,
+    "jbb_behaviors": 0.4,
+    "strong_reject": 0.2,
+    "owasp_llm01_prompt_injection": 0.6,
+    "owasp_llm02_sensitive_info_disclosure": 0.2,
+    "owasp_llm05_improper_output_handling": 0.8,
+    "owasp_llm06_excessive_agency": 0.6,
+    "owasp_llm07_system_prompt_leakage": 0.2,
+    "owasp_asi01_agent_identity_spoofing": 0.4,
+    "owasp_asi02_tool_misuse": 0.4,
+    "owasp_asi03_unauthorized_actions": 0.4,
+    "owasp_asi04_data_exfiltration": 0.4
   },
   "_meta": {
     "total_techniques": 12,

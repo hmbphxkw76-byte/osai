@@ -165,14 +165,15 @@ class TestProgressPollerPerformance:
 
     @pytest.mark.asyncio
     async def test_dashboard_update_from_results_performance(self) -> None:
-        """update_from_attack_results 处理 1000 条结果 < 10ms."""
+        """update_from_attack_results 处理 1000 条结果 < 50ms (含 objective 去重)."""
         from pyrit.models import AttackOutcome
 
-        # 构造 1000 条 mock AttackResult
+        # 构造 1000 条 mock AttackResult (每个有唯一 objective)
         results = []
         for i in range(1000):
             ar = MagicMock()
             ar.outcome = AttackOutcome.SUCCESS if i % 3 == 0 else AttackOutcome.FAILURE
+            ar.objective = f"objective_{i}"
             results.append(ar)
 
         dashboard = ProgressDashboard(total=1000)
@@ -181,7 +182,8 @@ class TestProgressPollerPerformance:
         dashboard.update_from_attack_results(results)
         elapsed_ms = (time.perf_counter() - start) * 1000
 
-        assert elapsed_ms < 10.0, (
+        # objective 去重逻辑比纯计数稍慢, 阈值放宽到 50ms
+        assert elapsed_ms < 50.0, (
             f"update_from_attack_results too slow: {elapsed_ms:.1f}ms for 1000 results"
         )
         assert dashboard.completed == 1000

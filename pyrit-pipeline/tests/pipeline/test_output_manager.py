@@ -96,9 +96,9 @@ class TestProgressDashboard:
         """从成功 AttackResult 列表更新计数。"""
         dashboard = ProgressDashboard(total=100)
         results = [
-            MagicMock(outcome=AttackOutcome.SUCCESS),
-            MagicMock(outcome=AttackOutcome.SUCCESS),
-            MagicMock(outcome=AttackOutcome.SUCCESS),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_2"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_3"),
         ]
         dashboard.update_from_attack_results(results)
         assert dashboard.succeeded == 3
@@ -110,9 +110,9 @@ class TestProgressDashboard:
         """从混合 AttackResult 列表更新计数。"""
         dashboard = ProgressDashboard(total=100)
         results = [
-            MagicMock(outcome=AttackOutcome.SUCCESS),
-            MagicMock(outcome=AttackOutcome.FAILURE),
-            MagicMock(outcome=AttackOutcome.ERROR),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_2"),
+            MagicMock(outcome=AttackOutcome.ERROR, objective="obj_3"),
         ]
         dashboard.update_from_attack_results(results)
         assert dashboard.succeeded == 1
@@ -125,7 +125,7 @@ class TestProgressDashboard:
         dashboard = ProgressDashboard(total=100)
         dashboard.update(succeeded=10, failed=5)  # 先设置一些值
 
-        results = [MagicMock(outcome=AttackOutcome.SUCCESS)]
+        results = [MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1")]
         dashboard.update_from_attack_results(results)
         assert dashboard.succeeded == 1  # 重置后重新统计
         assert dashboard.failed == 0
@@ -145,8 +145,8 @@ class TestProgressDashboard:
         """Outcome 为 None 的结果被跳过。"""
         dashboard = ProgressDashboard(total=100)
         results = [
-            MagicMock(outcome=AttackOutcome.SUCCESS),
-            MagicMock(outcome=None),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1"),
+            MagicMock(outcome=None, objective="obj_2"),
         ]
         dashboard.update_from_attack_results(results)
         assert dashboard.succeeded == 1
@@ -161,9 +161,32 @@ class TestProgressDashboard:
         # 配置 MagicMock 使 hasattr(outcome, 'value') 返回 False
         del result.outcome  # 移除 MagicMock 自动属性
         result.outcome = "SUCCESS"
+        result.objective = "obj_1"
 
         dashboard.update_from_attack_results([result])
         assert dashboard.succeeded == 1
+
+    def test_update_from_attack_results_multi_attempt_same_objective(self) -> None:
+        """同一 objective 的多个 AttackResult (多次尝试) 只算 1 个完成."""
+        dashboard = ProgressDashboard(total=82)
+        # 模拟: 同一个 AtomicAttack (objective="obj_1") 有 3 次尝试
+        # 2 次失败 + 1 次成功 → 该 objective 算 1 个成功
+        results = [
+            MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1"),
+            # 另一个 AtomicAttack (objective="obj_2") 2 次尝试全失败
+            MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_2"),
+            MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_2"),
+        ]
+        dashboard.update_from_attack_results(results)
+        # 2 个唯一 objective → completed=2 (不是 5 个 AttackResult)
+        assert dashboard.completed == 2
+        # obj_1 有 SUCCESS → succeeded=1
+        assert dashboard.succeeded == 1
+        # obj_2 全 FAILURE → failed=1
+        assert dashboard.failed == 1
+        assert dashboard.errored == 0
 
 
 # ============================================================
@@ -280,9 +303,9 @@ class TestProgressPoller:
         mock_memory = MagicMock()
         mock_memory.get_attack_results = MagicMock(
             return_value=[
-                MagicMock(outcome=AttackOutcome.SUCCESS),
-                MagicMock(outcome=AttackOutcome.SUCCESS),
-                MagicMock(outcome=AttackOutcome.FAILURE),
+                MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_1"),
+                MagicMock(outcome=AttackOutcome.SUCCESS, objective="obj_2"),
+                MagicMock(outcome=AttackOutcome.FAILURE, objective="obj_3"),
             ]
         )
 
@@ -474,8 +497,8 @@ class TestProgressPoller:
         mock_memory = MagicMock()
         mock_memory.get_attack_results = MagicMock(
             return_value=[
-                MagicMock(outcome=AttackOutcome.SUCCESS, id="r1"),
-                MagicMock(outcome=AttackOutcome.FAILURE, id="r2"),
+                MagicMock(outcome=AttackOutcome.SUCCESS, id="r1", objective="obj_1"),
+                MagicMock(outcome=AttackOutcome.FAILURE, id="r2", objective="obj_2"),
             ]
         )
 
@@ -508,13 +531,13 @@ class TestProgressPoller:
 
         # 第一次返回 2 个结果, 第二次返回 3 个 (新增 1 个)
         results_round_1 = [
-            MagicMock(outcome=AttackOutcome.SUCCESS, id="r1"),
-            MagicMock(outcome=AttackOutcome.FAILURE, id="r2"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, id="r1", objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.FAILURE, id="r2", objective="obj_2"),
         ]
         results_round_2 = [
-            MagicMock(outcome=AttackOutcome.SUCCESS, id="r1"),
-            MagicMock(outcome=AttackOutcome.FAILURE, id="r2"),
-            MagicMock(outcome=AttackOutcome.SUCCESS, id="r3"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, id="r1", objective="obj_1"),
+            MagicMock(outcome=AttackOutcome.FAILURE, id="r2", objective="obj_2"),
+            MagicMock(outcome=AttackOutcome.SUCCESS, id="r3", objective="obj_3"),
         ]
 
         call_count = [0]

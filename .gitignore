@@ -33,8 +33,10 @@ env/
 dist/
 build/
 
-# 运行时输出
-outputs/
+# 运行时输出 (各子项目自行管理 outputs/)
+# pyrit-pipeline 的 .gitignore 自行管理 outputs/empirical_asr/ 例外
+garak-pipeline/outputs/
+recon-pipeline/outputs/
 *.log
 
 # 操作系统
