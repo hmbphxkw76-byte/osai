@@ -31,7 +31,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from core.probes.error_class import classify_http_response
 from core.probes.recon_result import DiscoveredEndpoint, EndpointType
+from core.probes.response_fingerprint import fingerprint_response
 
 logger = logging.getLogger(__name__)
 
