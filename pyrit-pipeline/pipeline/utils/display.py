@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import sys
 from typing import Any
 
 from pipeline.context import PipelineContext
@@ -30,10 +29,13 @@ from pipeline.context import PipelineContext
 # ── 统一卡片宽度 (与 pyrit_ai300 对齐) ──
 _W = 68
 
-# ── 确保终端输出 UTF-8 (R-012) ──
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
-    with contextlib.suppress(Exception):
-        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+# ── 终端编码说明 (R-012) ──
+# main.py 在所有 import 之前已调用:
+#   sys.stdout.reconfigure(encoding="utf-8", errors="replace",
+#                          write_through=True, line_buffering=True)
+# 此处不再重复 reconfigure, 避免:
+#   1. 覆盖 errors="replace" 为默认 "strict" → UnicodeEncodeError
+#   2. 覆盖 write_through/line_buffering → 缓冲模式回退 → 终端无输出
 
 
 def print_pipeline_header(ctx: PipelineContext) -> None:
@@ -57,12 +59,19 @@ def print_pipeline_header(ctx: PipelineContext) -> None:
         os.getenv("AZURE_CONTENT_SAFETY_API_ENDPOINT", "N/A"),
     )
 
+    # 对抗模型 (三方分离原则: 评分 ≠ 对抗 ≠ 目标)
+    adversarial_endpoint = os.getenv("ADVERSARIAL_CHAT_ENDPOINT", "N/A")
+    adversarial_model = os.getenv("ADVERSARIAL_CHAT_MODEL", "N/A")
+
     print(f"  目标 URL: {target_url}")
     print(f"  目标端点: {target_endpoint}")
     print(f"  目标模型: {model_name}")
     if scorer_endpoint != "N/A":
         print(f"  评分器端点: {scorer_endpoint}")
     print(f"  评分器模型: {scorer_model}")
+    if adversarial_endpoint != "N/A":
+        print(f"  对抗模型端点: {adversarial_endpoint}")
+    print(f"  对抗模型: {adversarial_model}")
     print(f"  开始时间: {ctx.start_time.isoformat() if ctx.start_time else 'N/A'}")
     if output_mgr:
         print(f"  日志文件: {output_mgr.log_path}")

@@ -129,7 +129,7 @@ def _feedback_current_run_asr(ctx: PipelineContext) -> None:
       - arXiv:2310.04451 (PAIR) — 自适应策略选择
       - arXiv:2406.16241 (TAP) — 基于搜索的攻击优化
     """
-    scenario_result_id = ctx.args.resume or getattr(ctx.scenario, "scenario_result_id", None)
+    scenario_result_id = ctx.args.resume or getattr(ctx.scenario, "_scenario_result_id", None)
     if not scenario_result_id:
         print("  同次运行 ASR 反馈: (首次运行, 无 resume ID)")
         ctx.metadata["current_run_asr"] = {}

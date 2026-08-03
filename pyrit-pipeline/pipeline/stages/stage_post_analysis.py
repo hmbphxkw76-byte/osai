@@ -41,6 +41,20 @@ async def run(ctx: PipelineContext) -> None:
     print("阶段 5/6: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回")
     print("=" * 70)
 
+    # L5 P2-1/P2-2: 决策追溯 + 事件总线
+    from pipeline.utils.decision_trace import DecisionTrace
+    from pipeline.utils.event_bus import EventBus
+
+    trace = DecisionTrace.get_instance()
+    bus = EventBus.get_instance()
+    trace.record(
+        stage="stage_5",
+        layer="L5_Analytics",
+        decision="post_analysis_started",
+        reason=f"Overall ASR={ctx.overall_asr}%, analyzing results",
+    )
+    bus.publish_simple("stage_5", "post_analysis_started", overall_asr=ctx.overall_asr)
+
     # ── 1. 执行成果概要 ──
     _print_execution_summary(ctx)
 
@@ -473,10 +487,11 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
 
 
 def _print_owasp_matrix(ctx: PipelineContext) -> None:
-    """D4: OWASP LLM Top10 (2025) 覆盖矩阵。.
+    """D4: OWASP LLM Top10 (2025) 覆盖矩阵 (L5 P3-1: 使用原生 display_group 映射).
 
-    将攻击技术映射到 OWASP LLM Top10 分类,
-    展示每个 OWASP 分类的覆盖率。
+    L5 P3-1 修复: 不再使用硬编码 tech_to_owasp 映射,
+    而是从 PyRIT 原生 get_display_groups() 的组名中提取 OWASP ID,
+    与 EvidenceCollector._extract_owasp_id_from_display_group() 对齐。
     """
     from pipeline.utils.display import info_box
 
@@ -494,33 +509,74 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
         "LLM10": "Model Theft",
     }
 
-    # 技术到 OWASP 的映射 (简化版)
-    tech_to_owasp: dict[str, str] = {
-        "prompt_injection": "LLM01",
-        "jailbreak": "LLM01",
-        "encoding": "LLM01",
-        "payload_smuggling": "LLM01",
-        "red_teaming": "LLM01",
-        "information_disclosure": "LLM06",
-        "data_exfiltration": "LLM06",
-        "dan": "LLM08",
-        "actor_attack": "LLM08",
-    }
-
-    # 统计覆盖
+    # L5 P3-1: 从 PyRIT 原生 display_groups 提取 OWASP ID
     covered: set[str] = set()
-    if ctx.asr_per_technique:
-        for tech in ctx.asr_per_technique:
-            owasp_id = tech_to_owasp.get(tech.lower())
-            if owasp_id:
+    owasp_attack_counts: dict[str, int] = {}
+    owasp_success_counts: dict[str, int] = {}
+
+    if ctx.result:
+        import re
+
+        from pyrit.models import AttackOutcome
+
+        groups = ctx.result.get_display_groups()
+        for group_name, attack_results in groups.items():
+            # 从组名提取 OWASP ID (如 llm01_prompt_injection → LLM01)
+            match = re.match(r"^(?:llm|asi)(\d{2})_", group_name, re.IGNORECASE)
+            if match:
+                num = match.group(1)
+                owasp_id = f"LLM{num}"
                 covered.add(owasp_id)
+                owasp_attack_counts[owasp_id] = owasp_attack_counts.get(owasp_id, 0) + len(attack_results)
+                successes = sum(1 for ar in attack_results if ar.outcome == AttackOutcome.SUCCESS)
+                owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
+            else:
+                # 回退: 从 ASR 技术名匹配 (简化版, 保持向后兼容)
+                tech_lower = group_name.lower()
+                fallback_map = {
+                    "prompt_injection": "LLM01",
+                    "jailbreak": "LLM01",
+                    "encoding": "LLM01",
+                    "payload_smuggling": "LLM01",
+                    "red_teaming": "LLM01",
+                    "information_disclosure": "LLM06",
+                    "data_exfiltration": "LLM06",
+                    "dan": "LLM08",
+                    "actor_attack": "LLM08",
+                }
+                for key, owasp_id in fallback_map.items():
+                    if key in tech_lower:
+                        covered.add(owasp_id)
+                        owasp_attack_counts[owasp_id] = owasp_attack_counts.get(owasp_id, 0) + len(attack_results)
+                        successes = sum(1 for ar in attack_results if ar.outcome == AttackOutcome.SUCCESS)
+                        owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
+                        break
 
     lines: list[str] = []
     for owasp_id, name in owasp_categories.items():
         mark = "✓" if owasp_id in covered else "✗"
-        lines.append(f"  {mark} {owasp_id} {name}")
+        attack_count = owasp_attack_counts.get(owasp_id, 0)
+        success_count = owasp_success_counts.get(owasp_id, 0)
+        if attack_count > 0:
+            rate = success_count / attack_count * 100
+            lines.append(f"  {mark} {owasp_id} {name:<30} {success_count}/{attack_count} ({rate:.0f}%)")
+        else:
+            lines.append(f"  {mark} {owasp_id} {name}")
 
     coverage = len(covered) / len(owasp_categories) * 100
     lines.append(f"  覆盖率: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)")
 
-    info_box("D4: OWASP LLM Top10 (2025) 覆盖矩阵", lines)
+    info_box("D4: OWASP LLM Top10 (2025) 覆盖矩阵 (原生 display_group 映射)", lines)
+
+    # L5 P2-1: 决策追溯 — OWASP 矩阵计算
+    from pipeline.utils.decision_trace import DecisionTrace
+
+    trace = DecisionTrace.get_instance()
+    trace.record(
+        stage="stage_5",
+        layer="L5_Analytics",
+        decision="owasp_matrix_computed",
+        reason=f"Coverage: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)",
+        covered_ids=sorted(covered),
+        coverage_pct=round(coverage, 1),
+    )

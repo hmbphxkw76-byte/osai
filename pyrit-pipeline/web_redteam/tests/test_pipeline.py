@@ -227,6 +227,8 @@ class TestHumanAssistedAuth:
 
         page = MagicMock()
         page.goto = AsyncMock()
+        page.url = "https://example.com/login"  # 仍在登录页, 使降级检查失败
+        page.context.cookies = AsyncMock(return_value=[])  # 无 session cookie
 
         detector = MagicMock()
         detector.wait_for_completion = AsyncMock(return_value=False)  # 超时

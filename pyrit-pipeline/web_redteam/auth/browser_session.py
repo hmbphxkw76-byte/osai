@@ -332,7 +332,7 @@ class BrowserSession:
 
     @staticmethod
     def _find_available_port(preferred: int = 9222, max_attempts: int = 10) -> int:
-        """A6: 动态查找可用的 CDP 端口。
+        """A6: 动态查找可用的 CDP 端口。.
 
         如果首选端口被占用, 自动递增查找可用端口。
 
@@ -359,7 +359,9 @@ class BrowserSession:
             except Exception:
                 return port
         # 所有尝试都失败, 返回首选端口 (让浏览器报错)
-        logger.warning(f"BrowserSession: no available port found in {preferred}-{preferred + max_attempts}, using {preferred}")
+        logger.warning(
+            f"BrowserSession: no available port found in {preferred}-{preferred + max_attempts}, using {preferred}"
+        )
         return preferred
 
     def _launch_browser_process(

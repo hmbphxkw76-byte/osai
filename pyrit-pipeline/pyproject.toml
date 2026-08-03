@@ -53,6 +53,7 @@ reports-fallback = [
 # 全量安装（所有可选依赖）
 all = [
     "pyrit[all]",
+    "beautifulsoup4>=4.12",  # P2: DOM 检测精度提升 (TargetClassifier)
     "markdown>=3.7",
     "weasyprint>=62.0",
 ]

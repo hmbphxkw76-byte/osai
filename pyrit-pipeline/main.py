@@ -29,12 +29,17 @@ import sys
 _logger = logging.getLogger(__name__)
 
 _os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+# write_through=True 确保每次 write 后立即 flush 到底层缓冲
+# line_buffering=True 确保遇到 \n 时立即 flush
+# 这两个参数防止 reconfigure 后缓冲模式变为 block-buffered 导致终端无输出
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", write_through=True, line_buffering=True)
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", write_through=True, line_buffering=True)
 
 import asyncio
+import contextlib
+import os
 import signal
 from datetime import datetime
 from pathlib import Path
@@ -58,16 +63,55 @@ from pipeline.utils.noise_redirector import redirect_noise_to_file
 _shutdown_requested = False
 
 
-def _signal_handler(signum, frame):
-    """P3-2: 信号处理器 — SIGINT/SIGTERM 时优雅退出。."""
+def _cancel_all_async_tasks() -> int:
+    """取消当前事件循环中所有 asyncio 任务, 立即停止 API 调用。.
+
+    Returns:
+        被取消的任务数
+    """
+    cancelled = 0
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return 0
+
+    # 收集所有 pending 任务 (排除当前正在执行的)
+    tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    for task in tasks:
+        task.cancel()
+        cancelled += 1
+
+    return cancelled
+
+
+def _signal_handler(signum: int, frame: object) -> None:
+    """P3-2: 信号处理器 — SIGINT/SIGTERM 时优雅退出 + 立即取消 API 调用。.
+
+    第一次中断:
+      1. 设置 _shutdown_requested 标志 (阶段间检查)
+      2. 立即取消所有 asyncio 任务 (停止 API 调用, 避免后台消耗 token)
+    第二次中断:
+      硬退出 os._exit(1) — 不执行任何清理, 立即终止进程
+    """
     global _shutdown_requested
+
+    # 第二次信号: 硬退出, 立即终止进程 (避免后台继续消耗 token)
+    if _shutdown_requested:
+        print("\n[FORCE EXIT] 立即终止进程...")
+        with contextlib.suppress(Exception):
+            clean_temp_files("post")
+        os._exit(1)
+
+    # 第一次信号: 优雅退出
     _shutdown_requested = True
     sig_name = signal.Signals(signum).name
-    print(f"\n[{sig_name}] 收到退出信号, 等待当前阶段完成后退出...")
-    print("  (再次按 Ctrl+C 立即退出)")
-    # 第二次信号直接退出
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(1))
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+    print(f"\n[{sig_name}] 收到退出信号, 正在停止 API 调用...")
+
+    # 立即取消所有 asyncio 任务 (停止正在进行的 API 调用)
+    cancelled = _cancel_all_async_tasks()
+    if cancelled > 0:
+        print(f"  已取消 {cancelled} 个后台任务 (API 调用已停止)")
+    print("  (再次按 Ctrl+C 立即硬退出)")
 
 
 async def main_async() -> None:
@@ -309,9 +353,17 @@ if __name__ == "__main__":
         asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n用户中断")
-        sys.exit(0)
+        # 确保临时文件清理 (R-008)
+        with contextlib.suppress(Exception):
+            clean_temp_files("post")
+        os._exit(0)
     except SystemExit:
+        # 确保临时文件清理 (R-008)
+        with contextlib.suppress(Exception):
+            clean_temp_files("post")
         raise
     except Exception as e:
         print(f"\n流水线异常: {e}")
-        sys.exit(1)
+        with contextlib.suppress(Exception):
+            clean_temp_files("post")
+        os._exit(1)

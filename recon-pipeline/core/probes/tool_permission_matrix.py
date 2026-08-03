@@ -252,6 +252,22 @@ class ToolPermissionAnalyzer:
         tool_name = self._extract_tool_name(url)
 
         evidence: list[str] = []
+        body = endpoint.response_body_preview or ""
+
+        # 计算响应指纹 (Layer 5: 去重/变更检测)
+        resp_fp = fingerprint_response(
+            body=body,
+            status_code=endpoint.status_code,
+        )
+
+        # 计算错误分类 (Layer 4: 诊断)
+        err_cls = ""
+        if endpoint.status_code is not None:
+            err_cls = classify_http_response(
+                status_code=endpoint.status_code,
+                body=body,
+                duration_ms=endpoint.duration_ms,
+            )
 
         # 匹配风险规则
         for pattern, action_type, risk_level, data_scope, reversible, external_impact in _RISK_RULES:
@@ -259,7 +275,6 @@ class ToolPermissionAnalyzer:
                 evidence.append(f"URL matches risk pattern: {pattern.pattern}")
 
                 # 检查响应体是否包含额外线索
-                body = endpoint.response_body_preview or ""
                 if body and pattern.search(body):
                     evidence.append(f"Response body also matches: {pattern.pattern}")
 
@@ -272,6 +287,8 @@ class ToolPermissionAnalyzer:
                     reversible=reversible,
                     external_impact=external_impact,
                     evidence=evidence,
+                    response_fingerprint=resp_fp,
+                    error_class=err_cls,
                 )
 
         # 未匹配任何规则 → 默认 MEDIUM 风险
@@ -284,6 +301,8 @@ class ToolPermissionAnalyzer:
             reversible=True,
             external_impact="未知",
             evidence=["No specific risk pattern matched"],
+            response_fingerprint=resp_fp,
+            error_class=err_cls,
         )
 
     @staticmethod

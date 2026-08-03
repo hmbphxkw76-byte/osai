@@ -25,39 +25,75 @@ import warnings
 from pathlib import Path
 from typing import Any, TextIO
 
-# ── 噪音模式: 匹配 PyRIT 初始化过程中的非核心输出 ──
+# ── 噪音模式: 匹配 PyRIT 初始化和执行过程中的非核心输出 ──
 # 这些行不影响程序正常运行, 统一归类到噪音日志
+# L5 对齐 NIST SP 800-92: 信号/噪音严格分离, 噪音行不进入 signal log
 _NOISE_PATTERNS: list[re.Pattern[str]] = [
-    # Scorer 初始化跳过
+    # ── Scorer 初始化跳过 ──
     re.compile(r"^Skipping scorer\s", re.IGNORECASE),
     re.compile(r"^No scorers in category\s", re.IGNORECASE),
     re.compile(r"^No composite scorers available", re.IGNORECASE),
     re.compile(r"^Skipping best objective tagging", re.IGNORECASE),
-    # 配置加载
+    # ── 配置加载 ──
     re.compile(r"^Loading configuration file:", re.IGNORECASE),
-    # Target 回退
+    # ── Target 回退 ──
     re.compile(r"^TargetRegistry entry\s.*not found\.", re.IGNORECASE),
     re.compile(r"Falling back to default", re.IGNORECASE),
-    # Preload 元数据
+    # ── Preload 元数据 ──
     re.compile(r"PreloadScenarioMetadata", re.IGNORECASE),
-    # Converter 重试噪音
+    # ── Converter/Scorer/Adversarial 重试噪音 ──
     re.compile(r"^Retry attempt \d+ for converter\.", re.IGNORECASE),
-    # PyRIT 内部日志
+    re.compile(r"^Retry attempt \d+ for (objective scorer|adversarial chat)\.", re.IGNORECASE),
+    # ── PyRIT 内部日志 ──
     re.compile(r"^\[.*\]\s*(INFO|DEBUG|WARNING)\s", re.IGNORECASE),
-    # Python 警告 (SyntaxWarning, DeprecationWarning, FutureWarning 等)
+    # ── Python 警告 (SyntaxWarning, DeprecationWarning, FutureWarning 等) ──
     re.compile(r"\.py:\d+:\s+(Syntax|Deprecation|Future|Resource|Runtime)Warning:", re.IGNORECASE),
-    # Python 警告的第二行 (源代码行)
     re.compile(r"^\s+.*=.*''\s*$"),
-    # PyRIT TextAdaptive 内部排除技术提示 (噪音)
+    # ── PyRIT TextAdaptive 内部排除技术提示 ──
     re.compile(r"^TextAdaptive:\s", re.IGNORECASE),
     re.compile(r"_EXCLUDED_TECHNIQUES\s", re.IGNORECASE),
-    # Converter 构建失败 (非致命, 噪音)
+    # ── Converter 构建失败 (非致命) ──
     re.compile(r"^Failed to build converter chain", re.IGNORECASE),
-    # PyRIT 技术跳过提示
+    # ── PyRIT 技术跳过提示 ──
     re.compile(r"^Skipping technique\s", re.IGNORECASE),
-    # Transient API error 重试日志 (噪音)
+    # ── Transient API error 重试日志 ──
     re.compile(r"^Transient API error", re.IGNORECASE),
     re.compile(r"got (API)?(Timeout)?Error\s.*retrying", re.IGNORECASE),
+    # ── L5: Python Traceback 块 (255 行/次 → 噪音) ──
+    re.compile(r"^Traceback \(most recent call last\):"),
+    re.compile(r'^  File "'),
+    re.compile(r"^\s+\^+$"),  # ^^^ 指针行
+    re.compile(r"^(httpcore|httpx|openai|tenacity|asyncio)\.\w+(Error|Exception)"),
+    re.compile(r"^ValueError: Atomic attack.*partially failed"),
+    re.compile(r"^RuntimeError: Strategy execution failed"),
+    # ── L5: EvidenceExporter 渲染/导出失败 (700 行 → 噪音) ──
+    re.compile(r"^Failed to (render|export) conversation", re.IGNORECASE),
+    # ── L5: PyRIT tqdm 进度条 (含 \r 的行, 33 行 → 噪音) ──
+    re.compile(r"^Executing (TextAdaptive|PromptSending):\s+\d+%"),
+    re.compile(r"^Executing (TextAdaptive|PromptSending):\s+\d+\|"),
+    # ── L5: RateLimitError / API Error (执行阶段噪音) ──
+    re.compile(r"^RateLimitError\s", re.IGNORECASE),
+    re.compile(r"^Attack failed with (Exception|_StrategyRuntimeError|Error):"),
+    re.compile(r"^Scenario 'TextAdaptive' (failed|partially)"),
+    re.compile(r"^Atomic attack.*partially completed:"),
+    re.compile(r"^Root cause:"),
+    re.compile(r"^Details:"),
+    re.compile(r"^Attack:\s"),
+    re.compile(r"^Component:\s"),
+    re.compile(r"^Objective:\s"),
+    re.compile(r"^objective_target identifier:"),
+    re.compile(r"^Model:\s"),
+    re.compile(r"^Endpoint:\s"),
+    re.compile(r"^Version check:"),
+    re.compile(r"^Patch verification"),
+    re.compile(r"^BadRequestException"),
+    # ── L5: ANSI 颜色码行 (PyRIT rich console 输出) ──
+    re.compile(r"^\x1b\["),  # ESC[ 开头的 ANSI 序列
+    # ── L5: Native SeedDataset 回退噪音 ──
+    re.compile(r"^Native SeedDataset\.from_yaml_file\(\) failed"),
+    re.compile(r"^references"),
+    re.compile(r"^  Extra inputs are not permitted"),
+    re.compile(r"^    For further information"),
 ]
 
 
@@ -119,9 +155,27 @@ class NoiseFilter:
             self._signal_file = open(signal_log_path, "a", encoding="utf-8")  # noqa: SIM115
 
     def write(self, text: str) -> int:
-        """Write text to the filter, routing signal vs noise."""
+        r"""Write text to the filter, routing signal vs noise.
+
+        特殊处理:
+          - ``\r`` (回车): tqdm/progress 等进度条用 ``\r`` 刷新当前行,
+            不含 ``\n`` 的 ``\r`` 段直接透传到原始终端, 不进 buffer。
+            这防止执行阶段 30+ 分钟无输出的问题。
+          - ``\n`` (换行): 正常按行拆分并路由。
+        """
         if not text:
             return 0
+
+        # 快速路径: 纯 \r 文本 (进度条更新) 直接透传
+        # 避免进度条更新堆积在 buffer 中导致终端无输出
+        if "\r" in text and "\n" not in text:
+            try:
+                self._original.write(text)
+                self._original.flush()
+            except Exception:
+                pass  # 静默失败, 不影响程序运行
+            return len(text)
+
         self._buffer += text
         # 按行拆分并路由
         while "\n" in self._buffer:
@@ -130,29 +184,43 @@ class NoiseFilter:
         return len(text)
 
     def _route_line(self, line: str) -> None:
-        """将一行路由到噪音文件或信号输出 (终端 + 信号文件)。."""
+        """将一行路由到噪音文件或信号输出 (终端 + 信号文件)。.
+
+        所有写入操作均使用 try-except 静默失败, 确保即使终端/文件
+        写入异常也不会中断流水线执行。
+        """
         if _is_noise_line(line):
-            self._noise_file.write(line)
-            self._noise_file.flush()
+            try:
+                self._noise_file.write(line)
+                self._noise_file.flush()
+            except Exception:
+                pass
         else:
             # 信号行: 写入终端 (原始 stdout)
-            self._original.write(line)
-            self._original.flush()
+            try:
+                self._original.write(line)
+                self._original.flush()
+            except Exception:
+                pass  # 终端写入失败时静默, 不中断程序
             # 信号行: 同时写入信号日志文件 (持久化, NIST SP 800-92)
             if self._signal_file:
-                self._signal_file.write(line)
-                self._signal_file.flush()
+                try:
+                    self._signal_file.write(line)
+                    self._signal_file.flush()
+                except Exception:
+                    pass
 
     def flush(self) -> None:
         """Flush buffered content to appropriate destinations."""
         if self._buffer:
             self._route_line(self._buffer)
             self._buffer = ""
-        self._noise_file.flush()
-        if self._signal_file:
-            self._signal_file.flush()
         with contextlib.suppress(Exception):
-            """Close the filter and associated files."""
+            self._noise_file.flush()
+        if self._signal_file:
+            with contextlib.suppress(Exception):
+                self._signal_file.flush()
+        with contextlib.suppress(Exception):
             self._original.flush()
 
     def close(self) -> None:

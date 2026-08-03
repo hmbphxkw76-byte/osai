@@ -145,6 +145,27 @@ async def run(ctx: PipelineContext) -> None:
     ctx.config = config
     ctx.scenario_name = getattr(ctx.args, "scenario", "text_adaptive")
 
+    # L5 P2-2: EventBus — 初始化完成
+    from pipeline.utils.event_bus import EventBus
+
+    bus = EventBus.get_instance()
+    bus.publish_simple(
+        "stage_1", "init_completed",
+        datasets=len(ctx.args.datasets) if ctx.args.datasets else 0,
+        scenario=ctx.scenario_name,
+    )
+    # L5 P2-1: DecisionTrace — 初始化完成
+    from pipeline.utils.decision_trace import DecisionTrace
+
+    trace = DecisionTrace.get_instance()
+    trace.record(
+        stage="stage_1",
+        layer="L1_SeedSource",
+        decision="init_completed",
+        reason=f"PyRIT initialized, scenario={ctx.scenario_name}",
+        datasets=len(ctx.args.datasets) if ctx.args.datasets else 0,
+    )
+
     # ── 内容过滤器标记扩展 (兼容第三方 OpenAI 兼容 API) ──
     # 必须在场景执行前完成,否则非标准 API 的安全审查 400 错误
     # 会被 PyRIT 视为普通 BadRequestError,导致整个场景崩溃

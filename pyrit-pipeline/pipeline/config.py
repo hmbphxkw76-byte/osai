@@ -353,11 +353,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rate-limit",
         type=int,
-        default=None,
+        default=3,
         help=(
-            "API 请求最大并发数 (如 3).\n"
-            "指定后将用 RateLimitedTarget 包装原始 Target，\n"
-            "增加并发信号量 + 指数退避重试 (429/503/504/timeout)."
+            "API 请求最大并发数 (默认: 3, 自动启用 RateLimitedTarget 包装).\n"
+            "设为 0 可禁用限速.\n"
+            "指定后用 RateLimitedTarget 包装原始 Target，\n"
+            "增加并发信号量 + 指数退避重试 (429/503/504/timeout).\n"
+            "RPM 估算: 并发数 × 30 (如 3 → 90 RPM)."
         ),
     )
     parser.add_argument(

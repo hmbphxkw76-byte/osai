@@ -222,10 +222,13 @@ def _select_probes(
     """根据目标类型和可用资源选择探针组合。.
 
     探针选择策略:
-      - LLM Web App + 浏览器 → 全套探针 (DOM + Network + LLM + RAG + Agent + MCP + Embedding + Endpoint)
-      - LLM Web App 无浏览器 → HTTP 探针 (Endpoint + LLM)
-      - LLM API Platform → API 探针 (Endpoint + LLM + Embedding)
-      - unknown → 基础探针 (Endpoint)
+      - LLM Web App + 浏览器 → 全套探针 (DOM + Network + LLM + RAG + Agent + MCP + Embedding)
+      - LLM Web App 无浏览器 → HTTP 探针 (LLM + RAG + Agent + MCP + Embedding)
+      - LLM API Platform → API 探针 (LLM + Embedding)
+      - unknown → 基础探针 (LLM)
+
+    注意: EndpointClassifier 是工具类 (非 ReconProbe 子类), 不直接加入 probes 列表。
+    NetworkInterceptor 同理, 使用其 ReconProbe 包装类 NetworkProbe 代替。
 
     Args:
         classification: 目标类型判别结果。
@@ -238,10 +241,9 @@ def _select_probes(
         AgentProbe,
         DOMProbe,
         EmbeddingProbe,
-        EndpointClassifier,
         LLMProbe,
         MCPProbe,
-        NetworkInterceptor,
+        NetworkProbe,
         RAGProbe,
     )
 
@@ -251,9 +253,8 @@ def _select_probes(
         # Web App: 浏览器探针优先
         if has_page:
             probes.append(DOMProbe())
-            probes.append(NetworkInterceptor())
+            probes.append(NetworkProbe())
         # HTTP 探针 (不需要浏览器)
-        probes.append(EndpointClassifier())
         probes.append(LLMProbe())
         probes.append(RAGProbe())
         probes.append(AgentProbe())
@@ -262,13 +263,13 @@ def _select_probes(
 
     elif classification.target_type == "llm_api_platform":
         # API Platform: HTTP 探针
-        probes.append(EndpointClassifier())
         probes.append(LLMProbe())
         probes.append(EmbeddingProbe())
 
     else:
-        # unknown: 基础探针
-        probes.append(EndpointClassifier())
+        # unknown: 基础探针 (LLMProbe 而非 EndpointClassifier,
+        # 因为 EndpointClassifier 是工具类不是 ReconProbe)
+        probes.append(LLMProbe())
 
     return probes
 

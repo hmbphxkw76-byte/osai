@@ -93,7 +93,11 @@ async def run(ctx: PipelineContext) -> None:
     dashboard.print_progress()
 
     # C1+C2: 启用 ProgressPoller 实时轮询 (基于 PyRIT 原生 CentralMemory API)
-    scenario_result_id = getattr(ctx.scenario, "scenario_result_id", None) or getattr(ctx.args, "resume", None)
+    # Bug fix: PyRIT Scenario 类将 ID 存储为 _scenario_result_id (带下划线前缀),
+    # 此前误用 "scenario_result_id" 导致 getattr 始终返回 None, Poller 从未启动。
+    # _scenario_result_id 在 Stage 3 initialize_async() 中已创建 (scenario.py:670),
+    # 到 Stage 4 执行时已可用。
+    scenario_result_id = getattr(ctx.scenario, "_scenario_result_id", None) or getattr(ctx.args, "resume", None)
     poller: ProgressPoller | None = None
     if scenario_result_id:
         poller = ProgressPoller(
@@ -102,7 +106,7 @@ async def run(ctx: PipelineContext) -> None:
             interval=5.0,
         )
         poller.start()
-        print("  [C1] 实时进度轮询已启动 (5s 间隔, 基于 CentralMemory API)")
+        print(f"  [C1] 实时进度轮询已启动 (5s 起步, 自适应退避至 30s, srid={scenario_result_id[:8]}...)")
 
     # C4: 发布执行开始事件
     bus = EventBus.get_instance()
@@ -203,6 +207,29 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── ASR 分析 ──
     _compute_asr(ctx)
+
+    # L5 P2-1: 决策追溯 — ASR 计算完成
+    from pipeline.utils.decision_trace import DecisionTrace
+
+    trace = DecisionTrace.get_instance()
+    trace.record(
+        stage="stage_4",
+        layer="L5_Analytics",
+        decision="asr_computed",
+        reason=f"Overall ASR={ctx.overall_asr}%, {len(ctx.asr_per_technique)} techniques",
+        overall_asr=ctx.overall_asr,
+        technique_count=len(ctx.asr_per_technique),
+        total_results=total_results,
+        succeeded=succeeded,
+    )
+    # L5 P2-2: EventBus — ASR 计算完成
+    bus.publish_simple(
+        "stage_4", "asr_computed",
+        overall_asr=ctx.overall_asr,
+        technique_count=len(ctx.asr_per_technique),
+        succeeded=succeeded,
+        failed=failed,
+    )
 
     # C3: Converter 变换展示 (Top 5 成功变换)
     _print_converter_transformations(ctx)
@@ -613,9 +640,10 @@ def _print_converter_transformations(ctx: PipelineContext) -> None:
 
 
 def _print_failure_diagnosis(ctx: PipelineContext) -> None:
-    """C5: 失败攻击的即时诊断分析。.
+    """C5: 失败攻击的即时诊断分析 (L5 P3-2: 对齐 O5 失败类型分类).
 
-    从失败结果中提取常见模式, 给出即时诊断建议。
+    L5 P3-2: 将 C5 的内容模式诊断与 O5 的失败路由策略对齐,
+    每个诊断模式直接关联到 O5 的路由建议, 形成诊断→路由闭环。
     """
     from pipeline.utils.display import info_box
 
@@ -635,25 +663,25 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
                     continue
                 total_failures += 1
 
-                # 诊断失败模式
+                # L5 P3-2: 对齐 O5 失败类型分类
                 pattern = "unknown"
                 try:
                     if hasattr(ar, "conversation") and ar.conversation:
-                        # 检查最后一条响应
                         messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
                         if messages:
                             last_msg = messages[-1]
                             content = str(getattr(last_msg, "content", "")).lower()
-                            if any(w in content for w in ["sorry", "i cannot", "i can't", "unable"]):
-                                pattern = "content_refusal"
-                            elif any(w in content for w in ["inappropriate", "harmful", "unsafe"]):
-                                pattern = "safety_filter"
+                            if any(w in content for w in [
+                                "sorry", "i cannot", "i can't", "unable",
+                                "inappropriate", "harmful", "unsafe",
+                            ]):
+                                pattern = "model_refusal"
                             elif any(w in content for w in ["empty", "no response", "204"]):
-                                pattern = "empty_response"
+                                pattern = "scorer_validation_error"
                             elif any(w in content for w in ["timeout", "rate limit", "429"]):
-                                pattern = "rate_limit"
+                                pattern = "timeout"
                             else:
-                                pattern = "other_failure"
+                                pattern = "objective_not_achieved"
                 except Exception:
                     pass
 
@@ -662,14 +690,13 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
         if total_failures == 0:
             return
 
-        # 诊断建议
+        # L5 P3-2: 诊断建议直接对齐 O5 路由策略
         diagnosis_map = {
-            "content_refusal": "模型直接拒绝 → 尝试更强的编码变换或角色扮演",
-            "safety_filter": "安全过滤器拦截 → 尝试分段注入或低概率编码",
-            "empty_response": "空响应 (204) → Converter 可能产生无效输出, 检查熔断状态",
-            "rate_limit": "速率限制 → 降低并发或增加间隔",
-            "other_failure": "其他失败 → 检查目标响应模式",
-            "unknown": "未知失败 → 启用 verbose 模式查看详细日志",
+            "model_refusal": "模型拒绝 → O5路由: 策略升级 (Tier S/A 优先)",
+            "timeout": "超时/限速 → O5路由: 降级单轮 (prompt_sending)",
+            "scorer_validation_error": "评分器异常 → O5路由: 换技术 (跳过当前)",
+            "objective_not_achieved": "目标未达成 → O5路由: 强技术+Converter 变体",
+            "unknown": "未知失败 → O5路由: 检查错误日志",
         }
 
         lines: list[str] = []
@@ -679,6 +706,6 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
             advice = diagnosis_map.get(pattern, "检查详细日志")
             lines.append(f"  {pattern} ({count}/{total_failures}, {pct:.0f}%): {advice}")
 
-        info_box(f"C5: 失败即时诊断 ({total_failures} 个失败)", lines)
+        info_box(f"C5: 失败即时诊断 ({total_failures} 个失败, 对齐 O5 路由)", lines)
     except Exception as e:
         logger.debug(f"C5 failure diagnosis failed: {e}")

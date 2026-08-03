@@ -76,10 +76,10 @@ logger = logging.getLogger(__name__)
 # 已测试的 PyRIT 版本 — 版本守护基准
 # ============================================================
 
-_TESTED_PYRIT_VERSION = "1.1.0.dev0"
+_TESTED_PYRIT_VERSION = "1.0.0"
 
 # ============================================================
-# 原生标记 (PyRIT 1.1.0.dev0) — 不可删除
+# 原生标记 (PyRIT 1.0.0) — 不可删除
 # ============================================================
 
 _NATIVE_MARKERS = frozenset(
@@ -403,20 +403,33 @@ def _verify_patch() -> tuple[bool, str]:
 
     # 验证 2: handle_bad_request_exception 不抛 RuntimeError (标记匹配路径)
     try:
-        from unittest.mock import MagicMock
+        from uuid import uuid4
 
         from pyrit.exceptions.exception_classes import handle_bad_request_exception
+        from pyrit.models.messages.message_piece import MessagePiece
+
+        # 创建有效的 MessagePiece (PyRIT 1.0.0 要求 request 参数为 MessagePiece)
+        request = MessagePiece(
+            id=str(uuid4()),
+            conversation_id=str(uuid4()),
+            role="user",
+            sequence=0,
+            original_value="test",
+            original_value_data_type="text",
+            converted_value="test",
+            converted_value_data_type="text",
+        )
 
         result = handle_bad_request_exception(
             response_text=json.dumps(test_payload),
-            request=MagicMock(),
+            request=request,
             is_content_filter=False,
         )
         if result is None:
             return False, "handle_bad_request_exception 返回 None (预期非 None)"
     except RuntimeError:
         return False, "handle_bad_request_exception 抛出 RuntimeError — 标记未被识别"
-    except (OSError, ValueError) as e:
+    except Exception as e:
         return False, f"调用 handle_bad_request_exception 失败: {e}"
 
     return True, "验证通过"

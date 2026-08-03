@@ -337,6 +337,9 @@ class EvidenceExporter:
                 if conv_id:
                     success_conv_ids.add(conv_id)
 
+        # L5: 收集渲染失败, 输出汇总而非逐条 warning (信号/噪音分离)
+        render_failures: list[tuple[str, str]] = []
+
         for conv_id in conversation_ids:
             suffix = "_success" if conv_id in success_conv_ids else ""
             filename = f"conv_{conv_id[:8]}{suffix}.md"
@@ -360,9 +363,20 @@ class EvidenceExporter:
                 file_path.write_text(content, encoding="utf-8")
                 files.append((filename, content))
             except Exception as e:
-                logger.warning(f"Failed to export conversation {conv_id}: {e}")
+                render_failures.append((conv_id, str(e)[:80]))
 
-        logger.info(f"Exported {len(files)} conversation markdowns")
+        # L5: 汇总输出渲染失败 (替代逐条 warning, 减少 700+ 行噪音)
+        if render_failures:
+            logger.info(
+                f"Conversation export: {len(render_failures)}/{len(conversation_ids)}"
+                f" failed (errors logged in summary)"
+            )
+            for conv_id, err in render_failures[:3]:
+                logger.info(f"  conv {conv_id[:8]}: {err}")
+            if len(render_failures) > 3:
+                logger.info(f"  ... and {len(render_failures) - 3} more")
+        else:
+            logger.info(f"Exported {len(files)} conversation markdowns")
         return files
 
     async def _render_conversation_log(
@@ -398,6 +412,9 @@ class EvidenceExporter:
             if conv_id:
                 ar_by_conv[conv_id] = ar
 
+        # L5: 收集渲染失败, 输出汇总而非逐条 warning
+        render_failures_log: list[str] = []
+
         for conv_id in conversation_ids:
             lines.extend([f"## Conversation: {conv_id}", ""])
 
@@ -426,11 +443,21 @@ class EvidenceExporter:
                     lines.append(conv_md)
                 else:
                     lines.append(f"*No messages found for conversation: {conv_id}*\n")
-            except Exception as e:
-                logger.warning(f"Failed to render conversation {conv_id}: {e}")
-                lines.append(f"*Render failed: {e}*\n")
+            except Exception:
+                render_failures_log.append(conv_id)
+                lines.append("*Render failed (see summary)*\n")
 
             lines.extend(["---", ""])
+
+        # L5: 渲染失败汇总 (替代逐条 warning, 减少噪音)
+        if render_failures_log:
+            lines.extend([
+                "## Render Failure Summary",
+                "",
+                f"{len(render_failures_log)}/{len(conversation_ids)} conversations failed to render.",
+                f"Failed IDs: {', '.join(cid[:8] for cid in render_failures_log[:10])}",
+                "",
+            ])
 
         # 评分摘要
         if scores:

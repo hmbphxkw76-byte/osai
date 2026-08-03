@@ -65,7 +65,7 @@ class ReconPipeline:
     """侦察探针编排器。
 
     按顺序运行探针, 自动跳过条件不满足的探针。
-    支持每探针超时保护。
+    支持每探针超时保护、并行执行模式。
     """
 
     def __init__(
@@ -73,15 +73,18 @@ class ReconPipeline:
         probes: list[ReconProbe] | None = None,
         *,
         probe_timeout: float = _DEFAULT_PROBE_TIMEOUT,
+        parallel: bool = False,
     ) -> None:
         """Initialize ReconPipeline.
 
         Args:
             probes: 探针列表 (按顺序执行)。
             probe_timeout: 每个探针的超时时间 (秒), 默认 60。
+            parallel: 是否启用并行执行模式。
         """
         self._probes: list[ReconProbe] = probes or []
         self._probe_timeout = probe_timeout
+        self._parallel = parallel
 
     def add_probe(self, probe: ReconProbe) -> None:
         """添加探针到末尾。"""
@@ -152,6 +155,103 @@ class ReconPipeline:
 
         logger.info(
             f"ReconPipeline completed: {executed} executed, {skipped} skipped, "
+            f"{failed} failed, {duration}s total"
+        )
+
+        return PipelineResult(
+            total=total,
+            executed=executed,
+            skipped=skipped,
+            failed=failed,
+            duration_seconds=duration,
+            errors=errors,
+        )
+
+    async def run_parallel(self, session: ReconSession, *, raise_on_error: bool = False) -> PipelineResult:
+        """Run probes in parallel, grouped by dependency level.
+
+        Groups probes into three dependency tiers:
+          - Tier 0: no auth, no browser (can run immediately)
+          - Tier 1: needs auth, no browser (after auth check)
+          - Tier 2: needs browser (after browser available)
+
+        Within each tier, all probes execute concurrently via asyncio.gather.
+        Tiers execute sequentially to ensure dependencies are satisfied.
+
+        Returns:
+            PipelineResult execution statistics.
+        """
+        start_time = time.time()
+
+        # Group probes by dependency tier
+        tier_0: list[ReconProbe] = []  # No deps
+        tier_1: list[ReconProbe] = []  # Auth only
+        tier_2: list[ReconProbe] = []  # Browser
+
+        for probe in self._probes:
+            if probe.requires_browser and session.browser_page is None:
+                continue  # Skip, no browser available
+            if probe.requires_auth and not session.is_authenticated:
+                continue  # Skip, not authenticated
+            if probe.requires_browser:
+                tier_2.append(probe)
+            elif probe.requires_auth:
+                tier_1.append(probe)
+            else:
+                tier_0.append(probe)
+
+        total = len(tier_0) + len(tier_1) + len(tier_2)
+        executed = 0
+        skipped = len(self._probes) - total
+        failed = 0
+        errors: list[tuple[str, str]] = []
+
+        async def _run_one(probe: ReconProbe, idx: int, tier_label: str) -> tuple[str, bool, str]:
+            """Run a single probe with timeout. Returns (name, success, error_msg)."""
+            try:
+                await asyncio.wait_for(
+                    session.run_probe(probe),
+                    timeout=self._probe_timeout,
+                )
+                logger.info(f"[{tier_label}][{idx}] {probe.name} completed")
+                return (probe.name, True, "")
+            except asyncio.TimeoutError:
+                logger.error(f"[{tier_label}][{idx}] {probe.name} timed out ({self._probe_timeout}s)")
+                return (probe.name, False, f"Timeout after {self._probe_timeout}s")
+            except Exception as e:
+                logger.error(f"[{tier_label}][{idx}] {probe.name} failed: {e}")
+                return (probe.name, False, str(e))
+
+        # Execute tiers sequentially
+        for tier_idx, (tier, label) in enumerate(
+            [(tier_0, "T0"), (tier_1, "T1"), (tier_2, "T2")]
+        ):
+            if not tier:
+                continue
+
+            tasks = [_run_one(p, i + 1, label) for i, p in enumerate(tier)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for r in results:
+                if isinstance(r, Exception):
+                    name = str(type(r).__name__)
+                    failed += 1
+                    errors.append((name, str(r)))
+                elif isinstance(r, tuple):
+                    name, ok, err = r
+                    if ok:
+                        executed += 1
+                    else:
+                        failed += 1
+                        errors.append((name, err))
+                        if raise_on_error:
+                            raise RuntimeError(f"Probe {name} failed: {err}")
+
+        duration = round(time.time() - start_time, 2)
+        session.report.recon_duration_seconds = duration
+
+        logger.info(
+            f"ReconPipeline [parallel] completed: {executed} executed, {skipped} skipped, "
             f"{failed} failed, {duration}s total"
         )
 

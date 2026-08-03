@@ -102,6 +102,20 @@ async def run(ctx: PipelineContext) -> None:
     print("阶段 6/6: 结果输出 — 证据收集 + 报告生成")
     print("=" * 70)
 
+    # L5 P2-1/P2-2: 决策追溯 + 事件总线
+    from pipeline.utils.decision_trace import DecisionTrace
+    from pipeline.utils.event_bus import EventBus
+
+    trace = DecisionTrace.get_instance()
+    bus = EventBus.get_instance()
+    trace.record(
+        stage="stage_6",
+        layer="L5_Analytics",
+        decision="output_started",
+        reason="Stage 6 report generation and evidence collection started",
+    )
+    bus.publish_simple("stage_6", "output_started")
+
     result = ctx.result
 
     # ── 原生: 场景结果汇总 (按 ASR 排序) ──
@@ -213,6 +227,20 @@ async def run(ctx: PipelineContext) -> None:
             print(f"    • {f.name}")
         if len(report_files) > 20:
             print(f"    ... 还有 {len(report_files) - 20} 个文件")
+
+    # L5 P2-1/P2-2: 决策追溯 + 事件总线 — 报告生成完成
+    trace.record(
+        stage="stage_6",
+        layer="L5_Analytics",
+        decision="report_generated",
+        reason=f"ASR={ctx.overall_asr}%, {len(report_files)} files generated",
+        report_files=len(report_files),
+    )
+    bus.publish_simple(
+        "stage_6", "report_completed",
+        asr=ctx.overall_asr,
+        report_files=len(report_files),
+    )
 
 
 # ============================================================

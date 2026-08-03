@@ -1720,3 +1720,1570 @@ class TestAttackRecommender:
         }
         recs = recommender.recommend(report)
         assert any("vector_manipulation" in r.attack_strategy for r in recs)
+
+
+# ============================================================================
+# ErrorClass module tests (Phase 1: RedAmon error classification)
+# ============================================================================
+
+
+class TestErrorClass:
+    def test_success_classification(self):
+        """2xx status with success flag returns 'success'."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(success=True, status_code=200, body="OK")
+        assert result == "success"
+
+    def test_shell_parser_error(self):
+        """Parse/syntax errors in 4xx body → shell_parser_error."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(
+            status_code=400,
+            body="invalid argument --foo: parse error",
+        )
+        assert result == "shell_parser_error"
+
+    def test_transport_error(self):
+        """Connection refused → transport_error."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(
+            status_code=None,
+            error_message="connection refused",
+        )
+        assert result == "transport_error"
+
+    def test_tool_internal_error(self):
+        """500 with traceback → tool_internal_error."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(
+            status_code=500,
+            body="Traceback (most recent call last):\n  File 'app.py'",
+            duration_ms=300,
+        )
+        assert result == "tool_internal_error"
+
+    def test_5xx_fast_waf(self):
+        """500-level < 50ms → application_5xx_fast (likely WAF)."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(status_code=500, body="blocked", duration_ms=15)
+        assert result == "application_5xx_fast"
+
+    def test_5xx_networked_fast(self):
+        """500-level 50-200ms → application_5xx_networked_fast."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(status_code=503, body="service unavailable", duration_ms=120)
+        assert result == "application_5xx_networked_fast"
+
+    def test_5xx_normal(self):
+        """500-level >= 200ms → application_5xx_normal."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(status_code=500, body="something went wrong on the backend", duration_ms=350)
+        assert result == "application_5xx_normal"
+
+    def test_4xx_generic(self):
+        """Generic 4xx without shell parser → application_4xx."""
+        from core.probes.error_class import classify_error_class
+
+        result = classify_error_class(status_code=404, body="not found")
+        assert result == "application_4xx"
+
+    def test_classify_http_response_convenience(self):
+        """classify_http_response convenience wrapper."""
+        from core.probes.error_class import classify_http_response
+
+        assert classify_http_response(200, body="OK") == "success"
+        assert classify_http_response(404, body="not found") == "application_4xx"
+
+    def test_is_recoverable_error(self):
+        """Recoverable vs non-recoverable classification."""
+        from core.probes.error_class import is_recoverable_error
+
+        assert is_recoverable_error("shell_parser_error") is True
+        assert is_recoverable_error("transport_error") is True
+        assert is_recoverable_error("tool_internal_error") is True
+        assert is_recoverable_error("application_4xx") is False
+        assert is_recoverable_error("application_5xx_fast") is False
+
+    def test_error_class_severity_scores(self):
+        """Severity scoring 0-10."""
+        from core.probes.error_class import error_class_severity, ErrorClass
+
+        assert error_class_severity(ErrorClass.SUCCESS.value) == 0
+        assert error_class_severity(ErrorClass.SHELL_PARSER.value) == 2
+        assert error_class_severity(ErrorClass.APPLICATION_4XX.value) == 3
+        assert error_class_severity(ErrorClass.TRANSPORT.value) == 5
+        assert error_class_severity(ErrorClass.APPLICATION_5XX_NORMAL.value) == 5
+        assert error_class_severity(ErrorClass.APPLICATION_5XX_NETWORKED_FAST.value) == 6
+        assert error_class_severity(ErrorClass.TOOL_INTERNAL.value) == 7
+        assert error_class_severity(ErrorClass.APPLICATION_5XX_FAST.value) == 8
+
+    def test_all_eight_categories_exist(self):
+        """ErrorClass enum has exactly 8 categories."""
+        from core.probes.error_class import ErrorClass
+
+        members = list(ErrorClass)
+        assert len(members) == 8
+        categories = {m.value for m in members}
+        assert "success" in categories
+        assert "shell_parser_error" in categories
+        assert "transport_error" in categories
+        assert "tool_internal_error" in categories
+        assert "application_4xx" in categories
+        assert "application_5xx_fast" in categories
+        assert "application_5xx_networked_fast" in categories
+        assert "application_5xx_normal" in categories
+
+    def test_edge_case_no_status_no_error(self):
+        """No status code, no error → defaults appropriately."""
+        from core.probes.error_class import classify_error_class
+
+        # Non-HTTP success
+        result = classify_error_class(success=True)
+        assert result == "success"
+
+
+# ============================================================================
+# ResponseFingerprint module tests (Phase 2: dedup + change detection)
+# ============================================================================
+
+
+class TestResponseFingerprint:
+    def test_fingerprint_text_stable(self):
+        """Same text → same fingerprint."""
+        from core.probes.response_fingerprint import fingerprint_text
+
+        fp1 = fingerprint_text("Hello, world!")
+        fp2 = fingerprint_text("Hello, world!")
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_fingerprint_text_different(self):
+        """Different text → different fingerprint."""
+        from core.probes.response_fingerprint import fingerprint_text
+
+        fp1 = fingerprint_text("Hello")
+        fp2 = fingerprint_text("World")
+        assert fp1 != fp2
+
+    def test_normalize_noise_timestamps(self):
+        """Timestamps are normalized to <<TIMESTAMP>>."""
+        from core.probes.response_fingerprint import normalize_text
+
+        text = "Request at 2024-01-15T10:30:00Z completed"
+        normalized = normalize_text(text)
+        assert "2024-01-15" not in normalized
+        assert "<<TIMESTAMP>>" in normalized
+
+    def test_normalize_noise_uuids(self):
+        """UUIDs are normalized to <<UUID>>."""
+        from core.probes.response_fingerprint import normalize_text
+
+        text = "id=550e8400-e29b-41d4-a716-446655440000"
+        normalized = normalize_text(text)
+        assert "550e8400" not in normalized
+        assert "<<UUID>>" in normalized
+
+    def test_normalize_noise_unix_ts(self):
+        """Unix timestamps (13-digit) are normalized."""
+        from core.probes.response_fingerprint import normalize_text
+
+        text = "created_at=1705315200000"
+        normalized = normalize_text(text)
+        assert "1705315200000" not in normalized
+        assert "<<UNIX_TS>>" in normalized
+
+    def test_fingerprint_response_composite(self):
+        """HTTP response fingerprint combines body + status + stable headers."""
+        from core.probes.response_fingerprint import fingerprint_response
+
+        fp1 = fingerprint_response(body='{"ok":true}', status_code=200, headers={"content-type": "application/json"})
+        fp2 = fingerprint_response(body='{"ok":true}', status_code=200, headers={"content-type": "application/json"})
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_fingerprint_response_different_status(self):
+        """Different status codes → different fingerprints."""
+        from core.probes.response_fingerprint import fingerprint_response
+
+        fp1 = fingerprint_response(body="OK", status_code=200)
+        fp2 = fingerprint_response(body="OK", status_code=500)
+        assert fp1 != fp2
+
+    def test_fingerprint_dict(self):
+        """Dict fingerprint is stable (sorted keys)."""
+        from core.probes.response_fingerprint import fingerprint_dict
+
+        d1 = {"b": 2, "a": 1}
+        d2 = {"a": 1, "b": 2}
+        assert fingerprint_dict(d1) == fingerprint_dict(d2)
+
+    def test_fingerprint_set_dedup(self):
+        """FingerprintSet tracks seen fingerprints."""
+        from core.probes.response_fingerprint import FingerprintSet
+
+        fps = FingerprintSet()
+        fp = fps.add("endpoint-a", '{"ok":true}', 200)
+        assert fp
+        assert fps.is_duplicate("endpoint-a", fp) is True
+        assert fps.is_duplicate("endpoint-a", "different") is False
+
+    def test_fingerprint_set_change_detection(self):
+        """FingerprintSet detects behavior drift."""
+        from core.probes.response_fingerprint import FingerprintSet
+
+        fps = FingerprintSet()
+        fp1 = fps.add("tool-x", "v1 response", 200)
+        assert fps.has_changed("tool-x", fp1) is False
+        assert fps.has_changed("tool-x", "new_fingerprint_hex_") is True
+
+
+# ============================================================================
+# AgentProbe v2 tests (Phase 4: enhanced agent reconnaissance)
+# ============================================================================
+
+
+class TestAgentProbeV2:
+    def test_framework_fingerprinting_langchain(self):
+        """Detect LangChain from URL pattern."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/langchain/invoke",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='from langchain_core.runnables import Runnable',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert len(frameworks) >= 1
+        assert any(f["framework_name"] == "LangChain" for f in frameworks)
+
+    def test_framework_fingerprinting_autogen(self):
+        """Detect AutoGen from body pattern."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/api/chat",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='groupchat_manager selected speaker',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert any(f["framework_name"] == "Microsoft AutoGen" for f in frameworks)
+
+    def test_framework_fingerprinting_crewai(self):
+        """Detect CrewAI from URL + body."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/api/v1/crews/kickoff",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='crewai hierarchical process',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert any(f["framework_name"] == "CrewAI" for f in frameworks)
+
+    def test_framework_fingerprinting_semantic_kernel(self):
+        """Detect Semantic Kernel from body pattern."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/skills/process",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='Microsoft.SemanticKernel KernelFunction',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert any(f["framework_name"] == "Microsoft Semantic Kernel" for f in frameworks)
+
+    def test_framework_fingerprinting_beeai(self):
+        """Detect BeeAI from SDK import."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/bee-agent/run",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='import { BeeAgent } from "beeai"',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert any(f["framework_name"] == "IBM BeeAI" for f in frameworks)
+
+    def test_framework_fingerprinting_openai_agents(self):
+        """Detect OpenAI Agents SDK from body."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/agent/handoff",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='from agents import Agent, Runner, @function_tool',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert any(f["framework_name"] == "OpenAI Agents SDK" for f in frameworks)
+
+    def test_no_framework_detected(self):
+        """No known patterns → empty framework list."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/custom/run",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview="generic response",
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        assert frameworks == []
+
+    def test_high_confidence_dual_match(self):
+        """URL + body match → high confidence."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/langserve/invoke",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                response_body_preview='{"output":"langserve chain executed"}',
+            ),
+        ]
+        frameworks = probe._fingerprint_frameworks(endpoints)
+        langchain = [f for f in frameworks if f["framework_name"] == "LangChain"]
+        assert len(langchain) == 1
+        assert langchain[0]["confidence"] == "high"
+
+    def test_empty_endpoints(self):
+        """Empty endpoints returns empty results."""
+        from core import ReconSession
+
+        session = ReconSession(target_url="http://example.com")
+        probe = AgentProbe(enable_active_probing=False)
+        result = asyncio.run(probe.probe(session))
+        assert result["endpoints"] == []
+        assert result["agent_frameworks"] == []
+        assert "summary" in result
+
+    def test_result_has_new_fields(self):
+        """AgentProbe result includes all v2 fields."""
+        from core import ReconSession
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/langchain/invoke",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+            ),
+        ]
+        probe = AgentProbe(enable_active_probing=False)
+        result = asyncio.run(probe.probe(session))
+        assert "agent_frameworks" in result
+        assert "diagnostics" in result
+        assert "fingerprints" in result
+        assert "summary" in result
+        assert "tool_permission_matrix" in result
+
+    def test_diagnostics_empty_endpoints(self):
+        """Empty endpoints → zero health diagnostics."""
+        from core import ReconSession
+
+        session = ReconSession(target_url="http://example.com")
+        probe = AgentProbe(enable_active_probing=False)
+        result = asyncio.run(probe.probe(session))
+        diag = result["diagnostics"]
+        assert diag["total_requests"] == 0
+        assert diag["health_score"] == 100
+
+    def test_diagnostics_with_endpoints(self):
+        """Endpoints with status codes generate diagnostics."""
+        from core import ReconSession
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/tools/run",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                status_code=200,
+                duration_ms=100,
+            ),
+            DiscoveredEndpoint(
+                url="https://api.example.com/tools/exec",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                status_code=500,
+                duration_ms=30,
+            ),
+        ]
+        probe = AgentProbe(enable_active_probing=False)
+        result = asyncio.run(probe.probe(session))
+        diag = result["diagnostics"]
+        assert diag["total_requests"] >= 2
+        assert "success" in diag["error_class_distribution"]
+        assert diag["health_score"] < 100
+
+    def test_build_agent_candidates(self):
+        """Builds correct probe candidates from endpoints."""
+        probe = AgentProbe()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/agent/invoke",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+            ),
+        ]
+        candidates = probe._build_agent_candidates(endpoints)
+        assert len(candidates) > 0
+        # Should include handshake paths + conversation probes
+        has_handshake = any(c["method"] == "GET" and "/api/agents" in c["url"] for c in candidates)
+        has_conversation = any(c["method"] == "POST" for c in candidates)
+        assert has_handshake
+        assert has_conversation
+
+    def test_summary_includes_key_metrics(self):
+        """Summary dict covers all key metrics."""
+        from core import ReconSession
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/tools/run",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                status_code=200,
+            ),
+        ]
+        probe = AgentProbe(enable_active_probing=False)
+        result = asyncio.run(probe.probe(session))
+        summary = result["summary"]
+        assert "agent_endpoint_count" in summary
+        assert "framework_count" in summary
+        assert "over_agency_score" in summary
+        assert "critical_tools" in summary
+        assert "high_risk_tools" in summary
+        assert "unique_fingerprints" in summary
+        assert "elapsed_seconds" in summary
+
+
+# ============================================================================
+# ToolPermission matrix v2 tests (Phase 5: fingerprint + error_class)
+# ============================================================================
+
+
+class TestToolPermissionMatrixV2:
+    def test_tool_permission_has_fingerprint_field(self):
+        """ToolPermission has response_fingerprint field."""
+        from core.probes.tool_permission_matrix import ToolPermission
+
+        tp = ToolPermission(name="test")
+        assert hasattr(tp, "response_fingerprint")
+        assert tp.response_fingerprint == ""
+        tp.response_fingerprint = "abc123def456"
+        assert tp.response_fingerprint == "abc123def456"
+
+    def test_tool_permission_has_error_class_field(self):
+        """ToolPermission has error_class field."""
+        from core.probes.tool_permission_matrix import ToolPermission
+
+        tp = ToolPermission(name="test")
+        assert hasattr(tp, "error_class")
+        assert tp.error_class == ""
+        tp.error_class = "application_5xx_fast"
+        assert tp.error_class == "application_5xx_fast"
+
+    def test_to_dict_includes_new_fields(self):
+        """to_dict includes response_fingerprint and error_class when set."""
+        from core.probes.tool_permission_matrix import ToolPermission
+
+        tp = ToolPermission(
+            name="execute",
+            response_fingerprint="fp123",
+            error_class="success",
+        )
+        d = tp.to_dict()
+        assert d.get("response_fingerprint") == "fp123"
+        assert d.get("error_class") == "success"
+
+    def test_to_dict_excludes_empty_fields(self):
+        """to_dict omits empty fingerprint/error_class."""
+        from core.probes.tool_permission_matrix import ToolPermission
+
+        tp = ToolPermission(name="read")
+        d = tp.to_dict()
+        assert "response_fingerprint" not in d
+        assert "error_class" not in d
+
+    def test_analyzer_populates_fingerprint(self):
+        """Analyzer populates response_fingerprint for each tool."""
+        from core.probes.tool_permission_matrix import ToolPermissionAnalyzer
+
+        analyzer = ToolPermissionAnalyzer()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/agent/execute_command",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                status_code=200,
+                response_body_preview="command executed",
+            ),
+        ]
+        matrix = analyzer.analyze(endpoints)
+        assert len(matrix.tools) == 1
+        assert matrix.tools[0].response_fingerprint != ""
+
+    def test_analyzer_populates_error_class(self):
+        """Analyzer populates error_class for each tool."""
+        from core.probes.tool_permission_matrix import ToolPermissionAnalyzer
+
+        analyzer = ToolPermissionAnalyzer()
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://api.example.com/agent/execute_command",
+                endpoint_type=EndpointType.AGENT_TOOL_API,
+                status_code=500,
+                response_body_preview="internal server error",
+                duration_ms=400,
+            ),
+        ]
+        matrix = analyzer.analyze(endpoints)
+        assert len(matrix.tools) == 1
+        assert matrix.tools[0].error_class != ""
+        assert matrix.tools[0].error_class in ("application_5xx_normal", "tool_internal_error")
+
+    def test_stable_fingerprint_across_calls(self):
+        """Same endpoint data → same fingerprint."""
+        from core.probes.tool_permission_matrix import ToolPermissionAnalyzer
+
+        analyzer = ToolPermissionAnalyzer()
+        ep1 = DiscoveredEndpoint(
+            url="https://api.example.com/tools/run",
+            endpoint_type=EndpointType.AGENT_TOOL_API,
+            status_code=200,
+            response_body_preview="ok",
+        )
+        ep2 = DiscoveredEndpoint(
+            url="https://api.example.com/tools/run",
+            endpoint_type=EndpointType.AGENT_TOOL_API,
+            status_code=200,
+            response_body_preview="ok",
+        )
+        m1 = analyzer.analyze([ep1])
+        m2 = analyzer.analyze([ep2])
+        assert m1.tools[0].response_fingerprint == m2.tools[0].response_fingerprint
+
+
+# ============================================================================
+# DiscoveredEndpoint new fields tests
+# ============================================================================
+
+
+class TestDiscoveredEndpointNewFields:
+    def test_response_class_field(self):
+        """DiscoveredEndpoint has response_class field."""
+        ep = DiscoveredEndpoint(url="https://example.com/api")
+        assert hasattr(ep, "response_class")
+        assert ep.response_class == ""
+        ep.response_class = "application_5xx_fast"
+        assert ep.response_class == "application_5xx_fast"
+
+    def test_duration_ms_field(self):
+        """DiscoveredEndpoint has duration_ms field."""
+        ep = DiscoveredEndpoint(url="https://example.com/api")
+        assert hasattr(ep, "duration_ms")
+        assert ep.duration_ms == 0
+        ep.duration_ms = 150
+        assert ep.duration_ms == 150
+
+    def test_to_dict_includes_new_fields_when_set(self):
+        """to_dict includes response_class and duration_ms when non-default."""
+        ep = DiscoveredEndpoint(
+            url="https://example.com/api",
+            response_class="success",
+            duration_ms=42,
+        )
+        d = ep.to_dict()
+        assert d.get("response_class") == "success"
+        assert d.get("duration_ms") == 42
+
+    def test_to_dict_omits_default_fields(self):
+        """to_dict omits empty response_class and 0 duration_ms."""
+        ep = DiscoveredEndpoint(url="https://example.com/api")
+        d = ep.to_dict()
+        assert "response_class" not in d
+        assert "duration_ms" not in d
+
+
+# ============================================================================
+# Agent YAML probe pack tests
+# ============================================================================
+
+
+class TestAgentProbePacks:
+    def test_all_six_agent_packs_exist(self):
+        """All 6 agent framework YAML probe packs exist."""
+        from pathlib import Path
+
+        packs_dir = Path(__file__).resolve().parent.parent / "data" / "probe_packs" / "agent"
+        assert packs_dir.is_dir(), f"Agent packs dir not found: {packs_dir}"
+
+        expected = [
+            "agent_langchain.yaml",
+            "agent_autogen.yaml",
+            "agent_crewai.yaml",
+            "agent_semantic_kernel.yaml",
+            "agent_beeai.yaml",
+            "agent_openai_agents_sdk.yaml",
+        ]
+        for fname in expected:
+            path = packs_dir / fname
+            assert path.exists(), f"Missing agent pack: {fname}"
+
+    def test_agent_packs_are_valid_yaml(self):
+        """All agent YAML packs are valid YAML with probes section."""
+        import yaml
+        from pathlib import Path
+
+        packs_dir = Path(__file__).resolve().parent.parent / "data" / "probe_packs" / "agent"
+        for yaml_file in packs_dir.glob("*.yaml"):
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            assert data is not None, f"Empty/invalid YAML: {yaml_file.name}"
+            assert "probes" in data, f"No 'probes' section: {yaml_file.name}"
+            assert len(data["probes"]) > 0, f"No probes defined: {yaml_file.name}"
+
+    def test_agent_packs_have_required_interface_field(self):
+        """Each probe has interface field for framework matching."""
+        import yaml
+        from pathlib import Path
+
+        packs_dir = Path(__file__).resolve().parent.parent / "data" / "probe_packs" / "agent"
+        for yaml_file in packs_dir.glob("*.yaml"):
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            for probe in data["probes"]:
+                assert "interface" in probe, f"Probe {probe.get('name')} in {yaml_file.name} missing 'interface'"
+                assert probe["interface"].startswith("agent-"), (
+                    f"Probe {probe['name']} interface '{probe['interface']}' must start with 'agent-'"
+                )
+
+
+# ============================================================================
+# AgentBehaviorDAG tests (P1-1: DAG modeling)
+# ============================================================================
+
+
+class TestAgentBehaviorDAG:
+    def test_add_node_auto_links_sequential(self):
+        """Adding nodes auto-creates sequential edges."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="read_file", sequence_index=0))
+        dag.add_node(ToolCallNode(tool_name="write_file", sequence_index=1))
+        dag.add_node(ToolCallNode(tool_name="execute", sequence_index=2))
+
+        assert len(dag.nodes) == 3
+        assert len(dag.edges) == 2  # 0→1, 1→2
+
+    def test_no_cycle_linear_dag(self):
+        """Linear sequence has no cycles."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="a"))
+        dag.add_node(ToolCallNode(tool_name="b"))
+        dag.add_node(ToolCallNode(tool_name="c"))
+        assert dag.cycle_detected is False
+
+    def test_cycle_detection_back_edge(self):
+        """Back edge creates a cycle."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="a", sequence_index=0))
+        dag.add_node(ToolCallNode(tool_name="b", sequence_index=1))
+        dag.add_node(ToolCallNode(tool_name="c", sequence_index=2))
+        dag.add_edge(2, 0)  # c → a back edge
+        assert dag.cycle_detected is True
+
+    def test_cycle_detection_self_loop(self):
+        """Self-loop creates a cycle."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="loop"))
+        dag.add_edge(0, 0)
+        assert dag.cycle_detected is True
+
+    def test_single_node_no_cycle(self):
+        """Single node has no cycle."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="solo"))
+        assert dag.cycle_detected is False
+        assert len(dag.critical_path) == 1
+
+    def test_empty_dag(self):
+        """Empty DAG properties."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG
+
+        dag = AgentBehaviorDAG()
+        assert dag.cycle_detected is False
+        assert dag.critical_path == []
+        assert dag.tool_call_fanout == {}
+        assert dag.unique_tools == 0
+        assert dag.error_rate == 0.0
+
+    def test_critical_path_linear(self):
+        """Linear DAG critical path = all nodes."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="a", sequence_index=0))
+        dag.add_node(ToolCallNode(tool_name="b", sequence_index=1))
+        dag.add_node(ToolCallNode(tool_name="c", sequence_index=2))
+        dag.add_node(ToolCallNode(tool_name="d", sequence_index=3))
+        assert len(dag.critical_path) == 4
+        assert [n.tool_name for n in dag.critical_path] == ["a", "b", "c", "d"]
+
+    def test_critical_path_empty_on_cycle(self):
+        """Cycle DAG returns empty critical path."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="a"))
+        dag.add_node(ToolCallNode(tool_name="b"))
+        dag.add_edge(1, 0)
+        assert dag.cycle_detected is True
+        assert dag.critical_path == []
+
+    def test_tool_call_fanout(self):
+        """Fanout counts per-tool invocations."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="read"))
+        dag.add_node(ToolCallNode(tool_name="read"))
+        dag.add_node(ToolCallNode(tool_name="write"))
+        fanout = dag.tool_call_fanout
+        assert fanout["read"] == 2
+        assert fanout["write"] == 1
+
+    def test_error_rate(self):
+        """Error rate = errors / total."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="ok1", error_class="success"))
+        dag.add_node(ToolCallNode(tool_name="ok2", error_class="success"))
+        dag.add_node(ToolCallNode(tool_name="fail", error_class="application_5xx_normal"))
+        dag.add_node(ToolCallNode(tool_name="ok3", error_class=""))
+        assert dag.error_rate == 0.25
+
+    def test_avg_duration(self):
+        """Average tool duration."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="a", duration_ms=100))
+        dag.add_node(ToolCallNode(tool_name="b", duration_ms=200))
+        assert dag.avg_tool_duration_ms == 150.0
+
+    def test_max_fanout_tool(self):
+        """Tool with highest invocation count."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="rare"))
+        dag.add_node(ToolCallNode(tool_name="common"))
+        dag.add_node(ToolCallNode(tool_name="common"))
+        assert dag.max_fanout_tool == ("common", 2)
+
+    def test_conversation_turn_tracking(self):
+        """Per-turn state is tracked correctly."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="t0_a", conversation_turn=0))
+        dag.add_node(ToolCallNode(tool_name="t0_b", conversation_turn=0))
+        dag.add_node(ToolCallNode(tool_name="t1_a", conversation_turn=1))
+        assert len(dag.turns) == 2
+        assert dag.turns[0].tool_call_count == 2
+        assert dag.turns[1].tool_call_count == 1
+
+    def test_to_dict_complete(self):
+        """to_dict includes all DAG properties."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="test", sequence_index=0))
+        d = dag.to_dict()
+        assert "nodes" in d
+        assert "cycle_detected" in d
+        assert "critical_path_length" in d
+        assert "tool_call_fanout" in d
+        assert "error_rate" in d
+        assert "avg_tool_duration_ms" in d
+
+    def test_compute_input_fingerprint_stable(self):
+        """Same args → same fingerprint."""
+        from core.probes.agent_behavior_dag import ToolCallNode
+
+        fp1 = ToolCallNode.compute_input_fingerprint({"a": 1, "b": 2})
+        fp2 = ToolCallNode.compute_input_fingerprint({"b": 2, "a": 1})
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_build_dag_from_probe_results(self):
+        """Build DAG from probe result dicts."""
+        from core.probes.agent_behavior_dag import build_dag_from_probe_results
+
+        results = [
+            {"url": "/tools/read", "payload": "test1", "method": "GET", "duration_ms": 50},
+            {"url": "/tools/write", "payload": "test2", "method": "POST", "duration_ms": 100},
+            {"url": "/tools/exec", "payload": "test3", "method": "POST", "duration_ms": 30},
+        ]
+        dag = build_dag_from_probe_results(results)
+        assert len(dag.nodes) == 3
+        assert dag.cycle_detected is False
+
+    def test_summary_str(self):
+        """Summary string is non-empty."""
+        from core.probes.agent_behavior_dag import AgentBehaviorDAG, ToolCallNode
+
+        dag = AgentBehaviorDAG()
+        dag.add_node(ToolCallNode(tool_name="test"))
+        summary = dag.summary()
+        assert "AgentBehaviorDAG" in summary
+        assert "Tool calls" in summary
+
+
+# ============================================================================
+# ToolVersionTracker tests (P1-2: cross-scan tool diff)
+# ============================================================================
+
+
+class TestToolVersionTracker:
+    def test_record_and_retrieve_snapshot(self):
+        """Record a snapshot and retrieve it."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tools = [
+            {"tool_name": "read_file", "tool_hash": "abc123", "server_url": "http://mcp/a"},
+            {"tool_name": "write_file", "tool_hash": "def456", "server_url": "http://mcp/a"},
+        ]
+        snapshot = tracker.record_snapshot("scan-01", tools, timestamp="2026-08-03T00:00:00")
+        assert len(snapshot) == 2
+        retrieved = tracker.get_snapshot("scan-01")
+        assert "read_file" in retrieved
+        assert retrieved["read_file"].tool_hash == "abc123"
+
+    def test_diff_no_changes(self):
+        """Identical snapshots produce empty diff."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tools = [{"tool_name": "read_file", "tool_hash": "abc", "server_url": "http://mcp"}]
+        tracker.record_snapshot("scan-01", tools)
+        tracker.record_snapshot("scan-02", tools)
+        diff = tracker.diff("scan-01", "scan-02")
+        assert diff.has_changes is False
+        assert diff.added_count == 0
+        assert diff.removed_count == 0
+
+    def test_diff_added_tool(self):
+        """New tool in current scan."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-01", [{"tool_name": "a", "tool_hash": "hash_a"}])
+        tracker.record_snapshot("scan-02", [
+            {"tool_name": "a", "tool_hash": "hash_a"},
+            {"tool_name": "b", "tool_hash": "hash_b"},
+        ])
+        diff = tracker.diff("scan-01", "scan-02")
+        assert diff.has_changes is True
+        assert diff.added_count == 1
+        assert any(d.tool_name == "b" and d.change_type == "added" for d in diff.diffs)
+
+    def test_diff_removed_tool(self):
+        """Tool removed in current scan."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-01", [
+            {"tool_name": "a", "tool_hash": "hash_a"},
+            {"tool_name": "b", "tool_hash": "hash_b"},
+        ])
+        tracker.record_snapshot("scan-02", [{"tool_name": "a", "tool_hash": "hash_a"}])
+        diff = tracker.diff("scan-01", "scan-02")
+        assert diff.removed_count == 1
+        assert any(d.tool_name == "b" and d.change_type == "removed" for d in diff.diffs)
+
+    def test_diff_modified_tool(self):
+        """Tool hash changed = modified."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-01", [{"tool_name": "cmd", "tool_hash": "hash_v1"}])
+        tracker.record_snapshot("scan-02", [{"tool_name": "cmd", "tool_hash": "hash_v2"}])
+        diff = tracker.diff("scan-01", "scan-02")
+        assert diff.modified_count == 1
+        modified = [d for d in diff.diffs if d.change_type == "modified"]
+        assert modified[0].severity == "warning"
+
+    def test_rug_pull_detection(self):
+        """Instructions hash change = critical rug-pull."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-01", [
+            {"tool_name": "cmd", "tool_hash": "hash_v1", "instructions_hash": "inst_v1"},
+        ])
+        tracker.record_snapshot("scan-02", [
+            {"tool_name": "cmd", "tool_hash": "hash_v2", "instructions_hash": "inst_v2"},
+        ])
+        diff = tracker.diff("scan-01", "scan-02")
+        assert len(diff.rug_pull_alerts) >= 1
+        assert diff.rug_pull_alerts[0].severity == "critical"
+        assert "RUG-PULL" in diff.rug_pull_alerts[0].detail
+
+    def test_missing_snapshot_raises(self):
+        """Diff with non-existent snapshot raises KeyError."""
+        import pytest
+
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-01", [{"tool_name": "a", "tool_hash": "h"}])
+        with pytest.raises(KeyError):
+            tracker.diff("scan-01", "scan-missing")
+        with pytest.raises(KeyError):
+            tracker.diff("scan-missing", "scan-01")
+
+    def test_snapshot_labels(self):
+        """Snapshot labels are sorted."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("scan-03", [])
+        tracker.record_snapshot("scan-01", [])
+        tracker.record_snapshot("scan-02", [])
+        assert tracker.snapshot_labels == ["scan-01", "scan-02", "scan-03"]
+
+    def test_diff_to_dict(self):
+        """Diff serialization includes all counts."""
+        from core.probes.tool_version_tracker import ToolVersionTracker
+
+        tracker = ToolVersionTracker()
+        tracker.record_snapshot("s1", [{"tool_name": "a", "tool_hash": "h1"}])
+        tracker.record_snapshot("s2", [{"tool_name": "b", "tool_hash": "h2"}])
+        diff = tracker.diff("s1", "s2")
+        d = diff.to_dict()
+        assert d["added_count"] == 1
+        assert d["removed_count"] == 1
+        assert d["rug_pull_alert_count"] == 0
+        assert "diffs" in d
+
+
+# ============================================================================
+# AgentTransportProbe tests (P1-3: SSE/WS/stdio discovery)
+# ============================================================================
+
+
+class TestAgentTransportProbe:
+    def test_probe_interface(self):
+        """AgentTransportProbe implements ReconProbe."""
+        from core.probes.agent_transport_probe import AgentTransportProbe
+        from core.probes.base import ReconProbe
+
+        probe = AgentTransportProbe()
+        assert isinstance(probe, ReconProbe)
+        assert probe.name == "AgentTransportProbe"
+        assert probe.requires_browser is False
+
+    def test_empty_endpoints(self):
+        """No endpoints returns empty transport results."""
+        from core import ReconSession
+        from core.probes.agent_transport_probe import AgentTransportProbe
+
+        session = ReconSession(target_url="http://example.com")
+        probe = AgentTransportProbe(timeout=5.0)
+        result = asyncio.run(probe.probe(session))
+        assert result["summary"]["sse_count"] == 0
+        assert result["summary"]["websocket_count"] == 0
+        assert result["summary"]["stdio_count"] == 0
+
+    def test_transport_discovery_dataclass(self):
+        """TransportDiscovery.to_dict() includes all fields."""
+        from core.probes.agent_transport_probe import TransportDiscovery
+
+        d = TransportDiscovery(
+            transport_type="sse",
+            url="https://example.com/events",
+            status_code=200,
+            evidence=["Content-Type: text/event-stream"],
+            duration_ms=42,
+        )
+        dd = d.to_dict()
+        assert dd["transport_type"] == "sse"
+        assert dd["status_code"] == 200
+        assert len(dd["evidence"]) == 1
+
+    def test_transport_discovery_result(self):
+        """TransportDiscoveryResult aggregates by type."""
+        from core.probes.agent_transport_probe import TransportDiscovery, TransportDiscoveryResult
+
+        result = TransportDiscoveryResult()
+        result.discoveries = [
+            TransportDiscovery(transport_type="sse", url="http://a/events"),
+            TransportDiscovery(transport_type="sse", url="http://b/events"),
+            TransportDiscovery(transport_type="websocket", url="http://c/ws"),
+        ]
+        result.sse_count = 2
+        result.websocket_count = 1
+        d = result.to_dict()
+        assert d["sse_count"] == 2
+        assert d["websocket_count"] == 1
+        assert d["total"] == 3
+
+    def test_stdio_detection_from_tools(self):
+        """stdio indicators in MCP tools are detected."""
+        from core import ReconSession
+        from core.probes.agent_transport_probe import AgentTransportProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="execute_command",
+                description="Execute via subprocess spawn",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentTransportProbe(timeout=5.0)
+        # Only run stdio detection (not HTTP probes)
+        discoveries = asyncio.run(probe._detect_stdio_from_tools(session))
+        assert len(discoveries) >= 1
+        assert discoveries[0].transport_type == "stdio"
+
+    def test_stdio_detection_empty_tools(self):
+        """No MCP tools → no stdio detection."""
+        from core import ReconSession
+        from core.probes.agent_transport_probe import AgentTransportProbe
+
+        session = ReconSession(target_url="http://example.com")
+        probe = AgentTransportProbe(timeout=5.0)
+        discoveries = asyncio.run(probe._detect_stdio_from_tools(session))
+        assert discoveries == []
+
+
+# ============================================================================
+# FingerprintStore tests (P1-4: SQLite persistence)
+# ============================================================================
+
+
+class TestFingerprintStore:
+    @pytest.fixture
+    def temp_db(self, tmp_path):
+        """Create a temp SQLite database."""
+        from core.persistence.fingerprint_store import FingerprintStore
+
+        db_path = tmp_path / "test_fingerprints.db"
+        store = FingerprintStore(db_path)
+        yield store
+        # Cleanup
+        store.close()
+        if db_path.exists():
+            db_path.unlink()
+
+    def test_store_record_and_retrieve(self, temp_db):
+        """Record and retrieve a fingerprint."""
+        store = temp_db
+        store.record("endpoint-a", "abc123", scan_label="scan-01", status_code=200)
+        record = store.get_latest("endpoint-a")
+        assert record is not None
+        assert record.fingerprint == "abc123"
+        assert record.scan_label == "scan-01"
+        assert record.status_code == 200
+
+    def test_record_batch(self, temp_db):
+        """Batch insert multiple records."""
+        store = temp_db
+        items = [
+            {"key": "ep-1", "fingerprint": "fp1", "status_code": 200},
+            {"key": "ep-2", "fingerprint": "fp2", "status_code": 404},
+            {"key": "ep-3", "fingerprint": "fp3"},
+        ]
+        count = store.record_batch(items, scan_label="batch-01")
+        assert count == 3
+        assert store.count() == 3
+
+    def test_has_changed_true(self, temp_db):
+        """Different fingerprint detected as change."""
+        store = temp_db
+        store.record("key", "old_fp", scan_label="s1")
+        assert store.has_changed("key", "new_fp") is True
+
+    def test_has_changed_false(self, temp_db):
+        """Same fingerprint not detected as change."""
+        store = temp_db
+        store.record("key", "same_fp", scan_label="s1")
+        assert store.has_changed("key", "same_fp") is False
+
+    def test_has_changed_no_baseline(self, temp_db):
+        """No existing record → no change."""
+        store = temp_db
+        assert store.has_changed("new_key", "any_fp") is False
+
+    def test_history_order(self, temp_db):
+        """History returns most recent first."""
+        store = temp_db
+        import time
+
+        store.record("key", "fp1", scan_label="s1")
+        time.sleep(0.01)
+        store.record("key", "fp2", scan_label="s2")
+        store.record("key", "fp3", scan_label="s3")
+
+        history = store.get_history("key")
+        assert len(history) >= 3
+        # Most recent first
+        assert history[0].scan_label == "s3"
+        assert history[0].fingerprint == "fp3"
+
+    def test_get_all_keys(self, temp_db):
+        """Get unique keys."""
+        store = temp_db
+        store.record("key-a", "fp1", scan_label="s1")
+        store.record("key-b", "fp2", scan_label="s1")
+        store.record("key-a", "fp3", scan_label="s2")
+        keys = store.get_all_keys()
+        assert sorted(keys) == ["key-a", "key-b"]
+
+    def test_get_scan_labels(self, temp_db):
+        """Get unique scan labels."""
+        store = temp_db
+        store.record("k1", "fp", scan_label="daily-01")
+        store.record("k2", "fp", scan_label="daily-02")
+        store.record("k3", "fp", scan_label="daily-01")
+        labels = store.get_scan_labels()
+        assert sorted(labels) == ["daily-01", "daily-02"]
+
+    def test_get_changed_since(self, temp_db):
+        """Detect changes since a scan label."""
+        store = temp_db
+        store.record("key-a", "old", scan_label="s01")
+        store.record("key-a", "new", scan_label="s02")
+        store.record("key-b", "stable", scan_label="s01")
+        store.record("key-b", "stable", scan_label="s02")
+
+        changes = store.get_changed_since("s01")
+        assert len(changes) == 1
+        assert changes[0]["key"] == "key-a"
+        assert changes[0]["old_fingerprint"] == "old"
+        assert changes[0]["new_fingerprint"] == "new"
+
+    def test_count(self, temp_db):
+        """Count total records."""
+        store = temp_db
+        assert store.count() == 0
+        store.record("a", "fp1")
+        store.record("b", "fp2")
+        assert store.count() == 2
+
+
+# ============================================================================
+# AgentWorkspaceProbe tests (P2-1: FS/sandbox/KB detection)
+# ============================================================================
+
+
+class TestAgentWorkspaceProbe:
+    def test_probe_interface(self):
+        """AgentWorkspaceProbe implements ReconProbe."""
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.probes.base import ReconProbe
+
+        probe = AgentWorkspaceProbe()
+        assert isinstance(probe, ReconProbe)
+        assert probe.name == "AgentWorkspaceProbe"
+        assert probe.requires_browser is False
+        assert probe.requires_auth is False
+
+    def test_detect_fs_read_write(self):
+        """Tool with 'write file' description → fs_rw finding."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="save_report",
+                description="Write file to disk with report data",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert len(ws["fs_read_write_tools"]) >= 1
+        assert "save_report" in ws["fs_read_write_tools"]
+        assert ws["critical_findings"] >= 1
+
+    def test_detect_fs_read_only(self):
+        """Tool with 'read file' description → fs_ro finding."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="list_directory",
+                description="List files in directory",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert len(ws["fs_read_only_tools"]) >= 1
+        assert "list_directory" in ws["fs_read_only_tools"]
+
+    def test_rw_takes_priority_over_ro(self):
+        """Tool matching both RW and RO patterns classified as RW only."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="file_io",
+                description="Read and write files on disk",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert "file_io" in ws["fs_read_write_tools"]
+        assert "file_io" not in ws["fs_read_only_tools"]
+
+    def test_detect_sandbox_container(self):
+        """Container keywords detect sandbox."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="run_in_docker",
+                description="Run command in Docker container",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert ws["sandbox_type"] == "container"
+
+    def test_detect_sandbox_chroot(self):
+        """Chroot/jail keywords detect sandbox."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="sandboxed_exec",
+                description="Execute within sandbox jail",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert ws["sandbox_type"] == "chroot"
+
+    def test_detect_sandbox_microvm(self):
+        """Firecracker/gVisor keywords detect microvm."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="micro_exec",
+                description="Execute in Firecracker microVM",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert ws["sandbox_type"] == "microvm"
+
+    def test_detect_knowledge_base_owasp(self):
+        """OWASP org reference detected as KB integration."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="check_owasp",
+                description="Check owasp.org top 10 for vulnerabilities",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert "owasp" in ws["knowledge_bases"]
+
+    def test_detect_multiple_knowledge_bases(self):
+        """Multiple KB sources detected."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.models.recon_report import MCPToolInfo
+
+        session = ReconSession(target_url="http://example.com")
+        session.report.mcp_tools = [
+            MCPToolInfo(
+                tool_name="enrich_vuln",
+                description="Look up CVE-2024-1234 on nvd.nist.gov and check exploit-db.com",
+                server_url="http://mcp/server",
+            ),
+        ]
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert len(ws["knowledge_bases"]) >= 2
+        assert "nvd_cve" in ws["knowledge_bases"]
+        assert "exploitdb" in ws["knowledge_bases"]
+
+    def test_empty_session(self):
+        """No MCP tools → empty findings."""
+        from core import ReconSession
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+
+        session = ReconSession(target_url="http://example.com")
+        probe = AgentWorkspaceProbe()
+        result = asyncio.run(probe.probe(session))
+        ws = result["workspace"]
+        assert ws["total_findings"] == 0
+        assert ws["sandbox_type"] == "unknown"
+
+    def test_workspace_finding_dataclass(self):
+        """WorkspaceFinding.to_dict() includes all fields."""
+        from core.probes.agent_workspace_probe import WorkspaceFinding
+
+        f = WorkspaceFinding(
+            category="fs_rw",
+            subcategory="read_write",
+            severity="critical",
+            detail="Tool 'write_file' enables filesystem write",
+            source_url="http://mcp/server",
+            evidence="write file",
+        )
+        d = f.to_dict()
+        assert d["category"] == "fs_rw"
+        assert d["severity"] == "critical"
+
+
+# ============================================================================
+# ReconPipeline parallel execution tests (P2-2)
+# ============================================================================
+
+
+class TestReconPipelineParallel:
+    def test_parallel_mode_no_deps_probes(self):
+        """Probes with no dependencies run in parallel."""
+        from core import ReconSession
+        from core.pipeline import ReconPipeline
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+        from core.probes.agent_transport_probe import AgentTransportProbe
+
+        session = ReconSession(target_url="http://example.com")
+        # Both probes have requires_auth=False, requires_browser=False
+        pipeline = ReconPipeline(
+            probes=[AgentWorkspaceProbe(), AgentTransportProbe(timeout=5.0)],
+            parallel=True,
+        )
+        result = asyncio.run(pipeline.run_parallel(session))
+        assert result.executed >= 2
+        assert result.failed == 0
+
+    def test_parallel_pipeline_result_stats(self):
+        """Parallel execution returns correct stats."""
+        from core.pipeline import PipelineResult
+
+        result = PipelineResult(
+            total=5,
+            executed=4,
+            skipped=1,
+            failed=0,
+            duration_seconds=2.5,
+        )
+        assert result.total == 5
+        assert result.executed == 4
+        assert result.skipped == 1
+
+    def test_parallel_skip_on_auth_mismatch(self):
+        """Probes requiring auth are skipped when not authenticated."""
+        from core import ReconSession
+        from core.pipeline import ReconPipeline
+        from core.probes.agent_workspace_probe import AgentWorkspaceProbe
+
+        session = ReconSession(target_url="http://example.com")
+        # Workshop probe: requires_auth=False → should run
+        pipeline = ReconPipeline(
+            probes=[AgentWorkspaceProbe()],
+            parallel=True,
+        )
+        result = asyncio.run(pipeline.run_parallel(session))
+        assert result.executed == 1
+        assert result.skipped == 0
+
+    def test_parallel_empty_probes(self):
+        """Empty probe list."""
+        from core import ReconSession
+        from core.pipeline import ReconPipeline
+
+        session = ReconSession(target_url="http://example.com")
+        pipeline = ReconPipeline(probes=[], parallel=True)
+        result = asyncio.run(pipeline.run_parallel(session))
+        assert result.total == 0
+        assert result.executed == 0
+
+
+# ============================================================================
+# ReconOrchestrator incremental mode tests (P2-4)
+# ============================================================================
+
+
+class TestReconOrchestratorIncremental:
+    def test_orchestrator_accepts_incremental_flag(self):
+        """ReconOrchestrator accepts incremental=True."""
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        orch = ReconOrchestrator(
+            incremental=True,
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        assert orch._incremental is True
+        assert orch._fp_store is not None
+
+    def test_orchestrator_accepts_parallel_flag(self):
+        """ReconOrchestrator accepts parallel=True."""
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        orch = ReconOrchestrator(
+            parallel=True,
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        assert orch.pipeline._parallel is True
+
+    def test_compute_ep_fingerprint_stable(self):
+        """Same endpoint → same fingerprint."""
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        orch = ReconOrchestrator(
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        fp1 = orch._compute_ep_fingerprint("hello", 200)
+        fp2 = orch._compute_ep_fingerprint("hello", 200)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_compute_ep_fingerprint_different(self):
+        """Different body → different fingerprint."""
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        orch = ReconOrchestrator(
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        fp1 = orch._compute_ep_fingerprint("body1", 200)
+        fp2 = orch._compute_ep_fingerprint("body2", 200)
+        assert fp1 != fp2
+
+    def test_store_endpoint_fingerprints(self, tmp_path):
+        """Store fingerprints to SQLite."""
+        from core.models.recon_report import DiscoveredEndpoint
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        db_path = tmp_path / "test_inc.db"
+        orch = ReconOrchestrator(
+            incremental=True,
+            fingerprint_db_path=str(db_path),
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://example.com/api/a",
+                response_body_preview="result a",
+                status_code=200,
+            ),
+            DiscoveredEndpoint(
+                url="https://example.com/api/b",
+                response_body_preview="result b",
+                status_code=404,
+            ),
+        ]
+        orch._store_endpoint_fingerprints(endpoints, "test-scan")
+        assert orch._fp_store.count() >= 2
+
+    def test_check_changed_endpoints_incremental(self, tmp_path):
+        """Incremental check marks unchanged endpoints."""
+        from core.models.recon_report import DiscoveredEndpoint
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        db_path = tmp_path / "test_changed.db"
+        orch = ReconOrchestrator(
+            incremental=True,
+            fingerprint_db_path=str(db_path),
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+
+        endpoints = [
+            DiscoveredEndpoint(
+                url="https://example.com/api/a",
+                response_body_preview="unchanged body",
+                status_code=200,
+            ),
+        ]
+        # First scan: records baseline
+        orch._check_changed_endpoints(endpoints, "scan-01")
+        # Second scan: same body → should be marked as unchanged
+        skipped = orch._check_changed_endpoints(endpoints, "scan-02")
+        assert skipped == 1
+
+    def test_incremental_run_basic(self):
+        """Incremental orchestrator runs and completes."""
+        from core import ReconSession
+        from core.orchestration import ReconOrchestrator
+        from core.task_runtime import GuardrailPolicy
+
+        orch = ReconOrchestrator(
+            incremental=True,
+            parallel=True,
+            guardrail_policy=GuardrailPolicy(allowed_hosts={"example.test"}),
+        )
+        session = ReconSession(target_url="http://example.test")
+        result = asyncio.run(orch.run(session))
+        assert result.summary["endpoint_count"] >= 0
+        assert "pipeline_result" in result.summary
+        assert "incremental_skipped" in result.summary

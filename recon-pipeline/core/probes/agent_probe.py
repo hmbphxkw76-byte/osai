@@ -29,8 +29,6 @@ v2.0 变更 (2026-08-03):
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
 import re
 import time
@@ -47,18 +45,13 @@ from core.probes.error_class import (
     is_recoverable_error,
 )
 from core.probes.response_fingerprint import (
-    fingerprint_response,
-    fingerprint_text,
     FingerprintSet,
+    fingerprint_response,
 )
 from core.probes.tool_permission_matrix import (
-    ToolActionType,
-    ToolPermission,
     ToolPermissionAnalyzer,
     ToolPermissionMatrix,
-    ToolRiskLevel,
 )
-from core.probes.mcp_yara import scan_mcp_text
 
 if TYPE_CHECKING:
     from core.session import ReconSession

@@ -146,10 +146,9 @@ class FingerprintSet:
     def add(self, key: str, body: str, status_code: int | None = None) -> str:
         """Fingerprint and store a response by key.
 
-        Returns True if this fingerprint is new (not seen before for this key).
+        Returns the computed fingerprint hex string.
         """
         fp = fingerprint_response(body=body, status_code=status_code)
-        existing = self.fingerprints.get(key)
         self.fingerprints[key] = fp
         return fp
 

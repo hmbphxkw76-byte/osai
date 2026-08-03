@@ -140,7 +140,7 @@ class HumanAssistedAuth:
         profile: TargetProfile,
         detector: AuthDetector,
     ) -> bool:
-        """A4: MFA 超时降级处理。
+        """A4: MFA 超时降级处理。.
 
         当 MFA 等待超时后, 不直接抛出异常, 而是尝试以下降级方案:
           1. 检查是否已经意外登录 (URL 已跳转)
@@ -169,7 +169,9 @@ class HumanAssistedAuth:
                 "session", "token", "auth", "jwt", "sid", "phpsessid",
             )]
             if session_cookies:
-                logger.info(f"HumanAssistedAuth: found {len(session_cookies)} session cookies, attempting degraded path")
+                logger.info(
+                    f"HumanAssistedAuth: found {len(session_cookies)} session cookies, attempting degraded path"
+                )
                 # 方案 3: 尝试直接导航到目标页面
                 await page.goto(auth.target_url, wait_until="domcontentloaded")
                 # 检查是否被重定向回登录页

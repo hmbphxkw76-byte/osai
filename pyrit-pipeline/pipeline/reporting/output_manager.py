@@ -36,7 +36,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProgressDashboard:
-    """批量攻击实时进度仪表盘."""
+    """批量攻击实时进度仪表盘.
+
+    L5 增强: 支持 ASR 迷你仪表盘渲染 (P0-2),
+    基于 PyRIT 原生 AttackResult.outcome 统计实时攻击成功率。
+    """
 
     def __init__(self, total: int) -> None:
         """初始化进度仪表盘."""
@@ -46,6 +50,9 @@ class ProgressDashboard:
         self.failed = 0
         self.errored = 0
         self._start_time = time.time()
+        # L5 P0-2: 实时 ASR 迷你仪表盘数据
+        self._asr_tech_success: dict[str, int] = {}
+        self._asr_tech_total: dict[str, int] = {}
 
     def update(self, *, succeeded: int = 0, failed: int = 0, errored: int = 0) -> None:
         """累加更新计数."""
@@ -77,8 +84,32 @@ class ProgressDashboard:
             f"  {'⚠ ERR:':>7s} {self.errored:<5d}{'':>6s}│",
             f"  │ {'Elapsed:':>8s} {elapsed:.0f}s    {'ETA:':>5s} ~{remaining:.0f}s"
             f"    {'Rate:':>5s} {rate:.1f}/min{'':>8s}│",
-            f"  └{'─' * 60}┘",
         ]
+
+        # L5 P0-2: 实时 ASR 迷你仪表盘 (当有结果时显示)
+        if self.completed > 0:
+            asr = self.succeeded / self.completed * 100 if self.completed > 0 else 0
+            lines.append(
+                f"  │ {'ASR:':>8s} {asr:.1f}%  "
+                f"({'✅':>1s} {self.succeeded} / {'❌':>1s} {self.failed}"
+                f" / {'⚠':>1s} {self.errored}){'':>16s}│"
+            )
+            # Top 3 技术 ASR
+            top_techs = sorted(
+                self._asr_tech_total.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            )[:3]
+            for tech, total in top_techs:
+                succ = self._asr_tech_success.get(tech, 0)
+                tech_asr = succ / total * 100 if total > 0 else 0
+                tech_short = tech[:25] + "..." if len(tech) > 25 else tech
+                lines.append(
+                    f"  │   {tech_short:<28s} {tech_asr:>5.1f}% "
+                    f"({succ}/{total}){'':>14s}│"
+                )
+
+        lines.append(f"  └{'─' * 60}┘")
         return "\n".join(lines)
 
     def print_progress(self) -> None:
@@ -88,7 +119,9 @@ class ProgressDashboard:
     def update_from_attack_results(self, attack_results: list[Any]) -> None:
         """从 AttackResult 列表更新计数 (用于实时轮询).
 
-        重置计数后重新统计, 确保与 CentralMemory 中的实际数据一致.
+        重置计数后重新统计, 确保与 CentralMemory 中的实际数据一致。
+
+        L5 P0-2 增强: 同时统计按技术分组的 ASR (基于 PyRIT 原生 display group)。
 
         Args:
             attack_results: 从 CentralMemory 查询到的 AttackResult 列表
@@ -96,11 +129,22 @@ class ProgressDashboard:
         self.succeeded = 0
         self.failed = 0
         self.errored = 0
+        self._asr_tech_success.clear()
+        self._asr_tech_total.clear()
+
         for ar in attack_results:
             outcome = getattr(ar, "outcome", None)
             if outcome is None:
                 continue
             outcome_str = str(outcome.value).upper() if hasattr(outcome, "value") else str(outcome).upper()
+
+            # L5 P0-2: 按技术分组统计 ASR
+            tech = self._extract_technique(ar)
+            if tech:
+                self._asr_tech_total[tech] = self._asr_tech_total.get(tech, 0) + 1
+                if outcome_str == "SUCCESS":
+                    self._asr_tech_success[tech] = self._asr_tech_success.get(tech, 0) + 1
+
             if outcome_str == "SUCCESS":
                 self.succeeded += 1
             elif outcome_str == "FAILURE":
@@ -108,6 +152,21 @@ class ProgressDashboard:
             else:
                 self.errored += 1
         self.completed = self.succeeded + self.failed + self.errored
+
+    @staticmethod
+    def _extract_technique(ar: Any) -> str:
+        """从 AttackResult 提取技术名 (用于 ASR 分组).
+
+        PyRIT 原生优先: 使用 AttackResult 的 attack_mode/attack_type 字段。
+        性能优化: 使用 vars() 避免 MagicMock __getattr__ 副作用。
+        """
+        # 使用 vars(ar) 替代 getattr, 避免 MagicMock 自动创建 Mock 属性
+        ar_dict = vars(ar) if hasattr(ar, "__dict__") else {}
+        for field_name in ("attack_mode", "attack_type", "strategy_name"):
+            val = ar_dict.get(field_name)
+            if val is not None:
+                return str(val)
+        return "unknown"
 
 
 # ============================================================
@@ -136,6 +195,10 @@ class ProgressPoller:
         await poller.stop()
     """
 
+    # ── 防刷屏参数 (业界标准: 仅变化才刷新 + 心跳保活 + 自适应退避) ──
+    _MAX_INTERVAL: float = 30.0   # 退避上限
+    _HEARTBEAT_INTERVAL: float = 30.0  # 心跳行打印间隔
+
     def __init__(
         self,
         *,
@@ -143,12 +206,21 @@ class ProgressPoller:
         scenario_result_id: str,
         interval: float = 5.0,
     ) -> None:
-        """初始化轮询器."""
+        """初始化轮询器.
+
+        Args:
+            dashboard: ProgressDashboard 实例。
+            scenario_result_id: 场景结果 ID。
+            interval: 初始轮询间隔 (秒), 会自适应退避到 _MAX_INTERVAL。
+        """
         self._dashboard = dashboard
         self._scenario_result_id = scenario_result_id
         self._interval = interval
+        self._base_interval = interval  # 退避重置基准
         self._task: asyncio.Task | None = None
         self._stopped = False
+        self._last_completed: int = -1  # 上次看到的完成数 (-1 表示从未渲染)
+        self._last_heartbeat: float = time.time()  # 上次心跳时间
 
     def start(self) -> None:
         """启动背景轮询任务。."""
@@ -166,7 +238,19 @@ class ProgressPoller:
             self._task = None
 
     async def _poll_loop(self) -> None:
-        """轮询循环 — 定期查询 CentralMemory 并更新 Dashboard."""
+        """轮询循环 — 定期查询 CentralMemory 并更新 Dashboard.
+
+        防刷屏三合一策略 (业界标准, 对标 tqdm/rich.progress):
+          ① 状态变化才重绘: 只有 completed 计数变化时才打印完整仪表盘
+          ② 心跳线保活: 无变化时每隔 _HEARTBEAT_INTERVAL 秒打印单行心跳
+          ③ 自适应退避: 无变化时轮询间隔 5s→10s→15s→30s 渐进退避;
+             有变化时重置回 base interval
+
+        L5 P0-1 增强: 检测新增 AttackResult, 打印实时攻击回调 (✅/❌)。
+        L5 P0-2 增强: 更新 ASR 迷你仪表盘。
+        """
+        seen_ids: set[str] = set()
+
         while not self._stopped:
             try:
                 await asyncio.sleep(self._interval)
@@ -181,14 +265,84 @@ class ProgressPoller:
 
                 memory = CentralMemory.get_memory_instance()
                 if memory is None:
+                    # Memory 不可用也走心跳逻辑, 避免无声卡死
+                    self._maybe_heartbeat()
+                    self._backoff()
                     continue
 
                 results = memory.get_attack_results(scenario_result_id=self._scenario_result_id)
-                if results:
-                    self._dashboard.update_from_attack_results(results)
+                if not results:
+                    self._maybe_heartbeat()
+                    self._backoff()
+                    continue
+
+                # P0-1: 检测新增 AttackResult, 打印实时回调
+                new_results: list[Any] = []
+                for ar in results:
+                    ar_id = str(getattr(ar, "id", "") or getattr(ar, "attack_result_id", ""))
+                    if ar_id and ar_id not in seen_ids:
+                        seen_ids.add(ar_id)
+                        new_results.append(ar)
+
+                if new_results:
+                    for ar in new_results:
+                        outcome = getattr(ar, "outcome", None)
+                        outcome_str = (
+                            str(outcome.value).upper()
+                            if hasattr(outcome, "value")
+                            else str(outcome).upper()
+                        ) if outcome else "UNKNOWN"
+                        marker = "✅" if outcome_str == "SUCCESS" else ("❌" if outcome_str == "FAILURE" else "⚠")
+                        obj = str(getattr(ar, "objective", ""))[:50]
+                        tech = ProgressDashboard._extract_technique(ar)
+                        print(f"  {marker} [{tech[:20]}] {obj}")
+
+                # 更新 Dashboard (全量重统计, 确保一致性)
+                self._dashboard.update_from_attack_results(results)
+
+                # ① 仅状态变化才重绘完整仪表盘
+                if self._dashboard.completed != self._last_completed:
+                    self._last_completed = self._dashboard.completed
                     self._dashboard.print_progress()
+                    self._reset_interval()
+                else:
+                    # ② 无变化时打印心跳行 (每 _HEARTBEAT_INTERVAL 秒一次)
+                    self._maybe_heartbeat()
+                    # ③ 自适应退避
+                    self._backoff()
             except Exception as e:
                 logger.debug(f"Progress poll failed (non-fatal): {e}")
+                self._backoff()
+
+    def _backoff(self) -> None:
+        """自适应退避: 当前间隔翻倍, 上限 _MAX_INTERVAL."""
+        self._interval = min(self._interval * 2, self._MAX_INTERVAL)
+
+    def _reset_interval(self) -> None:
+        """有变化时重置轮询间隔到基准值."""
+        self._interval = self._base_interval
+        self._last_heartbeat = time.time()  # 重置心跳计时
+
+    def _maybe_heartbeat(self) -> None:
+        """心跳线保活: 每隔 _HEARTBEAT_INTERVAL 秒打印单行心跳.
+
+        格式: ⏳ {elapsed}s | {completed}/{total} ({pct}%) ✅{succ} ❌{fail}
+        用途: 让用户知道流水线在运行, 但不刷屏。
+        """
+        now = time.time()
+        if now - self._last_heartbeat >= self._HEARTBEAT_INTERVAL:
+            self._last_heartbeat = now
+            elapsed = now - self._dashboard._start_time
+            pct = (
+                self._dashboard.completed / self._dashboard.total * 100
+                if self._dashboard.total > 0
+                else 0
+            )
+            print(
+                f"  ⏳ {elapsed:.0f}s | {self._dashboard.completed}/{self._dashboard.total} "
+                f"({pct:.1f}%) ✅{self._dashboard.succeeded} "
+                f"❌{self._dashboard.failed} ⚠{self._dashboard.errored}"
+            )
 
 
 # ============================================================

@@ -122,9 +122,9 @@ class TestSelectProbes:
         probe_names = [type(p).__name__ for p in probes]
 
         assert "DOMProbe" in probe_names
-        assert "EndpointClassifier" in probe_names
+        assert "NetworkProbe" in probe_names
         assert "LLMProbe" in probe_names
-        assert "NetworkInterceptor" in probe_names
+        assert "RAGProbe" in probe_names
 
     def test_web_app_without_page(self) -> None:
         """Web App 无浏览器 → 不包含 DOM 探针。"""
@@ -138,10 +138,10 @@ class TestSelectProbes:
 
         # 不应包含需要浏览器的探针
         assert "DOMProbe" not in probe_names
-        assert "NetworkInterceptor" not in probe_names
+        assert "NetworkProbe" not in probe_names
         # 但应包含 HTTP 探针
-        assert "EndpointClassifier" in probe_names
         assert "LLMProbe" in probe_names
+        assert "RAGProbe" in probe_names
 
     def test_api_platform(self) -> None:
         """API Platform → 包含 Endpoint 和 LLM 探针。"""
@@ -153,8 +153,8 @@ class TestSelectProbes:
         probes = _select_probes(classification, has_page=False)
         probe_names = [type(p).__name__ for p in probes]
 
-        assert "EndpointClassifier" in probe_names
         assert "LLMProbe" in probe_names
+        assert "EmbeddingProbe" in probe_names
 
     def test_unknown_type(self) -> None:
         """unknown 类型 → 仅基础探针。"""

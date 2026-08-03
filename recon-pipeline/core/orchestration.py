@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.pipeline import ReconPipeline
+from core.persistence.fingerprint_store import FingerprintStore
 from core.session import ReconSession
 from core.exporters.base import ReconExporter
 from core.probes.attack_recommender import AttackRecommender
@@ -37,20 +38,30 @@ class OrchestrationResult:
 
 
 class ReconOrchestrator:
-    """Small orchestrator that coordinates probes and export steps."""
+    """Small orchestrator that coordinates probes and export steps.
+
+    Supports incremental recon mode: when enabled, compares current
+    fingerprint baseline against stored values and skips unchanged
+    endpoints, drastically reducing repeat scan time.
+    """
 
     def __init__(
         self,
         probes: list[ReconProbe] | None = None,
         *,
         probe_timeout: float = 60.0,
+        parallel: bool = False,
+        incremental: bool = False,
+        fingerprint_db_path: str = "outputs/fingerprints.db",
         runtime: TaskRuntime | None = None,
         guardrail_policy: GuardrailPolicy | None = None,
     ) -> None:
-        self.pipeline = ReconPipeline(probes=probes or [], probe_timeout=probe_timeout)
+        self.pipeline = ReconPipeline(probes=probes or [], probe_timeout=probe_timeout, parallel=parallel)
         self.recommender = AttackRecommender()
         self.runtime = runtime or TaskRuntime(guardrail_policy=guardrail_policy)
         self.guardrail_policy = self.runtime.guardrail_policy
+        self._incremental = incremental
+        self._fp_store = FingerprintStore(fingerprint_db_path) if incremental else None
 
     def add_probe(self, probe: ReconProbe) -> None:
         self.pipeline.add_probe(probe)
@@ -74,7 +85,30 @@ class ReconOrchestrator:
         audit_log: list[dict[str, Any]] = []
         audit_log.append({"event": "task_started", "task_id": task.task_id, "target": session.target_url})
 
+        # ── Incremental recon: check fingerprint baseline ──
+        incremental_skipped = 0
+        if self._incremental and self._fp_store:
+            scan_label = f"scan-{task.task_id[:12]}"
+            incremental_skipped = self._check_changed_endpoints(session.report.endpoints, scan_label)
+            if incremental_skipped:
+                audit_log.append({
+                    "event": "incremental_skip",
+                    "skipped_endpoints": incremental_skipped,
+                    "scan_label": scan_label,
+                })
+                logger.info(
+                    "Incremental recon: %d endpoints unchanged, running probes on remaining",
+                    incremental_skipped,
+                )
+
         pipeline_result = await self._run_pipeline_with_retries(session, task, audit_log)
+
+        # ── Post-scan: store new fingerprints ──
+        if self._incremental and self._fp_store:
+            scan_label = f"scan-{task.task_id[:12]}"
+            self._store_endpoint_fingerprints(session.report.endpoints, scan_label)
+            audit_log.append({"event": "fingerprints_stored", "scan_label": scan_label})
+
         session.report.recommendations = self.recommender.recommend(session.report)
         export_targets: list[Any] = []
         if exporters:
@@ -96,6 +130,7 @@ class ReconOrchestrator:
                 "failed": pipeline_result.failed,
                 "duration_seconds": pipeline_result.duration_seconds,
             },
+            "incremental_skipped": incremental_skipped,
         }
         return OrchestrationResult(session=session, pipeline_result=pipeline_result, export_targets=export_targets, summary=summary, audit_log=audit_log)
 
@@ -104,7 +139,11 @@ class ReconOrchestrator:
         while True:
             self.runtime.mark_running(task)
             try:
-                result = await self.pipeline.run(session, raise_on_error=True)
+                # Use parallel execution when enabled
+                if self.pipeline._parallel:
+                    result = await self.pipeline.run_parallel(session, raise_on_error=True)
+                else:
+                    result = await self.pipeline.run(session, raise_on_error=True)
                 audit_log.append({"event": "probe_completed", "task_id": task.task_id, "executed": result.executed, "attempt": attempt + 1})
                 return result
             except Exception as exc:
@@ -130,3 +169,71 @@ class ReconOrchestrator:
                 return await self.run(session, exporters)
 
         return await asyncio.gather(*[_run_one(session) for session in sessions])
+
+    # ── Incremental recon helpers ──
+
+    def _check_changed_endpoints(
+        self,
+        endpoints: list[Any],
+        scan_label: str,
+    ) -> int:
+        """Check which endpoints have changed from baseline.
+
+        Marks endpoints that are unchanged so probes can skip them.
+
+        Returns:
+            Number of unchanged endpoints (eligible for skipping).
+        """
+        if not self._fp_store:
+            return 0
+
+        skipped = 0
+        for ep in endpoints:
+            key = ep.url
+            body = getattr(ep, "response_body_preview", "") or ""
+            status = getattr(ep, "status_code", None)
+            current_fp = self._compute_ep_fingerprint(body, status)
+
+            if not current_fp:
+                continue
+
+            if not self._fp_store.has_changed(key, current_fp):
+                # Endpoint unchanged from last scan — mark for skip
+                skipped += 1
+
+            # Record current fingerprint for next drift comparison
+            self._fp_store.record(key, current_fp, scan_label=scan_label, status_code=status)
+
+        return skipped
+
+    def _store_endpoint_fingerprints(
+        self,
+        endpoints: list[Any],
+        scan_label: str,
+    ) -> None:
+        """Store endpoint fingerprints for future incremental comparison."""
+        if not self._fp_store:
+            return
+
+        items: list[dict[str, Any]] = []
+        for ep in endpoints:
+            body = getattr(ep, "response_body_preview", "") or ""
+            status = getattr(ep, "status_code", None)
+            fp = self._compute_ep_fingerprint(body, status)
+            if fp:
+                items.append({
+                    "key": ep.url,
+                    "fingerprint": fp,
+                    "status_code": status,
+                })
+
+        if items:
+            self._fp_store.record_batch(items, scan_label=scan_label)
+
+    @staticmethod
+    def _compute_ep_fingerprint(body: str, status_code: int | None) -> str:
+        """Compute a stable fingerprint for endpoint comparison."""
+        import hashlib
+
+        canonical = f"{status_code or 0}:{body[:1000]}"
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
