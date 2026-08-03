@@ -1,0 +1,49 @@
+# Agent framework probe pack: CrewAI
+# Non-LLM declarative YAML — consumed by ProbePackProbe via probe_pack_engine.
+probes:
+  - name: crewai_js_sdk
+    description: Detect CrewAI SDK import in JS
+    interface: agent-crewai
+    requests:
+      - path: /__probe_placeholder__
+        method: GET
+    match:
+      body_contains:
+        - "crewai"
+        - "crewAI"
+        - "from crewai import"
+
+  - name: crewai_api_paths
+    description: Detect CrewAI Enterprise API endpoints
+    interface: agent-crewai
+    requests:
+      - path: /__probe_placeholder__/api/v1/crews
+        method: GET
+    match:
+      json_path:
+        .: "~."
+
+  - name: crewai_kickoff_endpoint
+    description: Detect CrewAI kickoff task endpoint
+    interface: agent-crewai
+    requests:
+      - path: /__probe_placeholder__/api/v1/crews/kickoff
+        method: POST
+        body: '{"inputs":{}}'
+    match:
+      body_contains:
+        - "crew"
+        - "task"
+        - "agent"
+
+  - name: crewai_hierarchical
+    description: Detect CrewAI hierarchical process response pattern
+    interface: agent-crewai
+    requests:
+      - path: /__probe_placeholder__/status
+        method: GET
+    match:
+      body_contains:
+        - "manager_llm"
+        - "process"
+        - "hierarchical"

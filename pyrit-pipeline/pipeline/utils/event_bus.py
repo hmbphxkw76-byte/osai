@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""统一事件总线 — 结构化事件流 (JSONL + stdout)。
+"""统一事件总线 — 结构化事件流 (JSONL + stdout)。.
 
 全阶段事件发布/订阅机制, 每个Stage在关键操作点发布事件:
   - 事件写入 JSONL 文件 (outputs/logs/events_{timestamp}.jsonl)
@@ -38,7 +38,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 
 @dataclass
 class PipelineEvent:
-    """流水线结构化事件。
+    """流水线结构化事件。.
 
     Attributes:
         timestamp: ISO 格式时间戳。
@@ -53,20 +53,22 @@ class PipelineEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """初始化后自动填充时间戳。."""
         if not self.timestamp:
             self.timestamp = datetime.now().isoformat()
 
     def to_json(self) -> str:
+        """转换为 JSON 字符串。."""
         return json.dumps(asdict(self), ensure_ascii=False, default=str)
 
     def to_summary(self) -> str:
-        """精简单行摘要 (stdout)。"""
+        """精简单行摘要 (stdout)。."""
         data_str = ", ".join(f"{k}={v}" for k, v in list(self.data.items())[:4])
         return f"  [EVENT] {self.stage}/{self.event_type}: {data_str}"
 
 
 class EventBus:
-    """统一事件总线。
+    """统一事件总线。.
 
     单例模式, 管理事件写入 JSONL 文件和 stdout。
 
@@ -80,19 +82,21 @@ class EventBus:
     _instance: EventBus | None = None
 
     def __init__(self, jsonl_path: Path | None = None) -> None:
+        """初始化事件总线。."""
         self._jsonl_path = jsonl_path
         self._events: list[PipelineEvent] = []
         self._enabled = True
 
     @classmethod
     def get_instance(cls) -> EventBus:
+        """获取单例实例。."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     @classmethod
     def init(cls, output_dir: Path | None = None) -> EventBus:
-        """初始化事件总线, 设置 JSONL 输出路径。"""
+        """初始化事件总线, 设置 JSONL 输出路径。."""
         instance = cls.get_instance()
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +105,7 @@ class EventBus:
         return instance
 
     def publish(self, event: PipelineEvent) -> None:
-        """发布事件到 JSONL + stdout。"""
+        """发布事件到 JSONL + stdout。."""
         if not self._enabled:
             return
         try:
@@ -121,29 +125,31 @@ class EventBus:
         event_type: str,
         **data: Any,
     ) -> None:
-        """快捷发布事件。"""
+        """快捷发布事件。."""
         self.publish(PipelineEvent(stage=stage, event_type=event_type, data=data))
 
     def get_events(self) -> list[PipelineEvent]:
-        """返回所有已发布事件。"""
+        """返回所有已发布事件。."""
         return list(self._events)
 
     def get_events_by_stage(self, stage: str) -> list[PipelineEvent]:
-        """按阶段过滤事件。"""
+        """按阶段过滤事件。."""
         return [e for e in self._events if e.stage == stage]
 
     def disable(self) -> None:
-        """禁用事件发布 (测试用)。"""
+        """禁用事件发布 (测试用)。."""
         self._enabled = False
 
     def enable(self) -> None:
-        """启用事件发布。"""
+        """启用事件发布。."""
         self._enabled = True
 
     @property
     def jsonl_path(self) -> Path | None:
+        """返回 JSONL 文件路径。."""
         return self._jsonl_path
 
     @property
     def event_count(self) -> int:
+        """返回已发布事件总数。."""
         return len(self._events)

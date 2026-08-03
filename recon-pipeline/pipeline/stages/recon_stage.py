@@ -26,19 +26,29 @@ from pipeline.stages.base import PipelineStage
 logger = logging.getLogger(__name__)
 
 
+def session_report_skip(ctx: object) -> object:
+    """Return an empty report when RoE gates the run (P1-2-C)."""
+    from core.models.recon_report import ReconReport
+    report = ReconReport(target_url=getattr(ctx, "target_url", ""))
+    report.auth_flow_state = "roe_skip"
+    return report
+
+
 # 不同目标类别默认关注的探针子集 (端到端全覆盖, 此处用于优先级与可选裁剪)
 _PROBE_BY_CATEGORY = {
     TargetCategory.MODEL_PLATFORM: [
         "LLMProbe", "OpenAICompatProbe", "EmbeddingProbe", "RAGProbe",
         "MCPProbe", "ErrorAnalyzerProbe", "SecurityHeaderProbe",
         "ResponseConsistencyProbe", "PortScanProbe", "TokenEstimatorProbe",
+        "ProbePackProbe", "GraphQLProbe", "CachePoisoningProbe", "AIWAFClassifierProbe",
     ],
     TargetCategory.LLM_WEBAPP: [
         "LLMProbe", "RAGProbe", "AgentProbe", "MCPProbe", "EmbeddingProbe",
         "DOMProbe", "JSReconProbe", "NetworkProbe", "OpenAICompatProbe",
         "ErrorAnalyzerProbe", "SecurityHeaderProbe", "ResponseConsistencyProbe",
         "ConversationStateProbe", "TokenEstimatorProbe", "WAFDetectorProbe",
-        "SubdomainProbe",
+        "SubdomainProbe", "ProbePackProbe", "GraphQLProbe", "CachePoisoningProbe",
+        "AIWAFClassifierProbe",
     ],
 }
 
@@ -61,6 +71,10 @@ class ReconStage(PipelineStage):
             ResponseConsistencyProbe, SecurityHeaderProbe, SubdomainProbe,
             TokenEstimatorProbe, WAFDetectorProbe,
         )
+        from core.probes.probe_pack_probe import ProbePackProbe
+        from core.probes.cache_poisoning_probe import CachePoisoningProbe
+        from core.probes.graphql_probe import GraphQLProbe
+        from core.probes.ai_waf_classifier import AIWAFClassifierProbe
 
         ctx = context  # type: ignore[assignment]
         classification = ctx.classification
@@ -68,6 +82,18 @@ class ReconStage(PipelineStage):
 
         if classification is None:
             raise RuntimeError("ReconStage requires classification from ClassifyStage")
+
+        # P1-2-C: RoE time-window gate (best-effort, warn + skip if outside window)
+        roe = getattr(ctx, "roe", None)
+        if roe is not None:
+            from core.safety import RoE
+            r = roe if isinstance(roe, RoE) else RoE(**(roe if isinstance(roe, dict) else {}))
+            if not r.in_time_window():
+                logger.warning(
+                    "[recon] RoE time window not satisfied; skipping active recon. "
+                    "Window=%s", r.time_window,
+                )
+                return session_report_skip(ctx)
 
         # 选择探针列表
         if self._probe_order:
@@ -81,6 +107,8 @@ class ReconStage(PipelineStage):
                 "RAGProbe": RAGProbe, "ResponseConsistencyProbe": ResponseConsistencyProbe,
                 "SecurityHeaderProbe": SecurityHeaderProbe, "SubdomainProbe": SubdomainProbe,
                 "TokenEstimatorProbe": TokenEstimatorProbe, "WAFDetectorProbe": WAFDetectorProbe,
+                "ProbePackProbe": ProbePackProbe, "CachePoisoningProbe": CachePoisoningProbe,
+                "GraphQLProbe": GraphQLProbe, "AIWAFClassifierProbe": AIWAFClassifierProbe,
             }
             selected = [available[n] for n in self._probe_order if n in available]
         else:
@@ -95,16 +123,22 @@ class ReconStage(PipelineStage):
                 "RAGProbe": RAGProbe, "ResponseConsistencyProbe": ResponseConsistencyProbe,
                 "SecurityHeaderProbe": SecurityHeaderProbe, "SubdomainProbe": SubdomainProbe,
                 "TokenEstimatorProbe": TokenEstimatorProbe, "WAFDetectorProbe": WAFDetectorProbe,
+                "ProbePackProbe": ProbePackProbe, "CachePoisoningProbe": CachePoisoningProbe,
+                "GraphQLProbe": GraphQLProbe, "AIWAFClassifierProbe": AIWAFClassifierProbe,
             }
             selected = [all_map[n] for n in names if n in all_map]
 
         logger.info(f"[recon] selected {len(selected)} probes: {[c.__name__ for c in selected]}")
 
         # 构建 Guardrail (组织边界)
+        # P1-2-B: RoE excluded_hosts 注入 guardrail 边界
+        roe_excluded = []
+        if roe is not None:
+            roe_excluded = list(roe.excluded_hosts) if hasattr(roe, "excluded_hosts") else []
         guardrail = GuardrailPolicy(
             allowed_hosts=set(ctx.allowed_hosts or []),
             organizational_domains=set(ctx.org_domains or []),
-            disallow_patterns=tuple(ctx.disallow_patterns or []),
+            disallow_patterns=tuple(list(ctx.disallow_patterns or []) + roe_excluded),
         )
 
         # 构建 Session

@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.24",
     "aiohttp>=3.9",
     "playwright>=1.40",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

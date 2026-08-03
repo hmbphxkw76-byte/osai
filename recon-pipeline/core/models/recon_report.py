@@ -41,9 +41,12 @@ class DiscoveredEndpoint:
     discovered_at: str = ""
     ai_framework_name: str = ""
     ai_framework_category: str = ""
+    # P0: Error-class diagnostics & timing fields (RedAmon error_class.py alignment)
+    response_class: str = ""  # success|shell_parser_error|transport_error|tool_internal_error|application_4xx|application_5xx_*
+    duration_ms: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "url": self.url,
             "method": self.method,
             "endpoint_type": self.endpoint_type.value,
@@ -55,6 +58,11 @@ class DiscoveredEndpoint:
             "ai_framework_name": self.ai_framework_name,
             "ai_framework_category": self.ai_framework_category,
         }
+        if self.response_class:
+            result["response_class"] = self.response_class
+        if self.duration_ms:
+            result["duration_ms"] = self.duration_ms
+        return result
 
 
 def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -99,6 +107,7 @@ class MCPToolInfo:
     server_url: str = ""
     annotation_contradiction: bool = False
     tool_hash: str = ""
+    instructions_hash: str = ""
     injection_surfaces: list[str] = field(default_factory=list)
     annotations: dict[str, Any] = field(default_factory=dict)
     threat_tags: list[str] = field(default_factory=list)
@@ -112,6 +121,7 @@ class MCPToolInfo:
             "server_url": self.server_url,
             "annotation_contradiction": self.annotation_contradiction,
             "tool_hash": self.tool_hash,
+            "instructions_hash": self.instructions_hash,
             "injection_surfaces": self.injection_surfaces,
             "threat_tags": self.threat_tags,
         }

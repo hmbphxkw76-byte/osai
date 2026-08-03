@@ -313,6 +313,7 @@ def _collect_evidence(ctx: PipelineContext, output_dir: Path) -> None:
             asr_per_technique=ctx.asr_per_technique,
             overall_asr=ctx.overall_asr,
             owasp_id=owasp_id,
+            display_groups=ctx.result.get_display_groups(),  # Round 8 P0: 传入 display_groups 提取 OWASP ID
         )
 
         # 保存 JSON

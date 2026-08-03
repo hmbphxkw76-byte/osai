@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""阶段间数据流契约验证 — 确保阶段间数据传递完整性。
+"""阶段间数据流契约验证 — 确保阶段间数据传递完整性。.
 
 在 handoff_banner 之后自动验证:
   发送方产出 == 接收方期望 (schema 检查)
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ContractResult:
-    """契约验证结果。
+    """契约验证结果。.
 
     Attributes:
         passed: 是否通过。
@@ -42,6 +42,7 @@ class ContractResult:
     warnings: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
+        """返回验证结果的可读字符串表示。."""
         status = "✓ PASS" if self.passed else "✗ FAIL"
         lines = [f"  [Contract] {status}: {self.stage_from} → {self.stage_to}"]
         if self.missing_fields:
@@ -53,7 +54,7 @@ class ContractResult:
 
 
 class ContractValidator:
-    """阶段间数据流契约验证器。
+    """阶段间数据流契约验证器。.
 
     定义每个阶段的输出契约 (必填字段),
     在 handoff 时验证接收方是否拿到所有必填数据。
@@ -94,7 +95,7 @@ class ContractValidator:
         stage_to: int | str,
         ctx: Any,
     ) -> ContractResult:
-        """验证阶段间数据流契约。
+        """验证阶段间数据流契约。.
 
         Args:
             stage_from: 来源阶段编号或标识。

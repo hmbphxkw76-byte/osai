@@ -290,6 +290,28 @@ AI_FAVICON_HASHES: dict[int, str] = {
     -1379054890: "n8n (AI automation)",
     -1914668250: "ComfyUI",
     -1484817830: "Hugging Face Spaces",
+
+    # P0-1-H: 补齐主流 AI 产品 favicon 哈希
+    -1579032097: "AnythingLLM",
+    1458670880:  "OpenWebUI (alt)",
+    -1281881731: "Jan (local AI)",
+    734547004:   "OobaBooga",
+    -1772749739: "Text Generation WebUI",
+    -400358947:  "Continue (VS Code AI)",
+    -1973401890: "Cursor",
+    -1555496994: "Perplexity",
+    -1138712139: "Mistral Le Chat",
+    -901117995:  "Cohere Coral",
+    -1291120538: "Groq",
+    -1202427407: "Together AI",
+    -1390399762: "Replicate",
+    -102369170:  "HuggingChat",
+    -1522082714: "Poe",
+    535219832:   "KoboldCpp",
+    -893766488:  "TabbyAPI",
+    -309191975:  "A1111 Stable Diffusion",
+    -2102939427: "Invidious (AI media)",
+    -1088895816: "Whisper Web",
 }
 
 # ============================================================================
@@ -525,6 +547,27 @@ AI_MODEL_FAMILY_TOKENS: list[str] = [
     "cohere",
     "jamba",
     "reka",
+    "grok",
+    "baichuan",
+    "chatglm",
+    "ernie",
+    "kimi",
+    "glm-",
+    "vicuna",
+    "wizardlm",
+    "solar",
+    "gemma",
+    "stablelm",
+    "bloom",
+    "opt-",
+    "bart",
+    "t5-",
+    "whisper",
+    "embedding",
+    "text-embedding",
+    "bge-",
+    "e5-",
+    "nomic",
 ]
 
 # ============================================================================
@@ -532,14 +575,27 @@ AI_MODEL_FAMILY_TOKENS: list[str] = [
 # ============================================================================
 # (json_key, shape_name)
 # Ordered by specificity — first match wins.
-AI_CHAT_RESPONSE_SHAPES: list[tuple[str, str]] = [
-    ("choices", "openai-chat"),          # {"choices": [{"message": {"content": "..."}}]}
-    ("content", "anthropic-chat"),        # {"content": [{"text": "..."}]}
-    ("candidates", "gemini-chat"),        # {"candidates": [{"content": {"parts": [...]}}]}
-    ("response", "ollama-chat"),          # {"response": "...", "done": true}
-    ("generated_text", "huggingface"),    # {"generated_text": "..."}
-    ("message", "generic-chat"),          # {"message": {"content": "..."}}
-    ("output", "generic-chat"),           # {"output": "..."}
+# P0-1-D / P1-3-A: 升级为三元组 (key, shape_name, required_keys)
+#   required_keys 为**全部必须存在**才归类的字段 (P0-1-E 全命中逻辑)。
+AI_CHAT_RESPONSE_SHAPES: list[tuple[str, str, list[str]]] = [
+    # OpenAI / vLLM / LM Studio / Ollama OpenAI-compat
+    ("choices", "openai-chat", ["choices"]),
+    # Anthropic
+    ("content", "anthropic-chat", ["content"]),
+    # Google Gemini
+    ("candidates", "gemini-chat", ["candidates"]),
+    # Ollama 原生格式
+    ("response", "ollama-chat", ["response", "done"]),
+    # HuggingFace text-generation-inference
+    ("generated_text", "huggingface", ["generated_text"]),
+    # LM Studio / 通用
+    ("message", "generic-chat", ["message"]),
+    ("output", "generic-chat", ["output"]),
+    # Mistral / OpenAI 兼容 (completion 风格)
+    ("completion", "completion-chat", ["completion"]),
+    # Cohere
+    ("generations", "cohere-chat", ["generations"]),
+    # 流式 SSE 残留 (data: 行已在网络层处理, 这里兜底非典型)
 ]
 
 # ============================================================================
@@ -579,31 +635,39 @@ AI_SDK_IMPORT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 # API Key prefix patterns (for detecting hardcoded keys in JS)
-AI_KEY_PREFIX_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r'sk-[A-Za-z0-9]{32,}', re.IGNORECASE), "OpenAI API Key"),
-    (re.compile(r'sk-ant-[A-Za-z0-9]{32,}', re.IGNORECASE), "Anthropic API Key"),
-    (re.compile(r'sk-proj-[A-Za-z0-9]{32,}', re.IGNORECASE), "OpenAI Project Key"),
-    (re.compile(r'sk-org-[A-Za-z0-9]{32,}', re.IGNORECASE), "OpenAI Org Key"),
-    (re.compile(r'AIza[0-9A-Za-z\-_]{35}', re.IGNORECASE), "Google API Key"),
-    (re.compile(r'xai-[A-Za-z0-9]{32,}', re.IGNORECASE), "xAI API Key"),
-    (re.compile(r'hf_[A-Za-z0-9]{32,}', re.IGNORECASE), "HuggingFace API Key"),
-    (re.compile(r'cohere-[A-Za-z0-9]{32,}', re.IGNORECASE), "Cohere API Key"),
-    (re.compile(r'mistral-[A-Za-z0-9]{32,}', re.IGNORECASE), "Mistral API Key"),
-    (re.compile(r'gsk_[A-Za-z0-9]{32,}', re.IGNORECASE), "Groq API Key"),
-    (re.compile(r'together-[A-Za-z0-9]{32,}', re.IGNORECASE), "Together AI Key"),
-    (re.compile(r'r8_[A-Za-z0-9]{32,}', re.IGNORECASE), "Replicate API Key"),
-    (re.compile(r'pcsk_[A-Za-z0-9]{32,}', re.IGNORECASE), "Pinecone API Key"),
-    (re.compile(r'pci_[A-Za-z0-9]{32,}', re.IGNORECASE), "Pinecone Index Key"),
-    (re.compile(r'qdrant-[A-Za-z0-9]{32,}', re.IGNORECASE), "Qdrant API Key"),
-    (re.compile(r'weaviate-[A-Za-z0-9]{32,}', re.IGNORECASE), "Weaviate API Key"),
-    (re.compile(r'chrm_[A-Za-z0-9]{32,}', re.IGNORECASE), "Chroma API Key"),
-    (re.compile(r'zil-[A-Za-z0-9]{32,}', re.IGNORECASE), "Zilliz API Key"),
-    (re.compile(r'milvus-[A-Za-z0-9]{32,}', re.IGNORECASE), "Milvus API Key"),
-    (re.compile(r'eyJ[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}', re.IGNORECASE), "JWT Token"),
-    (re.compile(r'Bearer\s+[A-Za-z0-9\-_]{20,}', re.IGNORECASE), "Bearer Token"),
-    (re.compile(r'ghp_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub Personal Access Token"),
-    (re.compile(r'gho_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub OAuth Token"),
-    (re.compile(r'github_pat_[A-Za-z0-9]{36,}', re.IGNORECASE), "GitHub Fine-grained PAT"),
+# P0-1-A: OpenAI key 精确锚定 — 使用 base64("OpenAI")="T3BlbkFJ" infix,
+#   避免误报 Stripe/Mapbox/任意 32+ 字符字符串。
+# P0-1-B: Google key 需 ±2KB 上下文消歧 (见 match_ai_key_prefix)。
+# 每条 pattern 增加 info dict: 是否需要上下文消歧 / 上下文关键词。
+AI_KEY_PREFIX_PATTERNS: list[tuple[re.Pattern[str], str, dict[str, Any]]] = [
+    # OpenAI: 精确锚定 sk-<12+><T3BlbkFJ><12+> 结构 (base64("OpenAI") infix)
+    (re.compile(r'sk-[A-Za-z0-9]{12,}T3BlbkFJ[A-Za-z0-9]{12,}', re.IGNORECASE), "OpenAI API Key", {"disambiguate": False}),
+    # OpenAI project/org 前缀 (宽松但带前缀约束)
+    (re.compile(r'sk-proj-[A-Za-z0-9]{20,}', re.IGNORECASE), "OpenAI Project Key", {"disambiguate": False}),
+    (re.compile(r'sk-org-[A-Za-z0-9]{20,}', re.IGNORECASE), "OpenAI Org Key", {"disambiguate": False}),
+    # Anthropic
+    (re.compile(r'sk-ant-[A-Za-z0-9]{20,}', re.IGNORECASE), "Anthropic API Key", {"disambiguate": False}),
+    # Google API Key — 需在 ±2KB 内出现 googleapis.com / GOOGLE_ 上下文才确认 (P0-1-B)
+    (re.compile(r'AIza[0-9A-Za-z\-_]{35}', re.IGNORECASE), "Google API Key", {"disambiguate": True, "context": ("googleapis.com", "GOOGLE_", "google")}),
+    (re.compile(r'xai-[A-Za-z0-9]{32,}', re.IGNORECASE), "xAI API Key", {"disambiguate": False}),
+    (re.compile(r'hf_[A-Za-z0-9]{32,}', re.IGNORECASE), "HuggingFace API Key", {"disambiguate": False}),
+    (re.compile(r'cohere-[A-Za-z0-9]{32,}', re.IGNORECASE), "Cohere API Key", {"disambiguate": False}),
+    (re.compile(r'mistral-[A-Za-z0-9]{32,}', re.IGNORECASE), "Mistral API Key", {"disambiguate": False}),
+    (re.compile(r'gsk_[A-Za-z0-9]{32,}', re.IGNORECASE), "Groq API Key", {"disambiguate": False}),
+    (re.compile(r'together-[A-Za-z0-9]{32,}', re.IGNORECASE), "Together AI Key", {"disambiguate": False}),
+    (re.compile(r'r8_[A-Za-z0-9]{32,}', re.IGNORECASE), "Replicate API Key", {"disambiguate": False}),
+    (re.compile(r'pcsk_[A-Za-z0-9]{32,}', re.IGNORECASE), "Pinecone API Key", {"disambiguate": False}),
+    (re.compile(r'pci_[A-Za-z0-9]{32,}', re.IGNORECASE), "Pinecone Index Key", {"disambiguate": False}),
+    (re.compile(r'qdrant-[A-Za-z0-9]{32,}', re.IGNORECASE), "Qdrant API Key", {"disambiguate": False}),
+    (re.compile(r'weaviate-[A-Za-z0-9]{32,}', re.IGNORECASE), "Weaviate API Key", {"disambiguate": False}),
+    (re.compile(r'chrm_[A-Za-z0-9]{32,}', re.IGNORECASE), "Chroma API Key", {"disambiguate": False}),
+    (re.compile(r'zil-[A-Za-z0-9]{32,}', re.IGNORECASE), "Zilliz API Key", {"disambiguate": False}),
+    (re.compile(r'milvus-[A-Za-z0-9]{32,}', re.IGNORECASE), "Milvus API Key", {"disambiguate": False}),
+    (re.compile(r'eyJ[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}', re.IGNORECASE), "JWT Token", {"disambiguate": False}),
+    (re.compile(r'Bearer\s+[A-Za-z0-9\-_]{20,}', re.IGNORECASE), "Bearer Token", {"disambiguate": False}),
+    (re.compile(r'ghp_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub Personal Access Token", {"disambiguate": False}),
+    (re.compile(r'gho_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub OAuth Token", {"disambiguate": False}),
+    (re.compile(r'github_pat_[A-Za-z0-9]{36,}', re.IGNORECASE), "GitHub Fine-grained PAT", {"disambiguate": False}),
 ]
 
 # Constructor context patterns (SDK class name + apiKey parameter)
@@ -774,14 +838,31 @@ def match_ai_sdk(js_content: str) -> list[tuple[str, str]]:
 def match_ai_key_prefix(js_content: str) -> list[tuple[str, str]]:
     """Match JS content against AI API key prefix patterns.
 
+    P0-1-B: 对标注 disambiguate=True 的 key 类型 (如 Google),
+        在命中位置 ±2KB 上下文内寻找消歧关键词, 否则标记 low_confidence 并降级剔除。
+    P0-1-C: 使用 finditer 收集全部命中 (去重), 不再只取首个。
+
     Returns:
-        List of (key_type, matched_key) tuples.
+        List of (key_type, matched_key) tuples (仅高置信度命中)。
     """
     results: list[tuple[str, str]] = []
-    for pattern, key_type in AI_KEY_PREFIX_PATTERNS:
-        match = pattern.search(js_content)
-        if match:
-            results.append((key_type, match.group(0)))
+    seen: set[tuple[str, str]] = set()
+    for pattern, key_type, info in AI_KEY_PREFIX_PATTERNS:
+        for match in pattern.finditer(js_content):
+            matched = match.group(0)
+            key = (key_type, matched)
+            if key in seen:
+                continue
+            seen.add(key)
+            # 上下文消歧: 仅保留 ±2KB 内出现消歧关键词的命中
+            if info.get("disambiguate"):
+                start = max(0, match.start() - 2048)
+                end = min(len(js_content), match.end() + 2048)
+                window = js_content[start:end]
+                ctx_keywords = info.get("context", ())
+                if not any(c.lower() in window.lower() for c in ctx_keywords):
+                    continue  # 低置信度, 剔除 (符合 P0-1-B)
+            results.append((key_type, matched))
     return results
 
 
@@ -844,6 +925,9 @@ def match_ai_provider_url(js_content: str) -> list[tuple[str, str]]:
 def classify_ai_chat_response(payload: Any) -> str | None:
     """Classify an AI chat API response body by its JSON shape.
 
+    P0-1-E: required_keys 中**全部字段存在**才归类 (不再任一存在即命中)。
+    P1-3-B: 若只有部分 (非全部) key 命中, 不强行归类, 返回 None (调用方标 unknown_chat_shape)。
+
     Args:
         payload: Parsed JSON response (dict).
 
@@ -852,8 +936,8 @@ def classify_ai_chat_response(payload: Any) -> str | None:
     """
     if not isinstance(payload, dict):
         return None
-    for key, shape_name in AI_CHAT_RESPONSE_SHAPES:
-        if key in payload:
+    for _, shape_name, required_keys in AI_CHAT_RESPONSE_SHAPES:
+        if required_keys and all(k in payload for k in required_keys):
             return shape_name
     return None
 

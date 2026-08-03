@@ -122,6 +122,39 @@ class AttackRecommender:
         )
         return recommendations
 
+    # ── Execution plan (P0-4-F) ──
+
+    def to_execution_plan(
+        self,
+        recon_report: ReconReport,
+        roe_excluded_hosts: list[str] | None = None,
+        preferred_tool: str = "pyrit",
+    ) -> list[dict[str, Any]]:
+        """Convert recommendations into an executable plan (P0-4-F).
+
+        Each entry carries: target, payload_ref, preferred_tool, owasp_id,
+        attack_strategy, target_type, roe_gate (whether RoE permits execution).
+        """
+        from core.safety import RoE, enforce
+
+        roe = RoE(excluded_hosts=roe_excluded_hosts or [])
+        recommendations = self.recommend(recon_report)
+        plan: list[dict[str, Any]] = []
+        for rec in recommendations:
+            target = rec.related_endpoints[0] if rec.related_endpoints else recon_report.target_url
+            payload_ref = f"{rec.owasp_id}:{rec.attack_strategy}"
+            allowed, reason = enforce(rec.owasp_id, target, roe)
+            plan.append({
+                "target": target,
+                "payload_ref": payload_ref,
+                "preferred_tool": preferred_tool,
+                "owasp_id": rec.owasp_id,
+                "attack_strategy": rec.attack_strategy,
+                "target_type": rec.target_type,
+                "roe_gate": {"allowed": allowed, "reason": reason},
+            })
+        return plan
+
     # ── Endpoint-based recommendations ──
 
     def _recommend_from_endpoint(

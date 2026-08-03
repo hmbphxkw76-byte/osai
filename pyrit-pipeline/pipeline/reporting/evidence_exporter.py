@@ -344,13 +344,16 @@ class EvidenceExporter:
 
             try:
                 # A1 修复: 使用 get_message_pieces() 替代 get_conversation_messages()
+                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.0 兼容)
                 pieces = list(memory.get_message_pieces(conversation_id=conv_id))
                 if not pieces:
                     logger.debug(f"No message pieces for conversation {conv_id}")
                     continue
 
+                # P1: 将 MessagePiece 转换为 Message (MarkdownConversationMemoryPrinter 期望 list[Message])
+                messages = [p.to_message() for p in pieces]
                 content = await printer.render_async(
-                    pieces,
+                    messages,
                     include_scores=True,
                     include_reasoning_trace=self.include_reasoning_trace,
                 )
@@ -410,10 +413,13 @@ class EvidenceExporter:
 
             try:
                 # A1 修复: 使用 get_message_pieces() 替代不存在的 get_conversation_messages()
+                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.0 兼容)
                 pieces = list(memory.get_message_pieces(conversation_id=conv_id))
                 if pieces:
+                    # P1: 将 MessagePiece 转换为 Message
+                    messages = [p.to_message() for p in pieces]
                     conv_md = await conv_printer.render_async(
-                        pieces,
+                        messages,
                         include_scores=True,
                         include_reasoning_trace=self.include_reasoning_trace,
                     )

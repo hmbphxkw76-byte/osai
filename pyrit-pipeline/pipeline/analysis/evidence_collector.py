@@ -197,6 +197,29 @@ class EvidenceCollector:
         self._target_model = target_model
         self._model_tier = model_tier
 
+    @staticmethod
+    def _extract_owasp_id_from_display_group(display_group_name: str) -> str:
+        """从显示组名提取 OWASP ID (Round 8 修复).
+
+        显示组名格式示例:
+            - llm02_sensitive_info_disclosure_many_shot_jailbreak
+            - asi01_agent_identity_spoofing_prompt_sending
+            - harmbench_many_shot_jailbreak
+            - curated_seeds_many_shot_jailbreak
+
+        Args:
+            display_group_name: 显示组名称
+
+        Returns:
+            OWASP ID (如 "LLM02", "ASI01"), 空字符串表示未找到
+        """
+        # 匹配 llm01-llm10 或 asi01-asi10 格式
+        import re
+        match = re.search(r"(llm\d{2}|asi\d{2})", display_group_name.lower())
+        if match:
+            return match.group(1).upper()
+        return ""
+
     def collect(
         self,
         attack_results: dict[str, list[Any]],
@@ -204,6 +227,7 @@ class EvidenceCollector:
         asr_per_technique: dict[str, float] | None = None,
         overall_asr: float = 0.0,
         owasp_id: str = "",
+        display_groups: dict[str, list[Any]] | None = None,
     ) -> EvidenceCollection:
         """从攻击结果中收集证据。.
 
@@ -212,7 +236,9 @@ class EvidenceCollector:
             scenario_result_id: ScenarioResult ID
             asr_per_technique: 按技术的 ASR 统计
             overall_asr: 总体 ASR
-            owasp_id: OWASP 分类 ID (全局)
+            owasp_id: OWASP 分类 ID (全局, 回退用)
+            display_groups: ScenarioResult.get_display_groups() 的结果
+                             用于从显示组名提取数据集特定的 OWASP ID
 
         Returns:
             EvidenceCollection: 结构化证据集合
@@ -228,6 +254,20 @@ class EvidenceCollector:
         evidence_idx = 0
         owasp_counter: dict[str, int] = {}
         tech_counter: dict[str, int] = {}
+
+        # Round 8 P0: 构建技术名到 OWASP ID 的映射 (从 display_groups 提取)
+        tech_to_owasp: dict[str, str] = {}
+        if display_groups:
+            for display_name, results in display_groups.items():
+                owasp_id = self._extract_owasp_id_from_display_group(display_name)
+                if owasp_id and results:
+                    # 从第一个结果提取技术名
+                    tech_name = self._extract_technique_name(results[0])
+                    tech_to_owasp[tech_name] = owasp_id
+                    logger.debug(f"OWASP mapping: {tech_name} → {owasp_id} (from {display_name})")
+        # 回退到全局 owasp_id
+        if not tech_to_owasp and owasp_id:
+            logger.debug(f"OWASP: using global owasp_id={owasp_id}")
 
         for attack_id, results in attack_results.items():
             for ar in results:
@@ -248,6 +288,9 @@ class EvidenceCollector:
                 if not is_success:
                     continue
 
+                # Round 8 P0: 从 tech_to_owasp 映射提取 OWASP ID, 回退到全局 owasp_id
+                current_owasp_id = tech_to_owasp.get(tech_name, owasp_id)
+
                 evidence_idx += 1
                 evidence = VulnerabilityEvidence(
                     evidence_id=f"EVD-{evidence_idx:04d}",
@@ -255,8 +298,8 @@ class EvidenceCollector:
                     technique_name=tech_name,
                     technique_display_name=get_display_name(normalize_technique_name(tech_name)),
                     converter_chain=self._extract_converter_chain(ar),
-                    owasp_id=owasp_id,
-                    owasp_category=get_owasp_category(owasp_id) if owasp_id else "",
+                    owasp_id=current_owasp_id,
+                    owasp_category=get_owasp_category(current_owasp_id) if current_owasp_id else "",
                     objective=self._extract_objective(ar),
                     jailbreak_prompt=self._extract_jailbreak_prompt(ar),
                     harmful_output=self._extract_harmful_output(ar),
@@ -275,39 +318,39 @@ class EvidenceCollector:
 
                 collection.evidence.append(evidence)
 
-                # OWASP 覆盖统计
-                if owasp_id:
-                    owasp_counter[owasp_id] = owasp_counter.get(owasp_id, 0) + 1
+        # OWASP 覆盖统计 (Round 8 P0: 使用 current_owasp_id)
+        if current_owasp_id:
+            owasp_counter[current_owasp_id] = owasp_counter.get(current_owasp_id, 0) + 1
 
-                # 子结果 (SequentialAttack 的子攻击)
-                child_results = getattr(ar, "child_attack_results", None) or []
-                for child in child_results:
-                    if child is None:
-                        continue
-                    if self._is_success(child):
-                        evidence_idx += 1
-                        child_evidence = VulnerabilityEvidence(
-                            evidence_id=f"EVD-{evidence_idx:04d}",
-                            attack_id=f"{attack_id}_child",
-                            technique_name=self._extract_technique_name(child),
-                            technique_display_name=get_display_name(
-                                normalize_technique_name(self._extract_technique_name(child))
-                            ),
-                            converter_chain=self._extract_converter_chain(child),
-                            owasp_id=owasp_id,
-                            owasp_category=get_owasp_category(owasp_id) if owasp_id else "",
-                            objective=self._extract_objective(child),
-                            jailbreak_prompt=self._extract_jailbreak_prompt(child),
-                            harmful_output=self._extract_harmful_output(child),
-                            conversation_history=self._extract_conversation(child),
-                            asr=asr_per_technique.get(tech_name, 0.0) if asr_per_technique else 0.0,
-                            confidence="medium",
-                            arxiv_reference=get_arxiv_reference(normalize_technique_name(tech_name)) or "",
-                            timestamp=datetime.now().isoformat(),
-                            target_model=self._target_model,
-                            model_tier=self._model_tier,
-                        )
-                        collection.evidence.append(child_evidence)
+        # 子结果 (SequentialAttack 的子攻击)
+        child_results = getattr(ar, "child_attack_results", None) or []
+        for child in child_results:
+            if child is None:
+                continue
+            if self._is_success(child):
+                evidence_idx += 1
+                child_evidence = VulnerabilityEvidence(
+                    evidence_id=f"EVD-{evidence_idx:04d}",
+                    attack_id=f"{attack_id}_child",
+                    technique_name=self._extract_technique_name(child),
+                    technique_display_name=get_display_name(
+                        normalize_technique_name(self._extract_technique_name(child))
+                    ),
+                    converter_chain=self._extract_converter_chain(child),
+                    owasp_id=current_owasp_id,  # Round 8 P0: 子攻击继承父攻击的 OWASP ID
+                    owasp_category=get_owasp_category(current_owasp_id) if current_owasp_id else "",
+                    objective=self._extract_objective(child),
+                    jailbreak_prompt=self._extract_jailbreak_prompt(child),
+                    harmful_output=self._extract_harmful_output(child),
+                    conversation_history=self._extract_conversation(child),
+                    asr=asr_per_technique.get(tech_name, 0.0) if asr_per_technique else 0.0,
+                    confidence="medium",
+                    arxiv_reference=get_arxiv_reference(normalize_technique_name(tech_name)) or "",
+                    timestamp=datetime.now().isoformat(),
+                    target_model=self._target_model,
+                    model_tier=self._model_tier,
+                )
+                collection.evidence.append(child_evidence)
 
         collection.owasp_coverage = owasp_counter
         collection.technique_distribution = tech_counter

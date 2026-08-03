@@ -312,3 +312,6 @@ if __name__ == "__main__":
         sys.exit(0)
     except SystemExit:
         raise
+    except Exception as e:
+        print(f"\n流水线异常: {e}")
+        sys.exit(1)

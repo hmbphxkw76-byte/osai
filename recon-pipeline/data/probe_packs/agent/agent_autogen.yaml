@@ -1,0 +1,46 @@
+# Agent framework probe pack: Microsoft AutoGen
+# Non-LLM declarative YAML — consumed by ProbePackProbe via probe_pack_engine.
+probes:
+  - name: autogen_js_sdk
+    description: Detect AutoGen SDK import in JS
+    interface: agent-autogen
+    requests:
+      - path: /__probe_placeholder__
+        method: GET
+    match:
+      body_contains:
+        - "autogen"
+        - "pyautogen"
+        - "microsoft/autogen"
+
+  - name: autogen_endpoint_paths
+    description: Detect AutoGen Studio / AG2 API paths
+    interface: agent-autogen
+    requests:
+      - path: /__probe_placeholder__/api/agents
+        method: GET
+    match:
+      body_contains:
+        - "agent"
+        - "groupchat"
+
+  - name: autogen_websocket
+    description: Detect AutoGen WebSocket endpoint patterns
+    interface: agent-autogen
+    requests:
+      - path: /__probe_placeholder__/ws
+        method: GET
+    match:
+      status_code: 101  # WebSocket upgrade
+
+  - name: autogen_groupchat_manager
+    description: Detect AutoGen GroupChat manager response shape
+    interface: agent-autogen
+    requests:
+      - path: /__probe_placeholder__/chat
+        method: POST
+        body: '{"message":"ping"}'
+    match:
+      body_contains:
+        - "groupchat_manager"
+        - "speaker_selection"

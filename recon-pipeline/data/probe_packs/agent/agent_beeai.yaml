@@ -1,0 +1,49 @@
+# Agent framework probe pack: BeeAI (IBM)
+# Non-LLM declarative YAML — consumed by ProbePackProbe via probe_pack_engine.
+probes:
+  - name: beeai_sdk
+    description: Detect BeeAI SDK import in JS
+    interface: agent-beeai
+    requests:
+      - path: /__probe_placeholder__
+        method: GET
+    match:
+      body_contains:
+        - "beeai"
+        - "bee-agent"
+        - "@i-am-bee/beeai"
+
+  - name: beeai_framework_endpoint
+    description: Detect BeeAI framework endpoint patterns
+    interface: agent-beeai
+    requests:
+      - path: /__probe_placeholder__/agent
+        method: GET
+    match:
+      body_contains:
+        - "BeeAgent"
+        - "bee"
+        - "workflow"
+
+  - name: beeai_tools_endpoint
+    description: Detect BeeAI tool registry endpoint
+    interface: agent-beeai
+    requests:
+      - path: /__probe_placeholder__/tools
+        method: GET
+    match:
+      body_contains:
+        - "tool"
+        - "customTool"
+
+  - name: beeai_memory_endpoint
+    description: Detect BeeAI memory/cache endpoint patterns
+    interface: agent-beeai
+    requests:
+      - path: /__probe_placeholder__/memory
+        method: GET
+    match:
+      body_contains:
+        - "UnconstrainedMemory"
+        - "TokenMemory"
+        - "memory"

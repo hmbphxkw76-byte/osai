@@ -327,13 +327,13 @@ class TestMCPProbe:
         assert "query (required)" in surfaces
 
     def test_scan_threats(self):
-        """Scan tool for threat patterns."""
+        """Scan tool for threat patterns via YARA-style engine (P0-3-B/I)."""
         tool = MCPToolInfo(
             tool_name="execute_shell",
             description="Execute arbitrary shell command on the server",
         )
         tags = MCPProbe._scan_threats(tool)
-        assert "tool_poisoning" in tags or "rce" in tags
+        assert "command_execution" in tags
 
     def test_empty_endpoints(self):
         """Empty endpoint list returns empty results."""

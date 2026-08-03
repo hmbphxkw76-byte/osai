@@ -1207,7 +1207,7 @@ def _print_technique_asr_summary_compact() -> None:
 
 
 def _apply_dynamic_seed_budget(ctx: PipelineContext, technique_converter_map: dict) -> None:
-    """B3: 基于历史 ASR 动态调整每技术的种子预算。
+    """B3: 基于历史 ASR 动态调整每技术的种子预算。.
 
     高 ASR 技术 → 更多种子 (提高成功概率)
     低 ASR 技术 → 更少种子 (节省资源)
@@ -1274,7 +1274,7 @@ def _trace_5_layer_data_lineage(
     sorted_datasets: list[str],
     warm_start_asr: dict,
 ) -> None:
-    """B4: 记录数据流通过 5 层架构的完整追溯链。
+    """B4: 记录数据流通过 5 层架构的完整追溯链。.
 
     L1_SeedSource → L2_Organization → L3_DatasetConfig → L4_Memory → L5_Analytics
 
@@ -1348,7 +1348,7 @@ def _apply_seed_mirror_strategy(
     sorted_datasets: list[str],
     warm_start_asr: dict,
 ) -> None:
-    """B5: 高 ASR 种子跨数据集镜像。
+    """B5: 高 ASR 种子跨数据集镜像。.
 
     将高 ASR 技术的种子镜像到其他数据集中, 增加攻击覆盖率。
 

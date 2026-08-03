@@ -42,36 +42,14 @@ from core.models.recon_report import (
 )
 from core.probes.ai_signal_catalog import AI_MCP_PROBE_PATHS
 from core.probes.base import ReconProbe
+from core.probes.mcp_yara import scan_mcp_detail
 
 if TYPE_CHECKING:
     from core.session import ReconSession
 
 logger = logging.getLogger(__name__)
 
-# MCP threat patterns (YARA-like) for scanning tool descriptions
-_MCP_THREAT_PATTERNS: dict[str, list[str]] = {
-    "tool_poisoning": [
-        "execute", "shell", "command", "system", "os.",
-        "subprocess", "popen", "eval", "exec",
-    ],
-    "rce": [
-        "remote code", "arbitrary code", "run command",
-        "system call", "spawn", "fork",
-    ],
-    "ssrf": [
-        "fetch url", "fetch_url", "download", "http.get",
-        "http.request", "curl", "wget", "request url",
-    ],
-    "data_exfiltration": [
-        "read file", "read_file", "get file", "download file",
-        "export", "dump", "backup",
-    ],
-    "tool_shadowing_capable": [
-        "same name", "alias", "override", "shadow",
-    ],
-}
-
-# Risk assessment keyword groups
+# Risk assessment keyword groups (used only for risk_level tie-breaking)
 _CRITICAL_KEYWORDS = ("execute", "shell", "system", "delete", "drop", "sudo", "root", "admin", "rm -rf", "format")
 _HIGH_KEYWORDS = ("write", "upload", "send", "post", "fetch", "download", "modify", "update", "create", "deploy", "install")
 _MEDIUM_KEYWORDS = ("read", "get", "list", "search", "query", "find", "lookup", "describe", "show")
@@ -235,13 +213,14 @@ class MCPProbe(ReconProbe):
             for base_url in base_urls:
                 # 1. MCP handshake (initialize)
                 info = await self._mcp_handshake(client, base_url, headers)
+                instructions = info.get("instructions", "") if info else ""
                 if info:
                     server_info.append(info)
 
                 # 2. Tool enumeration
                 for path in AI_MCP_PROBE_PATHS:
                     endpoint_url = f"{base_url.rstrip('/')}{path}"
-                    tools = await self._mcp_enumerate(client, endpoint_url, headers)
+                    tools = await self._mcp_enumerate(client, endpoint_url, headers, instructions)
                     if tools:
                         all_tools.extend(tools)
                         break  # One successful path per base URL
@@ -249,7 +228,7 @@ class MCPProbe(ReconProbe):
                 # 3. Also try the original endpoint URLs
                 for ep in mcp_endpoints:
                     if ep.url.startswith(base_url):
-                        tools = await self._mcp_enumerate(client, ep.url, headers)
+                        tools = await self._mcp_enumerate(client, ep.url, headers, instructions)
                         if tools:
                             for t in tools:
                                 if not any(ex.tool_name == t.tool_name and ex.server_url == t.server_url for ex in all_tools):
@@ -294,6 +273,7 @@ class MCPProbe(ReconProbe):
                             "url": url,
                             "protocolVersion": result.get("protocolVersion", "unknown"),
                             "serverInfo": result.get("serverInfo", {}),
+                            "instructions": result.get("instructions", ""),
                             "capabilities": result.get("capabilities", {}),
                             "auth_required": False,
                         }
@@ -333,6 +313,7 @@ class MCPProbe(ReconProbe):
         client: httpx.AsyncClient,
         endpoint_url: str,
         headers: dict[str, str],
+        instructions: str = "",
     ) -> list[MCPToolInfo]:
         """Enumerate MCP tools, resources, and prompts from an endpoint."""
         tools: list[MCPToolInfo] = []
@@ -367,6 +348,7 @@ class MCPProbe(ReconProbe):
                         server_url=endpoint_url,
                         annotation_contradiction=False,
                         tool_hash=self._hash_tool(tool_data),
+                        instructions_hash=self._hash_instructions(instructions),
                         injection_surfaces=injection_surfaces,
                         annotations=annotations,
                     ))
@@ -505,6 +487,13 @@ class MCPProbe(ReconProbe):
         return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
     @staticmethod
+    def _hash_instructions(instructions: str) -> str:
+        """P0-3-C: SHA256 pin of server instructions (rug-pull detection)."""
+        if not instructions:
+            return ""
+        return hashlib.sha256(instructions.encode()).hexdigest()[:16]
+
+    @staticmethod
     def _extract_injection_surfaces(tool_data: dict[str, Any]) -> list[str]:
         """Extract user-controllable parameters as potential injection surfaces."""
         surfaces: list[str] = []
@@ -524,13 +513,8 @@ class MCPProbe(ReconProbe):
 
     @staticmethod
     def _scan_threats(tool: MCPToolInfo) -> list[str]:
-        """Scan tool for threat patterns (YARA-like)."""
-        text = f"{tool.tool_name} {tool.description}".lower()
-        tags: list[str] = []
-        for threat_type, keywords in _MCP_THREAT_PATTERNS.items():
-            if any(kw in text for kw in keywords):
-                tags.append(threat_type)
-        return tags
+        """Scan tool for threat patterns using the YARA-style engine (P0-3-B/F)."""
+        return scan_mcp_detail(tool.tool_name, tool.description, tool.input_schema)
 
     @staticmethod
     def _deduplicate_tools(tools: list[MCPToolInfo]) -> list[MCPToolInfo]:

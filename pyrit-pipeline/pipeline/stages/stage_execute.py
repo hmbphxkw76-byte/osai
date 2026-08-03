@@ -34,12 +34,15 @@
 >     完全由 post-execution scan 实现失败类型反馈
 >   2026-8-2 00:00 — R-1: 集成 ProgressPoller 非侵入式背景轮询,
 >     基于 PyRIT 原生 CentralMemory.get_attack_results() 实时更新 Dashboard
+>   2026-8-3 — 错误恢复: 捕获 ValueError/RuntimeError, 从 CentralMemory
+>     检索部分 ScenarioResult, 确保流水线不因单个攻击超时而中断
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from pipeline.asr.failure_type_event_handler import FailureTypeEventHandler
 from pipeline.asr.runtime_stop_handler import RuntimeStopEventHandler
@@ -110,12 +113,39 @@ async def run(ctx: PipelineContext) -> None:
         max_concurrency=ctx.args.max_concurrency,
     )
 
-    result = await ctx.scenario.run_async()
+    # ── 原生: 场景执行 (含错误恢复) ──
+    # PyRIT 原生 scenario.run_async() 在部分攻击失败时会抛出 ValueError,
+    # 但已完成的 AttackResult 已持久化到 CentralMemory。
+    # 此处捕获 ValueError, 从 CentralMemory 检索部分结果, 确保流水线不中断。
+    # 学术依据: PyRIT 原生弹性恢复设计 (max_retries + scenario_result_id + Memory 检索)
+    # 遵循 R-010: 使用 PyRIT 原生 CentralMemory API 检索结果, 不覆盖原生生命周期
+    partial_failure = False
+    try:
+        result = await ctx.scenario.run_async()
+    except (ValueError, RuntimeError) as exc:
+        logger.warning(
+            "Scenario execution raised %s: %s. "
+            "Attempting to retrieve partial results from CentralMemory.",
+            type(exc).__name__,
+            exc,
+        )
+        partial_failure = True
+        result = _retrieve_partial_results(ctx, scenario_result_id)
+        if result is None:
+            # 无法检索部分结果, 重新抛出异常
+            if poller:
+                await poller.stop()
+            raise
+
     ctx.result = result
 
     # 停止轮询
     if poller:
         await poller.stop()
+
+    if partial_failure:
+        total_results = sum(len(v) for v in result.attack_results.values())
+        print(f"\n  ⚠ [恢复] 场景执行部分失败, 已从 CentralMemory 检索 {total_results} 个部分结果")
 
     total_results = sum(len(v) for v in result.attack_results.values())
     print("\n  ┌─ 执行完成 ──────────────────────────────────────────────┐")
@@ -209,6 +239,48 @@ async def run(ctx: PipelineContext) -> None:
             "★ 分析任务: 实测 vs 先验对比 + 经验写回 + 下次运行建议",
         ],
     )
+
+
+def _retrieve_partial_results(ctx: PipelineContext, scenario_result_id: str | None) -> Any:
+    """从 CentralMemory 检索部分场景结果。.
+
+    当 PyRIT 原生 ``scenario.run_async()`` 因部分攻击失败而抛出异常时,
+    已完成的 AttackResult 已持久化到 CentralMemory。
+    此函数使用 PyRIT 原生 ``MemoryInterface.get_scenario_results()`` API
+    检索已保存的 ScenarioResult, 确保流水线可以继续处理部分结果。
+
+    遵循 R-010: 使用 PyRIT 原生 CentralMemory API, 不覆盖原生生命周期。
+
+    Args:
+        ctx: PipelineContext 实例。
+        scenario_result_id: 场景结果 ID。
+
+    Returns:
+        ScenarioResult 实例 (如果找到), 否则 None。
+    """
+    if not scenario_result_id:
+        logger.warning("无法检索部分结果: scenario_result_id 为空")
+        return None
+
+    try:
+        from pyrit.memory import CentralMemory
+
+        memory = CentralMemory.get_memory_instance()
+        results = memory.get_scenario_results(
+            scenario_result_ids=[scenario_result_id],
+        )
+        if results:
+            result = results[0]
+            logger.info(
+                "从 CentralMemory 检索到部分结果: %d 个攻击结果组",
+                len(result.attack_results),
+            )
+            return result
+        logger.warning("CentralMemory 中未找到 scenario_result_id=%s 的结果", scenario_result_id)
+    except Exception as e:
+        logger.error("从 CentralMemory 检索部分结果失败: %s", e)
+
+    return None
 
 
 def _print_failure_routing(ctx: PipelineContext, stats: dict) -> None:
@@ -433,7 +505,7 @@ def _print_pid_dataset_map(ctx: PipelineContext) -> None:
 
 
 def _print_converter_health(ctx: PipelineContext) -> None:
-    """B6: 展示 ConverterHealthMonitor 的运行时熔断统计。
+    """B6: 展示 ConverterHealthMonitor 的运行时熔断统计。.
 
     从 PipelineContext.metadata 中提取 ConverterHealthMonitor 实例,
     展示各 Converter 的健康状态和熔断情况。
@@ -483,7 +555,7 @@ def _print_converter_health(ctx: PipelineContext) -> None:
 
 
 def _print_converter_transformations(ctx: PipelineContext) -> None:
-    """C3: 展示成功攻击中使用的 Converter 变换。
+    """C3: 展示成功攻击中使用的 Converter 变换。.
 
     从 AttackResult 的 metadata 中提取 Converter 信息,
     展示哪些变换对成功贡献最大。
@@ -541,7 +613,7 @@ def _print_converter_transformations(ctx: PipelineContext) -> None:
 
 
 def _print_failure_diagnosis(ctx: PipelineContext) -> None:
-    """C5: 失败攻击的即时诊断分析。
+    """C5: 失败攻击的即时诊断分析。.
 
     从失败结果中提取常见模式, 给出即时诊断建议。
     """

@@ -93,6 +93,26 @@ class JSReconProbe(ReconProbe):
             if endpoint_findings:
                 findings.extend(endpoint_findings)
 
+            # P1-1-C: sourcemap restoration — re-analyze recovered source
+            try:
+                from core.helpers.sourcemap import fetch_source
+                sm = await fetch_source(endpoint.url, body)
+                if sm.get("recovered"):
+                    recovered = sm["source_content"]
+                    recovered_findings = self._analyze_js_content(
+                        recovered, endpoint.url + "::sourcemap"
+                    )
+                    for rf in recovered_findings:
+                        rf["via_sourcemap"] = True
+                    findings.extend(recovered_findings)
+                    if recovered_findings:
+                        logger.info(
+                            "JSReconProbe: sourcemap recovered %d extra signals from %s",
+                            len(recovered_findings), endpoint.url,
+                        )
+            except Exception as exc:  # noqa: BLE001 - sourcemap is best-effort
+                logger.debug("JSReconProbe: sourcemap restore failed for %s: %s", endpoint.url, exc)
+
         logger.info(
             "JSReconProbe: analyzed %d JS files, found %d discoveries",
             len(js_endpoints), len(findings),

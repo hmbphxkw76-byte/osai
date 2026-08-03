@@ -1,0 +1,25 @@
+# P0-2-F / P0-3: 声明式探测包 — MCP 握手
+probes:
+  - name: mcp_initialize
+    description: MCP JSON-RPC initialize handshake (channel 1)
+    interface: mcp-handshake
+    requests:
+      - path: /mcp
+        method: POST
+        headers:
+          Content-Type: application/json
+        body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"recon","version":"0.1"}}}'
+    match:
+      status_code: 200
+      json_path:
+        .result.protocolVersion: "~."   # 返回 protocolVersion 即 MCP 服务
+
+  - name: mcp_sse_stream
+    description: Detect MCP SSE transport
+    interface: mcp-sse
+    requests:
+      - path: /sse
+        method: GET
+    match:
+      header:
+        content-type: text/event-stream

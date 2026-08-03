@@ -1,0 +1,50 @@
+# Agent framework probe pack: Microsoft Semantic Kernel
+# Non-LLM declarative YAML — consumed by ProbePackProbe via probe_pack_engine.
+probes:
+  - name: semantic_kernel_sdk
+    description: Detect Semantic Kernel SDK in JS/.NET bundles
+    interface: agent-semantic-kernel
+    requests:
+      - path: /__probe_placeholder__
+        method: GET
+    match:
+      body_contains:
+        - "Microsoft.SemanticKernel"
+        - "semantic-kernel"
+        - "@microsoft/semantic-kernel"
+
+  - name: semantic_kernel_plugins
+    description: Detect SK plugin manifest or plugin endpoint
+    interface: agent-semantic-kernel
+    requests:
+      - path: /__probe_placeholder__/plugins
+        method: GET
+    match:
+      body_contains:
+        - "KernelFunction"
+        - "kernelPlugin"
+        - "plugin"
+
+  - name: semantic_kernel_planning
+    description: Detect SK planner/process framework endpoints
+    interface: agent-semantic-kernel
+    requests:
+      - path: /__probe_placeholder__/process
+        method: GET
+    match:
+      body_contains:
+        - "ProcessFramework"
+        - "KernelProcess"
+        - "step"
+
+  - name: semantic_kernel_openapi
+    description: Detect SK OpenAPI plugin import pattern
+    interface: agent-semantic-kernel
+    requests:
+      - path: /__probe_placeholder__/openapi
+        method: GET
+    match:
+      body_contains:
+        - "OpenApi"
+        - "rest-api"
+        - "operationId"

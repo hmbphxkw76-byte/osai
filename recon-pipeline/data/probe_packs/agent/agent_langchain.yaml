@@ -1,0 +1,48 @@
+# Agent framework probe pack: LangChain / LangGraph
+# Non-LLM declarative YAML — consumed by ProbePackProbe via probe_pack_engine.
+# Signals: JS SDK imports, endpoint path patterns, response headers, body markers.
+probes:
+  - name: langchain_js_sdk
+    description: Detect LangChain.js SDK in frontend bundles
+    interface: agent-langchain
+    requests:
+      - path: /__probe_placeholder__  # replaced by ProbePackProbe per base URL
+        method: GET
+    match:
+      body_contains:
+        - "@langchain/core"
+        - "langchain"
+        - "LangChain"
+
+  - name: langchain_endpoint_paths
+    description: Detect LangChain/LangServe REST API paths
+    interface: agent-langchain
+    requests:
+      - path: /__probe_placeholder__/invoke
+        method: POST
+        body: '{"input":"ping"}'
+    match:
+      body_contains:
+        - "output"
+        - "callback_events"
+
+  - name: langgraph_paths
+    description: Detect LangGraph state API
+    interface: agent-langgraph
+    requests:
+      - path: /__probe_placeholder__/runs
+        method: GET
+    match:
+      json_path:
+        .: "~."
+
+  - name: langchain_server_header
+    description: Detect LangServe server header
+    interface: agent-langchain
+    requests:
+      - path: /__probe_placeholder__/docs
+        method: GET
+    match:
+      body_contains:
+        - "langserve"
+        - "LangChain"

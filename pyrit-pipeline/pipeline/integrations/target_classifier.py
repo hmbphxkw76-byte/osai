@@ -386,7 +386,7 @@ class TargetClassifier:
         return False
 
     async def _check_chat_ui_via_render(self, url: str) -> bool:
-        """A1: 使用 Playwright 渲染页面后检测聊天 UI (SPA 应用)。
+        """A1: 使用 Playwright 渲染页面后检测聊天 UI (SPA 应用)。.
 
         当静态 HTML 中未检测到聊天 UI 时, 可能是 SPA 应用 (React/Vue/Next.js)
         需要浏览器执行 JavaScript 后才能看到渲染的 DOM。
@@ -457,7 +457,7 @@ class TargetClassifier:
         result: TargetClassification,
         http_info: dict[str, Any],
     ) -> None:
-        """A3: 从 HTTP 响应中自动提取 API 认证信息。
+        """A3: 从 HTTP 响应中自动提取 API 认证信息。.
 
         检测模式:
           1. WWW-Authenticate 头 → Bearer/OAuth2/Basic

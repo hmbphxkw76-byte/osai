@@ -70,6 +70,8 @@ class ToolPermission:
         reversible: 是否可逆。
         external_impact: 外部影响描述。
         evidence: 评估证据列表。
+        response_fingerprint: 响应指纹 (SHA256, 用于去重/变更检测)。
+        error_class: 错误分类标签 (RedAmon error_class.py 8 类)。
     """
 
     name: str = ""
@@ -80,10 +82,12 @@ class ToolPermission:
     reversible: bool = True
     external_impact: str = ""
     evidence: list[str] = field(default_factory=list)
+    response_fingerprint: str = ""
+    error_class: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为字典。."""
-        return {
+        result = {
             "name": self.name,
             "endpoint_url": self.endpoint_url,
             "action_type": self.action_type.value,
@@ -93,6 +97,11 @@ class ToolPermission:
             "external_impact": self.external_impact,
             "evidence": self.evidence,
         }
+        if self.response_fingerprint:
+            result["response_fingerprint"] = self.response_fingerprint
+        if self.error_class:
+            result["error_class"] = self.error_class
+        return result
 
 
 @dataclass

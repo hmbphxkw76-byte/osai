@@ -390,7 +390,7 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
 
 
 def _print_asr_trend(ctx: PipelineContext) -> None:
-    """D2: 跨运行 ASR 趋势分析。
+    """D2: 跨运行 ASR 趋势分析。.
 
     读取历史 seed_level_*.json 文件, 展示 ASR 趋势变化。
     """
@@ -432,7 +432,7 @@ def _print_asr_trend(ctx: PipelineContext) -> None:
 
 
 def _print_fix_recommendations(ctx: PipelineContext) -> None:
-    """D3: 基于攻击结果生成修复建议。
+    """D3: 基于攻击结果生成修复建议。.
 
     高 ASR 技术 → 高优先级修复建议
     """
@@ -473,7 +473,7 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
 
 
 def _print_owasp_matrix(ctx: PipelineContext) -> None:
-    """D4: OWASP LLM Top10 (2025) 覆盖矩阵。
+    """D4: OWASP LLM Top10 (2025) 覆盖矩阵。.
 
     将攻击技术映射到 OWASP LLM Top10 分类,
     展示每个 OWASP 分类的覆盖率。
