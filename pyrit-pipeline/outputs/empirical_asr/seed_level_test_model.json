@@ -1,0 +1,12 @@
+{
+  "model": "test_model",
+  "timestamp": "2026-08-03T21:21:22.811644",
+  "seeds": {
+    "abc123": {
+      "asr": 0.75,
+      "successes": 3,
+      "total": 4,
+      "seed_preview": "test"
+    }
+  }
+}

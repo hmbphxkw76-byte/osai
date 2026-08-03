@@ -1,0 +1,26 @@
+# ============================================================================
+# PyRIT 结构配置 — 初始化器编排
+# ============================================================================
+# 控制哪些 Registry 被初始化、内存数据库类型等结构配置
+# 不存放密钥（密钥在 .env 中）
+# 文档: pyrit/setup/configuration_loader.py
+# 已被 .gitignore 忽略，不会提交
+# ============================================================================
+
+memory_db_type: sqlite
+
+# 指定从项目根目录加载 .env（而非默认 ~/.pyrit/.env）
+env_files:
+  - ./.env
+
+initializers:
+  - name: target
+    args:
+      tags:
+        - default
+        - scorer
+  - name: scorer
+  - name: technique
+
+silent: false
+max_concurrent_scenario_runs: 3

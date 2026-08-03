@@ -174,14 +174,71 @@ class RichDataset:
 # ============================================================
 
 
+# PyRIT SeedDataset (extra="forbid") 不支持的扩展字段
+_RICH_EXTRA_FIELDS: tuple[str, ...] = ("references", "target_models")
+
+# PyRIT yaml_seed_loader 中需要标量→列表规范化的字段
+_SCALAR_OR_LIST_FIELDS: tuple[str, ...] = ("harm_categories", "authors", "groups", "parameters")
+
+
+def _canonicalize_scalar_lists(data: dict[str, Any]) -> dict[str, Any]:
+    """将标量值包装为单元素列表 (对齐 PyRIT ``_canonicalize_scalar_lists``)。."""
+    for key in _SCALAR_OR_LIST_FIELDS:
+        if isinstance(data.get(key), str):
+            data[key] = [data[key]]
+    seeds = data.get("seeds")
+    if isinstance(seeds, list):
+        for seed in seeds:
+            if isinstance(seed, dict):
+                _canonicalize_scalar_lists(seed)
+    return data
+
+
+def _load_native_seed_dataset(file_path: Path, raw_data: dict[str, Any]) -> SeedDataset:
+    """剥离扩展字段后调用原生 SeedDataset 解析器。.
+
+    PyRIT ``SeedDataset`` 配置了 ``extra="forbid"``, 直接传入含 ``references``
+    / ``target_models`` 的 YAML 会触发 Pydantic 校验错误。本函数先剥离这些
+    扩展字段, 再调用原生 ``SeedDataset.from_dict()``, 消除回退噪音。
+
+    如果原生解析器因其他原因失败 (如 seed value 含未引用冒号), 仍回退到
+    ``_manual_parse_prompt_file()``。
+
+    Args:
+        file_path: .prompt 文件路径 (仅用于错误日志)
+        raw_data: ``yaml.safe_load`` 解析后的原始字典 (会被拷贝, 不修改原字典)
+
+    Returns:
+        原生 ``SeedDataset`` 实例
+    """
+    from pyrit.models import SeedDataset
+
+    # 拷贝并剥离扩展字段, 避免 extra="forbid" 校验错误
+    data = dict(raw_data)
+    for field_name in _RICH_EXTRA_FIELDS:
+        data.pop(field_name, None)
+
+    try:
+        data = _canonicalize_scalar_lists(data)
+        data["is_jinja_template"] = True
+        return SeedDataset.from_dict(data)
+    except (ValueError, Exception) as e:
+        logger.debug(
+            f"Native SeedDataset.from_dict() failed for {file_path}: {e}. "
+            f"Falling back to manual parsing."
+        )
+        return _manual_parse_prompt_file(file_path)
+
+
 def load_rich_dataset(file_path: str | Path) -> RichDataset:
     """从 .prompt 文件加载富元数据数据集。.
 
     P3 优化 + R-011 修复:
-      - 复用原生 ``SeedDataset.from_yaml_file()`` 解析种子列表,
+      - 复用原生 ``SeedDataset`` 解析种子列表,
         减少手动解析逻辑
       - 仅手动解析数据集级富元数据 (references, target_models)
       - **R-011 回退机制**: 原生解析器失败时回退到手动解析
+      - **预剥离扩展字段**: 避免原生 ``extra="forbid"`` 校验错误噪音
 
     Args:
         file_path: .prompt 文件路径
@@ -193,21 +250,15 @@ def load_rich_dataset(file_path: str | Path) -> RichDataset:
     if not file_path.exists():
         raise FileNotFoundError(f"Dataset file not found: {file_path}")
 
-    # P3: 优先使用原生解析器, 失败时回退到手动解析
-    try:
-        from pyrit.models import SeedDataset
-
-        native_dataset = SeedDataset.from_yaml_file(file_path)
-    except (ValueError, Exception) as e:
-        logger.warning(
-            f"Native SeedDataset.from_yaml_file() failed for {file_path}: {e}. "
-            f"Falling back to manual parsing."
-        )
-        native_dataset = _manual_parse_prompt_file(file_path)
-
-    # 手动解析数据集级富元数据 (原生不支持的字段)
+    # 读取 YAML 一次, 供原生解析器和富元数据提取共用
     with open(file_path, encoding="utf-8") as f:
         raw_data = yaml.safe_load(f)
+
+    if not raw_data:
+        raise ValueError(f"Empty or invalid YAML in {file_path}")
+
+    # P3: 剥离扩展字段后调用原生解析器, 失败时回退到手动解析
+    native_dataset = _load_native_seed_dataset(file_path, raw_data)
 
     dataset = RichDataset(
         dataset_name=native_dataset.dataset_name,
@@ -321,12 +372,13 @@ def load_rich_prompt_as_native(
     """加载 .prompt 文件 (兼容富元数据) 为原生 ``SeedDataset``。.
 
     P3 优化 + R-011 修复:
-      - 优先委托原生 ``SeedDataset.from_yaml_file()`` 解析核心结构,
+      - 优先委托原生 ``SeedDataset`` 解析核心结构,
         仅手动补充原生不支持的富元数据字段 (references, target_models)
       - 消除与原生解析器重复的 seeds 构建逻辑
       - **R-011 回退机制**: 当原生解析器因 YAML 格式严格性失败时
         (如 seed value 包含未引用的冒号), 回退到手动解析模式,
         确保向后兼容现有 .prompt 文件
+      - **预剥离扩展字段**: 避免原生 ``extra="forbid"`` 校验错误噪音
 
     Args:
         file_path: .prompt 文件路径
@@ -334,25 +386,19 @@ def load_rich_prompt_as_native(
     Returns:
         原生 ``SeedDataset`` 实例 (含富元数据)
     """
-    from pyrit.models import SeedDataset
-
-    # P3: 优先使用原生解析器
-    try:
-        dataset = SeedDataset.from_yaml_file(file_path)
-    except (ValueError, Exception) as e:
-        # R-011: 原生解析器失败时回退到手动解析 (兼容含冒号的 seed value)
-        logger.warning(
-            f"Native SeedDataset.from_yaml_file() failed for {file_path}: {e}. "
-            f"Falling back to manual parsing."
-        )
-        dataset = _manual_parse_prompt_file(file_path)
-
-    # 手动补充数据集级富元数据 (原生不支持的字段)
+    # 读取 YAML 一次, 供原生解析器和富元数据提取共用
     with open(file_path, encoding="utf-8") as f:
         raw_data = yaml.safe_load(f)
 
+    if not raw_data:
+        raise ValueError(f"Empty or invalid YAML in {file_path}")
+
+    # P3: 剥离扩展字段后调用原生解析器, 失败时回退到手动解析
+    dataset = _load_native_seed_dataset(Path(file_path), raw_data)
+
+    # 手动补充数据集级富元数据 (原生不支持的字段)
     dataset_metadata: dict[str, Any] = {}
-    for field_name in ("references", "target_models"):
+    for field_name in _RICH_EXTRA_FIELDS:
         val = raw_data.get(field_name)
         if val:
             dataset_metadata[field_name] = val

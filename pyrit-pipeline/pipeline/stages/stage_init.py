@@ -22,6 +22,7 @@
 
 import contextlib
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -44,11 +45,50 @@ _SILENT_LOGGERS = [
 ]
 
 
+def _find_db_for_srid(srid: str) -> Path | None:
+    """在 outputs/db/ 目录中搜索包含指定 SRID 的数据库文件。.
+
+    当 ``--resume <srid>`` 指定时, 需要加载包含该 SRID 的旧数据库,
+    否则 PyRIT 在新数据库中找不到历史 AttackResult。
+
+    Args:
+        srid: ScenarioResult ID (UUID 格式)
+
+    Returns:
+        包含该 SRID 的数据库文件路径, 未找到则返回 None
+    """
+    db_dir = Path("outputs/db")
+    if not db_dir.exists():
+        return None
+
+    # 最新的数据库优先搜索 (按文件名倒序)
+    for db_file in sorted(db_dir.glob("*.db"), reverse=True):
+        try:
+            conn = sqlite3.connect(str(db_file))
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM ScenarioResultEntries WHERE id = ? LIMIT 1",
+                (srid,),
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if row is not None:
+                return db_file
+        except (sqlite3.Error, OSError):
+            continue
+
+    return None
+
+
 async def _initialize_with_per_run_db(ctx: PipelineContext, config: ConfigurationLoader) -> None:
     """初始化 PyRIT, 使用 per-run DB 路径 (对齐 pyrit_ai300/src/setup/setup_manager.py)。.
 
     L5 对齐: 每次运行创建独立的 SQLite DB 文件 (outputs/db/redteam_{timestamp}.db),
     而非使用默认的全局 memory.db。
+
+    Resume 增强: 当 ``--resume <srid>`` 指定时, 自动搜索包含该 SRID 的旧数据库,
+    使用旧数据库路径初始化 Memory, 使 PyRIT 能找到历史 AttackResult。
+    新的攻击结果会追加写入旧数据库, 实现真正的断点续跑。
 
     ConfigurationLoader.initialize_pyrit_async() 不传递 memory_instance_kwargs,
     因此这里绕过它直接调用 pyrit.setup.initialize_pyrit_async() 核心函数,
@@ -70,9 +110,25 @@ async def _initialize_with_per_run_db(ctx: PipelineContext, config: Configuratio
         internal_memory_db_type == "SQLite"
         and ctx.output_manager is not None
     ):
-        db_path = str(ctx.output_manager.db_path)
-        memory_kwargs["db_path"] = db_path
-        print(f"  [OK] Per-run DB: {db_path}")
+        # Resume 增强: 当 --resume <srid> 指定时, 加载包含该 SRID 的旧数据库
+        resume_srid = getattr(ctx.args, "resume", None)
+        if resume_srid:
+            old_db_path = _find_db_for_srid(resume_srid)
+            if old_db_path:
+                db_path = str(old_db_path)
+                memory_kwargs["db_path"] = db_path
+                print(f"  [OK] Resume DB: {db_path} (SRID={resume_srid[:8]}...)")
+            else:
+                db_path = str(ctx.output_manager.db_path)
+                memory_kwargs["db_path"] = db_path
+                print(f"  [OK] Per-run DB: {db_path}")
+                print(
+                    f"  [警告] SRID {resume_srid[:8]}... 未在历史数据库中找到, 使用新数据库"
+                )
+        else:
+            db_path = str(ctx.output_manager.db_path)
+            memory_kwargs["db_path"] = db_path
+            print(f"  [OK] Per-run DB: {db_path}")
 
     # 调用 PyRIT 原生 initialize_pyrit_async (对齐 pyrit_ai300/src/setup/setup_manager.py)
     await _core_initialize_pyrit(
