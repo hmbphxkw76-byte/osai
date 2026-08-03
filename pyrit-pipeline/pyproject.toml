@@ -17,6 +17,7 @@ requires-python = ">=3.10, <3.15"
 
 dependencies = [
     "pyrit",  # 从 ../src/PyRIT-1.0.1 editable 安装（见 [tool.uv.sources]）
+    "beautifulsoup4>=4.12",  # P2: DOM 检测精度提升 (TargetClassifier)
 ]
 
 # ============================================================================
@@ -30,6 +31,7 @@ exclude = ["data*", "output*", "scripts*", "tests*", "docs*"]
 # web_redteam 需要 playwright + flask + ollama
 web-redteam = [
     "pyrit[playwright]",
+    "beautifulsoup4>=4.12",  # P2: DOM 检测精度提升
 ]
 # GCG 对抗后缀生成需要 torch + accelerate
 gcg = [

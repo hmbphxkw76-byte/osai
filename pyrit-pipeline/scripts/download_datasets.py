@@ -594,6 +594,11 @@ def main() -> None:
         default=str(_OUTPUT_DIR),
         help=f"输出目录 (默认: {_OUTPUT_DIR})",
     )
+    parser.add_argument(
+        "--no-curate",
+        action="store_true",
+        help="跳过下载后的自动种子精简 (默认: 下载完成后自动执行)",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -624,6 +629,24 @@ def main() -> None:
 
     output_dir = Path(args.output_dir)
     asyncio.run(download_datasets(datasets, output_dir, force_update=args.update))
+
+    # ── 自动种子精简 (确保下载后始终执行) ──
+    if not args.no_curate:
+        print(f"\n{'=' * 70}")
+        print("[自动] 启动种子精简管线 (去重→均衡→聚类→ASR→模态→Tier)...")
+        print(f"{'=' * 70}")
+        import subprocess
+        import sys as _sys
+
+        curate_script = _PROJECT_ROOT / "scripts" / "curate_seeds.py"
+        if curate_script.exists():
+            subprocess.run(
+                [_sys.executable, str(curate_script), "--target-count", "50"],
+                check=False,
+                cwd=str(_PROJECT_ROOT),
+            )
+        else:
+            print("  [跳过] curate_seeds.py 不存在")
 
 
 if __name__ == "__main__":

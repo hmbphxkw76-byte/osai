@@ -1,33 +1,38 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""向量数据库指纹识别器 — 识别 RAG 后端的向量数据库类型.
+"""Vector database fingerprinting — identify RAG backend vector DB types.
 
-在 NetworkInterceptor 发现 RAG API 端点后, 进一步探测向量数据库指纹:
-  1. URL 路径指纹: /vectors, /collections, /index → Pinecone / Weaviate / Chroma / Qdrant
-  2. 响应体指纹: 特定 JSON 字段 (namespace, collection_name, distance 等)
-  3. 响应头指纹: Server, X-Powered-By 等特定头部
+After NetworkInterceptor discovers RAG API endpoints, further probe
+vector database fingerprints:
+  1. URL path fingerprint: /vectors, /collections, /index -> Pinecone / Weaviate / Chroma / Qdrant
+  2. Response body fingerprint: specific JSON fields (namespace, collection_name, distance, etc.)
+  3. Response header fingerprint: Server, X-Powered-By, etc.
+  4. Active confirmation reads: GET known endpoints to confirm DB type (NEW)
 
-识别后可:
-  - 生成针对特定向量库的未授权访问攻击推荐
-  - 映射到 OWASP LLM08 (Vector and Embedding Weaknesses)
+Identification enables:
+  - Generating unauthorized access attack recommendations for specific vector DBs
+  - Mapping to OWASP LLM08 (Vector and Embedding Weaknesses)
 
-学术依据:
+Academic basis:
   - OWASP Top 10 for LLM Applications 2025: LLM08 Vector and Embedding Weaknesses
   - MITRE ATT&CK T1580: Cloud Infrastructure Discovery
-  - Pinecone/Weaviate/Chroma/Qdrant 官方 API 文档指纹特征
-
-> **日期**: 2026-8-2
+  - PoisonedRAG (arXiv:2402.07867): vector DB is a key attack surface
+  - Reference: RedAmon _confirm_vector_dbs() + AI_VECTOR_DB_READS
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+import httpx
+
+from core.probes.ai_signal_catalog import AI_VECTOR_DB_READS
 from core.probes.recon_result import DiscoveredEndpoint, EndpointType
 
 logger = logging.getLogger(__name__)
@@ -138,14 +143,19 @@ _FINGERPRINT_RULES: list[tuple[re.Pattern[str], list[str], list[str], VectorDBTy
 
 
 class VectorDBFingerprinter:
-    """向量数据库指纹识别器.
+    """Vector database fingerprinting.
 
-    分析 NetworkInterceptor 发现的 RAG API 端点,
-    识别后端向量数据库类型。
+    Analyzes RAG API endpoints discovered by NetworkInterceptor,
+    identifies backend vector database types.
 
-    用法::
+    Supports both passive fingerprinting (URL/body/header patterns)
+    and active confirmation reads (GET known endpoints).
+
+    Usage::
         fingerprinter = VectorDBFingerprinter()
         fingerprints = fingerprinter.fingerprint(endpoints)
+        # With active confirmation:
+        fingerprints = await fingerprinter.fingerprint_async(endpoints, auth_headers)
         for fp in fingerprints:
             print(f"{fp.db_type}: {fp.endpoint_url} (conf={fp.confidence})")
     """
@@ -154,30 +164,116 @@ class VectorDBFingerprinter:
         self,
         endpoints: list[DiscoveredEndpoint],
     ) -> list[VectorDBFingerprint]:
-        """对所有 RAG API 端点进行指纹识别.
+        """Fingerprint all RAG API endpoints (passive only).
 
         Args:
-            endpoints: NetworkInterceptor 发现的端点列表。
+            endpoints: Endpoints discovered by NetworkInterceptor.
 
         Returns:
-            识别到的 VectorDBFingerprint 列表 (仅包含识别成功的)。
+            List of identified VectorDBFingerprint (only successfully identified).
         """
         fingerprints: list[VectorDBFingerprint] = []
 
         for endpoint in endpoints:
-            # 只分析 RAG API 和未知类型的 POST 端点
+            # Only analyze RAG API and unknown POST endpoints
             if endpoint.endpoint_type not in (EndpointType.RAG_API, EndpointType.UNKNOWN):
                 continue
+
+            for tech_name, reads in AI_VECTOR_DB_READS.items():
+                if any(path in endpoint.url for path, _ in reads):
+                    logger.info(
+                        "VectorDBFingerprinter: candidate vector DB pattern %s at %s",
+                        tech_name, endpoint.url,
+                    )
 
             fp = self._fingerprint_single(endpoint)
             if fp and fp.db_type != VectorDBType.UNKNOWN:
                 fingerprints.append(fp)
 
         logger.info(
-            f"VectorDBFingerprinter: identified {len(fingerprints)} vector DB endpoints "
-            f"from {len(endpoints)} total endpoints"
+            "VectorDBFingerprinter: identified %d vector DB endpoints "
+            "from %d total endpoints",
+            len(fingerprints), len(endpoints),
         )
         return fingerprints
+
+    async def fingerprint_async(
+        self,
+        endpoints: list[DiscoveredEndpoint],
+        auth_headers: dict[str, str] | None = None,
+        active_timeout: float = 10.0,
+    ) -> list[VectorDBFingerprint]:
+        """Fingerprint with active confirmation reads (async).
+
+        Args:
+            endpoints: Endpoints discovered by NetworkInterceptor.
+            auth_headers: Optional auth headers for active requests.
+            active_timeout: Timeout for active confirmation requests.
+
+        Returns:
+            List of identified VectorDBFingerprint.
+        """
+        # First, passive fingerprinting
+        fingerprints = self.fingerprint(endpoints)
+
+        # Then, active confirmation for each identified type
+        async with httpx.AsyncClient(timeout=active_timeout, verify=False) as client:
+            for fp in fingerprints:
+                confirmed = await self._confirm_read(
+                    client, fp.endpoint_url, fp.db_type, auth_headers or {},
+                )
+                if confirmed:
+                    fp.confidence = min(fp.confidence + 0.15, 1.0)
+                    fp.evidence.append("Active GET confirmation successful")
+                else:
+                    fp.confidence = max(fp.confidence - 0.1, 0.3)
+
+        return fingerprints
+
+    async def _confirm_read(
+        self,
+        client: httpx.AsyncClient,
+        endpoint_url: str,
+        db_type: VectorDBType,
+        headers: dict[str, str],
+    ) -> bool:
+        """Actively confirm a vector DB endpoint by GET request.
+
+        Args:
+            client: httpx async client.
+            endpoint_url: Base endpoint URL.
+            db_type: Suspected vector DB type.
+            headers: Auth headers.
+
+        Returns:
+            True if confirmed, False otherwise.
+        """
+        db_key = db_type.value
+        if db_key not in AI_VECTOR_DB_READS:
+            return False
+
+        confirm_endpoints = AI_VECTOR_DB_READS[db_key]
+
+        from urllib.parse import urlparse
+        parsed = urlparse(endpoint_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        for path, expected_substring in confirm_endpoints:
+            url = f"{base.rstrip('/')}{path}"
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    body = resp.text.lower()
+                    if expected_substring.lower() in body or expected_substring == "200":
+                        logger.info(
+                            "VectorDBFingerprinter: confirmed %s via %s (200 + '%s')",
+                            db_type.value, url, expected_substring,
+                        )
+                        return True
+            except (httpx.RequestError, asyncio.TimeoutError):
+                pass
+
+        return False
 
     def _fingerprint_single(
         self, endpoint: DiscoveredEndpoint

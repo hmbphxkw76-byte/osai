@@ -28,6 +28,7 @@ import logging
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -228,3 +229,95 @@ def get_recommended_epsilon(model_tier: str) -> float:
     if model_tier == TIER_WEAK:
         return 0.05  # 更激进利用
     return 0.10  # unknown
+
+
+# ============================================================
+# G3: 模型特异性攻击参数
+# ============================================================
+
+
+def get_attack_params_by_tier(model_tier: str) -> dict[str, Any]:
+    """G3: 根据 model_tier 获取模型特异性攻击参数。.
+
+    学术依据:
+      - Crescendo (arXiv:2402.12109): GPT-4o 需 5-7 轮, GPT-3.5 需 3-4 轮
+      - TAP (arXiv:2312.02191): 树搜索深度应随模型抵抗力调整
+      - HarmBench (arXiv:2402.04249): 强模型需要更多探索
+
+    从 ``data/setting/model_tiers.yaml`` 的 ``attack_params_by_tier`` 加载。
+    当 CLI 未显式指定参数时, 根据 model_tier 自动选择。
+
+    Args:
+        model_tier: 模型等级 (strong/moderate/weak/unknown)
+
+    Returns:
+        包含 max_turns, max_attempts, max_concurrency,
+        epsilon, temperature 的字典
+    """
+    import yaml as _yaml
+
+    if not _MODEL_TIERS_YAML.exists():
+        # 回退到硬编码默认值
+        return _DEFAULT_ATTACK_PARAMS.get(model_tier, _DEFAULT_ATTACK_PARAMS["unknown"])
+
+    with open(_MODEL_TIERS_YAML, encoding="utf-8") as f:
+        data = _yaml.safe_load(f)
+
+    params_by_tier = data.get("attack_params_by_tier", {})
+    return params_by_tier.get(model_tier, params_by_tier.get("unknown", _DEFAULT_ATTACK_PARAMS["unknown"]))
+
+
+#: G3: 硬编码回退默认值 (YAML 不可用时使用)
+_DEFAULT_ATTACK_PARAMS: dict[str, dict[str, Any]] = {
+    "strong": {"max_turns": 7, "max_attempts": 5, "max_concurrency": 3, "epsilon": 0.15, "temperature": 0.7},
+    "moderate": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 5, "epsilon": 0.10, "temperature": 0.8},
+    "weak": {"max_turns": 3, "max_attempts": 2, "max_concurrency": 8, "epsilon": 0.05, "temperature": 0.9},
+    "unknown": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 5, "epsilon": 0.10, "temperature": 0.8},
+}
+
+
+# ============================================================
+# G5: 对抗 LLM-目标模型最优配对
+# ============================================================
+
+
+def get_optimal_attacker(model_name: str) -> str:
+    """G5: 获取目标模型系列对应的最优对抗 LLM 模型名。.
+
+    学术依据: PAIR (arXiv:2310.08437)
+      - attacker-target 配对影响 ASR 15-25%
+      - 强对抗模型 (GPT-4) 生成的攻击对弱目标更有效
+      - 同模型配对 (self-attack) ASR 通常更低
+
+    从 ``data/setting/model_tiers.yaml`` 的 ``optimal_attacker_by_target`` 加载。
+
+    Args:
+        model_name: 目标模型名 (如 "gpt-4o", "llama-3-8b")
+
+    Returns:
+        最优对抗 LLM 模型名 (如 "gpt-4o")
+    """
+    import yaml as _yaml
+
+    if not _MODEL_TIERS_YAML.exists():
+        return "gpt-4o"  # 默认回退
+
+    with open(_MODEL_TIERS_YAML, encoding="utf-8") as f:
+        data = _yaml.safe_load(f)
+
+    attacker_map = data.get("optimal_attacker_by_target", {})
+
+    name_lower = model_name.lower()
+
+    # 精确匹配
+    for key, attacker in attacker_map.items():
+        if key.lower() == name_lower:
+            return attacker
+
+    # 模糊匹配 (模型系列)
+    for key, attacker in attacker_map.items():
+        if key.lower() in name_lower or name_lower in key.lower():
+            return attacker
+
+    # 默认
+    return attacker_map.get("default", "gpt-4o")

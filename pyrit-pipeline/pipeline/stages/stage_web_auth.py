@@ -18,7 +18,7 @@
 
 > **设计原则** (R-010): PyRIT 原生优先
   - PlaywrightTarget 是 PyRIT 原生 prompt_target
-  - AuthDetector/AuthStrategy 来自 web_bridge, 是对原生模式的增强
+  - AuthDetector/AuthStrategy 来自 web_redteam, 是对原生模式的增强
   - 不修改任何 PyRIT 原生代码
 
 学术依据:
@@ -80,7 +80,7 @@ async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
     print(f"  目标页: {profile.auth.target_url}")
 
     # 2. 启动浏览器
-    from web_bridge.auth.browser_session import BrowserSession
+    from web_redteam.auth.browser_session import BrowserSession
 
     session = BrowserSession()
     headless = getattr(ctx.args, "web_headless", False)
@@ -92,7 +92,7 @@ async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
     )
 
     # 3. 执行认证 (AutoAuthStrategy 自动探测)
-    from web_bridge.auth.auth_strategy import AuthStrategyFactory
+    from web_redteam.auth.auth_strategy import AuthStrategyFactory
 
     strategy = AuthStrategyFactory.create(profile.auth.type)
     page = await strategy.execute(page, profile)
@@ -100,7 +100,7 @@ async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
     # 4. 创建 PlaywrightTarget
     from pyrit.prompt_target import PlaywrightTarget
 
-    from web_bridge.interaction.interaction_factory import InteractionFactory
+    from web_redteam.interaction.interaction_factory import InteractionFactory
 
     interaction_func = InteractionFactory.create(profile.interaction)
 
@@ -145,14 +145,14 @@ def _load_or_create_profile(ctx: PipelineContext, target_url: str) -> Any:
     """加载 YAML 配置或从 URL 动态生成 TargetProfile。."""
     profile_path = getattr(ctx.args, "web_target_profile", None)
     if profile_path:
-        from web_bridge.targets.target_profile import TargetProfile
+        from web_redteam.targets.target_profile import TargetProfile
 
         profile = TargetProfile.from_yaml_file(profile_path)
         logger.info(f"Loaded TargetProfile from {profile_path}")
         return profile
     else:
         # 动态生成 Profile (从 URL 自动推断)
-        from web_bridge.targets.dynamic_profile import create_profile_from_url
+        from web_redteam.targets.dynamic_profile import create_profile_from_url
 
         attack_type = getattr(ctx.args, "scenario", "prompt_sending")
         objective = getattr(ctx.args, "objective", "Ignore all previous instructions")

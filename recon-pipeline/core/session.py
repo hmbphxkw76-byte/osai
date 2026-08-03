@@ -64,21 +64,41 @@ class ReconSession:
 
         Returns:
             填充后的 AuthState。
+
+        Raises:
+            RuntimeError: 如果认证后 auth_state 显示未认证 (非 NoAuthProvider)。
         """
         self.auth_state = await provider.authenticate(self.target_url, **kwargs)
-        logger.info(f"Authenticated: {provider.name} (authenticated={self.auth_state.is_authenticated()})")
+        logger.info(
+            f"Authenticated: {provider.name} (authenticated={self.auth_state.is_authenticated()})"
+        )
 
-        # 如果 provider 持有 browser_page, 复用
-        if hasattr(provider, "page") and provider.page is not None:
-            self.browser_page = provider.page
+        # 如果 provider 暴露了 browser_page, 复用 (通过公共接口而非 duck-typing)
+        page = getattr(provider, "page", None)
+        if page is not None:
+            self.browser_page = page
 
         # 更新 report 的 auth_type
         self.report.auth_type = self.auth_state.auth_type
         self.report.target_url = self.target_url
+
+        # 验证: 非 NoAuthProvider 但认证失败 → 警告
+        if not self.auth_state.is_authenticated() and provider.name != "none":
+            logger.warning(
+                f"Auth provider '{provider.name}' reported unauthenticated state — "
+                f"probes requiring auth will be skipped"
+            )
+
         return self.auth_state
 
     async def run_probe(self, probe: ReconProbe) -> dict[str, Any]:
         """运行一个探针, 结果自动合并到 report。
+
+        前置条件由 ReconPipeline.run() 保证:
+          - requires_auth: session 必须已认证
+          - requires_browser: session 必须有 browser_page
+
+        直接调用此方法时, 调用者自行负责前置条件检查。
 
         Args:
             probe: 探针实例。
@@ -86,19 +106,30 @@ class ReconSession:
         Returns:
             探针结果字典。
         """
-        # 前置检查
-        if probe.requires_auth and (self.auth_state is None or not self.auth_state.is_authenticated()):
-            logger.warning(f"Probe {probe.name} requires auth but session is not authenticated")
-        if probe.requires_browser and self.browser_page is None:
-            logger.warning(f"Probe {probe.name} requires browser but no page available")
-
-        # 执行探针
+        # 执行探针 (前置检查由 ReconPipeline.run() 负责, 避免双重检查导致 skipped/failed 混淆)
         result = await probe.probe(self)
 
         # 合并到 report
         self.report.merge(probe.name, result)
 
-        logger.info(f"Probe {probe.name} completed: {len(result.get('endpoints', []))} endpoints")
+        # 日志摘要 — 根据结果中实际含有的字段
+        endpoint_count = len(result.get("endpoints", []))
+        surface_count = len(result.get("injection_surfaces", []))
+        fp_count = len(result.get("llm_fingerprints", []))
+        tool_count = len(result.get("mcp_tools", []))
+
+        parts = []
+        if endpoint_count:
+            parts.append(f"{endpoint_count} endpoints")
+        if surface_count:
+            parts.append(f"{surface_count} surfaces")
+        if fp_count:
+            parts.append(f"{fp_count} fingerprints")
+        if tool_count:
+            parts.append(f"{tool_count} MCP tools")
+        summary = ", ".join(parts) if parts else "no results"
+
+        logger.info(f"Probe {probe.name} completed: {summary}")
         return result
 
     def export(self, exporter: ReconExporter, *args: Any, **kwargs: Any) -> Any:

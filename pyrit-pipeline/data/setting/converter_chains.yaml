@@ -287,3 +287,51 @@ base_techniques_for_variants:
     - stealth_evasion
     - encoding_bypass
     - random_case
+
+# ── G4: 模型特异性说服策略映射 ──
+# 学术依据: Zeng et al. (arXiv:2402.19181)
+#   - 权威说服对 Claude ASR=30%, GPT-4 ASR=35%
+#   - 情感/场景对 GPT-4 ASR=38%, Llama ASR=62%
+#   - 逻辑/分解对 Llama ASR=55%, Claude ASR=25%
+# 不同模型的安全对齐方式不同, 导致对不同说服策略的脆弱性不同
+# 用于 target_aware_router 中根据模型系列选择说服链
+persuasion_strategy_by_model:
+  # ── Claude 系列: Constitutional AI → 权威/角色扮演优先 ──
+  "claude":
+    primary: persuasion_authority
+    secondary: role_play_movie_script
+    rationale: "Constitutional AI 对角色扮演/权威场景更敏感"
+  # ── GPT-4 系列: RLHF → 情感/场景模拟优先 ──
+  "gpt-4":
+    primary: role_play_persuasion
+    secondary: persuasion_authority
+    rationale: "RLHF 对情感/场景模拟的防御较弱"
+  "gpt-4o":
+    primary: role_play_persuasion
+    secondary: persuasion_authority
+    rationale: "RLHF 对情感/场景模拟的防御较弱"
+  # ── Llama 系列: RLHF+Safety → 逻辑/分解优先 ──
+  "llama":
+    primary: decomposition_chain
+    secondary: persuasion_authority
+    rationale: "Llama 对逻辑分解攻击更脆弱"
+  # ── Gemini 系列: RLHF → 场景模拟优先 ──
+  "gemini":
+    primary: role_play_persuasion
+    secondary: decomposition_chain
+    rationale: "Gemini 对场景模拟的防御较弱"
+  # ── Mistral 系列: Safety + Guard → 编码+说服 ──
+  "mistral":
+    primary: persuasion_authority
+    secondary: encoding_bypass
+    rationale: "Mistral Guard 对编码攻击有漏洞"
+  # ── Qwen 系列: RLHF → 逻辑分解优先 ──
+  "qwen":
+    primary: decomposition_chain
+    secondary: persuasion_authority
+    rationale: "Qwen 对逻辑分解攻击更脆弱"
+  # ── DeepSeek 系列: RLHF → 场景模拟优先 ──
+  "deepseek":
+    primary: role_play_persuasion
+    secondary: decomposition_chain
+    rationale: "DeepSeek 对场景模拟的防御较弱"

@@ -25,13 +25,16 @@
 from pipeline.asr.failure_type_event_handler import FailureTypeEventHandler
 from pipeline.asr.failure_type_selector import FailureTypeRoutingSelector
 from pipeline.asr.optimizer import (
+    collect_seed_level_asr_from_memory,
     get_asr_summary,
     get_current_run_asr_summary,
     get_technique_asr_summary,
+    load_seed_level_asr,
     merge_empirical_with_priors,
     query_current_run_asr_by_technique,
     query_historical_asr_by_category,
     query_historical_asr_by_technique,
+    save_seed_level_asr,
     sort_datasets_by_asr,
 )
 from pipeline.asr.prior_registry import get_initial_q_value, tier_from_asr
@@ -44,13 +47,16 @@ __all__ = [
     "get_initial_q_value",
     "tier_from_asr",
     # optimizer
+    "collect_seed_level_asr_from_memory",
     "get_asr_summary",
     "get_current_run_asr_summary",
     "get_technique_asr_summary",
+    "load_seed_level_asr",
     "merge_empirical_with_priors",
     "query_current_run_asr_by_technique",
     "query_historical_asr_by_category",
     "query_historical_asr_by_technique",
+    "save_seed_level_asr",
     "sort_datasets_by_asr",
     # rank_builder
     "ASRRankBuilder",

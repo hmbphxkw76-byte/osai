@@ -3,7 +3,7 @@
 # ============================================================================
 # 使用方式:
 #   pip install sphinx sphinx-rtd-theme
-#   cd docs/api && sphinx-apidoc -o . ../../pipeline ../../web_bridge
+#   cd docs/api && sphinx-apidoc -o . ../../pipeline ../../web_redteam
 #   make html
 # ============================================================================
 

@@ -396,7 +396,7 @@ pyrit-pipeline/
 ├── output/                         # 运行时输出
 ├── scripts/                        # 脚本工具
 ├── tests/                          # 测试
-└── web_bridge/                    # Web 红队模块
+└── web_redteam/                    # Web 红队模块
 ```
 
 ---

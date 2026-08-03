@@ -107,18 +107,30 @@ def load_config(config_path: str) -> dict:
 # ------------------------------------------------------------------
 
 def clean_pycache(project_root: Path) -> int:
-    """递归清理项目下所有 __pycache__ 目录
+    """递归清理项目下所有 __pycache__ 目录、.pyc/.pyo 文件和 .pytest_cache 目录。
 
+    规则 R-008: 三库统一标准 — 每次运行前和运行后自动执行。
     避免 stale bytecode 导致 TypeError（如添加新参数后旧 .pyc 仍被加载）。
 
     :param project_root: 项目根目录
-    :returns: 清理的目录数
+    :returns: 清理的文件/目录数
     """
     count = 0
-    for cache_dir in project_root.rglob("__pycache__"):
-        if cache_dir.is_dir():
-            shutil.rmtree(cache_dir, ignore_errors=True)
-            count += 1
+
+    # 清理临时目录: __pycache__ + .pytest_cache
+    for pattern in ("__pycache__", ".pytest_cache"):
+        for cache_dir in project_root.rglob(pattern):
+            if cache_dir.is_dir():
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                count += 1
+
+    # 清理编译产物: .pyc + .pyo
+    for pattern in ("*.pyc", "*.pyo"):
+        for temp_file in project_root.rglob(pattern):
+            if temp_file.is_file():
+                temp_file.unlink(missing_ok=True)
+                count += 1
+
     return count
 
 

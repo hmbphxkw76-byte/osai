@@ -22,8 +22,8 @@ Usage:
 
 # R-012: 始终使用 UTF-8 编码 — 在所有 import 之前强制设置,
 # 确保 stdout/stderr 在 Windows GBK 终端下也能正确输出 Unicode 字符
-import os as _os
 import logging
+import os as _os
 import sys
 
 _logger = logging.getLogger(__name__)
@@ -48,8 +48,9 @@ from pipeline.stages.stage_initialize import run as stage_initialize
 from pipeline.stages.stage_output import run as stage_output
 from pipeline.stages.stage_post_analysis import run as stage_post_analysis
 from pipeline.stages.stage_scenario import run as stage_scenario
-from pipeline.stages.stage_web_auth import run as stage_web_auth
+from pipeline.stages.stage_target_classify import run as stage_target_classify
 from pipeline.utils.cleaner import clean_temp_files
+from pipeline.utils.contract_validator import ContractValidator
 from pipeline.utils.display import print_pipeline_footer, print_pipeline_header
 from pipeline.utils.noise_redirector import redirect_noise_to_file
 
@@ -98,11 +99,13 @@ async def main_async() -> None:
                 print("\n[SHUTDOWN] 在 Stage 1 后退出")
                 return
 
-            # Stage 1.5: Web 目标自动认证桥接 (仅当 --web-target-url 时激活)
-            web_bridged = await stage_web_auth(ctx)
-            if web_bridged and _shutdown_requested:
-                print("\n[SHUTDOWN] 在 Stage 1.5 (Web Auth) 后退出")
-                return
+            # Stage 0.5: 统一目标类型判别 + 认证桥接 (仅当 --target-url 时激活)
+            target_url = getattr(ctx.args, "target_url", None)
+            if target_url:
+                target_bridged = await stage_target_classify(ctx)
+                if target_bridged and _shutdown_requested:
+                    print("\n[SHUTDOWN] 在 Stage 0.5 (目标桥接) 后退出")
+                    return
 
             # XPIA 工作流 (可选, 提前返回)
             if getattr(ctx.args, "xpia", False):
@@ -134,9 +137,21 @@ async def main_async() -> None:
             # 侦察驱动场景选择 (当 recon_result 存在时)
             recon_result = ctx.metadata.get("recon_result")
             if recon_result and not getattr(ctx.args, "scenario", None):
-                from pipeline.integrations.web_bridge import recommend_scenarios_from_recon
+                from pipeline.integrations.web_redteam import recommend_scenarios_from_recon
+                from pipeline.utils.decision_trace import DecisionTrace
+
                 scenarios = recommend_scenarios_from_recon(recon_result)
                 if scenarios:
+                    # A5: Recon 驱动决策追溯
+                    trace = DecisionTrace.get_instance()
+                    trace.record(
+                        stage="main",
+                        layer="recon_driven_selection",
+                        decision="recon_scenarios_recommended",
+                        reason=f"Recon result drove {len(scenarios)} scenario recommendations",
+                        top_scenario=scenarios[0]["scenario"] if scenarios else "none",
+                        total_recommendations=len(scenarios),
+                    )
                     print("\n  [Recon] 侦察结果推荐场景:")
                     for s in scenarios:
                         print(f"    [P{s['priority']}] {s['scenario']} ({s['owasp_id']}) — {s['rationale'][:80]}")
@@ -144,44 +159,52 @@ async def main_async() -> None:
                     # 自动选择最高优先级场景
                     top_scenario = scenarios[0]
                     if top_scenario["scenario"] == "xpia":
-                        print(f"\n  [Recon] 自动选择 XPIA 工作流")
+                        print("\n  [Recon] 自动选择 XPIA 工作流")
                         from pipeline.workflows.xpia import run_xpia
                         await run_xpia(ctx)
                         return
                     elif top_scenario["scenario"] == "multimodal":
-                        print(f"\n  [Recon] 自动选择多模态注入场景")
+                        print("\n  [Recon] 自动选择多模态注入场景")
                         from pipeline.scenarios.multimodal_injection import run_multimodal_injection
                         await run_multimodal_injection(ctx)
                         return
                     elif top_scenario["scenario"] == "model_extraction":
-                        print(f"\n  [Recon] 自动选择模型提取场景")
+                        print("\n  [Recon] 自动选择模型提取场景")
                         from pipeline.scenarios.model_extraction import run_model_extraction
                         await run_model_extraction(ctx)
                         return
                     # text_adaptive 继续走标准流水线
 
             await stage_scenario(ctx)
+            _validate_contract(1, 2, ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 2 后退出")
                 return
 
             await stage_initialize(ctx)
+            _validate_contract(2, 3, ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 3 后退出")
                 return
 
             await stage_execute(ctx)
+            _validate_contract(3, 4, ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 4 后退出 (结果已保存)")
                 # Stage 4 结果已持久化到 CentralMemory, 可安全退出
                 return
 
             await stage_post_analysis(ctx)
+            _validate_contract(4, 5, ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 5 后退出")
                 return
 
             await stage_output(ctx)
+            _validate_contract(5, 6, ctx)
+
+            # D1+D6: 输出决策追溯和事件总线摘要
+            _print_trace_and_event_summary()
 
             print_pipeline_footer(ctx)
     finally:
@@ -237,6 +260,48 @@ def _cleanup_web_session(ctx: PipelineContext) -> None:
             _logger.debug("Web browser session cleaned up")
         except (OSError, RuntimeError):
             pass
+
+
+_validator = ContractValidator()
+
+
+def _validate_contract(stage_from: int, stage_to: int, ctx: PipelineContext) -> None:
+    """D5: 阶段间数据流契约验证。."""
+    result = _validator.validate(stage_from, stage_to, ctx)
+    if not result.passed:
+        print(f"  ⚠ [D5] 契约验证失败: {result}")
+    elif result.warnings:
+        print(f"  [D5] 契约验证通过 (有警告): {result.warnings}")
+    else:
+        print(f"  [D5] 契约验证通过: {result.stage_from} → {result.stage_to}")
+
+
+def _print_trace_and_event_summary() -> None:
+    """D1+D6: 输出决策追溯和事件总线摘要。."""
+    try:
+        from pipeline.utils.decision_trace import DecisionTrace
+        from pipeline.utils.event_bus import EventBus
+
+        # D1: 决策追溯摘要
+        trace = DecisionTrace.get_instance()
+        if trace.record_count > 0:
+            print("\n  ┌─ D1: 决策追溯摘要 ───────────────────────────────────────┐")
+            print(f"  │ 共 {trace.record_count} 条决策记录")
+            stages = {}
+            for r in trace.get_records():
+                stages.setdefault(r.stage, []).append(r)
+            for stage, records in sorted(stages.items()):
+                print(f"  │   {stage}: {len(records)} 条")
+            print("  └───────────────────────────────────────────────────────────────┘")
+
+        # D6: 事件总线摘要
+        bus = EventBus.get_instance()
+        if bus.event_count > 0:
+            print(f"\n  [D6] 事件总线: 共发布 {bus.event_count} 个事件")
+            if bus.jsonl_path:
+                print(f"       JSONL: {bus.jsonl_path}")
+    except Exception as e:
+        _logger.debug(f"Trace/event summary failed: {e}")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "recon-kit"
-version = "0.1.0"
+version = "0.3.0"
 description = "Shared AI reconnaissance module for OSAI pipeline projects (PyRIT + Garak)"
 readme = "README.md"
 license = {text = "MIT"}
@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.24",
     "aiohttp>=3.9",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +45,11 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
 
 [tool.ruff]
 target-version = "py310"

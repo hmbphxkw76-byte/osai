@@ -39,8 +39,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
+import time
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
@@ -53,10 +56,12 @@ except ImportError:
 
 if TYPE_CHECKING:
     from pyrit.prompt_target import PromptTarget
+# R5: AIMD 动态调整 — 响应时间滑动窗口大小
+_RTT_WINDOW_SIZE = 20
+# R5: 响应时间恶化阈值 (P90/P50 比率 > 此值时触发更激进的 RPM 降低)
+_RTT_DEGRADATION_RATIO = 2.0
 
 
-# ============================================================
-# 共享信号量注册表 (同端点共享并发限制)
 # ============================================================
 
 _semaphore_registry: dict[str, asyncio.Semaphore] = {}
@@ -79,6 +84,9 @@ _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_BASE_DELAY = 1.0
 _DEFAULT_MAX_DELAY = 60.0
 _DEFAULT_JITTER = 0.5
+
+# G7: 不可重试的 HTTP 状态码 — 认证/请求错误, 立即失败
+_NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 405, 422}
 
 # 触发重试的 HTTP 状态码
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -117,6 +125,23 @@ def _is_retryable_error(error: Exception) -> bool:
 
     error_str = str(error).lower()
     return bool(any(code in error_str for code in ("429", "503", "502", "500", "504")))
+
+
+def _is_non_retryable_error(error: Exception) -> bool:
+    """G7: 判断错误是否为不可重试 (认证失败/请求错误).
+
+    401/403/400/404/422 等状态码不应重试, 应立即失败.
+    """
+    import re
+
+    status_code = getattr(error, "status_code", None)
+    if status_code and status_code in _NON_RETRYABLE_STATUS_CODES:
+        return True
+
+    error_str = str(error).lower()
+    # 仅匹配精确状态码 (避免 4000 匹配 400)
+    code_matches = re.findall(r"\b(40[01345]|422)\b", error_str)
+    return bool(code_matches)
 
 
 def _extract_retry_after(error: Exception) -> float | None:
@@ -226,6 +251,22 @@ class RateLimitedTarget:
         self._retry_count = 0
         self._total_delay = 0.0
 
+        # G6: AIMD 自适应限速状态
+        self._initial_rpm = requests_per_minute or 0
+        self._current_rpm = self._initial_rpm
+        self._aimd_min_rpm = max(1, (requests_per_minute or 60) // 10)
+        self._aimd_increase_step = max(1, (requests_per_minute or 60) // 20)
+
+        # R5: 响应时间滑动窗口 (用于动态调整 AIMD 参数)
+        self._rtt_window: deque[float] = deque(maxlen=_RTT_WINDOW_SIZE)
+        self._rtt_p50: float = 0.0
+        self._rtt_p90: float = 0.0
+
+        # R5: 动态 AIMD 倍率 (根据响应时间趋势调整)
+        # decrease_factor > 1.0 表示更激进的降低 (如 0.4x 而非 0.5x)
+        self._dynamic_decrease_factor = 0.5  # 默认减半
+        self._dynamic_increase_step = self._aimd_increase_step
+
     def _infer_endpoint(self, target: PromptTarget) -> str:
         """从 Target 推断端点 URL。."""
         try:
@@ -251,20 +292,115 @@ class RateLimitedTarget:
         """总退避延迟 (秒)。."""
         return self._total_delay
 
+    @property
+    def current_rpm(self) -> int:
+        """G6: 当前实际 RPM 限速值。."""
+        return self._current_rpm
+
+    @property
+    def rtt_p50(self) -> float:
+        """R5: P50 响应时间 (秒)。."""
+        return self._rtt_p50
+
+    @property
+    def rtt_p90(self) -> float:
+        """R5: P90 响应时间 (秒)。."""
+        return self._rtt_p90
+
+    def _record_rtt(self, rtt: float) -> None:
+        """R5: 记录响应时间并更新 P50/P90 + 动态 AIMD 参数.
+
+        当 P90/P50 比率超过阈值时, 增大 decrease_factor (更激进地降低 RPM),
+        减小 increase_step (更保守地增加 RPM).
+        当响应时间稳定时, 恢复默认 AIMD 参数.
+        """
+        self._rtt_window.append(rtt)
+        if len(self._rtt_window) < 3:
+            return
+
+        sorted_rtts = sorted(self._rtt_window)
+        n = len(sorted_rtts)
+        self._rtt_p50 = sorted_rtts[n // 2]
+        self._rtt_p90 = sorted_rtts[int(n * 0.9)]
+
+        # R5: 根据响应时间趋势动态调整 AIMD 参数
+        if self._rtt_p50 > 0:
+            ratio = self._rtt_p90 / self._rtt_p50
+            if ratio > _RTT_DEGRADATION_RATIO:
+                # 响应时间恶化 — 更激进地降低, 更保守地增加
+                self._dynamic_decrease_factor = 0.35  # 减到 35% (比默认 50% 更激进)
+                self._dynamic_increase_step = max(1, self._aimd_increase_step // 2)
+                logger.debug(
+                    f"R5: RTT degradation detected (P50={self._rtt_p50:.2f}s, "
+                    f"P90={self._rtt_p90:.2f}s, ratio={ratio:.1f}), "
+                    f"AIMD: decrease_factor={self._dynamic_decrease_factor}, "
+                    f"increase_step={self._dynamic_increase_step}"
+                )
+            else:
+                # 响应时间稳定 — 恢复默认 AIMD 参数
+                self._dynamic_decrease_factor = 0.5
+                self._dynamic_increase_step = self._aimd_increase_step
+
+    def _aimd_decrease(self) -> None:
+        """G6+R5: AIMD Multiplicative Decrease — 429 时 RPM 降低.
+
+        R5: decrease_factor 根据响应时间趋势动态调整 (0.35~0.5).
+        参考: TCP Congestion Control (Jacobson, RFC 5681).
+        """
+        if self._current_rpm <= 0:
+            return
+        old_rpm = self._current_rpm
+        self._current_rpm = max(
+            self._aimd_min_rpm,
+            int(self._current_rpm * self._dynamic_decrease_factor),
+        )
+        if self._current_rpm != old_rpm:
+            with contextlib.suppress(AttributeError, TypeError):
+                self._target._max_requests_per_minute = self._current_rpm
+            logger.info(
+                f"G6+R5 AIMD: RPM decreased {old_rpm} -> {self._current_rpm} "
+                f"(endpoint={self._endpoint}, factor={self._dynamic_decrease_factor})"
+            )
+
+    def _aimd_increase(self) -> None:
+        """G6+R5: AIMD Additive Increase — 成功时 RPM 线性增加.
+
+        R5: increase_step 根据响应时间趋势动态调整.
+        参考: TCP Congestion Control (Jacobson, RFC 5681).
+        """
+        if self._initial_rpm <= 0:
+            return  # 无 RPM 限制时不调整
+        if self._current_rpm >= self._initial_rpm:
+            return  # 不超过初始值
+        old_rpm = self._current_rpm
+        self._current_rpm = min(
+            self._initial_rpm,
+            self._current_rpm + self._dynamic_increase_step,
+        )
+        if self._current_rpm != old_rpm:
+            with contextlib.suppress(AttributeError, TypeError):
+                self._target._max_requests_per_minute = self._current_rpm
+            logger.debug(
+                f"G6+R5 AIMD: RPM increased {old_rpm} -> {self._current_rpm} "
+                f"(endpoint={self._endpoint}, step={self._dynamic_increase_step})"
+            )
+
     def __getattr__(self, name: str) -> Any:
         """透传属性访问到原始 Target。."""
         return getattr(self._target, name)
 
     async def send_prompt_async(self, *args: Any, **kwargs: Any) -> Any:
-        """发送 prompt (带限速 + 差异化重试)。.
+        """发送 prompt (带限速 + 差异化重试 + G6: AIMD 自适应限速 + G7: 不可重试立即失败).
 
         代理调用原始 Target 的 ``send_prompt_async``，增加:
           1. 共享信号量 (同端点并发控制)
-          2. 差异化重试策略:
-             - 429: 优先使用 Retry-After 头, 退避倍率 1.5x
+          2. G7: 不可重试错误 (401/403/400/404/422) 立即失败
+          3. 差异化重试策略:
+             - 429: 优先使用 Retry-After 头, G6: AIMD 降低 RPM
              - 5xx: 标准指数退避
              - 超时: 更大基础延迟, 退避倍率 2x
-          3. ``Retry-After`` 头解析
+          4. ``Retry-After`` 头解析
+          5. G6: 成功时 AIMD 增加 RPM
         """
         semaphore = await _get_shared_semaphore(self._endpoint, self._max_concurrency)
 
@@ -273,9 +409,25 @@ class RateLimitedTarget:
         for attempt in range(self._max_retries + 1):
             async with semaphore:
                 try:
-                    return await self._target.send_prompt_async(*args, **kwargs)
+                    rtt_start = time.monotonic()
+                    result = await self._target.send_prompt_async(*args, **kwargs)
+                    rtt = time.monotonic() - rtt_start
+                    # R5: 记录响应时间并动态调整 AIMD 参数
+                    self._record_rtt(rtt)
+                    # G6: AIMD Additive Increase — 成功后缓慢增加 RPM
+                    self._aimd_increase()
+                    return result
                 except Exception as e:
                     last_error = e
+
+                    # G7: 不可重试错误 (401/403/400/404/422) 立即失败
+                    if _is_non_retryable_error(e):
+                        logger.error(
+                            f"RateLimitedTarget: non-retryable error "
+                            f"(status={getattr(e, 'status_code', '?')}), "
+                            f"endpoint={self._endpoint}"
+                        )
+                        raise
 
                     if not _is_retryable_error(e):
                         raise
@@ -286,6 +438,11 @@ class RateLimitedTarget:
                             f"exceeded for endpoint={self._endpoint}"
                         )
                         raise
+
+                    # G6: AIMD Multiplicative Decrease — 429 时 RPM 减半
+                    status_code = getattr(e, "status_code", None)
+                    if status_code == 429 or "429" in str(e):
+                        self._aimd_decrease()
 
                     # P1: 差异化退避策略
                     retry_after = _extract_retry_after(e)

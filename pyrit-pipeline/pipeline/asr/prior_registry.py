@@ -117,7 +117,11 @@ def tier_from_asr(asr: float) -> str:
 
 @dataclass(frozen=True)
 class ASRPrior:
-    """单技术的学术 ASR 先验数据。."""
+    """单技术的学术 ASR 先验数据。.
+
+    G1: 扩展为 9 变体 (gpt_4o/gpt_4/gpt_35/claude_3_5/llama_3_1
+        + gemini_1_5/mistral_large/qwen_2_5/deepseek_v3)
+    """
 
     technique: str
     gpt_4o: float
@@ -125,15 +129,21 @@ class ASRPrior:
     gpt_35: float
     claude_3_5: float
     llama_3_1: float
-    source: str  # "jailbreakbench" / "harmbench" / "pyrit_doc" / "empirical"
-    paper_arxiv: str  # arXiv ID
-    last_updated: str  # YYYY-MM
-    patched: bool  # 是否已被主要模型补丁修复
+    # G1: 新增 4 个独立变体
+    gemini_1_5: float = 0.3
+    mistral_large: float = 0.3
+    qwen_2_5: float = 0.3
+    deepseek_v3: float = 0.3
+    source: str = "empirical"  # "jailbreakbench" / "harmbench" / "pyrit_doc" / "empirical"
+    paper_arxiv: str = "N/A"  # arXiv ID
+    last_updated: str = "2025-06"  # YYYY-MM
+    patched: bool = False  # 是否已被主要模型补丁修复
     notes: str = ""
 
     def for_model(self, model_name: str, model_tier: str = "unknown") -> float:
         """获取特定模型的 ASR。.
 
+        G1: 支持 9 变体精确匹配 + tier 回退。
         未知模型根据 model_tier 选择回退:
         - strong → gpt_4o (保守)
         - moderate → llama_3_1 (开源近似)
@@ -141,6 +151,7 @@ class ASRPrior:
         - unknown → gpt_4o (保守默认)
         """
         name_lower = model_name.lower()
+        # G1: 精确匹配 9 变体
         if "gpt-4o" in name_lower or "gpt4o" in name_lower:
             return self.gpt_4o
         if "gpt-4" in name_lower or "gpt4" in name_lower:
@@ -151,7 +162,17 @@ class ASRPrior:
             return self.claude_3_5
         if "llama-3" in name_lower or "llama3" in name_lower:
             return self.llama_3_1
-        if "qwen" in name_lower or "deepseek" in name_lower or "yi-" in name_lower or "chatglm" in name_lower:
+        # G1: 新增变体匹配
+        if "gemini" in name_lower:
+            return self.gemini_1_5
+        if "mistral" in name_lower or "mixtral" in name_lower:
+            return self.mistral_large
+        if "qwen" in name_lower:
+            return self.qwen_2_5
+        if "deepseek" in name_lower:
+            return self.deepseek_v3
+        # 关键词回退
+        if "yi-" in name_lower or "chatglm" in name_lower:
             if model_tier == "weak":
                 return self.gpt_35
             elif model_tier == "moderate":
@@ -159,8 +180,12 @@ class ASRPrior:
             return self.gpt_4o
         if "vicuna" in name_lower:
             return min(self.llama_3_1 * 1.1, 0.99)
-        if "mistral" in name_lower or "mixtral" in name_lower:
-            return min(self.llama_3_1 * 0.9, 0.99)
+        if "gemma" in name_lower:
+            if model_tier == "weak":
+                return self.gpt_35
+            return self.llama_3_1
+        if "phi" in name_lower:
+            return self.gpt_35
         # 未知模型根据 model_tier 选择回退
         if model_tier == "weak":
             return self.gpt_35
@@ -220,7 +245,7 @@ def _load_yaml_priors() -> tuple[
         c=yt.get("C", 0.05),
     )
 
-    # 加载 priors
+    # 加载 priors (G1: 支持 9 变体)
     priors: dict[str, ASRPrior] = {}
     for item in data.get("priors", []):
         p = ASRPrior(
@@ -230,6 +255,10 @@ def _load_yaml_priors() -> tuple[
             gpt_35=float(item.get("gpt_35", 0.3)),
             claude_3_5=float(item.get("claude_3_5", 0.3)),
             llama_3_1=float(item.get("llama_3_1", 0.3)),
+            gemini_1_5=float(item.get("gemini_1_5", 0.3)),
+            mistral_large=float(item.get("mistral_large", 0.3)),
+            qwen_2_5=float(item.get("qwen_2_5", 0.3)),
+            deepseek_v3=float(item.get("deepseek_v3", 0.3)),
             source=item.get("source", "empirical"),
             paper_arxiv=item.get("paper_arxiv", "N/A"),
             last_updated=item.get("last_updated", "2025-06"),
@@ -390,6 +419,10 @@ def get_initial_q_value(
                 gpt_35=variant_prior.get("gpt_35", 0.3),
                 claude_3_5=variant_prior.get("claude_3_5", 0.3),
                 llama_3_1=variant_prior.get("llama_3_1", 0.3),
+                gemini_1_5=variant_prior.get("gemini_1_5", 0.3),
+                mistral_large=variant_prior.get("mistral_large", 0.3),
+                qwen_2_5=variant_prior.get("qwen_2_5", 0.3),
+                deepseek_v3=variant_prior.get("deepseek_v3", 0.3),
                 source="empirical",
                 paper_arxiv="2402.12109",
                 last_updated="2025-06",
@@ -452,6 +485,10 @@ def get_prior_summary() -> list[dict[str, Any]]:
                 "gpt_35": prior.gpt_35,
                 "claude_3_5": prior.claude_3_5,
                 "llama_3_1": prior.llama_3_1,
+                "gemini_1_5": prior.gemini_1_5,
+                "mistral_large": prior.mistral_large,
+                "qwen_2_5": prior.qwen_2_5,
+                "deepseek_v3": prior.deepseek_v3,
                 "source": prior.source,
                 "paper_arxiv": prior.paper_arxiv,
                 "patched": prior.patched,

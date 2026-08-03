@@ -225,6 +225,37 @@ datasets:
     harm_categories: [disinformation, hate, illegal_goods, violence]
     default: true
 
+  # ── 精简种子集 (去重 + 类别均衡 + 多样性聚类 + ASR 加权) ──
+  # 生成: python scripts/curate_seeds.py
+  # 学术依据: JailbreakBench (arXiv:2402.01135), DART (arXiv:2407.06485)
+  - name: curated_seeds
+    source: generated
+    path: data/seed_datasets/benchmarks/curated_seeds.prompt
+    owasp_ids: []
+    technique_groups: [prompt_sending, red_teaming]
+    harm_categories: [cybercrime, illegal, chemical_biological, harassment, disinformation, violence, privacy, sexual, malware, copyright]
+    default: false
+
+  # ── 模型感知种子集 (按目标模型 Tier 选择最高 ASR 种子) ──
+  # 生成: python scripts/curate_seeds.py --model <name> --modality <text|multimodal>
+  # 学术依据: HarmBench (arXiv:2402.04249), RAIN (arXiv:2309.07124)
+  # 攻击成功为王: 不同模型 → 不同 ASR 先验 → 不同种子排名
+  - name: curated_seeds_gpt_4o
+    source: generated
+    path: data/seed_datasets/benchmarks/curated_seeds_gpt_4o.prompt
+    owasp_ids: []
+    technique_groups: [prompt_sending, red_teaming, crescendo, tap, pair]
+    harm_categories: [cybercrime, illegal, chemical_biological, harassment, disinformation, violence, privacy, sexual, malware, copyright]
+    default: false
+
+  - name: curated_seeds_llama_3_8b
+    source: generated
+    path: data/seed_datasets/benchmarks/curated_seeds_llama_3_8b.prompt
+    owasp_ids: []
+    technique_groups: [prompt_sending, red_teaming, crescendo, tap, pair, many_shot]
+    harm_categories: [cybercrime, illegal, chemical_biological, harassment, disinformation, violence, privacy, sexual, malware, copyright]
+    default: false
+
 # ── OWASP Top 10 for LLM Applications 2025 分类映射表 ──
 owasp_mapping:
   LLM01:

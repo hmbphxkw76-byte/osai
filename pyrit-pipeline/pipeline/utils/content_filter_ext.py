@@ -184,8 +184,12 @@ def _discover_marker_holders() -> list[ModuleType]:
         # 排除自身
         if getattr(mod, "__name__", "") == __name__:
             continue
-        if hasattr(mod, "CONTENT_FILTER_MARKERS"):
-            holders.append(mod)
+        try:
+            if hasattr(mod, "CONTENT_FILTER_MARKERS"):
+                holders.append(mod)
+        except Exception:
+            # 跳过触发 lazy import 错误的模块 (如 transformers)
+            continue
     return holders
 
 
@@ -206,8 +210,11 @@ def _discover_function_holders() -> list[ModuleType]:
             continue
         if getattr(mod, "__name__", "") == __name__:
             continue
-        if hasattr(mod, "_is_content_filter_error"):
-            holders.append(mod)
+        try:
+            if hasattr(mod, "_is_content_filter_error"):
+                holders.append(mod)
+        except Exception:
+            continue
     return holders
 
 

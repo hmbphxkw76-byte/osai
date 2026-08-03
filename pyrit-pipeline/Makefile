@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # PyRIT-Pipeline Makefile — 自动化命令行工具集
 # ============================================================================
 # 用法: make <target>
@@ -73,17 +73,18 @@ help: ## 显示所有可用命令
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "  $(GREEN)make test$(RESET)              运行全部测试"
 	@echo "  $(GREEN)make test-pipeline$(RESET)     运行 pipeline 测试"
-	@echo "  $(GREEN)make test-web$(RESET)          运行 web_bridge 测试"
+	@echo "  $(GREEN)make test-web$(RESET)          运行 web_redteam 测试"
 	@echo "  $(GREEN)make test-cov$(RESET)          运行测试并生成覆盖率报告"
 	@echo "  $(GREEN)make test-fast$(RESET)          快速测试 (仅上次失败的)"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(BOLD)  代码质量$(RESET)"
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "  $(GREEN)make lint$(RESET)              代码检查 (ruff)"
+	@echo "  $(GREEN)make lint$(RESET)              代码检查 (ruff, 全量 pipeline/scripts/tests)"
 	@echo "  $(GREEN)make format$(RESET)            代码格式化 (ruff format)"
 	@echo "  $(GREEN)make typecheck$(RESET)         类型检查 (mypy)"
-	@echo "  $(GREEN)make check$(RESET)             一键检查 (lint + typecheck + test)"
+	@echo "  $(GREEN)make check$(RESET)             一键检查 (lint + test)"
+	@echo "  $(GREEN)make check-full$(RESET)        全量检查 (ruff + pytest -v, 三库标准 R-015)"
 	@echo "  $(GREEN)make precommit-run$(RESET)     运行 pre-commit (所有文件)"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
@@ -93,6 +94,9 @@ help: ## 显示所有可用命令
 	@echo "  $(GREEN)make download-all$(RESET)       下载全部远程数据集"
 	@echo "  $(GREEN)make download-list$(RESET)      列出可用数据集"
 	@echo "  $(GREEN)make download-check$(RESET)     检查本地缓存状态"
+@echo "  $(GREEN)make curate-seeds$(RESET)        精简种子集 (去重+均衡+聚类+模型感知)"
+@echo "  $(GREEN)make curate-model$(RESET)         模型感知精简 (需 MODEL=变量)"
+@echo "  $(GREEN)make script-benchmark_curate$(RESET)  种子精简性能基准 (10K 合成种子)"
 	@echo "  $(GREEN)make sync-asr$(RESET)           同步 ASR 先验数据 (JailbreakBench)"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
@@ -230,7 +234,7 @@ run-exhaustive: ## 全技术评估模式
 
 run-web: ## 运行 Web Red Team
 	@echo "$(CYAN)[RUN]$(RESET) 启动 Web Red Team..."
-	$(PYTHON) -m web_bridge.run --target-profile web_bridge/targets/same_domain/example_portal.yaml --attack-type prompt_sending
+	$(PYTHON) -m web_redteam.run --target-profile web_redteam/targets/same_domain/example_portal.yaml --attack-type prompt_sending
 
 run-custom: ## 自定义参数运行 (make run-custom ARGS="--datasets harmbench --max-dataset-size 5")
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (自定义参数)..."
@@ -248,13 +252,13 @@ test-pipeline: ## 运行 pipeline 测试
 	@echo "$(CYAN)[TEST]$(RESET) 运行 pipeline 测试..."
 	$(PYTHON) -m pytest tests/pipeline/ -v
 
-test-web: ## 运行 web_bridge 测试
-	@echo "$(CYAN)[TEST]$(RESET) 运行 web_bridge 测试..."
-	$(PYTHON) -m pytest web_bridge/tests/ -v
+test-web: ## 运行 web_redteam 测试
+	@echo "$(CYAN)[TEST]$(RESET) 运行 web_redteam 测试..."
+	$(PYTHON) -m pytest web_redteam/tests/ -v
 
 test-cov: ## 运行测试并生成覆盖率报告
 	@echo "$(CYAN)[TEST]$(RESET) 运行测试 (含覆盖率)..."
-	$(PYTHON) -m pytest --cov=pipeline --cov=web_bridge --cov-report=term-missing --cov-report=html
+	$(PYTHON) -m pytest --cov=pipeline --cov=web_redteam --cov-report=term-missing --cov-report=html
 
 test-fast: ## 快速测试 (仅上次失败的)
 	@echo "$(CYAN)[TEST]$(RESET) 快速测试 (仅上次失败的)..."
@@ -263,22 +267,30 @@ test-fast: ## 快速测试 (仅上次失败的)
 # ============================================================================
 # 代码质量
 # ============================================================================
-.PHONY: lint format typecheck check precommit-run
-lint: ## 代码检查 (ruff)
+.PHONY: lint format typecheck check check-full precommit-run
+lint: ## 代码检查 (ruff, 全量 pipeline/scripts/tests)
 	@echo "$(CYAN)[LINT]$(RESET) 代码检查 (ruff)..."
-	ruff check .
+	ruff check pipeline/ scripts/ tests/ conftest.py
 
 format: ## 代码格式化 (ruff format)
 	@echo "$(CYAN)[FORMAT]$(RESET) 代码格式化 (ruff format)..."
-	ruff format .
-	ruff check --fix .
+	ruff format pipeline/ scripts/ tests/ conftest.py
+	ruff check --fix pipeline/ scripts/ tests/ conftest.py
 
 typecheck: ## 类型检查 (mypy)
 	@echo "$(CYAN)[TYPE]$(RESET) 类型检查 (mypy)..."
-	mypy pipeline/ web_bridge/
+	mypy pipeline/ web_redteam/
 
-check: lint typecheck test ## 一键检查 (lint + typecheck + test)
+check: lint test ## 一键检查 (lint + test)
 	@echo "$(GREEN)[OK]$(RESET) 所有检查通过"
+
+check-full: ## 全量检查 (ruff + pytest -v, 三库标准 R-015)
+	@echo "$(CYAN)[CHECK-FULL]$(RESET) 三库标准全量检查 (ruff + pytest)..."
+	@echo "  [1/2] ruff check pipeline/ scripts/ tests/ conftest.py"
+	ruff check pipeline/ scripts/ tests/ conftest.py
+	@echo "  [2/2] pytest -v --tb=short"
+	$(PYTHON) -m pytest tests/ -v --tb=short
+	@echo "$(GREEN)[OK]$(RESET) 全量检查通过 (ruff + pytest)"
 
 precommit-run: ## 运行 pre-commit (所有文件)
 	@echo "$(CYAN)[PRE-COMMIT]$(RESET) 运行 pre-commit..."
@@ -287,7 +299,7 @@ precommit-run: ## 运行 pre-commit (所有文件)
 # ============================================================================
 # 数据管理
 # ============================================================================
-.PHONY: download-datasets download-all download-list download-check sync-asr
+.PHONY: download-datasets download-all download-list download-check curate-seeds sync-asr
 download-datasets: ## 下载远程数据集 (核心)
 	@echo "$(CYAN)[DATA]$(RESET) 下载核心数据集..."
 	$(PYTHON) scripts/download_datasets.py
@@ -303,6 +315,15 @@ download-list: ## 列出可用数据集
 download-check: ## 检查本地缓存状态
 	@echo "$(CYAN)[DATA]$(RESET) 检查本地缓存状态..."
 	$(PYTHON) scripts/download_datasets.py --check
+
+curate-seeds: ## 精简种子集 v2 (去重+均衡+聚类+ASR+模态+Tier分层)
+	@echo "$(CYAN)[DATA]$(RESET) 种子精简 v2..."
+	$(PYTHON) scripts/curate_seeds.py
+
+curate-model: ## 模型感知精简 (MODEL=gpt-4o, MODALITY=text)
+	@if [ -z "$$MODEL" ]; then echo "Usage: make curate-model MODEL=gpt-4o MODALITY=text"; exit 1; fi
+	@echo "$(CYAN)[DATA]$(RESET) 模型感知精简: $$MODEL ($$MODALITY)..."
+	$(PYTHON) scripts/curate_seeds.py --model "$$MODEL" --modality "$${MODALITY:-text}" --target-count 50
 
 sync-asr: ## 同步 ASR 先验数据
 	@echo "$(CYAN)[DATA]$(RESET) 同步 ASR 先验数据..."

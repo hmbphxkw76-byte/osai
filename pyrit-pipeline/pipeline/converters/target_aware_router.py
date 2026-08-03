@@ -203,3 +203,95 @@ def infer_target_type(objective_target: Any) -> str | None:
 
     logger.debug(f"Could not infer target_type from class '{class_name}'")
     return None
+
+
+# ============================================================
+# G4: 模型特异性说服策略
+# ============================================================
+
+_CONVERSION_CHAINS_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "converter_chains.yaml"
+
+
+def get_persuasion_strategy_for_model(model_name: str) -> tuple[str | None, str | None]:
+    """G4: 根据 model_name 获取模型特异性说服策略.
+
+    学术依据: Zeng et al. (arXiv:2402.19181)
+      - 权威说服对 Claude ASR=30%, GPT-4 ASR=35%
+      - 情感/场景对 GPT-4 ASR=38%, Llama ASR=62%
+      - 逻辑/分解对 Llama ASR=55%, Claude ASR=25%
+
+    从 ``data/setting/converter_chains.yaml`` 的 ``persuasion_strategy_by_model`` 加载。
+    不同模型的安全对齐方式不同, 导致对不同说服策略的脆弱性不同。
+
+    Args:
+        model_name: 目标模型名 (如 "gpt-4o", "llama-3-8b")
+
+    Returns:
+        (primary_strategy, secondary_strategy) 元组, 如
+        ("persuasion_authority", "role_play_movie_script")
+        如果无匹配, 返回 (None, None)
+    """
+    if not model_name:
+        return None, None
+
+    if not _CONVERSION_CHAINS_YAML.exists():
+        return None, None
+
+    import yaml as _yaml
+
+    with open(_CONVERSION_CHAINS_YAML, encoding="utf-8") as f:
+        data = _yaml.safe_load(f)
+
+    strategy_map = data.get("persuasion_strategy_by_model", {})
+    if not strategy_map:
+        return None, None
+
+    name_lower = model_name.lower()
+
+    # 精确匹配
+    for key, strategy in strategy_map.items():
+        if key.lower() == name_lower:
+            return strategy.get("primary"), strategy.get("secondary")
+
+    # 模糊匹配 (模型系列)
+    for key, strategy in strategy_map.items():
+        if key.lower() in name_lower or name_lower in key.lower():
+            return strategy.get("primary"), strategy.get("secondary")
+
+    return None, None
+
+
+def reorder_persuasion_chains_by_model(
+    chains: list[str],
+    model_name: str,
+) -> list[str]:
+    """G4: 根据模型特异性说服策略重排序 Converter 链列表.
+
+    将模型特异性 primary 说服链排到列表前面, secondary 排到其次。
+
+    Args:
+        chains: 原始链列表
+        model_name: 目标模型名
+
+    Returns:
+        重排序后的链列表
+    """
+    primary, secondary = get_persuasion_strategy_for_model(model_name)
+    if not primary and not secondary:
+        return chains
+
+    # 分离: primary/secondary 排前, 其他保持原序
+    prioritized: list[str] = []
+    rest: list[str] = []
+
+    for chain in chains:
+        if chain == primary:
+            prioritized.insert(0, chain)  # primary 最前
+        elif chain == secondary:
+            prioritized.append(chain)  # secondary 其次
+        else:
+            rest.append(chain)
+
+    if prioritized:
+        return prioritized + rest
+    return chains

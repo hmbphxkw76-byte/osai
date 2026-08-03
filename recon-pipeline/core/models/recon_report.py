@@ -39,6 +39,8 @@ class DiscoveredEndpoint:
     request_headers: dict[str, str] = field(default_factory=dict)
     response_body_preview: str = ""
     discovered_at: str = ""
+    ai_framework_name: str = ""
+    ai_framework_category: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,9 +49,24 @@ class DiscoveredEndpoint:
             "endpoint_type": self.endpoint_type.value,
             "status_code": self.status_code,
             "content_type": self.content_type,
+            "request_headers": _sanitize_headers(self.request_headers),
             "response_body_preview": self.response_body_preview[:200],
             "discovered_at": self.discovered_at,
+            "ai_framework_name": self.ai_framework_name,
+            "ai_framework_category": self.ai_framework_category,
         }
+
+
+def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Sanitize headers for export (redact sensitive values)."""
+    sensitive = {"authorization", "cookie", "x-api-key", "api-key", "token"}
+    sanitized: dict[str, str] = {}
+    for key, value in headers.items():
+        if key.lower() in sensitive:
+            sanitized[key] = value[:8] + "..." if len(value) > 8 else "***"
+        else:
+            sanitized[key] = value
+    return sanitized
 
 
 @dataclass
@@ -80,6 +97,11 @@ class MCPToolInfo:
     risk_level: str = "low"
     shadowing_detected: bool = False
     server_url: str = ""
+    annotation_contradiction: bool = False
+    tool_hash: str = ""
+    injection_surfaces: list[str] = field(default_factory=list)
+    annotations: dict[str, Any] = field(default_factory=dict)
+    threat_tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +110,10 @@ class MCPToolInfo:
             "risk_level": self.risk_level,
             "shadowing_detected": self.shadowing_detected,
             "server_url": self.server_url,
+            "annotation_contradiction": self.annotation_contradiction,
+            "tool_hash": self.tool_hash,
+            "injection_surfaces": self.injection_surfaces,
+            "threat_tags": self.threat_tags,
         }
 
 
@@ -139,6 +165,7 @@ class AttackRecommendation:
 class ReconReport:
     target_url: str = ""
     auth_type: str = "none"
+    auth_flow_state: str = ""
     endpoints: list[DiscoveredEndpoint] = field(default_factory=list)
     llm_fingerprints: list[LLMFingerprint] = field(default_factory=list)
     mcp_tools: list[MCPToolInfo] = field(default_factory=list)

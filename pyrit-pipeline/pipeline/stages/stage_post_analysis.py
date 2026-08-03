@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from pathlib import Path
 
 from pipeline.context import PipelineContext
 
@@ -57,6 +58,15 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── O7: 技术池演化追溯 (对齐 pyrit_ai300 Stage 4 ③) ──
     _print_tech_pool_evolution(ctx)
+
+    # ── D2: ASR 趋势分析 (跨运行) ──
+    _print_asr_trend(ctx)
+
+    # ── D3: 修复建议生成 ──
+    _print_fix_recommendations(ctx)
+
+    # ── D4: OWASP LLM Top10 覆盖矩阵 ──
+    _print_owasp_matrix(ctx)
 
     # ── O8: ★ 突出传递 Banner (替代单行交接) ──
     from pipeline.utils.display import handoff_banner
@@ -199,6 +209,16 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
                 print(f"  │   {tech:<35} {asr:.1f}%")
         except (OSError, ValueError) as e:
             logger.warning(f"Failed to save empirical ASR: {e}")
+
+    # P1: 种子级 ASR 收集 (per-seed, 用于精简时按种子排名)
+    try:
+        from pipeline.asr.optimizer import collect_seed_level_asr_from_memory
+
+        seed_asr = collect_seed_level_asr_from_memory(model_name=model_name)
+        if seed_asr:
+            print(f"  │ 种子级 ASR: {len(seed_asr)} 个种子已收集")
+    except Exception as e:
+        logger.warning(f"Failed to collect seed-level ASR: {e}")
 
     # G-07: ParadigmTracker 跨运行持久化
     failure_stats = ctx.metadata.get("failure_stats", {})
@@ -362,3 +382,145 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
             lines.append(f"✓ 技术匹配率 {success_rate:.0%} — 策略技术与载荷对齐")
 
     info_box("O7 + Gap 4: 技术池演化 + P编号 (Stage 2 → 4 → 5)", lines)
+
+
+# ============================================================
+# D2: ASR 趋势分析 (跨运行)
+# ============================================================
+
+
+def _print_asr_trend(ctx: PipelineContext) -> None:
+    """D2: 跨运行 ASR 趋势分析。
+
+    读取历史 seed_level_*.json 文件, 展示 ASR 趋势变化。
+    """
+    from pipeline.utils.display import info_box
+
+    try:
+        import glob
+        import json
+
+        base_dir = Path("outputs") if not ctx.output_manager else ctx.output_manager.base_dir
+        trend_files = sorted(glob.glob(str(base_dir / "empirical_asr" / "seed_level_*.json")))
+        if len(trend_files) < 2:
+            info_box("D2: ASR 趋势", ["(需 2+ 次运行才能显示趋势)"])
+            return
+
+        lines: list[str] = []
+        for fpath in trend_files[-5:]:  # 最近5次
+            try:
+                with open(fpath, encoding="utf-8") as f:
+                    data = json.load(f)
+                model = data.get("model_name", "?")
+                overall_asr = data.get("overall_asr", 0)
+                total = data.get("total_seeds", 0)
+                lines.append(f"{model}: ASR={overall_asr:.1%} ({total} seeds)")
+            except Exception:
+                continue
+
+        if len(lines) >= 2:
+            info_box("D2: ASR 趋势 (最近 5 次)", lines)
+        else:
+            info_box("D2: ASR 趋势", ["(有效数据不足)"])
+    except Exception as e:
+        logger.debug(f"D2 ASR trend failed: {e}")
+
+
+# ============================================================
+# D3: 修复建议生成
+# ============================================================
+
+
+def _print_fix_recommendations(ctx: PipelineContext) -> None:
+    """D3: 基于攻击结果生成修复建议。
+
+    高 ASR 技术 → 高优先级修复建议
+    """
+    from pipeline.utils.display import info_box
+
+    if not ctx.asr_per_technique:
+        info_box("D3: 修复建议", ["(无 ASR 数据)"])
+        return
+
+    # 按成功率排序
+    sorted_asr = sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True)
+
+    lines: list[str] = []
+    for tech, asr in sorted_asr[:5]:
+        if asr >= 50:
+            severity = "🔴 严重"
+            action = "立即修复"
+        elif asr >= 25:
+            severity = "🟠 高"
+            action = "优先修复"
+        elif asr >= 10:
+            severity = "🟡 中"
+            action = "计划修复"
+        else:
+            severity = "🟢 低"
+            action = "持续监控"
+
+        lines.append(f"{severity} {tech}: ASR={asr:.0f}% → {action}")
+
+    if not lines:
+        lines.append("(无有效建议)")
+    info_box("D3: 修复建议 (Top 5)", lines)
+
+
+# ============================================================
+# D4: OWASP LLM Top10 覆盖矩阵
+# ============================================================
+
+
+def _print_owasp_matrix(ctx: PipelineContext) -> None:
+    """D4: OWASP LLM Top10 (2025) 覆盖矩阵。
+
+    将攻击技术映射到 OWASP LLM Top10 分类,
+    展示每个 OWASP 分类的覆盖率。
+    """
+    from pipeline.utils.display import info_box
+
+    # OWASP LLM Top10 (2025) 分类
+    owasp_categories = {
+        "LLM01": "Prompt Injection",
+        "LLM02": "Insecure Output Handling",
+        "LLM03": "Training Data Poisoning",
+        "LLM04": "Model DoS",
+        "LLM05": "Supply Chain",
+        "LLM06": "Sensitive Info Disclosure",
+        "LLM07": "Insecure Plugin Design",
+        "LLM08": "Excessive Agency",
+        "LLM09": "Overreliance",
+        "LLM10": "Model Theft",
+    }
+
+    # 技术到 OWASP 的映射 (简化版)
+    tech_to_owasp: dict[str, str] = {
+        "prompt_injection": "LLM01",
+        "jailbreak": "LLM01",
+        "encoding": "LLM01",
+        "payload_smuggling": "LLM01",
+        "red_teaming": "LLM01",
+        "information_disclosure": "LLM06",
+        "data_exfiltration": "LLM06",
+        "dan": "LLM08",
+        "actor_attack": "LLM08",
+    }
+
+    # 统计覆盖
+    covered: set[str] = set()
+    if ctx.asr_per_technique:
+        for tech in ctx.asr_per_technique:
+            owasp_id = tech_to_owasp.get(tech.lower())
+            if owasp_id:
+                covered.add(owasp_id)
+
+    lines: list[str] = []
+    for owasp_id, name in owasp_categories.items():
+        mark = "✓" if owasp_id in covered else "✗"
+        lines.append(f"  {mark} {owasp_id} {name}")
+
+    coverage = len(covered) / len(owasp_categories) * 100
+    lines.append(f"  覆盖率: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)")
+
+    info_box("D4: OWASP LLM Top10 (2025) 覆盖矩阵", lines)

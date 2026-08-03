@@ -11,9 +11,14 @@ from core.auth.auth_strategy import (
     AutoAuthStrategy,
     CrossDomainAuthStrategy,
     NoAuthStrategy,
+    OTPAuthStrategy,
+    QRLoginAuthStrategy,
     SameDomainAuthStrategy,
+    SlidingAuthStrategy,
+    SMSCodeAuthStrategy,
 )
 from core.auth.browser_session import BrowserSession
+from core.auth.cookie_auth import CookieAuthProvider
 from core.auth.human_assisted_auth import HumanAssistedAuth
 from core.auth.models import (
     CrossDomainAuthConfig,
@@ -21,6 +26,7 @@ from core.auth.models import (
     RedirectChainEntry,
     SameDomainAuthConfig,
 )
+from core.auth.playwright_auth import PlaywrightAuthProvider
 from core.auth.provider import APIKeyAuthProvider, AuthProvider, NoAuthProvider
 
 __all__ = [
@@ -33,14 +39,20 @@ __all__ = [
     "AuthStrategyFactory",
     "AutoAuthStrategy",
     "BrowserSession",
+    "CookieAuthProvider",
     "CrossDomainAuthConfig",
     "CrossDomainAuthStrategy",
     "DetectionConfig",
     "HumanAssistedAuth",
     "NoAuthProvider",
     "NoAuthStrategy",
+    "OTPAuthStrategy",
+    "PlaywrightAuthProvider",
     "ProbeResult",
+    "QRLoginAuthStrategy",
     "RedirectChainEntry",
     "SameDomainAuthConfig",
     "SameDomainAuthStrategy",
+    "SlidingAuthStrategy",
+    "SMSCodeAuthStrategy",
 ]

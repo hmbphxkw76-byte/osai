@@ -1,4 +1,4 @@
-# PyRIT 项目记忆
+﻿# PyRIT 项目记忆
 
 > 积累的上下文、决策记录和经验教训。持续更新。
 > **更新记录**:
@@ -25,7 +25,7 @@ osai/
 ├── pyrit-pipeline/             # ★ 二次开发目录（本项目工作区）
 │   ├── .venv/                  #   独立虚拟环境
 │   ├── pipeline/               #   5 阶段流水线（init→scenario→initialize→execute→output）
-│   ├── web_bridge/            #   Playwright Web 红队框架（5 阶段: init→auth→target→attack→output）
+│   ├── web_redteam/            #   Playwright Web 红队框架（5 阶段: init→auth→target→attack→output）
 │   ├── data/                   #   自定义数据集 (.prompt 文件)
 │   ├── docs/                   #   自定义文档
 │   ├── scripts/                #   自定义工具脚本
@@ -70,7 +70,7 @@ osai/
 |---|---|---|
 | `src/PyRIT-1.0.1/` | PyRIT 原生源码 | 只读，不可修改 |
 | `pipeline/` | 5 阶段流水线 | 可自由修改 |
-| `web_bridge/` | Playwright Web 红队框架 | 可自由修改 |
+| `web_redteam/` | Playwright Web 红队框架 | 可自由修改 |
 | `scripts/` | 自定义工具脚本 | 可自由添加 |
 | `.assistant_pyrit/` | AI 助手共享记忆与规则 | 跨 IDE 平台使用 |
 | `.github/instructions/` | IDE 指令文件 | 按 `applyTo` 模式匹配自动加载 |

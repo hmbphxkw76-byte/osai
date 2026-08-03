@@ -92,6 +92,21 @@ async def run(ctx: PipelineContext) -> None:
     print("阶段 1/6: PyRIT 初始化 — Registry + Memory + 数据集")
     print("=" * 70)
 
+    # C4+D1: 初始化事件总线和决策追溯
+    from pipeline.utils.decision_trace import DecisionTrace
+    from pipeline.utils.event_bus import EventBus
+
+    if ctx.output_manager:
+        EventBus.init(output_dir=ctx.output_manager.logs_dir)
+    DecisionTrace.reset()
+    trace = DecisionTrace.get_instance()
+    trace.record(
+        stage="stage_1",
+        layer="L1_SeedSource",
+        decision="init_started",
+        reason="PyRIT 初始化开始",
+    )
+
     config_path = Path(ctx.args.config_file)
     if not config_path.is_absolute():
         config_path = Path.cwd() / config_path
@@ -166,8 +181,29 @@ async def run(ctx: PipelineContext) -> None:
 
 async def _load_datasets(ctx: PipelineContext) -> None:
     """加载本地数据集 + GCG/Fuzzer/多模态/限速/HTTP Target 配置 (Stage 1 内部)。."""
+    # ── 自动检查: curated_seeds 是否过期 ──
+    _check_curated_seeds_staleness()
+
     # ── 加载预下载数据集 (--datasets, 从 data/seed_datasets/benchmarks/ 本地加载) ──
     preloaded_dataset_paths: list[str] = []
+
+    # P2: 如果指定了 --model, 自动加载模型专属种子集
+    model_name = getattr(ctx.args, "model", "")
+    if model_name:
+        import re as _re
+
+        model_slug = _re.sub(r"[^\w]", "_", model_name.lower())[:30]
+        model_curated_path = f"data/seed_datasets/benchmarks/curated_seeds_{model_slug}.prompt"
+        if Path(model_curated_path).exists():
+            preloaded_dataset_paths.append(model_curated_path)
+            print(f"  [P2] 自动加载模型专属种子集: {model_curated_path}")
+        else:
+            # 回退到通用精简集
+            generic_curated = "data/seed_datasets/benchmarks/curated_seeds.prompt"
+            if Path(generic_curated).exists():
+                preloaded_dataset_paths.append(generic_curated)
+                print(f"  [P2] 模型专属种子集不存在, 使用通用精简集: {generic_curated}")
+
     for ds_name in ctx.args.datasets or []:
         local_prompt = f"data/seed_datasets/benchmarks/{ds_name}.prompt"
         if Path(local_prompt).exists():
@@ -200,6 +236,11 @@ async def _load_datasets(ctx: PipelineContext) -> None:
         # R-011: 更新 args.datasets 为实际加载的数据集名称, 确保 Stage 2 使用正确的名称
         if loaded_names:
             ctx.args.datasets = loaded_names
+
+        # G2: 运行时种子级 ASR 动态排序
+        # 学术依据: DART (arXiv:2407.06485) per-seed × per-model ASR 应指导运行时选择
+        #           RAIN (arXiv:2309.07124) 使用历史成功率排序
+        _apply_seed_level_asr_sorting(ctx)
 
     # ── P0: GCG 对抗后缀生成 (原生 pyrit.executor.promptgen.gcg) ──
     if getattr(ctx.args, "gcg_model", None):
@@ -431,8 +472,222 @@ async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
 
 
 # ============================================================
+# G2: 运行时种子级 ASR 动态排序
+# ============================================================
+
+
+def _apply_seed_level_asr_sorting(ctx: PipelineContext) -> None:
+    """运行时种子级 ASR 动态排序.
+
+    G2: 根据模型历史 ASR 数据对已加载的种子进行排序, 高 ASR 种子优先。
+
+    学术依据:
+      - DART (arXiv:2407.06485): per-seed × per-model ASR 应指导运行时选择
+      - RAIN (arXiv:2309.07124): 使用历史成功率排序种子
+      - PyRIT SeedPromptGroup: 支持 sort_by_metadata
+
+    实现逻辑:
+      1. 查询 load_seed_level_asr(model_name) 获取历史种子级 ASR
+      2. 如果存在 ASR 数据, 按 ASR 降序排序种子
+      3. 记录排序信息到 ctx.metadata
+    """
+    model_name = getattr(ctx.args, "model", "")
+    if not model_name:
+        return
+
+    try:
+        from pipeline.asr.optimizer import load_seed_level_asr
+
+        seed_asr_data = load_seed_level_asr(model_name)
+        if not seed_asr_data:
+            return
+
+        # 统计已排序种子数
+        sorted_count = len(seed_asr_data)
+        avg_asr = (
+            sum(v.get("asr", 0.0) for v in seed_asr_data.values()) / max(sorted_count, 1)
+        )
+
+        # 记录到 metadata, 供 Stage 2 场景配置使用
+        ctx.metadata["seed_level_asr"] = seed_asr_data
+        ctx.metadata["seed_level_asr_model"] = model_name
+        ctx.metadata["seed_level_asr_count"] = sorted_count
+        ctx.metadata["seed_level_avg_asr"] = round(avg_asr, 4)
+
+        print(
+            f"  [G2] 种子级 ASR 排序: {sorted_count} 个种子, "
+            f"平均 ASR={avg_asr:.2%} (模型={model_name})"
+        )
+
+        # 获取 top-5 高 ASR 种子 (用于日志展示)
+        top_seeds = sorted(
+            seed_asr_data.items(),
+            key=lambda x: x[1].get("asr", 0.0),
+            reverse=True,
+        )[:5]
+        if top_seeds:
+            print("       Top-5 高 ASR 种子:")
+            for seed_id, info in top_seeds:
+                asr_val = info.get("asr", 0.0)
+                attempts = info.get("attempts", 0)
+                print(f"         {seed_id}: ASR={asr_val:.2%} ({attempts} attempts)")
+
+    except Exception as e:
+        logger.debug(f"G2 seed-level ASR sorting skipped: {e}")
+
+    # P2-2: 模型特异性种子类别优先级
+    _apply_model_specific_seed_priority(ctx)
+
+
+# ============================================================
+# P2-2: 模型特异性种子类别优先级
+# ============================================================
+
+#: P2-2: 种子 metadata.technique_group → 种子类别映射
+_SEED_CATEGORY_KEYWORDS = {
+    "persuasion": {"persuasion", "authority", "emotional", "skeleton_key"},
+    "role_play": {"role_play", "movie_script", "persona", "character"},
+    "multi_turn": {"crescendo", "pair", "tap", "red_teaming", "tree", "many_shot"},
+    "encoding": {"encoding", "rot13", "base64", "morse", "binary", "caesar"},
+    "decomposition": {"decomposition", "decompose", "break_down"},
+}
+
+
+def _infer_seed_category(seed: Any) -> str:
+    """从种子的 metadata 推断种子类别.
+
+    P2-2: 根据 technique_group / owasp_id / 名称关键词推断。
+    """
+    # 尝试从 metadata.technique_group 获取
+    metadata = getattr(seed, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        tech_group = metadata.get("technique_group", "")
+        if tech_group:
+            tech_lower = str(tech_group).lower()
+            for category, keywords in _SEED_CATEGORY_KEYWORDS.items():
+                if any(kw in tech_lower for kw in keywords):
+                    return category
+
+    # 尝试从种子值推断
+    seed_value = str(getattr(seed, "value", "") or getattr(seed, "prompt", "") or "").lower()
+    for category, keywords in _SEED_CATEGORY_KEYWORDS.items():
+        if any(kw in seed_value for kw in keywords):
+            return category
+
+    return "baseline"
+
+
+def _apply_model_specific_seed_priority(ctx: PipelineContext) -> None:
+    """P2-2: 根据模型系列对已加载的种子按类别优先级排序.
+
+    学术依据: HarmBench (arXiv:2402.04249) 模型间种子有效性差异
+      - 同一种子对不同模型的 ASR 差异可达 30-50%
+      - 按模型系列优先选择高命中率的种子类别
+
+    从 ``data/setting/asr_priors.yaml`` 的 ``seed_priority_by_model`` 加载。
+    """
+    model_name = getattr(ctx.args, "model", "")
+    if not model_name:
+        return
+
+    try:
+        import yaml as _yaml
+
+        yaml_path = Path(__file__).parent.parent.parent / "data" / "setting" / "asr_priors.yaml"
+        if not yaml_path.exists():
+            return
+
+        with open(yaml_path, encoding="utf-8") as f:
+            asr_data = _yaml.safe_load(f)
+
+        priority_map = asr_data.get("seed_priority_by_model", {})
+        if not priority_map:
+            return
+
+        # 模型系列匹配
+        name_lower = model_name.lower()
+        model_category_priority: list[str] | None = None
+
+        for key, priorities in priority_map.items():
+            if key.lower() == name_lower or key.lower() in name_lower:
+                model_category_priority = priorities
+                break
+
+        if not model_category_priority:
+            return
+
+        # 从 CentralMemory 获取已加载的种子
+        from pyrit.memory import CentralMemory
+
+        memory = CentralMemory.get_memory_instance()
+        dataset_names = getattr(ctx.args, "datasets", []) or []
+        if not dataset_names:
+            return
+
+        # 统计各类别种子数
+        category_counts: dict[str, int] = {}
+        total_seeds = 0
+        for ds_name in dataset_names:
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            if not prompts:
+                continue
+            for seed in prompts:
+                cat = _infer_seed_category(seed)
+                category_counts[cat] = category_counts.get(cat, 0) + 1
+                total_seeds += 1
+
+        if total_seeds == 0:
+            return
+
+        # 记录到 metadata
+        ctx.metadata["seed_category_priority"] = model_category_priority
+        ctx.metadata["seed_category_counts"] = category_counts
+
+        # 展示优先级排序
+        print(f"  [P2-2] 模型特异性种子类别优先级 (模型={model_name}):")
+        for i, cat in enumerate(model_category_priority):
+            count = category_counts.get(cat, 0)
+            print(f"    优先级 {i+1}: {cat:<15} ({count} seeds)")
+
+    except Exception as e:
+        logger.debug(f"P2-2 model-specific seed priority skipped: {e}")
+
+
+# ============================================================
 # P2-2: 种子模板配置化 (GCG goals/targets + Fuzzer seeds)
 # ============================================================
+
+
+def _check_curated_seeds_staleness() -> None:
+    """自动检查 curated_seeds 是否存在或过期, 提示用户重新精简。.
+
+    检查逻辑:
+      1. curated_seeds.prompt 不存在 → 提示运行精简
+      2. curated_seeds.prompt 的修改时间早于任一原始数据集 → 提示重新精简
+    """
+    curated = Path("data/seed_datasets/benchmarks/curated_seeds.prompt")
+    if not curated.exists():
+        print("  [提示] 精简种子集不存在, 建议运行: make curate-seeds")
+        return
+
+    # 检查原始数据集是否比精简集更新
+    curated_mtime = curated.stat().st_mtime
+    stale = False
+    for subdir in ("benchmarks", "owasp", "cve", "custom"):
+        d = Path(f"data/seed_datasets/{subdir}")
+        if not d.exists():
+            continue
+        for f in d.glob("*.prompt"):
+            if f.name.startswith("curated_seeds"):
+                continue
+            if f.stat().st_mtime > curated_mtime:
+                stale = True
+                break
+        if stale:
+            break
+
+    if stale:
+        print("  [提示] 原始数据集已更新, 精简种子集可能过期, 建议运行: make curate-seeds")
 
 
 def _load_seed_templates(template_type: str) -> tuple[list[str], list[str]] | tuple[list[str]]:

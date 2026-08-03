@@ -71,7 +71,7 @@ def main() -> int:
     # 3. 目录结构
     print("\n--- 目录结构 ---")
     all_ok &= check_file(cwd / "pipeline" / "__init__.py", "pipeline 模块")
-    all_ok &= check_file(cwd / "web_bridge" / "__init__.py", "web_bridge 模块")
+    all_ok &= check_file(cwd / "web_redteam" / "__init__.py", "web_redteam 模块")
     all_ok &= check_file(cwd / "data", "数据集目录")
     all_ok &= check_file(cwd / "docs", "文档目录")
     all_ok &= check_file(cwd / "scripts", "脚本目录")
@@ -85,7 +85,7 @@ def main() -> int:
     print("\n--- 测试 ---")
     all_ok &= check_file(cwd / "conftest.py", "全局 conftest")
     all_ok &= check_file(cwd / "pipeline" / "tests", "pipeline 测试")
-    all_ok &= check_file(cwd / "web_bridge" / "tests", "web_bridge 测试")
+    all_ok &= check_file(cwd / "web_redteam" / "tests", "web_redteam 测试")
 
     print("\n" + "=" * 70)
     if all_ok:

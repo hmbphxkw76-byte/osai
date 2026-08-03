@@ -169,6 +169,13 @@ _DYNAMIC_ALPHA_MIN = 0.15  # 最小 alpha（首次运行，先验主导）
 _DYNAMIC_ALPHA_MAX = 0.50  # 最大 alpha（充足数据，经验主导）
 _DYNAMIC_ALPHA_DATA_THRESHOLD = 10  # 达到此数据量时 alpha 达到最大值
 
+# P2-1: 动态 epsilon 衰减配置
+# 学术依据: Sutton & Barto (RL 2018) epsilon-greedy 衰减策略
+#   运行初期高探索 (epsilon_initial), 后期高利用 (epsilon_min)
+_EPSILON_DECAY_INITIAL = 0.20   # 衰减初始 epsilon (高于默认 0.1)
+_EPSILON_DECAY_MIN = 0.02      # 衰减下限 (保留少量探索)
+_EPSILON_DECAY_STEPS = 50      # 衰减步数 (50 次 select_async 后达到最小值)
+
 
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     """失败类型路由技术选择器 — 继承原生 ``EpsilonGreedyTechniqueSelector``。.
@@ -221,6 +228,10 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         self._dynamic_alpha_cache: float | None = None
         # P1: 范式性能跟踪器 (从运行时数据加载)
         self._paradigm_tracker: Any = None
+        # P2-1: 动态 epsilon 衰减状态
+        self._epsilon_decay_enabled: bool = False
+        self._select_call_count: int = 0  # select_async 调用计数
+        self._original_epsilon: float = epsilon  # 保存原始 epsilon
 
         if self._warm_start_asr:
             logger.info(f"warm_start_asr injected into selector ({len(self._warm_start_asr)} techniques)")
@@ -254,6 +265,35 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         if tracker and hasattr(tracker, "has_data") and tracker.has_data:
             logger.info("ParadigmPerformanceTracker loaded with runtime data")
 
+    def set_epsilon_decay(self, enabled: bool) -> None:
+        """P2-1: 启用/禁用动态 epsilon 衰减."""
+        self._epsilon_decay_enabled = enabled
+        if enabled:
+            # 设置初始 epsilon 为衰减初始值
+            self._epsilon = _EPSILON_DECAY_INITIAL
+            logger.info(f"P2-1: epsilon decay enabled (initial={_EPSILON_DECAY_INITIAL}, min={_EPSILON_DECAY_MIN})")
+
+    def _update_epsilon_decay(self) -> None:
+        """P2-1: 根据调用次数更新 epsilon (线性衰减).
+
+        学术依据: Sutton & Barto (RL 2018)
+            epsilon(t) = max(epsilon_min, epsilon_initial * (1 - t/T))
+        其中 T = _EPSILON_DECAY_STEPS
+        """
+        if not self._epsilon_decay_enabled:
+            return
+
+        self._select_call_count += 1
+        t = self._select_call_count
+        T = _EPSILON_DECAY_STEPS
+
+        # 线性衰减: epsilon_initial → epsilon_min
+        decayed = _EPSILON_DECAY_INITIAL - (_EPSILON_DECAY_INITIAL - _EPSILON_DECAY_MIN) * (t / T)
+        self._epsilon = max(_EPSILON_DECAY_MIN, decayed)
+
+        if t <= 1 or t % 10 == 0:
+            logger.debug(f"P2-1: epsilon decayed to {self._epsilon:.4f} (step={t}/{T})")
+
     # ------------------------------------------------------------------
     # 核心覆盖: select_async
     # ------------------------------------------------------------------
@@ -266,10 +306,12 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         num_top_techniques: int = 1,
         scenario_result_id: str | None = None,
     ) -> Sequence[str]:
-        """选择技术 — 统一融合 epsilon-greedy + warm-start ASR + 失败类型路由。.
+        """选择技术 — 统一融合 epsilon-greedy + warm-start ASR + 失败类型路由.
 
         优化1: 使用单一 ``_composite_score()`` 函数统一融合,
         消除三套权重叠加 (warm-start alpha=0.5 / blend alpha / heuristic)。
+
+        P2-1: 当 epsilon decay 启用时, 每次调用衰减 epsilon。
 
         1. 调用父类 epsilon-greedy 获取基础排序 (探索 + 记忆利用)
         2. 计算 warm-start ASR 排序 (学术先验)
@@ -277,6 +319,8 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         4. 统一融合: composite = w_eg*eg + w_ws*ws + w_route*route
         5. 返回前 num_top_techniques 个技术
         """
+        # P2-1: 动态 epsilon 衰减
+        self._update_epsilon_decay()
         base_order = await super().select_async(
             technique_identifiers=technique_identifiers,
             objective=objective,

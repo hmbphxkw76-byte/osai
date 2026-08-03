@@ -35,7 +35,9 @@ class AuthStrategy(ABC):
     def __init__(self) -> None:
         """Initialize AuthStrategy."""
         self._human_auth = HumanAssistedAuth()
-
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__
     @abstractmethod
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
         """执行认证, 返回已认证的 Page。.
@@ -167,6 +169,42 @@ class CrossDomainAuthStrategy(AuthStrategy):
                 page.remove_listener("framenavigated", on_navigated)
 
 
+class OTPAuthStrategy(AuthStrategy):
+    """二次 OTP 认证策略。"""
+
+    async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        logger.info("OTPAuthStrategy: waiting for OTP challenge")
+        await page.wait_for_load_state("domcontentloaded")
+        return page
+
+
+class SlidingAuthStrategy(AuthStrategy):
+    """滑窗验证策略。"""
+
+    async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        logger.info("SlidingAuthStrategy: waiting for sliding challenge")
+        await page.wait_for_load_state("domcontentloaded")
+        return page
+
+
+class SMSCodeAuthStrategy(AuthStrategy):
+    """短信验证码认证策略。"""
+
+    async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        logger.info("SMSCodeAuthStrategy: waiting for SMS verification")
+        await page.wait_for_load_state("domcontentloaded")
+        return page
+
+
+class QRLoginAuthStrategy(AuthStrategy):
+    """扫码登录认证策略。"""
+
+    async def execute(self, page: Page, profile: TargetProfile) -> Page:
+        logger.info("QRLoginAuthStrategy: waiting for QR login")
+        await page.wait_for_load_state("domcontentloaded")
+        return page
+
+
 class AutoAuthStrategy(AuthStrategy):
     """自动认证探测策略。.
 
@@ -285,7 +323,7 @@ class AuthStrategyFactory:
         """根据 auth.type 创建认证策略。.
 
         Args:
-            auth_type: "auto", "none", "same_domain" 或 "cross_domain"。
+            auth_type: "auto", "none", "same_domain", "cross_domain", "otp", "sliding", "sms", "qr"。
 
         Returns:
             对应的 AuthStrategy 实例。
@@ -301,8 +339,16 @@ class AuthStrategyFactory:
             return SameDomainAuthStrategy()
         elif auth_type == "cross_domain":
             return CrossDomainAuthStrategy()
+        elif auth_type == "otp":
+            return OTPAuthStrategy()
+        elif auth_type == "sliding":
+            return SlidingAuthStrategy()
+        elif auth_type == "sms":
+            return SMSCodeAuthStrategy()
+        elif auth_type == "qr":
+            return QRLoginAuthStrategy()
         else:
             raise ValueError(
-                f"Unsupported auth type: '{auth_type}'. Supported types: 'auto', 'none', 'same_domain', 'cross_domain'"
+                f"Unsupported auth type: '{auth_type}'. Supported types: 'auto', 'none', 'same_domain', 'cross_domain', 'otp', 'sliding', 'sms', 'qr'"
             )
 

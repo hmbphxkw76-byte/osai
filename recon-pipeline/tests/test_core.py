@@ -130,3 +130,40 @@ def test_pyrit_exporter():
     exporter.export(report, ctx)
     assert "recon_result" in ctx.metadata
     assert "recon_summary" in ctx.metadata
+
+
+def test_auth_strategy_factory_supports_challenge_modes():
+    """认证工厂应支持 OTP/滑窗/短信码/扫码策略。"""
+    from core.auth import AuthStrategyFactory
+
+    strategies = [
+        AuthStrategyFactory.create("otp"),
+        AuthStrategyFactory.create("sliding"),
+        AuthStrategyFactory.create("sms"),
+        AuthStrategyFactory.create("qr"),
+    ]
+
+    assert [strategy.name for strategy in strategies] == [
+        "OTPAuthStrategy",
+        "SlidingAuthStrategy",
+        "SMSCodeAuthStrategy",
+        "QRLoginAuthStrategy",
+    ]
+
+
+def test_target_url_classifier_identifies_ai_components():
+    """目标 URL 分类器应识别 MCP/Agent/RAG/Embedding 组件。"""
+    from core.probes.target_url_classifier import TargetUrlClassifier
+
+    classifier = TargetUrlClassifier()
+
+    agent_result = classifier.classify("https://example.com/api/tools")
+    mcp_result = classifier.classify("https://example.com/mcp/message")
+    rag_result = classifier.classify("https://example.com/api/search")
+    embedding_result = classifier.classify("https://example.com/v1/embeddings")
+
+    assert agent_result.primary_category == "agent"
+    assert "agent" in agent_result.tags
+    assert mcp_result.primary_category == "mcp"
+    assert rag_result.primary_category == "rag"
+    assert embedding_result.primary_category == "embedding"

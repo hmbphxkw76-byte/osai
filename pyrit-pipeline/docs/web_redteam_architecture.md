@@ -34,7 +34,7 @@
 ## 三、目录结构
 
 ```
-web_bridge/                              # 消费层根目录 (与 pipeline/ 平级, 不侵入 pyrit/)
+web_redteam/                              # 消费层根目录 (与 pipeline/ 平级, 不侵入 pyrit/)
 │
 ├── targets/                               # 目标档案 (纯 YAML, 零代码)
 │   ├── _schema.yaml                       # TargetProfile YAML Schema

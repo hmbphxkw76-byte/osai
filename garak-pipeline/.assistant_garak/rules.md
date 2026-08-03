@@ -2,9 +2,9 @@
 
 > 更新: 2026-08-01 18:15
 
-> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-108）。
-> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略。
-> 以下为 Garak 项目专项规则（规则一 ~ 规则十二），是全局规则的补充细化，不得与全局规则冲突。
+> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-125）。
+> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略、ruff/pytest 工具链规范、侦察原则、实施前检查清单（G-125）。
+> 以下为 Garak 项目专项规则（规则一 ~ 规则十二 + R-018），是全局规则的补充细化，不得与全局规则冲突。
 
 ## 规则一：garak 原生框架优先
 
@@ -103,12 +103,16 @@
   - SWIFT (arxiv 2408.05517)：阿里 ModelScope 团队已实现 HuggingFace + ModelScope 双源加载
   - 离线部署 (arxiv 2604.22768)：气隙隔离环境下安全评估需要离线/镜像资源支持
 
-## 规则十：__pycache__ 自动清理 + main.py 纯编排（2026-08-01 新增）
+## 规则十：__pycache__ + .pyc/.pyo 自动清理 + main.py 纯编排（2026-08-01 新增，2026-08-03 更新三库统一）
 
-- **每次 Pipeline 运行前和运行后**，必须自动清理项目下所有 `__pycache__` 目录
+- **每次 Pipeline 运行前和运行后**，必须自动递归清理项目下所有 Python 临时文件：
+  - `__pycache__` 目录 — Python 字节码缓存目录
+  - `.pyc` / `.pyo` 文件 — 编译后的字节码文件
+  - `.pytest_cache` 目录 — pytest 测试缓存目录
   - 防止 stale bytecode 导致 `TypeError: got an unexpected keyword argument`（参数变更后旧 .pyc 仍被加载）
   - 实现位置：`pipeline/utils.py` → `clean_pycache(project_root)`
-  - 调用时机：`main.py` 在执行前和执行后各调用一次
+  - 调用时机：`main.py` 在执行前和执行后 (finally 块) 各调用一次
+- **三库统一标准 (R-008)**：pyrit-pipeline / garak-pipeline / recon-pipeline 使用相同的清理模式和调用时机
 - **main.py 必须是纯编排**，不包含任何业务逻辑
   - 只做：CLI 解析 → 配置加载 → pycache 清理 → 启动信息 → PipelineRunner.run() → 结果打印
   - 所有子功能必须从 `pipeline/` 模块导入（`pipeline.utils`, `pipeline.runner` 等）

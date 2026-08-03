@@ -8,6 +8,7 @@
 """
 
 import argparse
+import os
 import warnings
 
 
@@ -58,7 +59,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--load-owasp-local",
         action="store_true",
-        help="自动加载 data/ 清单中所有 default=true 的本地数据集 (OWASP + Agentic)",
+        default=True,
+        help=(
+            "自动加载 data/ 清单中所有 default=true 的本地数据集 (OWASP + Agentic).\n"
+            "默认开启 — 项目以 data/ 目录数据集为数据源主入口。\n"
+            "使用 --no-owasp-local 可禁用。"
+        ),
+    )
+    parser.add_argument(
+        "--no-owasp-local",
+        action="store_true",
+        default=False,
+        help="禁用自动加载 data/ 清单中的 OWASP + Agentic 数据集 (默认: 不禁用)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="",
+        help=(
+            "目标模型名 (如 gpt-4o, llama-3-8b).\n"
+            "指定后自动加载模型专属精简种子集 (curated_seeds_{model}.prompt),\n"
+            "并使用该模型的 ASR 先验进行种子排序."
+        ),
     )
     parser.add_argument(
         "--tier-layer",
@@ -70,6 +92,26 @@ def parse_args() -> argparse.Namespace:
             "  1: 快速评估 (Tier S/A, 5 个技术, 5 seeds)\n"
             "  2: 标准评估 (+ Tier B, 12 个技术, 10 seeds)\n"
             "  3: 深度评估 (全技术, 20 seeds)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-tier-params",
+        action="store_true",
+        default=False,
+        help=(
+            "G3: 自动根据 model_tier 覆盖攻击参数 (max_attempts/epsilon/max_concurrency).\n"
+            "  当启用时, CLI 未显式指定的参数将从 model_tiers.yaml 的 attack_params_by_tier 加载.\n"
+            "  学术依据: Crescendo (arXiv:2402.12109), HarmBench (arXiv:2402.04249)"
+        ),
+    )
+    parser.add_argument(
+        "--epsilon-decay",
+        action="store_true",
+        default=False,
+        help=(
+            "P2-1: 动态 epsilon 衰减 (运行初期高探索, 后期高利用).\n"
+            "  当启用时, epsilon 从初始值线性衰减到 epsilon_min=0.02.\n"
+            "  学术依据: Sutton & Barto (RL 2018) epsilon-greedy 衰减策略"
         ),
     )
 
@@ -146,16 +188,50 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
-    # ── Web Red Team 目标 (自动认证桥接) ──
+    # ── 统一目标 URL (自动判别 + 智能路由) ──
+    # 优先级: 命令行 --target-url > .env 中 TARGET_URL > .env 中 WEB_REDTEAM_TARGET_URL
+    parser.add_argument(
+        "--target-url",
+        type=str,
+        default=None,
+        help=(
+            "统一目标 URL — 自动判别目标类型 (LLM Web 应用 / LLM API 平台),\n"
+            "自动探测认证拓扑和 MFA, 自动路由到最佳攻击流程.\n"
+            "也可通过 .env 文件设置 TARGET_URL 或 WEB_REDTEAM_TARGET_URL.\n"
+            "示例: --target-url https://chat.example.com\n"
+            "      --target-url https://api.longcat.chat/openai/v1/chat/completions"
+        ),
+    )
+    parser.add_argument(
+        "--target-type",
+        type=str,
+        choices=["auto", "web_app", "api_platform"],
+        default="auto",
+        help=(
+            "目标类型 (默认: auto 自动判别).\n"
+            "  auto: 自动探测目标类型\n"
+            "  web_app: 强制为 LLM Web 应用 (PlaywrightTarget)\n"
+            "  api_platform: 强制为 LLM API 平台 (HTTPTarget)"
+        ),
+    )
+    parser.add_argument(
+        "--mfa-timeout",
+        type=int,
+        default=300,
+        help="MFA 操作等待超时秒数 (默认: 300s)",
+    )
+    parser.add_argument(
+        "--recon",
+        action="store_true",
+        help="启用 recon-pipeline 侦察 (自动发现 API 端点、注入面、攻击推荐)",
+    )
+
+    # ── 兼容旧参数 (向后兼容, 内部映射到新参数) ──
     parser.add_argument(
         "--web-target-url",
         type=str,
         default=None,
-        help=(
-            "Web 目标 URL — 自动检测是否需要认证, 如需要则执行认证流程,\n"
-            "然后将已认证的 PlaywrightTarget 注入主 pipeline.\n"
-            "示例: --web-target-url https://chat.example.com"
-        ),
+        help="[已废弃] 请使用 --target-url. 向后兼容保留.",
     )
     parser.add_argument(
         "--web-target-profile",
@@ -347,4 +423,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="报告输出目录 (默认: output/redteam_YYYYMMDD_HHMMSS)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # ── 统一目标 URL 解析: 命令行 > .env TARGET_URL > .env WEB_REDTEAM_TARGET_URL ──
+    if not args.target_url:
+        args.target_url = os.environ.get("TARGET_URL") or os.environ.get("WEB_REDTEAM_TARGET_URL")
+    # 兼容旧参数 --web-target-url
+    if not args.target_url and args.web_target_url:
+        args.target_url = args.web_target_url
+
+    # ── --no-owasp-local 覆盖 --load-owasp-local ──
+    if args.no_owasp_local:
+        args.load_owasp_local = False
+
+    return args

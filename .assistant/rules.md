@@ -1,12 +1,15 @@
 # OSAI 全局开发规范
 
-> **版本**: v1.3.0
-> **日期**: 2026-08-02
+> **版本**: v1.6.0
+> **日期**: 2026-08-03
 > **更新记录**:
 > - 2026-08-02 — v1.1.0: 新增第 7/8/12/13/14/15/16 章，规则从 49 条扩展至 108 条
 > - 2026-08-02 — v1.2.0: 修正项目名称（ai-recon-core → recon-pipeline），新增附录 C 子项目规则模板
 > - 2026-08-02 — v1.2.1: 完善 G-032（临时文件清理）明确 `.pytest_cache` 清理要求，扩展 `.gitignore` 覆盖 Python/IDE/测试/密钥等常见忽略项
 > - 2026-08-02 — v1.3.0: 审计全 108 条规则与 Python 最佳实践的一致性，删除 2 条冲突规则（G-069 行数限制、G-073 keyword-only 强制），微调 3 条规则措辞（G-082、G-083、G-100），重新编号受影响的规则
+> - 2026-08-03 — v1.4.0: 新增第 17 章（ruff 与 pytest 工具链规范），含 ruff 配置/执行/规则选择（G-109~G-114）和 pytest 配置/执行/覆盖率（G-115~G-120），共 12 条新规则
+> - 2026-08-03 — v1.5.0: 扩展第 5 章，新增 5.2 核心学术论文引用表（6 篇）和 5.3 关键开源项目参考表（5 个），补充 G-027-1 论文引用规范；新增第 18 章侦察原则（G-121~G-124），更新附录 B 子项目继承关系
+> - 2026-08-03 — v1.6.0: 新增第 19 章实施前检查清单（G-125），规范实施方案执行前的检查流程，避免项目遗漏
 > **适用范围**: 所有子项目（pyrit-pipeline / garak-pipeline / recon-pipeline）
 > **优先级**: 全局规则 > 子项目规则（子项目规则不可与全局规则冲突）
 
@@ -30,6 +33,8 @@
 14. [安全开发规范](#14-安全开发规范)
 15. [代码审查与协作](#15-代码审查与协作)
 16. [废弃与迁移策略](#16-废弃与迁移策略)
+17. [ruff 与 pytest 工具链规范](#17-ruff-与-pytest-工具链规范)
+18. [侦察设计原则](#18-侦察设计原则)
 
 ---
 
@@ -173,6 +178,45 @@
 
 **理由**：AI 安全红队评估高度依赖前沿研究，理论先行确保方法论严谨性，避免凭直觉或碎片化博客做决策。
 
+### 5.2 核心学术论文引用表
+
+> **G-027-1**：在代码、文档、规则中引用论文时，必须标注 arXiv 编号、标题和核心贡献。以下为 OSAI 项目核心引用论文清单，各子项目可在此基础上扩展。
+
+| # | 论文标题 | arXiv | 会议/年份 | 核心贡献 | 关联子项目 |
+|---|---------|-------|----------|---------|-----------|
+| 1 | Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection | [2302.12173](https://arxiv.org/abs/2302.12173) | 2023 | 首次系统展示间接提示注入攻击面：攻击者通过网页/文档等外部数据源注入恶意指令，操控 LLM 集成应用。定义了 Agent 工具调用是间接注入的关键入口。 | recon, pyrit |
+| 2 | PoisonedRAG: Knowledge Corruption Attacks to Retrieval-Augmented Generation of Large Language Models | [2402.07867](https://arxiv.org/abs/2402.07867) | USENIX Security 2025 | 仅需注入 5 条恶意文本即可达到 90% 攻击成功率。将向量数据库定位为 RAG 系统的关键攻击面。提出黑盒/白盒攻击方案。 | recon, pyrit |
+| 3 | Model Context Protocol (MCP): Landscape, Security Threats, and Future Research Directions | [2503.23278](https://arxiv.org/abs/2503.23278) | 2025 | MCP 安全威胁系统性研究。定义 MCP 全生命周期攻击面（Creation/Deployment/Operation/Maintenance），识别 16 种威胁场景，涵盖 tool poisoning、tool shadowing、supply chain。 | recon |
+| 4 | AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents | [2406.13352](https://arxiv.org/abs/2406.13352) | 2024 | Agent 场景下 prompt injection 攻击的系统评估基准。定义了工具调用场景中的攻击面分类法，评估 30 种 LLM Agent 的脆弱性。 | recon, pyrit |
+| 5 | Automatic LLM Red Teaming | [2508.04451](https://arxiv.org/abs/2508.04451) | 2025 | 提出训练 AI 去战略性"攻破"另一个 AI 的新范式。将红队测试形式化为优化问题。 | pyrit |
+| 6 | InjecAgent: Benchmarking Indirect Prompt Injection in Tool-Integrated Large Language Model Agents | [2403.02691](https://arxiv.org/abs/2403.02691) | ACL 2024 | 首个针对工具集成 LLM Agent 间接提示注入的系统性评估基准。GPT-4 在 ReAct 策略下仍有 24% 被攻击成功率。 | recon, pyrit |
+
+### 5.3 关键开源项目参考表
+
+> 以下为 OSAI 项目核心参考的开源项目清单。在架构设计、功能实现时应优先参考这些项目的设计模式。
+
+| # | 项目 | 仓库 | 核心能力 | 参考价值 | 关联子项目 |
+|---|------|------|---------|---------|-----------|
+| 1 | **AIMap** (Bishop Fox) | [github.com/BishopFox/aimap](https://github.com/BishopFox/aimap) | 互联网级 AI Agent 基础设施发现与安全测试。32+ Shodan 查询发现端点 → Nuclei 模板指纹识别 → 风险评分(0-10)。支持 MCP/Ollama/vLLM/LangChain 等多框架检测。 | 端点指纹识别方法论：URL 模式 + 响应体关键词 + 响应头 + favicon hash 多维度组合检测。风险评分体系。 | recon |
+| 2 | **Garak** (NVIDIA) | [github.com/NVIDIA/garak](https://github.com/NVIDIA/garak) | LLM 漏洞扫描器。probes → detectors → evaluators 三层架构。40+ 探针覆盖 jailbreak/数据泄露/提示注入/幻觉等。模块化插件设计。 | 探针-检测器分离架构；`probewise` harness 模式（每探针独立运行，结果聚合）。 | recon, garak |
+| 3 | **PyRIT** (Microsoft) | [github.com/Azure/PyRIT](https://github.com/Azure/PyRIT) | AI 红队测试框架。提供 orchestrator/converter/scorer/target 抽象。`PlaywrightTarget` 支持浏览器自动化攻击。 | 编排器抽象设计；多轮攻击策略（RedTeaming/Crescendo/TAP）；浏览器自动化模式。 | pyrit |
+| 4 | **VulnerableMCP** | [vulnerablemcp.info](https://vulnerablemcp.info) | MCP 漏洞数据库：50 漏洞 / 13 Critical / 32 研究人员。分类：Prompt Injection(13)、Input Validation(17)、Auth Failures(5) 等。攻击向量：RCE、SSRF、DNS Rebinding、Tool Poisoning、Tool Shadowing。 | MCP 安全漏洞分类参考；工具风险等级评估体系。 | recon |
+| 5 | **Sn1per** | [github.com/1N3/Sn1per](https://github.com/1N3/Sn1per) | 自动化渗透测试与攻击面管理框架。侦察 → 扫描 → 报告全流程自动化。 | 攻击面管理（ASM）全流程设计参考；侦察结果到攻击推荐的映射模式。 | recon |
+
+### 5.4 OWASP 对齐
+
+> 所有侦察和攻击结果必须映射到 **OWASP Top 10 for LLM Applications 2025** 分类体系：
+
+| OWASP ID | 类别 | 攻击面 | 侦察方式 |
+|----------|------|--------|---------|
+| LLM01 | Prompt Injection | 聊天输入框、Model API、系统提示词 | 网络拦截 + DOM 扫描 |
+| LLM02 | Sensitive Information Disclosure | 模型指纹、系统提示词泄露 | 响应体分析 |
+| LLM04 | Data Poisoning | 文件上传、知识库导入 | DOM 扫描 + API 端点发现 |
+| LLM06 | Excessive Agency | Agent 工具权限、MCP 工具枚举 | 工具权限矩阵 + JSON-RPC 探测 |
+| LLM07 | System Prompt Leakage | 系统提示词、MCP 配置 | 响应体分析 + 工具枚举 |
+| LLM08 | Vector & Embedding Weaknesses | 向量数据库、嵌入端点 | 向量库指纹 + 未授权访问检测 |
+| LLM10 | Unbounded Consumption | Model API（无速率限制） | API 端点发现 |
+
 ---
 
 ## 6. 项目隔离与目录边界
@@ -276,17 +320,25 @@
 
 ### 9.1 临时文件清理
 
-> **G-032**：每次 Pipeline 运行前和运行后，必须自动清理 Python 临时文件。禁止跳过清理步骤。
+> **G-032**：每次 Pipeline 运行前和运行后，必须自动清理 Python 临时文件。**递归删除所有 `__pycache__/` 目录和 `*.pyc`/`*.pyo`/`*.pyd` 编译产物，禁止跳过清理步骤。**
 
-| 清理对象 | 说明 | 清理时机 |
-|----------|------|----------|
-| `__pycache__/` | Python 字节码缓存目录 | 运行前 + 运行后 |
-| `*.pyc`、`*.pyo` | 编译字节码文件 | 运行前 + 运行后 |
-| `.pytest_cache/` | pytest 测试缓存目录 | 运行前 + 运行后 |
+| 清理对象 | 说明 | 清理时机 | 强制动作 |
+|----------|------|----------|----------|
+| `__pycache__/` | Python 字节码缓存目录 | 运行前 + 运行后 | **递归删除整个目录**（含所有子目录） |
+| `*.pyc`、`*.pyo`、`*.pyd` | 编译字节码文件 | 运行前 + 运行后 | **递归删除所有匹配文件** |
+| `.pytest_cache/` | pytest 测试缓存目录 | 运行前 + 运行后 | 递归删除 |
+
+**强制命令（PowerShell）**：
+
+```powershell
+Get-ChildItem -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+Get-ChildItem -Recurse -File -Include *.pyc,*.pyo,*.pyd | Remove-Item -Force
+```
 
 - **运行前清理**：移除过期字节码和测试缓存，确保干净起点，避免 stale bytecode 导致难以调试的问题
 - **运行后清理**：移除本次运行生成的临时缓存，保持环境整洁
 - **保留**：`outputs/` 目录下的报告文件保留供人工审查，不受清理影响
+- **自动化要求**：该清理必须作为 pytest / 主入口 / 任何脚本运行的固定前置和后置步骤，不能依赖人工记忆（recon-pipeline 项目细化为 R-114）
 
 > 注意：`.pytest_cache/` 已加入 `.gitignore`，不会被提交到版本控制，但运行时仍需主动清理以避免缓存干扰。
 
@@ -481,7 +533,203 @@
 
 ---
 
+## 17. ruff 与 pytest 工具链规范
+
+### 17.1 ruff 配置规范
+
+> **G-109**：所有子项目必须在 `pyproject.toml` 中配置 `[tool.ruff]`，统一使用以下规则集。
+
+**必选规则集**（`[tool.ruff.lint]`）：
+
+| 规则集 | 覆盖范围 | 优先级 |
+|--------|----------|--------|
+| `E` / `W` | pycodestyle 错误与警告 | **必选** |
+| `F` | Pyflakes（未使用导入、未定义变量等） | **必选** |
+| `I` | isort（导入排序） | **必选** |
+| `N` | pep8-naming（命名规范） | **必选** |
+| `UP` | pyupgrade（现代 Python 语法） | **必选** |
+| `B` | flake8-bugbear（常见 bug 检查） | **必选** |
+| `SIM` | flake8-simplify（代码简化建议） | **推荐** |
+| `T20` | flake8-print（禁止 print 语句） | **必选** |
+| `RUF` | ruff 专属规则 | **推荐** |
+
+**配置示例**（`pyproject.toml`）：
+
+```toml
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # Pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # flake8-bugbear
+    "SIM",       # flake8-simplify
+    "T20",       # flake8-print
+    "RUF",       # ruff-specific
+]
+ignore = [
+    "SIM108",    # 允许 if/else 替代三元表达式（可读性优先）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["T20"]  # 测试文件允许 print 调试
+"__init__.py" = ["F401"]   # __init__.py 允许未使用的导入（用于重新导出）
+```
+
+### 17.2 ruff 执行规范
+
+| 规则 | 编号 | 说明 |
+|------|------|------|
+| 提交前检查 | **G-110** | 每次 `git commit` 前必须运行 `ruff check` 和 `ruff format --check`，零新增错误 |
+| 格式化一致性 | **G-111** | 所有代码必须通过 `ruff format` 格式化，禁止使用其他格式化工具（black、isort 单独运行等） |
+| CI 阻断 | **G-112** | CI 流水线必须包含 `ruff check` + `ruff format --check` 步骤，任一失败则阻断合并 |
+
+**标准命令**：
+
+```bash
+# 检查（不修改文件）
+ruff check . && ruff format --check .
+
+# 自动修复 + 格式化
+ruff check --fix . && ruff format .
+```
+
+### 17.3 ruff 规则选择原则
+
+| 规则 | 编号 | 说明 |
+|------|------|------|
+| 零误报 | **G-113** | 禁止启用会产生大量误报的规则集；新增规则集前需在项目中试运行并评估误报率 |
+| 项目级豁免 | **G-114** | 如需禁用特定规则，必须在 `pyproject.toml` 的 `ignore` 中声明并注释原因；禁止使用 `# noqa` 大面积屏蔽（超过 3 处同类豁免应提升到 `pyproject.toml` 配置） |
+
+---
+
+### 17.4 pytest 配置规范
+
+> **G-115**：所有子项目必须在 `pyproject.toml` 中配置 `[tool.pytest.ini_options]`，统一测试行为。
+
+**必选配置**：
+
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",                          # 详细输出
+    "--strict-markers",            # 未注册 marker 报错
+    "--tb=short",                  # 简洁 traceback
+    "-p no:cacheprovider",         # 禁用 .pytest_cache（G-032 要求运行时清理）
+]
+asyncio_mode = "auto"              # 自动检测 async 测试
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+```
+
+### 17.5 pytest 执行规范
+
+| 规则 | 编号 | 说明 |
+|------|------|------|
+| 提交前测试 | **G-116** | 每次 `git commit` 前必须运行改动范围内的测试（遵循 G-017 三级测试体系） |
+| 测试隔离 | **G-117** | 每个测试函数必须独立，不依赖其他测试的执行顺序或副作用；禁止共享可变全局状态 |
+| CI 全量测试 | **G-118** | CI 流水线必须运行 `pytest tests/` 全量测试，任一失败则阻断合并 |
+
+**标准命令**：
+
+```bash
+# 全量测试
+pytest tests/ -v
+
+# 仅单元测试（跳过慢速和集成测试）
+pytest tests/ -v -m "not slow and not integration"
+
+# 带覆盖率
+pytest tests/ -v --cov=<package_name> --cov-report=term-missing
+```
+
+### 17.6 pytest 覆盖率规范
+
+| 规则 | 编号 | 说明 |
+|------|------|------|
+| 覆盖率工具 | **G-119** | 使用 `pytest-cov` 生成覆盖率报告，CI 中必须输出覆盖率摘要 |
+| 覆盖率门槛 | **G-120** | CI 中设置最低行覆盖率 75%（pyrit-pipeline 硬性要求，其他项目推荐），低于阈值阻断合并 |
+
+**CI 覆盖率配置示例**（`pyproject.toml`）：
+
+```toml
+[tool.coverage.run]
+source = ["<package_name>"]
+omit = ["tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 75
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+```
+
+---
+
+## 18. 侦察设计原则
+
+### 18.1 侦察先行
+
+> **G-121**：侦察（Recon）必须在攻击（Attack）之前执行。侦察结果驱动攻击策略选择，不允许跳过侦察直接硬编码攻击策略。
+
+| 原则 | 说明 |
+|------|------|
+| 结果驱动 | `ReconReport.recommendations` 必须由 `AttackRecommender` 根据实际发现的端点和注入面生成 |
+| 显式记录 | 侦察发现为空的场景需显式记录（`ReconReport.endpoints == []`），不得隐式跳过 |
+| 学术依据 | MITRE ATT&CK TA0043 (Reconnaissance) — 攻击前必须完成目标环境测绘 |
+
+### 18.2 认证后侦察
+
+> **G-122**：侦察应在认证完成后执行，利用已认证的浏览器会话发现完整攻击面。
+
+| 原则 | 说明 |
+|------|------|
+| 信息最大化 | 认证后侦察产出是未认证的 3-5 倍（内部 API 端点 + 完整 DOM 注入面） |
+| 无认证兼容 | 无认证目标（auth_type=none）同样适用，AuthProbe 直接返回，侦察在目标页面执行 |
+| 会话复用 | 一次浏览器会话贯穿全流程（认证 → 侦察 → 攻击），不重复启动 |
+| 学术依据 | MITRE ATT&CK T1078 (Valid Accounts) — 认证态复用最大化信息收集效率 |
+
+### 18.3 探针分层执行
+
+> **G-123**：侦察探针按依赖关系分层执行，保证数据流正确。
+
+```
+Layer 0 (基础设施): NetworkInterceptor → 发现 API 端点（必须先运行）
+Layer 1 (分类分析): LLMProbe, RAGProbe, AgentProbe, MCPProbe, EmbeddingProbe → 分析已发现端点
+Layer 2 (DOM 分析):  DOMProbe → 扫描页面注入面（可与 Layer 1 并行）
+Layer 3 (推荐生成): AttackRecommender → 综合所有发现生成攻击推荐
+```
+
+### 18.4 主动探测补充
+
+> **G-124**：探针不应仅被动解析已拦截的响应，还应主动发起探测请求获取更多信息。
+
+| 探针 | 主动探测方式 | 学术依据 |
+|------|------------|---------|
+| MCPProbe | 对发现的 MCP 端点主动发送 `tools/list`、`resources/list`、`prompts/list` JSON-RPC 请求 | Hou et al. (2503.23278) — MCP 安全评估需要主动枚举工具列表和权限边界 |
+| LLMProbe | 发送标准探测 prompt 提取模型信息（非攻击性探测） | AgentDojo (2406.13352) — 系统提示词提取是攻击面发现的关键步骤 |
+| EmbeddingProbe | 发送已知文本的嵌入请求以验证维度 | PoisonedRAG (2402.07867) — 嵌入维度是向量库攻击的前置信息 |
+
+---
+
 ## 附录 A：规则编号速查表
+
+> **G-125**：所有实施方案在执行前必须完成"实施前检查清单"，目的是避免项目遗漏。检查清单包括 7 项：(a) 受影响的文件列表；(b) 依赖关系检查；(c) 配置文件同步检查（pyproject.toml/Makefile/YAML 等）；(d) 测试覆盖检查；(e) 文档同步检查；(f) 规则合规检查（R-008/R-010/R-011/R-012/R-013/R-015）；(g) 记忆库更新检查。每项标注"✅ 已覆盖"或"⚠️ 需处理"或"➖ 不适用"。检查清单完成后才能开始代码修改，修改完成后逐项验证落实。
 
 | 编号 | 规则 | 类别 |
 |------|------|------|
@@ -593,22 +841,39 @@
 | G-106 | 数据格式版本化 | 废弃 |
 | G-107 | 向前兼容 | 废弃 |
 | G-108 | 新增子项目规范 | 目录 |
+| G-109 | ruff 规则集配置 | ruff |
+| G-110 | 提交前 ruff check | ruff |
+| G-111 | ruff format 统一格式化 | ruff |
+| G-112 | CI ruff 阻断 | ruff |
+| G-113 | ruff 零误报原则 | ruff |
+| G-114 | ruff 豁免规范 | ruff |
+| G-115 | pytest pyproject.toml 配置 | pytest |
+| G-116 | 提交前测试 | pytest |
+| G-117 | 测试隔离 | pytest |
+| G-118 | CI 全量测试阻断 | pytest |
+| G-119 | pytest-cov 覆盖率工具 | pytest |
+| G-120 | 覆盖率门槛 75% | pytest |
+| G-121 | 侦察先行原则 | 侦察 |
+| G-122 | 认证后侦察原则 | 侦察 |
+| G-123 | 探针分层执行 | 侦察 |
+| G-124 | 主动探测补充 | 侦察 |
+| G-125 | 实施前检查清单 | 流程 |
 
 ---
 
 ## 附录 B：子项目规则继承关系
 
 ```
-.assistant/rules.md (全局规则，优先级最高)
+.assistant/rules.md (全局规则，优先级最高，G-001 ~ G-124)
     ├── pyrit-pipeline/.assistant_pyrit/rules.md (PyRIT 专项规则 R-001 ~ R-010)
     ├── garak-pipeline/.assistant_garak/rules.md (Garak 专项规则 一 ~ 十二)
-    └── recon-pipeline/ (遵循全局规则，暂无专项规则)
+    └── recon-pipeline/.assistant_recon/rules.md (Recon 专项规则 R-100 ~ R-120)
 ```
 
 - 子项目规则是全局规则的**补充和细化**，不得与全局规则冲突
-- 全局规则中的 **G-xxx** 编号在所有子项目中统一有效（G-001 ~ G-108）
+- 全局规则中的 **G-xxx** 编号在所有子项目中统一有效（G-001 ~ G-124）
 - 子项目规则中的 R-xxx / 编号规则仅在各自项目内有效
-- 全局规则覆盖 16 大类别：架构、代码质量、测试、流程、研究、隔离、Git、依赖、运行时、文档、健壮性、API 设计、性能、安全、审查、废弃
+- 全局规则覆盖 18 大类别：架构、代码质量、测试、流程、研究、隔离、Git、依赖、运行时、文档、健壮性、API 设计、性能、安全、审查、废弃、ruff/pytest 工具链、侦察原则
 
 ---
 
@@ -632,8 +897,8 @@
 
 > AI 助手在操作本项目时必须遵守以下规则。违反任何一条需在代码审查中标注。
 
-> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-108）。
-> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略。
+> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-120）。
+> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略、ruff/pytest 工具链规范。
 > 以下为 <项目名称> 专项规则，是全局规则的补充细化，不得与全局规则冲突。
 
 ---

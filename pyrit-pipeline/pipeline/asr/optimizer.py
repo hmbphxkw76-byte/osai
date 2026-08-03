@@ -30,9 +30,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -533,6 +535,134 @@ def load_empirical_asr(
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load empirical ASR from {path}: {e}")
         return {}
+
+
+# ──────────────────────────────────────────────────────────────────
+#  P1: 种子级 ASR (per-seed prompt, not per-technique)
+# ──────────────────────────────────────────────────────────────────
+
+_SEED_LEVEL_DIR = Path("outputs/empirical_asr")
+
+
+def _get_seed_level_asr_path(model_name: str | None = None) -> Path:
+    """获取种子级 ASR 文件路径."""
+    if model_name and model_name != "unknown":
+        safe = _get_model_safe_name(model_name)
+        return _SEED_LEVEL_DIR / f"seed_level_{safe}.json"
+    return _SEED_LEVEL_DIR / "seed_level_global.json"
+
+
+def save_seed_level_asr(
+    seed_asr: dict[str, dict[str, Any]],
+    *,
+    model_name: str | None = None,
+) -> None:
+    """保存种子级实测 ASR 数据."""
+    path = _get_seed_level_asr_path(model_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "model": model_name or "unknown",
+        "timestamp": datetime.now().isoformat(),
+        "seeds": seed_asr,
+    }
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Seed-level ASR saved to {path} ({len(seed_asr)} seeds, model={model_name or 'global'})")
+
+
+def load_seed_level_asr(model_name: str | None = None) -> dict[str, dict[str, Any]]:
+    """加载种子级实测 ASR 数据."""
+    path = _get_seed_level_asr_path(model_name)
+    if not path.exists() and model_name and model_name != "unknown":
+        path = _SEED_LEVEL_DIR / "seed_level_global.json"
+    if not path.exists():
+        return {}
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("seeds", {})
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load seed-level ASR from {path}: {e}")
+        return {}
+
+
+def collect_seed_level_asr_from_memory(
+    model_name: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """从 PyRIT CentralMemory 收集种子级 ASR 数据.
+
+    遍历所有 AttackResult, 按 objective (种子 prompt) 分组, 计算每个种子的 ASR.
+
+    Args:
+        model_name: 目标模型名 (用于按模型隔离保存).
+
+    Returns:
+        {seed_hash: {asr, successes, total, seed_preview}} 字典.
+    """
+    try:
+        from pyrit.memory import CentralMemory
+        from pyrit.models import AttackOutcome
+
+        memory = CentralMemory.get_memory_instance()
+        results = memory.get_attack_results()
+    except Exception as e:
+        logger.warning(f"Failed to query AttackResults for seed-level ASR: {e}")
+        return {}
+
+    seed_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"s": 0, "f": 0, "u": 0, "e": 0, "preview": ""})
+
+    for result in results:
+        try:
+            conversation = result.conversation or []
+            objective = ""
+            if conversation:
+                objective = conversation[0].request_piece if hasattr(conversation[0], "request_piece") else ""
+                if not objective and hasattr(conversation[0], "value"):
+                    objective = conversation[0].value
+        except Exception:
+            objective = ""
+
+        if not objective:
+            continue
+
+        seed_hash = hashlib.md5(objective[:200].encode("utf-8")).hexdigest()
+        seed_stats[seed_hash]["preview"] = objective[:100]
+
+        outcome = result.outcome
+        if outcome == AttackOutcome.SUCCESS:
+            seed_stats[seed_hash]["s"] += 1
+        elif outcome == AttackOutcome.FAILURE:
+            seed_stats[seed_hash]["f"] += 1
+        elif outcome == AttackOutcome.ERROR:
+            seed_stats[seed_hash]["e"] += 1
+        else:
+            seed_stats[seed_hash]["u"] += 1
+
+    result_asr: dict[str, dict[str, Any]] = {}
+    for seed_hash, stats in seed_stats.items():
+        total = stats["s"] + stats["f"] + stats["u"] + stats["e"]
+        if total == 0:
+            continue
+        successes = stats["s"]
+        # P4: Wilson 下界保守估计 (小样本不过拟合)
+        raw_asr = successes / total
+        wilson_asr = _wilson_lower_bound(successes, total) if total < 30 else raw_asr
+        result_asr[seed_hash] = {
+            "asr": round(wilson_asr, 3),
+            "raw_asr": round(raw_asr, 3),
+            "successes": successes,
+            "total": total,
+            "seed_preview": stats["preview"],
+        }
+
+    if result_asr:
+        save_seed_level_asr(result_asr, model_name=model_name)
+
+    return result_asr
 
 
 

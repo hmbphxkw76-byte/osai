@@ -28,6 +28,8 @@ class PyRITExporter(ReconExporter):
 
         pipeline_ctx.metadata["recon_result"] = report
         pipeline_ctx.metadata["recon_summary"] = report.to_summary_dict()
+        pipeline_ctx.metadata["active_probe_candidates"] = []
+        pipeline_ctx.metadata["attack_recommendations"] = [r.to_dict() for r in report.recommendations]
 
         if report.llm_fingerprints:
             fp = report.llm_fingerprints[0]

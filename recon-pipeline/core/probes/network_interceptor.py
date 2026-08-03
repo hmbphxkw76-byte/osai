@@ -34,6 +34,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from core.probes.ai_signal_catalog import (
+    match_ai_body_fingerprint,
+    match_ai_header,
+    match_ai_title,
+)
 from core.probes.endpoint_classifier import EndpointClassifier
 from core.probes.recon_result import DiscoveredEndpoint
 
@@ -225,8 +230,17 @@ class NetworkInterceptor:
                 return
             self._seen_urls.add(dedup_key)
 
-            # 分类端点
-            endpoint_type = self._classifier.classify(url, method, content_type)
+            # 提取响应体预览 (先提取, 用于分类)
+            body_preview = ""
+            if _is_json_response(content_type):
+                try:
+                    body = await response.text()
+                    body_preview = body[: self._max_body_preview]
+                except Exception:
+                    pass
+
+            # 分类端点 (传入响应体以支持 MCP JSON-RPC 检测)
+            endpoint_type = self._classifier.classify(url, method, content_type, body_preview)
 
             # 跳过未知类型的静态端点
             if endpoint_type.value == "unknown" and _is_likely_static(url):
@@ -239,17 +253,32 @@ class NetworkInterceptor:
                     val = response.request.headers.get(h, "")
                     if val:
                         request_headers[h] = val
+                for name, value in response.headers.items():
+                    if name.lower() in {"x-openai-beta", "x-anthropic-version", "x-mcp-server", "server"}:
+                        request_headers[name.lower()] = value
             except Exception:
                 pass
 
-            # 提取响应体预览
-            body_preview = ""
-            if _is_json_response(content_type):
-                try:
-                    body = await response.text()
-                    body_preview = body[: self._max_body_preview]
-                except Exception:
-                    pass
+            response_title = ""
+            try:
+                response_title = response.url.split("/")[-1]
+            except Exception:
+                response_title = ""
+            signal_title = match_ai_title(response_title)
+            if signal_title:
+                request_headers["ai_title"] = signal_title
+
+            header_signal = match_ai_header(" ".join(response.headers.keys()))
+            if header_signal:
+                request_headers["ai_header"] = f"{header_signal[0]}:{header_signal[1]}"
+
+            # AI framework detection from body fingerprint
+            ai_framework_name = ""
+            ai_framework_category = ""
+            if body_preview:
+                body_fp = match_ai_body_fingerprint(body_preview)
+                if body_fp:
+                    ai_framework_name, ai_framework_category = body_fp
 
             endpoint = DiscoveredEndpoint(
                 url=url,
@@ -260,6 +289,8 @@ class NetworkInterceptor:
                 request_headers=request_headers,
                 response_body_preview=body_preview,
                 discovered_at=datetime.now().isoformat(),
+                ai_framework_name=ai_framework_name,
+                ai_framework_category=ai_framework_category,
             )
             self._endpoints.append(endpoint)
 

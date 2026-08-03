@@ -44,6 +44,7 @@ import os
 from pipeline.asr.failure_type_event_handler import FailureTypeEventHandler
 from pipeline.asr.runtime_stop_handler import RuntimeStopEventHandler
 from pipeline.context import PipelineContext
+from pipeline.utils.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +82,40 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── 原生: 场景执行 ──
     # P2-3: ProgressDashboard 集成 (执行前显示总览, 执行后显示结果)
-    from pipeline.reporting.output_manager import ProgressDashboard
+    from pipeline.reporting.output_manager import ProgressDashboard, ProgressPoller
 
     total_attacks = ctx.scenario.atomic_attack_count
     dashboard = ProgressDashboard(total=total_attacks)
     print(f"  开始执行 {total_attacks} 个 AtomicAttack...")
     dashboard.print_progress()
 
+    # C1+C2: 启用 ProgressPoller 实时轮询 (基于 PyRIT 原生 CentralMemory API)
+    scenario_result_id = getattr(ctx.scenario, "scenario_result_id", None) or getattr(ctx.args, "resume", None)
+    poller: ProgressPoller | None = None
+    if scenario_result_id:
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id=scenario_result_id,
+            interval=5.0,
+        )
+        poller.start()
+        print("  [C1] 实时进度轮询已启动 (5s 间隔, 基于 CentralMemory API)")
+
+    # C4: 发布执行开始事件
+    bus = EventBus.get_instance()
+    bus.publish_simple(
+        "stage_execute", "execution_started",
+        total_attacks=total_attacks,
+        strategy=strategy,
+        max_concurrency=ctx.args.max_concurrency,
+    )
+
     result = await ctx.scenario.run_async()
     ctx.result = result
+
+    # 停止轮询
+    if poller:
+        await poller.stop()
 
     total_results = sum(len(v) for v in result.attack_results.values())
     print("\n  ┌─ 执行完成 ──────────────────────────────────────────────┐")
@@ -116,6 +142,15 @@ async def run(ctx: PipelineContext) -> None:
     dashboard.completed = total_results
     dashboard.print_progress()
 
+    # C4: 发布执行完成事件
+    bus.publish_simple(
+        "stage_execute", "execution_completed",
+        total_results=total_results,
+        succeeded=succeeded,
+        failed=failed,
+        errored=errored,
+    )
+
     # ── P1: 后处理扫描 ──
     _scan_results_post_execution(ctx, event_handler, stop_handler)
 
@@ -133,8 +168,17 @@ async def run(ctx: PipelineContext) -> None:
     # ── O5: 失败路由策略展示 (对齐 pyrit_ai300 Stage 5 ②) ──
     _print_failure_routing(ctx, stats)
 
+    # B6: ConverterHealthMonitor 运行时熔断统计
+    _print_converter_health(ctx)
+
     # ── ASR 分析 ──
     _compute_asr(ctx)
+
+    # C3: Converter 变换展示 (Top 5 成功变换)
+    _print_converter_transformations(ctx)
+
+    # C5: 失败即时诊断
+    _print_failure_diagnosis(ctx)
 
     # ── 攻击结果速览 + Per-Group Breakdown ──
     _print_attack_overview(ctx)
@@ -381,3 +425,188 @@ def _print_pid_dataset_map(ctx: PipelineContext) -> None:
     lines.append("P 编号 → Stage 5 (分析): 实测 vs 先验对比")
 
     info_box("Gap 4: P 编号执行映射 (dataset → P编号 → 结果)", lines)
+
+
+# ============================================================
+# B6: ConverterHealthMonitor 运行时熔断统计
+# ============================================================
+
+
+def _print_converter_health(ctx: PipelineContext) -> None:
+    """B6: 展示 ConverterHealthMonitor 的运行时熔断统计。
+
+    从 PipelineContext.metadata 中提取 ConverterHealthMonitor 实例,
+    展示各 Converter 的健康状态和熔断情况。
+    """
+    from pipeline.utils.display import info_box
+
+    monitor = ctx.metadata.get("converter_health_monitor")
+    if monitor is None:
+        return
+
+    try:
+        stats_list = monitor.get_all_stats() if hasattr(monitor, "get_all_stats") else []
+        if not stats_list:
+            return
+
+        lines: list[str] = []
+        circuit_open_count = 0
+        for stat in stats_list:
+            status = "🔴 OPEN" if stat.is_circuit_open else "🟢 CLOSED"
+            if stat.is_circuit_open:
+                circuit_open_count += 1
+            lines.append(
+                f"  {status} {stat.name}: "
+                f"{stat.successes}/{stat.attempts} success "
+                f"({stat.failures} fail, {stat.errors} err)"
+            )
+
+        if circuit_open_count > 0:
+            lines.insert(0, f"  ⚠ {circuit_open_count} 个 Converter 已熔断 (circuit open)")
+            # 发布事件
+            from pipeline.utils.event_bus import EventBus
+            bus = EventBus.get_instance()
+            bus.publish_simple(
+                "stage_execute", "converter_circuit_open",
+                open_count=circuit_open_count,
+                converters=[s.name for s in stats_list if s.is_circuit_open],
+            )
+
+        info_box(f"B6: Converter 健康状态 ({len(stats_list)} 个)", lines)
+    except Exception as e:
+        logger.debug(f"B6 converter health display failed: {e}")
+
+
+# ============================================================
+# C3: Converter 变换展示
+# ============================================================
+
+
+def _print_converter_transformations(ctx: PipelineContext) -> None:
+    """C3: 展示成功攻击中使用的 Converter 变换。
+
+    从 AttackResult 的 metadata 中提取 Converter 信息,
+    展示哪些变换对成功贡献最大。
+    """
+    from pipeline.utils.display import info_box
+
+    if ctx.result is None:
+        return
+
+    from pyrit.models import AttackOutcome
+
+    converter_success: dict[str, int] = {}
+    converter_total: dict[str, int] = {}
+
+    try:
+        groups = ctx.result.get_display_groups()
+        for _group, attack_results in groups.items():
+            for ar in attack_results:
+                # 从 conversation 中提取 converter 信息
+                conv_name = "baseline"
+                try:
+                    if hasattr(ar, "conversation") and ar.conversation:
+                        labels = getattr(ar.conversation, "labels", None) or {}
+                        if labels:
+                            for label_value in labels.values() if isinstance(labels, dict) else []:
+                                if isinstance(label_value, str) and "converter" in label_value.lower():
+                                    conv_name = label_value
+                                    break
+                except Exception:
+                    pass
+
+                converter_total[conv_name] = converter_total.get(conv_name, 0) + 1
+                if ar.outcome == AttackOutcome.SUCCESS:
+                    converter_success[conv_name] = converter_success.get(conv_name, 0) + 1
+
+        if not converter_total:
+            info_box("C3: Converter 变换效果", ["(无 Converter 数据)"])
+            return
+
+        lines: list[str] = []
+        sorted_convs = sorted(converter_total.items(), key=lambda x: x[1], reverse=True)
+        for conv, total in sorted_convs[:5]:
+            succ = converter_success.get(conv, 0)
+            rate = succ / total * 100 if total > 0 else 0
+            lines.append(f"  {conv}: {succ}/{total} ({rate:.0f}%)")
+
+        info_box("C3: Converter 变换效果 (Top 5)", lines)
+    except Exception as e:
+        logger.debug(f"C3 converter transformation display failed: {e}")
+
+
+# ============================================================
+# C5: 失败即时诊断
+# ============================================================
+
+
+def _print_failure_diagnosis(ctx: PipelineContext) -> None:
+    """C5: 失败攻击的即时诊断分析。
+
+    从失败结果中提取常见模式, 给出即时诊断建议。
+    """
+    from pipeline.utils.display import info_box
+
+    if ctx.result is None:
+        return
+
+    from pyrit.models import AttackOutcome
+
+    failure_patterns: dict[str, int] = {}
+    total_failures = 0
+
+    try:
+        groups = ctx.result.get_display_groups()
+        for _group, attack_results in groups.items():
+            for ar in attack_results:
+                if ar.outcome != AttackOutcome.FAILURE:
+                    continue
+                total_failures += 1
+
+                # 诊断失败模式
+                pattern = "unknown"
+                try:
+                    if hasattr(ar, "conversation") and ar.conversation:
+                        # 检查最后一条响应
+                        messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
+                        if messages:
+                            last_msg = messages[-1]
+                            content = str(getattr(last_msg, "content", "")).lower()
+                            if any(w in content for w in ["sorry", "i cannot", "i can't", "unable"]):
+                                pattern = "content_refusal"
+                            elif any(w in content for w in ["inappropriate", "harmful", "unsafe"]):
+                                pattern = "safety_filter"
+                            elif any(w in content for w in ["empty", "no response", "204"]):
+                                pattern = "empty_response"
+                            elif any(w in content for w in ["timeout", "rate limit", "429"]):
+                                pattern = "rate_limit"
+                            else:
+                                pattern = "other_failure"
+                except Exception:
+                    pass
+
+                failure_patterns[pattern] = failure_patterns.get(pattern, 0) + 1
+
+        if total_failures == 0:
+            return
+
+        # 诊断建议
+        diagnosis_map = {
+            "content_refusal": "模型直接拒绝 → 尝试更强的编码变换或角色扮演",
+            "safety_filter": "安全过滤器拦截 → 尝试分段注入或低概率编码",
+            "empty_response": "空响应 (204) → Converter 可能产生无效输出, 检查熔断状态",
+            "rate_limit": "速率限制 → 降低并发或增加间隔",
+            "other_failure": "其他失败 → 检查目标响应模式",
+            "unknown": "未知失败 → 启用 verbose 模式查看详细日志",
+        }
+
+        lines: list[str] = []
+        sorted_patterns = sorted(failure_patterns.items(), key=lambda x: x[1], reverse=True)
+        for pattern, count in sorted_patterns[:5]:
+            pct = count / total_failures * 100 if total_failures > 0 else 0
+            advice = diagnosis_map.get(pattern, "检查详细日志")
+            lines.append(f"  {pattern} ({count}/{total_failures}, {pct:.0f}%): {advice}")
+
+        info_box(f"C5: 失败即时诊断 ({total_failures} 个失败)", lines)
+    except Exception as e:
+        logger.debug(f"C5 failure diagnosis failed: {e}")

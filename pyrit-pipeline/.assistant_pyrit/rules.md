@@ -2,9 +2,9 @@
 
 > AI 助手在操作本项目时必须遵守以下规则。违反任何一条需在代码审查中标注。
 
-> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-108）。
-> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略。
-> 以下为 PyRIT 项目专项规则（R-001 ~ R-010），是全局规则的补充细化，不得与全局规则冲突。
+> **继承**: 本项目同时受全局规则约束，详见 [`.assistant/rules.md`](../../.assistant/rules.md)（G-001 ~ G-125）。
+> 全局规则涵盖：架构原则、代码质量、分级测试、改动流程、Git 规范、依赖管理、API 设计、性能、安全、代码审查、废弃策略、ruff/pytest 工具链规范、侦察原则、实施前检查清单（G-125）。
+> 以下为 PyRIT 项目专项规则（R-001 ~ R-018），是全局规则的补充细化，不得与全局规则冲突。
 
 ---
 
@@ -77,15 +77,31 @@
 
 > 新增于 2026-8-1 17:30
 > 更新于 2026-8-1 22:00 — 不再清理 outputs/ 目录，改为仅清理临时文件
+> 更新于 2026-8-3 — 统一三库标准 (pyrit-pipeline / garak-pipeline / recon-pipeline)
 
-每次运行流水线（`python main.py`）前和运行后，必须自动清理项目中的 Python 临时文件（`__pycache__` 目录、`.pyc`、`.pyo` 文件和 `.pytest_cache` 目录）。
+每次运行流水线（`python main.py` / `python recon-main.py`）前和运行后，必须自动递归清理项目中的所有 Python 临时文件：
+
+- **`__pycache__` 目录** — Python 字节码缓存目录
+- **`.pyc` / `.pyo` 文件** — 编译后的字节码文件
+- **`.pytest_cache` 目录** — pytest 测试缓存目录
+
+### 三库统一实现
+
+| 库 | 实现位置 | 调用时机 |
+|:--|:--|:--|
+| **pyrit-pipeline** | `pipeline/utils/cleaner.py` → `clean_temp_files(phase)` | `main.py` Stage 1 之前 + Stage 5 之后 (finally 块) |
+| **garak-pipeline** | `pipeline/utils.py` → `clean_pycache(project_root)` | `main.py` 执行前 + 执行后 (finally 块) |
+| **recon-pipeline** | `recon-main.py` → `clean_temp_files(phase)` | `recon-main.py` 阶段发现前 + 执行后 + KeyboardInterrupt |
+
+### 规则要求
 
 - **运行前清理**：移除过期的字节码缓存，确保干净起点，避免旧缓存导致难以调试的问题。
 - **运行后清理**：移除本次运行生成的临时缓存，保持环境整洁。
-- 代码实现位于 `main.py` 的 `_clean_temp_files()` 函数，在 Stage 1 之前和 Stage 5 之后各调用一次。
+- **异常退出清理**：KeyboardInterrupt / SIGTERM 等异常退出路径也必须执行清理。
 - 报告文件保留在 `outputs/` 目录中供人工审查，不受清理影响。
+- 清理过程静默执行，不输出到 stdout（避免干扰流水线输出）。
 
-**理由**：`__pycache__` 等字节码缓存在环境变更后可能过期失效，自动清理确保每次运行从干净的字节码缓存开始。报告是用户需要的人工审查产物，不应自动删除。
+**理由**：`__pycache__` 等字节码缓存在环境变更后可能过期失效（如参数变更后旧 `.pyc` 仍被加载导致 `TypeError: got an unexpected keyword argument`），自动清理确保每次运行从干净的字节码缓存开始。三库统一标准确保跨项目一致性和可维护性。
 
 ## R-009 · 优化后自动生成L5差距分析报告并待用户确认后再改代码
 

@@ -92,10 +92,10 @@ python main.py --html-report --pdf-report
 uv sync --extra web-redteam
 
 # 使用 YAML Profile
-python -m web_bridge.run --target-profile web_bridge/targets/same_domain/example_portal.yaml
+python -m web_redteam.run --target-profile web_redteam/targets/same_domain/example_portal.yaml
 
 # 快速 URL 模式
-python -m web_bridge.run --target-url https://example.com/chat --attack-type prompt_sending
+python -m web_redteam.run --target-url https://example.com/chat --attack-type prompt_sending
 ```
 
 ### 5. 运行测试
@@ -105,13 +105,13 @@ python -m web_bridge.run --target-url https://example.com/chat --attack-type pro
 python -m pytest -v
 
 # 带覆盖率
-python -m pytest --cov=pipeline --cov=web_bridge --cov-report=term-missing
+python -m pytest --cov=pipeline --cov=web_redteam --cov-report=term-missing
 
 # 仅 pipeline 测试
 python -m pytest pipeline/tests/ -v
 
-# 仅 web_bridge 测试
-python -m pytest web_bridge/tests/ -v
+# 仅 web_redteam 测试
+python -m pytest web_redteam/tests/ -v
 ```
 
 ---
@@ -146,7 +146,7 @@ pyrit-pipeline/
 │   ├── rich_metadata_loader.py     # 富元数据加载器
 │   ├── rich_metadata_migration.py  # 富元数据 → 原生 SeedDataset 迁移
 │   └── tests/              # 单元测试
-├── web_bridge/            # Playwright Web 红队框架
+├── web_redteam/            # Playwright Web 红队框架
 ├── config/                # PyRIT 结构配置 (.pyrit_conf)
 ├── data/                   # 种子数据集 + 系统配置
 ├── docs/                   # 架构文档

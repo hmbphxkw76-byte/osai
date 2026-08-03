@@ -197,6 +197,11 @@ async def run(ctx: PipelineContext) -> None:
             warm_start_asr=warm_start_asr,
         )
 
+        # P2-1: 动态 epsilon 衰减 (--epsilon-decay)
+        if getattr(args, "epsilon_decay", False):
+            selector.set_epsilon_decay(True)
+            print("  P2-1: 动态 epsilon 衰减已启用 (0.20→0.02, 50 步线性衰减)")
+
         # 消除3: 直接使用原生 TextAdaptive (零覆盖), Converter 由 technique_converters 参数注入
         scenario = TextAdaptive(
             objective_scorer=objective_scorer,
@@ -270,8 +275,13 @@ async def run(ctx: PipelineContext) -> None:
         # L1: 原生 FIRST_SUCCESS
         max_attempts = args.max_attempts
 
+    # ── G3: 模型特异性攻击参数 (当 CLI 未显式指定时, 根据 model_tier 自动选择) ──
+    # 学术依据: Crescendo (arXiv:2402.12109), TAP (arXiv:2312.02191), HarmBench (arXiv:2402.04249)
+    _apply_tier_attack_params(args, model_tier)
+
     # ── P3-G9: converter_target 提前获取 (G8 依赖 converter_target_available) ──
-    converter_target = _get_converter_target()
+    # G5: 使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
+    converter_target = _get_converter_target(model_name)
     converter_target_available = converter_target is not None
     if not converter_target_available:
         converter_target = _auto_create_converter_target()
@@ -432,6 +442,21 @@ async def run(ctx: PipelineContext) -> None:
                 model_tier=model_tier,
             )
             if ta_converter_map:
+                # G4: 模型特异性说服策略重排序
+                # 学术依据: Zeng et al. (arXiv:2402.19181)
+                # 不同模型对不同说服策略的脆弱性不同
+                if model_name:
+                    try:
+                        from pipeline.converters.target_aware_router import reorder_persuasion_chains_by_model
+
+                        for tech, chains in ta_converter_map.items():
+                            if chains and len(chains) > 1:
+                                reordered = reorder_persuasion_chains_by_model(chains, model_name)
+                                if reordered != chains:
+                                    ta_converter_map[tech] = reordered
+                    except Exception as e:
+                        logger.debug(f"G4 persuasion reordering skipped: {e}")
+
                 technique_converter_map = merge_converter_maps(
                     technique_converter_map,
                     ta_converter_map,
@@ -457,6 +482,31 @@ async def run(ctx: PipelineContext) -> None:
             f"  Converter 路由总计: {len(technique_converter_map)} 个技术, "
             f"{total_assignments} 个分配, {len(unique_converters)} 种 Converter"
         )
+
+        # B2: Converter 路由决策日志
+        from pipeline.utils.decision_trace import DecisionTrace
+        from pipeline.utils.event_bus import EventBus
+
+        trace = DecisionTrace.get_instance()
+        trace.record(
+            stage="stage_2",
+            layer="L4_CompoundAttack",
+            decision="converter_routing_assigned",
+            reason=f"ASR-driven routing: {len(technique_converter_map)} techniques, "
+            f"{total_assignments} assignments",
+            techniques=len(technique_converter_map),
+            assignments=total_assignments,
+            converter_types=list(unique_converters),
+        )
+        bus = EventBus.get_instance()
+        bus.publish_simple(
+            "stage_2", "converter_routing_done",
+            techniques=len(technique_converter_map),
+            assignments=total_assignments,
+        )
+
+        # B3: 动态种子预算分配 — 基于历史 ASR 调整每技术的种子数
+        _apply_dynamic_seed_budget(ctx, technique_converter_map)
     else:
         print("  Converter 路由: (未启用, 使用 --converters 添加或检测 target_type)")
 
@@ -532,6 +582,12 @@ async def run(ctx: PipelineContext) -> None:
         print(f"      降级链: {ctx.fallback_plan.total_groups} 组, {ctx.fallback_plan.fallback_count} 个降级点")
     if warm_start_asr:
         print("      动态 alpha: 先验主导 (alpha=0.15) → 经验主导 (alpha=0.50)")
+
+    # B4: 5 层数据溯源 — 记录数据流通过 5 层的决策点
+    _trace_5_layer_data_lineage(ctx, sorted_datasets, warm_start_asr)
+
+    # B5: 种子镜像策略 — 高 ASR 种子跨数据集镜像
+    _apply_seed_mirror_strategy(ctx, sorted_datasets, warm_start_asr)
     if ctx.tier_layer > 0:
         print(f"      TieredSelection: Layer {ctx.tier_layer} 渐进式选择")
 
@@ -830,19 +886,20 @@ def _get_objective_scorer() -> Any:
     return None
 
 
-def _get_converter_target() -> Any:
+def _get_converter_target(model_name: str = "") -> Any:
     """从 TargetRegistry 获取用于 LLM 辅助 Converter 链的目标实例。.
 
-    LLM 辅助 Converter (如 PersuasionConverter, ToneConverter) 需要一个
-    ``converter_target`` 参数 — 这是一个 LLM 目标, 用于执行 Converter 的
-    语义变换指令。
+    G5: 使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
+    从 ``data/setting/model_tiers.yaml`` 的 ``optimal_attacker_by_target`` 加载
+    最优对抗 LLM 模型名, 优先选择该模型作为 converter_target。
 
     查找优先级:
       1. 标记为 "adversarial_chat" 的目标 (原生 adversarial chat 角色)
       2. 标记为 "converter_target" 的目标 (自定义标签)
       3. 名为 "objective_scorer_chat" 的目标 (评分器使用的 LLM)
-      4. 第一个非 objective_target 的目标 (避免用被攻击目标做 Converter)
-      5. None (仅使用非 LLM Converter 链)
+      4. G5: 匹配 optimal_attacker_by_target 的目标 (最优配对)
+      5. 第一个非 objective_target 的目标 (避免用被攻击目标做 Converter)
+      6. None (仅使用非 LLM Converter 链)
 
     Returns:
         PromptTarget 实例, 或 None (无可用 LLM 目标)
@@ -866,7 +923,32 @@ def _get_converter_target() -> Any:
             logger.info("Converter target: 'objective_scorer_chat'")
             return entry.instance
 
-        # 4. 第一个非 default_objective_target 的目标
+        # 4. G5: 匹配最优对抗 LLM (optimal_attacker_by_target)
+        if model_name:
+            try:
+                from pipeline.converters.model_tier_detector import get_optimal_attacker
+
+                optimal_attacker = get_optimal_attacker(model_name)
+                if optimal_attacker:
+                    # 尝试按名称匹配
+                    all_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
+                    for e in all_entries:
+                        entry_model = (
+                            getattr(e.instance, "_model_name", None)
+                            or getattr(e.instance, "model_name", None)
+                            or getattr(e.instance, "deployment_name", None)
+                            or ""
+                        )
+                        if entry_model and optimal_attacker.lower() in str(entry_model).lower():
+                            logger.info(
+                                f"G5: Converter target matched optimal attacker: '{e.name}' "
+                                f"(model={entry_model})"
+                            )
+                            return e.instance
+            except Exception as e:
+                logger.debug(f"G5 optimal attacker matching failed: {e}")
+
+        # 5. 第一个非 default_objective_target 的目标
         all_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
         objective_entries = TargetRegistry.get_registry_singleton().instances.get_by_tag(tag="default_objective_target")
         objective_ids = {id(e.instance) for e in (objective_entries or [])}
@@ -878,6 +960,62 @@ def _get_converter_target() -> Any:
         logger.debug(f"Failed to get converter_target: {e}")
 
     return None
+
+
+def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
+    """G3: 根据 model_tier 自动应用模型特异性攻击参数.
+
+    学术依据:
+      - Crescendo (arXiv:2402.12109): GPT-4o 需 5-7 轮, GPT-3.5 需 3-4 轮
+      - TAP (arXiv:2312.02191): 树搜索深度应随模型抵抗力调整
+      - HarmBench (arXiv:2402.04249): 强模型需要更多探索, 弱模型更多利用
+
+    当 ``--auto-tier-params`` 启用时, 根据 model_tier 自动覆盖:
+      - max_attempts: 强模型更多尝试 (ASR 低, 需要更多探索)
+      - max_concurrency: 弱模型高并发 (ASR 高, 快速覆盖)
+      - epsilon: 强模型更多探索 (ASR 低, 需要尝试更多技术)
+
+    Returns:
+        应用的参数字典 (用于日志展示)
+    """
+    from pipeline.converters.model_tier_detector import get_attack_params_by_tier
+
+    tier_params = get_attack_params_by_tier(model_tier)
+    auto_override = getattr(args, "auto_tier_params", False)
+
+    applied: dict[str, Any] = {}
+
+    # 参数映射: (args 属性, tier_params 键, argparse 默认值)
+    param_map = [
+        ("max_concurrency", "max_concurrency", 5),
+        ("epsilon", "epsilon", 0.1),
+        ("max_attempts", "max_attempts", 3),
+    ]
+
+    for attr, tier_key, _default_val in param_map:
+        if not hasattr(args, attr) or getattr(args, attr) is None:
+            continue
+        current = getattr(args, attr)
+        recommended = tier_params.get(tier_key, current)
+        if current != recommended:
+            if auto_override:
+                # D2: 当 --auto-tier-params 启用时, 实际覆盖 args 值
+                setattr(args, attr, recommended)
+                applied[attr] = {"old": current, "new": recommended, "applied": True}
+            else:
+                # 仅记录推荐值, 不覆盖
+                applied[attr] = {"current": current, "tier_recommended": recommended, "applied": False}
+
+    if applied:
+        mode_str = "已覆盖" if auto_override else "仅推荐 (启用 --auto-tier-params 自动覆盖)"
+        print(f"  G3: 模型特异性参数 (tier={model_tier}, {mode_str}):")
+        for param, vals in applied.items():
+            if vals.get("applied"):
+                print(f"    {param}: {vals['old']} → {vals['new']} ✓")
+            else:
+                print(f"    {param}: current={vals['current']}, tier_recommended={vals['tier_recommended']}")
+
+    return applied
 
 
 def _auto_create_converter_target() -> Any:
@@ -1061,3 +1199,204 @@ def _print_technique_asr_summary_compact() -> None:
         print(f"  │ {tech:<35} {sr:>5.1f}% ({total}) {bar}")
     print(f"  │ 合计: {len(tech_asr)} 技术有数据")
     print("  └───────────────────────────────────────────────────────────────┘")
+
+
+# ============================================================
+# B3: 动态种子预算分配
+# ============================================================
+
+
+def _apply_dynamic_seed_budget(ctx: PipelineContext, technique_converter_map: dict) -> None:
+    """B3: 基于历史 ASR 动态调整每技术的种子预算。
+
+    高 ASR 技术 → 更多种子 (提高成功概率)
+    低 ASR 技术 → 更少种子 (节省资源)
+
+    设计原则 (R-010): 不修改 PyRIT 原生 scenario 配置,
+    仅通过 metadata 记录预算建议, 供 Stage 4 执行时参考。
+
+    Academic basis:
+      - Multi-Armed Bandit budget allocation (arXiv:1904.07252)
+      - UCB-based resource allocation under uncertainty
+    """
+    try:
+        from pipeline.asr.prior_registry import ASRPriorRegistry
+
+        registry = ASRPriorRegistry.get_instance()
+        model_name = getattr(ctx.args, "model", "default")
+
+        budget_map: dict[str, int] = {}
+        default_budget = ctx.args.batch_size if hasattr(ctx.args, "batch_size") else 5
+
+        for tech_name in technique_converter_map:
+            prior = registry.for_model(model_name, tech_name)
+            if prior and prior.success_rate is not None:
+                # ASR > 0.3 → budget * 1.5; ASR < 0.1 → budget * 0.5
+                sr = prior.success_rate
+                if sr > 0.3:
+                    budget_map[tech_name] = max(int(default_budget * 1.5), default_budget + 2)
+                elif sr < 0.1:
+                    budget_map[tech_name] = max(int(default_budget * 0.5), 1)
+                else:
+                    budget_map[tech_name] = default_budget
+            else:
+                budget_map[tech_name] = default_budget
+
+        ctx.metadata["dynamic_seed_budget"] = budget_map
+        high_budget = {k: v for k, v in budget_map.items() if v > default_budget}
+        low_budget = {k: v for k, v in budget_map.items() if v < default_budget}
+
+        if high_budget or low_budget:
+            print(f"  [B3] 动态种子预算: {len(high_budget)} 技术↑, {len(low_budget)} 技术↓")
+            from pipeline.utils.decision_trace import DecisionTrace
+
+            trace = DecisionTrace.get_instance()
+            trace.record(
+                stage="stage_2",
+                layer="L3_DatasetConfig",
+                decision="dynamic_seed_budget_allocated",
+                reason=f"ASR-driven: {len(high_budget)} boosted, {len(low_budget)} reduced",
+                default_budget=default_budget,
+                high_count=len(high_budget),
+                low_count=len(low_budget),
+            )
+    except Exception as e:
+        logger.debug(f"B3 dynamic seed budget failed (non-fatal): {e}")
+
+
+# ============================================================
+# B4: 5 层数据溯源
+# ============================================================
+
+
+def _trace_5_layer_data_lineage(
+    ctx: PipelineContext,
+    sorted_datasets: list[str],
+    warm_start_asr: dict,
+) -> None:
+    """B4: 记录数据流通过 5 层架构的完整追溯链。
+
+    L1_SeedSource → L2_Organization → L3_DatasetConfig → L4_Memory → L5_Analytics
+
+    设计原则 (R-010): 不修改 PyRIT 原生数据流, 仅在编排层记录追溯信息。
+    """
+    try:
+        from pipeline.utils.decision_trace import DecisionTrace
+
+        trace = DecisionTrace.get_instance()
+
+        # L1: Seed Source
+        trace.record(
+            stage="stage_2",
+            layer="L1_SeedSource",
+            decision="seed_sources_loaded",
+            reason=f"{len(sorted_datasets)} datasets loaded from seed_datasets/",
+            datasets=sorted_datasets[:5],
+            total_datasets=len(sorted_datasets),
+        )
+
+        # L2: Organization
+        trace.record(
+            stage="stage_2",
+            layer="L2_Organization",
+            decision="datasets_sorted_by_asr",
+            reason="ASR descending order for priority execution",
+            sorted_order=sorted_datasets[:3],
+        )
+
+        # L3: Dataset Config
+        max_dataset_size = getattr(ctx.args, "max_dataset_size", 0)
+        trace.record(
+            stage="stage_2",
+            layer="L3_DatasetConfig",
+            decision="compound_dataset_configured",
+            reason=f"CompoundDatasetAttackConfiguration with per_dataset={max_dataset_size}",
+            total_datasets=len(sorted_datasets),
+            per_dataset_limit=max_dataset_size,
+        )
+
+        # L4: Memory (PyRIT 原生 CentralMemory)
+        trace.record(
+            stage="stage_2",
+            layer="L4_Memory",
+            decision="seeds_in_memory",
+            reason="PyRIT CentralMemory stores seed prompts with dataset_name labels",
+            memory_type="SQLite (per-run)",
+        )
+
+        # L5: Analytics
+        trace.record(
+            stage="stage_2",
+            layer="L5_Analytics",
+            decision="warm_start_asr_loaded",
+            reason=f"{len(warm_start_asr)} technique priors loaded for ASR-driven scheduling",
+            priors_count=len(warm_start_asr),
+        )
+
+        print("  [B4] 5 层数据溯源已记录 (L1→L2→L3→L4→L5)")
+    except Exception as e:
+        logger.debug(f"B4 data lineage trace failed (non-fatal): {e}")
+
+
+# ============================================================
+# B5: 种子镜像策略
+# ============================================================
+
+
+def _apply_seed_mirror_strategy(
+    ctx: PipelineContext,
+    sorted_datasets: list[str],
+    warm_start_asr: dict,
+) -> None:
+    """B5: 高 ASR 种子跨数据集镜像。
+
+    将高 ASR 技术的种子镜像到其他数据集中, 增加攻击覆盖率。
+
+    设计原则 (R-010): 不修改 PyRIT 原生 seed prompts,
+    仅在 metadata 中记录镜像建议, 供执行层参考。
+
+    Academic basis:
+      - Data augmentation for robust evaluation (arXiv:2308.03331)
+      - Cross-dataset transferability of adversarial examples
+    """
+    try:
+        if not warm_start_asr or len(sorted_datasets) < 2:
+            return
+
+        # 找出高 ASR 技术 (ASR > 0.2)
+        high_asr_techs = [
+            tech for tech, asr in warm_start_asr.items()
+            if isinstance(asr, (int, float)) and asr > 0.2
+        ]
+
+        if not high_asr_techs:
+            return
+
+        # 构建镜像建议: 每个高 ASR 技术镜像到 top-3 数据集
+        mirror_map: dict[str, list[str]] = {}
+        for tech in high_asr_techs[:5]:  # 限制 Top 5
+            mirror_map[tech] = sorted_datasets[:3]
+
+        ctx.metadata["seed_mirror_strategy"] = {
+            "high_asr_techniques": high_asr_techs[:5],
+            "mirror_targets": mirror_map,
+            "mirror_count": len(high_asr_techs[:5]) * min(3, len(sorted_datasets)),
+        }
+
+        mirror_count = len(high_asr_techs[:5]) * min(3, len(sorted_datasets))
+        mirror_targets = min(3, len(sorted_datasets))
+        print(f"  [B5] 种子镜像: {len(high_asr_techs[:5])} 高ASR技术 → {mirror_targets} 数据集 ({mirror_count} 镜像)")
+
+        from pipeline.utils.decision_trace import DecisionTrace
+
+        trace = DecisionTrace.get_instance()
+        trace.record(
+            stage="stage_2",
+            layer="L1_SeedSource",
+            decision="seed_mirror_strategy_applied",
+            reason=f"{len(high_asr_techs[:5])} high-ASR techniques mirrored to top datasets",
+            high_asr_count=len(high_asr_techs[:5]),
+            mirror_targets=min(3, len(sorted_datasets)),
+        )
+    except Exception as e:
+        logger.debug(f"B5 seed mirror strategy failed (non-fatal): {e}")
