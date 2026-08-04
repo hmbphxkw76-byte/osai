@@ -291,10 +291,12 @@ class BlindInferenceOrchestrator:
         if hasattr(native_result, "get_results"):
             try:
                 for child in native_result.get_results():
-                    if hasattr(child, "response"):
-                        return str(child.response)
-                    if hasattr(child, "output"):
-                        return str(child.output)
+                    response = getattr(child, "response", None)
+                    if response:
+                        return str(response)
+                    output = getattr(child, "output", None)
+                    if output:
+                        return str(output)
             except Exception:
                 pass
 

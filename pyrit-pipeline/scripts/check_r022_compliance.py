@@ -199,7 +199,7 @@ def _is_in_string_literal(line: str, pattern: str) -> bool:
             # 检查 pattern 后面是否也是引号 (字符串值的结尾)
             after = line[idx + len(pattern):]
             # 如果后面紧跟引号或冒号/逗号, 确认是字符串值
-            if after and (after[0] in ("", "'", ":", ",", " ", ")")):
+            if after and after[0] in "\"':, )":
                 return True
         start = idx + 1
     return False

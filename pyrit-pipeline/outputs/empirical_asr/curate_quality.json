@@ -1286,5 +1286,61 @@
       0.293,
       0.72
     ]
+  },
+  {
+    "timestamp": "2026-08-04T19:41:55.760733",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T19:42:39.698026",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T19:42:54.762397",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T20:16:44.616979",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
   }
 ]

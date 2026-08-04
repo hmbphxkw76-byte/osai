@@ -147,15 +147,9 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] Recon 策略桥接跳过: {e}")
 
-    # ── MCP 攻击场景 (R-M1): 可选的 MCP 协议级攻击 ──
-    if getattr(args, "mcp_attack", False):
-        try:
-            from pipeline.scenarios.mcp_attack import run_mcp_attack
-
-            mcp_report = await run_mcp_attack(ctx)
-            ctx.metadata["mcp_attack_report"] = mcp_report.to_dict()
-        except Exception as e:
-            print(f"  [提示] MCP 攻击场景跳过: {e}")
+    # ── MCP 攻击场景 (R-M1): 已合并到下方 MCP 探针块 (避免重复执行) ──
+    # run_mcp_attack() 保留为独立模块, 供 --advanced-mcp-attack 或其他场景调用
+    # --mcp-attack 仅触发下方的 MCP 探针块 (15 个 OWASP 探针 + sent_to_target)
 
     # ── 高级 MCP 攻击场景 (Kill Chain + 跨服务器信任链) ──
     if getattr(args, "advanced_mcp_attack", False):
@@ -497,13 +491,20 @@ async def run(ctx: PipelineContext) -> None:
 
                 sent_to_target = True
                 for probe in probes:
+                    blocked_by_api = False
                     try:
                         attack = PromptSendingAttack(objective_target=_mcp_obj_target)
                         native_result = await attack.execute_async(objective=probe.payload)
                         response = _extract_response_text(native_result)
                     except Exception as e:
-                        logger.warning(f"MCP probe {probe.probe_id} send failed: {e}")
-                        response = ""
+                        err_str = str(e).lower()
+                        if "security_audit" in err_str or "400" in err_str:
+                            logger.warning(f"MCP probe {probe.probe_id} blocked by API security audit: {e}")
+                            blocked_by_api = True
+                            response = ""
+                        else:
+                            logger.warning(f"MCP probe {probe.probe_id} send failed: {e}")
+                            response = ""
                     result = evaluate_probe_response(probe, response)
                     probe_results.append({
                         "probe_id": probe.probe_id,
@@ -512,6 +513,7 @@ async def run(ctx: PipelineContext) -> None:
                         "success": result.success,
                         "matched_indicators": result.matched_indicators,
                         "response": response[:500],  # 限制长度, 供 Secret 验证扫描
+                        "blocked_by_api": blocked_by_api,
                     })
             else:
                 # 回退模式: mock 响应 (测试/无 API 场景)
