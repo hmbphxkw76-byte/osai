@@ -1,11 +1,12 @@
 # L5 专家级差距分析报告
 
-> **版本**: v8.0 (v7.0 + Round 25 MCP 载荷配置化 + 响应提取鲁棒性 + 真实目标发送)
+> **版本**: v8.1 (v8.0 + Round 26 端到端验证修复 + Metadata 完整性 + R-022 WARNING 清零)
 > **日期**: 2026-8-5
 > **规则**: R-009/R-021/R-022/R-023 (优化后 + 代码改动后 + 原生优先 + 端到端验证自动化)
-> **评估对象**: pyrit-pipeline v8.0 + Round 10-25 全部优化 + Agent 攻击原生重构 + 持续优化 + R-022 防偏离 + MCP 配置化
+> **评估对象**: pyrit-pipeline v8.0 + Round 10-26 全部优化 + Agent 攻击原生重构 + 持续优化 + R-022 防偏离 + MCP 配置化 + Metadata 完整性
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **更新记录**:
+> - 2026-8-5 — v8.1: Round 26 端到端验证修复 (MCP 路径合并 + API 安全审计快速跳过) + Metadata 完整性 (probes 字段 + Secret 验证 3 源扫描) + R-022 WARNING 清零 + 7 个新测试
 > - 2026-8-5 — v8.0: Round 25 MCP 载荷配置化 (YAML 外部化 + 硬编码回退) + 响应提取鲁棒性增强 (truthy 检查 + try/except 全覆盖) + MCP 探针真实目标发送 (PromptSendingAttack + mock 回退) + 97 个新测试
 > - 2026-8-5 — v7.0: Round 23 R-022 防偏离机制 (合规检查器 + 标签标注 + Makefile 集成) + 中期架构提升 (实时 ASR 深度应用 + 多模型时间维度 + Converter LLM 生成 + FailureTypeRoutingSelector _estimate 覆盖)
 > - 2026-8-5 — v6.0: Round 22 原生化补全 (multi_turn_session→CrescendoAttack, blind_inference→PromptSendingAttack, backdoor_probe→PromptSendingAttack) + 实时 ASR 反馈 + 多模型对比矩阵 + Converter 动态创建
