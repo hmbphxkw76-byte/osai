@@ -1274,10 +1274,14 @@ async def _detect_multimodal_capabilities(ctx: PipelineContext) -> None:
 # ============================================================
 
 
-# 已知支持 JSON mode 的端点域名 (OpenAI 原生 + Azure OpenAI)
+# 已知支持 JSON mode 的端点域名 (OpenAI 原生 + Azure OpenAI + 主流第三方)
+# SiliconFlow: 支持 DeepSeek-V3/Qwen 等模型的 response_format=json_object
+# NVIDIA: 支持 GLM/Llama 等模型的 response_format=json_object
 _JSON_MODE_SUPPORTED_HOSTS: frozenset[str] = frozenset({
     "api.openai.com",
     "openai.azure.com",
+    "api.siliconflow.cn",
+    "integrate.api.nvidia.com",
 })
 
 
@@ -1302,13 +1306,13 @@ def _disable_json_mode_for_third_party_endpoints(ctx: PipelineContext) -> None:
     背景:
         PyRIT OpenAIChatTarget 默认 ``supports_json_output=True``,
         在发送请求时附加 ``response_format={"type": "json_object"}``.
-        但部分第三方 API (如 SiliconFlow 上的 stepfun-ai/Step-3.5-Flash)
-        不支持 JSON mode, 返回 400 BadRequestError.
+        但部分第三方 API 不支持 JSON mode, 返回 400 BadRequestError.
 
     策略:
         1. ``--disable-json-mode`` CLI flag → 强制禁用所有目标的 JSON mode
-        2. 自动检测 → 非 OpenAI/Azure 端点自动禁用
-        3. 禁用方式: Monkey-patch ``_build_response_format`` 返回 None
+        2. 自动检测 → 非已知支持的端点自动禁用
+        3. 已知支持: OpenAI, Azure, SiliconFlow, NVIDIA (见 _JSON_MODE_SUPPORTED_HOSTS)
+        4. 禁用方式: Monkey-patch ``_build_response_format`` 返回 None
            - 保留 ``supports_json_output=True`` (避免 ValueError)
            - 不发送 ``response_format`` 参数到 API
            - PyRIT 客户端 JSON 解析 + 重试机制 (send_json_with_retry_async) 仍然生效

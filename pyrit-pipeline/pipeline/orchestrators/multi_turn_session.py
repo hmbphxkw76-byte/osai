@@ -281,7 +281,33 @@ class MultiTurnSessionOrchestrator:
         )
 
         # 5. 执行原生攻击
-        native_result = await attack.execute_async(objective=self._objective)
+        try:
+            native_result = await attack.execute_async(objective=self._objective)
+        except Exception as e:
+            # 检测 API 安全审计拦截 (如 LongCat security_audit_fail)
+            err_str = str(e).lower()
+            if "security_audit" in err_str or "400" in err_str or "badrequest" in err_str:
+                logger.warning(
+                    f"MultiTurnSession: blocked by API security audit (session={self._session_id}): {e}"
+                )
+                # 返回未达成的 mock 结果
+                result = MultiTurnSessionResult(
+                    session_id=self._session_id,
+                    achieved=False,
+                    total_turns=0,
+                    backtrack_count=0,
+                )
+                result.turns = [SessionTurn(
+                    turn_index=0,
+                    phase="probe",
+                    user_message="",
+                    target_response="[blocked by API security audit]",
+                    success=False,
+                )]
+                return result
+            # 其他异常继续抛出，由 stage_scenario.py 的 try/except 捕获
+            logger.error(f"MultiTurnSession: execution failed (session={self._session_id}): {e}")
+            raise
 
         # 6. 封装原生结果
         return self._wrap_native_result(native_result)

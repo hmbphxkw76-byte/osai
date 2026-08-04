@@ -467,7 +467,7 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     # 原生 _estimate 覆盖 (R-022: 选择层增强, 1% L5 差距消除)
     # ------------------------------------------------------------------
 
-    def _estimate(self, *, technique_identifier: str, **kwargs: Any) -> float:
+    def _estimate(self, *, technique_identifier: str = "", **kwargs: Any) -> float:
         """覆盖原生 ``_estimate()`` — 融合失败类型路由到 Q 值估计。
 
         R-022 合规说明:

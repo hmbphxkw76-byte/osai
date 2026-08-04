@@ -255,8 +255,14 @@ class BackdoorProbeOrchestrator:
                 logger.warning("PromptSendingAttack import failed, using fallback")
                 probe.response = await self._fallback_send(prompt)
             except Exception as e:
-                logger.error(f"BackdoorProbe: probe failed: {e}")
-                probe.response = f"[error] {e}"
+                # 检测 API 安全审计拦截 (如 LongCat security_audit_fail)
+                err_str = str(e).lower()
+                if "security_audit" in err_str or "400" in err_str or "badrequest" in err_str:
+                    logger.warning(f"BackdoorProbe: probe {probe.probe_id} blocked by API security audit: {e}")
+                    probe.response = "[blocked by API security audit]"
+                else:
+                    logger.error(f"BackdoorProbe: probe {probe.probe_id} send failed: {e}")
+                    probe.response = f"[error] {e}"
 
         probe.anomaly_score = self._calculate_anomaly(probe.response)
         probe.detected = probe.anomaly_score > 0.5

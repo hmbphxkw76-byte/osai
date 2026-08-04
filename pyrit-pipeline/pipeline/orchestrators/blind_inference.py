@@ -247,10 +247,16 @@ class BlindInferenceOrchestrator:
                 # PyRIT 原生 import 失败, 回退到直接 API 调用
                 logger.warning("PromptSendingAttack import failed, using fallback")
                 probe.response = await self._fallback_send(question)
-                probe.response_time = 0.0
             except Exception as e:
-                logger.error(f"BlindInference: probe failed: {e}")
-                probe.response = f"[error] {e}"
+                # 检测 API 安全审计拦截 (如 LongCat security_audit_fail)
+                err_str = str(e).lower()
+                if "security_audit" in err_str or "400" in err_str or "badrequest" in err_str:
+                    logger.warning(f"BlindInference: probe {probe.probe_id} blocked by API security audit: {e}")
+                    probe.response = "[blocked by API security audit]"
+                else:
+                    logger.error(f"BlindInference: probe {probe.probe_id} send failed: {e}")
+                    probe.response = f"[error] {e}"
+                probe.response_time = 0.0
 
         probe.response_length = len(probe.response)
         match = re.search(pattern, probe.response, re.IGNORECASE)

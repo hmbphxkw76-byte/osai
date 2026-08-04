@@ -38,17 +38,29 @@ class TestIsJsonModeSupported:
 
         assert _is_json_mode_supported("https://myresource.openai.azure.com/") is True
 
-    def test_siliconflow_endpoint_not_supported(self) -> None:
-        """SiliconFlow 端点不支持 JSON mode。."""
+    def test_siliconflow_endpoint_supported(self) -> None:
+        """SiliconFlow 端点支持 JSON mode (DeepSeek-V3 等主流模型)。."""
         from pipeline.stages.stage_init import _is_json_mode_supported
 
-        assert _is_json_mode_supported("https://api.siliconflow.cn/v1") is False
+        assert _is_json_mode_supported("https://api.siliconflow.cn/v1") is True
+
+    def test_nvidia_endpoint_supported(self) -> None:
+        """NVIDIA API 端点支持 JSON mode (GLM/Llama 等模型)。."""
+        from pipeline.stages.stage_init import _is_json_mode_supported
+
+        assert _is_json_mode_supported("https://integrate.api.nvidia.com/v1") is True
 
     def test_openrouter_endpoint_not_supported(self) -> None:
         """OpenRouter 端点不支持 JSON mode。."""
         from pipeline.stages.stage_init import _is_json_mode_supported
 
         assert _is_json_mode_supported("https://openrouter.ai/api/v1") is False
+
+    def test_ollama_endpoint_not_supported(self) -> None:
+        """Ollama 本地端点不支持 JSON mode。."""
+        from pipeline.stages.stage_init import _is_json_mode_supported
+
+        assert _is_json_mode_supported("http://localhost:11434/v1") is False
 
     def test_empty_endpoint_not_supported(self) -> None:
         """空端点不支持 JSON mode。."""
@@ -79,8 +91,8 @@ class _MockChatTarget:
 
     def __init__(
         self,
-        endpoint: str = "https://api.siliconflow.cn/v1",
-        model_name: str = "stepfun-ai/Step-3.5-Flash",
+        endpoint: str = "https://openrouter.ai/api/v1",
+        model_name: str = "anthropic/claude-3-opus",
     ) -> None:
         self._endpoint = endpoint
         self._model_name = model_name
@@ -123,16 +135,16 @@ class _MockRegistryEntry:
 class TestDisableJsonMode:
     """``_disable_json_mode_for_third_party_endpoints`` 功能测试。."""
 
-    def test_auto_disable_siliconflow(
+    def test_no_disable_siliconflow(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """自动检测 SiliconFlow 端点并禁用 JSON mode。."""
+        """SiliconFlow 端点不禁用 JSON mode (已支持)。."""
         from pipeline.stages.stage_init import _disable_json_mode_for_third_party_endpoints
 
         ctx = PipelineContext(args=mock_args)
         mock_target = _MockChatTarget(
             endpoint="https://api.siliconflow.cn/v1",
-            model_name="stepfun-ai/Step-3.5-Flash",
+            model_name="deepseek-ai/DeepSeek-V3",
         )
         mock_entry = _MockRegistryEntry(mock_target)
 
@@ -143,7 +155,29 @@ class TestDisableJsonMode:
             _disable_json_mode_for_third_party_endpoints(ctx)
 
         captured = capsys.readouterr()
-        assert "已禁用" in captured.out
+        assert "无需禁用" in captured.out
+
+    def test_no_disable_nvidia(
+        self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """NVIDIA API 端点不禁用 JSON mode (已支持)。."""
+        from pipeline.stages.stage_init import _disable_json_mode_for_third_party_endpoints
+
+        ctx = PipelineContext(args=mock_args)
+        mock_target = _MockChatTarget(
+            endpoint="https://integrate.api.nvidia.com/v1",
+            model_name="nvidia/glm-5.2",
+        )
+        mock_entry = _MockRegistryEntry(mock_target)
+
+        with patch(
+            "pyrit.registry.TargetRegistry.get_registry_singleton"
+        ) as mock_registry:
+            mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
+            _disable_json_mode_for_third_party_endpoints(ctx)
+
+        captured = capsys.readouterr()
+        assert "无需禁用" in captured.out
 
     def test_auto_disable_openrouter(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -263,8 +297,8 @@ class TestDisableJsonMode:
         ctx = PipelineContext(args=mock_args)
 
         inner_target = _MockChatTarget(
-            endpoint="https://api.siliconflow.cn/v1",
-            model_name="stepfun-ai/Step-3.5-Flash",
+            endpoint="https://openrouter.ai/api/v1",
+            model_name="anthropic/claude-3-opus",
         )
         rate_limited = _MockRateLimitedTarget(inner_target)
         mock_entry = _MockRegistryEntry(rate_limited)
@@ -289,7 +323,7 @@ class TestDisableJsonMode:
         # 没有 _build_response_format 属性的目标
         class _NonChatTarget:
             def __init__(self) -> None:
-                self._endpoint = "https://api.siliconflow.cn/v1"
+                self._endpoint = "https://openrouter.ai/api/v1"
                 self._model_name = "some-model"
 
         mock_entry = _MockRegistryEntry(_NonChatTarget())
@@ -315,20 +349,20 @@ class TestDisableJsonMode:
             endpoint="https://api.openai.com/v1",
             model_name="gpt-4o",
         )
-        siliconflow_target = _MockChatTarget(
-            endpoint="https://api.siliconflow.cn/v1",
-            model_name="stepfun-ai/Step-3.5-Flash",
+        openrouter_target = _MockChatTarget(
+            endpoint="https://openrouter.ai/api/v1",
+            model_name="anthropic/claude-3-opus",
         )
 
         openai_entry = _MockRegistryEntry(openai_target, name="openai_chat")
-        sf_entry = _MockRegistryEntry(siliconflow_target, name="adversarial_chat")
+        or_entry = _MockRegistryEntry(openrouter_target, name="adversarial_chat")
 
         with patch(
             "pyrit.registry.TargetRegistry.get_registry_singleton"
         ) as mock_registry:
             mock_registry.return_value.instances.get_all_instances.return_value = [
                 openai_entry,
-                sf_entry,
+                or_entry,
             ]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
@@ -351,8 +385,8 @@ class TestDisableJsonMode:
 
         ctx = PipelineContext(args=mock_args)
         mock_target = _MockChatTarget(
-            endpoint="https://api.siliconflow.cn/v1",
-            model_name="stepfun-ai/Step-3.5-Flash",
+            endpoint="https://openrouter.ai/api/v1",
+            model_name="anthropic/claude-3-opus",
         )
         mock_entry = _MockRegistryEntry(mock_target)
 

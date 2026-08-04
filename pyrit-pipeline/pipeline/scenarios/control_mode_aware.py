@@ -324,8 +324,14 @@ class ControlModeAwareOrchestrator:
                 logger.warning("PromptSendingAttack import failed, using fallback")
                 probe.response = await self._fallback_send(prompt)
             except Exception as e:
-                logger.error(f"ControlModeAware: probe failed: {e}")
-                probe.response = f"[error] {e}"
+                # 检测 API 安全审计拦截 (如 LongCat security_audit_fail)
+                err_str = str(e).lower()
+                if "security_audit" in err_str or "400" in err_str or "badrequest" in err_str:
+                    logger.warning(f"ControlModeAware: probe blocked by API security audit: {e}")
+                    probe.response = "[blocked by API security audit]"
+                else:
+                    logger.error(f"ControlModeAware: probe failed: {e}")
+                    probe.response = f"[error] {e}"
 
         # 分析响应
         probe.control_detected = self._detect_control(probe.response)
