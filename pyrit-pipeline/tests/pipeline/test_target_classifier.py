@@ -105,6 +105,90 @@ class TestTargetClassifierForceType:
 
 
 # ============================================================
+# TargetClassifier stream 参数测试
+# ============================================================
+
+
+class TestTargetClassifierStreamParam:
+    """stream 参数覆盖测试。"""
+
+    @pytest.fixture
+    def classifier(self) -> TargetClassifier:
+        """创建 TargetClassifier 实例。"""
+        return TargetClassifier(http_timeout=1)
+
+    @pytest.mark.asyncio
+    async def test_stream_true_forces_streaming(self, classifier: TargetClassifier) -> None:
+        """stream=True 强制标记流式 (即使 URL 不含流式路径)。"""
+        # /api/chat 匹配 API 路径但不匹配流式路径
+        result = await classifier.classify(
+            "https://api.example.com/api/chat",
+            stream=True,
+        )
+        assert result.target_type == "llm_api_platform"
+        assert result.is_streaming is True
+        assert result.streaming_type == "sse"
+        assert "--stream" in result.detection_reason
+
+    @pytest.mark.asyncio
+    async def test_stream_false_disables_streaming(self, classifier: TargetClassifier) -> None:
+        """stream=False 强制关闭流式 (即使 URL 匹配流式路径模式)。"""
+        # /v1/chat/completions 同时匹配 API 和流式路径, 但 stream=False 覆盖
+        result = await classifier.classify(
+            "https://api.example.com/v1/chat/completions",
+            stream=False,
+        )
+        assert result.target_type == "llm_api_platform"
+        assert result.is_streaming is False
+        assert result.streaming_type == ""
+
+    @pytest.mark.asyncio
+    async def test_stream_none_auto_detect_streaming_url(self, classifier: TargetClassifier) -> None:
+        """stream=None 自动检测: 含 /stream 路径 → 流式。"""
+        result = await classifier.classify(
+            "https://api.example.com/v1/stream",
+            stream=None,
+        )
+        assert result.target_type == "llm_api_platform"
+        assert result.is_streaming is True
+        assert result.streaming_type == "sse"
+
+    @pytest.mark.asyncio
+    async def test_stream_false_overrides_streaming_url(self, classifier: TargetClassifier) -> None:
+        """stream=False 覆盖流式 URL 模式匹配 → 非流式。"""
+        result = await classifier.classify(
+            "https://api.example.com/v1/stream",
+            stream=False,
+        )
+        # stream=False 时, 流式 URL 不触发流式标记
+        # 但 URL 仍可能匹配 API 模式 (取决于 _match_url_patterns)
+        assert result.is_streaming is False
+
+    @pytest.mark.asyncio
+    async def test_stream_true_with_force_api_platform(self, classifier: TargetClassifier) -> None:
+        """stream=True + force_type=api_platform → 流式标记。"""
+        result = await classifier.classify(
+            "https://chat.example.com",
+            force_type="api_platform",
+            stream=True,
+        )
+        assert result.target_type == "llm_api_platform"
+        assert result.is_streaming is True
+        assert result.streaming_type == "sse"
+
+    @pytest.mark.asyncio
+    async def test_stream_none_auto_detect_api_url(self, classifier: TargetClassifier) -> None:
+        """stream=None 自动检测: API URL 无流式路径 → 非流式 (但 /v1/chat/completions 匹配流式模式)。"""
+        result = await classifier.classify(
+            "https://api.example.com/v1/chat/completions",
+            stream=None,
+        )
+        assert result.target_type == "llm_api_platform"
+        # /v1/chat/completions 同时匹配 _STREAMING_PATH_PATTERNS → is_streaming=True
+        assert result.is_streaming is True
+
+
+# ============================================================
 # TargetClassifier DOM 特征检测测试
 # ============================================================
 
