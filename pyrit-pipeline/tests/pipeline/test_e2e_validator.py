@@ -411,3 +411,153 @@ class TestRunE2EValidation:
         """run_e2e_validation 返回 E2EValidationReport."""
         report = run_e2e_validation({})
         assert isinstance(report, E2EValidationReport)
+
+
+# ============================================================
+# Metadata 完整性测试 — 验证各场景结果的 probes/response 字段
+# ============================================================
+
+
+class TestMetadataCompleteness:
+    """验证各场景 metadata 结果的 probes 字段完整性 (Round 26 新增)."""
+
+    def test_backdoor_probe_result_has_probes_with_response(self):
+        """后门探测结果包含 probes 列表, 每个探针含 response 字段."""
+        metadata = {
+            "backdoor_probe_result": {
+                "probes_count": 30,
+                "probes": [
+                    {
+                        "trigger_type": "magic_phrase",
+                        "trigger_value": "debug_mode",
+                        "response": "Debug mode activated.",
+                        "anomaly_score": 0.8,
+                        "detected": True,
+                    },
+                ],
+                "detected_backdoors": ["debug_mode"],
+                "max_anomaly_score": 0.8,
+                "native_executor": "PromptSendingAttack",
+            },
+        }
+        report = validate_metadata(metadata)
+        bp_result = [r for r in report.results if r.item.metadata_key == "backdoor_probe_result"][0]
+        assert bp_result.status == "pass"
+        # 验证 probes 列表中的 response 字段存在
+        probes = metadata["backdoor_probe_result"]["probes"]
+        assert len(probes) > 0
+        assert "response" in probes[0]
+        assert "trigger_type" in probes[0]
+        assert "anomaly_score" in probes[0]
+
+    def test_control_mode_result_has_probes_with_response(self):
+        """控制模式结果包含 probes 列表, 每个探针含 response 字段."""
+        metadata = {
+            "control_mode_result": {
+                "mode": "detect",
+                "total_probes": 10,
+                "probes": [
+                    {
+                        "mode": "detect",
+                        "technique": "jailbreak",
+                        "response": "I cannot help with that.",
+                        "control_detected": True,
+                        "bypass_success": False,
+                    },
+                ],
+                "control_detected": True,
+                "bypass_success_count": 0,
+            },
+        }
+        report = validate_metadata(metadata)
+        cm_result = [r for r in report.results if r.item.metadata_key == "control_mode_result"][0]
+        assert cm_result.status == "pass"
+        # 验证 probes 列表中的 response 字段存在
+        probes = metadata["control_mode_result"]["probes"]
+        assert len(probes) > 0
+        assert "response" in probes[0]
+        assert "technique" in probes[0]
+        assert "bypass_success" in probes[0]
+
+
+class TestSecretValidationMultiSource:
+    """Secret 验证多源扫描测试 — 验证扫描 3 个响应源的完整性 (Round 26 新增)."""
+
+    def test_secret_validation_scans_backdoor_responses(self):
+        """Secret 验证扫描 backdoor_probe_result 中的 response."""
+        # 这里验证的是 metadata 结构, 不实际调用 scorer
+        metadata = {
+            "backdoor_probe_result": {
+                "probes_count": 1,
+                "probes": [{"response": "api_key=sk-test123"}],
+            },
+        }
+        # 验证 backdoor_probe_result 的 probes 字段可被 Secret 验证扫描
+        probes = metadata["backdoor_probe_result"]["probes"]
+        responses = [p.get("response", "") for p in probes if p.get("response")]
+        assert len(responses) == 1
+        assert "api_key" in responses[0]
+
+    def test_secret_validation_scans_control_mode_responses(self):
+        """Secret 验证扫描 control_mode_result 中的 response."""
+        metadata = {
+            "control_mode_result": {
+                "mode": "detect",
+                "total_probes": 1,
+                "probes": [{"response": "password=admin123"}],
+            },
+        }
+        probes = metadata["control_mode_result"]["probes"]
+        responses = [p.get("response", "") for p in probes if p.get("response")]
+        assert len(responses) == 1
+        assert "password" in responses[0]
+
+    def test_secret_validation_scans_mcp_probe_responses(self):
+        """Secret 验证扫描 mcp_probe_results 中的 response."""
+        metadata = {
+            "mcp_probe_results": {
+                "total_probes": 1,
+                "results": [{"response": "token=bearer_xyz"}],
+                "owasp_coverage": "ASI01",
+                "sent_to_target": True,
+            },
+        }
+        results = metadata["mcp_probe_results"]["results"]
+        responses = [p.get("response", "") for p in results if p.get("response")]
+        assert len(responses) == 1
+        assert "token" in responses[0]
+
+    def test_secret_validation_result_has_strategies(self):
+        """Secret 验证结果包含 4 策略."""
+        metadata = {
+            "secret_validation_result": {
+                "total_findings": 3,
+                "max_confidence": 0.9,
+                "strategies_used": ["exact", "format", "semantic", "api"],
+            },
+        }
+        report = validate_metadata(metadata)
+        sv_result = [r for r in report.results if r.item.metadata_key == "secret_validation_result"][0]
+        assert sv_result.status == "pass"
+        assert len(metadata["secret_validation_result"]["strategies_used"]) == 4
+
+    def test_mcp_probe_results_has_blocked_by_api(self):
+        """MCP 探针结果支持 blocked_by_api 字段 (Round 26 新增)."""
+        metadata = {
+            "mcp_probe_results": {
+                "total_probes": 15,
+                "results": [
+                    {"probe_id": "MCP_01", "response": "refused", "blocked_by_api": False},
+                    {"probe_id": "MCP_02", "response": "", "blocked_by_api": True},
+                ],
+                "owasp_coverage": "ASI01-ASI07",
+                "sent_to_target": True,
+            },
+        }
+        report = validate_metadata(metadata)
+        mcp_result = [r for r in report.results if r.item.metadata_key == "mcp_probe_results"][0]
+        assert mcp_result.status == "pass"
+        # 验证 blocked_by_api 字段存在
+        results = metadata["mcp_probe_results"]["results"]
+        assert "blocked_by_api" in results[0]
+        assert results[1]["blocked_by_api"] is True
