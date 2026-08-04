@@ -42,3 +42,10 @@ rate_limit: 3
 # 降低可减少 API 卡顿时间 (每次重试指数退避)
 # 上次运行 nangeai.top 重试 10 次耗时 14 分钟/攻击
 rate_limit_retries: 3
+
+# API 流式响应模式 (stream parameter)
+# false = 非流式 (默认, 一次性返回完整响应)
+# true  = 流式 SSE (Server-Sent Events, 逐 token 返回)
+# 仅对支持 stream 参数的 OpenAI 兼容 API 生效
+# 修改后 --target-url 探测时会据此标记 is_streaming
+stream: false

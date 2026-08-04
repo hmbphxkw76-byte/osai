@@ -181,6 +181,7 @@ class TargetClassifier:
         target_url: str,
         *,
         force_type: str = "auto",
+        stream: bool | None = None,
     ) -> TargetClassification:
         """判别目标 URL 的类型。.
 
@@ -192,6 +193,10 @@ class TargetClassifier:
         Args:
             target_url: 目标 URL。
             force_type: 强制类型 ("auto" | "web_app" | "api_platform")。
+            stream: 用户通过 --stream/--no-stream 指定的流式模式。
+                None = 自动检测 (默认行为);
+                True = 强制标记为流式 (streaming_type=sse);
+                False = 强制标记为非流式 (覆盖 URL 模式匹配结果)。
             render_check: 是否启用 SPA 渲染后 DOM 检测 (覆盖实例默认值)。
 
         Returns:
@@ -206,12 +211,16 @@ class TargetClassifier:
                 recommended_mode="browser",
             )
         if force_type == "api_platform":
-            return TargetClassification(
+            result = TargetClassification(
                 target_type="llm_api_platform",
                 target_url=target_url,
                 detection_reason="Forced to api_platform by --target-type",
                 recommended_mode="api",
             )
+            if stream:
+                result.streaming_type = "sse"
+                result.is_streaming = True
+            return result
 
         result = TargetClassification(target_url=target_url)
 

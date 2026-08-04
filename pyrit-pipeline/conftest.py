@@ -45,6 +45,7 @@ def mock_args() -> argparse.Namespace:
         skip_preflight=True,
         target_url=None,
         disable_json_mode=False,
+        stream=False,
         recon_json=None,
         auth_state_file=None,
         mcp_attack=False,

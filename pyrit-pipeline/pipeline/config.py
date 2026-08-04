@@ -25,6 +25,7 @@ _HARDCODED_DEFAULTS: dict[str, Any] = {
     "epsilon": 0.1,
     "rate_limit": 3,
     "rate_limit_retries": 3,
+    "stream": False,
 }
 
 
@@ -652,6 +653,25 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "默认: 自动检测 — 非 OpenAI/Azure 端点自动禁用.\n"
             "强制禁用时, PyRIT 使用客户端 JSON 解析 + 重试机制替代."
         ),
+    )
+
+    # ── 流式响应控制 (SSE stream parameter) ──
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        default=_load_attack_params()["stream"],
+        help=(
+            "启用 API 流式响应模式 (stream=true, SSE Server-Sent Events).\n"
+            "默认: false (非流式, 一次性返回完整响应).\n"
+            "可通过 config/attack_params.yaml 的 stream 字段修改默认值.\n"
+            "仅对支持 stream 参数的 OpenAI 兼容 API 生效."
+        ),
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_false",
+        dest="stream",
+        help="禁用流式响应模式 (默认行为, 可通过 config/attack_params.yaml 覆盖).",
     )
 
     # ── 高级攻击策略 (G3-G9) ──

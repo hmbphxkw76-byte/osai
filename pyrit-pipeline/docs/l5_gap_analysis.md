@@ -115,7 +115,7 @@
 | 4 | 后门探测端到端实测 | ✅ 已验证 | probes=18 (30-12 blocked), detected=0, max_anomaly=0.20, probes 列表含 trigger_type/response/anomaly_score | ✅ 通过 |
 | 5 | 控制模式感知端到端实测 | ✅ 已验证 | mode=detect, probes=5, control_detected=False, bypass=2, probes 列表含 mode/technique/response | ✅ 通过 |
 | 6 | Secret 验证端到端实测 | ✅ 已验证 | findings=2, max_conf=0.50, sources=2 (backdoor_probe_result + control_mode_result), strategies=exact/format/semantic/api | ✅ 通过 |
-| 7 | TargetClassifier SSE/JSON 判别 | ⏳ 待验证 | 需要 SSE URL | ⏳ 待 SSE URL |
+| 7 | TargetClassifier SSE/JSON 判别 | ✅ 已验证 | 5 个 URL 测试: SiliconFlow/NVIDIA/LongCat API → llm_api_platform + is_streaming=True + streaming_type=sse; /stream 路径 → 流式端点模式匹配; /docs → unknown | ✅ 通过 |
 
 **Stage 3 `_estimate()` bug 修复**:
 - 问题: `FailureTypeRoutingSelector._estimate()` 的 `technique_identifier` 参数为必需，但 PyRIT 内部调用时不传递
