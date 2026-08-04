@@ -1116,7 +1116,7 @@ class ReportGenerator:
         # R6: 合并 Appendix C+D → Configuration & Reproduction
         memory_db = os.getenv("MEMORY_DB_TYPE", "DuckDB")
         db_path = os.getenv("MEMORY_DB_PATH", "memory.db")
-        max_concurrency = os.getenv("MAX_CONCURRENCY", "5")
+        max_concurrency = os.getenv("MAX_CONCURRENCY", "3")
         per_attack_timeout = os.getenv("PER_ATTACK_TIMEOUT", "300")
         target_endpoint = os.getenv("TARGET_ENDPOINT", "N/A")
         target_model = os.getenv("TARGET_MODEL", "N/A")

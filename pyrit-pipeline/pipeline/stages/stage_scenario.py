@@ -119,6 +119,119 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] MCP 攻击场景跳过: {e}")
 
+    # ── 高级 MCP 攻击场景 (Kill Chain + 跨服务器信任链) ──
+    if getattr(args, "advanced_mcp_attack", False):
+        try:
+            from pipeline.scenarios.advanced_mcp_attacks import run_advanced_mcp_attack
+
+            adv_report = await run_advanced_mcp_attack(ctx)
+            ctx.metadata["advanced_mcp_attack_report"] = adv_report.to_dict()
+        except Exception as e:
+            print(f"  [提示] 高级 MCP 攻击场景跳过: {e}")
+
+    # ── Crescendo 多轮渐进式攻击 ──
+    crescendo_obj = getattr(args, "crescendo_objective", None)
+    if crescendo_obj:
+        try:
+            from pyrit.registry import TargetRegistry as _TR
+
+            from pipeline.orchestrators.advanced_crescendo import AdvancedCrescendoOrchestrator
+
+            _reg = _TR.get_registry_singleton()
+            _entries = _reg.instances.get_all_instances()
+            if _entries:
+                _target = _entries[0].instance
+                _max_turns = getattr(args, "crescendo_max_turns", 10)
+                orchestrator = AdvancedCrescendoOrchestrator(
+                    objective_target=_target,
+                    adversarial_chat=_target,
+                    scoring_target=_target,
+                    objective=crescendo_obj,
+                    max_turns=_max_turns,
+                )
+                cres_result = await orchestrator.run_async()
+                ctx.metadata["crescendo_result"] = cres_result.to_dict()
+                print(f"  Crescendo: achieved={cres_result.achieved}, "
+                      f"turn={cres_result.winning_turn}/{cres_result.max_turns}")
+            else:
+                print("  [提示] Crescendo 跳过: 未找到已注册的 Target")
+        except Exception as e:
+            print(f"  [提示] Crescendo 攻击跳过: {e}")
+
+    # ── TAP 树状攻击路径 ──
+    tap_obj = getattr(args, "tap_objective", None)
+    if tap_obj:
+        try:
+            from pyrit.registry import TargetRegistry as _TR2
+
+            from pipeline.orchestrators.tap_orchestrator import TAPOrchestrator
+
+            _reg2 = _TR2.get_registry_singleton()
+            _entries2 = _reg2.instances.get_all_instances()
+            if _entries2:
+                _target2 = _entries2[0].instance
+                orchestrator = TAPOrchestrator(
+                    objective_target=_target2,
+                    adversarial_chat=_target2,
+                    scoring_target=_target2,
+                    objective=tap_obj,
+                    tree_width=getattr(args, "tap_tree_width", 4),
+                    tree_depth=getattr(args, "tap_tree_depth", 3),
+                    branching=getattr(args, "tap_branching", 2),
+                    success_threshold=getattr(args, "tap_success_threshold", 8),
+                )
+                tap_result = await orchestrator.run_async()
+                ctx.metadata["tap_result"] = tap_result.to_dict()
+                print(f"  TAP: achieved={tap_result.achieved}, "
+                      f"best_score={tap_result.best_score}")
+            else:
+                print("  [提示] TAP 跳过: 未找到已注册的 Target")
+        except Exception as e:
+            print(f"  [提示] TAP 攻击跳过: {e}")
+
+    # ── 三框架评估 (CSA + OWASP + MITRE ATLAS) ──
+    if getattr(args, "assessment_framework", False):
+        try:
+            from pipeline.assessment.framework_mapper import AssessmentPhase, OWASPAgenticCode
+            from pipeline.assessment.redteam_methodology import RedTeamMethodology
+
+            methodology = RedTeamMethodology(target_name=getattr(args, "model", "unknown"))
+
+            # 自动标记已执行的攻击对应的 OWASP 代码
+            if getattr(args, "mcp_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.SCOPING,
+                    "MCP protocol-level attack executed",
+                    owasp_code=OWASPAgenticCode.ASI01,
+                )
+            if getattr(args, "advanced_mcp_attack", False):
+                for code in [OWASPAgenticCode.ASI01, OWASPAgenticCode.ASI02,
+                             OWASPAgenticCode.ASI04, OWASPAgenticCode.ASI05,
+                             OWASPAgenticCode.ASI06, OWASPAgenticCode.ASI07,
+                             OWASPAgenticCode.ASI08]:
+                    methodology.add_finding(
+                        AssessmentPhase.SCOPING,
+                        f"Advanced MCP attack covers {code.value}",
+                        owasp_code=code,
+                    )
+
+            methodology.complete_phase(AssessmentPhase.SCOPING, duration_minutes=5)
+            methodology.complete_phase(AssessmentPhase.ENUMERATION, duration_minutes=10)
+            methodology.complete_phase(AssessmentPhase.AUTOMATED_SCAN, duration_minutes=0,
+                                       notes="Integrated into pipeline execution")
+            methodology.complete_phase(AssessmentPhase.DEEP_EXPLOITATION, duration_minutes=0,
+                                       notes="Crescendo/TAP/Advanced MCP executed inline")
+            methodology.complete_phase(AssessmentPhase.MANUAL_TESTING, duration_minutes=0,
+                                       notes="Requires manual expert testing")
+
+            result = methodology.get_result()
+            ctx.metadata["assessment_result"] = result.to_dict()
+            print(f"  框架覆盖: OWASP {result.coverage.owasp_coverage_pct:.0f}%, "
+                  f"CSA {result.coverage.csa_coverage_pct:.0f}%, "
+                  f"ATLAS {result.coverage.atlas_coverage_count} techniques")
+        except Exception as e:
+            print(f"  [提示] 三框架评估跳过: {e}")
+
     sorted_datasets = sort_datasets_by_asr(args.datasets, asr_by_category=asr_by_category)
     if sorted_datasets != args.datasets:
         print(f"  数据集优先级排序 (ASR 驱动): {args.datasets} → {sorted_datasets}")
@@ -1032,7 +1145,7 @@ def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
 
     # 参数映射: (args 属性, tier_params 键, argparse 默认值)
     param_map = [
-        ("max_concurrency", "max_concurrency", 5),
+        ("max_concurrency", "max_concurrency", 3),
         ("epsilon", "epsilon", 0.1),
         ("max_attempts", "max_attempts", 3),
     ]

@@ -10,8 +10,8 @@
   Layer 3 (深度评估): + Tier C/D 技术 (ASR < 15%) — 全面覆盖所有攻击
 
 每层推荐的技术数量、数据集大小、并发度不同:
-  Layer 1: 3-5 个技术, 每数据集 5 个种子, 并发 5
-  Layer 2: 8-12 个技术, 每数据集 10 个种子, 并发 5
+  Layer 1: 3-5 个技术, 每数据集 5 个种子, 并发 3
+  Layer 2: 8-12 个技术, 每数据集 10 个种子, 并发 3
   Layer 3: 全部技术, 每数据集 20 个种子, 并发 3
 
 学术依据:
@@ -70,7 +70,7 @@ LAYER_CONFIGS: dict[int, TierLayerConfig] = {
         min_tier="A",
         max_techniques=5,
         max_dataset_size=5,
-        max_concurrency=5,
+        max_concurrency=3,
         max_attempts=2,
         include_baseline=True,
     ),
@@ -81,7 +81,7 @@ LAYER_CONFIGS: dict[int, TierLayerConfig] = {
         min_tier="B",
         max_techniques=12,
         max_dataset_size=10,
-        max_concurrency=5,
+        max_concurrency=3,
         max_attempts=3,
         include_baseline=True,
     ),

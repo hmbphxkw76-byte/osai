@@ -105,7 +105,7 @@ async def run(ctx: PipelineContext) -> None:
         [
             f"★ AtomicAttack: {len(atomic_attacks)} 个 → 并发执行",
             f"★ 策略: {strategy} → 决定停止时机",
-            f"★ 并发: {ctx.args.max_concurrency if ctx.args else 5} → 决定吞吐量",
+            f"★ 并发: {ctx.args.max_concurrency if ctx.args else 3} → 决定吞吐量",
             f"★ SequentialAttack: {sequential_count} → 复合攻击链",
             f"★ 停止条件: max_attempts={ctx.max_attempts_per_objective}",
         ],

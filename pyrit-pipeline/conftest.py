@@ -33,6 +33,8 @@ def mock_args() -> argparse.Namespace:
         selector_scope="all_runs",
         max_concurrency=3,
         max_retries=3,
+        rate_limit=3,
+        rate_limit_retries=3,
         resume=None,
         no_baseline=False,
         converters=None,
@@ -46,6 +48,15 @@ def mock_args() -> argparse.Namespace:
         recon_json=None,
         auth_state_file=None,
         mcp_attack=False,
+        advanced_mcp_attack=False,
+        crescendo_objective=None,
+        crescendo_max_turns=10,
+        tap_objective=None,
+        tap_tree_width=4,
+        tap_tree_depth=3,
+        tap_branching=2,
+        tap_success_threshold=8,
+        assessment_framework=False,
     )
 
 

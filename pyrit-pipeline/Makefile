@@ -7,7 +7,7 @@
 
 # ── 项目元信息 ──
 PROJECT_NAME := pyrit-pipeline
-VERSION := 5.0.0
+VERSION := 7.1.0
 PYTHON := python
 
 # ── 包管理器检测 (uv 优先, pip 兜底) ──
@@ -65,6 +65,9 @@ help: ## 显示所有可用命令
 	@echo "  $(GREEN)make run-small$(RESET)         快速运行 (max-dataset-size=10)"
 	@echo "  $(GREEN)make run-html$(RESET)           运行并生成 HTML 报告"
 	@echo "  $(GREEN)make run-exhaustive$(RESET)     全技术评估模式"
+	@echo "  $(GREEN)make run-target-url$(RESET)     攻击 LLM Web URL (--target-url)"
+	@echo "  $(GREEN)make run-mcp$(RESET)            启用 MCP 协议级攻击"
+	@echo "  $(GREEN)make run-recon$(RESET)          从 JSON 加载侦察结果"
 	@echo "  $(GREEN)make run-web$(RESET)           运行 Web Red Team"
 	@echo "  $(GREEN)make run-custom ARGS=\"...\"$(RESET)  自定义参数运行"
 	@echo ""
@@ -215,7 +218,7 @@ pre-commit: ## 安装 pre-commit git hooks
 # ============================================================================
 # 流水线运行 (R-012: PYTHONIOENCODING=utf-8 已在头部 export)
 # ============================================================================
-.PHONY: run run-small run-html run-exhaustive run-web run-custom
+.PHONY: run run-small run-html run-exhaustive run-target-url run-mcp run-recon run-web run-custom
 run: ## 运行流水线 (默认配置)
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (默认配置)..."
 	$(PYTHON) main.py
@@ -231,6 +234,18 @@ run-html: ## 运行并生成 HTML 报告
 run-exhaustive: ## 全技术评估模式
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (EXHAUSTIVE 全技术评估)..."
 	$(PYTHON) main.py --exhaustive
+
+run-target-url: ## 攻击 LLM Web URL (--target-url, 自动判别 Web/API, 认证+MFA)
+	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (LLM Web URL 攻击)..."
+	$(PYTHON) main.py --target-url $(or $(TARGET_URL),https://chat.example.com) --load-owasp-local
+
+run-mcp: ## 启用 MCP 协议级攻击 (--mcp-attack, 8 探针)
+	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (MCP 协议级攻击)..."
+	$(PYTHON) main.py --load-owasp-local --mcp-attack
+
+run-recon: ## 从 JSON 文件加载侦察结果 (--recon-json, 两流水线完全独立)
+	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (Recon JSON 加载)..."
+	$(PYTHON) main.py --load-owasp-local --recon-json $(or $(RECON_JSON),outputs/evidence/recon_report.json)
 
 run-web: ## 运行 Web Red Team
 	@echo "$(CYAN)[RUN]$(RESET) 启动 Web Red Team..."
@@ -284,7 +299,7 @@ typecheck: ## 类型检查 (mypy)
 check: lint test ## 一键检查 (lint + test)
 	@echo "$(GREEN)[OK]$(RESET) 所有检查通过"
 
-check-full: ## 全量检查 (ruff + pytest -v, 三库标准 R-015)
+check-full: ## 全量检查 (ruff + pytest -v, 三库标准 R-021)
 	@echo "$(CYAN)[CHECK-FULL]$(RESET) 三库标准全量检查 (ruff + pytest)..."
 	@echo "  [1/2] ruff check pipeline/ scripts/ tests/ conftest.py"
 	ruff check pipeline/ scripts/ tests/ conftest.py

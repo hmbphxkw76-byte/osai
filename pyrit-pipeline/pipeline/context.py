@@ -158,7 +158,7 @@ class PipelineContext:
         lines = [
             "  → Stage 3 输入:",
             f"    Executor L1 (Parameters): {self.max_attempts_per_objective} max_attempts, "
-            f"{self.args.max_concurrency if self.args else 5} concurrency",
+            f"{self.args.max_concurrency if self.args else 3} concurrency",
             f"    Executor L2 (Strategy): {self.scenario_name}",
             f"    Executor L3 (Config): converter_routing={self.converter_routing_count}",
             f"    Executor L5 (Scenario): {type(self.scenario).__name__ if self.scenario else 'N/A'}",

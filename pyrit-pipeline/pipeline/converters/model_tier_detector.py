@@ -270,9 +270,9 @@ def get_attack_params_by_tier(model_tier: str) -> dict[str, Any]:
 #: G3: 硬编码回退默认值 (YAML 不可用时使用)
 _DEFAULT_ATTACK_PARAMS: dict[str, dict[str, Any]] = {
     "strong": {"max_turns": 7, "max_attempts": 5, "max_concurrency": 3, "epsilon": 0.15, "temperature": 0.7},
-    "moderate": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 5, "epsilon": 0.10, "temperature": 0.8},
+    "moderate": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 3, "epsilon": 0.10, "temperature": 0.8},
     "weak": {"max_turns": 3, "max_attempts": 2, "max_concurrency": 8, "epsilon": 0.05, "temperature": 0.9},
-    "unknown": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 5, "epsilon": 0.10, "temperature": 0.8},
+    "unknown": {"max_turns": 5, "max_attempts": 3, "max_concurrency": 3, "epsilon": 0.10, "temperature": 0.8},
 }
 
 

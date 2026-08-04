@@ -71,6 +71,7 @@ __all__ = [
     "run_tool_hijack",
     "run_embedding_extraction",
     "run_system_prompt_leakage",
+    "run_advanced_mcp_attack",
 ]
 
 
@@ -218,4 +219,10 @@ def run_embedding_extraction(ctx: Any) -> Any:
 def run_system_prompt_leakage(ctx: Any) -> Any:
     """系统提示词泄露场景 (LLM07) 的延迟导入入口。."""
     from pipeline.scenarios.system_prompt_leakage import run_system_prompt_leakage as _run
+    return _run(ctx)
+
+
+def run_advanced_mcp_attack(ctx: Any) -> Any:
+    """高级 MCP 攻击场景 (Kill Chain + 跨服务器信任链) 的延迟导入入口。."""
+    from pipeline.scenarios.advanced_mcp_attacks import run_advanced_mcp_attack as _run
     return _run(ctx)

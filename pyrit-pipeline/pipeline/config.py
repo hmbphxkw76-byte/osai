@@ -10,6 +10,48 @@
 import argparse
 import os
 import warnings
+from pathlib import Path
+from typing import Any
+
+# ── 攻击参数 YAML 配置 ──
+_ATTACK_PARAMS_CACHE: dict[str, Any] | None = None
+_ATTACK_PARAMS_PATH = Path("config") / "attack_params.yaml"
+
+# 硬编码兜底默认值 (YAML 不存在或读取失败时使用)
+_HARDCODED_DEFAULTS: dict[str, Any] = {
+    "max_concurrency": 3,
+    "max_attempts": 3,
+    "max_dataset_size": 10,
+    "epsilon": 0.1,
+    "rate_limit": 3,
+    "rate_limit_retries": 3,
+}
+
+
+def _load_attack_params() -> dict[str, Any]:
+    """从 config/attack_params.yaml 加载攻击调优参数默认值。.
+
+    优先级: CLI --flag > YAML > 硬编码兜底
+    本函数仅提供 argparse 的 default 值, CLI flag 仍可覆盖。
+    """
+    global _ATTACK_PARAMS_CACHE
+    if _ATTACK_PARAMS_CACHE is not None:
+        return _ATTACK_PARAMS_CACHE
+
+    try:
+        import yaml
+
+        if _ATTACK_PARAMS_PATH.exists():
+            with open(_ATTACK_PARAMS_PATH, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            merged = {**_HARDCODED_DEFAULTS, **{k: data[k] for k in _HARDCODED_DEFAULTS if k in data}}
+            _ATTACK_PARAMS_CACHE = merged
+        else:
+            _ATTACK_PARAMS_CACHE = _HARDCODED_DEFAULTS.copy()
+    except Exception:
+        _ATTACK_PARAMS_CACHE = _HARDCODED_DEFAULTS.copy()
+
+    return _ATTACK_PARAMS_CACHE
 
 
 def setup_environment() -> None:
@@ -47,8 +89,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-dataset-size",
         type=int,
-        default=10,
-        help="每个数据集最大采样数 (默认: 10, 独立预算 per-dataset)",
+        default=_load_attack_params()["max_dataset_size"],
+        help="每个数据集最大采样数 (默认: 10, 独立预算 per-dataset, 可通过 config/attack_params.yaml 覆盖)",
     )
     parser.add_argument(
         "--local-datasets",
@@ -129,16 +171,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-attempts",
         type=int,
-        default=3,
-        help="每个 objective 最多尝试的技术数 (默认: 3, SequentialAttack FIRST_SUCCESS)",
+        default=_load_attack_params()["max_attempts"],
+        help="每个 objective 最多尝试的技术数 (默认: 3, FIRST_SUCCESS, config/attack_params.yaml)",
     )
 
     # ── ASR 驱动选择器 ──
     parser.add_argument(
         "--epsilon",
         type=float,
-        default=0.1,
-        help="Epsilon-greedy 探索概率 (默认: 0.1, 10%% 随机探索 / 90%% 利用历史 ASR)",
+        default=_load_attack_params()["epsilon"],
+        help="Epsilon-greedy 探索概率 (默认: 0.1, 10%% 探索 / 90%% 利用, config/attack_params.yaml)",
     )
     parser.add_argument(
         "--selector-scope",
@@ -155,8 +197,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
 "--max-concurrency",
 type=int,
-default=3,
-help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 / weak=1)",
+default=_load_attack_params()["max_concurrency"],
+help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 / weak=1, 可通过 config/attack_params.yaml 覆盖)",
     )
     parser.add_argument(
         "--max-retries",
@@ -211,7 +253,7 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     )
 
     # ── 统一目标 URL (自动判别 + 智能路由) ──
-    # 优先级: 命令行 --target-url > .env 中 TARGET_URL > .env 中 WEB_REDTEAM_TARGET_URL
+    # 优先级: 命令行 --target-url > .env 中 TARGET_URL
     parser.add_argument(
         "--target-url",
         type=str,
@@ -219,7 +261,7 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         help=(
             "统一目标 URL — 自动判别目标类型 (LLM Web 应用 / LLM API 平台),\n"
             "自动探测认证拓扑和 MFA, 自动路由到最佳攻击流程.\n"
-            "也可通过 .env 文件设置 TARGET_URL 或 WEB_REDTEAM_TARGET_URL.\n"
+            "也可通过 .env 文件设置 TARGET_URL.\n"
             "示例: --target-url https://chat.example.com\n"
             "      --target-url https://api.longcat.chat/openai/v1/chat/completions"
         ),
@@ -274,6 +316,75 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         action="store_true",
         default=False,
         help="启用 MCP (Model Context Protocol) 协议级攻击场景 (默认: 不启用)",
+    )
+    parser.add_argument(
+        "--advanced-mcp-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用高级 MCP 攻击场景 (Kill Chain + 跨服务器信任链 + AI-VSS 评分).\n"
+            "包含 6 个高级探针 + 3 个 Kill Chain 攻击,\n"
+            "覆盖 ASI01/ASI02/ASI04/ASI05/ASI06/ASI07/ASI08 七个 OWASP 类别."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-objective",
+        type=str,
+        default=None,
+        help=(
+            "启用 Crescendo 多轮渐进式攻击, 指定攻击目标描述.\n"
+            '示例: --crescendo-objective "Exfiltrate .env file contents via send_email"\n'
+            "学术依据: arXiv:2402.12109"
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-max-turns",
+        type=int,
+        default=10,
+        help="Crescendo 攻击最大轮次 (默认: 10)",
+    )
+    parser.add_argument(
+        "--tap-objective",
+        type=str,
+        default=None,
+        help=(
+            "启用 TAP (Tree of Attacks with Pruning) 攻击, 指定攻击目标描述.\n"
+            '示例: --tap-objective "Chain send_email + delete_file to exfil and destroy"\n'
+            "学术依据: arXiv:2310.04451"
+        ),
+    )
+    parser.add_argument(
+        "--tap-tree-width",
+        type=int,
+        default=4,
+        help="TAP 树宽度 — 并行候选数 (默认: 4)",
+    )
+    parser.add_argument(
+        "--tap-tree-depth",
+        type=int,
+        default=3,
+        help="TAP 树深度 — 迭代层数 (默认: 3)",
+    )
+    parser.add_argument(
+        "--tap-branching",
+        type=int,
+        default=2,
+        help="TAP 每层存活数 (默认: 2)",
+    )
+    parser.add_argument(
+        "--tap-success-threshold",
+        type=int,
+        default=8,
+        help="TAP 成功阈值 0-10 (默认: 8)",
+    )
+    parser.add_argument(
+        "--assessment-framework",
+        action="store_true",
+        default=False,
+        help=(
+            "启用三框架评估 (CSA + OWASP Agentic + MITRE ATLAS).\n"
+            "生成框架覆盖矩阵和 5 阶段评估报告."
+        ),
     )
 
     # ── 兼容旧参数 (向后兼容, 内部映射到新参数) ──
@@ -403,9 +514,9 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     parser.add_argument(
         "--rate-limit",
         type=int,
-        default=3,
+        default=_load_attack_params()["rate_limit"],
         help=(
-            "API 请求最大并发数 (默认: 3, 自动启用 RateLimitedTarget 包装).\n"
+            "API 请求最大并发数 (默认: 3, 自动启用 RateLimitedTarget 包装, 可通过 config/attack_params.yaml 覆盖).\n"
             "设为 0 可禁用限速.\n"
             "指定后用 RateLimitedTarget 包装原始 Target，\n"
             "增加并发信号量 + 指数退避重试 (429/503/504/timeout).\n"
@@ -415,8 +526,8 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     parser.add_argument(
         "--rate-limit-retries",
         type=int,
-        default=5,
-        help="限速重试最大次数 (默认: 5)",
+        default=_load_attack_params()["rate_limit_retries"],
+        help="限速重试最大次数 (默认: 3, 可通过 config/attack_params.yaml 覆盖)",
     )
 
     # ── EXHAUSTIVE 策略 (P2: 评估模式) ──
@@ -503,7 +614,7 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     )
     args = parser.parse_args()
 
-    # ── 统一目标 URL 解析: 命令行 > .env TARGET_URL > .env WEB_REDTEAM_TARGET_URL ──
+    # ── 统一目标 URL 解析: 命令行 > .env TARGET_URL ──
     if not args.target_url:
         args.target_url = os.environ.get("TARGET_URL") or os.environ.get("WEB_REDTEAM_TARGET_URL")
     # 兼容旧参数 --web-target-url
