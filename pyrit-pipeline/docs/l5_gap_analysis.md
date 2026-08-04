@@ -98,7 +98,7 @@
 | R-022 import WARNING | 0.3% | 7 个 WARNING (report_generator 字符串引用 + 2 个 lazy import) | 可接受 | 非代码违规, 检查器误报 |
 | 覆盖率提升 | 0.2% | 当前 ~42%, 目标 85% | 待提升 | 需端到端集成测试 |
 
-### 3.0.2 Round 26 端到端验证修复 (2026-8-5)
+### 3.0.2 Round 26 端到端验证修复 + Metadata 完整性 (2026-8-5)
 
 **端到端验证发现的问题**:
 1. MCP 探针重复执行 — `--mcp-attack` 同时触发 `run_mcp_attack()` (8 探针) 和 `stage_scenario.py` MCP 探针块 (15 探针)
@@ -108,6 +108,7 @@
 |--------|--------|--------|--------|-----------|
 | **P0** | MCP 探针重复执行 | `--mcp-attack` 触发两个独立路径 (23 个探针重复发送) | 移除 `run_mcp_attack()` 调用, 仅保留 `stage_scenario.py` MCP 探针块 (15 个 OWASP 探针 + sent_to_target) | 架构净化 |
 | **P1** | API 安全审计拦截 | `BadRequestException` 触发 3 次重试, 每次约 2 分钟 | 检测 `security_audit`/`400` 关键词后快速跳过 + `blocked_by_api` 标记 | 错误处理增强 |
+| **G4** | Metadata 完整性测试 | 无测试覆盖 probes/response 字段 | 新增 7 个测试: TestMetadataCompleteness (2) + TestSecretValidationMultiSource (5) | 测试覆盖增强 |
 
 ### 3.0.1 Round 25 MCP 载荷配置化 + 响应提取鲁棒性 (2026-8-5)
 
