@@ -1729,6 +1729,7 @@ async def _run_unified_auth(ctx: PipelineContext) -> None:
             ctx=ctx,
             api_key=api_key,
             target_profile=target_profile,
+            stream=getattr(ctx.args, "stream", None),
         )
 
         auth_type = auth_state.auth_type
