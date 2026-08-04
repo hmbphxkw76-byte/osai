@@ -1440,5 +1440,19 @@
       0.293,
       0.72
     ]
+  },
+  {
+    "timestamp": "2026-08-05T02:00:20.672367",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
   }
 ]
