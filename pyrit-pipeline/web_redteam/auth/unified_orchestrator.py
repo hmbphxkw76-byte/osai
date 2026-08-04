@@ -88,6 +88,7 @@ class UnifiedAuthOrchestrator:
         *,
         api_key: str = "",
         target_profile: str = "",
+        stream: bool | None = None,
     ) -> AuthState:
         """统一认证入口 — 接收 URL, 自动判别并路由认证流程。
 
@@ -104,6 +105,7 @@ class UnifiedAuthOrchestrator:
             ctx: PipelineContext 实例。
             api_key: API Key (可选, 用于 API 平台认证)。
             target_profile: Target Profile YAML 路径 (可选, 用于浏览器认证)。
+            stream: 流式模式覆盖 (None=自动检测, True=强制流式, False=强制非流式)。
 
         Returns:
             AuthState 实例 (包含认证数据)。
@@ -128,7 +130,7 @@ class UnifiedAuthOrchestrator:
             return auth_state
 
         # Step 1: 判别目标类型
-        classification = await self._classify_target(url)
+        classification = await self._classify_target(url, stream=stream)
         target_type = classification.target_type
         recommended_mode = classification.recommended_mode
 

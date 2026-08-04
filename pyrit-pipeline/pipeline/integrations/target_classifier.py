@@ -231,13 +231,21 @@ class TargetClassifier:
             result.target_type = "llm_api_platform"
             result.api_endpoint_pattern = "url_pattern"
             result.recommended_mode = "api"
-            # SSE URL 模式 → 标记流式
-            if streaming_url_match:
+            # SSE URL 模式 → 标记流式 (受 stream 参数覆盖)
+            if streaming_url_match and stream is not False:
                 result.streaming_type = "sse"
                 result.is_streaming = True
                 result.detection_reason = (
                     "URL 路径匹配 API 端点模式 + 流式端点模式 "
                     f"(如 /stream, /sse, /events) — streaming_type={result.streaming_type}"
+                )
+            elif stream is True:
+                # 用户强制启用流式 (即使 URL 不含流式路径)
+                result.streaming_type = "sse"
+                result.is_streaming = True
+                result.detection_reason = (
+                    "URL 路径匹配 API 端点模式 + --stream 强制启用流式 "
+                    f"— streaming_type={result.streaming_type}"
                 )
             else:
                 result.detection_reason = (
@@ -252,7 +260,8 @@ class TargetClassifier:
             return result
 
         # 流式 URL 模式 (非 API 路径但匹配流式端点) → API 平台 (流式)
-        if streaming_url_match:
+        # 受 stream=False 覆盖: 用户可强制关闭流式
+        if streaming_url_match and stream is not False:
             result.target_type = "llm_api_platform"
             result.api_endpoint_pattern = "streaming_url"
             result.recommended_mode = "api"
