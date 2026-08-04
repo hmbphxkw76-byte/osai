@@ -197,11 +197,12 @@ class UnifiedAuthOrchestrator:
         )
         return auth_state
 
-    async def _classify_target(self, url: str) -> Any:
+    async def _classify_target(self, url: str, *, stream: bool | None = None) -> Any:
         """判别目标类型。
 
         Args:
             url: 目标 URL。
+            stream: 流式模式覆盖 (None=自动检测, True/False=强制)。
 
         Returns:
             TargetClassification 判别结果。
@@ -209,7 +210,7 @@ class UnifiedAuthOrchestrator:
         from pipeline.integrations.target_classifier import TargetClassifier
 
         classifier = TargetClassifier()
-        return await classifier.classify(url)
+        return await classifier.classify(url, stream=stream)
 
     async def _browser_auth_flow(
         self,
