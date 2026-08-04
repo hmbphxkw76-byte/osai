@@ -464,6 +464,94 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         return alpha
 
     # ------------------------------------------------------------------
+    # 原生 _estimate 覆盖 (R-022: 选择层增强, 1% L5 差距消除)
+    # ------------------------------------------------------------------
+
+    def _estimate(self, *, technique_identifier: str, **kwargs: Any) -> float:
+        """覆盖原生 ``_estimate()`` — 融合失败类型路由到 Q 值估计。
+
+        R-022 合规说明:
+          - 调用 ``super()._estimate()`` 获取原生 Q 值估计
+          - 在原生估计基础上叠加失败类型路由调整因子
+          - 不绕过原生 epsilon-greedy 探索机制
+          - 不修改原生 CentralMemory 持久化
+
+        调整因子:
+          - 无失败类型: 返回原生估计 (不加调整)
+          - model_refusal: 多轮范式 +0.1, 编码范式 -0.05
+          - content_filter_block: 编码范式 +0.1, 多轮范式 -0.05
+          - timeout: 单轮技术 +0.05, 多轮技术 -0.1
+          - objective_not_achieved: 正交范式 +0.05, 相同范式 -0.05
+
+        Args:
+            technique_identifier: 技术标识符 (eval_hash 或技术名)。
+            **kwargs: 原生参数。
+
+        Returns:
+            调整后的 Q 值估计 (0-1)。
+        """
+        # 获取原生 Q 值估计
+        try:
+            native_estimate = super()._estimate(technique_identifier=technique_identifier, **kwargs)
+        except Exception:
+            native_estimate = 1.0  # 原生默认乐观初始值
+
+        # 无失败类型时不调整
+        if not self._last_failure_type:
+            return native_estimate
+
+        # 解析技术名 (从 eval_hash 转换)
+        tech_name = technique_identifier
+        if self._hash_to_name:
+            tech_name = self._hash_to_name.get(technique_identifier, technique_identifier)
+
+        paradigm = _infer_paradigm(tech_name)
+        failure_type = self._last_failure_type
+
+        # 计算调整因子
+        adjustment = 0.0
+
+        if failure_type == FAILURE_MODEL_REFUSAL:
+            # 多轮迭代优先 (增加 Q 值 → 更可能被选中)
+            if paradigm == PARADIGM_MULTI_TURN:
+                adjustment = 0.1
+            elif paradigm == PARADIGM_ENCODING:
+                adjustment = -0.05
+
+        elif failure_type == FAILURE_CONTENT_FILTER_BLOCK:
+            # 编码/混淆优先
+            if paradigm == PARADIGM_ENCODING:
+                adjustment = 0.1
+            elif paradigm == PARADIGM_MULTI_TURN:
+                adjustment = -0.05
+
+        elif failure_type == FAILURE_TIMEOUT:
+            # 单轮技术优先
+            if _infer_turn_mode(tech_name) == "single":
+                adjustment = 0.05
+            elif _infer_turn_mode(tech_name) == "multi":
+                adjustment = -0.1
+
+        elif failure_type == FAILURE_OBJECTIVE_NOT_ACHIEVED:
+            # 范式切换: 与失败技术不同的范式获得提升
+            failed_paradigm = _infer_paradigm(self._last_failed_technique or "")
+            if paradigm != failed_paradigm and paradigm != PARADIGM_UNKNOWN:
+                adjustment = 0.05
+            elif paradigm == failed_paradigm:
+                adjustment = -0.05
+
+        # 限制在 [0, 1] 范围内
+        adjusted = max(0.0, min(1.0, native_estimate + adjustment))
+
+        if adjustment != 0.0:
+            logger.debug(
+                f"_estimate: {tech_name} native={native_estimate:.3f} "
+                f"adjusted={adjusted:.3f} (failure={failure_type}, paradigm={paradigm})"
+            )
+
+        return adjusted
+
+    # ------------------------------------------------------------------
     # 策略模式排序
     # ------------------------------------------------------------------
 

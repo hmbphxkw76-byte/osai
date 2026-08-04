@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""LSB 隐写 Converter — 将提示词嵌入图像像素的最低有效位.
+"""LSB 隐写 Converter — 将提示词嵌入图像像素的最低有效位 (R-022: PyRIT 原生 Converter 配置层增强).
 
 使用 LSB (Least Significant Bit) 算法将文本提示词编码到 PNG 图像的像素通道中,
 绕过 OCR 和文本内容过滤器。

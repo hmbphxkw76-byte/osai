@@ -17,6 +17,17 @@
    - 原生 tree_width/depth/branching_factor/batch_size
    - 原生 tree_visualization 树可视化
 
+3. MultiTurnSessionOrchestrator — PyRIT 原生 CrescendoAttack 配置适配器
+   - 底层 100% 使用原生 CrescendoAttack (多轮渐进式)
+   - 原生 AttackAdversarialConfig + AttackScoringConfig + SelfAskTrueFalseScorer
+   - 原生 max_backtracks 回溯机制
+   - SessionTurn/extracted_data 为增强层数据封装
+
+4. BlindInferenceOrchestrator — PyRIT 原生 PromptSendingAttack 增强层
+   - 底层使用原生 PromptSendingAttack (每个探针)
+   - 原生 Memory 持久化 + conversation_id 追踪
+   - side-channel 信号采集为增强层 (响应时间/长度/模式匹配)
+
 设计原则 (R-022: PyRIT 原生优先):
   - 自研代码仅负责配置适配, 不重新实现攻击算法
   - 底层执行 100% 使用 PyRIT 原生 CrescendoAttack / TAPAttack
@@ -38,6 +49,16 @@ from pipeline.orchestrators.advanced_crescendo import (
     CrescendoResult,
     CrescendoTurn,
 )
+from pipeline.orchestrators.blind_inference import (
+    BlindInferenceOrchestrator,
+    BlindInferenceProbe,
+    BlindInferenceResult,
+)
+from pipeline.orchestrators.multi_turn_session import (
+    MultiTurnSessionOrchestrator,
+    MultiTurnSessionResult,
+    SessionTurn,
+)
 from pipeline.orchestrators.tap_orchestrator import (
     TAPNode,
     TAPOrchestrator,
@@ -46,8 +67,14 @@ from pipeline.orchestrators.tap_orchestrator import (
 
 __all__ = [
     "AdvancedCrescendoOrchestrator",
+    "BlindInferenceOrchestrator",
+    "BlindInferenceProbe",
+    "BlindInferenceResult",
     "CrescendoResult",
     "CrescendoTurn",
+    "MultiTurnSessionOrchestrator",
+    "MultiTurnSessionResult",
+    "SessionTurn",
     "TAPOrchestrator",
     "TAPNode",
     "TAPResult",

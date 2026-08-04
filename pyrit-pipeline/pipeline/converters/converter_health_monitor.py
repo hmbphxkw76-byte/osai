@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Converter Health Monitor — L5 execution resilience Layer 2.
+"""Converter Health Monitor — L5 execution resilience Layer 2 (R-022: PyRIT 原生 Converter 数据层增强).
 
 Circuit Breaker pattern for Converter-level fault tolerance.
 

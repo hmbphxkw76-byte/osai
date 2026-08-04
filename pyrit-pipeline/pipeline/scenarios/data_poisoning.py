@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""训练数据投毒探测场景 — 检测微调数据中的后门触发词 (LLM04)。.
+"""训练数据投毒探测场景 — 检测微调数据中的后门触发词 (LLM04) (R-022: PyRIT 原生 PromptSendingAttack 配置层增强)..
 
 通过发送已知后门触发词和投毒检测 prompt, 评估目标模型是否被注入后门:
   1. 触发词探测: 发送常见后门触发词, 观察模型行为异常

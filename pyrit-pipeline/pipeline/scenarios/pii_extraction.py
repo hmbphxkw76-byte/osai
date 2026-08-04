@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""PII 提取场景 — 通过 prompt 提取模型中的个人身份信息 (LLM02)。.
+"""PII 提取场景 — 通过 prompt 提取模型中的个人身份信息 (LLM02) (R-022: PyRIT 原生 PromptSendingAttack 配置层增强)..
 
 使用双层 PII 识别策略:
   1. 正则层: 邮箱、电话、SSN、信用卡号、API 密钥等模式匹配

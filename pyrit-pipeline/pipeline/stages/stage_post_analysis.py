@@ -85,6 +85,12 @@ async def run(ctx: PipelineContext) -> None:
     # ── G4: ASR 反馈循环可视化 ──
     _print_asr_feedback_loop(ctx)
 
+    # ── P3-O2: 多模型 ASR 对比矩阵 ──
+    _print_multi_model_comparison(ctx)
+
+    # ── R-023: 端到端验证报告 (自动检查 ctx.metadata 中各场景结果) ──
+    _print_e2e_validation(ctx)
+
     # ── O8: ★ 突出传递 Banner (替代单行交接) ──
     from pipeline.utils.display import handoff_banner
 
@@ -663,3 +669,50 @@ def _print_asr_feedback_loop(ctx: PipelineContext) -> None:
             {"label": "经验闭环", "lines": feedback_lines},
         ],
     )
+
+
+# ============================================================
+# P3-O2: 多模型 ASR 对比矩阵
+# ============================================================
+
+
+def _print_multi_model_comparison(ctx: PipelineContext) -> None:
+    """P3-O2: 多模型 ASR 对比矩阵 — 跨模型攻击成功率分析。."""
+    try:
+        from pipeline.asr.multi_model_matrix import MultiModelASRMatrix
+
+        matrix = MultiModelASRMatrix()
+        loaded = matrix.load_all_models()
+
+        if loaded < 2:
+            # 少于 2 个模型无法对比, 静默跳过
+            return
+
+        # 打印摘要
+        matrix.print_summary()
+
+        # 存入 ctx.metadata
+        ctx.metadata["multi_model_comparison"] = matrix.generate_report()
+    except Exception as e:
+        logger.debug(f"Multi-model comparison skipped: {e}")
+
+
+def _print_e2e_validation(ctx: PipelineContext) -> None:
+    """R-023: 端到端验证报告 — 自动检查 ctx.metadata 中各场景结果的完整性.
+
+    验证项清单 (22 项):
+      - MCP 探针 / 多轮会话 / 盲推理 / 后门探测
+      - 控制模式感知 / Secret 验证 / Crescendo / TAP
+      - 高级 MCP Kill Chain / XPIA / ASI03/09/10 / 多 Agent
+      - 三框架评估 / AI-VSS / 实时 ASR / 动态 Converter
+      - Converter 链反馈 / 成功传播 / 安全过滤 / 多模型对比
+
+    R-022 分类: 数据层增强 — 消费 ctx.metadata, 不修改原生生命周期。
+    """
+    try:
+        from pipeline.validation.e2e_validator import run_e2e_validation
+
+        report = run_e2e_validation(ctx.metadata)
+        ctx.metadata["e2e_validation"] = report.to_dict()
+    except Exception as e:
+        logger.debug(f"E2E validation skipped: {e}")

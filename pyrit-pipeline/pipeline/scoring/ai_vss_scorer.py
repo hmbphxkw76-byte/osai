@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""AI-VSS (AI Vulnerability Scoring Standard) — AI 漏洞评分系统。.
+"""AI-VSS (AI Vulnerability Scoring Standard) — AI 漏洞评分系统 (R-022: PyRIT 原生 Scorer 数据层增强)..
 
 标准 CVSS 不覆盖 AI 特有风险维度。AI-VSS 提供以下 AI 专属修饰符:
 

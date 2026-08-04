@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""三层渐进式选择向导 — 按 ASR Tier 分层推荐攻击技术。.
+"""三层渐进式选择向导 — 按 ASR Tier 分层推荐攻击技术 (R-022: PyRIT 原生 Scenario 选择层增强)..
 
 红队评估面临"技术太多、时间有限"的困境。本模块实现三层渐进式选择:
 

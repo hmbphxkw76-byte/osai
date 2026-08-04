@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""限速 Target 包装器 — 合法扩展 (原生 RPM 委托 + 自研并发重试填补空白)。.
+"""限速 Target 包装器 — 合法扩展 (原生 RPM 委托 + 自研并发重试填补空白) (R-022: PyRIT 原生 PromptTarget 接口实现)..
 
 双轨制审查结论 (L5 对齐):
   本模块 **不构成双轨制**。RPM 限速已完全委托原生 API，自研部分仅填补

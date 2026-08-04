@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""向量相似度操纵场景 — 嵌入空间对抗样本与 RAG 检索操纵 (LLM08)。.
+"""向量相似度操纵场景 — 嵌入空间对抗样本与 RAG 检索操纵 (LLM08) (R-022: PyRIT 原生 PromptSendingAttack 配置层增强)..
 
 通过构造对抗性文本/嵌入向量, 操纵 RAG 系统的检索结果:
   1. 嵌入空间对抗样本: 构造文本使其嵌入向量接近目标查询, 劫持检索结果

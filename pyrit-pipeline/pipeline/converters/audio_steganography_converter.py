@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""WAV LSB 隐写 Converter — 将提示词嵌入音频波形的最低有效位。.
+"""WAV LSB 隐写 Converter — 将提示词嵌入音频波形的最低有效位 (R-022: PyRIT 原生 Converter 配置层增强)..
 
 使用 LSB (Least Significant Bit) 算法将文本提示词编码到 WAV 音频的采样值中,
 绕过音频内容过滤器。适用于支持音频输入的多模态 LLM。

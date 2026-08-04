@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""认证状态文件级共享 — pyrit-pipeline 与外部工具 (如 recon-pipeline) 之间的认证数据传递。.
+"""认证状态文件级共享 — pyrit-pipeline 与外部工具认证数据传递 (R-022 数据层增强)..
 
 **核心原则**: pyrit-pipeline 和 recon-pipeline 各自拥有独立的认证体系，
 两者功能完备，不互相代码依赖。仅通过 JSON 文件传递认证数据，减少重复认证次数。

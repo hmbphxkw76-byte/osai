@@ -272,6 +272,274 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] 多 Agent 攻击跳过: {e}")
 
+    # ── 多轮会话编排器 (G3: MultiTurnSession) ──
+    if getattr(args, "multi_turn_session", False):
+        try:
+            from pipeline.orchestrators.multi_turn_session import MultiTurnSessionOrchestrator
+
+            _obj_target, _adv_target, _score_target = _get_attack_targets()
+            _objective = getattr(args, "crescendo_objective", "") or "Extract system information"
+            orchestrator = MultiTurnSessionOrchestrator(
+                target=_obj_target,
+                adversarial_chat=_adv_target,
+                scoring_target=_score_target,
+                objective=_objective,
+                max_turns=5,
+            )
+            mts_result = await orchestrator.run_async()
+            ctx.metadata["multi_turn_session_result"] = {
+                "session_id": mts_result.session_id,
+                "achieved": mts_result.achieved,
+                "total_turns": mts_result.total_turns,
+                "backtrack_count": mts_result.backtrack_count,
+                "conversation_id": mts_result.conversation_id,
+                "extracted_data": mts_result.extracted_data,
+                "native_executor": "CrescendoAttack",
+            }
+            print(f"  多轮会话: achieved={mts_result.achieved}, "
+                  f"turns={mts_result.total_turns}, "
+                  f"backtracks={mts_result.backtrack_count}, "
+                  f"extracted={len(mts_result.extracted_data)}")
+        except Exception as e:
+            print(f"  [提示] 多轮会话攻击跳过: {e}")
+
+    # ── 盲推理编排器 (G4: BlindInference) ──
+    if getattr(args, "blind_inference", False):
+        try:
+            from pipeline.orchestrators.blind_inference import BlindInferenceOrchestrator
+
+            _obj_target, _, _ = _get_attack_targets()
+            orchestrator = BlindInferenceOrchestrator(
+                target=_obj_target,
+                max_probes=20,
+            )
+            bi_result = await orchestrator.run_async()
+            ctx.metadata["blind_inference_result"] = {
+                "probes_count": len(bi_result.probes),
+                "inferred_facts": bi_result.inferred_facts,
+                "confidence": bi_result.confidence,
+                "system_prompt_guess": bi_result.system_prompt_guess,
+                "native_executor": "PromptSendingAttack",
+            }
+            print(f"  盲推理: probes={len(bi_result.probes)}, "
+                  f"facts={len(bi_result.inferred_facts)}, "
+                  f"confidence={bi_result.confidence:.2f}")
+        except Exception as e:
+            print(f"  [提示] 盲推理攻击跳过: {e}")
+
+    # ── 后门触发器探测 (G6: BackdoorProbe) ──
+    if getattr(args, "backdoor_probe", False):
+        try:
+            from pipeline.scenarios.backdoor_probe import BackdoorProbeOrchestrator
+
+            _obj_target, _, _ = _get_attack_targets()
+            orchestrator = BackdoorProbeOrchestrator(
+                target=_obj_target,
+                max_probes=30,
+            )
+            bp_result = await orchestrator.run_async()
+            ctx.metadata["backdoor_probe_result"] = {
+                "probes_count": len(bp_result.probes),
+                "probes": [
+                    {
+                        "trigger_type": p.trigger_type,
+                        "trigger_value": p.trigger_value,
+                        "response": p.response,
+                        "anomaly_score": p.anomaly_score,
+                        "detected": p.detected,
+                    }
+                    for p in bp_result.probes
+                ],
+                "detected_backdoors": bp_result.detected_backdoors,
+                "max_anomaly_score": bp_result.max_anomaly_score,
+                "summary": bp_result.summary,
+                "native_executor": "PromptSendingAttack",
+            }
+            print(f"  后门探测: probes={len(bp_result.probes)}, "
+                  f"detected={len(bp_result.detected_backdoors)}, "
+                  f"max_anomaly={bp_result.max_anomaly_score:.2f}")
+        except Exception as e:
+            print(f"  [提示] 后门探测跳过: {e}")
+
+    # ── 控制模式感知攻击 (通用, 在任意 Target 之上) ──
+    if getattr(args, "control_mode_aware", False):
+        try:
+            from pipeline.scenarios.control_mode_aware import ControlModeAwareOrchestrator
+
+            _obj_target, _, _ = _get_attack_targets()
+            _mode = getattr(args, "control_mode", "detect")
+            orchestrator = ControlModeAwareOrchestrator(
+                target=_obj_target,
+                mode=_mode,
+            )
+            cm_result = await orchestrator.run_async()
+            ctx.metadata["control_mode_result"] = {
+                "mode": cm_result.mode,
+                "total_probes": cm_result.total_probes,
+                "probes": [
+                    {
+                        "mode": p.mode,
+                        "technique": p.technique,
+                        "response": p.response,
+                        "control_detected": p.control_detected,
+                        "bypass_success": p.bypass_success,
+                    }
+                    for p in cm_result.probes
+                ],
+                "control_detected": cm_result.control_detected,
+                "bypass_success_count": cm_result.bypass_success_count,
+                "summary": cm_result.summary,
+                "native_executor": "PromptSendingAttack",
+            }
+            print(f"  控制模式感知: mode={cm_result.mode}, "
+                  f"probes={cm_result.total_probes}, "
+                  f"control_detected={cm_result.control_detected}, "
+                  f"bypass={cm_result.bypass_success_count}")
+        except Exception as e:
+            print(f"  [提示] 控制模式感知攻击跳过: {e}")
+
+    # ── Secret 验证评分 (通用, 在任意攻击响应之上) ──
+    if getattr(args, "secret_validation", False):
+        try:
+            from pipeline.scoring.secret_validation_scorer import SecretValidationScorer
+
+            scorer = SecretValidationScorer()
+            # 收集已有攻击响应进行 secret 验证
+            sv_findings_count = 0
+            sv_max_confidence = 0.0
+            sv_results: list[dict[str, Any]] = []
+
+            # 从 ctx.metadata 中获取已有攻击结果, 扫描全部 3 个响应源
+            for key in ("backdoor_probe_result", "control_mode_result", "mcp_probe_results"):
+                meta = ctx.metadata.get(key)
+                if meta is None or not isinstance(meta, dict):
+                    continue
+
+                # 从 backdoor_probe_result 中提取探针响应
+                if key == "backdoor_probe_result":
+                    probes_data = meta.get("probes", [])
+                    for p in probes_data:
+                        resp = p.get("response", "")
+                        if resp:
+                            sv_result = scorer.validate(resp)
+                            if sv_result.total_findings > 0:
+                                sv_findings_count += sv_result.total_findings
+                                sv_max_confidence = max(sv_max_confidence, sv_result.max_confidence)
+                                sv_results.append({
+                                    "source": f"backdoor:{p.get('trigger_type', '')}",
+                                    "findings": sv_result.total_findings,
+                                    "max_confidence": sv_result.max_confidence,
+                                })
+
+                # 从 control_mode_result 中提取探针响应
+                elif key == "control_mode_result":
+                    probes_data = meta.get("probes", [])
+                    for p in probes_data:
+                        resp = p.get("response", "")
+                        if resp:
+                            sv_result = scorer.validate(resp)
+                            if sv_result.total_findings > 0:
+                                sv_findings_count += sv_result.total_findings
+                                sv_max_confidence = max(sv_max_confidence, sv_result.max_confidence)
+                                sv_results.append({
+                                    "source": f"control_mode:{p.get('technique', '')}",
+                                    "findings": sv_result.total_findings,
+                                    "max_confidence": sv_result.max_confidence,
+                                })
+
+                # 从 mcp_probe_results 中提取探针响应
+                elif key == "mcp_probe_results":
+                    probes_data = meta.get("results", [])
+                    for p in probes_data:
+                        resp = p.get("response", "")
+                        if resp:
+                            sv_result = scorer.validate(resp)
+                            if sv_result.total_findings > 0:
+                                sv_findings_count += sv_result.total_findings
+                                sv_max_confidence = max(sv_max_confidence, sv_result.max_confidence)
+                                sv_results.append({
+                                    "source": f"mcp:{p.get('probe_id', '')}",
+                                    "findings": sv_result.total_findings,
+                                    "max_confidence": sv_result.max_confidence,
+                                })
+
+            ctx.metadata["secret_validation_result"] = {
+                "total_findings": sv_findings_count,
+                "max_confidence": sv_max_confidence,
+                "strategies_used": ["exact", "format", "semantic", "api"],
+                "sources_checked": len(sv_results),
+                "details": sv_results[:20],  # 限制输出
+            }
+            print(f"  Secret 验证: findings={sv_findings_count}, "
+                  f"max_conf={sv_max_confidence:.2f}, "
+                  f"sources={len(sv_results)}")
+        except Exception as e:
+            print(f"  [提示] Secret 验证评分跳过: {e}")
+
+    # ── MCP 探针 (通用, 在任意 Target 之上) ──
+    if getattr(args, "mcp_attack", False) or getattr(args, "mcp_probes", False):
+        try:
+            from pipeline.scenarios.mcp_attack import _extract_response_text
+            from pipeline.scenarios.mcp_probes import (
+                evaluate_probe_response,
+                get_all_probes,
+                get_owasp_coverage,
+            )
+
+            probes = get_all_probes()
+            probe_results = []
+            _mcp_obj_target, _, _ = _get_attack_targets()
+            sent_to_target = False
+
+            if _mcp_obj_target:
+                # 真实模式: 使用 PyRIT 原生 PromptSendingAttack 发送每个探针
+                from pyrit.executor.attack import PromptSendingAttack
+
+                sent_to_target = True
+                for probe in probes:
+                    try:
+                        attack = PromptSendingAttack(objective_target=_mcp_obj_target)
+                        native_result = await attack.execute_async(objective=probe.payload)
+                        response = _extract_response_text(native_result)
+                    except Exception as e:
+                        logger.warning(f"MCP probe {probe.probe_id} send failed: {e}")
+                        response = ""
+                    result = evaluate_probe_response(probe, response)
+                    probe_results.append({
+                        "probe_id": probe.probe_id,
+                        "name": probe.name,
+                        "owasp_codes": probe.owasp_codes,
+                        "success": result.success,
+                        "matched_indicators": result.matched_indicators,
+                        "response": response[:500],  # 限制长度, 供 Secret 验证扫描
+                    })
+            else:
+                # 回退模式: mock 响应 (测试/无 API 场景)
+                for probe in probes:
+                    mock_response = "I cannot help with that request."
+                    result = evaluate_probe_response(probe, mock_response)
+                    probe_results.append({
+                        "probe_id": probe.probe_id,
+                        "name": probe.name,
+                        "owasp_codes": probe.owasp_codes,
+                        "success": result.success,
+                        "matched_indicators": result.matched_indicators,
+                        "response": mock_response,
+                    })
+
+            coverage = get_owasp_coverage()
+            ctx.metadata["mcp_probe_results"] = {
+                "total_probes": len(probes),
+                "results": probe_results,
+                "owasp_coverage": coverage,
+                "sent_to_target": sent_to_target,
+            }
+            mode_str = "真实目标" if sent_to_target else "mock 回退"
+            print(f"  MCP 探针: {len(probes)} 个探针执行 ({mode_str}), "
+                  f"OWASP 覆盖: {coverage}")
+        except Exception as e:
+            print(f"  [提示] MCP 探针跳过: {e}")
+
     # ── 三框架评估 (CSA + OWASP + MITRE ATLAS) ──
     if getattr(args, "assessment_framework", False):
         try:
@@ -326,6 +594,18 @@ async def run(ctx: PipelineContext) -> None:
                     AssessmentPhase.DEEP_EXPLOITATION,
                     "Multi-agent interaction attack executed",
                     owasp_code=OWASPAgenticCode.ASI02,
+                )
+            if getattr(args, "control_mode_aware", False):
+                methodology.add_finding(
+                    AssessmentPhase.AUTOMATED_SCAN,
+                    "Control mode awareness attack executed (safety filter detection/bypass)",
+                    owasp_code=OWASPAgenticCode.ASI06,
+                )
+            if getattr(args, "secret_validation", False):
+                methodology.add_finding(
+                    AssessmentPhase.DEEP_EXPLOITATION,
+                    "Secret validation scoring executed (sensitive information detection)",
+                    owasp_code=OWASPAgenticCode.ASI06,
                 )
 
             methodology.complete_phase(AssessmentPhase.SCOPING, duration_minutes=5)
@@ -2206,3 +2486,5 @@ def _print_5layer_decision_pipeline(
             {"label": "L5 分析", "lines": l5_lines},
         ],
     )
+
+

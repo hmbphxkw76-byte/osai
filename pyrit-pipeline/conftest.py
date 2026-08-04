@@ -62,6 +62,18 @@ def mock_args() -> argparse.Namespace:
         asi09_attack=False,
         asi10_attack=False,
         multi_agent_attack=False,
+        # 高级攻击策略
+        multi_turn_session=False,
+        blind_inference=False,
+        backdoor_probe=False,
+        control_mode_aware=False,
+        control_mode="detect",
+        secret_validation=False,
+        # 统一认证编排
+        target_profile="",
+        headless=False,
+        cdp_port=9222,
+        api_key="",
     )
 
 

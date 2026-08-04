@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""MCP (Model Context Protocol) 专用攻击场景 — 协议级提示词注入。.
+"""MCP (Model Context Protocol) 专用攻击场景 — 协议级提示词注入 (R-022: PyRIT 原生 PromptSendingAttack 配置层增强)..
 
 攻击面:
   1. MCP Resource 注入: 在 MCP Resource 内容中嵌入指令, 劫持 LLM 行为
@@ -31,12 +31,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 if TYPE_CHECKING:
     from pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
+_YAML_PATH = Path(__file__).parent.parent.parent / "data" / "setting" / "mcp_attack_payloads.yaml"
 
 
 @dataclass
@@ -244,6 +249,54 @@ _MCP_ATTACK_PROBES: list[tuple[str, str, str, list[str], str]] = [
 ]
 
 
+def _load_probes_from_yaml() -> list[tuple[str, str, str, list[str], str]] | None:
+    """从 YAML 配置文件加载 MCP 协议级探针。
+
+    读取 ``data/setting/mcp_attack_payloads.yaml`` 的 ``mcp_protocol_probes`` 段。
+
+    Returns:
+        探针元组列表, YAML 加载失败时返回 None (调用方回退到硬编码)。
+    """
+    try:
+        if not _YAML_PATH.exists():
+            return None
+        with open(_YAML_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        raw_probes = data.get("mcp_protocol_probes")
+        if not raw_probes or not isinstance(raw_probes, list):
+            return None
+        probes: list[tuple[str, str, str, list[str], str]] = []
+        for item in raw_probes:
+            if not isinstance(item, dict):
+                continue
+            attack_type = str(item.get("attack_type", ""))
+            surface = str(item.get("target_surface", ""))
+            payload = str(item.get("injection_payload", ""))
+            keywords = list(item.get("expected_keywords", []))
+            severity = str(item.get("severity", "medium"))
+            if attack_type and payload:
+                probes.append((attack_type, surface, payload, keywords, severity))
+        if probes:
+            logger.info(f"Loaded {len(probes)} MCP probes from YAML: {_YAML_PATH}")
+            return probes
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load MCP probes from YAML: {e}")
+        return None
+
+
+def _get_mcp_probes() -> list[tuple[str, str, str, list[str], str]]:
+    """获取 MCP 协议级探针 (YAML 优先, 硬编码回退)。
+
+    Returns:
+        探针元组列表。
+    """
+    yaml_probes = _load_probes_from_yaml()
+    if yaml_probes is not None:
+        return yaml_probes
+    return _MCP_ATTACK_PROBES
+
+
 async def run_mcp_attack(ctx: PipelineContext) -> MCPAttackReport:
     """执行 MCP 专用攻击场景。.
 
@@ -270,15 +323,16 @@ async def run_mcp_attack(ctx: PipelineContext) -> MCPAttackReport:
         return MCPAttackReport()
 
     target = target_entries[0].instance
+    probes = _get_mcp_probes()
     print(f"  目标: {type(target).__name__}")
-    print(f"  MCP 攻击策略数量: {len(_MCP_ATTACK_PROBES)}")
+    print(f"  MCP 攻击策略数量: {len(probes)}")
 
     report = MCPAttackReport()
 
     for i, (attack_type, surface, payload, expected_keywords, severity) in enumerate(
-        _MCP_ATTACK_PROBES, 1
+        probes, 1
     ):
-        print(f"  [{i}/{len(_MCP_ATTACK_PROBES)}] {attack_type} (原语: {surface})...")
+        print(f"  [{i}/{len(probes)}] {attack_type} (原语: {surface})...")
 
         try:
             attack = PromptSendingAttack(objective_target=target)

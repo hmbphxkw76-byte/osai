@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""富元数据数据集格式支持 — 扩展 PyRIT 原生 .prompt 格式。.
+"""富元数据数据集格式支持 — 扩展 PyRIT 原生 .prompt 格式 (R-022: PyRIT 原生 SeedDataset 配置层增强)..
 
 PyRIT 原生 .prompt 文件支持基本的 YAML 格式:
   dataset_name, harm_categories, source, groups, data_type, description,

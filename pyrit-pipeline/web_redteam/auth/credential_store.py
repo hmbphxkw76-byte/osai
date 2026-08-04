@@ -6,7 +6,6 @@
 设计原则 (R-022: PyRIT 原生优先):
   - 纯数据层模块, 不执行认证操作
   - 消除硬编码凭据, 所有凭据从环境变量或配置文件加载
-  - 提供 DonkAI / AIVP 预定义凭据的集中管理
 
 > **日期**: 2026-8-4
 """
@@ -15,25 +14,9 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class DonkAIUser:
-    """DonkAI 预定义用户。.
-
-    Attributes:
-        username: 用户名。
-        password: 密码。
-        user_id: DonkAI 内部 user_id。
-    """
-
-    username: str
-    password: str
-    user_id: int
 
 
 class CredentialStore:
@@ -42,58 +25,13 @@ class CredentialStore:
     消除散落在各模块中的硬编码凭据和 ``os.environ.get`` 调用。
     所有凭据获取都通过此模块统一入口。
 
-    用法::
+    用法:::
 
         from web_redteam.auth.credential_store import CredentialStore
-
-        # 获取 DonkAI 用户
-        user = CredentialStore.get_donkai_user("alice")
 
         # 获取环境变量凭据
         api_key = CredentialStore.get_credential("API_KEY")
     """
-
-    # DonkAI 默认用户表 (可通过 .env 覆盖)
-    _DONKAI_USERS: dict[str, DonkAIUser] = {
-        "alice": DonkAIUser("alice", "password123", 1),
-        "bob": DonkAIUser("bob", "password123", 2),
-        "admin": DonkAIUser("admin", "admin123", 3),
-    }
-
-    @classmethod
-    def get_donkai_user(cls, username: str) -> DonkAIUser:
-        """获取预定义的 DonkAI 用户。
-
-        支持通过环境变量 ``DONKAI_{USERNAME}_PASSWORD`` 覆盖默认密码。
-
-        Args:
-            username: 用户名 (``alice`` / ``bob`` / ``admin``)。
-
-        Returns:
-            DonkAIUser 实例。
-
-        Raises:
-            ValueError: 未知用户名。
-        """
-        key = username.lower()
-        if key not in cls._DONKAI_USERS:
-            available = list(cls._DONKAI_USERS.keys())
-            raise ValueError(f"Unknown DonkAI user: {username}. Available: {available}")
-
-        base = cls._DONKAI_USERS[key]
-        env_password = os.getenv(f"DONKAI_{key.upper()}_PASSWORD", "")
-        password = env_password or base.password
-
-        return DonkAIUser(
-            username=base.username,
-            password=password,
-            user_id=base.user_id,
-        )
-
-    @classmethod
-    def get_donkai_users(cls) -> dict[str, DonkAIUser]:
-        """获取所有预定义的 DonkAI 用户。."""
-        return {name: cls.get_donkai_user(name) for name in cls._DONKAI_USERS}
 
     @staticmethod
     def get_credential(name: str, default: str = "") -> str:
@@ -131,7 +69,7 @@ class CredentialStore:
         """加载所有以指定前缀开头的环境变量。
 
         Args:
-            prefix: 环境变量前缀 (如 ``DONKAI_``)。
+            prefix: 环境变量前缀 (如 ``TARGET_``)。
 
         Returns:
             环境变量字典 (键去除前缀)。

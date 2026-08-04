@@ -266,6 +266,7 @@ class ProgressPoller:
         dashboard: ProgressDashboard,
         scenario_result_id: str,
         interval: float = 5.0,
+        asr_tracker: Any | None = None,
     ) -> None:
         """初始化轮询器.
 
@@ -273,6 +274,7 @@ class ProgressPoller:
             dashboard: ProgressDashboard 实例。
             scenario_result_id: 场景结果 ID。
             interval: 初始轮询间隔 (秒), 会自适应退避到 _MAX_INTERVAL。
+            asr_tracker: 可选的 RealTimeASRTracker 实例, 用于实时 ASR 反馈。
         """
         self._dashboard = dashboard
         self._scenario_result_id = scenario_result_id
@@ -282,6 +284,7 @@ class ProgressPoller:
         self._stopped = False
         self._last_completed: int = -1  # 上次看到的完成数 (-1 表示从未渲染)
         self._last_heartbeat: float = time.time()  # 上次心跳时间
+        self._asr_tracker = asr_tracker  # P3-O1: 实时 ASR 追踪器
 
     def start(self) -> None:
         """启动背景轮询任务。."""
@@ -357,6 +360,13 @@ class ProgressPoller:
                         obj = str(getattr(ar, "objective", ""))[:50]
                         tech = ProgressDashboard._extract_technique(ar)
                         print(f"  {marker} [{tech[:20]}] {obj}")
+
+                    # P3-O1: 实时 ASR 反馈 — 将新结果反馈到 ASR 追踪器
+                    if self._asr_tracker is not None:
+                        try:
+                            self._asr_tracker.on_new_results(new_results)
+                        except Exception as e:
+                            logger.debug(f"RealTime ASR tracker update failed (non-fatal): {e}")
 
                 # 更新 Dashboard (全量重统计, 确保一致性)
                 self._dashboard.update_from_attack_results(results)

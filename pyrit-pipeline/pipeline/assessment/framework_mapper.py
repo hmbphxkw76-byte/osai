@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""FrameworkMapper — 三框架映射 (CSA + OWASP Agentic + MITRE ATLAS)。.
+"""FrameworkMapper — 三框架映射 (CSA + OWASP Agentic + MITRE ATLAS) (R-022: PyRIT 原生 Assessment 数据层增强)..
 
 提供三个行业标准框架之间的映射关系:
 

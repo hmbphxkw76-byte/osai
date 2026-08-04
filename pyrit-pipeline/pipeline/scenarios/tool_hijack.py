@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Agent 工具调用劫持场景 — 通过间接注入操控 Agent 工具执行 (LLM06)。.
+"""Agent 工具调用劫持场景 — 通过间接注入操控 Agent 工具执行 (LLM06) (R-022: PyRIT 原生 PromptSendingAttack 配置层增强)..
 
 模拟 Agent 工具调用场景, 通过间接 prompt 注入劫持工具执行:
   1. 工具输出注入: 在工具返回的文档中嵌入指令, 劫持后续 Agent 行为

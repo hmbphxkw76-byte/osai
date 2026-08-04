@@ -22,10 +22,13 @@ G1-G7 修复已集成:
 认证架构统一 (2026-8-4):
   - 新增 api_auth.py: API 级认证统一入口 (Basic/Bearer/Cookie/OAuth2)
   - 新增 credential_store.py: 凭据集中管理 (消除硬编码)
+  - 新增 auth_data_extractor.py: 浏览器认证数据提取器 (cookie→header 转换)
+  - 新增 unified_orchestrator.py: 统一认证编排器 (URL→判别→路由→注入)
   - 删除 pipeline/integrations/auth_manager.py (功能已迁移至此)
 """
 
 from web_redteam.auth.api_auth import APIAuthConfig, APIAuthenticator
+from web_redteam.auth.auth_data_extractor import AuthDataExtractor
 from web_redteam.auth.auth_detector import (
     AuthDetectionStrategy,
     AuthDetector,
@@ -45,7 +48,7 @@ from web_redteam.auth.auth_strategy import (
     SameDomainAuthStrategy,
 )
 from web_redteam.auth.browser_session import BrowserSession
-from web_redteam.auth.credential_store import CredentialStore, DonkAIUser
+from web_redteam.auth.credential_store import CredentialStore
 from web_redteam.auth.human_assisted_auth import HumanAssistedAuth
 from web_redteam.auth.models import (
     CrossDomainAuthConfig,
@@ -53,10 +56,12 @@ from web_redteam.auth.models import (
     RedirectChainEntry,
     SameDomainAuthConfig,
 )
+from web_redteam.auth.unified_orchestrator import UnifiedAuthOrchestrator
 
 __all__ = [
     "APIAuthConfig",
     "APIAuthenticator",
+    "AuthDataExtractor",
     "AuthDetectionStrategy",
     "AuthDetector",
     "AuthDetectorFactory",
@@ -71,7 +76,6 @@ __all__ = [
     "CrossDomainAuthStrategy",
     "DetectionConfig",
     "DOMElementStrategy",
-    "DonkAIUser",
     "HumanAssistedAuth",
     "NetworkTokenStrategy",
     "NoAuthStrategy",
@@ -80,4 +84,5 @@ __all__ = [
     "SameDomainAuthConfig",
     "SameDomainAuthStrategy",
     "URLPatternStrategy",
+    "UnifiedAuthOrchestrator",
 ]

@@ -99,14 +99,20 @@ async def run(ctx: PipelineContext) -> None:
     # 到 Stage 4 执行时已可用。
     scenario_result_id = getattr(ctx.scenario, "_scenario_result_id", None) or getattr(ctx.args, "resume", None)
     poller: ProgressPoller | None = None
+    # P3-O1: 实时 ASR 追踪器
+    from pipeline.asr.realtime_asr_tracker import RealTimeASRTracker
+
+    asr_tracker = RealTimeASRTracker()
     if scenario_result_id:
         poller = ProgressPoller(
             dashboard=dashboard,
             scenario_result_id=scenario_result_id,
             interval=5.0,
+            asr_tracker=asr_tracker,
         )
         poller.start()
         print(f"  实时进度轮询已启动 (5s 起步, 自适应退避至 30s, srid={scenario_result_id[:8]}...)")
+        print("  实时 ASR 反馈已启用 (运行时动态参数调整)")
 
     # C4: 发布执行开始事件
     bus = EventBus.get_instance()
@@ -146,6 +152,46 @@ async def run(ctx: PipelineContext) -> None:
     # 停止轮询
     if poller:
         await poller.stop()
+
+    # P3-O1: 存储实时 ASR 摘要到 ctx.metadata
+    ctx.metadata["realtime_asr_summary"] = asr_tracker.get_realtime_summary()
+    _adjustments = asr_tracker.suggest_adjustments()
+    if _adjustments:
+        ctx.metadata["realtime_asr_adjustments"] = [
+            {
+                "technique": adj.technique,
+                "type": adj.adjustment_type,
+                "description": adj.description,
+                "current_asr": round(adj.current_asr, 4),
+                "suggested_action": adj.suggested_action,
+            }
+            for adj in _adjustments
+        ]
+        print(f"\n  ┌─ 实时 ASR 调整建议 ({len(_adjustments)} 项) ───────────────────┐")
+        for adj in _adjustments[:5]:
+            print(f"  │ {adj.technique[:25]:<25} {adj.adjustment_type:<20} ASR={adj.current_asr:.0%}")
+        if len(_adjustments) > 5:
+            print(f"  │ ... 及其余 {len(_adjustments) - 5} 项")
+        print("  └───────────────────────────────────────────────────────────┘")
+
+        # P3-O1 深度应用: 生成实时参数覆盖 (供下一次运行暖启动使用)
+        _overrides = asr_tracker.get_live_parameter_overrides()
+        if _overrides and any(
+            _overrides[key] for key in ("converter_priority_boost", "retry_reduction", "technique_skip", "angle_change")
+        ):
+            ctx.metadata["realtime_parameter_overrides"] = _overrides
+            _boost_count = len(_overrides.get("converter_priority_boost", {}))
+            _retry_count = len(_overrides.get("retry_reduction", {}))
+            _skip_count = len(_overrides.get("technique_skip", {}))
+            _angle_count = len(_overrides.get("angle_change", {}))
+            print("\n  ┌─ 实时参数覆盖 (深度应用) ─────────────────────────────────┐")
+            print(f"  │ Converter 优先级调整: {_boost_count} 项")
+            print(f"  │ 重试次数缩减: {_retry_count} 项")
+            print(f"  │ 建议跳过: {_skip_count} 项")
+            print(f"  │ 角度切换: {_angle_count} 项")
+            print("  │ → 已存入 ctx.metadata['realtime_parameter_overrides']")
+            print("  │ → 下次运行可通过 --warm-start-asr 自动应用")
+            print("  └───────────────────────────────────────────────────────────┘")
 
     if partial_failure:
         total_results = sum(len(v) for v in result.attack_results.values())
@@ -448,6 +494,23 @@ def _scan_results_post_execution(
     # D11+D12: 将反馈数据存入 ctx.metadata
     ctx.metadata["converter_chain_advisor"] = chain_advisor.get_stats()
     ctx.metadata["success_propagation"] = success_tracker.get_stats()
+
+    # P3-O3: 基于失败模式动态创建 Converter 链
+    if chain_advisor.has_data:
+        try:
+            from pipeline.converters.dynamic_chain_creator import DynamicChainCreator
+
+            dynamic_creator = DynamicChainCreator()
+            dynamic_chains = dynamic_creator.create_from_advisor_data(chain_advisor.get_stats())
+
+            if dynamic_chains:
+                ctx.metadata["dynamic_converter_chains"] = dynamic_creator.get_chain_configs()
+                logger.info(
+                    f"P3-O3: Dynamically created {len(dynamic_chains)} converter chains "
+                    f"based on failure patterns"
+                )
+        except Exception as e:
+            logger.debug(f"Dynamic chain creation skipped: {e}")
 
 
 def _compute_asr(ctx: PipelineContext) -> None:

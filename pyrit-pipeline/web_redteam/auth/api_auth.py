@@ -6,13 +6,12 @@
 **设计原则** (R-022: PyRIT 原生优先):
   - 纯数据层模块, 不覆盖原生认证
   - 提供 HTTP header / cookie 注入接口供 Target 适配器使用
-  - 替代原 ``pipeline/integrations/auth_manager.py``, 消除重复实现
 
 **认证类型**:
   - ``none``:   无认证
-  - ``basic``:  HTTP Basic auth (DonkAI)
+  - ``basic``:  HTTP Basic auth
   - ``bearer``: Bearer token (OpenAI API)
-  - ``cookie``: Session cookie (AIVP)
+  - ``cookie``: Session cookie
   - ``oauth2``: OAuth2 client_credentials (企业 API)
 
 学术依据:
@@ -27,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,7 +47,7 @@ class APIAuthConfig:
         username: 用户名 (Basic auth)。
         password: 密码 (Basic auth)。
         token: Bearer token。
-        cookie_name: Cookie 名称 (如 ``aivp_sid``)。
+        cookie_name: Cookie 名称。
         cookie_value: Cookie 值。
         oauth_token_url: OAuth2 token endpoint URL。
         oauth_client_id: OAuth2 client ID。
@@ -74,20 +74,23 @@ class APIAuthenticator:
 
         from web_redteam.auth.api_auth import APIAuthenticator
 
-        # DonkAI Basic auth
-        auth = APIAuthenticator.for_donkai("alice")
-        headers = auth.get_headers()
-        # → {"Authorization": "Basic YWxpY2U6cGFzc3dvcmQxMjM=", "X-User-ID": "1"}
-
-        # AIVP Session cookie
-        auth = APIAuthenticator.for_aivp("http://localhost:8000")
-        auth.set_cookie("aivp_sid", "abc123...")
-        cookies = auth.get_cookies()
-
-        # OpenAI Bearer token
+        # Bearer token
         auth = APIAuthenticator(APIAuthConfig(
             auth_type="bearer",
             token="sk-...",
+        ))
+        headers = auth.get_headers()
+
+        # Cookie auth
+        auth = APIAuthenticator(APIAuthConfig(auth_type="cookie"))
+        auth.set_cookie("session_id", "abc123...")
+        cookies = auth.get_cookies()
+
+        # Basic auth
+        auth = APIAuthenticator(APIAuthConfig(
+            auth_type="basic",
+            username="user",
+            password="pass",
         ))
         headers = auth.get_headers()
     """
@@ -160,7 +163,7 @@ class APIAuthenticator:
         return {}
 
     def set_cookie(self, name: str, value: str) -> None:
-        """设置 cookie (AIVP 自动获取后调用)。."""
+        """设置 cookie (自动获取后调用)。."""
         self._config.cookie_name = name
         self._config.cookie_value = value
         self._config.auth_type = "cookie"
@@ -168,7 +171,7 @@ class APIAuthenticator:
         logger.info(f"APIAuthenticator: cookie set ({name}={value[:8]}...)")
 
     def switch_user(self, username: str, password: str, user_id: int | None = None) -> None:
-        """切换用户 (DonkAI 多身份)。."""
+        """切换用户 (多身份)。."""
         self._config.username = username
         self._config.password = password
         self._config.auth_type = "basic"
@@ -177,19 +180,6 @@ class APIAuthenticator:
             self._config.extra_headers = self._config.extra_headers or {}
             self._config.extra_headers["X-User-ID"] = str(user_id)
         logger.info(f"APIAuthenticator: switched to user '{username}'")
-
-    def switch_to_donkai_user(self, username: str) -> tuple[str, str, int]:
-        """切换到预定义的 DonkAI 用户。
-
-        Args:
-            username: 用户名 (``alice`` / ``bob`` / ``admin``)。
-
-        Returns:
-            (username, password, user_id) 元组。
-        """
-        user = CredentialStore.get_donkai_user(username)
-        self.switch_user(user.username, user.password, user.user_id)
-        return user.username, user.password, user.user_id
 
     def _get_oauth2_token(self) -> str | None:
         """获取 OAuth2 client_credentials token (内部方法)。."""
@@ -266,45 +256,86 @@ class APIAuthenticator:
         return cls(config)
 
     @classmethod
-    def for_aivp(cls, base_url: str) -> APIAuthenticator:
-        """创建 AIVP 认证器 (cookie 自动获取)。
+    def from_url(cls, url: str, api_key: str = "") -> APIAuthenticator:
+        """根据 URL 自动判别认证方式。
 
-        AIVP 在首次 SSE 请求时通过 ``Set-Cookie`` 返回 ``aivp_sid``,
-        Target 适配器获取后通过 ``set_cookie()`` 注入。
+        判别规则:
+          - URL 包含 /v1/chat/completions 或 /v1/completions → OpenAI 兼容 (Bearer)
+          - URL 包含 localhost:11434 → Ollama (通常无认证或 Bearer)
+          - 其他 + api_key 非空 → Bearer
+          - 其他 + api_key 为空 → 无认证
 
         Args:
-            base_url: AIVP 后端基础 URL。
+            url: 目标 URL。
+            api_key: API Key (可选, 用于 Bearer 认证)。
 
         Returns:
-            APIAuthenticator 实例 (未认证, 等待 cookie 注入)。
+            APIAuthenticator 实例 (未认证, 等待认证数据注入)。
         """
-        config = APIAuthConfig(
-            auth_type="cookie",
-            cookie_name="aivp_sid",
-            extra_headers={"Accept": "text/event-stream"},
-        )
-        return cls(config)
+        url_lower = url.lower()
+
+        # Ollama 本地服务
+        if "localhost:11434" in url_lower or "127.0.0.1:11434" in url_lower:
+            return cls.for_ollama(url, api_key)
+
+        # OpenAI 兼容 API 平台
+        if any(p in url_lower for p in ("/v1/chat/completions", "/v1/completions", "/v1/responses")):
+            return cls.for_openai_compatible(url, api_key)
+
+        # 通用: 有 api_key → Bearer, 无 → none
+        if api_key:
+            return cls(APIAuthConfig(auth_type="bearer", token=api_key))
+        return cls(APIAuthConfig(auth_type="none"))
 
     @classmethod
-    def for_donkai(cls, username: str = "alice") -> APIAuthenticator:
-        """创建 DonkAI 认证器 (HTTP Basic)。
+    def for_openai_compatible(cls, endpoint: str, api_key: str = "") -> APIAuthenticator:
+        """创建 OpenAI 兼容平台认证器 (LongCat / SiliconFlow / OpenRouter 等)。
+
+        自动判别:
+          - api_key 非空 → Bearer token 认证
+          - api_key 为空 → 无认证
 
         Args:
-            username: DonkAI 用户名 (默认 ``alice``)。
+            endpoint: API 端点 URL。
+            api_key: API Key (可选)。
+
+        Returns:
+            APIAuthenticator 实例。
         """
-        user = CredentialStore.get_donkai_user(username)
-        config = APIAuthConfig(
-            auth_type="basic",
-            username=user.username,
-            password=user.password,
-            extra_headers={"X-User-ID": str(user.user_id)},
-        )
-        auth = cls(config)
-        auth.get_headers()  # 设置 is_authenticated 标志
-        return auth
+        if api_key:
+            logger.info(f"APIAuthenticator: OpenAI-compatible (Bearer) for {endpoint}")
+            return cls(APIAuthConfig(auth_type="bearer", token=api_key))
+        logger.info(f"APIAuthenticator: OpenAI-compatible (no auth) for {endpoint}")
+        return cls(APIAuthConfig(auth_type="none"))
+
+    @classmethod
+    def for_ollama(
+        cls,
+        endpoint: str = "http://localhost:11434",
+        api_key: str = "",
+    ) -> APIAuthenticator:
+        """创建 Ollama 平台认证器。
+
+        Ollama 默认无认证; 如配置了 OLLAMA_API_KEY 环境变量,
+        则使用 Bearer token。
+
+        Args:
+            endpoint: Ollama API 端点 URL (默认 http://localhost:11434)。
+            api_key: API Key (可选, 从 OLLAMA_API_KEY 环境变量获取)。
+
+        Returns:
+            APIAuthenticator 实例。
+        """
+        if not api_key:
+            api_key = CredentialStore.get_credential("OLLAMA_API_KEY", "")
+        if api_key:
+            logger.info(f"APIAuthenticator: Ollama (Bearer) for {endpoint}")
+            return cls(APIAuthConfig(auth_type="bearer", token=api_key))
+        logger.info(f"APIAuthenticator: Ollama (no auth) for {endpoint}")
+        return cls(APIAuthConfig(auth_type="none"))
 
 
-# ── 模块级 OAuth2 辅助函数 (从 api_config.py 迁移) ──
+# ── 模块级 OAuth2 辅助函数 ──
 
 
 def _fetch_oauth2_token(
@@ -361,7 +392,3 @@ def _fetch_oauth2_token(
     except Exception as e:
         logger.error(f"OAuth2 token acquisition failed: {e}")
         return None
-
-
-# re-export for backward compatibility
-import os  # noqa: E402 — used in from_env above

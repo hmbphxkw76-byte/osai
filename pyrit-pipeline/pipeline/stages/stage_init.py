@@ -23,6 +23,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -358,6 +359,10 @@ async def _load_datasets(ctx: PipelineContext) -> None:
 
     # ── 认证状态桥接: 尝试复用已有认证态 (文件级共享, 不依赖 recon-pipeline) ──
     _try_auth_state_reuse(ctx)
+
+    # ── 统一认证编排: --target-url 指定时自动判别+路由认证流程 ──
+    if getattr(ctx.args, "target_url", None) and not ctx.metadata.get("auth_type"):
+        await _run_unified_auth(ctx)
 
     # ── Recon JSON 加载: 从文件加载侦察结果 (两流水线完全独立) ──
     _load_recon_json(ctx)
@@ -1683,4 +1688,61 @@ async def _build_recon_target(ctx: PipelineContext) -> None:
         print(f"  [跳过] {result.skipped_reason}")
     else:
         print(f"  [警告] Recon Target 构建失败: {result.error}")
+
+
+async def _run_unified_auth(ctx: PipelineContext) -> None:
+    """统一认证编排 — --target-url 指定时自动判别并路由认证流程。
+
+    使用 UnifiedAuthOrchestrator:
+      1. TargetClassifier 判别目标类型 (Web App / API Platform)
+      2. 路由到浏览器认证或 API 认证
+      3. 认证数据注入 ctx.metadata
+      4. 失败时降级为无认证模式 (不阻塞流水线)
+    """
+    target_url = getattr(ctx.args, "target_url", None)
+    if not target_url:
+        return
+
+    # 如果已有认证状态 (从 auth_state.json 复用), 不重复认证
+    if ctx.metadata.get("auth_type") and ctx.metadata.get("auth_type") != "none":
+        return
+
+    print("\n  --- 统一认证编排 ---")
+    print(f"  目标 URL: {target_url}")
+
+    try:
+        from web_redteam.auth.unified_orchestrator import UnifiedAuthOrchestrator
+
+        api_key = getattr(ctx.args, "api_key", "") or os.getenv("API_KEY", "")
+        target_profile = getattr(ctx.args, "target_profile", "")
+
+        orchestrator = UnifiedAuthOrchestrator(
+            headless=getattr(ctx.args, "headless", False),
+            cdp_port=getattr(ctx.args, "cdp_port", 9222),
+        )
+        auth_state = await orchestrator.authenticate_and_route(
+            url=target_url,
+            ctx=ctx,
+            api_key=api_key,
+            target_profile=target_profile,
+        )
+
+        auth_type = auth_state.auth_type
+        has_headers = bool(auth_state.headers)
+        has_cookies = bool(auth_state.cookies)
+        print(f"  [OK] 认证完成: type={auth_type}, headers={has_headers}, cookies={has_cookies}")
+        if auth_state.mfa_required:
+            print(f"  MFA 类型: {auth_state.mfa_types}")
+        if auth_state.source == "pyrit_degraded":
+            print("  [提示] 认证降级模式 (无认证), 后续攻击可能受影响")
+
+        # 更新 stage1_summary
+        ctx.metadata["auth_type"] = auth_type
+        ctx.metadata["auth_headers"] = auth_state.to_auth_headers()
+        ctx.metadata["auth_cookies"] = auth_state.cookies
+
+    except Exception as e:
+        print(f"  [提示] 统一认证跳过: {e}")
+        logger.warning(f"Unified auth failed: {e}")
+
 

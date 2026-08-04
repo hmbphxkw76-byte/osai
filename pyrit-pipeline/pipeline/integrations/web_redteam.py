@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""G-09: web_redteam 集成桥接器 — 共享主 pipeline 的 OutputManager 和 EvidenceCollector。.
+"""G-09: web_redteam 集成桥接器 — 共享 OutputManager 和 EvidenceCollector (R-022 数据层增强)..
 
 将 web_redteam 的攻击结果桥接到主 pipeline 的证据收集和报告体系:
   1. 将 web_redteam 的 AttackResult 转换为 EvidenceCollector 可处理的格式

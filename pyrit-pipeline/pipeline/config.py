@@ -654,6 +654,67 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         ),
     )
 
+    # ── 高级攻击策略 (G3-G9) ──
+    parser.add_argument(
+        "--multi-turn-session",
+        action="store_true",
+        default=False,
+        help=(
+            "启用多轮会话编排器 — 在同一会话中渐进式注入 payload.\n"
+            "适用于多轮交互场景和 session 上下文."
+        ),
+    )
+    parser.add_argument(
+        "--blind-inference",
+        action="store_true",
+        default=False,
+        help=(
+            "启用盲推理编排器 — 在无反馈场景下推断系统提示.\n"
+            "通过 side-channel 信号 (响应时间/长度/错误码) 推断内部状态."
+        ),
+    )
+    parser.add_argument(
+        "--backdoor-probe",
+        action="store_true",
+        default=False,
+        help=(
+            "启用后门触发器探测 — 检测模型中的隐藏后门.\n"
+            "通过特定触发短语/token 组合激活隐藏行为."
+        ),
+    )
+    parser.add_argument(
+        "--control-mode-aware",
+        action="store_true",
+        default=False,
+        help=(
+            "启用控制模式感知攻击 — 检测/绕过目标安全控制机制.\n"
+            "3 种策略: off (直接发送) / detect (检测控制) / mitigate (尝试绕过).\n"
+            "使用 --control-mode 指定具体策略 (默认: detect).\n"
+            "学术依据: OWASP ASI06 (Excessive Agency), arXiv:2402.16466"
+        ),
+    )
+    parser.add_argument(
+        "--control-mode",
+        type=str,
+        choices=["off", "detect", "mitigate"],
+        default="detect",
+        help=(
+            "控制模式感知策略 (默认: detect).\n"
+            "  off: 不做控制模式适配, 直接发送 payload (baseline)\n"
+            "  detect: 检测目标是否存在内容过滤/安全控制机制\n"
+            "  mitigate: 尝试通过多种技术绕过控制机制"
+        ),
+    )
+    parser.add_argument(
+        "--secret-validation",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Secret 验证评分器 — 在攻击响应中检测泄露的 secret.\n"
+            "4 种策略: exact (精确匹配) / format (格式验证) / semantic (语义分析) / api (API 端点检测).\n"
+            "学术依据: CWE-522, OWASP LLM02 (Sensitive Information Disclosure)"
+        ),
+    )
     # ── 输出 ──
     parser.add_argument(
         "--output-dir",

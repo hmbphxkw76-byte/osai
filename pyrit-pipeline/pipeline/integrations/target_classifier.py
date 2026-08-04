@@ -42,6 +42,16 @@ _API_PATH_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"/(openai|anthropic|llama|gemini|mistral)/", re.IGNORECASE),
 ]
 
+# ── SSE / 流式 API URL 路径模式 ──
+_STREAMING_PATH_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"/stream", re.IGNORECASE),
+    re.compile(r"/sse", re.IGNORECASE),
+    re.compile(r"/events", re.IGNORECASE),
+    re.compile(r"/v1/chat/completions", re.IGNORECASE),  # OpenAI streaming endpoint
+    re.compile(r"/api/stream", re.IGNORECASE),
+    re.compile(r"/subscribe", re.IGNORECASE),
+]
+
 # ── Web 应用 URL 路径模式 ──
 _WEB_APP_PATH_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"/(chat|playground|app|dashboard)", re.IGNORECASE),
@@ -92,6 +102,11 @@ class TargetClassification:
         api_endpoint_pattern: 匹配到的 API 路径模式 (仅 API Platform)
         detection_reason: 判别依据的人类可读描述
         recommended_mode: 推荐模式 ("browser" | "api")
+        api_auth_type: API 认证类型 (bearer | api_key | oauth2 | basic | unknown)
+        api_auth_header: API 认证头名称
+        has_openapi_spec: 是否检测到 OpenAPI/Swagger 规范
+        streaming_type: 流式类型 ("sse" | "ndjson" | "stream_json" | "" 非流式)
+        is_streaming: 是否为流式 API
     """
 
     target_type: str = "unknown"
@@ -107,6 +122,9 @@ class TargetClassification:
     api_auth_type: str = ""  # bearer | api_key | oauth2 | basic | unknown
     api_auth_header: str = ""  # Authorization | X-API-Key | X-Auth-Token
     has_openapi_spec: bool = False
+    # SSE / 流式 API 检测 (Round 24 增强)
+    streaming_type: str = ""  # sse | ndjson | stream_json | "" (非流式)
+    is_streaming: bool = False
 
     def __str__(self) -> str:
         """Return string representation."""
@@ -120,6 +138,8 @@ class TargetClassification:
             f"  has_chat_ui:          {self.has_chat_ui}",
             f"  api_endpoint_pattern: {self.api_endpoint_pattern}",
             f"  recommended_mode:     {self.recommended_mode}",
+            f"  streaming_type:       {self.streaming_type or 'none'}",
+            f"  is_streaming:         {self.is_streaming}",
             f"  reason:               {self.detection_reason}",
         ]
         return "\n".join(lines)
@@ -197,16 +217,44 @@ class TargetClassifier:
 
         # 路径 1: URL 路径模式匹配 (无网络请求)
         url_match = self._match_url_patterns(target_url)
+        streaming_url_match = self._match_streaming_url_patterns(target_url)
         if url_match == "api":
             result.target_type = "llm_api_platform"
             result.api_endpoint_pattern = "url_pattern"
             result.recommended_mode = "api"
-            result.detection_reason = (
-                "URL 路径匹配 API 端点模式 (如 /v1/chat/completions, /api/chat)"
-            )
+            # SSE URL 模式 → 标记流式
+            if streaming_url_match:
+                result.streaming_type = "sse"
+                result.is_streaming = True
+                result.detection_reason = (
+                    "URL 路径匹配 API 端点模式 + 流式端点模式 "
+                    f"(如 /stream, /sse, /events) — streaming_type={result.streaming_type}"
+                )
+            else:
+                result.detection_reason = (
+                    "URL 路径匹配 API 端点模式 (如 /v1/chat/completions, /api/chat)"
+                )
             # A3: API 认证信息提取
             self._extract_api_auth_info(result, http_info={})
-            logger.info("TargetClassifier: URL pattern → llm_api_platform")
+            logger.info(
+                f"TargetClassifier: URL pattern → llm_api_platform"
+                f"{' (streaming)' if result.is_streaming else ''}"
+            )
+            return result
+
+        # 流式 URL 模式 (非 API 路径但匹配流式端点) → API 平台 (流式)
+        if streaming_url_match:
+            result.target_type = "llm_api_platform"
+            result.api_endpoint_pattern = "streaming_url"
+            result.recommended_mode = "api"
+            result.streaming_type = "sse"
+            result.is_streaming = True
+            result.detection_reason = (
+                "URL 路径匹配流式端点模式 (如 /stream, /sse, /events) — "
+                "streaming_type=sse"
+            )
+            self._extract_api_auth_info(result, http_info={})
+            logger.info("TargetClassifier: streaming URL → llm_api_platform (streaming)")
             return result
 
         # 路径 2: HTTP 响应分析
@@ -216,16 +264,46 @@ class TargetClassifier:
         result.is_html = "text/html" in result.content_type.lower()
 
         # JSON 响应 → API 平台
-        if "application/json" in result.content_type.lower():
+        ct_lower = result.content_type.lower()
+        if "application/json" in ct_lower:
             result.target_type = "llm_api_platform"
             result.api_endpoint_pattern = "http_json_response"
             result.recommended_mode = "api"
+            # 检查是否为流式 JSON (NDJSON / stream+json)
+            streaming = self._detect_streaming_json(ct_lower, http_info)
+            if streaming:
+                result.streaming_type = streaming
+                result.is_streaming = True
+                result.detection_reason = (
+                    f"HTTP 响应 Content-Type={result.content_type} "
+                    f"(status={result.http_status}) — streaming_type={streaming}"
+                )
+            else:
+                result.detection_reason = (
+                    f"HTTP 响应 Content-Type=application/json (status={result.http_status})"
+                )
+            # A3: API 认证信息提取
+            self._extract_api_auth_info(result, http_info)
+            logger.info(
+                f"TargetClassifier: JSON response → llm_api_platform"
+                f"{' (streaming: ' + streaming + ')' if streaming else ''}"
+            )
+            return result
+
+        # SSE (Server-Sent Events) 响应 → API 平台 (流式)
+        if "text/event-stream" in ct_lower:
+            result.target_type = "llm_api_platform"
+            result.api_endpoint_pattern = "http_sse"
+            result.recommended_mode = "api"
+            result.streaming_type = "sse"
+            result.is_streaming = True
             result.detection_reason = (
-                f"HTTP 响应 Content-Type=application/json (status={result.http_status})"
+                f"HTTP 响应 Content-Type=text/event-stream (SSE 流式 API, "
+                f"status={result.http_status})"
             )
             # A3: API 认证信息提取
             self._extract_api_auth_info(result, http_info)
-            logger.info("TargetClassifier: JSON response → llm_api_platform")
+            logger.info("TargetClassifier: SSE response → llm_api_platform (streaming)")
             return result
 
         # HTTP 405 Method Not Allowed → API 平台 (仅支持 POST)
@@ -301,6 +379,51 @@ class TargetClassifier:
 
         return "unknown"
 
+    def _match_streaming_url_patterns(self, url: str) -> bool:
+        """检测 URL 是否匹配流式端点模式。.
+
+        Returns:
+            True 如果 URL 匹配流式端点模式 (如 /stream, /sse, /events)。
+        """
+        return any(pattern.search(url) for pattern in _STREAMING_PATH_PATTERNS)
+
+    def _detect_streaming_json(
+        self,
+        content_type_lower: str,
+        http_info: dict[str, Any],
+    ) -> str:
+        """检测 JSON 响应是否为流式 JSON。.
+
+        检测模式:
+          1. Content-Type: application/x-ndjson → ndjson
+          2. Content-Type: application/stream+json → stream_json
+          3. Transfer-Encoding: chunked + JSON Content-Type → stream_json
+
+        Args:
+            content_type_lower: 小写的 Content-Type。
+            http_info: HTTP 响应信息字典。
+
+        Returns:
+            流式类型 ("ndjson" | "stream_json" | "" 非流式)。
+        """
+        if "x-ndjson" in content_type_lower or "ndjson" in content_type_lower:
+            return "ndjson"
+        if "stream+json" in content_type_lower or "streaming+json" in content_type_lower:
+            return "stream_json"
+
+        # Transfer-Encoding: chunked + JSON → 推断为流式 JSON
+        headers = http_info.get("headers", {}) or {}
+        transfer_encoding = (
+            headers.get("transfer-encoding", "")
+            or headers.get("Transfer-Encoding", "")
+            or http_info.get("transfer-encoding", "")
+            or http_info.get("Transfer-Encoding", "")
+        )
+        if "chunked" in transfer_encoding.lower() and "json" in content_type_lower:
+            return "stream_json"
+
+        return ""
+
     async def _http_probe(self, url: str) -> dict[str, Any]:
         """发送 HTTP GET 请求探测目标。.
 
@@ -323,6 +446,7 @@ class TargetClassifier:
                     "status": response.status,
                     "content_type": response.headers.get("Content-Type", ""),
                     "body": body[:50000],  # 限制大小
+                    "headers": dict(response.headers),
                 }
         except ImportError:
             logger.warning("aiohttp not installed, falling back to urllib")
@@ -347,6 +471,7 @@ class TargetClassifier:
                     "status": resp.status,
                     "content_type": resp.headers.get("Content-Type", ""),
                     "body": body,
+                    "headers": dict(resp.headers),
                 }
         except Exception as e:
             # HTTP 错误也可能包含有用信息 (如 405)
@@ -355,6 +480,7 @@ class TargetClassifier:
                     "status": e.code,
                     "content_type": e.headers.get("Content-Type", "") if hasattr(e, "headers") else "",
                     "body": "",
+                    "headers": dict(e.headers) if hasattr(e, "headers") else {},
                 }
             logger.debug(f"TargetClassifier: sync HTTP probe failed: {e}")
             return {"status": 0, "content_type": "", "body": ""}

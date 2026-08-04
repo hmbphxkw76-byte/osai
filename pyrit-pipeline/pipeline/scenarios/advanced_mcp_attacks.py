@@ -1,7 +1,9 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""高级 MCP 攻击场景 — Kill Chain + 跨服务器信任链攻击。.
+"""高级 MCP 攻击场景 — Kill Chain + 跨服务器信任链攻击.
+
+R-022: PyRIT 原生 PromptSendingAttack/SequentialAttack 配置层增强.
 
 融合 mcp-attack-labs 的高级攻击模式, 扩展现有 mcp_attack.py:
 
@@ -41,7 +43,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from pipeline.assessment.framework_mapper import (
     FrameworkMapper,
@@ -56,6 +61,13 @@ if TYPE_CHECKING:
     from pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
+_YAML_PATH = Path(__file__).parent.parent.parent / "data" / "setting" / "mcp_attack_payloads.yaml"
+
+# OWASP 代码字符串 → 枚举映射
+_OWASP_MAP: dict[str, OWASPAgenticCode] = {c.value: c for c in OWASPAgenticCode}
+# AI-VSS 修饰符字符串 → 枚举映射
+_MODIFIER_MAP: dict[str, AIVSSModifier] = {m.value: m for m in AIVSSModifier}
 
 
 @dataclass
@@ -372,6 +384,112 @@ _KILL_CHAINS: list[dict[str, Any]] = [
 ]
 
 
+def _load_advanced_probes_from_yaml() -> (
+    list[tuple[str, str, str, list[str], str, list[OWASPAgenticCode], list[AIVSSModifier]]] | None
+):
+    """从 YAML 配置文件加载高级 MCP 探针。
+
+    读取 ``data/setting/mcp_attack_payloads.yaml`` 的 ``advanced_mcp_probes`` 段。
+
+    Returns:
+        高级探针元组列表, YAML 加载失败时返回 None。
+    """
+    try:
+        if not _YAML_PATH.exists():
+            return None
+        with open(_YAML_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        raw_probes = data.get("advanced_mcp_probes")
+        if not raw_probes or not isinstance(raw_probes, list):
+            return None
+        probes: list[
+            tuple[str, str, str, list[str], str, list[OWASPAgenticCode], list[AIVSSModifier]]
+        ] = []
+        for item in raw_probes:
+            if not isinstance(item, dict):
+                continue
+            attack_type = str(item.get("attack_type", ""))
+            surface = str(item.get("target_surface", ""))
+            payload = str(item.get("injection_payload", ""))
+            keywords = list(item.get("expected_keywords", []))
+            severity = str(item.get("severity", "medium"))
+            owasp_strs = list(item.get("owasp_codes", []))
+            modifier_strs = list(item.get("ai_vss_modifiers", []))
+            owasp_codes = [_OWASP_MAP[s] for s in owasp_strs if s in _OWASP_MAP]
+            modifiers = [_MODIFIER_MAP[s] for s in modifier_strs if s in _MODIFIER_MAP]
+            if attack_type and payload:
+                probes.append((attack_type, surface, payload, keywords, severity, owasp_codes, modifiers))
+        if probes:
+            logger.info(f"Loaded {len(probes)} advanced MCP probes from YAML: {_YAML_PATH}")
+            return probes
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load advanced MCP probes from YAML: {e}")
+        return None
+
+
+def _load_kill_chains_from_yaml() -> list[dict[str, Any]] | None:
+    """从 YAML 配置文件加载 Kill Chain 定义。
+
+    读取 ``data/setting/mcp_attack_payloads.yaml`` 的 ``kill_chains`` 段。
+
+    Returns:
+        Kill Chain 字典列表, YAML 加载失败时返回 None。
+    """
+    try:
+        if not _YAML_PATH.exists():
+            return None
+        with open(_YAML_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        raw_chains = data.get("kill_chains")
+        if not raw_chains or not isinstance(raw_chains, list):
+            return None
+        chains: list[dict[str, Any]] = []
+        for item in raw_chains:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", ""))
+            if not name:
+                continue
+            owasp_strs = list(item.get("owasp_codes", []))
+            owasp_codes = [_OWASP_MAP[s] for s in owasp_strs if s in _OWASP_MAP]
+            modifier_strs = list(item.get("modifiers", []))
+            modifiers = [_MODIFIER_MAP[s] for s in modifier_strs if s in _MODIFIER_MAP]
+            chains.append({
+                "name": name,
+                "owasp_codes": owasp_codes,
+                "chain_steps": list(item.get("chain_steps", [])),
+                "payload": str(item.get("payload", "")),
+                "expected_keywords": list(item.get("expected_keywords", [])),
+                "modifiers": modifiers,
+            })
+        if chains:
+            logger.info(f"Loaded {len(chains)} kill chains from YAML: {_YAML_PATH}")
+            return chains
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load kill chains from YAML: {e}")
+        return None
+
+
+def _get_advanced_probes() -> list[
+    tuple[str, str, str, list[str], str, list[OWASPAgenticCode], list[AIVSSModifier]]
+]:
+    """获取高级 MCP 探针 (YAML 优先, 硬编码回退)。"""
+    yaml_probes = _load_advanced_probes_from_yaml()
+    if yaml_probes is not None:
+        return yaml_probes
+    return _ADVANCED_MCP_PROBES
+
+
+def _get_kill_chains() -> list[dict[str, Any]]:
+    """获取 Kill Chain 定义 (YAML 优先, 硬编码回退)。"""
+    yaml_chains = _load_kill_chains_from_yaml()
+    if yaml_chains is not None:
+        return yaml_chains
+    return _KILL_CHAINS
+
+
 async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackReport:
     """执行高级 MCP 攻击场景。.
 
@@ -401,15 +519,18 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
     scorer = AIVSSScorer()
     mapper = FrameworkMapper()
 
+    advanced_probes = _get_advanced_probes()
+    kill_chains = _get_kill_chains()
+
     report = AdvancedMCPAttackReport()
 
     # ── 执行高级探针 ──
-    print(f"\n  高级探针数量: {len(_ADVANCED_MCP_PROBES)}")
+    print(f"\n  高级探针数量: {len(advanced_probes)}")
     for i, (
         attack_type, surface, payload, expected_keywords,
         severity, owasp_codes, ai_vss_modifiers,
-    ) in enumerate(_ADVANCED_MCP_PROBES, 1):
-        print(f"\n  [{i}/{len(_ADVANCED_MCP_PROBES)}] {attack_type} (原语: {surface})...")
+    ) in enumerate(advanced_probes, 1):
+        print(f"\n  [{i}/{len(advanced_probes)}] {attack_type} (原语: {surface})...")
 
         try:
             attack = PromptSendingAttack(objective_target=target)
@@ -483,8 +604,8 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
             ))
 
     # ── 执行 Kill Chain 攻击 (PyRIT 原生 SequentialAttack) ──
-    print(f"\n  Kill Chain 数量: {len(_KILL_CHAINS)} (原生 SequentialAttack)")
-    for i, kc_def in enumerate(_KILL_CHAINS, 1):
+    print(f"\n  Kill Chain 数量: {len(kill_chains)} (原生 SequentialAttack)")
+    for i, kc_def in enumerate(kill_chains, 1):
         print(f"\n  [Kill Chain {i}/{len(_KILL_CHAINS)}] {kc_def['name']}...")
 
         try:

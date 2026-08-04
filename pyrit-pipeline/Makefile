@@ -87,7 +87,8 @@ help: ## 显示所有可用命令
 	@echo "  $(GREEN)make format$(RESET)            代码格式化 (ruff format)"
 	@echo "  $(GREEN)make typecheck$(RESET)         类型检查 (mypy)"
 	@echo "  $(GREEN)make check$(RESET)             一键检查 (lint + test)"
-	@echo "  $(GREEN)make check-full$(RESET)        全量检查 (ruff + pytest -v, 三库标准 R-015)"
+	@echo "  $(GREEN)make check-full$(RESET)        全量检查 (ruff + pytest -v + R-022, 三库标准 R-021)"
+	@echo "  $(GREEN)make check-r022$(RESET)        R-022 PyRIT 原生优先合规检查"
 	@echo "  $(GREEN)make precommit-run$(RESET)     运行 pre-commit (所有文件)"
 	@echo ""
 	@echo "$(CYAN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
@@ -282,7 +283,7 @@ test-fast: ## 快速测试 (仅上次失败的)
 # ============================================================================
 # 代码质量
 # ============================================================================
-.PHONY: lint format typecheck check check-full precommit-run
+.PHONY: lint format typecheck check check-full check-r022 precommit-run
 lint: ## 代码检查 (ruff, 全量 pipeline/scripts/tests)
 	@echo "$(CYAN)[LINT]$(RESET) 代码检查 (ruff)..."
 	ruff check pipeline/ scripts/ tests/ conftest.py
@@ -299,13 +300,19 @@ typecheck: ## 类型检查 (mypy)
 check: lint test ## 一键检查 (lint + test)
 	@echo "$(GREEN)[OK]$(RESET) 所有检查通过"
 
-check-full: ## 全量检查 (ruff + pytest -v, 三库标准 R-021)
-	@echo "$(CYAN)[CHECK-FULL]$(RESET) 三库标准全量检查 (ruff + pytest)..."
-	@echo "  [1/2] ruff check pipeline/ scripts/ tests/ conftest.py"
+check-r022: ## R-022 PyRIT 原生优先合规检查 (防偏离机制)
+	@echo "$(CYAN)[R-022]$(RESET) PyRIT 原生优先合规检查..."
+	$(PYTHON) scripts/check_r022_compliance.py
+
+check-full: ## 全量检查 (ruff + pytest -v + R-022, 三库标准 R-021)
+	@echo "$(CYAN)[CHECK-FULL]$(RESET) 三库标准全量检查 (ruff + pytest + R-022)..."
+	@echo "  [1/3] ruff check pipeline/ scripts/ tests/ conftest.py"
 	ruff check pipeline/ scripts/ tests/ conftest.py
-	@echo "  [2/2] pytest -v --tb=short"
+	@echo "  [2/3] R-022 PyRIT 原生优先合规检查"
+	$(PYTHON) scripts/check_r022_compliance.py
+	@echo "  [3/3] pytest -v --tb=short"
 	$(PYTHON) -m pytest tests/ -v --tb=short
-	@echo "$(GREEN)[OK]$(RESET) 全量检查通过 (ruff + pytest)"
+	@echo "$(GREEN)[OK]$(RESET) 全量检查通过 (ruff + R-022 + pytest)"
 
 precommit-run: ## 运行 pre-commit (所有文件)
 	@echo "$(CYAN)[PRE-COMMIT]$(RESET) 运行 pre-commit..."
