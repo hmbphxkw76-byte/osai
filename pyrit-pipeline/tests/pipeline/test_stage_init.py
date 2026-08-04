@@ -65,6 +65,10 @@ class TestStageInit:
                 new_callable=AsyncMock,
                 return_value=[],
             ),
+            patch(
+                "pipeline.stages.stage_init._preflight_check",
+                new_callable=AsyncMock,
+            ),
         ):
             mock_loader_cls.load_with_overrides = MagicMock(return_value=mock_config)
 
@@ -76,6 +80,48 @@ class TestStageInit:
             mock_init.assert_called_once()
 
         assert ctx.config is mock_config
+
+    async def test_skip_preflight_skips_check(self, mock_args: pytest.fixture, tmp_path: Path) -> None:
+        """--skip-preflight 时跳过预检 (不调用 _preflight_check)."""
+        config_path = tmp_path / "test_conf.yaml"
+        config_path.write_text("memory_db_type: in_memory\nsilent: true\n", encoding="utf-8")
+        mock_args.config_file = str(config_path)
+        mock_args.skip_preflight = True
+        ctx = PipelineContext(args=mock_args)
+
+        mock_config = MagicMock()
+        mock_config.memory_db_type = "in_memory"
+        mock_config.silent = True
+        mock_config.env_akv_ref = None
+        mock_config._MEMORY_DB_TYPE_MAP = {"in_memory": "InMemory", "sqlite": "SQLite"}
+        mock_config.resolve_initializers = MagicMock(return_value={})
+        mock_config.resolve_initialization_scripts = MagicMock(return_value=[])
+        mock_config.resolve_env_files = MagicMock(return_value=[])
+
+        with (
+            patch("pipeline.stages.stage_init.ConfigurationLoader") as mock_loader_cls,
+            patch("pipeline.stages.stage_init._core_initialize_pyrit", new_callable=AsyncMock),
+            patch("pipeline.stages.stage_init.TargetRegistry"),
+            patch("pipeline.stages.stage_init.ScorerRegistry"),
+            patch("pipeline.stages.stage_init.AttackTechniqueRegistry"),
+            patch(
+                "pipeline.stages.stage_init._load_local_datasets_async",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "pipeline.stages.stage_init._preflight_check",
+                new_callable=AsyncMock,
+            ) as mock_preflight,
+        ):
+            mock_loader_cls.load_with_overrides = MagicMock(return_value=mock_config)
+
+            from pipeline.stages.stage_init import run as stage_init
+
+            await stage_init(ctx)
+
+            # skip_preflight=True 时 _preflight_check 不应被调用
+            mock_preflight.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────

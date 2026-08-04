@@ -76,10 +76,10 @@ logger = logging.getLogger(__name__)
 # 已测试的 PyRIT 版本 — 版本守护基准
 # ============================================================
 
-_TESTED_PYRIT_VERSION = "1.0.0"
+_TESTED_PYRIT_VERSION = "1.0.1"
 
 # ============================================================
-# 原生标记 (PyRIT 1.0.0) — 不可删除
+# 原生标记 (PyRIT 1.0.1) — 不可删除
 # ============================================================
 
 _NATIVE_MARKERS = frozenset(
@@ -227,7 +227,7 @@ def _check_pyrit_version() -> str | None:
     """检查 PyRIT 版本兼容性。.
 
     Returns:
-        版本不匹配时返回警告消息,无问题时返回 None。
+        版本不兼容时返回警告消息,无问题时返回 None。
     """
     actual_version: str | None = None
 
@@ -251,7 +251,11 @@ def _check_pyrit_version() -> str | None:
     if actual_version is None:
         return "无法检测 PyRIT 版本,补丁可能不兼容"
 
-    if actual_version != _TESTED_PYRIT_VERSION:
+    # 兼容性检查: 接受 1.0.x 系列 (1.0.1 / 1.0.1 / 1.1.0.dev0)
+    # PyRIT 1.0.1 源码目录内部版本号可能报告 1.1.0.dev0 或 1.0.1,
+    # 均属于 1.0.x 兼容系列
+    compatible_prefixes = ("1.0.",)
+    if not actual_version.startswith(compatible_prefixes) and actual_version != _TESTED_PYRIT_VERSION:
         return f"PyRIT 版本不匹配: 已测试={_TESTED_PYRIT_VERSION}, 实际={actual_version}"
 
     return None
@@ -408,7 +412,7 @@ def _verify_patch() -> tuple[bool, str]:
         from pyrit.exceptions.exception_classes import handle_bad_request_exception
         from pyrit.models.messages.message_piece import MessagePiece
 
-        # 创建有效的 MessagePiece (PyRIT 1.0.0 要求 request 参数为 MessagePiece)
+        # 创建有效的 MessagePiece (PyRIT 1.0.1 要求 request 参数为 MessagePiece)
         request = MessagePiece(
             id=str(uuid4()),
             conversation_id=str(uuid4()),

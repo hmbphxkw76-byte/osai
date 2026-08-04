@@ -1,14 +1,14 @@
 # PyRIT Scenarios 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（5 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
+> 基于 PyRIT 1.0.1 官方文档（5 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：TextAdaptive 场景由 `pipeline/stages/stage_scenario.py` 构造，ASR 驱动选择由 `pipeline/asr/failure_type_selector.py` 实现，详见 [architecture_design.md](../architecture_design.md#三六阶段流水线)  
 > 官方文档来源：  
-> - [Scenarios](https://microsoft.github.io/PyRIT/1.1.0.dev0/code/scenarios/scenarios/)  
-> - [Attack Techniques](https://microsoft.github.io/PyRIT/1.1.0.dev0/code/scenarios/attack-techniques/)  
-> - [Common Scenario Parameters](https://microsoft.github.io/PyRIT/1.1.0.dev0/code/scenarios/common-scenario-parameters/)  
-> - [Custom Scenario Parameters](https://microsoft.github.io/PyRIT/1.1.0.dev0/code/scenarios/custom-scenario-parameters/)
-> - [Adaptive Scenarios](https://microsoft.github.io/PyRIT/1.1.0.dev0/code/scenarios/adaptive-scenarios/)
+> - [Scenarios](https://microsoft.github.io/PyRIT/1.0.1/code/scenarios/scenarios/)  
+> - [Attack Techniques](https://microsoft.github.io/PyRIT/1.0.1/code/scenarios/attack-techniques/)  
+> - [Common Scenario Parameters](https://microsoft.github.io/PyRIT/1.0.1/code/scenarios/common-scenario-parameters/)  
+> - [Custom Scenario Parameters](https://microsoft.github.io/PyRIT/1.0.1/code/scenarios/custom-scenario-parameters/)
+> - [Adaptive Scenarios](https://microsoft.github.io/PyRIT/1.0.1/code/scenarios/adaptive-scenarios/)
 
 ---
 
@@ -40,7 +40,7 @@
 关键区分：
 - **Scenario ≠ Attack**：Attack 是与目标系统交互的算法（Executor），Scenario 是编排多个 Attack 的 **测试活动**。
 - **Scenario ≠ Attack Technique**：Attack Technique 是一个配置配方（角色扮演框架、多示例引导集），由 Scenario 按名称选择。Scenario 是选择和运行 Techniques 的 **编排层**。
-- **Scenario ≠ Orchestrator**：在 PyRIT 1.0.0 中，Orchestrator 概念已被 Scenario 和 AttackExecutor 替代。Scenario 负责 "运行哪些攻击"，AttackExecutor 负责 "如何并行执行"。
+- **Scenario ≠ Orchestrator**：在 PyRIT 1.0.1 中，Orchestrator 概念已被 Scenario 和 AttackExecutor 替代。Scenario 负责 "运行哪些攻击"，AttackExecutor 负责 "如何并行执行"。
 
 ### 1.2 核心不变量
 

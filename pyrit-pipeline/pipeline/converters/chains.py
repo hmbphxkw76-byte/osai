@@ -86,12 +86,15 @@ def __getattr__(name: str) -> Any:
 _CHAINS_YAML = Path(__file__).parent.parent.parent / "data" / "setting" / "converter_chains.yaml"
 
 
-def _load_chain_config() -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
-    """从 ``data/converter_chains.yaml`` 加载链配置和基础技术映射。.
+def _load_chain_config() -> tuple[dict[str, dict[str, Any]], dict[str, list[str]], list[dict[str, Any]]]:
+    """从 ``data/converter_chains.yaml`` 加载链配置、基础技术映射和组合乘数。.
 
     YAML 是唯一数据源, 链元数据和映射不再硬编码在 Python 中。
     链实例化函数 (``_build_*_chain()``) 仍保留在代码中,
     因为它们需要导入和构造 PyRIT Converter 类。
+
+    Returns:
+        (chains, base_technique_map, combo_multipliers) 三元组
     """
     if not _CHAINS_YAML.exists():
         raise FileNotFoundError(f"Converter chains YAML not found at {_CHAINS_YAML}. This is the required data source.")
@@ -107,17 +110,25 @@ def _load_chain_config() -> tuple[dict[str, dict[str, Any]], dict[str, list[str]
             "priority": int(meta.get("priority", 3)),
             "modality": meta.get("modality", "text"),
             "description": meta.get("description", ""),
+            "cost_tier": meta.get("cost_tier", "cheap"),
         }
 
     base_map: dict[str, list[str]] = {}
     for tech, chain_list in (data.get("base_techniques_for_variants") or {}).items():
         base_map[tech] = list(chain_list)
 
-    logger.info(f"Converter chains loaded from YAML: {len(chains)} chains, {len(base_map)} base technique mappings")
-    return chains, base_map
+    # D13: combo_multipliers — 链组合协同效应乘数
+    combo_data = data.get("combo_multipliers") or {}
+    combo_multipliers: list[dict[str, Any]] = combo_data.get("combos", []) or []
+
+    logger.info(
+        f"Converter chains loaded from YAML: {len(chains)} chains, "
+        f"{len(base_map)} base technique mappings, {len(combo_multipliers)} combo multipliers"
+    )
+    return chains, base_map, combo_multipliers
 
 
-CONVERTER_VARIANT_CHAINS, BASE_TECHNIQUES_FOR_VARIANTS = _load_chain_config()
+CONVERTER_VARIANT_CHAINS, BASE_TECHNIQUES_FOR_VARIANTS, COMBO_MULTIPLIERS = _load_chain_config()
 
 
 # ============================================================
@@ -434,6 +445,73 @@ def load_preset_converter_chain(
 # ============================================================
 # 辅助函数
 # ============================================================
+
+
+# ============================================================
+# D13: 链组合协同评分
+# ============================================================
+
+
+def score_chain_combo(chain_names: list[str]) -> float:
+    """D13: 计算链组合的协同效应分数.
+
+    基于 ``converter_chains.yaml`` 的 ``combo_multipliers`` 段,
+    检查链列表中是否存在已知的高效组合.
+
+    PyRIT 原生优先: 本函数仅用于选择层 (Stage 2),
+    不修改 PyRIT 原生 ``extra_request_converters`` API.
+
+    学术依据: Russinovich et al. (arXiv:2402.12109) —
+      Crescendo + encoding = 3-5x ASR
+
+    Args:
+        chain_names: 链名列表
+
+    Returns:
+        协同效应分数 (1.0 = 无协同, >1.0 = 有协同加成)
+    """
+    if not chain_names or not COMBO_MULTIPLIERS:
+        return 1.0
+
+    chain_set = set(chain_names)
+    best_multiplier = 1.0
+
+    for combo in COMBO_MULTIPLIERS:
+        combo_chains = set(combo.get("chains", []))
+        if combo_chains.issubset(chain_set):
+            multiplier = float(combo.get("multiplier", 1.0))
+            if multiplier > best_multiplier:
+                best_multiplier = multiplier
+
+    return best_multiplier
+
+
+#: D14: cost_tier → 预算权重映射
+_COST_TIER_WEIGHT: dict[str, float] = {
+    "cheap": 1.0,  # 非 LLM 链: 快速, 无 API 调用
+    "moderate": 0.7,  # 混合链
+    "expensive": 0.4,  # LLM 链: 慢, 每次 API 调用 2-5s
+}
+
+
+def get_chain_cost_weight(chain_name: str) -> float:
+    """D14: 获取链的成本权重 (用于预算感知分配).
+
+    非 LLM 链 (cheap) 权重高 (优先选择),
+    LLM 链 (expensive) 权重低 (预算有限时减少).
+
+    PyRIT 原生优先: 本函数仅用于选择层,
+    PyRIT 原生 ``max_attempts_per_objective`` 不变.
+
+    Args:
+        chain_name: 链名
+
+    Returns:
+        成本权重 (0.0-1.0, 越高越优先)
+    """
+    chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name, {})
+    cost_tier = chain_info.get("cost_tier", "cheap")
+    return _COST_TIER_WEIGHT.get(cost_tier, 1.0)
 
 
 def is_converter_variant(technique_name: str) -> bool:

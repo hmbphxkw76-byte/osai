@@ -1,6 +1,6 @@
 # PyRIT Targets 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（21 个页面）系统梳理 — 以 PyRIT 专家架构师视角
+> 基于 PyRIT 1.0.1 官方文档（21 个页面）系统梳理 — 以 PyRIT 专家架构师视角
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：目标注册由 `.pyrit_conf` TargetInitializer 完成，限速包装由 `pipeline/targets/rate_limited_target.py` 实现，详见 [targets.md](../targets.md)
 
@@ -85,7 +85,7 @@ PromptTarget (抽象基类)
 └── TextTarget                  ← 调试输出
 ```
 
-### 1.4 PyRIT 1.0.0 关键变化
+### 1.4 PyRIT 1.0.1 关键变化
 
 **`PromptChatTarget` 类已被移除**。在 1.0.0 中，所有目标都是 `PromptTarget`，通过 `TargetConfiguration` 声明能力来区分 chat-style 和 general targets。消费者通过 `CHAT_TARGET_REQUIREMENTS` 验证目标是否满足多轮+可编辑历史的需求。
 
@@ -962,7 +962,7 @@ capabilities = await discover_target_capabilities_async(
 
 ### 21.3 TargetCapabilities 优先于 PromptChatTarget
 
-PyRIT 1.0.0 移除了 `PromptChatTarget` 类。现在：
+PyRIT 1.0.1 移除了 `PromptChatTarget` 类。现在：
 - 所有 Target 都是 `PromptTarget`
 - "Chat-style" 通过 `TargetCapabilities` 声明（`supports_multi_turn=True` + `supports_editable_history=True`）
 - 消费者通过 `CHAT_TARGET_REQUIREMENTS.validate()` 检查

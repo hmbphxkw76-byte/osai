@@ -1,6 +1,6 @@
 # Output 模块原理说明
 
-> 对齐 PyRIT 1.1.0.dev0 `pyrit.output` 官方文档  
+> 对齐 PyRIT 1.0.1 `pyrit.output` 官方文档  
 > 版本: v2.1 | 更新日期: 2026-8-1  
 > Pipeline 对接：原生输出由 `pipeline/stages/stage_output.py` 调用，证据收集由 `pipeline/analysis/evidence_collector.py` 实现，详见 [end_to_end_architecture.md](../end_to_end_architecture.md#七stage-6-结果输出)
 

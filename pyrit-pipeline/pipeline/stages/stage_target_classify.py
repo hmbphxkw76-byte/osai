@@ -32,7 +32,6 @@ import logging
 from typing import Any
 
 from pipeline.context import PipelineContext
-from pipeline.integrations.recon_trigger import trigger_recon
 from pipeline.integrations.target_classifier import TargetClassification, TargetClassifier
 from pipeline.utils.decision_trace import DecisionTrace
 from pipeline.utils.event_bus import EventBus
@@ -187,17 +186,8 @@ async def _bridge_web_app(
     ctx.metadata["web_target_profile"] = profile
     ctx.target_type = "playwright"
 
-    # 7. P1: 自动触发 recon-pipeline 侦察 (认证后、攻击前)
-    recon_result = await trigger_recon(ctx, target_url, classification, page=page)
-    if recon_result.success:
-        logger.info(
-            f"Recon completed: {recon_result.probe_count} probes, "
-            f"{recon_result.duration_seconds}s"
-        )
-    elif recon_result.skipped_reason:
-        logger.info(f"Recon skipped: {recon_result.skipped_reason}")
-    else:
-        logger.warning(f"Recon failed: {recon_result.error}")
+    # 注: recon-pipeline 侦察不再通过代码直接调用 (两流水线完全独立)。
+    # 使用方式: 先运行 recon-pipeline 生成 JSON 报告, 再通过 --recon-json 加载。
 
     logger.info(f"Web app target bridged: {target_url} → PlaywrightTarget")
     return True
@@ -275,17 +265,8 @@ async def _bridge_api_platform(
     ctx.target_type = "http_api"
     ctx.http_target_configured = True
 
-    # 7. P1: 自动触发 recon-pipeline 侦察 (API 模式, 无浏览器)
-    recon_result = await trigger_recon(ctx, target_url, classification, page=None)
-    if recon_result.success:
-        logger.info(
-            f"Recon completed: {recon_result.probe_count} probes, "
-            f"{recon_result.duration_seconds}s"
-        )
-    elif recon_result.skipped_reason:
-        logger.info(f"Recon skipped: {recon_result.skipped_reason}")
-    else:
-        logger.warning(f"Recon failed: {recon_result.error}")
+    # 注: recon-pipeline 侦察不再通过代码直接调用 (两流水线完全独立)。
+    # 使用方式: 先运行 recon-pipeline 生成 JSON 报告, 再通过 --recon-json 加载。
 
     logger.info(f"API platform target bridged: {target_url} → HTTPTarget")
     return True

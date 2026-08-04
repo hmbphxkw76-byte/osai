@@ -2,7 +2,7 @@
 
 > **版本**: v1.0  
 > **日期**: 2026-8-3  
-> **PyRIT 版本**: 1.1.0.dev0  
+> **PyRIT 版本**: 1.0.1  
 > **学术依据**: PyRIT [[arXiv:2407.01232]](https://arxiv.org/abs/2407.01232) · HarmBench [[arXiv:2402.04249]](https://arxiv.org/abs/2402.04249) · JailbreakBench [[arXiv:2402.01135]](https://arxiv.org/abs/2402.01135) · PAIR [[arXiv:2310.08437]](https://arxiv.org/abs/2310.08437) · TAP [[arXiv:2312.02191]](https://arxiv.org/abs/2312.02191)  
 > **Pipeline 对接**: 目标注册见 [targets.md](targets.md)，评分器原理见 [principles/scoring_principles.md](principles/scoring_principles.md)，场景配置见 [end_to_end_architecture.md](end_to_end_architecture.md)
 

@@ -141,8 +141,8 @@ _KNOWN_VULNERABILITIES: list[tuple[str, str, str, str, str, str | None]] = [
      "LangChain arbitrary code execution via prompt injection", "0.0.315"),
     ("llama-index", "<0.9.15", "CVE-2024-1023", "high",
      "LlamaIndex SSRF via document loader", "0.9.15"),
-    ("openai", "<1.0.0", "CVE-2023-6796", "medium",
-     "OpenAI Python SDK 密钥泄露 (日志记录)", "1.0.0"),
+    ("openai", "<1.0.1", "CVE-2023-6796", "medium",
+     "OpenAI Python SDK 密钥泄露 (日志记录)", "1.0.1"),
     ("pillow", "<10.0.1", "CVE-2023-44271", "high",
      "Pillow DoS via crafted image", "10.0.1"),
     ("aiohttp", "<3.9.0", "CVE-2023-49083", "high",
@@ -291,7 +291,7 @@ class SBOMScanner:
                 data = json_module.loads(content)
                 for section in ("dependencies", "devDependencies"):
                     for pkg, ver in data.get(section, {}).items():
-                        # npm 版本格式: ^1.0.0, ~2.3.0, >=3.0.0
+                        # npm 版本格式: ^1.0.1, ~2.3.0, >=3.0.0
                         clean_ver = re.sub(r"[^0-9.]", "", ver)
                         if clean_ver:
                             dependencies[pkg] = clean_ver
@@ -303,7 +303,7 @@ class SBOMScanner:
                 line = line.strip()
                 if not line or line.startswith(("#", "-")):
                     continue
-                # package==1.0.0 或 package>=1.0.0
+                # package==1.0.1 或 package>=1.0.1
                 match = re.match(r"^([a-zA-Z0-9_-]+)\s*(?:==|>=|<=|~=|!=|>|<)\s*([0-9][0-9a-zA-Z.\-]*)", line)
                 if match:
                     dependencies[match.group(1)] = match.group(2)

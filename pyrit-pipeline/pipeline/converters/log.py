@@ -495,7 +495,7 @@ class ConverterLogCollector:
         """通过类名实例化 Converter (复用 chains.py 的 _conv() 惰性导入)。.
 
         修复 P0:
-          1. 原代码从已废弃的 ``pyrit.prompt_converter`` 导入 (1.0.0+ 迁移到 ``pyrit.converter``),
+          1. 原代码从已废弃的 ``pyrit.prompt_converter`` 导入 (1.0.1+ 迁移到 ``pyrit.converter``),
              导致 ImportError 被静默吞掉, 函数永远返回 None
           2. 复用 ``chains.py`` 的 ``_conv()`` 惰性导入机制, 消除重复导入路径
           3. Converter 覆盖从 8 个扩展到全部 35+ 个

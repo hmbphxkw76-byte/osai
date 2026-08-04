@@ -3,7 +3,7 @@
 
 """证据导出器 — PyRIT 原生 render_async + 三级证据链集成。.
 
-L5 对齐 PyRIT 1.0.0 output 模块:
+L5 对齐 PyRIT 1.0.1 output 模块:
   - 使用 MarkdownAttackResultMemoryPrinter.render_async() 生成每个攻击 Markdown
   - 使用 MarkdownConversationMemoryPrinter.render_async() 渲染对话历史
   - 使用 MarkdownScorePrinter.render_async() 渲染评分
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class EvidenceExporter:
     """证据导出器 — 利用 PyRIT MemoryInterface + 原生 Markdown 打印器。.
 
-    L5 对齐 PyRIT 1.0.0 output 模块:
+    L5 对齐 PyRIT 1.0.1 output 模块:
       - 使用 render_async() 直接获取渲染字符串, 消除 write_async()+read-back 冗余 I/O
       - 每个攻击生成独立 Markdown 文件
       - 每个对话生成独立 Markdown 文件
@@ -295,6 +295,45 @@ class EvidenceExporter:
                     content += "\n*Full transformation log with intermediate text outputs"
                     content += " is generated via post-processing re-conversion.*\n"
 
+                # P2-Gap8: 载荷变形链路追溯 (R-010: PyRIT 原生字段优先)
+                content += "\n\n---\n\n"
+                content += "## Payload Transformation Trace\n\n"
+                # 1. 原始载荷 (objective / metadata / conversation)
+                objective = _safe_get(ar, "objective", "")
+                if objective:
+                    obj_text = str(objective)[:200]
+                    content += f"### Original Payload\n\n```\n{obj_text}\n```\n\n"
+                # 2. Converter 链
+                if conv_info["has_converters"]:
+                    content += "### Converter Chain\n\n"
+                    for step_idx, cn in enumerate(class_names, 1):
+                        content += f"{step_idx}. `{cn}`\n"
+                    content += "\n"
+                # 3. 发送到目标的载荷 (conversation 中的 user 消息)
+                try:
+                    if hasattr(ar, "conversation") and ar.conversation:
+                        messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
+                        user_msgs = [m for m in messages if (getattr(m, "role", "") or "") == "user"]
+                        if user_msgs:
+                            sent_payload = str(
+                            getattr(user_msgs[-1], "content", "")
+                            or getattr(user_msgs[-1], "original_value", "")
+                        )[:300]
+                            content += f"### Sent Payload (after conversion)\n\n```\n{sent_payload}\n```\n\n"
+                        # 4. 目标响应
+                        assistant_msgs = [m for m in messages if (getattr(m, "role", "") or "") == "assistant"]
+                        if assistant_msgs:
+                            response = str(
+                                getattr(assistant_msgs[-1], "content", "")
+                                or getattr(assistant_msgs[-1], "original_value", "")
+                            )[:300]
+                            content += f"### Target Response\n\n```\n{response}\n```\n\n"
+                except Exception:
+                    pass
+                # 5. 结果
+                outcome = _get_outcome_str(ar)
+                content += f"### Outcome: **{outcome}**\n\n"
+
                 file_path.write_text(content, encoding="utf-8")
                 files.append((filename, content))
             except Exception as e:
@@ -317,7 +356,7 @@ class EvidenceExporter:
         """使用 MarkdownConversationMemoryPrinter.render_async() 生成每个对话的 Markdown。.
 
         A1 修复: 使用 memory.get_message_pieces() 替代不存在的 get_conversation_messages(),
-        对齐 PyRIT 1.0.0 MemoryInterface API。
+        对齐 PyRIT 1.0.1 MemoryInterface API。
         """
         files: list[tuple[str, str]] = []
 
@@ -347,7 +386,7 @@ class EvidenceExporter:
 
             try:
                 # A1 修复: 使用 get_message_pieces() 替代 get_conversation_messages()
-                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.0 兼容)
+                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.1 兼容)
                 pieces = list(memory.get_message_pieces(conversation_id=conv_id))
                 if not pieces:
                     logger.debug(f"No message pieces for conversation {conv_id}")
@@ -430,7 +469,7 @@ class EvidenceExporter:
 
             try:
                 # A1 修复: 使用 get_message_pieces() 替代不存在的 get_conversation_messages()
-                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.0 兼容)
+                # P1 修复: MessagePiece.to_message() 转换为 Message (PyRIT 1.0.1 兼容)
                 pieces = list(memory.get_message_pieces(conversation_id=conv_id))
                 if pieces:
                     # P1: 将 MessagePiece 转换为 Message
@@ -511,7 +550,7 @@ class EvidenceExporter:
     def _collect_blurred_images(self) -> list[tuple[str, str]]:
         """收集模糊图片副本文件列表, 用于纳入证据 zip 包。.
 
-        L5 对齐 PyRIT 1.0.0 output 模块:
+        L5 对齐 PyRIT 1.0.1 output 模块:
         - Markdown 格式下 blur_images=True 时, 打印机将模糊副本写入 blurred_dir
         - 模糊副本文件名格式为 <stem>_blurred.png
         - 此方法扫描 blurred_dir 收集所有模糊副本, 返回 (arcname, file_path) 列表

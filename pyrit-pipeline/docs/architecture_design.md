@@ -2,7 +2,7 @@
 
 > **版本**: v1.0
 > **日期**: 2026-8-1
-> **PyRIT 版本**: 1.1.0.dev0
+> **PyRIT 版本**: 1.0.1
 > **学术依据**: PyRIT [[arXiv:2407.01232v1]](https://arxiv.org/abs/2407.01232)
 
 ---
@@ -129,7 +129,7 @@
          └───────────────────────────────────────────────────┘
                                    │
          ┌─────────────────────────┴─────────────────────────┐
-         │              PyRIT 1.1.0.dev0 原生框架             │
+         │              PyRIT 1.0.1 原生框架             │
          │  ConfigurationLoader / CentralMemory / Registry    │
          │  TextAdaptive / AttackExecutor / ScenarioResult    │
          │  Converters / Scorers / Output / Memory            │

@@ -31,14 +31,21 @@ def mock_args() -> argparse.Namespace:
         max_attempts=3,
         epsilon=0.1,
         selector_scope="all_runs",
-        max_concurrency=5,
+        max_concurrency=3,
         max_retries=3,
         resume=None,
         no_baseline=False,
         converters=None,
+        auto_converters=True,
         config_file="config/.pyrit_conf",
         output_dir=None,
         model="",
+        skip_preflight=True,
+        target_url=None,
+        disable_json_mode=False,
+        recon_json=None,
+        auth_state_file=None,
+        mcp_attack=False,
     )
 
 

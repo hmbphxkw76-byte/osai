@@ -5,7 +5,11 @@
 
 对齐 PyRIT 官方 output 模块最佳实践 (1.0.1):
   - Format vs Sink 分离: 展示逻辑与执行逻辑完全分离
-  - 三层卡片体系: info_box (单线) → decision_card (双线) → handoff_banner (★)
+  - 三层卡片体系 (F4 统一风格):
+    Layer 1: stage_header (═══) — 阶段标题
+    Layer 2: core_card (╔═╗)  — 核心决策卡片 (每阶段 1-2 个)
+    Layer 3: info_box (┌─└)   — 详情信息盒
+  - handoff_banner (★) — 阶段间传递 (简化版)
   - 安全调用: 所有展示函数 catch 异常, 不影响 pipeline 执行
 
 设计原则 (R-010 对齐):
@@ -15,6 +19,7 @@
 
 > **日期**: 2026-8-2
 > **更新记录**:
+>   2026-8-4 — F4: 统一三层卡片风格 (core_card + info_box + stage_header)
 >   2026-8-2 — O1: 新增统一卡片函数 (info_box / decision_card / handoff_banner / asr_bar)
 """
 
@@ -183,9 +188,54 @@ def info_box(title: str, lines: list[str]) -> None:
         pass
 
 
-# ── ② 双线决策卡片 (decision_card) — 关键决策展示 ──
+# ── ② 核心卡片 (core_card) — Layer 2: 每阶段 1-2 个关键决策 ──
 
 
+def core_card(
+    title: str,
+    sections: list[dict[str, Any]] | None = None,
+) -> None:
+    """Layer 2: 核心卡片 (╔═╗) — 每阶段 1-2 个，展示关键决策.
+
+    统一风格 (F4):
+      ╔══════════════════════════════════════════════════════════╗
+      ║  Title                                                    ║
+      ╟────────────────────────────────────────────────────────────╢
+      ║  [Section] content                                        ║
+      ║           continuation                                    ║
+      ║                                                            ║
+      ║  [Section] content                                        ║
+      ╚══════════════════════════════════════════════════════════╝
+
+    Args:
+        title: 卡片标题
+        sections: [{"label": "载荷", "lines": ["12 数据集", ...]}]
+    """
+    try:
+        inner_w = _W - 2
+        print()
+        print("  ╔" + "═" * inner_w + "╗")
+        print(f"  ║  {title}")
+        if sections:
+            print("  ╟" + "─" * inner_w + "╢")
+            for i, section in enumerate(sections):
+                label = section.get("label", "")
+                lines = section.get("lines", [])
+                if label:
+                    print(f"  ║  [{label}] {lines[0] if lines else ''}")
+                    for line in lines[1:]:
+                        print(f"  ║{'':>{len(label) + 5}}{line}")
+                else:
+                    for line in lines:
+                        print(f"  ║  {line}")
+                if i < len(sections) - 1:
+                    print("  ║")
+        print("  ╚" + "═" * inner_w + "╝")
+    except Exception:
+        pass
+
+
+# ── ②b 双线决策卡片 (decision_card) — 兼容旧接口 ──
 def decision_card(
     title: str,
     subtitle: str = "",

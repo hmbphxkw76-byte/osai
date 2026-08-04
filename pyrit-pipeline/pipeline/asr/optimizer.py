@@ -617,12 +617,8 @@ def collect_seed_level_asr_from_memory(
 
     for result in results:
         try:
-            conversation = result.conversation or []
-            objective = ""
-            if conversation:
-                objective = conversation[0].request_piece if hasattr(conversation[0], "request_piece") else ""
-                if not objective and hasattr(conversation[0], "value"):
-                    objective = conversation[0].value
+            # PyRIT 1.0.1: AttackResult.objective is a direct field
+            objective = result.objective or ""
         except Exception:
             objective = ""
 
@@ -661,6 +657,11 @@ def collect_seed_level_asr_from_memory(
 
     if result_asr:
         save_seed_level_asr(result_asr, model_name=model_name)
+    else:
+        logger.warning(
+            "collect_seed_level_asr_from_memory: result_asr is empty "
+            f"(results={len(results)}, model={model_name}) — no seed_level file written"
+        )
 
     return result_asr
 

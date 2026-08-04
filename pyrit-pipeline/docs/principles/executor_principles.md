@@ -1,6 +1,6 @@
 # PyRIT Executor 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（11 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
+> 基于 PyRIT 1.0.1 官方文档（11 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：执行器 5 层架构由 `pipeline/stages/stage_scenario.py` + `stage_execute.py` 实现，详见 [architecture_design.md](../architecture_design.md#五executor-5-层架构)
 
@@ -53,7 +53,7 @@ one-objective → one-result
 
 ## 2. Executor 分类体系
 
-PyRIT 1.0.0 将执行器分为多个家族，攻击是最大的家族：
+PyRIT 1.0.1 将执行器分为多个家族，攻击是最大的家族：
 
 ```
 Executor
@@ -138,7 +138,7 @@ result = await attack.execute_async(
 
 ### 4.3 设计趋势
 
-PyRIT 1.0.0 明确指出：**许多单轮攻击在今天应该是 converters 或 techniques，而不是独立的 Attack 类**。一个单轮攻击只有在做了 converter、前置对话或自适应循环都无法做到的事情时，才值得拥有自己的类。许多遗留类保留是为了兼容性。
+PyRIT 1.0.1 明确指出：**许多单轮攻击在今天应该是 converters 或 techniques，而不是独立的 Attack 类**。一个单轮攻击只有在做了 converter、前置对话或自适应循环都无法做到的事情时，才值得拥有自己的类。许多遗留类保留是为了兼容性。
 
 ---
 

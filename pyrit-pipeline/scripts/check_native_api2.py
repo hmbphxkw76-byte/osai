@@ -1,4 +1,4 @@
-"""Check PyRIT 1.0.0 deeper native APIs."""
+"""Check PyRIT 1.0.1 deeper native APIs."""
 
 import inspect
 

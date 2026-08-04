@@ -56,6 +56,8 @@ from pyrit.scenario import CompoundDatasetAttackConfiguration
 from pyrit.scenario.scenarios.adaptive import TextAdaptive
 from pyrit.scenario.scenarios.adaptive.selectors import SelectorScope
 
+from pipeline.analysis.technique_name_mapper import is_known_technique
+
 # 消除3: 直接使用原生 TextAdaptive, 不再覆盖 _build_techniques_dict
 from pipeline.asr.failure_type_selector import FailureTypeRoutingSelector
 from pipeline.asr.optimizer import (
@@ -89,9 +91,33 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── ASR 驱动载荷优先级 ──
     asr_by_category = query_historical_asr_by_category()
-    # 精简: 只显示 Top 5 + 合计
+    # F3: 合并 ASR 分类 + 技术 ASR 为单一卡片
     _print_asr_summary(asr_by_category)
-    _print_technique_asr_summary_compact()
+
+    # ── Recon → 攻击策略桥接 (R-S1/S2/S3): 消费侦察结果增强攻击配置 ──
+    recon_strategy_result = None
+    if ctx.metadata.get("recon_result") is not None or getattr(args, "recon_json", None):
+        try:
+            from pipeline.integrations.recon_strategy_bridge import bridge_recon_to_strategy
+
+            print("\n  --- Recon → 攻击策略桥接 (R-S1/S2/S3) ---")
+            recon_strategy_result = bridge_recon_to_strategy(ctx)
+            if recon_strategy_result.capability:
+                cap = recon_strategy_result.capability
+                print(f"  能力: agent={cap.has_agent_tools}, rag={cap.has_rag_endpoints}, "
+                      f"mcp={cap.has_mcp}, embedding={cap.has_embedding}")
+        except Exception as e:
+            print(f"  [提示] Recon 策略桥接跳过: {e}")
+
+    # ── MCP 攻击场景 (R-M1): 可选的 MCP 协议级攻击 ──
+    if getattr(args, "mcp_attack", False):
+        try:
+            from pipeline.scenarios.mcp_attack import run_mcp_attack
+
+            mcp_report = await run_mcp_attack(ctx)
+            ctx.metadata["mcp_attack_report"] = mcp_report.to_dict()
+        except Exception as e:
+            print(f"  [提示] MCP 攻击场景跳过: {e}")
 
     sorted_datasets = sort_datasets_by_asr(args.datasets, asr_by_category=asr_by_category)
     if sorted_datasets != args.datasets:
@@ -108,7 +134,7 @@ async def run(ctx: PipelineContext) -> None:
     model_name, model_tier = detect_model_tier_from_registry()
     owasp_id = os.getenv("OWASP_ID", "")
 
-    # ── P1-G4: 复合评分器 (task_achieved AND not_refused) ──
+    # 复合评分器 (task_achieved AND not_refused)
     # 强模型/中等模型使用复合评分器, 消除部分拒绝导致的 ASR 假阳性
     from pipeline.scenarios.composite_scorer import should_use_composite_scorer
 
@@ -124,42 +150,31 @@ async def run(ctx: PipelineContext) -> None:
             if scorer_chat_target is not None:
                 composite = create_composite_objective_scorer(scorer_chat_target)
                 if composite is not None:
-                    print(f"  P1-G4: 复合评分器已启用 (task_achieved AND not_refused, tier={model_tier})")
+                    print(f"  复合评分器已启用 (task_achieved AND not_refused, tier={model_tier})")
                     objective_scorer = composite
                     ctx.objective_scorer = composite
         except Exception as e:
             print(f"  [提示] 复合评分器创建跳过: {e}")
 
-    print("\n  ┌─ 目标模型 ────────────────────────────────────────────────┐")
-    print(f"  │ 模型: {model_name} (tier={model_tier})")
-    if owasp_id:
-        print(f"  │ OWASP: {owasp_id}")
-    print("  └───────────────────────────────────────────────────────────────┘")
+    # F3: 目标信息合并到技术池矩阵卡片中, 不再单独展示
 
-    # ── P0: 构建 warm-start ASR 字典 ──
+    # 构建 warm-start ASR 字典
     # 从学术 ASR 先验构建 warm-start 字典，注入 selector
     # 首次运行时替代乐观初始值 1.0，确保高 ASR 技术被优先选中
     warm_start_asr = _build_warm_start_asr(model_name, model_tier, owasp_id)
-    # P1: 经验 ASR 自动刷新 — 经验数据覆盖学术先验 (G-05: 按模型加载)
+    # 经验 ASR 自动刷新 — 经验数据覆盖学术先验
     if warm_start_asr:
         warm_start_asr = merge_empirical_with_priors(warm_start_asr, model_name=model_name)
-    if warm_start_asr:
-        print(f"  Warm-start ASR: {len(warm_start_asr)} 个技术先验注入")
-        # 显示 top 5 ASR 先验
-        sorted_asr = sorted(warm_start_asr.items(), key=lambda x: x[1], reverse=True)
-        print("    Top 5 ASR 先验:")
-        for tech, asr in sorted_asr[:5]:
-            print(f"      {tech:<35} {asr:.0%}")
+    # F3: warm-start ASR 信息合并到技术池矩阵卡片中, 不再单独展示 Top 5
 
-    # ── P0: ASRRankBuilder Tier 分层 + GroupFallbackExecutor 降级链 ──
-    # 数据 L5 (Analytics): 按技术组聚合, Tier 分层 (S/A/B/C/D)
-    # 构建 Tier-based fallback chain 供 Stage 3 智能调度使用
+    # ASR Tier 分层 + 降级链
     ranked_groups: list = []
     try:
         from pipeline.asr.rank_builder import GroupFallbackExecutor
 
         try:
-            tech_names_for_fallback = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+            all_tech_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+            tech_names_for_fallback = [n for n in all_tech_names if is_known_technique(n)]
         except ImportError:
             tech_names_for_fallback = []
 
@@ -177,16 +192,14 @@ async def run(ctx: PipelineContext) -> None:
     except (ImportError, AttributeError, KeyError) as e:
         print(f" [提示] ASR Tier 降级链初始化跳过: {e}")
 
-    # ── P2: 动态技术选择 ──
-    # 使用 current_run scope: 让运行中积累的 ASR 数据立即影响后续技术选择
-    # epsilon=0.1: 降低探索率, 更激进地利用已知高 ASR 技术 (攻击为王)
+    # 动态技术选择
     selector_scope = SelectorScope.current_run() if args.selector_scope == "current_run" else SelectorScope.all_runs()
 
-    # ── P1: 多场景选择 ──
+    # 多场景选择
     scenario_name = getattr(args, "scenario", "text_adaptive")
 
     if scenario_name == "text_adaptive":
-        # ── P0: 使用 FailureTypeRoutingSelector (继承原生 EpsilonGreedyTechniqueSelector) ──
+        # 使用 FailureTypeRoutingSelector
         selector = FailureTypeRoutingSelector(
             epsilon=args.epsilon,
             scope=selector_scope,
@@ -197,31 +210,44 @@ async def run(ctx: PipelineContext) -> None:
             warm_start_asr=warm_start_asr,
         )
 
-        # P2-1: 动态 epsilon 衰减 (--epsilon-decay)
+        # 动态 epsilon 衰减 (--epsilon-decay)
         if getattr(args, "epsilon_decay", False):
             selector.set_epsilon_decay(True)
-            print("  P2-1: 动态 epsilon 衰减已启用 (0.20→0.02, 50 步线性衰减)")
+            print("  动态 epsilon 衰减已启用 (0.20→0.02, 50 步线性衰减)")
 
-        # 消除3: 直接使用原生 TextAdaptive (零覆盖), Converter 由 technique_converters 参数注入
+        # 直接使用原生 TextAdaptive, Converter 由 technique_converters 参数注入
         scenario = TextAdaptive(
             objective_scorer=objective_scorer,
             selector=selector,
             scenario_result_id=args.resume,
         )
-        # 探测 target_type (用于报告和日志, 不影响 Converter 注入)
+        # 探测 target_type (用于报告和日志 + Layer 2 Converter 路由)
+        # 修复: 优先使用 get_by_tag("default") 获取 objective target (而非字母序第一个)
+        # 修复: except Exception 替代 except ImportError (避免静默吞错)
         try:
             from pipeline.converters.target_aware_router import infer_target_type
 
-            target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
-            if target_entries:
-                ctx.target_type = infer_target_type(target_entries[0].instance)
-        except ImportError:
-            pass
+            registry = TargetRegistry.get_registry_singleton().instances
+            # 优先获取标记为 default 的目标 (objective target)
+            default_entries = registry.get_by_tag(tag="default")
+            target_entries = default_entries or registry.get_all_instances()
+            for entry in target_entries:
+                inferred = infer_target_type(entry.instance)
+                if inferred:
+                    ctx.target_type = inferred
+                    break
+            if not ctx.target_type and target_entries:
+                logger.warning(
+                    f"target_type detection failed for {len(target_entries)} targets: "
+                    f"class_name={type(target_entries[0].instance).__name__}"
+                )
+        except Exception as e:
+            logger.warning(f"target_type detection error: {e}")
         # 保存 selector 引用供 Stage 4 运行时反馈
         ctx.selector = selector
         ctx.scenario = scenario
 
-        # P1: 加载历史范式性能数据到 selector (自动学习)
+        # 加载历史范式性能数据到 selector (自动学习)
         try:
             from pipeline.asr.failure_type_event_handler import ParadigmPerformanceTracker
 
@@ -252,10 +278,7 @@ async def run(ctx: PipelineContext) -> None:
         ctx.selector = None
         print(f"  场景: {scenario_name} (原生场景)")
 
-    # ── 原生: CompoundDatasetAttackConfiguration (独立 per-dataset 预算) ──
-    # 数据集已在 Stage 1 从 data/datasets/{name}.prompt 本地加载到 CentralMemory
-    # 不再需要 auto_fetch=True 远程拉取, 100% 离线运行
-    # 使用 ASR 排序后的数据集列表 (排序影响内存中的加载顺序和显示顺序)
+    # CompoundDatasetAttackConfiguration (独立 per-dataset 预算)
     dataset_config = CompoundDatasetAttackConfiguration.per_dataset(
         dataset_names=sorted_datasets,
         max_dataset_size=args.max_dataset_size,
@@ -266,31 +289,29 @@ async def run(ctx: PipelineContext) -> None:
     # 对每个 objective 尝试所有技术 (不提前停止), 生成完整 ASR 对比矩阵
     if getattr(args, "exhaustive", False):
         max_attempts = 999
-        print("  P2 EXHAUSTIVE: 全技术尝试 (max_attempts=999)")
+        print("  EXHAUSTIVE 模式: 全技术尝试 (max_attempts=999)")
     elif os.getenv("STOP_ON_FIRST_SUCCESS", "").lower() in ("true", "1", "yes"):
         # L3: 全局首停
         max_attempts = 1
-        print("  P2 L3: 全局首停策略启用 (max_attempts=1)")
+        print("  全局首停策略启用 (max_attempts=1)")
     else:
         # L1: 原生 FIRST_SUCCESS
         max_attempts = args.max_attempts
 
-    # ── G3: 模型特异性攻击参数 (当 CLI 未显式指定时, 根据 model_tier 自动选择) ──
-    # 学术依据: Crescendo (arXiv:2402.12109), TAP (arXiv:2312.02191), HarmBench (arXiv:2402.04249)
+    # 模型特异性攻击参数
     _apply_tier_attack_params(args, model_tier)
 
-    # ── P3-G9: converter_target 提前获取 (G8 依赖 converter_target_available) ──
-    # G5: 使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
+    # converter_target 提前获取
+    # 使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
     converter_target = _get_converter_target(model_name)
     converter_target_available = converter_target is not None
     if not converter_target_available:
         converter_target = _auto_create_converter_target()
         converter_target_available = converter_target is not None
         if converter_target_available:
-            print("  P3-G9: converter_target 自动创建成功 (从 objective_target 配置派生)")
+            print("  Converter 目标自动创建成功 (从 objective_target 配置派生)")
 
-    # ── 原生: 构建参数包 (单次 set_params_from_args 调用) ──
-    # P0-3: 从 TargetRegistry 动态解析 objective_target 名称 (不再硬编码)
+    # 构建参数包 (单次 set_params_from_args 调用)
     objective_target_name = _resolve_objective_target_name()
     params: dict[str, Any] = {
         # 通过 TargetRegistry 动态解析的目标名称
@@ -314,15 +335,9 @@ async def run(ctx: PipelineContext) -> None:
         },
     }
 
-    # ── P3-G8: Converter 变体动态创建 ──
-    # Note: extra_request_converters 不是 TextAdaptive 原生参数,
-    # Converter 变体已通过 technique_converters 参数注入 (Layer 1 + Layer 2)
+    # Converter 变体动态创建
 
-    # ── 原生: scenario_techniques (技术选择) ──
-    #   None: 使用 TextAdaptive DEFAULT 聚合 (role_play_movie_script + many_shot)
-    #   ["ALL"]: 使用全部技术
-    #   ["core"]: 使用 core 标签技术
-    #   ["many_shot", "tap"]: 指定具体技术
+    # scenario_techniques (技术选择)
     if args.techniques:
         params["scenario_techniques"] = args.techniques
         print(f"  技术选择: {args.techniques}")
@@ -335,14 +350,13 @@ async def run(ctx: PipelineContext) -> None:
             tier_layer=args.tier_layer,
         )
         if tier_techniques:
-            # ── P3-G7: 高 ASR 技术自动补充 ──
-            # 当 Tier 选择的技术太少 (<3) 时, 从 warm-start ASR 先验补充高 ASR 技术
+            # 高 ASR 技术自动补充
             if len(tier_techniques) < 3 and warm_start_asr:
                 top_asr_techs = sorted(warm_start_asr.items(), key=lambda x: x[1], reverse=True)
                 for tech, asr in top_asr_techs:
                     if tech not in tier_techniques and len(tier_techniques) < 5:
                         tier_techniques.append(tech)
-                        print(f"    P3-G7: 补充高 ASR 技术: {tech} ({asr:.0%})")
+                        print(f"    补充高 ASR 技术: {tech} ({asr:.0%})")
 
             params["scenario_techniques"] = tier_techniques
             ctx.tier_layer = args.tier_layer
@@ -352,8 +366,7 @@ async def run(ctx: PipelineContext) -> None:
     else:
         print("  技术选择: DEFAULT (TextAdaptive 默认聚合)")
 
-    # ── P2-G6: ModalityRouter 技术过滤 ──
-    # 根据 TargetCapabilities 自动过滤目标不支持的技术 (如多轮攻击对不支持多轮的目标)
+    # 能力感知技术过滤
     if params.get("scenario_techniques"):
         try:
             from pipeline.converters.modality_router import ModalityRouter
@@ -375,40 +388,33 @@ async def run(ctx: PipelineContext) -> None:
                 )
                 if filtered:
                     params["scenario_techniques"] = supported
-                    print(f"  P2-G6 ModalityRouter: 过滤 {len(filtered)} 个不支持的技术: {filtered}")
+                    print(f"  能力感知筛选: 过滤 {len(filtered)} 个不支持的技术: {filtered}")
         except Exception as e:
             print(f"  [提示] ModalityRouter 技术过滤跳过: {e}")
 
-    # ── P3: Converter 路由 (ASR 驱动 + Target 感知双路由) ──
-    # 路由策略 (三层叠加):
-    #   1. CLI --converters: 用户显式指定, ASR 驱动 per-technique 差异化分配
-    #   2. Target 感知自动路由: 根据 target_type 自动选择最优 Converter 链
-    #   3. 合并: CLI converters + target-aware chains (并集, CLI 优先)
-    #
-    # 当 --converters 未指定但 target_type 已知时, 自动启用 Target 感知路由
+    # Converter 路由 (ASR 驱动 + 目标感知双路由)
     technique_converter_map: dict[str, list] = {}
 
     try:
-        technique_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+        all_tech_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+        technique_names = [n for n in all_tech_names if is_known_technique(n)]
     except Exception:
         technique_names = []
 
-    # converter_target 已在 params 构建前提前获取 (P3-G9)
+    # converter_target 已提前获取
 
-    # ── P0-G2: ConverterHealthMonitor — 熔断器+降级+统计 ──
-    # 创建监控器实例, 存储在 ctx 中供 Stage 4 执行时使用
+    # ConverterHealthMonitor — 熔断器+降级+统计
     health_monitor = ConverterHealthMonitor(failure_threshold=2)
     ctx.converter_health_monitor = health_monitor
 
     # Layer 1: CLI --converters (ASR 驱动差异化路由)
     if args.converters and technique_names:
-        # ── P2-G5: 小模型跳过 LLM 辅助 Converter 链 ──
-        # 弱模型 (weak) 不适合使用 LLM 辅助 Converter (JSON 解析能力差)
+        # 小模型跳过 LLM 辅助 Converter 链
         from pipeline.converters.model_tier_detector import should_use_llm_converters
 
         llm_converters_ok = should_use_llm_converters(model_tier)
         if not llm_converters_ok:
-            print(f"  P2-G5: 小模型 (tier={model_tier}) 跳过 LLM 辅助 Converter 链")
+            print(f"  小模型 (tier={model_tier}) 跳过 LLM 辅助 Converter 链")
 
         try:
             asr_by_tech = query_historical_asr_by_technique()
@@ -442,9 +448,7 @@ async def run(ctx: PipelineContext) -> None:
                 model_tier=model_tier,
             )
             if ta_converter_map:
-                # G4: 模型特异性说服策略重排序
-                # 学术依据: Zeng et al. (arXiv:2402.19181)
-                # 不同模型对不同说服策略的脆弱性不同
+                # 模型特异性说服策略重排序
                 if model_name:
                     try:
                         from pipeline.converters.target_aware_router import reorder_persuasion_chains_by_model
@@ -474,6 +478,7 @@ async def run(ctx: PipelineContext) -> None:
         params["technique_converters"] = technique_converter_map
         total_assignments = sum(len(v) for v in technique_converter_map.values())
         ctx.converter_routing_count = total_assignments
+        ctx.technique_converter_map = technique_converter_map  # 传递到 Stage 4 供执行可视化
         unique_converters = set()
         for convs in technique_converter_map.values():
             for c in convs:
@@ -505,13 +510,40 @@ async def run(ctx: PipelineContext) -> None:
             assignments=total_assignments,
         )
 
-        # B3: 动态种子预算分配 — 基于历史 ASR 调整每技术的种子数
+        # 动态种子预算分配
         _apply_dynamic_seed_budget(ctx, technique_converter_map)
-    else:
+    elif getattr(args, "auto_converters", True) and technique_names:
+        # ── Layer 3: ASR 驱动 Auto-Converter 兜底 ──
+        # 当 Layer 1 (CLI) 和 Layer 2 (Target 感知) 都未产出 Converter 时,
+        # 使用 converter_chains.yaml 的 base_techniques_for_variants 映射,
+        # 为每个攻击技术自动分配最优非 LLM Converter 链.
+        # 学术依据:
+        #   - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同 3-5x ASR
+        #   - Wei et al. (arXiv:2307.15043): 编码攻击绕过表示级安全过滤
+        #   - Zeng et al. (arXiv:2402.19181): 说服策略 ASR 30-40%
+        auto_map = _build_auto_converter_map(
+            technique_names=technique_names,
+            converter_target=converter_target,
+            converter_target_available=converter_target_available,
+            model_tier=model_tier,
+            dataset_names=sorted_datasets,
+        )
+        if auto_map:
+            technique_converter_map = merge_converter_maps(
+                technique_converter_map,
+                auto_map,
+            )
+            auto_assignments = sum(len(v) for v in auto_map.values())
+            auto_techniques = len(auto_map)
+            print(
+                f"  Converter Auto 路由 (Layer 3 ASR 驱动): "
+                f"{auto_techniques} 个技术 ({auto_assignments} 个分配)"
+            )
+
+    if not technique_converter_map:
         print("  Converter 路由: (未启用, 使用 --converters 添加或检测 target_type)")
 
-    # ── 原生: 单次参数注入 (带异常保护 + 噪音拦截) ──
-    # 内层嵌套: 不传 signal_log_path, 信号行透传到外层 (main.py) NoiseFilter 统一写入信号日志
+    # 原生参数注入 (带异常保护 + 噪音拦截)
     noise_log_path = ctx.metadata.get("noise_log_path")
     try:
         if noise_log_path:
@@ -526,16 +558,24 @@ async def run(ctx: PipelineContext) -> None:
         print("  [提示] 请检查 .pyrit_conf 配置和 TargetRegistry/ScorerRegistry 初始化")
         raise
 
-    # ── 保存 Stage 2 产出到 Context ──
+    # 保存 Stage 2 产出到 Context
     ctx.sorted_datasets = sorted_datasets
     ctx.warm_start_asr = warm_start_asr
     ctx.max_attempts_per_objective = max_attempts
     ctx.ranked_groups = ranked_groups
 
-    # ── Gap 4: P 编号映射 (dataset → P 编号范围) ──
+    # D12: 存储 payload_categories 供 Stage 4 成功传播使用
+    try:
+        payload_cats = _infer_payload_categories(sorted_datasets)
+        if payload_cats:
+            ctx.metadata["payload_categories"] = payload_cats
+    except Exception:
+        pass
+
+    # P 编号映射
     _build_plan_pid_map(ctx, sorted_datasets, args.max_dataset_size)
 
-    # ── Gap 3: 决策链追溯 ──
+    # 决策链追溯
     _print_decision_chain(
         model_tier=model_tier,
         strategy_mode=os.getenv("STRATEGY_MODE", "academic"),
@@ -543,73 +583,47 @@ async def run(ctx: PipelineContext) -> None:
         scenario_name=scenario_name,
     )
 
-    # ── Executor 5 层架构展示 ──
-    print("\n  ── Executor 5 层架构 (Stage 2 覆盖 L1-L3 + L5) ──")
-    print(
-        f"    L1 (Parameters): max_attempts={max_attempts}, "
-        f"max_concurrency={args.max_concurrency}, max_retries={args.max_retries}"
-    )
-    print(f"    L2 (Strategy): {scenario_name}")
-    converter_count = ctx.converter_routing_count
-    print(
-        f"    L3 (Config): converter_routing={converter_count}, "
-        f"baseline={'enabled' if not args.no_baseline else 'disabled'}"
-    )
-    print(f"    L4 (Compound): SequentialAttack({'EXHAUSTIVE' if max_attempts >= 999 else 'FIRST_SUCCESS'})")
-    print(f"    L5 (Scenario): {type(scenario).__name__}")
+    # F3: 执行配置 + 数据配置合并为单一信息盒
+    from pipeline.utils.display import info_box
+    info_box("执行配置", [
+        f"策略: {scenario_name} | max_attempts={max_attempts} | 并发={args.max_concurrency} | 重试={args.max_retries}",
+        f"Converter 路由: {ctx.converter_routing_count} 个分配 | baseline={'启用' if not args.no_baseline else '禁用'}",
+        f"数据集: {len(sorted_datasets)} 个 (ASR 降序, per_dataset={args.max_dataset_size})",
+        f"ASR 分析: epsilon={args.epsilon}, scope={args.selector_scope}, warm_start={len(warm_start_asr)} 先验",
+    ])
 
-    # ── 数据 5 层架构展示 (L3 + L5) ──
-    print("\n  ── 数据 5 层架构 (Stage 2 覆盖 L3 + L5) ──")
-    print(
-        f"    L3 (Dataset Config): CompoundDatasetAttackConfiguration "
-        f"({len(sorted_datasets)} datasets, per_dataset={args.max_dataset_size})"
-    )
-    # L3 决策: per-dataset budget breakdown
-    print("      数据集排序: ASR 降序 (高优先级优先)")
-    for ds in sorted_datasets[:5]:
-        print(f"      • {ds}")
-    if len(sorted_datasets) > 5:
-        print(f"      ... 还有 {len(sorted_datasets) - 5} 个")
-
-    print(
-        f"    L5 (Analytics): EpsilonGreedy(epsilon={args.epsilon}, "
-        f"scope={args.selector_scope}), warm_start={len(warm_start_asr)} priors"
-    )
-    # L5 决策: Tier 分布 + dynamic alpha
-    if ctx.ranked_groups:
-        print(f"      Tier 分层: {len(ctx.ranked_groups)} 组")
-    if ctx.fallback_plan and hasattr(ctx.fallback_plan, "total_groups"):
-        print(f"      降级链: {ctx.fallback_plan.total_groups} 组, {ctx.fallback_plan.fallback_count} 个降级点")
-    if warm_start_asr:
-        print("      动态 alpha: 先验主导 (alpha=0.15) → 经验主导 (alpha=0.50)")
-
-    # B4: 5 层数据溯源 — 记录数据流通过 5 层的决策点
+    # 5 层数据溯源 (内部记录, 不输出到用户日志)
     _trace_5_layer_data_lineage(ctx, sorted_datasets, warm_start_asr)
 
-    # B5: 种子镜像策略 — 高 ASR 种子跨数据集镜像
+    # 种子镜像策略 (内部记录, 不输出到用户日志)
     _apply_seed_mirror_strategy(ctx, sorted_datasets, warm_start_asr)
     if ctx.tier_layer > 0:
         print(f"      TieredSelection: Layer {ctx.tier_layer} 渐进式选择")
 
-    # ── O3: 技术池矩阵 (★ Banner + 决策卡片) ──
-    _print_tech_pool_matrix(ctx, warm_start_asr, model_name, model_tier)
+    # 技术池矩阵 (ASR 驱动路径总览)
+    _print_tech_pool_matrix(ctx, warm_start_asr, model_name, model_tier, sorted_datasets, technique_converter_map)
 
-    # ── O4: ★ 突出传递 Banner ──
-    from pipeline.utils.display import handoff_banner
+    # G1: 载荷-技术匹配矩阵
+    _print_payload_technique_matrix(ctx, sorted_datasets, warm_start_asr)
+
+    # G2: Converter 变换示例
+    _print_converter_transform_sample(ctx, technique_converter_map, sorted_datasets)
+
+    # G3: 目标类型→Converter 适配图
+    _print_target_converter_adaptation(ctx, technique_converter_map, model_tier)
+
+    # D1: 5 层决策流水线图
+    _print_5layer_decision_pipeline(ctx, sorted_datasets, warm_start_asr)
+
+    # 阶段间传递 (简化为单行摘要)
+    from pipeline.utils.display import handoff_line
 
     tech_count = len(args.techniques) if args.techniques else 14
-    handoff_banner(
+    handoff_line(
         2, 3,
-        "传递到场景初始化 — 决定后续攻击成功率",
-        [
-            f"★ 策略模式: {os.getenv('STRATEGY_MODE', 'academic')} → 影响 Tier 执行顺序",
-            f"★ 技术池: {tech_count} 种 → 能力感知筛选后保留",
-            "★ 融合 ASR: warm_start="
-            + ("已加载 (" + str(len(warm_start_asr)) + " 技术先验)" if warm_start_asr else "无 (首次运行)"),
-            f"★ Converter 路由: {ctx.converter_routing_count} 个分配",
-            f"★ 场景: {scenario_name} (原生 TextAdaptive + ASR 驱动)",
-            f"★ 数据集: {len(sorted_datasets)} 个 (ASR 降序, per_dataset={args.max_dataset_size})",
-        ],
+        f"{tech_count} 技术 | {len(sorted_datasets)} 数据集 | "
+        f"{ctx.converter_routing_count} Converter 分配 | "
+        f"warm-start {len(warm_start_asr) if warm_start_asr else 0} 先验",
     )
 
 
@@ -619,7 +633,7 @@ def _print_decision_chain(
     scenario_techniques: list[str] | None,
     scenario_name: str,
 ) -> None:
-    """Gap 3: 完整决策链追溯 (Stage 1推荐 → Selector推荐 → 实际).
+    """完整决策链追溯 (Stage 1推荐 → Selector推荐 → 实际).
 
     对齐 pyrit_ai300 Stage 2 ① 策略决策卡片。
     展示策略选择是否为最优决策路径。
@@ -667,7 +681,7 @@ def _print_decision_chain(
         lines.append(f"⚠ 决策路径偏差 — 推荐 {tier_recommended}, 实际 {selector_mode}")
         lines.append("  → 原因: STRATEGY_MODE 环境变量覆盖了推荐值")
 
-    info_box("Gap 3: 策略决策链 (Stage 1 → Selector → 实际)", lines)
+    info_box("策略决策链", lines)
 
 
 def _build_plan_pid_map(
@@ -675,7 +689,7 @@ def _build_plan_pid_map(
     sorted_datasets: list[str],
     max_dataset_size: int,
 ) -> None:
-    """Gap 4: 构建 P 编号映射 (dataset → P编号范围).
+    """构建 P 编号映射 (dataset → P编号范围).
 
     按数据集排序顺序分配 P 编号:
       dataset_1 (5 seeds) → P1-P5
@@ -716,7 +730,7 @@ def _build_plan_pid_map(
     lines.append(f"合计: {pid_counter - 1} 个攻击计划 (P1-P{pid_counter - 1})")
     lines.append("P 编号将贯穿 Stage 4 (执行) → Stage 5 (分析)")
 
-    info_box("Gap 4: P 编号映射 (dataset → 计划编号)", lines)
+    info_box("P 编号映射", lines)
 
 
 def _print_tech_pool_matrix(
@@ -724,23 +738,23 @@ def _print_tech_pool_matrix(
     warm_start_asr: dict[str, float] | None,
     model_name: str,
     model_tier: str,
+    sorted_datasets: list[str] | None = None,
+    technique_converter_map: dict[str, list] | None = None,
 ) -> None:
-    """O3: 技术池矩阵 — ★ Banner + 决策卡片 (对齐 pyrit_ai300 Stage 2).
+    """技术池矩阵 — ASR 驱动路径总览 (F1/F2/F6/F7).
 
-    按经验融合 ASR 降序展示每个技术的:
-      - ASR + Tier 分层
-      - 学术先验 vs 经验数据
-      - 能力匹配 (MULTI_TURN / SYSTEM_PROMPT)
+    F1: 技术/数据集正交分离展示
+    F2: 统一 core_card 风格
+    F6: Converter 路径可视化
+    F7: 目标类型适配展示
     """
-    from pipeline.utils.display import asr_bar, decision_card, info_box, pad_right
+    from pipeline.utils.display import core_card, info_box, pad_right
 
     if not warm_start_asr:
-        info_box("技术池矩阵", ["(无 warm-start ASR 数据, 首次运行)"])
+        info_box("ASR 驱动路径", ["(无 ASR 先验数据, 首次运行)"])
         return
 
-    # Tier 分层映射
-    tier_labels = {"S": "极高", "A": "高", "B": "中", "C": "低", "D": "极低"}
-
+    # Tier 分层
     def _tier_from_asr(asr: float) -> str:
         if asr >= 0.50:
             return "S"
@@ -753,10 +767,9 @@ def _print_tech_pool_matrix(
         else:
             return "D"
 
-    # 按 ASR 降序排序
+    # F1: 只展示真正的攻击技术 (已通过 is_known_technique 过滤)
     sorted_techs = sorted(warm_start_asr.items(), key=lambda x: x[1], reverse=True)
 
-    # 全局概览
     tier_counts: dict[str, int] = {}
     for _, asr in sorted_techs:
         tier = _tier_from_asr(asr)
@@ -765,57 +778,89 @@ def _print_tech_pool_matrix(
         f"{t}={tier_counts.get(t, 0)}" for t in ["S", "A", "B", "C", "D"] if tier_counts.get(t, 0) > 0
     )
 
-    print()
-    print("  ╔" + "═" * 68 + "╗")
-    print()
-    print("       ★  技术池矩阵 — 高 ASR 优先  ★")
-    print()
-    print("    按经验融合 ASR 降序展示 · 高成功率技术优先执行")
-    print()
-    print("  ╚" + "═" * 68 + "╝")
-
-    print()
-    print(f"  ┌─ 全局概览 {'─' * max(1, 68 - 22)}┐")
-    print("  │")
-    for i, (tech, asr) in enumerate(sorted_techs):
+    # F1: 技术维度
+    multi_turn_set = {
+        "red_teaming", "crescendo", "tap", "pair", "many_shot", "forest",
+        "crescendo_simulated", "tree_of_attacks_pruned",
+    }
+    tech_lines: list[str] = []
+    for _i, (tech, asr) in enumerate(sorted_techs):
         tier = _tier_from_asr(asr)
         tech_pad = pad_right(tech[:30], 30)
-        print(f"  │  技术 {i + 1}: {tech_pad}  ASR {asr:>4.0%} (Tier {tier})")
-    print(f"  │  {'─' * max(1, 68 - 6)}")
-    print(f"  │  合计: {len(sorted_techs)} 技术 | Tier 分布: {tier_summary}")
-    print(f"  └{'─' * 68}┘")
+        mode = "多轮迭代" if tech in multi_turn_set else "单轮直发"
+        tech_lines.append(f"{tech_pad} ASR {asr:>4.0%} (Tier {tier}) [{mode}]")
+    tech_lines.append(f"合计: {len(sorted_techs)} 技术 | Tier: {tier_summary}")
 
-    # Top 5 技术决策卡片
-    for tech, asr in sorted_techs[:5]:
-        tier = _tier_from_asr(asr)
-        tier_label = tier_labels.get(tier, "")
-        is_multi = tech in {"red_teaming", "crescendo", "tap", "pair", "many_shot", "forest"}
+    # F1: 载荷维度
+    payload_lines: list[str] = []
+    if sorted_datasets:
+        for ds in sorted_datasets[:5]:
+            payload_lines.append(f"• {ds}")
+        if len(sorted_datasets) > 5:
+            payload_lines.append(f"... 还有 {len(sorted_datasets) - 5} 个")
+        payload_lines.append(f"合计: {len(sorted_datasets)} 数据集 (ASR 降序)")
+    else:
+        payload_lines.append("(未加载数据集)")
 
-        decision_card(
-            title=tech,
-            subtitle=f"ASR: {asr:.0%} (Tier {tier} {tier_label})  |  模式: {'多轮迭代' if is_multi else '单轮直发'}",
-            sub_sections=[
-                {
-                    "header": "ASR 来源",
-                    "lines": [
-                        f"学术先验: {asr:.0%}",
-                        f"经验数据: {'无 (首次运行)' if model_tier else '无'}",
-                        f"ASR 条: {asr_bar(asr * 100)}",
-                    ],
-                },
-                {
-                    "header": "能力匹配",
-                    "lines": [
-                        f"MULTI_TURN: {'✓' if is_multi else '?'} (技术{'需要' if is_multi else '不需要'})",
-                        "结果: ✓ 保留 (能力匹配)",
-                    ],
-                },
-            ],
+    # F6: Converter 维度
+    converter_lines: list[str] = []
+    if technique_converter_map:
+        total_assignments = sum(len(v) for v in technique_converter_map.values())
+        unique_converters: set[str] = set()
+        for convs in technique_converter_map.values():
+            for c in convs:
+                unique_converters.add(type(c).__name__)
+        converter_lines.append(
+            f"{len(technique_converter_map)} 技术 × {len(unique_converters)} Converter = {total_assignments} 分配"
         )
+        for tech, convs in list(technique_converter_map.items())[:3]:
+            conv_names = [type(c).__name__ for c in convs[:2]]
+            tech_asr = warm_start_asr.get(tech, 0)
+            converter_lines.append(f"  {tech} + {' → '.join(conv_names)} → ASR {tech_asr:.0%}")
+    else:
+        converter_lines.append("(未启用 Converter 路由)")
+
+    # F7: 目标维度
+    target_lines: list[str] = []
+    target_lines.append(f"模型: {model_name} (tier={model_tier})")
+    target_type = getattr(ctx, "target_type", None)
+    if target_type:
+        target_lines.append(f"目标类型: {target_type}")
+    if ctx.fallback_plan and hasattr(ctx.fallback_plan, "total_groups"):
+        target_lines.append(
+            f"降级链: {ctx.fallback_plan.total_groups} 组, {ctx.fallback_plan.fallback_count} 降级点"
+        )
+
+    # 预期 ASR
+    expected_lines: list[str] = []
+    if warm_start_asr:
+        avg_asr = sum(warm_start_asr.values()) / max(len(warm_start_asr), 1)
+        tier_asr_map = {"strong": 0.25, "moderate": 0.45, "weak": 0.65, "unknown": 0.30}
+        expected_asr = tier_asr_map.get(model_tier, 0.30)
+        expected_lines.append(
+            f"预测: {expected_asr:.0%}-{min(expected_asr * 1.4, 0.8):.0%} (tier={model_tier})"
+        )
+        expected_lines.append(
+            f"warm-start: {len(warm_start_asr)} 技术先验 | 平均 ASR: {avg_asr:.0%}"
+        )
+    budget_map = getattr(ctx, "metadata", {}).get("dynamic_seed_budget", {})
+    if budget_map:
+        expected_lines.append(f"动态种子预算: {len(budget_map)} 技术已分配")
+
+    core_card(
+        "ASR 驱动攻击路径 — 载荷 → 技术 → Converter → 目标",
+        sections=[
+            {"label": "技术", "lines": tech_lines},
+            {"label": "载荷", "lines": payload_lines},
+            {"label": "Converter", "lines": converter_lines},
+            {"label": "目标", "lines": target_lines},
+            {"label": "预期 ASR", "lines": expected_lines},
+        ],
+    )
 
 
 def _resolve_objective_target_name() -> str:
-    """从 TargetRegistry 动态解析 objective_target 名称 (P0-3: 不再硬编码).
+    """从 TargetRegistry 动态解析 objective_target 名称.
 
     优先级:
       1. ``default_objective_target`` 标签 (原生推荐标签)
@@ -889,7 +934,7 @@ def _get_objective_scorer() -> Any:
 def _get_converter_target(model_name: str = "") -> Any:
     """从 TargetRegistry 获取用于 LLM 辅助 Converter 链的目标实例。.
 
-    G5: 使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
+    使用最优对抗 LLM 配对 (PAIR arXiv:2310.08437)
     从 ``data/setting/model_tiers.yaml`` 的 ``optimal_attacker_by_target`` 加载
     最优对抗 LLM 模型名, 优先选择该模型作为 converter_target。
 
@@ -897,7 +942,7 @@ def _get_converter_target(model_name: str = "") -> Any:
       1. 标记为 "adversarial_chat" 的目标 (原生 adversarial chat 角色)
       2. 标记为 "converter_target" 的目标 (自定义标签)
       3. 名为 "objective_scorer_chat" 的目标 (评分器使用的 LLM)
-      4. G5: 匹配 optimal_attacker_by_target 的目标 (最优配对)
+      4. 匹配 optimal_attacker_by_target 的目标 (最优配对)
       5. 第一个非 objective_target 的目标 (避免用被攻击目标做 Converter)
       6. None (仅使用非 LLM Converter 链)
 
@@ -923,7 +968,7 @@ def _get_converter_target(model_name: str = "") -> Any:
             logger.info("Converter target: 'objective_scorer_chat'")
             return entry.instance
 
-        # 4. G5: 匹配最优对抗 LLM (optimal_attacker_by_target)
+        # 4. 匹配最优对抗 LLM (optimal_attacker_by_target)
         if model_name:
             try:
                 from pipeline.converters.model_tier_detector import get_optimal_attacker
@@ -941,7 +986,7 @@ def _get_converter_target(model_name: str = "") -> Any:
                         )
                         if entry_model and optimal_attacker.lower() in str(entry_model).lower():
                             logger.info(
-                                f"G5: Converter target matched optimal attacker: '{e.name}' "
+                                f"Converter target matched optimal attacker: '{e.name}' "
                                 f"(model={entry_model})"
                             )
                             return e.instance
@@ -963,7 +1008,7 @@ def _get_converter_target(model_name: str = "") -> Any:
 
 
 def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
-    """G3: 根据 model_tier 自动应用模型特异性攻击参数.
+    """根据 model_tier 自动应用模型特异性攻击参数.
 
     学术依据:
       - Crescendo (arXiv:2402.12109): GPT-4o 需 5-7 轮, GPT-3.5 需 3-4 轮
@@ -999,7 +1044,7 @@ def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
         recommended = tier_params.get(tier_key, current)
         if current != recommended:
             if auto_override:
-                # D2: 当 --auto-tier-params 启用时, 实际覆盖 args 值
+                # 当 --auto-tier-params 启用时, 实际覆盖 args 值
                 setattr(args, attr, recommended)
                 applied[attr] = {"old": current, "new": recommended, "applied": True}
             else:
@@ -1008,7 +1053,7 @@ def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
 
     if applied:
         mode_str = "已覆盖" if auto_override else "仅推荐 (启用 --auto-tier-params 自动覆盖)"
-        print(f"  G3: 模型特异性参数 (tier={model_tier}, {mode_str}):")
+        print(f"  模型特异性参数 (tier={model_tier}, {mode_str}):")
         for param, vals in applied.items():
             if vals.get("applied"):
                 print(f"    {param}: {vals['old']} → {vals['new']} ✓")
@@ -1019,7 +1064,7 @@ def _apply_tier_attack_params(args: Any, model_tier: str) -> dict[str, Any]:
 
 
 def _auto_create_converter_target() -> Any:
-    """P3-G9: 自动创建 converter_target.
+    """自动创建 converter_target.
 
     当 TargetRegistry 中没有 adversarial_chat 标签的目标时,
     尝试从 objective_target 的配置派生一个 converter_target.
@@ -1084,9 +1129,13 @@ def _build_warm_start_asr(
     """
     warm_start: dict[str, float] = {}
     try:
-        technique_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
+        all_names = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
     except Exception:
-        technique_names = []
+        all_names = []
+
+    # F1: 过滤非攻击技术名称 (数据集名如 owasp_llm05 不应出现在技术池中)
+    # 只有 is_known_technique() 返回 True 的名称才是真正的攻击技术
+    technique_names = [name for name in all_names if is_known_technique(name)]
 
     for tech in technique_names:
         asr = get_initial_q_value(tech, model_name, model_tier, owasp_id)
@@ -1151,63 +1200,61 @@ def _select_techniques_by_tier(
         return None
 
 
-# ============================================================
-# 精简 ASR 统计输出 (Top 5 + 合计)
-# ============================================================
+# ASR 统计输出 (分类 + 技术 Top 5)
 
 
 def _print_asr_summary(asr_by_category: dict) -> None:
-    """精简 ASR 分类统计卡片 — Top 5 + 合计。."""
-    if not asr_by_category:
-        print("\n  ┌─ 历史 ASR ────────────────────────────────────────────────┐")
-        print("  │ (无历史数据)")
-        print("  └───────────────────────────────────────────────────────────────┘")
-        return
+    """ASR 分类 + 技术 统计卡片 (F3 合并 — 单一卡片展示)."""
+    from pipeline.utils.display import info_box
 
-    sorted_asr = sorted(
-        asr_by_category.items(),
-        key=lambda x: x[1].success_rate if hasattr(x[1], "success_rate") and x[1].success_rate is not None else 0,
-        reverse=True,
-    )
+    lines: list[str] = []
 
-    print("\n  ┌─ 历史 ASR (Top 5) ───────────────────────────────────────┄")
-    for cat, stats in sorted_asr[:5]:
-        sr = (stats.success_rate or 0) * 100 if hasattr(stats, "success_rate") else 0
-        total = stats.total_decided if hasattr(stats, "total_decided") and stats.total_decided is not None else 0
-        successes = stats.successes if hasattr(stats, "successes") and stats.successes is not None else 0
-        bar = "█" * int(sr / 5)
-        print(f"  │ {cat:<35} {sr:>5.1f}% ({successes}/{total}) {bar}")
-    print(f"  │ 合计: {len(asr_by_category)} 分类")
-    print("  └───────────────────────────────────────────────────────────────┘")
+    # 分类 ASR Top 5
+    if asr_by_category:
+        sorted_asr = sorted(
+            asr_by_category.items(),
+            key=lambda x: x[1].success_rate if hasattr(x[1], "success_rate") and x[1].success_rate is not None else 0,
+            reverse=True,
+        )
+        lines.append("分类 ASR (Top 5):")
+        for cat, stats in sorted_asr[:5]:
+            sr = (stats.success_rate or 0) * 100 if hasattr(stats, "success_rate") else 0
+            total = stats.total_decided if hasattr(stats, "total_decided") and stats.total_decided is not None else 0
+            successes = stats.successes if hasattr(stats, "successes") and stats.successes is not None else 0
+            bar = "█" * int(sr / 5)
+            lines.append(f"  {cat:<33} {sr:>5.1f}% ({successes}/{total}) {bar}")
+        lines.append(f"  合计: {len(asr_by_category)} 分类")
+    else:
+        lines.append("分类 ASR: (无历史数据)")
+
+    # 技术 ASR Top 5
+    tech_asr = query_historical_asr_by_technique()
+    if tech_asr:
+        lines.append("")
+        lines.append("技术 ASR (Top 5):")
+        for tech, stats in sorted(
+            tech_asr.items(),
+            key=lambda x: x[1].success_rate if hasattr(x[1], "success_rate") and x[1].success_rate is not None else 0,
+            reverse=True,
+        )[:5]:
+            sr = (stats.success_rate or 0) * 100 if hasattr(stats, "success_rate") else 0
+            total = stats.total_decided if hasattr(stats, "total_decided") and stats.total_decided is not None else 0
+            bar = "█" * int(sr / 5)
+            lines.append(f"  {tech:<33} {sr:>5.1f}% ({total}) {bar}")
+        lines.append(f"  合计: {len(tech_asr)} 技术有数据")
+
+    info_box("历史 ASR", lines)
 
 
 def _print_technique_asr_summary_compact() -> None:
-    """精简技术 ASR 统计卡片。."""
-    tech_asr = query_historical_asr_by_technique()
-    if not tech_asr:
-        return
-
-    print("\n  ┌─ 技术 ASR ────────────────────────────────────────────────┐")
-    for tech, stats in sorted(
-        tech_asr.items(),
-        key=lambda x: x[1].success_rate if hasattr(x[1], "success_rate") and x[1].success_rate is not None else 0,
-        reverse=True,
-    )[:5]:
-        sr = (stats.success_rate or 0) * 100 if hasattr(stats, "success_rate") else 0
-        total = stats.total_decided if hasattr(stats, "total_decided") and stats.total_decided is not None else 0
-        bar = "█" * int(sr / 5)
-        print(f"  │ {tech:<35} {sr:>5.1f}% ({total}) {bar}")
-    print(f"  │ 合计: {len(tech_asr)} 技术有数据")
-    print("  └───────────────────────────────────────────────────────────────┘")
+    """已合并到 _print_asr_summary (F3). 保留函数体供向后兼容."""  # noqa: F401 — 已合并到 _print_asr_summary
 
 
-# ============================================================
-# B3: 动态种子预算分配
-# ============================================================
+# 动态种子预算分配
 
 
 def _apply_dynamic_seed_budget(ctx: PipelineContext, technique_converter_map: dict) -> None:
-    """B3: 基于历史 ASR 动态调整每技术的种子预算。.
+    """基于历史 ASR 动态调整每技术的种子预算。.
 
     高 ASR 技术 → 更多种子 (提高成功概率)
     低 ASR 技术 → 更少种子 (节省资源)
@@ -1247,7 +1294,7 @@ def _apply_dynamic_seed_budget(ctx: PipelineContext, technique_converter_map: di
         low_budget = {k: v for k, v in budget_map.items() if v < default_budget}
 
         if high_budget or low_budget:
-            print(f"  [B3] 动态种子预算: {len(high_budget)} 技术↑, {len(low_budget)} 技术↓")
+            print(f"  动态种子预算: {len(high_budget)} 技术↑, {len(low_budget)} 技术↓")
             from pipeline.utils.decision_trace import DecisionTrace
 
             trace = DecisionTrace.get_instance()
@@ -1264,9 +1311,7 @@ def _apply_dynamic_seed_budget(ctx: PipelineContext, technique_converter_map: di
         logger.debug(f"B3 dynamic seed budget failed (non-fatal): {e}")
 
 
-# ============================================================
-# B4: 5 层数据溯源
-# ============================================================
+# 5 层数据溯源
 
 
 def _trace_5_layer_data_lineage(
@@ -1274,7 +1319,7 @@ def _trace_5_layer_data_lineage(
     sorted_datasets: list[str],
     warm_start_asr: dict,
 ) -> None:
-    """B4: 记录数据流通过 5 层架构的完整追溯链。.
+    """记录数据流通过 5 层架构的完整追溯链。.
 
     L1_SeedSource → L2_Organization → L3_DatasetConfig → L4_Memory → L5_Analytics
 
@@ -1333,14 +1378,12 @@ def _trace_5_layer_data_lineage(
             priors_count=len(warm_start_asr),
         )
 
-        print("  [B4] 5 层数据溯源已记录 (L1→L2→L3→L4→L5)")
+        logger.debug("5 层数据溯源已记录 (L1→L2→L3→L4→L5)")
     except Exception as e:
         logger.debug(f"B4 data lineage trace failed (non-fatal): {e}")
 
 
-# ============================================================
-# B5: 种子镜像策略
-# ============================================================
+# 种子镜像策略
 
 
 def _apply_seed_mirror_strategy(
@@ -1348,7 +1391,7 @@ def _apply_seed_mirror_strategy(
     sorted_datasets: list[str],
     warm_start_asr: dict,
 ) -> None:
-    """B5: 高 ASR 种子跨数据集镜像。.
+    """高 ASR 种子跨数据集镜像。.
 
     将高 ASR 技术的种子镜像到其他数据集中, 增加攻击覆盖率。
 
@@ -1383,9 +1426,10 @@ def _apply_seed_mirror_strategy(
             "mirror_count": len(high_asr_techs[:5]) * min(3, len(sorted_datasets)),
         }
 
-        mirror_count = len(high_asr_techs[:5]) * min(3, len(sorted_datasets))
-        mirror_targets = min(3, len(sorted_datasets))
-        print(f"  [B5] 种子镜像: {len(high_asr_techs[:5])} 高ASR技术 → {mirror_targets} 数据集 ({mirror_count} 镜像)")
+        logger.debug(
+            f"种子镜像: {len(high_asr_techs[:5])} 高ASR技术 → "
+            f"{min(3, len(sorted_datasets))} 数据集"
+        )
 
         from pipeline.utils.decision_trace import DecisionTrace
 
@@ -1400,3 +1444,417 @@ def _apply_seed_mirror_strategy(
         )
     except Exception as e:
         logger.debug(f"B5 seed mirror strategy failed (non-fatal): {e}")
+
+
+def _infer_payload_categories(dataset_names: list[str]) -> set[str]:
+    """从数据集名称列表推断载荷类别集合.
+
+    基于 ``converter_chains.yaml`` 的 ``payload_converter_affinity.dataset_category_keywords``
+    将数据集名映射到种子类别 (encoding/persuasion/decomposition/multi_turn/role_play/baseline).
+
+    学术依据: HarmBench (arXiv:2402.04249) — 同一种子对不同 Converter 的 ASR 差异达 30-50%.
+    """
+    import yaml as _yaml
+
+    yaml_path = Path(__file__).parent.parent.parent / "data" / "setting" / "converter_chains.yaml"
+    if not yaml_path.exists():
+        return set()
+
+    with open(yaml_path, encoding="utf-8") as f:
+        data = _yaml.safe_load(f)
+
+    affinity = data.get("payload_converter_affinity", {})
+    keywords_map = affinity.get("dataset_category_keywords", {})
+    if not keywords_map:
+        return set()
+
+    categories: set[str] = set()
+    for ds_name in dataset_names:
+        ds_lower = ds_name.lower()
+        for category, keywords in keywords_map.items():
+            if any(kw in ds_lower for kw in keywords):
+                categories.add(category)
+                break
+
+    return categories
+
+
+def _build_auto_converter_map(
+    technique_names: list[str],
+    *,
+    converter_target: Any = None,
+    converter_target_available: bool = False,
+    model_tier: str = "unknown",
+    dataset_names: list[str] | None = None,
+) -> dict[str, list]:
+    """Layer 3: ASR-driven Auto-Converter fallback with payload affinity.
+
+    When Layer 1 (CLI) and Layer 2 (Target-aware) both produce no converters,
+    use ``base_techniques_for_variants`` from ``converter_chains.yaml`` to
+    auto-assign the best converter chains per attack technique.
+
+    Payload affinity:
+      When ``dataset_names`` is provided, payload categories are inferred
+      and used to boost compatible converter chains in the priority sort.
+      This ensures that e.g. encoding-type payloads get encoding chains first,
+      maximizing ASR based on combo_multipliers (multi_turn + encoding = 3.5x).
+
+    Academic basis:
+      - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 3-5x ASR
+      - Wei et al. (arXiv:2307.15043): encoding bypasses representation-level filters
+      - Zeng et al. (arXiv:2402.19181): persuasion ASR 30-40%
+      - HarmBench (arXiv:2402.04249): payload-converter ASR variance 30-50%
+    """
+    from pipeline.converters.chains import (
+        BASE_TECHNIQUES_FOR_VARIANTS,
+        CONVERTER_VARIANT_CHAINS,
+        build_converters_from_chain_names,
+        get_chain_cost_weight,
+        score_chain_combo,
+    )
+
+    # Infer payload categories for affinity boosting
+    payload_categories: set[str] = set()
+    boost_chains: set[str] = set()
+    if dataset_names:
+        payload_categories = _infer_payload_categories(dataset_names)
+        if payload_categories:
+            import yaml as _yaml
+
+            yaml_path = Path(__file__).parent.parent.parent / "data" / "setting" / "converter_chains.yaml"
+            if yaml_path.exists():
+                with open(yaml_path, encoding="utf-8") as f:
+                    affinity_data = _yaml.safe_load(f)
+                category_boost = affinity_data.get("payload_converter_affinity", {}).get("category_boost_chains", {})
+                for cat in payload_categories:
+                    boost_chains.update(category_boost.get(cat, []))
+
+    result: dict[str, list] = {}
+
+    for tech_name in technique_names:
+        base_tech = tech_name.split("+")[0] if "+" in tech_name else tech_name
+        recommended_chains = BASE_TECHNIQUES_FOR_VARIANTS.get(base_tech)
+        if not recommended_chains:
+            continue
+
+        filtered_chains: list[str] = []
+        for chain_name in recommended_chains:
+            chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
+            if chain_info is None:
+                continue
+            requires_llm = chain_info.get("requires_llm", False)
+            if requires_llm and not converter_target_available:
+                continue
+            if requires_llm and model_tier == "weak":
+                continue
+            filtered_chains.append(chain_name)
+
+        if not filtered_chains:
+            continue
+
+        # D13+D14: Sort by (boost_rank, combo_score, cost_weight, priority)
+        # boost_rank: payload affinity (0=boosted, 1=normal)
+        # combo_score: D13 chain synergy multiplier (higher=better, negative for sort)
+        # cost_weight: D14 budget-aware (higher=cheaper, negative for sort)
+        # priority: original chain priority (lower=higher priority)
+        def _sort_key(chain_name: str, _fc: list[str] = filtered_chains) -> tuple[int, float, float, int]:
+            boost_rank = 0 if chain_name in boost_chains else 1
+            combo_score = score_chain_combo(_fc[:3] + [chain_name])
+            cost_weight = get_chain_cost_weight(chain_name)
+            priority = CONVERTER_VARIANT_CHAINS.get(chain_name, {}).get("priority", 99)
+            # Negative because we want higher combo_score and cost_weight first
+            return (boost_rank, -combo_score, -cost_weight, priority)
+
+        filtered_chains.sort(key=_sort_key)
+        filtered_chains = filtered_chains[:3]
+
+        # Pass converter_target for LLM chains (may be None if not available)
+        converters = build_converters_from_chain_names(
+            chain_names=filtered_chains,
+            converter_target=converter_target,
+        )
+
+        if converters:
+            result[tech_name] = converters
+
+    if result:
+        total_chains = sum(len(v) for v in result.values())
+        affinity_str = f", payload affinity: {payload_categories}" if payload_categories else ""
+        logger.info(
+            f"Auto-Converter (Layer 3): {len(result)}/{len(technique_names)} techniques "
+            f"matched, {total_chains} total converter assignments{affinity_str}"
+        )
+
+    return result
+
+
+# ============================================================
+# G1: 载荷-技术匹配矩阵
+# ============================================================
+
+
+def _print_payload_technique_matrix(
+    ctx: PipelineContext,
+    sorted_datasets: list[str],
+    warm_start_asr: dict[str, float] | None,
+) -> None:
+    """G1: 载荷-技术匹配矩阵 — 展示每个数据集的种子如何匹配攻击技术。.
+
+    数据来源: CentralMemory 中的 seed prompts metadata (technique_group)
+    展示: 数据集名 → 种子数 → technique_group → 匹配的攻击技术
+    """
+    from pipeline.utils.display import info_box, pad_right
+
+    if not sorted_datasets:
+        return
+
+    lines: list[str] = []
+    warm_start = warm_start_asr or {}
+
+    for ds_name in sorted_datasets[:8]:
+        seed_count = 0
+        technique_groups: set[str] = set()
+
+        try:
+            from pyrit.memory import CentralMemory
+
+            memory = CentralMemory.get_memory_instance()
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            seed_count = len(prompts) if prompts else 0
+            if prompts:
+                for p in prompts:
+                    metadata = getattr(p, "metadata", None) or {}
+                    if isinstance(metadata, dict):
+                        tg = metadata.get("technique_group", "")
+                        if tg:
+                            technique_groups.add(tg)
+        except Exception:
+            pass
+
+        # 匹配攻击技术: 从 warm_start 中找 ASR 最高的技术
+        matched_techs: list[str] = []
+        if technique_groups:
+            for tg in technique_groups:
+                # 从 warm_start 中找匹配的技术
+                for tech, asr in sorted(warm_start.items(), key=lambda x: x[1], reverse=True):
+                    if tg.lower() in tech.lower() or tech.lower() in tg.lower():
+                        if tech not in matched_techs:
+                            matched_techs.append(f"{tech}({asr:.0%})")
+                        break
+        elif warm_start:
+            # 无 technique_group 时, 展示 Top 3 高 ASR 技术
+            for tech, asr in sorted(warm_start.items(), key=lambda x: x[1], reverse=True)[:3]:
+                matched_techs.append(f"{tech}({asr:.0%})")
+
+        ds_pad = pad_right(ds_name[:32], 32)
+        groups_str = ", ".join(sorted(technique_groups)) if technique_groups else "(无)"
+        techs_str = ", ".join(matched_techs[:3]) if matched_techs else "(默认)"
+        lines.append(f"{ds_pad} {seed_count:>3} seeds | group: {groups_str}")
+        lines.append(f"{'':>34}→ 技术: {techs_str}")
+
+    info_box("载荷-技术匹配矩阵", lines)
+
+
+# ============================================================
+# G2: Converter 变换示例
+# ============================================================
+
+
+def _print_converter_transform_sample(
+    ctx: PipelineContext,
+    technique_converter_map: dict[str, list],
+    sorted_datasets: list[str],
+) -> None:
+    """G2: Converter 变换示例 — 展示 Top 3 技术的载荷变换链路。.
+
+    展示: 技术 → Converter 链 → 变换类型 → 预期效果
+    """
+    from pipeline.utils.display import info_box
+
+    if not technique_converter_map:
+        return
+
+    lines: list[str] = []
+    # 按技术名排序取 Top 3
+    for tech, convs in list(technique_converter_map.items())[:3]:
+        conv_names = [type(c).__name__ for c in convs]
+        lines.append(f"  [{tech}]")
+        if conv_names:
+            chain_str = " → ".join(conv_names)
+            lines.append(f"    Converter 链: {chain_str}")
+            # 推断变换效果
+            effects: list[str] = []
+            for name in conv_names:
+                name_lower = name.lower()
+                if "base64" in name_lower:
+                    effects.append("Base64 编码绕过")
+                elif "rot13" in name_lower:
+                    effects.append("ROT13 字符替换")
+                elif "caesar" in name_lower:
+                    effects.append("凯撒位移")
+                elif "atbash" in name_lower:
+                    effects.append("Atbash 镜像替换")
+                elif "unicode" in name_lower:
+                    effects.append("Unicode 混淆")
+                elif "suffix" in name_lower:
+                    effects.append("后缀注入")
+                elif "persuasion" in name_lower:
+                    effects.append("LLM 说服策略增强")
+                elif "stealth" in name_lower:
+                    effects.append("隐蔽伪装")
+                else:
+                    effects.append(f"{name} 变换")
+            lines.append(f"    变换效果: {' + '.join(effects)}")
+        else:
+            lines.append("    Converter: (无, baseline 直发)")
+        lines.append("")
+
+    info_box("Converter 变换示例 (Top 3 技术)", lines)
+
+
+# ============================================================
+# G3: 目标类型→Converter 适配图
+# ============================================================
+
+
+def _print_target_converter_adaptation(
+    ctx: PipelineContext,
+    technique_converter_map: dict[str, list],
+    model_tier: str,
+) -> None:
+    """G3: 目标类型→Converter 适配图 — 展示目标类型如何驱动 Converter 链选择。."""
+    from pipeline.utils.display import info_box
+
+    target_type = getattr(ctx, "target_type", None)
+    if not target_type:
+        return
+
+    lines: list[str] = []
+    lines.append(f"目标类型: {target_type}")
+    lines.append(f"模型分层: {model_tier}")
+    lines.append("")
+
+    # 目标类型 → 适配的 Converter 策略
+    adaptation_map: dict[str, list[str]] = {
+        "api": [
+            "Encoding Bypass (Base64/ROT13) — API 无渲染层, 编码直接有效",
+            "Stealth Evasion — 绕过 API 级文本过滤",
+            "Persuasion Authority — LLM 辅助, 对抗模型生成说服策略",
+        ],
+        "web_chat": [
+            "Format Injection — 利用 Web 渲染层注入格式",
+            "Unicode Confusable — 绕过前端字符过滤",
+            "Stealth Evasion — 隐蔽伪装绕过 DOM 过滤",
+        ],
+        "azure_openai": [
+            "Encoding Bypass — 编码绕过 Azure 内容过滤",
+            "Multi Encoding V2 — 多重编码组合",
+            "Persuasion Chain — 多轮说服策略链",
+        ],
+    }
+
+    strategies = adaptation_map.get(target_type, [])
+    if strategies:
+        lines.append("适配策略:")
+        for i, strategy in enumerate(strategies, 1):
+            lines.append(f"  {i}. {strategy}")
+    else:
+        lines.append("适配策略: (使用通用 Converter 路由)")
+
+    # 统计实际匹配的 Converter
+    if technique_converter_map:
+        lines.append("")
+        conv_type_counts: dict[str, int] = {}
+        for convs in technique_converter_map.values():
+            for c in convs:
+                cname = type(c).__name__
+                conv_type_counts[cname] = conv_type_counts.get(cname, 0) + 1
+        top_convs = sorted(conv_type_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        lines.append("实际 Converter 分布:")
+        for cname, count in top_convs:
+            lines.append(f"  {cname}: {count} 次")
+
+    info_box("目标类型→Converter 适配", lines)
+
+
+# ============================================================
+# D1: 5 层决策流水线图
+# ============================================================
+
+
+def _print_5layer_decision_pipeline(
+    ctx: PipelineContext,
+    sorted_datasets: list[str],
+    warm_start_asr: dict[str, float] | None,
+) -> None:
+    """D1: 5 层数据决策流水线图 — 展示数据从 L1→L5 的完整决策链路 + 层间数据流。."""
+    from pipeline.utils.display import core_card
+
+    warm_start = warm_start_asr or {}
+    args = ctx.args if ctx.args else None
+    max_ds_size = getattr(args, "max_dataset_size", 5) if args else 5
+
+    # L1: Seed Source
+    l1_lines = [
+        f"{len(sorted_datasets)} 数据集 → {len(sorted_datasets)} 加载点",
+        "来源: benchmarks/ + owasp/ + custom/",
+    ]
+
+    # L1 → L2 数据流
+    l1_l2_lines = [
+        f"↓ 输出: {len(sorted_datasets)} 个 SeedPromptGroup → 传入 L2 排序",
+    ]
+
+    # L2: Organization
+    l2_lines = [
+        "排序: ASR 降序 (高优先级优先)",
+        "聚合: 按 dataset_name 分组",
+    ]
+
+    # L2 → L3 数据流
+    l2_l3_lines = [
+        f"↓ 输出: 排序后 {len(sorted_datasets)} 个数据集 → 传入 L3 配置",
+    ]
+
+    # L3: Dataset Config
+    l3_lines = [
+        "CompoundDatasetAttackConfiguration",
+        f"per_dataset={max_ds_size} | {len(sorted_datasets)} 个独立预算",
+    ]
+
+    # L3 → L4 数据流
+    l3_l4_lines = [
+        f"↓ 输出: {len(sorted_datasets) * max_ds_size} 个 AtomicAttack 配置 → 持久化到 L4",
+    ]
+
+    # L4: Memory
+    l4_lines = [
+        "CentralMemory SQLite (per-run)",
+        "标签: dataset_name + run_date + pipeline_version",
+    ]
+
+    # L4 → L5 数据流
+    l4_l5_lines = [
+        "↓ 输出: AttackResult 持久化 → L5 读取计算 ASR",
+    ]
+
+    # L5: Analytics
+    l5_lines = [
+        f"warm-start: {len(warm_start)} 技术先验",
+        "epsilon-greedy + 失败路由 + ASR 反馈",
+    ]
+
+    core_card(
+        "数据管理 5 层决策流水线",
+        sections=[
+            {"label": "L1 种子源", "lines": l1_lines},
+            {"label": "L1→L2", "lines": l1_l2_lines},
+            {"label": "L2 组织", "lines": l2_lines},
+            {"label": "L2→L3", "lines": l2_l3_lines},
+            {"label": "L3 配置", "lines": l3_lines},
+            {"label": "L3→L4", "lines": l3_l4_lines},
+            {"label": "L4 存储", "lines": l4_lines},
+            {"label": "L4→L5", "lines": l4_l5_lines},
+            {"label": "L5 分析", "lines": l5_lines},
+        ],
+    )

@@ -502,5 +502,341 @@
       0.293,
       0.72
     ]
+  },
+  {
+    "timestamp": "2026-08-04T08:55:43.077479",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T08:58:14.098977",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T09:01:39.858990",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T09:03:22.665600",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T09:24:51.034319",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T09:27:04.318898",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T09:30:56.456735",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:10:13.493865",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:13:08.966127",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:15:48.347050",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:17:14.412654",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:19:12.564194",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:32:47.270822",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:35:44.454894",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T10:36:53.992885",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T11:01:46.211081",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T11:13:35.152616",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T11:16:40.153484",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T11:29:25.599891",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T13:19:54.048388",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T13:23:56.369991",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T13:26:03.917659",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T13:33:52.981725",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
+  },
+  {
+    "timestamp": "2026-08-04T13:41:28.857260",
+    "output_file": "curated_test.prompt",
+    "model": "generic",
+    "modality": "text",
+    "seed_count": 5,
+    "category_count": 5,
+    "dataset_count": 1,
+    "avg_estimated_asr": 0.563,
+    "asr_range": [
+      0.293,
+      0.72
+    ]
   }
 ]

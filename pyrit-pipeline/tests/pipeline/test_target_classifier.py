@@ -345,6 +345,38 @@ class TestParseArgsUnifiedEntry:
             args = parse_args()
             assert args.load_owasp_local is False
 
+    def test_skip_preflight_default_false(self) -> None:
+        """--skip-preflight 默认为 False (预检默认开启)."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py"]):
+            args = parse_args()
+            assert args.skip_preflight is False
+
+    def test_skip_preflight_flag(self) -> None:
+        """--skip-preflight 设置为 True."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--skip-preflight"]):
+            args = parse_args()
+            assert args.skip_preflight is True
+
+    def test_disable_json_mode_default_false(self) -> None:
+        """--disable-json-mode 默认为 False (自动检测模式)."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py"]):
+            args = parse_args()
+            assert args.disable_json_mode is False
+
+    def test_disable_json_mode_flag(self) -> None:
+        """--disable-json-mode 设置为 True."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--disable-json-mode"]):
+            args = parse_args()
+            assert args.disable_json_mode is True
+
     def test_target_type_auto_default(self) -> None:
         """--target-type 默认为 auto。"""
         from pipeline.config import parse_args

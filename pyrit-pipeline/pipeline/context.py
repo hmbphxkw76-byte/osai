@@ -112,6 +112,7 @@ class PipelineContext:
     fallback_plan: Any = None  # GroupFallbackExecutor 降级计划
     tier_layer: int = 0  # TieredSelectionWizard 层级 (0=未指定)
     plan_pid_map: dict[str, str] = field(default_factory=dict)  # P编号映射: dataset→"P1-P5"
+    technique_converter_map: dict[str, list] = field(default_factory=dict)  # 技术→Converter链映射 (Stage 2→4 传递)
 
     # Stage 4 产出
     result: ScenarioResult | None = None

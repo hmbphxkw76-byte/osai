@@ -1,6 +1,6 @@
 # PyRIT Scoring 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（5 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
+> 基于 PyRIT 1.0.1 官方文档（5 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：评分器由 `pipeline/stages/stage_scenario.py` 获取 (三级 fallback)，评分结果在 `stage_execute.py` 分析，详见 [end_to_end_architecture.md](../end_to_end_architecture.md#三stage-2-asr-驱动场景配置)
 
@@ -463,7 +463,7 @@ composite = TrueFalseCompositeScorer(
 
 ### 9.1 核心概念
 
-`ScorerPromptValidator` 是 PyRIT 1.0.0 在 Scorer 基类中引入的验证层，在评分前检查输入是否符合评分器的要求：
+`ScorerPromptValidator` 是 PyRIT 1.0.1 在 Scorer 基类中引入的验证层，在评分前检查输入是否符合评分器的要求：
 
 | 验证维度 | 参数 | 说明 |
 |:--|:--|:--|
@@ -515,7 +515,7 @@ composite = TrueFalseCompositeScorer(
 
 ### 11.1 两个关键参数
 
-PyRIT 1.0.0 在 Scorer 基类中引入两个关键参数：
+PyRIT 1.0.1 在 Scorer 基类中引入两个关键参数：
 
 | 参数 | 默认值 | 说明 |
 |:--|:--|:--|
@@ -774,7 +774,7 @@ metrics = await evaluator.run_evaluation_async(
 
 ### 16.3 ScorerRegistry
 
-PyRIT 1.0.0 使用 `ScorerRegistry` 管理评分器：
+PyRIT 1.0.1 使用 `ScorerRegistry` 管理评分器：
 - 自动发现 `pyrit.score` 包中的所有 Scorer 子类
 - `register_class()` 注册类（而非实例）
 - `create_instance(class_name)` 按类名创建实例
@@ -786,7 +786,7 @@ PyRIT 1.0.0 使用 `ScorerRegistry` 管理评分器：
 
 ### 17.1 AttackScoringConfig
 
-PyRIT 1.0.0 引入三层评分架构：
+PyRIT 1.0.1 引入三层评分架构：
 
 | 层 | 字段 | 类型 | 说明 |
 |:--|:--|:--|:--|

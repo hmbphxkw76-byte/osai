@@ -82,6 +82,9 @@ async def run(ctx: PipelineContext) -> None:
     # ── D4: OWASP LLM Top10 覆盖矩阵 ──
     _print_owasp_matrix(ctx)
 
+    # ── G4: ASR 反馈循环可视化 ──
+    _print_asr_feedback_loop(ctx)
+
     # ── O8: ★ 突出传递 Banner (替代单行交接) ──
     from pipeline.utils.display import handoff_banner
 
@@ -94,7 +97,7 @@ async def run(ctx: PipelineContext) -> None:
             f"★ 成功/总计: {post_analysis.get('successes', 0)}/{post_analysis.get('total', 0)} → 证据收集范围",
             "★ 最佳技术: "
             + (max(ctx.asr_per_technique, key=ctx.asr_per_technique.get) if ctx.asr_per_technique else "N/A"),
-            "★ 经验写回: 已保存 → 下次运行 warm-start",
+            f"★ 经验写回: {'已保存' if _check_empirical_saved(ctx) else '⚠ 未保存'} → 下次运行 warm-start",
             "★ 任务: 证据收集 + 报告生成 + 架构汇总",
         ],
     )
@@ -103,6 +106,17 @@ async def run(ctx: PipelineContext) -> None:
 # ============================================================
 # 内部函数
 # ============================================================
+
+
+def _check_empirical_saved(ctx: PipelineContext) -> bool:
+    """检查经验 ASR 文件是否已保存。."""
+    try:
+        from pipeline.asr.optimizer import _get_empirical_asr_path
+
+        model_name = ctx.metadata.get("model_name", "unknown")
+        return _get_empirical_asr_path(model_name).exists()
+    except Exception:
+        return False
 
 
 def _print_execution_summary(ctx: PipelineContext) -> None:
@@ -395,12 +409,10 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
         else:
             lines.append(f"✓ 技术匹配率 {success_rate:.0%} — 策略技术与载荷对齐")
 
-    info_box("O7 + Gap 4: 技术池演化 + P编号 (Stage 2 → 4 → 5)", lines)
+    info_box("技术池演化 + P编号 (Stage 2 → 4 → 5)", lines)
 
 
-# ============================================================
-# D2: ASR 趋势分析 (跨运行)
-# ============================================================
+# ASR 趋势分析 (跨运行)
 
 
 def _print_asr_trend(ctx: PipelineContext) -> None:
@@ -417,7 +429,7 @@ def _print_asr_trend(ctx: PipelineContext) -> None:
         base_dir = Path("outputs") if not ctx.output_manager else ctx.output_manager.base_dir
         trend_files = sorted(glob.glob(str(base_dir / "empirical_asr" / "seed_level_*.json")))
         if len(trend_files) < 2:
-            info_box("D2: ASR 趋势", ["(需 2+ 次运行才能显示趋势)"])
+            info_box("ASR 趋势", ["(需 2+ 次运行才能显示趋势)"])
             return
 
         lines: list[str] = []
@@ -433,16 +445,14 @@ def _print_asr_trend(ctx: PipelineContext) -> None:
                 continue
 
         if len(lines) >= 2:
-            info_box("D2: ASR 趋势 (最近 5 次)", lines)
+            info_box("ASR 趋势 (最近 5 次)", lines)
         else:
-            info_box("D2: ASR 趋势", ["(有效数据不足)"])
+            info_box("ASR 趋势", ["(有效数据不足)"])
     except Exception as e:
         logger.debug(f"D2 ASR trend failed: {e}")
 
 
-# ============================================================
-# D3: 修复建议生成
-# ============================================================
+# 修复建议生成
 
 
 def _print_fix_recommendations(ctx: PipelineContext) -> None:
@@ -453,7 +463,7 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
     from pipeline.utils.display import info_box
 
     if not ctx.asr_per_technique:
-        info_box("D3: 修复建议", ["(无 ASR 数据)"])
+        info_box("修复建议", ["(无 ASR 数据)"])
         return
 
     # 按成功率排序
@@ -478,12 +488,10 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
 
     if not lines:
         lines.append("(无有效建议)")
-    info_box("D3: 修复建议 (Top 5)", lines)
+    info_box("修复建议 (Top 5)", lines)
 
 
-# ============================================================
-# D4: OWASP LLM Top10 覆盖矩阵
-# ============================================================
+# OWASP LLM Top10 覆盖矩阵
 
 
 def _print_owasp_matrix(ctx: PipelineContext) -> None:
@@ -566,7 +574,7 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
     coverage = len(covered) / len(owasp_categories) * 100
     lines.append(f"  覆盖率: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)")
 
-    info_box("D4: OWASP LLM Top10 (2025) 覆盖矩阵 (原生 display_group 映射)", lines)
+    info_box("OWASP LLM Top10 (2025) 覆盖矩阵", lines)
 
     # L5 P2-1: 决策追溯 — OWASP 矩阵计算
     from pipeline.utils.decision_trace import DecisionTrace
@@ -579,4 +587,76 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
         reason=f"Coverage: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)",
         covered_ids=sorted(covered),
         coverage_pct=round(coverage, 1),
+    )
+
+
+# ============================================================
+# G4: ASR 反馈循环可视化
+# ============================================================
+
+
+def _print_asr_feedback_loop(ctx: PipelineContext) -> None:
+    """G4: ASR 反馈循环可视化 — 展示完整的 ASR 闭环数据流。.
+
+    展示: 先验 ASR → 实测 ASR → 经验写回 → 下次运行 warm-start 的完整闭环
+    """
+    from pipeline.utils.display import core_card
+
+    if not ctx.asr_per_technique:
+        return
+
+    # 先验 ASR (Stage 2 warm-start)
+    warm_start = getattr(ctx, "warm_start_asr", {}) or {}
+    # 实测 ASR (Stage 4)
+    measured = ctx.asr_per_technique
+    # 经验写回状态 (检查 empirical ASR 文件, 不是 seed_level 文件)
+    empirical_saved = False
+    seed_level_saved = False
+    try:
+        from pipeline.asr.optimizer import _get_empirical_asr_path, _get_seed_level_asr_path
+
+        model_name = ctx.metadata.get("model_name", "unknown")
+        empirical_saved = _get_empirical_asr_path(model_name).exists()
+        seed_level_saved = _get_seed_level_asr_path(model_name).exists()
+    except Exception:
+        pass
+
+    # 构建对比数据
+    prior_lines: list[str] = []
+    measured_lines: list[str] = []
+    feedback_lines: list[str] = []
+
+    # Top 5 技术: 先验 vs 实测
+    top_measured = sorted(measured.items(), key=lambda x: x[1], reverse=True)[:5]
+    for tech, actual_asr in top_measured:
+        prior_asr = warm_start.get(tech, 0)
+        diff = actual_asr - prior_asr
+        arrow = "↑" if diff > 5 else ("↓" if diff < -5 else "=")
+        prior_lines.append(f"{tech[:30]:<30} {prior_asr:>5.1f}%")
+        measured_lines.append(f"{tech[:30]:<30} {actual_asr:>5.1f}% {arrow}")
+
+    feedback_lines.append(f"经验写回: {'✅ 已保存' if empirical_saved else '⚠ 未保存'}")
+    feedback_lines.append(f"种子级 ASR: {'✅ 已保存' if seed_level_saved else '⚠ 未保存'}")
+    feedback_lines.append(f"warm-start 技术: {len(warm_start)} → 下次运行优先级调整")
+    feedback_lines.append(f"实测技术: {len(measured)} → 经验闭环")
+
+    # 最大差异技术
+    max_diff_tech = ""
+    max_diff_val = 0
+    for tech, actual_asr in measured.items():
+        prior_asr = warm_start.get(tech, 0)
+        diff = abs(actual_asr - prior_asr)
+        if diff > max_diff_val:
+            max_diff_val = diff
+            max_diff_tech = tech
+    if max_diff_tech:
+        feedback_lines.append(f"最大差异: {max_diff_tech[:30]} (Δ={max_diff_val:.1f}%)")
+
+    core_card(
+        "ASR 反馈循环 (先验→实测→经验→warm-start)",
+        sections=[
+            {"label": "先验 ASR (Stage 2)", "lines": prior_lines},
+            {"label": "实测 ASR (Stage 4)", "lines": measured_lines},
+            {"label": "经验闭环", "lines": feedback_lines},
+        ],
     )

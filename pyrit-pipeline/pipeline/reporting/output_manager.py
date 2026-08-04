@@ -180,15 +180,53 @@ class ProgressDashboard:
     def _extract_technique(ar: Any) -> str:
         """从 AttackResult 提取技术名 (用于 ASR 分组).
 
-        PyRIT 原生优先: 使用 AttackResult 的 attack_mode/attack_type 字段。
-        性能优化: 使用 vars() 避免 MagicMock __getattr__ 副作用。
+        R-010 PyRIT 原生优先 (多路径回退):
+          1. ar.atomic_attack_identifier — PyRIT 原生 ComponentIdentifier
+             a. .unique_name (人类可读名称)
+             b. .class_name (技术类名, 如 TAPAttack / PromptSendingAttack)
+             c. .params.get("attack_strategy") (策略参数)
+          2. ar.metadata.get("technique") — 元数据回退
+          3. ar.metadata.get("attack_mode") — 元数据回退
+          4. "unknown" — 最终回退
         """
-        # 使用 vars(ar) 替代 getattr, 避免 MagicMock 自动创建 Mock 属性
         ar_dict = vars(ar) if hasattr(ar, "__dict__") else {}
-        for field_name in ("attack_mode", "attack_type", "strategy_name"):
-            val = ar_dict.get(field_name)
-            if val is not None:
-                return str(val)
+
+        # 路径 1: PyRIT 原生 atomic_attack_identifier (ComponentIdentifier)
+        aai = ar_dict.get("atomic_attack_identifier")
+        if aai is not None:
+            # 1a: unique_name (人类可读)
+            try:
+                uname = getattr(aai, "unique_name", None)
+                if uname and isinstance(uname, str) and uname != "ComponentIdentifier":
+                    return uname
+            except Exception:
+                pass
+            # 1b: class_name (技术类名)
+            try:
+                cname = getattr(aai, "class_name", None)
+                if cname and isinstance(cname, str) and len(cname) > 2:
+                    return cname
+            except Exception:
+                pass
+            # 1c: params 中的 attack_strategy
+            try:
+                params = getattr(aai, "params", None) or {}
+                if isinstance(params, dict):
+                    for key in ("attack_strategy", "technique", "attack_mode"):
+                        val = params.get(key)
+                        if val and isinstance(val, str):
+                            return val
+            except Exception:
+                pass
+
+        # 路径 2: PyRIT 原生 metadata
+        metadata = ar_dict.get("metadata") or {}
+        if isinstance(metadata, dict):
+            for key in ("technique", "attack_mode", "attack_type", "strategy_name"):
+                val = metadata.get(key)
+                if val and isinstance(val, str):
+                    return val
+
         return "unknown"
 
 

@@ -106,7 +106,7 @@ async def run(ctx: PipelineContext) -> None:
             interval=5.0,
         )
         poller.start()
-        print(f"  [C1] 实时进度轮询已启动 (5s 起步, 自适应退避至 30s, srid={scenario_result_id[:8]}...)")
+        print(f"  实时进度轮询已启动 (5s 起步, 自适应退避至 30s, srid={scenario_result_id[:8]}...)")
 
     # C4: 发布执行开始事件
     bus = EventBus.get_instance()
@@ -194,7 +194,7 @@ async def run(ctx: PipelineContext) -> None:
     # ── P1-G3: 停止策略统计 ──
     stop_stats = stop_handler.get_stats()
     if stop_stats["should_stop"]:
-        print(f"  P1-G3 停止策略: {stop_stats['stop_reason']}")
+        print(f"  停止策略: {stop_stats['stop_reason']}")
     ctx.metadata["stop_strategy_stats"] = stop_stats
 
     # ── P1: 失败类型分布 ──
@@ -347,7 +347,7 @@ def _print_failure_routing(ctx: PipelineContext, stats: dict) -> None:
     lines.append(f"主要失败模式: {top_fail}")
     lines.append(f"→ 下次运行: {routing_map.get(top_fail, '检查配置')}")
 
-    info_box("O5: 失败路由策略", lines)
+    info_box("失败路由策略", lines)
 
 
 def _scan_results_post_execution(
@@ -363,15 +363,78 @@ def _scan_results_post_execution(
 
     P1-G3: 同时将结果反馈到 RuntimeStopEventHandler,
     追踪 OWASP 分类成功率和全局首成功停止条件。
+
+    D11+D12: 同时反馈到 ConverterChainAdvisor 和 SuccessPropagationTracker,
+    收集 (failure_type, converter_chain) 关联数据和成功组合.
     """
     result = ctx.result
     if result is None:
         return
 
+    # D11+D12: 创建反馈收集器
+    from pipeline.converters.converter_feedback import (
+        ConverterChainAdvisor,
+        SuccessPropagationTracker,
+        extract_converter_chain_names,
+    )
+
+    chain_advisor = ConverterChainAdvisor()
+    success_tracker = SuccessPropagationTracker()
+
+    # 从 ctx 获取 payload categories (Stage 2 已推断)
+    payload_categories_str = ctx.metadata.get("payload_categories", set())
+    if isinstance(payload_categories_str, str):
+        payload_categories_set = {payload_categories_str}
+    else:
+        payload_categories_set = set(payload_categories_str) if payload_categories_str else set()
+
     for _attack_id, attack_results in result.attack_results.items():
         for ar in attack_results:
             handler.on_attack_result(ar)
             stop_handler.on_attack_result(ar)
+
+            # D11+D12: 提取 Converter 链名并记录
+            chain_names = extract_converter_chain_names(ar)
+
+            # 判断成功/失败
+            from pyrit.models import AttackOutcome
+
+            outcome = getattr(ar, "outcome", None)
+            is_success = outcome == AttackOutcome.SUCCESS
+
+            # D11: 提取失败类型并记录链性能
+            if not is_success:
+                try:
+                    from pipeline.asr.failure_type_selector import extract_failure_type_from_result
+
+                    failure_type = extract_failure_type_from_result(ar)
+                except Exception:
+                    failure_type = "unknown"
+                chain_advisor.record(
+                    failure_type=failure_type,
+                    converter_chains=chain_names,
+                    success=False,
+                )
+            else:
+                chain_advisor.record(
+                    failure_type="success",
+                    converter_chains=chain_names,
+                    success=True,
+                )
+
+            # D12: 记录成功组合
+            if is_success and chain_names:
+                # 从技术名推断范式作为 payload_category 代理
+                from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
+                tech_name = AttackResultAnalyzer.extract_technique_name_optional(ar) or "unknown"
+                # 使用 payload_categories (如果有多个, 取第一个; 否则用 "baseline")
+                cat = next(iter(payload_categories_set)) if payload_categories_set else "baseline"
+                success_tracker.record_success(
+                    payload_category=cat,
+                    technique=tech_name,
+                    converter_chains=chain_names,
+                )
 
     # 对 SequentialAttack 的子结果也扫描
     for attack_results in result.attack_results.values():
@@ -381,6 +444,10 @@ def _scan_results_post_execution(
                 if child is not None:
                     handler.on_attack_result(child)
                     stop_handler.on_attack_result(child)
+
+    # D11+D12: 将反馈数据存入 ctx.metadata
+    ctx.metadata["converter_chain_advisor"] = chain_advisor.get_stats()
+    ctx.metadata["success_propagation"] = success_tracker.get_stats()
 
 
 def _compute_asr(ctx: PipelineContext) -> None:
@@ -426,15 +493,44 @@ def _compute_asr(ctx: PipelineContext) -> None:
     print(f"\n  → 传递到 Stage 5/6: ASR={ctx.overall_asr}% | {len(ctx.asr_per_technique)} 个技术有统计")
 
 
+def _print_successful_attack_details(
+    ctx: PipelineContext, all_results: list
+) -> None:
+    """打印成功攻击的载荷/技术/Converter 详情.
+
+    展示每条成功攻击的: P编号 | 技术 | 载荷来源 | Converter 链.
+    """
+    from pipeline.utils.display import info_box
+
+    success_lines: list[str] = []
+    for idx, (group_name, success, ar) in enumerate(all_results, 1):
+        if not success:
+            continue
+        # 从 AttackResult 提取信息
+        converter_names = []
+        converters = getattr(ar, "request_converters", None) or []
+        for c in converters:
+            cname = type(c).__name__
+            if cname not in converter_names:
+                converter_names.append(cname)
+
+        conv_str = " + ".join(converter_names) if converter_names else "(无 Converter)"
+        success_lines.append(f"P{idx:<3} {group_name:<30} {conv_str}")
+
+    if success_lines:
+        info_box("成功攻击详情 (载荷 + 技术 + Converter)", success_lines)
+    else:
+        info_box("成功攻击详情", ["(无成功攻击)"])
+
+
 def _print_attack_overview(ctx: PipelineContext) -> None:
-    """攻击结果速览 + Per-Group Breakdown 卡片。."""
+    """攻击结果速览 + Per-Group Breakdown + 成功攻击载荷/技术/Converter 详情。."""
     result = ctx.result
     if result is None:
         return
 
     from pyrit.models import AttackOutcome
 
-    # ── 攻击结果速览 — 迁移到 info_box ──
     from pipeline.utils.display import info_box
 
     groups = result.get_display_groups()
@@ -453,9 +549,12 @@ def _print_attack_overview(ctx: PipelineContext) -> None:
     successes = sum(1 for _, s, _ in all_results if s)
     overview_lines.append("")
     overview_lines.append(f"合计: {total} 个 | 成功: {successes} | 失败: {total - successes}")
-    info_box("★ 攻击结果速览 (ASR 降序) ★", overview_lines)
+    info_box("攻击结果速览 (ASR 降序)", overview_lines)
 
-    # ── Per-Group Breakdown — 迁移到 info_box ──
+    # ── 成功攻击详情: 载荷 + 技术 + Converter ──
+    _print_successful_attack_details(ctx, all_results)
+
+    # ── Per-Group Breakdown ──
     group_lines = []
     for group_name, attack_results in groups.items():
         g_total = len(attack_results)
@@ -526,7 +625,7 @@ def _print_pid_dataset_map(ctx: PipelineContext) -> None:
     lines.append(f"总计: {total_all} 个 | 成功: {success_all} | ASR: {ctx.overall_asr}%")
     lines.append("P 编号 → Stage 5 (分析): 实测 vs 先验对比")
 
-    info_box("Gap 4: P 编号执行映射 (dataset → P编号 → 结果)", lines)
+    info_box("数据集执行映射 (dataset → P编号 → 结果)", lines)
 
 
 # ============================================================
@@ -574,7 +673,7 @@ def _print_converter_health(ctx: PipelineContext) -> None:
                 converters=[s.name for s in stats_list if s.is_circuit_open],
             )
 
-        info_box(f"B6: Converter 健康状态 ({len(stats_list)} 个)", lines)
+        info_box(f"Converter 健康状态 ({len(stats_list)} 个)", lines)
     except Exception as e:
         logger.debug(f"B6 converter health display failed: {e}")
 
@@ -622,7 +721,7 @@ def _print_converter_transformations(ctx: PipelineContext) -> None:
                     converter_success[conv_name] = converter_success.get(conv_name, 0) + 1
 
         if not converter_total:
-            info_box("C3: Converter 变换效果", ["(无 Converter 数据)"])
+            info_box("Converter 变换效果", ["(无 Converter 数据)"])
             return
 
         lines: list[str] = []
@@ -632,7 +731,7 @@ def _print_converter_transformations(ctx: PipelineContext) -> None:
             rate = succ / total * 100 if total > 0 else 0
             lines.append(f"  {conv}: {succ}/{total} ({rate:.0f}%)")
 
-        info_box("C3: Converter 变换效果 (Top 5)", lines)
+        info_box("Converter 变换效果 (Top 5)", lines)
     except Exception as e:
         logger.debug(f"C3 converter transformation display failed: {e}")
 
@@ -709,6 +808,200 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
             advice = diagnosis_map.get(pattern, "检查详细日志")
             lines.append(f"  {pattern} ({count}/{total_failures}, {pct:.0f}%): {advice}")
 
-        info_box(f"C5: 失败即时诊断 ({total_failures} 个失败, 对齐 O5 路由)", lines)
+        info_box(f"失败即时诊断 ({total_failures} 个失败)", lines)
     except Exception as e:
         logger.debug(f"C5 failure diagnosis failed: {e}")
+
+
+# ============================================================
+# 成功攻击详情: 载荷 + 技术 + Converter 全链路展示
+# ============================================================
+
+
+def _print_successful_attack_details(
+    ctx: PipelineContext,
+    all_results: list[tuple[str, bool, Any]],
+) -> None:
+    """展示每个成功攻击的完整链路: 载荷 → 技术 → Converter → 结果。.
+
+    从 AttackResult 的 conversation 中提取:
+      - 原始载荷 (seed prompt)
+      - 使用的技术 (display group)
+      - 应用的 Converter (从 metadata/labels 提取)
+      - 目标响应摘要
+    """
+    from pipeline.utils.display import info_box
+
+    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
+
+    # 过滤出成功攻击
+    successful = [(tech, ar) for tech, success, ar in all_results if success]
+    if not successful:
+        return
+
+    lines: list[str] = []
+    for idx, (tech_name, ar) in enumerate(successful[:10], 1):  # 限制 Top 10
+        lines.append(f"#{idx} 技术: {tech_name}")
+
+        # 提取载荷
+        payload_text = _extract_payload_from_result(ar)
+        if payload_text:
+            truncated = payload_text[:80] + "..." if len(payload_text) > 80 else payload_text
+            lines.append(f"  载荷: {truncated}")
+
+        # 提取 Converter
+        conv_names = _extract_converter_names_from_result(ar)
+        if conv_names:
+            lines.append(f"  Converter: {' → '.join(conv_names)}")
+        else:
+            # 从 technique_converter_map 获取预期 Converter
+            expected_convs = technique_converter_map.get(tech_name, [])
+            if expected_convs:
+                exp_names = [type(c).__name__ for c in expected_convs]
+                lines.append(f"  Converter (预期): {' → '.join(exp_names)}")
+            else:
+                lines.append("  Converter: (baseline 直发)")
+
+        # 提取目标响应摘要
+        response_text = _extract_response_from_result(ar)
+        if response_text:
+            truncated_resp = response_text[:80] + "..." if len(response_text) > 80 else response_text
+            lines.append(f"  响应: {truncated_resp}")
+
+        lines.append("")
+
+    info_box(f"成功攻击详情 (载荷→技术→Converter, Top {min(len(successful), 10)})", lines)
+
+
+def _extract_payload_from_result(ar: Any) -> str:
+    """从 AttackResult 中提取原始载荷文本 (多路径回退).
+
+    回退顺序 (R-010: PyRIT 原生字段优先):
+      1. ar.conversation.messages — 第一条 user 消息 (PyRIT 原生 Conversation)
+      2. ar.objective — 攻击目标描述 (PyRIT 原生字段)
+      3. ar.metadata.get("seed_prompt") — 元数据中的种子提示
+      4. ar.metadata.get("original_prompt") — 元数据中的原始载荷
+    """
+    # 路径 1: PyRIT 原生 conversation (最准确)
+    try:
+        if hasattr(ar, "conversation") and ar.conversation:
+            messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
+            for msg in messages:
+                role = getattr(msg, "role", "") or ""
+                if role == "user":
+                    content = getattr(msg, "content", "") or getattr(msg, "original_value", "")
+                    if content:
+                        return str(content)
+    except Exception:
+        pass
+
+    # 路径 2: PyRIT 原生 objective 字段
+    try:
+        objective = getattr(ar, "objective", None)
+        if objective and isinstance(objective, str) and len(objective) > 5:
+            return objective
+    except Exception:
+        pass
+
+    # 路径 3: PyRIT 原生 metadata 字典
+    try:
+        metadata = getattr(ar, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            for key in ("seed_prompt", "original_prompt", "prompt", "payload"):
+                val = metadata.get(key)
+                if val and isinstance(val, str):
+                    return val
+    except Exception:
+        pass
+
+    return ""
+
+
+def _extract_converter_names_from_result(ar: Any) -> list[str]:
+    """从 AttackResult 中提取 Converter 名称 (多路径回退).
+
+    回退顺序 (R-010: PyRIT 原生字段优先):
+      1. ar.conversation.labels — PyRIT 原生会话标签
+      2. ar.labels — PyRIT 原生 AttackResult 标签
+      3. ar.metadata.get("converters") — 元数据中的 Converter 列表
+    """
+    # 路径 1: PyRIT 原生 conversation labels
+    try:
+        if hasattr(ar, "conversation") and ar.conversation:
+            labels = getattr(ar.conversation, "labels", None) or {}
+            conv_names: list[str] = []
+            if isinstance(labels, dict):
+                for label_value in labels.values():
+                    if isinstance(label_value, str) and "converter" in label_value.lower():
+                        conv_names.append(label_value)
+            if conv_names:
+                return conv_names
+    except Exception:
+        pass
+
+    # 路径 2: PyRIT 原生 AttackResult labels
+    try:
+        ar_labels = getattr(ar, "labels", None) or {}
+        if isinstance(ar_labels, dict):
+            conv_names = []
+            for key, val in ar_labels.items():
+                if isinstance(val, str) and ("converter" in val.lower() or "converter" in key.lower()):
+                    conv_names.append(val)
+            if conv_names:
+                return conv_names
+    except Exception:
+        pass
+
+    # 路径 3: PyRIT 原生 metadata
+    try:
+        metadata = getattr(ar, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            conv_list = metadata.get("converters") or metadata.get("converter_chain")
+            if conv_list and isinstance(conv_list, list):
+                return [str(c) for c in conv_list]
+    except Exception:
+        pass
+
+    return []
+
+
+def _extract_response_from_result(ar: Any) -> str:
+    """从 AttackResult 中提取目标响应摘要 (多路径回退).
+
+    回退顺序 (R-010: PyRIT 原生字段优先):
+      1. ar.conversation.messages — 最后一条 assistant 消息
+      2. ar.last_response — PyRIT 原生 last_response 字段 (MessagePiece)
+      3. ar.outcome_reason — PyRIT 原生结果原因
+    """
+    # 路径 1: PyRIT 原生 conversation
+    try:
+        if hasattr(ar, "conversation") and ar.conversation:
+            messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
+            for msg in reversed(messages):
+                role = getattr(msg, "role", "") or ""
+                if role == "assistant":
+                    content = getattr(msg, "content", "") or getattr(msg, "original_value", "")
+                    if content:
+                        return str(content)
+    except Exception:
+        pass
+
+    # 路径 2: PyRIT 原生 last_response 字段
+    try:
+        last_resp = getattr(ar, "last_response", None)
+        if last_resp is not None:
+            content = getattr(last_resp, "content", "") or getattr(last_resp, "original_value", "")
+            if content:
+                return str(content)
+    except Exception:
+        pass
+
+    # 路径 3: PyRIT 原生 outcome_reason
+    try:
+        reason = getattr(ar, "outcome_reason", None)
+        if reason and isinstance(reason, str) and len(reason) > 10:
+            return reason
+    except Exception:
+        pass
+
+    return ""

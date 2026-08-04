@@ -3,7 +3,7 @@
 
 """报告生成器 — OWASP 映射 + 三级证据链 + Markdown 报告渲染 + 证据导出。.
 
-L5 对齐 PyRIT 1.0.0 output 模块:
+L5 对齐 PyRIT 1.0.1 output 模块:
   1. EvidenceExporter 使用 render_async() 替代 write_async()+read-back, 消除冗余 I/O
   2. ReportGenerator 集成 output_scorer_async 输出评分器评估指标
   3. attack_summary.csv 增加完整列 (turns/execution_time/scorer/score_value/outcome_reason)

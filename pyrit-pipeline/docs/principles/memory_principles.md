@@ -1,6 +1,6 @@
 # PyRIT Memory 原理说明
 
-> **文档版本**: v1.1 | **对齐 PyRIT**: 1.1.0.dev0 | **作者**: OSAI 架构组  
+> **文档版本**: v1.1 | **对齐 PyRIT**: 1.0.1 | **作者**: OSAI 架构组  
 > **源文档**: 11 篇 PyRIT 官方 Memory 文档系统梳理  
 > Pipeline 对接：CentralMemory 在 `pipeline/stages/stage_init.py` 初始化，经验 ASR 通过 `pipeline/asr/optimizer.py` 写回，详见 [end_to_end_architecture.md](../end_to_end_architecture.md#二stage-1-原生初始化)
 

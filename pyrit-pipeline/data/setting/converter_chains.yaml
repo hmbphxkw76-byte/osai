@@ -1,337 +1,371 @@
-# Converter 链配置 — P2-10 外部化
-#
-# 定义所有 Converter 变体链的元数据和基础技术→链映射。
-# 实际 Converter 实例化逻辑保留在 pipeline/converter_chains.py 中,
-# 本文件仅管理链的元数据 (优先级、模态、是否需要 LLM 等)。
-#
-# 学术依据:
-# - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同 3-5x ASR
-# - PyRIT 官方 ConverterConfiguration 文档
-# ====================================================================
-
-# ── Converter 变体链定义 ──
-# requires_llm: 是否需要 LLM 辅助 (converter_target)
-# priority: 优先级 (1=最高, 5=最低)
-# modality: 支持的模态 (text/image/audio)
-# description: 链描述
 chains:
-  # ── 非 LLM 链 (text modality) — 高优先级 ──
   stealth_evasion:
     requires_llm: false
     priority: 1
     modality: text
-    description: "Unicode 混淆 + Base64 + 后缀追加"
-
+    description: Unicode 混淆 + Base64 + 后缀追加
+    cost_tier: cheap
   multi_encoding_v2:
     requires_llm: false
     priority: 1
     modality: text
-    description: "四层编码: Base64 + ROT13 + Caesar(5) + Atbash"
-
+    description: '四层编码: Base64 + ROT13 + Caesar(5) + Atbash'
+    cost_tier: cheap
   encoding_bypass:
     requires_llm: false
     priority: 2
     modality: text
-    description: "Base64 + ROT13 + Caesar 编码绕过"
-
+    description: Base64 + ROT13 + Caesar 编码绕过
+    cost_tier: cheap
   unicode_attack:
     requires_llm: false
     priority: 2
     modality: text
-    description: "Unicode 混淆 + 双向文本 + 零宽字符"
-
+    description: Unicode 混淆 + 双向文本 + 零宽字符
+    cost_tier: cheap
   random_case:
     requires_llm: false
     priority: 3
     modality: text
-    description: "随机大写字符绕过关键词检测"
-
+    description: 随机大写字符绕过关键词检测
+    cost_tier: cheap
   format_injection:
     requires_llm: false
     priority: 2
     modality: text
-    description: "ASCII 艺术格式注入"
-
+    description: ASCII 艺术格式注入
+    cost_tier: cheap
   noise_bypass:
     requires_llm: true
     priority: 3
     modality: text
-    description: "NoiseConverter 噪声注入绕过"
-
+    description: NoiseConverter 噪声注入绕过
+    cost_tier: expensive
   special_chars:
     requires_llm: false
     priority: 3
     modality: text
-    description: "特殊字符注入绕过"
-
-  # ── LLM 链 (text modality) — 语义变换 ──
+    description: 特殊字符注入绕过
+    cost_tier: cheap
   persuasion_authority:
     requires_llm: true
     priority: 4
     modality: text
-    description: "权威说服 (LLM 辅助)"
-
+    description: 权威说服 (LLM 辅助)
+    cost_tier: expensive
   decomposition_chain:
     requires_llm: true
     priority: 3
     modality: text
-    description: "分解重构: 将有害请求分解为无害子任务"
-
+    description: '分解重构: 将有害请求分解为无害子任务'
+    cost_tier: expensive
   llm_assisted:
     requires_llm: true
     priority: 3
     modality: text
-    description: "说服 + 语气 + 翻译 (LLM 辅助)"
-
+    description: 说服 + 语气 + 翻译 (LLM 辅助)
+    cost_tier: expensive
   task_framing_chain:
     requires_llm: true
     priority: 4
     modality: text
-    description: "任务框架重构 (LLM 辅助)"
-
-  # ── 补全: 非 LLM 链 (text modality) — 更多编码/混淆变体 ──
+    description: 任务框架重构 (LLM 辅助)
+    cost_tier: expensive
   binary_morse_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "Binary + Morse 双层编码"
-
+    description: Binary + Morse 双层编码
+    cost_tier: cheap
   braille_nato_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "Braille + Nato 字母表替换"
-
+    description: Braille + Nato 字母表替换
+    cost_tier: cheap
   leetspeak_zalgo_chain:
     requires_llm: false
     priority: 2
     modality: text
-    description: "Leetspeak + Zalgo 文本变形"
-
+    description: Leetspeak + Zalgo 文本变形
+    cost_tier: cheap
   emoji_superscript_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "Emoji + Superscript 字符替换"
-
+    description: Emoji + Superscript 字符替换
+    cost_tier: cheap
   char_swap_diacritic_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "CharSwap + Diacritic 字符变形"
-
+    description: CharSwap + Diacritic 字符变形
+    cost_tier: cheap
   character_space_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "CharacterSpace 字符间距混淆"
-
+    description: CharacterSpace 字符间距混淆
+    cost_tier: cheap
   punctuation_insert_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "InsertPunctuation 标点注入绕过"
-
+    description: InsertPunctuation 标点注入绕过
+    cost_tier: cheap
   repeat_token_chain:
     requires_llm: false
     priority: 2
     modality: text
-    description: "RepeatToken 重复令牌注入"
-
+    description: RepeatToken 重复令牌注入
+    cost_tier: cheap
   token_smuggling_chain:
     requires_llm: false
     priority: 1
     modality: text
-    description: "AsciiSmuggler + SneakyBits 令牌走私"
-
+    description: AsciiSmuggler + SneakyBits 令牌走私
+    cost_tier: cheap
   url_encoding_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "Url + Base64 URL 编码绕过"
-
+    description: Url + Base64 URL 编码绕过
+    cost_tier: cheap
   base2048_ecoji_chain:
     requires_llm: false
     priority: 2
     modality: text
-    description: "Base2048 + Ecoji 高基数编码"
-
+    description: Base2048 + Ecoji 高基数编码
+    cost_tier: cheap
   unicode_replacement_chain:
     requires_llm: false
     priority: 2
     modality: text
-    description: "UnicodeReplacement + Tatweel Unicode 替换"
-
+    description: UnicodeReplacement + Tatweel Unicode 替换
+    cost_tier: cheap
   search_replace_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "SearchReplace 关键词替换绕过"
-
+    description: SearchReplace 关键词替换绕过
+    cost_tier: cheap
   first_letter_chain:
     requires_llm: false
     priority: 3
     modality: text
-    description: "FirstLetter 首字母提取编码"
-
-  # ── 补全: LLM 链 (text modality) — 更多语义变换 ──
+    description: FirstLetter 首字母提取编码
+    cost_tier: cheap
   tense_variation_chain:
     requires_llm: true
     priority: 4
     modality: text
-    description: "Tense + Variation 时态变换+变体 (LLM 辅助)"
-
+    description: Tense + Variation 时态变换+变体 (LLM 辅助)
+    cost_tier: expensive
   persuasion_policy_chain:
     requires_llm: true
     priority: 4
     modality: text
-    description: "Persuasion + PolicyPuppetry 说服+策略模仿"
-
+    description: Persuasion + PolicyPuppetry 说服+策略模仿
+    cost_tier: expensive
   math_obfuscation_chain:
     requires_llm: true
     priority: 4
     modality: text
-    description: "MathObfuscation 数学表达式混淆 (LLM 辅助)"
-
+    description: MathObfuscation 数学表达式混淆 (LLM 辅助)
+    cost_tier: expensive
   scientific_translation_chain:
     requires_llm: true
     priority: 4
     modality: text
-    description: "ScientificTranslation 科学翻译变换"
-
-
-# ── 基础技术 → Converter 链映射 ──
-# 每个基础技术可以分配多个 Converter 链
-# 链的选择基于学术 ASR 先验 (高 ASR 链优先)
+    description: ScientificTranslation 科学翻译变换
+    cost_tier: expensive
 base_techniques_for_variants:
   prompt_sending:
-    - stealth_evasion
-    - multi_encoding_v2
-    - encoding_bypass
-    - unicode_attack
-    - random_case
-    - persuasion_authority
-    - decomposition_chain
-
+  - stealth_evasion
+  - multi_encoding_v2
+  - encoding_bypass
+  - unicode_attack
+  - random_case
+  - persuasion_authority
+  - decomposition_chain
   crescendo:
-    - encoding_bypass
-    - multi_encoding_v2
-    - stealth_evasion
-
+  - encoding_bypass
+  - multi_encoding_v2
+  - stealth_evasion
   red_teaming:
-    - persuasion_authority
-    - decomposition_chain
-    - stealth_evasion
-
+  - persuasion_authority
+  - decomposition_chain
+  - stealth_evasion
   tap:
-    - stealth_evasion
-    - encoding_bypass
-
+  - stealth_evasion
+  - encoding_bypass
   pair:
-    - stealth_evasion
-    - encoding_bypass
-
+  - stealth_evasion
+  - encoding_bypass
   many_shot:
-    - encoding_bypass
-    - stealth_evasion
-
+  - encoding_bypass
+  - stealth_evasion
   best_of_n_jailbreak:
-    - stealth_evasion
-    - persuasion_authority
-
+  - stealth_evasion
+  - persuasion_authority
   role_play_movie_script:
-    - persuasion_authority
-    - decomposition_chain
-
+  - persuasion_authority
+  - decomposition_chain
   context_compliance:
-    - stealth_evasion
-    - encoding_bypass
-
+  - stealth_evasion
+  - encoding_bypass
   tree_of_attacks_pruned:
-    - stealth_evasion
-    - encoding_bypass
-    - multi_encoding_v2
-
+  - stealth_evasion
+  - encoding_bypass
+  - multi_encoding_v2
   skeleton_key:
-    - stealth_evasion
-    - persuasion_authority
-    - decomposition_chain
-
+  - stealth_evasion
+  - persuasion_authority
+  - decomposition_chain
   bad_likert_judge:
-    - persuasion_authority
-    - decomposition_chain
-    - stealth_evasion
-
+  - persuasion_authority
+  - decomposition_chain
+  - stealth_evasion
   violent_durian:
-    - encoding_bypass
-    - stealth_evasion
-    - multi_encoding_v2
-
+  - encoding_bypass
+  - stealth_evasion
+  - multi_encoding_v2
   multi_prompt_sending:
-    - stealth_evasion
-    - encoding_bypass
-    - unicode_attack
-    - random_case
-    - persuasion_authority
-
+  - stealth_evasion
+  - encoding_bypass
+  - unicode_attack
+  - random_case
+  - persuasion_authority
   chunked_request:
-    - encoding_bypass
-    - stealth_evasion
-
+  - encoding_bypass
+  - stealth_evasion
   role_play_persuasion:
-    - persuasion_authority
-    - decomposition_chain
-    - stealth_evasion
-
+  - persuasion_authority
+  - decomposition_chain
+  - stealth_evasion
   wrapping_attack:
-    - stealth_evasion
-    - encoding_bypass
-    - random_case
-
-# ── G4: 模型特异性说服策略映射 ──
-# 学术依据: Zeng et al. (arXiv:2402.19181)
-#   - 权威说服对 Claude ASR=30%, GPT-4 ASR=35%
-#   - 情感/场景对 GPT-4 ASR=38%, Llama ASR=62%
-#   - 逻辑/分解对 Llama ASR=55%, Claude ASR=25%
-# 不同模型的安全对齐方式不同, 导致对不同说服策略的脆弱性不同
-# 用于 target_aware_router 中根据模型系列选择说服链
+  - stealth_evasion
+  - encoding_bypass
+  - random_case
 persuasion_strategy_by_model:
-  # ── Claude 系列: Constitutional AI → 权威/角色扮演优先 ──
-  "claude":
+  claude:
     primary: persuasion_authority
     secondary: role_play_movie_script
-    rationale: "Constitutional AI 对角色扮演/权威场景更敏感"
-  # ── GPT-4 系列: RLHF → 情感/场景模拟优先 ──
-  "gpt-4":
+    rationale: Constitutional AI 对角色扮演/权威场景更敏感
+  gpt-4:
     primary: role_play_persuasion
     secondary: persuasion_authority
-    rationale: "RLHF 对情感/场景模拟的防御较弱"
-  "gpt-4o":
+    rationale: RLHF 对情感/场景模拟的防御较弱
+  gpt-4o:
     primary: role_play_persuasion
     secondary: persuasion_authority
-    rationale: "RLHF 对情感/场景模拟的防御较弱"
-  # ── Llama 系列: RLHF+Safety → 逻辑/分解优先 ──
-  "llama":
+    rationale: RLHF 对情感/场景模拟的防御较弱
+  llama:
     primary: decomposition_chain
     secondary: persuasion_authority
-    rationale: "Llama 对逻辑分解攻击更脆弱"
-  # ── Gemini 系列: RLHF → 场景模拟优先 ──
-  "gemini":
+    rationale: Llama 对逻辑分解攻击更脆弱
+  gemini:
     primary: role_play_persuasion
     secondary: decomposition_chain
-    rationale: "Gemini 对场景模拟的防御较弱"
-  # ── Mistral 系列: Safety + Guard → 编码+说服 ──
-  "mistral":
+    rationale: Gemini 对场景模拟的防御较弱
+  mistral:
     primary: persuasion_authority
     secondary: encoding_bypass
-    rationale: "Mistral Guard 对编码攻击有漏洞"
-  # ── Qwen 系列: RLHF → 逻辑分解优先 ──
-  "qwen":
+    rationale: Mistral Guard 对编码攻击有漏洞
+  qwen:
     primary: decomposition_chain
     secondary: persuasion_authority
-    rationale: "Qwen 对逻辑分解攻击更脆弱"
-  # ── DeepSeek 系列: RLHF → 场景模拟优先 ──
-  "deepseek":
+    rationale: Qwen 对逻辑分解攻击更脆弱
+  deepseek:
     primary: role_play_persuasion
     secondary: decomposition_chain
-    rationale: "DeepSeek 对场景模拟的防御较弱"
+    rationale: DeepSeek 对场景模拟的防御较弱
+payload_converter_affinity:
+  dataset_category_keywords:
+    encoding:
+    - prompt_injection
+    - exfiltration
+    - llm01
+    - llm05
+    - llm07
+    - asi04
+    - asi07
+    - cve
+    persuasion:
+    - sensitive_info
+    - llm02
+    - asi01
+    - asi02
+    - asi03
+    decomposition:
+    - excessive_agency
+    - llm06
+    - asi05
+    - asi08
+    multi_turn:
+    - harmbench
+    - jbb_behaviors
+    - strong_reject
+    - misinformation
+    - llm09
+    role_play:
+    - asi06
+    - asi09
+    - asi10
+    baseline:
+    - unbounded
+    - llm10
+    - llm03
+    - llm04
+    - llm08
+  category_boost_chains:
+    encoding:
+    - encoding_bypass
+    - multi_encoding_v2
+    - stealth_evasion
+    - unicode_attack
+    persuasion:
+    - persuasion_authority
+    - decomposition_chain
+    decomposition:
+    - decomposition_chain
+    - persuasion_authority
+    multi_turn:
+    - encoding_bypass
+    - multi_encoding_v2
+    - stealth_evasion
+    role_play:
+    - persuasion_authority
+    - decomposition_chain
+    - stealth_evasion
+    baseline: []
+combo_multipliers:
+  description: 'D13: Chain combination synergy multipliers'
+  academic_basis: 'Russinovich et al. (arXiv:2402.12109): Crescendo + encoding = 3-5x
+    ASR'
+  combos:
+  - chains:
+    - encoding_bypass
+    - stealth_evasion
+    multiplier: 1.5
+    note: encoding + obfuscation
+  - chains:
+    - multi_encoding_v2
+    - stealth_evasion
+    multiplier: 1.4
+    note: multi-encoding + obfuscation
+  - chains:
+    - persuasion_authority
+    - decomposition_chain
+    multiplier: 1.3
+    note: persuasion + decomposition
+  - chains:
+    - unicode_attack
+    - random_case
+    multiplier: 1.2
+    note: unicode + case variation
+  - chains:
+    - encoding_bypass
+    - unicode_attack
+    multiplier: 1.6
+    note: encoding + unicode dual-layer

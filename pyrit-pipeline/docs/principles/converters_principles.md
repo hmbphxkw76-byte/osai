@@ -1,6 +1,6 @@
 # PyRIT Converters 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（7 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
+> 基于 PyRIT 1.0.1 官方文档（7 个页面）系统梳理 — 以 PyRIT 专家架构师视角  
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：Converter 路由由 `pipeline/converters/` 模块实现，详见 [asr_driven_e2e_architecture.md](../asr_driven_e2e_architecture.md#六converter-路由架构)
 
@@ -54,7 +54,7 @@ prompt(str) → convert_async() → ConverterResult(output_text, output_type)
 
 ## 2. Converter 分类体系
 
-PyRIT 1.0.0 将 Converter 按模态转换方向分为六大类：
+PyRIT 1.0.1 将 Converter 按模态转换方向分为六大类：
 
 ```
 Converter
@@ -386,7 +386,7 @@ File Converter 是 **XPIA（跨域提示注入）** 和 **RAG 攻击** 的关键
 
 ### 9.1 核心概念
 
-`SelectiveTextConverter` 是一个 **组合包装器**，将任意 text→text Converter 应用到文本的 *选定部分*，而非整体。这是 PyRIT 1.0.0 的重要增强，实现更精细的混淆控制。
+`SelectiveTextConverter` 是一个 **组合包装器**，将任意 text→text Converter 应用到文本的 *选定部分*，而非整体。这是 PyRIT 1.0.1 的重要增强，实现更精细的混淆控制。
 
 ### 9.2 选择策略体系
 
@@ -485,7 +485,7 @@ config = PrependedConversationConfig(
 
 ### 11.1 机制
 
-PyRIT 1.0.0 引入 `@apply_defaults` 装饰器，为 LLM 辅助 Converter 自动注入 `converter_target`：
+PyRIT 1.0.1 引入 `@apply_defaults` 装饰器，为 LLM 辅助 Converter 自动注入 `converter_target`：
 
 ```python
 from pyrit.common.apply_defaults import REQUIRED_VALUE, apply_defaults
@@ -639,7 +639,7 @@ Converter 的模态声明是其最核心的设计约束：
 
 ### 14.4 与 Executor 的关系
 
-PyRIT 1.0.0 明确指出：**许多旧的单轮攻击在今天应该是 Converter**。例如：
+PyRIT 1.0.1 明确指出：**许多旧的单轮攻击在今天应该是 Converter**。例如：
 - `RolePlayAttack` → `PolicyPuppetryConverter` 或 `PersuasionConverter`
 - `FlipAttack` → `FlipConverter`
 - `ContextComplianceAttack` → `PromptSendingAttack + PrependedConversationConfig`

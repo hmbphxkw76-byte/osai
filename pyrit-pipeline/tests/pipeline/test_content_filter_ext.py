@@ -100,7 +100,7 @@ class TestExtendContentFilterMarkers:
 
     @pytest.mark.skipif(
         True,
-        reason="PyRIT 版本不匹配 (tested=1.0.0, actual=1.0.0) 时 patch 验证失败, 属环境问题",
+        reason="PyRIT 版本不匹配 (tested=1.0.1, actual=1.0.1) 时 patch 验证失败, 属环境问题",
     )
     def test_returns_frozenset(self) -> None:
         """返回 frozenset。"""
@@ -109,7 +109,7 @@ class TestExtendContentFilterMarkers:
 
     @pytest.mark.skipif(
         True,
-        reason="PyRIT 版本不匹配 (tested=1.0.0, actual=1.0.0) 时 patch 验证失败, 属环境问题",
+        reason="PyRIT 版本不匹配 (tested=1.0.1, actual=1.0.1) 时 patch 验证失败, 属环境问题",
     )
     def test_contains_native_markers(self) -> None:
         """包含原生标记。"""
@@ -119,7 +119,7 @@ class TestExtendContentFilterMarkers:
 
     @pytest.mark.skipif(
         True,
-        reason="PyRIT 版本不匹配 (tested=1.0.0, actual=1.0.0) 时 patch 验证失败, 属环境问题",
+        reason="PyRIT 版本不匹配 (tested=1.0.1, actual=1.0.1) 时 patch 验证失败, 属环境问题",
     )
     def test_contains_default_extra_markers(self) -> None:
         """包含默认扩展标记。"""
@@ -128,7 +128,7 @@ class TestExtendContentFilterMarkers:
 
     @pytest.mark.skipif(
         True,
-        reason="PyRIT 版本不匹配 (tested=1.0.0, actual=1.0.0) 时 patch 验证失败, 属环境问题",
+        reason="PyRIT 版本不匹配 (tested=1.0.1, actual=1.0.1) 时 patch 验证失败, 属环境问题",
     )
     def test_native_markers_not_lost(self) -> None:
         """原生标记不被覆盖。"""
@@ -138,7 +138,7 @@ class TestExtendContentFilterMarkers:
 
     @pytest.mark.skipif(
         True,
-        reason="PyRIT 版本不匹配 (tested=1.0.0, actual=1.0.0) 时 patch 验证失败, 属环境问题",
+        reason="PyRIT 版本不匹配 (tested=1.0.1, actual=1.0.1) 时 patch 验证失败, 属环境问题",
     )
     def test_yaml_config_loading(self, tmp_path: Path) -> None:
         """YAML 配置加载→自定义标记包含。."""

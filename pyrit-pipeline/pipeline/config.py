@@ -153,10 +153,10 @@ def parse_args() -> argparse.Namespace:
 
     # ── 执行控制 ──
     parser.add_argument(
-        "--max-concurrency",
-        type=int,
-        default=5,
-        help="最大并发 AtomicAttack 数 (默认: 5)",
+"--max-concurrency",
+type=int,
+default=3,
+help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 / weak=1)",
     )
     parser.add_argument(
         "--max-retries",
@@ -186,6 +186,28 @@ def parse_args() -> argparse.Namespace:
             "可用: rot13, base64, leetspeak, colloquial_wordswap, persuasion, ...\n"
             "示例: --converters rot13 base64"
         ),
+    )
+
+    # ── Auto-Converters 兜底 (Layer 3) ──
+    # 当 --converters 未指定且 target_type 探测失败时,
+    # 自动使用学术 ASR 先验驱动的 Technique→Converter 链匹配
+    parser.add_argument(
+        "--auto-converters",
+        action="store_true",
+        default=True,
+        help=(
+            "当 --converters 未指定且 target_type 探测失败时, "
+            "自动使用学术 ASR 先验驱动的 Technique→Converter 链匹配 (默认启用).\n"
+            "基于 converter_chains.yaml 的 base_techniques_for_variants 映射,\n"
+            "为每个攻击技术分配最优非 LLM Converter 链, 最大化攻击效果.\n"
+            "使用 --no-auto-converters 禁用."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-converters",
+        action="store_false",
+        dest="auto_converters",
+        help="禁用 Auto-Converters 兜底机制.",
     )
 
     # ── 统一目标 URL (自动判别 + 智能路由) ──
@@ -223,7 +245,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--recon",
         action="store_true",
-        help="启用 recon-pipeline 侦察 (自动发现 API 端点、注入面、攻击推荐)",
+        help=(
+            "[已废弃] 两流水线完全独立, 不再通过代码调用 recon-pipeline.\n"
+            "请改用 --recon-json 从 JSON 文件加载侦察结果."
+        ),
+    )
+    parser.add_argument(
+        "--recon-json",
+        type=str,
+        default=None,
+        help=(
+            "从 JSON 文件加载侦察结果 (两流水线完全独立, 不依赖 recon-pipeline 代码).\n"
+            "使用方式: 先运行 recon-pipeline 生成 JSON 报告, 再通过本参数加载."
+        ),
+    )
+    parser.add_argument(
+        "--auth-state-file",
+        type=str,
+        default=None,
+        help=(
+            "认证状态文件路径 (JSON).\n"
+            "用于复用已有认证态 (如 recon-pipeline 完成的认证),\n"
+            "减少重复认证次数. 两流水线各自独立, 仅通过文件传递认证数据."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-attack",
+        action="store_true",
+        default=False,
+        help="启用 MCP (Model Context Protocol) 协议级攻击场景 (默认: 不启用)",
     )
 
     # ── 兼容旧参数 (向后兼容, 内部映射到新参数) ──
@@ -415,6 +465,32 @@ def parse_args() -> argparse.Namespace:
         help=(
             "启用离线分析报告 (攻击多样性分析 + Converter 转换日志 + 三层选择向导).\n"
             "默认不执行, 缩短流水线时间。详细评估时添加此标志。"
+        ),
+    )
+
+    # ── 预检 (P0: 执行前模型连通性验证) ──
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        default=False,
+        help=(
+            "跳过执行前预检 (模型连通性 + 目标 URL 可达性测试).\n"
+            "默认执行预检: 并发向目标/评分/对抗模型各发送一条探针消息,\n"
+            "验证 API Key/Endpoint/Model 配置正确后再进入 Stage 2.\n"
+            "预检失败时立即终止程序, 避免运行数小时后才发现配置错误."
+        ),
+    )
+
+    # ── JSON Mode 控制 (P0: 第三方 API 兼容性) ──
+    parser.add_argument(
+        "--disable-json-mode",
+        action="store_true",
+        default=False,
+        help=(
+            "禁用 API 级 JSON mode (response_format=json_object).\n"
+            "适用于不支持 JSON mode 的第三方模型 (如 SiliconFlow 部分模型).\n"
+            "默认: 自动检测 — 非 OpenAI/Azure 端点自动禁用.\n"
+            "强制禁用时, PyRIT 使用客户端 JSON 解析 + 重试机制替代."
         ),
     )
 

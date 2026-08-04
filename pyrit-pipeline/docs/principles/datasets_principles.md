@@ -1,6 +1,6 @@
 # PyRIT Datasets 原理说明文档
 
-> 基于 PyRIT 1.1.0.dev0 官方文档（6 个页面）系统梳理 — 以 PyRIT 专家架构师视角
+> 基于 PyRIT 1.0.1 官方文档（6 个页面）系统梳理 — 以 PyRIT 专家架构师视角
 > 文档版本：v1.1 | 更新日期：2026-8-1  
 > Pipeline 对接：数据集加载由 `pipeline/stages/stage_init.py` 实现，ASR 排序由 `pipeline/asr/optimizer.py` 实现，详见 [architecture_design.md](../architecture_design.md#四数据-5-层架构)
 
@@ -36,7 +36,7 @@ PyRIT 通过 **测试 AI 系统是否会产生不应出现的行为** 来评估 
 
 ### 1.2 种子分类体系
 
-PyRIT 1.0.0 将种子分为两种类型：
+PyRIT 1.0.1 将种子分为两种类型：
 
 ```
 Seed（基类）
@@ -234,7 +234,7 @@ seed_group = AttackSeedGroup(
 
 ### 5.2 内置数据集示例
 
-PyRIT 1.0.0 包含 **100+** 内置数据集，涵盖广泛的测试场景：
+PyRIT 1.0.1 包含 **100+** 内置数据集，涵盖广泛的测试场景：
 
 | 类别 | 示例数据集 | 来源 |
 |:--|:--|:--|
@@ -633,7 +633,7 @@ seeds:
 
 ### 10.6 结构化输出约束（response_json_schema）
 
-PyRIT 1.0.0 SeedPrompt 支持 `response_json_schema` 字段，用于约束 Target 的响应格式为 JSON。
+PyRIT 1.0.1 SeedPrompt 支持 `response_json_schema` 字段，用于约束 Target 的响应格式为 JSON。
 这在 AI-300 考试中对应「结构化输出」考核点。
 
 **两种设置方式**：
@@ -860,7 +860,7 @@ class DarkBenchDataset(_RemoteDatasetLoader):
 
 ### 14.1 核心原则
 
-PyRIT 1.0.0 强调：**数据库（CentralMemory）应作为数据的真实来源**，而非直接操作内存中的数据集对象。
+PyRIT 1.0.1 强调：**数据库（CentralMemory）应作为数据的真实来源**，而非直接操作内存中的数据集对象。
 
 ### 14.2 数据生命周期
 
