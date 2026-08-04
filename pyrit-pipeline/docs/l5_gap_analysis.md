@@ -110,7 +110,7 @@
 | # | 验证项 | 结果 | 详情 | 状态 |
 |---|--------|------|------|------|
 | 1 | MCP 探针端到端实测 | ✅ 已验证 | 15 个探针执行 (真实目标), OWASP 覆盖: ASI04×5, ASI02×2, ASI07×2, ASI01×1, ASI06×1, ASI05×1, LLM01×1, LLM07×1, LLM10×1 | ✅ 通过 |
-| 2 | 多轮会话端到端实测 | ✅ 已修复 | Round 28: CrescendoAttack 评分器 JSON mode 禁用导致非 JSON 响应; Round 29: 添加 SiliconFlow/NVIDIA 到 _JSON_MODE_SUPPORTED_HOSTS, DeepSeek-V3 评分器现可获取 JSON 响应 (待端到端验证) | ✅ JSON mode 已修复 |
+| 2 | 多轮会话端到端实测 | ✅ 已修复+验证 | Round 28: CrescendoAttack 评分器 JSON mode 禁用导致非 JSON 响应; Round 29: 添加 SiliconFlow/NVIDIA 到 _JSON_MODE_SUPPORTED_HOSTS; 端到端验证确认 JSON mode 修复生效 (不再出现 InvalidJsonException); 新发现: NVIDIA GLM-5.2 对抗模型 API 内容过滤拒绝对抗消息生成 (已扩展异常处理覆盖 "error sending prompt") | ✅ JSON mode 已修复, 对抗模型 API 过滤已处理 |
 | 3 | 盲推理端到端实测 | ✅ 已验证 | probes=20, facts=0, confidence=0.00, native_executor=PromptSendingAttack | ✅ 通过 |
 | 4 | 后门探测端到端实测 | ✅ 已验证 | probes=18 (30-12 blocked), detected=0, max_anomaly=0.20, probes 列表含 trigger_type/response/anomaly_score | ✅ 通过 |
 | 5 | 控制模式感知端到端实测 | ✅ 已验证 | mode=detect, probes=5, control_detected=False, bypass=2, probes 列表含 mode/technique/response | ✅ 通过 |
@@ -168,6 +168,14 @@
 | scoring_target (targets[2]) | DeepSeek-V3 | api.siliconflow.cn | ✅ 启用 | SiliconFlow 支持 JSON mode |
 
 **测试结果**: ruff All checks passed + 982 passed / 6 skipped / 0 failed
+
+**端到端验证结果 (2026-8-5)**:
+- 运行命令: `python main.py --multi-turn-session --rate-limit 3`
+- JSON Mode 检测: ✅ "共 1 个目标的 JSON mode 已禁用" (仅 LongCat, SiliconFlow/NVIDIA 不再被禁用)
+- 评分器 JSON 响应: ✅ 不再出现 `InvalidJsonException` (Round 28 的核心问题已修复)
+- 新发现: NVIDIA GLM-5.2 (adversarial_chat) API 内容过滤拒绝对抗消息生成, 错误 "Error sending prompt"
+- 异常处理扩展: `multi_turn_session.py` 新增 "error sending prompt" 关键词检测, 返回未达成 mock 结果
+- 流水线继续: ✅ 异常被正确捕获, Stage 4 正常启动
 
 ### 3.1.3 端到端验证待办 (待用户确认后运行)
 

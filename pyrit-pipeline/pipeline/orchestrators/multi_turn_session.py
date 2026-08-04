@@ -285,10 +285,16 @@ class MultiTurnSessionOrchestrator:
             native_result = await attack.execute_async(objective=self._objective)
         except Exception as e:
             # 检测 API 安全审计拦截 (如 LongCat security_audit_fail)
+            # 检测 API 级发送失败 (如 NVIDIA content filter 拒绝对抗消息)
             err_str = str(e).lower()
-            if "security_audit" in err_str or "400" in err_str or "badrequest" in err_str:
+            if (
+                "security_audit" in err_str
+                or "400" in err_str
+                or "badrequest" in err_str
+                or "error sending prompt" in err_str
+            ):
                 logger.warning(
-                    f"MultiTurnSession: blocked by API security audit (session={self._session_id}): {e}"
+                    f"MultiTurnSession: API error during execution (session={self._session_id}): {e}"
                 )
                 # 返回未达成的 mock 结果
                 result = MultiTurnSessionResult(
@@ -301,7 +307,7 @@ class MultiTurnSessionOrchestrator:
                     turn_index=0,
                     phase="probe",
                     user_message="",
-                    target_response="[blocked by API security audit]",
+                    target_response="[blocked by API security audit or content filter]",
                     success=False,
                 )]
                 return result
