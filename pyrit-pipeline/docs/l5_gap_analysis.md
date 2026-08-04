@@ -1,11 +1,12 @@
 # L5 专家级差距分析报告
 
-> **版本**: v9.1 (v9.0 + JSON mode 兼容性修复 — SiliconFlow/NVIDIA 端点启用)
+> **版本**: v9.2 (v9.1 + stream 参数配置化 — config/attack_params.yaml + CLI --stream/--no-stream)
 > **日期**: 2026-8-5
 > **规则**: R-009/R-021/R-022/R-023 (优化后 + 代码改动后 + 原生优先 + 端到端验证自动化)
-> **评估对象**: pyrit-pipeline v9.1 + Round 10-28 全部优化 + API 安全审计拦截检测 + 场景级异常处理增强 + JSON mode 兼容性修复
+> **评估对象**: pyrit-pipeline v9.2 + Round 10-29 全部优化 + API 安全审计拦截检测 + 场景级异常处理增强 + JSON mode 兼容性修复 + stream 参数配置化
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **更新记录**:
+> - 2026-8-5 — v9.2: stream 参数配置化 (config/attack_params.yaml 新增 stream: false + CLI --stream/--no-stream + TargetClassifier.classify(stream=) 参数 + UnifiedAuthOrchestrator 传递 + 6 个新测试) + 测试通过 988/6/0
 > - 2026-8-5 — v9.1: JSON mode 兼容性修复 (SiliconFlow + NVIDIA 端点添加到 _JSON_MODE_SUPPORTED_HOSTS, 评分器 DeepSeek-V3 现可获取 JSON 响应) + 测试更新 (21 个 JSON mode 测试, 3 个新增) + 测试通过 982/6/0
 > - 2026-8-5 — v9.0: Round 28 API 安全审计拦截检测修复 (multi_turn_session/blind_inference/backdoor_probe/control_mode_aware 全部添加 security_audit 检测) + 端到端运行问题排查 + 测试通过 979/6/0
 > - 2026-8-5 — v8.1: Round 26 端到端验证修复 (MCP 路径合并 + API 安全审计快速跳过) + Metadata 完整性 (probes 字段 + Secret 验证 3 源扫描) + R-022 WARNING 清零 + 7 个新测试
@@ -177,7 +178,48 @@
 - 异常处理扩展: `multi_turn_session.py` 新增 "error sending prompt" 关键词检测, 返回未达成 mock 结果
 - 流水线继续: ✅ 异常被正确捕获, Stage 4 正常启动
 
-### 3.1.3 端到端验证待办 (待用户确认后运行)
+### 3.1.3 Round 29 stream 参数配置化 (2026-8-5)
+
+**需求**: 用户需要一个可配置的 `stream` 参数，控制 API 流式响应模式 (SSE)，默认 `false`，方便后续自行更改。
+
+**修改内容**:
+
+| 文件 | 修改内容 | 说明 |
+|------|---------|------|
+| `config/attack_params.yaml` | 新增 `stream: false` 配置项 | YAML 配置文件, 团队共享, Git 追踪 |
+| `pipeline/config.py` | `_HARDCODED_DEFAULTS` 新增 `stream: False` + CLI `--stream` / `--no-stream` 参数 | 优先级: CLI > YAML > 硬编码 |
+| `conftest.py` | `mock_args` 新增 `stream=False` | 测试 fixture 同步 |
+| `pipeline/integrations/target_classifier.py` | `classify()` 新增 `stream: bool \| None = None` 参数 | `True` = 强制流式, `False` = 强制非流式, `None` = 自动检测 |
+| `web_redteam/auth/unified_orchestrator.py` | `authenticate_and_route()` + `_classify_target()` 新增 `stream` 参数传递 | 从 `ctx.args.stream` 传递到 `TargetClassifier` |
+| `pipeline/stages/stage_init.py` | `_run_unified_auth()` 调用时传递 `stream=getattr(ctx.args, "stream", None)` | Stage 1 → UnifiedAuthOrchestrator → TargetClassifier |
+| `tests/pipeline/test_target_classifier.py` | 新增 `TestTargetClassifierStreamParam` (6 个测试) | 覆盖 stream=True/False/None + force_type 组合 |
+
+**配置优先级**:
+1. CLI `--stream` / `--no-stream` (最高优先级, 一次性)
+2. `config/attack_params.yaml` 中 `stream: false` (持久化, 团队共享)
+3. 硬编码 `False` (兜底)
+
+**使用方式**:
+```bash
+# 默认 (非流式, 从 YAML 读取)
+python main.py --target-url https://api.siliconflow.cn/v1/chat/completions
+
+# 强制启用流式
+python main.py --target-url https://api.siliconflow.cn/v1/chat/completions --stream
+
+# 强制禁用流式
+python main.py --target-url https://api.siliconflow.cn/v1/chat/completions --no-stream
+```
+
+**修改 YAML 默认值** (持久化):
+```yaml
+# config/attack_params.yaml
+stream: true  # 改为 true 后所有运行默认使用流式
+```
+
+**测试结果**: ruff All checks passed + 988 passed / 6 skipped / 0 failed (比 v9.1 增加 6 个测试)
+
+### 3.1.4 端到端验证待办 (待用户确认后运行)
 
 以下 7 项需要端到端流水线运行验证，修复后可全部对齐 L5 100%：
 
