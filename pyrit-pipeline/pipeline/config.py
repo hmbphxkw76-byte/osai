@@ -387,6 +387,55 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         ),
     )
 
+    # ── Agent 攻击 (PyRIT 原生框架) ──
+    parser.add_argument(
+        "--xpia-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 XPIA 间接注入攻击 (PyRIT 原生 XPIAWorkflow).\n"
+            "跨域提示词注入测试, 覆盖 ASI01/ASI05.\n"
+            "4 个注入载体: 文档嵌入/工具输出投毒/Web内容注入/元数据注入."
+        ),
+    )
+    parser.add_argument(
+        "--asi03-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 ASI03 身份与授权攻击 (PyRIT 原生 RedTeamingAttack).\n"
+            "3 个场景: 管理员冒充/角色提升/审计绕过."
+        ),
+    )
+    parser.add_argument(
+        "--asi09-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 ASI09 人类信任利用攻击 (PyRIT 原生 CrescendoAttack).\n"
+            "2 个场景: 信任建立后误导/过度依赖利用."
+        ),
+    )
+    parser.add_argument(
+        "--asi10-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 ASI10 Agent 不可追溯性测试 (PyRIT 原生 PromptSendingAttack).\n"
+            "4 个探针: 静默操作/日志篡改/身份混淆/痕迹清除."
+        ),
+    )
+    parser.add_argument(
+        "--multi-agent-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用多 Agent 交互攻击 (PyRIT 原生 SequentialAttack).\n"
+            "3 个 Kill Chain: 跨Agent注入/工具链武器化/信任传播.\n"
+            "覆盖 ASI02/ASI03/ASI05."
+        ),
+    )
+
     # ── 兼容旧参数 (向后兼容, 内部映射到新参数) ──
     parser.add_argument(
         "--web-target-url",

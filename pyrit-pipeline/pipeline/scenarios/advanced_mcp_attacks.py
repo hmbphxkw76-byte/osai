@@ -13,14 +13,19 @@
   13. MCP 递归上下文膨胀 — Context Bomb via MCP (ASI08)
   14. MCP 数据外泄通道 — send_email / HTTP POST exfil (ASI05)
 
-Kill Chain 支持:
+Kill Chain 支持 (PyRIT 原生 SequentialAttack):
+  - 使用原生 SequentialAttack 编排 Kill Chain (替代单次 PromptSendingAttack)
+  - 每个 Kill Chain 步骤作为一个 SequentialChildAttack
+  - SequenceCompletionPolicy.FIRST_SUCCESS 控制执行流程
+  - 原生 Memory 跨步骤对话历史持久化
   - ASI01 → ASI02 → ASI07 → ASI08 完整链
   - 自动化阶段记录和 AI-VSS 评分
 
 设计原则 (R-022: PyRIT 原生优先):
-  - 使用 PyRIT 原生 PromptSendingAttack 作为执行引擎
+  - 探针: 使用 PyRIT 原生 PromptSendingAttack
+  - Kill Chain: 使用 PyRIT 原生 SequentialAttack (替代单次调用)
   - AI-VSS 评分为数据层, 不修改原生 Scorer
-  - Kill Chain 编排为选择层, 不修改 Scenario 生命周期
+  - 框架映射为纯数据层, 不修改原生 Scenario
 
 学术依据:
   - Greshake et al. (arXiv:2302.12173): 间接注入
@@ -29,7 +34,7 @@ Kill Chain 支持:
   - Tahvidou-Zadeh et al. (arXiv:2402.12109): Crescendo
   - OWASP Agentic Top 10 (2025)
 
-> **日期**: 2026-8-4
+> **日期**: 2026-8-4 | **更新**: 2026-8-5 (R-022 原生 SequentialAttack)
 """
 
 from __future__ import annotations
@@ -384,15 +389,15 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
     print("=" * 70)
 
     from pyrit.executor.attack import PromptSendingAttack
-    from pyrit.registry import TargetRegistry
 
-    registry = TargetRegistry.get_registry_singleton()
-    target_entries = registry.instances.get_all_instances()
-    if not target_entries:
+    from pipeline.stages.stage_scenario import _get_attack_targets
+
+    _obj_target, _adv_target, _score_target = _get_attack_targets()
+    if not _obj_target:
         print("  [错误] 未找到已注册的 Target")
         return AdvancedMCPAttackReport()
 
-    target = target_entries[0].instance
+    target = _obj_target
     scorer = AIVSSScorer()
     mapper = FrameworkMapper()
 
@@ -477,14 +482,33 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
                 owasp_codes=[c.value for c in owasp_codes],
             ))
 
-    # ── 执行 Kill Chain 攻击 ──
-    print(f"\n  Kill Chain 数量: {len(_KILL_CHAINS)}")
+    # ── 执行 Kill Chain 攻击 (PyRIT 原生 SequentialAttack) ──
+    print(f"\n  Kill Chain 数量: {len(_KILL_CHAINS)} (原生 SequentialAttack)")
     for i, kc_def in enumerate(_KILL_CHAINS, 1):
         print(f"\n  [Kill Chain {i}/{len(_KILL_CHAINS)}] {kc_def['name']}...")
 
         try:
-            attack = PromptSendingAttack(objective_target=target)
-            result = await attack.execute_async(objective=kc_def["payload"])
+            # 使用原生 SequentialAttack 编排 Kill Chain
+            # 每个 chain_step 作为一个 SequentialChildAttack
+            from pyrit.executor.attack import (
+                PromptSendingAttack as _PSA,
+            )
+            from pyrit.executor.attack import (
+                SequenceCompletionPolicy,
+                SequentialAttack,
+            )
+
+            child_attacks = [
+                _PSA(objective_target=target)
+                for _ in kc_def["chain_steps"]
+            ]
+
+            sequential = SequentialAttack(
+                objective_target=target,
+                child_attacks=child_attacks,
+                completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
+            )
+            result = await sequential.execute_async(objective=kc_def["payload"])
             response = _extract_response_text(result)
 
             response_lower = response.lower()

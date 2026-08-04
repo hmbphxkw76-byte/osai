@@ -81,6 +81,44 @@ from pipeline.scenarios import create_scenario
 logger = logging.getLogger(__name__)
 
 
+def _get_attack_targets() -> tuple[Any, Any, Any]:
+    """从 PyRIT 原生 TargetRegistry 获取三角色分离的攻击目标。.
+
+    尝试获取三个独立 Target 实例用于 CrescendoAttack/TAPAttack 的三角色:
+      - objective_target: 目标模型 (被攻击方)
+      - adversarial_chat: 攻击者模型 (生成攻击消息)
+      - scoring_target: 评分模型 (评估结果)
+
+    如果注册表中只有 1 个 Target, 三个角色共享同一实例 (并打印提示)。
+    如果有 2+ 个 Target, 第一个作为 objective_target, 第二个作为 adversarial_chat + scoring_target。
+    如果有 3+ 个 Target, 分别用于三个角色。
+
+    Returns:
+        (objective_target, adversarial_chat, scoring_target) — 全部为 PyRIT 原生 PromptTarget。
+        若无 Target, 返回 (None, None, None)。
+    """
+    try:
+        _reg = TargetRegistry.get_registry_singleton()
+        _entries = _reg.instances.get_all_instances()
+        if not _entries:
+            return None, None, None
+
+        targets = [e.instance for e in _entries]
+
+        if len(targets) >= 3:
+            return targets[0], targets[1], targets[2]
+        elif len(targets) == 2:
+            # 第一个做目标, 第二个做攻击者+评分者
+            return targets[0], targets[1], targets[1]
+        else:
+            # 只有 1 个, 三角色共享
+            print("  [提示] 仅 1 个 Target 可用, 攻击者/评分者使用同一模型")
+            return targets[0], targets[0], targets[0]
+    except Exception as e:
+        logger.warning(f"Failed to get attack targets from registry: {e}")
+        return None, None, None
+
+
 async def run(ctx: PipelineContext) -> None:
     """执行 Stage 2/6: ASR 驱动的场景配置。."""
     print("\n" + "=" * 70)
@@ -129,51 +167,44 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] 高级 MCP 攻击场景跳过: {e}")
 
-    # ── Crescendo 多轮渐进式攻击 ──
+    # ── Crescendo 多轮渐进式攻击 (PyRIT 原生 CrescendoAttack) ──
     crescendo_obj = getattr(args, "crescendo_objective", None)
     if crescendo_obj:
         try:
-            from pyrit.registry import TargetRegistry as _TR
-
             from pipeline.orchestrators.advanced_crescendo import AdvancedCrescendoOrchestrator
 
-            _reg = _TR.get_registry_singleton()
-            _entries = _reg.instances.get_all_instances()
-            if _entries:
-                _target = _entries[0].instance
+            _obj_target, _adv_target, _score_target = _get_attack_targets()
+            if _obj_target:
                 _max_turns = getattr(args, "crescendo_max_turns", 10)
                 orchestrator = AdvancedCrescendoOrchestrator(
-                    objective_target=_target,
-                    adversarial_chat=_target,
-                    scoring_target=_target,
+                    objective_target=_obj_target,
+                    adversarial_chat=_adv_target,
+                    scoring_target=_score_target,
                     objective=crescendo_obj,
                     max_turns=_max_turns,
                 )
                 cres_result = await orchestrator.run_async()
                 ctx.metadata["crescendo_result"] = cres_result.to_dict()
-                print(f"  Crescendo: achieved={cres_result.achieved}, "
-                      f"turn={cres_result.winning_turn}/{cres_result.max_turns}")
+                print(f"  Crescendo (原生): achieved={cres_result.achieved}, "
+                      f"turn={cres_result.winning_turn}/{cres_result.max_turns}, "
+                      f"backtracks={cres_result.backtrack_count}")
             else:
                 print("  [提示] Crescendo 跳过: 未找到已注册的 Target")
         except Exception as e:
             print(f"  [提示] Crescendo 攻击跳过: {e}")
 
-    # ── TAP 树状攻击路径 ──
+    # ── TAP 树状攻击路径 (PyRIT 原生 TAPAttack) ──
     tap_obj = getattr(args, "tap_objective", None)
     if tap_obj:
         try:
-            from pyrit.registry import TargetRegistry as _TR2
-
             from pipeline.orchestrators.tap_orchestrator import TAPOrchestrator
 
-            _reg2 = _TR2.get_registry_singleton()
-            _entries2 = _reg2.instances.get_all_instances()
-            if _entries2:
-                _target2 = _entries2[0].instance
+            _obj_target, _adv_target, _score_target = _get_attack_targets()
+            if _obj_target:
                 orchestrator = TAPOrchestrator(
-                    objective_target=_target2,
-                    adversarial_chat=_target2,
-                    scoring_target=_target2,
+                    objective_target=_obj_target,
+                    adversarial_chat=_adv_target,
+                    scoring_target=_score_target,
                     objective=tap_obj,
                     tree_width=getattr(args, "tap_tree_width", 4),
                     tree_depth=getattr(args, "tap_tree_depth", 3),
@@ -182,12 +213,64 @@ async def run(ctx: PipelineContext) -> None:
                 )
                 tap_result = await orchestrator.run_async()
                 ctx.metadata["tap_result"] = tap_result.to_dict()
-                print(f"  TAP: achieved={tap_result.achieved}, "
-                      f"best_score={tap_result.best_score}")
+                print(f"  TAP (原生): achieved={tap_result.achieved}, "
+                      f"best_score={tap_result.best_score}, "
+                      f"nodes_explored={tap_result.nodes_explored}, "
+                      f"nodes_pruned={tap_result.nodes_pruned}")
             else:
                 print("  [提示] TAP 跳过: 未找到已注册的 Target")
         except Exception as e:
             print(f"  [提示] TAP 攻击跳过: {e}")
+
+    # ── XPIA 间接注入攻击 (PyRIT 原生 XPIAWorkflow) ──
+    if getattr(args, "xpia_attack", False):
+        try:
+            from pipeline.scenarios.xpia_agent_attack import run_xpia_agent_attack
+
+            xpia_result = await run_xpia_agent_attack(ctx)
+            ctx.metadata["xpia_result"] = xpia_result
+        except Exception as e:
+            print(f"  [提示] XPIA 攻击跳过: {e}")
+
+    # ── ASI03 身份与授权攻击 (PyRIT 原生 RedTeamingAttack) ──
+    if getattr(args, "asi03_attack", False):
+        try:
+            from pipeline.scenarios.identity_authorization_attack import run_identity_authorization_attack
+
+            asi03_result = await run_identity_authorization_attack(ctx)
+            ctx.metadata["asi03_result"] = asi03_result
+        except Exception as e:
+            print(f"  [提示] ASI03 攻击跳过: {e}")
+
+    # ── ASI09 人类信任利用 (PyRIT 原生 CrescendoAttack) ──
+    if getattr(args, "asi09_attack", False):
+        try:
+            from pipeline.scenarios.human_trust_exploitation import run_human_trust_exploitation
+
+            asi09_result = await run_human_trust_exploitation(ctx)
+            ctx.metadata["asi09_result"] = asi09_result
+        except Exception as e:
+            print(f"  [提示] ASI09 攻击跳过: {e}")
+
+    # ── ASI10 Agent 不可追溯性 (PyRIT 原生 PromptSendingAttack) ──
+    if getattr(args, "asi10_attack", False):
+        try:
+            from pipeline.scenarios.agent_untraceability import run_agent_untraceability
+
+            asi10_result = await run_agent_untraceability(ctx)
+            ctx.metadata["asi10_result"] = asi10_result
+        except Exception as e:
+            print(f"  [提示] ASI10 攻击跳过: {e}")
+
+    # ── 多 Agent 交互攻击 (PyRIT 原生 PromptSendingAttack + SequentialAttack) ──
+    if getattr(args, "multi_agent_attack", False):
+        try:
+            from pipeline.scenarios.multi_agent_attack import run_multi_agent_attack
+
+            ma_result = await run_multi_agent_attack(ctx)
+            ctx.metadata["multi_agent_result"] = ma_result
+        except Exception as e:
+            print(f"  [提示] 多 Agent 攻击跳过: {e}")
 
     # ── 三框架评估 (CSA + OWASP + MITRE ATLAS) ──
     if getattr(args, "assessment_framework", False):
@@ -214,6 +297,36 @@ async def run(ctx: PipelineContext) -> None:
                         f"Advanced MCP attack covers {code.value}",
                         owasp_code=code,
                     )
+            if getattr(args, "xpia_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.AUTOMATED_SCAN,
+                    "XPIA indirect injection attack executed",
+                    owasp_code=OWASPAgenticCode.ASI01,
+                )
+            if getattr(args, "asi03_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.AUTOMATED_SCAN,
+                    "Identity & authorization attack executed",
+                    owasp_code=OWASPAgenticCode.ASI03,
+                )
+            if getattr(args, "asi09_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.DEEP_EXPLOITATION,
+                    "Human trust exploitation attack executed",
+                    owasp_code=OWASPAgenticCode.ASI09,
+                )
+            if getattr(args, "asi10_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.DEEP_EXPLOITATION,
+                    "Agent untraceability attack executed",
+                    owasp_code=OWASPAgenticCode.ASI10,
+                )
+            if getattr(args, "multi_agent_attack", False):
+                methodology.add_finding(
+                    AssessmentPhase.DEEP_EXPLOITATION,
+                    "Multi-agent interaction attack executed",
+                    owasp_code=OWASPAgenticCode.ASI02,
+                )
 
             methodology.complete_phase(AssessmentPhase.SCOPING, duration_minutes=5)
             methodology.complete_phase(AssessmentPhase.ENUMERATION, duration_minutes=10)
@@ -231,6 +344,128 @@ async def run(ctx: PipelineContext) -> None:
                   f"ATLAS {result.coverage.atlas_coverage_count} techniques")
         except Exception as e:
             print(f"  [提示] 三框架评估跳过: {e}")
+
+    # ── AI-VSS 漏洞评分 (桥接 PyRIT 原生 Scorer 结果) ──
+    # 纯数据层增强 (R-022): 消费原生 Score → 推断修饰符 → 生成 AI-VSS 评分
+    ai_vss_scores: list[dict[str, Any]] = []
+    try:
+        from pipeline.scoring.ai_vss_bridge import AIVSSBridge
+
+        bridge = AIVSSBridge()
+
+        # Crescendo 攻击结果 → AI-VSS
+        cres_data = ctx.metadata.get("crescendo_result")
+        if cres_data and isinstance(cres_data, dict):
+            augmented = bridge.augment_score(
+                score_value=str(cres_data.get("achieved", False)),
+                score_type="true_false",
+                attack_type="crescendo",
+                owasp_codes=["ASI01"],
+                objective=cres_data.get("objective", ""),
+            )
+            ai_vss_scores.append(augmented.to_dict())
+
+        # TAP 攻击结果 → AI-VSS
+        tap_data = ctx.metadata.get("tap_result")
+        if tap_data and isinstance(tap_data, dict):
+            augmented = bridge.augment_score(
+                score_value=str(tap_data.get("achieved", False)),
+                score_type="true_false",
+                attack_type="tap",
+                owasp_codes=["ASI01"],
+                objective=tap_data.get("objective", ""),
+            )
+            ai_vss_scores.append(augmented.to_dict())
+
+        # 高级 MCP 攻击结果 → AI-VSS
+        adv_mcp_data = ctx.metadata.get("advanced_mcp_attack_report")
+        if adv_mcp_data and isinstance(adv_mcp_data, dict):
+            for probe in adv_mcp_data.get("probes", []):
+                augmented = bridge.augment_score(
+                    score_value=str(probe.get("success", False)),
+                    score_type="true_false",
+                    attack_type=probe.get("name", "mcp_injection"),
+                    owasp_codes=probe.get("owasp_codes", []),
+                    objective=probe.get("description", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # XPIA 攻击结果 → AI-VSS
+        xpia_data = ctx.metadata.get("xpia_result")
+        if xpia_data and isinstance(xpia_data, dict):
+            for vector in xpia_data.get("injection_vectors", []):
+                augmented = bridge.augment_score(
+                    score_value=str(vector.get("success", False)),
+                    score_type="true_false",
+                    attack_type="xpia",
+                    owasp_codes=vector.get("owasp_codes", ["ASI01"]),
+                    objective=vector.get("description", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # ASI03 攻击结果 → AI-VSS
+        asi03_data = ctx.metadata.get("asi03_result")
+        if asi03_data and isinstance(asi03_data, dict):
+            for scenario in asi03_data.get("scenarios", []):
+                augmented = bridge.augment_score(
+                    score_value=str(scenario.get("success", False)),
+                    score_type="true_false",
+                    attack_type="identity_authorization",
+                    owasp_codes=["ASI03"],
+                    objective=scenario.get("objective", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # ASI09 攻击结果 → AI-VSS
+        asi09_data = ctx.metadata.get("asi09_result")
+        if asi09_data and isinstance(asi09_data, dict):
+            for scenario in asi09_data.get("scenarios", []):
+                augmented = bridge.augment_score(
+                    score_value=str(scenario.get("success", False)),
+                    score_type="true_false",
+                    attack_type="human_trust_exploitation",
+                    owasp_codes=["ASI09"],
+                    objective=scenario.get("objective", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # ASI10 攻击结果 → AI-VSS
+        asi10_data = ctx.metadata.get("asi10_result")
+        if asi10_data and isinstance(asi10_data, dict):
+            for probe in asi10_data.get("probes", []):
+                augmented = bridge.augment_score(
+                    score_value=str(probe.get("success", False)),
+                    score_type="true_false",
+                    attack_type="agent_untraceability",
+                    owasp_codes=["ASI10"],
+                    objective=probe.get("description", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # 多 Agent 攻击结果 → AI-VSS
+        ma_data = ctx.metadata.get("multi_agent_result")
+        if ma_data and isinstance(ma_data, dict):
+            for chain in ma_data.get("chains", []):
+                augmented = bridge.augment_score(
+                    score_value=str(chain.get("success", False)),
+                    score_type="true_false",
+                    attack_type="multi_agent_chain",
+                    owasp_codes=chain.get("owasp_codes", ["ASI02"]),
+                    objective=chain.get("description", ""),
+                )
+                ai_vss_scores.append(augmented.to_dict())
+
+        # 生成汇总并存储
+        if ai_vss_scores:
+            augmented_list = bridge.augment_scores_batch(score_results=ai_vss_scores)
+            summary = bridge.generate_summary(augmented_list)
+            ctx.metadata["ai_vss_scores"] = ai_vss_scores
+            ctx.metadata["ai_vss_summary"] = summary
+            print(f"  AI-VSS 漏洞评分: {summary['successful_attacks']}/{summary['total_attacks']} "
+                  f"成功, 均值 {summary['avg_ai_vss_score']:.1f}, "
+                  f"最高 {summary['max_ai_vss_score']:.1f}")
+    except Exception as e:
+        print(f"  [提示] AI-VSS 评分跳过: {e}")
 
     sorted_datasets = sort_datasets_by_asr(args.datasets, asr_by_category=asr_by_category)
     if sorted_datasets != args.datasets:

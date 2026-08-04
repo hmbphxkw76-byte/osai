@@ -112,9 +112,9 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # pipeline 代码: 保留 ANN 但豁免 D100 (模块 docstring) 和 D104 (包 docstring)
-"pipeline/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401"]
+"pipeline/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401", "D415"]
 # web_redteam 代码: 同上 + ANN401 (动态类型) + E402 (playwright 导入模式)
-"web_redteam/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401", "E402"]
+"web_redteam/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401", "E402", "D415"]
 # scripts 代码: 放宽 (验证脚本, 导入分散在代码中)
 "scripts/**/*.py" = ["D100", "D104", "ANN", "E402"]
 # 测试代码: 豁免 docstring 风格、类型注解

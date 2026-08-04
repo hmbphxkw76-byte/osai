@@ -876,26 +876,15 @@ def _print_successful_attack_details(
 def _extract_payload_from_result(ar: Any) -> str:
     """从 AttackResult 中提取原始载荷文本 (多路径回退).
 
-    回退顺序 (R-010: PyRIT 原生字段优先):
-      1. ar.conversation.messages — 第一条 user 消息 (PyRIT 原生 Conversation)
-      2. ar.objective — 攻击目标描述 (PyRIT 原生字段)
-      3. ar.metadata.get("seed_prompt") — 元数据中的种子提示
-      4. ar.metadata.get("original_prompt") — 元数据中的原始载荷
-    """
-    # 路径 1: PyRIT 原生 conversation (最准确)
-    try:
-        if hasattr(ar, "conversation") and ar.conversation:
-            messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
-            for msg in messages:
-                role = getattr(msg, "role", "") or ""
-                if role == "user":
-                    content = getattr(msg, "content", "") or getattr(msg, "original_value", "")
-                    if content:
-                        return str(content)
-    except Exception:
-        pass
+    回退顺序 (R-022 PyRIT 原生优先):
+      1. ar.objective — PyRIT 1.0.1 原生字段 (所有数据集 seed_type=objective)
+      2. ar.metadata — 元数据中的 seed_prompt / original_prompt
+      3. ar.last_response — 最后响应的 original_value (回退)
 
-    # 路径 2: PyRIT 原生 objective 字段
+    注意: PyRIT 1.0.1 的 AttackResult 没有 conversation 属性 (仅有 conversation_id),
+    对话消息需通过 CentralMemory.get_messages() 查询, 此处不做额外查询。
+    """
+    # 路径 1: PyRIT 1.0.1 原生 objective 字段
     try:
         objective = getattr(ar, "objective", None)
         if objective and isinstance(objective, str) and len(objective) > 5:
@@ -903,13 +892,13 @@ def _extract_payload_from_result(ar: Any) -> str:
     except Exception:
         pass
 
-    # 路径 3: PyRIT 原生 metadata 字典
+    # 路径 2: PyRIT 原生 metadata 字典
     try:
         metadata = getattr(ar, "metadata", None) or {}
         if isinstance(metadata, dict):
             for key in ("seed_prompt", "original_prompt", "prompt", "payload"):
                 val = metadata.get(key)
-                if val and isinstance(val, str):
+                if val and isinstance(val, str) and len(val) > 5:
                     return val
     except Exception:
         pass
@@ -920,26 +909,13 @@ def _extract_payload_from_result(ar: Any) -> str:
 def _extract_converter_names_from_result(ar: Any) -> list[str]:
     """从 AttackResult 中提取 Converter 名称 (多路径回退).
 
-    回退顺序 (R-010: PyRIT 原生字段优先):
-      1. ar.conversation.labels — PyRIT 原生会话标签
-      2. ar.labels — PyRIT 原生 AttackResult 标签
-      3. ar.metadata.get("converters") — 元数据中的 Converter 列表
-    """
-    # 路径 1: PyRIT 原生 conversation labels
-    try:
-        if hasattr(ar, "conversation") and ar.conversation:
-            labels = getattr(ar.conversation, "labels", None) or {}
-            conv_names: list[str] = []
-            if isinstance(labels, dict):
-                for label_value in labels.values():
-                    if isinstance(label_value, str) and "converter" in label_value.lower():
-                        conv_names.append(label_value)
-            if conv_names:
-                return conv_names
-    except Exception:
-        pass
+    回退顺序 (R-022 PyRIT 原生优先):
+      1. ar.labels — PyRIT 1.0.1 原生 AttackResult 标签
+      2. ar.metadata — 元数据中的 converters / converter_chain
 
-    # 路径 2: PyRIT 原生 AttackResult labels
+    注意: PyRIT 1.0.1 的 AttackResult 没有 conversation 属性 (仅有 conversation_id)。
+    """
+    # 路径 1: PyRIT 1.0.1 原生 AttackResult labels
     try:
         ar_labels = getattr(ar, "labels", None) or {}
         if isinstance(ar_labels, dict):
@@ -952,7 +928,7 @@ def _extract_converter_names_from_result(ar: Any) -> list[str]:
     except Exception:
         pass
 
-    # 路径 3: PyRIT 原生 metadata
+    # 路径 2: PyRIT 原生 metadata
     try:
         metadata = getattr(ar, "metadata", None) or {}
         if isinstance(metadata, dict):
@@ -968,25 +944,14 @@ def _extract_converter_names_from_result(ar: Any) -> list[str]:
 def _extract_response_from_result(ar: Any) -> str:
     """从 AttackResult 中提取目标响应摘要 (多路径回退).
 
-    回退顺序 (R-010: PyRIT 原生字段优先):
-      1. ar.conversation.messages — 最后一条 assistant 消息
-      2. ar.last_response — PyRIT 原生 last_response 字段 (MessagePiece)
-      3. ar.outcome_reason — PyRIT 原生结果原因
-    """
-    # 路径 1: PyRIT 原生 conversation
-    try:
-        if hasattr(ar, "conversation") and ar.conversation:
-            messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
-            for msg in reversed(messages):
-                role = getattr(msg, "role", "") or ""
-                if role == "assistant":
-                    content = getattr(msg, "content", "") or getattr(msg, "original_value", "")
-                    if content:
-                        return str(content)
-    except Exception:
-        pass
+    回退顺序 (R-022 PyRIT 原生优先):
+      1. ar.last_response — PyRIT 1.0.1 原生 last_response 字段 (MessagePiece)
+      2. ar.outcome_reason — PyRIT 1.0.1 原生结果原因
 
-    # 路径 2: PyRIT 原生 last_response 字段
+    注意: PyRIT 1.0.1 的 AttackResult 没有 conversation 属性 (仅有 conversation_id),
+    对话消息需通过 CentralMemory.get_messages() 查询, 此处不做额外查询。
+    """
+    # 路径 1: PyRIT 1.0.1 原生 last_response 字段
     try:
         last_resp = getattr(ar, "last_response", None)
         if last_resp is not None:
@@ -996,7 +961,7 @@ def _extract_response_from_result(ar: Any) -> str:
     except Exception:
         pass
 
-    # 路径 3: PyRIT 原生 outcome_reason
+    # 路径 2: PyRIT 1.0.1 原生 outcome_reason
     try:
         reason = getattr(ar, "outcome_reason", None)
         if reason and isinstance(reason, str) and len(reason) > 10:

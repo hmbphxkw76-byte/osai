@@ -590,12 +590,70 @@ def load_seed_level_asr(model_name: str | None = None) -> dict[str, dict[str, An
         return {}
 
 
+def _extract_seed_text(result: Any, memory: Any) -> str:
+    """从 AttackResult 提取种子文本 (多路径回退, R-022 PyRIT 原生优先).
+
+    回退顺序:
+      1. result.objective — PyRIT 1.0.1 原生字段 (所有数据集 seed_type=objective)
+      2. result.metadata — 元数据中的 seed_prompt / original_prompt
+      3. memory.get_messages(conversation_id) — 从对话历史提取第一条 user 消息
+
+    Args:
+        result: AttackResult 实例.
+        memory: MemoryInterface 实例 (用于查询对话历史).
+
+    Returns:
+        种子文本, 空字符串表示未提取到.
+    """
+    # 路径 1: PyRIT 原生 objective 字段 (所有数据集 seed_type=objective)
+    try:
+        objective = getattr(result, "objective", None)
+        if objective and isinstance(objective, str) and len(objective) > 5:
+            return objective
+    except Exception:
+        pass
+
+    # 路径 2: metadata 中的 seed_prompt / original_prompt
+    try:
+        metadata = getattr(result, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            for key in ("seed_prompt", "original_prompt", "prompt", "payload"):
+                val = metadata.get(key)
+                if val and isinstance(val, str) and len(val) > 5:
+                    return val
+    except Exception:
+        pass
+
+    # 路径 3: 从 CentralMemory 查询对话历史 (最后手段)
+    try:
+        conversation_id = getattr(result, "conversation_id", None)
+        if conversation_id and memory:
+            messages = memory.get_messages(conversation_id=conversation_id)
+            if messages:
+                for msg in messages:
+                    role = getattr(msg, "role", "") or ""
+                    if role == "user":
+                        content = (
+                            getattr(msg, "original_value", None)
+                            or getattr(msg, "converted_value", None)
+                            or getattr(msg, "content", None)
+                            or ""
+                        )
+                        if content and isinstance(content, str) and len(content) > 5:
+                            return content
+    except Exception:
+        pass
+
+    return ""
+
+
 def collect_seed_level_asr_from_memory(
     model_name: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """从 PyRIT CentralMemory 收集种子级 ASR 数据.
 
-    遍历所有 AttackResult, 按 objective (种子 prompt) 分组, 计算每个种子的 ASR.
+    遍历所有 AttackResult, 按 seed_text (种子 prompt) 分组, 计算每个种子的 ASR.
+    使用多路径提取 (R-022 PyRIT 原生优先): objective → metadata → conversation.
 
     Args:
         model_name: 目标模型名 (用于按模型隔离保存).
@@ -604,29 +662,29 @@ def collect_seed_level_asr_from_memory(
         {seed_hash: {asr, successes, total, seed_preview}} 字典.
     """
     try:
-        from pyrit.memory import CentralMemory
-        from pyrit.models import AttackOutcome
-
         memory = CentralMemory.get_memory_instance()
         results = memory.get_attack_results()
     except Exception as e:
         logger.warning(f"Failed to query AttackResults for seed-level ASR: {e}")
         return {}
 
+    logger.info(
+        f"collect_seed_level_asr_from_memory: queried {len(results)} AttackResults "
+        f"from CentralMemory (model={model_name})"
+    )
+
     seed_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"s": 0, "f": 0, "u": 0, "e": 0, "preview": ""})
+    empty_objective_count = 0
 
     for result in results:
-        try:
-            # PyRIT 1.0.1: AttackResult.objective is a direct field
-            objective = result.objective or ""
-        except Exception:
-            objective = ""
+        seed_text = _extract_seed_text(result, memory)
 
-        if not objective:
+        if not seed_text:
+            empty_objective_count += 1
             continue
 
-        seed_hash = hashlib.md5(objective[:200].encode("utf-8")).hexdigest()
-        seed_stats[seed_hash]["preview"] = objective[:100]
+        seed_hash = hashlib.md5(seed_text[:200].encode("utf-8")).hexdigest()
+        seed_stats[seed_hash]["preview"] = seed_text[:100]
 
         outcome = result.outcome
         if outcome == AttackOutcome.SUCCESS:
@@ -657,10 +715,15 @@ def collect_seed_level_asr_from_memory(
 
     if result_asr:
         save_seed_level_asr(result_asr, model_name=model_name)
+        logger.info(
+            f"collect_seed_level_asr_from_memory: saved {len(result_asr)} seeds "
+            f"(from {len(results)} results, {empty_objective_count} empty, model={model_name})"
+        )
     else:
         logger.warning(
             "collect_seed_level_asr_from_memory: result_asr is empty "
-            f"(results={len(results)}, model={model_name}) — no seed_level file written"
+            f"(results={len(results)}, empty_objective={empty_objective_count}, "
+            f"model={model_name}) — no seed_level file written"
         )
 
     return result_asr

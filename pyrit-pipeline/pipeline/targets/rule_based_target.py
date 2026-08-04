@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptTarget
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class RuleBasedTarget:
         user_id: int = _DEFAULT_USER_ID,
         session_id: int | None = None,
         timeout: int = _DEFAULT_TIMEOUT,
-        auth_manager: Any | None = None,
+        auth_headers: dict[str, str] | None = None,
     ) -> None:
         """初始化规则引擎 Target。
 
@@ -114,7 +114,7 @@ class RuleBasedTarget:
             user_id: DonkAI user_id (默认 1=alice)。
             session_id: DonkAI session_id (None=自动创建)。
             timeout: 请求超时 (秒)。
-            auth_manager: 认证管理器实例 (可选, 优先于 username/password)。
+            auth_headers: 认证 headers 字典 (由 APIAuthenticator.get_headers() 生成, 优先于 username/password)。
         """
         self._base_url = base_url.rstrip("/")
         self._username = username
@@ -122,7 +122,7 @@ class RuleBasedTarget:
         self._user_id = user_id
         self._session_id = session_id
         self._timeout = timeout
-        self._auth_manager = auth_manager
+        self._auth_headers = auth_headers or {}
 
         # 会话状态
         self._last_response: RuleBasedResponse | None = None
@@ -237,10 +237,9 @@ class RuleBasedTarget:
         url = self.endpoint
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
-        # HTTP Basic auth
-        if self._auth_manager:
-            auth_headers = self._auth_manager.get_headers()
-            headers.update(auth_headers)
+        # HTTP Basic auth — auth_headers 优先, 其次 username/password
+        if self._auth_headers:
+            headers.update(self._auth_headers)
         elif self._username:
             import base64
 
@@ -259,13 +258,12 @@ class RuleBasedTarget:
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self._timeout)
-            ) as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    data = await resp.json()
-                    response.response = data.get("response", "")
-                    response.session_id = data.get("session_id", 0)
-                    response.tokens_used = data.get("tokens_used", 0)
-                    response.vulnerability_detected = data.get("vulnerability_detected")
+            ) as session, session.post(url, json=payload, headers=headers) as resp:
+                data = await resp.json()
+                response.response = data.get("response", "")
+                response.session_id = data.get("session_id", 0)
+                response.tokens_used = data.get("tokens_used", 0)
+                response.vulnerability_detected = data.get("vulnerability_detected")
 
         except Exception as e:
             logger.error(f"RuleBasedTarget: request failed: {e}")
@@ -295,8 +293,8 @@ class RuleBasedTarget:
         url = f"{self._base_url}/challenges/{challenge_category}/{challenge_id}/validate"
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
-        if self._auth_manager:
-            headers.update(self._auth_manager.get_headers())
+        if self._auth_headers:
+            headers.update(self._auth_headers)
         elif self._username:
             import base64
 
@@ -306,9 +304,11 @@ class RuleBasedTarget:
         payload_dict = {"payload": payload}
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload_dict, headers=headers) as resp:
-                    return await resp.json()
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(url, json=payload_dict, headers=headers) as resp,
+            ):
+                return await resp.json()
         except Exception as e:
             logger.error(f"RuleBasedTarget: validate failed: {e}")
             return {"success": False, "error": str(e)}

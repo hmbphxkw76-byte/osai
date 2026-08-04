@@ -1,17 +1,17 @@
 {
-  "timestamp": "2026-08-04T15:00:42.662960",
+  "timestamp": "2026-08-04T16:28:21.500156",
   "seed_count": 500,
   "steps": {
     "generate": {
-      "duration_seconds": 0.004
+      "duration_seconds": 0.005
     },
     "dedup": {
       "method": "MinHashLSH",
       "total_seeds": 500,
       "unique_after_dedup": 187,
       "duplicates_removed": 313,
-      "duration_seconds": 1.288,
-      "throughput_seeds_per_second": 388.2
+      "duration_seconds": 1.154,
+      "throughput_seeds_per_second": 433.3
     },
     "asr_ranking": {
       "method": "ASR_Ranking",
@@ -27,14 +27,14 @@
         500,
         86
       ],
-      "duration_seconds": 0.168,
-      "throughput_seeds_per_second": 2976.2
+      "duration_seconds": 0.255,
+      "throughput_seeds_per_second": 1960.8
     }
   },
-  "total_duration_seconds": 1.456,
+  "total_duration_seconds": 1.409,
   "validation": {
     "minhash_lsh_under_30s": true,
-    "minhash_lsh_seconds": 1.288,
+    "minhash_lsh_seconds": 1.154,
     "overall_under_60s": true
   }
 }

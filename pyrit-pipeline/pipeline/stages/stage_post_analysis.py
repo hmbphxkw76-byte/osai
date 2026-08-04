@@ -235,8 +235,8 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
             print("  │ 经验写回 Top-3:")
             for tech, asr in top3:
                 print(f"  │   {tech:<35} {asr:.1f}%")
-        except (OSError, ValueError) as e:
-            logger.warning(f"Failed to save empirical ASR: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to save empirical ASR: {e}", exc_info=True)
 
     # P1: 种子级 ASR 收集 (per-seed, 用于精简时按种子排名)
     try:
@@ -245,8 +245,11 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
         seed_asr = collect_seed_level_asr_from_memory(model_name=model_name)
         if seed_asr:
             print(f"  │ 种子级 ASR: {len(seed_asr)} 个种子已收集")
+        else:
+            print("  │ 种子级 ASR: ⚠ 无数据 (详见日志)")
     except Exception as e:
-        logger.warning(f"Failed to collect seed-level ASR: {e}")
+        logger.warning(f"Failed to collect seed-level ASR: {e}", exc_info=True)
+        print("  │ 种子级 ASR: ⚠ 收集失败 (详见日志)")
 
     # G-07: ParadigmTracker 跨运行持久化
     failure_stats = ctx.metadata.get("failure_stats", {})

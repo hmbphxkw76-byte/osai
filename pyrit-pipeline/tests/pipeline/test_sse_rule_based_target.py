@@ -1,15 +1,16 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""SSEChatTarget + RuleBasedTarget + AuthManager 单元测试。.
+"""SSEChatTarget + RuleBasedTarget + APIAuthenticator 单元测试。.
 
 测试覆盖:
   1. SSE 流解析 (meta/content/mcp_result 事件)
   2. SSEChatTarget 属性和方法
   3. RuleBasedTarget 属性和方法
-  4. AuthManager 认证 header 生成
-  5. AuthManager 用户切换
-  6. AuthManager 从环境变量创建
+  4. APIAuthenticator 认证 header 生成
+  5. APIAuthenticator 用户切换
+  6. APIAuthenticator 从环境变量创建
+  7. CredentialStore 凭据管理
 """
 
 from __future__ import annotations
@@ -19,15 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pipeline.integrations.auth_manager import AuthConfig, AuthManager
-from pipeline.targets.rule_based_target import RuleBasedResponse, RuleBasedTarget
+from pipeline.targets.rule_based_target import RuleBasedTarget
 from pipeline.targets.sse_chat_target import (
     SSEChatTarget,
-    SSEMCPResult,
-    SSEMetaEvent,
-    SSEResponse,
 )
-
+from web_redteam.auth.api_auth import APIAuthConfig, APIAuthenticator
+from web_redteam.auth.credential_store import CredentialStore
 
 # ──────────────────────────────────────────────────────────────────
 # SSE 流解析测试
@@ -147,6 +145,19 @@ class TestSSEChatTargetProperties:
         target._max_requests_per_minute = 60
         assert target._max_requests_per_minute == 60
 
+    def test_auth_headers_injection(self) -> None:
+        """认证 headers 注入。"""
+        auth = APIAuthenticator.for_donkai("alice")
+        target = SSEChatTarget(
+            base_url="http://localhost:8000",
+            lab_id="PI_01",
+            auth_headers=auth.get_headers(),
+            auth_cookies=auth.get_cookies(),
+        )
+        # DonkAI is basic auth, so cookies should be empty
+        assert target._auth_headers.get("Authorization", "").startswith("Basic ")
+        assert target._auth_cookies == {}
+
     @pytest.mark.asyncio
     async def test_validate_secret_async(self) -> None:
         """Secret 验证 (mock)。"""
@@ -195,6 +206,16 @@ class TestRuleBasedTargetProperties:
         target._max_requests_per_minute = 30
         assert target._max_requests_per_minute == 30
 
+    def test_auth_headers_injection(self) -> None:
+        """认证 headers 注入。"""
+        auth = APIAuthenticator.for_donkai("admin")
+        target = RuleBasedTarget(
+            base_url="http://localhost:8000",
+            auth_headers=auth.get_headers(),
+        )
+        assert "Authorization" in target._auth_headers
+        assert target._auth_headers.get("X-User-ID") == "3"
+
     @pytest.mark.asyncio
     async def test_send_prompt_async_mock(self) -> None:
         """send_prompt_async (mock)。"""
@@ -218,7 +239,7 @@ class TestRuleBasedTargetProperties:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await target.send_prompt_async(prompt="What is the capital of Italy?")
+            await target.send_prompt_async(prompt="What is the capital of Italy?")
             assert target.last_response is not None
             assert target.last_response.response == "Rome is the capital of Italy."
             assert target.last_response.session_id == 1
@@ -226,132 +247,132 @@ class TestRuleBasedTargetProperties:
 
 
 # ──────────────────────────────────────────────────────────────────
-# AuthManager 测试
+# APIAuthenticator 测试
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestAuthManager:
-    """AuthManager 测试。"""
+class TestAPIAuthenticator:
+    """APIAuthenticator 测试。"""
 
     def test_basic_auth_headers(self) -> None:
         """Basic auth header 生成。"""
         import base64
 
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="basic",
             username="alice",
             password="password123",
         ))
-        headers = manager.get_headers()
+        headers = auth.get_headers()
         assert "Authorization" in headers
         expected = base64.b64encode(b"alice:password123").decode()
         assert headers["Authorization"] == f"Basic {expected}"
-        assert manager.is_authenticated
+        assert auth.is_authenticated
 
     def test_bearer_auth_headers(self) -> None:
         """Bearer token header 生成。"""
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="bearer",
             token="my-jwt-token",
         ))
-        headers = manager.get_headers()
+        headers = auth.get_headers()
         assert headers["Authorization"] == "Bearer my-jwt-token"
 
     def test_cookie_auth_headers(self) -> None:
         """Cookie header 生成。"""
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="cookie",
             cookie_name="aivp_sid",
             cookie_value="abc123",
         ))
-        headers = manager.get_headers()
+        headers = auth.get_headers()
         assert headers["Cookie"] == "aivp_sid=abc123"
 
     def test_cookie_auth_cookies(self) -> None:
         """Cookie 字典生成。"""
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="cookie",
             cookie_name="aivp_sid",
             cookie_value="abc123",
         ))
-        cookies = manager.get_cookies()
+        cookies = auth.get_cookies()
         assert cookies == {"aivp_sid": "abc123"}
 
     def test_none_auth_empty_headers(self) -> None:
         """无认证时空 headers。"""
-        manager = AuthManager(AuthConfig(auth_type="none"))
-        headers = manager.get_headers()
+        auth = APIAuthenticator(APIAuthConfig(auth_type="none"))
+        headers = auth.get_headers()
         assert headers == {}
-        assert not manager.is_authenticated
+        assert not auth.is_authenticated
 
     def test_extra_headers(self) -> None:
         """额外 headers。"""
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="basic",
             username="admin",
             password="admin123",
             extra_headers={"X-Custom": "value"},
         ))
-        headers = manager.get_headers()
+        headers = auth.get_headers()
         assert headers["X-Custom"] == "value"
         assert "Authorization" in headers
 
     def test_set_cookie(self) -> None:
         """设置 cookie。"""
-        manager = AuthManager(AuthConfig(auth_type="none"))
-        manager.set_cookie("aivp_sid", "new-session-456")
-        assert manager.config.auth_type == "cookie"
-        assert manager.config.cookie_name == "aivp_sid"
-        assert manager.config.cookie_value == "new-session-456"
-        assert manager.is_authenticated
+        auth = APIAuthenticator(APIAuthConfig(auth_type="none"))
+        auth.set_cookie("aivp_sid", "new-session-456")
+        assert auth.config.auth_type == "cookie"
+        assert auth.config.cookie_name == "aivp_sid"
+        assert auth.config.cookie_value == "new-session-456"
+        assert auth.is_authenticated
 
     def test_switch_user(self) -> None:
         """切换用户。"""
-        manager = AuthManager(AuthConfig(
+        auth = APIAuthenticator(APIAuthConfig(
             auth_type="basic",
             username="alice",
             password="password123",
         ))
-        manager.switch_user("admin", "admin123", user_id=3)
-        assert manager.config.username == "admin"
-        assert manager.config.password == "admin123"
-        assert manager.config.extra_headers is not None
-        assert manager.config.extra_headers["X-User-ID"] == "3"
+        auth.switch_user("admin", "admin123", user_id=3)
+        assert auth.config.username == "admin"
+        assert auth.config.password == "admin123"
+        assert auth.config.extra_headers is not None
+        assert auth.config.extra_headers["X-User-ID"] == "3"
 
     def test_switch_to_donkai_user(self) -> None:
         """切换到预定义 DonkAI 用户。"""
-        manager = AuthManager()
-        user, pwd, uid = manager.switch_to_donkai_user("admin")
+        auth = APIAuthenticator()
+        user, pwd, uid = auth.switch_to_donkai_user("admin")
         assert user == "admin"
         assert pwd == "admin123"
         assert uid == 3
-        assert manager.is_authenticated
+        assert auth.is_authenticated
 
     def test_switch_to_donkai_user_invalid(self) -> None:
         """无效用户名报错。"""
-        manager = AuthManager()
+        auth = APIAuthenticator()
         with pytest.raises(ValueError, match="Unknown DonkAI user"):
-            manager.switch_to_donkai_user("hacker")
+            auth.switch_to_donkai_user("hacker")
 
     def test_for_aivp(self) -> None:
-        """AIVP 认证管理器。"""
-        manager = AuthManager.for_aivp("http://localhost:8000")
-        assert manager.config.auth_type == "cookie"
-        assert manager.config.cookie_name == "aivp_sid"
+        """AIVP 认证器。"""
+        auth = APIAuthenticator.for_aivp("http://localhost:8000")
+        assert auth.config.auth_type == "cookie"
+        assert auth.config.cookie_name == "aivp_sid"
 
     def test_for_donkai(self) -> None:
-        """DonkAI 认证管理器。"""
-        manager = AuthManager.for_donkai("alice")
-        assert manager.config.auth_type == "basic"
-        assert manager.config.username == "alice"
-        assert manager.config.password == "password123"
-        assert manager.is_authenticated
+        """DonkAI 认证器。"""
+        auth = APIAuthenticator.for_donkai("alice")
+        assert auth.config.auth_type == "basic"
+        assert auth.config.username == "alice"
+        assert auth.config.password == "password123"
+        assert auth.is_authenticated
 
     def test_for_donkai_admin(self) -> None:
         """DonkAI admin 用户。"""
-        manager = AuthManager.for_donkai("admin")
-        assert manager.config.username == "admin"
-        assert manager.config.password == "admin123"
+        auth = APIAuthenticator.for_donkai("admin")
+        assert auth.config.username == "admin"
+        assert auth.config.password == "admin123"
 
     def test_from_env(self) -> None:
         """从环境变量创建。"""
@@ -360,7 +381,76 @@ class TestAuthManager:
             "TARGET_USERNAME": "testuser",
             "TARGET_PASSWORD": "testpass",
         }):
-            manager = AuthManager.from_env()
-            assert manager.config.auth_type == "basic"
-            assert manager.config.username == "testuser"
-            assert manager.config.password == "testpass"
+            auth = APIAuthenticator.from_env()
+            assert auth.config.auth_type == "basic"
+            assert auth.config.username == "testuser"
+            assert auth.config.password == "testpass"
+
+    def test_from_env_auto_bearer(self) -> None:
+        """API_KEY 存在时自动切换 bearer。"""
+        with patch.dict("os.environ", {
+            "TARGET_AUTH_TYPE": "none",
+            "API_KEY": "sk-test123",
+        }):
+            auth = APIAuthenticator.from_env()
+            assert auth.config.auth_type == "bearer"
+            assert auth.config.token == "sk-test123"
+
+
+# ──────────────────────────────────────────────────────────────────
+# CredentialStore 测试
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestCredentialStore:
+    """CredentialStore 测试。"""
+
+    def test_get_donkai_user(self) -> None:
+        """获取 DonkAI 用户。"""
+        user = CredentialStore.get_donkai_user("alice")
+        assert user.username == "alice"
+        assert user.password == "password123"
+        assert user.user_id == 1
+
+    def test_get_donkai_user_admin(self) -> None:
+        """获取 admin 用户。"""
+        user = CredentialStore.get_donkai_user("admin")
+        assert user.username == "admin"
+        assert user.user_id == 3
+
+    def test_get_donkai_user_invalid(self) -> None:
+        """无效用户名报错。"""
+        with pytest.raises(ValueError, match="Unknown DonkAI user"):
+            CredentialStore.get_donkai_user("hacker")
+
+    def test_get_donkai_user_env_override(self) -> None:
+        """环境变量覆盖密码。"""
+        with patch.dict("os.environ", {"DONKAI_ALICE_PASSWORD": "newpass"}):
+            user = CredentialStore.get_donkai_user("alice")
+            assert user.password == "newpass"
+
+    def test_get_credential(self) -> None:
+        """获取环境变量凭据。"""
+        with patch.dict("os.environ", {"MY_API_KEY": "sk-xxx"}):
+            assert CredentialStore.get_credential("MY_API_KEY") == "sk-xxx"
+
+    def test_get_credential_default(self) -> None:
+        """默认值。"""
+        assert CredentialStore.get_credential("NONEXISTENT", "fallback") == "fallback"
+
+    def test_get_required_credential_missing(self) -> None:
+        """必需凭据缺失报错。"""
+        with pytest.raises(ValueError, match="Required credential"):
+            CredentialStore.get_required_credential("DEFINITELY_NOT_SET_12345")
+
+    def test_load_from_env_prefix(self) -> None:
+        """前缀过滤。"""
+        with patch.dict("os.environ", {
+            "DONKAI_USER": "alice",
+            "DONKAI_PASS": "secret",
+            "OTHER_VAR": "ignore",
+        }):
+            result = CredentialStore.load_from_env("DONKAI_")
+            assert "user" in result
+            assert "pass" in result
+            assert "other_var" not in result

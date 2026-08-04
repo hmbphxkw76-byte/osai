@@ -177,6 +177,7 @@ class AIVSSScorer:
         severity: str = "medium",
         has_cascading: bool = False,
         has_persistence: bool = False,
+        has_non_determinism: bool = False,
         has_stealth: bool = False,
         has_tool_scope: bool = False,
         has_human_trust: bool = False,
@@ -191,6 +192,7 @@ class AIVSSScorer:
             severity: 原始严重程度 (critical/high/medium/low)。
             has_cascading: 是否有级联影响。
             has_persistence: 是否持久化。
+            has_non_determinism: 是否有非确定性 (成功率不稳定)。
             has_stealth: 是否隐蔽。
             has_tool_scope: 是否涉及工具范围放大。
             has_human_trust: 是否利用人类信任。
@@ -220,6 +222,8 @@ class AIVSSScorer:
             modifiers.append(AIVSSModifier.CASCADING)
         if has_persistence:
             modifiers.append(AIVSSModifier.PERSISTENCE)
+        if has_non_determinism:
+            modifiers.append(AIVSSModifier.NON_DETERMINISM)
         if has_stealth:
             modifiers.append(AIVSSModifier.STEALTH)
         if has_tool_scope:

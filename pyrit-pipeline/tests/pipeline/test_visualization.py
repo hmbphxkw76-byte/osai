@@ -185,33 +185,20 @@ class Test5LayerDecisionPipeline:
 class TestExtractPayloadFromResult:
     """载荷提取多路径回退测试。."""
 
-    def test_path1_conversation_messages(self) -> None:
-        """路径 1: 从 conversation.messages 提取。."""
-        from pipeline.stages.stage_execute import _extract_payload_from_result
-
-        mock_msg = MagicMock()
-        mock_msg.role = "user"
-        mock_msg.content = "Tell me a story"
-        mock_ar = MagicMock()
-        mock_ar.conversation.messages = [mock_msg]
-        assert _extract_payload_from_result(mock_ar) == "Tell me a story"
-
-    def test_path2_objective_fallback(self) -> None:
-        """路径 2: 无 conversation 时从 objective 回退。."""
+    def test_path1_objective(self) -> None:
+        """路径 1: 从 PyRIT 1.0.1 原生 objective 字段提取。."""
         from pipeline.stages.stage_execute import _extract_payload_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation = None
-        mock_ar.objective = "Extract system prompt"
+        mock_ar.objective = "Tell me a story about hacking"
         result = _extract_payload_from_result(mock_ar)
-        assert "Extract system prompt" in result
+        assert "Tell me a story" in result
 
-    def test_path3_metadata_fallback(self) -> None:
-        """路径 3: 无 conversation/objective 时从 metadata 回退。."""
+    def test_path2_metadata_fallback(self) -> None:
+        """路径 2: 无 objective 时从 metadata 回退。."""
         from pipeline.stages.stage_execute import _extract_payload_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation = None
         mock_ar.objective = None
         mock_ar.metadata = {"seed_prompt": "Original seed text"}
         result = _extract_payload_from_result(mock_ar)
@@ -222,7 +209,6 @@ class TestExtractPayloadFromResult:
         from pipeline.stages.stage_execute import _extract_payload_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation = None
         mock_ar.objective = None
         mock_ar.metadata = {}
         assert _extract_payload_from_result(mock_ar) == ""
@@ -236,22 +222,22 @@ class TestExtractPayloadFromResult:
 class TestExtractConverterNamesFromResult:
     """Converter 名称提取多路径回退测试。."""
 
-    def test_path1_conversation_labels(self) -> None:
-        """路径 1: 从 conversation.labels 提取。."""
+    def test_path1_ar_labels(self) -> None:
+        """路径 1: 从 PyRIT 1.0.1 原生 ar.labels 提取。."""
         from pipeline.stages.stage_execute import _extract_converter_names_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation.labels = {"converter": "Base64Converter"}
+        mock_ar.labels = {"converter_chain": "Base64Converter"}
         result = _extract_converter_names_from_result(mock_ar)
         assert len(result) > 0
 
-    def test_path2_ar_labels_fallback(self) -> None:
-        """路径 2: 无 conversation labels 时从 ar.labels 回退。."""
+    def test_path2_metadata_fallback(self) -> None:
+        """路径 2: 无 ar.labels 时从 metadata 回退。."""
         from pipeline.stages.stage_execute import _extract_converter_names_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation = None
-        mock_ar.labels = {"converter_chain": "ROT13Converter"}
+        mock_ar.labels = {}
+        mock_ar.metadata = {"converters": ["ROT13Converter", "Base64Converter"]}
         result = _extract_converter_names_from_result(mock_ar)
         assert len(result) > 0
 
@@ -260,7 +246,6 @@ class TestExtractConverterNamesFromResult:
         from pipeline.stages.stage_execute import _extract_converter_names_from_result
 
         mock_ar = MagicMock()
-        mock_ar.conversation = None
         mock_ar.labels = {}
         mock_ar.metadata = {}
         assert _extract_converter_names_from_result(mock_ar) == []
@@ -274,28 +259,26 @@ class TestExtractConverterNamesFromResult:
 class TestExtractResponseFromResult:
     """目标响应提取多路径回退测试。."""
 
-    def test_path1_conversation_messages(self) -> None:
-        """路径 1: 从 conversation.messages 提取。."""
+    def test_path1_last_response(self) -> None:
+        """路径 1: 从 PyRIT 1.0.1 原生 last_response 字段提取。."""
         from pipeline.stages.stage_execute import _extract_response_from_result
 
-        mock_msg = MagicMock()
-        mock_msg.role = "assistant"
-        mock_msg.content = "Here is the response"
-        mock_ar = MagicMock()
-        mock_ar.conversation.messages = [mock_msg]
-        assert _extract_response_from_result(mock_ar) == "Here is the response"
-
-    def test_path2_last_response_fallback(self) -> None:
-        """路径 2: 无 conversation 时从 last_response 回退。."""
-        from pipeline.stages.stage_execute import _extract_response_from_result
-
-        mock_ar = MagicMock()
-        mock_ar.conversation = None
         mock_resp = MagicMock()
-        mock_resp.content = "Fallback response"
+        mock_resp.content = "Here is the response"
+        mock_ar = MagicMock()
         mock_ar.last_response = mock_resp
         result = _extract_response_from_result(mock_ar)
-        assert "Fallback response" in result
+        assert "Here is the response" in result
+
+    def test_path2_outcome_reason_fallback(self) -> None:
+        """路径 2: 无 last_response 时从 outcome_reason 回退。."""
+        from pipeline.stages.stage_execute import _extract_response_from_result
+
+        mock_ar = MagicMock()
+        mock_ar.last_response = None
+        mock_ar.outcome_reason = "Fallback response reason that is long enough"
+        result = _extract_response_from_result(mock_ar)
+        assert "Fallback" in result
 
     def test_path3_outcome_reason_fallback(self) -> None:
         """路径 3: 无 conversation/last_response 时从 outcome_reason 回退。."""

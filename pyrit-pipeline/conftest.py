@@ -57,6 +57,11 @@ def mock_args() -> argparse.Namespace:
         tap_branching=2,
         tap_success_threshold=8,
         assessment_framework=False,
+        xpia_attack=False,
+        asi03_attack=False,
+        asi09_attack=False,
+        asi10_attack=False,
+        multi_agent_attack=False,
     )
 
 

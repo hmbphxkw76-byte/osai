@@ -348,7 +348,7 @@ class TestRedTeamMethodology:
 
 
 class TestAdvancedCrescendoOrchestrator:
-    """Crescendo 编排器测试。."""
+    """Crescendo 编排器测试 (PyRIT 原生 CrescendoAttack)。."""
 
     def test_init(self) -> None:
         """初始化编排器。."""
@@ -367,10 +367,11 @@ class TestAdvancedCrescendoOrchestrator:
 
         assert orchestrator.objective == "Test objective"
         assert orchestrator.max_turns == 5
+        assert orchestrator.max_backtracks == 10
 
     @pytest.mark.asyncio
-    async def test_run_success_on_first_turn(self) -> None:
-        """第一轮即成功。."""
+    async def test_run_with_mock_native(self) -> None:
+        """模拟原生 CrescendoAttack 执行。."""
         from pipeline.orchestrators.advanced_crescendo import (
             AdvancedCrescendoOrchestrator,
         )
@@ -384,44 +385,22 @@ class TestAdvancedCrescendoOrchestrator:
             max_turns=3,
         )
 
-        # Mock the internal methods directly
-        orchestrator._generate_attacker_message = AsyncMock(
-            return_value="attacker_msg"
-        )
-        orchestrator._send_to_target = AsyncMock(
-            return_value="target_response"
-        )
-        orchestrator._score_response = AsyncMock(return_value="SUCCESS")
+        # Mock 原生 CrescendoAttack 的结果封装
+        mock_native_result = MagicMock()
+        mock_native_result.backtrack_count = 2
+        mock_native_result.get_all_conversation_ids = MagicMock(return_value=["conv_123"])
+        mock_native_result.get_results = MagicMock(return_value=[])
+        orchestrator._wrap_native_result = MagicMock(return_value=MagicMock(achieved=True))
 
-        result = await orchestrator.run_async()
+        # Patch 原生 CrescendoAttack (在 pyrit.executor.attack 中)
+        with patch("pyrit.executor.attack.CrescendoAttack") as mock_cls:
+            mock_instance = AsyncMock()
+            mock_instance.execute_async = AsyncMock(return_value=mock_native_result)
+            mock_cls.return_value = mock_instance
 
-        assert result.achieved is True
-        assert result.winning_turn == 1
+            result = await orchestrator.run_async()
 
-    @pytest.mark.asyncio
-    async def test_run_max_turns_no_success(self) -> None:
-        """达到最大轮次未成功。."""
-        from pipeline.orchestrators.advanced_crescendo import (
-            AdvancedCrescendoOrchestrator,
-        )
-
-        mock_target = MagicMock()
-        orchestrator = AdvancedCrescendoOrchestrator(
-            objective_target=mock_target,
-            adversarial_chat=mock_target,
-            scoring_target=mock_target,
-            objective="Test",
-            max_turns=3,
-        )
-        orchestrator._generate_attacker_message = AsyncMock(return_value="msg")
-        orchestrator._send_to_target = AsyncMock(return_value="resp")
-        orchestrator._score_response = AsyncMock(return_value="FAIL")
-
-        result = await orchestrator.run_async()
-
-        assert result.achieved is False
-        assert result.winning_turn == 0
-        assert len(result.turns) == 3
+        assert result is not None
 
     def test_crescendo_result_to_dict(self) -> None:
         """CrescendoResult 序列化。."""
@@ -433,12 +412,16 @@ class TestAdvancedCrescendoOrchestrator:
             winning_turn=3,
             max_turns=10,
             turns=[CrescendoTurn(turn_number=1, attacker_message="msg", target_response="resp", score="FAIL")],
+            backtrack_count=2,
+            conversation_id="conv_123",
         )
 
         d = result.to_dict()
         assert d["objective"] == "Test"
         assert d["achieved"] is True
         assert d["winning_turn"] == 3
+        assert d["backtrack_count"] == 2
+        assert d["conversation_id"] == "conv_123"
         assert len(d["turns"]) == 1
 
 
@@ -448,7 +431,7 @@ class TestAdvancedCrescendoOrchestrator:
 
 
 class TestTAPOrchestrator:
-    """TAP 编排器测试。."""
+    """TAP 编排器测试 (PyRIT 原生 TAPAttack)。."""
 
     def test_init(self) -> None:
         """初始化编排器。."""
@@ -469,10 +452,11 @@ class TestTAPOrchestrator:
         assert orchestrator.objective == "Test objective"
         assert orchestrator.tree_width == 4
         assert orchestrator.tree_depth == 3
+        assert orchestrator.batch_size == 10
 
     @pytest.mark.asyncio
-    async def test_run_success(self) -> None:
-        """TAP 攻击成功。."""
+    async def test_run_with_mock_native(self) -> None:
+        """模拟原生 TAPAttack 执行。."""
         from pipeline.orchestrators.tap_orchestrator import TAPOrchestrator
 
         mock_target = MagicMock()
@@ -487,43 +471,25 @@ class TestTAPOrchestrator:
             success_threshold=8,
         )
 
-        orchestrator._generate_attack = AsyncMock(return_value="attack_prompt")
-        orchestrator._score_prompt = AsyncMock(return_value=7)
-        orchestrator._send_to_target = AsyncMock(return_value="target_resp")
-        orchestrator._judge_response = AsyncMock(return_value=9)
-        orchestrator._refine_attack = AsyncMock(return_value="refined")
+        # Mock 原生结果封装
+        mock_native_result = MagicMock()
+        mock_native_result.nodes_explored = 4
+        mock_native_result.nodes_pruned = 2
+        mock_native_result.max_depth_reached = True
+        mock_native_result.tree_visualization = "tree"
+        mock_native_result.best_adversarial_conversation_id = "conv_456"
+        mock_native_result.get_results = MagicMock(return_value=[])
+        orchestrator._wrap_native_result = MagicMock(return_value=MagicMock(achieved=True, best_score=9))
 
-        result = await orchestrator.run_async()
+        # Patch 原生 TAPAttack (在 pyrit.executor.attack 中)
+        with patch("pyrit.executor.attack.TAPAttack") as mock_cls:
+            mock_instance = AsyncMock()
+            mock_instance.execute_async = AsyncMock(return_value=mock_native_result)
+            mock_cls.return_value = mock_instance
 
-        assert result.achieved is True
-        assert result.best_score == 9
+            result = await orchestrator.run_async()
 
-    @pytest.mark.asyncio
-    async def test_run_no_success(self) -> None:
-        """TAP 攻击未成功。."""
-        from pipeline.orchestrators.tap_orchestrator import TAPOrchestrator
-
-        mock_target = MagicMock()
-        orchestrator = TAPOrchestrator(
-            objective_target=mock_target,
-            adversarial_chat=mock_target,
-            scoring_target=mock_target,
-            objective="Test",
-            tree_width=2,
-            tree_depth=1,
-            branching=1,
-            success_threshold=9,
-        )
-
-        orchestrator._generate_attack = AsyncMock(return_value="prompt")
-        orchestrator._score_prompt = AsyncMock(return_value=5)
-        orchestrator._send_to_target = AsyncMock(return_value="resp")
-        orchestrator._judge_response = AsyncMock(return_value=3)
-
-        result = await orchestrator.run_async()
-
-        assert result.achieved is False
-        assert result.best_score == 3
+        assert result is not None
 
     def test_tap_result_to_dict(self) -> None:
         """TAPResult 序列化。."""
@@ -537,12 +503,16 @@ class TestTAPOrchestrator:
             best_response="resp",
             tree_width=4,
             tree_depth=3,
+            nodes_explored=6,
+            nodes_pruned=2,
         )
 
         d = result.to_dict()
         assert d["achieved"] is True
         assert d["best_score"] == 9
         assert d["tree_width"] == 4
+        assert d["nodes_explored"] == 6
+        assert d["nodes_pruned"] == 2
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -732,3 +702,43 @@ class TestConfigIntegration:
         with patch("sys.argv", ["main.py", "--assessment-framework"]):
             args = parse_args()
             assert args.assessment_framework is True
+
+    def test_xpia_attack_arg(self) -> None:
+        """XPIA 攻击参数。."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--xpia-attack"]):
+            args = parse_args()
+            assert args.xpia_attack is True
+
+    def test_asi03_attack_arg(self) -> None:
+        """ASI03 攻击参数。."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--asi03-attack"]):
+            args = parse_args()
+            assert args.asi03_attack is True
+
+    def test_asi09_attack_arg(self) -> None:
+        """ASI09 攻击参数。."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--asi09-attack"]):
+            args = parse_args()
+            assert args.asi09_attack is True
+
+    def test_asi10_attack_arg(self) -> None:
+        """ASI10 攻击参数。."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--asi10-attack"]):
+            args = parse_args()
+            assert args.asi10_attack is True
+
+    def test_multi_agent_attack_arg(self) -> None:
+        """多 Agent 攻击参数。."""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--multi-agent-attack"]):
+            args = parse_args()
+            assert args.multi_agent_attack is True

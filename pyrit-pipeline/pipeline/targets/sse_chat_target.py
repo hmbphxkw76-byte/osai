@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptTarget
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,8 @@ class SSEChatTarget:
         control_mode: str = _DEFAULT_CONTROL_MODE,
         session_cookie: str | None = None,
         timeout: int = _DEFAULT_TIMEOUT,
-        auth_manager: Any | None = None,
+        auth_headers: dict[str, str] | None = None,
+        auth_cookies: dict[str, str] | None = None,
     ) -> None:
         """初始化 SSE Chat Target。
 
@@ -159,14 +160,16 @@ class SSEChatTarget:
             control_mode: 控制模式 (``off``/``detect``/``mitigate``)。
             session_cookie: 会话 cookie (``aivp_sid``), 首次请求自动获取。
             timeout: 请求超时 (秒)。
-            auth_manager: 认证管理器实例 (可选)。
+            auth_headers: 认证 headers 字典 (由 APIAuthenticator.get_headers() 生成)。
+            auth_cookies: 认证 cookies 字典 (由 APIAuthenticator.get_cookies() 生成)。
         """
         self._base_url = base_url.rstrip("/")
         self._lab_id = lab_id
         self._control_mode = control_mode
         self._session_cookie = session_cookie
         self._timeout = timeout
-        self._auth_manager = auth_manager
+        self._auth_headers = auth_headers or {}
+        self._auth_cookies = auth_cookies or {}
 
         # 会话状态
         self._last_response: SSEResponse | None = None
@@ -302,15 +305,13 @@ class SSEChatTarget:
         if self._control_mode and self._control_mode != _DEFAULT_CONTROL_MODE:
             headers["X-AIVP-Control-Mode"] = self._control_mode
 
-        # Session cookie
-        cookies: dict[str, str] = {}
+        # Session cookie + auth cookies
+        cookies: dict[str, str] = dict(self._auth_cookies)
         if self._session_cookie:
             cookies["aivp_sid"] = self._session_cookie
 
-        # 认证 (如果 auth_manager 提供)
-        if self._auth_manager:
-            auth_headers = self._auth_manager.get_headers()
-            headers.update(auth_headers)
+        # 认证 headers (由 APIAuthenticator.get_headers() 生成)
+        headers.update(self._auth_headers)
 
         payload = {"prompt": prompt}
 
@@ -319,20 +320,19 @@ class SSEChatTarget:
         try:
             async with aiohttp.ClientSession(
                 cookies=cookies, timeout=aiohttp.ClientTimeout(total=self._timeout)
-            ) as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    # 提取 Set-Cookie 中的 aivp_sid
-                    set_cookie = resp.headers.get("Set-Cookie", "")
-                    if "aivp_sid=" in set_cookie and not self._session_cookie:
-                        match = re.search(r"aivp_sid=([^;]+)", set_cookie)
-                        if match:
-                            self._session_cookie = match.group(1)
-                            logger.info(f"SSEChatTarget: acquired session cookie {self._session_cookie[:8]}...")
+            ) as session, session.post(url, json=payload, headers=headers) as resp:
+                # 提取 Set-Cookie 中的 aivp_sid
+                set_cookie = resp.headers.get("Set-Cookie", "")
+                if "aivp_sid=" in set_cookie and not self._session_cookie:
+                    match = re.search(r"aivp_sid=([^;]+)", set_cookie)
+                    if match:
+                        self._session_cookie = match.group(1)
+                        logger.info(f"SSEChatTarget: acquired session cookie {self._session_cookie[:8]}...")
 
-                    # 解析 SSE 流
-                    async for line in resp.content:
-                        line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
-                        self._parse_sse_line(line_str, response)
+                # 解析 SSE 流
+                async for line in resp.content:
+                    line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    self._parse_sse_line(line_str, response)
 
         except Exception as e:
             logger.error(f"SSEChatTarget: request failed: {e}")
@@ -343,6 +343,8 @@ class SSEChatTarget:
     def _parse_sse_line(self, line: str, response: SSEResponse) -> None:
         """解析单行 SSE 数据。."""
         if not line:
+            # 空行 — SSE 事件分界, 重置当前事件类型
+            self._current_event_type = None  # type: ignore[attr-defined]
             return
 
         # 事件类型行
@@ -408,10 +410,9 @@ class SSEChatTarget:
         payload = {"labId": self._lab_id, "answer": answer}
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as resp:
-                    result = await resp.json()
-                    return bool(result.get("success", False))
+            async with aiohttp.ClientSession() as session, session.post(url, json=payload) as resp:
+                result = await resp.json()
+                return bool(result.get("success", False))
         except Exception as e:
             logger.error(f"SSEChatTarget: validate failed: {e}")
             return False
@@ -429,10 +430,9 @@ class SSEChatTarget:
 
         url = f"{self._base_url}/api/secrets/reset/{self._lab_id}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url) as resp:
-                    result = await resp.json()
-                    return bool(result.get("ok", False))
+            async with aiohttp.ClientSession() as session, session.post(url) as resp:
+                result = await resp.json()
+                return bool(result.get("ok", False))
         except Exception as e:
             logger.error(f"SSEChatTarget: reset failed: {e}")
             return False
