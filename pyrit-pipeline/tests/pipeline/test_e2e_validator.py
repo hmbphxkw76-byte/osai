@@ -397,11 +397,12 @@ class TestRunE2EValidation:
         """部分 metadata 运行验证不崩溃."""
         report = run_e2e_validation({
             "safety_filter_type": "content_filter",
-            "mcp_probe_results": {
-                "total_probes": 15,
-                "results": [],
-                "owasp_coverage": "ASI01-ASI07",
-            },
+        "mcp_probe_results": {
+            "total_probes": 15,
+            "results": [],
+            "owasp_coverage": "ASI01-ASI07",
+            "sent_to_target": False,
+        },
         })
         assert report.passed >= 2
         assert report.coverage_pct > 0
