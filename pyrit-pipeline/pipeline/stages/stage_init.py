@@ -1661,7 +1661,7 @@ async def _build_recon_target(ctx: PipelineContext) -> None:
 
     from pipeline.integrations.recon_target_bridge import build_target_from_recon
 
-    max_concurrency = getattr(ctx.args, "max_concurrency", 5)
+    max_concurrency = getattr(ctx.args, "max_concurrency", 3)
     max_retries = getattr(ctx.args, "max_retries", 3)
     rate_limit = getattr(ctx.args, "rate_limit", None)
     requests_per_minute = rate_limit * 30 if rate_limit else None
