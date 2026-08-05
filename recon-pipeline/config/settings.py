@@ -4,13 +4,18 @@
 """集中式最优默认参数配置。
 
 所有"开箱即用"的最佳实践参数都集中在此, 便于统一调优。
-必须通过 .env 修改的变量 (如 TARGET_URL, API_KEY, ORG_DOMAINS)
-通过 core.config 从环境变量加载, 覆盖此处默认值。
+只有真正必须由用户填写的变量 (TARGET_URL) 以及可选凭证 (API_KEY)
+才放在 .env 中; 其余所有运行参数的默认值都在 RuntimeDefaults 中定义。
+.env 只需填一行 TARGET_URL 即可完成端到端侦察。
 
 设计原则:
   - 不在此处存放任何机密或环境相关值
   - 所有耗时/规模/重试类参数在此预调优
   - 平台特定指纹在此维护 (OpenAI / Ollama / LM Studio)
+  - .env 可选变量 (TARGET_TYPE / AUTH_TYPE / OUTPUT_DIR / EXPORT_FORMATS /
+    ORG_DOMAINS / ALLOWED_HOSTS / DISALLOW_PATTERNS) 的默认值在 RuntimeDefaults 中
+  - 运行时若 .env 未设置这些变量, 自动从 RuntimeDefaults 取值;
+    若 ORG_DOMAINS 未设置则从 TARGET_URL 自动推导
 """
 
 from __future__ import annotations
@@ -103,6 +108,27 @@ class PortScanSettings:
 
 
 @dataclass(frozen=True)
+class RuntimeDefaults:
+    """运行时可由 .env 覆盖的参数默认值。
+
+    这些参数不是机密, 不随环境变化, 适合集中在此维护。
+    用户只需在 .env 中设置 TARGET_URL 即可启动侦察;
+    如需微调以下任一参数, 可在 .env 中添加对应变量覆盖。
+    """
+
+    # 目标平台类型: auto (自动判断) / llm_webapp / model_platform
+    target_type_hint: str = "auto"
+    # 认证类型: auto (自动判断) / none / same_domain / cross_domain / otp / sliding / sms / qr
+    auth_type_hint: str = "auto"
+    # 报告输出目录
+    output_dir: str = "outputs/reports"
+    # 导出格式 (逗号分隔转元组)
+    export_formats: tuple[str, ...] = ("json", "pyrit", "garak")
+    # 禁止模式: 命中即拒绝 (逗号分隔转元组)
+    disallow_patterns: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PipelineSettings:
     """流水线全局最优参数。"""
 
@@ -111,6 +137,7 @@ class PipelineSettings:
     auth: AuthSettings = field(default_factory=AuthSettings)
     classify: TargetClassifySettings = field(default_factory=TargetClassifySettings)
     port_scan: PortScanSettings = field(default_factory=PortScanSettings)
+    runtime: RuntimeDefaults = field(default_factory=RuntimeDefaults)
 
     # 默认下游侦察探针顺序 (端到端全覆盖)
     default_probe_order: tuple[str, ...] = (

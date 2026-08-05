@@ -137,25 +137,45 @@ class PlaywrightAuthProvider(AuthProvider):
             strategy.name, self._auth_type,
         )
 
-        # Build a minimal TargetProfile-like object for strategy execution
-        from core.auth.models import CrossDomainAuthConfig, SameDomainAuthConfig
+        # Build a dynamic TargetProfile-like object for strategy execution
+        # ★ 修复: 动态生成检测配置, 避免空列表导致 ValueError
+        from core.auth.models import CrossDomainAuthConfig, DetectionConfig, SameDomainAuthConfig
+        from urllib.parse import urlparse as _urlparse
 
-        class _MinimalAuthConfig:
+        _parsed = _urlparse(target_url)
+        _target_domain = _parsed.netloc
+        _target_path = _parsed.path
+        _pattern = _target_domain + (_target_path if _target_path and _target_path != "/" else "")
+
+        _login_url = str(kwargs.get("login_url", target_url))
+        _auto_fill = kwargs.get("auto_fill", None)  # type: ignore[assignment]
+        _human_steps = kwargs.get("human_steps", None)  # type: ignore[assignment]
+
+        _detection_configs = [
+            DetectionConfig(strategy="url_pattern", pattern=_pattern),
+            DetectionConfig(strategy="dom_element", selector='[class*="chat"]'),
+        ]
+
+        class _DynamicAuthConfig:
             type: str = self._auth_type
             target_url: str = target_url
-            login_url: str = kwargs.get("login_url", target_url)  # type: ignore[assignment]
-            auto_fill: dict[str, str] | None = kwargs.get("auto_fill", None)  # type: ignore[assignment]
-            human_assisted_steps: list[str] | None = kwargs.get("human_steps", None)  # type: ignore[assignment]
-            same_domain = SameDomainAuthConfig()
-            cross_domain = CrossDomainAuthConfig()
+            login_url: str = _login_url
+            auto_fill: dict[str, str] | None = _auto_fill  # type: ignore[assignment]
+            human_assisted_steps: list[str] | None = _human_steps  # type: ignore[assignment]
+            same_domain = SameDomainAuthConfig(detection=_detection_configs)
+            cross_domain = CrossDomainAuthConfig(detection=_detection_configs)
 
-        class _MinimalProfile:
-            auth = _MinimalAuthConfig()
+        class _DynamicProfile:
+            auth = _DynamicAuthConfig()
 
-            def get_detection_configs(self) -> list:  # type: ignore[no-untyped-def]
-                return []
+            def get_detection_configs(self) -> list[DetectionConfig]:
+                if self.auth.type == "same_domain":
+                    return self.auth.same_domain.detection
+                elif self.auth.type == "cross_domain":
+                    return self.auth.cross_domain.detection
+                return _detection_configs
 
-        self._page = await strategy.execute(self._page, _MinimalProfile())
+        self._page = await strategy.execute(self._page, _DynamicProfile())
 
         # Build and return AuthState
         return await self._build_auth_state(target_url)

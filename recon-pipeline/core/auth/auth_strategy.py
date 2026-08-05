@@ -170,38 +170,219 @@ class CrossDomainAuthStrategy(AuthStrategy):
 
 
 class OTPAuthStrategy(AuthStrategy):
-    """二次 OTP 认证策略。"""
+    """二次 OTP 认证策略 — 自动感知完成。
+
+    流程:
+      1. 等待页面加载完成
+      2. 检测 OTP 输入框 (DOM 选择器)
+      3. 提示人工输入验证码
+      4. 轮询 AuthDetector 自动感知认证完成
+      5. 导航到目标页面
+    """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
-        logger.info("OTPAuthStrategy: waiting for OTP challenge")
+        logger.info("OTPAuthStrategy: detecting OTP challenge")
         await page.wait_for_load_state("domcontentloaded")
+
+        # 检测 OTP 输入框
+        otp_selectors = [
+            'input[autocomplete="one-time-code"]',
+            'input[name*="otp"]', 'input[name*="code"]',
+            'input[name*="verification"]',
+            'input[maxlength="6"]', 'input[maxlength="4"]',
+        ]
+        otp_input_found = False
+        for selector in otp_selectors:
+            try:
+                el = await page.query_selector(selector)
+                if el:
+                    otp_input_found = True
+                    logger.info(f"OTPAuthStrategy: OTP input detected ({selector})")
+                    break
+            except Exception:
+                continue
+
+        if otp_input_found:
+            print("\n" + "=" * 60)
+            print("  二次验证 (OTP) — 请在浏览器中输入验证码")
+            print("  程序将自动检测验证完成...")
+            print("=" * 60 + "\n")
+
+        # 创建检测器, 轮询认证完成
+        try:
+            detector = self._create_detector(profile)
+            is_complete = await detector.wait_for_completion(page)
+            if not is_complete:
+                raise TimeoutError("OTP authentication did not complete within timeout")
+        except ValueError:
+            # 检测配置不可用, 等待页面稳定后继续
+            logger.warning("OTPAuthStrategy: no detection configs, waiting for page load")
+            await page.wait_for_load_state("networkidle", timeout=120000)
+
+        # 导航到目标页
+        logger.info("OTPAuthStrategy: auth completed, navigating to target")
+        await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
         return page
 
 
 class SlidingAuthStrategy(AuthStrategy):
-    """滑窗验证策略。"""
+    """滑窗验证策略 — 自动感知完成。
+
+    流程:
+      1. 等待页面加载完成
+      2. 检测滑块元素 (DOM 选择器)
+      3. 提示人工完成滑块拖动
+      4. 轮询 AuthDetector 自动感知认证完成
+      5. 导航到目标页面
+    """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
-        logger.info("SlidingAuthStrategy: waiting for sliding challenge")
+        logger.info("SlidingAuthStrategy: detecting sliding challenge")
         await page.wait_for_load_state("domcontentloaded")
+
+        # 检测滑块元素
+        slider_selectors = [
+            '[class*="slider"]', '[class*="slide-verify"]',
+            '[class*="captcha"]', '[class*="nc_iconfont"]',
+            'div[role="slider"]', '[data-role="slider"]',
+            '[class*="captcha-slider"]',
+        ]
+        slider_found = False
+        for selector in slider_selectors:
+            try:
+                el = await page.query_selector(selector)
+                if el:
+                    slider_found = True
+                    logger.info(f"SlidingAuthStrategy: slider detected ({selector})")
+                    break
+            except Exception:
+                continue
+
+        if slider_found:
+            print("\n" + "=" * 60)
+            print("  滑块验证 — 请在浏览器中完成滑块拖动")
+            print("  程序将自动检测验证完成...")
+            print("=" * 60 + "\n")
+
+        # 创建检测器, 轮询认证完成
+        try:
+            detector = self._create_detector(profile)
+            is_complete = await detector.wait_for_completion(page)
+            if not is_complete:
+                raise TimeoutError("Sliding verification did not complete within timeout")
+        except ValueError:
+            logger.warning("SlidingAuthStrategy: no detection configs, waiting for page load")
+            await page.wait_for_load_state("networkidle", timeout=120000)
+
+        logger.info("SlidingAuthStrategy: auth completed, navigating to target")
+        await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
         return page
 
 
 class SMSCodeAuthStrategy(AuthStrategy):
-    """短信验证码认证策略。"""
+    """短信验证码认证策略 — 自动感知完成。
+
+    流程:
+      1. 等待页面加载完成
+      2. 检测短信验证码输入框
+      3. 提示人工输入短信验证码
+      4. 轮询 AuthDetector 自动感知认证完成
+      5. 导航到目标页面
+    """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
-        logger.info("SMSCodeAuthStrategy: waiting for SMS verification")
+        logger.info("SMSCodeAuthStrategy: detecting SMS verification")
         await page.wait_for_load_state("domcontentloaded")
+
+        # 检测短信验证码输入框
+        sms_selectors = [
+            'input[name*="sms"]', 'input[name*="phone"]',
+            '[class*="sms-code"]', '[class*="phone-verify"]',
+            'input[placeholder*="短信"]', 'input[placeholder*="验证码"]',
+            'input[placeholder*="SMS"]', 'input[placeholder*="code"]',
+        ]
+        sms_input_found = False
+        for selector in sms_selectors:
+            try:
+                el = await page.query_selector(selector)
+                if el:
+                    sms_input_found = True
+                    logger.info(f"SMSCodeAuthStrategy: SMS input detected ({selector})")
+                    break
+            except Exception:
+                continue
+
+        if sms_input_found:
+            print("\n" + "=" * 60)
+            print("  短信验证码 — 请在浏览器中输入收到的验证码")
+            print("  程序将自动检测验证完成...")
+            print("=" * 60 + "\n")
+
+        # 创建检测器, 轮询认证完成
+        try:
+            detector = self._create_detector(profile)
+            is_complete = await detector.wait_for_completion(page)
+            if not is_complete:
+                raise TimeoutError("SMS verification did not complete within timeout")
+        except ValueError:
+            logger.warning("SMSCodeAuthStrategy: no detection configs, waiting for page load")
+            await page.wait_for_load_state("networkidle", timeout=120000)
+
+        logger.info("SMSCodeAuthStrategy: auth completed, navigating to target")
+        await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
         return page
 
 
 class QRLoginAuthStrategy(AuthStrategy):
-    """扫码登录认证策略。"""
+    """扫码登录认证策略 — 自动感知完成。
+
+    流程:
+      1. 等待页面加载完成
+      2. 检测二维码元素
+      3. 提示人工扫码
+      4. 轮询 AuthDetector 自动感知认证完成
+      5. 导航到目标页面
+    """
 
     async def execute(self, page: Page, profile: TargetProfile) -> Page:
-        logger.info("QRLoginAuthStrategy: waiting for QR login")
+        logger.info("QRLoginAuthStrategy: detecting QR login")
         await page.wait_for_load_state("domcontentloaded")
+
+        # 检测二维码元素
+        qr_selectors = [
+            '[class*="qrcode"]', '[class*="qr-code"]',
+            'canvas[class*="qr"]', 'img[alt*="QR"]',
+            'img[alt*="二维码"]', '[class*="scan-code"]',
+        ]
+        qr_found = False
+        for selector in qr_selectors:
+            try:
+                el = await page.query_selector(selector)
+                if el:
+                    qr_found = True
+                    logger.info(f"QRLoginAuthStrategy: QR code detected ({selector})")
+                    break
+            except Exception:
+                continue
+
+        if qr_found:
+            print("\n" + "=" * 60)
+            print("  扫码登录 — 请使用手机扫描浏览器中的二维码")
+            print("  程序将自动检测登录完成...")
+            print("=" * 60 + "\n")
+
+        # 创建检测器, 轮询认证完成
+        try:
+            detector = self._create_detector(profile)
+            is_complete = await detector.wait_for_completion(page)
+            if not is_complete:
+                raise TimeoutError("QR login did not complete within timeout")
+        except ValueError:
+            logger.warning("QRLoginAuthStrategy: no detection configs, waiting for page load")
+            await page.wait_for_load_state("networkidle", timeout=180000)
+
+        logger.info("QRLoginAuthStrategy: auth completed, navigating to target")
+        await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
         return page
 
 

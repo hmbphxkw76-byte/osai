@@ -5,7 +5,9 @@
 
 职责:
   - 从 config/settings.py 读取开箱即用的最优默认参数
-  - 从 .env 读取必须通过环境变量修改的值 (TARGET_URL / API_KEY / ORG_DOMAINS ...)
+  - 从 .env 读取必填变量 (TARGET_URL) 和可选凭证 (API_KEY)
+  - 其余可选变量 (TARGET_TYPE / AUTH_TYPE / ORG_DOMAINS 等) 未设置时
+    自动使用 config/settings.py RuntimeDefaults 中的默认值
   - 提供统一访问入口, 供各阶段/探针引用
 
 不在此处定义任何"应随环境变化"的机密或目标特定值。

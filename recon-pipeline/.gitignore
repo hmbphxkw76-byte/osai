@@ -1,0 +1,98 @@
+# =============================================================================
+# recon-pipeline .gitignore
+# 红队侦察工具 — 严格忽略敏感内容（凭证 / 目标信息 / 侦察产物）
+# =============================================================================
+
+# ── 敏感环境配置 (含 API Key / 目标 URL / 认证凭证) ──
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+.recon
+# 注意: .env.example 保留版本控制，作为配置模板
+
+# ── 侦察产物与报告 (含目标敏感信息) ──
+outputs/
+# 侦察报告 (JSON / PyRIT / Garak 导出)
+*.recon_report.json
+*.pyrit_metadata.json
+# 检查点与任务状态 (含运行时目标数据)
+checkpoints/
+*.checkpoint.json
+*.state.json
+
+# ── 指纹数据库 (SQLite, 含目标指纹与历史记录) ──
+*.db
+*.sqlite
+*.sqlite3
+*.fingerprints.db
+
+# ── 浏览器会话数据 (cookies / storage_state / HAR) ──
+*.cookies.json
+*storage_state*.json
+*.har
+playwright-report/
+test-results/
+blob-report/
+# Playwright 认证态快照
+auth_state_*.json
+browser_state_*.json
+
+# ── 日志文件 ──
+*.log
+logs/
+pip-log.txt
+
+# ── Python 字节码与缓存 (R-008: 运行前后自动清理) ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# ── 构建与打包产物 ──
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+env/
+ENV/
+
+# ── Jupyter ──
+.ipynb_checkpoints/
+*.ipynb
+
+# ── IDE / 编辑器 ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*~
+
+# ── 操作系统文件 ──
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── 临时文件 ──
+*.tmp
+*.temp
+*.orig

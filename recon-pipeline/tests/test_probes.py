@@ -2789,14 +2789,19 @@ class TestFingerprintStore:
     def temp_db(self, tmp_path):
         """Create a temp SQLite database."""
         from core.persistence.fingerprint_store import FingerprintStore
+        import gc
 
         db_path = tmp_path / "test_fingerprints.db"
         store = FingerprintStore(db_path)
         yield store
-        # Cleanup
+        # Cleanup: close store, force GC, then unlink (Windows file lock fix)
         store.close()
+        gc.collect()
         if db_path.exists():
-            db_path.unlink()
+            try:
+                db_path.unlink()
+            except (PermissionError, OSError):
+                pass  # Windows may still hold the file; tmp_path cleanup handles it
 
     def test_store_record_and_retrieve(self, temp_db):
         """Record and retrieve a fingerprint."""

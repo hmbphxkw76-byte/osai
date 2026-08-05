@@ -148,7 +148,7 @@ class AgentBehaviorDAG:
         Uses Kahn's algorithm (BFS topological sort).
         """
         n = len(self.nodes)
-        if n < 2:
+        if n < 1:
             return False
 
         in_degree = [0] * n

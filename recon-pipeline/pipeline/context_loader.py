@@ -4,14 +4,15 @@
 """从 .env + config/ 加载流水线上下文。
 
 设计原则:
-  - 必须通过环境变量修改的值 (TARGET_URL / API_KEY / 组织域名 等) 走 .env
-  - 开箱即用的最优参数集中在 config/settings.py (无需修改)
+  - .env 只保留必填项 (TARGET_URL) 和可选凭证 (API_KEY)
+  - 其余运行参数的默认值集中在 config/settings.py 的 RuntimeDefaults 中
+  - 若 .env 未设置 ORG_DOMAINS, 自动从 TARGET_URL 的域名推导
   - 本模块仅做"加载 + 合并 + 类型化", 不持有任何业务默认值
 
 加载优先级 (高 → 低):
   1. 显式传入的 overrides 参数
   2. 环境变量 (.env 文件或系统环境)
-  3. config/settings.py 的默认参数 (非用户变量)
+  3. config/settings.py RuntimeDefaults 的默认参数
 """
 
 from __future__ import annotations
@@ -50,6 +51,20 @@ def _split_csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _derive_domain(url: str) -> str:
+    """从 URL 中提取主域名 (含端口), 用于自动设置组织边界。
+
+    例: https://chat.example.com:8443/path → chat.example.com:8443
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.hostname:
+        # 含端口号 (非标准端口时 netloc 带 :port)
+        return parsed.netloc.lower() or parsed.hostname.lower()
+    return ""
+
+
 def load_context(overrides: dict[str, Any] | None = None) -> Any:
     """加载 PipelineContext。
 
@@ -60,6 +75,9 @@ def load_context(overrides: dict[str, Any] | None = None) -> Any:
         pipeline.models.PipelineContext
     """
     from pipeline.models import PipelineContext
+    from config.settings import DEFAULT_SETTINGS
+
+    runtime = DEFAULT_SETTINGS.runtime
 
     # 1. 加载 .env
     dotenv = _load_dotenv()
@@ -67,16 +85,16 @@ def load_context(overrides: dict[str, Any] | None = None) -> Any:
     def get(key: str, default: str = "") -> str:
         return os.environ.get(key) or dotenv.get(key) or default
 
-    # 2. 必改变量从 .env 读取
+    # 2. 必改变量从 .env 读取; 可选变量未设置时取 RuntimeDefaults 默认值
     target_url = get("TARGET_URL")
-    target_type_hint = get("TARGET_TYPE", "auto")
+    target_type_hint = get("TARGET_TYPE", runtime.target_type_hint)
     api_key = get("API_KEY")
-    auth_type_hint = get("AUTH_TYPE", "auto")
+    auth_type_hint = get("AUTH_TYPE", runtime.auth_type_hint)
     org_domains = _split_csv(get("ORG_DOMAINS"))
-    allowed_hosts = _split_csv(get("ALLOWED_HOSTS")) or org_domains
-    disallow_patterns = _split_csv(get("DISALLOW_PATTERNS"))
-    output_dir = get("OUTPUT_DIR", "outputs/reports")
-    export_formats = _split_csv(get("EXPORT_FORMATS")) or ["json", "pyrit", "garak"]
+    allowed_hosts = _split_csv(get("ALLOWED_HOSTS"))
+    disallow_patterns = _split_csv(get("DISALLOW_PATTERNS")) or list(runtime.disallow_patterns)
+    output_dir = get("OUTPUT_DIR", runtime.output_dir)
+    export_formats = _split_csv(get("EXPORT_FORMATS")) or list(runtime.export_formats)
 
     ctx = PipelineContext(
         target_url=target_url,
@@ -90,11 +108,20 @@ def load_context(overrides: dict[str, Any] | None = None) -> Any:
         export_formats=export_formats,
     )
 
-    # 3. 显式覆盖
+    # 3. 显式覆盖 (CLI 参数优先级最高)
     if overrides:
         for k, v in overrides.items():
             if hasattr(ctx, k):
                 setattr(ctx, k, v)
+
+    # 4. 若 ORG_DOMAINS 未显式设置, 从最终 TARGET_URL 自动推导组织边界
+    #    (放在 overrides 之后, 确保 CLI --target 也能触发自动推导)
+    if not ctx.org_domains and ctx.target_url:
+        derived = _derive_domain(ctx.target_url)
+        if derived:
+            ctx.org_domains = [derived]
+    if not ctx.allowed_hosts:
+        ctx.allowed_hosts = list(ctx.org_domains)
 
     logger.info(
         f"context_loader: target={target_url!r} type_hint={target_type_hint!r} "

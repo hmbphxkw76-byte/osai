@@ -22,6 +22,7 @@ from core.probes.agent_workspace_probe import (
 )
 from core.probes.attack_recommender import AttackRecommender
 from core.probes.base import ReconProbe
+from core.probes.chat_navigation_probe import ChatNavigationProbe
 from core.probes.conversation_state_probe import ConversationStateProbe
 from core.probes.dom_analyzer import DOMAnalyzer
 from core.probes.dom_probe import DOMProbe
@@ -95,6 +96,7 @@ __all__ = [
     "AttackRecommendation",
     "AttackRecommender",
     "build_dag_from_probe_results",
+    "ChatNavigationProbe",
     "ConversationStateProbe",
     "DiscoveredEndpoint",
     "DOMAnalyzer",

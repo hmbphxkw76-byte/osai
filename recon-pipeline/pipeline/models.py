@@ -43,6 +43,18 @@ class PlatformVendor(str, Enum):
     VLLM = "vllm"
     LLAMACPP = "llamacpp"
     TEXTGEN = "textgen"
+    # 公网 OpenAI 兼容平台
+    ZHIPU = "zhipu"
+    DEEPSEEK = "deepseek"
+    MOONSHOT = "moonshot"
+    BAICHUAN = "baichuan"
+    QWEN = "qwen"
+    SPARK = "spark"
+    DOUBAO = "doubao"
+    HUNYUAN = "hunyuan"
+    MINIMAX = "minimax"
+    # 内网/私有部署
+    INTRANET_LLM = "intranet_llm"
     GENERIC = "generic"
     UNKNOWN = "unknown"
 
@@ -163,6 +175,11 @@ class PipelineContext:
     classification: TargetClassification | None = None
     auth_decision: AuthDecision | None = None
 
+    # 流水线级浏览器会话 (贯穿 classify → auth → recon, 最后由 recon 关闭)
+    browser_session: Any | None = None
+    browser_page: Any | None = None
+    auth_state: Any | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_url": self.target_url,
@@ -176,4 +193,7 @@ class PipelineContext:
             "export_formats": self.export_formats,
             "classification": self.classification.to_dict() if self.classification else None,
             "auth_decision": self.auth_decision.to_dict() if self.auth_decision else None,
+            "has_browser_session": self.browser_session is not None,
+            "has_browser_page": self.browser_page is not None,
+            "has_auth_state": self.auth_state is not None,
         }

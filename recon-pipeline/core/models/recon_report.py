@@ -184,6 +184,12 @@ class ReconReport:
     domain_transitions: list[str] = field(default_factory=list)
     recon_duration_seconds: float = 0.0
     probe_results: dict[str, Any] = field(default_factory=dict)
+    # G13+G16: ChatNavigationProbe 产出字段
+    chat_url: str | None = None
+    chat_model_name: str | None = None
+    chat_api_endpoints: list[dict[str, str]] = field(default_factory=list)
+    chat_ui_features: list[str] = field(default_factory=list)
+    chat_navigation_path: list[dict[str, Any]] = field(default_factory=list)
 
     def merge(self, probe_name: str, result: dict[str, Any]) -> None:
         self.probe_results[probe_name] = result
@@ -201,6 +207,26 @@ class ReconReport:
         for s in result.get("injection_surfaces", []):
             if isinstance(s, InjectionSurface):
                 self.injection_surfaces.append(s)
+        # G13+G16: 合并 ChatNavigationProbe 产出
+        if probe_name == "ChatNavigationProbe":
+            if result.get("chat_url"):
+                self.chat_url = result["chat_url"]
+            if result.get("model_name"):
+                self.chat_model_name = result["model_name"]
+            if result.get("api_endpoints"):
+                self.chat_api_endpoints = result["api_endpoints"]
+            if result.get("ui_features"):
+                self.chat_ui_features = result["ui_features"]
+            if result.get("navigation_path"):
+                self.chat_navigation_path = result["navigation_path"]
+            # 将拦截到的 API 端点也注入到 endpoints 列表
+            for api_ep in result.get("api_endpoints", []):
+                if isinstance(api_ep, dict) and api_ep.get("url"):
+                    self.endpoints.append(DiscoveredEndpoint(
+                        url=api_ep["url"],
+                        method=api_ep.get("method", "POST"),
+                        endpoint_type=EndpointType.MODEL_API,
+                    ))
 
     @property
     def has_model_api(self) -> bool:
@@ -231,7 +257,7 @@ class ReconReport:
         return any(s.surface_type == InjectionSurfaceType.MULTIMODAL_INPUT for s in self.injection_surfaces)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "target_url": self.target_url,
             "auth_type": self.auth_type,
             "endpoints": [e.to_dict() for e in self.endpoints],
@@ -249,9 +275,21 @@ class ReconReport:
             "has_file_upload": self.has_file_upload,
             "has_multimodal_input": self.has_multimodal_input,
         }
+        # G13+G16: 聊天导航信息
+        if self.chat_url:
+            result["chat_url"] = self.chat_url
+        if self.chat_model_name:
+            result["chat_model_name"] = self.chat_model_name
+        if self.chat_api_endpoints:
+            result["chat_api_endpoints"] = self.chat_api_endpoints
+        if self.chat_ui_features:
+            result["chat_ui_features"] = self.chat_ui_features
+        if self.chat_navigation_path:
+            result["chat_navigation_path"] = self.chat_navigation_path
+        return result
 
     def to_summary_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "target_url": self.target_url,
             "auth_type": self.auth_type,
             "endpoint_count": len(self.endpoints),
@@ -268,6 +306,13 @@ class ReconReport:
             "has_multimodal_input": self.has_multimodal_input,
             "recommendations": [r.to_dict() for r in self.recommendations],
         }
+        if self.chat_url:
+            result["chat_url"] = self.chat_url
+        if self.chat_model_name:
+            result["chat_model_name"] = self.chat_model_name
+        if self.chat_ui_features:
+            result["chat_ui_features"] = self.chat_ui_features
+        return result
 
     def summary(self) -> str:
         lines = [

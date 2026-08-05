@@ -110,12 +110,15 @@ class ClassifyStage(PipelineStage):
                         "domain_transitions=" + " → ".join(result.domain_transitions)
                     )
                 classification.confidence = max(classification.confidence, 0.85)
-                # 二次验证: 仅在最终页加载后做关键词启发 (不阻塞)
+                # 二次验证: DOM + URL 双维度检测 (不阻塞)
                 sf = await self._detect_second_factor(page)
                 if sf != "none":
                     classification.second_factor = sf
                     classification.detection_signals.append(f"second_factor={sf}")
-                await session.close()
+                # ★ 不关闭浏览器: 保留会话到 context 供 AuthStage / ReconStage 复用
+                ctx.browser_session = session
+                ctx.browser_page = page
+                logger.info("[classify] browser session preserved for downstream stages")
             except Exception as e:  # noqa: BLE001
                 logger.warning(
                     f"classify: browser auth probe unavailable ({e}); "
@@ -128,30 +131,136 @@ class ClassifyStage(PipelineStage):
     # ── 辅助: 厂商识别 ──
     def _detect_vendor(self, url: str) -> PlatformVendor:
         low = (url or "").lower()
-        # 主机/端口优先 (避免 /v1/ 等通用路径误判为 OpenAI)
+
+        # ── 公网 OpenAI 兼容平台 (域名级精确匹配) ──
+        public_platforms = {
+            PlatformVendor.ZHIPU: (
+                "bigmodel.cn", "bigmodel", "zhipuai", "chatglm.cn",
+                "open.bigmodel",
+            ),
+            PlatformVendor.DEEPSEEK: (
+                "deepseek.com", "api.deepseek", "platform.deepseek",
+            ),
+            PlatformVendor.MOONSHOT: (
+                "moonshot.cn", "api.moonshot", "platform.moonshot",
+            ),
+            PlatformVendor.BAICHUAN: (
+                "baichuan-ai.com", "api.baichuan",
+            ),
+            PlatformVendor.QWEN: (
+                "dashscope.aliyuncs.com", "dashscope", "tongyi.aliyun",
+                "qwen", "bailian.aliyun",
+            ),
+            PlatformVendor.SPARK: (
+                "spark-api.xf-yun.com", "xf-yun", "xinghuo",
+            ),
+            PlatformVendor.DOUBAO: (
+                "ark.cn-beijing.volces.com", "ark.volces", "doubao",
+            ),
+            PlatformVendor.HUNYUAN: (
+                "hunyuan.cloud.tencent.com", "tencentcloud-hunyuan",
+            ),
+            PlatformVendor.MINIMAX: (
+                "api.minimax.chat", "minimax", "api.minimaxi",
+            ),
+        }
+        for vendor, sigs in public_platforms.items():
+            if any(s in low for s in sigs):
+                return vendor
+
+        # ── 本地/自部署平台 (主机端口级匹配) ──
         host_first = {
             PlatformVendor.OLLAMA: ("ollama", "/api/tags", "/api/generate", "/api/chat"),
             PlatformVendor.LM_STUDIO: ("lm-studio", "127.0.0.1:1234", "localhost:1234"),
             PlatformVendor.OPENAI: ("openai.com", "api.openai", "azure.openai"),
             PlatformVendor.VLLM: ("vllm",),
-            PlatformVendor.LLAMACPP: ("llama.cpp",),
+            PlatformVendor.LLAMACPP: ("llama.cpp", "llamacpp"),
             PlatformVendor.TEXTGEN: ("text-generation-webui", "oobabooga"),
         }
         for vendor, sigs in host_first.items():
             if any(s in low for s in sigs):
                 return vendor
-        # 路径级 (通用 OpenAI 兼容)
+
+        # ── 内网部署检测 (私有 IP 段 + AI API 路径) ──
+        if self._is_intranet_url(low):
+            if "/v1/" in low or "/api/" in low:
+                return PlatformVendor.INTRANET_LLM
+
+        # ── 通用 OpenAI 兼容路径 ──
         if "/v1/" in low:
             return PlatformVendor.GENERIC
         if "openai" in low:
             return PlatformVendor.OPENAI
         return PlatformVendor.UNKNOWN
 
-    async def _detect_second_factor(self, page: Any) -> str:
-        """探测二次验证信号 (otp / 2fa / sliding / sms / qr)。
+    @staticmethod
+    def _is_intranet_url(url_lower: str) -> bool:
+        """检测 URL 是否指向内网地址 (私有 IP / localhost / 内部域名)。"""
+        import re
+        # 私有 IP 段: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+        private_ip_patterns = [
+            r"https?://10\.\d+\.\d+\.\d+",
+            r"https?://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+",
+            r"https?://192\.168\.\d+\.\d+",
+            r"https?://localhost\b",
+            r"https?://127\.0\.0\.1\b",
+            r"https?://0\.0\.0\.0\b",
+        ]
+        for pattern in private_ip_patterns:
+            if re.search(pattern, url_lower):
+                return True
+        # 内部域名启发 (非权威, 仅辅助)
+        intranet_hints = (".local", ".internal", ".intranet", ".corp", ".lan")
+        for hint in intranet_hints:
+            if hint in url_lower:
+                return True
+        return False
 
-        通过当前 URL 关键词启发式判定, 不阻塞、不抛异常。
+    async def _detect_second_factor(self, page: Any) -> str:
+        """探测二次验证信号 (otp / 2fa / sliding / sms / qr) — DOM + URL 双维度。
+
+        维度1: DOM 选择器检测 (更可靠, 优先)
+        维度2: URL 关键词启发式 (兜底)
+        不阻塞、不抛异常。
         """
+        # 维度1: DOM 选择器检测
+        dom_selectors: dict[str, list[str]] = {
+            "otp": [
+                'input[autocomplete="one-time-code"]',
+                'input[name*="otp"]', 'input[name*="code"]',
+                'input[name*="verification"]',
+                'input[maxlength="6"][pattern*="[0-9]"]',
+            ],
+            "2fa": [
+                'input[name*="authenticator"]',
+                '[class*="totp"]', '[class*="authenticator"]',
+            ],
+            "qr": [
+                '[class*="qrcode"]', '[class*="qr-code"]',
+                'canvas[class*="qr"]', 'img[alt*="QR"]',
+                'img[alt*="二维码"]',
+            ],
+            "sliding": [
+                '[class*="slider"]', '[class*="slide-verify"]',
+                'div[role="slider"]', '[class*="captcha-slider"]',
+                '[class*="nc_iconfont"]',
+            ],
+            "sms": [
+                'input[name*="sms"]', 'input[name*="phone"]',
+                '[class*="sms-code"]', '[class*="phone-verify"]',
+            ],
+        }
+        for factor, selectors in dom_selectors.items():
+            for selector in selectors:
+                try:
+                    el = await page.query_selector(selector)
+                    if el:
+                        logger.debug(f"_detect_second_factor: DOM match '{selector}' → {factor}")
+                        return factor
+                except Exception:
+                    continue
+
+        # 维度2: URL 关键词检测 (兜底)
         keywords = {
             "otp": ("verification code", "one-time", "otp", "验证码", "一次性"),
             "2fa": ("2fa", "two-factor", "authenticator", "二次验证"),

@@ -27,6 +27,7 @@ from core.auth.models import (
     SameDomainAuthConfig,
 )
 from core.auth.playwright_auth import PlaywrightAuthProvider
+from core.auth.platform_auth import PlatformAuthStrategy, get_platform_auth
 from core.auth.provider import APIKeyAuthProvider, AuthProvider, NoAuthProvider
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "NoAuthStrategy",
     "OTPAuthStrategy",
     "PlaywrightAuthProvider",
+    "PlatformAuthStrategy",
     "ProbeResult",
     "QRLoginAuthStrategy",
     "RedirectChainEntry",

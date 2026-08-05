@@ -61,6 +61,25 @@ _AI_SCAN_PORTS: list[int] = [
     8888,   # Jupyter (shared)
 ]
 
+# G10: 内网部署额外端口集 — 覆盖企业内部常见的 AI 服务端口
+_INTRANET_EXTRA_PORTS: list[int] = [
+    5000,   # Flask/FastAPI 内网部署
+    9000,   # 内网 API 网关
+    9001,   # MinIO/S3 兼容存储
+    9090,   # Prometheus/内网监控
+    9091,   # 内网推流
+    23333,  # vLLM 分布式部署
+    24000,  # Triton Inference Server
+    9997,   # Dify 内网
+    5002,   # Flowise 内网
+    3001,   # Next.js 内网前端
+    3010,   # 自定义 AI 网关
+    7011,   # Xinference
+    9999,   # 内网通用
+    443,    # HTTPS
+    80,     # HTTP
+]
+
 # Ports that always need HTTP verification (not just TCP)
 _HTTP_VERIFY_PORTS: set[int] = {
     8000, 8080, 3000, 5173, 7860, 8501, 8888, 11434,
@@ -91,11 +110,21 @@ class PortScanProbe(ReconProbe):
         tcp_timeout: float = _TCP_TIMEOUT,
         http_timeout: float = _HTTP_TIMEOUT,
         concurrency: int = 10,
+        intranet_mode: bool = False,
     ) -> None:
-        self._ports = ports or _AI_SCAN_PORTS
+        # G10: 内网模式自动扩展端口集
+        if ports is None:
+            if intranet_mode:
+                self._ports = list(set(_AI_SCAN_PORTS + _INTRANET_EXTRA_PORTS))
+                self._ports.sort()
+            else:
+                self._ports = _AI_SCAN_PORTS
+        else:
+            self._ports = ports
         self._tcp_timeout = tcp_timeout
         self._http_timeout = http_timeout
         self._concurrency = concurrency
+        self._intranet_mode = intranet_mode
 
     @property
     def name(self) -> str:

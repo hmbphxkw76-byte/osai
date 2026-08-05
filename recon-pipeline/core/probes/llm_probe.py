@@ -167,7 +167,10 @@ class LLMProbe(ReconProbe):
 
     @property
     def requires_browser(self) -> bool:
-        return True
+        # LLMProbe 可以通过纯 HTTP 工作 (有 API Key 时),
+        # 也可以通过浏览器工作 (LLM WebApp 时)
+        # 不强制要求浏览器 — 会在 probe() 内根据 session 状态自适应
+        return False
 
     async def probe(self, session: ReconSession) -> dict[str, Any]:
         """Execute LLM probe.

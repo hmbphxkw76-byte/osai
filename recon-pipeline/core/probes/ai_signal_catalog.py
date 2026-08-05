@@ -168,6 +168,17 @@ AI_TITLE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"ray dashboard", re.IGNORECASE), "Ray Dashboard"),
     (re.compile(r"wandb", re.IGNORECASE), "Weights & Biases"),
 
+    # G9: 中国公网模型平台
+    (re.compile(r"智谱|zhipu|chatglm|bigmodel", re.IGNORECASE), "智谱 (Zhipu/ChatGLM)"),
+    (re.compile(r"deepseek", re.IGNORECASE), "DeepSeek"),
+    (re.compile(r"moonshot|月之暗面|kimi", re.IGNORECASE), "Moonshot (Kimi)"),
+    (re.compile(r"baichuan|百川", re.IGNORECASE), "Baichuan (百川)"),
+    (re.compile(r"通义|qwen|tongyi|dashscope|千问", re.IGNORECASE), "Qwen (通义千问)"),
+    (re.compile(r"星火|spark|xf-yun|讯飞", re.IGNORECASE), "iFlyTek Spark (星火)"),
+    (re.compile(r"豆包|doubao|火山引擎|volcengine", re.IGNORECASE), "Doubao (豆包)"),
+    (re.compile(r"混元|hunyuan|腾讯云.*大模型", re.IGNORECASE), "Hunyuan (混元)"),
+    (re.compile(r"minimax|稀宇", re.IGNORECASE), "MiniMax"),
+
     # Inference servers
     (re.compile(r"ollama", re.IGNORECASE), "Ollama"),
     (re.compile(r"vllm", re.IGNORECASE), "vLLM"),
@@ -240,6 +251,21 @@ AI_BODY_FINGERPRINTS: list[tuple[re.Pattern[str], str, str]] = [
     # SDK / embedding
     (re.compile(r'"object"\s*:\s*"list"\s*,\s*"data"\s*:\s*\[\s*\{\s*"embedding"', re.IGNORECASE), "OpenAI Embedding API", "runtime"),
     (re.compile(r'"object"\s*:\s*"embedding"', re.IGNORECASE), "Embedding API", "runtime"),
+
+    # G9: 中国公网模型平台 body fingerprints
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"glm-', re.IGNORECASE | re.DOTALL), "Zhipu ChatGLM", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"deepseek', re.IGNORECASE | re.DOTALL), "DeepSeek API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"moonshot', re.IGNORECASE | re.DOTALL), "Moonshot API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"qwen', re.IGNORECASE | re.DOTALL), "Qwen API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"Baichuan', re.IGNORECASE | re.DOTALL), "Baichuan API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"Spark', re.IGNORECASE | re.DOTALL), "iFlyTek Spark API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"doubao', re.IGNORECASE | re.DOTALL), "Doubao API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"hunyuan', re.IGNORECASE | re.DOTALL), "Hunyuan API", "runtime"),
+    (re.compile(r'"choices"\s*:\s*\[.*"model"\s*:\s*"MiniMax', re.IGNORECASE | re.DOTALL), "MiniMax API", "runtime"),
+    # 智谱特有
+    (re.compile(r'"id"\s*:\s*"end_user|api_key"\s*:\s*"', re.IGNORECASE), "Zhipu Auth Response", "sdk-client"),
+    # 通义千问 DashScope 特有
+    (re.compile(r'"request_id"\s*:\s*"[a-f0-9]+".*"output"', re.IGNORECASE | re.DOTALL), "DashScope API", "runtime"),
 ]
 
 # ============================================================================
@@ -395,6 +421,18 @@ AI_PATH_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
     # ── LLM GraphQL ──
     (re.compile(r"/graphql", re.IGNORECASE), "llm-graphql"),
+
+    # G9: 中国公网模型平台 API 路径
+    (re.compile(r"/paas/v4/chat/completions", re.IGNORECASE), "llm-chat"),  # 智谱
+    (re.compile(r"/api/v1/chat/completions", re.IGNORECASE), "llm-chat"),  # DeepSeek / Moonshot
+    (re.compile(r"/api/v1/models", re.IGNORECASE), "llm-models"),  # DeepSeek / Moonshot
+    (re.compile(r"/api/v1/chat/completions", re.IGNORECASE), "llm-chat"),  # 百川
+    (re.compile(r"/api/v3/chat/completions", re.IGNORECASE), "llm-chat"),  # 豆包
+    (re.compile(r"/v1/services/aigc/text-generation", re.IGNORECASE), "llm-chat"),  # 通义/DashScope
+    (re.compile(r"/v1/services/embeddings", re.IGNORECASE), "llm-embedding"),  # 通义/DashScope
+    (re.compile(r"/v1/services/text-embedding", re.IGNORECASE), "llm-embedding"),  # 通义/DashScope
+    (re.compile(r"/spark/v\d+/chat", re.IGNORECASE), "llm-chat"),  # 星火
+    (re.compile(r"/v1/llm/chat", re.IGNORECASE), "llm-chat"),  # 混元
 ]
 
 # ============================================================================
@@ -624,6 +662,14 @@ AI_SDK_IMPORT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r'"cohere-ai"|require\(["\']cohere-ai["\']\)', re.IGNORECASE), "cohere-sdk"),
     (re.compile(r'"@mistralai/mistralai"|require\(["\']@mistralai/mistralai["\']\)', re.IGNORECASE), "mistral-sdk"),
     (re.compile(r'"@deepseek/chat"|require\(["\']@deepseek/chat["\']\)', re.IGNORECASE), "deepseek-sdk"),
+
+    # G9: 中国公网模型平台 SDK imports
+    (re.compile(r'"zhipuai"|require\(["\']zhipuai["\']\)|from\s+["\']zhipuai["\']', re.IGNORECASE), "zhipuai-sdk"),
+    (re.compile(r'"@zhipu/"|require\(["\']@zhipu/', re.IGNORECASE), "zhipu-package"),
+    (re.compile(r'"dashscope"|require\(["\']dashscope["\']\)|from\s+["\']dashscope["\']', re.IGNORECASE), "dashscope-sdk"),
+    (re.compile(r'"openai-for-minimax"|require\(["\']minimax["\']\)', re.IGNORECASE), "minimax-sdk"),
+    (re.compile(r'"@volcengine/"|require\(["\']@volcengine/', re.IGNORECASE), "volcengine-sdk"),
+    (re.compile(r'"@tencentcloud/"|require\(["\']@tencentcloud/', re.IGNORECASE), "tencentcloud-sdk"),
     (re.compile(r'"groq-sdk"|require\(["\']groq-sdk["\']\)', re.IGNORECASE), "groq-sdk"),
     (re.compile(r'"@together-ai/openai"|require\(["\']@together-ai/', re.IGNORECASE), "together-ai-sdk"),
     (re.compile(r'"@fireworks-ai/sdk"|require\(["\']@fireworks-ai/', re.IGNORECASE), "fireworks-sdk"),
@@ -668,6 +714,12 @@ AI_KEY_PREFIX_PATTERNS: list[tuple[re.Pattern[str], str, dict[str, Any]]] = [
     (re.compile(r'ghp_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub Personal Access Token", {"disambiguate": False}),
     (re.compile(r'gho_[A-Za-z0-9]{36}', re.IGNORECASE), "GitHub OAuth Token", {"disambiguate": False}),
     (re.compile(r'github_pat_[A-Za-z0-9]{36,}', re.IGNORECASE), "GitHub Fine-grained PAT", {"disambiguate": False}),
+
+    # G9: 中国公网模型平台 Key Prefixes
+    (re.compile(r'sk-[A-Za-z0-9]{20,}', re.IGNORECASE), "DeepSeek/Moonshot API Key", {"disambiguate": True, "context": ("deepseek", "moonshot", "api.deepseek", "api.moonshot")}),
+    (re.compile(r'[a-f0-9]{32}\.[a-zA-Z0-9]{16,}', re.IGNORECASE), "Zhipu API Key (id.secret)", {"disambiguate": True, "context": ("bigmodel", "zhipu", "chatglm")}),
+    (re.compile(r'sk-[A-Za-z0-9]{20,}', re.IGNORECASE), "Baichuan API Key", {"disambiguate": True, "context": ("baichuan", "百川")}),
+    (re.compile(r'ark-[A-Za-z0-9]{20,}', re.IGNORECASE), "Volcengine/Doubao API Key", {"disambiguate": False}),
 ]
 
 # Constructor context patterns (SDK class name + apiKey parameter)

@@ -128,6 +128,10 @@ class AgentTransportProbe(ReconProbe):
     def requires_browser(self) -> bool:
         return False
 
+    @property
+    def requires_auth(self) -> bool:
+        return False
+
     async def probe(self, session: ReconSession) -> dict[str, Any]:
         """Execute transport discovery.
 
