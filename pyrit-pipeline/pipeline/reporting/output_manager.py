@@ -240,13 +240,15 @@ class ProgressPoller:
 
     在 ``scenario.run_async()`` 执行期间, 通过 asyncio 后台任务定期
     查询 PyRIT 原生 ``CentralMemory.get_attack_results(scenario_result_id=...)``
-    获取已完成的 AttackResult, 实时更新 ProgressDashboard.
+    获取已完成的 AttackResult, 实时增强 PyRIT 原生 tqdm 进度条.
 
-    设计原则:
+    R-022 设计原则 (原生优先, 自研即增强):
     - 非侵入式: 不覆盖任何 PyRIT 原生方法, 不修改 scenario 内部状态
     - 原生优先: 使用 PyRIT 原生 ``MemoryInterface.get_attack_results()`` API
-    - 可选增强: 如果 Memory 不可用或查询失败, 静默降级 (不影响执行)
-    - 轻量级: 默认 5 秒轮询间隔, 对性能影响可忽略
+    - 原生增强: 通过 tqdm 公开 API ``_instances`` + ``set_postfix()``
+      将 ASR/OK/FAIL 数据注入原生 tqdm 进度条, 不替换原生进度条
+    - 可选增强: 如果 Memory/tqdm 不可用或查询失败, 静默降级 (不影响执行)
+    - 轻量级: 默认 5 秒轮询间隔, 自适应退避到 _MAX_INTERVAL
 
     用法::
 
@@ -256,9 +258,8 @@ class ProgressPoller:
         await poller.stop()
     """
 
-    # ── 防刷屏参数 (业界标准: 仅变化才刷新 + 心跳保活 + 自适应退避) ──
+    # ── 自适应退避参数 ──
     _MAX_INTERVAL: float = 30.0   # 退避上限
-    _HEARTBEAT_INTERVAL: float = 30.0  # 心跳行打印间隔
 
     def __init__(
         self,
@@ -271,7 +272,7 @@ class ProgressPoller:
         """初始化轮询器.
 
         Args:
-            dashboard: ProgressDashboard 实例。
+            dashboard: ProgressDashboard 实例 (作为数据收集器, 不再用于渲染).
             scenario_result_id: 场景结果 ID。
             interval: 初始轮询间隔 (秒), 会自适应退避到 _MAX_INTERVAL。
             asr_tracker: 可选的 RealTimeASRTracker 实例, 用于实时 ASR 反馈。
@@ -282,8 +283,7 @@ class ProgressPoller:
         self._base_interval = interval  # 退避重置基准
         self._task: asyncio.Task | None = None
         self._stopped = False
-        self._last_completed: int = -1  # 上次看到的完成数 (-1 表示从未渲染)
-        self._last_heartbeat: float = time.time()  # 上次心跳时间
+        self._last_completed: int = -1  # 上次看到的完成数 (-1 表示从未注入)
         self._asr_tracker = asr_tracker  # P3-O1: 实时 ASR 追踪器
 
     def start(self) -> None:
@@ -302,16 +302,14 @@ class ProgressPoller:
             self._task = None
 
     async def _poll_loop(self) -> None:
-        """轮询循环 — 定期查询 CentralMemory 并更新 Dashboard.
+        """轮询循环 — 定期查询 CentralMemory 并增强原生 tqdm.
 
-        防刷屏三合一策略 (业界标准, 对标 tqdm/rich.progress):
-          ① 状态变化才重绘: 只有 completed 计数变化时才打印完整仪表盘
-          ② 心跳线保活: 无变化时每隔 _HEARTBEAT_INTERVAL 秒打印单行心跳
-          ③ 自适应退避: 无变化时轮询间隔 5s→10s→15s→30s 渐进退避;
-             有变化时重置回 base interval
-
-        L5 P0-1 增强: 检测新增 AttackResult, 打印实时攻击回调 (✅/❌)。
-        L5 P0-2 增强: 更新 ASR 迷你仪表盘。
+        R-022 策略 (原生优先, 自研即增强):
+          ① 查询 PyRIT 原生 CentralMemory 获取 AttackResult 列表
+          ② 更新 Dashboard 数据 (全量重统计, 作为数据收集器)
+          ③ 通过 ``_inject_postfix()`` 将 ASR/OK/FAIL 注入原生 tqdm
+          ④ 检测新增 AttackResult, 打印红队可读回调行
+          ⑤ 自适应退避: 无变化时轮询间隔 5s→10s→15s→30s
         """
         seen_ids: set[str] = set()
 
@@ -329,18 +327,15 @@ class ProgressPoller:
 
                 memory = CentralMemory.get_memory_instance()
                 if memory is None:
-                    # Memory 不可用也走心跳逻辑, 避免无声卡死
-                    self._maybe_heartbeat()
                     self._backoff()
                     continue
 
                 results = memory.get_attack_results(scenario_result_id=self._scenario_result_id)
                 if not results:
-                    self._maybe_heartbeat()
                     self._backoff()
                     continue
 
-                # P0-1: 检测新增 AttackResult, 打印实时回调
+                # P0-1: 检测新增 AttackResult, 打印红队可读回调行
                 new_results: list[Any] = []
                 for ar in results:
                     ar_id = str(getattr(ar, "id", "") or getattr(ar, "attack_result_id", ""))
@@ -357,9 +352,15 @@ class ProgressPoller:
                             else str(outcome).upper()
                         ) if outcome else "UNKNOWN"
                         marker = "✅" if outcome_str == "SUCCESS" else ("❌" if outcome_str == "FAILURE" else "⚠")
-                        obj = str(getattr(ar, "objective", ""))[:50]
+                        # D2: 红队回调行 — 技术名 + 载荷摘要 + 响应摘要
                         tech = ProgressDashboard._extract_technique(ar)
-                        print(f"  {marker} [{tech[:20]}] {obj}")
+                        obj = str(getattr(ar, "objective", ""))[:60]
+                        # D2: 提取目标响应摘要 (前 50 字符)
+                        resp = _extract_response_brief(ar)
+                        if resp:
+                            print(f"  {marker} {tech[:30]} | {obj} → {resp}")
+                        else:
+                            print(f"  {marker} {tech[:30]} | {obj}")
 
                     # P3-O1: 实时 ASR 反馈 — 将新结果反馈到 ASR 追踪器
                     if self._asr_tracker is not None:
@@ -368,22 +369,99 @@ class ProgressPoller:
                         except Exception as e:
                             logger.debug(f"RealTime ASR tracker update failed (non-fatal): {e}")
 
-                # 更新 Dashboard (全量重统计, 确保一致性)
+                # 更新 Dashboard 数据 (全量重统计, 作为数据收集器)
                 self._dashboard.update_from_attack_results(results)
 
-                # ① 仅状态变化才重绘完整仪表盘
+                # O1: 将 ASR/OK/FAIL 注入 PyRIT 原生 tqdm 进度条
+                self._inject_postfix()
+
+                # 自适应退避 / 重置
                 if self._dashboard.completed != self._last_completed:
                     self._last_completed = self._dashboard.completed
-                    self._dashboard.print_progress()
                     self._reset_interval()
                 else:
-                    # ② 无变化时打印心跳行 (每 _HEARTBEAT_INTERVAL 秒一次)
-                    self._maybe_heartbeat()
-                    # ③ 自适应退避
                     self._backoff()
             except Exception as e:
                 logger.debug(f"Progress poll failed (non-fatal): {e}")
                 self._backoff()
+
+    def _inject_postfix(self) -> None:
+        """R-022 数据层增强: 将 ASR/OK/FAIL 数据注入 PyRIT 原生 tqdm 进度条.
+
+        E1 增强: 从最近的 AttackResult 提取真正攻击技术名 (委托 AttackResultAnalyzer),
+        注入技术级实时 ASR 到 tqdm postfix.
+
+        注入效果::
+
+            Executing TextAdaptive: 4%|███| 3/82 [13:31<5:23, ASR=75%, OK=3, FAIL=1, ERR=0, Tech=many_shot(100%)]
+
+        失败时静默降级 (tqdm 实例不可用则跳过, 不影响执行).
+        """
+        try:
+            from tqdm.auto import tqdm as tqdm_cls
+
+            # 查找 PyRIT 原生创建的活跃 tqdm 实例
+            for instance in tqdm_cls._instances:
+                desc = getattr(instance, "desc", "")
+                if desc.startswith("Executing "):
+                    # 计算实时全局 ASR
+                    completed = self._dashboard.completed
+                    succeeded = self._dashboard.succeeded
+                    failed = self._dashboard.failed
+                    errored = self._dashboard.errored
+                    asr = (succeeded / completed * 100) if completed > 0 else 0
+
+                    # E1: 从最近的 AttackResult 提取真正攻击技术名
+                    # 使用与 dashboard 相同的 _extract_technique() 确保 key 一致
+                    tech_name = self._get_latest_technique_name()
+                    tech_asr_str = ""
+                    if tech_name and hasattr(self._dashboard, "_asr_tech_success"):
+                        tech_total = self._dashboard._asr_tech_total.get(tech_name, 0)
+                        tech_succ = self._dashboard._asr_tech_success.get(tech_name, 0)
+                        if tech_total > 0:
+                            tech_asr = tech_succ / tech_total * 100
+                            tech_asr_str = f"{tech_name[:20]}({tech_asr:.0f}%)"
+
+                    # 注入到原生 tqdm 的 postfix (单次调用避免 race condition)
+                    postfix_dict: dict[str, Any] = {
+                        "ASR": f"{asr:.0f}%",
+                        "OK": succeeded,
+                        "FAIL": failed,
+                        "ERR": errored,
+                    }
+                    if tech_asr_str:
+                        postfix_dict["Tech"] = tech_asr_str
+                    instance.set_postfix(**postfix_dict, refresh=True)
+                    break  # 只增强第一个匹配的实例
+        except Exception as e:
+            logger.debug(f"tqdm postfix injection failed (non-fatal): {e}")
+
+    def _get_latest_technique_name(self) -> str:
+        """E1: 从最近的 AttackResult 提取攻击技术名.
+
+        查询 CentralMemory 获取最近完成的 AttackResult,
+        使用与 ProgressDashboard._extract_technique() 相同的提取逻辑,
+        确保 tech_name 与 _asr_tech_total 字典 key 一致.
+
+        R-022: 使用 PyRIT 原生 CentralMemory API + AttackResult identifier 字段.
+
+        Returns:
+            技术名 (如 "many_shot"), 或空字符串 (查询失败时静默降级).
+        """
+        try:
+            from pyrit.memory import CentralMemory
+
+            memory = CentralMemory.get_memory_instance()
+            results = memory.get_attack_results(
+                scenario_result_id=self._scenario_result_id,
+            )
+            if not results:
+                return ""
+            # 取最近一条结果, 使用与 dashboard 相同的提取逻辑确保 key 一致
+            latest_ar = results[-1]
+            return ProgressDashboard._extract_technique(latest_ar)
+        except Exception:
+            return ""
 
     def _backoff(self) -> None:
         """自适应退避: 当前间隔翻倍, 上限 _MAX_INTERVAL."""
@@ -392,29 +470,42 @@ class ProgressPoller:
     def _reset_interval(self) -> None:
         """有变化时重置轮询间隔到基准值."""
         self._interval = self._base_interval
-        self._last_heartbeat = time.time()  # 重置心跳计时
 
-    def _maybe_heartbeat(self) -> None:
-        """心跳线保活: 每隔 _HEARTBEAT_INTERVAL 秒打印单行心跳.
 
-        格式: ⏳ {elapsed}s | {completed}/{total} ({pct}%) ✅{succ} ❌{fail}
-        用途: 让用户知道流水线在运行, 但不刷屏。
-        """
-        now = time.time()
-        if now - self._last_heartbeat >= self._HEARTBEAT_INTERVAL:
-            self._last_heartbeat = now
-            elapsed = now - self._dashboard._start_time
-            effective_total = max(self._dashboard.total, self._dashboard.completed)
-            pct = (
-                self._dashboard.completed / effective_total * 100
-                if effective_total > 0
-                else 0
-            )
-            print(
-                f"  ⏳ {elapsed:.0f}s | {self._dashboard.completed}/{self._dashboard.total} "
-                f"({pct:.1f}%) ✅{self._dashboard.succeeded} "
-                f"❌{self._dashboard.failed} ⚠{self._dashboard.errored}"
-            )
+def _extract_response_brief(ar: Any) -> str:
+    """D2: 从 AttackResult 提取目标响应摘要 (前 50 字符).
+
+    R-022 多路径回退:
+      1. ar.last_response — PyRIT 1.0.1 原生 last_response 字段 (MessagePiece)
+      2. ar.outcome_reason — PyRIT 1.0.1 原生结果原因
+
+    Args:
+        ar: AttackResult 实例
+
+    Returns:
+        响应摘要字符串 (最多 50 字符), 空字符串表示无可用响应
+    """
+    # 路径 1: PyRIT 1.0.1 原生 last_response
+    try:
+        last_resp = getattr(ar, "last_response", None)
+        if last_resp is not None:
+            content = getattr(last_resp, "content", "") or getattr(last_resp, "original_value", "")
+            if content:
+                brief = str(content)[:50]
+                return brief + "..." if len(str(content)) > 50 else brief
+    except Exception:
+        pass
+
+    # 路径 2: PyRIT 1.0.1 原生 outcome_reason
+    try:
+        reason = getattr(ar, "outcome_reason", None)
+        if reason and isinstance(reason, str) and len(reason) > 5:
+            brief = reason[:50]
+            return brief + "..." if len(reason) > 50 else brief
+    except Exception:
+        pass
+
+    return ""
 
 
 # ============================================================

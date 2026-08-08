@@ -136,10 +136,17 @@ class PipelineContext:
 
     def stage1_summary(self) -> str:
         """Stage 1 → Stage 2 衔接摘要 (数据 L1/L4 层)。."""
+        # L4 Memory: 显示 db_type + db_path (如有)
+        if self.config:
+            db_type = getattr(self.config, "memory_db_type", "unknown")
+            db_path = self.metadata.get("db_path", "")
+            l4_info = f"{db_type} ({db_path})" if db_path else db_type
+        else:
+            l4_info = "N/A"
         lines = [
             "  → Stage 2 输入:",
             f"    数据 L1 (Seed Source): {self._seed_source_summary()}",
-            f"    数据 L4 (Memory): {self.config.memory_db_type if self.config else 'N/A'}",
+            f"    数据 L4 (Memory): {l4_info}",
         ]
         if self.gcg_seeds_count > 0:
             lines.append(f"    GCG 种子: {self.gcg_seeds_count} 组")
@@ -151,22 +158,6 @@ class PipelineContext:
             lines.append("    限速包装: 已启用")
         if self.http_target_configured:
             lines.append("    HTTP Target: 已配置")
-        return "\n".join(lines)
-
-    def stage2_summary(self) -> str:
-        """Stage 2 → Stage 3 衔接摘要 (Executor L1-L3 + L5 层)。."""
-        lines = [
-            "  → Stage 3 输入:",
-            f"    Executor L1 (Parameters): {self.max_attempts_per_objective} max_attempts, "
-            f"{self.args.max_concurrency if self.args else 3} concurrency",
-            f"    Executor L2 (Strategy): {self.scenario_name}",
-            f"    Executor L3 (Config): converter_routing={self.converter_routing_count}",
-            f"    Executor L5 (Scenario): {type(self.scenario).__name__ if self.scenario else 'N/A'}",
-            f"    数据 L3 (Dataset Config): {len(self.sorted_datasets)} 个数据集",
-            f"    数据 L5 (Analytics): warm_start={len(self.warm_start_asr)} 个技术先验",
-            f"    数据 L5 (Analytics): ranked_groups={len(self.ranked_groups)}, "
-            f"fallback_plan={'yes' if self.fallback_plan else 'no'}",
-        ]
         return "\n".join(lines)
 
     def _seed_source_summary(self) -> str:

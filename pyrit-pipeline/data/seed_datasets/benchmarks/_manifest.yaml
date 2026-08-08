@@ -39,7 +39,7 @@ datasets:
     owasp_ids: [LLM03]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [supply_chain]
-    default: false
+    default: true
 
   - name: owasp_llm04_data_model_poisoning
     source: local
@@ -47,7 +47,7 @@ datasets:
     owasp_ids: [LLM04]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [information_integrity]
-    default: false
+    default: true
 
   - name: owasp_llm05_improper_output_handling
     source: local
@@ -79,7 +79,7 @@ datasets:
     owasp_ids: [LLM08]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [data_theft]
-    default: false
+    default: true
 
   - name: owasp_llm09_misinformation
     source: local
@@ -87,7 +87,7 @@ datasets:
     owasp_ids: [LLM09]
     technique_groups: [prompt_sending]
     harm_categories: [misinformation]
-    default: false
+    default: true
 
   - name: owasp_llm10_unbounded_consumption
     source: local
@@ -95,7 +95,7 @@ datasets:
     owasp_ids: [LLM10]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [availability]
-    default: false
+    default: true
 
   # ── OWASP Agentic AI Top 10 (本地富元数据) ──
   - name: owasp_asi01_agent_identity_spoofing
@@ -136,7 +136,7 @@ datasets:
     owasp_ids: [ASI05]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [privilege_escalation]
-    default: false
+    default: true
 
   - name: owasp_asi06_memory_poisoning
     source: local
@@ -144,7 +144,7 @@ datasets:
     owasp_ids: [ASI06]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [memory_attack]
-    default: false
+    default: true
 
   - name: owasp_asi07_cross_agent_injection
     source: local
@@ -152,7 +152,7 @@ datasets:
     owasp_ids: [ASI07]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [cross_agent_attack]
-    default: false
+    default: true
 
   - name: owasp_asi08_cascading_failure
     source: local
@@ -160,7 +160,7 @@ datasets:
     owasp_ids: [ASI08]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [system_failure]
-    default: false
+    default: true
 
   - name: owasp_asi09_trust_boundary_violation
     source: local
@@ -168,7 +168,7 @@ datasets:
     owasp_ids: [ASI09]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [trust_exploit]
-    default: false
+    default: true
 
   - name: owasp_asi10_rogue_agent
     source: local
@@ -176,7 +176,7 @@ datasets:
     owasp_ids: [ASI10]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [rogue_agent]
-    default: false
+    default: true
 
   # ── CVE 漏洞载荷 (本地富元数据) ──
   - name: cve_prompt_injection_exfiltration
@@ -185,16 +185,7 @@ datasets:
     owasp_ids: [LLM01, LLM06]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [exploits]
-    default: false
-
-  # ── 自定义载荷 (本地富元数据) ──
-  - name: custom_redteam_objectives
-    source: local
-    path: data/seed_datasets/custom/redteam_objectives.prompt
-    owasp_ids: [LLM06, LLM09]
-    technique_groups: [prompt_sending, context_compliance]
-    harm_categories: [information_integrity]
-    default: false
+    default: true
 
   # ── 远程学术基准数据集 (需预下载到 data/seed_datasets/benchmarks/ 目录) ──
   # 运行 scripts/download_datasets.py 下载后, source 从 remote 变为 remote_cached

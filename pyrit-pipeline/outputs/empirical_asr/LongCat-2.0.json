@@ -1,21 +1,8 @@
 {
-  "techniques": {
-    "harmbench": 0.6153846153846154,
-    "jbb_behaviors": 0.6153846153846154,
-    "strong_reject": 0.6923076923076923,
-    "owasp_llm01_prompt_injection": 0.9090909090909091,
-    "owasp_llm02_sensitive_info_disclosure": 0.45454545454545453,
-    "owasp_llm05_improper_output_handling": 0.75,
-    "owasp_llm06_excessive_agency": 0.6666666666666665,
-    "owasp_llm07_system_prompt_leakage": 0.19047619047619047,
-    "owasp_asi01_agent_identity_spoofing": 0.5714285714285714,
-    "owasp_asi02_tool_misuse": 0.6153846153846154,
-    "owasp_asi03_unauthorized_actions": 0.8333333333333335,
-    "owasp_asi04_data_exfiltration": 0.5714285714285714
-  },
+  "techniques": {},
   "_meta": {
-    "total_techniques": 12,
+    "total_techniques": 0,
     "model_name": "LongCat-2.0",
-    "description": "Empirical ASR data collected from runtime. Overrides academic priors."
+    "description": "Empirical ASR data collected from runtime. Overrides academic priors. O1 fix: cleared dataset-name keys, will be re-collected with correct technique names."
   }
 }

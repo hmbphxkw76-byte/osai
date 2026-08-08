@@ -25,6 +25,11 @@ Usage:
 import logging
 import os as _os
 import sys
+import warnings
+
+# 抑制第三方库 (如 confusables) 的 SyntaxWarning (invalid escape sequence)
+# 这些警告来自 .venv 中的第三方包源码, 非本项目代码, 属于噪音直接抑制
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 _logger = logging.getLogger(__name__)
 

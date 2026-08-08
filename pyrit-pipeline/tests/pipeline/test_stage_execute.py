@@ -20,16 +20,16 @@ from pipeline.context import PipelineContext
 
 
 class TestComputeASR:
-    """_compute_asr 单元测试。."""
+    """_print_attack_summary ASR 计算单元测试 (原 _compute_asr 已内联)。."""
 
     def test_none_result_no_crash(self, mock_args: pytest.fixture) -> None:
         """Result 为 None 时不崩溃。."""
         ctx = PipelineContext(args=mock_args)
         ctx.result = None
 
-        from pipeline.stages.stage_execute import _compute_asr
+        from pipeline.stages.stage_execute import _print_attack_summary
 
-        _compute_asr(ctx)
+        _print_attack_summary(ctx, {})
         assert ctx.asr_per_technique == {}
         assert ctx.overall_asr == 0
 
@@ -41,9 +41,9 @@ class TestComputeASR:
         ctx.result.get_display_groups = MagicMock(return_value={})
         ctx.result.objective_achieved_rate = MagicMock(return_value=0)
 
-        from pipeline.stages.stage_execute import _compute_asr
+        from pipeline.stages.stage_execute import _print_attack_summary
 
-        _compute_asr(ctx)
+        _print_attack_summary(ctx, {})
         assert ctx.asr_per_technique == {}
         assert ctx.overall_asr == 0
 
@@ -52,8 +52,18 @@ class TestComputeASR:
         from pyrit.models import AttackOutcome
 
         # 模拟 3 个成功 + 2 个失败
-        success_results = [MagicMock(outcome=AttackOutcome.SUCCESS) for _ in range(3)]
-        failure_results = [MagicMock(outcome=AttackOutcome.FAILURE) for _ in range(2)]
+        # 设置 strategy identifier 以提取技术名 (否则回退为 "unknown")
+        def _make_result(outcome: AttackOutcome) -> MagicMock:
+            r = MagicMock()
+            r.outcome = outcome
+            identifier = MagicMock()
+            identifier.name = None  # extract_technique_name 先检查 name, None 时回退到 class_name
+            identifier.class_name = "many_shot"
+            r.get_attack_strategy_identifier = MagicMock(return_value=identifier)
+            return r
+
+        success_results = [_make_result(AttackOutcome.SUCCESS) for _ in range(3)]
+        failure_results = [_make_result(AttackOutcome.FAILURE) for _ in range(2)]
 
         ctx = PipelineContext(args=mock_args)
         ctx.result = MagicMock()
@@ -64,9 +74,9 @@ class TestComputeASR:
         )
         ctx.result.objective_achieved_rate = MagicMock(return_value=60)
 
-        from pipeline.stages.stage_execute import _compute_asr
+        from pipeline.stages.stage_execute import _print_attack_summary
 
-        _compute_asr(ctx)
+        _print_attack_summary(ctx, {})
         assert "many_shot" in ctx.asr_per_technique
         assert ctx.asr_per_technique["many_shot"] == pytest.approx(60.0)  # 3/5 * 100
         assert ctx.overall_asr == 60
@@ -82,7 +92,7 @@ class TestComputeASR:
         )
         ctx.result.objective_achieved_rate = MagicMock(return_value=0)
 
-        from pipeline.stages.stage_execute import _compute_asr
+        from pipeline.stages.stage_execute import _print_attack_summary
 
-        _compute_asr(ctx)
+        _print_attack_summary(ctx, {})
         assert "empty_group" not in ctx.asr_per_technique

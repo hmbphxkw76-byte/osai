@@ -22,12 +22,13 @@
 6. [R-021: 代码改动默认全量测试 + L5 差距分析 + 端到端运行需用户确认](#6-r-021-代码改动默认全量测试--l5-差距分析--端到端运行需用户确认)
 7. [R-022: PyRIT 原生框架优先与自研增强最佳实践](#7-r-022-pyrit-原生框架优先与自研增强最佳实践)
 8. [R-023: 端到端验证待办自动写入记忆库与后续自动对齐](#8-r-023-端到端验证待办自动写入记忆库与后续自动对齐)
-9. [原生 API 优先级原则](#9-原生-api-优先级原则)
-10. [代码规范](#10-代码规范)
-11. [测试规范](#11-测试规范)
-12. [模块创建指南](#12-模块创建指南)
-13. [文档规范](#13-文档规范)
-14. [Git 提交规范](#14-git-提交规范)
+9. [第三方库 Warning 抑制规范](#9-第三方库-warning-抑制规范)
+10. [原生 API 优先级原则](#10-原生-api-优先级原则)
+11. [代码规范](#11-代码规范)
+12. [测试规范](#12-测试规范)
+13. [模块创建指南](#13-模块创建指南)
+14. [文档规范](#14-文档规范)
+15. [Git 提交规范](#15-git-提交规范)
 
 ---
 
@@ -435,13 +436,46 @@ L5 差距分析 → 发现端到端验证型差距
 
 ---
 
-## 9. 原生 API 优先级原则
+## 9. 第三方库 Warning 抑制规范
 
-### 9.1 核心原则
+### 9.1 问题背景
+
+Python 3.12+ 将无效转义序列从 `DeprecationWarning` 升级为 `SyntaxWarning`。`.venv` 中的第三方库（如 `confusables`）可能使用无效正则转义（如 `[\*_~|`\-\.]*`），导入时触发 `SyntaxWarning`，污染终端和日志输出。
+
+### 9.2 抑制策略
+
+本项目代码由 `ruff` 保证无无效转义序列，因此全局忽略 `SyntaxWarning` 安全无副作用。
+
+| 位置 | 配置 | 作用 |
+|------|------|------|
+| `main.py` (line ~32) | `warnings.filterwarnings("ignore", category=SyntaxWarning)` | 运行时抑制，在所有业务 import 之前 |
+| `pyproject.toml` | `filterwarnings = ["ignore::SyntaxWarning"]` | pytest 运行时抑制 |
+
+### 9.3 适用范围
+
+- 仅抑制 `SyntaxWarning`（第三方库源码问题，非本项目代码）
+- **不抑制** `DeprecationWarning` / `FutureWarning` / `RuntimeWarning`（可能指示本项目代码问题）
+- 如果第三方库的其他 Warning 影响输出，可在 `noise_redirector.py` 的 `_NOISE_PATTERNS` 中添加匹配模式
+
+### 9.4 验证方式
+
+```bash
+# 确认抑制生效（应无输出）
+python -c "import warnings; warnings.filterwarnings('ignore', category=SyntaxWarning); import confusables; print('OK')"
+
+# 确认不加过滤时确实触发（应显示 SyntaxWarning）
+python -c "import py_compile; py_compile.compile('.venv/Lib/site-packages/confusables/__init__.py', doraise=False)"
+```
+
+---
+
+## 10. 原生 API 优先级原则
+
+### 10.1 核心原则
 
 > **PyRIT 原生框架优先，自研代码以 ASR 驱动，攻击为王，报告证据齐全为原则，其余的内容都可以忽略。**
 
-### 9.2 API 使用优先级
+### 10.2 API 使用优先级
 
 | 优先级 | API 来源 | 使用场景 | 示例 |
 |--------|---------|---------|------|
@@ -451,7 +485,7 @@ L5 差距分析 → 发现端到端验证型差距
 | 4 | 原生 API 扩展 | 数据层增强 | `RichMetadataLoader(SeedDataset)` |
 | 5 | 纯自研 | 数据/分析/报告 | `EvidenceCollector`, `ASROptimizer` |
 
-### 9.3 禁止事项
+### 10.3 禁止事项
 
 | 禁止 | 说明 |
 |------|------|
@@ -460,7 +494,7 @@ L5 差距分析 → 发现端到端验证型差距
 | **禁止绕过原生注册表** | 通过 `TargetRegistry`/`ScorerRegistry`/`AttackTechniqueRegistry` 获取实例 |
 | **禁止硬编码 API 调用** | 通过 `.pyrit_conf` + `.env` 配置，不硬编码 endpoint/key |
 
-### 9.4 自研模块准则
+### 10.4 自研模块准则
 
 自研模块必须满足以下条件之一：
 1. **数据层增强**: 提供原生 API 不支持的数据 (如 ASR 先验)
@@ -470,7 +504,7 @@ L5 差距分析 → 发现端到端验证型差距
 
 ---
 
-## 10. 代码规范
+## 11. 代码规范
 
 ### 10.1 代码风格
 
@@ -518,7 +552,7 @@ except:
 
 ---
 
-## 11. 测试规范
+## 12. 测试规范
 
 ### 11.1 测试结构
 
@@ -559,7 +593,7 @@ python -m pytest tests/ --cov=pipeline --cov-report=html
 
 ---
 
-## 12. 模块创建指南
+## 13. 模块创建指南
 
 ### 12.1 何时创建新模块
 
@@ -649,7 +683,7 @@ class ModuleName:
 
 ---
 
-## 13. 文档规范
+## 14. 文档规范
 
 ### 13.1 文档结构
 
@@ -684,7 +718,7 @@ class ModuleName:
 
 ---
 
-## 14. Git 提交规范
+## 15. Git 提交规范
 
 ### 14.1 提交信息格式
 

@@ -59,13 +59,59 @@ async def run(ctx: PipelineContext) -> None:
     print("=" * 70)
 
     strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"
-    print("\n  ┌─ 执行配置 ──────────────────────────────────────────────┐")
-    print(f"  │ AtomicAttack: {ctx.scenario.atomic_attack_count} | 策略: {strategy}")
-    print(f"  │ 并发: {ctx.args.max_concurrency} | Converter: {ctx.converter_routing_count}")
-    print("  └───────────────────────────────────────────────────────────────┘")
 
     # ── P1: FailureTypeEventHandler ──
     selector = getattr(ctx, "selector", None)
+
+    # 提前提取 model_name (供显示和后续使用)
+    # 多路径回退: ctx.metadata → selector → env → registry → CLI args
+    if "model_name" not in ctx.metadata:
+        _detected_name = ""
+        if selector is not None:
+            _detected_name = (
+                getattr(selector, "_model_name", None)
+                or getattr(selector, "model_name", None)
+                or ""
+            )
+        if not _detected_name:
+            _detected_name = (
+                os.getenv("TARGET_MODEL", "")
+                or os.getenv("OPENAI_CHAT_MODEL", "")
+                or getattr(ctx.args, "model", "")
+            )
+        if not _detected_name:
+            try:
+                from pipeline.converters.model_tier_detector import detect_model_tier_from_registry
+
+                _detected_name, _ = detect_model_tier_from_registry()
+            except Exception:
+                _detected_name = ""
+        ctx.metadata["model_name"] = _detected_name or "unknown"
+
+    if "model_tier" not in ctx.metadata and selector is not None:
+        _detected_tier = getattr(selector, "_model_tier", None)
+        if _detected_tier:
+            ctx.metadata["model_tier"] = _detected_tier
+
+    # O6: 精简执行配置摘要 (红队视角: 目标 + 攻击数 + 策略)
+    model_name = ctx.metadata.get("model_name", "unknown")
+    model_tier = ctx.metadata.get("model_tier", "")
+    tier_str = f" ({model_tier})" if model_tier else ""
+    print("\n  ┌─ 攻击执行配置 ──────────────────────────────────────────┐")
+    print(
+        f"  │ 目标: {model_name}{tier_str} | AtomicAttack: {ctx.scenario.atomic_attack_count}"
+        f" | 策略: {strategy} | 并发: {ctx.args.max_concurrency}"
+    )
+    # O5: 解释 P-编号 vs AtomicAttack 差异
+    planned_attacks = ctx.metadata.get("planned_attack_count", 0)
+    actual_attacks = ctx.scenario.atomic_attack_count
+    if planned_attacks > 0 and planned_attacks != actual_attacks:
+        diff = planned_attacks - actual_attacks
+        print(
+            f"  │ 计划: {planned_attacks} → 实际: {actual_attacks} (去重/预算精简 {diff} 个)"
+        )
+    print("  └───────────────────────────────────────────────────────────────┘")
+
     event_handler = FailureTypeEventHandler(selector=selector)
 
     # ── P1-G3: RuntimeStopEventHandler — 运行时停止策略 ──
@@ -78,25 +124,17 @@ async def run(ctx: PipelineContext) -> None:
         stop_on_first_success=stop_on_first,
     )
 
-    if hasattr(selector, "_model_tier"):
-        ctx.metadata["model_tier"] = selector._model_tier
-    if hasattr(selector, "_model_name"):
-        ctx.metadata["model_name"] = selector._model_name
-
     # ── 原生: 场景执行 ──
     # P2-3: ProgressDashboard 集成 (执行前显示总览, 执行后显示结果)
     from pipeline.reporting.output_manager import ProgressDashboard, ProgressPoller
 
     total_attacks = ctx.scenario.atomic_attack_count
     dashboard = ProgressDashboard(total=total_attacks)
-    print(f"  开始执行 {total_attacks} 个 AtomicAttack...")
-    dashboard.print_progress()
+    # O4: 不再打印 Dashboard 初始卡片 (原生 tqdm 会显示进度)
+    # O1: Dashboard 仅作为数据收集器, 不用于渲染
 
     # C1+C2: 启用 ProgressPoller 实时轮询 (基于 PyRIT 原生 CentralMemory API)
-    # Bug fix: PyRIT Scenario 类将 ID 存储为 _scenario_result_id (带下划线前缀),
-    # 此前误用 "scenario_result_id" 导致 getattr 始终返回 None, Poller 从未启动。
-    # _scenario_result_id 在 Stage 3 initialize_async() 中已创建 (scenario.py:670),
-    # 到 Stage 4 执行时已可用。
+    # R-022: Poller 通过 tqdm._instances + set_postfix() 增强原生 tqdm 进度条
     scenario_result_id = getattr(ctx.scenario, "_scenario_result_id", None) or getattr(ctx.args, "resume", None)
     poller: ProgressPoller | None = None
     # P3-O1: 实时 ASR 追踪器
@@ -111,8 +149,8 @@ async def run(ctx: PipelineContext) -> None:
             asr_tracker=asr_tracker,
         )
         poller.start()
-        print(f"  实时进度轮询已启动 (5s 起步, 自适应退避至 30s, srid={scenario_result_id[:8]}...)")
-        print("  实时 ASR 反馈已启用 (运行时动态参数调整)")
+        # O4: 系统内部信息降级到日志
+        logger.debug(f"ProgressPoller started (srid={scenario_result_id[:8]}...)")
 
     # C4: 发布执行开始事件
     bus = EventBus.get_instance()
@@ -153,7 +191,7 @@ async def run(ctx: PipelineContext) -> None:
     if poller:
         await poller.stop()
 
-    # P3-O1: 存储实时 ASR 摘要到 ctx.metadata
+    # P3-O1: 存储实时 ASR 摘要到 ctx.metadata (O4: 展示降级到日志)
     ctx.metadata["realtime_asr_summary"] = asr_tracker.get_realtime_summary()
     _adjustments = asr_tracker.suggest_adjustments()
     if _adjustments:
@@ -167,12 +205,8 @@ async def run(ctx: PipelineContext) -> None:
             }
             for adj in _adjustments
         ]
-        print(f"\n  ┌─ 实时 ASR 调整建议 ({len(_adjustments)} 项) ───────────────────┐")
-        for adj in _adjustments[:5]:
-            print(f"  │ {adj.technique[:25]:<25} {adj.adjustment_type:<20} ASR={adj.current_asr:.0%}")
-        if len(_adjustments) > 5:
-            print(f"  │ ... 及其余 {len(_adjustments) - 5} 项")
-        print("  └───────────────────────────────────────────────────────────┘")
+        # O4: ASR 调整建议降级到日志 (运维信息, 非红队攻击结果)
+        logger.debug(f"Real-time ASR adjustments: {len(_adjustments)} items")
 
         # P3-O1 深度应用: 生成实时参数覆盖 (供下一次运行暖启动使用)
         _overrides = asr_tracker.get_live_parameter_overrides()
@@ -180,27 +214,17 @@ async def run(ctx: PipelineContext) -> None:
             _overrides[key] for key in ("converter_priority_boost", "retry_reduction", "technique_skip", "angle_change")
         ):
             ctx.metadata["realtime_parameter_overrides"] = _overrides
-            _boost_count = len(_overrides.get("converter_priority_boost", {}))
-            _retry_count = len(_overrides.get("retry_reduction", {}))
-            _skip_count = len(_overrides.get("technique_skip", {}))
-            _angle_count = len(_overrides.get("angle_change", {}))
-            print("\n  ┌─ 实时参数覆盖 (深度应用) ─────────────────────────────────┐")
-            print(f"  │ Converter 优先级调整: {_boost_count} 项")
-            print(f"  │ 重试次数缩减: {_retry_count} 项")
-            print(f"  │ 建议跳过: {_skip_count} 项")
-            print(f"  │ 角度切换: {_angle_count} 项")
-            print("  │ → 已存入 ctx.metadata['realtime_parameter_overrides']")
-            print("  │ → 下次运行可通过 --warm-start-asr 自动应用")
-            print("  └───────────────────────────────────────────────────────────┘")
+            logger.debug(
+                f"Real-time parameter overrides: "
+                f"boost={len(_overrides.get('converter_priority_boost', {}))}, "
+                f"retry_reduction={len(_overrides.get('retry_reduction', {}))}, "
+                f"skip={len(_overrides.get('technique_skip', {}))}, "
+                f"angle={len(_overrides.get('angle_change', {}))}"
+            )
 
     if partial_failure:
         total_results = sum(len(v) for v in result.attack_results.values())
         print(f"\n  ⚠ [恢复] 场景执行部分失败, 已从 CentralMemory 检索 {total_results} 个部分结果")
-
-    total_results = sum(len(v) for v in result.attack_results.values())
-    print("\n  ┌─ 执行完成 ──────────────────────────────────────────────┐")
-    print(f"  │ AttackResult: {total_results} 个")
-    print("  └───────────────────────────────────────────────────────────────┘")
 
     # P2-3: 更新 Dashboard 并显示最终状态
     # 使用 update_from_attack_results 按 objective 级别计数, 与 Poller 一致
@@ -220,10 +244,9 @@ async def run(ctx: PipelineContext) -> None:
     )
     errored = total_results - succeeded - failed
 
-    # Dashboard 按 objective 级别更新 (与 total=atomic_attack_count 同单位)
+    # O1: Dashboard 仅用于数据收集, 不再渲染 (原生 tqdm 已完成进度展示)
     all_attack_results = [ar for ars in result.attack_results.values() for ar in ars]
     dashboard.update_from_attack_results(all_attack_results)
-    dashboard.print_progress()
 
     # C4: 发布执行完成事件
     bus.publish_simple(
@@ -248,14 +271,9 @@ async def run(ctx: PipelineContext) -> None:
     if stats["total_attacks"] > 0:
         ctx.metadata["failure_stats"] = stats
 
-    # ── O5: 失败路由策略展示 (对齐 pyrit_ai300 Stage 5 ②) ──
-    _print_failure_routing(ctx, stats)
-
-    # B6: ConverterHealthMonitor 运行时熔断统计
-    _print_converter_health(ctx)
-
-    # ── ASR 分析 ──
-    _compute_asr(ctx)
+    # O5: 合并执行后输出为 3 个红队核心卡片
+    # (移除 11+ 个独立 info_box, 降级运维信息到日志)
+    _print_attack_summary(ctx, stats)
 
     # L5 P2-1: 决策追溯 — ASR 计算完成
     from pipeline.utils.decision_trace import DecisionTrace
@@ -280,18 +298,6 @@ async def run(ctx: PipelineContext) -> None:
         failed=failed,
     )
 
-    # C3: Converter 变换展示 (Top 5 成功变换)
-    _print_converter_transformations(ctx)
-
-    # C5: 失败即时诊断
-    _print_failure_diagnosis(ctx)
-
-    # ── 攻击结果速览 + Per-Group Breakdown ──
-    _print_attack_overview(ctx)
-
-    # ── Gap 4: P 编号贯穿 — 展示 dataset → P编号映射 ──
-    _print_pid_dataset_map(ctx)
-
     # P1-1: 经验 ASR 保存已移至 Stage 5 (stage_post_analysis), 消除重复调用
 
     # ── O6: ★ 突出传递 Banner (替代单行衔接) ──
@@ -315,6 +321,243 @@ async def run(ctx: PipelineContext) -> None:
             "★ 分析任务: 实测 vs 先验对比 + 经验写回 + 下次运行建议",
         ],
     )
+
+
+def _extract_technique_from_result(ar: Any) -> str:
+    """O1: 从 AttackResult 提取真正的攻击技术名.
+
+    委托给 AttackResultAnalyzer.extract_technique_name() (原生 PyRIT identifier API).
+    回退到 "unknown" 如果提取失败。
+
+    R-022: 使用 PyRIT 原生 identifier 字段, 不修改原生生命周期。
+    """
+    try:
+        from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
+        name = AttackResultAnalyzer.extract_technique_name(ar)
+        # 类型防御: 确保 tech_name 始终为 str (MagicMock 属性泄漏可能导致非 str 返回)
+        return name if isinstance(name, str) else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
+    """O5: 红队核心汇总卡片 — 合并 11+ 个 info_box 为 3 个核心卡片.
+
+    卡片 ① 攻击结果总览: 总计/成功/失败/ASR + 技术排行 + Per-Dataset
+    卡片 ② 攻击诊断: 失败类型分布 + 路由建议 (仅有失败时显示)
+    卡片 ③ 成功攻击详情: Top 10 载荷+技术+Converter (仅有成功时显示)
+    """
+    from pyrit.models import AttackOutcome
+
+    from pipeline.utils.display import info_box
+
+    result = ctx.result
+    if result is None:
+        return
+
+    # ── 计算 ASR — 按攻击技术分组 (非数据集名) ──
+    # O1 修复: get_display_groups() 返回的 group_name 是数据集名,
+    # 而非攻击技术名。通过 AttackResultAnalyzer.extract_technique_name()
+    # 从每个 AttackResult 提取真正的技术名, 按技术名重新分组计算 ASR。
+    groups = result.get_display_groups()
+    all_results: list[tuple[str, bool, Any]] = []
+    for _dataset_name, attack_results in groups.items():
+        for ar in attack_results:
+            success = ar.outcome == AttackOutcome.SUCCESS
+            # O1: 提取真正的攻击技术名
+            tech_name = _extract_technique_from_result(ar)
+            all_results.append((tech_name, success, ar))
+
+    # 按攻击技术名分组计算 ASR
+    asr_per_technique: dict[str, float] = {}
+    _tech_results: dict[str, list[Any]] = {}
+    for tech_name, _success, ar in all_results:
+        _tech_results.setdefault(tech_name, []).append(ar)
+    for tech_name, results in _tech_results.items():
+        total_t = len(results)
+        if total_t == 0:
+            continue
+        successes_t = sum(1 for r in results if r.outcome == AttackOutcome.SUCCESS)
+        asr_per_technique[tech_name] = (successes_t / total_t) * 100
+
+    ctx.asr_per_technique = asr_per_technique
+    ctx.overall_asr = result.objective_achieved_rate()
+
+    total = len(all_results)
+    successes = sum(1 for _, s, _ in all_results if s)
+    failures = total - successes
+
+    # ── 卡片 ①: 攻击结果总览 ──
+    lines: list[str] = []
+    lines.append(f"总计: {total} | 成功: {successes} | 失败: {failures} | ASR: {ctx.overall_asr}%")
+    lines.append("")
+    lines.append(f"{'攻击技术':<35} {'ASR':>7s}  {'成功/总计':<10s}  {'可视化':<20s}")
+    for name, asr_val in sorted(asr_per_technique.items(), key=lambda x: x[1], reverse=True):
+        bar = "█" * int(asr_val / 5)
+        tech_results = _tech_results.get(name, [])
+        succ_t = sum(1 for r in tech_results if r.outcome == AttackOutcome.SUCCESS)
+        total_t = len(tech_results)
+        lines.append(f"  {name:<33} {asr_val:>6.1f}%  {succ_t}/{total_t:<8}  {bar}")
+
+    # D3: OWASP 覆盖率行 (从 metadata 收集)
+    owasp_coverage = ctx.metadata.get("mcp_probe_results", {}).get("owasp_coverage", {})
+    if not owasp_coverage:
+        # 尝试从 attack_results metadata 提取 owasp_codes
+        owasp_codes_found: dict[str, bool] = {}
+        for _, _, ar in all_results:
+            ar_meta = getattr(ar, "metadata", None) or {}
+            if isinstance(ar_meta, dict):
+                codes = ar_meta.get("owasp_codes") or ar_meta.get("owasp_code")
+                if codes:
+                    if isinstance(codes, str):
+                        codes = [codes]
+                    for code in codes:
+                        if isinstance(code, str) and code.startswith("ASI"):
+                            owasp_codes_found[code] = owasp_codes_found.get(code, False)
+                            if getattr(ar, "outcome", None) == AttackOutcome.SUCCESS:
+                                owasp_codes_found[code] = True
+        if owasp_codes_found:
+            owasp_coverage = owasp_codes_found
+
+    if owasp_coverage:
+        lines.append("")
+        coverage_parts = []
+        for code in sorted(owasp_coverage.keys()):
+            hit = owasp_coverage[code] if isinstance(owasp_coverage[code], bool) else False
+            marker = "✅" if hit else "❌"
+            coverage_parts.append(f"{code} {marker}")
+        lines.append(f"  OWASP 覆盖: {' | '.join(coverage_parts)}")
+
+    # Per-Dataset Breakdown (保留数据集维度作为补充信息)
+    lines.append("")
+    lines.append("  [载荷维度]")
+    for group_name, attack_results in groups.items():
+        g_total = len(attack_results)
+        if g_total == 0:
+            continue
+        g_successes = sum(1 for r in attack_results if r.outcome == AttackOutcome.SUCCESS)
+        rate = (g_successes / g_total) * 100 if g_total > 0 else 0
+        marker = "✅" if g_successes > 0 else "❌"
+        lines.append(f"  {marker} {group_name:<38} {rate:.0f}% ({g_successes}/{g_total})")
+
+    info_box("① 攻击结果总览", lines)
+
+    # ── 卡片 ②: 攻击诊断 (仅有失败时) ──
+    if failures > 0:
+        # 失败类型分布 (合并 _print_failure_routing + _print_failure_diagnosis)
+        failure_dist = stats.get("failure_distribution", {})
+        routing_map = {
+            "model_refusal": "→ 策略升级",
+            "timeout": "→ 降级单轮",
+            "scorer_validation_error": "→ 换技术",
+            "objective_not_achieved": "→ 强技术+Converter",
+            "unknown": "→ 检查日志",
+        }
+        diag_lines: list[str] = []
+        if failure_dist:
+            for fail_type, count in sorted(failure_dist.items(), key=lambda x: x[1], reverse=True):
+                route = routing_map.get(fail_type, "→ 默认路由")
+                pct = count / failures * 100 if failures > 0 else 0
+                # D4: 从失败结果中提取平均耗时和重试次数
+                timing = _extract_failure_timing(all_results, fail_type)
+                timing_str = f" | avg {timing['avg_time']:.0f}s" if timing["avg_time"] > 0 else ""
+                retry_str = f", {timing['avg_retries']:.0f} retries" if timing["avg_retries"] > 0 else ""
+                diag_lines.append(
+                    f"  {fail_type:<28} ×{count:<4} ({pct:.0f}%)  {route}{timing_str}{retry_str}"
+                )
+        else:
+            diag_lines.append("  (无失败类型统计)")
+
+        # Converter 健康状态 (合并, 仅有熔断时显示)
+        monitor = ctx.metadata.get("converter_health_monitor")
+        if monitor is not None:
+            try:
+                stats_list = monitor.get_all_stats() if hasattr(monitor, "get_all_stats") else []
+                circuit_open = [s for s in stats_list if s.is_circuit_open]
+                if circuit_open:
+                    diag_lines.append("")
+                    diag_lines.append(f"  ⚠ {len(circuit_open)} 个 Converter 已熔断:")
+                    for s in circuit_open:
+                        diag_lines.append(f"    🔴 {s.name}: {s.successes}/{s.attempts} success")
+            except Exception:
+                pass
+
+        info_box(f"② 攻击诊断 ({failures} 个失败)", diag_lines)
+
+    # ── 卡片 ③: 成功攻击详情 (Top 10) ──
+    successful = [(tech, ar) for tech, success, ar in all_results if success]
+    if successful:
+        success_lines: list[str] = []
+        technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
+        for idx, (tech_name, ar) in enumerate(successful[:10], 1):
+            # 提取载荷
+            payload_text = _extract_payload_from_result(ar)
+            payload_brief = payload_text[:70] + "..." if len(payload_text) > 70 else payload_text
+
+            # 提取 Converter
+            conv_names = _extract_converter_names_from_result(ar)
+            if not conv_names:
+                expected_convs = technique_converter_map.get(tech_name, [])
+                conv_names = [type(c).__name__ for c in expected_convs] if expected_convs else []
+
+            conv_str = " → ".join(conv_names) if conv_names else "(baseline)"
+
+            success_lines.append(f"  #{idx:<2} {tech_name[:25]} | {conv_str}")
+            if payload_brief:
+                success_lines.append(f"      载荷: {payload_brief}")
+
+        info_box(f"③ 成功攻击详情 (Top {min(len(successful), 10)})", success_lines)
+
+
+def _extract_failure_timing(
+    all_results: list[tuple[str, bool, Any]], fail_type: str
+) -> dict[str, float]:
+    """D4: 从失败 AttackResult 提取平均耗时和重试次数.
+
+    R-022 多路径回退:
+      1. ar.metadata["execution_time"] / ar.metadata["retry_count"]
+      2. ar.metadata["elapsed"] / ar.metadata["attempts"]
+
+    Args:
+        all_results: (tech_name, success, ar) 列表
+        fail_type: 失败类型名
+
+    Returns:
+        {"avg_time": float, "avg_retries": float} — 无数据时为 0.0
+    """
+    from pyrit.models import AttackOutcome
+
+    times: list[float] = []
+    retries: list[float] = []
+
+    for _, success, ar in all_results:
+        if success:
+            continue
+        if ar.outcome != AttackOutcome.FAILURE:
+            continue
+        # 检查 metadata 中的 failure_type 是否匹配
+        ar_meta = getattr(ar, "metadata", None) or {}
+        if not isinstance(ar_meta, dict):
+            continue
+        ar_fail_type = ar_meta.get("failure_type", "")
+        if ar_fail_type != fail_type:
+            continue
+
+        # 提取耗时
+        exec_time = ar_meta.get("execution_time") or ar_meta.get("elapsed")
+        if exec_time and isinstance(exec_time, (int, float)):
+            times.append(float(exec_time))
+
+        # 提取重试次数
+        retry_count = ar_meta.get("retry_count") or ar_meta.get("attempts")
+        if retry_count and isinstance(retry_count, (int, float)):
+            retries.append(float(retry_count))
+
+    return {
+        "avg_time": sum(times) / len(times) if times else 0.0,
+        "avg_retries": sum(retries) / len(retries) if retries else 0.0,
+    }
 
 
 def _retrieve_partial_results(ctx: PipelineContext, scenario_result_id: str | None) -> Any:
@@ -514,25 +757,33 @@ def _scan_results_post_execution(
 
 
 def _compute_asr(ctx: PipelineContext) -> None:
-    """计算 ASR (Attack Success Rate) 按技术分组。."""
+    """计算 ASR (Attack Success Rate) 按攻击技术分组.
+
+    O1 修复: 从 AttackResult 提取真正的攻击技术名 (非数据集名),
+    按技术名分组计算 ASR。
+    """
     result = ctx.result
     if result is None:
         return
 
-    # 原生: get_display_groups() 按技术聚合 AttackResult
+    from pyrit.models import AttackOutcome
+
+    # O1: 按攻击技术名重新分组 (非数据集名)
     groups = result.get_display_groups()
+    tech_results: dict[str, list[Any]] = {}
+    for _dataset_name, attack_results in groups.items():
+        for ar in attack_results:
+            tech_name = _extract_technique_from_result(ar)
+            tech_results.setdefault(tech_name, []).append(ar)
 
     asr_per_technique: dict[str, float] = {}
-    for group_name, attack_results in groups.items():
-        total = len(attack_results)
+    for tech_name, results in tech_results.items():
+        total = len(results)
         if total == 0:
             continue
-        # 原生: 统计成功数 (outcome == SUCCESS)
-        from pyrit.models import AttackOutcome
-
-        successes = sum(1 for r in attack_results if r.outcome == AttackOutcome.SUCCESS)
+        successes = sum(1 for r in results if r.outcome == AttackOutcome.SUCCESS)
         asr = (successes / total) * 100
-        asr_per_technique[group_name] = asr
+        asr_per_technique[tech_name] = asr
 
     ctx.asr_per_technique = asr_per_technique
 

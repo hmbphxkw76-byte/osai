@@ -749,9 +749,18 @@ async def run(ctx: PipelineContext) -> None:
     except Exception as e:
         print(f"  [提示] AI-VSS 评分跳过: {e}")
 
-    sorted_datasets = sort_datasets_by_asr(args.datasets, asr_by_category=asr_by_category)
+    # 数据集排序: 优先使用数据集级经验 ASR (跨运行持久化), 回退到 category 级
+    dataset_level_asr = ctx.metadata.get("dataset_level_asr") or None
+    sorted_datasets = sort_datasets_by_asr(
+        args.datasets,
+        asr_by_category=asr_by_category,
+        dataset_level_asr=dataset_level_asr,
+    )
     if sorted_datasets != args.datasets:
-        print(f"  数据集优先级排序 (ASR 驱动): {args.datasets} → {sorted_datasets}")
+        if dataset_level_asr:
+            print(f"  数据集优先级排序 (数据集级经验 ASR 驱动): {args.datasets} → {sorted_datasets}")
+        else:
+            print(f"  数据集优先级排序 (ASR 驱动): {args.datasets} → {sorted_datasets}")
     else:
         print(f"  数据集: {args.datasets}")
 
@@ -763,6 +772,10 @@ async def run(ctx: PipelineContext) -> None:
 
     model_name, model_tier = detect_model_tier_from_registry()
     owasp_id = os.getenv("OWASP_ID", "")
+
+    # O4: 传播 model_name/model_tier 到 ctx.metadata, 供 Stage 4 显示
+    ctx.metadata["model_name"] = model_name
+    ctx.metadata["model_tier"] = model_tier
 
     # 复合评分器 (task_achieved AND not_refused)
     # 强模型/中等模型使用复合评分器, 消除部分拒绝导致的 ASR 假阳性
@@ -907,6 +920,13 @@ async def run(ctx: PipelineContext) -> None:
         ctx.scenario = scenario
         ctx.selector = None
         print(f"  场景: {scenario_name} (原生场景)")
+
+    # ASR 优先级采样: 如果存在种子级 ASR 数据, monkey-patch _apply_max_dataset_size
+    # 使高 ASR 种子获得更高被采样概率 (替代原生 random.sample)
+    seed_level_asr = ctx.metadata.get("seed_level_asr")
+    if seed_level_asr:
+        _apply_asr_priority_sampling_patch(seed_level_asr)
+        print("  种子级 ASR 采样: 已启用 (高 ASR 种子优先)")
 
     # CompoundDatasetAttackConfiguration (独立 per-dataset 预算)
     dataset_config = CompoundDatasetAttackConfiguration.per_dataset(
@@ -1292,9 +1312,17 @@ def _print_decision_chain(
     mode_match = tier_recommended == selector_mode
     match_str = "✓ 与推荐一致" if mode_match else "⚠ 与推荐不一致"
 
+    # O7: 红队攻击策略叙事 (替代 selector 策略术语)
+    attack_strategy_map = {
+        "academic": "渐进式越狱 (baseline → encoding → multi-turn)",
+        "balanced": "均衡攻击 (全技术并行 + Converter 增强)",
+        "aggressive": "激进攻击 (强技术优先 + 高重试)",
+    }
+    attack_strategy = attack_strategy_map.get(selector_mode, selector_mode)
+
     lines = [
-        f"Stage 1 推荐: {tier_recommended} (基于 model_tier={model_tier})",
-        f"Selector 实际: {selector_mode} {match_str}",
+        f"攻击策略: {attack_strategy}",
+        f"模型分层: {model_tier} → 策略模式: {selector_mode} {match_str}",
         f"场景: {scenario_name}",
         f"技术来源: {actual_source}",
     ]
@@ -1306,12 +1334,12 @@ def _print_decision_chain(
 
     lines.append("")
     if mode_match:
-        lines.append("✓ 决策路径最优 — 策略与模型分层对齐")
+        lines.append("✓ 攻击策略与模型防御等级对齐")
     else:
-        lines.append(f"⚠ 决策路径偏差 — 推荐 {tier_recommended}, 实际 {selector_mode}")
+        lines.append(f"⚠ 策略偏差 — 推荐 {tier_recommended}, 实际 {selector_mode}")
         lines.append("  → 原因: STRATEGY_MODE 环境变量覆盖了推荐值")
 
-    info_box("策略决策链", lines)
+    info_box("攻击策略决策", lines)
 
 
 def _build_plan_pid_map(
@@ -1359,6 +1387,9 @@ def _build_plan_pid_map(
     lines.append("")
     lines.append(f"合计: {pid_counter - 1} 个攻击计划 (P1-P{pid_counter - 1})")
     lines.append("P 编号将贯穿 Stage 4 (执行) → Stage 5 (分析)")
+
+    # O5: 存储计划攻击数到 ctx.metadata, 供 Stage 4 解释差异
+    ctx.metadata["planned_attack_count"] = pid_counter - 1
 
     info_box("P 编号映射", lines)
 
@@ -2241,25 +2272,35 @@ def _print_payload_technique_matrix(
     lines: list[str] = []
     warm_start = warm_start_asr or {}
 
+    # O3: 从 ctx.metadata 获取 Stage 1 已统计的种子数和 technique_group
+    # (避免二次查询 CentralMemory.get_seed_prompts() 返回空)
+    ds_seed_counts = ctx.metadata.get("dataset_seed_counts", {})
+    ds_tech_groups = ctx.metadata.get("dataset_technique_groups", {})
+
     for ds_name in sorted_datasets[:8]:
-        seed_count = 0
+        # O3: 使用 Stage 1 已统计的数据, 回退到 CentralMemory 查询
+        seed_count = ds_seed_counts.get(ds_name, 0)
         technique_groups: set[str] = set()
 
-        try:
-            from pyrit.memory import CentralMemory
+        if ds_name in ds_tech_groups:
+            technique_groups = set(ds_tech_groups[ds_name])
+        elif seed_count == 0:
+            # 回退: 尝试从 CentralMemory 查询
+            try:
+                from pyrit.memory import CentralMemory
 
-            memory = CentralMemory.get_memory_instance()
-            prompts = memory.get_seed_prompts(dataset_name=ds_name)
-            seed_count = len(prompts) if prompts else 0
-            if prompts:
-                for p in prompts:
-                    metadata = getattr(p, "metadata", None) or {}
-                    if isinstance(metadata, dict):
-                        tg = metadata.get("technique_group", "")
-                        if tg:
-                            technique_groups.add(tg)
-        except Exception:
-            pass
+                memory = CentralMemory.get_memory_instance()
+                prompts = memory.get_seed_prompts(dataset_name=ds_name)
+                seed_count = len(prompts) if prompts else 0
+                if prompts:
+                    for p in prompts:
+                        metadata = getattr(p, "metadata", None) or {}
+                        if isinstance(metadata, dict):
+                            tg = metadata.get("technique_group", "")
+                            if tg:
+                                technique_groups.add(tg)
+            except Exception:
+                pass
 
         # 匹配攻击技术: 从 warm_start 中找 ASR 最高的技术
         matched_techs: list[str] = []
@@ -2417,76 +2458,142 @@ def _print_5layer_decision_pipeline(
     sorted_datasets: list[str],
     warm_start_asr: dict[str, float] | None,
 ) -> None:
-    """D1: 5 层数据决策流水线图 — 展示数据从 L1→L5 的完整决策链路 + 层间数据流。."""
+    """O6: 攻击弹药链 — 红队视角的载荷→武器化→投递→绕过→穿透叙事.
+
+    替代原"数据管理 5 层"叙事, 以攻击操作为第一公民组织输出。
+    """
     from pipeline.utils.display import core_card
 
     warm_start = warm_start_asr or {}
     args = ctx.args if ctx.args else None
     max_ds_size = getattr(args, "max_dataset_size", 5) if args else 5
 
-    # L1: Seed Source
-    l1_lines = [
-        f"{len(sorted_datasets)} 数据集 → {len(sorted_datasets)} 加载点",
-        "来源: benchmarks/ + owasp/ + custom/",
+    # 弹药库 (原 L1)
+    ammo_lines = [
+        f"{len(sorted_datasets)} 个载荷集 → {len(sorted_datasets)} 加载点",
+        "来源: benchmarks/ + owasp/ + cve/",
     ]
 
-    # L1 → L2 数据流
-    l1_l2_lines = [
-        f"↓ 输出: {len(sorted_datasets)} 个 SeedPromptGroup → 传入 L2 排序",
+    # 武器化 (原 L2)
+    weapon_lines = [
+        "排序: ASR 降序 (高穿透率载荷优先)",
+        "聚合: 按数据集分组 → 技术×载荷组合",
     ]
 
-    # L2: Organization
-    l2_lines = [
-        "排序: ASR 降序 (高优先级优先)",
-        "聚合: 按 dataset_name 分组",
+    # 投递配置 (原 L3)
+    delivery_config_lines = [
+        f"每载荷集预算: {max_ds_size} | {len(sorted_datasets)} 个独立投递计划",
+        f"总计: {len(sorted_datasets) * max_ds_size} 个 AtomicAttack (载荷+技术+Converter)",
     ]
 
-    # L2 → L3 数据流
-    l2_l3_lines = [
-        f"↓ 输出: 排序后 {len(sorted_datasets)} 个数据集 → 传入 L3 配置",
-    ]
-
-    # L3: Dataset Config
-    l3_lines = [
-        "CompoundDatasetAttackConfiguration",
-        f"per_dataset={max_ds_size} | {len(sorted_datasets)} 个独立预算",
-    ]
-
-    # L3 → L4 数据流
-    l3_l4_lines = [
-        f"↓ 输出: {len(sorted_datasets) * max_ds_size} 个 AtomicAttack 配置 → 持久化到 L4",
-    ]
-
-    # L4: Memory
-    l4_lines = [
+    # 持久化 (原 L4)
+    persist_lines = [
         "CentralMemory SQLite (per-run)",
         "标签: dataset_name + run_date + pipeline_version",
     ]
 
-    # L4 → L5 数据流
-    l4_l5_lines = [
-        "↓ 输出: AttackResult 持久化 → L5 读取计算 ASR",
-    ]
-
-    # L5: Analytics
-    l5_lines = [
+    # 目标穿透 (原 L5)
+    penetrate_lines = [
         f"warm-start: {len(warm_start)} 技术先验",
-        "epsilon-greedy + 失败路由 + ASR 反馈",
+        "epsilon-greedy + 失败路由 + ASR 反馈闭环",
     ]
 
     core_card(
-        "数据管理 5 层决策流水线",
+        "攻击弹药链 — 载荷 → 武器化 → 投递 → 穿透",
         sections=[
-            {"label": "L1 种子源", "lines": l1_lines},
-            {"label": "L1→L2", "lines": l1_l2_lines},
-            {"label": "L2 组织", "lines": l2_lines},
-            {"label": "L2→L3", "lines": l2_l3_lines},
-            {"label": "L3 配置", "lines": l3_lines},
-            {"label": "L3→L4", "lines": l3_l4_lines},
-            {"label": "L4 存储", "lines": l4_lines},
-            {"label": "L4→L5", "lines": l4_l5_lines},
-            {"label": "L5 分析", "lines": l5_lines},
+            {"label": "弹药库", "lines": ammo_lines},
+            {"label": "武器化", "lines": weapon_lines},
+            {"label": "投递配置", "lines": delivery_config_lines},
+            {"label": "持久化", "lines": persist_lines},
+            {"label": "目标穿透", "lines": penetrate_lines},
         ],
     )
 
 
+# ============================================================
+# ASR 优先级采样 (monkey-patch 原生 random.sample)
+# ============================================================
+
+
+def _apply_asr_priority_sampling_patch(seed_asr_data: dict[str, dict]) -> None:
+    """Monkey-patch 原生 ``DatasetAttackConfiguration._apply_max_dataset_size`` 使用 ASR 优先级采样.
+
+    R-022: 配置层增强 — 修改原生采样行为, 不修改原生种子加载 API 或生命周期。
+
+    原生行为: ``random.sample(items, max_dataset_size)`` — 随机采样
+    增强行为: 按 ``asr_priority`` metadata 降序排序后取前 ``max_dataset_size`` 个 — 高 ASR 种子优先
+
+    仅当种子 metadata 中存在 ``asr_priority`` 时生效, 否则回退到原生 random.sample。
+
+    学术依据:
+      - DART (arXiv:2407.06485): per-seed × per-model ASR 应指导运行时选择
+      - RAIN (arXiv:2309.07124): 使用历史成功率排序种子
+    """
+    import hashlib
+
+    from pyrit.scenario import DatasetAttackConfiguration
+
+    _original_sample = DatasetAttackConfiguration._apply_max_dataset_size
+
+    def _asr_priority_sample(self: Any, items: list[Any]) -> list[Any]:
+        """ASR 优先级采样: 按 asr_priority 降序取前 N 个."""
+        if self.max_dataset_size is None or len(items) <= self.max_dataset_size:
+            return items
+
+        # 检查 items 中是否有 asr_priority metadata
+        has_priority = False
+        seed_priorities: list[float] = []
+        for item in items:
+            priority = _extract_asr_priority_from_item(item, seed_asr_data, hashlib)
+            seed_priorities.append(priority)
+            if priority > 0:
+                has_priority = True
+
+        if not has_priority:
+            # 无 ASR 数据 → 回退到原生 random.sample
+            return _original_sample(self, items)
+
+        # ASR 优先级排序: 按 priority 降序取前 max_dataset_size 个
+        indexed = list(enumerate(items))
+        indexed.sort(key=lambda x: seed_priorities[x[0]], reverse=True)
+        selected = [items[i] for i, _ in indexed[: self.max_dataset_size]]
+        logger.info(
+            f"ASR priority sampling: selected {len(selected)}/{len(items)} seeds "
+            f"(top ASR={seed_priorities[indexed[0][0]]:.2%})"
+        )
+        return selected
+
+    DatasetAttackConfiguration._apply_max_dataset_size = _asr_priority_sample
+    logger.info("ASR priority sampling patch applied (replaces random.sample)")
+
+
+def _extract_asr_priority_from_item(item: Any, seed_asr_data: dict, hashlib_module: Any) -> float:
+    """从 AttackSeedGroup/Seed 中提取 asr_priority 值."""
+    # 尝试从 metadata 获取
+    metadata = getattr(item, "metadata", None)
+    if isinstance(metadata, dict):
+        priority = metadata.get("asr_priority")
+        if isinstance(priority, (int, float)):
+            return float(priority)
+
+    # 尝试从 seed text 匹配 seed_asr_data
+    for attr in ("value", "original_value", "objective"):
+        text = getattr(item, attr, None)
+        if text and isinstance(text, str) and len(text) > 5:
+            seed_hash = hashlib_module.md5(text[:200].encode("utf-8")).hexdigest()
+            asr_info = seed_asr_data.get(seed_hash)
+            if asr_info:
+                return asr_info.get("asr", 0.0)
+
+    # 尝试从 seeds 列表中提取
+    seeds = getattr(item, "seeds", None)
+    if seeds and isinstance(seeds, list) and len(seeds) > 0:
+        first_seed = seeds[0]
+        seed_text = getattr(first_seed, "value", None) or getattr(first_seed, "original_value", None) or ""
+        if seed_text and isinstance(seed_text, str) and len(seed_text) > 5:
+            seed_hash = hashlib_module.md5(seed_text[:200].encode("utf-8")).hexdigest()
+            asr_info = seed_asr_data.get(seed_hash)
+            if asr_info:
+                return asr_info.get("asr", 0.0)
+
+    return 0.0

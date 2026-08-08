@@ -624,7 +624,12 @@ def _build_data_layer_section(ctx: PipelineContext) -> str:
 
     # L4: Memory Persistence
     parts.append("### L4 — Memory Persistence\n")
-    parts.append(f"- Memory 类型: {ctx.config.memory_db_type if ctx.config else 'N/A'}\n")
+    db_type = ctx.config.memory_db_type if ctx.config else "N/A"
+    db_path = ctx.metadata.get("db_path", "")
+    if db_path:
+        parts.append(f"- Memory 类型: {db_type} ({db_path})\n")
+    else:
+        parts.append(f"- Memory 类型: {db_type}\n")
     if ctx.result:
         parts.append(f"- ScenarioResult ID: `{ctx.result.id}`\n")
     parts.append("- Memory Labels: run_date + pipeline_version + selector_scope + asr_driven\n")
@@ -1061,12 +1066,18 @@ def _print_architecture_summary(ctx: PipelineContext) -> None:
         print("      排序: ASR 降序 (高优先级数据集优先)")
 
     # L4: Memory Persistence
-    print(f"    L4 (Memory Persistence): {ctx.config.memory_db_type if ctx.config else 'N/A'} (CentralMemory)")
+    l4_type = ctx.config.memory_db_type if ctx.config else "N/A"
+    l4_path = ctx.metadata.get("db_path", "")
+    if l4_path:
+        print(f"    L4 (Memory Persistence): {l4_type} ({l4_path})")
+    else:
+        print(f"    L4 (Memory Persistence): {l4_type} (CentralMemory)")
     # L4 决策: DB path + ScenarioResult ID
     if ctx.result:
         print(f"      ScenarioResult ID: {ctx.result.id}")
     if ctx.config:
         print("      Memory labels: run_date + pipeline_version + selector_scope")
+        print(f"      Memory 类型验证: {ctx.config.memory_db_type}")
 
     # L5: Analytics & Select
     asr_count = len(ctx.asr_per_technique)

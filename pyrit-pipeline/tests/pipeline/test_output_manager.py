@@ -407,7 +407,7 @@ class TestProgressPoller:
         assert scenario._atomic_attacks == original_attacks
         assert scenario._scenario_result_id == "test-srid-012"
 
-    # ── 防刷屏三合一策略测试 ──
+    # ── 自适应退避策略测试 ──
 
     def test_backoff_doubles_interval(self) -> None:
         """_backoff() 翻倍轮询间隔, 上限 _MAX_INTERVAL."""
@@ -446,51 +446,11 @@ class TestProgressPoller:
         poller._reset_interval()
         assert poller._interval == 5.0  # 回到 base
 
-    def test_maybe_heartbeat_prints_after_interval(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """心跳行在 _HEARTBEAT_INTERVAL 后打印单行."""
-        dashboard = ProgressDashboard(total=82)
-        dashboard.update(succeeded=0, failed=2)
-        dashboard.completed = 2
-
-        poller = ProgressPoller(
-            dashboard=dashboard,
-            scenario_result_id="test-heartbeat-001",
-            interval=5.0,
-        )
-        # 设置心跳间隔为 0 (立即触发)
-        ProgressPoller._HEARTBEAT_INTERVAL = 0.0
-        try:
-            poller._maybe_heartbeat()
-            captured = capsys.readouterr()
-            assert "⏳" in captured.out
-            assert "2/82" in captured.out
-            assert "✅0" in captured.out
-            assert "❌2" in captured.out
-        finally:
-            ProgressPoller._HEARTBEAT_INTERVAL = 30.0  # 恢复
-
-    def test_maybe_heartbeat_skips_within_interval(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """心跳间隔内不重复打印."""
-        dashboard = ProgressDashboard(total=100)
-        poller = ProgressPoller(
-            dashboard=dashboard,
-            scenario_result_id="test-heartbeat-002",
-            interval=5.0,
-        )
-        # _last_heartbeat 刚刚设置, 30s 内不应触发
-        poller._maybe_heartbeat()
-        captured = capsys.readouterr()
-        assert captured.out == ""
-
     @pytest.mark.asyncio
-    async def test_no_redraw_when_completed_unchanged(
+    async def test_no_print_when_completed_unchanged(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """completed 无变化时不重绘完整仪表盘."""
+        """completed 无变化时不打印仪表盘 (原生 tqdm 由 Poller 增强, 不再渲染卡片)."""
         dashboard = ProgressDashboard(total=100)
 
         # 模拟 Memory 返回固定 2 个结果 (不变化)
@@ -507,26 +467,21 @@ class TestProgressPoller:
             scenario_result_id="test-no-redraw-001",
             interval=0.02,
         )
-        # 禁用心跳以隔离测试
-        ProgressPoller._HEARTBEAT_INTERVAL = 9999.0
-        try:
-            with patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory):
-                poller.start()
-                await asyncio.sleep(0.1)
-                await poller.stop()
-        finally:
-            ProgressPoller._HEARTBEAT_INTERVAL = 30.0
+        with patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory):
+            poller.start()
+            await asyncio.sleep(0.1)
+            await poller.stop()
 
         captured = capsys.readouterr()
-        # 仪表盘盒子应只出现一次 (首次状态变化 -1→2)
+        # O1: 不再渲染 Dashboard 卡片, 应该不出现 "PyRIT AI Red Team"
         box_count = captured.out.count("PyRIT AI Red Team")
-        assert box_count == 1, f"Expected 1 dashboard render, got {box_count}"
+        assert box_count == 0, f"Expected 0 dashboard renders, got {box_count}"
 
     @pytest.mark.asyncio
-    async def test_redraw_when_completed_changes(
+    async def test_callback_printed_when_completed_changes(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """completed 变化时重绘完整仪表盘."""
+        """completed 变化时打印红队可读回调行 (✅/❌)."""
         dashboard = ProgressDashboard(total=100)
 
         # 第一次返回 2 个结果, 第二次返回 3 个 (新增 1 个)
@@ -554,16 +509,11 @@ class TestProgressPoller:
             scenario_result_id="test-redraw-001",
             interval=0.02,
         )
-        ProgressPoller._HEARTBEAT_INTERVAL = 9999.0
-        try:
-            with patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory):
-                poller.start()
-                await asyncio.sleep(0.1)
-                await poller.stop()
-        finally:
-            ProgressPoller._HEARTBEAT_INTERVAL = 30.0
+        with patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory):
+            poller.start()
+            await asyncio.sleep(0.1)
+            await poller.stop()
 
         captured = capsys.readouterr()
-        box_count = captured.out.count("PyRIT AI Red Team")
-        # 第一次 completed 0→2 (重绘), 第二次 completed 2→3 (重绘)
-        assert box_count >= 2, f"Expected >= 2 dashboard renders, got {box_count}"
+        # O2: 应该出现红队可读回调行 (✅ 或 ❌)
+        assert "✅" in captured.out or "❌" in captured.out

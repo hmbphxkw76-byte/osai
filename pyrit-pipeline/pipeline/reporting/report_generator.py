@@ -510,6 +510,53 @@ class ReportGenerator:
             logger.warning(f"Converter log collection failed: {e}")
             return {}
 
+    def _build_technique_effectiveness_matrix(
+        self, attack_results: list[Any]
+    ) -> list[dict[str, Any]]:
+        """E3: 构建攻击技术有效性矩阵数据.
+
+        从 AttackResult 列表提取技术名 (委托 AttackResultAnalyzer),
+        按技术名分组统计 ASR, 返回按 ASR 降序排列的矩阵行.
+
+        R-022: 使用 PyRIT 原生 AttackResult.outcome + AttackResultAnalyzer (identifier 字段).
+        R-022 分类: 分析层增强 — 消费原生数据, 不修改原生生命周期.
+
+        Args:
+            attack_results: PyRIT AttackResult 列表.
+
+        Returns:
+            矩阵行列表, 每行: {"technique", "total", "success", "asr"}.
+        """
+        try:
+            from pyrit.models import AttackOutcome
+
+            from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
+            tech_stats: dict[str, dict[str, int]] = {}
+            for ar in attack_results:
+                tech_name = AttackResultAnalyzer.extract_technique_name(ar)
+                stats = tech_stats.setdefault(tech_name, {"total": 0, "success": 0})
+                stats["total"] += 1
+                if ar.outcome == AttackOutcome.SUCCESS:
+                    stats["success"] += 1
+
+            rows: list[dict[str, Any]] = []
+            for tech, stats in tech_stats.items():
+                total = stats["total"]
+                success = stats["success"]
+                asr = (success / total * 100) if total > 0 else 0
+                rows.append({
+                    "technique": tech,
+                    "total": total,
+                    "success": success,
+                    "asr": asr,
+                })
+            rows.sort(key=lambda x: x["asr"], reverse=True)
+            return rows
+        except Exception as e:
+            logger.debug(f"Technique effectiveness matrix build failed: {e}")
+            return []
+
     def _analyze_diversity(
         self,
         attack_results: list[Any],
@@ -873,6 +920,28 @@ class ReportGenerator:
                 f"{rate:.0f}% | {covered} |"
             )
         lines.append("")
+
+        # ============================================================
+        # 3.5 Attack Technique Effectiveness Matrix (E3 增强)
+        # ============================================================
+        tech_matrix = self._build_technique_effectiveness_matrix(attack_results)
+        if tech_matrix:
+            lines.extend([
+                "## 3.5 Attack Technique Effectiveness Matrix",
+                "",
+                "Technique-level ASR heatmap: attack technique × target model.",
+                "Each cell shows the success rate (ASR) of a specific attack technique.",
+                "",
+                "| Attack Technique | Total | Success | ASR | Heatmap |",
+                "|---|---|---|---|---|",
+            ])
+            for row in tech_matrix:
+                bar = "█" * int(row["asr"] / 5)
+                lines.append(
+                    f"| {row['technique']} | {row['total']} | {row['success']} | "
+                    f"{row['asr']:.1f}% | {bar} |"
+                )
+            lines.append("")
 
         # ============================================================
         # 4. Detailed Findings (三级证据链) — R1+R2+R5 优化

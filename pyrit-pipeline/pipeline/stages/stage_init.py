@@ -132,6 +132,10 @@ async def _initialize_with_per_run_db(ctx: PipelineContext, config: Configuratio
             memory_kwargs["db_path"] = db_path
             print(f"  [OK] Per-run DB: {db_path}")
 
+    # 将 db_path 存入 ctx.metadata, 供 stage1_summary() 和 stage_output 显示
+    if memory_kwargs.get("db_path"):
+        ctx.metadata["db_path"] = memory_kwargs["db_path"]
+
     # 调用 PyRIT 原生 initialize_pyrit_async (对齐 pyrit_ai300/src/setup/setup_manager.py)
     await _core_initialize_pyrit(
         memory_db_type=internal_memory_db_type,
@@ -178,6 +182,11 @@ async def run(ctx: PipelineContext) -> None:
     config = ConfigurationLoader.load_with_overrides(config_file=config_path)
     config.silent = True
 
+    # 立即将 config 赋值到 ctx, 确保后续 _initialize_with_per_run_db / _load_datasets
+    # 内部调用 ctx.stage1_summary() 时能读到正确的 memory_db_type (而非 N/A)
+    ctx.config = config
+    ctx.scenario_name = getattr(ctx.args, "scenario", "text_adaptive")
+
     # ── 噪音重定向: 全程包裹初始化 + 数据集加载 ──
     # 内层嵌套: 不传 signal_log_path, 信号行透传到外层 (main.py) NoiseFilter 统一写入信号日志
     saved_levels: dict[str, int] = {}
@@ -199,9 +208,6 @@ async def run(ctx: PipelineContext) -> None:
     finally:
         for logger_name, level in saved_levels.items():
             logging.getLogger(logger_name).setLevel(level)
-
-    ctx.config = config
-    ctx.scenario_name = getattr(ctx.args, "scenario", "text_adaptive")
 
     # L5 P2-2: EventBus — 初始化完成
     from pipeline.utils.event_bus import EventBus
@@ -308,17 +314,37 @@ async def _load_datasets(ctx: PipelineContext) -> None:
             if p not in local_paths:
                 local_paths.append(p)
 
-    # --load-owasp-local: 从清单自动加载 default 数据集 (OWASP + Agentic)
+    # --load-owasp-local: 从清单自动加载 default 数据集 (OWASP + Agentic + CVE)
+    # + 自动发现未注册的 .prompt 文件 (如 CVE 目录动态新增)
+    manifest_dict: dict | None = None
+    auto_discovered_paths: list[str] = []
     if getattr(ctx.args, "load_owasp_local", False):
-        manifest_paths = _load_default_datasets_from_manifest()
+        dataset_scope = getattr(ctx.args, "dataset_scope", "all")
+        manifest_paths, manifest_dict, auto_discovered_paths = _load_default_datasets_from_manifest(scope=dataset_scope)
+
+        # P1: 目标感知数据集筛选
+        if getattr(ctx.args, "target_aware_datasets", False) and manifest_dict:
+            target_type = _detect_target_type_early(ctx)
+            if target_type:
+                print(f"  [P1] 目标感知筛选: target_type='{target_type}'")
+                ctx.target_type = target_type
+                manifest_paths = _filter_datasets_by_target(manifest_paths, target_type, manifest_dict)
+            else:
+                print("  [P1] 目标感知筛选: target_type 探测失败, 跳过筛选")
+
         for p in manifest_paths:
             if p not in local_paths:
                 local_paths.append(p)
 
+        # P3: 清单自动更新
+        if getattr(ctx.args, "update_manifest", False) and auto_discovered_paths:
+            _write_manifest_entries(auto_discovered_paths)
+
     if local_paths:
         print("  [OK] 数据集加载:")
         print(f"       {len(local_paths)} 个本地数据集")
-        loaded_names = await _load_local_datasets_async(local_paths)
+        max_seeds = getattr(ctx.args, "max_seeds_per_dataset", 0)
+        loaded_names = await _load_local_datasets_async(local_paths, max_seeds=max_seeds, ctx=ctx)
         ctx.metadata["local_dataset_paths"] = local_paths
         # R-011: 更新 args.datasets 为实际加载的数据集名称, 确保 Stage 2 使用正确的名称
         if loaded_names:
@@ -793,40 +819,290 @@ def _extend_content_filter_markers() -> None:
         print(f"  [提示] 内容过滤器标记扩展跳过: {e}")
 
 
-def _load_default_datasets_from_manifest() -> list[str]:
-    """从 data/seed_datasets/benchmarks/_manifest.yaml 读取所有 default=true 的本地数据集路径。."""
+# ============================================================
+# P1: 目标感知数据集筛选
+# ============================================================
+
+# target_type → 相关 OWASP ID 集合 映射
+_TARGET_TYPE_OASP_MAP: dict[str, set[str]] = {
+    "openai_chat": {f"LLM{i:02d}" for i in range(1, 11)},
+    "azure_openai_chat": {f"LLM{i:02d}" for i in range(1, 11)},
+    "anthropic_chat": {f"LLM{i:02d}" for i in range(1, 11)},
+    "llm_api_platform": {f"LLM{i:02d}" for i in range(1, 11)} | {f"ASI{i:02d}" for i in range(1, 11)},
+    "agent_api": {f"ASI{i:02d}" for i in range(1, 11)} | {"LLM06"},
+    "web_chat": {f"LLM{i:02d}" for i in range(1, 8)} | {f"ASI{i:02d}" for i in range(1, 5)},
+    "web_app": {f"LLM{i:02d}" for i in range(1, 8)} | {f"ASI{i:02d}" for i in range(1, 5)},
+}
+
+
+def _detect_target_type_early(ctx: PipelineContext) -> str | None:
+    """在数据集加载之前提前探测目标类型.
+
+    从 TargetRegistry 获取已注册的目标实例, 使用 infer_target_type() 推断类型.
+    如果探测失败, 返回 None (不阻塞数据集加载).
+    """
+    try:
+        from pipeline.converters.target_aware_router import infer_target_type
+
+        registry = TargetRegistry.get_registry_singleton().instances
+        default_entries = registry.get_by_tag(tag="default")
+        target_entries = default_entries or registry.get_all_instances()
+        for entry in target_entries:
+            inferred = infer_target_type(entry.instance)
+            if inferred:
+                return inferred
+    except Exception as e:
+        logger.debug(f"target_type early detection failed: {e}")
+    return None
+
+
+def _filter_datasets_by_target(
+    paths: list[str],
+    target_type: str,
+    manifest: dict | None,
+) -> list[str]:
+    """根据目标类型筛选数据集路径.
+
+    逻辑:
+      1. 从 _manifest.yaml 读取每个数据集的 owasp_ids
+      2. 根据 target_type 获取相关 OWASP ID 集合
+      3. 仅保留 owasp_ids 与相关集合有交集的数据集
+      4. 无 owasp_ids 的数据集 (如 benchmarks) 始终保留
+      5. 不在清单中的数据集 (自动发现) 始终保留
+    """
+    relevant_owasp = _TARGET_TYPE_OASP_MAP.get(target_type)
+    if not relevant_owasp:
+        # 未知 target_type, 不过滤
+        return paths
+
+    # 构建路径 → owasp_ids 映射
+    path_to_owasp: dict[str, list[str]] = {}
+    if manifest:
+        for entry in manifest.get("datasets", []):
+            p = entry.get("path", "")
+            ids = entry.get("owasp_ids", []) or []
+            if p:
+                path_to_owasp[p] = ids
+
+    filtered: list[str] = []
+    skipped: list[str] = []
+    for p in paths:
+        ids = path_to_owasp.get(p)
+        if not ids:
+            # 无 owasp_ids (benchmark/自动发现) → 始终保留
+            filtered.append(p)
+        elif set(ids) & relevant_owasp:
+            # 有交集 → 保留
+            filtered.append(p)
+        else:
+            skipped.append(p)
+
+    if skipped:
+        print(f"  [目标感知] target_type='{target_type}' 筛选掉 {len(skipped)} 个不相关数据集:")
+        for s in skipped:
+            print(f"    - {Path(s).name}")
+
+    return filtered
+
+
+# ============================================================
+# P3: 清单自动更新
+# ============================================================
+
+
+def _write_manifest_entries(new_paths: list[str]) -> None:
+    """将自动发现的数据集写回 _manifest.yaml 持久化注册.
+
+    为每个新路径推断 owasp_ids (从 .prompt 文件 seed metadata 中提取),
+    生成清单条目并追加到 datasets 列表.
+    """
+    if not new_paths:
+        return
+
+    import yaml as _yaml
+
+    manifest_path = Path("data/seed_datasets/benchmarks/_manifest.yaml")
+    if not manifest_path.exists():
+        return
+
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = _yaml.safe_load(f)
+    except (OSError, ValueError) as e:
+        print(f"  [警告] 清单读取失败, 跳过写回: {e}")
+        return
+
+    datasets = manifest.get("datasets", [])
+    existing_paths = {entry.get("path", "") for entry in datasets}
+
+    new_entries: list[dict] = []
+    for p in new_paths:
+        if p in existing_paths:
+            continue
+
+        # 从 .prompt 文件推断 owasp_ids
+        owasp_ids: list[str] = []
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = _yaml.safe_load(f)
+            for seed in data.get("seeds", []) or []:
+                meta = seed.get("metadata", {}) or {}
+                owasp_id = meta.get("owasp_id", "")
+                if owasp_id and owasp_id not in owasp_ids:
+                    owasp_ids.append(owasp_id)
+        except Exception:
+            pass
+
+        new_entries.append({
+            "name": Path(p).stem,
+            "source": "local",
+            "path": p,
+            "owasp_ids": owasp_ids,
+            "technique_groups": ["prompt_sending"],
+            "harm_categories": [],
+            "default": True,
+        })
+
+    if not new_entries:
+        return
+
+    datasets.extend(new_entries)
+    manifest["datasets"] = datasets
+
+    try:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            _yaml.dump(manifest, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        print(f"  [清单更新] 已写回 {len(new_entries)} 个新条目到 _manifest.yaml")
+    except OSError as e:
+        print(f"  [警告] 清单写回失败: {e}")
+
+
+def _matches_dataset_scope(path: str, scope: str) -> bool:
+    """检查数据集路径是否匹配指定的加载范围。."""
+    if scope == "all":
+        return True
+    p = Path(path)
+    parent_name = p.parent.name
+    stem = p.stem.lower()
+    if scope == "owasp_llm":
+        return parent_name == "owasp" and stem.startswith("llm")
+    if scope == "owasp_asi":
+        return parent_name == "owasp" and stem.startswith("asi")
+    if scope == "benchmark":
+        return parent_name == "benchmarks"
+    if scope == "cve":
+        return parent_name == "cve"
+    return True
+
+
+def _discover_unregistered_datasets(known_paths: set[str], scope: str) -> list[str]:
+    """扫描数据集目录, 自动发现未在清单中注册的 .prompt 文件.
+
+    自动发现机制:
+      - 扫描 data/seed_datasets/owasp/ 和 data/seed_datasets/cve/ 目录
+      - 如 data/seed_datasets/custom/ 存在也扫描
+      - 跳过已在清单中注册的文件 (基于路径去重)
+      - 新发现的 .prompt 文件自动加入加载列表 (default=true 语义)
+
+    适用场景:
+      - CVE 目录动态新增漏洞载荷
+      - OWASP 目录新增分类
+      - Custom 目录新增自定义载荷
+    """
+    scan_dirs: list[Path] = []
+    if scope in ("all", "owasp_llm", "owasp_asi"):
+        scan_dirs.append(Path("data/seed_datasets/owasp"))
+    if scope in ("all", "cve"):
+        scan_dirs.append(Path("data/seed_datasets/cve"))
+    if scope == "all":
+        custom_dir = Path("data/seed_datasets/custom")
+        if custom_dir.exists():
+            scan_dirs.append(custom_dir)
+
+    discovered: list[str] = []
+    for scan_dir in scan_dirs:
+        if not scan_dir.exists():
+            continue
+        for prompt_file in sorted(scan_dir.glob("*.prompt")):
+            resolved = str(prompt_file.resolve())
+            if resolved not in known_paths:
+                # scope 过滤
+                if not _matches_dataset_scope(str(prompt_file), scope):
+                    continue
+                discovered.append(str(prompt_file))
+                known_paths.add(resolved)
+
+    if discovered:
+        print(f"  [自动发现] {len(discovered)} 个未注册数据集:")
+        for p in discovered:
+            print(f"    + {p}")
+
+    return discovered
+
+
+def _load_default_datasets_from_manifest(
+    scope: str = "all",
+) -> tuple[list[str], dict | None, list[str]]:
+    """从 _manifest.yaml 读取 default=true 的本地数据集路径 + 自动发现未注册的 .prompt 文件.
+
+    Args:
+        scope: 数据集加载范围 (all/owasp_llm/owasp_asi/benchmark/cve)
+
+    Returns:
+        (paths, manifest, auto_discovered):
+          - paths: 所有应加载的数据集路径
+          - manifest: 原始清单 dict (供 P1 目标感知筛选使用)
+          - auto_discovered: 自动发现的路径列表 (供 P3 清单写回使用)
+    """
     import yaml as _yaml
 
     manifest_path = Path("data/seed_datasets/benchmarks/_manifest.yaml")
     if not manifest_path.exists():
         print(f"  [提示] 清单文件不存在: {manifest_path}")
-        return []
+        return [], None, []
 
     try:
         with open(manifest_path, encoding="utf-8") as f:
             manifest = _yaml.safe_load(f)
     except (OSError, ValueError) as e:
         print(f"  [警告] 读取清单失败: {e}")
-        return []
+        return [], None, []
 
     paths: list[str] = []
+    known_paths: set[str] = set()
     for entry in manifest.get("datasets", []):
         if entry.get("default", False) and entry.get("source") == "local":
             p = entry.get("path", "")
-            if p and Path(p).exists():
+            if p and Path(p).exists() and _matches_dataset_scope(p, scope):
                 paths.append(p)
+                known_paths.add(str(Path(p).resolve()))
+
+    # 自动发现: 扫描目录中未在清单注册的 .prompt 文件
+    auto_discovered = _discover_unregistered_datasets(known_paths, scope)
+    paths.extend(auto_discovered)
 
     if paths:
-        print(f"  清单加载: {len(paths)} 个 default 本地数据集")
-    return paths
+        suffix = f" (scope={scope})" if scope != "all" else ""
+        print(f"  清单加载: {len(paths)} 个 default 本地数据集{suffix}")
+    return paths, manifest, auto_discovered
 
 
-async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
+async def _load_local_datasets_async(
+    file_paths: list[str],
+    max_seeds: int = 0,
+    *,
+    ctx: Any = None,
+) -> list[str]:
     """加载本地 .prompt 数据集到 CentralMemory (富元数据格式)。.
 
     使用 ``rich_metadata_loader.load_rich_prompt_as_native()`` 替代原生
     ``SeedDataset.from_yaml_file()``，支持每种子富元数据 (asr_baseline,
     technique_group, owasp_id, difficulty, severity 等)。
+
+    Args:
+        file_paths: .prompt 文件路径列表
+        max_seeds: 每个数据集最多加载的种子数 (0=不限制)
+        ctx: PipelineContext 实例 (可选, 用于存储种子统计到 metadata)
     """
     from pipeline.targets.rich_metadata_loader import load_rich_prompt_as_native
 
@@ -835,6 +1111,7 @@ async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
     loaded_names: list[str] = []
     total_seeds = 0
     total_rich = 0
+    truncated_count = 0
     for fp in file_paths:
         dataset = load_rich_prompt_as_native(file_path=fp)
         if not dataset.dataset_name:
@@ -843,14 +1120,46 @@ async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
         loaded_names.append(dataset.dataset_name)
         # 检测富元数据
         rich_count = sum(1 for s in dataset.seeds if getattr(s, "metadata", None))
+
+        # P2: 种子数截断
+        original_count = len(dataset.seeds)
+        if max_seeds > 0 and original_count > max_seeds:
+            dataset.seeds = dataset.seeds[:max_seeds]
+            truncated_count += 1
+            print(f"    [P2] {dataset.dataset_name}: 截断 {original_count} → {max_seeds} seeds")
+
         total_seeds += len(dataset.seeds)
-        total_rich += rich_count
+        total_rich += min(rich_count, len(dataset.seeds))
+
+        # 提取 owasp_ids (从种子 metadata)
+        owasp_ids: list[str] = []
+        for s in dataset.seeds:
+            meta = getattr(s, "metadata", None) or {}
+            owasp_id = meta.get("owasp_id", "")
+            if owasp_id and owasp_id not in owasp_ids:
+                owasp_ids.append(owasp_id)
+
         # L1 决策: per-dataset seed count + OWASP coverage + rich metadata flag
         print(
             f"    L1 • {dataset.dataset_name}: {len(dataset.seeds)} seeds, "
-            f"rich_metadata={rich_count}/{len(dataset.seeds)}, "
+            f"rich_metadata={rich_count}/{original_count}, "
             f"source={Path(fp).parent.name}/"
         )
+
+        # O3: 存储种子数和 technique_group 到 ctx.metadata, 供 Stage 2 矩阵使用
+        if ctx is not None:
+            ds_seed_counts = ctx.metadata.setdefault("dataset_seed_counts", {})
+            ds_seed_counts[dataset.dataset_name] = len(dataset.seeds)
+            ds_tech_groups = ctx.metadata.setdefault("dataset_technique_groups", {})
+            groups_for_ds: set[str] = set()
+            for s in dataset.seeds:
+                s_meta = getattr(s, "metadata", None) or {}
+                if isinstance(s_meta, dict):
+                    tg = s_meta.get("technique_group", "")
+                    if tg:
+                        groups_for_ds.add(tg)
+            if groups_for_ds:
+                ds_tech_groups[dataset.dataset_name] = sorted(groups_for_ds)
     await memory.add_seed_datasets_to_memory_async(datasets=datasets, added_by="pipeline.stages.stage_init")
     # L1 汇总
     if datasets:
@@ -858,6 +1167,8 @@ async def _load_local_datasets_async(file_paths: list[str]) -> list[str]:
             f"    L1 汇总: {len(datasets)} 个数据集, {total_seeds} seeds, "
             f"富元数据覆盖 {total_rich}/{total_seeds} ({total_rich * 100 // max(total_seeds, 1)}%)"
         )
+        if truncated_count:
+            print(f"    [P2] {truncated_count} 个数据集被截断 (--max-seeds-per-dataset={max_seeds})")
     return loaded_names
 
 
@@ -922,11 +1233,135 @@ def _apply_seed_level_asr_sorting(ctx: PipelineContext) -> None:
                 attempts = info.get("attempts", 0)
                 print(f"         {seed_id}: ASR={asr_val:.2%} ({attempts} attempts)")
 
+        # R-022 数据层增强: 为 CentralMemory 中的种子注入 asr_priority metadata
+        # 使 PyRIT 原生 SeedPromptGroup.sort_by_metadata("asr_priority") 可用
+        _inject_asr_priority_to_seeds(seed_asr_data)
+
     except Exception as e:
         logger.debug(f"G2 seed-level ASR sorting skipped: {e}")
 
     # P2-2: 模型特异性种子类别优先级
     _apply_model_specific_seed_priority(ctx)
+
+    # 数据集级 ASR 优先级加载 (供 Stage 2 sort_datasets_by_asr 使用)
+    _apply_dataset_level_asr_prioritization(ctx)
+
+
+def _inject_asr_priority_to_seeds(seed_asr_data: dict[str, dict]) -> None:
+    """为 CentralMemory 中的种子注入 asr_priority metadata.
+
+    R-022: 数据层增强 — 仅修改种子 metadata 字典, 不修改种子文本或原生生命周期。
+    使 PyRIT 原生 SeedPromptGroup.sort_by_metadata("asr_priority") 可用,
+    高 ASR 种子获得更高优先级值, 在执行时优先发送。
+
+    Args:
+        seed_asr_data: {seed_hash: {asr, raw_asr, successes, total, seed_preview}} 字典.
+    """
+    import hashlib
+
+    from pyrit.memory import CentralMemory
+
+    try:
+        memory = CentralMemory.get_memory_instance()
+        # 遍历所有数据集的种子
+        dataset_names = []
+        try:
+            all_prompts = memory.get_seed_prompts()
+            dataset_names = list(
+                {getattr(p, "dataset_name", "") for p in all_prompts if getattr(p, "dataset_name", "")}
+            )
+        except Exception:
+            pass
+
+        updated_count = 0
+        for ds_name in dataset_names:
+            try:
+                prompts = memory.get_seed_prompts(dataset_name=ds_name)
+                if not prompts:
+                    continue
+                for p in prompts:
+                    value = getattr(p, "value", None) or getattr(p, "original_value", None) or ""
+                    if not value or not isinstance(value, str):
+                        continue
+                    seed_hash = hashlib.md5(value[:200].encode("utf-8")).hexdigest()
+                    asr_info = seed_asr_data.get(seed_hash)
+                    if asr_info:
+                        # 注入 asr_priority metadata (越高越优先)
+                        metadata = getattr(p, "metadata", None)
+                        if not isinstance(metadata, dict):
+                            metadata = {}
+                        metadata["asr_priority"] = asr_info.get("asr", 0.0)
+                        metadata["asr_total"] = asr_info.get("total", 0)
+                        try:
+                            p.metadata = metadata  # type: ignore[attr-defined]
+                            updated_count += 1
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+
+        if updated_count:
+            logger.info(f"Injected asr_priority metadata to {updated_count} seeds")
+    except Exception as e:
+        logger.debug(f"asr_priority injection skipped: {e}")
+
+
+# ============================================================
+# 数据集级 ASR 优先级 (跨运行持久化, 补全 ASR 闭环)
+# ============================================================
+
+
+def _apply_dataset_level_asr_prioritization(ctx: PipelineContext) -> None:
+    """加载历史数据集级 ASR, 供 Stage 2 数据集排序使用.
+
+    从 ``outputs/empirical_asr/dataset_level_{model}.json`` 加载上次运行的
+    per-dataset ASR, 记录到 ``ctx.metadata["dataset_level_asr"]`` 供
+    ``sort_datasets_by_asr()`` 消费.
+
+    R-022: 数据层增强 — 消费 PyRIT 原生 CentralMemory 数据 (Stage 5 收集),
+    JSON 持久化加载 (同 load_seed_level_asr 模式), 不修改原生生命周期.
+
+    学术依据:
+      - DART (arXiv:2407.06485): per-dataset × per-model ASR 应指导运行时选择
+      - RAIN (arXiv:2309.07124): 使用历史成功率排序数据集
+    """
+    model_name = getattr(ctx.args, "model", "")
+    if not model_name:
+        return
+
+    try:
+        from pipeline.asr.optimizer import load_dataset_level_asr
+
+        ds_asr_data = load_dataset_level_asr(model_name)
+        if not ds_asr_data:
+            return
+
+        # 记录到 metadata, 供 Stage 2 sort_datasets_by_asr 使用
+        ctx.metadata["dataset_level_asr"] = ds_asr_data
+        ctx.metadata["dataset_level_asr_model"] = model_name
+
+        ds_count = len(ds_asr_data)
+        avg_asr = sum(v.get("asr", 0.0) for v in ds_asr_data.values()) / max(ds_count, 1)
+
+        # Top-3 高 ASR 数据集展示
+        top_ds = sorted(
+            ds_asr_data.items(),
+            key=lambda x: x[1].get("asr", 0.0),
+            reverse=True,
+        )[:3]
+        print(
+            f"  [数据集级 ASR] {ds_count} 个数据集, "
+            f"平均 ASR={avg_asr:.2%} (模型={model_name})"
+        )
+        if top_ds:
+            print("       Top-3 高 ASR 数据集:")
+            for ds_name, info in top_ds:
+                asr_val = info.get("asr", 0.0)
+                total = info.get("total", 0)
+                print(f"         {ds_name}: ASR={asr_val:.2%} ({total} results)")
+
+    except Exception as e:
+        logger.debug(f"Dataset-level ASR prioritization skipped: {e}")
 
 
 # ============================================================

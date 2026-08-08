@@ -175,11 +175,20 @@ def sort_datasets_by_asr(
     dataset_names: list[str],
     *,
     asr_by_category: dict[str, AttackStats] | None = None,
+    dataset_level_asr: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
     """按历史 ASR 排序数据集名称。.
 
-    将每个数据集映射到其主要的 harm category, 然后按该 category 的历史 ASR
-    降序排列。无历史数据的数据集排在末尾 (Laplace 平滑后默认 0.5)。
+    优先使用 **数据集级经验 ASR** (跨运行持久化的 per-dataset ASR),
+    如果不存在则回退到 harm category 级 ASR (当前运行查询 CentralMemory)。
+
+    数据集级 ASR (优先):
+      - 从 ``outputs/empirical_asr/dataset_level_{model}.json`` 加载
+      - 直接按 per-dataset ASR 降序排列, 精度更高
+
+    harm category 级 ASR (回退):
+      - 将每个数据集映射到其主要的 harm category, 然后按该 category 的历史 ASR
+        降序排列。无历史数据的数据集排在末尾 (Laplace 平滑后默认 0.5)。
 
     数据集 → harm category 映射 (基于数据集元数据):
       - harmbench → cybercrime, illegal, chemical_biological, harassment
@@ -188,11 +197,23 @@ def sort_datasets_by_asr(
 
     Args:
         dataset_names: 待排序的数据集名称列表。
-        asr_by_category: 历史 ASR 统计, None 则查询 memory。
+        asr_by_category: 历史 ASR 统计 (category 级), None 则查询 memory。
+        dataset_level_asr: 数据集级经验 ASR (跨运行持久化),
+            优先于 asr_by_category。None 则回退到 category 级。
 
     Returns:
         排序后的数据集名称列表 (ASR 高的在前)。
     """
+    # 优先使用数据集级经验 ASR (跨运行持久化, 精度更高)
+    if dataset_level_asr:
+        def _dataset_asr_score_direct(name: str) -> float:
+            info = dataset_level_asr.get(name)
+            if info:
+                return info.get("asr", 0.5)
+            return 0.5  # 未知数据集: 中等优先级
+        return sorted(dataset_names, key=_dataset_asr_score_direct, reverse=True)
+
+    # 回退: harm category 级 ASR (当前运行查询)
     if asr_by_category is None:
         asr_by_category = query_historical_asr_by_category()
 
@@ -481,11 +502,21 @@ def save_empirical_asr(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # O1 修复: 过滤非攻击技术名 (数据集名不应保存为技术 ASR)
+    from pipeline.analysis.technique_name_mapper import is_known_technique
+
+    filtered_asr = {
+        tech: asr for tech, asr in asr_per_technique.items() if is_known_technique(tech)
+    }
+    skipped_count = len(asr_per_technique) - len(filtered_asr)
+    if skipped_count > 0:
+        logger.debug(f"save_empirical_asr: skipped {skipped_count} non-technique keys")
+
     # 转换为 0-1 范围并添加元数据
     data = {
-        "techniques": {tech: asr / 100.0 for tech, asr in asr_per_technique.items()},
+        "techniques": {tech: asr / 100.0 for tech, asr in filtered_asr.items()},
         "_meta": {
-            "total_techniques": len(asr_per_technique),
+            "total_techniques": len(filtered_asr),
             "model_name": model_name or "unknown",
             "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
         },
@@ -779,14 +810,214 @@ def merge_empirical_with_priors(
     if not empirical_asr:
         return dict(academic_asr)
 
+    # O1 修复: 过滤非攻击技术名 (数据集名如 harmbench 不应进入 ASR 字典)
+    from pipeline.analysis.technique_name_mapper import is_known_technique
+
     merged = dict(academic_asr)
     overridden = 0
+    skipped = 0
     for tech, emp_asr in empirical_asr.items():
+        if not is_known_technique(tech):
+            skipped += 1
+            continue
         if tech in merged:
             overridden += 1
         merged[tech] = emp_asr
 
     if overridden > 0:
         logger.info(f"ASR refresh: {overridden} techniques overridden by empirical data out of {len(merged)} total")
+    if skipped > 0:
+        logger.debug(f"ASR refresh: skipped {skipped} non-technique keys (dataset names)")
 
     return merged
+
+
+# ──────────────────────────────────────────────────────────────────
+#  数据集级 ASR (per-dataset, 跨运行持久化)
+# ──────────────────────────────────────────────────────────────────
+
+_DATASET_LEVEL_DIR = Path("outputs/empirical_asr")
+
+
+def _get_dataset_level_asr_path(model_name: str | None = None) -> Path:
+    """获取数据集级 ASR 文件路径."""
+    if model_name and model_name != "unknown":
+        safe = _get_model_safe_name(model_name)
+        return _DATASET_LEVEL_DIR / f"dataset_level_{safe}.json"
+    return _DATASET_LEVEL_DIR / "dataset_level_global.json"
+
+
+def collect_dataset_level_asr_from_memory(
+    model_name: str | None = None,
+    dataset_names: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """从 PyRIT CentralMemory 收集数据集级 ASR 数据.
+
+    遍历所有 AttackResult, 通过匹配种子文本 (objective) 确定每个结果
+    所属的数据集, 然后按数据集聚合 ASR.
+
+    R-022: 消费原生 CentralMemory.get_attack_results() + AttackResult.outcome
+    + CentralMemory.get_seed_prompts() (原生 API).
+
+    Args:
+        model_name: 目标模型名 (用于按模型隔离保存).
+        dataset_names: 数据集名称列表 (用于构建 seed→dataset 映射).
+            None 时从 CentralMemory 查询所有已注册数据集.
+
+    Returns:
+        {dataset_name: {asr, raw_asr, successes, total}} 字典.
+    """
+    try:
+        memory = CentralMemory.get_memory_instance()
+        results = memory.get_attack_results()
+    except Exception as e:
+        logger.warning(f"Failed to query AttackResults for dataset-level ASR: {e}")
+        return {}
+
+    logger.info(
+        f"collect_dataset_level_asr_from_memory: queried {len(results)} AttackResults "
+        f"from CentralMemory (model={model_name})"
+    )
+
+    # 构建 seed_text → dataset_name 映射 (R-022: 原生 get_seed_prompts API)
+    seed_to_dataset: dict[str, str] = {}
+    if dataset_names is None:
+        # 从 metadata 获取已加载的数据集名称
+        try:
+            all_prompts = memory.get_seed_prompts()
+            dataset_names = list(
+                {getattr(p, "dataset_name", "") for p in all_prompts if getattr(p, "dataset_name", "")}
+            )
+        except Exception:
+            dataset_names = []
+    for ds_name in dataset_names or []:
+        try:
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            if not prompts:
+                continue
+            for p in prompts:
+                value = getattr(p, "value", None) or getattr(p, "original_value", None) or ""
+                if value and isinstance(value, str) and len(value) > 5:
+                    # 用前 200 字符做匹配键 (同 seed-level ASR 的 hash 方式)
+                    seed_to_dataset[value[:200]] = ds_name
+        except Exception:
+            continue
+
+    logger.info(
+        f"collect_dataset_level_asr_from_memory: built {len(seed_to_dataset)} "
+        f"seed→dataset mappings for {len(dataset_names or [])} datasets"
+    )
+
+    # 按数据集聚合 outcome
+    ds_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"s": 0, "f": 0, "u": 0, "e": 0})
+    unmatched_count = 0
+
+    for result in results:
+        seed_text = _extract_seed_text(result, memory)
+        if not seed_text:
+            unmatched_count += 1
+            continue
+
+        match_key = seed_text[:200]
+        ds_name = seed_to_dataset.get(match_key)
+        if not ds_name:
+            unmatched_count += 1
+            continue
+
+        outcome = result.outcome
+        if outcome == AttackOutcome.SUCCESS:
+            ds_stats[ds_name]["s"] += 1
+        elif outcome == AttackOutcome.FAILURE:
+            ds_stats[ds_name]["f"] += 1
+        elif outcome == AttackOutcome.ERROR:
+            ds_stats[ds_name]["e"] += 1
+        else:
+            ds_stats[ds_name]["u"] += 1
+
+    result_asr: dict[str, dict[str, Any]] = {}
+    for ds_name, stats in ds_stats.items():
+        total = stats["s"] + stats["f"] + stats["u"] + stats["e"]
+        if total == 0:
+            continue
+        successes = stats["s"]
+        raw_asr = successes / total
+        wilson_asr = _wilson_lower_bound(successes, total) if total < 30 else raw_asr
+        result_asr[ds_name] = {
+            "asr": round(wilson_asr, 3),
+            "raw_asr": round(raw_asr, 3),
+            "successes": successes,
+            "total": total,
+        }
+
+    if result_asr:
+        save_dataset_level_asr(result_asr, model_name=model_name)
+        logger.info(
+            f"collect_dataset_level_asr_from_memory: saved {len(result_asr)} datasets "
+            f"(from {len(results)} results, {unmatched_count} unmatched, model={model_name})"
+        )
+    else:
+        logger.warning(
+            "collect_dataset_level_asr_from_memory: result_asr is empty "
+            f"(results={len(results)}, unmatched={unmatched_count}, "
+            f"model={model_name}) — no dataset_level file written"
+        )
+
+    return result_asr
+
+
+def save_dataset_level_asr(
+    dataset_asr: dict[str, dict[str, Any]],
+    *,
+    model_name: str | None = None,
+) -> None:
+    """保存数据集级实测 ASR 数据.
+
+    R-022: 与 save_seed_level_asr / save_empirical_asr 同构模式,
+    JSON 持久化, 按模型分文件存储.
+
+    Args:
+        dataset_asr: {dataset_name: {asr, raw_asr, successes, total}} 字典.
+        model_name: 目标模型名 (G-05 按模型隔离).
+    """
+    path = _get_dataset_level_asr_path(model_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "model": model_name or "unknown",
+        "timestamp": datetime.now().isoformat(),
+        "datasets": dataset_asr,
+    }
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Dataset-level ASR saved to {path} ({len(dataset_asr)} datasets, model={model_name or 'global'})")
+
+
+def load_dataset_level_asr(
+    model_name: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """加载数据集级实测 ASR 数据 (跨运行持久化).
+
+    R-022: 与 load_seed_level_asr / load_empirical_asr 同构模式,
+    优先加载按模型分文件路径, 不存在时回退到全局路径.
+
+    Args:
+        model_name: 目标模型名 (G-05 按模型加载).
+
+    Returns:
+        {dataset_name: {asr, raw_asr, successes, total}} 字典, 文件不存在时返回空字典.
+    """
+    path = _get_dataset_level_asr_path(model_name)
+    if not path.exists() and model_name and model_name != "unknown":
+        path = _DATASET_LEVEL_DIR / "dataset_level_global.json"
+    if not path.exists():
+        return {}
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("datasets", {})
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load dataset-level ASR from {path}: {e}")
+        return {}

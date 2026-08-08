@@ -116,6 +116,45 @@ def parse_args() -> argparse.Namespace:
         help="禁用自动加载 data/ 清单中的 OWASP + Agentic 数据集 (默认: 不禁用)",
     )
     parser.add_argument(
+        "--dataset-scope",
+        type=str,
+        default="all",
+        choices=["all", "owasp_llm", "owasp_asi", "benchmark", "cve"],
+        help=(
+            "按范围筛选自动加载的数据集.\n"
+            "all=全部 default=true (默认), owasp_llm=仅 LLM01-10,\n"
+            "owasp_asi=仅 ASI01-10, benchmark=仅学术基准, cve=仅 CVE 载荷."
+        ),
+    )
+    parser.add_argument(
+        "--target-aware-datasets",
+        action="store_true",
+        default=False,
+        help=(
+            "根据目标类型自动筛选相关数据集.\n"
+            "LLM 目标 → 优先 LLM01-10 + benchmark; Agent 目标 → 优先 ASI01-10 + LLM06.\n"
+            "需与 --dataset-scope all 配合使用 (默认: 关闭, 全部加载)."
+        ),
+    )
+    parser.add_argument(
+        "--max-seeds-per-dataset",
+        type=int,
+        default=0,
+        help=(
+            "每个数据集最多加载的种子数 (0=不限制).\n"
+            "用于控制 API 消耗, 避免大数据集 (如 harmbench 400 seeds) 占用过多配额."
+        ),
+    )
+    parser.add_argument(
+        "--update-manifest",
+        action="store_true",
+        default=False,
+        help=(
+            "自动发现新数据集后, 将其写回 _manifest.yaml 持久化注册.\n"
+            "下次运行无需重新发现 (默认: 关闭, 仅运行时自动发现)."
+        ),
+    )
+    parser.add_argument(
         "--model",
         type=str,
         default="",

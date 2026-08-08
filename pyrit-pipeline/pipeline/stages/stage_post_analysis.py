@@ -257,6 +257,24 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
         logger.warning(f"Failed to collect seed-level ASR: {e}", exc_info=True)
         print("  │ 种子级 ASR: ⚠ 收集失败 (详见日志)")
 
+    # 数据集级 ASR 收集 (per-dataset, 用于下次运行数据集优先级排序)
+    dataset_names = getattr(ctx.args, "datasets", []) or []
+    try:
+        from pipeline.asr.optimizer import collect_dataset_level_asr_from_memory
+
+        ds_asr = collect_dataset_level_asr_from_memory(
+            model_name=model_name, dataset_names=dataset_names,
+        )
+        if ds_asr:
+            top_ds = sorted(ds_asr.items(), key=lambda x: x[1].get("asr", 0), reverse=True)[:3]
+            ds_str = ", ".join(f"{n}={v['asr']:.0%}" for n, v in top_ds)
+            print(f"  │ 数据集级 ASR: {len(ds_asr)} 个数据集已收集 (Top 3: {ds_str})")
+        else:
+            print("  │ 数据集级 ASR: ⚠ 无数据 (详见日志)")
+    except Exception as e:
+        logger.warning(f"Failed to collect dataset-level ASR: {e}", exc_info=True)
+        print("  │ 数据集级 ASR: ⚠ 收集失败 (详见日志)")
+
     # G-07: ParadigmTracker 跨运行持久化
     failure_stats = ctx.metadata.get("failure_stats", {})
     paradigm_data = failure_stats.get("paradigm_performance", {})
@@ -621,21 +639,28 @@ def _print_asr_feedback_loop(ctx: PipelineContext) -> None:
     # 经验写回状态 (检查 empirical ASR 文件, 不是 seed_level 文件)
     empirical_saved = False
     seed_level_saved = False
+    dataset_level_saved = False
     try:
-        from pipeline.asr.optimizer import _get_empirical_asr_path, _get_seed_level_asr_path
+        from pipeline.asr.optimizer import (
+            _get_dataset_level_asr_path,
+            _get_empirical_asr_path,
+            _get_seed_level_asr_path,
+        )
 
         model_name = ctx.metadata.get("model_name", "unknown")
         empirical_saved = _get_empirical_asr_path(model_name).exists()
         seed_level_saved = _get_seed_level_asr_path(model_name).exists()
+        dataset_level_saved = _get_dataset_level_asr_path(model_name).exists()
     except Exception:
         pass
 
     # 构建对比数据
     prior_lines: list[str] = []
     measured_lines: list[str] = []
+    dataset_lines: list[str] = []
     feedback_lines: list[str] = []
 
-    # Top 5 技术: 先验 vs 实测
+    # Top 5 攻击技术: 先验 vs 实测 (技术名维度)
     top_measured = sorted(measured.items(), key=lambda x: x[1], reverse=True)[:5]
     for tech, actual_asr in top_measured:
         prior_asr = warm_start.get(tech, 0)
@@ -644,8 +669,27 @@ def _print_asr_feedback_loop(ctx: PipelineContext) -> None:
         prior_lines.append(f"{tech[:30]:<30} {prior_asr:>5.1f}%")
         measured_lines.append(f"{tech[:30]:<30} {actual_asr:>5.1f}% {arrow}")
 
+    # E2: 数据集维度 ASR (分离展示)
+    if ctx.result is not None:
+        try:
+            from pyrit.models import AttackOutcome
+
+            groups = ctx.result.get_display_groups()
+            for ds_name, attack_results in sorted(groups.items(), key=lambda x: len(x[1]), reverse=True)[:5]:
+                ds_total = len(attack_results)
+                if ds_total == 0:
+                    continue
+                ds_succ = sum(1 for r in attack_results if r.outcome == AttackOutcome.SUCCESS)
+                ds_asr = ds_succ / ds_total * 100
+                dataset_lines.append(f"{ds_name[:30]:<30} {ds_asr:>5.1f}% ({ds_succ}/{ds_total})")
+        except Exception:
+            pass
+    if not dataset_lines:
+        dataset_lines.append("(无数据集维度数据)")
+
     feedback_lines.append(f"经验写回: {'✅ 已保存' if empirical_saved else '⚠ 未保存'}")
     feedback_lines.append(f"种子级 ASR: {'✅ 已保存' if seed_level_saved else '⚠ 未保存'}")
+    feedback_lines.append(f"数据集级 ASR: {'✅ 已保存' if dataset_level_saved else '⚠ 未保存'}")
     feedback_lines.append(f"warm-start 技术: {len(warm_start)} → 下次运行优先级调整")
     feedback_lines.append(f"实测技术: {len(measured)} → 经验闭环")
 
@@ -665,7 +709,8 @@ def _print_asr_feedback_loop(ctx: PipelineContext) -> None:
         "ASR 反馈循环 (先验→实测→经验→warm-start)",
         sections=[
             {"label": "先验 ASR (Stage 2)", "lines": prior_lines},
-            {"label": "实测 ASR (Stage 4)", "lines": measured_lines},
+            {"label": "实测 ASR — 攻击技术 (Stage 4)", "lines": measured_lines},
+            {"label": "实测 ASR — 载荷数据集 (Stage 4)", "lines": dataset_lines},
             {"label": "经验闭环", "lines": feedback_lines},
         ],
     )
