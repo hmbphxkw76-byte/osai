@@ -173,10 +173,8 @@ async def run(ctx: PipelineContext) -> None:
     if not scenario_result_id:
         import uuid as _uuid
         scenario_result_id = str(_uuid.uuid4())
-        try:
+        with contextlib.suppress(Exception):
             ctx.scenario._scenario_result_id = scenario_result_id
-        except Exception:
-            pass  # 某些 PyRIT 版本可能不允许直接设置
     try:
         result = await ctx.scenario.run_async()
     except Exception as exc:
@@ -698,7 +696,7 @@ def _rescore_failed_attacks(result: Any) -> None:
     error_count = 0
     rescored_count = 0
 
-    for objective, attack_results in result.attack_results.items():
+    for _objective, attack_results in result.attack_results.items():
         for ar in attack_results:
             if ar.outcome != AttackOutcome.ERROR:
                 continue
@@ -740,7 +738,7 @@ def _count_scorer_errors(result: Any) -> int:
     from pyrit.models import AttackOutcome
 
     error_count = 0
-    for objective, attack_results in result.attack_results.items():
+    for _objective, attack_results in result.attack_results.items():
         for ar in attack_results:
             if ar.outcome == AttackOutcome.ERROR:
                 error_count += 1
