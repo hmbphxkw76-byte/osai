@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .cookie_session import cookie_header_for, load_cookies, save_cookies
+from .cookie_session import cookie_header_for, load_cookies, save_cookies  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

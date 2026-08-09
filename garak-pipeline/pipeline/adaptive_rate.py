@@ -144,7 +144,7 @@ class AdaptiveRateController:
                 raise CallTimeoutError(
                     f"_call_model 超过 {self.call_timeout:.0f}s 未返回，"
                     f"疑似目标静默挂起（连接 ESTABLISHED 但无响应）"
-                )
+                ) from None
 
         def wrapped(prompt: str, *args, **kwargs):
             # 1) 主动节流：令牌桶阻塞

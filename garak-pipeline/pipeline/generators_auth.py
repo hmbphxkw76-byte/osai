@@ -62,7 +62,7 @@ class AuthenticatedOpenAICompatible(OpenAICompatible):
 import garak.generators.openai as _openai_mod
 
 AuthenticatedOpenAICompatible.__module__ = "garak.generators.openai"
-setattr(_openai_mod, "AuthenticatedOpenAICompatible", AuthenticatedOpenAICompatible)
+_openai_mod.AuthenticatedOpenAICompatible = AuthenticatedOpenAICompatible
 sys.modules.setdefault("garak.generators.openai").__dict__[
     "AuthenticatedOpenAICompatible"
 ] = AuthenticatedOpenAICompatible

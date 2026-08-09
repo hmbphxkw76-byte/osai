@@ -1,0 +1,66 @@
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = [".venv", "data", "outputs", "sessions"]
+
+[tool.ruff.lint]
+# 对齐 L5 专家水平：选择有意义的规则集，忽略与项目设计冲突的规则
+#   S110/S112/BLE001: 探针/认证降级场景需静默吞异常（容错探测设计）
+#   SIM102/SIM117: 嵌套 if/with 在测试与业务逻辑中更清晰，不强制合并
+#   DTZ005: garak 内部 starttime 需裸 now() 兼容其序列化
+#   RUF001/002/003: 中文全角标点（，：（）等）被误判为歧义字符
+#   E501: 中文注释/字符串因字符宽度常超 88 列
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "ISC",    # flake8-implicit-str-concat (捕捉 list 中缺逗号 bug)
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "DTZ",    # flake8-datetimez
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "S110",   # try-except-pass: 容错探测设计（Ollama 探测/认证降级/插件加载）
+    "S112",   # try-except-continue: 同上
+    "BLE001", # blind-except: 同上（需捕获宽异常做降级）
+    "SIM102", # 嵌套 if 更清晰（会话过期+冷却判断）
+    "SIM117", # 嵌套 with 在测试中更清晰
+    "DTZ005", # garak 内部 _config.transient.starttime 需裸 now()
+    "E402",   # generators_auth 需先 patch garak 再 import（模块级 import 顺序有意）
+    "E501",   # 中文注释/字符串因字符宽度常超 88 列
+    "RUF001", # 中文全角标点（，：（））被误判为歧义字符
+    "RUF002", # 同上（docstring）
+    "RUF003", # 同上（comment）
+    "RUF012", # ClassVar 注解在可变默认值上的宽松要求
+    "B011",   # assert False 在测试中可接受
+    "SIM112", # garak 约定环境变量名 OPENAICompatible_API_KEY（混合大小写）
+    "SIM105", # contextlib.suppress 在 finally 清理场景可读性不如 try/except
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402", "F401"]
+"pipeline/custom_probes/*" = ["E501"]
+"pipeline/auth/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pipeline"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# P0-2: pytest 配置 — 确保 garak 源码目录在 sys.path 中
+# pytest 收集阶段需要 import garak，但 conftest.py 的 sys.path 注入
+# 在某些 pytest 版本中可能不够早（特别是 rootdir 非标准时）。
+# pythonpath 配置由 pytest 内部在收集前处理，确保万无一失。
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../src/garak-0.15.1"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

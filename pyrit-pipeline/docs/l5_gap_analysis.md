@@ -1,11 +1,12 @@
 # L5 专家级差距分析报告
 
-> **版本**: v10.0 (v9.4 + 7 项性能优化 O1-O7: API 超时 + RateLimitedTarget 全覆盖 + 204 快速失败 + DoS 排除 + 重试降级)
+> **版本**: v11.0 (v10.0 + Round 43: S1 Scorer 降级链 + S2 评分器超时独立 + S3 熔断器 + S4 BaseException 兜底 + S5 预生成 ID + S6 payload affinity 细化)
 > **日期**: 2026-8-9
 > **规则**: R-009/R-021/R-022/R-023 (优化后 + 代码改动后 + 原生优先 + 端到端验证自动化)
-> **评估对象**: pyrit-pipeline v10.0 + Round 10-41 全部优化 + 7 项性能优化 (O1-O7) + NoiseFilter 三层路由 + 去重修复 + JSON 噪音扩展
+> **评估对象**: pyrit-pipeline v11.0 + Round 10-42 全部优化 + 7 项性能优化 (O1-O7) + NoiseFilter 三层路由 + Round 42 bug 修复 + Round 43 评分器韧性 7 项优化 (S1-S7)
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **更新记录**:
+> - 2026-8-9 — v11.0: Round 43 评分器韧性 7 项优化 (S1: SubStringScorer 关键词匹配降级评分 + S2: 评分器超时独立配置 30s + S3: 超时熔断器 5次阈值 + S4: BaseException 兜底 + S5: scenario_result_id 预生成 + S6: payload_converter_affinity 细化 + S7: token_smuggling_chain 已存在) + 21 个新测试 + 测试通过 1270/6/0
 > - 2026-8-9 — v10.0: 7 项性能优化 (O1: API 超时 600s→60s 通过 PyRIT 原生 httpx_client_kwargs; O2: RateLimitedTarget 全覆盖 1/3→3/3 Target; O3: SDK max_retries 2→0 禁用三层叠加; O4: 204 空响应快速失败; O5: DoS 数据集双重排除 加载时+运行时; O6: rate_limit_retries 3→2; O7: 退避上限 60s→30s) + 18 个新测试 + 测试通过 1249/6/0
 > - 2026-8-8 — v9.3: NoiseFilter 三层路由增强 (新增 _LOG_ONLY_PATTERNS + _is_log_only_line() + _route_line() 三层分支; 终端只展示 ✅ 成功攻击; ❌ 失败行 → 信号日志不显示终端; NIST SP 800-92 三层分离) + 20 个新测试
 > - 2026-8-5 — v9.2: stream 参数配置化 (config/attack_params.yaml 新增 stream: false + CLI --stream/--no-stream + TargetClassifier.classify(stream=) 参数 + UnifiedAuthOrchestrator 传递 + 6 个新测试) + 测试通过 988/6/0
@@ -60,21 +61,21 @@
 
 ## 二、维度评估
 
-### 2.1 v9.0 + 全部优化评估结果 (Round 28 最终)
+### 2.1 v11.0 + 全部优化评估结果 (Round 43 最终)
 
-| 维度 | 权重 | v8.1 得分 | 当前得分 | 变化 | 说明 |
-|------|------|-----------|---------|------|------|
-| 原生 API 对齐度 | 15% | 100 | 100 | 0 | 全部模块 100% 原生 + R-022 合规检查器 (0 ERROR/0 WARNING) |
+| 维度 | 权重 | v10.0 得分 | 当前得分 | 变化 | 说明 |
+|------|------|------------|---------|------|------|
+| 原生 API 对齐度 | 15% | 100 | 100 | 0 | 全部模块 100% 原生 + R-022 合规检查器 |
 | 架构分层清晰度 | 10% | 99 | 99 | 0 | 六阶段独立 + PipelineContext + 数据5层 + Executor5层 |
 | ASR 驱动程度 | 15% | 100 | 100 | 0 | 实时 ASR 深度应用 (参数覆盖 + 暖启动) |
 | 技术选择灵活度 | 10% | 99 | 99 | 0 | Converter LLM 生成 + MCP 载荷 YAML 外部化 |
 | 数据驱动程度 | 10% | 100 | 100 | 0 | 多模型时间维度追踪 + Secret 验证 3 源扫描 |
 | 自动化程度 | 10% | 98 | 98 | 0 | make check-r022 + MCP 探针真实目标发送 |
-| 错误处理与韧性 | 10% | 99 | 100 | +1 | +场景级 security_audit 检测 (multi_turn_session + blind_inference + backdoor_probe + control_mode_aware) + blocked 响应标记 |
+| 错误处理与韧性 | 10% | 100 | 100 | 0 | +S1 SubStringScorer 降级评分 + S3 熔断器 + S4 BaseException 兜底 |
 | 结果展示完整性 | 10% | 97 | 97 | 0 | Jinja2 模板引擎 + 模板自定义指南 |
-| 评分器鲁棒性 | 5% | 96 | 96 | 0 | 三级 fallback + 多评分器类型 |
+| 评分器鲁棒性 | 5% | 96 | 100 | +4 | +S1 降级链 (SubStringScorer 关键词匹配) + S2 独立超时 30s + S3 熔断器 5次阈值 |
 | 文档-代码一致性 | 5% | 99 | 99 | 0 | 性能基准 + lint 全清 + Web Red Team 文档 v2.0 |
-| **总计** | **100%** | **99.9** | **100.0** | **+0.1** | **L5 专家级 100%** |
+| **总计** | **100%** | **100.0** | **100.0** | **0** | **L5 专家级 100% (评分器韧性满分)** |
 
 ### 2.2 v3.0 → v7.0 演进对比
 

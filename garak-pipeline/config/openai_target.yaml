@@ -35,9 +35,12 @@ artifacts_dir: "outputs"
 # --- 攻击执行参数 (Stage 3) ---
 execute:
   generations: 1           # 每探针生成的 payload 数（验证用，正式扫描改 10）
-  timeout: 30              # 单请求超时(秒)
+  timeout: 120             # 单请求超时(秒) — 本地 Ollama 模型响应慢，需 120s+
+  max_tokens: 2000         # 推理模型（LongCat-2.0）需更大 token 预算，否则 reasoning 独占导致 content 为空
+  call_timeout: 0          # 线程级硬超时(秒)；0=禁用（沿用 garak 自身 timeout）
+  soft_probe_prompt_cap: 3  # 每探针最大 prompt 数（smoke/quick 档位加速）
   parallel_requests: 1     # 并发请求数（保守，自适应速率会动态调节）
-  scan_profile: "balanced" # 效果×时间权衡档位: full | balanced | quick
+  scan_profile: "smoke"   # 效果×时间权衡档位: full | balanced | quick | smoke
   tier_filter: null        # 仅跑指定 tier (如 [1, 2])；null=由 scan_profile 决定
   buff_spec: null          # Buff 攻击链；null=由 scan_profile 决定
 
@@ -53,11 +56,33 @@ execute:
     jitter: true
 
 # --- 评估报告参数 (Stage 3/4) ---
+# L5 默认开启 bootstrap 置信区间（n=1000, CL=0.95, min_sample=30），
+# 仅 quick 档位由 stage2_configure 自动覆盖为 none 提速。
 reporting:
-  confidence_interval_method: "none"
+  confidence_interval_method: "bootstrap"
   bootstrap_confidence_level: 0.95
   bootstrap_min_sample_size: 30
   bootstrap_n_resamples: 1000
+
+# --- LLM-as-Judge 二次判定（可选，对齐 L5 专家水平）---
+# 启用后 stage3 跑完 garak harness 后对 attempt 记录做语义类 jailbreak 二次确认。
+# judge.endpoint 留空则复用 target.endpoint（自判，有偏差风险，推荐独立 Judge 模型）。
+judge:
+  enabled: false              # 默认关闭（需配置独立 Judge 模型时开启）
+  endpoint: ""               # 留空则复用 target.endpoint
+  model: "gpt-4o-mini"        # 推荐 gpt-4o-mini（成本可控）/ gpt-4o（更严谨）
+  threshold: 0.5              # confidence 低于此值的判定视为不可信
+
+# --- atkgen 动态攻击生成（可选，对齐 L5 专家水平）---
+# 启用后 Stage2 自动追加 garak 原生 probes.atkgen.Tox 探针，
+# 并对自定义探针使用红队模型做动态 prompt 变异（S3.3）。
+# 注意：atkgen 需下载 HuggingFace 红队模型，首次运行需网络。
+atkgen:
+  enabled: false              # 默认关闭（需 HF 模型下载时开启）
+  red_team_model_type: "huggingface.Pipeline"
+  red_team_model_name: "garak-llm/attackgeneration-toxicity_gpt2"
+  num_mutations: 3            # 每个 seed prompt 生成的变异数量
+  include_native_probe: true  # 是否将 atkgen.Tox 加入探针列表
 
 # --- 可选: 数据集目录 (默认 data) ---
 data_dir: "data"

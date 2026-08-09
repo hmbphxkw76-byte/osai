@@ -11,13 +11,12 @@
 """
 
 import argparse
-import sys
-from pathlib import Path
 
 # R-012: 始终使用 UTF-8 编码 — 在所有 import 之前强制设置,
 # 确保 stdout/stderr 在 Windows GBK 终端下也能正确输出 Unicode 字符
 import os as _os
 import sys
+from pathlib import Path
 
 _os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 if hasattr(sys.stdout, "reconfigure"):
@@ -25,12 +24,23 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from pipeline.env import load_env
-from pipeline.utils import clean_pycache, load_config
+import logging
+
+from pipeline.env import configure_hf_mirror, ensure_garak_src_path, load_env
+from pipeline.utils import clean_pycache, load_config, prune_old_runs
 
 # 启动时加载项目根 .env（幂等），使 TARGET_USERNAME / OPENAICompatible_API_KEY 等
 # 统一从 .env 读取，无需在命令行手动 set。
 load_env()
+
+# 规则一（garak 原生优先，不重复造轮子）：把相对路径 ../src/garak-0.15.1
+# 注入 sys.path 优先于 site-packages，确保自定义 Probe/Buff/Detector 继承
+# 原生源码的基类，便于调试对齐 garak 0.15.1 官方实现。
+ensure_garak_src_path()
+
+# 智能选择 HuggingFace 端点：先官方，3 次失败后切换国内镜像 (hf-mirror.com)
+# 必须在 garak / huggingface_hub 导入之前执行，确保 HF_ENDPOINT 生效
+configure_hf_mirror()
 
 
 def _register_shutdown_hooks() -> None:
@@ -80,10 +90,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python main.py                         # 默认: Web 认证模式 (从 .env 读 WEB_TARGET_URL)
-  python main.py --openai                # OpenAI 直连模式 (从 .env 读 OPENAI_TARGET_*)
-  python main.py --openai --stage 1-3    # 仅跑前三个阶段
-  python main.py --stage 4-5             # 复用历史产物做分析+导出
+  python main.py                                  # 默认: Web 认证模式 (从 .env 读 WEB_TARGET_URL)
+  python main.py --openai                         # OpenAI 直连模式 (从 .env 读 OPENAI_TARGET_*)
+  python main.py --openai --stage 1-3             # 仅跑前三个阶段
+  python main.py --stage 4-5 --run-id 20260802_1530  # 复用历史产物做分析+导出
+  python main.py --clean                          # 仅清理 __pycache__
         """,
     )
 
@@ -110,22 +121,60 @@ def main() -> None:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["1", "2", "3", "4", "5", "all", "1-3", "1-5"],
-        help="执行阶段: 1/2/3/4/5/all [default: all]",
+        choices=["1", "2", "3", "4", "5", "all", "1-3", "1-5", "4-5"],
+        help="执行阶段: 1/2/3/4/5/all/1-3/4-5 [default: all]",
     )
     parser.add_argument(
         "--run-id",
         default=None,
-        help="复用历史 run_id（analyze/export 复用旧批次）",
+        help="复用历史 run_id（与 --stage 4-5 配合复用旧批次产物）",
+    )
+    parser.add_argument(
+        "--prune",
+        type=int,
+        default=None,
+        metavar="N",
+        help="运行前清理历史产物，仅保留最近 N 个 run_id 批次（如 --prune 5）",
+    )
+    parser.add_argument(
+        "--batch",
+        default=None,
+        metavar="PATH",
+        help="多目标批量扫描配置（如 config/target_list.yaml）",
     )
     parser.add_argument(
         "--profile",
         default=None,
-        choices=["full", "balanced", "quick"],
+        choices=["full", "balanced", "quick", "smoke"],
         help="扫描档位 [default: 取 yaml 配置]",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="断点续扫模式：复用上次 run_id 的 checkpoint，跳过已完成的探针",
+    )
+    parser.add_argument(
+        "--retest",
+        default=None,
+        metavar="RUN_ID",
+        help="re-test diff 模式：对历史 run_id 重新扫描并生成 ASR/DEFCON 差异报告",
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default=None,
+        choices=[None, "api"],
+        help="子命令: api = 启动 REST API 服务（默认无 = 运行扫描流水线）",
     )
 
     args = parser.parse_args()
+
+    # ---- 日志配置 ----
+    # --verbose / -v: 启用 DEBUG 级别日志，否则默认 WARNING
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
 
     # ---- 项目根 & pycache 清理 ----
     project_root = Path(__file__).resolve().parent
@@ -135,6 +184,19 @@ def main() -> None:
         cleaned = clean_pycache(project_root)
         print(f"已清理 {cleaned} 个 __pycache__ 目录")
         sys.exit(0)
+
+    # ---- API 服务模式 ----
+    if args.command == "api":
+        import uvicorn
+        from pipeline.api import app
+        from pipeline.env import get_env as _get_env
+        if app is None:
+            print("错误: FastAPI 不可用，请安装 fastapi + uvicorn")
+            sys.exit(1)
+        host = _get_env("API_HOST", "0.0.0.0") or "0.0.0.0"
+        port = int(_get_env("API_PORT", "8765") or "8765")
+        print(f"启动 REST API: http://{host}:{port}")
+        uvicorn.run(app, host=host, port=port)
 
     # ---- 确定模式：默认 Web，--openai 切换到 OpenAI 直连 ----
     from pipeline.env import get_env
@@ -201,18 +263,70 @@ def main() -> None:
     if cleaned:
         print(f"清理 __pycache__: {cleaned} 个目录")
 
+    # ---- 历史产物清理（--prune N：保留最近 N 个 run_id 批次） ----
+    if args.prune is not None:
+        artifacts_root = Path(config.get("artifacts_dir", "outputs"))
+        pruned = prune_old_runs(artifacts_root, keep=args.prune)
+        print(f"🗑️  历史产物清理: 删除 {pruned} 个旧批次文件（保留最近 {args.prune} 个）")
+
+    # ---- 多目标批量扫描模式 ----
+    if args.batch:
+        from pipeline.batch_runner import run_batch
+
+        summary = run_batch(args.batch, project_root=str(project_root))
+        sys.exit(0 if summary["failed"] == 0 else 1)
+
     success = True
     try:
         from pipeline.runner import PipelineRunner
 
+        # --resume: 自动查找最近一个 run_id 的 checkpoint
+        effective_run_id = args.run_id
+        if args.resume and not effective_run_id:
+            import glob
+            ckpt_files = sorted(glob.glob(str(Path(artifacts_dir) / "03_execution" / ".checkpoint_*.json")))
+            if ckpt_files:
+                # 从文件名 .checkpoint_{run_id}.json 提取 run_id
+                ckpt_name = Path(ckpt_files[-1]).stem  # e.g. ".checkpoint_20260809_1315"
+                effective_run_id = ckpt_name.replace(".checkpoint_", "")
+                print(f"📋 断点续扫: 检测到 checkpoint (run_id={effective_run_id})")
+            else:
+                print("⚠️  未检测到 checkpoint 文件，将从头开始扫描")
+
         runner = PipelineRunner(
-            target=target, mode=mode, artifacts_dir=artifacts_dir, config=config
+            target=target, mode=mode, artifacts_dir=artifacts_dir,
+            config=config, run_id=effective_run_id,
         )
         runner.run(stages=args.stage)
         success = True
+
+        # --retest: 生成 ASR/DEFCON 差异报告
+        if args.retest:
+            from pipeline.retest_diff import (
+                compute_retest_diff,
+                load_analysis,
+                save_retest_diff,
+            )
+            baseline = load_analysis(args.retest, artifacts_dir)
+            if baseline is None:
+                print(f"⚠️  re-test: 未找到历史分析结果 analysis_{args.retest}.json，跳过 diff")
+            else:
+                current_run_id = effective_run_id or "current"
+                current = load_analysis(current_run_id, artifacts_dir)
+                if current is None:
+                    print(f"⚠️  re-test: 未找到当前分析结果 analysis_{current_run_id}.json，跳过 diff")
+                else:
+                    diff = compute_retest_diff(baseline, current)
+                    diff_path = save_retest_diff(diff, args.retest, current_run_id, artifacts_dir)
+                    s = diff["summary"]
+                    print(f"\n📊 re-test diff 报告 (baseline={args.retest} → current={current_run_id})")
+                    print(f"  ASR 回归: {s['asr_regressions']} 探针, 改善: {s['asr_improvements']} 探针")
+                    print(f"  DEFCON 回归: {s['defcon_regressions']} 探针, 改善: {s['defcon_improvements']} 探针")
+                    print(f"  Overall DEFCON: {s['baseline_overall_defcon']} → {s['current_overall_defcon']}")
+                    print(f"  Worst ASR: {s['baseline_worst_asr']}% → {s['current_worst_asr']}%")
+                    print(f"  diff 文件: {diff_path}")
     except Exception as exc:
         success = False
-        import logging
         logging.exception("流水线执行失败")
         print(f"\n流水线中断: {exc}")
     finally:

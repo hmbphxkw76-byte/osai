@@ -42,6 +42,16 @@ SCAN_PROFILES: dict[str, dict[str, Any]] = {
         "buff_spec": "",  # 无 Buff
         "desc": "仅 tier1 + 无 Buff，最快，覆盖最高危攻击面",
     },
+    "smoke": {
+        "tiers": None,  # 不按 tier 过滤，直接用固定探针子集
+        "buff_spec": "",  # 无 Buff
+        "probes": [
+            "probes.dan.DanInTheWild",             # LLM01 越狱（DAN 系列，mitigation.MitigationBypass 活跃）
+            "probes.latentinjection.LatentJailbreak",  # LLM01 潜在注入（base.TriggerListDetector 活跃）
+            "probes.dan.Ablation_Dan_11_0",        # LLM01 DAN 11 变体（mitigation.MitigationBypass 活跃）
+        ],
+        "desc": "冒烟测试：3 探针 × 3 prompt，验证流水线端到端贯通",
+    },
 }
 
 
@@ -83,7 +93,11 @@ def resolve_scan_profile(
     if buff_spec is not None:
         buff = buff_spec
 
-    return {"tiers": tiers, "buff_spec": buff, "profile": key}
+    result: dict[str, Any] = {"tiers": tiers, "buff_spec": buff, "profile": key}
+    # smoke 档位带固定探针子集，传递给 build_selection 直接使用
+    if "probes" in cfg:
+        result["probes"] = cfg["probes"]
+    return result
 
 
 def load_filtered_probes(filtered_path: Path) -> list[dict]:
@@ -147,6 +161,7 @@ def build_selection(
     tier_filter: list[str] | None = None,
     buff_spec: str | None = None,
     scan_profile: str | None = None,
+    atkgen_cfg: dict[str, Any] | None = None,
 ) -> dict:
     """构建攻击选择产物
 
@@ -156,20 +171,92 @@ def build_selection(
     :param tier_filter: 显式 tier 过滤（覆盖 profile）
     :param buff_spec: 显式 Buff 攻击链 spec（覆盖 profile）
     :param scan_profile: 扫描档位 full/balanced/quick（默认 full）
+    :param atkgen_cfg: atkgen 动态攻击生成配置（S3.3），None 或 enabled=False 则不追加
     :returns: 选择结果 dict（同时写出 JSON + run_spec YAML）
     """
+    # 规则一（garak 原生优先）：Stage2 需要解析 custom 探针/Buff 名，
+    # 提前注册使 enumerate_plugins / _spec 解析器可识别 probes.custom.* / buffs.custom.*
+    try:
+        from pipeline.custom_buffs import register_custom_buffs
+        from pipeline.custom_probes import register_custom_probes
+
+        register_custom_probes()
+        register_custom_buffs()
+    except Exception:
+        pass
     resolved = resolve_scan_profile(scan_profile, tier_filter, buff_spec)
     effective_tiers = resolved["tiers"]
     effective_buff = resolved["buff_spec"]
 
-    probes = load_filtered_probes(filtered_path)
-    if effective_tiers:
-        probes = [
-            p for p in probes if tier_rank(p.get("tier")) in effective_tiers
-        ]
+    all_probes = load_filtered_probes(filtered_path)
+
+    # smoke 档位：使用固定探针子集（不按 tier 过滤）
+    if "probes" in resolved:
+        wanted = set(resolved["probes"])
+        probes = [p for p in all_probes if p["name"] in wanted]
+        # 如果 filtered 产物中缺失某些 smoke 探针，补齐占位元数据
+        existing = {p["name"] for p in probes}
+        for name in resolved["probes"]:
+            if name not in existing:
+                probes.append({"name": name, "tier": 1})
+    else:
+        probes = all_probes
+        if effective_tiers:
+            probes = [
+                p for p in probes if tier_rank(p.get("tier")) in effective_tiers
+            ]
+    # P1-2: atkgen 动态攻击生成集成 — enabled 且 include_native_probe 时追加 atkgen.Tox
+    atkgen_enabled = bool(atkgen_cfg and atkgen_cfg.get("enabled", False))
+    if atkgen_enabled and atkgen_cfg.get("include_native_probe", True):
+        atkgen_probe_name = "probes.atkgen.Tox"
+        existing_names = {p["name"] for p in probes}
+        if atkgen_probe_name not in existing_names:
+            probes.append({"name": atkgen_probe_name, "tier": 1})
+
     probes = sort_by_tier(probes)
 
     probe_spec = build_probe_spec(probes)
+
+    # P3-5: 扫描成本预估
+    # 基于探针数量 × generations × 每探针 prompt 数 × 估算 token/prompt
+    # 预估总 API 调用次数和 token 消耗
+    total_prompts = sum(len(p.get("prompts", [])) for p in probes if isinstance(p.get("prompts"), list))
+    # 如果 prompts 不可用（filtered 产物不含 prompts），用探针数 × 估算均值
+    if total_prompts == 0:
+        total_prompts = len(probes) * 10  # 经验均值：每探针约 10 条 prompt
+
+    # 从 atkgen_cfg 或默认值获取 generations
+    generations = 1
+    if atkgen_cfg and isinstance(atkgen_cfg, dict):
+        generations = atkgen_cfg.get("generations", 1)
+    # 尝试从 config 获取 generations
+    try:
+        from pipeline.utils import load_config as _lc
+        # 不重复加载，使用传入参数
+    except Exception:
+        pass
+
+    # 估算每 prompt 的输入/输出 token
+    est_input_tokens_per_prompt = 50   # 平均 prompt 长度
+    est_output_tokens_per_prompt = 200 # 平均响应长度
+    # 每个探针通常配 1-2 个 detector，detector 也需调用 LLM
+    detector_multiplier = 2.0
+
+    total_api_calls = total_prompts * generations
+    est_input_tokens = total_api_calls * est_input_tokens_per_prompt
+    est_output_tokens = total_api_calls * est_output_tokens_per_prompt * detector_multiplier
+    est_total_tokens = est_input_tokens + est_output_tokens
+
+    cost_estimate = {
+        "total_probes": len(probes),
+        "total_prompts": total_prompts,
+        "generations": generations,
+        "estimated_api_calls": total_api_calls,
+        "estimated_input_tokens": est_input_tokens,
+        "estimated_output_tokens": int(est_output_tokens),
+        "estimated_total_tokens": int(est_total_tokens),
+        "note": "成本预估为经验估算，实际消耗取决于模型响应长度和 detector 配置",
+    }
 
     selection = {
         "run_id": run_id,
@@ -179,6 +266,8 @@ def build_selection(
         "probe_names": [p["name"] for p in probes],
         "probe_spec": probe_spec,
         "buff_spec": effective_buff,
+        "atkgen_enabled": atkgen_enabled,
+        "cost_estimate": cost_estimate,
     }
 
     out_dir = Path(artifacts_dir) / "02_config"

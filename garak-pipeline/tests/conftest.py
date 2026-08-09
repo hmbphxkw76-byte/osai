@@ -10,6 +10,14 @@ import pytest
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# P0-1: 注入 garak 源码目录到 sys.path（优先于 site-packages），
+# 修复集成测试中 `import garak` 失败的问题。
+# 与 pipeline/env.py:ensure_garak_src_path() 逻辑一致，
+# 但此处在 conftest.py 顶部执行，确保 pytest 收集阶段即可 import garak。
+_GARAK_SRC = (Path(__file__).resolve().parent.parent / "../src/garak-0.15.1").resolve()
+if _GARAK_SRC.exists() and str(_GARAK_SRC) not in sys.path:
+    sys.path.insert(1, str(_GARAK_SRC))
+
 # 测试运行前清理 __pycache__，防止 stale bytecode 导致非确定性失败
 from pipeline.utils import clean_pycache
 

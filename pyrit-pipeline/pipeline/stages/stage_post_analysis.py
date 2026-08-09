@@ -176,7 +176,7 @@ def _print_asr_comparison(ctx: PipelineContext) -> None:
     print(f"  │ {'─' * 35} {'─' * 6} {'─' * 6} {'─' * 6} {'─' * 4}")
     for tech, asr in sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True):
         hist_stats = historical.get(tech)
-        prior = hist_stats.success_rate * 100 if hist_stats else 0
+        prior = (hist_stats.success_rate or 0) * 100 if hist_stats else 0
         samples = hist_stats.total_decided if hist_stats else 0
         diff = asr - prior
         arrow = "↑" if diff > 0 else ("↓" if diff < 0 else "=")
@@ -206,7 +206,7 @@ def _print_converter_resilience(ctx: PipelineContext) -> None:
         return
 
     # 所有技术的平均 ASR 作为参考基线
-    all_asr_values = list(runtime_asr.values())
+    all_asr_values = [v for v in runtime_asr.values() if v is not None]
     avg_asr = sum(all_asr_values) / len(all_asr_values) * 100 if all_asr_values else 0
 
     # Converter 路由数作为增强信号

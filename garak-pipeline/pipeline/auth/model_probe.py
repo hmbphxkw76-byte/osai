@@ -430,8 +430,6 @@ def _derive_from_url(url: str, model: str | None = None) -> dict[str, str]:
     parsed = urlparse(url)
     path = parsed.path
     # 去除 /chat/completions、/completions、/messages 等后缀
-    import re
-
     suffixes = [
         "/chat/completions", "/completions", "/messages",
         "/generate", "/inference", "/predict", "/conversation",
@@ -642,9 +640,7 @@ def _looks_like_api_key(val: str) -> bool:
         return True
     if val.startswith("eyJ") and len(val) >= 50:
         return True
-    if len(val) >= 30:
-        return True
-    return False
+    return len(val) >= 30
 
 
 # ------------------------------------------------------------------

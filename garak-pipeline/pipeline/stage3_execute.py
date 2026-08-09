@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
 from garak import _config, _plugins, command
 from garak.evaluators.base import ThresholdEvaluator
+
+from pipeline.env import get_env
 
 from .adaptive_rate import AdaptiveRateController
 
@@ -27,6 +30,9 @@ logger = logging.getLogger(__name__)
 # （异常中断 / Ctrl+C 时 stage3 的 try/finally 可能来不及跑完）。
 _active_rate: AdaptiveRateController | None = None
 _rate_cleaned = False
+
+# 断点续扫：已完成探针的 checkpoint 文件路径（模块级，execute_attack 设置）
+_checkpoint_path: str | None = None
 
 
 def _make_downgrade_cb():
@@ -55,9 +61,33 @@ def _configure_garak(
     :param execute_cfg: config execute 段（generations/parallel/jitter）
     :param reporting_cfg: config reporting 段（置信区间参数）
     :param artifacts_dir: 产物根目录（garak 报告落点 = artifacts_dir/03_execution）
+    :raises ValueError: target 缺 endpoint/model 时 fail-fast（避免 garak 内部 KeyError）
     """
-    _config.plugins.target_type = "openai.OpenAICompatible"
-    _config.plugins.target_name = target["model"]
+    # Fail-fast 校验：endpoint/model 必填，缺一则立即报错而非让 garak 内部 KeyError
+    endpoint = target.get("endpoint") or ""
+    model = target.get("model") or ""
+    if not endpoint:
+        raise ValueError(
+            "target.endpoint 为空：请在 config/openai_target.yaml 或 .env "
+            "(OPENAI_TARGET_ENDPOINT) 配置目标端点"
+        )
+    if not model:
+        raise ValueError(
+            "target.model 为空：请在 config/openai_target.yaml 或 .env "
+            "(OPENAI_TARGET_MODEL) 配置目标模型名"
+        )
+
+    # R6: 兼容 garak 多版本 — GarakSubConfig 在某些版本使用 __slots__，
+    # 直接 _config.plugins.target_type = X 会触发 AttributeError。
+    # 使用 setattr + try/except 安全降级。
+    try:
+        _config.plugins.target_type = "openai.OpenAICompatible"
+    except AttributeError:
+        setattr(_config.plugins, "target_type", "openai.OpenAICompatible")
+    try:
+        _config.plugins.target_name = model
+    except AttributeError:
+        setattr(_config.plugins, "target_name", model)
     # API key 经环境变量注入（见 execute_attack 中
     # os.environ["OpenAICompatible_API_KEY"]）；garak 0.15.x 的
     # _config.plugins 无 api_key 属性，用 hasattr 守卫以兼容。
@@ -67,10 +97,19 @@ def _configure_garak(
 
     # generator 连接参数（nested_dict 字典访问，避免 crystallise 后属性丢失）
     gen_ns = _config.plugins.generators["openai"]["OpenAICompatible"]
-    gen_ns["name"] = target["model"]
-    gen_ns["uri"] = target["endpoint"]
+    gen_ns["name"] = model
+    gen_ns["uri"] = endpoint
     gen_ns["timeout"] = execute_cfg.get("timeout", 30)
     gen_ns["generations"] = execute_cfg.get("generations", 10)
+    # 推理模型（如 LongCat-2.0 / DeepSeek-R1）需要更大 max_tokens：
+    # reasoning_content 独占 token 预算，max_tokens=150 时全用于推理导致 content 为空
+    # C-3: 优先使用侦察产物探测到的 max_tokens（Stage1 _probe_model_capabilities）
+    recon_max_tokens = target.get("_recon_max_tokens")
+    if recon_max_tokens and isinstance(recon_max_tokens, (int, float)) and recon_max_tokens > 0:
+        gen_ns["max_tokens"] = int(recon_max_tokens)
+        logger.info("C-3: 从侦察产物设置 max_tokens=%d（覆盖默认 150）", recon_max_tokens)
+    else:
+        gen_ns["max_tokens"] = execute_cfg.get("max_tokens", 150)
 
     # 置信区间（规则三 + garak 原生 bootstrap）
     ci = reporting_cfg or {}
@@ -89,6 +128,9 @@ def _configure_garak(
         _config.reporting.confidence_interval_method = "none"
 
     _config.run.generations = execute_cfg.get("generations", 10)
+    # soft_probe_prompt_cap：限制每探针最大 prompt 数（smoke/quick 档位加速）
+    if hasattr(_config.run, "soft_probe_prompt_cap"):
+        _config.run.soft_probe_prompt_cap = execute_cfg.get("soft_probe_prompt_cap", 64)
     # garak: run.parallel_requests 守卫赋值以兼容多版本
     if hasattr(_config.run, "parallel_requests"):
         _config.run.parallel_requests = execute_cfg.get("parallel_requests", 1)
@@ -100,6 +142,50 @@ def _configure_garak(
     _config.reporting.report_dir = str(report_dir.resolve())
 
 
+def preflight_check(
+    target: dict,
+    probe_names: list[str],
+    conn_status: str = "ok",
+) -> list[str]:
+    """Stage 3 前置校验 — 在驱动 garak 前检测已知风险
+
+    :param target: target.yaml 的 target 段
+    :param probe_names: Stage2 选中的探针列表
+    :param conn_status: Stage1 连通性状态（ok/degraded/failed）
+    :returns: 风险告警列表（空列表 = 无风险，可直接执行）
+    """
+    warnings: list[str] = []
+
+    # 1. endpoint/model 必填校验（与 _configure_garak 的 fail-fast 一致）
+    endpoint = target.get("endpoint") or ""
+    model = target.get("model") or ""
+    if not endpoint:
+        warnings.append("target.endpoint 为空：攻击无法执行")
+    if not model or model == "unknown-model":
+        warnings.append(
+            f"target.model 为空或占位值 ({model})："
+            "garak 可能因模型名不匹配而拒绝请求"
+        )
+
+    # 2. 连通性状态校验
+    if conn_status == "failed":
+        warnings.append(
+            "Stage 1 连通性测试未通过 (status=failed)："
+            "目标端点可能不可达，攻击请求大概率全部失败"
+        )
+    elif conn_status == "degraded":
+        warnings.append(
+            "Stage 1 连通性为降级模式 (status=degraded)："
+            "目标端点可达但非标准 OpenAI API，部分探针可能无法正常执行"
+        )
+
+    # 3. 探针列表非空校验
+    if not probe_names:
+        warnings.append("探针列表为空：Stage2 未选中任何探针，无攻击可执行")
+
+    return warnings
+
+
 def execute_attack(
     target: dict,
     probe_names: list[str],
@@ -108,6 +194,7 @@ def execute_attack(
     artifacts_dir: str,
     execute_cfg: dict | None = None,
     reporting_cfg: dict | None = None,
+    judge_cfg: dict | None = None,
 ) -> dict:
     """驱动 garak 对目标发起真正攻击
 
@@ -118,11 +205,34 @@ def execute_attack(
     :param artifacts_dir: 产物根目录
     :param execute_cfg: 执行参数（generations/timeout/parallel_requests）
     :param reporting_cfg: 置信区间参数
-    :returns: 执行结果（含 garak 报告路径）
+    :param judge_cfg: LLM-as-Judge 二次判定配置（enabled/endpoint/model/threshold）
+    :returns: 执行结果（含 garak 报告路径与可选的 judge_results 路径）
     """
+    # 规则一（garak 原生优先）：在 command.probewise_run 之前注册自定义 Probe/Buff 扩展，
+    # 使 garak _plugins.load_plugin / _spec.parse_spec 可识别 probes.custom.* 和 buffs.custom.*
+    try:
+        from pipeline.custom_buffs import register_custom_buffs
+        from pipeline.custom_probes import register_custom_probes
+
+        register_custom_probes()
+        register_custom_buffs()
+        # S2.3: 将 LLM-as-Judge 注册为自定义探针的 extended_detector
+        from pipeline.judge_detector import attach_judge_as_extended_detector
+
+        attach_judge_as_extended_detector()
+    except Exception as exc:
+        logger.debug("custom probes/buffs 注册跳过: %s", type(exc).__name__)
     execute_cfg = execute_cfg or {}
     reporting_cfg = reporting_cfg or {}
     buff_names = [b.strip() for b in buff_spec.split(",") if b.strip()]
+
+    # quick/smoke 档位自动关闭置信区间（sample 不足时 bootstrap 无意义）
+    # full/balanced 保持 yaml 配置（L5 默认 bootstrap）
+    scan_profile = execute_cfg.get("scan_profile", "full")
+    if scan_profile in ("quick", "smoke") and reporting_cfg.get("confidence_interval_method") == "bootstrap":
+        logger.info("%s 档位：自动关闭 bootstrap 置信区间以提速", scan_profile)
+        reporting_cfg = dict(reporting_cfg)
+        reporting_cfg["confidence_interval_method"] = "none"
 
     # 确保 garak 基础配置已加载（填充 system/run 子配置默认值）
     # 版本兼容：garak 0.16 用 `is_loaded` 属性(bool)；0.15 用 `loaded` 属性。
@@ -141,10 +251,6 @@ def execute_attack(
     #   2. yaml target.api_key（显式配置）→ StaticKeyProvider
     #   3. .env OPENAICompatible_API_KEY → 环境变量注入
     #   4. Cookie 认证（Web 目标，无 key 可用）
-    import os
-
-    from pipeline.env import get_env
-
     sniffed_key = target.get("api_key", "")
     env_key = get_env("OPENAICompatible_API_KEY", "")
     api_key = sniffed_key or env_key
@@ -188,13 +294,34 @@ def execute_attack(
 
     # 规则八：自适应速率（令牌桶 + Retry-After + 熔断 + 并发降级）
     rate_cfg = execute_cfg.get("rate_limit", {}) or {}
+    # P2-2: 从 target 侦察产物动态获取速率限制（覆盖配置默认值）
+    # Stage1 探测的 rate_limits 写入 target dict 的 _recon_rate_limits 字段
+    recon_rl = target.get("_recon_rate_limits") or {}
+    if recon_rl:
+        # 优先使用 X-RateLimit-Limit-Requests（RPM 限制）
+        rpm_header = recon_rl.get("X-RateLimit-Limit-Requests") or recon_rl.get(
+            "x-ratelimit-limit-requests"
+        )
+        if rpm_header:
+            try:
+                dynamic_rpm = float(rpm_header)
+                if dynamic_rpm > 0:
+                    rate_cfg = dict(rate_cfg)  # 不修改原配置
+                    rate_cfg["max_rpm"] = dynamic_rpm
+                    logger.info(
+                        "P2-2: 从侦察产物动态设置 max_rpm=%.0f（来源: HTTP 响应头）",
+                        dynamic_rpm,
+                    )
+            except (ValueError, TypeError):
+                logger.debug("侦察速率限制头解析失败: %s", rpm_header)
     # 线程级超时熔断：默认值取 execute.timeout（garak 的 generation timeout），
     # 但语义不同——它兜底"目标静默挂起、连接 ESTABLISHED 但无响应"的死锁场景，
     # 而 garak 自身的 timeout 对该场景不生效（见 2026-08-02 实测）。
     # call_timeout<=0 时关闭线程熔断（沿用 garak 原生 timeout）。
-    call_timeout = execute_cfg.get("call_timeout", 0.0) or rate_cfg.get(
-        "call_timeout", execute_cfg.get("timeout", 30)
-    )
+    # 注意：用 is None 判断而非 or，避免 0 被当作 falsy 跳过。
+    call_timeout = execute_cfg.get("call_timeout")
+    if call_timeout is None:
+        call_timeout = rate_cfg.get("call_timeout", execute_cfg.get("timeout", 30))
     rate = AdaptiveRateController(
         generator,
         max_rpm=rate_cfg.get("max_rpm", 60.0),
@@ -248,7 +375,6 @@ def execute_attack(
     # 此处自行补齐以满足其运行（不修改 garak 源码）
     import argparse
     import datetime
-    from pathlib import Path
 
     _config.transient.cli_args = argparse.Namespace(
         list_probes=None, list_detectors=None, list_generators=None,
@@ -267,11 +393,52 @@ def execute_attack(
     if not hasattr(_config.transient, "hitlogfile"):
         _config.transient.hitlogfile = None
 
+    # 断点续扫：加载已完成探针列表（若 checkpoint 存在）
+    # S2.2: Checkpoint/Resume — 中断后可从上次断点继续，跳过已完成的探针
+    report_dir = Path(artifacts_dir) / "03_execution"
+    checkpoint_file = report_dir / f".checkpoint_{run_id}.json"
+    completed_probes: set[str] = set()
+    if checkpoint_file.exists():
+        try:
+            with open(checkpoint_file, encoding="utf-8") as cf:
+                completed_probes = set(json.load(cf).get("completed", []))
+            if completed_probes:
+                logger.info(
+                    "断点续扫：检测到 checkpoint，跳过 %d 个已完成探针",
+                    len(completed_probes),
+                )
+        except Exception:
+            logger.debug("checkpoint 加载失败，从头开始扫描")
+    global _checkpoint_path
+    _checkpoint_path = str(checkpoint_file)
+
     # garak 报告生命周期（报告已直接写入 outputs/03_execution/）
     command.start_run()
     report_filename = str(_config.transient.report_filename)
+    probes_succeeded = 0
+    probes_failed = 0
+    probes_skipped = 0
     try:
-        command.probewise_run(generator, probe_names, evaluator, buff_names)
+        # 逐探针执行：单个探针失败（超时/连接错误）不阻断其余探针，
+        # 避免 Ollama 等慢速目标上一个探针超时导致整轮扫描空跑。
+        for probe_name in probe_names:
+            if probe_name in completed_probes:
+                probes_skipped += 1
+                logger.info("跳过已完成探针: %s", probe_name)
+                continue
+            try:
+                command.probewise_run(generator, [probe_name], evaluator, buff_names)
+                probes_succeeded += 1
+                completed_probes.add(probe_name)
+                # 持久化 checkpoint（每探针完成后写入，支持随时中断续扫）
+                try:
+                    with open(checkpoint_file, "w", encoding="utf-8") as cf:
+                        json.dump({"completed": sorted(completed_probes)}, cf)
+                except Exception:
+                    logger.debug("checkpoint 写入失败")
+            except Exception as exc:
+                probes_failed += 1
+                logger.error("探针 %s 执行失败（跳过，不影响其余探针）: %s", probe_name, exc)
     except Exception as exc:
         # 线程级超时熔断可能让整轮探针全部 CallTimeoutError 放弃；
         # 不打断 finally，仅记录，交由 Stage4 以 nones 形态呈现（而非死锁）。
@@ -281,6 +448,54 @@ def execute_attack(
         rate.unpatch()
         _active_rate = None
         _rate_cleaned = True
+
+        # S1.1: 主动调用 garak build_digest() 确保 digest 完整性
+        # garak command.end_run() 可能不写入 digest（取决于版本/配置），
+        # 主动调用 build_digest + append_report_object 保证 Stage4 能消费完整 digest
+        try:
+            from garak.analyze.report_digest import append_report_object, build_digest
+
+            # 检查报告是否已含 digest
+            has_digest = False
+            report_p = Path(report_filename)
+            if report_p.exists():
+                with open(report_p, encoding="utf-8") as rf:
+                    for line in rf:
+                        if '"entry_type": "digest"' in line or "'entry_type': 'digest'" in line:
+                            has_digest = True
+                            break
+            if not has_digest and report_p.exists():
+                digest = build_digest(str(report_p))
+                with open(report_p, "a", encoding="utf-8") as rf:
+                    append_report_object(rf, digest)
+                logger.info("已主动生成并追加 garak digest 到报告")
+        except Exception as exc:
+            logger.debug("build_digest 追加失败（不影响主流程）: %s", exc)
+
+        # S3.4: 显式 shutdown 线程池，避免资源泄漏
+        # AdaptiveRateController 内部用 ThreadPoolExecutor 做线程级超时熔断，
+        # 需显式关闭以避免 atexit 时残留线程
+        try:
+
+            # 关闭 garak 内部可能的 executor
+            if hasattr(command, "_executor") and command._executor is not None:
+                command._executor.shutdown(wait=False)
+                command._executor = None
+        except Exception:
+            logger.debug("线程池清理跳过", exc_info=True)
+
+        # 清理 checkpoint（全部探针成功完成后删除）
+        if probes_failed == 0 and checkpoint_file.exists():
+            try:
+                checkpoint_file.unlink()
+                logger.info("checkpoint 已清理（所有探针完成）")
+            except Exception:
+                logger.debug("checkpoint 清理失败")
+
+    logger.info(
+        "Stage3 完成：成功 %d 探针，失败 %d 探针，跳过 %d 探针",
+        probes_succeeded, probes_failed, probes_skipped,
+    )
 
     # 规范化文件名：garak.<uuid>.report.jsonl → garak_report_{run_id}.jsonl
     # （规则一：保留 garak 原生格式，仅统一命名，不另起拷贝）
@@ -303,13 +518,31 @@ def execute_attack(
     # 统计探针数
     probe_count = len(probe_names)
 
+    # LLM-as-Judge 二次判定（可选 pass，不破坏 garak 原生评估）
+    # 对 report.jsonl 的 attempt 记录做语义类 jailbreak 二次确认，
+    # 弥补 ThresholdEvaluator 仅做关键词匹配的漏报（对齐 L5 专家水平）
+    judge_path = None
+    if judge_cfg and judge_cfg.get("enabled"):
+        from pipeline.judge_detector import judge_pass
+
+        try:
+            judge_path = judge_pass(
+                report_out, target, run_id, str(artifacts_dir), judge_cfg
+            )
+            if judge_path:
+                logger.info("Judge 二次判定产物: %s", judge_path)
+        except Exception as exc:
+            logger.warning("Judge 二次判定失败（不影响主流程）: %s", exc)
+            judge_path = None
+
     return {
         "run_id": run_id,
         "garak_run_id": garak_run_id,
-        "generator": f"{_config.plugins.target_type} {target['model']}",
+        "generator": f"{getattr(_config.plugins, 'target_type', 'openai.OpenAICompatible')} {target['model']}",
         "probe_count": probe_count,
         "buff_spec": buff_spec,
         "report_path": report_out,
+        "judge_path": judge_path,
         "generations": _config.run.generations,
     }
 
@@ -333,7 +566,7 @@ def parse_report_probe_names(report_path: str) -> list[str]:
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if rec.get("entry_type") == "probe_summary" and rec.get("probe"):
+            if rec.get("entry_type") in ("probe_summary", "eval") and rec.get("probe"):
                 names.add(rec["probe"])
     return sorted(names)
 
@@ -367,5 +600,13 @@ def cleanup_garak() -> None:
             command.end_run()
         except Exception:
             logger.debug("cleanup_garak: end_run 已无操作或失败", exc_info=True)
+        # S3.4: 显式 shutdown 线程池
+        try:
+            # 关闭 garak 内部可能的 executor
+            if hasattr(command, "_executor") and command._executor is not None:
+                command._executor.shutdown(wait=False)
+                command._executor = None
+        except Exception:
+            logger.debug("cleanup_garak: 线程池清理跳过", exc_info=True)
     finally:
         _rate_cleaned = True

@@ -133,7 +133,6 @@ class AuthBootstrap:
                 logger.debug("检测到密码输入框（%s），登录表单已渲染", _pw_input)
             except Exception:
                 logger.debug("15s 内未检测到密码输入框，目标可能无需认证")
-                pass
 
             if not self._is_login_page(page):
                 logger.info("目标无需认证（auth_type=none）")
@@ -203,7 +202,7 @@ class AuthBootstrap:
     def _is_login_page(self, page: Any) -> bool:
         if page.query_selector("input[type=password]"):
             return True
-        return bool(re.search(r"/(login|signin|auth|passport|sso)", page.url, re.I))
+        return bool(re.search(r"/(login|signin|auth|passport|sso)", page.url, re.IGNORECASE))
 
     def _detect_sso_type(self, page: Any) -> str:
         cur = urlparse(page.url).netloc

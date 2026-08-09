@@ -31,8 +31,13 @@ execute:
     downgrade_at: 3
     jitter: true
 reporting:
-  confidence_interval_method: none
+  confidence_interval_method: bootstrap
   bootstrap_confidence_level: 0.95
   bootstrap_min_sample_size: 30
   bootstrap_n_resamples: 1000
+judge:
+  enabled: false
+  endpoint: ''
+  model: gpt-4o-mini
+  threshold: 0.5
 data_dir: data

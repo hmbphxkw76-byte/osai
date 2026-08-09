@@ -3,6 +3,7 @@
 main.py 只做编排，子功能从此模块导入。
 """
 
+import re
 import shutil
 import time
 from pathlib import Path
@@ -135,6 +136,67 @@ def clean_pycache(project_root: Path) -> int:
 
 
 # ------------------------------------------------------------------
+# 历史产物清理（对齐 L5：避免多次运行产物无限累积）
+# ------------------------------------------------------------------
+
+# run_id 时间戳正则：YYYYMMDD_HHMM
+_RUN_ID_PATTERN = re.compile(r"(\d{8}_\d{4})")
+
+
+def prune_old_runs(artifacts_dir: Path, keep: int = 5) -> int:
+    """保留最近 N 个 run_id 批次，删除更老的产物
+
+    对齐 L5 专家水平：多次运行后产物按 run_id 累积，旧批次不自动清理会
+    导致磁盘膨胀 + 分析时混淆批次。本函数扫描各阶段目录，按 run_id 时间戳
+    排序，保留最新 keep 个批次，其余删除。
+
+    :param artifacts_dir: 产物根目录（如 outputs/）
+    :param keep: 保留的批次数（默认 5）
+    :returns: 删除的文件数
+    """
+    artifacts = Path(artifacts_dir)
+    if not artifacts.exists():
+        return 0
+
+    # 收集所有 run_id（从文件名提取 YYYYMMDD_HHMM）
+    run_ids: set[str] = set()
+    for f in artifacts.rglob("*"):
+        if f.is_file():
+            m = _RUN_ID_PATTERN.search(f.name)
+            if m:
+                run_ids.add(m.group(1))
+
+    if len(run_ids) <= keep:
+        return 0  # 批次数未超阈值，无需清理
+
+    # 保留最新 keep 个 run_id
+    keep_ids = set(sorted(run_ids, reverse=True)[:keep])
+    remove_ids = run_ids - keep_ids
+
+    removed = 0
+    for f in artifacts.rglob("*"):
+        if not f.is_file():
+            continue
+        m = _RUN_ID_PATTERN.search(f.name)
+        if m and m.group(1) in remove_ids:
+            try:
+                f.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                pass
+
+    # 清理空目录
+    for d in sorted(artifacts.rglob("*"), reverse=True):
+        if d.is_dir() and not any(d.iterdir()):
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+
+    return removed
+
+
+# ------------------------------------------------------------------
 # 启动信息打印
 # ------------------------------------------------------------------
 
@@ -213,7 +275,8 @@ def print_stage_card(
     if metrics:
         print(f"║ {'📊 关键指标:':<{width}}║")
         for k, v in metrics:
-            print(f"║   {k}: {v:<{width - len(k) - 3}}║")
+            v_str = "—" if v is None else str(v)
+            print(f"║   {k}: {v_str:<{width - len(k) - 3}}║")
     if outputs:
         print(f"║ {'📤 输出:':<{width}}║")
         for o in outputs:

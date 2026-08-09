@@ -286,10 +286,11 @@ class TestScorerTimeoutConfig:
 
     def test_scorer_timeout_in_config_defaults(self):
         """验证 config.py 默认值包含 scorer_timeout."""
-        from pipeline.config import _DEFAULT_ATTACK_PARAMS
+        from pipeline.config import _load_attack_params
 
-        assert "scorer_timeout" in _DEFAULT_ATTACK_PARAMS
-        assert _DEFAULT_ATTACK_PARAMS["scorer_timeout"] == 30
+        params = _load_attack_params()
+        assert "scorer_timeout" in params
+        assert params["scorer_timeout"] == 30
 
     def test_scorer_timeout_in_mock_args(self, mock_args):
         """验证 conftest mock_args 包含 scorer_timeout."""

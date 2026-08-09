@@ -40,13 +40,18 @@ class PipelineRunner:
         mode: str,
         artifacts_dir: str,
         config: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ) -> None:
         self.target = target
         self.mode = mode
         self.artifacts_dir = Path(artifacts_dir)
         self.config = config or {}
-        self.run_id = time.strftime("%Y%m%d_%H%M")
+        # 支持复用历史 run_id（--stage 4-5 --run-id 旧批次）；
+        # 未提供则用当前时间戳生成新批次
+        self.run_id = run_id or time.strftime("%Y%m%d_%H%M")
         self.start_time = time.time()
+        # P2-3: 保存最后一次 run() 的上下文，供 API 层查询
+        self._last_ctx: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # 路径契约
@@ -62,8 +67,11 @@ class PipelineRunner:
 
         :param stages: "all" 或单阶段编号 (1-5) 或范围 "3-5"
         """
+        # config_path 仅作展示用：从 target.kind 推断实际配置文件名
+        kind = self.target.get("kind", "openai")
+        config_path = f"config/{kind}_target.yaml"
         print_banner(
-            config_path="config/target.yaml",
+            config_path=config_path,
             target=self.target,
             mode=self.mode,
             artifacts_dir=str(self.artifacts_dir),
@@ -89,10 +97,33 @@ class PipelineRunner:
             success=True,
             elapsed=time.time() - self.start_time,
             run_id=self.run_id,
-            artifacts_dir=self.artifacts_dir,
+            artifacts_dir=str(self.artifacts_dir),
             error=None,
         )
+        self._last_ctx = ctx
         return ctx
+
+    def get_results(self) -> dict[str, Any]:
+        """P2-3: 返回最后一次 run() 的产物路径摘要（供 API 调用）
+
+        :returns: 包含各阶段产物路径的 dict
+        """
+        ctx = self._last_ctx
+        if not ctx:
+            return {"run_id": self.run_id, "status": "not_run"}
+
+        result: dict[str, Any] = {
+            "run_id": self.run_id,
+            "status": "completed",
+            "artifacts_dir": str(self.artifacts_dir),
+        }
+        if "stage3" in ctx:
+            result["report_path"] = ctx["stage3"].get("report_path")
+        if "stage4" in ctx:
+            result["analysis_path"] = ctx["stage4"].get("analysis_path")
+        if "stage5" in ctx:
+            result.update(ctx["stage5"])
+        return result
 
     def _parse_stages(self, stages: str) -> list[int]:
         if stages == "all":
@@ -122,8 +153,29 @@ class PipelineRunner:
             )
             raise RuntimeError(f"Stage1 失败: {res['error']}")
 
+        # 降级模式：连通性未通过但探针枚举成功，不中断流水线
+        state = res.get("state", {})
+        degraded = state.get("degraded_mode", False)
+        conn_status = state.get("connectivity_status", "ok")
+        warnings = state.get("warnings", [])
+
         tp_path = self._recon_file("target_profile")
         filtered_path = self._recon_file("probe_candidates_filtered")
+
+        # 降级模式下在产物卡片中标注
+        mode_label = f"{self.mode}{' [降级]' if degraded else ''}"
+        metrics = [
+            ("活跃 Probe 总数", str(
+                state.get("total_active_probes",
+                          len(state.get("active_probes", [])))
+            )),
+            ("模态裁剪后", str(
+                state.get("kept_probes_count",
+                          len(state.get("kept_probes", [])))
+            )),
+            ("扫描模式", mode_label),
+            ("连通性", conn_status),
+        ]
 
         print_stage_card(
             "1", "目标侦察 (Recon)",
@@ -133,17 +185,18 @@ class PipelineRunner:
                 f"{filtered_path}",
                 f"{self._recon_file('connectivity_test')}",
             ],
-            metrics=[
-                ("活跃 Probe 总数", str(res["state"]["total_active_probes"]
-                                        if "total_active_probes" in res["state"]
-                                        else len(res["state"].get("active_probes", [])))),
-                ("模态裁剪后", str(res["state"]["kept_probes_count"]
-                                   if "kept_probes_count" in res["state"]
-                                   else len(res["state"].get("kept_probes", [])))),
-                ("扫描模式", self.mode),
-            ],
+            metrics=metrics,
         )
-        ctx.update({"stage1": res, "filtered_path": filtered_path})
+
+        if degraded:
+            for w in warnings:
+                print(f"   ⚠️  {w}")
+
+        ctx.update({
+            "stage1": res,
+            "filtered_path": filtered_path,
+            "degraded_mode": degraded,
+        })
         return ctx
 
     # ------------------------------------------------------------------
@@ -159,11 +212,14 @@ class PipelineRunner:
         tier_filter = cfg_execute.get("tier_filter")
         buff_spec = cfg_execute.get("buff_spec", None)
         scan_profile = cfg_execute.get("scan_profile")
+        # P1-4: 读取 atkgen 配置，传递给 Stage2
+        atkgen_cfg = self.config.get("atkgen", None)
 
         out = build_selection(
             filtered_path, self.run_id, str(self.artifacts_dir),
             tier_filter=tier_filter, buff_spec=buff_spec or None,
             scan_profile=scan_profile,
+            atkgen_cfg=atkgen_cfg,
         )
         sel = out["selection"]
 
@@ -176,6 +232,7 @@ class PipelineRunner:
                 ("选中探针", str(sel["total_selected"])),
                 ("Tier 分布", ", ".join(f"{k}:{v}" for k, v in sel["tier_breakdown"].items())),
                 ("Buff 攻击链", sel["buff_spec"] or "无"),
+                ("atkgen 动态变异", "启用" if sel.get("atkgen_enabled") else "关闭"),
             ],
         )
         ctx.update({"stage2": out, "selection": sel})
@@ -185,7 +242,7 @@ class PipelineRunner:
     # Stage 3: Execute (garak 真驱动)
     # ------------------------------------------------------------------
     def _run_stage3(self, ctx: dict[str, Any]) -> dict[str, Any]:
-        from .stage3_execute import execute_attack, parse_report_probe_names
+        from .stage3_execute import execute_attack, parse_report_probe_names, preflight_check
 
         sel = ctx.get("selection")
         if not sel:
@@ -193,7 +250,33 @@ class PipelineRunner:
         cfg_execute = self.config.get("execute", {})
         cfg_report = self.config.get("reporting", {})
 
+        # G6 修复：降级模式前置校验 — 连通性失败时告警
+        degraded = ctx.get("degraded_mode", False)
+        conn_status = ctx.get("stage1", {}).get("state", {}).get(
+            "connectivity_status", "ok"
+        )
+
+        # 调用 Stage 3 前置校验函数
+        preflight_warnings = preflight_check(
+            self.target, sel["probe_names"], conn_status,
+        )
+        for w in preflight_warnings:
+            print(f"   ⚠️  {w}")
+
+        if degraded or conn_status == "failed":
+            print("   ⚠️  降级模式: 连通性测试未通过，攻击执行可能失败")
+            print(f"       连通性状态: {conn_status}")
+            print("       建议: 手动确认端点可达性或通过 --stage 1-2 仅执行侦察")
+
         print("   ⚔️  驱动 garak harness 发起攻击...")
+        # P2-2: 从 Stage1 侦察产物中提取速率限制，注入 target dict 供 Stage3 动态消费
+        stage1_state = ctx.get("stage1", {}).get("state", {})
+        model_caps = stage1_state.get("model_capabilities", {})
+        if model_caps.get("rate_limits"):
+            self.target["_recon_rate_limits"] = model_caps["rate_limits"]
+        # P0-1: 从 Stage1 侦察产物中提取 max_tokens，注入 target 供 Stage3 配置
+        if model_caps.get("max_tokens") and not self.target.get("_recon_max_tokens"):
+            self.target["_recon_max_tokens"] = model_caps["max_tokens"]
         result = execute_attack(
             self.target,
             sel["probe_names"],
@@ -202,6 +285,7 @@ class PipelineRunner:
             str(self.artifacts_dir),
             execute_cfg=cfg_execute,
             reporting_cfg=cfg_report,
+            judge_cfg=self.config.get("judge", {}),
         )
         executed = parse_report_probe_names(result["report_path"])
 
@@ -229,7 +313,21 @@ class PipelineRunner:
     def _run_stage4(self, ctx: dict[str, Any]) -> dict[str, Any]:
         from .stage4_analyze import analyze
 
-        report_path = ctx["stage3"]["report_path"]
+        # 支持 --stage 4-5 复用历史产物：ctx 无 stage3 时从 artifacts 恢复
+        stage3 = ctx.get("stage3")
+        if stage3:
+            report_path = stage3["report_path"]
+            garak_run_id = stage3.get("garak_run_id")
+            judge_path = stage3.get("judge_path")
+        else:
+            # 从 03_execution 目录查找 garak_report_{run_id}.jsonl
+            exec_dir = self.artifacts_dir / "03_execution"
+            report_path = str(exec_dir / f"garak_report_{self.run_id}.jsonl")
+            garak_run_id = None
+            judge_path = str(exec_dir / f"judge_results_{self.run_id}.jsonl")
+            if not Path(judge_path).exists():
+                judge_path = None
+
         # 读回 filtered probes 用于双框架分类
         filtered_path = ctx.get("filtered_path") or self._recon_file(
             "probe_candidates_filtered"
@@ -240,7 +338,10 @@ class PipelineRunner:
 
         result = analyze(
             report_path, kept_probes, self.run_id,
-            str(self.artifacts_dir), garak_run_id=ctx["stage3"].get("garak_run_id"),
+            str(self.artifacts_dir),
+            garak_run_id=garak_run_id,
+            modality_filter=ctx.get("stage1", {}).get("state", {}).get("modality_filter"),
+            judge_path=judge_path,
         )
 
         llm_defcon = {k: v["defcon"] for k, v in result["owasp_llm"].items()}
@@ -266,25 +367,62 @@ class PipelineRunner:
     # ------------------------------------------------------------------
     def _run_stage5(self, ctx: dict[str, Any]) -> dict[str, Any]:
         from .recon_garak import OWASP_CATEGORIES
-        from .stage5_report import export_pyrit_air, render_final_cards
+        from .stage5_report import generate_full_report
 
         analysis = ctx["stage4"]
         # 完整 OWASP LLM Top10 类集合，用于透明标注未覆盖类（N/A）
         all_owasp_ids = list(OWASP_CATEGORIES.values())
-        air_path = export_pyrit_air(
+        # L5 一站式报告生成：终端卡片 + PyRIT JSON + HTML 可视化 + AVID + PDF
+        report_paths = generate_full_report(
             analysis, str(self.artifacts_dir), self.run_id,
             all_owasp_ids=all_owasp_ids,
         )
-        render_final_cards(analysis, all_owasp_ids=all_owasp_ids)
+        air_path = report_paths["pyrit_air"]
+        html_path = report_paths["html"]
+        avid_path = report_paths.get("avid", "")
+        pdf_path = report_paths.get("pdf", "")
+        sarif_path = report_paths.get("sarif", "")
+        conv_path = report_paths.get("conversations", "")
+
+        # P1-2: Stage5 卡片显示全部产物路径（含 AVID + PDF + SARIF + Conversations）
+        output_paths = [air_path, html_path]
+        if avid_path:
+            output_paths.append(avid_path)
+        if pdf_path:
+            output_paths.append(pdf_path)
+        if sarif_path:
+            output_paths.append(sarif_path)
+        if conv_path:
+            output_paths.append(conv_path)
 
         print_stage_card(
             "5", "报告与导出 (Report/Export)",
             inputs=[analysis["analysis_path"]],
-            outputs=[air_path],
+            outputs=output_paths,
             metrics=[
-                ("导出格式", "PyRIT AIR v1"),
-                ("产物", air_path),
+                ("PyRIT AIR", air_path),
+                ("HTML 报告", html_path),
+                ("AVID 报告", avid_path or "N/A"),
+                ("PDF 报告", pdf_path or "N/A"),
+                ("SARIF 报告", sarif_path or "N/A"),
+                ("对话上下文", conv_path or "N/A"),
+                ("命中明细", analysis.get("hitlog", {}).get("markdown_path", "N/A")),
+                ("可复现哈希", analysis.get("repro_hash", "N/A")),
             ],
         )
-        ctx.update({"stage5": {"air_path": air_path}})
+        ctx.update({"stage5": {
+            "air_path": air_path,
+            "html_path": html_path,
+            "avid_path": avid_path,
+            "pdf_path": pdf_path,
+            "sarif_path": sarif_path,
+            "conversations_path": conv_path,
+        }})
+        # P3-4: 通知/告警集成（Webhook）
+        try:
+            from .notify import send_notification
+            notify_cfg = self.config.get("notify", None)
+            send_notification(analysis, self.run_id, notify_cfg)
+        except Exception:
+            pass
         return ctx

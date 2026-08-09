@@ -65,7 +65,80 @@ OWASP_CATEGORIES: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# OWASP Top 10 for Agentic Applications (2026, 官方 ASI01–ASI10)
+# R1: garak 0.16 新探针兼容层 — 名称 → OWASP 类映射
+# garak 0.16 新增了若干探针，其 tag 可能不含 owasp: 前缀。
+# 此映射表确保升级 garak 后新探针也能正确归入 OWASP 桶。
+# ---------------------------------------------------------------------------
+GARAK_016_PROBE_OWASP_MAP: dict[str, str] = {
+    # garak 0.16 新增探针 → OWASP LLM 类
+    "probes.latentinjection.LatentInjection": "LLM01_Prompt_Injection",
+    "probes.guardrail.GuardrailBypass": "LLM01_Prompt_Injection",
+    "probes.atkgen.Tox": "LLM09_Misinformation",
+    "probes.promptinject.HijackHateHumankind": "LLM01_Prompt_Injection",
+    "probes.promptinject.HijackKillHumans": "LLM01_Prompt_Injection",
+    "probes.dan.AutoDANCached": "LLM01_Prompt_Injection",
+    "probes.dan.AutoDAN": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectBase64": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectHex": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectRot13": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectBraille": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectMorse": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectNerd": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectPigLatin": "LLM01_Prompt_Injection",
+    "probes.encoding.InjectUiym": "LLM01_Prompt_Injection",
+    "probes.leakreplay.GuardianCloze": "LLM06_Sensitive_Information_Disclosure",
+    "probes.leakreplay.GuardianFill": "LLM06_Sensitive_Information_Disclosure",
+    "probes.leakreplay.GuardianOutline": "LLM06_Sensitive_Information_Disclosure",
+    "probes.lmrc.Bullying": "LLM09_Misinformation",
+    "probes.lmrc.DangerousContent": "LLM09_Misinformation",
+    "probes.lmrc.Stereotypes": "LLM09_Misinformation",
+    "probes.lmrc.Suicide": "LLM09_Misinformation",
+    "probes.knownbadsignatures.KnownBadSignatures": "LLM01_Prompt_Injection",
+    "probes.knownbadsignatures.IndirectInjection": "LLM01_Prompt_Injection",
+    "probes.continuation.Continue": "LLM09_Misinformation",
+    "probes.goodside.EncryptedComms": "LLM01_Prompt_Injection",
+    "probes.realtoxicityprompts.RealToxicityPrompts": "LLM09_Misinformation",
+    "probes.replay.Replay": "LLM06_Sensitive_Information_Disclosure",
+    "probes.sniff.Snip": "LLM01_Prompt_Injection",
+    "probes.tap.TAP": "LLM01_Prompt_Injection",
+    "probes.test.Blank": "LLM04_Model_Denial_of_Service",
+    "probes.visualgame.VisualJailbreak": "LLM01_Prompt_Injection",
+    # 0.16 新增的多模态探针
+    "probes.imagegen.ImageCreation": "LLM02_Insecure_Output_Handling",
+    "probes.vice.Vice": "LLM09_Misinformation",
+}
+
+
+def detect_garak_version() -> str:
+    """R1: 运行时检测 garak 版本，用于兼容层决策
+
+    :returns: garak 版本字符串（如 "0.15.1"），失败返回 "unknown"
+    """
+    try:
+        import garak
+        return getattr(garak, "__version__", "unknown")
+    except Exception:
+        return "unknown"
+
+
+def resolve_probe_owasp(probe_name: str, tags: list[str]) -> str | None:
+    """R1: 解析探针的 OWASP 分类，兼容 garak 0.15/0.16
+
+    优先使用原生 owasp tag，无 tag 时回退到名称映射表。
+
+    :param probe_name: 探针全名（如 "probes.dan.AutoDAN"）
+    :param tags: 探针 tag 列表
+    :returns: OWASP 类标签（如 "LLM01_Prompt_Injection"），无匹配返回 None
+    """
+    # 优先级 1: 原生 OWASP tag
+    for owasp_tag, label in OWASP_CATEGORIES.items():
+        if any(tag.startswith(owasp_tag) for tag in tags):
+            return label
+    # 优先级 2: garak 0.16 兼容映射表
+    return GARAK_016_PROBE_OWASP_MAP.get(probe_name)
+
+
+# ---------------------------------------------------------------------------
 # 发布: 2025-12-09, OWASP GenAI Security Project
 # ---------------------------------------------------------------------------
 AGENTIC_CATEGORIES: dict[str, str] = {
@@ -178,6 +251,14 @@ def enumerate_garak_probes() -> list[dict[str, Any]]:
     :returns: 每个 probe 的 {name, description, tier, tags, goal, modality,
               primary_detector, active}
     """
+    # 规则一（garak 原生优先）：先注册 custom_probes 扩展，使 enumerate_plugins
+    # 可发现 probes.custom.*，与原生探针统一编排、分类、Tier 过滤
+    try:
+        from pipeline.custom_probes import register_custom_probes
+
+        register_custom_probes()
+    except Exception:
+        logger.debug("pipeline.custom_probes 扩展加载失败，继续使用原生探针")
     from garak._plugins import enumerate_plugins, plugin_info
 
     all_probes = enumerate_plugins(category="probes")
@@ -481,6 +562,111 @@ def classify_probes_dual(
     if modality_filter is not None:
         result["_modality_dropped"] = [d["name"] for d in modality_filter["dropped"]]
     return result
+
+
+# ---------------------------------------------------------------------------
+# P0-3: OWASP LLM Top10 修复建议映射表（对齐 L5 专家报告）
+# 每个类别附带具体可操作的 mitigation guidance，供 HTML 报告展示
+# ---------------------------------------------------------------------------
+OWASP_REMEDIATION: dict[str, list[str]] = {
+    "LLM01_Prompt_Injection": [
+        "实施输入过滤与 sanitization（deny-list + allow-list）",
+        "在系统提示词中使用分隔符隔离用户输入（如 <user_input>...</user_input>）",
+        "部署 garak latentinjection / promptinject 探针做 CI 回归测试",
+        "对模型输出做 prompt injection 检测器后处理",
+    ],
+    "LLM02_Insecure_Output_Handling": [
+        "对模型输出做 HTML/SQL 编码后再渲染（OWASP XSS 防护）",
+        "禁止模型输出中包含可执行代码（sandbox 执行 + deny-list）",
+        "对 Markdown 输出做图片 URL 域名白名单过滤（防 data exfiltration）",
+        "部署 garak web_injection 探针做 CI 回归",
+    ],
+    "LLM03_Training_Data_Poisoning": [
+        "在训练数据中实施异常检测与清洗（statistical outlier removal）",
+        "对训练管道做数据来源审计与供应链验证",
+        "部署 garak custom.BackdoorTriggerProbe 做后门触发检测",
+    ],
+    "LLM04_Model_Denial_of_Service": [
+        "实施 API 速率限制（RPM/TPM 限制 + 令牌桶）",
+        "对输入长度做上限校验（防 token flood 攻击）",
+        "部署 garak divergence.RepeatedToken 探针做 DoS 回归",
+    ],
+    "LLM05_Supply_Chain_Vulnerabilities": [
+        "对第三方模型组件做安全审计（model card + 供应链验证）",
+        "使用 garak packagehallucination 探针检测虚假依赖",
+        "实施 SBOM (Software Bill of Materials) 管理",
+    ],
+    "LLM06_Sensitive_Information_Disclosure": [
+        "在训练数据中清洗 PII / API Key / 凭据（regex + NER）",
+        "部署 garak leakreplay 探针做训练数据泄露回归",
+        "对模型输出做 PII 检测器后处理（regex + NER）",
+        "实施 output filtering pipeline（敏感信息拦截层）",
+    ],
+    "LLM07_Insecure_Plugin_Design": [
+        "对 plugin/tool 调用做参数校验与白名单限制",
+        "实施 MCP (Model Context Protocol) 安全沙箱",
+        "部署 garak custom.MCPToolPoisoningProbe 做工具投毒检测",
+    ],
+    "LLM08_Vector_Embedding_Weaknesses": [
+        "对 RAG 检索结果做输入校验与内容过滤",
+        "对 embedding 模型做对抗样本鲁棒性测试",
+        "部署 garak custom.RAGPoisoningProbe 做 RAG 投毒检测",
+    ],
+    "LLM09_Misinformation": [
+        "部署 fact-checking pipeline（外部知识库验证）",
+        "对模型输出做幻觉检测（grounding score + citation 验证）",
+        "部署 garak snowball / misleading 探针做幻觉回归",
+    ],
+    "LLM10_Unbounded_Consumption": [
+        "实施严格的 token 消费上限与告警（per-user/per-session quota）",
+        "对重复请求模式做异常检测（防 financial DoS）",
+        "部署 garak topic.WordnetControversial 探针做消耗回归",
+    ],
+}
+
+# Agentic Top10 修复建议
+AGENTIC_REMEDIATION: dict[str, list[str]] = {
+    "ASI01_Agent_Goal_Hijack": [
+        "对 agent 目标做完整性校验与签名验证",
+        "在 system prompt 中加固抗 prompt injection 指令",
+    ],
+    "ASI02_Tool_Misuse_Exploitation": [
+        "对 tool/function call 做参数 schema 校验 + 权限分级",
+        "实施 tool 调用审计日志与异常检测",
+    ],
+    "ASI03_Agent_Identity_Privilege_Abuse": [
+        "实施最小权限原则（least privilege per agent）",
+        "对 agent 间通信做身份认证与授权校验",
+    ],
+    "ASI04_Agentic_Supply_Chain_Vulnerabilities": [
+        "对 agent 组件做来源验证与完整性校验",
+        "实施 agent SBOM 管理",
+    ],
+    "ASI05_Unexpected_Code_Execution": [
+        "对 code execution 做 sandbox 隔离（容器/WASM）",
+        "对 agent 生成代码做 static analysis + allow-list",
+    ],
+    "ASI06_Memory_Context_Poisoning": [
+        "对 agent memory 做完整性校验与版本控制",
+        "对 RAG context 做来源验证与内容过滤",
+    ],
+    "ASI07_Insecure_Inter_Agent_Communication": [
+        "对 agent 间通信做加密与认证（mTLS + token）",
+        "实施 message-level 签名验证",
+    ],
+    "ASI08_Cascading_Failures": [
+        "实施 circuit breaker + timeout + retry 限制",
+        "对 agent 链做容错与降级策略",
+    ],
+    "ASI09_Human_Agent_Trust_Exploitation": [
+        "对 human-agent 交互做身份验证与反社工防护",
+        "部署 impersonation 检测探针",
+    ],
+    "ASI10_Rogue_Agents": [
+        "实施 agent kill-switch 与自主行为审计",
+        "对 agent 自主决策做 human-in-the-loop 校验",
+    ],
+}
 
 
 def detector_ready(probes: list[dict[str, Any]]) -> dict[str, bool]:
