@@ -519,7 +519,10 @@ def _extract_scorer_details(instance: Any) -> list[str]:
 
 
 def _print_initialization_summary(config: ConfigurationLoader) -> None:
-    """初始化摘要卡片 — 精简 [OK] 格式。."""
+    """初始化摘要卡片 — 精简 [OK] 格式 + S1-1 目标画像安全过滤消费.
+
+    S1-1 增强: 新增安全过滤消费段, 展示目标的内容过滤/JSON mode/预检状态.
+    """
     target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
     scorer_entries = ScorerRegistry.get_registry_singleton().instances.get_all_instances()
     try:
@@ -545,6 +548,38 @@ def _print_initialization_summary(config: ConfigurationLoader) -> None:
         f" (core={core}, multi_turn={multi_turn}, single_turn={single_turn})"
     )
     print(f"  │ [OK] Memory:   {config.memory_db_type}")
+
+    # S1-1: 安全过滤消费段
+    args = config.args
+    skip_preflight = getattr(args, "skip_preflight", False) if args else False
+    disable_json = getattr(args, "disable_json_mode", False) if args else False
+    enable_dos = getattr(args, "enable_dos_attack", False) if args else False
+
+    # 推断内容过滤状态
+    filter_parts: list[str] = []
+    if not skip_preflight:
+        filter_parts.append("预检: 连通性已验证")
+    else:
+        filter_parts.append("预检: 已跳过 (--skip-preflight)")
+
+    if disable_json:
+        filter_parts.append("JSON mode: 已禁用 (第三方端点)")
+    else:
+        filter_parts.append("JSON mode: 自动检测")
+
+    if not enable_dos:
+        filter_parts.append("DoS 向量: 已排除 (owasp_llm10)")
+
+    # 目标端点类型推断
+    target_url = getattr(args, "target_url", None) if args else None
+    if target_url:
+        filter_parts.append(f"目标 URL: {target_url[:40]}")
+    else:
+        filter_parts.append("目标类型: API 直连")
+
+    for part in filter_parts:
+        print(f"  │ [OK] {part}")
+
     print("  └───────────────────────────────────────────────────────────────┘")
 
 
@@ -2082,6 +2117,8 @@ def _wrap_rate_limited_target(ctx: PipelineContext) -> None:
     print(f"      重试次数: {max_retries} (自研指数退避)")
     ctx.rate_limited = True
     ctx.metadata["rate_limited"] = True
+    ctx.metadata["rate_limited_wrapped_count"] = wrapped_count
+    ctx.metadata["rate_limit_retries"] = max_retries
 
 
 # ============================================================

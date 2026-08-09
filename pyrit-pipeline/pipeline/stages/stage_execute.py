@@ -179,13 +179,15 @@ async def run(ctx: PipelineContext) -> None:
     try:
         result = await ctx.scenario.run_async()
     except Exception as exc:
+        # E2+E4: 精简异常摘要 + 全量 traceback 仅写入 debug 日志
+        logger.debug("Scenario execution exception details", exc_info=True)
+        failures = _flatten_exception_group(exc)
         logger.warning(
-            "Scenario execution raised %s: %s. "
+            "Scenario execution raised %s: %d sub-failures. "
             "Attempting to retrieve partial results from CentralMemory.",
             type(exc).__name__,
-            exc,
+            len(failures),
         )
-        print(f"\n  ⚠ [恢复] 场景执行抛出 {type(exc).__name__}: {str(exc)[:120]}...")
         partial_failure = True
         # 重新读取 scenario_result_id — PyRIT 在 run_async() 内部设置 _scenario_result_id
         # 后才执行攻击, 所以即使攻击失败, _scenario_result_id 也已设置
@@ -203,17 +205,18 @@ async def run(ctx: PipelineContext) -> None:
                 await poller.stop()
             print(f"\n  ❌ [恢复失败] 无法从 CentralMemory 检索部分结果 (srid={scenario_result_id})")
             raise
+        # E2: 输出精简失败摘要 (替代 ~1000 行 traceback)
+        _print_concise_failure_summary(failures)
         # S1: 对评分器失败的攻击进行 SubStringScorer 降级评分
         _rescore_failed_attacks(result)
     except BaseException as exc:
         # S4: BaseException 兜底 — 捕获 SystemExit 等非标准异常
+        logger.debug("Scenario execution BaseException details", exc_info=True)
         logger.warning(
-            "Scenario execution raised BaseException %s: %s. "
+            "Scenario execution raised BaseException %s. "
             "Attempting emergency recovery.",
             type(exc).__name__,
-            exc,
         )
-        print(f"\n  ⚠ [紧急恢复] 场景执行抛出 {type(exc).__name__}: {str(exc)[:120]}...")
         partial_failure = True
         if not scenario_result_id:
             scenario_result_id = getattr(ctx.scenario, "_scenario_result_id", None)
@@ -222,6 +225,9 @@ async def run(ctx: PipelineContext) -> None:
             if poller:
                 await poller.stop()
             raise
+        # E2: BaseException 也输出精简摘要
+        failures = _flatten_exception_group(exc)  # type: ignore[arg-type]
+        _print_concise_failure_summary(failures)
         _rescore_failed_attacks(result)
 
     ctx.result = result
@@ -566,6 +572,110 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
 
         info_box(f"③ 成功攻击详情 (Top {min(len(successful), 10)})", success_lines)
 
+    # ── S4-1: 卡片 ④ Baseline vs 增强 ASR 对比 ──
+    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
+    enhanced_results: list[tuple[str, bool, Any]] = []
+    baseline_results: list[tuple[str, bool, Any]] = []
+    for tech_name, success, ar in all_results:
+        convs = _extract_converter_names_from_result(ar)
+        if not convs:
+            expected_convs = technique_converter_map.get(tech_name, [])
+            convs = [type(c).__name__ for c in expected_convs] if expected_convs else []
+        if convs:
+            enhanced_results.append((tech_name, success, ar))
+        else:
+            baseline_results.append((tech_name, success, ar))
+
+    enh_total = len(enhanced_results)
+    base_total = len(baseline_results)
+    if enh_total > 0 or base_total > 0:
+        enh_success = sum(1 for _, s, _ in enhanced_results if s)
+        base_success = sum(1 for _, s, _ in baseline_results if s)
+        enh_asr = (enh_success / enh_total * 100) if enh_total > 0 else 0
+        base_asr = (base_success / base_total * 100) if base_total > 0 else 0
+        delta = enh_asr - base_asr
+
+        s4_lines: list[str] = []
+        s4_lines.append(f"{'分组':<20} {'总计':>6} {'成功':>6} {'ASR':>8}")
+        s4_lines.append(f"{'─' * 44}")
+        s4_lines.append(f"  增强 (有Converter)  {enh_total:>6} {enh_success:>6} {enh_asr:>7.1f}%")
+        s4_lines.append(f"  Baseline (无Converter) {base_total:>4} {base_success:>6} {base_asr:>7.1f}%")
+        s4_lines.append("")
+        if enh_total > 0 and base_total > 0:
+            marker = "↑ 有效" if delta > 0 else ("↓ 负面" if delta < 0 else "→ 持平")
+            s4_lines.append(f"  Δ增益: {delta:+.1f}% {marker}")
+            if delta > 5:
+                s4_lines.append("  判定: Converter 增强显著有效, 建议扩大覆盖")
+            elif delta > 0:
+                s4_lines.append("  判定: Converter 增强有效, 保持当前配置")
+            elif delta < -5:
+                s4_lines.append("  判定: Converter 反而降低 ASR, 检查链配置")
+            else:
+                s4_lines.append("  判定: Converter 无明显影响, 可选优化")
+        elif enh_total > 0:
+            s4_lines.append("  (全部为增强攻击, 无 baseline 对照)")
+        elif base_total > 0:
+            s4_lines.append("  (全部为 baseline 攻击, 无 Converter 增强)")
+
+        info_box("④ Baseline vs 增强 ASR 对比", s4_lines)
+
+    # ── S4-2: 卡片 ⑤ 失败弱点分析 (仅有失败时) ──
+    if failures > 0:
+        # 按技术统计失败
+        tech_failures: dict[str, dict[str, int]] = {}  # tech → {fail_type: count}
+        for tech_name, success, ar in all_results:
+            if success:
+                continue
+            ar_meta = getattr(ar, "metadata", None) or {}
+            if not isinstance(ar_meta, dict):
+                continue
+            fail_type = ar_meta.get("failure_type", "unknown")
+            tech_failures.setdefault(tech_name, {}).setdefault(fail_type, 0)
+            tech_failures[tech_name][fail_type] += 1
+
+        # 防御强度推断
+        defense_lines: list[str] = []
+        if tech_failures:
+            # Top 3 失败最多的技术
+            sorted_fails = sorted(
+                tech_failures.items(),
+                key=lambda x: sum(x[1].values()),
+                reverse=True,
+            )[:5]
+            defense_lines.append("失败弱点分布 (Top 5):")
+            for tech, fail_types in sorted_fails:
+                total_fails = sum(fail_types.values())
+                dominant = max(fail_types.items(), key=lambda x: x[1])
+                defense_lines.append(
+                    f"  {tech[:25]:<25} ×{total_fails} 失败 | 主因: {dominant[0]} ({dominant[1]})"
+                )
+
+            # 防御推断
+            defense_lines.append("")
+            total_refusals = sum(
+                ft.get("model_refusal", 0) for ft in tech_failures.values()
+            )
+            total_timeouts = sum(
+                ft.get("timeout", 0) for ft in tech_failures.values()
+            )
+            total_errors = sum(
+                ft.get("scorer_validation_error", 0) + ft.get("unknown", 0)
+                for ft in tech_failures.values()
+            )
+
+            defense_lines.append("目标防御强度推断:")
+            if total_refusals > total_timeouts and total_refusals > total_errors:
+                defense_lines.append(f"  → 安全过滤主导 (拒绝 {total_refusals}次) — 模型有较强内容过滤")
+            elif total_timeouts > total_refusals and total_timeouts > total_errors:
+                defense_lines.append(f"  → 超时主导 ({total_timeouts}次) — 模型响应慢或限流严重")
+            elif total_errors > 0:
+                defense_lines.append(f"  → 错误主导 ({total_errors}次) — 可能 API 不稳定")
+            else:
+                defense_lines.append("  → 混合防御 — 各类失败均衡分布")
+
+        if defense_lines:
+            info_box(f"⑤ 失败弱点分析 ({failures} 个失败)", defense_lines)
+
 
 def _extract_failure_timing(
     all_results: list[tuple[str, bool, Any]], fail_type: str
@@ -727,6 +837,134 @@ def _rescore_failed_attacks(result: Any) -> None:
             error_count,
         )
         print(f"  [S1 降级评分] {rescored_count}/{error_count} 个评分器失败攻击已用关键词匹配重新评分")
+
+
+# ============================================================
+# E2: ExceptionGroup 精简摘要 — 解析异常链并提取关键信息
+# ============================================================
+
+
+def _flatten_exception_group(exc: Exception) -> list[dict[str, str]]:
+    """E2: 解析 ExceptionGroup, 提取每个子异常的关键信息.
+
+    PyRIT ``scenario.py`` 在多个原子攻击失败时抛出 ``ExceptionGroup``,
+    其完整 traceback 约 300 行/子异常. 本函数穿透异常链提取关键信息,
+    生成一行式摘要供终端显示.
+
+    提取的信息:
+      - attack: 攻击类型 (red_teaming / prompt_sending / sequential)
+      - component: 失败组件 (target / scorer)
+      - root_cause: 根因异常类型名 (ReadTimeout / RateLimitError 等)
+      - category: 失败分类 (timeout / rate_limit / content_filter / unknown)
+      - message: 根因消息 (截断 80 字符)
+
+    学术依据:
+      - NIST SP 800-92: 完整 traceback 属于噪音层, 终端只需精简摘要
+      - PyRIT 设计意图: ``ExceptionGroup`` 让调用者 "看到" 所有失败,
+        但不要求看到完整 traceback
+      - IEEE Std 1044-2009: 异常分类应包含根因类型和失败组件
+
+    R-022: 不修改 PyRIT 原生 ``ExceptionGroup`` 机制, 仅增强自研层解析.
+
+    Args:
+        exc: ``ExceptionGroup`` 或单个 ``Exception``.
+
+    Returns:
+        失败信息字典列表, 每项包含 attack/component/root_cause/category/message.
+    """
+    # 获取子异常列表 (ExceptionGroup.exceptions) 或单个异常
+    sub_exceptions: list[BaseException] = getattr(exc, "exceptions", None) or [exc]
+    failures: list[dict[str, str]] = []
+
+    for sub in sub_exceptions:
+        # 穿透异常链提取根因
+        root: BaseException = sub
+        while root.__cause__ is not None:
+            root = root.__cause__
+        root_type = type(root).__name__
+        root_msg = str(root)[:80]
+
+        # 从 _StrategyRuntimeError message 中提取组件和攻击类型
+        msg = str(sub)
+        component = "unknown"
+        if "objective_scorer" in msg:
+            component = "scorer"
+        elif "objective_target" in msg:
+            component = "target"
+        elif "adversarial_chat" in msg:
+            component = "adversarial"
+
+        attack = "unknown"
+        if "RedTeamingAttack" in msg:
+            attack = "red_teaming"
+        elif "PromptSendingAttack" in msg:
+            attack = "prompt_sending"
+        elif "SequentialAttack" in msg:
+            attack = "sequential"
+        elif "CrescendoAttack" in msg:
+            attack = "crescendo"
+        elif "PAIRAAttack" in msg or "PAIRAttack" in msg:
+            attack = "pair"
+        elif "TAPAttack" in msg:
+            attack = "tap"
+
+        # 分类根因 (同时检查类型名和消息内容)
+        root_str = str(root)
+        category = "unknown"
+        if (
+            "ReadTimeout" in root_type or "APITimeout" in root_type or "TimeoutError" in root_type
+            or "timeout" in root_str.lower() or "timed out" in root_str.lower()
+        ):
+            category = "timeout"
+        elif "RateLimit" in root_type or "429" in root_str:
+            category = "rate_limit"
+        elif "ContentFilter" in root_type or "blocked" in root_str.lower():
+            category = "content_filter"
+        elif "BadRequest" in root_type or "400" in root_str:
+            category = "bad_request"
+        elif "Connection" in root_type:
+            category = "connection"
+
+        failures.append({
+            "attack": attack,
+            "component": component,
+            "root_cause": root_type,
+            "category": category,
+            "message": root_msg,
+        })
+
+    return failures
+
+
+def _print_concise_failure_summary(failures: list[dict[str, str]]) -> None:
+    """E2+E4: 输出一行式失败摘要 (替代 ~1000 行 traceback).
+
+    输出格式::
+
+        ⚠ [场景恢复] 3 个原子攻击部分失败 (已从 CentralMemory 检索部分结果):
+          #1 [超时] red_teaming | scorer | ReadTimeout | Request timed out.
+          #2 [超时] prompt_sending | target | ReadTimeout | Request timed out.
+
+    Args:
+        failures: ``_flatten_exception_group()`` 返回的失败信息列表.
+    """
+    # 分类中文标签
+    category_labels: dict[str, str] = {
+        "timeout": "超时",
+        "rate_limit": "限速",
+        "content_filter": "内容过滤",
+        "bad_request": "请求错误",
+        "connection": "连接失败",
+        "unknown": "未知",
+    }
+
+    print(f"\n  ⚠ [场景恢复] {len(failures)} 个原子攻击部分失败 (已从 CentralMemory 检索部分结果):")
+    for i, f in enumerate(failures, 1):
+        label = category_labels.get(f["category"], "未知")
+        print(
+            f"    #{i} [{label}] {f['attack']} | {f['component']} | "
+            f"{f['root_cause']} | {f['message']}"
+        )
 
 
 # ============================================================
@@ -1251,10 +1489,18 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
                     continue
                 total_failures += 1
 
-                # L5 P3-2: 对齐 O5 失败类型分类
+                # L5 P3-2 + E3: 对齐 O5 失败类型分类 (含 timeout 组件细分)
                 pattern = "unknown"
                 try:
-                    if hasattr(ar, "conversation") and ar.conversation:
+                    # E3: 优先检查 outcome_reason (S1 降级链和 PyRIT 原生设置的失败原因)
+                    reason = str(getattr(ar, "outcome_reason", "") or "").lower()
+                    if "scorer fallback" in reason:
+                        pattern = "scorer_timeout"
+                    elif "timeout" in reason or "timed out" in reason:
+                        pattern = "target_timeout"
+
+                    # E3: 其次检查 conversation 内容
+                    if pattern == "unknown" and hasattr(ar, "conversation") and ar.conversation:
                         messages = ar.conversation.messages if hasattr(ar.conversation, "messages") else []
                         if messages:
                             last_msg = messages[-1]
@@ -1266,8 +1512,12 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
                                 pattern = "model_refusal"
                             elif any(w in content for w in ["empty", "no response", "204"]):
                                 pattern = "scorer_validation_error"
-                            elif any(w in content for w in ["timeout", "rate limit", "429"]):
-                                pattern = "timeout"
+                            elif any(w in content for w in ["timeout", "timed out"]):
+                                pattern = "target_timeout"
+                            elif any(w in content for w in ["rate limit", "429", "too many requests"]):
+                                pattern = "rate_limit"
+                            elif any(w in content for w in ["blocked", "content filter", "safety"]):
+                                pattern = "content_filter"
                             else:
                                 pattern = "objective_not_achieved"
                 except Exception:
@@ -1278,10 +1528,14 @@ def _print_failure_diagnosis(ctx: PipelineContext) -> None:
         if total_failures == 0:
             return
 
-        # L5 P3-2: 诊断建议直接对齐 O5 路由策略
+        # L5 P3-2 + E3: 诊断建议直接对齐 O5 路由策略 (含新增分类)
         diagnosis_map = {
             "model_refusal": "模型拒绝 → O5路由: 策略升级 (Tier S/A 优先)",
-            "timeout": "超时/限速 → O5路由: 降级单轮 (prompt_sending)",
+            "target_timeout": "目标超时 → O5路由: 增加超时 / 降级单轮 (prompt_sending)",
+            "scorer_timeout": "评分器超时 → O5路由: S1降级链 / 检查评分模型 API",
+            "rate_limit": "API限速 → O5路由: 降低并发 / 增大间隔",
+            "content_filter": "内容过滤 → O5路由: 换攻击角度 / 降级技术",
+            "timeout": "超时 → O5路由: 降级单轮 (prompt_sending)",
             "scorer_validation_error": "评分器异常 → O5路由: 换技术 (跳过当前)",
             "objective_not_achieved": "目标未达成 → O5路由: 强技术+Converter 变体",
             "unknown": "未知失败 → O5路由: 检查错误日志",

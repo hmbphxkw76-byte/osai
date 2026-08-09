@@ -29,8 +29,10 @@
 >   2026-8-1 22:00 — P1-5: 消除直接访问 scenario._atomic_attacks, 使用 getattr/setattr
 """
 
+import asyncio
 import hashlib
 import logging
+from pathlib import Path
 from typing import Any
 
 from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
@@ -59,7 +61,7 @@ async def run(ctx: PipelineContext) -> None:
         await ctx.scenario.initialize_async()
     except ValueError as e:
         if "duplicate objective hash" in str(e):
-            print("  [G1 修复] 检测到跨数据集重复 objective hash, 关闭 baseline 重试...")
+            logger.debug("[G1 修复] 检测到跨数据集重复 objective hash, 关闭 baseline 重试...")
             # 修改 scenario 参数: 关闭 baseline
             params = getattr(ctx.scenario, "params", None) or getattr(ctx.scenario, "_params", None) or {}
             params = {"include_baseline": False} if not params else dict(params)
@@ -67,9 +69,9 @@ async def run(ctx: PipelineContext) -> None:
             try:
                 ctx.scenario.set_params_from_args(args=params)
                 await ctx.scenario.initialize_async()
-                print("  [G1 修复] baseline 关闭后初始化成功")
+                logger.debug("[G1 修复] baseline 关闭后初始化成功")
             except Exception as e2:
-                print(f"  [G1 修复] 关闭 baseline 后仍失败: {e2}")
+                logger.debug(f"[G1 修复] 关闭 baseline 后仍失败: {e2}")
                 raise
         else:
             raise
@@ -101,23 +103,12 @@ async def run(ctx: PipelineContext) -> None:
         ]
         _removed_runtime = _before_runtime - len(atomic_attacks)
         if _removed_runtime > 0:
-            print(f"  [DoS] 运行时拦截: 排除 {_removed_runtime} 个 DoS 攻击 ( owasp_llm10)")
+            logger.debug(f"[DoS] 运行时拦截: 排除 {_removed_runtime} 个 DoS 攻击 (owasp_llm10)")
 
     _safe_set_atomic_attacks(ctx.scenario, atomic_attacks)
-    sequential_count = sum(1 for a in atomic_attacks if hasattr(a, "child_attacks") or hasattr(a, "attack_sequence"))
-    standalone_count = len(atomic_attacks) - sequential_count
-    strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"
 
-    # ── 区块 B: Stage 2→3 决策过滤摘要 ──
-    _print_stage2_to_3_filter_summary(ctx, atomic_attacks, raw_attack_count)
-
-    print("\n  ┌─ AtomicAttack 构建 ──────────────────────────────────────┄")
-    print(f"  │ AtomicAttack 总数: {len(atomic_attacks)}")
-    print(f"  │ SequentialAttack (复合): {sequential_count}")
-    print(f"  │ 独立 AtomicAttack: {standalone_count}")
-    print(f"  │ 停止策略: {strategy} (max_attempts={ctx.max_attempts_per_objective})")
-    print(f"  │ 并发控制: {ctx.args.max_concurrency if ctx.args else 'N/A'}")
-    print("  └───────────────────────────────────────────────────────────────┄")
+    # ── 区块 B: Stage 2→3 决策过滤摘要 (简化为单行) ──
+    logger.debug(f"Stage 2→3: planned={raw_attack_count}, actual={len(atomic_attacks)}")
 
     # ── P0: 同次运行 ASR 反馈闭环 (必须在重排序之前执行, 提供动态反馈数据) ──
     _feedback_current_run_asr(ctx)
@@ -128,34 +119,106 @@ async def run(ctx: PipelineContext) -> None:
     # 重排后重新获取 (排序可能已改变)
     atomic_attacks = getattr(ctx.scenario, "_atomic_attacks", [])
 
-    # ── 区块 A: 攻击装弹清单 (core_card) ──
+    # ── 区块 3: 攻击武器库 — 技术 × 载荷 × Converter (含增益+预览+韧性) ──
     _print_attack_loadout_card(ctx, atomic_attacks)
 
-    # ── 区块 C: Converter 链实例化总览 ──
-    _print_converter_instantiation_overview(ctx, atomic_attacks)
+    # ── 区块 4: 评分器 + 执行韧性配置 (含预算估算) ──
+    _print_resilience_config(ctx, atomic_attacks)
 
-    # ── 衔接块: ★ 突出传递 Banner (区块 D 增强) ──
+    # ── 区块 5: ★ 攻击就绪确认 — S3-3 Go/No-Go 决策重构 ──
     from pipeline.utils.display import handoff_banner
 
     # 计算增强/baseline 分布
     enhanced_count = _count_enhanced_attacks(ctx, atomic_attacks)
     baseline_count = len(atomic_attacks) - enhanced_count
-    tech_names = sorted({_extract_technique_name_from_attack(a) for a in atomic_attacks})
-    conv_names = _collect_unique_converter_names(ctx, atomic_attacks)
     model_name = ctx.metadata.get("model_name", "?")
     model_tier = ctx.metadata.get("model_tier", "?")
 
+    # OWASP 覆盖计算
+    owasp_count = _count_owasp_coverage(ctx)
+
+    # 评分器摘要
+    scorer_name = _get_scorer_type_name(ctx)
+    scorer_timeout = ctx.metadata.get("scorer_timeout", "?")
+
+    # 预算估算
+    budget_str = _estimate_attack_budget(ctx, atomic_attacks)
+
+    # 冷启动风险
+    warm_start = ctx.warm_start_asr or {}
+    cold_count = sum(1 for a in warm_start.values() if a <= 0)
+    risk_str = f"⚠ {cold_count}/{len(warm_start)} 技术冷启动" if cold_count > 0 else "✓ 全部有实测 ASR"
+
+    # 增益预期
+    enhancement_str = _estimate_enhancement_delta(ctx, atomic_attacks)
+
+    # S3-3: 攻击策略摘要 (主攻/侧翼/降级路径)
+    sorted_warm = sorted(warm_start.items(), key=lambda x: x[1], reverse=True) if warm_start else []
+    main_attack = sorted_warm[0] if sorted_warm else ("—", 0.0)
+    flank_attack = sorted_warm[1] if len(sorted_warm) > 1 else ("—", 0.0)
+
+    # 主攻 Converter
+    main_conv = ""
+    for attack in atomic_attacks[:5]:
+        tech = _extract_technique_name_from_attack(attack)
+        if tech == main_attack[0]:
+            convs = _extract_attack_converters_from_attack(attack)
+            if not convs:
+                convs = _extract_attack_converters(ctx, tech)
+            if convs:
+                main_conv = " + " + " › ".join(convs[:2])
+            break
+
+    # 降级路径摘要
+    fallback_path = "—"
+    if ctx.fallback_plan and hasattr(ctx.fallback_plan, "execution_order"):
+        exec_order = ctx.fallback_plan.execution_order
+        tier_chain_str: list[str] = []
+        prev_tier: str | None = None
+        for tech in exec_order:
+            asr = warm_start.get(tech, 0.0)
+            tier = "S" if asr >= 0.50 else "A" if asr >= 0.30 else "B" if asr >= 0.15 else "C" if asr >= 0.05 else "D"
+            if tier != prev_tier:
+                tier_chain_str.append(tier)
+                prev_tier = tier
+        fallback_path = f"{'→'.join(tier_chain_str)} ({ctx.fallback_plan.fallback_count} 降级点)"
+
+    # S3-3: Go/No-Go 决策判定
+    preflight_passed = not getattr(ctx.args, "skip_preflight", False) if ctx.args else True
+    go_conditions = [
+        len(atomic_attacks) > 0,
+        preflight_passed,
+    ]
+    go_decision = "✅ GO" if all(go_conditions) else "⚠ NO-GO"
+
+    main_tier = (
+        "S" if main_attack[1] >= 0.50
+        else "A" if main_attack[1] >= 0.30
+        else "B" if main_attack[1] >= 0.15
+        else "C" if main_attack[1] >= 0.05 else "—"
+    )
+    api_t = ctx.metadata.get("api_timeout", "?")
+    sdk_r = ctx.metadata.get("api_max_retries", "?")
+    rl_w = ctx.metadata.get("rate_limited_wrapped_count", "?")
+    ammo_str = "就绪" if len(atomic_attacks) > 0 else "为空"
+    chain_str2 = "完整" if fallback_path != "—" else "缺失"
+
+    handoff_lines = [
+        f"★ 主攻向量: {main_attack[0]}{main_conv} (ASR {main_attack[1]:.0%}, Tier {main_tier})",
+        f"★ 侧翼掩护: {flank_attack[0]} (ASR {flank_attack[1]:.0%})",
+        f"★ 降级路径: {fallback_path}",
+        f"★ 弹药: {len(atomic_attacks)} 个 ({enhanced_count} 增强 + {baseline_count} baseline) | OWASP {owasp_count}",
+        f"★ 评分器: {scorer_name} | 超时 {scorer_timeout}s | 熔断 ≥5",
+        f"★ 韧性: API {api_t}s | SDK retries {sdk_r} | RateLimited {rl_w}T",
+        f"★ 预期: ASR {_estimate_expected_asr(model_tier)} | 增益 {enhancement_str} | 预算 {budget_str}",
+        f"★ 风险: {risk_str} | 目标: {model_name} (tier={model_tier})",
+        f"★ 决策: {go_decision} — 预检{'通过' if preflight_passed else '跳过'}, 弹药{ammo_str}, 降级链{chain_str2}",
+    ]
+
     handoff_banner(
         3, 4,
-        "传递到 PyRIT 原生执行 — AtomicAttack 并发执行",
-        [
-            f"★ 攻击弹药: {len(atomic_attacks)} 个 ({enhanced_count} 增强 + {baseline_count} baseline)",
-            f"★ 技术覆盖: {', '.join(tech_names[:5])}",
-            f"★ Converter: {len(conv_names)} 种 ({' › '.join(conv_names[:3])}...)",
-            (f"★ 执行策略: {strategy} (max_attempts={ctx.max_attempts_per_objective})"
-            f" | 并发: {ctx.args.max_concurrency if ctx.args else 3}"),
-            f"★ 目标模型: {model_name} (tier={model_tier})",
-        ],
+        "攻击就绪确认 — Go/No-Go 决策 → PyRIT 原生执行",
+        handoff_lines,
     )
 
 
@@ -566,33 +629,6 @@ def _collect_unique_converter_names(ctx: PipelineContext, atomic_attacks: list) 
     return sorted(names)
 
 
-def _print_stage2_to_3_filter_summary(
-    ctx: PipelineContext,
-    atomic_attacks: list,
-    raw_count: int,
-) -> None:
-    """区块 B: Stage 2→3 决策过滤摘要.
-
-    展示 Stage 2 计划的攻击数 vs Stage 3 实际构建数, 以及过滤原因.
-    """
-    planned = ctx.metadata.get("planned_attack_count", 0)
-    actual = len(atomic_attacks)
-    dedup_removed = raw_count - actual
-    dataset_count = len(ctx.sorted_datasets) if ctx.sorted_datasets else 0
-
-    lines = [
-        f"计划攻击数 (Stage 2): {planned}",
-        f"实际构建数 (Stage 3): {actual}",
-    ]
-    if dedup_removed > 0:
-        lines.append(f"过滤: SHA256 去重 -{dedup_removed} (跨数据集重复种子)")
-    else:
-        lines.append("过滤: 无去重")
-    lines.append(f"载荷覆盖: {dataset_count} 数据集, {actual} 个唯一 objective")
-
-    info_box("Stage 2→3 决策过滤", lines)
-
-
 def _shorten_attack_name(full_name: str) -> str:
     """从 AtomicAttack 全名中提取数据集短名.
 
@@ -619,9 +655,10 @@ def _print_attack_loadout_card(
     ctx: PipelineContext,
     atomic_attacks: list,
 ) -> None:
-    """区块 A: 攻击装弹清单 — 载荷 × 技术 × Converter 实例化 (core_card).
+    """区块 3: 攻击武器库 — 技术 × 载荷 × Converter (含增益+预览+韧性).
 
-    按执行顺序展示 Top 10 AtomicAttack 的载荷预览 + 技术 + Converter + 预期 ASR.
+    合并原攻击装弹清单 + Converter 链总览, 新增 ASR 增益 + 降级链路径.
+    S3-1: 新增 Converter 变换预览 (Top 3 攻击).
     """
     if not atomic_attacks:
         return
@@ -644,33 +681,133 @@ def _print_attack_loadout_card(
         else:
             return "D"
 
+    # ── [技术分布] 段: 按技术分组统计 ──
+    tech_stats: dict[str, dict[str, Any]] = {}
+    for attack in atomic_attacks:
+        tech = _extract_technique_name_from_attack(attack)
+        if tech not in tech_stats:
+            convs = _extract_attack_converters_from_attack(attack)
+            if not convs:
+                convs = _extract_attack_converters(ctx, tech)
+            tech_stats[tech] = {"conv_names": convs, "count": 0}
+        tech_stats[tech]["count"] += 1
+
+    multi_turn_set = {
+        "red_teaming", "crescendo", "tap", "pair", "many_shot", "forest",
+        "crescendo_simulated", "tree_of_attacks_pruned",
+    }
+    tech_lines: list[str] = []
+    for tech, stats in sorted(tech_stats.items(), key=lambda x: x[1]["count"], reverse=True):
+        asr = warm_start.get(tech, 0.0)
+        tier = _tier_from_asr(asr) if asr > 0 else "—"
+        mode = "多轮迭代" if tech in multi_turn_set else "单轮直发"
+        base_tech = tech.split("+")[0] if "+" in tech else tech
+        chain_idx = order_map.get(base_tech)
+        chain_str = f"降级链 #{chain_idx}" if chain_idx is not None else "baseline"
+        tech_lines.append(f"{tech:<25} {stats['count']:>3} 载荷 | ASR {asr:>4.0%} ({tier}) | {mode} | {chain_str}")
+
+    # ── [Converter 管道] 段: 链 + 增益 + 熔断 ──
+    converter_lines: list[str] = []
+    health_monitor = getattr(ctx, "converter_health_monitor", None)
+    ft = getattr(health_monitor, "_failure_threshold", 2) if health_monitor else 2
+    for tech, stats in sorted(tech_stats.items(), key=lambda x: x[1]["count"], reverse=True)[:3]:
+        convs = stats["conv_names"]
+        conv_str = " › ".join(convs) if convs else "(直发)"
+        type_str = _infer_conv_types(convs)
+        n_layers = len(convs) if convs else 0
+        layer_str = f"{n_layers} 层串联" if n_layers > 0 else "无 Converter"
+        asr = warm_start.get(tech, 0.0)
+        if asr > 0 and convs:
+            enhanced_asr = min(asr * 1.3, 0.8)
+            asr_str = f"ASR {asr:.0%} → 预期 {enhanced_asr:.0%} (×1.3)"
+        elif convs:
+            asr_str = "ASR — (冷启动)"
+        else:
+            asr_str = f"ASR {asr:.0%}" if asr > 0 else "ASR —"
+        converter_lines.append(f"{tech}: {conv_str}")
+        converter_lines.append(f"  {type_str} ({layer_str}) | {asr_str} | 熔断: {ft}次→baseline")
+        # O1: 对 Top 1 技术 (首个有 Converter 的) 执行变换预览
+        if convs and len(converter_lines) <= 4:
+            sample = _extract_attack_payload(atomic_attacks[0]) if atomic_attacks else ""
+            preview = _preview_converter_transform(convs, sample)
+            converter_lines.extend(preview)
+
+    # ── [攻击编排] 段: Top 10 + S3-1 变换预览 (Top 3) ──
     loadout_lines: list[str] = []
     for i, attack in enumerate(atomic_attacks[:10]):
         tech = _extract_technique_name_from_attack(attack)
         dataset = getattr(attack, "display_group", "") or "—"
         payload = _extract_attack_payload(attack)
-        # P1: 优先从实例直接提取, 回退到 ctx map
         convs = _extract_attack_converters_from_attack(attack)
         if not convs:
             convs = _extract_attack_converters(ctx, tech)
-        # › 表示串联管道 (pipeline): 前一个的输出→后一个的输入
         conv_str = " › ".join(convs) if convs else "(baseline)"
         asr = warm_start.get(tech, 0.0)
         tier = _tier_from_asr(asr) if asr > 0 else "—"
-
-        # 降级链序号
         base_tech = tech.split("+")[0] if "+" in tech else tech
         chain_idx = order_map.get(base_tech)
         chain_str = f"#{chain_idx}" if chain_idx is not None else "—"
-
         loadout_lines.append(f'#{i + 1:02d}  [{tech} | {dataset}]  "{payload}"')
-        loadout_lines.append(f"     Conv: {conv_str} | ASR {asr:>4.0%} ({tier}) | 降级链: {chain_str}")
+        loadout_lines.append(f"     Conv: {conv_str} | ASR {asr:>4.0%} ({tier}) | 链 {chain_str}")
+        # S3-1: Converter 变换预览 (仅 Top 3 有 Converter 的攻击)
+        if convs and i < 3:
+            preview_steps = _preview_converter_transform(convs, payload)
+            loadout_lines.append("     变换预览:")
+            for step in preview_steps:
+                loadout_lines.append(f"       {step}")
+    loadout_lines.append(f"(共 {len(atomic_attacks)} 个, 展示前 {min(10, len(atomic_attacks))})")
 
-    loadout_lines.append(f"合计: {len(atomic_attacks)} 个 AtomicAttack (展示前 {min(10, len(atomic_attacks))})")
+    # ── [降级链] 段: ASCII 箭头图 + 技术标注 (O2 可视化增强) ──
+    chain_lines: list[str] = []
+    if fallback_plan and hasattr(fallback_plan, "execution_order"):
+        exec_order = fallback_plan.execution_order
+        # 构建 Tier 分组 (保留组内技术 + ASR)
+        tier_groups: dict[str, list[tuple[str, float]]] = {}
+        for tech in exec_order:
+            asr = warm_start.get(tech, 0.0)
+            tier = _tier_from_asr(asr) if asr > 0 else "UNKNOWN"
+            tier_groups.setdefault(tier, []).append((tech, asr))
+        # ASCII 箭头图: S[many_shot 62%] → A[tap 35%] → B[...]
+        tier_order = list(tier_groups.keys())
+        arrow_parts: list[str] = []
+        for tier in tier_order:
+            techs = tier_groups[tier]
+            tech_summary = ", ".join(f"{t} {a:.0%}" for t, a in techs[:2])
+            if len(techs) > 2:
+                tech_summary += f" +{len(techs) - 2}"
+            arrow_parts.append(f"{tier}[{tech_summary}]")
+        chain_lines.append(" → ".join(arrow_parts))
+        chain_lines.append(f"降级点 {fallback_plan.fallback_count} 处")
+        # 降级路径明细
+        for i, tech in enumerate(exec_order):
+            asr = warm_start.get(tech, 0.0)
+            tier = _tier_from_asr(asr) if asr > 0 else "—"
+            chain_lines.append(f"  #{i + 1} {tech} ({tier}, {asr:.0%})")
+
+    # ── [覆盖] 段: 增强/baseline + 增益 ──
+    enhanced = _count_enhanced_attacks(ctx, atomic_attacks)
+    total = len(atomic_attacks)
+    baseline = total - enhanced
+    if total > 0:
+        pct = enhanced / total * 100
+        coverage = f"{enhanced}/{total} 增强 ({pct:.1f}%) | {baseline} baseline 对照"
+    else:
+        coverage = "N/A"
+    enhancement_str = _estimate_enhancement_delta(ctx, atomic_attacks)
+    coverage_lines = [coverage, f"增益预期: {enhancement_str}"]
+
+    sections = [
+        {"label": "技术分布", "lines": tech_lines},
+        {"label": "Converter 管道", "lines": converter_lines},
+        {"label": "攻击编排", "lines": loadout_lines},
+    ]
+    if chain_lines:
+        sections.append({"label": "降级链", "lines": chain_lines})
+    sections.append({"label": "覆盖", "lines": coverage_lines})
 
     core_card(
-        "攻击装弹清单 — 载荷 × 技术 × Converter 实例化",
-        sections=[{"label": "执行序", "lines": loadout_lines}],
+        "攻击武器库 — 技术 × 载荷 × Converter 实例化",
+        sections=sections,
     )
 
 
@@ -738,71 +875,6 @@ def _infer_conv_types(conv_names: list[str]) -> str:
     return " + ".join(types)
 
 
-def _print_converter_instantiation_overview(
-    ctx: PipelineContext,
-    atomic_attacks: list,
-) -> None:
-    """区块 C: Converter 链实例化总览.
-
-    按技术分组展示 Converter 链 + 载荷数 + 功能类型 + ASR + 降级链.
-    """
-    if not atomic_attacks:
-        return
-
-    warm_start = ctx.warm_start_asr or {}
-    fallback_plan = getattr(ctx, "fallback_plan", None)
-    order_map: dict[str, int] = {}
-    if fallback_plan and hasattr(fallback_plan, "execution_order"):
-        order_map = {tech: i for i, tech in enumerate(fallback_plan.execution_order)}
-
-    # 按技术分组统计
-    tech_stats: dict[str, dict[str, Any]] = {}
-    for attack in atomic_attacks:
-        tech = _extract_technique_name_from_attack(attack)
-        if tech not in tech_stats:
-            # P1: 优先从实例直接提取, 回退到 ctx map
-            convs = _extract_attack_converters_from_attack(attack)
-            if not convs:
-                convs = _extract_attack_converters(ctx, tech)
-            tech_stats[tech] = {
-                "conv_names": convs,
-                "count": 0,
-            }
-        tech_stats[tech]["count"] += 1
-
-    # 按载荷数降序取 Top 5
-    sorted_techs = sorted(tech_stats.items(), key=lambda x: x[1]["count"], reverse=True)[:5]
-
-    lines: list[str] = []
-    for tech, stats in sorted_techs:
-        convs = stats["conv_names"]
-        # › 表示串联管道 (pipeline): 前一个的输出→后一个的输入
-        conv_str = " › ".join(convs) if convs else "(直发)"
-        type_str = _infer_conv_types(convs)
-        n_layers = len(convs) if convs else 0
-        layer_str = f"{n_layers} 层串联" if n_layers > 0 else "无 Converter"
-
-        asr = warm_start.get(tech, 0.0)
-        asr_str = f"ASR {asr:.0%}" if asr > 0 else "ASR —"
-
-        base_tech = tech.split("+")[0] if "+" in tech else tech
-        chain_idx = order_map.get(base_tech)
-        chain_str = f"降级链 #{chain_idx}" if chain_idx is not None else "baseline"
-
-        lines.append(f"{tech} ({stats['count']} 载荷)")
-        lines.append(f"  管道: {conv_str}")
-        lines.append(f"  类型: {type_str} ({layer_str}) | {asr_str} | {chain_str}")
-        lines.append("")
-
-    enhanced = _count_enhanced_attacks(ctx, atomic_attacks)
-    total = len(atomic_attacks)
-    baseline = total - enhanced
-    coverage = f"{enhanced}/{total} 增强 ({enhanced / total * 100:.1f}%)" if total > 0 else "N/A"
-    lines.append(f"覆盖: {coverage} | {baseline} baseline 对照")
-
-    info_box("Converter 链实例化总览", lines)
-
-
 def _dedup_atomic_attacks(atomic_attacks: list) -> list:
     """SHA256 cross-dataset seed deduplication — P0-G1.
 
@@ -866,3 +938,368 @@ def _dedup_atomic_attacks(atomic_attacks: list) -> list:
         )
 
     return deduped
+
+
+# ============================================================
+# 区块 3-5 辅助函数: 攻击者第一公民展示增强
+# ============================================================
+
+
+def _get_scorer_type_name(ctx: PipelineContext) -> str:
+    """获取评分器类型名 (供区块 4/5 展示)."""
+    scorer = getattr(ctx, "objective_scorer", None)
+    if scorer is not None:
+        return type(scorer).__name__
+    return "默认"
+
+
+def _count_owasp_coverage(ctx: PipelineContext) -> str:
+    """统计 OWASP 分类覆盖 (供区块 5 展示).
+
+    Returns:
+        如 "6/20 分类 (LLM01/02/04/06/07/09)"
+    """
+    sorted_datasets = ctx.sorted_datasets or []
+    if not sorted_datasets:
+        return "N/A"
+
+    manifest_path = Path(__file__).parent.parent.parent / "data" / "seed_datasets" / "benchmarks" / "_manifest.yaml"
+    if not manifest_path.exists():
+        return "N/A"
+
+    try:
+        import yaml as _yaml
+
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = _yaml.safe_load(f)
+    except Exception:
+        return "N/A"
+
+    datasets_meta = {ds["name"]: ds for ds in manifest.get("datasets", []) if "name" in ds}
+    owasp_mapping = manifest.get("owasp_mapping", {})
+    all_count = len(owasp_mapping)
+
+    covered: set[str] = set()
+    for ds_name in sorted_datasets:
+        ds_meta = datasets_meta.get(ds_name, {})
+        for oid in ds_meta.get("owasp_ids", []) or []:
+            covered.add(oid)
+
+    covered_ids = sorted(covered)
+    short_ids = "/".join(covered_ids[:6])
+    if len(covered_ids) > 6:
+        short_ids += f" +{len(covered_ids) - 6}"
+    return f"{len(covered)}/{all_count} 分类 ({short_ids})"
+
+
+def _estimate_attack_budget(ctx: PipelineContext, atomic_attacks: list) -> str:
+    """估算攻击预算 (API 调用数 + 预估时间).
+
+    O3 增强: 从 ctx.metadata 读取实际韧性参数 (api_timeout,
+    rate_limit_retries, scorer_timeout) 替代硬编码值, 输出更精确的预算.
+
+    Returns:
+        如 "~228 API 调用 | 预估 4-8 分钟 | 超时上限 60s/调用"
+    """
+    total = len(atomic_attacks)
+    if total == 0:
+        return "N/A"
+
+    max_attempts = ctx.max_attempts_per_objective
+    concurrency = ctx.args.max_concurrency if ctx.args else 3
+
+    # O3: 从 ctx.metadata 读取实际韧性参数
+    metadata = getattr(ctx, "metadata", {}) or {}
+    api_timeout = metadata.get("api_timeout", 60)
+    rate_limit_retries = metadata.get("rate_limit_retries", 2)
+    scorer_timeout = metadata.get("scorer_timeout", 30)
+
+    # 多轮技术额外 API 调用估算
+    multi_turn_set = {
+        "red_teaming", "crescendo", "tap", "pair", "many_shot", "forest",
+        "crescendo_simulated", "tree_of_attacks_pruned",
+    }
+    multi_turn_count = sum(
+        1 for a in atomic_attacks
+        if _extract_technique_name_from_attack(a) in multi_turn_set
+    )
+    # 多轮技术平均 3 轮额外调用
+    multi_turn_extra = multi_turn_count * 3
+
+    # 目标 API + 评分器 API
+    target_calls = total * max_attempts + multi_turn_extra
+    scorer_calls = total * max_attempts
+    total_calls = target_calls + scorer_calls
+
+    # O3: 预估时间 — 使用实际超时参数作为上限
+    avg_target_time = min(api_timeout / 2, 3)  # 成功调用平均 3s, 超时上限 api_timeout
+    avg_scorer_time = min(scorer_timeout / 2, 3)  # 评分器成功平均 3s, 超时上限 scorer_timeout
+    # 限速重试开销: 假设 15% 调用被限速, 每次重试退避 ~30s
+    rate_limit_overhead = int(total_calls * 0.15) * rate_limit_retries * 30
+    est_seconds = (
+        target_calls * avg_target_time
+        + scorer_calls * avg_scorer_time
+        + rate_limit_overhead
+    ) / max(concurrency, 1)
+    est_min = int(est_seconds / 60)
+    est_max = int(est_seconds * 1.5 / 60)  # 缩小上限倍数 (原 2x → 1.5x, 因已含限速开销)
+
+    return (
+        f"~{total_calls} API 调用 | 预估 {est_min}-{est_max} 分钟 "
+        f"| 超时上限 {api_timeout}s/调用 + {scorer_timeout}s/评分"
+    )
+
+
+def _estimate_enhancement_delta(ctx: PipelineContext, atomic_attacks: list) -> str:
+    """估算 Converter 增强 ASR 增益.
+
+    Returns:
+        如 "+1.5% (5% → 6.5%, ×1.3)"
+    """
+    warm_start = ctx.warm_start_asr or {}
+    if not warm_start or not atomic_attacks:
+        return "—"
+
+    # 获取增强攻击的技术
+    enhanced_techs: set[str] = set()
+    for attack in atomic_attacks:
+        convs = _extract_attack_converters_from_attack(attack)
+        if not convs:
+            tech = _extract_technique_name_from_attack(attack)
+            convs = _extract_attack_converters(ctx, tech)
+        if convs:
+            enhanced_techs.add(_extract_technique_name_from_attack(attack))
+
+    if not enhanced_techs:
+        return "—"
+
+    # 计算加权平均 ASR
+    total_asr = 0.0
+    count = 0
+    for tech in enhanced_techs:
+        asr = warm_start.get(tech, 0)
+        if asr > 0:
+            total_asr += asr
+            count += 1
+
+    if count == 0:
+        return "— (冷启动)"
+
+    avg_asr = total_asr / count
+    # 假设平均乘数 1.3 (基于 combo_multipliers)
+    enhanced_asr = min(avg_asr * 1.3, 0.8)
+    delta = enhanced_asr - avg_asr
+
+    return f"+{delta:.1%} ({avg_asr:.0%} → {enhanced_asr:.0%}, ×1.3)"
+
+
+def _estimate_expected_asr(model_tier: str) -> str:
+    """估算预期 ASR 范围."""
+    tier_asr_map = {"strong": "25%-35%", "moderate": "35%-55%", "weak": "55%-75%", "unknown": "30%-40%"}
+    return tier_asr_map.get(model_tier, "30%-40%")
+
+
+def _print_resilience_config(
+    ctx: PipelineContext,
+    atomic_attacks: list,
+) -> None:
+    """区块 4: 评分器 + 执行韧性配置 (含预算估算).
+
+    展示评分器类型/降级/超时/熔断器 + 执行韧性参数 + 攻击预算估算.
+    S3-4: 新增评分器降级关键词摘要 + 触发条件 + Converter 降级路径 + 预算明细.
+    """
+    lines: list[str] = []
+
+    # ── 评分器配置 + S3-4 降级关键词 ──
+    scorer_name = _get_scorer_type_name(ctx)
+    scorer_timeout = ctx.metadata.get("scorer_timeout", 30)
+    lines.append(f"评分器: {scorer_name} (default_objective_scorer)")
+    # S3-4: 降级关键词摘要
+    _refusal_keywords = [
+        "I cannot", "I can't", "I'm not able", "I won't",
+        "I'm sorry", "As an AI", "I must decline", "I'm unable to",
+        "it is not appropriate", "...(共19个)",
+    ]
+    lines.append(f"  降级: SubStringScorer (19 关键词: {'|'.join(_refusal_keywords[:5])}...)")
+    lines.append("  触发条件: 评分器超时/返回ERROR → 自动降级关键词匹配")
+    lines.append(f"  超时: scorer_timeout={scorer_timeout}s | 熔断器: ≥5 errors 触发")
+
+    # ── 执行韧性 + S3-4 Converter 降级路径 ──
+    lines.append("")
+    api_timeout = ctx.metadata.get("api_timeout", 60)
+    sdk_retries = ctx.metadata.get("api_max_retries", 0)
+    rl_count = ctx.metadata.get("rate_limited_wrapped_count", 3)
+    rl_retries = ctx.metadata.get("rate_limit_retries", 2)
+    lines.append("执行韧性:")
+    lines.append(f"  API 超时: {api_timeout}s (connect=5s) | SDK retries: {sdk_retries}")
+    lines.append(f"  RateLimitedTarget: {rl_count} Target 已包装 | rate_limit_retries: {rl_retries}")
+    lines.append("  退避上限: 30s | 204 快速失败: 启用")
+
+    # S3-4: Converter 熔断 + 降级路径
+    health_monitor = getattr(ctx, "converter_health_monitor", None)
+    if health_monitor:
+        ft = getattr(health_monitor, "_failure_threshold", 2)
+        lines.append(f"  Converter 熔断: failure_threshold={ft} → 降级 baseline")
+        lines.append("    降级路径: Converter链失败 → 移除Converter → baseline直发")
+
+    # ── 停止策略 ──
+    lines.append("")
+    strategy = "EXHAUSTIVE" if ctx.max_attempts_per_objective >= 999 else "FIRST_SUCCESS"
+    concurrency = ctx.args.max_concurrency if ctx.args else 3
+    lines.append(f"停止策略: {strategy} (max_attempts={ctx.max_attempts_per_objective}) | 并发: {concurrency}")
+
+    # DoS 排除 + JSON mode
+    dos_excluded = not getattr(ctx.args, "enable_dos_attack", False) if ctx.args else True
+    json_disabled = getattr(ctx.args, "disable_json_mode", False) if ctx.args else False
+    config_parts: list[str] = []
+    if dos_excluded:
+        config_parts.append("DoS 排除: owasp_llm10 已过滤")
+    if json_disabled:
+        config_parts.append("JSON mode: 已禁用")
+    if config_parts:
+        lines.append(" | ".join(config_parts))
+
+    # ── S3-4: 攻击预算估算 + 明细 ──
+    lines.append("")
+    total = len(atomic_attacks)
+    max_attempts = ctx.max_attempts_per_objective
+    multi_turn_set = {
+        "red_teaming", "crescendo", "tap", "pair", "many_shot", "forest",
+        "crescendo_simulated", "tree_of_attacks_pruned",
+    }
+    multi_turn_count = sum(
+        1 for a in atomic_attacks
+        if _extract_technique_name_from_attack(a) in multi_turn_set
+    )
+    multi_turn_extra = multi_turn_count * 3
+    target_calls = total * max_attempts + multi_turn_extra
+    scorer_calls = total * max_attempts
+    total_calls = target_calls + scorer_calls
+    est_seconds = total_calls * 3 / max(concurrency, 1)
+    est_min = int(est_seconds / 60)
+    est_max = int(est_seconds * 2 / 60)
+    lines.append(f"攻击预算估算: ~{total_calls} API 调用 | 预估 {est_min}-{est_max} 分钟")
+    lines.append(f"  明细: 目标 {target_calls} 调用 + 评分器 {scorer_calls} + 多轮额外 {multi_turn_extra}")
+
+    info_box("评分器 + 执行韧性配置", lines)
+
+
+# ── O1: Converter 变换预览 (PyRIT 原生 convert_async) ──
+
+#: 非 LLM Converter 无参构造集合 (复用 log.py 定义, 保持一致)
+_NON_LLM_NO_ARG_PREVIEW: set[str] = {
+    "Base64Converter", "ROT13Converter", "CaesarConverter",
+    "AtbashConverter", "LeetspeakConverter", "UrlConverter",
+    "UnicodeConfusableConverter", "UnicodeSubstitutionConverter",
+    "AsciiArtConverter", "FlipConverter", "EmojiConverter",
+    "ZalgoConverter", "ZeroWidthConverter", "BinaryConverter",
+    "MorseConverter", "BrailleConverter", "NatoConverter",
+    "StringJoinConverter", "SuperscriptConverter",
+    "BidiConverter", "RandomCapitalLettersConverter",
+    "SuffixAppendConverter", "CharacterSpaceConverter",
+    "InsertPunctuationConverter", "RepeatTokenConverter",
+    "AsciiSmugglerConverter", "SneakyBitsSmugglerConverter",
+    "Base2048Converter", "EcojiConverter",
+    "UnicodeReplacementConverter", "TatweelConverter",
+    "SearchReplaceConverter", "FirstLetterConverter",
+    "CharSwapConverter", "DiacriticConverter",
+}
+
+#: LLM 辅助 Converter 集合 (需要 converter_target, 非确定性)
+_LLM_CONVERTERS_PREVIEW: set[str] = {
+    "PersuasionConverter", "DecompositionConverter",
+    "TranslationConverter", "ToneConverter",
+    "TaskFramingConverter", "CodeChameleonConverter",
+    "NoiseConverter", "MathObfuscationConverter",
+    "ScientificTranslationConverter", "TenseConverter",
+    "VariationConverter", "PolicyPuppetryConverter",
+}
+
+
+def _preview_converter_transform(
+    conv_names: list[str],
+    sample_payload: str,
+) -> list[str]:
+    r"""O1: 对非 LLM Converter 链执行实际变换预览.
+
+    R-022: 使用 PyRIT 原生 ``Converter.convert_async()`` + ``PromptRequestPiece``,
+    不绕过原生生命周期, 不 monkey-patch.
+
+    仅对非 LLM Converter 执行预览 (确定性, 无需 API 调用).
+    LLM Converter 标注 "(需 LLM, 预览跳过)".
+
+    Args:
+        conv_names: Converter 类名列表 (如 ["Base64Converter", "ROT13Converter"])
+        sample_payload: 样本载荷文本 (截取前 60 字符)
+
+    Returns:
+        变换预览行列表, 如:
+        ["  原始: \"Hello World\"",
+         "  → Base64: \"SGVsbG8gV29ybGQ=\"",
+         "  → ROT13: \"TWlKcG8gV29ybGQ=\""]
+    """
+    if not conv_names or not sample_payload:
+        return []
+
+    from pipeline.converters.chains import _conv
+
+    preview_lines: list[str] = []
+    short_payload = sample_payload[:60]
+    preview_lines.append(f'  原始: "{short_payload}"')
+
+    current_text = sample_payload
+    for conv_name in conv_names:
+        # LLM Converter: 跳过预览
+        if conv_name in _LLM_CONVERTERS_PREVIEW:
+            preview_lines.append(f"  → {conv_name}: (需 LLM, 预览跳过)")
+            continue
+
+        # 非 LLM Converter: 无参构造 + 原生 convert_async
+        if conv_name not in _NON_LLM_NO_ARG_PREVIEW:
+            preview_lines.append(f"  → {conv_name}: (未知类型, 预览跳过)")
+            continue
+
+        try:
+            cls = _conv(conv_name)
+            converter = cls()
+
+            from pyrit.models import PromptRequestPiece
+
+            piece = PromptRequestPiece(
+                role="user",
+                original_value=current_text,
+            )
+
+            # PyRIT 原生 convert_async — 安全事件循环检测
+            # G1 修复: 不使用 asyncio.new_event_loop() (在已运行事件循环中会冲突),
+            # 改为检测当前是否有运行中的事件循环, 选择安全的方式调用
+            try:
+                # 尝试获取当前运行中的事件循环
+                running_loop = asyncio.get_running_loop()
+                # 如果在 async 上下文中, 创建新线程执行 (避免嵌套事件循环)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        converter.convert_async(request_prompt=piece),
+                    )
+                    converted_pieces = future.result(timeout=5)
+            except RuntimeError:
+                # 没有运行中的事件循环, 安全使用 asyncio.run
+                converted_pieces = asyncio.run(
+                    converter.convert_async(request_prompt=piece)
+                )
+
+            if converted_pieces:
+                output = getattr(
+                    converted_pieces[0], "converted_value", "",
+                ) or current_text
+                short_output = output[:60]
+                preview_lines.append(f'  → {conv_name}: "{short_output}"')
+                current_text = output
+            else:
+                preview_lines.append(f"  → {conv_name}: (空结果)")
+        except Exception as e:
+            preview_lines.append(f"  → {conv_name}: (错误: {str(e)[:40]})")
+
+    return preview_lines

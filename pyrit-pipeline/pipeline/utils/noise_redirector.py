@@ -107,6 +107,27 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r'^"achieved":'),
     re.compile(r"^}\s*$"),
     re.compile(r"^Endpoint:\s.*Elapsed time:"),
+    # ── E1: ExceptionGroup Traceback 格式 (Python 3.11+) ──
+    # PyRIT scenario.py 在多个原子攻击失败时抛出 ExceptionGroup,
+    # 其 traceback 格式以 +/| 为前缀, 与标准 Traceback 不同,
+    # 导致 ~900 行/次未被过滤而全部输出到终端.
+    # 学术依据: NIST SP 800-92 — ExceptionGroup traceback 属于噪音层
+    #   (开发者调试信息, 非红队攻击结果), 应路由到噪音日志
+    re.compile(r"^\+ Exception Group Traceback"),
+    re.compile(r"^\+-\+--+\s+\d+\s+--+"),  # 子异常分隔符: +-+--- 1 ---
+    re.compile(r"^\|\s+Traceback \(most recent call last\):"),
+    re.compile(r'^\|\s+File "'),  # 文件路径行
+    re.compile(r"^\|\s+\^+$"),  # ^^^ 指针行
+    re.compile(r"^\| (httpcore|httpx|openai|tenacity|asyncio|pyrit)\.\w+"),
+    re.compile(r"^\| Root cause:"),
+    re.compile(r"^\| (Details|Attack|Component|Objective|objective_\w+ identifier|Model|Endpoint):"),
+    re.compile(r"^\| (pyrit\.exceptions|pyrit\.executor)\.\w+"),
+    re.compile(r"^\| (openai|httpx|httpcore)\.\w+(Error|Exception)"),
+    re.compile(r"^\| (Exception|RuntimeError|ValueError):"),
+    re.compile(r"^\| The above exception was the direct cause"),
+    re.compile(r"^\| ExceptionGroup:"),
+    re.compile(r"^\| pyrit\.exceptions\.exception_classes\."),
+    re.compile(r"^\|\s*$"),  # ExceptionGroup 内部空行
 ]
 
 

@@ -323,7 +323,7 @@ def _validate_contract(stage_from: int, stage_to: int, ctx: PipelineContext) -> 
     elif result.warnings:
         print(f"  [D5] 契约验证通过 (有警告): {result.warnings}")
     else:
-        print(f"  [D5] 契约验证通过: {result.stage_from} → {result.stage_to}")
+        _logger.debug(f"[D5] 契约验证通过: {result.stage_from} → {result.stage_to}")
 
 
 def _print_trace_and_event_summary() -> None:

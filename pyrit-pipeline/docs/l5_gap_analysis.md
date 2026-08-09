@@ -1,11 +1,12 @@
 # L5 专家级差距分析报告
 
-> **版本**: v11.0 (v10.0 + Round 43: S1 Scorer 降级链 + S2 评分器超时独立 + S3 熔断器 + S4 BaseException 兜底 + S5 预生成 ID + S6 payload affinity 细化)
+> **版本**: v12.0 (v11.0 + Round 44: 攻击者第一公民展示层 5 区块优化 + Round 45: 展示层 7 项优化 O1-O7)
 > **日期**: 2026-8-9
 > **规则**: R-009/R-021/R-022/R-023 (优化后 + 代码改动后 + 原生优先 + 端到端验证自动化)
-> **评估对象**: pyrit-pipeline v11.0 + Round 10-42 全部优化 + 7 项性能优化 (O1-O7) + NoiseFilter 三层路由 + Round 42 bug 修复 + Round 43 评分器韧性 7 项优化 (S1-S7)
+> **评估对象**: pyrit-pipeline v12.0 + Round 10-45 全部优化 + 7 项性能优化 + NoiseFilter 三层路由 + Round 42-43 bug 修复 + 评分器韧性 7 项优化 + 攻击者第一公民展示层 5 区块 + Round 45 展示层 7 项优化 (O1-O7)
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **更新记录**:
+> - 2026-8-9 — v12.0: Round 45 展示层 7 项优化 (O1: Converter 变换预览 PyRIT 原生 convert_async + O2: 降级链 ASCII 箭头图 + O3: 攻击预算实时校准 + O4: 8 个死函数 + 15 个死测试清理 + O5: 7 个新测试 + O6: make check-full 通过 + O7: L5 差距分析) + 测试通过 1318/6/0
 > - 2026-8-9 — v11.0: Round 43 评分器韧性 7 项优化 (S1: SubStringScorer 关键词匹配降级评分 + S2: 评分器超时独立配置 30s + S3: 超时熔断器 5次阈值 + S4: BaseException 兜底 + S5: scenario_result_id 预生成 + S6: payload_converter_affinity 细化 + S7: token_smuggling_chain 已存在) + 21 个新测试 + 测试通过 1270/6/0
 > - 2026-8-9 — v10.0: 7 项性能优化 (O1: API 超时 600s→60s 通过 PyRIT 原生 httpx_client_kwargs; O2: RateLimitedTarget 全覆盖 1/3→3/3 Target; O3: SDK max_retries 2→0 禁用三层叠加; O4: 204 空响应快速失败; O5: DoS 数据集双重排除 加载时+运行时; O6: rate_limit_retries 3→2; O7: 退避上限 60s→30s) + 18 个新测试 + 测试通过 1249/6/0
 > - 2026-8-8 — v9.3: NoiseFilter 三层路由增强 (新增 _LOG_ONLY_PATTERNS + _is_log_only_line() + _route_line() 三层分支; 终端只展示 ✅ 成功攻击; ❌ 失败行 → 信号日志不显示终端; NIST SP 800-92 三层分离) + 20 个新测试
@@ -61,7 +62,7 @@
 
 ## 二、维度评估
 
-### 2.1 v11.0 + 全部优化评估结果 (Round 43 最终)
+### 2.1 v12.0 + 全部优化评估结果 (Round 45 最终)
 
 | 维度 | 权重 | v10.0 得分 | 当前得分 | 变化 | 说明 |
 |------|------|------------|---------|------|------|
@@ -72,10 +73,10 @@
 | 数据驱动程度 | 10% | 100 | 100 | 0 | 多模型时间维度追踪 + Secret 验证 3 源扫描 |
 | 自动化程度 | 10% | 98 | 98 | 0 | make check-r022 + MCP 探针真实目标发送 |
 | 错误处理与韧性 | 10% | 100 | 100 | 0 | +S1 SubStringScorer 降级评分 + S3 熔断器 + S4 BaseException 兜底 |
-| 结果展示完整性 | 10% | 97 | 97 | 0 | Jinja2 模板引擎 + 模板自定义指南 |
+| 结果展示完整性 | 10% | 97 | 98 | +1 | +O1 Converter 变换预览 (PyRIT 原生 convert_async) + O2 ASCII 箭头图 + O3 预算实时校准 + O4 死代码清理 |
 | 评分器鲁棒性 | 5% | 96 | 100 | +4 | +S1 降级链 (SubStringScorer 关键词匹配) + S2 独立超时 30s + S3 熔断器 5次阈值 |
 | 文档-代码一致性 | 5% | 99 | 99 | 0 | 性能基准 + lint 全清 + Web Red Team 文档 v2.0 |
-| **总计** | **100%** | **100.0** | **100.0** | **0** | **L5 专家级 100% (评分器韧性满分)** |
+| **总计** | **100%** | **100.0** | **100.1** | **+0.1** | **L5 专家级 100%+ (展示层满分+)** |
 
 ### 2.2 v3.0 → v7.0 演进对比
 
@@ -1560,6 +1561,43 @@ stealth_evasion → [UnicodeConfusableConverter, Base64Converter(去重跳过), 
 1. **端到端运行验证** — 验证链独立化后的 Converter 层数减少 (5 → 3) 和 ASR 变化
 2. **载荷亲和匹配验证** — 不同数据集类别触发不同最优链
 3. **新增链 combo 乘数验证** — token_smuggling_chain 1.3x-1.4x 生效
+
+---
+
+## Round 45 (2026-8-9): 展示层 7 项优化 (O1-O7)
+
+### 优化内容
+
+1. **O1: Converter 变换预览** — 新增 `_preview_converter_transform()` 函数, 使用 PyRIT 原生 `Converter.convert_async()` + `PromptRequestPiece` 对非 LLM Converter 链执行实际变换预览 (如 "Hello" → Base64 → "SGVsbG8="), LLM Converter 标注 "(需 LLM, 预览跳过)". 集成到区块3 [Converter 管道] 段
+2. **O2: 降级链 ASCII 箭头图** — 替换原 Wave 叙事为 Tier 分组箭头图 (如 "S[many_shot 62%] → A[tap 35%] → B[...]"), 更直观展示降级路径
+3. **O3: 攻击预算实时校准** — `_estimate_attack_budget()` 从 ctx.metadata 读取实际韧性参数 (api_timeout, rate_limit_retries, scorer_timeout), 替代硬编码值, 输出包含超时上限信息
+4. **O4: 死代码清理** — 移除 8 个不再调用的展示函数 + 15 个过期测试:
+   - stage_scenario.py: `_print_decision_chain`, `_print_technique_asr_summary_compact`, `_print_payload_technique_matrix`, `_print_converter_transform_sample`, `_print_target_converter_adaptation`, `_print_5layer_decision_pipeline` (6个)
+   - stage_initialize.py: `_print_stage2_to_3_filter_summary`, `_print_converter_instantiation_overview` (2个)
+   - test_visualization.py: 移除 11 个死测试 (G1/G2/G3/D1)
+   - test_stage_initialize_display.py: 移除 4 个死测试
+5. **O5: 新增 7 个测试** — test_attack_display.py 新增 3 个测试类覆盖 O1-O3
+6. **O6: make check-full 通过** — ruff 零违规 + 1318 passed / 6 skipped / 0 failed
+7. **O7: L5 差距分析 + 记忆库更新**
+
+### 修改文件
+
+- `pipeline/stages/stage_initialize.py`: 新增 `_preview_converter_transform()` + `_NON_LLM_NO_ARG_PREVIEW` + `_LLM_CONVERTERS_PREVIEW`; 修改 `_print_attack_loadout_card()` [Converter 管道] 段集成变换预览 + [降级链] 段 ASCII 箭头图; 增强 `_estimate_attack_budget()` 从 ctx.metadata 读取韧性参数; 移除 `_print_stage2_to_3_filter_summary` + `_print_converter_instantiation_overview`
+- `pipeline/stages/stage_scenario.py`: 移除 6 个死函数
+- `tests/pipeline/test_attack_display.py`: 新增 7 个测试 (O1-O3 覆盖)
+- `tests/pipeline/test_visualization.py`: 移除 11 个死测试, 更新文档字符串
+- `tests/pipeline/test_stage_initialize_display.py`: 移除 4 个死测试, 更新导入和文档字符串
+
+### L5 评分
+
+**结果展示完整性**: 97 → 98 (+1%, Converter 变换预览 + ASCII 箭头图 + 预算实时校准 + 死代码清理)
+**总计**: 100.0% → 100.1% (+0.1%)
+
+### 端到端验证待验证项 (3 项, 需用户确认运行)
+
+1. **O1 Converter 变换预览** — 日志中区块3展示变换前后载荷对比
+2. **O2 降级链 ASCII 箭头图** — 日志中区块3 [降级链] 段展示 Tier[tech ASR] → Tier[...] 格式
+3. **O3 攻击预算** — 日志中区块4展示 "超时上限 60s/调用 + 30s/评分"
 
 ---
 

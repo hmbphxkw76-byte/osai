@@ -1,0 +1,55 @@
+# 展示层配置 — 攻击向量 × 技术 映射 + 突破方式
+# G2 修复: 从 stage_post_analysis.py + stage_scenario.py 提取硬编码映射
+# 规则 R-022: 配置层与逻辑层分离, 符合 PyRIT 原生配置模式
+
+# 技术名 → OWASP 攻击向量映射
+tech_to_vector:
+  many_shot: "LLM01 Prompt Injection"
+  prompt_sending: "LLM01 Prompt Injection"
+  encoding: "LLM01 Prompt Injection"
+  payload_smuggling: "LLM01 Prompt Injection"
+  red_teaming: "LLM01 Prompt Injection"
+  token_smuggling: "LLM01 Prompt Injection"
+  information_disclosure: "LLM06 Sensitive Info"
+  data_exfiltration: "LLM06 Sensitive Info"
+
+# 技术名 → 突破方式描述
+tech_to_breakthrough:
+  many_shot: "多轮渐进 + 上下文操纵"
+  prompt_sending: "直发有害请求"
+  encoding: "编码绕过 (Base64/ROT13)"
+  payload_smuggling: "令牌走私"
+  red_teaming: "红队多轮迭代"
+  token_smuggling: "令牌走私"
+
+# OWASP ID → 推荐攻击技术列表
+owasp_to_techniques:
+  LLM01:
+    - many_shot
+    - prompt_sending
+    - red_teaming
+    - encoding
+    - token_smuggling
+  LLM02:
+    - information_disclosure
+    - data_exfiltration
+  LLM03:
+    - prompt_sending
+  LLM04:
+    - prompt_sending
+  LLM05:
+    - prompt_sending
+  LLM06:
+    - information_disclosure
+    - data_exfiltration
+  LLM07:
+    - prompt_sending
+    - many_shot
+  LLM08:
+    - prompt_sending
+    - many_shot
+  LLM09:
+    - prompt_sending
+    - many_shot
+  LLM10:
+    - prompt_sending

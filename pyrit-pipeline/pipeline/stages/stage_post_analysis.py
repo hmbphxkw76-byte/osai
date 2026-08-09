@@ -185,40 +185,69 @@ def _print_asr_comparison(ctx: PipelineContext) -> None:
 
 
 def _print_converter_resilience(ctx: PipelineContext) -> None:
-    """Converter 韧性分析卡片。.
+    """Converter 韧性分析卡片 — S5-1: Baseline vs 增强 ASR 增益对比表.
 
-    P1-2: 修正数据路径 — 从 ``failure_stats["runtime_asr"]`` 获取技术级 ASR,
-    按 Converter 路由计数 (有 Converter 路由 vs 无 Converter 路由) 计算 Δ。
+    S5-1 重写: 按技术分组对比 baseline ASR (无Converter) vs 增强 ASR (有Converter),
+    直接展示 Δ增益 和 Converter 有效性判定.
+
+    数据来源:
+      - ctx.asr_per_technique: 实测 ASR (Stage 4)
+      - ctx.warm_start_asr: 先验 ASR (Stage 2)
+      - ctx.technique_converter_map: 技术→Converter 映射
     """
-    failure_stats = ctx.metadata.get("failure_stats", {})
-    runtime_asr = failure_stats.get("runtime_asr", {})
+    from pipeline.utils.display import info_box
+
+    asr_measured = ctx.asr_per_technique or {}
+    warm_start = getattr(ctx, "warm_start_asr", {}) or {}
+    conv_map = getattr(ctx, "technique_converter_map", {}) or {}
     converter_routing_count = getattr(ctx, "converter_routing_count", 0)
 
-    if not runtime_asr or converter_routing_count == 0:
-        print("\n  ┌─ Converter 韧性 ──────────────────────────────────────────┐")
-        print("  │ (无 Converter 使用数据)")
-        print("  └────────────────────────────────────────────────────────────┘")
+    if not asr_measured:
+        info_box("Converter 韧性 — Baseline vs 增强 ASR", ["(无 ASR 数据)"])
         return
 
-    # 从 runtime_asr 计算总体成功率
-    total_techs = len(runtime_asr)
-    if total_techs == 0:
-        return
+    # S5-1: 按技术分组对比 baseline vs 增强
+    lines: list[str] = []
+    lines.append(f"{'技术':<25} {'baseline':>8} {'增强':>8} {'Δ增益':>8}  Converter")
+    lines.append(f"{'─' * 25} {'─' * 8} {'─' * 8} {'─' * 8}  {'─' * 20}")
 
-    # 所有技术的平均 ASR 作为参考基线
-    all_asr_values = [v for v in runtime_asr.values() if v is not None]
-    avg_asr = sum(all_asr_values) / len(all_asr_values) * 100 if all_asr_values else 0
+    enhanced_techs: list[tuple[str, float, float, str]] = []  # (tech, baseline, enhanced, conv_str)
+    baseline_techs: list[tuple[str, float]] = []  # (tech, asr)
 
-    # Converter 路由数作为增强信号
-    print("\n  ┌─ Converter 韧性分析 ────────────────────────────────────┐")
-    print(f"  │ Converter 路由: {converter_routing_count} 个分配")
-    print(f"  │ 技术平均 ASR: {avg_asr:.1f}%")
-    print(f"  │ 有数据技术: {total_techs} 个")
-    if avg_asr > 0:
-        print(f"  │ → Converter 增强信号: {'有效' if avg_asr > 15 else '需更多变体'}")
+    for tech, measured_asr in sorted(asr_measured.items(), key=lambda x: x[1], reverse=True):
+        prior_asr = warm_start.get(tech, 0.0) * 100  # warm_start is 0-1, measured is 0-100
+        convs = conv_map.get(tech, [])
+        conv_names = [type(c).__name__ for c in convs] if convs else []
+        conv_str = " › ".join(conv_names[:2]) if conv_names else "(无)"
+
+        if conv_names:
+            delta = measured_asr - prior_asr
+            marker = "← 有效" if delta > 0 else ("← 无效" if delta <= 0 else "← 无数据")
+            enhanced_techs.append((tech, prior_asr, measured_asr, conv_str))
+            line = (
+                f"  {tech[:23]:<25} {prior_asr:>7.1f}% "
+                f"{measured_asr:>7.1f}% {delta:>+7.1f}%  {conv_str[:20]} {marker}"
+            )
+            lines.append(line)
+        else:
+            baseline_techs.append((tech, measured_asr))
+            lines.append(f"  {tech[:23]:<25} {prior_asr:>7.1f}% {measured_asr:>7.1f}% {'—':>8}  {conv_str[:20]}")
+
+    # 汇总
+    lines.append("")
+    if enhanced_techs:
+        enh_count = len(enhanced_techs)
+        valid_count = sum(1 for _, b, e, _ in enhanced_techs if e > b)
+        avg_delta = sum(e - b for _, b, e, _ in enhanced_techs) / enh_count
+        lines.append(f"平均增强增益: {avg_delta:+.1f}% | 有效Converter: {valid_count}/{enh_count}")
+        if avg_delta > 0:
+            lines.append("建议: 保持当前 Converter 配置, 增益有效")
+        else:
+            lines.append("建议: 更换 Converter 组合, 当前增益无效")
     else:
-        print("  │ → 无增量 (ASR=0%)")
-    print("  └────────────────────────────────────────────────────────────┘")
+        lines.append(f"Converter 路由: {converter_routing_count} 个分配 | 无增强技术数据")
+
+    info_box("Converter 韧性 — Baseline vs 增强 ASR 增益", lines)
 
 
 def _print_asr_feedback(ctx: PipelineContext) -> None:
@@ -492,21 +521,42 @@ def _print_asr_trend(ctx: PipelineContext) -> None:
 
 
 def _print_fix_recommendations(ctx: PipelineContext) -> None:
-    """D3: 基于攻击结果生成修复建议。.
+    """D3+S5-3: 基于攻击结果生成修复建议 — 按攻击向量分组.
 
-    高 ASR 技术 → 高优先级修复建议
+    S5-3 增强: 按攻击向量 (OWASP 分类) 分组, 每组展示主攻技术+突破方式+修复建议.
+    高 ASR 技术 → 高优先级修复建议.
     """
     from pipeline.utils.display import info_box
 
     if not ctx.asr_per_technique:
-        info_box("修复建议", ["(无 ASR 数据)"])
+        info_box("修复建议 (按攻击向量分组)", ["(无 ASR 数据)"])
         return
 
     # 按成功率排序
     sorted_asr = sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True)
 
+    # S5-3: 按攻击向量分组 — G2 修复: 从 YAML 配置加载
+    from pathlib import Path as _Path
+    config_path = _Path(__file__).parent.parent.parent / "data" / "setting" / "display_config.yaml"
+    tech_to_vector: dict[str, str] = {}
+    tech_to_breakthrough: dict[str, str] = {}
+    try:
+        import yaml as _yaml
+        with open(config_path, encoding="utf-8") as f:
+            display_cfg = _yaml.safe_load(f)
+        tech_to_vector = display_cfg.get("tech_to_vector", {})
+        tech_to_breakthrough = display_cfg.get("tech_to_breakthrough", {})
+    except Exception as e:
+        logger.debug(f"G2 display_config.yaml load failed: {e}")
+
     lines: list[str] = []
-    for tech, asr in sorted_asr[:5]:
+    current_vector = ""
+    for tech, asr in sorted_asr[:8]:
+        vector = tech_to_vector.get(tech, "其他")
+        if vector != current_vector:
+            current_vector = vector
+            lines.append(f"【{vector}】")
+
         if asr >= 50:
             severity = "🔴 严重"
             action = "立即修复"
@@ -520,11 +570,19 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
             severity = "🟢 低"
             action = "持续监控"
 
-        lines.append(f"{severity} {tech}: ASR={asr:.0f}% → {action}")
+        breakthrough = tech_to_breakthrough.get(tech, "—")
+        lines.append(f"  {severity} {tech}: ASR={asr:.0f}% → {action}")
+        lines.append(f"    突破方式: {breakthrough}")
+        if asr >= 10:
+            lines.append(f"    修复建议: 加强对 {breakthrough} 的检测和防御")
+        elif asr < 10 and asr > 0:
+            lines.append("    修复建议: 维持当前防御, 持续监控")
+        else:
+            lines.append("    修复建议: 防御有效, 保持当前策略")
 
     if not lines:
         lines.append("(无有效建议)")
-    info_box("修复建议 (Top 5)", lines)
+    info_box("修复建议 (按攻击向量分组)", lines)
 
 
 # OWASP LLM Top10 覆盖矩阵
@@ -596,19 +654,44 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
                         owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
                         break
 
+    # S5-2: 计划态覆盖 (从 sorted_datasets 获取)
+    planned_coverage: set[str] = set()
+    sorted_datasets = ctx.sorted_datasets or []
+    if sorted_datasets:
+        for ds_name in sorted_datasets:
+            # 从数据集名提取 OWASP ID
+            import re as _re
+            m = _re.match(r"^owasp_(?:llm|asi)(\d{2})_", ds_name, _re.IGNORECASE)
+            if m:
+                planned_coverage.add(f"LLM{m.group(1)}")
+
     lines: list[str] = []
     for owasp_id, name in owasp_categories.items():
-        mark = "✓" if owasp_id in covered else "✗"
+        is_planned = owasp_id in planned_coverage
+        is_actual = owasp_id in covered
         attack_count = owasp_attack_counts.get(owasp_id, 0)
         success_count = owasp_success_counts.get(owasp_id, 0)
-        if attack_count > 0:
+
+        # S5-2: 计划 vs 实际 标注
+        if is_actual and attack_count > 0:
             rate = success_count / attack_count * 100
-            lines.append(f"  {mark} {owasp_id} {name:<30} {success_count}/{attack_count} ({rate:.0f}%)")
+            planned_str = str(attack_count) if is_planned else "0"
+            line = (
+                f"  ✓ {owasp_id} {name:<30} 计划 {planned_str} "
+                f"→ 实际 {attack_count} | {success_count} 成功 ({rate:.0f}%)"
+            )
+            lines.append(line)
+        elif is_planned:
+            lines.append(f"  ─ {owasp_id} {name:<30} 计划有 → 实际 0 (未触发)")
         else:
-            lines.append(f"  {mark} {owasp_id} {name}")
+            lines.append(f"  ✗ {owasp_id} {name:<30} 未覆盖")
 
     coverage = len(covered) / len(owasp_categories) * 100
-    lines.append(f"  覆盖率: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%)")
+    success_categories = sum(1 for v in owasp_success_counts.values() if v > 0)
+    lines.append(
+        f"  覆盖率: {len(covered)}/{len(owasp_categories)} ({coverage:.0f}%) "
+        f"| 有成功攻击的分类: {success_categories}/{len(covered)}"
+    )
 
     info_box("OWASP LLM Top10 (2025) 覆盖矩阵", lines)
 

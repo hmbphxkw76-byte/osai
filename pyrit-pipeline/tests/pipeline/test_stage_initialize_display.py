@@ -10,12 +10,12 @@
   - _extract_attack_converters_from_attack: 从 AtomicAttack 实例直接提取 (P1)
   - _count_enhanced_attacks: 统计携带 Converter 增强的 AtomicAttack 数量
   - _collect_unique_converter_names: 收集所有 Converter 类名 (去重)
-  - _print_stage2_to_3_filter_summary: 决策过滤摘要 (有/无去重)
   - _print_attack_loadout_card: 攻击装弹清单 (正常/空列表)
-  - _print_converter_instantiation_overview: Converter 链总览 (正常/空列表)
 
 > **日期**: 2026-8-8
 > **更新记录**:
+>   2026-8-9 — O4 清理: 移除 _print_stage2_to_3_filter_summary
+>     + _print_converter_instantiation_overview 测试 (已删除的函数)
 >   2026-8-8 — 新增 _extract_technique_name_from_attack 测试 (7 个), 修复 display_group 键不匹配 bug
 >   2026-8-8 — 初始版本: 23 个单元测试覆盖展示函数
 """
@@ -37,8 +37,6 @@ from pipeline.stages.stage_initialize import (
     _infer_conv_types,
     _print_attack_grouping,
     _print_attack_loadout_card,
-    _print_converter_instantiation_overview,
-    _print_stage2_to_3_filter_summary,
     _shorten_attack_name,
 )
 
@@ -528,44 +526,6 @@ class TestCollectUniqueConverterNames:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  _print_stage2_to_3_filter_summary
-# ──────────────────────────────────────────────────────────────────
-
-
-class TestPrintStage2To3FilterSummary:
-    """_print_stage2_to_3_filter_summary: 决策过滤摘要。."""
-
-    def test_with_dedup(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """有去重 → 显示去重数量。"""
-        ctx = PipelineContext()
-        ctx.metadata["planned_attack_count"] = 78
-        ctx.sorted_datasets = ["ds1", "ds2", "ds3"]
-
-        attacks = [MagicMock()] * 75  # 78 raw - 3 dedup
-
-        _print_stage2_to_3_filter_summary(ctx, attacks, raw_count=78)
-
-        captured = capsys.readouterr()
-        assert "78" in captured.out  # planned
-        assert "75" in captured.out  # actual
-        assert "SHA256" in captured.out  # dedup mention
-        assert "3" in captured.out  # dedup count
-
-    def test_no_dedup(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """无去重 → 显示 '无去重'。"""
-        ctx = PipelineContext()
-        ctx.metadata["planned_attack_count"] = 75
-        ctx.sorted_datasets = ["ds1", "ds2"]
-
-        attacks = [MagicMock()] * 75
-
-        _print_stage2_to_3_filter_summary(ctx, attacks, raw_count=75)
-
-        captured = capsys.readouterr()
-        assert "无去重" in captured.out
-
-
-# ──────────────────────────────────────────────────────────────────
 #  _print_attack_loadout_card
 # ──────────────────────────────────────────────────────────────────
 
@@ -593,7 +553,7 @@ class TestPrintAttackLoadoutCard:
         _print_attack_loadout_card(ctx, [attack])
 
         captured = capsys.readouterr()
-        assert "攻击装弹清单" in captured.out
+        assert "攻击武器库" in captured.out
         assert "many_shot" in captured.out
         assert "62%" in captured.out
 
@@ -602,49 +562,7 @@ class TestPrintAttackLoadoutCard:
         ctx = PipelineContext()
         _print_attack_loadout_card(ctx, [])
         captured = capsys.readouterr()
-        assert "攻击装弹清单" not in captured.out
-
-
-# ──────────────────────────────────────────────────────────────────
-#  _print_converter_instantiation_overview
-# ──────────────────────────────────────────────────────────────────
-
-
-class TestPrintConverterInstantiationOverview:
-    """_print_converter_instantiation_overview: Converter 链总览。."""
-
-    def test_normal_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """正常 AtomicAttack 列表 → 输出 info_box 总览 (含管道符号 ›)。"""
-
-        class Base64Converter:
-            pass
-
-        ctx = PipelineContext()
-        ctx.technique_converter_map = {"many_shot": [Base64Converter()]}
-
-        attacks = [
-            MagicMock(display_group="many_shot", atomic_attack_name="a1"),
-            MagicMock(display_group="many_shot", atomic_attack_name="a2"),
-            MagicMock(display_group="prompt_sending", atomic_attack_name="a3"),
-        ]
-
-        _print_converter_instantiation_overview(ctx, attacks)
-
-        captured = capsys.readouterr()
-        assert "Converter 链实例化总览" in captured.out
-        assert "many_shot" in captured.out
-        assert "Base64Converter" in captured.out
-        assert "管道" in captured.out  # 新增: 管道标签
-        assert "编码" in captured.out  # 新增: 功能类型
-        assert "2" in captured.out  # 2 enhanced
-        assert "1" in captured.out  # 1 baseline
-
-    def test_empty_list_no_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """空列表 → 不输出。"""
-        ctx = PipelineContext()
-        _print_converter_instantiation_overview(ctx, [])
-        captured = capsys.readouterr()
-        assert "Converter 链实例化总览" not in captured.out
+        assert "攻击武器库" not in captured.out
 
 
 # ──────────────────────────────────────────────────────────────────

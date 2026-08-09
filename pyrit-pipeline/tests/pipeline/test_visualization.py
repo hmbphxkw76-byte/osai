@@ -4,11 +4,7 @@
 """test_visualization — 可视化函数单元测试 (P0-Gap7).
 
 覆盖:
-  - G1: _print_payload_technique_matrix (载荷-技术匹配矩阵)
-  - G2: _print_converter_transform_sample (Converter 变换示例)
-  - G3: _print_target_converter_adaptation (目标类型→Converter 适配)
   - G4: _print_asr_feedback_loop (ASR 反馈循环)
-  - D1: _print_5layer_decision_pipeline (5层决策流水线)
   - 执行可视化: _print_successful_attack_details (成功攻击详情)
   - 执行可视化: _extract_payload_from_result (多路径回退)
   - 执行可视化: _extract_converter_names_from_result (多路径回退)
@@ -24,98 +20,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from pipeline.context import PipelineContext
-
-# ============================================================
-# G1: _print_payload_technique_matrix
-# ============================================================
-
-
-class TestPayloadTechniqueMatrix:
-    """G1: 载荷-技术匹配矩阵测试。."""
-
-    def test_empty_datasets_no_crash(self, mock_args: pytest.fixture) -> None:
-        """空数据集列表不崩溃。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_payload_technique_matrix
-
-        _print_payload_technique_matrix(ctx, [], None)  # 不应抛出异常
-
-    def test_with_datasets_and_warm_start(self, mock_args: pytest.fixture) -> None:
-        """有数据集和 warm-start 时正常输出。."""
-        ctx = PipelineContext(args=mock_args)
-        warm_start = {"tap": 62.0, "red_teaming": 55.0}
-        from pipeline.stages.stage_scenario import _print_payload_technique_matrix
-
-        _print_payload_technique_matrix(ctx, ["harmbench", "jbb_behaviors"], warm_start)
-
-    def test_with_none_warm_start(self, mock_args: pytest.fixture) -> None:
-        """warm_start 为 None 时不崩溃。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_payload_technique_matrix
-
-        _print_payload_technique_matrix(ctx, ["harmbench"], None)
-
-
-# ============================================================
-# G2: _print_converter_transform_sample
-# ============================================================
-
-
-class TestConverterTransformSample:
-    """G2: Converter 变换示例测试。."""
-
-    def test_empty_map_no_crash(self, mock_args: pytest.fixture) -> None:
-        """空 converter map 不崩溃。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_converter_transform_sample
-
-        _print_converter_transform_sample(ctx, {}, ["harmbench"])
-
-    def test_with_converters(self, mock_args: pytest.fixture) -> None:
-        """有 converter 链时正常输出变换效果。."""
-        ctx = PipelineContext(args=mock_args)
-        mock_conv = MagicMock()
-        mock_conv.__class__.__name__ = "Base64Converter"
-        from pipeline.stages.stage_scenario import _print_converter_transform_sample
-
-        _print_converter_transform_sample(
-            ctx, {"tap": [mock_conv], "red_teaming": [mock_conv]}, ["harmbench"]
-        )
-
-
-# ============================================================
-# G3: _print_target_converter_adaptation
-# ============================================================
-
-
-class TestTargetConverterAdaptation:
-    """G3: 目标类型→Converter 适配图测试。."""
-
-    def test_no_target_type_no_crash(self, mock_args: pytest.fixture) -> None:
-        """无 target_type 时不崩溃。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_target_converter_adaptation
-
-        _print_target_converter_adaptation(ctx, {}, "strong")
-
-    def test_with_api_target_type(self, mock_args: pytest.fixture) -> None:
-        """api 目标类型时输出适配策略。."""
-        ctx = PipelineContext(args=mock_args)
-        ctx.target_type = "api"
-        from pipeline.stages.stage_scenario import _print_target_converter_adaptation
-
-        _print_target_converter_adaptation(ctx, {}, "strong")
-
-    def test_with_web_chat_target_type(self, mock_args: pytest.fixture) -> None:
-        """web_chat 目标类型时输出适配策略。."""
-        ctx = PipelineContext(args=mock_args)
-        ctx.target_type = "web_chat"
-        mock_conv = MagicMock()
-        mock_conv.__class__.__name__ = "UnicodeConfusableConverter"
-        from pipeline.stages.stage_scenario import _print_target_converter_adaptation
-
-        _print_target_converter_adaptation(ctx, {"tap": [mock_conv]}, "moderate")
-
 
 # ============================================================
 # G4: _print_asr_feedback_loop
@@ -142,39 +46,6 @@ class TestASRFeedbackLoop:
         from pipeline.stages.stage_post_analysis import _print_asr_feedback_loop
 
         _print_asr_feedback_loop(ctx)
-
-
-# ============================================================
-# D1: _print_5layer_decision_pipeline
-# ============================================================
-
-
-class Test5LayerDecisionPipeline:
-    """D1: 5层决策流水线图测试。."""
-
-    def test_empty_datasets_no_crash(self, mock_args: pytest.fixture) -> None:
-        """空数据集列表不崩溃。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_5layer_decision_pipeline
-
-        _print_5layer_decision_pipeline(ctx, [], None)
-
-    def test_with_datasets_and_warm_start(self, mock_args: pytest.fixture) -> None:
-        """有数据集和 warm-start 时正常输出。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_5layer_decision_pipeline
-
-        _print_5layer_decision_pipeline(
-            ctx, ["harmbench", "jbb_behaviors"], {"tap": 62.0}
-        )
-
-    def test_layer_flow_sections_present(self, mock_args: pytest.fixture) -> None:
-        """验证层间数据流 section 存在。."""
-        ctx = PipelineContext(args=mock_args)
-        from pipeline.stages.stage_scenario import _print_5layer_decision_pipeline
-
-        # 不崩溃即验证 (内部构造了 L1→L2, L2→L3 等层间 section)
-        _print_5layer_decision_pipeline(ctx, ["harmbench"], {"tap": 50.0})
 
 
 # ============================================================
