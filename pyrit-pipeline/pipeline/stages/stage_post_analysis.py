@@ -345,8 +345,11 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
     展示技术池从 Stage 2 → Stage 4 → Stage 5 的变化,
     同时展示 P 编号在分析端的消费:
       - Stage 2 策略选择的技术数 + P编号定义
-      - Stage 4 实际有载荷的技术数 + P编号执行结果
+      - Stage 4 实际执行的技术数 (从 AttackResult 提取技术名)
       - Stage 5 执行后有 ASR 数据的技术数
+
+    R-022: 使用 AttackResultAnalyzer.extract_technique_name() 原生 API 提取技术名,
+    不使用 get_display_groups() 的数据集名。
     """
     from pipeline.utils.display import info_box
 
@@ -356,12 +359,18 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
     if warm_start:
         stage2_techs = set(warm_start.keys())
 
-    # Stage 4: 执行结果中的技术数 (从 result.get_display_groups() 获取)
-    stage4_techs = set()
+    # Stage 4: 执行结果中的技术数 (从 AttackResult 提取真正技术名)
+    stage4_techs: set[str] = set()
     if ctx.result:
         with contextlib.suppress(Exception):
+            from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
             groups = ctx.result.get_display_groups()
-            stage4_techs = set(groups.keys())
+            for _ds_name, attack_results in groups.items():
+                for ar in attack_results:
+                    tech = AttackResultAnalyzer.extract_technique_name(ar)
+                    if tech and tech != "unknown":
+                        stage4_techs.add(tech)
 
     # Stage 5: 有 ASR 数据的技术数
     stage5_techs = set(ctx.asr_per_technique.keys()) if ctx.asr_per_technique else set()
@@ -390,13 +399,13 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
             matched_str = ", ".join(sorted(list(matched))[:5])
             if len(matched) > 5:
                 matched_str += f" ... (+{len(matched) - 5})"
-            lines.append(f"Stage 4 载荷匹配: {len(matched)} 种 ✓ ({matched_str})")
+            lines.append(f"Stage 4 技术匹配: {len(matched)} 种 ✓ ({matched_str})")
         if unmatched:
             unmatched_str = ", ".join(sorted(list(unmatched))[:5])
             if len(unmatched) > 5:
                 unmatched_str += f" ... (+{len(unmatched) - 5})"
             lines.append(
-                f"Stage 4 无载荷:  {len(unmatched)} 种 ✗ ({unmatched_str}) ← 无种子数据"
+                f"Stage 4 未执行:  {len(unmatched)} 种 ✗ ({unmatched_str}) ← 无载荷/未触发"
             )
         if extra:
             extra_str = ", ".join(sorted(list(extra))[:5])
@@ -404,7 +413,7 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
                 extra_str += f" ... (+{len(extra) - 5})"
             lines.append(f"Stage 4 额外:    {len(extra)} 种 (载荷自带: {extra_str})")
     else:
-        lines.append(f"Stage 4 载荷执行: {len(stage4_techs)} 种")
+        lines.append(f"Stage 4 技术执行: {len(stage4_techs)} 种")
 
     lines.append(f"Stage 5 执行:    {len(stage5_techs)} 种 (有 ASR 数据)")
 

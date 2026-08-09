@@ -413,37 +413,55 @@ class TestParseArgsUnifiedEntry:
             args = parse_args()
             assert args.target_url == "https://cli.example.com"
 
-    def test_load_owasp_local_default_true(self) -> None:
-        """--load-owasp-local 默认为 True。"""
+    def test_load_local_datasets_default_true(self) -> None:
+        """--load-local-datasets 默认为 True。"""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py"]):
+            args = parse_args()
+            assert args.load_local_datasets is True
+
+    def test_no_local_datasets_disables(self) -> None:
+        """--no-local-datasets 禁用本地数据集加载。"""
+        from pipeline.config import parse_args
+
+        with patch("sys.argv", ["main.py", "--no-local-datasets"]):
+            args = parse_args()
+            assert args.load_local_datasets is False
+
+    def test_load_owasp_local_backward_compat(self) -> None:
+        """--load-owasp-local 向后兼容, 等价于 --load-local-datasets。"""
         from pipeline.config import parse_args
 
         with patch("sys.argv", ["main.py"]):
             args = parse_args()
             assert args.load_owasp_local is True
 
-    def test_no_owasp_local_disables(self) -> None:
-        """--no-owasp-local 禁用 OWASP 加载。"""
+    def test_no_owasp_local_backward_compat(self) -> None:
+        """--no-owasp-local 向后兼容, 同时禁用 load_local_datasets。"""
         from pipeline.config import parse_args
 
         with patch("sys.argv", ["main.py", "--no-owasp-local"]):
             args = parse_args()
             assert args.load_owasp_local is False
+            assert args.load_local_datasets is False
 
-    def test_skip_preflight_default_false(self) -> None:
-        """--skip-preflight 默认为 False (预检默认开启)."""
+    def test_skip_preflight_default_true(self) -> None:
+        """--skip-preflight 默认为 True (预检默认跳过, 简化命令行)."""
         from pipeline.config import parse_args
 
         with patch("sys.argv", ["main.py"]):
             args = parse_args()
-            assert args.skip_preflight is False
+            assert args.skip_preflight is True
+            assert args.run_preflight is False
 
-    def test_skip_preflight_flag(self) -> None:
-        """--skip-preflight 设置为 True."""
+    def test_run_preflight_flag(self) -> None:
+        """--run-preflight 手动启用预检."""
         from pipeline.config import parse_args
 
-        with patch("sys.argv", ["main.py", "--skip-preflight"]):
+        with patch("sys.argv", ["main.py", "--run-preflight"]):
             args = parse_args()
-            assert args.skip_preflight is True
+            assert args.run_preflight is True
 
     def test_disable_json_mode_default_false(self) -> None:
         """--disable-json-mode 默认为 False (自动检测模式)."""

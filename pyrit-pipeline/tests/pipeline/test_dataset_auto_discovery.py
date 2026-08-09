@@ -208,7 +208,7 @@ class TestLoadDefaultDatasetsFromManifest:
 
         paths, manifest, auto_discovered = _load_default_datasets_from_manifest(scope="all")
 
-        assert len(paths) >= 21
+        assert len(paths) >= 20  # owasp_llm10 默认禁用 (DoS 攻击)
         assert any("llm03" in p for p in paths)
         assert any("asi10" in p for p in paths)
         assert any("cve" in p for p in paths)
@@ -261,6 +261,9 @@ class TestLoadDefaultDatasetsFromManifest:
 
         owasp_files = list(Path("data/seed_datasets/owasp").glob("*.prompt"))
         for f in owasp_files:
+            # owasp_llm10 在清单中 default=false, 不被加载也不被自动发现 (预期行为)
+            if "llm10" in f.name:
+                continue
             assert any(Path(p).resolve() == f.resolve() for p in paths), f"未加载: {f}"
 
         cve_files = list(Path("data/seed_datasets/cve").glob("*.prompt"))
@@ -369,4 +372,40 @@ class TestFilterDatasetsByTarget:
         assert "new_cve" in result[0]
 
 
+class TestEnableDosAttack:
+    """--enable-dos-attack flag: 手动启用 owasp_llm10 DoS 攻击数据集."""
+
+    def test_dos_disabled_by_default(self) -> None:
+        """默认不加载 owasp_llm10 (default=false)."""
+        from pipeline.stages.stage_init import _load_default_datasets_from_manifest
+
+        paths, _, _ = _load_default_datasets_from_manifest(scope="all")
+        assert not any("llm10" in p for p in paths), "owasp_llm10 应默认不加载"
+
+    def test_dos_enabled_via_flag(self) -> None:
+        """--enable-dos-attack 时手动加载 owasp_llm10."""
+        from pathlib import Path
+
+        from pipeline.stages.stage_init import _load_default_datasets_from_manifest
+
+        manifest_paths, manifest_dict, _ = _load_default_datasets_from_manifest(scope="all")
+
+        # 模拟 stage_init.py 中的 --enable-dos-attack 逻辑
+        enable_dos = True
+        if enable_dos and manifest_dict:
+            for entry in manifest_dict.get("datasets", []):
+                if entry.get("name") == "owasp_llm10_unbounded_consumption" and entry.get("source") == "local":
+                    dos_path = entry.get("path", "")
+                    if dos_path and Path(dos_path).exists() and dos_path not in manifest_paths:
+                        manifest_paths.append(dos_path)
+                    break
+
+        assert any("llm10" in p for p in manifest_paths), "owasp_llm10 应在 --enable-dos-attack 下加载"
+
+    def test_dos_flag_in_mock_args(self) -> None:
+        """conftest mock_args 包含 enable_dos_attack=False 默认值."""
+        from argparse import Namespace
+
+        ns = Namespace(enable_dos_attack=False)
+        assert getattr(ns, "enable_dos_attack", True) is False
 

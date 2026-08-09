@@ -1,8 +1,11 @@
 {
-  "techniques": {},
+  "techniques": {
+    "many_shot": 0.05,
+    "prompt_sending": 0.84375
+  },
   "_meta": {
-    "total_techniques": 0,
+    "total_techniques": 2,
     "model_name": "LongCat-2.0",
-    "description": "Empirical ASR data collected from runtime. Overrides academic priors. O1 fix: cleared dataset-name keys, will be re-collected with correct technique names."
+    "description": "Empirical ASR data collected from runtime. Overrides academic priors."
   }
 }

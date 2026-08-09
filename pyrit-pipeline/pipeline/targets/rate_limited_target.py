@@ -82,11 +82,12 @@ async def _get_shared_semaphore(endpoint: str, max_concurrency: int) -> asyncio.
 
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_BASE_DELAY = 1.0
-_DEFAULT_MAX_DELAY = 60.0
+_DEFAULT_MAX_DELAY = 30.0
 _DEFAULT_JITTER = 0.5
 
-# G7: 不可重试的 HTTP 状态码 — 认证/请求错误, 立即失败
-_NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 405, 422}
+# G7: 不可重试的 HTTP 状态码 — 认证/请求错误/空响应, 立即失败
+# 204 = 空响应 (DeepSeek 付费版仍可能返回), 重试无意义
+_NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 405, 422, 204}
 
 # 触发重试的 HTTP 状态码
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -128,9 +129,10 @@ def _is_retryable_error(error: Exception) -> bool:
 
 
 def _is_non_retryable_error(error: Exception) -> bool:
-    """G7: 判断错误是否为不可重试 (认证失败/请求错误).
+    """G7: 判断错误是否为不可重试 (认证失败/请求错误/空响应).
 
-    401/403/400/404/422 等状态码不应重试, 应立即失败.
+    401/403/400/404/422/204 等状态码不应重试, 应立即失败.
+    204 空响应 ("The chat returned an empty response") 重试无意义.
     """
     import re
 
@@ -139,8 +141,13 @@ def _is_non_retryable_error(error: Exception) -> bool:
         return True
 
     error_str = str(error).lower()
+    # 204 空响应: "The chat returned an empty response (no content, audio, or tool_calls)"
+    if "204" in error_str and ("empty" in error_str or "no content" in error_str):
+        return True
+    if "empty response" in error_str and "tool_calls" in error_str:
+        return True
     # 仅匹配精确状态码 (避免 4000 匹配 400)
-    code_matches = re.findall(r"\b(40[01345]|422)\b", error_str)
+    code_matches = re.findall(r"\b(40[01345]|422|204)\b", error_str)
     return bool(code_matches)
 
 

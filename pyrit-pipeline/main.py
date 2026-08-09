@@ -15,8 +15,9 @@
 开发规范: docs/development_guidelines.md (v2.0)
 
 Usage:
-  python main.py --datasets harmbench jbb_behaviors strong_reject --load-owasp-local
-  python main.py --load-owasp-local --tier-layer 1
+  python main.py
+  python main.py --dataset-scope owasp_llm
+  python main.py --max-dataset-size 5 --max-attempts 3
   python main.py --resume <scenario_result_id>
 """
 

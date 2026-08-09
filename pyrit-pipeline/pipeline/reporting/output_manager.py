@@ -82,10 +82,10 @@ class ProgressDashboard:
             f"  ┌{'─' * 60}┐",
             f"  │ {'PyRIT AI Red Team - Batch Attack Progress':^56s} │",
             f"  │ {bar} {self.completed}/{self.total} ({pct:.1f}%){'':>16s}│",
-            f"  │ {'✅ OK:':>8s} {self.succeeded:<5d}  {'❌ FAIL:':>8s} {self.failed:<5d}"
-            f"  {'⚠ ERR:':>7s} {self.errored:<5d}{'':>6s}│",
-            f"  │ {'Elapsed:':>8s} {elapsed:.0f}s    {'ETA:':>5s} ~{remaining:.0f}s"
-            f"    {'Rate:':>5s} {rate:.1f}/min{'':>8s}│",
+            (f"  │ {'✅ OK:':>8s} {self.succeeded:<5d}  {'❌ FAIL:':>8s} {self.failed:<5d}"
+            f"  {'⚠ ERR:':>7s} {self.errored:<5d}{'':>6s}│"),
+            (f"  │ {'Elapsed:':>8s} {elapsed:.0f}s    {'ETA:':>5s} ~{remaining:.0f}s"
+            f"    {'Rate:':>5s} {rate:.1f}/min{'':>8s}│"),
         ]
 
         # L5 P0-2: 实时 ASR 迷你仪表盘 (当有结果时显示)
@@ -178,48 +178,78 @@ class ProgressDashboard:
 
     @staticmethod
     def _extract_technique(ar: Any) -> str:
-        """从 AttackResult 提取技术名 (用于 ASR 分组).
+        """从 AttackResult 提取技术名 (用于 ASR 分组 + 终端显示).
 
-        R-010 PyRIT 原生优先 (多路径回退):
-          1. ar.atomic_attack_identifier — PyRIT 原生 ComponentIdentifier
-             a. .unique_name (人类可读名称)
-             b. .class_name (技术类名, 如 TAPAttack / PromptSendingAttack)
-             c. .params.get("attack_strategy") (策略参数)
-          2. ar.metadata.get("technique") — 元数据回退
-          3. ar.metadata.get("attack_mode") — 元数据回退
+        R-022 PyRIT 原生优先 (修正路径 — 使用 get_attack_strategy_identifier):
+          1. ar.get_attack_strategy_identifier() — PyRIT 原生 API
+             → 返回内层 AttackIdentifier (class_name="ManyShotJailbreakAttack" 等)
+             a. .class_name → map_class_name_to_technique() (如 "ManyShotJailbreakAttack" → "many_shot")
+             b. .params.get("attack_strategy") (策略参数回退)
+          2. ar.atomic_attack_identifier — 外层标识符回退 (向下钻取 attack_technique → attack)
+          3. ar.metadata.get("technique") — 元数据回退
           4. "unknown" — 最终回退
-        """
-        ar_dict = vars(ar) if hasattr(ar, "__dict__") else {}
 
-        # 路径 1: PyRIT 原生 atomic_attack_identifier (ComponentIdentifier)
+        注意: ar.atomic_attack_identifier.unique_name 返回 "AtomicAttack::hash",
+        这是复合标识符的哈希, 非技术名。正确路径是通过 get_attack_strategy_identifier()
+        获取内层 AttackIdentifier 的 class_name, 再通过 technique_name_mapper 映射。
+        """
+        # 路径 1: PyRIT 原生 get_attack_strategy_identifier() → 内层 AttackIdentifier
+        # Performance: 检查 type 级方法, 避免 MagicMock auto-attr 导致的方法调用开销
+        # (MagicMock.get_attack_strategy_identifier() 每次创建新 MagicMock, 1000 次调用 ~2s)
+        _type_method = getattr(type(ar), "get_attack_strategy_identifier", None)
+        if _type_method is not None and type(_type_method).__name__ == "function":
+            try:
+                attack_id = ar.get_attack_strategy_identifier()
+                if attack_id is not None:
+                    # 1a: class_name → 规范技术名映射
+                    cname = getattr(attack_id, "class_name", None)
+                    if cname and isinstance(cname, str) and len(cname) > 2:
+                        from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                        mapped = map_class_name_to_technique(cname)
+                        if mapped and mapped != "unknown":
+                            return mapped
+                        # 无映射时保留原始 class_name (不返回 "AtomicAttack")
+                        if cname != "AtomicAttack":
+                            return cname
+                    # 1b: params 中的 attack_strategy
+                    params = getattr(attack_id, "params", None) or {}
+                    if isinstance(params, dict):
+                        for key in ("attack_strategy", "technique", "attack_mode"):
+                            val = params.get(key)
+                            if val and isinstance(val, str):
+                                return val
+            except Exception:
+                pass
+
+        # 路径 2: ar.atomic_attack_identifier 向下钻取 (回退)
+        ar_dict = vars(ar) if hasattr(ar, "__dict__") else {}
         aai = ar_dict.get("atomic_attack_identifier")
         if aai is not None:
-            # 1a: unique_name (人类可读)
             try:
-                uname = getattr(aai, "unique_name", None)
-                if uname and isinstance(uname, str) and uname != "ComponentIdentifier":
-                    return uname
-            except Exception:
-                pass
-            # 1b: class_name (技术类名)
-            try:
-                cname = getattr(aai, "class_name", None)
-                if cname and isinstance(cname, str) and len(cname) > 2:
-                    return cname
-            except Exception:
-                pass
-            # 1c: params 中的 attack_strategy
-            try:
-                params = getattr(aai, "params", None) or {}
-                if isinstance(params, dict):
-                    for key in ("attack_strategy", "technique", "attack_mode"):
-                        val = params.get(key)
-                        if val and isinstance(val, str):
-                            return val
+                # 尝试向下钻取: attack_technique → attack
+                technique_child = None
+                children = getattr(aai, "children", None) or {}
+                if isinstance(children, dict):
+                    technique_child = children.get("attack_technique")
+                if technique_child is not None:
+                    tech_children = getattr(technique_child, "children", None) or {}
+                    if isinstance(tech_children, dict):
+                        attack_child = tech_children.get("attack")
+                        if attack_child is not None:
+                            cname = getattr(attack_child, "class_name", None)
+                            if cname and isinstance(cname, str) and len(cname) > 2:
+                                from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                                mapped = map_class_name_to_technique(cname)
+                                if mapped and mapped != "unknown":
+                                    return mapped
+                                if cname != "AtomicAttack":
+                                    return cname
             except Exception:
                 pass
 
-        # 路径 2: PyRIT 原生 metadata
+        # 路径 3: PyRIT 原生 metadata
         metadata = ar_dict.get("metadata") or {}
         if isinstance(metadata, dict):
             for key in ("technique", "attack_mode", "attack_type", "strategy_name"):
@@ -268,6 +298,7 @@ class ProgressPoller:
         scenario_result_id: str,
         interval: float = 5.0,
         asr_tracker: Any | None = None,
+        technique_converter_map: dict[str, list] | None = None,
     ) -> None:
         """初始化轮询器.
 
@@ -276,9 +307,12 @@ class ProgressPoller:
             scenario_result_id: 场景结果 ID。
             interval: 初始轮询间隔 (秒), 会自适应退避到 _MAX_INTERVAL。
             asr_tracker: 可选的 RealTimeASRTracker 实例, 用于实时 ASR 反馈。
+            technique_converter_map: 技术→Converter 实例列表映射, 用于回调行 Converter 链回退。
         """
         self._dashboard = dashboard
         self._scenario_result_id = scenario_result_id
+        # P2 修复: 存储 technique_converter_map 供回调行 Converter 链回退
+        self._technique_converter_map = technique_converter_map or {}
         self._interval = interval
         self._base_interval = interval  # 退避重置基准
         self._task: asyncio.Task | None = None
@@ -311,7 +345,7 @@ class ProgressPoller:
           ④ 检测新增 AttackResult, 打印红队可读回调行
           ⑤ 自适应退避: 无变化时轮询间隔 5s→10s→15s→30s
         """
-        seen_ids: set[str] = set()
+        seen_ids: dict[str, float] = {}  # ar_id → first_seen_timestamp (monotonic cleanup)
 
         while not self._stopped:
             try:
@@ -335,12 +369,19 @@ class ProgressPoller:
                     self._backoff()
                     continue
 
+                # 定期清理 seen_ids: 超过 300 秒的记录移除, 防止集合无限增长
+                now = time.monotonic()
+                if len(seen_ids) > 200:
+                    expired = [k for k, t in seen_ids.items() if now - t > 300]
+                    for k in expired:
+                        del seen_ids[k]
+
                 # P0-1: 检测新增 AttackResult, 打印红队可读回调行
                 new_results: list[Any] = []
                 for ar in results:
                     ar_id = str(getattr(ar, "id", "") or getattr(ar, "attack_result_id", ""))
                     if ar_id and ar_id not in seen_ids:
-                        seen_ids.add(ar_id)
+                        seen_ids[ar_id] = now
                         new_results.append(ar)
 
                 if new_results:
@@ -352,15 +393,33 @@ class ProgressPoller:
                             else str(outcome).upper()
                         ) if outcome else "UNKNOWN"
                         marker = "✅" if outcome_str == "SUCCESS" else ("❌" if outcome_str == "FAILURE" else "⚠")
-                        # D2: 红队回调行 — 技术名 + 载荷摘要 + 响应摘要
+                        # D2 增强: 红队回调行 — [B]/[E] + 技术+Converter链 + 数据集 + 载荷 + 响应
                         tech = ProgressDashboard._extract_technique(ar)
-                        obj = str(getattr(ar, "objective", ""))[:60]
-                        # D2: 提取目标响应摘要 (前 50 字符)
+                        # P1 修复: 跳过 SequentialAttack 信封结果 (tech="sequential"),
+                        # 仅显示子攻击结果 (含真实技术名+响应), 避免冗余行.
+                        if tech == "sequential":
+                            continue
+                        obj = str(getattr(ar, "objective", ""))[:50]
                         resp = _extract_response_brief(ar)
+                        # 新增: Converter 链提取 (从原生标识符)
+                        conv_names = _extract_converter_chain_brief(ar)
+                        # P2 修复: 原生标识符可能不含 pipeline 配置的 Converter,
+                        # 回退到 technique_converter_map 按技术名查找
+                        if not conv_names and self._technique_converter_map:
+                            converters = self._technique_converter_map.get(tech, [])
+                            conv_names = [type(c).__name__ for c in converters]
+                        # 新增: 数据集来源
+                        dataset = _extract_dataset_from_result(ar)
+                        # 新增: Baseline/增强标记
+                        is_baseline = tech == "prompt_sending" or not conv_names
+                        strategy_marker = "[B]" if is_baseline else "[E]"
+                        # 组装显示行
+                        tech_conv = f"{tech}+{'→'.join(conv_names)}" if conv_names else tech
+                        dataset_str = f" | {dataset}" if dataset else ""
                         if resp:
-                            print(f"  {marker} {tech[:30]} | {obj} → {resp}")
+                            print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj} → {resp}")
                         else:
-                            print(f"  {marker} {tech[:30]} | {obj}")
+                            print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj}")
 
                     # P3-O1: 实时 ASR 反馈 — 将新结果反馈到 ASR 追踪器
                     if self._asr_tracker is not None:
@@ -458,8 +517,13 @@ class ProgressPoller:
             if not results:
                 return ""
             # 取最近一条结果, 使用与 dashboard 相同的提取逻辑确保 key 一致
-            latest_ar = results[-1]
-            return ProgressDashboard._extract_technique(latest_ar)
+            # P3 修复: 跳过 SequentialAttack 信封结果 (tech="sequential"),
+            # 反向遍历找到第一个子攻击结果 (含真实技术名)
+            for ar in reversed(results):
+                tech = ProgressDashboard._extract_technique(ar)
+                if tech and tech != "sequential":
+                    return tech
+            return ""
         except Exception:
             return ""
 
@@ -502,6 +566,84 @@ def _extract_response_brief(ar: Any) -> str:
         if reason and isinstance(reason, str) and len(reason) > 5:
             brief = reason[:50]
             return brief + "..." if len(reason) > 50 else brief
+    except Exception:
+        pass
+
+    return ""
+
+
+def _extract_converter_chain_brief(ar: Any) -> list[str]:
+    """D2 增强: 从 AttackResult 提取 Converter 链名列表 (用于实时回调行).
+
+    R-022 PyRIT 原生优先:
+      1. AttackResultAnalyzer.extract_converter_chain_names(ar) — 原生标识符路径
+         → ar.get_attack_strategy_identifier().children["request_converters"]
+         → ConverterIdentifier.class_name (如 "PersuasionConverter", "UnicodeConverter")
+      2. ar.metadata — 元数据回退
+
+    Args:
+        ar: AttackResult 实例
+
+    Returns:
+        Converter 类名列表 (可能为空)
+    """
+    # 路径 1: 原生标识符路径 — AttackResultAnalyzer
+    try:
+        from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
+        chain = AttackResultAnalyzer.extract_converter_chain_names(ar)
+        if chain:
+            return chain
+    except Exception:
+        pass
+
+    # 路径 2: metadata 回退
+    try:
+        metadata = getattr(ar, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            conv_list = metadata.get("converters") or metadata.get("converter_chain")
+            if conv_list and isinstance(conv_list, list):
+                return [str(c) for c in conv_list]
+    except Exception:
+        pass
+
+    return []
+
+
+def _extract_dataset_from_result(ar: Any) -> str:
+    """D2 增强: 从 AttackResult 提取数据集来源名 (用于实时回调行).
+
+    R-022 PyRIT 原生优先:
+      1. ar.atomic_attack_identifier.params.get("display_group") — 原生标识符参数
+      2. ar.metadata.get("dataset_name") — 元数据回退
+      3. ar.metadata.get("display_group") — 元数据回退
+
+    Args:
+        ar: AttackResult 实例
+
+    Returns:
+        数据集名 (如 "owasp_llm01"), 或空字符串
+    """
+    # 路径 1: 原生标识符 params
+    try:
+        aai = getattr(ar, "atomic_attack_identifier", None)
+        if aai is not None:
+            params = getattr(aai, "params", None) or {}
+            if isinstance(params, dict):
+                dg = params.get("display_group")
+                if dg and isinstance(dg, str):
+                    return dg
+    except Exception:
+        pass
+
+    # 路径 2: metadata 回退
+    try:
+        metadata = getattr(ar, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            for key in ("dataset_name", "display_group"):
+                val = metadata.get(key)
+                if val and isinstance(val, str):
+                    return val
     except Exception:
         pass
 

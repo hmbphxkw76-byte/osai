@@ -186,6 +186,7 @@ base_techniques_for_variants:
   - encoding_bypass
   - unicode_attack
   - random_case
+  - token_smuggling_chain
   - persuasion_authority
   - decomposition_chain
   crescendo:
@@ -205,6 +206,9 @@ base_techniques_for_variants:
   many_shot:
   - encoding_bypass
   - stealth_evasion
+  - token_smuggling_chain
+  - persuasion_authority
+  - decomposition_chain
   best_of_n_jailbreak:
   - stealth_evasion
   - persuasion_authority
@@ -321,8 +325,8 @@ payload_converter_affinity:
   category_boost_chains:
     encoding:
     - encoding_bypass
+    - token_smuggling_chain
     - multi_encoding_v2
-    - stealth_evasion
     - unicode_attack
     persuasion:
     - persuasion_authority
@@ -331,9 +335,9 @@ payload_converter_affinity:
     - decomposition_chain
     - persuasion_authority
     multi_turn:
-    - encoding_bypass
+    - token_smuggling_chain
     - multi_encoding_v2
-    - stealth_evasion
+    - encoding_bypass
     role_play:
     - persuasion_authority
     - decomposition_chain
@@ -369,3 +373,17 @@ combo_multipliers:
     - unicode_attack
     multiplier: 1.6
     note: encoding + unicode dual-layer
+  - chains:
+    - token_smuggling_chain
+    multiplier: 1.3
+    note: token smuggling single-chain boost
+  - chains:
+    - encoding_bypass
+    - token_smuggling_chain
+    multiplier: 1.4
+    note: encoding + token smuggling cross-paradigm
+  - chains:
+    - stealth_evasion
+    - token_smuggling_chain
+    multiplier: 1.35
+    note: obfuscation + token smuggling cross-paradigm

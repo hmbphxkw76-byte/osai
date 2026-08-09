@@ -185,12 +185,12 @@ class TestGetLatestTechniqueName:
 
         mock_mem = MagicMock()
         mock_results = [MagicMock()]
-        mock_mem.get_scenario_results.return_value = mock_results
+        mock_mem.get_attack_results.return_value = mock_results
 
         with (
             patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_mem),
             patch(
-                "pipeline.analysis.attack_result_analyzer.AttackResultAnalyzer.extract_technique_name",
+                "pipeline.reporting.output_manager.ProgressDashboard._extract_technique",
                 return_value="crescendo",
             ),
         ):

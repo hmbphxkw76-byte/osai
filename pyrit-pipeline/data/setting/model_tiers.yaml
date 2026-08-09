@@ -41,7 +41,7 @@ moderate_patterns:
   - "mistral-?(large|medium|small)"
   - "mixtral"
   - "qwen-?(2|2\\.5|max)"
-  - "deepseek-?(v2|v3|coder)"
+  - "deepseek-?(v2|v3|v4|coder)"
   - "yi-?\\d+b"
   - "chatglm"
   - "gemma-?\\d"

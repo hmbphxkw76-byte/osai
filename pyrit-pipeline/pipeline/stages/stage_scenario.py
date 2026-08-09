@@ -921,12 +921,33 @@ async def run(ctx: PipelineContext) -> None:
         ctx.selector = None
         print(f"  场景: {scenario_name} (原生场景)")
 
-    # ASR 优先级采样: 如果存在种子级 ASR 数据, monkey-patch _apply_max_dataset_size
-    # 使高 ASR 种子获得更高被采样概率 (替代原生 random.sample)
+    # 融合优先级采样: ASR 驱动 + 模型特异性类别优先级
+    # 首次运行: 仅模型特异性 (无 ASR 历史) → 类别优先级驱动
+    # 后续运行: ASR 驱动 + 类别补充 (动态权重基于 ASR 数据量)
     seed_level_asr = ctx.metadata.get("seed_level_asr")
-    if seed_level_asr:
-        _apply_asr_priority_sampling_patch(seed_level_asr)
-        print("  种子级 ASR 采样: 已启用 (高 ASR 种子优先)")
+    has_category_priority = bool(ctx.metadata.get("seed_category_priority"))
+    if seed_level_asr or has_category_priority:
+        # B2: 优先使用动态权重 (Stage 1 基于 ASR 数据量计算), 回退到 YAML 配置
+        _asr_w = float(ctx.metadata.get("dynamic_asr_weight", 0.0))
+        _cat_w = float(ctx.metadata.get("dynamic_category_weight", 0.0))
+        if _asr_w == 0.0 and _cat_w == 0.0:
+            # 无动态权重 (首次运行无 ASR 历史) → 回退到 YAML 配置
+            from pipeline.config import _load_attack_params
+
+            _params = _load_attack_params()
+            _asr_w = float(_params.get("seed_priority_asr_weight", 0.7))
+            _cat_w = float(_params.get("seed_priority_category_weight", 0.3))
+        _apply_asr_priority_sampling_patch(
+            seed_level_asr,
+            asr_weight=_asr_w,
+            category_weight=_cat_w,
+        )
+        if seed_level_asr and has_category_priority:
+            print(f"  种子优先级采样: 已启用 (ASR 驱动 {_asr_w:.0%} + 模型特异性 {_cat_w:.0%})")
+        elif seed_level_asr:
+            print("  种子级 ASR 采样: 已启用 (高 ASR 种子优先)")
+        elif has_category_priority:
+            print("  模型特异性种子采样: 已启用 (类别优先级驱动, 首次运行)")
 
     # CompoundDatasetAttackConfiguration (独立 per-dataset 预算)
     dataset_config = CompoundDatasetAttackConfiguration.per_dataset(
@@ -1186,9 +1207,25 @@ async def run(ctx: PipelineContext) -> None:
             auto_assignments = sum(len(v) for v in auto_map.values())
             auto_techniques = len(auto_map)
             print(
-                f"  Converter Auto 路由 (Layer 3 ASR 驱动): "
-                f"{auto_techniques} 个技术 ({auto_assignments} 个分配)"
+                f"  Converter Auto 路由 (Layer 3 ASR 驱动, 链独立化): "
+                f"{auto_techniques} 个技术 ({auto_assignments} 个分配, 每技术 1 条最优链)"
             )
+
+    # P1 修复: auto-converter 合并后, 确保 technique_converter_map 被注入到 params 和 ctx
+    # 之前只在 if technique_converter_map: (line 1148) 块中注入, 但 auto-converters
+    # 在 elif 块中合并后, 该块被跳过, 导致 Converter 分配未应用到实际攻击
+    if technique_converter_map and "technique_converters" not in params:
+        params["technique_converters"] = technique_converter_map
+        ctx.technique_converter_map = technique_converter_map
+        ctx.converter_routing_count = sum(len(v) for v in technique_converter_map.values())
+        unique_converters = set()
+        for convs in technique_converter_map.values():
+            for c in convs:
+                unique_converters.add(type(c).__name__)
+        print(
+            f"  Converter 路由总计 (含 Auto): {len(technique_converter_map)} 个技术, "
+            f"{ctx.converter_routing_count} 个分配, {len(unique_converters)} 种 Converter"
+        )
 
     if not technique_converter_map:
         print("  Converter 路由: (未启用, 使用 --converters 添加或检测 target_type)")
@@ -2218,20 +2255,28 @@ def _build_auto_converter_map(
         # combo_score: D13 chain synergy multiplier (higher=better, negative for sort)
         # cost_weight: D14 budget-aware (higher=cheaper, negative for sort)
         # priority: original chain priority (lower=higher priority)
-        def _sort_key(chain_name: str, _fc: list[str] = filtered_chains) -> tuple[int, float, float, int]:
+        def _sort_key(chain_name: str) -> tuple[int, float, float, int]:
             boost_rank = 0 if chain_name in boost_chains else 1
-            combo_score = score_chain_combo(_fc[:3] + [chain_name])
+            combo_score = score_chain_combo([chain_name])
             cost_weight = get_chain_cost_weight(chain_name)
             priority = CONVERTER_VARIANT_CHAINS.get(chain_name, {}).get("priority", 99)
             # Negative because we want higher combo_score and cost_weight first
             return (boost_rank, -combo_score, -cost_weight, priority)
 
         filtered_chains.sort(key=_sort_key)
-        filtered_chains = filtered_chains[:3]
+
+        # 链独立化优化: 只取最优 1 条链, 不再将多条链扁平化合并
+        # 原因: build_converters_from_chain_names 会将多条链的 Converter 去重后合并,
+        #   导致同类型 Converter 叠加 (如 encoding_bypass 的 Base64+ROT13+Caesar
+        #   与 stealth_evasion 的 UnicodeConfusable+SuffixAppend 合并为 5 层长链),
+        #   学术依据 (HarmBench arXiv:2402.04249): 同类型叠加边际递减.
+        #   优化后: 每个技术只使用 1 条最优链 (payload affinity + combo + cost),
+        #   SequentialAttack(FIRST_SUCCESS) 降级机制会在失败时尝试下一个技术.
+        best_chain = filtered_chains[:1]
 
         # Pass converter_target for LLM chains (may be None if not available)
         converters = build_converters_from_chain_names(
-            chain_names=filtered_chains,
+            chain_names=best_chain,
             converter_target=converter_target,
         )
 
@@ -2242,7 +2287,7 @@ def _build_auto_converter_map(
         total_chains = sum(len(v) for v in result.values())
         affinity_str = f", payload affinity: {payload_categories}" if payload_categories else ""
         logger.info(
-            f"Auto-Converter (Layer 3): {len(result)}/{len(technique_names)} techniques "
+            f"Auto-Converter (Layer 3, single-chain): {len(result)}/{len(technique_names)} techniques "
             f"matched, {total_chains} total converter assignments{affinity_str}"
         )
 
@@ -2515,56 +2560,123 @@ def _print_5layer_decision_pipeline(
 # ============================================================
 
 
-def _apply_asr_priority_sampling_patch(seed_asr_data: dict[str, dict]) -> None:
-    """Monkey-patch 原生 ``DatasetAttackConfiguration._apply_max_dataset_size`` 使用 ASR 优先级采样.
+def _apply_asr_priority_sampling_patch(
+    seed_asr_data: dict[str, dict] | None = None,
+    *,
+    asr_weight: float = 0.7,
+    category_weight: float = 0.3,
+) -> None:
+    """Monkey-patch 原生 ``DatasetAttackConfiguration._apply_max_dataset_size`` 使用融合优先级采样.
 
     R-022: 配置层增强 — 修改原生采样行为, 不修改原生种子加载 API 或生命周期。
 
-    原生行为: ``random.sample(items, max_dataset_size)`` — 随机采样
-    增强行为: 按 ``asr_priority`` metadata 降序排序后取前 ``max_dataset_size`` 个 — 高 ASR 种子优先
+    融合分数 = asr_priority × asr_weight + model_category_priority × category_weight
 
-    仅当种子 metadata 中存在 ``asr_priority`` 时生效, 否则回退到原生 random.sample。
+    三种场景:
+      1. 有 ASR 历史 + 模型特异性: ASR 驱动 (70%) + 类别补充 (30%) — 后续运行
+      2. 仅模型特异性 (无 ASR 历史): 类别优先级驱动 — 首次运行模型适配
+      3. 两者均无: 回退到原生 random.sample — 兜底
+
+    原生行为: ``random.sample(items, max_dataset_size)`` — 随机采样
+    增强行为: 按融合优先级降序排序后取前 ``max_dataset_size`` 个
 
     学术依据:
       - DART (arXiv:2407.06485): per-seed × per-model ASR 应指导运行时选择
       - RAIN (arXiv:2309.07124): 使用历史成功率排序种子
+      - HarmBench (arXiv:2402.04249): 模型间种子有效性差异 30-50%
     """
     import hashlib
 
     from pyrit.scenario import DatasetAttackConfiguration
 
     _original_sample = DatasetAttackConfiguration._apply_max_dataset_size
+    _asr_data = seed_asr_data or {}
 
     def _asr_priority_sample(self: Any, items: list[Any]) -> list[Any]:
-        """ASR 优先级采样: 按 asr_priority 降序取前 N 个."""
+        """融合优先级采样: 按 (ASR×W1 + category×W2) 降序取前 N 个."""
         if self.max_dataset_size is None or len(items) <= self.max_dataset_size:
             return items
 
-        # 检查 items 中是否有 asr_priority metadata
+        # 检查 items 中是否有任何优先级 metadata
         has_priority = False
         seed_priorities: list[float] = []
         for item in items:
-            priority = _extract_asr_priority_from_item(item, seed_asr_data, hashlib)
+            priority = _extract_combined_priority_from_item(
+                item, _asr_data, hashlib, asr_weight, category_weight,
+            )
             seed_priorities.append(priority)
             if priority > 0:
                 has_priority = True
 
         if not has_priority:
-            # 无 ASR 数据 → 回退到原生 random.sample
+            # 无任何优先级数据 → 回退到原生 random.sample
             return _original_sample(self, items)
 
-        # ASR 优先级排序: 按 priority 降序取前 max_dataset_size 个
+        # 融合优先级排序: 按 priority 降序取前 max_dataset_size 个
         indexed = list(enumerate(items))
         indexed.sort(key=lambda x: seed_priorities[x[0]], reverse=True)
         selected = [items[i] for i, _ in indexed[: self.max_dataset_size]]
         logger.info(
-            f"ASR priority sampling: selected {len(selected)}/{len(items)} seeds "
-            f"(top ASR={seed_priorities[indexed[0][0]]:.2%})"
+            f"Priority sampling: selected {len(selected)}/{len(items)} seeds "
+            f"(top priority={seed_priorities[indexed[0][0]]:.4f})"
         )
         return selected
 
     DatasetAttackConfiguration._apply_max_dataset_size = _asr_priority_sample
-    logger.info("ASR priority sampling patch applied (replaces random.sample)")
+    logger.info("Priority sampling patch applied (ASR + model category fusion)")
+
+
+def _extract_model_category_priority_from_item(item: Any) -> float:
+    """从 item.metadata 或 item.seeds[0].metadata 提取 model_category_priority.
+
+    Returns:
+        model_category_priority 分数 (0.0-1.0), 或 0.0 如果不存在。
+    """
+    # 1. 尝试从 item.metadata 获取
+    metadata = getattr(item, "metadata", None)
+    if isinstance(metadata, dict):
+        priority = metadata.get("model_category_priority")
+        if isinstance(priority, (int, float)):
+            return float(priority)
+
+    # 2. 尝试从 item.seeds[0].metadata 获取
+    seeds = getattr(item, "seeds", None)
+    if seeds and isinstance(seeds, list) and len(seeds) > 0:
+        first_seed = seeds[0]
+        seed_metadata = getattr(first_seed, "metadata", None)
+        if isinstance(seed_metadata, dict):
+            priority = seed_metadata.get("model_category_priority")
+            if isinstance(priority, (int, float)):
+                return float(priority)
+
+    return 0.0
+
+
+def _extract_combined_priority_from_item(
+    item: Any,
+    seed_asr_data: dict[str, dict],
+    hashlib_module: Any,
+    asr_weight: float = 0.7,
+    category_weight: float = 0.3,
+) -> float:
+    """ASR + 模型类别融合优先级分数.
+
+    融合策略 (ASR 驱动, 攻击为王):
+      - 有 ASR + 类别: score = asr×W_asr + category×W_cat  (后续运行)
+      - 仅 ASR:        score = asr                            (有历史, 无模型匹配)
+      - 仅类别:        score = category                       (首次运行, 有模型匹配)
+      - 两者均无:      score = 0.0 → 回退 random.sample      (兜底)
+    """
+    asr_score = _extract_asr_priority_from_item(item, seed_asr_data, hashlib_module)
+    category_score = _extract_model_category_priority_from_item(item)
+
+    if asr_score > 0 and category_score > 0:
+        return asr_score * asr_weight + category_score * category_weight
+    elif asr_score > 0:
+        return asr_score
+    elif category_score > 0:
+        return category_score
+    return 0.0
 
 
 def _extract_asr_priority_from_item(item: Any, seed_asr_data: dict, hashlib_module: Any) -> float:

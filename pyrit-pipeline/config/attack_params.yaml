@@ -19,14 +19,18 @@
 max_concurrency: 3
 
 # 每个 objective 最多尝试的技术数
-# FIRST_SUCCESS 策略: 首个成功即停止, 3 足够
-# strong 模型可增至 5, weak 模型可降至 2
-max_attempts: 3
+# FIRST_SUCCESS 策略: 首个成功即停止
+# 1 = 极速验证 (端到端验证用, 每个载荷仅尝试 1 个技术)
+# 2 = 快速评估 (推荐默认, 冷启动+热启动均适用)
+# 3 = 深度评估 (需要更全面覆盖时使用)
+max_attempts: 1
 
 # 每个数据集最大采样数
 # 更大 = 更多样本覆盖, 但运行时间线性增长
-# 10 = 12 数据集 × 10 = 120 个攻击计划 (实际去重后约 82)
-max_dataset_size: 10
+# 3 = 24 数据集 × 3 = 72 攻击计划 (推荐默认, ~1-2 小时)
+# 5 = 24 × 5 = 120 攻击 (第二次运行, ASR 优先级采样后)
+# 10 = 24 × 10 = 240 攻击 (深度评估)
+max_dataset_size: 3
 
 # Epsilon-greedy 探索概率
 # 0.1 = 10% 随机探索 / 90% 利用历史 ASR
@@ -41,7 +45,7 @@ rate_limit: 3
 # 限速重试最大次数
 # 降低可减少 API 卡顿时间 (每次重试指数退避)
 # 上次运行 nangeai.top 重试 10 次耗时 14 分钟/攻击
-rate_limit_retries: 3
+rate_limit_retries: 2
 
 # API 流式响应模式 (stream parameter)
 # false = 非流式 (默认, 一次性返回完整响应)
@@ -49,3 +53,27 @@ rate_limit_retries: 3
 # 仅对支持 stream 参数的 OpenAI 兼容 API 生效
 # 修改后 --target-url 探测时会据此标记 is_streaming
 stream: false
+
+# API 超时秒数 (httpx.Timeout)
+# OpenAI SDK 默认 600s (10 分钟!) — 导致 DoS/慢响应卡住整个流水线
+# 60s = 合理默认; 30s = 激进 (快速失败); 120s = 保守 (多轮攻击)
+# 通过 PyRIT 原生 httpx_client_kwargs 机制设置
+api_timeout: 60
+
+# 评分器 API 超时秒数 (独立于攻击超时)
+# 评分器调用比攻击调用更简单 (仅需判断 yes/no), 不需要 60s
+# 30s = 合理默认; 当评分器连续超时时, 降级到 SubStringScorer 关键词匹配
+# 通过 PyRIT 原生 httpx_client_kwargs 机制设置 (仅评分器 Target)
+scorer_timeout: 30
+
+# OpenAI SDK 内部重试次数
+# 0 = 禁用 (由 RateLimitedTarget 统一管理重试, 避免三层叠加)
+# SDK 默认 2 (3 次尝试) + RateLimitedTarget 3 次 = 最多 12 次 API 调用/攻击
+api_max_retries: 0
+
+# 种子优先级采样权重 (ASR 驱动, 攻击为王)
+# 融合分数 = asr_priority × asr_weight + model_category_priority × category_weight
+# 首次运行: 仅 category_weight 生效 (无 ASR 历史)
+# 后续运行: asr_weight 主导 (70%) + category_weight 补充 (30%)
+seed_priority_asr_weight: 0.7
+seed_priority_category_weight: 0.3

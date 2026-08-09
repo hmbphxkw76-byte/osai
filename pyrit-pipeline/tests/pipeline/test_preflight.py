@@ -325,6 +325,7 @@ class TestPreflightCheck:
         ctx = PipelineContext(args=mock_args)
         ctx.args.target_url = None
         ctx.args.skip_preflight = False
+        ctx.args.run_preflight = True
 
         _, mock_entry = self._make_mock_target("openai_chat", success=True)
 
@@ -355,6 +356,7 @@ class TestPreflightCheck:
         ctx = PipelineContext(args=mock_args)
         ctx.args.target_url = None
         ctx.args.skip_preflight = False
+        ctx.args.run_preflight = True
 
         _, mock_entry = self._make_mock_target("bad_key_target", success=False)
 
@@ -409,6 +411,7 @@ class TestPreflightCheck:
         ctx = PipelineContext(args=mock_args)
         ctx.args.target_url = "https://example.com/chat"
         ctx.args.skip_preflight = False
+        ctx.args.run_preflight = True
 
         _, mock_entry = self._make_mock_target("openai_chat", success=True)
 
@@ -443,6 +446,7 @@ class TestPreflightCheck:
         ctx = PipelineContext(args=mock_args)
         ctx.args.target_url = "https://broken.invalid"
         ctx.args.skip_preflight = False
+        ctx.args.run_preflight = True
 
         _, mock_entry = self._make_mock_target("openai_chat", success=True)
 

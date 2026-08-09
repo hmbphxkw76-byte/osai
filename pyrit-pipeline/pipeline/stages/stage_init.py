@@ -241,10 +241,12 @@ async def run(ctx: PipelineContext) -> None:
     # ── P0 预检: 模型连通性 + 目标 URL 可达性 ──
     # Fail-Fast 原则: 在进入 Stage 2 前验证所有 API 端点可用,
     # 避免运行数小时后才发现配置错误 (API Key/Endpoint/Model)
-    if not getattr(ctx.args, "skip_preflight", False):
+    # 默认跳过预检 (skip_preflight=True), 使用 --run-preflight 手动启用
+    run_preflight = getattr(ctx.args, "run_preflight", False)
+    if run_preflight:
         await _preflight_check(ctx)
     else:
-        print("  [跳过] 预检已通过 --skip-preflight 禁用")
+        print("  [跳过] 预检默认跳过 (使用 --run-preflight 启用)")
 
     # ── 初始化摘要卡片 ──
     _print_initialization_summary(config)
@@ -314,13 +316,25 @@ async def _load_datasets(ctx: PipelineContext) -> None:
             if p not in local_paths:
                 local_paths.append(p)
 
-    # --load-owasp-local: 从清单自动加载 default 数据集 (OWASP + Agentic + CVE)
+    # --load-local-datasets: 从清单自动加载 default 数据集 (OWASP + Agentic + CVE + Benchmarks)
     # + 自动发现未注册的 .prompt 文件 (如 CVE 目录动态新增)
+    # 向后兼容: 同时检查旧名 load_owasp_local
     manifest_dict: dict | None = None
     auto_discovered_paths: list[str] = []
-    if getattr(ctx.args, "load_owasp_local", False):
+    load_local = getattr(ctx.args, "load_local_datasets", False) or getattr(ctx.args, "load_owasp_local", False)
+    if load_local:
         dataset_scope = getattr(ctx.args, "dataset_scope", "all")
         manifest_paths, manifest_dict, auto_discovered_paths = _load_default_datasets_from_manifest(scope=dataset_scope)
+
+        # DoS 攻击数据集手动启用
+        if getattr(ctx.args, "enable_dos_attack", False) and manifest_dict:
+            for entry in manifest_dict.get("datasets", []):
+                if entry.get("name") == "owasp_llm10_unbounded_consumption" and entry.get("source") == "local":
+                    dos_path = entry.get("path", "")
+                    if dos_path and Path(dos_path).exists() and dos_path not in manifest_paths:
+                        manifest_paths.append(dos_path)
+                        print("  [DoS] owasp_llm10_unbounded_consumption 已启用 (--enable-dos-attack)")
+                    break
 
         # P1: 目标感知数据集筛选
         if getattr(ctx.args, "target_aware_datasets", False) and manifest_dict:
@@ -339,6 +353,24 @@ async def _load_datasets(ctx: PipelineContext) -> None:
         # P3: 清单自动更新
         if getattr(ctx.args, "update_manifest", False) and auto_discovered_paths:
             _write_manifest_entries(auto_discovered_paths)
+
+    # ── O5: DoS 数据集强制排除 (双重保险) ──
+    # owasp_llm10_unbounded_consumption 的载荷 "Repeat text 1000 times" 会触发
+    # 目标模型生成超长响应 → ReadTimeout → 流水线卡住 30 分钟
+    # manifest 中 default:false, 但此处兜底: 无论 manifest/自动发现如何加载,
+    # 只要 --enable-dos-attack 未显式启用, 就强制过滤
+    if not getattr(ctx.args, "enable_dos_attack", False):
+        _dos_keyword = "owasp_llm10_unbounded_consumption"
+        _llm10_keyword = "llm10_unbounded"
+        _before = len(local_paths)
+        local_paths = [
+            p for p in local_paths
+            if _dos_keyword not in p and _llm10_keyword not in p
+        ]
+        _removed = _before - len(local_paths)
+        if _removed > 0:
+            print(f"  [DoS] 已排除 owasp_llm10_unbounded_consumption ({_removed} 个文件)")
+            print("        使用 --enable-dos-attack 显式启用 DoS 测试")
 
     if local_paths:
         print("  [OK] 数据集加载:")
@@ -373,10 +405,14 @@ async def _load_datasets(ctx: PipelineContext) -> None:
     # ── P0: JSON Mode 兼容性检测 (第三方端点自动禁用) ──
     _disable_json_mode_for_third_party_endpoints(ctx)
 
-    # ── P2: Rate Limited Target 包装 ──
+    # ── P2: Rate Limited Target 包装 (v7.1: 全覆盖) ──
     if getattr(ctx.args, "rate_limit", None):
         print("\n  --- 限速 Target 包装 ---")
         _wrap_rate_limited_target(ctx)
+
+    # ── P0: API 超时控制 (通过 PyRIT 原生 httpx_client_kwargs) ──
+    print("\n  --- API 超时配置 ---")
+    _configure_api_timeout(ctx)
 
     # ── P2: HTTP Target (Burp 请求文件) ──
     if getattr(ctx.args, "http_target", None):
@@ -788,7 +824,7 @@ async def _preflight_check(ctx: PipelineContext) -> None:
     # 在预检通过后, 向目标模型发送已知会被拒绝的探针,
     # 根据响应特征识别安全过滤类型, 供 Stage 2 Converter 链选择.
     # PyRIT 原生优先: 使用 PyRIT 原生 send_prompt_async API.
-    if not getattr(ctx.args, "skip_preflight", False):
+    if getattr(ctx.args, "run_preflight", False):
         try:
             safety_filter_type = await _probe_safety_filter(ctx)
             if safety_filter_type:
@@ -1071,11 +1107,13 @@ def _load_default_datasets_from_manifest(
     paths: list[str] = []
     known_paths: set[str] = set()
     for entry in manifest.get("datasets", []):
-        if entry.get("default", False) and entry.get("source") == "local":
+        if entry.get("source") == "local":
             p = entry.get("path", "")
-            if p and Path(p).exists() and _matches_dataset_scope(p, scope):
-                paths.append(p)
+            if p and Path(p).exists():
+                # 所有清单中的路径都加入 known_paths, 防止自动发现重新加载 default:false 的数据集
                 known_paths.add(str(Path(p).resolve()))
+                if entry.get("default", False) and _matches_dataset_scope(p, scope):
+                    paths.append(p)
 
     # 自动发现: 扫描目录中未在清单注册的 .prompt 文件
     auto_discovered = _discover_unregistered_datasets(known_paths, scope)
@@ -1194,53 +1232,66 @@ def _apply_seed_level_asr_sorting(ctx: PipelineContext) -> None:
     """
     model_name = getattr(ctx.args, "model", "")
     if not model_name:
+        # O3: 回退到 detect_model_tier_from_registry() 自动探测
+        try:
+            from pipeline.converters.model_tier_detector import detect_model_tier_from_registry
+
+            model_name, _ = detect_model_tier_from_registry()
+        except Exception:
+            pass
+    if not model_name:
         return
 
     try:
         from pipeline.asr.optimizer import load_seed_level_asr
 
         seed_asr_data = load_seed_level_asr(model_name)
-        if not seed_asr_data:
-            return
+        if seed_asr_data:
+            # 统计已排序种子数
+            sorted_count = len(seed_asr_data)
+            avg_asr = (
+                sum(v.get("asr", 0.0) for v in seed_asr_data.values()) / max(sorted_count, 1)
+            )
 
-        # 统计已排序种子数
-        sorted_count = len(seed_asr_data)
-        avg_asr = (
-            sum(v.get("asr", 0.0) for v in seed_asr_data.values()) / max(sorted_count, 1)
-        )
+            # 记录到 metadata, 供 Stage 2 场景配置使用
+            ctx.metadata["seed_level_asr"] = seed_asr_data
+            ctx.metadata["seed_level_asr_model"] = model_name
+            ctx.metadata["seed_level_asr_count"] = sorted_count
+            ctx.metadata["seed_level_avg_asr"] = round(avg_asr, 4)
 
-        # 记录到 metadata, 供 Stage 2 场景配置使用
-        ctx.metadata["seed_level_asr"] = seed_asr_data
-        ctx.metadata["seed_level_asr_model"] = model_name
-        ctx.metadata["seed_level_asr_count"] = sorted_count
-        ctx.metadata["seed_level_avg_asr"] = round(avg_asr, 4)
+            # B2: 动态权重 — 基于 ASR 数据量调整 asr/category 权重
+            dyn_asr_w, dyn_cat_w = _compute_dynamic_weights(sorted_count)
+            ctx.metadata["dynamic_asr_weight"] = dyn_asr_w
+            ctx.metadata["dynamic_category_weight"] = dyn_cat_w
 
-        print(
-            f"  [G2] 种子级 ASR 排序: {sorted_count} 个种子, "
-            f"平均 ASR={avg_asr:.2%} (模型={model_name})"
-        )
+            print(
+                f"  [G2] 种子级 ASR 排序: {sorted_count} 个种子, "
+                f"平均 ASR={avg_asr:.2%} (模型={model_name})"
+            )
 
-        # 获取 top-5 高 ASR 种子 (用于日志展示)
-        top_seeds = sorted(
-            seed_asr_data.items(),
-            key=lambda x: x[1].get("asr", 0.0),
-            reverse=True,
-        )[:5]
-        if top_seeds:
-            print("       Top-5 高 ASR 种子:")
-            for seed_id, info in top_seeds:
-                asr_val = info.get("asr", 0.0)
-                attempts = info.get("attempts", 0)
-                print(f"         {seed_id}: ASR={asr_val:.2%} ({attempts} attempts)")
+            # 获取 top-5 高 ASR 种子 (用于日志展示)
+            top_seeds = sorted(
+                seed_asr_data.items(),
+                key=lambda x: x[1].get("asr", 0.0),
+                reverse=True,
+            )[:5]
+            if top_seeds:
+                print("       Top-5 高 ASR 种子:")
+                for seed_id, info in top_seeds:
+                    asr_val = info.get("asr", 0.0)
+                    attempts = info.get("attempts", 0)
+                    print(f"         {seed_id}: ASR={asr_val:.2%} ({attempts} attempts)")
 
-        # R-022 数据层增强: 为 CentralMemory 中的种子注入 asr_priority metadata
-        # 使 PyRIT 原生 SeedPromptGroup.sort_by_metadata("asr_priority") 可用
-        _inject_asr_priority_to_seeds(seed_asr_data)
+            # R-022 数据层增强: 为 CentralMemory 中的种子注入 asr_priority metadata
+            # 使 PyRIT 原生 SeedPromptGroup.sort_by_metadata("asr_priority") 可用
+            _inject_asr_priority_to_seeds(seed_asr_data)
+        else:
+            logger.debug("G2: 无种子级 ASR 历史数据, 跳过 ASR 注入 (模型特异性优先级仍将执行)")
 
     except Exception as e:
         logger.debug(f"G2 seed-level ASR sorting skipped: {e}")
 
-    # P2-2: 模型特异性种子类别优先级
+    # P2-2: 模型特异性种子类别优先级 (始终执行 — 即使无 ASR 历史)
     _apply_model_specific_seed_priority(ctx)
 
     # 数据集级 ASR 优先级加载 (供 Stage 2 sort_datasets_by_asr 使用)
@@ -1327,6 +1378,14 @@ def _apply_dataset_level_asr_prioritization(ctx: PipelineContext) -> None:
     """
     model_name = getattr(ctx.args, "model", "")
     if not model_name:
+        # O3: 回退到 detect_model_tier_from_registry() 自动探测
+        try:
+            from pipeline.converters.model_tier_detector import detect_model_tier_from_registry
+
+            model_name, _ = detect_model_tier_from_registry()
+        except Exception:
+            pass
+    if not model_name:
         return
 
     try:
@@ -1370,22 +1429,45 @@ def _apply_dataset_level_asr_prioritization(ctx: PipelineContext) -> None:
 
 #: P2-2: 种子 metadata.technique_group → 种子类别映射
 _SEED_CATEGORY_KEYWORDS = {
-    "persuasion": {"persuasion", "authority", "emotional", "skeleton_key"},
-    "role_play": {"role_play", "movie_script", "persona", "character"},
-    "multi_turn": {"crescendo", "pair", "tap", "red_teaming", "tree", "many_shot"},
-    "encoding": {"encoding", "rot13", "base64", "morse", "binary", "caesar"},
-    "decomposition": {"decomposition", "decompose", "break_down"},
+    "persuasion": {
+        "persuasion", "authority", "emotional", "skeleton_key",
+        "context_compliance", "compliance", "override", "disregard",
+        "ignore", "maintenance", "admin", "directive",
+    },
+    "role_play": {
+        "role_play", "movie_script", "persona", "character",
+        "pretend", "simulate", "assume", "act_as", "impersonate",
+    },
+    "multi_turn": {
+        "crescendo", "pair", "tap", "red_teaming", "tree", "many_shot",
+        "multi_turn", "progressive", "escalat",
+    },
+    "encoding": {
+        "encoding", "rot13", "base64", "morse", "binary", "caesar",
+        "cipher", "unicode", "leetspeak",
+    },
+    "decomposition": {
+        "decomposition", "decompose", "break_down", "fragment",
+    },
 }
 
 
 def _infer_seed_category(seed: Any) -> str:
     """从种子的 metadata 推断种子类别.
 
-    P2-2: 根据 technique_group / owasp_id / 名称关键词推断。
+    P2-2: 根据 attack_mode / technique_group / 种子文本关键词推断。
+    优先级: attack_mode > technique_group > 种子文本 > baseline
     """
-    # 尝试从 metadata.technique_group 获取
     metadata = getattr(seed, "metadata", None) or {}
     if isinstance(metadata, dict):
+        # 1. attack_mode 优先 (multi_turn 最具区分度)
+        attack_mode = metadata.get("attack_mode", "")
+        if attack_mode:
+            mode_lower = str(attack_mode).lower()
+            if "multi_turn" in mode_lower:
+                return "multi_turn"
+
+        # 2. technique_group 匹配
         tech_group = metadata.get("technique_group", "")
         if tech_group:
             tech_lower = str(tech_group).lower()
@@ -1393,7 +1475,7 @@ def _infer_seed_category(seed: Any) -> str:
                 if any(kw in tech_lower for kw in keywords):
                     return category
 
-    # 尝试从种子值推断
+    # 3. 种子文本关键词匹配
     seed_value = str(getattr(seed, "value", "") or getattr(seed, "prompt", "") or "").lower()
     for category, keywords in _SEED_CATEGORY_KEYWORDS.items():
         if any(kw in seed_value for kw in keywords):
@@ -1468,14 +1550,144 @@ def _apply_model_specific_seed_priority(ctx: PipelineContext) -> None:
         ctx.metadata["seed_category_priority"] = model_category_priority
         ctx.metadata["seed_category_counts"] = category_counts
 
-        # 展示优先级排序
+        # 展示优先级排序 + difficulty 分布
         print(f"  模型特异性种子类别优先级 (模型={model_name}):")
         for i, cat in enumerate(model_category_priority):
             count = category_counts.get(cat, 0)
             print(f"    优先级 {i+1}: {cat:<15} ({count} seeds)")
 
+        # B3-2: 展示 difficulty 分布 (红队视角态势感知)
+        difficulty_counts: dict[str, int] = {}
+        for ds_name in dataset_names:
+            prompts_d = memory.get_seed_prompts(dataset_name=ds_name)
+            if not prompts_d:
+                continue
+            for seed in prompts_d:
+                s_meta = getattr(seed, "metadata", None) or {}
+                if isinstance(s_meta, dict):
+                    diff = s_meta.get("difficulty", "unknown")
+                    difficulty_counts[diff] = difficulty_counts.get(diff, 0) + 1
+        if difficulty_counts:
+            diff_summary = ", ".join(f"{k}={v}" for k, v in sorted(difficulty_counts.items()))
+            print(f"    难度分布: {diff_summary}")
+
+        # R-022 数据层增强: 为 CentralMemory 中的种子注入 model_category_priority metadata
+        # 使 _apply_asr_priority_sampling_patch 能够读取此 metadata 进行融合采样
+        _inject_model_category_priority_to_seeds(model_category_priority)
+
     except Exception as e:
         logger.debug(f"P2-2 model-specific seed priority skipped: {e}")
+
+
+def _inject_model_category_priority_to_seeds(
+    model_category_priority: list[str],
+) -> None:
+    """R-022 数据层增强: 为 CentralMemory 中的种子注入 model_category_priority metadata.
+
+    根据模型系列的种子类别优先级列表, 为每个种子计算类别优先级分数:
+      - base score = 1.0 - (rank / len(priority_list))
+      - rank 0 (最高优先级类别) → score = 1.0
+      - rank N-1 (最低优先级类别) → score ≈ 最低
+      - 未知/baseline 类别 → score = 0.5 (中等优先级)
+      - B3-1: difficulty tie-breaker: easy=+0.1, medium=0, hard=-0.1
+      - B3-1: evasion_level tie-breaker: high=+0.1, medium=+0.05, low=-0.05
+      - 最终 score clamp 到 [0, 1]
+
+    使 ``_apply_asr_priority_sampling_patch`` 能够读取此 metadata,
+    与 ``asr_priority`` 融合进行加权采样 (ASR 驱动 + 模型特异性)。
+
+    R-022 分类: 数据层增强 — 仅修改种子 metadata 字典, 不修改种子文本或原生生命周期。
+
+    学术依据:
+      - HarmBench (arXiv:2402.04249): 模型间种子有效性差异 30-50%
+      - DART (arXiv:2407.06485): per-seed × per-model ASR 应指导运行时选择
+
+    Args:
+        model_category_priority: 模型系列的种子类别优先级列表 (如 ["persuasion", "role_play", ...]).
+    """
+    from pyrit.memory import CentralMemory
+
+    try:
+        memory = CentralMemory.get_memory_instance()
+        # 遍历所有数据集的种子
+        dataset_names: list[str] = []
+        try:
+            all_prompts = memory.get_seed_prompts()
+            dataset_names = list(
+                {getattr(p, "dataset_name", "") for p in all_prompts if getattr(p, "dataset_name", "")}
+            )
+        except Exception:
+            pass
+
+        priority_len = max(len(model_category_priority), 1)
+        updated_count = 0
+        for ds_name in dataset_names:
+            try:
+                prompts = memory.get_seed_prompts(dataset_name=ds_name)
+                if not prompts:
+                    continue
+                for p in prompts:
+                    # 推断种子类别
+                    category = _infer_seed_category(p)
+
+                    # 计算类别优先级分数
+                    if category in model_category_priority:
+                        rank = model_category_priority.index(category)
+                        score = 1.0 - (rank / priority_len)
+                    else:
+                        # 未知/baseline 类别 → 中等优先级
+                        score = 0.5
+
+                    # B3-1: difficulty tie-breaker (攻击为王: easy 种子更可能成功)
+                    diff = ""
+                    evasion = ""
+                    if isinstance(getattr(p, "metadata", None), dict):
+                        diff = p.metadata.get("difficulty", "")  # type: ignore[union-attr]
+                        evasion = p.metadata.get("evasion_level", "")  # type: ignore[union-attr]
+                    _DIFFICULTY_BOOST = {"easy": 0.1, "medium": 0.0, "hard": -0.1}
+                    _EVASION_BOOST = {"high": 0.1, "medium": 0.05, "low": -0.05}
+                    score += _DIFFICULTY_BOOST.get(str(diff).lower(), 0.0)
+                    score += _EVASION_BOOST.get(str(evasion).lower(), 0.0)
+                    score = max(0.0, min(1.0, score))  # clamp [0, 1]
+
+                    # 注入 model_category_priority metadata
+                    metadata = getattr(p, "metadata", None)
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    metadata["model_category_priority"] = score
+                    try:
+                        p.metadata = metadata  # type: ignore[attr-defined]
+                        updated_count += 1
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+        if updated_count:
+            logger.info(f"Injected model_category_priority metadata to {updated_count} seeds")
+    except Exception as e:
+        logger.debug(f"model_category_priority injection skipped: {e}")
+
+
+def _compute_dynamic_weights(seed_asr_count: int) -> tuple[float, float]:
+    """B2: 基于 ASR 数据量动态调整 ASR/类别权重.
+
+    ASR 数据越少 → asr_weight 越低 (历史不可靠, 依赖模型特异性先验)
+    ASR 数据越多 → asr_weight 越高 (历史可靠, ASR 驱动, 攻击为王)
+
+    - < 10 seeds: asr=0.3, category=0.7 (冷启动, 模型特异性主导)
+    - < 50 seeds: asr=0.5, category=0.5 (过渡期, 均衡)
+    - >= 50 seeds: asr=0.7, category=0.3 (成熟期, ASR 驱动)
+
+    Returns:
+        (asr_weight, category_weight) — 两者之和为 1.0.
+    """
+    if seed_asr_count < 10:
+        return 0.3, 0.7
+    elif seed_asr_count < 50:
+        return 0.5, 0.5
+    else:
+        return 0.7, 0.3
 
 
 # ============================================================
@@ -1712,11 +1924,13 @@ async def _detect_multimodal_capabilities(ctx: PipelineContext) -> None:
 # 已知支持 JSON mode 的端点域名 (OpenAI 原生 + Azure OpenAI + 主流第三方)
 # SiliconFlow: 支持 DeepSeek-V3/Qwen 等模型的 response_format=json_object
 # NVIDIA: 支持 GLM/Llama 等模型的 response_format=json_object
+# DeepSeek: 支持 DeepSeek-V4-Flash/Pro 等模型的 response_format=json_object
 _JSON_MODE_SUPPORTED_HOSTS: frozenset[str] = frozenset({
     "api.openai.com",
     "openai.azure.com",
     "api.siliconflow.cn",
     "integrate.api.nvidia.com",
+    "api.deepseek.com",
 })
 
 
@@ -1746,7 +1960,7 @@ def _disable_json_mode_for_third_party_endpoints(ctx: PipelineContext) -> None:
     策略:
         1. ``--disable-json-mode`` CLI flag → 强制禁用所有目标的 JSON mode
         2. 自动检测 → 非已知支持的端点自动禁用
-        3. 已知支持: OpenAI, Azure, SiliconFlow, NVIDIA (见 _JSON_MODE_SUPPORTED_HOSTS)
+        3. 已知支持: OpenAI, Azure, SiliconFlow, NVIDIA, DeepSeek (见 _JSON_MODE_SUPPORTED_HOSTS)
         4. 禁用方式: Monkey-patch ``_build_response_format`` 返回 None
            - 保留 ``supports_json_output=True`` (避免 ValueError)
            - 不发送 ``response_format`` 参数到 API
@@ -1824,45 +2038,132 @@ def _disable_json_mode_for_third_party_endpoints(ctx: PipelineContext) -> None:
 
 
 def _wrap_rate_limited_target(ctx: PipelineContext) -> None:
-    """用 RateLimitedTarget 包装原始 Target (v7.0: 原生 RPM + 自研并发重试)。."""
+    """用 RateLimitedTarget 包装所有 Target (v7.1: 全覆盖).
+
+    v7.0 仅包装第一个 Target, 导致 adversarial_chat 和 objective_scorer_chat
+    无限速/重试保护。v7.1 修复: 包装所有 OpenAIChatTarget 实例。
+
+    R-022: 使用 PyRIT 原生 TargetRegistry API 注册包装后的 Target。
+    """
     from pyrit.registry import TargetRegistry
 
     from pipeline.targets.rate_limited_target import wrap_target_with_rate_limit
 
     max_concurrency = ctx.args.rate_limit
     max_retries = ctx.args.rate_limit_retries
-
-    # v7.0: 将 max_concurrency 转换为 RPM (粗略估算: 并发数 * 60 / 平均响应时间~2s)
-    # 同时作为并发信号量上限
-    requests_per_minute = max_concurrency * 30  # 每并发约 30 RPM
+    requests_per_minute = max_concurrency * 30
 
     target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
     if not target_entries:
         print("    [警告] TargetRegistry 为空, 跳过限速包装")
         return
 
-    # 包装第一个目标
-    entry = target_entries[0]
-    wrapped = wrap_target_with_rate_limit(
-        target=entry.instance,
-        max_concurrency=max_concurrency,
-        max_retries=max_retries,
-        requests_per_minute=requests_per_minute,
-    )
+    wrapped_count = 0
+    for entry in target_entries:
+        # 跳过已包装的 target (避免双重包装)
+        if hasattr(entry.instance, "inner_target"):
+            continue
+        wrapped = wrap_target_with_rate_limit(
+            target=entry.instance,
+            max_concurrency=max_concurrency,
+            max_retries=max_retries,
+            requests_per_minute=requests_per_minute,
+        )
+        TargetRegistry.get_registry_singleton().instances.register(
+            instance=wrapped,
+            name=entry.name,
+            tags=entry.tags,
+        )
+        wrapped_count += 1
 
-    # 重新注册包装后的 Target
-    TargetRegistry.get_registry_singleton().instances.register(
-        instance=wrapped,
-        name=entry.name,
-        tags=entry.tags,
-    )
-
-    print(f"    已包装 Target '{entry.name}':")
+    print(f"    已包装 {wrapped_count} 个 Target:")
     print(f"      并发信号量: {max_concurrency} (自研 Semaphore)")
     print(f"      RPM 限速: {requests_per_minute} (原生 _max_requests_per_minute)")
     print(f"      重试次数: {max_retries} (自研指数退避)")
     ctx.rate_limited = True
     ctx.metadata["rate_limited"] = True
+
+
+# ============================================================
+# P0: API 超时控制 (通过 PyRIT 原生 httpx_client_kwargs)
+# ============================================================
+
+
+def _configure_api_timeout(ctx: PipelineContext) -> None:
+    """通过 PyRIT 原生 httpx_client_kwargs 机制设置 API 超时.
+
+    OpenAI SDK 默认 timeout=600s (10 分钟!), max_retries=2.
+    这导致单个 DoS/慢响应攻击可卡住流水线 30 分钟。
+
+    本函数通过 PyRIT OpenAITarget 的原生 _httpx_client_kwargs 属性
+    和 _initialize_openai_client() 方法重新配置客户端:
+      1. 设置 httpx.Timeout(timeout=api_timeout, connect=5.0)
+      2. 禁用 SDK 内部重试 (max_retries=0, 由 RateLimitedTarget 统一管理)
+      3. 评分器 Target 使用独立更短超时 (scorer_timeout, 默认 30s)
+
+    R-022: 使用 PyRIT 原生 API (httpx_client_kwargs + _initialize_openai_client),
+    不 monkey-patch, 不绕过原生生命周期。
+    """
+    import httpx
+    from pyrit.registry import ScorerRegistry, TargetRegistry
+
+    api_timeout = getattr(ctx.args, "api_timeout", 60)
+    scorer_timeout = getattr(ctx.args, "scorer_timeout", 30)
+    api_max_retries = getattr(ctx.args, "api_max_retries", 0)
+
+    # S2: 收集评分器使用的 Target 实例 (用于独立超时配置)
+    scorer_target_ids: set[int] = set()
+    try:
+        scorer_entries = ScorerRegistry.get_registry_singleton().instances.get_all_instances()
+        for se in scorer_entries:
+            scorer = se.instance
+            # TrueFalseInverterScorer 包装了内部 scorer
+            inner_scorer = getattr(scorer, "_scorer", None)
+            chat_target = None
+            if hasattr(scorer, "get_chat_target"):
+                with contextlib.suppress(Exception):
+                    chat_target = scorer.get_chat_target()
+            if chat_target is None and inner_scorer:
+                chat_target = getattr(inner_scorer, "_chat_target", None)
+            if chat_target is not None:
+                scorer_target_ids.add(id(chat_target))
+    except Exception:
+        pass  # 非关键路径
+
+    target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
+    configured = 0
+    scorer_configured = 0
+    for entry in target_entries:
+        target = entry.instance
+        # RateLimitedTarget 包装的 target 需要取 inner_target
+        inner = getattr(target, "inner_target", target)
+        # 仅配置 OpenAIChatTarget (有 _httpx_client_kwargs 属性的)
+        if not hasattr(inner, "_httpx_client_kwargs"):
+            continue
+        if not hasattr(inner, "_initialize_openai_client"):
+            continue
+        try:
+            # S2: 评分器 Target 使用独立更短超时
+            is_scorer_target = id(inner) in scorer_target_ids
+            effective_timeout = scorer_timeout if is_scorer_target else api_timeout
+            # 通过 PyRIT 原生机制设置 httpx 超时
+            inner._httpx_client_kwargs["timeout"] = httpx.Timeout(effective_timeout, connect=5.0)
+            inner._initialize_openai_client()
+            # 禁用 SDK 内部重试 (由 RateLimitedTarget 统一管理)
+            if hasattr(inner, "_async_client") and inner._async_client is not None:
+                inner._async_client.max_retries = api_max_retries
+            configured += 1
+            if is_scorer_target:
+                scorer_configured += 1
+        except Exception as e:
+            logger.warning(f"Failed to configure timeout for {entry.name}: {e}")
+
+    print(f"    [超时] {configured} 个 Target: timeout={api_timeout}s, sdk_retries={api_max_retries}")
+    if scorer_configured > 0:
+        print(f"    [超时] 评分器 {scorer_configured} 个 Target: scorer_timeout={scorer_timeout}s")
+    ctx.metadata["api_timeout"] = api_timeout
+    ctx.metadata["scorer_timeout"] = scorer_timeout
+    ctx.metadata["api_max_retries"] = api_max_retries
 
 
 # ============================================================

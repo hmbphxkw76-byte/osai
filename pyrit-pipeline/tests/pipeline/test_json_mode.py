@@ -50,6 +50,12 @@ class TestIsJsonModeSupported:
 
         assert _is_json_mode_supported("https://integrate.api.nvidia.com/v1") is True
 
+    def test_deepseek_endpoint_supported(self) -> None:
+        """DeepSeek 官方端点支持 JSON mode (V4-Flash/Pro 等模型)。."""
+        from pipeline.stages.stage_init import _is_json_mode_supported
+
+        assert _is_json_mode_supported("https://api.deepseek.com") is True
+
     def test_openrouter_endpoint_not_supported(self) -> None:
         """OpenRouter 端点不支持 JSON mode。."""
         from pipeline.stages.stage_init import _is_json_mode_supported
@@ -167,6 +173,28 @@ class TestDisableJsonMode:
         mock_target = _MockChatTarget(
             endpoint="https://integrate.api.nvidia.com/v1",
             model_name="nvidia/glm-5.2",
+        )
+        mock_entry = _MockRegistryEntry(mock_target)
+
+        with patch(
+            "pyrit.registry.TargetRegistry.get_registry_singleton"
+        ) as mock_registry:
+            mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
+            _disable_json_mode_for_third_party_endpoints(ctx)
+
+        captured = capsys.readouterr()
+        assert "无需禁用" in captured.out
+
+    def test_no_disable_deepseek(
+        self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DeepSeek 官方端点不禁用 JSON mode (已支持)。."""
+        from pipeline.stages.stage_init import _disable_json_mode_for_third_party_endpoints
+
+        ctx = PipelineContext(args=mock_args)
+        mock_target = _MockChatTarget(
+            endpoint="https://api.deepseek.com",
+            model_name="deepseek-v4-flash",
         )
         mock_entry = _MockRegistryEntry(mock_target)
 

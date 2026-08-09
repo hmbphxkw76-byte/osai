@@ -95,7 +95,7 @@ datasets:
     owasp_ids: [LLM10]
     technique_groups: [prompt_sending, context_compliance]
     harm_categories: [availability]
-    default: true
+    default: false  # DoS 攻击消耗大量 token, 默认禁用; 使用 --enable-dos-attack 启用
 
   # ── OWASP Agentic AI Top 10 (本地富元数据) ──
   - name: owasp_asi01_agent_identity_spoofing

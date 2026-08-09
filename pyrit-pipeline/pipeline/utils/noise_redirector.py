@@ -6,12 +6,17 @@
 将 PyRIT 初始化过程中的 "Skipping scorer..." 等噪音信息
 重定向到 .noise.log 文件，保持 stdout 只输出 ASR/攻击/证据核心信号。
 
-参照 pyrit_ai300 项目的双日志架构:
-  - pipeline-YYYYMMDD_HHMMSS.log      → 信号 (ASR, 攻击, 证据)
+三层日志架构:
+  - pipeline-YYYYMMDD_HHMMSS.log      → 信号 (ASR, ✅ 成功攻击, 证据) + log-only (❌ 失败行)
   - pipeline-YYYYMMDD_HHMMSS.noise.log → 噪音 (scorer skipping, config loading)
+
+红队最佳实践:
+  终端只展示成功攻击 (✅), 失败行写入信号日志 (审计可追溯)。
+  失败聚合计数 (FAIL=N) 已在 tqdm postfix 中实时展示, 不需逐行终端输出。
 
 学术依据:
   - IEEE Std 1044-2009 分类准则: 可追踪性 (traceability) 要求信号/噪音分离
+  - NIST SP 800-92: 三层路由 (signal / log-only / noise) 严格分离
   - AI Red Team 评估中 ASR (Attack Success Rate) 是核心指标,
     噪音信息 (scorer skipping 等) 不影响攻击链路和 ASR 数据可信度
 """
@@ -94,6 +99,14 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^references"),
     re.compile(r"^  Extra inputs are not permitted"),
     re.compile(r"^    For further information"),
+    # ── L5: PyRIT JSON 调试输出 (CrescendoAttack/DeepSeek 等 API 返回的 JSON 片段) ──
+    re.compile(r'^"next_message":'),
+    re.compile(r'^"rationale":'),
+    re.compile(r'^"last_response_summary":'),
+    re.compile(r'^"conversation_id":'),
+    re.compile(r'^"achieved":'),
+    re.compile(r"^}\s*$"),
+    re.compile(r"^Endpoint:\s.*Elapsed time:"),
 ]
 
 
@@ -115,23 +128,54 @@ def _is_noise_line(line: str) -> bool:
     return any(p.search(stripped) for p in _NOISE_PATTERNS)
 
 
+# ── Log-Only 模式: 匹配红队执行阶段的失败/错误回调行 ──
+# 这些行是重要的审计数据 (写入信号日志), 但不属于终端实时信号
+# (红队操作员只需看到成功攻击; 失败聚合计数已在 tqdm postfix 中)
+# L5 对齐 NIST SP 800-92: 三层分离 — signal / log-only / noise
+_LOG_ONLY_PATTERNS: list[re.Pattern[str]] = [
+    # ── 红队回调失败行 (ProgressPoller._poll_loop 输出) ──
+    # 注意: _is_log_only_line 先 strip 再匹配, 不需 ^\s+
+    re.compile(r"^❌\s"),
+    # ── 红队回调错误行 ──
+    re.compile(r"^⚠\s"),
+]
+
+
+def _is_log_only_line(line: str) -> bool:
+    """判断一行是否为 log-only 输出 (写入信号日志但不显示到终端).
+
+    Log-only 行的特征:
+      - 以 "❌" 或 "⚠" 开头的红队回调行 (失败/错误攻击结果)
+
+    设计依据:
+      - NIST SP 800-92: 三层分离 (signal / log-only / noise)
+      - 红队最佳实践: 终端只展示成功攻击, 失败聚合计数在 tqdm postfix 中
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    return any(p.search(stripped) for p in _LOG_ONLY_PATTERNS)
+
+
 class NoiseFilter:
-    """过滤 stdout/stderr 中的噪音行，将噪音写入 noise_log_file，信号写入 signal_log_file。.
+    """过滤 stdout/stderr 中的噪音行，三层路由信号/log-only/噪音。
 
     工作原理:
       1. 拦截 write() 调用，按行拆分
-      2. 每行用 _is_noise_line() 判断
+      2. 每行依次用 _is_noise_line() / _is_log_only_line() 判断
       3. 噪音行 → 写入 noise_log_file
-      4. 信号行 → 写入原始 stdout (显示给用户) + signal_log_file (持久化)
+      4. log-only 行 → 写入 signal_log_file (不显示到终端)
+      5. 信号行 → 写入原始 stdout (显示给用户) + signal_log_file (持久化)
 
-    双通道架构 (NIST SP 800-92):
-      - 终端通道: 信号行实时显示给用户 (stdout)
-      - 文件通道: 信号行持久化到 signal_log_file (审计可追溯)
+    三层路由架构 (NIST SP 800-92 + 红队最佳实践):
+      - 终端通道: 信号行实时显示给用户 (stdout) — 只含成功攻击 ✅
+      - log-only 通道: 失败/错误行写入信号日志 (审计可追溯, 不显示终端)
+      - 噪音通道: 非核心输出写入噪音日志 (不到终端, 不到信号日志)
 
     注意:
       - 不完整的行 (无换行符) 留在 buffer 中等待下一次 write
       - flush() 时将 buffer 中的内容路由到对应输出
-      - signal_log_path=None 时不写入信号文件 (用于嵌套内层)
+      - signal_log_path=None 时 log-only 和 signal 都不写入文件 (用于嵌套内层)
     """
 
     def __init__(
@@ -184,7 +228,12 @@ class NoiseFilter:
         return len(text)
 
     def _route_line(self, line: str) -> None:
-        """将一行路由到噪音文件或信号输出 (终端 + 信号文件)。.
+        """将一行路由到噪音文件、log-only 或信号输出 (终端 + 信号文件)。
+
+        三层路由 (NIST SP 800-92 信号/噪音分离 + 红队最佳实践):
+          1. 噪音行 → noise_log_file (不到终端, 不到信号日志)
+          2. log-only 行 → signal_log_file (不到终端, 保留审计可追溯性)
+          3. 信号行 → 终端 (原始 stdout) + signal_log_file
 
         所有写入操作均使用 try-except 静默失败, 确保即使终端/文件
         写入异常也不会中断流水线执行。
@@ -195,6 +244,23 @@ class NoiseFilter:
                 self._noise_file.flush()
             except Exception:
                 pass
+        elif _is_log_only_line(line):
+            # log-only 行: 审计数据, 不直接显示终端
+            if self._signal_file:
+                # 有信号日志: 写入信号日志, 不显示终端
+                try:
+                    self._signal_file.write(line)
+                    self._signal_file.flush()
+                except Exception:
+                    pass
+            else:
+                # 无信号日志 (嵌套内层): 透传到外层 NoiseFilter 处理
+                # 外层 NoiseFilter 有 signal_file, 会写入信号日志但不显示终端
+                try:
+                    self._original.write(line)
+                    self._original.flush()
+                except Exception:
+                    pass
         else:
             # 信号行: 写入终端 (原始 stdout)
             try:
@@ -240,11 +306,12 @@ def redirect_noise_to_file(
     noise_log_path: Path,
     signal_log_path: Path | None = None,
 ) -> Any:
-    """上下文管理器: 将噪音 stdout/stderr 重定向到文件，信号双写到终端+文件。.
+    """上下文管理器: 将噪音 stdout/stderr 重定向到文件，三层路由信号/log-only/噪音。
 
     在此上下文内，所有 stdout/stderr 输出经过 NoiseFilter:
       - 噪音行 (Skipping scorer... 等) → noise_log_path 文件
-      - 信号行 (ASR, 攻击, 证据) → 原始 stdout (显示给用户) + signal_log_path (持久化)
+      - log-only 行 (❌ 失败回调行) → signal_log_path 文件 (不到终端)
+      - 信号行 (ASR, ✅ 成功攻击, 证据) → 原始 stdout (显示给用户) + signal_log_path (持久化)
 
     同时将 Python warnings (SyntaxWarning, DeprecationWarning 等)
     重定向到噪音日志，避免第三方库警告污染 stdout。

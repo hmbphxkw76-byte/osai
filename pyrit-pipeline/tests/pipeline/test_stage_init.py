@@ -82,11 +82,12 @@ class TestStageInit:
         assert ctx.config is mock_config
 
     async def test_skip_preflight_skips_check(self, mock_args: pytest.fixture, tmp_path: Path) -> None:
-        """--skip-preflight 时跳过预检 (不调用 _preflight_check)."""
+        """默认跳过预检 (不调用 _preflight_check)."""
         config_path = tmp_path / "test_conf.yaml"
         config_path.write_text("memory_db_type: in_memory\nsilent: true\n", encoding="utf-8")
         mock_args.config_file = str(config_path)
         mock_args.skip_preflight = True
+        mock_args.run_preflight = False
         ctx = PipelineContext(args=mock_args)
 
         mock_config = MagicMock()

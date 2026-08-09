@@ -47,10 +47,14 @@ class AttackResultAnalyzer:
 
         优先级:
         1. ``identifier.name`` — 原生技术名 (如 "crescendo")
-        2. ``identifier.class_name`` — 类名回退
+        2. ``identifier.class_name`` → ``map_class_name_to_technique()`` — 类名映射到规范技术名
+           (如 "ManyShotJailbreakAttack" → "many_shot")
         3. ``identifier + children.request_converters`` — 拼接 Converter 变体名
-           (如 "crescendo+encoding_bypass")
+           (如 "many_shot+PersuasionConverter")
         4. "unknown" — 最终回退
+
+        R-022: 使用 PyRIT 原生 ``get_attack_strategy_identifier()`` API +
+        ``technique_name_mapper`` 规范化映射, 确保技术名与 PyRIT AttackTechniqueRegistry 一致。
 
         Args:
             attack_result: PyRIT ``AttackResult`` 实例
@@ -63,16 +67,25 @@ class AttackResultAnalyzer:
             name = getattr(identifier, "name", None)
             if name:
                 return name
+            mapped: str | None = None
             class_name = getattr(identifier, "class_name", None)
             if class_name:
-                return class_name
+                # 增强: 通过 technique_name_mapper 映射到规范技术名
+                from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                mapped = map_class_name_to_technique(class_name)
+                if mapped and mapped != "unknown":
+                    return mapped
+                # 无映射时保留原始 class_name (不返回 "AtomicAttack")
+                if class_name != "AtomicAttack":
+                    return class_name
             # 尝试拼接 Converter 变体名
             children = getattr(identifier, "children", None) or {}
             if children.get("request_converters"):
                 converters = children["request_converters"]
                 if isinstance(converters, list) and converters:
                     conv_name = AttackResultAnalyzer._converter_display_name(converters[0])
-                    base = name or ""
+                    base = mapped if (mapped and mapped != "unknown") else (name or "")
                     return f"{base}+{conv_name}" if base else conv_name
         return "unknown"
 
@@ -82,6 +95,9 @@ class AttackResultAnalyzer:
 
         与 ``extract_technique_name`` 相同，但最终回退返回 ``None`` 而非 "unknown"。
         适用于需要区分"提取失败"和"名为 unknown"的场景。
+
+        R-022: 使用 PyRIT 原生 ``get_attack_strategy_identifier()`` API +
+        ``technique_name_mapper`` 规范化映射, 确保技术名与 PyRIT AttackTechniqueRegistry 一致。
 
         Args:
             attack_result: PyRIT ``AttackResult`` 实例
@@ -94,12 +110,23 @@ class AttackResultAnalyzer:
             name = getattr(identifier, "name", None)
             if name:
                 return name
+            mapped: str | None = None
+            class_name = getattr(identifier, "class_name", None)
+            if class_name:
+                from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                mapped = map_class_name_to_technique(class_name)
+                if mapped and mapped != "unknown":
+                    return mapped
+                if class_name != "AtomicAttack":
+                    return class_name
             children = getattr(identifier, "children", None) or {}
             if children.get("request_converters"):
                 converters = children["request_converters"]
                 if isinstance(converters, list) and converters:
                     conv_name = AttackResultAnalyzer._converter_display_name(converters[0])
-                    return f"{name or ''}+{conv_name}" if name else conv_name
+                    base = mapped if (mapped and mapped != "unknown") else (name or "")
+                    return f"{base}+{conv_name}" if base else conv_name
         return None
 
     # ------------------------------------------------------------------

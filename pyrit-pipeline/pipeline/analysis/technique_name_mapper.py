@@ -146,6 +146,54 @@ _TECHNIQUE_ALIASES: dict[str, str] = {
 
 
 # ============================================================
+# PyRIT 类名 → 规范技术名映射
+# ============================================================
+
+_CLASS_NAME_TO_TECHNIQUE: dict[str, str] = {
+    # PyRIT 原生攻击策略类名 → 技术名
+    "PromptSendingAttack": "prompt_sending",
+    "ManyShotJailbreakAttack": "many_shot",
+    "CrescendoAttack": "crescendo",
+    "TAPAttack": "tap",
+    "PAIRAttack": "pair",
+    "RedTeamingAttack": "red_teaming",
+    "BestOfNJailbreakAttack": "best_of_n_jailbreak",
+    "BadLikertJudgeAttack": "bad_likert_judge",
+    "SkeletonKeyAttack": "skeleton_key",
+    "ContextComplianceAttack": "context_compliance",
+    "WrappingAttack": "wrapping_attack",
+    "ViolentDurianAttack": "violent_durian",
+    # Crescendo 变体
+    "CrescendoSimulatedAttack": "crescendo_simulated",
+    "CrescendoMovieDirectorAttack": "crescendo_movie_director",
+    "CrescendoHistoryLectureAttack": "crescendo_history_lecture",
+    "CrescendoJournalistInterviewAttack": "crescendo_journalist_interview",
+    # Role Play 变体
+    "RolePlayMovieScriptAttack": "role_play_movie_script",
+    "RolePlayPersuasionAttack": "role_play_persuasion",
+    "RolePlayPersuasionWrittenAttack": "role_play_persuasion_written",
+    "RolePlayTriviaGameAttack": "role_play_trivia_game",
+    "RolePlayVideoGameAttack": "role_play_video_game",
+    # 复合攻击
+    "SequentialAttack": "sequential",
+    # AtomicAttack (兜底标识)
+    "AtomicAttack": "unknown",
+}
+
+
+def map_class_name_to_technique(class_name: str) -> str | None:
+    """将 PyRIT 攻击策略类名映射到规范技术名.
+
+    Args:
+        class_name: PyRIT 攻击策略类名 (如 "ManyShotJailbreakAttack")
+
+    Returns:
+        规范技术名 (如 "many_shot"), 或 None (无映射时)
+    """
+    return _CLASS_NAME_TO_TECHNIQUE.get(class_name)
+
+
+# ============================================================
 # 规范名 → 显示名映射
 # ============================================================
 

@@ -1211,7 +1211,7 @@ class ReportGenerator:
             "",
             "> **Note**: To reproduce, set the above parameters in `.env` and run:",
             "> ```bash",
-            "> python main.py --load-owasp-local",
+            "> python main.py",
             "> ```",
             "",
         ])

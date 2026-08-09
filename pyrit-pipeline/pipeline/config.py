@@ -20,12 +20,17 @@ _ATTACK_PARAMS_PATH = Path("config") / "attack_params.yaml"
 # 硬编码兜底默认值 (YAML 不存在或读取失败时使用)
 _HARDCODED_DEFAULTS: dict[str, Any] = {
     "max_concurrency": 3,
-    "max_attempts": 3,
-    "max_dataset_size": 10,
+    "max_attempts": 2,
+    "max_dataset_size": 3,
     "epsilon": 0.1,
     "rate_limit": 3,
-    "rate_limit_retries": 3,
+    "rate_limit_retries": 2,
+    "api_timeout": 60,
+    "scorer_timeout": 30,
+    "api_max_retries": 0,
     "stream": False,
+    "seed_priority_asr_weight": 0.7,
+    "seed_priority_category_weight": 0.3,
 }
 
 
@@ -91,7 +96,7 @@ def parse_args() -> argparse.Namespace:
         "--max-dataset-size",
         type=int,
         default=_load_attack_params()["max_dataset_size"],
-        help="每个数据集最大采样数 (默认: 10, 独立预算 per-dataset, 可通过 config/attack_params.yaml 覆盖)",
+        help="每个数据集最大采样数 (默认: 3, 24数据集×3=72攻击, 可通过 config/attack_params.yaml 覆盖)",
     )
     parser.add_argument(
         "--local-datasets",
@@ -100,20 +105,34 @@ def parse_args() -> argparse.Namespace:
         help="额外的本地 .prompt 数据集文件路径列表 (富元数据格式)",
     )
     parser.add_argument(
-        "--load-owasp-local",
+        "--load-local-datasets",
         action="store_true",
         default=True,
         help=(
-            "自动加载 data/ 清单中所有 default=true 的本地数据集 (OWASP + Agentic).\n"
+            "自动加载 data/seed_datasets/ 目录下所有本地数据集 (OWASP + Agentic + CVE + Benchmarks).\n"
             "默认开启 — 项目以 data/ 目录数据集为数据源主入口。\n"
-            "使用 --no-owasp-local 可禁用。"
+            "使用 --no-local-datasets 可禁用。\n"
+            "配合 --dataset-scope 可按目录筛选 (all/owasp_llm/owasp_asi/benchmark/cve)。"
         ),
+    )
+    parser.add_argument(
+        "--no-local-datasets",
+        action="store_true",
+        default=False,
+        help="禁用自动加载 data/seed_datasets/ 目录下的本地数据集 (默认: 不禁用)",
+    )
+    # 向后兼容: --load-owasp-local / --no-owasp-local 别名
+    parser.add_argument(
+        "--load-owasp-local",
+        action="store_true",
+        default=True,
+        help=argparse.SUPPRESS,  # 已弃用, 请使用 --load-local-datasets
     )
     parser.add_argument(
         "--no-owasp-local",
         action="store_true",
         default=False,
-        help="禁用自动加载 data/ 清单中的 OWASP + Agentic 数据集 (默认: 不禁用)",
+        help=argparse.SUPPRESS,  # 已弃用, 请使用 --no-local-datasets
     )
     parser.add_argument(
         "--dataset-scope",
@@ -137,6 +156,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--enable-dos-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 OWASP LLM10 无界消费 (DoS) 攻击数据集.\n"
+            "默认禁用 (消耗大量 token, 响应极慢). 仅在需要测试 DoS 场景时手动开启."
+        ),
+    )
+    parser.add_argument(
         "--max-seeds-per-dataset",
         type=int,
         default=0,
@@ -157,11 +185,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="",
+        default=os.getenv("TARGET_MODEL", "") or os.getenv("OPENAI_CHAT_MODEL", ""),
         help=(
             "目标模型名 (如 gpt-4o, llama-3-8b).\n"
+            "默认从 .env 的 TARGET_MODEL 或 OPENAI_CHAT_MODEL 自动读取.\n"
             "指定后自动加载模型专属精简种子集 (curated_seeds_{model}.prompt),\n"
-            "并使用该模型的 ASR 先验进行种子排序."
+            "并使用该模型的 ASR 先验进行种子排序和反馈闭环."
         ),
     )
     parser.add_argument(
@@ -212,7 +241,7 @@ def parse_args() -> argparse.Namespace:
         "--max-attempts",
         type=int,
         default=_load_attack_params()["max_attempts"],
-        help="每个 objective 最多尝试的技术数 (默认: 3, FIRST_SUCCESS, config/attack_params.yaml)",
+        help="每个 objective 最多尝试的技术数 (默认: 2, FIRST_SUCCESS, config/attack_params.yaml)",
     )
 
     # ── ASR 驱动选择器 ──
@@ -616,7 +645,37 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         "--rate-limit-retries",
         type=int,
         default=_load_attack_params()["rate_limit_retries"],
-        help="限速重试最大次数 (默认: 3, 可通过 config/attack_params.yaml 覆盖)",
+        help="限速重试最大次数 (默认: 2, 可通过 config/attack_params.yaml 覆盖)",
+    )
+    parser.add_argument(
+        "--api-timeout",
+        type=int,
+        default=_load_attack_params()["api_timeout"],
+        help=(
+            "API 调用超时秒数 (默认: 60, 通过 PyRIT 原生 httpx_client_kwargs 设置).\n"
+            "OpenAI SDK 默认 600s (10 分钟!), 设置更短超时可避免 DoS/慢响应卡住流水线.\n"
+            "可通过 config/attack_params.yaml 覆盖."
+        ),
+    )
+    parser.add_argument(
+        "--api-max-retries",
+        type=int,
+        default=_load_attack_params()["api_max_retries"],
+        help=(
+            "OpenAI SDK 内部重试次数 (默认: 0=禁用, 由 RateLimitedTarget 统一管理重试).\n"
+            "SDK 默认 2 (3 次尝试), 与 RateLimitedTarget 叠加会导致过多重试.\n"
+            "可通过 config/attack_params.yaml 覆盖."
+        ),
+    )
+    parser.add_argument(
+        "--scorer-timeout",
+        type=int,
+        default=_load_attack_params()["scorer_timeout"],
+        help=(
+            "评分器 API 超时秒数 (默认: 30, 可通过 config/attack_params.yaml 覆盖).\n"
+            "评分器调用比攻击调用更简单, 使用更短超时避免卡住流水线.\n"
+            "当评分器超时时, 自动降级到 SubStringScorer 关键词匹配评分."
+        ),
     )
 
     # ── EXHAUSTIVE 策略 (P2: 评估模式) ──
@@ -672,10 +731,16 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
+        default=True,
+        help=("跳过执行前预检 (默认跳过). 使用 --run-preflight 可手动启用预检."),
+    )
+    parser.add_argument(
+        "--run-preflight",
+        action="store_true",
         default=False,
         help=(
-            "跳过执行前预检 (模型连通性 + 目标 URL 可达性测试).\n"
-            "默认执行预检: 并发向目标/评分/对抗模型各发送一条探针消息,\n"
+            "启用执行前预检 (模型连通性 + 目标 URL 可达性测试).\n"
+            "并发向目标/评分/对抗模型各发送一条探针消息,\n"
             "验证 API Key/Endpoint/Model 配置正确后再进入 Stage 2.\n"
             "预检失败时立即终止程序, 避免运行数小时后才发现配置错误."
         ),
@@ -790,8 +855,9 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     if not args.target_url and args.web_target_url:
         args.target_url = args.web_target_url
 
-    # ── --no-owasp-local 覆盖 --load-owasp-local ──
-    if args.no_owasp_local:
+    # ── --no-local-datasets / --no-owasp-local 覆盖 --load-local-datasets ──
+    if args.no_local_datasets or args.no_owasp_local:
+        args.load_local_datasets = False
         args.load_owasp_local = False
 
     return args
