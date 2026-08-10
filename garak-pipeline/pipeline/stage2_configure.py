@@ -154,6 +154,104 @@ def build_probe_spec(probes: list[dict]) -> list[str]:
     return specs
 
 
+def adaptive_prioritize(
+    probes: list[dict],
+    recon_state: dict | None = None,
+) -> tuple[list[dict], list[tuple[str, str]]]:
+    """Phase 1: 基于侦察情报动态调整探针优先级（offsec 侦察驱动攻击）
+
+    读取 Stage1 侦察产物的 system_prompt/multiple_generations/rate_limits 等情报，
+    动态提升相关探针的优先级，使攻击投递顺序对齐侦察发现。
+
+    :param probes: sort_by_tier 后的探针列表
+    :param recon_state: Stage1 state dict（含 model_capabilities 等）
+    :returns: (重排序后的探针列表, [(侦察发现, 攻击调整), ...] rationale)
+    """
+    if not recon_state:
+        return probes, []
+
+    rationale: list[tuple[str, str]] = []
+    model_caps = recon_state.get("model_capabilities", {}) or {}
+
+    llm01_prefixes = (
+        "dan", "promptinject", "encoding", "latentinjection",
+        "goodside", "glitch", "knownbadsignatures", "contrast",
+        "malwaregen", "tap", "visualgame", "snip", "guardrail",
+    )
+    llm04_prefixes = ("test",)
+    llm06_prefixes = ("leakreplay", "lmrc", "replay")
+
+    boost_llm01 = False
+    boost_llm04 = False
+    boost_llm06 = False
+
+    sys_prompt = model_caps.get("system_prompt") or {}
+    if sys_prompt.get("extractable") or sys_prompt.get("leaked"):
+        boost_llm01 = True
+        rationale.append((
+            "System Prompt 可提取",
+            "LLM01 探针优先级 +2（定向注入攻击面优先）",
+        ))
+
+    if model_caps.get("supports_multiple_generations"):
+        boost_llm04 = True
+        rationale.append((
+            "模型支持多生成",
+            "LLM04 DoS 探针优先级 +1",
+        ))
+
+    rate_limits = model_caps.get("rate_limits") or {}
+    rpm_header = rate_limits.get("X-RateLimit-Limit-Requests") or rate_limits.get("x-ratelimit-limit-requests")
+    if rpm_header:
+        try:
+            rpm = float(rpm_header)
+            if 0 < rpm < 30:
+                rationale.append((
+                    f"速率限制低 ({rpm:.0f} RPM)",
+                    "保守速率模式，优先执行短耗时探针",
+                ))
+        except (ValueError, TypeError):
+            pass
+
+    modality = model_caps.get("modality") or {}
+    mod_in = modality.get("in", set())
+    if isinstance(mod_in, set):
+        mod_in_set = mod_in
+    else:
+        mod_in_set = set(mod_in)
+    if "image" in mod_in_set:
+        rationale.append((
+            "模型接受图像输入",
+            "多模态注入探针已保留（图像/视觉攻击面）",
+        ))
+
+    if not rationale:
+        return probes, []
+
+    def _boost_score(p: dict) -> int:
+        name = p.get("name", "").lower()
+        score = tier_rank(p.get("tier")) * 100
+        if boost_llm01:
+            for ns in llm01_prefixes:
+                if ns in name:
+                    score -= 200
+                    break
+        if boost_llm04:
+            for ns in llm04_prefixes:
+                if ns in name:
+                    score -= 100
+                    break
+        if boost_llm06:
+            for ns in llm06_prefixes:
+                if ns in name:
+                    score -= 50
+                    break
+        return score
+
+    reordered = sorted(probes, key=_boost_score)
+    return reordered, rationale
+
+
 def build_selection(
     filtered_path: Path,
     run_id: str,
@@ -162,6 +260,7 @@ def build_selection(
     buff_spec: str | None = None,
     scan_profile: str | None = None,
     atkgen_cfg: dict[str, Any] | None = None,
+    recon_state: dict | None = None,
 ) -> dict:
     """构建攻击选择产物
 
@@ -215,6 +314,11 @@ def build_selection(
 
     probes = sort_by_tier(probes)
 
+    # Phase 1: 基于侦察情报自适应重排序
+    attack_rationale: list[tuple[str, str]] = []
+    if recon_state:
+        probes, attack_rationale = adaptive_prioritize(probes, recon_state)
+
     probe_spec = build_probe_spec(probes)
 
     # P3-5: 扫描成本预估
@@ -267,6 +371,7 @@ def build_selection(
         "probe_spec": probe_spec,
         "buff_spec": effective_buff,
         "atkgen_enabled": atkgen_enabled,
+        "attack_rationale": attack_rationale,
         "cost_estimate": cost_estimate,
     }
 

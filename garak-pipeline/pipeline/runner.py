@@ -18,6 +18,8 @@ from typing import Any
 
 from .utils import (
     print_banner,
+    print_offsec_engagement_summary,
+    print_recon_to_attack_bridge,
     print_result,
     print_stage_card,
 )
@@ -75,6 +77,7 @@ class PipelineRunner:
             target=self.target,
             mode=self.mode,
             artifacts_dir=str(self.artifacts_dir),
+            scope=self.config.get("scope"),
         )
 
         # 解析阶段范围
@@ -100,6 +103,19 @@ class PipelineRunner:
             artifacts_dir=str(self.artifacts_dir),
             error=None,
         )
+
+        # offsec 红队交战总结（攻击投递统计 + 命中战果）
+        stage3 = ctx.get("stage3", {})
+        stage4 = ctx.get("stage4", {})
+        if stage3 or stage4:
+            print_offsec_engagement_summary(
+                probes_total=stage3.get("probe_count", 0),
+                probes_succeeded=stage3.get("probes_succeeded", 0),
+                probes_failed=stage3.get("probes_failed", 0),
+                probes_skipped=stage3.get("probes_skipped", 0),
+                analysis=stage4 if stage4 else None,
+            )
+
         self._last_ctx = ctx
         return ctx
 
@@ -178,7 +194,7 @@ class PipelineRunner:
         ]
 
         print_stage_card(
-            "1", "目标侦察 (Recon)",
+            "1", "攻击面侦察 (Reconnaissance)",
             inputs=[f"config/target.yaml → {self.target['model']}"],
             outputs=[
                 f"{tp_path}",
@@ -220,11 +236,17 @@ class PipelineRunner:
             tier_filter=tier_filter, buff_spec=buff_spec or None,
             scan_profile=scan_profile,
             atkgen_cfg=atkgen_cfg,
+            recon_state=ctx.get("stage1", {}).get("state"),
         )
         sel = out["selection"]
 
+        # Phase 1: 侦察→攻击决策链过渡卡片
+        rationale = sel.get("attack_rationale", [])
+        if rationale:
+            print_recon_to_attack_bridge(rationale)
+
         print_stage_card(
-            "2", "攻击配置 (Configure)",
+            "2", "武器化配置 (Weaponization)",
             inputs=[str(filtered_path)],
             outputs=[out["sel_path"], out["spec_path"]],
             metrics=[
@@ -268,7 +290,7 @@ class PipelineRunner:
             print(f"       连通性状态: {conn_status}")
             print("       建议: 手动确认端点可达性或通过 --stage 1-2 仅执行侦察")
 
-        print("   ⚔️  驱动 garak harness 发起攻击...")
+        print("   🚀 投递攻击载荷，驱动 garak harness 执行...")
         # P2-2: 从 Stage1 侦察产物中提取速率限制，注入 target dict 供 Stage3 动态消费
         stage1_state = ctx.get("stage1", {}).get("state", {})
         model_caps = stage1_state.get("model_capabilities", {})
@@ -277,6 +299,18 @@ class PipelineRunner:
         # P0-1: 从 Stage1 侦察产物中提取 max_tokens，注入 target 供 Stage3 配置
         if model_caps.get("max_tokens") and not self.target.get("_recon_max_tokens"):
             self.target["_recon_max_tokens"] = model_caps["max_tokens"]
+        # Phase 2: 构建探针→ATLAS TTP 标注映射
+        probe_ttp_map: dict[str, str] = {}
+        try:
+            from .atlas_map import ATLAS_PROBE_MAP
+            for pn in sel["probe_names"]:
+                short = pn.replace("probes.", "")
+                ttps = ATLAS_PROBE_MAP.get(short, [])
+                if ttps:
+                    probe_ttp_map[pn] = ", ".join(ttps)
+        except Exception:
+            pass
+
         result = execute_attack(
             self.target,
             sel["probe_names"],
@@ -286,11 +320,12 @@ class PipelineRunner:
             execute_cfg=cfg_execute,
             reporting_cfg=cfg_report,
             judge_cfg=self.config.get("judge", {}),
+            probe_ttp_map=probe_ttp_map,
         )
         executed = parse_report_probe_names(result["report_path"])
 
         print_stage_card(
-            "3", "攻击执行 (Execute)",
+            "3", "攻击投递与利用 (Delivery & Exploitation)",
             inputs=[out_path for out_path in [
                 ctx.get("stage2", {}).get("sel_path"),
                 ctx.get("stage2", {}).get("spec_path"),
@@ -299,7 +334,9 @@ class PipelineRunner:
             metrics=[
                 ("目标生成器", result["generator"]),
                 ("配置探针", str(result["probe_count"])),
-                ("实际执行探针", str(len(executed))),
+                ("成功投递", str(result.get("probes_succeeded", 0))),
+                ("投递失败", str(result.get("probes_failed", 0))),
+                ("断点跳过", str(result.get("probes_skipped", 0))),
                 ("Buff 攻击链", result["buff_spec"] or "无"),
                 ("每探针 generations", str(result["generations"])),
             ],
@@ -342,13 +379,14 @@ class PipelineRunner:
             garak_run_id=garak_run_id,
             modality_filter=ctx.get("stage1", {}).get("state", {}).get("modality_filter"),
             judge_path=judge_path,
+            buff_spec=ctx.get("selection", {}).get("buff_spec"),
         )
 
         llm_defcon = {k: v["defcon"] for k, v in result["owasp_llm"].items()}
         agentic_defcon = {k: v["defcon"] for k, v in result["owasp_agentic"].items()}
 
         print_stage_card(
-            "4", "攻击分析 (Analyze)",
+            "4", "战果分析与评估 (Impact Assessment)",
             inputs=[report_path],
             outputs=[result["analysis_path"]],
             metrics=[
@@ -383,6 +421,8 @@ class PipelineRunner:
         pdf_path = report_paths.get("pdf", "")
         sarif_path = report_paths.get("sarif", "")
         conv_path = report_paths.get("conversations", "")
+        # Phase 3: IOA 检测规则路径
+        ioa_path = report_paths.get("ioa_rules", "")
 
         # P1-2: Stage5 卡片显示全部产物路径（含 AVID + PDF + SARIF + Conversations）
         output_paths = [air_path, html_path]
@@ -394,9 +434,11 @@ class PipelineRunner:
             output_paths.append(sarif_path)
         if conv_path:
             output_paths.append(conv_path)
+        if ioa_path:
+            output_paths.append(ioa_path)
 
         print_stage_card(
-            "5", "报告与导出 (Report/Export)",
+            "5", "红队交付物 (Red Team Deliverables)",
             inputs=[analysis["analysis_path"]],
             outputs=output_paths,
             metrics=[
@@ -406,6 +448,7 @@ class PipelineRunner:
                 ("PDF 报告", pdf_path or "N/A"),
                 ("SARIF 报告", sarif_path or "N/A"),
                 ("对话上下文", conv_path or "N/A"),
+                ("IOA 检测规则", ioa_path or "N/A"),
                 ("命中明细", analysis.get("hitlog", {}).get("markdown_path", "N/A")),
                 ("可复现哈希", analysis.get("repro_hash", "N/A")),
             ],

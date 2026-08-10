@@ -201,7 +201,6 @@ async def _bridge_api_platform(
     """API 平台模式: HTTPTarget + RateLimitedTarget。."""
     print("\n  --- API 平台模式 (HTTPTarget) ---")
 
-    from pyrit.models import PromptRequestPiece
     from pyrit.prompt_target import HTTPTarget
     from pyrit.prompt_target.http_target import (
         get_http_target_json_response_callback_function,
@@ -224,13 +223,12 @@ async def _bridge_api_platform(
         key=config.response_json_path,
     )
 
-    # 3. 构建 HTTPTarget
+    # 3. 构建 HTTPTarget (PyRIT 1.0.1: 不接受 prompt_request_piece 参数)
     raw_request = _build_raw_http_request(config)
     http_target = HTTPTarget(
         http_request=raw_request,
         prompt_regex_string="{PROMPT}",
         callback_function=callback,
-        prompt_request_piece=PromptRequestPiece(role="user"),
     )
 
     # 4. 使用 RateLimitedTarget 包装

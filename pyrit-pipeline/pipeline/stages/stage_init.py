@@ -249,7 +249,7 @@ async def run(ctx: PipelineContext) -> None:
         print("  [跳过] 预检默认跳过 (使用 --run-preflight 启用)")
 
     # ── 初始化摘要卡片 ──
-    _print_initialization_summary(config)
+    _print_initialization_summary(ctx)
 
     # ── 衔接块: ★ 突出传递 Banner ──
     from pipeline.utils.display import handoff_banner
@@ -518,11 +518,12 @@ def _extract_scorer_details(instance: Any) -> list[str]:
     return details
 
 
-def _print_initialization_summary(config: ConfigurationLoader) -> None:
+def _print_initialization_summary(ctx: PipelineContext) -> None:
     """初始化摘要卡片 — 精简 [OK] 格式 + S1-1 目标画像安全过滤消费.
 
     S1-1 增强: 新增安全过滤消费段, 展示目标的内容过滤/JSON mode/预检状态.
     """
+    config = ctx.config
     target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
     scorer_entries = ScorerRegistry.get_registry_singleton().instances.get_all_instances()
     try:
@@ -550,7 +551,7 @@ def _print_initialization_summary(config: ConfigurationLoader) -> None:
     print(f"  │ [OK] Memory:   {config.memory_db_type}")
 
     # S1-1: 安全过滤消费段
-    args = config.args
+    args = ctx.args
     skip_preflight = getattr(args, "skip_preflight", False) if args else False
     disable_json = getattr(args, "disable_json_mode", False) if args else False
     enable_dos = getattr(args, "enable_dos_attack", False) if args else False
@@ -2218,15 +2219,14 @@ def _setup_http_target(ctx: PipelineContext) -> None:
         return
 
     try:
-        from pyrit.models import PromptRequestPiece
         from pyrit.prompt_target import HTTPTarget
 
         # 解析 Burp 格式的 HTTP 请求
         raw_request = http_target_path.read_text(encoding="utf-8")
 
+        # PyRIT 1.0.1: HTTPTarget 不接受 prompt_request_piece 参数
         http_target = HTTPTarget(
             http_request=raw_request,
-            prompt_request_piece=PromptRequestPiece(role="user"),
         )
 
         from pyrit.registry import TargetRegistry

@@ -1,10 +1,12 @@
 {
   "project": "garak-e2e-pipeline",
-  "created": "2026-8-1 12:44",
-  "updated": "2026-8-1 12:44",
+  "scope": "full-5-stage-pipeline (recon → configure → execute → analyze → report)",
+  "created": "2026-08-01 12:44",
+  "updated": "2026-08-08 00:00",
   "entry_points": {
     "primary": "python main.py",
-    "config": "target.yaml",
+    "config_web": "config/web_target.yaml",
+    "config_openai": "config/openai_target.yaml",
     "advanced": "python -m pipeline.runner --endpoint ... --model ... --api-key ..."
   },
   "target": {
@@ -23,49 +25,45 @@
     "recon": {
       "status": "implemented",
       "file": "pipeline/stage1_recon.py",
-      "artifacts": "artifacts/01_recon/",
-      "tests": 10
+      "artifacts": "outputs/01_recon/",
+      "tests": 11
     },
     "configure": {
       "status": "implemented",
       "file": "pipeline/stage2_configure.py",
-      "artifacts": "artifacts/02_config/",
-      "tests": 10
+      "artifacts": "outputs/02_config/",
+      "tests": 4
     },
     "execute": {
       "status": "implemented",
       "file": "pipeline/stage3_execute.py",
-      "artifacts": "artifacts/03_execution/",
-      "tests": 7
+      "artifacts": "outputs/03_execution/",
+      "tests": 3
     },
     "analyze": {
       "status": "implemented",
       "file": "pipeline/stage4_analyze.py",
-      "artifacts": "artifacts/04_analysis/",
-      "tests": 9
+      "artifacts": "outputs/04_analysis/",
+      "tests": 7
     },
-    "export": {
+    "report": {
       "status": "implemented",
-      "file": "pipeline/stage5_export.py",
-      "artifacts": "artifacts/05_export/",
-      "tests": 11
+      "file": "pipeline/stage5_report.py",
+      "artifacts": "outputs/05_export/",
+      "tests": "pending"
     }
   },
   "test_results": {
-    "unit": "58 passed",
-    "integration": "5 passed",
-    "regression": "9 passed",
-    "total": "61 passed",
-    "timestamp": "2026-8-1 12:44"
+    "total": "54 passed",
+    "breakdown": "adaptive_rate 14 + auth 11 + pipeline_integration 1 + stage1 11 + stage2 4 + stage3 3 + stage4 7",
+    "timestamp": "2026-08-02"
   },
   "configs": {
-    "quick": "config/quick.yaml",
-    "standard": "config/standard.yaml",
-    "full": "config/full.yaml"
+    "web": "config/web_target.yaml",
+    "openai": "config/openai_target.yaml"
   },
   "docs": {
-    "architecture": "架构设计.md",
-    "readme": "README.md",
-    "rules": ".assistant_garak/rules.md"
+    "rules": ".assistant_garak/rules.md",
+    "memory": ".assistant_garak/memory/MEMORY.md"
   }
 }

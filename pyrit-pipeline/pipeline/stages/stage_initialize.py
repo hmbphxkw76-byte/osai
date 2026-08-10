@@ -1222,7 +1222,7 @@ def _preview_converter_transform(
 ) -> list[str]:
     r"""O1: 对非 LLM Converter 链执行实际变换预览.
 
-    R-022: 使用 PyRIT 原生 ``Converter.convert_async()`` + ``PromptRequestPiece``,
+    R-022: 使用 PyRIT 1.0.1 原生 ``Converter.convert_async(prompt=str, input_type=str)``,
     不绕过原生生命周期, 不 monkey-patch.
 
     仅对非 LLM Converter 执行预览 (确定性, 无需 API 调用).
@@ -1263,42 +1263,26 @@ def _preview_converter_transform(
             cls = _conv(conv_name)
             converter = cls()
 
-            from pyrit.models import PromptRequestPiece
-
-            piece = PromptRequestPiece(
-                role="user",
-                original_value=current_text,
-            )
-
-            # PyRIT 原生 convert_async — 安全事件循环检测
-            # G1 修复: 不使用 asyncio.new_event_loop() (在已运行事件循环中会冲突),
-            # 改为检测当前是否有运行中的事件循环, 选择安全的方式调用
+            # PyRIT 1.0.1 原生 convert_async(prompt=str, input_type=str) -> ConverterResult
+            # 安全事件循环检测: 在 async 上下文中创建新线程执行 (避免嵌套事件循环)
             try:
-                # 尝试获取当前运行中的事件循环
-                running_loop = asyncio.get_running_loop()
-                # 如果在 async 上下文中, 创建新线程执行 (避免嵌套事件循环)
+                asyncio.get_running_loop()
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(
                         asyncio.run,
-                        converter.convert_async(request_prompt=piece),
+                        converter.convert_async(prompt=current_text, input_type="text"),
                     )
-                    converted_pieces = future.result(timeout=5)
+                    result = future.result(timeout=5)
             except RuntimeError:
-                # 没有运行中的事件循环, 安全使用 asyncio.run
-                converted_pieces = asyncio.run(
-                    converter.convert_async(request_prompt=piece)
+                result = asyncio.run(
+                    converter.convert_async(prompt=current_text, input_type="text")
                 )
 
-            if converted_pieces:
-                output = getattr(
-                    converted_pieces[0], "converted_value", "",
-                ) or current_text
-                short_output = output[:60]
-                preview_lines.append(f'  → {conv_name}: "{short_output}"')
-                current_text = output
-            else:
-                preview_lines.append(f"  → {conv_name}: (空结果)")
+            output = getattr(result, "output_text", "") or current_text
+            short_output = output[:60]
+            preview_lines.append(f'  → {conv_name}: "{short_output}"')
+            current_text = output
         except Exception as e:
             preview_lines.append(f"  → {conv_name}: (错误: {str(e)[:40]})")
 

@@ -571,6 +571,123 @@ def _compute_detector_metrics(evals: list[dict]) -> dict[str, dict[str, float]]:
     return out
 
 
+# OWASP 类别 → 修复建议模板
+_REMEDIATION_MAP: dict[str, list[str]] = {
+    "LLM01_Prompt_Injection": [
+        "输入过滤：部署 prompt injection 关键词黑名单 + 语义过滤层",
+        "System Prompt 硬化：添加不可绕过指令 + 最小权限原则",
+        "输出验证：部署输出内容安全检查层（检测违禁/越狱内容）",
+    ],
+    "LLM02_Insecure_Output_Handling": [
+        "输出编码：对 LLM 输出做 HTML/JS 编码后再渲染",
+        "内容安全策略（CSP）：限制 LLM 生成内容的执行沙箱",
+        "输出验证：检测 LLM 输出中的 XSS/SSRF/SQL 注入模式",
+    ],
+    "LLM04_Model_Denial_of_Service": [
+        "请求限流：部署每用户/每 IP 的请求频率限制",
+        "输入长度限制：限制 prompt 最大 token 数",
+        "资源配额：限制每用户/每会话的 token 消耗总量",
+    ],
+    "LLM06_Sensitive_Information_Disclosure": [
+        "PII 检测：部署输出 PII 检测 + 脱敏层",
+        "访问控制：限制模型对敏感数据的访问权限",
+        "System Prompt 隔离：确保 system prompt 不泄露训练数据/配置",
+    ],
+    "LLM09_Misinformation": [
+        "内容审核：部署有害内容/虚假信息检测层",
+        "事实核查：对 LLM 输出做关键事实交叉验证",
+        "安全护栏：部署 LLM-as-Guardrail 二次审查",
+    ],
+    "LLM10_Unbounded_Consumption": [
+        "Token 配额：限制每用户/每会话的 token 消耗上限",
+        "成本监控：部署实时 token 计费 + 异常告警",
+        "请求大小限制：限制输入 prompt 的最大长度",
+    ],
+}
+
+
+def _generate_remediation_recommendations(
+    probe_results: dict[str, dict],
+    owasp_llm: dict[str, dict],
+) -> list[dict]:
+    """Phase 3: 生成修复建议（offsec post-exploitation recommendations）"""
+    recommendations: list[dict] = []
+    for label, bucket in owasp_llm.items():
+        asr = bucket.get("worst_asr", 0)
+        if asr <= 0:
+            continue
+        defcon = bucket.get("defcon", 5)
+        recs = _REMEDIATION_MAP.get(label, ["建议审查该类别的安全控制措施，参考 OWASP LLM Top 10 指南"])
+        recommendations.append({
+            "owasp_category": label,
+            "asr": asr,
+            "defcon": defcon,
+            "priority": "high" if defcon <= 2 else "medium" if defcon <= 3 else "low",
+            "recommendations": recs,
+        })
+    return recommendations
+
+
+def _analyze_kill_paths(
+    probe_results: dict[str, dict],
+    owasp_llm: dict[str, dict],
+) -> list[dict]:
+    """Phase 3: 攻击链路分析（offsec kill path analysis）"""
+    kill_paths: list[dict] = []
+    successful = {
+        label: b for label, b in owasp_llm.items()
+        if b.get("worst_asr", 0) > 0
+    }
+    if len(successful) < 2:
+        return kill_paths
+    llm01 = "LLM01_Prompt_Injection" in successful
+    llm06 = "LLM06_Sensitive_Information_Disclosure" in successful
+    llm02 = "LLM02_Insecure_Output_Handling" in successful
+    if llm01 and llm06:
+        kill_paths.append({
+            "path_name": "定向注入→数据泄露攻击链",
+            "stages": [f"LLM01: Injection (ASR={successful['LLM01_Prompt_Injection']['worst_asr']}%)", f"LLM06: Info Disclosure (ASR={successful['LLM06_Sensitive_Information_Disclosure']['worst_asr']}%)"],
+            "combined_asr": min(successful["LLM01_Prompt_Injection"]["worst_asr"], successful["LLM06_Sensitive_Information_Disclosure"]["worst_asr"]),
+            "narrative": "攻击者先通过 Prompt Injection 劫持模型行为，再利用被劫持的模型泄露敏感信息",
+        })
+    if llm01 and llm02:
+        kill_paths.append({
+            "path_name": "注入→不安全输出利用攻击链",
+            "stages": [f"LLM01: Injection (ASR={successful['LLM01_Prompt_Injection']['worst_asr']}%)", f"LLM02: Output (ASR={successful['LLM02_Insecure_Output_Handling']['worst_asr']}%)"],
+            "combined_asr": min(successful["LLM01_Prompt_Injection"]["worst_asr"], successful["LLM02_Insecure_Output_Handling"]["worst_asr"]),
+            "narrative": "攻击者通过注入劫持模型输出，生成含 XSS/SSRF 的恶意内容",
+        })
+    injection_probes = [p for p, v in probe_results.items() if v.get("asr", 0) > 0 and "injection" in p.lower()]
+    if len(injection_probes) >= 2:
+        kill_paths.append({
+            "path_name": "多向量注入攻击链",
+            "stages": [f"{p} (ASR={probe_results[p]['asr']}%)" for p in injection_probes[:3]],
+            "combined_asr": max(probe_results[p]["asr"] for p in injection_probes[:3]),
+            "narrative": f"{len(injection_probes)} 个注入类探针成功，模型对多种注入技术均无防御",
+        })
+    return kill_paths
+
+
+def _analyze_buff_effectiveness(
+    probe_results: dict[str, dict],
+    buff_spec: str | None,
+) -> dict:
+    """Phase 4: Buff 攻击链效果归因分析（offsec 武器化效果评估）
+
+    分析 Buff 链对探针 ASR 的影响。若无 Buff 基线则仅统计成功探针分布。
+    """
+    if not buff_spec:
+        return {"buff_spec": "none", "note": "本次扫描无 Buff 链"}
+    buff_names = [b.strip() for b in buff_spec.split(",") if b.strip()]
+    hit_probes = {p: v for p, v in probe_results.items() if v.get("asr", 0) > 0}
+    return {
+        "buff_spec": buff_spec,
+        "buff_count": len(buff_names),
+        "hit_probe_count": len(hit_probes),
+        "note": f"Buff 链 {buff_spec} 应用于 {len(probe_results)} 探针，{len(hit_probes)} 探针命中",
+    }
+
+
 def analyze(
     report_path: str,
     filtered_probes: list[dict],
@@ -579,6 +696,7 @@ def analyze(
     garak_run_id: str | None = None,
     modality_filter: dict | None = None,
     judge_path: str | None = None,
+    buff_spec: str | None = None,
 ) -> dict:
     """分析 garak 报告，双框架聚合 + DEFCON 评分 + 数据质量评估
 
@@ -953,6 +1071,18 @@ def analyze(
         # calibration comment、probe tier/tags 的完整 digest，并输出 .digest.md
         "native_digest_markdown": _build_native_digest_markdown(report_path),
     }
+
+    # Phase 4: Buff 效果归因分析
+    result["buff_effectiveness"] = _analyze_buff_effectiveness(
+        probe_results, buff_spec,
+    )
+    # Phase 3: 修复建议 + 攻击链路分析
+    result["remediation"] = _generate_remediation_recommendations(
+        probe_results, llm_summary,
+    )
+    result["kill_paths"] = _analyze_kill_paths(
+        probe_results, llm_summary,
+    )
 
     # P3-2: 时间趋势分析（跨 run_id ASR/DEFCON 演变对比）
     # 在 result 构建完成后计算（需读取 result["target_model"]）

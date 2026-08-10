@@ -81,6 +81,8 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^Attack failed with (Exception|_StrategyRuntimeError|Error):"),
     re.compile(r"^Scenario 'TextAdaptive' (failed|partially)"),
     re.compile(r"^Atomic attack.*partially completed:"),
+    re.compile(r"^Atomic attack execution completed with"),
+    re.compile(r"^Incomplete objective"),
     re.compile(r"^Root cause:"),
     re.compile(r"^Details:"),
     re.compile(r"^Attack:\s"),
@@ -115,6 +117,8 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     #   (开发者调试信息, 非红队攻击结果), 应路由到噪音日志
     re.compile(r"^\+ Exception Group Traceback"),
     re.compile(r"^\+-\+--+\s+\d+\s+--+"),  # 子异常分隔符: +-+--- 1 ---
+    re.compile(r"^\+--+\s+\d+\s+--+"),  # 子异常分隔符: +--- N ---
+    re.compile(r"^\+-+$"),  # 最终分隔符: +----
     re.compile(r"^\|\s+Traceback \(most recent call last\):"),
     re.compile(r'^\|\s+File "'),  # 文件路径行
     re.compile(r"^\|\s+\^+$"),  # ^^^ 指针行
@@ -128,6 +132,15 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\| ExceptionGroup:"),
     re.compile(r"^\| pyrit\.exceptions\.exception_classes\."),
     re.compile(r"^\|\s*$"),  # ExceptionGroup 内部空行
+    # E1 修复: ExceptionGroup 中泄漏的 Objective target conversation ID 行
+    re.compile(r"^\| Objective target conversation ID:"),
+    re.compile(r"^Objective target conversation ID:"),  # 无 | 前缀的独立行
+    # E1 修复: 通用匹配 — ExceptionGroup traceback 中所有 | 前缀的内容行
+    # (pipe + 2+ 空格 + 任意内容, 如 "|     raise APITimeoutError" 等)
+    # 安全性: 流水线输出使用 Unicode 框线字符 (│/║/┌/└), 不使用 ASCII |
+    re.compile(r"^\|\s{2,}\S"),
+    # E1 修复: 嵌套 ExceptionGroup 的子异常分隔行 (  |     yield 等)
+    re.compile(r"^\|\s+\w.*\(.*\)"),  # 函数调用行: |   func(args)
 ]
 
 

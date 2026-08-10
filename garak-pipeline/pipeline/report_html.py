@@ -549,6 +549,42 @@ function toggleLang() {{
     if na_count:
         html_content += f'  <div class="info">ℹ️ {na_count} 个 OWASP 类未被 garak 探针覆盖（标注 N/A，非评估通过）— 这反映了 garak 0.15.1 探针库的覆盖局限，非评估遗漏。</div>\n'
 
+    # ---- Phase 3: 攻击叙事 + Kill Path + 修复建议 + IOA ----
+    kill_paths = analysis.get("kill_paths", [])
+    remediation = analysis.get("remediation", [])
+    hitlog = analysis.get("hitlog", {})
+    hit_count = hitlog.get("hit_count", 0)
+
+    if kill_paths or remediation:
+        html_content += '  <h2>⚔️ 攻击叙事 (Attack Narrative)</h2>\n'
+        # Kill Paths
+        if kill_paths:
+            html_content += '  <h3>🔗 攻击链路 (Kill Paths)</h3>\n  <ul>\n'
+            for kp in kill_paths:
+                html_content += f'    <li><strong>{html.escape(kp.get("path_name",""))}</strong>'
+                html_content += f' — {html.escape(kp.get("narrative",""))}<ul>'
+                for stage in kp.get("stages", []):
+                    html_content += f'<li>{html.escape(str(stage))}</li>'
+                html_content += f'</ul>组合 ASR: {kp.get("combined_asr",0)}%</li>\n'
+            html_content += '  </ul>\n'
+
+        # Remediation
+        if remediation:
+            html_content += '  <h3>🛡️ 修复建议 (Remediation Recommendations)</h3>\n  <ul>\n'
+            for rec in remediation:
+                priority_cls = "priority-high" if rec.get("priority") == "high" else "priority-medium" if rec.get("priority") == "medium" else "priority-low"
+                html_content += f'    <li class="{priority_cls}"><strong>{html.escape(rec.get("owasp_category",""))}</strong>'
+                html_content += f' — ASR {rec.get("asr",0)}%, DEFCON {rec.get("defcon",5)}, 优先级: {html.escape(rec.get("priority",""))}<ul>'
+                for r in rec.get("recommendations", []):
+                    html_content += f'<li>{html.escape(r)}</li>'
+                html_content += '</ul></li>\n'
+            html_content += '  </ul>\n'
+
+        # IOA summary
+        if hit_count > 0:
+            html_content += f'  <h3>📡 IOA 检测规则 (Indicators of Attack)</h3>\n'
+            html_content += f'  <p>共 {hit_count} 条命中已导出为 IOA 检测规则 JSON，供蓝队消费。</p>\n'
+
     # ---- DEFCON 雷达图 ----
     html_content += f"""  <h2 data-i18n=\"radar_chart\">OWASP LLM Top 10 — DEFCON 雷达图</h2>
   <div class="chart-container"><canvas id="radarChart"></canvas></div>

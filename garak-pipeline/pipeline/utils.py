@@ -200,21 +200,57 @@ def prune_old_runs(artifacts_dir: Path, keep: int = 5) -> int:
 # 启动信息打印
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# offsec 攻击链映射（Cyber Kill Chain × MITRE ATT&CK for LLM）
+# ------------------------------------------------------------------
+
+ATTACK_KILL_CHAIN: list[tuple[str, str, str]] = [
+    ("1", "攻击面侦察 (Reconnaissance)", "枚举目标攻击面、连通性、模型模态"),
+    ("2", "武器化配置 (Weaponization)", "Tier 排序、Buff 攻击链组装、载荷选择"),
+    ("3", "攻击投递与利用 (Delivery & Exploitation)", "逐探针投递 payload、触发漏洞、收集响应"),
+    ("4", "战果分析与评估 (Impact Assessment)", "ASR/DEFCON 评分、双框架聚合、命中审查"),
+    ("5", "红队交付物 (Red Team Deliverables)", "PyRIT/HTML/SARIF 导出、命中明细、复现哈希"),
+]
+
+
 def print_banner(
     config_path: str,
     target: dict,
     mode: str,
     artifacts_dir: str,
+    scope: dict | None = None,
 ) -> None:
-    """打印启动信息横幅"""
-    print("=" * 60)
-    print("🛡️  garak 目标侦察 — LLM 攻击面枚举")
-    print("=" * 60)
-    print(f"   📋 配置: {config_path}")
-    print(f"   🎯 目标: {target['model']} @ {target['endpoint']}")
-    print(f"   📋 模式: {mode}")
-    print(f"   📂 产物: {artifacts_dir}")
-    print(f"   ⏱️  启动: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    """打印红队攻击链启动横幅（offsec 视角）
+
+    以攻击者视角框架整个流水线，而非防御扫描器。
+    展示攻击链阶段映射，使操作者始终以 offsec 主轴推进。
+    """
+    W = 62
+    print()
+    print(f"{'═' * (W + 2)}")
+    print(f" ⚔️  garak LLM 红队攻击链 — Red Team Engagement")
+    print(f"{'═' * (W + 2)}")
+    print(f"   🎯 攻击目标: {target['model']} @ {target['endpoint']}")
+    print(f"   📋 交战模式: {mode}")
+    print(f"   📂 战果目录: {artifacts_dir}")
+    print(f"   ⏱️  发起时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    # Phase 5: 交战范围声明
+    if scope:
+        in_scope = scope.get("in_scope", [])
+        out_scope = scope.get("out_of_scope", [])
+        if in_scope:
+            print(f"   📋 范围内: {', '.join(in_scope)}")
+        if out_scope:
+            print(f"   🚫 范围外: {', '.join(out_scope)}")
+    print()
+    # 攻击链阶段映射
+    print(f"   ┌{'─' * (W - 2)}┐")
+    print(f"   │ {'🔗 攻击链阶段映射 (Kill Chain)':<{W - 3}}│")
+    print(f"   ├{'─' * (W - 2)}┤")
+    for stage_no, stage_title, stage_desc in ATTACK_KILL_CHAIN:
+        print(f"   │  [{stage_no}] {stage_title}")
+        print(f"   │      └─ {stage_desc}")
+    print(f"   └{'─' * (W - 2)}┘")
     print()
 
 
@@ -229,20 +265,23 @@ def print_result(
     artifacts_dir: str,
     error: str | None = None,
 ) -> None:
-    """打印最终结果"""
-    print(f"\n{'=' * 60}")
+    """打印红队交战最终战果（offsec 视角）"""
+    W = 62
+    print(f"\n{'═' * (W + 2)}")
     if success:
-        print(f"✅ 侦察完成 (耗时 {elapsed:.1f}s)")
-        print(f"{'=' * 60}")
-        print("\n📊 侦察产物:")
-        print(f"   目标画像: {artifacts_dir}/01_recon/target_profile_{run_id}.json")
-        print(f"   攻击面:   {artifacts_dir}/01_recon/probe_candidates_{run_id}.json")
-        print(f"   连通性:   {artifacts_dir}/01_recon/connectivity_test_{run_id}.json")
+        print(f" 🏁 红队攻击链完成 (耗时 {elapsed:.1f}s | run_id={run_id})")
+        print(f"{'═' * (W + 2)}")
+        print("\n📦 战果产物索引:")
+        print(f"   [侦察]   {artifacts_dir}/01_recon/target_profile_{run_id}.json")
+        print(f"   [配置]   {artifacts_dir}/02_config/probe_selection_{run_id}.json")
+        print(f"   [攻击]   {artifacts_dir}/03_execution/garak_report_{run_id}.jsonl")
+        print(f"   [战果]   {artifacts_dir}/04_analysis/analysis_{run_id}.json")
+        print(f"   [交付]   {artifacts_dir}/05_export/")
     else:
-        print(f"❌ 侦察未完成 (耗时 {elapsed:.1f}s)")
+        print(f" ⛔ 攻击链中断 (耗时 {elapsed:.1f}s)")
         if error:
             print(f"   错误: {error}")
-        print(f"{'=' * 60}")
+        print(f"{'═' * (W + 2)}")
 
 
 # ------------------------------------------------------------------
@@ -266,7 +305,7 @@ def print_stage_card(
     """
     width = 62
     print(f"\n╔{'═' * width}╗")
-    print(f"║ {'🔹 STAGE ' + stage_no + '  ' + title:<{width - 1}}║")
+    print(f"║ {'⚔️ PHASE ' + stage_no + '  ' + title:<{width - 1}}║")
     print(f"╠{'═' * width}╣")
     if inputs:
         print(f"║ {'📥 输入:':<{width}}║")
@@ -315,3 +354,191 @@ def print_table_card(title: str, header: list[str], rows: list[list[str]]) -> No
     for r in rows:
         print(fmt(r))
     print(bot)
+
+
+# ------------------------------------------------------------------
+# offsec 攻击执行实时进度展示
+# ------------------------------------------------------------------
+
+def print_attack_progress(
+    idx: int,
+    total: int,
+    probe_name: str,
+    status: str,
+    asr: float | None = None,
+    atlas_ttp: str | None = None,
+    hit_preview: str | None = None,
+) -> None:
+    """打印单探针攻击执行进度（offsec 实时反馈 + ATLAS 战术标注）
+
+    在 Stage3 逐探针循环中调用，使操作者实时看到攻击投递进度、战术上下文与命中 loot。
+
+    :param idx: 当前探针序号（从 1 开始）
+    :param total: 探针总数
+    :param probe_name: 探针全名
+    :param status: "running" | "ok" | "fail" | "skip"
+    :param asr: 该探针的 ASR（百分比），仅 status="ok" 时有意义
+    :param atlas_ttp: ATLAS 战术/技术标注（如 "AML.T0051.000 Prompt Injection"）
+    :param hit_preview: 命中内容预览（成功越狱的 output 摘要）
+    """
+    # 截断过长的探针名以保持对齐
+    short_name = probe_name.replace("probes.", "")
+    if len(short_name) > 40:
+        short_name = short_name[:37] + "..."
+
+    # ATLAS 战术标注
+    ttp_tag = f" [{atlas_ttp}]" if atlas_ttp else ""
+
+    prefix = f"   [{idx}/{total}]"
+
+    if status == "running":
+        print(f"{prefix} ▶ {short_name:<40}{ttp_tag} ...", flush=True)
+    elif status == "ok":
+        if asr is not None and asr > 0:
+            hit_tag = f"ASR={asr:.0f}% 💥"
+        else:
+            hit_tag = "ASR=0%"
+        print(f"{prefix} ✓ {short_name:<40}{ttp_tag} {hit_tag}", flush=True)
+        # 命中 loot 预览
+        if hit_preview:
+            preview = hit_preview[:80] + ("..." if len(hit_preview) > 80 else "")
+            print(f"         └─ [LOOT] {preview}", flush=True)
+    elif status == "fail":
+        print(f"{prefix} ✗ {short_name:<40}{ttp_tag} FAILED", flush=True)
+    elif status == "skip":
+        print(f"{prefix} ⏭ {short_name:<40}{ttp_tag} skipped (checkpoint)", flush=True)
+
+
+def print_offsec_engagement_summary(
+    probes_total: int,
+    probes_succeeded: int,
+    probes_failed: int,
+    probes_skipped: int,
+    analysis: dict | None = None,
+) -> None:
+    """打印红队交战总结（offsec 战果汇总）
+
+    在 Stage5 结束后调用，以攻击者视角汇总整个攻击链的战果：
+    - 投递的攻击载荷数、成功/失败比
+    - 命中数（ASR > 0 的探针）
+    - 最差 DEFCON 等级
+    - 最有效的攻击向量（最高 ASR 探针）
+
+    :param probes_total: 配置的总探针数
+    :param probes_succeeded: 成功执行的探针数
+    :param probes_failed: 执行失败的探针数
+    :param probes_skipped: 跳过的探针数（断点续扫）
+    :param analysis: Stage4 分析结果（可选，用于展示命中战果）
+    """
+    W = 62
+    print(f"\n╔{'═' * W}╗")
+    print(f"║ {'🏁 红队交战总结 (Engagement Summary)':<{W}}║")
+    print(f"╠{'═' * W}╣")
+
+    # 攻击投递统计
+    print(f"║ {'📡 攻击投递:':<{W}}║")
+    print(f"║   载荷总数: {probes_total:<{W - 10}}║")
+    print(f"║   成功投递: {probes_succeeded:<{W - 10}}║")
+    if probes_failed:
+        print(f"║   投递失败: {probes_failed:<{W - 10}}║")
+    if probes_skipped:
+        print(f"║   断点跳过: {probes_skipped:<{W - 10}}║")
+
+    # 命中战果（需要 analysis 数据）
+    if analysis:
+        overall = analysis.get("overall", {})
+        worst_asr = overall.get("worst_asr", 0)
+        defcon = overall.get("defcon", "-")
+        hit_count = analysis.get("hitlog", {}).get("hit_count", 0)
+        probes_evaluated = overall.get("probes_evaluated", 0)
+
+        print(f"╠{'═' * W}╣")
+        print(f"║ {'💥 命中战果:':<{W}}║")
+        print(f"║   命中总数: {hit_count:<{W - 10}}║")
+        print(f"║   最差 ASR: {worst_asr}%{'':<{W - 12 - len(str(worst_asr)) - 1}}║")
+        print(f"║   整体 DEFCON: {defcon}{'':<{W - 14 - len(str(defcon))}}║")
+        print(f"║   评估探针: {probes_evaluated:<{W - 10}}║")
+
+        # 找出最有效的攻击向量（ASR 最高的探针）
+        probe_results = analysis.get("probe_results", {})
+        if probe_results:
+            top_exploits = sorted(
+                probe_results.items(),
+                key=lambda x: x[1].get("asr", 0),
+                reverse=True,
+            )[:3]
+            effective = [p for p, v in top_exploits if v.get("asr", 0) > 0]
+            if effective:
+                print(f"╠{'═' * W}╣")
+                print(f"║ {'🎯 最有效攻击向量 (Top 3 by ASR):':<{W}}║")
+                for probe, v in top_exploits:
+                    asr_val = v.get("asr", 0)
+                    if asr_val <= 0:
+                        continue
+                    short = probe.replace("probes.", "")
+                    if len(short) > 40:
+                        short = short[:37] + "..."
+                    line = f"   {short}: ASR={asr_val}%"
+                    print(f"║ {line:<{W}}║")
+
+        # 数据可靠性
+        dq = analysis.get("data_quality", {})
+        rel = dq.get("reliability", "normal")
+        if rel != "normal":
+            print(f"╠{'═' * W}╣")
+            print(f"║ {'⚠️  数据可靠性: {rel}':<{W}}║")
+            null_rate = dq.get("overall_null_rate", 0)
+            print(f"║   null 输出率: {null_rate:.1f}%{'':<{W - 14 - len(f'{null_rate:.1f}%')}}║")
+
+    print(f"╚{'═' * W}╝")
+
+
+# ------------------------------------------------------------------
+# Phase 1: 侦察→攻击自适应桥接（Gap-01/13）
+# ------------------------------------------------------------------
+
+def print_recon_to_attack_bridge(
+    rationale: list[tuple[str, str]],
+) -> None:
+    """打印侦察→攻击决策链过渡卡片（offsec 侦察驱动攻击叙事）
+
+    在 Stage 1 和 Stage 2 之间调用，展示侦察情报如何动态驱动攻击计划。
+
+    :param rationale: [(侦察发现, 攻击调整), ...] 列表
+    """
+    if not rationale:
+        return
+    W = 62
+    print(f"\n╔{'═' * W}╗")
+    print(f"║ {'🔍 侦察→攻击决策链 (Recon-to-Attack Bridge)':<{W}}║")
+    print(f"╠{'═' * W}╣")
+    for finding, adjustment in rationale:
+        # 截断过长的文本以保持对齐
+        f_short = finding[:W - 6] if len(finding) > W - 6 else finding
+        a_short = adjustment[:W - 6] if len(adjustment) > W - 6 else adjustment
+        print(f"║  🔍 {f_short:<{W - 6}}║")
+        print(f"║  → {a_short:<{W - 5}}║")
+        print(f"║{' ' * W}║")
+    print(f"╚{'═' * W}╝")
+
+
+# ------------------------------------------------------------------
+# Phase 2: 战术覆盖矩阵展示（Gap-15）
+# ------------------------------------------------------------------
+
+def print_tactical_coverage(
+    covered: list[str],
+    total_atlas_tactics: int = 12,
+) -> None:
+    """打印 ATLAS 战术覆盖进度（offsec 实时战术态势）
+
+    在 Stage3 执行过程中定期调用，展示已覆盖的 ATLAS 战术数。
+
+    :param covered: 已覆盖的 ATLAS 战术 ID 列表
+    :param total_atlas_tactics: ATLAS 战术总数（默认 12）
+    """
+    n = len(covered)
+    tags = ", ".join(covered[:6])
+    if len(covered) > 6:
+        tags += f", +{len(covered) - 6}"
+    print(f"   🎯 战术覆盖: ATLAS {n}/{total_atlas_tactics} ({tags})", flush=True)

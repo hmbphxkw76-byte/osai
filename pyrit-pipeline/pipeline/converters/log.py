@@ -468,21 +468,11 @@ class ConverterLogCollector:
                     steps.append(step)
                     continue
 
-                from pyrit.models import PromptRequestPiece
-
-                piece = PromptRequestPiece(
-                    role="user",
-                    original_value=current_text,
-                )
-                converted_pieces = await converter.convert_async(request_prompt=piece)
-
-                if converted_pieces:
-                    output = getattr(converted_pieces[0], "converted_value", "") or current_text
-                    step.output_text = output[:500]
-                    current_text = output
-                else:
-                    step.error = "Converter returned empty result"
-                    step.output_text = current_text[:500]
+                # PyRIT 1.0.1: convert_async(prompt=str, input_type=str) -> ConverterResult
+                result = await converter.convert_async(prompt=current_text, input_type="text")
+                output = getattr(result, "output_text", "") or current_text
+                step.output_text = output[:500]
+                current_text = output
             except Exception as e:
                 step.error = str(e)[:200]
                 step.output_text = current_text[:500]

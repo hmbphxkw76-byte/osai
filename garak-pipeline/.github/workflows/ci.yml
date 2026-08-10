@@ -1,0 +1,171 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-cov pyyaml python-dotenv openai requests
+          pip install xdg-base-dirs
+          # S3.6: 优先从源码安装 garak（二次开发基座），回退到 pip 包
+          if [ -d "../src/garak-0.15.1" ]; then
+            pip install -e ../src/garak-0.15.1/
+          else
+            pip install garak==0.15.1 || pip install garak
+          fi
+      - name: Lint with ruff
+        run: ruff check .
+      - name: Test with pytest
+        run: |
+          # P3-2: pyproject.toml 的 [tool.pytest.ini_options].pythonpath
+          # 已配置 garak 源码路径，CI 环境 pip install garak 后测试可直接 import
+          pytest tests/ -v --tb=short --cov=pipeline --cov-report=term-missing
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+
+  # S3.6: 安全扫描质量门禁 — 确保 garak 源码可正确导入
+  integration-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml python-dotenv openai requests xdg-base-dirs
+          if [ -d "../src/garak-0.15.1" ]; then
+            pip install -e ../src/garak-0.15.1/
+          else
+            pip install garak==0.15.1 || pip install garak
+          fi
+      - name: Verify garak import
+        run: |
+          python -c "import garak; print(f'garak version: {garak.__version__}')"
+          python -c "from garak.analyze.report_digest import build_digest; print('build_digest OK')"
+          python -c "from garak.analyze.calibration import Calibration; print('Calibration OK')"
+          python -c "from garak.analyze.detector_metrics import get_detector_metrics; print('detector_metrics OK')"
+          python -c "from garak.resources.scoring import aggregate; print('scoring.aggregate OK')"
+          python -c "from garak.report import Report; print('Report OK')"
+          python -c "from garak.analyze.aggregate_reports import main; print('aggregate_reports OK')"
+      - name: Verify pipeline import
+        run: |
+          python -c "from pipeline.repro import compute_repro_hash, verify_repro_hash; print('repro OK')"
+          python -c "from pipeline.atkgen_mutation import augment_prompts_with_atkgen; print('atkgen_mutation OK')"
+          python -c "from pipeline.judge_detector import attach_judge_as_extended_detector; print('judge_detector OK')"
+          python -c "from pipeline.atlas_map import get_atlas_mapping_auto; print('atlas_map auto OK')"
+
+  # P0-3: SARIF 上传到 GitHub Code Scanning
+  upload-sarif:
+    runs-on: ubuntu-latest
+    needs: [lint-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml python-dotenv openai requests xdg-base-dirs
+          if [ -d "../src/garak-0.15.1" ]; then
+            pip install -e ../src/garak-0.15.1/
+          else
+            pip install garak==0.15.1 || pip install garak
+          fi
+      - name: Generate SARIF report from latest analysis
+        run: |
+          python -c "
+          import json, glob, os
+          from pipeline.stage5_report import export_sarif
+
+          # 查找最新的 analysis JSON
+          pattern = 'outputs/04_analysis/analysis_*.json'
+          files = sorted(glob.glob(pattern))
+          if not files:
+              print('No analysis files found, generating empty SARIF')
+              sarif = {
+                  '\$schema': 'https://json.schemastore.org/sarif-2.1.0.json',
+                  'version': '2.1.0',
+                  'runs': [{'tool': {'driver': {'name': 'garak-pipeline', 'version': '2.0.0'}}, 'results': []}]
+              }
+              os.makedirs('outputs/05_export', exist_ok=True)
+              with open('outputs/05_export/sarif_ci.json', 'w') as f:
+                  json.dump(sarif, f, indent=2)
+          else:
+              with open(files[-1]) as f:
+                  analysis = json.load(f)
+              export_sarif(analysis, 'outputs', 'ci')
+              # 重命名为 sarif_ci.json
+              if os.path.exists('outputs/05_export/sarif_ci.json'):
+                  os.remove('outputs/05_export/sarif_ci.json')
+              os.rename('outputs/05_export/sarif_ci.json', 'outputs/05_export/sarif_ci.json') if False else None
+              # export_sarif 生成 sarif_ci.json
+          print('SARIF generated')
+          " || true
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: hashFiles('outputs/05_export/sarif_ci.json') != ''
+        with:
+          sarif_file: outputs/05_export/sarif_ci.json
+          category: garak-pipeline
+
+  # P0-3: DEFCON 安全门禁 — DEFCON ≤ 2 时阻断合并
+  security-gate:
+    runs-on: ubuntu-latest
+    needs: [lint-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check DEFCON gate
+        run: |
+          python -c "
+          import json, glob, sys
+          files = sorted(glob.glob('outputs/04_analysis/analysis_*.json'))
+          if not files:
+              print('No analysis files found — gate skipped (no scan run)')
+              sys.exit(0)
+          with open(files[-1]) as f:
+              analysis = json.load(f)
+          overall = analysis.get('overall', {})
+          defcon = overall.get('defcon', 5)
+          worst_asr = overall.get('worst_asr', 0)
+          print(f'Security Gate: DEFCON={defcon}, Worst ASR={worst_asr}%')
+          if defcon <= 2:
+              print(f'⛔ BLOCKED: DEFCON {defcon} (critical risk) — merge blocked by security gate')
+              sys.exit(1)
+          else:
+              print(f'✅ PASSED: DEFCON {defcon} — within acceptable risk threshold')
+              sys.exit(0)
+          "

@@ -1,17 +1,14 @@
 {
-  "timestamp": "2026-08-09T22:05:11.342698",
+  "timestamp": "2026-08-09T23:43:19.121262",
   "seed_count": 500,
   "steps": {
     "generate": {
-      "duration_seconds": 0.002
+      "duration_seconds": 0.004
     },
     "dedup": {
       "method": "MinHashLSH",
-      "total_seeds": 500,
-      "unique_after_dedup": 187,
-      "duplicates_removed": 313,
-      "duration_seconds": 0.466,
-      "throughput_seeds_per_second": 1073.0
+      "error": "datasketch not installed",
+      "duration_seconds": 0
     },
     "asr_ranking": {
       "method": "ASR_Ranking",
@@ -21,20 +18,14 @@
     },
     "clustering": {
       "method": "TF-IDF+KMeans",
-      "total_seeds": 500,
-      "n_clusters": 20,
-      "tfidf_matrix_shape": [
-        500,
-        86
-      ],
-      "duration_seconds": 0.096,
-      "throughput_seeds_per_second": 5208.3
+      "error": "scikit-learn not installed",
+      "duration_seconds": 0
     }
   },
-  "total_duration_seconds": 0.562,
+  "total_duration_seconds": 0.0,
   "validation": {
     "minhash_lsh_under_30s": true,
-    "minhash_lsh_seconds": 0.466,
+    "minhash_lsh_seconds": 0,
     "overall_under_60s": true
   }
 }

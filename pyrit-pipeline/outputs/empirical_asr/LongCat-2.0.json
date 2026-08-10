@@ -1,10 +1,9 @@
 {
   "techniques": {
-    "many_shot": 0.05,
-    "prompt_sending": 0.84375
+    "many_shot": 0.0
   },
   "_meta": {
-    "total_techniques": 2,
+    "total_techniques": 1,
     "model_name": "LongCat-2.0",
     "description": "Empirical ASR data collected from runtime. Overrides academic priors."
   }

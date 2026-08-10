@@ -228,6 +228,11 @@ class Stage1Recon:
 
             # Step 3: 目标画像
             supports_mg = model_modality.get("supports_multiple_generations", None)
+            # Phase 4: 目标语言检测（启发式）
+            model_lower = (self.target.get("model") or "").lower()
+            cn_keywords = ("qwen", "baichuan", "chatglm", "glm", "yi-", "deepseek", "ernie", "spark", "moonshot", "kimi", "longcat", "spark", "abab", "gpt4o")
+            en_keywords = ("gpt", "llama", "mistral", "claude", "gemini", "falcon", "phi", "mixtral", "yi-")
+            target_lang = "zh" if any(k in model_lower for k in cn_keywords) else ("en" if any(k in model_lower for k in en_keywords) else "unknown")
             target_profile = {
                 "endpoint": self.target["endpoint"],
                 "model": self.target["model"],
@@ -236,6 +241,7 @@ class Stage1Recon:
                     "out": modality_out,
                 },
                 "supports_multiple_generations": supports_mg,
+                "target_language": target_lang,
                 "model_capabilities": model_capabilities,
                 "system_prompt_probe": system_prompt_info,
                 "connectivity": connectivity,

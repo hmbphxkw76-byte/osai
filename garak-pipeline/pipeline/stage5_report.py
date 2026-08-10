@@ -637,6 +637,59 @@ def export_pdf(analysis: dict, artifacts_dir: str, run_id: str) -> str | None:
         return None
 
 
+def export_ioa_rules(
+    analysis: dict,
+    artifacts_dir: str,
+    run_id: str,
+) -> str:
+    """Phase 3: 导出 IOA 检测规则（offsec 检测工程交付物）
+
+    从 hitlog 提取 prompt 模式 + detector 触发条件，生成蓝队可消费的检测规则 JSON。
+    """
+    hitlog = analysis.get("hitlog", {})
+    hits = hitlog.get("hits", [])
+    if not hits:
+        # 尝试从 probe_results 提取模式
+        probe_results = analysis.get("probe_results", {})
+        hits = []
+        for probe, info in probe_results.items():
+            if info.get("asr", 0) > 0:
+                hits.append({
+                    "probe": probe,
+                    "prompt": "",
+                    "output": "",
+                    "triggered_detectors": info.get("detectors", []),
+                })
+
+    rules: list[dict] = []
+    for hit in hits:
+        probe = hit.get("probe", "unknown")
+        prompt = str(hit.get("prompt", ""))[:200]
+        output = str(hit.get("output", ""))[:200]
+        detectors = hit.get("triggered_detectors", [])
+        rules.append({
+            "rule_id": f"IOA-{run_id}-{len(rules) + 1}",
+            "probe": probe,
+            "prompt_pattern": prompt,
+            "output_indicator": output,
+            "detectors": detectors,
+            "detection_logic": f"若 prompt 含相似模式且 detector 触发则标记为 {probe} 攻击",
+        })
+
+    ioa_data = {
+        "run_id": run_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total_rules": len(rules),
+        "rules": rules,
+    }
+    out_dir = Path(artifacts_dir) / "05_export"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"ioa_rules_{run_id}.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(ioa_data, f, ensure_ascii=False, indent=2)
+    return str(out_path)
+
+
 def generate_full_report(
     analysis: dict,
     artifacts_dir: str,
@@ -660,6 +713,8 @@ def generate_full_report(
     sarif_path = export_sarif(analysis, artifacts_dir, run_id)
     # P3-1: PyRIT 对话上下文导出
     conv_path = export_pyrit_with_conversations(analysis, artifacts_dir, run_id)
+    # Phase 3: IOA 检测规则导出
+    ioa_path = export_ioa_rules(analysis, artifacts_dir, run_id)
     return {
         "cards": None,
         "pyrit_air": pyrit_path,
@@ -668,4 +723,5 @@ def generate_full_report(
         "pdf": pdf_path,
         "sarif": sarif_path,
         "conversations": conv_path,
+        "ioa_rules": ioa_path,
     }

@@ -149,6 +149,12 @@ def main() -> None:
         help="扫描档位 [default: 取 yaml 配置]",
     )
     parser.add_argument(
+        "--phase",
+        default=None,
+        choices=["scan", "verify"],
+        help="交战阶段: scan=正常扫描(默认), verify=补丁验证(重跑+差异报告)",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="断点续扫模式：复用上次 run_id 的 checkpoint，跳过已完成的探针",
@@ -168,6 +174,18 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    # Phase 5: --phase verify 等价于 --retest（补丁验证集成到主流程）
+    if args.phase == "verify" and args.retest is None:
+        # 查找最近一个 run_id 作为基线
+        import glob as _glob
+        analysis_files = sorted(_glob.glob(str(Path(args.artifacts_dir or "outputs") / "04_analysis" / "analysis_*.json")))
+        if analysis_files:
+            baseline_run_id = Path(analysis_files[-1]).stem.replace("analysis_", "")
+            args.retest = baseline_run_id
+            print(f"📋 补丁验证模式: 自动选取基线 run_id={baseline_run_id}")
+        else:
+            print("⚠️  补丁验证模式: 未找到历史分析结果，将执行正常扫描")
 
     # ---- 日志配置 ----
     # --verbose / -v: 启用 DEBUG 级别日志，否则默认 WARNING

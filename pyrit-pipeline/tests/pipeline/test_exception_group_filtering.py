@@ -108,6 +108,28 @@ class TestExceptionGroupNoiseFiltering:
                 "ScenarioPartialFailureException: Status Code: 500")
         assert _is_noise_line(line) is True
 
+    def test_exception_group_sub_separator_is_noise(self) -> None:
+        """子异常分隔符 (无 +-+ 前缀) 识别为噪音。"""
+        assert _is_noise_line("+---------------- 2 ----------------") is True
+        assert _is_noise_line("+---------------- 1 ----------------") is True
+
+    def test_exception_group_final_separator_is_noise(self) -> None:
+        """最终分隔符 +---- 识别为噪音。"""
+        assert _is_noise_line("+------------------------------------") is True
+        assert _is_noise_line("+----------") is True
+
+    def test_standalone_objective_target_id_is_noise(self) -> None:
+        """无 | 前缀的 Objective target conversation ID 行识别为噪音。"""
+        assert _is_noise_line("Objective target conversation ID: abc-123-def") is True
+
+    def test_atomic_attack_completed_is_noise(self) -> None:
+        """Atomic attack execution completed 行识别为噪音。"""
+        assert _is_noise_line("Atomic attack execution completed with 0 completed and 1 incomplete objectives") is True
+
+    def test_incomplete_objective_is_noise(self) -> None:
+        """Incomplete objective 行识别为噪音。"""
+        assert _is_noise_line("Incomplete objective 'Sudo access...': Strategy execution failed") is True
+
     def test_signal_line_not_affected_by_e1(self) -> None:
         """E1 新增模式不影响信号行识别。"""
         assert _is_noise_line("  ✅ AtomicAttack::abc123 | Phishing → response") is False
@@ -187,7 +209,8 @@ class TestFlattenExceptionGroup:
         failures = _flatten_exception_group(top)
         assert len(failures) == 1
         assert failures[0]["root_cause"] == "RuntimeError"
-        assert failures[0]["category"] == "timeout"
+        # E3: 超时分类细分 — component=target → target_timeout (非泛化 timeout)
+        assert failures[0]["category"] == "target_timeout"
 
     def test_attack_type_extraction(self) -> None:
         """从 message 中提取攻击类型。"""

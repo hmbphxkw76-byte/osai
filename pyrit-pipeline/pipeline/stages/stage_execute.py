@@ -909,13 +909,20 @@ def _flatten_exception_group(exc: Exception) -> list[dict[str, str]]:
             attack = "tap"
 
         # 分类根因 (同时检查类型名和消息内容)
+        # E3: 超时分类细分 — 结合 component 区分 target_timeout / scorer_timeout
         root_str = str(root)
         category = "unknown"
         if (
             "ReadTimeout" in root_type or "APITimeout" in root_type or "TimeoutError" in root_type
             or "timeout" in root_str.lower() or "timed out" in root_str.lower()
         ):
-            category = "timeout"
+            # E3: 根据 component 细分超时来源
+            if component == "scorer":
+                category = "scorer_timeout"
+            elif component == "target":
+                category = "target_timeout"
+            else:
+                category = "timeout"
         elif "RateLimit" in root_type or "429" in root_str:
             category = "rate_limit"
         elif "ContentFilter" in root_type or "blocked" in root_str.lower():
@@ -948,8 +955,10 @@ def _print_concise_failure_summary(failures: list[dict[str, str]]) -> None:
     Args:
         failures: ``_flatten_exception_group()`` 返回的失败信息列表.
     """
-    # 分类中文标签
+    # 分类中文标签 (E3: 超时细分 target_timeout / scorer_timeout)
     category_labels: dict[str, str] = {
+        "target_timeout": "目标超时",
+        "scorer_timeout": "评分器超时",
         "timeout": "超时",
         "rate_limit": "限速",
         "content_filter": "内容过滤",

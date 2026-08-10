@@ -1,11 +1,14 @@
 # L5 专家级差距分析报告
 
-> **版本**: v12.0 (v11.0 + Round 44: 攻击者第一公民展示层 5 区块优化 + Round 45: 展示层 7 项优化 O1-O7)
+> **版本**: v15.0 (v14.0 + Round 47: 端到端验证 + noise_redirector 5 种泄漏行修复)
 > **日期**: 2026-8-9
 > **规则**: R-009/R-021/R-022/R-023 (优化后 + 代码改动后 + 原生优先 + 端到端验证自动化)
-> **评估对象**: pyrit-pipeline v12.0 + Round 10-45 全部优化 + 7 项性能优化 + NoiseFilter 三层路由 + Round 42-43 bug 修复 + 评分器韧性 7 项优化 + 攻击者第一公民展示层 5 区块 + Round 45 展示层 7 项优化 (O1-O7)
+> **评估对象**: pyrit-pipeline v15.0 + Round 10-47 全部优化 + 7 项性能优化 + NoiseFilter 三层路由 + Round 42-43 bug 修复 + 评分器韧性 7 项优化 + 攻击者第一公民展示层 5 区块 + Round 45 展示层 7 项优化 + Round 46 端到端验证 + 6 项 Bug 修复 + 3 项 L5 差距优化 + Round 47 端到端验证 + 5 种 noise_redirector 泄漏行修复
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **更新记录**:
+> - 2026-8-9 — v15.0: Round 47 端到端验证 + noise_redirector 5 种泄漏行修复 (运行: 72 AtomicAttack | 12/96 成功 | ASR 12% | 21:49; E1/E4: |-prefixed lines = 0 ✅; E3: 失败摘要 [超时] 分类 + S3 熔断器 16 errors ✅; O1: 变换预览 AsciiSmugglerConverter ✅; 5 种新泄漏行模式修复: +---N---, +----, Objective target conversation ID (无 | 前缀), Atomic attack completed, Incomplete objective; 5 个新测试) + ruff 修改文件零违规 + 1288 passed / 6 skipped / 2 failed (预存 sklearn)
+> - 2026-8-9 — v14.0: Round 46 续 3 项 L5 差距优化 (优化1: 预检路径 PromptRequestPiece → PyRIT 1.0.1 HTTPTarget 无 prompt_request_piece 参数; 优化2: E3 超时分类细分 target_timeout/scorer_timeout; 优化3: E1/E4 noise_redirector 842/842 行 100% 覆盖率验证 + Objective target conversation ID 模式) + ruff 零违规 + 1283 passed / 6 skipped / 2 failed (预存 sklearn)
+> - 2026-8-9 — v13.0: Round 46 端到端验证 16 项 (13✅ + 2⚠️ + 1⚠️) + 3 项 Bug 修复 (config.args 崩溃 → ctx.args; PromptRequestPiece → PyRIT 1.0.1 convert_async API; E1 ExceptionGroup traceback 泄漏 → noise_redirector 通用匹配模式) + 测试通过 1283/6/2(预存sklearn)
 > - 2026-8-9 — v12.0: Round 45 展示层 7 项优化 (O1: Converter 变换预览 PyRIT 原生 convert_async + O2: 降级链 ASCII 箭头图 + O3: 攻击预算实时校准 + O4: 8 个死函数 + 15 个死测试清理 + O5: 7 个新测试 + O6: make check-full 通过 + O7: L5 差距分析) + 测试通过 1318/6/0
 > - 2026-8-9 — v11.0: Round 43 评分器韧性 7 项优化 (S1: SubStringScorer 关键词匹配降级评分 + S2: 评分器超时独立配置 30s + S3: 超时熔断器 5次阈值 + S4: BaseException 兜底 + S5: scenario_result_id 预生成 + S6: payload_converter_affinity 细化 + S7: token_smuggling_chain 已存在) + 21 个新测试 + 测试通过 1270/6/0
 > - 2026-8-9 — v10.0: 7 项性能优化 (O1: API 超时 600s→60s 通过 PyRIT 原生 httpx_client_kwargs; O2: RateLimitedTarget 全覆盖 1/3→3/3 Target; O3: SDK max_retries 2→0 禁用三层叠加; O4: 204 空响应快速失败; O5: DoS 数据集双重排除 加载时+运行时; O6: rate_limit_retries 3→2; O7: 退避上限 60s→30s) + 18 个新测试 + 测试通过 1249/6/0
