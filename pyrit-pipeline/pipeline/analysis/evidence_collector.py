@@ -254,6 +254,7 @@ class EvidenceCollector:
         evidence_idx = 0
         owasp_counter: dict[str, int] = {}
         tech_counter: dict[str, int] = {}
+        current_owasp_id: str | None = None  # 安全初始化, 防止 UnboundLocalError
 
         # Round 8 P0: 构建技术名到 OWASP ID 的映射 (从 display_groups 提取)
         tech_to_owasp: dict[str, str] = {}
@@ -318,39 +319,39 @@ class EvidenceCollector:
 
                 collection.evidence.append(evidence)
 
-        # OWASP 覆盖统计 (Round 8 P0: 使用 current_owasp_id)
-        if current_owasp_id:
-            owasp_counter[current_owasp_id] = owasp_counter.get(current_owasp_id, 0) + 1
+                # OWASP 覆盖统计 (Round 8 P0: 使用 current_owasp_id)
+                if current_owasp_id:
+                    owasp_counter[current_owasp_id] = owasp_counter.get(current_owasp_id, 0) + 1
 
-        # 子结果 (SequentialAttack 的子攻击)
-        child_results = getattr(ar, "child_attack_results", None) or []
-        for child in child_results:
-            if child is None:
-                continue
-            if self._is_success(child):
-                evidence_idx += 1
-                child_evidence = VulnerabilityEvidence(
-                    evidence_id=f"EVD-{evidence_idx:04d}",
-                    attack_id=f"{attack_id}_child",
-                    technique_name=self._extract_technique_name(child),
-                    technique_display_name=get_display_name(
-                        normalize_technique_name(self._extract_technique_name(child))
-                    ),
-                    converter_chain=self._extract_converter_chain(child),
-                    owasp_id=current_owasp_id,  # Round 8 P0: 子攻击继承父攻击的 OWASP ID
-                    owasp_category=get_owasp_category(current_owasp_id) if current_owasp_id else "",
-                    objective=self._extract_objective(child),
-                    jailbreak_prompt=self._extract_jailbreak_prompt(child),
-                    harmful_output=self._extract_harmful_output(child),
-                    conversation_history=self._extract_conversation(child),
-                    asr=asr_per_technique.get(tech_name, 0.0) if asr_per_technique else 0.0,
-                    confidence="medium",
-                    arxiv_reference=get_arxiv_reference(normalize_technique_name(tech_name)) or "",
-                    timestamp=datetime.now().isoformat(),
-                    target_model=self._target_model,
-                    model_tier=self._model_tier,
-                )
-                collection.evidence.append(child_evidence)
+                # 子结果 (SequentialAttack 的子攻击)
+                child_results = getattr(ar, "child_attack_results", None) or []
+                for child in child_results:
+                    if child is None:
+                        continue
+                    if self._is_success(child):
+                        evidence_idx += 1
+                        child_evidence = VulnerabilityEvidence(
+                            evidence_id=f"EVD-{evidence_idx:04d}",
+                            attack_id=f"{attack_id}_child",
+                            technique_name=self._extract_technique_name(child),
+                            technique_display_name=get_display_name(
+                                normalize_technique_name(self._extract_technique_name(child))
+                            ),
+                            converter_chain=self._extract_converter_chain(child),
+                            owasp_id=current_owasp_id,  # Round 8 P0: 子攻击继承父攻击的 OWASP ID
+                            owasp_category=get_owasp_category(current_owasp_id) if current_owasp_id else "",
+                            objective=self._extract_objective(child),
+                            jailbreak_prompt=self._extract_jailbreak_prompt(child),
+                            harmful_output=self._extract_harmful_output(child),
+                            conversation_history=self._extract_conversation(child),
+                            asr=asr_per_technique.get(tech_name, 0.0) if asr_per_technique else 0.0,
+                            confidence="medium",
+                            arxiv_reference=get_arxiv_reference(normalize_technique_name(tech_name)) or "",
+                            timestamp=datetime.now().isoformat(),
+                            target_model=self._target_model,
+                            model_tier=self._model_tier,
+                        )
+                        collection.evidence.append(child_evidence)
 
         collection.owasp_coverage = owasp_counter
         collection.technique_distribution = tech_counter

@@ -778,11 +778,32 @@ def _print_attack_loadout_card(
             arrow_parts.append(f"{tier}[{tech_summary}]")
         chain_lines.append(" → ".join(arrow_parts))
         chain_lines.append(f"降级点 {fallback_plan.fallback_count} 处")
-        # 降级路径明细
+        # S3-2: 降级路径明细 — Wave 格式 + 攻击者视角叙述
+        tier_narratives = {
+            "S": "高成功率, 优先执行",
+            "A": "中等成功率, 降级候选",
+            "B": "低成功率, 补充攻击",
+            "C": "极低成功率, 最后手段",
+            "D": "冷启动, 探测性攻击",
+            "—": "冷启动, 探测性攻击",
+            "UNKNOWN": "冷启动, 探测性攻击",
+        }
         for i, tech in enumerate(exec_order):
             asr = warm_start.get(tech, 0.0)
             tier = _tier_from_asr(asr) if asr > 0 else "—"
-            chain_lines.append(f"  #{i + 1} {tech} ({tier}, {asr:.0%})")
+            # 根据位置和 Tier 推断攻击角色
+            if i == 0:
+                role = "主攻, 高成功率预期"
+            elif i == 1:
+                role = "侧翼掩护"
+            elif tier in ("S", "A"):
+                role = "降级候选"
+            elif tier in ("B", "C"):
+                role = "补充攻击"
+            else:
+                role = "探测性攻击"
+            narrative = tier_narratives.get(tier, "探测性攻击")
+            chain_lines.append(f"  Wave {i + 1} (Tier {tier}): {tech} (ASR {asr:.0%}) ← {role}, {narrative}")
 
     # ── [覆盖] 段: 增强/baseline + 增益 ──
     enhanced = _count_enhanced_attacks(ctx, atomic_attacks)

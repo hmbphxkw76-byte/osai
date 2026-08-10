@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from pathlib import Path
+from typing import Any
 
 from pipeline.context import PipelineContext
 
@@ -588,6 +589,58 @@ def _print_fix_recommendations(ctx: PipelineContext) -> None:
 # OWASP LLM Top10 覆盖矩阵
 
 
+def _extract_owasp_from_attack_result(ar: Any) -> str:
+    """从 AttackResult 提取 OWASP ID (回退路径).
+
+    提取路径 (R-022 PyRIT 原生优先):
+      1. ar.memory_labels["owasp_id"] — 原生 memory_labels
+      2. ar.atomic_attack_identifier.params["display_group"] — 原生标识符参数
+      3. ar.metadata["dataset_name"] — 元数据回退
+
+    Args:
+        ar: AttackResult 实例
+
+    Returns:
+        OWASP ID (如 "LLM01"), 空字符串表示未找到
+    """
+    import re
+
+    # 路径 1: memory_labels.owasp_id
+    labels = getattr(ar, "memory_labels", None) or {}
+    if isinstance(labels, dict):
+        owasp_id = labels.get("owasp_id", "")
+        if owasp_id:
+            return owasp_id.upper()
+
+    # 路径 2: atomic_attack_identifier.params.display_group
+    try:
+        aai = getattr(ar, "atomic_attack_identifier", None)
+        if aai is not None:
+            params = getattr(aai, "params", None) or {}
+            if isinstance(params, dict):
+                dg = params.get("display_group", "")
+                if dg:
+                    match = re.search(r"(llm\d{2}|asi\d{2})", dg, re.IGNORECASE)
+                    if match:
+                        return match.group(1).upper()
+    except Exception:
+        pass
+
+    # 路径 3: metadata.dataset_name
+    try:
+        metadata = getattr(ar, "metadata", None) or {}
+        if isinstance(metadata, dict):
+            ds_name = metadata.get("dataset_name", "") or metadata.get("display_group", "")
+            if ds_name:
+                match = re.search(r"(llm\d{2}|asi\d{2})", ds_name, re.IGNORECASE)
+                if match:
+                    return match.group(1).upper()
+    except Exception:
+        pass
+
+    return ""
+
+
 def _print_owasp_matrix(ctx: PipelineContext) -> None:
     """D4: OWASP LLM Top10 (2025) 覆盖矩阵 (L5 P3-1: 使用原生 display_group 映射).
 
@@ -623,36 +676,47 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
 
         groups = ctx.result.get_display_groups()
         for group_name, attack_results in groups.items():
-            # 从组名提取 OWASP ID (如 llm01_prompt_injection → LLM01)
-            match = re.match(r"^(?:llm|asi)(\d{2})_", group_name, re.IGNORECASE)
+            # 从组名提取 OWASP ID (与 evidence_collector._extract_owasp_id_from_display_group 对齐)
+            # 使用 re.search 而非 re.match, 支持 "owasp_llm01_prompt_injection" 等带前缀的组名
+            match = re.search(r"(llm\d{2}|asi\d{2})", group_name, re.IGNORECASE)
             if match:
-                num = match.group(1)
-                owasp_id = f"LLM{num}"
+                owasp_id = match.group(1).upper()
                 covered.add(owasp_id)
                 owasp_attack_counts[owasp_id] = owasp_attack_counts.get(owasp_id, 0) + len(attack_results)
                 successes = sum(1 for ar in attack_results if ar.outcome == AttackOutcome.SUCCESS)
                 owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
             else:
-                # 回退: 从 ASR 技术名匹配 (简化版, 保持向后兼容)
-                tech_lower = group_name.lower()
-                fallback_map = {
-                    "prompt_injection": "LLM01",
-                    "jailbreak": "LLM01",
-                    "encoding": "LLM01",
-                    "payload_smuggling": "LLM01",
-                    "red_teaming": "LLM01",
-                    "information_disclosure": "LLM06",
-                    "data_exfiltration": "LLM06",
-                    "dan": "LLM08",
-                    "actor_attack": "LLM08",
-                }
-                for key, owasp_id in fallback_map.items():
-                    if key in tech_lower:
-                        covered.add(owasp_id)
-                        owasp_attack_counts[owasp_id] = owasp_attack_counts.get(owasp_id, 0) + len(attack_results)
-                        successes = sum(1 for ar in attack_results if ar.outcome == AttackOutcome.SUCCESS)
-                        owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
-                        break
+                # 回退 1: 从每个 AttackResult 的 atomic_attack_identifier.params.display_group 提取
+                for ar in attack_results:
+                    ar_owasp = _extract_owasp_from_attack_result(ar)
+                    if ar_owasp:
+                        covered.add(ar_owasp)
+                        owasp_attack_counts[ar_owasp] = owasp_attack_counts.get(ar_owasp, 0) + 1
+                        if ar.outcome == AttackOutcome.SUCCESS:
+                            owasp_success_counts[ar_owasp] = owasp_success_counts.get(ar_owasp, 0) + 1
+                # 回退 2: 如果 AttackResult 也没有 OWASP 信息, 从技术名匹配
+                if not any(
+                    _extract_owasp_from_attack_result(ar) for ar in attack_results
+                ):
+                    tech_lower = group_name.lower()
+                    fallback_map = {
+                        "prompt_injection": "LLM01",
+                        "jailbreak": "LLM01",
+                        "encoding": "LLM01",
+                        "payload_smuggling": "LLM01",
+                        "red_teaming": "LLM01",
+                        "information_disclosure": "LLM06",
+                        "data_exfiltration": "LLM06",
+                        "dan": "LLM08",
+                        "actor_attack": "LLM08",
+                    }
+                    for key, owasp_id in fallback_map.items():
+                        if key in tech_lower:
+                            covered.add(owasp_id)
+                            owasp_attack_counts[owasp_id] = owasp_attack_counts.get(owasp_id, 0) + len(attack_results)
+                            successes = sum(1 for ar in attack_results if ar.outcome == AttackOutcome.SUCCESS)
+                            owasp_success_counts[owasp_id] = owasp_success_counts.get(owasp_id, 0) + successes
+                            break
 
     # S5-2: 计划态覆盖 (从 sorted_datasets 获取)
     planned_coverage: set[str] = set()
