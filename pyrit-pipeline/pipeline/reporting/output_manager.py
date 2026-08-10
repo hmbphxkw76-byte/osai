@@ -319,6 +319,8 @@ class ProgressPoller:
         self._stopped = False
         self._last_completed: int = -1  # 上次看到的完成数 (-1 表示从未注入)
         self._asr_tracker = asr_tracker  # P3-O1: 实时 ASR 追踪器
+        self._breakthrough_count: int = 0  # O-ASR-9: 突破计数
+        self._last_dashboard_count: int = 0  # O-ASR-3: 上次看板打印时的完成数
 
     def start(self) -> None:
         """启动背景轮询任务。."""
@@ -392,7 +394,6 @@ class ProgressPoller:
                             if hasattr(outcome, "value")
                             else str(outcome).upper()
                         ) if outcome else "UNKNOWN"
-                        marker = "✅" if outcome_str == "SUCCESS" else ("❌" if outcome_str == "FAILURE" else "⚠")
                         # D2 增强: 红队回调行 — [B]/[E] + 技术+Converter链 + 数据集 + 载荷 + 响应
                         tech = ProgressDashboard._extract_technique(ar)
                         # P1 修复: 跳过 SequentialAttack 信封结果 (tech="sequential"),
@@ -416,10 +417,25 @@ class ProgressPoller:
                         # 组装显示行
                         tech_conv = f"{tech}+{'→'.join(conv_names)}" if conv_names else tech
                         dataset_str = f" | {dataset}" if dataset else ""
-                        if resp:
-                            print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj} → {resp}")
+                        # O-ASR-9: 突破告警 — 成功攻击使用高亮格式
+                        if outcome_str == "SUCCESS":
+                            self._breakthrough_count += 1
+                            bt_num = self._breakthrough_count
+                            # 提取 OWASP 分类
+                            import re as _re
+                            owasp_match = _re.search(r"(llm\d{2}|asi\d{2})", dataset or "", _re.IGNORECASE)
+                            owasp_tag = f" | {owasp_match.group(1).upper()}" if owasp_match else ""
+                            conv_tag = f" + {'→'.join(conv_names)}" if conv_names else " (baseline 直发)"
+                            print(f"  🚨 BREAKTHROUGH #{bt_num} | {tech}{conv_tag}{owasp_tag}")
+                            print(f"     载荷: {obj}")
+                            if resp:
+                                print(f"     响应: {resp}")
                         else:
-                            print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj}")
+                            marker = "❌" if outcome_str == "FAILURE" else "⚠"
+                            if resp:
+                                print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj} → {resp}")
+                            else:
+                                print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj}")
 
                     # P3-O1: 实时 ASR 反馈 — 将新结果反馈到 ASR 追踪器
                     if self._asr_tracker is not None:
@@ -427,6 +443,12 @@ class ProgressPoller:
                             self._asr_tracker.on_new_results(new_results)
                         except Exception as e:
                             logger.debug(f"RealTime ASR tracker update failed (non-fatal): {e}")
+
+                    # O-ASR-3: 实时 ASR 看板 — 每 15 个新结果打印一次
+                    current_completed = self._dashboard.completed
+                    if current_completed - self._last_dashboard_count >= 15:
+                        self._last_dashboard_count = current_completed
+                        self._print_realtime_asr_dashboard(current_completed)
 
                 # 更新 Dashboard 数据 (全量重统计, 作为数据收集器)
                 self._dashboard.update_from_attack_results(results)
@@ -526,6 +548,65 @@ class ProgressPoller:
             return ""
         except Exception:
             return ""
+
+    def _print_realtime_asr_dashboard(self, completed: int) -> None:
+        """O-ASR-3: 实时 ASR 看板 — 每 15 个结果打印一次.
+
+        展示当前总体 ASR + 按技术分组的实时 ASR + 趋势预警.
+        帮助攻击者在执行过程中实时感知攻击效果, 及时调整策略.
+
+        学术依据:
+          - arXiv:2310.04451 — PAIR 自适应策略选择 (实时反馈)
+          - arXiv:2406.16241 — TAP 基于搜索的攻击优化 (动态调整)
+        """
+        try:
+            total = self._dashboard.total
+            succeeded = self._dashboard.succeeded
+            failed = self._dashboard.failed
+            asr = (succeeded / completed * 100) if completed > 0 else 0
+
+            # 从 ASR 追踪器获取技术级 ASR
+            tech_asr_lines: list[str] = []
+            if self._asr_tracker is not None:
+                all_asr = self._asr_tracker.get_all_asr()
+                # 按 ASR 降序排列, 展示 Top 3
+                sorted_tech = sorted(all_asr.items(), key=lambda x: x[1], reverse=True)
+                for tech, tech_asr in sorted_tech[:3]:
+                    bar = "█" * int(tech_asr * 20)
+                    tech_asr_lines.append(f"  {tech[:25]:<25} {tech_asr * 100:>5.1f}% {bar}")
+
+                # 零 ASR 技术预警
+                zero_techs = [
+                    t for t, a in all_asr.items()
+                    if a == 0.0 and self._asr_tracker.get_technique_asr(t) == 0
+                ]
+                # 获取技术尝试次数
+                for tech_name in list(zero_techs)[:3]:
+                    tech_data = self._asr_tracker._techniques.get(tech_name)
+                    if tech_data and tech_data.total >= 5:
+                        tech_asr_lines.append(f"  ⚠ {tech_name[:23]} 0% ({tech_data.total}次) → 建议熔断跳过")
+
+            # 预测 ASR 区间
+            expected_low = 25
+            expected_high = 35
+            trend = ""
+            if asr < expected_low:
+                trend = "↓ 低于预期"
+            elif asr > expected_high:
+                trend = "↑ 高于预期"
+            else:
+                trend = "→ 符合预期"
+
+            print()
+            print(f"  ┌─ 实时 ASR 看板 ({completed}/{total} 完成) ──────────────────────┐")
+            print(f"  │ 总体: {asr:.1f}% ({succeeded}/{completed}) | 预测 {expected_low}-{expected_high}% | 趋势: {trend}")
+            if tech_asr_lines:
+                print("  │")
+                for line in tech_asr_lines:
+                    print(f"  │{line}")
+            print(f"  └──────────────────────────────────────────────────────────┘")
+        except Exception as e:
+            logger.debug(f"O-ASR-3 realtime dashboard failed (non-fatal): {e}")
 
     def _backoff(self) -> None:
         """自适应退避: 当前间隔翻倍, 上限 _MAX_INTERVAL."""

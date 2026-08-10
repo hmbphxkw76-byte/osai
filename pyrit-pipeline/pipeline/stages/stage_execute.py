@@ -676,6 +676,271 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
         if defense_lines:
             info_box(f"⑤ 失败弱点分析 ({failures} 个失败)", defense_lines)
 
+    # ── O-ASR-2: 卡片 ⑥ Converter 效果诊断 (Per-Converter ASR 排名) ──
+    _print_converter_effect_diagnosis(ctx, all_results)
+
+    # ── O-ASR-4: 卡片 ⑦ 成功攻击模式分析 ──
+    if successes > 0:
+        _print_success_pattern_analysis(ctx, all_results, groups)
+
+
+def _print_converter_effect_diagnosis(
+    ctx: PipelineContext,
+    all_results: list[tuple[str, bool, Any]],
+) -> None:
+    """O-ASR-2: Per-Converter ASR 贡献度诊断 (core_card 级别).
+
+    按 Converter 链分组计算独立 ASR, 与 baseline 对比, 输出排名 + 诊断 + 建议.
+    这是攻击者最关心的展示: 哪些变换有效, 哪些反成负累.
+
+    学术依据:
+      - arXiv:2309.14334 — Converter 变换对 ASR 的影响评估
+      - arXiv:2402.04249 — HarmBench 标准化 ASR 对比方法论
+    """
+    from pipeline.utils.display import core_card
+
+    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
+
+    # 按 Converter 链分组
+    conv_chain_stats: dict[str, dict[str, int]] = {}  # chain_str → {total, success}
+    for tech_name, success, ar in all_results:
+        conv_names = _extract_converter_names_from_result(ar)
+        if not conv_names:
+            expected_convs = technique_converter_map.get(tech_name, [])
+            conv_names = [type(c).__name__ for c in expected_convs] if expected_convs else []
+
+        chain_key = " → ".join(conv_names) if conv_names else "(baseline 直发)"
+        if chain_key not in conv_chain_stats:
+            conv_chain_stats[chain_key] = {"total": 0, "success": 0, "convs": conv_names}
+        conv_chain_stats[chain_key]["total"] += 1
+        if success:
+            conv_chain_stats[chain_key]["success"] += 1
+
+    if not conv_chain_stats:
+        return
+
+    # 按 ASR 降序排列
+    sorted_chains = sorted(
+        conv_chain_stats.items(),
+        key=lambda x: x[1]["success"] / max(x[1]["total"], 1),
+        reverse=True,
+    )
+
+    # 计算 baseline ASR 作为参照
+    baseline_data = conv_chain_stats.get("(baseline 直发)", {})
+    baseline_total = baseline_data.get("total", 0)
+    baseline_success = baseline_data.get("success", 0)
+    baseline_asr = (baseline_success / baseline_total * 100) if baseline_total > 0 else 0.0
+
+    # 构建 [排名] 段
+    rank_lines: list[str] = []
+    rank_lines.append(f"{'Converter 链':<40} {'ASR':>7s}  {'成功/总计':<10s}  {'Δ vs Base':<10s}")
+    rank_lines.append("─" * 70)
+    for chain_key, stats in sorted_chains:
+        total = stats["total"]
+        succ = stats["success"]
+        asr = (succ / total * 100) if total > 0 else 0.0
+        delta = asr - baseline_asr if baseline_total > 0 else 0.0
+        if delta > 5:
+            delta_str = f"+{delta:.1f}% ↑"
+        elif delta < -5:
+            delta_str = f"{delta:.1f}% ↓ ✗"
+        else:
+            delta_str = f"{delta:+.1f}%"
+        rank_lines.append(f"  {chain_key[:38]:<38} {asr:>6.1f}%  {succ}/{total:<8}  {delta_str}")
+
+    # 构建 [诊断] 段 — 找出最差的 Converter 链
+    diag_lines: list[str] = []
+    worst_chains = [
+        (k, v) for k, v in sorted_chains
+        if v["total"] >= 3 and (v["success"] / max(v["total"], 1)) * 100 < baseline_asr - 10
+    ]
+    if worst_chains:
+        for chain_key, stats in worst_chains[:2]:
+            total = stats["total"]
+            succ = stats["success"]
+            asr = (succ / total * 100) if total > 0 else 0.0
+            delta = asr - baseline_asr if baseline_total > 0 else 0.0
+            diag_lines.append(f"🔴 {chain_key[:40]} 完全失效")
+            diag_lines.append(f"   · {total} 次攻击仅 {succ} 成功 ({asr:.1f}%)")
+            diag_lines.append(f"   · baseline 同类 ASR {baseline_asr:.1f}% → Δ {delta:.1f}pp")
+            # 推断失败原因
+            convs = stats.get("convs", [])
+            if convs:
+                conv_types = ", ".join(convs[:2])
+                diag_lines.append(f"   · 推断: {conv_types} 变换后的载荷被目标模型识别为异常")
+
+    if not diag_lines:
+        # 检查是否有完全成功的
+        perfect_chains = [
+            (k, v) for k, v in sorted_chains
+            if v["total"] >= 3 and v["success"] == v["total"]
+        ]
+        if perfect_chains:
+            for chain_key, stats in perfect_chains[:2]:
+                total = stats["total"]
+                diag_lines.append(f"✅ {chain_key[:40]} 完全成功 ({total}/{total})")
+                diag_lines.append(f"   · ASR 100% — 该 Converter 链对目标极为有效")
+        else:
+            diag_lines.append("(无显著异常 Converter 链)")
+
+    # 构建 [建议] 段
+    suggest_lines: list[str] = []
+    if worst_chains:
+        for chain_key, _stats in worst_chains[:2]:
+            suggest_lines.append(f"1. 禁用 {chain_key[:30]} 链 (下次运行)")
+        suggest_lines.append("2. 替换为语义类: PersuasionConverter 或 TaskFramingConverter")
+        suggest_lines.append(f"3. 或保持 baseline 直发 (已验证 {baseline_asr:.1f}% ASR)")
+    elif not diag_lines:
+        suggest_lines.append("(无明显需要调整的 Converter 链)")
+    else:
+        suggest_lines.append("1. 保持当前 Converter 配置")
+        suggest_lines.append("2. 扩大高 ASR Converter 链的覆盖范围")
+
+    sections = [
+        {"label": "排名", "lines": rank_lines},
+        {"label": "诊断", "lines": diag_lines},
+        {"label": "建议", "lines": suggest_lines},
+    ]
+
+    # 判断标题
+    has_negative = bool(worst_chains)
+    if has_negative:
+        title = "Converter 效果诊断 — 增强反成负累"
+    else:
+        title = "Converter 效果诊断 — 增强有效"
+
+    core_card(title, sections=sections)
+
+
+def _print_success_pattern_analysis(
+    ctx: PipelineContext,
+    all_results: list[tuple[str, bool, Any]],
+    groups: Any,
+) -> None:
+    """O-ASR-4: 成功攻击模式分析 — 从成功攻击中归纳模式.
+
+    按攻击向量 (OWASP 分类)、载荷特征、突破方式三个维度归纳成功模式.
+    帮助攻击者识别"为什么成功"并复制到后续攻击.
+
+    学术依据:
+      - arXiv:2402.04249 — HarmBench 攻击模式分类方法论
+      - arXiv:2310.04451 — PAIR 自适应策略分析
+    """
+    from pipeline.utils.display import core_card
+
+    from pyrit.models import AttackOutcome
+
+    successful = [(tech, ar) for tech, success, ar in all_results if success]
+    if not successful:
+        return
+
+    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
+
+    # ── 维度 1: 按攻击向量 (数据集 → OWASP 分类) ──
+    vector_stats: dict[str, dict[str, int]] = {}  # vector → {total, success}
+    for _group_name, attack_results in groups.items():
+        for ar in attack_results:
+            # 从 group_name 提取 OWASP 分类
+            import re
+
+            owasp_match = re.search(r"(llm\d{2}|asi\d{2})", _group_name, re.IGNORECASE)
+            if owasp_match:
+                vector = owasp_match.group(1).upper()
+            else:
+                # 从数据集名推断
+                ds_name = _group_name.lower()
+                if "harmbench" in ds_name:
+                    vector = "HarmBench"
+                elif "strong_reject" in ds_name:
+                    vector = "StrongREJECT"
+                elif "jbb" in ds_name:
+                    vector = "JBB"
+                elif "curated" in ds_name:
+                    vector = "CuratedSeeds"
+                else:
+                    vector = "其他"
+
+            if vector not in vector_stats:
+                vector_stats[vector] = {"total": 0, "success": 0}
+            vector_stats[vector]["total"] += 1
+            if ar.outcome == AttackOutcome.SUCCESS:
+                vector_stats[vector]["success"] += 1
+
+    # 按成功率排序
+    sorted_vectors = sorted(
+        vector_stats.items(),
+        key=lambda x: x[1]["success"] / max(x[1]["total"], 1),
+        reverse=True,
+    )
+    vector_lines: list[str] = []
+    for vector, stats in sorted_vectors:
+        total = stats["total"]
+        succ = stats["success"]
+        rate = (succ / total * 100) if total > 0 else 0
+        if rate > 0:
+            vector_lines.append(f"  {vector:<20} {succ}/{total} = {rate:.0f}% {'← 防御最薄弱' if rate >= 40 else ''}")
+
+    if not vector_lines:
+        vector_lines.append("(无法提取攻击向量)")
+
+    # ── 维度 2: 按载荷特征 ──
+    short_payloads = 0
+    short_success = 0
+    long_payloads = 0
+    long_success = 0
+    for tech_name, ar in successful:
+        payload = _extract_payload_from_result(ar)
+        if len(payload) < 50:
+            short_payloads += 1
+            short_success += 1
+        else:
+            long_payloads += 1
+            long_success += 1
+
+    # 统计所有攻击中的短/长载荷
+    all_short = 0
+    all_long = 0
+    for _tech, _success, ar in all_results:
+        payload = _extract_payload_from_result(ar)
+        if len(payload) < 50:
+            all_short += 1
+        else:
+            all_long += 1
+
+    feature_lines: list[str] = []
+    if all_short > 0:
+        short_rate = short_success / all_short * 100
+        feature_lines.append(f"  {'短载荷 (<50字符)':<25} 成功率 {short_rate:.0f}% ({short_success}/{all_short})")
+    if all_long > 0:
+        long_rate = long_success / all_long * 100 if all_long > 0 else 0
+        feature_lines.append(f"  {'长载荷 (≥50字符)':<25} 成功率 {long_rate:.0f}% ({long_success}/{all_long})")
+
+    # 按突破方式
+    baseline_success = sum(
+        1 for tech_name, ar in successful
+        if not _extract_converter_names_from_result(ar)
+        and not technique_converter_map.get(tech_name)
+    )
+    converter_success = len(successful) - baseline_success
+    method_lines: list[str] = []
+    method_lines.append(f"  baseline 直发: {baseline_success}/{len(successful)} = {baseline_success / len(successful) * 100:.0f}% 成功")
+    if converter_success > 0:
+        method_lines.append(f"  Converter 增强: {converter_success}/{len(successful)} = {converter_success / len(successful) * 100:.0f}% 成功")
+    else:
+        method_lines.append("  Converter 增强: 0% (所有成功均为 baseline)")
+
+    sections = [
+        {"label": "按攻击向量", "lines": vector_lines},
+        {"label": "按载荷特征", "lines": feature_lines if feature_lines else ["(无载荷数据)"]},
+        {"label": "按突破方式", "lines": method_lines},
+    ]
+
+    core_card(
+        f"成功攻击模式分析 ({len(successful)} 个成功)",
+        sections=sections,
+    )
+
 
 def _extract_failure_timing(
     all_results: list[tuple[str, bool, Any]], fail_type: str
