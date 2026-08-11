@@ -88,7 +88,7 @@ main.py
 ├── setup_environment()           → pipeline.config.setup_environment()
 ├── parse_args()                  → pipeline.config.parse_args()
 ├── OutputManager(base_dir)       → pipeline.reporting.output_manager.OutputManager
-├── clean_temp_files("pre")       → pipeline.utils.cleaner.clean_temp_files()
+├── clean_temp_files("post")      → pipeline.utils.cleaner.clean_temp_files()  [运行后+异常退出]
 │
 ├── stage_init(ctx)               → pipeline.stages.stage_init.run()
 ├── stage_target_classify(ctx)    → pipeline.stages.stage_target_classify.run()  [可选]

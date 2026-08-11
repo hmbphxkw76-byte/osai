@@ -77,6 +77,80 @@ class TestIsNoiseLine:
         """Endpoint + Elapsed time 行识别为噪音。"""
         assert _is_noise_line("Endpoint: https://api.deepseek.com. Elapsed time: 9.13 seconds. Total calls: 1") is True
 
+    # ── 新增: PyRIT openai_target logger.exception 堆栈行 ──
+
+    def test_api_status_error_is_noise(self) -> None:
+        """APIStatusError 行 (PyRIT logger.exception 输出) 识别为噪音。"""
+        assert _is_noise_line(
+            "APIStatusError request_id=None status=503 "
+            "error=Error code: 503 - {'code': 50508, 'message': 'System is too busy now.'}"
+        ) is True
+
+    def test_internal_server_error_is_noise(self) -> None:
+        """InternalServerError 行识别为噪音。"""
+        assert _is_noise_line(
+            "InternalServerError request_id=None status=503 error=..."
+        ) is True
+
+    def test_bad_request_error_is_noise(self) -> None:
+        """BadRequestError 行 (含 request_id) 识别为噪音。"""
+        assert _is_noise_line(
+            "BadRequestError request_id=req_abc123 is_content_filter=False"
+        ) is True
+
+    # ── 修复: strip 后的 traceback 行 ──
+
+    def test_file_line_stripped_is_noise(self) -> None:
+        """File " 行 strip 后仍匹配 (修复: 原 ^  File " 模式 bug)。"""
+        assert _is_noise_line('  File "D:\\path\\openai_target.py", line 424') is True
+        # strip 后无前导空格
+        assert _is_noise_line('File "D:\\path\\openai_target.py", line 424') is True
+
+    def test_caret_line_stripped_is_noise(self) -> None:
+        r"""^^^^^ 行 strip 后仍匹配 (修复: 原 ^\s+\^+$ 模式 bug)。"""
+        assert _is_noise_line("    ^^^^^^^^^^^^^^^^") is True
+        # strip 后无前导空格
+        assert _is_noise_line("^^^^^^^^^^^^^^^^") is True
+
+    # ── 新增: traceback 中的 Python 代码行 ──
+
+    def test_traceback_code_response_is_noise(self) -> None:
+        """traceback 代码行 'response = await api_call()' 识别为噪音。"""
+        assert _is_noise_line("    response = await api_call()") is True
+
+    def test_traceback_code_return_is_noise(self) -> None:
+        """traceback 代码行 'return await self._post(' 识别为噪音。"""
+        assert _is_noise_line("    return await self._post(") is True
+
+    def test_traceback_code_raise_is_noise(self) -> None:
+        """traceback 代码行 'raise self._make_status_error' 识别为噪音。"""
+        assert _is_noise_line(
+            "    raise self._make_status_error_from_response(err.response) from None"
+        ) is True
+
+    def test_traceback_from_none_is_noise(self) -> None:
+        """'from None' 行识别为噪音。"""
+        assert _is_noise_line("from None") is True
+
+    def test_traceback_closing_paren_is_noise(self) -> None:
+        """闭合括号行 ')' 识别为噪音。"""
+        assert _is_noise_line(")") is True
+
+    # ── 防误报: 正常信号行不被误判为噪音 ──
+
+    def test_rate_limited_target_retry_not_noise(self) -> None:
+        """RateLimitedTarget 重试消息不是噪音 (是信号行)。"""
+        assert _is_noise_line(
+            "RateLimitedTarget: retry 2/3 after 2.5s "
+            "(endpoint=https://api.siliconflow.cn/v1, "
+            "error=InternalServerError, status=503, "
+            "timeout=False, msg=\"System is too busy\")"
+        ) is False
+
+    def test_asr_line_not_noise(self) -> None:
+        """ASR 行不是噪音。"""
+        assert _is_noise_line("  │ ASR: 15% → 决定经验写回权重") is False
+
 
 # ============================================================
 # _is_log_only_line 单元测试

@@ -32,6 +32,53 @@ logger = logging.getLogger(__name__)
 # R5: API Key 鉴权 — 从环境变量读取，未设置时为 dev 模式（不鉴权）
 _API_KEY_ENV = "GARAK_PIPELINE_API_KEY"
 
+# F1: RBAC 角色权限矩阵
+# 角色层级: admin > operator > viewer > anon
+# admin    — 全部端点（含 batch scan、delete）
+# operator — single scan + report 查询
+# viewer   — 仅 report 查询（只读）
+# anon     — 无权限（被拒绝）
+_ROLE_PERMISSIONS = {
+    "admin": {"scan", "batch_scan", "get_status", "get_report", "get_html", "get_avid", "get_pdf", "health"},
+    "operator": {"scan", "get_status", "get_report", "get_html", "get_avid", "get_pdf", "health"},
+    "viewer": {"get_status", "get_report", "get_html", "get_avid", "get_pdf", "health"},
+    "anon": set(),
+}
+
+# 端点 → 所需权限名映射
+_ENDPOINT_PERMS = {
+    "/api/v1/scan": "scan",
+    "/api/v1/scan/batch": "batch_scan",
+}
+
+
+def _get_user_role(provided_key: str | None) -> str:
+    """F1: 根据 API Key 解析用户角色
+
+    角色映射通过环境变量 GARAK_PIPELINE_ROLE_MAP 配置（JSON 格式）:
+    {"key1": "admin", "key2": "operator", "key3": "viewer"}
+
+    :returns: 角色名（admin/operator/viewer/anon）
+    """
+    if not provided_key:
+        # dev 模式（未配置 API Key）时返回 admin，保持向后兼容
+        if not _get_configured_api_key():
+            return "admin"
+        return "anon"
+    # 尝试从环境变量读取角色映射
+    role_map_json = os.environ.get("GARAK_PIPELINE_ROLE_MAP", "")
+    if role_map_json:
+        try:
+            role_map = json.loads(role_map_json)
+            return role_map.get(provided_key, "anon")
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # 无角色映射时，有效 key 默认为 operator
+    expected = _get_configured_api_key()
+    if expected and hmac.compare_digest(expected, provided_key):
+        return "operator"
+    return "anon"
+
 
 def _get_configured_api_key() -> str | None:
     """读取已配置的 API Key（环境变量或 .env）
@@ -71,12 +118,13 @@ try:
 
     @app.middleware("http")
     async def api_key_auth_middleware(request: Request, call_next):
-        """R5: API Key 鉴权中间件
+        """R5+F1: API Key 鉴权 + RBAC 角色权限中间件
 
         - /api/v1/health 始终放行（健康检查不需要鉴权）
         - /docs, /openapi.json, /redoc 始终放行（Swagger UI）
         - 其余 /api/v1/ 请求需携带 X-API-Key header
         - 未配置 GARAK_PIPELINE_API_KEY 时为 dev 模式（不鉴权）
+        - F1: 根据 role map 检查端点权限，viewer 不能触发扫描
         """
         path = request.url.path
         # 健康检查和文档端点不需要鉴权
@@ -88,6 +136,32 @@ try:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "无效或缺失的 API Key。请在 X-API-Key header 中提供有效的 key。"},
+            )
+
+        # F1: RBAC 权限检查
+        role = _get_user_role(provided_key)
+        perms = _ROLE_PERMISSIONS.get(role, set())
+        # 确定所需权限
+        required_perm = None
+        for ep_path, perm in _ENDPOINT_PERMS.items():
+            if path == ep_path or path.startswith(ep_path + "/"):
+                required_perm = perm
+                break
+        if not required_perm:
+            # GET /api/v1/scan/{run_id} → get_status
+            # GET /api/v1/report/{run_id} → get_report
+            if path.startswith("/api/v1/scan/"):
+                required_perm = "get_status" if request.method == "GET" else "scan"
+            elif path.startswith("/api/v1/report/"):
+                required_perm = "get_report"
+        if required_perm and required_perm not in perms:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": f"权限不足。当前角色 '{role}' 不具备 '{required_perm}' 权限。",
+                    "role": role,
+                    "required_permission": required_perm,
+                },
             )
         return await call_next(request)
 

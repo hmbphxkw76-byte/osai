@@ -60,6 +60,24 @@ model_variant_mapping:
   "gemma-2-27b": llama_3_1
   "gemma-2-9b": gpt_35
   "phi-3": gpt_35
+  # ── 中国自研模型系列 ──
+  # LongCat (美团): 中文大模型, 安全对齐方式接近 Llama (RLHF+Safety)
+  # 学术依据: HarmBench (arXiv:2402.04249) 模型间 ASR 差异;
+  #   实测 prompt_sending ASR=15.8% 更接近 llama_3_1=20% 而非 gpt_4o=2%
+  "longcat-2.0": llama_3_1
+  "longcat": llama_3_1
+  # 通义千问 (阿里): RLHF, 对逻辑分解攻击更脆弱
+  "qwen-max": qwen_2_5
+  "qwen-plus": qwen_2_5
+  # 文心一言 (百度): RLHF+Safety, 近似 Llama
+  "ernie-4.0": llama_3_1
+  "ernie": llama_3_1
+  # 智谱 GLM: RLHF, 近似 Qwen
+  "glm-4": qwen_2_5
+  "chatglm": qwen_2_5
+  # 月之暗面 Kimi: RLHF, 近似 Llama
+  "moonshot": llama_3_1
+  "kimi": llama_3_1
 
 # ── 按 Tier 的默认 ASR (当模型无法映射时回退) ──
 # 学术依据: JailbreakBench (arXiv:2402.01135) 模型 ASR 排行榜
@@ -313,8 +331,8 @@ priors:
     source: jailbreakbench
     paper_arxiv: "2402.05124"
     last_updated: "2025-06"
-    patched: true
-    notes: "Anthropic 补丁后 ASR 急剧下降"
+    patched: false
+    notes: "Anthropic 补丁后原始版本 ASR 下降, 但 token_smuggling_chain Converter 可绕过补丁; 实测 LongCat ASR=7.9%"
 
   - technique: best_of_n_jailbreak
     gpt_4o: 0.35

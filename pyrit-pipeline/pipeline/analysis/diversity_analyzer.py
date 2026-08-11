@@ -210,10 +210,24 @@ class DiversityAnalyzer:
                 if owasp_mapping and tech_name in owasp_mapping:
                     all_owasp.append(owasp_mapping[tech_name])
 
-                # Converter 链
-                if "+" in tech_name:
-                    chain = tech_name.split("+")[1]
-                    all_chains.append(chain)
+                # Converter 链 — 使用 PyRIT 原生 API 提取
+                # R-022: 优先使用 AttackResultAnalyzer.extract_converter_chain_names()
+                # 从 AttackResult.get_attack_strategy_identifier().children["request_converters"]
+                # 提取 Converter 类名, 而非从技术名中用 "+" 分割 (旧方式无法检测实际注入的 Converter)
+                try:
+                    from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
+                    conv_names = AttackResultAnalyzer.extract_converter_chain_names(ar)
+                    if conv_names:
+                        all_chains.append("→".join(conv_names))
+                    # 子结果的 Converter 链
+                    for child in child_results:
+                        if child is not None:
+                            child_convs = AttackResultAnalyzer.extract_converter_chain_names(child)
+                            if child_convs:
+                                all_chains.append("→".join(child_convs))
+                except Exception:
+                    pass
 
                 # 攻击模式
                 paradigm = _classify_paradigm(tech_name)

@@ -1,10 +1,13 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Python 临时文件清理器 (规则 R-008)。.
+"""Python 临时文件清理器 (规则 R-005)。.
 
-每次运行流水线前和运行后自动清理 __pycache__ 目录、
-.pyc/.pyo 文件和 .pytest_cache 目录，确保干净的字节码缓存。
+运行后 (含异常退出) 自动清理 __pycache__ 目录、
+.pyc/.pyo 文件和 .pytest_cache 目录，确保下次运行从干净状态开始。
+
+运行前不清理 — Python 通过 mtime+size 校验自动管理缓存失效,
+编辑代码后仅需重编译被修改的文件, 避免每次全量重编译的开销 (~8s)。
 
 报告文件 (outputs/) 不受影响，保留供人工审查。
 """
@@ -27,10 +30,10 @@ _TEMP_FILE_PATTERNS = ("*.pyc", "*.pyo")
 def clean_temp_files(phase: str = "pre") -> int:
     """清理项目中的 Python 临时文件。.
 
-    规则 R-008: 静默执行，不输出到 stdout。
+    规则 R-005: 静默执行，不输出到 stdout。
 
     Args:
-        phase: 清理阶段 ("pre" 或 "post")
+        phase: 清理阶段 ("post" — 运行后/异常退出后清理; "pre" 保留兼容但不主动调用)
 
     Returns:
         清理的文件/目录数

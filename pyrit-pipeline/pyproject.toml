@@ -114,6 +114,12 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# main.py: 豁免 E402 (sys.path 操作后的延迟导入) + D415 (中文 docstring)
+"main.py" = ["E402", "D415"]
+# benchmark 代码: 放宽 docstring 风格 + 导入顺序
+"benchmark/**/*.py" = ["D100", "D104", "D415", "I001"]
+# Sphinx 配置: 豁免 docstring
+"docs/api/conf.py" = ["D100", "D415"]
 # pipeline 代码: 保留 ANN 但豁免 D100 (模块 docstring) 和 D104 (包 docstring)
 "pipeline/**/*.py" = ["D100", "D104", "ANN101", "ANN102", "ANN401", "D415"]
 # web_redteam 代码: 同上 + ANN401 (动态类型) + E402 (playwright 导入模式)

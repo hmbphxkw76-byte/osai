@@ -65,9 +65,10 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^Transient API error", re.IGNORECASE),
     re.compile(r"got (API)?(Timeout)?Error\s.*retrying", re.IGNORECASE),
     # ── L5: Python Traceback 块 (255 行/次 → 噪音) ──
+    # 注意: _is_noise_line() 对行 strip 后再匹配, 模式不能有前导空格
     re.compile(r"^Traceback \(most recent call last\):"),
-    re.compile(r'^  File "'),
-    re.compile(r"^\s+\^+$"),  # ^^^ 指针行
+    re.compile(r'^File "'),  # 修复: 原 ^  File " → strip 后无前导空格
+    re.compile(r"^\^+$"),  # 修复: 原 ^\s+\^+$ → strip 后无前导空格
     re.compile(r"^(httpcore|httpx|openai|tenacity|asyncio)\.\w+(Error|Exception)"),
     re.compile(r"^ValueError: Atomic attack.*partially failed"),
     re.compile(r"^RuntimeError: Strategy execution failed"),
@@ -94,6 +95,21 @@ _NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^Version check:"),
     re.compile(r"^Patch verification"),
     re.compile(r"^BadRequestException"),
+    # ── 新增: PyRIT openai_target logger.exception 输出的异常类行 ──
+    # PyRIT openai_target.py 使用 logger.exception() 输出完整堆栈到 stderr,
+    # 该行是堆栈的第一行 (异常类名 + request_id + status + error)
+    re.compile(r"^APIStatusError\s", re.IGNORECASE),
+    re.compile(r"^InternalServerError\s", re.IGNORECASE),
+    re.compile(r"^BadRequestError\s.*request_id", re.IGNORECASE),
+    re.compile(r"^AuthenticationError\s.*request_id", re.IGNORECASE),
+    # ── 新增: traceback 中的 Python 代码行 (strip 后匹配) ──
+    # 这些行是 traceback 中被 trace 的源代码行, 如:
+    #   response = await api_call()
+    #   return await self._post(
+    #   raise self._make_status_error_from_response(err.response) from None
+    re.compile(r"^(response|return|raise|result|await|yield|self)\b"),
+    re.compile(r"^from\sNone$"),  # "from None" 行
+    re.compile(r"^\)\s*$"),  # 闭合括号行
     # ── L5: ANSI 颜色码行 (PyRIT rich console 输出) ──
     re.compile(r"^\x1b\["),  # ESC[ 开头的 ANSI 序列
     # ── L5: Native SeedDataset 回退噪音 ──

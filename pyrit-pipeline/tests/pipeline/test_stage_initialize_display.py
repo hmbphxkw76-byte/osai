@@ -29,13 +29,15 @@ import pytest
 from pipeline.context import PipelineContext
 from pipeline.stages.stage_initialize import (
     _collect_unique_converter_names,
+    _compute_enhanced_techs,
     _count_enhanced_attacks,
     _extract_attack_converters,
     _extract_attack_converters_from_attack,
     _extract_attack_payload,
     _extract_technique_name_from_attack,
     _infer_conv_types,
-    _print_attack_grouping,
+    _print_ammo_construction,
+    _print_asr_reorder_summary,
     _print_attack_loadout_card,
     _shorten_attack_name,
 )
@@ -637,12 +639,30 @@ class TestInferConvTypes:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  _print_attack_grouping
+#  _compute_enhanced_techs
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestPrintAttackGrouping:
-    """_print_attack_grouping: 按技术分组聚合 + Top 5 明细。"""
+class TestComputeEnhancedTechs:
+    """_compute_enhanced_techs: 计算 Converter 增强技术集合 (O-6)."""
+
+    def test_no_converters_returns_empty(self) -> None:
+        """MagicMock 攻击无 Converter → 空集合."""
+        attack = MagicMock()
+        attack.attack_technique = None
+        attack.display_group = "red_teaming"
+        attack.atomic_attack_name = "test"
+        result = _compute_enhanced_techs([attack])
+        assert result == set()
+
+
+# ──────────────────────────────────────────────────────────────────
+#  _print_ammo_construction
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPrintAmmoConstruction:
+    """_print_ammo_construction: 弹药构建摘要 (offensive 视角)."""
 
     @staticmethod
     def _make_attack(tech_name: str, atomic_name: str) -> MagicMock:
@@ -654,40 +674,169 @@ class TestPrintAttackGrouping:
         return attack
 
     def test_normal_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """正常列表 → 输出技术聚合 + Top 5 明细。"""
+        """正常列表 → 输出弹药构建 info_box."""
         attacks = [
-            self._make_attack("many_shot", "adaptive_text_owasp_llm01_prompt_injection::abc"),
-            self._make_attack("many_shot", "adaptive_text_owasp_llm02_sensitive_info::def"),
+            self._make_attack("red_teaming", "adaptive_text_curated_seeds::abc"),
+            self._make_attack("red_teaming", "adaptive_text_curated_seeds::def"),
             self._make_attack("prompt_sending", "baseline"),
         ]
 
-        _print_attack_grouping(attacks)
+        _print_ammo_construction(3, 3, 0, 0, attacks, owasp_str="6/20 分类 (LLM01/02/04)")
 
         captured = capsys.readouterr()
-        assert "技术聚合" in captured.out
-        assert "明细 (Top 5)" in captured.out
-        assert "个载荷" in captured.out
+        assert "弹药构建" in captured.out
+        assert "3 个攻击单元构建完成" in captured.out
+        assert "red_teaming 2" in captured.out
+        assert "prompt_sending 1" in captured.out
+        assert "OWASP" in captured.out
 
-    def test_with_order_map(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """有 order_map → 显示降级链编号。"""
-        attacks = [self._make_attack("prompt_sending", "baseline")]
-        order_map = {"prompt_sending": 0}
-
-        _print_attack_grouping(attacks, order_map=order_map)
-
+    def test_owasp_not_shown_for_na(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """owasp_str='N/A' → 不显示 OWASP 行."""
+        attacks = [self._make_attack("red_teaming", "adaptive_text_curated_seeds::abc")]
+        _print_ammo_construction(1, 1, 0, 0, attacks, owasp_str="N/A")
         captured = capsys.readouterr()
-        assert "技术聚合" in captured.out
-        assert "降级链 #0" in captured.out
+        assert "OWASP" not in captured.out
 
-    def test_top5_truncation_note(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """超过 5 个 → 显示截断提示。"""
+    def test_distribution_truncation(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """超过 5 个技术 → 分步行截断."""
         attacks = [
-            self._make_attack("prompt_sending", f"adaptive_text_test_{i}::hash{i}")
-            for i in range(10)
+            self._make_attack(f"tech_{i}", f"adaptive_text_ds_{i}::hash{i}")
+            for i in range(6)
+        ]
+        _print_ammo_construction(6, 6, 0, 0, attacks)
+        captured = capsys.readouterr()
+        assert "..." in captured.out
+
+    def test_with_dedup_and_dos(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """有去重和 DoS 拦截 → 显示操作摘要。"""
+        attacks = [self._make_attack("red_teaming", "adaptive_text_curated_seeds::abc")]
+
+        _print_ammo_construction(5, 1, 2, 2, attacks)
+
+        captured = capsys.readouterr()
+        assert "去重: 移除 2" in captured.out
+        assert "DoS 拦截: 排除 2" in captured.out
+
+    def test_no_dedup_no_dos(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """无去重无 DoS → 不显示操作行。"""
+        attacks = [self._make_attack("red_teaming", "adaptive_text_curated_seeds::abc")]
+
+        _print_ammo_construction(1, 1, 0, 0, attacks)
+
+        captured = capsys.readouterr()
+        assert "去重" not in captured.out
+        assert "DoS" not in captured.out
+
+
+# ──────────────────────────────────────────────────────────────────
+#  _print_asr_reorder_summary
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPrintAsrReorderSummary:
+    """_print_asr_reorder_summary: ASR 优先级排序摘要 (技术视角)."""
+
+    @staticmethod
+    def _make_attack(tech_name: str, atomic_name: str) -> MagicMock:
+        """创建一个能被 _extract_technique_name_from_attack 正确识别的 mock."""
+        attack = MagicMock()
+        attack.atomic_attack_name = atomic_name
+        attack.display_group = tech_name
+        attack.attack_technique = None  # 触发回退到 display_group
+        return attack
+
+    def test_reorder_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """排序变化 → 输出技术视角前/后对比。"""
+        original = [
+            self._make_attack("prompt_sending", "baseline_1"),
+            self._make_attack("prompt_sending", "baseline_2"),
+            self._make_attack("red_teaming", "red_1"),
+            self._make_attack("red_teaming", "red_2"),
+        ]
+        sorted_attacks = [
+            self._make_attack("red_teaming", "red_1"),
+            self._make_attack("red_teaming", "red_2"),
+            self._make_attack("prompt_sending", "baseline_1"),
+            self._make_attack("prompt_sending", "baseline_2"),
         ]
 
-        _print_attack_grouping(attacks)
+        _print_asr_reorder_summary(
+            original, sorted_attacks,
+            strategy_text="降级链 S→A→B→C→D (高 ASR 优先执行)",
+            warm_start={"red_teaming": 0.71, "prompt_sending": 0.34},
+            enhanced_techs={"red_teaming"},
+        )
 
         captured = capsys.readouterr()
-        assert "共 10 个" in captured.out
-        assert "展示前 5" in captured.out
+        assert "ASR 优先级排序" in captured.out
+        assert "排序前" in captured.out
+        assert "排序后" in captured.out
+        assert "prompt_sending(2)" in captured.out
+        assert "red_teaming(2)" in captured.out
+        assert "S,71%" in captured.out
+        assert "重排" in captured.out
+        assert "+Conv" in captured.out
+
+    def test_strategy_text_laplace(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Laplace 分支 → 策略文本显示 'Laplace 平滑' 而非 '降级链'."""
+        original = [self._make_attack("a", "a1"), self._make_attack("b", "b1")]
+        sorted_attacks = [self._make_attack("b", "b1"), self._make_attack("a", "a1")]
+
+        _print_asr_reorder_summary(
+            original, sorted_attacks,
+            strategy_text="ASR 优先级 (Laplace 平滑)",
+        )
+
+        captured = capsys.readouterr()
+        assert "Laplace 平滑" in captured.out
+        assert "降级链" not in captured.out
+
+    def test_asr_fallback_to_historical(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """O-3: warm_start 无数据 → fallback 到 asr_by_tech."""
+        from unittest.mock import MagicMock as _MM
+
+        original = [self._make_attack("red_teaming", "red_1")]
+        sorted_attacks = [self._make_attack("red_teaming", "red_1")]
+
+        hist_stats = _MM()
+        hist_stats.total_decided = 10
+        hist_stats.success_rate = 0.65
+
+        _print_asr_reorder_summary(
+            original, sorted_attacks,
+            asr_by_tech={"red_teaming": hist_stats},
+        )
+
+        captured = capsys.readouterr()
+        assert "65%" in captured.out
+
+    def test_with_order_map(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """有 order_map 无 warm_start → 显示链号。"""
+        original = [self._make_attack("prompt_sending", "baseline_1")]
+        sorted_attacks = [self._make_attack("prompt_sending", "baseline_1")]
+
+        _print_asr_reorder_summary(
+            original, sorted_attacks,
+            order_map={"prompt_sending": 0},
+        )
+
+        captured = capsys.readouterr()
+        assert "链#0" in captured.out
+
+    def test_moved_count(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """重排统计: 位置变化的攻击数。"""
+        original = [
+            self._make_attack("a", "a1"),
+            self._make_attack("b", "b1"),
+            self._make_attack("c", "c1"),
+        ]
+        sorted_attacks = [
+            self._make_attack("b", "b1"),
+            self._make_attack("a", "a1"),
+            self._make_attack("c", "c1"),
+        ]
+
+        _print_asr_reorder_summary(original, sorted_attacks)
+
+        captured = capsys.readouterr()
+        assert "2 个攻击位置变化" in captured.out

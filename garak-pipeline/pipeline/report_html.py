@@ -187,6 +187,67 @@ def export_html_report(
   .lang-toggle {{ position: absolute; top: 20px; right: 30px; background: #1a237e; color: white;
                   border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }}
   .lang-toggle:hover {{ background: #3949ab; }}
+  /* N2: ATLAS 热力图 + 攻技矩阵交互表 */
+  .atlas-heatmap {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+                    gap: 8px; margin: 20px 0; }}
+  .heatmap-cell {{ padding: 12px; border-radius: 6px; text-align: center; cursor: pointer;
+                    transition: transform 0.2s, box-shadow 0.2s; font-size: 13px; }}
+  .heatmap-cell:hover {{ transform: scale(1.08); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10; }}
+  .heatmap-cell .ttp-id {{ font-weight: bold; display: block; font-size: 11px; }}
+  .heatmap-cell .ttp-count {{ font-size: 18px; font-weight: bold; }}
+  .heatmap-cell .ttp-name {{ font-size: 10px; color: rgba(255,255,255,0.8); display: block; }}
+  /* Technique-Intent Matrix */
+  .ti-matrix {{ width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px; }}
+  .ti-matrix th {{ background: #1a237e; color: white; padding: 8px; position: sticky; top: 0; z-index: 5; }}
+  .ti-matrix td {{ padding: 6px 8px; border: 1px solid #e0e0e0; text-align: center; }}
+  .ti-matrix td.technique-name {{ text-align: left; font-weight: bold; background: #f5f5f5; }}
+  .ti-cell-high {{ background: #ffcdd2; color: #b71c1c; font-weight: bold; }}
+  .ti-cell-med {{ background: #fff9c4; color: #f57f17; }}
+  .ti-cell-low {{ background: #c8e6c9; color: #1b5e20; }}
+  .ti-cell-none {{ background: #fafafa; color: #ccc; }}
+  .ti-legend {{ display: flex; gap: 15px; margin: 10px 0; font-size: 12px; }}
+  .ti-legend span {{ display: inline-flex; align-items: center; gap: 4px; }}
+  .ti-legend .dot {{ width: 12px; height: 12px; border-radius: 3px; display: inline-block; }}
+  /* F2: ASR 权重热力图 */
+  .heatmap-asr {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+                  gap: 8px; margin: 20px 0; }}
+  /* F3: 攻技矩阵钻取面板 */
+  .ti-drilldown {{ display: none; margin: 10px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0; }}
+  .ti-drilldown.active {{ display: block; }}
+  .ti-drilldown h4 {{ margin: 0 0 10px; color: #1a237e; }}
+  .ti-drilldown table {{ font-size: 12px; }}
+  .ti-cell-clickable {{ cursor: pointer; }}
+  .ti-cell-clickable:hover {{ outline: 2px solid #1a237e; outline-offset: -2px; }}
+  /* N2: 可折叠区域增强 */
+  .section-collapse {{ cursor: pointer; }}
+  .section-collapse .collapse-icon {{ display: inline-block; transition: transform 0.3s; margin-right: 8px; }}
+  .section-collapse.collapsed .collapse-icon {{ transform: rotate(-90deg); }}
+  .section-content {{ transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }}
+  .section-collapse.collapsed + .section-content {{ max-height: 0; opacity: 0; }}
+  /* F11: 打印优化 */
+  @media print {{
+    body {{ background: white; padding: 0; }}
+    .container {{ box-shadow: none; max-width: 100%; }}
+    .lang-toggle, .filter-controls, .heatmap-toggle {{ display: none; }}
+    .section-content {{ max-height: none !important; opacity: 1 !important; }}
+    .section-collapse .collapse-icon {{ display: none; }}
+    table {{ font-size: 10px; page-break-inside: avoid; }}
+    .chart-container {{ page-break-inside: avoid; }}
+  }}
+  /* F11: URL fragment 高亮 */
+  :target {{ outline: 3px solid #1a237e; outline-offset: 5px; border-radius: 4px; }}
+  /* F12: 对话 replay */
+  .conv-replay {{ margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0; }}
+  .conv-turn {{ margin: 10px 0; padding: 10px; border-radius: 6px; }}
+  .conv-prompt {{ background: #e3f2fd; border-left: 4px solid #2196f3; }}
+  .conv-response {{ background: #fff3e0; border-left: 4px solid #ff9800; }}
+  .conv-judge {{ background: #e8f5e9; border-left: 4px solid #4caf50; font-size: 12px; }}
+  .conv-label {{ font-weight: bold; font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 4px; }}
+  /* F8: 攻击树 */
+  .attack-tree {{ margin: 20px 0; }}
+  .tree-node {{ cursor: pointer; }}
+  .tree-node text {{ font-size: 11px; }}
+  .tree-link {{ stroke: #999; stroke-width: 1.5; fill: none; }}
 </style>
 <script>
 // R8: i18n — 中英文翻译字典
@@ -722,6 +783,148 @@ function toggleLang() {{
 """
         html_content += "  </tbody></table>\n"
 
+        # N2: ATLAS 热力图（CSS grid 色块，按探针数着色）
+        max_count = max((len(probes) for probes in atlas_aggregated.values()), default=1)
+        heat_colors = [
+            (0, "#e8eaf6", "#333"),    # 0 probes
+            (1, "#c5cae9", "#333"),    # low
+            (2, "#9fa8da", "#333"),    #
+            (3, "#7986cb", "#fff"),    #
+            (4, "#5c6bc0", "#fff"),    #
+            (5, "#3f51b5", "#fff"),    # high
+        ]
+        html_content += '  <h3>🔥 ATLAS 战术覆盖热力图</h3>\n  <div class="atlas-heatmap">\n'
+        for ttp_id, probes in sorted(atlas_aggregated.items()):
+            cnt = len(probes)
+            # 选色
+            level = min(cnt, 5)
+            _, bg, fg = heat_colors[level]
+            name = ttp_names.get(ttp_id, "")
+            short_name = name[:25] + "..." if len(name) > 25 else name
+            html_content += (
+                f'    <div class="heatmap-cell" style="background:{bg};color:{fg};"'
+                f' title="{html.escape(name)} — {cnt} probes: {html.escape(", ".join(p["probe"] for p in probes))}">'
+                f'<span class="ttp-id">{html.escape(ttp_id)}</span>'
+                f'<span class="ttp-count">{cnt}</span>'
+                f'<span class="ttp-name">{html.escape(short_name)}</span>'
+                f'</div>\n'
+            )
+        html_content += '  </div>\n'
+
+        # F2: ASR 权重热力图（按攻击成功率加权着色）
+        # 计算每个 TTP 的平均 ASR
+        ttp_asr_map = {}
+        for ttp_id_f2, probes_f2 in atlas_aggregated.items():
+            asr_values = []
+            for p_info in probes_f2:
+                probe_name = p_info["probe"]
+                p_data = probe_results.get(probe_name, {})
+                asr_values.append(p_data.get("asr", 0))
+            avg_asr = sum(asr_values) / len(asr_values) if asr_values else 0
+            ttp_asr_map[ttp_id_f2] = avg_asr
+
+        # ASR 着色：0%=浅蓝 → 100%=深红
+        html_content += '  <h3>🔥 ATLAS 战术覆盖热力图（ASR 加权）</h3>\n'
+        html_content += '  <div class="heatmap-asr">\n'
+        for ttp_id_f2 in sorted(atlas_aggregated.keys()):
+            avg_asr = ttp_asr_map.get(ttp_id_f2, 0)
+            cnt_f2 = len(atlas_aggregated[ttp_id_f2])
+            if avg_asr >= 75:
+                bg, fg = "#d32f2f", "#fff"
+            elif avg_asr >= 50:
+                bg, fg = "#f57c00", "#fff"
+            elif avg_asr >= 25:
+                bg, fg = "#fbc02d", "#333"
+            elif avg_asr >= 10:
+                bg, fg = "#7cb342", "#fff"
+            elif avg_asr > 0:
+                bg, fg = "#4fc3f7", "#333"
+            else:
+                bg, fg = "#e0e0e0", "#999"
+            name_f2 = ttp_names.get(ttp_id_f2, "")
+            short_name_f2 = name_f2[:25] + "..." if len(name_f2) > 25 else name_f2
+            html_content += (
+                f'    <div class="heatmap-cell" style="background:{bg};color:{fg};"'
+                f' title="{html.escape(name_f2)} — ASR={avg_asr:.0f}%, {cnt_f2} probes">'
+                f'<span class="ttp-id">{html.escape(ttp_id_f2)}</span>'
+                f'<span class="ttp-count">{avg_asr:.0f}%</span>'
+                f'<span class="ttp-name">{html.escape(short_name_f2)}</span>'
+                f'</div>\n'
+            )
+        html_content += '  </div>\n'
+
+    # N2: Technique-Intent Matrix 交互表
+    ti_matrix = analysis.get("technique_intent_matrix", {})
+    ti_techniques = ti_matrix.get("techniques", [])
+    ti_intents = ti_matrix.get("intents", [])
+    ti_cells = ti_matrix.get("cells", {})
+    if ti_techniques and ti_intents:
+        html_content += '  <h2>🎯 攻击技术-意图矩阵 (Technique-Intent Matrix)</h2>\n'
+        html_content += '  <div class="ti-legend">\n'
+        html_content += '    <span><span class="dot" style="background:#ffcdd2;"></span>高 ASR ≥50%</span>\n'
+        html_content += '    <span><span class="dot" style="background:#fff9c4;"></span>中 ASR 10-49%</span>\n'
+        html_content += '    <span><span class="dot" style="background:#c8e6c9;"></span>低 ASR 1-9%</span>\n'
+        html_content += '    <span><span class="dot" style="background:#fafafa;border:1px solid #ddd;"></span>无命中</span>\n'
+        html_content += '  </div>\n'
+        html_content += '  <table class="ti-matrix">\n    <thead><tr><th>Technique \\ Intent</th>'
+        for intent in ti_intents:
+            html_content += f'<th>{html.escape(intent)}</th>'
+        html_content += '</tr></thead>\n    <tbody>\n'
+        for tech in ti_techniques:
+            html_content += f'      <tr><td class="technique-name">{html.escape(tech)}</td>'
+            for intent in ti_intents:
+                cell_key = f"{tech}|{intent}"
+                cell_val = ti_cells.get(cell_key, {})
+                asr_val = cell_val.get("asr", 0)
+                probe_cnt = cell_val.get("probe_count", 0)
+                if asr_val >= 50:
+                    cls = "ti-cell-high"
+                elif asr_val >= 10:
+                    cls = "ti-cell-med"
+                elif asr_val >= 1:
+                    cls = "ti-cell-low"
+                else:
+                    cls = "ti-cell-none"
+                display = f"{asr_val}%" if asr_val > 0 else "—"
+                tooltip = f"{html.escape(tech)} → {html.escape(intent)}: ASR={asr_val}%, probes={probe_cnt}"
+                # F3: 可点击钻取
+                clickable_cls = " ti-cell-clickable" if asr_val > 0 else ""
+                html_content += f'<td class="{cls}{clickable_cls}" title="{tooltip}"'
+                if asr_val > 0:
+                    safe_tech = html.escape(tech).replace("'", "\\'")
+                    safe_intent = html.escape(intent).replace("'", "\\'")
+                    html_content += f' onclick="toggleDrilldown(\'{safe_tech}\',\'{safe_intent}\')"'
+                html_content += f'>{display}</td>'
+            html_content += '</tr>\n'
+        html_content += '    </tbody></table>\n'
+        # F3: 钻取面板容器
+        html_content += '  <div id="tiDrilldown" class="ti-drilldown"></div>\n'
+        # F3: 钻取数据 JSON + JS
+        ti_drill_data = {}
+        for tech_d in ti_techniques:
+            for intent_d in ti_intents:
+                cell_key_d = f"{tech_d}|{intent_d}"
+                cell_val_d = ti_cells.get(cell_key_d, {})
+                if cell_val_d.get("asr", 0) > 0:
+                    ti_drill_data[cell_key_d] = cell_val_d
+        ti_drill_json = json.dumps(ti_drill_data, ensure_ascii=False)
+        html_content += '  <script>\n'
+        html_content += f'  var TI_DRILL_DATA = {ti_drill_json};\n'
+        html_content += '  function toggleDrilldown(tech, intent) {{\n'
+        html_content += '    var key = tech + "|" + intent;\n'
+        html_content += '    var data = TI_DRILL_DATA[key];\n'
+        html_content += '    var panel = document.getElementById("tiDrilldown");\n'
+        html_content += '    if (!data) {{ panel.classList.remove("active"); return; }}\n'
+        html_content += '    var probes = data.probes || [];\n'
+        html_content += '    var html = "<h4>" + tech + " \u2192 " + intent + " (ASR=" + data.asr + "%, probes=" + data.probe_count + ")</h4>";\n'
+        html_content += '    html += "<table><thead><tr><th>Probe</th><th>ASR</th><th>DEFCON</th></tr></thead><tbody>";\n'
+        html_content += '    probes.forEach(function(p) {{ html += "<tr><td><code>" + p.name + "</code></td><td>" + p.asr + "%</td><td>" + p.defcon + "</td></tr>"; }});\n'
+        html_content += '    html += "</tbody></table>";\n'
+        html_content += '    panel.innerHTML = html;\n'
+        html_content += '    panel.classList.add("active");\n'
+        html_content += '  }}\n'
+        html_content += '  </script>\n'
+
     # ---- 命中明细表 ----
     if hit_details:
         html_content += f"""  <h2>攻击命中明细（{len(hit_details)} 条）</h2>
@@ -803,14 +1006,137 @@ function toggleLang() {{
 </details>
 """
 
+    # F8: D3.js 动态攻击树可视化
+    kill_paths_f8 = analysis.get("kill_paths", [])
+    if kill_paths_f8:
+        # 构建 D3.js tree 数据
+        tree_nodes = []
+        tree_links = []
+        tree_nodes.append({"id": "root", "name": "Target Model", "type": "root"})
+        for kp in kill_paths_f8:
+            path_name = kp.get("path_name", "Unknown")
+            combined_asr = kp.get("combined_asr", 0)
+            node_id = f"kp_{path_name.replace(' ', '_')}"
+            tree_nodes.append({"id": node_id, "name": path_name, "type": "killpath", "asr": combined_asr})
+            tree_links.append({"source": "root", "target": node_id})
+            for stage in kp.get("stages", []):
+                stage_str = str(stage)[:40]
+                stage_id = f"stage_{path_name.replace(' ', '_')}_{len(tree_nodes)}"
+                tree_nodes.append({"id": stage_id, "name": stage_str, "type": "stage"})
+                tree_links.append({"source": node_id, "target": stage_id})
+        tree_data = {"nodes": tree_nodes, "links": tree_links}
+        tree_json = json.dumps(tree_data, ensure_ascii=False)
+        html_content += f"""  <h2>🌳 动态攻击树 (Attack Tree)</h2>
+  <div class="attack-tree">
+    <svg id="attackTree" width="100%" height="400"></svg>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script>
+  (function() {{
+    var data = {tree_json};
+    var svg = d3.select('#attackTree');
+    var width = svg.node().getBoundingClientRect().width;
+    var g = svg.append('g');
+    // 简易层级布局
+    var levels = {{'root': 0}};
+    data.links.forEach(function(l) {{
+      var tgtLevel = (levels[l.source] || 0) + 1;
+      if (!levels[l.target] || levels[l.target] < tgtLevel) levels[l.target] = tgtLevel;
+    }});
+    var maxLevel = Math.max.apply(null, Object.values(levels));
+    var nodesById = {{}};
+    data.nodes.forEach(function(n, i) {{
+      n.level = levels[n.id] || 0;
+      n.x = (n.level / Math.max(maxLevel, 1)) * (width - 100) + 50;
+      n.y = i * 35 + 20;
+      nodesById[n.id] = n;
+    }});
+    // Links
+    g.selectAll('.tree-link').data(data.links).enter().append('path')
+      .attr('class', 'tree-link').attr('d', function(d) {{
+        var s = nodesById[d.source], t = nodesById[d.target];
+        return 'M' + s.x + ',' + s.y + ' C' + ((s.x+t.x)/2) + ',' + s.y + ' ' + ((s.x+t.x)/2) + ',' + t.y + ' ' + t.x + ',' + t.y;
+      }});
+    // Nodes
+    var colors = {{root: '#1a237e', killpath: '#e74c3c', stage: '#f39c12'}};
+    var nodeG = g.selectAll('.tree-node').data(data.nodes).enter().append('g')
+      .attr('class', 'tree-node').attr('transform', function(d) {{ return 'translate(' + d.x + ',' + d.y + ')'; }});
+    nodeG.append('circle').attr('r', 6).attr('fill', function(d) {{ return colors[d.type] || '#999'; }});
+    nodeG.append('text').attr('dx', 10).attr('dy', 4).text(function(d) {{ return d.name; }});
+  }})();
+  </script>
+"""
+
+    # F12: 对话 replay 交互式重放
+    conv_path_f12 = analysis.get("hitlog", {}).get("jsonl_path", "")
+    if hit_details and len(hit_details) > 0:
+        conv_json = json.dumps(hit_details[:20], ensure_ascii=False)
+        html_content += '  <h2>🎬 对话 Replay (Interactive Conversation Replay)</h2>\n'
+        html_content += '  <div class="conv-replay">\n'
+        html_content += '    <button onclick="stepReplay(0)" style="padding:8px 16px;background:#1a237e;color:white;border:none;border-radius:4px;cursor:pointer;">▶ 开始重放</button>\n'
+        html_content += '    <button onclick="stepReplay(-1)" style="margin-left:5px;padding:8px 16px;background:#666;color:white;border:none;border-radius:4px;cursor:pointer;">⏮ 重置</button>\n'
+        html_content += '    <div id="convReplayArea" style="margin-top:15px;"></div>\n'
+        html_content += '  </div>\n'
+        html_content += f'  <script>\n  var CONV_DATA = {conv_json};\n  var convIdx = 0;\n'
+        html_content += '  function stepReplay(dir) {{\n'
+        html_content += '    if (dir === -1) {{ convIdx = 0; }} else if (dir === 0) {{ convIdx = 1; }} else {{ convIdx++; }}\n'
+        html_content += '    if (convIdx > CONV_DATA.length) convIdx = CONV_DATA.length;\n'
+        html_content += '    var area = document.getElementById("convReplayArea");\n'
+        html_content += '    var html = "";\n'
+        html_content += '    for (var i = 0; i < convIdx; i++) {{\n'
+        html_content += '      var h = CONV_DATA[i];\n'
+        html_content += '      html += \'<div class="conv-turn conv-prompt"><div class="conv-label">Prompt</div>\' + (h.prompt || "") + \'</div>\';\n'
+        html_content += '      html += \'<div class="conv-turn conv-response"><div class="conv-label">Response</div>\' + (h.output || "") + \'</div>\';\n'
+        html_content += '      if (h.triggered_detectors && h.triggered_detectors.length) {{\n'
+        html_content += '        html += \'<div class="conv-turn conv-judge"><div class="conv-label">Detectors</div>\' + h.triggered_detectors.join(", ") + \'</div>\';\n'
+        html_content += '      }}\n'
+        html_content += '    }}\n'
+        html_content += '    area.innerHTML = html;\n'
+        html_content += '  }}\n'
+        html_content += '  </script>\n'
+
     html_content += f"""
   <footer>
     <p>本报告由 garak-pipeline 自动生成 · run_id: {html.escape(run_id)} ·
        repro_hash: {html.escape(str(analysis.get('repro_hash', 'N/A')))}</p>
     <p>命中明细 Markdown: {html.escape(str(hitlog.get('markdown_path', 'N/A')))}</p>
     <p>PyRIT AIR 导出: {html.escape(str(analysis.get('analysis_path', 'N/A')).replace('04_analysis', '05_export'))}</p>
+    <p><a href="#" onclick="window.print();return false;">🖨 打印报告</a></p>
   </footer>
 </div>
+<script>
+// N2: 可折叠区域交互
+(function() {{
+  // 为所有 h2 添加可折叠功能
+  document.querySelectorAll('h2').forEach(function(h2) {{
+    h2.classList.add('section-collapse');
+    var icon = document.createElement('span');
+    icon.className = 'collapse-icon';
+    icon.textContent = '\u25bc';
+    h2.insertBefore(icon, h2.firstChild);
+    // 收集后续兄弟元素直到下一个 h2 或 footer
+    var wrapper = document.createElement('div');
+    wrapper.className = 'section-content';
+    var next = h2.nextElementSibling;
+    while (next && next.tagName !== 'H2' && next.tagName !== 'FOOTER') {{
+      var toMove = next;
+      next = next.nextElementSibling;
+      wrapper.appendChild(toMove);
+    }}
+    h2.parentNode.insertBefore(wrapper, h2.nextSibling);
+    h2.addEventListener('click', function() {{
+      h2.classList.toggle('collapsed');
+      if (h2.classList.contains('collapsed')) {{
+        wrapper.style.maxHeight = '0';
+        wrapper.style.opacity = '0';
+      }} else {{
+        wrapper.style.maxHeight = 'none';
+        wrapper.style.opacity = '1';
+      }}
+    }});
+  }});
+}})();
+</script>
 </body>
 </html>
 """

@@ -89,6 +89,8 @@ class TestDiscoverUnregisteredDatasets:
             def side_effect(arg):
                 if arg == "data/seed_datasets/owasp":
                     return owasp_dir
+                if arg == "data/seed_datasets/benchmarks":
+                    return tmp_path / "benchmarks"
                 if arg == "data/seed_datasets/cve":
                     return tmp_path / "cve"
                 if arg == "data/seed_datasets/custom":
@@ -116,6 +118,8 @@ class TestDiscoverUnregisteredDatasets:
             def side_effect(arg):
                 if arg == "data/seed_datasets/owasp":
                     return owasp_dir
+                if arg == "data/seed_datasets/benchmarks":
+                    return tmp_path / "benchmarks"
                 if arg == "data/seed_datasets/cve":
                     return tmp_path / "cve"
                 if arg == "data/seed_datasets/custom":
@@ -186,6 +190,8 @@ class TestDiscoverUnregisteredDatasets:
             def side_effect(arg):
                 if arg == "data/seed_datasets/owasp":
                     return tmp_path / "nonexistent_owasp"
+                if arg == "data/seed_datasets/benchmarks":
+                    return tmp_path / "nonexistent_benchmarks"
                 if arg == "data/seed_datasets/cve":
                     return tmp_path / "nonexistent_cve"
                 if arg == "data/seed_datasets/custom":
@@ -203,15 +209,21 @@ class TestLoadDefaultDatasetsFromManifest:
     """_load_default_datasets_from_manifest: scope 参数 + 自动发现集成。."""
 
     def test_scope_all_loads_all_default_true(self) -> None:
-        """scope=all 加载所有 default=true 的 local 数据集。."""
+        """scope=all 加载所有 default=true 的数据集 (含 local + remote_cached + generated)。."""
         from pipeline.stages.stage_init import _load_default_datasets_from_manifest
 
         paths, manifest, auto_discovered = _load_default_datasets_from_manifest(scope="all")
 
-        assert len(paths) >= 20  # owasp_llm10 默认禁用 (DoS 攻击)
+        # 20 local (owasp_llm01-09 + owasp_asi01-10 + cve) + 3 remote_cached (harmbench/jbb/strong_reject) = 23
+        # owasp_llm10 默认禁用 (DoS 攻击)
+        assert len(paths) >= 23
         assert any("llm03" in p for p in paths)
         assert any("asi10" in p for p in paths)
         assert any("cve" in p for p in paths)
+        # remote_cached 类型也通过清单加载
+        assert any("harmbench" in p for p in paths)
+        assert any("jbb_behaviors" in p for p in paths)
+        assert any("strong_reject" in p for p in paths)
         assert manifest is not None
         assert isinstance(auto_discovered, list)
 
@@ -244,14 +256,16 @@ class TestLoadDefaultDatasetsFromManifest:
         for p in paths:
             assert "cve" in p
 
-    def test_no_custom_redteam_in_results(self) -> None:
-        """custom_redteam_objectives 已从清单删除, 不应出现。."""
+    def test_scope_benchmark_loads_remote_cached(self) -> None:
+        """scope=benchmark 加载 benchmarks/ 目录下的 default=true 数据集 (remote_cached)。."""
         from pipeline.stages.stage_init import _load_default_datasets_from_manifest
 
-        paths, _, _ = _load_default_datasets_from_manifest(scope="all")
+        paths, _, _ = _load_default_datasets_from_manifest(scope="benchmark")
 
+        # harmbench / jbb_behaviors / strong_reject 均为 default:true
+        assert len(paths) >= 3
         for p in paths:
-            assert "custom" not in p or "redteam_objectives" not in p
+            assert "benchmarks" in p
 
     def test_auto_discovery_finds_unregistered(self) -> None:
         """自动发现机制: 清单中未注册的文件也能被发现。."""

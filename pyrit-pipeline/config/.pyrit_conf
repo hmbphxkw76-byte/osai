@@ -21,6 +21,10 @@ initializers:
         - scorer
   - name: scorer
   - name: technique
+    args:
+      tags:
+        - core
+        - extra
 
 silent: false
 max_concurrent_scenario_runs: 3

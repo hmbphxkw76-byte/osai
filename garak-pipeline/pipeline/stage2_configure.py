@@ -52,6 +52,19 @@ SCAN_PROFILES: dict[str, dict[str, Any]] = {
         ],
         "desc": "冒烟测试：3 探针 × 3 prompt，验证流水线端到端贯通",
     },
+    # -----------------------------------------------------------------------
+    # 分阶段递进执行（替代 --probes all 一次性全量）
+    # 按 Phase 0~4 递进：冒烟→高危→扩展→长尾→深度确认
+    # 阶段间设决策门，根据前序战果动态决定是否继续
+    # -----------------------------------------------------------------------
+    "phased": {
+        "tiers": None,        # phased 模式不在此处做 tier 过滤，由 phased_execution 模块分阶段处理
+        "buff_spec": "",       # buff 由各阶段独立配置
+        "desc": ("分阶段递进：Phase0 冒烟→Phase1 高危(Tier1)"
+                 "→Phase2 扩展(Tier2+Buff)→Phase3 长尾(Tier3+双Buff)"
+                 "→Phase4 深度确认(命中探针×10gen+Judge)"),
+        "phased": True,        # 标记为分阶段模式，Stage3/Runner 特殊处理
+    },
 }
 
 
@@ -97,6 +110,9 @@ def resolve_scan_profile(
     # smoke 档位带固定探针子集，传递给 build_selection 直接使用
     if "probes" in cfg:
         result["probes"] = cfg["probes"]
+    # phased 档位标记，供 Runner 识别并切换到 phased_execution 流程
+    if cfg.get("phased"):
+        result["phased"] = True
     return result
 
 
@@ -289,6 +305,9 @@ def build_selection(
 
     all_probes = load_filtered_probes(filtered_path)
 
+    # phased 档位：不做 tier 过滤，全量探针交给 phased_execution 分阶段处理
+    is_phased = resolved.get("phased", False)
+
     # smoke 档位：使用固定探针子集（不按 tier 过滤）
     if "probes" in resolved:
         wanted = set(resolved["probes"])
@@ -298,6 +317,9 @@ def build_selection(
         for name in resolved["probes"]:
             if name not in existing:
                 probes.append({"name": name, "tier": 1})
+    elif is_phased:
+        # phased 模式：全量探针（不做 tier 过滤），由 Runner 按阶段分批执行
+        probes = all_probes
     else:
         probes = all_probes
         if effective_tiers:
@@ -365,6 +387,7 @@ def build_selection(
     selection = {
         "run_id": run_id,
         "scan_profile": resolved["profile"],
+        "phased": is_phased,
         "total_selected": len(probes),
         "tier_breakdown": _tier_breakdown(probes),
         "probe_names": [p["name"] for p in probes],

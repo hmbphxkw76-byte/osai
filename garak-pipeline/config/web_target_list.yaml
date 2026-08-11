@@ -1,0 +1,144 @@
+# ============================================================
+# garak 多页面 Web 批量扫描配置
+# 路径: config/web_target_list.yaml
+# ============================================================
+# 用途：对同一 Web 应用的多个子页面（首页 / 探索页 / 实验室子页）
+# 分别发现 API 端点并独立扫描，汇总各页面的安全态势。
+#
+# 运行:
+#   python main.py --batch config/web_target_list.yaml
+#
+# 每个目标独立 run_id，产物落在 outputs/<target_name>/ 下。
+# 最终汇总报告在 outputs/batch_summary_<timestamp>.json
+#
+# 认证策略：
+#   - 首个目标执行完整 Playwright 登录 → 导出 Cookie
+#   - 后续目标复用同一 Cookie 会话（同域信任）
+#   - 若 Cookie 过期，自动触发无头重登录
+# ============================================================
+
+targets:
+  # --- 首页 ---
+  - name: homepage
+    kind: web
+    target_url: "http://192.168.40.198/"
+    # endpoint / model 留空 → Playwright 自动发现
+    endpoint: ""
+    model: ""
+    auth:
+      type: cookie_file
+      cookie_source: ""            # 留空 → 自动推导 sessions/192_168_40_198.json
+      cookie_domain: ""            # 留空 → 从 target_url 提取
+      username_env: TARGET_USERNAME
+      password_env: TARGET_PASSWORD
+      session_refresh:
+        enabled: true
+        cooldown_seconds: 60
+
+  # --- 探索页 ---
+  - name: explore
+    kind: web
+    target_url: "http://192.168.40.198/explore"
+    endpoint: ""
+    model: ""
+    auth:
+      type: cookie_file
+      cookie_source: ""            # 复用首页登录的 Cookie 文件
+      cookie_domain: ""
+      username_env: TARGET_USERNAME
+      password_env: TARGET_PASSWORD
+      session_refresh:
+        enabled: true
+        cooldown_seconds: 60
+
+  # --- 实验室子页面（示例：PI_01 ~ PI_03）---
+  # 如有更多子页面，按此格式追加
+  - name: labs_PI_01
+    kind: web
+    target_url: "http://192.168.40.198/labs/PI_01"
+    endpoint: ""
+    model: ""
+    auth:
+      type: cookie_file
+      cookie_source: ""
+      cookie_domain: ""
+      username_env: TARGET_USERNAME
+      password_env: TARGET_PASSWORD
+      session_refresh:
+        enabled: true
+        cooldown_seconds: 60
+
+  - name: labs_PI_02
+    kind: web
+    target_url: "http://192.168.40.198/labs/PI_02"
+    endpoint: ""
+    model: ""
+    auth:
+      type: cookie_file
+      cookie_source: ""
+      cookie_domain: ""
+      username_env: TARGET_USERNAME
+      password_env: TARGET_PASSWORD
+      session_refresh:
+        enabled: true
+        cooldown_seconds: 60
+
+  - name: labs_PI_03
+    kind: web
+    target_url: "http://192.168.40.198/labs/PI_03"
+    endpoint: ""
+    model: ""
+    auth:
+      type: cookie_file
+      cookie_source: ""
+      cookie_domain: ""
+      username_env: TARGET_USERNAME
+      password_env: TARGET_PASSWORD
+      session_refresh:
+        enabled: true
+        cooldown_seconds: 60
+
+# --- 共享配置（所有目标复用）---
+shared_config:
+  mode: standard
+  artifacts_dir: outputs
+  execute:
+    generations: 1
+    timeout: 30
+    max_tokens: 2000
+    call_timeout: 60
+    soft_probe_prompt_cap: 3
+    parallel_requests: 1
+    scan_profile: balanced
+    tier_filter: null
+    buff_spec: null
+    rate_limit:
+      max_rpm: 60
+      base_delay: 1.0
+      max_delay: 60.0
+      max_retries: 5
+      cooldown: 30.0
+      cooldown_threshold: 5
+      downgrade_at: 3
+      jitter: true
+      slow_start: true
+      slow_start_initial: 4
+      slow_start_interval: 30.0
+      slow_start_multiplier: 2.0
+      proactive_jitter: true
+      jitter_min: 0.05
+      jitter_max: 0.30
+      jitter_expand_on_429: 1.5
+      jitter_shrink_on_recover: 0.8
+      recovery_interval: 60.0
+      recovery_step: 4
+  reporting:
+    confidence_interval_method: bootstrap
+    bootstrap_confidence_level: 0.95
+    bootstrap_min_sample_size: 30
+    bootstrap_n_resamples: 1000
+  judge:
+    enabled: false
+    endpoint: ""
+    model: gpt-4o-mini
+    threshold: 0.5

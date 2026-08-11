@@ -14,6 +14,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -45,19 +46,38 @@ def run_batch(
     project = Path(project_root)
     results: list[dict] = []
 
+    # Web 目标会话复用：同域 Web 目标共享 Cookie，避免重复登录
+    web_discovery = None  # WebTargetDiscovery 实例（首个 Web 目标时初始化）
+
     for i, tgt in enumerate(targets, 1):
         name = tgt.get("name", f"target_{i}")
         print(f"\n{'='*60}")
         print(f"📦 批量扫描 [{i}/{len(targets)}]: {name}")
         print(f"{'='*60}")
 
-        # 从 .env 回填留空字段
-        target = {
-            "kind": tgt.get("kind", "openai"),
-            "endpoint": tgt.get("endpoint") or get_env("OPENAI_TARGET_ENDPOINT", ""),
-            "model": tgt.get("model") or get_env("OPENAI_TARGET_MODEL", ""),
-            "api_key": tgt.get("api_key") or get_env("OPENAICompatible_API_KEY", ""),
-        }
+        kind = tgt.get("kind", "openai")
+
+        if kind == "web":
+            # --- Web 目标：Playwright 认证引导 + 端点发现 ---
+            target = _resolve_web_target(tgt, web_discovery, get_env)
+            # 首个 Web 目标初始化 WebTargetDiscovery 供后续复用
+            if web_discovery is None:
+                from pipeline.auth.multi_page import WebTargetDiscovery
+                auth_cfg = tgt.get("auth", {})
+                web_discovery = WebTargetDiscovery(
+                    sessions_dir=str(project / "sessions"),
+                    auth_cfg=auth_cfg,
+                )
+                # 缓存 cookie_path 供后续目标复用
+                web_discovery._cookie_path = target.get("_cookie_path")
+        else:
+            # --- OpenAI 目标：从 .env 回填留空字段 ---
+            target = {
+                "kind": "openai",
+                "endpoint": tgt.get("endpoint") or get_env("OPENAI_TARGET_ENDPOINT", ""),
+                "model": tgt.get("model") or get_env("OPENAI_TARGET_MODEL", ""),
+                "api_key": tgt.get("api_key") or get_env("OPENAICompatible_API_KEY", ""),
+            }
 
         # 每个目标独立 artifacts 子目录
         artifacts_dir = str(project / shared.get("artifacts_dir", "outputs") / name)
@@ -329,3 +349,105 @@ if (ctx) {{
         f.write(html_content)
     logger.info("R4 batch 对比 HTML 已生成: %s", html_path)
     return str(html_path)
+
+
+def _resolve_web_target(
+    tgt: dict,
+    web_discovery: Any | None,
+    get_env_fn: Any,
+) -> dict:
+    """解析 Web 目标配置 — 执行 Playwright 认证引导 + 端点发现
+
+    首个 Web 目标（web_discovery 为 None）执行完整登录；
+    后续目标复用已保存的 Cookie 会话（同域信任），仅做端点发现。
+
+    :param tgt: target_list.yaml 中的单个目标配置
+    :param web_discovery: WebTargetDiscovery 实例（None 表示首个目标）
+    :param get_env_fn: 环境变量读取函数
+    :returns: 流水线 target dict（含 endpoint, model, auth, cookie_path）
+    """
+    target_url = tgt.get("target_url", "")
+    auth_cfg = tgt.get("auth", {})
+
+    # 从 .env 回填 target_url
+    if not target_url:
+        target_url = get_env_fn("WEB_TARGET_URL", "")
+
+    if not target_url:
+        raise ValueError(
+            f"Web 目标 {tgt.get('name', '?')} 缺少 target_url，"
+            "请在配置或 .env WEB_TARGET_URL 中设置"
+        )
+
+    # 显式指定了 endpoint → 直接用（跳过 Playwright）
+    explicit_endpoint = tgt.get("endpoint", "")
+    explicit_model = tgt.get("model", "")
+    if explicit_endpoint and explicit_model and explicit_model != "unknown-model":
+        logger.info("目标 %s 使用显式 endpoint=%s model=%s（跳过 Playwright）",
+                    tgt.get("name", "?"), explicit_endpoint, explicit_model)
+        target = {
+            "kind": "web",
+            "target_url": target_url,
+            "endpoint": explicit_endpoint,
+            "model": explicit_model,
+            "api_key": tgt.get("api_key", ""),
+            "auth": auth_cfg,
+        }
+        # 仍有 Cookie 则保留 auth 段
+        if auth_cfg.get("type") == "cookie_file" and not auth_cfg.get("cookie_source"):
+            import re as _re
+            from urllib.parse import urlparse as _urlparse
+            domain = auth_cfg.get("cookie_domain") or _urlparse(target_url).netloc
+            safe = _re.sub(r"\W+", "_", domain)
+            auth_cfg = dict(auth_cfg)
+            auth_cfg["cookie_source"] = f"sessions/{safe}.json"
+            auth_cfg["cookie_domain"] = domain
+            target["auth"] = auth_cfg
+        return target
+
+    # 需要 Playwright 认证引导
+    print(f"   🌐 Playwright 认证引导: {target_url}")
+    print("      用户名/密码自动填充（.env）；OTP/验证码请人工配合")
+
+    if web_discovery is not None and web_discovery._cookie_path:
+        # 后续目标：复用 Cookie，无头模式
+        print("      复用已保存的 Cookie 会话（无头模式）")
+        profile = web_discovery.discover_subpage(target_url, headless=True)
+    else:
+        # 首个目标：完整登录（有头模式）
+        profile = web_discovery.login_and_discover(target_url, headless=False) \
+            if web_discovery else _bootstrap_standalone(target_url, auth_cfg)
+
+    target = profile.to_target_dict()
+    target["kind"] = "web"
+    target["target_url"] = target_url
+    target["_cookie_path"] = profile.cookie_path
+
+    print(f"   ✅ 认证完成 (类型={profile.auth_type})")
+    print(f"      endpoint: {profile.endpoint}")
+    print(f"      model:    {profile.model}")
+    if profile.has_api_key:
+        print(f"      凭据嗅探: {profile.key_source} (长度={len(profile.api_key)})，直连 API")
+
+    return target
+
+
+def _bootstrap_standalone(target_url: str, auth_cfg: dict) -> Any:
+    """独立的 Playwright 认证引导（web_discovery 未初始化时使用）
+
+    :param target_url: 目标 URL
+    :param auth_cfg: 认证配置
+    :returns: UnifiedTargetProfile
+    """
+    from pipeline.auth.bootstrap import AuthBootstrap
+
+    bootstrap = AuthBootstrap(
+        target_url,
+        cfg={
+            "username_env": auth_cfg.get("username_env", "TARGET_USERNAME"),
+            "password_env": auth_cfg.get("password_env", "TARGET_PASSWORD"),
+            "selectors": auth_cfg.get("selectors"),
+        },
+        sessions_dir="sessions",
+    )
+    return bootstrap.run()

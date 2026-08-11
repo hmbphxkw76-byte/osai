@@ -273,7 +273,7 @@ def build_target_aware_converter_map(
         logger.debug("Target-aware converter map: target_type is None, skipping")
         return {}
 
-    from pipeline.converters.chains import build_converters_from_chain_names
+    from pipeline.converters.chains import build_converters_from_chain_names, score_chain_combo
     from pipeline.converters.target_aware_router import get_chains_for_target_type
 
     # 获取 target_type 感知的链映射: {base_technique: [chain_name, ...]}
@@ -286,8 +286,27 @@ def build_target_aware_converter_map(
         logger.info(f"Target-aware converter map: no chains for target_type='{target_type}'")
         return {}
 
+    # G-4 攻击为王: 跨范式协同链补充
+    # 学术依据: Russinovich et al. (arXiv:2402.12109) Crescendo + encoding = 3-5x ASR
+    # 对每个技术, 在推荐链基础上补充高协同乘数的跨范式链
+    # O-3 攻击为王: 新增 prompt_sending 协同链
+    #   学术依据: arXiv:2307.15043 — 编码绕过对 Llama 系列模型 ASR 提升显著
+    #   converter_variant_priors: prompt_sending+stealth_evasion llama_3_1=0.45, +encoding_bypass=0.50
+    _SYNERGY_BOOSTS: dict[str, list[str]] = {
+        "crescendo": ["encoding_bypass", "stealth_evasion"],
+        "tap": ["encoding_bypass", "stealth_evasion"],
+        "red_teaming": ["persuasion_authority", "decomposition_chain"],
+        "pair": ["stealth_evasion", "encoding_bypass"],
+        "crescendo_simulated": ["encoding_bypass", "unicode_attack"],
+        "context_compliance": ["stealth_evasion", "encoding_bypass"],
+        "many_shot": ["token_smuggling_chain", "encoding_bypass"],
+        "skeleton_key": ["stealth_evasion", "persuasion_authority"],
+        "prompt_sending": ["stealth_evasion", "encoding_bypass"],
+    }
+
     result: dict[str, list[Converter]] = {}
     total_chains_used = 0
+    total_synergy_boosted = 0
 
     for tech_name in technique_names:
         # 查找该技术对应的推荐链
@@ -299,20 +318,37 @@ def build_target_aware_converter_map(
         if not recommended_chains:
             continue
 
+        # G-4: 协同链优化 — 补充高协同乘数的跨范式链
+        # 学术依据: converter_chains.yaml combo_multipliers:
+        #   encoding_bypass + stealth_evasion = 1.5x
+        #   encoding_bypass + unicode_attack = 1.6x (最高)
+        #   persuasion_authority + decomposition_chain = 1.3x
+        synergy_chains = _SYNERGY_BOOSTS.get(base_tech, [])
+        enhanced_chains = list(recommended_chains)
+        for sc in synergy_chains:
+            if sc not in enhanced_chains:
+                enhanced_chains.append(sc)
+
+        # 按协同乘数排序: 高协同链组合优先
+        synergy_score = score_chain_combo(enhanced_chains)
+        if synergy_score > 1.0:
+            total_synergy_boosted += 1
+
         # 从链名构建 Converter 实例列表
         converters = build_converters_from_chain_names(
-            chain_names=recommended_chains,
+            chain_names=enhanced_chains,
             converter_target=converter_target,
         )
 
         if converters:
             result[tech_name] = converters
-            total_chains_used += len(recommended_chains)
+            total_chains_used += len(enhanced_chains)
 
     logger.info(
-        f"Target-aware converter map: target_type='{target_type}', "
+        f"Target-aware converter map (G-4 synergy): target_type='{target_type}', "
         f"{len(result)}/{len(technique_names)} techniques got converters, "
-        f"{total_chains_used} chains used"
+        f"{total_chains_used} chains used, "
+        f"{total_synergy_boosted} synergy-boosted (>1.0x)"
     )
 
     return result

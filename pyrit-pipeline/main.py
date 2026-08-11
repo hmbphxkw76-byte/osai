@@ -1,4 +1,4 @@
-"""PyRIT 原生端到端 AI Red Team 流水线 — 纯编排入口。
+"""PyRIT 原生端到端 AI Red Team 流水线 — 纯编排入口.
 
 仅串联 pipeline/ 下六个阶段，自身不含任何业务逻辑。
 修改某个阶段时，只需编辑 pipeline/stages/stage_*.py，不影响本文件。
@@ -33,6 +33,19 @@ import warnings
 warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 _logger = logging.getLogger(__name__)
+
+# ── 静默 PyRIT/OpenAI SDK 的 verbose 异常日志 ──────────────────────────────
+# PyRIT openai_target.py 使用 logger.exception() 输出完整堆栈到 stderr (~60 行/次),
+# 该输出发生在 RateLimitedTarget 捕获异常之前, 导致终端被 SDK 内部堆栈淹没。
+# RateLimitedTarget 已提供简洁重试消息 (含错误类型、端点、重试次数),
+# 无需 SDK 内部完整堆栈。设为 CRITICAL 级别静默 logger.exception() (ERROR 级)。
+# 学术依据: NIST SP 800-92 — 信号/噪音分离, 可恢复异常的重试属于噪音层
+_QUIET_LOGGERS = [
+    "pyrit.prompt_target.openai.openai_target",  # logger.exception() → 完整堆栈
+    "openai._base_client",                       # OpenAI SDK 内部重试日志
+]
+for _quiet_name in _QUIET_LOGGERS:
+    logging.getLogger(_quiet_name).setLevel(logging.CRITICAL)
 
 _os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 # write_through=True 确保每次 write 后立即 flush 到底层缓冲
@@ -135,8 +148,9 @@ async def main_async() -> None:
     ctx.metadata["signal_log_path"] = str(ctx.output_manager.log_path)
 
     ctx.start_time = datetime.now()
-    clean_temp_files("pre")
-
+    # R-005: 运行前不清理 __pycache__ — Python 通过 mtime+size 自动管理缓存失效,
+    # 编辑代码后仅需重编译被修改的文件 (<0.1s), 避免每次全量重编译 PyRIT 611 个文件 (~8s 开销).
+    # 运行后清理 (clean_temp_files("post")) 仍保留, 确保异常退出后不留脏缓存.
     try:
         # B1 修复: 将 header 和 footer 移入 redirect 上下文, 确保完整日志写入 signal log
         with redirect_noise_to_file(
@@ -268,11 +282,11 @@ async def main_async() -> None:
 
 
 def _persist_discovered_content_filter_markers() -> None:
-    """P3: 持久化运行时动态发现的内容过滤器标记。
+    """P3: 持久化运行时动态发现的内容过滤器标记.
 
     在 Stage 1 初始化时,content_filter_ext 的 heuristic 自动发现机制
     可能识别出未知 API 供应商的安全审查错误码。本函数在流水线结束后
-   将这些标记写入 data/setting/content_filter_discovered.json,
+    将这些标记写入 data/setting/content_filter_discovered.json,
     供下次运行直接加载,避免重复 heuristic 检测。
 
     同时,P4: 由于内容过滤响应被正确识别为 blocked (非异常),
@@ -288,7 +302,7 @@ def _persist_discovered_content_filter_markers() -> None:
 
 
 def _cleanup_web_session(ctx: PipelineContext) -> None:
-    """清理 Web 目标的浏览器会话 (如有)。
+    """清理 Web 目标的浏览器会话 (如有).
 
     在 finally 块中调用, 确保 Web 目标的 Playwright 浏览器
     在流水线结束 (正常或异常) 后正确关闭。

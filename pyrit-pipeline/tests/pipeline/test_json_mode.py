@@ -160,8 +160,8 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        # 红队视角: 静默执行, 结果存储在 ctx.metadata
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_no_disable_nvidia(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -182,8 +182,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_no_disable_deepseek(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -204,8 +203,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_auto_disable_openrouter(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -226,8 +224,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "已禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 1
 
     def test_no_disable_openai_endpoint(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -248,8 +245,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_no_disable_azure_endpoint(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -270,8 +266,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_force_disable_all(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -294,9 +289,8 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "全局禁用" in captured.out
-        assert "已禁用" in captured.out
+        assert ctx.metadata.get("json_mode_force_disabled") is True
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 1
 
     def test_empty_registry_no_error(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -312,9 +306,8 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = []
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        # 不应抛出异常
-        captured = capsys.readouterr()
-        assert "第三方端点兼容性检测" in captured.out
+        # 不应抛出异常 (空 registry 静默返回)
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_rate_limited_target_unwrapped(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -337,8 +330,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "已禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 1
 
     def test_non_chat_target_skipped(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -362,8 +354,7 @@ class TestDisableJsonMode:
             mock_registry.return_value.instances.get_all_instances.return_value = [mock_entry]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "无需禁用" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 0
 
     def test_multiple_targets_mixed(
         self, mock_args: pytest.fixture, capsys: pytest.CaptureFixture[str]
@@ -394,9 +385,7 @@ class TestDisableJsonMode:
             ]
             _disable_json_mode_for_third_party_endpoints(ctx)
 
-        captured = capsys.readouterr()
-        assert "共 1 个目标" in captured.out
-        assert "adversarial_chat" in captured.out
+        assert ctx.metadata.get("json_mode_disabled_count", 0) == 1
 
     def test_disable_json_mode_default_false(
         self, mock_args: pytest.fixture

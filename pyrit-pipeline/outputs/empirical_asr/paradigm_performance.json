@@ -1,8 +1,14 @@
 {
+  "success": {
+    "multi_turn": {
+      "success": 6,
+      "failure": 0
+    }
+  },
   "objective_not_achieved": {
     "multi_turn": {
       "success": 0,
-      "failure": 1
+      "failure": 7
     }
   }
 }

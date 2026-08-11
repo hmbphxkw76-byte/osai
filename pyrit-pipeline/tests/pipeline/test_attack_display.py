@@ -35,7 +35,7 @@ class TestTargetProfileBlock1:
         ctx.warm_start_asr = {"many_shot": 0.0, "prompt_sending": 0.0}
         ctx.metadata["model_name"] = "test-model"
         ctx.metadata["model_tier"] = "strong"
-        ctx.metadata["api_timeout"] = 60
+        ctx.metadata["api_timeout"] = 120
         ctx.metadata["api_max_retries"] = 0
         ctx.metadata["rate_limited_wrapped_count"] = 3
         ctx.metadata["scorer_timeout"] = 30
@@ -211,10 +211,10 @@ class TestResilienceConfigBlock4:
         """评分器类型应展示。."""
         ctx = PipelineContext(args=mock_args)
         ctx.metadata["scorer_timeout"] = 30
-        ctx.metadata["api_timeout"] = 60
+        ctx.metadata["api_timeout"] = 120
         ctx.metadata["api_max_retries"] = 0
         ctx.metadata["rate_limited_wrapped_count"] = 3
-        ctx.metadata["rate_limit_retries"] = 2
+        ctx.metadata["rate_limit_retries"] = 3
         ctx.max_attempts_per_objective = 1
 
         mock_scorer = MagicMock()
@@ -229,7 +229,7 @@ class TestResilienceConfigBlock4:
         """Converter 熔断配置应展示。."""
         ctx = PipelineContext(args=mock_args)
         ctx.metadata["scorer_timeout"] = 30
-        ctx.metadata["api_timeout"] = 60
+        ctx.metadata["api_timeout"] = 120
         ctx.metadata["api_max_retries"] = 0
         ctx.max_attempts_per_objective = 1
 
@@ -428,15 +428,15 @@ class TestBudgetCalibrationO3:
         ctx = PipelineContext(args=mock_args)
         ctx.max_attempts_per_objective = 1
         ctx.args.max_concurrency = 3
-        ctx.metadata["api_timeout"] = 60
-        ctx.metadata["rate_limit_retries"] = 2
+        ctx.metadata["api_timeout"] = 120
+        ctx.metadata["rate_limit_retries"] = 3
         ctx.metadata["scorer_timeout"] = 30
 
         from pipeline.stages.stage_initialize import _estimate_attack_budget
 
         result = _estimate_attack_budget(ctx, [MagicMock()] * 10)
         assert "超时上限" in result
-        assert "60s/调用" in result
+        assert "120s/调用" in result
         assert "30s/评分" in result
 
     def test_budget_default_values(self, mock_args: pytest.fixture) -> None:
@@ -449,5 +449,5 @@ class TestBudgetCalibrationO3:
 
         result = _estimate_attack_budget(ctx, [MagicMock()] * 10)
         assert "超时上限" in result
-        assert "60s/调用" in result  # default api_timeout
+        assert "120s/调用" in result  # default api_timeout
         assert "30s/评分" in result  # default scorer_timeout

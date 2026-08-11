@@ -80,20 +80,20 @@ class TestNonRetryableError:
 class TestBackoffConfig:
     """测试退避延迟上限配置。"""
 
-    def test_max_delay_is_30(self) -> None:
-        """max_delay 应为 30.0 (从 60.0 降低)。"""
+    def test_max_delay_is_60(self) -> None:
+        """max_delay 应为 60.0 (从 30.0 提升, 增强超时韧性)。"""
         from pipeline.targets.rate_limited_target import _DEFAULT_MAX_DELAY
 
-        assert _DEFAULT_MAX_DELAY == 30.0
+        assert _DEFAULT_MAX_DELAY == 60.0
 
-    def test_backoff_capped_at_30(self) -> None:
-        """退避延迟不应超过 30s。"""
+    def test_backoff_capped_at_60(self) -> None:
+        """退避延迟不应超过 60s。"""
         from pipeline.targets.rate_limited_target import _compute_backoff
 
         # 尝试大量 attempt, 都不应超过 max_delay
         for attempt in range(20):
             delay = _compute_backoff(attempt)
-            assert delay <= 30.0 + 30.0 * 0.5  # max + max*jitter
+            assert delay <= 60.0 + 60.0 * 0.5  # max + max*jitter
 
 
 # ============================================================
@@ -104,12 +104,12 @@ class TestBackoffConfig:
 class TestApiTimeoutConfig:
     """测试 API 超时和 SDK 重试的 CLI 参数。"""
 
-    def test_api_timeout_default_60(self) -> None:
-        """api_timeout 默认值应为 60。"""
+    def test_api_timeout_default_120(self) -> None:
+        """api_timeout 默认值应为 120 (从 60 提升, 覆盖长 prompt 攻击)。"""
         from pipeline.config import _load_attack_params
 
         params = _load_attack_params()
-        assert params["api_timeout"] == 60
+        assert params["api_timeout"] == 120
 
     def test_api_max_retries_default_0(self) -> None:
         """api_max_retries 默认值应为 0 (禁用 SDK 内部重试)。"""
@@ -118,20 +118,20 @@ class TestApiTimeoutConfig:
         params = _load_attack_params()
         assert params["api_max_retries"] == 0
 
-    def test_rate_limit_retries_default_2(self) -> None:
-        """rate_limit_retries 默认值应为 2 (从 3 降低)。"""
+    def test_rate_limit_retries_default_3(self) -> None:
+        """rate_limit_retries 默认值应为 3 (标准错误重试)。"""
         from pipeline.config import _load_attack_params
 
         params = _load_attack_params()
-        assert params["rate_limit_retries"] == 2
+        assert params["rate_limit_retries"] == 3
 
     def test_mock_args_has_api_timeout(self, mock_args: argparse.Namespace) -> None:
         """mock_args fixture 应包含 api_timeout 和 api_max_retries。"""
         assert hasattr(mock_args, "api_timeout")
-        assert mock_args.api_timeout == 60
+        assert mock_args.api_timeout == 120
         assert hasattr(mock_args, "api_max_retries")
         assert mock_args.api_max_retries == 0
-        assert mock_args.rate_limit_retries == 2
+        assert mock_args.rate_limit_retries == 3
 
     def test_scorer_timeout_default_30(self) -> None:
         """scorer_timeout 默认值应为 30 (独立于攻击超时)。"""

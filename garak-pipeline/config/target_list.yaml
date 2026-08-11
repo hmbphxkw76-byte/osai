@@ -48,6 +48,17 @@ shared_config:
       cooldown_threshold: 5
       downgrade_at: 3
       jitter: true
+      slow_start: true
+      slow_start_initial: 4
+      slow_start_interval: 30.0
+      slow_start_multiplier: 2.0
+      proactive_jitter: true
+      jitter_min: 0.05
+      jitter_max: 0.30
+      jitter_expand_on_429: 1.5
+      jitter_shrink_on_recover: 0.8
+      recovery_interval: 60.0
+      recovery_step: 4
   reporting:
     confidence_interval_method: bootstrap
     bootstrap_confidence_level: 0.95

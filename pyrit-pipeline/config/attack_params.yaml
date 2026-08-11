@@ -1,11 +1,12 @@
 # ============================================================================
-# 攻击调优参数 — 团队共享默认值
+# 攻击调优参数 — 团队共享默认值 (Single Source of Truth)
 # ============================================================================
 # 本文件存放非敏感的攻击调优参数默认值, 进入 Git 版本追踪
 # 敏感信息 (API Key/Endpoint) 仍在 .env 中, 不进 Git
 #
-# 优先级: 命令行 --flag > 本文件 (YAML) > 硬编码兜底
+# 优先级: 命令行 --flag > 本文件 (YAML) > 硬编码兜底 (pipeline/config.py)
 # 即: 命令行参数优先级最高, 其次是本文件, 最后是代码中的硬编码默认值
+# SSOT 原则: 硬编码兜底值必须与本文件完全一致, 仅当 YAML 丢失时才生效
 #
 # 修改方式:
 #   1. 直接修改本文件 (持久化, 团队共享, 有 Git 历史)
@@ -21,21 +22,32 @@ max_concurrency: 3
 # 每个 objective 最多尝试的技术数
 # FIRST_SUCCESS 策略: 首个成功即停止
 # 1 = 极速验证 (端到端验证用, 每个载荷仅尝试 1 个技术)
-# 2 = 快速评估 (推荐默认, 冷启动+热启动均适用)
-# 3 = 深度评估 (需要更全面覆盖时使用)
-max_attempts: 1
+# 2 = 平衡默认 (降级链前2个高ASR技术有机会执行, API调用量可控)
+# 4 = 攻击为王 (让降级链前4个高ASR技术全部有机会执行, API调用量×4)
+# 5 = 深度评估 (需要更全面覆盖时使用)
+# 学术依据: PAIR (arXiv:2310.08437) 迭代显著提升 ASR;
+#   max_attempts=1 完全无迭代, 期望 ASR 损失 20-30%;
+#   TAP (arXiv:2312.02191) 树搜索需多次尝试才能找到最优路径;
+#   HarmBench (arXiv:2402.04249) 每类至少3+样本才能获得统计显著 ASR
+# 注意: max_attempts>=2 时自动触发 Crescendo/TAP 高级攻击场景
+max_attempts: 2
 
 # 每个数据集最大采样数
 # 更大 = 更多样本覆盖, 但运行时间线性增长
-# 3 = 24 数据集 × 3 = 72 攻击计划 (推荐默认, ~1-2 小时)
-# 5 = 24 × 5 = 120 攻击 (第二次运行, ASR 优先级采样后)
+# 3 = 24 数据集 × 3 = 72 攻击计划 (平衡默认, ~1 小时, API调用~288)
+# 5 = 24 × 5 = 120 攻击 (攻击为王, API调用~1166, 需稳定端点)
 # 10 = 24 × 10 = 240 攻击 (深度评估)
+# 学术依据: HarmBench (arXiv:2402.04249) 每类至少 3+ 样本才能获得统计显著 ASR
 max_dataset_size: 3
 
 # Epsilon-greedy 探索概率
-# 0.1 = 10% 随机探索 / 90% 利用历史 ASR
-# 冷启动时可设 0.2, 积累数据后降至 0.05
-epsilon: 0.1
+# 0.05 = 5% 随机探索 / 95% 利用历史 ASR (热启动, 攻击为王)
+# 0.1 = 10% 随机探索 / 90% 利用历史 ASR (有先验数据后)
+# 0.15 = 15% 随机探索 / 85% 利用历史 ASR (平衡默认, 冷启动+利用兼顾)
+# 0.2 = 20% 随机探索 / 80% 利用历史 ASR (冷启动推荐)
+# 学术依据: Sutton & Barto (RL 2018) 冷启动阶段 ε≥0.15 确保充分探索;
+#   积累数据后配合 epsilon-decay (0.15→0.02, 50步线性衰减) 逐步利用已知高 ASR 技术
+epsilon: 0.15
 
 # API 请求最大并发数 (RateLimitedTarget 包装)
 # 0 = 禁用限速
@@ -43,9 +55,23 @@ epsilon: 0.1
 rate_limit: 3
 
 # 限速重试最大次数
-# 降低可减少 API 卡顿时间 (每次重试指数退避)
-# 上次运行 nangeai.top 重试 10 次耗时 14 分钟/攻击
-rate_limit_retries: 2
+# 3 = 平衡默认 (标准错误 5xx/429 的韧性重试)
+# 2 = 激进 (快速失败, 减少等待)
+# 5 = 保守 (慢端点, 但每次重试指数退避耗时线性增长)
+# 注意: 超时类错误 (APITimeoutError) 使用独立更大的重试预算
+rate_limit_retries: 3
+
+# 超时错误专用重试次数 (独立于 rate_limit_retries)
+# 3 = 平衡默认 (最坏 3次×90s退避 = 4.5分钟单请求上限)
+# 5 = 保守 (最坏 5次×120s = 10分钟, 可能卡住流水线)
+# APITimeoutError/httpx.ReadTimeout 使用此重试预算,
+# 因为超时通常比限速更需要韧性重试 (端点慢/网络波动)
+timeout_max_retries: 3
+
+# 超时专用退避上限 (秒)
+# 超时错误使用比标准重试更长的退避间隔, 避免连续冲击慢端点
+# 90s = 平衡默认; 60s = 激进; 120s = 保守
+timeout_max_delay: 90
 
 # API 流式响应模式 (stream parameter)
 # false = 非流式 (默认, 一次性返回完整响应)
@@ -56,9 +82,12 @@ stream: false
 
 # API 超时秒数 (httpx.Timeout)
 # OpenAI SDK 默认 600s (10 分钟!) — 导致 DoS/慢响应卡住整个流水线
-# 60s = 合理默认; 30s = 激进 (快速失败); 120s = 保守 (多轮攻击)
+# 120s = 推荐默认 (覆盖 ManyShotJailbreak 等长 prompt 攻击)
+# 60s = 激进 (快速失败, 适合简单 prompt_sending)
+# 180s = 保守 (多轮攻击 + 慢 API 端点)
 # 通过 PyRIT 原生 httpx_client_kwargs 机制设置
-api_timeout: 60
+# 注意: ManyShotJailbreak/Crescendo/TAP 发送超长 prompt, 60s 不足以等 API 响应
+api_timeout: 120
 
 # 评分器 API 超时秒数 (独立于攻击超时)
 # 评分器调用比攻击调用更简单 (仅需判断 yes/no), 不需要 60s
@@ -68,12 +97,13 @@ scorer_timeout: 30
 
 # OpenAI SDK 内部重试次数
 # 0 = 禁用 (由 RateLimitedTarget 统一管理重试, 避免三层叠加)
-# SDK 默认 2 (3 次尝试) + RateLimitedTarget 3 次 = 最多 12 次 API 调用/攻击
+# SDK 默认 2 (3 次尝试) + RateLimitedTarget 重试 = 多层叠加导致不可控
 api_max_retries: 0
 
 # 种子优先级采样权重 (ASR 驱动, 攻击为王)
 # 融合分数 = asr_priority × asr_weight + model_category_priority × category_weight
 # 首次运行: 仅 category_weight 生效 (无 ASR 历史)
-# 后续运行: asr_weight 主导 (70%) + category_weight 补充 (30%)
-seed_priority_asr_weight: 0.7
-seed_priority_category_weight: 0.3
+# 后续运行: asr_weight 主导 (80%) + category_weight 补充 (20%)
+# 攻击为王: asr_weight 提升至 0.8, 优先攻击高 ASR 种子
+seed_priority_asr_weight: 0.8
+seed_priority_category_weight: 0.2

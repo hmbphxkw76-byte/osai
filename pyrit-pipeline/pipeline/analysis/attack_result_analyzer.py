@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # OWASP Top 10 LLM 类别数 (2025 版)
 OWASP_LLM_CATEGORY_COUNT = 10
 # OWASP Agentic Applications 类别数 (2025 版)
 OWASP_ASI_CATEGORY_COUNT = 10
+
+# Path 4: 从 PyRIT 原生 error_message 提取策略类名
+# 匹配: "Strategy execution failed for objective_target in PromptSendingAttack:"
+_ERROR_MESSAGE_CLASS_NAME_PATTERN = re.compile(r"Strategy execution failed for \w+ in (\w+):")
 
 
 class AttackResultAnalyzer:
@@ -42,7 +47,11 @@ class AttackResultAnalyzer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def extract_technique_name(attack_result: Any) -> str:
+    def extract_technique_name(
+        attack_result: Any,
+        *,
+        eval_hash_map: dict[str, str] | None = None,
+    ) -> str:
         """从 AttackResult 提取技术名。.
 
         优先级:
@@ -51,13 +60,17 @@ class AttackResultAnalyzer:
            (如 "ManyShotJailbreakAttack" → "many_shot")
         3. ``identifier + children.request_converters`` — 拼接 Converter 变体名
            (如 "many_shot+PersuasionConverter")
-        4. "unknown" — 最终回退
+        4. ``error_message`` 正则提取策略类名 (API 超时/错误回退)
+        5. ``attribution_data.parent_eval_hash`` 关联查询 (eval_hash_map 回退)
+        6. "unknown" — 最终回退
 
         R-022: 使用 PyRIT 原生 ``get_attack_strategy_identifier()`` API +
         ``technique_name_mapper`` 规范化映射, 确保技术名与 PyRIT AttackTechniqueRegistry 一致。
+        Path 4/5: 使用 PyRIT 原生 ``error_message`` + ``attribution_data`` 字段。
 
         Args:
             attack_result: PyRIT ``AttackResult`` 实例
+            eval_hash_map: eval_hash → technique 映射 (可选, Path 5 关联查询用)
 
         Returns:
             技术名 (非 None, 最终回退为 "unknown")
@@ -87,10 +100,32 @@ class AttackResultAnalyzer:
                     conv_name = AttackResultAnalyzer._converter_display_name(converters[0])
                     base = mapped if (mapped and mapped != "unknown") else (name or "")
                     return f"{base}+{conv_name}" if base else conv_name
+
+        # Path 4: PyRIT 原生 error_message 正则提取策略类名
+        # 适用场景: 攻击因 API 超时/限速失败, atomic_attack_identifier 为 NULL,
+        # 但 error_message 含 "Strategy execution failed for ... in {ClassName}:"
+        # R-022 合规: 仅读取 PyRIT 原生 error_message 字段, 不修改原生行为
+        resolved = AttackResultAnalyzer._extract_from_error_message(attack_result)
+        if resolved:
+            return resolved
+
+        # Path 5: PyRIT 原生 attribution_data.parent_eval_hash 关联查询
+        # 适用场景: 攻击因 API 超时/错误失败, atomic_attack_identifier 为 NULL,
+        # 但 attribution_data.parent_eval_hash 可关联到同批次已知结果的技术名
+        # R-022 合规: 使用 PyRIT 原生 attribution_data + ComponentIdentifier.eval_hash
+        if eval_hash_map:
+            resolved = AttackResultAnalyzer._extract_from_eval_hash(attack_result, eval_hash_map)
+            if resolved:
+                return resolved
+
         return "unknown"
 
     @staticmethod
-    def extract_technique_name_optional(attack_result: Any) -> str | None:
+    def extract_technique_name_optional(
+        attack_result: Any,
+        *,
+        eval_hash_map: dict[str, str] | None = None,
+    ) -> str | None:
         """从 AttackResult 提取技术名 (可能返回 None)。.
 
         与 ``extract_technique_name`` 相同，但最终回退返回 ``None`` 而非 "unknown"。
@@ -101,6 +136,7 @@ class AttackResultAnalyzer:
 
         Args:
             attack_result: PyRIT ``AttackResult`` 实例
+            eval_hash_map: eval_hash → technique 映射 (可选, Path 5 关联查询用)
 
         Returns:
             技术名, 或 None (提取失败)
@@ -127,6 +163,18 @@ class AttackResultAnalyzer:
                     conv_name = AttackResultAnalyzer._converter_display_name(converters[0])
                     base = mapped if (mapped and mapped != "unknown") else (name or "")
                     return f"{base}+{conv_name}" if base else conv_name
+
+        # Path 4: error_message 正则提取
+        resolved = AttackResultAnalyzer._extract_from_error_message(attack_result)
+        if resolved:
+            return resolved
+
+        # Path 5: eval_hash 关联查询
+        if eval_hash_map:
+            resolved = AttackResultAnalyzer._extract_from_eval_hash(attack_result, eval_hash_map)
+            if resolved:
+                return resolved
+
         return None
 
     # ------------------------------------------------------------------
@@ -239,6 +287,90 @@ class AttackResultAnalyzer:
             except Exception:
                 return None
         return None
+
+    @staticmethod
+    def _extract_from_error_message(attack_result: Any) -> str | None:
+        """Path 4: 从 PyRIT 原生 error_message 正则提取策略类名。.
+
+        适用场景: 攻击因 API 超时/限速失败, atomic_attack_identifier 为 NULL,
+        但 error_message 含 "Strategy execution failed for ... in {ClassName}:"
+
+        R-022 合规: 仅读取 PyRIT 原生 error_message 字段, 不修改原生行为。
+
+        Args:
+            attack_result: PyRIT AttackResult 实例
+
+        Returns:
+            技术名, 或 None (无匹配)
+        """
+        error_message = getattr(attack_result, "error_message", None) or ""
+        if isinstance(error_message, str) and error_message:
+            m = _ERROR_MESSAGE_CLASS_NAME_PATTERN.search(error_message)
+            if m:
+                cname = m.group(1)
+                if cname and len(cname) > 2:
+                    from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                    mapped = map_class_name_to_technique(cname)
+                    if mapped and mapped != "unknown":
+                        return mapped
+                    if cname != "AtomicAttack":
+                        return cname
+        return None
+
+    @staticmethod
+    def _extract_from_eval_hash(
+        attack_result: Any,
+        eval_hash_map: dict[str, str],
+    ) -> str | None:
+        """Path 5: 从 PyRIT 原生 attribution_data.parent_eval_hash 关联查询技术名。.
+
+        适用场景: 攻击因 API 超时/错误失败, atomic_attack_identifier 为 NULL,
+        但 attribution_data.parent_eval_hash 可关联到同批次已知结果的技术名。
+
+        R-022 合规: 使用 PyRIT 原生 attribution_data + ComponentIdentifier.eval_hash。
+
+        Args:
+            attack_result: PyRIT AttackResult 实例
+            eval_hash_map: eval_hash → technique 映射
+
+        Returns:
+            技术名, 或 None (无匹配)
+        """
+        attribution_data = getattr(attack_result, "attribution_data", None)
+        if isinstance(attribution_data, dict):
+            parent_eval_hash = attribution_data.get("parent_eval_hash")
+            if parent_eval_hash and isinstance(parent_eval_hash, str):
+                resolved = eval_hash_map.get(parent_eval_hash)
+                if resolved and resolved != "unknown":
+                    return resolved
+        return None
+
+    @staticmethod
+    def build_eval_hash_map(attack_results: list[Any]) -> dict[str, str]:
+        """从 AttackResult 列表构建 eval_hash → technique 映射。.
+
+        第一遍遍历: 对每个有 atomic_attack_identifier 的结果提取技术名,
+        构建 eval_hash → technique 映射, 供第二遍 Path 5 关联查询使用。
+
+        R-022 合规: 使用 PyRIT 原生 atomic_attack_identifier.eval_hash 字段。
+
+        Args:
+            attack_results: AttackResult 列表
+
+        Returns:
+            eval_hash → technique 映射字典
+        """
+        eval_hash_to_technique: dict[str, str] = {}
+        for ar in attack_results:
+            tech = AttackResultAnalyzer.extract_technique_name(ar)
+            if tech and tech != "unknown":
+                aai = getattr(ar, "atomic_attack_identifier", None)
+                if aai is not None:
+                    eval_hash = getattr(aai, "eval_hash", None)
+                    if eval_hash and isinstance(eval_hash, str) and eval_hash not in eval_hash_to_technique:
+                        eval_hash_to_technique[eval_hash] = tech
+        return eval_hash_to_technique
 
     @staticmethod
     def _converter_display_name(converter: Any) -> str:

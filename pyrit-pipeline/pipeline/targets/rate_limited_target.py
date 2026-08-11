@@ -46,6 +46,10 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+# 超时专用重试默认值 — 超时比限速更需要韧性重试
+_DEFAULT_TIMEOUT_MAX_RETRIES = 5
+_DEFAULT_TIMEOUT_MAX_DELAY = 120.0
+
 logger = logging.getLogger(__name__)
 
 # 运行时导入 PromptTarget 以注册虚拟子类
@@ -82,7 +86,7 @@ async def _get_shared_semaphore(endpoint: str, max_concurrency: int) -> asyncio.
 
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_BASE_DELAY = 1.0
-_DEFAULT_MAX_DELAY = 30.0
+_DEFAULT_MAX_DELAY = 60.0
 _DEFAULT_JITTER = 0.5
 
 # G7: 不可重试的 HTTP 状态码 — 认证/请求错误/空响应, 立即失败
@@ -93,12 +97,17 @@ _NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 405, 422, 204}
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 # 触发重试的异常类型名
+# 包含 httpx/httpcore 底层超时异常, 防止异常类型穿透时遗漏
 _RETRYABLE_EXCEPTION_NAMES = {
     "APITimeoutError",
     "APIConnectionError",
     "APIStatusError",
     "asyncio.TimeoutError",
     "TimeoutError",
+    "ReadTimeout",       # httpx.ReadTimeout
+    "ConnectTimeout",    # httpx.ConnectTimeout
+    "PoolTimeout",       # httpx.PoolTimeout
+    "RemoteProtocolError",  # httpcore.RemoteProtocolError
 }
 
 # 超时类异常 (使用更大的退避延迟)
@@ -225,6 +234,8 @@ class RateLimitedTarget:
         base_delay: float = _DEFAULT_BASE_DELAY,
         max_delay: float = _DEFAULT_MAX_DELAY,
         jitter: float = _DEFAULT_JITTER,
+        timeout_max_retries: int = _DEFAULT_TIMEOUT_MAX_RETRIES,
+        timeout_max_delay: float = _DEFAULT_TIMEOUT_MAX_DELAY,
     ) -> None:
         """初始化限速包装器。.
 
@@ -232,11 +243,13 @@ class RateLimitedTarget:
             target: 原始 PyRIT Target 实例。
             endpoint: API 端点 URL (用于共享信号量, 默认从 target 推断)。
             max_concurrency: 最大并发请求数 (同端点共享)。
-            max_retries: 最大重试次数。
+            max_retries: 最大重试次数 (标准错误: 5xx/限速)。
             requests_per_minute: 每分钟最大请求数 (设置原生 ``_max_requests_per_minute``)。
             base_delay: 初始退避延迟 (秒)。
-            max_delay: 最大退避延迟 (秒)。
+            max_delay: 最大退避延迟 (秒, 标准错误)。
             jitter: 抖动比例 (0.0~1.0)。
+            timeout_max_retries: 超时错误专用最大重试次数 (默认 5)。
+            timeout_max_delay: 超时错误专用退避上限 (秒, 默认 120)。
         """
         self._target = target
         self._endpoint = endpoint or self._infer_endpoint(target)
@@ -245,6 +258,8 @@ class RateLimitedTarget:
         self._base_delay = base_delay
         self._max_delay = max_delay
         self._jitter = jitter
+        self._timeout_max_retries = timeout_max_retries
+        self._timeout_max_delay = timeout_max_delay
 
         # v7.0: 设置原生 _max_requests_per_minute (原生装饰器自动限速)
         if requests_per_minute is not None and requests_per_minute > 0:
@@ -413,7 +428,11 @@ class RateLimitedTarget:
 
         last_error: Exception | None = None
 
-        for attempt in range(self._max_retries + 1):
+        # 判断是否为超时类错误, 决定使用哪个重试预算
+        is_timeout_error = False
+        effective_max_retries = self._max_retries
+
+        for attempt in range(self._timeout_max_retries + 1):
             async with semaphore:
                 try:
                     rtt_start = time.monotonic()
@@ -439,10 +458,18 @@ class RateLimitedTarget:
                     if not _is_retryable_error(e):
                         raise
 
-                    if attempt >= self._max_retries:
+                    # 超时类错误使用独立重试预算和退避上限
+                    error_type = type(e).__name__
+                    is_timeout_error = error_type in _TIMEOUT_EXCEPTION_NAMES
+                    effective_max_retries = (
+                        self._timeout_max_retries if is_timeout_error else self._max_retries
+                    )
+
+                    if attempt >= effective_max_retries:
                         logger.error(
-                            f"RateLimitedTarget: max_retries ({self._max_retries}) "
-                            f"exceeded for endpoint={self._endpoint}"
+                            f"RateLimitedTarget: max_retries ({effective_max_retries}) "
+                            f"exceeded for endpoint={self._endpoint} "
+                            f"(error_type={error_type}, timeout={is_timeout_error})"
                         )
                         raise
 
@@ -456,13 +483,12 @@ class RateLimitedTarget:
                     if retry_after is not None:
                         delay = retry_after
                     else:
-                        # 超时异常使用更大基础延迟
-                        error_type = type(e).__name__
-                        if error_type in _TIMEOUT_EXCEPTION_NAMES:
+                        # 超时异常使用更大基础延迟和更长退避上限
+                        if is_timeout_error:
                             delay = _compute_backoff(
                                 attempt,
                                 base_delay=self._base_delay * 2,
-                                max_delay=self._max_delay,
+                                max_delay=self._timeout_max_delay,
                                 jitter=self._jitter,
                             )
                         else:
@@ -476,10 +502,18 @@ class RateLimitedTarget:
                     self._retry_count += 1
                     self._total_delay += delay
 
+                    # 提取 HTTP 状态码和错误消息摘要 (一行式精简提示)
+                    # 替代 PyRIT logger.exception() 的 ~60 行完整堆栈
+                    _status = getattr(e, "status_code", None) or "N/A"
+                    _msg_raw = str(e)
+                    # 截取关键部分 (如 "Error code: 503 - {'message': 'System is too busy...'}")
+                    _msg_brief = _msg_raw[:100] + "..." if len(_msg_raw) > 100 else _msg_raw
+
                     logger.warning(
-                        f"RateLimitedTarget: retry {attempt + 1}/{self._max_retries} "
+                        f"RateLimitedTarget: retry {attempt + 1}/{effective_max_retries} "
                         f"after {delay:.1f}s (endpoint={self._endpoint}, "
-                        f"error={type(e).__name__})"
+                        f"error={error_type}, status={_status}, "
+                        f'timeout={is_timeout_error}, msg="{_msg_brief}")'
                     )
 
                     await asyncio.sleep(delay)
@@ -520,6 +554,8 @@ def wrap_target_with_rate_limit(
     max_concurrency: int = 3,
     max_retries: int = _DEFAULT_MAX_RETRIES,
     requests_per_minute: int | None = None,
+    timeout_max_retries: int = _DEFAULT_TIMEOUT_MAX_RETRIES,
+    timeout_max_delay: float = _DEFAULT_TIMEOUT_MAX_DELAY,
 ) -> RateLimitedTarget:
     """为 Target 包装限速和重试能力。.
 
@@ -530,8 +566,10 @@ def wrap_target_with_rate_limit(
         target: 原始 Target 实例。
         endpoint: API 端点 URL (可选)。
         max_concurrency: 最大并发数。
-        max_retries: 最大重试次数。
+        max_retries: 最大重试次数 (标准错误)。
         requests_per_minute: 每分钟最大请求数 (设置原生属性)。
+        timeout_max_retries: 超时错误专用最大重试次数。
+        timeout_max_delay: 超时错误专用退避上限 (秒)。
 
     Returns:
         RateLimitedTarget 包装后的实例。
@@ -542,6 +580,8 @@ def wrap_target_with_rate_limit(
         max_concurrency=max_concurrency,
         max_retries=max_retries,
         requests_per_minute=requests_per_minute,
+        timeout_max_retries=timeout_max_retries,
+        timeout_max_delay=timeout_max_delay,
     )
 
 

@@ -135,27 +135,27 @@ class PipelineContext:
     # ── 便捷方法: 阶段间衔接摘要 ──
 
     def stage1_summary(self) -> str:
-        """Stage 1 → Stage 2 衔接摘要 (数据 L1/L4 层)。."""
-        # L4 Memory: 显示 db_type + db_path (如有)
+        """Stage 1 → Stage 2 衔接摘要 (红队视角: 弹药 + 持久化)."""
+        # Memory: 显示 db_type + db_path (如有)
         if self.config:
             db_type = getattr(self.config, "memory_db_type", "unknown")
             db_path = self.metadata.get("db_path", "")
-            l4_info = f"{db_type} ({db_path})" if db_path else db_type
+            mem_info = f"{db_type} ({db_path})" if db_path else db_type
         else:
-            l4_info = "N/A"
+            mem_info = "N/A"
         lines = [
             "  → Stage 2 输入:",
-            f"    数据 L1 (Seed Source): {self._seed_source_summary()}",
-            f"    数据 L4 (Memory): {l4_info}",
+            f"    弹药: {self._seed_source_summary()}",
+            f"    持久化: {mem_info}",
         ]
         if self.gcg_seeds_count > 0:
-            lines.append(f"    GCG 种子: {self.gcg_seeds_count} 组")
+            lines.append(f"    GCG 后缀: {self.gcg_seeds_count} 组")
         if self.fuzzer_seeds_count > 0:
-            lines.append(f"    Fuzzer 种子: {self.fuzzer_seeds_count} 组")
+            lines.append(f"    Fuzzer 变异: {self.fuzzer_seeds_count} 组")
         if self.is_multimodal:
             lines.append(f"    多模态: {len(self.multimodal_converters)} 个 Converter 预设")
         if self.rate_limited:
-            lines.append("    限速包装: 已启用")
+            lines.append("    OPSEC: 限速已启用")
         if self.http_target_configured:
             lines.append("    HTTP Target: 已配置")
         return "\n".join(lines)

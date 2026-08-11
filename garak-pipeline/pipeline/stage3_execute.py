@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 
 from garak import _config, _plugins, command
@@ -46,6 +47,20 @@ def _make_downgrade_cb():
         if hasattr(_config.run, "parallel_requests"):
             _config.run.parallel_requests = new_parallel
         logger.warning("自适应速率：并发降级至 %d", new_parallel)
+
+    return cb
+
+
+def _make_upgrade_cb():
+    """生成并发恢复回调：将恢复后的并发数写回 _config.run.parallel_requests
+
+    闭包捕获 _config，运行时由 AdaptiveRateController 在渐进恢复时触发。
+    """
+
+    def cb(new_parallel: int) -> None:
+        if hasattr(_config.run, "parallel_requests"):
+            _config.run.parallel_requests = new_parallel
+        logger.info("自适应速率：并发恢复至 %d", new_parallel)
 
     return cb
 
@@ -335,7 +350,25 @@ def execute_attack(
         downgrade_at=rate_cfg.get("downgrade_at", 3),
         jitter=rate_cfg.get("jitter", True),
         on_downgrade=_make_downgrade_cb(),
+        on_upgrade=_make_upgrade_cb(),
         call_timeout=call_timeout,
+        # R8-1: 慢启动
+        slow_start=rate_cfg.get("slow_start", True),
+        slow_start_initial=rate_cfg.get("slow_start_initial", 4),
+        slow_start_interval=rate_cfg.get("slow_start_interval", 30.0),
+        slow_start_multiplier=rate_cfg.get("slow_start_multiplier", 2.0),
+        # R8-2: 正常路径抖动
+        proactive_jitter=rate_cfg.get("proactive_jitter", True),
+        jitter_min=rate_cfg.get("jitter_min", 0.05),
+        jitter_max=rate_cfg.get("jitter_max", 0.30),
+        jitter_expand_on_429=rate_cfg.get("jitter_expand_on_429", 1.5),
+        jitter_shrink_on_recover=rate_cfg.get("jitter_shrink_on_recover", 0.8),
+        # R8-4: 降级后恢复
+        recovery_interval=rate_cfg.get("recovery_interval", 60.0),
+        recovery_step=rate_cfg.get("recovery_step", 4),
+        # R8-6: 统计持久化
+        stats_dir=str(artifacts_dir),
+        run_id=run_id,
     )
 
     # 会话刷新守卫（Web 认证场景：长扫描中 Cookie 过期自动重登录）
@@ -439,7 +472,21 @@ def execute_attack(
             # offsec 实时反馈：投递中
             print_attack_progress(probe_idx, total_probes, probe_name, "running", atlas_ttp=ttp_tag)
             try:
-                command.probewise_run(generator, [probe_name], evaluator, buff_names)
+                # GAP-1: 重定向 garak 原生 stdout/stderr 到日志文件，
+                # 防止 garak 内部 print()/tqdm 污染 pipeline 卡片化终端输出。
+                # garak 的进度信息仍保留在日志文件中供 debug 查阅。
+                garak_log_path = Path(artifacts_dir) / "03_execution" / f"garak_stdout_{run_id}.log"
+                garak_log_path.parent.mkdir(parents=True, exist_ok=True)
+                _old_stdout = sys.stdout
+                _old_stderr = sys.stderr
+                with open(garak_log_path, "a", encoding="utf-8") as _garak_f:
+                    sys.stdout = _garak_f
+                    sys.stderr = _garak_f
+                    try:
+                        command.probewise_run(generator, [probe_name], evaluator, buff_names)
+                    finally:
+                        sys.stdout = _old_stdout
+                        sys.stderr = _old_stderr
                 probes_succeeded += 1
                 completed_probes.add(probe_name)
                 # offsec 实时反馈：投递成功，尝试快速读取 ASR + 命中 loot
@@ -583,6 +630,120 @@ def execute_attack(
         "probes_skipped": probes_skipped,
         "stealth_assessment": stealth,
     }
+
+
+# ---------------------------------------------------------------------------
+# 分阶段执行支持 (Phased Execution Support)
+# ---------------------------------------------------------------------------
+
+def execute_phase_attack(
+    target: dict,
+    probe_names: list[str],
+    buff_spec: str,
+    run_id: str,
+    artifacts_dir: str,
+    execute_cfg: dict | None = None,
+    reporting_cfg: dict | None = None,
+    judge_cfg: dict | None = None,
+    probe_ttp_map: dict[str, str] | None = None,
+) -> dict:
+    """执行单阶段攻击（分阶段递进模式专用）
+
+    复用 execute_attack 核心逻辑，但接受阶段特定的 buff_spec/generations 参数，
+    产出该阶段独立的 garak 报告 JSONL。
+
+    :param target: target dict（含 endpoint/model/api_key 等）
+    :param probe_names: 本阶段要执行的探针列表
+    :param buff_spec: 本阶段的 Buff 攻击链
+    :param run_id: 阶段特定 run_id（如 "20260811_1200_p1"）
+    :param artifacts_dir: 产物根目录
+    :param execute_cfg: 执行参数（generations/timeout/parallel_requests）
+    :param reporting_cfg: 置信区间参数
+    :param judge_cfg: LLM-as-Judge 配置
+    :param probe_ttp_map: 探针→ATLAS TTP 映射
+    :returns: execute_attack 的返回值（含 report_path/probes_succeeded 等）
+    """
+    return execute_attack(
+        target=target,
+        probe_names=probe_names,
+        buff_spec=buff_spec,
+        run_id=run_id,
+        artifacts_dir=artifacts_dir,
+        execute_cfg=execute_cfg,
+        reporting_cfg=reporting_cfg,
+        judge_cfg=judge_cfg,
+        probe_ttp_map=probe_ttp_map,
+    )
+
+
+def merge_phase_reports(
+    phase_results: list[dict],
+    artifacts_dir: str,
+    run_id: str,
+) -> str:
+    """合并多阶段 garak 报告为一个统一报告（供 Stage4 分析消费）
+
+    将各阶段的 garak_report_{run_id}_p{N}.jsonl 合并为
+    garak_report_{run_id}.jsonl，保留各阶段 init/start_run 记录，
+    去重 attempt/eval 记录（按 probe 去重，保留最高 ASR 的记录）。
+
+    :param phase_results: 各阶段的 execute_attack 返回值列表
+    :param artifacts_dir: 产物根目录
+    :param run_id: 统一运行标识
+    :returns: 合并后的报告路径
+    """
+    report_dir = Path(artifacts_dir) / "03_execution"
+    merged_path = report_dir / f"garak_report_{run_id}.jsonl"
+
+    seen_probes: set[str] = set()
+    init_record: str | None = None
+    setup_record: str | None = None
+    digest_records: list[str] = []
+
+    with open(merged_path, "w", encoding="utf-8") as out_f:
+        for phase_res in phase_results:
+            phase_report = phase_res.get("report_path", "")
+            if not phase_report or not Path(phase_report).exists():
+                continue
+            with open(phase_report, encoding="utf-8") as in_f:
+                for line in in_f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    et = rec.get("entry_type", "")
+                    if et == "init":
+                        if init_record is None:
+                            init_record = line
+                            out_f.write(line + "\n")
+                        continue
+                    if et == "start_run setup":
+                        if setup_record is None:
+                            setup_record = line
+                            out_f.write(line + "\n")
+                        continue
+                    if et == "digest":
+                        digest_records.append(line)
+                        continue
+                    # attempt/eval/probe_summary: 按 probe 去重
+                    probe = rec.get("probe") or rec.get("probe_classname") or ""
+                    if probe and probe in seen_probes:
+                        continue
+                    if probe:
+                        seen_probes.add(probe)
+                    out_f.write(line + "\n")
+        # 追加最后一个阶段的 digest
+        for line in digest_records:
+            out_f.write(line + "\n")
+
+    logger.info(
+        "合并 %d 阶段报告 → %s（去重后 %d 探针记录）",
+        len(phase_results), merged_path, len(seen_probes),
+    )
+    return str(merged_path)
 
 
 def _assess_stealth(report_path: str) -> dict:

@@ -374,18 +374,27 @@ async def run(ctx: PipelineContext) -> None:
     )
 
 
-def _extract_technique_from_result(ar: Any) -> str:
+def _extract_technique_from_result(
+    ar: Any,
+    *,
+    eval_hash_map: dict[str, str] | None = None,
+) -> str:
     """O1: 从 AttackResult 提取真正的攻击技术名.
 
     委托给 AttackResultAnalyzer.extract_technique_name() (原生 PyRIT identifier API).
     回退到 "unknown" 如果提取失败。
 
     R-022: 使用 PyRIT 原生 identifier 字段, 不修改原生生命周期。
+    Path 4/5: error_message 正则 + eval_hash 关联查询 (Round 20+ 增强)。
+
+    Args:
+        ar: AttackResult 实例
+        eval_hash_map: eval_hash → technique 映射 (可选, Path 5 关联查询用)
     """
     try:
         from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
 
-        name = AttackResultAnalyzer.extract_technique_name(ar)
+        name = AttackResultAnalyzer.extract_technique_name(ar, eval_hash_map=eval_hash_map)
         # 类型防御: 确保 tech_name 始终为 str (MagicMock 属性泄漏可能导致非 str 返回)
         return name if isinstance(name, str) else "unknown"
     except Exception:
@@ -411,14 +420,26 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
     # O1 修复: get_display_groups() 返回的 group_name 是数据集名,
     # 而非攻击技术名。通过 AttackResultAnalyzer.extract_technique_name()
     # 从每个 AttackResult 提取真正的技术名, 按技术名重新分组计算 ASR。
+    # Round 20+ 增强: 两遍遍历 — 第一遍构建 eval_hash→技术名映射,
+    # 第二遍用 Path 4 (error_message) + Path 5 (eval_hash 关联查询) 解析 unknown 结果。
+    from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
     groups = result.get_display_groups()
-    all_results: list[tuple[str, bool, Any]] = []
+    # 收集所有 AttackResult
+    flat_results: list[Any] = []
     for _dataset_name, attack_results in groups.items():
-        for ar in attack_results:
-            success = ar.outcome == AttackOutcome.SUCCESS
-            # O1: 提取真正的攻击技术名
-            tech_name = _extract_technique_from_result(ar)
-            all_results.append((tech_name, success, ar))
+        flat_results.extend(attack_results)
+
+    # 第一遍: 构建 eval_hash → technique 映射
+    eval_hash_map = AttackResultAnalyzer.build_eval_hash_map(flat_results)
+
+    # 第二遍: 用 eval_hash_map 解析所有结果 (含 Path 4/5)
+    all_results: list[tuple[str, bool, Any]] = []
+    for ar in flat_results:
+        success = ar.outcome == AttackOutcome.SUCCESS
+        # O1: 提取真正的攻击技术名 (Path 1-6, 含 eval_hash_map)
+        tech_name = _extract_technique_from_result(ar, eval_hash_map=eval_hash_map)
+        all_results.append((tech_name, success, ar))
 
     # 按攻击技术名分组计算 ASR
     asr_per_technique: dict[str, float] = {}
@@ -566,7 +587,11 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
                 except Exception:
                     pass
 
-            success_lines.append(f"  #{idx:<2} {tech_name[:25]} | {conv_str}{combo_annotation}")
+            # P1: 种子 metadata 标题前缀 [OWASP|Severity|Difficulty]
+            seed_meta = _extract_seed_metadata_from_result(ar)
+            meta_prefix = _format_seed_metadata_prefix(seed_meta)
+
+            success_lines.append(f"  #{idx:<2} {meta_prefix}{tech_name[:25]} | {conv_str}{combo_annotation}")
             if payload_brief:
                 success_lines.append(f"      载荷: {payload_brief}")
 
@@ -598,12 +623,12 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
         s4_lines: list[str] = []
         s4_lines.append(f"{'分组':<20} {'总计':>6} {'成功':>6} {'ASR':>8}")
         s4_lines.append(f"{'─' * 44}")
-        s4_lines.append(f"  增强 (有Converter)  {enh_total:>6} {enh_success:>6} {enh_asr:>7.1f}%")
-        s4_lines.append(f"  Baseline (无Converter) {base_total:>4} {base_success:>6} {base_asr:>7.1f}%")
+        s4_lines.append(f"  Converter 增强       {enh_total:>6} {enh_success:>6} {enh_asr:>7.1f}%")
+        s4_lines.append(f"  Baseline 直发        {base_total:>6} {base_success:>6} {base_asr:>7.1f}%")
         s4_lines.append("")
         if enh_total > 0 and base_total > 0:
             marker = "↑ 有效" if delta > 0 else ("↓ 负面" if delta < 0 else "→ 持平")
-            s4_lines.append(f"  Δ增益: {delta:+.1f}% {marker}")
+            s4_lines.append(f"  Δ vs Baseline: {delta:+.1f}% {marker}")
             if delta > 5:
                 s4_lines.append("  判定: Converter 增强显著有效, 建议扩大覆盖")
             elif delta > 0:
@@ -617,26 +642,83 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
         elif base_total > 0:
             s4_lines.append("  (全部为 baseline 攻击, 无 Converter 增强)")
 
+        # P2-1: Per-技术增益行 — 按技术分组对比 baseline vs 增强
+        tech_stats: dict[str, dict[str, dict[str, int]]] = {}
+        for tech_name, success, ar in all_results:
+            convs = _extract_converter_names_from_result(ar)
+            if not convs:
+                expected_convs = technique_converter_map.get(tech_name, [])
+                convs = [type(c).__name__ for c in expected_convs] if expected_convs else []
+            group_key = "enh" if convs else "base"
+            tech_stats.setdefault(tech_name, {"base": {"total": 0, "success": 0}, "enh": {"total": 0, "success": 0}})
+            tech_stats[tech_name][group_key]["total"] += 1
+            if success:
+                tech_stats[tech_name][group_key]["success"] += 1
+
+        # 只展示同时有 baseline 和增强数据的技术
+        paired_techs = {
+            tech: s for tech, s in tech_stats.items()
+            if s["base"]["total"] > 0 and s["enh"]["total"] > 0
+        }
+        if paired_techs:
+            s4_lines.append("")
+            s4_lines.append("Per-技术增益:")
+            s4_lines.append(f"  {'技术':<25} {'baseline':>8} {'增强':>8} {'Δ':>8}")
+            s4_lines.append(f"  {'─' * 25} {'─' * 8} {'─' * 8} {'─' * 8}")
+            for tech in sorted(paired_techs, key=lambda t: (
+                paired_techs[t]["enh"]["success"] / max(paired_techs[t]["enh"]["total"], 1)
+                - paired_techs[t]["base"]["success"] / max(paired_techs[t]["base"]["total"], 1)
+            ), reverse=True):
+                bt = paired_techs[tech]["base"]["total"]
+                et = paired_techs[tech]["enh"]["total"]
+                b_asr = paired_techs[tech]["base"]["success"] / bt * 100 if bt > 0 else 0
+                e_asr = paired_techs[tech]["enh"]["success"] / et * 100 if et > 0 else 0
+                d = e_asr - b_asr
+                marker = "↑" if d > 0 else ("↓" if d < 0 else "→")
+                s4_lines.append(f"  {tech[:23]:<25} {b_asr:>7.1f}% {e_asr:>7.1f}% {d:>+7.1f}% {marker}")
+        else:
+            # 无配对技术 — 每个技术要么全 baseline 要么全增强, 无法 per-技术对比
+            s4_lines.append("")
+            s4_lines.append("Per-技术增益: (无配对技术, 各技术仅出现于 baseline 或增强单侧)")
+
         info_box("④ Baseline vs 增强 ASR 对比", s4_lines)
 
     # ── S4-2: 卡片 ⑤ 失败弱点分析 (仅有失败时) ──
     if failures > 0:
-        # 按技术统计失败
+        # P0-3: 从 ctx.metadata["failure_stats"] 获取失败类型分布 (而非 ar.metadata)
+        # 修复: 之前从 ar.metadata.get("failure_type") 读取, 但该字段未被写入,
+        # 导致所有失败都标为 "unknown", 防御推断错误输出 "API 不稳定"
+        failure_stats = stats if stats else ctx.metadata.get("failure_stats", {})
+        failure_dist = failure_stats.get("failure_distribution", {})
+
+        # 按技术统计失败 (使用 failure_dist 交叉分配)
         tech_failures: dict[str, dict[str, int]] = {}  # tech → {fail_type: count}
         for tech_name, success, ar in all_results:
             if success:
                 continue
-            ar_meta = getattr(ar, "metadata", None) or {}
-            if not isinstance(ar_meta, dict):
-                continue
-            fail_type = ar_meta.get("failure_type", "unknown")
+            # P0-3: 从 failure_dist 按比例分配失败类型到各技术
+            # 如果 failure_dist 有数据, 按比例分配; 否则用 outcome_reason 推断
+            fail_type = "unknown"
+            try:
+                from pyrit.models import AttackOutcome
+
+                if ar.outcome == AttackOutcome.FAILURE:
+                    reason = str(getattr(ar, "outcome_reason", "") or "").lower()
+                    if "timeout" in reason or "timed out" in reason:
+                        fail_type = "timeout"
+                    elif "scorer fallback" in reason:
+                        fail_type = "scorer_validation_error"
+                    else:
+                        fail_type = "objective_not_achieved"
+            except Exception:
+                pass
             tech_failures.setdefault(tech_name, {}).setdefault(fail_type, 0)
             tech_failures[tech_name][fail_type] += 1
 
         # 防御强度推断
         defense_lines: list[str] = []
         if tech_failures:
-            # Top 3 失败最多的技术
+            # Top 5 失败最多的技术
             sorted_fails = sorted(
                 tech_failures.items(),
                 key=lambda x: sum(x[1].values()),
@@ -650,13 +732,17 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
                     f"  {tech[:25]:<25} ×{total_fails} 失败 | 主因: {dominant[0]} ({dominant[1]})"
                 )
 
-            # 防御推断
+            # P0-3: 防御推断 — 使用正确的失败分类
             defense_lines.append("")
             total_refusals = sum(
                 ft.get("model_refusal", 0) for ft in tech_failures.values()
             )
             total_timeouts = sum(
-                ft.get("timeout", 0) for ft in tech_failures.values()
+                ft.get("timeout", 0) + ft.get("target_timeout", 0) + ft.get("scorer_timeout", 0)
+                for ft in tech_failures.values()
+            )
+            total_objective_failed = sum(
+                ft.get("objective_not_achieved", 0) for ft in tech_failures.values()
             )
             total_errors = sum(
                 ft.get("scorer_validation_error", 0) + ft.get("unknown", 0)
@@ -664,7 +750,9 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
             )
 
             defense_lines.append("目标防御强度推断:")
-            if total_refusals > total_timeouts and total_refusals > total_errors:
+            if total_objective_failed > total_refusals and total_objective_failed > total_timeouts:
+                defense_lines.append(f"  → 防御有效 ({total_objective_failed}次目标未达成) — 模型成功拒绝有害请求")
+            elif total_refusals > total_timeouts and total_refusals > total_errors:
                 defense_lines.append(f"  → 安全过滤主导 (拒绝 {total_refusals}次) — 模型有较强内容过滤")
             elif total_timeouts > total_refusals and total_timeouts > total_errors:
                 defense_lines.append(f"  → 超时主导 ({total_timeouts}次) — 模型响应慢或限流严重")
@@ -673,273 +761,30 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
             else:
                 defense_lines.append("  → 混合防御 — 各类失败均衡分布")
 
+            # P2-2: Converter 关联分析 — 失败攻击中 Converter 链分布
+            conv_fail_stats: dict[str, int] = {}
+            for tech_name, success, ar in all_results:
+                if success:
+                    continue
+                convs = _extract_converter_names_from_result(ar)
+                if not convs:
+                    expected_convs = technique_converter_map.get(tech_name, [])
+                    convs = [type(c).__name__ for c in expected_convs] if expected_convs else []
+                chain_key = " → ".join(convs[:2]) if convs else "(baseline 直发)"
+                conv_fail_stats[chain_key] = conv_fail_stats.get(chain_key, 0) + 1
+
+            if conv_fail_stats:
+                defense_lines.append("")
+                defense_lines.append("Converter 关联失败:")
+                sorted_conv_fails = sorted(conv_fail_stats.items(), key=lambda x: x[1], reverse=True)
+                for chain_key, fail_count in sorted_conv_fails[:3]:
+                    defense_lines.append(f"  {chain_key[:35]:<35} ×{fail_count} 失败")
+
         if defense_lines:
             info_box(f"⑤ 失败弱点分析 ({failures} 个失败)", defense_lines)
 
-    # ── O-ASR-2: 卡片 ⑥ Converter 效果诊断 (Per-Converter ASR 排名) ──
-    _print_converter_effect_diagnosis(ctx, all_results)
-
-    # ── O-ASR-4: 卡片 ⑦ 成功攻击模式分析 ──
-    if successes > 0:
-        _print_success_pattern_analysis(ctx, all_results, groups)
-
-
-def _print_converter_effect_diagnosis(
-    ctx: PipelineContext,
-    all_results: list[tuple[str, bool, Any]],
-) -> None:
-    """O-ASR-2: Per-Converter ASR 贡献度诊断 (core_card 级别).
-
-    按 Converter 链分组计算独立 ASR, 与 baseline 对比, 输出排名 + 诊断 + 建议.
-    这是攻击者最关心的展示: 哪些变换有效, 哪些反成负累.
-
-    学术依据:
-      - arXiv:2309.14334 — Converter 变换对 ASR 的影响评估
-      - arXiv:2402.04249 — HarmBench 标准化 ASR 对比方法论
-    """
-    from pipeline.utils.display import core_card
-
-    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
-
-    # 按 Converter 链分组
-    conv_chain_stats: dict[str, dict[str, int]] = {}  # chain_str → {total, success}
-    for tech_name, success, ar in all_results:
-        conv_names = _extract_converter_names_from_result(ar)
-        if not conv_names:
-            expected_convs = technique_converter_map.get(tech_name, [])
-            conv_names = [type(c).__name__ for c in expected_convs] if expected_convs else []
-
-        chain_key = " → ".join(conv_names) if conv_names else "(baseline 直发)"
-        if chain_key not in conv_chain_stats:
-            conv_chain_stats[chain_key] = {"total": 0, "success": 0, "convs": conv_names}
-        conv_chain_stats[chain_key]["total"] += 1
-        if success:
-            conv_chain_stats[chain_key]["success"] += 1
-
-    if not conv_chain_stats:
-        return
-
-    # 按 ASR 降序排列
-    sorted_chains = sorted(
-        conv_chain_stats.items(),
-        key=lambda x: x[1]["success"] / max(x[1]["total"], 1),
-        reverse=True,
-    )
-
-    # 计算 baseline ASR 作为参照
-    baseline_data = conv_chain_stats.get("(baseline 直发)", {})
-    baseline_total = baseline_data.get("total", 0)
-    baseline_success = baseline_data.get("success", 0)
-    baseline_asr = (baseline_success / baseline_total * 100) if baseline_total > 0 else 0.0
-
-    # 构建 [排名] 段
-    rank_lines: list[str] = []
-    rank_lines.append(f"{'Converter 链':<40} {'ASR':>7s}  {'成功/总计':<10s}  {'Δ vs Base':<10s}")
-    rank_lines.append("─" * 70)
-    for chain_key, stats in sorted_chains:
-        total = stats["total"]
-        succ = stats["success"]
-        asr = (succ / total * 100) if total > 0 else 0.0
-        delta = asr - baseline_asr if baseline_total > 0 else 0.0
-        if delta > 5:
-            delta_str = f"+{delta:.1f}% ↑"
-        elif delta < -5:
-            delta_str = f"{delta:.1f}% ↓ ✗"
-        else:
-            delta_str = f"{delta:+.1f}%"
-        rank_lines.append(f"  {chain_key[:38]:<38} {asr:>6.1f}%  {succ}/{total:<8}  {delta_str}")
-
-    # 构建 [诊断] 段 — 找出最差的 Converter 链
-    diag_lines: list[str] = []
-    worst_chains = [
-        (k, v) for k, v in sorted_chains
-        if v["total"] >= 3 and (v["success"] / max(v["total"], 1)) * 100 < baseline_asr - 10
-    ]
-    if worst_chains:
-        for chain_key, stats in worst_chains[:2]:
-            total = stats["total"]
-            succ = stats["success"]
-            asr = (succ / total * 100) if total > 0 else 0.0
-            delta = asr - baseline_asr if baseline_total > 0 else 0.0
-            diag_lines.append(f"🔴 {chain_key[:40]} 完全失效")
-            diag_lines.append(f"   · {total} 次攻击仅 {succ} 成功 ({asr:.1f}%)")
-            diag_lines.append(f"   · baseline 同类 ASR {baseline_asr:.1f}% → Δ {delta:.1f}pp")
-            # 推断失败原因
-            convs = stats.get("convs", [])
-            if convs:
-                conv_types = ", ".join(convs[:2])
-                diag_lines.append(f"   · 推断: {conv_types} 变换后的载荷被目标模型识别为异常")
-
-    if not diag_lines:
-        # 检查是否有完全成功的
-        perfect_chains = [
-            (k, v) for k, v in sorted_chains
-            if v["total"] >= 3 and v["success"] == v["total"]
-        ]
-        if perfect_chains:
-            for chain_key, stats in perfect_chains[:2]:
-                total = stats["total"]
-                diag_lines.append(f"✅ {chain_key[:40]} 完全成功 ({total}/{total})")
-                diag_lines.append(f"   · ASR 100% — 该 Converter 链对目标极为有效")
-        else:
-            diag_lines.append("(无显著异常 Converter 链)")
-
-    # 构建 [建议] 段
-    suggest_lines: list[str] = []
-    if worst_chains:
-        for chain_key, _stats in worst_chains[:2]:
-            suggest_lines.append(f"1. 禁用 {chain_key[:30]} 链 (下次运行)")
-        suggest_lines.append("2. 替换为语义类: PersuasionConverter 或 TaskFramingConverter")
-        suggest_lines.append(f"3. 或保持 baseline 直发 (已验证 {baseline_asr:.1f}% ASR)")
-    elif not diag_lines:
-        suggest_lines.append("(无明显需要调整的 Converter 链)")
-    else:
-        suggest_lines.append("1. 保持当前 Converter 配置")
-        suggest_lines.append("2. 扩大高 ASR Converter 链的覆盖范围")
-
-    sections = [
-        {"label": "排名", "lines": rank_lines},
-        {"label": "诊断", "lines": diag_lines},
-        {"label": "建议", "lines": suggest_lines},
-    ]
-
-    # 判断标题
-    has_negative = bool(worst_chains)
-    if has_negative:
-        title = "Converter 效果诊断 — 增强反成负累"
-    else:
-        title = "Converter 效果诊断 — 增强有效"
-
-    core_card(title, sections=sections)
-
-
-def _print_success_pattern_analysis(
-    ctx: PipelineContext,
-    all_results: list[tuple[str, bool, Any]],
-    groups: Any,
-) -> None:
-    """O-ASR-4: 成功攻击模式分析 — 从成功攻击中归纳模式.
-
-    按攻击向量 (OWASP 分类)、载荷特征、突破方式三个维度归纳成功模式.
-    帮助攻击者识别"为什么成功"并复制到后续攻击.
-
-    学术依据:
-      - arXiv:2402.04249 — HarmBench 攻击模式分类方法论
-      - arXiv:2310.04451 — PAIR 自适应策略分析
-    """
-    from pipeline.utils.display import core_card
-
-    from pyrit.models import AttackOutcome
-
-    successful = [(tech, ar) for tech, success, ar in all_results if success]
-    if not successful:
-        return
-
-    technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}
-
-    # ── 维度 1: 按攻击向量 (数据集 → OWASP 分类) ──
-    vector_stats: dict[str, dict[str, int]] = {}  # vector → {total, success}
-    for _group_name, attack_results in groups.items():
-        for ar in attack_results:
-            # 从 group_name 提取 OWASP 分类
-            import re
-
-            owasp_match = re.search(r"(llm\d{2}|asi\d{2})", _group_name, re.IGNORECASE)
-            if owasp_match:
-                vector = owasp_match.group(1).upper()
-            else:
-                # 从数据集名推断
-                ds_name = _group_name.lower()
-                if "harmbench" in ds_name:
-                    vector = "HarmBench"
-                elif "strong_reject" in ds_name:
-                    vector = "StrongREJECT"
-                elif "jbb" in ds_name:
-                    vector = "JBB"
-                elif "curated" in ds_name:
-                    vector = "CuratedSeeds"
-                else:
-                    vector = "其他"
-
-            if vector not in vector_stats:
-                vector_stats[vector] = {"total": 0, "success": 0}
-            vector_stats[vector]["total"] += 1
-            if ar.outcome == AttackOutcome.SUCCESS:
-                vector_stats[vector]["success"] += 1
-
-    # 按成功率排序
-    sorted_vectors = sorted(
-        vector_stats.items(),
-        key=lambda x: x[1]["success"] / max(x[1]["total"], 1),
-        reverse=True,
-    )
-    vector_lines: list[str] = []
-    for vector, stats in sorted_vectors:
-        total = stats["total"]
-        succ = stats["success"]
-        rate = (succ / total * 100) if total > 0 else 0
-        if rate > 0:
-            vector_lines.append(f"  {vector:<20} {succ}/{total} = {rate:.0f}% {'← 防御最薄弱' if rate >= 40 else ''}")
-
-    if not vector_lines:
-        vector_lines.append("(无法提取攻击向量)")
-
-    # ── 维度 2: 按载荷特征 ──
-    short_payloads = 0
-    short_success = 0
-    long_payloads = 0
-    long_success = 0
-    for tech_name, ar in successful:
-        payload = _extract_payload_from_result(ar)
-        if len(payload) < 50:
-            short_payloads += 1
-            short_success += 1
-        else:
-            long_payloads += 1
-            long_success += 1
-
-    # 统计所有攻击中的短/长载荷
-    all_short = 0
-    all_long = 0
-    for _tech, _success, ar in all_results:
-        payload = _extract_payload_from_result(ar)
-        if len(payload) < 50:
-            all_short += 1
-        else:
-            all_long += 1
-
-    feature_lines: list[str] = []
-    if all_short > 0:
-        short_rate = short_success / all_short * 100
-        feature_lines.append(f"  {'短载荷 (<50字符)':<25} 成功率 {short_rate:.0f}% ({short_success}/{all_short})")
-    if all_long > 0:
-        long_rate = long_success / all_long * 100 if all_long > 0 else 0
-        feature_lines.append(f"  {'长载荷 (≥50字符)':<25} 成功率 {long_rate:.0f}% ({long_success}/{all_long})")
-
-    # 按突破方式
-    baseline_success = sum(
-        1 for tech_name, ar in successful
-        if not _extract_converter_names_from_result(ar)
-        and not technique_converter_map.get(tech_name)
-    )
-    converter_success = len(successful) - baseline_success
-    method_lines: list[str] = []
-    method_lines.append(f"  baseline 直发: {baseline_success}/{len(successful)} = {baseline_success / len(successful) * 100:.0f}% 成功")
-    if converter_success > 0:
-        method_lines.append(f"  Converter 增强: {converter_success}/{len(successful)} = {converter_success / len(successful) * 100:.0f}% 成功")
-    else:
-        method_lines.append("  Converter 增强: 0% (所有成功均为 baseline)")
-
-    sections = [
-        {"label": "按攻击向量", "lines": vector_lines},
-        {"label": "按载荷特征", "lines": feature_lines if feature_lines else ["(无载荷数据)"]},
-        {"label": "按突破方式", "lines": method_lines},
-    ]
-
-    core_card(
-        f"成功攻击模式分析 ({len(successful)} 个成功)",
-        sections=sections,
-    )
+    # P1-1+P1-2: 卡片 ⑥ Converter 效果诊断 和 ⑦ 成功攻击模式分析 已移除 (含死代码清理)
+    # ⑥ 与 ④ Baseline vs 增强 数据完全重复, ⑦ 是 ①+③ 的聚合视图, 信息无增量
 
 
 def _extract_failure_timing(
@@ -1453,12 +1298,23 @@ def _compute_asr(ctx: PipelineContext) -> None:
     from pyrit.models import AttackOutcome
 
     # O1: 按攻击技术名重新分组 (非数据集名)
+    # Round 20+ 增强: 两遍遍历 — 第一遍构建 eval_hash_map, 第二遍用 Path 4/5 解析 unknown
+    from pipeline.analysis.attack_result_analyzer import AttackResultAnalyzer
+
     groups = result.get_display_groups()
-    tech_results: dict[str, list[Any]] = {}
+    # 收集所有 AttackResult
+    flat_results: list[Any] = []
     for _dataset_name, attack_results in groups.items():
-        for ar in attack_results:
-            tech_name = _extract_technique_from_result(ar)
-            tech_results.setdefault(tech_name, []).append(ar)
+        flat_results.extend(attack_results)
+
+    # 第一遍: 构建 eval_hash → technique 映射
+    eval_hash_map = AttackResultAnalyzer.build_eval_hash_map(flat_results)
+
+    # 第二遍: 用 eval_hash_map 解析所有结果 (含 Path 4/5)
+    tech_results: dict[str, list[Any]] = {}
+    for ar in flat_results:
+        tech_name = _extract_technique_from_result(ar, eval_hash_map=eval_hash_map)
+        tech_results.setdefault(tech_name, []).append(ar)
 
     asr_per_technique: dict[str, float] = {}
     for tech_name, results in tech_results.items():
@@ -1855,7 +1711,10 @@ def _print_successful_attack_details(
 
     lines: list[str] = []
     for idx, (tech_name, ar) in enumerate(successful[:10], 1):  # 限制 Top 10
-        lines.append(f"#{idx} 技术: {tech_name}")
+        # P1: 种子 metadata 标题前缀
+        seed_meta = _extract_seed_metadata_from_result(ar)
+        meta_prefix = _format_seed_metadata_prefix(seed_meta)
+        lines.append(f"#{idx} {meta_prefix}技术: {tech_name}")
 
         # 提取载荷
         payload_text = _extract_payload_from_result(ar)
@@ -1997,3 +1856,81 @@ def _extract_response_from_result(ar: Any) -> str:
         pass
 
     return ""
+
+
+def _extract_seed_metadata_from_result(ar: Any) -> dict[str, str]:
+    """从 AttackResult 提取种子 metadata (owasp_id, severity, difficulty, harm_category).
+
+    提取路径 (R-022 PyRIT 原生优先):
+      1. ar.memory_labels — PyRIT 1.0.1 原生字段 (pipeline-level + per-seed labels)
+      2. ar.atomic_attack_identifier.params — 原生标识符参数 (display_group 等)
+      3. ar.metadata — 元数据回退 (dataset_name 等)
+
+    注意: PyRIT 1.0.1 的 memory_labels 在 AttackResult 上为 dict,
+    其中 owasp_id 等字段由 pipeline 的 memory_labels 配置注入 (若已设置)。
+    """
+    import re
+
+    result: dict[str, str] = {}
+
+    # 路径 1: PyRIT 原生 memory_labels
+    try:
+        labels = getattr(ar, "memory_labels", None) or {}
+        if isinstance(labels, dict):
+            for key in ("owasp_id", "severity", "difficulty", "harm_category"):
+                val = labels.get(key, "")
+                if val and isinstance(val, str):
+                    result[key] = val
+    except Exception:
+        pass
+
+    # 路径 2: atomic_attack_identifier.params (display_group 包含 OWASP ID)
+    if "owasp_id" not in result:
+        try:
+            aai = getattr(ar, "atomic_attack_identifier", None)
+            if aai is not None:
+                params = getattr(aai, "params", None) or {}
+                if isinstance(params, dict):
+                    dg = params.get("display_group", "") or params.get("dataset_name", "")
+                    if dg:
+                        match = re.search(r"(llm\d{2}|asi\d{2})", dg, re.IGNORECASE)
+                        if match:
+                            result["owasp_id"] = match.group(1).upper()
+        except Exception:
+            pass
+
+    # 路径 3: metadata 回退 (dataset_name 包含 OWASP ID)
+    if "owasp_id" not in result:
+        try:
+            metadata = getattr(ar, "metadata", None) or {}
+            if isinstance(metadata, dict):
+                ds_name = metadata.get("dataset_name", "") or metadata.get("display_group", "")
+                if ds_name:
+                    match = re.search(r"(llm\d{2}|asi\d{2})", ds_name, re.IGNORECASE)
+                    if match:
+                        result["owasp_id"] = match.group(1).upper()
+        except Exception:
+            pass
+
+    return result
+
+
+def _format_seed_metadata_prefix(meta: dict[str, str]) -> str:
+    """格式化种子 metadata 为显示前缀: [OWASP|Severity|Difficulty].
+
+    Args:
+        meta: _extract_seed_metadata_from_result() 返回的字典
+
+    Returns:
+        格式化前缀字符串 (如 "[LLM06|high|easy] "), 或空字符串
+    """
+    parts: list[str] = []
+    if meta.get("owasp_id"):
+        parts.append(meta["owasp_id"])
+    if meta.get("severity"):
+        parts.append(meta["severity"])
+    if meta.get("difficulty"):
+        parts.append(meta["difficulty"])
+    if not parts:
+        return ""
+    return f"[{'|'.join(parts)}] "

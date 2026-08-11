@@ -87,11 +87,12 @@ _TECHNIQUE_ALIASES: dict[str, str] = {
     "skeleton_key": "skeleton_key",
     "skeleton-key": "skeleton_key",
     "skeletonkey": "skeleton_key",
-    # best_of_n
+    # best_of_n (PyRIT factory name = "flip")
     "best_of_n_jailbreak": "best_of_n_jailbreak",
     "best_of_n": "best_of_n_jailbreak",
     "best-of-n": "best_of_n_jailbreak",
     "bon": "best_of_n_jailbreak",
+    "flip": "best_of_n_jailbreak",
     # bad_likert_judge
     "bad_likert_judge": "bad_likert_judge",
     "bad-likert-judge": "bad_likert_judge",
@@ -117,6 +118,14 @@ _TECHNIQUE_ALIASES: dict[str, str] = {
     "violent_durian": "violent_durian",
     "violent-durian": "violent_durian",
     "durian": "violent_durian",
+    # xpia (间接注入)
+    "xpia": "xpia",
+    "xpia_attack": "xpia",
+    "cross_domain_injection": "xpia",
+    # advanced_mcp (MCP Kill Chain)
+    "advanced_mcp": "advanced_mcp",
+    "advanced_mcp_attack": "advanced_mcp",
+    "mcp_kill_chain": "advanced_mcp",
     # Converter 链名 (作为变体后缀)
     "stealth_evasion": "stealth_evasion",
     "stealth-evasion": "stealth_evasion",
@@ -222,6 +231,8 @@ _DISPLAY_NAMES: dict[str, str] = {
     "context_compliance": "Context Compliance Attack",
     "wrapping_attack": "Wrapping Attack",
     "violent_durian": "Violent Durian",
+    "xpia": "XPIA (Indirect Injection)",
+    "advanced_mcp": "Advanced MCP (Kill Chain)",
 }
 
 

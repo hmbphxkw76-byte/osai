@@ -32,6 +32,7 @@ def test_stage2_to_4_chain(tmp_path):
         encoding="utf-8",
     )
     target_cfg = {"endpoint": "http://x/v1", "model": "m", "api_key": "k"}
+    from unittest.mock import MagicMock
     with patch("pipeline.stage3_execute.command") as mock_cmd, \
          patch("pipeline.stage3_execute._plugins.load_plugin") as mock_load:
         mock_cmd.start_run.return_value = None
@@ -39,8 +40,10 @@ def test_stage2_to_4_chain(tmp_path):
         # 让报告复制逻辑读到 fake_report
         from garak import _config
         _config.transient.report_filename = str(fake_report)
-        from types import SimpleNamespace
-        mock_gen = SimpleNamespace(_call_model=lambda p, *a, **k: {})
+        mock_gen = MagicMock()
+        mock_gen._call_model = lambda p, *a, **k: {}
+        mock_gen.primary_detector = "always.Passthru"
+        mock_gen.extended_detectors = []
         mock_load.return_value = mock_gen
 
         ex = execute_attack(

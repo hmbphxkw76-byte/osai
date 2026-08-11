@@ -18,19 +18,22 @@ _ATTACK_PARAMS_CACHE: dict[str, Any] | None = None
 _ATTACK_PARAMS_PATH = Path("config") / "attack_params.yaml"
 
 # 硬编码兜底默认值 (YAML 不存在或读取失败时使用)
+# SSOT 原则: 必须与 config/attack_params.yaml 保持完全一致
 _HARDCODED_DEFAULTS: dict[str, Any] = {
     "max_concurrency": 3,
     "max_attempts": 2,
     "max_dataset_size": 3,
-    "epsilon": 0.1,
+    "epsilon": 0.15,
     "rate_limit": 3,
-    "rate_limit_retries": 2,
-    "api_timeout": 60,
+    "rate_limit_retries": 3,
+    "timeout_max_retries": 3,
+    "timeout_max_delay": 90,
+    "api_timeout": 120,
     "scorer_timeout": 30,
     "api_max_retries": 0,
     "stream": False,
-    "seed_priority_asr_weight": 0.7,
-    "seed_priority_category_weight": 0.3,
+    "seed_priority_asr_weight": 0.8,
+    "seed_priority_category_weight": 0.2,
 }
 
 
@@ -82,14 +85,17 @@ def parse_args() -> argparse.Namespace:
     )
 
     # ── 数据集 (全部预下载到本地, 不支持运行时远程拉取) ──
+    # --datasets 是可选覆盖: 用户显式指定时加载特定 benchmark.
+    # 默认数据集加载由 _manifest.yaml 的 default:true 统一管理 (--load-local-datasets).
     parser.add_argument(
         "--datasets",
         nargs="+",
-        default=["harmbench", "jbb_behaviors", "strong_reject"],
+        default=None,
         help=(
             "数据集名称列表 (从 data/seed_datasets/benchmarks/{name}.prompt 本地加载).\n"
             "需先运行 scripts/download_datasets.py 预下载.\n"
-            "默认: harmbench jbb_behaviors strong_reject"
+            "默认: None — 由 --load-local-datasets 从 _manifest.yaml 统一加载.\n"
+            "显式指定时仅加载指定的 benchmark (覆盖清单的 benchmark 部分)."
         ),
     )
     parser.add_argument(
@@ -217,11 +223,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--epsilon-decay",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "P2-1: 动态 epsilon 衰减 (运行初期高探索, 后期高利用).\n"
-            "  当启用时, epsilon 从初始值线性衰减到 epsilon_min=0.02.\n"
+            "  默认启用, epsilon 从初始值线性衰减到 epsilon_min=0.02.\n"
+            "  使用 --no-epsilon-decay 禁用.\n"
             "  学术依据: Sutton & Barto (RL 2018) epsilon-greedy 衰减策略"
         ),
     )
@@ -249,7 +256,7 @@ def parse_args() -> argparse.Namespace:
         "--epsilon",
         type=float,
         default=_load_attack_params()["epsilon"],
-        help="Epsilon-greedy 探索概率 (默认: 0.1, 10%% 探索 / 90%% 利用, config/attack_params.yaml)",
+        help="Epsilon-greedy 探索概率 (默认: 0.15, 15%% 探索 / 85%% 利用, config/attack_params.yaml)",
     )
     parser.add_argument(
         "--selector-scope",
@@ -645,15 +652,37 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         "--rate-limit-retries",
         type=int,
         default=_load_attack_params()["rate_limit_retries"],
-        help="限速重试最大次数 (默认: 2, 可通过 config/attack_params.yaml 覆盖)",
+        help="限速重试最大次数 (默认: 3, 标准错误 5xx/429 的重试, 可通过 config/attack_params.yaml 覆盖)",
+    )
+    parser.add_argument(
+        "--timeout-max-retries",
+        type=int,
+        default=_load_attack_params()["timeout_max_retries"],
+        help=(
+            "超时错误专用重试次数 (默认: 3, 独立于 --rate-limit-retries).\n"
+            "APITimeoutError/httpx.ReadTimeout 使用此重试预算,\n"
+            "因为超时通常比限速更需要韧性重试 (端点慢/网络波动).\n"
+            "可通过 config/attack_params.yaml 覆盖."
+        ),
+    )
+    parser.add_argument(
+        "--timeout-max-delay",
+        type=float,
+        default=_load_attack_params()["timeout_max_delay"],
+        help=(
+            "超时错误退避上限秒数 (默认: 90, 独立于标准退避上限).\n"
+            "超时重试使用更长的退避间隔, 避免连续冲击慢端点.\n"
+            "可通过 config/attack_params.yaml 覆盖."
+        ),
     )
     parser.add_argument(
         "--api-timeout",
         type=int,
         default=_load_attack_params()["api_timeout"],
         help=(
-            "API 调用超时秒数 (默认: 60, 通过 PyRIT 原生 httpx_client_kwargs 设置).\n"
+            "API 调用超时秒数 (默认: 120, 通过 PyRIT 原生 httpx_client_kwargs 设置).\n"
             "OpenAI SDK 默认 600s (10 分钟!), 设置更短超时可避免 DoS/慢响应卡住流水线.\n"
+            "120s 覆盖 ManyShotJailbreak 等长 prompt 攻击; 60s 适合简单 prompt_sending.\n"
             "可通过 config/attack_params.yaml 覆盖."
         ),
     )

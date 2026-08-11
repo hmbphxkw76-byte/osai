@@ -22,12 +22,17 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# 路径 4: 从 PyRIT 原生 error_message 提取策略类名
+# 匹配: "Strategy execution failed for objective_target in PromptSendingAttack:"
+_ERROR_MESSAGE_CLASS_NAME_PATTERN = re.compile(r"Strategy execution failed for \w+ in (\w+):")
 
 
 # ============================================================
@@ -129,6 +134,8 @@ class ProgressDashboard:
         或多轮攻击技术), 但在进度条上应算作 1 个完成。
 
         L5 P0-2 增强: 按技术分组 ASR 仍按 AttackResult 级别统计 (更细粒度)。
+        L5 Round 20 增强: 两遍遍历 — 第一遍构建 eval_hash→技术名映射,
+        第二遍用 Path 5 (attribution_data.parent_eval_hash 关联查询) 解析 unknown 结果。
 
         Args:
             attack_results: 从 CentralMemory 查询到的 AttackResult 列表
@@ -142,6 +149,11 @@ class ProgressDashboard:
         # 按唯一 objective 聚合: 每个 AtomicAttack 共享同一个 objective
         # 多个 AttackResult 可能属于同一个 AtomicAttack (多次尝试)
         objective_best_outcome: dict[str, str] = {}
+
+        # Path 5: eval_hash → technique 映射 (第一遍构建, 第二遍使用)
+        eval_hash_to_technique: dict[str, str] = {}
+        # 需要第二遍解析的 unknown 结果: (ar, outcome_str)
+        unknown_results: list[tuple[Any, str]] = []
 
         for ar in attack_results:
             outcome = getattr(ar, "outcome", None)
@@ -161,10 +173,28 @@ class ProgressDashboard:
 
             # L5 P0-2: 按技术分组统计 ASR (AttackResult 级别, 更细粒度)
             tech = self._extract_technique(ar)
-            if tech:
+            if tech and tech != "unknown":
                 self._asr_tech_total[tech] = self._asr_tech_total.get(tech, 0) + 1
                 if outcome_str == "SUCCESS":
                     self._asr_tech_success[tech] = self._asr_tech_success.get(tech, 0) + 1
+                # Path 5: 构建 eval_hash → technique 映射
+                aai = ar_dict.get("atomic_attack_identifier")
+                if aai is not None:
+                    eval_hash = getattr(aai, "eval_hash", None)
+                    if eval_hash and isinstance(eval_hash, str) and eval_hash not in eval_hash_to_technique:
+                        eval_hash_to_technique[eval_hash] = tech
+            else:
+                # 延迟到第二遍: 尝试通过 Path 5 (eval_hash 关联查询) 解析
+                unknown_results.append((ar, outcome_str))
+
+        # Path 5: 第二遍 — 用 eval_hash 关联查询解析 unknown 结果
+        if unknown_results and eval_hash_to_technique:
+            for ar, outcome_str in unknown_results:
+                tech = self._extract_technique(ar, eval_hash_map=eval_hash_to_technique)
+                if tech and tech != "unknown":
+                    self._asr_tech_total[tech] = self._asr_tech_total.get(tech, 0) + 1
+                    if outcome_str == "SUCCESS":
+                        self._asr_tech_success[tech] = self._asr_tech_success.get(tech, 0) + 1
 
         # completed/succeeded/failed/errored = 唯一 objective 级别 (与 total 同单位)
         for outcome_str in objective_best_outcome.values():
@@ -177,7 +207,7 @@ class ProgressDashboard:
         self.completed = self.succeeded + self.failed + self.errored
 
     @staticmethod
-    def _extract_technique(ar: Any) -> str:
+    def _extract_technique(ar: Any, *, eval_hash_map: dict[str, str] | None = None) -> str:
         """从 AttackResult 提取技术名 (用于 ASR 分组 + 终端显示).
 
         R-022 PyRIT 原生优先 (修正路径 — 使用 get_attack_strategy_identifier):
@@ -187,11 +217,17 @@ class ProgressDashboard:
              b. .params.get("attack_strategy") (策略参数回退)
           2. ar.atomic_attack_identifier — 外层标识符回退 (向下钻取 attack_technique → attack)
           3. ar.metadata.get("technique") — 元数据回退
-          4. "unknown" — 最终回退
+          4. error_message 正则提取策略类名 (API 超时/错误回退)
+          5. attribution_data.parent_eval_hash 关联查询 (eval_hash_map 回退)
+          6. "unknown" — 最终回退
 
         注意: ar.atomic_attack_identifier.unique_name 返回 "AtomicAttack::hash",
         这是复合标识符的哈希, 非技术名。正确路径是通过 get_attack_strategy_identifier()
         获取内层 AttackIdentifier 的 class_name, 再通过 technique_name_mapper 映射。
+
+        Args:
+            ar: AttackResult 实例
+            eval_hash_map: eval_hash → technique 映射 (可选, Path 5 关联查询用)
         """
         # 路径 1: PyRIT 原生 get_attack_strategy_identifier() → 内层 AttackIdentifier
         # Performance: 检查 type 级方法, 避免 MagicMock auto-attr 导致的方法调用开销
@@ -256,6 +292,37 @@ class ProgressDashboard:
                 val = metadata.get(key)
                 if val and isinstance(val, str):
                     return val
+
+        # 路径 4: PyRIT 原生 error_message 正则提取策略类名
+        # 适用场景: 攻击因 API 超时/限速失败, atomic_attack_identifier 为 NULL,
+        # 但 error_message 含 "Strategy execution failed for ... in {ClassName}:"
+        # R-022 合规: 仅读取 PyRIT 原生 error_message 字段, 不修改原生行为
+        error_message = ar_dict.get("error_message") or ""
+        if isinstance(error_message, str) and error_message:
+            m = _ERROR_MESSAGE_CLASS_NAME_PATTERN.search(error_message)
+            if m:
+                cname = m.group(1)
+                if cname and len(cname) > 2:
+                    from pipeline.analysis.technique_name_mapper import map_class_name_to_technique
+
+                    mapped = map_class_name_to_technique(cname)
+                    if mapped and mapped != "unknown":
+                        return mapped
+                    if cname != "AtomicAttack":
+                        return cname
+
+        # 路径 5: PyRIT 原生 attribution_data.parent_eval_hash 关联查询
+        # 适用场景: 攻击因 API 超时/错误失败, atomic_attack_identifier 为 None,
+        # 但 attribution_data.parent_eval_hash 可关联到同批次已知结果的技术名
+        # R-022 合规: 使用 PyRIT 原生 attribution_data + ComponentIdentifier.eval_hash
+        if eval_hash_map:
+            attribution_data = ar_dict.get("attribution_data")
+            if isinstance(attribution_data, dict):
+                parent_eval_hash = attribution_data.get("parent_eval_hash")
+                if parent_eval_hash and isinstance(parent_eval_hash, str):
+                    resolved = eval_hash_map.get(parent_eval_hash)
+                    if resolved and resolved != "unknown":
+                        return resolved
 
         return "unknown"
 
@@ -510,7 +577,9 @@ class ProgressPoller:
                         "FAIL": failed,
                         "ERR": errored,
                     }
-                    if tech_asr_str:
+                    # P3-O2: tech_name 为 "unknown" 时不注入 Tech 字段,
+                    # 避免进度条显示无意义的 Tech=unknown(0%)
+                    if tech_asr_str and tech_name != "unknown":
                         postfix_dict["Tech"] = tech_asr_str
                     instance.set_postfix(**postfix_dict, refresh=True)
                     break  # 只增强第一个匹配的实例
@@ -541,9 +610,11 @@ class ProgressPoller:
             # 取最近一条结果, 使用与 dashboard 相同的提取逻辑确保 key 一致
             # P3 修复: 跳过 SequentialAttack 信封结果 (tech="sequential"),
             # 反向遍历找到第一个子攻击结果 (含真实技术名)
+            # P3-O2 修复: 同时跳过 "unknown" (失败攻击的技术名提取 fallback),
+            # 继续向前查找有真实技术名的 AttackResult, 避免进度条显示 Tech=unknown(0%)
             for ar in reversed(results):
                 tech = ProgressDashboard._extract_technique(ar)
-                if tech and tech != "sequential":
+                if tech and tech not in ("sequential", "unknown"):
                     return tech
             return ""
         except Exception:
@@ -562,7 +633,6 @@ class ProgressPoller:
         try:
             total = self._dashboard.total
             succeeded = self._dashboard.succeeded
-            failed = self._dashboard.failed
             asr = (succeeded / completed * 100) if completed > 0 else 0
 
             # 从 ASR 追踪器获取技术级 ASR
@@ -599,12 +669,13 @@ class ProgressPoller:
 
             print()
             print(f"  ┌─ 实时 ASR 看板 ({completed}/{total} 完成) ──────────────────────┐")
-            print(f"  │ 总体: {asr:.1f}% ({succeeded}/{completed}) | 预测 {expected_low}-{expected_high}% | 趋势: {trend}")
+            print(f"  │ 总体: {asr:.1f}% ({succeeded}/{completed}) | 预测 "
+                  f"{expected_low}-{expected_high}% | 趋势: {trend}")
             if tech_asr_lines:
                 print("  │")
                 for line in tech_asr_lines:
                     print(f"  │{line}")
-            print(f"  └──────────────────────────────────────────────────────────┘")
+            print("  └──────────────────────────────────────────────────────────┘")
         except Exception as e:
             logger.debug(f"O-ASR-3 realtime dashboard failed (non-fatal): {e}")
 

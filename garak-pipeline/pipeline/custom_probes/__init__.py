@@ -25,6 +25,10 @@ import sys
 import types
 from datetime import datetime, timezone
 
+from pipeline.custom_probes.agent_injection import (
+    AGENT_INJECTION_PROBE_CLASSES,
+    AGENT_INJECTION_SPECS,
+)
 from pipeline.custom_probes.asi07_inter_agent import (
     ASI07_PROBE_CLASSES,
     ASI07_SPECS,
@@ -51,6 +55,7 @@ from pipeline.custom_probes.mcp_abuse import (
 )
 
 __all__ = [
+    "AGENT_INJECTION_SPECS",
     "ALL_CUSTOM_PROBE_CLASSES",
     "ALL_CUSTOM_SPECS",
     "ASI07_SPECS",
@@ -71,12 +76,14 @@ ALL_CUSTOM_PROBE_CLASSES: list[type] = (
     + ASI07_PROBE_CLASSES
     + ASI08_PROBE_CLASSES
     + MCP_ABUSE_PROBE_CLASSES
+    + AGENT_INJECTION_PROBE_CLASSES
 )
 
 
 ALL_CUSTOM_SPECS: list[dict] = (
     LLM03_SPECS + LLM07_SPECS + LLM08_SPECS
     + ASI07_SPECS + ASI08_SPECS + MCP_ABUSE_SPECS
+    + AGENT_INJECTION_SPECS
 )
 
 

@@ -517,3 +517,588 @@ class TestProgressPoller:
         captured = capsys.readouterr()
         # O2: 应该出现红队可读回调行 (✅ 或 ❌)
         assert "✅" in captured.out or "❌" in captured.out
+
+
+# ============================================================
+# P3-O2: _get_latest_technique_name 跳过 "unknown" 测试
+# ============================================================
+
+
+class TestGetLatestTechniqueNameSkipUnknown:
+    """P3-O2: _get_latest_technique_name() 应跳过 "unknown" 结果。"""
+
+    def test_skips_unknown_returns_real_technique(self) -> None:
+        """最新的结果为 "unknown" 时, 跳过并返回更早的真实技术名。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-001",
+        )
+
+        # 模拟 3 个 AttackResult, reversed 后遍历顺序: results[2], results[1], results[0]
+        # side_effect 按调用顺序消费迭代器
+        # 第一个 (最新): unknown → 跳过
+        # 第二个: sequential → 跳过
+        # 第三个: many_shot → 返回
+        mock_results = [MagicMock() for _ in range(3)]
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=mock_results)
+
+        tech_sequence = iter(["unknown", "sequential", "many_shot"])
+
+        with (
+            patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory),
+            patch.object(ProgressDashboard, "_extract_technique", side_effect=lambda ar: next(tech_sequence)),
+        ):
+            result = poller._get_latest_technique_name()
+
+        assert result == "many_shot"
+
+    def test_skips_sequential_and_unknown_returns_real(self) -> None:
+        """同时跳过 "sequential" 和 "unknown", 返回真实技术名。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-002",
+        )
+
+        mock_results = [MagicMock() for _ in range(4)]
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=mock_results)
+
+        # reversed 后遍历: sequential → skip, unknown → skip, many_shot → return
+        tech_sequence = iter(["sequential", "unknown", "many_shot", "tap"])
+
+        with (
+            patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory),
+            patch.object(ProgressDashboard, "_extract_technique", side_effect=lambda ar: next(tech_sequence)),
+        ):
+            result = poller._get_latest_technique_name()
+
+        assert result == "many_shot"
+
+    def test_all_unknown_returns_empty(self) -> None:
+        """所有结果都是 "unknown" 时返回空字符串。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-003",
+        )
+
+        mock_results = [MagicMock() for _ in range(3)]
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=mock_results)
+
+        with (
+            patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory),
+            patch.object(ProgressDashboard, "_extract_technique", return_value="unknown"),
+        ):
+            result = poller._get_latest_technique_name()
+
+        assert result == ""
+
+    def test_all_sequential_or_unknown_returns_empty(self) -> None:
+        """所有结果都是 "sequential" 或 "unknown" 时返回空字符串。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-004",
+        )
+
+        mock_results = [MagicMock() for _ in range(4)]
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=mock_results)
+
+        tech_sequence = iter(["sequential", "unknown", "unknown", "sequential"])
+
+        with (
+            patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory),
+            patch.object(ProgressDashboard, "_extract_technique", side_effect=lambda ar: next(tech_sequence)),
+        ):
+            result = poller._get_latest_technique_name()
+
+        assert result == ""
+
+    def test_empty_results_returns_empty(self) -> None:
+        """空结果列表返回空字符串。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-005",
+        )
+
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=[])
+
+        with patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory):
+            result = poller._get_latest_technique_name()
+
+        assert result == ""
+
+    def test_first_real_technique_returned(self) -> None:
+        """最新的结果即为真实技术名时直接返回。"""
+        dashboard = ProgressDashboard(total=100)
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-skip-unknown-006",
+        )
+
+        mock_results = [MagicMock(), MagicMock()]
+        mock_memory = MagicMock()
+        mock_memory.get_attack_results = MagicMock(return_value=mock_results)
+
+        # reversed 后第一个: many_shot → 直接返回 (不跳过)
+        tech_sequence = iter(["many_shot", "prompt_sending"])
+
+        with (
+            patch("pyrit.memory.CentralMemory.get_memory_instance", return_value=mock_memory),
+            patch.object(ProgressDashboard, "_extract_technique", side_effect=lambda ar: next(tech_sequence)),
+        ):
+            result = poller._get_latest_technique_name()
+
+        assert result == "many_shot"
+
+
+# ============================================================
+# P3-O2: _inject_postfix 不显示 unknown Tech 测试
+# ============================================================
+
+
+class TestInjectPostfixSkipUnknownTech:
+    """P3-O2: _inject_postfix() 当 tech_name 为 "unknown" 时不注入 Tech 字段。"""
+
+    def test_unknown_tech_not_injected(self) -> None:
+        """tech_name="unknown" 时, postfix 不包含 Tech 字段。"""
+        dashboard = ProgressDashboard(total=100)
+        dashboard._asr_tech_total = {"unknown": 10}
+        dashboard._asr_tech_success = {"unknown": 0}
+        dashboard.completed = 10
+        dashboard.succeeded = 0
+        dashboard.failed = 8
+        dashboard.errored = 2
+
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-inject-unknown-001",
+        )
+
+        # Mock tqdm instance
+        mock_instance = MagicMock()
+        mock_instance.desc = "Executing TextAdaptive"
+        mock_tqdm_cls = MagicMock()
+        mock_tqdm_cls._instances = {mock_instance}
+
+        with (
+            patch("tqdm.auto.tqdm", mock_tqdm_cls),
+            patch.object(poller, "_get_latest_technique_name", return_value="unknown"),
+        ):
+            poller._inject_postfix()
+
+        # 检查 set_postfix 调用参数
+        call_args = mock_instance.set_postfix.call_args
+        assert call_args is not None, "set_postfix should have been called"
+        postfix_dict = {k: v for k, v in call_args.kwargs.items() if k != "refresh"}
+        assert "Tech" not in postfix_dict, "Tech should not be in postfix when tech_name is 'unknown'"
+        assert "ASR" in postfix_dict
+        assert "OK" in postfix_dict
+
+    def test_real_tech_injected(self) -> None:
+        """tech_name 为真实技术名时, postfix 包含 Tech 字段。"""
+        dashboard = ProgressDashboard(total=100)
+        dashboard._asr_tech_total = {"many_shot": 10}
+        dashboard._asr_tech_success = {"many_shot": 5}
+        dashboard.completed = 10
+        dashboard.succeeded = 5
+        dashboard.failed = 3
+        dashboard.errored = 2
+
+        poller = ProgressPoller(
+            dashboard=dashboard,
+            scenario_result_id="test-inject-unknown-002",
+        )
+
+        mock_instance = MagicMock()
+        mock_instance.desc = "Executing TextAdaptive"
+        mock_tqdm_cls = MagicMock()
+        mock_tqdm_cls._instances = {mock_instance}
+
+        with (
+            patch("tqdm.auto.tqdm", mock_tqdm_cls),
+            patch.object(poller, "_get_latest_technique_name", return_value="many_shot"),
+        ):
+            poller._inject_postfix()
+
+        call_args = mock_instance.set_postfix.call_args
+        assert call_args is not None
+        postfix_dict = {k: v for k, v in call_args.kwargs.items() if k != "refresh"}
+        assert "Tech" in postfix_dict, "Tech should be in postfix for real technique name"
+        assert "many_shot" in postfix_dict["Tech"]
+        assert "50%" in postfix_dict["Tech"]
+
+
+# ============================================================
+# P3-O2 路径 4: _extract_technique 从 error_message 提取策略类名
+# ============================================================
+
+
+class TestExtractTechniqueFromErrorMessage:
+    """路径 4: _extract_technique() 从 error_message 正则提取策略类名。"""
+
+    def test_prompt_sending_from_error_message(self) -> None:
+        """error_message 含 PromptSendingAttack 类名时提取为 prompt_sending。"""
+        ar = MagicMock()
+        ar_dict = {
+            "error_message": (
+                "Strategy execution failed for objective_target in PromptSendingAttack: "
+                "Error sending prompt with conversation ID: test-123"
+            ),
+        }
+        # MagicMock 的 vars() 返回 __dict__, 需要手动设置
+        ar.__dict__.update(ar_dict)
+        # 确保路径 1-3 不命中
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "prompt_sending"
+
+    def test_many_shot_from_error_message(self) -> None:
+        """error_message 含 ManyShotJailbreakAttack 类名时提取为 many_shot。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "error_message": "Strategy execution failed for objective_target in ManyShotJailbreakAttack: ReadTimeout",
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "many_shot"
+
+    def test_crescendo_from_error_message(self) -> None:
+        """error_message 含 CrescendoAttack 类名时提取为 crescendo。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "error_message": "Strategy execution failed for objective_target in CrescendoAttack: APITimeoutError",
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "crescendo"
+
+    def test_low_level_api_error_returns_unknown(self) -> None:
+        """error_message 仅含底层 API 错误 (无策略类名) 时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "error_message": "Error sending prompt with conversation ID: test-456",
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "unknown"
+
+    def test_empty_error_message_returns_unknown(self) -> None:
+        """error_message 为空时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({"error_message": ""})
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "unknown"
+
+    def test_none_error_message_returns_unknown(self) -> None:
+        """error_message 为 None 时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({"error_message": None})
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "unknown"
+
+    def test_path_1_takes_precedence_over_path_4(self) -> None:
+        """路径 4 在路径 1 不可用时正确 fallback (MagicMock 类型检查跳过路径 1)."""
+        mock_attack_id = MagicMock()
+        mock_attack_id.class_name = "ManyShotJailbreakAttack"
+
+        ar = MagicMock()
+        ar.get_attack_strategy_identifier = MagicMock(return_value=mock_attack_id)
+        ar.__dict__.update({
+            "error_message": "Strategy execution failed for objective_target in PromptSendingAttack: timeout",
+        })
+
+        result = ProgressDashboard._extract_technique(ar)
+        # MagicMock 路径 1 被跳过 (类型检查), 路径 4 fallback 提取 PromptSendingAttack
+        assert result == "prompt_sending"
+
+    def test_unknown_class_name_preserved(self) -> None:
+        """error_message 含未映射的类名时保留原始 class_name。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "error_message": "Strategy execution failed for objective_target in SomeNewAttack: error",
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "SomeNewAttack"
+
+
+# ============================================================
+# Round 20 路径 5: _extract_technique eval_hash 关联查询
+# ============================================================
+
+
+class TestExtractTechniqueFromEvalHash:
+    """路径 5: _extract_technique() 通过 attribution_data.parent_eval_hash 关联查询技术名。
+
+    适用场景: 攻击因 API 超时/错误失败, atomic_attack_identifier 为 None,
+    但 attribution_data.parent_eval_hash 可关联到同批次已知结果的技术名。
+    """
+
+    def test_path_5_resolves_unknown_via_parent_eval_hash(self) -> None:
+        """parent_eval_hash 在映射中时返回对应技术名。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": "Error sending prompt with conversation ID: test-123",
+            "attribution_data": {
+                "parent_collection": "baseline",
+                "parent_eval_hash": "abc123def456",
+            },
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        eval_hash_map = {"abc123def456": "prompt_sending"}
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map=eval_hash_map)
+        assert result == "prompt_sending"
+
+    def test_path_5_resolves_many_shot(self) -> None:
+        """parent_eval_hash 映射到 many_shot 技术时正确返回。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": {
+                "parent_collection": "enhanced",
+                "parent_eval_hash": "hash_many_shot_789",
+            },
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        eval_hash_map = {"hash_many_shot_789": "many_shot"}
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map=eval_hash_map)
+        assert result == "many_shot"
+
+    def test_path_5_not_in_map_returns_unknown(self) -> None:
+        """parent_eval_hash 不在映射中时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": "Error sending prompt with conversation ID: test-456",
+            "attribution_data": {
+                "parent_collection": "baseline",
+                "parent_eval_hash": "unknown_hash_999",
+            },
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        eval_hash_map = {"abc123def456": "prompt_sending"}
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map=eval_hash_map)
+        assert result == "unknown"
+
+    def test_path_5_no_attribution_data_returns_unknown(self) -> None:
+        """attribution_data 为 None 时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": None,
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        eval_hash_map = {"abc123": "prompt_sending"}
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map=eval_hash_map)
+        assert result == "unknown"
+
+    def test_path_5_no_eval_hash_map_returns_unknown(self) -> None:
+        """eval_hash_map 为 None 时跳过路径 5, 返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": {
+                "parent_eval_hash": "abc123",
+            },
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar)
+        assert result == "unknown"
+
+    def test_path_5_empty_eval_hash_map_returns_unknown(self) -> None:
+        """eval_hash_map 为空字典时跳过路径 5。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": {"parent_eval_hash": "abc123"},
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map={})
+        assert result == "unknown"
+
+    def test_path_5_attribution_data_not_dict_returns_unknown(self) -> None:
+        """attribution_data 不是 dict 类型时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": "not_a_dict",
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map={"abc": "test"})
+        assert result == "unknown"
+
+    def test_path_5_missing_parent_eval_hash_key_returns_unknown(self) -> None:
+        """attribution_data 不含 parent_eval_hash 键时返回 unknown。"""
+        ar = MagicMock()
+        ar.__dict__.update({
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": None,
+            "attribution_data": {"parent_collection": "baseline"},
+        })
+        ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map={"abc": "test"})
+        assert result == "unknown"
+
+    def test_path_1_takes_precedence_over_path_5(self) -> None:
+        """路径 1 优先于路径 5: 有 atomic_attack_identifier 时不走 Path 5。"""
+        mock_attack_id = MagicMock()
+        mock_attack_id.class_name = "ManyShotJailbreakAttack"
+        mock_attack_id.params = {}
+
+        ar = MagicMock()
+        ar.get_attack_strategy_identifier = MagicMock(return_value=mock_attack_id)
+        ar.__dict__.update({
+            "attribution_data": {"parent_eval_hash": "should_not_be_used"},
+        })
+
+        eval_hash_map = {"should_not_be_used": "prompt_sending"}
+        # MagicMock 类型检查跳过路径 1, 但如果 atomic_attack_identifier 有效则走路径 2
+        # 这里测试: 路径 1 不可用时, 如果有 atomic_attack_identifier 则不走路径 5
+        result = ProgressDashboard._extract_technique(ar, eval_hash_map=eval_hash_map)
+        # MagicMock.get_attack_strategy_identifier 返回 MagicMock, 类型检查跳过路径 1
+        # ar_dict["atomic_attack_identifier"] 未设置 → None, 路径 2 跳过
+        # 路径 3: metadata 未设置 → 跳过
+        # 路径 4: error_message 未设置 → 跳过
+        # 路径 5: attribution_data.parent_eval_hash = "should_not_be_used" → 映射到 "prompt_sending"
+        assert result == "prompt_sending"
+
+
+# ============================================================
+# Round 20: update_from_attack_results 两遍遍历 + Path 5 集成
+# ============================================================
+
+
+class TestUpdateFromAttackResultsPath5:
+    """update_from_attack_results 两遍遍历: 第一遍构建映射, 第二遍 Path 5 解析。"""
+
+    def test_unknown_results_resolved_via_two_pass(self) -> None:
+        """unknown 结果在第二遍通过 eval_hash 关联查询被正确解析。"""
+        from pyrit.models import AttackOutcome
+
+        # 已知结果: 有 atomic_attack_identifier.eval_hash, 技术名 = prompt_sending
+        mock_aai = MagicMock()
+        mock_aai.eval_hash = "hash_prompt_sending_001"
+        mock_aai.class_name = "AtomicAttack"
+        # 让路径 2 不命中 (children 为空 dict)
+        mock_aai.children = {}
+
+        known_ar = MagicMock()
+        known_ar.__dict__.update({
+            "objective": "test objective 1",
+            "outcome": AttackOutcome.SUCCESS,
+            "atomic_attack_identifier": mock_aai,
+            "metadata": {"technique": "prompt_sending"},  # Path 3
+            "error_message": None,
+            "attribution_data": None,
+        })
+        known_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        # Unknown 结果: atomic_attack_identifier = None, 但有 attribution_data
+        unknown_ar = MagicMock()
+        unknown_ar.__dict__.update({
+            "objective": "test objective 2",
+            "outcome": AttackOutcome.ERROR,
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": "Error sending prompt with conversation ID: test-789",
+            "attribution_data": {
+                "parent_collection": "baseline",
+                "parent_eval_hash": "hash_prompt_sending_001",
+            },
+        })
+        unknown_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        dashboard = ProgressDashboard(total=2)
+        dashboard.update_from_attack_results([known_ar, unknown_ar])
+
+        # prompt_sending 应包含两个结果 (已知 + unknown 解析)
+        assert dashboard._asr_tech_total.get("prompt_sending", 0) == 2
+        assert dashboard._asr_tech_success.get("prompt_sending", 0) == 1
+
+    def test_no_unknown_results_skips_second_pass(self) -> None:
+        """全部结果已知时跳过第二遍 (unknown_results 为空)。"""
+        from pyrit.models import AttackOutcome
+
+        mock_aai = MagicMock()
+        mock_aai.eval_hash = "hash_001"
+        mock_aai.class_name = "AtomicAttack"
+        mock_aai.children = {}
+
+        known_ar = MagicMock()
+        known_ar.__dict__.update({
+            "objective": "test objective",
+            "outcome": AttackOutcome.SUCCESS,
+            "atomic_attack_identifier": mock_aai,
+            "metadata": {"technique": "prompt_sending"},  # Path 3
+            "error_message": None,
+            "attribution_data": None,
+        })
+        known_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        dashboard = ProgressDashboard(total=1)
+        dashboard.update_from_attack_results([known_ar])
+
+        assert dashboard._asr_tech_total.get("prompt_sending", 0) == 1
+        assert dashboard.completed == 1
+
+    def test_unknown_with_no_mapping_stays_unknown(self) -> None:
+        """没有可用的 eval_hash 映射时, unknown 结果不被计数。"""
+        from pyrit.models import AttackOutcome
+
+        # 仅有 unknown 结果, 无已知结果构建映射
+        unknown_ar = MagicMock()
+        unknown_ar.__dict__.update({
+            "objective": "test objective",
+            "outcome": AttackOutcome.ERROR,
+            "atomic_attack_identifier": None,
+            "metadata": {},
+            "error_message": "Error sending prompt",
+            "attribution_data": {"parent_eval_hash": "no_match_hash"},
+        })
+        unknown_ar.get_attack_strategy_identifier = MagicMock(return_value=None)
+
+        dashboard = ProgressDashboard(total=1)
+        dashboard.update_from_attack_results([unknown_ar])
+
+        # 没有技术被计数 (映射为空, 第二遍不执行)
+        assert len(dashboard._asr_tech_total) == 0
+        assert dashboard.errored == 1

@@ -38,7 +38,7 @@ class TestStageScenario:
             patch("pipeline.stages.stage_scenario.CompoundDatasetAttackConfiguration"),
             patch("pipeline.stages.stage_scenario.FailureTypeRoutingSelector"),
             patch("pipeline.stages.stage_scenario.SelectorScope"),
-            patch("pipeline.stages.stage_scenario._get_objective_scorer", return_value=None),
+            patch("pipeline.stages.stage_scenario._get_objective_scorer", return_value=(None, "default")),
         ):
             mock_scenario = MagicMock()
             mock_scenario.set_params_from_args = MagicMock(side_effect=RuntimeError("Invalid params"))
@@ -64,7 +64,7 @@ class TestStageScenario:
             patch("pipeline.stages.stage_scenario.CompoundDatasetAttackConfiguration"),
             patch("pipeline.stages.stage_scenario.FailureTypeRoutingSelector"),
             patch("pipeline.stages.stage_scenario.SelectorScope"),
-            patch("pipeline.stages.stage_scenario._get_objective_scorer", return_value=None),
+            patch("pipeline.stages.stage_scenario._get_objective_scorer", return_value=(None, "default")),
             patch("pipeline.stages.stage_scenario.AttackTechniqueRegistry"),
         ):
             mock_scenario = MagicMock()
@@ -93,7 +93,7 @@ class TestGetObjectiveScorer:
             from pipeline.stages.stage_scenario import _get_objective_scorer
 
             result = _get_objective_scorer()
-            assert result is mock_scorer
+            assert result[0] is mock_scorer
 
     def test_final_fallback_none(self) -> None:
         """全部 fallback 失败时返回 None。."""
@@ -106,7 +106,7 @@ class TestGetObjectiveScorer:
             from pipeline.stages.stage_scenario import _get_objective_scorer
 
             result = _get_objective_scorer()
-            assert result is None
+            assert result[0] is None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -248,3 +248,200 @@ class TestGetConverterTarget:
 
         mock_registry.get_registry_singleton.return_value.instances = instances
         return mock_registry
+
+
+# ============================================================
+# v25.0 P0-P2 攻击载荷决策优化测试
+# ============================================================
+
+
+class TestBuildAdaptiveDatasetConfig:
+    """P2-⑤: ASR 加权自适应预算分配测试."""
+
+    def test_no_asr_data_fallback_to_uniform(self):
+        """无 ASR 数据时回退到原生均匀 per_dataset."""
+        from pipeline.stages.stage_scenario import _build_adaptive_dataset_config
+
+        config = _build_adaptive_dataset_config(
+            sorted_datasets=["owasp/asi01", "owasp/asi02"],
+            max_dataset_size=5,
+            dataset_level_asr=None,
+        )
+        assert config is not None
+        assert len(config._configurations) == 2
+
+    def test_high_asr_gets_more_budget(self):
+        """高 ASR 数据集获得更多种子预算."""
+        from pipeline.stages.stage_scenario import _build_adaptive_dataset_config
+
+        dataset_asr = {
+            "owasp/asi01": {"asr": 0.50, "total": 10},
+            "owasp/asi02": {"asr": 0.05, "total": 10},
+        }
+        config = _build_adaptive_dataset_config(
+            sorted_datasets=["owasp/asi01", "owasp/asi02"],
+            max_dataset_size=5,
+            dataset_level_asr=dataset_asr,
+        )
+        budgets = [c.max_dataset_size for c in config._configurations]
+        assert budgets[0] > budgets[1]  # 高 ASR > 低 ASR
+
+    def test_low_asr_minimum_budget(self):
+        """低 ASR 数据集预算不低于 2."""
+        from pipeline.stages.stage_scenario import _build_adaptive_dataset_config
+
+        dataset_asr = {
+            "owasp/asi01": {"asr": 0.01, "total": 10},
+        }
+        config = _build_adaptive_dataset_config(
+            sorted_datasets=["owasp/asi01"],
+            max_dataset_size=3,
+            dataset_level_asr=dataset_asr,
+        )
+        assert config._configurations[0].max_dataset_size >= 2
+
+    def test_medium_asr_default_budget(self):
+        """中 ASR 数据集保持默认预算."""
+        from pipeline.stages.stage_scenario import _build_adaptive_dataset_config
+
+        dataset_asr = {
+            "owasp/asi01": {"asr": 0.15, "total": 10},
+        }
+        config = _build_adaptive_dataset_config(
+            sorted_datasets=["owasp/asi01"],
+            max_dataset_size=5,
+            dataset_level_asr=dataset_asr,
+        )
+        assert config._configurations[0].max_dataset_size == 5
+
+
+class TestExtractHarmCategoryFromItem:
+    """P2-⑥: harm category 提取测试."""
+
+    def test_extract_from_metadata(self):
+        """从 item.metadata 提取 harm_category."""
+        from pipeline.stages.stage_scenario import _extract_harm_category_from_item
+
+        item = MagicMock()
+        item.metadata = {"harm_category": "cybercrime"}
+        assert _extract_harm_category_from_item(item) == "cybercrime"
+
+    def test_extract_from_category_key(self):
+        """从 item.metadata 的 category 键提取."""
+        from pipeline.stages.stage_scenario import _extract_harm_category_from_item
+
+        item = MagicMock()
+        item.metadata = {"category": "harassment"}
+        assert _extract_harm_category_from_item(item) == "harassment"
+
+    def test_extract_empty_when_no_metadata(self):
+        """无 metadata 时返回空字符串."""
+        from pipeline.stages.stage_scenario import _extract_harm_category_from_item
+
+        item = MagicMock()
+        item.metadata = None
+        assert _extract_harm_category_from_item(item) == ""
+
+    def test_extract_from_seed_metadata(self):
+        """从 seeds[0].metadata 提取 harm_category."""
+        from pipeline.stages.stage_scenario import _extract_harm_category_from_item
+
+        item = MagicMock()
+        item.metadata = {}
+        seed = MagicMock()
+        seed.metadata = {"harm_category": "deception"}
+        item.seeds = [seed]
+        assert _extract_harm_category_from_item(item) == "deception"
+
+
+class TestColdStartConverterChains:
+    """P2-⑦: 冷启动 Converter 链预生成测试."""
+
+    def test_weak_tier_skipped(self):
+        """小模型跳过冷启动 Converter 预生成."""
+        from pipeline.stages.stage_scenario import _build_cold_start_converter_chains
+
+        result = _build_cold_start_converter_chains(
+            technique_names=["prompt_sending"],
+            model_tier="weak",
+        )
+        assert result == {}
+
+    def test_unknown_technique_gets_default_chain(self):
+        """未知技术获得默认说服策略链."""
+        from pipeline.stages.stage_scenario import _build_cold_start_converter_chains
+
+        with patch("pipeline.converters.chains.build_converters_from_chain_names") as mock:
+            mock.return_value = [MagicMock()]
+            result = _build_cold_start_converter_chains(
+                technique_names=["unknown_technique"],
+                model_tier="strong",
+            )
+            assert "unknown_technique" in result
+
+    def test_known_technique_gets_mapped_chain(self):
+        """已知技术获得映射的 Converter 链."""
+        from pipeline.stages.stage_scenario import _build_cold_start_converter_chains
+
+        with patch("pipeline.converters.chains.build_converters_from_chain_names") as mock:
+            mock.return_value = [MagicMock()]
+            result = _build_cold_start_converter_chains(
+                technique_names=["crescendo"],
+                model_tier="strong",
+            )
+            assert "crescendo" in result
+            # 验证调用了 persuasion_authority 链
+            mock.assert_called_with(["persuasion_authority"])
+
+    def test_build_failure_handled_gracefully(self):
+        """Converter 构建失败时优雅降级."""
+        from pipeline.stages.stage_scenario import _build_cold_start_converter_chains
+
+        with patch("pipeline.converters.chains.build_converters_from_chain_names") as mock:
+            mock.side_effect = Exception("build failed")
+            result = _build_cold_start_converter_chains(
+                technique_names=["crescendo"],
+                model_tier="strong",
+            )
+            assert result == {}
+
+
+class TestDatasetLevelAsrAutoCollect:
+    """P0-②: dataset_level ASR 自动收集测试."""
+
+    def test_auto_collect_when_file_missing(self):
+        """当 dataset_level ASR 文件不存在时, 自动从 CentralMemory 收集."""
+        from pipeline.context import PipelineContext
+        from pipeline.stages.stage_init import _apply_dataset_level_asr_prioritization
+
+        ctx = PipelineContext()
+        ctx.args = MagicMock()
+        ctx.args.model = "test-model"
+        ctx.args.datasets = ["owasp/asi01", "owasp/asi02"]
+
+        with patch("pipeline.asr.optimizer.load_dataset_level_asr", return_value=None), \
+             patch("pipeline.asr.optimizer.collect_dataset_level_asr_from_memory") as mock_collect:
+            mock_collect.return_value = {
+                "owasp/asi01": {"asr": 0.30, "total": 5},
+                "owasp/asi02": {"asr": 0.10, "total": 5},
+            }
+            _apply_dataset_level_asr_prioritization(ctx)
+            assert ctx.metadata.get("dataset_level_asr") is not None
+            mock_collect.assert_called_once()
+
+    def test_skip_auto_collect_when_file_exists(self):
+        """当 dataset_level ASR 文件存在时, 不触发自动收集."""
+        from pipeline.context import PipelineContext
+        from pipeline.stages.stage_init import _apply_dataset_level_asr_prioritization
+
+        ctx = PipelineContext()
+        ctx.args = MagicMock()
+        ctx.args.model = "test-model"
+        ctx.args.datasets = ["owasp/asi01"]
+
+        existing_data = {"owasp/asi01": {"asr": 0.50, "total": 10}}
+        with patch("pipeline.asr.optimizer.load_dataset_level_asr", return_value=existing_data), \
+             patch("pipeline.asr.optimizer.collect_dataset_level_asr_from_memory") as mock_collect:
+            _apply_dataset_level_asr_prioritization(ctx)
+            assert ctx.metadata.get("dataset_level_asr") == existing_data
+            mock_collect.assert_not_called()

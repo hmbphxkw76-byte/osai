@@ -121,8 +121,8 @@ def main() -> None:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["1", "2", "3", "4", "5", "all", "1-3", "1-5", "4-5"],
-        help="执行阶段: 1/2/3/4/5/all/1-3/4-5 [default: all]",
+        choices=["1", "2", "3", "4", "5", "all", "1-2", "1-3", "1-5", "4-5"],
+        help="执行阶段: 1/2/3/4/5/all/1-2/1-3/4-5 [default: all]",
     )
     parser.add_argument(
         "--run-id",
@@ -206,6 +206,7 @@ def main() -> None:
     # ---- API 服务模式 ----
     if args.command == "api":
         import uvicorn
+
         from pipeline.api import app
         from pipeline.env import get_env as _get_env
         if app is None:
@@ -242,39 +243,109 @@ def main() -> None:
         web_target_url = target.get("target_url") or get_env("WEB_TARGET_URL", "")
         target["target_url"] = web_target_url
 
+    # ---- Judge 配置从 .env 回填 ----
+    judge_cfg = config.get("judge", {})
+    if not judge_cfg.get("endpoint"):
+        judge_cfg["endpoint"] = get_env("JUDGE_ENDPOINT", "")
+    if not judge_cfg.get("model") or judge_cfg.get("model") == "gpt-4o-mini":
+        judge_cfg["model"] = get_env("JUDGE_MODEL", "gpt-4o-mini")
+    judge_api_key = get_env("JUDGE_API_KEY", "")
+    if judge_api_key:
+        judge_cfg["api_key"] = judge_api_key
+    # Judge endpoint 配置了才启用
+    if judge_cfg.get("endpoint"):
+        judge_cfg["enabled"] = True
+    config["judge"] = judge_cfg
+
+    # ---- atkgen 配置从 .env 回填 ----
+    atkgen_cfg = config.get("atkgen", {})
+    atkgen_enabled_env = get_env("ATKGEN_ENABLED", "")
+    if atkgen_enabled_env:
+        atkgen_cfg["enabled"] = atkgen_enabled_env.lower() in ("true", "1", "yes")
+    atkgen_model_env = get_env("ATKGEN_MODEL_NAME", "")
+    if atkgen_model_env:
+        atkgen_cfg["red_team_model_name"] = atkgen_model_env
+    atkgen_mut_env = get_env("ATKGEN_NUM_MUTATIONS", "")
+    if atkgen_mut_env:
+        try:
+            atkgen_cfg["num_mutations"] = int(atkgen_mut_env)
+        except ValueError:
+            pass
+    config["atkgen"] = atkgen_cfg
+
     # ---- CLI --profile 覆盖 ----
     if args.profile:
         config.setdefault("execute", {})["scan_profile"] = args.profile
 
-    # ---- Web 认证引导（默认模式）----
+    # ---- Web 认证引导 + 自动适配（默认模式）----
     if not args.openai:
         web_target_url = target.get("target_url", "")
         if not web_target_url:
             print("错误: Web 模式下需要 WEB_TARGET_URL（在 .env 中设置）")
             sys.exit(1)
 
-        from pipeline.auth.bootstrap import AuthBootstrap
+        # ── Step 1: Playwright 侦察（打开页面 + 发现端点 + 模型名） ──
+        discovered_endpoint = ""
+        discovered_model = ""
+        try:
+            from pipeline.auth.bootstrap import AuthBootstrap
 
-        auth_cfg = (config.get("target", {}).get("auth") or {})
-        bootstrap = AuthBootstrap(
-            web_target_url,
-            cfg={
-                "username_env": auth_cfg.get("username_env", "TARGET_USERNAME"),
-                "password_env": auth_cfg.get("password_env", "TARGET_PASSWORD"),
-                "selectors": auth_cfg.get("selectors"),
-            },
-            sessions_dir=str(Path("sessions")),
+            auth_cfg = (config.get("target", {}).get("auth") or {})
+            bootstrap = AuthBootstrap(
+                web_target_url,
+                cfg={
+                    "username_env": auth_cfg.get("username_env", "TARGET_USERNAME"),
+                    "password_env": auth_cfg.get("password_env", "TARGET_PASSWORD"),
+                    "selectors": auth_cfg.get("selectors"),
+                },
+                sessions_dir=str(Path("sessions")),
+            )
+            print(f"启动 Playwright 侦察: {web_target_url}")
+            print("  用户名/密码自动填充（.env）；OTP/验证码/滑窗请人工配合")
+            profile = bootstrap.run()
+            discovered_endpoint = profile.endpoint
+            discovered_model = profile.model
+            print(f"侦察完成 (认证类型={profile.auth_type})")
+            print(f"  发现端点: {discovered_endpoint}")
+            print(f"  发现模型: {discovered_model}")
+            if profile.has_api_key:
+                print(f"  凭据嗅探: {profile.key_source} (长度={len(profile.api_key)})")
+        except Exception as exc:
+            print(f"⚠️  Playwright 侦察失败: {exc}")
+            print("   回退到 HTTP 侦察模式（无浏览器）")
+
+        # ── Step 2: 自动适配（检测 OpenAI 兼容性 → 不兼容则启动适配器） ──
+        from pipeline.aivp_adapter import auto_adapt_for_web_target
+
+        # 如果 Playwright 未发现端点，用 target_url 推导
+        if not discovered_endpoint:
+            from urllib.parse import urlparse as _up
+            _p = _up(web_target_url)
+            discovered_endpoint = f"{_p.scheme}://{_p.netloc}/api"
+            discovered_model = "unknown-model"
+            print(f"  回退端点: {discovered_endpoint}")
+
+        adapt_result = auto_adapt_for_web_target(
+            discovered_endpoint=discovered_endpoint,
+            discovered_model=discovered_model,
+            target_url=web_target_url,
         )
-        print(f"启动 Playwright 认证引导: {web_target_url}")
-        print("  用户名/密码自动填充（.env）；OTP/验证码/滑窗请人工配合")
-        profile = bootstrap.run()
-        target = profile.to_target_dict()
+
+        if adapt_result["adapted"]:
+            print(f"  ✅ 自动适配: {adapt_result['adapter_url']}")
+            print(f"     模型名(自动发现): {adapt_result['model']}")
+        else:
+            print("  ✅ 端点 OpenAI 兼容，无需适配")
+
+        # 构建最终 target（用适配后的端点 + 自动发现的模型名）
+        target = {
+            "kind": "openai",
+            "endpoint": adapt_result["endpoint"],
+            "model": adapt_result["model"],
+            "api_key": "none",
+            "auth": {"type": "static"},
+        }
         config["target"] = target
-        print(f"认证完成 (类型={profile.auth_type})")
-        print(f"  endpoint: {profile.endpoint}")
-        print(f"  model:    {profile.model}")
-        if profile.has_api_key:
-            print(f"  凭据嗅探: {profile.key_source} (长度={len(profile.api_key)})，后续直连 API")
 
     # ---- 清理 __pycache__（运行前） ----
     cleaned = clean_pycache(project_root)

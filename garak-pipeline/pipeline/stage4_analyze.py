@@ -1090,6 +1090,14 @@ def analyze(
         artifacts_dir, run_id, result.get("target_model"),
     )
 
+    # Gap #8: 分阶段执行趋势数据（从 Stage3 phase_trend 透传）
+    # 如果 Stage3 是 phased 模式，将阶段趋势数据注入分析结果
+    # 供 Stage5 HTML 报告展示 Phase 0→1→2→3→4 的 ASR/命中/token 变化曲线
+    result["phased_trend"] = (
+        result.get("phased_trend")
+        or {"phase_count": 0, "trend_points": [], "asr_trend_direction": "insufficient"}
+    )
+
     out_dir = Path(artifacts_dir) / "04_analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"analysis_{run_id}.json"
