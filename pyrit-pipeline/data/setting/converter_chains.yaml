@@ -182,21 +182,14 @@ chains:
 base_techniques_for_variants:
   prompt_sending:
   - stealth_evasion
-  - multi_encoding_v2
   - encoding_bypass
-  - unicode_attack
-  - random_case
-  - token_smuggling_chain
-  - persuasion_authority
-  - decomposition_chain
   crescendo:
   - encoding_bypass
   - multi_encoding_v2
   - stealth_evasion
   red_teaming:
-  - persuasion_authority
-  - decomposition_chain
   - stealth_evasion
+  - persuasion_authority
   tap:
   - stealth_evasion
   - encoding_bypass

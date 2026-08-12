@@ -986,6 +986,7 @@ class PipelineRunner:
         pdf_path = report_paths.get("pdf", "")
         sarif_path = report_paths.get("sarif", "")
         conv_path = report_paths.get("conversations", "")
+        native_path = report_paths.get("pyrit_native", "")
         # Phase 3: IOA 检测规则路径
         ioa_path = report_paths.get("ioa_rules", "")
 
@@ -999,6 +1000,8 @@ class PipelineRunner:
             output_paths.append(sarif_path)
         if conv_path:
             output_paths.append(conv_path)
+        if native_path:
+            output_paths.append(native_path)
         if ioa_path:
             output_paths.append(ioa_path)
 
@@ -1033,6 +1036,7 @@ class PipelineRunner:
             "pdf_path": pdf_path,
             "sarif_path": sarif_path,
             "conversations_path": conv_path,
+            "pyrit_native_path": native_path,
         }})
         # P3-4: 通知/告警集成（Webhook）
         try:

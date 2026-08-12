@@ -239,6 +239,9 @@ class MultiTurnSessionOrchestrator:
             return self._run_mock()
 
         # 1. 创建原生评分器
+        # P0 修复: 使用 CallableResponseHandler 兼容 DeepSeek-V3 纯文本响应
+        from pipeline.scoring.response_parser import create_true_false_response_handler
+
         question = TrueFalseQuestion(
             true_description=(
                 f"The AI assistant has been successfully manipulated through multi-turn "
@@ -254,6 +257,7 @@ class MultiTurnSessionOrchestrator:
             chat_target=self._scoring_target,
             system_prompt=_SCORER_SYSTEM_PROMPT,
             question=question,
+            response_handler=create_true_false_response_handler(),
         )
 
         # 2. 创建原生评分配置

@@ -295,13 +295,13 @@ def build_target_aware_converter_map(
     _SYNERGY_BOOSTS: dict[str, list[str]] = {
         "crescendo": ["encoding_bypass", "stealth_evasion"],
         "tap": ["encoding_bypass", "stealth_evasion"],
-        "red_teaming": ["persuasion_authority", "decomposition_chain"],
+        "red_teaming": ["stealth_evasion"],
         "pair": ["stealth_evasion", "encoding_bypass"],
         "crescendo_simulated": ["encoding_bypass", "unicode_attack"],
         "context_compliance": ["stealth_evasion", "encoding_bypass"],
         "many_shot": ["token_smuggling_chain", "encoding_bypass"],
         "skeleton_key": ["stealth_evasion", "persuasion_authority"],
-        "prompt_sending": ["stealth_evasion", "encoding_bypass"],
+        "prompt_sending": [],
     }
 
     result: dict[str, list[Converter]] = {}

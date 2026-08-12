@@ -141,6 +141,24 @@ def render_final_cards(analysis: dict, all_owasp_ids: list[str] | None = None) -
     )
 
 
+def _clean_meta(meta: dict) -> dict:
+    """过滤 None 值，确保 score_metadata 符合 PyRIT 约束 dict[str, str|int|float]"""
+    return {k: v for k, v in meta.items() if v is not None}
+
+
+def _scorer_identifier(role: str, run_id: str) -> dict:
+    """构造 PyRIT ComponentIdentifier 格式的 scorer_class_identifier
+
+    PyRIT 0.14+/1.0+ 要求 scorer_class_identifier 为 ComponentIdentifier dict，
+    必填 class_name + class_module，而非自由格式 dict。
+    """
+    return {
+        "class_name": f"GarakPipeline{role}Scorer",
+        "class_module": "garak_pipeline.stage5_report",
+        "params": {"run_id": run_id},
+    }
+
+
 def _asr_to_score_type(asr: float) -> str:
     """ASR 百分比 → PyRIT score_type 语义映射
 
@@ -208,8 +226,9 @@ def export_pyrit_air(
         for label, v in buckets.items():
             owasp_id = label.split("_")[0].lower()  # LLM01 / ASI06
             asr = v.get("worst_asr", 0.0)
-            # score_metadata 仅允许标量值（PyRIT 约束），复杂结构不入此
-            meta = {
+            # score_metadata 仅允许标量值（PyRIT 约束 dict[str, str|int|float]），
+            # None 值必须过滤（PyRIT 0.14+/1.0+ 会拒绝 None）
+            meta = _clean_meta({
                 "framework_label": framework_label,
                 "owasp_label": label,
                 "defcon": v.get("defcon"),
@@ -217,7 +236,7 @@ def export_pyrit_air(
                 "evaluated": v.get("evaluated", 0),
                 "null_rate": v.get("null_rate", 0.0),
                 "effective_coverage": v.get("effective_coverage", 0.0),
-            }
+            })
             scores.append({
                 "score_value": _asr_to_score_value(asr),
                 "score_value_description": f"{framework_label} {label} 最差攻击成功率 {asr}%",
@@ -228,10 +247,7 @@ def export_pyrit_air(
                     f"最差 ASR {asr}%，DEFCON {v.get('defcon', '-')}"
                 ),
                 "score_metadata": meta,
-                "scorer_class_identifier": {
-                    "__type__": "garak_pipeline.owasp_scorer",
-                    "run_id": run_id,
-                },
+                "scorer_class_identifier": _scorer_identifier("Owasp", run_id),
                 "message_piece_id": _stable_uuid(run_id, framework_key, label),
                 "timestamp": ts,
                 "objective": None,
@@ -240,13 +256,14 @@ def export_pyrit_air(
     # 2) 探针级 Score —— 供个体攻击复现/关联
     for probe, v in analysis.get("probe_results", {}).items():
         asr = v.get("asr", 0.0)
-        # 复杂结构序列化为字符串存入 metadata（PyRIT 仅接受标量值）
-        meta = {
+        # 复杂结构序列化为字符串存入 metadata（PyRIT 仅接受标量值），
+        # None 值过滤（PyRIT 0.14+/1.0+ 拒绝 None）
+        meta = _clean_meta({
             "defcon": v.get("defcon"),
             "detectors": json.dumps(v.get("detectors", {}), ensure_ascii=False),
             "null_rate": v.get("null_rate", 0.0),
             "effective_coverage": v.get("effective_coverage", 0.0),
-        }
+        })
         # ATLAS TTP 映射（对齐 L5：多框架标注）
         atlas_ttps = v.get("atlas_ttps", [])
         if atlas_ttps:
@@ -274,10 +291,7 @@ def export_pyrit_air(
             "score_category": ["probe", probe],
             "score_rationale": f"探针 {probe} 最差检测器 ASR {asr}%，DEFCON {v.get('defcon')}",
             "score_metadata": meta,
-            "scorer_class_identifier": {
-                "__type__": "garak_pipeline.probe_scorer",
-                "run_id": run_id,
-            },
+            "scorer_class_identifier": _scorer_identifier("Probe", run_id),
             "message_piece_id": _stable_uuid(run_id, "probe", probe),
             "timestamp": ts,
             "objective": None,
@@ -1066,6 +1080,201 @@ def export_pyrit_with_conversations(
     return str(out_path)
 
 
+def export_pyrit_native(
+    analysis: dict, artifacts_dir: str, run_id: str,
+) -> str | None:
+    """导出 PyRIT 1.0+ 原生可消费格式 — MessagePiece + SeedPrompt
+
+    供下游 PyRIT 1.0.1 直接 ``model_validate`` 加载后做深度攻击：
+    - ``message_pieces[]``: 每条对话的 user/assistant 消息，可 import 到 PyRIT Memory
+    - ``seed_prompts[]``: 有价值的攻击 prompt 作为 multi-turn / crescendo 种子
+
+    下游消费示例::
+
+        from pyrit.memory.memory_exporter import MessagePiece
+        from pyrit.memory.memory_models import SeedPrompt
+
+        data = json.load(open(path))
+        pieces = [MessagePiece.model_validate(p) for p in data["message_pieces"]]
+        seeds  = [SeedPrompt.model_validate(s)   for s in data["seed_prompts"]]
+
+    :returns: JSON 路径；无 attempt 数据则 None
+    """
+    report_path = analysis.get("report_path") or ""
+    attempts: list[dict] = []
+
+    if report_path and Path(report_path).exists():
+        with open(report_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("entry_type") == "attempt":
+                    attempts.append(rec)
+
+    if not attempts:
+        return None
+
+    ts = _now_iso()
+    message_pieces: list[dict] = []
+    seed_prompts: list[dict] = []
+    target_model = analysis.get("target_model", "unknown")
+
+    for att in attempts:
+        probe_name = att.get("probe_classname") or att.get("probe") or "unknown"
+        prompt_text = _extract_prompt_text_v2(att.get("prompt", ""))
+        outputs = att.get("outputs", [])
+        if isinstance(outputs, str):
+            outputs = [outputs]
+        goal = att.get("goal") or f"probe {probe_name} attack goal"
+        det_results = att.get("detector_results") or att.get("detector") or {}
+
+        for idx, output in enumerate(outputs):
+            output_text = _extract_output_text(output)
+
+            # --- outcome 分类 ---
+            triggered = False
+            triggered_detectors: list[str] = []
+            if isinstance(det_results, dict):
+                for det_name, val in det_results.items():
+                    if isinstance(val, list):
+                        v_for = val[idx] if idx < len(val) else (val[-1] if val else 0)
+                    else:
+                        v_for = val
+                    if v_for or (isinstance(v_for, (int, float)) and v_for > 0):
+                        triggered = True
+                        triggered_detectors.append(det_name)
+
+            classification = _classify_outcome(output_text, triggered, det_results)
+            outcome = classification["outcome"]
+
+            conv_id = _stable_uuid(run_id, probe_name, str(len(message_pieces)))
+
+            # --- MessagePiece: user prompt ---
+            message_pieces.append({
+                "role": "user",
+                "original_value": prompt_text[:4000],
+                "conversation_id": conv_id,
+                "sequence": 0,
+                "timestamp": ts,
+                "original_value_data_type": "text",
+                "labels": {
+                    "probe": probe_name,
+                    "run_id": run_id,
+                    "goal": str(goal)[:200],
+                    "outcome": outcome,
+                    "defense_pattern": classification["defense_pattern"],
+                    "detector_triggered": triggered,
+                    "detector_fp_flag": classification["detector_fp_flag"],
+                },
+                "targeted_harm_categories": [probe_name],
+            })
+
+            # --- MessagePiece: assistant response ---
+            resp_error = "none"
+            if output_text.startswith("[backend error]"):
+                resp_error = "unknown"
+            elif not output_text.strip():
+                resp_error = "empty"
+
+            message_pieces.append({
+                "role": "assistant",
+                "original_value": output_text[:4000],
+                "conversation_id": conv_id,
+                "sequence": 1,
+                "timestamp": ts,
+                "original_value_data_type": "text",
+                "response_error": resp_error,
+                "labels": {
+                    "probe": probe_name,
+                    "run_id": run_id,
+                    "outcome": outcome,
+                    "detectors": triggered_detectors,
+                },
+            })
+
+            # --- SeedPrompt: 有价值的 prompt 作为深度攻击种子 ---
+            seed_worthy = outcome in ("success", "partial") or (
+                outcome == "refusal" and classification["detector_fp_flag"]
+            )
+            if seed_worthy:
+                seed_prompts.append({
+                    "value": prompt_text[:4000],
+                    "data_type": "text",
+                    "role": "user",
+                    "sequence": 0,
+                    "source": f"garak-pipeline/{run_id}",
+                    "dataset_name": f"garak_{probe_name}",
+                    "harm_categories": [probe_name],
+                    "description": (
+                        f"garak probe={probe_name} outcome={outcome} "
+                        f"defense={classification['defense_pattern']} "
+                        f"goal={str(goal)[:150]}"
+                    ),
+                    "authors": ["garak-pipeline"],
+                    "name": f"{probe_name}_{outcome}_{len(seed_prompts)}",
+                    "parameters": [],
+                    "is_general_technique": False,
+                    "metadata": {
+                        "run_id": run_id,
+                        "probe": probe_name,
+                        "outcome": outcome,
+                        "defense_pattern": classification["defense_pattern"],
+                        "detector_triggered": triggered,
+                        "recommended_strategy": json.dumps(
+                            _recommend_pyrit_strategy(
+                                outcome, classification["defense_pattern"]
+                            ),
+                            ensure_ascii=False,
+                        ),
+                    },
+                })
+
+    if not message_pieces:
+        return None
+
+    out_dir = Path(artifacts_dir) / "05_export"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"pyrit_native_{run_id}.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "schema": "garak-pipeline/pyrit-native/v1",
+            "run_id": run_id,
+            "target_model": target_model,
+            "summary": {
+                "total_message_pieces": len(message_pieces),
+                "total_seed_prompts": len(seed_prompts),
+                "conversations": len(message_pieces) // 2,
+            },
+            "consumption_note": (
+                "下游 PyRIT 1.0+ 消费示例:\n"
+                "  from pyrit.memory.memory_exporter import MessagePiece\n"
+                "  from pyrit.memory.memory_models import SeedPrompt\n"
+                "  from pyrit.memory import CentralMemory\n"
+                "  data = json.load(open(path))\n"
+                "  # 1. 导入对话上下文到 Memory\n"
+                "  pieces = [MessagePiece.model_validate(p) for p in data['message_pieces']]\n"
+                "  CentralMemory.get_default_instance().add_message_pieces_to_memory(message_pieces=pieces)\n"
+                "  # 2. 导入深度攻击种子\n"
+                "  seeds = [SeedPrompt.model_validate(s) for s in data['seed_prompts']]\n"
+                "  await CentralMemory.get_default_instance().add_seeds_to_memory_async(seeds=seeds, added_by='garak-pipeline')\n"
+                "  # 3. 用种子启动 multi-turn/crescendo 深度攻击\n"
+                "  # seeds 的 metadata.recommended_strategy 含策略名称\n"
+            ),
+            "message_pieces": message_pieces,
+            "seed_prompts": seed_prompts,
+        }, f, ensure_ascii=False, indent=2)
+    logger.info(
+        "PyRIT native 导出: %d message_pieces, %d seed_prompts",
+        len(message_pieces), len(seed_prompts),
+    )
+    return str(out_path)
+
+
 def export_pdf(analysis: dict, artifacts_dir: str, run_id: str) -> str | None:
     """S3.5: PDF 导出 — 将 HTML 报告转为 PDF
 
@@ -1284,6 +1493,8 @@ def generate_full_report(
     sarif_path = export_sarif(analysis, artifacts_dir, run_id)
     # P3-1: PyRIT 对话上下文导出
     conv_path = export_pyrit_with_conversations(analysis, artifacts_dir, run_id)
+    # PyRIT 1.0+ 原生格式导出（MessagePiece + SeedPrompt，供下游深度攻击）
+    native_path = export_pyrit_native(analysis, artifacts_dir, run_id)
     # Phase 3: IOA 检测规则导出
     ioa_path = export_ioa_rules(analysis, artifacts_dir, run_id)
     # F6: Sigma 规则导出（通用 SIEM 格式）
@@ -1300,6 +1511,7 @@ def generate_full_report(
         "pdf": pdf_path,
         "sarif": sarif_path,
         "conversations": conv_path,
+        "pyrit_native": native_path,
         "ioa_rules": ioa_path,
         "sigma_rules": sigma_path,
     }

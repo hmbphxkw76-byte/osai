@@ -1495,6 +1495,47 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             logger.debug(f"Layer 4 cold-start Converter pre-generation skipped: {e}")
 
+    # P0 修复: Converter 链深度限制 — 防止 API 413/超时
+    # 多层 Converter 合并后 (Layer 1-4), 单个技术可能累积 7+ 层 Converter,
+    # 导致增强后的 prompt 超过 API 请求体限制 (413) 或处理超时 (120s).
+    # 修复: 合并后全局限制每技术最多 3 层 Converter,
+    # 并从非 many_shot 技术中移除重型 Converter (AsciiSmuggler/SneakyBitsSmuggler)
+    # 学术依据: Russinovich et al. (arXiv:2402.12109) 2-3 层编码即可实现 3-5x ASR 增益,
+    #   超过 3 层边际收益递减但 prompt 长度指数增长
+    _HEAVY_CONVERTERS = {"AsciiSmugglerConverter", "SneakyBitsSmugglerConverter"}
+    _MAX_CHAIN_DEPTH = 3
+    if technique_converter_map:
+        _filtered_count = 0
+        for _tech_name, _converters in list(technique_converter_map.items()):
+            _base_tech = _tech_name.split("+")[0] if "+" in _tech_name else _tech_name
+            # 移除非 many_shot 技术的重型 Converter
+            if _base_tech != "many_shot":
+                _filtered = [c for c in _converters if type(c).__name__ not in _HEAVY_CONVERTERS]
+            else:
+                _filtered = list(_converters)
+            # 限制链深度
+            if len(_filtered) > _MAX_CHAIN_DEPTH:
+                _filtered = _filtered[:_MAX_CHAIN_DEPTH]
+            _removed = len(_converters) - len(_filtered)
+            if _removed > 0:
+                _filtered_count += _removed
+                logger.debug(
+                    f"Converter 链限制: {_tech_name} {len(_converters)}→{len(_filtered)} "
+                    f"(移除 {_removed} 个)"
+                )
+            technique_converter_map[_tech_name] = _filtered
+        if _filtered_count > 0:
+            # 同步更新 ctx 和 params, 确保武器库面板显示过滤后的链
+            ctx.technique_converter_map = technique_converter_map
+            params["technique_converters"] = technique_converter_map
+            logger.info(
+                f"Converter 链深度限制: 移除 {_filtered_count} 个 Converter "
+                f"(max {_MAX_CHAIN_DEPTH}/技术, 重型 Converter 仅限 many_shot)"
+            )
+            print(
+                f"  [P0] Converter 链深度限制: 移除 {_filtered_count} 个 Converter "
+                f"(max {_MAX_CHAIN_DEPTH}/技术)"
+            )
     # P2c 修复: Layer 4 冷启动 Converter 合并后, 确保注入到 params
     # 之前 Layer 4 的 cold_start_map 被合并到 technique_converter_map,
     # 但因为 P1 修复的注入检查 (line 1458) 在 Layer 4 之前执行,
@@ -1542,6 +1583,44 @@ async def run(ctx: PipelineContext) -> None:
                 )
         except Exception as e:
             logger.debug(f"[P0] 技术名→枚举转换失败: {e}")
+
+    # P0 修复: Converter 链深度限制 — 防止 API 413/超时
+    # 多层 Converter 合并后 (Layer 1-4), 单个技术可能累积 7+ 层 Converter,
+    # 导致增强后的 prompt 超过 API 请求体限制 (413) 或处理超时 (120s).
+    # 修复: set_params_from_args 之前, 直接过滤 params["technique_converters"],
+    # 限制每技术最多 3 层 Converter, 移除非 many_shot 技术的重型 Converter.
+    # 学术依据: Russinovich et al. (arXiv:2402.12109) 2-3 层编码即可实现 3-5x ASR 增益
+    _tc_map = params.get("technique_converters") or technique_converter_map
+    if _tc_map:
+        _HEAVY_CONV = {"AsciiSmugglerConverter", "SneakyBitsSmugglerConverter"}
+        _MAX_DEPTH = 3
+        _total_removed = 0
+        for _tech, _convs in list(_tc_map.items()):
+            _base = _tech.split("+")[0] if "+" in _tech else _tech
+            # 移除非 many_shot 技术的重型 Converter
+            _filt = (
+                [c for c in _convs if type(c).__name__ not in _HEAVY_CONV]
+                if _base != "many_shot"
+                else list(_convs)
+            )
+            # 限制链深度
+            if len(_filt) > _MAX_DEPTH:
+                _filt = _filt[:_MAX_DEPTH]
+            _removed = len(_convs) - len(_filt)
+            if _removed > 0:
+                _total_removed += _removed
+            _tc_map[_tech] = _filt
+        if _total_removed > 0:
+            params["technique_converters"] = _tc_map
+            ctx.technique_converter_map = _tc_map
+            print(
+                f"  [P0] Converter 链深度限制: 移除 {_total_removed} 个 Converter "
+                f"(max {_MAX_DEPTH}/技术, 重型仅限 many_shot)"
+            )
+            logger.info(
+                f"Converter chain depth limit: removed {_total_removed} converters "
+                f"(max {_MAX_DEPTH}/tech, heavy converters only for many_shot)"
+            )
 
     # 原生参数注入 (带异常保护 + 噪音拦截)
     noise_log_path = ctx.metadata.get("noise_log_path")

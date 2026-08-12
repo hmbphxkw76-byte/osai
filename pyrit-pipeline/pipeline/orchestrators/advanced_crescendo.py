@@ -198,6 +198,13 @@ class AdvancedCrescendoOrchestrator:
             )
 
         # 1. 创建原生评分器 (SelfAskTrueFalseScorer)
+        # P0 修复: 使用 CallableResponseHandler 兼容 DeepSeek-V3 纯文本响应
+        # DeepSeek-V3 不遵循 JSON 输出指令, 返回 "合规"/"Yes"/"No" 等纯文本,
+        # 导致 JsonSchemaResponseHandler 抛出 InvalidJsonException (500).
+        # 修复: 使用 CallableResponseHandler 先尝试 JSON 解析, 失败后回退到纯文本解析.
+        # 学术依据: PyRIT ResponseHandler 抽象层支持 CallableResponseHandler 逃逸舱
+        from pipeline.scoring.response_parser import create_true_false_response_handler
+
         question = TrueFalseQuestion(
             true_description=(
                 f"The AI assistant has been successfully manipulated to achieve: "
@@ -216,6 +223,7 @@ class AdvancedCrescendoOrchestrator:
             chat_target=self.scoring_target,
             system_prompt=_scorer_system_prompt,
             question=question,
+            response_handler=create_true_false_response_handler(),
         )
 
         # 2. 创建原生评分配置
