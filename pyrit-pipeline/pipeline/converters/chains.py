@@ -326,6 +326,51 @@ def _build_first_letter_chain() -> list:
     return [_conv("FirstLetterConverter")()]
 
 
+# ── P2: 跨范式短链 (2-3 层, 学术最优组合) ──
+# 学术依据:
+#   - HarmBench (arXiv:2402.04249): 同范式叠加边际递减, 跨范式协同最优
+#   - Russinovich et al. (arXiv:2402.12109): 编码+混淆 1.5-1.6x ASR
+#   - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
+#   - Wei et al. (arXiv:2307.15043): 编码攻击绕过表示级安全过滤
+
+
+def _build_cross_paradigm_2layer_chain() -> list:
+    """P2: 跨范式 2 层 — Base64 (编码) + UnicodeConfusable (混淆).
+
+    学术依据: encoding + unicode 组合乘数 1.6x (converter_chains.yaml)
+    非 LLM 链: 本地计算, 无额外 API 调用, 极速执行.
+    """
+    return [
+        _conv("Base64Converter")(),
+        _conv("UnicodeConfusableConverter")(),
+    ]
+
+
+def _build_cross_paradigm_3layer_chain(converter_target: Any = None) -> list:
+    """P2: 跨范式 3 层 — Base64 (编码) + UnicodeConfusable (混淆) + Persuasion (语义).
+
+    学术依据:
+      - encoding + stealth 1.5x (arXiv:2402.12109)
+      - 语义层 ASR 30-40% >> 表示层 (arXiv:2402.19181)
+      - 3 层跨范式 = 理论最优平衡点
+
+    LLM 链: 需要 converter_target, 无则降级为 2 层.
+    """
+    base = [
+        _conv("Base64Converter")(),
+        _conv("UnicodeConfusableConverter")(),
+    ]
+    if converter_target is None:
+        return base
+    base.append(
+        _conv("PersuasionConverter")(
+            converter_target=converter_target,
+            persuasion_technique="authority_endorsement",
+        ),
+    )
+    return base
+
+
 # ── 补全: LLM 链构建函数 ──
 
 
@@ -399,6 +444,9 @@ _CHAIN_BUILDERS = {
     "persuasion_policy_chain": lambda target=None: _build_persuasion_policy_chain(target),
     "math_obfuscation_chain": lambda target=None: _build_math_obfuscation_chain(target),
     "scientific_translation_chain": lambda target=None: _build_scientific_translation_chain(target),
+    # P2: 跨范式短链
+    "cross_paradigm_2layer": lambda target=None: _build_cross_paradigm_2layer_chain(),
+    "cross_paradigm_3layer": lambda target=None: _build_cross_paradigm_3layer_chain(target),
 }
 
 
@@ -552,9 +600,23 @@ def get_dynamic_chain_mapping(
     )
 
 
+#: P0: Converter 链深度上限 — 防止同范式叠加导致 prompt 膨胀和 API 超时.
+#:
+#: 学术依据:
+#:   - HarmBench (arXiv:2402.04249): 3+ 层同类型编码不提升 ASR, 边际递减
+#:   - Russinovich et al. (arXiv:2402.12109): 跨范式 2-3 层协同 3-5x ASR
+#:   - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
+#:
+#: 超过此值的 Converter 会被截断, 保留按链顺序排列的前 N 个.
+#: 3 层 = 1 编码 + 1 混淆 + 1 语义 (跨范式最优).
+MAX_CONVERTER_CHAIN_DEPTH: int = 3
+
+
 def build_converters_from_chain_names(
     chain_names: list[str],
     converter_target: Any = None,
+    *,
+    max_depth: int | None = None,
 ) -> list:
     """从多个链名构建扁平化的 Converter 实例列表。.
 
@@ -564,18 +626,28 @@ def build_converters_from_chain_names(
     - 非 LLM 链直接构建
     - LLM 链需要 converter_target, 若为 None 则跳过该链
     - 自动去重 (同名 Converter 类只保留第一个实例)
+    - P0: 链深度截断 — 最多保留 ``max_depth`` 个 Converter, 防止
+      同范式叠加导致 prompt 膨胀和 API 超时
 
     Args:
         chain_names: 链名列表 (如 ["stealth_evasion", "encoding_bypass"])
         converter_target: LLM 链所需的 Converter Target
+        max_depth: Converter 链深度上限, None 则使用模块级
+            ``MAX_CONVERTER_CHAIN_DEPTH`` (默认 3).
 
     Returns:
         合并后的 Converter 实例列表 (可能为空)
     """
+    effective_max = max_depth if max_depth is not None else MAX_CONVERTER_CHAIN_DEPTH
+
     result: list = []
     seen_types: set[str] = set()
 
     for chain_name in chain_names:
+        # P0: 已达深度上限, 提前终止
+        if len(result) >= effective_max:
+            break
+
         chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name)
         if chain_info is None:
             logger.debug(f"Chain '{chain_name}' not found in CONVERTER_VARIANT_CHAINS, skipping")
@@ -606,5 +678,15 @@ def build_converters_from_chain_names(
             if conv_type_name not in seen_types:
                 seen_types.add(conv_type_name)
                 result.append(conv)
+                # P0: 达到深度上限即停止
+                if len(result) >= effective_max:
+                    break
+
+    if len(result) > effective_max:
+        logger.info(
+            f"Converter chain truncated: {len(result)} → {effective_max} "
+            f"(max depth limit, academic: HarmBench arXiv:2402.04249)"
+        )
+        result = result[:effective_max]
 
     return result

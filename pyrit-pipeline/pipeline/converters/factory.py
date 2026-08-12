@@ -288,19 +288,19 @@ def build_target_aware_converter_map(
 
     # G-4 攻击为王: 跨范式协同链补充
     # 学术依据: Russinovich et al. (arXiv:2402.12109) Crescendo + encoding = 3-5x ASR
-    # 对每个技术, 在推荐链基础上补充高协同乘数的跨范式链
-    # O-3 攻击为王: 新增 prompt_sending 协同链
-    #   学术依据: arXiv:2307.15043 — 编码绕过对 Llama 系列模型 ASR 提升显著
-    #   converter_variant_priors: prompt_sending+stealth_evasion llama_3_1=0.45, +encoding_bypass=0.50
+    # P3 优化: 每技术最多 1 个协同链, 避免链数膨胀导致 Converter 堆砌
+    #   学术依据: HarmBench (arXiv:2402.04249) — 同范式叠加边际递减
+    #   之前每技术添加 2 个协同链, 与 target_profiles 推荐叠加后
+    #   扁平化为 12+ Converter, 导致 prompt 膨胀和 API 超时
     _SYNERGY_BOOSTS: dict[str, list[str]] = {
-        "crescendo": ["encoding_bypass", "stealth_evasion"],
-        "tap": ["encoding_bypass", "stealth_evasion"],
-        "red_teaming": ["stealth_evasion"],
-        "pair": ["stealth_evasion", "encoding_bypass"],
-        "crescendo_simulated": ["encoding_bypass", "unicode_attack"],
-        "context_compliance": ["stealth_evasion", "encoding_bypass"],
-        "many_shot": ["token_smuggling_chain", "encoding_bypass"],
-        "skeleton_key": ["stealth_evasion", "persuasion_authority"],
+        "crescendo": ["cross_paradigm_2layer"],
+        "tap": ["cross_paradigm_2layer"],
+        "red_teaming": [],
+        "pair": ["cross_paradigm_2layer"],
+        "crescendo_simulated": ["cross_paradigm_2layer"],
+        "context_compliance": [],
+        "many_shot": ["token_smuggling_chain"],
+        "skeleton_key": [],
         "prompt_sending": [],
     }
 

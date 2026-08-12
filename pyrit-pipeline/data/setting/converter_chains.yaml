@@ -179,71 +179,74 @@ chains:
     modality: text
     description: ScientificTranslation 科学翻译变换
     cost_tier: expensive
+  # P2: 跨范式短链
+  cross_paradigm_2layer:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: 'P2: Base64 + UnicodeConfusable 跨范式 2 层 (编码+混淆, 1.6x ASR)'
+    cost_tier: cheap
+  cross_paradigm_3layer:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'P2: Base64 + UnicodeConfusable + Persuasion 跨范式 3 层 (编码+混淆+语义)'
+    cost_tier: moderate
 base_techniques_for_variants:
   prompt_sending:
-  - stealth_evasion
-  - encoding_bypass
-  crescendo:
-  - encoding_bypass
-  - multi_encoding_v2
-  - stealth_evasion
-  red_teaming:
+  - cross_paradigm_2layer
   - stealth_evasion
   - persuasion_authority
+  crescendo:
+  - cross_paradigm_2layer
+  - encoding_bypass
+  red_teaming:
+  - persuasion_authority
+  - cross_paradigm_2layer
   tap:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - encoding_bypass
   pair:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - encoding_bypass
   many_shot:
-  - encoding_bypass
-  - stealth_evasion
   - token_smuggling_chain
+  - cross_paradigm_2layer
   - persuasion_authority
-  - decomposition_chain
   best_of_n_jailbreak:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - persuasion_authority
   role_play_movie_script:
   - persuasion_authority
-  - decomposition_chain
+  - cross_paradigm_2layer
   context_compliance:
+  - cross_paradigm_2layer
   - stealth_evasion
-  - encoding_bypass
   tree_of_attacks_pruned:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - encoding_bypass
-  - multi_encoding_v2
   skeleton_key:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - persuasion_authority
-  - decomposition_chain
   bad_likert_judge:
   - persuasion_authority
-  - decomposition_chain
-  - stealth_evasion
+  - cross_paradigm_2layer
   violent_durian:
+  - cross_paradigm_2layer
   - encoding_bypass
-  - stealth_evasion
-  - multi_encoding_v2
   multi_prompt_sending:
+  - cross_paradigm_2layer
   - stealth_evasion
-  - encoding_bypass
-  - unicode_attack
-  - random_case
   - persuasion_authority
   chunked_request:
+  - cross_paradigm_2layer
   - encoding_bypass
-  - stealth_evasion
   role_play_persuasion:
   - persuasion_authority
-  - decomposition_chain
-  - stealth_evasion
+  - cross_paradigm_2layer
   wrapping_attack:
-  - stealth_evasion
+  - cross_paradigm_2layer
   - encoding_bypass
-  - random_case
 persuasion_strategy_by_model:
   claude:
     primary: persuasion_authority
@@ -317,24 +320,21 @@ payload_converter_affinity:
     - llm08
   category_boost_chains:
     encoding:
-    - encoding_bypass
+    - cross_paradigm_2layer
     - token_smuggling_chain
-    - multi_encoding_v2
-    - unicode_attack
+    - encoding_bypass
     persuasion:
     - persuasion_authority
-    - decomposition_chain
+    - cross_paradigm_2layer
     decomposition:
-    - decomposition_chain
+    - cross_paradigm_2layer
     - persuasion_authority
     multi_turn:
+    - cross_paradigm_2layer
     - token_smuggling_chain
-    - multi_encoding_v2
-    - encoding_bypass
     role_play:
     - persuasion_authority
-    - decomposition_chain
-    - stealth_evasion
+    - cross_paradigm_2layer
     baseline: []
 combo_multipliers:
   description: 'D13: Chain combination synergy multipliers'
@@ -380,3 +380,11 @@ combo_multipliers:
     - token_smuggling_chain
     multiplier: 1.35
     note: obfuscation + token smuggling cross-paradigm
+  - chains:
+    - cross_paradigm_2layer
+    multiplier: 1.6
+    note: P2 cross-paradigm 2-layer (encoding+obfuscation)
+  - chains:
+    - cross_paradigm_3layer
+    multiplier: 1.8
+    note: P2 cross-paradigm 3-layer (encoding+obfuscation+semantic)

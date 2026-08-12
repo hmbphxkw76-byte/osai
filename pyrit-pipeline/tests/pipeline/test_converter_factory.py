@@ -151,20 +151,37 @@ class TestBuildConvertersFromChainNames:
         assert "SuffixAppendConverter" in type_names
 
     def test_multiple_non_llm_chains(self) -> None:
-        """多个非 LLM 链合并为扁平列表。."""
+        """多个非 LLM 链合并为扁平列表 (P0: 深度截断到 MAX_CONVERTER_CHAIN_DEPTH=3)."""
         from pipeline.converters.chains import build_converters_from_chain_names
 
         converters = build_converters_from_chain_names(["stealth_evasion", "encoding_bypass"])
-        # stealth_evasion: 3 converters, encoding_bypass: 3 converters
-        # 但 Base64Converter 在两个链中都出现, 去重后应 < 6
-        assert len(converters) >= 4  # 至少 4 个唯一 Converter
-        assert len(converters) <= 6  # 不超过 6 个
+        # P0: stealth_evasion 有 3 converters, 深度截断后最多 3 个
+        # stealth_evasion: UnicodeConfusable + Base64 + SuffixAppend = 3 converters
+        # encoding_bypass 的 converters 会被截断 (已达 MAX_CONVERTER_CHAIN_DEPTH=3)
+        assert len(converters) >= 1
+        assert len(converters) <= 3  # P0: 深度截断到 3
 
-    def test_dedup_same_converter_class(self) -> None:
-        """同名 Converter 类只保留第一个实例。."""
+    def test_multiple_non_llm_chains_no_depth_limit(self) -> None:
+        """P0: max_depth=None 时不截断, 多个链合并为完整列表."""
         from pipeline.converters.chains import build_converters_from_chain_names
 
-        converters = build_converters_from_chain_names(["stealth_evasion", "multi_encoding_v2"])
+        converters = build_converters_from_chain_names(
+            ["stealth_evasion", "encoding_bypass"],
+            max_depth=99,
+        )
+        # 无截限时: stealth_evasion 3 + encoding_bypass 3 - Base64Converter 去重 1 = 5
+        assert len(converters) >= 4
+        assert len(converters) <= 6
+
+    def test_dedup_same_converter_class(self) -> None:
+        """同名 Converter 类只保留第一个实例 (P0: 深度截断到 3)."""
+        from pipeline.converters.chains import build_converters_from_chain_names
+
+        # P0: 使用 max_depth=99 测试完整去重行为
+        converters = build_converters_from_chain_names(
+            ["stealth_evasion", "multi_encoding_v2"],
+            max_depth=99,
+        )
         type_names = [type(c).__name__ for c in converters]
         # 不应有重复
         assert len(type_names) == len(set(type_names))
@@ -193,6 +210,55 @@ class TestBuildConvertersFromChainNames:
 
         assert build_converters_from_chain_names([]) == []
 
+    def test_p0_depth_limit_truncation(self) -> None:
+        """P0: MAX_CONVERTER_CHAIN_DEPTH=3 截断生效。."""
+        from pipeline.converters.chains import MAX_CONVERTER_CHAIN_DEPTH, build_converters_from_chain_names
+
+        assert MAX_CONVERTER_CHAIN_DEPTH == 3
+
+        # stealth_evasion(3) + encoding_bypass(3) = 6 unique, 截断到 3
+        converters = build_converters_from_chain_names(
+            ["stealth_evasion", "encoding_bypass"],
+            max_depth=99,
+        )
+        assert len(converters) >= 4  # 无截限
+
+        converters_limited = build_converters_from_chain_names(
+            ["stealth_evasion", "encoding_bypass"],
+        )
+        assert len(converters_limited) <= 3  # P0 截断
+
+    def test_p2_cross_paradigm_2layer(self) -> None:
+        """P2: cross_paradigm_2layer 构建 Base64 + UnicodeConfusable。."""
+        from pipeline.converters.chains import build_converters_from_chain_names
+
+        converters = build_converters_from_chain_names(["cross_paradigm_2layer"])
+        type_names = {type(c).__name__ for c in converters}
+        assert "Base64Converter" in type_names
+        assert "UnicodeConfusableConverter" in type_names
+        assert len(converters) == 2
+
+    def test_p2_cross_paradigm_3layer_without_target(self) -> None:
+        """P2: cross_paradigm_3layer 在 YAML 中 requires_llm=true, 无 target 时被跳过.
+
+        注意: build_converters_from_chain_names 检查 YAML 的 requires_llm 标志,
+        在 converter_target=None 时跳过整个链. 这是预期行为 —
+        cross_paradigm_3layer 的 LLM 语义层需要 converter_target 才有意义.
+        若需无 LLM 的跨范式链, 使用 cross_paradigm_2layer.
+        """
+        from pipeline.converters.chains import build_converters_from_chain_names
+
+        converters = build_converters_from_chain_names(
+            ["cross_paradigm_3layer"],
+            converter_target=None,
+        )
+        # requires_llm=true 且无 target → 跳过, 返回空列表
+        assert len(converters) == 0
+
+        # 但 cross_paradigm_2layer (非 LLM) 正常工作
+        converters_2layer = build_converters_from_chain_names(["cross_paradigm_2layer"])
+        assert len(converters_2layer) == 2
+
     def test_mixed_llm_and_non_llm_chains(self) -> None:
         """混合 LLM 和非 LLM 链: 非 LLM 链构建, LLM 链跳过 (无 target)。."""
         from pipeline.converters.chains import build_converters_from_chain_names
@@ -201,8 +267,9 @@ class TestBuildConvertersFromChainNames:
             ["stealth_evasion", "persuasion_authority"],
             converter_target=None,
         )
-        # 只有 stealth_evasion 的 converters
+        # 只有 stealth_evasion 的 converters (P0: 最多 3 个)
         assert len(converters) >= 1
+        assert len(converters) <= 3  # P0: MAX_CONVERTER_CHAIN_DEPTH=3
         type_names = {type(c).__name__ for c in converters}
         assert "UnicodeConfusableConverter" in type_names
 
