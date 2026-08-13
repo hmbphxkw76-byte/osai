@@ -295,3 +295,109 @@ def reorder_persuasion_chains_by_model(
     if prioritized:
         return prioritized + rest
     return chains
+
+
+# ============================================================
+# P6: 模态感知链选择 — 根据目标实际模态选择 Converter 链
+# ============================================================
+
+#: P6: 模态 → 推荐链名列表映射 (纯文本目标返回 None, 由标准路由处理).
+#:
+#: 学术依据:
+#:   - Shayegani et al. (arXiv:2306.13254): 多模态组合攻击
+#:   - FigStep (arXiv:2307.14400): 图像编码绕过 OCR
+#:   - PyRIT ModalityRouter: 模态感知载荷路由
+_MODALITY_CHAIN_MAP: dict[str, dict[str, list[str]]] = {
+    "image": {
+        "prompt_sending": ["image_text_embed", "image_rotate_ocr"],
+        "many_shot": ["image_qr_encode", "image_text_embed"],
+        "crescendo": ["image_text_rotate_chain"],
+        "red_teaming": ["image_text_embed"],
+    },
+    "audio": {
+        "prompt_sending": ["audio_stego_chain"],
+        "many_shot": ["audio_stego_chain"],
+        "crescendo": ["audio_freq_chain"],
+    },
+    "video": {
+        "prompt_sending": ["video_embed_chain"],
+    },
+    "file": {
+        "prompt_sending": ["file_pdf_injection"],
+        "many_shot": ["file_pdf_injection", "file_worddoc_injection"],
+    },
+}
+
+
+def get_chains_by_modality(
+    target: Any,
+    converter_target_available: bool = False,
+    model_tier: str = "unknown",
+) -> dict[str, list[str]] | None:
+    """P6: 根据目标实际模态 (而非仅 target_type) 返回最优 Converter 链映射.
+
+    集成 PyRIT 原生 ``detect_target_modalities()`` + 模态专用链映射:
+      1. 检测目标支持的输入模态 (text, image, audio, video)
+      2. 对非 text 模态选择对应的 converter 链
+      3. 按 model_tier 调整: weak 跳过 LLM 链
+
+    纯文本目标返回 None (由 ``get_chains_for_target_type`` 处理).
+
+    学术依据:
+      - Shayegani et al. (arXiv:2306.13254): 多模态组合攻击
+      - PyRIT ModalityRouter: 模态感知载荷路由
+
+    Args:
+        target: PyRIT 目标实例.
+        converter_target_available: converter_target 是否可用.
+        model_tier: 模型等级 (strong/moderate/weak/unknown).
+
+    Returns:
+        技术名 → 链名列表映射, 或 None (纯文本目标).
+    """
+    try:
+        from pipeline.multimodal import detect_target_modalities
+
+        modalities = detect_target_modalities(target)
+    except Exception as e:
+        logger.debug(f"P6: modality detection failed: {e}")
+        return None
+
+    # 纯文本目标: 由标准路由处理
+    if modalities == {"text"}:
+        return None
+
+    # 多模态目标: 按检测到的模态选择专用链
+    from pipeline.converters.chains import CONVERTER_VARIANT_CHAINS
+
+    result: dict[str, list[str]] = {}
+    for modality in ("image", "audio", "video", "file"):
+        if modality not in modalities:
+            continue
+        modality_chains = _MODALITY_CHAIN_MAP.get(modality, {})
+        for tech_name, chain_names in modality_chains.items():
+            # 过滤不存在的链和 LLM 链 (当 converter_target 不可用时)
+            valid_chains: list[str] = []
+            for cn in chain_names:
+                chain_info = CONVERTER_VARIANT_CHAINS.get(cn)
+                if chain_info is None:
+                    continue
+                if chain_info.get("requires_llm", False) and not converter_target_available:
+                    continue
+                if chain_info.get("requires_llm", False) and model_tier == "weak":
+                    continue
+                valid_chains.append(cn)
+            if valid_chains:
+                # 合并到 result (同技术多模态取并集, 保持顺序, 去重)
+                existing = result.get(tech_name, [])
+                merged = list(existing)
+                for cn in valid_chains:
+                    if cn not in merged:
+                        merged.append(cn)
+                result[tech_name] = merged
+
+    logger.info(
+        f"P6: modality-aware chains: modalities={modalities}, "
+        f"{len(result)} techniques got chains"
+    )
+    return result or None

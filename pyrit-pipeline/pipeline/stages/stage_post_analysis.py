@@ -55,14 +55,16 @@ async def run(ctx: PipelineContext) -> None:
     )
     bus.publish_simple("stage_5", "post_analysis_started", overall_asr=ctx.overall_asr)
 
-    # ── 1. 执行成果概要 (P1-1: 保留 post_analysis 元数据写入, 移除冗余展示) ──
-    _write_post_analysis_metadata(ctx)
-
     # ── P1: 攻击结果回注ASR跟踪闭环 ──
     # 将 Crescendo/TAP/XPIA/AdvancedMCP 编排器结果回注到 ctx.asr_per_technique,
     # 使其进入经验写回 (save_empirical_asr) → 下次运行 warm-start 闭环
     # 学术依据: DART (arXiv:2407.06485) per-model ASR 应指导运行时决策
     _inject_orchestrator_results_to_asr(ctx)
+
+    # ── 1. 执行成果概要 (P1-1: 保留 post_analysis 元数据写入, 移除冗余展示) ──
+    # P3 修复: 移到 _inject_orchestrator_results_to_asr 之后,
+    # 确保编排器成功 (Crescendo/TAP) 被计入汇总
+    _write_post_analysis_metadata(ctx)
 
     # ── 2. 实测 ASR vs 先验对比 (新增信息: 先验数据) ──
     _print_asr_comparison(ctx)
@@ -227,6 +229,36 @@ def _write_post_analysis_metadata(ctx: PipelineContext) -> None:
     failures = sum(
         1 for v in result.attack_results.values() for ar in v if ar.outcome and ar.outcome != AttackOutcome.SUCCESS
     )
+
+    # P3 修复: 合并编排器结果 (Crescendo/TAP/RedTeaming)
+    # _inject_orchestrator_results_to_asr 将 ASR 注入 ctx.asr_per_technique,
+    # 但未更新 ctx.result.attack_results. 这里从 ctx.metadata 提取编排器成功数.
+    cres_data = ctx.metadata.get("crescendo_result")
+    if cres_data and isinstance(cres_data, dict):
+        if cres_data.get("achieved", False):
+            successes += 1
+        total += 1
+        failures += 0 if cres_data.get("achieved", False) else 1
+
+    tap_data = ctx.metadata.get("tap_result")
+    if tap_data and isinstance(tap_data, dict):
+        if tap_data.get("achieved", False):
+            successes += 1
+        total += 1
+        failures += 0 if tap_data.get("achieved", False) else 1
+
+    # RedTeaming 编排器结果
+    redteam_data = ctx.metadata.get("redteam_result")
+    if redteam_data and isinstance(redteam_data, dict):
+        rt_success = redteam_data.get("successes", 0)
+        rt_total = redteam_data.get("total", 0)
+        successes += rt_success
+        total += rt_total
+        failures += rt_total - rt_success
+
+    # P3 修复: 更新 overall_asr 以包含编排器结果
+    if total > 0:
+        ctx.overall_asr = round((successes / total) * 100, 1)
 
     ctx.metadata["post_analysis"] = {
         "total": total,

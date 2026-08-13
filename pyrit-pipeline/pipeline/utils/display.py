@@ -115,6 +115,11 @@ def print_pipeline_footer(ctx: PipelineContext) -> None:
             for ar in v
             if ar.outcome and ar.outcome.name == "SUCCESS"
         )
+        # P3 修复: 合并编排器结果 (Crescendo/TAP/RedTeaming) 到汇总
+        post_analysis = ctx.metadata.get("post_analysis", {})
+        if post_analysis:
+            success = post_analysis.get("successes", success)
+            total = post_analysis.get("total", total)
         print(f"  执行结果: {success}/{total} 成功")
 
     # F2 修复: 数据源和攻击计划 (对齐参考日志格式)

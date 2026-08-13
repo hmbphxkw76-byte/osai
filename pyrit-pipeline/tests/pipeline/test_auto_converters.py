@@ -138,15 +138,16 @@ class TestLLMChainFiltering:
         assert "prompt_sending" in result
         assert len(result["prompt_sending"]) > 0
 
-    def test_crescendo_gets_encoding_chains(self) -> None:
-        """crescendo 技术获得 encoding_bypass 链。"""
+    def test_crescendo_gets_semantic_chains(self) -> None:
+        """crescendo 技术获得 semantic_evasion 链 (P3: 保持可读性)."""
         result = _build_auto_converter_map(
             technique_names=["crescendo"],
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        # encoding_bypass 包含 Base64Converter
-        assert any("Base64" in t for t in converter_types)
+        # semantic_evasion 包含 UnicodeConfusableConverter + LeetspeakConverter
+        assert "UnicodeConfusableConverter" in converter_types
+        assert "LeetspeakConverter" in converter_types
 
 
 # ============================================================
@@ -260,14 +261,15 @@ class TestLayer3Integration:
         # At least 4/5 should match
         assert len(result) >= 4
 
-    def test_layer3_crescendo_encoding_combo(self) -> None:
-        """crescendo + encoding_bypass = 高 ASR 组合 (学术验证)."""
+    def test_layer3_crescendo_semantic_combo(self) -> None:
+        """crescendo + semantic_evasion = 高 ASR 组合 (P3: 语义保持)."""
         result = _build_auto_converter_map(
             technique_names=["crescendo"],
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        assert any("Base64" in t for t in converter_types)
+        # semantic_evasion 包含 UnicodeConfusableConverter (保持可读性)
+        assert "UnicodeConfusableConverter" in converter_types
 
 
 # ============================================================
@@ -378,14 +380,15 @@ class TestPayloadAffinity:
         assert len(result_with_affinity["prompt_sending"]) > 0
 
     def test_payload_affinity_with_crescendo(self) -> None:
-        """crescendo + encoding payload = 最优组合 (ASR 92%)."""
+        """crescendo + encoding payload = 语义保持混淆 (P3: 保持可读性)."""
         result = _build_auto_converter_map(
             technique_names=["crescendo"],
             dataset_names=["owasp_llm01_prompt_injection"],
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        assert any("Base64" in t for t in converter_types)
+        # P3: semantic_evasion 保持可读性, 不再使用 Base64 编码
+        assert "UnicodeConfusableConverter" in converter_types
 
     def test_no_dataset_names_no_affinity(self) -> None:
         """dataset_names=None 时不启用亲和匹配, 退化为纯 priority 排序。"""

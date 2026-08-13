@@ -37,8 +37,28 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default circuit breaker threshold: disable after 2 consecutive failures
-_DEFAULT_FAILURE_THRESHOLD = 2
+# Default circuit breaker threshold: disable after 5 consecutive failures
+# P3: 2→5, give converters more chances before disabling (API timeouts are not converter failures)
+_DEFAULT_FAILURE_THRESHOLD = 5
+
+# P4: LLM-based converters that CAN be circuit-broken (they make API calls)
+# Only these converters will be disabled by the circuit breaker.
+# Local (non-LLM) converters (UnicodeConfusable, Leetspeak, Base64, etc.)
+# never make API calls and should NEVER be disabled.
+_LLM_CONVERTER_NAMES: set[str] = {
+    "PersuasionConverter",
+    "ToneConverter",
+    "TranslationConverter",
+    "DecompositionConverter",
+    "TaskFramingConverter",
+    "NoiseConverter",
+    "FlipConverter",
+    "ScientificTranslationConverter",
+    "MathObfuscationConverter",
+    "TenseConverter",
+    "VariationConverter",
+    "PolicyPuppetryConverter",
+}
 
 # Regex patterns to extract Converter name from error messages
 _CONVERTER_NAME_PATTERNS = [
@@ -124,6 +144,10 @@ class ConverterHealthMonitor:
     def record_failure(self, converter_name: str, error_msg: str = "") -> None:
         """Record a Converter failure. Auto-disables after threshold.
 
+        P4: Only LLM-based converters can be circuit-broken.
+        Local converters (UnicodeConfusable, Leetspeak, etc.) never make
+        API calls and should never be disabled.
+
         Args:
             converter_name: Name of the converter that failed
             error_msg: Error message for debugging
@@ -138,7 +162,11 @@ class ConverterHealthMonitor:
         if error_msg:
             stats.failure_reason = error_msg[:200]
 
-        # Circuit breaker check
+        # P4: Skip circuit breaker for local (non-LLM) converters
+        if converter_name not in _LLM_CONVERTER_NAMES:
+            return
+
+        # Circuit breaker check (only for LLM converters)
         if (
             not stats.disabled
             and stats.consecutive_failures >= self._failure_threshold
@@ -153,7 +181,10 @@ class ConverterHealthMonitor:
             )
 
     def record_error(self, converter_name: str, error_msg: str = "") -> None:
-        """Record a Converter-level error (system exception, not just failure)."""
+        """Record a Converter-level error (system exception, not just failure).
+
+        P4: Only LLM-based converters can be circuit-broken.
+        """
         stats = self._stats.get(converter_name)
         if stats is None:
             stats = ConverterStats(name=converter_name)
@@ -163,6 +194,10 @@ class ConverterHealthMonitor:
         stats.consecutive_failures += 1
         if error_msg:
             stats.failure_reason = error_msg[:200]
+
+        # P4: Skip circuit breaker for local (non-LLM) converters
+        if converter_name not in _LLM_CONVERTER_NAMES:
+            return
 
         if (
             not stats.disabled
@@ -262,11 +297,11 @@ def extract_chain_name_from_error(error_str: str) -> str | None:
         "translationconverter": "persuasion_authority",
         "taskframingconverter": "task_framing_chain",
         "suffixappendconverter": "suffix_append",
-        "unicodeconfusableconverter": "unicode_attack",
+        "unicodeconfusableconverter": "semantic_evasion",
         "noisebypassconverter": "noise_bypass",
         "specialcharsconverter": "special_chars",
         "randomcaseconverter": "random_case",
-        "leetspeakconverter": "leetspeak_chain",
+        "leetspeakconverter": "semantic_evasion",
         "stealthevasionconverter": "stealth_evasion",
         "multiencodingconverter": "multi_encoding_v2",
         "encodingbypassconverter": "encoding_bypass",

@@ -37,10 +37,15 @@ from pipeline.converters.factory import (
 from pipeline.converters.modality_router import ModalityRouter
 from pipeline.converters.model_tier_detector import (
     detect_model_tier_from_registry,
+    get_max_depth_for_tier_modality,
     should_use_llm_converters,
 )
 from pipeline.converters.steganography_converter import SteganographyConverter
-from pipeline.converters.target_aware_router import get_chains_for_target_type, infer_target_type
+from pipeline.converters.target_aware_router import (
+    get_chains_by_modality,
+    get_chains_for_target_type,
+    infer_target_type,
+)
 
 __all__ = [
     # factory
@@ -54,9 +59,11 @@ __all__ = [
     "load_preset_converter_chain",
     # target_aware_router
     "get_chains_for_target_type",
+    "get_chains_by_modality",
     "infer_target_type",
     # model_tier_detector
     "detect_model_tier_from_registry",
+    "get_max_depth_for_tier_modality",
     "should_use_llm_converters",
     # converter_health_monitor
     "ConverterHealthMonitor",

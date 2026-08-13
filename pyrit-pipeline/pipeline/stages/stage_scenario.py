@@ -45,6 +45,7 @@
 >     Converter 由原生 technique_converters 参数注入
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -173,60 +174,81 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] 高级 MCP 攻击场景跳过: {e}")
 
-    # ── Crescendo 多轮渐进式攻击 (PyRIT 原生 CrescendoAttack) ──
-    # 攻击为王: 自动触发 Crescendo (ASR=82%, 学术最高)
-    # 当未显式指定 --crescendo-objective 但 max_attempts>=2 时,
-    # 自动从高 ASR 种子生成 Crescendo 目标, 无需用户手动指定
-    # 学术依据: Russinovich et al. (arXiv:2402.12109) Crescendo ASR=82%
+    # ── Crescendo + TAP 多轮攻击: MTOS 种子选择 ──
+    # 攻击为王: 自动触发 Crescendo (ASR=82%) + TAP (ASR=62%)
+    # MTOS (Multi-Turn Objective Suitability Score) 选种:
+    #   - 热启动: 历史种子级 ASR + 元数据 4 维评分
+    #   - 冷启动: difficulty + severity + category 多维选择
+    # 学术依据: Russinovich et al. (arXiv:2402.12109) Crescendo 渐进升级突破单轮防御;
+    #   Mehrotra et al. (arXiv:2312.02191) TAP 树搜索需中等难度空间;
+    #   HarmBench (arXiv:2402.04249) 类别平衡采样; DART (arXiv:2407.06485) per-seed ASR
     crescendo_obj = getattr(args, "crescendo_objective", None)
+    tap_obj = getattr(args, "tap_objective", None)
     _auto_crescendo = False
-    if not crescendo_obj and getattr(args, "max_attempts", 1) >= 2:
-        # 自动生成 Crescendo 目标 (从高 ASR 种子提取)
-        try:
-            _seed_level = ctx.metadata.get("seed_level_asr") or {}
-            if _seed_level:
-                _top_seeds = sorted(
-                    _seed_level.items(),
-                    key=lambda x: x[1].get("asr", 0) if isinstance(x[1], dict) else 0,
-                    reverse=True,
-                )[:3]
-                if _top_seeds:
-                    _top_seed_data = _top_seeds[0][1]
-                    if isinstance(_top_seed_data, dict):
-                        crescendo_obj = _top_seed_data.get("seed_preview", "")[:200]
-                    if crescendo_obj:
-                        _auto_crescendo = True
-                        print(
-                            f"  [攻击为王] Crescendo 自动触发:"
-                            f" 从高 ASR 种子生成目标 (max_attempts={args.max_attempts})"
-                        )
-            # 冷启动 fallback: 无 seed_level_asr 时, 从 CentralMemory 获取首个种子
-            if not crescendo_obj and getattr(args, "datasets", None):
-                try:
-                    from pyrit.common.central_memory import CentralMemory
+    _auto_tap = False
 
-                    _mem = CentralMemory.get_memory_instance()
-                    for _ds in args.datasets[:3]:
-                        _prompts = _mem.get_seed_prompts(dataset_name=_ds)
-                        if _prompts:
-                            _p = _prompts[0]
-                            crescendo_obj = (
-                                getattr(_p, "value", None)
-                                or getattr(_p, "original_value", None)
-                                or ""
-                            )[:200]
-                            if crescendo_obj and len(crescendo_obj) > 10:
-                                _auto_crescendo = True
-                                print(
-                                    f"  [攻击为王] Crescendo 冷启动触发:"
-                                    f" 从数据集 {_ds} 首个种子生成目标"
-                                )
-                                break
-                except Exception:
-                    pass
+    # 统一选种: 当用户未显式指定 objective 且 max_attempts>=2 时自动选种
+    if (not crescendo_obj or not tap_obj) and getattr(args, "max_attempts", 1) >= 2:
+        try:
+            from pipeline.asr.optimizer import select_multiturn_objectives
+            from pipeline.config import _load_attack_params
+
+            _params = _load_attack_params()
+            _mtos_cfg = _params.get("multiturn_objective_selection", {})
+
+            # 从扁平 YAML 配置构建 weights 字典
+            _mtos_weights = {
+                "asr_suitability": float(_mtos_cfg.get("asr_suitability_weight", 0.35)),
+                "difficulty": float(_mtos_cfg.get("difficulty_weight", 0.25)),
+                "severity": float(_mtos_cfg.get("severity_weight", 0.20)),
+                "category_diversity": float(_mtos_cfg.get("category_diversity_weight", 0.20)),
+            }
+
+            _cres_obj, _tap_obj, _mtos_meta = select_multiturn_objectives(
+                seed_level_asr=ctx.metadata.get("seed_level_asr"),
+                datasets=getattr(args, "datasets", None),
+                weights=_mtos_weights,
+                crescendo_asr_window=(
+                    float(_mtos_cfg.get("crescendo_asr_window_lower", 0.0)),
+                    float(_mtos_cfg.get("crescendo_asr_window_upper", 0.15)),
+                ),
+                tap_asr_window=(
+                    float(_mtos_cfg.get("tap_asr_window_lower", 0.10)),
+                    float(_mtos_cfg.get("tap_asr_window_upper", 0.30)),
+                ),
+                cold_start_min_seeds=int(_mtos_cfg.get("cold_start_min_seeds", 5)),
+            )
+
+            if not crescendo_obj and _cres_obj:
+                crescendo_obj = _cres_obj
+                _auto_crescendo = True
+                _strategy = _mtos_meta.get("strategy", "unknown")
+                _cres_asr = _mtos_meta.get("crescendo_asr")
+                _cres_owasp = _mtos_meta.get("crescendo_owasp_id", "")
+                _asr_str = f" ASR={_cres_asr:.1%}" if _cres_asr is not None else ""
+                _owasp_str = f" [{_cres_owasp}]" if _cres_owasp else ""
+                print(
+                    f"  [攻击为王] Crescendo 自动触发 ({_strategy}):"
+                    f" MTOS 选种{_asr_str}{_owasp_str}"
+                    f" (max_attempts={args.max_attempts})"
+                )
+
+            if not tap_obj and _tap_obj and _tap_obj != crescendo_obj:
+                tap_obj = _tap_obj
+                _auto_tap = True
+                _tap_asr = _mtos_meta.get("tap_asr")
+                _tap_owasp = _mtos_meta.get("tap_owasp_id", "")
+                _asr_str = f" ASR={_tap_asr:.1%}" if _tap_asr is not None else ""
+                _owasp_str = f" [{_tap_owasp}]" if _tap_owasp else ""
+                print(
+                    f"  [攻击为王] TAP 自动触发 ({_strategy}):"
+                    f" MTOS 选种{_asr_str}{_owasp_str}"
+                    f" (max_attempts={args.max_attempts})"
+                )
         except Exception:
             pass
 
+    # ── Crescendo 执行 ──
     if crescendo_obj:
         try:
             from pipeline.orchestrators.advanced_crescendo import AdvancedCrescendoOrchestrator
@@ -241,126 +263,154 @@ async def run(ctx: PipelineContext) -> None:
                     objective=crescendo_obj,
                     max_turns=_max_turns,
                 )
-                cres_result = await orchestrator.run_async()
-                ctx.metadata["crescendo_result"] = cres_result.to_dict()
-                ctx.metadata["crescendo_auto_triggered"] = _auto_crescendo
-                print(f"  Crescendo (原生): achieved={cres_result.achieved}, "
-                      f"turn={cres_result.winning_turn}/{cres_result.max_turns}, "
-                      f"backtracks={cres_result.backtrack_count}"
-                      f"{' [自动]' if _auto_crescendo else ''}")
+                # F1: asyncio.wait_for 超时保护 — 防止 SiliconFlow security_audit_fail
+                # 导致 PyRIT 原生 CrescendoAttack 无限重试卡死整个流水线
+                _cres_timeout = int(getattr(args, "crescendo_timeout", 180))
+                try:
+                    cres_result = await asyncio.wait_for(
+                        orchestrator.run_async(), timeout=_cres_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    print(f"  [提示] Crescendo 攻击超时跳过 (timeout={_cres_timeout}s)")
+                    cres_result = None
+                if cres_result:
+                    ctx.metadata["crescendo_result"] = cres_result.to_dict()
+                    ctx.metadata["crescendo_auto_triggered"] = _auto_crescendo
+                    print(f"  Crescendo (原生): achieved={cres_result.achieved}, "
+                          f"turn={cres_result.winning_turn}/{cres_result.max_turns}, "
+                          f"backtracks={cres_result.backtrack_count}"
+                          f"{' [自动]' if _auto_crescendo else ''}")
             else:
                 print("  [提示] Crescendo 跳过: 未找到已注册的 Target")
         except Exception as e:
             print(f"  [提示] Crescendo 攻击跳过: {e}")
 
-    # ── TAP 树状攻击路径 (PyRIT 原生 TAPAttack) ──
-    # 攻击为王: 自动触发 TAP (ASR=62%, 树搜索)
-    # 当未显式指定 --tap-objective 但 max_attempts>=2 时,
-    # 自动从高 ASR 种子生成 TAP 目标
-    # 学术依据: Mehrotra et al. (arXiv:2312.02191) TAP 树搜索
-    tap_obj = getattr(args, "tap_objective", None)
-    _auto_tap = False
-    if not tap_obj and getattr(args, "max_attempts", 1) >= 2:
-        # 自动生成 TAP 目标 (从高 ASR 种子提取, 与 Crescendo 不同的种子)
-        try:
-            _seed_level = ctx.metadata.get("seed_level_asr") or {}
-            if _seed_level:
-                _top_seeds = sorted(
-                    _seed_level.items(),
-                    key=lambda x: x[1].get("asr", 0) if isinstance(x[1], dict) else 0,
-                    reverse=True,
-                )[:5]
-                # 选择第2个高 ASR 种子 (第1个可能已被 Crescendo 使用)
-                if len(_top_seeds) >= 2:
-                    _tap_seed_data = _top_seeds[1][1]
-                    if isinstance(_tap_seed_data, dict):
-                        tap_obj = _tap_seed_data.get("seed_preview", "")[:200]
-                    if tap_obj:
-                        _auto_tap = True
-                        print(
-                            f"  [攻击为王] TAP 自动触发:"
-                            f" 从高 ASR 种子生成目标 (max_attempts={args.max_attempts})"
-                        )
-            # 冷启动 fallback: 无 seed_level_asr 或不足2个种子时, 从 CentralMemory 获取第2个种子
-            if not tap_obj and getattr(args, "datasets", None):
-                try:
-                    from pyrit.common.central_memory import CentralMemory
+    # ── P4: Crescendo 额外目标执行 (不同 OWASP 类别) ──
+    # 学术依据: HarmBench (arXiv:2402.04249) 类别平衡采样确保覆盖;
+    #   Russinovich et al. (arXiv:2402.12109) Crescendo 对不同类别种子均有效
+    if _mtos_meta and _mtos_meta.get("crescendo_extra"):
+        for _idx, _extra in enumerate(_mtos_meta["crescendo_extra"]):
+            _extra_obj = _extra.get("objective", "")
+            _extra_owasp = _extra.get("owasp_id", "")
+            if not _extra_obj or _extra_obj == crescendo_obj:
+                continue
+            try:
+                from pipeline.orchestrators.advanced_crescendo import AdvancedCrescendoOrchestrator
 
-                    _mem = CentralMemory.get_memory_instance()
-                    _tap_found = False
-                    for _ds in args.datasets[:3]:
-                        _prompts = _mem.get_seed_prompts(dataset_name=_ds)
-                        if _prompts and len(_prompts) >= 2:
-                            # 使用第2个种子 (第1个可能已被 Crescendo 使用)
-                            _p = _prompts[1]
-                        elif _prompts:
-                            _p = _prompts[0]
-                        else:
-                            continue
-                        tap_obj = (
-                            getattr(_p, "value", None)
-                            or getattr(_p, "original_value", None)
-                            or ""
-                        )[:200]
-                        if tap_obj and len(tap_obj) > 10 and tap_obj != crescendo_obj:
-                            _auto_tap = True
-                            print(
-                                f"  [攻击为王] TAP 冷启动触发:"
-                                f" 从数据集 {_ds} 种子生成目标"
-                            )
-                            _tap_found = True
-                            break
-                    # 如果所有数据集都只有1个种子且与Crescendo相同, 使用第1个数据集的第1个种子
-                    if not _tap_found and not tap_obj:
-                        for _ds in args.datasets[:3]:
-                            _prompts = _mem.get_seed_prompts(dataset_name=_ds)
-                            if _prompts:
-                                _p = _prompts[0]
-                                tap_obj = (
-                                    getattr(_p, "value", None)
-                                    or getattr(_p, "original_value", None)
-                                    or ""
-                                )[:200]
-                                if tap_obj and len(tap_obj) > 10:
-                                    _auto_tap = True
-                                    print(
-                                        f"  [攻击为王] TAP 冷启动触发:"
-                                        f" 从数据集 {_ds} 首个种子生成目标 (fallback)"
-                                    )
-                                    break
-                except Exception:
-                    pass
+                _obj_target2, _adv_target2, _score_target2 = _get_attack_targets()
+                if _obj_target2:
+                    _orch = AdvancedCrescendoOrchestrator(
+                        objective_target=_obj_target2,
+                        adversarial_chat=_adv_target2,
+                        scoring_target=_score_target2,
+                        objective=_extra_obj,
+                        max_turns=getattr(args, "crescendo_max_turns", 10),
+                    )
+                    _cres_extra_result = await _orch.run_async()
+                    ctx.metadata.setdefault("crescendo_extra_results", []).append(
+                        _cres_extra_result.to_dict()
+                    )
+                    print(
+                        f"  Crescendo 补充 #{_idx+1} [{_extra_owasp or 'N/A'}]: "
+                        f"achieved={_cres_extra_result.achieved}, "
+                        f"turn={_cres_extra_result.winning_turn}/{_cres_extra_result.max_turns}"
+                    )
+            except Exception as e:
+                print(f"  [提示] Crescendo 补充 #{_idx+1} 跳过: {e}")
+
+    # ── TAP 执行 (含超时保护) ──
+    # P1: TAP 超时即时跳过 (tap_max_timeout_retries=0), 避免浪费 ~7.5min 无效重试
+    # 学术依据: NIST SP 800-92 — 可恢复异常的重试属于噪音层;
+    #   TAP 树搜索需要稳定端点, 超时通常意味着端点不可用
+    if tap_obj:
+        # P1: 读取 tap_max_timeout_retries 配置
+        _tap_max_timeout_retries = 0
+        try:
+            from pipeline.config import _load_attack_params
+            _tap_cfg = _load_attack_params().get("multiturn_objective_selection", {})
+            _tap_max_timeout_retries = int(_tap_cfg.get("tap_max_timeout_retries", 0))
         except Exception:
             pass
 
-    if tap_obj:
+        # P1: 超时计数器 — 超过配置的重试次数后立即跳过
+        _tap_timeout_count = 0
+        _tap_should_skip = False
+
         try:
             from pipeline.orchestrators.tap_orchestrator import TAPOrchestrator
 
             _obj_target, _adv_target, _score_target = _get_attack_targets()
             if _obj_target:
-                orchestrator = TAPOrchestrator(
-                    objective_target=_obj_target,
-                    adversarial_chat=_adv_target,
-                    scoring_target=_score_target,
-                    objective=tap_obj,
-                    tree_width=getattr(args, "tap_tree_width", 4),
-                    tree_depth=getattr(args, "tap_tree_depth", 3),
-                    branching=getattr(args, "tap_branching", 2),
-                    success_threshold=getattr(args, "tap_success_threshold", 8),
-                )
-                tap_result = await orchestrator.run_async()
-                ctx.metadata["tap_result"] = tap_result.to_dict()
-                ctx.metadata["tap_auto_triggered"] = _auto_tap
-                print(f"  TAP (原生): achieved={tap_result.achieved}, "
-                      f"best_score={tap_result.best_score}, "
-                      f"nodes_explored={tap_result.nodes_explored}, "
-                      f"nodes_pruned={tap_result.nodes_pruned}"
-                      f"{' [自动]' if _auto_tap else ''}")
+                if _tap_max_timeout_retries == 0:
+                    # P1: 零重试模式 — 用 contextlib.suppress 捕获超时异常
+                    import contextlib
+                    with contextlib.suppress(Exception):
+                        orchestrator = TAPOrchestrator(
+                            objective_target=_obj_target,
+                            adversarial_chat=_adv_target,
+                            scoring_target=_score_target,
+                            objective=tap_obj,
+                            tree_width=getattr(args, "tap_tree_width", 4),
+                            tree_depth=getattr(args, "tap_tree_depth", 3),
+                            branching=getattr(args, "tap_branching", 2),
+                            success_threshold=getattr(args, "tap_success_threshold", 8),
+                        )
+                        # F1: asyncio.wait_for 超时保护 — 防止 security_audit_fail 卡死
+                        _tap_timeout = int(getattr(args, "tap_timeout", 180))
+                        try:
+                            tap_result = await asyncio.wait_for(
+                                orchestrator.run_async(), timeout=_tap_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            tap_result = None
+                            print(f"  [提示] TAP 攻击超时跳过 (timeout={_tap_timeout}s)")
+                        ctx.metadata["tap_result"] = tap_result.to_dict()
+                        ctx.metadata["tap_auto_triggered"] = _auto_tap
+                        print(f"  TAP (原生): achieved={tap_result.achieved}, "
+                              f"best_score={tap_result.best_score}, "
+                              f"nodes_explored={tap_result.nodes_explored}, "
+                              f"nodes_pruned={tap_result.nodes_pruned}"
+                              f"{' [自动]' if _auto_tap else ''}")
+                    # 检查是否成功 (ctx.metadata 中是否有 tap_result)
+                    if "tap_result" not in ctx.metadata:
+                        print("  [提示] TAP 跳过 (P1: 零重试模式, 超时/异常即时跳过)")
+                else:
+                    # 标准模式 — 允许有限重试
+                    orchestrator = TAPOrchestrator(
+                        objective_target=_obj_target,
+                        adversarial_chat=_adv_target,
+                        scoring_target=_score_target,
+                        objective=tap_obj,
+                        tree_width=getattr(args, "tap_tree_width", 4),
+                        tree_depth=getattr(args, "tap_tree_depth", 3),
+                        branching=getattr(args, "tap_branching", 2),
+                        success_threshold=getattr(args, "tap_success_threshold", 8),
+                    )
+                    # F1: asyncio.wait_for 超时保护 — 标准模式同样需要
+                    _tap_timeout = int(getattr(args, "tap_timeout", 180))
+                    try:
+                        tap_result = await asyncio.wait_for(
+                            orchestrator.run_async(), timeout=_tap_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        tap_result = None
+                        print(f"  [提示] TAP 攻击超时跳过 (timeout={_tap_timeout}s)")
+                    if tap_result:
+                        ctx.metadata["tap_result"] = tap_result.to_dict()
+                        ctx.metadata["tap_auto_triggered"] = _auto_tap
+                        print(f"  TAP (原生): achieved={tap_result.achieved}, "
+                              f"best_score={tap_result.best_score}, "
+                              f"nodes_explored={tap_result.nodes_explored}, "
+                              f"nodes_pruned={tap_result.nodes_pruned}"
+                              f"{' [自动]' if _auto_tap else ''}")
             else:
                 print("  [提示] TAP 跳过: 未找到已注册的 Target")
         except Exception as e:
-            print(f"  [提示] TAP 攻击跳过: {e}")
+            _err_msg = str(e)
+            if "timeout" in _err_msg.lower() or "APITimeoutError" in _err_msg:
+                print(f"  [提示] TAP 攻击跳过 (API 超时, P1 超时保护): {_err_msg[:80]}")
+            else:
+                print(f"  [提示] TAP 攻击跳过: {e}")
 
     # ── XPIA 间接注入攻击 (PyRIT 原生 XPIAWorkflow) ──
     # 攻击为王: 当 Recon 检测到 Agent/RAG 能力时自动触发 XPIA
@@ -1158,6 +1208,21 @@ async def run(ctx: PipelineContext) -> None:
         )
         # 采样信息由 _print_payload_decision 统一展示
 
+    # P2+P3: 动态参数调优 — 基于历史 ASR 数据量和 API 稳定性
+    # P2: 热启动 (≥20 种子) 时 max_dataset_size 2→3, 增加统计显著性
+    # P3: 热启动时 max_concurrency 2→3, 提高吞吐 (冷启动保持保守)
+    # 学术依据: HarmBench (arXiv:2402.04249) 每类≥3 样本统计显著;
+    #   DART (arXiv:2407.06485) 数据积累后可增大采样
+    _seed_asr_count = len(ctx.metadata.get("seed_level_asr") or {})
+    if _seed_asr_count >= 20 and args.max_dataset_size < 3:
+        args.max_dataset_size = 3
+        ctx.metadata["dynamic_max_dataset_size"] = True
+        print(f"  [P2 动态调优] 热启动 ({_seed_asr_count} 种子) → max_dataset_size 2→3")
+    if _seed_asr_count >= 20 and args.max_concurrency < 3:
+        args.max_concurrency = 3
+        ctx.metadata["dynamic_max_concurrency"] = True
+        print(f"  [P3 动态调优] 热启动 ({_seed_asr_count} 种子) → max_concurrency 2→3")
+
     # CompoundDatasetAttackConfiguration (ASR 加权 per-dataset 预算)
     # P2-⑤: 自适应预算分配 — 高 ASR 数据集获得更多种子, 总预算保持一致
     # 学术依据: HarmBench (arXiv:2402.04249) ASR 加权采样防止执行爆炸;
@@ -1262,6 +1327,12 @@ async def run(ctx: PipelineContext) -> None:
         try:
             _all_registered = list(AttackTechniqueRegistry.get_registry_singleton().get_factories().keys())
             _auto_techs = [n for n in _all_registered if is_known_technique(n)]
+            # P5: 禁用 many_shot — 生成 6.3M token prompt (39x over 163K limit),
+            # 导致全部 many_shot 攻击失败并占用攻击槽位
+            _auto_techs = [t for t in _auto_techs if t != "many_shot"]
+            # v35: 排除 prompt_sending — 作为基线技术由 include_baseline 单独处理,
+            # 传入 TextAdaptive 会触发 _EXCLUDED_TECHNIQUES 警告 (PyRIT 内部排除)
+            _auto_techs = [t for t in _auto_techs if t != "prompt_sending"]
             # 过滤 patched 技术 (O-5 一致性)
             if _auto_techs:
                 try:
@@ -1319,7 +1390,7 @@ async def run(ctx: PipelineContext) -> None:
     # converter_target 已提前获取
 
     # ConverterHealthMonitor — 熔断器+降级+统计
-    health_monitor = ConverterHealthMonitor(failure_threshold=2)
+    health_monitor = ConverterHealthMonitor(failure_threshold=5)
     ctx.converter_health_monitor = health_monitor
 
     # Layer 1: CLI --converters (ASR 驱动差异化路由)
@@ -1387,6 +1458,65 @@ async def run(ctx: PipelineContext) -> None:
                 )
         except Exception as e:
             print(f"  Converter Target 感知路由: 异常 ({e}), 跳过")
+
+    # P8: Layer 2.5 — 模态感知 Converter 自动路由
+    # 对多模态目标 (image/audio/video), 使用模态专用 Converter 链
+    # 替代不适合的 text→text 链, 提升多模态攻击 ASR
+    # 学术依据: Shayegani et al. (arXiv:2306.13254) 多模态组合攻击
+    if ctx.target_type and technique_names:
+        try:
+            from pipeline.multimodal import is_multimodal_target
+
+            if is_multimodal_target(target_instance):
+                from pipeline.converters.target_aware_router import get_chains_by_modality
+
+                modality_map = get_chains_by_modality(
+                    target=target_instance,
+                    converter_target_available=converter_target_available,
+                    model_tier=model_tier,
+                )
+                if modality_map:
+                    # 构建 Converter 实例并合并到 technique_converter_map
+                    from pipeline.converters.chains import build_converters_from_chain_names
+
+                    for tech_name, chain_names in modality_map.items():
+                        base_tech = tech_name.split("+")[0] if "+" in tech_name else tech_name
+                        # P7: 按 tier × modality 动态调整深度
+                        from pipeline.converters.model_tier_detector import get_max_depth_for_tier_modality
+
+                        # 检测主要模态
+                        from pipeline.multimodal import detect_target_modalities
+
+                        modalities = detect_target_modalities(target_instance)
+                        primary_modality = "text"
+                        for m in ("image", "audio", "video", "file"):
+                            if m in modalities:
+                                primary_modality = m
+                                break
+
+                        effective_depth = get_max_depth_for_tier_modality(
+                            model_tier, primary_modality
+                        )
+                        converters = build_converters_from_chain_names(
+                            chain_names=chain_names,
+                            converter_target=converter_target,
+                            max_depth=effective_depth,
+                        )
+                        if converters:
+                            technique_converter_map[base_tech] = converters
+                    modality_assignments = sum(
+                        len(v) for v in modality_map.values()
+                    )
+                    logger.info(
+                        f"Converter 模态感知路由 (P8 Layer 2.5): "
+                        f"{len(modality_map)} 技术 ({modality_assignments} 链分配)"
+                    )
+                    print(
+                        f"  Converter 模态感知路由: {len(modality_map)} 技术 "
+                        f"({modality_assignments} 链分配, 多模态专用)"
+                    )
+        except Exception as e:
+            logger.debug(f"P8: modality-aware converter routing skipped: {e}")
 
     # 注入合并后的 technique_converters
     if technique_converter_map:
@@ -1508,11 +1638,13 @@ async def run(ctx: PipelineContext) -> None:
         _filtered_count = 0
         for _tech_name, _converters in list(technique_converter_map.items()):
             _base_tech = _tech_name.split("+")[0] if "+" in _tech_name else _tech_name
-            # 移除非 many_shot 技术的重型 Converter
-            if _base_tech != "many_shot":
-                _filtered = [c for c in _converters if type(c).__name__ not in _HEAVY_CONVERTERS]
-            else:
-                _filtered = list(_converters)
+            # P2: 移除所有技术的重型 Converter (包括 many_shot)
+            # 原因: AsciiSmuggler/SneakyBits 将 30K ManyShot prompt 膨胀到 6M tokens,
+            # 导致 BadRequest 400 (token 溢出 163K 限制) 并中断整个场景.
+            # semantic_evasion (UnicodeConfusable+Leetspeak) 保持可读性且不膨胀 prompt.
+            # 学术依据: HarmBench (arXiv:2402.04249) 3+ 层同类型不提升 ASR;
+            #   Zeng et al. (arXiv:2402.19181) 语义层 ASR 30-40% >> 表示层 8-12%
+            _filtered = [c for c in _converters if type(c).__name__ not in _HEAVY_CONVERTERS]
             # 限制链深度
             if len(_filtered) > _MAX_CHAIN_DEPTH:
                 _filtered = _filtered[:_MAX_CHAIN_DEPTH]
@@ -1544,6 +1676,65 @@ async def run(ctx: PipelineContext) -> None:
         params["technique_converters"] = technique_converter_map
         ctx.technique_converter_map = technique_converter_map
         ctx.converter_routing_count = sum(len(v) for v in technique_converter_map.values())
+
+    # ── Layer 5: Gap-filling — 为缺少 Converter 的技术补充分配 ──
+    # 根因: Layer 2 (Target-aware) 可能为部分技术 (如 many_shot, red_teaming)
+    # 产出 Converter, 导致 technique_converter_map 非空, Layer 3/4 的 elif/if not
+    # 条件被跳过, 其他技术 (如 prompt_sending) 永远得不到 Converter.
+    # 修复: 在所有路由层之后, 检查哪些已知技术缺少 Converter, 从
+    # BASE_TECHNIQUES_FOR_VARIANTS 补充分配.
+    # 学术依据:
+    #   - Russinovich et al. (arXiv:2402.12109): Converter 协同 3-5x ASR
+    #   - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
+    #   - HarmBench (arXiv:2402.04249): 全技术覆盖提升整体 ASR
+    if (
+        technique_converter_map
+        and getattr(args, "auto_converters", True)
+        and technique_names
+    ):
+        try:
+            from pipeline.converters.chains import (
+                BASE_TECHNIQUES_FOR_VARIANTS,
+                build_converters_from_chain_names,
+            )
+
+            _gap_filled = 0
+            for _tech in technique_names:
+                _base = _tech.split("+")[0] if "+" in _tech else _tech
+                _existing = technique_converter_map.get(_tech)
+                if _existing:
+                    continue
+                _configured_chains = BASE_TECHNIQUES_FOR_VARIANTS.get(_base)
+                if not _configured_chains:
+                    continue
+                _gap_converters = build_converters_from_chain_names(
+                    chain_names=_configured_chains,
+                    converter_target=converter_target,
+                )
+                # P2: 重型 Converter 过滤 (与 Layer P0 一致, 包括 many_shot)
+                _gap_converters = [
+                    c for c in _gap_converters
+                    if type(c).__name__ not in _HEAVY_CONVERTERS
+                ]
+                if _gap_converters:
+                    technique_converter_map[_tech] = _gap_converters
+                    _gap_filled += 1
+            if _gap_filled > 0:
+                params["technique_converters"] = technique_converter_map
+                ctx.technique_converter_map = technique_converter_map
+                ctx.converter_routing_count = sum(
+                    len(v) for v in technique_converter_map.values()
+                )
+                logger.info(
+                    f"Converter Gap-filling (Layer 5): {_gap_filled} 技术 "
+                    f"从 BASE_TECHNIQUES_FOR_VARIANTS 补充分配"
+                )
+                print(
+                    f"  [Layer 5] Converter Gap-filling: {_gap_filled} 技术 "
+                    f"补充 Converter 分配"
+                )
+        except Exception as e:
+            logger.debug(f"Layer 5 gap-filling skipped: {e}")
 
     if not technique_converter_map:
         logger.info("Converter 路由: 未启用 (使用 --converters 添加或检测 target_type)")
@@ -1588,7 +1779,7 @@ async def run(ctx: PipelineContext) -> None:
     # 多层 Converter 合并后 (Layer 1-4), 单个技术可能累积 7+ 层 Converter,
     # 导致增强后的 prompt 超过 API 请求体限制 (413) 或处理超时 (120s).
     # 修复: set_params_from_args 之前, 直接过滤 params["technique_converters"],
-    # 限制每技术最多 3 层 Converter, 移除非 many_shot 技术的重型 Converter.
+    # P2: 移除所有技术的重型 Converter (包括 many_shot), 限制链深度.
     # 学术依据: Russinovich et al. (arXiv:2402.12109) 2-3 层编码即可实现 3-5x ASR 增益
     _tc_map = params.get("technique_converters") or technique_converter_map
     if _tc_map:
@@ -1596,13 +1787,8 @@ async def run(ctx: PipelineContext) -> None:
         _MAX_DEPTH = 3
         _total_removed = 0
         for _tech, _convs in list(_tc_map.items()):
-            _base = _tech.split("+")[0] if "+" in _tech else _tech
-            # 移除非 many_shot 技术的重型 Converter
-            _filt = (
-                [c for c in _convs if type(c).__name__ not in _HEAVY_CONV]
-                if _base != "many_shot"
-                else list(_convs)
-            )
+            # P2: 所有技术 (包括 many_shot) 移除重型 Converter
+            _filt = [c for c in _convs if type(c).__name__ not in _HEAVY_CONV]
             # 限制链深度
             if len(_filt) > _MAX_DEPTH:
                 _filt = _filt[:_MAX_DEPTH]
@@ -1615,7 +1801,7 @@ async def run(ctx: PipelineContext) -> None:
             ctx.technique_converter_map = _tc_map
             print(
                 f"  [P0] Converter 链深度限制: 移除 {_total_removed} 个 Converter "
-                f"(max {_MAX_DEPTH}/技术, 重型仅限 many_shot)"
+                f"(max {_MAX_DEPTH}/技术, P2: 重型 Converter 全禁)"
             )
             logger.info(
                 f"Converter chain depth limit: removed {_total_removed} converters "

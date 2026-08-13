@@ -751,7 +751,8 @@ def collect_seed_level_asr_from_memory(
             f"(from {len(results)} results, {empty_objective_count} empty, model={model_name})"
         )
     else:
-        logger.warning(
+        # 降级为 debug — 冷启动时无历史 ASR 是正常情况, 不污染攻击者视角
+        logger.debug(
             "collect_seed_level_asr_from_memory: result_asr is empty "
             f"(results={len(results)}, empty_objective={empty_objective_count}, "
             f"model={model_name}) — no seed_level file written"
@@ -956,7 +957,8 @@ def collect_dataset_level_asr_from_memory(
             f"(from {len(results)} results, {unmatched_count} unmatched, model={model_name})"
         )
     else:
-        logger.warning(
+        # 降级为 debug — 冷启动时无历史 ASR 是正常情况, 不污染攻击者视角
+        logger.debug(
             "collect_dataset_level_asr_from_memory: result_asr is empty "
             f"(results={len(results)}, unmatched={unmatched_count}, "
             f"model={model_name}) — no dataset_level file written"
@@ -1021,3 +1023,510 @@ def load_dataset_level_asr(
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load dataset-level ASR from {path}: {e}")
         return {}
+
+
+# ──────────────────────────────────────────────────────────────────
+#  MTOS: 多轮目标适宜性评分 (Multi-Turn Objective Suitability Score)
+# ──────────────────────────────────────────────────────────────────
+# 学术依据:
+#   - Crescendo (arXiv:2402.12109): 渐进升级擅长突破单轮防御,
+#     最优目标 = 单轮 ASR 低但目标可实现
+#   - TAP (arXiv:2312.02191): 树搜索需"部分路径可成功"空间,
+#     最优目标 = 中等难度 (单轮 ASR 10-30%)
+#   - HarmBench (arXiv:2402.04249): 类别平衡采样确保覆盖
+#   - DART (arXiv:2407.06485): per-seed × per-model ASR 指导选择
+# ──────────────────────────────────────────────────────────────────
+
+# MTOS 权重默认值 (可被 YAML 覆盖)
+_MTOS_DEFAULT_WEIGHTS: dict[str, float] = {
+    "asr_suitability": 0.35,
+    "difficulty": 0.25,
+    "severity": 0.20,
+    "category_diversity": 0.20,
+}
+
+# 难度评分映射 (hard=高适宜, Crescendo 价值最大化)
+_DIFFICULTY_SCORES: dict[str, float] = {
+    "hard": 1.0,
+    "medium": 0.7,
+    "easy": 0.3,
+}
+
+# 严重性评分映射 (critical=高影响)
+_SEVERITY_SCORES: dict[str, float] = {
+    "critical": 1.0,
+    "high": 0.7,
+    "medium": 0.4,
+    "low": 0.2,
+}
+
+
+def _compute_asr_suitability(
+    asr: float,
+    total: int,
+    *,
+    asr_window: tuple[float, float] = (0.0, 0.15),
+) -> float:
+    """计算 ASR 适宜性分数 (钟形曲线, 峰值在窗口中心).
+
+    核心原则: 多轮攻击的种子选择应反向于单轮 —
+    高单轮 ASR 种子已被单轮攻破, Crescendo 多轮渐进的价值被浪费.
+
+    Args:
+        asr: 历史单轮 ASR (Wilson 下界).
+        total: 该种子的历史尝试次数.
+        asr_window: (lower, upper) 偏好窗口, 默认 (0.0, 0.15) 适合 Crescendo.
+
+    Returns:
+        适宜性分数 [0.0, 1.0].
+    """
+    lower, upper = asr_window
+    center = (lower + upper) / 2.0
+
+    # 0% ASR 特殊处理: 区分小样本 (不确定) 和大样本 (确认难)
+    if asr == 0.0:
+        if total < 3:
+            return 0.6  # 小样本不确定性高, Crescendo 可能突破
+        return 0.3  # 多次尝试均失败, 可能确实无法突破
+    elif asr < lower:
+        # 低于窗口下限 (非 0%) — 偏难但非完全失败
+        return 0.5
+    elif asr <= upper:
+        # 在偏好窗口内 — 最优
+        # 越接近窗口中心越高
+        distance_from_center = abs(asr - center) / max(center - lower, 0.001)
+        return 1.0 - 0.2 * distance_from_center  # 0.8 ~ 1.0
+    elif asr <= 0.50:
+        # 中等 ASR — 单轮已可部分突破, 多轮仍有价值但递减
+        return 0.4
+    else:
+        # 高 ASR — 单轮已可攻破, 多轮攻击浪费资源
+        return 0.1
+
+
+def compute_mtos_score(
+    seed_hash: str,
+    seed_asr_data: dict[str, Any] | None,
+    seed_metadata: dict[str, Any] | None,
+    *,
+    used_owasp_ids: set[str] | None = None,
+    weights: dict[str, float] | None = None,
+    asr_window: tuple[float, float] = (0.0, 0.15),
+) -> float:
+    """计算单个种子的 MTOS (多轮目标适宜性) 分数.
+
+    MTOS = w_asr × ASR_suitability + w_diff × Difficulty + w_sev × Severity + w_cat × Category_diversity
+
+    Args:
+        seed_hash: 种子哈希 (用于查 seed_asr_data).
+        seed_asr_data: {seed_hash: {asr, total, seed_preview}} 历史数据.
+        seed_metadata: 种子元数据 {difficulty, severity, owasp_id, ...}.
+        used_owasp_ids: 已选种子的 OWASP ID 集合 (用于类别多样性).
+        weights: 权重覆盖 (None=使用默认权重).
+        asr_window: ASR 偏好窗口.
+
+    Returns:
+        MTOS 分数 [0.0, 1.0+], 越高越适宜.
+    """
+    w = weights or _MTOS_DEFAULT_WEIGHTS
+    used = used_owasp_ids or set()
+
+    # 维度 1: ASR 适宜性
+    asr_val = 0.0
+    total_val = 0
+    if seed_asr_data and seed_hash in seed_asr_data:
+        info = seed_asr_data[seed_hash]
+        if isinstance(info, dict):
+            asr_val = float(info.get("asr", 0.0))
+            total_val = int(info.get("total", 0))
+    asr_score = _compute_asr_suitability(asr_val, total_val, asr_window=asr_window)
+
+    # 维度 2: Difficulty
+    diff_str = ""
+    if seed_metadata and isinstance(seed_metadata, dict):
+        diff_str = str(seed_metadata.get("difficulty", "")).lower()
+    diff_score = _DIFFICULTY_SCORES.get(diff_str, 0.5)  # 未知=中等
+
+    # 维度 3: Severity
+    sev_str = ""
+    if seed_metadata and isinstance(seed_metadata, dict):
+        sev_str = str(seed_metadata.get("severity", "")).lower()
+    sev_score = _SEVERITY_SCORES.get(sev_str, 0.5)
+
+    # 维度 4: Category diversity
+    owasp_id = ""
+    if seed_metadata and isinstance(seed_metadata, dict):
+        owasp_id = str(seed_metadata.get("owasp_id", ""))
+    cat_score = 1.0 if (owasp_id and owasp_id not in used) else 0.0
+
+    # 加权求和
+    mtos = (
+        w.get("asr_suitability", 0.35) * asr_score
+        + w.get("difficulty", 0.25) * diff_score
+        + w.get("severity", 0.20) * sev_score
+        + w.get("category_diversity", 0.20) * cat_score
+    )
+
+    return round(mtos, 4)
+
+
+def select_multiturn_objectives(
+    *,
+    seed_level_asr: dict[str, dict[str, Any]] | None = None,
+    datasets: list[str] | None = None,
+    weights: dict[str, float] | None = None,
+    crescendo_asr_window: tuple[float, float] = (0.0, 0.15),
+    tap_asr_window: tuple[float, float] = (0.10, 0.30),
+    cold_start_min_seeds: int = 5,
+) -> tuple[str | None, str | None, dict[str, Any]]:
+    """为 Crescendo/TAP 选择最优多轮攻击目标.
+
+    统一入口: 热启动 (有足够历史 ASR) 走 MTOS 评分,
+    冷启动 (无/少历史数据) 走元数据驱动选择.
+
+    学术依据:
+      - Crescendo (arXiv:2402.12109): 渐进升级突破单轮防御
+      - TAP (arXiv:2312.02191): 树搜索需中等难度空间
+      - HarmBench (arXiv:2402.04249): 类别平衡采样
+      - DART (arXiv:2407.06485): per-seed × per-model ASR 指导选择
+
+    Args:
+        seed_level_asr: 历史种子级 ASR 数据 (来自 load_seed_level_asr).
+        datasets: 数据集名称列表 (用于冷启动遍历 CentralMemory).
+        weights: MTOS 权重覆盖.
+        crescendo_asr_window: Crescendo 偏好的 ASR 窗口.
+        tap_asr_window: TAP 偏好的 ASR 窗口.
+        cold_start_min_seeds: 低于此数走冷启动策略.
+
+    Returns:
+        (crescendo_obj, tap_obj, meta):
+          - crescendo_obj: Crescendo 目标文本 (或 None)
+          - tap_obj: TAP 目标文本 (或 None)
+          - meta: 选择元信息 {strategy, crescendo_seed_hash, tap_seed_hash, ...}
+    """
+    asr_data = seed_level_asr or {}
+    is_cold_start = len(asr_data) < cold_start_min_seeds
+
+    meta: dict[str, Any] = {
+        "strategy": "cold_start" if is_cold_start else "warm_start",
+        "crescendo_seed_hash": "",
+        "tap_seed_hash": "",
+        "crescendo_asr": None,
+        "tap_asr": None,
+        "crescendo_owasp_id": "",
+        "tap_owasp_id": "",
+        "crescendo_extra": [],  # P4: 额外 Crescendo 目标 (不同 OWASP 类别)
+    }
+
+    if not is_cold_start:
+        # ── 热启动: MTOS 评分 ──
+        # 从 CentralMemory 获取种子元数据 (与 ASR 数据关联)
+        seed_meta_map = _build_seed_metadata_map(asr_data)
+
+        # Crescendo 选种
+        crescendo_obj, cres_hash, cres_owasp = _select_by_mtos(
+            asr_data,
+            seed_meta_map,
+            used_owasp_ids=set(),
+            weights=weights,
+            asr_window=crescendo_asr_window,
+        )
+        if crescendo_obj:
+            meta["crescendo_seed_hash"] = cres_hash
+            meta["crescendo_owasp_id"] = cres_owasp
+            cres_info = asr_data.get(cres_hash, {})
+            if isinstance(cres_info, dict):
+                meta["crescendo_asr"] = cres_info.get("asr")
+
+        # P4: Crescendo 额外目标 (第2个, 不同 OWASP 类别)
+        used_owasp_cres = {cres_owasp} if cres_owasp else set()
+        cres_extra_obj, cres_extra_hash, cres_extra_owasp = _select_by_mtos(
+            asr_data,
+            seed_meta_map,
+            used_owasp_ids=used_owasp_cres,
+            weights=weights,
+            asr_window=crescendo_asr_window,
+            exclude_hash=cres_hash,
+        )
+        if cres_extra_obj:
+            meta["crescendo_extra"].append({
+                "objective": cres_extra_obj,
+                "owasp_id": cres_extra_owasp,
+                "seed_hash": cres_extra_hash,
+            })
+
+        # TAP 选种 (不同 OWASP 类别)
+        used_owasp = used_owasp_cres | ({cres_extra_owasp} if cres_extra_owasp else set())
+        tap_obj, tap_hash, tap_owasp = _select_by_mtos(
+            asr_data,
+            seed_meta_map,
+            used_owasp_ids=used_owasp,
+            weights=weights,
+            asr_window=tap_asr_window,
+            exclude_hash=cres_hash,
+        )
+        if tap_obj:
+            meta["tap_seed_hash"] = tap_hash
+            meta["tap_owasp_id"] = tap_owasp
+            tap_info = asr_data.get(tap_hash, {})
+            if isinstance(tap_info, dict):
+                meta["tap_asr"] = tap_info.get("asr")
+
+    else:
+        # ── 冷启动: 元数据驱动选种 ──
+        crescendo_obj, tap_obj, cold_meta = _select_cold_start(
+            datasets=datasets,
+            crescendo_asr_window=crescendo_asr_window,
+            tap_asr_window=tap_asr_window,
+        )
+        meta.update(cold_meta)
+
+    return crescendo_obj, tap_obj, meta
+
+
+def _build_seed_metadata_map(
+    asr_data: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """从 CentralMemory 构建种子哈希 → 元数据映射.
+
+    通过匹配 seed_preview 文本的前 200 字符来关联 ASR 数据和种子元数据.
+    """
+    meta_map: dict[str, dict[str, Any]] = {}
+
+    try:
+        memory = CentralMemory.get_memory_instance()
+        all_prompts = memory.get_seed_prompts()
+    except Exception as e:
+        logger.debug(f"Failed to get seed prompts for metadata map: {e}")
+        return meta_map
+
+    # 构建 preview → metadata 查找表
+    preview_to_meta: dict[str, dict[str, Any]] = {}
+    for p in all_prompts:
+        value = (
+            getattr(p, "value", None)
+            or getattr(p, "original_value", None)
+            or ""
+        )
+        if value and len(value) > 5:
+            preview = value[:100]
+            metadata = getattr(p, "metadata", None)
+            if isinstance(metadata, dict):
+                preview_to_meta[preview] = metadata
+
+    # 关联 ASR 数据 → 元数据
+    for seed_hash, info in asr_data.items():
+        if not isinstance(info, dict):
+            continue
+        preview = info.get("seed_preview", "")
+        if preview and preview in preview_to_meta:
+            meta_map[seed_hash] = preview_to_meta[preview]
+        else:
+            # 尝试模糊匹配 (前 50 字符)
+            short_preview = preview[:50]
+            for p, m in preview_to_meta.items():
+                if p.startswith(short_preview):
+                    meta_map[seed_hash] = m
+                    break
+
+    return meta_map
+
+
+def _select_by_mtos(
+    asr_data: dict[str, dict[str, Any]],
+    seed_meta_map: dict[str, dict[str, Any]],
+    *,
+    used_owasp_ids: set[str],
+    weights: dict[str, float] | None = None,
+    asr_window: tuple[float, float] = (0.0, 0.15),
+    exclude_hash: str | None = None,
+) -> tuple[str | None, str, str]:
+    """按 MTOS 分数选种, 返回 (objective_text, seed_hash, owasp_id)."""
+    scored: list[tuple[float, str, dict[str, Any]]] = []
+
+    for seed_hash, info in asr_data.items():
+        if seed_hash == exclude_hash:
+            continue
+        if not isinstance(info, dict):
+            continue
+
+        metadata = seed_meta_map.get(seed_hash, {})
+        score = compute_mtos_score(
+            seed_hash=seed_hash,
+            seed_asr_data=asr_data,
+            seed_metadata=metadata,
+            used_owasp_ids=used_owasp_ids,
+            weights=weights,
+            asr_window=asr_window,
+        )
+        scored.append((score, seed_hash, info))
+
+    if not scored:
+        return None, "", ""
+
+    # 按 MTOS 降序, 取 Top-1
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_hash, best_info = scored[0]
+
+    # 提取 objective 文本
+    obj_text = best_info.get("seed_preview", "")[:200]
+    if not obj_text or len(obj_text) < 10:
+        return None, "", ""
+
+    # 提取 owasp_id
+    metadata = seed_meta_map.get(best_hash, {})
+    owasp_id = str(metadata.get("owasp_id", "")) if isinstance(metadata, dict) else ""
+
+    return obj_text, best_hash, owasp_id
+
+
+def _select_cold_start(
+    *,
+    datasets: list[str] | None = None,
+    crescendo_asr_window: tuple[float, float] = (0.0, 0.15),
+    tap_asr_window: tuple[float, float] = (0.10, 0.30),
+) -> tuple[str | None, str | None, dict[str, Any]]:
+    """冷启动选种: 无历史 ASR 时基于种子元数据选种.
+
+    策略:
+      1. 从 CentralMemory 遍历所有已加载种子
+      2. 过滤: difficulty ∈ {medium, hard} AND severity ∈ {critical, high}
+      3. 评分: Difficulty(0.4) + Severity(0.35) + Category_diversity(0.25)
+      4. Crescendo ← Top-1 (偏好 hard); TAP ← Top-2 (不同 OWASP, 偏好 medium)
+    """
+    meta: dict[str, Any] = {
+        "strategy": "cold_start",
+        "crescendo_seed_hash": "",
+        "tap_seed_hash": "",
+        "crescendo_asr": None,
+        "tap_asr": None,
+        "crescendo_owasp_id": "",
+        "tap_owasp_id": "",
+    }
+
+    try:
+        memory = CentralMemory.get_memory_instance()
+    except Exception as e:
+        logger.debug(f"Cold start: failed to get CentralMemory: {e}")
+        return None, None, meta
+
+    # 收集所有种子 + 元数据
+    candidates: list[dict[str, Any]] = []
+    ds_names = datasets or []
+    if not ds_names:
+        try:
+            all_prompts = memory.get_seed_prompts()
+            ds_names = list(
+                {getattr(p, "dataset_name", "") for p in all_prompts if getattr(p, "dataset_name", "")}
+            )
+        except Exception:
+            pass
+
+    for ds_name in ds_names:
+        try:
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            if not prompts:
+                continue
+            for p in prompts:
+                value = (
+                    getattr(p, "value", None)
+                    or getattr(p, "original_value", None)
+                    or ""
+                )
+                if not value or len(value) < 10:
+                    continue
+                metadata = getattr(p, "metadata", None)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                difficulty = str(metadata.get("difficulty", "")).lower()
+                severity = str(metadata.get("severity", "")).lower()
+                # 过滤: 仅选 medium/hard + critical/high
+                if difficulty not in ("medium", "hard"):
+                    continue
+                if severity not in ("critical", "high"):
+                    continue
+                candidates.append({
+                    "value": value[:200],
+                    "metadata": metadata,
+                    "difficulty": difficulty,
+                    "severity": severity,
+                    "owasp_id": str(metadata.get("owasp_id", "")),
+                    "dataset_name": ds_name,
+                })
+        except Exception:
+            continue
+
+    if not candidates:
+        # 最终 fallback: 取首个数据集首个种子 (与旧逻辑兼容)
+        return _cold_start_fallback(datasets, meta)
+
+    # 评分: Difficulty(0.4) + Severity(0.35) + Category_diversity(0.25)
+    used_owasp: set[str] = set()
+
+    def _cold_score(c: dict[str, Any], *, prefer_difficulty: str = "hard") -> float:
+        diff_score = 1.0 if c["difficulty"] == prefer_difficulty else 0.7
+        sev_score = 1.0 if c["severity"] == "critical" else 0.7
+        cat_score = 1.0 if (c["owasp_id"] and c["owasp_id"] not in used_owasp) else 0.0
+        return 0.4 * diff_score + 0.35 * sev_score + 0.25 * cat_score
+
+    # Crescendo: 偏好 hard
+    candidates.sort(key=lambda c: _cold_score(c, prefer_difficulty="hard"), reverse=True)
+    cres_candidate = candidates[0]
+    cres_obj = cres_candidate["value"]
+    cres_owasp = cres_candidate["owasp_id"]
+    used_owasp.add(cres_owasp)
+    meta["crescendo_owasp_id"] = cres_owasp
+
+    # TAP: 偏好 medium, 不同 OWASP 类别
+    tap_candidates = [c for c in candidates[1:] if c["owasp_id"] not in used_owasp]
+    if not tap_candidates:
+        tap_candidates = candidates[1:] if len(candidates) > 1 else []
+
+    tap_obj = None
+    tap_owasp = ""
+    if tap_candidates:
+        tap_candidates.sort(key=lambda c: _cold_score(c, prefer_difficulty="medium"), reverse=True)
+        tap_candidate = tap_candidates[0]
+        tap_obj = tap_candidate["value"]
+        tap_owasp = tap_candidate["owasp_id"]
+        meta["tap_owasp_id"] = tap_owasp
+
+    return cres_obj, tap_obj, meta
+
+
+def _cold_start_fallback(
+    datasets: list[str] | None,
+    meta: dict[str, Any],
+) -> tuple[str | None, str | None, dict[str, Any]]:
+    """最终冷启动 fallback: 从 CentralMemory 取首个种子 (兼容旧逻辑)."""
+    try:
+        memory = CentralMemory.get_memory_instance()
+        for ds_name in (datasets or [])[:3]:
+            prompts = memory.get_seed_prompts(dataset_name=ds_name)
+            if prompts:
+                p = prompts[0]
+                obj = (
+                    getattr(p, "value", None)
+                    or getattr(p, "original_value", None)
+                    or ""
+                )[:200]
+                if obj and len(obj) > 10:
+                    metadata = getattr(p, "metadata", None)
+                    if isinstance(metadata, dict):
+                        meta["crescendo_owasp_id"] = str(metadata.get("owasp_id", ""))
+                    # TAP: 取第 2 个种子
+                    tap_obj = None
+                    if len(prompts) >= 2:
+                        p2 = prompts[1]
+                        tap_obj = (
+                            getattr(p2, "value", None)
+                            or getattr(p2, "original_value", None)
+                            or ""
+                        )[:200]
+                        if not tap_obj or len(tap_obj) <= 10 or tap_obj == obj:
+                            tap_obj = None
+                    return obj, tap_obj, meta
+    except Exception as e:
+        logger.debug(f"Cold start fallback failed: {e}")
+
+    return None, None, meta

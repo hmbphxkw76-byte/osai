@@ -8,6 +8,8 @@
 # - Wei et al. (arXiv:2307.15043): 编码攻击表示级变换
 # - Russinovich et al. (arXiv:2402.12109): Crescendo + encoding 协同
 # - Zeng et al. (arXiv:2402.19181): 说服策略 ASR
+# - Shayegani et al. (arXiv:2306.13254): 多模态组合攻击
+# - FigStep (arXiv:2307.14400): 图像编码绕过 OCR
 #
 # 维护: 新增 Target 类型或调整 Converter 链推荐时只需修改本文件
 # ====================================================================
@@ -56,25 +58,23 @@ type_groups:
 #   low_asr_chains:      ASR 5-15% — 非 LLM 链, 兜底覆盖
 #   llm_assisted_chains: LLM 辅助 — 仅在 converter_target 可用且非弱模型时推荐
 #
-# P1 优化 (arXiv:2402.04249 HarmBench + arXiv:2402.12109 Crescendo):
+# P1+P5 优化 (arXiv:2402.04249 HarmBench + arXiv:2402.12109 Crescendo + arXiv:2306.13254 多模态):
 #   - 同范式叠加边际递减, 每范式最多 1 链
 #   - 跨范式 2-3 层协同 3-5x ASR, 优于同范式多链
 #   - 精简推荐链数, 避免扁平化后 12+ Converter 导致 prompt 膨胀和 API 超时
+#   - 多模态目标使用模态专用链 (image/audio/video), 非文本目标不堆砌 text 链
 converter_profiles:
   llm_direct:
-    # P1: 精简为 1 链/层, 跨范式优先
-    # stealth_evasion = UnicodeConfusable + Base64 + SuffixAppend (编码+混淆+后缀, 3 converters)
+    # P3: 语义保持混淆优先 — Base64 完全编码导致目标无法解码
     high_asr_chains:
-      - stealth_evasion
-    # search_replace = 关键词替换 (极速, 1 converter)
+      - semantic_evasion
     medium_asr_chains:
       - search_replace_chain
     low_asr_chains: []
-    # persuasion_authority = 权威说服 (语义层, ASR 30-40%, 1 converter, 1 API)
     llm_assisted_chains:
       - persuasion_authority
     bypass_mechanism: "content_filter + semantic_classifier"
-    description: "LLM 直连 — 内容过滤 + 语义安全分类器 (P1: 精简跨范式短链)"
+    description: "LLM 直连 — 内容过滤 + 语义安全分类器 (P3: 语义保持混淆)"
 
   llm_safety:
     # P1: Prompt Shield 检测 — 混淆优先
@@ -89,87 +89,94 @@ converter_profiles:
     description: "LLM Safety — Prompt Shield 检测绕过 (P1: 精简)"
 
   agent_web:
+    # P3: 语义保持混淆 — 前端验证绕过
     high_asr_chains:
-      - stealth_evasion
+      - semantic_evasion
     medium_asr_chains:
-      - task_framing_chain
+      - stealth_evasion
     low_asr_chains: []
     llm_assisted_chains:
       - persuasion_authority
-      - noise_bypass
     bypass_mechanism: "input_validation"
-    description: "Agent (Web UI) — 前端输入验证 + 后端双重检查"
+    description: "Agent (Web UI) — 前端输入验证 + 后端双重检查 (P3: 语义保持混淆)"
 
   agent_copilot:
+    # P3: 语义保持混淆 — Grounding 绕过
     high_asr_chains:
-      - stealth_evasion
-      - unicode_attack
-    medium_asr_chains:
-      - task_framing_chain
+      - semantic_evasion
+    medium_asr_chains: []
     low_asr_chains: []
     llm_assisted_chains:
       - persuasion_authority
     bypass_mechanism: "grounding_safety"
-    description: "Agent (Copilot) — 系统提示 + Grounding + 工具权限"
+    description: "Agent (Copilot) — 系统提示 + Grounding + 工具权限 (P3: 语义保持混淆)"
 
   agent_api:
+    # P3: 语义保持混淆 — Schema 约束绕过
     high_asr_chains:
-      - stealth_evasion
-      - encoding_bypass
-    medium_asr_chains:
-      - task_framing_chain
+      - semantic_evasion
+    medium_asr_chains: []
     low_asr_chains: []
     llm_assisted_chains:
       - persuasion_authority
     bypass_mechanism: "api_schema_validation"
-    description: "Agent (API) — API 层验证 + Schema 约束"
+    description: "Agent (API) — API 层验证 + Schema 约束 (P3: 语义保持混淆)"
 
   rag:
+    # P3: 语义保持混淆 + 文件投递
     high_asr_chains:
-      - stealth_evasion
-    medium_asr_chains: []
-    low_asr_chains:
-      - encoding_bypass
+      - semantic_evasion
+    medium_asr_chains:
+      - file_pdf_injection
+    low_asr_chains: []
     llm_assisted_chains:
-      - noise_bypass
+      - persuasion_authority
     bypass_mechanism: "document_sanitization"
-    description: "RAG — 文档清理 + 来源验证"
+    description: "RAG — 文档清理 + 来源验证 (P3: 语义保持混淆+文件投递)"
 
   output_handling:
+    # P3: 语义保持混淆 — 输出过滤绕过
     high_asr_chains:
-      - stealth_evasion
-    medium_asr_chains:
-      - random_case
-    low_asr_chains:
-      - encoding_bypass
+      - semantic_evasion
+    medium_asr_chains: []
+    low_asr_chains: []
     llm_assisted_chains:
-      - decomposition_chain
-      - noise_bypass
+      - persuasion_authority
     bypass_mechanism: "output_filtering"
-    description: "Output Handling — 输出过滤 + 转义"
+    description: "Output Handling — 输出过滤 + 转义 (P3: 语义保持混淆)"
 
   multimodal_image:
-    high_asr_chains: []
+    # P5: 图像模态专用链 — arXiv:2306.13254 组合攻击
+    high_asr_chains:
+      - image_text_embed
     medium_asr_chains:
-      - stealth_evasion
-    low_asr_chains: []
-    llm_assisted_chains: []
+      - image_qr_encode
+      - image_rotate_ocr
+    low_asr_chains:
+      - image_transparency
+    llm_assisted_chains:
+      - image_text_rotate_chain
     bypass_mechanism: "multimodal_filter"
-    description: "多模态图片 — 图像内容过滤"
+    description: "多模态图片 — 图像内容过滤 (P5: 模态专用链)"
 
   multimodal_video:
-    high_asr_chains: []
-    medium_asr_chains:
-      - stealth_evasion
-    low_asr_chains: []
-    llm_assisted_chains: []
-    bypass_mechanism: "multimodal_filter"
-    description: "多模态视频 — 视频内容过滤"
-
-  multimodal_audio:
-    high_asr_chains: []
+    # P5: 视频模态专用链
+    high_asr_chains:
+      - video_embed_chain
     medium_asr_chains: []
     low_asr_chains: []
     llm_assisted_chains: []
+    bypass_mechanism: "multimodal_filter"
+    description: "多模态视频 — 视频内容过滤 (P5: 模态专用链)"
+
+  multimodal_audio:
+    # P5: 音频模态专用链
+    high_asr_chains:
+      - audio_stego_chain
+    medium_asr_chains:
+      - audio_freq_chain
+    low_asr_chains:
+      - audio_echo_chain
+    llm_assisted_chains: []
     bypass_mechanism: "audio_filter"
-    description: "多模态音频 — 音频内容过滤"
+    description: "多模态音频 — 音频内容过滤 (P5: 模态专用链)"

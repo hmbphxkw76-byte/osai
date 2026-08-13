@@ -506,22 +506,18 @@ def _print_health_report(
         verified: 功能验证是否通过。
         version_warning: 版本警告消息 (无问题时为 None)。
     """
-    status = "[OK]" if verified else "[FAIL]"
-    print(f"  {status} 内容过滤器标记扩展: {total_markers} 个标记")
-
-    print(f"       原生: {native_count} | 扩展: {extra_count}", end="")
-    if discovered_count:
-        print(f" | 动态发现: {discovered_count} 个 (已缓存)")
-    else:
-        print()
-
-    print(f"       标记模块: {marker_modules}/{marker_modules_total} 已补丁")
-    print(f"       函数模块: {function_modules}/{function_modules_total} 已补丁")
-    print(f"       heuristic 自动发现: 已启用 ({len(_SECURITY_KEYWORDS)} 个关键词)")
-    print(f"       功能验证: {'通过' if verified else '失败'}")
-
-    if version_warning:
-        print(f"       [版本警告] {version_warning}")
+    # 降级为 debug — 攻击者视角仅需在目标画像中看到 "内容过滤: N 标记已扩展"
+    status = "OK" if verified else "FAIL"
+    logger.debug(
+        f"内容过滤器标记扩展: {total_markers} 个标记 ({status}) | "
+        f"原生: {native_count} | 扩展: {extra_count} | "
+        f"动态发现: {discovered_count} | "
+        f"标记模块: {marker_modules}/{marker_modules_total} | "
+        f"函数模块: {function_modules}/{function_modules_total} | "
+        f"heuristic: {len(_SECURITY_KEYWORDS)} 关键词 | "
+        f"验证: {'通过' if verified else '失败'}"
+        f"{f' | 版本警告: {version_warning}' if version_warning else ''}"
+    )
 
 
 # ============================================================

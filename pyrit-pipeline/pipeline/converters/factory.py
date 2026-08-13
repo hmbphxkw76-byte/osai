@@ -299,7 +299,7 @@ def build_target_aware_converter_map(
         "pair": ["cross_paradigm_2layer"],
         "crescendo_simulated": ["cross_paradigm_2layer"],
         "context_compliance": [],
-        "many_shot": ["token_smuggling_chain"],
+        "many_shot": [],  # P2: token_smuggling_chain 重型 Converter 已全禁
         "skeleton_key": [],
         "prompt_sending": [],
     }

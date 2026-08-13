@@ -184,7 +184,14 @@ chains:
     requires_llm: false
     priority: 1
     modality: text
-    description: 'P2: Base64 + UnicodeConfusable 跨范式 2 层 (编码+混淆, 1.6x ASR)'
+    description: 'P2: Base64 + UnicodeConfusable 跨范式 2 层 (编码+混淆, 1.6x ASR) — 注意: Base64 完全编码, 目标无法解码, 仅 many_shot 适用'
+    cost_tier: cheap
+  # P3: 语义保持混淆链 (保持可读性, 替代 Base64 编码)
+  semantic_evasion:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: 'P3: UnicodeConfusable + Leetspeak 语义保持混淆 (可读性 100%, 绕过关键词过滤, 1.5x ASR)'
     cost_tier: cheap
   cross_paradigm_3layer:
     requires_llm: true
@@ -192,61 +199,134 @@ chains:
     modality: text
     description: 'P2: Base64 + UnicodeConfusable + Persuasion 跨范式 3 层 (编码+混淆+语义)'
     cost_tier: moderate
+  # P4: 多模态 Converter 链 (PyRIT 原生 Converter, 按模态选择)
+  # 学术依据: Shayegani et al. (arXiv:2306.13254) 多模态组合攻击 + FigStep (arXiv:2307.14400)
+  image_text_embed:
+    requires_llm: true
+    priority: 1
+    modality: image
+    description: 'P4: AddImageText — 将攻击指令嵌入图像绕过文本过滤'
+    cost_tier: moderate
+  image_qr_encode:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'P4: QRCode — 将攻击 prompt 编码为 QR 图'
+    cost_tier: cheap
+  image_rotate_ocr:
+    requires_llm: false
+    priority: 1
+    modality: image
+    description: 'P4: ImageRotation — 旋转图像绕过 OCR 检测'
+    cost_tier: cheap
+  image_overlay_hide:
+    requires_llm: true
+    priority: 2
+    modality: image
+    description: 'P4: ImageOverlay — 图像叠加隐藏攻击指令'
+    cost_tier: moderate
+  image_text_rotate_chain:
+    requires_llm: true
+    priority: 1
+    modality: image
+    description: 'P4: AddImageText › ImageRotation 跨模态 2 层'
+    cost_tier: moderate
+  image_transparency:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'P4: TransparencyAttack — 透明层隐藏文本'
+    cost_tier: cheap
+  audio_stego_chain:
+    requires_llm: false
+    priority: 1
+    modality: audio
+    description: 'P4: TextToAudio › AudioWhiteNoise 音频隐写'
+    cost_tier: moderate
+  audio_freq_chain:
+    requires_llm: false
+    priority: 2
+    modality: audio
+    description: 'P4: TextToAudio › AudioFrequency 频移混淆'
+    cost_tier: moderate
+  audio_echo_chain:
+    requires_llm: false
+    priority: 2
+    modality: audio
+    description: 'P4: TextToAudio › AudioEcho 回声隐藏'
+    cost_tier: moderate
+  video_embed_chain:
+    requires_llm: true
+    priority: 1
+    modality: video
+    description: 'P4: AddImageText › AddImageVideo 文本嵌入视频'
+    cost_tier: expensive
+  file_pdf_injection:
+    requires_llm: false
+    priority: 1
+    modality: file
+    description: 'P4: PDFConverter — 生成恶意 PDF 用于 XPIA/RAG'
+    cost_tier: cheap
+  file_worddoc_injection:
+    requires_llm: false
+    priority: 2
+    modality: file
+    description: 'P4: WordDocConverter — 生成恶意 Word 文档'
+    cost_tier: cheap
 base_techniques_for_variants:
   prompt_sending:
-  - cross_paradigm_2layer
-  - stealth_evasion
+  - semantic_evasion
   - persuasion_authority
   crescendo:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
   red_teaming:
   - persuasion_authority
-  - cross_paradigm_2layer
+  - semantic_evasion
   tap:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
   pair:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
   many_shot:
   - token_smuggling_chain
-  - cross_paradigm_2layer
+  - semantic_evasion
   - persuasion_authority
   best_of_n_jailbreak:
-  - cross_paradigm_2layer
+  - semantic_evasion
   - persuasion_authority
   role_play_movie_script:
   - persuasion_authority
-  - cross_paradigm_2layer
+  - semantic_evasion
   context_compliance:
-  - cross_paradigm_2layer
+  - semantic_evasion
   - stealth_evasion
   tree_of_attacks_pruned:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
   skeleton_key:
-  - cross_paradigm_2layer
+  - semantic_evasion
   - persuasion_authority
   bad_likert_judge:
   - persuasion_authority
-  - cross_paradigm_2layer
+  - semantic_evasion
   violent_durian:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
   multi_prompt_sending:
-  - cross_paradigm_2layer
+  - semantic_evasion
   - stealth_evasion
   - persuasion_authority
   chunked_request:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - stealth_evasion
   role_play_persuasion:
   - persuasion_authority
-  - cross_paradigm_2layer
+  - semantic_evasion
   wrapping_attack:
-  - cross_paradigm_2layer
-  - encoding_bypass
+  - semantic_evasion
+  - persuasion_authority
 persuasion_strategy_by_model:
   claude:
     primary: persuasion_authority
@@ -381,9 +461,13 @@ combo_multipliers:
     multiplier: 1.35
     note: obfuscation + token smuggling cross-paradigm
   - chains:
+    - semantic_evasion
+    multiplier: 1.5
+    note: P3 semantic evasion (readability-preserving, unicode+leetspeak)
+  - chains:
     - cross_paradigm_2layer
     multiplier: 1.6
-    note: P2 cross-paradigm 2-layer (encoding+obfuscation)
+    note: P2 cross-paradigm 2-layer (encoding+obfuscation, Base64 — many_shot only)
   - chains:
     - cross_paradigm_3layer
     multiplier: 1.8

@@ -114,8 +114,8 @@ class EventBus:
             if self._jsonl_path:
                 with open(self._jsonl_path, "a", encoding="utf-8") as f:
                     f.write(event.to_json() + "\n")
-            # stdout 精简输出
-            print(event.to_summary())
+            # stdout 精简输出 → 降级为 debug (事件已写入 JSONL, 不污染攻击者视角)
+            logger.debug(event.to_summary())
         except Exception as e:
             logger.debug(f"EventBus publish failed (non-fatal): {e}")
 

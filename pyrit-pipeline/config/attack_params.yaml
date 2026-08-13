@@ -17,7 +17,8 @@
 # 最大并发 AtomicAttack 数
 # 推荐值: strong=3 / moderate=3 / weak=8
 # 降低可缓解 API 限速 (429/204 空响应)
-max_concurrency: 3
+# P3: 3→2 减少 API 压力, 提高单攻击成功率
+max_concurrency: 2
 
 # 每个 objective 最多尝试的技术数
 # FIRST_SUCCESS 策略: 首个成功即停止
@@ -38,7 +39,8 @@ max_attempts: 2
 # 5 = 24 × 5 = 120 攻击 (攻击为王, API调用~1166, 需稳定端点)
 # 10 = 24 × 10 = 240 攻击 (深度评估)
 # 学术依据: HarmBench (arXiv:2402.04249) 每类至少 3+ 样本才能获得统计显著 ASR
-max_dataset_size: 3
+# P3: 3→2 减少攻击数 73→49, 提高完成率, API 不稳定时优先覆盖
+max_dataset_size: 2
 
 # Epsilon-greedy 探索概率
 # 0.05 = 5% 随机探索 / 95% 利用历史 ASR (热启动, 攻击为王)
@@ -62,16 +64,19 @@ rate_limit: 3
 rate_limit_retries: 3
 
 # 超时错误专用重试次数 (独立于 rate_limit_retries)
-# 3 = 平衡默认 (最坏 3次×90s退避 = 4.5分钟单请求上限)
-# 5 = 保守 (最坏 5次×120s = 10分钟, 可能卡住流水线)
+# 3 = 平衡默认 (最坏 3次×30s退避 = 1.5分钟单请求上限)
+# 5 = 保守 (最坏 5次×30s = 2.5分钟, 可能卡住流水线)
 # APITimeoutError/httpx.ReadTimeout 使用此重试预算,
 # 因为超时通常比限速更需要韧性重试 (端点慢/网络波动)
+# v35: 5→3 减少端点不可用时的无效等待 (SiliconFlow API 不稳定时
+#   5次×30s退避=2.5min/攻击, 186攻击×30%超时=42min 纯浪费)
 timeout_max_retries: 3
 
 # 超时专用退避上限 (秒)
 # 超时错误使用比标准重试更长的退避间隔, 避免连续冲击慢端点
 # 90s = 平衡默认; 60s = 激进; 120s = 保守
-timeout_max_delay: 90
+# P3: 90→30 快速重试, 避免长时间等待
+timeout_max_delay: 30
 
 # API 流式响应模式 (stream parameter)
 # false = 非流式 (默认, 一次性返回完整响应)
@@ -87,13 +92,20 @@ stream: false
 # 180s = 保守 (多轮攻击 + 慢 API 端点)
 # 通过 PyRIT 原生 httpx_client_kwargs 机制设置
 # 注意: ManyShotJailbreak/Crescendo/TAP 发送超长 prompt, 60s 不足以等 API 响应
-api_timeout: 120
+# P3: 120→90 平衡超时与覆盖率, 配合更多重试
+api_timeout: 90
 
 # 评分器 API 超时秒数 (独立于攻击超时)
 # 评分器调用比攻击调用更简单 (仅需判断 yes/no), 不需要 60s
 # 30s = 合理默认; 当评分器连续超时时, 降级到 SubStringScorer 关键词匹配
 # 通过 PyRIT 原生 httpx_client_kwargs 机制设置 (仅评分器 Target)
 scorer_timeout: 30
+
+# 评分器超时专用重试次数 (独立于攻击 timeout_max_retries)
+# 1 = 超时后仅重试1次 (评分器端点不可用时快速跳过, 避免阻塞)
+# 3 = 与攻击一致 (保守, 但评分器超时通常意味着端点完全不可用)
+# v35: 新增, 评分器端点超时时 1次重试足够, 避免阻塞流水线
+scorer_timeout_max_retries: 1
 
 # OpenAI SDK 内部重试次数
 # 0 = 禁用 (由 RateLimitedTarget 统一管理重试, 避免三层叠加)
@@ -107,3 +119,40 @@ api_max_retries: 0
 # 攻击为王: asr_weight 提升至 0.8, 优先攻击高 ASR 种子
 seed_priority_asr_weight: 0.8
 seed_priority_category_weight: 0.2
+
+# ============================================================================
+# MTOS: 多轮目标适宜性评分 (Multi-Turn Objective Suitability Score)
+# ============================================================================
+# 用于 Crescendo/TAP 多轮攻击的种子选择, 替代旧的"最高单轮 ASR"选择逻辑
+# 核心原则: 多轮攻击选种反向于单轮 — 选低-中 ASR 种子 (有防御但可渐进突破)
+#
+# 学术依据:
+#   - Crescendo (arXiv:2402.12109): 渐进升级突破单轮防御, 最优目标=单轮 ASR 低但可实现
+#   - TAP (arXiv:2312.02191): 树搜索需中等难度空间, 最优目标=单轮 ASR 10-30%
+#   - HarmBench (arXiv:2402.04249): 类别平衡采样确保覆盖
+#   - DART (arXiv:2407.06485): per-seed × per-model ASR 指导选择
+# ============================================================================
+multiturn_objective_selection:
+  # MTOS 权重 (总和应为 1.0)
+  asr_suitability_weight: 0.35    # ASR 适宜性 (钟形曲线, 峰值在窗口中心)
+  difficulty_weight: 0.25          # 难度 (hard=1.0, medium=0.7, easy=0.3)
+  severity_weight: 0.20            # 严重性 (critical=1.0, high=0.7)
+  category_diversity_weight: 0.20  # OWASP 类别多样性 (未覆盖=1.0, 已覆盖=0.0)
+
+  # Crescendo ASR 偏好窗口 (渐进升级擅长突破强防御)
+  crescendo_asr_window_lower: 0.0
+  crescendo_asr_window_upper: 0.15
+
+  # TAP ASR 偏好窗口 (树搜索需"部分路径可成功"空间)
+  tap_asr_window_lower: 0.10
+  tap_asr_window_upper: 0.30
+
+  # 冷启动阈值: 历史种子数低于此值走元数据驱动选种
+  cold_start_min_seeds: 5
+
+  # TAP 超时最大重试次数 (P1: TAP 超时即时跳过)
+  # 0 = 超时后立即跳过, 不重试 (节省 ~7.5min 无效等待)
+  # 1 = 1 次重试 (保守, 网络波动时可能恢复)
+  # 学术依据: NIST SP 800-92 — 可恢复异常的重试属于噪音层;
+  #   TAP 树搜索需要稳定的对抗模型端点, 超时通常意味着端点不可用
+  tap_max_timeout_retries: 0

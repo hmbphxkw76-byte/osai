@@ -393,12 +393,24 @@ class EvidenceExporter:
                     continue
 
                 # P1: 将 MessagePiece 转换为 Message (MarkdownConversationMemoryPrinter 期望 list[Message])
-                messages = [p.to_message() for p in pieces]
-                content = await printer.render_async(
-                    messages,
-                    include_scores=True,
-                    include_reasoning_trace=self.include_reasoning_trace,
-                )
+                messages = []
+                for p in pieces:
+                    try:
+                        msg = p.to_message()
+                        if msg is not None:
+                            messages.append(msg)
+                    except Exception:
+                        from pyrit.models import Message
+                        messages.append(Message(message_pieces=[p]))
+
+                try:
+                    content = await printer.render_async(
+                        messages,
+                        include_scores=True,
+                        include_reasoning_trace=self.include_reasoning_trace,
+                    )
+                except Exception:
+                    content = self._render_messages_fallback(messages, conv_id)
                 file_path.write_text(content, encoding="utf-8")
                 files.append((filename, content))
             except Exception as e:
@@ -473,12 +485,24 @@ class EvidenceExporter:
                 pieces = list(memory.get_message_pieces(conversation_id=conv_id))
                 if pieces:
                     # P1: 将 MessagePiece 转换为 Message
-                    messages = [p.to_message() for p in pieces]
-                    conv_md = await conv_printer.render_async(
-                        messages,
-                        include_scores=True,
-                        include_reasoning_trace=self.include_reasoning_trace,
-                    )
+                    messages = []
+                    for p in pieces:
+                        try:
+                            msg = p.to_message()
+                            if msg is not None:
+                                messages.append(msg)
+                        except Exception:
+                            from pyrit.models import Message
+                            messages.append(Message(message_pieces=[p]))
+
+                    try:
+                        conv_md = await conv_printer.render_async(
+                            messages,
+                            include_scores=True,
+                            include_reasoning_trace=self.include_reasoning_trace,
+                        )
+                    except Exception:
+                        conv_md = self._render_messages_fallback(messages, conv_id)
                     lines.append(conv_md)
                 else:
                     lines.append(f"*No messages found for conversation: {conv_id}*\n")
@@ -517,6 +541,32 @@ class EvidenceExporter:
                 )
             lines.append("")
 
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_messages_fallback(messages: list[Any], conv_id: str) -> str:
+        """Render messages as simple Markdown when MarkdownConversationMemoryPrinter fails.
+
+        v35: Fallback for cases where render_async() raises
+        'MessagePiece object has no attribute message_pieces' or similar errors.
+        Extracts role and text from each message piece directly.
+        """
+        lines = [f"# Conversation: {conv_id[:8]}", "", "[Fallback rendering]", ""]
+        for msg in messages:
+            # Message has message_pieces list, each piece has role + original_value/converted_value
+            pieces = getattr(msg, "message_pieces", [])
+            if not pieces:
+                # Maybe msg is itself a MessagePiece
+                pieces = [msg]
+            for piece in pieces:
+                role = getattr(piece, "role", "unknown")
+                text = (
+                    getattr(piece, "converted_value", None)
+                    or getattr(piece, "original_value", "")
+                    or ""
+                )
+                text = str(text)[:2000]  # Truncate long messages
+                lines.extend([f"## {role}", "", text, ""])
         return "\n".join(lines)
 
     async def _export_score_markdowns(self, scores: list[Any]) -> list[tuple[str, str]]:

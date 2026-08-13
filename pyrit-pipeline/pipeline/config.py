@@ -20,20 +20,33 @@ _ATTACK_PARAMS_PATH = Path("config") / "attack_params.yaml"
 # 硬编码兜底默认值 (YAML 不存在或读取失败时使用)
 # SSOT 原则: 必须与 config/attack_params.yaml 保持完全一致
 _HARDCODED_DEFAULTS: dict[str, Any] = {
-    "max_concurrency": 3,
-    "max_attempts": 2,
-    "max_dataset_size": 3,
+"max_concurrency": 2,
+"max_attempts": 2,
+"max_dataset_size": 2,
     "epsilon": 0.15,
     "rate_limit": 3,
     "rate_limit_retries": 3,
-    "timeout_max_retries": 3,
-    "timeout_max_delay": 90,
-    "api_timeout": 120,
-    "scorer_timeout": 30,
+"timeout_max_retries": 3,
+"timeout_max_delay": 30,
+"api_timeout": 90,
+"scorer_timeout": 30,
+"scorer_timeout_max_retries": 1,
     "api_max_retries": 0,
     "stream": False,
     "seed_priority_asr_weight": 0.8,
     "seed_priority_category_weight": 0.2,
+    "multiturn_objective_selection": {
+        "asr_suitability_weight": 0.35,
+        "difficulty_weight": 0.25,
+        "severity_weight": 0.20,
+        "category_diversity_weight": 0.20,
+        "crescendo_asr_window_lower": 0.0,
+        "crescendo_asr_window_upper": 0.15,
+        "tap_asr_window_lower": 0.10,
+        "tap_asr_window_upper": 0.30,
+        "cold_start_min_seeds": 5,
+        "tap_max_timeout_retries": 0,
+    },
 }
 
 
@@ -102,7 +115,7 @@ def parse_args() -> argparse.Namespace:
         "--max-dataset-size",
         type=int,
         default=_load_attack_params()["max_dataset_size"],
-        help="每个数据集最大采样数 (默认: 3, 24数据集×3=72攻击, 可通过 config/attack_params.yaml 覆盖)",
+        help="每个数据集最大采样数 (默认: 2, 24数据集×2=49攻击, 可通过 config/attack_params.yaml 覆盖)",
     )
     parser.add_argument(
         "--local-datasets",
@@ -704,6 +717,16 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "评分器 API 超时秒数 (默认: 30, 可通过 config/attack_params.yaml 覆盖).\n"
             "评分器调用比攻击调用更简单, 使用更短超时避免卡住流水线.\n"
             "当评分器超时时, 自动降级到 SubStringScorer 关键词匹配评分."
+        ),
+    )
+    parser.add_argument(
+        "--scorer-timeout-max-retries",
+        type=int,
+        default=_load_attack_params()["scorer_timeout_max_retries"],
+        help=(
+            "评分器超时专用重试次数 (默认: 1, 独立于 --timeout-max-retries).\n"
+            "评分器端点不可用时快速跳过, 避免阻塞流水线.\n"
+            "可通过 config/attack_params.yaml 覆盖."
         ),
     )
 

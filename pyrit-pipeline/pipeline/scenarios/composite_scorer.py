@@ -70,6 +70,8 @@ def create_composite_objective_scorer(
             TrueFalseInverterScorer,
             TrueFalseScoreAggregator,
         )
+
+        from pipeline.scoring.response_parser import create_true_false_response_handler
     except ImportError as e:
         logger.warning("Failed to import PyRIT scorer classes for composite scorer: %s", e)
         return None
@@ -79,12 +81,17 @@ def create_composite_objective_scorer(
         # Uses PyRIT's built-in TASK_ACHIEVED rubric (no custom question needed).
         # SelfAskTrueFalseScorer.__init__ falls back to TASK_ACHIEVED when both
         # system_prompt and question are None.
+        # v35: Add response_handler for DeepSeek-V3 plain text compatibility
         task_scorer = SelfAskTrueFalseScorer(
             chat_target=chat_target,
+            response_handler=create_true_false_response_handler(),
         )
 
         # Component B: Refusal detection (inverted) — NOT refused
-        refusal_scorer = SelfAskRefusalScorer(chat_target=chat_target)
+        refusal_scorer = SelfAskRefusalScorer(
+            chat_target=chat_target,
+            response_handler=create_true_false_response_handler(),
+        )
         inverted_refusal = TrueFalseInverterScorer(scorer=refusal_scorer)
 
         # Composite: task_achieved AND not_refused

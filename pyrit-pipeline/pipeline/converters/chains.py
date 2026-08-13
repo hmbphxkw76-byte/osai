@@ -339,10 +339,33 @@ def _build_cross_paradigm_2layer_chain() -> list:
 
     学术依据: encoding + unicode 组合乘数 1.6x (converter_chains.yaml)
     非 LLM 链: 本地计算, 无额外 API 调用, 极速执行.
+    注意: Base64 完全编码 prompt, 目标模型无法解码, 仅适用于 many_shot
     """
     return [
         _conv("Base64Converter")(),
         _conv("UnicodeConfusableConverter")(),
+    ]
+
+
+def _build_semantic_evasion_chain() -> list:
+    """P3: 语义保持混淆链 — UnicodeConfusable + Leetspeak.
+
+    与 cross_paradigm_2layer 的关键区别:
+    - cross_paradigm_2layer 使用 Base64 (完全编码, 目标无法解码)
+    - semantic_evasion 使用 UnicodeConfusable + Leetspeak (保持可读性)
+
+    UnicodeConfusable: 替换字符为视觉相似的 Unicode (如 'a' → 'а' Cyrillic)
+    Leetspeak: 替换字母为数字 (如 'e' → '3', 'o' → '0')
+    两者均保持 prompt 语义可读, 仅绕过关键词级安全过滤.
+
+    学术依据:
+      - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
+      - Wei et al. (arXiv:2307.15043): 编码攻击绕过表示级安全过滤
+      - HarmBench (arXiv:2402.04249): 保持可读性的变换比完全编码更有效
+    """
+    return [
+        _conv("UnicodeConfusableConverter")(),
+        _conv("LeetspeakConverter")(),
     ]
 
 
@@ -369,6 +392,107 @@ def _build_cross_paradigm_3layer_chain(converter_target: Any = None) -> list:
         ),
     )
     return base
+
+
+# ── P4: 多模态 Converter 链 (image/audio/video/file, PyRIT 原生 Converter) ──
+# 学术依据:
+#   - Shayegani et al. (arXiv:2306.13254): 多模态组合攻击, 图像嵌入绕过文本过滤
+#   - FigStep (arXiv:2307.14400): 图像编码绕过 OCR 检测
+#   - PyRIT 官方多模态 Converter: AddImageText, QRCode, ImageRotation, 等
+
+
+def _build_image_text_embed_chain(converter_target: Any = None) -> list:
+    """P4: 将攻击指令嵌入图像 (text→image_path).
+
+    学术依据: Shayegani et al. (arXiv:2306.13254) —
+      组合攻击多模态 LLM, 将文本指令嵌入图像绕过文本过滤.
+    """
+    if converter_target is None:
+        return []
+    return [_conv("AddImageTextConverter")(converter_target=converter_target)]
+
+
+def _build_image_qr_encode_chain() -> list:
+    """P4: QR 编码攻击 prompt (text→image_path).
+
+    学术依据: FigStep (arXiv:2307.14400) —
+      将攻击 prompt 编码为图像绕过文本检测.
+    """
+    return [_conv("QRCodeConverter")()]
+
+
+def _build_image_rotate_ocr_chain() -> list:
+    """P4: 旋转图像绕过 OCR 检测 (image_path→image_path)."""
+    return [_conv("ImageRotationConverter")()]
+
+
+def _build_image_overlay_hide_chain(converter_target: Any = None) -> list:
+    """P4: 图像叠加隐藏攻击指令 (image_path→image_path)."""
+    if converter_target is None:
+        return []
+    return [_conv("ImageOverlayConverter")(converter_target=converter_target)]
+
+
+def _build_image_text_rotate_chain(converter_target: Any = None) -> list:
+    """P4: 嵌入文本 + 旋转 2 层组合 (text→image→image).
+
+    跨模态 2 层: 先嵌入文本到图像, 再旋转绕过 OCR.
+    """
+    if converter_target is None:
+        return _build_image_rotate_ocr_chain()
+    return [
+        _conv("AddImageTextConverter")(converter_target=converter_target),
+        _conv("ImageRotationConverter")(),
+    ]
+
+
+def _build_image_transparency_chain() -> list:
+    """P4: 透明层隐藏文本 (image_path→image_path)."""
+    return [_conv("TransparencyAttackConverter")()]
+
+
+def _build_audio_stego_chain() -> list:
+    """P4: 文本转语音 + 白噪声注入 (text→audio→audio)."""
+    return [
+        _conv("AzureSpeechTextToAudioConverter")(),
+        _conv("AudioWhiteNoiseConverter")(),
+    ]
+
+
+def _build_audio_freq_chain() -> list:
+    """P4: 文本转语音 + 频移混淆 (text→audio→audio)."""
+    return [
+        _conv("AzureSpeechTextToAudioConverter")(),
+        _conv("AudioFrequencyConverter")(),
+    ]
+
+
+def _build_audio_echo_chain() -> list:
+    """P4: 文本转语音 + 回声隐藏 (text→audio→audio)."""
+    return [
+        _conv("AzureSpeechTextToAudioConverter")(),
+        _conv("AudioEchoConverter")(),
+    ]
+
+
+def _build_video_embed_chain(converter_target: Any = None) -> list:
+    """P4: 文本嵌入图像再转视频 (text→image→video)."""
+    if converter_target is None:
+        return []
+    return [
+        _conv("AddImageTextConverter")(converter_target=converter_target),
+        _conv("AddImageVideoConverter")(),
+    ]
+
+
+def _build_file_pdf_injection_chain() -> list:
+    """P4: 生成恶意 PDF 用于 XPIA/RAG (text→binary_path)."""
+    return [_conv("PDFConverter")()]
+
+
+def _build_file_worddoc_injection_chain() -> list:
+    """P4: 生成恶意 Word 文档 (text→binary_path)."""
+    return [_conv("WordDocConverter")()]
 
 
 # ── 补全: LLM 链构建函数 ──
@@ -447,6 +571,21 @@ _CHAIN_BUILDERS = {
     # P2: 跨范式短链
     "cross_paradigm_2layer": lambda target=None: _build_cross_paradigm_2layer_chain(),
     "cross_paradigm_3layer": lambda target=None: _build_cross_paradigm_3layer_chain(target),
+    # P3: 语义保持混淆链 (保持可读性, 替代 Base64 编码)
+    "semantic_evasion": lambda target=None: _build_semantic_evasion_chain(),
+    # P4: 多模态链 (PyRIT 原生 Converter, 按模态选择)
+    "image_text_embed": lambda target=None: _build_image_text_embed_chain(target),
+    "image_qr_encode": lambda target=None: _build_image_qr_encode_chain(),
+    "image_rotate_ocr": lambda target=None: _build_image_rotate_ocr_chain(),
+    "image_overlay_hide": lambda target=None: _build_image_overlay_hide_chain(target),
+    "image_text_rotate_chain": lambda target=None: _build_image_text_rotate_chain(target),
+    "image_transparency": lambda target=None: _build_image_transparency_chain(),
+    "audio_stego_chain": lambda target=None: _build_audio_stego_chain(),
+    "audio_freq_chain": lambda target=None: _build_audio_freq_chain(),
+    "audio_echo_chain": lambda target=None: _build_audio_echo_chain(),
+    "video_embed_chain": lambda target=None: _build_video_embed_chain(target),
+    "file_pdf_injection": lambda target=None: _build_file_pdf_injection_chain(),
+    "file_worddoc_injection": lambda target=None: _build_file_worddoc_injection_chain(),
 }
 
 

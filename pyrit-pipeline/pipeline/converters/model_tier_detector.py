@@ -232,6 +232,44 @@ def get_recommended_epsilon(model_tier: str) -> float:
 
 
 # ============================================================
+# P7: model_tier × modality 二维选择矩阵
+# ============================================================
+
+#: P7: model_tier × modality → MAX_CONVERTER_CHAIN_DEPTH 映射.
+#:
+#: 学术依据:
+#:   - HarmBench (arXiv:2402.04249): 弱模型简单变换即有效, 不需多层
+#:   - Russinovich et al. (arXiv:2402.12109): 强模型需跨范式 3 层
+#:   - Shayegani et al. (arXiv:2306.13254): 多模态攻击层级不宜过深
+_TIER_MODALITY_DEPTH: dict[str, dict[str, int]] = {
+    "strong": {"text": 3, "image": 2, "audio": 2, "video": 1, "file": 1},
+    "moderate": {"text": 3, "image": 2, "audio": 2, "video": 1, "file": 1},
+    "weak": {"text": 2, "image": 1, "audio": 1, "video": 1, "file": 1},
+    "unknown": {"text": 3, "image": 2, "audio": 2, "video": 1, "file": 1},
+}
+
+
+def get_max_depth_for_tier_modality(model_tier: str, modality: str = "text") -> int:
+    """P7: 按 model_tier × modality 返回 Converter 链深度上限.
+
+    弱模型 × 多模态: 深度更浅 (1-2 层), 因为弱模型对简单变换即可命中,
+    多模态链太深会导致 API 超时和资源浪费.
+
+    强模型 × 文本: 深度 3 (跨范式最优), 需要更多层次绕过安全过滤.
+
+    Args:
+        model_tier: 模型等级 (strong/moderate/weak/unknown).
+        modality: 目标模态 (text/image/audio/video/file).
+
+    Returns:
+            Converter 链深度上限.
+    """
+    return _TIER_MODALITY_DEPTH.get(model_tier, _TIER_MODALITY_DEPTH["unknown"]).get(
+        modality, 3
+    )
+
+
+# ============================================================
 # G3: 模型特异性攻击参数
 # ============================================================
 
