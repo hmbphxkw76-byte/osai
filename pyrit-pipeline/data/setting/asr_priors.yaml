@@ -55,7 +55,13 @@ model_variant_mapping:
   # ── 其他开源 (G1: 独立变体) ──
   "qwen-2.5-72b": qwen_2_5
   "qwen-2.5-7b": gpt_35
+  # SiliconFlow 格式 (带组织前缀): 评分器/对抗模型使用
+  "qwen/qwen2.5-72b-instruct": qwen_2_5
+  "qwen/qwen2.5-7b-instruct": gpt_35
+  "deepseek-ai/deepseek-v3": deepseek_v3
+  "deepseek-ai/deepseek-v4-flash": deepseek_v3  # V4-Flash 近似 V3 ASR
   "deepseek-v3": deepseek_v3
+  "deepseek-v4-flash": deepseek_v3
   "yi-34b": llama_3_1
   "gemma-2-27b": llama_3_1
   "gemma-2-9b": gpt_35

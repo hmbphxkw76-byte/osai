@@ -1,20 +1,20 @@
 {
+  "success": {
+    "multi_turn": {
+      "success": 23,
+      "failure": 0
+    }
+  },
   "objective_not_achieved": {
     "multi_turn": {
       "success": 0,
-      "failure": 15
-    }
-  },
-  "success": {
-    "multi_turn": {
-      "success": 13,
-      "failure": 0
+      "failure": 5
     }
   },
   "timeout": {
     "multi_turn": {
       "success": 0,
-      "failure": 6
+      "failure": 8
     }
   }
 }

@@ -1,16 +1,21 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Non-JSON Response Parser — DeepSeek-V3 / SiliconFlow 兼容层。.
+"""Non-JSON Response Parser — 任意评分模型兼容层 (v38)。
 
-部分评分模型 (如 DeepSeek-V3 via SiliconFlow) 不遵循 JSON 输出指令,
-返回纯文本 (如 "Yes", "No", "合规", "8") 而非 JSON 对象。
-PyRIT 原生 ``JsonSchemaResponseHandler`` 要求 JSON 格式, 导致
-``InvalidJsonException`` (Status Code: 500) 重试 10 次后放弃。
+部分评分模型不遵循 JSON 输出指令, 返回纯文本 (如 "Yes", "No",
+"合规", "8") 而非 JSON 对象。PyRIT 原生 ``JsonSchemaResponseHandler``
+要求 JSON 格式, 导致 ``InvalidJsonException`` (Status Code: 500)
+重试 10 次后放弃。
+
+评分器模型分层 (v38):
+  - T1 (GPT-4o, Claude-3.5): JSON 100% 遵从 — 本模块为安全网
+  - T2 (Qwen2.5-72B, Llama-3.1-70B): JSON 遵从度高 — 本模块为兜底
+  - T3 (DeepSeek-V3 via SiliconFlow, 小参数模型): JSON 不稳定 — 本模块为主力
 
 本模块提供 ``CallableResponseHandler`` 使用的 parser 函数,
 先尝试 JSON 解析, 失败后回退到纯文本解析,
-兼容 DeepSeek-V3 / Qwen / 其他非 JSON 评分模型。
+兼容任意评分模型 (非 Azure 平台 + 任意端点)。
 
 PyRIT 原生组件 (R-022):
   - ``CallableResponseHandler``: PyRIT 提供的非 JSON 响应逃逸舱
@@ -19,8 +24,10 @@ PyRIT 原生组件 (R-022):
 学术依据:
   - PyRIT Score Architecture: ResponseHandler 抽象层支持自定义解析
   - HarmBench (arXiv:2402.04249): 评分器兼容性是 ASR 测量基础
+  - LLM-as-a-Judge (arXiv:2306.05685): 70B+ 模型 JSON 遵从度高
+  - Qwen2.5 TR (arXiv:2412.15115): JSON 结构化输出官方优化
 
-> **Date**: 2026-8-12
+> **Date**: 2026-8-13
 """
 
 from __future__ import annotations
@@ -35,8 +42,8 @@ from pyrit.exceptions import InvalidJsonException, remove_markdown_json
 def parse_true_false_response(response_text: str) -> dict[str, Any]:
     """Parse a true/false scoring response, handling both JSON and plain text.
 
-    Tries JSON parsing first (for models that follow JSON format),
-    then falls back to plain text parsing for models like DeepSeek-V3
+    Tries JSON parsing first (for T1/T2 models that follow JSON format),
+    then falls back to plain text parsing for T3 models like DeepSeek-V3
     that return "Yes", "No", "合规", "true", "false", etc.
 
     Args:

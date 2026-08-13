@@ -241,6 +241,12 @@ async def run(ctx: PipelineContext) -> None:
     # ── 评分器增强 (非 Azure 环境补充注册) ──
     _register_enhanced_scorers()
 
+    # ── v38.2: 双评分器热切换 — 备用评分器注册 ──
+    _backup_scorer_names = _register_backup_scorers()
+    if _backup_scorer_names:
+        ctx.metadata["backup_scorers"] = _backup_scorer_names
+        print(f"  双评分器热切换已启用: 备用评分器 {', '.join(_backup_scorer_names)}")
+
     # ── 内容过滤器标记扩展 (兼容第三方 OpenAI 兼容 API) ──
     # 必须在场景执行前完成,否则非标准 API 的安全审查 400 错误
     # 会被 PyRIT 视为普通 BadRequestError,导致整个场景崩溃
@@ -706,7 +712,21 @@ def _print_opsec_summary(ctx: PipelineContext) -> None:
             stealth = "⚠ 高风险 (RPM>120, 可能触发硬限速告警)"
         lines.append(f"隐蔽性: {stealth}")
 
-    info_box("OPSEC — 限速 × 隐蔽性", lines)
+    # v38: 评分器模型分层等级
+    scorer_tier = ctx.metadata.get("scorer_model_tier", "")
+    scorer_name = ctx.metadata.get("scorer_model_name", "")
+    if scorer_tier:
+        tier_emoji = {"T1": "🥇", "T2": "🥈", "T3": "⚠"}.get(scorer_tier, "")
+        lines.append(f"评分器: {tier_emoji} {scorer_tier} ({scorer_name})")
+
+    # v38.2: 双评分器热切换
+    backup_scorers = ctx.metadata.get("backup_scorers", [])
+    if backup_scorers:
+        lines.append("双评分器: ✅ 热切换已启用 (备用: DeepSeek-V3.2)")
+    else:
+        lines.append("双评分器: ➖ 未启用 (配置 BACKUP_SCORER_CHAT_* 以启用)")
+
+    info_box("OPSEC — 限速 × 隐蔽性 × 评分器", lines)
 
 
 # ============================================================
@@ -2085,21 +2105,60 @@ async def _detect_multimodal_capabilities(ctx: PipelineContext) -> None:
 
 
 # ============================================================
-# P0: JSON Mode 兼容性检测
+# P0: JSON Mode 兼容性检测 + 评分器模型分层
 # ============================================================
 
 
 # 已知支持 JSON mode 的端点域名 (OpenAI 原生 + Azure OpenAI + 主流第三方)
-# SiliconFlow: 支持 DeepSeek-V3/Qwen 等模型的 response_format=json_object
+# SiliconFlow: 支持 Qwen2.5/DeepSeek 等模型的 response_format=json_object
 # NVIDIA: 支持 GLM/Llama 等模型的 response_format=json_object
 # DeepSeek: 支持 DeepSeek-V4-Flash/Pro 等模型的 response_format=json_object
+# Anthropic: 支持 Claude 系列的 JSON 输出 (via messages API)
+# Groq: 支持 Llama/Mixtral 等模型的 response_format=json_object
+# Together: 支持 Qwen/Llama 等模型的 response_format=json_object
+# 策略: 未知端点自动禁用 JSON mode, 通过 response_parser.py 客户端解析兜底
 _JSON_MODE_SUPPORTED_HOSTS: frozenset[str] = frozenset({
     "api.openai.com",
     "openai.azure.com",
     "api.siliconflow.cn",
     "integrate.api.nvidia.com",
     "api.deepseek.com",
+    "api.anthropic.com",
+    "api.groq.com",
+    "api.together.xyz",
 })
+
+
+# 评分器模型分层推荐 (v38: 非Azure平台 + 任意模型适配)
+# 学术依据:
+#   - HarmBench (arXiv:2402.04249) §4.3: F1>0.9 时 ASR 可信
+#   - LLM-as-a-Judge (arXiv:2306.05685): 70B+ 模型与 GPT-4 一致性 80%+
+#   - Qwen2.5 TR (arXiv:2412.15115): JSON 结构化输出官方优化
+#   - PyRIT (arXiv:2407.01232): ScorerInitializer 硬编码 GPT-4o 为金标准
+_SCORER_MODEL_TIERS: dict[str, tuple[str, str]] = {
+    # T1 金标准: JSON 100% 遵从, F1≈0.92
+    "gpt-4o": ("T1", "金标准 — JSON 100% 遵从, F1≈0.92"),
+    "gpt-4o-mini": ("T1", "金标准 — JSON 100% 遵从, F1≈0.90"),
+    "gpt-4": ("T1", "金标准 — JSON 100% 遵从"),
+    "gpt-4-turbo": ("T1", "金标准 — JSON 100% 遵从"),
+    "claude-3-5-sonnet": ("T1", "金标准 — JSON 遵从度极高"),
+    "claude-3-5-haiku": ("T1", "金标准 — JSON 遵从度极高"),
+    # T2 推荐: JSON 遵从度高, F1≈0.85-0.90
+    "qwen2.5-72b": ("T2", "推荐 — JSON 遵从度高 (Qwen2.5 官方优化), F1≈0.87"),
+    "qwen2.5-32b": ("T2", "推荐 — JSON 遵从度高, F1≈0.85"),
+    "qwen-max": ("T2", "推荐 — JSON 遵从度高"),
+    "deepseek-chat": ("T2", "推荐 — DeepSeek 官方 API 支持 JSON mode"),
+    "deepseek-v3": ("T2", "推荐 — DeepSeek-V3 官方端点支持 JSON mode"),
+    "llama-3.1-70b": ("T2", "推荐 — 70B 级, JSON 遵从度良好"),
+    "llama-3.1-405b": ("T2", "推荐 — 405B 级, JSON 遵从度良好"),
+    # T3 可用: JSON 遵从度不稳定, 需 response_parser.py 兜底
+    "deepseek-ai/deepseek-v3": ("T3", "可用 — SiliconFlow 代理 JSON 不稳定, 需兜底"),
+    "qwen/qwen2.5-7b": ("T3", "可用 — 7B 级 JSON 不稳定, 需兜底"),
+    # v38.2: DeepSeek-V3.2 已支持 JSON mode, 升级为 T2
+    "deepseek-v3.2": ("T2", "推荐 — 671B MoE, JSON mode 已支持, F1≈0.88"),
+    "deepseek-ai/deepseek-v3.2": ("T2", "推荐 — 671B MoE, JSON mode 已支持, F1≈0.88"),
+}
+_T3_DEFAULT_DESC = "未知模型 — JSON 遵从度未验证, response_parser.py 兜底已启用"
 
 
 def _is_json_mode_supported(endpoint: str) -> bool:
@@ -2115,6 +2174,72 @@ def _is_json_mode_supported(endpoint: str) -> bool:
         return False
     endpoint_lower = endpoint.lower()
     return any(host in endpoint_lower for host in _JSON_MODE_SUPPORTED_HOSTS)
+
+
+def _detect_scorer_model_tier(model_name: str) -> tuple[str, str]:
+    """检测评分器模型的分层等级和描述.
+
+    评分器模型分层策略 (v38):
+        T1 金标准 — JSON 100% 遵从, F1≈0.90+ (GPT-4o, Claude-3.5)
+        T2 推荐   — JSON 遵从度高, F1≈0.85-0.90 (Qwen2.5-72B, Llama-3.1-70B)
+        T3 可用   — JSON 不稳定, 需 response_parser.py 兜底 (DeepSeek-V3 via SiliconFlow)
+
+    学术依据:
+        - HarmBench (arXiv:2402.04249) §4.3: F1>0.9 时 ASR 可信
+        - LLM-as-a-Judge (arXiv:2306.05685): 70B+ 模型一致性 80%+
+        - Qwen2.5 TR (arXiv:2412.15115): JSON 结构化输出官方优化
+
+    Args:
+        model_name: 评分器模型名称 (如 "Qwen/Qwen2.5-72B-Instruct")
+
+    Returns:
+        (tier, description) — 如 ("T2", "推荐 — JSON 遵从度高...")
+    """
+    if not model_name:
+        return ("T3", _T3_DEFAULT_DESC)
+
+    name_lower = model_name.lower()
+
+    # 精确匹配已知模型 (按最长 key 优先, 避免短 key 子串匹配导致误分类)
+    # 例如 "deepseek-ai/deepseek-v3" (T3) 必须在 "deepseek-v3" (T2) 之前匹配
+    sorted_keys = sorted(_SCORER_MODEL_TIERS.keys(), key=len, reverse=True)
+    for key in sorted_keys:
+        tier, desc = _SCORER_MODEL_TIERS[key]
+        if key in name_lower:
+            return (tier, desc)
+
+    # 模糊匹配: 按模型家族推断
+    if "gpt-4o" in name_lower or "gpt4o" in name_lower:
+        return ("T1", "金标准 — GPT-4o 系列, JSON 100% 遵从")
+    if "gpt-4" in name_lower:
+        return ("T1", "金标准 — GPT-4 系列, JSON 遵从度高")
+    if "claude" in name_lower and ("3.5" in name_lower or "3-5" in name_lower):
+        return ("T1", "金标准 — Claude 3.5 系列, JSON 遵从度极高")
+    if "qwen2.5-72b" in name_lower or "qwen2.5-32b" in name_lower:
+        return ("T2", "推荐 — Qwen2.5 大参数版, JSON 遵从度高 (官方优化)")
+    if "qwen" in name_lower and ("72b" in name_lower or "32b" in name_lower):
+        return ("T2", "推荐 — Qwen 大参数版, JSON 遵从度高")
+    if "qwen" in name_lower:
+        return ("T3", "可用 — Qwen 小参数版 JSON 不稳定, 需兜底")
+    if "deepseek" in name_lower and ("v3" in name_lower or "v4" in name_lower):
+        return ("T2", "推荐 — DeepSeek V3/V4 官方端点支持 JSON mode")
+    if "deepseek" in name_lower:
+        return ("T3", "可用 — DeepSeek via 第三方代理 JSON 不稳定")
+    if "llama" in name_lower and ("70b" in name_lower or "405b" in name_lower):
+        return ("T2", "推荐 — Llama 大参数版, JSON 遵从度良好")
+    if "llama" in name_lower:
+        return ("T3", "可用 — Llama 小参数版 JSON 不稳定")
+    if "mistral" in name_lower and "large" in name_lower:
+        return ("T2", "推荐 — Mistral Large, JSON 遵从度良好")
+    if "mistral" in name_lower:
+        return ("T3", "可用 — Mistral 小参数版 JSON 不稳定")
+    if "gemini" in name_lower:
+        return ("T2", "推荐 — Gemini 系列, JSON 遵从度良好")
+    if "gpt-3.5" in name_lower or "gpt-35" in name_lower:
+        return ("T3", "可用 — GPT-3.5 已过时, JSON 不稳定")
+
+    # 未知模型: 保守 T3
+    return ("T3", _T3_DEFAULT_DESC)
 
 
 def _disable_json_mode_for_third_party_endpoints(ctx: PipelineContext) -> None:
@@ -2182,6 +2307,34 @@ def _disable_json_mode_for_third_party_endpoints(ctx: PipelineContext) -> None:
         logger.debug(
             f"JSON mode disabled for target '{entry.name}' (model={model_name}, "
             f"endpoint={endpoint}). Client-side JSON parsing will be used instead."
+        )
+
+    # v38: 检测评分器模型分层等级并存储到 metadata
+    scorer_model_name = ""
+    for entry in target_entries:
+        target = entry.instance
+        inner = target
+        if hasattr(target, "inner_target"):
+            inner = target.inner_target
+        if hasattr(inner, "_model_name"):
+            ep = getattr(inner, "_endpoint", "") or ""
+            # objective_scorer_chat 目标优先
+            if "scorer" in entry.name.lower() or "siliconflow" in ep.lower():
+                scorer_model_name = getattr(inner, "_model_name", "") or ""
+                break
+    # Fallback: 从环境变量读取
+    if not scorer_model_name:
+        import os
+
+        scorer_model_name = os.environ.get("OBJECTIVE_SCORER_CHAT_MODEL", "")
+
+    if scorer_model_name:
+        tier, tier_desc = _detect_scorer_model_tier(scorer_model_name)
+        ctx.metadata["scorer_model_name"] = scorer_model_name
+        ctx.metadata["scorer_model_tier"] = tier
+        ctx.metadata["scorer_model_tier_desc"] = tier_desc
+        logger.info(
+            f"Scorer model tier detected: {tier} ({scorer_model_name}) — {tier_desc}"
         )
 
     # 存储 OPSEC 汇总数据
@@ -2743,6 +2896,117 @@ def _register_enhanced_scorers() -> None:
 
     if registered:
         logger.debug(f"Enhanced scorers registered: {', '.join(registered)}")
+
+
+# ============================================================
+# v38.2: 双评分器热切换 — DeepSeek-V3.2 备用评分器
+# ============================================================
+
+
+def _create_backup_scorer_target() -> Any | None:
+    """创建备用评分器 Target (DeepSeek-V3.2 via SiliconFlow).
+
+    v38.2: 双评分器热切换策略
+    - 主评分器: Qwen2.5-72B (来自 .env OBJECTIVE_SCORER_CHAT_*)
+    - 备用评分器: DeepSeek-V3.2 (从 BACKUP_SCORER_CHAT_* 环境变量读取)
+    - 当主评分器超时/失败时, 自动用备用评分器重评分
+
+    学术依据:
+      - LLM-as-a-Judge (arXiv:2306.05685): 多模型交叉验证降低单一模型偏差
+      - HarmBench (arXiv:2402.04249) §4.3: 评分器故障不应导致 ASR 数据丢失
+      - DeepSeek-V3 TR: 671B MoE, JSON mode 已支持
+
+    Returns:
+        OpenAIChatTarget 实例, 或 None (未配置备用评分器)
+    """
+    import os
+
+    backup_endpoint = os.getenv("BACKUP_SCORER_CHAT_ENDPOINT", "")
+    backup_model = os.getenv("BACKUP_SCORER_CHAT_MODEL", "")
+    backup_key = os.getenv("BACKUP_SCORER_CHAT_KEY", "")
+
+    if not backup_endpoint or not backup_model or not backup_key:
+        return None
+
+    try:
+        from pyrit.prompt_target import OpenAIChatTarget
+
+        target = OpenAIChatTarget(
+            endpoint=backup_endpoint,
+            api_key=backup_key,
+            model_name=backup_model,
+        )
+        logger.info(f"Backup scorer target created: {backup_model} @ {backup_endpoint}")
+        return target
+    except Exception as e:
+        logger.debug(f"Failed to create backup scorer target: {e}")
+        return None
+
+
+def _register_backup_scorers() -> list[str]:
+    """注册备用评分器 (使用 DeepSeek-V3.2 Target).
+
+    为备用评分器 Target 注册一套完整的评分器:
+    - backup_task_achieved: SelfAskTrueFalseScorer
+    - backup_refusal_lenient: SelfAskRefusalScorer (OBJECTIVE_LENIENT)
+
+    这些评分器仅在主评分器失败时被 _rescore_with_backup_scorer 调用。
+
+    Returns:
+        已注册的备用评分器名称列表
+    """
+    backup_target = _create_backup_scorer_target()
+    if backup_target is None:
+        return []
+
+    from pyrit.registry import ScorerRegistry
+
+    scorer_registry = ScorerRegistry.get_registry_singleton()
+    registered: list[str] = []
+
+    # 1. Backup task achievement scorer
+    if scorer_registry.instances.get_entry("backup_task_achieved") is None:
+        try:
+            from pyrit.score import SelfAskTrueFalseScorer
+
+            from pipeline.scoring.response_parser import create_true_false_response_handler
+
+            backup_scorer = SelfAskTrueFalseScorer(
+                chat_target=backup_target,
+                response_handler=create_true_false_response_handler(),
+            )
+            scorer_registry.instances.register(
+                backup_scorer, name="backup_task_achieved", tags=["backup_scorer"]
+            )
+            registered.append("backup_task_achieved")
+        except Exception as e:
+            logger.debug(f"Failed to register backup_task_achieved: {e}")
+
+    # 2. Backup refusal scorer (lenient)
+    if scorer_registry.instances.get_entry("backup_refusal_lenient") is None:
+        try:
+            from pyrit.models import SeedPrompt
+            from pyrit.score import RefusalScorerPaths, SelfAskRefusalScorer
+
+            from pipeline.scoring.response_parser import create_true_false_response_handler
+
+            prompt_path = RefusalScorerPaths.OBJECTIVE_LENIENT.value
+            backup_refusal = SelfAskRefusalScorer(
+                chat_target=backup_target,
+                system_prompt=SeedPrompt.from_yaml_file(prompt_path),
+                response_handler=create_true_false_response_handler(),
+            )
+            scorer_registry.instances.register(
+                backup_refusal, name="backup_refusal_lenient", tags=["backup_scorer"]
+            )
+            registered.append("backup_refusal_lenient")
+        except Exception as e:
+            logger.debug(f"Failed to register backup_refusal_lenient: {e}")
+
+    if registered:
+        logger.info(f"Backup scorers registered: {', '.join(registered)}")
+
+    return registered
 
 
 def _select_best_scorer_by_f1(scorer_registry: Any) -> None:

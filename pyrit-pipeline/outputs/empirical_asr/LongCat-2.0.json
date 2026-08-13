@@ -1,7 +1,7 @@
 {
   "techniques": {
-    "red_teaming": 0.38235294117647056,
-    "prompt_sending": 0.2892561983471074,
+    "red_teaming": 0.6388888888888888,
+    "prompt_sending": 0.3870967741935484,
     "crescendo": 1.0
   },
   "_meta": {

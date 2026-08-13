@@ -228,6 +228,23 @@ async def run(ctx: PipelineContext) -> None:
                 )
         # S1: 对评分器失败的攻击进行 SubStringScorer 降级评分
         _rescore_failed_attacks(result)
+        # v38.2: 双评分器热切换 — 备用评分器重评分 (SubString 之后)
+        try:
+            import asyncio
+
+            asyncio.get_event_loop().run_until_complete(
+                _rescore_with_backup_scorer(result)
+            )
+        except RuntimeError:
+            # 已在事件循环中 (如 async 测试环境), 创建新线程执行
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                pool.submit(
+                    lambda: asyncio.run(_rescore_with_backup_scorer(result))
+                ).result()
+        except Exception as e:
+            logger.debug(f"v38.2 backup scorer rescoring skipped: {e}")
     except BaseException as exc:
         # S4: BaseException 兜底 — 捕获 SystemExit 等非标准异常
         logger.debug("Scenario execution BaseException details", exc_info=True)
@@ -1041,6 +1058,93 @@ def _rescore_failed_attacks(result: Any) -> None:
             f"  [S1+ 降级评分] {timeout_failure_rescored}/{timeout_failure_count} 个"
             f" 评分器超时FAILURE攻击已用关键词匹配重新评分"
         )
+
+
+# ============================================================
+# v38.2: 双评分器热切换 — 备用评分器重评分
+# ============================================================
+
+
+async def _rescore_with_backup_scorer(result: Any) -> int:
+    """v38.2: 用备用评分器 (DeepSeek-V3.2) 对评分器失败攻击重评分.
+
+    当主评分器 (Qwen2.5-72B) 超时或返回 ERROR 时, 使用备用评分器
+    重新评估攻击结果, 避免评分器故障导致 ASR 数据丢失。
+
+    策略:
+      1. 遍历所有 outcome=ERROR 的攻击结果
+      2. 获取备用评分器 (backup_task_achieved) 实例
+      3. 对每个 ERROR 攻击异步调用备用评分器
+      4. 更新 outcome 为 SUCCESS/FAILURE
+
+    学术依据:
+      - LLM-as-a-Judge (arXiv:2306.05685): 多模型交叉验证降低偏差
+      - HarmBench (arXiv:2402.04249) §4.3: 评分器故障不应导致数据丢失
+      - DeepSeek-V3 TR: 671B MoE, 评分准确度高
+
+    Args:
+        result: ScenarioResult 实例
+
+    Returns:
+        重评分的攻击数量
+    """
+    from pyrit.models import AttackOutcome
+    from pyrit.registry import ScorerRegistry
+
+    # 检查备用评分器是否已注册
+    scorer_registry = ScorerRegistry.get_registry_singleton()
+    backup_entry = scorer_registry.instances.get_entry("backup_task_achieved")
+    if backup_entry is None:
+        return 0
+
+    backup_scorer = backup_entry.instance
+
+    # 收集需要重评分的攻击
+    error_attacks: list[tuple[Any, str]] = []
+    for _objective, attack_results in result.attack_results.items():
+        for ar in attack_results:
+            if ar.outcome == AttackOutcome.ERROR:
+                response_text = ar.last_response or ""
+                if response_text:
+                    error_attacks.append((ar, response_text))
+
+    if not error_attacks:
+        return 0
+
+    rescored = 0
+    for ar, response_text in error_attacks:
+        try:
+            # 调用备用评分器
+            score_result = await backup_scorer.score_async(
+                request_response=response_text,
+                task=ar.objective if hasattr(ar, "objective") else "",
+            )
+            # score_result 是一个列表, 取第一个
+            if score_result and len(score_result) > 0:
+                score_value = score_result[0].get_value()
+                if score_value:
+                    ar.outcome = AttackOutcome.SUCCESS
+                    ar.outcome_reason = "v38.2 backup scorer: task achieved (DeepSeek-V3.2)"
+                else:
+                    ar.outcome = AttackOutcome.FAILURE
+                    ar.outcome_reason = "v38.2 backup scorer: task not achieved (DeepSeek-V3.2)"
+                rescored += 1
+        except Exception as e:
+            logger.debug(f"Backup scorer failed for attack: {e}")
+            continue
+
+    if rescored > 0:
+        logger.info(
+            "v38.2 双评分器热切换: %d/%d 个 ERROR 攻击已用备用评分器 (DeepSeek-V3.2) 重评分",
+            rescored,
+            len(error_attacks),
+        )
+        print(
+            f"  [v38.2 双评分器热切换] {rescored}/{len(error_attacks)} 个"
+            f" 评分器失败攻击已用备用评分器 (DeepSeek-V3.2) 重评分"
+        )
+
+    return rescored
 
 
 # ============================================================
