@@ -435,6 +435,29 @@ async def _load_datasets(ctx: PipelineContext) -> None:
     # ── P0: JSON Mode 兼容性检测 (第三方端点自动禁用) ──
     _disable_json_mode_for_third_party_endpoints(ctx)
 
+    # ── L5: Tool Calling Target 注册 (OpenAIResponseTarget + 蜜罐工具集) ──
+    # 启用 --tool-calling 或 XPIA/MCP/Multi-Agent 场景时自动注册
+    _tool_calling_enabled = (
+        getattr(ctx.args, "tool_calling", False)
+        or getattr(ctx.args, "xpia_attack", False)
+        or getattr(ctx.args, "advanced_mcp_attack", False)
+        or getattr(ctx.args, "multi_agent_attack", False)
+    )
+    if _tool_calling_enabled:
+        try:
+            from pipeline.targets.tool_calling_target import register_tool_calling_target
+
+            _tc_result = register_tool_calling_target(name="tool_calling_target")
+            if _tc_result is not None:
+                _tc_target, _tc_log = _tc_result
+                ctx.metadata["tool_calling_target"] = True
+                ctx.metadata["tool_call_log"] = _tc_log
+                print("  [L5] Tool Calling Target 已注册 (OpenAIResponseTarget + 蜜罐工具集)")
+            else:
+                print("  [提示] Tool Calling Target 创建失败 (缺少 OPENAI_RESPONSES_* 或 OPENAI_CHAT_* 配置)")
+        except Exception as e:
+            print(f"  [提示] Tool Calling Target 注册跳过: {e}")
+
     # ── P2: Rate Limited Target 包装 (v7.1: 全覆盖) ──
     if getattr(ctx.args, "rate_limit", None):
         _wrap_rate_limited_target(ctx)

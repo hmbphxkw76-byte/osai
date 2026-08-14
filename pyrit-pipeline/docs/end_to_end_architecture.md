@@ -23,7 +23,7 @@
 ## 一、端到端流程概览
 
 ```
-用户执行: python main.py --datasets harmbench jbb_behaviors strong_reject --load-owasp-local
+用户执行: python main.py --datasets harmbench jbb_behaviors strong_reject --load-local-datasets
 
 Stage 1: 原生初始化
   ├── ConfigurationLoader.load_with_overrides(.pyrit_conf)
@@ -379,13 +379,13 @@ report_result = await generator.generate_report(
 python main.py
 
 # 指定数据集 + OWASP
-python main.py --datasets harmbench jbb_behaviors strong_reject --load-owasp-local
+python main.py --datasets harmbench jbb_behaviors strong_reject --load-local-datasets
 
 # 快速评估 (Tier 1)
-python main.py --load-owasp-local --tier-layer 1
+python main.py --load-local-datasets --tier-layer 1
 
 # 深度评估 (Tier 3)
-python main.py --load-owasp-local --tier-layer 3
+python main.py --load-local-datasets --tier-layer 3
 ```
 
 ### 8.2 高级运行
@@ -430,6 +430,76 @@ output/
 │   ├── report.html
 │   └── report.pdf
 └── empirical_asr.json                     # 经验 ASR (全局)
+```
+
+---
+
+## 九、Web Bridge: 侦察 → 认证 → AI 端点 → 主流水线
+
+### 9.1 架构概览
+
+Web Bridge 是 `web_redteam` 框架与 `pyrit-pipeline` 主流水线的桥接层，
+实现从 **侦察** → **认证** → **到达 AI 端点** → **主流水线 6 阶段深入攻击** 的完整闭环。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Web Bridge 完整链路                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. 侦察 (Recon)                                                        │
+│     ├─ recon-pipeline 扫描目标 → ReconReport                           │
+│     ├─ 端点发现 + 能力推断 + 认证检测                                    │
+│     └─ 产出: recon_result.json (可序列化复用)                           │
+│                                                                         │
+│  2. 认证 (Auth)                                                         │
+│     ├─ --auth-state-file 复用 → 跳过重复认证 (G2)                      │
+│     ├─ 浏览器认证 (Playwright) → cookies + storage_state              │
+│     ├─ API 认证 (header/token) → auth_headers                          │
+│     └─ 产出: AuthState (可导出/导入)                                    │
+│                                                                         │
+│  3. 到达 AI 端点 (Target)                                               │
+│     ├─ PlaywrightTarget (Web App 模式) — G1: page 保持活跃             │
+│     ├─ HTTPTarget (API 模式) — G3: callback_function 提取响应          │
+│     ├─ RateLimitedTarget 包装 — 限速+并发控制                           │
+│     └─ G4: recon_http_target 不注册 default tag, 避免冲突              │
+│                                                                         │
+│  4. 主流水线 6 阶段                                                     │
+│     ├─ Stage 1: 初始化 + recon_result 加载                             │
+│     ├─ Stage 2: 场景配置 — G6: recon 推荐始终显示                      │
+│     ├─ Stage 3: 场景初始化 — Target 就绪                                │
+│     ├─ Stage 4: 执行攻击 — Converter 链 + Scorer                        │
+│     ├─ Stage 5: 后分析 — ASR 实测 vs 先验                               │
+│     └─ Stage 6: 输出 — 证据收集 + L5 报告                               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.2 关键修复 (G1-G6)
+
+| 修复 | 文件 | 问题描述 | 解决方案 | 学术依据 |
+|------|------|----------|----------|----------|
+| G1 | `web_bridge.py` | `_browser_auth` 关闭浏览器后 `PlaywrightTarget` 无 page | 移除 `session.close()`, page 保持活跃, 由 `main.py` finally 清理 | OWASP ASVS V2.4 |
+| G2 | `stage_target_classify.py` | 无认证状态复用, 每次重复认证 | `try_reuse_auth_state()` + storage_state 恢复 + `export_auth_state()` 导出 | NIST SP 800-63B |
+| G3 | `recon_target_bridge.py` | `HTTPTarget` 缺 `callback_function`, 响应无法解析 | 添加 `get_http_target_json_response_callback_function` | PyRIT (arXiv:2407.01232) |
+| G4 | `recon_target_bridge.py` | recon target 注册 `default` tag, 与 `stage_target_classify` 冲突 | 移除 `default` tag, 仅保留 `scorer` tag | PyRIT Registry 设计 |
+| G5 | `web_bridge.py` | `ssl=False` 硬编码, 企业内网自签证书场景不兼容 | `WEB_BRIDGE_SSL_VERIFY` 环境变量可配置 | OWASP ASVS V9.2 |
+| G6 | `main.py` | `--scenario` 指定时 recon 推荐完全跳过 | 始终显示推荐, 仅 `--scenario` 未指定时自动选择 | MITRE ATT&CK T1592 |
+
+### 9.3 使用方式
+
+```bash
+# 完整链路: recon → auth → pipeline
+python main.py --target-url https://chat.example.com --web-bridge --load-local-datasets
+
+# 复用认证状态 (跳过重复认证)
+python main.py --target-url https://api.example.com/v1/chat --web-bridge --auth-state-file outputs/auth_state/auth_state.json --load-local-datasets
+
+# 从 recon JSON 加载 (跳过侦察步骤)
+python main.py --recon-json outputs/recon/recon_result.json --load-local-datasets
+
+# 企业内网 (自签证书)
+$env:WEB_BRIDGE_SSL_VERIFY = "true"
+python main.py --target-url https://internal-llm.corp.local --web-bridge --load-local-datasets
 ```
 
 ---

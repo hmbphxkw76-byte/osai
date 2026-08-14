@@ -400,6 +400,25 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "减少重复认证次数. 两流水线各自独立, 仅通过文件传递认证数据."
         ),
     )
+    # ── Web Bridge: 两流水线自动串联 ──
+    parser.add_argument(
+        "--web-bridge",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Web Bridge — 自动串联 web_redteam 与主流水线.\n"
+            "启用后: 通过 --target-url 执行浏览器/API 认证 → 探测目标能力 →\n"
+            "  注入认证状态 → 桥接到主流水线 17 种原生攻击技术.\n"
+            "不启用时: --target-url 走 stage_target_classify 直连模式 (假定已有 API Key).\n"
+            "学术依据: OWASP Top 10 for LLMs 2025 (Web→API 攻击面串联)"
+        ),
+    )
+    parser.add_argument(
+        "--cdp-port",
+        type=int,
+        default=9222,
+        help="CDP 调试端口 (Web Bridge 浏览器模式, 默认: 9222)",
+    )
     parser.add_argument(
         "--mcp-attack",
         action="store_true",
@@ -634,6 +653,20 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         type=str,
         default=None,
         help="XPIA 攻击内容 (嵌入的恶意指令)",
+    )
+
+    # ── L5: Tool Calling Target (原生 OpenAIResponseTarget + 蜜罐工具集) ──
+    parser.add_argument(
+        "--tool-calling",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Tool Calling Target (PyRIT 原生 OpenAIResponseTarget + 蜜罐工具集).\n"
+            "为 Agent 攻击 (XPIA/MCP/Multi-Agent) 提供真实工具调用循环.\n"
+            "8 个蜜罐工具: read_file/list_directory/send_email/http_request/"
+            "execute_command/get_environment/write_file/delete_file.\n"
+            "需要 OPENAI_RESPONSES_ENDPOINT/OPENAI_RESPONSES_KEY 或 OPENAI_CHAT_* 环境变量."
+        ),
     )
 
     # ── HTTP Target (P2: 原生 HTTPTarget) ──

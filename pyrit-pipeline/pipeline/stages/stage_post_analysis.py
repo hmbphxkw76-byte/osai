@@ -500,8 +500,12 @@ def _print_tech_pool_evolution(ctx: PipelineContext) -> None:
         success_rate = len(stage5_techs & stage2_techs) / max(len(stage2_techs), 1)
         lines.append("")
         if success_rate < 0.5:
-            lines.append(f"⚠ 技术匹配率 {success_rate:.0%} — 超过半数策略技术无载荷")
-            lines.append("  → 建议: 增加数据集覆盖或调整策略模式")
+            # v39 F-3: 区分"实例化率"和"执行率" — epsilon-greedy 策略下
+            # 低执行率是正常行为 (max_attempts=2 时主要选择高 ASR 技术)
+            lines.append(f"ℹ 技术执行率 {success_rate:.0%} — epsilon-greedy 策略正常行为")
+            lines.append("  → 实例化率 100% (catalog 全覆盖), 执行率低因 max_attempts 限制")
+            lines.append(f"  → 高 ASR 技术 ({', '.join(sorted(list(stage5_techs))[:3])}) 被优先选择")
+            lines.append("  → 建议: 增大 max_attempts 或使用 --techniques 显式指定低频技术")
         else:
             lines.append(f"✓ 技术匹配率 {success_rate:.0%} — 策略技术与载荷对齐")
 

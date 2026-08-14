@@ -42,6 +42,31 @@ from pipeline.analysis.technique_name_mapper import (
 
 logger = logging.getLogger(__name__)
 
+# G9: Evidence 文本截断限制 — 防止幻觉文本膨胀 evidence.json
+_MAX_EVIDENCE_TEXT_LENGTH = 5000
+
+
+def _truncate_evidence_text(text: str, max_length: int = _MAX_EVIDENCE_TEXT_LENGTH) -> str:
+    """截断超长证据文本, 添加截断标注 (G9).
+
+    模型幻觉产生的数千字垃圾文本会严重膨胀 evidence.json,
+    超过阈值的文本截断并标注省略字符数。
+    截断后总长度 (含标注) 不超过 max_length。
+    """
+    if not text or len(text) <= max_length:
+        return text
+    suffix_template = "\n\n[... truncated: {omitted} chars omitted ...]"
+    # 迭代调整: 确保最终结果 (body + suffix) <= max_length
+    body_len = max_length - 50  # 初始预留 50 字符给 suffix
+    while body_len > 0:
+        omitted = len(text) - body_len
+        suffix = suffix_template.format(omitted=omitted)
+        if body_len + len(suffix) <= max_length:
+            return f"{text[:body_len]}{suffix}"
+        body_len -= 1
+    # 极端情况: max_length 太小, 硬截断
+    return text[:max_length]
+
 
 # ============================================================
 # 数据结构
@@ -504,12 +529,12 @@ class EvidenceCollector:
             lines.append("")
             lines.append("#### 越狱载荷 (Jailbreak Prompt)")
             lines.append("```")
-            lines.append(ev.jailbreak_prompt[:1000] if ev.jailbreak_prompt else "(未提取)")
+            lines.append(ev.jailbreak_prompt[:5000] if ev.jailbreak_prompt else "(未提取)")
             lines.append("```")
             lines.append("")
             lines.append("#### 目标模型响应 (Harmful Output)")
             lines.append("```")
-            lines.append(ev.harmful_output[:1000] if ev.harmful_output else "(未提取)")
+            lines.append(ev.harmful_output[:5000] if ev.harmful_output else "(未提取)")
             lines.append("```")
             lines.append("")
 
@@ -519,7 +544,8 @@ class EvidenceCollector:
                 for msg in ev.conversation_history:
                     role = msg.get("role", "unknown")
                     content = msg.get("content", "")
-                    lines.append(f"**{role}**: {content[:300]}")
+                    # P6: evidence 中对话截断到 5000 (足够展示完整载荷+响应)
+                    lines.append(f"**{role}**: {content[:5000]}")
                     lines.append("")
                 lines.append("---")
                 lines.append("")
@@ -550,10 +576,11 @@ class EvidenceCollector:
                     marker = "🔄" if transformed else "⚫"
                     lines.append(f"{marker} **步骤 {cl.get('step', '')}** ({cl.get('role', '')})")
                     if transformed:
-                        lines.append(f"  - 原始: `{cl.get('original', '')[:200]}...`")
-                        lines.append(f"  - 变换: `{cl.get('converted', '')[:200]}...`")
+                        # P6: evidence 中 Converter 日志截断到 5000
+                        lines.append(f"  - 原始: `{cl.get('original', '')[:5000]}...`")
+                        lines.append(f"  - 变换: `{cl.get('converted', '')[:5000]}...`")
                     else:
-                        lines.append(f"  - 内容: `{cl.get('original', '')[:200]}...`")
+                        lines.append(f"  - 内容: `{cl.get('original', '')[:5000]}...`")
                     lines.append("")
                 lines.append("---")
                 lines.append("")
@@ -614,7 +641,16 @@ class EvidenceCollector:
         return ""
 
     def _extract_jailbreak_prompt(self, attack_result: Any) -> str:
-        """提取越狱载荷 (变换后的 prompt)。."""
+        """提取越狱载荷 (变换后的 prompt).
+
+        P2 修复: 优先从 last_request 提取, fallback 到 CentralMemory.get_message_pieces()
+        从 conversation_id 查询, 解决 last_request 为 None 时返回空字符串的问题。
+
+        数据流:
+          1. AttackResult.last_request.request_pieces -> 最后一条 user piece
+          2. (fallback) CentralMemory.get_message_pieces(conv_id) -> 最后一条 user piece
+        """
+        # 1. 优先从 last_request 提取
         last_request = getattr(attack_result, "last_request", None)
         if last_request:
             pieces = getattr(last_request, "request_pieces", None) or []
@@ -623,11 +659,36 @@ class EvidenceCollector:
                 for piece in reversed(pieces):
                     role = getattr(piece, "role", "")
                     if role == "user":
-                        return str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        return _truncate_evidence_text(
+                            str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        )
+
+        # 2. P2 fallback: 从 CentralMemory 提取
+        conv_id = getattr(attack_result, "conversation_id", None)
+        if conv_id:
+            try:
+                from pyrit.memory import CentralMemory
+
+                memory = CentralMemory.get_memory_instance()
+                pieces = memory.get_message_pieces(conversation_id=str(conv_id))
+                for piece in reversed(list(pieces)):
+                    role = getattr(piece, "role", "")
+                    if role == "user":
+                        return _truncate_evidence_text(
+                            str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        )
+            except Exception as e:
+                logger.debug(f"P2 fallback: failed to extract jailbreak_prompt from memory: {e}")
+
         return ""
 
     def _extract_harmful_output(self, attack_result: Any) -> str:
-        """提取目标模型的有害输出。."""
+        """提取目标模型的有害输出.
+
+        P2 修复: 优先从 last_response 提取, fallback 到 CentralMemory.get_message_pieces()
+        从 conversation_id 查询, 解决 last_response 为 None 时返回空字符串的问题。
+        """
+        # 1. 优先从 last_response 提取
         last_response = getattr(attack_result, "last_response", None)
         if last_response:
             pieces = getattr(last_response, "request_pieces", None) or []
@@ -635,7 +696,27 @@ class EvidenceCollector:
                 for piece in reversed(pieces):
                     role = getattr(piece, "role", "")
                     if role == "assistant":
-                        return str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        return _truncate_evidence_text(
+                            str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        )
+
+        # 2. P2 fallback: 从 CentralMemory 提取
+        conv_id = getattr(attack_result, "conversation_id", None)
+        if conv_id:
+            try:
+                from pyrit.memory import CentralMemory
+
+                memory = CentralMemory.get_memory_instance()
+                pieces = memory.get_message_pieces(conversation_id=str(conv_id))
+                for piece in reversed(list(pieces)):
+                    role = getattr(piece, "role", "")
+                    if role == "assistant":
+                        return _truncate_evidence_text(
+                            str(getattr(piece, "converted_value", "") or getattr(piece, "original_value", ""))
+                        )
+            except Exception as e:
+                logger.debug(f"P2 fallback: failed to extract harmful_output from memory: {e}")
+
         return ""
 
     def _extract_conversation(self, attack_result: Any) -> list[dict[str, str]]:

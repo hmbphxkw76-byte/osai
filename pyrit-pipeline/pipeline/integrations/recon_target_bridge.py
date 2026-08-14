@@ -294,8 +294,35 @@ def build_http_target_from_recon(
 
     raw_request = "\r\n".join(header_lines) + "\r\n\r\n" + body
 
+    # G3: 添加 callback_function 提取 AI 响应
+    # 缺少 callback 时 HTTPTarget 无法解析响应, 攻击结果全为空
+    # 学术依据: PyRIT (arXiv:2407.01232) HTTPTarget 需要 callback_function 提取响应
+    callback = None
+    try:
+        from pyrit.prompt_target.http_target import (
+            get_http_target_json_response_callback_function,
+        )
+
+        response_key = endpoint_info.response_path or "choices[0].message.content"
+        callback = get_http_target_json_response_callback_function(
+            key=response_key,
+        )
+    except ImportError:
+        try:
+            from pyrit.prompt_target import (
+                get_http_target_json_response_callback_function,
+            )
+
+            response_key = endpoint_info.response_path or "choices[0].message.content"
+            callback = get_http_target_json_response_callback_function(
+                key=response_key,
+            )
+        except ImportError:
+            logger.warning("G3: PyRIT callback import failed, HTTPTarget will return raw response")
+
     http_target = HTTPTarget(
         http_request=raw_request,
+        callback_function=callback,
     )
 
     logger.info(
@@ -469,12 +496,15 @@ async def build_target_from_recon(
             )
 
         # 注册到 TargetRegistry
+        # G4: 不注册 "default" tag — 避免与 stage_target_classify 的默认 Target 冲突
+        # stage_target_classify 创建的 Target 应成为默认 Target
+        # recon_http_target 仅作为备选/补充 Target 可用
         from pyrit.registry import TargetRegistry
 
         TargetRegistry.get_registry_singleton().instances.register(
             instance=target,
             name="recon_http_target",
-            tags={"default": {}, "scorer": {}},
+            tags={"scorer": {}},
         )
 
         ctx.metadata["recon_target_built"] = True

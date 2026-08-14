@@ -238,6 +238,33 @@ async def run(ctx: WebRedTeamContext) -> None:
             "No objective specified. Use --objective or set attack_defaults.objective in profile."
         )
 
+    # P0-S2: Web Bridge Enhancer — 注入主流水线核心能力
+    # 当启用 web_bridge 时, 使用 ASR 驱动技术选择 + Converter 链 + 增强评分器
+    if getattr(ctx.args, "web_bridge", False) or hasattr(ctx, "_web_bridge_active"):
+        try:
+            from pipeline.integrations.web_bridge_enhancer import (
+                build_converter_chains,
+                create_enhanced_scorer,
+                select_technique_by_asr,
+            )
+
+            # E-1: ASR 驱动技术选择 (仅当用户未明确指定时)
+            if not getattr(ctx.args, "attack_type", None):
+                attack_type = select_technique_by_asr(ctx)
+
+            # E-2: Converter 链
+            recon_capability = getattr(ctx, "recon_capability", None)
+            ctx.metadata["web_bridge_converter_chains"] = build_converter_chains(
+                ctx, attack_type, recon_capability=recon_capability,
+            )
+
+            # E-3: 增强评分器
+            ctx.metadata["web_bridge_enhanced_scorer"] = create_enhanced_scorer(objective)
+
+            logger.info(f"[Web Bridge Enhancer] E-1/E-2/E-3 注入完成 (attack_type={attack_type})")
+        except ImportError:
+            logger.debug("Web Bridge Enhancer not available, using default attack config")
+
     # 显示攻击信息
     mode_label = "API" if ctx.api_mode else "Browser"
     logger.info(f"  模式: {mode_label}")

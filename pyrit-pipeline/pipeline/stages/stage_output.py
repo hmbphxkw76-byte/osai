@@ -931,6 +931,7 @@ async def _generate_l5_report(ctx: PipelineContext, output_dir: Path) -> None:
         start_time=start_time,
         end_time=end_time,
         report_base_name=report_base_name,
+        pipeline_ctx=ctx,  # P4: 传递 PipelineContext 以获取 target/judge 信息
     )
 
     print(f"  Markdown 报告: {report_result.report_path}")

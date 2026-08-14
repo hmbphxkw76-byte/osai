@@ -238,15 +238,15 @@ run-exhaustive: ## 全技术评估模式
 
 run-target-url: ## 攻击 LLM Web URL (--target-url, 自动判别 Web/API, 认证+MFA)
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (LLM Web URL 攻击)..."
-	$(PYTHON) main.py --target-url $(or $(TARGET_URL),https://chat.example.com) --load-owasp-local
+	$(PYTHON) main.py --target-url $(or $(TARGET_URL),https://chat.example.com) --load-local-datasets
 
 run-mcp: ## 启用 MCP 协议级攻击 (--mcp-attack, 8 探针)
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (MCP 协议级攻击)..."
-	$(PYTHON) main.py --load-owasp-local --mcp-attack
+	$(PYTHON) main.py --load-local-datasets --mcp-attack
 
 run-recon: ## 从 JSON 文件加载侦察结果 (--recon-json, 两流水线完全独立)
 	@echo "$(CYAN)[RUN]$(RESET) 启动流水线 (Recon JSON 加载)..."
-	$(PYTHON) main.py --load-owasp-local --recon-json $(or $(RECON_JSON),outputs/evidence/recon_report.json)
+	$(PYTHON) main.py --load-local-datasets --recon-json $(or $(RECON_JSON),outputs/evidence/recon_report.json)
 
 run-web: ## 运行 Web Red Team
 	@echo "$(CYAN)[RUN]$(RESET) 启动 Web Red Team..."

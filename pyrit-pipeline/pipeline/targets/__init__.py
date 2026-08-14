@@ -6,10 +6,16 @@
 包含以下模块:
   - rate_limited_target: 限速 Target 包装器 (RPM 委托 + 并发重试)
   - rich_metadata_loader: 富元数据数据集格式支持
+  - honeypot_tools: 蜜罐工具集 + 工具调用日志 (L5 Agent 攻击)
+  - tool_calling_target: OpenAIResponseTarget + 蜜罐工具集工厂 (L5)
+  - local_blob_target: 本地文件系统模拟 Blob Storage (L5 XPIA)
+  - mcp_target: MCP 风格工具集 + OpenAIResponseTarget (L5)
 
 统一入口:
     from pipeline.targets import RateLimitedTarget, wrap_target_with_rate_limit
     from pipeline.targets import load_rich_prompt_as_native
+    from pipeline.targets import create_tool_calling_target, register_tool_calling_target
+    from pipeline.targets import ToolCallLog
 """
 
 from pipeline.targets.rate_limited_target import RateLimitedTarget, wrap_target_with_rate_limit

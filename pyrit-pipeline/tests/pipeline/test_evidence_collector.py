@@ -179,9 +179,10 @@ class TestExtractJailbreakPrompt:
         assert "Ignore" in prompt
 
     def test_without_last_request(self) -> None:
-        """无 last_request→空字符串。."""
+        """无 last_request 且无 conversation_id→空字符串。."""
         ar = MagicMock()
         ar.last_request = None
+        ar.conversation_id = None
         collector = EvidenceCollector()
         assert collector._extract_jailbreak_prompt(ar) == ""
 
@@ -212,9 +213,10 @@ class TestExtractHarmfulOutput:
         assert "harmful" in output
 
     def test_without_last_response(self) -> None:
-        """无 last_response→空字符串。."""
+        """无 last_response 且无 conversation_id→空字符串。."""
         ar = MagicMock()
         ar.last_response = None
+        ar.conversation_id = None
         collector = EvidenceCollector()
         assert collector._extract_harmful_output(ar) == ""
 

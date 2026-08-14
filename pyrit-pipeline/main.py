@@ -163,9 +163,25 @@ async def main_async() -> None:
                 print("\n[SHUTDOWN] 在 Stage 1 后退出")
                 return
 
-            # Stage 0.5: 统一目标类型判别 + 认证桥接 (仅当 --target-url 时激活)
+            # Stage 0.5: 统一目标类型判别 + 认证桥接
+            # 两种模式:
+            #   A. --web-bridge: web_redteam 认证 + 侦察 → 主流水线 (完整串联)
+            #   B. 无 --web-bridge: stage_target_classify 直连模式 (假定已有 API Key)
             target_url = getattr(ctx.args, "target_url", None)
-            if target_url:
+            web_bridge_enabled = getattr(ctx.args, "web_bridge", False)
+            if target_url and web_bridge_enabled:
+                # Web Bridge 模式: 自动串联 web_redteam → 主流水线
+                from pipeline.integrations.web_bridge import run_web_bridge
+
+                bridge_ok = await run_web_bridge(ctx)
+                if not bridge_ok:
+                    print("\n[Web Bridge] 桥接失败, 降级到 stage_target_classify")
+                    target_bridged = await stage_target_classify(ctx)
+                if _shutdown_requested:
+                    print("\n[SHUTDOWN] 在 Stage 0.5 (Web Bridge) 后退出")
+                    return
+            elif target_url:
+                # 直连模式: 假定已知 API Key/Endpoint
                 target_bridged = await stage_target_classify(ctx)
                 if target_bridged and _shutdown_requested:
                     print("\n[SHUTDOWN] 在 Stage 0.5 (目标桥接) 后退出")
@@ -199,8 +215,10 @@ async def main_async() -> None:
                 return
 
             # 侦察驱动场景选择 (当 recon_result 存在时)
+            # G6: 始终显示 recon 推荐, 即使 --scenario 已指定
+            # 仅当 --scenario 未指定时自动选择最高优先级场景
             recon_result = ctx.metadata.get("recon_result")
-            if recon_result and not getattr(ctx.args, "scenario", None):
+            if recon_result:
                 from pipeline.integrations.web_redteam import recommend_scenarios_from_recon
                 from pipeline.utils.decision_trace import DecisionTrace
 
@@ -220,24 +238,26 @@ async def main_async() -> None:
                     for s in scenarios:
                         print(f"    [P{s['priority']}] {s['scenario']} ({s['owasp_id']}) — {s['rationale'][:80]}")
 
-                    # 自动选择最高优先级场景
-                    top_scenario = scenarios[0]
-                    if top_scenario["scenario"] == "xpia":
-                        print("\n  [Recon] 自动选择 XPIA 工作流")
-                        from pipeline.workflows.xpia import run_xpia
-                        await run_xpia(ctx)
-                        return
-                    elif top_scenario["scenario"] == "multimodal":
-                        print("\n  [Recon] 自动选择多模态注入场景")
-                        from pipeline.scenarios.multimodal_injection import run_multimodal_injection
-                        await run_multimodal_injection(ctx)
-                        return
-                    elif top_scenario["scenario"] == "model_extraction":
-                        print("\n  [Recon] 自动选择模型提取场景")
-                        from pipeline.scenarios.model_extraction import run_model_extraction
-                        await run_model_extraction(ctx)
-                        return
-                    # text_adaptive 继续走标准流水线
+                    # G6: 仅当 --scenario 未指定时自动选择最高优先级场景
+                    user_scenario = getattr(ctx.args, "scenario", None)
+                    if not user_scenario:
+                        top_scenario = scenarios[0]
+                        if top_scenario["scenario"] == "xpia":
+                            print("\n  [Recon] 自动选择 XPIA 工作流")
+                            from pipeline.workflows.xpia import run_xpia
+                            await run_xpia(ctx)
+                            return
+                        elif top_scenario["scenario"] == "multimodal":
+                            print("\n  [Recon] 自动选择多模态注入场景")
+                            from pipeline.scenarios.multimodal_injection import run_multimodal_injection
+                            await run_multimodal_injection(ctx)
+                            return
+                        elif top_scenario["scenario"] == "model_extraction":
+                            print("\n  [Recon] 自动选择模型提取场景")
+                            from pipeline.scenarios.model_extraction import run_model_extraction
+                            await run_model_extraction(ctx)
+                            return
+                        # text_adaptive 继续走标准流水线
 
             await stage_scenario(ctx)
             _validate_contract(1, 2, ctx)

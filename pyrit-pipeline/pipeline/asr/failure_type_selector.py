@@ -176,6 +176,13 @@ _EPSILON_DECAY_INITIAL = 0.20   # 衰减初始 epsilon (高于默认 0.1)
 _EPSILON_DECAY_MIN = 0.02      # 衰减下限 (保留少量探索)
 _EPSILON_DECAY_STEPS = 50      # 衰减步数 (50 次 select_async 后达到最小值)
 
+# P1-epsilon: 数据驱动二次衰减 — ASR 数据充足时进一步降低 epsilon
+# 学术依据: Sutton & Barto (RL 2018) §8.1 — 充分采样后减少探索开销
+#   100+ ASR 数据点时, 统计置信度已足够, epsilon 从 0.10 降到 0.05
+#   理由: 73 seeds × 3 runs = 219+ 数据点, 均值估计标准误差 < 3%
+_EPSILON_DATA_RICH_THRESHOLD = 100  # ASR 数据量阈值
+_EPSILON_DATA_RICH_VALUE = 0.05    # 数据充足时的 epsilon 值
+
 
 class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     """失败类型路由技术选择器 — 继承原生 ``EpsilonGreedyTechniqueSelector``。.
@@ -274,7 +281,11 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             logger.info(f"P2-1: epsilon decay enabled (initial={_EPSILON_DECAY_INITIAL}, min={_EPSILON_DECAY_MIN})")
 
     def _update_epsilon_decay(self) -> None:
-        """P2-1: 根据调用次数更新 epsilon (线性衰减).
+        """P2-1 + P1-epsilon: 根据调用次数和数据量更新 epsilon.
+
+        两阶段衰减:
+        1. P2-1 线性衰减: epsilon_initial → epsilon_min (50 步)
+        2. P1-epsilon 数据驱动二次衰减: 100+ ASR 数据时 epsilon → 0.05
 
         学术依据: Sutton & Barto (RL 2018)
             epsilon(t) = max(epsilon_min, epsilon_initial * (1 - t/T))
@@ -287,12 +298,36 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
         t = self._select_call_count
         T = _EPSILON_DECAY_STEPS
 
-        # 线性衰减: epsilon_initial → epsilon_min
+        # 阶段 1: 线性衰减
         decayed = _EPSILON_DECAY_INITIAL - (_EPSILON_DECAY_INITIAL - _EPSILON_DECAY_MIN) * (t / T)
         self._epsilon = max(_EPSILON_DECAY_MIN, decayed)
 
+        # 阶段 2: P1-epsilon 数据驱动二次衰减
+        asr_data_count = self._count_asr_data()
+        if asr_data_count >= _EPSILON_DATA_RICH_THRESHOLD:
+            self._epsilon = min(self._epsilon, _EPSILON_DATA_RICH_VALUE)
+            if t <= 1 or t % 10 == 0:
+                logger.debug(
+                    f"P1-epsilon: data-rich ({asr_data_count} ASR points) "
+                    f"→ epsilon={self._epsilon:.4f} (capped at {_EPSILON_DATA_RICH_VALUE})"
+                )
+            return
+
         if t <= 1 or t % 10 == 0:
             logger.debug(f"P2-1: epsilon decayed to {self._epsilon:.4f} (step={t}/{T})")
+
+    def _count_asr_data(self) -> int:
+        """P1-epsilon: 统计当前 Memory 中的 AttackResult 数量."""
+        try:
+            from pyrit.memory import CentralMemory
+
+            memory = CentralMemory.get_memory_instance()
+            if hasattr(memory, "get_attack_results"):
+                results = memory.get_attack_results()
+                return len(results) if results else 0
+        except Exception:
+            pass
+        return 0
 
     # ------------------------------------------------------------------
     # 核心覆盖: select_async

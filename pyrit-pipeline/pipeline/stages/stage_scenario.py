@@ -1088,6 +1088,43 @@ async def run(ctx: PipelineContext) -> None:
     ctx.metadata["model_name"] = model_name
     ctx.metadata["model_tier"] = model_tier
 
+    # G10: 传播 target_endpoint/judge_model/judge_endpoint 到 ctx.metadata,
+    # 供 Stage 6 报告生成器 Appendix C 使用 (修复 N/A 问题)
+    ctx.metadata["target_endpoint"] = os.getenv("TARGET_ENDPOINT", "N/A")
+    ctx.metadata["target_model"] = model_name
+    # G10: env var 兜底 — ScorerRegistry 提取可能失败, 先从 env 直接获取
+    ctx.metadata["judge_model"] = os.getenv("OBJECTIVE_SCORER_CHAT_MODEL", "N/A")
+    ctx.metadata["judge_endpoint"] = os.getenv("OBJECTIVE_SCORER_CHAT_ENDPOINT", "N/A")
+    try:
+        from pyrit.registry import ScorerRegistry, TargetRegistry
+
+        # 目标端点: 从 TargetRegistry 获取
+        target_entries = TargetRegistry.get_registry_singleton().instances.get_by_tag(tag="default_objective_target")
+        if not target_entries:
+            target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
+        if target_entries:
+            inner = getattr(target_entries[0].instance, "inner_target", target_entries[0].instance)
+            endpoint = getattr(inner, "_endpoint", None)
+            if endpoint:
+                ctx.metadata["target_endpoint"] = endpoint
+
+        # 评分器信息: 从 ScorerRegistry 获取
+        scorer_entries = ScorerRegistry.get_registry_singleton().instances.get_all_instances()
+        for entry in scorer_entries:
+            scorer_target = getattr(entry.instance, "_chat_target", None)
+            if scorer_target:
+                inner = getattr(scorer_target, "inner_target", scorer_target)
+                judge_model = getattr(inner, "_model_name", None)
+                judge_endpoint = getattr(inner, "_endpoint", None)
+                if judge_model:
+                    ctx.metadata["judge_model"] = judge_model
+                if judge_endpoint:
+                    ctx.metadata["judge_endpoint"] = judge_endpoint
+                if judge_model:
+                    break
+    except Exception:
+        pass
+
     # 复合评分器 (task_achieved AND not_refused)
     # 强模型/中等模型使用复合评分器, 消除部分拒绝导致的 ASR 假阳性
     # 如果 objective_scorer 已经是 TrueFalseCompositeScorer (由 _register_enhanced_scorers
@@ -1221,10 +1258,17 @@ async def run(ctx: PipelineContext) -> None:
             selector=selector,
             scenario_result_id=args.resume,
         )
-        # v37: 清空 PyRIT 内部 _EXCLUDED_TECHNIQUES — prompt_sending 已从 _auto_techs 排除,
-        # PyRIT 内部默认排除列表仍含 prompt_sending 导致 no-op 警告
-        if hasattr(scenario, "_EXCLUDED_TECHNIQUES"):
-            scenario._EXCLUDED_TECHNIQUES = set()
+        # v39 F-2: 清空 PyRIT 模块级 _EXCLUDED_TECHNIQUES — prompt_sending 已从
+        # _auto_techs 排除, PyRIT 模块级 frozenset 仍含 prompt_sending 导致 no-op 警告.
+        # 根因: _EXCLUDED_TECHNIQUES 是 text_adaptive 模块级 frozenset, 非实例属性.
+        # v37.0 的 scenario._EXCLUDED_TECHNIQUES = set() 只创建实例属性, 不影响模块级变量.
+        # v39 修复: 直接修改模块级变量 (monkey-patch frozenset → empty frozenset).
+        try:
+            import pyrit.scenario.scenarios.adaptive.text_adaptive as _ta_module
+
+            _ta_module._EXCLUDED_TECHNIQUES = frozenset()
+        except Exception:
+            pass  # 模块路径变化时静默跳过, 不影响主流程
         # 探测 target_type (用于报告和日志 + Layer 2 Converter 路由)
         # 修复: 优先使用 get_by_tag("default") 获取 objective target (而非字母序第一个)
         # 修复: except Exception 替代 except ImportError (避免静默吞错)
@@ -1307,11 +1351,16 @@ async def run(ctx: PipelineContext) -> None:
 
     # P2+P3: 动态参数调优 — 基于历史 ASR 数据量和 API 稳定性
     # P2: 热启动 (≥20 种子) 时 max_dataset_size 2→3, 增加统计显著性
+    # P2-coverage: 超热启动 (≥40 种子) 时 max_dataset_size 3→4, 提升技术覆盖
     # P3: 热启动时 max_concurrency 2→3, 提高吞吐 (冷启动保持保守)
     # 学术依据: HarmBench (arXiv:2402.04249) 每类≥3 样本统计显著;
     #   DART (arXiv:2407.06485) 数据积累后可增大采样
     _seed_asr_count = len(ctx.metadata.get("seed_level_asr") or {})
-    if _seed_asr_count >= 20 and args.max_dataset_size < 3:
+    if _seed_asr_count >= 40 and args.max_dataset_size < 4:
+        args.max_dataset_size = 4
+        ctx.metadata["dynamic_max_dataset_size"] = True
+        print(f"  [P2-coverage 超热启动] ({_seed_asr_count} 种子) → max_dataset_size 3→4")
+    elif _seed_asr_count >= 20 and args.max_dataset_size < 3:
         args.max_dataset_size = 3
         ctx.metadata["dynamic_max_dataset_size"] = True
         print(f"  [P2 动态调优] 热启动 ({_seed_asr_count} 种子) → max_dataset_size 2→3")

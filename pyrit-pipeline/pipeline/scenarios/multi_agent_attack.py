@@ -137,6 +137,22 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
             "success_count": 0,
         }
 
+    # L5: 尝试创建 Tool Calling Target (OpenAIResponseTarget + 蜜罐工具集)
+    # 多 Agent 场景使用独立 Target, 实现权限隔离模拟
+    tool_call_log = None
+    if _obj_target is not None:
+        try:
+            from pipeline.targets.tool_calling_target import create_tool_calling_target
+
+            _tc_result = create_tool_calling_target()
+            if _tc_result is not None:
+                _tc_target, tool_call_log = _tc_result
+                # 使用 Tool Calling Target 作为主目标 (支持工具调用)
+                _obj_target = _tc_target
+                logger.info("Multi-Agent: Tool Calling Target created with honeypot tools")
+        except Exception as e:
+            logger.warning(f"Multi-Agent: Tool Calling Target creation failed: {e}")
+
     try:
         from pyrit.executor.attack import (
             PromptSendingAttack,
@@ -157,8 +173,13 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
     success_count = 0
 
     for chain_def in _MULTI_AGENT_CHAINS:
+        # L5: 清空工具调用日志 (每个链独立评估)
+        if tool_call_log:
+            tool_call_log.clear()
+
         try:
             # 为链中的每一步创建 SequentialChildAttack
+            # L5: 每个步骤使用独立 Target 实例 (模拟权限隔离)
             child_attacks: list[SequentialChildAttack] = []
             for _step in chain_def["chain"]:
                 child = PromptSendingAttack(
@@ -180,6 +201,16 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
 
             achieved = _check_sequential_success(native_result)
 
+            # L5 增强: 工具调用日志验证
+            tool_evidence: list[str] = []
+            if tool_call_log and tool_call_log.call_count > 0:
+                sensitive = tool_call_log.was_sensitive_action_performed()
+                if sensitive:
+                    achieved = True
+                    tool_evidence.append(
+                        f"[L5 工具调用日志] Agent 调用了 {tool_call_log.call_count} 个工具"
+                    )
+
             results.append({
                 "chain_name": chain_def["name"],
                 "description": chain_def["description"],
@@ -194,6 +225,8 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
                 "owasp_codes": chain_def["owasp_codes"],
                 "achieved": achieved,
                 "completion_policy": "first_success",
+                "tool_call_evidence": tool_evidence,
+                "tool_calls": tool_call_log.to_dict() if tool_call_log else None,
             })
             if achieved:
                 success_count += 1

@@ -28,7 +28,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from pathlib import Path
 from typing import Any
 
 from pipeline.context import PipelineContext
@@ -119,6 +121,12 @@ async def _bridge_web_app(
     """Web 应用模式: 浏览器认证 + PlaywrightTarget。."""
     print("\n  --- Web 应用模式 (PlaywrightTarget) ---")
 
+    # G2: 尝试复用已有认证状态 — 减少重复认证
+    # 学术依据: NIST SP 800-63B — 认证状态复用减少攻击面暴露
+    from pipeline.integrations.auth_state_bridge import try_reuse_auth_state
+
+    auth_reused = try_reuse_auth_state(ctx)
+
     # 1. 加载或动态生成 TargetProfile
     profile = _load_or_create_profile(ctx, target_url)
     print(f"  认证策略: {profile.auth.type}")
@@ -130,22 +138,76 @@ async def _bridge_web_app(
     headless = getattr(ctx.args, "web_headless", False)
     cdp_port = getattr(ctx.args, "cdp_port", 9222)
 
-    page = await session.launch_with_debug_port(
-        port=cdp_port,
-        headless=headless,
-    )
+    # G2: 如果认证状态可复用, 尝试从 storage_state 恢复页面
+    if auth_reused:
+        storage_state_path = ctx.metadata.get("storage_state_path", "")
+        if storage_state_path and Path(storage_state_path).exists():
+            print(f"  [G2] 复用认证状态: {storage_state_path}")
+            try:
+                page = await session.restore_storage_state(storage_state_path)
+                await page.goto(profile.auth.target_url, wait_until="domcontentloaded")
+                print("  [G2] 认证状态恢复成功, 跳过完整认证")
+                # 跳过步骤 3, 直接创建 PlaywrightTarget
+            except Exception as e:
+                logger.warning(f"G2: storage_state restore failed: {e}, falling back to full auth")
+                page = await session.launch_with_debug_port(
+                    port=cdp_port,
+                    headless=headless,
+                )
+                # 降级到完整认证
+                auth_reused = False
+        else:
+            page = await session.launch_with_debug_port(
+                port=cdp_port,
+                headless=headless,
+            )
+            auth_reused = False
+    else:
+        page = await session.launch_with_debug_port(
+            port=cdp_port,
+            headless=headless,
+        )
 
-    # 3. 执行认证 (AutoAuthStrategy 自动探测 + MFA 检测)
-    from web_redteam.auth.auth_strategy import AuthStrategyFactory
+    # 3. 执行认证 (仅当未复用认证状态时)
+    if not auth_reused:
+        from web_redteam.auth.auth_strategy import AuthStrategyFactory
 
-    strategy = AuthStrategyFactory.create(profile.auth.type)
+        strategy = AuthStrategyFactory.create(profile.auth.type)
 
-    # 注入 MFA 超时参数
-    mfa_timeout = getattr(ctx.args, "mfa_timeout", 300)
-    if hasattr(strategy, "_human_auth"):
-        strategy._human_auth.mfa_timeout = mfa_timeout  # type: ignore[attr-defined]
+        # 注入 MFA 超时参数
+        mfa_timeout = getattr(ctx.args, "mfa_timeout", 300)
+        if hasattr(strategy, "_human_auth"):
+            strategy._human_auth.mfa_timeout = mfa_timeout  # type: ignore[attr-defined]
 
-    page = await strategy.execute(page, profile)
+        page = await strategy.execute(page, profile)
+
+          # G2: 认证成功后导出 AuthState (供后续运行复用)
+        from datetime import datetime, timezone
+
+        from pipeline.integrations.auth_state_bridge import AuthState, export_auth_state
+
+        cookies = []
+        with contextlib.suppress(Exception):
+            cookies = await page.context.cookies()
+
+        storage_state_path = ""
+        with contextlib.suppress(Exception):
+            import tempfile
+
+            storage_state_path = str(Path(tempfile.gettempdir()) / "stage_target_classify_storage_state.json")
+            await page.context.storage_state(path=storage_state_path)
+
+        auth_state = AuthState(
+            auth_type=profile.auth.type,
+            target_url=target_url,
+            login_url=getattr(profile.auth, "login_url", ""),
+            cookies=cookies,
+            storage_state_path=storage_state_path,
+            source="stage_target_classify",
+            authenticated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        export_auth_state(auth_state)
+        print("  [G2] 认证状态已导出, 下次运行可复用")
 
     # 4. 创建 PlaywrightTarget
     from pyrit.prompt_target import PlaywrightTarget
@@ -211,6 +273,14 @@ async def _bridge_api_platform(
 
     # 1. 从 URL 自动构建 API 配置
     config = APITargetConfig.from_url(target_url)
+
+    # G2: 注入已有认证 headers (从 --auth-state-file 复用的 headers)
+    auth_headers = ctx.metadata.get("auth_headers", {})
+    if auth_headers:
+        for k, v in auth_headers.items():
+            if k not in config.headers:
+                config.headers[k] = v
+        print(f"  [G2] 注入认证 headers: {list(auth_headers.keys())}")
 
     print(f"  API URL: {config.url}")
     print(f"  HTTP 方法: {config.method}")

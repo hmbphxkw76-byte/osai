@@ -126,7 +126,7 @@ pipeline/config.py
     ├── --datasets (默认: harmbench jbb_behaviors strong_reject)
     ├── --max-dataset-size (默认: 10)
     ├── --local-datasets
-    ├── --load-owasp-local / --no-owasp-local
+    ├── --load-local-datasets / --no-local-datasets (--load-owasp-local / --no-owasp-local 已弃用别名)
     ├── --model
     ├── --tier-layer (0/1/2/3)
     ├── --auto-tier-params

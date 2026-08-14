@@ -350,32 +350,50 @@ class ConverterLogCollector:
         return any(conv in self._LLM_CONVERTERS for conv in chain)
 
     def _extract_prompts(self, attack_result: Any) -> tuple[str, str]:
-        """提取原始和变换后的 prompt (如果可获取)。."""
+        """提取原始和变换后的 prompt (如果可获取).
+
+        P5 修复: 增加 last_request fallback, 统一与 extract_converter_info_from_result
+        的提取逻辑, 确保链名一致性。
+        """
         original = ""
         transformed = ""
 
-        # 尝试从 conversation 获取
-        conversation = getattr(attack_result, "conversation", None)
-        if conversation is not None:
-            try:
-                # PyRIT Conversation 对象
-                if hasattr(conversation, "messages"):
-                    messages = conversation.messages
-                    if messages:
-                        # 最后一条 user message 是变换后的
-                        for msg in reversed(messages):
-                            role = getattr(msg, "role", "")
-                            if role == "user":
-                                transformed = getattr(msg, "content", "") or ""
-                                break
-                        # 第一条是原始
-                        for msg in messages:
-                            role = getattr(msg, "role", "")
-                            if role == "user":
-                                original = getattr(msg, "content", "") or ""
-                                break
-            except Exception:
-                pass
+        # P5: 优先从 last_request 提取 (与 evidence_collector 一致)
+        last_request = getattr(attack_result, "last_request", None)
+        if last_request:
+            pieces = getattr(last_request, "request_pieces", None) or []
+            user_pieces = [p for p in pieces if getattr(p, "role", "") == "user"]
+            if user_pieces:
+                original = str(
+                    getattr(user_pieces[0], "original_value", "") or ""
+                )
+                transformed = str(
+                    getattr(user_pieces[-1], "converted_value", "")
+                    or getattr(user_pieces[-1], "original_value", "")
+                )
+
+        # fallback: 从 conversation 获取
+        if not original or not transformed:
+            conversation = getattr(attack_result, "conversation", None)
+            if conversation is not None:
+                try:
+                    if hasattr(conversation, "messages"):
+                        messages = conversation.messages
+                        if messages:
+                            user_msgs = [m for m in messages if getattr(m, "role", "") == "user"]
+                            if user_msgs:
+                                if not original:
+                                    original = str(
+                                        getattr(user_msgs[0], "content", "")
+                                        or getattr(user_msgs[0], "original_value", "")
+                                    )
+                                if not transformed:
+                                    transformed = str(
+                                        getattr(user_msgs[-1], "content", "")
+                                        or getattr(user_msgs[-1], "converted_value", "")
+                                    )
+                except Exception:
+                    pass
 
         return original[:500], transformed[:500]
 
