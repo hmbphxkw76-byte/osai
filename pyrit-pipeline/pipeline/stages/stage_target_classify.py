@@ -49,6 +49,8 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +136,10 @@ async def _bridge_burp_api(
                     )
         print(f"  [S-7] 认证 headers 注入: {list(auth_headers.keys())}")
 
+    # v44.3 P1: 动态会话 ID 更换 — 避免多轮攻击上下文污染
+    raw_request = _inject_dynamic_session_fields(raw_request)
+    print("  [v44.3] 动态会话 ID 已注入")
+
     # v44.2: SSE 检测 — 从 Accept header 判断是否为流式响应
     is_sse = _detect_sse_from_request(raw_request)
     if is_sse:
@@ -146,22 +152,50 @@ async def _bridge_burp_api(
     if use_tls:
         print("  [TLS] 检测到 HTTPS 目标, 启用 TLS")
 
-    # 3. 构建回调函数 (v44.2: SSE→正则回调, JSON→原生JSON回调)
-    callback = _build_burp_callback(
-        is_sse=is_sse,
-        response_path=response_path,
-        target_url=target_url,
-    )
+    # v44.3 P3: Stream:false 变体构造 — 优先尝试 JSON 模式
+    non_stream_request = _build_non_stream_variant(raw_request) if is_sse else None
+    if non_stream_request:
+        # 构造 Stream:false 变体, 使用 JSON 回调 (更可靠)
+        json_callback = _build_burp_callback(
+            is_sse=False,
+            response_path=response_path,
+            target_url=target_url,
+        )
+        # 对应的 SSE 响应路径: delta→message (stream→non-stream)
+        non_stream_path = response_path.replace("delta", "message").replace("Delta", "Message")
+        json_callback = _build_burp_callback(
+            is_sse=False,
+            response_path=non_stream_path,
+            target_url=target_url,
+        )
+        http_target_kwargs: dict[str, Any] = {
+            "http_request": non_stream_request,
+            "prompt_regex_string": "{PROMPT}",
+            "callback_function": json_callback,
+        }
+        if use_tls:
+            http_target_kwargs["use_tls"] = True
+        http_target = HTTPTarget(**http_target_kwargs)
+        print("  [v44.3] Stream:false 变体已构造, 优先使用 JSON 回调")
+        ctx.metadata["burp_non_stream_variant"] = True
+        ctx.metadata["burp_original_sse_request"] = raw_request
+    else:
+        # 3. 构建回调函数 (v44.2: SSE→正则回调, JSON→原生JSON回调)
+        callback = _build_burp_callback(
+            is_sse=is_sse,
+            response_path=response_path,
+            target_url=target_url,
+        )
 
-    # 4. 创建 HTTPTarget (v44.2: 传递 use_tls)
-    http_target_kwargs: dict[str, Any] = {
-        "http_request": raw_request,
-        "prompt_regex_string": "{PROMPT}",
-        "callback_function": callback,
-    }
-    if use_tls:
-        http_target_kwargs["use_tls"] = True
-    http_target = HTTPTarget(**http_target_kwargs)
+        # 4. 创建 HTTPTarget (v44.2: 传递 use_tls)
+        http_target_kwargs: dict[str, Any] = {
+            "http_request": raw_request,
+            "prompt_regex_string": "{PROMPT}",
+            "callback_function": callback,
+        }
+        if use_tls:
+            http_target_kwargs["use_tls"] = True
+        http_target = HTTPTarget(**http_target_kwargs)
 
     # 5. 包装 RateLimitedTarget
     rate_limit = getattr(ctx.args, "rate_limit", 3)
@@ -1664,3 +1698,329 @@ def _safe_get(data: Any, *keys: Any) -> Any:
         except (KeyError, IndexError, TypeError):
             return None
     return current
+
+
+# ============================================================
+# v44.3: Burp 请求动态字段注入 + SSE 路径自动探测 + Stream:false 变体
+# ============================================================
+
+# 会话标识符字段名 (大小写不敏感匹配)
+_SESSION_ID_FIELDS: list[str] = [
+    "chatid", "chat_id", "sessionid", "session_id",
+    "conversationid", "conversation_id",
+    "userid", "user_id",
+]
+
+# UUID v4 正则 (用于检测已有 UUID 格式的会话 ID)
+_UUID_RE_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+
+
+def _generate_session_uuid() -> str:
+    """生成一个新的 UUID v4 字符串 (用于会话 ID 轮换).
+
+    Returns:
+        UUID v4 字符串 (如 "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
+    """
+    return str(uuid.uuid4())
+
+
+def _inject_dynamic_session_fields(raw_request: str) -> str:
+    """v44.3 P1: 在 Burp 原始 HTTP 请求体中动态替换会话标识符.
+
+    每次攻击发送前, 自动将请求体 JSON 中的 ChatId/SessionId/UserId 等
+    会话标识符替换为新的 UUID v4, 避免多轮攻击共享同一会话上下文
+    导致的上下文污染 (模型记忆前序攻击内容, 影响后续攻击独立性).
+
+    学术依据:
+      - OWASP LLM01: Prompt Injection — 会话隔离减少上下文泄露
+      - PyRIT (arXiv:2407.01232): 每次攻击应独立, 避免前序影响
+      - NIST SP 800-63B: 会话标识符应不可预测
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求字符串.
+
+    Returns:
+        替换会话 ID 后的 HTTP 请求字符串 (原地修改则返回原字符串).
+    """
+    parts = raw_request.split("\r\n\r\n", 1)
+    if len(parts) < 2:
+        return raw_request
+
+    header_section = parts[0]
+    body = parts[1]
+    if not body.strip():
+        return raw_request
+
+    import json
+
+    try:
+        body_json = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return raw_request
+
+    if not isinstance(body_json, dict):
+        return raw_request
+
+    replaced: list[str] = []
+    for key in list(body_json.keys()):
+        key_lower = key.lower()
+        # 匹配会话标识符字段名
+        if any(field in key_lower for field in _SESSION_ID_FIELDS):
+            old_val = body_json[key]
+            # 仅替换字符串类型的值
+            if isinstance(old_val, str) and _UUID_RE_PATTERN.match(old_val):
+                body_json[key] = _generate_session_uuid()
+                replaced.append(key)
+            elif isinstance(old_val, str) and len(old_val) > 8:
+                # 非UUID格式的会话ID也替换 (如学号等)
+                body_json[key] = _generate_session_uuid()
+                replaced.append(key)
+
+    if not replaced:
+        return raw_request
+
+    new_body = json.dumps(body_json, ensure_ascii=False)
+    return header_section + "\r\n\r\n" + new_body
+
+
+def _auto_detect_sse_content_path(sample_sse_response: str) -> str:
+    """v44.3 P2: 从 SSE 首帧 JSON 自动推断 Content 字段路径.
+
+    解析 SSE 响应的第一个 data: 行 JSON, 检测 Content 字段的
+    嵌套路径 (如 choices[0].delta.content 或 Choices[0].Delta.Content),
+    避免用户手动指定 --api-response-path.
+
+    学术依据:
+      - OpenAI Streaming API: SSE data 行为标准 JSON
+      - 非 OpenAI 兼容 API 可能使用 PascalCase (如 .NET 平台)
+
+    Args:
+        sample_sse_response: SSE 响应样本字符串 (至少包含一个 data: 行).
+
+    Returns:
+        检测到的 Content 字段路径 (如 "choices[0].delta.content"),
+        未检测到时返回默认 "choices[0].delta.content".
+    """
+    default_path = "choices[0].delta.content"
+
+    # 提取第一个非 [DONE] 的 data: 行
+    chunks = re.findall(r"data:\s*(.*?)(?:\n\n|$)", sample_sse_response, re.DOTALL)
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if chunk == "[DONE]" or not chunk:
+            continue
+
+        import json
+
+        try:
+            data = json.loads(chunk)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if not isinstance(data, dict):
+            continue
+
+        # 策略 1: camelCase OpenAI 格式 — choices[0].delta.content
+        path = _find_content_path(data, "choices", "delta", "content")
+        if path:
+            return path
+
+        # 策略 2: PascalCase .NET 格式 — Choices[0].Delta.Content
+        path = _find_content_path(data, "Choices", "Delta", "Content")
+        if path:
+            return path
+
+        # 策略 3: 顶层 content/Content 字段
+        if "content" in data:
+            return "content"
+        if "Content" in data:
+            return "Content"
+
+        # 策略 4: message.content 格式
+        path = _find_content_path(data, "message", "content")
+        if path:
+            return path
+
+        path = _find_content_path(data, "Message", "Content")
+        if path:
+            return path
+
+        break  # 仅检查第一帧
+
+    return default_path
+
+
+def _find_content_path(data: dict, *keys: str) -> str | None:
+    """从嵌套 JSON 中查找 Content 字段的 dotted path.
+
+    Args:
+        data: JSON 字典.
+        keys: 预期的嵌套键名序列 (如 "choices", "delta", "content").
+
+    Returns:
+        dotted path (如 "choices[0].delta.content") 或 None.
+    """
+    if not keys:
+        return None
+
+    first_key = keys[0]
+    if first_key not in data:
+        return None
+
+    value = data[first_key]
+    path_parts: list[str] = [first_key]
+
+    # 处理数组索引
+    if isinstance(value, list) and len(value) > 0:
+        value = value[0]
+        path_parts.append("[0]")
+
+    # 继续遍历剩余键
+    for key in keys[1:]:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+            path_parts.append(key)
+        else:
+            return None
+
+    # 最终值应为字符串 (content)
+    if isinstance(value, str):
+        # 构建 dotted path: choices[0].delta.content
+        # path_parts = ["choices", "[0]", "delta", "content"]
+        result = path_parts[0]
+        for part in path_parts[1:]:
+            if part.startswith("["):
+                result += part + "]"
+            else:
+                result += "." + part
+        return result
+
+    return None
+
+
+def _build_non_stream_variant(raw_request: str) -> str | None:
+    """v44.3 P3: 构造 Stream:false 的请求变体.
+
+    检测到请求体中 Stream/stream 字段为 true 时, 构造一份
+    Stream:false 的变体. 该变体返回标准 JSON 响应 (非 SSE),
+    可以使用更可靠的 JSON 路径回调, 避免 SSE 多帧拼接的复杂性.
+
+    学术依据:
+      - OpenAI API: stream=true 返回 SSE, stream=false 返回 JSON
+      - 非 OpenAI 兼容 API 的 Stream 字段通常也遵循此约定
+      - JSON 模式的回调解析更可靠 (单次解析 vs 多帧拼接)
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求字符串.
+
+    Returns:
+        Stream:false 的请求变体字符串, 或 None (如果请求不是 SSE).
+    """
+    parts = raw_request.split("\r\n\r\n", 1)
+    if len(parts) < 2:
+        return None
+
+    header_section = parts[0]
+    body = parts[1]
+    if not body.strip():
+        return None
+
+    import json
+
+    try:
+        body_json = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    if not isinstance(body_json, dict):
+        return None
+
+    # 检查 Stream/stream 字段
+    stream_key: str | None = None
+    for key in body_json:
+        if key.lower() in ("stream",):
+            stream_key = key
+            break
+
+    if stream_key is None or body_json[stream_key] is not True:
+        return None
+
+    # 构造 Stream:false 变体
+    body_json[stream_key] = False
+
+    # 同时移除 Accept: text/event-stream header (替换为 application/json)
+    header_lines = header_section.split("\r\n")
+    modified_headers: list[str] = []
+    for line in header_lines:
+        if line.lower().startswith("accept:") and "text/event-stream" in line.lower():
+            modified_headers.append("Accept: application/json")
+        else:
+            modified_headers.append(line)
+
+    new_body = json.dumps(body_json, ensure_ascii=False)
+    return "\r\n".join(modified_headers) + "\r\n\r\n" + new_body
+
+
+def _inject_dynamic_fields(
+    raw_request: str,
+    *,
+    field_overrides: dict[str, str] | None = None,
+) -> str:
+    """v44.3 P4: 通用化请求体字段动态注入器.
+
+    在 Burp 原始 HTTP 请求体 JSON 中, 将指定字段替换为动态值.
+    默认行为:
+      - 会话标识符字段 → 随机 UUID v4
+      - {PROMPT} 占位符保留 (由 PyRIT HTTPTarget 替换)
+
+    用户可通过 field_overrides 自定义字段替换:
+      {"ChatId": "custom-session-123", "UserId": "user-456"}
+
+    学术依据:
+      - OWASP LLM01: 动态字段避免会话固定攻击
+      - MITRE ATT&CK T1556: 会话标识符应不可预测
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求字符串.
+        field_overrides: 自定义字段替换映射 (可选).
+
+    Returns:
+        注入动态字段后的 HTTP 请求字符串.
+    """
+    parts = raw_request.split("\r\n\r\n", 1)
+    if len(parts) < 2:
+        return raw_request
+
+    header_section = parts[0]
+    body = parts[1]
+    if not body.strip():
+        return raw_request
+
+    import json
+
+    try:
+        body_json = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return raw_request
+
+    if not isinstance(body_json, dict):
+        return raw_request
+
+    # 1. 自动替换会话标识符
+    for key in list(body_json.keys()):
+        key_lower = key.lower()
+        if any(field in key_lower for field in _SESSION_ID_FIELDS):
+            old_val = body_json[key]
+            if isinstance(old_val, str) and len(old_val) > 8:
+                body_json[key] = _generate_session_uuid()
+
+    # 2. 应用用户自定义字段覆盖
+    if field_overrides:
+        for key, value in field_overrides.items():
+            body_json[key] = value
+
+    new_body = json.dumps(body_json, ensure_ascii=False)
+    return header_section + "\r\n\r\n" + new_body

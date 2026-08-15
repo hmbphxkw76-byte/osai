@@ -678,3 +678,347 @@ class TestSafeGet:
 
         data = {"choices": []}
         assert _safe_get(data, "choices", 0, "delta", "content") is None
+
+
+# ============================================================
+# v44.3: 动态会话ID + SSE路径探测 + Stream:false变体 测试
+# ============================================================
+
+
+class TestDynamicSessionFields:
+    """v44.3 P1: _inject_dynamic_session_fields 测试."""
+
+    def test_replace_uuid_chatid(self):
+        """UUID 格式的 ChatId 被替换为新 UUID."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            'Content-Type: application/json\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}",'
+            '"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"UserId":"S20240001"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+
+        # ChatId 应被替换 (原 UUID 不再存在)
+        assert "a1b2c3d4-e5f6-7890-abcd-ef1234567890" not in result
+        # 新 UUID 应存在
+        import re
+        uuid_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert uuid_pattern.search(result)
+
+    def test_replace_non_uuid_session_id(self):
+        """非 UUID 格式的会话 ID (如学号) 也被替换."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}",'
+            '"UserId":"S20240001"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+        # UserId "S20240001" (长度>8) 应被替换
+        assert "S20240001" not in result
+
+    def test_no_session_id_unchanged(self):
+        """无会话 ID 字段的请求保持不变."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"message":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+        assert result == request
+
+    def test_short_session_id_not_replaced(self):
+        """短于8字符的会话 ID 不被替换 (避免误判)."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"abc","Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+        # "abc" 长度 ≤ 8, 不替换
+        assert '"ChatId":"abc"' in result
+
+    def test_multiple_session_fields_replaced(self):
+        """多个会话 ID 字段同时被替换."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"SessionId":"b2c3d4e5-f6a7-8901-bcde-f12345678901",'
+            '"Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+        assert "a1b2c3d4-e5f6-7890-abcd-ef1234567890" not in result
+        assert "b2c3d4e5-f6a7-8901-bcde-f12345678901" not in result
+
+    def test_invalid_json_unchanged(self):
+        """无效 JSON 请求体保持不变."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "\r\n"
+            "not json"
+        )
+        result = _inject_dynamic_session_fields(request)
+        assert result == request
+
+    def test_prompt_placeholder_preserved(self):
+        """{PROMPT} 占位符在替换后保持不变."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_session_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_session_fields(request)
+        assert "{PROMPT}" in result
+
+
+class TestAutoDetectSSEContentPath:
+    """v44.3 P2: _auto_detect_sse_content_path 测试."""
+
+    def test_openai_camelcase(self):
+        """OpenAI camelCase 格式: choices[0].delta.content."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        sse = 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+        path = _auto_detect_sse_content_path(sse)
+        assert "choices" in path
+        assert "delta" in path
+        assert "content" in path
+
+    def test_pascalcase_dotnet(self):
+        """PascalCase .NET 格式: Choices[0].Delta.Content."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        sse = 'data: {"Choices":[{"Delta":{"Content":"hello"}}]}\n\n'
+        path = _auto_detect_sse_content_path(sse)
+        assert "Choices" in path
+        assert "Delta" in path
+        assert "Content" in path
+
+    def test_done_ignored(self):
+        """[DONE] 行被跳过."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        sse = 'data: [DONE]\n\ndata: {"choices":[{"delta":{"content":"world"}}]}\n\n'
+        path = _auto_detect_sse_content_path(sse)
+        assert "choices" in path
+
+    def test_empty_response_default(self):
+        """空响应返回默认路径."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        path = _auto_detect_sse_content_path("")
+        assert path == "choices[0].delta.content"
+
+    def test_invalid_json_default(self):
+        """无效 JSON 返回默认路径."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        sse = "data: not json\n\n"
+        path = _auto_detect_sse_content_path(sse)
+        assert path == "choices[0].delta.content"
+
+    def test_top_level_content(self):
+        """顶层 content 字段."""
+        from pipeline.stages.stage_target_classify import _auto_detect_sse_content_path
+
+        sse = 'data: {"content":"hello world"}\n\n'
+        path = _auto_detect_sse_content_path(sse)
+        assert path == "content"
+
+
+class TestBuildNonStreamVariant:
+    """v44.3 P3: _build_non_stream_variant 测试."""
+
+    def test_stream_true_converted(self):
+        """Stream:true 被转换为 Stream:false."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            'Accept: text/event-stream\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}","Stream":true}'
+        )
+        result = _build_non_stream_variant(request)
+        assert result is not None
+        assert '"Stream":false' in result
+        assert "text/event-stream" not in result
+        assert "application/json" in result
+
+    def test_stream_false_no_variant(self):
+        """Stream:false 不产生变体."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}","Stream":false}'
+        )
+        result = _build_non_stream_variant(request)
+        assert result is None
+
+    def test_no_stream_field_no_variant(self):
+        """无 Stream 字段不产生变体."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}"}'
+        )
+        result = _build_non_stream_variant(request)
+        assert result is None
+
+    def test_lowercase_stream_field(self):
+        """小写 stream 字段也支持."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"query":"{PROMPT}","stream":true}'
+        )
+        result = _build_non_stream_variant(request)
+        assert result is not None
+        assert '"stream":false' in result
+
+    def test_prompt_preserved_in_variant(self):
+        """{PROMPT} 占位符在变体中保持不变."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}","Stream":true}'
+        )
+        result = _build_non_stream_variant(request)
+        assert result is not None
+        assert "{PROMPT}" in result
+
+    def test_invalid_json_no_variant(self):
+        """无效 JSON 不产生变体."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "\r\n"
+            "not json"
+        )
+        result = _build_non_stream_variant(request)
+        assert result is None
+
+
+class TestInjectDynamicFields:
+    """v44.3 P4: _inject_dynamic_fields 测试."""
+
+    def test_auto_replace_session_ids(self):
+        """自动替换会话 ID 字段."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_fields(request)
+        assert "a1b2c3d4-e5f6-7890-abcd-ef1234567890" not in result
+
+    def test_custom_field_overrides(self):
+        """自定义字段覆盖."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"CustomField":"original",'
+            '"Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_fields(
+            request,
+            field_overrides={"CustomField": "overridden"},
+        )
+        assert '"CustomField":"overridden"' in result
+
+    def test_prompt_placeholder_preserved(self):
+        """{PROMPT} 占位符保留."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_fields
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"Query":"{PROMPT}"}'
+        )
+        result = _inject_dynamic_fields(request)
+        assert "{PROMPT}" in result
+
+    def test_no_body_unchanged(self):
+        """无请求体保持不变."""
+        from pipeline.stages.stage_target_classify import _inject_dynamic_fields
+
+        request = "POST /api/chat HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        result = _inject_dynamic_fields(request)
+        assert result == request
+
+
+class TestGenerateSessionUUID:
+    """v44.3: _generate_session_uuid 测试."""
+
+    def test_generates_valid_uuid(self):
+        """生成有效的 UUID v4."""
+        import re
+
+        from pipeline.stages.stage_target_classify import _generate_session_uuid
+
+        result = _generate_session_uuid()
+        uuid_pattern = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            re.IGNORECASE,
+        )
+        assert uuid_pattern.match(result)
+
+    def test_generates_unique_uuids(self):
+        """连续生成的 UUID 不重复."""
+        from pipeline.stages.stage_target_classify import _generate_session_uuid
+
+        uuids = {_generate_session_uuid() for _ in range(100)}
+        assert len(uuids) == 100
