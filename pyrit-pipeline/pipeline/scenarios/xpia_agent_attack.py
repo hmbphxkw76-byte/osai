@@ -239,7 +239,26 @@ async def run_xpia_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
             # L5: 使用原生 attack_content + processing_callback
             from pyrit.models import Message
 
-            attack_content = Message(role="user", content=template["carrier"])
+            # v44.2 P-Next-3: 使用 TextJailbreakConverter 包装注入内容
+            # 将 carrier 内容通过 text_jailbreak 链转换, 增强注入隐蔽性
+            carrier_content = template["carrier"]
+            try:
+                from pipeline.converters.chains import load_preset_converter_chain
+
+                _tj_config = load_preset_converter_chain("text_jailbreak")
+                if _tj_config is not None:
+                    _converted = await _tj_config.convert_async(
+                        prompt_request_piece=type(
+                            "Piece", (), {"original_value": carrier_content, "converted_value": carrier_content}
+                        )(),
+                    )
+                    if _converted and _converted[0].converted_value:
+                        carrier_content = _converted[0].converted_value
+                        logger.debug(f"XPIA carrier wrapped with TextJailbreakConverter: {template['name']}")
+            except Exception as e:
+                logger.debug(f"TextJailbreakConverter skipped for {template['name']}: {e}")
+
+            attack_content = Message(role="user", content=carrier_content)
 
             native_kwargs: dict[str, Any] = {
                 "attack_content": attack_content,
