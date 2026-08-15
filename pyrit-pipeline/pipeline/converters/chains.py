@@ -535,6 +535,96 @@ def _build_scientific_translation_chain(converter_target: Any = None) -> list:
     return [_conv("ScientificTranslationConverter")(converter_target=converter_target)]
 
 
+# ============================================================
+# P0-2: 新增 11 个 PyRIT 原生 Converter 链构建函数
+# ============================================================
+
+def _build_ansi_attack_chain() -> list:
+    """ANSI 转义序列注入攻击."""
+    return [_conv("AnsiAttackConverter")()]
+
+
+def _build_arabizi_chain() -> list:
+    """阿拉伯语拉丁转写 (Arabizi) 编码."""
+    return [_conv("ArabiziConverter")()]
+
+
+def _build_bidi_chain() -> list:
+    """双向文本覆盖 (Bidi) 攻击."""
+    return [_conv("BidiConverter")()]
+
+
+def _build_code_chameleon_chain(converter_target: Any = None) -> list:
+    """代码伪装 (Code Chameleon) 编码."""
+    if converter_target is None:
+        return []
+    return [_conv("CodeChameleonConverter")(converter_target=converter_target)]
+
+
+def _build_negation_trap_chain() -> list:
+    """否定陷阱 (Negation Trap) 攻击."""
+    return [_conv("NegationTrapConverter")()]
+
+
+def _build_tone_chain(converter_target: Any = None) -> list:
+    """语气变换 (Tone) 说服链."""
+    if converter_target is None:
+        return []
+    return [_conv("ToneConverter")(converter_target=converter_target)]
+
+
+def _build_variation_chain() -> list:
+    """变体选择 (Variation) 混淆."""
+    return [_conv("VariationConverter")()]
+
+
+def _build_malicious_question_chain(converter_target: Any = None) -> list:
+    """LLM 生成恶意问题."""
+    if converter_target is None:
+        return []
+    return [_conv("MaliciousQuestionGeneratorConverter")(converter_target=converter_target)]
+
+
+def _build_toxic_sentence_chain(converter_target: Any = None) -> list:
+    """LLM 生成毒性句子."""
+    if converter_target is None:
+        return []
+    return [_conv("ToxicSentenceGeneratorConverter")(converter_target=converter_target)]
+
+
+def _build_image_saturation_chain() -> list:
+    """图像饱和度操纵."""
+    return [_conv("ImageColorSaturationConverter")()]
+
+
+def _build_add_image_video_chain(converter_target: Any = None) -> list:
+    """图像+视频注入链."""
+    if converter_target is None:
+        return []
+    return [_conv("AddImageVideoConverter")(converter_target=converter_target)]
+
+
+# ============================================================
+# v44: P3-1 TextJailbreakConverter (XPIA HTML 模板注入)
+# ============================================================
+
+
+def _build_text_jailbreak_chain() -> list:
+    """TextJailbreakConverter — 将注入内容包装到 HTML 模板中.
+
+    PyRIT 原生 ``TextJailbreakConverter`` 将 jailbreak prompt 包装到
+    HTML 模板中, 隐藏指令在 HTML 注释/属性/脚本中。
+
+    用于 XPIA / RAG 注入场景 — 注入内容被嵌入到合法外观的文档中。
+
+    学术依据: Greshake et al. (arXiv:2302.12173) — 间接注入通过外部文档投递
+    """
+    return [_conv("TextJailbreakConverter")()]
+
+
+# v44 P1-3: GCG 后缀链构建函数 (使用动态注册的后缀)
+
+
 # 链名 → 构建函数映射
 _CHAIN_BUILDERS = {
     "stealth_evasion": lambda target=None: _build_stealth_evasion_chain(),
@@ -586,7 +676,124 @@ _CHAIN_BUILDERS = {
     "video_embed_chain": lambda target=None: _build_video_embed_chain(target),
     "file_pdf_injection": lambda target=None: _build_file_pdf_injection_chain(),
     "file_worddoc_injection": lambda target=None: _build_file_worddoc_injection_chain(),
+    # P0-2: 新增 11 个 Converter 链
+    "ansi_attack": lambda target=None: _build_ansi_attack_chain(),
+    "arabizi": lambda target=None: _build_arabizi_chain(),
+    "bidi": lambda target=None: _build_bidi_chain(),
+    "code_chameleon": lambda target=None: _build_code_chameleon_chain(target),
+    "negation_trap": lambda target=None: _build_negation_trap_chain(),
+    "tone": lambda target=None: _build_tone_chain(target),
+    "variation": lambda target=None: _build_variation_chain(),
+    "malicious_question": lambda target=None: _build_malicious_question_chain(target),
+    "toxic_sentence": lambda target=None: _build_toxic_sentence_chain(target),
+    "image_saturation": lambda target=None: _build_image_saturation_chain(),
+    "add_image_video": lambda target=None: _build_add_image_video_chain(target),
+    # v44 P3-1: TextJailbreakConverter (XPIA HTML 模板注入)
+    "text_jailbreak": lambda target=None: _build_text_jailbreak_chain(),
+    # v44 P1-3: gcg_suffix (动态注册, 初始为空)
+    "gcg_suffix": lambda target=None: _build_gcg_suffix_chain(),
+    # v44.1: 补全 48 个 Converter 链 (无 LLM 依赖的用单Converter链, LLM依赖的用空链占位)
+    "ascii_smuggler": lambda target=None: [_conv("AsciiSmugglerConverter")()],
+    "base2048": lambda target=None: [_conv("Base2048Converter")()],
+    "bin_ascii": lambda target=None: [
+        _conv("BinAsciiConverter")(
+            encoding_func="binary",
+            word_selection_strategy="all",
+            word_split_separator=" ",
+        )
+    ],
+    "char_swap": lambda target=None: [_conv("CharSwapConverter")()],
+    "colloquial_wordswap": lambda target=None: [_conv("ColloquialWordswapConverter")()],
+    "ecoji": lambda target=None: [_conv("EcojiConverter")()],
+    "first_letter": lambda target=None: [_conv("FirstLetterConverter")()],
+    "insert_punctuation": lambda target=None: [_conv("InsertPunctuationConverter")()],
+    "qr_code": lambda target=None: [_conv("QRCodeConverter")()],
+    "random_capital": lambda target=None: [_conv("RandomCapitalLettersConverter")()],
+    "repeat_token": lambda target=None: [_conv("RepeatTokenConverter")()],
+    "search_replace": lambda target=None: [_conv("SearchReplaceConverter")(pattern=" ", replace=" ")],
+    "suffix_append": lambda target=None: [_conv("SuffixAppendConverter")(suffix="!!")],
+    "tatweel": lambda target=None: [_conv("TatweelConverter")()],
+    "template_segment": lambda target=None: [_conv("TemplateSegmentConverter")()],
+    "unicode_confusable": lambda target=None: [_conv("UnicodeConfusableConverter")()],
+    "unicode_replacement": lambda target=None: [_conv("UnicodeReplacementConverter")()],
+    "variation_selector_smuggler": lambda target=None: [_conv("VariationSelectorSmugglerConverter")()],
+    "transparency_attack": lambda target=None: [_conv("TransparencyAttackConverter")()],
+    "image_rotation": lambda target=None: [_conv("ImageRotationConverter")()],
+    "image_resizing": lambda target=None: [_conv("ImageResizingConverter")()],
+    "image_compression": lambda target=None: [_conv("ImageCompressionConverter")()],
+    "image_overlay": lambda target=None: [_conv("ImageOverlayConverter")()],
+    "add_text_image": lambda target=None: [_conv("AddTextImageConverter")()],
+    "add_image_text": lambda target=None: [_conv("AddImageTextConverter")()],
+    "pdf": lambda target=None: [_conv("PDFConverter")()],
+    "word_doc": lambda target=None: [_conv("WordDocConverter")()],
+    "task_framing": lambda target=None: [_conv("TaskFramingConverter")()],
+    "selective_text": lambda target=None: [_conv("SelectiveTextConverter")()],
+    "policy_puppetry": lambda target=None: [_conv("PolicyPuppetryConverter")()],
+    "math_obfuscation": lambda target=None: [_conv("MathObfuscationConverter")()],
+    "ask_to_decode": lambda target=None: [_conv("AskToDecodeConverter")()],
+    "sneaky_bits_smuggler": lambda target=None: [_conv("SneakyBitsSmugglerConverter")()],
+    # LLM 依赖的 Converter (需要 converter_target)
+    "denylist": lambda target=None: [_conv("DenylistConverter")(converter_target=target)] if target else [],
+    "character_space": lambda target=None: [
+        _conv("CharacterSpaceConverter")(converter_target=target)
+    ] if target else [],
+    "diacritic": lambda target=None: [_conv("DiacriticConverter")()],
+    "noise": lambda target=None: [_conv("NoiseConverter")(converter_target=target)] if target else [],
+    "image_prompt_style": lambda target=None: [
+        _conv("ImagePromptStyleConverter")(converter_target=target)
+    ] if target else [],
+    "translation": lambda target=None: [_conv("TranslationConverter")(converter_target=target)] if target else [],
+    "random_translation": lambda target=None: [
+        _conv("RandomTranslationConverter")(converter_target=target)
+    ] if target else [],
+    "tense": lambda target=None: [_conv("TenseConverter")(converter_target=target)] if target else [],
+    "persuasion": lambda target=None: [_conv("PersuasionConverter")(converter_target=target)] if target else [],
+    "math_prompt": lambda target=None: [_conv("MathPromptConverter")(converter_target=target)] if target else [],
+    "llm_generic_text": lambda target=None: [
+        _conv("LLMGenericTextConverter")(converter_target=target)
+    ] if target else [],
+    "scientific_translation": lambda target=None: [
+        _conv("ScientificTranslationConverter")(converter_target=target)
+    ] if target else [],
+    "arabic_presentation_form": lambda target=None: [
+        _conv("ArabicPresentationFormConverter")(converter_target=target)
+    ] if target else [],
+    "json_string": lambda target=None: [_conv("JsonStringConverter")(converter_target=target)] if target else [],
 }
+
+
+# ============================================================
+# v44: 动态链注册 (GCG 后缀)
+# ============================================================
+
+
+# 全局变量: 存储 GCG 动态生成的后缀
+_dynamic_gcg_suffix: str | None = None
+
+
+def register_dynamic_gcg_chain(suffix: str) -> None:
+    """v44 P1-3: 注册 GCG 动态生成的后缀为 gcg_suffix 链.
+
+    GCG 生成后缀后, 调用此函数将后缀注册到全局变量,
+    使 ``load_preset_converter_chain("gcg_suffix")`` 能构建
+    ``SuffixAppendConverter(suffix=<gcg_generated>)``.
+
+    学术依据: Zou et al. (arXiv:2307.15043) — GCG 后缀具有迁移性,
+    可用于黑盒攻击的种子生成.
+
+    Args:
+        suffix: GCG 生成的对抗后缀字符串
+    """
+    global _dynamic_gcg_suffix
+    _dynamic_gcg_suffix = suffix
+    logger.info(f"Dynamic GCG suffix registered (length={len(suffix)})")
+
+
+def _build_gcg_suffix_chain() -> list:
+    """构建 GCG 后缀附加链 (使用动态注册的后缀)."""
+    if _dynamic_gcg_suffix is None:
+        return []
+    return [_conv("SuffixAppendConverter")(suffix=_dynamic_gcg_suffix)]
 
 
 def load_preset_converter_chain(

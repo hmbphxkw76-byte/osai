@@ -185,6 +185,10 @@ _CLASS_NAME_TO_TECHNIQUE: dict[str, str] = {
     "RolePlayVideoGameAttack": "role_play_video_game",
     # 复合攻击
     "SequentialAttack": "sequential",
+    # PyRIT 1.0.1 新增攻击类 (P0-1)
+    "BargeInAttack": "barge_in",
+    "ChunkedRequestAttack": "chunked_request",
+    "MultiPromptSendingAttack": "multi_prompt_sending",
     # AtomicAttack (兜底标识)
     "AtomicAttack": "unknown",
 }

@@ -137,9 +137,28 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
             "success_count": 0,
         }
 
+    # A-2: 多 Agent 权限隔离 — 每步独立 Target + 不同工具子集
+    # 权限层级映射: agent_role → 允许的工具列表
+    _ROLE_TOOL_MAP: dict[str, list[str]] = {
+        "data_agent": ["read_file", "list_directory", "http_request"],
+        "low_privilege_agent": ["read_file", "list_directory"],
+        "high_privilege_agent": [
+            "read_file", "list_directory", "send_email",
+            "http_request", "execute_command", "get_environment",
+            "write_file", "delete_file",
+        ],
+        "audit_agent": ["read_file", "list_directory", "get_environment"],
+    }
+    _ALL_TOOLS = [
+        "read_file", "list_directory", "send_email",
+        "http_request", "execute_command", "get_environment",
+        "write_file", "delete_file",
+    ]
+
     # L5: 尝试创建 Tool Calling Target (OpenAIResponseTarget + 蜜罐工具集)
-    # 多 Agent 场景使用独立 Target, 实现权限隔离模拟
+    # A-2: 使用共享 tool_call_log, 但每步独立 Target (不同工具子集)
     tool_call_log = None
+    _tc_available = False
     if _obj_target is not None:
         try:
             from pipeline.targets.tool_calling_target import create_tool_calling_target
@@ -149,7 +168,11 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
                 _tc_target, tool_call_log = _tc_result
                 # 使用 Tool Calling Target 作为主目标 (支持工具调用)
                 _obj_target = _tc_target
-                logger.info("Multi-Agent: Tool Calling Target created with honeypot tools")
+                _tc_available = True
+                logger.info(
+                    "Multi-Agent: Tool Calling Target created "
+                    "(A-2 permission isolation ready)"
+                )
         except Exception as e:
             logger.warning(f"Multi-Agent: Tool Calling Target creation failed: {e}")
 
@@ -179,11 +202,32 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
 
         try:
             # 为链中的每一步创建 SequentialChildAttack
-            # L5: 每个步骤使用独立 Target 实例 (模拟权限隔离)
+            # A-2: 每个步骤使用独立 Target 实例 + 不同工具子集 (权限隔离)
             child_attacks: list[SequentialChildAttack] = []
             for _step in chain_def["chain"]:
+                _step_target = _obj_target  # 默认使用主 Target
+                _step_role = _step.get("agent_role", "")
+                _step_tools = _ROLE_TOOL_MAP.get(_step_role, _ALL_TOOLS)
+
+                # A-2: 如果有 Tool Calling 能力, 为此步创建受限 Target
+                if _tc_available and tool_call_log is not None:
+                    try:
+                        from pipeline.targets.tool_calling_target import create_tool_calling_target_with_tools
+                        _subset_result = create_tool_calling_target_with_tools(
+                            tool_names=_step_tools,
+                            shared_log=tool_call_log,
+                        )
+                        if _subset_result is not None:
+                            _step_target, _ = _subset_result
+                            logger.info(
+                                f"Multi-Agent A-2: step {_step['step']} role={_step_role} "
+                                f"tools={_step_tools}"
+                            )
+                    except Exception as e:
+                        logger.debug(f"Multi-Agent A-2: subset target creation failed for step {_step['step']}: {e}")
+
                 child = PromptSendingAttack(
-                    objective_target=_obj_target,
+                    objective_target=_step_target,
                 )
                 child_attacks.append(child)
 

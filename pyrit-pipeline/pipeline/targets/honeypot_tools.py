@@ -617,3 +617,37 @@ def build_honeypot_custom_functions(log: ToolCallLog) -> dict[str, Any]:
         "write_file": _write_file,
         "delete_file": _delete_file,
     }
+
+
+def build_honeypot_tool_definitions_subset(tool_names: list[str]) -> list[dict[str, Any]]:
+    """A-2: 构建受限的蜜罐工具定义列表 (多 Agent 权限隔离).
+
+    仅包含指定名称的工具定义, 用于模拟不同权限的 Agent 实例。
+
+    Args:
+        tool_names: 允许的工具名称列表 (子集)。
+
+    Returns:
+        工具定义字典列表 (仅包含指定工具)。
+    """
+    all_defs = build_honeypot_tool_definitions()
+    return [d for d in all_defs if d["name"] in tool_names]
+
+
+def build_honeypot_custom_functions_subset(
+    log: ToolCallLog,
+    tool_names: list[str],
+) -> dict[str, Any]:
+    """A-2: 构建受限的蜜罐 custom_functions 映射 (多 Agent 权限隔离).
+
+    仅包含指定名称的工具函数, 用于模拟不同权限的 Agent 实例。
+
+    Args:
+        log: 工具调用日志实例。
+        tool_names: 允许的工具名称列表 (子集)。
+
+    Returns:
+        ``{tool_name: ToolExecutor}`` 映射字典 (仅包含指定工具)。
+    """
+    all_funcs = build_honeypot_custom_functions(log)
+    return {name: func for name, func in all_funcs.items() if name in tool_names}

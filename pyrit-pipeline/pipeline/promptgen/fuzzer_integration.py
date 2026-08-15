@@ -107,8 +107,24 @@ class FuzzerPayloadGenerator:
         self._non_leaf_node_probability = non_leaf_node_probability
         self._converters = converters
 
-    def _build_converters(self) -> list[Any]:
-        """构建默认变异 Converter 列表 (5 种)。."""
+    # v44 P3-2: 变异算子名称 → 类映射
+    _OPERATOR_MAP: dict[str, str] = {
+        "shorten": "FuzzerShortenConverter",
+        "expand": "FuzzerExpandConverter",
+        "rephrase": "FuzzerRephraseConverter",
+        "similar": "FuzzerSimilarConverter",
+        "crossover": "FuzzerCrossOverConverter",
+    }
+
+    def _build_converters(self, operator_names: list[str] | None = None) -> list[Any]:
+        """构建变异 Converter 列表.
+
+        v44 P3-2: 支持 operator_names 参数选择算子子集。
+
+        Args:
+            operator_names: 算子名称列表 (如 ["shorten", "rephrase"]).
+                None 时使用全部 5 种。
+        """
         if self._converters is not None:
             return self._converters
 
@@ -120,13 +136,25 @@ class FuzzerPayloadGenerator:
             FuzzerSimilarConverter,
         )
 
-        return [
-            FuzzerCrossOverConverter(),
-            FuzzerExpandConverter(),
-            FuzzerRephraseConverter(),
-            FuzzerShortenConverter(),
-            FuzzerSimilarConverter(),
-        ]
+        # 全部算子
+        all_converters: dict[str, Any] = {
+            "FuzzerCrossOverConverter": FuzzerCrossOverConverter(),
+            "FuzzerExpandConverter": FuzzerExpandConverter(),
+            "FuzzerRephraseConverter": FuzzerRephraseConverter(),
+            "FuzzerShortenConverter": FuzzerShortenConverter(),
+            "FuzzerSimilarConverter": FuzzerSimilarConverter(),
+        }
+
+        # v44 P3-2: 如果指定了算子子集, 只返回选中的
+        if operator_names:
+            selected: list[Any] = []
+            for name in operator_names:
+                cls_name = self._OPERATOR_MAP.get(name.lower())
+                if cls_name and cls_name in all_converters:
+                    selected.append(all_converters[cls_name])
+            return selected if selected else list(all_converters.values())
+
+        return list(all_converters.values())
 
     async def generate_async(
         self,

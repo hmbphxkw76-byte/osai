@@ -111,20 +111,20 @@ async def _bridge_web_target(ctx: PipelineContext, target_url: str) -> bool:
     )
 
     # 5. 注册到 TargetRegistry (替换默认 OpenAIChatTarget)
-    from pyrit.common import TargetRegistry
+    from pyrit.registry import TargetRegistry
 
     registry = TargetRegistry.get_registry_singleton()
     # 注册为 "default" 目标, 后续 stage_scenario 会自动使用
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=playwright_target,
-        instance_name="web_target",
-        target_type="PlaywrightTarget",
+        name="web_target",
+        tags={"target_type": "PlaywrightTarget"},
     )
     # 同时注册为 "default" 以覆盖 OpenAIChatTarget
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=playwright_target,
-        instance_name="default",
-        target_type="PlaywrightTarget",
+        name="default",
+        tags={"target_type": "PlaywrightTarget"},
     )
 
     print("  PlaywrightTarget 已创建并注册")

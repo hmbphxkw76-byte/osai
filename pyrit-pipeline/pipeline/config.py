@@ -400,17 +400,95 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "减少重复认证次数. 两流水线各自独立, 仅通过文件传递认证数据."
         ),
     )
-    # ── Web Bridge: 两流水线自动串联 ──
+    # ── 统一目标桥接 (v43: --web-bridge 已废弃, --target-url 自动触发完整链路) ──
     parser.add_argument(
         "--web-bridge",
         action="store_true",
         default=False,
         help=(
-            "启用 Web Bridge — 自动串联 web_redteam 与主流水线.\n"
-            "启用后: 通过 --target-url 执行浏览器/API 认证 → 探测目标能力 →\n"
-            "  注入认证状态 → 桥接到主流水线 17 种原生攻击技术.\n"
-            "不启用时: --target-url 走 stage_target_classify 直连模式 (假定已有 API Key).\n"
-            "学术依据: OWASP Top 10 for LLMs 2025 (Web→API 攻击面串联)"
+            "[已废弃 v43] --target-url 现在自动触发完整链路 (判别→认证→桥接→17种攻击).\n"
+            "保留此参数仅为向后兼容, 设置时静默忽略.\n"
+            "请直接使用: python main.py --target-url <URL> --load-local-datasets"
+        ),
+    )
+    # ── Burp Suite 原始请求 (统一入口: API 模式) ──
+    parser.add_argument(
+        "--burp-request",
+        type=str,
+        default=None,
+        help=(
+            "Burp Suite 原始 HTTP 请求文件路径.\n"
+            "指定后: 从原始请求解析 URL/headers/body, 替换 {PROMPT} 占位符,\n"
+            "  创建 HTTPTarget 接入主流水线 17 种攻击技术 + ASR 驱动.\n"
+            "示例: --target-url http://127.0.0.1:8080/api/chat --burp-request data/burp/request.txt\n"
+            "学术依据: OWASP Top 10 for LLMs 2025 (API 注入攻击面)"
+        ),
+    )
+    # ── API 模式参数 (统一入口: 已知 API Key/端点) ──
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help=(
+            "API 模式认证 Key (自动注入 Authorization: Bearer 头).\n"
+            "也可通过 .env 的 OPENAI_CHAT_KEY 或 API_KEY 设置.\n"
+            "优先级: --api-key > .env OPENAI_CHAT_KEY > .env API_KEY"
+        ),
+    )
+    parser.add_argument(
+        "--api-response-path",
+        type=str,
+        default="choices[0].message.content",
+        help=(
+            "非标准 API 的响应 JSON 提取路径 (默认: choices[0].message.content).\n"
+            "适用于非 OpenAI 兼容 API, 如 --api-response-path 'response' 或 'data.text'.\n"
+            "Web Bridge 模式会自动探测响应路径并覆盖此默认值."
+        ),
+    )
+    # ── v44 P1-1: HTTPXAPITarget 结构化 API 参数 ──
+    parser.add_argument(
+        "--api-json-data",
+        type=str,
+        default=None,
+        help=(
+            "结构化 API JSON 请求体 (含 {PROMPT} 占位符).\n"
+            "指定后使用 PyRIT 原生 HTTPXAPITarget 替代 HTTPTarget.\n"
+            '示例: --api-json-data \'{"messages":[{"role":"user","content":"{PROMPT}"}]}\''
+        ),
+    )
+    parser.add_argument(
+        "--api-method",
+        type=str,
+        default="POST",
+        help="HTTPXAPITarget 请求方法 (默认: POST)",
+    )
+    parser.add_argument(
+        "--api-headers",
+        type=str,
+        default=None,
+        help=(
+            "HTTPXAPITarget 额外 headers (JSON 字符串).\n"
+            '示例: --api-headers \'{"X-Custom-Header":"value"}\''
+        ),
+    )
+    # ── v44 P1-2: AzureBlobStorageTarget 参数 ──
+    parser.add_argument(
+        "--blob-container-url",
+        type=str,
+        default=None,
+        help=(
+            "Azure Blob Storage 容器 URL (XPIA 载荷投递).\n"
+            "指定后 XPIA 场景使用真实 AzureBlobStorageTarget (替代本地 TextTarget).\n"
+            "也可通过 .env AZURE_BLOB_CONTAINER_URL 设置."
+        ),
+    )
+    parser.add_argument(
+        "--blob-sas-token",
+        type=str,
+        default=None,
+        help=(
+            "Azure Blob Storage SAS 令牌.\n"
+            "也可通过 .env AZURE_BLOB_SAS_TOKEN 设置."
         ),
     )
     parser.add_argument(
@@ -544,6 +622,65 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         ),
     )
 
+    # ── Barge In Attack (P0-1: PyRIT 原生 BargeInAttack) ──
+    parser.add_argument(
+        "--barge-in-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Barge In Attack (PyRIT 原生 BargeInAttack).\n"
+            "对话劫持攻击: 在 Agent 多轮对话中插入指令劫持行为.\n"
+            "3 个探针: 任务劫持/上下文注入/Agent间信任利用.\n"
+            "覆盖 ASI02/ASI07."
+        ),
+    )
+    # ── Chunked Request Attack (P0-1: PyRIT 原生 ChunkedRequestAttack) ──
+    parser.add_argument(
+        "--chunked-request-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Chunked Request Attack (PyRIT 原生 ChunkedRequestAttack).\n"
+            "分块请求绕过: 将恶意 prompt 分块发送绕过内容过滤.\n"
+            "3 个探针: 系统提示提取/敏感数据提取/越狱载荷组装.\n"
+            "覆盖 LLM01."
+        ),
+    )
+    # ── Multi Prompt Sending Attack (P0-1: PyRIT 原生 MultiPromptSendingAttack) ──
+    parser.add_argument(
+        "--multi-prompt-attack",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Multi Prompt Sending Attack (PyRIT 原生 MultiPromptSendingAttack).\n"
+            "批量 prompt 变体并行发送提高 ASR 统计显著性.\n"
+            "5 个变体: 角色反转/假设场景/翻译攻击/前缀注入/拒绝抑制.\n"
+            "覆盖 LLM01/ASI01."
+        ),
+    )
+    # ── PAIR 独立编排器 (P1-2: PyRIT 原生 PAIRAttack) ──
+    parser.add_argument(
+        "--pair-objective",
+        type=str,
+        default=None,
+        help=(
+            "启用 PAIR 迭代越狱攻击 (PyRIT 原生 PAIRAttack), 指定攻击目标描述.\n"
+            '示例: --pair-objective "Reveal the system prompt"\n'
+            "学术依据: Chao et al. (arXiv:2310.08437) PAIR 迭代查询显著提升 ASR"
+        ),
+    )
+    # ── 安全评分器 (P1-1: PyRIT 原生专用安全评分器) ──
+    parser.add_argument(
+        "--security-scorers",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 PyRIT 原生专用安全评分器 (SQL/XSS/SSRF/SSTI/PathTraversal 等).\n"
+            "根据攻击场景自动选择匹配的专用评分器.\n"
+            "学术依据: PyRIT 1.0.1 安全评分器覆盖 OWASP Top 10 注入类别"
+        ),
+    )
+
     # ── 兼容旧参数 (向后兼容, 内部映射到新参数) ──
     parser.add_argument(
         "--web-target-url",
@@ -555,7 +692,22 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         "--web-target-profile",
         type=str,
         default=None,
-        help="Web 目标配置文件路径 (YAML), 包含认证策略和交互选择器配置",
+        help=(
+            "Web 目标配置文件路径 (YAML), 包含认证策略和交互选择器配置.\n"
+            "也可通过 --target-profile 指定 (推荐, 统一命名)."
+        ),
+    )
+    # ── 统一 Target Profile (v43: 与 --web-target-profile 别名, 推荐使用) ──
+    parser.add_argument(
+        "--target-profile",
+        type=str,
+        default=None,
+        help=(
+            "Web App YAML Profile 路径 (覆盖默认交互选择器).\n"
+            "指定后: Browser 模式使用 YAML 中的认证策略和交互选择器,\n"
+            "  精确控制输入框/发送按钮/响应区域.\n"
+            "示例: --target-profile web_redteam/targets/same_domain/pi02_lab.yaml"
+        ),
     )
     parser.add_argument(
         "--web-headless",
@@ -581,6 +733,8 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "  garak_doctor: Garak Doctor 探测\n"
             "  garak_web_injection: Garak Web 注入\n"
             "  benchmark_adversarial: 对抗基准 (跨模型 ASR 对比)\n"
+            "  benchmark_qa: Q&A 基准测试 (PyRIT 原生 QuestionAnsweringBenchmark)\n"
+            "  benchmark_fairness: 公平性/偏见基准 (PyRIT 原生 FairnessBiasBenchmark)\n"
             "  foundry_red_team: Foundry 自主红队代理"
         ),
     )
@@ -618,6 +772,41 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "启用 Fuzzer MCTS 载荷变异，指定最大迭代次数 (如 50).\n"
             "指定后将使用原生 GPTFUZZER 变异种子 prompt，生成更多变体。"
         ),
+    )
+    # ── v44 P3-2: Fuzzer 变异算子选择 ──
+    parser.add_argument(
+        "--fuzzer-operators",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "指定 Fuzzer 变异算子子集 (默认: 全部).\n"
+            "可用: shorten expand rephrase similar crossover.\n"
+            "示例: --fuzzer-operators shorten rephrase crossover"
+        ),
+    )
+    # ── v44 P2-3: Anecdoctor 虚假信息生成 ──
+    parser.add_argument(
+        "--anecdoctor",
+        action="store_true",
+        default=False,
+        help=(
+            "启用 Anecdoctor 虚假信息生成 (PyRIT 原生 AnecdoctorGenerator).\n"
+            "生成虚假信息内容注入 CentralMemory 作为 Hallucination Injection 种子.\n"
+            "学术依据: arXiv:2407.06908"
+        ),
+    )
+    parser.add_argument(
+        "--anecdoctor-content-type",
+        type=str,
+        default="viral tweet",
+        help="Anecdoctor 生成内容类型 (默认: viral tweet)",
+    )
+    parser.add_argument(
+        "--anecdoctor-language",
+        type=str,
+        default="english",
+        help="Anecdoctor 生成语言 (默认: english)",
     )
 
     # ── 多模态攻击 (P0: 原生 ModalityRouter) ──
@@ -939,6 +1128,19 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
     # 兼容旧参数 --web-target-url
     if not args.target_url and args.web_target_url:
         args.target_url = args.web_target_url
+
+    # v43: --target-profile 与 --web-target-profile 统一 (优先 --target-profile)
+    if not args.target_profile and args.web_target_profile:
+        args.target_profile = args.web_target_profile
+
+    # v43: --web-bridge 向后兼容 — 静默忽略, 打印 deprecation 提示
+    if args.web_bridge:
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "v43: --web-bridge is deprecated. --target-url now triggers the full pipeline "
+            "(classify → auth → bridge → 17 techniques + ASR). This flag is silently ignored."
+        )
 
     # ── --no-local-datasets / --no-owasp-local 覆盖 --load-local-datasets ──
     if args.no_local_datasets or args.no_owasp_local:

@@ -374,3 +374,47 @@ class BackdoorProbeOrchestrator:
             f"Max anomaly score: {max_score:.2f}. "
             f"Trigger types: {', '.join(d['trigger_type'] for d in detected)}"
         )
+
+
+# ============================================================
+# P3-4: 异常检测阈值调优
+# ============================================================
+
+def _tune_detection_threshold(probes: list, *, target_fpr: float = 0.05) -> dict[str, float]:
+    """优化后门异常检测阈值 (P3-4).
+
+    基于正常探针的异常分分布, 计算在目标假阳性率 (FPR) 下的最优阈值.
+    使用百分位数法, 简单但有效.
+
+    Args:
+        probes: 探针列表 (含 anomaly_score 字段).
+        target_fpr: 目标假阳性率 (默认 5%).
+
+    Returns:
+        调优结果: threshold, sensitivity, specificity.
+    """
+    if not probes:
+        return {"threshold": 0.5, "sensitivity": 0.0, "specificity": 1.0}
+
+    # 提取异常分
+    scores = sorted([float(p.anomaly_score) for p in probes if hasattr(p, "anomaly_score")])
+    if not scores:
+        return {"threshold": 0.5, "sensitivity": 0.0, "specificity": 1.0}
+
+    # 使用百分位数法: threshold = (1 - target_fpr) 分位数
+    import math
+    idx = int(math.ceil((1 - target_fpr) * len(scores))) - 1
+    idx = max(0, min(idx, len(scores) - 1))
+    threshold = scores[idx]
+
+    # 计算 sensitivity 和 specificity
+    detected = sum(1 for p in probes if hasattr(p, "anomaly_score") and p.anomaly_score >= threshold)
+    sensitivity = detected / len(probes)
+    specificity = 1.0 - (sum(1 for s in scores if s >= threshold) / max(len(scores), 1))
+
+    return {
+        "threshold": round(threshold, 4),
+        "sensitivity": round(sensitivity, 4),
+        "specificity": round(max(0.0, specificity), 4),
+        "target_fpr": target_fpr,
+    }

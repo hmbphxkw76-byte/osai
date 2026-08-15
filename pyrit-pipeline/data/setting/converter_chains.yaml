@@ -273,6 +273,20 @@ chains:
     modality: file
     description: 'P4: WordDocConverter — 生成恶意 Word 文档'
     cost_tier: cheap
+  # v44 P3-1: TextJailbreakConverter
+  text_jailbreak:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: 'v44: TextJailbreakConverter — XPIA HTML 模板注入'
+    cost_tier: cheap
+  # v44 P1-3: GCG SuffixAppendConverter (动态注册)
+  gcg_suffix:
+    requires_llm: false
+    priority: 1
+    modality: text
+    description: 'v44: SuffixAppendConverter — GCG 对抗后缀附加 (动态注册)'
+    cost_tier: cheap
 base_techniques_for_variants:
   prompt_sending:
   - semantic_evasion

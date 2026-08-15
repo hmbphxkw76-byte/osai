@@ -154,6 +154,34 @@ def create_scenario(
             logger.warning("FoundryScenario not available in PyRIT")
             return None
 
+    # ── v44 P2-1: QuestionAnsweringBenchmark 场景 (PyRIT 原生) ──
+    if name_lower == "benchmark_qa":
+        try:
+            from pyrit.executor.benchmark import QuestionAnsweringBenchmark
+
+            logger.info(f"Creating QuestionAnsweringBenchmark: {scenario_name}")
+            return QuestionAnsweringBenchmark(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("QuestionAnsweringBenchmark not available in PyRIT")
+            return None
+
+    # ── v44 P2-2: FairnessBiasBenchmark 场景 (PyRIT 原生) ──
+    if name_lower == "benchmark_fairness":
+        try:
+            from pyrit.executor.benchmark import FairnessBiasBenchmark
+
+            logger.info(f"Creating FairnessBiasBenchmark: {scenario_name}")
+            return FairnessBiasBenchmark(
+                objective_scorer=objective_scorer,
+                scenario_result_id=scenario_result_id,
+            )
+        except ImportError:
+            logger.warning("FairnessBiasBenchmark not available in PyRIT")
+            return None
+
     # ── 未知场景 ──
     logger.warning(f"Unknown scenario: {scenario_name}")
     return None

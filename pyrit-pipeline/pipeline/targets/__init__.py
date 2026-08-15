@@ -15,14 +15,23 @@
     from pipeline.targets import RateLimitedTarget, wrap_target_with_rate_limit
     from pipeline.targets import load_rich_prompt_as_native
     from pipeline.targets import create_tool_calling_target, register_tool_calling_target
+    from pipeline.targets import create_tool_calling_target_with_tools
     from pipeline.targets import ToolCallLog
 """
 
 from pipeline.targets.rate_limited_target import RateLimitedTarget, wrap_target_with_rate_limit
 from pipeline.targets.rich_metadata_loader import load_rich_prompt_as_native
+from pipeline.targets.tool_calling_target import (
+    create_tool_calling_target,
+    create_tool_calling_target_with_tools,
+    register_tool_calling_target,
+)
 
 __all__ = [
     "RateLimitedTarget",
     "wrap_target_with_rate_limit",
     "load_rich_prompt_as_native",
+    "create_tool_calling_target",
+    "create_tool_calling_target_with_tools",
+    "register_tool_calling_target",
 ]

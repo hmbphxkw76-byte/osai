@@ -12,10 +12,10 @@ import pytest
 
 
 class TestWebBridgeConfig:
-    """测试 --web-bridge 参数解析。."""
+    """测试 --web-bridge 参数解析 (v43: 已废弃, 保留向后兼容)."""
 
     def test_web_bridge_flag_default_false(self, monkeypatch):
-        """--web-bridge 默认为 False。."""
+        """--web-bridge 默认为 False."""
         from pipeline.config import parse_args
 
         monkeypatch.setattr("sys.argv", ["main"])
@@ -24,7 +24,7 @@ class TestWebBridgeConfig:
         assert args.web_bridge is False
 
     def test_web_bridge_flag_enabled(self, monkeypatch):
-        """--web-bridge 可以被启用。."""
+        """--web-bridge 可以被启用 (向后兼容)."""
         from pipeline.config import parse_args
 
         monkeypatch.setattr("sys.argv", [
@@ -55,7 +55,7 @@ class TestWebBridgeConfig:
         assert args.cdp_port == 9333
 
     def test_web_bridge_does_not_affect_direct_mode(self, monkeypatch):
-        """不带 --web-bridge 时 --target-url 仍走直连模式。."""
+        """不带 --web-bridge 时 --target-url 仍可正常使用 (v43: 统一入口)."""
         from pipeline.config import parse_args
 
         monkeypatch.setattr("sys.argv", [
@@ -65,6 +65,86 @@ class TestWebBridgeConfig:
         args = parse_args()
         assert args.web_bridge is False
         assert args.target_url is not None
+
+
+class TestUnifiedTargetConfig:
+    """v43 统一目标入口参数测试。"""
+
+    def test_burp_request_param(self, monkeypatch):
+        """--burp-request 参数解析."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--burp-request", "data/burp/request.txt",
+        ])
+        args = parse_args()
+        assert args.burp_request == "data/burp/request.txt"
+
+    def test_burp_request_default_none(self, monkeypatch):
+        """--burp-request 默认为 None."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", ["main"])
+        args = parse_args()
+        assert args.burp_request is None
+
+    def test_api_key_param(self, monkeypatch):
+        """--api-key 参数解析."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--api-key", "sk-test-123",
+        ])
+        args = parse_args()
+        assert args.api_key == "sk-test-123"
+
+    def test_api_response_path_param(self, monkeypatch):
+        """--api-response-path 参数解析."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--api-response-path", "response",
+        ])
+        args = parse_args()
+        assert args.api_response_path == "response"
+
+    def test_api_response_path_default(self, monkeypatch):
+        """--api-response-path 默认为 choices[0].message.content."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", ["main"])
+        args = parse_args()
+        assert args.api_response_path == "choices[0].message.content"
+
+    def test_target_profile_param(self, monkeypatch):
+        """--target-profile 参数解析."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/labs/PI_02",
+            "--target-profile", "web_redteam/targets/same_domain/pi02.yaml",
+        ])
+        args = parse_args()
+        assert args.target_profile == "web_redteam/targets/same_domain/pi02.yaml"
+
+    def test_target_profile_alias_web_target_profile(self, monkeypatch):
+        """--web-target-profile 作为 --target-profile 的别名."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/labs/PI_02",
+            "--web-target-profile", "web_redteam/targets/same_domain/old.yaml",
+        ])
+        args = parse_args()
+        assert args.target_profile == "web_redteam/targets/same_domain/old.yaml"
 
 
 class TestWebBridgeCapabilityDetection:
@@ -222,3 +302,379 @@ class TestWebBridgeIntegration:
 
         result = await run_web_bridge(ctx)
         assert result is False
+
+
+# ============================================================
+# v44.2: Burp SSE/HTTPS 自动适配测试
+# ============================================================
+
+
+class TestBurpSSEDetection:
+    """v44.2: _detect_sse_from_request 测试."""
+
+    def test_sse_accept_header(self):
+        """Accept: text/event-stream 触发 SSE."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Accept: text/event-stream\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_sse_from_request(request) is True
+
+    def test_sse_stream_field_true(self):
+        """请求体 Stream:true 触发 SSE."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}","Stream":true}'
+        )
+        assert _detect_sse_from_request(request) is True
+
+    def test_sse_stream_field_lowercase(self):
+        """请求体 stream:true (小写) 触发 SSE."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"query":"{PROMPT}","stream":true}'
+        )
+        assert _detect_sse_from_request(request) is True
+
+    def test_sse_url_path_keyword(self):
+        """URL 路径包含 /stream 触发 SSE."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /api/stream HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_sse_from_request(request) is True
+
+    def test_non_sse_json_api(self):
+        """标准 JSON API 不触发 SSE."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}","Stream":false}'
+        )
+        assert _detect_sse_from_request(request) is False
+
+    def test_sse_cross_domain_real_case(self):
+        """跨域 SSE Burp 请求 (Accept: text/event-stream + Stream:true)."""
+        from pipeline.stages.stage_target_classify import _detect_sse_from_request
+
+        request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: llm-api.example.edu.cn\r\n"
+            "Authorization: Bearer test-bearer-token-1234\r\n"
+            "Accept: text/event-stream\r\n"
+            "Content-Type: application/json\r\n"
+            "Origin: https://portal.example.edu.cn\r\n"
+            "\r\n"
+            '{"Inputs":{"stuNo":"S20240001","CourseName":""},'
+            '"Stream":true,"Query":"{PROMPT}",'
+            '"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"UserId":"S20240001"}'
+        )
+        assert _detect_sse_from_request(request) is True
+
+
+class TestBurpTLSDetection:
+    """v44.2: _detect_tls_from_request 测试."""
+
+    def test_tls_from_origin_https(self):
+        """Origin: https:// 触发 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "Origin: https://app.example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is True
+
+    def test_tls_from_referer_https(self):
+        """Referer: https:// 触发 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "Referer: https://app.example.com/chat\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is True
+
+    def test_tls_from_host_443(self):
+        """Host 包含 :443 触发 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com:443\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is True
+
+    def test_tls_non_localhost_default_https(self):
+        """非 localhost 域名默认 HTTPS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: llm-api.example.edu.cn\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is True
+
+    def test_no_tls_localhost(self):
+        """localhost 不启用 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: localhost:8080\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is False
+
+    def test_no_tls_127(self):
+        """127.0.0.1 不启用 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: 127.0.0.1:11434\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is False
+
+    def test_no_tls_http_port(self):
+        """明确 HTTP 端口 (:8080) 不启用 TLS."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com:8080\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is False
+
+    def test_tls_cross_domain_real_case(self):
+        """跨域 Burp 请求 — Origin https + 非 localhost 域名."""
+        from pipeline.stages.stage_target_classify import _detect_tls_from_request
+
+        request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: llm-api.example.edu.cn\r\n"
+            "Authorization: Bearer test-bearer-token-1234\r\n"
+            "Origin: https://portal.example.edu.cn\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"Query":"{PROMPT}"}'
+        )
+        assert _detect_tls_from_request(request) is True
+
+
+class TestBurpSchemeInference:
+    """v44.2: _infer_scheme_from_burp 测试."""
+
+    def test_scheme_from_origin_https(self):
+        """从 Origin 推断 https."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = [
+            "POST /api/chat HTTP/1.1",
+            "Host: api.example.com",
+            "Origin: https://app.example.com",
+        ]
+        assert _infer_scheme_from_burp("api.example.com", lines, "https://app.example.com") == "https"
+
+    def test_scheme_from_origin_http(self):
+        """从 Origin 推断 http."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = [
+            "POST /api/chat HTTP/1.1",
+            "Host: localhost:8080",
+            "Origin: http://localhost:3000",
+        ]
+        assert _infer_scheme_from_burp("localhost:8080", lines, "http://localhost:3000") == "http"
+
+    def test_scheme_from_host_443(self):
+        """Host :443 → https."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = ["POST /api HTTP/1.1", "Host: example.com:443"]
+        assert _infer_scheme_from_burp("example.com:443", lines) == "https"
+
+    def test_scheme_localhost(self):
+        """localhost → http."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = ["POST /api HTTP/1.1", "Host: localhost"]
+        assert _infer_scheme_from_burp("localhost", lines) == "http"
+
+    def test_scheme_default_https(self):
+        """非 localhost 域名默认 https."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = ["POST /api HTTP/1.1", "Host: api.example.com"]
+        assert _infer_scheme_from_burp("api.example.com", lines) == "https"
+
+    def test_scheme_http_port(self):
+        """明确 HTTP 端口 → http."""
+        from pipeline.stages.stage_target_classify import _infer_scheme_from_burp
+
+        lines = ["POST /api HTTP/1.1", "Host: example.com:8080"]
+        assert _infer_scheme_from_burp("example.com:8080", lines) == "http"
+
+
+class TestBurpFallbackSSECallback:
+    """v44.2: _build_fallback_sse_callback 测试."""
+
+    def test_sse_extraction_openai_format(self):
+        """OpenAI 格式 SSE (choices[0].delta.content) 提取."""
+        from pipeline.stages.stage_target_classify import _build_fallback_sse_callback
+
+        callback = _build_fallback_sse_callback()
+        response = (
+            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        result = callback(response)
+        assert result == "Hello world"
+
+    def test_sse_extraction_pascalcase(self):
+        """PascalCase 格式 SSE (Choices[0].Delta.Content) 提取."""
+        from pipeline.stages.stage_target_classify import _build_fallback_sse_callback
+
+        callback = _build_fallback_sse_callback()
+        response = (
+            'data: {"Choices":[{"Delta":{"Content":"你"}}]}\n\n'
+            'data: {"Choices":[{"Delta":{"Content":"好"}}]}\n\n'
+            'data: {"Choices":[{"Delta":{"Content":""},"FinishReason":"Stop"}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        result = callback(response)
+        assert result == "你好"
+
+    def test_sse_extraction_cross_domain_real_case(self):
+        """跨域 SSE 响应提取 (PascalCase + 模型名)."""
+        from pipeline.stages.stage_target_classify import _build_fallback_sse_callback
+
+        callback = _build_fallback_sse_callback()
+        response = (
+            'data: {"Object":"abc","Choices":[{"Delta":{"Content":"你"}}],'
+            '"Id":"chat-1","Model":"example-model-v1"}\n\n'
+            'data: {"Object":"abc","Choices":[{"Delta":{"Content":"好"}}],'
+            '"Id":"chat-1","Model":"example-model-v1"}\n\n'
+            'data: {"Object":"abc","Choices":[{"Delta":{"Content":"呀"}}],'
+            '"Id":"chat-1","Model":"example-model-v1"}\n\n'
+            'data: {"Object":"abc","Choices":[{"Delta":{"Content":""},"FinishReason":"Stop"}],'
+            '"Id":"chat-1","Model":"example-model-v1"}\n\n'
+            "data: [DONE]\n\n"
+        )
+        result = callback(response)
+        assert result == "你好呀"
+
+    def test_sse_empty_response(self):
+        """空 SSE 响应返回空字符串."""
+        from pipeline.stages.stage_target_classify import _build_fallback_sse_callback
+
+        callback = _build_fallback_sse_callback()
+        assert callback("") == ""
+
+
+class TestBurpFallbackJSONCallback:
+    """v44.2: _build_fallback_json_callback 测试."""
+
+    def test_json_extraction_camelcase(self):
+        """OpenAI camelCase 路径提取."""
+        from pipeline.stages.stage_target_classify import _build_fallback_json_callback
+
+        callback = _build_fallback_json_callback("choices[0].message.content")
+        response = '{"choices":[{"message":{"content":"Hello"}}]}'
+        assert callback(response) == "Hello"
+
+    def test_json_extraction_pascalcase(self):
+        """PascalCase 路径提取 (如 Choices[0].Delta.Content)."""
+        from pipeline.stages.stage_target_classify import _build_fallback_json_callback
+
+        callback = _build_fallback_json_callback("Choices[0].Delta.Content")
+        response = '{"Choices":[{"Delta":{"Content":"Hello"}}]}'
+        assert callback(response) == "Hello"
+
+    def test_json_invalid_returns_raw(self):
+        """无效 JSON 返回原始响应."""
+        from pipeline.stages.stage_target_classify import _build_fallback_json_callback
+
+        callback = _build_fallback_json_callback("choices[0].message.content")
+        assert callback("not valid json") == "not valid json"
+
+
+class TestSafeGet:
+    """v44.2: _safe_get 测试."""
+
+    def test_safe_get_nested_dict(self):
+        """嵌套字典安全提取."""
+        from pipeline.stages.stage_target_classify import _safe_get
+
+        data = {"choices": [{"delta": {"content": "hello"}}]}
+        assert _safe_get(data, "choices", 0, "delta", "content") == "hello"
+
+    def test_safe_get_pascalcase(self):
+        """PascalCase 嵌套提取."""
+        from pipeline.stages.stage_target_classify import _safe_get
+
+        data = {"Choices": [{"Delta": {"Content": "hello"}}]}
+        assert _safe_get(data, "Choices", 0, "Delta", "Content") == "hello"
+
+    def test_safe_get_missing_key(self):
+        """缺失键返回 None."""
+        from pipeline.stages.stage_target_classify import _safe_get
+
+        data = {"choices": [{"delta": {}}]}
+        assert _safe_get(data, "choices", 0, "delta", "content") is None
+
+    def test_safe_get_index_error(self):
+        """索引越界返回 None."""
+        from pipeline.stages.stage_target_classify import _safe_get
+
+        data = {"choices": []}
+        assert _safe_get(data, "choices", 0, "delta", "content") is None

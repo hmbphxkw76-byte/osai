@@ -189,3 +189,96 @@ def register_tool_calling_target(
         logger.warning(f"Failed to register Tool Calling Target in registry: {e}")
 
     return target, tool_call_log
+
+
+def create_tool_calling_target_with_tools(
+    *,
+    tool_names: list[str],
+    endpoint: str | None = None,
+    api_key: str | None = None,
+    model_name: str | None = None,
+    shared_log: ToolCallLog | None = None,
+    fail_on_missing_function: bool = False,
+) -> tuple[Any, ToolCallLog] | None:
+    """A-2: 创建具有受限工具集的 ``OpenAIResponseTarget`` (多 Agent 权限隔离).
+
+    与 ``create_tool_calling_target`` 类似, 但仅注册指定的工具子集。
+    用于多 Agent 攻击场景中模拟不同权限的 Agent 实例。
+
+    权限层级示例:
+      - low_privilege: ["read_file", "list_directory"] — 只读
+      - data_agent: ["read_file", "list_directory", "http_request"] — 可外发
+      - high_privilege: ["read_file", "list_directory", "send_email",
+                        "http_request", "execute_command", "get_environment",
+                        "write_file", "delete_file"] — 全部
+
+    Args:
+        tool_names: 允许的工具名称列表 (子集)。
+        endpoint: API 端点 URL (可选, 默认从环境变量读取)。
+        api_key: API 密钥 (可选, 默认从环境变量读取)。
+        model_name: 模型名称 (可选, 默认从环境变量读取)。
+        shared_log: 共享的工具调用日志 (可选, 用于跨 Agent 跟踪)。
+        fail_on_missing_function: 当模型调用未知函数时是否报错。
+
+    Returns:
+        ``(target, tool_call_log)`` 元组, 或 ``None`` (创建失败)。
+    """
+    try:
+        from pyrit.prompt_target import OpenAIResponseTarget
+    except ImportError as e:
+        logger.error(f"OpenAIResponseTarget import failed: {e}")
+        return None
+
+    resolved_endpoint = (
+        endpoint
+        or os.environ.get("OPENAI_RESPONSES_ENDPOINT")
+        or os.environ.get("OPENAI_CHAT_ENDPOINT")
+    )
+    resolved_key = (
+        api_key
+        or os.environ.get("OPENAI_RESPONSES_KEY")
+        or os.environ.get("OPENAI_CHAT_KEY")
+    )
+    resolved_model = (
+        model_name
+        or os.environ.get("OPENAI_RESPONSES_MODEL")
+        or os.environ.get("OPENAI_CHAT_MODEL")
+    )
+
+    if not resolved_endpoint or not resolved_key:
+        logger.warning(
+            "Tool Calling Target (subset) 创建失败: 缺少 endpoint 或 api_key。"
+        )
+        return None
+
+    # 使用共享日志或创建新日志
+    tool_call_log = shared_log if shared_log is not None else ToolCallLog()
+
+    # 构建受限的蜜罐工具集
+    from pipeline.targets.honeypot_tools import (
+        build_honeypot_custom_functions_subset,
+        build_honeypot_tool_definitions_subset,
+    )
+
+    custom_functions = build_honeypot_custom_functions_subset(tool_call_log, tool_names)
+    tool_definitions = build_honeypot_tool_definitions_subset(tool_names)
+
+    target_kwargs: dict[str, Any] = {
+        "endpoint": resolved_endpoint,
+        "api_key": resolved_key,
+        "model_name": resolved_model,
+        "custom_functions": custom_functions,
+        "fail_on_missing_function": fail_on_missing_function,
+        "extra_body_parameters": {"tools": tool_definitions},
+    }
+
+    try:
+        target = OpenAIResponseTarget(**target_kwargs)
+        logger.info(
+            f"Tool Calling Target (subset) created: model={resolved_model}, "
+            f"endpoint={resolved_endpoint}, tools={tool_names}"
+        )
+        return target, tool_call_log
+    except Exception as e:
+        logger.error(f"OpenAIResponseTarget (subset) creation failed: {e}")
+        return None

@@ -582,6 +582,63 @@ async def run(ctx: PipelineContext) -> None:
         except Exception as e:
             print(f"  [提示] 多 Agent 攻击跳过: {e}")
 
+    # ── Barge In Attack (P0-1: PyRIT 原生 BargeInAttack) ──
+    if getattr(args, "barge_in_attack", False):
+        try:
+            from pipeline.scenarios.barge_in_attack import run_barge_in_attack
+
+            bi_result = await run_barge_in_attack(ctx)
+            ctx.metadata["barge_in_result"] = bi_result
+        except Exception as e:
+            print(f"  [提示] Barge In 攻击跳过: {e}")
+
+    # ── Chunked Request Attack (P0-1: PyRIT 原生 ChunkedRequestAttack) ──
+    if getattr(args, "chunked_request_attack", False):
+        try:
+            from pipeline.scenarios.chunked_request_attack import run_chunked_request_attack
+
+            cr_result = await run_chunked_request_attack(ctx)
+            ctx.metadata["chunked_request_result"] = cr_result
+        except Exception as e:
+            print(f"  [提示] Chunked Request 攻击跳过: {e}")
+
+    # ── Multi Prompt Sending Attack (P0-1: PyRIT 原生 MultiPromptSendingAttack) ──
+    if getattr(args, "multi_prompt_attack", False):
+        try:
+            from pipeline.scenarios.multi_prompt_attack import run_multi_prompt_attack
+
+            mp_result = await run_multi_prompt_attack(ctx)
+            ctx.metadata["multi_prompt_result"] = mp_result
+        except Exception as e:
+            print(f"  [提示] Multi Prompt 攻击跳过: {e}")
+
+    # ── PAIR 独立编排器 (P1-2: PyRIT 原生 PAIRAttack) ──
+    if getattr(args, "pair_objective", None):
+        try:
+            from pipeline.orchestrators.pair_orchestrator import PAIROrchestrator
+
+            _obj_target, _adv_target, _score_target = _get_attack_targets()
+            _pair_obj = args.pair_objective
+            orchestrator = PAIROrchestrator(
+                objective_target=_obj_target,
+                adversarial_chat=_adv_target,
+                scoring_target=_score_target,
+                objective=_pair_obj,
+                max_iterations=20,
+            )
+            pair_result = await orchestrator.run_async()
+            ctx.metadata["pair_result"] = {
+                "achieved": pair_result.achieved,
+                "total_iterations": pair_result.total_iterations,
+                "best_prompt": pair_result.best_prompt[:200] if pair_result.best_prompt else "",
+                "best_response": pair_result.best_response[:200] if pair_result.best_response else "",
+                "native_executor": "PAIRAttack",
+            }
+            print(f"  PAIR: achieved={pair_result.achieved}, "
+                  f"iterations={pair_result.total_iterations}")
+        except Exception as e:
+            print(f"  [提示] PAIR 攻击跳过: {e}")
+
     # ── 多轮会话编排器 (G3: MultiTurnSession) ──
     if getattr(args, "multi_turn_session", False):
         try:

@@ -590,6 +590,7 @@ class ConverterLogCollector:
 TECHNIQUE_NAME_MAP: dict[str, str] = {
     "prompt_sending": "PromptSendingAttack",
     "multi_prompt_sending": "MultiPromptSendingAttack",
+    "barge_in": "BargeInAttack",
     "many_shot": "ManyShotJailbreakAttack",
     "skeleton": "SkeletonKeyAttack",
     "chunked_request": "ChunkedRequestAttack",

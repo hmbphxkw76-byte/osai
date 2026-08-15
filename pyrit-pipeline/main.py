@@ -163,25 +163,15 @@ async def main_async() -> None:
                 print("\n[SHUTDOWN] 在 Stage 1 后退出")
                 return
 
-            # Stage 0.5: 统一目标类型判别 + 认证桥接
-            # 两种模式:
-            #   A. --web-bridge: web_redteam 认证 + 侦察 → 主流水线 (完整串联)
-            #   B. 无 --web-bridge: stage_target_classify 直连模式 (假定已有 API Key)
+            # Stage 0.5: 统一目标类型判别 + 认证桥接 (v43: 统一入口)
+            # --target-url 自动触发完整链路:
+            #   判别 → 认证 → 桥接 → 主流水线 17 种攻击 + ASR 驱动
+            # 三路自动选择:
+            #   a. --burp-request → Burp API 模式 (HTTPTarget + 原始 HTTP 请求)
+            #   b. 判别为 llm_api_platform → API 直连模式 (HTTPTarget)
+            #   c. 判别为 llm_web_app → Browser 模式 (PlaywrightTarget)
             target_url = getattr(ctx.args, "target_url", None)
-            web_bridge_enabled = getattr(ctx.args, "web_bridge", False)
-            if target_url and web_bridge_enabled:
-                # Web Bridge 模式: 自动串联 web_redteam → 主流水线
-                from pipeline.integrations.web_bridge import run_web_bridge
-
-                bridge_ok = await run_web_bridge(ctx)
-                if not bridge_ok:
-                    print("\n[Web Bridge] 桥接失败, 降级到 stage_target_classify")
-                    target_bridged = await stage_target_classify(ctx)
-                if _shutdown_requested:
-                    print("\n[SHUTDOWN] 在 Stage 0.5 (Web Bridge) 后退出")
-                    return
-            elif target_url:
-                # 直连模式: 假定已知 API Key/Endpoint
+            if target_url:
                 target_bridged = await stage_target_classify(ctx)
                 if target_bridged and _shutdown_requested:
                     print("\n[SHUTDOWN] 在 Stage 0.5 (目标桥接) 后退出")

@@ -114,6 +114,7 @@ class GCGSuffixGenerator:
         self._topk = topk
         self._control_init = control_init
         self._hf_token = hf_token
+        self._last_result: GCGGenerationResult | None = None
 
     async def generate_async(
         self,
@@ -168,12 +169,14 @@ class GCGSuffixGenerator:
             f"(model={self._model_name}, steps={self._n_steps})"
         )
 
-        return GCGGenerationResult(
+        result = GCGGenerationResult(
             goals=list(goals),
             targets=list(targets),
             suffixes=suffixes,
             combined_prompts=combined,
         )
+        self._last_result = result
+        return result
 
     async def generate_and_inject_async(
         self,

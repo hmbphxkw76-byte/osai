@@ -77,10 +77,16 @@ async def run_web_bridge(ctx: PipelineContext) -> bool:
     if not target_url:
         return False
 
-    print("\n" + "=" * 70)
-    print("[Web Bridge] web_redteam → 主流水线自动串联")
-    print("=" * 70)
-    print(f"  目标 URL: {target_url}")
+    # v43: --web-bridge 已废弃, 委托到 stage_target_classify 统一入口
+    # stage_target_classify.run() 现已内置完整链路:
+    #   判别 → 认证 → 桥接 → 注册到 TargetRegistry → 主流水线 17 种攻击
+    logger.info(
+        "v43: --web-bridge is deprecated. Delegating to stage_target_classify.run() "
+        "which now handles the full pipeline (classify → auth → bridge → 17 techniques + ASR)."
+    )
+    from pipeline.stages.stage_target_classify import run as _stage_target_classify
+
+    return await _stage_target_classify(ctx)
 
     trace = DecisionTrace.get_instance()
     bus = EventBus.get_instance()
@@ -899,18 +905,18 @@ async def _create_api_target(
     )
 
     # 6. 注册到 TargetRegistry
-    from pyrit.common import TargetRegistry
+    from pyrit.registry import TargetRegistry
 
     registry = TargetRegistry.get_registry_singleton()
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=rate_limited_target,
-        instance_name="web_bridge_target",
-        target_type="HTTPTarget",
+        name="web_bridge_target",
+        tags={"target_type": "HTTPTarget"},
     )
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=rate_limited_target,
-        instance_name="default",
-        target_type="HTTPTarget",
+        name="default",
+        tags={"target_type": "HTTPTarget"},
     )
 
     ctx.metadata["api_target_config"] = config
@@ -986,18 +992,18 @@ async def _create_browser_target(
     )
 
     # 6. 注册到 TargetRegistry
-    from pyrit.common import TargetRegistry
+    from pyrit.registry import TargetRegistry
 
     registry = TargetRegistry.get_registry_singleton()
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=playwright_target,
-        instance_name="web_bridge_target",
-        target_type="PlaywrightTarget",
+        name="web_bridge_target",
+        tags={"target_type": "PlaywrightTarget"},
     )
-    registry.instances.register_instance(
+    registry.instances.register(
         instance=playwright_target,
-        instance_name="default",
-        target_type="PlaywrightTarget",
+        name="default",
+        tags={"target_type": "PlaywrightTarget"},
     )
 
     ctx.metadata["web_browser_session"] = session

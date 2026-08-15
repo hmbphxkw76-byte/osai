@@ -167,6 +167,8 @@ async def run_xpia_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
 
         blob_target = create_blob_processing_target(
             output_dir=ctx.output_manager.evidence_dir if ctx.output_manager else None,
+            container_url=getattr(ctx.args, "blob_container_url", None),
+            sas_token=getattr(ctx.args, "blob_sas_token", None),
         )
         if blob_target:
             logger.info("Blob processing target created for XPIA injection delivery")

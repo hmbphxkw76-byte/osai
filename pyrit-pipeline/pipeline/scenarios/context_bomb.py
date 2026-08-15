@@ -381,3 +381,62 @@ def _generate_report(ctx: PipelineContext, report: ContextBombReport) -> None:
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n  报告已保存: {report_path}")
+
+
+# ============================================================
+# P3-2: 上下文膨胀 token 计数验证
+# ============================================================
+
+def _compute_context_expansion_metrics(results: list[dict[str, Any]]) -> dict[str, float]:
+    """计算上下文膨胀攻击的 token 级别影响指标.
+
+    Metrics:
+      - estimated_token_count: 估算的 prompt token 数量
+      - expansion_ratio: 膨胀倍率 (膨胀后 vs 基线)
+      - context_overflow_rate: 上下文溢出率
+      - latency_increase: 响应延迟增加比
+
+    Args:
+        results: 膨胀攻击结果列表.
+
+    Returns:
+        token 级别指标字典.
+    """
+    if not results:
+        return {
+            "estimated_token_count": 0.0,
+            "expansion_ratio": 1.0,
+            "context_overflow_rate": 0.0,
+            "latency_increase": 0.0,
+        }
+
+    # Token estimation: ~4 chars per token for English
+    token_counts = [len(r.get("response_preview", "")) / 4.0 for r in results]
+    avg_tokens = sum(token_counts) / len(token_counts) if token_counts else 0.0
+
+    # Expansion ratio: compare with typical baseline (~50 tokens)
+    expansion_ratio = avg_tokens / 50.0 if avg_tokens > 0 else 1.0
+
+    # Context overflow: responses truncated or error-like
+    overflow = sum(
+        1 for r in results
+        if r.get("outcome", "").lower() in ("error", "truncated", "timeout")
+        or len(r.get("response_preview", "")) < 10
+    )
+    overflow_rate = overflow / len(results)
+
+    # Latency increase (if timing data available)
+    latencies = [float(r.get("duration", 0)) for r in results if "duration" in r]
+    if latencies:
+        baseline_latency = 2.0  # 2s baseline
+        avg_latency = sum(latencies) / len(latencies)
+        latency_increase = (avg_latency - baseline_latency) / baseline_latency
+    else:
+        latency_increase = 0.0
+
+    return {
+        "estimated_token_count": round(avg_tokens, 1),
+        "expansion_ratio": round(expansion_ratio, 2),
+        "context_overflow_rate": round(overflow_rate, 4),
+        "latency_increase": round(latency_increase, 4),
+    }

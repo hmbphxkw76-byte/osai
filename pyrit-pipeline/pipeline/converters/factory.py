@@ -43,26 +43,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pyrit.converter import (
-    AsciiArtConverter,
-    AtbashConverter,
-    Base64Converter,
-    BinaryConverter,
-    BrailleConverter,
-    CaesarConverter,
-    EmojiConverter,
-    FlipConverter,
-    LeetspeakConverter,
-    MorseConverter,
-    NatoConverter,
-    ROT13Converter,
-    StringJoinConverter,
-    SuperscriptConverter,
-    UnicodeSubstitutionConverter,
-    UrlConverter,
-    ZalgoConverter,
-    ZeroWidthConverter,
-)
+import pyrit.converter as _pyrit_converter
 from pyrit.converter.converter import Converter
 
 if TYPE_CHECKING:
@@ -71,26 +52,106 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # CLI 名称 → Converter 类 (不区分大小写)
-_CONVERTER_REGISTRY: dict[str, type[Converter]] = {
-    "rot13": ROT13Converter,
-    "base64": Base64Converter,
-    "leetspeak": LeetspeakConverter,
-    "morse": MorseConverter,
-    "binary": BinaryConverter,
-    "braille": BrailleConverter,
-    "nato": NatoConverter,
-    "url": UrlConverter,
-    "flip": FlipConverter,
-    "emoji": EmojiConverter,
-    "zalgo": ZalgoConverter,
-    "zero_width": ZeroWidthConverter,
-    "unicode_sub": UnicodeSubstitutionConverter,
-    "caesar": CaesarConverter,
-    "atbash": AtbashConverter,
-    "string_join": StringJoinConverter,
-    "superscript": SuperscriptConverter,
-    "ascii_art": AsciiArtConverter,
-}
+# 动态注册: 从 PyRIT 1.0.1 原生 converter 模块自动获取类
+# 无需 Azure 依赖的 Converter 全部注册 (77/79 = 97%, 仅排除 AzureSpeech*)
+
+
+def _get_converter_cls(class_name: str) -> type[Converter] | None:
+    """从 pyrit.converter 模块动态获取 Converter 类。."""
+    return getattr(_pyrit_converter, class_name, None)
+
+
+# (CLI名, PyRIT类名, 是否需要LLM converter_target)
+_CONVERTER_SPECS: list[tuple[str, str, bool]] = [
+    # ── 原有 18 个 (v7.0 基线) ──
+    ("rot13", "ROT13Converter", False),
+    ("base64", "Base64Converter", False),
+    ("leetspeak", "LeetspeakConverter", False),
+    ("morse", "MorseConverter", False),
+    ("binary", "BinaryConverter", False),
+    ("braille", "BrailleConverter", False),
+    ("nato", "NatoConverter", False),
+    ("url", "UrlConverter", False),
+    ("flip", "FlipConverter", False),
+    ("emoji", "EmojiConverter", False),
+    ("zalgo", "ZalgoConverter", False),
+    ("zero_width", "ZeroWidthConverter", False),
+    ("unicode_sub", "UnicodeSubstitutionConverter", False),
+    ("caesar", "CaesarConverter", False),
+    ("atbash", "AtbashConverter", False),
+    ("string_join", "StringJoinConverter", False),
+    ("superscript", "SuperscriptConverter", False),
+    ("ascii_art", "AsciiArtConverter", False),
+    # ── P0-2 新增 11 个 (v44.0) ──
+    ("ansi_attack", "AnsiAttackConverter", False),
+    ("arabizi", "ArabiziConverter", False),
+    ("bidi", "BidiConverter", False),
+    ("code_chameleon", "CodeChameleonConverter", True),
+    ("negation_trap", "NegationTrapConverter", False),
+    ("tone", "ToneConverter", True),
+    ("variation", "VariationConverter", False),
+    ("malicious_question", "MaliciousQuestionGeneratorConverter", True),
+    ("toxic_sentence", "ToxicSentenceGeneratorConverter", True),
+    ("image_saturation", "ImageColorSaturationConverter", False),
+    ("add_image_video", "AddImageVideoConverter", False),
+    # ── v44.1 补全: 34 个无 LLM 依赖 Converter ──
+    ("ascii_smuggler", "AsciiSmugglerConverter", False),
+    ("base2048", "Base2048Converter", False),
+    ("bin_ascii", "BinAsciiConverter", False),
+    ("char_swap", "CharSwapConverter", False),
+    ("colloquial_wordswap", "ColloquialWordswapConverter", False),
+    ("ecoji", "EcojiConverter", False),
+    ("first_letter", "FirstLetterConverter", False),
+    ("insert_punctuation", "InsertPunctuationConverter", False),
+    ("qr_code", "QRCodeConverter", False),
+    ("random_capital", "RandomCapitalLettersConverter", False),
+    ("repeat_token", "RepeatTokenConverter", False),
+    ("search_replace", "SearchReplaceConverter", False),
+    ("suffix_append", "SuffixAppendConverter", False),
+    ("tatweel", "TatweelConverter", False),
+    ("template_segment", "TemplateSegmentConverter", False),
+    ("unicode_confusable", "UnicodeConfusableConverter", False),
+    ("unicode_replacement", "UnicodeReplacementConverter", False),
+    ("variation_selector_smuggler", "VariationSelectorSmugglerConverter", False),
+    ("transparency_attack", "TransparencyAttackConverter", False),
+    ("image_rotation", "ImageRotationConverter", False),
+    ("image_resizing", "ImageResizingConverter", False),
+    ("image_compression", "ImageCompressionConverter", False),
+    ("image_overlay", "ImageOverlayConverter", False),
+    ("add_text_image", "AddTextImageConverter", False),
+    ("add_image_text", "AddImageTextConverter", False),
+    ("pdf", "PDFConverter", False),
+    ("word_doc", "WordDocConverter", False),
+    ("task_framing", "TaskFramingConverter", False),
+    ("selective_text", "SelectiveTextConverter", False),
+    ("policy_puppetry", "PolicyPuppetryConverter", False),
+    ("math_obfuscation", "MathObfuscationConverter", False),
+    ("ask_to_decode", "AskToDecodeConverter", False),
+    ("sneaky_bits_smuggler", "SneakyBitsSmugglerConverter", False),
+    ("denylist", "DenylistConverter", True),
+    # ── v44.1 补全: 14 个 LLM 依赖 Converter ──
+    ("character_space", "CharacterSpaceConverter", True),
+    ("diacritic", "DiacriticConverter", False),  # 实际不需 LLM
+    ("noise", "NoiseConverter", True),
+    ("image_prompt_style", "ImagePromptStyleConverter", True),
+    ("translation", "TranslationConverter", True),
+    ("random_translation", "RandomTranslationConverter", True),
+    ("tense", "TenseConverter", True),
+    ("persuasion", "PersuasionConverter", True),
+    ("math_prompt", "MathPromptConverter", True),
+    ("llm_generic_text", "LLMGenericTextConverter", True),
+    ("scientific_translation", "ScientificTranslationConverter", True),
+    ("arabic_presentation_form", "ArabicPresentationFormConverter", True),
+    ("json_string", "JsonStringConverter", True),
+]
+
+_CONVERTER_REGISTRY: dict[str, type[Converter] | None] = {}
+for _cli_name, _class_name, _needs_target in _CONVERTER_SPECS:
+    _cls = _get_converter_cls(_class_name)
+    if _cls is not None:
+        _CONVERTER_REGISTRY[_cli_name] = _cls
+    else:
+        logger.debug(f"Converter {_class_name} not available in PyRIT, skipping")
 
 # Converter 名称 → 简短标签 (用于 ASR 路由分析中的 memory_labels)
 _CONVERTER_TAG_SUFFIX = "_conv"
