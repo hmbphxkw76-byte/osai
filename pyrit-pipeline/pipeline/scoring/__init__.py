@@ -15,12 +15,38 @@ Scorer 结果增强为 AI-VSS 漏洞评分。
 
 from __future__ import annotations
 
+from pipeline.scoring.adaptive_rules import learn_adaptive_patterns
 from pipeline.scoring.ai_vss_bridge import AIVSSAugmentedScore, AIVSSBridge
 from pipeline.scoring.ai_vss_scorer import (
     AIVSSModifier,
     AIVSSScore,
     AIVSSScorer,
     AIVSSSeverity,
+)
+from pipeline.scoring.cascade_scorer import (
+    CascadeScore,
+    CascadeScoreResult,
+    CascadeScorerWrapper,
+    create_cascade_scorer,
+    create_concise_t2_scorer,
+    detect_model_family,
+    inject_adaptive_rules,
+    set_current_model_family,
+    validate_scoring_accuracy,
+)
+from pipeline.scoring.dual_judge_scorer import (
+    DualJudgeScorerWrapper,
+    create_dual_judge_scorer,
+    dual_judge_score_async,
+    set_judge_f1_history,
+)
+from pipeline.scoring.scorer_distillation import (
+    DistillationConfig,
+    DistilledScore,
+    DistilledScorerWrapper,
+    export_training_data,
+    load_distilled_scorer,
+    prepare_distillation_config,
 )
 
 __all__ = [
@@ -30,4 +56,24 @@ __all__ = [
     "AIVSSScore",
     "AIVSSScorer",
     "AIVSSSeverity",
+    "CascadeScore",
+    "CascadeScoreResult",
+    "CascadeScorerWrapper",
+    "DistillationConfig",
+    "DistilledScore",
+    "DistilledScorerWrapper",
+    "DualJudgeScorerWrapper",
+    "create_cascade_scorer",
+    "create_concise_t2_scorer",
+    "create_dual_judge_scorer",
+    "detect_model_family",
+    "dual_judge_score_async",
+    "export_training_data",
+    "inject_adaptive_rules",
+    "learn_adaptive_patterns",
+    "load_distilled_scorer",
+    "prepare_distillation_config",
+    "set_current_model_family",
+    "set_judge_f1_history",
+    "validate_scoring_accuracy",
 ]

@@ -25,7 +25,12 @@
 """
 
 from pipeline.converters.audio_steganography_converter import AudioSteganographyConverter
-from pipeline.converters.chains import build_converters_from_chain_names, load_preset_converter_chain
+from pipeline.converters.chains import (
+    build_converters_from_chain_names,
+    load_preset_converter_chain,
+    register_pdf_file_path,
+    register_word_file_path,
+)
 from pipeline.converters.converter_health_monitor import ConverterHealthMonitor
 from pipeline.converters.factory import (
     build_target_aware_converter_map,
@@ -57,6 +62,8 @@ __all__ = [
     # chains
     "build_converters_from_chain_names",
     "load_preset_converter_chain",
+    "register_pdf_file_path",
+    "register_word_file_path",
     # target_aware_router
     "get_chains_for_target_type",
     "get_chains_by_modality",

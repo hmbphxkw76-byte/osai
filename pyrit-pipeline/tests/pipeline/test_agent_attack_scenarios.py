@@ -28,10 +28,16 @@ class TestXPIAAgentAttack:
     """XPIA 间接注入攻击测试。."""
 
     def test_injection_vectors_count(self) -> None:
-        """注入载体数量 = 4。."""
-        from pipeline.scenarios.xpia_agent_attack import _XPIA_INJECTION_TEMPLATES
+        """注入载体数量: 硬编码回退9个, YAML加载至少1个."""
+        from pipeline.scenarios.xpia_agent_attack import (
+            _XPIA_INJECTION_TEMPLATES,
+            _XPIA_INJECTION_TEMPLATES_FALLBACK,
+        )
 
-        assert len(_XPIA_INJECTION_TEMPLATES) == 4
+        # 硬编码回退值固定为 9
+        assert len(_XPIA_INJECTION_TEMPLATES_FALLBACK) == 9
+        # YAML 加载的值至少 1 个 (用户可能自定义)
+        assert len(_XPIA_INJECTION_TEMPLATES) >= 1
 
     def test_injection_vectors_have_owasp(self) -> None:
         """每个注入载体有 OWASP 代码。."""

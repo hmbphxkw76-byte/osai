@@ -203,10 +203,109 @@ def _parse_single_endpoint(ep: Any) -> ReconEndpointInfo | None:
     )
 
 
+# v44.6: 扩展的 prompt 字段名候选列表 (大小写不敏感匹配)
+# 学术依据: OWASP Top 10 for LLMs 2025 — API 注入面字段名多样
+_KNOWN_PROMPT_FIELDS: list[str] = [
+    # 标准字段名
+    "prompt", "input", "query", "text", "message", "content",
+    # 常见非标准字段名
+    "userinput", "user_input", "usermessage", "user_message",
+    "question", "ask", "instruction", "request",
+    "conversation", "chat", "dialog",
+    # 嵌套结构中的常见字段名 (由 _discover_prompt_field 递归发现)
+    "inputs", "payload", "body", "data",
+]
+
+
+def _discover_prompt_field(
+    data: Any,
+    *,
+    depth: int = 0,
+    max_depth: int = 3,
+) -> str | None:
+    """v44.6: 自动发现 JSON 请求体中的 prompt 字段.
+
+    递归分析 JSON 结构, 找到最可能承载用户输入的字符串字段.
+
+    发现策略 (优先级递降):
+      1. 已知字段名精确匹配 (15+ 个常见字段名)
+      2. 已知字段名大小写不敏感匹配
+      3. 字符串值启发式: 值长度 3-500 字符 + 非空 + 非纯数字
+      4. 嵌套结构递归 (dict/list, 最多 max_depth 层)
+
+    学术依据:
+      - OWASP Top 10 for LLMs 2025: API 注入面字段名多样
+      - MITRE ATT&CK T1190: 注入面自动发现
+      - PyRIT (arXiv:2407.01232): HTTPTarget 需 {PROMPT} 在正确字段
+
+    Args:
+        data: JSON 解析后的数据 (dict/list/scalar).
+        depth: 当前递归深度.
+        max_depth: 最大递归深度 (防止无限递归).
+
+    Returns:
+        找到的字段名 (dotted path 如 "Inputs.Query"), 或 None.
+    """
+    if depth > max_depth or not isinstance(data, dict):
+        return None
+
+    # 策略 1: 已知字段名精确匹配
+    for field_name in _KNOWN_PROMPT_FIELDS:
+        if field_name in data:
+            val = data[field_name]
+            # 字段值必须是字符串 (承载 prompt 文本)
+            if isinstance(val, str) and val:
+                return field_name
+            # 字段值可能是嵌套结构 (如 data.inputs = {"query": "..."})
+            if isinstance(val, dict):
+                nested = _discover_prompt_field(val, depth=depth + 1, max_depth=max_depth)
+                if nested:
+                    return f"{field_name}.{nested}"
+            elif isinstance(val, list) and val:
+                # messages 数组等
+                for item in val:
+                    if isinstance(item, dict):
+                        nested = _discover_prompt_field(item, depth=depth + 1, max_depth=max_depth)
+                        if nested:
+                            return f"{field_name}[].{nested}"
+
+    # 策略 2: 大小写不敏感匹配
+    data_lower = {k.lower(): k for k in data}
+    for field_name in _KNOWN_PROMPT_FIELDS:
+        if field_name.lower() in data_lower:
+            actual_key = data_lower[field_name.lower()]
+            val = data[actual_key]
+            if isinstance(val, str) and val:
+                return actual_key
+
+    # 策略 3: 字符串值启发式 — 唯一字符串字段
+    string_fields: list[tuple[str, str]] = []
+    for k, v in data.items():
+        if isinstance(v, str) and v:
+            # 非空 + 非纯数字 + 长度在合理范围 (3-500 字符)
+            stripped = v.strip()
+            if 3 <= len(stripped) <= 500 and not stripped.replace(".", "").replace("-", "").isdigit():
+                string_fields.append((k, v))
+
+    # 如果只有一个字符串字段, 很可能就是 prompt 字段
+    if len(string_fields) == 1:
+        return string_fields[0][0]
+
+    # 如果有多个字符串字段, 选择值最长的 (最可能承载用户输入)
+    if string_fields:
+        string_fields.sort(key=lambda x: len(x[1]), reverse=True)
+        return string_fields[0][0]
+
+    return None
+
+
 def _inject_prompt_placeholder(body: str, content_type: str) -> str:
     """在请求体中注入 {PROMPT} 占位符。.
 
     R-T2: 根据内容类型选择最佳注入位置。
+
+    v44.6: 使用 _discover_prompt_field 自动发现非标准字段名,
+    不再依赖硬编码字段名列表的精确匹配。
 
     Args:
         body: 原始请求体。
@@ -229,14 +328,25 @@ def _inject_prompt_placeholder(body: str, content_type: str) -> str:
                     if isinstance(last_msg, dict) and "content" in last_msg:
                         last_msg["content"] = "{PROMPT}"
                         return json.dumps(data, ensure_ascii=False)
-            # 简单格式: {"prompt": "..."} 或 {"input": "..."}
-            for key in ("prompt", "input", "query", "text", "message"):
-                if key in data:
-                    data[key] = "{PROMPT}"
-                    return json.dumps(data, ensure_ascii=False)
-            # 无法识别格式 — 添加 content 字段
-            data["content"] = "{PROMPT}"
-            return json.dumps(data, ensure_ascii=False)
+            # v44.6: 自动发现 prompt 字段 (支持非标准字段名)
+            if isinstance(data, dict):
+                discovered_field = _discover_prompt_field(data)
+                if discovered_field:
+                    # 支持 dotted path (如 "Inputs.Query")
+                    parts = discovered_field.replace("[]", "").split(".")
+                    current: Any = data
+                    for i, part in enumerate(parts):
+                        if isinstance(current, dict) and part in current:
+                            if i == len(parts) - 1 and isinstance(current[part], str):
+                                # 最终字段 — 替换值
+                                current[part] = "{PROMPT}"
+                                return json.dumps(data, ensure_ascii=False)
+                            current = current[part]
+                        else:
+                            break
+                # 无法识别格式 — 添加 content 字段
+                data["content"] = "{PROMPT}"
+                return json.dumps(data, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -353,7 +463,10 @@ def enhance_burp_request(
     Returns:
         增强后的 HTTP 请求文本。
     """
-    lines = raw_request.split("\r\n")
+    # 规范化换行符: 支持 LF (\n) 和 CRLF (\r\n) 两种格式
+    # PyRIT 原生 parse_raw_http_request 也使用相同策略 (replace \r\n → \n)
+    normalized = raw_request.replace("\r\n", "\n")
+    lines = normalized.split("\n")
 
     # 分离 header 和 body
     header_lines: list[str] = []
@@ -380,13 +493,13 @@ def enhance_burp_request(
             header_lines.append(f"{k}: {v}")
 
     # 在 body 中注入 {PROMPT} 占位符
-    body = "\r\n".join(body_lines) if body_lines else ""
+    body = "\n".join(body_lines) if body_lines else ""
     if body and not _PROMPT_PLACEHOLDER_RE.search(body):
         body = _inject_prompt_placeholder(body, "application/json")
     elif not body:
         body = prompt_placeholder
 
-    # 重组
+    # 重组 (使用 CRLF, 符合 HTTP 标准)
     result = "\r\n".join(header_lines) + "\r\n\r\n" + body
 
     logger.info(

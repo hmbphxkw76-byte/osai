@@ -951,6 +951,82 @@ async def _generate_l5_report(ctx: PipelineContext, output_dir: Path) -> None:
         "owasp_findings_count": len(report_result.owasp_findings),
     }
 
+    # ── A-4: 攻击链路可视化引擎 ──
+    try:
+        from pipeline.reporting.attack_chain_viz import AttackChainVisualizer
+
+        _viz = AttackChainVisualizer()
+        _all_results = []
+        if ctx.result:
+            for _v in ctx.result.attack_results.values():
+                _all_results.extend(_v)
+        _viz.build_from_attack_results(_all_results)
+        _viz_md = _viz.render_all()
+        if _viz_md.strip():
+            # 追加到报告末尾
+            _report_path = Path(report_result.report_path)
+            _existing = _report_path.read_text(encoding="utf-8")
+            _report_path.write_text(_existing + "\n" + _viz_md, encoding="utf-8")
+            ctx.metadata["attack_chain_viz"] = _viz.get_summary()
+            print("  [A-4] 攻击链路可视化已嵌入报告")
+            logger.info("A-4: Attack chain visualization embedded into report")
+
+        # P4: 生成交互式 HTML 可视化 (独立文件)
+        # 包含可折叠卡片 + 过滤 + 搜索 + Kill Chain 热力图
+        # R-022: 纯 HTML 字符串, 不修改 PyRIT 原生报告生成器
+        _interactive_html = _viz.render_interactive_html()
+        if _interactive_html.strip():
+            _reports_dir = (
+                ctx.output_manager.reports_dir
+                if ctx.output_manager
+                else Path(report_result.report_path).parent
+            )
+            _interactive_path = _reports_dir / (
+                Path(report_result.report_path).stem + "_interactive.html"
+            )
+            # 包裹为完整 HTML 文档
+            _full_html = (
+                "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
+                "<meta charset='utf-8'>\n"
+                "<meta name='viewport' content='width=device-width, "
+                "initial-scale=1.0'>\n"
+                "<title>AI Red Team — Interactive Attack Chain</title>\n"
+                "<style>\n"
+                "body { font-family: -apple-system, BlinkMacSystemFont, "
+                "'Segoe UI', Roboto, sans-serif; margin: 20px; "
+                "background: #1a1a2e; color: #e0e0e0; }\n"
+                "</style>\n</head>\n<body>\n"
+                + _interactive_html
+                + "\n</body>\n</html>\n"
+            )
+            _interactive_path.write_text(_full_html, encoding="utf-8")
+            ctx.metadata["interactive_html_path"] = str(_interactive_path)
+            print(f"  [P4] 交互式 HTML 可视化: {_interactive_path}")
+            logger.info(
+                f"P4: Interactive HTML visualization saved to {_interactive_path}"
+            )
+    except Exception as e:
+        logger.debug(f"A-4: Attack chain visualization skipped: {e}")
+
+    # ── A-8: 定制化修复建议引擎 ──
+    try:
+        from pipeline.reporting.remediation_engine import RemediationEngine
+
+        _evidence = ctx.metadata.get("evidence_collection", {})
+        _evidence_list = _evidence.get("evidence", []) if _evidence else []
+        if _evidence_list:
+            _remediation = RemediationEngine()
+            _remediation_md = _remediation.generate_all_remediations(_evidence_list)
+            if _remediation_md.strip():
+                _report_path = Path(report_result.report_path)
+                _existing = _report_path.read_text(encoding="utf-8")
+                _report_path.write_text(_existing + "\n" + _remediation_md, encoding="utf-8")
+                ctx.metadata["remediation_summary"] = _remediation.get_summary(_evidence_list)
+                print("  [A-8] 修复建议已嵌入报告")
+                logger.info("A-8: Remediation recommendations embedded into report")
+    except Exception as e:
+        logger.debug(f"A-8: Remediation engine skipped: {e}")
+
 
 def _generate_html_pdf_reports(ctx: PipelineContext, output_dir: Path) -> None:
     """生成 HTML/PDF 格式报告 (P2-1: 模板化重构, 回退方案).

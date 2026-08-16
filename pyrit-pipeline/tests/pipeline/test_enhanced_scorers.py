@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -122,8 +123,8 @@ class TestShouldUseCompositeScorer:
         "tier,expected",
         [
             ("strong", True),
-            ("moderate", True),
-            ("unknown", True),
+            ("moderate", False),
+            ("unknown", False),
             ("weak", False),
             ("", False),
         ],
@@ -582,6 +583,7 @@ class TestLikertScorers:
         has_eval = [s for s in LikertScalePaths if s.evaluation_files is not None]
         assert len(has_eval) > 0, "至少有一个 Likert 量表应有 evaluation_files"
 
+    @patch.dict(os.environ, {"OSAI_SECURITY_SCORERS": "1"})
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
     @patch("pyrit.score.LikertScalePaths")
@@ -639,6 +641,7 @@ class TestLikertScorers:
         assert "likert_harm_local" in registered_names
         assert "likert_cyber_local" not in registered_names
 
+    @patch.dict(os.environ, {"OSAI_SECURITY_SCORERS": "1"})
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
     @patch("pyrit.score.LikertScalePaths")
@@ -840,12 +843,12 @@ class TestF1ScorerSelection:
 
 
 # ============================================================
-# 9. O5+: OR 复合评分器 (宽松模式) 测试
+# 9. G-S1: OR 复合评分器移除测试 (v45.2)
 # ============================================================
 
 
 class TestORCompositeScorer:
-    """测试 O5+: OR 复合评分器 (宽松模式)。"""
+    """测试 G-S1: OR 复合评分器已移除 (消除假阳性)。"""
 
     def test_or_aggregator_exists(self) -> None:
         """O5+: PyRIT 原生 TrueFalseScoreAggregator.OR 存在。"""
@@ -867,7 +870,7 @@ class TestORCompositeScorer:
     @patch("pyrit.score.SelfAskTrueFalseScorer")
     @patch("pyrit.score.SelfAskScaleScorer")
     @patch("pyrit.score.FloatScaleThresholdScorer")
-    def test_or_composite_registered(
+    def test_or_composite_not_registered(
         self,
         mock_float_scorer: MagicMock,
         mock_scale_scorer: MagicMock,
@@ -883,7 +886,7 @@ class TestORCompositeScorer:
         mock_likert_scorer: MagicMock,
         mock_seed_prompt: MagicMock,
     ) -> None:
-        """O5+: objective_or_local 被注册。"""
+        """G-S1: objective_or_local 不再被注册 (移除 OR 假阳性源头)."""
         from pipeline.stages.stage_init import _register_enhanced_scorers
 
         _setup_enhanced_scorer_mocks(mock_scorer_reg, mock_target_reg, mock_composite_factory)
@@ -895,7 +898,7 @@ class TestORCompositeScorer:
 
         register_calls = mock_scorer_reg.get_registry_singleton.return_value.instances.register.call_args_list
         registered_names = {call.kwargs.get("name", "") for call in register_calls}
-        assert "objective_or_local" in registered_names
+        assert "objective_or_local" not in registered_names
 
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
@@ -910,7 +913,7 @@ class TestORCompositeScorer:
     @patch("pyrit.score.SelfAskTrueFalseScorer")
     @patch("pyrit.score.SelfAskScaleScorer")
     @patch("pyrit.score.FloatScaleThresholdScorer")
-    def test_or_composite_uses_or_aggregator(
+    def test_or_composite_not_created(
         self,
         mock_float_scorer: MagicMock,
         mock_scale_scorer: MagicMock,
@@ -926,7 +929,7 @@ class TestORCompositeScorer:
         mock_likert_scorer: MagicMock,
         mock_seed_prompt: MagicMock,
     ) -> None:
-        """O5+: OR composite 使用 TrueFalseScoreAggregator.OR。"""
+        """G-S1: TrueFalseCompositeScorer 不再使用 OR 聚合器."""
         from pyrit.score import TrueFalseScoreAggregator
 
         from pipeline.stages.stage_init import _register_enhanced_scorers
@@ -938,13 +941,13 @@ class TestORCompositeScorer:
 
         _register_enhanced_scorers()
 
-        # TrueFalseCompositeScorer 应被调用, 其中一次使用 OR
+        # TrueFalseCompositeScorer 不应有 OR 调用
         composite_calls = mock_composite_class.call_args_list
         or_calls = [
             call for call in composite_calls
             if call.kwargs.get("aggregator") == TrueFalseScoreAggregator.OR
         ]
-        assert len(or_calls) == 1, "应有一个 OR composite"
+        assert len(or_calls) == 0, "G-S1: OR 聚合器应被移除"
 
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
@@ -959,7 +962,7 @@ class TestORCompositeScorer:
     @patch("pyrit.score.SelfAskTrueFalseScorer")
     @patch("pyrit.score.SelfAskScaleScorer")
     @patch("pyrit.score.FloatScaleThresholdScorer")
-    def test_or_composite_has_two_scorers(
+    def test_or_composite_removed_no_scorers(
         self,
         mock_float_scorer: MagicMock,
         mock_scale_scorer: MagicMock,
@@ -975,7 +978,7 @@ class TestORCompositeScorer:
         mock_likert_scorer: MagicMock,
         mock_seed_prompt: MagicMock,
     ) -> None:
-        """O5+: OR composite 包含 2 个子评分器 (task_achieved + inverted_refusal)。"""
+        """G-S1: OR composite 不再创建, 无子评分器."""
         from pyrit.score import TrueFalseScoreAggregator
 
         from pipeline.stages.stage_init import _register_enhanced_scorers
@@ -992,9 +995,7 @@ class TestORCompositeScorer:
             call for call in composite_calls
             if call.kwargs.get("aggregator") == TrueFalseScoreAggregator.OR
         ]
-        assert len(or_calls) == 1
-        scorers = or_calls[0].kwargs.get("scorers", [])
-        assert len(scorers) == 2, "OR composite 应有 2 个子评分器"
+        assert len(or_calls) == 0, "G-S1: OR composite 应被移除"
 
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
@@ -1009,7 +1010,7 @@ class TestORCompositeScorer:
     @patch("pyrit.score.SelfAskTrueFalseScorer")
     @patch("pyrit.score.SelfAskScaleScorer")
     @patch("pyrit.score.FloatScaleThresholdScorer")
-    def test_or_skipped_when_no_refusal_scorers(
+    def test_or_always_not_registered(
         self,
         mock_float_scorer: MagicMock,
         mock_scale_scorer: MagicMock,
@@ -1025,7 +1026,7 @@ class TestORCompositeScorer:
         mock_likert_scorer: MagicMock,
         mock_seed_prompt: MagicMock,
     ) -> None:
-        """O5+: 如果 refusal scorer 注册失败, OR composite 不创建。"""
+        """G-S1: 无论 refusal scorer 是否可用, OR composite 都不注册."""
         from pipeline.stages.stage_init import _register_enhanced_scorers
 
         _setup_enhanced_scorer_mocks(mock_scorer_reg, mock_target_reg, mock_composite_factory)
@@ -1206,8 +1207,8 @@ class TestMajorityVoteComposite:
         assert len(majority_calls) == 1
         scorers = majority_calls[0].kwargs.get("scorers", [])
         assert len(scorers) == 3, "MAJORITY composite 应有 3 个子评分器"
-        # TrueFalseInverterScorer 应被调用 3 次 (2 个 MAJORITY + 1 个 OR)
-        assert mock_inverter.call_count == 3
+        # G-S1: TrueFalseInverterScorer 应被调用 2 次 (2 个 MAJORITY, OR 已移除)
+        assert mock_inverter.call_count == 2
 
     @patch("pyrit.models.SeedPrompt")
     @patch("pyrit.score.SelfAskLikertScorer")
@@ -1254,3 +1255,172 @@ class TestMajorityVoteComposite:
         register_calls = mock_scorer_reg.get_registry_singleton.return_value.instances.register.call_args_list
         registered_names = {call.kwargs.get("name", "") for call in register_calls}
         assert "objective_majority_local" not in registered_names
+
+
+# ============================================================
+# 9. P7: 双 Judge 投票评分器测试
+# ============================================================
+
+
+class TestDualJudgeScorer:
+    """P7: DualJudgeScorerWrapper 双 Judge 投票测试."""
+
+    def test_dual_judge_wrapper_exists(self) -> None:
+        """DualJudgeScorerWrapper 可导入."""
+        from pipeline.scoring.dual_judge_scorer import DualJudgeScorerWrapper
+
+        assert DualJudgeScorerWrapper is not None
+
+    def test_create_dual_judge_scorer(self) -> None:
+        """create_dual_judge_scorer 返回包装器."""
+        from pipeline.scoring.dual_judge_scorer import (
+            DualJudgeScorerWrapper,
+            create_dual_judge_scorer,
+        )
+
+        mock_judge_a = MagicMock()
+        mock_judge_b = MagicMock()
+        wrapper = create_dual_judge_scorer(
+            llm_scorer=mock_judge_a,
+            second_judge_scorer=mock_judge_b,
+        )
+        assert isinstance(wrapper, DualJudgeScorerWrapper)
+        assert wrapper.llm_scorer is mock_judge_a
+        assert wrapper.second_judge_scorer is mock_judge_b
+
+    def test_dual_judge_identifier(self) -> None:
+        """get_identifier 返回 DualJudgeScorerWrapper."""
+        from pipeline.scoring.dual_judge_scorer import (
+            create_dual_judge_scorer,
+        )
+
+        wrapper = create_dual_judge_scorer(
+            llm_scorer=MagicMock(),
+            second_judge_scorer=MagicMock(),
+        )
+        assert wrapper.get_identifier() == "DualJudgeScorerWrapper"
+
+    def test_dual_judge_tier_stats_initialized(self) -> None:
+        """初始化后 T2.5 层级统计键存在."""
+        from pipeline.scoring.dual_judge_scorer import create_dual_judge_scorer
+
+        wrapper = create_dual_judge_scorer(
+            llm_scorer=MagicMock(),
+            second_judge_scorer=MagicMock(),
+        )
+        assert "T2.5_consensus" in wrapper.tier_stats
+        assert "T2.5_consensus_false" in wrapper.tier_stats
+        assert "T2.5_disputed_adopt_a" in wrapper.tier_stats
+        assert "T2.5_disputed_adopt_b" in wrapper.tier_stats
+        assert "T2.5_disputed_fallback" in wrapper.tier_stats
+        assert "T2.5_judge_b_failed" in wrapper.tier_stats
+
+    def test_dual_judge_inherits_cascade(self) -> None:
+        """DualJudgeScorerWrapper 继承 CascadeScorerWrapper."""
+        from pipeline.scoring.cascade_scorer import CascadeScorerWrapper
+        from pipeline.scoring.dual_judge_scorer import DualJudgeScorerWrapper
+
+        assert issubclass(DualJudgeScorerWrapper, CascadeScorerWrapper)
+
+
+class TestDualJudgeRegistryIntegration:
+    """P7: DualJudgeScorer 在 enhanced_registry 中的集成."""
+
+    def test_dual_judge_registered_when_second_scorer_env_set(self) -> None:
+        """当 SECOND_SCORER_CHAT_* 环境变量设置时, 双 Judge 评分器被注册."""
+        import pipeline.scoring.enhanced_registry as er
+
+        # 检查 enhanced_registry 中有 dual_judge 注册逻辑
+        source = Path(er.__file__).read_text(encoding="utf-8")
+        assert "dual_judge_objective_scorer" in source
+        assert "SECOND_SCORER_CHAT_ENDPOINT" in source
+        assert "create_dual_judge_scorer" in source
+
+    def test_cascade_tag_removal_uses_direct_manipulation(self) -> None:
+        """移除 cascade 的 default_objective_scorer 标签使用直接 entry.tags 操作."""
+        import pipeline.scoring.enhanced_registry as er
+
+        source = Path(er.__file__).read_text(encoding="utf-8")
+        # 不使用 scorer_registry.instances.remove_tags() 方法调用
+        assert "scorer_registry.instances.remove_tags" not in source
+        # 直接操作 entry.tags
+        assert "tags.pop" in source
+
+
+# ============================================================
+# 10. P8: 蒸馏评分器集成测试
+# ============================================================
+
+
+class TestDistillationIntegration:
+    """P8: 蒸馏评分器在 enhanced_registry 中的集成."""
+
+    def test_distilled_scorer_integration_in_registry(self) -> None:
+        """enhanced_registry 中有蒸馏评分器集成逻辑."""
+        import pipeline.scoring.enhanced_registry as er
+
+        source = Path(er.__file__).read_text(encoding="utf-8")
+        assert "load_distilled_scorer" in source
+        assert "Distilled scorer" in source
+
+    def test_distillation_module_exists(self) -> None:
+        """scorer_distillation.py 模块可导入."""
+        from pipeline.scoring.scorer_distillation import (
+            DistillationConfig,
+            DistilledScore,
+            DistilledScorerWrapper,
+        )
+
+        assert DistillationConfig is not None
+        assert DistilledScore is not None
+        assert DistilledScorerWrapper is not None
+
+    def test_distillation_exports_in_init(self) -> None:
+        """scoring/__init__.py 导出蒸馏模块."""
+        import pipeline.scoring as scoring
+
+        assert hasattr(scoring, "DistillationConfig")
+        assert hasattr(scoring, "export_training_data")
+        assert hasattr(scoring, "load_distilled_scorer")
+        assert hasattr(scoring, "prepare_distillation_config")
+
+
+# ============================================================
+# 11. P9: Per-Model 拒绝模式集成测试
+# ============================================================
+
+
+class TestP9ModelFamilyIntegration:
+    """P9: 模型族检测在 stage_init 中的集成."""
+
+    def test_set_current_model_family_called_in_stage_init(self) -> None:
+        """stage_init.py 调用 set_current_model_family."""
+        import pipeline.stages.stage_init as si
+
+        source = Path(si.__file__).read_text(encoding="utf-8")
+        assert "set_current_model_family" in source
+        assert "target_model_family" in source
+
+    def test_detect_model_family_exported(self) -> None:
+        """detect_model_family 从 scoring 模块导出."""
+        from pipeline.scoring import detect_model_family
+
+        assert detect_model_family("gpt-4o") == "gpt"
+        assert detect_model_family("Qwen/Qwen3-32B") == "qwen"
+
+
+# ============================================================
+# 12. P10: 3-shot 示例集成测试
+# ============================================================
+
+
+class TestP10FewShotIntegration:
+    """P10: 3-shot 示例在 concise T2 scorer 中的集成."""
+
+    def test_create_concise_t2_scorer_uses_enhanced_prompt(self) -> None:
+        """create_concise_t2_scorer 使用包含示例的 prompt."""
+        from pipeline.scoring.cascade_scorer import _T2_CONCISE_SYSTEM_PROMPT
+
+        assert "Examples:" in _T2_CONCISE_SYSTEM_PROMPT
+        assert "-> true" in _T2_CONCISE_SYSTEM_PROMPT
+        assert "partial compliance" in _T2_CONCISE_SYSTEM_PROMPT.lower()

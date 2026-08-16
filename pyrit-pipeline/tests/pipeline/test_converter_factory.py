@@ -144,9 +144,9 @@ class TestBuildConvertersFromChainNames:
 
         converters = build_converters_from_chain_names(["stealth_evasion"])
         assert len(converters) >= 1
-        # stealth_evasion = UnicodeConfusable + Base64 + SuffixAppend
+        # v45.4: stealth_evasion = ROT13 + Base64 + SuffixAppend (移除 UnicodeConfusable, ASR=0%)
         type_names = {type(c).__name__ for c in converters}
-        assert "UnicodeConfusableConverter" in type_names
+        assert "ROT13Converter" in type_names
         assert "Base64Converter" in type_names
         assert "SuffixAppendConverter" in type_names
 
@@ -156,7 +156,7 @@ class TestBuildConvertersFromChainNames:
 
         converters = build_converters_from_chain_names(["stealth_evasion", "encoding_bypass"])
         # P0: stealth_evasion 有 3 converters, 深度截断后最多 3 个
-        # stealth_evasion: UnicodeConfusable + Base64 + SuffixAppend = 3 converters
+        # stealth_evasion: ROT13 + Base64 + SuffixAppend = 3 converters
         # encoding_bypass 的 converters 会被截断 (已达 MAX_CONVERTER_CHAIN_DEPTH=3)
         assert len(converters) >= 1
         assert len(converters) <= 3  # P0: 深度截断到 3
@@ -229,13 +229,17 @@ class TestBuildConvertersFromChainNames:
         assert len(converters_limited) <= 3  # P0 截断
 
     def test_p2_cross_paradigm_2layer(self) -> None:
-        """P2: cross_paradigm_2layer 构建 Base64 + UnicodeConfusable。."""
+        """P2: cross_paradigm_2layer 构建 Base64 + ROT13。.
+
+        v45.4: 移除 UnicodeConfusableConverter — 导致目标模型无法理解 prompt.
+        替换为 ROT13Converter — 保持 ASCII 字符集, 目标模型仍可解码.
+        """
         from pipeline.converters.chains import build_converters_from_chain_names
 
         converters = build_converters_from_chain_names(["cross_paradigm_2layer"])
         type_names = {type(c).__name__ for c in converters}
         assert "Base64Converter" in type_names
-        assert "UnicodeConfusableConverter" in type_names
+        assert "ROT13Converter" in type_names
         assert len(converters) == 2
 
     def test_p2_cross_paradigm_3layer_without_target(self) -> None:
@@ -270,8 +274,9 @@ class TestBuildConvertersFromChainNames:
         # 只有 stealth_evasion 的 converters (P0: 最多 3 个)
         assert len(converters) >= 1
         assert len(converters) <= 3  # P0: MAX_CONVERTER_CHAIN_DEPTH=3
+        # v45.4: stealth_evasion 使用 ROT13Converter (移除 UnicodeConfusable, ASR=0%)
         type_names = {type(c).__name__ for c in converters}
-        assert "UnicodeConfusableConverter" in type_names
+        assert "ROT13Converter" in type_names
 
 
 # ──────────────────────────────────────────────────────────────────

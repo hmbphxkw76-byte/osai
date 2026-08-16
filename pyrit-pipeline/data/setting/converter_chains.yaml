@@ -184,20 +184,20 @@ chains:
     requires_llm: false
     priority: 1
     modality: text
-    description: 'P2: Base64 + UnicodeConfusable 跨范式 2 层 (编码+混淆, 1.6x ASR) — 注意: Base64 完全编码, 目标无法解码, 仅 many_shot 适用'
+    description: 'P2: Base64 + ROT13 跨范式 2 层 (编码+混淆, 1.6x ASR) — v45.4: 移除 UnicodeConfusable, 替换 ROT13 保持 ASCII 可读性'
     cost_tier: cheap
   # P3: 语义保持混淆链 (保持可读性, 替代 Base64 编码)
   semantic_evasion:
     requires_llm: false
     priority: 1
     modality: text
-    description: 'P3: UnicodeConfusable + Leetspeak 语义保持混淆 (可读性 100%, 绕过关键词过滤, 1.5x ASR)'
+    description: 'P3: ROT13 + RandomCapitalLetters 语义保持混淆 (可读性 100%, 绕过关键词过滤, 1.5x ASR) — v45.4: 移除 UnicodeConfusable+Leetspeak, 替换为 ASCII 安全的 ROT13+随机大写'
     cost_tier: cheap
   cross_paradigm_3layer:
     requires_llm: true
     priority: 2
     modality: text
-    description: 'P2: Base64 + UnicodeConfusable + Persuasion 跨范式 3 层 (编码+混淆+语义)'
+    description: 'P2: Base64 + ROT13 + Persuasion 跨范式 3 层 (编码+混淆+语义) — v45.4: 移除 UnicodeConfusable, 替换 ROT13'
     cost_tier: moderate
   # P4: 多模态 Converter 链 (PyRIT 原生 Converter, 按模态选择)
   # 学术依据: Shayegani et al. (arXiv:2306.13254) 多模态组合攻击 + FigStep (arXiv:2307.14400)
@@ -286,6 +286,355 @@ chains:
     priority: 1
     modality: text
     description: 'v44: SuffixAppendConverter — GCG 对抗后缀附加 (动态注册)'
+    cost_tier: cheap
+  # ── v44.1: 58 个单 Converter 链 (模态感知注册) ──
+  add_image_text:
+    requires_llm: false
+    priority: 2
+    modality: multimodal
+    description: 'v44.1: AddImageTextConverter — single converter chain'
+    cost_tier: cheap
+  add_image_video:
+    requires_llm: false
+    priority: 2
+    modality: multimodal
+    description: 'v44.1: AddImageVideoConverter — single converter chain'
+    cost_tier: cheap
+  add_text_image:
+    requires_llm: false
+    priority: 2
+    modality: multimodal
+    description: 'v44.1: AddTextImageConverter — single converter chain'
+    cost_tier: cheap
+  ansi_attack:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: AnsiAttackConverter — single converter chain'
+    cost_tier: cheap
+  arabic_presentation_form:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: ArabicPresentationFormConverter — single converter chain'
+    cost_tier: expensive
+  arabizi:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: ArabiziConverter — single converter chain'
+    cost_tier: cheap
+  ascii_smuggler:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: AsciiSmugglerConverter — single converter chain'
+    cost_tier: cheap
+  ask_to_decode:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: AskToDecodeConverter — single converter chain'
+    cost_tier: cheap
+  base2048:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: Base2048Converter — single converter chain'
+    cost_tier: cheap
+  bidi:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: BidiConverter — single converter chain'
+    cost_tier: cheap
+  bin_ascii:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: BinAsciiConverter — single converter chain'
+    cost_tier: cheap
+  char_swap:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: CharSwapConverter — single converter chain'
+    cost_tier: cheap
+  character_space:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: CharacterSpaceConverter — single converter chain'
+    cost_tier: expensive
+  code_chameleon:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: CodeChameleonConverter — single converter chain'
+    cost_tier: expensive
+  colloquial_wordswap:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: ColloquialWordswapConverter — single converter chain'
+    cost_tier: cheap
+  denylist:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: DenylistConverter — single converter chain'
+    cost_tier: expensive
+  diacritic:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: DiacriticConverter — single converter chain'
+    cost_tier: cheap
+  ecoji:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: EcojiConverter — single converter chain'
+    cost_tier: cheap
+  first_letter:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: FirstLetterConverter — single converter chain'
+    cost_tier: cheap
+  image_compression:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: ImageCompressionConverter — single converter chain'
+    cost_tier: cheap
+  image_overlay:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: ImageOverlayConverter — single converter chain'
+    cost_tier: cheap
+  image_prompt_style:
+    requires_llm: true
+    priority: 2
+    modality: image
+    description: 'v44.1: ImagePromptStyleConverter — single converter chain'
+    cost_tier: expensive
+  image_resizing:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: ImageResizingConverter — single converter chain'
+    cost_tier: cheap
+  image_rotation:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: ImageRotationConverter — single converter chain'
+    cost_tier: cheap
+  image_saturation:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: ImageColorSaturationConverter — single converter chain'
+    cost_tier: cheap
+  insert_punctuation:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: InsertPunctuationConverter — single converter chain'
+    cost_tier: cheap
+  json_string:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: JsonStringConverter — single converter chain'
+    cost_tier: expensive
+  llm_generic_text:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: LLMGenericTextConverter — single converter chain'
+    cost_tier: expensive
+  malicious_question:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: MaliciousQuestionGeneratorConverter — single converter chain'
+    cost_tier: expensive
+  math_obfuscation:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: MathObfuscationConverter — single converter chain'
+    cost_tier: cheap
+  math_prompt:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: MathPromptConverter — single converter chain'
+    cost_tier: expensive
+  negation_trap:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: NegationTrapConverter — single converter chain'
+    cost_tier: cheap
+  noise:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: NoiseConverter — single converter chain'
+    cost_tier: expensive
+  pdf:
+    requires_llm: false
+    priority: 2
+    modality: file
+    description: 'v44.1: PDFConverter — single converter chain'
+    cost_tier: cheap
+  persuasion:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: PersuasionConverter — single converter chain'
+    cost_tier: expensive
+  policy_puppetry:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: PolicyPuppetryConverter — single converter chain'
+    cost_tier: cheap
+  qr_code:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: QRCodeConverter — single converter chain'
+    cost_tier: cheap
+  random_capital:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: RandomCapitalLettersConverter — single converter chain'
+    cost_tier: cheap
+  random_translation:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: RandomTranslationConverter — single converter chain'
+    cost_tier: expensive
+  repeat_token:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: RepeatTokenConverter — single converter chain'
+    cost_tier: cheap
+  scientific_translation:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: ScientificTranslationConverter — single converter chain'
+    cost_tier: expensive
+  search_replace:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: SearchReplaceConverter — single converter chain'
+    cost_tier: cheap
+  selective_text:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: SelectiveTextConverter — single converter chain'
+    cost_tier: cheap
+  sneaky_bits_smuggler:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: SneakyBitsSmugglerConverter — single converter chain'
+    cost_tier: cheap
+  suffix_append:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: SuffixAppendConverter — single converter chain'
+    cost_tier: cheap
+  task_framing:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: TaskFramingConverter — single converter chain'
+    cost_tier: cheap
+  tatweel:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: TatweelConverter — single converter chain'
+    cost_tier: cheap
+  template_segment:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: TemplateSegmentConverter — single converter chain'
+    cost_tier: cheap
+  tense:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: TenseConverter — single converter chain'
+    cost_tier: expensive
+  tone:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: ToneConverter — single converter chain'
+    cost_tier: expensive
+  toxic_sentence:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: ToxicSentenceGeneratorConverter — single converter chain'
+    cost_tier: expensive
+  transparency_attack:
+    requires_llm: false
+    priority: 2
+    modality: image
+    description: 'v44.1: TransparencyAttackConverter — single converter chain'
+    cost_tier: cheap
+  translation:
+    requires_llm: true
+    priority: 2
+    modality: text
+    description: 'v44.1: TranslationConverter — single converter chain'
+    cost_tier: expensive
+  unicode_confusable:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: UnicodeConfusableConverter — single converter chain'
+    cost_tier: cheap
+  unicode_replacement:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: UnicodeReplacementConverter — single converter chain'
+    cost_tier: cheap
+  variation:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: VariationConverter — single converter chain'
+    cost_tier: cheap
+  variation_selector_smuggler:
+    requires_llm: false
+    priority: 2
+    modality: text
+    description: 'v44.1: VariationSelectorSmugglerConverter — single converter chain'
+    cost_tier: cheap
+  word_doc:
+    requires_llm: false
+    priority: 2
+    modality: file
+    description: 'v44.1: WordDocConverter — single converter chain'
     cost_tier: cheap
 base_techniques_for_variants:
   prompt_sending:
@@ -477,7 +826,7 @@ combo_multipliers:
   - chains:
     - semantic_evasion
     multiplier: 1.5
-    note: P3 semantic evasion (readability-preserving, unicode+leetspeak)
+    note: P3 semantic evasion (readability-preserving, ROT13+random_capital)
   - chains:
     - cross_paradigm_2layer
     multiplier: 1.6

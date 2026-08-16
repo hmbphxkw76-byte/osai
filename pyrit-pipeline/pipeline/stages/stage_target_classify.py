@@ -46,10 +46,12 @@ v43.1 优化 (S-6/S-7/S-8):
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,397 @@ from pipeline.utils.decision_trace import DecisionTrace
 from pipeline.utils.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
+
+# D-8: 预检结果缓存 — 同一目标 60 秒内跳过重复 TCP/HTTP 探测
+# 学术依据: NIST SP 800-92 — 重复探测属噪音层
+_REACHABILITY_CACHE: dict[str, dict[str, Any]] = {}
+_REACHABILITY_CACHE_TTL: float = 60.0  # 秒
+
+
+def _should_use_hybrid_agent_attack(burp_request_file: str) -> bool:
+    """P2: 检测是否应使用混合 Agent 攻击模式.
+
+    条件: Burp 请求体检测到 Agent 特征 (tools/functions/tool_calls).
+    """
+    from pipeline.targets.capability_adapter import detect_agent_capability_from_burp
+
+    try:
+        burp_path = Path(burp_request_file)
+        if not burp_path.exists():
+            return False
+        raw_request = burp_path.read_text(encoding="utf-8")
+        return detect_agent_capability_from_burp(raw_request)
+    except Exception:
+        return False
+
+
+async def _bridge_hybrid_agent_attack(
+    ctx: PipelineContext,
+    target_url: str,
+    burp_request_file: str,
+    classification: TargetClassification,
+) -> bool:
+    """P2: 混合 Agent 攻击 — Burp HTTPTarget + Tool Calling 劫持.
+
+    当 Burp 请求检测到 Agent 特征 (tools/functions) 且 .env 有模型配置时,
+    同时创建:
+      1. Burp HTTPTarget (含 multi_turn 能力) 作为 objective_target
+      2. .env OpenAIChatTarget 作为 adversarial_chat + scoring_target
+      3. Tool Calling Target (蜜罐工具集) 作为 tool_hijack_target (攻击向量)
+
+    攻击流程:
+      - Crescendo/TAP: adversarial_chat 生成攻击消息 → objective_target (Burp)
+      - 工具劫持: 攻击消息诱导 Agent 调用蜜罐工具 → 记录敏感操作
+
+    学术依据:
+      - Zhan et al. (arXiv:2307.00929) InjecAgent: 间接注入劫持 Agent 工具
+      - Greshake et al. (arXiv:2302.12173): 间接注入是 Agent 应用主要攻击面
+      - Russinovich et al. (arXiv:2402.12109): Crescendo 多轮渐进攻击
+
+    Args:
+        ctx: PipelineContext.
+        target_url: 目标 URL.
+        burp_request_file: Burp 请求文件路径.
+        classification: 目标判别结果.
+
+    Returns:
+        True 如果桥接成功.
+    """
+    # 首先执行 Agent Proxy Bridge 逻辑 (创建 Burp HTTPTarget + 三角色分离)
+    success = await _bridge_agent_proxy(ctx, target_url, burp_request_file, classification)
+    if not success:
+        return False
+
+    # 从 Burp 请求提取端点信息, 用于创建辅助 tool_calling_target
+    endpoint, api_key, model_name = _extract_endpoint_from_burp(burp_request_file)
+
+    # 如果 Burp 请求没有 API Key, 尝试从 .env 获取
+    env_endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+    env_key = os.environ.get("OPENAI_CHAT_KEY", "") or os.environ.get("API_KEY", "")
+    env_model = os.environ.get("OPENAI_CHAT_MODEL", "")
+
+    # 优先使用 Burp 提取的 endpoint/key, 回退到 .env
+    tc_endpoint = endpoint or env_endpoint
+    tc_api_key = api_key or env_key
+    tc_model = model_name or env_model
+
+    print("\n  [P2] Hybrid Agent Attack 配置:")
+    print(f"    objective_target: Burp HTTPTarget → {target_url}")
+    print(f"    tool_calling_target: {tc_model or '(默认)'} @ {tc_endpoint or '(未配置)'}")
+
+    if not tc_endpoint or not tc_api_key:
+        print("  [P2 警告] 未找到可用于 tool_calling 的端点/API Key, 工具劫持功能降级")
+        # 仍然成功 — Agent Proxy Bridge 已建立
+        ctx.metadata["hybrid_agent_attack"] = True
+        ctx.metadata["tool_hijack_available"] = False
+        return True
+
+    # 创建 tool_calling_target (蜜罐工具集)
+    try:
+        from pipeline.targets.tool_calling_target import create_tool_calling_target
+
+        result = create_tool_calling_target(
+            endpoint=tc_endpoint,
+            api_key=tc_api_key,
+            model_name=tc_model,
+        )
+
+        if result is not None:
+            tool_target, tool_call_log = result
+
+            from pyrit.registry import TargetRegistry
+
+            registry = TargetRegistry.get_registry_singleton()
+            registry.instances.register(
+                instance=tool_target,
+                name="hybrid_tool_calling_target",
+                tags={
+                    "target_type": "OpenAIResponseTarget",
+                    "agent_attack": {},
+                    "tool_calling": {},
+                    "tool_hijack": {},
+                },
+            )
+
+            ctx.metadata["tool_calling_target"] = tool_target
+            ctx.metadata["tool_call_log"] = tool_call_log
+            ctx.metadata["hybrid_agent_attack"] = True
+            ctx.metadata["tool_hijack_available"] = True
+
+            print("  [P2] 蜜罐工具集已创建 (8 个工具): read_file, list_directory,")
+            print("       send_email, http_request, execute_command,")
+            print("       get_environment, write_file, delete_file")
+            print("  ✓ Hybrid Agent Attack 模式已启用")
+
+            logger.info(
+                f"P2: Hybrid Agent Attack bridged — "
+                f"objective=Burp HTTPTarget({target_url}), "
+                f"tool_calling={tc_model}@{tc_endpoint}"
+            )
+        else:
+            print("  [P2 警告] tool_calling_target 创建失败, 工具劫持功能降级")
+            ctx.metadata["hybrid_agent_attack"] = True
+            ctx.metadata["tool_hijack_available"] = False
+
+    except Exception as e:
+        print(f"  [P2 警告] 工具劫持初始化失败: {e}")
+        ctx.metadata["hybrid_agent_attack"] = True
+        ctx.metadata["tool_hijack_available"] = False
+        logger.warning(f"P2: tool_calling target creation failed: {e}")
+
+    return True
+
+
+def _can_use_agent_proxy(ctx: PipelineContext) -> bool:
+    """V-69: 检测是否可以使用 Agent Proxy Bridge 模式.
+
+    自动检测条件 (全部满足):
+      1. 有 Burp 请求文件 (--burp-request 或自动发现)
+      2. .env 有 OPENAI_CHAT_ENDPOINT (模板模型, 用于 adversarial_chat)
+      3. 未指定 --tool-calling (tool-calling 优先级更高)
+
+    学术依据:
+      - Greshake et al. (arXiv:2302.12173): Agent 应用是主要攻击面
+      - Russinovich et al. (arXiv:2402.12109): Crescendo 需多轮 + 三角色分离
+
+    Args:
+        ctx: PipelineContext.
+
+    Returns:
+        True 如果可以使用 Agent Proxy Bridge 模式.
+    """
+    # 条件 1: 有 Burp 请求
+    burp_request_arg = getattr(ctx.args, "burp_request", None)
+    if not burp_request_arg:
+        # 尝试自动发现
+        target_url = getattr(ctx.args, "target_url", None)
+        if target_url:
+            discovered = _discover_burp_request_file(target_url)
+            if not discovered:
+                return False
+        else:
+            return False
+
+    # 条件 2: .env 有模型配置 (OPENAI_CHAT_ENDPOINT)
+    endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+    if not endpoint:
+        return False
+
+    # 条件 3: 未指定 --tool-calling
+    return not getattr(ctx.args, "tool_calling", False)
+
+
+async def _bridge_agent_proxy(
+    ctx: PipelineContext,
+    target_url: str,
+    burp_request_file: str,
+    classification: TargetClassification,
+) -> bool:
+    """V-65: Agent Proxy Bridge — HTTPTarget + 三角色分离 + 多轮能力.
+
+    v46 核心优化: 解决 Burp 模式下 HTTPTarget 不支持多轮对话
+    导致 Crescendo/TAP/PAIR 被过滤的问题.
+
+    架构:
+      - objective_target (被攻击方) = HTTPTarget (Burp 原始请求, 攻击发到 Agent 应用)
+      - adversarial_chat (攻击者) = OpenAIChatTarget (从 .env 配置, 生成攻击消息)
+      - scoring_target (评分器) = OpenAIChatTarget (从 .env 配置, 独立评分)
+
+    通过 CapabilityAdapter 为 HTTPTarget 声明多轮能力,
+    使 Crescendo/TAP/PAIR 等多轮攻击不再被
+    ``CHAT_TARGET_REQUIREMENTS.validate()`` 过滤.
+
+    流程:
+      1. 读取 Burp 请求, 增强 {PROMPT} + 认证 + 动态会话 ID
+      2. SSE/JSON 检测 + 预检探针
+      3. 构建 HTTPTarget (含 custom_configuration 声明多轮能力)
+      4. 包装 RateLimitedTarget
+      5. 三角色分离注册 (不覆盖 default, 保留 .env 模型)
+      6. 能力探测
+      7. V-70: 创建 MultiTurnConversationBridge 供多轮攻击使用
+
+    Args:
+        ctx: PipelineContext.
+        target_url: 目标 URL.
+        burp_request_file: Burp 请求文件路径.
+        classification: 目标判别结果.
+
+    Returns:
+        True 如果桥接成功.
+    """
+    from pyrit.prompt_target import HTTPTarget
+
+    from pipeline.targets.capability_adapter import (
+        apply_multi_turn_capability,
+        build_multi_turn_configuration,
+        detect_agent_capability_from_burp,
+    )
+    from pipeline.targets.multiturn_bridge import MultiTurnConversationBridge
+    from pipeline.targets.rate_limited_target import RateLimitedTarget
+
+    # 1. 读取原始 HTTP 请求
+    burp_path = Path(burp_request_file)
+    if not burp_path.exists():
+        print(f"  [错误] Burp 请求文件不存在: {burp_request_file}")
+        return False
+
+    raw_request = burp_path.read_text(encoding="utf-8")
+    print(f"  请求文件: {burp_request_file} ({len(raw_request)} bytes)")
+
+    # V-68: 从 Burp 请求检测 Agent 能力
+    is_agent = detect_agent_capability_from_burp(raw_request)
+    if is_agent:
+        print("  [V-68] 检测到 Agent 应用特征 (tools/functions 字段)")
+
+    # 2. 认证 headers + {PROMPT} 注入 (复用 _bridge_burp_api 逻辑)
+    auth_headers = ctx.metadata.get("auth_headers", {})
+
+    if "{PROMPT}" not in raw_request:
+        print("  [v44.5] 请求中未找到 {PROMPT} 占位符, 自动注入...")
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = enhance_burp_request(raw_request, auth_headers=auth_headers or None)
+        raw_request = _fix_content_length(raw_request)
+        print("  [v44.5] {PROMPT} 占位符已自动注入")
+    elif auth_headers:
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = enhance_burp_request(raw_request, auth_headers=auth_headers)
+        raw_request = _fix_content_length(raw_request)
+        print(f"  [S-7] 认证 headers 注入: {list(auth_headers.keys())}")
+
+    # 3. 响应路径 + 动态会话 ID
+    response_path = getattr(ctx.args, "api_response_path", "choices[0].message.content")
+    raw_request = _inject_dynamic_session_fields(raw_request)
+    print("  [v44.3] 动态会话 ID 已注入")
+
+    # 4. SSE/HTTPS 检测 + 预检探针
+    is_sse = _detect_sse_from_request(raw_request)
+    use_tls = _detect_tls_from_request(raw_request)
+
+    print("  [v44.4] 执行预检探针...")
+    probe_result = await _burp_pre_flight_probe(raw_request=raw_request, target_url=target_url, use_tls=use_tls)
+    if probe_result.get("response_path"):
+        user_response_path = getattr(ctx.args, "api_response_path", None)
+        if not user_response_path or user_response_path == "choices[0].message.content":
+            response_path = probe_result["response_path"]
+        if probe_result["is_sse"]:
+            is_sse = True
+            print(f"  [v44.4] 预检: 目标返回 SSE, 响应路径={response_path}")
+        else:
+            is_sse = False
+            print(f"  [v44.4] 预检: 目标返回 JSON, 响应路径={response_path}")
+    ctx.metadata["burp_pre_flight_probe"] = probe_result
+
+    # 5. 构建 HTTPTarget (含 V-66 custom_configuration 多轮能力声明)
+    non_stream_request = _build_non_stream_variant(raw_request) if is_sse else None
+    multi_turn_config = build_multi_turn_configuration()
+
+    if non_stream_request:
+        non_stream_path = response_path.replace("delta", "message").replace("Delta", "Message")
+        json_callback = _build_burp_callback(is_sse=False, response_path=non_stream_path, target_url=target_url)
+        http_target_kwargs: dict[str, Any] = {
+            "http_request": non_stream_request,
+            "prompt_regex_string": "{PROMPT}",
+            "callback_function": json_callback,
+            "use_tls": use_tls,
+        }
+        if multi_turn_config is not None:
+            http_target_kwargs["custom_configuration"] = multi_turn_config
+        http_target = HTTPTarget(**http_target_kwargs)
+        print("  [v44.3] Stream:false 变体已构造, 优先使用 JSON 回调")
+    else:
+        callback = _build_burp_callback(is_sse=is_sse, response_path=response_path, target_url=target_url)
+        http_target_kwargs = {
+            "http_request": raw_request,
+            "prompt_regex_string": "{PROMPT}",
+            "callback_function": callback,
+            "use_tls": use_tls,
+        }
+        if is_sse:
+            http_target_kwargs["timeout"] = 60.0
+        if multi_turn_config is not None:
+            http_target_kwargs["custom_configuration"] = multi_turn_config
+        http_target = HTTPTarget(**http_target_kwargs)
+
+    # V-66 备选路径: 如果构造函数不支持 custom_configuration, 通过属性设置
+    if multi_turn_config is not None:
+        apply_multi_turn_capability(http_target)
+    print("  [V-66] HTTPTarget 多轮能力已声明 (supports_multi_turn=True)")
+
+    # 6. 包装 RateLimitedTarget
+    rate_limit = getattr(ctx.args, "rate_limit", 3)
+    max_retries = getattr(ctx.args, "rate_limit_retries", 3)
+
+    rate_limited_target = RateLimitedTarget(
+        target=http_target,
+        endpoint=target_url,
+        max_concurrency=rate_limit,
+        max_retries=max_retries,
+        requests_per_minute=rate_limit * 30 if rate_limit > 0 else None,
+    )
+
+    # 7. 三角色分离注册 (V-65 核心)
+    from pyrit.registry import TargetRegistry
+
+    registry = TargetRegistry.get_registry_singleton()
+
+    # objective_target = Burp HTTPTarget (仅标签 default_objective_target, 不覆盖 default)
+    registry.instances.register(
+        instance=rate_limited_target,
+        name="agent_proxy_objective_target",
+        tags={"target_type": "HTTPTarget", "default_objective_target": {}},
+    )
+
+    # 获取 Stage 1 从 .env 注册的模型作为 adversarial + scoring
+    _env_endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+    _env_model = os.environ.get("OPENAI_CHAT_MODEL", "")
+    _scorer_endpoint = os.environ.get("OBJECTIVE_SCORER_CHAT_ENDPOINT", "")
+    _scorer_model = os.environ.get("OBJECTIVE_SCORER_CHAT_MODEL", "")
+
+    print("  [V-65] 三角色分离:")
+    print(f"    objective_target: Burp HTTPTarget → {target_url}")
+    print(f"    adversarial_chat: {_env_model or '(默认)'} @ {_env_endpoint or '(未配置)'}")
+    scorer_ep = _scorer_endpoint or _env_endpoint or "(未配置)"
+    scorer_md = _scorer_model or _env_model or "(默认)"
+    print(f"    scoring_target: {scorer_md} @ {scorer_ep}")
+
+    # 验证 adversarial/scoring 是否可用
+    if not _env_endpoint:
+        print("  [警告] .env 未配置 OPENAI_CHAT_ENDPOINT, 多轮攻击的 adversarial_chat 将共享 Burp Target")
+    if not _scorer_endpoint and not _env_endpoint:
+        print("  [警告] .env 未配置评分器, 评分将使用规则评分器降级")
+
+    # 8. V-70: 创建 MultiTurnConversationBridge
+    conversation_bridge = MultiTurnConversationBridge(max_history_turns=10, max_history_tokens=4000)
+    ctx.metadata["multi_turn_conversation_bridge"] = conversation_bridge
+    print("  [V-67] MultiTurnConversationBridge 已创建 (max_history=10)")
+
+    # 9. 存储到 Context
+    ctx.metadata["burp_request_file"] = burp_request_file
+    ctx.metadata["api_target_url"] = target_url
+    ctx.metadata["burp_is_sse"] = is_sse
+    ctx.metadata["burp_use_tls"] = use_tls
+    ctx.metadata["agent_proxy_mode"] = True
+    ctx.metadata["is_agent_target"] = is_agent
+    ctx.target_type = "http_api"
+    ctx.http_target_configured = True
+
+    print("  ✓ Agent Proxy Bridge 已创建并注册")
+    print(f"    最大并发: {rate_limit}")
+    print(f"    最大重试: {max_retries}")
+    print("    多轮能力: supports_multi_turn=True, supports_editable_history=True")
+    if is_sse:
+        print("    SSE 超时: 60.0s")
+
+    # 10. S-6: 执行能力探测
+    await _probe_and_record_capabilities(ctx, target_url, classification)
+
+    logger.info(
+        f"Agent Proxy Bridge bridged: {target_url} → HTTPTarget "
+        f"(multi_turn=True, agent={is_agent})"
+    )
+    return True
 
 
 async def _bridge_burp_api(
@@ -111,30 +504,40 @@ async def _bridge_burp_api(
     raw_request = burp_path.read_text(encoding="utf-8")
     print(f"  请求文件: {burp_request_file} ({len(raw_request)} bytes)")
 
-    # 2. 验证 {PROMPT} 占位符
+    # v43.1 S-7: 获取已有认证 headers (从 AuthState 文件)
+    # v44.5: 提前到步骤2之前, 供 enhance_burp_request 使用
+    auth_headers = ctx.metadata.get("auth_headers", {})
+
+    # 2. 验证 {PROMPT} 占位符 — v44.5: 缺失时自动注入
     if "{PROMPT}" not in raw_request:
-        print("  [警告] 请求中未找到 {PROMPT} 占位符, prompt 注入可能无效")
-        logger.warning("Burp request missing {PROMPT} placeholder")
+        print("  [v44.5] 请求中未找到 {PROMPT} 占位符, 自动注入...")
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = enhance_burp_request(
+            raw_request,
+            auth_headers=auth_headers or None,
+        )
+        # v44.5 P3: 增强后修正 Content-Length
+        raw_request = _fix_content_length(raw_request)
+        if "{PROMPT}" in raw_request:
+            print("  [v44.5] {PROMPT} 占位符已自动注入")
+            ctx.metadata["burp_prompt_auto_injected"] = True
+        else:
+            print("  [警告] 自动注入 {PROMPT} 失败, prompt 注入可能无效")
+            logger.warning("Burp request auto-inject {PROMPT} failed")
+    elif auth_headers:
+        # 已有 {PROMPT} — 仅注入认证 headers (如果尚未存在)
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = enhance_burp_request(
+            raw_request,
+            auth_headers=auth_headers,
+        )
+        raw_request = _fix_content_length(raw_request)
+        print(f"  [S-7] 认证 headers 注入: {list(auth_headers.keys())}")
 
     # v43: 获取响应路径 (--api-response-path)
     response_path = getattr(ctx.args, "api_response_path", "choices[0].message.content")
-
-    # v43.1 S-7: 注入已有认证 headers (从 AuthState 文件)
-    # Burp 原始请求可能已包含 Authorization header, AuthState headers 作为补充
-    auth_headers = ctx.metadata.get("auth_headers", {})
-    if auth_headers:
-        # 将 AuthState headers 合并到原始请求 (不覆盖已有的 header)
-        for k, v in auth_headers.items():
-            if k.lower() not in raw_request.lower():
-                # 在 header 部分插入 (第一个 \r\n 之前)
-                header_end = raw_request.find("\r\n\r\n")
-                if header_end > 0:
-                    raw_request = (
-                        raw_request[:header_end]
-                        + f"\r\n{k}: {v}"
-                        + raw_request[header_end:]
-                    )
-        print(f"  [S-7] 认证 headers 注入: {list(auth_headers.keys())}")
 
     # v44.3 P1: 动态会话 ID 更换 — 避免多轮攻击上下文污染
     raw_request = _inject_dynamic_session_fields(raw_request)
@@ -152,15 +555,40 @@ async def _bridge_burp_api(
     if use_tls:
         print("  [TLS] 检测到 HTTPS 目标, 启用 TLS")
 
+    # v44.4 P2: 预检探针 — 发送测试请求自动推断响应格式
+    # v45.3: 始终执行预检探针 — 即使用户指定了 --api-response-path,
+    # 也需要检测目标是否返回 SSE (SSE 需要特殊回调, JSON 回调无法解析 SSE)
+    print("  [v44.4] 执行预检探针...")
+    probe_result = await _burp_pre_flight_probe(
+        raw_request=raw_request,
+        target_url=target_url,
+        use_tls=use_tls,
+    )
+    if probe_result.get("response_path"):
+        # 仅当用户未指定 --api-response-path 时覆盖 (用户指定优先)
+        user_response_path = getattr(ctx.args, "api_response_path", None)
+        if not user_response_path or user_response_path == "choices[0].message.content":
+            response_path = probe_result["response_path"]
+        # 预检结果覆盖 SSE 检测
+        if probe_result["is_sse"]:
+            is_sse = True
+            print(f"  [v44.4] 预检: 目标返回 SSE, 响应路径={response_path}")
+        else:
+            is_sse = False
+            print(f"  [v44.4] 预检: 目标返回 JSON, 响应路径={response_path}")
+    ctx.metadata["burp_pre_flight_probe"] = probe_result
+
     # v44.3 P3: Stream:false 变体构造 — 优先尝试 JSON 模式
+    # P0 修复 (v45.5): 为 HTTPTarget 声明多轮能力, 使 Crescendo/TAP/PAIR 不被过滤
+    from pipeline.targets.capability_adapter import (
+        apply_multi_turn_capability,
+        build_multi_turn_configuration,
+    )
+    multi_turn_config = build_multi_turn_configuration()
+
     non_stream_request = _build_non_stream_variant(raw_request) if is_sse else None
     if non_stream_request:
         # 构造 Stream:false 变体, 使用 JSON 回调 (更可靠)
-        json_callback = _build_burp_callback(
-            is_sse=False,
-            response_path=response_path,
-            target_url=target_url,
-        )
         # 对应的 SSE 响应路径: delta→message (stream→non-stream)
         non_stream_path = response_path.replace("delta", "message").replace("Delta", "Message")
         json_callback = _build_burp_callback(
@@ -172,13 +600,52 @@ async def _bridge_burp_api(
             "http_request": non_stream_request,
             "prompt_regex_string": "{PROMPT}",
             "callback_function": json_callback,
+            "use_tls": use_tls,
         }
-        if use_tls:
-            http_target_kwargs["use_tls"] = True
+        if multi_turn_config is not None:
+            http_target_kwargs["custom_configuration"] = multi_turn_config
         http_target = HTTPTarget(**http_target_kwargs)
+        # P0 安全网: 即使构造函数未传 custom_configuration, 也通过属性覆写追加
+        apply_multi_turn_capability(http_target)
+        print("  [v45.5] HTTPTarget 多轮能力已声明 (supports_multi_turn=True)")
         print("  [v44.3] Stream:false 变体已构造, 优先使用 JSON 回调")
         ctx.metadata["burp_non_stream_variant"] = True
         ctx.metadata["burp_original_sse_request"] = raw_request
+
+        # v44.4 P1: 构造 SSE 回退 Target (Stream:false 变体失败时使用)
+        sse_callback = _build_burp_callback(
+            is_sse=True,
+            response_path=response_path,
+            target_url=target_url,
+        )
+        sse_target_kwargs: dict[str, Any] = {
+            "http_request": raw_request,
+            "prompt_regex_string": "{PROMPT}",
+            "callback_function": sse_callback,
+            "use_tls": use_tls,
+        }
+        if multi_turn_config is not None:
+            sse_target_kwargs["custom_configuration"] = multi_turn_config
+        sse_fallback_target = HTTPTarget(**sse_target_kwargs)
+        apply_multi_turn_capability(sse_fallback_target)
+        _rl = getattr(ctx.args, "rate_limit", 3)
+        _mr = getattr(ctx.args, "rate_limit_retries", 3)
+        sse_fallback_rate_limited = RateLimitedTarget(
+            target=sse_fallback_target,
+            endpoint=target_url,
+            max_concurrency=_rl,
+            max_retries=_mr,
+            requests_per_minute=_rl * 30 if _rl > 0 else None,
+        )
+        from pyrit.registry import TargetRegistry as _TR1
+        _registry_fallback = _TR1.get_registry_singleton()
+        _registry_fallback.instances.register(
+            instance=sse_fallback_rate_limited,
+            name="burp_sse_fallback_target",
+            tags={"target_type": "HTTPTarget", "fallback": {}},
+        )
+        print("  [v44.4] SSE 回退 Target 已注册 (burp_sse_fallback_target)")
+        ctx.metadata["burp_sse_fallback_registered"] = True
     else:
         # 3. 构建回调函数 (v44.2: SSE→正则回调, JSON→原生JSON回调)
         callback = _build_burp_callback(
@@ -188,14 +655,28 @@ async def _bridge_burp_api(
         )
 
         # 4. 创建 HTTPTarget (v44.2: 传递 use_tls)
+        # SSE 响应需要超时控制: httpx 默认等待整个 body, SSE 流不会自然结束,
+        # 需设置 timeout 让 httpx 在收到足够数据后中断并返回已读内容.
+        # 非 SSE 响应正常关闭连接, 不受影响.
+        # P0 修复 (v45.5): 传入 custom_configuration 声明多轮能力
         http_target_kwargs: dict[str, Any] = {
             "http_request": raw_request,
             "prompt_regex_string": "{PROMPT}",
             "callback_function": callback,
+            "use_tls": use_tls,
         }
-        if use_tls:
-            http_target_kwargs["use_tls"] = True
+        if is_sse:
+            # SSE: 60s 超时 — SSE 响应需要足够时间完成.
+            # 目标模型生成攻击响应可能需要 20-30s (长 prompt + 安全过滤推理),
+            # 15s 超时会导致 ReadTimeout 丢失已读数据并触发重试.
+            # 60s 足够覆盖绝大多数 SSE 响应, 同时防止无限挂起.
+            http_target_kwargs["timeout"] = 60.0
+        if multi_turn_config is not None:
+            http_target_kwargs["custom_configuration"] = multi_turn_config
         http_target = HTTPTarget(**http_target_kwargs)
+        # P0 安全网: 通过属性覆写确保多轮能力生效
+        apply_multi_turn_capability(http_target)
+        print("  [v45.5] HTTPTarget 多轮能力已声明 (supports_multi_turn=True)")
 
     # 5. 包装 RateLimitedTarget
     rate_limit = getattr(ctx.args, "rate_limit", 3)
@@ -216,17 +697,19 @@ async def _bridge_burp_api(
     registry.instances.register(
         instance=rate_limited_target,
         name="burp_api_target",
-        tags={"target_type": "HTTPTarget"},
+        tags={"target_type": "HTTPTarget", "default": {}, "default_objective_target": {}},
     )
     registry.instances.register(
         instance=rate_limited_target,
         name="default",
-        tags={"target_type": "HTTPTarget"},
+        tags={"target_type": "HTTPTarget", "default": {}, "default_objective_target": {}},
     )
 
     print("  ✓ HTTPTarget (Burp) + RateLimitedTarget 已创建并注册")
     print(f"    最大并发: {rate_limit}")
     print(f"    最大重试: {max_retries}")
+    if is_sse:
+        print(f"    SSE 超时: {http_target_kwargs.get('timeout', 'N/A')}s")
 
     # 7. 存储到 Context
     ctx.metadata["burp_request_file"] = burp_request_file
@@ -243,8 +726,296 @@ async def _bridge_burp_api(
     return True
 
 
+async def _check_target_reachability(
+    target_url: str,
+    *,
+    timeout: float = 10.0,
+) -> dict[str, Any]:
+    """v50: 目标可达性快速探测 — TCP 连通性 + HTTP 探针.
+
+    在 Stage 0.5 路由前执行, 不可达则触发降级链.
+    区别于 _burp_pre_flight_probe (推断响应格式), 本函数仅判断可达性.
+
+    探测策略 (两级):
+      1. TCP 连通性 — asyncio.open_connection(host, port) 最快 (<1s)
+      2. HTTP 探针 — httpx.AsyncClient.get(url) 带超时 (10s)
+    两者都失败 → reachable=False
+
+    学术依据:
+      - Circuit Breaker Pattern (Nygard, "Release It!") — 不可达应快速失败
+      - NIST SP 800-92 — 信号/噪音分离: 不可达重试属噪音层
+      - MITRE ATT&CK T1592 — 主动扫描驱动路由决策
+
+    Args:
+        target_url: 目标 URL.
+        timeout: HTTP 探针超时秒数 (默认 10s).
+
+    Returns:
+        {"reachable": bool, "reason": str, "latency_ms": float, "method": str}
+    """
+    # D-8: 预检结果缓存 — 同一目标 60 秒内跳过重复探测
+    # 学术依据: NIST SP 800-92 — 重复探测属噪音层, 缓存消除冗余
+    #           Circuit Breaker (Nygard) — 缓存避免短时间内重复 circuit breaker 触发
+    cache_key = target_url.rstrip("/")
+    now = time.monotonic()
+    cached = _REACHABILITY_CACHE.get(cache_key)
+    if cached and (now - cached["cached_at"]) < _REACHABILITY_CACHE_TTL:
+        logger.debug(f"v50 D-8: Reachability cache hit for {cache_key}")
+        return dict(cached["result"])
+
+    from urllib.parse import urlparse
+
+    parsed = urlparse(target_url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    if not host:
+        return {"reachable": False, "reason": "无法解析主机名", "latency_ms": 0.0, "method": "url_parse"}
+
+    # Level 1: TCP 连通性
+    try:
+        import time as _time
+
+        tcp_start = _time.monotonic()
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=min(timeout, 5.0),
+        )
+        tcp_latency = (_time.monotonic() - tcp_start) * 1000
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        tcp_result = {
+            "reachable": True,
+            "reason": f"TCP {host}:{port} 连通",
+            "latency_ms": round(tcp_latency, 1),
+            "method": "tcp",
+        }
+        _REACHABILITY_CACHE[cache_key] = {"result": dict(tcp_result), "cached_at": now}
+        return tcp_result
+    except asyncio.TimeoutError:
+        pass  # 继续到 HTTP 探针
+    except (OSError, ConnectionRefusedError) as e:
+        # TCP 连接被拒绝, 继续到 HTTP 探针 (可能有防火墙代理)
+        logger.debug(f"v50: TCP probe failed for {host}:{port}: {e}")
+    except Exception as e:
+        logger.debug(f"v50: TCP probe error for {host}:{port}: {e}")
+
+    # Level 2: HTTP 探针
+    try:
+        import time as _time
+
+        import httpx
+
+        http_start = _time.monotonic()
+        async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+            resp = await client.get(target_url, follow_redirects=True)
+            http_latency = (_time.monotonic() - http_start) * 1000
+            # 任何 HTTP 响应 (即使 4xx/5xx) 都说明目标可达
+            http_result = {
+                "reachable": True,
+                "reason": f"HTTP {resp.status_code}",
+                "latency_ms": round(http_latency, 1),
+                "method": "http",
+            }
+            _REACHABILITY_CACHE[cache_key] = {"result": dict(http_result), "cached_at": now}
+            return http_result
+    except Exception as e:
+        error_type = type(e).__name__
+        reason = f"{error_type}: {e}" if str(e) else error_type
+        fail_result = {
+            "reachable": False,
+            "reason": reason,
+            "latency_ms": 0.0,
+            "method": "failed",
+        }
+        _REACHABILITY_CACHE[cache_key] = {"result": dict(fail_result), "cached_at": now}
+        return fail_result
+
+
+async def _try_fallback_chain(
+    ctx: PipelineContext,
+    target_url: str,
+    classification: TargetClassification,
+    burp_request_file: str | None,
+    first_failure_reason: str,
+) -> bool:
+    """v50: 三级降级链 — Burp失败→Playwright→.env OpenAIChatTarget→终止.
+
+    当 Burp 模式目标不可达时, 依次尝试:
+      Level 1: Playwright 浏览器模式 (TargetClassifier 独立判别 + _bridge_web_app)
+      Level 2: .env OpenAIChatTarget 模式 (复用 Stage 1 注册的 default target)
+      Level 3: 优雅终止 (返回 False, stage_scenario 跳过执行)
+
+    设计原则:
+      - 原生优先 (R-010): 降级目标全部 PyRIT 原生 Target
+      - 决策可追溯: 每次降级通过 DecisionTrace 记录
+      - 幂等安全: 降级不覆盖已有注册的 Target
+
+    学术依据:
+      - Graceful Degradation (Distributed Systems Design) — 多级降级保最大可用性
+      - Circuit Breaker (Nygard) — 快速失败 + 降级替代
+      - OWASP Top 10 LLM 2025 — Web 注入和 API 注入互补攻击面
+
+    Args:
+        ctx: PipelineContext.
+        target_url: 目标 URL.
+        classification: 原始目标判别结果.
+        burp_request_file: Burp 请求文件路径 (可能为 None).
+        first_failure_reason: 第一级 (Burp) 失败原因.
+
+    Returns:
+        True 如果某级降级成功, False 如果全部失败 (应终止).
+    """
+    from pipeline.utils.decision_trace import DecisionTrace
+    from pipeline.utils.event_bus import EventBus
+
+    trace = DecisionTrace.get_instance()
+    bus = EventBus.get_instance()
+    failure_reasons: list[str] = [f"Level 0 (Burp): {first_failure_reason}"]
+
+    # ── Level 1: Playwright 浏览器模式 ──
+    print("\n  --- 降级 Level 1: Playwright 浏览器模式 ---")
+    try:
+        # 独立判别 target_url (不使用 Burp 文件的 force_type 覆盖)
+        classifier = TargetClassifier()
+        pw_classification = await classifier.classify(target_url, force_type="auto")
+
+        if pw_classification.http_status != 0:
+            # 目标 HTTP 可达, 尝试 Playwright
+            print(f"  [v50] HTTP 探测可达 (status={pw_classification.http_status}), 尝试 Playwright...")
+            success = await _bridge_web_app(ctx, target_url, pw_classification)
+            if success:
+                trace.record(
+                    stage="stage_0.5",
+                    layer="fallback_chain",
+                    decision="fallback_to_playwright",
+                    reason=f"Burp unreachable ({first_failure_reason}) → Playwright success",
+                    target_url=target_url,
+                    fallback_level=1,
+                )
+                bus.publish_simple("stage_0.5", "fallback_to_playwright", reason=first_failure_reason)
+                ctx.metadata["fallback_level"] = 1
+                ctx.metadata["fallback_target_mode"] = "playwright"
+                print("  [v50] ✅ 降级成功: Playwright 浏览器模式")
+                return True
+            else:
+                failure_reasons.append("Level 1 (Playwright): _bridge_web_app 返回 False")
+        else:
+            failure_reasons.append("Level 1 (Playwright): HTTP 不可达 (status=0)")
+    except Exception as e:
+        failure_reasons.append(f"Level 1 (Playwright): {type(e).__name__}: {e}")
+        logger.debug(f"v50: Playwright fallback failed: {e}", exc_info=True)
+
+    print(f"  [v50] ❌ Playwright 降级失败: {failure_reasons[-1]}")
+
+    # D-9: Level 1 指数退避重试 — 失败后等待 2 秒重试 1 次
+    # 学术依据: Exponential Backoff (AWS Architecture Best Practices) —
+    #   瞬时故障 (如浏览器启动竞争/CDP端口占用) 重试可恢复
+    #   Circuit Breaker (Nygard) — 重试仅 1 次, 避免无限重试
+    #   NIST SP 800-92 — 重试属可恢复层, 区分永久故障
+    if not getattr(ctx.args, "no_fallback", False):
+        print("  [v50 D-9] Level 1 指数退避重试 (等待 2 秒)...")
+        await asyncio.sleep(2.0)
+        try:
+            classifier_retry = TargetClassifier()
+            pw_classification_retry = await classifier_retry.classify(target_url, force_type="auto")
+            if pw_classification_retry.http_status != 0:
+                print(f"  [v50 D-9] HTTP 探测可达 (status={pw_classification_retry.http_status}), 重试 Playwright...")
+                success_retry = await _bridge_web_app(ctx, target_url, pw_classification_retry)
+                if success_retry:
+                    trace.record(
+                        stage="stage_0.5",
+                        layer="fallback_chain",
+                        decision="fallback_to_playwright_retry",
+                        reason=f"Level 1 retry success after backoff (initial: {failure_reasons[-1]})",
+                        target_url=target_url,
+                        fallback_level=1,
+                    )
+                    bus.publish_simple("stage_0.5", "fallback_to_playwright_retry", reason="backoff_retry")
+                    ctx.metadata["fallback_level"] = 1
+                    ctx.metadata["fallback_target_mode"] = "playwright"
+                    ctx.metadata["fallback_retried"] = True
+                    print("  [v50 D-9] ✅ 重试成功: Playwright 浏览器模式")
+                    return True
+                else:
+                    failure_reasons.append("Level 1 retry (Playwright): _bridge_web_app 返回 False")
+            else:
+                failure_reasons.append("Level 1 retry (Playwright): HTTP 不可达 (status=0)")
+        except Exception as e:
+            failure_reasons.append(f"Level 1 retry (Playwright): {type(e).__name__}: {e}")
+            logger.debug(f"v50 D-9: Playwright retry failed: {e}", exc_info=True)
+        print(f"  [v50 D-9] ❌ 重试失败: {failure_reasons[-1]}")
+
+    # ── Level 2: .env OpenAIChatTarget 模式 ──
+    print("\n  --- 降级 Level 2: .env OpenAIChatTarget 模式 ---")
+    env_endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+    env_key = os.environ.get("OPENAI_CHAT_KEY", "") or os.environ.get("API_KEY", "")
+    env_model = os.environ.get("OPENAI_CHAT_MODEL", "")
+
+    if env_endpoint and env_key:
+        # .env 有配置 — 不覆盖 Stage 1 已注册的 default OpenAIChatTarget
+        # 仅设置 metadata 标记, 让主流水线使用 .env 配置的模型
+        print(f"  [v50] .env 配置可用: {env_model} @ {env_endpoint}")
+        print("  [v50] 使用 .env 配置的 OpenAIChatTarget 作为攻击目标")
+        print("  [v50] 注意: 攻击将发送到 .env API 端点, 而非原始目标 URL")
+
+        ctx.target_type = "env_openai_chat"
+        ctx.http_target_configured = False
+        ctx.metadata["fallback_level"] = 2
+        ctx.metadata["fallback_target_mode"] = "env_openai_chat"
+        ctx.metadata["env_fallback_endpoint"] = env_endpoint
+        ctx.metadata["env_fallback_model"] = env_model
+
+        trace.record(
+            stage="stage_0.5",
+            layer="fallback_chain",
+            decision="fallback_to_env_openai_chat",
+            reason=f"Burp+Playwright unreachable → .env OpenAIChatTarget ({env_model})",
+            target_url=target_url,
+            fallback_level=2,
+            env_endpoint=env_endpoint,
+        )
+        bus.publish_simple("stage_0.5", "fallback_to_env", model=env_model)
+
+        print("  [v50] ✅ 降级成功: .env OpenAIChatTarget 模式")
+        return True
+    else:
+        reason = ".env 无 OPENAI_CHAT_ENDPOINT 或 OPENAI_CHAT_KEY"
+        failure_reasons.append(f"Level 2 (.env): {reason}")
+        print(f"  [v50] ❌ .env 降级失败: {reason}")
+
+    # ── Level 3: 优雅终止 ──
+    print("\n  --- 降级 Level 3: 优雅终止 ---")
+    print("  [v50] ❌ 所有目标模式均失败")
+    print("  [v50] 降级尝试结果:")
+    for reason in failure_reasons:
+        print(f"    {reason}")
+    print("  [v50] 建议:")
+    print("    1. 检查目标 URL 是否可达: curl -v " + target_url)
+    print("    2. 检查 .env 配置: OPENAI_CHAT_ENDPOINT/KEY/MODEL")
+    print("    3. 使用 --no-fallback 禁用降级 (严格模式)")
+
+    ctx.metadata["all_targets_failed"] = True
+    ctx.metadata["fallback_failure_reasons"] = failure_reasons
+
+    trace.record(
+        stage="stage_0.5",
+        layer="fallback_chain",
+        decision="all_targets_failed",
+        reason="; ".join(failure_reasons),
+        target_url=target_url,
+    )
+    bus.publish_simple("stage_0.5", "all_targets_failed", reasons=failure_reasons)
+
+    return False
+
+
 async def run(ctx: PipelineContext) -> bool:
     """执行 Stage 0.5: 统一目标类型判别 + 认证桥接。.
+
+    v50: 新增三级降级链 — Burp 不可达 → Playwright → .env OpenAIChatTarget → 终止.
+    使用 --no-fallback 可禁用降级 (严格模式).
 
     Args:
         ctx: PipelineContext (需要 args.target_url)
@@ -262,13 +1033,27 @@ async def run(ctx: PipelineContext) -> bool:
     print(f"  目标 URL: {target_url}")
 
     # v43: 检查 --burp-request (优先级最高, 覆盖判别结果)
-    burp_request_file = getattr(ctx.args, "burp_request", None)
-    if burp_request_file:
-        print(f"  Burp Suite 请求文件: {burp_request_file}")
-        # 即使有 --burp-request, 仍然执行判别 (用于元信息记录)
+    # v44.4 P3: 支持逗号分隔多文件
+    burp_request_arg = getattr(ctx.args, "burp_request", None)
+    burp_files = _parse_burp_request_files(burp_request_arg) if burp_request_arg else []
+    if burp_files:
+        burp_request_file = burp_files[0]  # 使用第一个文件
+        if len(burp_files) > 1:
+            print(f"  Burp Suite 请求文件: {burp_request_file} (共 {len(burp_files)} 个文件, 使用第1个)")
+            ctx.metadata["burp_all_files"] = burp_files
+        else:
+            print(f"  Burp Suite 请求文件: {burp_request_file}")
         target_type_override = getattr(ctx.args, "target_type", "api_platform")
     else:
-        target_type_override = getattr(ctx.args, "target_type", "auto")
+        # v44.5 P2: 自动发现 Burp 请求文件 — 从 data/burp/ 目录匹配
+        discovered_file = _discover_burp_request_file(target_url)
+        if discovered_file:
+            print(f"  [v44.5] 自动发现 Burp 请求文件: {discovered_file}")
+            burp_request_file = discovered_file
+            target_type_override = getattr(ctx.args, "target_type", "api_platform")
+        else:
+            burp_request_file = None
+            target_type_override = getattr(ctx.args, "target_type", "auto")
 
     try:
         # Step 1: 目标类型判别
@@ -326,10 +1111,80 @@ async def run(ctx: PipelineContext) -> bool:
             print("\n  --- Tool Calling 模式 (OpenAIResponseTarget + 蜜罐工具集) ---")
             return await _bridge_tool_calling(ctx, target_url, classification, burp_request_file)
 
+        # v46 V-69: Agent Proxy Bridge — 当有 Burp 请求 + .env 有模型配置时
+        # 自动选择三角色分离模式 (Burp=objective, .env=adversarial+scorer)
+        # 使 Crescendo/TAP/PAIR 等多轮攻击不再被过滤
+        # 显式 --agent-proxy 或自动检测 (有 .env OPENAI_CHAT_ENDPOINT 且非 --tool-calling)
+        # P0 修复 (v45.5): 增加路由决策日志, 确保每次运行可追溯
+        agent_proxy = getattr(ctx.args, "agent_proxy", False)
+        can_use_proxy = _can_use_agent_proxy(ctx) if not agent_proxy else True
+        logger.info(
+            f"Route decision: tool_calling={tool_calling}, "
+            f"agent_proxy_flag={agent_proxy}, "
+            f"can_use_agent_proxy={can_use_proxy}, "
+            f"burp_request_file={burp_request_file is not None}"
+        )
+        if (agent_proxy or can_use_proxy) and burp_request_file:
+            # v46.1 P2: 混合模式 — Burp + Tool Calling 劫持
+            hybrid = getattr(ctx.args, "hybrid_agent_attack", False)
+            if hybrid and _should_use_hybrid_agent_attack(burp_request_file):
+                print("\n  --- Hybrid Agent Attack 模式 (Burp HTTPTarget + Tool Calling 劫持) ---")
+                return await _bridge_hybrid_agent_attack(ctx, target_url, burp_request_file, classification)
+
+            print("\n  --- Agent Proxy Bridge 模式 (HTTPTarget + 三角色分离 + 多轮能力) ---")
+            return await _bridge_agent_proxy(ctx, target_url, burp_request_file, classification)
+
+        # v50: 目标可达性预检 — 在路由前检测 Burp 目标是否可达
+        # 不可达则触发三级降级链 (Burp→Playwright→.env→终止)
+        # 学术依据: Circuit Breaker (Nygard) — 快速失败 + NIST SP 800-92 信号分离
+        if burp_request_file:
+            reachability = await _check_target_reachability(target_url)
+            ctx.metadata["target_reachability"] = reachability
+
+            if not reachability["reachable"]:
+                print(f"  [v50] ❌ 目标不可达: {reachability['reason']}")
+                logger.warning(f"v50: Target unreachable: {reachability}")
+
+                no_fallback = getattr(ctx.args, "no_fallback", False)
+                if no_fallback:
+                    # --no-fallback 严格模式: 不降级, 直接终止
+                    print("  [v50] --no-fallback 严格模式: 不降级, 终止流水线")
+                    ctx.metadata["all_targets_failed"] = True
+                    ctx.metadata["fallback_failure_reasons"] = [
+                        f"Level 0 (Burp): {reachability['reason']}",
+                        "严格模式 (--no-fallback): 未尝试降级",
+                    ]
+                    return False
+
+                # 启动三级降级链
+                print("  [v50] 启动三级降级链...")
+                fallback_success = await _try_fallback_chain(
+                    ctx,
+                    target_url,
+                    classification,
+                    burp_request_file,
+                    first_failure_reason=reachability["reason"],
+                )
+                # fallback_success=True → return True; False → return False
+                # (all_targets_failed 标记已由 _try_fallback_chain 设置)
+                return fallback_success
+            else:
+                reachable_reason = reachability["reason"]
+                reachable_ms = reachability["latency_ms"]
+                reachable_method = reachability["method"]
+                print(f"  [v50] ✅ 目标可达: {reachable_reason} ({reachable_ms}ms, {reachable_method})")
+
+        # D-6: 降级链健康度面板 — 在路由决策后展示降级状态
+        from pipeline.utils.display import fallback_health_card
+
+        fallback_health_card(ctx)
+
         # Step 2: 统一路由 (v43: 三路自动选择)
         if burp_request_file:
             # 路径 A: Burp Suite 原始请求 → HTTPTarget
-            print("\n  --- Burp API 模式 (HTTPTarget + 原始 HTTP 请求) ---")
+            # P0 修复 (v45.5): _bridge_burp_api 现在也声明多轮能力 (安全网)
+            print("\n  --- Burp API 模式 (HTTPTarget + 原始 HTTP 请求 + 多轮能力) ---")
+            logger.info("Route selected: Burp API (with multi-turn capability)")
             return await _bridge_burp_api(ctx, target_url, burp_request_file, classification)
         elif classification.target_type == "llm_web_app":
             # 路径 C: Web 应用 → Browser 模式
@@ -464,12 +1319,12 @@ async def _bridge_web_app(
     registry.instances.register(
         instance=playwright_target,
         name="web_target",
-        tags={"target_type": "PlaywrightTarget"},
+        tags={"target_type": "PlaywrightTarget", "default_objective_target": {}},
     )
     registry.instances.register(
         instance=playwright_target,
         name="default",
-        tags={"target_type": "PlaywrightTarget"},
+        tags={"target_type": "PlaywrightTarget", "default_objective_target": {}},
     )
 
     print("  ✓ PlaywrightTarget 已创建并注册")
@@ -576,9 +1431,8 @@ async def _bridge_api_platform(
         "http_request": raw_request,
         "prompt_regex_string": "{PROMPT}",
         "callback_function": callback,
+        "use_tls": use_tls,
     }
-    if use_tls:
-        http_target_kwargs["use_tls"] = True
     http_target = HTTPTarget(**http_target_kwargs)
 
     # 4. 使用 RateLimitedTarget 包装
@@ -597,12 +1451,12 @@ async def _bridge_api_platform(
     registry.instances.register(
         instance=rate_limited_target,
         name="api_target",
-        tags={"target_type": "HTTPTarget"},
+        tags={"target_type": "HTTPTarget", "default": {}, "default_objective_target": {}},
     )
     registry.instances.register(
         instance=rate_limited_target,
         name="default",
-        tags={"target_type": "HTTPTarget"},
+        tags={"target_type": "HTTPTarget", "default": {}, "default_objective_target": {}},
     )
 
     print("  ✓ HTTPTarget + RateLimitedTarget 已创建并注册")
@@ -731,12 +1585,12 @@ async def _bridge_api_platform_httpx(
     registry.instances.register(
         instance=rate_limited_target,
         name="api_target",
-        tags={"target_type": "HTTPXAPITarget"},
+        tags={"target_type": "HTTPXAPITarget", "default_objective_target": {}},
     )
     registry.instances.register(
         instance=rate_limited_target,
         name="default",
-        tags={"target_type": "HTTPXAPITarget"},
+        tags={"target_type": "HTTPXAPITarget", "default_objective_target": {}},
     )
 
     print("  ✓ HTTPXAPITarget + RateLimitedTarget 已创建并注册")
@@ -935,6 +1789,18 @@ async def _probe_and_record_capabilities(
         has_rag = _detect_rag_capability(response_text)
         has_mcp = _detect_mcp_capability(response_text)
         has_embedding = _detect_embedding_capability(response_text)
+
+        # O7: 模型指纹识别 — 从 HTTP 响应特征推断模型族
+        # 学术依据: MITRE ATT&CK T1592; PyRIT (arXiv:2407.01232) 目标画像;
+        #   fingerprinting survey (arXiv:2311.10634)
+        try:
+            fingerprint = _detect_model_fingerprint(
+                response_body=response_text,
+            )
+            if fingerprint["model_family"] != "unknown":
+                ctx.metadata["model_fingerprint"] = fingerprint
+        except Exception as e:
+            logger.debug(f"O7: model fingerprint detection skipped: {e}")
 
         # 构建简化侦察报告 (兼容 recon_strategy_bridge.extract_capability)
         report = SimpleNamespace(
@@ -1135,12 +2001,22 @@ async def _bridge_tool_calling(
     registry.instances.register(
         instance=tool_target,
         name="tool_calling_target",
-        tags={"target_type": "OpenAIResponseTarget", "agent_attack": {}, "tool_calling": {}},
+        tags={
+            "target_type": "OpenAIResponseTarget",
+            "agent_attack": {},
+            "tool_calling": {},
+            "default_objective_target": {},
+        },
     )
     registry.instances.register(
         instance=tool_target,
         name="default",
-        tags={"target_type": "OpenAIResponseTarget", "agent_attack": {}, "tool_calling": {}},
+        tags={
+            "target_type": "OpenAIResponseTarget",
+            "agent_attack": {},
+            "tool_calling": {},
+            "default_objective_target": {},
+        },
     )
 
     print("  ✓ OpenAIResponseTarget + 蜜罐工具集 (8 个工具) 已创建并注册")
@@ -1465,10 +2341,14 @@ def _detect_tls_from_request(raw_request: str) -> bool:
         elif lower.startswith("referer:") and not referer:
             referer = line.split(":", 1)[1].strip()
 
-    # 策略 1: Origin/Referer 以 https:// 开头
+    # 策略 1: Origin/Referer 明确指定 scheme — 最高优先级
+    # https:// → TLS, http:// → 非 TLS (覆盖策略4的默认推断)
     for url in (origin, referer):
-        if url.strip().lower().startswith("https://"):
+        url_stripped = url.strip().lower()
+        if url_stripped.startswith("https://"):
             return True
+        if url_stripped.startswith("http://"):
+            return False
 
     # 策略 2: Host 包含 :443
     if ":443" in host:
@@ -1569,24 +2449,13 @@ def _build_burp_callback(
         回调函数.
     """
     if is_sse:
-        # SSE: 优先 PyRIT 原生正则回调
-        try:
-            from pyrit.prompt_target.http_target import (
-                get_http_target_regex_matching_callback_function,
-            )
-        except ImportError:
-            try:
-                from pyrit.prompt_target import (
-                    get_http_target_regex_matching_callback_function,
-                )
-            except ImportError:
-                logger.warning("v44.2: PyRIT SSE callback import failed, using fallback")
-                return _build_fallback_sse_callback()
-
-        return get_http_target_regex_matching_callback_function(
-            pattern=r"data:\s*(.*?)(?:\n\n|$)",
-            url=target_url,
-        )
+        # SSE: 使用 fallback 回调 (支持 JSON 解析 + content 字段提取)
+        # 原因: PyRIT 原生 get_http_target_regex_matching_callback_function 仅提取
+        # 正则匹配的文本, 不解析 JSON. 对于非标准 SSE (如 {"content": "..."}),
+        # 需要进一步解析 JSON 提取 content 字段, 否则评分器收到的是 JSON 字符串
+        # 而非实际响应文本, 导致 ASR 严重偏低.
+        logger.info("SSE callback: using fallback (JSON-aware content extraction)")
+        return _build_fallback_sse_callback()
 
     # JSON: 优先 PyRIT 原生 JSON 路径回调
     try:
@@ -1616,8 +2485,15 @@ def _build_fallback_sse_callback() -> Any:
     import json
     import re
 
-    def callback(response: str) -> str:
-        chunks = re.findall(r"data:\s*(.*?)(?:\n\n|$)", response, re.DOTALL)
+    def callback(response: Any) -> str:
+        # PyRIT HTTPTarget 传入 httpx.Response 对象, 需要 .text 或 .content 获取原始文本
+        if hasattr(response, "text"):
+            text = response.text
+        elif hasattr(response, "content"):
+            text = response.content.decode("utf-8") if isinstance(response.content, bytes) else str(response.content)
+        else:
+            text = str(response)
+        chunks = re.findall(r"data:\s*(.*?)(?:\n\n|$)", text, re.DOTALL)
         result_parts: list[str] = []
         for chunk in chunks:
             chunk = chunk.strip()
@@ -1649,11 +2525,18 @@ def _build_fallback_json_callback(key: str) -> Any:
     import json
     import re
 
-    def callback(response: str) -> str:
+    def callback(response: Any) -> str:
+        # PyRIT HTTPTarget 传入 httpx.Response 对象
+        if hasattr(response, "text"):
+            text = response.text
+        elif hasattr(response, "content"):
+            text = response.content.decode("utf-8") if isinstance(response.content, bytes) else str(response.content)
+        else:
+            text = str(response)
         try:
-            data = json.loads(response)
+            data = json.loads(text)
         except (json.JSONDecodeError, TypeError):
-            return response
+            return text
 
         current: Any = data
         for part in key.split("."):
@@ -1783,7 +2666,9 @@ def _inject_dynamic_session_fields(raw_request: str) -> str:
         return raw_request
 
     new_body = json.dumps(body_json, ensure_ascii=False)
-    return header_section + "\r\n\r\n" + new_body
+    result = header_section + "\r\n\r\n" + new_body
+    # v44.4 P4: 修正 Content-Length
+    return _fix_content_length(result)
 
 
 def _auto_detect_sse_content_path(sample_sse_response: str) -> str:
@@ -1848,7 +2733,7 @@ def _auto_detect_sse_content_path(sample_sse_response: str) -> str:
         if path:
             return path
 
-        break  # 仅检查第一帧
+        continue  # 跳过无 content 字段的帧 (如 meta 帧), 继续检查后续帧
 
     return default_path
 
@@ -1946,6 +2831,11 @@ def _build_non_stream_variant(raw_request: str) -> str | None:
             break
 
     if stream_key is None or body_json[stream_key] is not True:
+        # 无 Stream 字段 或 Stream:false — 不构造非流式变体
+        # 原因: 如果请求体无 Stream 字段, 服务端可能默认返回 SSE;
+        # 添加 stream:false 不一定有效 (取决于服务端实现),
+        # 且 JSON 回调无法解析 SSE 响应, 会导致 JSONDecodeError.
+        # 正确做法: 使用 SSE 回调处理响应.
         return None
 
     # 构造 Stream:false 变体
@@ -1961,7 +2851,9 @@ def _build_non_stream_variant(raw_request: str) -> str | None:
             modified_headers.append(line)
 
     new_body = json.dumps(body_json, ensure_ascii=False)
-    return "\r\n".join(modified_headers) + "\r\n\r\n" + new_body
+    result = "\r\n".join(modified_headers) + "\r\n\r\n" + new_body
+    # v44.4 P4: 修正 Content-Length
+    return _fix_content_length(result)
 
 
 def _inject_dynamic_fields(
@@ -2023,4 +2915,401 @@ def _inject_dynamic_fields(
             body_json[key] = value
 
     new_body = json.dumps(body_json, ensure_ascii=False)
-    return header_section + "\r\n\r\n" + new_body
+    result = header_section + "\r\n\r\n" + new_body
+    # v44.4 P4: 修正 Content-Length
+    return _fix_content_length(result)
+
+
+def _fix_content_length(raw_request: str) -> str:
+    """v44.4 P4: 修正 HTTP 请求中的 Content-Length header.
+
+    动态字段注入 (会话 ID 替换, Stream:false 变体) 改变了请求体长度,
+    但原始 Content-Length header 仍为旧值. 目标服务器严格校验时
+    会因长度不匹配返回 400 Bad Request.
+
+    本函数解析 header/body 分界, 重新计算 body 字节长度并更新
+    Content-Length header. 如果请求无 Content-Length header 则添加.
+
+    学术依据:
+      - RFC 7230 Section 3.3.2: Content-Length 必须精确匹配 body 字节数
+      - OWASP ASVS V14.5: HTTP 请求消息完整性
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求字符串 (可能含过时的 Content-Length).
+
+    Returns:
+        修正 Content-Length 后的 HTTP 请求字符串.
+    """
+    parts = raw_request.split("\r\n\r\n", 1)
+    if len(parts) < 2:
+        return raw_request
+
+    header_section = parts[0]
+    body = parts[1]
+
+    # 计算 body 的字节长度 (UTF-8 编码)
+    body_bytes = body.encode("utf-8")
+    new_length = len(body_bytes)
+
+    # 分割 header 行
+    header_lines = header_section.split("\r\n")
+    modified: bool = False
+    updated_headers: list[str] = []
+
+    for line in header_lines:
+        if line.lower().startswith("content-length:"):
+            # 替换为正确的长度
+            updated_headers.append(f"Content-Length: {new_length}")
+            modified = True
+        else:
+            updated_headers.append(line)
+
+    if not modified:
+        # 无 Content-Length header, 添加一个
+        updated_headers.append(f"Content-Length: {new_length}")
+
+    return "\r\n".join(updated_headers) + "\r\n\r\n" + body
+
+
+async def _burp_pre_flight_probe(
+    *,
+    raw_request: str,
+    target_url: str,
+    use_tls: bool,
+) -> dict[str, Any]:
+    """v44.4 P2: Burp 请求预检探针 — 发送测试请求自动推断响应格式.
+
+    在主流水线攻击前, 发送一条包含 {PROMPT} 占位符的测试请求
+    (prompt 为无害的 "hi"), 分析响应:
+      1. 检测响应是否为 SSE (Content-Type: text/event-stream)
+      2. 如果是 SSE, 自动探测 Content 字段路径
+      3. 如果是 JSON, 自动探测 JSON 路径
+      4. 检测目标是否支持 Stream:false (发送 Stream:false 变体)
+
+    学术依据:
+      - OWASP ASVS V14.3: 通信安全验证需先探测端点行为
+      - PyRIT (arXiv:2407.01232): HTTPTarget 回调需匹配响应格式
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求字符串.
+        target_url: 目标 URL.
+        use_tls: 是否使用 TLS.
+
+    Returns:
+        探测结果字典:
+          - is_sse: 响应是否为 SSE
+          - response_path: 自动探测的响应路径
+          - stream_false_supported: 目标是否支持 Stream:false
+    """
+    result: dict[str, Any] = {
+        "is_sse": False,
+        "response_path": "choices[0].message.content",
+        "stream_false_supported": False,
+    }
+
+    try:
+        import httpx
+
+        # 从 raw_request 提取 method, path, headers, body
+        parts = raw_request.split("\r\n\r\n", 1)
+        header_section = parts[0]
+        body = parts[1] if len(parts) > 1 else ""
+        header_lines = header_section.split("\r\n")
+        request_line = header_lines[0] if header_lines else "POST / HTTP/1.1"
+        request_parts = request_line.split()
+        method = request_parts[0] if request_parts else "POST"
+        path = request_parts[1] if len(request_parts) > 1 else "/"
+
+        # 提取 Host
+        host = ""
+        headers: dict[str, str] = {}
+        for line in header_lines[1:]:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                k = k.strip()
+                v = v.strip()
+                headers[k] = v
+                if k.lower() == "host":
+                    host = v
+
+        # 替换 {PROMPT} 为无害测试文本
+        test_body = body.replace("{PROMPT}", "hi")
+        # 修正 Content-Length (替换 {PROMPT} 后 body 长度变化)
+        test_body_bytes = test_body.encode("utf-8")
+        headers["Content-Length"] = str(len(test_body_bytes))
+        scheme = "https" if use_tls else "http"
+        if not host:
+            # 从 target_url 提取 host
+            from urllib.parse import urlparse
+
+            parsed = urlparse(target_url)
+            host = parsed.netloc
+
+        url = f"{scheme}://{host}{path}"
+
+        # 发送测试请求
+        async with httpx.AsyncClient(
+            verify=False,
+            timeout=15.0,
+        ) as client:
+            resp = await client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                content=test_body_bytes,
+            )
+
+            content_type = resp.headers.get("content-type", "")
+            # httpx 对 SSE 流式响应: resp.text 可能只包含部分内容 (超时中断)
+            # 但 content-type 始终可靠, 优先依赖 content-type 判断
+            try:
+                resp_text = resp.text
+            except Exception:
+                resp_text = ""
+
+            # 检测 SSE (优先依赖 content-type, 因为 SSE body 可能不完整)
+            is_sse_ct = "text/event-stream" in content_type
+            is_sse_data = resp_text.lstrip().startswith("data:")
+            is_sse_event = resp_text.lstrip().startswith("event:")
+            if is_sse_ct or is_sse_data or is_sse_event:
+                result["is_sse"] = True
+                result["response_path"] = _auto_detect_sse_content_path(resp_text)
+                result["stream_false_supported"] = False
+            else:
+                # JSON 响应 — 自动探测路径
+                result["is_sse"] = False
+                result["stream_false_supported"] = True
+
+                # 尝试从 JSON 响应推断路径
+                import json
+
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    data = json.loads(resp_text)
+                    if isinstance(data, dict):
+                        # 尝试 choices[0].message.content
+                        path = _find_content_path(data, "choices", "message", "content")
+                        if path:
+                            result["response_path"] = path
+                        else:
+                            path = _find_content_path(data, "Choices", "Message", "Content")
+                            if path:
+                                result["response_path"] = path
+                            elif "content" in data:
+                                result["response_path"] = "content"
+                            elif "Content" in data:
+                                result["response_path"] = "Content"
+
+        logger.info(f"v44.4 P2 pre-flight probe: SSE={result['is_sse']}, path={result['response_path']}")
+
+    except Exception as e:
+        logger.debug(f"v44.4 P2 pre-flight probe failed: {e}")
+
+    return result
+
+
+def _parse_burp_request_files(burp_request_arg: str) -> list[str]:
+    """v44.4 P3: 解析 --burp-request 参数, 支持逗号分隔多文件.
+
+    支持:
+      - 单文件: --burp-request data/burp/request.txt
+      - 多文件: --burp-request file1.txt,file2.txt,file3.txt
+
+    Args:
+        burp_request_arg: --burp-request 参数值.
+
+    Returns:
+        请求文件路径列表 (至少1个元素, 无效时为空列表).
+    """
+    if not burp_request_arg:
+        return []
+
+    # 逗号分隔
+    files = [f.strip() for f in burp_request_arg.split(",") if f.strip()]
+    return files
+
+
+def _discover_burp_request_file(target_url: str) -> str | None:
+    """v44.5 P2: 从 data/burp/ 目录自动发现匹配的请求文件.
+
+    当用户未指定 ``--burp-request`` 但指定了 ``--target-url`` 时,
+    尝试从 ``data/burp/`` 目录自动发现匹配的请求文件.
+
+    发现策略 (优先级递降):
+      1. 精确匹配: ``data/burp/{host}_{port}_request.txt``
+      2. Host 匹配: ``data/burp/{host}_*_request.txt`` (任意端口)
+      3. 默认文件: ``data/burp/request.txt`` (通用兜底)
+
+    命名约定:
+      - ``{host}_{port}_request.txt`` — 推荐 (如 ``127.0.0.1_8080_request.txt``)
+      - ``{host}_request.txt`` — 无端口 (如 ``example.com_request.txt``)
+      - ``request.txt`` — 通用默认
+
+    学术依据:
+      - OWASP ASVS V14.3: 通信安全验证 — 减少配置误差
+      - MITRE ATT&CK T1580: 配置自动发现减少攻击面暴露
+
+    Args:
+        target_url: 目标 URL (用于提取 host 和 port).
+
+    Returns:
+        发现的请求文件路径, 或 None (未发现).
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(target_url)
+    host = parsed.hostname or ""
+    port = parsed.port
+
+    # data/burp/ 目录
+    burp_dir = Path("data/burp")
+    if not burp_dir.exists():
+        return None
+
+    # 策略 1: 精确匹配 {host}_{port}_request.txt
+    if host and port:
+        candidate = burp_dir / f"{host}_{port}_request.txt"
+        if candidate.exists():
+            return str(candidate)
+
+    # 策略 2: Host 匹配 {host}_*_request.txt (任意端口)
+    if host:
+        pattern = f"{host}_*_request.txt"
+        matches = sorted(burp_dir.glob(pattern))
+        if matches:
+            return str(matches[0])
+
+    # 策略 2.5: {host}_request.txt (无端口)
+    if host:
+        candidate = burp_dir / f"{host}_request.txt"
+        if candidate.exists():
+            return str(candidate)
+
+    # 策略 3: 通用默认 request.txt
+    default_candidate = burp_dir / "request.txt"
+    if default_candidate.exists():
+        return str(default_candidate)
+
+    return None
+
+
+# ── O7: 模型指纹识别 ──
+# 学术依据: MITRE ATT&CK T1592; PyRIT (arXiv:2407.01232) 目标画像;
+#   fingerprinting survey (arXiv:2311.10634) 模型行为特征分析
+# 用途: 从 HTTP 响应头 + Body 特征推断模型族 (GPT/Claude/Llama/Qwen/...)
+
+# 模型族指纹特征库 (响应头 + body 关键词)
+_MODEL_FINGERPRINTS: dict[str, dict[str, list[str]]] = {
+    "openai/gpt": {
+        "headers": ["openai", "gpt", "chatgpt"],
+        "body_keywords": ["gpt-4", "gpt-3.5", "openai", "chatgpt", "dall-e"],
+    },
+    "anthropic/claude": {
+        "headers": ["anthropic", "claude"],
+        "body_keywords": ["claude", "anthropic", "constitutional ai"],
+    },
+    "meta/llama": {
+        "headers": ["llama", "meta"],
+        "body_keywords": ["llama", "llama-2", "llama-3", "meta ai"],
+    },
+    "qwen": {
+        "headers": ["qwen", "alibaba", "tongyi"],
+        "body_keywords": ["qwen", "通义", "alibaba", "aliyun"],
+    },
+    "google/gemini": {
+        "headers": ["gemini", "google", "bard"],
+        "body_keywords": ["gemini", "bard", "palm", "google ai"],
+    },
+    "mistral": {
+        "headers": ["mistral"],
+        "body_keywords": ["mistral", "mixtral", "magistral"],
+    },
+    "deepseek": {
+        "headers": ["deepseek"],
+        "body_keywords": ["deepseek", "deep-coder"],
+    },
+    "longcat": {
+        "headers": ["longcat", "long"],
+        "body_keywords": ["longcat", "long-context"],
+    },
+}
+
+
+def _detect_model_fingerprint(
+    response_headers: dict[str, str] | None = None,
+    response_body: str | None = None,
+) -> dict[str, Any]:
+    """从 HTTP 响应特征推断模型族.
+
+    O7: 模型指纹识别 — L5 对齐文档 Phase 3 目标画像要求.
+    通过响应头 + Body 关键词双重匹配, 推断目标 LLM 模型族.
+
+    学术依据: MITRE ATT&CK T1592; PyRIT (arXiv:2407.01232) 目标画像;
+      fingerprinting survey (arXiv:2311.10634)
+
+    Args:
+        response_headers: HTTP 响应头字典 (小写 key).
+        response_body: HTTP 响应 body 文本.
+
+    Returns:
+        识别结果字典:
+          - model_family: 模型族 (如 "openai/gpt", "qwen" 等, "unknown" 未识别)
+          - confidence: 置信度 (0.0-1.0)
+          - evidence: 识别证据列表
+    """
+    if response_headers is None:
+        response_headers = {}
+    if response_body is None:
+        response_body = ""
+
+    # 标准化 headers key 为小写
+    headers_lower = {k.lower(): v.lower() for k, v in response_headers.items()}
+    body_lower = response_body.lower()
+
+    best_family = "unknown"
+    best_confidence = 0.0
+    best_evidence: list[str] = []
+
+    for family, patterns in _MODEL_FINGERPRINTS.items():
+        evidence: list[str] = []
+        header_hits = 0
+        body_hits = 0
+
+        # 检查响应头
+        for keyword in patterns.get("headers", []):
+            for h_key, h_value in headers_lower.items():
+                if keyword in h_key or keyword in h_value:
+                    header_hits += 1
+                    evidence.append(f"header: {h_key}={h_value[:50]}")
+
+        # 检查 body
+        for keyword in patterns.get("body_keywords", []):
+            if keyword in body_lower:
+                body_hits += 1
+                evidence.append(f"body keyword: '{keyword}'")
+
+        # 计算置信度
+        total_header_patterns = len(patterns.get("headers", []))
+        total_body_patterns = len(patterns.get("body_keywords", []))
+        header_confidence = header_hits / max(total_header_patterns, 1) * 0.5
+        body_confidence = body_hits / max(total_body_patterns, 1) * 0.5
+        confidence = min(header_confidence + body_confidence, 1.0)
+
+        if confidence > best_confidence:
+            best_family = family
+            best_confidence = confidence
+            best_evidence = evidence
+
+    result: dict[str, Any] = {
+        "model_family": best_family,
+        "confidence": best_confidence,
+        "evidence": best_evidence,
+    }
+
+    if best_family != "unknown":
+        print(f"  [O7] 模型指纹: {best_family} (confidence={best_confidence:.2f})")
+        for ev in best_evidence[:3]:
+            print(f"       {ev}")
+    else:
+        print("  [O7] 模型指纹: 未识别 (无匹配特征)")
+
+    return result

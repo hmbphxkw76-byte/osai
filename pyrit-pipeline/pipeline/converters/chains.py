@@ -137,9 +137,13 @@ CONVERTER_VARIANT_CHAINS, BASE_TECHNIQUES_FOR_VARIANTS, COMBO_MULTIPLIERS = _loa
 
 
 def _build_stealth_evasion_chain() -> list:
-    """Unicode 混淆 + Base64 + 后缀追加."""
+    """ROT13 + Base64 + 后缀追加.
+
+    v45.4 修复: 移除 UnicodeConfusableConverter — 导致目标模型无法理解 prompt.
+    替换为 ROT13Converter — 保持 ASCII 字符集, 目标模型仍可解码.
+    """
     return [
-        _conv("UnicodeConfusableConverter")(),
+        _conv("ROT13Converter")(),
         _conv("Base64Converter")(),
         _conv("SuffixAppendConverter")(suffix="!!"),
     ]
@@ -200,9 +204,9 @@ def _build_noise_bypass_chain(converter_target: Any = None) -> list:
 
 
 def _build_special_chars_chain() -> list:
-    """特殊字符注入."""
+    """特殊字符注入 (v45.4: 移除 UnicodeConfusable, 改用 Diacritic)."""
     return [
-        _conv("UnicodeConfusableConverter")(),
+        _conv("DiacriticConverter")(),
         _conv("StringJoinConverter")(),
     ]
 
@@ -335,28 +339,33 @@ def _build_first_letter_chain() -> list:
 
 
 def _build_cross_paradigm_2layer_chain() -> list:
-    """P2: 跨范式 2 层 — Base64 (编码) + UnicodeConfusable (混淆).
+    """P2: 跨范式 2 层 — Base64 (编码) + ROT13 (混淆).
 
-    学术依据: encoding + unicode 组合乘数 1.6x (converter_chains.yaml)
+    v45.4 修复: 移除 UnicodeConfusableConverter — 导致目标模型无法理解 prompt.
+    替换为 ROT13Converter — 保持 ASCII 字符集, 目标模型仍可解码.
+
+    学术依据: encoding + rotation 组合乘数 1.6x (converter_chains.yaml)
     非 LLM 链: 本地计算, 无额外 API 调用, 极速执行.
     注意: Base64 完全编码 prompt, 目标模型无法解码, 仅适用于 many_shot
     """
     return [
         _conv("Base64Converter")(),
-        _conv("UnicodeConfusableConverter")(),
+        _conv("ROT13Converter")(),
     ]
 
 
 def _build_semantic_evasion_chain() -> list:
-    """P3: 语义保持混淆链 — UnicodeConfusable + Leetspeak.
+    """P3: 语义保持混淆链 — ROT13 + 随机大写.
 
-    与 cross_paradigm_2layer 的关键区别:
-    - cross_paradigm_2layer 使用 Base64 (完全编码, 目标无法解码)
-    - semantic_evasion 使用 UnicodeConfusable + Leetspeak (保持可读性)
+    v45.4 修复: 移除 UnicodeConfusable + Leetspeak — 这两个 Converter
+    将攻击 prompt 变换为 Unicode 混淆文本 (如西里尔字母替换),
+    导致目标模型无法理解 prompt 内容, 直接回复"消息包含特殊字符",
+    ASR 降为 0%. 对于无关键词级安全过滤的 API 目标 (如 Burp 模式)
+    尤其有害.
 
-    UnicodeConfusable: 替换字符为视觉相似的 Unicode (如 'a' → 'а' Cyrillic)
-    Leetspeak: 替换字母为数字 (如 'e' → '3', 'o' → '0')
-    两者均保持 prompt 语义可读, 仅绕过关键词级安全过滤.
+    替换为 ROT13 + RandomCapitalLetters — 经典替换密码 + 随机大写,
+    保持 ASCII 字符集, 目标模型仍可理解 prompt 语义,
+    同时绕过简单的关键词级安全过滤.
 
     学术依据:
       - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
@@ -364,13 +373,16 @@ def _build_semantic_evasion_chain() -> list:
       - HarmBench (arXiv:2402.04249): 保持可读性的变换比完全编码更有效
     """
     return [
-        _conv("UnicodeConfusableConverter")(),
-        _conv("LeetspeakConverter")(),
+        _conv("ROT13Converter")(),
+        _conv("RandomCapitalLettersConverter")(),
     ]
 
 
 def _build_cross_paradigm_3layer_chain(converter_target: Any = None) -> list:
-    """P2: 跨范式 3 层 — Base64 (编码) + UnicodeConfusable (混淆) + Persuasion (语义).
+    """P2: 跨范式 3 层 — Base64 (编码) + ROT13 (混淆) + Persuasion (语义).
+
+    v45.4 修复: 移除 UnicodeConfusableConverter — 导致目标模型无法理解 prompt.
+    替换为 ROT13Converter — 保持 ASCII 字符集, 目标模型仍可解码.
 
     学术依据:
       - encoding + stealth 1.5x (arXiv:2402.12109)
@@ -381,7 +393,7 @@ def _build_cross_paradigm_3layer_chain(converter_target: Any = None) -> list:
     """
     base = [
         _conv("Base64Converter")(),
-        _conv("UnicodeConfusableConverter")(),
+        _conv("ROT13Converter")(),
     ]
     if converter_target is None:
         return base
@@ -485,14 +497,84 @@ def _build_video_embed_chain(converter_target: Any = None) -> list:
     ]
 
 
+#: 全局变量: 存储用户传入的已有 PDF 文件路径 (通过 --pdf-file 设置)
+_existing_pdf_path: Path | None = None
+
+#: 全局变量: 存储 PDF 注入项列表
+_pdf_injection_items: list[dict[str, Any]] | None = None
+
+#: 全局变量: 存储用户传入的已有 Word 文件路径 (通过 --word-file 设置)
+_existing_docx_path: Path | None = None
+
+#: 全局变量: 存储 Word 占位符
+_word_placeholder: str = "{{INJECTION_PLACEHOLDER}}"
+
+
+def register_pdf_file_path(pdf_path: Path | None, injection_items: list[dict] | None = None) -> None:
+    """注册用户传入的已有 PDF 文件路径和注入项.
+
+    使 ``pdf`` 链构建时使用 ``PDFConverter(existing_pdf=..., injection_items=...)``
+    而非无参数构造。
+
+    学术依据: Greshake et al. (arXiv:2302.12173) — XPIA 间接注入需载体隐蔽,
+    在已有合法 PDF 中注入隐藏文本是最隐蔽的注入方式。
+
+    Args:
+        pdf_path: 已有 PDF 文件路径 (None 则使用默认生成模式)
+        injection_items: 注入项列表 [{page, x, y, text}, ...]
+    """
+    global _existing_pdf_path, _pdf_injection_items
+    _existing_pdf_path = pdf_path
+    _pdf_injection_items = injection_items
+    if pdf_path:
+        logger.info(f"Existing PDF registered for injection: {pdf_path}")
+
+
+def register_word_file_path(docx_path: Path | None, placeholder: str = "{{INJECTION_PLACEHOLDER}}") -> None:
+    """注册用户传入的已有 Word 文件路径和占位符.
+
+    使 ``word_doc`` 链构建时使用 ``WordDocConverter(existing_docx=..., placeholder=...)``
+    而非无参数构造。
+
+    Args:
+        docx_path: 已有 .docx 文件路径 (None 则使用默认生成模式)
+        placeholder: 占位符字符串 (默认 {{INJECTION_PLACEHOLDER}})
+    """
+    global _existing_docx_path, _word_placeholder
+    _existing_docx_path = docx_path
+    _word_placeholder = placeholder
+    if docx_path:
+        logger.info(f"Existing Word doc registered for injection: {docx_path}")
+
+
 def _build_file_pdf_injection_chain() -> list:
-    """P4: 生成恶意 PDF 用于 XPIA/RAG (text→binary_path)."""
-    return [_conv("PDFConverter")()]
+    """生成恶意 PDF 用于 XPIA/RAG (text→binary_path).
+
+    三种模式:
+    1. 已有 PDF + 注入项: 在已有 PDF 指定坐标注入隐藏文本 (最隐蔽)
+    2. 已有 PDF 无注入项: 覆盖模式 (整页覆盖)
+    3. 无已有 PDF: 生成全新 PDF (白色文本隐蔽)
+    """
+    kwargs: dict[str, Any] = {"font_color": (255, 255, 255), "font_size": 8}
+    if _existing_pdf_path is not None:
+        kwargs["existing_pdf"] = _existing_pdf_path
+    if _pdf_injection_items is not None:
+        kwargs["injection_items"] = _pdf_injection_items
+    return [_conv("PDFConverter")(**kwargs)]
 
 
 def _build_file_worddoc_injection_chain() -> list:
-    """P4: 生成恶意 Word 文档 (text→binary_path)."""
-    return [_conv("WordDocConverter")()]
+    """生成恶意 Word 文档 (text→binary_path).
+
+    两种模式:
+    1. 已有 .docx + 占位符: 在占位符位置替换为注入文本 (最隐蔽)
+    2. 无已有 .docx: 生成全新 .docx
+    """
+    kwargs: dict[str, Any] = {}
+    if _existing_docx_path is not None:
+        kwargs["existing_docx"] = _existing_docx_path
+        kwargs["placeholder"] = _word_placeholder
+    return [_conv("WordDocConverter")(**kwargs)]
 
 
 # ── 补全: LLM 链构建函数 ──
@@ -724,8 +806,8 @@ _CHAIN_BUILDERS = {
     "image_overlay": lambda target=None: [_conv("ImageOverlayConverter")()],
     "add_text_image": lambda target=None: [_conv("AddTextImageConverter")()],
     "add_image_text": lambda target=None: [_conv("AddImageTextConverter")()],
-    "pdf": lambda target=None: [_conv("PDFConverter")()],
-    "word_doc": lambda target=None: [_conv("WordDocConverter")()],
+    "pdf": lambda target=None: _build_file_pdf_injection_chain(),
+    "word_doc": lambda target=None: _build_file_worddoc_injection_chain(),
     "task_framing": lambda target=None: [_conv("TaskFramingConverter")()],
     "selective_text": lambda target=None: [_conv("SelectiveTextConverter")()],
     "policy_puppetry": lambda target=None: [_conv("PolicyPuppetryConverter")()],
@@ -1035,4 +1117,114 @@ def build_converters_from_chain_names(
         )
         result = result[:effective_max]
 
+    return result
+
+
+# ============================================================
+# 模态感知链路由 (v44.2)
+# ============================================================
+
+#: 模态兼容性映射 — 定义哪些模态的链可以在哪种目标模态下使用
+#:
+#: 策略依据:
+#:   - text 目标: 仅接受 text 模态链 (纯文本编码/混淆/语义)
+#:   - image 目标: 接受 text + image + multimodal 链
+#:   - multimodal 目标: 接受所有模态链 (text + image + audio + video + file + multimodal)
+#:   - audio 目标: 接受 text + audio 链
+#:   - video 目标: 接受 text + video + multimodal 链
+#:   - file 目标: 接受 text + file 链
+#:
+#: 学术依据: Owens et al. (arXiv:2302.07087) — 跨模态攻击在多模态模型上
+#: 具有更高的迁移性, 但需要目标模型支持对应模态输入
+_MODALITY_COMPAT: dict[str, frozenset[str]] = {
+    "text": frozenset({"text"}),
+    "image": frozenset({"text", "image", "multimodal"}),
+    "audio": frozenset({"text", "audio"}),
+    "video": frozenset({"text", "video", "multimodal"}),
+    "file": frozenset({"text", "file"}),
+    "multimodal": frozenset({"text", "image", "audio", "video", "file", "multimodal"}),
+}
+
+
+def get_chain_modality(chain_name: str) -> str:
+    """返回指定链的模态类型。
+
+    Args:
+        chain_name: 链名 (如 "stealth_evasion", "image_text_embed")
+
+    Returns:
+        str: 模态类型 — "text" | "image" | "audio" | "video" | "file" | "multimodal"。
+        如果链未找到则返回 "text" (安全默认值)。
+    """
+    chain_info = CONVERTER_VARIANT_CHAINS.get(chain_name, {})
+    return chain_info.get("modality", "text")
+
+
+def get_chains_by_modality(modality: str) -> list[str]:
+    """返回指定模态的所有链名列表。
+
+    Args:
+        modality: 模态类型 — "text" | "image" | "audio" | "video" | "file" | "multimodal"
+
+    Returns:
+        list[str]: 该模态下所有已注册的链名
+    """
+    return [
+        name
+        for name, info in CONVERTER_VARIANT_CHAINS.items()
+        if info.get("modality", "text") == modality
+    ]
+
+
+def filter_chains_by_target_modality(
+    chain_names: list[str],
+    target_modality: str,
+) -> list[str]:
+    """根据目标模态过滤链列表，跳过不兼容的链。
+
+    Args:
+        chain_names: 用户指定的链名列表
+        target_modality: 目标模型的模态类型
+
+    Returns:
+        list[str]: 过滤后与目标模态兼容的链名列表
+    """
+    accepted = _MODALITY_COMPAT.get(target_modality, frozenset({"text"}))
+    filtered: list[str] = []
+    for name in chain_names:
+        chain_mod = get_chain_modality(name)
+        if chain_mod in accepted:
+            filtered.append(name)
+        else:
+            logger.info(
+                f"Skipping chain '{name}' (modality={chain_mod}) "
+                f"— incompatible with target modality '{target_modality}'"
+            )
+    return filtered
+
+
+def auto_select_chains_by_modality(
+    target_modality: str,
+    *,
+    converter_target_available: bool = False,
+) -> list[str]:
+    """根据目标模态自动选择所有兼容的链名。
+
+    Args:
+        target_modality: 目标模型的模态类型
+        converter_target_available: 是否有 LLM converter_target 可用。
+            若为 False，则跳过 requires_llm=True 的链。
+
+    Returns:
+        list[str]: 所有与目标模态兼容且可构建的链名列表
+    """
+    accepted = _MODALITY_COMPAT.get(target_modality, frozenset({"text"}))
+    result: list[str] = []
+    for name, info in CONVERTER_VARIANT_CHAINS.items():
+        chain_mod = info.get("modality", "text")
+        if chain_mod not in accepted:
+            continue
+        if info.get("requires_llm", False) and not converter_target_available:
+            continue
+        result.append(name)
     return result

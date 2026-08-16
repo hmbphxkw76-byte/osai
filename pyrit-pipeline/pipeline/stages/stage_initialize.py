@@ -54,6 +54,11 @@ async def run(ctx: PipelineContext) -> None:
     print("阶段 3/6: 场景初始化 — 弹药装填 + ASR 优先级排序")
     print("=" * 70)
 
+    # v50: 场景被跳过时 (所有目标模式失败) 跳过初始化
+    if ctx.scenario is None or ctx.metadata.get("scenario_skipped"):
+        print("  ⚠ [v50] 场景为空, 跳过初始化")
+        return
+
     # ── 原生: 场景初始化 ──
     # G1 修复: initialize_async 内部会校验 objective hash 唯一性,
     # 跨数据集重复 seed 会导致 baseline AtomicAttack 校验失败.

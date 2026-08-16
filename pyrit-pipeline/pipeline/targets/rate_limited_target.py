@@ -115,6 +115,9 @@ _TIMEOUT_EXCEPTION_NAMES = {
     "APITimeoutError",
     "asyncio.TimeoutError",
     "TimeoutError",
+    "ReadTimeout",       # httpx.ReadTimeout — SSE 流式响应读取超时
+    "ConnectTimeout",    # httpx.ConnectTimeout
+    "PoolTimeout",       # httpx.PoolTimeout
 }
 
 # 速率限制类异常 (优先使用 Retry-After 头)
@@ -289,6 +292,11 @@ class RateLimitedTarget:
         self._dynamic_decrease_factor = 0.5  # 默认减半
         self._dynamic_increase_step = self._aimd_increase_step
 
+        # P2-3 (v45.5): 连续超时计数器 — 用于动态调整SSE超时
+        # 当连续2次ReadTimeout后, 下次重试自动将超时从60s提升到120s
+        self._consecutive_timeout_count = 0
+        self._dynamic_timeout_override: float | None = None
+
     def _infer_endpoint(self, target: PromptTarget) -> str:
         """从 Target 推断端点 URL。."""
         try:
@@ -442,6 +450,8 @@ class RateLimitedTarget:
                     self._record_rtt(rtt)
                     # G6: AIMD Additive Increase — 成功后缓慢增加 RPM
                     self._aimd_increase()
+                    # P2-3 (v45.5): 成功时重置连续超时计数器
+                    self._consecutive_timeout_count = 0
                     return result
                 except Exception as e:
                     last_error = e
@@ -465,6 +475,24 @@ class RateLimitedTarget:
                         self._timeout_max_retries if is_timeout_error else self._max_retries
                     )
 
+                    # P2-3 (v45.5): 连续超时计数 + 动态超时调整
+                    # 当连续2次ReadTimeout后, 下次重试将超时从默认提升到120s
+                    if is_timeout_error:
+                        self._consecutive_timeout_count += 1
+                        if self._consecutive_timeout_count >= 2 and self._dynamic_timeout_override is None:
+                            self._dynamic_timeout_override = 120.0
+                            # 尝试设置原始target的timeout属性
+                            current_timeout = getattr(self._target, "timeout", None)
+                            if current_timeout is not None and current_timeout < 120.0:
+                                self._target.timeout = 120.0
+                                logger.warning(
+                                    f"P2-3: Consecutive timeout #{self._consecutive_timeout_count}, "
+                                    f"dynamic timeout adjusted {current_timeout}s → 120s"
+                                )
+                    else:
+                        # 非超时错误重置计数器
+                        self._consecutive_timeout_count = 0
+
                     if attempt >= effective_max_retries:
                         logger.error(
                             f"RateLimitedTarget: max_retries ({effective_max_retries}) "
@@ -475,13 +503,23 @@ class RateLimitedTarget:
 
                     # G6: AIMD Multiplicative Decrease — 429 时 RPM 减半
                     status_code = getattr(e, "status_code", None)
-                    if status_code == 429 or "429" in str(e):
+                    is_429 = status_code == 429 or "429" in str(e)
+                    if is_429:
                         self._aimd_decrease()
 
                     # P1: 差异化退避策略
+                    # P2-1 (v45.5): 429使用专用退避策略 — 最小15s (SiliconFlow RPM限制)
                     retry_after = _extract_retry_after(e)
                     if retry_after is not None:
                         delay = retry_after
+                    elif is_429:
+                        # 429但无Retry-After头: 最小15s + 指数退避
+                        delay = max(15.0, _compute_backoff(
+                            attempt,
+                            base_delay=15.0,
+                            max_delay=self._max_delay,
+                            jitter=self._jitter,
+                        ))
                     else:
                         # 超时异常使用更大基础延迟和更长退避上限
                         if is_timeout_error:

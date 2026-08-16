@@ -238,6 +238,22 @@ async def run(ctx: PipelineContext) -> None:
         datasets=len(ctx.args.datasets) if ctx.args.datasets else 0,
     )
 
+    # v45: 设置 OSAI_SECURITY_SCORERS 环境变量, 供 enhanced_registry 控制 Likert 注册
+    if getattr(ctx.args, "security_scorers", False):
+        os.environ["OSAI_SECURITY_SCORERS"] = "1"
+
+    # ── P9: 目标模型族检测 — 供 T1 per-model 拒绝模式使用 ──
+    _target_model_name = (
+        os.getenv("TARGET_MODEL", "")
+        or os.getenv("OPENAI_CHAT_MODEL", "")
+        or getattr(ctx.args, "model", "")
+    )
+    if _target_model_name:
+        from pipeline.scoring.cascade_scorer import set_current_model_family
+        _detected_family = set_current_model_family(_target_model_name)
+        if _detected_family:
+            ctx.metadata["target_model_family"] = _detected_family
+
     # ── 评分器增强 (非 Azure 环境补充注册) ──
     _register_enhanced_scorers()
 
@@ -760,6 +776,14 @@ def _print_opsec_summary(ctx: PipelineContext) -> None:
         lines.append("双评分器: ✅ 热切换已启用 (备用: DeepSeek-V3.2)")
     else:
         lines.append("双评分器: ➖ 未启用 (配置 BACKUP_SCORER_CHAT_* 以启用)")
+
+    # v47: 双 Judge 投票
+    second_scorer_model = os.getenv("SECOND_SCORER_CHAT_MODEL", "")
+    if second_scorer_model:
+        primary_model = os.getenv("OBJECTIVE_SCORER_CHAT_MODEL", "?")
+        lines.append(f"双Judge投票: ✅ Judge-A={primary_model}, Judge-B={second_scorer_model}")
+    else:
+        lines.append("双Judge投票: ➖ 未启用 (配置 SECOND_SCORER_CHAT_* 以启用)")
 
     info_box("OPSEC — 限速 × 隐蔽性 × 评分器", lines)
 

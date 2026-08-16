@@ -124,6 +124,8 @@ def should_use_composite_scorer(model_tier: str) -> bool:
     Returns:
         True if composite scorer should be used
     """
-    # Use composite scorer for strong and moderate models
-    # where false positives from partial refusals are more likely
-    return model_tier in ("strong", "moderate", "unknown")
+    # v45: 收紧条件 — 仅 strong 模型使用复合评分器
+    #       moderate/unknown 模型由 cascade_scorer 的 T2 单次 LLM 评分处理
+    #       弱模型很少拒绝, 复合评分器的第二次 LLM 调用是浪费
+    #       边界案例 (T2 不确定) 仍会升级到 T3 复合验证
+    return model_tier in ("strong",)

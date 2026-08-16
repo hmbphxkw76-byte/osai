@@ -145,9 +145,9 @@ class TestLLMChainFiltering:
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        # semantic_evasion 包含 UnicodeConfusableConverter + LeetspeakConverter
-        assert "UnicodeConfusableConverter" in converter_types
-        assert "LeetspeakConverter" in converter_types
+        # v45.4: semantic_evasion = ROT13 + RandomCapitalLetters (移除 UnicodeConfusable+Leetspeak, ASR=0%)
+        assert "ROT13Converter" in converter_types
+        assert "RandomCapitalLettersConverter" in converter_types
 
 
 # ============================================================
@@ -268,8 +268,8 @@ class TestLayer3Integration:
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        # semantic_evasion 包含 UnicodeConfusableConverter (保持可读性)
-        assert "UnicodeConfusableConverter" in converter_types
+        # v45.4: semantic_evasion = ROT13 + RandomCapitalLetters (保持可读性, 移除 UnicodeConfusable)
+        assert "ROT13Converter" in converter_types
 
 
 # ============================================================
@@ -387,8 +387,8 @@ class TestPayloadAffinity:
         )
         assert "crescendo" in result
         converter_types = [type(c).__name__ for c in result["crescendo"]]
-        # P3: semantic_evasion 保持可读性, 不再使用 Base64 编码
-        assert "UnicodeConfusableConverter" in converter_types
+        # v45.4: semantic_evasion = ROT13 + RandomCapitalLetters (保持可读性, 移除 UnicodeConfusable)
+        assert "ROT13Converter" in converter_types
 
     def test_no_dataset_names_no_affinity(self) -> None:
         """dataset_names=None 时不启用亲和匹配, 退化为纯 priority 排序。"""

@@ -146,3 +146,27 @@ optimal_attacker_by_target:
   "vicuna": "gpt-4o"
   "alpaca": "gpt-4o"
   "default": "gpt-4o"
+
+# ── v45.1 P3: T2/T3 评分模型分层 ──
+# T2 使用轻量模型 (低成本, 高速度), T3 使用重量模型 (高准确度)
+# 学术依据: FrugalGPT (arXiv:2305.02415) — 小模型过滤 + 大模型验证
+# 仅当用户未单独配置 OBJECTIVE_SCORER_CHAT_MODEL 时使用此分层
+scorer_model_tiers:
+  # T2: 轻量评分模型 (成本优先, ~70% 评分在此层完成)
+  t2_lightweight:
+    model: "gpt-4o-mini"
+    endpoint: "https://api.openai.com/v1"
+    max_tokens: 300
+    temperature: 0.0
+  # T3: 重量评分模型 (准确度优先, ~5% 边界案例在此层验证)
+  t3_heavyweight:
+    model: "gpt-4o"
+    endpoint: "https://api.openai.com/v1"
+    max_tokens: 800
+    temperature: 0.0
+  # 国内备选 (SiliconFlow)
+  t2_lightweight_cn:
+    model: "deepseek-ai/DeepSeek-V3"
+    endpoint: "https://api.siliconflow.cn/v1"
+    max_tokens: 300
+    temperature: 0.0

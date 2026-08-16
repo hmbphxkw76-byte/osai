@@ -75,6 +75,34 @@ async def run(ctx: PipelineContext) -> None:
     # ── O7: 技术池演化追溯 (新增信息: 技术匹配率 + P编号) ──
     _print_tech_pool_evolution(ctx)
 
+    # ── A-6: 自适应 Converter 学习器 ──
+    try:
+        from pipeline.converters.adaptive_router import AdaptiveConverterRouter
+        from pipeline.utils.display import info_box
+
+        _router = AdaptiveConverterRouter()
+        _all_results = []
+        if ctx.result:
+            for _v in ctx.result.attack_results.values():
+                _all_results.extend(_v)
+        _model_name = ctx.metadata.get("model_name", "unknown")
+        _router.learn_from_results(_all_results, model_name=_model_name)
+        _adj = _router.get_adjustment_summary()
+        if _adj["total_adjustments"] > 0:
+            ctx.metadata["converter_adaptive_routing"] = _adj
+            _router.persist()
+            _lines = [
+                f"分析Converter数: {_adj['total_converters_analyzed']}",
+                f"调整建议: {_adj['total_adjustments']} (高优先级: {_adj['high_priority']})",
+                f"提升: {_adj['promotions']} | 降级: {_adj['demotions']} | 语义层切换: {_adj['degradations']}",
+            ]
+            info_box("A-6: Converter 自适应路由", _lines)
+            logger.info(
+                f"A-6: Converter adaptive router: {_adj['total_adjustments']} adjustments"
+            )
+    except Exception as e:
+        logger.debug(f"A-6: Converter adaptive router skipped: {e}")
+
     # ── D3: 修复建议生成 (新增信息: 修复优先级) ──
     _print_fix_recommendations(ctx)
 
@@ -89,6 +117,11 @@ async def run(ctx: PipelineContext) -> None:
 
     # ── R-023: 端到端验证报告 (自动检查 ctx.metadata 中各场景结果) ──
     _print_e2e_validation(ctx)
+
+    # ── O3: ASR 多维度分解 (by_tier/by_converter/by_owasp/by_scorer_agreement) ──
+    # 学术依据: HarmBench (arXiv:2402.04249) §5.2 多维ASR分析;
+    #   JailbreakBench (arXiv:2402.01135) §4.2 评分一致性度量
+    _compute_asr_breakdown(ctx)
 
     # ── O8: ★ 突出传递 Banner (替代单行交接) ──
     from pipeline.utils.display import handoff_banner
@@ -919,3 +952,146 @@ def _print_e2e_validation(ctx: PipelineContext) -> None:
         ctx.metadata["e2e_validation"] = report.to_dict()
     except Exception as e:
         logger.debug(f"E2E validation skipped: {e}")
+
+
+# ── O3: ASR 多维度分解 ──
+# 学术依据: HarmBench (arXiv:2402.04249) §5.2 多维ASR分析;
+#   JailbreakBench (arXiv:2402.01135) §4.2 评分一致性度量
+# 文档 Phase 7 要求: asr_breakdown.json 按4维分解
+
+# Tier 分类映射
+_TIER_1_TECHS = {"prompt_sending"}
+_TIER_2_TECHS = {"red_teaming"}
+_TIER_3_TECHS = {"crescendo", "crescendo_simulated", "tap", "pair",
+                 "crescendo_movie_director", "crescendo_history_lecture",
+                 "crescendo_journalist_interview"}
+_TIER_4_TECHS = {"xpia", "context_bomb", "data_poisoning", "vector_db_injection",
+                 "hallucination_injection", "backdoor_probe"}
+
+
+def _classify_tier(tech_name: str) -> str:
+    """将技术名映射到攻击 Tier 层级."""
+    base = tech_name.split("+")[0] if "+" in tech_name else tech_name
+    if base in _TIER_1_TECHS:
+        return "tier_1_baseline"
+    if base in _TIER_2_TECHS:
+        return "tier_2_adaptive"
+    if base in _TIER_3_TECHS:
+        return "tier_3_deep"
+    if base in _TIER_4_TECHS:
+        return "tier_4_xpia"
+    return "tier_unclassified"
+
+
+def _compute_asr_breakdown(ctx: PipelineContext) -> dict[str, Any]:
+    """计算 ASR 多维度分解 — 4维交叉分析.
+
+    维度:
+      1. by_attack_tier: Tier 1/2/3/4 ASR
+      2. by_converter: none/base64/translation/homoglyph/multi_layer
+      3. by_owasp_category: LLM01-10 + ASI01-10
+      4. by_scorer_agreement: both_agree_success/disagreement
+
+    学术依据: HarmBench (arXiv:2402.04249) §5.2 要求多维ASR分析;
+      JailbreakBench (arXiv:2402.01135) §4.2 评分一致性度量
+
+    Returns:
+        asr_breakdown 字典
+    """
+    asr_per_tech = ctx.asr_per_technique or {}
+    if not asr_per_tech:
+        return {}
+
+    breakdown: dict[str, Any] = {"overall_asr": f"{ctx.overall_asr:.1f}%"}
+
+    # ── 维度1: by_attack_tier ──
+    tier_stats: dict[str, dict[str, int]] = {}
+    for tech, asr in asr_per_tech.items():
+        tier = _classify_tier(tech)
+        if tier not in tier_stats:
+            tier_stats[tier] = {"success": 0, "total": 0}
+        # 从 asr_per_technique 提取 success/total (asr = success/total*100)
+        # 由于 asr_per_technique 只有百分比, 我们用近似
+        tier_stats[tier]["total"] += 1
+        if asr > 0:
+            tier_stats[tier]["success"] += 1
+
+    by_tier: dict[str, str] = {}
+    for tier, stats in sorted(tier_stats.items()):
+        rate = stats["success"] / stats["total"] * 100 if stats["total"] > 0 else 0
+        by_tier[tier] = f"{rate:.1f}% ({stats['success']}/{stats['total']})"
+    breakdown["by_attack_tier"] = by_tier
+
+    # ── 维度2: by_converter ──
+    # 从 ctx.metadata 获取 Converter 信息
+    converter_log = ctx.metadata.get("converter_log", {})
+    converter_stats: dict[str, dict[str, int]] = {"none": {"success": 0, "total": 0}}
+    if converter_log and isinstance(converter_log, dict):
+        for entry in converter_log.get("entries", []):
+            conv_name = entry.get("converter", "none") or "none"
+            if conv_name not in converter_stats:
+                converter_stats[conv_name] = {"success": 0, "total": 0}
+            converter_stats[conv_name]["total"] += 1
+            if entry.get("success"):
+                converter_stats[conv_name]["success"] += 1
+
+    by_converter: dict[str, str] = {}
+    for conv, stats in sorted(converter_stats.items()):
+        rate = stats["success"] / stats["total"] * 100 if stats["total"] > 0 else 0
+        by_converter[conv] = f"{rate:.1f}%"
+    breakdown["by_converter"] = by_converter
+
+    # ── 维度3: by_owasp_category ──
+    # 从 ctx.metadata 获取 OWASP 映射
+    owasp_stats: dict[str, dict[str, int]] = {}
+    evidence_collection = ctx.metadata.get("evidence_collection", {})
+    if evidence_collection and isinstance(evidence_collection, dict):
+        for finding in evidence_collection.get("findings", []):
+            owasp_id = finding.get("owasp_id", "unknown")
+            owasp_stats.setdefault(owasp_id, {"success": 0, "total": 0})
+            owasp_stats[owasp_id]["total"] += 1
+            if finding.get("score_value"):
+                owasp_stats[owasp_id]["success"] += 1
+
+    by_owasp: dict[str, str] = {}
+    for owasp_id, stats in sorted(owasp_stats.items()):
+        rate = stats["success"] / stats["total"] * 100 if stats["total"] > 0 else 0
+        by_owasp[owasp_id] = f"{rate:.1f}%"
+    breakdown["by_owasp_category"] = by_owasp
+
+    # ── 维度4: by_scorer_agreement ──
+    # 从 cascade_scorer 的 tier_stats 获取评分一致性
+    scorer_stats = ctx.metadata.get("scorer_tier_stats", {})
+    agreement: dict[str, Any] = {
+        "both_agree_success": scorer_stats.get("T1_success", 0) + scorer_stats.get("T2_success", 0),
+        "both_agree_failure": scorer_stats.get("T1_failure", 0) + scorer_stats.get("T2_failure", 0),
+        "disagreement": scorer_stats.get("T2.5_disputed_adopt_a", 0)
+        + scorer_stats.get("T2.5_disputed_adopt_b", 0)
+        + scorer_stats.get("T2.5_disputed_fallback", 0),
+    }
+    breakdown["by_scorer_agreement"] = agreement
+
+    # 写入 ctx.metadata
+    ctx.metadata["asr_breakdown"] = breakdown
+
+    # 打印摘要
+    print("\n  --- O3: ASR 多维度分解 ---")
+    print(f"  Overall ASR: {breakdown['overall_asr']}")
+    if by_tier:
+        print("  By Attack Tier:")
+        for tier, val in by_tier.items():
+            print(f"    {tier}: {val}")
+    if by_converter:
+        print("  By Converter:")
+        for conv, val in by_converter.items():
+            print(f"    {conv}: {val}")
+    if by_owasp:
+        print("  By OWASP Category:")
+        for owasp, val in by_owasp.items():
+            print(f"    {owasp}: {val}")
+    if agreement:
+        print("  By Scorer Agreement:")
+        for key, val in agreement.items():
+            print(f"    {key}: {val}")
+
+    return breakdown

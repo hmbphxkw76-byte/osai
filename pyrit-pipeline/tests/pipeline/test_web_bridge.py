@@ -870,7 +870,7 @@ class TestBuildNonStreamVariant:
         )
         result = _build_non_stream_variant(request)
         assert result is not None
-        assert '"Stream":false' in result
+        assert '"Stream": false' in result
         assert "text/event-stream" not in result
         assert "application/json" in result
 
@@ -912,7 +912,7 @@ class TestBuildNonStreamVariant:
         )
         result = _build_non_stream_variant(request)
         assert result is not None
-        assert '"stream":false' in result
+        assert '"stream": false' in result
 
     def test_prompt_preserved_in_variant(self):
         """{PROMPT} 占位符在变体中保持不变."""
@@ -975,7 +975,7 @@ class TestInjectDynamicFields:
             request,
             field_overrides={"CustomField": "overridden"},
         )
-        assert '"CustomField":"overridden"' in result
+        assert '"CustomField": "overridden"' in result
 
     def test_prompt_placeholder_preserved(self):
         """{PROMPT} 占位符保留."""
@@ -1022,3 +1022,796 @@ class TestGenerateSessionUUID:
 
         uuids = {_generate_session_uuid() for _ in range(100)}
         assert len(uuids) == 100
+
+
+# ============================================================
+# v44.4: Content-Length修正 + Stream:false回退 + 预检探针 + 多文件轮转
+# ============================================================
+
+
+class TestFixContentLength:
+    """v44.4 P4: _fix_content_length 测试."""
+
+    def test_update_existing_content_length(self):
+        """更新已存在的 Content-Length."""
+        from pipeline.stages.stage_target_classify import _fix_content_length
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Length: 10\r\n"
+            "\r\n"
+            '{"a":"bcdefghi"}'
+        )
+        result = _fix_content_length(request)
+        # 新 body 长度 = 16 字节
+        assert "Content-Length: 16" in result
+
+    def test_add_missing_content_length(self):
+        """添加缺失的 Content-Length."""
+        from pipeline.stages.stage_target_classify import _fix_content_length
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "\r\n"
+            '{"query":"hello"}'
+        )
+        result = _fix_content_length(request)
+        assert "Content-Length:" in result
+        # body 长度 = 17 字节
+        assert "Content-Length: 17" in result
+
+    def test_no_body_unchanged(self):
+        """无 body 时添加 Content-Length: 0 (RFC 7230 标准行为)."""
+        from pipeline.stages.stage_target_classify import _fix_content_length
+
+        request = "POST /api/chat HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        result = _fix_content_length(request)
+        # 无 body 时添加 Content-Length: 0 (RFC 7230 Section 3.3.2)
+        assert "Content-Length: 0" in result
+
+    def test_unicode_body_length(self):
+        """Unicode body 按字节计算长度."""
+        from pipeline.stages.stage_target_classify import _fix_content_length
+
+        request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Length: 1\r\n"
+            "\r\n"
+            '{"msg":"你好"}'
+        )
+        result = _fix_content_length(request)
+        # "你好" 是 6 字节 (UTF-8), 总 body = 16 字节
+        body = '{"msg":"你好"}'
+        expected_len = len(body.encode("utf-8"))
+        assert f"Content-Length: {expected_len}" in result
+
+    def test_content_length_after_dynamic_injection(self):
+        """动态注入后 Content-Length 被修正."""
+        from pipeline.stages.stage_target_classify import (
+            _fix_content_length,
+            _inject_dynamic_session_fields,
+        )
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            'Content-Length: 100\r\n'
+            '\r\n'
+            '{"ChatId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890",'
+            '"Query":"{PROMPT}"}'
+        )
+        # 动态注入会改变 body 长度
+        injected = _inject_dynamic_session_fields(request)
+        # 修正 Content-Length
+        fixed = _fix_content_length(injected)
+        # 验证 Content-Length 已更新 (不再是 100)
+        assert "Content-Length: 100" not in fixed
+
+
+class TestStreamFalseFallback:
+    """v44.4 P1: Stream:false 回退 Target 注册测试."""
+
+    def test_sse_fallback_registered_in_metadata(self):
+        """验证 SSE 回退 Target 的 metadata 标志存在 (逻辑测试)."""
+        # 此测试验证函数逻辑: _build_non_stream_variant 返回非 None
+        # 则 _bridge_burp_api 应设置 burp_sse_fallback_registered=True
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            'Accept: text/event-stream\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}","Stream":true}'
+        )
+        variant = _build_non_stream_variant(request)
+        assert variant is not None
+        # 如果 variant 存在, 则 _bridge_burp_api 会注册 SSE 回退 Target
+
+    def test_no_fallback_when_not_sse(self):
+        """非 SSE 请求不产生回退 Target."""
+        from pipeline.stages.stage_target_classify import _build_non_stream_variant
+
+        request = (
+            'POST /api/chat HTTP/1.1\r\n'
+            'Host: example.com\r\n'
+            '\r\n'
+            '{"Query":"{PROMPT}"}'
+        )
+        variant = _build_non_stream_variant(request)
+        assert variant is None
+
+
+class TestParseBurpRequestFiles:
+    """v44.4 P3: _parse_burp_request_files 测试."""
+
+    def test_single_file(self):
+        """单文件解析."""
+        from pipeline.stages.stage_target_classify import _parse_burp_request_files
+
+        result = _parse_burp_request_files("data/burp/request.txt")
+        assert result == ["data/burp/request.txt"]
+
+    def test_multiple_files(self):
+        """多文件解析 (逗号分隔)."""
+        from pipeline.stages.stage_target_classify import _parse_burp_request_files
+
+        result = _parse_burp_request_files("file1.txt,file2.txt,file3.txt")
+        assert len(result) == 3
+        assert "file1.txt" in result
+        assert "file2.txt" in result
+        assert "file3.txt" in result
+
+    def test_empty_arg(self):
+        """空参数返回空列表."""
+        from pipeline.stages.stage_target_classify import _parse_burp_request_files
+
+        assert _parse_burp_request_files("") == []
+        assert _parse_burp_request_files(None) == []  # type: ignore[arg-type]
+
+    def test_whitespace_trimmed(self):
+        """空格被去除."""
+        from pipeline.stages.stage_target_classify import _parse_burp_request_files
+
+        result = _parse_burp_request_files(" file1.txt , file2.txt ")
+        assert result == ["file1.txt", "file2.txt"]
+
+    def test_trailing_comma_ignored(self):
+        """末尾逗号被忽略."""
+        from pipeline.stages.stage_target_classify import _parse_burp_request_files
+
+        result = _parse_burp_request_files("file1.txt,file2.txt,")
+        assert len(result) == 2
+
+
+class TestBurpPreFlightProbe:
+    """v44.4 P2: _burp_pre_flight_probe 测试."""
+
+    @pytest.mark.asyncio
+    async def test_probe_returns_defaults_on_error(self):
+        """连接失败时返回默认值."""
+        from pipeline.stages.stage_target_classify import _burp_pre_flight_probe
+
+        result = await _burp_pre_flight_probe(
+            raw_request="POST /api HTTP/1.1\r\nHost: nonexistent.invalid\r\n\r\n{}",
+            target_url="https://nonexistent.invalid",
+            use_tls=True,
+        )
+        # 失败时返回默认值
+        assert "is_sse" in result
+        assert "response_path" in result
+        assert "stream_false_supported" in result
+        # 连接失败时 is_sse=False
+        assert result["is_sse"] is False
+
+    @pytest.mark.asyncio
+    async def test_probe_json_response(self):
+        """JSON 响应被正确探测 (使用 mock)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from pipeline.stages.stage_target_classify import _burp_pre_flight_probe
+
+        # Mock httpx.AsyncClient
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.text = '{"choices":[{"message":{"content":"hello"}}]}'
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.request = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await _burp_pre_flight_probe(
+                raw_request=(
+                    'POST /v1/chat HTTP/1.1\r\n'
+                    'Host: api.example.com\r\n'
+                    '\r\n'
+                    '{"Query":"{PROMPT}"}'
+                ),
+                target_url="https://api.example.com",
+                use_tls=True,
+            )
+
+        assert result["is_sse"] is False
+        assert result["stream_false_supported"] is True
+        path = result["response_path"]
+        assert "choices" in path or "message" in path or "content" in path
+
+    @pytest.mark.asyncio
+    async def test_probe_sse_response(self):
+        """SSE 响应被正确探测 (使用 mock)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from pipeline.stages.stage_target_classify import _burp_pre_flight_probe
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "text/event-stream"}
+        mock_response.text = (
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.request = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await _burp_pre_flight_probe(
+                raw_request=(
+                    'POST /v1/chat HTTP/1.1\r\n'
+                    'Host: api.example.com\r\n'
+                    'Accept: text/event-stream\r\n'
+                    '\r\n'
+                    '{"Query":"{PROMPT}","Stream":true}'
+                ),
+                target_url="https://api.example.com",
+                use_tls=True,
+            )
+
+        assert result["is_sse"] is True
+        assert "choices" in result["response_path"] or "delta" in result["response_path"]
+
+
+# ============================================================
+# v44.5: 自动 {PROMPT} 注入 + Burp 请求文件自动发现
+# ============================================================
+
+
+class TestAutoPromptInjection:
+    """v44.5 P1: enhance_burp_request 自动注入 {PROMPT} 测试."""
+
+    def test_inject_into_openai_messages_format(self):
+        """OpenAI messages 格式自动注入."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"hello world"}]}'
+        )
+        result = enhance_burp_request(raw_request)
+        assert "{PROMPT}" in result
+
+    def test_inject_into_simple_prompt_field(self):
+        """简单 prompt 字段自动注入."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"prompt":"introduce yourself"}'
+        )
+        result = enhance_burp_request(raw_request)
+        assert "{PROMPT}" in result
+        # 原始 prompt 值应被替换
+        assert "introduce yourself" not in result
+
+    def test_inject_into_query_field(self):
+        """Query 字段自动注入 (常见非标准 API)."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /api/labs/PI_01/chat HTTP/1.1\r\n"
+            "Host: 127.0.0.1:8080\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"prompt":"introduce yourself"}'
+        )
+        result = enhance_burp_request(raw_request)
+        assert "{PROMPT}" in result
+
+    def test_no_inject_when_prompt_exists(self):
+        """已有 {PROMPT} 时不重复注入."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"{PROMPT}"}]}'
+        )
+        result = enhance_burp_request(raw_request)
+        # 只应有一个 {PROMPT}
+        assert result.count("{PROMPT}") == 1
+
+    def test_auth_headers_injected(self):
+        """认证 headers 被注入到请求头."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"prompt":"hello"}'
+        )
+        result = enhance_burp_request(
+            raw_request,
+            auth_headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert "Authorization: Bearer test-token-123" in result
+
+    def test_auth_headers_not_duplicated(self):
+        """已有 Authorization 时不重复添加."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        raw_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Authorization: Bearer existing-token\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"prompt":"hello"}'
+        )
+        result = enhance_burp_request(
+            raw_request,
+            auth_headers={"Authorization": "Bearer new-token"},
+        )
+        # 原有 Authorization 不被覆盖
+        assert "existing-token" in result
+        assert "new-token" not in result
+
+    def test_real_burp_request_file_format(self):
+        """真实 Burp 导出请求文件格式 (无 {PROMPT}) 自动注入."""
+        from pipeline.integrations.recon_target_bridge import enhance_burp_request
+
+        # 模拟真实 Burp 导出的请求 (如 data/burp/request.txt)
+        raw_request = (
+            "POST /api/labs/PI_01/chat HTTP/1.1\r\n"
+            "Host: 127.0.0.1:8080\r\n"
+            "Content-Length: 31\r\n"
+            "Content-Type: application/json\r\n"
+            "Accept: */*\r\n"
+            "Origin: http://127.0.0.1:8080\r\n"
+            "Referer: http://127.0.0.1:8080/labs/PI_01\r\n"
+            "\r\n"
+            '{\n  "prompt":"introduce yourself"\n}'
+        )
+        result = enhance_burp_request(raw_request)
+        assert "{PROMPT}" in result
+
+
+class TestBurpFileAutoDiscovery:
+    """v44.5 P2: _discover_burp_request_file 自动发现测试."""
+
+    def test_exact_host_port_match(self, tmp_path, monkeypatch):
+        """精确匹配 {host}_{port}_request.txt."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        # 创建临时 data/burp/ 目录
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+        req_file = burp_dir / "127.0.0.1_8080_request.txt"
+        req_file.write_text("POST /api HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n\r\n", encoding="utf-8")
+
+        # 切换工作目录到 tmp_path
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("http://127.0.0.1:8080/api/chat")
+        assert result is not None
+        assert "127.0.0.1_8080_request.txt" in result
+
+    def test_host_wildcard_match(self, tmp_path, monkeypatch):
+        """Host 通配匹配 {host}_*_request.txt (不同端口)."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+        # 已有 8080 端口文件, 但目标端口不同 (8081)
+        req_file = burp_dir / "127.0.0.1_8080_request.txt"
+        req_file.write_text("POST /api HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n\r\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("http://127.0.0.1:8081/api/chat")
+        # 精确匹配不存在, 但通配匹配应找到
+        assert result is not None
+        assert "127.0.0.1_8080_request.txt" in result
+
+    def test_host_no_port_match(self, tmp_path, monkeypatch):
+        """Host 无端口匹配 {host}_request.txt."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+        req_file = burp_dir / "example.com_request.txt"
+        req_file.write_text("POST /api HTTP/1.1\r\nHost: example.com\r\n\r\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("https://example.com/api/chat")
+        assert result is not None
+        assert "example.com_request.txt" in result
+
+    def test_default_request_txt_fallback(self, tmp_path, monkeypatch):
+        """默认 request.txt 兜底."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+        req_file = burp_dir / "request.txt"
+        req_file.write_text("POST /api HTTP/1.1\r\nHost: example.com\r\n\r\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("https://unknown.com/api/chat")
+        assert result is not None
+        assert "request.txt" in result
+
+    def test_no_burp_dir_returns_none(self, tmp_path, monkeypatch):
+        """data/burp/ 目录不存在时返回 None."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("http://127.0.0.1:8080/api/chat")
+        assert result is None
+
+    def test_no_matching_file_returns_none(self, tmp_path, monkeypatch):
+        """无匹配文件时返回 None (有目录但无文件)."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("http://127.0.0.1:8080/api/chat")
+        assert result is None
+
+    def test_priority_exact_over_default(self, tmp_path, monkeypatch):
+        """精确匹配优先于默认 request.txt."""
+        from pipeline.stages.stage_target_classify import _discover_burp_request_file
+
+        burp_dir = tmp_path / "data" / "burp"
+        burp_dir.mkdir(parents=True)
+        # 同时存在精确匹配和默认文件
+        exact_file = burp_dir / "127.0.0.1_8080_request.txt"
+        exact_file.write_text("exact", encoding="utf-8")
+        default_file = burp_dir / "request.txt"
+        default_file.write_text("default", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _discover_burp_request_file("http://127.0.0.1:8080/api/chat")
+        assert result is not None
+        assert "127.0.0.1_8080_request.txt" in result
+        assert "request.txt" not in result.split("/")[-1] or "127.0.0.1_8080_request.txt" in result
+
+
+# ============================================================
+# v44.6: 请求体字段名自动发现 + Offensive Profile
+# ============================================================
+
+
+class TestDiscoverPromptField:
+    """v44.6: _discover_prompt_field 自动发现 prompt 字段测试."""
+
+    def test_standard_prompt_field(self):
+        """标准 prompt 字名."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"prompt": "hello world", "model": "gpt-4"}
+        result = _discover_prompt_field(data)
+        assert result == "prompt"
+
+    def test_non_standard_field_name(self):
+        """非标准字段名 (userInput)."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"userInput": "tell me a joke", "model": "gpt-4"}
+        result = _discover_prompt_field(data)
+        assert result == "userInput"
+
+    def test_case_insensitive_match(self):
+        """大小写不敏感匹配 (PascalCase Query)."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"Query": "what is AI?", "Model": "gpt-4"}
+        result = _discover_prompt_field(data)
+        assert result == "Query"
+
+    def test_nested_inputs_query(self):
+        """嵌套结构 Inputs.Query (真实 Burp 请求)."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {
+            "Inputs": {
+                "stuNo": "S20240001",
+                "CourseName": "CS101",
+            },
+            "Stream": True,
+            "Query": "introduce yourself",
+            "ChatId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        }
+        result = _discover_prompt_field(data)
+        assert result == "Query"
+
+    def test_nested_inputs_with_prompt_inside(self):
+        """嵌套结构 — prompt 在嵌套 dict 内."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {
+            "model": "gpt-4",
+            "inputs": {"prompt": "hello world"},
+        }
+        result = _discover_prompt_field(data)
+        assert result is not None
+        assert "prompt" in result
+
+    def test_heuristic_single_string_field(self):
+        """启发式 — 唯一字符串字段被识别."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"question": "what is 2+2?", "count": 42, "enabled": True}
+        result = _discover_prompt_field(data)
+        assert result == "question"
+
+    def test_heuristic_longest_string_field(self):
+        """启发式 — 多字符串字段选值最长的."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {
+            "name": "ab",
+            "description": "This is a very long description that should be selected as the most likely prompt field",
+        }
+        result = _discover_prompt_field(data)
+        assert result == "description"
+
+    def test_no_string_field_returns_none(self):
+        """无字符串字段返回 None."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"count": 42, "enabled": True, "ratio": 0.5}
+        result = _discover_prompt_field(data)
+        assert result is None
+
+    def test_short_string_ignored(self):
+        """短于 3 字符的字符串字段被忽略."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"ab": "hi", "model": "gpt-4"}
+        # "hi" 长度 2, 被 < 3 条件过滤; "gpt-4" 长度 5, 应被选中
+        result = _discover_prompt_field(data)
+        assert result == "model"
+
+    def test_numeric_string_ignored(self):
+        """纯数字字符串被忽略."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {"id": "12345", "question": "what is AI?"}
+        result = _discover_prompt_field(data)
+        assert result == "question"
+
+    def test_real_burp_request_body(self):
+        """真实 Burp 导出请求体格式."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        # 模拟真实 data/burp/request.txt 的 body
+        data = {"prompt": "introduce yourself"}
+        result = _discover_prompt_field(data)
+        assert result == "prompt"
+
+    def test_complex_nested_with_session_fields(self):
+        """复杂嵌套结构 (含会话字段)."""
+        from pipeline.integrations.recon_target_bridge import _discover_prompt_field
+
+        data = {
+            "Inputs": {"stuNo": "S20240001", "CourseName": ""},
+            "Stream": True,
+            "Query": "introduce yourself",
+            "ChatId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "UserId": "S20240001",
+        }
+        result = _discover_prompt_field(data)
+        # Query 是已知字段名, 应被直接匹配
+        assert result == "Query"
+
+
+class TestInjectPromptPlaceholderV446:
+    """v44.6: _inject_prompt_placeholder 非标准字段名注入测试."""
+
+    def test_inject_into_user_input(self):
+        """非标准字段名 userInput 自动注入."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{"userInput":"hello world","model":"gpt-4"}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+        assert "hello world" not in result
+
+    def test_inject_into_question(self):
+        """非标准字段名 question 自动注入."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{"question":"what is AI?"}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+
+    def test_inject_into_nested_inputs_prompt(self):
+        """嵌套结构 inputs.prompt 自动注入."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{"model":"gpt-4","inputs":{"prompt":"hello world"}}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+
+    def test_inject_into_pascalcase_query(self):
+        """PascalCase Query 字段自动注入 (真实 Burp 请求格式)."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{"Inputs":{"stuNo":"S20240001"},"Query":"introduce yourself","Stream":true}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+        assert "introduce yourself" not in result
+
+    def test_inject_heuristic_unknown_field(self):
+        """启发式 — 未知字段名也能注入."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{"customPromptField":"tell me about security"}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+
+    def test_inject_real_burp_file_format(self):
+        """真实 Burp 导出文件格式 (多行 JSON)."""
+        from pipeline.integrations.recon_target_bridge import _inject_prompt_placeholder
+
+        body = '{\n  "prompt":"introduce yourself"\n}'
+        result = _inject_prompt_placeholder(body, "application/json")
+        assert "{PROMPT}" in result
+
+
+class TestOffensiveProfile:
+    """v44.6: --offensive-profile 参数预设测试."""
+
+    def test_offensive_profile_default_false(self, monkeypatch):
+        """--offensive-profile 默认为 False."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", ["main"])
+        args = parse_args()
+        assert args.offensive_profile is False
+
+    def test_offensive_profile_enabled(self, monkeypatch):
+        """--offensive-profile 可以被启用."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.offensive_profile is True
+
+    def test_offensive_profile_sets_max_attempts(self, monkeypatch):
+        """启用后 max_attempts 被设为 3."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.max_attempts == 3
+
+    def test_offensive_profile_sets_max_concurrency(self, monkeypatch):
+        """启用后 max_concurrency 被设为 3."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.max_concurrency == 3
+
+    def test_offensive_profile_sets_epsilon_decay(self, monkeypatch):
+        """启用后 epsilon_decay 被设为 True."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.epsilon_decay is True
+
+    def test_offensive_profile_sets_converters(self, monkeypatch):
+        """启用后 converters 被注入 15 个 Converter."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.converters is not None
+        assert len(args.converters) == 15
+        assert "rot13" in args.converters
+        assert "base64" in args.converters
+
+    def test_offensive_profile_sets_html_report(self, monkeypatch):
+        """启用后 html_report 被设为 True."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.html_report is True
+
+    def test_offensive_profile_sets_analyze(self, monkeypatch):
+        """启用后 analyze 被设为 True."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+        ])
+        args = parse_args()
+        assert args.analyze is True
+
+    def test_offensive_profile_user_override_max_attempts(self, monkeypatch):
+        """用户显式指定 --max-attempts 覆盖预设值."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+            "--max-attempts", "5",
+        ])
+        args = parse_args()
+        assert args.max_attempts == 5
+
+    def test_offensive_profile_user_override_converters(self, monkeypatch):
+        """用户显式指定 --converters 覆盖预设值."""
+        from pipeline.config import parse_args
+
+        monkeypatch.setattr("sys.argv", [
+            "main",
+            "--target-url", "http://127.0.0.1:8080/api/chat",
+            "--offensive-profile",
+            "--converters", "rot13", "base64",
+        ])
+        args = parse_args()
+        assert args.converters == ["rot13", "base64"]

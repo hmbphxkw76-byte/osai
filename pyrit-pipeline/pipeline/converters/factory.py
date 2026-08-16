@@ -61,92 +61,103 @@ def _get_converter_cls(class_name: str) -> type[Converter] | None:
     return getattr(_pyrit_converter, class_name, None)
 
 
-# (CLI名, PyRIT类名, 是否需要LLM converter_target)
-_CONVERTER_SPECS: list[tuple[str, str, bool]] = [
-    # ── 原有 18 个 (v7.0 基线) ──
-    ("rot13", "ROT13Converter", False),
-    ("base64", "Base64Converter", False),
-    ("leetspeak", "LeetspeakConverter", False),
-    ("morse", "MorseConverter", False),
-    ("binary", "BinaryConverter", False),
-    ("braille", "BrailleConverter", False),
-    ("nato", "NatoConverter", False),
-    ("url", "UrlConverter", False),
-    ("flip", "FlipConverter", False),
-    ("emoji", "EmojiConverter", False),
-    ("zalgo", "ZalgoConverter", False),
-    ("zero_width", "ZeroWidthConverter", False),
-    ("unicode_sub", "UnicodeSubstitutionConverter", False),
-    ("caesar", "CaesarConverter", False),
-    ("atbash", "AtbashConverter", False),
-    ("string_join", "StringJoinConverter", False),
-    ("superscript", "SuperscriptConverter", False),
-    ("ascii_art", "AsciiArtConverter", False),
+# (CLI名, PyRIT类名, 是否需要LLM converter_target, 模态)
+# 模态: text | image | audio | video | file | multimodal
+_CONVERTER_SPECS: list[tuple[str, str, bool, str]] = [
+    # ── 原有 18 个 (v7.0 基线) — 全部 text 模态 ──
+    ("rot13", "ROT13Converter", False, "text"),
+    ("base64", "Base64Converter", False, "text"),
+    ("leetspeak", "LeetspeakConverter", False, "text"),
+    ("morse", "MorseConverter", False, "text"),
+    ("binary", "BinaryConverter", False, "text"),
+    ("braille", "BrailleConverter", False, "text"),
+    ("nato", "NatoConverter", False, "text"),
+    ("url", "UrlConverter", False, "text"),
+    ("flip", "FlipConverter", False, "text"),
+    ("emoji", "EmojiConverter", False, "text"),
+    ("zalgo", "ZalgoConverter", False, "text"),
+    ("zero_width", "ZeroWidthConverter", False, "text"),
+    ("unicode_sub", "UnicodeSubstitutionConverter", False, "text"),
+    ("caesar", "CaesarConverter", False, "text"),
+    ("atbash", "AtbashConverter", False, "text"),
+    ("string_join", "StringJoinConverter", False, "text"),
+    ("superscript", "SuperscriptConverter", False, "text"),
+    ("ascii_art", "AsciiArtConverter", False, "text"),
     # ── P0-2 新增 11 个 (v44.0) ──
-    ("ansi_attack", "AnsiAttackConverter", False),
-    ("arabizi", "ArabiziConverter", False),
-    ("bidi", "BidiConverter", False),
-    ("code_chameleon", "CodeChameleonConverter", True),
-    ("negation_trap", "NegationTrapConverter", False),
-    ("tone", "ToneConverter", True),
-    ("variation", "VariationConverter", False),
-    ("malicious_question", "MaliciousQuestionGeneratorConverter", True),
-    ("toxic_sentence", "ToxicSentenceGeneratorConverter", True),
-    ("image_saturation", "ImageColorSaturationConverter", False),
-    ("add_image_video", "AddImageVideoConverter", False),
+    ("ansi_attack", "AnsiAttackConverter", False, "text"),
+    ("arabizi", "ArabiziConverter", False, "text"),
+    ("bidi", "BidiConverter", False, "text"),
+    ("code_chameleon", "CodeChameleonConverter", True, "text"),
+    ("negation_trap", "NegationTrapConverter", False, "text"),
+    ("tone", "ToneConverter", True, "text"),
+    ("variation", "VariationConverter", False, "text"),
+    ("malicious_question", "MaliciousQuestionGeneratorConverter", True, "text"),
+    ("toxic_sentence", "ToxicSentenceGeneratorConverter", True, "text"),
+    ("image_saturation", "ImageColorSaturationConverter", False, "image"),
+    ("add_image_video", "AddImageVideoConverter", False, "multimodal"),
     # ── v44.1 补全: 34 个无 LLM 依赖 Converter ──
-    ("ascii_smuggler", "AsciiSmugglerConverter", False),
-    ("base2048", "Base2048Converter", False),
-    ("bin_ascii", "BinAsciiConverter", False),
-    ("char_swap", "CharSwapConverter", False),
-    ("colloquial_wordswap", "ColloquialWordswapConverter", False),
-    ("ecoji", "EcojiConverter", False),
-    ("first_letter", "FirstLetterConverter", False),
-    ("insert_punctuation", "InsertPunctuationConverter", False),
-    ("qr_code", "QRCodeConverter", False),
-    ("random_capital", "RandomCapitalLettersConverter", False),
-    ("repeat_token", "RepeatTokenConverter", False),
-    ("search_replace", "SearchReplaceConverter", False),
-    ("suffix_append", "SuffixAppendConverter", False),
-    ("tatweel", "TatweelConverter", False),
-    ("template_segment", "TemplateSegmentConverter", False),
-    ("unicode_confusable", "UnicodeConfusableConverter", False),
-    ("unicode_replacement", "UnicodeReplacementConverter", False),
-    ("variation_selector_smuggler", "VariationSelectorSmugglerConverter", False),
-    ("transparency_attack", "TransparencyAttackConverter", False),
-    ("image_rotation", "ImageRotationConverter", False),
-    ("image_resizing", "ImageResizingConverter", False),
-    ("image_compression", "ImageCompressionConverter", False),
-    ("image_overlay", "ImageOverlayConverter", False),
-    ("add_text_image", "AddTextImageConverter", False),
-    ("add_image_text", "AddImageTextConverter", False),
-    ("pdf", "PDFConverter", False),
-    ("word_doc", "WordDocConverter", False),
-    ("task_framing", "TaskFramingConverter", False),
-    ("selective_text", "SelectiveTextConverter", False),
-    ("policy_puppetry", "PolicyPuppetryConverter", False),
-    ("math_obfuscation", "MathObfuscationConverter", False),
-    ("ask_to_decode", "AskToDecodeConverter", False),
-    ("sneaky_bits_smuggler", "SneakyBitsSmugglerConverter", False),
-    ("denylist", "DenylistConverter", True),
+    ("ascii_smuggler", "AsciiSmugglerConverter", False, "text"),
+    ("base2048", "Base2048Converter", False, "text"),
+    ("bin_ascii", "BinAsciiConverter", False, "text"),
+    ("char_swap", "CharSwapConverter", False, "text"),
+    ("colloquial_wordswap", "ColloquialWordswapConverter", False, "text"),
+    ("ecoji", "EcojiConverter", False, "text"),
+    ("first_letter", "FirstLetterConverter", False, "text"),
+    ("insert_punctuation", "InsertPunctuationConverter", False, "text"),
+    ("qr_code", "QRCodeConverter", False, "image"),
+    ("random_capital", "RandomCapitalLettersConverter", False, "text"),
+    ("repeat_token", "RepeatTokenConverter", False, "text"),
+    ("search_replace", "SearchReplaceConverter", False, "text"),
+    ("suffix_append", "SuffixAppendConverter", False, "text"),
+    ("tatweel", "TatweelConverter", False, "text"),
+    ("template_segment", "TemplateSegmentConverter", False, "text"),
+    ("unicode_confusable", "UnicodeConfusableConverter", False, "text"),
+    ("unicode_replacement", "UnicodeReplacementConverter", False, "text"),
+    ("variation_selector_smuggler", "VariationSelectorSmugglerConverter", False, "text"),
+    ("transparency_attack", "TransparencyAttackConverter", False, "image"),
+    ("image_rotation", "ImageRotationConverter", False, "image"),
+    ("image_resizing", "ImageResizingConverter", False, "image"),
+    ("image_compression", "ImageCompressionConverter", False, "image"),
+    ("image_overlay", "ImageOverlayConverter", False, "image"),
+    ("add_text_image", "AddTextImageConverter", False, "multimodal"),
+    ("add_image_text", "AddImageTextConverter", False, "multimodal"),
+    ("pdf", "PDFConverter", False, "file"),
+    ("word_doc", "WordDocConverter", False, "file"),
+    ("task_framing", "TaskFramingConverter", False, "text"),
+    ("selective_text", "SelectiveTextConverter", False, "text"),
+    ("policy_puppetry", "PolicyPuppetryConverter", False, "text"),
+    ("math_obfuscation", "MathObfuscationConverter", False, "text"),
+    ("ask_to_decode", "AskToDecodeConverter", False, "text"),
+    ("sneaky_bits_smuggler", "SneakyBitsSmugglerConverter", False, "text"),
+    ("denylist", "DenylistConverter", True, "text"),
     # ── v44.1 补全: 14 个 LLM 依赖 Converter ──
-    ("character_space", "CharacterSpaceConverter", True),
-    ("diacritic", "DiacriticConverter", False),  # 实际不需 LLM
-    ("noise", "NoiseConverter", True),
-    ("image_prompt_style", "ImagePromptStyleConverter", True),
-    ("translation", "TranslationConverter", True),
-    ("random_translation", "RandomTranslationConverter", True),
-    ("tense", "TenseConverter", True),
-    ("persuasion", "PersuasionConverter", True),
-    ("math_prompt", "MathPromptConverter", True),
-    ("llm_generic_text", "LLMGenericTextConverter", True),
-    ("scientific_translation", "ScientificTranslationConverter", True),
-    ("arabic_presentation_form", "ArabicPresentationFormConverter", True),
-    ("json_string", "JsonStringConverter", True),
+    ("character_space", "CharacterSpaceConverter", True, "text"),
+    ("diacritic", "DiacriticConverter", False, "text"),  # 实际不需 LLM
+    ("noise", "NoiseConverter", True, "text"),
+    ("image_prompt_style", "ImagePromptStyleConverter", True, "image"),
+    ("translation", "TranslationConverter", True, "text"),
+    ("random_translation", "RandomTranslationConverter", True, "text"),
+    ("tense", "TenseConverter", True, "text"),
+    ("persuasion", "PersuasionConverter", True, "text"),
+    ("math_prompt", "MathPromptConverter", True, "text"),
+    ("llm_generic_text", "LLMGenericTextConverter", True, "text"),
+    ("scientific_translation", "ScientificTranslationConverter", True, "text"),
+    ("arabic_presentation_form", "ArabicPresentationFormConverter", True, "text"),
+    ("json_string", "JsonStringConverter", True, "text"),
 ]
 
+# 模态 → CLI名列表 (自动从 _CONVERTER_SPECS 生成)
+_CONVERTERS_BY_MODALITY: dict[str, list[str]] = {}
+for _cli, _cls_name, _needs_t, _modality in _CONVERTER_SPECS:
+    _CONVERTERS_BY_MODALITY.setdefault(_modality, []).append(_cli)
+
+# 需要LLM converter_target 的 CLI名集合
+_CONVERTERS_NEEDING_TARGET: frozenset[str] = frozenset(
+    _cli for _cli, _, _needs_t, _ in _CONVERTER_SPECS if _needs_t
+)
+
 _CONVERTER_REGISTRY: dict[str, type[Converter] | None] = {}
-for _cli_name, _class_name, _needs_target in _CONVERTER_SPECS:
+for _cli_name, _class_name, _needs_target, _modality in _CONVERTER_SPECS:
     _cls = _get_converter_cls(_class_name)
     if _cls is not None:
         _CONVERTER_REGISTRY[_cli_name] = _cls
@@ -191,6 +202,107 @@ def create_converters(converter_names: list[str]) -> list[Converter]:
         raise ValueError(f"Unknown converter(s): {unknown}. Available converters: {available}")
 
     return converters
+
+
+def get_converter_modality(cli_name: str) -> str:
+    """返回指定 Converter 的模态类型。
+
+    Args:
+        cli_name: Converter 的 CLI 名称 (如 "rot13", "image_rotation")。
+
+    Returns:
+        str: 模态类型 — "text" | "image" | "audio" | "video" | "file" | "multimodal"。
+        如果未找到则返回 "text" (安全默认值)。
+    """
+    key = cli_name.lower().strip()
+    for _cli, _, _, _modality in _CONVERTER_SPECS:
+        if _cli == key:
+            return _modality
+    return "text"
+
+
+def get_converters_by_modality(modality: str) -> list[str]:
+    """返回指定模态的所有 Converter CLI 名称列表。
+
+    Args:
+        modality: 模态类型 — "text" | "image" | "audio" | "video" | "file" | "multimodal"。
+
+    Returns:
+        list[str]: 该模态下所有已注册的 Converter CLI 名称。
+    """
+    return list(_CONVERTERS_BY_MODALITY.get(modality, []))
+
+
+def filter_converters_by_target_modality(
+    converter_names: list[str],
+    target_modality: str,
+) -> list[str]:
+    """根据目标模态过滤 Converter 列表，跳过不兼容的 Converter。
+
+    策略:
+    - text 目标: 接受 text 模态 Converter，拒绝 image/file/multimodal
+    - image 目标: 接受 text + image + multimodal Converter
+    - multimodal 目标: 接受所有模态 Converter
+    - file 目标: 接受 text + file Converter
+
+    Args:
+        converter_names: 用户指定的 Converter CLI 名称列表。
+        target_modality: 目标模型的模态类型。
+
+    Returns:
+        list[str]: 过滤后与目标模态兼容的 Converter 名称列表。
+    """
+    if target_modality == "multimodal":
+        return list(converter_names)
+
+    compat_map: dict[str, frozenset[str]] = {
+        "text": frozenset({"text"}),
+        "image": frozenset({"text", "image", "multimodal"}),
+        "file": frozenset({"text", "file"}),
+        "audio": frozenset({"text"}),
+        "video": frozenset({"text", "video", "multimodal"}),
+    }
+    accepted = compat_map.get(target_modality, frozenset({"text"}))
+
+    filtered: list[str] = []
+    for name in converter_names:
+        modality = get_converter_modality(name)
+        if modality in accepted:
+            filtered.append(name)
+        else:
+            logger.info(
+                f"Skipping converter '{name}' (modality={modality}) "
+                f"— incompatible with target modality '{target_modality}'"
+            )
+    return filtered
+
+
+def auto_select_converters_by_modality(target_modality: str) -> list[str]:
+    """根据目标模态自动选择所有兼容的 Converter CLI 名称。
+
+    Args:
+        target_modality: 目标模型的模态类型 — "text" | "image" | "multimodal" 等。
+
+    Returns:
+        list[str]: 所有与目标模态兼容的 Converter CLI 名称列表。
+    """
+    if target_modality == "multimodal":
+        return list(_CONVERTER_REGISTRY.keys())
+
+    compat_map: dict[str, frozenset[str]] = {
+        "text": frozenset({"text"}),
+        "image": frozenset({"text", "image", "multimodal"}),
+        "file": frozenset({"text", "file"}),
+        "audio": frozenset({"text"}),
+        "video": frozenset({"text", "video", "multimodal"}),
+    }
+    accepted = compat_map.get(target_modality, frozenset({"text"}))
+
+    result: list[str] = []
+    for _cli, _, _, _modality in _CONVERTER_SPECS:
+        if _modality in accepted:
+            result.append(_cli)
+    return result
 
 
 def build_technique_converter_map(
@@ -296,6 +408,7 @@ def build_target_aware_converter_map(
     converter_target: Any = None,
     converter_target_available: bool = False,
     model_tier: str = "unknown",
+    filter_layer: str | None = None,
 ) -> dict[str, list[Converter]]:
     """基于 Target 类型感知自动构建 technique → Converter 列表映射。.
 
@@ -311,6 +424,13 @@ def build_target_aware_converter_map(
       3. LLM 链仅在 converter_target 可用且 model_tier 允许时包含
       4. 未在路由映射中的技术不分配 Converter (原生行为)
 
+    O2 增强: ``filter_layer`` 参数 — 基线扫描结果驱动 Converter 选择。
+    当 filter_layer 非空时, 补充防护层级对应的推荐 Converter 链:
+      - input_filter → encoding_bypass / base64 / rot13
+      - output_guardrail → translation / homoglyph
+      - semantic_filter → cross_paradigm_2layer / cross_paradigm_3layer
+      - no_filter → 不补充 (无防护)
+
     与 ``build_technique_converter_map()`` 的区别:
       - ``build_technique_converter_map`` : 用户指定 CLI converter 名称,
         ASR 驱动 per-technique 差异化分配
@@ -325,6 +445,7 @@ def build_target_aware_converter_map(
         converter_target: LLM 链所需的 Converter Target 实例。
         converter_target_available: converter_target 是否可用。
         model_tier: 模型等级 (strong/moderate/weak/unknown)。
+        filter_layer: 基线扫描防护层级 (input_filter/output_guardrail/semantic_filter/no_filter)。
 
     Returns:
         dict[str, list[Converter]]: 技术名称 → Converter 列表映射。
@@ -353,6 +474,22 @@ def build_target_aware_converter_map(
     #   学术依据: HarmBench (arXiv:2402.04249) — 同范式叠加边际递减
     #   之前每技术添加 2 个协同链, 与 target_profiles 推荐叠加后
     #   扁平化为 12+ Converter, 导致 prompt 膨胀和 API 超时
+    # O2: 基线扫描防护层级驱动 Converter 补充
+    #   学术依据: HarmBench (arXiv:2402.04249) 基线先行分析防护层级;
+    #     Zeng et al. (arXiv:2402.19181) 表示层 ASR 8-12% vs 语义层 ASR 30-40%
+    _FILTER_LAYER_CHAINS: dict[str, list[str]] = {
+        "input_filter": ["encoding_bypass", "base64", "rot13"],
+        "output_guardrail": ["semantic_bypass", "translation", "homoglyph"],
+        "semantic_filter": ["cross_paradigm_2layer", "cross_paradigm_3layer"],
+        "no_filter": [],
+    }
+    # O2: 当 filter_layer 非空且有推荐链, 补充到每技术
+    _filter_extra: list[str] = []
+    if filter_layer and filter_layer in _FILTER_LAYER_CHAINS:
+        _filter_extra = _FILTER_LAYER_CHAINS[filter_layer]
+        if _filter_extra:
+            logger.info(f"O2: filter_layer='{filter_layer}' → adding chains: {_filter_extra}")
+
     _SYNERGY_BOOSTS: dict[str, list[str]] = {
         "crescendo": ["cross_paradigm_2layer"],
         "tap": ["cross_paradigm_2layer"],
@@ -389,6 +526,13 @@ def build_target_aware_converter_map(
         for sc in synergy_chains:
             if sc not in enhanced_chains:
                 enhanced_chains.append(sc)
+
+        # O2: 基线扫描防护层级驱动 Converter 链补充
+        # 学术依据: HarmBench (arXiv:2402.04249) 基线先行;
+        #   Zeng et al. (arXiv:2402.19181) 表示层 vs 语义层 ASR 差异
+        for fc in _filter_extra:
+            if fc not in enhanced_chains:
+                enhanced_chains.append(fc)
 
         # 按协同乘数排序: 高协同链组合优先
         synergy_score = score_chain_combo(enhanced_chains)

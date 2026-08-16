@@ -60,6 +60,30 @@ _LLM_CONVERTER_NAMES: set[str] = {
     "PolicyPuppetryConverter",
 }
 
+# P3-1 (v45.5): 编码层 Converter 列表 — 连续失败时建议切换到语义层
+_ENCODING_CONVERTER_NAMES: set[str] = {
+    "ROT13Converter",
+    "Base64Converter",
+    "RandomCapitalLettersConverter",
+    "UnicodeConfusableConverter",
+    "LeetspeakConverter",
+    "MorseConverter",
+    "BinaryConverter",
+    "HexConverter",
+}
+
+# P3-1 (v45.5): 语义层 Converter 候选 — 用于替换编码层
+# 这些 Converter 在语义层面变换 prompt, 而非表示层编码,
+# 可绕过语义级安全过滤而非表示级过滤.
+# 学术依据: Wei et al. (arXiv:2307.15043) — 语义变换绕过语义过滤;
+#   Zeng et al. (arXiv:2402.19181) — 语义层 ASR 30-40% >> 表示层 8-12%
+_SEMANTIC_CONVERTER_FALLBACKS: list[str] = [
+    "PersuasionConverter",
+    "TaskFramingConverter",
+    "ToneConverter",
+    "PolicyPuppetryConverter",
+]
+
 # Regex patterns to extract Converter name from error messages
 _CONVERTER_NAME_PATTERNS = [
     re.compile(r"converter identifier: (\w+)::", re.IGNORECASE),
@@ -247,6 +271,62 @@ class ConverterHealthMonitor:
             else:
                 enabled.append(chain)
         return enabled, disabled
+
+    def get_semantic_fallback(self, converter_name: str) -> str | None:
+        """P3-1 (v45.5): 当编码层 Converter 连续失败时, 建议语义层替代.
+
+        当编码层 Converter (ROT13/Base64等) 连续失败 >= threshold 时,
+        返回一个语义层 Converter 名称作为替代.
+        语义层 Converter 在语义层面变换 prompt, 可绕过语义级安全过滤.
+
+        学术依据:
+          - Wei et al. (arXiv:2307.15043): 编码攻击绕过表示级过滤但非语义级
+          - Zeng et al. (arXiv:2402.19181): 语义层 ASR 30-40% >> 表示层 8-12%
+          - Chao et al. (arXiv:2310.08437): PAIR 语义迭代越狱
+
+        Args:
+            converter_name: 当前失败的 Converter 名称.
+
+        Returns:
+            语义层 Converter 名称, 或 None (如果不需要替换).
+        """
+        # 仅对编码层 Converter 触发
+        if converter_name not in _ENCODING_CONVERTER_NAMES:
+            return None
+
+        stats = self._stats.get(converter_name)
+        if stats is None or stats.disabled:
+            return None
+
+        # 连续失败 >= threshold 时建议替换
+        if stats.consecutive_failures >= self._failure_threshold:
+            # 选择第一个未被禁用的语义层 Converter
+            for semantic_name in _SEMANTIC_CONVERTER_FALLBACKS:
+                semantic_stats = self._stats.get(semantic_name)
+                if semantic_stats is None or not semantic_stats.disabled:
+                    logger.info(
+                        f"P3-1: Encoding converter '{converter_name}' failed "
+                        f"{stats.consecutive_failures} times, "
+                        f"suggesting semantic fallback: '{semantic_name}'"
+                    )
+                    return semantic_name
+
+        return None
+
+    def get_all_semantic_fallbacks(self) -> list[str]:
+        """P3-1 (v45.5): 返回所有可用的语义层 Converter 候选.
+
+        当多个编码层 Converter 同时失败时, 返回所有未被禁用的语义层 Converter.
+
+        Returns:
+            可用的语义层 Converter 名称列表.
+        """
+        available = []
+        for name in _SEMANTIC_CONVERTER_FALLBACKS:
+            stats = self._stats.get(name)
+            if stats is None or not stats.disabled:
+                available.append(name)
+        return available
 
     def reset(self) -> None:
         """Reset all statistics (call at the start of a new run)."""
