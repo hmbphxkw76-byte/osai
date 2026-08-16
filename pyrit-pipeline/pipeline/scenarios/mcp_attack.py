@@ -314,15 +314,14 @@ async def run_mcp_attack(ctx: PipelineContext) -> MCPAttackReport:
     print("=" * 70)
 
     from pyrit.executor.attack import PromptSendingAttack
-    from pyrit.registry import TargetRegistry
 
-    registry = TargetRegistry.get_registry_singleton()
-    target_entries = registry.instances.get_all_instances()
-    if not target_entries:
+    # O-3 P0: 统一走 _get_attack_targets(ctx) 获取目标 (tag 精确获取, 不用位置)
+    from pipeline.stages.stage_scenario import _get_attack_targets
+
+    target, _, _ = _get_attack_targets(ctx)
+    if not target:
         print("  [错误] 未找到已注册的 Target")
         return MCPAttackReport()
-
-    target = target_entries[0].instance
     probes = _get_mcp_probes()
     print(f"  目标: {type(target).__name__}")
     print(f"  MCP 攻击策略数量: {len(probes)}")
@@ -396,16 +395,80 @@ async def run_mcp_attack(ctx: PipelineContext) -> MCPAttackReport:
 
 
 def _extract_response_text(result: Any) -> str:
-    """从 PyRIT attack 结果中提取响应文本。."""
+    """从 PyRIT attack 结果中提取响应文本.
+
+    O-2 P3: 增强 — 检测 tool_calls 字段, 提取工具调用意图作为攻击证据.
+    当模型返回 tool_calls (而非文本) 时, 将工具调用信息格式化为文本.
+    """
     try:
         if hasattr(result, "last_response") and result.last_response:
-            return str(result.last_response)
+            resp = result.last_response
+            _tc_text = _extract_tool_calls_text(resp)
+            if _tc_text:
+                return _tc_text
+            return str(resp)
         if hasattr(result, "conversation") and result.conversation:
             msgs = result.conversation
             if msgs:
-                return str(msgs[-1])
+                resp = msgs[-1]
+                _tc_text = _extract_tool_calls_text(resp)
+                if _tc_text:
+                    return _tc_text
+                return str(resp)
     except Exception:
         pass
+    return ""
+
+
+def _extract_tool_calls_text(resp: Any) -> str:
+    """O-2 P3: 从响应中提取 tool_calls 信息.
+
+    检测响应中是否包含 tool_calls 字段 (OpenAI Chat Completions 格式),
+    如果有则格式化为文本供关键词匹配使用.
+
+    Args:
+        resp: 响应对象 (可能是 dict/str/PyRIT Message).
+
+    Returns:
+        格式化的工具调用文本, 或空字符串.
+    """
+    import json
+
+    # 尝试从 dict 提取
+    if isinstance(resp, dict):
+        choices = resp.get("choices") or resp.get("Choices")
+        if choices and isinstance(choices, list) and len(choices) > 0:
+            msg = choices[0].get("message") or choices[0].get("Message") or {}
+            tool_calls = msg.get("tool_calls") or msg.get("ToolCalls")
+            if tool_calls:
+                parts: list[str] = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        fn = tc.get("function") or tc.get("Function") or {}
+                        name = fn.get("name") or fn.get("Name") or ""
+                        args = fn.get("arguments") or fn.get("Arguments") or ""
+                        parts.append(f"tool_call: {name}({args})")
+                if parts:
+                    return "\n".join(parts)
+        tool_calls = resp.get("tool_calls")
+        if tool_calls and isinstance(tool_calls, list):
+            parts = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    name = tc.get("name", "")
+                    args = tc.get("arguments", "")
+                    parts.append(f"tool_call: {name}({args})")
+            if parts:
+                return "\n".join(parts)
+
+    # 尝试从字符串中解析 JSON
+    if isinstance(resp, str):
+        try:
+            data = json.loads(resp)
+            return _extract_tool_calls_text(data)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return ""
 
 

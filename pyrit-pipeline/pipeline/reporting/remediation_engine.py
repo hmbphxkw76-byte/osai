@@ -87,28 +87,38 @@ def sanitize_output(response: str) -> str:
         "severity": "critical",
     },
     "LLM05": {
-        "name": "Excessive Agency",
-        "description": "Agent 拥有超出必要的权限, 可以执行高风险操作",
+        "name": "Improper Output Handling",
+        "description": "LLM 输出未经安全处理直接渲染, 导致 XSS、SSRF 或代码执行",
         "remediation": [
-            ("最小权限原则", "只为 Agent 分配完成任务所需的最小工具集"),
-            ("人工审批", "高风险操作 (发送邮件/删除文件/执行命令) 需要人工确认"),
-            ("工具沙箱", "在隔离环境中执行 Agent 工具调用, 限制网络和文件访问"),
-            ("审计日志", "记录所有 Agent 工具调用, 包括参数和返回值"),
+            ("输出编码", "对 LLM 输出进行 HTML/JavaScript 编码转义, 防止 XSS 执行"),
+            ("CSP 策略", "部署 Content-Security-Policy 限制内联脚本和外部资源加载"),
+            ("沙箱渲染", "在隔离的 iframe (sandbox 属性) 或 DOMPurify 环境中渲染 LLM 输出"),
+            ("输入输出隔离", "LLM 输出不得直接 eval() / innerHTML, 必须经过安全中间件"),
         ],
-        "code_example": """# 最小权限工具分配
-ROLE_TOOL_MAP = {
-    "objective_agent": ["search", "read_file"],  # 只读
-    "adversarial_agent": ["search", "read_file", "write_temp"],  # 临时写
-    "scorer_agent": ["read_file"],  # 只读
-}
-# 高风险操作需要确认
-HIGH_RISK_TOOLS = ["send_email", "delete_file", "execute_command"]
+        "code_example": """# 输出安全处理示例
+import html
+import re
 
-async def execute_tool(tool_name, args):
-    if tool_name in HIGH_RISK_TOOLS:
-        if not await human_confirm(tool_name, args):
-            raise PermissionError(f"Tool {tool_name} requires confirmation")""",
-        "severity": "high",
+def sanitize_llm_output(response: str) -> str:
+    # 1. HTML 实体编码 — 防止 XSS
+    response = html.escape(response)
+    # 2. 移除 JavaScript 协议
+    response = re.sub(r'javascript:', '', response, flags=re.IGNORECASE)
+    # 3. 移除事件处理器
+    response = re.sub(r'on\\w+\\s*=', '', response, flags=re.IGNORECASE)
+    return response
+
+# CSP 头部设置
+CSP_HEADER = (
+    "default-src 'self'; "
+    "script-src 'self' 'nonce-{nonce}'; "  # nonce-based CSP
+    "style-src 'self' 'unsafe-inline'; "
+    "object-src 'none'; base-uri 'self'"
+)
+
+# 沙箱渲染
+# <iframe sandbox="allow-same-origin" srcdoc="{escaped_output}"></iframe>""",
+        "severity": "medium",
     },
     "LLM06": {
         "name": "Excessive Agency",

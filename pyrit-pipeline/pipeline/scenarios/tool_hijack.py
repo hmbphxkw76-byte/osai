@@ -246,15 +246,14 @@ async def run_tool_hijack(ctx: PipelineContext) -> None:
     print("=" * 70)
 
     from pyrit.executor.attack import PromptSendingAttack
-    from pyrit.registry import TargetRegistry
 
-    registry = TargetRegistry.get_registry_singleton()
-    target_entries = registry.instances.get_all_instances()
-    if not target_entries:
+    # O-3 P0: 统一走 _get_attack_targets(ctx) 获取目标 (tag 精确获取, 不用位置)
+    from pipeline.stages.stage_scenario import _get_attack_targets
+
+    target, _, _ = _get_attack_targets(ctx)
+    if not target:
         print("  [错误] 未找到已注册的 Target")
         return
-
-    target = target_entries[0].instance
     print(f"  目标: {type(target).__name__}")
     print(f"  劫持策略数量: {len(_HIJACK_PROBES)}")
 

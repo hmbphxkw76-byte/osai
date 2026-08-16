@@ -209,17 +209,50 @@ def _get_attack_targets(ctx: PipelineContext | None = None) -> tuple[Any, Any, A
         if not _entries:
             return None, None, None
 
-        targets = [e.instance for e in _entries]
+        # v53.1: 使用 tag 精确获取三角色, 不依赖注册顺序
+        # PyRIT TargetInitializer 注册顺序可能因环境变量配置不同而变化,
+        # 按 tag 获取确保: openai_chat=objective_target, adversarial_chat=attacker, etc.
+        objective_target = None
+        adversarial_chat = None
+        scoring_target = None
 
-        if len(targets) >= 3:
-            return targets[0], targets[1], targets[2]
-        elif len(targets) == 2:
-            # 第一个做目标, 第二个做攻击者+评分者
-            return targets[0], targets[1], targets[1]
-        else:
-            # 只有 1 个, 三角色共享
+        # 优先按 tag 获取
+        for tag in ("default_objective_target",):
+            _entries_by_tag = _reg.instances.get_by_tag(tag=tag)
+            if _entries_by_tag:
+                objective_target = _entries_by_tag[0].instance
+                break
+
+        for name in ("adversarial_chat",):
+            _entry = _reg.instances.get(name)
+            if _entry is not None:
+                adversarial_chat = _entry.instance
+                break
+
+        for name in ("objective_scorer_chat",):
+            _entry = _reg.instances.get(name)
+            if _entry is not None:
+                scoring_target = _entry.instance
+                break
+
+        # 回退: 如果按 tag/name 获取失败, 使用位置分配
+        if not objective_target or not adversarial_chat:
+            targets = [e.instance for e in _entries]
+            if not objective_target:
+                objective_target = targets[0] if targets else None
+            if not adversarial_chat:
+                adversarial_chat = targets[1] if len(targets) >= 2 else (targets[0] if targets else None)
+            if not scoring_target:
+                scoring_target = targets[2] if len(targets) >= 3 else adversarial_chat
+
+        if not objective_target:
+            return None, None, None
+
+        # 检查是否三角色共享同一实例
+        if objective_target is adversarial_chat is scoring_target:
             print("  [提示] 仅 1 个 Target 可用, 攻击者/评分者使用同一模型")
-            return targets[0], targets[0], targets[0]
+
+        return objective_target, adversarial_chat, scoring_target
     except Exception as e:
         logger.warning(f"Failed to get attack targets from registry: {e}")
         return None, None, None
@@ -301,6 +334,12 @@ async def run(ctx: PipelineContext) -> None:
     print("\n" + "=" * 70)
     print("阶段 2/6: 场景配置 — ASR 驱动 + Attack-King")
     print("=" * 70)
+
+    # v53.1: 全局 monkey-patch adversarial JSON schema (在所有攻击执行之前)
+    # 确保所有后续创建的 AdversarialConversationManager 都使用 relaxed schema
+    from pipeline.orchestrators.advanced_crescendo import apply_relaxed_adversarial_schema
+
+    apply_relaxed_adversarial_schema()
 
     # v50: 所有目标模式均失败时跳过场景执行
     # stage_target_classify 三级降级链全部失败后设置此标记
@@ -505,7 +544,14 @@ async def run(ctx: PipelineContext) -> None:
                         objective=_extra_obj,
                         max_turns=getattr(args, "crescendo_max_turns", 10),
                     )
-                    _cres_extra_result = await _orch.run_async()
+                    _cres_extra_timeout = int(getattr(args, "crescendo_timeout", 180))
+                    try:
+                        _cres_extra_result = await asyncio.wait_for(
+                            _orch.run_async(), timeout=_cres_extra_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"  [提示] Crescendo 补充 #{_idx+1} 超时跳过 (timeout={_cres_extra_timeout}s)")
+                        continue
                     ctx.metadata.setdefault("crescendo_extra_results", []).append(
                         _cres_extra_result.to_dict()
                     )
@@ -1525,7 +1571,43 @@ async def run(ctx: PipelineContext) -> None:
         ctx.selector = selector
         ctx.scenario = scenario
 
-        # 加载历史范式性能数据到 selector (自动学习)
+        # v53: 对抗模型 JSON schema 放宽 — Qwen3-32B JSON 遵从度修复
+        # 根因: PyRIT 原生 adversarial_chat schema 要求 next_message + rationale +
+        # last_response_summary 三个字段都是 required, Qwen3-32B 有时不返回
+        # rationale/last_response_summary, 导致 _parse_adversarial_reply() 抛出
+        # InvalidJsonException → send_json_with_retry_async 无限重试.
+        # 修复: 将 rationale 和 last_response_summary 从 required 降级为 optional,
+        # next_message 保持 required (攻击循环唯一消费的字段).
+        # 学术依据: PyRIT (arXiv:2407.01232) AdversarialConversationManager 设计
+        # — next_message 是攻击循环唯一必需字段, rationale/last_response_summary
+        # 仅用于攻击者推理记录, 缺失不影响攻击执行.
+        # R-022: 使用 PyRIT 原生 response_json_schema 属性修改, 不覆盖原生解析逻辑.
+        try:
+            from pyrit.models.target.json_schema_definition import get_common_json_schema
+
+            _relaxed_schema = get_common_json_schema("adversarial_chat")
+            _relaxed_schema["required"] = ["next_message"]
+            # 遍历场景中的 AdversarialConversationManager 实例
+            _managers = []
+            if hasattr(scenario, "_adversarial_conversation_manager"):
+                _managers.append(scenario._adversarial_conversation_manager)
+            for _tech in getattr(scenario, "_techniques", []):
+                if hasattr(_tech, "_adversarial_conversation_manager"):
+                    _mgr = _tech._adversarial_conversation_manager
+                    if _mgr not in _managers:
+                        _managers.append(_mgr)
+            _patched = 0
+            for _mgr in _managers:
+                if hasattr(_mgr, "_response_json_schema"):
+                    _mgr._response_json_schema = _relaxed_schema
+                    _patched += 1
+            if _patched:
+                logger.info(
+                    f"v53: Relaxed adversarial JSON schema for {_patched} manager(s) "
+                    f"(rationale/last_response_summary → optional)"
+                )
+        except Exception as e:
+            logger.debug(f"v53: Adversarial schema relaxation skipped: {e}")
         try:
             from pipeline.asr.failure_type_event_handler import ParadigmPerformanceTracker
 

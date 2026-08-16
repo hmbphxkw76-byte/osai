@@ -510,7 +510,8 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
 
     from pipeline.stages.stage_scenario import _get_attack_targets
 
-    _obj_target, _adv_target, _score_target = _get_attack_targets()
+    # O-3 P0: 传入 ctx, Agent Proxy Bridge 模式下获取 Burp 目标
+    _obj_target, _adv_target, _score_target = _get_attack_targets(ctx)
     if not _obj_target:
         print("  [错误] 未找到已注册的 Target")
         return AdvancedMCPAttackReport()
@@ -519,18 +520,25 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
     scorer = AIVSSScorer()
     mapper = FrameworkMapper()
 
-    # L5: 尝试创建 Tool Calling Target (OpenAIResponseTarget + 蜜罐工具集)
+    # O-3 P0: 仅在非 Burp 模式下创建 Tool Calling Target (避免覆盖 Burp 目标)
+    _is_burp_mode = ctx.metadata.get("agent_proxy_mode") or ctx.metadata.get("burp_request_file")
     tool_call_target = None
     tool_call_log = None
-    try:
-        from pipeline.targets.tool_calling_target import create_tool_calling_target
+    if not _is_burp_mode:
+        try:
+            from pipeline.targets.tool_calling_target import create_tool_calling_target
 
-        _tc_result = create_tool_calling_target()
-        if _tc_result is not None:
-            tool_call_target, tool_call_log = _tc_result
-            print("  [L5] Tool Calling Target 已创建 — 蜜罐工具集启用")
-    except Exception as e:
-        print(f"  [提示] Tool Calling Target 创建失败, 使用普通目标: {e}")
+            _tc_result = create_tool_calling_target()
+            if _tc_result is not None:
+                tool_call_target, tool_call_log = _tc_result
+                print("  [L5] Tool Calling Target 已创建 — 蜜罐工具集启用")
+        except Exception as e:
+            print(f"  [提示] Tool Calling Target 创建失败, 使用普通目标: {e}")
+    else:
+        # Burp 模式: 从 ctx.metadata 获取已有的 tool_call_log (P1 中创建)
+        tool_call_log = ctx.metadata.get("burp_tool_call_log")
+        if tool_call_log:
+            print("  [L5] Burp 模式 — 使用已有 tool_call_log")
 
     # 如果 Tool Calling Target 可用, 使用它替代普通目标 (支持工具调用循环)
     if tool_call_target is not None:
@@ -750,14 +758,27 @@ async def run_advanced_mcp_attack(ctx: PipelineContext) -> AdvancedMCPAttackRepo
 
 
 def _extract_response_text(result: Any) -> str:
-    """从 PyRIT attack 结果中提取响应文本。."""
+    """从 PyRIT attack 结果中提取响应文本.
+
+    O-2 P3: 增强 — 检测 tool_calls 字段, 提取工具调用意图作为攻击证据.
+    """
+    from pipeline.scenarios.mcp_attack import _extract_tool_calls_text
+
     try:
         if hasattr(result, "last_response") and result.last_response:
-            return str(result.last_response)
+            resp = result.last_response
+            _tc_text = _extract_tool_calls_text(resp)
+            if _tc_text:
+                return _tc_text
+            return str(resp)
         if hasattr(result, "conversation") and result.conversation:
             msgs = result.conversation
             if msgs:
-                return str(msgs[-1])
+                resp = msgs[-1]
+                _tc_text = _extract_tool_calls_text(resp)
+                if _tc_text:
+                    return _tc_text
+                return str(resp)
     except Exception:
         pass
     return ""

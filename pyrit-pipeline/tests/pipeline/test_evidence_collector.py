@@ -179,10 +179,14 @@ class TestExtractJailbreakPrompt:
         assert "Ignore" in prompt
 
     def test_without_last_request(self) -> None:
-        """无 last_request 且无 conversation_id→空字符串。."""
+        """无 last_request 且无 conversation_id→空字符串 (P0-O4: objective 为 None 时).."""
         ar = MagicMock()
         ar.last_request = None
         ar.conversation_id = None
+        ar.objective = None  # P0-O4: fallback 到 objective, 需显式设为 None
+        ar.response = None
+        ar.response_text = None
+        ar.target_response = None
         collector = EvidenceCollector()
         assert collector._extract_jailbreak_prompt(ar) == ""
 
@@ -213,10 +217,13 @@ class TestExtractHarmfulOutput:
         assert "harmful" in output
 
     def test_without_last_response(self) -> None:
-        """无 last_response 且无 conversation_id→空字符串。."""
+        """无 last_response 且无 conversation_id→空字符串 (P0-O4: response 为 None 时)."""
         ar = MagicMock()
         ar.last_response = None
         ar.conversation_id = None
+        ar.response = None  # P0-O4: fallback 属性需显式设为 None
+        ar.response_text = None
+        ar.target_response = None
         collector = EvidenceCollector()
         assert collector._extract_harmful_output(ar) == ""
 

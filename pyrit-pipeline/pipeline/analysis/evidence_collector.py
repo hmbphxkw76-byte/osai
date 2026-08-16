@@ -98,6 +98,10 @@ class VulnerabilityEvidence:
     attack_chain: list[dict[str, str]] = field(default_factory=list)
     # P1: Converter 转换日志 (原始→变换后的 prompt 记录)
     converter_log: list[dict[str, str]] = field(default_factory=list)
+    # P0-O3: 评分详情 (评分器类型 + score value + rationale)
+    score_details: list[dict[str, str]] = field(default_factory=list)
+    # P0-O3: 评分一致性 (both_agree_success / disagreement / single_judge)
+    scorer_agreement: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -340,6 +344,10 @@ class EvidenceCollector:
                     attack_chain=self._extract_attack_chain(ar),
                     # P1: Converter 转换日志
                     converter_log=self._extract_converter_log(ar),
+                    # P0-O3: 评分详情
+                    score_details=self._extract_score_details(ar),
+                    # P0-O3: 评分一致性
+                    scorer_agreement=self._compute_scorer_agreement(ar),
                 )
 
                 collection.evidence.append(evidence)
@@ -370,11 +378,15 @@ class EvidenceCollector:
                             harmful_output=self._extract_harmful_output(child),
                             conversation_history=self._extract_conversation(child),
                             asr=asr_per_technique.get(tech_name, 0.0) if asr_per_technique else 0.0,
-                            confidence="medium",
+                            confidence=self._compute_confidence(child, asr_per_technique or {}),
                             arxiv_reference=get_arxiv_reference(normalize_technique_name(tech_name)) or "",
                             timestamp=datetime.now().isoformat(),
                             target_model=self._target_model,
                             model_tier=self._model_tier,
+                            # P0-O3: 评分详情
+                            score_details=self._extract_score_details(child),
+                            # P0-O3: 评分一致性
+                            scorer_agreement=self._compute_scorer_agreement(child),
                         )
                         collection.evidence.append(child_evidence)
 
@@ -524,9 +536,28 @@ class EvidenceCollector:
             lines.append(f"**攻击目标**: {ev.objective[:200]}")
             lines.append(f"**ASR**: {ev.asr:.1f}%")
             lines.append(f"**置信度**: {ev.confidence}")
+            if ev.scorer_agreement:
+                lines.append(f"**评分一致性**: {ev.scorer_agreement}")
             if ev.arxiv_reference:
                 lines.append(f"**学术引用**: {ev.arxiv_reference}")
             lines.append("")
+
+            # P0-O3: 评分详情
+            if ev.score_details:
+                lines.append("#### 评分详情")
+                lines.append("")
+                lines.append("| 评分器 | Score | Category | Rationale |")
+                lines.append("|--------|-------|----------|-----------|")
+                for sd in ev.score_details:
+                    rationale_brief = sd.get("rationale", "")[:200]
+                    lines.append(
+                        f"| {sd.get('scorer_type', '')} "
+                        f"| {sd.get('score_value', '')} "
+                        f"| {sd.get('score_category', '')} "
+                        f"| {rationale_brief} |"
+                    )
+                lines.append("")
+
             lines.append("#### 越狱载荷 (Jailbreak Prompt)")
             lines.append("```")
             lines.append(ev.jailbreak_prompt[:5000] if ev.jailbreak_prompt else "(未提取)")
@@ -610,7 +641,14 @@ class EvidenceCollector:
         return AttackResultAnalyzer.extract_technique_name(attack_result)
 
     def _extract_converter_chain(self, attack_result: Any) -> str:
-        """从 AttackResult 提取 Converter 链名。."""
+        """从 AttackResult 提取 Converter 链名 (P1-O2: 3层 fallback).
+
+        数据流:
+          1. get_attack_strategy_identifier().children["request_converters"]
+          2. (fallback) pipeline.converters.log.extract_converter_info_from_result
+          3. (fallback) metadata.converter_chain / converter_names
+        """
+        # Layer 1: 从 strategy identifier 提取
         identifier = None
         if hasattr(attack_result, "get_attack_strategy_identifier"):
             identifier = attack_result.get_attack_strategy_identifier()
@@ -624,7 +662,31 @@ class EvidenceCollector:
                         names.append(conv)
                     else:
                         names.append(type(conv).__name__)
-                return "→".join(names)
+                if names:
+                    return "→".join(names)
+
+        # Layer 2: 从 extract_converter_info_from_result 提取
+        try:
+            from pipeline.converters.log import extract_converter_info_from_result
+
+            conv_info = extract_converter_info_from_result(attack_result)
+            if conv_info:
+                chain = conv_info.get("converter_chain", "")
+                if chain:
+                    return chain
+        except Exception as e:
+            logger.debug(f"P1-O2 Layer2: converter extraction failed: {e}")
+
+        # Layer 3: 从 metadata 提取
+        meta = getattr(attack_result, "metadata", None) or {}
+        if isinstance(meta, dict):
+            for key in ("converter_chain", "converter_names", "converters"):
+                val = meta.get(key, "")
+                if val and isinstance(val, str):
+                    return val
+                if val and isinstance(val, list):
+                    return "→".join(str(v) for v in val)
+
         return ""
 
     def _extract_objective(self, attack_result: Any) -> str:
@@ -645,10 +707,13 @@ class EvidenceCollector:
 
         P2 修复: 优先从 last_request 提取, fallback 到 CentralMemory.get_message_pieces()
         从 conversation_id 查询, 解决 last_request 为 None 时返回空字符串的问题。
+        P0-O4 修复: 子攻击 (SequentialAttack child) conversation_id 为空时,
+        从 objective 字段直接提取作为 fallback。
 
         数据流:
           1. AttackResult.last_request.request_pieces -> 最后一条 user piece
           2. (fallback) CentralMemory.get_message_pieces(conv_id) -> 最后一条 user piece
+          3. (P0-O4 fallback) AttackResult.objective -> 原始载荷
         """
         # 1. 优先从 last_request 提取
         last_request = getattr(attack_result, "last_request", None)
@@ -680,6 +745,11 @@ class EvidenceCollector:
             except Exception as e:
                 logger.debug(f"P2 fallback: failed to extract jailbreak_prompt from memory: {e}")
 
+        # 3. P0-O4 fallback: 从 objective 字段直接提取 (子攻击无 conversation_id 时)
+        objective = getattr(attack_result, "objective", None)
+        if objective:
+            return _truncate_evidence_text(str(objective))
+
         return ""
 
     def _extract_harmful_output(self, attack_result: Any) -> str:
@@ -687,6 +757,13 @@ class EvidenceCollector:
 
         P2 修复: 优先从 last_response 提取, fallback 到 CentralMemory.get_message_pieces()
         从 conversation_id 查询, 解决 last_response 为 None 时返回空字符串的问题。
+        P0-O4 修复: 子攻击 (SequentialAttack child) 无 conversation_id 时,
+        从 response/response_text/target_response 属性直接提取。
+
+        数据流:
+          1. AttackResult.last_response.request_pieces -> 最后一条 assistant piece
+          2. (fallback) CentralMemory.get_message_pieces(conv_id) -> 最后一条 assistant piece
+          3. (P0-O4 fallback) AttackResult.response / response_text / target_response
         """
         # 1. 优先从 last_response 提取
         last_response = getattr(attack_result, "last_response", None)
@@ -717,6 +794,12 @@ class EvidenceCollector:
             except Exception as e:
                 logger.debug(f"P2 fallback: failed to extract harmful_output from memory: {e}")
 
+        # 3. P0-O4 fallback: 从 response 属性直接提取 (子攻击无 conversation_id 时)
+        for attr_name in ("response", "response_text", "target_response"):
+            val = getattr(attack_result, attr_name, None)
+            if val and isinstance(val, str) and val.strip():
+                return _truncate_evidence_text(val)
+
         return ""
 
     def _extract_conversation(self, attack_result: Any) -> list[dict[str, str]]:
@@ -742,17 +825,130 @@ class EvidenceCollector:
         attack_result: Any,
         asr_per_technique: dict[str, float],
     ) -> str:
-        """计算证据置信度。."""
+        """计算证据置信度 (P0-O3: 综合考虑 ASR + 评分器一致性 + 评分器类型).
+
+        学术依据: LLM-as-a-Judge (arXiv:2306.05685) §4.2 — 置信度应反映评分器协议.
+        """
         tech_name = self._extract_technique_name(attack_result)
         asr = asr_per_technique.get(tech_name, 0.0)
 
+        # P0-O3: 从评分结果提取评分器一致性
+        agreement = self._compute_scorer_agreement(attack_result)
+
+        # 基础置信度 (ASR 驱动)
         if asr >= 70:
+            base_confidence = "high"
+        elif asr >= 30:
+            base_confidence = "medium"
+        elif asr > 0:
+            base_confidence = "low"
+        else:
+            base_confidence = "medium"  # 无 ASR 数据时默认中等
+
+        # P0-O3: 评分一致性升级/降级
+        if agreement == "both_agree_success":
+            # 双 Judge 都同意成功 → 升级到 high
             return "high"
-        if asr >= 30:
-            return "medium"
-        if asr > 0:
+        if agreement == "disagreement":
+            # 评分器分歧 → 降级一级
+            if base_confidence == "high":
+                return "medium"
+            if base_confidence == "medium":
+                return "low"
             return "low"
-        return "medium"  # 无 ASR 数据时默认中等
+
+        return base_confidence
+
+    # ------------------------------------------------------------------
+    # P0-O3: 评分详情 + 评分一致性
+    # ------------------------------------------------------------------
+
+    def _extract_score_details(self, attack_result: Any) -> list[dict[str, str]]:
+        """P0-O3: 从 AttackResult 提取评分详情 (评分器类型 + value + category + rationale).
+
+        学术依据: LLM-as-a-Judge (arXiv:2306.05685) — 评分推理过程应透明化.
+        """
+        details: list[dict[str, str]] = []
+
+        # PyRIT AttackResult.scores 是 list[Score]
+        scores = getattr(attack_result, "scores", None) or []
+        for score in scores:
+            try:
+                if not isinstance(score, dict):
+                    scorer_type = type(score).__name__
+                else:
+                    scorer_type = str(score.get("scorer_type", "unknown"))
+                score_value = ""
+                score_category = ""
+                score_rationale = ""
+
+                if isinstance(score, dict):
+                    score_value = str(score.get("score_value", score.get("value", "")))
+                    score_category = str(score.get("score_category", score.get("category", "")))
+                    score_rationale = str(score.get("score_rationale", score.get("rationale", "")))
+                    scorer_type = str(score.get("scorer_type", scorer_type))
+                else:
+                    # PyRIT Score 对象
+                    val = getattr(score, "score_value", None)
+                    if val is not None:
+                        score_value = str(val)
+                    score_category = str(getattr(score, "score_category", "") or getattr(score, "category", ""))
+                    score_rationale = str(getattr(score, "score_rationale", "") or "")
+                    # 评分器类名
+                    scorer_type = type(score).__name__
+
+                details.append({
+                    "scorer_type": scorer_type[:60],
+                    "score_value": score_value[:20],
+                    "score_category": score_category[:40],
+                    "rationale": _truncate_evidence_text(score_rationale, max_length=500),
+                })
+            except Exception as e:
+                logger.debug(f"Failed to extract score detail: {e}")
+                continue
+
+        return details
+
+    def _compute_scorer_agreement(self, attack_result: Any) -> str:
+        """P0-O3: 计算评分器一致性 (both_agree_success / disagreement / single_judge).
+
+        判定逻辑:
+          - 2+ 评分器都判 success → both_agree_success
+          - 评分器之间有分歧 → disagreement
+          - 仅1个评分器 → single_judge
+
+        学术依据: HarmBench (arXiv:2402.04249) §5.2 多评分器协议报告.
+        """
+        scores = getattr(attack_result, "scores", None) or []
+        if len(scores) < 2:
+            return "single_judge"
+
+        success_count = 0
+        failure_count = 0
+
+        for score in scores:
+            try:
+                val = ""
+                if isinstance(score, dict):
+                    val = str(score.get("score_value", score.get("value", ""))).lower()
+                else:
+                    val = str(getattr(score, "score_value", "")).lower()
+
+                # 判定 True/False
+                if val in ("true", "1", "success", "yes"):
+                    success_count += 1
+                elif val in ("false", "0", "failure", "no"):
+                    failure_count += 1
+            except Exception:
+                continue
+
+        if success_count >= 2 and failure_count == 0:
+            return "both_agree_success"
+        if success_count >= 1 and failure_count >= 1:
+            return "disagreement"
+        if failure_count >= 2 and success_count == 0:
+            return "both_agree_failure"
+        return "single_judge"
 
     # ------------------------------------------------------------------
     # P1: 攻击链路 + Converter 日志 + ASR 趋势 + 失败分析

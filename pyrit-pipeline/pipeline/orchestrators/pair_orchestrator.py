@@ -167,6 +167,11 @@ class PAIROrchestrator:
             tree_depth=self.tree_depth,
         )
 
+        # v53: 应用 relaxed adversarial JSON schema (在 execute_async 之前)
+        from pipeline.orchestrators.advanced_crescendo import apply_relaxed_adversarial_schema
+
+        apply_relaxed_adversarial_schema(attack)
+
         # 5. 执行原生攻击
         try:
             import asyncio

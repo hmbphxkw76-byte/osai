@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""TargetClassifier: 目标 URL 类型自动判别器。.
+"""TargetClassifier: 目标 URL 类型自动判别器 + 多维攻击面拓扑。
 
 三路并行探测, 投票决策目标类型:
   1. HTTP 响应分析 (Content-Type, Server, 状态码)
@@ -13,12 +13,21 @@
   - llm_api_platform: LLM API 平台 (JSON 响应, API 端点路径)
   - unknown:          无法确定, 降级为用户手动选择
 
+v56 攻击者视角增强 — AttackSurfaceTopology:
+  在原有二元分类基础上, 新增多维攻击面拓扑, 从攻击者视角回答:
+    "这个目标有哪些可注入的攻击面?"
+  覆盖 5 层: 传输面 / 应用面 / 认证面 / 攻击面 / Kill Chain 映射
+
 学术依据:
   - PyRIT (arXiv:2407.01232): PlaywrightTarget (Web UI) vs HTTPTarget (API)
   - OWASP Top 10 for LLMs 2025: Web 注入和 API 注入的攻击面对应
-  - MITRE ATT&CK: Reconnaissance → 初始访问前需识别目标类型
+  - MITRE ATT&CK T1592: 主动扫描 → 初始访问前需识别目标类型
+  - Greshake et al. (arXiv:2302.12173): Agent 应用是主要攻击面
+  - OWASP ASI01-10: Agentic Security 攻击面拓扑
 
 > **日期**: 2026-8-3
+> **更新记录**:
+  2026-8-16 — v56: 新增 AttackSurfaceTopology 多维攻击面拓扑 + Burp请求体Agent结构分析 + 认证拓扑增强
 """
 
 from __future__ import annotations
@@ -32,6 +41,34 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+# ── 高风险 Agent 工具关键词 (offensive 视角: 这些工具被劫持后危害最大) ──
+_HIGH_RISK_TOOL_NAMES: frozenset[str] = frozenset({
+    "execute_command", "exec_command", "run_command", "shell", "terminal",
+    "write_file", "create_file", "modify_file",
+    "delete_file", "remove_file", "rm",
+    "send_email", "email", "smtp",
+    "http_request", "fetch", "curl", "wget", "request",
+    "get_environment", "env", "environment", "getenv",
+    "list_directory", "ls", "dir", "readdir",
+    "read_file", "cat",
+    "sql_query", "database", "db_query",
+    "upload_file", "download_file",
+    "create_user", "add_user", "modify_permissions",
+})
+
+# ── RAG 特征字段名 (用于从 Burp 请求体检测 RAG 管道) ──
+_RAG_FIELD_NAMES: frozenset[str] = frozenset({
+    "context", "retrieved_context", "knowledge", "knowledge_base",
+    "retrieved_documents", "sources", "reference", "references",
+    "documents", "citations", "evidence",
+})
+
+# ── MCP 协议特征字段 ──
+_MCP_FIELD_NAMES: frozenset[str] = frozenset({
+    "mcp", "mcp_server", "mcp_config", "server_config",
+    "tool_server", "protocol_version",
+})
 
 # ── API 端点 URL 路径模式 (复用 recon-pipeline EndpointClassifier 规则) ──
 _API_PATH_PATTERNS: list[re.Pattern[str]] = [
@@ -89,6 +126,101 @@ _CHAT_UI_SELECTORS = [
 
 
 @dataclass
+class AttackSurfaceTopology:
+    """v56: 多维攻击面拓扑 — 攻击者视角的目标画像.
+
+    从 5 个维度刻画目标的攻击面, 回答 "这个目标有哪些可注入的攻击面?":
+      层1 传输面: Web App / API / MCP Server
+      层2 应用面: 简单LLM / Agent+工具 / RAG管道 / 多Agent / MCP编排
+      层3 认证面: 认证拓扑 + 持久性 + Token过期 + MFA
+      层4 攻击面: 可注入面列表 + 已发现工具 + 信任边界
+      层5 Kill Chain: 推荐攻击阶段 + OWASP 类别
+
+    学术依据:
+      - MITRE ATT&CK T1592 (Gather Victim Host Info)
+      - Greshake et al. (arXiv:2302.12173): Agent 应用攻击面发现
+      - OWASP ASI01-10: Agentic Security 攻击面拓扑
+
+    Attributes:
+        transport_type: 传输类型 ("web_app" | "api_platform" | "mcp_server" | "unknown")
+        app_architecture: 应用架构 (simple_llm/agent_with_tools/rag_pipeline/multi_agent/mcp_orchestrator)
+        has_tool_calling: 请求体含 tools/functions 字段
+        has_multi_turn: 请求体含 messages 数组 (多轮对话)
+        has_streaming: SSE/stream 流式响应
+        has_system_prompt: 请求体含 system message
+        auth_topology: 认证拓扑 (none/session_cookie/bearer_token/oauth2_jwt/api_key/basic/custom_header)
+        auth_persistence: 认证持久性 ("stateless" | "session" | "persistent")
+        token_expiry_seconds: JWT 过期时间秒 (0=无过期/不适用)
+        has_mfa: 检测到 MFA 挑战
+        injection_surfaces: 可注入面列表
+        discovered_tools: 已发现的工具定义列表
+        trust_boundaries: 信任边界列表
+        model_fingerprint: 模型族/版本指纹
+        recommended_kill_chain: 推荐 Kill Chain 阶段
+        recommended_owasp: 推荐 OWASP 类别
+    """
+
+    # ── 层1: 传输面 ──
+    transport_type: str = "unknown"
+    # ── 层2: 应用面 ──
+    app_architecture: str = "simple_llm"
+    has_tool_calling: bool = False
+    has_multi_turn: bool = False
+    has_streaming: bool = False
+    has_system_prompt: bool = False
+    # ── 层3: 认证面 ──
+    auth_topology: str = "none"
+    auth_persistence: str = "stateless"
+    token_expiry_seconds: int = 0
+    has_mfa: bool = False
+    # ── 层4: 攻击面 ──
+    injection_surfaces: list[str] = None  # type: ignore[assignment]
+    discovered_tools: list[dict] = None  # type: ignore[assignment]
+    trust_boundaries: list[str] = None  # type: ignore[assignment]
+    model_fingerprint: dict = None  # type: ignore[assignment]
+    # ── 层5: Kill Chain 映射 ──
+    recommended_kill_chain: list[str] = None  # type: ignore[assignment]
+    recommended_owasp: list[str] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        """Initialize default collections."""
+        if self.injection_surfaces is None:
+            self.injection_surfaces = ["user_message"]
+        if self.discovered_tools is None:
+            self.discovered_tools = []
+        if self.trust_boundaries is None:
+            self.trust_boundaries = ["user→llm"]
+        if self.model_fingerprint is None:
+            self.model_fingerprint = {}
+        if self.recommended_kill_chain is None:
+            self.recommended_kill_chain = ["recon", "initial_access"]
+        if self.recommended_owasp is None:
+            self.recommended_owasp = ["LLM01"]
+
+    def __str__(self) -> str:
+        """Return string representation."""
+        lines = [
+            "AttackSurfaceTopology:",
+            f"  transport:       {self.transport_type}",
+            f"  architecture:    {self.app_architecture}",
+            f"  tool_calling:    {self.has_tool_calling}",
+            f"  multi_turn:      {self.has_multi_turn}",
+            f"  streaming:       {self.has_streaming}",
+            f"  system_prompt:   {self.has_system_prompt}",
+            f"  auth_topology:   {self.auth_topology}",
+            f"  auth_persistence: {self.auth_persistence}",
+            f"  token_expiry:    {self.token_expiry_seconds}s",
+            f"  has_mfa:         {self.has_mfa}",
+            f"  injection_surfaces: {self.injection_surfaces}",
+            f"  discovered_tools:   {len(self.discovered_tools)} tools",
+            f"  trust_boundaries:   {self.trust_boundaries}",
+            f"  kill_chain:      {self.recommended_kill_chain}",
+            f"  owasp:           {self.recommended_owasp}",
+        ]
+        return "\n".join(lines)
+
+
+@dataclass
 class TargetClassification:
     """目标类型判别结果。.
 
@@ -107,6 +239,7 @@ class TargetClassification:
         has_openapi_spec: 是否检测到 OpenAPI/Swagger 规范
         streaming_type: 流式类型 ("sse" | "ndjson" | "stream_json" | "" 非流式)
         is_streaming: 是否为流式 API
+        attack_surface: v56 多维攻击面拓扑 (None=未构建)
     """
 
     target_type: str = "unknown"
@@ -125,6 +258,8 @@ class TargetClassification:
     # SSE / 流式 API 检测 (Round 24 增强)
     streaming_type: str = ""  # sse | ndjson | stream_json | "" (非流式)
     is_streaming: bool = False
+    # v56: 多维攻击面拓扑
+    attack_surface: AttackSurfaceTopology | None = None
 
     def __str__(self) -> str:
         """Return string representation."""
@@ -142,6 +277,8 @@ class TargetClassification:
             f"  is_streaming:         {self.is_streaming}",
             f"  reason:               {self.detection_reason}",
         ]
+        if self.attack_surface is not None:
+            lines.append(str(self.attack_surface))
         return "\n".join(lines)
 
 
@@ -652,3 +789,335 @@ class TargetClassifier:
                 f"TargetClassifier: API auth detected: type={result.api_auth_type}, "
                 f"header={result.api_auth_header}, openapi={result.has_openapi_spec}"
             )
+
+    # ── v56: 多维攻击面拓扑构建 ──
+
+    def build_attack_surface_topology(
+        self,
+        classification: TargetClassification,
+        *,
+        burp_raw_request: str | None = None,
+        burp_body_json: dict[str, Any] | None = None,
+        auth_headers: dict[str, str] | None = None,
+    ) -> AttackSurfaceTopology:
+        """v56: 从判别结果 + Burp 请求体构建多维攻击面拓扑.
+
+        攻击者视角: 不问 "这是什么类型目标", 而问 "有哪些可注入攻击面".
+
+        5 层构建:
+          层1 传输面: 从 target_type 映射
+          层2 应用面: 从 Burp 请求体 JSON 分析 Agent/RAG/MCP 结构
+          层3 认证面: 从 auth_headers + api_auth_type 推断认证拓扑
+          层4 攻击面: 从层2结果推导注入面 + 工具 + 信任边界
+          层5 Kill Chain: 从层4结果映射 OWASP + Kill Chain 阶段
+
+        Args:
+            classification: TargetClassification 判别结果.
+            burp_raw_request: Burp 原始 HTTP 请求文本 (可选).
+            burp_body_json: 已解析的 Burp 请求体 JSON (可选, 优先于 raw_request).
+            auth_headers: 认证 headers 字典 (可选).
+
+        Returns:
+            AttackSurfaceTopology 多维攻击面拓扑.
+
+        学术依据:
+            - MITRE ATT&CK T1592: 主动扫描
+            - Greshake et al. (arXiv:2302.12173): Agent 攻击面发现
+            - OWASP ASI01-10: Agentic Security
+        """
+        topology = AttackSurfaceTopology()
+
+        # ── 层1: 传输面 ──
+        if classification.target_type == "llm_web_app":
+            topology.transport_type = "web_app"
+        elif classification.target_type == "llm_api_platform":
+            topology.transport_type = "api_platform"
+        else:
+            topology.transport_type = "unknown"
+
+        topology.has_streaming = classification.is_streaming
+
+        # ── 层2: 应用面 — 从 Burp 请求体分析 Agent 结构 ──
+        body_json: dict[str, Any] = {}
+        if burp_body_json is not None:
+            body_json = burp_body_json
+        elif burp_raw_request:
+            body_json = self._parse_burp_body(burp_raw_request)
+
+        if body_json:
+            # 工具调用检测
+            tools_raw = body_json.get("tools") or body_json.get("functions") or []
+            if isinstance(tools_raw, list) and tools_raw:
+                topology.has_tool_calling = True
+                for t in tools_raw:
+                    if isinstance(t, dict):
+                        tool_name = t.get("name", t.get("function", {}).get("name", ""))
+                        tool_desc = t.get("description", t.get("function", {}).get("description", ""))
+                        topology.discovered_tools.append({
+                            "name": tool_name,
+                            "description": tool_desc,
+                            "parameters": t.get("parameters", t.get("function", {}).get("parameters", {})),
+                        })
+
+            # 多轮对话检测
+            messages = body_json.get("messages", [])
+            if isinstance(messages, list) and len(messages) > 0:
+                topology.has_multi_turn = True
+                for msg in messages:
+                    if isinstance(msg, dict) and msg.get("role") == "system":
+                        topology.has_system_prompt = True
+                        break
+                    if isinstance(msg, dict) and "tool_calls" in msg:
+                        topology.has_tool_calling = True
+                        break
+
+            # RAG 特征检测
+            for field_name in _RAG_FIELD_NAMES:
+                if field_name in body_json:
+                    topology.app_architecture = "rag_pipeline"
+                    break
+
+            # MCP 特征检测
+            for field_name in _MCP_FIELD_NAMES:
+                if field_name in body_json:
+                    topology.app_architecture = "mcp_orchestrator"
+                    break
+
+            # 应用架构判定 (优先级: MCP > RAG > Agent > Simple)
+            if topology.app_architecture == "simple_llm":
+                if topology.has_tool_calling:
+                    topology.app_architecture = "agent_with_tools"
+                elif topology.has_multi_turn and topology.has_system_prompt:
+                    topology.app_architecture = "simple_llm"
+
+        # ── 层3: 认证面 ──
+        topology.auth_topology = self._infer_auth_topology(classification, auth_headers)
+        topology.auth_persistence = self._infer_auth_persistence(topology.auth_topology)
+        topology.token_expiry_seconds = self._extract_jwt_expiry(auth_headers or {})
+
+        # ── 层4: 攻击面推导 ──
+        topology.injection_surfaces = self._derive_injection_surfaces(topology)
+        topology.trust_boundaries = self._derive_trust_boundaries(topology)
+
+        # 高风险工具标记
+        high_risk = [
+            t["name"] for t in topology.discovered_tools
+            if t.get("name", "").lower() in _HIGH_RISK_TOOL_NAMES
+        ]
+        if high_risk:
+            topology.model_fingerprint["high_risk_tools"] = high_risk
+
+        # ── 层5: Kill Chain 映射 ──
+        topology.recommended_owasp = self._map_owasp_categories(topology)
+        topology.recommended_kill_chain = self._map_kill_chain(topology)
+
+        logger.info(
+            f"v56 AttackSurfaceTopology: transport={topology.transport_type}, "
+            f"arch={topology.app_architecture}, "
+            f"tools={len(topology.discovered_tools)}, "
+            f"auth={topology.auth_topology}, "
+            f"surfaces={topology.injection_surfaces}, "
+            f"owasp={topology.recommended_owasp}"
+        )
+
+        return topology
+
+    def _parse_burp_body(self, raw_request: str) -> dict[str, Any]:
+        """从 Burp 原始 HTTP 请求解析请求体 JSON."""
+        import contextlib
+        import json
+
+        parts = raw_request.split("\r\n\r\n", 1)
+        if len(parts) < 2:
+            parts = raw_request.split("\n\n", 1)
+        body = parts[1] if len(parts) > 1 else ""
+
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            data = json.loads(body)
+            if isinstance(data, dict):
+                return data
+        return {}
+
+    def _infer_auth_topology(
+        self,
+        classification: TargetClassification,
+        auth_headers: dict[str, str] | None,
+    ) -> str:
+        """推断认证拓扑."""
+        headers = auth_headers or {}
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        # Cookie → session_cookie
+        if "cookie" in headers_lower:
+            return "session_cookie"
+
+        # Authorization header
+        auth_val = headers_lower.get("authorization", "")
+        if auth_val:
+            if auth_val.startswith("Bearer "):
+                token = auth_val[7:]
+                # JWT 检测: 3 段式以 . 分隔
+                if token.count(".") == 2:
+                    return "oauth2_jwt"
+                return "bearer_token"
+            if auth_val.startswith("Basic "):
+                return "basic"
+
+        # 自定义 API Key 头
+        for h_name in ("x-api-key", "x-auth-token", "api-key"):
+            if h_name in headers_lower:
+                return "api_key"
+
+        # 从 classification 回退
+        if classification.api_auth_type:
+            at = classification.api_auth_type
+            if at == "bearer":
+                return "bearer_token"
+            if at == "oauth2":
+                return "oauth2_jwt"
+            if at == "basic":
+                return "basic"
+            if at == "api_key":
+                return "api_key"
+
+        return "none"
+
+    def _infer_auth_persistence(self, auth_topology: str) -> str:
+        """推断认证持久性."""
+        if auth_topology in ("session_cookie",):
+            return "session"
+        if auth_topology in ("oauth2_jwt",):
+            return "persistent"
+        if auth_topology in ("bearer_token", "api_key", "basic"):
+            return "stateless"
+        return "stateless"
+
+    def _extract_jwt_expiry(self, auth_headers: dict[str, str]) -> int:
+        """从 JWT Token 的 exp claim 提取过期时间.
+
+        攻击者视角: Token 过期时间决定攻击窗口大小.
+        """
+        import base64
+        import contextlib
+        import json
+        import time
+
+        auth_val = auth_headers.get("Authorization", auth_headers.get("authorization", ""))
+        if not auth_val.startswith("Bearer "):
+            return 0
+
+        token = auth_val[7:]
+        parts = token.split(".")
+        if len(parts) != 3:
+            return 0  # 非 JWT
+
+        with contextlib.suppress(Exception):
+            # JWT payload 是第 2 段
+            payload_bytes = parts[1]
+            # 补齐 base64 padding
+            payload_bytes += "=" * (4 - len(payload_bytes) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_bytes))
+            exp = payload.get("exp")
+            if exp and isinstance(exp, (int, float)):
+                remaining = int(exp - time.time())
+                return max(remaining, 0)
+
+        return 0
+
+    def _derive_injection_surfaces(self, topology: AttackSurfaceTopology) -> list[str]:
+        """从应用架构推导可注入攻击面.
+
+        攻击者视角: 每个架构特征对应一个注入面.
+        """
+        surfaces = ["user_message"]  # 基础: 用户消息注入
+
+        if topology.has_tool_calling:
+            surfaces.append("tool_result")  # 工具返回值注入 (InjecAgent)
+        if topology.has_system_prompt:
+            surfaces.append("system_prompt")  # 系统提示提取 (LLM07)
+        if topology.app_architecture == "rag_pipeline":
+            surfaces.append("rag_content")  # RAG 内容投毒 (LLM07)
+        if topology.app_architecture == "mcp_orchestrator":
+            surfaces.append("mcp_protocol")  # MCP 协议注入 (ASI01)
+        if topology.transport_type == "web_app":
+            surfaces.append("file_upload")  # 文件上传 (XPIA)
+        if topology.has_multi_turn:
+            surfaces.append("conversation_history")  # 对话历史注入
+
+        return surfaces
+
+    def _derive_trust_boundaries(self, topology: AttackSurfaceTopology) -> list[str]:
+        """推导信任边界.
+
+        攻击者视角: 信任边界 = 可跨越的权限线.
+        """
+        boundaries = ["user→llm"]  # 基础
+
+        if topology.has_tool_calling:
+            boundaries.append("llm→tool")  # LLM 调用工具的信任传递
+        if topology.app_architecture == "rag_pipeline":
+            boundaries.append("llm→rag")  # LLM 信任 RAG 内容
+        if topology.app_architecture == "mcp_orchestrator":
+            boundaries.append("llm→mcp_server")  # LLM 信任 MCP 服务器
+        if topology.app_architecture == "multi_agent":
+            boundaries.append("agent→agent")  # Agent 间信任传递
+
+        return boundaries
+
+    def _map_owasp_categories(self, topology: AttackSurfaceTopology) -> list[str]:
+        """从攻击面拓扑映射 OWASP 类别.
+
+        攻击者视角: 每个攻击面对应一个 OWASP 类别.
+        """
+        owasp: list[str] = ["LLM01"]  # 基础: Prompt Injection
+
+        if "system_prompt" in topology.injection_surfaces:
+            owasp.append("LLM07")  # System Prompt Leakage
+        if "rag_content" in topology.injection_surfaces:
+            owasp.append("LLM07")  # RAG 投毒 → 间接注入
+        if "tool_result" in topology.injection_surfaces:
+            owasp.extend(["ASI02", "ASI05"])  # Tool Injection / Excessive Agency
+        if "mcp_protocol" in topology.injection_surfaces:
+            owasp.extend(["ASI01", "ASI02"])  # MCP Security / Tool Injection
+        if topology.auth_topology != "none":
+            owasp.append("LLM02")  # Sensitive Info (Token 本身是攻击目标)
+        if topology.has_tool_calling:
+            owasp.append("ASI06")  # Excessive Agency
+        if "agent→agent" in topology.trust_boundaries:
+            owasp.append("ASI05")  # Multi-Agent 信任传播
+
+        # 去重保持顺序
+        seen: set[str] = set()
+        result: list[str] = []
+        for o in owasp:
+            if o not in seen:
+                seen.add(o)
+                result.append(o)
+        return result
+
+    def _map_kill_chain(self, topology: AttackSurfaceTopology) -> list[str]:
+        """从攻击面拓扑映射 Kill Chain 阶段.
+
+        攻击者视角: 攻击链路规划.
+        """
+        chain = ["recon", "initial_access"]
+
+        if topology.auth_topology != "none":
+            chain.append("credential_access")  # Token 窃取
+        if topology.has_tool_calling:
+            chain.append("persistence")  # 工具劫持持续利用
+        if "rag_content" in topology.injection_surfaces:
+            chain.append("discovery")  # RAG 内容发现
+        if topology.has_tool_calling or "mcp_protocol" in topology.injection_surfaces:
+            chain.append("collection")  # 工具调用收集数据
+        if topology.has_tool_calling:
+            chain.append("bypass")  # 安全控制绕过
+
+        # 去重保持顺序
+        seen: set[str] = set()
+        result: list[str] = []
+        for c in chain:
+            if c not in seen:
+                seen.add(c)
+                result.append(c)
+        return result

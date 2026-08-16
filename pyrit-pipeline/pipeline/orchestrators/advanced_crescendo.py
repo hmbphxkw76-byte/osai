@@ -42,6 +42,85 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+_relaxed_schema_applied = False
+
+
+def apply_relaxed_adversarial_schema(attack: Any = None) -> int:
+    """v53: 将对抗模型 JSON schema 的 required 字段从 3 个降级为 1 个.
+
+    PyRIT 原生 adversarial_chat schema 要求 next_message + rationale +
+    last_response_summary 三个字段都是 required. Qwen3-32B 有时不返回
+    rationale/last_response_summary, 导致 _parse_adversarial_reply() 抛出
+    InvalidJsonException → send_json_with_retry_async 无限重试.
+
+    修复: 将 rationale 和 last_response_summary 从 required 降级为 optional,
+    next_message 保持 required (攻击循环唯一消费的字段).
+
+    学术依据: PyRIT (arXiv:2407.01232) AdversarialConversationManager 设计
+    — next_message 是攻击循环唯一必需字段, rationale/last_response_summary
+    仅用于攻击者推理记录, 缺失不影响攻击执行.
+    R-022: 使用 PyRIT 原生 response_json_schema 属性修改, 不覆盖原生解析逻辑.
+
+    v53.1: 改为 monkey-patch get_common_json_schema 全局函数,
+    因为 AdversarialConversationManager 在 _setup_async() 中创建,
+    在 execute_async() 前无法直接修改其 _response_json_schema.
+
+    Args:
+        attack: PyRIT 原生 CrescendoAttack/TAPAttack/PAIRAttack 实例 (可选, 向后兼容).
+
+    Returns:
+        被修改 schema 的 manager 数量 (0 如果已应用过).
+    """
+    global _relaxed_schema_applied
+    if _relaxed_schema_applied:
+        return 0
+
+    patched = 0
+    try:
+        import pyrit.models.target.json_schema_definition as _schema_mod
+
+        _original_get = _schema_mod.get_common_json_schema
+
+        def _relaxed_get_common_json_schema(name: str) -> dict[str, Any]:
+            schema = _original_get(name)
+            if name == "adversarial_chat" and isinstance(schema, dict):
+                schema["required"] = ["next_message"]
+            return schema
+
+        _schema_mod.get_common_json_schema = _relaxed_get_common_json_schema
+        _relaxed_schema_applied = True
+        logger.info(
+            "v53: Monkey-patched get_common_json_schema globally "
+            "(adversarial_chat: rationale/last_response_summary → optional)"
+        )
+
+        # 同时尝试修改已存在的 manager (如果有)
+        if attack is not None:
+            from pyrit.models.target.json_schema_definition import get_common_json_schema
+
+            _relaxed_schema = get_common_json_schema("adversarial_chat")
+            _managers = []
+            if hasattr(attack, "_adversarial_conversation_manager"):
+                _managers.append(attack._adversarial_conversation_manager)
+            for _tech in getattr(attack, "_techniques", []):
+                if hasattr(_tech, "_adversarial_conversation_manager"):
+                    _mgr = _tech._adversarial_conversation_manager
+                    if _mgr not in _managers:
+                        _managers.append(_mgr)
+            for _mgr in _managers:
+                if hasattr(_mgr, "_response_json_schema"):
+                    _mgr._response_json_schema = _relaxed_schema
+                    patched += 1
+            if patched:
+                logger.info(
+                    f"v53: Also patched {patched} existing manager(s) "
+                    f"(rationale/last_response_summary → optional)"
+                )
+    except Exception as e:
+        logger.debug(f"v53: Adversarial schema relaxation skipped: {e}")
+    return patched
+
 # ── Crescendo 攻击者系统提示词 (用于 AttackAdversarialConfig) ──
 _ATTACKER_SYSTEM_PROMPT_TEMPLATE = """You are a red team attacker testing an AI assistant.
 Your objective: {objective}
@@ -250,8 +329,23 @@ class AdvancedCrescendoOrchestrator:
             max_backtracks=self.max_backtracks,
         )
 
-        # 5. 执行原生攻击
-        native_result = await attack.execute_async(objective=self.objective)
+        # v53: 应用 relaxed adversarial JSON schema (在 execute_async 之前)
+        apply_relaxed_adversarial_schema(attack)
+
+        # 5. 执行原生攻击 (含 security_audit_fail 快速跳过)
+        try:
+            native_result = await attack.execute_async(objective=self.objective)
+        except Exception as e:
+            err_msg = str(e)
+            if "security_audit_fail" in err_msg or "blocked by security audit" in err_msg:
+                logger.warning(
+                    "Crescendo skipped: SiliconFlow security_audit_fail (deterministic block)"
+                )
+                return CrescendoResult(
+                    objective=self.objective,
+                    max_turns=self.max_turns,
+                )
+            raise
 
         # 6. 封装原生结果为 CrescendoResult
         return self._wrap_native_result(native_result)

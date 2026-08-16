@@ -778,9 +778,12 @@ def _collect_artifacts(attack_results: list[Any]) -> list[tuple[str, str]]:
     # 2. 为成功攻击生成 PoC 脚本
     poc_count = 0
     for ar in attack_results:
-        outcome = ""
+        # O3-fix: 使用 _get_outcome_str 正确处理 AttackOutcome 枚举
+        # 根因: getattr(ar, "outcome") 返回 AttackOutcome.SUCCESS 枚举对象,
+        # str() 后为 "AttackOutcome.SUCCESS" 而非 "SUCCESS", 导致 PoC 永远不生成
         try:
-            outcome = str(getattr(ar, "outcome", "") or "").upper()
+            from pipeline.reporting.report_generator import _get_outcome_str
+            outcome = _get_outcome_str(ar).upper()
         except Exception:
             outcome = ""
         if outcome != "SUCCESS":

@@ -17,8 +17,10 @@
 # 最大并发 AtomicAttack 数
 # 推荐值: strong=3 / moderate=3 / weak=8
 # 降低可缓解 API 限速 (429/204 空响应)
-# P3: 3→2 减少 API 压力, 提高单攻击成功率
-max_concurrency: 2
+# v54: 2→3 充分利用 RPM 配额 (3×30=90 RPM), 提高场景执行吞吐
+#   根因: scenario_timeout=600s + max_concurrency=2 时仅完成 4/73 攻击
+#   提高 concurrency 可在相同超时内完成更多攻击
+max_concurrency: 3
 
 # 每个 objective 最多尝试的技术数
 # FIRST_SUCCESS 策略: 首个成功即停止
@@ -103,8 +105,10 @@ stream: false
 # 180s = 保守 (多轮攻击 + 慢 API 端点)
 # 通过 PyRIT 原生 httpx_client_kwargs 机制设置
 # 注意: ManyShotJailbreak/Crescendo/TAP 发送超长 prompt, 60s 不足以等 API 响应
-# P3: 120→90 平衡超时与覆盖率, 配合更多重试
-api_timeout: 90
+# v54: 90→120 覆盖多轮攻击+慢 API 端点, 减少 APITimeoutError
+#   根因: LongCat-2.0 首次请求延迟高(~196s/attack), 90s超时导致大量攻击失败
+#   学术依据: NIST SP 800-92 — 超时属可恢复层, 但过短超时导致不必要的快速失败
+api_timeout: 120
 
 # 评分器 API 超时秒数 (独立于攻击超时)
 # 评分器调用比攻击调用更简单 (仅需判断 yes/no), 不需要 60s
@@ -117,6 +121,15 @@ scorer_timeout: 30
 # 3 = 与攻击一致 (保守, 但评分器超时通常意味着端点完全不可用)
 # v35: 新增, 评分器端点超时时 1次重试足够, 避免阻塞流水线
 scorer_timeout_max_retries: 1
+
+# 场景执行总超时秒数 (scenario.run_async() 的 asyncio.wait_for 超时)
+# 600 = 10分钟 (默认, 覆盖 73 个攻击计划 × max_concurrency=3 的完整执行)
+# 300 = 5分钟 (快速验证, 仅完成少量攻击)
+# 1200 = 20分钟 (深度评估, max_attempts=5 + max_dataset_size=5 时使用)
+# 超时后从 CentralMemory 检索部分结果, 确保流水线不卡死
+# v54: 新增到 YAML, 此前仅 CLI --scenario-timeout (default=600) 可配置
+# 学术依据: NIST SP 800-92 — 不可恢复异常的重试属噪音层, 超时终止是确定性恢复
+scenario_timeout: 600
 
 # OpenAI SDK 内部重试次数
 # 0 = 禁用 (由 RateLimitedTarget 统一管理重试, 避免三层叠加)
@@ -181,3 +194,35 @@ multiturn_objective_selection:
 #   - Greshake et al. (arXiv:2302.12173): 间接注入导致工具劫持
 #   - Zhan et al. (arXiv:2307.00929): InjecAgent — 工具滥用评估
 #   - OWASP Agentic Top 10 (2025): ASI01/ASI02/ASI05
+
+# ============================================================================
+# v56: 攻击面拓扑 + 攻击者视角 (Stage 0.5 增强)
+# ============================================================================
+# 多维攻击面拓扑判别: 从二元分类升级为 5 层攻击面拓扑
+#   层1 传输面: Web App / API / MCP Server
+#   层2 应用面: Simple LLM / Agent+Tools / RAG / MCP / Multi-Agent
+#   层3 认证面: 认证拓扑 + JWT 过期 + MFA + 持久性
+#   层4 攻击面: 注入面列表 + 工具清单 + 信任边界
+#   层5 Kill Chain: OWASP 类别 + 攻击阶段映射
+#
+# 学术依据:
+#   - MITRE ATT&CK T1592: Gather Victim Host Info
+#   - Greshake et al. (arXiv:2302.12173): Agent 攻击面发现
+#   - OWASP ASI01-10: Agentic Security 攻击面拓扑
+#   - InjecAgent (arXiv:2307.00929): 工具滥用评估
+
+# Token 提前刷新阈值 (秒) — OAuth2 Token 在过期前此秒数自动刷新
+# 60 = 平衡默认 (提前 1 分钟刷新, 确保长时攻击不中断)
+# 120 = 保守 (网络延迟大时)
+# 30 = 激进 (减少 Token 有效期浪费)
+token_refresh_margin: 60
+
+# 攻击种子自动扩展 — 从攻击面拓扑自动生成针对性攻击种子
+# true = 启用 (Burp 请求体 Agent 结构分析 + Token 分析 → 攻击种子)
+# false = 禁用 (仅使用预定义种子, 不自动扩展)
+auto_expand_attack_surface: true
+
+# 替代攻击路径发现 — 从拓扑推导降级链 (高 ASR 优先)
+# true = 启用 (Agent→工具劫持, RAG→投毒, MCP→协议注入, Token→窃取)
+# false = 禁用 (仅使用直接注入路径)
+discover_alternative_paths: true

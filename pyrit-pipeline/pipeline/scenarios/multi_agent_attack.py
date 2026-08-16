@@ -128,7 +128,8 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
     """
     from pipeline.stages.stage_scenario import _get_attack_targets
 
-    _obj_target, _adv_target, _score_target = _get_attack_targets()
+    # O-3 P0: 传入 ctx, Agent Proxy Bridge 模式下获取 Burp 目标
+    _obj_target, _, _score_target = _get_attack_targets(ctx)
     if not _obj_target:
         return {
             "attack_type": "multi_agent_interaction",
@@ -155,11 +156,12 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
         "write_file", "delete_file",
     ]
 
-    # L5: 尝试创建 Tool Calling Target (OpenAIResponseTarget + 蜜罐工具集)
-    # A-2: 使用共享 tool_call_log, 但每步独立 Target (不同工具子集)
+    # O-3 P0: 仅在非 Burp 模式下创建 Tool Calling Target (避免覆盖 Burp 目标)
+    # Burp 模式下使用 Burp 目标 + extra_body_parameters 工具定义 (见 P1)
+    _is_burp_mode = ctx.metadata.get("agent_proxy_mode") or ctx.metadata.get("burp_request_file")
     tool_call_log = None
     _tc_available = False
-    if _obj_target is not None:
+    if _obj_target is not None and not _is_burp_mode:
         try:
             from pipeline.targets.tool_calling_target import create_tool_calling_target
 
@@ -175,6 +177,12 @@ async def run_multi_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
                 )
         except Exception as e:
             logger.warning(f"Multi-Agent: Tool Calling Target creation failed: {e}")
+    elif _is_burp_mode:
+        # Burp 模式: 从 ctx.metadata 获取已有的 tool_call_log (P1 中创建)
+        tool_call_log = ctx.metadata.get("burp_tool_call_log")
+        if tool_call_log:
+            _tc_available = True
+            logger.info("Multi-Agent: Burp mode — using existing tool_call_log")
 
     try:
         from pyrit.executor.attack import (

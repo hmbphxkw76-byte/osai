@@ -23,7 +23,7 @@ _ATTACK_PARAMS_PATH = Path("config") / "attack_params.yaml"
 # 硬编码兜底默认值 (YAML 不存在或读取失败时使用)
 # SSOT 原则: 必须与 config/attack_params.yaml 保持完全一致
 _HARDCODED_DEFAULTS: dict[str, Any] = {
-"max_concurrency": 2,
+    "max_concurrency": 3,
 "max_attempts": 2,
 "max_dataset_size": 2,
     "epsilon": 0.15,
@@ -31,9 +31,10 @@ _HARDCODED_DEFAULTS: dict[str, Any] = {
     "rate_limit_retries": 3,
 "timeout_max_retries": 3,
 "timeout_max_delay": 30,
-"api_timeout": 90,
+    "api_timeout": 120,
 "scorer_timeout": 30,
-"scorer_timeout_max_retries": 1,
+    "scorer_timeout_max_retries": 1,
+    "scenario_timeout": 600,
     "api_max_retries": 0,
     "stream": False,
     "seed_priority_asr_weight": 0.8,
@@ -986,6 +987,29 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         ),
     )
 
+    # ── v56: 攻击面拓扑 (攻击者视角) ──
+    parser.add_argument(
+        "--no-attack-surface",
+        action="store_true",
+        default=False,
+        help=(
+            "禁用 v56 攻击面拓扑自动构建 (攻击者视角).\n"
+            "默认启用: 从 Burp 请求体分析 Agent 结构 + Token 分析 → 攻击种子.\n"
+            "禁用后仅使用预定义种子, 不自动扩展攻击面."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-alternative-paths",
+        action="store_true",
+        default=False,
+        help=(
+            "禁用 v56 替代攻击路径发现 (降级链).\n"
+            "默认启用: 从拓扑推导 Agent→工具劫持, RAG→投毒, MCP→注入, Token→窃取.\n"
+            "禁用后仅使用直接注入路径."
+        ),
+    )
+
     # ── HTTP Target (P2: 原生 HTTPTarget) ──
     parser.add_argument(
         "--http-target",
@@ -1047,6 +1071,17 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "OpenAI SDK 默认 600s (10 分钟!), 设置更短超时可避免 DoS/慢响应卡住流水线.\n"
             "120s 覆盖 ManyShotJailbreak 等长 prompt 攻击; 60s 适合简单 prompt_sending.\n"
             "可通过 config/attack_params.yaml 覆盖."
+        ),
+    )
+    parser.add_argument(
+        "--scenario-timeout",
+        type=int,
+        default=_load_attack_params()["scenario_timeout"],
+        help=(
+            "场景执行总超时秒数 (默认: 600=10分钟, 可通过 config/attack_params.yaml 覆盖).\n"
+            "scenario.run_async() 超时后从 CentralMemory 检索部分结果, 确保流水线不卡死.\n"
+            "防止 RedTeamingAttack 对抗模型 JSON 格式错误时无限重试.\n"
+            "学术依据: NIST SP 800-92 — 不可恢复异常的重试属噪音层."
         ),
     )
     parser.add_argument(

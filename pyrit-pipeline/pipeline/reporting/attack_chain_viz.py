@@ -50,21 +50,28 @@ class AttackChainVisualizer:
         ("impact", "Impact", "影响 — 数据泄露/权限提升/越狱"),
     ]
 
-    # OWASP ID → Kill Chain 阶段映射
+    # OWASP ID → Kill Chain 阶段映射 (全覆盖 LLM01-10 + ASI01-10)
     OWASP_TO_KILL_CHAIN = {
         "LLM01": ["delivery", "execution", "impact"],
         "LLM02": ["execution", "impact"],
+        "LLM03": ["delivery", "execution", "impact"],
+        "LLM04": ["delivery", "execution", "impact"],
         "LLM05": ["execution", "impact"],
         "LLM06": ["execution", "impact"],
         "LLM07": ["execution", "impact"],
-        "LLM10": ["execution", "impact"],
+        "LLM08": ["delivery", "execution", "impact"],
+        "LLM09": ["execution", "impact"],
+        "LLM10": ["delivery", "execution", "impact"],
         "ASI01": ["delivery", "execution"],
         "ASI02": ["execution", "impact"],
         "ASI03": ["execution", "impact"],
         "ASI04": ["execution", "impact"],
         "ASI05": ["execution", "impact"],
+        "ASI06": ["delivery", "execution", "impact"],
         "ASI07": ["delivery", "execution"],
+        "ASI08": ["execution", "impact"],
         "ASI09": ["delivery", "execution"],
+        "ASI10": ["delivery", "execution", "impact"],
     }
 
     def __init__(self) -> None:
@@ -108,11 +115,25 @@ class AttackChainVisualizer:
             conv_info = extract_converter_info_from_result(ar)
             converter_chain = conv_info.get("converter_chain", "") if conv_info else ""
 
-            # 提取 OWASP ID
+            # 提取 OWASP ID (多路径 fallback: owasp_mapping → metadata → display_group)
             owasp_ids: list[str] = []
             if owasp_mapping:
                 attack_type = str(getattr(ar, "attack_type", "")) or technique
                 owasp_ids = owasp_mapping.get(attack_type, [])
+            # P0-O5: 无 owasp_mapping 时从 metadata 提取
+            if not owasp_ids:
+                _meta = getattr(ar, "metadata", None) or {}
+                _owasp = _meta.get("owasp_id", "") if isinstance(_meta, dict) else ""
+                if _owasp:
+                    owasp_ids = [_owasp]
+            # P0-O5: 仍无 OWASP ID 时从 display_group 提取
+            if not owasp_ids:
+                _dg = _meta.get("display_group", "") if isinstance(_meta, dict) else ""
+                if _dg:
+                    import re as _re
+                    _m = _re.search(r"(llm\d{2}|asi\d{2})", _dg, _re.IGNORECASE)
+                    if _m:
+                        owasp_ids = [_m.group(1).upper()]
 
             # 构建链路
             chain = self._build_single_chain(
@@ -144,10 +165,22 @@ class AttackChainVisualizer:
         attack_result: Any,
     ) -> dict[str, Any]:
         """构建单个攻击的 Kill Chain 数据."""
-        # 确定 Kill Chain 阶段
+        # 确定 Kill Chain 阶段 (P0-O5: 无 OWASP ID 时使用默认阶段)
         stages_covered: set[str] = set()
         for owasp_id in owasp_ids:
             stages_covered.update(self.OWASP_TO_KILL_CHAIN.get(owasp_id, ["delivery", "execution", "impact"]))
+        # P0-O5: 无 OWASP ID 时给默认 Kill Chain 阶段 (成功攻击至少覆盖 delivery→execution→impact)
+        if not stages_covered:
+            stages_covered = {"delivery", "execution", "impact"}
+        # P0-O5: 成功攻击自动覆盖 recon 和 initial_access (每条攻击都经历了侦察和初始访问)
+        if is_success:
+            stages_covered.add("recon")
+            stages_covered.add("initial_access")
+            stages_covered.add("delivery")
+            stages_covered.add("execution")
+            stages_covered.add("impact")
+            if converter_chain:
+                stages_covered.add("bypass")
 
         # 提取载荷和响应
         payload = str(getattr(attack_result, "objective", ""))[:500]

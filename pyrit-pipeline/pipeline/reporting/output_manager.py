@@ -388,6 +388,7 @@ class ProgressPoller:
         self._asr_tracker = asr_tracker  # P3-O1: 实时 ASR 追踪器
         self._breakthrough_count: int = 0  # O-ASR-9: 突破计数
         self._last_dashboard_count: int = 0  # O-ASR-3: 上次看板打印时的完成数
+        self._verbose: bool = os.getenv("PIPELINE_VERBOSE", "0") == "1"  # P2-O7: verbose 模式
 
     def start(self) -> None:
         """启动背景轮询任务。."""
@@ -494,12 +495,24 @@ class ProgressPoller:
                             owasp_tag = f" | {owasp_match.group(1).upper()}" if owasp_match else ""
                             conv_tag = f" + {'→'.join(conv_names)}" if conv_names else " (baseline 直发)"
                             print(f"  🚨 BREAKTHROUGH #{bt_num} | {tech}{conv_tag}{owasp_tag}")
+                            # P2-O7: 增强突破告警 — 显示载荷+响应+Converter链+ASR
                             print(f"     载荷: {obj}")
                             if resp:
                                 print(f"     响应: {resp}")
+                            # P2-O7: 显示当前 ASR
+                            try:
+                                _total = self._dashboard.completed
+                                _succ = self._breakthrough_count
+                                if _total > 0:
+                                    _live_asr = (_succ / _total) * 100
+                                    print(f"     实时 ASR: {_live_asr:.1f}% ({_succ}/{_total})")
+                            except Exception:
+                                pass
                         else:
+                            # P2-O7: 噪音过滤 — 拒绝结果不显示响应 (减少终端噪音)
                             marker = "❌" if outcome_str == "FAILURE" else "⚠"
-                            if resp:
+                            # P2-O7: 仅在 verbose 模式下显示失败响应
+                            if resp and getattr(self, "_verbose", False):
                                 print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj} → {resp}")
                             else:
                                 print(f"  {marker} {strategy_marker} {tech_conv[:45]}{dataset_str} | {obj}")

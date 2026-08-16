@@ -438,6 +438,21 @@ async def _bridge_agent_proxy(
     ctx.target_type = "http_api"
     ctx.http_target_configured = True
 
+    # O-1 P1: Burp-ChatTarget 增强 — 为 Agent 目标额外创建 OpenAIChatTarget + 蜜罐工具
+    # 当检测到 Agent 特征 (tools/functions) 或 .env 有模型配置时,
+    # 创建 OpenAIChatTarget 并注入蜜罐工具定义, 供 MCP/XPIA/Multi-Agent 使用
+    if is_agent:
+        try:
+            _chat_target, _tc_log = _create_burp_chat_target_with_tools(
+                burp_request_file=burp_request_file,
+            )
+            if _chat_target is not None:
+                ctx.metadata["burp_chat_target"] = _chat_target
+                ctx.metadata["burp_tool_call_log"] = _tc_log
+                print("  [O-1] Burp-ChatTarget 已创建 (OpenAIChatTarget + 蜜罐工具集)")
+        except Exception as e:
+            logger.debug(f"O-1: Burp-ChatTarget creation skipped: {e}")
+
     print("  ✓ Agent Proxy Bridge 已创建并注册")
     print(f"    最大并发: {rate_limit}")
     print(f"    最大重试: {max_retries}")
@@ -453,6 +468,67 @@ async def _bridge_agent_proxy(
         f"(multi_turn=True, agent={is_agent})"
     )
     return True
+
+
+def _create_burp_chat_target_with_tools(
+    *,
+    burp_request_file: str,
+) -> tuple[Any, Any] | tuple[None, None]:
+    """O-1 P1: 从 Burp 请求创建 OpenAIChatTarget + 蜜罐工具定义.
+
+    使用 PyRIT 原生 ``OpenAIChatTarget`` + ``extra_body_parameters`` 注入蜜罐工具集.
+    适用于大多数基于 OpenAI Chat Completions API 的 Agent 应用.
+
+    组合原生组件:
+      - ``OpenAIChatTarget`` (原生, Chat Completions API + 多轮对话)
+      - ``build_honeypot_tool_definitions`` (数据层, 工具定义)
+      - ``ToolCallLog`` (数据层, 调用日志)
+
+    Args:
+        burp_request_file: Burp Suite 原始 HTTP 请求文件路径.
+
+    Returns:
+        ``(OpenAIChatTarget, ToolCallLog)`` 元组, 或 ``(None, None)``.
+    """
+    try:
+        from pyrit.prompt_target import OpenAIChatTarget
+
+        from pipeline.targets.honeypot_tools import (
+            ToolCallLog,
+            build_honeypot_tool_definitions,
+        )
+    except ImportError as e:
+        logger.debug(f"O-1: import failed: {e}")
+        return None, None
+
+    # 从 Burp 请求提取端点和认证
+    endpoint, api_key, model_name = _extract_endpoint_from_burp(burp_request_file)
+    if not endpoint or not api_key:
+        # 回退到 .env
+        endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+        api_key = os.environ.get("OPENAI_CHAT_KEY", "")
+        model_name = os.environ.get("OPENAI_CHAT_MODEL", "")
+        if not endpoint or not api_key:
+            return None, None
+
+    tool_call_log = ToolCallLog()
+    tool_definitions = build_honeypot_tool_definitions()
+
+    try:
+        chat_target = OpenAIChatTarget(
+            endpoint=endpoint,
+            api_key=api_key,
+            model_name=model_name or None,
+            extra_body_parameters={"tools": tool_definitions},
+        )
+        logger.info(
+            f"O-1: Burp-ChatTarget created: model={model_name}, "
+            f"endpoint={endpoint}, tools={len(tool_definitions)}"
+        )
+        return chat_target, tool_call_log
+    except Exception as e:
+        logger.debug(f"O-1: OpenAIChatTarget creation failed: {e}")
+        return None, None
 
 
 async def _bridge_burp_api(
@@ -1089,6 +1165,25 @@ async def run(ctx: PipelineContext) -> bool:
         ctx.metadata["target_classification"] = classification
         ctx.metadata["target_type"] = classification.target_type
         ctx.metadata["recommended_mode"] = classification.recommended_mode
+
+        # v56: 攻击者视角 — 构建攻击面拓扑 + 自动扩展攻击种子
+        # 在路由决策前完成, 使后续 Stage 可使用拓扑信息优化攻击策略
+        no_attack_surface = getattr(ctx.args, "no_attack_surface", False)
+        if not no_attack_surface:
+            print("\n  --- v56 攻击面拓扑构建 (攻击者视角) ---")
+            _expand_attack_surface(ctx, classification, burp_request_file)
+
+            # v56: 发现替代攻击路径 (降级链)
+            no_alt_paths = getattr(ctx.args, "no_alternative_paths", False)
+            if not no_alt_paths and classification.attack_surface is not None:
+                alt_paths = _discover_alternative_attack_paths(
+                    classification.attack_surface, classification
+                )
+                ctx.metadata["alternative_attack_paths"] = alt_paths
+                if len(alt_paths) > 1:
+                    print(f"  [v56] 替代攻击路径: {len(alt_paths)} 条 (降级链)")
+                    top_path = alt_paths[0]
+                    print(f"         最优路径: {top_path['path_id']} (ASR≈{top_path['estimated_asr']:.0%})")
 
         # v43.1 S-7: 三模式统一认证状态复用 — 在路由前尝试加载 AuthState
         # Browser 模式在 _bridge_web_app 中已有 try_reuse_auth_state,
@@ -2057,12 +2152,13 @@ def _extract_endpoint_from_burp(burp_request_file: str) -> tuple[str | None, str
 
     try:
         raw = burp_path.read_text(encoding="utf-8")
-        # 分割 header 和 body
-        parts = raw.split("\r\n\r\n", 1)
+        # 分割 header 和 body (支持 LF/CRLF — Burp 导出可能使用任一格式)
+        _norm = raw.replace("\r\n", "\n")
+        parts = _norm.split("\n\n", 1)
         header_section = parts[0]
         body = parts[1] if len(parts) > 1 else ""
 
-        lines = header_section.split("\r\n")
+        lines = header_section.split("\n")
         request_line = lines[0] if lines else ""
 
         # 解析请求行: "POST /api/chat HTTP/1.1"
@@ -2284,8 +2380,9 @@ def _detect_sse_from_request(raw_request: str) -> bool:
     if "text/event-stream" in raw_lower:
         return True
 
-    # 策略 2: 请求体 JSON 中的 Stream 字段
-    parts = raw_request.split("\r\n\r\n", 1)
+    # 策略 2: 请求体 JSON 中的 Stream 字段 (支持 LF/CRLF)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     body = parts[1] if len(parts) > 1 else ""
     if body:
         import json
@@ -2319,9 +2416,10 @@ def _detect_tls_from_request(raw_request: str) -> bool:
     Returns:
         True 如果推断目标需要 TLS.
     """
-    parts = raw_request.split("\r\n\r\n", 1)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     header_section = parts[0]
-    lines = header_section.split("\r\n")
+    lines = header_section.split("\n")
 
     host = ""
     origin = ""
@@ -2628,7 +2726,8 @@ def _inject_dynamic_session_fields(raw_request: str) -> str:
     Returns:
         替换会话 ID 后的 HTTP 请求字符串 (原地修改则返回原字符串).
     """
-    parts = raw_request.split("\r\n\r\n", 1)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     if len(parts) < 2:
         return raw_request
 
@@ -2804,7 +2903,8 @@ def _build_non_stream_variant(raw_request: str) -> str | None:
     Returns:
         Stream:false 的请求变体字符串, 或 None (如果请求不是 SSE).
     """
-    parts = raw_request.split("\r\n\r\n", 1)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     if len(parts) < 2:
         return None
 
@@ -2842,7 +2942,7 @@ def _build_non_stream_variant(raw_request: str) -> str | None:
     body_json[stream_key] = False
 
     # 同时移除 Accept: text/event-stream header (替换为 application/json)
-    header_lines = header_section.split("\r\n")
+    header_lines = header_section.split("\n")
     modified_headers: list[str] = []
     for line in header_lines:
         if line.lower().startswith("accept:") and "text/event-stream" in line.lower():
@@ -2882,7 +2982,8 @@ def _inject_dynamic_fields(
     Returns:
         注入动态字段后的 HTTP 请求字符串.
     """
-    parts = raw_request.split("\r\n\r\n", 1)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     if len(parts) < 2:
         return raw_request
 
@@ -2940,7 +3041,8 @@ def _fix_content_length(raw_request: str) -> str:
     Returns:
         修正 Content-Length 后的 HTTP 请求字符串.
     """
-    parts = raw_request.split("\r\n\r\n", 1)
+    _norm = raw_request.replace("\r\n", "\n")
+    parts = _norm.split("\n\n", 1)
     if len(parts) < 2:
         return raw_request
 
@@ -2952,7 +3054,7 @@ def _fix_content_length(raw_request: str) -> str:
     new_length = len(body_bytes)
 
     # 分割 header 行
-    header_lines = header_section.split("\r\n")
+    header_lines = header_section.split("\n")
     modified: bool = False
     updated_headers: list[str] = []
 
@@ -3011,10 +3113,13 @@ async def _burp_pre_flight_probe(
         import httpx
 
         # 从 raw_request 提取 method, path, headers, body
-        parts = raw_request.split("\r\n\r\n", 1)
+        # 支持 LF (\n) 和 CRLF (\r\n) 格式 — Burp 导出可能使用任一格式
+        # PyRIT 原生 HTTPTarget.parse_raw_http_request 也使用相同策略 (L247: replace \r\n → \n)
+        normalized = raw_request.replace("\r\n", "\n")
+        parts = normalized.split("\n\n", 1)
         header_section = parts[0]
         body = parts[1] if len(parts) > 1 else ""
-        header_lines = header_section.split("\r\n")
+        header_lines = header_section.split("\n")
         request_line = header_lines[0] if header_lines else "POST / HTTP/1.1"
         request_parts = request_line.split()
         method = request_parts[0] if request_parts else "POST"
@@ -3047,57 +3152,79 @@ async def _burp_pre_flight_probe(
 
         url = f"{scheme}://{host}{path}"
 
-        # 发送测试请求
+        # 发送测试请求 — 使用 stream 模式处理 SSE 流式响应
+        # 修复: httpx client.request() 对 SSE chunked transfer-encoding 会阻塞等待
+        # 完整 body (SSE 流无终止信号), 导致 15s 超时后走到 except 返回默认 JSON 结果.
+        # 解决方案: 使用 client.stream() 模式, 在收到 response headers 后立即检查
+        # Content-Type 判断是否为 SSE, 仅读取少量 body 数据用于路径检测.
+        # 学术依据: OWASP ASVS V14.3 + PyRIT (arXiv:2407.01232) HTTPTarget 回调需匹配格式
         async with httpx.AsyncClient(
             verify=False,
-            timeout=15.0,
-        ) as client:
-            resp = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                content=test_body_bytes,
-            )
-
+            timeout=httpx.Timeout(connect=10.0, read=15.0, write=10.0, pool=10.0),
+        ) as client, client.stream(
+            method=method,
+            url=url,
+            headers=headers,
+            content=test_body_bytes,
+        ) as resp:
             content_type = resp.headers.get("content-type", "")
-            # httpx 对 SSE 流式响应: resp.text 可能只包含部分内容 (超时中断)
-            # 但 content-type 始终可靠, 优先依赖 content-type 判断
-            try:
-                resp_text = resp.text
-            except Exception:
-                resp_text = ""
 
-            # 检测 SSE (优先依赖 content-type, 因为 SSE body 可能不完整)
+            # 优先检查 Content-Type — 在读取 body 之前判定 SSE
+            # SSE 流的 Content-Type 始终包含 text/event-stream
             is_sse_ct = "text/event-stream" in content_type
-            is_sse_data = resp_text.lstrip().startswith("data:")
-            is_sse_event = resp_text.lstrip().startswith("event:")
-            if is_sse_ct or is_sse_data or is_sse_event:
+
+            if is_sse_ct:
+                # SSE 响应 — 读取前几行 body 用于路径检测, 然后关闭流
+                resp_text = ""
+                try:
+                    async for chunk in resp.aiter_text():
+                        resp_text += chunk
+                        # 读取足够的数据用于路径检测 (前 2000 字符)
+                        if len(resp_text) >= 2000:
+                            break
+                except Exception:
+                    pass  # body 不完整不影响 SSE 判定 (Content-Type 已确认)
+
                 result["is_sse"] = True
                 result["response_path"] = _auto_detect_sse_content_path(resp_text)
                 result["stream_false_supported"] = False
             else:
-                # JSON 响应 — 自动探测路径
-                result["is_sse"] = False
-                result["stream_false_supported"] = True
+                # 非流式响应 — 读取完整 body
+                try:
+                    resp_text = await resp.aread()
+                    resp_text = resp_text.decode("utf-8", errors="replace")
+                except Exception:
+                    resp_text = ""
 
-                # 尝试从 JSON 响应推断路径
-                import json
+                is_sse_data = resp_text.lstrip().startswith("data:")
+                is_sse_event = resp_text.lstrip().startswith("event:")
+                if is_sse_data or is_sse_event:
+                    # Content-Type 未声明 SSE 但 body 格式为 SSE
+                    result["is_sse"] = True
+                    result["response_path"] = _auto_detect_sse_content_path(resp_text)
+                    result["stream_false_supported"] = False
+                else:
+                    # JSON 响应 — 自动探测路径
+                    result["is_sse"] = False
+                    result["stream_false_supported"] = True
 
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    data = json.loads(resp_text)
-                    if isinstance(data, dict):
-                        # 尝试 choices[0].message.content
-                        path = _find_content_path(data, "choices", "message", "content")
-                        if path:
-                            result["response_path"] = path
-                        else:
-                            path = _find_content_path(data, "Choices", "Message", "Content")
+                    import json
+
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
+                        data = json.loads(resp_text)
+                        if isinstance(data, dict):
+                            # 尝试 choices[0].message.content
+                            path = _find_content_path(data, "choices", "message", "content")
                             if path:
                                 result["response_path"] = path
-                            elif "content" in data:
-                                result["response_path"] = "content"
-                            elif "Content" in data:
-                                result["response_path"] = "Content"
+                            else:
+                                path = _find_content_path(data, "Choices", "Message", "Content")
+                                if path:
+                                    result["response_path"] = path
+                                elif "content" in data:
+                                    result["response_path"] = "content"
+                                elif "Content" in data:
+                                    result["response_path"] = "Content"
 
         logger.info(f"v44.4 P2 pre-flight probe: SSE={result['is_sse']}, path={result['response_path']}")
 
@@ -3313,3 +3440,342 @@ def _detect_model_fingerprint(
         print("  [O7] 模型指纹: 未识别 (无匹配特征)")
 
     return result
+
+
+# ============================================================
+# v56: 攻击者视角 — 攻击面拓扑构建 + 攻击种子扩展 + 替代路径发现
+# ============================================================
+
+
+def _expand_attack_surface(
+    ctx: PipelineContext,
+    classification: TargetClassification,
+    burp_request_file: str | None = None,
+) -> None:
+    """v56: 从攻击面拓扑自动扩展攻击种子.
+
+    攻击者视角: 探测到的能力 (Agent/RAG/MCP) → 自动生成针对性攻击种子,
+    注入到 ctx.metadata 供后续 Stage [2] 场景构建使用.
+
+    流程:
+      1. 从 Burp 请求体深度分析 Agent 结构 (analyze_burp_agent_structure)
+      2. 构建 AttackSurfaceTopology (build_attack_surface_topology)
+      3. 将拓扑 + 攻击种子存储到 ctx.metadata
+      4. 将生成的攻击种子注入到 ctx.metadata["expanded_attack_seeds"]
+
+    Args:
+        ctx: PipelineContext.
+        classification: TargetClassification 判别结果.
+        burp_request_file: Burp Suite 原始 HTTP 请求文件路径 (可选).
+
+    学术依据:
+      - Greshake et al. (arXiv:2302.12173): Agent 应用攻击面
+      - Zhan et al. (arXiv:2307.00929): InjecAgent — 工具滥用评估
+      - OWASP ASI01-10: Agentic Security
+    """
+    from pipeline.integrations.target_classifier import TargetClassifier
+    from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+    raw_request = ""
+    auth_headers: dict[str, str] = {}
+
+    if burp_request_file:
+        try:
+            with open(burp_request_file, encoding="utf-8") as f:
+                raw_request = f.read()
+        except Exception as e:
+            logger.debug(f"v56: failed to read burp file: {e}")
+
+    # 从 Burp 请求提取认证 headers
+    if raw_request:
+        auth_headers = _extract_auth_headers_from_burp(raw_request)
+
+    # 1. 深度分析 Agent 结构
+    agent_analysis: dict[str, Any] = {}
+    if raw_request:
+        agent_analysis = analyze_burp_agent_structure(raw_request)
+        if agent_analysis.get("is_agent"):
+            print(f"  [v56] Agent 结构分析: architecture={agent_analysis['app_architecture']}")
+            print(f"         工具数={len(agent_analysis['tools'])}, 高风险工具={agent_analysis['high_risk_tools']}")
+            print(f"         注入面={agent_analysis['injection_surfaces']}")
+
+    # 2. 构建攻击面拓扑
+    classifier = TargetClassifier()
+    topology = classifier.build_attack_surface_topology(
+        classification,
+        burp_raw_request=raw_request if raw_request else None,
+        auth_headers=auth_headers if auth_headers else None,
+    )
+
+    # 如果有 agent_analysis, 补充拓扑信息
+    if agent_analysis:
+        if agent_analysis.get("tools"):
+            topology.discovered_tools = agent_analysis["tools"]
+        if agent_analysis.get("high_risk_tools"):
+            topology.model_fingerprint["high_risk_tools"] = agent_analysis["high_risk_tools"]
+
+    classification.attack_surface = topology
+
+    # 3. 存储到 metadata
+    ctx.metadata["attack_surface_topology"] = topology
+    ctx.metadata["agent_structure_analysis"] = agent_analysis
+
+    # 4. 攻击种子注入
+    expanded_seeds: list[dict[str, Any]] = []
+    if agent_analysis.get("attack_seeds"):
+        expanded_seeds.extend(agent_analysis["attack_seeds"])
+
+    # Token 分析攻击种子
+    if auth_headers and topology.auth_topology not in ("none",):
+        try:
+            from web_redteam.auth.api_auth import analyze_captured_token
+
+            token = auth_headers.get("Authorization", "").replace("Bearer ", "")
+            if token:
+                token_analysis = analyze_captured_token(token, topology.auth_topology)
+                ctx.metadata["token_analysis"] = token_analysis
+                expanded_seeds.extend(token_analysis.get("attack_seeds", []))
+
+                if token_analysis.get("risk_level") in ("critical", "high"):
+                    print(f"  [v56] ⚠️ Token 风险等级: {token_analysis['risk_level']}")
+                    print(
+                        f"         过期: {token_analysis['expiry_seconds']}s, "
+                        f"角色: {token_analysis.get('role', 'N/A')}"
+                    )
+        except Exception as e:
+            logger.debug(f"v56: token analysis failed: {e}")
+
+    ctx.metadata["expanded_attack_seeds"] = expanded_seeds
+
+    # 5. Kill Chain + OWASP 概览
+    print(f"  [v56] Kill Chain: {' → '.join(topology.recommended_kill_chain)}")
+    print(f"  [v56] OWASP 类别: {', '.join(topology.recommended_owasp)}")
+    print(f"  [v56] 攻击种子: {len(expanded_seeds)} 个 (自动生成)")
+
+    # 记录决策链
+    try:
+        from pipeline.integrations.decision_trace import DecisionTrace
+        from pipeline.integrations.event_bus import EventBus
+
+        trace = DecisionTrace.get_instance()
+        trace.record(
+            stage="stage_0.5",
+            layer="attack_surface_expansion",
+            decision=f"topology_built_{topology.app_architecture}",
+            reason=f"transport={topology.transport_type}, auth={topology.auth_topology}, "
+                   f"surfaces={topology.injection_surfaces}, seeds={len(expanded_seeds)}",
+            app_architecture=topology.app_architecture,
+            has_tool_calling=topology.has_tool_calling,
+            auth_topology=topology.auth_topology,
+            kill_chain=topology.recommended_kill_chain,
+            owasp=topology.recommended_owasp,
+        )
+
+        bus = EventBus.get_instance()
+        bus.publish_simple(
+            "stage_0.5", "attack_surface_built",
+            app_architecture=topology.app_architecture,
+            transport_type=topology.transport_type,
+            auth_topology=topology.auth_topology,
+            injection_surfaces=topology.injection_surfaces,
+            kill_chain=topology.recommended_kill_chain,
+            owasp=topology.recommended_owasp,
+            seed_count=len(expanded_seeds),
+        )
+    except Exception as e:
+        logger.debug(f"v56: decision trace record failed: {e}")
+
+    logger.info(
+        f"v56 _expand_attack_surface: arch={topology.app_architecture}, "
+        f"tools={len(topology.discovered_tools)}, "
+        f"surfaces={topology.injection_surfaces}, "
+        f"owasp={topology.recommended_owasp}, "
+        f"seeds={len(expanded_seeds)}"
+    )
+
+
+def _extract_auth_headers_from_burp(raw_request: str) -> dict[str, str]:
+    """v56: 从 Burp 原始 HTTP 请求提取认证 headers.
+
+    Args:
+        raw_request: Burp 原始 HTTP 请求文本.
+
+    Returns:
+        认证 headers 字典 (如 {"Authorization": "Bearer xxx", "Cookie": "session=xxx"}).
+    """
+    headers: dict[str, str] = {}
+    auth_header_names = {
+        "authorization", "cookie", "x-api-key", "x-auth-token",
+        "api-key", "x-session-token", "x-csrf-token",
+    }
+
+    try:
+        parts = raw_request.split("\r\n\r\n", 1)
+        if len(parts) < 2:
+            parts = raw_request.split("\n\n", 1)
+        header_section = parts[0] if parts else ""
+
+        for line in header_section.split("\n"):
+            line = line.strip()
+            if ":" in line:
+                key, _, value = line.partition(":")
+                key = key.strip()
+                if key.lower() in auth_header_names:
+                    headers[key] = value.strip()
+    except Exception as e:
+        logger.debug(f"v56: _extract_auth_headers_from_burp failed: {e}")
+
+    return headers
+
+
+def _discover_alternative_attack_paths(
+    topology: Any,
+    classification: TargetClassification,
+) -> list[dict[str, Any]]:
+    """v56: 攻击者视角 — 从攻击面拓扑发现替代攻击路径.
+
+    当主攻击路径 (user_message → LLM01 Prompt Injection) 被防御时,
+    从拓扑中推导替代路径:
+
+      - Agent → 工具劫持 (ASI02) → 间接注入
+      - RAG → 知识库投毒 (LLM07) → 持久化后门
+      - MCP → 协议注入 (ASI01) → 工具替换
+      - Session → Token 窃取 (LLM02) → 身份提升
+      - Multi-turn → 对话历史注入 (LLM01) → 渐进突破
+
+    降级链优先级 (高ASR优先):
+      1. 直接注入 (LLM01) — ASR 最高, 首选
+      2. 间接注入 (ASI02) — Agent 场景 ASR ~60%
+      3. RAG 投毒 (LLM07) — 持久化但需要写入权限
+      4. Token 窃取 (LLM02) — 横向移动
+      5. MCP 注入 (ASI01) — 需要协议知识
+      6. Crescendo 渐进 (LLM01) — 多轮 ASR ~82%
+
+    Args:
+        topology: AttackSurfaceTopology 实例.
+        classification: TargetClassification 判别结果.
+
+    Returns:
+        替代攻击路径列表, 每项包含:
+          - path_id: 路径 ID
+          - technique: 攻击技术
+          - owasp: OWASP 类别
+          - target_surface: 目标攻击面
+          - priority: 优先级 (1=最高)
+          - prerequisite: 前置条件
+          - estimated_asr: 预估 ASR (基于学术数据)
+
+    学术依据:
+      - Crescendo (arXiv:2402.12109): 渐进 ASR=82%
+      - InjecAgent (arXiv:2307.00929): 工具劫持 ASR~60%
+      - Greshake et al. (arXiv:2302.12173): 间接注入
+      - OWASP ASI01-10: Agentic Security
+    """
+    paths: list[dict[str, Any]] = []
+
+    # 路径 1: 直接 Prompt Injection (始终可用)
+    paths.append({
+        "path_id": "path_1_direct_injection",
+        "technique": "prompt_injection",
+        "owasp": "LLM01",
+        "target_surface": "user_message",
+        "priority": 1,
+        "prerequisite": "none",
+        "estimated_asr": 0.35,  # 学术基线
+    })
+
+    # 路径 2: 工具劫持 (Agent 场景)
+    if topology.has_tool_calling:
+        paths.append({
+            "path_id": "path_2_tool_hijack",
+            "technique": "indirect_prompt_injection",
+            "owasp": "ASI02",
+            "target_surface": "tool_result",
+            "priority": 2,
+            "prerequisite": "agent_executes_tool",
+            "estimated_asr": 0.60,  # InjecAgent
+        })
+
+        # 高风险工具 → 提升优先级
+        high_risk = topology.model_fingerprint.get("high_risk_tools", [])
+        if high_risk:
+            paths.append({
+                "path_id": "path_2b_high_risk_tool",
+                "technique": "excessive_agency_exploit",
+                "owasp": "ASI06",
+                "target_surface": "tool_result",
+                "priority": 2,
+                "prerequisite": f"agent_calls_{high_risk[0]}",
+                "estimated_asr": 0.70,
+                "tool_name": high_risk[0],
+            })
+
+    # 路径 3: RAG 投毒
+    if topology.app_architecture == "rag_pipeline" or "rag_content" in topology.injection_surfaces:
+        paths.append({
+            "path_id": "path_3_rag_poison",
+            "technique": "rag_poisoning",
+            "owasp": "LLM07",
+            "target_surface": "rag_content",
+            "priority": 3,
+            "prerequisite": "write_access_to_knowledge_base",
+            "estimated_asr": 0.45,
+        })
+
+    # 路径 4: Token 窃取 / 身份提升
+    if topology.auth_topology not in ("none",):
+        paths.append({
+            "path_id": "path_4_token_theft",
+            "technique": "token_reuse_and_escalation",
+            "owasp": "LLM02",
+            "target_surface": "auth_token",
+            "priority": 4,
+            "prerequisite": "capture_token_from_response",
+            "estimated_asr": 0.50,
+        })
+
+        if topology.token_expiry_seconds > 3600:
+            paths.append({
+                "path_id": "path_4b_token_persistence",
+                "technique": "token_persistence",
+                "owasp": "LLM02",
+                "target_surface": "auth_token",
+                "priority": 4,
+                "prerequisite": "token_expiry_gt_1h",
+                "estimated_asr": 0.55,
+                "token_expiry": topology.token_expiry_seconds,
+            })
+
+    # 路径 5: MCP 协议注入
+    if topology.app_architecture == "mcp_orchestrator" or "mcp_protocol" in topology.injection_surfaces:
+        paths.append({
+            "path_id": "path_5_mcp_injection",
+            "technique": "mcp_protocol_injection",
+            "owasp": "ASI01",
+            "target_surface": "mcp_protocol",
+            "priority": 5,
+            "prerequisite": "mcp_config_access",
+            "estimated_asr": 0.40,
+        })
+
+    # 路径 6: Crescendo 渐进突破 (多轮场景)
+    if topology.has_multi_turn:
+        paths.append({
+            "path_id": "path_6_crescendo",
+            "technique": "crescendo_progressive",
+            "owasp": "LLM01",
+            "target_surface": "conversation_history",
+            "priority": 6,
+            "prerequisite": "multi_turn_capability",
+            "estimated_asr": 0.82,  # Crescendo
+        })
+
+    # 按 ASR 降序排序 (高 ASR 优先)
+    paths.sort(key=lambda p: p["estimated_asr"], reverse=True)
+
+    logger.info(
+        f"v56 _discover_alternative_attack_paths: {len(paths)} paths discovered "
+        f"(top ASR={paths[0]['estimated_asr'] if paths else 0:.2f})"
+    )
+
+    return paths

@@ -642,8 +642,8 @@ class TestMCPAttackRun:
         async def _run() -> Any:
             return await run_mcp_attack(pipeline_ctx)
 
-        # mock TargetRegistry 返回空
-        with patch("pyrit.registry.TargetRegistry") as mock_registry:
+        # mock TargetRegistry 返回空 — O-3 P0: mock stage_scenario 模块中的 TargetRegistry
+        with patch("pipeline.stages.stage_scenario.TargetRegistry") as mock_registry:
             mock_registry.get_registry_singleton.return_value.instances.get_all_instances.return_value = []
             report = asyncio.run(_run())
 

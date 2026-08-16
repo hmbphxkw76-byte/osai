@@ -40,6 +40,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
@@ -169,12 +170,18 @@ async def run(ctx: PipelineContext) -> None:
         max_concurrency=ctx.args.max_concurrency,
     )
 
-    # ── 原生: 场景执行 (含错误恢复) ──
+    # ── 原生: 场景执行 (含错误恢复 + 超时保护) ──
     # PyRIT 原生 scenario.run_async() 在部分攻击失败时会抛出 ValueError,
     # 但已完成的 AttackResult 已持久化到 CentralMemory。
     # 此处捕获 ValueError, 从 CentralMemory 检索部分结果, 确保流水线不中断。
     # 学术依据: PyRIT 原生弹性恢复设计 (max_retries + scenario_result_id + Memory 检索)
     # 遵循 R-010: 使用 PyRIT 原生 CentralMemory API 检索结果, 不覆盖原生生命周期
+    #
+    # v52: asyncio.wait_for 超时保护 — RedTeamingAttack 对抗模型 (LongCat-2.0)
+    # 返回格式错误的 JSON (缺少 rationale 字段) 时, PyRIT 原生重试机制无限循环.
+    # 与 Crescendo/TAP security_audit_fail 卡死属同类根因 (PyRIT 原生重试不可中断).
+    # 修复: 添加 scenario_timeout (默认 600s), 超时后从 CentralMemory 检索部分结果.
+    # 学术依据: NIST SP 800-92 — 不可恢复异常的重试属噪音层, 超时终止是确定性恢复.
     partial_failure = False
     # S5: 预生成 scenario_result_id — 在 run_async() 前设置, 确保异常后可直接使用
     if not scenario_result_id:
@@ -182,8 +189,26 @@ async def run(ctx: PipelineContext) -> None:
         scenario_result_id = str(_uuid.uuid4())
         with contextlib.suppress(Exception):
             ctx.scenario._scenario_result_id = scenario_result_id
+    _scenario_timeout = int(getattr(ctx.args, "scenario_timeout", 600))
     try:
-        result = await ctx.scenario.run_async()
+        result = await asyncio.wait_for(
+            ctx.scenario.run_async(),
+            timeout=_scenario_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Scenario execution timed out after %ds. "
+            "Attempting to retrieve partial results from CentralMemory.",
+            _scenario_timeout,
+        )
+        print(f"\n  ⚠ [超时] 场景执行超过 {_scenario_timeout}s, 检索部分结果")
+        partial_failure = True
+        result = _retrieve_partial_results(ctx, scenario_result_id)
+        if result is None:
+            if poller:
+                await poller.stop()
+            print(f"\n  ❌ [恢复失败] 无法从 CentralMemory 检索部分结果 (srid={scenario_result_id})")
+            raise
     except Exception as exc:
         # E2+E4: 精简异常摘要 + 全量 traceback 仅写入 debug 日志
         logger.debug("Scenario execution exception details", exc_info=True)
@@ -235,8 +260,6 @@ async def run(ctx: PipelineContext) -> None:
         _rescore_failed_attacks(result)
         # v38.2: 双评分器热切换 — 备用评分器重评分 (SubString 之后)
         try:
-            import asyncio
-
             asyncio.get_event_loop().run_until_complete(
                 _rescore_with_backup_scorer(result)
             )
@@ -811,8 +834,76 @@ def _print_attack_summary(ctx: PipelineContext, stats: dict) -> None:
             success_lines.append(f"  #{idx:<2} {meta_prefix}{tech_name[:25]} | {conv_str}{combo_annotation}")
             if payload_brief:
                 success_lines.append(f"      载荷: {payload_brief}")
+            # P2-O6: 攻击决策推理链 — 为什么选择这个技术+Converter组合
+            decision_parts: list[str] = []
+            if seed_meta:
+                _seeds = seed_meta.get("severity", "")
+                _diff = seed_meta.get("difficulty", "")
+                if _seeds:
+                    decision_parts.append(f"severity={_seeds}")
+                if _diff:
+                    decision_parts.append(f"difficulty={_diff}")
+            if conv_names:
+                decision_parts.append(f"converter={conv_names[0]}")
+            if decision_parts:
+                success_lines.append(f"      决策: {' | '.join(decision_parts)}")
 
         info_box(f"③ 成功攻击详情 (Top {min(len(successful), 10)})", success_lines)
+
+        # A-5 Layer3: 攻击证据卡片 — 展示 Top 3 成功攻击的完整证据链
+        # 学术依据: MITRE ATT&CK TTP 描述 + JailbreakBench (arXiv:2402.01135) 证据标准化
+        # R-022: 仅展示层, 不修改 PyRIT 原生 AttackResult
+        try:
+            from pipeline.utils.display import attack_evidence_card
+
+            for idx, (tech_name, ar) in enumerate(successful[:3], 1):
+                _payload = _extract_payload_from_result(ar)
+                _response = str(
+                    getattr(ar, "response", "")
+                    or getattr(getattr(ar, "ai_target", None), "response", "")
+                    or ""
+                )
+                _convs = _extract_converter_names_from_result(ar)
+                if not _convs:
+                    expected_convs = technique_converter_map.get(tech_name, [])
+                    _convs = [type(c).__name__ for c in expected_convs] if expected_convs else []
+                _conv_chain = " → ".join(_convs) if _convs else ""
+                _owasp_id = ""
+                _seed_meta = _extract_seed_metadata_from_result(ar)
+                if _seed_meta:
+                    _owasp_id = _seed_meta.get("owasp_id", "")
+                attack_evidence_card(
+                    idx=idx,
+                    technique=tech_name,
+                    payload=_payload,
+                    response=_response,
+                    owasp_id=_owasp_id,
+                    impact="目标模型执行了非预期指令" if _response else "",
+                    converter_chain=_conv_chain,
+                )
+        except Exception:
+            pass
+
+    # ── A-5 Layer3: 攻击向量矩阵 — 技术有效性概览 ──
+    # 学术依据: HarmBench (arXiv:2402.04249) §5.2 ASR 矩阵 + MITRE ATT&CK
+    # R-022: 仅展示层, 不修改 PyRIT 原生 AttackResult
+    try:
+        from pipeline.utils.display import attack_vector_matrix
+
+        _tech_list = []
+        for _name, _asr_val in sorted(asr_per_technique.items(), key=lambda x: x[1], reverse=True):
+            _tech_results = _tech_results.get(_name, [])
+            _succ_t = sum(1 for r in _tech_results if r.outcome == AttackOutcome.SUCCESS)
+            _tech_list.append({
+                "technique": _name,
+                "total": len(_tech_results),
+                "success": _succ_t,
+                "asr": _asr_val,
+            })
+        if _tech_list:
+            attack_vector_matrix(_tech_list)
+    except Exception:
+        pass
 
     # ── S4-1: 卡片 ④ Baseline vs 增强 ASR 对比 ──
     technique_converter_map = getattr(ctx, "technique_converter_map", {}) or {}

@@ -21,6 +21,8 @@ from unittest.mock import patch
 import pytest
 
 from pipeline.integrations.target_classifier import (
+    AttackSurfaceTopology,
+    TargetClassification,
     TargetClassifier,
 )
 from web_redteam.auth.mfa_detector import MFADetectionResult
@@ -494,3 +496,403 @@ class TestParseArgsUnifiedEntry:
         with patch("sys.argv", ["main.py"]):
             args = parse_args()
             assert args.mfa_timeout == 300
+
+
+# ============================================================
+# v56: AttackSurfaceTopology 多维攻击面拓扑测试
+# ============================================================
+
+
+class TestAttackSurfaceTopology:
+    """v56: AttackSurfaceTopology 数据模型测试。"""
+
+    def test_default_values(self) -> None:
+        """默认值测试。"""
+        topology = AttackSurfaceTopology()
+        assert topology.transport_type == "unknown"
+        assert topology.app_architecture == "simple_llm"
+        assert topology.has_tool_calling is False
+        assert topology.auth_topology == "none"
+        assert topology.injection_surfaces == ["user_message"]
+        assert topology.discovered_tools == []
+        assert topology.trust_boundaries == ["user→llm"]
+        assert topology.recommended_kill_chain == ["recon", "initial_access"]
+        assert topology.recommended_owasp == ["LLM01"]
+
+    def test_str_representation(self) -> None:
+        """字符串表示包含关键字段。"""
+        topology = AttackSurfaceTopology(
+            transport_type="api_platform",
+            app_architecture="agent_with_tools",
+            auth_topology="bearer_token",
+        )
+        s = str(topology)
+        assert "api_platform" in s
+        assert "agent_with_tools" in s
+        assert "bearer_token" in s
+
+
+class TestBuildAttackSurfaceTopology:
+    """v56: build_attack_surface_topology 方法测试。"""
+
+    @pytest.fixture
+    def classifier(self) -> TargetClassifier:
+        """创建 TargetClassifier 实例。"""
+        return TargetClassifier(http_timeout=1)
+
+    def test_simple_llm_no_burp(self, classifier: TargetClassifier) -> None:
+        """无 Burp 请求 → simple_llm 架构。"""
+        classification = TargetClassification(
+            target_type="llm_api_platform",
+            target_url="https://api.example.com/v1/chat/completions",
+        )
+        topology = classifier.build_attack_surface_topology(classification)
+        assert topology.transport_type == "api_platform"
+        assert topology.app_architecture == "simple_llm"
+        assert topology.has_tool_calling is False
+        assert topology.auth_topology == "none"
+        assert "user_message" in topology.injection_surfaces
+        assert topology.recommended_owasp == ["LLM01"]
+
+    def test_agent_with_tools_from_burp(self, classifier: TargetClassifier) -> None:
+        """Burp 请求体含 tools → agent_with_tools。"""
+        burp_request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            '{"model":"gpt-4","messages":[{"role":"user","content":"hi"}],'
+            '"tools":[{"type":"function","function":{"name":"execute_command",'
+            '"description":"Run a command","parameters":{}}}]}'
+        )
+        classification = TargetClassification(
+            target_type="llm_api_platform",
+            target_url="https://api.example.com/v1/chat/completions",
+        )
+        topology = classifier.build_attack_surface_topology(
+            classification, burp_raw_request=burp_request
+        )
+        assert topology.has_tool_calling is True
+        assert topology.app_architecture == "agent_with_tools"
+        assert len(topology.discovered_tools) == 1
+        assert topology.discovered_tools[0]["name"] == "execute_command"
+        assert "tool_result" in topology.injection_surfaces
+        assert "ASI06" in topology.recommended_owasp
+
+    def test_rag_pipeline_detection(self, classifier: TargetClassifier) -> None:
+        """Burp 请求体含 RAG 特征字段 → rag_pipeline。"""
+        burp_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"query"}],'
+            '"retrieved_context":"some context"}'
+        )
+        classification = TargetClassification(target_type="llm_api_platform")
+        topology = classifier.build_attack_surface_topology(
+            classification, burp_raw_request=burp_request
+        )
+        assert topology.app_architecture == "rag_pipeline"
+        assert "rag_content" in topology.injection_surfaces
+        assert "LLM07" in topology.recommended_owasp
+
+    def test_mcp_orchestrator_detection(self, classifier: TargetClassifier) -> None:
+        """Burp 请求体含 MCP 特征字段 → mcp_orchestrator。"""
+        burp_request = (
+            "POST /api/chat HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"hi"}],'
+            '"mcp_config":{"server":"localhost"}}'
+        )
+        classification = TargetClassification(target_type="llm_api_platform")
+        topology = classifier.build_attack_surface_topology(
+            classification, burp_raw_request=burp_request
+        )
+        assert topology.app_architecture == "mcp_orchestrator"
+        assert "mcp_protocol" in topology.injection_surfaces
+        assert "ASI01" in topology.recommended_owasp
+
+    def test_auth_topology_bearer_jwt(self, classifier: TargetClassifier) -> None:
+        """Bearer JWT Token → oauth2_jwt 认证拓扑。"""
+        # 构造一个简化 JWT (header.payload.signature)
+        # header: {"alg":"HS256"}, payload: {"exp":9999999999}
+        import base64
+        import json
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": 9999999999}).encode()).rstrip(b"=").decode()
+        jwt_token = f"{header}.{payload}.signature"
+
+        classification = TargetClassification(
+            target_type="llm_api_platform",
+            api_auth_type="bearer",
+        )
+        auth_headers = {"Authorization": f"Bearer {jwt_token}"}
+        topology = classifier.build_attack_surface_topology(
+            classification, auth_headers=auth_headers
+        )
+        assert topology.auth_topology == "oauth2_jwt"
+        assert topology.auth_persistence == "persistent"
+        assert topology.token_expiry_seconds > 0
+
+    def test_auth_topology_session_cookie(self, classifier: TargetClassifier) -> None:
+        """Cookie → session_cookie 认证拓扑。"""
+        classification = TargetClassification(target_type="llm_web_app")
+        auth_headers = {"Cookie": "session_id=abc123"}
+        topology = classifier.build_attack_surface_topology(
+            classification, auth_headers=auth_headers
+        )
+        assert topology.auth_topology == "session_cookie"
+        assert topology.auth_persistence == "session"
+
+    def test_kill_chain_mapping(self, classifier: TargetClassifier) -> None:
+        """Kill Chain 映射 — Agent + 认证 → 完整链路。"""
+        burp_request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "Authorization: Bearer sk-test123\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"hi"}],'
+            '"tools":[{"type":"function","function":{"name":"read_file",'
+            '"description":"Read a file","parameters":{}}}]}'
+        )
+        classification = TargetClassification(
+            target_type="llm_api_platform",
+            api_auth_type="bearer",
+        )
+        topology = classifier.build_attack_surface_topology(
+            classification, burp_raw_request=burp_request
+        )
+        # 应包含 recon, initial_access, credential_access, persistence, bypass
+        assert "recon" in topology.recommended_kill_chain
+        assert "initial_access" in topology.recommended_kill_chain
+        assert "credential_access" in topology.recommended_kill_chain
+        assert "persistence" in topology.recommended_kill_chain
+        assert "bypass" in topology.recommended_kill_chain
+
+    def test_high_risk_tools_marked(self, classifier: TargetClassifier) -> None:
+        """高风险工具被标记到 model_fingerprint。"""
+        burp_request = (
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            "Host: api.example.com\r\n"
+            "\r\n"
+            '{"messages":[{"role":"user","content":"hi"}],'
+            '"tools":[{"type":"function","function":{"name":"execute_command",'
+            '"description":"Run command","parameters":{}}},'
+            '{"type":"function","function":{"name":"read_file",'
+            '"description":"Read file","parameters":{}}}]}'
+        )
+        classification = TargetClassification(target_type="llm_api_platform")
+        topology = classifier.build_attack_surface_topology(
+            classification, burp_raw_request=burp_request
+        )
+        assert "high_risk_tools" in topology.model_fingerprint
+        assert "execute_command" in topology.model_fingerprint["high_risk_tools"]
+
+
+class TestAnalyzeBurpAgentStructure:
+    """v56: analyze_burp_agent_structure 函数测试。"""
+
+    def test_simple_llm_request(self) -> None:
+        """简单 LLM 请求 → is_agent=False。"""
+        from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+        burp = (
+            'POST /v1/chat/completions HTTP/1.1\r\n\r\n'
+            '{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}'
+        )
+        result = analyze_burp_agent_structure(burp)
+        assert result["is_agent"] is False
+        assert result["app_architecture"] == "simple_llm"
+        assert result["model_name"] == "gpt-4"
+
+    def test_agent_with_tools(self) -> None:
+        """Agent + tools → is_agent=True。"""
+        from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+        burp = (
+            'POST /v1/chat/completions HTTP/1.1\r\n\r\n'
+            '{"model":"gpt-4","messages":[{"role":"user","content":"hi"}],'
+            '"tools":[{"type":"function","function":{"name":"write_file",'
+            '"description":"Write file","parameters":{}}}]}'
+        )
+        result = analyze_burp_agent_structure(burp)
+        assert result["is_agent"] is True
+        assert result["app_architecture"] == "agent_with_tools"
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["name"] == "write_file"
+        assert "write_file" in result["high_risk_tools"]
+        assert "tool_result" in result["injection_surfaces"]
+
+    def test_system_prompt_detection(self) -> None:
+        """System prompt 检测。"""
+        from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+        burp = (
+            'POST /v1/chat/completions HTTP/1.1\r\n\r\n'
+            '{"messages":[{"role":"system","content":"You are a helpful assistant"},'
+            '{"role":"user","content":"hi"}]}'
+        )
+        result = analyze_burp_agent_structure(burp)
+        assert result["has_system_prompt"] is True
+        assert "system_prompt" in result["injection_surfaces"]
+
+    def test_attack_seeds_generation(self) -> None:
+        """攻击种子自动生成。"""
+        from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+        burp = (
+            'POST /v1/chat/completions HTTP/1.1\r\n\r\n'
+            '{"messages":[{"role":"system","content":"system prompt"},'
+            '{"role":"user","content":"hi"}],'
+            '"tools":[{"type":"function","function":{"name":"execute_command",'
+            '"description":"Run command","parameters":{}}}]}'
+        )
+        result = analyze_burp_agent_structure(burp)
+        seeds = result["attack_seeds"]
+        assert len(seeds) >= 3  # prompt_injection + system_prompt_extraction + tool_hijacking + high_risk_tool_exploit
+        types = [s["type"] for s in seeds]
+        assert "prompt_injection" in types
+        assert "system_prompt_extraction" in types
+        assert "tool_hijacking" in types
+        assert "high_risk_tool_exploit" in types
+
+    def test_invalid_json_body(self) -> None:
+        """无效 JSON → 默认结果。"""
+        from pipeline.targets.capability_adapter import analyze_burp_agent_structure
+
+        burp = "POST /api HTTP/1.1\r\n\r\nnot json"
+        result = analyze_burp_agent_structure(burp)
+        assert result["is_agent"] is False
+        assert result["app_architecture"] == "simple_llm"
+
+
+class TestAnalyzeCapturedToken:
+    """v56: analyze_captured_token 函数测试。"""
+
+    def test_non_jwt_bearer_token(self) -> None:
+        """非 JWT Bearer Token → 基础分析。"""
+        from web_redteam.auth.api_auth import analyze_captured_token
+
+        result = analyze_captured_token("sk-simple-api-key", "bearer_token")
+        assert result["is_jwt"] is False
+        assert result["risk_level"] == "medium"
+        assert len(result["attack_seeds"]) > 0
+
+    def test_jwt_with_admin_role(self) -> None:
+        """JWT 含 admin 角色 → critical 风险。"""
+        import base64
+        import json
+        import time
+
+        from web_redteam.auth.api_auth import analyze_captured_token
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"role": "admin", "exp": int(time.time()) + 7200}).encode()
+        ).rstrip(b"=").decode()
+        jwt_token = f"{header}.{payload}.sig"
+
+        result = analyze_captured_token(jwt_token, "oauth2_jwt")
+        assert result["is_jwt"] is True
+        assert result["role"] == "admin"
+        assert result["risk_level"] == "critical"
+        types = [s["type"] for s in result["attack_seeds"]]
+        assert "privilege_escalation" in types
+
+    def test_jwt_alg_none(self) -> None:
+        """JWT alg=none → critical 风险 + 伪造攻击种子。"""
+        import base64
+        import json
+
+        from web_redteam.auth.api_auth import analyze_captured_token
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "none"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps({"sub": "user"}).encode()).rstrip(b"=").decode()
+        jwt_token = f"{header}.{payload}."
+
+        result = analyze_captured_token(jwt_token, "oauth2_jwt")
+        assert result["algorithm"] == "none"
+        assert result["risk_level"] == "critical"
+        types = [s["type"] for s in result["attack_seeds"]]
+        assert "jwt_forgery" in types
+
+    def test_jwt_long_expiry(self) -> None:
+        """JWT exp > 24h → high 风险 + 持久化种子。"""
+        import base64
+        import json
+        import time
+
+        from web_redteam.auth.api_auth import analyze_captured_token
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"exp": int(time.time()) + 100000}).encode()
+        ).rstrip(b"=").decode()
+        jwt_token = f"{header}.{payload}.sig"
+
+        result = analyze_captured_token(jwt_token, "oauth2_jwt")
+        assert result["expiry_seconds"] > 86400
+        assert result["risk_level"] == "high"
+        types = [s["type"] for s in result["attack_seeds"]]
+        assert "token_persistence" in types
+
+    def test_session_cookie_auth_type(self) -> None:
+        """Session Cookie 认证 → medium 风险。"""
+        from web_redteam.auth.api_auth import analyze_captured_token
+
+        result = analyze_captured_token("session=abc123", "session_cookie")
+        assert result["is_jwt"] is False
+        assert result["risk_level"] == "medium"
+
+
+class TestDiscoverAlternativeAttackPaths:
+    """v56: _discover_alternative_attack_paths 函数测试。"""
+
+    def test_simple_llm_only_direct_injection(self) -> None:
+        """简单 LLM → 仅直接注入路径。"""
+        from pipeline.stages.stage_target_classify import _discover_alternative_attack_paths
+
+        topology = AttackSurfaceTopology()
+        classification = TargetClassification()
+        paths = _discover_alternative_attack_paths(topology, classification)
+        assert len(paths) == 1
+        assert paths[0]["path_id"] == "path_1_direct_injection"
+
+    def test_agent_with_tools_multiple_paths(self) -> None:
+        """Agent + tools → 多条替代路径。"""
+        from pipeline.stages.stage_target_classify import _discover_alternative_attack_paths
+
+        topology = AttackSurfaceTopology(
+            has_tool_calling=True,
+            has_multi_turn=True,
+            auth_topology="bearer_token",
+        )
+        topology.model_fingerprint["high_risk_tools"] = ["execute_command"]
+        classification = TargetClassification()
+        paths = _discover_alternative_attack_paths(topology, classification)
+        path_ids = [p["path_id"] for p in paths]
+        assert "path_1_direct_injection" in path_ids
+        assert "path_2_tool_hijack" in path_ids
+        assert "path_2b_high_risk_tool" in path_ids
+        assert "path_4_token_theft" in path_ids
+        assert "path_6_crescendo" in path_ids
+        # 按 ASR 降序
+        assert paths[0]["estimated_asr"] >= paths[-1]["estimated_asr"]
+
+    def test_crescendo_highest_asr(self) -> None:
+        """Crescendo 路径 ASR=82% 最高。"""
+        from pipeline.stages.stage_target_classify import _discover_alternative_attack_paths
+
+        topology = AttackSurfaceTopology(
+            has_tool_calling=True,
+            has_multi_turn=True,
+        )
+        classification = TargetClassification()
+        paths = _discover_alternative_attack_paths(topology, classification)
+        crescendo = [p for p in paths if p["path_id"] == "path_6_crescendo"]
+        assert len(crescendo) == 1
+        assert crescendo[0]["estimated_asr"] == 0.82
+        # Crescendo 应排第一 (最高 ASR)
+        assert paths[0]["path_id"] == "path_6_crescendo"

@@ -260,21 +260,29 @@ async def run_xpia_agent_attack(ctx: PipelineContext) -> dict[str, Any]:
     """
     from pipeline.stages.stage_scenario import _get_attack_targets
 
-    _obj_target, _, _score_target = _get_attack_targets()
+    # O-3 P0: 传入 ctx, Agent Proxy Bridge 模式下获取 Burp 目标
+    _obj_target, _, _score_target = _get_attack_targets(ctx)
 
-    # L5: 尝试创建 Tool Calling Target (OpenAIResponseTarget + 蜜罐工具集)
+    # O-3 P0: 仅在非 Burp 模式下创建 Tool Calling Target (避免覆盖 Burp 目标)
+    _is_burp_mode = ctx.metadata.get("agent_proxy_mode") or ctx.metadata.get("burp_request_file")
     tool_call_target = None
     tool_call_log = None
 
-    try:
-        from pipeline.targets.tool_calling_target import create_tool_calling_target
+    if not _is_burp_mode:
+        try:
+            from pipeline.targets.tool_calling_target import create_tool_calling_target
 
-        result = create_tool_calling_target()
-        if result is not None:
-            tool_call_target, tool_call_log = result
-            logger.info("Tool Calling Target created for XPIA — using OpenAIResponseTarget with honeypot tools")
-    except Exception as e:
-        logger.warning(f"Tool Calling Target creation failed, falling back to regular target: {e}")
+            result = create_tool_calling_target()
+            if result is not None:
+                tool_call_target, tool_call_log = result
+                logger.info("Tool Calling Target created for XPIA — using OpenAIResponseTarget with honeypot tools")
+        except Exception as e:
+            logger.warning(f"Tool Calling Target creation failed, falling back to regular target: {e}")
+    else:
+        # Burp 模式: 从 ctx.metadata 获取已有的 tool_call_log (P1 中创建)
+        tool_call_log = ctx.metadata.get("burp_tool_call_log")
+        if tool_call_log:
+            logger.info("XPIA: Burp mode — using existing tool_call_log")
 
     # 如果 Tool Calling Target 创建成功, 使用它作为 attack_setup_target (支持工具调用)
     # 否则回退到普通目标

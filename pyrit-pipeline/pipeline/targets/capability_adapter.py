@@ -189,3 +189,246 @@ def detect_agent_capability_from_burp(raw_request: str) -> bool:
 
     except Exception:
         return False
+
+
+def analyze_burp_agent_structure(raw_request: str) -> dict[str, Any]:
+    """v56: 攻击者视角 — 从 Burp 请求体深度分析 Agent 结构.
+
+    超越 detect_agent_capability_from_burp 的二元判定,
+    提取完整的 Agent 攻击画像:
+
+      1. 工具清单: 每个工具的 name/description/parameters
+      2. 高风险工具标记: execute_command/write_file/send_email 等
+      3. 消息结构: system/user/assistant/tool 角色分布
+      4. RAG 特征: context/knowledge/retrieved_documents 字段
+      5. MCP 特征: mcp/server_config/protocol_version 字段
+      6. 注入面推导: 基于结构特征列出可注入面
+      7. 攻击种子: 从结构特征自动生成针对性攻击种子
+
+    Args:
+        raw_request: Burp 导出的原始 HTTP 请求文本.
+
+    Returns:
+        Agent 结构分析结果字典:
+          - is_agent: 是否为 Agent 应用
+          - app_architecture: 应用架构
+          - tools: 工具清单
+          - high_risk_tools: 高风险工具列表
+          - message_roles: 消息角色分布
+          - has_system_prompt: 是否有 system prompt
+          - has_rag: 是否有 RAG 特征
+          - has_mcp: 是否有 MCP 特征
+          - injection_surfaces: 可注入面列表
+          - attack_seeds: 自动生成的攻击种子
+          - model_name: 请求体中的 model 字段
+
+    学术依据:
+      - Greshake et al. (arXiv:2302.12173): Agent 应用攻击面
+      - Zhan et al. (arXiv:2307.00929): InjecAgent — 工具滥用评估
+      - OWASP ASI01-10: Agentic Security
+      - PyRIT (arXiv:2407.01232): TargetConfiguration 能力声明
+    """
+    result: dict[str, Any] = {
+        "is_agent": False,
+        "app_architecture": "simple_llm",
+        "tools": [],
+        "high_risk_tools": [],
+        "message_roles": [],
+        "has_system_prompt": False,
+        "has_rag": False,
+        "has_mcp": False,
+        "injection_surfaces": ["user_message"],
+        "attack_seeds": [],
+        "model_name": "",
+    }
+
+    # ── 高风险工具名集合 ──
+    high_risk_names = {
+        "execute_command", "exec_command", "run_command", "shell", "terminal",
+        "write_file", "create_file", "modify_file",
+        "delete_file", "remove_file", "rm",
+        "send_email", "email", "smtp",
+        "http_request", "fetch", "curl", "wget", "request",
+        "get_environment", "env", "environment", "getenv",
+        "list_directory", "ls", "dir", "readdir",
+        "read_file", "cat",
+        "sql_query", "database", "db_query",
+        "upload_file", "download_file",
+        "create_user", "add_user", "modify_permissions",
+    }
+
+    # ── RAG / MCP 特征字段 ──
+    rag_fields = {
+        "context", "retrieved_context", "knowledge", "knowledge_base",
+        "retrieved_documents", "sources", "reference", "references",
+        "documents", "citations", "evidence",
+    }
+    mcp_fields = {
+        "mcp", "mcp_server", "mcp_config", "server_config",
+        "tool_server", "protocol_version",
+    }
+
+    try:
+        parts = raw_request.split("\r\n\r\n", 1)
+        if len(parts) < 2:
+            parts = raw_request.split("\n\n", 1)
+        body = parts[1] if len(parts) > 1 else ""
+
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            data = json.loads(body)
+            if not isinstance(data, dict):
+                return result
+
+            # ── 模型名 ──
+            result["model_name"] = data.get("model", "")
+
+            # ── 工具清单 ──
+            tools_raw = data.get("tools") or data.get("functions") or []
+            if isinstance(tools_raw, list) and tools_raw:
+                result["is_agent"] = True
+                result["app_architecture"] = "agent_with_tools"
+                for t in tools_raw:
+                    if isinstance(t, dict):
+                        # OpenAI 格式: {"type": "function", "function": {"name": ...}}
+                        if "function" in t and isinstance(t["function"], dict):
+                            fn = t["function"]
+                            tool_info = {
+                                "name": fn.get("name", ""),
+                                "description": fn.get("description", ""),
+                                "parameters": fn.get("parameters", {}),
+                            }
+                        else:
+                            tool_info = {
+                                "name": t.get("name", ""),
+                                "description": t.get("description", ""),
+                                "parameters": t.get("parameters", {}),
+                            }
+                        result["tools"].append(tool_info)
+                        if tool_info["name"].lower() in high_risk_names:
+                            result["high_risk_tools"].append(tool_info["name"])
+
+            # ── 消息结构分析 ──
+            messages = data.get("messages", [])
+            if isinstance(messages, list) and messages:
+                roles_seen: set[str] = set()
+                for msg in messages:
+                    if isinstance(msg, dict):
+                        role = msg.get("role", "")
+                        if role:
+                            roles_seen.add(role)
+                        if role == "system":
+                            result["has_system_prompt"] = True
+                        if "tool_calls" in msg:
+                            result["is_agent"] = True
+                result["message_roles"] = sorted(roles_seen)
+
+            # ── RAG 特征检测 ──
+            for field in rag_fields:
+                if field in data:
+                    result["has_rag"] = True
+                    if result["app_architecture"] == "simple_llm":
+                        result["app_architecture"] = "rag_pipeline"
+                    break
+
+            # ── MCP 特征检测 ──
+            for field in mcp_fields:
+                if field in data:
+                    result["has_mcp"] = True
+                    result["app_architecture"] = "mcp_orchestrator"
+                    break
+
+            # ── 注入面推导 ──
+            surfaces = ["user_message"]
+            if result["is_agent"] or result["has_system_prompt"]:
+                surfaces.append("tool_result")
+            if result["has_system_prompt"]:
+                surfaces.append("system_prompt")
+            if result["has_rag"]:
+                surfaces.append("rag_content")
+            if result["has_mcp"]:
+                surfaces.append("mcp_protocol")
+            if "assistant" in result["message_roles"]:
+                surfaces.append("conversation_history")
+            result["injection_surfaces"] = surfaces
+
+            # ── 攻击种子生成 ──
+            seeds: list[dict[str, Any]] = []
+
+            # 基础: Prompt Injection
+            seeds.append({
+                "type": "prompt_injection",
+                "owasp": "LLM01",
+                "objective": "Inject malicious prompt via user_message",
+                "target_surface": "user_message",
+            })
+
+            # System Prompt 提取
+            if result["has_system_prompt"]:
+                seeds.append({
+                    "type": "system_prompt_extraction",
+                    "owasp": "LLM07",
+                    "objective": "Extract system prompt via crafted queries",
+                    "target_surface": "system_prompt",
+                })
+
+            # 工具劫持 (InjecAgent)
+            if result["is_agent"]:
+                seeds.append({
+                    "type": "tool_hijacking",
+                    "owasp": "ASI02",
+                    "objective": "Inject malicious instructions into tool results to hijack agent actions",
+                    "target_surface": "tool_result",
+                })
+
+            # 高风险工具利用
+            for hr_tool in result["high_risk_tools"]:
+                seeds.append({
+                    "type": "high_risk_tool_exploit",
+                    "owasp": "ASI06",
+                    "objective": f"Exploit agent's access to high-risk tool: {hr_tool}",
+                    "target_surface": "tool_result",
+                    "tool_name": hr_tool,
+                })
+
+            # RAG 投毒
+            if result["has_rag"]:
+                seeds.append({
+                    "type": "rag_poisoning",
+                    "owasp": "LLM07",
+                    "objective": "Poison RAG knowledge base to inject persistent backdoor prompts",
+                    "target_surface": "rag_content",
+                })
+
+            # MCP 协议注入
+            if result["has_mcp"]:
+                seeds.append({
+                    "type": "mcp_protocol_injection",
+                    "owasp": "ASI01",
+                    "objective": "Inject malicious MCP server config to hijack agent tool calls",
+                    "target_surface": "mcp_protocol",
+                })
+
+            # 对话历史注入
+            if "assistant" in result["message_roles"]:
+                seeds.append({
+                    "type": "conversation_history_injection",
+                    "owasp": "LLM01",
+                    "objective": "Inject persistent instructions via conversation history manipulation",
+                    "target_surface": "conversation_history",
+                })
+
+            result["attack_seeds"] = seeds
+
+            logger.info(
+                f"v56 BurpAgentAnalysis: is_agent={result['is_agent']}, "
+                f"arch={result['app_architecture']}, "
+                f"tools={len(result['tools'])}, "
+                f"high_risk={len(result['high_risk_tools'])}, "
+                f"surfaces={result['injection_surfaces']}, "
+                f"seeds={len(seeds)}"
+            )
+
+    except Exception as e:
+        logger.debug(f"v56: analyze_burp_agent_structure failed: {e}")
+
+    return result

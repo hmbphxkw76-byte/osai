@@ -325,8 +325,13 @@ def _collect_evidence(ctx: PipelineContext, output_dir: Path) -> None:
     try:
         from pipeline.analysis.evidence_collector import EvidenceCollector
 
-        # 获取模型信息
-        model_name = os.getenv("TARGET_MODEL", "unknown")
+        # P1-O1: 多路径提取模型名 (ctx.metadata → env → fallback)
+        model_name = (
+            ctx.metadata.get("model_name", "")
+            or os.getenv("TARGET_MODEL", "")
+            or os.getenv("OPENAI_CHAT_MODEL", "")
+            or "unknown"
+        )
         model_tier = ctx.metadata.get("model_tier", "unknown")
         owasp_id = os.getenv("OWASP_ID", "")
 

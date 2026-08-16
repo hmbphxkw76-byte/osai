@@ -283,8 +283,30 @@ class TAPOrchestrator:
             batch_size=self.batch_size,
         )
 
-        # 5. 执行原生攻击
-        native_result = await attack.execute_async(objective=self.objective)
+        # v53: 应用 relaxed adversarial JSON schema (在 execute_async 之前)
+        from pipeline.orchestrators.advanced_crescendo import apply_relaxed_adversarial_schema
+
+        apply_relaxed_adversarial_schema(attack)
+
+        # 5. 执行原生攻击 (含 security_audit_fail 快速跳过)
+        # SiliconFlow API 对某些攻击 prompt 返回 security_audit_fail (BadRequestException),
+        # PyRIT 内部重试机制可能导致 asyncio.wait_for 超时前卡死。
+        # 修复: 在原生调用层捕获 BadRequestException, 快速返回空结果。
+        # 学术依据: NIST SP 800-92 — 确定性拒绝 (security_audit_fail) 不可恢复, 重试属噪音层
+        try:
+            native_result = await attack.execute_async(objective=self.objective)
+        except Exception as e:
+            err_msg = str(e)
+            if "security_audit_fail" in err_msg or "blocked by security audit" in err_msg:
+                logger.warning(
+                    "TAP skipped: SiliconFlow security_audit_fail (deterministic block, not retryable)"
+                )
+                return TAPResult(
+                    objective=self.objective,
+                    tree_width=self.tree_width,
+                    tree_depth=self.tree_depth,
+                )
+            raise  # 其他异常继续抛出, 由上层 asyncio.wait_for / contextlib.suppress 处理
 
         # 6. 封装原生结果为 TAPResult
         return self._wrap_native_result(native_result)

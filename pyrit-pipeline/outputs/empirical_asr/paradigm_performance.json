@@ -2,7 +2,7 @@
   "objective_not_achieved": {
     "multi_turn": {
       "success": 0,
-      "failure": 58
+      "failure": 1
     }
   }
 }

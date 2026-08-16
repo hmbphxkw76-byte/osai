@@ -104,12 +104,12 @@ class TestBackoffConfig:
 class TestApiTimeoutConfig:
     """测试 API 超时和 SDK 重试的 CLI 参数。"""
 
-    def test_api_timeout_default_90(self) -> None:
-        """api_timeout 默认值应为 90 (P3: 从 120 降低, 平衡超时与覆盖率)."""
+    def test_api_timeout_default_120(self) -> None:
+        """api_timeout 默认值应为 120 (v54: 从 90 提升, 覆盖慢 API 端点)."""
         from pipeline.config import _load_attack_params
 
         params = _load_attack_params()
-        assert params["api_timeout"] == 90
+        assert params["api_timeout"] == 120
 
     def test_api_max_retries_default_0(self) -> None:
         """api_max_retries 默认值应为 0 (禁用 SDK 内部重试)。"""

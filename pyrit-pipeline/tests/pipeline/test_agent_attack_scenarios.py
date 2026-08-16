@@ -246,7 +246,7 @@ class TestGetAttackTargets:
             assert score is None
 
     def test_single_target(self) -> None:
-        """1 个 Target 时三角色共享。."""
+        """1 个 Target 时三角色共享 (tag/name 查找失败回退位置分配)."""
         from pipeline.stages.stage_scenario import _get_attack_targets
 
         mock_instance = MagicMock()
@@ -256,6 +256,9 @@ class TestGetAttackTargets:
         with patch("pipeline.stages.stage_scenario.TargetRegistry") as mock_reg:
             mock_singleton = MagicMock()
             mock_singleton.instances.get_all_instances.return_value = [mock_entry]
+            # v53.1: tag/name 查找返回空, 触发位置回退
+            mock_singleton.instances.get_by_tag.return_value = []
+            mock_singleton.instances.get.return_value = None
             mock_reg.get_registry_singleton.return_value = mock_singleton
 
             obj, adv, score = _get_attack_targets()
@@ -264,7 +267,7 @@ class TestGetAttackTargets:
             assert score is mock_instance
 
     def test_three_targets(self) -> None:
-        """3 个 Target 时分别用于三角色。."""
+        """3 个 Target 时分别用于三角色 (tag/name 查找失败回退位置分配)."""
         from pipeline.stages.stage_scenario import _get_attack_targets
 
         mock1, mock2, mock3 = MagicMock(), MagicMock(), MagicMock()
@@ -277,6 +280,9 @@ class TestGetAttackTargets:
         with patch("pipeline.stages.stage_scenario.TargetRegistry") as mock_reg:
             mock_singleton = MagicMock()
             mock_singleton.instances.get_all_instances.return_value = entries
+            # v53.1: tag/name 查找返回空, 触发位置回退
+            mock_singleton.instances.get_by_tag.return_value = []
+            mock_singleton.instances.get.return_value = None
             mock_reg.get_registry_singleton.return_value = mock_singleton
 
             obj, adv, score = _get_attack_targets()
