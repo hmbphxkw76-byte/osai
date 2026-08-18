@@ -347,6 +347,7 @@ def _collect_evidence(ctx: PipelineContext, output_dir: Path) -> None:
             overall_asr=ctx.overall_asr,
             owasp_id=owasp_id,
             display_groups=ctx.result.get_display_groups(),  # Round 8 P0: 传入 display_groups 提取 OWASP ID
+            metadata=ctx.metadata,  # v57: 传入 metadata 填充攻击面拓扑
         )
 
         # 保存 JSON
@@ -581,6 +582,58 @@ def _build_report_header(ctx: PipelineContext) -> str:
     parts.append(f"**目标模型**: {model_name} (tier={model_tier})\n")
     if ctx.target_type:
         parts.append(f"**Target 类型**: `{ctx.target_type}`\n")
+
+    # v57: 攻击面拓扑段落 (Offensive View)
+    topology = ctx.metadata.get("attack_surface_topology")
+    if topology:
+        parts.append("\n## 攻击面拓扑 (Offensive View)\n")
+        parts.append(f"- **架构**: `{topology.app_architecture}`\n")
+        parts.append(f"- **传输**: `{topology.transport_type}`\n")
+        parts.append(f"- **认证**: `{topology.auth_topology}`\n")
+        if topology.injection_surfaces:
+            parts.append(f"- **注入面**: {', '.join(topology.injection_surfaces)}\n")
+        if topology.discovered_tools:
+            parts.append(f"- **发现工具**: {', '.join(topology.discovered_tools[:10])}\n")
+        if topology.recommended_kill_chain:
+            parts.append(f"- **Kill Chain**: {' → '.join(topology.recommended_kill_chain)}\n")
+        if topology.recommended_owasp:
+            parts.append(f"- **OWASP**: {', '.join(topology.recommended_owasp)}\n")
+
+        # 替代攻击路径表
+        alt_paths = ctx.metadata.get("alternative_attack_paths", [])
+        if alt_paths:
+            parts.append("\n### 替代攻击路径 (降级链)\n\n")
+            parts.append("| # | 路径 | 技术 | OWASP | 预估ASR | 前置条件 |\n")
+            parts.append("|---|------|------|-------|---------|----------|\n")
+            for idx, p in enumerate(alt_paths, 1):
+                parts.append(
+                    f"| {idx} | {p.get('path_id', '?')} | "
+                    f"{p.get('technique', '?')} | {p.get('owasp', '?')} | "
+                    f"{p.get('estimated_asr', 0):.0%} | "
+                    f"{p.get('prerequisite', 'none')} |\n"
+                )
+            parts.append("\n")
+
+        # O-3: Browser 补充攻击段落 (双模式 ASR)
+        browser_results = ctx.metadata.get("browser_supplement_results", [])
+        if browser_results:
+            parts.append("\n## Browser 补充攻击 (双模式能力互补)\n\n")
+            s_count = ctx.metadata.get("browser_supplement_success_count", 0)
+            t_count = ctx.metadata.get("browser_supplement_total_count", 0)
+            parts.append(f"- **补充攻击数**: {t_count}\n")
+            parts.append(f"- **成功数**: {s_count}\n")
+            parts.append(f"- **补充 ASR**: {s_count / t_count * 100:.0f}%\n" if t_count else "")
+            parts.append("\n| # | 技术 | OWASP | 结果 | 来源 |\n")
+            parts.append("|---|------|-------|------|------|\n")
+            for idx, r in enumerate(browser_results, 1):
+                icon = "✅" if r.get("achieved") else "❌"
+                parts.append(
+                    f"| {idx} | {r.get('technique', '?')} | "
+                    f"{r.get('owasp', '?')} | {icon} | "
+                    f"{r.get('source', '?')} |\n"
+                )
+            parts.append("\n")
+
     return "\n".join(parts)
 
 

@@ -258,6 +258,7 @@ class TestGetAttackTargets:
             mock_singleton.instances.get_all_instances.return_value = [mock_entry]
             # v53.1: tag/name 查找返回空, 触发位置回退
             mock_singleton.instances.get_by_tag.return_value = []
+            mock_singleton.instances.get_entry.return_value = None
             mock_singleton.instances.get.return_value = None
             mock_reg.get_registry_singleton.return_value = mock_singleton
 
@@ -282,6 +283,7 @@ class TestGetAttackTargets:
             mock_singleton.instances.get_all_instances.return_value = entries
             # v53.1: tag/name 查找返回空, 触发位置回退
             mock_singleton.instances.get_by_tag.return_value = []
+            mock_singleton.instances.get_entry.return_value = None
             mock_singleton.instances.get.return_value = None
             mock_reg.get_registry_singleton.return_value = mock_singleton
 

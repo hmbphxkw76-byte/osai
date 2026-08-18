@@ -485,6 +485,7 @@ def save_empirical_asr(
     *,
     model_name: str | None = None,
     path: Path | None = None,
+    sample_counts: dict[str, int] | None = None,
 ) -> None:
     """保存运行时经验 ASR 到 JSON 文件, 供下次运行覆盖学术先验。.
 
@@ -496,6 +497,7 @@ def save_empirical_asr(
         asr_per_technique: {技术名: ASR百分比} 字典 (0-100)。
         model_name: 目标模型名 (G-05 按模型隔离)。
         path: 保存路径, 默认按模型名自动推导。
+        sample_counts: {技术名: 样本数} 字典, v60+ 置信度标注用。
     """
     if path is None:
         path = _get_empirical_asr_path(model_name)
@@ -503,23 +505,33 @@ def save_empirical_asr(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # O1 修复: 过滤非攻击技术名 (数据集名不应保存为技术 ASR)
+    # v60+: 保留 alt_path_ 前缀键 (替代路径ASR, 非注册技术名但需持久化)
     from pipeline.analysis.technique_name_mapper import is_known_technique
 
     filtered_asr = {
-        tech: asr for tech, asr in asr_per_technique.items() if is_known_technique(tech)
+        tech: asr
+        for tech, asr in asr_per_technique.items()
+        if is_known_technique(tech) or tech.startswith("alt_path_")
     }
     skipped_count = len(asr_per_technique) - len(filtered_asr)
     if skipped_count > 0:
         logger.debug(f"save_empirical_asr: skipped {skipped_count} non-technique keys")
 
-    # 转换为 0-1 范围并添加元数据
+    # v60+: 新增 sample_counts 到 _meta, 供 warm-start 置信度计算
+    meta: dict[str, Any] = {
+        "total_techniques": len(filtered_asr),
+        "model_name": model_name or "unknown",
+        "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
+    }
+    if sample_counts:
+        # 仅保留有 ASR 数据的技术样本数
+        meta["sample_counts"] = {
+            tech: count for tech, count in sample_counts.items() if tech in filtered_asr
+        }
+
     data = {
         "techniques": {tech: asr / 100.0 for tech, asr in filtered_asr.items()},
-        "_meta": {
-            "total_techniques": len(filtered_asr),
-            "model_name": model_name or "unknown",
-            "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
-        },
+        "_meta": meta,
     }
 
     with open(path, "w", encoding="utf-8") as f:
@@ -566,6 +578,48 @@ def load_empirical_asr(
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load empirical ASR from {path}: {e}")
         return {}
+
+
+def load_empirical_asr_with_counts(
+    model_name: str | None = None,
+    *,
+    path: Path | None = None,
+) -> tuple[dict[str, float], dict[str, int]]:
+    """加载经验 ASR 数据 + 样本数 (v60+ 置信度标注用).
+
+    Args:
+        model_name: 目标模型名 (G-05 按模型隔离)。
+        path: 加载路径, 默认按模型名自动推导。
+
+    Returns:
+        (techniques, sample_counts) 元组:
+        - techniques: {技术名: ASR(0-1)} 字典
+        - sample_counts: {技术名: 样本数} 字典, 无样本数时为空字典
+    """
+    if path is None:
+        path = _get_empirical_asr_path(model_name)
+        if not path.exists() and model_name and model_name != "unknown":
+            global_path = _EMPIRICAL_ASR_PATH
+            if global_path.exists():
+                path = global_path
+
+    if not path.exists():
+        return {}, {}
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        techniques = data.get("techniques", {})
+        meta = data.get("_meta", {})
+        sample_counts = meta.get("sample_counts", {})
+        logger.info(
+            f"Empirical ASR+counts loaded from {path} "
+            f"({len(techniques)} techniques, {len(sample_counts)} with counts)"
+        )
+        return techniques, sample_counts
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load empirical ASR+counts from {path}: {e}")
+        return {}, {}
 
 
 # ──────────────────────────────────────────────────────────────────

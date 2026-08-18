@@ -27,6 +27,7 @@ PyRIT 原生输出 AttackResult 和 Markdown 报告，但不提供结构化的
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import asdict, dataclass, field
@@ -127,6 +128,12 @@ class EvidenceCollection:
     asr_trend: list[dict[str, Any]] = field(default_factory=list)
     # P1: 失败分析摘要
     failure_analysis: dict[str, Any] = field(default_factory=dict)
+    # v57: 攻击面拓扑 (从 ctx.metadata 填充)
+    attack_surface_topology: dict[str, Any] = field(default_factory=dict)
+    # v57: 替代攻击路径 (降级链)
+    alternative_attack_paths: list[dict[str, Any]] = field(default_factory=list)
+    # O-2: Browser 补充攻击摘要
+    browser_supplement_summary: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with detailed fields."""
@@ -144,6 +151,9 @@ class EvidenceCollection:
             "technique_distribution": self.technique_distribution,
             "asr_trend": self.asr_trend,
             "failure_analysis": self.failure_analysis,
+            "attack_surface_topology": self.attack_surface_topology,
+            "alternative_attack_paths": self.alternative_attack_paths,
+            "browser_supplement_summary": self.browser_supplement_summary,
             "evidence": [e.to_dict() for e in self.evidence],
         }
 
@@ -257,6 +267,7 @@ class EvidenceCollector:
         overall_asr: float = 0.0,
         owasp_id: str = "",
         display_groups: dict[str, list[Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> EvidenceCollection:
         """从攻击结果中收集证据。.
 
@@ -268,6 +279,7 @@ class EvidenceCollector:
             owasp_id: OWASP 分类 ID (全局, 回退用)
             display_groups: ScenarioResult.get_display_groups() 的结果
                              用于从显示组名提取数据集特定的 OWASP ID
+            metadata: PipelineContext.metadata (v57: 用于填充攻击面拓扑)
 
         Returns:
             EvidenceCollection: 结构化证据集合
@@ -280,9 +292,84 @@ class EvidenceCollector:
             overall_asr=overall_asr,
         )
 
-        evidence_idx = 0
-        owasp_counter: dict[str, int] = {}
+        # O-2: 提前初始化 counter (供 metadata 块和主循环共用)
         tech_counter: dict[str, int] = {}
+        owasp_counter: dict[str, int] = {}
+
+        # v57: 从 metadata 填充攻击面拓扑
+        if metadata:
+            topology = metadata.get("attack_surface_topology")
+            if topology:
+                with contextlib.suppress(Exception):
+                    collection.attack_surface_topology = {
+                        "app_architecture": topology.app_architecture,
+                        "transport_type": topology.transport_type,
+                        "auth_topology": topology.auth_topology,
+                        "injection_surfaces": list(topology.injection_surfaces),
+                        "discovered_tools": list(topology.discovered_tools),
+                        "recommended_kill_chain": list(topology.recommended_kill_chain),
+                        "recommended_owasp": list(topology.recommended_owasp),
+                    }
+            alt_paths = metadata.get("alternative_attack_paths", [])
+            if alt_paths:
+                collection.alternative_attack_paths = list(alt_paths)
+
+            # O-2: 收集 Browser 补充攻击结果为证据
+            browser_results = metadata.get("browser_supplement_results", [])
+            for br in browser_results:
+                if br.get("achieved"):
+                    evidence_idx_br = len(collection.evidence) + 1
+                    tech_name_br = f"{br.get('technique', 'unknown')} [Browser]"
+                    owasp_id_br = br.get("owasp", "")
+                    collection.evidence.append(
+                        VulnerabilityEvidence(
+                            evidence_id=f"EVD-BR-{evidence_idx_br:04d}",
+                            attack_id=f"browser_supplement_{evidence_idx_br}",
+                            technique_name=tech_name_br,
+                            technique_display_name=tech_name_br,
+                            converter_chain="(Browser 补充 — 无 Converter)",
+                            owasp_id=owasp_id_br,
+                            owasp_category=get_owasp_category(owasp_id_br) if owasp_id_br else "",
+                            objective=br.get("description", ""),
+                            jailbreak_prompt=br.get("source", ""),
+                            harmful_output=br.get("response", "")[:500],
+                            conversation_history=[],
+                            asr=100.0,
+                            confidence="medium",
+                            arxiv_reference="Browser 补充模式 (arXiv:2302.12173)",
+                            timestamp=datetime.now().isoformat(),
+                            target_model=self._target_model,
+                            model_tier=self._model_tier,
+                            attack_chain=[],
+                            converter_log="",
+                            score_details=[],
+                            scorer_agreement="",
+                        )
+                    )
+                    collection.successful_attacks += 1
+                    collection.total_attacks += 1
+                    tech_counter[tech_name_br] = tech_counter.get(tech_name_br, 0) + 1
+                    if owasp_id_br:
+                        owasp_counter[owasp_id_br] = owasp_counter.get(owasp_id_br, 0) + 1
+                else:
+                    collection.total_attacks += 1
+                    collection.failed_attacks += 1
+
+            # O-2: 填充 Browser 补充摘要
+            browser_results = metadata.get("browser_supplement_results", [])
+            if browser_results:
+                collection.browser_supplement_summary = {
+                    "total_attacks": len(browser_results),
+                    "success_count": sum(1 for r in browser_results if r.get("achieved")),
+                    "techniques": [
+                        f"{'✅' if r.get('achieved') else '❌'} "
+                        f"{r.get('technique', '?')} [{r.get('owasp', '?')}]"
+                        for r in browser_results
+                    ],
+                    "dual_mode": True,
+                }
+
+        evidence_idx = 0
         current_owasp_id: str | None = None  # 安全初始化, 防止 UnboundLocalError
 
         # Round 8 P0: 构建技术名到 OWASP ID 的映射 (从 display_groups 提取)
@@ -448,7 +535,57 @@ class EvidenceCollector:
         lines.append(f"**失败攻击**: {collection.failed_attacks}")
         lines.append("")
 
-        # OWASP 覆盖
+        # v57: 攻击面拓扑段落
+        if collection.attack_surface_topology:
+            topo = collection.attack_surface_topology
+            lines.append("## 攻击面拓扑 (Offensive View)")
+            lines.append("")
+            lines.append(f"- **架构**: `{topo.get('app_architecture', 'N/A')}`")
+            lines.append(f"- **传输**: `{topo.get('transport_type', 'N/A')}`")
+            lines.append(f"- **认证**: `{topo.get('auth_topology', 'N/A')}`")
+            surfaces = topo.get("injection_surfaces", [])
+            if surfaces:
+                lines.append(f"- **注入面**: {', '.join(surfaces)}")
+            tools = topo.get("discovered_tools", [])
+            if tools:
+                lines.append(f"- **发现工具**: {', '.join(tools[:10])}")
+            kc = topo.get("recommended_kill_chain", [])
+            if kc:
+                lines.append(f"- **Kill Chain**: {' → '.join(kc)}")
+            owasp_list = topo.get("recommended_owasp", [])
+            if owasp_list:
+                lines.append(f"- **OWASP**: {', '.join(owasp_list)}")
+            lines.append("")
+
+        # v57: 替代攻击路径表
+        if collection.alternative_attack_paths:
+            lines.append("### 替代攻击路径 (降级链)")
+            lines.append("")
+            lines.append("| # | 路径 | 技术 | OWASP | 预估ASR | 前置条件 |")
+            lines.append("|---|------|------|-------|---------|----------|")
+            for idx, p in enumerate(collection.alternative_attack_paths, 1):
+                lines.append(
+                    f"| {idx} | {p.get('path_id', '?')} | "
+                    f"{p.get('technique', '?')} | {p.get('owasp', '?')} | "
+                    f"{p.get('estimated_asr', 0):.0%} | "
+                    f"{p.get('prerequisite', 'none')} |"
+                )
+            lines.append("")
+
+        # v60: 拓扑增量变化检测段落
+        topo_data = collection.attack_surface_topology
+        diff = topo_data.get("diff_from_previous") if topo_data else None
+        if diff and (diff.get("new_injection_surfaces") or diff.get("new_discovered_tools")):
+            lines.append("### 拓扑增量变化 (Diff from Previous Run)")
+            lines.append("")
+            new_surfaces = diff.get("new_injection_surfaces", [])
+            if new_surfaces:
+                lines.append(f"- **新增注入面**: {', '.join(new_surfaces)}")
+            new_tools = diff.get("new_discovered_tools", [])
+            if new_tools:
+                lines.append(f"- **新增工具**: {', '.join(new_tools)}")
+            lines.append("")
+
         if collection.owasp_coverage:
             lines.append("## OWASP 分类覆盖")
             lines.append("")

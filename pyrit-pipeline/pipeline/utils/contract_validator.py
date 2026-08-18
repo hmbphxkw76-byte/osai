@@ -68,14 +68,54 @@ class ContractValidator:
     """
 
     # 阶段输出契约: stage → 必填字段列表
+    # O-32: 扩展 v56~v60 新增核心 metadata key 覆盖
+    #   - stage_0.5: attack_surface_topology, alternative_attack_paths
+    #   - stage_2: baseline_filter_analysis (O-27), expanded_attack_seeds
+    #   - stage_4: post_crescendo_results, recon_follow_up_results (O-29/O-30)
+    #   - stage_5: scorer_tier_stats, asr_breakdown (O-28/O-30)
     _CONTRACTS: dict[str, list[str]] = {
-        "stage_0.5": ["target_type", "recommended_mode"],
+        "stage_0.5": [
+            "target_type",
+            "recommended_mode",
+            "attack_surface_topology",
+            "alternative_attack_paths",
+        ],
         "stage_1": ["config", "scenario_name"],
-        "stage_2": ["scenario", "sorted_datasets", "warm_start_asr"],
+        "stage_2": [
+            "scenario",
+            "sorted_datasets",
+            "warm_start_asr",
+            "baseline_filter_analysis",
+            "expanded_attack_seeds",
+        ],
         "stage_3": ["scenario"],
-        "stage_4": ["result", "asr_per_technique", "overall_asr"],
-        "stage_5": [],
+        "stage_4": [
+            "result",
+            "asr_per_technique",
+            "overall_asr",
+            "post_crescendo_results",
+            "recon_follow_up_results",
+        ],
+        "stage_5": [
+            "scorer_tier_stats",
+            "asr_breakdown",
+            "post_analysis",
+        ],
         "stage_6": ["output_dir"],
+    }
+
+    # O-32: 软契约字段 — 这些字段为条件性产出, 缺失时仅警告不判失败
+    # (如 post_crescendo_results 仅在 Crescendo 触发时才存在)
+    _SOFT_FIELDS: set[str] = {
+        "attack_surface_topology",
+        "alternative_attack_paths",
+        "baseline_filter_analysis",
+        "expanded_attack_seeds",
+        "post_crescendo_results",
+        "recon_follow_up_results",
+        "scorer_tier_stats",
+        "asr_breakdown",
+        "post_analysis",
     }
 
     # 阶段编号映射
@@ -120,7 +160,11 @@ class ContractValidator:
             if value is None and hasattr(ctx, "metadata"):
                 value = ctx.metadata.get(field_name)
             if value is None:
-                missing.append(field_name)
+                # O-32: 软契约字段缺失时仅警告, 不计入 missing
+                if field_name in self._SOFT_FIELDS:
+                    warnings.append(f"软契约字段 {field_name} 未设置 (条件性产出)")
+                else:
+                    missing.append(field_name)
             elif isinstance(value, (list, dict)) and len(value) == 0:
                 warnings.append(f"{field_name} 为空集合")
 

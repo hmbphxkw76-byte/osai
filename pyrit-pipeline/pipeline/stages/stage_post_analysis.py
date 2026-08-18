@@ -55,11 +55,70 @@ async def run(ctx: PipelineContext) -> None:
     )
     bus.publish_simple("stage_5", "post_analysis_started", overall_asr=ctx.overall_asr)
 
+    # ── O-28: scorer_tier_stats 生产者修复 — 断端修复 ──
+    # 此前 _compute_asr_breakdown() 维度4 by_scorer_agreement 读取
+    # ctx.metadata.get("scorer_tier_stats") 但无任何模块写入该 key.
+    # 修复: 从 CascadeScorerWrapper 实例的 tier_stats 属性写入 ctx.metadata.
+    # 学术依据: LLM-as-a-Judge (arXiv:2306.05685) §4.2 评分器一致性;
+    #   HarmBench (arXiv:2402.04249) §5.2 多评分器协议
+    try:
+        from pyrit.registry import ScorerRegistry
+
+        _scorer_registry = ScorerRegistry.get_registry_singleton()
+        _tier_stats: dict[str, int] = {}
+        # 遍历所有注册的评分器, 收集 tier_stats
+        for _scorer in _scorer_registry.instances.get_all_instances():
+            if _scorer is not None and hasattr(_scorer, "tier_stats"):
+                _ts = _scorer.tier_stats
+                if isinstance(_ts, dict):
+                    for _k, _v in _ts.items():
+                        _tier_stats[_k] = _tier_stats.get(_k, 0) + _v
+        # O-28: 将 CascadeScorerWrapper 的 tier-level 键映射为
+        # _compute_asr_breakdown() 维度4 by_scorer_agreement 所期望的格式
+        # T1_* (规则层) → T1_success/T1_failure; T2_* (LLM 层) → T2_success/T2_failure
+        _T1_SUCCESS_KEYS = {"T1_refusal", "T1_keyword", "T1_short"}
+        _T2_SUCCESS_KEYS = {"T2_llm", "T2_cache_hit", "T3_composite"}
+        _t1_success = sum(_tier_stats.get(k, 0) for k in _T1_SUCCESS_KEYS)
+        _t2_success = sum(_tier_stats.get(k, 0) for k in _T2_SUCCESS_KEYS)
+        _t1_failure = _tier_stats.get("T1_no_match", 0) + _tier_stats.get("T0_shortcut", 0)
+        _t2_failure = _tier_stats.get("T2_timeout", 0) + _tier_stats.get("T3_fallback", 0)
+        # DualJudge 级别统计
+        _t25_disputed = (
+            _tier_stats.get("T2.5_disputed_adopt_a", 0)
+            + _tier_stats.get("T2.5_disputed_adopt_b", 0)
+            + _tier_stats.get("T2.5_disputed_fallback", 0)
+        )
+        _tier_stats["T1_success"] = _t1_success
+        _tier_stats["T2_success"] = _t2_success
+        _tier_stats["T1_failure"] = _t1_failure
+        _tier_stats["T2_failure"] = _t2_failure
+        _tier_stats["T2.5_disputed_adopt_a"] = max(
+            _tier_stats.get("T2.5_disputed_adopt_a", 0), 0
+        )
+        _tier_stats["T2.5_disputed_adopt_b"] = max(
+            _tier_stats.get("T2.5_disputed_adopt_b", 0), 0
+        )
+        _tier_stats["T2.5_disputed_fallback"] = max(
+            _tier_stats.get("T2.5_disputed_fallback", 0), 0
+        )
+        if _tier_stats:
+            ctx.metadata["scorer_tier_stats"] = _tier_stats
+            logger.debug(
+                f"O-28: scorer_tier_stats written to ctx.metadata: {_tier_stats}"
+            )
+    except Exception as e:
+        logger.debug(f"O-28: scorer_tier_stats collection failed: {e}")
+
     # ── P1: 攻击结果回注ASR跟踪闭环 ──
     # 将 Crescendo/TAP/XPIA/AdvancedMCP 编排器结果回注到 ctx.asr_per_technique,
     # 使其进入经验写回 (save_empirical_asr) → 下次运行 warm-start 闭环
     # 学术依据: DART (arXiv:2407.06485) per-model ASR 应指导运行时决策
     _inject_orchestrator_results_to_asr(ctx)
+
+    # ── v57 H-4: Browser 补充攻击 ASR 合并 ──
+    # 将 Browser 补充攻击结果合并到 ctx.asr_per_technique
+    # 学术依据: HarmBench (arXiv:2402.04249) 跨攻击向量 ASR 聚合
+    _merge_dual_mode_asr(ctx)
 
     # ── 1. 执行成果概要 (P1-1: 保留 post_analysis 元数据写入, 移除冗余展示) ──
     # P3 修复: 移到 _inject_orchestrator_results_to_asr 之后,
@@ -146,6 +205,69 @@ async def run(ctx: PipelineContext) -> None:
 # ============================================================
 
 
+def _merge_dual_mode_asr(ctx: PipelineContext) -> None:
+    """v57 H-4: 合并 Browser 补充攻击 ASR 到主流水线报告.
+
+    将 ctx.metadata["browser_supplement_results"] 中的 Browser 补充攻击结果
+    合并到 ctx.asr_per_technique, 实现双模式 (Burp + Browser) 统一 ASR 报告.
+
+    合并策略:
+      - Browser 补充攻击技术名带 [Browser] 后缀标记来源
+      - 如果技术名已存在 (与 Burp 主攻击同名), 取最大 ASR
+      - 如果技术名不存在, 新增到 asr_per_technique
+
+    展示:
+      - 打印 Browser 补充攻击 ASR 汇总
+      - 在 post_analysis metadata 中记录双模式标记
+
+    学术依据:
+      - HarmBench (arXiv:2402.04249): 跨攻击向量 ASR 聚合标准化
+      - JailbreakBench (arXiv:2402.01135): 统一证据包
+      - Greshake et al. (arXiv:2302.12173): 多入口覆盖提升攻击有效性
+    """
+    supplement_results = ctx.metadata.get("browser_supplement_results", [])
+    if not supplement_results:
+        return
+
+    merged_count = 0
+    for r in supplement_results:
+        tech = r.get("technique", "unknown")
+        achieved = r.get("achieved", False)
+        supplement_asr = 100.0 if achieved else 0.0
+
+        # 带 [Browser] 后缀标记来源
+        tech_key = f"{tech} [Browser]"
+        current_asr = ctx.asr_per_technique.get(tech_key)
+        if current_asr is not None:
+            # 已有该技术, 取最大值
+            if supplement_asr > current_asr:
+                ctx.asr_per_technique[tech_key] = supplement_asr
+        else:
+            ctx.asr_per_technique[tech_key] = supplement_asr
+        merged_count += 1
+
+    # 记录到 post_analysis metadata
+    pa = ctx.metadata.get("post_analysis", {})
+    pa["browser_supplement"] = {
+        "total_attacks": len(supplement_results),
+        "success_count": ctx.metadata.get("browser_supplement_success_count", 0),
+        "merged_to_asr": merged_count,
+    }
+    ctx.metadata["post_analysis"] = pa
+
+    success_count = ctx.metadata.get("browser_supplement_success_count", 0)
+    total = len(supplement_results)
+    print(
+        f"\n  [H-4] Browser 补充 ASR 合并: {merged_count} 项技术 → "
+        f"ctx.asr_per_technique ({success_count}/{total} 成功)"
+    )
+
+    logger.info(
+        f"H-4: Merged {merged_count} browser supplement ASR entries "
+        f"({success_count}/{total} succeeded)"
+    )
+
+
 def _inject_orchestrator_results_to_asr(ctx: PipelineContext) -> None:
     """将编排器攻击结果回注到 ASR 跟踪系统。.
 
@@ -182,6 +304,39 @@ def _inject_orchestrator_results_to_asr(ctx: PipelineContext) -> None:
             f"Orchestrator ASR injection: crescendo={asr_val:.1f}%"
             f" (achieved={achieved}, turn={winning_turn}/{max_turns}"
             f"{' [auto]' if auto else ''})"
+        )
+
+    # O-30: post_crescendo_results 消费 — Crescendo 补充攻击结果回注
+    # Stage 4 Crescendo 补充攻击结果写入 ctx.metadata["post_crescendo_results"]
+    # 但此前 _inject_orchestrator_results_to_asr 仅检查 crescendo_result,
+    # 不检查 post_crescendo_results → 补充攻击 ASR 丢失.
+    # 修复: 检查 post_crescendo_results 按 achieved 计算 ASR, 写入
+    # ctx.asr_per_technique["crescendo_supplement"]
+    # 学术依据: Russinovich et al. (arXiv:2402.12109) §4.2 Crescendo 渐进升级;
+    #   DART (arXiv:2407.06485) per-technique ASR 经验写回
+    post_cres_data = ctx.metadata.get("post_crescendo_results")
+    if post_cres_data and isinstance(post_cres_data, list):
+        post_success = sum(1 for r in post_cres_data if r.get("achieved", False))
+        post_total = len(post_cres_data)
+        if post_total > 0:
+            post_asr = (post_success / post_total) * 100.0
+            ctx.asr_per_technique["crescendo_supplement"] = post_asr
+            injected_count += 1
+            logger.info(
+                f"O-30: post_crescendo ASR injection: "
+                f"crescendo_supplement={post_asr:.1f}% "
+                f"({post_success}/{post_total} succeeded)"
+            )
+    elif post_cres_data and isinstance(post_cres_data, dict):
+        achieved = post_cres_data.get("achieved", False)
+        winning_turn = post_cres_data.get("winning_turn", 0)
+        max_turns = post_cres_data.get("max_turns", 10)
+        asr_val = 100.0 if achieved else (winning_turn / max(max_turns, 1)) * 100.0
+        ctx.asr_per_technique["crescendo_supplement"] = asr_val
+        injected_count += 1
+        logger.info(
+            f"O-30: post_crescendo ASR injection: "
+            f"crescendo_supplement={asr_val:.1f}% (achieved={achieved})"
         )
 
     # TAP 结果回注
@@ -232,6 +387,37 @@ def _inject_orchestrator_results_to_asr(ctx: PipelineContext) -> None:
                 f" ({successes}/{len(probes)} probes"
                 f"{' [auto]' if auto else ''})"
             )
+
+    # v59: 替代路径攻击结果回注
+    # 学术依据: DART (arXiv:2407.06485) per-model ASR 应指导运行时决策;
+    #   Greshake et al. (arXiv:2302.12173) 多路径攻击经验应沉淀
+    alt_path_results = ctx.metadata.get("alternative_path_results", [])
+    if alt_path_results:
+        # 按路径技术名分组计算 ASR
+        path_stats: dict[str, dict[str, int]] = {}
+        for r in alt_path_results:
+            tech = r.get("technique", "unknown")
+            if tech not in path_stats:
+                path_stats[tech] = {"total": 0, "success": 0}
+            path_stats[tech]["total"] += 1
+            if r.get("achieved"):
+                path_stats[tech]["success"] += 1
+
+        for tech, stats in path_stats.items():
+            if stats["total"] > 0:
+                asr_val = (stats["success"] / stats["total"]) * 100.0
+                # 用 alt_path_ 前缀避免与主攻击技术 ASR 混淆
+                asr_key = f"alt_path_{tech}"
+                ctx.asr_per_technique[asr_key] = asr_val
+                # v60+: 收集样本数供 warm-start 置信度标注
+                if "alt_path_sample_counts" not in ctx.metadata:
+                    ctx.metadata["alt_path_sample_counts"] = {}
+                ctx.metadata["alt_path_sample_counts"][asr_key] = stats["total"]
+                injected_count += 1
+                logger.info(
+                    f"v59 Orchestrator ASR injection: {asr_key}={asr_val:.1f}%"
+                    f" ({stats['success']}/{stats['total']} attempts)"
+                )
 
     if injected_count > 0:
         print(
@@ -341,13 +527,48 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
         try:
             from pipeline.asr.optimizer import save_empirical_asr
 
-            save_empirical_asr(ctx.asr_per_technique, model_name=model_name)
+            # v60+: 传递样本数供 warm-start 置信度标注
+            _sample_counts = ctx.metadata.get("alt_path_sample_counts", {})
+            save_empirical_asr(
+                ctx.asr_per_technique,
+                model_name=model_name,
+                sample_counts=_sample_counts or None,
+            )
             top3 = sorted(ctx.asr_per_technique.items(), key=lambda x: x[1], reverse=True)[:3]
             lines.append("经验写回 Top-3:")
             for tech, asr in top3:
                 lines.append(f"  {tech:<35} {asr:.1f}%")
         except Exception as e:
             logger.warning(f"Failed to save empirical ASR: {e}", exc_info=True)
+
+    # O-31: 自适应经验写回 — 将 adaptive_* 系列参数写入经验文件供下次运行消费
+    # 学术依据: DART (arXiv:2407.06485) 自适应攻击链经验复用;
+    #   Boyd (1987) OODA Observe→Orient→Decide 跨运行闭环
+    _adaptive_keys = [
+        "adaptive_crescendo_trigger",
+        "adaptive_converter_preference",
+        "adaptive_max_concurrency",
+        "adaptive_paradigm_shift",
+        "adaptive_filter_bypass",
+    ]
+    _adaptive_snapshot = {
+        k: ctx.metadata.get(k) for k in _adaptive_keys if ctx.metadata.get(k) is not None
+    }
+    if _adaptive_snapshot:
+        try:
+            import json
+
+            from pipeline.asr.optimizer import _get_empirical_asr_path
+
+            _asr_path = _get_empirical_asr_path(model_name)
+            _existing = json.loads(_asr_path.read_text(encoding="utf-8")) if _asr_path.exists() else {}
+            _existing["adaptive_params"] = _adaptive_snapshot
+            _asr_path.write_text(
+                json.dumps(_existing, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            logger.info(f"O-31: adaptive params written to empirical ASR: {_adaptive_snapshot}")
+        except Exception as e:
+            logger.debug(f"O-31: adaptive params write-back failed: {e}")
 
     # P1: 种子级 ASR 收集 (per-seed, 用于精简时按种子排名)
     try:

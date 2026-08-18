@@ -268,6 +268,18 @@ async def main_async() -> None:
                 # Stage 4 结果已持久化到 CentralMemory, 可安全退出
                 return
 
+            # v57 H-1/H-2: Browser 补充攻击 — Burp 主攻击后的能力互补
+            # 当 Burp 模式成功 + 拓扑检测到 RAG/MCP/Agent 特征时自动触发
+            # 覆盖 Burp 盲区 (RAG 间接注入/MCP 协议注入/工具劫持端到端验证)
+            # 非侵入: 失败不影响主流水线, 结果合并到 ctx.asr_per_technique
+            # 学术依据: Greshake et al. (arXiv:2302.12173) 间接注入需完整渲染链路
+            try:
+                from pipeline.scenarios.browser_supplement import run_browser_supplement
+
+                await run_browser_supplement(ctx)
+            except Exception as e:
+                _logger.debug(f"Browser supplement skipped: {e}")
+
             await stage_post_analysis(ctx)
             _validate_contract(4, 5, ctx)
             if _shutdown_requested:
@@ -317,23 +329,25 @@ def _cleanup_web_session(ctx: PipelineContext) -> None:
     在 finally 块中调用, 确保 Web 目标的 Playwright 浏览器
     在流水线结束 (正常或异常) 后正确关闭。
     """
-    session = ctx.metadata.get("web_browser_session")
-    if session is not None:
-        try:
-            import asyncio
-
-            # 如果有事件循环运行, 异步关闭; 否则同步关闭
+    # 清理主模式浏览器会话
+    for session_key in ("web_browser_session", "browser_supplement_session"):
+        session = ctx.metadata.get(session_key)
+        if session is not None:
             try:
-                loop = asyncio.get_running_loop()
-                if loop:
-                    loop.create_task(session.close())
-                else:
-                    raise RuntimeError("no loop")
-            except (RuntimeError, OSError):
-                session.close()
-            _logger.debug("Web browser session cleaned up")
-        except (OSError, RuntimeError):
-            pass
+                import asyncio
+
+                # 如果有事件循环运行, 异步关闭; 否则同步关闭
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop:
+                        loop.create_task(session.close())
+                    else:
+                        raise RuntimeError("no loop")
+                except (RuntimeError, OSError):
+                    session.close()
+                _logger.debug(f"{session_key} cleaned up")
+            except (OSError, RuntimeError):
+                pass
 
 
 _validator = ContractValidator()

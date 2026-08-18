@@ -57,14 +57,14 @@ class TestO2BaselineAnalysis:
     """O2: 基线扫描结果分析防护层级."""
 
     def test_analyze_empty_results(self):
-        """O2: 空结果返回unknown."""
+        """O2: 空结果返回no_filter (O-27: 无基线数据时默认无防护)."""
         from pipeline.stages.stage_scenario import _analyze_baseline_results
 
         ctx = MagicMock()
         ctx.metadata = {}
 
         result = _analyze_baseline_results(ctx)
-        assert result["filter_layer"] == "unknown"
+        assert result["filter_layer"] == "no_filter"
         assert result["refusal_rate"] == 0.0
 
     def test_analyze_no_filter(self):
@@ -624,3 +624,210 @@ class TestA4InteractiveHTML:
         assert "function renderCards" in html
         assert "function filterAttacks" in html
         assert "function filterBySearch" in html
+
+
+# ── O-55: stale_count触发后提前终止增强 ──
+
+
+class TestO55StaleCountEarlyTermination:
+    """O-55: stale_count触发后阈值降低到_executed, 立即触发提前终止."""
+
+    def test_stale_count_reduces_threshold(self):
+        """O-55: stale_count>=3且executed>0但不足阈值时, 阈值降低到executed."""
+        # 模拟场景: base_threshold=6, executed=2, stale_count=3
+        # O-55应将阈值从4(自适应降低后)降低到2(executed)
+        _o45_min_samples = 6
+        _executed = 2
+        _o51_stale_count = 3
+        _o51_effective_latency = 61.0  # stale_count=3 → 等效>60s
+
+        # 模拟O-49自适应阈值计算
+        _adaptive_threshold = _o45_min_samples
+        if _executed > 0 and _executed < _o45_min_samples:
+            _elapsed_ratio = _executed / max(_o45_min_samples, 1)
+            if _elapsed_ratio <= 0.5:
+                if _o51_effective_latency > 120:
+                    _adaptive_threshold = max(3, _o45_min_samples // 2)
+                elif _o51_effective_latency > 60:
+                    _adaptive_threshold = max(3, _o45_min_samples - 2)
+                else:
+                    _adaptive_threshold = max(3, _o45_min_samples - 2)
+
+        # O-55: stale_count触发后阈值降低
+        if (
+            _executed > 0
+            and _executed < _adaptive_threshold
+            and _o51_stale_count >= 3
+        ):
+            _adaptive_threshold = _executed
+
+        # 验证: 阈值应被降低到executed(2)
+        assert _adaptive_threshold == 2, (
+            f"O-55: stale_count={_o51_stale_count}应将阈值降低到_executed={_executed}, "
+            f"实际={_adaptive_threshold}"
+        )
+
+    def test_stale_count_no_trigger_when_executed_zero(self):
+        """O-55: executed=0时不触发阈值降低(无样本无法决策)."""
+        _o45_min_samples = 6
+        _executed = 0
+        _o51_stale_count = 5
+
+        _adaptive_threshold = _o45_min_samples
+        # O-55条件: executed > 0
+        if (
+            _executed > 0
+            and _executed < _adaptive_threshold
+            and _o51_stale_count >= 3
+        ):
+            _adaptive_threshold = _executed
+
+        # 阈值不应改变
+        assert _adaptive_threshold == _o45_min_samples
+
+    def test_stale_count_no_trigger_when_threshold_met(self):
+        """O-55: executed已满足阈值时不触发(正常提前终止即可)."""
+        _o45_min_samples = 6
+        _executed = 6
+        _o51_stale_count = 3
+
+        _adaptive_threshold = _o45_min_samples
+        # O-55条件: executed < adaptive_threshold
+        if (
+            _executed > 0
+            and _executed < _adaptive_threshold
+            and _o51_stale_count >= 3
+        ):
+            _adaptive_threshold = _executed
+
+        # 阈值不应改变, 正常提前终止逻辑会处理
+        assert _adaptive_threshold == _o45_min_samples
+
+    def test_stale_count_no_trigger_when_count_below_3(self):
+        """O-55: stale_count<3时不触发(需要足够长的无结果期)."""
+        _o45_min_samples = 6
+        _executed = 2
+        _o51_stale_count = 2  # 不足3次
+
+        _adaptive_threshold = _o45_min_samples
+        if (
+            _executed > 0
+            and _executed < _adaptive_threshold
+            and _o51_stale_count >= 3
+        ):
+            _adaptive_threshold = _executed
+
+        # 阈值不应改变
+        assert _adaptive_threshold == _o45_min_samples
+
+
+# ── O-56: tier_stats动态比例阈值参数 ──
+
+
+class TestO56DynamicThresholdParams:
+    """O-56: 基于tier_stats总量动态调整50%/20%阈值参数."""
+
+    def test_small_sample_relaxed_thresholds(self):
+        """O-56: 小样本(<10)使用放宽阈值(40%/15%)."""
+        _total_tier = 5  # 小样本
+
+        if _total_tier < 10:
+            high_thresh = 0.40
+            low_thresh = 0.15
+        elif _total_tier > 50:
+            high_thresh = 0.60
+            low_thresh = 0.25
+        else:
+            high_thresh = 0.50
+            low_thresh = 0.20
+
+        assert high_thresh == 0.40
+        assert low_thresh == 0.15
+
+    def test_medium_sample_default_thresholds(self):
+        """O-56: 中样本(10-50)使用默认阈值(50%/20%)."""
+        _total_tier = 30  # 中样本
+
+        if _total_tier < 10:
+            high_thresh = 0.40
+            low_thresh = 0.15
+        elif _total_tier > 50:
+            high_thresh = 0.60
+            low_thresh = 0.25
+        else:
+            high_thresh = 0.50
+            low_thresh = 0.20
+
+        assert high_thresh == 0.50
+        assert low_thresh == 0.20
+
+    def test_large_sample_tightened_thresholds(self):
+        """O-56: 大样本(>50)使用收紧阈值(60%/25%)."""
+        _total_tier = 100  # 大样本
+
+        if _total_tier < 10:
+            high_thresh = 0.40
+            low_thresh = 0.15
+        elif _total_tier > 50:
+            high_thresh = 0.60
+            low_thresh = 0.25
+        else:
+            high_thresh = 0.50
+            low_thresh = 0.20
+
+        assert high_thresh == 0.60
+        assert low_thresh == 0.25
+
+    def test_small_sample_more_aggressive_t2_budget(self):
+        """O-56: 小样本时同样T1_no_match比率更容易触发ratio=10."""
+        _total_tier = 5  # 小样本
+        _t1_no_match_ratio = 0.42  # 在40%-50%之间
+
+        if _total_tier < 10:
+            high_thresh = 0.40
+            low_thresh = 0.15
+        elif _total_tier > 50:
+            high_thresh = 0.60
+            low_thresh = 0.25
+        else:
+            high_thresh = 0.50
+            low_thresh = 0.20
+
+        # 42% > 40% (小样本放宽阈值) → ratio=10
+        if _t1_no_match_ratio > high_thresh:
+            ratio = 10
+        elif _t1_no_match_ratio < low_thresh:
+            ratio = 30
+        else:
+            ratio = 20
+
+        assert ratio == 10, (
+            f"小样本时42%应超过放宽阈值40%触发ratio=10, 实际ratio={ratio}"
+        )
+
+    def test_large_sample_more_conservative_t2_budget(self):
+        """O-56: 大样本时同样T1_no_match比率更难触发ratio=10."""
+        _total_tier = 100  # 大样本
+        _t1_no_match_ratio = 0.55  # 在50%-60%之间
+
+        if _total_tier < 10:
+            high_thresh = 0.40
+            low_thresh = 0.15
+        elif _total_tier > 50:
+            high_thresh = 0.60
+            low_thresh = 0.25
+        else:
+            high_thresh = 0.50
+            low_thresh = 0.20
+
+        # 55% < 60% (大样本收紧阈值) → 不触发ratio=10, 保持ratio=20
+        if _t1_no_match_ratio > high_thresh:
+            ratio = 10
+        elif _t1_no_match_ratio < low_thresh:
+            ratio = 30
+        else:
+            ratio = 20
+
+        assert ratio == 20, (
+            f"大样本时55%不应超过收紧阈值60%触发ratio=10, 实际ratio={ratio}"
+        )

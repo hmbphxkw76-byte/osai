@@ -1010,6 +1010,19 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
         ),
     )
 
+    # ── v60: 拓扑驱动场景推荐 ──
+    parser.add_argument(
+        "--no-auto-scenario",
+        action="store_true",
+        default=False,
+        help=(
+            "禁用 v60 拓扑驱动场景自动推荐.\n"
+            "默认启用: Auto模式(text_adaptive)下根据拓扑自动切换到\n"
+            "agent_tool_hijack/mcp_protocol_attack/rag_poisoning/crescendo_adaptive.\n"
+            "禁用后始终保持 text_adaptive 场景."
+        ),
+    )
+
     # ── HTTP Target (P2: 原生 HTTPTarget) ──
     parser.add_argument(
         "--http-target",
@@ -1295,6 +1308,32 @@ help="最大并发 AtomicAttack 数 (默认: 3, 推荐值: strong=3 / medium=2 /
             "严格模式: 目标不可达即终止, 不尝试降级.\n"
             "默认: 禁用 (即启用降级链).\n"
             "学术依据: Circuit Breaker Pattern (Nygard) + Graceful Degradation"
+        ),
+    )
+
+    # ── v57: Browser 补充模式 (Burp 成功后能力互补) ──
+    # 学术依据: Greshake et al. (arXiv:2302.12173) 间接注入需完整渲染链路
+    parser.add_argument(
+        "--browser-supplement",
+        action="store_true",
+        default=False,
+        help=(
+            "v57: 显式启用 Browser 补充模式 (Burp 主攻击后自动启动).\n"
+            "默认: 当 Burp 模式成功 + 拓扑检测到 RAG/MCP/Agent 特征时自动启用.\n"
+            "Browser 补充覆盖 Burp 盲区: RAG 间接注入/MCP 协议注入/工具劫持端到端验证.\n"
+            "结果合并到 ctx.asr_per_technique 统一 ASR 报告.\n"
+            "学术依据: Greshake et al. (arXiv:2302.12173) 间接注入需完整渲染链路; "
+            "HarmBench (arXiv:2402.04249) 跨攻击向量 ASR 聚合"
+        ),
+    )
+    parser.add_argument(
+        "--no-browser-supplement",
+        action="store_true",
+        default=False,
+        help=(
+            "v57: 禁用 Browser 补充模式.\n"
+            "Burp 模式成功后不启动 Browser 补充攻击.\n"
+            "适用于: 纯 API 攻击 / 无浏览器环境 / 快速扫描"
         ),
     )
 

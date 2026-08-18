@@ -623,6 +623,126 @@ def fallback_health_card(ctx: PipelineContext) -> None:
             for reason in failure_reasons:
                 lines.append(f"    {reason}")
 
+        # v57: Browser 补充模式状态
+        supplement_active = metadata.get("browser_supplement_active", False)
+        supplement_failed = metadata.get("browser_supplement_failed", False)
+        supplement_results = metadata.get("browser_supplement_results", [])
+        if supplement_failed:
+            lines.append("  Browser 补充: ❌ 创建失败")
+        elif supplement_active and supplement_results:
+            s_count = metadata.get("browser_supplement_success_count", 0)
+            t_count = metadata.get("browser_supplement_total_count", 0)
+            lines.append(f"  Browser 补充: ✅ 已执行 ({s_count}/{t_count} 成功)")
+        elif supplement_active:
+            lines.append("  Browser 补充: ⏳ 待执行")
+
         info_box("Fallback Chain Health (v50)", lines)
+    except Exception:
+        pass
+
+
+# ── ⑧ 攻击面拓扑卡片 (attack_surface_card) — v57: 攻击者视角核心展示 ──
+
+
+def attack_surface_card(topology: Any) -> None:
+    """Layer 2: 攻击面拓扑卡片 — 攻击者视角核心信息展示.
+
+    统一用 core_card 风格展示 5 层拓扑信息:
+      - Layer 1: 应用架构 (agent / rag / mcp / api)
+      - Layer 2: 传输类型 (SSE / WebSocket / HTTP)
+      - Layer 3: 认证拓扑 (none / bearer / oauth2 / api_key)
+      - Layer 4: 注入面 (user_message / tool_result / rag_content / mcp_protocol)
+      - Layer 5: Kill Chain + OWASP 映射
+
+    Args:
+        topology: AttackSurfaceTopology 实例 (from target_classifier.py).
+    """
+    try:
+        sections: list[dict[str, Any]] = []
+
+        # Section 1: 架构 + 传输 + 认证
+        arch_lines: list[str] = []
+        arch_lines.append(f"架构: {topology.app_architecture}")
+        arch_lines.append(f"传输: {topology.transport_type}")
+        arch_lines.append(f"认证: {topology.auth_topology}")
+        if topology.auth_topology not in ("none",):
+            arch_lines.append(f"Token 过期: {topology.token_expiry_seconds}s")
+        sections.append({"label": "拓扑", "lines": arch_lines})
+
+        # Section 2: 注入面
+        surfaces = topology.injection_surfaces if topology.injection_surfaces else ["(未探测到)"]
+        sections.append({"label": "注入面", "lines": list(surfaces)})
+
+        # Section 3: 工具
+        tool_lines: list[str] = []
+        if topology.discovered_tools:
+            tools_display = ", ".join(topology.discovered_tools[:8])
+            tool_lines.append(f"发现工具 ({len(topology.discovered_tools)}): {tools_display}")
+            high_risk = topology.model_fingerprint.get("high_risk_tools", [])
+            if high_risk:
+                tool_lines.append(f"⚠️ 高风险工具: {', '.join(high_risk)}")
+        else:
+            tool_lines.append("(无工具调用)")
+        sections.append({"label": "工具", "lines": tool_lines})
+
+        # Section 4: Kill Chain + OWASP
+        kc_lines: list[str] = []
+        if topology.recommended_kill_chain:
+            kc_lines.append(" → ".join(topology.recommended_kill_chain))
+        if topology.recommended_owasp:
+            kc_lines.append(f"OWASP: {', '.join(topology.recommended_owasp)}")
+        sections.append({"label": "Kill Chain", "lines": kc_lines})
+
+        core_card("⚔️ 攻击面拓扑 (Offensive View)", sections)
+    except Exception:
+        pass
+
+
+# ── ⑨ 替代攻击路径卡片 (alternative_paths_card) — v57: 降级链展示 ──
+
+
+def alternative_paths_card(paths: list[dict[str, Any]]) -> None:
+    """Layer 3: 替代攻击路径卡片 — 降级链展示.
+
+    按预估 ASR 降序展示替代攻击路径, 突出攻击者视角的路径选择逻辑.
+
+    格式::
+
+        ┌─ 替代攻击路径 (降级链) ───────────────────────────────┐
+        │ #1 crescendo_progressive    ASR≈82%  LLM01  [multi-turn]
+        │ #2 excessive_agency_exploit ASR≈70%  ASI06  [tool_result]
+        │ ...
+
+    Args:
+        paths: _discover_alternative_attack_paths() 返回的路径列表.
+    """
+    try:
+        if not paths:
+            return
+
+        lines: list[str] = []
+        for idx, p in enumerate(paths, 1):
+            tech = p.get("technique", "?")
+            asr = p.get("estimated_asr", 0.0)
+            owasp = p.get("owasp", "?")
+            surface = p.get("target_surface", "?")
+            prereq = p.get("prerequisite", "none")
+
+            # ASR 标记
+            if asr >= 0.70:
+                asr_marker = "★★★"
+            elif asr >= 0.50:
+                asr_marker = "★★"
+            else:
+                asr_marker = "★"
+
+            lines.append(
+                f"#{idx} {tech}  ASR≈{asr:.0%} {asr_marker}  "
+                f"{owasp}  [{surface}]"
+            )
+            if prereq != "none":
+                lines.append(f"   前置: {prereq}")
+
+        info_box(f"替代攻击路径 (降级链 — {len(paths)} 条)", lines)
     except Exception:
         pass

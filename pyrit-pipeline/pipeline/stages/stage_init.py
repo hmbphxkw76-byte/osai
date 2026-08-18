@@ -778,10 +778,27 @@ def _print_opsec_summary(ctx: PipelineContext) -> None:
         lines.append("双评分器: ➖ 未启用 (配置 BACKUP_SCORER_CHAT_* 以启用)")
 
     # v47: 双 Judge 投票
+    # O-41: 同模型检测 — 当 Judge-A 和 Judge-B 使用同一模型时,
+    # 自动切换为单Judge模式+置信度阈值, 避免同质化偏差
+    # 学术依据: DART (arXiv:2407.06485) — 同模型投票不增加信息量,
+    #   等效于单Judge; 置信度阈值(0.85)可替代双Judge争议检测
     second_scorer_model = os.getenv("SECOND_SCORER_CHAT_MODEL", "")
     if second_scorer_model:
         primary_model = os.getenv("OBJECTIVE_SCORER_CHAT_MODEL", "?")
-        lines.append(f"双Judge投票: ✅ Judge-A={primary_model}, Judge-B={second_scorer_model}")
+        if primary_model == second_scorer_model:
+            # O-41: 同模型 — 切换单Judge+置信度模式
+            ctx.metadata["o41_same_model_dual_judge"] = True
+            ctx.metadata["o41_confidence_threshold"] = 0.85
+            lines.append(
+                f"双Judge投票: ⚠ 同模型({primary_model}) → "
+                f"O-41: 切换单Judge+置信度≥0.85模式"
+            )
+            logger.info(
+                f"O-41: Dual judge uses same model ({primary_model}), "
+                f"switching to single-judge + confidence threshold mode"
+            )
+        else:
+            lines.append(f"双Judge投票: ✅ Judge-A={primary_model}, Judge-B={second_scorer_model}")
     else:
         lines.append("双Judge投票: ➖ 未启用 (配置 SECOND_SCORER_CHAT_* 以启用)")
 

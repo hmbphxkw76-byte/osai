@@ -787,12 +787,25 @@ class ReportGenerator:
                             "timestamp": str(_safe_get(p, "timestamp", "")),
                         })
                     # K1: 使用原生 render_async() 渲染对话 Markdown
+                    # O-36: PyRIT 1.0.1 render_async 期望 list[Message] 而非 list[MessagePiece]
+                    # 将 MessagePiece 转换为 Message (使用 to_message() 或手动包装)
                     # R3: 渲染后截断超长对话内容
                     if pieces:
                         try:
+                            from pyrit.models import Message
+
+                            messages = []
+                            for p in pieces:
+                                try:
+                                    msg = p.to_message()
+                                    if msg is not None:
+                                        messages.append(msg)
+                                except Exception:
+                                    messages.append(Message(message_pieces=[p]))
+
                             conversation_md = _truncate_text(
                                 await conv_printer.render_async(
-                                    pieces,
+                                    messages,
                                     include_scores=True,
                                 ),
                                 max_length=2000,

@@ -297,6 +297,13 @@ class RateLimitedTarget:
         self._consecutive_timeout_count = 0
         self._dynamic_timeout_override: float | None = None
 
+        # O-34: API超时自适应降级 — 连续超时≥3次后降低并发数
+        # 原因: API持续超时说明负载过重或服务降级, 降低并发可减轻压力
+        # 学术依据: Circuit Breaker Pattern (Nygard, "Release It!")
+        self._timeout_degradation_threshold = 3  # 连续超时阈值
+        self._timeout_degradation_applied = False  # 是否已降级
+        self._original_max_concurrency = max_concurrency  # 保存原始值供恢复
+
     def _infer_endpoint(self, target: PromptTarget) -> str:
         """从 Target 推断端点 URL。."""
         try:
@@ -489,9 +496,35 @@ class RateLimitedTarget:
                                     f"P2-3: Consecutive timeout #{self._consecutive_timeout_count}, "
                                     f"dynamic timeout adjusted {current_timeout}s → 120s"
                                 )
+                        # O-34: 连续超时≥3次后降低并发数 (Circuit Breaker)
+                        if (
+                            self._consecutive_timeout_count >= self._timeout_degradation_threshold
+                            and not self._timeout_degradation_applied
+                        ):
+                            self._timeout_degradation_applied = True
+                            old_concurrency = self._max_concurrency
+                            self._max_concurrency = max(1, self._max_concurrency // 2)
+                            # 更新信号量注册表
+                            if self._endpoint in _semaphore_registry:
+                                _semaphore_registry[self._endpoint] = asyncio.Semaphore(self._max_concurrency)
+                            logger.warning(
+                                f"O-34: Consecutive timeout #{self._consecutive_timeout_count}, "
+                                f"concurrency degraded {old_concurrency} → {self._max_concurrency} "
+                                f"(endpoint={self._endpoint})"
+                            )
                     else:
                         # 非超时错误重置计数器
                         self._consecutive_timeout_count = 0
+                        # O-34: 恢复原始并发数
+                        if self._timeout_degradation_applied:
+                            self._timeout_degradation_applied = False
+                            self._max_concurrency = self._original_max_concurrency
+                            if self._endpoint in _semaphore_registry:
+                                _semaphore_registry[self._endpoint] = asyncio.Semaphore(self._max_concurrency)
+                            logger.info(
+                                f"O-34: Concurrency restored to {self._max_concurrency} "
+                                f"(endpoint={self._endpoint})"
+                            )
 
                     if attempt >= effective_max_retries:
                         logger.error(

@@ -887,8 +887,12 @@ class TestBuildNonStreamVariant:
         result = _build_non_stream_variant(request)
         assert result is None
 
-    def test_no_stream_field_no_variant(self):
-        """无 Stream 字段不产生变体."""
+    def test_no_stream_field_adds_stream_false(self):
+        """v62 P0: 无 Stream 字段时自动添加 stream:false 变体.
+
+        预检探针已确认目标是 SSE, 即使请求体无 stream 字段,
+        也应尝试添加 stream:false 构造非流式变体, 避免 ReadTimeout.
+        """
         from pipeline.stages.stage_target_classify import _build_non_stream_variant
 
         request = (
@@ -898,7 +902,10 @@ class TestBuildNonStreamVariant:
             '{"Query":"{PROMPT}"}'
         )
         result = _build_non_stream_variant(request)
-        assert result is None
+        # v62: 现在返回非流式变体 (添加了 stream:false)
+        assert result is not None
+        assert "stream" in result.lower()
+        assert "false" in result.lower()
 
     def test_lowercase_stream_field(self):
         """小写 stream 字段也支持."""
@@ -1132,7 +1139,12 @@ class TestStreamFalseFallback:
         # 如果 variant 存在, 则 _bridge_burp_api 会注册 SSE 回退 Target
 
     def test_no_fallback_when_not_sse(self):
-        """非 SSE 请求不产生回退 Target."""
+        """v62 P0: 非 SSE 请求不产生回退 Target.
+
+        注意: _build_non_stream_variant 现在会在无 stream 字段时
+        添加 stream:false 变体, 但此变体仅在 is_sse=True 时被使用.
+        此测试验证函数本身的行为, 非SSE的判断由调用处控制.
+        """
         from pipeline.stages.stage_target_classify import _build_non_stream_variant
 
         request = (
@@ -1141,8 +1153,10 @@ class TestStreamFalseFallback:
             '\r\n'
             '{"Query":"{PROMPT}"}'
         )
+        # v62: 现在返回非流式变体 (添加了 stream:false)
         variant = _build_non_stream_variant(request)
-        assert variant is None
+        assert variant is not None
+        assert "stream" in variant.lower()
 
 
 class TestParseBurpRequestFiles:
@@ -1214,15 +1228,20 @@ class TestBurpPreFlightProbe:
 
         from pipeline.stages.stage_target_classify import _burp_pre_flight_probe
 
-        # Mock httpx.AsyncClient
+        # Mock httpx.AsyncClient — code uses client.stream() not client.request()
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "application/json"}
         mock_response.text = '{"choices":[{"message":{"content":"hello"}}]}'
+        mock_response.aread = AsyncMock(return_value=b'{"choices":[{"message":{"content":"hello"}}]}')
+
+        mock_stream_cm = MagicMock()
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(return_value=mock_stream_cm)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             result = await _burp_pre_flight_probe(
@@ -1254,11 +1273,20 @@ class TestBurpPreFlightProbe:
             'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
             'data: [DONE]\n\n'
         )
+        # SSE code uses aiter_text() — mock as async iterator
+        async def _mock_aiter_text():
+            yield 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            yield "data: [DONE]\n\n"
+        mock_response.aiter_text = _mock_aiter_text
+
+        mock_stream_cm = MagicMock()
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(return_value=mock_stream_cm)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             result = await _burp_pre_flight_probe(

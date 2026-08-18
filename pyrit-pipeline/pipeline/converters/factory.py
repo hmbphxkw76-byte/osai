@@ -409,6 +409,7 @@ def build_target_aware_converter_map(
     converter_target_available: bool = False,
     model_tier: str = "unknown",
     filter_layer: str | None = None,
+    injection_surfaces: list[str] | None = None,
 ) -> dict[str, list[Converter]]:
     """基于 Target 类型感知自动构建 technique → Converter 列表映射。.
 
@@ -446,6 +447,8 @@ def build_target_aware_converter_map(
         converter_target_available: converter_target 是否可用。
         model_tier: 模型等级 (strong/moderate/weak/unknown)。
         filter_layer: 基线扫描防护层级 (input_filter/output_guardrail/semantic_filter/no_filter)。
+        injection_surfaces: v58 攻击面拓扑注入面列表 (如 ["user_message", "tool_result"]),
+                            根据注入面类型补充 Converter 链。
 
     Returns:
         dict[str, list[Converter]]: 技术名称 → Converter 列表映射。
@@ -490,6 +493,26 @@ def build_target_aware_converter_map(
         if _filter_extra:
             logger.info(f"O2: filter_layer='{filter_layer}' → adding chains: {_filter_extra}")
 
+    # v58: 拓扑驱动 Converter 选择 — 根据注入面类型补充 Converter 链
+    # 学术依据: Greshake et al.(arXiv:2302.12173) 间接注入需载体适配;
+    #   Zhan et al.(arXiv:2307.00929) InjecAgent 工具结果注入需隐蔽编码
+    _INJECTION_SURFACE_CHAINS: dict[str, list[str]] = {
+        "tool_result": ["encoding_bypass", "base64"],  # 工具结果注入需编码隐蔽
+        "rag_content": ["translation", "homoglyph"],  # RAG 投毒需语义变换
+        "mcp_protocol": ["encoding_bypass", "rot13"],  # MCP 协议注入需编码绕过
+        "auth_token": ["base64", "rot13"],  # Token 注入需编码
+        "conversation_history": ["cross_paradigm_2layer"],  # 多轮历史注入需跨范式
+    }
+    _surface_extra: list[str] = []
+    if injection_surfaces:
+        for surface in injection_surfaces:
+            chains = _INJECTION_SURFACE_CHAINS.get(surface, [])
+            for c in chains:
+                if c not in _surface_extra:
+                    _surface_extra.append(c)
+        if _surface_extra:
+            logger.info(f"v58: injection_surfaces={injection_surfaces} → adding chains: {_surface_extra}")
+
     _SYNERGY_BOOSTS: dict[str, list[str]] = {
         "crescendo": ["cross_paradigm_2layer"],
         "tap": ["cross_paradigm_2layer"],
@@ -533,6 +556,12 @@ def build_target_aware_converter_map(
         for fc in _filter_extra:
             if fc not in enhanced_chains:
                 enhanced_chains.append(fc)
+
+        # v58: 拓扑驱动 Converter 链补充 — 根据注入面类型
+        # 学术依据: Greshake et al.(arXiv:2302.12173) 间接注入需载体适配
+        for sc in _surface_extra:
+            if sc not in enhanced_chains:
+                enhanced_chains.append(sc)
 
         # 按协同乘数排序: 高协同链组合优先
         synergy_score = score_chain_combo(enhanced_chains)
