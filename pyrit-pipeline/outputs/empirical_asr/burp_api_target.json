@@ -1,11 +1,10 @@
 {
   "techniques": {
     "red_teaming": 0.0,
-    "prompt_sending": 0.0,
     "alt_path_token_reuse_and_escalation": 0.0
   },
   "_meta": {
-    "total_techniques": 3,
+    "total_techniques": 2,
     "model_name": "burp_api_target",
     "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
     "sample_counts": {

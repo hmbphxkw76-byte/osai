@@ -366,6 +366,7 @@ class ProgressPoller:
         interval: float = 5.0,
         asr_tracker: Any | None = None,
         technique_converter_map: dict[str, list] | None = None,
+        auth_refresh_callback: Any | None = None,
     ) -> None:
         """初始化轮询器.
 
@@ -375,6 +376,9 @@ class ProgressPoller:
             interval: 初始轮询间隔 (秒), 会自适应退避到 _MAX_INTERVAL。
             asr_tracker: 可选的 RealTimeASRTracker 实例, 用于实时 ASR 反馈。
             technique_converter_map: 技术→Converter 实例列表映射, 用于回调行 Converter 链回退。
+            auth_refresh_callback: v61 P1 可选的异步认证刷新回调, 每次检测到
+                新增 AttackResult 时调用, 用于运行时 Cookie/Token 自动刷新。
+                学术依据: RFC 6749 §4.2 — Token refresh 应在过期前执行。
         """
         self._dashboard = dashboard
         self._scenario_result_id = scenario_result_id
@@ -389,6 +393,8 @@ class ProgressPoller:
         self._breakthrough_count: int = 0  # O-ASR-9: 突破计数
         self._last_dashboard_count: int = 0  # O-ASR-3: 上次看板打印时的完成数
         self._verbose: bool = os.getenv("PIPELINE_VERBOSE", "0") == "1"  # P2-O7: verbose 模式
+        # v61 P1: 认证刷新回调 — 运行时每个新结果后检查是否需要刷新 Cookie/Token
+        self._auth_refresh_callback = auth_refresh_callback
 
     def start(self) -> None:
         """启动背景轮询任务。."""
@@ -455,6 +461,27 @@ class ProgressPoller:
                         new_results.append(ar)
 
                 if new_results:
+                    # v61 P1: 运行时认证刷新 — 检测到新结果时触发认证刷新检查
+                    # v62 P3: 显示认证刷新状态 (refreshed/skipped/failed)
+                    # 学术依据: RFC 6749 §4.2 — Token refresh 应在过期前执行;
+                    #   NIST AI RMF 1.0 — 认证状态可追溯性
+                    if self._auth_refresh_callback is not None:
+                        try:
+                            _auth_status = await self._auth_refresh_callback()
+                            # v62 P3: 仅在刷新成功或失败时显示 (跳过不显示, 减少噪音)
+                            if _auth_status == "refreshed":
+                                print(
+                                    "  🔄 [Auth] 认证状态已刷新 "
+                                    "(Cookie/Token renewed)"
+                                )
+                            elif _auth_status == "failed":
+                                print(
+                                    "  ⚠ [Auth] 认证刷新失败 — "
+                                    "后续攻击可能使用过期凭证"
+                                )
+                        except Exception as e:
+                            logger.debug(f"v61 P1: Auth refresh callback failed (non-fatal): {e}")
+
                     for ar in new_results:
                         outcome = getattr(ar, "outcome", None)
                         outcome_str = (

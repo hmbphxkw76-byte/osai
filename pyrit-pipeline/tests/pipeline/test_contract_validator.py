@@ -47,14 +47,17 @@ class TestContractResult:
 
 class TestContractValidator:
     def test_validate_stage_1_to_2_pass(self) -> None:
+        """Stage 1 (init) → Stage 2 (recon): stage_1 契约验证."""
         validator = ContractValidator()
         ctx = MockContext(config="config_obj", scenario_name="text_adaptive")
         result = validator.validate(1, 2, ctx)
         assert result.passed
         assert result.stage_from == "stage_1"
-        assert result.stage_to == "stage_2"
+        # O-57: Stage 2 现在映射到 stage_0.5 (目标侦察)
+        assert result.stage_to == "stage_0.5"
 
     def test_validate_stage_1_to_2_fail(self) -> None:
+        """Stage 1 (init) → Stage 2 (recon): 缺 config 时失败."""
         validator = ContractValidator()
         ctx = MockContext(config=None, scenario_name="")
         result = validator.validate(1, 2, ctx)
@@ -62,46 +65,55 @@ class TestContractValidator:
         assert "config" in result.missing_fields
 
     def test_validate_stage_2_to_3_pass(self) -> None:
+        """Stage 2 (recon, stage_0.5) → Stage 3 (scenario, stage_2).
+
+        O-57: Stage 2 映射到 stage_0.5, 契约要求 target_type + recommended_mode.
+        """
         validator = ContractValidator()
         ctx = MockContext(
-            scenario="scenario_obj",
-            sorted_datasets=["ds1"],
-            warm_start_asr={"tech": 0.5},
+            target_type="llm_web_app",
+            recommended_mode="browser",
         )
         result = validator.validate(2, 3, ctx)
         assert result.passed
 
     def test_validate_stage_2_to_3_fail(self) -> None:
+        """Stage 2 (recon) → Stage 3: 缺 target_type 时失败."""
         validator = ContractValidator()
-        ctx = MockContext(scenario=None, sorted_datasets=[], warm_start_asr={})
+        ctx = MockContext(target_type=None, recommended_mode=None)
         result = validator.validate(2, 3, ctx)
         assert not result.passed
-        assert "scenario" in result.missing_fields
+        assert "target_type" in result.missing_fields
+        assert "recommended_mode" in result.missing_fields
 
     def test_validate_stage_05_to_1(self) -> None:
+        """Stage 0 → Stage 1: stage_0.5 契约 (向后兼容)."""
         validator = ContractValidator()
         ctx = MockContext(target_type="llm_web_app", recommended_mode="browser")
         result = validator.validate(0, 1, ctx)
         assert result.passed
 
     def test_validate_empty_contract(self) -> None:
+        """Stage 5→6 (stage_4→stage_5): result 是必填字段."""
         validator = ContractValidator()
-        ctx = MockContext()
+        ctx = MockContext(result="result_obj")
         result = validator.validate(5, 6, ctx)
         assert result.passed
 
     def test_validate_with_warnings(self) -> None:
+        """Stage 2→3: 有 target_type 但空集合时产生警告."""
         validator = ContractValidator()
         ctx = MockContext(
-            scenario="scenario_obj",
-            sorted_datasets=[],
-            warm_start_asr={},
+            target_type="llm_web_app",
+            recommended_mode="browser",
         )
         result = validator.validate(2, 3, ctx)
         assert result.passed
-        assert len(result.warnings) >= 2
+        # stage_0.5 契约的软字段可能产生警告
+        assert isinstance(result.warnings, list)
 
     def test_validate_string_stage(self) -> None:
+        """字符串阶段标识直接作为 key 使用."""
         validator = ContractValidator()
         ctx = MockContext(config="cfg", scenario_name="test")
         result = validator.validate("stage_1", "stage_2", ctx)

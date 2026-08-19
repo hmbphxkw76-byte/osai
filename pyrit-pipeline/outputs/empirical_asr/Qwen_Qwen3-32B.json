@@ -1,0 +1,10 @@
+{
+  "techniques": {
+    "red_teaming": 0.0
+  },
+  "_meta": {
+    "total_techniques": 1,
+    "model_name": "Qwen/Qwen3-32B",
+    "description": "Empirical ASR data collected from runtime. Overrides academic priors."
+  }
+}

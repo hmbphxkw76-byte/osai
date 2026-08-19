@@ -118,15 +118,15 @@ class ContractValidator:
         "post_analysis",
     }
 
-    # 阶段编号映射
+    # 阶段编号映射 (PTES 七阶段: 1-7)
     _STAGE_NUM_TO_KEY: dict[int, str] = {
-        0: "stage_0.5",
         1: "stage_1",
-        2: "stage_2",
-        3: "stage_3",
-        4: "stage_4",
-        5: "stage_5",
-        6: "stage_6",
+        2: "stage_0.5",  # 目标侦察+认证桥接 (原 Stage 0.5)
+        3: "stage_2",
+        4: "stage_3",
+        5: "stage_4",
+        6: "stage_5",
+        7: "stage_6",
     }
 
     def validate(

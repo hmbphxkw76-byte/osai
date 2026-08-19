@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 2: ASR 驱动的场景配置 (Attack-King 策略)。.
+"""Stage 3: ASR 驱动的场景配置 (Attack-King 策略)。.
 
 职责:
   - 查询历史 ASR, 按攻击成功率排序数据集和载荷 (P1: ASR 驱动载荷优先级)
@@ -33,7 +33,7 @@
   - pipeline.asr.tiered_selection_wizard (三层渐进式选择)
   - pipeline.asr.rank_builder.GroupFallbackExecutor (组级 ASR 降级链)
 
-修改此文件不影响 Stage 1, 3–5。
+修改此文件不影响 Stage 1, 3–7。
 
 > **日期**: 2026-8-1
 > **更新记录**:
@@ -425,9 +425,9 @@ def _get_agent_proxy_targets(ctx: PipelineContext) -> tuple[Any, Any, Any]:
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行 Stage 2/6: ASR 驱动的场景配置。."""
+    """执行 Stage 3/7: ASR 驱动的场景配置。."""
     print("\n" + "=" * 70)
-    print("阶段 2/6: 场景配置 — ASR 驱动 + Attack-King")
+    print("阶段 3/7: 场景配置 — ASR 驱动 + Attack-King")
     print("=" * 70)
 
     # v53.1: 全局 monkey-patch adversarial JSON schema (在所有攻击执行之前)
@@ -1938,18 +1938,31 @@ async def run(ctx: PipelineContext) -> None:
                 _topology.app_architecture, []
             )
             if _topology_recommended:
+                # v59 P2-A: 将拓扑推荐技术记录到 ctx.metadata, 供编排器和 Stage 5 追踪
+                # 学术依据: NIST AI RMF 1.0 — 决策可追溯性要求记录技术推荐来源
+                ctx.metadata["topology_recommended_techniques"] = list(_topology_recommended)
+                ctx.metadata["topology_architecture"] = _topology.app_architecture
+
+                from pipeline.analysis.technique_name_mapper import get_display_name
                 from pipeline.utils.display import info_box
 
+                _tech_display = []
+                for _t in _topology_recommended:
+                    _dn = get_display_name(_t)
+                    _tech_display.append(f"  • {_t} → {_dn}")
                 info_box(
                     "v59 拓扑驱动技术推荐",
                     [
                         f"架构: {_topology.app_architecture}",
-                        f"推荐技术: {', '.join(_topology_recommended)}",
+                        f"推荐技术 ({len(_topology_recommended)}):",
+                        *_tech_display,
+                        "→ 通过编排器自动执行 (MCP Kill Chain / XPIA / 替代路径)",
                     ],
                 )
                 logger.info(
-                    f"v59: topology-driven tech recommendation: "
-                    f"{_topology.app_architecture} → {_topology_recommended}"
+                    f"v59 P2-A: topology-driven tech recommendation: "
+                    f"{_topology.app_architecture} → {_topology_recommended} "
+                    f"(recorded to ctx.metadata for orchestrator + Stage 5 tracking)"
                 )
 
             # v60+: 拓扑diff信号→技术池动态调整
@@ -2625,7 +2638,7 @@ async def run(ctx: PipelineContext) -> None:
 
     tech_count = ctx.metadata.get("available_tech_count", 14)
     handoff_line(
-        2, 3,
+        3, 4,
         f"★ {tech_count} 武器 × {len(sorted_datasets)} 弹药 × "
         f"{ctx.converter_routing_count} 增强链 × "
         f"warm-start {len(warm_start_asr) if warm_start_asr else 0} 先验",
@@ -4472,25 +4485,45 @@ def _inject_attack_surface_seeds(ctx: PipelineContext) -> None:
     将 ctx.metadata["expanded_attack_seeds"] (v56 _expand_attack_surface 生成)
     合并到 ctx.metadata["recon_seeds"], 供 Stage [3] 执行消费.
 
+    v62 P1: topology_template 来源的种子额外写入 CentralMemory 作为独立数据集,
+    确保拓扑专用载荷能被 PyRIT 原生 DatasetAttackConfiguration 消费构建 AtomicAttack.
+    同时为这些种子注入 asr_priority metadata, 使其在分层优先采样中优先被选中.
+
     种子来源:
       - Agent 结构分析 (analyze_burp_agent_structure) 生成的攻击种子
       - Token 分析 (analyze_captured_token) 生成的权限提升/JWT伪造种子
       - 替代攻击路径 (_discover_alternative_attack_paths) 推导的路径种子
+      - v61 P2: 拓扑专用 YAML 载荷模板 (source=topology_template)
 
     学术依据:
       - Greshake et al. (arXiv:2302.12173): Agent 应用攻击面
       - Zhan et al. (arXiv:2307.00929): InjecAgent
       - OWASP ASI01-10: Agentic Security
+      - HarmBench (arXiv:2402.04249): 拓扑专用载荷应独立于通用种子去重
+      - NIST AI RMF 1.0: 攻击决策可追溯性
     """
     seeds = ctx.metadata.get("expanded_attack_seeds", [])
     if not seeds:
         return
 
-    # 合并到 recon_seeds
+    # v64 O-63: 拓扑种子前置到 recon_seeds 头部
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — 注入面决定的载荷应优先;
+    #   HarmBench (arXiv:2402.04249) — 拓扑专用载荷独立于通用种子去重
+    topology_seeds = [s for s in seeds if s.get("source") == "topology_template"]
+    generic_seeds = [s for s in seeds if s.get("source") != "topology_template"]
+
+    # 合并到 recon_seeds: 拓扑种子在前, 通用种子在后
     existing = ctx.metadata.get("recon_seeds", [])
-    existing.extend(seeds)
+    # v64 O-63: 拓扑种子插入头部, 确保下游 AtomicAttack 构建时先注册 hash
+    existing = topology_seeds + generic_seeds + existing
     ctx.metadata["recon_seeds"] = existing
     ctx.metadata["attack_surface_seed_count"] = len(seeds)
+
+    # v62 P1: topology_template 种子写入 CentralMemory 作为独立数据集
+    # 学术依据: HarmBench (arXiv:2402.04249) — 拓扑专用载荷应独立于通用种子;
+    #   PyRIT 原生 SeedDataset → DatasetAttackConfiguration → AtomicAttack 链路
+    if topology_seeds:
+        _inject_topology_seeds_to_memory(ctx, topology_seeds)
 
     from pipeline.utils.display import info_box
 
@@ -4498,9 +4531,162 @@ def _inject_attack_surface_seeds(ctx: PipelineContext) -> None:
         "v57 攻击面种子注入",
         [
             f"种子数: {len(seeds)} 条 (合并到侦察种子层)",
+            f"  └ 拓扑载荷: {len(topology_seeds)} 条 (O-63 前置)",
+            f"  └ 通用种子: {len(generic_seeds)} 条",
             f"总种子数: {len(existing)} 条",
+            *(
+                [f"v62 拓扑载荷: {len(topology_seeds)} 条 → CentralMemory"]
+                if topology_seeds
+                else []
+            ),
         ],
     )
+
+
+def _inject_topology_seeds_to_memory(
+    ctx: PipelineContext,
+    topology_seeds: list[dict[str, Any]],
+) -> None:
+    """v62 P1: 将拓扑模板种子写入 CentralMemory 作为独立数据集.
+
+    使用 PyRIT 原生 SeedDataset API 将拓扑专用载荷注入 CentralMemory,
+    使其能被 DatasetAttackConfiguration 消费构建 AtomicAttack.
+
+    v62 P2: 根据能力探测结果 (capability_probe_owasp) 动态调整种子优先级:
+      - 探测到的能力对应的拓扑种子: asr_priority = 0.95 (最高优先)
+      - 未探测到对应能力的拓扑种子: asr_priority = 0.80 (默认高优先)
+    这确保攻击资源优先分配给已验证的攻击面.
+
+    v64 O-63: 拓扑种子在 expanded_seeds 和 recon_seeds 中前置,
+    确保下游 _dedup_atomic_attacks 中拓扑种子先注册 hash,
+    通用种子如与拓扑种子碰撞则被移除 (保护拓扑载荷).
+
+    R-022: 使用 PyRIT 原生 SeedDataset + add_seed_datasets_to_memory_async,
+    不修改原生 API, 仅在构建时传入拓扑种子.
+
+    学术依据:
+      - HarmBench (arXiv:2402.04249): ASR 加权采样防止执行爆炸
+      - DART (arXiv:2407.06485): per-seed ASR 应指导运行时预算分配
+      - OWASP ASI01-10: 拓扑专用载荷提升攻击精准度
+      - NIST AI RMF 1.0: 风险识别→测量→管理的闭环
+      - Greshake et al. (arXiv:2302.12173): 能力探测决定最优攻击向量
+
+    Args:
+        ctx: PipelineContext 实例.
+        topology_seeds: 拓扑模板种子列表 (source=topology_template).
+    """
+    import asyncio
+
+    from pyrit.memory import CentralMemory
+    from pyrit.models import SeedDataset, SeedObjective
+
+    # v62 P2: 能力探测 → OWASP 映射 — 决定种子优先级
+    # 学术依据: NIST AI RMF 1.0 — 已识别风险应优先测量;
+    #   OWASP ASI01-10 — 能力→威胁分类映射
+    probe_owasp: set[str] = set(ctx.metadata.get("capability_probe_owasp", []))
+
+    # 拓扑模板 → OWASP ID 映射 (与 _load_topology_payload_templates 对齐)
+    _TEMPLATE_OWASP_MAP: dict[str, str] = {
+        "mcp_protocol_injection.yaml": "ASI01",
+        "indirect_prompt_injection.yaml": "ASI02",
+        "tool_hijack.yaml": "ASI03",
+        "rag_poisoning.yaml": "LLM08",
+        "token_reuse_and_escalation.yaml": "ASI09",
+        "crescendo_progressive.yaml": "ASI05",
+    }
+
+    try:
+        memory = CentralMemory.get_memory_instance()
+
+        # 构建 SeedObjective 列表 — 每个种子注入 asr_priority metadata
+        seed_objectives: list[SeedObjective] = []
+        boosted_count = 0
+        for seed in topology_seeds:
+            template_file = seed.get("template_file", "")
+            seed_owasp = seed.get("owasp_id", "")
+
+            # v62 P2: 能力探测匹配 → 优先级提升
+            # 如果种子的 OWASP ID 或模板文件对应的 OWASP ID 在探测结果中, 提升优先级
+            template_owasp = _TEMPLATE_OWASP_MAP.get(template_file, "")
+            is_boosted = (
+                (seed_owasp and seed_owasp in probe_owasp)
+                or (template_owasp and template_owasp in probe_owasp)
+            )
+            asr_priority = 0.95 if is_boosted else 0.80
+            if is_boosted:
+                boosted_count += 1
+
+            obj = SeedObjective(
+                value=seed.get("objective", ""),
+                metadata={
+                    "asr_priority": asr_priority,
+                    "source": "topology_template",
+                    "technique": seed.get("technique", "unknown"),
+                    "owasp_id": seed_owasp,
+                    "category": seed.get("category", "topology_payload"),
+                    "template_file": template_file,
+                    "harm_category": seed.get("category", "topology_payload"),
+                    "capability_boosted": is_boosted,
+                },
+            )
+            seed_objectives.append(obj)
+
+        if not seed_objectives:
+            return
+
+        # 构建 SeedDataset — 作为独立数据集注入
+        dataset = SeedDataset(
+            dataset_name="topology_payloads",
+            seeds=seed_objectives,
+            source="topology_template",
+            groups=["Topology"],
+            description=(
+                f"v62: Topology-specific payload templates "
+                f"({len(seed_objectives)} seeds, {boosted_count} boosted) — "
+                f"OWASP ASI01-10 aligned"
+            ),
+        )
+
+        # 异步注入 — 使用 ensure_future 避免阻塞当前事件循环
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 在运行中的事件循环内 — 创建 task
+                loop.create_task(
+                    memory.add_seed_datasets_to_memory_async(
+                        datasets=[dataset],
+                        added_by="pipeline.stages.stage_scenario._inject_topology_seeds_to_memory",
+                    )
+                )
+            else:
+                # 无运行中的事件循环 — 同步执行
+                loop.run_until_complete(
+                    memory.add_seed_datasets_to_memory_async(
+                        datasets=[dataset],
+                        added_by="pipeline.stages.stage_scenario._inject_topology_seeds_to_memory",
+                    )
+                )
+        except RuntimeError:
+            # 没有事件循环 — 尝试 nest_asyncio 或直接调用
+            memory.add_seed_dataset(dataset)
+
+        ctx.metadata["topology_seeds_injected_to_memory"] = len(seed_objectives)
+        ctx.metadata["topology_seeds_boosted"] = boosted_count
+        logger.info(
+            f"v62 P1+P2: {len(seed_objectives)} topology seeds injected to CentralMemory "
+            f"as dataset 'topology_payloads' ({boosted_count} capability-boosted)"
+        )
+
+        # v62 P2: 将 topology_payloads 添加到 sorted_datasets 以确保被场景消费
+        # 学术依据: OWASP ASI01-10 — 拓扑专用载荷应纳入攻击计划
+        current_datasets = ctx.metadata.get("sorted_datasets", [])
+        if current_datasets and "topology_payloads" not in current_datasets:
+            current_datasets.append("topology_payloads")
+            ctx.metadata["sorted_datasets"] = current_datasets
+            logger.debug("v62 P2: 'topology_payloads' added to sorted_datasets")
+
+    except Exception as e:
+        logger.warning(f"v62 P1: Failed to inject topology seeds to CentralMemory: {e}")
 
 
 # ── O2: 基线扫描结果驱动 Converter 自适应选择 ──

@@ -28,6 +28,14 @@ v56 攻击者视角增强 — AttackSurfaceTopology:
 > **日期**: 2026-8-3
 > **更新记录**:
   2026-8-16 — v56: 新增 AttackSurfaceTopology 多维攻击面拓扑 + Burp请求体Agent结构分析 + 认证拓扑增强
+  2026-8-18 — v57: URL路径驱动的拓扑推断 (MCP/Agent路径模式) + Kill Chain扩展
+    (execution/defense_evasion/persistence) + 极简请求体场景深度分析 +
+    Session Cookie过期时间提取
+
+学术依据 (v57 新增):
+  - MITRE ATT&CK for LLMs (Atlas): execution/defense_evasion/persistence 阶段
+  - OWASP ASI01-10: Agentic Security — URL路径暗示的Agent攻击面
+  - Microsoft PyRIT Best Practices: 最少3-5样本才能判断防御强度
 """
 
 from __future__ import annotations
@@ -94,6 +102,33 @@ _WEB_APP_PATH_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"/(chat|playground|app|dashboard)", re.IGNORECASE),
     re.compile(r"/#", re.IGNORECASE),  # SPA hash 路由
 ]
+
+# ── v57: Agent/MCP/Lab URL 路径模式 (offensive 视角: 路径暗示架构) ──
+# /api/labs/MCP_* → MCP 实验场景 (Agent + 工具调用)
+# /api/agent/* → Agent 应用
+# /api/assistant/* → AI 助手 (多轮 + system prompt)
+# /api/mcp/* → MCP 协议端点
+_AGENT_PATH_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"/api/labs/MCP_", re.IGNORECASE),
+    re.compile(r"/api/mcp[/?]", re.IGNORECASE),
+    re.compile(r"/api/agent[/?]", re.IGNORECASE),
+    re.compile(r"/api/assistant[/?]", re.IGNORECASE),
+    re.compile(r"/labs/.* MCP", re.IGNORECASE),
+    re.compile(r"/tools?/invoke", re.IGNORECASE),
+]
+
+# ── v57: Cookie 名称特征模式 (offensive 视角: Cookie名暗示认证架构) ──
+# aivp_sid → AI Valley Platform session (AI应用平台)
+# *_sid → 通用 session ID
+# session_token → session token 认证
+# jwt_* → JWT 认证
+_COOKIE_AUTH_PATTERNS: dict[str, re.Pattern[str]] = {
+    "session_id": re.compile(r"\b(\w+)_sid\b", re.IGNORECASE),
+    "session_token": re.compile(r"\bsession_token\b", re.IGNORECASE),
+    "jwt": re.compile(r"\bjwt\b", re.IGNORECASE),
+    "auth_token": re.compile(r"\bauth_token\b", re.IGNORECASE),
+    "access_token": re.compile(r"\baccess_token\b", re.IGNORECASE),
+}
 
 # ── 聊天 UI DOM 选择器 (与 dynamic_profile.py 一致, P5 扩展框架特征) ──
 _CHAT_UI_SELECTORS = [
@@ -837,6 +872,12 @@ class TargetClassifier:
 
         topology.has_streaming = classification.is_streaming
 
+        # v57: URL 路径驱动的拓扑推断 — 从 URL 路径推断 Agent/MCP 架构
+        # 学术依据: OWASP ASI01-10 — URL路径是攻击面发现的重要信号
+        # 当请求体极简 (如 {"prompt":"..."}) 无法从 body 检测架构时,
+        # URL 路径模式 (如 /api/labs/MCP_07/chat) 可推断 Agent/MCP 架构
+        url_path_hints = self._infer_architecture_from_url(classification.target_url)
+
         # ── 层2: 应用面 — 从 Burp 请求体分析 Agent 结构 ──
         body_json: dict[str, Any] = {}
         if burp_body_json is not None:
@@ -890,10 +931,42 @@ class TargetClassifier:
                 elif topology.has_multi_turn and topology.has_system_prompt:
                     topology.app_architecture = "simple_llm"
 
+        # v57: 当请求体分析未发现 Agent/MCP 特征时, 使用 URL 路径推断
+        # 攻击者视角: /api/labs/MCP_07/chat 中的 MCP_07 暗示 Agent 实验场景
+        if topology.app_architecture == "simple_llm" and url_path_hints:
+            if url_path_hints.get("is_mcp"):
+                topology.app_architecture = "mcp_orchestrator"
+                topology.model_fingerprint["url_inferred_architecture"] = "mcp_orchestrator"
+                logger.info(
+                    f"v57: URL path inferred architecture=mcp_orchestrator "
+                    f"(url={classification.target_url})"
+                )
+            elif url_path_hints.get("is_agent"):
+                topology.app_architecture = "agent_with_tools"
+                topology.model_fingerprint["url_inferred_architecture"] = "agent_with_tools"
+                logger.info(
+                    f"v57: URL path inferred architecture=agent_with_tools "
+                    f"(url={classification.target_url})"
+                )
+
+        # v57: 从 Burp 原始请求头提取 Cookie 信息 (极简请求体场景的补充信号)
+        if burp_raw_request:
+            cookie_hints = self._extract_cookie_hints(burp_raw_request)
+            if cookie_hints:
+                topology.model_fingerprint["cookie_analysis"] = cookie_hints
+
         # ── 层3: 认证面 ──
         topology.auth_topology = self._infer_auth_topology(classification, auth_headers)
         topology.auth_persistence = self._infer_auth_persistence(topology.auth_topology)
         topology.token_expiry_seconds = self._extract_jwt_expiry(auth_headers or {})
+
+        # v57: Session Cookie 过期时间提取 — 从 Set-Cookie 或 Cookie 头提取
+        # 攻击者视角: Cookie 过期时间决定攻击窗口大小
+        if topology.auth_topology == "session_cookie" and burp_raw_request:
+            cookie_expiry = self._extract_cookie_expiry(burp_raw_request)
+            if cookie_expiry > 0:
+                topology.token_expiry_seconds = cookie_expiry
+                topology.model_fingerprint["cookie_expiry_seconds"] = cookie_expiry
 
         # ── 层4: 攻击面推导 ──
         topology.injection_surfaces = self._derive_injection_surfaces(topology)
@@ -1024,6 +1097,126 @@ class TargetClassifier:
 
         return 0
 
+    def _infer_architecture_from_url(self, url: str) -> dict[str, bool]:
+        """v57: 从 URL 路径推断应用架构.
+
+        攻击者视角: URL 路径是攻击面发现的重要信号.
+        当请求体极简 (如 {"prompt":"..."}) 时, URL 路径模式
+        (如 /api/labs/MCP_07/chat) 可推断 Agent/MCP 架构.
+
+        Args:
+            url: 目标 URL.
+
+        Returns:
+            包含架构提示的字典:
+              - is_mcp: 是否为 MCP 协议场景
+              - is_agent: 是否为 Agent 应用
+              - is_lab: 是否为实验/测试场景
+        """
+        hints: dict[str, bool] = {
+            "is_mcp": False,
+            "is_agent": False,
+            "is_lab": False,
+        }
+        for pattern in _AGENT_PATH_PATTERNS:
+            if pattern.search(url):
+                hints["is_agent"] = True
+                # MCP 特定模式
+                if "mcp" in pattern.pattern.lower() or "MCP" in url:
+                    hints["is_mcp"] = True
+                if "/labs/" in url:
+                    hints["is_lab"] = True
+                logger.debug(
+                    f"v57: URL path pattern matched: {pattern.pattern} "
+                    f"(mcp={hints['is_mcp']}, agent={hints['is_agent']}, lab={hints['is_lab']})"
+                )
+                break
+        return hints
+
+    def _extract_cookie_hints(self, raw_request: str) -> dict[str, Any]:
+        """v57: 从 Burp 原始请求头提取 Cookie 分析信息.
+
+        攻击者视角: Cookie 名称暗示认证架构和平台类型.
+        如 aivp_sid → AI Valley Platform session ID.
+
+        Args:
+            raw_request: Burp 原始 HTTP 请求文本.
+
+        Returns:
+            Cookie 分析字典 (cookie_name, auth_type, platform_hint).
+        """
+        hints: dict[str, Any] = {}
+        # 提取 Cookie 头
+        cookie_match = re.search(r"Cookie:\s*(.+?)\r?\n", raw_request, re.IGNORECASE)
+        if not cookie_match:
+            return hints
+        cookie_str = cookie_match.group(1).strip()
+        # 解析 cookie name=value 对
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if "=" not in pair:
+                continue
+            name, value = pair.split("=", 1)
+            name = name.strip()
+            value = value.strip()
+            # 匹配 Cookie 名称模式
+            for auth_type, pattern in _COOKIE_AUTH_PATTERNS.items():
+                if pattern.search(name):
+                    hints["cookie_name"] = name
+                    hints["auth_type"] = auth_type
+                    # 推断平台
+                    if "_sid" in name:
+                        platform = name.replace("_sid", "")
+                        hints["platform_hint"] = platform
+                    break
+            if hints:
+                break
+        return hints
+
+    def _extract_cookie_expiry(self, raw_request: str) -> int:
+        """v57: 从 Burp 请求或 Set-Cookie 头提取 Cookie 过期时间.
+
+        攻击者视角: Cookie 过期时间决定攻击窗口大小.
+
+        Args:
+            raw_request: Burp 原始 HTTP 请求文本.
+
+        Returns:
+            过期时间 (秒), 0 表示无法提取.
+        """
+        import contextlib
+        import datetime
+
+        # 尝试从 Set-Cookie 头提取 (通常在响应中, 但 Burp 请求可能包含)
+        with contextlib.suppress(Exception):
+            set_cookie_match = re.search(
+                r"Set-Cookie:\s*.+?expires=([^;\r\n]+)",
+                raw_request,
+                re.IGNORECASE,
+            )
+            if set_cookie_match:
+                expires_str = set_cookie_match.group(1).strip()
+                # 尝试解析 HTTP 日期格式
+                with contextlib.suppress(Exception):
+                    from email.utils import parsedate_to_datetime
+                    expires_dt = parsedate_to_datetime(expires_str)
+                    if expires_dt:
+                        remaining = int((expires_dt - datetime.datetime.now(expires_dt.tzinfo)).total_seconds())
+                        return max(remaining, 0)
+
+            # 尝试从 Max-Age 提取
+            max_age_match = re.search(
+                r"Set-Cookie:\s*.+?Max-Age=(\d+)",
+                raw_request,
+                re.IGNORECASE,
+            )
+            if max_age_match:
+                return int(max_age_match.group(1))
+
+        # 无法从请求中提取, 返回默认 session 过期时间 (通常 30 分钟 = 1800s)
+        # 攻击者视角: 保守估计 session cookie 有 30 分钟攻击窗口
+        return 0
+
     def _derive_injection_surfaces(self, topology: AttackSurfaceTopology) -> list[str]:
         """从应用架构推导可注入攻击面.
 
@@ -1068,6 +1261,7 @@ class TargetClassifier:
         """从攻击面拓扑映射 OWASP 类别.
 
         攻击者视角: 每个攻击面对应一个 OWASP 类别.
+        v57: 增加 MCP/Agent 架构的 OWASP 映射 (LLM06/ASI01-10).
         """
         owasp: list[str] = ["LLM01"]  # 基础: Prompt Injection
 
@@ -1086,6 +1280,16 @@ class TargetClassifier:
         if "agent→agent" in topology.trust_boundaries:
             owasp.append("ASI05")  # Multi-Agent 信任传播
 
+        # v57: 架构驱动的 OWASP 映射 — MCP/Agent 架构自动添加相关分类
+        if topology.app_architecture == "mcp_orchestrator":
+            owasp.extend(["LLM06", "ASI01", "ASI02"])  # Excessive Agency + MCP Security
+        elif topology.app_architecture == "agent_with_tools":
+            owasp.extend(["LLM06", "ASI02"])  # Excessive Agency + Tool Misuse
+
+        # v57: Session 认证 → 横向移动风险
+        if topology.auth_topology == "session_cookie":
+            owasp.append("LLM02")  # Session Token 是攻击目标
+
         # 去重保持顺序
         seen: set[str] = set()
         result: list[str] = []
@@ -1099,19 +1303,48 @@ class TargetClassifier:
         """从攻击面拓扑映射 Kill Chain 阶段.
 
         攻击者视角: 攻击链路规划.
+        v57: 对齐 MITRE ATT&CK for LLMs (Atlas) 完整阶段:
+          recon → initial_access → execution → persistence →
+          credential_access → discovery → collection → exfiltration
+        新增阶段:
+          - execution: prompt injection 本身就是代码执行 (LLM 执行恶意指令)
+          - defense_evasion: Converter 编码绕过 (ROT13/Base64) = 防御规避
+          - persistence: session cookie 维持持久访问 + 工具劫持
+        学术依据:
+          - MITRE Atlas: execution/defense_evasion/persistence 是 LLM 攻击核心阶段
+          - Crescendo (arXiv:2402.12109): 渐进式攻击是多阶段 execution
+          - InjecAgent (arXiv:2307.00929): 工具劫持是 persistence + collection
         """
         chain = ["recon", "initial_access"]
 
-        if topology.auth_topology != "none":
-            chain.append("credential_access")  # Token 窃取
+        # v57: execution — prompt injection 注入面存在即添加
+        # 攻击者视角: 用户消息注入 = 通过 LLM 执行恶意指令
+        if "user_message" in topology.injection_surfaces:
+            chain.append("execution")
+
+        # v57: persistence — session 认证或工具调用支持持久访问
+        if topology.auth_topology == "session_cookie":
+            chain.append("persistence")  # Session 维持持久访问
         if topology.has_tool_calling:
             chain.append("persistence")  # 工具劫持持续利用
+
+        if topology.auth_topology != "none":
+            chain.append("credential_access")  # Token 窃取
+
+        # v57: defense_evasion — Converter 编码或多轮对话历史注入
+        # 攻击者视角: ROT13/Base64 编码绕过内容过滤 = 防御规避
+        # 多轮对话历史注入也是一种规避手段 (渐进式逼近)
+        if topology.has_multi_turn or topology.has_streaming:
+            chain.append("defense_evasion")
+
+        if topology.has_tool_calling or "mcp_protocol" in topology.injection_surfaces:
+            chain.append("discovery")  # 工具/MCP 发现
         if "rag_content" in topology.injection_surfaces:
             chain.append("discovery")  # RAG 内容发现
         if topology.has_tool_calling or "mcp_protocol" in topology.injection_surfaces:
             chain.append("collection")  # 工具调用收集数据
         if topology.has_tool_calling:
-            chain.append("bypass")  # 安全控制绕过
+            chain.append("exfiltration")  # 工具调用外传数据
 
         # 去重保持顺序
         seen: set[str] = set()

@@ -6,13 +6,14 @@
 每个阶段是独立模块，通过 ``PipelineContext`` 传递状态。
 修改某个阶段不影响其他阶段。
 
-阶段流程:
-  1. stage_init        — 原生初始化 + GCG/Fuzzer 种子生成 + 多模态检测
-  2. stage_scenario     — 场景配置 (多场景 + ASR 驱动数据集 + 评分器)
-  3. stage_initialize  — 场景初始化 (构建 AtomicAttack)
-  4. stage_execute      — 场景执行 (AttackExecutor 并发 + 断点续跑)
-  5. stage_post_analysis — 执行后离线分析
-  6. stage_output       — 结果输出 (三级输出 + HTML/PDF 报告)
+七阶段流程:
+  1. stage_init          — 原生初始化 + GCG/Fuzzer 种子生成 + 多模态检测
+  2. stage_target_classify — 目标侦察 + 认证桥接 (PTES Recon → Auth Bridge)
+  3. stage_scenario     — 场景配置 (多场景 + ASR 驱动数据集 + 评分器)
+  4. stage_initialize  — 场景初始化 (构建 AtomicAttack)
+  5. stage_execute      — 场景执行 (AttackExecutor 并发 + 断点续跑)
+  6. stage_post_analysis — 执行后离线分析
+  7. stage_output       — 结果输出 (三级输出 + HTML/PDF 报告)
 
 Usage:
     from pipeline.stages import stage_init, stage_scenario, stage_initialize

@@ -126,6 +126,27 @@ _TECHNIQUE_ALIASES: dict[str, str] = {
     "advanced_mcp": "advanced_mcp",
     "advanced_mcp_attack": "advanced_mcp",
     "mcp_kill_chain": "advanced_mcp",
+    # v59: 拓扑驱动专用攻击技术 (非 PyRIT 原生 registry, 但通过 Converter 链实现)
+    # 学术依据: Greshake et al.(arXiv:2302.12173) indirect injection;
+    #   Zhan et al.(arXiv:2307.00929) InjecAgent tool hijack;
+    #   OWASP ASI01-10 Agentic Security
+    "mcp_protocol_injection": "mcp_protocol_injection",
+    "mcp-injection": "mcp_protocol_injection",
+    "mcp_injection": "mcp_protocol_injection",
+    "indirect_prompt_injection": "indirect_prompt_injection",
+    "indirect-injection": "indirect_prompt_injection",
+    "indirect_injection": "indirect_prompt_injection",
+    "tool_hijack": "tool_hijack",
+    "tool-hijack": "tool_hijack",
+    "tool_hijacking": "tool_hijack",
+    "rag_poisoning": "rag_poisoning",
+    "rag-poisoning": "rag_poisoning",
+    "rag_injection": "rag_poisoning",
+    "token_reuse_and_escalation": "token_reuse_and_escalation",
+    "token-reuse": "token_reuse_and_escalation",
+    "token_escalation": "token_reuse_and_escalation",
+    "crescendo_progressive": "crescendo_progressive",
+    "crescendo-progressive": "crescendo_progressive",
     # Converter 链名 (作为变体后缀)
     "stealth_evasion": "stealth_evasion",
     "stealth-evasion": "stealth_evasion",
@@ -237,6 +258,13 @@ _DISPLAY_NAMES: dict[str, str] = {
     "violent_durian": "Violent Durian",
     "xpia": "XPIA (Indirect Injection)",
     "advanced_mcp": "Advanced MCP (Kill Chain)",
+    # v59: 拓扑驱动专用攻击技术
+    "mcp_protocol_injection": "MCP Protocol Injection",
+    "indirect_prompt_injection": "Indirect Prompt Injection",
+    "tool_hijack": "Tool Hijack",
+    "rag_poisoning": "RAG Poisoning",
+    "token_reuse_and_escalation": "Token Reuse & Escalation",
+    "crescendo_progressive": "Crescendo (Progressive)",
 }
 
 
@@ -265,6 +293,13 @@ _ARXIV_REFERENCES: dict[str, str] = {
     "unicode_attack": "arXiv:2307.15043 — Unicode Attack",
     "persuasion_authority": "arXiv:2402.19181 — Persuasion (Zeng et al.)",
     "decomposition_chain": "arXiv:2311.08268 — Decomposition",
+    # v59: 拓扑驱动专用攻击技术
+    "mcp_protocol_injection": "OWASP ASI01 — MCP Protocol Injection",
+    "indirect_prompt_injection": "arXiv:2302.12173 — Indirect Prompt Injection (Greshake et al.)",
+    "tool_hijack": "arXiv:2307.00929 — InjecAgent Tool Hijack (Zhan et al.)",
+    "rag_poisoning": "arXiv:2310.12815 — RAG Poisoning",
+    "token_reuse_and_escalation": "MITRE ATT&CK T1550 — Token Reuse & Escalation",
+    "crescendo_progressive": "arXiv:2402.12109 — Crescendo Progressive",
 }
 
 

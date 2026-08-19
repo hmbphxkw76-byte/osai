@@ -3,13 +3,14 @@
 仅串联 pipeline/ 下六个阶段，自身不含任何业务逻辑。
 修改某个阶段时，只需编辑 pipeline/stages/stage_*.py，不影响本文件。
 
-六阶段流程 (含 R-008 临时文件清理):
-  1. stage_init          — 原生初始化 + GCG/Fuzzer 种子生成 + 多模态检测
-  2. stage_scenario      — ASR 驱动场景配置 (数据集排序 + 评分器 + Converter 路由)
-  3. stage_initialize    — 场景初始化 (构建 AtomicAttack + ASR 智能调度)
-  4. stage_execute       — 场景执行 (AttackExecutor 并发 + 失败类型反馈)
-  5. stage_post_analysis — 执行后分析 (ASR 实测vs先验 + 经验写回)
-  6. stage_output        — 结果输出 (证据收集 + HTML/PDF 报告)
+七阶段流程 (PTES 时序对齐 + R-008 临时文件清理):
+  1. stage_init            — 原生初始化 + Registry 加载 + 数据集装配 + 多模态检测
+  2. stage_target_classify — 目标侦察 + 认证桥接 (PTES Recon → Auth Bridge, 可选)
+  3. stage_scenario        — ASR 驱动场景配置 (数据集排序 + 评分器 + Converter 路由)
+  4. stage_initialize      — 场景初始化 (构建 AtomicAttack + ASR 智能调度)
+  5. stage_execute         — 场景执行 (AttackExecutor 并发 + 失败类型反馈)
+  6. stage_post_analysis   — 执行后分析 (ASR 实测vs先验 + 经验写回)
+  7. stage_output          — 结果输出 (证据收集 + HTML/PDF 报告)
 
 架构文档: docs/asr_driven_e2e_architecture.md (v7.0)
 开发规范: docs/development_guidelines.md (v2.0)
@@ -163,7 +164,7 @@ async def main_async() -> None:
                 print("\n[SHUTDOWN] 在 Stage 1 后退出")
                 return
 
-            # Stage 0.5: 统一目标类型判别 + 认证桥接 (v43: 统一入口)
+            # Stage 2: 目标侦察 + 认证桥接 (PTES: Recon → Auth Bridge)
             # --target-url 自动触发完整链路:
             #   判别 → 认证 → 桥接 → 主流水线 17 种攻击 + ASR 驱动
             # 三路自动选择:
@@ -174,7 +175,7 @@ async def main_async() -> None:
             if target_url:
                 target_bridged = await stage_target_classify(ctx)
                 if target_bridged and _shutdown_requested:
-                    print("\n[SHUTDOWN] 在 Stage 0.5 (目标桥接) 后退出")
+                    print("\n[SHUTDOWN] 在 Stage 2 (目标侦察) 后退出")
                     return
 
             # XPIA 工作流 (可选, 提前返回)
@@ -250,22 +251,24 @@ async def main_async() -> None:
                         # text_adaptive 继续走标准流水线
 
             await stage_scenario(ctx)
-            _validate_contract(1, 2, ctx)
-            if _shutdown_requested:
-                print("\n[SHUTDOWN] 在 Stage 2 后退出")
-                return
-
-            await stage_initialize(ctx)
-            _validate_contract(2, 3, ctx)
+            # O-57: 契约验证路径感知 — 有 --target-url 时验证 2→3 (stage_0.5→stage_2),
+            # 无 --target-url 时 Stage 2 被跳过, 验证 1→3 (stage_1→stage_2) 直接跳转
+            _validate_contract(2 if target_url else 1, 3, ctx)
             if _shutdown_requested:
                 print("\n[SHUTDOWN] 在 Stage 3 后退出")
                 return
 
-            await stage_execute(ctx)
+            await stage_initialize(ctx)
             _validate_contract(3, 4, ctx)
             if _shutdown_requested:
-                print("\n[SHUTDOWN] 在 Stage 4 后退出 (结果已保存)")
-                # Stage 4 结果已持久化到 CentralMemory, 可安全退出
+                print("\n[SHUTDOWN] 在 Stage 4 后退出")
+                return
+
+            await stage_execute(ctx)
+            _validate_contract(4, 5, ctx)
+            if _shutdown_requested:
+                print("\n[SHUTDOWN] 在 Stage 5 后退出 (结果已保存)")
+                # Stage 5 结果已持久化到 CentralMemory, 可安全退出
                 return
 
             # v57 H-1/H-2: Browser 补充攻击 — Burp 主攻击后的能力互补
@@ -281,13 +284,13 @@ async def main_async() -> None:
                 _logger.debug(f"Browser supplement skipped: {e}")
 
             await stage_post_analysis(ctx)
-            _validate_contract(4, 5, ctx)
+            _validate_contract(5, 6, ctx)
             if _shutdown_requested:
-                print("\n[SHUTDOWN] 在 Stage 5 后退出")
+                print("\n[SHUTDOWN] 在 Stage 6 后退出")
                 return
 
             await stage_output(ctx)
-            _validate_contract(5, 6, ctx)
+            _validate_contract(6, 7, ctx)
 
             # D1+D6: 输出决策追溯和事件总线摘要
             _print_trace_and_event_summary()

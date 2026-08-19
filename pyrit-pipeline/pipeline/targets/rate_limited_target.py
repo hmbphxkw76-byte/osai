@@ -294,8 +294,19 @@ class RateLimitedTarget:
 
         # P2-3 (v45.5): 连续超时计数器 — 用于动态调整SSE超时
         # 当连续2次ReadTimeout后, 下次重试自动将超时从60s提升到120s
+        # v57: 三级超时阶梯 — 60s → 120s (2nd) → 240s (3rd+)
+        #   攻击者视角: SSE流式响应可能需要更长时间完成生成
+        #   学术依据: Adaptive Timeout (Mei et al., arXiv:2306.07541) —
+        #     超时应基于历史响应时间动态调整, 非固定值
         self._consecutive_timeout_count = 0
         self._dynamic_timeout_override: float | None = None
+        # v57: 超时阶梯表 — 连续超时次数 → 超时秒数
+        self._timeout_escalation_table: dict[int, float] = {
+            0: 60.0,   # 默认
+            1: 60.0,   # 第一次超时, 保持默认
+            2: 120.0,  # 第二次连续超时, 提升到120s
+            3: 240.0,  # 第三次连续超时, 提升到240s
+        }
 
         # O-34: API超时自适应降级 — 连续超时≥3次后降低并发数
         # 原因: API持续超时说明负载过重或服务降级, 降低并发可减轻压力
@@ -483,18 +494,27 @@ class RateLimitedTarget:
                     )
 
                     # P2-3 (v45.5): 连续超时计数 + 动态超时调整
-                    # 当连续2次ReadTimeout后, 下次重试将超时从默认提升到120s
+                    # v57: 三级超时阶梯 — 60s → 120s → 240s
+                    # 当连续超时次数增加时, 逐步提升超时上限
                     if is_timeout_error:
                         self._consecutive_timeout_count += 1
-                        if self._consecutive_timeout_count >= 2 and self._dynamic_timeout_override is None:
-                            self._dynamic_timeout_override = 120.0
+                        # v57: 从阶梯表获取目标超时值
+                        _target_timeout = self._timeout_escalation_table.get(
+                            min(self._consecutive_timeout_count, 3), 240.0
+                        )
+                        if (
+                            self._dynamic_timeout_override is None
+                            or self._dynamic_timeout_override < _target_timeout
+                        ):
+                            self._dynamic_timeout_override = _target_timeout
                             # 尝试设置原始target的timeout属性
                             current_timeout = getattr(self._target, "timeout", None)
-                            if current_timeout is not None and current_timeout < 120.0:
-                                self._target.timeout = 120.0
+                            if current_timeout is not None and current_timeout < _target_timeout:
+                                self._target.timeout = _target_timeout
                                 logger.warning(
-                                    f"P2-3: Consecutive timeout #{self._consecutive_timeout_count}, "
-                                    f"dynamic timeout adjusted {current_timeout}s → 120s"
+                                    f"P2-3/v57: Consecutive timeout #{self._consecutive_timeout_count}, "
+                                    f"dynamic timeout adjusted {current_timeout}s → {_target_timeout}s "
+                                    f"(escalation level={min(self._consecutive_timeout_count, 3)})"
                                 )
                         # O-34: 连续超时≥3次后降低并发数 (Circuit Breaker)
                         if (
@@ -511,6 +531,12 @@ class RateLimitedTarget:
                                 f"O-34: Consecutive timeout #{self._consecutive_timeout_count}, "
                                 f"concurrency degraded {old_concurrency} → {self._max_concurrency} "
                                 f"(endpoint={self._endpoint})"
+                            )
+                            # O-62: 超时降级终端可见 — 用户需感知并发降低
+                            print(
+                                f"  [O-34/O-62] 连续超时#{self._consecutive_timeout_count}, "
+                                f"并发降级 {old_concurrency}→{self._max_concurrency} "
+                                f"({self._endpoint})"
                             )
                     else:
                         # 非超时错误重置计数器

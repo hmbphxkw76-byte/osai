@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 3: 场景初始化 + ASR 驱动的智能调度 + 同次运行 ASR 反馈闭环。.
+"""Stage 4: 场景初始化 + ASR 驱动的智能调度 + 同次运行 ASR 反馈闭环。.
 
 职责:
   - 调用 ``scenario.initialize_async()`` 构建 AtomicAttack + SequentialAttack
@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行 Stage 3/6: 场景初始化 + ASR 智能调度。."""
+    """执行 Stage 4/7: 场景初始化 + ASR 智能调度。."""
     print("\n" + "=" * 70)
-    print("阶段 3/6: 场景初始化 — 弹药装填 + ASR 优先级排序")
+    print("阶段 4/7: 场景初始化 — 弹药装填 + ASR 优先级排序")
     print("=" * 70)
 
     # v50: 场景被跳过时 (所有目标模式失败) 跳过初始化
@@ -154,7 +154,6 @@ async def run(ctx: PipelineContext) -> None:
     _print_resilience_config(ctx, atomic_attacks)
 
     # ── 区块 5: ★ 攻击就绪确认 — S3-3 Go/No-Go 决策重构 ──
-    from pipeline.utils.display import handoff_banner
 
     # 计算增强/baseline 分布
     enhanced_count = _count_enhanced_attacks(ctx, atomic_attacks)
@@ -242,8 +241,10 @@ async def run(ctx: PipelineContext) -> None:
         f"★ 决策: {go_decision} — 预检{'通过' if preflight_passed else '跳过'}, 弹药{ammo_str}, 降级链{chain_str2}",
     ]
 
+    from pipeline.utils.display import handoff_banner
+
     handoff_banner(
-        3, 4,
+        4, 5,
         "攻击就绪确认 — Go/No-Go 决策 → PyRIT 原生执行",
         handoff_lines,
     )
@@ -307,10 +308,17 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
     """按 ASR 优先级重排 scenario._atomic_attacks 列表。.
 
     排序依据 (优先级递减):
+      0. v65 O-64: 能力探测匹配的拓扑种子 → Wave 0 (最高优先)
       1. GroupFallbackExecutor 降级链 (S→A→B→C→D, Stage 2 已构建)
       2. 当前运行 ASR (动态反馈)
       3. 历史 ASR (Laplace 平滑)
       4. 中等优先级 0.5 (无数据)
+
+    v65 O-64: 能力探测→攻击种子自动路由
+      当 AtomicAttack 的 seed 标记为 source=topology_template 且其 OWASP ID
+      在 ctx.metadata["capability_probe_owasp"] 中时, 提升到 Wave 0
+      (在所有 Tier S 技术之前执行). 这闭合了 Boyd OODA 循环中的
+      "决策→行动" 环节 — 已探测到的能力对应的最优载荷优先执行.
 
     安全性:
       - 仅重排列表顺序, 不修改任何 AtomicAttack 内容
@@ -321,6 +329,25 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
     atomic_attacks = getattr(scenario, "_atomic_attacks", None)
     if not atomic_attacks or len(atomic_attacks) <= 1:
         return
+
+    # v65 O-64: 能力探测匹配的拓扑种子 → Wave 0
+    # 学术依据: Boyd OODA — 探测→定向→决策→行动闭环;
+    #   MITRE ATT&CK T1592 — 已发现能力应优先攻击;
+    #   Greshake et al. (arXiv:2302.12173) — 注入面决定最优载荷
+    probe_owasp: set[str] = set(ctx.metadata.get("capability_probe_owasp", []))
+    topology_boosted: list = []
+    topology_boosted_count = 0
+
+    if probe_owasp:
+        for attack in atomic_attacks:
+            if _is_topology_seed_boosted(attack, probe_owasp):
+                topology_boosted.append(attack)
+                topology_boosted_count += 1
+        if topology_boosted_count > 0:
+            logger.info(
+                f"v65 O-64: {topology_boosted_count} topology seeds boosted to Wave 0 "
+                f"(capability-probe matched: {sorted(probe_owasp)})"
+            )
 
     # 1. 优先使用 GroupFallbackExecutor 降级链 (Stage 2 构建)
     fallback_plan = getattr(ctx, "fallback_plan", None)
@@ -334,13 +361,23 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
 
         original_order = [a.atomic_attack_name for a in atomic_attacks]
         sorted_attacks = sorted(atomic_attacks, key=_fallback_priority)
+
+        # v65 O-64: 拓扑种子 (能力探测匹配) 前置到 Wave 0
+        if topology_boosted_count > 0:
+            boosted_names = {a.atomic_attack_name for a in topology_boosted}
+            non_boosted = [a for a in sorted_attacks if a.atomic_attack_name not in boosted_names]
+            sorted_attacks = topology_boosted + non_boosted
+
         _safe_set_atomic_attacks(scenario, sorted_attacks)
         new_order = [a.atomic_attack_name for a in sorted_attacks]
 
         if new_order != original_order:
             _print_asr_reorder_summary(
                 atomic_attacks, sorted_attacks,
-                strategy_text="降级链 S→A→B→C→D (高 ASR 优先执行)",
+                strategy_text=(
+                    "降级链 S→A→B→C→D (高 ASR 优先执行)"
+                    + (f" + O-64 Wave 0 ({topology_boosted_count} 拓扑种子)" if topology_boosted_count else "")
+                ),
                 order_map=order_map,
                 warm_start=ctx.warm_start_asr or {},
                 enhanced_techs=_compute_enhanced_techs(sorted_attacks),
@@ -375,13 +412,23 @@ def _reorder_attacks_by_asr(ctx: PipelineContext) -> None:
     # 按优先级降序排列
     original_order = [a.atomic_attack_name for a in atomic_attacks]
     sorted_attacks = sorted(atomic_attacks, key=_attack_priority, reverse=True)
+
+    # v65 O-64: 拓扑种子 (能力探测匹配) 前置到 Wave 0
+    if topology_boosted_count > 0:
+        boosted_names = {a.atomic_attack_name for a in topology_boosted}
+        non_boosted = [a for a in sorted_attacks if a.atomic_attack_name not in boosted_names]
+        sorted_attacks = topology_boosted + non_boosted
+
     _safe_set_atomic_attacks(scenario, sorted_attacks)
     new_order = [a.atomic_attack_name for a in sorted_attacks]
 
     if new_order != original_order:
         _print_asr_reorder_summary(
             atomic_attacks, sorted_attacks,
-            strategy_text="ASR 优先级 (Laplace 平滑)",
+            strategy_text=(
+                "ASR 优先级 (Laplace 平滑)"
+                + (f" + O-64 Wave 0 ({topology_boosted_count} 拓扑种子)" if topology_boosted_count else "")
+            ),
             asr_by_tech=asr_by_tech,
             current_run_asr=current_run_asr,
             warm_start=ctx.warm_start_asr or {},
@@ -408,6 +455,63 @@ def _safe_set_atomic_attacks(scenario: Any, sorted_attacks: list) -> None:
             "This may indicate an upstream PyRIT version change.",
             type(scenario).__name__,
         )
+
+
+def _is_topology_seed_boosted(attack: Any, probe_owasp: set[str]) -> bool:
+    """v65 O-64: 检查 AtomicAttack 是否为能力探测匹配的拓扑种子.
+
+    判定条件 (全部满足):
+      1. AtomicAttack 的 seed_group 中存在 seed 标记为 source=topology_template
+      2. 该 seed 的 metadata 中 owasp_id 在 probe_owasp 集合中
+         (或 template_file 对应的 OWASP ID 在 probe_owasp 中)
+
+    学术依据:
+      - Boyd OODA: 探测→定向→决策→行动闭环
+      - MITRE ATT&CK T1592: 已发现能力应优先攻击
+      - Greshake et al. (arXiv:2302.12173): 注入面决定最优载荷
+
+    Args:
+        attack: AtomicAttack 实例
+        probe_owasp: 能力探测发现的 OWASP ID 集合
+
+    Returns:
+        True 如果该 attack 是能力探测匹配的拓扑种子
+    """
+    seed_group = getattr(attack, "seed_group", None) or getattr(attack, "seed_groups", None)
+    if not seed_group:
+        return False
+
+    # seed_group 可能是单个 SeedGroup 或列表
+    seed_groups_list = seed_group if isinstance(seed_group, list) else [seed_group]
+
+    # 拓扑模板文件 → OWASP ID 映射 (与 _inject_topology_seeds_to_memory 对齐)
+    _TEMPLATE_OWASP_MAP: dict[str, str] = {
+        "mcp_protocol_injection.yaml": "ASI01",
+        "indirect_prompt_injection.yaml": "ASI02",
+        "tool_hijack.yaml": "ASI03",
+        "rag_poisoning.yaml": "LLM08",
+        "token_reuse_and_escalation.yaml": "ASI09",
+        "crescendo_progressive.yaml": "ASI05",
+    }
+
+    for sg in seed_groups_list:
+        for seed in getattr(sg, "seeds", []):
+            seed_meta = getattr(seed, "metadata", None)
+            if not isinstance(seed_meta, dict):
+                continue
+            if seed_meta.get("source") != "topology_template":
+                continue
+            # 检查 OWASP ID 匹配
+            seed_owasp = seed_meta.get("owasp_id", "")
+            if seed_owasp and seed_owasp in probe_owasp:
+                return True
+            # 检查模板文件对应的 OWASP ID 匹配
+            template_file = seed_meta.get("template_file", "")
+            template_owasp = _TEMPLATE_OWASP_MAP.get(template_file, "")
+            if template_owasp and template_owasp in probe_owasp:
+                return True
+
+    return False
 
 
 def _print_ammo_construction(
@@ -1426,14 +1530,30 @@ def _dedup_atomic_attacks(atomic_attacks: list) -> list:
     HarmBench overlap on harmful questions), causing AtomicAttack validation
     failure (AttackSeedGroup requires unique objective).
 
+    v62 P1: topology_template sourced seeds are exempt from deduplication.
+    These seeds carry topology-specific payloads that may share objective text
+    with generic seeds but represent distinct attack vectors (OWASP ASI01-10).
+    The seed's metadata["source"] == "topology_template" flag identifies them.
+
+    v64 O-63: topology_template seeds are moved to front of list before dedup,
+    ensuring their hashes enter seen_hashes first. If a generic seed's objective
+    matches a topology seed, the generic seed is removed (not the topology seed).
+    This prevents topology-specific payloads from being silently dropped by
+    generic dataset overlap.
+
     Strategy:
-      1. Extract objective text from each AtomicAttack
-      2. Compute SHA256 hash
-      3. Keep first occurrence, remove subsequent duplicates
+      1. Partition: topology_template seeds → front, generic seeds → back
+      2. Extract objective text from each AtomicAttack
+      3. Compute SHA256 hash
+      4. Process topology_template seeds first (exempt + register hash)
+      5. Process generic seeds — if hash collides with topology seed, remove
+         generic; otherwise keep first occurrence among generic seeds
 
     Academic basis:
       - HarmBench (arXiv:2402.04249): standardized datasets should dedup
       - JailbreakBench (arXiv:2402.01135): avoid duplicate counting affecting ASR
+      - OWASP ASI01-10: topology-specific payloads are distinct attack vectors
+      - Greshake et al. (arXiv:2302.12173): injection surface determines payload
 
     Args:
         atomic_attacks: list of AtomicAttack objects
@@ -1444,20 +1564,49 @@ def _dedup_atomic_attacks(atomic_attacks: list) -> list:
     if not atomic_attacks or len(atomic_attacks) <= 1:
         return atomic_attacks
 
+    # v64 O-63: 拓扑种子前置 — 确保其 hash 先进入 seen_hashes
+    topology_attacks: list = []
+    generic_attacks: list = []
+    for attack in atomic_attacks:
+        seed_group = getattr(attack, "seed_group", None)
+        is_topo = False
+        if seed_group is not None:
+            for seed in getattr(seed_group, "seeds", []):
+                seed_meta = getattr(seed, "metadata", None)
+                if isinstance(seed_meta, dict) and seed_meta.get("source") == "topology_template":
+                    is_topo = True
+                    break
+        if is_topo:
+            topology_attacks.append(attack)
+        else:
+            generic_attacks.append(attack)
+
+    # 重排: 拓扑种子在前, 通用种子在后
+    reordered = topology_attacks + generic_attacks
+
     seen_hashes: set[str] = set()
     deduped: list = []
     removed_count = 0
+    topology_exempt_count = 0
+    generic_removed_by_topology = 0
 
-    for attack in atomic_attacks:
+    for attack in reordered:
         objective = ""
         seed_group = getattr(attack, "seed_group", None)
+        is_topology_template = False
         if seed_group is not None:
             for seed in getattr(seed_group, "seeds", []):
                 if hasattr(seed, "value") and not hasattr(seed, "sequence"):
                     objective = str(seed.value)
+                    seed_meta = getattr(seed, "metadata", None)
+                    if isinstance(seed_meta, dict) and seed_meta.get("source") == "topology_template":
+                        is_topology_template = True
                     break
                 elif hasattr(seed, "role") and getattr(seed, "role", "") == "":
                     objective = str(getattr(seed, "value", ""))
+                    seed_meta = getattr(seed, "metadata", None)
+                    if isinstance(seed_meta, dict) and seed_meta.get("source") == "topology_template":
+                        is_topology_template = True
                     break
 
         if not objective:
@@ -1468,12 +1617,44 @@ def _dedup_atomic_attacks(atomic_attacks: list) -> list:
 
         obj_hash = hashlib.sha256(objective.encode("utf-8")).hexdigest()
 
+        # v62 P1 + v64 O-63: topology_template 种子豁免去重
+        # v64 O-63: 拓扑种子的 hash 加入 seen_hashes,
+        # 后续通用种子如与拓扑种子 hash 相同则被移除 (保护拓扑载荷)
+        if is_topology_template:
+            deduped.append(attack)
+            seen_hashes.add(obj_hash)
+            topology_exempt_count += 1
+            logger.debug(
+                f"v64 O-63: topology_template seed exempt from dedup (hash registered): "
+                f"'{getattr(attack, 'atomic_attack_name', 'unknown')}'"
+            )
+            continue
+
+        # 通用种子: 检查是否与拓扑种子 hash 碰撞
         if obj_hash in seen_hashes:
             removed_count += 1
-            logger.debug(f"Seed dedup: removing duplicate attack '{getattr(attack, 'atomic_attack_name', 'unknown')}'")
+            if topology_exempt_count > 0:
+                generic_removed_by_topology += 1
+                logger.debug(
+                    f"v64 O-63: generic seed removed (covered by topology seed): "
+                    f"'{getattr(attack, 'atomic_attack_name', 'unknown')}'"
+                )
+            else:
+                logger.debug(
+                    f"Seed dedup: removing duplicate attack "
+                    f"'{getattr(attack, 'atomic_attack_name', 'unknown')}'"
+                )
         else:
             seen_hashes.add(obj_hash)
             deduped.append(attack)
+
+    if removed_count > 0:
+        logger.info(
+            f"Seed dedup: removed {removed_count} duplicate attacks "
+            f"(from {len(atomic_attacks)} total, "
+            f"{topology_exempt_count} topology exempt, "
+            f"{generic_removed_by_topology} covered by topology)"
+        )
 
     return deduped
 

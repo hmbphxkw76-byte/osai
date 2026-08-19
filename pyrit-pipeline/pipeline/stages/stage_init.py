@@ -17,7 +17,7 @@
   - pyrit.models.SeedDataset
   - pyrit.registry.TargetRegistry, ScorerRegistry, AttackTechniqueRegistry
 
-修改此文件不影响 Stage 2–5。
+修改此文件不影响 Stage 2–7。
 """
 
 import asyncio
@@ -148,9 +148,9 @@ async def _initialize_with_per_run_db(ctx: PipelineContext, config: Configuratio
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行 Stage 1/6: 原生初始化。."""
+    """执行 Stage 1/7: 原生初始化。."""
     print("\n" + "=" * 70)
-    print("阶段 1/6: PyRIT 初始化 — 目标 × 防御 × 弹药 × ASR 情报")
+    print("阶段 1/7: PyRIT 初始化 — Registry 加载 × 数据集装配 × ASR 情报")
     print("=" * 70)
 
     # C4+D1: 初始化事件总线和决策追溯
@@ -307,6 +307,8 @@ async def run(ctx: PipelineContext) -> None:
     _print_opsec_summary(ctx)
 
     # ── 衔接块: ★ 突出传递 Banner (压缩为 2 行) ──
+    # O-60: handoff 目标动态化 — 有 --target-url 时 Stage 1→2 (侦察先行),
+    # 无 --target-url 时 Stage 1→3 (跳过侦察, 直接到场景配置)
     from pipeline.utils.display import handoff_banner
 
     try:
@@ -319,9 +321,16 @@ async def run(ctx: PipelineContext) -> None:
     model_tier = ctx.metadata.get("model_tier", "?")
     asr_count = ctx.metadata.get("seed_level_asr_count", 0)
     ds_count = len(ctx.args.datasets) if ctx.args.datasets else 0
+    _has_target_url = bool(getattr(ctx.args, "target_url", None))
+    _next_stage = 2 if _has_target_url else 3
+    _handoff_title = (
+        "传递到目标侦察 — PTES Recon → Auth Bridge"
+        if _has_target_url
+        else "传递到场景配置 — ASR 驱动 + Attack-King"
+    )
     handoff_banner(
-        1, 2,
-        "传递到场景配置 — ASR 驱动 + Attack-King",
+        1, _next_stage,
+        _handoff_title,
         [
             f"★ {model_name} (tier={model_tier}) + {ds_count} 数据集 + {technique_count} 技术 + {asr_count} ASR seeds",
             f"★ 场景: {ctx.scenario_name} | 已排序: 高ASR种子优先",
@@ -501,9 +510,12 @@ async def _load_datasets(ctx: PipelineContext) -> None:
         _setup_http_target(ctx)
 
     # ── 认证状态桥接: 尝试复用已有认证态 (文件级共享, 不依赖 recon-pipeline) ──
-    _try_auth_state_reuse(ctx)
+    # PTES 优化: 当 Stage 2 (目标判别+认证桥接) 已处理认证时, 此处跳过避免重复
+    if not ctx.metadata.get("auth_type") and not ctx.metadata.get("target_classification"):
+        _try_auth_state_reuse(ctx)
 
     # ── 统一认证编排: --target-url 指定时自动判别+路由认证流程 ──
+    # PTES 优化: 当 Stage 2 已完成认证桥接时, 此处跳过
     if getattr(ctx.args, "target_url", None) and not ctx.metadata.get("auth_type"):
         await _run_unified_auth(ctx)
 
@@ -597,10 +609,13 @@ def _extract_scorer_details(instance: Any) -> list[str]:
 
 
 def _print_target_intel_card(ctx: PipelineContext) -> None:
-    """红队视角: 目标画像 core_card — 攻击面 × 防御态势.
+    """红队视角: 目标画像 core_card — 攻击者侧 × 防御者侧.
 
     PTES Intelligence Gathering 阶段对齐: 攻击者第一眼需要看到
     目标身份、端点、防御状态. 历史 ASR 移至弹药卡片.
+
+    PTES 优化: [攻击者侧] 展示 adversarial/scorer/技术统计,
+    [防御者侧] 展示真实目标的 JSON绕过/DoS/内容过滤状态.
     """
     target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
     scorer_entries = ScorerRegistry.get_registry_singleton().instances.get_all_instances()
@@ -620,7 +635,7 @@ def _print_target_intel_card(ctx: PipelineContext) -> None:
     tier_asr_map = {"strong": "25%-35%", "moderate": "35%-55%", "weak": "55%-75%", "unknown": "30%-40%"}
     expected_asr = tier_asr_map.get(model_tier, "30%-40%")
 
-    # [攻击面] 目标端点 + 评分器 + 技术统计
+    # [攻击者侧] adversarial chat + 评分器 + 技术统计
     attack_lines: list[str] = []
     for entry in target_entries[:3]:
         inner = getattr(entry.instance, "inner_target", entry.instance)
@@ -637,7 +652,7 @@ def _print_target_intel_card(ctx: PipelineContext) -> None:
         f"攻击技术: {len(technique_entries)} 个 (core={core}, multi={multi_turn}, single={single_turn})"
     )
 
-    # [防御态势] JSON绕过 + DoS排除 + 内容过滤扩展
+    # [防御者侧] JSON绕过 + DoS排除 + 内容过滤扩展
     json_disabled = ctx.metadata.get("json_mode_disabled_count", 0)
     json_total = len(target_entries)
     enable_dos = getattr(ctx.args, "enable_dos_attack", False) if ctx.args else False
@@ -653,8 +668,8 @@ def _print_target_intel_card(ctx: PipelineContext) -> None:
         defense_lines.append(f"内容过滤: {filter_count} 标记已扩展")
 
     sections = [
-        {"label": "攻击面", "lines": attack_lines},
-        {"label": "防御态势", "lines": defense_lines},
+        {"label": "攻击者侧", "lines": attack_lines},
+        {"label": "防御者侧", "lines": defense_lines},
     ]
 
     core_card(

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 5: ASR 驱动的结果输出 + 增强报告系统 + 证据收集。.
+"""Stage 7: ASR 驱动的结果输出 + 增强报告系统 + 证据收集。.
 
 职责:
   - ``output_scenario_async()`` 场景结果汇总 (Per-Group Breakdown, 按 ASR 排序)
@@ -97,9 +97,9 @@ def _is_attack_success(ar: Any) -> bool:
 
 
 async def run(ctx: PipelineContext) -> None:
-    """执行 Stage 6/6: 结果输出 + 增强报告。."""
+    """执行 Stage 7/7: 结果输出 + 增强报告。."""
     print("\n" + "=" * 70)
-    print("阶段 6/6: 结果输出 — 证据收集 + 报告生成")
+    print("阶段 7/7: 结果输出 — 证据收集 + 报告生成")
     print("=" * 70)
 
     # L5 P2-1/P2-2: 决策追溯 + 事件总线

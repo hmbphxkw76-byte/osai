@@ -1,9 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 0.5: 统一目标类型判别 + 认证桥接.
-
-v43 统一入口: --target-url 自动触发完整链路 (判别→认证→桥接→主流水线 17 种攻击).
+"""Stage 2: 目标侦察 + 认证桥接 (PTES: Recon → Auth Bridge).
 
 当用户提供 ``--target-url`` 时, 本阶段自动执行完整链路:
   1. 调用 TargetClassifier 判别目标类型 (LLM Web 应用 / LLM API 平台)
@@ -880,7 +878,7 @@ async def _check_target_reachability(
 ) -> dict[str, Any]:
     """v50: 目标可达性快速探测 — TCP 连通性 + HTTP 探针.
 
-    在 Stage 0.5 路由前执行, 不可达则触发降级链.
+    在 Stage 2 路由前执行, 不可达则触发降级链.
     区别于 _burp_pre_flight_probe (推断响应格式), 本函数仅判断可达性.
 
     探测策略 (两级):
@@ -1159,7 +1157,7 @@ async def _try_fallback_chain(
 
 
 async def run(ctx: PipelineContext) -> bool:
-    """执行 Stage 0.5: 统一目标类型判别 + 认证桥接。.
+    """执行 Stage 2: 目标侦察 + 认证桥接。.
 
     v50: 新增三级降级链 — Burp 不可达 → Playwright → .env OpenAIChatTarget → 终止.
     使用 --no-fallback 可禁用降级 (严格模式).
@@ -1175,7 +1173,7 @@ async def run(ctx: PipelineContext) -> bool:
         return False
 
     print("\n" + "=" * 70)
-    print("[0.5] 统一目标类型判别 + 认证桥接 (v43)")
+    print("阶段 2/7: 目标侦察 + 认证桥接 (Recon & Auth Bridge)")
     print("=" * 70)
     print(f"  目标 URL: {target_url}")
 
@@ -1210,9 +1208,15 @@ async def run(ctx: PipelineContext) -> bool:
             force_type=target_type_override,
         )
 
-        print(f"  判别结果: {classification.target_type}")
-        print(f"  推荐模式: {classification.recommended_mode}")
-        print(f"  依据: {classification.detection_reason}")
+        # v58: 目标判别结果卡片化 (替代散乱 print)
+        from pipeline.utils.display import target_classification_card
+        target_classification_card(
+            target_url=target_url,
+            target_type=classification.target_type,
+            recommended_mode=classification.recommended_mode,
+            detection_reason=classification.detection_reason,
+            burp_request_file=burp_request_file,
+        )
 
         # A2: 认证决策链日志
         trace = DecisionTrace.get_instance()
@@ -1269,7 +1273,82 @@ async def run(ctx: PipelineContext) -> bool:
                         from pipeline.utils.display import info_box
                         info_box(
                             "v60 拓扑驱动场景推荐",
-                            [f"推荐场景: {recommended_scenario}", f"触发原因: 拓扑检测到{topo.architecture_type}"],
+                            [f"推荐场景: {recommended_scenario}", f"触发原因: 拓扑检测到{topo.app_architecture}"],
+                        )
+
+                    # v58 P1-A: 拓扑驱动MCP探针自动触发
+                    # 当拓扑检测到 mcp_orchestrator 时, 自动设置 --mcp-attack
+                    # 使 Stage 2 的 MCP 探针块自动执行 (15个OWASP ASI探针)
+                    # 学术依据: OWASP ASI01 — MCP协议注入需主动探测
+                    if topo.app_architecture == "mcp_orchestrator" and not getattr(ctx.args, "mcp_attack", False):
+                        ctx.args.mcp_attack = True
+                        ctx.metadata["topology_auto_mcp_attack"] = True
+                        from pipeline.utils.display import info_box
+                        info_box(
+                            "v58 MCP探针自动触发",
+                            [
+                                "触发原因: 拓扑检测到 mcp_orchestrator",
+                                "自动设置: --mcp-attack (15个ASI探针)",
+                                "学术依据: OWASP ASI01 — MCP协议注入需主动探测",
+                            ],
+                        )
+                        logger.info("v58 P1-A: MCP probes auto-triggered by topology (mcp_orchestrator)")
+
+                    # v58 P1-B: Session Cookie 过期时间 vs 攻击预算检测
+                    # v59 P1: 自动调整 scenario_timeout 到 Cookie 过期前 80%
+                    # v60 P1: 注册认证刷新回调 — 攻击期间到期前自动刷新认证状态
+                    #   学术依据: MITRE ATT&CK T1550 — Session Token过期决定攻击窗口
+                    #   RFC 6749 §4.2 — Token refresh 应在过期前执行
+                    #   OWASP ASVS V2.4 — 认证验证应最小化中断
+                    _attack_budget = getattr(ctx.args, "scenario_timeout", 600)
+                    _token_expiry = getattr(topo, "token_expiry_seconds", 0)
+                    if _token_expiry > 0 and _token_expiry < _attack_budget:
+                        from pipeline.utils.display import info_box
+                        _coverage_pct = (_token_expiry / _attack_budget) * 100
+                        # v59: 自动调整 scenario_timeout 到 Cookie 过期前 80%
+                        _adjusted_timeout = int(_token_expiry * 0.8)
+                        _original_timeout = _attack_budget
+                        ctx.args.scenario_timeout = _adjusted_timeout
+
+                        # v60 P1: 注册认证刷新回调 — 在攻击执行期间到期前自动刷新
+                        # 攻击者视角: 与其缩短攻击窗口, 不如在到期前刷新认证延长窗口
+                        # 策略: 设置 refresh_interval = token_expiry * 0.7 (70%处刷新)
+                        # Stage 4 执行器在每个 objective 完成后检查是否需要刷新
+                        _refresh_interval = int(_token_expiry * 0.7)
+                        ctx.metadata["auth_refresh_config"] = {
+                            "token_expiry_seconds": _token_expiry,
+                            "refresh_interval_seconds": _refresh_interval,
+                            "auth_type": getattr(topo, "auth_topology", "none"),
+                            "target_url": classification.target_url,
+                            "last_refresh_time": 0.0,  # 由 Stage 4 更新
+                            "refresh_count": 0,
+                        }
+
+                        info_box(
+                            "⚠️ Session Cookie 过期风险 → 自动调整 + 刷新注册",
+                            [
+                                f"Cookie过期: {_token_expiry}s",
+                                f"原始攻击预算: {_original_timeout}s",
+                                f"覆盖率: {_coverage_pct:.0f}%",
+                                f"v59 自动调整: scenario_timeout → {_adjusted_timeout}s",
+                                f"v60 认证刷新: 每 {_refresh_interval}s 自动刷新认证",
+                                "策略: 到期前70%处刷新, 80%处截止 (双重保障)",
+                                "学术依据: MITRE ATT&CK T1550 + RFC 6749 §4.2 + OWASP ASVS V2.4",
+                            ],
+                        )
+                        ctx.metadata["cookie_expiry_risk"] = {
+                            "token_expiry_seconds": _token_expiry,
+                            "original_budget_seconds": _original_timeout,
+                            "adjusted_budget_seconds": _adjusted_timeout,
+                            "coverage_pct": round(_coverage_pct, 1),
+                            "auto_adjusted": True,
+                            "auth_refresh_registered": True,
+                        }
+                        logger.warning(
+                            f"v60 P1: Cookie expiry risk — token={_token_expiry}s "
+                            f"< budget={_original_timeout}s ({_coverage_pct:.0f}% coverage) "
+                            f"→ scenario_timeout={_adjusted_timeout}s, "
+                            f"auth_refresh every {_refresh_interval}s"
                         )
 
         # v43.1 S-7: 三模式统一认证状态复用 — 在路由前尝试加载 AuthState
@@ -1360,6 +1439,33 @@ async def run(ctx: PipelineContext) -> bool:
         from pipeline.utils.display import fallback_health_card
 
         fallback_health_card(ctx)
+
+        # v58: Stage 2 Handoff Banner — 攻击配置传递到 Stage 3
+        # 学术依据: NIST AI RMF 1.0 — 阶段间决策可追溯性
+        _topology = ctx.metadata.get("attack_surface_topology")
+        _topo_arch = getattr(_topology, "app_architecture", "unknown") if _topology else "unknown"
+        _seed_count = len(ctx.metadata.get("expanded_attack_seeds", []))
+        _alt_path_count = len(ctx.metadata.get("alternative_attack_paths", []))
+        _mcp_auto = ctx.metadata.get("topology_auto_mcp_attack", False)
+        _cookie_risk = "cookie_expiry_risk" in ctx.metadata
+        _scenario_name = getattr(ctx.args, "scenario", "text_adaptive")
+        _target_mode_label = "Burp API" if burp_request_file else (
+            "Browser" if classification.target_type == "llm_web_app" else "API Platform"
+        )
+        from pipeline.utils.display import handoff_banner
+        handoff_banner(
+            2, 3,
+            "传递到场景配置 — 攻击决策已就绪",
+            [
+                f"★ 目标模式: {_target_mode_label}",
+                f"★ 场景: {_scenario_name} | 架构: {_topo_arch}",
+                f"★ 攻击种子: {_seed_count} 个 | 替代路径: {_alt_path_count} 条",
+                (
+                    f"★ MCP探针: {'自动触发' if _mcp_auto else '未触发'}"
+                    f" | Cookie风险: {'⚠ 有风险' if _cookie_risk else '无'}"
+                ),
+            ],
+        )
 
         # Step 2: 统一路由 (v43: 三路自动选择)
         if burp_request_file:
@@ -2009,43 +2115,71 @@ async def _probe_and_record_capabilities(
             if not getattr(ctx.args, "api_response_path", None):
                 print(f"  [S-6] 自动发现响应路径: {discovered_path}")
 
-        print(
-            f"  [S-6] 能力探测: agent={has_agent}, rag={has_rag}, "
-            f"mcp={has_mcp}, embedding={has_embedding}"
-            + (f", model={model_name}" if model_name else "")
-        )
-
         # A-3: 目标 Agent 工具集自动发现
         # P1: 优先尝试 MCP 协议探测 (真实工具定义)
         # 如果 MCP 探测失败, 回退到 A-3 文本解析
+        _probe_tools: list[Any] | None = None
+        _tool_source = ""
         if has_agent:
             # P1: MCP 协议探测 — 从目标 MCP 端点获取真实工具定义
             auth_headers = ctx.metadata.get("auth_headers", {})
             mcp_tools = await _probe_mcp_tools(target_url, auth_headers)
             if mcp_tools:
                 ctx.metadata["target_agent_tools"] = mcp_tools
-                print(f"  [P1] MCP 协议发现工具集: {len(mcp_tools)} 个工具")
-                for t in mcp_tools[:5]:
-                    if isinstance(t, dict):
-                        print(f"       - {t.get('name', '?')}")
-                if len(mcp_tools) > 5:
-                    print(f"       ... 及其他 {len(mcp_tools) - 5} 个工具")
+                _probe_tools = mcp_tools
+                _tool_source = "MCP协议"
             else:
                 # A-3: 从响应文本提取工具定义 (降级模式)
                 discovered_tools = _discover_target_tools(response_text)
                 if discovered_tools:
                     ctx.metadata["target_agent_tools"] = discovered_tools
-                    print(f"  [A-3] 文本解析发现工具集: {len(discovered_tools)} 个工具")
-                    for t in discovered_tools[:5]:
-                        if isinstance(t, dict):
-                            print(f"       - {t.get('name', t.get('function', {}).get('name', '?'))}")
-                    if len(discovered_tools) > 5:
-                        print(f"       ... 及其他 {len(discovered_tools) - 5} 个工具")
+                    _probe_tools = discovered_tools
+                    _tool_source = "文本解析"
                 else:
                     # 未发现显式工具定义, 使用蜜罐工具集作为默认
                     from pipeline.targets.honeypot_tools import build_honeypot_tool_definitions
                     ctx.metadata["target_agent_tools"] = build_honeypot_tool_definitions()
-                    print("  [A-3] 未发现显式工具定义, 使用蜜罐工具集 (8 个工具) 作为默认")
+                    _probe_tools = build_honeypot_tool_definitions()
+                    _tool_source = "蜜罐默认"
+
+        # v59 P2-B: 能力探测结果卡片化 — 统一展示, 替代散乱 print
+        # 学术依据: NIST AI RMF 1.0 — 决策可追溯性要求结构化展示探测结果
+        from pipeline.utils.display import capability_probe_card
+
+        if _tool_source:
+            logger.info(f"S-6: Tools discovered via {_tool_source}: {len(_probe_tools or [])} tools")
+
+        capability_probe_card(
+            has_agent=has_agent,
+            has_rag=has_rag,
+            has_mcp=has_mcp,
+            has_embedding=has_embedding,
+            model_name=model_name,
+            target_agent_tools=_probe_tools,
+            response_path=discovered_path,
+        )
+
+        # v61 P3: 能力探测 OWASP 映射回注 — 将探测到的能力→OWASP映射写入 metadata
+        # 供 Stage 5 OWASP 矩阵读取, 形成 "探测→推荐→攻击→覆盖" 闭环
+        # 学术依据: NIST AI RMF 1.0 — 风险识别→测量→管理的闭环;
+        #   OWASP ASI01-10 — 能力→威胁分类映射
+        _CAPABILITY_OWASP_MAP: list[tuple[bool, str]] = [
+            (has_agent, "ASI02"),
+            (has_agent, "ASI03"),
+            (has_mcp, "ASI01"),
+            (has_mcp, "ASI09"),
+            (has_rag, "LLM08"),
+            (has_rag, "LLM04"),
+            (has_embedding, "LLM08"),
+        ]
+        _probe_owasp: list[str] = [
+            owasp_id for detected, owasp_id in _CAPABILITY_OWASP_MAP if detected
+        ]
+        if _probe_owasp:
+            ctx.metadata["capability_probe_owasp"] = sorted(set(_probe_owasp))
+            logger.info(
+                f"v61 P3: capability probe OWASP mapping: {ctx.metadata['capability_probe_owasp']}"
+            )
 
         # 记录到 DecisionTrace
         from pipeline.utils.decision_trace import DecisionTrace
@@ -3692,6 +3826,135 @@ def _detect_model_fingerprint(
 
 
 # ============================================================
+# v61 P2: 拓扑专用技术载荷模板加载
+# ============================================================
+
+# 注入面 → 载荷模板文件名映射
+_TOPOLOGY_PAYLOAD_MAP: dict[str, str] = {
+    "mcp_protocol": "mcp_protocol_injection.yaml",
+    "tool_result": "indirect_prompt_injection.yaml",
+    "user_message": "indirect_prompt_injection.yaml",  # agent_with_tools 也用间接注入
+    "rag_content": "rag_poisoning.yaml",
+    "auth_token": "token_reuse_and_escalation.yaml",
+    "conversation_history": "crescendo_progressive.yaml",
+}
+
+
+def _load_topology_payload_templates(
+    ctx: PipelineContext,
+    topology: Any,
+    expanded_seeds: list[dict[str, Any]],
+) -> int:
+    """v61 P2: 根据拓扑注入面加载专用 YAML 载荷模板.
+
+    将 ``data/seed_datasets/topology/`` 目录下的专用载荷模板根据拓扑
+    注入面自动加载, 追加到 ``expanded_seeds`` 列表.
+
+    每个模板文件包含多个针对特定攻击面优化的载荷, 与 Converter 链配合使用:
+      - mcp_protocol → mcp_protocol_injection.yaml (encoding_bypass → base64 → format_injection)
+      - tool_result → indirect_prompt_injection.yaml (cross_paradigm → translation → homoglyph)
+      - rag_content → rag_poisoning.yaml (translation → homoglyph → semantic_bypass)
+      - auth_token → token_reuse_and_escalation.yaml (base64 → encoding_bypass → format_injection)
+      - conversation_history → crescendo_progressive.yaml (cross_paradigm_2layer → cross_paradigm_3layer)
+
+    Args:
+        ctx: PipelineContext 实例.
+        topology: AttackSurfaceTopology 实例.
+        expanded_seeds: 已有的攻击种子列表 (原地追加).
+
+    Returns:
+        加载的种子数量.
+
+    学术依据:
+      - OWASP ASI01-10: 拓扑专用载荷提升攻击精准度
+      - Greshake et al. (arXiv:2302.12173): 注入面决定最优载荷
+      - NIST AI RMF 1.0: 攻击决策可追溯性
+    """
+    from pathlib import Path
+
+    import yaml
+
+    loaded_count = 0
+    template_dir = Path("data/seed_datasets/topology")
+
+    if not template_dir.exists():
+        logger.debug(f"v61 P2: topology template dir not found: {template_dir}")
+        return 0
+
+    # 获取拓扑注入面
+    injection_surfaces = getattr(topology, "injection_surfaces", []) or []
+
+    # v67 P2: 规范化注入面格式 — 支持 str 和 dict 两种格式
+    # Burp 模式: list[str] (如 ["user_message", "tool_result"])
+    # text_adaptive 简化模式: list[dict] (如 [{"type": "user_message"}])
+    normalized_surfaces: list[str] = []
+    for surface in injection_surfaces:
+        if isinstance(surface, str):
+            normalized_surfaces.append(surface)
+        elif isinstance(surface, dict):
+            surface_type = surface.get("type", "")
+            if surface_type:
+                normalized_surfaces.append(surface_type)
+
+    # 根据注入面选择要加载的模板文件
+    templates_to_load: set[str] = set()
+    for surface in normalized_surfaces:
+        template_name = _TOPOLOGY_PAYLOAD_MAP.get(surface)
+        if template_name:
+            templates_to_load.add(template_name)
+
+    # v67 P2: simple_llm 架构 → 加载基础间接注入模板
+    # user_message 注入面是所有架构共有的, 但简化模式可能未报告此面
+    # 确保 simple_llm 架构也有基础载荷覆盖
+    arch = getattr(topology, "app_architecture", "unknown")
+    if arch == "simple_llm" and not any(
+        s in normalized_surfaces for s in ("user_message", "tool_result")
+    ):
+        templates_to_load.add("indirect_prompt_injection.yaml")
+
+    # 特殊: mcp_orchestrator 架构 → 加载 MCP 模板
+    if arch == "mcp_orchestrator":
+        templates_to_load.add("mcp_protocol_injection.yaml")
+    # agent_with_tools → 加载 tool_hijack
+    if arch == "agent_with_tools" or getattr(topology, "has_tool_calling", False):
+        templates_to_load.add("tool_hijack.yaml")
+
+    for template_name in sorted(templates_to_load):
+        template_path = template_dir / template_name
+        if not template_path.exists():
+            logger.debug(f"v61 P2: template not found: {template_path}")
+            continue
+        try:
+            with open(template_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            seeds = data.get("seeds", []) if isinstance(data, dict) else []
+            for seed in seeds:
+                # v64 O-63: 拓扑种子插入到 expanded_seeds 头部,
+                # 确保在后续 _inject_attack_surface_seeds 和 _dedup_atomic_attacks
+                # 中先于通用种子注册 hash (保护拓扑载荷不被覆盖)
+                expanded_seeds.insert(0, {
+                    "objective": seed.get("prompt", ""),
+                    "technique": seed.get("technique", "unknown"),
+                    "owasp_id": seed.get("owasp", ""),
+                    "category": seed.get("category", "topology_payload"),
+                    "description": seed.get("description", ""),
+                    "severity": seed.get("severity", "medium"),
+                    "difficulty": seed.get("difficulty", "medium"),
+                    "source": "topology_template",
+                    "template_file": template_name,
+                })
+                loaded_count += 1
+        except Exception as e:
+            logger.debug(f"v61 P2: failed to load template {template_name}: {e}")
+
+    if loaded_count > 0:
+        ctx.metadata["topology_payload_templates_loaded"] = loaded_count
+        ctx.metadata["topology_payload_templates"] = sorted(templates_to_load)
+
+    return loaded_count
+
+
+# ============================================================
 # v56: 攻击者视角 — 攻击面拓扑构建 + 攻击种子扩展 + 替代路径发现
 # ============================================================
 
@@ -3784,6 +4047,17 @@ def _expand_attack_surface(
             logger.debug(f"v56: token analysis failed: {e}")
 
     ctx.metadata["expanded_attack_seeds"] = expanded_seeds
+
+    # v61 P2: 拓扑专用技术载荷模板加载 — 根据拓扑注入面加载对应 YAML 载荷模板
+    # 学术依据: OWASP ASI01-10 — 拓扑专用载荷提升攻击精准度;
+    #   Greshake et al.(arXiv:2302.12173) — 注入面决定最优载荷
+    #   NIST AI RMF 1.0 — 攻击决策可追溯性
+    _topology_payload_count = _load_topology_payload_templates(ctx, topology, expanded_seeds)
+    if _topology_payload_count > 0:
+        logger.info(
+            f"v61 P2: topology payload templates loaded: {_topology_payload_count} seeds "
+            f"for arch={topology.app_architecture}"
+        )
 
     # 5. v57: 统一卡片展示 (替代散乱 print)
     from pipeline.utils.display import attack_surface_card, info_box

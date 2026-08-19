@@ -208,7 +208,7 @@ async def _create_browser_supplement_target(
         logger.warning(f"H-1: Browser dependencies not available: {e}")
         return None
 
-    # 动态生成 Profile (复用 Stage 0.5 的逻辑)
+    # 动态生成 Profile (复用 Stage 2 的逻辑)
     from pipeline.stages.stage_target_classify import _load_or_create_profile
 
     profile = _load_or_create_profile(ctx, target_url)

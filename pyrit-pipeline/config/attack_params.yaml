@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # 攻击调优参数 — 团队共享默认值 (Single Source of Truth)
 # ============================================================================
 # 本文件存放非敏感的攻击调优参数默认值, 进入 Git 版本追踪
@@ -130,6 +130,106 @@ scorer_timeout_max_retries: 1
 # v54: 新增到 YAML, 此前仅 CLI --scenario-timeout (default=600) 可配置
 # 学术依据: NIST SP 800-92 — 不可恢复异常的重试属噪音层, 超时终止是确定性恢复
 scenario_timeout: 600
+
+# ============================================================================
+# v66 O-65: O-61 硬终止阈值参数化 (Circuit Breaker Pattern)
+# ============================================================================
+# 当 API 持续不可用时, stale_count 达到阈值且已执行数不足 max_executed,
+# 则强制终止场景执行, 不再等待 scenario_timeout
+# 学术依据: Nygard "Release It!" — Circuit Breaker Pattern;
+#   Wald (1945) — Sequential Analysis: 无新信息时停止采样
+# 与 scenario_timeout 的协调: O-61 触发后主动取消场景任务,
+#   不等待 scenario_timeout 超时, 减少无效等待时间
+# 10 = 保守 (100s 无新结果才触发, 给 API 恢复机会)
+# 5  = 激进 (50s 无新结果即触发, 快速释放预算)
+# 3  = 最小值 (Wald 理论下限, 3个样本才能判断防御强度)
+o61_stale_count_threshold: 10
+
+# O-61 硬终止的已执行上限 — 仅当 _executed < 此值时触发
+# 3 = 默认 (Wald 理论最少样本数)
+# 1 = 极端 (API 严重不可用时, 1个样本即终止)
+# 5 = 保守 (给更多攻击机会)
+o61_max_executed: 3
+
+# v67 P1: O-55/O-61 死锁修复 — 死锁触发时的 stale_count 阈值
+# 当 stale_count >= 此值 且 _executed < o55_min_samples 时,
+# 绕过 max(o55_min_samples, _executed) 下限直接设 _adaptive_threshold = _executed
+# 死锁原理: _executed < 3 时, max(3, _executed) = 3 > _executed → 永远无法触发
+# 5 = 默认 (50s 无新结果, 已有足够信息判断 API 不可用)
+# 3 = 激进 (30s 即绕过下限)
+# 7 = 保守 (给 API 更多恢复时间)
+# 学术依据: Wald (1945) — stale_count >= 5 时已有足够信息量, 继续采样不增加信息
+o61_deadlock_stale_threshold: 5
+
+# v67 P2: O-55 阈值下限可配置 — max(3, ...) 中的 3 改为可配置
+# Wald (1945) 理论最少样本数, 用于判断防御强度
+# 3 = 默认 (Microsoft PyRIT 最佳实践: 最少3个样本)
+# 1 = 极端 (1个样本即决策, 统计意义低)
+# 5 = 保守 (更多样本才触发)
+o55_min_samples: 3
+
+# v68 P1: O-66 零结果硬终止 — 独立阈值 (不再复用 o61_deadlock_stale_threshold)
+# 当 stale_count >= 此值 且 _executed == 0 时, API 完全不可用, 强制终止
+# 与 o61_deadlock_stale_threshold 的区别:
+#   o61_deadlock_stale_threshold: O-55 死锁修复 (有少量结果但不满足阈值)
+#   o66_zero_result_threshold: O-66 零结果硬终止 (完全无结果)
+# 5 = 默认 (50s 无新结果, API 完全不可用)
+# 3 = 激进 (30s 即终止)
+# 7 = 保守 (给 API 更多恢复时间)
+o66_zero_result_threshold: 5
+
+# v68 P2: stale_count 检查间隔可配置 — _monitor_early_termination 的轮询间隔
+# 10.0 = 默认 (每10s检查一次, 平衡精度和开销)
+# 5.0 = 高频 (更快的响应, 但更多 CPU 开销)
+# 15.0 = 低频 (更少开销, 但延迟检测)
+# 学术依据: Wald (1945) — 检查间隔影响 Sequential Analysis 的响应速度
+o55_check_interval: 10.0
+
+# v69 P2: 认证刷新最小间隔 — monitor 循环中调用认证刷新的最小间隔
+# 避免每次循环 (默认 10s) 都调用认证刷新, 减少不必要的 API 请求
+# 60 = 默认 (每 60s 检查一次, 6 次 monitor 循环)
+# 30 = 高频 (每 30s 检查, 适合短时 Token)
+# 120 = 低频 (每 120s 检查, 适合长时 Token)
+# 学术依据: RFC 6749 §4.2 — Token refresh 应在过期前执行, 但不需要频繁检查
+o71_auth_refresh_min_interval: 60.0
+
+# ============================================================================
+# v70 O-76: O-66 阈值自适应 — 根据历史运行数据自动调整零结果硬终止阈值
+# ============================================================================
+# 当 o76_adaptive_enabled=true 时, monitor 启动时从 empirical_asr 历史数据
+# 读取该模型的 O-66 触发历史, 计算平均 API 恢复时间, 动态调整阈值:
+#   - 历史平均恢复快 (<30s): 阈值降低到 3 (快速释放预算)
+#   - 历史平均恢复中等 (30-60s): 保持默认 5
+#   - 历史平均恢复慢 (>60s) 或无历史: 保持默认 5 (保守)
+# 学术依据: Reinforcement Learning (Sutton & Barto) — 从历史经验学习最优策略
+o76_adaptive_enabled: true
+
+# v70 O-77: 场景超时自动缩短 — O-66 触发后后续场景自动缩短 scenario_timeout
+# ============================================================================
+# 当 O-66 在当前运行中触发后, 后续场景的 scenario_timeout 自动缩短到
+# O-66 触发时间的 o77_timeout_multiplier 倍 (默认 1.5)
+# 例如: O-66 在 50s 触发 → 后续 scenario_timeout = 50 × 1.5 = 75s
+# 学术依据: Circuit Breaker Pattern (Nygard) — 断路器跳闸后, 后续请求使用短超时
+o77_timeout_multiplier: 1.5
+
+# v70 O-78: 认证刷新自适应 — 根据Token实际过期时间动态调整刷新间隔
+# ============================================================================
+# 当 o78_adaptive_enabled=true 且 auth_refresh_config 中有 token_lifetime_seconds 时,
+# 刷新间隔自动设为 token_lifetime 的 80% (提前 20% 刷新, 避免过期)
+# 例如: token_lifetime=300s → 刷新间隔=240s
+# 学术依据: RFC 6749 §4.2 — Token refresh 应在过期前执行
+o78_adaptive_enabled: true
+# 当 token_lifetime 不可知时的回退刷新间隔比例 (相对于默认 o71_auth_refresh_min_interval)
+o78_fallback_ratio: 0.8
+
+# v70 O-79: CentralMemory 版本检测 — 运行时检测 PyRIT 版本自动选择 API 方法
+# ============================================================================
+# PyRIT 1.0.1 使用 get_attack_results(scenario_result_id=...)
+# 未来版本可能变更 API, 此开关启用版本检测自动选择正确方法
+# true = 检测 PyRIT 版本并自动选择 API (默认)
+# false = 硬编码使用 get_attack_results (仅适用于 1.0.1)
+# 学术依据: API 兼容性设计 — Semantic Versioning (SemVer)
+o79_version_check_enabled: true
 
 # OpenAI SDK 内部重试次数
 # 0 = 禁用 (由 RateLimitedTarget 统一管理重试, 避免三层叠加)

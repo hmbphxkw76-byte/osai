@@ -1,7 +1,7 @@
 # Copyright (c) 2026 OSAI Project.
 # Licensed under the MIT license.
 
-"""Stage 5/6: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回 + 下次运行建议。.
+"""Stage 6: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回 + 下次运行建议。.
 
 职责:
   - 实测 ASR vs 先验对比表 (技术 | 实测 | 先验 | 差异 | 样本数)
@@ -38,7 +38,7 @@ async def run(ctx: PipelineContext) -> None:
         return
 
     print("\n" + "=" * 70)
-    print("阶段 5/6: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回")
+    print("阶段 6/7: 执行后分析 — ASR 实测 vs 先验对比 + 经验写回")
     print("=" * 70)
 
     # L5 P2-1/P2-2: 决策追溯 + 事件总线
@@ -168,6 +168,11 @@ async def run(ctx: PipelineContext) -> None:
     # ── D4: OWASP LLM Top10 覆盖矩阵 (新增信息: OWASP 维度) ──
     _print_owasp_matrix(ctx)
 
+    # ── v59 P3: 替代路径攻击结果独立展示 ──
+    # 学术依据: Greshake et al.(arXiv:2302.12173) 多路径攻击经验应独立追踪;
+    #   NIST AI RMF 1.0 — 决策可追溯性要求替代路径结果可见
+    _print_alternative_path_results(ctx)
+
     # ── G4: ASR 反馈循环状态 (P1-3: 精简为仅展示闭环状态) ──
     _print_asr_feedback_loop(ctx)
 
@@ -187,7 +192,7 @@ async def run(ctx: PipelineContext) -> None:
 
     post_analysis = ctx.metadata.get("post_analysis", {})
     handoff_banner(
-        5, 6,
+        6, 7,
         "传递到结果输出 — 报告生成 + 证据收集",
         [
             f"★ ASR: {ctx.overall_asr}% → 决定报告严重等级",
@@ -983,6 +988,21 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
                 prefix = m.group(1).upper()
                 planned_coverage.add(f"{prefix}{m.group(2)}")
 
+    # v58 P2-D: 拓扑推荐覆盖 (从 attack_surface_topology.recommended_owasp 获取)
+    # 学术依据: HarmBench (arXiv:2402.04249) — 拓扑推荐但未触发 = 攻击面发现但未利用
+    topology_recommended_owasp: set[str] = set()
+    _topology = ctx.metadata.get("attack_surface_topology")
+    if _topology is not None:
+        _topo_owasp = getattr(_topology, "recommended_owasp", []) or []
+        topology_recommended_owasp = set(_topo_owasp)
+
+    # v61 P3: 能力探测 OWASP 映射 — 从 ctx.metadata 读取能力探测发现的 OWASP 分类
+    # 学术依据: NIST AI RMF 1.0 — 探测→推荐→攻击→覆盖闭环;
+    #   OWASP ASI01-10 — 能力探测→威胁分类映射
+    capability_probe_owasp: set[str] = set(
+        ctx.metadata.get("capability_probe_owasp", [])
+    )
+
     # P0-2: 分离 LLM 和 ASI 覆盖率计算
     llm_covered = covered & set(owasp_categories.keys())
     asi_covered = covered & set(owasp_asi_categories.keys())
@@ -992,6 +1012,7 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
     for owasp_id, name in owasp_categories.items():
         is_planned = owasp_id in planned_coverage
         is_actual = owasp_id in llm_covered
+        is_topo_recommended = owasp_id in topology_recommended_owasp
         attack_count = owasp_attack_counts.get(owasp_id, 0)
         success_count = owasp_success_counts.get(owasp_id, 0)
 
@@ -1005,16 +1026,26 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
             lines.append(line)
         elif is_planned:
             lines.append(f"  ─ {owasp_id} {name:<30} 计划有 → 实际 0 (未触发)")
+        elif is_topo_recommended:
+            # v58 P2-D: 拓扑推荐但未在计划中 → 攻击面发现但未利用
+            lines.append(f"  ⚑ {owasp_id} {name:<30} 拓扑推荐 → 未利用 (攻击面未覆盖)")
         else:
             lines.append(f"  ✗ {owasp_id} {name:<30} 未覆盖")
 
-    # ASI 覆盖 (P2-3: 增加计划态标注, 与 LLM 部分对齐)
-    if asi_covered or any(asi_id in planned_coverage for asi_id in owasp_asi_categories):
+    # ASI 条件扩展: v61 P3 能力探测发现的 ASI 分类也需展示
+    if (
+        asi_covered
+        or any(asi_id in planned_coverage for asi_id in owasp_asi_categories)
+        or any(asi_id in topology_recommended_owasp for asi_id in owasp_asi_categories)
+        or any(asi_id in capability_probe_owasp for asi_id in owasp_asi_categories)
+    ):
         lines.append("")
         lines.append("[Agentic AI Top 10]")
         for owasp_id, name in owasp_asi_categories.items():
             is_planned = owasp_id in planned_coverage
             is_actual = owasp_id in asi_covered
+            is_topo_recommended = owasp_id in topology_recommended_owasp
+            is_probe_detected = owasp_id in capability_probe_owasp
             attack_count = owasp_attack_counts.get(owasp_id, 0)
             success_count = owasp_success_counts.get(owasp_id, 0)
 
@@ -1027,6 +1058,11 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
                 )
             elif is_planned:
                 lines.append(f"  ─ {owasp_id} {name:<30} 计划有 → 实际 0 (未触发)")
+            elif is_topo_recommended:
+                lines.append(f"  ⚑ {owasp_id} {name:<30} 拓扑推荐 → 未利用 (攻击面未覆盖)")
+            elif is_probe_detected:
+                # v61 P3: 能力探测发现但未在拓扑推荐/计划中 → 探测发现
+                lines.append(f"  🔍 {owasp_id} {name:<30} 探测发现 → 未利用 (能力风险未覆盖)")
             else:
                 lines.append(f"  ✗ {owasp_id} {name:<30} 未覆盖")
 
@@ -1043,6 +1079,26 @@ def _print_owasp_matrix(ctx: PipelineContext) -> None:
             f"  ASI 覆盖率: {len(asi_covered)}/{len(owasp_asi_categories)} ({asi_coverage:.0f}%)"
         )
     lines.append(f"  有成功攻击的分类: {success_categories}/{len(covered)}")
+
+    # v58 P2-D: 拓扑推荐覆盖统计
+    topo_not_covered = topology_recommended_owasp - covered
+    if topo_not_covered:
+        lines.append("")
+        lines.append(
+            f"  ⚠ 拓扑推荐但未利用: {len(topo_not_covered)} 个 "
+            f"({', '.join(sorted(topo_not_covered))})"
+        )
+        lines.append("     → 攻击面已发现但未转化为实际攻击 (建议扩大种子集)")
+
+    # v61 P3: 能力探测发现但未覆盖的统计
+    probe_not_covered = capability_probe_owasp - covered - topology_recommended_owasp
+    if probe_not_covered:
+        lines.append("")
+        lines.append(
+            f"  🔍 探测发现但未覆盖: {len(probe_not_covered)} 个 "
+            f"({', '.join(sorted(probe_not_covered))})"
+        )
+        lines.append("     → 能力探测发现的风险未被攻击覆盖 (建议增加针对性载荷)")
 
     info_box("OWASP LLM Top10 (2025) 覆盖矩阵", lines)
 
@@ -1316,3 +1372,89 @@ def _compute_asr_breakdown(ctx: PipelineContext) -> dict[str, Any]:
             print(f"    {key}: {val}")
 
     return breakdown
+
+
+# ============================================================
+# v59 P3: 替代路径攻击结果独立展示
+# ============================================================
+
+
+def _print_alternative_path_results(ctx: PipelineContext) -> None:
+    """v59 P3: 替代路径攻击结果独立展示 — Stage 5 中用 core_card 展示.
+
+    将 ctx.metadata["alternative_path_results"] 中的替代路径攻击结果
+    结构化展示, 包含路径名/技术/OWASP分类/成功状态/评分方式.
+
+    学术依据:
+      - Greshake et al.(arXiv:2302.12173): 多路径攻击经验应独立追踪
+      - NIST AI RMF 1.0 — 决策可追溯性要求替代路径结果可见
+      - DART (arXiv:2407.06485) — per-model ASR 指导运行时决策
+    """
+    alt_results = ctx.metadata.get("alternative_path_results", [])
+    if not alt_results:
+        return
+
+    from pipeline.utils.display import core_card
+
+    # 按路径分组统计
+    path_stats: dict[str, dict[str, Any]] = {}
+    for r in alt_results:
+        pid = r.get("path_id", "unknown")
+        if pid not in path_stats:
+            path_stats[pid] = {
+                "technique": r.get("technique", "?"),
+                "owasp": r.get("owasp_id", "?"),
+                "total": 0,
+                "success": 0,
+                "score_methods": set(),
+            }
+        path_stats[pid]["total"] += 1
+        if r.get("achieved"):
+            path_stats[pid]["success"] += 1
+        sm = r.get("score_method", "?")
+        if sm:
+            path_stats[pid]["score_methods"].add(sm)
+
+    # 构建展示 sections
+    sections: list[dict[str, Any]] = []
+
+    # Section 1: 总览
+    total_attacks = len(alt_results)
+    total_success = sum(1 for r in alt_results if r.get("achieved"))
+    overall_alt_asr = (total_success / total_attacks * 100) if total_attacks > 0 else 0
+    overview_lines = [
+        f"总攻击数: {total_attacks}",
+        f"成功: {total_success} | 失败: {total_attacks - total_success}",
+        f"替代路径整体 ASR: {overall_alt_asr:.1f}%",
+    ]
+    sections.append({"label": "总览", "lines": overview_lines})
+
+    # Section 2: 按路径分组
+    path_lines: list[str] = []
+    for pid, stats in sorted(path_stats.items()):
+        asr = (stats["success"] / stats["total"] * 100) if stats["total"] > 0 else 0
+        methods = ", ".join(sorted(stats["score_methods"])) if stats["score_methods"] else "N/A"
+        path_lines.append(
+            f"{pid}: {stats['technique']} [{stats['owasp']}] "
+            f"{stats['success']}/{stats['total']} ({asr:.0f}%)"
+        )
+        path_lines.append(f"  评分: {methods}")
+    sections.append({"label": "路径明细", "lines": path_lines})
+
+    # Section 3: 洞察
+    insight_lines: list[str] = []
+    if overall_alt_asr > 0:
+        # 找到最佳路径
+        best_path = max(path_stats.items(), key=lambda x: x[1]["success"] / max(x[1]["total"], 1))
+        insight_lines.append(
+            f"最佳路径: {best_path[0]} "
+            f"(ASR={best_path[1]['success'] / max(best_path[1]['total'], 1) * 100:.0f}%)"
+        )
+    if total_success > 0:
+        insight_lines.append("→ 替代路径有效突破主攻击失败的 objective")
+        insight_lines.append("→ 经验已回注 ctx.asr_per_technique → warm-start 闭环")
+    else:
+        insight_lines.append("→ 替代路径未突破 — 建议增大 --max-attempts 或尝试 --tier-layer")
+    sections.append({"label": "洞察", "lines": insight_lines})
+
+    core_card("v59 替代路径攻击结果", sections)

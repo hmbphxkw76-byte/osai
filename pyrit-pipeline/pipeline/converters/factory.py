@@ -525,6 +525,28 @@ def build_target_aware_converter_map(
         "prompt_sending": [],
     }
 
+    # v60 P2: 拓扑专用技术 Converter 链 — 为非 PyRIT 原生 registry 技术构建专用链
+    # 这些技术不在 BASE_TECHNIQUES_FOR_VARIANTS 中 (非原生攻击策略),
+    # 但通过编排器 (MCP Kill Chain / XPIA / 替代路径) 执行, 需要专用 Converter 链
+    # 学术依据:
+    #   Greshake et al.(arXiv:2302.12173) — 间接注入需载体适配;
+    #   Zhan et al.(arXiv:2307.00929) — InjecAgent 工具结果注入需隐蔽编码;
+    #   OWASP ASI01-10 — Agentic Security 攻击需专用载荷变换
+    _TOPOLOGY_TECH_CHAINS: dict[str, list[str]] = {
+        # MCP 协议注入 — 需要编码绕过 + 格式伪装
+        "mcp_protocol_injection": ["encoding_bypass", "base64", "format_injection"],
+        # 间接提示注入 — 需要跨范式 + 语义变换
+        "indirect_prompt_injection": ["cross_paradigm_2layer", "translation", "homoglyph"],
+        # 工具劫持 — 需要编码隐蔽 + 格式注入
+        "tool_hijack": ["encoding_bypass", "format_injection", "rot13"],
+        # RAG 投毒 — 需要语义变换 + 翻译
+        "rag_poisoning": ["translation", "homoglyph", "semantic_bypass"],
+        # Token 重用与权限提升 — 需要编码 + 格式伪装
+        "token_reuse_and_escalation": ["base64", "encoding_bypass", "format_injection"],
+        # Crescendo 渐进 — 需要跨范式协同
+        "crescendo_progressive": ["cross_paradigm_2layer", "cross_paradigm_3layer"],
+    }
+
     result: dict[str, list[Converter]] = {}
     total_chains_used = 0
     total_synergy_boosted = 0
@@ -535,6 +557,16 @@ def build_target_aware_converter_map(
         # technique_names 可能包含变体名 (如 "prompt_sending+stealth_evasion")
         base_tech = tech_name.split("+")[0] if "+" in tech_name else tech_name
         recommended_chains = chain_mapping.get(base_tech) or chain_mapping.get(tech_name)
+
+        # v60 P2: 拓扑专用技术 Converter 链 — 回退到 _TOPOLOGY_TECH_CHAINS
+        # 当技术不在原生 chain_mapping 中时 (如 mcp_protocol_injection),
+        # 从拓扑专用链映射中获取 Converter 链
+        if not recommended_chains and base_tech in _TOPOLOGY_TECH_CHAINS:
+            recommended_chains = _TOPOLOGY_TECH_CHAINS[base_tech]
+            logger.info(
+                f"v60 P2: Topology-specific converter chain assigned: "
+                f"{base_tech} → {recommended_chains}"
+            )
 
         if not recommended_chains:
             continue

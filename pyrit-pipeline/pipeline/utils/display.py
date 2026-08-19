@@ -746,3 +746,245 @@ def alternative_paths_card(paths: list[dict[str, Any]]) -> None:
         info_box(f"替代攻击路径 (降级链 — {len(paths)} 条)", lines)
     except Exception:
         pass
+
+
+# ── ⑩b 目标判别结果卡片 — v58: Stage 0.5 核心决策展示 ──
+
+
+def target_classification_card(
+    target_url: str,
+    target_type: str,
+    recommended_mode: str,
+    detection_reason: str,
+    burp_request_file: str | None = None,
+) -> None:
+    """Layer 2: 目标判别结果卡片 — Stage 0.5 第一个核心决策.
+
+    用 core_card 风格展示目标判别结果, 替代散乱 print.
+
+    格式::
+
+        ╔══════════════════════════════════════════════════════════╗
+        ║  🎯 目标判别结果
+        ╟────────────────────────────────────────────────────────────╢
+        ║  [目标] http://localhost
+        ║        类型: api_platform → 模式: Burp API
+        ║        依据: 无法自动判别...
+        ║
+        ║  [请求] data/burp/request.txt (654 bytes)
+        ╚══════════════════════════════════════════════════════════╝
+
+    Args:
+        target_url: 目标 URL.
+        target_type: 判别类型 (llm_web_app / llm_api_platform / unknown).
+        recommended_mode: 推荐模式 (browser / api / burp).
+        detection_reason: 判别依据描述.
+        burp_request_file: Burp 请求文件路径 (可选).
+    """
+    try:
+        sections: list[dict[str, Any]] = []
+
+        # Section 1: 目标信息
+        target_lines: list[str] = [
+            f"URL: {target_url}",
+            f"类型: {target_type} → 模式: {recommended_mode}",
+            f"依据: {trunc(detection_reason, 80)}",
+        ]
+        sections.append({"label": "目标", "lines": target_lines})
+
+        # Section 2: Burp 请求 (如有)
+        if burp_request_file:
+            from pathlib import Path
+
+            burp_path = Path(burp_request_file)
+            size = burp_path.stat().st_size if burp_path.exists() else 0
+            sections.append({
+                "label": "请求",
+                "lines": [f"{burp_request_file} ({size} bytes)"],
+            })
+
+        core_card("🎯 目标判别结果", sections)
+    except Exception:
+        pass
+
+
+# ── ⑩c Stage 0.5 Handoff Banner — v58: 攻击配置传递到 Stage 2 ──
+
+
+def stage_0_5_handoff_banner(
+    target_mode: str,
+    scenario: str,
+    topology_arch: str,
+    seed_count: int,
+    alt_path_count: int,
+    mcp_auto_triggered: bool = False,
+    cookie_risk: bool = False,
+) -> None:
+    """Layer 2: Stage 0.5 → Stage 2 Handoff Banner.
+
+    展示 Stage 0.5 的攻击配置决策, 突出攻击者视角的关键传递信息.
+
+    格式::
+
+        ╔══════════════════════════════════════════════════════════╗
+
+             ★  传递到场景配置 — 攻击决策已就绪  ★
+
+        ╚══════════════════════════════════════════════════════════╝
+
+        ┌─ 传递到 Stage 2 (★ 关键决策) ──────────────────────────┐
+        │ ★ 目标模式: Burp API (HTTPTarget + SSE)
+        │ ★ 场景: text_adaptive | 架构: simple_llm
+        │ ★ 攻击种子: 1 个 | 替代路径: 2 条
+        │ ★ MCP探针: 自动触发 | Cookie风险: 无
+        └────────────────────────────────────────────────────────────┘
+
+    Args:
+        target_mode: 目标模式 (Burp API / Browser / API Platform).
+        scenario: 场景名.
+        topology_arch: 拓扑架构类型.
+        seed_count: 攻击种子数量.
+        alt_path_count: 替代路径数量.
+        mcp_auto_triggered: MCP探针是否自动触发.
+        cookie_risk: 是否有Cookie过期风险.
+    """
+    try:
+        # 主 Banner
+        print()
+        print("  ╔" + "═" * _W + "╗")
+        print()
+        print("       ★  传递到场景配置 — 攻击决策已就绪  ★")
+        print()
+        print("  ╚" + "═" * _W + "╝")
+
+        # Handoff 详情
+        handoff_hdr = "传递到 Stage 2 (★ 关键决策)"
+        handoff_dashes = max(1, _W - 2 - cjk_width(handoff_hdr) - 2)
+        print(f"\n  ┌─ {handoff_hdr} {'─' * handoff_dashes}┐")
+
+        lines = [
+            f"★ 目标模式: {target_mode}",
+            f"★ 场景: {scenario} | 架构: {topology_arch}",
+            f"★ 攻击种子: {seed_count} 个 | 替代路径: {alt_path_count} 条",
+        ]
+
+        # 附加状态
+        mcp_status = "自动触发" if mcp_auto_triggered else "未触发"
+        cookie_status = "⚠ 有风险" if cookie_risk else "无"
+        lines.append(f"★ MCP探针: {mcp_status} | Cookie风险: {cookie_status}")
+
+        for line in lines:
+            print(f"  │ {line}")
+        print(f"  └{'─' * _W}┘")
+    except Exception:
+        pass
+
+
+# ── ⑩d 能力探测结果卡片 — v59: Stage 0.5 S-6 能力探测结果卡片化 ──
+
+
+def capability_probe_card(
+    has_agent: bool,
+    has_rag: bool,
+    has_mcp: bool,
+    has_embedding: bool,
+    model_name: str = "",
+    target_agent_tools: list[Any] | None = None,
+    response_path: str = "",
+) -> None:
+    """Layer 2: 能力探测结果卡片 — Stage 0.5 S-6 探测结果核心卡片化.
+
+    将 _probe_and_record_capabilities 的散乱 print 输出统一为核心卡片,
+    对齐 L5 NIST AI RMF 1.0 决策可追溯性标准.
+
+    格式::
+
+        ╔══════════════════════════════════════════════════════════╗
+        ║  🔍 S-6 能力探测结果
+        ╟────────────────────────────────────────────────────────────╢
+        ║  [能力] Agent=true  RAG=false  MCP=true  Embedding=false
+        ║         模型指纹: gpt-4o-mini
+        ║
+        ║  [工具] MCP协议发现 5 个工具
+        ║         • get_weather  • search_web  • send_email ...
+        ║
+        ║  [注入面] mcp_protocol, user_message
+        ╚══════════════════════════════════════════════════════════╝
+
+    Args:
+        has_agent: 是否检测到 Agent 能力.
+        has_rag: 是否检测到 RAG 能力.
+        has_mcp: 是否检测到 MCP 能力.
+        has_embedding: 是否检测到 Embedding 能力.
+        model_name: 探测到的模型名 (如 "gpt-4o-mini").
+        target_agent_tools: 发现的 Agent 工具列表.
+        response_path: 自动发现的非标准响应路径.
+    """
+    try:
+        sections: list[dict[str, Any]] = []
+
+        # Section 1: 能力矩阵
+        cap_lines: list[str] = [
+            f"Agent={'✓' if has_agent else '✗'}  "
+            f"RAG={'✓' if has_rag else '✗'}  "
+            f"MCP={'✓' if has_mcp else '✗'}  "
+            f"Embedding={'✓' if has_embedding else '✗'}",
+        ]
+        if model_name:
+            cap_lines.append(f"模型指纹: {model_name}")
+        sections.append({"label": "能力", "lines": cap_lines})
+
+        # Section 2: 工具集 (如有)
+        if target_agent_tools:
+            tool_names: list[str] = []
+            for t in target_agent_tools:
+                if isinstance(t, dict):
+                    name = t.get("name", t.get("function", {}).get("name", "?"))
+                elif isinstance(t, str):
+                    name = t
+                else:
+                    name = getattr(t, "name", "?")
+                tool_names.append(str(name))
+
+            tool_count = len(tool_names)
+            if tool_count <= 6:
+                tool_line = "  ".join(f"• {n}" for n in tool_names)
+                tool_lines = [f"发现 {tool_count} 个工具", tool_line]
+            else:
+                shown = "  ".join(f"• {n}" for n in tool_names[:5])
+                tool_lines = [
+                    f"发现 {tool_count} 个工具",
+                    shown,
+                    f"... 及其他 {tool_count - 5} 个工具",
+                ]
+            sections.append({"label": "工具", "lines": tool_lines})
+
+        # Section 3: 注入面 (如有非标准路径)
+        if response_path and response_path != "choices[0].message.content":
+            sections.append({
+                "label": "注入面",
+                "lines": [f"响应路径: {response_path}"],
+            })
+
+        # v60 P3: Section 4: OWASP ASI 能力映射 — 将探测到的能力映射到 OWASP 分类
+        # 学术依据: OWASP ASI01-10 — Agentic Security 能力→威胁分类映射;
+        #   NIST AI RMF 1.0 — 风险识别需关联到标准分类
+        _CAPABILITY_OWASP_MAP: list[tuple[bool, str, str, str]] = [
+            (has_agent, "ASI02", "Tool Misuse", "Agent 工具可被劫持执行非预期操作"),
+            (has_agent, "ASI03", "Unauthorized Actions", "Agent 可能执行超出授权范围的操作"),
+            (has_mcp, "ASI01", "Agent Identity Spoofing", "MCP 协议可被注入伪造 Agent 身份"),
+            (has_mcp, "ASI09", "Trust Boundary Violation", "MCP 跨服务器信任链可被利用"),
+            (has_rag, "LLM08", "Vector & Embedding Weaknesses", "RAG 知识库可被投毒"),
+            (has_rag, "LLM04", "Data and Model Poisoning", "RAG 数据源可被注入恶意内容"),
+            (has_embedding, "LLM08", "Vector & Embedding Weaknesses", "嵌入模型可被反转提取数据"),
+        ]
+        owasp_lines: list[str] = []
+        for detected, owasp_id, name, risk in _CAPABILITY_OWASP_MAP:
+            if detected:
+                owasp_lines.append(f"{owasp_id} {name} — {risk}")
+        if owasp_lines:
+            sections.append({"label": "OWASP映射", "lines": owasp_lines})
+
+        core_card("🔍 S-6 能力探测结果", sections)
+    except Exception:
+        pass

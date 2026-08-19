@@ -665,12 +665,18 @@ class TestBuildAttackSurfaceTopology:
         topology = classifier.build_attack_surface_topology(
             classification, burp_raw_request=burp_request
         )
-        # 应包含 recon, initial_access, credential_access, persistence, bypass
+        # v57: Kill Chain 扩展 — recon → initial_access → execution →
+        # persistence → credential_access → defense_evasion → discovery →
+        # collection → exfiltration (对齐 MITRE Atlas)
         assert "recon" in topology.recommended_kill_chain
         assert "initial_access" in topology.recommended_kill_chain
+        assert "execution" in topology.recommended_kill_chain
         assert "credential_access" in topology.recommended_kill_chain
         assert "persistence" in topology.recommended_kill_chain
-        assert "bypass" in topology.recommended_kill_chain
+        assert "defense_evasion" in topology.recommended_kill_chain
+        assert "discovery" in topology.recommended_kill_chain
+        assert "collection" in topology.recommended_kill_chain
+        assert "exfiltration" in topology.recommended_kill_chain
 
     def test_high_risk_tools_marked(self, classifier: TargetClassifier) -> None:
         """高风险工具被标记到 model_fingerprint。"""
