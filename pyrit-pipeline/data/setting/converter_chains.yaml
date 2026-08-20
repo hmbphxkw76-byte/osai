@@ -187,11 +187,15 @@ chains:
     description: 'P2: Base64 + ROT13 跨范式 2 层 (编码+混淆, 1.6x ASR) — v45.4: 移除 UnicodeConfusable, 替换 ROT13 保持 ASCII 可读性'
     cost_tier: cheap
   # P3: 语义保持混淆链 (保持可读性, 替代 Base64 编码)
+  # v72: 优先级 1→0 (最高优先) — 绕过 SiliconFlow security_audit 的最优链
+  #   原因: security_audit 对完全编码 (Base64) 仍可解码后检测, 但对保持可读性的
+  #   ROT13+RandomCapital 混淆效果更好 (绕过关键词级签名检测)
+  #   学术依据: Zeng et al. (arXiv:2402.19181) 语义层 ASR 30-40% >> 表示层 8-12%
   semantic_evasion:
     requires_llm: false
-    priority: 1
+    priority: 0
     modality: text
-    description: 'P3: ROT13 + RandomCapitalLetters 语义保持混淆 (可读性 100%, 绕过关键词过滤, 1.5x ASR) — v45.4: 移除 UnicodeConfusable+Leetspeak, 替换为 ASCII 安全的 ROT13+随机大写'
+    description: 'P3: ROT13 + RandomCapitalLetters 语义保持混淆 (可读性 100%, 绕过关键词过滤, 1.5x ASR) — v72: 最高优先级, 绕过 security_audit 的最优链'
     cost_tier: cheap
   cross_paradigm_3layer:
     requires_llm: true

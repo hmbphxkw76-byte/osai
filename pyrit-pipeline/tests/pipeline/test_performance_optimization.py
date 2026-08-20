@@ -104,12 +104,12 @@ class TestBackoffConfig:
 class TestApiTimeoutConfig:
     """测试 API 超时和 SDK 重试的 CLI 参数。"""
 
-    def test_api_timeout_default_120(self) -> None:
-        """api_timeout 默认值应为 120 (v54: 从 90 提升, 覆盖慢 API 端点)."""
+    def test_api_timeout_default_180(self) -> None:
+        """api_timeout 默认值应为 180 (v72: 从 120 提升, 适配多轮攻击策略)."""
         from pipeline.config import _load_attack_params
 
         params = _load_attack_params()
-        assert params["api_timeout"] == 120
+        assert params["api_timeout"] == 180
 
     def test_api_max_retries_default_0(self) -> None:
         """api_max_retries 默认值应为 0 (禁用 SDK 内部重试)。"""
@@ -128,7 +128,7 @@ class TestApiTimeoutConfig:
     def test_mock_args_has_api_timeout(self, mock_args: argparse.Namespace) -> None:
         """mock_args fixture 应包含 api_timeout 和 api_max_retries。"""
         assert hasattr(mock_args, "api_timeout")
-        assert mock_args.api_timeout == 120
+        assert mock_args.api_timeout == 180
         assert hasattr(mock_args, "api_max_retries")
         assert mock_args.api_max_retries == 0
         assert mock_args.rate_limit_retries == 3

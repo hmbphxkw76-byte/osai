@@ -603,20 +603,25 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
     # ------------------------------------------------------------------
 
     def _reorder_for_content_filter_block(self, tech_list: list[str]) -> list[str]:
-        """content_filter_block → 编码/混淆优先路由 (P3: 区分 API 网关拦截)。.
+        """content_filter_block → 语义保持混淆优先路由 (v72: 绕过 security_audit)。
 
-        当 API 网关 (如 LongCat security_audit) 拦截请求时,说明攻击内容
-        在传输层被检测到。路由策略:
-          1. 编码/混淆 (Base64, ROT13, Unicode) — 逃避签名检测
-          2. 噪声注入 (noise_bypass) — 干扰分类器
-          3. LLM 辅助 (persuasion, decomposition) — 语义层变换
-          4. 多轮迭代 — 最后尝试
+        当 API 网关 (如 SiliconFlow security_audit, LongCat security_audit) 拦截请求时,
+        说明攻击内容在传输层被检测到。路由策略 (v72 优化):
+          1. 语义保持混淆 (ROT13+RandomCapital) — 保持可读性, 绕过关键词级过滤
+             学术依据: Zeng et al. (arXiv:2402.19181) 语义层 ASR 30-40% >> 表示层 8-12%
+          2. 编码/混淆 (Base64, ROT13, Unicode) — 完全编码逃避签名检测
+             学术依据: Wei et al. (arXiv:2307.15043) 编码攻击绕过表示级安全过滤
+          3. 噪声注入 (noise_bypass) — 干扰分类器
+          4. LLM 辅助 (persuasion, decomposition) — 语义层变换
+          5. 多轮迭代 — 最后尝试 (Crescendo 渐进式可能触发更多拦截)
 
-        学术依据:
-          - Wei et al. (arXiv:2307.15043): 编码攻击通过表示级变换绕过分类器
-          - PyRIT (arXiv:2407.01232): response_error="blocked" 设计
+        v72 变更: 语义保持混淆优先于完全编码
+          原因: SiliconFlow security_audit 对完全编码 (Base64) 的 prompt
+          仍能通过解码后检测拦截, 但对保持可读性的 ROT13+RandomCapital
+          混淆效果更好 (绕过关键词级签名检测)
+          学术依据: HarmBench (arXiv:2402.04249) 保持可读性的变换比完全编码更有效
         """
-        logger.info("FailureTypeRouting: content_filter_block -> encoding/obfuscation routing")
+        logger.info("FailureTypeRouting: content_filter_block -> semantic_evasion + encoding routing (v72)")
 
         # P1: 运行时范式性能优先
         if self._paradigm_tracker and hasattr(self._paradigm_tracker, "has_data") and self._paradigm_tracker.has_data:
@@ -627,19 +632,32 @@ class FailureTypeRoutingSelector(EpsilonGreedyTechniqueSelector):
             )
             return self._reorder_by_paradigm_order(tech_list, paradigm_order)
 
-        # 静态路由: encoding >> persuasion >> multi_turn
-        encoding = [t for t in tech_list if _infer_paradigm(t) == PARADIGM_ENCODING]
+        # v72: 静态路由 — 语义保持混淆优先, 然后完全编码
+        # 1. 语义保持混淆 (semantic_evasion): ROT13+RandomCapital, 保持可读性
+        semantic_evasion = [
+            t for t in tech_list
+            if any(kw in t.lower() for kw in ("semantic", "rot13", "random_capital", "random_case"))
+        ]
+        semantic_evasion.sort(key=lambda t: -self._asr_sort_key(t))
+
+        # 2. 完全编码 (encoding): Base64, Morse, Binary 等
+        encoding = [t for t in tech_list if _infer_paradigm(t) == PARADIGM_ENCODING
+                    and t not in semantic_evasion]
         encoding.sort(key=lambda t: -self._asr_sort_key(t))
+
+        # 3. 说服 (persuasion): LLM 辅助语义变换
         persuasion = [t for t in tech_list if _infer_paradigm(t) == PARADIGM_PERSUASION]
         persuasion.sort(key=lambda t: -self._asr_sort_key(t))
+
+        # 4. 多轮迭代 (multi_turn): 最后尝试
         multi_turn = [t for t in tech_list if _infer_paradigm(t) == PARADIGM_MULTI_TURN]
         multi_turn.sort(key=lambda t: -self._asr_sort_key(t))
 
-        used = set(encoding + persuasion + multi_turn)
+        used = set(semantic_evasion + encoding + persuasion + multi_turn)
         others = [t for t in tech_list if t not in used]
         others.sort(key=lambda t: -self._asr_sort_key(t))
 
-        return encoding + persuasion + others + multi_turn
+        return semantic_evasion + encoding + persuasion + others + multi_turn
 
     def _reorder_for_model_refusal(self, tech_list: list[str]) -> list[str]:
         """model_refusal → 拒绝感知精确路由 + model_tier 感知 (P1: 运行时数据驱动)。.

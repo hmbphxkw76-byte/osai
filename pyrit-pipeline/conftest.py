@@ -37,7 +37,7 @@ def mock_args() -> argparse.Namespace:
         rate_limit_retries=3,
         timeout_max_retries=5,
         timeout_max_delay=120.0,
-        api_timeout=120,
+        api_timeout=180,
         scorer_timeout=30,
         api_max_retries=0,
         resume=None,

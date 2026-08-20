@@ -6,5 +6,13 @@
     "total_techniques": 1,
     "model_name": "Qwen/Qwen3-32B",
     "description": "Empirical ASR data collected from runtime. Overrides academic priors."
-  }
+  },
+  "o66_trigger_history": [
+    {
+      "trigger_time": 47794.9935772,
+      "stale_count_at_trigger": 5,
+      "recover_time_seconds": 0.1,
+      "timestamp": ""
+    }
+  ]
 }

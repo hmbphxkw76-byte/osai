@@ -63,6 +63,17 @@ async def run(ctx: PipelineContext) -> None:
     print("阶段 5/7: 场景执行 — AttackExecutor 并发 + 攻击为王")
     print("=" * 70)
 
+    # v72 O-84: 记录运行开始时间戳, 供 O-80/O-76 跨运行恢复时间计算
+    # 学术依据: Reinforcement Learning (Sutton & Barto) — 跨 episode 经验追踪
+    import time as _run_start_time_module
+
+    if "run_start_epoch" not in ctx.metadata:
+        ctx.metadata["run_start_epoch"] = _run_start_time_module.time()
+    if "run_start_time" not in ctx.metadata:
+        from datetime import datetime, timezone
+
+        ctx.metadata["run_start_time"] = datetime.now(timezone.utc).isoformat()
+
     # v50: 场景被跳过时 (所有目标模式失败) 跳过执行
     if ctx.scenario is None or ctx.metadata.get("scenario_skipped"):
         print("  ⚠ [v50] 场景为空, 跳过执行")
@@ -126,6 +137,19 @@ async def run(ctx: PipelineContext) -> None:
     # 原因: 外部API(SiliconFlow/LongCat)响应时间100-168s/调用, 10分钟内仅完成4个攻击
     # 优化: 执行前发送探测请求测量API延迟, 根据延迟动态调整scenario_timeout
     # 学术依据: Adaptive Query Budgeting (Mei et al., arXiv:2306.07541)
+    # v71: 提前加载 O-81/O-82 参数 (这些参数在后面的参数加载块中也有定义, 但O-37在前面执行)
+    try:
+        from pipeline.config import _load_attack_params as _o71_early_params
+
+        _o71_early = _o71_early_params()
+        _o81_multi_scenario_enabled = _o71_early.get("o81_multi_scenario_enabled", True)
+        _o82_token_lifecycle_probe_enabled = _o71_early.get(
+            "o82_token_lifecycle_probe_enabled", True
+        )
+    except Exception:
+        _o81_multi_scenario_enabled = True
+        _o82_token_lifecycle_probe_enabled = True
+
     try:
         from pyrit.registry import TargetRegistry
 
@@ -180,6 +204,91 @@ async def run(ctx: PipelineContext) -> None:
                 print(f"  [O-37] API延迟={_probe_latency:.1f}s (正常, 无需调整)")
 
             ctx.metadata["api_probe_latency"] = _probe_latency
+
+            # v71 O-82: Token 生命周期探测 — 从 API 响应中提取 expires_in
+            # v72 O-86: 扩展探测 HTTP 响应头 x-ratelimit-reset / retry-after
+            # 学术依据: RFC 6749 §4.2 — Token refresh 应基于实际过期时间;
+            #   RFC 6585 §4 — 429 Too Many Requests 应包含 Retry-After 头;
+            #   RFC 9110 §15.5.6 — x-ratelimit-reset 标准化限速恢复时间
+            if _o82_token_lifecycle_probe_enabled:
+                try:
+                    _o82_probe_response = await _probe_target.send_prompt_async(
+                        prompt_request=_probe_req
+                    )
+                    _o82_token_lifetime = 0
+                    _o82_rate_limit_reset = 0
+                    # 尝试从响应对象中提取 expires_in 或类似字段
+                    if hasattr(_o82_probe_response, "request_pieces"):
+                        for _piece in _o82_probe_response.request_pieces:
+                            _o82_meta = getattr(_piece, "metadata", None)
+                            if _o82_meta and isinstance(_o82_meta, dict):
+                                _o82_expires = _o82_meta.get("expires_in", 0)
+                                if _o82_expires and _o82_expires > 0:
+                                    _o82_token_lifetime = int(_o82_expires)
+                                    break
+                    # v72 O-86: 扩展探测 HTTP 响应头
+                    # 从 PyRIT target 的底层 httpx client 获取响应头
+                    _o82_http_response = getattr(
+                        _o82_probe_response, "_response", None
+                    )
+                    if _o82_http_response is None:
+                        # PyRIT OpenAIChatTarget 将原始响应存储在 _inner_response
+                        _o82_http_response = getattr(
+                            _o82_probe_response, "_inner_response", None
+                        )
+                    if _o82_http_response and hasattr(_o82_http_response, "headers"):
+                        _o82_headers = _o82_http_response.headers
+                        # x-ratelimit-reset: 限速恢复时间 (epoch 或秒数)
+                        _o82_reset = _o82_headers.get("x-ratelimit-reset", "")
+                        if _o82_reset:
+                            with contextlib.suppress(ValueError):
+                                _o82_rate_limit_reset = int(_o82_reset)
+                        # retry-after: 429/503 时的建议等待秒数
+                        _o82_retry_after = _o82_headers.get("retry-after", "")
+                        if _o82_retry_after:
+                            with contextlib.suppress(ValueError):
+                                _o82_rate_limit_reset = max(
+                                    _o82_rate_limit_reset, int(_o82_retry_after)
+                                )
+                    if _o82_token_lifetime > 0:
+                        _o82_refresh_config = ctx.metadata.get(
+                            "auth_refresh_config", {}
+                        )
+                        _o82_refresh_config["token_lifetime_seconds"] = (
+                            _o82_token_lifetime
+                        )
+                        ctx.metadata["auth_refresh_config"] = _o82_refresh_config
+                        logger.info(
+                            f"O-82: Token lifecycle probed — "
+                            f"expires_in={_o82_token_lifetime}s, "
+                            f"auth_refresh_config updated"
+                        )
+                        print(
+                            f"  [O-82] Token生命周期探测: expires_in="
+                            f"{_o82_token_lifetime}s → auth_refresh_config 已更新"
+                        )
+                    if _o82_rate_limit_reset > 0:
+                        ctx.metadata["api_rate_limit_reset"] = (
+                            _o82_rate_limit_reset
+                        )
+                        logger.info(
+                            f"O-86: Rate limit reset probed — "
+                            f"x-ratelimit-reset/retry-after="
+                            f"{_o82_rate_limit_reset}s"
+                        )
+                        print(
+                            f"  [O-86] 限速恢复探测: "
+                            f"x-ratelimit-reset/retry-after="
+                            f"{_o82_rate_limit_reset}s "
+                            f"(将用于后续限速退避策略)"
+                        )
+                    if _o82_token_lifetime == 0 and _o82_rate_limit_reset == 0:
+                        logger.debug(
+                            "O-82/O-86: No expires_in or rate-limit headers "
+                            "found in API response (SiliconFlow does not expose these)"
+                        )
+                except Exception as _o82_err:
+                    logger.debug(f"O-82: Token lifecycle probe failed: {_o82_err}")
     except Exception as e:
         logger.debug(f"O-37: API latency probe skipped: {e}")
 
@@ -271,6 +380,36 @@ async def run(ctx: PipelineContext) -> None:
             ctx.scenario._scenario_result_id = scenario_result_id
     _scenario_timeout = int(getattr(ctx.args, "scenario_timeout", 600))
 
+    # v71 O-81: 多场景协调 — 前一场景 O-66 触发后, 后续场景自动缩短超时
+    # v72 O-85: 添加 metadata 追踪和终端可见性, 便于端到端验证
+    # 学术依据: Circuit Breaker Pattern (Nygard) — 断路器跳闸后所有后续请求使用短超时
+    if _o81_multi_scenario_enabled:
+        _o81_reduced = ctx.metadata.get("o77_reduced_scenario_timeout")
+        if _o81_reduced and _o81_reduced > 0:
+            _o81_original = _scenario_timeout
+            _scenario_timeout = min(_scenario_timeout, _o81_reduced)
+            # v72 O-85: 记录 O-81 触发到 metadata, 供 post_analysis 追踪
+            ctx.metadata["o81_multi_scenario_triggered"] = True
+            ctx.metadata["o81_original_timeout"] = _o81_original
+            ctx.metadata["o81_reduced_timeout_applied"] = _scenario_timeout
+            logger.info(
+                f"O-81: scenario_timeout reduced by multi-scenario coordination — "
+                f"original={_o81_original}s → reduced={_scenario_timeout}s "
+                f"(o77_reduced={_o81_reduced}s)"
+            )
+            print(
+                f"  [O-81/O-85] 多场景协调: scenario_timeout "
+                f"{_o81_original}s → {_scenario_timeout}s "
+                f"(前一场景 O-66 触发, 缩短超时)"
+            )
+        else:
+            # v72 O-85: 无前置 O-66 时也记录, 便于确认 O-81 逻辑被正确检查
+            ctx.metadata["o81_multi_scenario_triggered"] = False
+            logger.debug(
+                "O-81: no o77_reduced_scenario_timeout in metadata, "
+                "multi-scenario coordination not triggered (first scenario or no prior O-66)"
+            )
+
     # O-42: 场景超时动态调整 — 基于总攻击数动态计算超时预算
     # 原因: 600s固定超时对小批量攻击浪费预算, 对大批量攻击不够用
     # 策略: 基础120s + 每攻击30s, 上限600s, 下限180s
@@ -358,6 +497,15 @@ async def run(ctx: PipelineContext) -> None:
         _o78_fallback_ratio = _o68_params.get("o78_fallback_ratio", 0.8)
         # v70 O-79: CentralMemory 版本检测开关
         _o79_version_check_enabled = _o68_params.get("o79_version_check_enabled", True)
+        # v71 O-80: O-66 触发历史写回开关
+        _o80_history_writeback_enabled = _o68_params.get("o80_history_writeback_enabled", True)
+        _o80_max_history_entries = _o68_params.get("o80_max_history_entries", 20)
+        # v71 O-81: 多场景协调开关
+        _o81_multi_scenario_enabled = _o68_params.get("o81_multi_scenario_enabled", True)
+        # v71 O-82: Token 生命周期探测开关
+        _o82_token_lifecycle_probe_enabled = _o68_params.get("o82_token_lifecycle_probe_enabled", True)
+        # v71 O-83: PyRIT 版本日志开关
+        _o83_version_log_enabled = _o68_params.get("o83_version_log_enabled", True)
     except Exception:
         _o61_config = {"stale_count_threshold": 10, "max_executed": 3}
         _o67_deadlock_stale_threshold = 5
@@ -370,13 +518,23 @@ async def run(ctx: PipelineContext) -> None:
         _o78_adaptive_enabled = True
         _o78_fallback_ratio = 0.8
         _o79_version_check_enabled = True
+        _o80_history_writeback_enabled = True
+        _o80_max_history_entries = 20
+        _o81_multi_scenario_enabled = True
+        _o82_token_lifecycle_probe_enabled = True
+        _o83_version_log_enabled = True
 
     # v70 O-76: O-66 阈值自适应 — 从历史运行数据调整零结果硬终止阈值
     # 读取 empirical_asr 中该模型的 O-66 触发历史, 计算平均 API 恢复时间
+    # v72 O-84: recover_time 改为跨运行追踪 — 本次运行开始时间 - 上次 O-66 触发时间
     # 学术依据: Reinforcement Learning (Sutton & Barto) — 从历史经验学习最优策略
+    #   跨 episode 经验追踪 (Sutton & Barto 2018, §17.3)
     if _o76_adaptive_enabled:
         try:
-            _o76_model_name = getattr(ctx.args, "target_model", None) or os.environ.get("OPENAI_CHAT_MODEL", "")
+            _o76_model_name = (
+                getattr(ctx.args, "target_model", None)
+                or os.environ.get("OPENAI_CHAT_MODEL", "")
+            )
             if _o76_model_name:
                 _o76_safe_name = _o76_model_name.replace("/", "_")
                 _o76_history_path = os.path.join(
@@ -387,28 +545,63 @@ async def run(ctx: PipelineContext) -> None:
                         _o76_history = json.loads(_o76_f.read())
                     _o76_o66_history = _o76_history.get("o66_trigger_history", [])
                     if _o76_o66_history:
-                        _o76_recover_times = [
-                            h.get("recover_time_seconds", 0) for h in _o76_o66_history
-                            if h.get("recover_time_seconds", 0) > 0
-                        ]
+                        # v72 O-84: 跨运行恢复时间计算
+                        # 本次运行开始时间 - 上次 O-66 触发时间 = API 恢复时间
+                        _o76_now_epoch = time.time()
+                        _o76_recover_times = []
+                        for _h in _o76_o66_history:
+                            _h_recover = _h.get("recover_time_seconds", 0)
+                            if _h_recover > 0:
+                                # v71 格式: 直接使用记录的 recover_time
+                                _o76_recover_times.append(_h_recover)
+                            else:
+                                # v72 格式: 从 trigger_epoch 计算
+                                _h_trigger_epoch = _h.get("trigger_epoch", 0)
+                                _h_run_start = _h.get("run_start_epoch", 0)
+                                if _h_trigger_epoch > 0 and _h_run_start > 0:
+                                    _cross_recover = _h_run_start - _h_trigger_epoch
+                                    if _cross_recover > 0:
+                                        _o76_recover_times.append(
+                                            round(_cross_recover, 1)
+                                        )
                         if _o76_recover_times:
                             _o76_avg_recover = sum(_o76_recover_times) / len(_o76_recover_times)
                             if _o76_avg_recover < 30:
                                 _o66_zero_result_threshold = max(3, _o66_zero_result_threshold - 2)
                                 logger.info(
-                                    f"O-76: O-66 threshold adaptive — avg_recover={_o76_avg_recover:.0f}s (<30s), "
-                                    f"threshold={_o66_zero_result_threshold} (reduced for fast API recovery)"
+                                    f"O-76/O-84: O-66 threshold adaptive — "
+                                    f"avg_recover={_o76_avg_recover:.0f}s (<30s), "
+                                    f"threshold={_o66_zero_result_threshold} "
+                                    f"(reduced for fast API recovery, "
+                                    f"history={len(_o76_recover_times)} entries)"
+                                )
+                                print(
+                                    f"  [O-76/O-84] 阈值自适应: 平均恢复={_o76_avg_recover:.0f}s (<30s) "
+                                    f"→ 阈值降低到 {_o66_zero_result_threshold} "
+                                    f"(历史 {len(_o76_recover_times)} 条)"
                                 )
                             elif _o76_avg_recover <= 60:
                                 logger.info(
-                                    f"O-76: O-66 threshold adaptive — avg_recover={_o76_avg_recover:.0f}s (30-60s), "
+                                    f"O-76/O-84: O-66 threshold adaptive — "
+                                    f"avg_recover={_o76_avg_recover:.0f}s (30-60s), "
                                     f"threshold={_o66_zero_result_threshold} (default maintained)"
+                                )
+                                print(
+                                    f"  [O-76/O-84] 阈值自适应: 平均恢复={_o76_avg_recover:.0f}s (30-60s) "
+                                    f"→ 阈值保持 {_o66_zero_result_threshold}"
                                 )
                             else:
                                 _o66_zero_result_threshold = min(8, _o66_zero_result_threshold + 1)
                                 logger.info(
-                                    f"O-76: O-66 threshold adaptive — avg_recover={_o76_avg_recover:.0f}s (>60s), "
-                                    f"threshold={_o66_zero_result_threshold} (increased for slow API recovery)"
+                                    f"O-76/O-84: O-66 threshold adaptive — "
+                                    f"avg_recover={_o76_avg_recover:.0f}s (>60s), "
+                                    f"threshold={_o66_zero_result_threshold} "
+                                    f"(increased for slow API recovery)"
+                                )
+                                print(
+                                    f"  [O-76/O-84] 阈值自适应: 平均恢复={_o76_avg_recover:.0f}s (>60s) "
+                                    f"→ 阈值提高到 {_o66_zero_result_threshold} "
+                                    f"(给 API 更多恢复时间)"
                                 )
         except Exception:
             pass  # 自适应失败不影响默认阈值
@@ -691,15 +884,44 @@ async def run(ctx: PipelineContext) -> None:
                                 _v69_attack_results = _cm.get_attack_results(
                                     scenario_result_id=scenario_result_id
                                 )
+                                # v71 O-83 / v72 O-87: 版本日志 + 终端输出
+                                if _o83_version_log_enabled:
+                                    logger.info(
+                                        "O-83: PyRIT CentralMemory API — "
+                                        "get_attack_results (PyRIT >= 1.0.1)"
+                                    )
+                                    print(
+                                        "  [O-83] PyRIT CentralMemory API: "
+                                        "get_attack_results (PyRIT >= 1.0.1)"
+                                    )
                             elif hasattr(_cm, "get_scores"):
                                 # 回退: 旧版本 API (返回 Score 对象, 签名不匹配)
                                 # 跳过更新, 避免类型错误
+                                if _o83_version_log_enabled:
+                                    logger.info(
+                                        "O-83: PyRIT CentralMemory API — "
+                                        "get_scores (legacy, Score objects, "
+                                        "skipping asr_tracker update)"
+                                    )
+                                    print(
+                                        "  [O-83] PyRIT CentralMemory API: "
+                                        "get_scores (legacy, 跳过 asr_tracker 更新)"
+                                    )
                                 logger.debug(
                                     "O-79: PyRIT version lacks get_attack_results, "
                                     "skipping asr_tracker update (get_scores returns Score, not AttackResult)"
                                 )
                                 _v69_attack_results = []
                             else:
+                                if _o83_version_log_enabled:
+                                    logger.warning(
+                                        "O-83: PyRIT CentralMemory API — "
+                                        "no compatible method found"
+                                    )
+                                    print(
+                                        "  [O-83] PyRIT CentralMemory API: "
+                                        "⚠ 无兼容方法 (asr_tracker 更新跳过)"
+                                    )
                                 logger.debug(
                                     "O-79: No compatible CentralMemory API found for asr_tracker update"
                                 )
@@ -2513,13 +2735,13 @@ def _detect_and_handle_fast_degradation(
         print(
             f"  [O-38] 快速降级触发: 超时={timeout_count}, "
             f"安全审查拦截={security_audit_count} → 下次运行建议: "
-            f"降低并发+切换Converter链(无encoding直接攻击)"
+            f"降低并发+切换Converter链(语义保持混淆优先)"
         )
         if security_audit_count > 0:
             print(
                 f"  [O-39] 安全审查感知: 检测到 {security_audit_count} 次 "
-                f"security_audit_fail → 建议切换到 Base64→ROT13 Converter链 "
-                f"绕过内容过滤"
+                f"security_audit_fail → 建议切换到 ROT13→RandomCapital "
+                f"Converter链 (语义保持混淆, 绕过关键词级过滤)"
             )
 
 

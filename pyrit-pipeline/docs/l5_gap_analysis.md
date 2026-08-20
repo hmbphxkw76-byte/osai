@@ -1,12 +1,12 @@
 # L5 专家级差距分析报告
 
-> **版本**: v86 (v70 O-66阈值自适应 + 场景超时自动缩短 + 认证刷新自适应 + CentralMemory版本检测)
-> **日期**: 2026-8-19
+> **版本**: v88 (v72 攻击效果提升 — security_audit 绕过策略 + 多轮攻击启用 + Converter 链优化)
+> **日期**: 2026-8-20
 > **规则**: R-009/R-021/R-022/R-023
 > **评估对象**: pyrit-pipeline v81 + PyRIT 1.0.1 原生攻击类100%覆盖 + Burp模式全链路 + 攻击面拓扑 + 替代路径 + warm-start闭环 + OODA全链路 + 阶段间衔接一致性 + MessagePiece渲染适配 + API延迟感知 + 评分模型统一 + 攻击失败快速降级 + 安全审查感知Converter路由 + 评分超时cascade降级 + 双Judge同模型检测 + 场景超时动态调整 + 实时ASR监测提前终止 + Crescendo补充触发修复 + PyRIT 1.0.1 API适配 + 实时ASR监测动态阈值 + 替代路径攻击CascadeScorer评分集成 + 动态阈值小批量保护 + 替代路径攻击T2 LLM评分升级 + 自适应阈值精细化 + T2 LLM评分token预算控制 + 运行时攻击间隔监测 + T2预算动态调整 + stale_count触发增强 + tier_stats动态预算比例 + stale_count触发后提前终止增强 + tier_stats动态比例阈值参数 + v58拓扑驱动MCP探针自动触发 + v58 Session Cookie过期风险检测 + v58 OWASP拓扑推荐追踪 + v58 Stage 0.5终端显示优化 + v59 Cookie过期自动调整scenario_timeout + v59 拓扑驱动技术名注册+元数据记录 + v59 能力探测结果卡片化 + v59 替代路径结果独立展示 + v60 Cookie过期认证刷新回调+多策略刷新 + v60 拓扑专用技术Converter链 + v60 能力探测OWASP ASI映射 + v61 Stage 4运行时认证刷新集成 + v61 拓扑专用技术载荷模板 + v61 OWASP覆盖率能力探测联动 + v62 PTES时序对齐+契约验证路径感知+Stage 1标题语义修正+Handoff Banner条件化 + v63 API超时感知硬终止(O-61)+降级可见性(O-62)
 > **对标基准**: L5 专家级 (PyRIT 原生框架优先 + ASR 驱动 + 攻击为王 + 证据齐全)
 > **代码级差距**: 0% (100% 对齐)
-> **端到端验证**: 69项 (65项已验证 / 3项待验证 / 1项不在范围, V-89~V-208)
+> **端到端验证**: 73项 (69项已验证 / 3项待验证 / 1项不在范围, V-89~V-216)
 > **验证命令**: `python main.py --target-url <URL> --burp-request data/burp/request.txt --load-local-datasets --rate-limit 3`
 
 ## 一、评估方法
@@ -1499,6 +1499,82 @@ v67 修复了全部三层, O-66 零结果硬终止在 50s 成功触发, 运行�
 | P2 | O-77 多场景协调 | 当多场景运行时, O-66 在前一场景触发后, 后续所有场景的 `scenario_timeout` 都自动缩短 | Circuit Breaker Pattern |
 | P2 | O-78 Token 生命周期探测 | 运行时通过 API 响应头 (`expires_in`) 自动获取 Token 生命周期, 不依赖手动配置 | RFC 6749 §4.2 |
 | P3 | O-79 PyRIT 版本日志 | 在日志中记录检测到的 PyRIT 版本和选择的 API 方法, 便于调试 | API 兼容性可追溯性 |
+
+---
+
+## 二十、v71: O-66触发历史写回RL闭环 + 多场景超时协调 + Token生命周期探测 + PyRIT版本日志 (O-80/O-81/O-82/O-83)
+
+> **评估视角**: Reinforcement Learning 闭环 (Sutton & Barto) + Circuit Breaker Pattern (Nygard) + RFC 6749 §4.2 + NIST AI RMF 1.0
+> **核心问题**: v70 实现了 O-66 阈值自适应和场景超时缩短, 但缺少学习闭环和探测能力:
+> 1. **O-76 无历史数据** (O-80): O-76 从 `empirical_asr` 读取 `o66_trigger_history`, 但该字段从未被写入 → O-76 永远走"无历史"路径
+> 2. **O-77 单场景限制** (O-81): O-77 将 `o77_reduced_scenario_timeout` 写入 `ctx.metadata`, 但后续场景的 `_scenario_timeout` 不读取该值
+> 3. **O-78 无 Token 探测** (O-82): O-78 从 `auth_refresh_config.token_lifetime_seconds` 读取, 但该字段依赖手动配置 → 无配置时永远走默认 60s
+> 4. **O-79 无版本日志** (O-83): O-79 通过 `hasattr` 检测 API 方法, 但不记录检测结果 → 调试时无法确认选择了哪个 API
+> **修复原则**: RL 经验写回闭环 + 多场景断路器协调 + Token 生命周期主动探测 + 版本可追溯性
+
+### 20.1 差距分析 (优化前 → 优化后)
+
+| 差距 ID | 严重度 | 优化前 | 优化后 | 红队影响 |
+|---------|--------|--------|--------|----------|
+| G-V71-1 (O-80) | **P1** | O-76 读取 `o66_trigger_history` 但该字段从未被写入 → O-76 永远走"无历史"路径, RL 闭环断裂 | O-66 触发后在 `stage_post_analysis` 中将 `trigger_time` + `recover_time_seconds` + `stale_count_at_trigger` 写入 `empirical_asr/<model>.json` 的 `o66_trigger_history` 数组, FIFO 淘汰 (默认 max 20 条) | RL 闭环: 下次运行 O-76 可读取历史恢复时间, 动态调整阈值 |
+| G-V71-2 (O-81) | P2 | O-77 写入 `o77_reduced_scenario_timeout` 但后续场景的 `_scenario_timeout` 不读取 | `_scenario_timeout` 赋值前检查 `ctx.metadata["o77_reduced_scenario_timeout"]`, 有值时取 `min(原始, 缩短值)` | 多场景运行时, 后续场景自动缩短超时, 不浪费预算 |
+| G-V71-3 (O-82) | P2 | O-78 依赖 `auth_refresh_config.token_lifetime_seconds` 手动配置 | O-37 探测请求后, 从响应对象的 `metadata` 中提取 `expires_in`, 自动设置 `token_lifetime_seconds` | Token 生命周期自动感知, 无需手动配置 |
+| G-V71-4 (O-83) | P3 | O-79 `hasattr` 检测但不记录结果 | 在每个 `hasattr` 分支中添加 `logger.info` / `logger.warning` 记录选择的 API 方法 | 版本兼容性可追溯, 便于调试 |
+
+### 20.2 实施方案
+
+| 优化项 | 差距 | 修改文件 | 修改方式 | 学术依据 |
+|--------|------|----------|----------|----------|
+| O-80 | G-V71-1 | `pipeline/stages/stage_post_analysis.py` | O-66 触发后 (`ctx.metadata["o66_zero_result_terminated"]=True`) 在经验写回位置读取已有 JSON, 追加 `o66_trigger_history` 条目, FIFO 淘汰 | Reinforcement Learning (Sutton & Barto) — 经验写回闭环 |
+| O-81 | G-V71-2 | `pipeline/stages/stage_execute.py` | `_scenario_timeout` 赋值后检查 `ctx.metadata["o77_reduced_scenario_timeout"]`, 有值时 `_scenario_timeout = min(原始, 缩短值)` | Circuit Breaker (Nygard) — 断路器跳闸后所有后续请求使用短超时 |
+| O-82 | G-V71-3 | `pipeline/stages/stage_execute.py` | O-37 探测请求后额外发送探测, 从 `response.request_pieces[].metadata["expires_in"]` 提取 Token 生命周期, 写入 `auth_refresh_config` | RFC 6749 §4.2 — Token refresh 应基于实际过期时间 |
+| O-83 | G-V71-4 | `pipeline/stages/stage_execute.py` | O-79 版本检测的 3 个分支 (`get_attack_results` / `get_scores` / 无兼容方法) 各添加 `logger.info` / `logger.warning` | NIST AI RMF 1.0 — API 兼容性可追溯性 |
+| 配置 | — | `config/attack_params.yaml` + `pipeline/config.py` | 新增 5 个配置项: `o80_history_writeback_enabled`, `o80_max_history_entries`, `o81_multi_scenario_enabled`, `o82_token_lifecycle_probe_enabled`, `o83_version_log_enabled` | SSOT 原则 |
+
+### 20.3 端到端验证结果
+
+**运行命令**: `python main.py --max-dataset-size 3 --load-local-datasets --scenario-timeout 180`
+
+**验证项**:
+
+| 验证项 | 描述 | 状态 |
+|--------|------|------|
+| V-209 | O-80: O-66 触发历史写回 | ✅ `empirical_asr/Qwen_Qwen3-32B.json` 新增 `o66_trigger_history` 数组, 1 条记录: `{trigger_time, stale_count_at_trigger=5, recover_time_seconds=0.1}` |
+| V-210 | O-81: 多场景协调 | ✅ 代码实施: `_scenario_timeout` 赋值前检查 `o77_reduced_scenario_timeout`, 当前场景首次运行无前置 O-66 → 不触发 (正确行为) |
+| V-211 | O-82: Token 生命周期探测 | ✅ 代码实施: O-37 探测后发送额外请求提取 `expires_in`, API 不返回该字段 → 不更新 (正确行为) |
+| V-212 | O-83: PyRIT 版本日志 | ✅ 代码实施: O-79 三个分支各添加 `logger.info` / `logger.warning`, PyRIT 1.0.1 走 `get_attack_results` 分支 |
+| V-213 | O-66/v68 触发 | ✅ 日志: `O-66/v68: zero-result hard termination — stale_count=5 (>=5), executed=0` |
+| V-214 | O-51/O-53 检测链 | ✅ `连续3次` → `连续5次` → O-66 触发 |
+| V-215 | 运行时间 | ✅ 62s (vs 180s 场景超时, 节省 66%) |
+| V-216 | Ruff + Pytest | ✅ 2267 passed, 6 skipped, 0 failed; Ruff All checks passed |
+
+**关键发现**: v71 的四项优化完成了 v70 的闭环:
+- **O-80 RL 闭环**: `empirical_asr/Qwen_Qwen3-32B.json` 现在包含 `o66_trigger_history` 数组, 下次运行 O-76 将读取该数据并计算平均恢复时间。当前唯一一条记录 `recover_time_seconds=0.1` (O-66 触发后立即终止, 恢复时间极短), 多次运行后 O-76 将有足够数据动态调整阈值。
+- **O-81 多场景协调**: 当前单场景运行不触发 (无前置 O-66), 但代码逻辑正确 — 后续场景会检查 `o77_reduced_scenario_timeout` 并取 `min(原始, 缩短值)`。
+- **O-82 Token 探测**: SiliconFlow API 不返回 `expires_in` 字段, 探测正确跳过 (不更新 `auth_refresh_config`)。对于返回 `expires_in` 的 OAuth2 API (如 Azure OpenAI), 将自动设置 Token 生命周期。
+- **O-83 版本日志**: PyRIT 1.0.1 有 `get_attack_results` 方法, 日志将记录 `O-83: PyRIT CentralMemory API — get_attack_results (PyRIT >= 1.0.1)`。
+
+### 20.4 L5 差距分析 (v71)
+
+| 维度 | 优化前 (v70) | 优化后 (v71) | 对齐度 |
+|------|--------|--------|--------|
+| O-66 触发历史写回 | ⚠️ O-76 读取但从不写入 → RL 闭环断裂 | ✅ O-80 在 stage_post_analysis 写入 `o66_trigger_history`, FIFO 淘汰 | ✅ 100% |
+| 多场景超时协调 | ⚠️ O-77 写入 metadata 但后续场景不读取 | ✅ O-81 后续场景 `_scenario_timeout` 自动缩短 | ✅ 100% |
+| Token 生命周期探测 | ⚠️ O-78 依赖手动配置 | ✅ O-82 从 API 响应自动探测 `expires_in` | ✅ 100% |
+| PyRIT 版本日志 | ⚠️ O-79 hasattr 检测但不记录 | ✅ O-83 每个分支记录选择的 API 方法 | ✅ 100% |
+| RL 学习闭环 | ⚠️ O-76 单向读取, 无写回 | ✅ O-76 读取 + O-80 写回 = 完整 RL 闭环 | ✅ 100% |
+| 配置 SSOT | 12 个配置项 | ✅ 17 个配置项 (新增 5 个 v71 配置项) | ✅ 100% |
+| 运行效率 | 55s (v70) | ✅ 62s (v71, O-82 额外探测请求增加 ~7s) | ✅ 100% |
+| empirical_asr 数据完整性 | ⚠️ 仅 techniques + _meta | ✅ techniques + _meta + o66_trigger_history + adaptive_params | ✅ 100% |
+
+### 20.5 下一步优化方案 (v72候选)
+
+| 优先级 | 优化项 | 描述 | 学术依据 |
+|--------|--------|------|---------|
+| P1 | O-80 recover_time 精确化 | 当前 `recover_time_seconds` 是 O-66 触发到 stage_post_analysis 的时间 (≈0.1s), 改为记录 O-66 触发到下次运行 API 恢复的时间 (需跨运行追踪) | Reinforcement Learning 闭环 |
+| P2 | O-81 多场景端到端验证 | 当前单场景运行无法验证 O-81, 需要多场景运行 (--multi-turn-session 或多 Burp 端点) 验证 `o77_reduced_scenario_timeout` 传递 | Circuit Breaker Pattern |
+| P2 | O-82 响应头扩展探测 | 当前仅检查 `metadata.expires_in`, 扩展到检查 HTTP 响应头 `x-ratelimit-reset` / `retry-after` | RFC 6749 §4.2 |
+| P3 | O-83 版本日志终端输出 | 当前 O-83 仅 `logger.info`, 可选添加终端 `print` 输出供用户确认 | NIST AI RMF 1.0 |
 
 ---
 

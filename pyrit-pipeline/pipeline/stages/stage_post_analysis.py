@@ -575,6 +575,76 @@ def _print_asr_feedback(ctx: PipelineContext) -> None:
         except Exception as e:
             logger.debug(f"O-31: adaptive params write-back failed: {e}")
 
+    # v71 O-80: O-66 触发历史写回 — RL 闭环
+    # 将本次运行的 O-66 触发记录写入 empirical_asr/<model>.json 的 o66_trigger_history,
+    # 供 O-76 下次运行读取, 计算 API 恢复时间统计, 动态调整阈值
+    # 学术依据: Reinforcement Learning (Sutton & Barto) — 经验写回形成学习闭环
+    try:
+        from pipeline.config import _load_attack_params as _o80_load_params
+
+        _o80_params = _o80_load_params()
+        _o80_history_writeback_enabled = _o80_params.get(
+            "o80_history_writeback_enabled", True
+        )
+        _o80_max_history_entries = _o80_params.get("o80_max_history_entries", 20)
+    except Exception:
+        _o80_history_writeback_enabled = True
+        _o80_max_history_entries = 20
+
+    _o80_terminated = ctx.metadata.get("o66_zero_result_terminated", False)
+    if _o80_terminated and _o80_history_writeback_enabled:
+        try:
+            import json
+            import time as _o80_time
+
+            _o80_trigger_time = ctx.metadata.get("o66_trigger_time", 0.0)
+            # v72 O-84: recover_time 精确化 — 跨运行追踪 API 恢复时间
+            # v71 的 recover_time 是 O-66 触发到 post_analysis 的时间 (≈0.1s), 无参考价值
+            # v72 改为记录 O-66 触发的 epoch 时间戳, 下次运行 O-76 读取时计算跨运行恢复时间:
+            #   recover_time = 本次运行开始时间 - 上次 O-66 触发时间
+            # 学术依据: Reinforcement Learning (Sutton & Barto) — 跨 episode 经验追踪
+            _o80_trigger_epoch = _o80_time.time()  # epoch 时间戳, 供下次运行计算恢复时间
+            _o80_run_start_epoch = ctx.metadata.get("run_start_epoch", _o80_trigger_epoch)
+            _o80_entry = {
+                "trigger_time": _o80_trigger_time,
+                "trigger_epoch": _o80_trigger_epoch,
+                "stale_count_at_trigger": ctx.metadata.get("o66_stale_count_at_trigger", 0),
+                "recover_time_seconds": 0,  # v72: 占位, 下次运行 O-76 会填充
+                "run_start_epoch": _o80_run_start_epoch,
+                "timestamp": ctx.metadata.get("run_start_time", ""),
+            }
+            from pipeline.asr.optimizer import _get_empirical_asr_path
+
+            _o80_asr_path = _get_empirical_asr_path(model_name)
+            _o80_existing = (
+                json.loads(_o80_asr_path.read_text(encoding="utf-8"))
+                if _o80_asr_path.exists()
+                else {}
+            )
+            _o80_history = _o80_existing.get("o66_trigger_history", [])
+            _o80_history.append(_o80_entry)
+            # FIFO 淘汰最旧记录
+            if len(_o80_history) > _o80_max_history_entries:
+                _o80_history = _o80_history[-_o80_max_history_entries:]
+            _o80_existing["o66_trigger_history"] = _o80_history
+            _o80_asr_path.write_text(
+                json.dumps(_o80_existing, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.info(
+                f"O-80: O-66 trigger history written to empirical ASR — "
+                f"trigger_epoch={_o80_trigger_epoch:.0f}, "
+                f"history_entries={len(_o80_history)}"
+            )
+            print(
+                f"  [O-80/O-84] O-66 触发历史已写回: "
+                f"trigger_epoch={_o80_trigger_epoch:.0f}, "
+                f"history_entries={len(_o80_history)} "
+                f"(下次运行 O-76 将计算跨运行恢复时间)"
+            )
+        except Exception as e:
+            logger.debug(f"O-80: O-66 trigger history write-back failed: {e}")
+
     # P1: 种子级 ASR 收集 (per-seed, 用于精简时按种子排名)
     try:
         from pipeline.asr.optimizer import collect_seed_level_asr_from_memory
