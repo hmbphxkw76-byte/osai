@@ -13,6 +13,22 @@
       "stale_count_at_trigger": 5,
       "recover_time_seconds": 0.1,
       "timestamp": ""
+    },
+    {
+      "trigger_time": 51185.4198709,
+      "trigger_epoch": 1787185833.1699378,
+      "stale_count_at_trigger": 3,
+      "recover_time_seconds": 0,
+      "run_start_epoch": 1787185803.060856,
+      "timestamp": "2026-08-20T00:30:03.060866+00:00"
+    },
+    {
+      "trigger_time": 51612.8343805,
+      "trigger_epoch": 1787186260.5930219,
+      "stale_count_at_trigger": 6,
+      "recover_time_seconds": 0,
+      "run_start_epoch": 1787186200.4335961,
+      "timestamp": "2026-08-20T00:36:40.433601+00:00"
     }
   ]
 }

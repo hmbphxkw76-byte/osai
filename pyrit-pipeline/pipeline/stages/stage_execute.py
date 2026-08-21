@@ -545,9 +545,10 @@ async def run(ctx: PipelineContext) -> None:
                         _o76_history = json.loads(_o76_f.read())
                     _o76_o66_history = _o76_history.get("o66_trigger_history", [])
                     if _o76_o66_history:
-                        # v72 O-84: 跨运行恢复时间计算
+                        # v73 O-84: 跨运行恢复时间计算
                         # 本次运行开始时间 - 上次 O-66 触发时间 = API 恢复时间
                         _o76_now_epoch = time.time()
+                        _o76_run_start = ctx.metadata.get("run_start_epoch", _o76_now_epoch)
                         _o76_recover_times = []
                         for _h in _o76_o66_history:
                             _h_recover = _h.get("recover_time_seconds", 0)
@@ -555,19 +556,24 @@ async def run(ctx: PipelineContext) -> None:
                                 # v71 格式: 直接使用记录的 recover_time
                                 _o76_recover_times.append(_h_recover)
                             else:
-                                # v72 格式: 从 trigger_epoch 计算
+                                # v72/v73 格式: 从 trigger_epoch 跨运行计算
                                 _h_trigger_epoch = _h.get("trigger_epoch", 0)
-                                _h_run_start = _h.get("run_start_epoch", 0)
-                                if _h_trigger_epoch > 0 and _h_run_start > 0:
-                                    _cross_recover = _h_run_start - _h_trigger_epoch
-                                    if _cross_recover > 0:
+                                if _h_trigger_epoch > 0:
+                                    _cross_recover = _o76_run_start - _h_trigger_epoch
+                                    # v73 O-84 修复: 跳过不合理的恢复时间
+                                    # >86400s (24h) 说明跨多次运行未恢复, 数据不可信
+                                    # <=0s 说明 trigger_epoch 在本次运行之后, 数据异常
+                                    if 0 < _cross_recover <= 86400:
                                         _o76_recover_times.append(
                                             round(_cross_recover, 1)
                                         )
                         if _o76_recover_times:
                             _o76_avg_recover = sum(_o76_recover_times) / len(_o76_recover_times)
                             if _o76_avg_recover < 30:
-                                _o66_zero_result_threshold = max(3, _o66_zero_result_threshold - 2)
+                                # v73 O-84 修复: 最小阈值从 3 提高到 5
+                                # 3 次轮询 (30s) 不足以让并发攻击完成, 尤其是当
+                                # security_audit_fail 导致 400 时 PyRIT 需要时间处理
+                                _o66_zero_result_threshold = max(5, _o66_zero_result_threshold - 2)
                                 logger.info(
                                     f"O-76/O-84: O-66 threshold adaptive — "
                                     f"avg_recover={_o76_avg_recover:.0f}s (<30s), "
@@ -800,33 +806,44 @@ async def run(ctx: PipelineContext) -> None:
                     _executed == 0
                     and _o51_stale_count >= _o66_zero_result_threshold
                 ):
-                    logger.warning(
-                        f"O-66/v68: zero-result hard termination — "
-                        f"stale_count={_o51_stale_count} (>={_o66_zero_result_threshold}), "
-                        f"executed=0, API completely unavailable"
-                    )
-                    print(
-                        f"  [O-66/v68] 零结果硬终止: "
-                        f"连续{_o51_stale_count}次无新结果 (>={_o66_zero_result_threshold}), "
-                        f"已执行=0 — API完全不可用, 强制终止"
-                    )
-                    ctx.metadata["o66_zero_result_terminated"] = True
-                    # v69 P3: 场景超时与 O-66 协调 — 记录触发时间, 供后续场景缩短超时
-                    ctx.metadata["o66_trigger_time"] = time.monotonic()
-                    ctx.metadata["o66_stale_count_at_trigger"] = _o51_stale_count
-                    # v70 O-77: 场景超时自动缩短 — 后续场景的 scenario_timeout 缩短到
-                    # O-66 触发时间的 o77_timeout_multiplier 倍
-                    # 学术依据: Circuit Breaker Pattern (Nygard) — 断路器跳闸后使用短超时
-                    _o77_trigger_elapsed = time.monotonic() - _o76_monitor_start
-                    _o77_reduced_timeout = int(_o77_trigger_elapsed * _o77_timeout_multiplier)
-                    ctx.metadata["o77_reduced_scenario_timeout"] = _o77_reduced_timeout
-                    logger.info(
-                        f"O-77: scenario_timeout auto-reduced — "
-                        f"o66_trigger_elapsed={_o77_trigger_elapsed:.0f}s × "
-                        f"{_o77_timeout_multiplier} = {_o77_reduced_timeout}s"
-                    )
-                    _early_termination_event.set()
-                    return
+                    # v73 G-V72-3: security_audit 感知 — 当检测到 security_audit 时,
+                    # 不触发 O-66 硬终止, 因为 security_audit 拦截不是 API 不可用,
+                    # 而是内容过滤. 允许流水线继续尝试不同技术/Converter.
+                    _v73_security_audit = ctx.metadata.get("security_audit_detected", False)
+                    if _v73_security_audit and _o51_stale_count < _o66_zero_result_threshold * 3:
+                        logger.info(
+                            f"v73 G-V72-3: O-66 suppressed — security_audit detected, "
+                            f"stale_count={_o51_stale_count} (<{ _o66_zero_result_threshold * 3}), "
+                            f"continuing to try different techniques/converters"
+                        )
+                    else:
+                        logger.warning(
+                            f"O-66/v68: zero-result hard termination — "
+                            f"stale_count={_o51_stale_count} (>={_o66_zero_result_threshold}), "
+                            f"executed=0, API completely unavailable"
+                        )
+                        print(
+                            f"  [O-66/v68] 零结果硬终止: "
+                            f"连续{_o51_stale_count}次无新结果 (>={_o66_zero_result_threshold}), "
+                            f"已执行=0 — API完全不可用, 强制终止"
+                        )
+                        ctx.metadata["o66_zero_result_terminated"] = True
+                        # v69 P3: 场景超时与 O-66 协调 — 记录触发时间, 供后续场景缩短超时
+                        ctx.metadata["o66_trigger_time"] = time.monotonic()
+                        ctx.metadata["o66_stale_count_at_trigger"] = _o51_stale_count
+                        # v70 O-77: 场景超时自动缩短 — 后续场景的 scenario_timeout 缩短到
+                        # O-66 触发时间的 o77_timeout_multiplier 倍
+                        # 学术依据: Circuit Breaker Pattern (Nygard) — 断路器跳闸后使用短超时
+                        _o77_trigger_elapsed = time.monotonic() - _o76_monitor_start
+                        _o77_reduced_timeout = int(_o77_trigger_elapsed * _o77_timeout_multiplier)
+                        ctx.metadata["o77_reduced_scenario_timeout"] = _o77_reduced_timeout
+                        logger.info(
+                            f"O-77: scenario_timeout auto-reduced — "
+                            f"o66_trigger_elapsed={_o77_trigger_elapsed:.0f}s × "
+                            f"{_o77_timeout_multiplier} = {_o77_reduced_timeout}s"
+                        )
+                        _early_termination_event.set()
+                        return
                 if _executed >= _adaptive_threshold and _asr == 0.0:
                     logger.warning(
                         f"O-43/O-45/O-47/O-49/O-51/O-53/O-55: Early termination triggered — "

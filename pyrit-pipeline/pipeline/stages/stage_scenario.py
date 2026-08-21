@@ -175,6 +175,39 @@ def _map_to_text_adaptive_techniques(tech_names: list[str]) -> list[str]:
     return mapped
 
 
+def _fix_adversarial_temperature(adversarial_chat: Any) -> None:
+    """v73 G-V72-1: 修复 LongCat-2.0 temperature=1.2 不兼容.
+
+    PyRIT 原生 TargetInitializer 硬编码 adversarial_chat temperature=1.2
+    (targets.py line 199: temperature=1.2).
+    但 LongCat-2.0 API 要求 temperature ≤ 1.0,
+    SiliconFlow API 也要求 temperature ≤ 1.0.
+
+    修复: 检测 temperature > 1.0 时覆盖为 1.0.
+    不修改 PyRIT 原生代码, 仅在获取 target 实例后覆盖属性.
+
+    学术依据:
+      - Mehrotra et al. (arXiv:2312.02191) TAP 推荐 temperature=1.0
+      - Russinovich et al. (arXiv:2402.12109) Crescendo temperature=1.0
+    """
+    if adversarial_chat is None:
+        return
+    try:
+        _temp = getattr(adversarial_chat, "_temperature", None)
+        if _temp is not None and _temp > 1.0:
+            logger.info(
+                f"v73 G-V72-1: adversarial_chat temperature {_temp} > 1.0 "
+                f"→ overriding to 1.0 (API compatibility)"
+            )
+            print(
+                f"  [v73] adversarial_chat temperature {_temp} → 1.0 "
+                f"(API 兼容性修复)"
+            )
+            adversarial_chat._temperature = 1.0
+    except Exception as e:
+        logger.debug(f"v73: temperature fix skipped: {e}")
+
+
 def _get_attack_targets(ctx: PipelineContext | None = None) -> tuple[Any, Any, Any]:
     """从 PyRIT 原生 TargetRegistry 获取三角色分离的攻击目标。.
 
@@ -252,6 +285,9 @@ def _get_attack_targets(ctx: PipelineContext | None = None) -> tuple[Any, Any, A
         # 检查是否三角色共享同一实例
         if objective_target is adversarial_chat is scoring_target:
             print("  [提示] 仅 1 个 Target 可用, 攻击者/评分者使用同一模型")
+
+        # v73 G-V72-1: 修复 LongCat-2.0 temperature=1.2 不兼容
+        _fix_adversarial_temperature(adversarial_chat)
 
         return objective_target, adversarial_chat, scoring_target
     except Exception as e:
@@ -384,14 +420,19 @@ def _get_agent_proxy_targets(ctx: PipelineContext) -> tuple[Any, Any, Any]:
             # objective_target: Burp HTTPTarget (agent_proxy_objective_target)
             if "default_objective_target" in tags and "default" not in tags:
                 objective_target = instance
-            # adversarial_chat: .env OpenAIChatTarget (default 标签)
-            elif "default" in tags and "scorer" not in tags:
+            # adversarial_chat: 优先匹配 registry_name == 'adversarial_chat'
+            elif entry.name == "adversarial_chat":
                 adversarial_chat = instance
             # scoring_target: scorer 标签
             elif "scorer" in tags:
                 scoring_target = instance
 
-        # 降级: 如果未找到 adversarial_chat, 用 default 标签的第一个
+        # 降级: 如果未找到 adversarial_chat, 用 name 查找
+        if adversarial_chat is None:
+            _adv_entry = _reg.instances.get_entry("adversarial_chat")
+            if _adv_entry is not None:
+                adversarial_chat = _adv_entry.instance
+        # 降级2: 如果仍未找到, 用 default 标签的第一个
         if adversarial_chat is None:
             for entry in _entries:
                 if "default" in (entry.tags or set()):
@@ -405,6 +446,12 @@ def _get_agent_proxy_targets(ctx: PipelineContext) -> tuple[Any, Any, Any]:
         # 降级: 如果未找到 objective_target, 用注册表第一个
         if objective_target is None and _entries:
             objective_target = _entries[0].instance
+
+        # v73 G-V72-1: 修复 LongCat-2.0 temperature=1.2 不兼容
+        # PyRIT 原生 TargetInitializer 硬编码 adversarial_chat temperature=1.2,
+        # 但 LongCat-2.0 API 要求 temperature ≤ 1.0
+        # 修复: 在获取 target 实例后覆盖 _temperature 属性
+        _fix_adversarial_temperature(adversarial_chat)
 
         if objective_target and adversarial_chat:
             print(
@@ -2574,6 +2621,73 @@ async def run(ctx: PipelineContext) -> None:
                 f"Converter chain depth limit: removed {_total_removed} converters "
                 f"(max {_MAX_DEPTH}/tech, heavy converters only for many_shot)"
             )
+
+    # v73 G-V72-2: Security Audit 预置 Converter — 首次攻击即附加 semantic_evasion
+    # 当目标 API 已知有 security_audit (如 SiliconFlow) 或上次运行检测到 security_audit_fail 时,
+    # 为所有技术默认附加 semantic_evasion Converter 链 (ROT13 + RandomCapitalLetters),
+    # 使首次攻击即使用语义保持混淆绕过关键词级过滤。
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — 编码/混淆应在首次请求即应用;
+    #   Zeng et al. (arXiv:2402.19181) 语义层 ASR 30-40% >> 表示层 8-12%
+    _security_audit_detected = (
+        ctx.metadata.get("o39_converter_switch_suggested")
+        or (
+            ctx.metadata.get("baseline_filter_analysis", {})
+            .get("filter_layer", "")
+            .lower() in ("security_audit", "content_filter")
+        )
+        or ctx.metadata.get("security_audit_detected", False)
+    )
+    # v73.1: 端点启发式检测 — SiliconFlow 等已知有 security_audit 的 API
+    _target_endpoint = os.environ.get("OPENAI_CHAT_ENDPOINT", "")
+    _known_security_audit_endpoints = ("siliconflow",)
+    if any(_ep in _target_endpoint.lower() for _ep in _known_security_audit_endpoints):
+        _security_audit_detected = True
+        ctx.metadata["security_audit_detected"] = True
+        logger.info(
+            f"v73 G-V72-2: security_audit detected via endpoint heuristic "
+            f"({_target_endpoint})"
+        )
+        print(
+            f"  [v73] security_audit detected via endpoint heuristic "
+            f"({_target_endpoint}), converter_map has "
+            f"{len(technique_converter_map)} techniques"
+        )
+    if _security_audit_detected and technique_converter_map:
+        try:
+            from pipeline.converters.chains import build_converters_from_chain_names
+
+            _se_converters = build_converters_from_chain_names(
+                chain_names=["semantic_evasion"],
+                converter_target=converter_target,
+            )
+            _se_converters = [
+                c for c in _se_converters
+                if type(c).__name__ not in {"AsciiSmugglerConverter", "SneakyBitsSmugglerConverter"}
+            ]
+            if _se_converters:
+                _preset_count = 0
+                for _tech, _existing_convs in technique_converter_map.items():
+                    _existing_names = [type(c).__name__ for c in _existing_convs]
+                    _new_convs = [
+                        c for c in _se_converters
+                        if type(c).__name__ not in _existing_names
+                    ]
+                    if _new_convs:
+                        technique_converter_map[_tech] = _new_convs + _existing_convs
+                        _preset_count += 1
+                if _preset_count > 0:
+                    params["technique_converters"] = technique_converter_map
+                    ctx.technique_converter_map = technique_converter_map
+                    print(
+                        f"  [v73] Security Audit 预置: {_preset_count} 技术 "
+                        f"附加 semantic_evasion Converter (首次攻击即绕过)"
+                    )
+                    logger.info(
+                        f"v73 G-V72-2: security_audit detected → "
+                        f"semantic_evasion preset for {_preset_count} techniques"
+                    )
+        except Exception as e:
+            logger.debug(f"v73 G-V72-2: security audit preset skipped: {e}")
 
     # 原生参数注入 (带异常保护 + 噪音拦截)
     noise_log_path = ctx.metadata.get("noise_log_path")

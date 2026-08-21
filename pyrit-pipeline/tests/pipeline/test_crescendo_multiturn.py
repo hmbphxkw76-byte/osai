@@ -70,14 +70,17 @@ class TestGetAttackTargetsAgentProxy:
         scorer_target = MagicMock(name="ScorerTarget")
 
         entry_burp = MagicMock()
+        entry_burp.name = "agent_proxy_objective_target"
         entry_burp.tags = {"default_objective_target"}
         entry_burp.instance = burp_target
 
         entry_env = MagicMock()
+        entry_env.name = "openai_chat"
         entry_env.tags = {"default"}
         entry_env.instance = env_target
 
         entry_scorer = MagicMock()
+        entry_scorer.name = "objective_scorer_chat"
         entry_scorer.tags = {"scorer"}
         entry_scorer.instance = scorer_target
 
@@ -89,6 +92,7 @@ class TestGetAttackTargetsAgentProxy:
                 entry_env,
                 entry_scorer,
             ]
+            mock_reg.instances.get_entry.return_value = None
             result = _get_agent_proxy_targets(ctx)
 
         # objective = Burp (default_objective_target without default)
@@ -109,10 +113,12 @@ class TestGetAttackTargetsAgentProxy:
         env_target = MagicMock(name="EnvOpenAIChatTarget")
 
         entry_burp = MagicMock()
+        entry_burp.name = "agent_proxy_objective_target"
         entry_burp.tags = {"default_objective_target"}
         entry_burp.instance = burp_target
 
         entry_env = MagicMock()
+        entry_env.name = "openai_chat"
         entry_env.tags = {"default"}
         entry_env.instance = env_target
 
@@ -120,6 +126,7 @@ class TestGetAttackTargetsAgentProxy:
             mock_reg = MagicMock()
             mock_reg_cls.get_registry_singleton.return_value = mock_reg
             mock_reg.instances.get_all_instances.return_value = [entry_burp, entry_env]
+            mock_reg.instances.get_entry.return_value = None
             result = _get_agent_proxy_targets(ctx)
 
         # scoring 应降级为 adversarial (env_target)

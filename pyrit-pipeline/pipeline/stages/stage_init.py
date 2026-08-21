@@ -1102,6 +1102,11 @@ async def _preflight_check(ctx: PipelineContext) -> None:
             if safety_filter_type:
                 ctx.metadata["safety_filter_type"] = safety_filter_type
                 print(f"  ✅ 安全过滤探测: {safety_filter_type}")
+                # v73 G-V72-2: 检测到 content_filter/security_audit 时设置标志,
+                # 供 Stage 3 预置 semantic_evasion Converter
+                if safety_filter_type in ("content_filter", "security_audit"):
+                    ctx.metadata["security_audit_detected"] = True
+                    print("  [v73] 安全审计检测: 首次攻击将预置 semantic_evasion Converter")
         except Exception as e:
             logger.debug(f"D15 safety filter probe failed (non-fatal): {e}")
 
@@ -2564,6 +2569,117 @@ def _configure_api_timeout(ctx: PipelineContext) -> None:
     ctx.metadata["scorer_timeout"] = scorer_timeout
     ctx.metadata["scorer_timeout_max_retries"] = scorer_timeout_max_retries
     ctx.metadata["api_max_retries"] = api_max_retries
+
+    # v73 O-88: adversarial_chat temperature 自适应
+    _adapt_adversarial_temperature(ctx)
+
+
+# ============================================================
+# v73 O-88: adversarial_chat temperature 自适应
+# ============================================================
+
+
+# 已知端点 temperature 上限映射
+# key: 端点域名子串, value: 该端点允许的最大 temperature
+# 学术依据: OpenAI API 规范 temperature ∈ [0, 2];
+#   部分第三方 API (如 LongCat) 限制 temperature ≤ 1
+#   PyRIT 原生 TargetInitializer 默认 temperature=1.2 (targets.py:199)
+_KNOWN_TEMP_LIMITS: dict[str, float] = {
+    "longcat.chat": 1.0,
+    "siliconflow.cn": 2.0,  # SiliconFlow 支持标准 OpenAI 范围
+    "api.openai.com": 2.0,
+    "openrouter.ai": 2.0,
+}
+
+
+def _adapt_adversarial_temperature(ctx: PipelineContext) -> None:
+    """v73 O-88: 检测 adversarial_chat 端点的 temperature 限制并自适应调整.
+
+    PyRIT 原生 TargetInitializer 为 adversarial_chat 设置 temperature=1.2,
+    但部分第三方 API (如 LongCat) 要求 temperature ≤ 1, 否则返回 400 BadRequestError:
+      ``参数校验失败: /temperature: 1.2 is not less or equal to 1``
+
+    本函数在初始化后检查所有 adversarial_chat target 的端点,
+    若端点已知限制 temperature ≤ 1, 则将 target 的 _temperature 属性降到 1.0。
+
+    策略:
+      1. 检查端点是否在 _KNOWN_TEMP_LIMITS 中
+      2. 若已知限制 < 当前 temperature, 则 monkey-patch _temperature 属性
+      3. 未知端点: 保持默认 (不干预)
+
+    学术依据: API 兼容性设计 (SemVer) — 第三方端点可能不支持完整 OpenAI 参数范围;
+      NIST AI RMF 1.0 — 运行时兼容性检测
+    """
+    from pyrit.registry import TargetRegistry
+
+    # v73 O-88: 读取配置开关
+    try:
+        from pipeline.config import _load_attack_params as _o88_load_params
+
+        _o88_params = _o88_load_params()
+        _o88_enabled = _o88_params.get("o88_temperature_adaptation_enabled", True)
+    except Exception:
+        _o88_enabled = True
+
+    if not _o88_enabled:
+        logger.debug("O-88: temperature adaptation disabled by config")
+        return
+
+    adapted_count = 0
+    target_entries = TargetRegistry.get_registry_singleton().instances.get_all_instances()
+
+    for entry in target_entries:
+        target = entry.instance
+        # RateLimitedTarget 包装的 target 需要取 inner_target
+        inner = getattr(target, "inner_target", target)
+
+        # 仅处理有 _temperature 属性的 OpenAIChatTarget
+        if not hasattr(inner, "_temperature"):
+            continue
+
+        current_temp = getattr(inner, "_temperature", None)
+        if current_temp is None:
+            continue  # temperature 未设置 (None = 使用 API 默认值)
+
+        endpoint = getattr(inner, "_endpoint", "") or ""
+
+        # 检查端点是否在已知限制列表中
+        for domain_fragment, max_temp in _KNOWN_TEMP_LIMITS.items():
+            if domain_fragment in endpoint:
+                if current_temp > max_temp:
+                    # 需要降低 temperature
+                    old_temp = current_temp
+                    inner._temperature = max_temp
+                    adapted_count += 1
+                    logger.info(
+                        f"O-88: adversarial_chat temperature adapted — "
+                        f"endpoint={endpoint}, "
+                        f"temperature {old_temp} → {max_temp} "
+                        f"(endpoint limit: ≤{max_temp})"
+                    )
+                    print(
+                        f"  [O-88] 对抗模型 temperature 自适应: "
+                        f"{old_temp} → {max_temp} "
+                        f"(端点 {domain_fragment} 限制 ≤{max_temp})"
+                    )
+                    ctx.metadata["o88_temperature_adapted"] = True
+                    ctx.metadata["o88_adapted_endpoints"] = (
+                        ctx.metadata.get("o88_adapted_endpoints", [])
+                        + [endpoint]
+                    )
+                break
+        else:
+            # 未知端点: 不干预, 但记录 debug
+            logger.debug(
+                f"O-88: unknown endpoint {endpoint}, "
+                f"temperature={current_temp} (no adaptation)"
+            )
+
+    if adapted_count == 0:
+        logger.debug(
+            "O-88: no temperature adaptation needed "
+            "(all endpoints support current temperature)"
+        )
 
 
 # ============================================================

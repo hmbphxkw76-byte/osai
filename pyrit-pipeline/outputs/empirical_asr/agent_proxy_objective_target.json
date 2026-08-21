@@ -1,13 +1,14 @@
 {
   "techniques": {
-    "red_teaming": 0.0
+    "red_teaming": 0.0,
+    "alt_path_token_reuse_and_escalation": 0.0
   },
   "_meta": {
-    "total_techniques": 1,
+    "total_techniques": 2,
     "model_name": "agent_proxy_objective_target",
-    "description": "Empirical ASR data collected from runtime. Overrides academic priors."
-  },
-  "adaptive_params": {
-    "adaptive_crescendo_trigger": true
+    "description": "Empirical ASR data collected from runtime. Overrides academic priors.",
+    "sample_counts": {
+      "alt_path_token_reuse_and_escalation": 3
+    }
   }
 }

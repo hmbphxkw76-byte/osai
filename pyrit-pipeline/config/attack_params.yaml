@@ -378,3 +378,25 @@ auto_expand_attack_surface: true
 # true = 启用 (Agent→工具劫持, RAG→投毒, MCP→协议注入, Token→窃取)
 # false = 禁用 (仅使用直接注入路径)
 discover_alternative_paths: true
+
+# ============================================================================
+# v73 O-88: adversarial_chat temperature 自适应
+# ============================================================================
+# PyRIT 原生 TargetInitializer 为 adversarial_chat 设置 temperature=1.2,
+# 但部分第三方 API (如 LongCat) 要求 temperature ≤ 1, 否则返回 400 BadRequestError
+# 本开关启用后, 初始化时自动检测端点并降低 temperature 到端点允许的最大值
+# true = 启用 temperature 自适应 (默认)
+# false = 禁用 (保持 PyRIT 默认 temperature=1.2, 可能导致 400 错误)
+# 学术依据: API 兼容性设计 (SemVer) — 第三方端点可能不支持完整 OpenAI 参数范围
+o88_temperature_adaptation_enabled: true
+
+# v73 O-89: security_audit_fail 拦截率统计
+# ============================================================================
+# 在 post_analysis 中扫描 AttackResult.error_message,
+# 统计被目标模型安全审计 (security_audit_fail / content_filter 等) 拦截的攻击数
+# 拦截率 = 被拦截攻击数 / 总攻击数, 写入 ctx.metadata 供后续分析
+# true = 启用拦截率统计 (默认)
+# false = 禁用 (不统计拦截率)
+# 学术依据: LLM 安全过滤评估 (Markov et al., arXiv:2402.13753) —
+#   拦截率是衡量目标模型防御强度的重要指标
+o89_security_intercept_tracking_enabled: true

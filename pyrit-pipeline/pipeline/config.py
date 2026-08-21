@@ -54,6 +54,9 @@ _HARDCODED_DEFAULTS: dict[str, Any] = {
     "o81_multi_scenario_enabled": True,
     "o82_token_lifecycle_probe_enabled": True,
     "o83_version_log_enabled": True,
+    # v73: O-88/O-89 配置项
+    "o88_temperature_adaptation_enabled": True,
+    "o89_security_intercept_tracking_enabled": True,
     "api_max_retries": 0,
     "stream": False,
     "seed_priority_asr_weight": 0.8,
