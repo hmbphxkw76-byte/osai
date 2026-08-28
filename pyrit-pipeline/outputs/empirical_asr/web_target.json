@@ -1,8 +1,0 @@
-{
-  "techniques": {},
-  "_meta": {
-    "total_techniques": 0,
-    "model_name": "web_target",
-    "description": "Empirical ASR data collected from runtime. Overrides academic priors."
-  }
-}
