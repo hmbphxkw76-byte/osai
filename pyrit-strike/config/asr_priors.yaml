@@ -1,0 +1,1318 @@
+# ASR Priors — 学术先验 ASR 表
+# arXiv:2402.04249 — HarmBench 标准化评估数据
+# arXiv:2402.01135 — JailbreakBench 跨模型 ASR 基线
+# arXiv:2402.12109 — Crescendo 多轮渐进 ASR
+# arXiv:2312.02191 — TAP 树搜索 ASR
+# arXiv:2310.08419 — PAIR 迭代优化 ASR
+# arXiv:2402.19181 — 说服策略 ASR
+# arXiv:2307.15043 — 编码变换 ASR
+# arXiv:2307.08673 — GCG 对抗后缀 ASR
+# arXiv:2406.18112 — Skeleton Key ASR
+#
+# 冷启动时使用先验 ASR 排序种子和技术, 积累经验后用实际 ASR 覆盖。
+# 先验值来自论文报告的实验数据, 可能与实际目标有偏差。
+
+# 按技术×模型的 ASR 先验 (%)
+# 模型覆盖: OpenAI (gpt-4/4o/4o-mini/4.1/o1/o3/o4-mini)
+#           Anthropic (claude-3/3.5/4)
+#           Google (gemini-1.5/2.0/2.5)
+#           Meta (llama-2/3/3.1/4)
+#           DeepSeek (v3/r1)
+#           Qwen (qwen2/qwen3)
+#           GLM (glm-4)
+#           其他 (mistral/gemma/yi/command-r)
+technique_asr:
+  prompt_sending:
+    gpt-4: 15.0
+    gpt-4o: 20.0
+    gpt-4o-mini: 25.0
+    gpt-4.1: 12.0
+    o1: 8.0
+    o3: 6.0
+    o4-mini: 10.0
+    claude-3: 12.0
+    claude-3.5: 15.0
+    claude-3.5-sonnet: 14.0
+    claude-3.5-haiku: 20.0
+    claude-4-opus: 8.0
+    claude-4-sonnet: 10.0
+    gemini-1.5-pro: 18.0
+    gemini-2.0-flash: 22.0
+    gemini-2.5-pro: 12.0
+    llama-2-70b: 35.0
+    llama-3-70b: 25.0
+    llama-3.1-405b: 20.0
+    llama-4: 18.0
+    deepseek-v3: 28.0
+    deepseek-r1: 22.0
+    qwen-32b: 30.0
+    qwen2-72b: 28.0
+    qwen3-32b: 25.0
+    qwen3-72b: 22.0
+    glm-4-32b: 30.0
+    mistral-large: 30.0
+    gemma-2: 32.0
+    yi-large: 28.0
+    command-r-plus: 26.0
+    default: 20.0
+  best_of_n_retry:
+    gpt-4: 30.0
+    gpt-4o: 35.0
+    gpt-4o-mini: 42.0
+    gpt-4.1: 25.0
+    o1: 15.0
+    o3: 12.0
+    o4-mini: 20.0
+    claude-3: 25.0
+    claude-3.5: 28.0
+    claude-3.5-sonnet: 27.0
+    claude-3.5-haiku: 35.0
+    claude-4-opus: 16.0
+    claude-4-sonnet: 20.0
+    gemini-1.5-pro: 32.0
+    gemini-2.0-flash: 38.0
+    gemini-2.5-pro: 25.0
+    llama-2-70b: 50.0
+    llama-3-70b: 40.0
+    llama-3.1-405b: 35.0
+    llama-4: 32.0
+    deepseek-v3: 45.0
+    deepseek-r1: 38.0
+    qwen-32b: 45.0
+    qwen2-72b: 42.0
+    qwen3-32b: 40.0
+    qwen3-72b: 38.0
+    glm-4-32b: 45.0
+    mistral-large: 45.0
+    gemma-2: 48.0
+    yi-large: 42.0
+    command-r-plus: 40.0
+    default: 35.0
+  crescendo:
+    gpt-4: 82.0
+    gpt-4o: 85.0
+    gpt-4o-mini: 88.0
+    gpt-4.1: 75.0
+    o1: 45.0
+    o3: 35.0
+    o4-mini: 55.0
+    claude-3: 75.0
+    claude-3.5: 78.0
+    claude-3.5-sonnet: 76.0
+    claude-3.5-haiku: 82.0
+    claude-4-opus: 55.0
+    claude-4-sonnet: 62.0
+    gemini-1.5-pro: 80.0
+    gemini-2.0-flash: 82.0
+    gemini-2.5-pro: 65.0
+    llama-2-70b: 60.0
+    llama-3-70b: 55.0
+    llama-3.1-405b: 48.0
+    llama-4: 45.0
+    deepseek-v3: 58.0
+    deepseek-r1: 50.0
+    qwen-32b: 50.0
+    qwen2-72b: 52.0
+    qwen3-32b: 48.0
+    qwen3-72b: 45.0
+    glm-4-32b: 55.0
+    mistral-large: 58.0
+    gemma-2: 60.0
+    yi-large: 55.0
+    command-r-plus: 52.0
+    default: 65.0
+  tap:
+    gpt-4: 80.0
+    gpt-4o: 82.0
+    gpt-4o-mini: 85.0
+    gpt-4.1: 72.0
+    o1: 40.0
+    o3: 30.0
+    o4-mini: 50.0
+    claude-3: 70.0
+    claude-3.5: 72.0
+    claude-3.5-sonnet: 70.0
+    claude-3.5-haiku: 78.0
+    claude-4-opus: 50.0
+    claude-4-sonnet: 58.0
+    gemini-1.5-pro: 75.0
+    gemini-2.0-flash: 78.0
+    gemini-2.5-pro: 60.0
+    llama-2-70b: 55.0
+    llama-3-70b: 50.0
+    llama-3.1-405b: 42.0
+    llama-4: 40.0
+    deepseek-v3: 52.0
+    deepseek-r1: 45.0
+    qwen-32b: 45.0
+    qwen2-72b: 48.0
+    qwen3-32b: 42.0
+    qwen3-72b: 40.0
+    glm-4-32b: 50.0
+    mistral-large: 55.0
+    gemma-2: 58.0
+    yi-large: 50.0
+    command-r-plus: 48.0
+    default: 60.0
+  pair:
+    gpt-4: 60.0
+    gpt-4o: 65.0
+    gpt-4o-mini: 70.0
+    gpt-4.1: 52.0
+    o1: 30.0
+    o3: 22.0
+    o4-mini: 38.0
+    claude-3: 55.0
+    claude-3.5: 58.0
+    claude-3.5-sonnet: 56.0
+    claude-3.5-haiku: 62.0
+    claude-4-opus: 38.0
+    claude-4-sonnet: 45.0
+    gemini-1.5-pro: 60.0
+    gemini-2.0-flash: 62.0
+    gemini-2.5-pro: 48.0
+    llama-2-70b: 45.0
+    llama-3-70b: 40.0
+    llama-3.1-405b: 35.0
+    llama-4: 32.0
+    deepseek-v3: 42.0
+    deepseek-r1: 35.0
+    qwen-32b: 35.0
+    qwen2-72b: 38.0
+    qwen3-32b: 33.0
+    qwen3-72b: 30.0
+    glm-4-32b: 40.0
+    mistral-large: 42.0
+    gemma-2: 45.0
+    yi-large: 40.0
+    command-r-plus: 38.0
+    default: 50.0
+  gcg:
+    gpt-4: 66.0
+    gpt-4o: 68.0
+    gpt-4o-mini: 72.0
+    gpt-4.1: 55.0
+    o1: 75.0
+    o3: 65.0
+    o4-mini: 80.0
+    claude-3: 40.0
+    claude-3.5: 42.0
+    claude-3.5-sonnet: 40.0
+    claude-3.5-haiku: 48.0
+    claude-4-opus: 30.0
+    claude-4-sonnet: 35.0
+    gemini-1.5-pro: 50.0
+    gemini-2.0-flash: 55.0
+    gemini-2.5-pro: 38.0
+    llama-2-70b: 88.0
+    llama-3-70b: 56.0
+    llama-3.1-405b: 45.0
+    llama-4: 40.0
+    deepseek-v3: 55.0
+    deepseek-r1: 78.0
+    qwen-32b: 30.0
+    qwen2-72b: 35.0
+    qwen3-32b: 28.0
+    qwen3-72b: 30.0
+    glm-4-32b: 40.0
+    mistral-large: 48.0
+    gemma-2: 52.0
+    yi-large: 45.0
+    command-r-plus: 42.0
+    default: 50.0
+  # P2-17: 函数调用参数注入 — 工具滥用类
+  function_call_exploit:
+    gpt-4: 45.0
+    gpt-4o: 50.0
+    gpt-4o-mini: 55.0
+    gpt-4.1: 42.0
+    o1: 30.0
+    o3: 25.0
+    o4-mini: 35.0
+    claude-3: 40.0
+    claude-3.5: 42.0
+    claude-3.5-sonnet: 40.0
+    claude-3.5-haiku: 48.0
+    claude-4-opus: 28.0
+    claude-4-sonnet: 35.0
+    gemini-1.5-pro: 48.0
+    gemini-2.0-flash: 52.0
+    gemini-2.5-pro: 38.0
+    llama-2-70b: 55.0
+    llama-3-70b: 48.0
+    llama-3.1-405b: 42.0
+    llama-4: 40.0
+    deepseek-v3: 52.0
+    deepseek-r1: 40.0
+    qwen-32b: 50.0
+    qwen2-72b: 52.0
+    qwen3-32b: 48.0
+    qwen3-72b: 45.0
+    glm-4-32b: 50.0
+    mistral-large: 50.0
+    gemma-2: 52.0
+    yi-large: 48.0
+    command-r-plus: 45.0
+    default: 45.0
+  # P2-17: 后端漏洞通过 LLM 函数调用利用
+  backend_vuln_exploit:
+    gpt-4: 40.0
+    gpt-4o: 45.0
+    gpt-4o-mini: 50.0
+    gpt-4.1: 38.0
+    o1: 25.0
+    o3: 20.0
+    o4-mini: 30.0
+    claude-3: 35.0
+    claude-3.5: 38.0
+    claude-3.5-sonnet: 36.0
+    claude-3.5-haiku: 42.0
+    claude-4-opus: 25.0
+    claude-4-sonnet: 30.0
+    gemini-1.5-pro: 42.0
+    gemini-2.0-flash: 45.0
+    gemini-2.5-pro: 35.0
+    llama-2-70b: 50.0
+    llama-3-70b: 42.0
+    llama-3.1-405b: 38.0
+    llama-4: 35.0
+    deepseek-v3: 48.0
+    deepseek-r1: 35.0
+    qwen-32b: 45.0
+    qwen2-72b: 48.0
+    qwen3-32b: 42.0
+    qwen3-72b: 40.0
+    glm-4-32b: 45.0
+    mistral-large: 45.0
+    gemma-2: 48.0
+    yi-large: 42.0
+    command-r-plus: 40.0
+    default: 40.0
+  # P2-17: 会话/认证攻击
+  session_auth_exploit:
+    gpt-4: 25.0
+    gpt-4o: 28.0
+    gpt-4o-mini: 32.0
+    gpt-4.1: 22.0
+    o1: 15.0
+    o3: 12.0
+    o4-mini: 18.0
+    claude-3: 22.0
+    claude-3.5: 25.0
+    claude-3.5-sonnet: 24.0
+    claude-3.5-haiku: 28.0
+    claude-4-opus: 16.0
+    claude-4-sonnet: 20.0
+    gemini-1.5-pro: 26.0
+    gemini-2.0-flash: 30.0
+    gemini-2.5-pro: 20.0
+    llama-2-70b: 35.0
+    llama-3-70b: 30.0
+    llama-3.1-405b: 25.0
+    llama-4: 22.0
+    deepseek-v3: 32.0
+    deepseek-r1: 25.0
+    qwen-32b: 32.0
+    qwen2-72b: 34.0
+    qwen3-32b: 30.0
+    qwen3-72b: 28.0
+    glm-4-32b: 32.0
+    mistral-large: 30.0
+    gemma-2: 32.0
+    yi-large: 28.0
+    command-r-plus: 26.0
+    default: 35.0
+  # P2-17: Token 走私/编码绕过
+  token_smuggling:
+    gpt-4: 38.0
+    gpt-4o: 42.0
+    gpt-4o-mini: 48.0
+    gpt-4.1: 35.0
+    o1: 50.0
+    o3: 42.0
+    o4-mini: 55.0
+    claude-3: 30.0
+    claude-3.5: 35.0
+    claude-3.5-sonnet: 32.0
+    claude-3.5-haiku: 40.0
+    claude-4-opus: 22.0
+    claude-4-sonnet: 28.0
+    gemini-1.5-pro: 38.0
+    gemini-2.0-flash: 42.0
+    gemini-2.5-pro: 30.0
+    llama-2-70b: 55.0
+    llama-3-70b: 45.0
+    llama-3.1-405b: 40.0
+    llama-4: 38.0
+    deepseek-v3: 48.0
+    deepseek-r1: 55.0
+    qwen-32b: 40.0
+    qwen2-72b: 42.0
+    qwen3-32b: 38.0
+    qwen3-72b: 35.0
+    glm-4-32b: 42.0
+    mistral-large: 45.0
+    gemma-2: 48.0
+    yi-large: 42.0
+    command-r-plus: 40.0
+    default: 38.0
+  # P2-17: 结构化注入
+  structured_injection:
+    gpt-4: 40.0
+    gpt-4o: 45.0
+    gpt-4o-mini: 50.0
+    gpt-4.1: 38.0
+    o1: 25.0
+    o3: 20.0
+    o4-mini: 30.0
+    claude-3: 35.0
+    claude-3.5: 38.0
+    claude-3.5-sonnet: 36.0
+    claude-3.5-haiku: 42.0
+    claude-4-opus: 25.0
+    claude-4-sonnet: 30.0
+    gemini-1.5-pro: 42.0
+    gemini-2.0-flash: 45.0
+    gemini-2.5-pro: 35.0
+    llama-2-70b: 50.0
+    llama-3-70b: 42.0
+    llama-3.1-405b: 38.0
+    llama-4: 35.0
+    deepseek-v3: 45.0
+    deepseek-r1: 35.0
+    qwen-32b: 45.0
+    qwen2-72b: 48.0
+    qwen3-32b: 42.0
+    qwen3-72b: 40.0
+    glm-4-32b: 45.0
+    mistral-large: 45.0
+    gemma-2: 48.0
+    yi-large: 42.0
+    command-r-plus: 40.0
+    default: 42.0
+  # P2-17: 工作流链式攻击
+  workflow_chain_exploit:
+    gpt-4: 35.0
+    gpt-4o: 40.0
+    gpt-4o-mini: 45.0
+    gpt-4.1: 32.0
+    o1: 20.0
+    o3: 15.0
+    o4-mini: 25.0
+    claude-3: 30.0
+    claude-3.5: 33.0
+    claude-3.5-sonnet: 32.0
+    claude-3.5-haiku: 38.0
+    claude-4-opus: 22.0
+    claude-4-sonnet: 25.0
+    gemini-1.5-pro: 38.0
+    gemini-2.0-flash: 40.0
+    gemini-2.5-pro: 30.0
+    llama-2-70b: 45.0
+    llama-3-70b: 38.0
+    llama-3.1-405b: 32.0
+    llama-4: 30.0
+    deepseek-v3: 42.0
+    deepseek-r1: 32.0
+    qwen-32b: 40.0
+    qwen2-72b: 42.0
+    qwen3-32b: 38.0
+    qwen3-72b: 35.0
+    glm-4-32b: 40.0
+    mistral-large: 40.0
+    gemma-2: 42.0
+    yi-large: 38.0
+    command-r-plus: 35.0
+    default: 35.0
+  # P2-17: 记忆系统攻击
+  memory_exploit:
+    gpt-4: 35.0
+    gpt-4o: 40.0
+    gpt-4o-mini: 45.0
+    gpt-4.1: 35.0
+    o1: 25.0
+    o3: 20.0
+    o4-mini: 30.0
+    claude-3: 30.0
+    claude-3.5: 35.0
+    claude-3.5-sonnet: 33.0
+    claude-3.5-haiku: 38.0
+    claude-4-opus: 25.0
+    claude-4-sonnet: 28.0
+    gemini-1.5-pro: 38.0
+    gemini-2.0-flash: 40.0
+    gemini-2.5-pro: 30.0
+    llama-2-70b: 45.0
+    llama-3-70b: 38.0
+    llama-3.1-405b: 32.0
+    llama-4: 30.0
+    deepseek-v3: 42.0
+    deepseek-r1: 32.0
+    qwen-32b: 42.0
+    qwen2-72b: 44.0
+    qwen3-32b: 40.0
+    qwen3-72b: 38.0
+    glm-4-32b: 42.0
+    mistral-large: 40.0
+    gemma-2: 42.0
+    yi-large: 38.0
+    command-r-plus: 35.0
+    default: 35.0
+  # P2-17: 角色混淆攻击
+  role_confusion:
+    gpt-4: 42.0
+    gpt-4o: 48.0
+    gpt-4o-mini: 52.0
+    gpt-4.1: 38.0
+    o1: 25.0
+    o3: 20.0
+    o4-mini: 30.0
+    claude-3: 35.0
+    claude-3.5: 40.0
+    claude-3.5-sonnet: 38.0
+    claude-3.5-haiku: 45.0
+    claude-4-opus: 28.0
+    claude-4-sonnet: 32.0
+    gemini-1.5-pro: 45.0
+    gemini-2.0-flash: 48.0
+    gemini-2.5-pro: 35.0
+    llama-2-70b: 55.0
+    llama-3-70b: 45.0
+    llama-3.1-405b: 40.0
+    llama-4: 38.0
+    deepseek-v3: 50.0
+    deepseek-r1: 38.0
+    qwen-32b: 50.0
+    qwen2-72b: 52.0
+    qwen3-32b: 48.0
+    qwen3-72b: 45.0
+    glm-4-32b: 50.0
+    mistral-large: 48.0
+    gemma-2: 50.0
+    yi-large: 45.0
+    command-r-plus: 42.0
+    default: 42.0
+  # P2-17: 资源耗尽/日志泄密
+  resource_exhaustion:
+    gpt-4: 25.0
+    gpt-4o: 28.0
+    gpt-4o-mini: 32.0
+    gpt-4.1: 22.0
+    o1: 18.0
+    o3: 15.0
+    o4-mini: 20.0
+    claude-3: 20.0
+    claude-3.5: 22.0
+    claude-3.5-sonnet: 20.0
+    claude-3.5-haiku: 25.0
+    claude-4-opus: 15.0
+    claude-4-sonnet: 18.0
+    gemini-1.5-pro: 26.0
+    gemini-2.0-flash: 30.0
+    gemini-2.5-pro: 20.0
+    llama-2-70b: 35.0
+    llama-3-70b: 30.0
+    llama-3.1-405b: 25.0
+    llama-4: 22.0
+    deepseek-v3: 30.0
+    deepseek-r1: 22.0
+    qwen-32b: 28.0
+    qwen2-72b: 30.0
+    qwen3-32b: 26.0
+    qwen3-72b: 24.0
+    glm-4-32b: 28.0
+    mistral-large: 28.0
+    gemma-2: 30.0
+    yi-large: 26.0
+    command-r-plus: 24.0
+    default: 25.0
+
+# 按 Converter×模型的 ASR 先验 (%)
+# 模型覆盖与 technique_asr 一致
+converter_asr:
+  PersuasionConverter:authority_endorsement:
+    gpt-4: 38.4
+    gpt-4o: 42.0
+    gpt-4o-mini: 48.0
+    gpt-4.1: 35.0
+    o1: 22.0
+    o3: 18.0
+    o4-mini: 28.0
+    claude-3: 35.0
+    claude-3.5: 38.0
+    claude-3.5-sonnet: 36.0
+    claude-3.5-haiku: 42.0
+    claude-4-opus: 25.0
+    claude-4-sonnet: 30.0
+    gemini-1.5-pro: 40.0
+    gemini-2.0-flash: 42.0
+    gemini-2.5-pro: 32.0
+    llama-2-70b: 45.0
+    llama-3-70b: 38.0
+    llama-3.1-405b: 33.0
+    llama-4: 30.0
+    deepseek-v3: 35.0
+    deepseek-r1: 25.0
+    qwen-32b: 30.0
+    qwen2-72b: 32.0
+    qwen3-32b: 28.0
+    qwen3-72b: 26.0
+    glm-4-32b: 32.0
+    mistral-large: 35.0
+    gemma-2: 38.0
+    yi-large: 32.0
+    command-r-plus: 30.0
+    default: 30.0
+  PersuasionConverter:logical_appeal:
+    gpt-4: 28.7
+    gpt-4o: 30.0
+    gpt-4o-mini: 35.0
+    gpt-4.1: 25.0
+    o1: 18.0
+    o3: 15.0
+    o4-mini: 22.0
+    claude-3: 25.0
+    claude-3.5: 28.0
+    claude-3.5-sonnet: 26.0
+    claude-3.5-haiku: 32.0
+    claude-4-opus: 20.0
+    claude-4-sonnet: 24.0
+    gemini-1.5-pro: 28.0
+    gemini-2.0-flash: 30.0
+    gemini-2.5-pro: 22.0
+    llama-2-70b: 35.0
+    llama-3-70b: 30.0
+    llama-3.1-405b: 26.0
+    llama-4: 24.0
+    deepseek-v3: 28.0
+    deepseek-r1: 20.0
+    qwen-32b: 22.0
+    qwen2-72b: 24.0
+    qwen3-32b: 22.0
+    qwen3-72b: 20.0
+    glm-4-32b: 25.0
+    mistral-large: 28.0
+    gemma-2: 30.0
+    yi-large: 25.0
+    command-r-plus: 22.0
+    default: 25.0
+  ToneConverter:academic:
+    gpt-4: 22.1
+    gpt-4o: 24.0
+    gpt-4o-mini: 28.0
+    gpt-4.1: 20.0
+    o1: 12.0
+    o3: 10.0
+    o4-mini: 15.0
+    claude-3: 18.0
+    claude-3.5: 20.0
+    claude-3.5-sonnet: 19.0
+    claude-3.5-haiku: 24.0
+    claude-4-opus: 14.0
+    claude-4-sonnet: 16.0
+    gemini-1.5-pro: 22.0
+    gemini-2.0-flash: 24.0
+    gemini-2.5-pro: 18.0
+    llama-2-70b: 28.0
+    llama-3-70b: 24.0
+    llama-3.1-405b: 20.0
+    llama-4: 18.0
+    deepseek-v3: 22.0
+    deepseek-r1: 15.0
+    qwen-32b: 20.0
+    qwen2-72b: 22.0
+    qwen3-32b: 18.0
+    qwen3-72b: 16.0
+    glm-4-32b: 20.0
+    mistral-large: 22.0
+    gemma-2: 24.0
+    yi-large: 20.0
+    command-r-plus: 18.0
+    default: 20.0
+  VariationConverter:
+    gpt-4: 25.0
+    gpt-4o: 28.0
+    gpt-4o-mini: 32.0
+    gpt-4.1: 22.0
+    o1: 15.0
+    o3: 12.0
+    o4-mini: 18.0
+    claude-3: 20.0
+    claude-3.5: 22.0
+    claude-3.5-sonnet: 21.0
+    claude-3.5-haiku: 26.0
+    claude-4-opus: 16.0
+    claude-4-sonnet: 19.0
+    gemini-1.5-pro: 25.0
+    gemini-2.0-flash: 28.0
+    gemini-2.5-pro: 20.0
+    llama-2-70b: 30.0
+    llama-3-70b: 26.0
+    llama-3.1-405b: 22.0
+    llama-4: 20.0
+    deepseek-v3: 25.0
+    deepseek-r1: 18.0
+    qwen-32b: 22.0
+    qwen2-72b: 24.0
+    qwen3-32b: 20.0
+    qwen3-72b: 18.0
+    glm-4-32b: 22.0
+    mistral-large: 25.0
+    gemma-2: 26.0
+    yi-large: 22.0
+    command-r-plus: 20.0
+    default: 22.0
+  DecompositionConverter:
+    gpt-4: 50.0
+    gpt-4o: 52.0
+    gpt-4o-mini: 55.0
+    gpt-4.1: 45.0
+    o1: 30.0
+    o3: 25.0
+    o4-mini: 35.0
+    claude-3: 45.0
+    claude-3.5: 48.0
+    claude-3.5-sonnet: 46.0
+    claude-3.5-haiku: 52.0
+    claude-4-opus: 35.0
+    claude-4-sonnet: 40.0
+    gemini-1.5-pro: 48.0
+    gemini-2.0-flash: 50.0
+    gemini-2.5-pro: 42.0
+    llama-2-70b: 55.0
+    llama-3-70b: 48.0
+    llama-3.1-405b: 42.0
+    llama-4: 40.0
+    deepseek-v3: 45.0
+    deepseek-r1: 38.0
+    qwen-32b: 40.0
+    qwen2-72b: 42.0
+    qwen3-32b: 38.0
+    qwen3-72b: 36.0
+    glm-4-32b: 42.0
+    mistral-large: 45.0
+    gemma-2: 48.0
+    yi-large: 42.0
+    command-r-plus: 40.0
+    default: 42.0
+  Base64Converter:
+    gpt-4: 7.0
+    gpt-4o: 8.0
+    gpt-4o-mini: 10.0
+    gpt-4.1: 5.0
+    o1: 3.0
+    o3: 2.0
+    o4-mini: 4.0
+    claude-3: 5.0
+    claude-3.5: 6.0
+    claude-3.5-sonnet: 5.0
+    claude-3.5-haiku: 8.0
+    claude-4-opus: 3.0
+    claude-4-sonnet: 4.0
+    gemini-1.5-pro: 7.0
+    gemini-2.0-flash: 8.0
+    gemini-2.5-pro: 5.0
+    llama-2-70b: 12.0
+    llama-3-70b: 9.0
+    llama-3.1-405b: 7.0
+    llama-4: 6.0
+    deepseek-v3: 8.0
+    deepseek-r1: 6.0
+    qwen-32b: 8.0
+    qwen2-72b: 7.0
+    qwen3-32b: 6.0
+    qwen3-72b: 5.0
+    glm-4-32b: 8.0
+    mistral-large: 8.0
+    gemma-2: 9.0
+    yi-large: 7.0
+    command-r-plus: 6.0
+    default: 7.0
+  ROT13Converter:
+    gpt-4: 8.0
+    gpt-4o: 9.0
+    gpt-4o-mini: 12.0
+    gpt-4.1: 6.0
+    o1: 4.0
+    o3: 3.0
+    o4-mini: 5.0
+    claude-3: 6.0
+    claude-3.5: 7.0
+    claude-3.5-sonnet: 6.0
+    claude-3.5-haiku: 9.0
+    claude-4-opus: 4.0
+    claude-4-sonnet: 5.0
+    gemini-1.5-pro: 8.0
+    gemini-2.0-flash: 9.0
+    gemini-2.5-pro: 6.0
+    llama-2-70b: 14.0
+    llama-3-70b: 10.0
+    llama-3.1-405b: 8.0
+    llama-4: 7.0
+    deepseek-v3: 9.0
+    deepseek-r1: 7.0
+    qwen-32b: 10.0
+    qwen2-72b: 9.0
+    qwen3-32b: 8.0
+    qwen3-72b: 7.0
+    glm-4-32b: 9.0
+    mistral-large: 9.0
+    gemma-2: 10.0
+    yi-large: 8.0
+    command-r-plus: 7.0
+    default: 8.0
+  RandomCapitalLettersConverter:
+    gpt-4: 30.0
+    gpt-4o: 32.0
+    gpt-4o-mini: 35.0
+    gpt-4.1: 25.0
+    o1: 15.0
+    o3: 12.0
+    o4-mini: 18.0
+    claude-3: 25.0
+    claude-3.5: 28.0
+    claude-3.5-sonnet: 26.0
+    claude-3.5-haiku: 32.0
+    claude-4-opus: 18.0
+    claude-4-sonnet: 22.0
+    gemini-1.5-pro: 30.0
+    gemini-2.0-flash: 32.0
+    gemini-2.5-pro: 24.0
+    llama-2-70b: 38.0
+    llama-3-70b: 32.0
+    llama-3.1-405b: 28.0
+    llama-4: 25.0
+    deepseek-v3: 30.0
+    deepseek-r1: 22.0
+    qwen-32b: 28.0
+    qwen2-72b: 30.0
+    qwen3-32b: 26.0
+    qwen3-72b: 24.0
+    glm-4-32b: 28.0
+    mistral-large: 30.0
+    gemma-2: 32.0
+    yi-large: 28.0
+    command-r-plus: 26.0
+    default: 28.0
+  UnicodeSubstitutionConverter:
+    gpt-4: 12.0
+    gpt-4o: 13.0
+    gpt-4o-mini: 15.0
+    gpt-4.1: 10.0
+    o1: 6.0
+    o3: 5.0
+    o4-mini: 8.0
+    claude-3: 8.0
+    claude-3.5: 10.0
+    claude-3.5-sonnet: 9.0
+    claude-3.5-haiku: 12.0
+    claude-4-opus: 6.0
+    claude-4-sonnet: 8.0
+    gemini-1.5-pro: 11.0
+    gemini-2.0-flash: 12.0
+    gemini-2.5-pro: 8.0
+    llama-2-70b: 18.0
+    llama-3-70b: 14.0
+    llama-3.1-405b: 10.0
+    llama-4: 9.0
+    deepseek-v3: 12.0
+    deepseek-r1: 9.0
+    qwen-32b: 5.0
+    qwen2-72b: 6.0
+    qwen3-32b: 5.0
+    qwen3-72b: 4.0
+    glm-4-32b: 8.0
+    mistral-large: 10.0
+    gemma-2: 12.0
+    yi-large: 8.0
+    command-r-plus: 7.0
+    default: 10.0
+  # L5 v38: PyRIT 原生 TranslationConverter / RandomTranslationConverter
+  # 学术依据: Andriushchenko et al. (arXiv:2402.09185) — 多语言混淆
+  # PyRIT (arXiv:2407.01232) — 原生 LLM 辅助 converter
+  RandomTranslationConverter:
+    gpt-4: 30.0
+    gpt-4o: 32.0
+    gpt-4o-mini: 35.0
+    gpt-4.1: 26.0
+    o1: 18.0
+    o3: 15.0
+    o4-mini: 22.0
+    claude-3: 25.0
+    claude-3.5: 28.0
+    claude-3.5-sonnet: 26.0
+    claude-3.5-haiku: 32.0
+    claude-4-opus: 20.0
+    claude-4-sonnet: 24.0
+    gemini-1.5-pro: 30.0
+    gemini-2.0-flash: 32.0
+    gemini-2.5-pro: 24.0
+    llama-2-70b: 35.0
+    llama-3-70b: 30.0
+    llama-3.1-405b: 26.0
+    llama-4: 24.0
+    deepseek-v3: 28.0
+    deepseek-r1: 22.0
+    qwen-32b: 28.0
+    qwen2-72b: 30.0
+    qwen3-32b: 26.0
+    qwen3-72b: 24.0
+    glm-4-32b: 28.0
+    mistral-large: 30.0
+    gemma-2: 32.0
+    yi-large: 28.0
+    command-r-plus: 26.0
+    default: 28.0
+  TranslationConverter:
+    gpt-4: 20.0
+    gpt-4o: 22.0
+    gpt-4o-mini: 25.0
+    gpt-4.1: 18.0
+    o1: 12.0
+    o3: 10.0
+    o4-mini: 15.0
+    claude-3: 15.0
+    claude-3.5: 18.0
+    claude-3.5-sonnet: 16.0
+    claude-3.5-haiku: 22.0
+    claude-4-opus: 12.0
+    claude-4-sonnet: 15.0
+    gemini-1.5-pro: 20.0
+    gemini-2.0-flash: 22.0
+    gemini-2.5-pro: 16.0
+    llama-2-70b: 25.0
+    llama-3-70b: 22.0
+    llama-3.1-405b: 18.0
+    llama-4: 16.0
+    deepseek-v3: 20.0
+    deepseek-r1: 15.0
+    qwen-32b: 18.0
+    qwen2-72b: 20.0
+    qwen3-32b: 16.0
+    qwen3-72b: 14.0
+    glm-4-32b: 18.0
+    mistral-large: 20.0
+    gemma-2: 22.0
+    yi-large: 18.0
+    command-r-plus: 16.0
+    default: 18.0
+
+# MTOS 多轮选种权重
+# arXiv:2310.08419 — PAIR 多轮攻击选种策略
+# 多轮攻击选种反向于单轮: 选低-中 ASR 种子 (单轮 ASR 0-15% 但可渐进突破)
+mtos_weights:
+  asr_suitability: 0.35   # ASR 适宜性 (低-中 ASR 种子更适合多轮渐进)
+  difficulty: 0.25        # 难度 (越难越适合多轮)
+  severity: 0.20          # 严重性 (critical 优先)
+  category_diversity: 0.20  # 类别多样性 (覆盖不同 OWASP 类别)
+
+# MTOS ASR 适宜性映射
+# 单轮 ASR → 多轮适宜性分数 (0-100)
+# 低 ASR 种子 (0-15%) → 高适宜性 (70-100, 适合多轮突破)
+# 中 ASR 种子 (15-40%) → 中适宜性 (40-70)
+# 高 ASR 种子 (40%+) → 低适宜性 (10-40, 单轮已成功无需多轮)
+mtos_asr_suitability:
+  0: 100.0     # ASR=0% → 适宜性=100 (完全未被攻破, 适合多轮)
+  5: 95.0
+  10: 90.0
+  15: 80.0
+  20: 70.0
+  30: 55.0
+  40: 40.0
+  50: 25.0
+  60: 15.0
+  70: 10.0
+  80: 5.0
+  100: 0.0    # ASR=100% → 适宜性=0 (已成功, 无需多轮)
+
+# epsilon-greedy 探索参数
+# arXiv:cs/0207052 — UCB1 探索-利用平衡
+epsilon_greedy:
+  cold_start: 0.15    # 冷启动 ε (强探索)
+  warm_start: 0.10    # 积累数据后 ε
+  hot_start: 0.02     # 充分数据后 ε (弱探索)
+  warmup_threshold: 50  # 尝试次数 > 50 后切换到 warm
+  hot_threshold: 200    # 尝试次数 > 200 后切换到 hot
+
+# L5 v36: OWASP 类别 → Converter 优先级映射
+# 学术依据:
+#   arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
+#   arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
+#   arXiv:2402.14266 — DrAttack 分解对信息提取类有效
+# 策略: 按种子 OWASP 类别匹配最佳 Converter, 提升单轮 ASR
+# 每个类别列出 Converter 签名, 按优先级排序 (第一个为最佳)
+owasp_converter_map:
+  # LLM01: Prompt Injection — 权威背书 + 变体重写绕过关键词
+  LLM01:
+    - "PersuasionConverter:authority_endorsement"
+    - "VariationConverter"
+    - "RandomTranslationConverter"
+    - "ROT13Converter"
+  # LLM02: Sensitive Info — 分解重组提取碎片信息 + 逻辑诉求
+  LLM02:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  # LLM03: Supply Chain — 权威背书伪装合规审计
+  LLM03:
+    - "PersuasionConverter:authority_endorsement"
+    - "PersuasionConverter:expert_endorsement"
+    - "ToneConverter:academic"
+  # LLM04: Insecure Output — 编码绕过过滤 + 变体
+  LLM04:
+    - "ROT13Converter"
+    - "RandomTranslationConverter"
+    - "VariationConverter"
+    - "TranslationConverter"
+    - "Base64Converter"
+  # LLM05: Excessive Agency — 逻辑诉求限制范围 + 分解
+  LLM05:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  # LLM06: Excessive Agency (tool) — 分解重组工具链调用
+  LLM06:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  # LLM07: Insecure Plugin — 编码绕过 + 随机大写
+  LLM07:
+    - "ROT13Converter"
+    - "RandomCapitalLettersConverter"
+    - "VariationConverter"
+  # LLM08: Vector Embeddings — 权威背书 + 学术语气
+  LLM08:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "VariationConverter"
+  # LLM09: Misinformation — 学术语气 + 逻辑诉求
+  LLM09:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  # LLM10: Model DoS — 变体重写 (生成更长 payload)
+  LLM10:
+    - "VariationConverter"
+    - "PersuasionConverter:authority_endorsement"
+  # ASI01-10: Agent Security — 权威背书 + 分解优先
+  ASI01:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  ASI02:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  ASI03:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "VariationConverter"
+  ASI04:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "ROT13Converter"
+  ASI05:
+    - "PersuasionConverter:authority_endorsement"
+    - "PersuasionConverter:expert_endorsement"
+    - "DecompositionConverter"
+  ASI06:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "VariationConverter"
+  ASI07:
+    - "ROT13Converter"
+    - "RandomCapitalLettersConverter"
+    - "VariationConverter"
+  ASI08:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  ASI09:
+    - "PersuasionConverter:authority_endorsement"
+    - "VariationConverter"
+    - "ROT13Converter"
+  ASI10:
+    - "PersuasionConverter:expert_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+
+# L5 v36: 技术 × 种子交叉 ASR 先验
+# 学术依据:
+#   arXiv:2402.12109 — Crescendo 对信息提取类 (LLM02) ASR 82%
+#   arXiv:2312.02191 — TAP 对工具链式 (LLM06) ASR 80%
+#   arXiv:2310.08419 — PAIR 对通用类 (LLM01) ASR 60%
+# 表示某技术对某 OWASP 类别的预期 ASR (%), 用于 MTOS 评分加权
+technique_seed_asr:
+  crescendo:
+    LLM01: 75.0   # 渐进式对直接注入有效
+    LLM02: 82.0   # 信息提取类最适合渐进升级
+    LLM03: 60.0
+    LLM04: 50.0
+    LLM05: 55.0
+    LLM06: 70.0   # 工具链式渐进有效
+    LLM07: 45.0
+    LLM08: 65.0
+    LLM09: 40.0
+    LLM10: 30.0
+    ASI01: 55.0
+    ASI02: 72.0   # 工具误用适合渐进
+    ASI03: 50.0
+    ASI04: 45.0
+    ASI05: 60.0
+    ASI06: 68.0   # 记忆污染适合渐进
+    ASI07: 40.0
+    ASI08: 55.0
+    ASI09: 35.0
+    ASI10: 30.0
+    default: 55.0
+  tap:
+    LLM01: 70.0
+    LLM02: 65.0
+    LLM03: 55.0
+    LLM04: 50.0
+    LLM05: 60.0
+    LLM06: 80.0   # 工具链式最适合树搜索
+    LLM07: 45.0
+    LLM08: 75.0   # 向量嵌入适合多分支探索
+    LLM09: 40.0
+    LLM10: 25.0
+    ASI01: 55.0
+    ASI02: 78.0   # 工具误用适合树搜索
+    ASI03: 50.0
+    ASI04: 60.0
+    ASI05: 65.0
+    ASI06: 50.0
+    ASI07: 40.0
+    ASI08: 70.0
+    ASI09: 35.0
+    ASI10: 30.0
+    default: 55.0
+  pair:
+    LLM01: 65.0   # 通用注入适合迭代优化
+    LLM02: 55.0
+    LLM03: 50.0
+    LLM04: 60.0
+    LLM05: 55.0
+    LLM06: 50.0
+    LLM07: 55.0
+    LLM08: 50.0
+    LLM09: 60.0
+    LLM10: 40.0
+    ASI01: 50.0
+    ASI02: 55.0
+    ASI03: 45.0
+    ASI04: 50.0
+    ASI05: 55.0
+    ASI06: 48.0
+    ASI07: 50.0
+    ASI08: 52.0
+    ASI09: 58.0
+    ASI10: 35.0
+    default: 50.0
+  # L5 v36: GCG 对抗后缀 — 对编码类和注入类最有效
+  # 学术依据: Zou et al. (arXiv:2307.08673) — GCG 对 GPT-4 ASR 66-88%
+  gcg:
+    LLM01: 70.0   # 直接注入+后缀绕过有效
+    LLM02: 45.0
+    LLM03: 50.0
+    LLM04: 75.0   # 编码绕过+后缀对输出过滤最有效
+    LLM05: 40.0
+    LLM06: 55.0
+    LLM07: 80.0   # 插件场景+后缀绕过
+    LLM08: 60.0
+    LLM09: 35.0
+    LLM10: 25.0
+    ASI01: 50.0
+    ASI02: 55.0
+    ASI03: 45.0
+    ASI04: 48.0
+    ASI05: 40.0
+    ASI06: 52.0
+    ASI07: 65.0
+    ASI08: 50.0
+    ASI09: 38.0
+    ASI10: 30.0
+    default: 50.0
+  # L5 v36: CAIR 上下文感知迭代 — 对信息提取和推理类有效
+  # 学术依据: Chao et al. (arXiv:2310.08419) — PAIR 增强版
+  cair:
+    LLM01: 55.0
+    LLM02: 68.0   # 信息提取适合迭代优化
+    LLM03: 45.0
+    LLM04: 50.0
+    LLM05: 55.0
+    LLM06: 60.0
+    LLM07: 45.0
+    LLM08: 58.0
+    LLM09: 52.0
+    LLM10: 30.0
+    ASI01: 50.0
+    ASI02: 62.0   # 工具误用适合迭代
+    ASI03: 45.0
+    ASI04: 48.0
+    ASI05: 55.0
+    ASI06: 60.0   # 记忆污染适合迭代优化
+    ASI07: 42.0
+    ASI08: 55.0
+    ASI09: 50.0
+    ASI10: 32.0
+    default: 48.0
+  # L5 v36: CoT 劫持 — 对推理类和注入类有效
+  # 学术依据: Wei et al. (arXiv:2307.10292) — CoT 劫持 ASR 45-60%
+  cot_hijack:
+    LLM01: 60.0   # 注入+推理劫持有效
+    LLM02: 55.0
+    LLM03: 50.0
+    LLM04: 45.0
+    LLM05: 58.0   # 权限越界适合推理引导
+    LLM06: 55.0
+    LLM07: 40.0
+    LLM08: 50.0
+    LLM09: 65.0   # 虚假信息适合推理惯性
+    LLM10: 30.0
+    ASI01: 55.0
+    ASI02: 60.0   # 工具误用适合推理引导
+    ASI03: 50.0
+    ASI04: 55.0
+    ASI05: 58.0
+    ASI06: 52.0
+    ASI07: 42.0
+    ASI08: 55.0
+    ASI09: 60.0
+    ASI10: 35.0
+    default: 50.0
+  # L5 v36: Many-Shot+CoT — ICI 挟持+推理惯性双重
+  # 学术依据: arXiv:2402.05124 + arXiv:2307.10292 — 联合 ASR 75-85%
+  many_shot_cot:
+    LLM01: 72.0   # 注入+ICI+CoT 三重有效
+    LLM02: 78.0   # 信息提取+大量示例最有效
+    LLM03: 60.0
+    LLM04: 65.0
+    LLM05: 70.0
+    LLM06: 68.0
+    LLM07: 55.0
+    LLM08: 75.0   # 向量嵌入+Many-Shot 极度有效
+    LLM09: 80.0   # 虚假信息+大量示例最有效
+    LLM10: 35.0
+    ASI01: 65.0
+    ASI02: 72.0
+    ASI03: 55.0
+    ASI04: 68.0
+    ASI05: 70.0
+    ASI06: 75.0   # 记忆污染+Many-Shot 极度有效
+    ASI07: 50.0
+    ASI08: 72.0
+    ASI09: 78.0
+    ASI10: 40.0
+    default: 65.0
+  # L5 v36: 多模型 CoT 交叉验证 — 多模型互补+CoT
+  # 学术依据: arXiv:2310.08419 + arXiv:2307.10292 — 联合 P=0.875
+  multi_model_cot:
+    LLM01: 65.0
+    LLM02: 70.0
+    LLM03: 55.0
+    LLM04: 58.0
+    LLM05: 62.0
+    LLM06: 65.0
+    LLM07: 48.0
+    LLM08: 68.0
+    LLM09: 72.0
+    LLM10: 32.0
+    ASI01: 58.0
+    ASI02: 68.0
+    ASI03: 52.0
+    ASI04: 60.0
+    ASI05: 63.0
+    ASI06: 70.0
+    ASI07: 45.0
+    ASI08: 65.0
+    ASI09: 70.0
+    ASI10: 35.0
+    default: 58.0
+  # P2-17: 函数调用参数注入 — 对工具滥用类最有效
+  # 学术依据: OWASP LLM06 Excessive Agency — LLM 工具调用可暴露参数
+  function_call_exploit:
+    LLM01: 30.0   # 直接注入+函数调用变体
+    LLM02: 50.0   # 信息提取类最适合
+    LLM06: 70.0   # 工具滥用类最有效
+    LLM07: 55.0   # 系统提示泄露+函数签名探测
+    LLM08: 45.0
+    ASI02: 65.0   # 工具误用适合参数注入
+    ASI04: 55.0   # 数据外泄
+    ASI05: 50.0   # 权限提升
+    default: 45.0
+  # P2-17: 后端漏洞通过 LLM 函数调用利用
+  # 学术依据: OWASP LLM06 — LLM 作为代理间接利用后端漏洞
+  backend_vuln_exploit:
+    LLM01: 25.0
+    LLM02: 60.0   # 信息提取(IDOR/弱授权)
+    LLM06: 75.0   # 后端漏洞通过 LLM 工具调用最有效
+    LLM07: 35.0
+    ASI02: 70.0   # 工具误用
+    ASI04: 60.0   # 数据外泄(SSRF/命令注入)
+    ASI05: 55.0   # 权限提升(质量分配/JWT)
+    default: 40.0
+  # P2-17: 会话/认证攻击
+  # 学术依据: OWASP ASI09 — 信任边界突破
+  session_auth_exploit:
+    LLM01: 20.0
+    LLM02: 45.0
+    LLM06: 35.0
+    LLM07: 30.0
+    ASI05: 55.0   # 权限提升
+    ASI09: 65.0   # 信任边界突破最有效
+    ASI10: 45.0
+    default: 35.0
+  # P2-17: Token 走私/编码绕过
+  # 学术依据: Wei et al. (arXiv:2307.15043) — 编码绕过 ASR
+  token_smuggling:
+    LLM01: 40.0   # 注入+编码绕过
+    LLM02: 55.0   # 信息提取+编码输出
+    LLM04: 45.0   # 输出处理+编码绕过
+    LLM07: 35.0
+    ASI04: 50.0   # 数据外泄+编码
+    default: 38.0
+  # P2-17: 结构化注入
+  # 学术依据: Greshake et al. (arXiv:2302.12173) — 结构化注入变体
+  structured_injection:
+    LLM01: 45.0   # 直接注入+结构化变体
+    LLM02: 40.0
+    LLM04: 35.0
+    LLM06: 40.0
+    ASI07: 45.0   # 跨 Agent 注入+结构化
+    default: 38.0
+  # P2-17: 工作流链攻击
+  # 学术依据: OWASP ASI03 — 多步工作流劫持
+  workflow_chain_exploit:
+    LLM01: 30.0
+    LLM02: 50.0
+    LLM06: 65.0   # 工具链式攻击最有效
+    ASI02: 60.0   # 工具误用+链式
+    ASI03: 70.0   # 未授权操作最适合链式
+    ASI08: 55.0   # 级联故障
+    default: 45.0
+  # P2-17: 记忆系统攻击
+  # 学术依据: OWASP ASI06 — 记忆污染
+  memory_exploit:
+    LLM01: 25.0
+    LLM02: 55.0   # 信息提取+记忆读取
+    LLM07: 30.0
+    ASI06: 70.0   # 记忆污染最有效
+    ASI09: 60.0   # 跨会话记忆
+    default: 42.0
+  # P2-17: 角色混淆攻击
+  # 学术依据: OWASP ASI01 — Agent 身份欺骗
+  role_confusion:
+    LLM01: 40.0   # 角色扮演越狱
+    LLM02: 45.0
+    LLM07: 50.0   # 系统提示+角色混淆
+    ASI01: 65.0   # 身份欺骗最适合
+    ASI05: 60.0   # 权限提升
+    default: 45.0
+  # P2-17: 资源耗尽/日志泄密
+  # 学术依据: OWASP LLM10 — 资源耗尽
+  resource_exhaustion:
+    LLM02: 55.0   # 日志泄密
+    LLM10: 60.0   # 资源耗尽
+    ASI08: 50.0   # 级联故障
+    default: 35.0

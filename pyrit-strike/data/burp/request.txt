@@ -1,0 +1,21 @@
+POST /api/labs/DE_02/chat HTTP/1.1
+Host: localhost
+Content-Length: 18
+sec-ch-ua-platform: "Windows"
+Accept-Language: zh-CN,zh;q=0.9
+sec-ch-ua: "Not;A=Brand";v="8", "Chromium";v="150"
+Content-Type: application/json
+sec-ch-ua-mobile: ?0
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+Accept: */*
+Origin: http://localhost
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Referer: http://localhost/labs/DE_02
+Accept-Encoding: gzip, deflate, br
+Cookie: aivp_sid=148e55cc-e6a3-444f-b3ac-3e0d273e4abe
+Connection: keep-alive
+{
+  "prompt":"{PROMPT}"
+}

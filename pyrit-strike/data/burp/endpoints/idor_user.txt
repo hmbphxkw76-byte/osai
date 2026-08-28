@@ -1,0 +1,5 @@
+﻿GET /api/labs/MM_02/user/{PROMPT} HTTP/1.1
+Host: localhost
+Cookie: session=YOUR_SESSION_ID
+Connection: keep-alive
+

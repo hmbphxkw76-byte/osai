@@ -1,0 +1,634 @@
+=== Chapter 6: Attacking Embeddings ===
+
+This course develops the skills needed to conduct offensive operations against AI-enabled enterprise systems. It enables learners to apply structured methodologies when operating in realistic, AI-driven environments. 
+
+### 6. Attacking Embeddings 
+Throughout the last Learning Module, we examined attacks targeting
+RAG-specific behaviors and components by extracting sensitive
+information from knowledge bases or poisoning them to compromise
+users, agents, or the RAG system's LLM with malicious instructions. In
+this Module, we'll shift our focus to the vector databases that power
+many RAG systems. 
+To understand why vector databases present unique security challenges,
+it's helpful to compare them with their more established counterparts, RDBs.
+Relational databases (RDBs) have evolved over several decades of exposure
+to real-world attacks, resulting in mature and well-tested security
+mechanisms. These typically include fine-grained access control,
+auditing, encryption, and hardened authentication protocols. This long
+history has produced widely-understood threat models and protective
+measures. 
+Vector databases, in contrast, are relatively new and were designed
+primarily for high-dimensional similarity search. While many include
+modern security features such as encryption, role-based access
+control, and network isolation, they often lack the depth and maturity
+of traditional systems. Their rapid adoption has pressured vendors to
+add security layers quickly, sometimes after initial product release
+rather than building security in from the start. 
+More importantly, beyond these structural differences in security
+maturity, there's a dangerous misconception about how vector databases
+protect data. Developers and system administrators often believe that
+vector databases function as one-way functions, like hashing
+algorithms. This leads them to configure these systems with reduced
+security, reasoning that "there is no sensitive information in raw
+format" or "even if an attacker captures the embeddings, they can't do
+anything with them". However, as we'll observe in this Learning Unit,
+this assumption is fundamentally false. Embeddings are not one-way
+hashes. They're mathematical representations designed to preserve
+semantic meaning, and where meaning is preserved, information can be
+recovered. This misconception creates a false sense of security that
+we can exploit during red team assessments. 
+This Learning Module covers the following Learning Units: 
+
+- Embedding Attack Theory 
+- Reconnaissance 
+- Zero-Shot Embedding Inversion 
+- Pre-Trained Embedding Inversion 
+
+### 6.1. Embedding attack theory 
+In this Learning Unit, we'll take a closer look at how we can attack
+vector databases and the embeddings they contain in the context of a
+red team assessment. We'll start by reviewing what kinds of
+information we can extract from embeddings, then examine the
+techniques available for embedding inversion, and finish by
+understanding their practical limitations. 
+This Learning Unit covers the following Learning Objectives: 
+
+- Understand the Different Categories of Embedding Attacks 
+- Learn the Theory behind Embedding Inversion Attacks 
+- Understand the Limitations of Embedding Inversion Attacks 
+
+When we obtain access to the embeddings of a vector database used in a
+RAG system, the first question is: what can we actually do with them?
+The answer depends on our objectives, available resources, information
+about the target system, and the time constraints. In general, there
+are three categories of attacks. 
+Embedding Inversion attacks aim to reconstruct the original,
+human-readable text from its numerical vector representation. This
+provides the most valuable result of all the different techniques but
+also demands the most from the attacker: depending on the approach, it
+may require knowledge of the embedding model, access to its weights,
+significant computational resources, or a combination of these. The
+bulk of this Learning Unit and the three that follow are dedicated to
+inversion techniques, since recovering sensitive information in the
+actual text is our primary goal. 
+Membership Inference attacks focus on a simpler binary question: is
+a particular piece of information present in the embeddings? This is
+useful when we're looking for something specific, like if a particular
+password, API key, or sensitive term exists in the knowledge base. We
+don't get the full context, but we can confirm presence or absence of
+specific data. 
+Info 
+
+As a standalone technique, membership inference is limited because it
+can only answer yes-or-no questions about specific values. As we'll
+see in the Zero-Shot Embedding Inversion Learning Unit, it becomes
+significantly more powerful when combined with embedding inversion,
+where the two techniques complement each other's weaknesses. 
+
+Attribute Inference attacks involve predicting high-level metadata
+about the source documents directly from the vector without performing
+full text recovery. In this attack, we can extract sensitive
+attributes such as a document's sentiment ("high risk" or "bad
+financial data") or its classification ("Audit Result" or "Accounting
+Data"). In a red team assessment, if we face a vector database
+containing thousands of chunks, we can use this technique to quickly
+sift through the data and identify a small subset of potentially the
+most valuable targets
+for an embedding inversion attack. 
+Info 
+
+In the Reconnaissance Learning Unit, this approach is applied in the
+Triaging Chunks section to quickly identify which entries in a large
+database are most likely to contain credentials, API keys, or other
+valuable secrets. 
+
+- During a red team engagement, you've gained access to a vector
+database containing 10,000 embedding chunks. You suspect a small
+number of chunks contain credentials, but you don't know which ones.
+Running a full embedding inversion attack on every chunk would take
+days. Based on the three attack categories just described, which
+category would you use first to narrow down your targets, and why? 
+
+- You've successfully performed embedding inversion on a chunk
+and recovered the text: "The database connection string is
+postgresql://admin:{REDACTED}@prod-db.internal:5432/customers". The
+password was not recovered because it's a high-entropy random string.
+Which of the three attack categories could help recover the actual
+password? 
+
+Now that we know what kinds of information we can extract, let's
+focus on how embedding inversion actually works. The approaches
+available to us depend on the timeframe of an assessment, available
+resources, and what we know about the target system. There are four
+main categories: Zero-Shot Inversion , Few-Shot Inversion , Supervised Inversion , and Surrogate Attacks . 
+
+Figure 1: Embedding Inversion Approaches 
+We'll cover them in order of practical accessibility, starting with
+the approach that requires the least upfront investment. 
+Zero-Shot Inversion refers to approaches that do not require
+training a dedicated inversion or decoder model against the target
+embedding space. This makes them faster to deploy than approaches that
+need hours or days of GPU training before the first embedding can be
+attacked. 
+However, "zero-shot" does not mean "zero preparation". These
+approaches still require knowledge of which embedding model produced
+the target embeddings, since they work by embedding candidate texts
+and comparing them against the target vector. Depending on the
+specific sub-approach, additional resources may be needed: a local LLM
+for text generation, a template bank for candidate scoring, or a
+wordlist for membership inference. The key distinction from the other
+categories is that none of this preparation involves training a model
+against the target embedding space. All preparation is general-purpose
+and reusable across engagements. 
+Info 
+
+A template bank is a set of predefined phrases that are embedded and
+compared to a target vector to measure similarity or identify likely
+matches. 
+
+There are three sub-approaches within Zero-Shot Inversion. 
+
+Figure 2: Three sub-approaches 
+LLM-based optimization uses an LLM to iteratively (in successive
+steps) rewrite a text guess, checking after each rewrite whether the
+new version's embedding is closer to the target. 
+Gradient-based optimization uses the embedding model's weights
+directly to compute mathematical gradients that guide text refinement,
+requiring the model weights to be available locally rather than just
+through an API. 
+Beam-search inversion constructs text token-by-token, using a
+language model to propose plausible next tokens and the embedding
+model to score which proposals bring the partial text closer to the
+target. Research such as the Zero2Text
+approach has shown this can recover
+meaningful text from embeddings. 
+We'll explore these approaches in more detail in the Zero-Shot
+Embedding Inversion Learning Unit. 
+Info 
+
+If the RAG system uses a paid, closed source embedding API, the
+iterative nature of LLM-based and beam-search approaches may lead to
+high costs, as they require hundreds or thousands of embedding queries
+per text inversion. 
+
+When more preparation time is available, Few-Shot Inversion offers a
+different trade-off. It requires two stages of preparation. First, a
+decoder model is trained on our own hardware to reconstruct text from
+embeddings. This is a moderate investment of hours on a single GPU.
+The decoder learns to reverse an embedding function, but only in our
+own embedding space. It knows nothing about the target system. Second,
+a lightweight alignment is computed that maps the target's embedding
+space to the decoder's space. This alignment requires a small number
+of real text-embedding pairs from the target system. The alignment
+computation itself takes seconds, and research reports that alignment
+quality plateaus at roughly 1,000-3,000 pairs, though using more pairs
+does not hurt and can serve the dual purpose of also training the
+decoder. 
+The key advantage for red team assessments is that this method
+works even without knowing the target’s embedding model provided
+we can access real text-embedding pairs (e.g., via API
+responses, query logs, or canary injections into the ingestion
+pipeline). Notably, no currently known defense effectively
+mitigates this approach at the time of this writing. We'll use ALGEN in the Pre-Trained
+Embedding Inversion Learning Unit to demonstrate this technique. 
+At the heavier end of the spectrum, Supervised Inversion trains a
+decoder model to reverse a specific, known embedding model. The
+decoder learns the mapping from embeddings back to text using large
+datasets of text-embedding pairs that the attacker generates locally.
+Heavier frameworks like Vec2Text train on millions of
+pairs across multiple GPUs over several days in their original
+configuration but achieve near-verbatim reconstruction on short inputs
+through an iterative correction process. The decoder is specific to
+the model it was trained against: a decoder trained for one embedding
+model cannot invert another without retraining. 
+We'll cover Vec2Text in the Pre-Trained Embedding Inversion Learning
+Unit, where we'll discuss when the significant upfront investment is
+justified. 
+If we don't know which embedding model the target uses and cannot
+obtain real text-embedding pairs, we can use Surrogate (Transfer)
+Attacks : This involves training an inversion model against a similar, open-source
+embedding model that we control. The key insight is that different
+embedding models learn similar internal representations, so an
+inversion model trained against one model can transfer to another.
+Research has shown this can be effective, in some cases approaching
+the performance of direct attacks, particularly for domain-specific
+data. However, transfer quality varies significantly depending on how
+architecturally similar the surrogate is to the actual target model,
+and there is no guarantee of success without testing. 
+The following table summarizes the requirements for each approach. The
+"Tools (this Module)" column lists the specific tools we'll use in the
+practical sections that follow. 
+Category Model Access Real Pairs Needed Training Tools (this Module) Zero-Shot Inversion Known, local or API None None ZSInvert, Zero2Text Few-Shot Inversion Can be unknown Small number of leaked or injected pairs; alignment plateaus at ~1,000–3,000 Moderate (decoder) + light (alignment) ALGEN Supervised Inversion Known, local Self-generated (thousands+) Heavy Vec2Text Surrogate Attacks Unknown None from target Moderate (on surrogate) — Table 1 - Embedding Inversion Approach Requirements 
+Info 
+
+The embedding inversion research landscape includes additional tools
+and frameworks beyond those listed here, such as Generative Embedding
+Inversion Attack (GEIA) - supervised inversion and Transferable
+Embedding Inversion Attacks (TEIA) - transfer attacks. The table above
+focuses on the tools we'll use in this Module's practical sections.
+Readers encountering other frameworks in research papers can map them
+to the appropriate category using the requirements columns. 
+
+The table is ordered by preparation time, from none (zero-shot) to
+substantial (surrogate). In a time-constrained engagement, this
+ordering also reflects the typical decision path: try zero-shot first
+if we know the model, fall back to few-shot if we can obtain pairs,
+and consider supervised or surrogate approaches only when preparation
+time allows. 
+
+- An attacker has exported embeddings from a target system but does
+not know which embedding model was used. They have no write access to
+the vector store and no access to a RAG chat endpoint. Which inversion
+approaches from the table are eliminated by these constraints, and
+which remain viable? 
+
+- An attacker discovers that a target RAG system uses a fine-tuned
+version of a popular open-source embedding model. The base model
+is publicly available, but the fine-tuned weights are not. Which
+inversion approaches from the table would be degraded by the
+fine-tuning, and which would remain effective? 
+
+While embedding inversion attacks have advanced significantly,
+understanding their limitations is critical for setting realistic
+expectations during a red team assessment. These constraints determine
+which techniques are viable against a specific target and help us
+avoid wasting time on approaches that are unlikely to succeed. 
+
+Figure 3: Embedding Inversion Limitations 
+Token length: Nearly all publicly available tools currently
+have strict limitations on the number of tokens per embedding chunk
+that can be inverted. Vec2Text's primary results are demonstrated
+on 32-token inputs, with performance degrading significantly on
+longer sequences. ZSInvert was tested up to 64 tokens with declining
+performance. Other tools show similar patterns. This is a fundamental
+problem for attacking real RAG systems, where documents are typically
+chunked into 256-512 token segments, well beyond the demonstrated
+range of any current tool. In practice, this means that inversion
+results on real RAG chunks will be substantially less accurate than
+the numbers reported in academic papers. Shorter chunks (such as those
+containing credentials, configuration snippets, or brief notes) are
+significantly more vulnerable than longer prose documents. 
+High-entropy tokens: LLM-based and decoder-based approaches
+fundamentally struggle with random passwords, API keys, hashes, and
+other generated strings. These tokens have no semantic predictability,
+which means an LLM cannot "guess" them through optimization, and a
+trained decoder has never seen them in training data. We'll review
+this later in more detail and how to overcome it using membership
+inference. 
+Model identification: Most approaches require knowing which
+embedding model the target system uses. Zero-shot techniques need
+direct access to the model or its API to compute comparison
+embeddings. Supervised approaches need the model to generate training
+pairs. Only surrogate attacks and few-shot inversion (with leaked or
+injected pairs) can operate without this knowledge, but both have
+their own constraints. In practice, identifying the embedding model
+may require reconnaissance through API error messages, documentation,
+dependency files, or inference from embedding dimensionality, all of
+which we'll cover in the Reconnaissance Learning Unit. 
+Dimensionality reduction and quantization: Embeddings with
+higher dimensionality preserve more semantic information and are
+easier to invert. However, many production vector databases reduce
+dimensionality (e.g., PCA, random projection) or apply quantization
+(e.g., scalar or product quantization) to improve storage efficiency
+and search performance. These transformations discard information
+from the original embeddings, reducing the effectiveness of inversion
+attacks. When assessing a production system, a red teamer should
+determine whether embeddings are stored in their original (full)
+dimensionality or in a compressed form, as this directly impacts the
+feasibility and accuracy of inversion attempts. 
+Domain mismatch: Supervised decoders and correction models are
+trained on specific datasets (such as MSMARCO passages or Natural
+Questions). When the target vector database contains text from a
+different domain, for example legal documents, medical records, or
+proprietary internal communications, performance degrades because the
+inversion model encounters patterns it was not trained on. 
+These limitations don't mean embedding inversion is impractical. They
+mean we need to choose the right approach for each situation, combine
+techniques where individual methods fall short, and set realistic
+expectations about what we'll recover. 
+In the next Learning Unit, we'll begin the practical work: exporting
+embeddings, identifying the embedding model, and triaging chunks to
+find the highest-value targets before attempting inversion. 
+
+- A target vector database stores chunks of 512 tokens each, and
+you know the embeddings were compressed using product quantization.
+Which two limitations from this section most severely impact inversion
+feasibility, and would shorter chunks (e.g., 30-40 token configuration
+snippets) stored in the same database be more or less vulnerable? 
+
+- Research how product quantization (PQ) and scalar quantization
+(SQ) work in vector databases. How does each method reduce storage,
+and which one destroys more of the fine-grained information that an
+inversion attack would need? 
+
+### 6.2. Reconnaissance 
+In this Learning Unit, we'll review several preparation steps before
+we can actually perform embedding inversion attacks in the following
+Learning Units. 
+We'll begin by exporting embedding vectors from vector databases.
+Then, we'll review several methods to identify the embedding model.
+Finally, we'll analyze how to select chunks from massive knowledge
+bases to reduce our embedding inversion attack times. 
+This Learning Unit covers the following Learning Objectives: 
+
+- Practice how to export Embedding Vectors 
+- Understand different techniques to identify the Embedding Model 
+- Review how to Triage Chunks 
+
+Let's assume we are conducting an assessment and, after
+breaching the perimeter, have access to VM #1 via SSH as user attacker : attacker_attacker . In the post-exploitation phase, we
+identify an open Weaviate database listening locally on port 8080. 
+Let's use a Python script to attempt to connect to the database to
+verify we can access it and list all collections. 
+
+```
+attacker@rag:~$ cat enum1.py
+import requests
+
+WEAVIATE_URL = "http://localhost:8080"
+
+response = requests.get(f"{WEAVIATE_URL}/v1/schema")
+response.raise_for_status()
+
+schema = response.json()
+
+# Extract all collection (class) names
+collections = [c["class"] for c in schema.get("classes", [])]
+
+print("Collections:", collections) 
+```
+Listing 1 - Python Script to List All Collections in Weaviate 
+Running the script shows that we can connect to the database without
+authentication and the following collection is available: 
+
+```
+Collections: ['DocChunk'] 
+```
+Listing 2 - Displaying All Collections in the Weaviate Vector DB 
+Listing 2 shows that the collection DocChunk is present in the vector database. Since we can access the database,
+our first step is to export all embeddings into NumPy files using
+the following script: 
+(Explain the embedding export script) 
+
+```
+import requests
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from tqdm import tqdm
+
+WEAVIATE_URL = "http://localhost:8080/v1/graphql"
+COLLECTION = "DocChunk"
+PAGE_SIZE = 200
+OUT_DIR = Path("./export")
+OUT_DIR.mkdir(exist_ok=True)
+
+def gql(query: str):
+ resp = requests.post(WEAVIATE_URL, json={"query": query})
+ resp.raise_for_status()
+ data = resp.json()
+ if "errors" in data:
+ raise RuntimeError(data["errors"])
+ return data["data"]
+
+print(f"Connected to Weaviate via raw HTTP. Collection: {COLLECTION}")
+
+count_query = """
+{
+ Aggregate {
+ DocChunk {
+ meta {
+ count
+ }
+ }
+ }
+}
+"""
+
+count_res = gql(count_query)
+total = count_res["Aggregate"]["DocChunk"][0]["meta"]["count"]
+print(f"Total objects: {total}")
+
+all_ids = []
+all_chunk_ids = []
+all_vectors = []
+
+cursor = None
+fetched = 0
+
+pbar = tqdm(total=total, desc="Exporting embeddings")
+
+while True:
+ after_clause = f'after: "{cursor}"' if cursor else ""
+
+ query = f"""
+ {{
+ Get {{
+ {COLLECTION}(
+ limit: {PAGE_SIZE}
+ {after_clause}
+ ) {{
+ chunk_id
+ _additional {{
+ id
+ vector
+ }}
+ }}
+ }}
+ }}
+ """
+
+ res = gql(query)
+ objs = res["Get"][COLLECTION]
+
+ if not objs:
+ break
+
+ for obj in objs:
+ all_ids.append(obj["_additional"]["id"])
+ all_chunk_ids.append(obj.get("chunk_id"))
+ all_vectors.append(obj["_additional"]["vector"])
+
+ cursor = objs[-1]["_additional"]["id"]
+ fetched += len(objs)
+ pbar.update(len(objs))
+
+ if fetched >= total:
+ break
+
+pbar.close()
+
+vectors_np = np.array(all_vectors, dtype=np.float32)
+np.save(OUT_DIR / "embeddings.npy", vectors_np)
+np.save(OUT_DIR / "chunk_ids.npy", np.array(all_chunk_ids))
+np.save(OUT_DIR / "uuids.npy", np.array(all_ids, dtype=object))
+
+df_meta = pd.DataFrame({"uuid": all_ids, "chunk_id": all_chunk_ids})
+df_vec = pd.DataFrame(
+ vectors_np,
+ columns=[f"dim_{i}" for i in range(vectors_np.shape[1])]
+)
+df_full = pd.concat([df_meta, df_vec], axis=1)
+
+df_full.to_csv(OUT_DIR / "embeddings.csv", index=False)
+df_full.to_parquet(OUT_DIR / "embeddings.parquet", index=False)
+
+print("Vectors successfully exported!") 
+```
+Listing 3 - Python Script to Export All Embeddings of the DocChunk Collection 
+Running the script shows that we can successfully export all embeddings
+from the collection. 
+
+```
+Connected to Weaviate via raw HTTP. Collection: DocChunk
+Total objects: 1
+Exporting embeddings: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 192.80it/s]
+Vectors successfully exported! 
+```
+Listing 4 - Exporting All Embeddings of the DocChunk Collection 
+The script created the export directory with one of the files being embeddings.npy . This file contains the raw numerical representations
+of the document chunks, which we'll now attempt to invert back to
+text. 
+As discussed in the previous Learning Unit, the methods we can use
+depend on time, resources, knowledge of the embedding model, and
+access to the embedding model's weights. Before we can proceed with
+the actual inversion attack, we need to identify which embedding model
+was used to create these vectors. 
+
+- You've breached a network and found a vector database listening on
+a non-standard port. Before exporting any data, you need to identify
+which vector database software is running. Your scans show "Milvus".
+What endpoints and ports could you check to confirm? 
+
+- The export script uses GraphQL cursor-based pagination to extract
+all embeddings. In a red team engagement where stealth matters, why
+might exporting all 10,000 chunks at once be risky, and what approach
+would reduce your detection footprint that is utilizing time? 
+
+- The export script saves embeddings in NumPy (.npy), CSV, and
+Parquet formats. Research the differences between these formats in
+terms of precision and file size for storing float32 vectors. Which
+format preserves the exact floating-point values needed for accurate
+inversion attacks? 
+
+At this point, let's briefly discuss how we can obtain knowledge of
+the embedding model in a red team assessment. One option is to check
+if the vector database was configured to calculate the embeddings
+itself. Since many vector databases include functionality to calculate
+embeddings during the ingestion process, this is often a good source
+to identify the embedding model. We can examine the Weaviate schema
+configuration or check environment variables and configuration files
+on the system. 
+Another option is to perform fingerprinting via the dimensionality.
+Let's use the following script to obtain the dimensionality of the
+embeddings: 
+
+```
+import requests, json
+
+query = """
+{
+ Get {
+ DocChunk(limit: 1) {
+ _additional { vector }
+ }
+ }
+}
+"""
+
+r = requests.post("http://localhost:8080/v1/graphql", json={"query": query})
+vec = r.json()["data"]["Get"]["DocChunk"][0]["_additional"]["vector"]
+print("Vector length:", len(vec)) 
+```
+Listing 5 - Python Script to Display the Dimensions of the Embeddings 
+Running the script provides us the dimensionality of the embeddings: 
+
+```
+Vector length: 384 
+```
+Listing 6 - Displaying the Dimensions of the Embeddings 
+Since each embedding model has its own characteristic dimensionality,
+this may give us insight into the model being used. 
+
+```
+OpenAI text-embedding-ada-002: 1536 dimensions
+OpenAI text-embedding-3-small: 1536 dimensions (default)
+OpenAI text-embedding-3-large: 3072 dimensions
+Cohere embed-english-v3.0: 1024 dimensions
+all-MiniLM-L6-v2: 384 dimensions
+BGE-base: 768 dimensions 
+```
+Listing 7 - List of Common Embedding Model Dimensions 
+Unfortunately, many models share the same dimensions. Therefore, we
+can only use this as a first indication for common dimensions, such
+as 384 and 768. The 384-dimensional space narrows our possibilities
+significantly, but we still need more information to be certain. 
+We can also check if the RAG system contains documentation about the
+embedding model or leverage OSINT and social engineering techniques to
+gather this information. 
+For OSINT, we can review GitHub repositories of the company or analyze
+the documentation of software projects. We can also analyze conference
+talks and presentations. Furthermore, we can scrape webpages to
+identify error messages, API responses, and other technical details
+that might reveal the embedding model. 
+For social engineering, if it's in scope, we can call IT support and
+request this information or write an email to developers asking for
+architectural documentation. We could also impersonate a vendor and
+reach out to the employees or try to meet employees at conferences or
+meetups. 
+But what can we do if we are in an active red team engagement and
+there are no public repositories or information and social engineering
+is out of scope? For most red team engagements, we need a more
+practical and results-oriented approach. Let's review a technique that
+can be used to identify the embedding model under the right
+circumstances. 
+This technique is called inference probing and requires us to have
+access to the exported vectors and a chat interface of the RAG service
+(or an inference API). This technique exploits the fact that every
+query to a RAG system triggers a retrieval step, the system embeds
+our question, searches for the most similar vectors in the database,
+and feeds the matching chunks to the LLM to generate an answer. The
+LLM's response therefore leaks information about the content of stored
+chunks, even though we never see the chunks directly. By analyzing
+these responses, we can extract approximate plaintext for documents
+in the database, and then test which embedding model maps that text to
+the vectors we already exported. 
+
+Figure 4: Embedding Inversion Approaches 
+Info 
+
+If we can perform inference probing, the question may arise, why not
+just extract the information directly? However, we should be aware
+that often input and output guardrails are specifically put in place
+to prevent sensitive information from being returned. While we have
+performed such techniques previously in the Module "Attacking RAG
+Pipelines", more sophisticated guardrails may be significantly harder
+to overcome or not possible due to limitations in capabilities. In
+addition, we could also perform inference probing on another RAG
+system in the target environment with the assumption that it uses the
+same embedding model. 
+
+Let's review the prepared script named inference_probing.py . Manually
+querying a RAG system and eyeballing which model might match would be
+tedious and error-prone, so the script automates the entire workflow
+with several key features. It starts by checking the dimension of the
+exported embeddings and automatically filtering the candidate model
+list to only those that produce vectors of the matching size, which
+immediately eliminates most candidates. It then sends a series of
+crafted queries to the RAG chatbot across three query strategies:
+verbatim requests that ask the system to quote exact text, factual
+questions targeting specific details like passwords or URLs, and
+broader queries that elicit longer descriptive responses. An optional
+deep mode adds a second pass with more aggressive extraction prompts
+designed to make the LLM reproduce full document content rather than
+summarize it. 
+Each response is split into segments at multiple granularities: 
+
+- individual sentences, 
+- consecutive sentence pairs, and 
+- the full response text.
+Sentence pairs matter because a single chunk's content often spans
+two adjacent sentences, and testing them together produces a stronger
+match than either sentence alone. The script then processes each candidate embedding model by: 
+
+- loading the model

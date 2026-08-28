@@ -1,0 +1,7 @@
+﻿POST /api/labs/MM_05/login HTTP/1.1
+Host: localhost
+Content-Type: application/json
+Cookie: session=YOUR_SESSION_ID
+Content-Length: 45
+
+{"username":"admin","password":"{PROMPT}"}
