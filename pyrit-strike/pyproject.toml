@@ -1,0 +1,32 @@
+[project]
+name = "pyrit-strike"
+version = "2.0.0"
+description = "Burp→攻击→报告 一键自动化 LLM 红队流水线"
+requires-python = ">=3.13"
+dependencies = [
+    "pyrit>=1.0.1",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.40"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = ["outputs", ".assistant_pyrit", ".venv", "node_modules"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
