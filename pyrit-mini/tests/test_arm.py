@@ -11,10 +11,8 @@ arXiv:2307.15043 — Encoding bypass: serial stacking >2 layers drops ASR 12%→
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 

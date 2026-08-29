@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """mini_strike.py — 模块化 PyRIT 攻击链路入口。
 
-攻击链路 (6 步, arXiv:2407.01232 — PyRIT 原生框架):
-    ① Burp 拦截 → 读取 Burp 拦截的 HTTP 请求 (含 {PROMPT} 占位符)
-    ② 侦察     → 解析 HTTP 请求, 探测目标能力指纹, 构建 HTTPTarget
-    ③ 种子选取 → 从 YAML 种子文件加载攻击种子, 按历史 ASR 排序
-    ④ Converter → 构建 L5 最优 Converter 链 (编码/说服/分解/混淆)
-    ⑤ 攻击发送 → PyRIT 原生 PromptSendingAttack 多路径执行 + 多轮升级
-    ⑥ 评分判定 → 双 Judge 交叉验证, ASR 统计, 证据收集 + 报告生成
+攻击链路 (6 阶段, arXiv:2407.01232 — PyRIT 原生框架):
+    ① recon     → Burp 拦截: 读取 HTTP 请求 (含 {PROMPT} 占位符) + 侦察: 解析, 探测能力指纹, 构建 HTTPTarget
+    ② arm       → 种子选取: 从 YAML 种子文件加载, 按历史 ASR 排序 + Converter: 构建 L5 最优链
+    ③ strike    → 攻击发送: PyRIT 原生 PromptSendingAttack 多路径执行 (FIRST_SUCCESS)
+    ④ escalate  → 多轮升级: Crescendo→TAP→PAIR→GCG→native (ASR<90% 触发, 含中间退出)
+    ⑤ assess    → 评分判定: T0→J1→J2→J3 级联评分, ASR 统计, Wilson CI, 双 Judge 交叉验证
+    ⑥ report    → 报告生成: 证据收集 + MD/HTML/JSON/PoC/SARIF
+
+    不指定 --stage 时按顺序执行全部 6 个阶段 (strike+escalate 合为一步), 向后兼容。
+    指定 --stage <name> 时执行到该阶段完成后停止, 便于分阶段开发和调试。
 
 模块化架构 (SKILL.md 目录规范):
     core/    — 流水线编排, 上下文, 配置, 架构守卫
@@ -25,6 +28,20 @@
 
     # 全火力模式 (AI-300 考试首选 — 最高 ASR 配置)
     python mini_strike.py --offensive
+
+    # 分阶段执行 (--stage 控制, 6 个阶段可独立调试):
+    #   recon     → 侦察: Burp 解析 + 目标探测 + 能力指纹 + HTTPTarget 构建
+    #   arm       → 武器化: 种子 ASR 排序 + Converter 链 + 技术选择
+    #   strike    → 单轮攻击: PyRIT 原生多路径 PromptSendingAttack
+    #   escalate  → 多轮升级: Crescendo→TAP→PAIR→GCG→native (ASR<90% 触发)
+    #   assess    → 评分: T0→J1→J2→J3 级联评分 + ASR 统计 + Wilson CI
+    #   report    → 报告: 证据收集 + MD/HTML/JSON/PoC/SARIF 生成
+    python mini_strike.py --burp-request data/burp/request.txt --stage recon
+    python mini_strike.py --burp-request data/burp/request.txt --stage arm
+    python mini_strike.py --burp-request data/burp/request.txt --stage strike
+    python mini_strike.py --burp-request data/burp/request.txt --stage escalate
+    python mini_strike.py --burp-request data/burp/request.txt --stage assess
+    python mini_strike.py --burp-request data/burp/request.txt --stage report
 
     # 自定义参数
     python mini_strike.py --burp-request data/burp/request.txt \\
@@ -73,26 +90,45 @@ def _signal_handler(signum: int, frame) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 攻击链路编排器 — 6 步完整链路
+# 攻击链路编排器 — 6 阶段完整链路 (recon→arm→strike→escalate→assess→report)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def run(argv: list[str] | None = None) -> None:
-    """主流程: 6 步完成一次完整攻击链路。
+    """主流程: 6 阶段完成一次完整攻击链路。
 
-    攻击链路 (每步对应一个模块包):
-        ① Burp 拦截 (recon/burp_parser.py) → ② 侦察 (recon/target_router.py)
-        → ③ 种子选取 (arm/seed_ranker.py) → ④ Converter (arm/converter_presets.py)
-        → ⑤ 攻击发送 (strike/executor.py + strike/escalation*.py)
-        → ⑥ 评分判定 (assess/scorer.py + assess/asr_tracker.py)
-        → 证据收集 + 报告 (report/evidence.py + report/generator.py)
+    阶段对应模块包 (--stage 控制退出点):
+        ① recon     (recon/burp_parser.py + recon/target_router.py)
+        ② arm       (arm/seed_ranker.py + arm/converter_presets.py + arm/technique_picker.py)
+        ③ strike    (strike/executor.py)
+        ④ escalate  (strike/escalation.py + strike/escalation_level1/2/3.py)
+        ⑤ assess    (assess/scorer.py + assess/asr_tracker.py + assess/asr_stats.py)
+        ⑥ report    (report/evidence.py + report/generator.py)
     """
     global _cancel_event
 
+    # ── 日志配置: 压制第三方噪音, 突出关键信息 ──
+    # 自身模块: INFO 级别, 带时间戳
+    # 第三方库: 压制到 WARNING+ (Alembic/PyRIT 初始化日志噪音极大)
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # 自身包: 提升到 INFO
+    logging.getLogger("core").setLevel(logging.INFO)
+    logging.getLogger("recon").setLevel(logging.INFO)
+    logging.getLogger("arm").setLevel(logging.INFO)
+    logging.getLogger("strike").setLevel(logging.INFO)
+    logging.getLogger("assess").setLevel(logging.INFO)
+    logging.getLogger("report").setLevel(logging.INFO)
+    # 压制噪音库
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+    logging.getLogger("pyrit").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # 静默已知第三方警告
+    import warnings
+    warnings.filterwarnings("ignore", category=SyntaxWarning, module="confusables")
 
     # ── 信号处理 ──
     _cancel_event = asyncio.Event()
@@ -101,7 +137,7 @@ async def run(argv: list[str] | None = None) -> None:
 
     from core.config import ensure_output_dir, get_output_dir, parse_args, setup_environment
     from core.context import PipelineContext, apply_relaxed_adversarial_schema
-    from utils.display import print_banner, print_phase, print_summary
+    from utils.display import print_banner, print_error, print_phase, print_status_card, print_summary
 
     print_banner()
 
@@ -125,12 +161,12 @@ async def run(argv: list[str] | None = None) -> None:
     print_phase("INIT", "初始化 PyRIT 环境...")
     apply_relaxed_adversarial_schema()
     await setup_environment(output_dir)
-    print_phase("INIT", f"输出目录: {output_dir}")
+    print_status_card("INIT", "DONE", f"Output: {output_dir}", ok=True)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ① ② Burp 拦截 → 侦察: 解析 HTTP 请求 → 探测能力 → 构建 HTTPTarget
     # ═══════════════════════════════════════════════════════════════════════════
-    print_phase("RECON", "① Burp 拦截 → ② 侦察: 解析 HTTP 请求 & 构建攻击目标...")
+    print_phase("RECON", "解析 HTTP 请求 & 构建攻击目标...")
     from recon.target_router import create_target
 
     ctx.args.burp_request = args.burp_request
@@ -138,23 +174,31 @@ async def run(argv: list[str] | None = None) -> None:
         await create_target(ctx)
     except ConnectionError as e:
         logger.error("目标不可用: %s", e)
-        print_phase("ERROR", f"目标不可用: {e}")
-        print_phase("ERROR", "请启动目标服务后重试。")
+        print_error(f"目标不可用: {e}\n请启动目标服务后重试。")
         sys.exit(1)
     except Exception as e:
         logger.error("目标构建失败: %s", e)
-        print_phase("ERROR", f"目标构建失败: {e}")
+        print_error(f"目标构建失败: {e}")
         sys.exit(1)
 
-    # 打印目标指纹
+    # 打印目标指纹 (卡片式)
     if ctx.parsed_request:
         fp = ctx.parsed_request.target_fingerprint
-        print_phase(
-            "RECON",
-            f"目标: {fp.get('app_type', 'Unknown')} | "
-            f"认证: {fp.get('auth_type', 'Unknown')} | "
-            f"路径: {ctx.parsed_request.path}",
-        )
+        burp_model = fp.get("burp_model_name", "")
+        api_cat = fp.get("api_category", "chat")
+
+        from utils.display import print_card
+        from utils.display import _C_CYAN as _cyan
+        recon_rows = [
+            ("Host", ctx.parsed_request.host),
+            ("Path", ctx.parsed_request.path),
+            ("App Type", fp.get("app_type", "Unknown")),
+            ("Auth", fp.get("auth_type", "Unknown")),
+            ("Model", burp_model or fp.get("model_family", "Unknown")),
+            ("API Category", api_cat),
+        ]
+        print()
+        print_card("RECON — Target Profile", recon_rows, color=_cyan)
         ctx.orchestration_log.append({
             "phase": "recon",
             "decision": "target_profiling",
@@ -165,19 +209,31 @@ async def run(argv: list[str] | None = None) -> None:
                 "capabilities": fp.get("capabilities", ""),
                 "model_family": fp.get("model_family", ""),
                 "language": fp.get("language", ""),
+                "burp_model_name": burp_model,
+                "api_category": api_cat,
+                "has_model_list": fp.get("burp_model_list", ""),
             },
-            "reasoning": "三层探测 (被动指纹 + 主动能力 + 深度能力) 完成",
+            "reasoning": "三层探测 (被动指纹 + 主动能力 + 深度能力) + Burp 响应模型信息提取完成",
         })
+
+    # ── --stage recon: 只执行侦察, 输出报告后退出 ──
+    if getattr(args, "stage", None) == "recon":
+        from recon.recon_report import print_recon_report
+        if ctx.parsed_request:
+            print_recon_report(ctx.parsed_request)
+        print_status_card("RECON", "DONE", "侦察阶段完成", ok=True)
+        return
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ③ 种子选取: 加载 YAML 种子 → ASR 排序 → 能力自适应
     # ═══════════════════════════════════════════════════════════════════════════
-    print_phase("ARM", "③ 种子选取: 加载攻击种子 & 按 ASR 排序...")
+    print_phase("ARM", "种子选取 & ASR 排序...")
     from arm.converter_presets import build_converter_map
     from arm.seed_ranker import load_seeds
     from arm.technique_picker import augment_techniques_by_capability, filter_by_adversarial, select_techniques
 
     # 从目标指纹提取语言 + 能力 + 模型族 (能力自适应种子选取)
+    # L5 v53: 如果 Burp 响应中有模型名称, 优先使用它匹配 ASR 先验
     target_language = None
     target_capabilities = None
     target_model_family = None
@@ -185,7 +241,14 @@ async def run(argv: list[str] | None = None) -> None:
         fp = ctx.parsed_request.target_fingerprint
         target_language = fp.get("language")
         target_capabilities = fp.get("capabilities")
+        # 优先使用探针检测的 model_family, fallback 到 Burp 提取的模型名称
         target_model_family = fp.get("model_family")
+        if not target_model_family and fp.get("burp_model_name"):
+            # 复用 capability_detector 的 _detect_model_family 进行模型族推断
+            from recon.capability_detector import _detect_model_family
+            inferred = _detect_model_family(fp["burp_model_name"])
+            if inferred:
+                target_model_family = inferred
 
     # arXiv:2402.01135 — 种子按历史 ASR 排序, 覆盖 OWASP LLM01-10 + ASI01-10
     ctx.seeds = load_seeds(
@@ -221,12 +284,12 @@ async def run(argv: list[str] | None = None) -> None:
             converter_target=ctx.converter_target,
             expansion_factor=_expansion_factor,
         )
-        print_phase("ARM", f"AutoDAN 3x 扩充至 {len(ctx.seeds)} 个种子")
+        print_status_card("ARM", "DONE", f"AutoDAN 扩充至 {len(ctx.seeds)} 个种子", ok=True)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ④ Converter 转换: 构建 L5 最优多路径 Converter 链
     # ═══════════════════════════════════════════════════════════════════════════
-    print_phase("ARM", "④ Converter: 构建 L5 最优多路径链...")
+    print_phase("ARM", "Converter: 构建 L5 最优多路径链...")
 
     # 技术选择 (能力自适应)
     has_adversarial = ctx.adversarial_target is not None
@@ -275,22 +338,30 @@ async def run(argv: list[str] | None = None) -> None:
         "reasoning": f"基于模型族先验 ASR 排序 converter (model_family={target_model_family or 'default'})",
     })
 
-    print_phase(
-        "ARM",
-        f"种子: {len(ctx.seeds)} | 技术: {len(ctx.techniques)} | "
-        f"Converter: {sum(len(v) for v in ctx.converter_map.values())}",
+    print_status_card(
+        "ARM", "READY",
+        f"Seeds={len(ctx.seeds)} | Techs={len(ctx.techniques)} | "
+        f"Converters={sum(len(v) for v in ctx.converter_map.values())}",
+        ok=True,
     )
+
+    # ── --stage arm: 武器化完成, 输出清单后退出 ──
+    if getattr(args, "stage", None) == "arm":
+        from utils.display import print_arm_report
+        print_arm_report(ctx)
+        print_status_card("ARM", "DONE", "武器化阶段完成", ok=True)
+        return
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ⑤ 攻击发送: PyRIT 原生多路径执行 + 多轮升级链
     # ═══════════════════════════════════════════════════════════════════════════
-    print_phase("STRIKE", "⑤ 攻击发送: 执行 PyRIT 原生攻击...")
+    print_phase("STRIKE", "执行 PyRIT 原生攻击...")
     from strike.escalation import check_and_escalate
 
     # 选择执行路径 (adaptive 模式 vs 多路径)
     # arXiv:2407.01232 — PyRIT 原生 PromptSendingAttack + SequentialAttack
     if args.techniques == "adaptive":
-        print_phase("STRIKE", "使用 PyRIT 原生 TextAdaptive (ε-贪心自适应)...")
+        print_phase("STRIKE", "TextAdaptive (ε-贪心自适应)...")
         from strike.adaptive_executor import execute_text_adaptive
         try:
             await execute_text_adaptive(ctx)
@@ -310,24 +381,38 @@ async def run(argv: list[str] | None = None) -> None:
             logger.error("攻击执行失败: %s — 继续处理部分结果", e)
             print_phase("STRIKE", f"部分执行失败: {e}")
 
+    # ── --stage strike: 单轮攻击完成, 跳过升级链 ──
+    if getattr(args, "stage", None) == "strike":
+        from utils.display import print_strike_report
+        print_strike_report(ctx)
+        print_status_card("STRIKE", "DONE", "单轮攻击完成", ok=True)
+        return
+
     # arXiv:2406.12609 — 升级链: Single→Best-of-N→Crescendo→TAP∥PAIR→GCG→native
     # 触发条件: 单轮 ASR < 90% (escalation_asr_threshold)
     # 中间退出: L1>=70% 跳过 L2-L4, L2>=80% 跳过 L3-L4 (节省 60-80% token)
     should_escalate = getattr(ctx.args, "escalation", True)
     if should_escalate:
-        print_phase("STRIKE", "检查 ASR & 触发多轮升级链 (ASR < 90% 触发)...")
+        print_phase("STRIKE", "检查 ASR & 触发多轮升级链 (ASR<90% 触发)...")
         try:
             await check_and_escalate(ctx, ctx.attack_results)
         except Exception as e:
             logger.error("升级失败: %s — 继续处理单轮结果", e)
             print_phase("STRIKE", f"升级部分失败: {e}")
     else:
-        print_phase("STRIKE", "升级已禁用, 跳过...")
+        print_status_card("STRIKE", "SKIP", "升级已禁用")
+
+    # ── --stage escalate: 升级链完成, 跳过评分和报告 ──
+    if getattr(args, "stage", None) == "escalate":
+        from utils.display import print_escalate_report
+        print_escalate_report(ctx)
+        print_status_card("ESCALATE", "DONE", "升级链完成", ok=True)
+        return
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ⑥ 评分判定: 双 Judge 交叉验证 + ASR 统计 + 证据收集 + 报告
     # ═══════════════════════════════════════════════════════════════════════════
-    print_phase("ASSESS", "⑥ 评分判定: 双 Judge 交叉验证 & ASR 统计...")
+    print_phase("ASSESS", "双 Judge 交叉验证 & ASR 统计...")
     from assess.asr_tracker import (
         collect_dual_judge_stats,
         compute_asr,
@@ -394,6 +479,13 @@ async def run(argv: list[str] | None = None) -> None:
             ctx.dual_judge_stats.get("disagreements", 0),
             kappa,
         )
+
+    # ── --stage assess: 评分完成, 跳过报告生成 ──
+    if getattr(args, "stage", None) == "assess":
+        from utils.display import print_assess_report
+        print_assess_report(ctx)
+        print_status_card("ASSESS", "DONE", "评分完成", ok=True)
+        return
 
     # ── 证据收集 + 报告生成 ──
     print_phase("REPORT", "收集证据 & 生成安全报告...")

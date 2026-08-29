@@ -199,8 +199,8 @@ def install_hooks() -> int:
 
     print()
     print("Git hooks installed successfully!")
-    print(f"  pre-commit: blocks commits with BLOCKING violations")
-    print(f"  pre-push:   blocks pushes with BLOCKING violations")
+    print("  pre-commit: blocks commits with BLOCKING violations")
+    print("  pre-push:   blocks pushes with BLOCKING violations")
     print()
     print("Every git commit / push now auto-runs architecture_guard.py")
     print("No manual execution needed.")

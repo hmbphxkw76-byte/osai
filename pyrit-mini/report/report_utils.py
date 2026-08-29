@@ -1,3 +1,7 @@
+# arXiv:2402.01135 — Chao et al., Best-of-N
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2307.08673 — Zou et al., GCG
+# arXiv:2402.19181 — Zeng et al., Persuasion
 """report_utils 鈥?鎶ュ憡鐢熸垚鍏变韩宸ュ叿鍑芥暟.
 
 浠?report_html.py 鎷嗗垎鍑烘潵, 閬垮厤寰幆瀵煎叆.

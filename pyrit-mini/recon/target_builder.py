@@ -64,6 +64,9 @@ class JSONSafeHTTPTarget(HTTPTarget):
         2. httpx.AsyncClient 复用: 预创建 client 避免每次请求重建
         3. HTTP/2 自动检测: 从 http_version 启用 http2
         4. TLS 验证控制: 黑盒场景 verify=False (可通过参数覆盖)
+        5. P2-20: 会话 ID 动态注入 — 支持 {CHAT_ID} 占位符
+           从 Burp Response 中提取的 chat_id 自动填充到请求 body 中
+           确保多轮攻击在同一会话上下文中持续
 
     Args:
         http_request: 原始 HTTP 请求字符串 (含 {PROMPT} 占位符).
@@ -74,6 +77,7 @@ class JSONSafeHTTPTarget(HTTPTarget):
         client: 预配置的 httpx.AsyncClient (与 httpx_client_kwargs 互斥).
         model_name: 模型名称.
         custom_configuration: TargetConfiguration 覆盖.
+        chat_id: 初始会话 ID (从 Burp Response 提取, 可选).
         **httpx_client_kwargs: 传递给 httpx.AsyncClient 的参数.
     """
 
@@ -88,6 +92,7 @@ class JSONSafeHTTPTarget(HTTPTarget):
         client: httpx.AsyncClient | None = None,
         model_name: str = "",
         custom_configuration: TargetConfiguration | None = None,
+        chat_id: str | None = None,
         **httpx_client_kwargs: Any,
     ) -> None:
         super().__init__(
@@ -101,6 +106,10 @@ class JSONSafeHTTPTarget(HTTPTarget):
             custom_configuration=custom_configuration,
             **httpx_client_kwargs,
         )
+        # P2-20: 会话 ID 状态 (可从响应中动态更新)
+        self._chat_id: str | None = chat_id
+        # 保存原始请求模板 (含 {CHAT_ID} 占位符), 用于每次注入时动态替换
+        self._http_request_template: str = http_request
 
     def _inject_prompt_into_request(self, request: MessagePiece) -> str:
         """注入 prompt 到 HTTP 请求，JSON body 安全转义。
@@ -127,6 +136,21 @@ class JSONSafeHTTPTarget(HTTPTarget):
             prompt_text = ""
         else:
             prompt_text = str(prompt_text)
+
+        # P2-20: 替换 {CHAT_ID} 占位符
+        # 每次注入时从原始模板恢复 {CHAT_ID}, 然后用当前 chat_id 替换
+        # 这样 chat_id 更新后可以立即生效
+        chat_id_val = self._chat_id or ""
+        if "{CHAT_ID}" in self._http_request_template:
+            # 从模板恢复 {CHAT_ID} 占位符 (防止上次替换后永久丢失)
+            self.http_request = self._http_request_template
+            # 用当前 chat_id 替换
+            self.http_request = self.http_request.replace("{CHAT_ID}", chat_id_val)
+            if not chat_id_val:
+                logger.debug(
+                    "P2-20: {CHAT_ID} replaced with empty string "
+                    "(first request, will extract from response)"
+                )
 
         # 尝试 JSON 安全注入
         normalized = self.http_request.replace("\r\n", "\n")
@@ -204,6 +228,72 @@ class JSONSafeHTTPTarget(HTTPTarget):
         else:
             result += "\r\n\r\n"
         return result
+
+    # ── P2-20: 会话 ID 动态管理 ──
+
+    def update_chat_id(self, chat_id: str) -> None:
+        """更新会话 ID。
+
+        从目标响应中提取到新的 chat_id 后调用此方法更新内部状态。
+        后续请求会自动使用新的 chat_id。
+
+        策略:
+            1. 更新 self._chat_id
+            2. 从原始模板恢复 self.http_request (含 {CHAT_ID} 占位符)
+            3. 下次 _inject_prompt_into_request 时会用新 chat_id 替换
+
+        Args:
+            chat_id: 新的会话 ID。
+        """
+        if chat_id and chat_id != self._chat_id:
+            old = self._chat_id
+            self._chat_id = chat_id
+            # 从模板恢复 http_request (重新包含 {CHAT_ID} 占位符)
+            # 下次注入时会用新的 chat_id 替换
+            self.http_request = self._http_request_template
+            logger.info(
+                "P2-20: Chat ID updated: %s → %s",
+                old or "(none)",
+                chat_id,
+            )
+
+    @property
+    def chat_id(self) -> str | None:
+        """当前会话 ID (只读)。"""
+        return self._chat_id
+
+    @staticmethod
+    def extract_chat_id_from_response(response: Any) -> str | None:
+        """从 HTTP 响应中提取会话 ID。
+
+        支持 SSE 流式响应和普通 JSON 响应。
+        在 SSE 响应中, 从 data: 行的 JSON 中提取 Object/Id/ChatId 等字段。
+        在普通 JSON 响应中, 直接从 JSON 中提取。
+
+        候选字段名 (优先级递减):
+            Object > Id > ChatId > SessionId > ConversationId > ConvId
+
+        Args:
+            response: httpx.Response 对象或文本。
+
+        Returns:
+            提取到的会话 ID, 或 None。
+        """
+        from recon.burp_parser import _extract_chat_id_from_response
+
+        # 获取响应文本
+        text = None
+        if hasattr(response, "text") and response.text is not None:
+            text = response.text
+        elif hasattr(response, "content"):
+            if isinstance(response.content, bytes):
+                text = response.content.decode("utf-8", errors="replace")
+            else:
+                text = str(response.content)
+        else:
+            text = str(response)
+
+        return _extract_chat_id_from_response(text)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -316,12 +406,22 @@ def build_http_target(
         callback_function=callback,
         use_tls=parsed.use_tls,
         custom_configuration=custom_config,
+        chat_id=parsed.chat_id,
         **httpx_kwargs,
     )
 
+    # P2-20: 如果 body 中有 {CHAT_ID} 占位符, 包装 callback 以自动提取 chat_id
+    # 每次 HTTP 响应后, 从响应中提取 Object/Id/ChatId 等字段
+    # 如果提取到新的 chat_id, 自动更新到 target 中
+    if parsed.has_chat_id_placeholder:
+        target = _wrap_callback_with_chat_id_extraction(target, callback)
+    else:
+        target.callback_function = callback
+
     logger.info(
         "JSONSafeHTTPTarget built: %s %s (TLS=%s, HTTP2=%s, SSE=%s, "
-        "placeholder=%s, callback=%s, multi_turn=%s, system_adapt=%s)",
+        "placeholder=%s, callback=%s, multi_turn=%s, system_adapt=%s, "
+        "chat_id=%s, chat_id_field=%s)",
         parsed.method,
         parsed.url,
         parsed.use_tls,
@@ -331,6 +431,8 @@ def build_http_target(
         getattr(callback, "__name__", "None"),
         enable_multi_turn,
         enable_system_prompt_adapt,
+        parsed.chat_id or "(none)",
+        parsed.chat_id_field or "(none)",
     )
 
     # L5 v52: PyRIT 原生能力探测 (可选)
@@ -583,6 +685,62 @@ def _select_callback(parsed: ParsedBurpRequest) -> Any:
     return _make_adaptive_json_callback()
 
 
+def _wrap_callback_with_chat_id_extraction(
+    target: JSONSafeHTTPTarget,
+    original_callback: Any,
+) -> JSONSafeHTTPTarget:
+    """包装 callback 函数, 在解析响应后自动提取 chat_id。
+
+    P2-20: 当 request body 中检测到 {CHAT_ID} 占位符时,
+    每次收到 HTTP 响应后从响应中提取会话 ID (Object/Id/ChatId 等),
+    如果提取到新的 chat_id, 自动更新到 target 中。
+
+    这样多轮攻击 (Crescendo: arXiv:2404.01833 Russinovich et al., TAP, PAIR) 中的每次请求都会:
+        1. 从上次响应中获取 chat_id
+        2. 在本次请求的 body 中填入 chat_id
+        3. 发送请求, 目标服务器在同一会话上下文中响应
+
+    包装策略:
+        - 创建 wrapper 函数包裹原始 callback
+        - wrapper 先调用原始 callback 获取响应文本
+        - 然后从响应中提取 chat_id
+        - 如果提取到新 chat_id, 调用 target.update_chat_id()
+
+    Args:
+        target: 已构建的 JSONSafeHTTPTarget 实例。
+        original_callback: 原始响应解析回调函数。
+
+    Returns:
+        传入的 target (callback_function 已更新为 wrapper)。
+    """
+    from recon.burp_parser import _extract_chat_id_from_response
+
+    def wrapped_callback(response: Any) -> str:
+        """先调用原始 callback, 然后从响应中提取 chat_id。"""
+        # 调用原始 callback 获取响应文本
+        result = original_callback(response)
+
+        # 从响应中提取 chat_id
+        try:
+            chat_id = _extract_chat_id_from_response(
+                response.text if hasattr(response, "text") else str(response)
+            )
+            if chat_id and chat_id != target.chat_id:
+                target.update_chat_id(chat_id)
+        except Exception as e:
+            logger.debug("P2-20: Failed to extract chat_id from response: %s", e)
+
+        return result
+
+    target.callback_function = wrapped_callback
+    logger.info(
+        "P2-20: Callback wrapped with chat_id auto-extraction "
+        "(original=%s)",
+        getattr(original_callback, "__name__", "None"),
+    )
+    return target
+
+
 def _make_adaptive_json_callback() -> Any:
     """创建自适应 JSON 回调函数 — 尝试多个常见路径提取响应内容。
 
@@ -656,9 +814,10 @@ def _make_adaptive_json_callback() -> Any:
             return content_str
 
         # 生产级优化: 一次解析, 逐路径查找 (避免重复创建 callback 对象)
-        from recon.burp_parser import _extract_nested
+        # 大小写不敏感: 适配 PascalCase/camelCase/snake_case JSON key
+        from recon.burp_parser import _extract_nested_ci
         for _path_name, keys in _CANDIDATE_PATHS:
-            result = _extract_nested(json_obj, *keys)
+            result = _extract_nested_ci(json_obj, *keys)
             if result is not None and str(result).strip() and str(result) != "None":
                 return str(result)
 

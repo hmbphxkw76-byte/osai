@@ -1,0 +1,114 @@
+GET /api/v1/model/list?biz_id=ai_qwen&chat_client=h5&device=pc&fr=pc&pr=qwen&ut=faccdc63-8b24-9925-b991-ea97365f3917&la=zh-CN&tz=Asia%2FShanghai&wv=4.4.2&ve=4.4.2 HTTP/2
+Host: chat2-api.qianwen.com
+Cookie: UM_distinctid=1a04d0aec408e0-0e634a53a4cf21-26071951-144000-1a04d0aec41620; theme-mode=light; XSRF-TOKEN=f38a00c9-ce4e-4999-8c82-cf5be080148c; XSRF-TOKEN=f38a00c9-ce4e-4999-8c82-cf5be080148c; cna=8qAZI5Dpp1gCAXSpf6cUruxo; xlly_s=1; _qw_bx_timeout_v1=1000; _ON_EXT_DVIDN=eCy#AAPb06+UBGHQCW0KDn+wgziJxuZU3AgWprQrFQn+xK3FdF7o2YNQG5Db8pVVTjcPYiI=; _qk_bx_ck_v1=eyJkZXZpY2VJZCI6ImVDeSNBQVBiMDYrVUJHSFFDVzBLRG4rd2d6aUp4dVpVM0FnV3ByUXJGUW4reEszRmRGN28yWU5RRzVEYjhwVlZUamNQWWlJPSIsImRldmljZUZpbmdlcnByaW50IjoiNjdhMjA3YTNhY2VlM2YwNjRkZGIxYzMwOWViODY2YzMifQ==; _samesite_flag_=true; tongyi_sso_ticket=67KhWwLdCIlYyiPte*AMnfbSzzp_8Gn1gsBy1ogROHqapzX0CcdoyjS2$hESYcJzim0oWX1ns75u0; tongyi_sso_ticket_hash=tytk_hash:888875b3b68c5cbc52d7d9afed74d5c3; _qk_bx_um_v1=eyJ1ZCI6IlQyZ0F5QVZiaDg3NEd2T2VwRmFJdkhZT3cxRlhFaXpoS0o0M2pCekFwT25iUE1GN2ZNZ3FOa2k5NDJoUUkzWHpsM0U9IiwiZXAiOjE3ODgwMjE5MTA3OTd9; tfstk=gMGI8IG0qMjIFY8p2M8wG2xT-_PSxFRVJaa-o4CFyWFd2g3YbyueK4SRNcZZTkuU9u_S4qEde7LnWTaoDYzL29eTWz4fvgpHqCESmyIJrpvlNCn8uwnSre4820n74vJwg203Z7KqVIRq-oo0i4iQy7d9yzUbyFyphUnc-7K20IWNWJxUw4zX62PtWl459zBK2RBTzlURp7n8XRUYuMF8w0L16yzRpMBd9NQTjzF820FJ5VEgP7E-27LsWAUefPvQv2O61ElCJOBI8l1Rwfa9q7gCJsUnNywQD2hCw_LuRJZxJlKUJNf3B42SZaf7U2Hmqrndv3Zo1VhKHmKNLkHbPqkSDUW378G31uhpiZZtO4G_KASdprNQA-hLHQTjk8Hs1Wlpqt0Z5keb_AJMY8PIAxq0pdxiVVZE2XwOAhrr3VlLCmKN102SeXPt9hdf4z54ct6CFNwcNPZ25F6lEV88GScxfwQ4pP4ZgFT1AT2LSPZ25F6lEJUg7-865M6l.; isg=BCsruHxWxeAW6Rm0Pyk8SHGGuk8VQD_C39s7V52qUGrBPEeeABKuE6naknxSHJe6
+X-Platform: pc_tongyi
+Sec-Ch-Ua-Platform: "Windows"
+X-Xsrf-Token: 3cf251cf-ab21-4436-96a3-ead0fd5391d5
+X-User-Id: 1777950597355997428
+Accept-Language: zh-CN,zh;q=0.9
+Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="150"
+Sec-Ch-Ua-Mobile: ?0
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+Content-Type: application/json
+X-Deviceid: faccdc63-8b24-9925-b991-ea97365f3917
+Accept: */*
+Origin: https://www.qianwen.com
+Sec-Fetch-Site: same-site
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Referer: https://www.qianwen.com/chat/60e0f0df149240578ad9cd88babe9c69
+Accept-Encoding: gzip, deflate, br
+Priority: u=1, i
+
+HTTP/2 200 OK
+Date: Sat, 29 Aug 2026 11:15:57 GMT
+Content-Type: application/json
+Vary: Accept-Encoding
+Vary: Origin
+Access-Control-Allow-Origin: https://www.qianwen.com
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Origin, X-Requested-With
+Access-Control-Max-Age: 3600
+X-Req-Id: null_1788002157924
+X-Content-Type-Options: nosniff
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY
+Ups-Target-Key: qwen-chat-api-aone.vipserver
+X-Protocol: HTTP/2.0
+Eagleeye-Traceid: 215041e117880021579222636e0d21
+Strict-Transport-Security: max-age=31536000
+S-Brt: 55
+S-Rt: 56
+
+{
+  "trace_id":"215041e117880021579222636e0d21",
+  "code":0,
+  "msg":"success",
+  "data":[
+    {
+      "thirdParty":false,
+      "newTag":false,
+      "expanded":true,
+      "answerShow":false,
+      "defaultModel":true,
+      "modelCode":"Qwen",
+      "displayModelName":"Qwen3.7-千问",
+      "show":true,
+      "supportMultiModal":false,
+      "describe":"综合AI助手，全面回答工作、学习、生活各类问题",
+      "modelTag":[
+      ],
+      "legacyModelCode":"Qwen"
+    },
+    {
+      "thirdParty":false,
+      "newTag":true,
+      "expanded":true,
+      "answerShow":true,
+      "defaultModel":false,
+      "modelCode":"Qwen3.8-Max",
+      "displayModelName":"Qwen3.8-Max",
+      "show":true,
+      "supportMultiModal":false,
+      "describe":"最新 Max 旗舰模型，擅长视觉理解任务",
+      "modelTag":[
+      ],
+      "legacyModelCode":"tongyi-qwen3.8-max-model"
+    },
+    {
+      "thirdParty":false,
+      "newTag":false,
+      "expanded":true,
+      "answerShow":true,
+      "defaultModel":false,
+      "modelCode":"Qwen3.7-Max",
+      "displayModelName":"Qwen3.7-Max",
+      "show":true,
+      "supportMultiModal":false,
+      "describe":"擅长代码编写，处理复杂任务",
+      "modelTag":[
+      ],
+      "legacyModelCode":"tongyi-qwen3-max-model"
+    },
+    {
+      "thirdParty":false,
+      "newTag":false,
+      "expanded":true,
+      "answerShow":true,
+      "defaultModel":true,
+      "modelCode":"Qwen3.6-Flash",
+      "displayModelName":"Qwen3.6-Flash",
+      "show":true,
+      "supportMultiModal":false,
+      "describe":"适用于简单任务，响应速度快",
+      "modelTag":[
+      ],
+      "legacyModelCode":"tongyi-qwen36-plus-model"
+    }
+  ],
+  "success":true,
+  "httpCode":200
+}

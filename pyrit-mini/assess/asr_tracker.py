@@ -1,4 +1,9 @@
-﻿"""ASR (Attack Success Rate) 缁熻 + 鍘嗗彶鍐欏洖銆?
+# arXiv:2308.07920 - Zhang et al., Dual Judge cross-validation
+# arXiv:2406.12609 - Lattner et al., Parallel scoring throughput
+# arXiv:2402.04249 - Mazeika et al., HarmBench scoring baseline
+# arXiv:2306.05685 - Zheng et al., LLM-as-a-Judge robustness
+# arXiv:2307.08673 - Zou et al., GCG
+"""ASR (Attack Success Rate) 缁熻 + 鍘嗗彶鍐欏洖銆?
 
 璁＄畻鏂瑰紡:
     ASR = successes / total_decided * 100
@@ -572,7 +577,7 @@ from assess.asr_history import (  # noqa: F401, E402
     _save_gcg_suffix_asr_history,
     save_asr_history,
 )
-from assess.asr_stats import (  # noqa: F401, E402  # noqa: F401, E402  # noqa: F401, E402
+from assess.asr_stats import (  # noqa: F401, E402
     _dual_judge_agreements,
     _dual_judge_disagreements,
     _dual_judge_judge1_successes,

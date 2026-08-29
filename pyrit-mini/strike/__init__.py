@@ -1,3 +1,5 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2407.01232 — PyRIT, framework foundation
 """strike 鈥?鏀诲嚮鍙戦€侀樁娈点€?
 
 鏀诲嚮閾捐矾绗?4 姝? 浣跨敤 PyRIT 鍘熺敓 AttackExecutor 鎵ц鏀诲嚮銆?

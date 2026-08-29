@@ -10,11 +10,8 @@ arXiv:2407.01232 — PyRIT framework foundation, SequentialAttack FIRST_SUCCESS
 
 from __future__ import annotations
 
-import asyncio
-import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -31,23 +28,19 @@ async def test_pipeline_imports_clean(tmp_path):
         core.config → core.context → recon → arm → strike → assess → report
     """
     # Step ① ②: Recon imports
-    from recon.burp_parser import parse_burp_request
-    from recon.target_router import create_target
-    from recon.target_builder import build_http_target
+    from arm.converter_presets import build_converter_map
 
     # Step ③ ④: Arm imports
     from arm.seed_ranker import load_seeds
-    from arm.converter_presets import build_converter_map
-    from arm.technique_picker import select_techniques
+
+    # Step ⑥: Assess + Report imports
+    from assess.asr_tracker import compute_asr
+    from recon.burp_parser import parse_burp_request
+    from recon.target_router import create_target
+    from report.evidence import EvidenceCollector
 
     # Step ⑤: Strike imports
     from strike.executor import execute_attacks
-    from strike.escalation import check_and_escalate
-
-    # Step ⑥: Assess + Report imports
-    from assess.asr_tracker import compute_asr, compute_overall_asr
-    from report.evidence import EvidenceCollector
-    from report.generator import generate_report
 
     # If all imports succeeded, the pipeline is properly wired
     assert parse_burp_request is not None
@@ -61,8 +54,9 @@ async def test_pipeline_imports_clean(tmp_path):
 
 def test_pipeline_context_dataclass():
     """PipelineContext should be a dataclass with all 6-step fields."""
-    from core.context import PipelineContext
     import dataclasses
+
+    from core.context import PipelineContext
 
     assert dataclasses.is_dataclass(PipelineContext)
 

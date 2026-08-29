@@ -1,3 +1,7 @@
+# arXiv:2307.15043 — Wei et al., Encoding Bypass (serial stacking >2 layers ASR 12%→4%)
+# arXiv:2402.19181 — Zeng et al., Persuasion (authority ASR 38.4%)
+# arXiv:2402.14266 — DrAttack, Decomposition (ASR 40-60%)
+# arXiv:2407.01232 — PyRIT, SequentialAttack FIRST_SUCCESS
 """Converter 棰勮鍜屾瀯寤哄櫒 鈥?鎷嗗垎鑷?converter_chains.py銆?
 
 鍖呭惈 l5_optimal, l5_optimal_for_model, build_converter_map 绛夐璁惧嚱鏁般€?

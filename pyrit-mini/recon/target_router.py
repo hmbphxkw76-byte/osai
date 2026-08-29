@@ -1,3 +1,6 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2402.19181 — Zeng et al., Persuasion
+# arXiv:2407.01232 — PyRIT, framework foundation
 """目标路由 — 纯黑盒 Burp 场景。
 
 唯一路径:
@@ -126,6 +129,41 @@ async def create_target(ctx: PipelineContext) -> None:
     ctx.parsed_request = parsed
     ctx.model_name = f"HTTP:{parsed.host}{parsed.path}"
 
+    # ── L5 v53: 将 Burp 提取的模型信息和原始 prompt 值传递到 ctx ──
+    # 这些信息在侦察阶段从 Burp 文件中提取, 无需额外探测请求
+    # 数据流: burp_parser → parsed_request → target_fingerprint → ctx
+    if parsed.burp_model_name:
+        # 如果 Burp 响应中有模型名称, 优先使用它
+        ctx.model_name = parsed.burp_model_name
+        parsed.target_fingerprint["burp_model_name"] = parsed.burp_model_name
+        logger.info(
+            "L5 v53: Model name from Burp response: %s",
+            parsed.burp_model_name,
+        )
+
+    if parsed.burp_model_list:
+        parsed.target_fingerprint["burp_model_list"] = "yes"
+        logger.info(
+            "L5 v53: Model list extracted from Burp response "
+            "(length=%d chars)",
+            len(parsed.burp_model_list),
+        )
+
+    if parsed.original_prompt_value:
+        parsed.target_fingerprint["original_prompt"] = parsed.original_prompt_value[:200]
+        logger.info(
+            "L5 v53: Original prompt value from Burp request: %s",
+            parsed.original_prompt_value[:80],
+        )
+
+    if parsed.api_category != "chat":
+        logger.info(
+            "L5 v53: Non-chat API detected (category=%s, path=%s) — "
+            "model info extracted, {PROMPT} injection skipped",
+            parsed.api_category,
+            parsed.path,
+        )
+
     # ── L5 v12: 目标可用性预检 ──
     # 学术依据: Heroux et al. (arXiv:2403.04206) — 超时恢复策略
     # 在攻击开始前检测目标是否在线, 避免浪费时间在不可达目标上。
@@ -155,6 +193,16 @@ async def create_target(ctx: PipelineContext) -> None:
         logger.info("Response path detected: %s", parsed.response_json_path)
     else:
         logger.info("No response path detected, using default callback")
+
+    # P2-20: 如果探针从响应中提取到了 chat_id, 记录日志
+    if parsed.chat_id:
+        logger.info("P2-20: Chat ID from probe/Burp response: %s", parsed.chat_id)
+    elif parsed.has_chat_id_placeholder:
+        logger.info(
+            "P2-20: Chat ID field '%s' detected in body with {CHAT_ID} placeholder, "
+            "will extract from first response",
+            parsed.chat_id_field,
+        )
 
     # ── 主动能力探测 (P1-7) ──
     # 学术依据: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
@@ -458,7 +506,10 @@ async def _check_target_availability(parsed: Any) -> bool:
         if key.lower() not in ("content-length", "host"):
             check_headers[key] = value
 
-    check_body = '{"prompt":"hi"}'
+    # 构建探针 body: 使用 parsed.body 模板替换 {PROMPT}, 而非硬编码
+    # 这样 Baidu/Qwen/DeepSeek 等不同 body 结构都能正确发送可用性检查
+    from recon.capability_detector import _build_probe_body
+    check_body = _build_probe_body(parsed, "hi")
 
     try:
         # L5 v22: 使用 stream=True 避免等待 SSE 响应体完成

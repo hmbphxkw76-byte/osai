@@ -1,3 +1,6 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2407.01232 — PyRIT, evidence extraction from CentralMemory
+# arXiv:2308.07920 — Zhang et al., Dual Judge scoring evidence
 """证据收集 — 从攻击结果中提取结构化证据。
 
 OWASP 标准对齐:

@@ -150,15 +150,41 @@ async def check_and_escalate(
 
     if overall_asr >= _ESCALATION_ASR_THRESHOLD:
         logger.info("ASR %.1f%% >= threshold %.1f%%, skipping escalation", overall_asr, _ESCALATION_ASR_THRESHOLD)
+        ctx.orchestration_log.append({
+            "phase": "escalate",
+            "decision": "escalation_skipped",
+            "input": {"overall_asr": overall_asr, "threshold": _ESCALATION_ASR_THRESHOLD},
+            "output": {},
+            "reasoning": f"ASR {overall_asr:.1f}% >= threshold {_ESCALATION_ASR_THRESHOLD:.1f}%, no escalation needed",
+        })
         return attack_results
 
     # 2. 閫夋嫨澶辫触鐩爣
     failed_objectives = _select_failed_objectives(ctx, attack_results)
     if not failed_objectives:
         logger.info("No failed objectives to escalate")
+        ctx.orchestration_log.append({
+            "phase": "escalate",
+            "decision": "no_failed_objectives",
+            "input": {"overall_asr": overall_asr},
+            "output": {},
+            "reasoning": "No failed objectives found to escalate",
+        })
         return attack_results
 
     logger.info("Escalating %d failed objectives", len(failed_objectives))
+
+    ctx.orchestration_log.append({
+        "phase": "escalate",
+        "decision": "escalation_triggered",
+        "input": {
+            "overall_asr": overall_asr,
+            "threshold": _ESCALATION_ASR_THRESHOLD,
+            "failed_objectives": len(failed_objectives),
+        },
+        "output": {},
+        "reasoning": f"ASR {overall_asr:.1f}% < {_ESCALATION_ASR_THRESHOLD:.1f}%, escalating {len(failed_objectives)} failed objectives through L1-L4 chain",
+    })
 
     # 3. 鎵ц鍗囩骇绛栫暐 鈥?L5 v42 骞惰鍗囩骇閾?
     # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰鍗囩骇 via asyncio.gather
@@ -356,6 +382,20 @@ async def check_and_escalate(
 
     # 6. 鍒嗘瀽鍗囩骇缁撴灉
     _analyze_escalation_results(attack_results, overall_asr)
+
+    # 记录升级完成到编排日志
+    post_asr = _compute_overall_asr(attack_results)
+    ctx.orchestration_log.append({
+        "phase": "escalate",
+        "decision": "escalation_completed",
+        "input": {"pre_asr": overall_asr},
+        "output": {
+            "post_asr": post_asr,
+            "techniques_added": list(escalated_results.keys()),
+            "total_results": sum(len(v) for v in attack_results.values()),
+        },
+        "reasoning": f"Escalation chain completed: pre-ASR={overall_asr:.1f}%, post-ASR={post_asr:.1f}%",
+    })
 
     return attack_results
 

@@ -71,12 +71,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="PyRIT-Strike — Burp拦截→侦察→种子→Converter→攻击→评分→证据 攻击链路",
     )
 
-    # ── 侦察: Burp 拦截 ──
+    # ── 流水线阶段控制 ──
+    # 7 阶段划分 (对齐 OWASP AI-300 Five-Step + PyRIT 原生流水线):
+    #   recon     → Burp 解析 + 目标探测 + 能力指纹 + HTTPTarget 构建
+    #   arm       → 种子加载/ASR 排序 + Converter 链构建 + 技术选择
+    #   strike    → 单轮 PyRIT 原生多路径攻击 (PromptSendingAttack FIRST_SUCCESS)
+    #   escalate  → 多轮升级链 (Crescendo→TAP→PAIR→GCG→native, ASR<90% 触发)
+    #   assess    → T0→J1→J2→J3 级联评分 + ASR 统计 + Wilson CI
+    #   report    → 证据收集 + MD/HTML/JSON/PoC/SARIF 生成
+    # 不指定 --stage 时按顺序执行全部阶段 (strike+escalate 合为一步), 向后兼容。
     parser.add_argument(
-        "--burp-request",
+        "--stage",
         type=str,
-        default="data/burp/request.txt",
-        help="Burp 拦截的 HTTP 请求文件路径",
+        default=None,
+        choices=["recon", "arm", "strike", "escalate", "assess", "report"],
+        help="只执行到指定阶段后停止 (recon/arm/strike/escalate/assess/report), "
+             "不指定则执行完整链路",
+    )
+
+    # ── 侦察: Burp 拦截 ──
+    # 用法: --burp <name>
+    #   自动解析为 data/burp/<name>.txt
+    #   不指定时默认 data/burp/request.txt
+    #   也可直接传完整路径: --burp data/burp/deepseek.txt
+    parser.add_argument(
+        "--burp",
+        type=str,
+        default="request",
+        metavar="NAME",
+        help="Burp 拦截的 HTTP 请求文件名 (自动查找 data/burp/<NAME>.txt), "
+             "默认 request; 也可直接传完整路径",
     )
 
     # ── 种子选取 ──
@@ -138,6 +162,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.escalation = explicit_escalation
     elif args.escalation is None:
         args.escalation = True
+
+    # ── Burp 请求路径解析 ──
+    # --burp <name> → data/burp/<name>.txt (自动补全路径)
+    # 如果传入的值已包含路径分隔符或 .txt 后缀, 视为完整路径
+    burp_val = args.burp
+    if "/" not in burp_val and "\\" not in burp_val and not burp_val.endswith(".txt"):
+        # 纯文件名 → 自动补全为 data/burp/<name>.txt
+        args.burp = str(_PROJECT_ROOT / "data" / "burp" / f"{burp_val}.txt")
+    elif not Path(burp_val).is_absolute() and ("/" in burp_val or "\\" in burp_val):
+        # 相对路径 → 相对于项目根目录
+        args.burp = str(_PROJECT_ROOT / burp_val)
 
     return args
 

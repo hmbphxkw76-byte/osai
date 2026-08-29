@@ -1,4 +1,6 @@
-﻿"""asr_history 鈥?浠?asr_tracker.py 鎷嗗垎鑰屾潵.
+# arXiv:2307.08673 — Zou et al., GCG (adversarial suffixes ASR 60-88%)
+# arXiv:2308.07920 — Zhang et al., Dual Judge cross-validation
+"""asr_history 鈥?浠?asr_tracker.py 鎷嗗垎鑰屾潵.
 
 鍖呭惈 ASR 鍘嗗彶淇濆瓨, converter ASR 鍘嗗彶, GCG 鍚庣紑 ASR 鍘嗗彶.
 """

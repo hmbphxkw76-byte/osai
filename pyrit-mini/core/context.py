@@ -189,21 +189,27 @@ def apply_relaxed_adversarial_schema() -> None:
         relaxed = copy.deepcopy(original)
         relaxed["required"] = ["next_message"]
 
-        # 注册 relaxed schema
-        schema_mod.register_common_json_schema("adversarial_chat", relaxed)
+        # 注册 relaxed schema (overwrite=True 覆盖已注册的原版)
+        schema_mod.register_common_json_schema(
+            name="adversarial_chat", schema=relaxed, overwrite=True
+        )
 
         # 同时注册 true_false_with_rationale 的 relaxed 版本
         tf_original = schema_mod.get_common_json_schema("true_false_with_rationale")
         tf_relaxed = copy.deepcopy(tf_original)
         # 保留所有 required 字段但允许 additionalProperties
         tf_relaxed["additionalProperties"] = True
-        schema_mod.register_common_json_schema("true_false_with_rationale", tf_relaxed)
+        schema_mod.register_common_json_schema(
+            name="true_false_with_rationale", schema=tf_relaxed, overwrite=True
+        )
 
         # scale_with_rationale relaxed 版本
         scale_original = schema_mod.get_common_json_schema("scale_with_rationale")
         scale_relaxed = copy.deepcopy(scale_original)
         scale_relaxed["additionalProperties"] = True
-        schema_mod.register_common_json_schema("scale_with_rationale", scale_relaxed)
+        schema_mod.register_common_json_schema(
+            name="scale_with_rationale", schema=scale_relaxed, overwrite=True
+        )
 
         _relaxed_schema_applied = True
         logger.info(
@@ -213,6 +219,6 @@ def apply_relaxed_adversarial_schema() -> None:
             "scale_with_rationale (additionalProperties=True)"
         )
 
-    except Exception:
-        logger.warning("Failed to apply relaxed adversarial schema", exc_info=True)
+    except Exception as e:
+        logger.debug("Relaxed adversarial schema skipped: %s", e)
 

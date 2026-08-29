@@ -1,7 +1,0 @@
-﻿POST /api/labs/MM_01/search HTTP/1.1
-Host: localhost
-Content-Type: application/json
-Cookie: session=YOUR_SESSION_ID
-Content-Length: 25
-
-{"query":"{PROMPT}"}

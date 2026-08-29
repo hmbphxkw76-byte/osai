@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pyrit.models import AttackResult, ScenarioResult
+    pass
 
 
 async def output_native_attack_results(

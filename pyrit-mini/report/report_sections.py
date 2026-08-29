@@ -1,3 +1,6 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2307.08673 — Zou et al., GCG
+# arXiv:2407.01232 — PyRIT, SequentialAttack FIRST_SUCCESS
 """report_sections — 报告章节构建函数.
 
 从 generator.py 拆分而来, 负责构建报告中的各种数据章节:

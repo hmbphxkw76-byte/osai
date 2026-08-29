@@ -1,4 +1,7 @@
-﻿"""seed_ranking 鈥?浠?seed_ranker.py 鎷嗗垎鑰屾潵.
+# arXiv:2402.12109 — Russinovich et al., Crescendo (10 turns ASR=82%)
+# arXiv:2402.01135 — Chao et al., Best-of-N (N=5 ASR 1.8x)
+# arXiv:2310.04451 — Mehrotra et al., AutoDAN (3x seed expansion)
+"""seed_ranking 鈥?浠?seed_ranker.py 鎷嗗垎鑰屾潵.
 
 鍖呭惈 ASR 鎺掑簭, 绫诲埆澶氭牱鎬? 鍘嗗彶鏇存柊, 澶氳疆閫夌鎺掑簭.
 """

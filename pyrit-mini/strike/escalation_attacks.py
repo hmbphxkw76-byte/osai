@@ -79,7 +79,7 @@ async def _run_red_teaming(
         RTASystemPromptPaths,
     )
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
-    from pyrit.models import AttackSeedGroup, SeedPrompt, SeedObjective
+    from pyrit.models import AttackSeedGroup, SeedObjective, SeedPrompt
 
     results: dict[str, list[Any]] = {}
 

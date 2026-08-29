@@ -9,13 +9,11 @@ arXiv:2407.01232 — PyRIT: HTTPTarget for black-box HTTP target construction.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
 
 # Ensure project root on path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent

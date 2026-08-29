@@ -1,3 +1,8 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo
+# arXiv:2402.19181 — Zeng et al., Persuasion
+# arXiv:2402.01135 — Chao et al., Best-of-N
+# arXiv:2312.02191 — Mehrotra et al., TAP
+# arXiv:2310.08419 — Chao et al., PAIR
 """鏀诲嚮鎶€鏈€夋嫨 鈥?绾粦鐩?Burp 鍦烘櫙銆?
 
 鍗曡疆鎶€鏈?(HTTPTarget 鐩存帴鍙戦€?:

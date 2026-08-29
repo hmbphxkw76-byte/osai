@@ -1,0 +1,1148 @@
+POST /api/v0/chat/completion HTTP/2
+Host: chat.deepseek.com
+Cookie: HWWAFSESID=f6b931642a102ba7d9ce; HWWAFSESTIME=1787999297937; ds_session_id=7249bc3d67da47219ad32f5ec4901ddc; smidV2=20260829182823ee5fa7ee14a2bf3bc70e87d0b7b057e9004682aa166fe87d0; .thumbcache_6b2e5483f9d858d7c661c5e276b6a6ae=LsCbGYS7Hf1e5GlUXl+glXjtcrVTb4Pz9CJlvx57OdqpjavgkVqCSMCHRb3JeSMRJSkBpX7WO+2Vwtb4pD5zug%3D%3D
+Content-Length: 224
+X-Client-Locale: zh_CN
+Sec-Ch-Ua-Platform: "Windows"
+Authorization: Bearer xC5ySYzvmlV4/hQajVtKPB6Z60sMIqjLzfshyHdZJ/MM500/izQ/6Rio9pAXwVNf
+X-Client-Bundle-Id: com.deepseek.chat
+Accept-Language: zh-CN,zh;q=0.9
+Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="150"
+Sec-Ch-Ua-Mobile: ?0
+X-Ds-Pow-Response: eyJhbGdvcml0aG0iOiJEZWVwU2Vla0hhc2hWMSIsImNoYWxsZW5nZSI6ImE3MzAxMDc5ZDM4ZjAxOTFjZjFiZjExNDdhZDE4MDRlY2ZmYjkwYzZiNDBjOTg2OTY2MTFlZTI5YzQ1OGU3M2MiLCJzYWx0IjoiOWY3N2E0ZmViNTY2NGQ0ODJjN2YiLCJhbnN3ZXIiOjU3ODE3LCJzaWduYXR1cmUiOiI1MzU1M2E3OTkxMjdiYWM0OTFjYzY3MTA0NTAwMzc5NDkwODllYjEwOGY1NTU5ZGZmODU4NzkwN2M1NWE4MzFmIiwidGFyZ2V0X3BhdGgiOiIvYXBpL3YwL2NoYXQvY29tcGxldGlvbiJ9
+X-Client-Timezone-Offset: 28800
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+X-Client-Version: 2.4.0
+Accept: */*
+Content-Type: application/json
+X-Client-Platform: web
+Origin: https://chat.deepseek.com
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Referer: https://chat.deepseek.com/a/chat/s/c3533794-15bc-492e-bde7-b094bedcc931
+Accept-Encoding: gzip, deflate, br
+Priority: u=1, i
+
+{
+  "chat_session_id":"c3533794-15bc-492e-bde7-b094bedcc931",
+  "parent_message_id":null,
+  "model_type":"default",
+  "prompt":"介绍自己",
+  "ref_file_ids":[
+  ],
+  "thinking_enabled":true,
+  "search_enabled":true,
+  "action":null,
+  "preempt":false
+}
+
+HTTP/2 200 OK
+Date: Sat, 29 Aug 2026 10:30:00 GMT
+Content-Type: text/event-stream; charset=utf-8
+Cache-Control: no-cache
+X-Ds-Sse-Heartbeat-Timeout-Secs: 8
+X-Ds-Trace-Id: f91422b8a6a7741c60603f528ba5bcab
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Server: CW
+
+event: ready
+data: {"request_message_id":1,"response_message_id":2,"model_type":"default"}
+
+event: update_session
+data: {"updated_at":1787999400.993521}
+
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":true,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1787999400.980506,"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"好的","elapsed_secs":null,"references":[],"stage_id":1}],"conversation_mode":"DEFAULT","has_pending_fragment":false,"auto_continue":false,"search_triggered":false}}}
+
+data: {"p":"response/fragments/-1/content","o":"APPEND","v":"，"}
+
+data: {"v":"用户"}
+
+data: {"v":"让我"}
+
+data: {"v":"介绍"}
+
+data: {"v":"自己"}
+
+data: {"v":"。"}
+
+data: {"v":"这是一个"}
+
+data: {"v":"非常"}
+
+data: {"v":"常见"}
+
+data: {"v":"且"}
+
+data: {"v":"直接的"}
+
+data: {"v":"请求"}
+
+data: {"v":"，"}
+
+data: {"v":"不需要"}
+
+data: {"v":"复杂"}
+
+data: {"v":"拆"}
+
+data: {"v":"解"}
+
+data: {"v":"。"}
+
+data: {"v":"用户"}
+
+data: {"v":"可能"}
+
+data: {"v":"刚"}
+
+data: {"v":"接触"}
+
+data: {"v":"我"}
+
+data: {"v":"，"}
+
+data: {"v":"想"}
+
+data: {"v":"了解"}
+
+data: {"v":"我的"}
+
+data: {"v":"基本"}
+
+data: {"v":"身份"}
+
+data: {"v":"、"}
+
+data: {"v":"功能和"}
+
+data: {"v":"边界"}
+
+data: {"v":"。\n\n"}
+
+data: {"v":"我需要"}
+
+data: {"v":"清晰"}
+
+data: {"v":"、"}
+
+data: {"v":"有条"}
+
+data: {"v":"理"}
+
+data: {"v":"地"}
+
+data: {"v":"组织"}
+
+data: {"v":"信息"}
+
+data: {"v":"，"}
+
+data: {"v":"让"}
+
+data: {"v":"用户"}
+
+data: {"v":"快速"}
+
+data: {"v":"建立"}
+
+data: {"v":"认知"}
+
+data: {"v":"。"}
+
+data: {"v":"可以"}
+
+data: {"v":"分"}
+
+data: {"v":"几个"}
+
+data: {"v":"方面"}
+
+data: {"v":"："}
+
+data: {"v":"身份"}
+
+data: {"v":"来源"}
+
+data: {"v":"、"}
+
+data: {"v":"核心"}
+
+data: {"v":"能力"}
+
+data: {"v":"、"}
+
+data: {"v":"独特"}
+
+data: {"v":"特点"}
+
+data: {"v":"、"}
+
+data: {"v":"限制"}
+
+data: {"v":"说明"}
+
+data: {"v":"，"}
+
+data: {"v":"最后"}
+
+data: {"v":"以"}
+
+data: {"v":"友好的"}
+
+data: {"v":"邀请"}
+
+data: {"v":"结尾"}
+
+data: {"v":"。"}
+
+data: {"v":"语气"}
+
+data: {"v":"要"}
+
+data: {"v":"热情"}
+
+data: {"v":"但"}
+
+data: {"v":"专业"}
+
+data: {"v":"，"}
+
+data: {"v":"用"}
+
+data: {"v":"符号"}
+
+data: {"v":"和"}
+
+data: {"v":"分段"}
+
+data: {"v":"让"}
+
+data: {"v":"结构"}
+
+data: {"v":"清晰"}
+
+data: {"v":"。\n\n"}
+
+data: {"v":"想到了"}
+
+data: {"v":"从"}
+
+data: {"v":"我是"}
+
+data: {"v":"谁"}
+
+data: {"v":"、"}
+
+data: {"v":"能"}
+
+data: {"v":"做什么"}
+
+data: {"v":"、"}
+
+data: {"v":"特别"}
+
+data: {"v":"在哪"}
+
+data: {"v":"、"}
+
+data: {"v":"不能"}
+
+data: {"v":"做什么"}
+
+data: {"v":"、"}
+
+data: {"v":"以及"}
+
+data: {"v":"如何"}
+
+data: {"v":"开始"}
+
+data: {"v":"使用"}
+
+data: {"v":"这几个"}
+
+data: {"v":"块"}
+
+data: {"v":"来"}
+
+data: {"v":"组织"}
+
+data: {"v":"。"}
+
+data: {"v":"内容"}
+
+data: {"v":"要"}
+
+data: {"v":"涵盖"}
+
+data: {"v":"关键"}
+
+data: {"v":"点"}
+
+data: {"v":"："}
+
+data: {"v":"免费"}
+
+data: {"v":"、"}
+
+data: {"v":"长"}
+
+data: {"v":"上下文"}
+
+data: {"v":"、"}
+
+data: {"v":"文件"}
+
+data: {"v":"支持"}
+
+data: {"v":"、"}
+
+data: {"v":"多"}
+
+data: {"v":"平台"}
+
+data: {"v":"、"}
+
+data: {"v":"知识"}
+
+data: {"v":"截止"}
+
+data: {"v":"日期"}
+
+data: {"v":"和"}
+
+data: {"v":"联网"}
+
+data: {"v":"能力"}
+
+data: {"v":"，"}
+
+data: {"v":"同时"}
+
+data: {"v":"明确"}
+
+data: {"v":"说明"}
+
+data: {"v":"不支持"}
+
+data: {"v":"图像"}
+
+data: {"v":"识别"}
+
+data: {"v":"等"}
+
+data: {"v":"限制"}
+
+data: {"v":"。"}
+
+data: {"v":"结尾"}
+
+data: {"v":"要"}
+
+data: {"v":"开放"}
+
+data: {"v":"，"}
+
+data: {"v":"鼓励"}
+
+data: {"v":"用户"}
+
+data: {"v":"提出"}
+
+data: {"v":"具体"}
+
+data: {"v":"需求"}
+
+data: {"v":"。"}
+
+data: {"p":"response/fragments/-1/elapsed_secs","o":"SET","v":2.295469736}
+
+data: {"p":"response/fragments","o":"APPEND","v":[{"id":3,"type":"RESPONSE","content":"嗨","references":[],"stage_id":1}]}
+
+data: {"p":"response/fragments/-1/content","v":"！"}
+
+data: {"v":"很高兴"}
+
+data: {"v":"认识"}
+
+data: {"v":"你"}
+
+data: {"v":"！"}
+
+data: {"v":"🌟"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"我是"}
+
+data: {"v":" **"}
+
+data: {"v":"Deep"}
+
+data: {"v":"Se"}
+
+data: {"v":"ek"}
+
+data: {"v":"**"}
+
+data: {"v":"，"}
+
+data: {"v":"由"}
+
+data: {"v":"深度"}
+
+data: {"v":"求"}
+
+data: {"v":"索"}
+
+data: {"v":"公司"}
+
+data: {"v":"打造的"}
+
+data: {"v":"AI"}
+
+data: {"v":"助手"}
+
+data: {"v":"。"}
+
+data: {"v":"让我"}
+
+data: {"v":"用"}
+
+data: {"v":"最简单"}
+
+data: {"v":"的方式"}
+
+data: {"v":"介绍"}
+
+data: {"v":"自己"}
+
+data: {"v":"：\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"🧠"}
+
+data: {"v":" "}
+
+data: {"v":"我是"}
+
+data: {"v":"谁"}
+
+data: {"v":"**\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"一个"}
+
+data: {"v":"纯"}
+
+data: {"v":"文本"}
+
+data: {"v":"AI"}
+
+data: {"v":"模型"}
+
+data: {"v":"，"}
+
+data: {"v":"擅长"}
+
+data: {"v":"理解和"}
+
+data: {"v":"生成"}
+
+data: {"v":"人类"}
+
+data: {"v":"语言"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"知识"}
+
+data: {"v":"截止"}
+
+data: {"v":"到"}
+
+data: {"v":" **"}
+
+data: {"v":"202"}
+
+data: {"v":"5"}
+
+data: {"v":"年"}
+
+data: {"v":"5"}
+
+data: {"v":"月"}
+
+data: {"v":"**"}
+
+data: {"v":"（"}
+
+data: {"v":"没错"}
+
+data: {"v":"，"}
+
+data: {"v":"我的"}
+
+data: {"v":"知识"}
+
+data: {"v":"还挺"}
+
+data: {"v":"新鲜的"}
+
+data: {"v":"！"}
+
+data: {"v":"）\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"完全"}
+
+data: {"v":" **"}
+
+data: {"v":"免费"}
+
+data: {"v":"**"}
+
+data: {"v":" "}
+
+data: {"v":"使用"}
+
+data: {"v":"，"}
+
+data: {"v":"没有任何"}
+
+data: {"v":"收费"}
+
+data: {"v":"计划"}
+
+data: {"v":"（"}
+
+data: {"v":"这点"}
+
+data: {"v":"很重要"}
+
+data: {"v":"！"}
+
+data: {"v":"）\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"💪"}
+
+data: {"v":" "}
+
+data: {"v":"我能"}
+
+data: {"v":"做什么"}
+
+data: {"v":"**\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"回答问题"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"从"}
+
+data: {"v":"生活"}
+
+data: {"v":"常识"}
+
+data: {"v":"到"}
+
+data: {"v":"专业知识"}
+
+data: {"v":"，"}
+
+data: {"v":"我"}
+
+data: {"v":"都能"}
+
+data: {"v":"聊"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"写作"}
+
+data: {"v":"帮手"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"写"}
+
+data: {"v":"文章"}
+
+data: {"v":"、"}
+
+data: {"v":"改"}
+
+data: {"v":"文案"}
+
+data: {"v":"、"}
+
+data: {"v":"润"}
+
+data: {"v":"色"}
+
+data: {"v":"文字"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"代码"}
+
+data: {"v":"辅助"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"编程"}
+
+data: {"v":"问题"}
+
+data: {"v":"、"}
+
+data: {"v":"代码"}
+
+data: {"v":"调试"}
+
+data: {"v":"、"}
+
+data: {"v":"算法"}
+
+data: {"v":"讲解"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"文件"}
+
+data: {"v":"处理"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"支持"}
+
+data: {"v":"上传"}
+
+data: {"v":"图片"}
+
+data: {"v":"、"}
+
+data: {"v":"PDF"}
+
+data: {"v":"、"}
+
+data: {"v":"Word"}
+
+data: {"v":"、"}
+
+data: {"v":"Excel"}
+
+data: {"v":"、"}
+
+data: {"v":"PPT"}
+
+data: {"v":"等"}
+
+data: {"v":"文件"}
+
+data: {"v":"，"}
+
+data: {"v":"提取"}
+
+data: {"v":"文字"}
+
+data: {"v":"信息"}
+
+data: {"v":"帮你"}
+
+data: {"v":"分析"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"长"}
+
+data: {"v":"文本"}
+
+data: {"v":"处理"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"上下文"}
+
+data: {"v":"高达"}
+
+data: {"v":" **"}
+
+data: {"v":"1"}
+
+data: {"v":"M"}
+
+data: {"v":" tokens"}
+
+data: {"v":"**"}
+
+data: {"v":"，"}
+
+data: {"v":"能"}
+
+data: {"v":"一次性"}
+
+data: {"v":"处理"}
+
+data: {"v":"《"}
+
+data: {"v":"三"}
+
+data: {"v":"体"}
+
+data: {"v":"》"}
+
+data: {"v":"三部"}
+
+data: {"v":"曲"}
+
+data: {"v":"那么"}
+
+data: {"v":"长的"}
+
+data: {"v":"内容"}
+
+data: {"v":"！\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"联网"}
+
+data: {"v":"搜索"}
+
+data: {"v":"**"}
+
+data: {"v":"："}
+
+data: {"v":"需要"}
+
+data: {"v":"实时"}
+
+data: {"v":"信息"}
+
+data: {"v":"时"}
+
+data: {"v":"，"}
+
+data: {"v":"你"}
+
+data: {"v":"可以在"}
+
+data: {"v":"Web"}
+
+data: {"v":"/"}
+
+data: {"v":"App"}
+
+data: {"v":"端"}
+
+data: {"v":"手动"}
+
+data: {"v":"开启"}
+
+data: {"v":"联网"}
+
+data: {"v":"功能"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"🎯"}
+
+data: {"v":" "}
+
+data: {"v":"我的"}
+
+data: {"v":"特点"}
+
+data: {"v":"**\n"}
+
+data: {"v":"-"}
+
+data: {"v":" 📱"}
+
+data: {"v":" "}
+
+data: {"v":"支持"}
+
+data: {"v":"Web"}
+
+data: {"v":"端"}
+
+data: {"v":"和"}
+
+data: {"v":"App"}
+
+data: {"v":"（"}
+
+data: {"v":"可通过"}
+
+data: {"v":"官方"}
+
+data: {"v":"应用"}
+
+data: {"v":"商店"}
+
+data: {"v":"下载"}
+
+data: {"v":"）\n"}
+
+data: {"v":"-"}
+
+data: {"v":" 🎤"}
+
+data: {"v":" App"}
+
+data: {"v":"端"}
+
+data: {"v":"支持"}
+
+data: {"v":"语音"}
+
+data: {"v":"输入"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" 🌐"}
+
+data: {"v":" "}
+
+data: {"v":"多"}
+
+data: {"v":"语言"}
+
+data: {"v":"支持"}
+
+data: {"v":"，"}
+
+data: {"v":"中文"}
+
+data: {"v":"尤其"}
+
+data: {"v":"流畅"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" ⚡"}
+
+data: {"v":" "}
+
+data: {"v":"响应"}
+
+data: {"v":"快速"}
+
+data: {"v":"，"}
+
+data: {"v":"逻辑"}
+
+data: {"v":"清晰"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"⚠"}
+
+data: {"v":"️"}
+
+data: {"v":" "}
+
+data: {"v":"我不能"}
+
+data: {"v":"做什么"}
+
+data: {"v":"**\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"无法"}
+
+data: {"v":"识别"}
+
+data: {"v":"图片"}
+
+data: {"v":"内容"}
+
+data: {"v":"（"}
+
+data: {"v":"我是"}
+
+data: {"v":"纯"}
+
+data: {"v":"文本"}
+
+data: {"v":"模型"}
+
+data: {"v":"，"}
+
+data: {"v":"只能"}
+
+data: {"v":"读取"}
+
+data: {"v":"图片"}
+
+data: {"v":"中的"}
+
+data: {"v":"文字"}
+
+data: {"v":"）\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"不能"}
+
+data: {"v":"生成"}
+
+data: {"v":"图片"}
+
+data: {"v":"、"}
+
+data: {"v":"视频"}
+
+data: {"v":"、"}
+
+data: {"v":"音频"}
+
+data: {"v":"\n"}
+
+data: {"v":"-"}
+
+data: {"v":" "}
+
+data: {"v":"知识"}
+
+data: {"v":"有时"}
+
+data: {"v":"效"}
+
+data: {"v":"性"}
+
+data: {"v":"（"}
+
+data: {"v":"需要"}
+
+data: {"v":"联网"}
+
+data: {"v":"搜索"}
+
+data: {"v":"来"}
+
+data: {"v":"补充"}
+
+data: {"v":"最新"}
+
+data: {"v":"信息"}
+
+data: {"v":"）\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"🎈"}
+
+data: {"v":" "}
+
+data: {"v":"我的"}
+
+data: {"v":"风格"}
+
+data: {"v":"**\n"}
+
+data: {"v":"友善"}
+
+data: {"v":"、"}
+
+data: {"v":"耐心"}
+
+data: {"v":"、"}
+
+data: {"v":"专业"}
+
+data: {"v":"，"}
+
+data: {"v":"会"}
+
+data: {"v":"尽力"}
+
+data: {"v":"用"}
+
+data: {"v":"最"}
+
+data: {"v":"清晰"}
+
+data: {"v":"的方式"}
+
+data: {"v":"帮你"}
+
+data: {"v":"解决问题"}
+
+data: {"v":"。"}
+
+data: {"v":"无论"}
+
+data: {"v":"你的"}
+
+data: {"v":"问题"}
+
+data: {"v":"简单"}
+
+data: {"v":"还是"}
+
+data: {"v":"复杂"}
+
+data: {"v":"，"}
+
+data: {"v":"我都会"}
+
+data: {"v":"认真"}
+
+data: {"v":"对待"}
+
+data: {"v":"！\n\n"}
+
+data: {"v":"---\n\n"}
+
+data: {"v":"现在"}
+
+data: {"v":"你"}
+
+data: {"v":"了解"}
+
+data: {"v":"我"}
+
+data: {"v":"啦"}
+
+data: {"v":"！"}
+
+data: {"v":"有什么"}
+
+data: {"v":"想"}
+
+data: {"v":"聊"}
+
+data: {"v":"的"}
+
+data: {"v":"、"}
+
+data: {"v":"想问"}
+
+data: {"v":"的"}
+
+data: {"v":"，"}
+
+data: {"v":"或者"}
+
+data: {"v":"需要"}
+
+data: {"v":"帮忙"}
+
+data: {"v":"的"}
+
+data: {"v":"，"}
+
+data: {"v":"尽管"}
+
+data: {"v":"开口"}
+
+data: {"v":"吧"}
+
+data: {"v":"！"}
+
+data: {"v":"我"}
+
+data: {"v":"随时"}
+
+data: {"v":"准备好"}
+
+data: {"v":"和你"}
+
+data: {"v":"一起"}
+
+data: {"v":"探索"}
+
+data: {"v":"各种"}
+
+data: {"v":"话题"}
+
+data: {"v":"～"}
+
+data: {"v":" 😊"}
+
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":420},{"p":"quasi_status","v":"FINISHED"}]}
+
+data: {"p":"response/status","o":"SET","v":"FINISHED"}
+
+event: update_session
+data: {"updated_at":1787999406.085229}
+
+event: title
+data: {"content":"DeepSeek自我介绍"}
+
+event: close
+data: {"click_behavior":"none","auto_resume":false}
+

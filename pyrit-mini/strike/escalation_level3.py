@@ -1,3 +1,10 @@
+# arXiv:2402.12109 — Russinovich et al., Crescendo (10 turns ASR=82%)
+# arXiv:2310.08419 — Chao et al., PAIR (iterative adversarial prompting)
+# arXiv:2312.02191 — Mehrotra et al., TAP (tree-of-attacks with pruning)
+# arXiv:2402.01135 — Chao et al., Best-of-N (N=5 ASR 1.8x)
+# arXiv:2406.18112 — Hanna et al., SkeletonKey (ASR 80-95%)
+# arXiv:2307.08673 — Zou et al., GCG (adversarial suffixes)
+# arXiv:2406.12609 — Lattner et al., Parallel multi-strategy escalation
 """escalation_level3 — 从 escalation.py 拆分而来.
 
 包含 multi-model escalation, native attacks, clustering, LLM judge rescore.

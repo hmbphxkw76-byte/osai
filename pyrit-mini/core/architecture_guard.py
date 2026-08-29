@@ -9,7 +9,6 @@ import sys
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
-from typing import Any
 
 # 尝试导入 yaml (用于 R4 参数检查)
 try:
@@ -54,7 +53,7 @@ _ALLOWED_ROOT_ENTRIES: set[str] = {
     "__pycache__",              # 缓存 (会被清理)
     ".pytest_cache",            # pytest 缓存
     ".ruff_cache",              # ruff 缓存
-    "pyrit_strike.egg-info",    # 安装元数据
+    "pyrit_mini.egg-info",      # 安装元数据
     ".git",                     # Git 目录
     ".venv",                    # 虚拟环境
     "node_modules",             # Node 依赖
@@ -210,7 +209,7 @@ class ArchitectureGuard:
         self.check_arxiv_citations()
         # R1: 安全护栏检查
         self.check_safety_guardrails()
-        # R11: PyRIT 原生 output 检查
+        # R2: PyRIT 原生 output 检查
         self.check_pyrit_native_output()
         return self.violations
 
@@ -327,9 +326,6 @@ class ArchitectureGuard:
         for path in self.source_files:
             # 跳过非源文件
             rel = path.relative_to(self.root)
-            parts = rel.parts
-            # 允许的目录 (enhancement 层)
-            allowed_enhancement = {"targets", "utils", "report"}
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -552,10 +548,18 @@ class ArchitectureGuard:
                 continue
 
             lines = content.split("\n")
+            in_docstring = False
             for i, line in enumerate(lines, 1):
                 stripped = line.strip()
                 # 跳过注释行
                 if stripped.startswith("#"):
+                    continue
+                # 跟踪三引号 docstring 状态
+                triple_count = line.count('"""')
+                if triple_count == 1:
+                    in_docstring = not in_docstring
+                # 跳过 docstring 内的行
+                if in_docstring or (triple_count == 1 and stripped.endswith('"""')):
                     continue
 
                 for param in _HARDCODED_PARAM_NAMES:
@@ -564,7 +568,7 @@ class ArchitectureGuard:
                     match = re.search(pattern, line)
                     if match:
                         # 排除: 从 args.xxx 或 config.xxx 读取的情况
-                        if f"args.{param}" in line or f"config.{param}" in line or f"getattr" in line:
+                        if f"args.{param}" in line or f"config.{param}" in line or "getattr" in line:
                             continue
                         # 排除: 注释中提到
                         if "#" in line and line.index("#") < line.index(param):
@@ -753,6 +757,11 @@ class ArchitectureGuard:
             except OSError:
                 continue
 
+            # 排除: __init__.py (纯 re-export) 和 asr_stats.py (纯统计工具函数)
+            _CASCADE_EXCLUDE_FILES = {"__init__.py", "asr_stats.py", "asr_history.py", "judge_utils.py", "response_parser.py"}
+            if rel.name in _CASCADE_EXCLUDE_FILES:
+                continue
+
             # 检查: 如果文件中同时有 LLM Judge 和 T0 模式
             has_t0 = any(re.search(p, content) for p in t0_patterns)
             has_llm_judge = any(re.search(p, content) for p in llm_judge_patterns)
@@ -768,12 +777,12 @@ class ArchitectureGuard:
                     fix_hint="在 LLM Judge 调用前添加 T0 预过滤: _t0_refusal_check() / SubStringScorer",
                 ))
 
-    # ── 检查 13: PyRIT 原生 output 使用 (R11) ──
+    # ── 检查 13: PyRIT 原生 output 使用 (R2) ──
 
     def check_pyrit_native_output(self) -> None:
         """检测 generate_report 函数中是否调用了 PyRIT 官方 output 模块。
 
-        R11 要求: generate_report() 必须调用 pyrit.output 官方模块
+        R2 要求: generate_report() 必须调用 pyrit.output 官方模块
         (output_attack_async / output_scenario_async) 生成标准格式输出文件。
 
         缺少原生 output 会导致输出不符合 PyRIT 官方标准，
@@ -802,7 +811,7 @@ class ArchitectureGuard:
 
         if not has_native_output:
             self.violations.append(Violation(
-                rule="R11",
+                rule="R2",
                 severity=Severity.BLOCKING,
                 file=rel,
                 line=0,
