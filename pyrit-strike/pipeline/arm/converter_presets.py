@@ -29,6 +29,7 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
         6. 引入 SearchReplaceConverter — 关键词精准替换 (0 token)
         7. 引入 TemplateSegmentConverter — 分段注入
         8. 引入 AsciiSmugglerConverter — Unicode 走私
+        9. 引入 File Converters — PDFConverter + WordDocConverter (PyRIT 官方 File Converters)
 
     候选列表 (按 ASR 降序, SequentialAttack FIRST_SUCCESS):
         1. DecompositionConverter           — ASR 40-60% (DrAttack, 最高)
@@ -44,6 +45,10 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
         11. VariationConverter              — ASR 20-30% (多样性补充)
         12. AsciiSmugglerConverter          — ASR 20-30% (NEW, Unicode走私)
         13. ROT13Converter                  — ASR 30-40% (语义混淆, 保留)
+        14. WordDocConverter (direct)       — payload → .docx 文件 (NEW, 文档投递)
+        15. WordDocConverter (placeholder)  — 模板占位符替换 (NEW, 隐蔽注入)
+        16. PDFConverter (direct)           — payload → PDF 文件 (NEW, 文档投递)
+        17. PDFConverter (injection)         — 已有 PDF 注入 (NEW, 隐蔽注入)
 
     裁剪路径 (ASR < 10% 或被选择性版本替代):
         - Base64Converter (全文)     — ASR 7%, 被 SelectiveEncoding 替代
@@ -59,6 +64,7 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
         - Lv et al. (arXiv:2404.30015): CodeChameleon ASR 35-45%
         - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
         - PyRIT 官方 SelectiveTextConverter: 选择性转换最佳实践
+        - PyRIT 官方 File Converters: PDFConverter + WordDocConverter (文档投递/间接注入)
 
     Args:
         converter_target: LLM 目标实例 (可选, 缺失时仅返回非 LLM converter).

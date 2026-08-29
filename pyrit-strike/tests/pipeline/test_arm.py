@@ -185,6 +185,9 @@ class TestL5Optimal:
         assert "ROT13Converter" in type_names
         assert "SearchReplaceConverter" in type_names
         assert "TemplateSegmentConverter" in type_names
+        # L5 v36: File Converters (PyRIT 官方 File Converters)
+        assert "PDFConverter" in type_names
+        assert "WordDocConverter" in type_names
 
     def test_with_mock_converter_target(self):
         """有 converter_target 时返回更多路径."""
@@ -207,6 +210,9 @@ class TestL5Optimal:
             "chained_selective", "keyword_replacement",
             "code_chameleon", "policy_puppetry",
             "token_smuggling", "template_segment",
+            # L5 v36: 新增 File Converter 链
+            "pdf_direct_generation", "pdf_injection",
+            "word_doc_direct_generation", "word_doc_placeholder_injection",
         }
         assert expected_keys.issubset(CHAIN_BUILDERS.keys())
 

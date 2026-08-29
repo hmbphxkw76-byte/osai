@@ -81,6 +81,56 @@ class TestConverterSignature:
         result = _converter_signature(converter)
         assert result == "ROT13Converter"
 
+    def test_pdf_converter_direct_mode(self):
+        """PDFConverter 直接生成模式签名."""
+        from pipeline.strike.converter_selector import _converter_signature
+
+        converter = MagicMock()
+        converter.__class__.__name__ = "PDFConverter"
+        converter._existing_pdf_path = None  # 直接生成模式
+
+        result = _converter_signature(converter)
+        assert result == "PDFConverter:direct"
+
+    def test_pdf_converter_injection_mode(self):
+        """PDFConverter 注入模式签名."""
+        from pipeline.strike.converter_selector import _converter_signature
+
+        converter = MagicMock()
+        converter.__class__.__name__ = "PDFConverter"
+        converter._existing_pdf_path = Path("/tmp/test.pdf")  # 注入模式
+
+        result = _converter_signature(converter)
+        assert result == "PDFConverter:injection"
+
+    def test_word_doc_converter_direct_mode(self):
+        """WordDocConverter 直接生成模式签名."""
+        from pipeline.strike.converter_selector import _converter_signature
+
+        converter = MagicMock()
+        converter.__class__.__name__ = "WordDocConverter"
+        # 直接生成模式: _injection_config 存在但 existing_docx=None
+        injection_config = MagicMock()
+        injection_config.existing_docx = None
+        converter._injection_config = injection_config
+
+        result = _converter_signature(converter)
+        assert result == "WordDocConverter:direct"
+
+    def test_word_doc_converter_placeholder_mode(self):
+        """WordDocConverter 占位符注入模式签名."""
+        from pipeline.strike.converter_selector import _converter_signature
+
+        converter = MagicMock()
+        converter.__class__.__name__ = "WordDocConverter"
+        # 占位符注入模式: existing_docx 非 None
+        injection_config = MagicMock()
+        injection_config.existing_docx = Path("/tmp/template.docx")
+        converter._injection_config = injection_config
+
+        result = _converter_signature(converter)
+        assert result == "WordDocConverter:placeholder"
+
 
 # ═══════════════════════════════════════════════════════
 # _get_candidate_converters
@@ -132,6 +182,7 @@ class TestGetCandidateConverters:
             "RandomCapitalLettersConverter", "CaesarConverter",
             "SelectiveTextConverter", "CodeChameleonConverter",
             "PolicyPuppetryConverter", "SearchReplaceConverter",
+            "PDFConverter", "WordDocConverter",
         ]:
             c = MagicMock()
             c.__class__.__name__ = name
@@ -141,6 +192,9 @@ class TestGetCandidateConverters:
             c._pattern = None
             c._encrypt_type = None
             c._sub_converter = None
+            # File Converter mock 属性
+            c._existing_pdf_path = None
+            c._injection_config = None
             converters.append(c)
 
         ctx = MagicMock()
