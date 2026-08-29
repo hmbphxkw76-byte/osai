@@ -58,6 +58,9 @@ class PipelineContext:
     extra_adversarial_targets: list[Any] = field(default_factory=list)
     converter_target: Any = None
     scoring_target: Any = None
+    # L5 v48: 跨端口发现的额外攻击 target (port_expander)
+    # 存储从非标准端口发现的 MCP/A2A/Agent 服务端点
+    extra_objective_targets: dict[int, Any] = field(default_factory=dict)
 
     # Arm phase
     seeds: list["AttackSeedGroup"] = field(default_factory=list)
@@ -83,6 +86,11 @@ class PipelineContext:
     # 基于 target_router MCP 枚举结果 (mcp_tools/mcp_resources) 生成,
     # 在 _execute_specialized_seeds 中与静态 mcp_attack 种子合并执行
     _mcp_dynamic_seeds: list[dict[str, Any]] = field(default_factory=list)
+
+    # 生产级资源管理: Playwright 浏览器实例引用 (流水线结束时清理)
+    _playwright_instance: Any = None
+    _browser: Any = None
+    _browser_context: Any = None
 
     # 断点 #6 修复: 编排决策日志 — 记录侦察→武器化→执行每个决策的理由
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性

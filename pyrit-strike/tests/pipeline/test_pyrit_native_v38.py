@@ -65,11 +65,13 @@ class TestTranslationConverters:
 
     def test_l5_optimal_includes_translation_path(self):
         """l5_optimal() 应包含 translation_multilingual 路径 (有 converter_target 时)."""
-        from pipeline.arm.converter_chains import l5_optimal
+        from pipeline.arm.converter_presets import l5_optimal
 
         mock_target = MagicMock()
-        with patch("pipeline.arm.converter_chains._conv") as mock_conv:
-            mock_conv.return_value = MagicMock()
+        # L5 v36: l5_optimal 定义在 converter_presets.py, _conv 在函数内部导入
+        # 只需 patch converter_chains._conv (converter_presets 内部从 converter_chains 导入)
+        with patch("pipeline.arm.converter_chains._conv") as mock_conv_chains:
+            mock_conv_chains.return_value = MagicMock()
             result = l5_optimal(converter_target=mock_target)
             # 应有多个路径, 包括 translation 路径
             assert len(result) > 0
@@ -81,11 +83,13 @@ class TestTranslationConverters:
 
     def test_build_converter_map_with_translation(self):
         """build_converter_map 应支持 translation_multilingual 链名."""
-        from pipeline.arm.converter_chains import build_converter_map
+        from pipeline.arm.converter_presets import build_converter_map
 
         mock_target = MagicMock()
-        with patch("pipeline.arm.converter_chains._conv") as mock_conv:
-            mock_conv.return_value = MagicMock()
+        # L5 v36: build_converter_map 定义在 converter_presets.py, _conv 在函数内部导入
+        # 只需 patch converter_chains._conv
+        with patch("pipeline.arm.converter_chains._conv") as mock_conv_chains:
+            mock_conv_chains.return_value = MagicMock()
             result = build_converter_map(
                 technique_names=["prompt_sending"],
                 chain_names=["translation_multilingual"],
@@ -306,21 +310,24 @@ class TestAsrPriorsUpdates:
         assert priors["converter_asr"]["TranslationConverter"]["default"] == 18.0
 
     def test_owasp_converter_map_llm01_has_translation(self):
-        """LLM01 OWASP converter map 应包含 RandomTranslationConverter."""
+        """LLM01 OWASP converter map 应包含 CodeChameleonConverter (L5 v36 更新)."""
         import yaml
         priors_path = _PROJECT_ROOT / "config" / "asr_priors.yaml"
         with open(priors_path, encoding="utf-8") as f:
             priors = yaml.safe_load(f)
-        assert "RandomTranslationConverter" in priors["owasp_converter_map"]["LLM01"]
+        # L5 v36: RandomTranslationConverter 替换为 SelectiveTextConverter + CodeChameleon
+        assert "CodeChameleonConverter" in priors["owasp_converter_map"]["LLM01"]
+        assert "SelectiveTextConverter:WordProportionSelectionStrategy" in priors["owasp_converter_map"]["LLM01"]
 
     def test_owasp_converter_map_llm04_has_translation(self):
-        """LLM04 OWASP converter map 应包含 RandomTranslationConverter 和 TranslationConverter."""
+        """LLM04 OWASP converter map 应包含 RandomTranslationConverter (L5 v36 更新)."""
         import yaml
         priors_path = _PROJECT_ROOT / "config" / "asr_priors.yaml"
         with open(priors_path, encoding="utf-8") as f:
             priors = yaml.safe_load(f)
+        # L5 v36: TranslationConverter 替换为 SearchReplaceConverter
         assert "RandomTranslationConverter" in priors["owasp_converter_map"]["LLM04"]
-        assert "TranslationConverter" in priors["owasp_converter_map"]["LLM04"]
+        assert "SearchReplaceConverter" in priors["owasp_converter_map"]["LLM04"]
 
 
 # ── P5: .env.example 更新 ──

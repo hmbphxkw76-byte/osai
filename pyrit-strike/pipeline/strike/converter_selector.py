@@ -38,19 +38,42 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
     unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
 
     # 按优先级排序 (ASR 降序)
+    # L5 v36: 新增 SelectiveTextConverter, CodeChameleon, PolicyPuppetry 等
     _PRIORITY_MAP: dict[str, int] = {
-        "DecompositionConverter": 0,
-        "PersuasionConverter:authority_endorsement": 1,
-        "PersuasionConverter:expert_endorsement": 2,
-        "PersuasionConverter:logical_appeal": 3,
-        "ROT13Converter": 4,
-        "RandomTranslationConverter": 5,
-        "VariationConverter": 6,
-        "TranslationConverter": 7,
-        "ToneConverter:academic": 8,
-        "RandomCapitalLettersConverter": 9,
-        "Base64Converter": 10,
-        "UnicodeSubstitutionConverter": 11,
+        # LLM-Based (ASR 30-60%)
+        "DecompositionConverter": 0,                    # ASR 40-60%
+        "CodeChameleonConverter": 1,                    # ASR 35-45% (NEW)
+        "PersuasionConverter:authority_endorsement": 2, # ASR 38.4%
+        "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
+        "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
+        "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
+        # Selective (ASR 25-40%)
+        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # 链式选择性 (NEW)
+        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # 选择性编码 (NEW)
+        # Translation (ASR 25-35%)
+        "RandomTranslationConverter": 8,
+        "TranslationConverter": 9,
+        # Template (ASR 25-35%)
+        "TemplateSegmentConverter": 10,                  # NEW
+        # Keyword (ASR 20-30%, 0 token)
+        "SearchReplaceConverter": 11,                    # NEW
+        # Variation (ASR 20-30%)
+        "VariationConverter": 12,
+        # Smuggling (ASR 20-30%)
+        "AsciiSmugglerConverter": 13,                   # NEW
+        # Semantic (ASR 30-40%, 保留)
+        "ROT13Converter": 14,
+        # Tone (ASR 22.1%)
+        "ToneConverter:academic": 15,
+        # File Converters (文档投递/间接注入, ASR 15-25%)
+        "WordDocConverter:direct": 16,                  # NEW (payload → .docx)
+        "WordDocConverter:placeholder": 17,             # NEW (模板占位符替换)
+        "PDFConverter:direct": 18,                      # NEW (payload → PDF)
+        "PDFConverter:injection": 19,                  # NEW (已有PDF注入)
+        # 降级 (ASR < 20%, fallback)
+        "RandomCapitalLettersConverter": 20,
+        "UnicodeSubstitutionConverter": 21,
+        "Base64Converter": 22,                           # 全文, 最低优先级
     }
 
     # L5 v36: OWASP 类别 → Converter 自适应匹配
@@ -87,8 +110,9 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
 
     unique_converters.sort(key=_priority)
 
-    # 取前 7 个候选 (按 ASR 降序, v38 新增 Translation 路径后扩展上限)
-    top_candidates = unique_converters[:7]
+    # 取前 10 个候选 (按 ASR 降序, v36 新增选择性 converter 后扩展上限)
+    # v35: 7 个; v36: 10 个 (新增 SelectiveTextConverter + CodeChameleon + PolicyPuppetry 等)
+    top_candidates = unique_converters[:10]
 
     logger.info(
         "L5 v35: Selected %d candidate converters for SequentialAttack:",
@@ -104,6 +128,9 @@ def _converter_signature(c: Any) -> str:
 
     L5 v8: 按 (type_name + signature) 去重, 保留不同参数的同类型 converter.
     用于在构建 SequentialAttack 路径时避免重复, 同时保持多样性.
+
+    L5 v36: 支持 SelectiveTextConverter, SearchReplaceConverter,
+    CodeChameleonConverter 等新 converter 的签名生成.
 
     Args:
         c: Converter 实例.
@@ -124,6 +151,34 @@ def _converter_signature(c: Any) -> str:
         if tone is not None:
             tone_name = getattr(tone, "value", str(tone))
             return f"{type_name}:{tone_name}"
+    # SelectiveTextConverter: 区分 selection_strategy + sub_converter
+    if type_name == "SelectiveTextConverter":
+        strategy = getattr(c, "_selection_strategy", None)
+        if strategy is not None:
+            strategy_name = type(strategy).__name__
+            sub_conv = getattr(c, "_sub_converter", None)
+            sub_name = type(sub_conv).__name__ if sub_conv else "unknown"
+            return f"{type_name}:{strategy_name}:{sub_name}"
+    # SearchReplaceConverter: 区分 pattern
+    if type_name == "SearchReplaceConverter":
+        pattern = getattr(c, "_pattern", "") or ""
+        return f"{type_name}:{pattern[:30]}"
+    # CodeChameleonConverter: 区分 encrypt_type
+    if type_name == "CodeChameleonConverter":
+        encrypt_type = getattr(c, "_encrypt_type", "unknown")
+        return f"{type_name}:{encrypt_type}"
+    # PDFConverter: 区分模式 (direct / injection)
+    if type_name == "PDFConverter":
+        existing_pdf = getattr(c, "_existing_pdf_path", None)
+        if existing_pdf is not None:
+            return f"{type_name}:injection"
+        return f"{type_name}:direct"
+    # WordDocConverter: 区分模式 (direct / placeholder)
+    if type_name == "WordDocConverter":
+        injection_config = getattr(c, "_injection_config", None)
+        if injection_config is not None and getattr(injection_config, "existing_docx", None) is not None:
+            return f"{type_name}:placeholder"
+        return f"{type_name}:direct"
     # 其他 converter: 按类型名去重
     return type_name
 
@@ -247,22 +302,44 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
 
     # L5 v34: 按优先级选择最佳 converter 路径
     # 优先级映射 (ASR 降序, 数字越小优先级越高)
-    # L5 v42 修复: 补回 DecompositionConverter (ASR 40-60%, 最高优先级)
-    # 与 _get_candidate_converters 中的 _PRIORITY_MAP 对齐
+    # L5 v36: 新增 SelectiveTextConverter, CodeChameleon, PolicyPuppetry 等
     # 学术依据: arXiv:2402.14266 — DrAttack 分解重组 ASR 40-60% 最高
+    #           arXiv:2404.30015 — CodeChameleon ASR 35-45%
     _PRIORITY_MAP: dict[str, int] = {
-        "DecompositionConverter": 0,
-        "PersuasionConverter:authority_endorsement": 1,
-        "PersuasionConverter:expert_endorsement": 2,
-        "PersuasionConverter:logical_appeal": 3,
-        "ROT13Converter": 4,
-        "RandomTranslationConverter": 5,
-        "VariationConverter": 6,
-        "TranslationConverter": 7,
-        "ToneConverter:academic": 8,
-        "RandomCapitalLettersConverter": 9,
-        "Base64Converter": 10,
-        "UnicodeSubstitutionConverter": 11,
+        # LLM-Based (ASR 30-60%)
+        "DecompositionConverter": 0,                    # ASR 40-60%
+        "CodeChameleonConverter": 1,                    # ASR 35-45% (NEW)
+        "PersuasionConverter:authority_endorsement": 2, # ASR 38.4%
+        "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
+        "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
+        "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
+        # Selective (ASR 25-40%)
+        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # 链式选择性 (NEW)
+        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # 选择性编码 (NEW)
+        # Translation (ASR 25-35%)
+        "RandomTranslationConverter": 8,
+        "TranslationConverter": 9,
+        # Template (ASR 25-35%)
+        "TemplateSegmentConverter": 10,                  # NEW
+        # Keyword (ASR 20-30%, 0 token)
+        "SearchReplaceConverter": 11,                    # NEW
+        # Variation (ASR 20-30%)
+        "VariationConverter": 12,
+        # Smuggling (ASR 20-30%)
+        "AsciiSmugglerConverter": 13,                   # NEW
+        # Semantic (ASR 30-40%, 保留)
+        "ROT13Converter": 14,
+        # Tone (ASR 22.1%)
+        "ToneConverter:academic": 15,
+        # File Converters (文档投递/间接注入, ASR 15-25%)
+        "WordDocConverter:direct": 16,                  # NEW (payload → .docx)
+        "WordDocConverter:placeholder": 17,             # NEW (模板占位符替换)
+        "PDFConverter:direct": 18,                      # NEW (payload → PDF)
+        "PDFConverter:injection": 19,                  # NEW (已有PDF注入)
+        # 降级 (ASR < 20%, fallback)
+        "RandomCapitalLettersConverter": 20,
+        "UnicodeSubstitutionConverter": 21,
+        "Base64Converter": 22,                           # 全文, 最低优先级
     }
 
     # L5 v36: OWASP 类别 → Converter 自适应匹配
@@ -306,20 +383,45 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
     unique_converters.sort(key=_priority)
 
     # 只取最佳 1 个 converter (不串联叠加)
+    # L5 v36: 如果最佳 converter 是 SelectiveTextConverter + TokenSelectionStrategy,
+    # 且下一个是 SelectiveTextConverter, 则将两者放入同一 ConverterConfiguration (串联)
     best_converter = unique_converters[0]
     best_sig = _converter_signature(best_converter)
     best_name = type(best_converter).__name__
 
     logger.info(
-        "L5 v34: Selected best single converter: %s (sig=%s) — "
+        "L5 v36: Selected best single converter: %s (sig=%s) — "
         "avoids serial stacking bug, payload stays readable",
         best_name, best_sig,
     )
 
     # 构建单条 ConverterConfiguration (1 个 converter, 不串联)
-    converter_configurations = [
-        ConverterConfiguration(converters=[best_converter]),
-    ]
+    # L5 v36: 支持 SelectiveTextConverter 链式串联
+    converter_configurations = []
+
+    # 检测链式选择性组合: 如果前两个 converter 是 SelectiveTextConverter,
+    # 且第二个使用 TokenSelectionStrategy, 则放入同一 ConverterConfiguration (串联)
+    if (len(unique_converters) >= 2
+        and type(best_converter).__name__ == "SelectiveTextConverter"
+        and type(unique_converters[1]).__name__ == "SelectiveTextConverter"):
+        second_strategy = getattr(unique_converters[1], "_selection_strategy", None)
+        if second_strategy is not None and type(second_strategy).__name__ == "TokenSelectionStrategy":
+            # 链式选择性: 2 个 converter 在同一 ConverterConfiguration (串联)
+            converter_configurations.append(
+                ConverterConfiguration(converters=[best_converter, unique_converters[1]])
+            )
+            logger.info(
+                "L5 v36: Chained SelectiveTextConverter detected — "
+                "2 converters in 1 ConverterConfiguration (serial chain)"
+            )
+        else:
+            converter_configurations.append(
+                ConverterConfiguration(converters=[best_converter])
+            )
+    else:
+        converter_configurations = [
+            ConverterConfiguration(converters=[best_converter]),
+        ]
 
     logger.info(
         "Built %d converter configuration (single path, no serial stacking) — "

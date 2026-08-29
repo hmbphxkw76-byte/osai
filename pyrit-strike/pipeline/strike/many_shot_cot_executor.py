@@ -70,11 +70,16 @@ async def run_many_shot_cot_attack(
     from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
     scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-    # 创建 PyRIT 原生 PromptSendingAttack (主引擎)
-    attack = PromptSendingAttack(
-        objective_target=ctx.objective_target,
-        attack_scoring_config=scoring_config,
-    )
+    # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+    from pipeline.strike.executor import _build_prepended_conversation
+    msc_prepended = _build_prepended_conversation(ctx)
+    msc_attack_kwargs: dict[str, Any] = {
+        "objective_target": ctx.objective_target,
+        "attack_scoring_config": scoring_config,
+    }
+    if msc_prepended:
+        msc_attack_kwargs["prepended_conversation"] = msc_prepended
+    attack = PromptSendingAttack(**msc_attack_kwargs)
 
     # L5 v26: 恢复并发度=2 (SQLite WAL 模式下安全)
     executor = AttackExecutor(
@@ -221,11 +226,16 @@ async def run_multi_model_cot_cross_validation(
     from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
     scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-    # 创建 PyRIT 原生 PromptSendingAttack (主引擎)
-    attack = PromptSendingAttack(
-        objective_target=ctx.objective_target,
-        attack_scoring_config=scoring_config,
-    )
+    # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+    from pipeline.strike.executor import _build_prepended_conversation
+    mm_prepended = _build_prepended_conversation(ctx)
+    mm_attack_kwargs: dict[str, Any] = {
+        "objective_target": ctx.objective_target,
+        "attack_scoring_config": scoring_config,
+    }
+    if mm_prepended:
+        mm_attack_kwargs["prepended_conversation"] = mm_prepended
+    attack = PromptSendingAttack(**mm_attack_kwargs)
 
     # L5 v26: 恢复并发度=2 (SQLite WAL 模式下安全)
     executor = AttackExecutor(

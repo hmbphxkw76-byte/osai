@@ -90,7 +90,7 @@ async def generate_autodan_variants(
     Returns:
         生成的变体 prompt 列表。
     """
-    from pyrit.models import ChatMessageRole, Message, MessagePiece
+    from pyrit.models import Message, MessagePiece
 
     variants: list[str] = []
 
@@ -103,14 +103,23 @@ async def generate_autodan_variants(
 
         try:
             # 使用 converter_target 生成变体
-            request = Message(message_pieces=[MessagePiece(role=ChatMessageRole.USER, original_value=prompt)])
+            # PyRIT 1.0.1: ChatMessageRole is Literal type, use string "user"
+            request = Message(message_pieces=[MessagePiece(role="user", original_value=prompt)])
 
             response = await converter_target.send_prompt_async(message=request)
-            content = str(response.get_value()) if hasattr(response, "get_value") else str(response)
+            # PyRIT 1.0.1: send_prompt_async returns list[Message]
+            if isinstance(response, list) and response:
+                resp_msg = response[-1]
+                pieces = resp_msg.message_pieces
+                content = pieces[0].converted_value if pieces else ""
+            elif hasattr(response, "get_value"):
+                content = str(response.get_value())
+            else:
+                content = str(response)
 
             if content and len(content) > 20:
                 # 清理生成内容 (去掉 "Rewritten request:" 前缀等)
-                cleaned = _clean_generated_variant(content, objective)
+                cleaned = _clean_generated_variant(content)
                 if cleaned:
                     variants.append(cleaned)
                     logger.info("AutoDAN variant %d generated: %d chars", i + 1, len(cleaned))
@@ -122,7 +131,7 @@ async def generate_autodan_variants(
     return variants
 
 
-def _clean_generated_variant(content: str, original_objective: str) -> str:
+def _clean_generated_variant(content: str) -> str:
     """清理 LLM 生成的变体内容。
 
     去掉前缀标签, 保留核心内容。

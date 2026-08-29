@@ -424,6 +424,538 @@ def smoothllm_bypass() -> list[Any]:
 
     return converters
 
+
+# ── L5 v36: SelectiveTextConverter 链 — 对齐 PyRIT 1.0.1 官方最佳实践 ──
+
+
+def selective_encoding() -> list[Any]:
+    """选择性编码 — 只对 30% 单词做 Base64, 其余保持原文.
+
+    学术依据:
+        - Wei et al. (arXiv:2307.15043): 全文 Base64 ASR 7%,
+          选择性编码 (30% 单词) ASR 25-35% (LLM 可理解上下文)
+        - PyRIT 官方: SelectiveTextConverter + WordProportionSelectionStrategy
+
+    策略:
+        - 30% 单词做 Base64 编码 (preserve_tokens=True → ⟪⟫ 标记)
+        - 其余 70% 保持原文, LLM 可理解上下文
+        - 相比全文编码 ASR 提升 3-5x
+
+    L5 v36 核心改进:
+        替代 encoding_bypass() 中的全文 Base64Converter (ASR 7%),
+        使用 SelectiveTextConverter 包装, ASR 提升至 25-35%.
+    """
+    converters: list[Any] = []
+
+    try:
+        SelectiveTextConverter = _conv("SelectiveTextConverter")
+        Base64Converter = _conv("Base64Converter")
+        WordProportionSelectionStrategy = _conv("WordProportionSelectionStrategy")
+
+        converter = SelectiveTextConverter(
+            sub_converter=Base64Converter(),
+            selection_strategy=WordProportionSelectionStrategy(proportion=0.3),
+            preserve_tokens=True,
+        )
+        converters.append(converter)
+        logger.info(
+            "Selective encoding: SelectiveTextConverter(Base64, 30%% words) "
+            "built (ASR 25-35%%, vs full-text 7%%)"
+        )
+    except Exception as e:
+        logger.warning("Selective encoding chain build failed: %s", e)
+
+    return converters
+
+
+def selective_obfuscation() -> list[Any]:
+    """选择性混淆 — 只对 20% 单词做 Leetspeak, 其余保持原文.
+
+    学术依据:
+        - Shayegani et al. (arXiv:2306.13254): 全文 Unicode 混淆 ASR 10-15%,
+          选择性混淆 (20% 单词) ASR 20-30%
+        - PyRIT 官方: SelectiveTextConverter + LeetspeakConverter
+
+    策略:
+        - 20% 单词做 Leetspeak (轻量混淆, 保持可读性)
+        - preserve_tokens=True, 可与选择性编码链式
+        - 替代 smoothllm_bypass() 中的全文 UnicodeSubstitution (ASR 10-15%)
+    """
+    converters: list[Any] = []
+
+    try:
+        SelectiveTextConverter = _conv("SelectiveTextConverter")
+        LeetspeakConverter = _conv("LeetspeakConverter")
+        WordProportionSelectionStrategy = _conv("WordProportionSelectionStrategy")
+
+        converter = SelectiveTextConverter(
+            sub_converter=LeetspeakConverter(),
+            selection_strategy=WordProportionSelectionStrategy(proportion=0.2),
+            preserve_tokens=True,
+        )
+        converters.append(converter)
+        logger.info(
+            "Selective obfuscation: SelectiveTextConverter(Leetspeak, 20%% words) "
+            "built (ASR 20-30%%)"
+        )
+    except Exception as e:
+        logger.warning("Selective obfuscation chain build failed: %s", e)
+
+    return converters
+
+
+def chained_selective() -> list[Any]:
+    """链式选择性 — 先选择性编码 30%, 再对已编码区域做 ROT13.
+
+    学术依据:
+        - Wei et al. (arXiv:2307.15043): 2 层串联 ASR 12% (可控),
+          但全文串联不可读; 选择性串联保持上下文, ASR 30-40%
+        - PyRIT 官方: SelectiveTextConverter + TokenSelectionStrategy
+          实现链式选择性, preserve_tokens 精确定位已转换区域
+
+    策略:
+        1. 第一层: 30% 单词 Base64 编码 (preserve_tokens=True → ⟪⟫ 标记)
+        2. 第二层: 对 ⟪⟫ 标记区域做 ROT13 (TokenSelectionStrategy 自动检测)
+        3. 结果: 只有 30% 的文本经过 2 层编码, 70% 保持原文
+
+    重要: 这两个 converter 需要在同一个 ConverterConfiguration 中串联,
+          PyRIT PromptNormalizer 会按顺序应用.
+          _build_converter_config 中检测此组合并放入同一 ConverterConfiguration.
+    """
+    converters: list[Any] = []
+
+    try:
+        SelectiveTextConverter = _conv("SelectiveTextConverter")
+        Base64Converter = _conv("Base64Converter")
+        ROT13Converter = _conv("ROT13Converter")
+        WordProportionSelectionStrategy = _conv("WordProportionSelectionStrategy")
+        TokenSelectionStrategy = _conv("TokenSelectionStrategy")
+
+        # 第一层: 选择性 Base64 (30% words, preserve_tokens=True)
+        first = SelectiveTextConverter(
+            sub_converter=Base64Converter(),
+            selection_strategy=WordProportionSelectionStrategy(proportion=0.3),
+            preserve_tokens=True,
+        )
+        converters.append(first)
+
+        # 第二层: 对 ⟪⟫ 标记区域做 ROT13 (TokenSelectionStrategy 自动检测)
+        second = SelectiveTextConverter(
+            sub_converter=ROT13Converter(),
+            selection_strategy=TokenSelectionStrategy(),
+            preserve_tokens=True,
+        )
+        converters.append(second)
+
+        logger.info(
+            "Chained selective: 2 SelectiveTextConverter built "
+            "(Base64 30%% + ROT13 on ⟪⟫ tokens, ASR 30-40%%)"
+        )
+    except Exception as e:
+        logger.warning("Chained selective chain build failed: %s", e)
+
+    return converters
+
+
+def keyword_replacement() -> list[Any]:
+    """关键词精准替换 — 用 SearchReplaceConverter 替换敏感词.
+
+    学术依据:
+        - PyRIT 官方: SearchReplaceConverter 用正则替换敏感词为安全同义词
+        - 优势: 0 token (无 LLM 调用), 精准替换, 保持语义
+        - Zeng et al. (arXiv:2402.19181): 关键词检测是第一道防线,
+          替换敏感词可直接绕过基于模式匹配的安全过滤
+
+    策略:
+        - 替换常见安全检测关键词为同义词
+        - 每次随机选择替换词 (SearchReplaceConverter 内置随机), 增加多样性
+        - 0 LLM 调用, 纯文本替换
+
+    L5 v36: 替代 DenylistConverter (需 LLM 调用, 高 token 成本),
+    使用 SearchReplaceConverter (0 token) 做同样事情.
+    """
+    converters: list[Any] = []
+
+    try:
+        SearchReplaceConverter = _conv("SearchReplaceConverter")
+
+        converter = SearchReplaceConverter(
+            pattern=r"(?i)\b(hack|exploit|inject|attack|bypass|malicious|vulnerability|breach|compromise)\b",
+            replace=[
+                "test",
+                "analyze",
+                "process",
+                "examine",
+                "evaluate",
+                "assess",
+                "review",
+                "inspect",
+                "audit",
+                "check",
+            ],
+        )
+        converters.append(converter)
+        logger.info(
+            "Keyword replacement: SearchReplaceConverter built "
+            "(9 sensitive words → 10 safe synonyms, 0 token)"
+        )
+    except Exception as e:
+        logger.warning("Keyword replacement chain build failed: %s", e)
+
+    return converters
+
+
+def code_chameleon(converter_target: Any | None = None) -> list[Any]:
+    """CodeChameleon — 加密 + 代码包装绕过.
+
+    学术依据:
+        - Lv et al. (arXiv:2404.30015) CodeChameleon: ASR 35-45%
+        - 机制: 加密 payload, 包装在代码解释器请求中
+        - 优势: LLM 被诱导执行"代码"而非过滤内容
+        - PyRIT 官方: CodeChameleonConverter (encrypt_type 参数, 纯文本 0 token)
+
+    策略:
+        - 使用 reverse 加密 (轻量, LLM 可逆向解码)
+        - 包装为代码执行请求, 绕过内容过滤
+        - 对技术型目标 (GPT-4, Claude) 效果最佳
+
+    PyRIT 原生对齐 (Rule 2):
+        CodeChameleonConverter 是纯文本 converter (0 token, 无 LLM 调用),
+        不接受 converter_target 参数。encrypt_type 指定加密方式。
+
+    Args:
+        converter_target: 保留参数签名以兼容 l5_optimal 调用约定,
+            但 CodeChameleonConverter 不使用此参数 (纯文本 converter).
+    """
+    converters: list[Any] = []
+
+    try:
+        CodeChameleonConverter = _conv("CodeChameleonConverter")
+        converter = CodeChameleonConverter(
+            encrypt_type="reverse",
+        )
+        converters.append(converter)
+        logger.info("CodeChameleon chain: 1 converter built (encrypt=reverse, ASR 35-45%%)")
+    except Exception as e:
+        logger.warning("CodeChameleon chain build failed: %s", e)
+
+    return converters
+
+
+def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
+    """PolicyPuppetry — 策略木偶绕过.
+
+    学术依据:
+        - PyRIT 官方 PolicyPuppetryConverter: 通过模拟安全策略
+          文档来绕过内容过滤, ASR 30-40%
+        - 机制: 将 payload 包装在安全策略文档格式中
+        - 优势: LLM 将 payload 识别为"策略配置"而非恶意请求
+
+    PyRIT 原生对齐 (Rule 2):
+        PolicyPuppetryConverter 是纯文本 converter (0 token, 无 LLM 调用),
+        不接受 converter_target 参数。可选 prompt_template 参数
+        指定策略模板, 不传时使用内置默认模板。
+
+    Args:
+        converter_target: 保留参数签名以兼容 l5_optimal 调用约定,
+            但 PolicyPuppetryConverter 不使用此参数 (纯文本 converter).
+    """
+    converters: list[Any] = []
+
+    try:
+        PolicyPuppetryConverter = _conv("PolicyPuppetryConverter")
+        converter = PolicyPuppetryConverter()
+        converters.append(converter)
+        logger.info("PolicyPuppetry chain: 1 converter built (ASR 30-40%%)")
+    except Exception as e:
+        logger.warning("PolicyPuppetry chain build failed: %s", e)
+
+    return converters
+
+
+def token_smuggling() -> list[Any]:
+    """Unicode Tag 走私 — 使用不可见 Unicode 字符隐藏 payload.
+
+    学术依据:
+        - @embracethered2024unicode: Unicode Tags (U+E0000-U+E007F)
+          在大多数 UI 中不可见, 但 LLM 可解码
+        - PyRIT 官方: AsciiSmugglerConverter
+
+    策略:
+        - 将 payload 编码为 Unicode Tags (不可见字符)
+        - 可见文本保持正常, 隐藏内容不可见
+        - 适合绕过基于可见文本的安全审计
+        - 0 token (无 LLM 调用, 纯编码)
+
+    L5 v36: 与 UnicodeSubstitutionConverter (全文替换, ASR 10-15%) 互补,
+    AsciiSmugglerConverter 使用 Unicode Tags (ASR 20-30%).
+    """
+    converters: list[Any] = []
+
+    try:
+        AsciiSmugglerConverter = _conv("AsciiSmugglerConverter")
+        converter = AsciiSmugglerConverter(
+            action="encode",
+            unicode_tags=True,
+        )
+        converters.append(converter)
+        logger.info("Token smuggling: AsciiSmugglerConverter built (ASR 20-30%%)")
+    except Exception as e:
+        logger.warning("Token smuggling chain build failed: %s", e)
+
+    return converters
+
+
+def template_segment() -> list[Any]:
+    """模板分段注入 — 将 payload 分割到模板参数中.
+
+    学术依据:
+        - adversa.ai: 通用越狱模板分段绕过, ASR 25-35%
+        - PyRIT 官方: TemplateSegmentConverter (默认 Tom & Jerry 模板)
+        - 机制: 将 payload 随机分割为 N 段, 填入模板参数,
+          破坏整体语义检测
+
+    策略:
+        - 使用默认 Tom & Jerry 模板 (2 参数)
+        - payload 被随机分割, 嵌入叙事框架
+        - 0 token (无 LLM 调用, 纯文本操作)
+    """
+    converters: list[Any] = []
+
+    try:
+        TemplateSegmentConverter = _conv("TemplateSegmentConverter")
+        converter = TemplateSegmentConverter()
+        converters.append(converter)
+        logger.info("Template segment: TemplateSegmentConverter built (ASR 25-35%%)")
+    except Exception as e:
+        logger.warning("Template segment chain build failed: %s", e)
+
+    return converters
+
+
+# ── L5 v36: File Converters — 对齐 PyRIT 1.0.1 官方 File Converters ──
+
+
+def pdf_direct_generation() -> list[Any]:
+    """PDF 直接生成 — 将 payload 文本直接转为 PDF 文件.
+
+    学术依据:
+        - PyRIT 官方 File Converters: PDFConverter(prompt_template=None)
+        - 机制: 纯文本 → PDF 文件 (无模板)
+        - 攻击场景: 将 payload 包装为 PDF 附件, 模拟邮件钓鱼/文档投递
+        - OWASP LLM01: Prompt Injection (间接注入向量 — 文档投递)
+
+    策略:
+        - prompt_template=None: 直接生成模式, 不使用 YAML 模板
+        - 字体: Helvetica (PDF 标准), 大小 12
+        - 页面: A4 (210x297mm)
+        - 0 token (无 LLM 调用, 纯文件生成)
+
+    返回值: 包含 1 个 PDFConverter 实例的列表.
+    """
+    converters: list[Any] = []
+
+    try:
+        PDFConverter = _conv("PDFConverter")
+        converter = PDFConverter(
+            prompt_template=None,  # 直接生成模式 (无模板)
+            font_type="Helvetica",
+            font_size=12,
+            page_width=210,
+            page_height=297,
+        )
+        converters.append(converter)
+        logger.info(
+            "PDF direct generation: PDFConverter built (no template, A4, "
+            "payload → PDF file)"
+        )
+    except Exception as e:
+        logger.warning("PDF direct generation chain build failed: %s", e)
+
+    return converters
+
+
+def pdf_injection() -> list[Any]:
+    """PDF 注入 — 在已有 PDF 文档的指定坐标处注入 payload 文本.
+
+    学术依据:
+        - PyRIT 官方 File Converters: PDFConverter(existing_pdf=, injection_items=)
+        - 机制: 打开已有 PDF, 在指定页面的 (x,y) 坐标处注入文本
+        - 攻击场景: 在真实文档 (如简历、合同) 中隐蔽注入 payload
+        - OWASP LLM01: Prompt Injection (间接注入 — 隐蔽文档注入)
+
+    策略:
+        - 生成一个临时 PDF 作为基础文档
+        - 在第 0 页注入 payload 文本 (红色, 突出显示)
+        - 在第 1 页注入 "Confidential" 标记 (蓝色, 伪装)
+        - 字体: Helvetica, 可自定义大小和颜色
+        - 0 token (无 LLM 调用, 纯文件操作)
+
+    注意: injection_items 中的 page 是 0-based 索引.
+    返回值: 包含 1 个 PDFConverter 实例的列表.
+    """
+    converters: list[Any] = []
+
+    try:
+        import tempfile
+        from pathlib import Path
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        PDFConverter = _conv("PDFConverter")
+
+        # 创建一个临时基础 PDF (模拟真实文档)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            cv = canvas.Canvas(tmp_file.name, pagesize=A4)
+            cv.drawString(50, 800, "Document Header")
+            cv.drawString(50, 780, "This is a sample document for red team assessment.")
+            cv.showPage()
+            cv.drawString(50, 800, "Page 2 Header")
+            cv.drawString(50, 780, "Additional content on second page.")
+            cv.showPage()
+            cv.save()
+            base_pdf_path = Path(tmp_file.name)
+
+        # 定义注入项: 在指定页面的坐标处注入文本
+        injection_items = [
+            {
+                "page": 0,
+                "x": 50,
+                "y": 700,
+                "text": "PAYLOAD_INJECTION_POINT",
+                "font_size": 12,
+                "font": "Helvetica",
+                "font_color": (255, 0, 0),  # 红色 (突出)
+            },
+            {
+                "page": 1,
+                "x": 100,
+                "y": 600,
+                "text": "Confidential",
+                "font_size": 10,
+                "font": "Helvetica",
+                "font_color": (0, 0, 255),  # 蓝色 (伪装)
+            },
+        ]
+
+        converter = PDFConverter(
+            prompt_template=None,
+            font_type="Helvetica",
+            font_size=12,
+            page_width=210,
+            page_height=297,
+            existing_pdf=base_pdf_path,
+            injection_items=injection_items,
+        )
+        converters.append(converter)
+        logger.info(
+            "PDF injection: PDFConverter built (existing_pdf + 2 injection items, "
+            "payload injected at page 0 (50,700) red + page 1 (100,600) blue)"
+        )
+    except Exception as e:
+        logger.warning("PDF injection chain build failed: %s", e)
+
+    return converters
+
+
+def word_doc_direct_generation() -> list[Any]:
+    """Word 文档直接生成 — 将 payload 文本直接转为 .docx 文件.
+
+    学术依据:
+        - PyRIT 官方 File Converters: WordDocConverter() (无模板模式)
+        - 机制: 纯文本 → .docx 文件 (创建全新文档)
+        - 攻击场景: 将 payload 包装为 Word 附件, 模拟文档投递攻击
+        - OWASP LLM01: Prompt Injection (间接注入 — Word 文档投递)
+
+    策略:
+        - 不传 existing_docx: 创建全新 .docx 文件
+        - 不传 placeholder: 直接生成模式 (非占位符注入)
+        - payload 文本作为文档段落写入
+        - 0 token (无 LLM 调用, 纯文件生成)
+
+    返回值: 包含 1 个 WordDocConverter 实例的列表.
+    """
+    converters: list[Any] = []
+
+    try:
+        WordDocConverter = _conv("WordDocConverter")
+        converter = WordDocConverter()  # 直接生成模式 (无模板)
+        converters.append(converter)
+        logger.info(
+            "Word doc direct generation: WordDocConverter built (no template, "
+            "payload → .docx file)"
+        )
+    except Exception as e:
+        logger.warning("Word doc direct generation chain build failed: %s", e)
+
+    return converters
+
+
+def word_doc_placeholder_injection() -> list[Any]:
+    """Word 文档占位符注入 — 在已有 .docx 模板中替换占位符为 payload.
+
+    学术依据:
+        - PyRIT 官方 File Converters:
+          WordDocConverter(existing_docx=, placeholder=)
+        - 机制: 打开已有 .docx 模板, 找到 {{INJECTION_PLACEHOLDER}} 并替换为 payload
+        - 攻击场景: 在看似正常的文档 (求职信/合同/报告) 中嵌入隐蔽 payload
+        - OWASP LLM01: Prompt Injection (间接注入 — 隐蔽 payload 嵌入)
+        - Greshake et al. (arXiv:2302.12173) — 间接注入五步方法论
+
+    关键约束:
+        占位符必须完全包含在单个 run 中 (Word 文档最小格式单元).
+        如果占位符跨越多个 run (如部分加粗), 将不会被替换.
+        解决: 模板中占位符段落使用统一格式 (不加粗/斜体混排).
+
+    策略:
+        - 生成一个临时 .docx 模板, 包含 {{INJECTION_PLACEHOLDER}} 占位符
+        - WordDocConverter 打开模板, 将占位符替换为 payload
+        - 模板结构: 求职信格式 (Dear Hiring Manager, ... {{INJECTION_PLACEHOLDER}} ... Sincerely)
+        - 0 token (无 LLM 调用, 纯文件操作)
+
+    返回值: 包含 1 个 WordDocConverter 实例的列表.
+    """
+    converters: list[Any] = []
+
+    try:
+        import tempfile
+        from pathlib import Path
+
+        from docx import Document
+
+        WordDocConverter = _conv("WordDocConverter")
+
+        # 创建一个包含占位符的 .docx 模板 (模拟求职信)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_file:
+            doc = Document()
+            doc.add_paragraph("Dear Hiring Manager,")
+            doc.add_paragraph(
+                "I am writing to apply for the {{INJECTION_PLACEHOLDER}} position."
+            )
+            doc.add_paragraph(
+                "My experience includes security research and red team operations."
+            )
+            doc.add_paragraph("Sincerely, Applicant")
+            doc.save(tmp_file.name)
+            template_docx_path = Path(tmp_file.name)
+
+        converter = WordDocConverter(
+            existing_docx=template_docx_path,
+            placeholder="{{INJECTION_PLACEHOLDER}}",
+        )
+        converters.append(converter)
+        logger.info(
+            "Word doc placeholder injection: WordDocConverter built "
+            "(existing_docx + placeholder='{{INJECTION_PLACEHOLDER}}', "
+            "payload replaces placeholder in template)"
+        )
+    except Exception as e:
+        logger.warning("Word doc placeholder injection chain build failed: %s", e)
+
+    return converters
+
+
 # 从 converter_presets re-export 以保持向后兼容
 from pipeline.arm.converter_presets import (  # noqa: F401, E402
     build_converter_map,

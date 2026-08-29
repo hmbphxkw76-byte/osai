@@ -98,10 +98,19 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"  - **{msg.get('role', 'unknown')}:** {msg.get('content', '')}")
         lines.append("")
 
-        # PoC Script
+        # PoC Script — 异常保护: PoC 生成失败不应中断整个报告
+        # 断点修复: report_markdown 中 generate_poc_script 调用缺少异常保护,
+        # 如果 PoC 生成失败 (如模板格式错误), 整个 Markdown 报告也会失败。
+        # 修复: try/except 包裹, 失败时在报告中记录错误而非中断。
         lines.append("**PoC Script:**")
         lines.append("```python")
-        lines.append(generate_poc_script(ev))
+        try:
+            lines.append(generate_poc_script(ev))
+        except Exception as e:
+            logger.warning("PoC generation failed for %s: %s", ev.evidence_id, e)
+            lines.append(f"# PoC generation failed: {e}")
+            lines.append(f"# Evidence ID: {ev.evidence_id}")
+            lines.append(f"# Technique: {ev.technique_name}")
         lines.append("```")
         lines.append("")
 

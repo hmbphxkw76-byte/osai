@@ -135,6 +135,7 @@ def build_endpoint_target(
         use_tls=parsed.use_tls,
         timeout=120.0,
         follow_redirects=True,
+        verify=False,  # 黑盒场景: 跳过 TLS 验证
     )
 
     return RateLimitedTarget(

@@ -252,10 +252,16 @@ async def run_rogue_agent_attacks(
 
     scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-    attack = PromptSendingAttack(
-        objective_target=ctx.objective_target,
-        attack_scoring_config=scoring_config,
-    )
+    # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+    from pipeline.strike.executor import _build_prepended_conversation
+    ra_prepended = _build_prepended_conversation(ctx)
+    ra_attack_kwargs: dict[str, Any] = {
+        "objective_target": ctx.objective_target,
+        "attack_scoring_config": scoring_config,
+    }
+    if ra_prepended:
+        ra_attack_kwargs["prepended_conversation"] = ra_prepended
+    attack = PromptSendingAttack(**ra_attack_kwargs)
 
     # 构建 seed groups
     seed_groups: list[Any] = []

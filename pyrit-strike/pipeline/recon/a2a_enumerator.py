@@ -83,6 +83,8 @@ async def enumerate_a2a_endpoint(
         return results
 
     try:
+        from pyrit.models import Message, MessagePiece
+
         from pipeline.recon.burp_parser import build_http_target
 
         # 构建探针请求 — 复用原始请求但修改路径
@@ -96,12 +98,17 @@ async def enumerate_a2a_endpoint(
 
         async def _send_a2a_probe():
             if hasattr(target, "send_prompt_async"):
-                resp = await target.send_prompt_async(
-                    prompt_request="Enumerate A2A endpoint"
-                )
-                if hasattr(resp, "request_response"):
-                    return resp.request_response.response_text
-                return str(resp)
+                # PyRIT 1.0.1: send_prompt_async(*, message: Message)
+                msg = Message(message_pieces=[
+                    MessagePiece(role="user", original_value="Enumerate A2A endpoint")
+                ])
+                responses = await target.send_prompt_async(message=msg)
+                if responses and len(responses) > 0:
+                    resp_msg = responses[-1]
+                    pieces = resp_msg.message_pieces
+                    if pieces:
+                        return pieces[0].converted_value
+                return None
             return None
 
         response_text = await asyncio.wait_for(_send_a2a_probe(), timeout=15)
@@ -271,6 +278,8 @@ async def send_a2a_task(
     import asyncio
 
     try:
+        from pyrit.models import Message, MessagePiece
+
         from pipeline.recon.burp_parser import build_http_target
 
         # 构建 A2A JSON-RPC 请求
@@ -295,12 +304,17 @@ async def send_a2a_task(
 
             async def _send():
                 if hasattr(target, "send_prompt_async"):
-                    resp = await target.send_prompt_async(
-                        prompt_request=json.dumps(jsonrpc_request)
-                    )
-                    if hasattr(resp, "request_response"):
-                        return resp.request_response.response_text
-                    return str(resp)
+                    # PyRIT 1.0.1: send_prompt_async(*, message: Message)
+                    msg = Message(message_pieces=[
+                        MessagePiece(role="user", original_value=json.dumps(jsonrpc_request))
+                    ])
+                    responses = await target.send_prompt_async(message=msg)
+                    if responses and len(responses) > 0:
+                        resp_msg = responses[-1]
+                        pieces = resp_msg.message_pieces
+                        if pieces:
+                            return pieces[0].converted_value
+                    return None
                 return None
 
             response_text = await asyncio.wait_for(_send(), timeout=30)

@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import ast
 import re
 import sys
 from pathlib import Path
@@ -93,10 +92,10 @@ class TestSSOTConsistency:
 
     def test_get_effective_concurrency_default_matches_yaml(self):
         """get_effective_concurrency 的 default 值应与 defaults.yaml 一致."""
-        from pipeline.context import get_effective_concurrency
-
         # Mock ctx with no args.max_concurrency
         from unittest.mock import MagicMock
+
+        from pipeline.context import get_effective_concurrency
         ctx = MagicMock()
         ctx.args.max_concurrency = None
 
@@ -144,8 +143,8 @@ class TestSSOTConsistency:
         assert "pair_tree_depth" in self.defaults, (
             "defaults.yaml should contain pair_tree_depth (PAIR tree depth)"
         )
-        assert self.defaults["pair_tree_depth"] == 10, (
-            f"pair_tree_depth={self.defaults.get('pair_tree_depth')}, expected 10"
+        assert self.defaults["pair_tree_depth"] == 7, (
+            f"pair_tree_depth={self.defaults.get('pair_tree_depth')}, expected 7"
         )
 
     def test_pair_tree_width_in_defaults_yaml(self):
@@ -220,6 +219,7 @@ class TestSSOTConsistency:
     def test_get_config_int_reads_from_args(self):
         """_get_config_int 应从 ctx.args 读取对应属性."""
         from unittest.mock import MagicMock
+
         from pipeline.context import _get_config_int
 
         ctx = MagicMock()
@@ -232,6 +232,7 @@ class TestSSOTConsistency:
     def test_get_config_int_fallback_on_missing(self):
         """_get_config_int 缺失时返回 default."""
         from unittest.mock import MagicMock
+
         from pipeline.context import _get_config_int
 
         ctx = MagicMock()

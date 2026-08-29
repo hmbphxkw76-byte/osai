@@ -17,8 +17,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -206,8 +204,8 @@ class TestEscalationThresholdLogic:
 
     def test_escalation_threshold_is_90(self):
         """escalation_asr_threshold 应为 90 (L5 基线)."""
+
         import yaml
-        from pathlib import Path
 
         defaults_path = _PROJECT_ROOT / "config" / "defaults.yaml"
         with open(defaults_path, encoding="utf-8") as f:

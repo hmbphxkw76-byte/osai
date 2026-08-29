@@ -942,15 +942,19 @@ epsilon_greedy:
 # 策略: 按种子 OWASP 类别匹配最佳 Converter, 提升单轮 ASR
 # 每个类别列出 Converter 签名, 按优先级排序 (第一个为最佳)
 owasp_converter_map:
-  # LLM01: Prompt Injection — 权威背书 + 变体重写绕过关键词
+  # LLM01: Prompt Injection — 权威背书 + 选择性编码绕过关键词
+  # L5 v36: SelectiveTextConverter 替代全文 Base64 (ASR 25-35% vs 7%)
   LLM01:
     - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
     - "VariationConverter"
-    - "RandomTranslationConverter"
     - "ROT13Converter"
-  # LLM02: Sensitive Info — 分解重组提取碎片信息 + 逻辑诉求
+  # LLM02: Sensitive Info — 分解重组 + CodeChameleon 加密包装
+  # L5 v36: CodeChameleon ASR 35-45% 对信息提取类效果最佳
   LLM02:
     - "DecompositionConverter"
+    - "CodeChameleonConverter"
     - "PersuasionConverter:logical_appeal"
     - "VariationConverter"
   # LLM03: Supply Chain — 权威背书伪装合规审计
@@ -958,13 +962,14 @@ owasp_converter_map:
     - "PersuasionConverter:authority_endorsement"
     - "PersuasionConverter:expert_endorsement"
     - "ToneConverter:academic"
-  # LLM04: Insecure Output — 编码绕过过滤 + 变体
+  # LLM04: Insecure Output — 选择性编码绕过过滤 + 关键词替换
+  # L5 v36: SelectiveTextConverter 替代全文 Base64, SearchReplace 0-token
   LLM04:
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
     - "ROT13Converter"
+    - "SearchReplaceConverter"
     - "RandomTranslationConverter"
     - "VariationConverter"
-    - "TranslationConverter"
-    - "Base64Converter"
   # LLM05: Excessive Agency — 逻辑诉求限制范围 + 分解
   LLM05:
     - "PersuasionConverter:logical_appeal"
@@ -975,10 +980,12 @@ owasp_converter_map:
     - "DecompositionConverter"
     - "PersuasionConverter:logical_appeal"
     - "VariationConverter"
-  # LLM07: Insecure Plugin — 编码绕过 + 随机大写
+  # LLM07: Insecure Plugin — 选择性混淆 + 模板分段
+  # L5 v36: SelectiveTextConverter(Leetspeak) 替代全文 UnicodeSub
   LLM07:
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
     - "ROT13Converter"
-    - "RandomCapitalLettersConverter"
+    - "TemplateSegmentConverter"
     - "VariationConverter"
   # LLM08: Vector Embeddings — 权威背书 + 学术语气
   LLM08:
@@ -994,13 +1001,16 @@ owasp_converter_map:
   LLM10:
     - "VariationConverter"
     - "PersuasionConverter:authority_endorsement"
-  # ASI01-10: Agent Security — 权威背书 + 分解优先
+  # ASI01-10: Agent Security — 权威背书 + CodeChameleon 优先
+  # L5 v36: CodeChameleon 对 Agent 安全类效果最佳 (代码包装绕过)
   ASI01:
     - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
     - "DecompositionConverter"
     - "VariationConverter"
   ASI02:
     - "DecompositionConverter"
+    - "CodeChameleonConverter"
     - "PersuasionConverter:logical_appeal"
     - "VariationConverter"
   ASI03:
@@ -1020,8 +1030,9 @@ owasp_converter_map:
     - "PersuasionConverter:authority_endorsement"
     - "VariationConverter"
   ASI07:
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
     - "ROT13Converter"
-    - "RandomCapitalLettersConverter"
+    - "TemplateSegmentConverter"
     - "VariationConverter"
   ASI08:
     - "ToneConverter:academic"

@@ -342,6 +342,7 @@ async def generate_report(
         - evidence/evidence.json / evidence_success.json
         - evidence/EVD-*.json (每个证据单独)
         - poc/poc_*.py (成功攻击的 PoC 脚本)
+        - report.sarif (SARIF 2.1 格式, 用于 CI/CD 集成)
         - attack_summary.csv / owasp_coverage_matrix.csv
         - evidence_package.zip
 
@@ -413,19 +414,48 @@ async def generate_report(
         )
 
     # ── PoC 脚本 (仅成功攻击) ──
+    # 断点修复: 增强日志记录, 包含技术名称和失败原因, 便于调试
     from pipeline.report.owasp_mapping import generate_poc_script
 
     poc_count = 0
+    poc_failed = 0
     for ev in evidence.successful_evidence:
         try:
             poc_script = generate_poc_script(ev)
             poc_path = poc_dir / f"poc_{ev.evidence_id}.py"
             poc_path.write_text(poc_script, encoding="utf-8")
             poc_count += 1
+            logger.debug(
+                "PoC generated: %s (technique=%s, converter=%s)",
+                ev.evidence_id,
+                ev.technique_name,
+                ev.converter_chain or "none",
+            )
         except Exception as e:
-            logger.warning("Failed to generate PoC for %s: %s", ev.evidence_id, e)
+            poc_failed += 1
+            logger.warning(
+                "PoC generation failed for %s (technique=%s): %s",
+                ev.evidence_id,
+                ev.technique_name,
+                e,
+                exc_info=True,
+            )
     if poc_count:
         logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
+    if poc_failed:
+        logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
+
+    # ── SARIF 报告 ──
+    # 断点修复: SARIF 报告 (sarif_report.py) 存在但未被主流水线调用,
+    # 导致 CI/CD 集成场景缺少 SARIF 输出。
+    # 修复: 在 generator.py 中集成 SARIF 报告生成, 与 MD/HTML/JSON 并行输出。
+    try:
+        from pipeline.report.sarif_report import generate_sarif_report
+
+        sarif_path = output_dir / "report.sarif"
+        generate_sarif_report(evidence, sarif_path)
+    except Exception as e:
+        logger.warning("Failed to generate SARIF report: %s", e)
 
     # ── CSV 导出 ──
     try:

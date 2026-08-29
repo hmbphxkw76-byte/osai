@@ -242,7 +242,7 @@ async def discover_endpoints(
         guided_paths: list[str] = []
         for ep in discovered:
             extracted = _extract_paths_from_response(
-                ep.response_preview, ep.path
+                ep.response_preview
             )
             guided_paths.extend(extracted)
 

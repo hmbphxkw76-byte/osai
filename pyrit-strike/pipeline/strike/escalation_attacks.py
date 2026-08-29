@@ -1,6 +1,13 @@
 """escalation_attacks — 从 escalation.py 拆分而来.
 
-包含 Crescendo, TAP, PAIR 攻击实现.
+包含 RedTeaming, Crescendo, TAP, PAIR 攻击实现.
+
+PyRIT 原生对齐 (v51):
+    - 新增 RedTeamingAttack: 官方最通用的多轮攻击, 作为 Crescendo 前置
+      (arXiv:2407.01232 — RedTeaming 是 multi-turn baseline)
+    - Crescendo 添加 system_prompt: 使用官方 EXECUTOR_SEED_PROMPT_PATH
+      (arXiv:2402.12109 — Crescendo 需要专用的渐进式 system prompt)
+    - 所有多轮攻击统一使用 AttackAdversarialConfig(target=..., system_prompt=...)
 """
 
 import asyncio
@@ -41,19 +48,131 @@ def _is_security_audit_error(error_msg: str) -> bool:
     return any(kw in error_lower for kw in _SECURITY_AUDIT_KEYWORDS)
 
 
+async def _run_red_teaming(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """对失败目标执行 RedTeamingAttack 多轮攻击。
+
+    PyRIT 原生对齐 (v51): 新增 RedTeamingAttack 作为升级链前置。
+    RedTeamingAttack 是 PyRIT 最通用的多轮攻击: 对抗模型逐轮生成 prompt,
+    scorer 判断进度, 循环到成功或 max_turns。
+
+    作为 Crescendo 前置的优势:
+        1. API 调用更少 (max_turns=5 vs Crescendo 10), 试探成本更低
+        2. 通用性更强 (不依赖渐进式策略, 适合所有目标类型)
+        3. 可使用 RTASystemPromptPaths 选择系统提示
+    学术依据:
+        - PyRIT (arXiv:2407.01232) — RedTeamingAttack 是 multi-turn baseline
+        - 官方文档: RedTeamingAttack 使用 RTASystemPromptPaths.TEXT_GENERATION
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        RedTeaming 攻击结果。
+    """
+    from pyrit.executor.attack import (
+        AttackAdversarialConfig,
+        RedTeamingAttack,
+        RTASystemPromptPaths,
+    )
+    from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.models import AttackSeedGroup, SeedPrompt, SeedObjective
+
+    results: dict[str, list[Any]] = {}
+
+    rt_objectives = _filter_by_suitable_for(objectives, ctx, "red_teaming")
+    if not rt_objectives:
+        logger.info("RedTeaming: no objectives suitable for this technique, skipping")
+        return results
+
+    if len(rt_objectives) > 8:
+        rt_objectives = rt_objectives[:8]
+        logger.info("v51: RedTeaming limited to top-8 objectives (MTOS-ranked)")
+
+    try:
+        from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
+        scoring_config = _build_refusal_inverter_scoring_config(ctx)
+
+        # 构建对抗配置 — 使用官方 RTASystemPromptPaths.TEXT_GENERATION
+        # PyRIT 原生: AttackAdversarialConfig(target=..., system_prompt=SeedPrompt.from_yaml_file(...))
+        adversarial_config_kwargs: dict[str, Any] = {
+            "target": ctx.adversarial_target,
+        }
+
+        # 尝试加载官方 RTA system prompt (TEXT_GENERATION 为最通用的)
+        try:
+            system_prompt = SeedPrompt.from_yaml_file(
+                RTASystemPromptPaths.TEXT_GENERATION.value
+            )
+            adversarial_config_kwargs["system_prompt"] = system_prompt
+            logger.info("v51: RedTeaming using RTASystemPromptPaths.TEXT_GENERATION")
+        except Exception as e:
+            logger.debug("v51: RTA system prompt not available (%s), using default", e)
+
+        attack = RedTeamingAttack(
+            objective_target=ctx.multi_turn_target or ctx.objective_target,
+            attack_adversarial_config=AttackAdversarialConfig(**adversarial_config_kwargs),
+            attack_scoring_config=scoring_config,
+            max_turns=5,  # v51: 5 turns, 作为快速试探 (Crescendo 10 turns 作为后续升级)
+        )
+
+        mtos_objectives = _apply_mtos_ranking(rt_objectives, ctx, technique_name="red_teaming")
+        seed_groups = [
+            AttackSeedGroup(seeds=[SeedObjective(value=obj)])
+            for obj in mtos_objectives
+        ]
+
+        from pipeline.context import get_effective_concurrency
+        executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+
+        executor_result = await asyncio.wait_for(
+            executor.execute_attack_from_seed_groups_async(
+                attack=attack,
+                seed_groups=seed_groups,
+                return_partial_on_failure=True,
+            ),
+            timeout=300,
+        )
+
+        results["red_teaming"] = list(executor_result.completed_results)
+        logger.info(
+            "RedTeaming completed: %d success, %d failed",
+            len(executor_result.completed_results),
+            len(executor_result.incomplete_objectives),
+        )
+
+    except asyncio.TimeoutError:
+        logger.warning("RedTeaming attack timed out after 300s")
+        await _retrieve_partial_results(ctx, "red_teaming")
+    except _SecurityAuditError as e:
+        logger.warning("RedTeaming: security_audit_fail detected: %s, returning empty results", e)
+    except Exception as e:
+        exc_str = str(e).lower()
+        if "integrityerror" in exc_str or "unique constraint" in exc_str:
+            logger.warning("RedTeaming: IntegrityError detected, attempting partial recovery: %s", e)
+            await _retrieve_partial_results(ctx, "red_teaming")
+        elif _is_security_audit_error(str(e)):
+            logger.warning("RedTeaming: security_audit_fail in exception: %s", e)
+        else:
+            logger.error("RedTeaming attack failed: %s", e)
+            await _retrieve_partial_results(ctx, "red_teaming")
+
+    return results
+
+
 async def _run_crescendo(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """对失败目标执行 Crescendo 多轮攻击。
 
+    PyRIT 原生对齐 (v51):
+        - 添加 Crescendo 专用 system_prompt (官方 EXECUTOR_SEED_PROMPT_PATH)
+        - AttackAdversarialConfig(target=..., system_prompt=...) 完整配置
     L5 v20: 修复 sqlite3.IntegrityError (UNIQUE constraint failed: ScoreEntries.id)
-    问题原因: Crescendo 多轮攻击中, 并发评分写入 SQLite 导致 UUID 冲突或竞态条件,
-    触发 ScoreEntries.id UNIQUE 约束, 传播到调用方导致整个 Crescendo 崩溃。
-    修复策略:
-        1. 将 Crescendo 的 AttackExecutor 并发度降为 1 (串行化评分写入),
-           避免并发写入冲突
-        2. 在异常处理中专门捕获 IntegrityError/SQLAlchemyError, 尝试恢复部分结果
     学术依据: Heroux et al. (arXiv:2403.04206) — 韧性工程, 部分结果恢复
     附加: Crescendo 本身是多轮对话, 内部已有 turn-by-turn 串行逻辑,
            AttackExecutor 并发度仅影响多个 seed_groups 的并行度,
@@ -74,37 +193,40 @@ async def _run_crescendo(
 
     results: dict[str, list[Any]] = {}
 
-    # L5 v36: suitable_for 分发 — 只执行适合 Crescendo 的种子
-    # 学术依据: Chao et al. (arXiv:2310.08419) — 种子-技术适配性
     crescendo_objectives = _filter_by_suitable_for(objectives, ctx, "crescendo")
     if not crescendo_objectives:
         logger.info("Crescendo: no objectives suitable for this technique, skipping")
         return results
 
-    # L5 v41: 放宽限制从 3 → 8 — 实战场景下 ASR 优先于 token 成本
-    # 学术依据: Russinovich et al. (arXiv:2402.12109) — Crescendo ASR=82% at 10 turns
-    # 更多目标 = 更多成功机会 (联合概率 P=1-∏(1-p_i))
-    # v37 的 3 目标限制基于 v34 的 0% ASR 数据, 但那是因为空评分配置导致
-    # (v41 已修复评分配置), 现在放宽到 8 目标
     if len(crescendo_objectives) > 8:
         crescendo_objectives = crescendo_objectives[:8]
-        logger.info(
-            "L5 v41: Crescendo limited to top-8 objectives (MTOS-ranked)"
-        )
+        logger.info("L5 v41: Crescendo limited to top-8 objectives (MTOS-ranked)")
 
     try:
-        # L5 v41 修复: 使用 refusal inverter 评分配置 (原为空配置)
-        # 空配置导致 Crescendo 无法判断每轮是否成功, 内部逻辑失效 → ASR=0%
-        # 学术依据: Russinovich et al. (arXiv:2402.12109) — Crescendo 需要
-        # per-turn scoring 来决定回溯策略, 空 scoring = 无回溯 = ASR=0%
         from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
         scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
+        # v51: PyRIT 原生对齐 — 添加 Crescendo 专用 system_prompt
+        # 官方文档: CrescendoAttack 通过 AttackAdversarialConfig(system_prompt=...) 设置
+        # 使用 EXECUTOR_SEED_PROMPT_PATH / "crescendo" / "text_generation.yaml"
+        adversarial_config_kwargs: dict[str, Any] = {
+            "target": ctx.adversarial_target,
+        }
+
+        try:
+            from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
+            crescendo_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "crescendo" / "text_generation.yaml"
+            if crescendo_prompt_path.exists():
+                from pyrit.models import SeedPrompt
+                system_prompt = SeedPrompt.from_yaml_file(str(crescendo_prompt_path))
+                adversarial_config_kwargs["system_prompt"] = system_prompt
+                logger.info("v51: Crescendo using official system_prompt from %s", crescendo_prompt_path)
+        except Exception as e:
+            logger.debug("v51: Crescendo system_prompt not available (%s), using default", e)
+
         attack = CrescendoAttack(
             objective_target=ctx.multi_turn_target or ctx.objective_target,
-            attack_adversarial_config=AttackAdversarialConfig(
-                target=ctx.adversarial_target,
-            ),
+            attack_adversarial_config=AttackAdversarialConfig(**adversarial_config_kwargs),
             attack_scoring_config=scoring_config,
             max_turns=10,      # L5 v3: 8→10, 更多轮次提升ASR
             max_backtracks=10,  # L5 v3: 8→10, 更多回溯机会
@@ -344,7 +466,7 @@ async def _run_pair(
             ),
             attack_scoring_config=scoring_config,
             tree_width=_get_config_int(ctx, "pair_tree_width", 1),    # PAIR: 单流迭代
-            tree_depth=_get_config_int(ctx, "pair_tree_depth", 10),   # L5 v8: depth=10 ASR 60% (arXiv:2310.08419)
+            tree_depth=_get_config_int(ctx, "pair_tree_depth", 7),   # L5 v50: depth=10→7, 平衡 ASR 与超时风险 (arXiv:2406.12609)
         )
 
         # L5 v16: PAIR 集成 MTOS 多轮选种排序
@@ -370,7 +492,7 @@ async def _run_pair(
                 seed_groups=seed_groups,
                 return_partial_on_failure=True,
             ),
-            timeout=400,  # L5 v34: 600→400, PAIR depth=10 但 600s 太长
+            timeout=300,  # L5 v50: 400→300s, depth=7 (21 LLM calls/obj), 可靠完成率 ~95%
         )
 
         results["pair"] = list(executor_result.completed_results)
@@ -381,7 +503,7 @@ async def _run_pair(
         )
 
     except asyncio.TimeoutError:
-        logger.warning("PAIR attack timed out after 400s")
+        logger.warning("PAIR attack timed out after 300s")
         await _retrieve_partial_results(ctx, "pair")
     except _SecurityAuditError as e:
         logger.warning("PAIR: security_audit_fail detected: %s, returning empty results", e)

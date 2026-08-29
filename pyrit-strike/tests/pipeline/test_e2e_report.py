@@ -265,8 +265,8 @@ class TestE2EReportGeneration:
         assert "run_poc" in poc
         # 不应包含 requests.post
         assert "requests.post" not in poc
-        # 应包含 安全报告标准 报告对齐说明
-        assert "安全报告标准" in poc or "报告" in poc
+        # 应包含 OffSec AI-300 考试对齐说明
+        assert "AI-300" in poc
         # 应包含 converter chain 信息
         assert "Converter Chain" in poc
 

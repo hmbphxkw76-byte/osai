@@ -122,14 +122,14 @@ class TestL5Optimal:
     """测试 l5_optimal converter 链构建。"""
 
     def test_l5_optimal_without_converter_target(self):
-        """无 converter_target 时仍返回非 LLM converter (Base64/ROT13/Unicode)。"""
+        """L5 v36: 无 converter_target 时仍返回非 LLM converter (SelectiveTextConverter/ROT13/SearchReplace)."""
         from pipeline.arm.converter_chains import l5_optimal
 
         converters = l5_optimal(converter_target=None)
-        # 至少应有 Base64, ROT13, UnicodeSubstitution, FuzzerConverter
+        # L5 v36: 至少应有 SelectiveTextConverter, ROT13, SearchReplace, TemplateSegment
         assert len(converters) >= 3
         type_names = [type(c).__name__ for c in converters]
-        assert "Base64Converter" in type_names
+        assert "SelectiveTextConverter" in type_names
         assert "ROT13Converter" in type_names
 
     def test_l5_optimal_with_mock_converter_target(self):

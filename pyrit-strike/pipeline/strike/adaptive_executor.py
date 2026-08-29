@@ -60,11 +60,21 @@ def _get_best_of_n_retries() -> int:
 async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     """使用 PyRIT 原生 TextAdaptive 场景执行攻击。
 
+    L5 v50: 增强集成 — 注册项目 AttackTechniqueFactory 到 PyRIT registry,
+    使 TextAdaptive 自动发现 Crescendo/TAP/PAIR/BestOfN 等技术。
+
     TextAdaptive 自动:
         1. 为每个 objective 选择最佳攻击技术 (epsilon-greedy)
         2. 根据历史成功率动态调整技术选择概率
         3. prompt_sending 作为 baseline 对比
         4. 支持 scenario_result_id 恢复中断的运行
+    5. L5 v50: 从 AttackTechniqueRegistry 发现已注册的自定义技术
+
+    学术依据:
+        - PyRIT TextAdaptive (arXiv:2407.01232) — ε-贪心自适应技术选择
+        - Chao et al. (arXiv:2310.08419) — PAIR 自适应策略选择
+        - Mehrotra et al. (arXiv:2312.02191) — TAP 树搜索
+        - Russinovich et al. (arXiv:2402.12109) — Crescendo 渐进升级
 
     Args:
         ctx: 流水线上下文。
@@ -75,6 +85,21 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     from pyrit.scenario.scenarios.adaptive import TextAdaptive
 
     from pipeline.arm.dataset_config import build_text_adaptive_dataset_config
+    from pipeline.strike.technique_registry import register_project_techniques
+
+    # L5 v50: 注册项目攻击技术到 PyRIT 原生 AttackTechniqueRegistry
+    # 使 TextAdaptive 能自动发现 Crescendo/TAP/PAIR/BestOfN 等技术
+    # arXiv:2407.01232 — AttackTechniqueRegistry + tag 查询自动发现
+    registered = register_project_techniques(
+        adversarial_target=ctx.adversarial_target,
+        converter_target=ctx.converter_target,
+    )
+    if registered:
+        logger.info(
+            "L5 v50: TextAdaptive will use %d registered techniques: %s",
+            len(registered),
+            ", ".join(registered.keys()),
+        )
 
     seed_names = getattr(ctx.args, "seeds", "elite_jailbreaks")
     max_seeds = getattr(ctx.args, "max_seeds", 25) or 25
@@ -95,6 +120,8 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         from pipeline.strike.executor import execute_attacks
         return await execute_attacks(ctx)
 
+    # L5 v50: 构建带有自定义技术类的 TextAdaptive 场景
+    # 当 registry 有已注册技术时, TextAdaptive 会自动使用它们
     scenario = TextAdaptive(
         objective_scorer=scorer,
     )
@@ -325,11 +352,17 @@ async def _best_of_n_retry(
                 request_converters=converter_configurations,
             )
 
-            attack = PromptSendingAttack(
-                objective_target=ctx.objective_target,
-                attack_scoring_config=scoring_config,
-                attack_converter_config=converter_config,
-            )
+            # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+            from pipeline.strike.executor import _build_prepended_conversation
+            bon_prepended = _build_prepended_conversation(ctx)
+            bon_attack_kwargs: dict[str, Any] = {
+                "objective_target": ctx.objective_target,
+                "attack_scoring_config": scoring_config,
+                "attack_converter_config": converter_config,
+            }
+            if bon_prepended:
+                bon_attack_kwargs["prepended_conversation"] = bon_prepended
+            attack = PromptSendingAttack(**bon_attack_kwargs)
 
             executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
 
@@ -420,11 +453,24 @@ async def _escalate_to_crescendo(
         from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
         scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
+        # v51: PyRIT 原生对齐 — 添加 Crescendo 专用 system_prompt
+        adversarial_config_kwargs: dict[str, Any] = {
+            "target": ctx.adversarial_target,
+        }
+        try:
+            from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
+            crescendo_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "crescendo" / "text_generation.yaml"
+            if crescendo_prompt_path.exists():
+                from pyrit.models import SeedPrompt
+                system_prompt = SeedPrompt.from_yaml_file(str(crescendo_prompt_path))
+                adversarial_config_kwargs["system_prompt"] = system_prompt
+                logger.info("v51: Crescendo fallback using official system_prompt")
+        except Exception as e:
+            logger.debug("v51: Crescendo fallback system_prompt not available: %s", e)
+
         attack = CrescendoAttack(
             objective_target=ctx.multi_turn_target or ctx.objective_target,
-            attack_adversarial_config=AttackAdversarialConfig(
-                target=ctx.adversarial_target,
-            ),
+            attack_adversarial_config=AttackAdversarialConfig(**adversarial_config_kwargs),
             attack_scoring_config=scoring_config,
             max_turns=10,
             max_backtracks=10,

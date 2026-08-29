@@ -39,7 +39,7 @@
     best_of_n_retries: 5    (3 Persuasion + 2 Variation, 联概率 88.5%)
     escalation_asr_threshold: 90  (单轮 ASR < 90% 触发多轮升级)
     tap_tree_width: 4, tap_tree_depth: 4   (arXiv:2312.02191)
-    pair_tree_width: 1, pair_tree_depth: 10  (arXiv:2310.08419 ASR 60%)
+    pair_tree_width: 1, pair_tree_depth: 7  (arXiv:2310.08419+2406.12609, depth=7 平衡 ASR/超时)
     l5_optimal_paths: 7     (arXiv:2407.01232 FIRST_SUCCESS 多路径)
 """
 
@@ -88,6 +88,43 @@ def cleanup_temp_files() -> None:
 
 # 注册 atexit 钩子: 正常退出或异常退出时都会执行
 atexit.register(cleanup_temp_files)
+
+
+async def _cleanup_resources(ctx: PipelineContext) -> None:
+    """生产级资源清理 — 关闭 Playwright 浏览器和 RateLimitedTarget 的 httpx.AsyncClient.
+
+    在流水线结束时调用, 确保所有异步资源被正确释放。
+    幂等设计: 所有清理操作都使用 try/except, 不会抛出异常。
+    """
+    # 1. 清理 Playwright 浏览器实例
+    if getattr(ctx, "_playwright_instance", None):
+        try:
+            if ctx._browser_context:
+                await ctx._browser_context.close()
+            if ctx._browser:
+                await ctx._browser.close()
+            if ctx._playwright_instance:
+                await ctx._playwright_instance.stop()
+            logger.info("Playwright browser closed")
+        except Exception as e:
+            logger.debug("Playwright cleanup (non-fatal): %s", e)
+        finally:
+            ctx._playwright_instance = None
+            ctx._browser = None
+            ctx._browser_context = None
+
+    # 2. 清理 RateLimitedTarget 的 httpx.AsyncClient
+    for target_attr in ("objective_target", "adversarial_target", "scoring_target"):
+        target = getattr(ctx, target_attr, None)
+        if target is None:
+            continue
+        cleanup_fn = getattr(target, "cleanup", None)
+        if cleanup_fn and asyncio.iscoroutinefunction(cleanup_fn):
+            try:
+                await cleanup_fn()
+                logger.debug("%s cleanup completed", target_attr)
+            except Exception as e:
+                logger.debug("%s cleanup (non-fatal): %s", target_attr, e)
 
 
 # 全局 asyncio 事件循环引用, 用于 signal 处理器中取消任务
@@ -141,6 +178,59 @@ def _is_attack_success(result: Any) -> bool:
     return False
 
 
+async def _cleanup_resources(ctx: PipelineContext) -> None:
+    """生产级资源清理 — 关闭浏览器实例、httpx client 等。
+
+    在流水线结束时调用, 确保所有异步资源被正确释放。
+    幂等设计: 所有操作都包裹在 try/except 中, 不会抛出异常。
+    """
+    # 1. Playwright 浏览器清理
+    if getattr(ctx, "_browser_context", None):
+        try:
+            await ctx._browser_context.close()
+        except Exception as e:
+            logger.debug("Browser context close failed (non-fatal): %s", e)
+
+    if getattr(ctx, "_browser", None):
+        try:
+            await ctx._browser.close()
+        except Exception as e:
+            logger.debug("Browser close failed (non-fatal): %s", e)
+
+    if getattr(ctx, "_playwright_instance", None):
+        try:
+            await ctx._playwright_instance.stop()
+        except Exception as e:
+            logger.debug("Playwright stop failed (non-fatal): %s", e)
+
+    # 2. RateLimitedTarget httpx client 清理
+    objective_target = getattr(ctx, "objective_target", None)
+    if objective_target and hasattr(objective_target, "cleanup"):
+        try:
+            await objective_target.cleanup()
+        except Exception as e:
+            logger.debug("Objective target cleanup failed (non-fatal): %s", e)
+
+    multi_turn_target = getattr(ctx, "multi_turn_target", None)
+    if multi_turn_target and multi_turn_target is not objective_target:
+        if hasattr(multi_turn_target, "cleanup"):
+            try:
+                await multi_turn_target.cleanup()
+            except Exception as e:
+                logger.debug("Multi-turn target cleanup failed (non-fatal): %s", e)
+
+    # 3. 跨端口发现的目标清理
+    extra_targets = getattr(ctx, "extra_objective_targets", {})
+    for port, target in extra_targets.items():
+        if hasattr(target, "cleanup"):
+            try:
+                await target.cleanup()
+            except Exception as e:
+                logger.debug("Port target %s cleanup failed (non-fatal): %s", port, e)
+
+    logger.debug("Resource cleanup complete")
+
+
 async def main(argv: list[str] | None = None) -> None:
     """主流水线入口。
 
@@ -161,7 +251,15 @@ async def main(argv: list[str] | None = None) -> None:
     output_dir = get_output_dir(args)
     ensure_output_dir(output_dir)
 
+    # L5 v52: 将 rate_limit 设置为环境变量, 供 _create_adversarial_target
+    # 和 _create_scoring_target 读取 (它们无法直接访问 ctx.args)
+    # 学术依据: PyRIT (arXiv:2407.01232) — 原生 max_requests_per_minute 限速
+    rate_limit = getattr(args, "rate_limit", None)
+    if rate_limit:
+        os.environ["RATE_LIMIT"] = str(rate_limit)
+
     ctx = PipelineContext(args=args, output_dir=output_dir)
+    ctx.scenario_result_id = getattr(args, "resume", None)
 
     # ── Web 漏洞策略路由 ──
     # web_vuln 策略使用独立的 Web 漏洞流水线
@@ -238,9 +336,14 @@ async def main(argv: list[str] | None = None) -> None:
                 "language": fp.get("language", ""),
                 "secret_format": fp.get("secret_format", ""),
                 "session_type": fp.get("session_type", ""),
+                "tenant_id": fp.get("tenant_id", ""),
+                "port_endpoints": fp.get("port_endpoints", []),
+                "capability_confidence": fp.get("capability_confidence", {}),
+                "capability_recommendations": fp.get("capability_recommendations", {}),
             },
             "reasoning": "三层探测 (被动指纹 + 主动能力 + 深度能力) 完成, "
-            "结果用于指导种子/技术/Converter 选择",
+            "结果用于指导种子/技术/Converter 选择。"
+            "L5 v48: 认证状态管理 + 跨端口发现 + 置信度评分已集成",
         })
 
     # ── Phase 2: 武器化 ──
@@ -289,12 +392,17 @@ async def main(argv: list[str] | None = None) -> None:
     # L5 v27: 修复 — 原版未 await convert_async, 现在使用异步版本
     if getattr(args, "auto_seeds", False) and ctx.converter_target:
         from pipeline.arm.seed_ranker import auto_generate_seeds_async
+        # 从 SSOT (config/defaults.yaml) 读取扩充因子, 硬编码 3 仅作 fallback
+        # arXiv:2310.04451 — AutoDAN 3x 扩充 ASR 1.5-2x
+        _expansion_factor = getattr(args, "auto_seed_expansion_factor", 3)
+        if not isinstance(_expansion_factor, int) or _expansion_factor < 1:
+            _expansion_factor = 3
         ctx.seeds = await auto_generate_seeds_async(
             ctx.seeds,
             converter_target=ctx.converter_target,
-            expansion_factor=3,
+            expansion_factor=_expansion_factor,
         )
-        print_phase("ARM", f"Auto-expanded to {len(ctx.seeds)} seeds (3x expansion, L5 v27 async)")
+        print_phase("ARM", f"Auto-expanded to {len(ctx.seeds)} seeds ({_expansion_factor}x expansion, L5 v27 async)")
 
     # 根据是否有 adversarial target 过滤技术
     has_adversarial = ctx.adversarial_target is not None
@@ -420,8 +528,13 @@ async def main(argv: list[str] | None = None) -> None:
     #   - Zhang et al. (arXiv:2308.07920) — 双 Judge 交叉验证
     #   - Mazeika et al. (arXiv:2402.04249) — HarmBench 评分基准
     # 对抗性评估: 假阳性 (不可复现的 PoC) 代价远高于假阴性, 双 Judge + 仲裁确保严格。
+    # Rule 11 integration: reset_stats 策略 —
+    # 如果升级链已执行 (should_escalate=True), 升级中已用 reset_stats=False 做了增量评分,
+    # ASSESS 阶段继续用 reset_stats=False 补充评分, 保留累积统计;
+    # 如果升级未执行 (should_escalate=False), 这是首次评分, 需要 reset_stats=True 重置统计。
+    _assess_reset_stats = not should_escalate
     try:
-        await precompute_outcomes_async(ctx.attack_results, score_all=False)
+        await precompute_outcomes_async(ctx.attack_results, score_all=False, reset_stats=_assess_reset_stats)
     except Exception as e:
         logger.error("Post-hoc scoring failed: %s — proceeding with un-scored results", e)
 
@@ -438,15 +551,22 @@ async def main(argv: list[str] | None = None) -> None:
             update_asr_priors(model_family, ctx.asr_per_technique)
 
     # L5 v7: Wilson Score 置信区间
-    from pipeline.strike.escalation import _is_success as _is_attack_success
-    total_attacks_count = sum(len(v) for v in ctx.attack_results.values())
+    # Rule 11 integration: 使用 _get_outcome 而非 _is_success, 与 compute_asr 保持一致
+    # _get_outcome 返回 "success"/"failure"/"undecided", undecided 不计入分母 (与 ASR 计算一致)
+    from pipeline.assess.asr_stats import _get_outcome as _get_attack_outcome
     total_successes = sum(
         1 for results in ctx.attack_results.values()
         for r in results
-        if _is_attack_success(r)
+        if _get_attack_outcome(r) == "success"
+    )
+    # Rule 11 integration: Wilson CI 分母使用 total_decided (排除 undecided), 与 ASR 计算一致
+    total_decided = sum(
+        1 for results in ctx.attack_results.values()
+        for r in results
+        if _get_attack_outcome(r) in ("success", "failure")
     )
     wilson_lower, wilson_upper = compute_wilson_score_interval(
-        total_successes, total_attacks_count
+        total_successes, total_decided
     )
     logging.info(
         "ASR Wilson Score 95%% CI: [%.1f%%, %.1f%%] (point estimate: %.1f%%)",
@@ -513,6 +633,11 @@ async def main(argv: list[str] | None = None) -> None:
     evidence.orchestration_log = ctx.orchestration_log
 
     report_path = await generate_report(ctx, evidence, output_dir)
+
+    # ── 生产级资源清理 ──
+    # 关闭 Playwright 浏览器实例 (如果使用了 --browser-url 模式)
+    # 以及 RateLimitedTarget 包装的 httpx.AsyncClient
+    await _cleanup_resources(ctx)
 
     # ── 完成 ──
     print_summary(

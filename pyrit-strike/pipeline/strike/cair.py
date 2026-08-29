@@ -203,10 +203,16 @@ async def run_cair_attack(
         from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
         scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-        attack = PromptSendingAttack(
-            objective_target=ctx.objective_target,
-            attack_scoring_config=scoring_config,
-        )
+        # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+        from pipeline.strike.executor import _build_prepended_conversation
+        cair_prepended = _build_prepended_conversation(ctx)
+        cair_attack_kwargs: dict[str, Any] = {
+            "objective_target": ctx.objective_target,
+            "attack_scoring_config": scoring_config,
+        }
+        if cair_prepended:
+            cair_attack_kwargs["prepended_conversation"] = cair_prepended
+        attack = PromptSendingAttack(**cair_attack_kwargs)
 
         # L5 v26: 恢复并发度=2 (SQLite WAL 模式下安全)
         executor = AttackExecutor(

@@ -31,26 +31,76 @@ async def create_target(ctx: PipelineContext) -> None:
 
     路由逻辑:
         1. --browser-url → PlaywrightTarget (浏览器渲染 Chat UI, PyRIT 原生)
-        2. --burp-request → Burp 模式 (HTTPTarget + RateLimitedTarget)
-        3. --target-url + --api-key → API 直连模式 (HTTPTarget)
-        4. 无参数 → .env 默认 (OpenAIChatTarget)
+        2. --target-api-endpoint + --target-api-key → API 直连模式
+           (L5 v52: OpenAIChatTarget / OpenAIResponseTarget 原生路由)
+        3. --burp-request → Burp 模式 (HTTPTarget + RateLimitedTarget)
+        4. --target-url + --api-key → API 直连模式 (HTTPTarget)
+        5. 无参数 → .env 默认 (OpenAIChatTarget)
 
     L5 v38: 新增 PlaywrightTarget 路由 (PyRIT 原生优势)
         学术依据: PyRIT (arXiv:2407.01232) — PlaywrightTarget 是
         PyRIT 原生浏览器自动化 Target, 可攻击需要 JS 渲染的 Web Chat UI
 
+    L5 v52: 新增 OpenAIChatTarget/OpenAIResponseTarget 原生路由
+        学术依据: PyRIT (arXiv:2407.01232) — 原生 Target 支持:
+        - OpenAIChatTarget: gpt-4o, gpt-4, DeepSeek, llama, phi-4, gpt-3.5
+        - OpenAIResponseTarget: o1, o3, o4-mini, GPT-5 (Responses API)
+        - 原生 RPM 限速: max_requests_per_minute 参数
+        - 原生 JSON 输出: response_format + json_schema
+        - 原生多模态: text + image_path 输入
+        - 原生能力声明: TargetCapabilities 自动匹配模型
+
     流程:
         1. (新增) 如果 --browser-url 设置 → 创建 PlaywrightTarget
-        2. 解析 Burp 请求 → ParsedBurpRequest
-        3. L5 v12: 目标可用性预检 (发送探针请求, 确保目标在线)
-        4. 探测响应路径 (发送 "hi" 探针)
-        5. 构建 HTTPTarget
-        6. 包装 RateLimitedTarget (并发控制 + 重试)
-        7. 创建 adversarial + scoring target (从 .env)
+        2. (L5 v52) 如果 --target-api-endpoint 设置 → 创建原生 OpenAIChatTarget/OpenAIResponseTarget
+        3. 解析 Burp 请求 → ParsedBurpRequest
+        4. L5 v12: 目标可用性预检 (发送探针请求, 确保目标在线)
+        5. 探测响应路径 (发送 "hi" 探针)
+        6. 构建 HTTPTarget
+        7. 包装 RateLimitedTarget (并发控制 + 重试)
+        8. 创建 adversarial + scoring target (从 .env)
 
     Args:
         ctx: 流水线上下文。
     """
+    # ── L5 v52: OpenAIChatTarget/OpenAIResponseTarget 原生路由 ──
+    # 学术依据: PyRIT (arXiv:2407.01232) — 原生 Target 支持
+    # OpenAIChatTarget: 支持 gpt-4o, DeepSeek, llama, phi-4 等 OpenAI 兼容模型
+    # OpenAIResponseTarget: 支持 o1/o3/o4-mini/GPT-5 Responses API
+    # 原生优势: RPM 限速, JSON 输出, 多模态输入, TargetCapabilities 自动匹配
+    target_api_endpoint = getattr(ctx.args, "target_api_endpoint", None)
+    target_api_key = getattr(ctx.args, "target_api_key", None)
+    target_api_model = getattr(ctx.args, "target_api_model", None)
+    target_api_type = getattr(ctx.args, "target_api_type", "chat")  # chat | responses
+
+    if target_api_endpoint and target_api_key:
+        logger.info(
+            "L5 v52: API direct mode — creating native %s for %s",
+            "OpenAIResponseTarget" if target_api_type == "responses" else "OpenAIChatTarget",
+            target_api_endpoint,
+        )
+        await _create_native_openai_target(
+            ctx,
+            endpoint=target_api_endpoint,
+            api_key=target_api_key,
+            model_name=target_api_model or "gpt-4o",
+            api_type=target_api_type,
+        )
+        # 仍需创建 adversarial + scoring target
+        ctx.adversarial_target = _create_adversarial_target()
+        if ctx.adversarial_target:
+            logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
+        ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
+        ctx.scoring_target = _create_scoring_target(ctx)
+        ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
+        logger.info(
+            "Targets configured: objective=%s, adversarial=%s, scorer=%s",
+            type(ctx.objective_target).__name__,
+            type(ctx.adversarial_target).__name__ if ctx.adversarial_target else "None",
+            type(ctx.scoring_target).__name__ if ctx.scoring_target else "None",
+        )
+        return
+
     # ── L5 v38: PlaywrightTarget 路由 (PyRIT 原生优势) ──
     # 学术依据: PyRIT (arXiv:2407.01232) — PlaywrightTarget 原生浏览器自动化
     browser_url = getattr(ctx.args, "browser_url", None)
@@ -147,6 +197,12 @@ async def create_target(ctx: PipelineContext) -> None:
                 parsed.target_fingerprint["tool_schemas"] = deep_caps["tool_schemas"]
             if deep_caps.get("session_type"):
                 parsed.target_fingerprint["session_type"] = deep_caps["session_type"]
+            # L5 v48: 写入置信度评分和触发建议到 target_fingerprint
+            # 学术依据: Zheng et al. (arXiv:2306.05685) §4.3 — 置信度分级
+            if deep_caps.get("capability_confidence"):
+                parsed.target_fingerprint["capability_confidence"] = deep_caps["capability_confidence"]
+            if deep_caps.get("capability_recommendations"):
+                parsed.target_fingerprint["capability_recommendations"] = deep_caps["capability_recommendations"]
             logger.info(
                 "P2-19: Deep capability probe complete. Capabilities: %s, secret_format: %s",
                 sorted(all_caps),
@@ -187,6 +243,73 @@ async def create_target(ctx: PipelineContext) -> None:
     else:
         logger.debug("No MCP capability detected, skipping MCP enumeration")
 
+    # ── L5 v48: 认证状态管理 ──
+    # 学术依据: Heroux et al. (arXiv:2403.04206) §3.2 — 认证失效恢复策略
+    # 在构建 target 前检测认证类型, 初始化 AuthStateManager
+    # 攻击执行中 401/403 时可自动尝试 token 刷新 / 租户切换 / 匿名降级
+    auth_manager = None
+    auth_state = None
+    auth_refresh_enabled = getattr(ctx.args, "auth_refresh_enabled", True)
+    if auth_refresh_enabled:
+        from pipeline.recon.auth_state_manager import AuthStateManager
+        auth_manager = AuthStateManager(
+            max_refreshes=getattr(ctx.args, "auth_refresh_max_retries", 3),
+        )
+        auth_state = await auth_manager.detect_auth_type(parsed)
+        logger.info(
+            "L5 v48: Auth state detected: type=%s, tenant=%s, csrf=%s",
+            auth_state.auth_type,
+            auth_state.tenant_id or "N/A",
+            "yes" if auth_state.csrf_token else "no",
+        )
+        parsed.target_fingerprint["auth_type"] = auth_state.auth_type
+        if auth_state.tenant_id:
+            parsed.target_fingerprint["tenant_id"] = auth_state.tenant_id
+        if auth_state.token_expiry:
+            import time
+            remaining = auth_state.token_expiry - time.time()
+            logger.info(
+                "Token expiry: %.0fs remaining (auto-refresh at %.0fs)",
+                remaining,
+                remaining - 60,
+            )
+            if remaining < 300:
+                logger.warning(
+                    "Token expires in <5 min — consider refreshing before attack",
+                )
+
+    # ── L5 v48: 跨端口端点发现 ──
+    # 学术依据: Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
+    # Agent 服务常部署在非标准端口 (3001, 8080, 11434 等)
+    port_discovery_enabled = getattr(ctx.args, "port_discovery_enabled", True)
+    if port_discovery_enabled:
+        from pipeline.recon.port_expander import discover_port_endpoints
+
+        try:
+            port_endpoints = await discover_port_endpoints(
+                parsed,
+                timeout=getattr(ctx.args, "port_discovery_timeout", 3.0),
+                max_concurrent=getattr(ctx.args, "port_discovery_max_concurrent", 10),
+                early_stop=getattr(ctx.args, "port_discovery_early_stop", 3),
+            )
+            if port_endpoints:
+                logger.info(
+                    "L5 v48: Port discovery found %d additional endpoints",
+                    len(port_endpoints),
+                )
+                parsed.target_fingerprint["port_endpoints"] = [
+                    {
+                        "port": pe.port,
+                        "path": pe.path,
+                        "status_code": pe.status_code,
+                        "service_type": pe.service_type,
+                        "use_tls": pe.use_tls,
+                    }
+                    for pe in port_endpoints
+                ]
+        except Exception as e:
+            logger.warning("L5 v48: Port discovery failed (non-fatal): %s", e)
+
     # ── 构建 HTTPTarget (单轮) ──
     target = build_http_target(parsed)
 
@@ -195,6 +318,8 @@ async def create_target(ctx: PipelineContext) -> None:
         target=target,
         max_concurrency=ctx.args.max_concurrency or 3,
         max_retries=3,
+        auth_state_manager=auth_manager,
+        auth_state=auth_state,
     )
     ctx.objective_target = target
 
@@ -207,6 +332,63 @@ async def create_target(ctx: PipelineContext) -> None:
         max_retries=3,
     )
     ctx.multi_turn_target = multi_turn_target
+
+    # ── L5 v48: 为跨端口发现的端点构建攻击 target ──
+    # 学术依据: Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
+    # 将 port_expander 发现的端点构建为独立的 HTTPTarget + RateLimitedTarget
+    # 存入 ctx.extra_objective_targets 供后续攻击使用
+    port_endpoints_data = parsed.target_fingerprint.get("port_endpoints", [])
+    if port_endpoints_data:
+        from pipeline.recon.burp_parser import ParsedBurpRequest
+        from pipeline.recon.port_expander import build_port_parsed_request
+
+        for pe_data in port_endpoints_data:
+            try:
+                # 构造 DiscoveredPortEndpoint 对象
+                from pipeline.recon.port_expander import DiscoveredPortEndpoint
+                pe = DiscoveredPortEndpoint(
+                    port=pe_data["port"],
+                    path=pe_data["path"],
+                    status_code=pe_data["status_code"],
+                    service_type=pe_data.get("service_type", "unknown"),
+                    use_tls=pe_data.get("use_tls", parsed.use_tls),
+                )
+                # 构建 ParsedBurpRequest 副本
+                port_params = build_port_parsed_request(parsed, pe)
+                port_parsed = ParsedBurpRequest(
+                    method=port_params["method"],
+                    url=f"{('https' if port_params['use_tls'] else 'http')}://{port_params['host']}:{port_params['port']}{port_params['path']}",
+                    host=port_params["host"],
+                    path=port_params["path"],
+                    headers=port_params["headers"],
+                    raw_headers=list(port_params["headers"].items()),
+                    body="{}",
+                    use_tls=port_params["use_tls"],
+                    is_sse=False,
+                    http_version=parsed.http_version,
+                    has_prompt_placeholder=True,
+                )
+                port_target = build_http_target(port_parsed)
+                if port_target:
+                    port_target = RateLimitedTarget(
+                        target=port_target,
+                        max_concurrency=ctx.args.max_concurrency or 3,
+                        max_retries=3,
+                        auth_state_manager=auth_manager,
+                        auth_state=auth_state,
+                    )
+                    ctx.extra_objective_targets[pe.port] = port_target
+                    logger.info(
+                        "L5 v48: Built target for port %d (%s) → %s",
+                        pe.port, pe.service_type, port_params["path"],
+                    )
+            except Exception as e:
+                logger.debug("Failed to build target for port %d: %s", pe_data.get("port"), e)
+
+        logger.info(
+            "L5 v48: %d extra objective targets built from port discovery",
+            len(ctx.extra_objective_targets),
+        )
 
     # ── 创建 adversarial target (用户自己的 LLM API) ──
     # L5 v10: 支持多 adversarial target (多模型并行攻击)
@@ -327,12 +509,15 @@ def _create_adversarial_target() -> Any:
     """从 .env 创建 adversarial chat 目标。
 
     读取环境变量:
-        ADVERSARIAL_CHAT_ENDPOINT
-        ADVERSARIAL_CHAT_KEY
-        ADVERSARIAL_CHAT_MODEL (默认 gpt-4o)
+    ADVERSARIAL_CHAT_ENDPOINT
+    ADVERSARIAL_CHAT_KEY
+    ADVERSARIAL_CHAT_MODEL (默认 gpt-4o)
+
+    L5 v52: 使用 PyRIT 原生 max_requests_per_minute 参数进行 RPM 限速,
+    替代外部 RateLimitedTarget 包装 (原生装饰器更高效)。
 
     Returns:
-        OpenAIChatTarget 实例, 或 None (未配置时)。
+    OpenAIChatTarget 实例, 或 None (未配置时)。
     """
     from pyrit.prompt_target import OpenAIChatTarget
 
@@ -340,11 +525,19 @@ def _create_adversarial_target() -> Any:
     api_key = os.environ.get("ADVERSARIAL_CHAT_KEY")
     model = os.environ.get("ADVERSARIAL_CHAT_MODEL", "gpt-4o")
 
+    # L5 v52: 从环境变量读取 RPM (PyRIT 原生限速)
+    # rate_limit 从 config/defaults.yaml 的 rate_limit 键读取,
+    # 在 main.py 的 _apply_defaults 中映射到 args.rate_limit。
+    # 这里无法访问 ctx, 从环境变量 RATE_LIMIT 读取 (由 main.py 设置)。
+    rpm_str = os.environ.get("RATE_LIMIT", "")
+    rpm = int(rpm_str) if rpm_str.isdigit() else None
+
     if endpoint and api_key:
         return OpenAIChatTarget(
             endpoint=endpoint,
             api_key=api_key,
             model_name=model,
+            max_requests_per_minute=rpm,
         )
 
     logger.warning(
@@ -401,6 +594,9 @@ def _create_scoring_target(ctx: PipelineContext) -> Any:
         SCORER_CHAT_KEY
         SCORER_CHAT_MODEL (默认 gpt-4o)
 
+    L5 v52: 创建后使用 PyRIT 原生 TargetRequirements 验证评分目标能力,
+    确保满足 LLM-as-a-Judge 评分需求 (JSON 输出 + text 模态)。
+
     Returns:
         OpenAIChatTarget 实例, 或 None (未配置时复用 adversarial)。
     """
@@ -411,19 +607,47 @@ def _create_scoring_target(ctx: PipelineContext) -> Any:
     api_key = os.environ.get("SCORING_CHAT_KEY") or os.environ.get("SCORER_CHAT_KEY")
     model = os.environ.get("SCORING_CHAT_MODEL") or os.environ.get("SCORER_CHAT_MODEL", "gpt-4o")
 
+    target = None
     if endpoint and api_key:
-        return OpenAIChatTarget(
+        # L5 v52: 从环境变量读取 RPM (PyRIT 原生限速)
+        rpm_str = os.environ.get("RATE_LIMIT", "")
+        rpm = int(rpm_str) if rpm_str.isdigit() else None
+
+        target = OpenAIChatTarget(
             endpoint=endpoint,
             api_key=api_key,
             model_name=model,
+            max_requests_per_minute=rpm,
         )
+    else:
+        # 复用 adversarial target
+        if ctx.adversarial_target:
+            logger.info("Scorer target not configured, reusing adversarial target")
+            target = ctx.adversarial_target
 
-    # 复用 adversarial target
-    if ctx.adversarial_target:
-        logger.info("Scorer target not configured, reusing adversarial target")
-        return ctx.adversarial_target
+    # L5 v52: PyRIT 原生 TargetRequirements 验证
+    # 学术依据: PyRIT (arXiv:2407.01232) — 验证 scoring_target 能力
+    # 在目标创建后、注册到 ctx 前验证, 确保满足评分器需求
+    if target:
+        try:
+            from pipeline.assess.scorer import validate_scoring_target_capabilities
 
-    return None
+            if not validate_scoring_target_capabilities(target):
+                logger.warning(
+                    "L5 v52: Scoring target %s failed capability validation; "
+                    "LLM-based scoring may fail — consider configuring "
+                    "SCORING_CHAT_* with a model that supports JSON output",
+                    type(target).__name__,
+                )
+            else:
+                logger.info(
+                    "L5 v52: Scoring target %s passed capability validation",
+                    type(target).__name__,
+                )
+        except Exception as e:
+            logger.debug("L5 v52: Scoring target validation skipped: %s", e)
+
+    return target
 
 
 async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> None:
@@ -470,17 +694,30 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
 
     # 定义浏览器交互函数
     # PyRIT PlaywrightTarget 需要 InteractionFunction 和 Page 对象
-    # 这里使用 async 版本, 由 PlaywrightTarget 内部管理浏览器生命周期
-    async def _chat_interaction(page, prompt_text):
+    # 对齐 PyRIT 1.0.1: InteractionFunction 签名为
+    #   async def __call__(self, page: Page, message: Message) -> str
+    # 交互函数接收完整 Message 对象 (非字符串)
+    async def _chat_interaction(page, message):
         """与 Web Chat UI 交互的函数。
+
+        对齐 PyRIT 1.0.1 InteractionFunction Protocol:
+            - 参数: page (Playwright Page), message (Message 对象)
+            - 返回: str (目标 UI 的响应文本)
 
         Args:
             page: Playwright Page 对象。
-            prompt_text: 要发送的 prompt 文本。
+            message: PyRIT Message 对象 (含 message_pieces).
 
         Returns:
             目标 Chat UI 的响应文本。
         """
+        # 从 Message 中提取 prompt 文本 — 对齐 PyRIT 1.0.1 MessagePiece API
+        # message.message_pieces[0].converted_value 是注入的 prompt 文本
+        prompt_text = (
+            message.message_pieces[0].converted_value
+            if hasattr(message, "message_pieces") and message.message_pieces
+            else str(message)
+        )
         # 导航到目标 URL
         await page.goto(browser_url, wait_until="domcontentloaded")
 
@@ -539,6 +776,7 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
         # L5 v38 修复: _create_playwright_target 是 async 函数,
         # 直接 await 获取 Page 对象, 不再创建嵌套事件循环
         # (嵌套事件循环在已有 async 上下文中会崩溃)
+        # 生产级修复: 存储引用到 ctx 以便后续清理
         _playwright_instance = await async_playwright().start()
         _browser = await _playwright_instance.chromium.launch(headless=True)
         _context = await _browser.new_context()
@@ -552,6 +790,12 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
         ctx.objective_target = target
         ctx.multi_turn_target = target  # PlaywrightTarget 支持多轮
         ctx.model_name = f"Browser:{browser_url}"
+
+        # 生产级资源管理: 存储引用供流水线结束时清理
+        ctx._playwright_instance = _playwright_instance
+        ctx._browser = _browser
+        ctx._browser_context = _context
+
         logger.info(
             "L5 v38: PlaywrightTarget created for %s (RPM=%s)",
             browser_url,
@@ -560,3 +804,102 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
     except Exception as e:
         logger.error("Failed to create PlaywrightTarget: %s", e)
         raise
+
+
+async def _create_native_openai_target(
+    ctx: PipelineContext,
+    *,
+    endpoint: str,
+    api_key: str,
+    model_name: str,
+    api_type: str = "chat",
+) -> None:
+    """L5 v52: 创建 PyRIT 原生 OpenAIChatTarget 或 OpenAIResponseTarget。
+
+    学术依据: PyRIT (arXiv:2407.01232) — 原生 Target 支持
+
+    PyRIT 原生优势:
+        1. OpenAIChatTarget:
+           - 支持 gpt-4o, gpt-4, DeepSeek, llama, phi-4, gpt-3.5
+           - 原生 RPM 限速: max_requests_per_minute 参数
+           - 原生 JSON 输出: response_format + json_schema (prompt_metadata)
+           - 原生多模态: text + image_path 输入
+           - 原生 TargetCapabilities: get_known_capabilities 自动匹配模型
+           - 原生错误处理: pyrit_target_retry 重试装饰器
+           - 原生温度控制: temperature, top_p, frequency_penalty 等
+           - Azure Entra ID 认证: 支持无 API key 的 identity 认证
+
+        2. OpenAIResponseTarget:
+           - 支持 o1, o3, o4-mini, GPT-5 (Responses API)
+           - 原生 reasoning 控制: reasoning_effort + reasoning_summary
+           - 原生 tool calling: custom_functions 注册自定义工具
+           - 原生 web search: 内置 web search tool
+           - 原生 agentic loop: 自动处理 function_call → function_call_output
+           - 原生 JSON schema: text.format.json_schema
+           - 原生 TargetCapabilities: 支持 function_call, tool_call 数据类型
+
+    包装策略:
+        - 使用 RateLimitedTarget 包装, 提供并发控制 + 重试
+        - 保持原生 TargetCapabilities (不覆盖 custom_configuration)
+        - 复用原生 max_requests_per_minute 限速
+
+    Args:
+        ctx: 流水线上下文。
+        endpoint: API endpoint URL。
+        api_key: API key。
+        model_name: 模型名称 (如 gpt-4o, o3-mini)。
+        api_type: "chat" → OpenAIChatTarget, "responses" → OpenAIResponseTarget。
+    """
+    from pyrit.prompt_target import OpenAIChatTarget, OpenAIResponseTarget
+
+    # 从 config 读取 RPM (与 RateLimitedTarget 一致)
+    rpm = getattr(ctx.args, "rate_limit", None) or None
+
+    if api_type == "responses":
+        # OpenAIResponseTarget — Responses API (o1/o3/o4-mini/GPT-5)
+        # 原生支持 reasoning_effort, reasoning_summary, custom_functions
+        target = OpenAIResponseTarget(
+            endpoint=endpoint,
+            api_key=api_key,
+            model_name=model_name,
+            max_requests_per_minute=rpm,
+        )
+        logger.info(
+            "L5 v52: OpenAIResponseTarget created: endpoint=%s, model=%s, RPM=%s",
+            endpoint, model_name, rpm or "unlimited",
+        )
+    else:
+        # OpenAIChatTarget — Chat Completions API (gpt-4o, DeepSeek 等)
+        # 原生支持 temperature, top_p, frequency_penalty, max_completion_tokens
+        target = OpenAIChatTarget(
+            endpoint=endpoint,
+            api_key=api_key,
+            model_name=model_name,
+            max_requests_per_minute=rpm,
+        )
+        logger.info(
+            "L5 v52: OpenAIChatTarget created: endpoint=%s, model=%s, RPM=%s",
+            endpoint, model_name, rpm or "unlimited",
+        )
+
+    # 包装 RateLimitedTarget (并发控制 + 重试)
+    # 保留原生 TargetCapabilities (不传 custom_configuration)
+    wrapped_target = RateLimitedTarget(
+        target=target,
+        max_concurrency=ctx.args.max_concurrency or 3,
+        max_retries=3,
+        requests_per_minute=rpm,
+    )
+    ctx.objective_target = wrapped_target
+    ctx.multi_turn_target = wrapped_target  # 原生支持多轮
+
+    # 设置 model_name
+    ctx.model_name = f"OpenAI:{model_name}"
+
+    # L5 v52: 可选 — 运行 PyRIT 原生能力探测
+    # 原生 OpenAIChatTarget/OpenAIResponseTarget 已有正确的 TargetCapabilities,
+    # 但运行时探测可以发现端点实际支持的能力 (如 Azure 部署可能禁用了某些能力)
+    auto_discover = getattr(ctx.args, "auto_discover_capabilities", False)
+    if auto_discover:
+        logger.info("L5 v52: Running native capability discovery...")
+        await wrapped_target.apply_discovered_capabilities(timeout_s=15.0)

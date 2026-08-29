@@ -271,7 +271,9 @@ def regenerate_reports(input_dir: Path, output_dir: Path) -> None:
         )
 
     # ── 重新生成 PoC 脚本 ──
+    # 断点修复: 与 generator.py 一致, 增强错误日志
     poc_count = 0
+    poc_failed = 0
     for ev in evidence.successful_evidence:
         try:
             poc_script = generate_poc_script(ev)
@@ -279,9 +281,30 @@ def regenerate_reports(input_dir: Path, output_dir: Path) -> None:
             poc_path.write_text(poc_script, encoding="utf-8")
             poc_count += 1
         except Exception as e:
-            logger.warning("Failed to generate PoC for %s: %s", ev.evidence_id, e)
+            poc_failed += 1
+            logger.warning(
+                "PoC generation failed for %s (technique=%s): %s",
+                ev.evidence_id,
+                ev.technique_name,
+                e,
+                exc_info=True,
+            )
     if poc_count:
         logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
+    if poc_failed:
+        logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
+
+    # ── SARIF 报告 ──
+    # 断点修复: regen_report.py 缺少 SARIF 报告重新生成,
+    # 导致离线重新生成的输出与主流水线不一致 (缺少 report.sarif)。
+    # 修复: 与 generator.py 保持一致, 重新生成 SARIF 报告。
+    try:
+        from pipeline.report.sarif_report import generate_sarif_report
+
+        sarif_path = output_dir / "report.sarif"
+        generate_sarif_report(evidence, sarif_path)
+    except Exception as e:
+        logger.warning("Failed to generate SARIF report: %s", e)
 
     # ── CSV 导出 ──
     try:
@@ -313,6 +336,8 @@ def regenerate_reports(input_dir: Path, output_dir: Path) -> None:
     print(f"  Total Evidence: {len(evidence.evidence)}")
     print(f"  Successful: {len(evidence.successful_evidence)}")
     print(f"  PoC Scripts: {poc_count}")
+    if poc_failed:
+        print(f"  PoC Failed:  {poc_failed}")
     print(f"  Overall ASR: {evidence.overall_asr}%")
     print()
     print("Generated files:")
@@ -321,6 +346,7 @@ def regenerate_reports(input_dir: Path, output_dir: Path) -> None:
     print("  - evidence/evidence.json / evidence_success.json")
     print("  - evidence/EVD-*.json")
     print("  - poc/poc_EVD-*_success.py")
+    print("  - report.sarif (SARIF 2.1)")
     print("  - attack_summary.csv / owasp_coverage_matrix.csv")
     print("  - evidence_package.zip")
 

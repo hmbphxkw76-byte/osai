@@ -468,6 +468,8 @@ from pipeline.recon.capability_detector import (  # noqa: F401, E402
 )
 from pipeline.recon.target_builder import (  # noqa: F401, E402
     JSONSafeHTTPTarget,
+    _make_adaptive_json_callback,
     _select_callback,
     build_http_target,
+    build_httpx_api_target,
 )

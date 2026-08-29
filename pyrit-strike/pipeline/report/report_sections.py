@@ -249,32 +249,6 @@ def _build_technique_effectiveness_matrix(
     return lines
 
 
-def _build_mitre_atlas_section(evidence_list: list[VulnerabilityEvidence]) -> list[str]:
-    """构建 MITRE ATLAS 映射章节 (Markdown 行列表).
-
-    Args:
-        evidence_list: 证据列表.
-
-    Returns:
-        Markdown 行列表.
-    """
-    lines: list[str] = []
-    lines.append("## MITRE ATLAS Mapping")
-    lines.append("")
-    lines.append("| Evidence ID | OWASP ID | MITRE Tactic | MITRE Technique ID | MITRE Technique Name |")
-    lines.append("|-------------|----------|--------------|--------------------|---------------------|")
-
-    for ev in evidence_list:
-        tactic = ev.mitre_tactic or _MITRE_ATLAS_TECHNIQUES.get(ev.owasp_id, {}).get("tactic", "")
-        tech_id = ev.mitre_technique_id or _MITRE_ATLAS_TECHNIQUES.get(ev.owasp_id, {}).get("technique_id", "")
-        tech_name = ev.mitre_technique_name or _MITRE_ATLAS_TECHNIQUES.get(ev.owasp_id, {}).get("technique_name", "")
-
-        lines.append(f"| {ev.evidence_id} | {ev.owasp_id} | {tactic} | {tech_id} | {tech_name} |")
-
-    lines.append("")
-    return lines
-
-
 def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
     """构建评分一致性分析章节 (Markdown 行列表).
 
@@ -304,88 +278,6 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
         scorer_names = ", ".join(sd.get("scorer", "") for sd in score_details)
         consistency = _classify_score_consistency(score_details)
         lines.append(f"| {ev.evidence_id} | {scorer_names} | {consistency} |")
-
-    lines.append("")
-    return lines
-
-
-def _build_findings_section(evidence: EvidenceCollection) -> list[str]:
-    """构建三级证据链 Findings 章节 (Markdown 行列表).
-
-    Args:
-        evidence: 证据集合.
-
-    Returns:
-        Markdown 行列表.
-    """
-    lines: list[str] = []
-    lines.append("## Three-Tier Evidence Chain (Findings)")
-    lines.append("")
-    lines.append("| Finding ID | OWASP ID | Category | Severity | ASR | Tested | Success | MITRE |")
-    lines.append("|------------|----------|----------|----------|-----|--------|---------|-------|")
-
-    for finding in evidence.findings:
-        lines.append(
-            f"| {finding.finding_id} | {finding.owasp_id} | "
-            f"{finding.owasp_category} | {finding.owasp_severity} | "
-            f"{finding.asr}% | {finding.total_tested} | {finding.total_success} | "
-            f"{finding.mitre_technique_id} |"
-        )
-
-    lines.append("")
-
-    # 每个 Finding 的详细结果
-    for finding in evidence.findings:
-        lines.append(f"### {finding.finding_id}: {finding.owasp_id} ({finding.owasp_category})")
-        lines.append("")
-        lines.append(f"- **OWASP Standard**: {finding.owasp_standard}")
-        lines.append(f"- **Severity**: {finding.owasp_severity}")
-        lines.append(f"- **Risk Score**: {finding.owasp_risk_score}/10")
-        lines.append(f"- **ASR**: {finding.asr}% ({finding.total_success}/{finding.total_tested})")
-        if finding.mitre_technique_id:
-            lines.append(f"- **MITRE ATLAS**: {finding.mitre_technique_id} — {finding.mitre_technique_name}")
-        if finding.mitigations:
-            lines.append("- **Mitigations**:")
-            for m in finding.mitigations:
-                lines.append(f"  - {m}")
-        lines.append("")
-
-        # Result 级别
-        if finding.results:
-            lines.append("| Evidence ID | Technique | Success | Conversation |")
-            lines.append("|-------------|-----------|---------|---------------|")
-            for result in finding.results:
-                ev_id = result.get("evidence_id", "")
-                tech = result.get("technique", "")
-                success = "✅" if result.get("is_success") else "❌"
-                conv = result.get("conversation", "")
-                lines.append(f"| {ev_id} | {tech} | {success} | {conv} |")
-            lines.append("")
-
-    return lines
-
-
-def _build_escalation_chain_section(evidence: EvidenceCollection) -> list[str]:
-    """构建升级链报告章节 (Markdown 行列表).
-
-    Args:
-        evidence: 证据集合.
-
-    Returns:
-        Markdown 行列表.
-    """
-    lines: list[str] = []
-    lines.append("## Escalation Chain Report")
-    lines.append("")
-    lines.append("| Stage | Technique | ASR | Status |")
-    lines.append("|-------|-----------|-----|--------|")
-
-    dashboard = _build_escalation_dashboard_data(evidence)
-    for stage in dashboard:
-        lines.append(
-            f"| {stage['stage']} | {stage['technique']} | "
-            f"{stage['asr']} | {stage['escalated']} |"
-        )
 
     lines.append("")
     return lines

@@ -503,22 +503,21 @@ class TestL5V14MultiModelDepth:
         # V2 精简: gcg_suffix_pool_size 已从 defaults.yaml 删除, 硬编码在代码中
         pytest.skip("V2: gcg_suffix_pool_size removed from defaults.yaml")
 
-    def test_multi_model_escalation_uses_tree_depth_10(self):
-        """测试 _run_multi_model_escalation 使用 depth=10 (L5 基线)。"""
+    def test_multi_model_escalation_uses_tree_depth_7(self):
+        """测试 _run_multi_model_escalation 使用 depth=7 (L5 v50 基线)。"""
         import inspect
 
         from pipeline.strike.escalation import _run_multi_model_escalation
 
         source = inspect.getsource(_run_multi_model_escalation)
-        # L5 v14: depth 从旧值升级到 10, 对齐主 PAIRAttack
-        assert "tree_depth=10" in source
-        # 确保旧的 depth=5 不再作为实际参数 (排除注释中的提及)
-        for line in source.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue  # 跳过注释行
-            assert "tree_depth=5," not in stripped or stripped.startswith("#"), \
-                f"Found old depth param: {stripped}"
+        # L5 v50: depth 从 10 降至 7, 平衡 ASR 与超时风险 (arXiv:2406.12609)
+        # 代码使用 _get_config_int(ctx, "pair_tree_depth", 7) — fallback 值应为 7
+        assert '"pair_tree_depth", 7' in source or '"pair_tree_depth",7' in source, (
+            "Expected pair_tree_depth fallback=7 in source"
+        )
+        # 确保旧的 depth=10/5 不再作为 fallback 默认值
+        assert '"pair_tree_depth", 10' not in source, "Old depth=10 fallback still present"
+        assert '"pair_tree_depth", 5' not in source, "Old depth=5 fallback still present"
 
     def test_run_gcg_no_objectives_truncation(self):
         """测试 _run_gcg 不再截断目标列表。"""
@@ -602,7 +601,7 @@ class TestL5V15CrescendoMTOS:
         assert "_get_outcome" in source, "Should use post-hoc dual judge outcome"
         # 全量升级策略: 应使用可配置上限
         assert "_MAX_ESCALATION_TARGETS" in source, "Should use configurable cap for escalation targets"
-        assert "[:_MAX_ESCALATION_TARGETS]" in source, "Should cap at _MAX_ESCALATION_TARGETS"
+        assert "_dynamic_cap" in source, "Should use dynamic cap (max(SSOT, max_seeds//3))"
         # 不应再使用旧的 failed_from_executor 短路逻辑
         assert "return failed_from_executor" not in source
 

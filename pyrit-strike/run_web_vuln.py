@@ -56,6 +56,11 @@ async def run_web_vuln_pipeline() -> None:
     output_dir = get_output_dir(args)
     ensure_output_dir(output_dir)
 
+    # L5 v52: 将 rate_limit 设置为环境变量, 供 _create_scoring_target 读取
+    rate_limit = getattr(args, "rate_limit", None)
+    if rate_limit:
+        os.environ["RATE_LIMIT"] = str(rate_limit)
+
     ctx = PipelineContext(args=args, output_dir=output_dir)
 
     # ── 初始化 PyRIT 环境 ──
@@ -242,6 +247,11 @@ async def run_combined_pipeline() -> None:
     args = parse_args()
     output_dir = get_output_dir(args)
     ensure_output_dir(output_dir)
+
+    # L5 v52: 将 rate_limit 设置为环境变量, 供 _create_scoring_target 读取
+    rate_limit = getattr(args, "rate_limit", None)
+    if rate_limit:
+        os.environ["RATE_LIMIT"] = str(rate_limit)
 
     ctx = PipelineContext(args=args, output_dir=output_dir)
 

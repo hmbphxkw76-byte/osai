@@ -1,6 +1,13 @@
 """escalation_level2 — 从 escalation.py 拆分而来.
 
-包含 GCG 攻击, partial results, fallback FSTS, refusal inverter 配置.
+包含 GCG 攻击, CAIR 上下文感知迭代优化, partial results, fallback FSTS, refusal inverter 配置.
+
+L5 v52: 新增 _run_cair wrapper — 将 CAIR 集成到 L2 升级链 (GCG ∥ CAIR 并行),
+完成 Rule 10 完整升级链要求: Crescendo → TAP ∥ PAIR → GCG ∥ CAIR → native attacks.
+
+学术依据:
+    - Chao et al. (arXiv:2310.08419) — PAIR/CAIR 上下文感知迭代优化
+    - Lattner et al. (arXiv:2406.12609) — 并行升级策略
 """
 
 import asyncio
@@ -278,10 +285,16 @@ async def _run_gcg(
                     AttackSeedGroup(seeds=[SeedObjective(value=gcg_payload)])
                 ]
 
-                attack = PromptSendingAttack(
-                    objective_target=ctx.objective_target,
-                    attack_scoring_config=scoring_config,
-                )
+                # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+                from pipeline.strike.executor import _build_prepended_conversation
+                gcg_prepended = _build_prepended_conversation(ctx)
+                gcg_attack_kwargs: dict[str, Any] = {
+                    "objective_target": ctx.objective_target,
+                    "attack_scoring_config": scoring_config,
+                }
+                if gcg_prepended:
+                    gcg_attack_kwargs["prepended_conversation"] = gcg_prepended
+                attack = PromptSendingAttack(**gcg_attack_kwargs)
 
                 # L5 v26: 恢复并发度=2 (SQLite WAL 模式下安全)
                 # executor 内部仍串行, 但多个 objective 之间并行 (asyncio.gather)
@@ -388,5 +401,90 @@ async def _run_gcg(
 
     except Exception as e:
         logger.error("GCG attack failed: %s", e)
+
+    return results
+
+
+async def _run_cair(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """L5 v52: 对失败目标执行 CAIR 上下文感知迭代优化攻击。
+
+    CAIR (Context-Aware Iterative Refinement) 是 PAIR 的增强版本,
+    能根据目标拒绝模式动态调整攻击策略 (safety/ethical/legal/capability/generic),
+    并在跨轮次间累积上下文记忆, 实现策略升级链。
+
+    本函数是 cair.py 的 run_cair_attack 的并行 wrapper,
+    用于 L2 升级链中与 GCG 并行执行 (GCG ∥ CAIR)。
+
+    学术依据:
+        - Chao et al. (arXiv:2310.08419) — PAIR/CAIR 上下文感知迭代优化
+        - Lattner et al. (arXiv:2406.12609) — 并行升级策略降低总执行时间
+        - Russinovich et al. (arXiv:2402.12109) — 渐进式攻击模式
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        CAIR 攻击结果字典 {"cair": [results]}。
+    """
+    from pipeline.strike.cair import run_cair_attack
+    from pipeline.strike.escalation_level1 import _apply_mtos_ranking, _filter_by_suitable_for
+
+    results: dict[str, list[Any]] = {}
+
+    # L5 v36: suitable_for 分发 — 只执行适合 CAIR 的种子
+    # 学术依据: Chao et al. (arXiv:2310.08419) — CAIR 对需要
+    # 迭代优化的种子更有效, 过滤不适合的种子节省 token
+    cair_objectives = _filter_by_suitable_for(objectives, ctx, "cair")
+    if not cair_objectives:
+        logger.info("CAIR: no objectives suitable for this technique, skipping")
+        return results
+
+    # L5 v41: 限制目标数量以控制 token 消耗
+    if len(cair_objectives) > 8:
+        cair_objectives = cair_objectives[:8]
+        logger.info("L5 v52: CAIR limited to top-8 objectives (MTOS-ranked)")
+
+    # L5 v16: MTOS 多轮选种排序
+    # 学术依据: Chao et al. (arXiv:2310.08419) — CAIR 是多轮迭代优化攻击,
+    # 低-中 ASR 种子更适合多轮迭代, 高 ASR 种子单轮已成功
+    mtos_objectives = _apply_mtos_ranking(cair_objectives, ctx, technique_name="cair")
+
+    # 并行执行所有目标的 CAIR 攻击
+    # 学术依据: Lattner et al. (arXiv:2406.12609) — 并行策略降低总执行时间
+    logger.info(
+        "L5 v52: CAIR parallel execution: %d objectives, launching in parallel",
+        len(mtos_objectives),
+    )
+
+    async def _cair_single(obj: str) -> dict[str, list[Any]]:
+        """对单个目标执行 CAIR 攻击。"""
+        try:
+            return await run_cair_attack(ctx, obj, max_iterations=3)
+        except Exception as e:
+            logger.warning("CAIR failed for %s...: %s", obj[:60], e)
+            return {}
+
+    parallel_results = await asyncio.gather(
+        *[_cair_single(obj) for obj in mtos_objectives],
+        return_exceptions=True,
+    )
+
+    all_results: list[Any] = []
+    for res in parallel_results:
+        if isinstance(res, Exception):
+            logger.warning("CAIR parallel sub-task failed: %s", res)
+            continue
+        if isinstance(res, dict) and "cair" in res:
+            all_results.extend(res["cair"])
+
+    if all_results:
+        results["cair"] = all_results
+        logger.info("CAIR completed: %d results", len(all_results))
+    else:
+        logger.info("CAIR completed: 0 results (all objectives failed)")
 
     return results

@@ -120,8 +120,8 @@ class TestGetCandidateConverters:
         # Should deduplicate to 1
         assert len(result) <= 1
 
-    def test_max_7_candidates(self):
-        """验证返回的候选列表不超过 7 个."""
+    def test_max_10_candidates(self):
+        """L5 v36: 验证返回的候选列表不超过 10 个 (v36 扩展自 7)."""
         from pipeline.strike.converter_selector import _get_candidate_converters
 
         converters = []
@@ -130,11 +130,17 @@ class TestGetCandidateConverters:
             "VariationConverter", "UnicodeSubstitutionConverter",
             "RandomTranslationConverter", "TranslationConverter",
             "RandomCapitalLettersConverter", "CaesarConverter",
+            "SelectiveTextConverter", "CodeChameleonConverter",
+            "PolicyPuppetryConverter", "SearchReplaceConverter",
         ]:
             c = MagicMock()
             c.__class__.__name__ = name
             c._persuasion_technique = None
             c._tone = None
+            c._selection_strategy = None
+            c._pattern = None
+            c._encrypt_type = None
+            c._sub_converter = None
             converters.append(c)
 
         ctx = MagicMock()
@@ -143,7 +149,7 @@ class TestGetCandidateConverters:
         ctx._obj_metadata_map = {}
 
         result = _get_candidate_converters(ctx)
-        assert len(result) <= 7
+        assert len(result) <= 10
 
 
 # ═══════════════════════════════════════════════════════

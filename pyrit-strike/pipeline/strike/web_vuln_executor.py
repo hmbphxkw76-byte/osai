@@ -115,10 +115,16 @@ async def execute_web_vuln_attacks(
             scoring_config = AttackScoringConfig()
 
         # 构建 attack
-        attack = PromptSendingAttack(
-            objective_target=target,
-            attack_scoring_config=scoring_config,
-        )
+        # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+        from pipeline.strike.executor import _build_prepended_conversation
+        _wv_prepended = _build_prepended_conversation(ctx)
+        _wv_kwargs: dict[str, Any] = {
+            "objective_target": target,
+            "attack_scoring_config": scoring_config,
+        }
+        if _wv_prepended:
+            _wv_kwargs["prepended_conversation"] = _wv_prepended
+        attack = PromptSendingAttack(**_wv_kwargs)
 
         executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
         timeout = ctx.args.timeout or 300

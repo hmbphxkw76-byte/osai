@@ -16,7 +16,6 @@ import re
 
 def _extract_paths_from_response(
     response_text: str,
-    base_path: str,
 ) -> list[str]:
     """从响应内容中提取可能的 API 路径。
 

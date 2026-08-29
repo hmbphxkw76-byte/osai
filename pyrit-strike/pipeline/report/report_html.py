@@ -48,6 +48,9 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
     """将证据集合转换为字典 (用于 JSON 序列化)。"""
     ev_list = evidence.successful_evidence if success_only else evidence.evidence
 
+    # 断点修复: main.py 注入 orchestration_log / wilson_ci / cohens_kappa 到 evidence,
+    # 但 _evidence_to_dict 序列化时丢失这些字段, 导致 regen_report.py 无法重建。
+    # 修复: 显式序列化所有注入字段, 确保数据流从 main.py → evidence → JSON → regen 完整。
     return {
         "collection_id": evidence.collection_id,
         "timestamp": evidence.timestamp,
@@ -70,6 +73,10 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
         "findings": [_finding_to_dict(f) for f in getattr(evidence, 'findings', [])],
         "web_vuln_stats": getattr(evidence, 'web_vuln_stats', {}),
         "discovered_endpoints": getattr(evidence, 'discovered_endpoints', []),
+        # 断点修复: 以下字段由 main.py Phase 4/5 注入, 必须序列化以保持数据流完整
+        "orchestration_log": getattr(evidence, 'orchestration_log', []),
+        "wilson_ci": list(getattr(evidence, 'wilson_ci', (0.0, 0.0))),
+        "cohens_kappa": getattr(evidence, 'cohens_kappa', 0.0),
     }
 
 def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:

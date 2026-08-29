@@ -146,10 +146,16 @@ async def run_sequential_attack(
         child_attacks = []
         for obj in objectives:
             seed_group = AttackSeedGroup(seeds=[SeedObjective(value=obj)])
-            attack = PromptSendingAttack(
-                objective_target=ctx.objective_target,
-                attack_scoring_config=scoring_config,
-            )
+            # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+            from pipeline.strike.executor import _build_prepended_conversation
+            _mta_prepended = _build_prepended_conversation(ctx)
+            _mta_kwargs: dict[str, Any] = {
+                "objective_target": ctx.objective_target,
+                "attack_scoring_config": scoring_config,
+            }
+            if _mta_prepended:
+                _mta_kwargs["prepended_conversation"] = _mta_prepended
+            attack = PromptSendingAttack(**_mta_kwargs)
             child = SequentialChildAttack(
                 strategy=attack,
                 seed_group=seed_group,

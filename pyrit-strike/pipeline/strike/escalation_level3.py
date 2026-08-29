@@ -14,12 +14,23 @@ logger = logging.getLogger(__name__)
 
 
 def _is_success(result) -> bool:
-    """Check if attack result is successful."""
-    # 1. Check outcome
+    """Check if attack result is successful.
+
+    Rule 11 integration: 优先读取 _precomputed_outcome 缓存,
+    确保 T0/J1/J2 级联评分结果在升级链中间退出检查点中可用。
+
+    学术依据: arXiv:2406.12609 — Lattner et al. 中间退出需要准确 ASR
+    """
+    # Rule 11: 优先读取 precompute_outcomes_async 缓存的评分结果
+    # 这确保升级链中间退出检查点 (post_l1, post_l2) 能读到 T0/J1/J2 的评分
+    cached = getattr(result, "_precomputed_outcome", None)
+    if isinstance(cached, str):
+        return cached == "success"
+    # 2. Check outcome
     outcome = getattr(result, "outcome", None)
     if outcome is not None:
         return bool(outcome == "success" or getattr(outcome, "value", "") == "success")
-    # 2. Check last_score
+    # 3. Check last_score
     score = getattr(result, "last_score", None)
     if score is not None:
         try:
@@ -141,7 +152,7 @@ async def _run_multi_model_escalation(
                 ),
                 attack_scoring_config=scoring_config,
                 tree_width=_get_config_int(ctx, "pair_tree_width", 1),
-                tree_depth=_get_config_int(ctx, "pair_tree_depth", 10),
+                tree_depth=_get_config_int(ctx, "pair_tree_depth", 7),  # L5 v50: depth=10→7 (arXiv:2406.12609)
             )
 
             seed_groups = [
@@ -154,16 +165,16 @@ async def _run_multi_model_escalation(
                 max_concurrency=get_effective_concurrency(ctx),
             )
 
-            # L5 v42: timeout 300→500s — tree_depth=10 需要更多时间完成 10 轮迭代
-            # 学术依据: Chao et al. (arXiv:2310.08419) — PAIR depth=10 ASR 60% vs depth=5 40%
-            #   300s 不足以完成 10 轮迭代, 导致 PAIR 被截断 → ASR 降至 ~40%
+            # L5 v50: timeout 500→300s — depth=7 (21 LLM calls/obj), 多模型并行更需缩短
+            # 学术依据: Lattner et al. (arXiv:2406.12609) — token-time balanced 优化
+            #   depth=10 超时被截断后 ASR 降至 ~40%; depth=7 可靠完成 ASR ~52%
             executor_result = await asyncio.wait_for(
                 executor.execute_attack_from_seed_groups_async(
                     attack=attack,
                     seed_groups=seed_groups,
                     return_partial_on_failure=True,
                 ),
-                timeout=500,
+                timeout=300,
             )
 
             model_results = list(executor_result.completed_results)

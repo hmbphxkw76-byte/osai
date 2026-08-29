@@ -196,14 +196,14 @@ class TestL5V8SmoothLLMBypass:
         from pipeline.arm.converter_chains import CHAIN_BUILDERS
         assert "smoothllm_bypass" in CHAIN_BUILDERS
 
-    def test_l5_optimal_has_fuzzer(self):
-        """测试 l5_optimal 包含 FuzzerConverter。"""
+    def test_l5_optimal_has_selective(self):
+        """L5 v36: l5_optimal 包含 SelectiveTextConverter (替代 FuzzerConverter)."""
         import inspect
 
         from pipeline.arm.converter_chains import l5_optimal
         source = inspect.getsource(l5_optimal)
-        assert "FuzzerConverter" in source
-        assert "SmoothLLM" in source
+        assert "SelectiveTextConverter" in source
+        assert "selective_encoding" in source
 
 
 class TestL5V8BayesianThreshold:

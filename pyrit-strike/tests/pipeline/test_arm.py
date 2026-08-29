@@ -180,8 +180,11 @@ class TestL5Optimal:
         converters = l5_optimal(converter_target=None)
         assert len(converters) >= 3
         type_names = [type(c).__name__ for c in converters]
-        assert "Base64Converter" in type_names
+        # L5 v36: Base64Converter (全文) 被 SelectiveTextConverter 替代
+        assert "SelectiveTextConverter" in type_names
         assert "ROT13Converter" in type_names
+        assert "SearchReplaceConverter" in type_names
+        assert "TemplateSegmentConverter" in type_names
 
     def test_with_mock_converter_target(self):
         """有 converter_target 时返回更多路径."""
@@ -199,6 +202,11 @@ class TestL5Optimal:
             "encoding", "stealth", "persuasion", "format",
             "multi_encoding", "decomposition", "variation",
             "flip", "smoothllm_bypass", "l5_optimal",
+            # L5 v36: 新增选择性 converter 链
+            "selective_encoding", "selective_obfuscation",
+            "chained_selective", "keyword_replacement",
+            "code_chameleon", "policy_puppetry",
+            "token_smuggling", "template_segment",
         }
         assert expected_keys.issubset(CHAIN_BUILDERS.keys())
 
@@ -506,7 +514,7 @@ class TestAutoDanGenerator:
         from pipeline.arm.autodan_generator import _clean_generated_variant
 
         content = "Rewritten request: This is the actual jailbreak content here."
-        result = _clean_generated_variant(content, "original objective")
+        result = _clean_generated_variant(content)
         assert "[System Override]" in result
         assert "skeleton-key mode" in result
         assert "This is the actual jailbreak content here." in result
@@ -515,7 +523,7 @@ class TestAutoDanGenerator:
         from pipeline.arm.autodan_generator import _clean_generated_variant
 
         content = "Academic framing: The academic content here."
-        result = _clean_generated_variant(content, "objective")
+        result = _clean_generated_variant(content)
         assert "[System Override]" in result
         assert "The academic content here." in result
 

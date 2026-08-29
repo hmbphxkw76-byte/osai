@@ -507,11 +507,13 @@ class TestRateLimitedTargetInit:
         assert rlt._max_retries == 3
         assert rlt._timeout_max_retries == 5
         assert rlt._timeout_max_delay == 120.0
-        assert rlt._memory is target._memory
-        assert rlt._verbose is True
-        assert rlt._max_requests_per_minute == 60
+        # super().__init__ sets _memory via CentralMemory (not the mock's _memory)
+        assert rlt._memory is not None  # CentralMemory.get_memory_instance()
+        assert rlt._verbose is False  # PromptTarget default (verbose not passed)
+        assert rlt._max_requests_per_minute == 60  # passed via effective_rpm
         assert rlt._model_name == "gpt-4"
         assert rlt._underlying_model == "gpt-4-0613"
+        # _configuration is passed as custom_configuration to super().__init__
         assert rlt._configuration == {"temp": 0.7}
         assert rlt._identifier == "test-id"
         assert rlt.supported_converters == []

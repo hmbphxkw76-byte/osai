@@ -271,10 +271,16 @@ async def _execute_specialized_seeds(
     )
 
     # 执行攻击
-    attack = PromptSendingAttack(
-        objective_target=ctx.objective_target,
-        attack_scoring_config=scoring_config,
-    )
+    # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+    from pipeline.strike.executor import _build_prepended_conversation
+    mcp_prepended = _build_prepended_conversation(ctx)
+    mcp_attack_kwargs: dict[str, Any] = {
+        "objective_target": ctx.objective_target,
+        "attack_scoring_config": scoring_config,
+    }
+    if mcp_prepended:
+        mcp_attack_kwargs["prepended_conversation"] = mcp_prepended
+    attack = PromptSendingAttack(**mcp_attack_kwargs)
 
     executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
 

@@ -28,7 +28,7 @@ L5 v35 关键改进 (vs v34):
     - Skeleton Key: arXiv:2406.18112 ASR 80-95% (前置注入)
     - Crescendo: arXiv:2402.12109 max_turns=10 ASR=82%
     - TAP: arXiv:2312.02191 tree_width=4, depth=4 ASR=65%
-    - PAIR: arXiv:2310.08419 tree_depth=10 ASR=60% (vs depth=5 ASR=40%)
+    - PAIR: arXiv:2310.08419+2406.12609 tree_depth=7 (depth=10 超时风险高, 7 平衡 ASR/time)
 
 L5 v35 实际执行路径 (多路径独立, 非串联):
     单轮: Decomposition → Persuasion(authority) → ROT13 → Variation (依次)

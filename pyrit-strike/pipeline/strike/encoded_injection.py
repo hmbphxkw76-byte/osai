@@ -308,10 +308,16 @@ async def run_encoded_injection_attack(
     from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
     scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-    attack = PromptSendingAttack(
-        objective_target=ctx.objective_target,
-        attack_scoring_config=scoring_config,
-    )
+    # v51: 注入 prepended_conversation (SkeletonKey 前置注入)
+    from pipeline.strike.executor import _build_prepended_conversation
+    enc_prepended = _build_prepended_conversation(ctx)
+    enc_attack_kwargs: dict[str, Any] = {
+        "objective_target": ctx.objective_target,
+        "attack_scoring_config": scoring_config,
+    }
+    if enc_prepended:
+        enc_attack_kwargs["prepended_conversation"] = enc_prepended
+    attack = PromptSendingAttack(**enc_attack_kwargs)
 
     # L5 v16: MTOS 排序
     from pipeline.strike.escalation import _apply_mtos_ranking

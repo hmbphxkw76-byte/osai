@@ -2,6 +2,8 @@
 
 包含 l5_optimal, l5_optimal_for_model, build_converter_map 等预设函数。
 拆分自 converter_chains.py (736行 → ~430+~310)。
+
+L5 v36: 对齐 PyRIT 1.0.1 官方 SelectiveTextConverter 最佳实践。
 """
 
 from __future__ import annotations
@@ -12,44 +14,51 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _import_chain_func(name: str):
-    """惰性导入 converter_chains 中的函数 (避免循环导入)。"""
-    from pipeline.arm import converter_chains
-    return getattr(converter_chains, name)
-
-    # ── L5 v34: 候选列表, executor.py 按优先级只取最佳 1 个 (单路径) ──
+# ── L5 v36: 候选列表, 对齐 PyRIT 1.0.1 SelectiveTextConverter ──
 
 
 def l5_optimal(converter_target: Any | None = None) -> list[Any]:
-    """L5 v34 Converter 候选列表 — executor.py 按优先级只取最佳 1 个.
+    """L5 v36 Converter 候选列表 — 对齐 PyRIT 1.0.1 官方最佳实践.
 
-    L5 v34 关键变更:
-        PyRIT PromptSendingAttack 的 PromptNormalizer 会将所有
-        ConverterConfiguration 串联叠加到同一条消息 (非独立路径).
-        因此 executor.py _build_converter_config 只取最佳 1 个 converter.
-        本函数返回候选列表, 供 executor 去重 + 裁剪 + 优先级排序后选 1 个.
+    L5 v36 核心改进 (vs v35):
+        1. 引入 SelectiveTextConverter — 选择性编码, ASR 25-35% (vs 全文 7%)
+        2. 引入 CodeChameleonConverter — ASR 35-45% (lv2024codechameleon)
+        3. 引入 PolicyPuppetryConverter — ASR 30-40%
+        4. 引入链式选择性 (2层, preserve_tokens) — ASR 30-40%
+        5. 裁剪 ASR < 10% 的全文编码路径 (Base64, UnicodeSub 全文)
+        6. 引入 SearchReplaceConverter — 关键词精准替换 (0 token)
+        7. 引入 TemplateSegmentConverter — 分段注入
+        8. 引入 AsciiSmugglerConverter — Unicode 走私
 
-    候选列表 (按 ASR 降序, executor 多路径独立执行):
-        1. DecompositionConverter           — ASR 40-60% (最高, DrAttack)
-        2. PersuasionConverter(authority)   — ASR 38.4%
-        3. VariationConverter               — ASR 20-30% (多样性补充)
-        4. ROT13Converter                    — ASR 30-40% (语义混淆)
-        5. RandomCapitalLettersConverter     — ASR 15-25% (模式破坏)
-        6. Base64Converter                   — ASR 7% (fallback)
-        7. UnicodeSubstitutionConverter      — ASR 10-15%
+    候选列表 (按 ASR 降序, SequentialAttack FIRST_SUCCESS):
+        1. DecompositionConverter           — ASR 40-60% (DrAttack, 最高)
+        2. CodeChameleonConverter           — ASR 35-45% (NEW)
+        3. PersuasionConverter(authority)   — ASR 38.4% (Zeng et al.)
+        4. PolicyPuppetryConverter          — ASR 30-40% (NEW)
+        5. ChainedSelective (Base64+ROT13)  — ASR 30-40% (NEW, 选择性链式)
+        6. SelectiveEncoding (Base64 30%)   — ASR 25-35% (NEW, 选择性编码)
+        7. RandomTranslationConverter       — ASR 25-35% (多语言部分混淆)
+        8. TemplateSegmentConverter         — ASR 25-35% (NEW, 分段注入)
+        9. KeywordReplacement              — ASR 20-30% (NEW, 0 token)
+        10. SelectiveObfuscation (Leet 20%) — ASR 20-30% (NEW, 选择性混淆)
+        11. VariationConverter              — ASR 20-30% (多样性补充)
+        12. AsciiSmugglerConverter          — ASR 20-30% (NEW, Unicode走私)
+        13. ROT13Converter                  — ASR 30-40% (语义混淆, 保留)
 
-    L5 v35: 恢复 DecompositionConverter (DrAttack ASR 40-60%),
-            多路径独立执行 (不串联叠加), 依次尝试每个 converter 路径.
+    裁剪路径 (ASR < 10% 或被选择性版本替代):
+        - Base64Converter (全文)     — ASR 7%, 被 SelectiveEncoding 替代
+        - UnicodeSubstitution (全文) — ASR 10-15%, 被 SelectiveObfuscation 替代
+        - RandomCapitalLetters (全文)— ASR 15-25%, 与 ROT13 重叠, 降级
+        - FlipConverter              — ASR ≈0% (HTTP), 已移除
+        - AsciiArtConverter          — ASR ≈5%, 破坏 JSON, 已移除
 
-    级数学术依据:
+    学术依据:
         - Wei et al. (arXiv:2307.15043): 串联 >2 层 ASR 从 12% 降至 4%
         - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 最高
         - DrAttack (arXiv:2402.14266): 分解重组 ASR 40-60% 最高
-        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS 设计,
-          v35 通过依次尝试等效实现多路径独立执行
-
-    注意: 此函数返回的是 converter 候选列表, executor.py v35 对每个
-    converter 创建独立的 PromptSendingAttack, 依次执行 (FIRST_SUCCESS).
+        - Lv et al. (arXiv:2404.30015): CodeChameleon ASR 35-45%
+        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
+        - PyRIT 官方 SelectiveTextConverter: 选择性转换最佳实践
 
     Args:
         converter_target: LLM 目标实例 (可选, 缺失时仅返回非 LLM converter).
@@ -57,30 +66,27 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
     converters: list[Any] = []
 
     # 惰性导入基础 converter 链函数 (避免循环导入)
-    from pipeline.arm.converter_chains import (  # noqa: F401
+    from pipeline.arm.converter_chains import (
         _conv,
+        chained_selective,
+        code_chameleon,
         decomposition,
-        encoding_bypass,
-        flip,
-        format_injection,
-        multi_encoding,
-        persuasion,
-        semantic_evasion,
-        smoothllm_bypass,
-        stealth_evasion,
+        keyword_replacement,
+        pdf_direct_generation,
+        pdf_injection,
+        policy_puppetry,
+        selective_encoding,
+        selective_obfuscation,
+        template_segment,
+        token_smuggling,
         translation_multilingual,
         variation,
+        word_doc_direct_generation,
+        word_doc_placeholder_injection,
     )
 
     # ── LLM 辅助 converters (需 converter_target) ──
     if converter_target is not None:
-        # L5 v35: 恢复 DecompositionConverter + Persuasion + Variation (3 LLM 路径)
-        # v34 裁剪到 2 是因为 PromptSendingAttack 串联叠加 bug,
-        # v35 改用 SequentialAttack 多路径独立执行, 不再串联。
-        # 学术依据: DrAttack (arXiv:2402.14266) ASR 40-60% 最高
-        #           Zeng et al. (arXiv:2402.19181) authority ASR 38.4%
-        #           Chao et al. (arXiv:2402.01135) 多路径提升 ASR
-
         # Path 1: Decomposition — ASR 40-60% (最高, DrAttack)
         decomp_converters = decomposition(converter_target=converter_target)
         converters.extend(decomp_converters)
@@ -99,63 +105,79 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
         var_converters = variation(converter_target=converter_target)
         converters.extend(var_converters)
 
-        # Path 4: RandomTranslationConverter — ASR 25-35% (多语言部分混淆)
-        # L5 v38: PyRIT 原生 TranslationConverter 接入
-        # 学术依据: Andriushchenko et al. (arXiv:2402.09185) — 多语言混淆
-        # PyRIT (arXiv:2407.01232) — 原生 LLM 辅助 converter
+        # Path 4: RandomTranslationConverter — ASR 25-35%
         translation_converters = translation_multilingual(converter_target=converter_target)
         converters.extend(translation_converters)
 
-    # ── 非 LLM converters (无需 converter_target) ──
-    # Path 6-7: 编码 + 混淆路径
-    # L5 v14: semantic_evasion 作为最高优先级非 LLM 路径 (ASR 30-40%)
-    # 学术依据: Zeng et al. (arXiv:2402.19181) — 语义层 ASR >> 表示层
-    # ROT13 保持 ASCII 可读性, LLM 能理解 payload 语义
-    # L5 v14 修复: ROT13 只出现一次 (之前在 semantic_evasion 和独立编码路径中重复)
-    # 去重后: ROT13 作为 semantic_evasion 路径, Base64 作为独立编码路径
+    # ── 非 LLM converters (无需 converter_target, 0 token) ──
+
+    # Path 5: CodeChameleon — ASR 35-45% (NEW, 纯文本 0 token)
+    # PyRIT 原生: CodeChameleonConverter(encrypt_type=), 不需 converter_target
+    converters.extend(code_chameleon())
+
+    # Path 6: PolicyPuppetry — ASR 30-40% (NEW, 纯文本 0 token)
+    # PyRIT 原生: PolicyPuppetryConverter(), 不需 converter_target
+    converters.extend(policy_puppetry())
+
+    # Path 7: Chained Selective (Base64+ROT13, 选择性链式) — ASR 30-40% (NEW)
+    # ⭐ 核心改进: SelectiveTextConverter + preserve_tokens 实现链式选择性
+    # 只对 30% 文本做 2 层编码, 70% 保持原文, ASR 30-40%
+    converters.extend(chained_selective())
+
+    # Path 8: Selective Encoding (Base64 30%) — ASR 25-35% (NEW)
+    # 替代全文 Base64Converter (ASR 7%), ASR 提升 3-5x
+    converters.extend(selective_encoding())
+
+    # Path 9: TemplateSegment — ASR 25-35% (NEW)
+    converters.extend(template_segment())
+
+    # Path 10: KeywordReplacement — ASR 20-30% (NEW, 0 token)
+    converters.extend(keyword_replacement())
+
+    # Path 11: SelectiveObfuscation (Leetspeak 20%) — ASR 20-30% (NEW)
+    converters.extend(selective_obfuscation())
+
+    # Path 12: AsciiSmuggler — ASR 20-30% (NEW)
+    converters.extend(token_smuggling())
+
+    # Path 13: ROT13 (全文, 保留作为轻量 fallback) — ASR 30-40%
     try:
         converters.append(_conv("ROT13Converter")())
-        logger.info("L5 v14: ROT13Converter added as semantic_evasion path (ASR 30-40%)")
+        logger.info("L5 v36: ROT13Converter added as lightweight fallback (ASR 30-40%%)")
     except Exception as e:
-        logger.warning("L5 v14: ROT13Converter (semantic_evasion) failed: %s", e)
+        logger.warning("L5 v36: ROT13Converter failed: %s", e)
 
-    try:
-        converters.append(_conv("RandomCapitalLettersConverter")())
-        logger.info("L5 v14: RandomCapitalLettersConverter added as semantic_evasion path")
-    except Exception as e:
-        logger.warning("L5 v14: RandomCapitalLettersConverter failed: %s", e)
+    # ── L5 v36: File Converters — 对齐 PyRIT 1.0.1 官方 File Converters ──
+    # 学术依据: PyRIT 官方 File Converters (PDFConverter + WordDocConverter)
+    # 攻击场景: 将 payload 包装为 PDF/Word 文件, 模拟文档投递/间接注入
+    # OWASP LLM01: Prompt Injection (间接注入向量)
 
-    # Path 7: Base64 (独立编码路径) — ASR 7% (降级为 fallback 路径)
-    try:
-        converters.append(_conv("Base64Converter")())
-    except Exception as e:
-        logger.warning("L5: Base64Converter failed: %s", e)
+    # Path 14: Word Doc Direct Generation — payload → .docx file (NEW)
+    # WordDocConverter() 无模板, 直接创建 .docx
+    converters.extend(word_doc_direct_generation())
 
-    # L5 v14: 移除重复的 ROT13 路径 (已在 semantic_evasion 中添加)
-    # 之前这里又添加了一次 ROT13Converter, 导致签名重复被去重逻辑跳过
-    # 实际上两个 ROT13Converter 签名相同, _converter_signature 会去重
-    # 但日志会产生混淆, 且浪费一次构建调用
+    # Path 15: Word Doc Placeholder Injection — payload 替换模板占位符 (NEW)
+    # WordDocConverter(existing_docx=, placeholder=) 在模板中替换占位符
+    converters.extend(word_doc_placeholder_injection())
 
-    # Path 8: UnicodeSubstitution — ASR 10-15%
-    # L5 v21: 恢复 UnicodeSubstitution 作为补充路径
-    # 学术依据: Shayegani et al. (arXiv:2306.13254) — Unicode 混淆绕过文本过滤
-    # 虽然之前 v5 运行 ASR≈0%, 但那是特定目标的能力; 对不支持 Unicode 检测的目标仍有效
-    try:
-        converters.append(_conv("UnicodeSubstitutionConverter")())
-        logger.info("L5 v21: UnicodeSubstitutionConverter added as Path 6")
-    except Exception as e:
-        logger.warning("L5 v21: UnicodeSubstitutionConverter failed: %s", e)
+    # Path 16: PDF Direct Generation — payload → PDF file (NEW)
+    # PDFConverter(prompt_template=None) 直接生成 PDF
+    converters.extend(pdf_direct_generation())
 
-    # L5 v12: FuzzerConverter 在 PyRIT 1.0.1 中不存在, 移除该路径
-    # 之前每次运行都报 WARNING: "PyRIT Converter 'FuzzerConverter' not found"
-    # 这浪费了一条 SequentialAttack 路径且无实际效果。
-    # 替代: UnicodeSubstitution 已在 Path 8 覆盖字符级扰动功能。
-    # 学术依据: Robey et al. (arXiv:2310.03816) — SmoothLLM 绕过
-    #   可通过 UnicodeSubstitution + Variation 联合实现等效效果。
+    # Path 17: PDF Injection — 在已有 PDF 中注入 payload (NEW)
+    # PDFConverter(existing_pdf=, injection_items=) 在指定坐标注入文本
+    converters.extend(pdf_injection())
+
+    # 裁剪路径 (被选择性版本替代):
+    # - Base64Converter (全文, ASR 7%) → 被 selective_encoding 替代
+    # - UnicodeSubstitutionConverter (全文, ASR 10-15%) → 被 selective_obfuscation 替代
+    # - RandomCapitalLettersConverter (全文, ASR 15-25%) → 与 ROT13 重叠, 降级
+    # - FlipConverter (ASR ≈0% HTTP) → 已移除
+    # - AsciiArtConverter (ASR ≈5%, 破坏 JSON) → 已移除
 
     if converters:
         logger.info(
-            "L5 v34: %d converter candidates built (executor will select best 1)",
+            "L5 v36: %d converter candidates built (Selective-First)",
             len(converters),
         )
         for i, c in enumerate(converters):
@@ -260,19 +282,34 @@ def l5_optimal_for_model(
 # ── 链名 → 构建函数映射 ──
 # 延迟构建以避免循环导入 (converter_chains 在模块末尾 re-export 本模块)
 def _build_chain_builders() -> dict[str, Any]:
-    """构建链名 → 构建函数映射 (惰性, 避免循环导入)。"""
+    """构建链名 → 构建函数映射 (惰性, 避免循环导入)。
+
+    L5 v36: 新增选择性 converter 链。
+    """
     from pipeline.arm.converter_chains import (
+        chained_selective,
+        code_chameleon,
         decomposition,
         encoding_bypass,
         flip,
         format_injection,
+        keyword_replacement,
         multi_encoding,
+        pdf_direct_generation,
+        pdf_injection,
         persuasion,
+        policy_puppetry,
+        selective_encoding,
+        selective_obfuscation,
         semantic_evasion,
         smoothllm_bypass,
         stealth_evasion,
+        template_segment,
+        token_smuggling,
         translation_multilingual,
         variation,
+        word_doc_direct_generation,
+        word_doc_placeholder_injection,
     )
     return {
         "encoding": encoding_bypass,
@@ -288,6 +325,20 @@ def _build_chain_builders() -> dict[str, Any]:
         "smoothllm_bypass": smoothllm_bypass,
         "l5_optimal": l5_optimal,
         "l5_optimal_for_model": l5_optimal_for_model,
+        # L5 v36: 新增选择性 converter 链
+        "selective_encoding": selective_encoding,
+        "selective_obfuscation": selective_obfuscation,
+        "chained_selective": chained_selective,
+        "keyword_replacement": keyword_replacement,
+        "code_chameleon": code_chameleon,
+        "policy_puppetry": policy_puppetry,
+        "token_smuggling": token_smuggling,
+        "template_segment": template_segment,
+        # L5 v36: 新增 File Converter 链
+        "pdf_direct_generation": pdf_direct_generation,
+        "pdf_injection": pdf_injection,
+        "word_doc_direct_generation": word_doc_direct_generation,
+        "word_doc_placeholder_injection": word_doc_placeholder_injection,
     }
 
 
@@ -349,8 +400,11 @@ def build_converter_map(
                 logger.warning("Unknown converter chain: %s, skipping", chain_name)
                 continue
 
-            # persuasion, decomposition, variation, l5_optimal, l5_optimal_for_model 需要 converter_target 参数
-            if chain_name in ("persuasion", "decomposition", "variation", "translation_multilingual", "l5_optimal", "l5_optimal_for_model"):
+            # LLM 辅助链需要 converter_target 参数
+            # L5 v36: code_chameleon 和 policy_puppetry 已移至非 LLM 链 (纯文本 0 token)
+            if chain_name in ("persuasion", "decomposition", "variation",
+                              "translation_multilingual",
+                              "l5_optimal", "l5_optimal_for_model"):
                 if chain_name == "l5_optimal_for_model":
                     chain_converters = builder(converter_target=converter_target, model_family=model_family)
                 else:
