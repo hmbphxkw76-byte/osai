@@ -1,53 +1,4 @@
 """L5 v35 攻击策略预设 — 基于 arXiv 学术研究的最优 Converter 组合。
-
-L5 v35 关键改进 (vs v34):
-    P0: 多路径独立执行 (FIRST_SUCCESS 等效) — 依次尝试每个 converter 路径,
-        任一路径成功则跳过后续路径, 不串联叠加.
-    P1: 恢复 DecompositionConverter (DrAttack ASR 40-60%, 最高).
-    P2: Best-of-N N=3→5, 分配 3 Persuasion + 2 Variation
-        联概率 P=1-(0.616)^3×(0.7)^2 = 88.5% (vs v34 73.5%).
-    P3: 所有策略默认启用 auto_seeds (3x 扩充, ASR +1.5-2x).
-    P4: TAP/PAIR FloatScaleThresholdScorer threshold=0.2 (v34 已实施).
-
-    评分: 空 AttackScoringConfig() post-hoc 双 Judge +
-        FIRST_SUCCESS 轻量 SubStringScorer+Inverter (0 token).
-
-学术依据:
-    - Converter 链级数: Wei et al. (arXiv:2307.15043)
-      单层 Base64 ASR 7%, 双层 Base64+ROT13 ASR 12%,
-      三层 ASR 4% (payload 不可读). 最佳: 1 层 (单路径).
-
-    - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS 设计,
-      v35 通过依次尝试等效实现多路径独立执行.
-
-    - DrAttack: arXiv:2402.14266 — 分解重组 ASR 40-60% 最高.
-    - 说服策略: Zeng et al. (arXiv:2402.19181) authority ASR 38.4%.
-    - 变体重写: VariationConverter ASR 20-30%.
-      Best-of-N N=5 ASR 提升 1.8x (arXiv:2402.01135).
-
-    - Skeleton Key: arXiv:2406.18112 ASR 80-95% (前置注入)
-    - Crescendo: arXiv:2402.12109 max_turns=10 ASR=82%
-    - TAP: arXiv:2312.02191 tree_width=4, depth=4 ASR=65%
-    - PAIR: arXiv:2310.08419+2406.12609 tree_depth=7 (depth=10 超时风险高, 7 平衡 ASR/time)
-
-L5 v35 实际执行路径 (多路径独立, 非串联):
-    单轮: Decomposition → Persuasion(authority) → ROT13 → Variation (依次)
-    Best-of-N: 3× Persuasion(authority) + 2× Variation (各为独立单路径)
-    升级: Crescendo + TAP + PAIR 并行 → 早停或后续 GCG/CAIR/CoT...
-
-    预期综合 ASR: 30-45% (v34 实际: 23.4%, v35 预计 +10-20%)
-
-策略预设:
-    quick_scan       — 快速扫描 (10种子, L5多路径Converter, 三级升级, ~15分钟)
-    stealth_bypass   — 编码+隐写绕过 (15种子, 单轮, encoding+stealth)
-    persuasion_heavy  — 语义层说服 (20种子, auto, persuasion+variation)
-    full_offensive   — 全火力 L5 最优 (60种子, auto, L5多路径+三级升级, ~45分钟)
-    full_coverage    — OWASP 全覆盖 (50种子, LLM01-10+ASI01-10, ~45分钟)
-    multi_turn_deep  — 深度多轮 (10种子, crescendo+tap+pair, persuasion)
-    targeted_full    — 精准攻击 (60种子, targeted_v2+OWASP全覆盖+全专项, ~25分钟)
-    web_vuln         — Web 漏洞攻击 (30+ payload, SQLi/XSS/SSRF, ~10分钟)
-    comprehensive    — 综合攻击 (LLM Prompt + Web 漏洞双重, ~25分钟)
-    adaptive_text    — PyRIT 原生 TextAdaptive (ε-贪心自适应, ~25分钟)
 """
 
 from __future__ import annotations
@@ -57,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class StrategyPreset:
@@ -76,15 +26,11 @@ class StrategyPreset:
     max_attempts: int = 3
     auto_seeds: bool = True  # L5 v35: 默认启用种子 3x 扩充 (ASR +1.5-2x)
 
-
-# ── L5 最佳 Converter 组合名 ──
 # 对应 converter_chains.py 中的 l5_optimal() 函数
 L5_OPTIMAL_CHAIN = "l5_optimal"
 
-# ── 5 种策略预设 ──
 STRATEGY_PRESETS: dict[str, StrategyPreset] = {
     # L5 v32: quick_scan 策略增强 — 启用 converter 链 + 多种子 + escalation
-    # 学术依据:
     #   arXiv:2307.15043 — Wei et al., 编码绕过 (Base64/ROT13) ASR +12%
     #   arXiv:2402.01135 — Chao et al., Best-of-N N=3 ASR 提升 1.5x
     #   arXiv:2402.12109 — Russinovich et al., Crescendo ASR 82%
@@ -140,7 +86,6 @@ STRATEGY_PRESETS: dict[str, StrategyPreset] = {
             "三级升级+Crescendo→TAP→PAIR+SkeletonKey+RedTeaming+MCP/RAG, ~35分钟)"
         ),
         # L5 v31: 全覆盖 OWASP LLM01-10 + ASI01-10 + MCP/RAG/Agent 专项
-        # 学术依据: arXiv:2402.01135 — Chao et al. §5: 25 seeds 覆盖 LLM01-10 + ASI01-10
         # 新增: mcp_attack, rag_attack, tool_hijack, multi_agent_attack 专项种子
         # P1 增强: 新增 LLM03/04/05/09 专项种子
         seeds="elite_jailbreaks,asi_top10,owasp_full_coverage,zh_curated,targeted_jailbreaks,mcp_attack,rag_attack,tool_hijack,multi_agent_attack,supply_chain_attack,data_poisoning,improper_output,misinformation",
@@ -170,7 +115,6 @@ STRATEGY_PRESETS: dict[str, StrategyPreset] = {
         max_attempts=1,
     ),
     # L5 v30: OWASP 全覆盖策略 — 确保 LLM01-10 + ASI01-10 全覆盖
-    # 学术依据: OWASP LLM Top 10 (2025) + OWASP ASI Top 10 标准要求全覆盖
     #   Liu et al. (arXiv:2310.04451) — AutoDAN 3x 扩充 ASR 1.5-2x
     #   Chao et al. (arXiv:2402.01135) — 25 seeds 覆盖 LLM01-10 + ASI01-10
     "full_coverage": StrategyPreset(
@@ -270,7 +214,6 @@ STRATEGY_PRESETS: dict[str, StrategyPreset] = {
         max_attempts=3,
     ),
     # L5 v38: PyRIT 原生 TextAdaptive 场景 — ε-贪心自适应技术选择
-    # 学术依据:
     #   PyRIT (arXiv:2407.01232) — TextAdaptive 原生场景系统
     #   Auer et al. (arXiv:cs/0207052) — UCB1 探索-利用平衡
     #   Chao et al. (arXiv:2310.08419) — PAIR 自适应策略
@@ -296,20 +239,12 @@ STRATEGY_PRESETS: dict[str, StrategyPreset] = {
     ),
 }
 
-
 def recommend_strategy(
     target_fingerprint: dict[str, str],
     *,
     has_adversarial: bool = True,
 ) -> str:
     """基于目标指纹自动推荐攻击策略.
-
-    Args:
-        target_fingerprint: Burp 探测阶段获取的目标指纹.
-        has_adversarial: 是否配置了 adversarial target.
-
-    Returns:
-        推荐的策略名称.
     """
     app_type = target_fingerprint.get("app_type", "")
     auth_type = target_fingerprint.get("auth_type", "")
@@ -342,18 +277,8 @@ def recommend_strategy(
     # 默认 → 全火力 (L5 最优组合)
     return "full_offensive"
 
-
 def get_strategy_args(strategy_name: str) -> dict[str, Any]:
     """将策略预设转换为 CLI 参数字典.
-
-    Args:
-        strategy_name: 策略名称.
-
-    Returns:
-        CLI 参数字典 (用于覆盖 argparse namespace).
-
-    Raises:
-        KeyError: 策略不存在.
     """
     preset = STRATEGY_PRESETS.get(strategy_name)
     if preset is None:
@@ -375,7 +300,6 @@ def get_strategy_args(strategy_name: str) -> dict[str, Any]:
         "offensive": True,  # 所有策略都启用 offensive 模式
         "auto_seeds": preset.auto_seeds,  # L5 v35: 种子 3x 扩充
     }
-
 
 def list_strategies() -> str:
     """返回所有策略的格式化列表."""

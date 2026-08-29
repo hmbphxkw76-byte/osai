@@ -1,6 +1,4 @@
 """PipelineContext — 贯穿整个流水线的状态容器。
-
-所有 Phase 共享同一个 PipelineContext 实例，避免模块间隐式传参。
 """
 
 from __future__ import annotations
@@ -20,27 +18,9 @@ if TYPE_CHECKING:
 
     from pipeline.recon.burp_parser import ParsedBurpRequest
 
-
 @dataclass
 class PipelineContext:
     """流水线运行时状态。
-
-    属性:
-        args: CLI 解析结果。
-        output_dir: 输出目录路径。
-        model_name: 目标模型名称 (用于报告)。
-        parsed_request: 解析后的 Burp 请求。
-        objective_target: 被攻击目标 (PyRIT PromptTarget 实例)。
-        adversarial_target: 攻击者模型 (多轮攻击使用)。
-        converter_target: Converter 使用的 LLM 目标 (可选)。
-        scoring_target: 评分器使用的 LLM 目标。
-        seeds: 加载后的种子列表。
-        techniques: 选中的攻击技术名称列表。
-        converter_map: 技术名 → Converter 链列表。
-        attack_results: 攻击执行结果。
-        asr_per_technique: 按技术统计的 ASR。
-        overall_asr: 总体 ASR。
-        scenario_result_id: 场景结果 ID (用于断点续跑)。
     """
 
     args: "argparse.Namespace"
@@ -96,7 +76,6 @@ class PipelineContext:
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
-
 def get_effective_concurrency(
     ctx: PipelineContext,
     *,
@@ -105,52 +84,20 @@ def get_effective_concurrency(
     max_val: int = 3,
 ) -> int:
     """从 ctx.args.max_concurrency 读取有效并发数, 统一 SSOT.
-
-    L5 v45: 消除子模块中 max_concurrency=2 硬编码偏差。
-    config/defaults.yaml 声明 max_concurrency=3, 此前子模块绕过 ctx.args
-    直接硬编码 2, 导致声明与实际不一致。
-
-    PyRIT SQLite WAL 模式下 max_concurrency=3 安全 (busy_timeout=5000ms)。
-    如遇 IntegrityError, 由 RateLimitedTarget 重试机制处理。
-
-    Args:
-        ctx: 流水线上下文 (读取 ctx.args.max_concurrency)。
-        default: ctx.args 无值时的 fallback (从 config/defaults.yaml 的 3)。
-        min_val: 最小值 (单线程场景 = 1)。
-        max_val: 最大值 (SQLite WAL 安全上限 = 3)。
-
-    Returns:
-        有效并发数, clamp 到 [min_val, max_val]。
     """
     raw = getattr(getattr(ctx, "args", None), "max_concurrency", None)
     if raw is None or not isinstance(raw, int):
         return default
     return max(min_val, min(max_val, raw))
 
-
 def _get_config_int(ctx: PipelineContext, key: str, default: int) -> int:
     """从 ctx.args 读取 config/defaults.yaml 中的 int 值 (SSOT).
-
-    L5 v45: 消除 TAP/PAIR tree_width/tree_depth 硬编码偏差。
-    parse_args 阶段 _apply_defaults 已将 defaults.yaml 所有 key 映射到 args,
-    所以 ctx.args.tap_tree_width 等可直接读取。
-
-    Args:
-        ctx: 流水线上下文。
-        key: defaults.yaml 中的 key (如 "tap_tree_width", "pair_tree_depth")。
-        default: 缺失时的 fallback。
-
-    Returns:
-        int 值。
     """
     raw = getattr(getattr(ctx, "args", None), key, None)
     if raw is None or not isinstance(raw, int):
         return default
     return raw
 
-
-# ── L5 v13: Relaxed Adversarial Schema monkey-patch ──
-# 学术依据: Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge 鲁棒性
 # 部分第三方 API (DeepSeek-V3, LongCat) 不严格遵循 JSON 输出指令,
 # 缺少 rationale / last_response_summary 字段导致 InvalidJsonException
 # → 无限重试 → 流水线卡死。
@@ -159,18 +106,8 @@ def _get_config_int(ctx: PipelineContext, key: str, default: int) -> int:
 
 _relaxed_schema_applied = False
 
-
 def apply_relaxed_adversarial_schema() -> None:
     """Monkey-patch PyRIT 的 adversarial_chat JSON schema, 使 rationale 和 last_response_summary 可选。
-
-    学术依据: Zheng et al. (arXiv:2306.05685) — LLM 评分/对抗对话
-    需要鲁棒的 JSON 解析。部分模型不严格遵循 JSON schema, 导致
-    InvalidJsonException 无限重试。将非关键字段改为可选可解决此问题。
-
-    策略:
-        1. 注册一个新的 "adversarial_chat_relaxed" schema, 仅 required: ["next_message"]
-        2. Monkey-patch get_common_json_schema, 对 "adversarial_chat" 返回 relaxed 版本
-        3. 不修改 PyRIT 源码, 仅运行时注入 (胶水层增强)
     """
     global _relaxed_schema_applied
     if _relaxed_schema_applied:
@@ -215,4 +152,3 @@ def apply_relaxed_adversarial_schema() -> None:
 
     except Exception:
         logger.warning("Failed to apply relaxed adversarial schema", exc_info=True)
-

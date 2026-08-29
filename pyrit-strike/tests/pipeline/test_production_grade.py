@@ -464,8 +464,8 @@ class TestCleanupResources:
     @pytest.mark.asyncio
     async def test_cleanup_resources_with_playwright(self):
         """有 Playwright 资源时应正确清理."""
-        from pipeline.context import PipelineContext
         from main import _cleanup_resources
+        from pipeline.context import PipelineContext
 
         args = MagicMock()
         ctx = PipelineContext(args=args)
@@ -483,8 +483,8 @@ class TestCleanupResources:
     @pytest.mark.asyncio
     async def test_cleanup_resources_with_rate_limited_target(self):
         """有 RateLimitedTarget 时应调用其 cleanup."""
-        from pipeline.context import PipelineContext
         from main import _cleanup_resources
+        from pipeline.context import PipelineContext
 
         args = MagicMock()
         ctx = PipelineContext(args=args)
@@ -499,8 +499,8 @@ class TestCleanupResources:
     @pytest.mark.asyncio
     async def test_cleanup_resources_no_targets(self):
         """无任何 target 时不应报错."""
-        from pipeline.context import PipelineContext
         from main import _cleanup_resources
+        from pipeline.context import PipelineContext
 
         args = MagicMock()
         ctx = PipelineContext(args=args)
@@ -512,8 +512,8 @@ class TestCleanupResources:
     @pytest.mark.asyncio
     async def test_cleanup_resources_extra_targets(self):
         """跨端口发现的目标也应被清理."""
-        from pipeline.context import PipelineContext
         from main import _cleanup_resources
+        from pipeline.context import PipelineContext
 
         args = MagicMock()
         ctx = PipelineContext(args=args)
@@ -528,8 +528,8 @@ class TestCleanupResources:
     @pytest.mark.asyncio
     async def test_cleanup_resources_handles_errors(self):
         """清理中异常不应传播."""
-        from pipeline.context import PipelineContext
         from main import _cleanup_resources
+        from pipeline.context import PipelineContext
 
         args = MagicMock()
         ctx = PipelineContext(args=args)

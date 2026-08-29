@@ -1,15 +1,4 @@
 """多轮组合攻击模块 — 合并 2 个多轮攻击模块。
-
-合并来源:
-    - multi_prompt.py: MultiPromptSendingAttack + SequentialAttack
-    - best_of_n.py: Best-of-N 采样攻击
-
-学术依据:
-    - PyRIT MultiPromptSendingAttack / SequentialAttack (arXiv:2407.01232)
-    - Chao et al. (arXiv:2402.01135) — Best-of-N 采样, N=5 时 ASR 提升 1.5-2x
-
-PyRIT 原生优先 (Rule 2):
-    使用 PyRIT 原生组件作为主引擎。
 """
 
 from __future__ import annotations
@@ -24,29 +13,16 @@ logger = logging.getLogger(__name__)
 
 # 温度梯度 — 学术依据: Chao et al. (arXiv:2402.01135) §3.2
 # L5 v45: 温度梯度 — N=5 基线, 超出部分自动截断
-# 学术依据: Chao et al. (arXiv:2402.01135) — 温度梯度采样
 _BEST_OF_N_TEMPERATURES = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 _BEST_OF_N_TIMEOUT = 180
 
-
-# ═══════════════════════════════════════════════════════
 # MultiPromptSendingAttack + SequentialAttack
-# ═══════════════════════════════════════════════════════
 
 async def run_multi_prompt_attack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """使用 PyRIT 原生 MultiPromptSendingAttack 批量并行发送攻击。
-
-    学术依据: PyRIT MultiPromptSendingAttack — 批量并行 prompt 发送
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 攻击目标列表。
-
-    Returns:
-        攻击结果字典 {"multi_prompt": [results]}。
     """
     from pyrit.executor.attack import MultiPromptSendingAttack
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
@@ -97,7 +73,6 @@ async def run_multi_prompt_attack(
 
     return results
 
-
 async def run_sequential_attack(
     ctx: PipelineContext,
     objectives: list[str],
@@ -106,17 +81,6 @@ async def run_sequential_attack(
     completion_policy: str = "first_success",
 ) -> dict[str, list[Any]]:
     """使用 PyRIT 原生 SequentialAttack 编排组合攻击。
-
-    学术依据: PyRIT SequentialAttack (arXiv:2407.01232) — 组合攻击编排
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 攻击目标列表。
-        child_attacks: 预构建的子攻击列表 (None=自动构建)。
-        completion_policy: 完成策略。
-
-    Returns:
-        攻击结果字典 {"sequential": [results]}。
     """
     from pyrit.executor.attack import (
         PromptSendingAttack,
@@ -201,10 +165,7 @@ async def run_sequential_attack(
 
     return results
 
-
-# ═══════════════════════════════════════════════════════
 # Best-of-N 采样攻击
-# ═══════════════════════════════════════════════════════
 
 async def run_best_of_n_attack(
     ctx: PipelineContext,
@@ -213,22 +174,6 @@ async def run_best_of_n_attack(
     n: int | None = None,
 ) -> dict[str, list[Any]]:
     """执行 Best-of-N 采样攻击。
-
-    L5 v45: 对齐 config/defaults.yaml (best_of_n_retries=5)。
-    主升级链使用 adaptive_executor._best_of_n_retry (N=5, 3+2 分配),
-    此函数为独立 Best-of-N (PAIR 温度梯度变体), 保留向后兼容。
-
-    学术依据: Chao et al. (arXiv:2402.01135)
-        N=5 时 ASR 提升 1.5-2x。
-        联合概率 P = 1 - prod(1-p_i)。
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 仍然失败的攻击目标列表。
-        n: 采样次数 (None=从 config/defaults.yaml 读取, 默认 5)。
-
-    Returns:
-        攻击结果字典 {"best_of_n": [results]}。
     """
     if n is None:
         from pipeline.strike.adaptive_executor import _get_best_of_n_retries

@@ -1,11 +1,12 @@
-"""Utils 模块测试 — cleaner, display。
+"""Utils 模块测试 — display。
 
 覆盖:
-    - cleanup_cache 缓存文件清理 (默认路径, 自定义路径, 不存在路径, 空目录)
     - print_banner Banner 输出
     - print_phase 阶段信息输出
     - print_summary 摘要输出
     - format_asr_table ASR 表格格式化
+
+注: cleaner.py 已删除, 缓存清理逻辑在 main.py 的 cleanup_temp_files 中。
 """
 
 from __future__ import annotations
@@ -16,98 +17,6 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
-
-
-# ═══════════════════════════════════════════════════════
-# cleaner: cleanup_cache
-# ═══════════════════════════════════════════════════════
-
-
-class TestCleanupCache:
-    """测试 cleanup_cache — 缓存文件清理."""
-
-    def test_cleans_default_cache_dir(self, tmp_path, monkeypatch):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        # 模拟 outputs/cache 目录
-        cache_dir = tmp_path / "outputs" / "cache"
-        cache_dir.mkdir(parents=True)
-        (cache_dir / "file1.tmp").write_text("temp1")
-        (cache_dir / "file2.tmp").write_text("temp2")
-
-        # 修改默认路径
-        monkeypatch.setattr("pipeline.utils.cleaner.Path", lambda p="": tmp_path / p if p else Path())
-
-        # 直接测试清理逻辑
-        cleanup_cache(output_dir=tmp_path / "outputs")
-
-    def test_cleans_custom_output_dir(self, tmp_path):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        output_dir = tmp_path / "outputs"
-        cache_dir = output_dir / "cache"
-        cache_dir.mkdir(parents=True)
-        (cache_dir / "test.tmp").write_text("temp")
-
-        cleanup_cache(output_dir=output_dir)
-        # 文件应被删除
-        assert not (cache_dir / "test.tmp").exists()
-
-    def test_nonexistent_cache_no_error(self, tmp_path):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        # 不存在的目录不应抛出异常
-        cleanup_cache(output_dir=tmp_path / "nonexistent")
-
-    def test_cleans_multiple_files(self, tmp_path):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        output_dir = tmp_path / "out"
-        cache_dir = output_dir / "cache"
-        cache_dir.mkdir(parents=True)
-        for i in range(5):
-            (cache_dir / f"file{i}.tmp").write_text(f"temp{i}")
-
-        cleanup_cache(output_dir=output_dir)
-        remaining = list(cache_dir.iterdir())
-        assert len(remaining) == 0
-
-    def test_preserves_subdirectories(self, tmp_path):
-        """子目录不被删除, 仅删除文件."""
-        from pipeline.utils.cleaner import cleanup_cache
-
-        output_dir = tmp_path / "out"
-        cache_dir = output_dir / "cache"
-        cache_dir.mkdir(parents=True)
-        (cache_dir / "file.tmp").write_text("temp")
-        sub = cache_dir / "subdir"
-        sub.mkdir()
-        (sub / "nested.tmp").write_text("nested")
-
-        cleanup_cache(output_dir=output_dir)
-        # File in cache_dir deleted
-        assert not (cache_dir / "file.tmp").exists()
-        # Subdirectory preserved
-        assert sub.exists()
-        # File in subdirectory NOT deleted (iterdir only top-level files)
-        assert (sub / "nested.tmp").exists()
-
-    def test_empty_cache_dir(self, tmp_path):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        output_dir = tmp_path / "out"
-        cache_dir = output_dir / "cache"
-        cache_dir.mkdir(parents=True)
-
-        # 空目录不应抛出异常
-        cleanup_cache(output_dir=output_dir)
-
-    def test_none_output_dir(self):
-        from pipeline.utils.cleaner import cleanup_cache
-
-        # output_dir=None 时只清理默认路径
-        # 不应抛出异常
-        cleanup_cache(output_dir=None)
 
 
 # ═══════════════════════════════════════════════════════

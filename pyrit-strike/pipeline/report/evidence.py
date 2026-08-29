@@ -1,28 +1,4 @@
 """证据收集 — 从攻击结果中提取结构化证据。
-
-OWASP 标准对齐:
-    - OWASP Top 10 (2025) — 传统 Web 安全漏洞
-      Reference: https://owasp.org/www-project-top-10/
-    - OWASP LLM Top 10 for LLM Applications (2025 Edition)
-      Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
-    - OWASP Agentic AI Top 10
-      Reference: https://owasp.org/www-project-agent-security/
-
-黑盒场景增强:
-    - 目标指纹信息 (从 Burp 请求提取)
-    - 攻击面信息 (API 路径, 认证方式, 框架)
-    - 黑盒评估上下文
-    - OWASP 合规性矩阵 (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
-    - OWASP 标准严重性等级 + 缓解建议
-    - 攻击成功 (_success) 文件名后缀区分
-
-核心数据结构:
-    - VulnerabilityEvidence: 单个漏洞证据 (含 OWASP 标准字段)
-    - EvidenceCollection: 证据集合 (含 OWASP 合规矩阵)
-
-证据提取方法 (3层 fallback):
-    - jailbreak_prompt: AttackResult → CentralMemory → objective
-    - harmful_output: AttackResult → CentralMemory → response
 """
 
 from __future__ import annotations
@@ -73,22 +49,9 @@ from pipeline.report.owasp_mapping import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-
-
 @dataclass
 class VulnerabilityEvidence:
     """单个漏洞证据 — 对齐 OWASP Top 10 (2025) + LLM Top 10 + Agentic AI Top 10 标准。
-
-    OWASP 标准字段:
-        - owasp_standard: OWASP 标准名称 (Web Top 10 2025 / LLM Top 10 2025 / Agentic AI Top 10)
-        - owasp_severity: OWASP 标准严重性等级 (critical/high/medium/low/info)
-        - owasp_risk_score: OWASP 风险评分 (0-10, CVSS-like)
-        - owasp_mitigations: OWASP 标准缓解建议列表
-        - owasp_reference: OWASP 标准引用 URL
-
-    攻击成功标记:
-        - is_success: 攻击是否成功
-        - file_suffix: 文件名后缀 ("_success" 或 "")
     """
 
     evidence_id: str
@@ -144,18 +107,9 @@ class VulnerabilityEvidence:
     # 测试条件 (温度/模型版本/时间等, 用于概率性系统可复现性)
     testing_conditions: dict[str, str] = field(default_factory=dict)
 
-
 @dataclass
 class OWASPFinding:
     """三级证据链 — Finding 级别。
-
-    安全报告标准: 一个 Finding 聚合同一 OWASP 类别的多个攻击结果 (Results)，
-    每个 Result 包含具体对话级证据 (Conversation)。
-
-    三级结构:
-        1. Finding — OWASP 类别 + 风险评级 + 聚合 ASR
-        2. Result — 单次攻击结果 (technique + prompt + response + score)
-        3. Conversation — 多轮对话历史 (role + content)
     """
 
     finding_id: str
@@ -173,17 +127,9 @@ class OWASPFinding:
     mitre_technique_name: str = ""
     results: list[dict[str, Any]] = field(default_factory=list)
 
-
 @dataclass
 class EvidenceCollection:
     """证据集合 — 含 OWASP 合规性矩阵。
-
-    OWASP 合规字段:
-        - owasp_web_compliance: Web Top 10 合规矩阵 {owasp_id: {tested, success, failed, asr, category, mitigations}}
-        - owasp_llm_compliance: LLM Top 10 合规矩阵 {owasp_id: {tested, success, failed, asr, category, mitigations}}
-        - owasp_asi_compliance: Agentic AI Top 10 合规矩阵
-        - owasp_standard_references: OWASP 标准引用列表
-        - successful_evidence: 仅成功攻击的证据列表 (用于 _success 文件输出)
     """
 
     collection_id: str
@@ -221,17 +167,8 @@ class EvidenceCollection:
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
-
 class EvidenceCollector:
     """证据收集器。
-
-    从 AttackResult 中提取结构化证据，包括:
-        - 越狱载荷 (jailbreak_prompt)
-        - 目标响应 (harmful_output)
-        - 对话历史
-        - Converter 变换日志
-        - 攻击链路
-        - 目标指纹 (黑盒场景)
     """
 
     def __init__(
@@ -252,20 +189,6 @@ class EvidenceCollector:
         overall_asr: float = 0.0,
     ) -> EvidenceCollection:
         """收集所有攻击结果的证据。
-
-        生成 OWASP 标准合规矩阵:
-            - LLM Top 10: 每个类别的 tested/success/failed/asr
-            - ASI Top 10: 每个类别的 tested/success/failed/asr
-            - 所有成功攻击的证据单独收集到 successful_evidence
-
-        Args:
-            attack_results: 攻击结果。
-            scenario_result_id: 场景结果 ID。
-            asr_per_technique: 按技术统计的 ASR。
-            overall_asr: 总体 ASR。
-
-        Returns:
-            EvidenceCollection: 证据集合。
         """
         asr_per_technique = asr_per_technique or {}
         collection = EvidenceCollection(
@@ -406,14 +329,6 @@ class EvidenceCollector:
         is_success: bool,
     ) -> VulnerabilityEvidence:
         """构建单个证据 — 含 OWASP 标准字段和 _success 标记。
-
-        R10 就绪对齐: 所有必填字段必须有非空兜底, 确保证据 JSON 完整:
-            - arxiv_reference: _get_arxiv_reference → fallback "PyRIT (arXiv:2407.01232)"
-            - conversation_history: _extract_conversation 3层 fallback → 兜底 objective+harmful_output
-            - converter_log: _extract_converter_log → metadata encoder → "none (baseline)"
-            - validation_runs: _extract_validation_runs → 至少 1 条运行记录
-            - testing_conditions: _extract_testing_conditions → timestamp/outcome/attack_id
-            - converter_chain: 从 converter_log 拼接 → 兜底 "none (baseline)"
         """
         owasp_id = _get_owasp_id(result)
         objective = _extract_jailbreak_prompt(result)
@@ -564,15 +479,6 @@ class EvidenceCollector:
 
     def _extract_validation_runs(self, result: Any, is_success: bool) -> list[dict[str, Any]]:
         """提取验证运行记录。
-
-        安全报告标准要求: 概率性系统需要重复验证。
-        官方博文: "findings frequently include confidence levels, testing conditions,
-        and repeated validation results rather than a single proof-of-concept screenshot"
-
-        如果 AttackResult 中有多次执行的记录 (如 Best-of-N), 则提取;
-        否则记录当前执行作为首次运行。
-
-        学术依据: PTES Section 4.2 — Repeated Validation for Probabilistic Systems.
         """
         runs: list[dict[str, Any]] = []
 
@@ -598,14 +504,6 @@ class EvidenceCollector:
 
     def _extract_testing_conditions(self, result: Any) -> dict[str, str]:
         """提取测试条件 (用于概率性系统可复现性)。
-
-        安全报告标准: AI security findings "frequently include confidence levels,
-        testing conditions, and repeated validation results".
-
-        记录攻击执行时的环境条件:
-            - timestamp: 执行时间
-            - technique: 攻击技术
-            - outcome: 攻击结果
         """
 
         outcome = getattr(result, "outcome", None)
@@ -646,4 +544,3 @@ class EvidenceCollector:
             "failure_types": failure_types,
             "technique_ranking": ranking,
         }
-

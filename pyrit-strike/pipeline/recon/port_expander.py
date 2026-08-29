@@ -1,30 +1,4 @@
 """跨端口端点发现 — 探测同主机其他端口上的 AI 服务。
-
-学术依据:
-    - Arbis et al. (arXiv:2306.01943) §4.5 — API 端点发现应覆盖
-      同主机的不同端口, Agent 服务常部署在非标准端口。
-    - OWASP WSTG-INFO-03 — 框架指纹识别后的针对性探测
-      应包含端口维度。
-    - PTES (Penetration Testing Execution Standard) §2 — 情报收集
-      阶段应做端口服务发现。
-    - A2A Protocol (Google, 2025) — Agent Card 通常部署在
-      /.well-known/agent.json, 可能在不同端口。
-
-设计原则 (Rule 2: 胶水层, 不替换):
-    使用 httpx 直接探测 (不使用 PyRIT HTTPTarget, 因为这不是
-    prompt 交互, 而是端口探测)。httpx 是 PyRIT 已有依赖。
-
-探测策略:
-    1. 常见 AI 服务端口优先 (3000-3010, 8000-8100, 9000-9100, 11434)
-    2. 对每个端口探测 /.well-known/agent.json + /mcp + /health
-    3. 发现的端口端点生成新的 ParsedBurpRequest 供后续攻击
-    4. 并发控制 + 早期终止 (发现 N 个即停止)
-
-效率优化:
-    - 每端口只探测 5 个路径 (不是全量端点发现)
-    - 超时 3s (端口可能关闭, 快速失败)
-    - 并发控制 10
-    - 早期终止: 发现 3 个端口端点即停止
 """
 
 from __future__ import annotations
@@ -36,9 +10,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ══════════════════════════════════════════════════════════════
 # 常见 AI 服务端口 (按优先级排序)
-# ══════════════════════════════════════════════════════════════
 
 _AI_SERVICE_PORTS: list[int] = [
     # MCP Server 常见端口
@@ -76,19 +48,9 @@ _SERVICE_TYPE_KEYWORDS: dict[str, list[str]] = {
     "agent": ["agent", "tool", "function", "workflow"],
 }
 
-
 @dataclass
 class DiscoveredPortEndpoint:
     """发现的端口端点。
-
-    属性:
-        port: 端口号。
-        path: 探测路径。
-        status_code: HTTP 状态码。
-        content_type: 响应 Content-Type。
-        response_preview: 响应体预览 (前 200 字符)。
-        service_type: 推断的服务类型 (mcp/a2a/llm_api/agent/unknown)。
-        use_tls: 是否使用 TLS。
     """
 
     port: int
@@ -99,7 +61,6 @@ class DiscoveredPortEndpoint:
     service_type: str = "unknown"
     use_tls: bool = False
 
-
 async def discover_port_endpoints(
     parsed: Any,
     *,
@@ -109,33 +70,6 @@ async def discover_port_endpoints(
     custom_ports: list[int] | None = None,
 ) -> list[DiscoveredPortEndpoint]:
     """探测同主机其他端口上的 AI 服务。
-
-    学术依据:
-        - Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
-        - PTES §2 — 情报收集阶段端口发现
-
-    策略:
-        1. 从原始请求提取 host
-        2. 对常见 AI 服务端口并发探测
-        3. 每个端口探测 5 个关键路径
-        4. 从响应推断服务类型
-        5. 发现的端点返回供后续构建 HTTPTarget
-
-    效率优化:
-        - 每端口只探测 5 个路径 (不是全量端点发现)
-        - 超时 3s (端口可能关闭, 快速失败)
-        - 并发控制 max_concurrent (默认 10)
-        - 早期终止: 发现 early_stop 个端口端点即停止
-
-    Args:
-        parsed: ParsedBurpRequest 实例 (提取 host 和 TLS 信息)。
-        timeout: 每个探测请求的超时秒数。
-        max_concurrent: 最大并发探测数。
-        early_stop: 发现 N 个端口端点即停止。
-        custom_ports: 自定义端口列表 (None = 使用默认 AI 端口列表)。
-
-    Returns:
-        发现的端口端点列表。
     """
     host = _extract_host(parsed)
     use_tls = _extract_tls(parsed)
@@ -190,7 +124,6 @@ async def discover_port_endpoints(
 
     return results
 
-
 async def _probe_port_paths(
     host: str,
     port: int,
@@ -198,15 +131,6 @@ async def _probe_port_paths(
     timeout: float,
 ) -> list[DiscoveredPortEndpoint]:
     """探测单个端口的多个路径。
-
-    Args:
-        host: 主机名。
-        port: 端口号。
-        use_tls: 是否使用 TLS。
-        timeout: 超时秒数。
-
-    Returns:
-        发现的端点列表 (可能为空)。
     """
     import httpx
 
@@ -268,21 +192,12 @@ async def _probe_port_paths(
 
     return results
 
-
 def _infer_service_type(
     status_code: int,
     content_type: str,
     body_preview: str,
 ) -> str:
     """从响应推断服务类型。
-
-    Args:
-        status_code: HTTP 状态码。
-        content_type: Content-Type header。
-        body_preview: 响应体预览。
-
-    Returns:
-        服务类型 (mcp/a2a/llm_api/agent/unknown)。
     """
     text = f"{content_type} {body_preview}".lower()
 
@@ -297,14 +212,8 @@ def _infer_service_type(
 
     return "unknown"
 
-
 def _extract_host(parsed: Any) -> str:
     """从 ParsedBurpRequest 提取 host。
-
-    优先级:
-        1. parsed.host (已解析)
-        2. 从 Host header 中提取
-        3. 从 raw_request 第一行中提取
     """
     # 直接属性
     host = getattr(parsed, "host", None)
@@ -334,14 +243,8 @@ def _extract_host(parsed: Any) -> str:
 
     return ""
 
-
 def _extract_tls(parsed: Any) -> bool:
     """从 ParsedBurpRequest 提取 TLS 信息。
-
-    优先级:
-        1. parsed.use_tls / parsed.is_https
-        2. 从 raw_request 第一行判断 (HTTPS)
-        3. 从端口判断 (443 = TLS)
     """
     # 直接属性
     for attr in ("use_tls", "is_https", "tls"):
@@ -363,19 +266,11 @@ def _extract_tls(parsed: Any) -> bool:
 
     return False
 
-
 def build_port_parsed_request(
     original_parsed: Any,
     port_endpoint: DiscoveredPortEndpoint,
 ) -> dict[str, Any]:
     """从端口端点构建请求参数 (供后续构建 HTTPTarget)。
-
-    Args:
-        original_parsed: 原始 ParsedBurpRequest。
-        port_endpoint: 发现的端口端点。
-
-    Returns:
-        请求参数字典 (host, port, path, use_tls, method, headers)。
     """
     host = _extract_host(original_parsed)
     original_headers = getattr(original_parsed, "headers", {})

@@ -1,21 +1,4 @@
 """generator — 报告生成协调器.
-
-职责:
-    - 定义共享常量 (_OWASP_ALL_CATEGORIES, _HTML_TEMPLATE)
-    - 提供 _classify_score_consistency 评分一致性分析
-    - generate_report: 异步生成所有报告文件 (MD + HTML + JSON + PoC + CSV + ZIP)
-    - 重新导出 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
-      (实际实现在 report_markdown.py / report_html.py 中)
-
-架构:
-    generator.py (常量 + 协调) ← report_markdown.py (MD 生成)
-                              ← report_html.py (HTML 生成)
-                              ← report_sections.py (章节构建)
-                              ← report_utils.py (工具函数)
-
-循环依赖解决:
-    report_html.py 延迟导入 generator._HTML_TEMPLATE (在函数体内),
-    generator.py 延迟导入 report_html/report_markdown 的函数 (在 generate_report 内).
 """
 
 from __future__ import annotations
@@ -29,8 +12,6 @@ from pipeline.report.evidence import EvidenceCollection
 
 logger = logging.getLogger(__name__)
 
-
-# ── OWASP 类别字典 (Web + LLM + ASI 合并) ──
 # 被 report_html.py 和 report_utils.py 引用
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
     # OWASP Web Top 10 (2025)
@@ -68,8 +49,6 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "ASI10": "Rogue Agent",
 }
 
-
-# ── HTML 模板 (Jinja2) ──
 # 被 report_html.py 引用
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -249,21 +228,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </body>
 </html>"""
 
-
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     """分类评分一致性.
-
-    分析 score_details 中多个 scorer 的评分一致性:
-        - 空 → N/A
-        - 单 scorer → Post-hoc Dual Judge
-        - 多 scorer 全一致 → Consistent
-        - 多 scorer 不一致 → Minor Disagreement
-
-    Args:
-        score_details: 评分详情列表, 每项含 "scorer" 和 "score_value" 键.
-
-    Returns:
-        一致性分类字符串.
     """
     if not score_details:
         return "N/A"
@@ -288,46 +254,52 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
         return "Consistent"
     return "Minor Disagreement"
 
-
-# ── 重新导出 (延迟导入, 避免循环依赖) ──
 # 这些函数实际实现在 report_markdown.py 和 report_html.py 中,
 # 但测试和旧代码从 generator 导入它们.
 # 使用延迟导入 (wrapper 函数) 避免循环依赖.
 
-
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
     """生成 Markdown 报告 (委托给 report_markdown).
-
-    Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
     """
     from pipeline.report.report_markdown import _generate_markdown as _impl
 
     return _impl(evidence, success_only=success_only)
 
-
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """生成 HTML 报告 (委托给 report_html)."""
-    from pipeline.report.report_html import _generate_html as _impl
-
-    return _impl(evidence, success_only=success_only)
-
+    """生成 HTML 报告 (V2: report_html 已删除, 返回简化 HTML)."""
+    md = _generate_markdown(evidence, success_only=success_only)
+    return f"<html><body><pre>{md}</pre></body></html>"
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """将证据集合转换为字典 (委托给 report_html).
-
-    Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
-    """
-    from pipeline.report.report_html import _evidence_to_dict as _impl
-
-    return _impl(evidence, success_only=success_only)
-
+    """将证据集合转换为字典 (V2: 内联实现, report_html 已删除)."""
+    evidence_list = evidence.successful_evidence if success_only else evidence.evidence
+    return {
+        "collection_id": evidence.collection_id,
+        "timestamp": evidence.timestamp,
+        "target_model": evidence.target_model,
+        "total_attacks": evidence.total_attacks,
+        "successful_attacks": evidence.successful_attacks,
+        "overall_asr": evidence.overall_asr,
+        "evidence": [_single_evidence_to_dict(ev) for ev in evidence_list],
+        "owasp_coverage": evidence.owasp_coverage,
+        "technique_distribution": evidence.technique_distribution,
+        "dual_judge_stats": getattr(evidence, "dual_judge_stats", {}),
+        "wilson_ci": getattr(evidence, "wilson_ci", (0.0, 0.0)),
+        "cohens_kappa": getattr(evidence, "cohens_kappa", 0.0),
+    }
 
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
-    """将单个证据转换为字典 (委托给 report_html)."""
-    from pipeline.report.report_html import _single_evidence_to_dict as _impl
-
-    return _impl(ev)
-
+    """将单个证据转换为字典 (V2: 内联实现)."""
+    return {
+        "evidence_id": ev.evidence_id,
+        "technique": ev.technique_name,
+        "owasp_id": ev.owasp_id,
+        "objective": ev.objective,
+        "harmful_output": ev.harmful_output,
+        "is_success": ev.is_success,
+        "converter_chain": ev.converter_chain,
+        "arxiv_reference": ev.arxiv_reference,
+    }
 
 async def generate_report(
     ctx: Any,
@@ -335,24 +307,6 @@ async def generate_report(
     output_dir: Path,
 ) -> Path:
     """生成所有报告文件.
-
-    生成:
-        - report.md / report_success.md
-        - report.html / report_success.html (如果 args.html_report)
-        - evidence/evidence.json / evidence_success.json
-        - evidence/EVD-*.json (每个证据单独)
-        - poc/poc_*.py (成功攻击的 PoC 脚本)
-        - report.sarif (SARIF 2.1 格式, 用于 CI/CD 集成)
-        - attack_summary.csv / owasp_coverage_matrix.csv
-        - evidence_package.zip
-
-    Args:
-        ctx: PipelineContext 对象.
-        evidence: 证据集合.
-        output_dir: 输出目录.
-
-    Returns:
-        报告文件路径.
     """
     output_dir = Path(output_dir)
     evidence_dir = output_dir / "evidence"
@@ -360,20 +314,17 @@ async def generate_report(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     poc_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Markdown 报告 ──
     md_content = _generate_markdown(evidence)
     md_path = output_dir / "report.md"
     md_path.write_text(md_content, encoding="utf-8")
     logger.info("Markdown report saved to %s", md_path)
 
-    # ── 仅成功攻击的 Markdown ──
     if evidence.successful_evidence:
         success_md = _generate_markdown(evidence, success_only=True)
         success_md_path = output_dir / "report_success.md"
         success_md_path.write_text(success_md, encoding="utf-8")
         logger.info("Success-only Markdown report saved to %s", success_md_path)
 
-    # ── HTML 报告 (可选) ──
     if getattr(ctx.args, "html_report", False):
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
@@ -386,7 +337,6 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
-    # ── evidence JSON ──
     json_data = _evidence_to_dict(evidence)
     json_path = evidence_dir / "evidence.json"
     json_path.write_text(
@@ -404,7 +354,6 @@ async def generate_report(
         )
         logger.info("Success-only evidence JSON saved to %s", success_json_path)
 
-    # ── 每个证据单独保存 ──
     for ev in evidence.evidence:
         ev_filename = f"{ev.evidence_id}.json"
         ev_path = evidence_dir / ev_filename
@@ -413,7 +362,6 @@ async def generate_report(
             encoding="utf-8",
         )
 
-    # ── PoC 脚本 (仅成功攻击) ──
     # 断点修复: 增强日志记录, 包含技术名称和失败原因, 便于调试
     from pipeline.report.owasp_mapping import generate_poc_script
 
@@ -444,40 +392,5 @@ async def generate_report(
         logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
     if poc_failed:
         logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
-
-    # ── SARIF 报告 ──
-    # 断点修复: SARIF 报告 (sarif_report.py) 存在但未被主流水线调用,
-    # 导致 CI/CD 集成场景缺少 SARIF 输出。
-    # 修复: 在 generator.py 中集成 SARIF 报告生成, 与 MD/HTML/JSON 并行输出。
-    try:
-        from pipeline.report.sarif_report import generate_sarif_report
-
-        sarif_path = output_dir / "report.sarif"
-        generate_sarif_report(evidence, sarif_path)
-    except Exception as e:
-        logger.warning("Failed to generate SARIF report: %s", e)
-
-    # ── CSV 导出 ──
-    try:
-        from pipeline.report.report_sections import (
-            _export_evidence_zip,
-            _render_attack_summary_csv,
-            _render_coverage_matrix_csv,
-        )
-
-        csv_summary = _render_attack_summary_csv(evidence)
-        csv_summary_path = output_dir / "attack_summary.csv"
-        csv_summary_path.write_text(csv_summary, encoding="utf-8")
-
-        csv_coverage = _render_coverage_matrix_csv(evidence)
-        csv_coverage_path = output_dir / "owasp_coverage_matrix.csv"
-        csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
-        logger.info("CSV exports saved to %s", output_dir)
-
-        # ── ZIP 证据包 ──
-        _export_evidence_zip(output_dir, evidence)
-        logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
-    except Exception as e:
-        logger.warning("Failed to export CSV/ZIP: %s", e)
 
     return md_path

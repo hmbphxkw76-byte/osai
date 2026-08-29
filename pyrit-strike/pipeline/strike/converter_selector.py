@@ -1,6 +1,4 @@
 """converter_selector — 从 executor.py 拆分而来.
-
-包含 converter 选择, OWASP 优先级, 配置构建, 低 ASR 裁剪.
 """
 
 import logging
@@ -10,17 +8,8 @@ from pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)
 
-
 def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
     """获取按 ASR 降序排列的候选 converter 列表。
-
-    L5 v35: 从 ctx.converter_map 去重 + 裁剪 + 按优先级排序,
-    返回前 N 个候选 converter (每个将作为 SequentialAttack 的独立路径)。
-
-    最佳路径数: 3-5 条 (按 ASR 降序), 不串联叠加。
-    >5 条边际收益递减 + 超时风险 (Wei et al. arXiv:2307.15043)。
-
-    返回空列表表示无 converter 可用。
     """
     seen_signatures: set[str] = set()
     unique_converters: list[Any] = []
@@ -77,7 +66,6 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
     }
 
     # L5 v36: OWASP 类别 → Converter 自适应匹配
-    # 学术依据:
     #   arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
     #   arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
     #   arXiv:2402.14266 — DrAttack 分解对信息提取类有效
@@ -125,18 +113,6 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
 
 def _converter_signature(c: Any) -> str:
     """生成 converter 的唯一签名 (类型 + 关键参数).
-
-    L5 v8: 按 (type_name + signature) 去重, 保留不同参数的同类型 converter.
-    用于在构建 SequentialAttack 路径时避免重复, 同时保持多样性.
-
-    L5 v36: 支持 SelectiveTextConverter, SearchReplaceConverter,
-    CodeChameleonConverter 等新 converter 的签名生成.
-
-    Args:
-        c: Converter 实例.
-
-    Returns:
-        唯一签名字符串 (如 "PersuasionConverter:authority_endorsement").
     """
     type_name = type(c).__name__
     # PersuasionConverter: 区分 persuasion_technique 参数
@@ -184,24 +160,6 @@ def _converter_signature(c: Any) -> str:
 
 def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     """L5 v36: 从种子 OWASP 类别分布查询最佳 Converter 优先级列表。
-
-    学术依据:
-        arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
-        arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
-        arXiv:2402.14266 — DrAttack 分解对信息提取类有效
-
-    策略:
-        1. 从 ctx.seeds 收集所有种子的 owasp_id metadata
-        2. 统计每个 owasp_id 出现频率, 取最频繁的类别
-        3. 查询 asr_priors.yaml 中的 owasp_converter_map
-        4. 返回该类别的 Converter 签名优先级列表
-
-    Args:
-        ctx: 流水线上下文。
-
-    Returns:
-        Converter 签名列表 (按优先级排序, 第一个为最佳)。
-        空列表表示无法匹配, 调用方应使用默认全局优先级。
     """
     if not ctx.seeds:
         return []
@@ -249,37 +207,6 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
 
 def _build_converter_config(ctx: PipelineContext) -> Any:
     """构建 AttackConverterConfig。
-
-    L5 v34 关键修复: 只保留最高 ASR 的单个 converter 路径。
-
-    问题诊断:
-        v33 代码将 9 个 ConverterConfiguration 传给 PromptSendingAttack,
-        但 PyRIT 的 PromptNormalizer.convert_values_async 会遍历所有
-        ConverterConfiguration 并串联叠加到同一条消息上。
-        这导致 payload 经过 9 层 converter 变换后完全不可读 → ASR=0%。
-
-    修复策略:
-        只传 1 条 ConverterConfiguration (内含 1 个最佳 converter),
-        避免 payload 被多个 converter 串联叠加破坏。
-        多路径独立执行需要 SequentialAttack 包装, 但当前架构无 scorer
-        无法判断成功, 故仅保留最佳单路径。
-
-    路径选择优先级 (按 ASR 降序):
-        1. PersuasionConverter(authority_endorsement) — ASR 38.4%
-        2. PersuasionConverter(expert_endorsement)  — ASR ~35%
-        3. PersuasionConverter(logical_appeal)      — ASR 28.7%
-        4. ROT13Converter (semantic)               — ASR 30-40%
-        5. VariationConverter                       — ASR 20-30%
-        6. ToneConverter(academic)                  — ASR 22.1%
-        7. Base64Converter + ROT13Converter (2层)   — ASR 12%
-
-    学术依据:
-        - Wei et al. (arXiv:2307.15043): 编码串联 >2 层 ASR 从 12% 降至 4%。
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 最高。
-        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS,
-          但 PromptSendingAttack 不支持多路径独立执行。
-
-    返回 None 表示不使用 converter (由调用方处理)。
     """
     from pyrit.executor.attack import AttackConverterConfig
     from pyrit.prompt_normalizer import ConverterConfiguration
@@ -303,7 +230,6 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
     # L5 v34: 按优先级选择最佳 converter 路径
     # 优先级映射 (ASR 降序, 数字越小优先级越高)
     # L5 v36: 新增 SelectiveTextConverter, CodeChameleon, PolicyPuppetry 等
-    # 学术依据: arXiv:2402.14266 — DrAttack 分解重组 ASR 40-60% 最高
     #           arXiv:2404.30015 — CodeChameleon ASR 35-45%
     _PRIORITY_MAP: dict[str, int] = {
         # LLM-Based (ASR 30-60%)
@@ -343,7 +269,6 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
     }
 
     # L5 v36: OWASP 类别 → Converter 自适应匹配
-    # 学术依据:
     #   arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
     #   arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
     #   arXiv:2402.14266 — DrAttack 分解对信息提取类有效
@@ -442,37 +367,14 @@ def _prune_low_asr_converters(
     *,
     ctx: PipelineContext | None = None,
 ) -> list[Any]:
-    """L5 v11: 根据运行时 ASR 历史动态裁剪低效 converter 路径。
+    """L5 v11: 根据运行时 ASR 历史动态裁剪低效 converter 路径.
 
-    L5 v15: 动态阈值 — 基于失败目标数量调整裁剪激进程度。
-    L5 v34: 在单路径选择模式下, 此函数主要起排序作用 (高 ASR 排前),
-            因为 _build_converter_config 最终只取 unique_converters[0]。
-            裁剪逻辑 (含 _MIN_PATHS 恢复) 仍保留, 以备未来恢复多路径模式。
-
-    学术依据: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS
-    策略下, 低 ASR 路径浪费 API 调用; 裁剪低效路径可提升 ~30% 吞吐量。
-
-    策略:
-        1. 读取 data/seeds/asr_history.json 中的 converter 级 ASR
-        2. 裁剪 ASR < _PRUNE_ASR_THRESHOLD (5%) 的路径
-           例外: 如果裁剪后剩余路径 < 4, 保留最低限度的多样性
-        3. 按 ASR 降序排列 (高 ASR 路径优先, v34 下第一个即为最佳)
-
-    Converter ASR 来源: asr_history.json 中的 "converter_asr" 字段,
-    key 为 converter 类型名 (如 "Base64Converter"),
-    value 为该 converter 路径的历史 ASR 百分比。
-
-    Args:
-        converters: 原始 converter 列表。
-
-    Returns:
-        裁剪 + 排序后的 converter 列表。
+    Dynamic prune threshold based on n_failed (arXiv:2407.01232).
     """
     import json
     from pathlib import Path
 
     # L5 v15: 动态裁剪阈值 — 基于失败目标数量调整
-    # 学术依据: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS 策略
     # 当失败目标多时, 提高裁剪阈值 (更激进裁剪低效路径, 节省 API 调用);
     # 当失败目标少时, 降低阈值 (保留更多路径, 增加攻击多样性)
     # 策略:

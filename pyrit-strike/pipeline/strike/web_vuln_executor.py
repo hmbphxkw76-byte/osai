@@ -1,22 +1,4 @@
 """Web 漏洞攻击执行器 — 多端点并行攻击。
-
-与传统 LLM Prompt 攻击不同, Web 漏洞攻击:
-    1. 有多个端点, 每个端点对应不同漏洞类型
-    2. 种子是原始 HTTP payload (SQLi, XSS, SSRF...)
-    3. 评分基于响应内容匹配 (SubStringScorer), 不依赖 LLM Judge
-    4. 不需要多轮升级 (单轮 payload 即可判断)
-
-执行流程:
-    1. 从种子 metadata 中获取 vulnerability_type
-    2. 从端点-种子匹配中获取目标端点
-    3. 对每个匹配的端点-种子对发送 payload
-    4. 用 SubStringScorer 检测响应中的漏洞指标
-    5. 收集证据
-
-设计原则:
-    - 使用 PyRIT 原生 PromptSendingAttack + HTTPTarget
-    - 评分使用 SubStringScorer (0 token, 纯关键词匹配)
-    - 额外的 LLM 评分作为可选二次验证
 """
 
 from __future__ import annotations
@@ -32,23 +14,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 async def execute_web_vuln_attacks(
     ctx: PipelineContext,
     endpoint_targets: dict[str, Any],
     seed_endpoint_matches: dict[str, list[dict[str, Any]]],
 ) -> dict[str, list[Any]]:
     """执行 Web 漏洞攻击。
-
-    对每个端点-种子匹配对发送 HTTP payload, 检测响应中的漏洞指标。
-
-    Args:
-        ctx: 流水线上下文。
-        endpoint_targets: {endpoint_path: RateLimitedTarget}
-        seed_endpoint_matches: {endpoint_path: [seed_dict, ...]}
-
-    Returns:
-        攻击结果字典 {endpoint_path: [WebVulnResult, ...]}
     """
     from pyrit.executor.attack import (
         AttackScoringConfig,
@@ -165,7 +136,6 @@ async def execute_web_vuln_attacks(
 
     return all_results
 
-
 def _extract_scoring_indicators(seeds: list[dict[str, Any]]) -> list[str]:
     """从种子的 metadata 中提取评分关键词。"""
     indicators: list[str] = []
@@ -179,14 +149,11 @@ def _extract_scoring_indicators(seeds: list[dict[str, Any]]) -> list[str]:
                     indicators.append(ind)
     return indicators
 
-
 def _check_time_based_results(
     results: list[Any],
     seed_groups: list["AttackSeedGroup"],
 ) -> list[Any]:
     """时间盲注结果检测 — 测量响应时间。
-
-    对每个结果, 如果响应时间显著长于基线 (>2s), 标记为成功。
     """
     baseline_threshold = 2.0  # 2 秒阈值
 
@@ -215,15 +182,8 @@ def _check_time_based_results(
 
     return results
 
-
 def _extract_response_text(result: Any) -> str:
     """从 PyRIT AttackResult 中正确提取响应文本。
-
-    L5 v41 新增: 旧代码用 request_pieces[0] 获取的是请求而非响应。
-    PyRIT AttackResult 可能通过以下属性暴露响应:
-        - response_pieces: 响应 piece 列表
-        - last_response.message: 响应消息
-        - conversation: 对话历史
     """
     # 1. 尝试 response_pieces (PyRIT 1.0+ 原生属性)
     response_pieces = getattr(result, "response_pieces", None)
@@ -271,7 +231,6 @@ def _extract_response_text(result: Any) -> str:
     # 4. Fallback: result.last_response_text (自定义属性)
     return getattr(result, "last_response_text", "") or ""
 
-
 async def score_web_vuln_results(
     results: dict[str, list[Any]],
     seeds: list[dict[str, Any]],
@@ -279,18 +238,6 @@ async def score_web_vuln_results(
     scoring_target: Any | None = None,
 ) -> dict[str, Any]:
     """对 Web 漏洞攻击结果进行评分。
-
-    两层评分:
-        1. SubStringScorer (已在执行时做) — 关键词匹配
-        2. LLM Judge (可选) — 对匹配的结果做二次验证
-
-    Args:
-        results: {endpoint_path: [AttackResult, ...]}
-        seeds: 种子列表 (含 scoring_indicators)
-        scoring_target: LLM 评分目标 (可选, 用于二次验证)
-
-    Returns:
-        评分统计 {endpoint_path: {success_count, total, asr}}
     """
     from pathlib import Path
 
@@ -359,7 +306,6 @@ async def score_web_vuln_results(
             if matched and llm_scorer is not None:
                 try:
                     # L5 v41: 真正调用 LLM scorer 进行二次验证
-                    # 学术依据: Zhang et al. (arXiv:2308.07920) 双 Judge 交叉验证
                     score_result = await llm_scorer.score_async(response_text)
                     is_true = getattr(score_result, "score_value", False)
                     if is_true:

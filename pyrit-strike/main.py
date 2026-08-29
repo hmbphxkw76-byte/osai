@@ -1,46 +1,17 @@
-"""PyRIT-Strike 核心流水线入口 — 黑盒 Burp→攻击→报告 一键流水线。
-
-职责:
-    核心攻击流水线 (INIT → RECON → ARM → STRIKE → ASSESS → REPORT)。
-    支持编程式调用 (通过 argv 参数) 和 CLI 模式 (通过 sys.argv)。
+"""PyRIT-Strike 核心流水线入口 — Burp→攻击→报告 一键流水线。
 
 入口文件职责划分:
-    - main.py: 核心流水线 (单次攻击 + 报告生成)
-    - run_strike.py: 策略化攻击编排 (多策略对比 + 自动推荐)
-    - run_batch.py: 批量攻击 (多目标自动化)
-    - run_web_vuln.py: Web 漏洞攻击 (多端点发现 + 传统 payload)
-    - regen_report.py: 离线报告重新生成 (从 evidence.json 重新生成报告)
+    - main.py: 核心流水线 (INIT → RECON → ARM → STRIKE → ASSESS → REPORT)
+    - run_strike.py: 策略化攻击编排
+    - run_batch.py: 批量攻击
+    - run_web_vuln.py: Web 漏洞攻击
 
-纯黑盒场景:
-    - 仅需 Burp 拦截的 HTTP 请求 (无目标 API Key, 无目标模型信息)
-    - adversarial + scorer 使用用户自己的 LLM API
-
-使用方式::
-
-    # 默认使用 data/burp/request.txt (--burp-request 默认值)
+使用方式:
     python main.py --offensive
-    python main.py --techniques single
-
-    # 指定自定义 Burp 请求文件
     python main.py --burp-request /path/to/request.txt --offensive
+    from main import main; await main(["--burp-request", "req.txt", "--offensive"])
 
-    # 编程式调用 (不修改 sys.argv)
-    from main import main
-    await main(["--burp-request", "req.txt", "--offensive"])
-
-参数优先级:
-    CLI --flag > config/defaults.yaml (SSOT) > 硬编码 fallback
-    所有 L5 基线参数从 defaults.yaml 读取, 子模块通过
-    get_effective_concurrency(ctx) / _get_config_int(ctx, key, default) 统一访问。
-
-关键配置 (config/defaults.yaml):
-    max_concurrency: 3       (SQLite WAL 安全上限)
-    max_attempts: 3          (arXiv:2402.01135 N=3 ASR 1.5-2x)
-    best_of_n_retries: 5    (3 Persuasion + 2 Variation, 联概率 88.5%)
-    escalation_asr_threshold: 90  (单轮 ASR < 90% 触发多轮升级)
-    tap_tree_width: 4, tap_tree_depth: 4   (arXiv:2312.02191)
-    pair_tree_width: 1, pair_tree_depth: 7  (arXiv:2310.08419+2406.12609, depth=7 平衡 ASR/超时)
-    l5_optimal_paths: 7     (arXiv:2407.01232 FIRST_SUCCESS 多路径)
+参数优先级: CLI --flag > config/defaults.yaml (SSOT) > 硬编码 fallback
 """
 
 from __future__ import annotations
@@ -88,43 +59,6 @@ def cleanup_temp_files() -> None:
 
 # 注册 atexit 钩子: 正常退出或异常退出时都会执行
 atexit.register(cleanup_temp_files)
-
-
-async def _cleanup_resources(ctx: PipelineContext) -> None:
-    """生产级资源清理 — 关闭 Playwright 浏览器和 RateLimitedTarget 的 httpx.AsyncClient.
-
-    在流水线结束时调用, 确保所有异步资源被正确释放。
-    幂等设计: 所有清理操作都使用 try/except, 不会抛出异常。
-    """
-    # 1. 清理 Playwright 浏览器实例
-    if getattr(ctx, "_playwright_instance", None):
-        try:
-            if ctx._browser_context:
-                await ctx._browser_context.close()
-            if ctx._browser:
-                await ctx._browser.close()
-            if ctx._playwright_instance:
-                await ctx._playwright_instance.stop()
-            logger.info("Playwright browser closed")
-        except Exception as e:
-            logger.debug("Playwright cleanup (non-fatal): %s", e)
-        finally:
-            ctx._playwright_instance = None
-            ctx._browser = None
-            ctx._browser_context = None
-
-    # 2. 清理 RateLimitedTarget 的 httpx.AsyncClient
-    for target_attr in ("objective_target", "adversarial_target", "scoring_target"):
-        target = getattr(ctx, target_attr, None)
-        if target is None:
-            continue
-        cleanup_fn = getattr(target, "cleanup", None)
-        if cleanup_fn and asyncio.iscoroutinefunction(cleanup_fn):
-            try:
-                await cleanup_fn()
-                logger.debug("%s cleanup completed", target_attr)
-            except Exception as e:
-                logger.debug("%s cleanup (non-fatal): %s", target_attr, e)
 
 
 # 全局 asyncio 事件循环引用, 用于 signal 处理器中取消任务
@@ -179,56 +113,33 @@ def _is_attack_success(result: Any) -> bool:
 
 
 async def _cleanup_resources(ctx: PipelineContext) -> None:
-    """生产级资源清理 — 关闭浏览器实例、httpx client 等。
-
-    在流水线结束时调用, 确保所有异步资源被正确释放。
-    幂等设计: 所有操作都包裹在 try/except 中, 不会抛出异常。
-    """
-    # 1. Playwright 浏览器清理
-    if getattr(ctx, "_browser_context", None):
-        try:
-            await ctx._browser_context.close()
-        except Exception as e:
-            logger.debug("Browser context close failed (non-fatal): %s", e)
-
-    if getattr(ctx, "_browser", None):
-        try:
-            await ctx._browser.close()
-        except Exception as e:
-            logger.debug("Browser close failed (non-fatal): %s", e)
-
-    if getattr(ctx, "_playwright_instance", None):
-        try:
-            await ctx._playwright_instance.stop()
-        except Exception as e:
-            logger.debug("Playwright stop failed (non-fatal): %s", e)
-
-    # 2. RateLimitedTarget httpx client 清理
-    objective_target = getattr(ctx, "objective_target", None)
-    if objective_target and hasattr(objective_target, "cleanup"):
-        try:
-            await objective_target.cleanup()
-        except Exception as e:
-            logger.debug("Objective target cleanup failed (non-fatal): %s", e)
-
-    multi_turn_target = getattr(ctx, "multi_turn_target", None)
-    if multi_turn_target and multi_turn_target is not objective_target:
-        if hasattr(multi_turn_target, "cleanup"):
+    """生产级资源清理 — 关闭 Playwright 浏览器、httpx client 等。"""
+    # Playwright 浏览器清理
+    for attr in ("_browser_context", "_browser", "_playwright_instance"):
+        obj = getattr(ctx, attr, None)
+        if obj:
+            method = "close" if "browser" in attr else "stop"
             try:
-                await multi_turn_target.cleanup()
+                await getattr(obj, method)()
             except Exception as e:
-                logger.debug("Multi-turn target cleanup failed (non-fatal): %s", e)
+                logger.debug("%s cleanup (non-fatal): %s", attr, e)
 
-    # 3. 跨端口发现的目标清理
-    extra_targets = getattr(ctx, "extra_objective_targets", {})
-    for port, target in extra_targets.items():
+    # RateLimitedTarget httpx client 清理
+    for target_attr in ("objective_target", "multi_turn_target", "adversarial_target", "scoring_target"):
+        target = getattr(ctx, target_attr, None)
+        if target and hasattr(target, "cleanup"):
+            try:
+                await target.cleanup()
+            except Exception as e:
+                logger.debug("%s cleanup (non-fatal): %s", target_attr, e)
+
+    # 跨端口发现的目标清理
+    for port, target in getattr(ctx, "extra_objective_targets", {}).items():
         if hasattr(target, "cleanup"):
             try:
                 await target.cleanup()
             except Exception as e:
-                logger.debug("Port target %s cleanup failed (non-fatal): %s", port, e)
-
-    logger.debug("Resource cleanup complete")
+                logger.debug("Port target %s cleanup (non-fatal): %s", port, e)
 
 
 async def main(argv: list[str] | None = None) -> None:
@@ -338,8 +249,6 @@ async def main(argv: list[str] | None = None) -> None:
                 "session_type": fp.get("session_type", ""),
                 "tenant_id": fp.get("tenant_id", ""),
                 "port_endpoints": fp.get("port_endpoints", []),
-                "capability_confidence": fp.get("capability_confidence", {}),
-                "capability_recommendations": fp.get("capability_recommendations", {}),
             },
             "reasoning": "三层探测 (被动指纹 + 主动能力 + 深度能力) 完成, "
             "结果用于指导种子/技术/Converter 选择。"

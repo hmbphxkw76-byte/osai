@@ -1,6 +1,4 @@
 """认证状态获取和复用。
-
-支持 Cookie 注入和 Bearer Token 注入。
 """
 
 from __future__ import annotations
@@ -12,15 +10,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def load_auth_state(file_path: str | None) -> dict[str, Any] | None:
     """加载认证状态文件。
-
-    Args:
-        file_path: 认证状态 JSON 文件路径，None 返回 None。
-
-    Returns:
-        认证状态字典，或 None。
     """
     if not file_path:
         return None
@@ -34,21 +25,8 @@ def load_auth_state(file_path: str | None) -> dict[str, Any] | None:
         logger.error("Failed to parse auth state file: %s", e)
         return None
 
-
 def inject_auth_headers(raw_request: str, auth_state: dict[str, Any] | None) -> str:
     """将认证 headers 注入到原始 HTTP 请求。
-
-    支持:
-        - Cookie 注入 (从 browser storage_state 提取)
-        - Bearer Token 注入 (从 API 认证获取)
-        - 自定义 header 注入
-
-    Args:
-        raw_request: 原始 HTTP 请求字符串。
-        auth_state: 认证状态字典。
-
-    Returns:
-        注入认证信息后的 HTTP 请求字符串。
     """
     if not auth_state:
         return raw_request

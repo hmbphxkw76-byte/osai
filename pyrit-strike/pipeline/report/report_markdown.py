@@ -1,6 +1,4 @@
 """report_markdown — Markdown 报告生成.
-
-从 generator.py 拆分出来, 包含 _generate_markdown 函数。
 """
 
 from __future__ import annotations
@@ -9,11 +7,6 @@ import logging
 
 from pipeline.report.evidence import EvidenceCollection, VulnerabilityEvidence
 from pipeline.report.owasp_mapping import generate_poc_script
-from pipeline.report.report_sections import (
-    _build_escalation_dashboard_data,
-    _build_score_consistency_section,
-    _build_technique_effectiveness_matrix,
-)
 from pipeline.report.report_utils import (
     _get_all_references,
     _get_technique_display_name,
@@ -21,21 +14,12 @@ from pipeline.report.report_utils import (
 
 logger = logging.getLogger(__name__)
 
-
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
     """生成完整的 Markdown 安全报告。
-
-    Args:
-        evidence: 证据集合。
-        success_only: 仅包含成功攻击的证据。
-
-    Returns:
-        Markdown 报告字符串。
     """
     lines: list[str] = []
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
 
-    # ── 标题 ──
     lines.append("# AI Red Team Assessment Report")
     lines.append("")
     lines.append(f"**Target Model:** {evidence.target_model}")
@@ -46,7 +30,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append(f"**Overall ASR:** {evidence.overall_asr:.1f}%")
     lines.append("")
 
-    # ── Executive Summary ──
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(
@@ -58,7 +41,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     )
     lines.append("")
 
-    # ── Findings Summary ──
     lines.append("## Findings Summary")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -74,7 +56,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("No findings generated.")
     lines.append("")
 
-    # ── Vulnerability Details ──
     lines.append("## Vulnerability Details")
     lines.append("")
     for ev in evidence_list:
@@ -136,7 +117,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"  - {mitigation}")
         lines.append("")
 
-    # ── OWASP LLM Top 10 ──
     lines.append("## OWASP LLM Top 10")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -148,7 +128,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # ── OWASP ASI Top 10 ──
     lines.append("## OWASP ASI Top 10 (Agentic AI)")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -160,7 +139,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # ── Technique Performance ──
     lines.append("## Technique Performance")
     lines.append("")
     tech_map: dict[str, list[VulnerabilityEvidence]] = {}
@@ -176,7 +154,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append(f"| {_get_technique_display_name(tech)} | {tested} | {success} | {failed} | {asr:.0f}% |")
     lines.append("")
 
-    # ── Failure Analysis ──
     lines.append("## Failure Analysis")
     lines.append("")
     if evidence.failure_analysis:
@@ -199,11 +176,8 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             )
     lines.append("")
 
-    # ── Attack Technique Effectiveness Matrix ──
-    matrix_lines = _build_technique_effectiveness_matrix(evidence, evidence.evidence)
-    lines.extend(matrix_lines)
+    # V2: report_sections 已删除, 跳过技术效果矩阵
 
-    # ── MITRE ATLAS Mapping ──
     lines.append("## MITRE ATLAS Mapping")
     lines.append("")
     lines.append("| OWASP ID | MITRE Tactic | Technique ID | Technique Name |")
@@ -215,7 +189,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # ── MITRE ATLAS Reference ──
     lines.append("## MITRE ATLAS Reference")
     lines.append("")
     for ev in evidence_list:
@@ -223,11 +196,8 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"- [{ev.mitre_technique_id}]({ev.mitre_url}): {ev.mitre_technique_name}")
     lines.append("")
 
-    # ── Score Consistency Analysis ──
-    score_lines = _build_score_consistency_section(evidence)
-    lines.extend(score_lines)
+    # V2: report_sections 已删除, 跳过评分一致性分析
 
-    # ── Three-Tier Evidence Chain ──
     lines.append("## Three-Tier Evidence Chain")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -244,19 +214,8 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append("")
     lines.append("")
 
-    # ── Escalation Chain Report ──
-    lines.append("## Escalation Chain Report")
-    lines.append("")
-    dashboard = _build_escalation_dashboard_data(evidence)
-    lines.append("| Stage | Technique | ASR | Status |")
-    lines.append("|-------|-----------|-----|--------|")
-    for stage in dashboard:
-        lines.append(
-            f"| {stage['stage']} | {stage['technique']} | {stage['asr']} | {stage['escalated']} |",
-        )
-    lines.append("")
+    # V2: report_sections 已删除, 跳过升级仪表盘
 
-    # ── Adaptive Dual Judge Statistics ──
     # L5 v8: Dual Judge Statistics
     if hasattr(evidence, 'dual_judge_stats') and evidence.dual_judge_stats:
         stats = evidence.dual_judge_stats
@@ -298,7 +257,6 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
         lines.append(f"- **Cohen's Kappa**: {kappa:.3f} ({interpretation})")
 
-    # ── References ──
     lines.append("## References")
     lines.append("")
     refs = _get_all_references(evidence)

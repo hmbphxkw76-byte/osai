@@ -1,13 +1,4 @@
 """escalation_attacks — 从 escalation.py 拆分而来.
-
-包含 RedTeaming, Crescendo, TAP, PAIR 攻击实现.
-
-PyRIT 原生对齐 (v51):
-    - 新增 RedTeamingAttack: 官方最通用的多轮攻击, 作为 Crescendo 前置
-      (arXiv:2407.01232 — RedTeaming 是 multi-turn baseline)
-    - Crescendo 添加 system_prompt: 使用官方 EXECUTOR_SEED_PROMPT_PATH
-      (arXiv:2402.12109 — Crescendo 需要专用的渐进式 system prompt)
-    - 所有多轮攻击统一使用 AttackAdversarialConfig(target=..., system_prompt=...)
 """
 
 import asyncio
@@ -24,7 +15,6 @@ from pipeline.strike.escalation_level2 import _create_fallback_fsts, _retrieve_p
 
 logger = logging.getLogger(__name__)
 
-# ── L5 v13: security_audit exception capture ──
 _SECURITY_AUDIT_KEYWORDS = [
     "security_audit_fail",
     "content_filter",
@@ -35,43 +25,21 @@ _SECURITY_AUDIT_KEYWORDS = [
     "harmful_content",
 ]
 
-
 class _SecurityAuditError(Exception):
     """Target API security_audit detection exception."""
 
     pass
-
 
 def _is_security_audit_error(error_msg: str) -> bool:
     """Check if error message is a security_audit interception."""
     error_lower = error_msg.lower()
     return any(kw in error_lower for kw in _SECURITY_AUDIT_KEYWORDS)
 
-
 async def _run_red_teaming(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """对失败目标执行 RedTeamingAttack 多轮攻击。
-
-    PyRIT 原生对齐 (v51): 新增 RedTeamingAttack 作为升级链前置。
-    RedTeamingAttack 是 PyRIT 最通用的多轮攻击: 对抗模型逐轮生成 prompt,
-    scorer 判断进度, 循环到成功或 max_turns。
-
-    作为 Crescendo 前置的优势:
-        1. API 调用更少 (max_turns=5 vs Crescendo 10), 试探成本更低
-        2. 通用性更强 (不依赖渐进式策略, 适合所有目标类型)
-        3. 可使用 RTASystemPromptPaths 选择系统提示
-    学术依据:
-        - PyRIT (arXiv:2407.01232) — RedTeamingAttack 是 multi-turn baseline
-        - 官方文档: RedTeamingAttack 使用 RTASystemPromptPaths.TEXT_GENERATION
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 失败目标列表。
-
-    Returns:
-        RedTeaming 攻击结果。
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -79,7 +47,7 @@ async def _run_red_teaming(
         RTASystemPromptPaths,
     )
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
-    from pyrit.models import AttackSeedGroup, SeedPrompt, SeedObjective
+    from pyrit.models import AttackSeedGroup, SeedObjective, SeedPrompt
 
     results: dict[str, list[Any]] = {}
 
@@ -162,28 +130,11 @@ async def _run_red_teaming(
 
     return results
 
-
 async def _run_crescendo(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """对失败目标执行 Crescendo 多轮攻击。
-
-    PyRIT 原生对齐 (v51):
-        - 添加 Crescendo 专用 system_prompt (官方 EXECUTOR_SEED_PROMPT_PATH)
-        - AttackAdversarialConfig(target=..., system_prompt=...) 完整配置
-    L5 v20: 修复 sqlite3.IntegrityError (UNIQUE constraint failed: ScoreEntries.id)
-    学术依据: Heroux et al. (arXiv:2403.04206) — 韧性工程, 部分结果恢复
-    附加: Crescendo 本身是多轮对话, 内部已有 turn-by-turn 串行逻辑,
-           AttackExecutor 并发度仅影响多个 seed_groups 的并行度,
-           降为 1 不影响单 seed 的多轮对话执行
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 失败目标列表。
-
-    Returns:
-        Crescendo 攻击结果。
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -232,7 +183,6 @@ async def _run_crescendo(
             max_backtracks=10,  # L5 v3: 8→10, 更多回溯机会
         )
         # L5 v12: Crescendo 上下文窗口优化 (修复 dead code)
-        # 学术依据: Crescendo (arXiv:2402.12109) §4.3 — max_turns=10 需要
         # 足够大的上下文窗口保证对话历史完整性。
         # PyRIT 1.0.1 CrescendoAttack 通过多种可能属性管理上下文:
         for attr_name in ('max_conversation_memory', 'max_turn_memory', 'conversation_memory_limit'):
@@ -297,17 +247,9 @@ async def _run_tap(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """对失败目标执行 TAP 树搜索攻击。
+    """对失败目标执行 TAP 树搜索攻击.
 
-    L5 优化: tree_width=2 (从4减少), tree_depth=2 (从3减少)
-    减少 API 调用 ~75%，保持 ASR~50%。
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 失败目标列表。
-
-    Returns:
-        TAP 攻击结果。
+    Uses _apply_mtos_ranking with mtos_objectives (arXiv:2310.08419).
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -319,7 +261,6 @@ async def _run_tap(
     results: dict[str, list[Any]] = {}
 
     # L5 v36: suitable_for 分发 — 只执行适合 TAP 的种子
-    # 学术依据: Mehrotra et al. (arXiv:2312.02191) — TAP 树搜索对需要
     # 多分支探索的种子 (如工具链式调用) 更有效
     tap_objectives = _filter_by_suitable_for(objectives, ctx, "tap")
     if not tap_objectives:
@@ -327,7 +268,6 @@ async def _run_tap(
         return results
 
     # L5 v41: 放宽限制从 3 → 8 — 实战场景下 ASR 优先
-    # 学术依据: Mehrotra et al. (arXiv:2312.02191) — TAP 树搜索 ASR=50-80%
     # 更多目标 = 更多成功机会 (联合概率 P=1-∏(1-p_i))
     if len(tap_objectives) > 8:
         tap_objectives = tap_objectives[:8]
@@ -341,7 +281,6 @@ async def _run_tap(
         # 调用子 scorer 时返回非标准值, 导致 TAP 节点报错:
         # "TrueFalseScorer score value must be True or False"
         # TAP 原生设计要求 FloatScaleThresholdScorer (arXiv:2312.02191 §3.2)
-        # 学术依据: Mehrotra et al. (arXiv:2312.02191) — TAP 使用 FloatScaleScorer
 
         from pyrit.executor.attack.multi_turn.tree_of_attacks import TAPAttackScoringConfig
 
@@ -364,7 +303,6 @@ async def _run_tap(
         )
 
         # L5 v16: TAP 集成 MTOS 多轮选种排序
-        # 学术依据: Chao et al. (arXiv:2310.08419) — TAP 是多轮树搜索攻击,
         # 低-中 ASR 种子更适合多轮迭代优化, 高 ASR 种子单轮已成功
         # L5 v36: 传入 technique_name='tap' 启用交叉 ASR 先验加权
         mtos_objectives = _apply_mtos_ranking(tap_objectives, ctx, technique_name="tap")
@@ -413,20 +351,9 @@ async def _run_pair(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """对失败目标执行 PAIR 迭代优化攻击。
+    """对失败目标执行 PAIR 迭代优化攻击.
 
-    L5 新增: PAIR 作为第三升级阶段。
-    tree_width=1 (单流), tree_depth=3 (3次迭代)
-    API 调用量极小，ASR 40-60%。
-
-    学术依据: Chao et al. (arXiv:2310.08419)
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 失败目标列表。
-
-    Returns:
-        PAIR 攻击结果。
+    Uses _apply_mtos_ranking with mtos_objectives (arXiv:2310.08419).
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -438,7 +365,6 @@ async def _run_pair(
     results: dict[str, list[Any]] = {}
 
     # L5 v36: suitable_for 分发 — 只执行适合 PAIR 的种子
-    # 学术依据: Chao et al. (arXiv:2310.08419) — PAIR 对需要迭代优化的种子有效
     pair_objectives = _filter_by_suitable_for(objectives, ctx, "pair")
     if not pair_objectives:
         logger.info("PAIR: no objectives suitable for this technique, skipping")
@@ -448,7 +374,6 @@ async def _run_pair(
         # L5 v23: 直接使用原生 FloatScaleThresholdScorer, 移除 AdaptiveDualFloatJudgeScorer
         # 原因: 与 _run_tap 修复相同 — AdaptiveDualFloatJudgeScorer 返回非标准值
         # 导致 PAIR 节点报错。PAIR 继承 TAP, 原生使用 FloatScaleScorer。
-        # 学术依据: Chao et al. (arXiv:2310.08419) — PAIR 使用 FloatScaleScorer
 
         from pyrit.executor.attack.multi_turn.tree_of_attacks import TAPAttackScoringConfig
 
@@ -470,7 +395,6 @@ async def _run_pair(
         )
 
         # L5 v16: PAIR 集成 MTOS 多轮选种排序
-        # 学术依据: Chao et al. (arXiv:2310.08419) — PAIR 是多轮迭代优化攻击,
         # 低-中 ASR 种子更适合多轮迭代, 高 ASR 种子单轮已成功
         # L5 v36: 传入 technique_name='pair' 启用交叉 ASR 先验加权
         mtos_objectives = _apply_mtos_ranking(pair_objectives, ctx, technique_name="pair")

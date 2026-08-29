@@ -1,0 +1,497 @@
+"""generator 鈥?鎶ュ憡鐢熸垚鍗忚皟鍣?
+
+鑱岃矗:
+    - 瀹氫箟鍏变韩甯搁噺 (_OWASP_ALL_CATEGORIES, _HTML_TEMPLATE)
+    - 鎻愪緵 _classify_score_consistency 璇勫垎涓€鑷存€у垎鏋?
+    - generate_report: 寮傛鐢熸垚鎵€鏈夋姤鍛婃枃浠?(MD + HTML + JSON + PoC + CSV + ZIP)
+    - 閲嶆柊瀵煎嚭 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
+      (瀹為檯瀹炵幇鍦?report_markdown.py / report_html.py 涓?
+
+鏋舵瀯:
+    generator.py (甯搁噺 + 鍗忚皟) 鈫?report_markdown.py (MD 鐢熸垚)
+                              鈫?report_html.py (HTML 鐢熸垚)
+                              鈫?report_sections.py (绔犺妭鏋勫缓)
+                              鈫?report_utils.py (宸ュ叿鍑芥暟)
+
+寰幆渚濊禆瑙ｅ喅:
+    report_html.py 寤惰繜瀵煎叆 generator._HTML_TEMPLATE (鍦ㄥ嚱鏁颁綋鍐?,
+    generator.py 寤惰繜瀵煎叆 report_html/report_markdown 鐨勫嚱鏁?(鍦?generate_report 鍐?.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from report.evidence import EvidenceCollection
+
+logger = logging.getLogger(__name__)
+
+
+# 鈹€鈹€ OWASP 绫诲埆瀛楀吀 (Web + LLM + ASI 鍚堝苟) 鈹€鈹€
+# 琚?report_html.py 鍜?report_utils.py 寮曠敤
+_OWASP_ALL_CATEGORIES: dict[str, str] = {
+    # OWASP Web Top 10 (2025)
+    "A01": "Broken Access Control",
+    "A02": "Cryptographic Failures",
+    "A03": "Injection",
+    "A04": "Insecure Design",
+    "A05": "Security Misconfiguration",
+    "A06": "Vulnerable and Outdated Components",
+    "A07": "Identification and Authentication Failures",
+    "A08": "Software and Data Failure",
+    "A09": "Security Logging and Monitoring Failures",
+    "A10": "Server-Side Request Forgery (SSRF)",
+    # OWASP LLM Top 10 (2025 Edition)
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+    # OWASP Agentic AI Top 10
+    "ASI01": "Agent Identity Spoofing",
+    "ASI02": "Tool Misuse",
+    "ASI03": "Unauthorized Actions",
+    "ASI04": "Data Exfiltration",
+    "ASI05": "Privilege Escalation",
+    "ASI06": "Memory Poisoning",
+    "ASI07": "Cross-Agent Injection",
+    "ASI08": "Cascading Failures",
+    "ASI09": "Trust Boundary Violation",
+    "ASI10": "Rogue Agent",
+}
+
+
+# 鈹€鈹€ HTML 妯℃澘 (Jinja2) 鈹€鈹€
+# 琚?report_html.py 寮曠敤
+_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Red Team Assessment Report</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; color: #333; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 10px; }
+  h2 { color: #16213e; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+  h3 { color: #0f3460; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+  th { background: #f4f4f4; font-weight: 600; }
+  tr:nth-child(even) { background: #fafafa; }
+  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 5px; overflow-x: auto; }
+  .heatmap-cell { padding: 6px 10px; text-align: center; font-weight: 600; }
+  .heat-critical { background: #ff4444; color: #fff; }
+  .heat-high { background: #ff8844; color: #fff; }
+  .heat-medium { background: #ffcc44; }
+  .heat-low { background: #88dd44; }
+  .heat-none { background: #eee; color: #999; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+  .badge-critical { background: #ff0000; color: #fff; }
+  .badge-high { background: #ff4444; color: #fff; }
+  .badge-medium { background: #ffaa00; }
+  .badge-low { background: #00aa00; color: #fff; }
+</style>
+</head>
+<body>
+<h1>AI Red Team Assessment Report</h1>
+<p><strong>Assessment Type:</strong> Black-box (No API Key, No Target Model Info)</p>
+<p><strong>Generated:</strong> {{ evidence.timestamp }}</p>
+<p><strong>Target:</strong> <code>{{ evidence.target_model }}</code></p>
+
+{% if fingerprint %}
+<h2>Target Fingerprint & Attack Surface</h2>
+<table>
+  <tr><th>Attribute</th><th>Value</th></tr>
+  {% for k, v in fingerprint.items() %}
+  <tr><td>{{ k }}</td><td><code>{{ v }}</code></td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Executive Summary</h2>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Overall ASR</td><td><strong>{{ evidence.overall_asr }}%</strong></td></tr>
+  <tr><td>Total Attacks</td><td>{{ evidence.total_attacks }}</td></tr>
+  <tr><td>Successful Attacks</td><td>{{ evidence.successful_attacks }}</td></tr>
+  <tr><td>Failed Attacks</td><td>{{ evidence.failed_attacks }}</td></tr>
+  <tr><td>OWASP Categories Covered</td><td>{{ evidence.owasp_coverage | length }}</td></tr>
+</table>
+
+<h2>OWASP LLM Top 10 Compliance Matrix</h2>
+<table>
+  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>
+  {% for owasp_id, stats in evidence.owasp_llm_compliance.items() | sort %}
+  <tr>
+    <td>{{ owasp_id }}</td>
+    <td>{{ stats.get('category', 'Unknown') }}</td>
+    <td>{{ stats.get('tested', 0) }}</td>
+    <td>{{ stats.get('success', 0) }}</td>
+    <td>{{ stats.get('failed', 0) }}</td>
+    <td>{{ stats.get('asr', 0.0) }}%</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>OWASP Agentic AI Top 10 Compliance Matrix</h2>
+<table>
+  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>
+  {% for owasp_id, stats in evidence.owasp_asi_compliance.items() | sort %}
+  <tr>
+    <td>{{ owasp_id }}</td>
+    <td>{{ stats.get('category', 'Unknown') }}</td>
+    <td>{{ stats.get('tested', 0) }}</td>
+    <td>{{ stats.get('success', 0) }}</td>
+    <td>{{ stats.get('failed', 0) }}</td>
+    <td>{{ stats.get('asr', 0.0) }}%</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>ASR Heatmap (Technique 脳 OWASP)</h2>
+<table>
+  <tr>
+    <th>Technique</th>
+    {% for owasp_id in heatmap_owasp_ids %}
+    <th>{{ owasp_id }}</th>
+    {% endfor %}
+    <th>Overall</th>
+  </tr>
+  {% for row in heatmap_rows %}
+  <tr>
+    <td>{{ row.technique }}</td>
+    {% for cell in row.cells %}
+    <td class="heatmap-cell {{ cell.css_class }}">{{ cell.display }}</td>
+    {% endfor %}
+    <td class="heatmap-cell {{ row.overall_css }}">{{ row.overall_display }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Escalation Chain Dashboard</h2>
+<table>
+  <tr><th>Stage</th><th>Technique</th><th>ASR</th><th>Status</th></tr>
+  {% for stage in escalation_dashboard %}
+  <tr>
+    <td>{{ stage.stage }}</td>
+    <td>{{ stage.technique }}</td>
+    <td>{{ stage.asr }}</td>
+    <td>{{ stage.escalated }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Vulnerability Details</h2>
+{% for ev in evidence_list %}
+{% if ev.jailbreak_prompt %}
+<h3>{{ ev.evidence_id }}: {{ ev.technique_display_name }} {% if ev.is_success %}鉁厈% else %}鉂寋% endif %}</h3>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>OWASP ID</td><td>{{ ev.owasp_id }}</td></tr>
+  <tr><td>OWASP Category</td><td>{{ ev.owasp_category }}</td></tr>
+  <tr><td>Severity</td><td>{{ ev.owasp_severity | upper }}</td></tr>
+  <tr><td>Risk Score</td><td>{{ ev.owasp_risk_score }}/10</td></tr>
+  <tr><td>Technique</td><td><code>{{ ev.technique_name }}</code></td></tr>
+  <tr><td>ASR</td><td>{{ ev.asr }}%</td></tr>
+  <tr><td>Success</td><td>{% if ev.is_success %}鉁?YES{% else %}鉂?NO{% endif %}</td></tr>
+  <tr><td>Converter Chain</td><td><code>{{ ev.converter_chain or 'none (baseline)' }}</code></td></tr>
+  {% if ev.mitre_technique_id %}
+  <tr><td>MITRE ATLAS</td><td>{{ ev.mitre_technique_id }} 鈥?{{ ev.mitre_technique_name }}</td></tr>
+  {% endif %}
+</table>
+
+<h4>Attack Payload:</h4>
+<pre>{{ ev.jailbreak_prompt[:2000] }}{% if ev.jailbreak_prompt | length > 2000 %}...{% endif %}</pre>
+
+<h4>Target Response:</h4>
+<pre>{{ ev.harmful_output[:2000] }}{% if ev.harmful_output | length > 2000 %}...{% endif %}</pre>
+
+{% if ev.owasp_mitigations %}
+<h4>Mitigation Recommendations:</h4>
+<ul>
+  {% for m in ev.owasp_mitigations %}
+  <li>{{ m }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<hr>
+{% endif %}
+{% endfor %}
+
+<h2>Technique Performance</h2>
+<table>
+  <tr><th>Technique</th><th>Total Attacks</th></tr>
+  {% for tech, count in evidence.technique_distribution.items() | sort %}
+  <tr><td>{{ tech }}</td><td>{{ count }}</td></tr>
+  {% endfor %}
+</table>
+
+{% if not success_only and evidence.failure_analysis %}
+<h2>Failure Analysis</h2>
+<table>
+  <tr><th>Failure Type</th><th>Count</th></tr>
+  {% for ftype, count in evidence.failure_analysis.get('failure_types', {}).items() | sort(attribute='1', reverse=true) %}
+  <tr><td>{{ ftype }}</td><td>{{ count }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+</body>
+</html>"""
+
+
+def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
+    """鍒嗙被璇勫垎涓€鑷存€?
+
+    鍒嗘瀽 score_details 涓涓?scorer 鐨勮瘎鍒嗕竴鑷存€?
+        - 绌?鈫?N/A
+        - 鍗?scorer 鈫?Post-hoc Dual Judge
+        - 澶?scorer 鍏ㄤ竴鑷?鈫?Consistent
+        - 澶?scorer 涓嶄竴鑷?鈫?Minor Disagreement
+
+    Args:
+        score_details: 璇勫垎璇︽儏鍒楄〃, 姣忛」鍚?"scorer" 鍜?"score_value" 閿?
+
+    Returns:
+        涓€鑷存€у垎绫诲瓧绗︿覆.
+    """
+    if not score_details:
+        return "N/A"
+
+    # 鎻愬彇鎵€鏈?score_value
+    score_values: list[str] = []
+    for sd in score_details:
+        val = str(sd.get("score_value", "")).lower().strip()
+        score_values.append(val)
+
+    if len(score_values) <= 1:
+        return "Post-hoc Dual Judge"
+
+    # 妫€鏌ユ槸鍚﹀叏閮ㄤ竴鑷?(true/1 鎴栧叏閮?false/0)
+    truthy = {"true", "1", "yes"}
+    falsy = {"false", "0", "no"}
+
+    all_true = all(v in truthy for v in score_values)
+    all_false = all(v in falsy for v in score_values)
+
+    if all_true or all_false:
+        return "Consistent"
+    return "Minor Disagreement"
+
+
+# 鈹€鈹€ 閲嶆柊瀵煎嚭 (寤惰繜瀵煎叆, 閬垮厤寰幆渚濊禆) 鈹€鈹€
+# 杩欎簺鍑芥暟瀹為檯瀹炵幇鍦?report_markdown.py 鍜?report_html.py 涓?
+# 浣嗘祴璇曞拰鏃т唬鐮佷粠 generator 瀵煎叆瀹冧滑.
+# 浣跨敤寤惰繜瀵煎叆 (wrapper 鍑芥暟) 閬垮厤寰幆渚濊禆.
+
+
+def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
+    """鐢熸垚 Markdown 鎶ュ憡 (濮旀墭缁?report_markdown).
+
+    Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
+    """
+    from report.report_markdown import _generate_markdown as _impl
+
+    return _impl(evidence, success_only=success_only)
+
+
+def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
+    """鐢熸垚 HTML 鎶ュ憡 (濮旀墭缁?report_html)."""
+    from report.report_html import _generate_html as _impl
+
+    return _impl(evidence, success_only=success_only)
+
+
+def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
+    """灏嗚瘉鎹泦鍚堣浆鎹负瀛楀吀 (濮旀墭缁?report_html).
+
+    Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
+    """
+    from report.report_html import _evidence_to_dict as _impl
+
+    return _impl(evidence, success_only=success_only)
+
+
+def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
+    """灏嗗崟涓瘉鎹浆鎹负瀛楀吀 (濮旀墭缁?report_html)."""
+    from report.report_html import _single_evidence_to_dict as _impl
+
+    return _impl(ev)
+
+
+async def generate_report(
+    ctx: Any,
+    evidence: EvidenceCollection,
+    output_dir: Path,
+) -> Path:
+    """鐢熸垚鎵€鏈夋姤鍛婃枃浠?
+
+    鐢熸垚:
+        - report.md / report_success.md
+        - report.html / report_success.html (濡傛灉 args.html_report)
+        - evidence/evidence.json / evidence_success.json
+        - evidence/EVD-*.json (姣忎釜璇佹嵁鍗曠嫭)
+        - poc/poc_*.py (鎴愬姛鏀诲嚮鐨?PoC 鑴氭湰)
+        - report.sarif (SARIF 2.1 鏍煎紡, 鐢ㄤ簬 CI/CD 闆嗘垚)
+        - attack_summary.csv / owasp_coverage_matrix.csv
+        - evidence_package.zip
+
+    Args:
+        ctx: PipelineContext 瀵硅薄.
+        evidence: 璇佹嵁闆嗗悎.
+        output_dir: 杈撳嚭鐩綍.
+
+    Returns:
+        鎶ュ憡鏂囦欢璺緞.
+    """
+    output_dir = Path(output_dir)
+    evidence_dir = output_dir / "evidence"
+    poc_dir = output_dir / "poc"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    poc_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── PyRIT Native Output (R2: PyRIT 原生优先) ──
+    # Uses official pyrit.output module to generate standard-format output files.
+    # This is the PyRIT-native output path, separate from the security report.
+    # OffSec AI-300: Proves PyRIT framework mastery via native output format.
+    try:
+        from report.pyrit_native_output import generate_native_output_files
+
+        attack_results = getattr(ctx, "attack_results", {})
+        scenario_result = getattr(ctx, "scenario_result", None)
+        await generate_native_output_files(attack_results, scenario_result, output_dir)
+    except Exception as e:
+        logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
+
+    # ── Markdown Report (OffSec AI-300 Security Report) ──
+    md_content = _generate_markdown(evidence)
+    md_path = output_dir / "report.md"
+    md_path.write_text(md_content, encoding="utf-8")
+    logger.info("Markdown report saved to %s", md_path)
+
+    # 鈹€鈹€ 浠呮垚鍔熸敾鍑荤殑 Markdown 鈹€鈹€
+    if evidence.successful_evidence:
+        success_md = _generate_markdown(evidence, success_only=True)
+        success_md_path = output_dir / "report_success.md"
+        success_md_path.write_text(success_md, encoding="utf-8")
+        logger.info("Success-only Markdown report saved to %s", success_md_path)
+
+    # 鈹€鈹€ HTML 鎶ュ憡 (鍙€? 鈹€鈹€
+    if getattr(ctx.args, "html_report", False):
+        html_content = _generate_html(evidence)
+        html_path = output_dir / "report.html"
+        html_path.write_text(html_content, encoding="utf-8")
+        logger.info("HTML report saved to %s", html_path)
+
+        if evidence.successful_evidence:
+            success_html = _generate_html(evidence, success_only=True)
+            success_html_path = output_dir / "report_success.html"
+            success_html_path.write_text(success_html, encoding="utf-8")
+            logger.info("Success-only HTML report saved to %s", success_html_path)
+
+    # 鈹€鈹€ evidence JSON 鈹€鈹€
+    json_data = _evidence_to_dict(evidence)
+    json_path = evidence_dir / "evidence.json"
+    json_path.write_text(
+        json.dumps(json_data, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    logger.info("Evidence JSON saved to %s", json_path)
+
+    if evidence.successful_evidence:
+        success_json_data = _evidence_to_dict(evidence, success_only=True)
+        success_json_path = evidence_dir / "evidence_success.json"
+        success_json_path.write_text(
+            json.dumps(success_json_data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        logger.info("Success-only evidence JSON saved to %s", success_json_path)
+
+    # 鈹€鈹€ 姣忎釜璇佹嵁鍗曠嫭淇濆瓨 鈹€鈹€
+    for ev in evidence.evidence:
+        ev_filename = f"{ev.evidence_id}.json"
+        ev_path = evidence_dir / ev_filename
+        ev_path.write_text(
+            json.dumps(_single_evidence_to_dict(ev), ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    # 鈹€鈹€ PoC 鑴氭湰 (浠呮垚鍔熸敾鍑? 鈹€鈹€
+    # 鏂偣淇: 澧炲己鏃ュ織璁板綍, 鍖呭惈鎶€鏈悕绉板拰澶辫触鍘熷洜, 渚夸簬璋冭瘯
+    from report.owasp_mapping import generate_poc_script
+
+    poc_count = 0
+    poc_failed = 0
+    for ev in evidence.successful_evidence:
+        try:
+            poc_script = generate_poc_script(ev)
+            poc_path = poc_dir / f"poc_{ev.evidence_id}.py"
+            poc_path.write_text(poc_script, encoding="utf-8")
+            poc_count += 1
+            logger.debug(
+                "PoC generated: %s (technique=%s, converter=%s)",
+                ev.evidence_id,
+                ev.technique_name,
+                ev.converter_chain or "none",
+            )
+        except Exception as e:
+            poc_failed += 1
+            logger.warning(
+                "PoC generation failed for %s (technique=%s): %s",
+                ev.evidence_id,
+                ev.technique_name,
+                e,
+                exc_info=True,
+            )
+    if poc_count:
+        logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
+    if poc_failed:
+        logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
+
+    # 鈹€鈹€ SARIF 鎶ュ憡 鈹€鈹€
+    # 鏂偣淇: SARIF 鎶ュ憡 (sarif_report.py) 瀛樺湪浣嗘湭琚富娴佹按绾胯皟鐢?
+    # 瀵艰嚧 CI/CD 闆嗘垚鍦烘櫙缂哄皯 SARIF 杈撳嚭銆?
+    # 淇: 鍦?generator.py 涓泦鎴?SARIF 鎶ュ憡鐢熸垚, 涓?MD/HTML/JSON 骞惰杈撳嚭銆?
+    try:
+        from report.sarif_report import generate_sarif_report
+
+        sarif_path = output_dir / "report.sarif"
+        generate_sarif_report(evidence, sarif_path)
+    except Exception as e:
+        logger.warning("Failed to generate SARIF report: %s", e)
+
+    # 鈹€鈹€ CSV 瀵煎嚭 鈹€鈹€
+    try:
+        from report.report_sections import (
+            _export_evidence_zip,
+            _render_attack_summary_csv,
+            _render_coverage_matrix_csv,
+        )
+
+        csv_summary = _render_attack_summary_csv(evidence)
+        csv_summary_path = output_dir / "attack_summary.csv"
+        csv_summary_path.write_text(csv_summary, encoding="utf-8")
+
+        csv_coverage = _render_coverage_matrix_csv(evidence)
+        csv_coverage_path = output_dir / "owasp_coverage_matrix.csv"
+        csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
+        logger.info("CSV exports saved to %s", output_dir)
+
+        # 鈹€鈹€ ZIP 璇佹嵁鍖?鈹€鈹€
+        _export_evidence_zip(output_dir, evidence)
+        logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
+    except Exception as e:
+        logger.warning("Failed to export CSV/ZIP: %s", e)
+
+    return md_path
+

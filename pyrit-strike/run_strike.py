@@ -26,8 +26,6 @@
     # 指定自定义 Burp 请求文件
     python run_strike.py --burp-request /path/to/request.txt --strategy targeted_full
 
-    # 对比已有运行结果
-    python run_strike.py --compare outputs/run1 outputs/run2
 
 设计理念:
     - 策略预设封装了种子 + 技术 + Converter + 升级的最优组合
@@ -160,15 +158,6 @@ def parse_strike_args() -> Any:
         help="Cookie 值 (自动注入到 Burp 请求, 覆盖环境变量 TARGET_COOKIE)",
     )
 
-    # ── 对比 ──
-    parser.add_argument(
-        "--compare",
-        type=str,
-        nargs="+",
-        default=None,
-        help="对比多个运行结果目录 (空格分隔)",
-    )
-
     # ── 输出 ──
     parser.add_argument(
         "--output-dir",
@@ -290,14 +279,6 @@ async def run_all_strategies(
         except Exception as e:
             logger.error("Strategy %s failed: %s", strategy_name, e)
 
-    # 生成对比报告
-    if len(run_dirs) > 1:
-        print_phase("COMPARE", "Generating comparison report...")
-        from pipeline.report.comparator import compare_runs
-
-        compare_runs(run_dirs, output_base_path)
-        print_phase("COMPARE", f"Comparison report: {output_base_path}")
-
     return run_dirs
 
 
@@ -331,19 +312,6 @@ async def run_auto_strategy(
     return await run_single_strategy(strategy_name, burp_request, output_dir)
 
 
-def compare_existing_runs(run_dirs: list[str]) -> None:
-    """对比已有运行结果."""
-    run_paths = [Path(d) for d in run_dirs]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = _PROJECT_ROOT / "outputs" / f"redteam_{timestamp}_comparison"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    from pipeline.report.comparator import compare_runs
-
-    compare_runs(run_paths, output_dir)
-    print_phase("COMPARE", f"Comparison report: {output_dir}")
-
-
 async def async_main() -> None:
     """异步主入口."""
     logging.basicConfig(
@@ -359,11 +327,6 @@ async def async_main() -> None:
     # 列出策略
     if args.list_strategies:
         print(list_strategies())
-        return
-
-    # 对比已有运行
-    if args.compare:
-        compare_existing_runs(args.compare)
         return
 
     # 批量攻击模式 --burp-dir

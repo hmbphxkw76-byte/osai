@@ -1,25 +1,4 @@
-"""poc_generator — PoC 脚本生成和 Findings 构建.
-
-从 owasp_mapping.py 拆分出来, 包含:
-    - generate_poc_script: 生成 PyRIT 原生复现脚本 (按技术路由)
-    - _build_findings: 构建三级证据链 Findings
-    - _get_pyrit_attack_mapping: 获取 PyRIT 攻击技术映射
-
-PoC 生成器按攻击技术生成对应的 PyRIT 原生代码:
-    - 单轮技术 (prompt_sending/skeleton_key/...): PromptSendingAttack
-    - 多轮技术 (crescendo/tap/pair): 对应原生多轮攻击类
-    - Converter 链: 根据 evidence.converter_chain 动态生成
-
-学术依据:
-    - PyRIT (arXiv:2407.01232) — 原生 AttackExecutor API 设计
-    - Russinovich et al. (arXiv:2402.12109) — CrescendoAttack 构造签名
-    - Mehrotra et al. (arXiv:2312.02191) — TAPAttack 构造签名
-    - Chao et al. (arXiv:2310.08419) — PAIRAttack 构造签名
-    - Wei et al. (arXiv:2307.15043) — Converter 链编码绕过
-    - Zeng et al. (arXiv:2402.19181) — 说服策略 Converter
-    - DrAttack (arXiv:2402.14266) — 分解重组 Converter
-    - Greshake et al. (arXiv:2302.12173) — 间接注入五步方法论
-"""
+"""poc_generator — PoC 脚本生成和 Findings 构建."""
 
 from __future__ import annotations
 

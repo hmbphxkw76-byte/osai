@@ -1,27 +1,4 @@
 """评分器注册 — 黑盒场景适配。
-
-黑盒场景特点:
-    - 无目标模型信息 (不知道目标是什么 LLM)
-    - 仅有 HTTP 响应内容
-    - 评分基于响应内容与 objective 的匹配度
-
-L5 v6 评分策略:
-    1. 主评分器: AdaptiveDualJudgeScorer (自适应双 Judge)
-       - 第一 Judge: SelfAskTrueFalseScorer (blackbox_task_achieved, 宽松)
-       - 第二 Judge: SelfAskTrueFalseScorer (strict_task_achieved, 严格)
-       - 自适应: 高置信度直接返回, 低置信度启动双 Judge
-    2. Fallback: SelfAskTrueFalseScorer (单 Judge)
-    3. Fallback 2: TrueFalseInverterScorer(SelfAskRefusalScorer)
-    4. 启发式: SubStringScorer (关键词匹配, 0 token)
-
-L5 v52 PyRIT 原生 TargetRequirements 集成:
-    - 在创建评分器前使用 PyRIT 原生 TargetRequirements 验证 scoring_target
-      的能力是否满足 LLM-as-a-Judge 评分需求
-    - 评分器需要: text 输入/输出模态, JSON 输出能力 (SelfAskTrueFalseScorer
-      使用 JSON schema 解析评分结果), system_prompt (ADAPT 即可)
-    - 验证失败时记录警告但不阻断 (降级到启发式评分)
-    - 学术依据: PyRIT (arXiv:2407.01232) — TargetRequirements 声明式
-      能力验证, 确保评分器在运行时不会因能力不匹配而崩溃
 """
 
 from __future__ import annotations
@@ -33,28 +10,8 @@ from pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)
 
-
 def create_objective_scorer(ctx: PipelineContext) -> Any:
     """创建并注册主评分器。
-
-    L5 v6 策略 (自适应双 Judge):
-        1. 主评分器: AdaptiveDualJudgeScorer
-           - 第一 Judge: SelfAskTrueFalseScorer (blackbox_task_achieved, 宽松)
-           - 第二 Judge: SelfAskTrueFalseScorer (strict_task_achieved, 严格)
-           - 自适应: 高置信度直接返回, 低置信度启动双 Judge
-        2. Fallback: SelfAskTrueFalseScorer (单 Judge)
-        3. Fallback 2: TrueFalseInverterScorer(SelfAskRefusalScorer)
-        4. 无 LLM: 返回 None
-
-    L5 v52: 在创建评分器前使用 PyRIT 原生 TargetRequirements 验证
-    scoring_target 的能力是否满足 LLM-as-a-Judge 评分需求。
-    验证失败时降级到启发式评分, 不阻断流水线。
-
-    Args:
-        ctx: 流水线上下文。
-
-    Returns:
-        Scorer 实例, 或 None。
     """
     from pipeline.assess.adaptive_dual_judge import create_adaptive_dual_judge_scorer
 
@@ -143,18 +100,8 @@ def create_objective_scorer(ctx: PipelineContext) -> Any:
     )
     return None
 
-
 def create_substring_scorer(substring: str = "") -> Any:
     """创建 SubStringScorer (关键词匹配 fallback)。
-
-    当 LLM 评分器超时/不可用时自动降级。
-    检查响应中是否包含目标关键词。
-
-    Args:
-        substring: 要匹配的关键词 (空字符串则总是返回 False)。
-
-    Returns:
-        SubStringScorer 实例。
     """
     from pyrit.score import SubStringScorer
 
@@ -163,15 +110,8 @@ def create_substring_scorer(substring: str = "") -> Any:
         categories=["substring_fallback"],
     )
 
-
 def create_refusal_keywords_scorer() -> Any:
     """创建拒绝关键词检测评分器 (启发式)。
-
-    检查响应中是否包含常见的拒绝关键词。
-    当无 LLM 可用时, 作为最低级别的评分手段。
-
-    Returns:
-        SubStringScorer 实例 (匹配拒绝关键词)。
     """
     from pyrit.score import SubStringScorer
 
@@ -182,7 +122,6 @@ def create_refusal_keywords_scorer() -> Any:
         substring=refusal_keywords,
         categories=["refusal_detection"],
     )
-
 
 def _register_scorer(scorer: Any, name: str) -> None:
     """注册评分器到 ScorerRegistry。"""
@@ -199,9 +138,6 @@ def _register_scorer(scorer: Any, name: str) -> None:
     except Exception as e:
         logger.warning("Failed to register scorer: %s", e)
 
-
-# ── L5 v52: PyRIT 原生 TargetRequirements 验证 ──
-# 学术依据: PyRIT (arXiv:2407.01232) — TargetRequirements 声明式能力验证
 # 评分器作为 LLM-as-a-Judge 消费者, 对 scoring_target 有明确的能力需求:
 #   1. text 输入模态: 评分器需要发送评分 prompt (包含响应文本 + objective)
 #   2. text 输出模态: 评分器需要接收 LLM 的评分结果 (JSON 格式 rationale)
@@ -218,15 +154,8 @@ def _register_scorer(scorer: Any, name: str) -> None:
 # 评分器目标能力需求预设
 _SCORING_TARGET_REQUIREMENTS = None  # 惰性初始化
 
-
 def _get_scoring_target_requirements():
     """惰性构建评分器目标能力需求 (L5 v52).
-
-    使用 PyRIT 原生 TargetRequirements 声明评分器对 scoring_target 的能力需求。
-    惰性初始化避免在模块加载时触发 PyRIT 内部初始化。
-
-    Returns:
-        TargetRequirements 实例。
     """
     global _SCORING_TARGET_REQUIREMENTS
     if _SCORING_TARGET_REQUIREMENTS is not None:
@@ -254,34 +183,8 @@ def _get_scoring_target_requirements():
 
     return _SCORING_TARGET_REQUIREMENTS
 
-
 def validate_scoring_target_capabilities(scoring_target: Any) -> bool:
     """验证 scoring_target 满足 LLM-as-a-Judge 评分需求 (L5 v52).
-
-    使用 PyRIT 原生 TargetRequirements.validate() 验证评分目标的能力。
-    验证失败时记录详细警告但不抛出异常, 调用方可降级到启发式评分。
-
-    学术依据:
-        - PyRIT (arXiv:2407.01232) — TargetRequirements 声明式能力验证
-        - Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge 需要目标
-          支持 JSON 输出以确保评分解析可靠性
-        - Mazeika et al. (arXiv:2402.04249) — 评分器能力不匹配会导致
-          评分失败, 应在运行前验证
-
-    验证内容:
-        1. JSON 输出能力 (required, ADAPT 降级可接受):
-           SelfAskTrueFalseScorer 依赖 JSON schema 解析评分结果
-        2. text 输入/输出模态:
-           评分器通过文本 prompt 发送评分请求, 接收文本响应
-        3. system_prompt (通过 ADAPT 策略处理):
-           评分器使用 system prompt 设置评分规则, ADAPT 合并到 user 即可
-
-    Args:
-        scoring_target: 评分用 LLM 目标 (PyRIT PromptTarget 实例)。
-
-    Returns:
-        True 如果验证通过或目标无 configuration 属性 (降级处理);
-        False 如果验证失败 (目标不满足评分需求)。
     """
     requirements = _get_scoring_target_requirements()
     if requirements is False:

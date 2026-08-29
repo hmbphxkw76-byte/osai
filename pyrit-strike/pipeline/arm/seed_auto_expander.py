@@ -1,6 +1,4 @@
 """seed_auto_expander — 从 seed_ranker.py 拆分而来.
-
-包含异步种子扩充, 自适应 UCB-C.
 """
 
 import asyncio
@@ -18,24 +16,6 @@ async def auto_generate_seeds_async(
     expansion_factor: int = 3,
 ) -> list[AttackSeedGroup]:
     """L5 v27: 异步种子自动扩充 — 正确 await VariationConverter.convert_async。
-
-    L5 v10 原版 auto_generate_seeds 未 await convert_async 返回的 coroutine,
-    导致 LLM 变异种子实际未执行。本异步版本修复此问题。
-
-    学术依据:
-        - AutoDAN (arXiv:2310.04451) — Liu et al. 自动化越狱 prompt 生成
-        - Best-of-N (arXiv:2402.01135) — 3x 扩充 ASR 1.5-2x
-
-    PyRIT 原生引擎: VariationConverter (原生 converter)
-    增强层: 异步并行扩充 + 元数据继承
-
-    Args:
-        base_seeds: 基础种子组列表。
-        converter_target: LLM 目标实例 (用于 VariationConverter)。
-        expansion_factor: 每个种子的扩充倍数 (默认 3x)。
-
-    Returns:
-        扩充后的种子组列表 (原始 + 生成变体)。
     """
     if converter_target is None:
         logger.info("Auto-generate seeds skipped: no converter_target available")
@@ -145,17 +125,6 @@ def auto_generate_seeds(
     expansion_factor: int = 3,
 ) -> list[AttackSeedGroup]:
     """L5 v10: 同步种子自动扩充 (兼容接口)。
-
-    L5 v27: 内部调用 auto_generate_seeds_async。
-    如果在 event loop 内, fallback 到同步逻辑 (不 await convert_async)。
-
-    Args:
-        base_seeds: 基础种子组列表。
-        converter_target: LLM 目标实例。
-        expansion_factor: 扩充倍数。
-
-    Returns:
-        扩充后的种子组列表。
     """
     import asyncio as _asyncio
 
@@ -239,32 +208,6 @@ def _compute_adaptive_ucb_c(
     asr_history: dict[str, float],
 ) -> float:
     """L5 v11: 自适应计算 UCB 探索参数 C。
-
-    学术依据: Auer et al. (arXiv:cs/0207052) — UCB1 算法中 C 参数
-    控制探索-利用 (exploration-exploitation) 平衡:
-        - C 大 → 更多探索 (尝试新种子, 适用于数据不足阶段)
-        - C 小 → 更多利用 (重用高 ASR 种子, 适用于数据充足阶段)
-
-    自适应策略 (分层):
-        1. 种子总数少 (N < 10): C=0.8 (强探索)
-           理由: 样本不足, 需要更多探索以发现高潜力种子
-        2. 种子总数中 (10 ≤ N < 50): C=0.5 (标准平衡)
-           理由: 有一定数据基础, 维持探索-利用平衡
-        3. 种子总数多 (N ≥ 50): C=0.3 (弱探索)
-           理由: 已有足够数据, 应更多利用已知高 ASR 种子
-
-    进一步微调:
-        - 如果 ASR 方差大 (不同种子 ASR 差异大): C +0.1 (多探索)
-          理由: 高方差意味着有些种子可能被低估, 需要探索
-        - 如果 ASR 方差小 (种子表现相近): C -0.1 (少探索)
-          理由: 低方差意味着种子表现相似, 利用即可
-
-    Args:
-        seed_attempts: 种子尝试次数历史。
-        asr_history: 种子 ASR 历史。
-
-    Returns:
-        自适应 C 参数值 [0.1, 1.0]。
     """
     N = sum(seed_attempts.values()) if seed_attempts else 0
 

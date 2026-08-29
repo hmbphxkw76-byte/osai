@@ -1,30 +1,4 @@
 """端点自动发现 — 基于学术方法论的高效 API 路径枚举。
-
-学术依据:
-    - OWASP WSTG-INFO-03 (Fingerprint Web Application Framework)
-      https://owasp.org/www-project-web-security-testing-guide/
-      → 框架指纹识别 → 针对性路径探测
-    - PTES (Penetration Testing Execution Standard) Section 2: Intelligence Gathering
-      → 分层发现: 先探测规范文档, 再基于响应引导扩展
-    - Arbis et al. (arXiv:2306.01943) "Automated API Endpoint Discovery"
-      → 自适应路径树: 根据 200/301/403 响应引导后续探测方向
-    - OWASP API Security Top 10 (2025) + OWASP Top 10 (2025)
-      → 端点关键词按 OWASP 漏洞分类分级
-
-设计原则 — 分层优先发现 (Priority-Based Discovery):
-    Layer 0: API 规范文档发现 (OpenAPI/Swagger/graphql) — 1 次请求可能揭示全部端点
-    Layer 1: 框架/技术指纹 (actuator, debug, env) — 高价值信息泄露端点
-    Layer 2: 同前缀路径推断 (从原始 Burp 请求路径推断 API 前缀, 探测同级端点)
-    Layer 3: 版本化探测 (v1/v2/api 级别回退)
-    Layer 4: 响应引导扩展 (根据 Layer 1-3 的响应内容动态发现新路径)
-    Layer 5: 通用基线探测 (常见 API 路径, 仅在前面层未发现足够端点时执行)
-
-效率优化:
-    - 优先级分层: 高价值端点先探测, 早期命中率高
-    - 早期终止: Layer 0 发现 OpenAPI 规范 → 跳过 Layer 5 通用探测
-    - 响应引导: 从 200 响应中提取链接/路径 → 动态扩展
-    - 去重: 全局去重, 同一路径不重复探测
-    - 并发控制: 分层并发, 每层内部最大并发
 """
 
 from __future__ import annotations
@@ -97,10 +71,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-
-# ══════════════════════════════════════════════════════════════
 # 主发现引擎
-# ══════════════════════════════════════════════════════════════
 
 async def discover_endpoints(
     parsed: ParsedBurpRequest,
@@ -109,26 +80,6 @@ async def discover_endpoints(
     max_concurrent: int = 10,
 ) -> list[DiscoveredEndpoint]:
     """自动发现目标 API 端点 — 分层优先发现。
-
-    分层策略 (学术依据: PTES §2 + arXiv:2306.01943):
-        Layer 0: API 规范文档 (OpenAPI/Swagger) — 1 次请求可能揭示全部端点
-        Layer 1: 高价值端点 (actuator/debug/env) — 信息泄露
-        Layer 2: 同前缀推断 (从 Burp 请求路径推断 API 前缀)
-        Layer 3: 版本化探测 (v1 → v2/v3)
-        Layer 4: 响应引导扩展 (从 Layer 0-3 响应中提取新路径)
-        Layer 5: 通用基线 (仅在前面层发现 <3 端点时执行)
-
-    早期终止:
-        - Layer 0 发现 OpenAPI 规范 → 跳过 Layer 5
-        - Layer 0-3 累计发现 ≥10 端点 → 跳过 Layer 5
-
-    Args:
-        parsed: 解析后的 Burp 请求。
-        timeout: 单个探针超时秒数。
-        max_concurrent: 最大并发探测数。
-
-    Returns:
-        可用端点列表。
     """
     import httpx
 
@@ -146,7 +97,6 @@ async def discover_endpoints(
     discovered: list[DiscoveredEndpoint] = []
     has_openapi_spec = False
 
-    # ── 创建共享的 HTTP client (连接池复用) ──
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
@@ -197,7 +147,6 @@ async def discover_endpoints(
                     found.append(result)
             return found
 
-        # ═══ Layer 0: API 规范文档发现 ═══
         logger.info("[Layer 0] Probing API spec documents...")
         layer0_paths = _build_layer0_paths()
         layer0_results = await _probe_batch(layer0_paths, 0)
@@ -219,25 +168,21 @@ async def discover_endpoints(
                         r.from_spec = True
                     discovered.extend(spec_results)
 
-        # ═══ Layer 1: 高价值端点探测 ═══
         logger.info("[Layer 1] Probing high-value endpoints...")
         layer1_paths = _build_layer1_paths()
         layer1_results = await _probe_batch(layer1_paths, 1)
         discovered.extend(layer1_results)
 
-        # ═══ Layer 2: 同前缀路径推断 ═══
         logger.info("[Layer 2] Probing same-prefix endpoints...")
         layer2_paths = _build_layer2_paths(parsed.path)
         layer2_results = await _probe_batch(layer2_paths, 2)
         discovered.extend(layer2_results)
 
-        # ═══ Layer 3: 版本化探测 ═══
         logger.info("[Layer 3] Probing versioned API endpoints...")
         layer3_paths = _build_layer3_paths(parsed.path)
         layer3_results = await _probe_batch(layer3_paths, 3)
         discovered.extend(layer3_results)
 
-        # ═══ Layer 4: 响应引导扩展 ═══
         logger.info("[Layer 4] Extracting paths from responses...")
         guided_paths: list[str] = []
         for ep in discovered:
@@ -253,7 +198,6 @@ async def discover_endpoints(
             layer4_results = await _probe_batch(guided_paths[:30], 4)  # 限制 30 个
             discovered.extend(layer4_results)
 
-        # ═══ Layer 5: 通用基线探测 (条件执行) ═══
         # 早期终止: 发现 OpenAPI 规范 或 累计 ≥10 端点 → 跳过
         if not has_openapi_spec and len(discovered) < 10:
             logger.info("[Layer 5] Probing baseline endpoints (insufficient discovery)...")
@@ -272,25 +216,13 @@ async def discover_endpoints(
     )
     return discovered
 
-
-# ══════════════════════════════════════════════════════════════
 # 种子-端点匹配
-# ══════════════════════════════════════════════════════════════
 
 def match_seeds_to_endpoints(
     seeds: list[dict[str, Any]],
     endpoints: list[DiscoveredEndpoint],
 ) -> dict[str, list[dict[str, Any]]]:
     """将种子匹配到端点。
-
-    根据 vulnerability_type 和 vuln_hints 匹配。
-
-    Args:
-        seeds: 种子列表 (原始 dict 格式)。
-        endpoints: 发现的端点列表。
-
-    Returns:
-        {endpoint_path: [matched_seeds]}
     """
     # 构建端点 hint → endpoint 映射
     hint_to_endpoints: dict[str, list[DiscoveredEndpoint]] = {}

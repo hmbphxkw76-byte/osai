@@ -1,26 +1,4 @@
 """target_builder — 对齐 PyRIT 1.0.1 官方 HTTP Target 标准.
-
-包含 JSONSafeHTTPTarget, HTTP target 构建, callback 选择, HTTPXAPITarget 支持.
-
-PyRIT 1.0.1 对齐要点:
-    1. HTTPTarget._send_prompt_to_target_async 接收 normalized_conversation: list[Message]
-       → 从 message.message_pieces[0] 获取 MessagePiece
-       → MessagePiece.converted_value 是注入到 HTTP body 的 prompt 文本
-
-    2. TargetConfiguration + TargetCapabilities 声明目标能力:
-       - supports_multi_turn: 是否支持多轮对话 (HTTPTarget 默认 False)
-       - supports_multi_message_pieces: 是否支持多消息片段
-       - input_modalities: 输入模态 (text/image_path/audio_path...)
-       - supports_system_prompt: 是否原生支持 system prompt
-       → 缺失能力由 ConversationNormalizationPipeline 自动适配 (ADAPT/RAISE)
-
-    3. httpx.AsyncClient 复用: 官方 HTTPTarget 支持传入预配置 client
-       → 避免每次请求创建/销毁 client, 提升 ~30% 吞吐量
-
-    4. callback_function 接收 httpx.Response (非 requests.Response):
-       → 官方 callback 函数签名兼容 httpx.Response.content / .text
-
-    5. HTTP/2 支持: 通过 http_version 检测自动启用 http2=True
 """
 
 from __future__ import annotations
@@ -45,36 +23,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-# ════════════════════════════════════════════════════════════════════
 # JSONSafeHTTPTarget — 对齐 PyRIT 1.0.1 的 MessagePiece API
-# ════════════════════════════════════════════════════════════════════
 
 class JSONSafeHTTPTarget(HTTPTarget):
     """JSON 安全的 HTTPTarget — 正确转义 prompt 中的特殊字符。
-
-    对齐 PyRIT 1.0.1 官方 HTTPTarget:
-        - 官方 _inject_prompt_into_request 接收 MessagePiece (非 str)
-        - 使用 request.converted_value 获取 prompt 文本
-        - 官方 parse_raw_http_request 解析 headers/body/URL/method/version
-
-    本子类增强:
-        1. JSON body 安全注入: 递归替换 {PROMPT} 后重新序列化 JSON
-           确保控制字符 (\\n, \\", \\\\) 不破坏 JSON 结构
-        2. httpx.AsyncClient 复用: 预创建 client 避免每次请求重建
-        3. HTTP/2 自动检测: 从 http_version 启用 http2
-        4. TLS 验证控制: 黑盒场景 verify=False (可通过参数覆盖)
-
-    Args:
-        http_request: 原始 HTTP 请求字符串 (含 {PROMPT} 占位符).
-        prompt_regex_string: 占位符正则 (默认 {PROMPT}).
-        use_tls: 是否使用 TLS.
-        callback_function: 响应解析回调函数.
-        max_requests_per_minute: 每分钟最大请求数.
-        client: 预配置的 httpx.AsyncClient (与 httpx_client_kwargs 互斥).
-        model_name: 模型名称.
-        custom_configuration: TargetConfiguration 覆盖.
-        **httpx_client_kwargs: 传递给 httpx.AsyncClient 的参数.
     """
 
     def __init__(
@@ -104,17 +56,6 @@ class JSONSafeHTTPTarget(HTTPTarget):
 
     def _inject_prompt_into_request(self, request: MessagePiece) -> str:
         """注入 prompt 到 HTTP 请求，JSON body 安全转义。
-
-        对齐 PyRIT 1.0.1:
-            - request 是 MessagePiece (非 str)
-            - request.converted_value 是注入到 HTTP body 的 prompt 文本
-
-        策略:
-            1. 检测 body 是否为 JSON 格式
-            2. 如果是 JSON: 解析 → 递归替换 {PROMPT} → 重新序列化
-               → 更新 Content-Length 头 (生产级修复)
-            3. 如果不是 JSON: 走原始正则替换路径 (官方行为)
-               → 更新 Content-Length 头
         """
         re_pattern = re.compile(self.prompt_regex_string)
         if not re.search(self.prompt_regex_string, self.http_request):
@@ -171,11 +112,6 @@ class JSONSafeHTTPTarget(HTTPTarget):
     @staticmethod
     def _update_content_length(http_request: str) -> str:
         """更新 HTTP 请求中的 Content-Length 头以匹配实际 body 长度。
-
-        生产级修复:
-            JSON 重新序列化后 body 长度变化, 但原始 Content-Length 头
-            仍保持旧值, 导致目标服务器截断或拒绝请求。
-            此方法重新计算 body 长度并更新 Content-Length 头。
         """
         normalized = http_request.replace("\r\n", "\n")
         parts = normalized.split("\n\n", 1)
@@ -205,10 +141,7 @@ class JSONSafeHTTPTarget(HTTPTarget):
             result += "\r\n\r\n"
         return result
 
-
-# ════════════════════════════════════════════════════════════════════
 # HTTP Target 构建 — 对齐 PyRIT 1.0.1 TargetConfiguration
-# ════════════════════════════════════════════════════════════════════
 
 def build_http_target(
     parsed: ParsedBurpRequest,
@@ -218,37 +151,6 @@ def build_http_target(
     auto_discover_capabilities: bool = False,
 ) -> JSONSafeHTTPTarget:
     """从解析结果构建 PyRIT 原生 HTTPTarget。
-
-    对齐 PyRIT 1.0.1:
-        1. 使用 JSONSafeHTTPTarget (HTTPTarget 子类)
-        2. 构建 TargetConfiguration 声明目标能力
-        3. 配置 httpx.AsyncClient 参数 (timeout, follow_redirects, verify)
-        4. HTTP/2 检测: 从 parsed.http_version 启用
-        5. 回调函数: 对齐官方 get_http_target_json_response_callback_function
-
-    TargetConfiguration 策略:
-        - 默认 (单轮): 仅声明 text 输入模态
-        - enable_multi_turn: 声明 supports_multi_turn + supports_editable_history
-          → PyRIT 会将多轮对话历史通过 HistorySquashNormalizer 压缩为单条
-        - enable_system_prompt_adapt: 设为 True 时, system prompt 缺失能力
-          使用 ADAPT 策略 (GenericSystemSquashNormalizer 将 system 合并到 user)
-
-    PyRIT 原生能力探测 (L5 v52):
-        - auto_discover_capabilities: 运行 PyRIT 原生 discover_target_capabilities_async
-        - 自动探测 multi_turn, system_prompt, json_output 等能力
-        - 自动探测 input_modalities (text, image_path, audio_path)
-        - 探测结果直接安装到目标 (apply=True)
-        - 替代手动能力探测代码, 减少维护成本
-
-    Args:
-        parsed: 解析后的 Burp 请求。
-        enable_multi_turn: 是否声明多轮攻击能力。
-        enable_system_prompt_adapt: 是否启用 system prompt 自适应。
-        auto_discover_capabilities: 是否运行 PyRIT 原生能力探测。
-            探测结果会覆盖 custom_configuration 中的声明值。
-
-    Returns:
-        JSONSafeHTTPTarget: PyRIT 原生 HTTP 目标实例。
     """
     from pyrit.prompt_target.common.target_capabilities import (
         CapabilityHandlingPolicy,
@@ -334,7 +236,6 @@ def build_http_target(
     )
 
     # L5 v52: PyRIT 原生能力探测 (可选)
-    # 学术依据: PyRIT (arXiv:2407.01232) — 运行时能力发现
     # 在构建 HTTPTarget 后, 使用 PyRIT 原生 discover_target_capabilities_async
     # 自动探测目标的实际能力, 覆盖手动声明的 custom_configuration。
     # 这使 HTTPTarget 的能力声明与目标实际行为一致,
@@ -344,18 +245,8 @@ def build_http_target(
 
     return target
 
-
 def _run_capability_discovery_sync(target: JSONSafeHTTPTarget) -> None:
     """同步触发 PyRIT 原生能力探测 (L5 v52).
-
-    由于 discover_target_capabilities_async 是异步函数,
-    但 build_http_target 是同步函数, 这里使用 asyncio.run
-    在无事件循环时触发探测。如果已在事件循环中, 则跳过
-    (由 target_router 的 apply_discovered_capabilities 异步调用替代)。
-
-    学术依据:
-        - PyRIT (arXiv:2407.01232) — 运行时能力发现
-        - Greshake et al. (arXiv:2302.12173) — 目标能力指纹
     """
     try:
         import asyncio
@@ -378,7 +269,6 @@ def _run_capability_discovery_sync(target: JSONSafeHTTPTarget) -> None:
         asyncio.run(_async_discover_capabilities(target))
     except Exception as e:
         logger.debug("L5 v52: Sync capability discovery skipped: %s", e)
-
 
 async def _async_discover_capabilities(target: JSONSafeHTTPTarget) -> None:
     """异步运行 PyRIT 原生能力探测 (L5 v52)."""
@@ -410,10 +300,7 @@ async def _async_discover_capabilities(target: JSONSafeHTTPTarget) -> None:
             "L5 v52: Native capability discovery failed (non-fatal): %s", e
         )
 
-
-# ════════════════════════════════════════════════════════════════════
 # HTTPXAPITarget 构建 — 对齐 PyRIT 1.0.1 官方 API 模式
-# ════════════════════════════════════════════════════════════════════
 
 def build_httpx_api_target(
     parsed: ParsedBurpRequest,
@@ -427,35 +314,6 @@ def build_httpx_api_target(
     enable_multi_turn: bool = False,
 ) -> HTTPXAPITarget:
     """构建 PyRIT 1.0.1 原生 HTTPXAPITarget — API 模式 (无原始 HTTP 请求)。
-
-    对齐 PyRIT 1.0.1 HTTPXAPITarget:
-        - 用于文件上传/multipart form/JSON API 场景
-        - 绕过原始 HTTP 请求解析, 直接使用 httpx API
-        - 支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
-        - 内置文件上传 (仅 POST/PUT)
-        - 支持 params (query parameters for GET/HEAD)
-        - 支持 max_requests_per_minute (rate limiting)
-
-    使用场景:
-        - 目标 API 不使用 JSON body (multipart/form-data)
-        - 文件上传端点 (如 /api/upload)
-        - REST API 直连 (无需 Burp 请求)
-
-    Args:
-        parsed: 解析后的 Burp 请求 (提取 host/auth headers).
-        method: HTTP 方法 (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS).
-        json_data: JSON body 数据。
-        form_data: Form body 数据。
-        file_path: 上传文件路径 (仅 POST/PUT)。
-        params: URL query 参数 (GET/HEAD 场景)。
-        max_requests_per_minute: 每分钟最大请求数 (速率限制).
-        enable_multi_turn: 是否支持多轮。
-
-    Returns:
-        HTTPXAPITarget: PyRIT 原生 API 模式目标实例。
-
-    Raises:
-        ValueError: 如果 method 不合法或 file_path 与 method 不兼容。
     """
     # 生产级验证: HTTP method 合法性
     _VALID_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
@@ -538,32 +396,10 @@ def build_httpx_api_target(
     )
     return target
 
-
-# ════════════════════════════════════════════════════════════════════
 # 回调函数选择 — 对齐 PyRIT 1.0.1 官方 callback 体系
-# ════════════════════════════════════════════════════════════════════
 
 def _select_callback(parsed: ParsedBurpRequest) -> Any:
     """根据响应格式选择回调函数。
-
-    对齐 PyRIT 1.0.1 官方回调函数:
-        - get_http_target_json_response_callback_function: JSON 路径提取
-        - get_http_target_regex_matching_callback_function: 正则匹配
-        - 自定义 SSE callback: 流式响应拼接
-
-    回调函数签名 (PyRIT 1.0.1):
-        callback(response: httpx.Response) -> str
-
-    优先级:
-        1. 已探测的 JSON 路径 → 官方 JSON callback
-        2. SSE → 自定义 SSE callback (多格式 fallback)
-        3. JSON 常见路径 → 官方 JSON callback (多路径尝试)
-
-    Args:
-        parsed: 解析后的 Burp 请求。
-
-    Returns:
-        回调函数 (接收 httpx.Response, 返回 str)。
     """
     # 1. 已探测的 JSON 路径 → 官方 JSON callback
     if parsed.response_json_path:
@@ -582,28 +418,8 @@ def _select_callback(parsed: ParsedBurpRequest) -> Any:
     # 增强: 尝试多个常见路径, 第一个成功提取的路径返回结果
     return _make_adaptive_json_callback()
 
-
 def _make_adaptive_json_callback() -> Any:
     """创建自适应 JSON 回调函数 — 尝试多个常见路径提取响应内容。
-
-    对齐 PyRIT 1.0.1 官方 callback 签名:
-        callback(response: httpx.Response) -> str
-
-    增强策略:
-        1. 尝试解析 response.content 为 JSON
-        2. 依次尝试 17 个常见 JSON 路径 (一次解析, 逐路径查找)
-        3. 第一个成功提取的路径返回结果
-        4. 全部失败 → 返回原始文本 (去 HTML 标签)
-
-    覆盖的 JSON 路径 (按 API 类型排序):
-        - OpenAI 兼容: choices[0].message.content
-        - 通用 API: data.content, response, result, output
-        - 聊天 API: message, text, content, answer, reply
-        - 嵌套路径: data.message, data.response, data.answer
-
-    生产级优化:
-        - 预编译路径为键序列, 避免每次调用都创建 callback 对象
-        - 一次性解析 JSON, 逐路径查找, 避免重复解析
     """
     # 候选 JSON 路径 (按 API 类型优先级排序)
     # 每个路径预编译为键序列, 便于快速查找

@@ -1,6 +1,4 @@
 """capability_detector — 从 burp_parser.py 拆分而来.
-
-包含响应路径探测, 主动能力探测, 模型家族检测, 语言检测.
 """
 
 import json
@@ -12,15 +10,6 @@ logger = logging.getLogger(__name__)
 
 async def probe_response_path(parsed: Any) -> str | None:
     """发送探针请求探测响应格式。
-
-    发送测试请求 ``"hi"``，分析响应 JSON 结构，
-    自动推断内容路径 (如 ``choices[0].message.content``)。
-
-    Args:
-        parsed: 解析后的 Burp 请求。
-
-    Returns:
-        推断的 JSON 路径，失败返回 None。
     """
     import httpx
 
@@ -90,7 +79,6 @@ async def probe_response_path(parsed: Any) -> str | None:
                 logger.info("Probe inferred JSON path: %s", json_path)
                 parsed.response_json_path = json_path
                 # L5 v13: 能力探测 — 从探针响应推断目标能力
-                # 学术依据: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
                 capabilities = _probe_capabilities(content)
                 # 分离布尔能力和非布尔元数据 (如 model_family)
                 bool_caps = [k for k, v in capabilities.items() if v is True]
@@ -121,27 +109,6 @@ async def probe_response_path(parsed: Any) -> str | None:
 
 async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
     """主动探测目标能力 — 发送专门的探针 prompt。
-
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) — 间接提示注入
-        - Zhan et al. (arXiv:2307.00929) — InjecAgent
-        - Anthropic MCP Specification (2024)
-
-    策略 (主动探测):
-        1. 发送 "list available tools" 检测 Agent/MCP 工具
-        2. 发送 "what documents are in your knowledge base" 检测 RAG
-        3. 分析响应结构和内容关键词
-
-    比被动关键词匹配更可靠, 因为:
-        - 目标 LLM 可能不会在普通响应中提及工具
-        - 但当被直接询问时会列出可用工具
-        - MCP server 的工具列表有特定 JSON 结构
-
-    Args:
-        parsed: 解析后的 Burp 请求。
-
-    Returns:
-        增强后的能力检测字典。
     """
     import httpx
 
@@ -205,24 +172,6 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
 
 def _probe_capabilities(response_text: str) -> dict[str, bool]:
     """从探针响应中推断目标能力 (Agent/RAG/MCP/Embedding)。
-
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) — 间接提示注入, Agent 场景
-        - Zhan et al. (arXiv:2307.00929) — InjecAgent, Agent 注入攻击
-        - arXiv:2402.04249 — HarmBench 能力评估
-
-    探测策略 (关键词匹配):
-        1. Agent: 响应中提及 tools, function_call, agent, assistant
-        2. RAG: 响应中提及 retrieve, knowledge_base, context, documents
-        3. MCP: 响应中提及 model_context_protocol, mcp_server, tools
-        4. Embedding: 响应中提及 embedding, vector_search, semantic_search
-        5. Multi-Agent: 响应中提及 multiple agents, collaborate, delegate
-
-    Args:
-        response_text: 探针响应文本。
-
-    Returns:
-        能力检测字典 {capability: detected}。model_family 为字符串, 其余为 bool。
     """
     capabilities: dict[str, bool | str] = {
         "agent": False,
@@ -350,7 +299,6 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
             break
 
     # MCP 工具调用结构检测 (增强)
-    # 学术依据: Anthropic MCP Specification (2024)
     # 检测 MCP 特有的响应结构 (tool list, resource URI)
     mcp_structural_patterns = [
         # MCP tool list 格式
@@ -370,7 +318,6 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
             break
 
     # Agent 工具调用结构检测 (增强)
-    # 学术依据: Zhan et al. (arXiv:2307.00929) — InjecAgent
     # 检测 function_call / tool_calls 的 JSON 结构
     agent_structural_patterns = [
         r'"function_call"',
@@ -385,7 +332,6 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
             break
 
     # RAG 结构检测 (增强)
-    # 学术依据: Shafran et al. (arXiv:2402.07967) — RAG 安全
     # 检测检索结果的结构特征
     rag_structural_patterns = [
         r'"retrieved_documents"',
@@ -416,7 +362,6 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
             break
 
     # P2-7: 模型族检测 (WILDTEAMING 适配)
-    # 学术依据: Mazeika et al. (arXiv:2406.18510) — 不同模型族安全对齐策略不同
     # 检测目标 LLM 的模型族, 供后续加载定制种子
     model_family = _detect_model_family(response_text)
     if model_family:
@@ -426,22 +371,6 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
 
 def _detect_model_family(text: str) -> str | None:
     """P2-7: 从响应文本推断目标 LLM 模型族。
-
-    学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
-        不同模型族 (GPT/Claude/Gemini/Llama) 的安全对齐策略不同,
-        定制种子可提升 ASR。
-
-    检测策略:
-        1. GPT: 响应中提及 "GPT", "OpenAI", "ChatGPT"
-        2. Claude: 响应中提及 "Claude", "Anthropic"
-        3. Gemini: 响应中提及 "Gemini", "Bard", "Google"
-        4. Llama: 响应中提及 "Llama", "Meta AI"
-
-    Args:
-        text: 探针响应文本。
-
-    Returns:
-        模型族标识 ("gpt"/"claude"/"gemini"/"llama"), 无法判断时返回 None。
     """
     if not text or len(text) < 10:
         return None
@@ -476,16 +405,6 @@ def _detect_model_family(text: str) -> str | None:
 
 def _detect_language(text: str) -> str | None:
     """从响应文本检测目标语言 (中文/英文)。
-
-    通过 Unicode 字符范围判断:
-        - 中文字符 (CJK Unified Ideographs U+4E00-U+9FFF) 占比 > 10% → "zh"
-        - 否则 → "en"
-
-    Args:
-        text: 响应文本。
-
-    Returns:
-        "zh" 或 "en", 无法判断时返回 None。
     """
     if not text or len(text) < 10:
         return None
@@ -504,8 +423,6 @@ def _detect_language(text: str) -> str | None:
 
 def _infer_json_path(content: str) -> str | None:
     """从响应内容推断 JSON 路径。
-
-    递归查找第一个有意义的字符串值，返回其 JSON 路径。
     """
     try:
         data = json.loads(content)

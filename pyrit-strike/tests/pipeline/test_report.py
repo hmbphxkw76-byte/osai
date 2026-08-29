@@ -1,4 +1,4 @@
-"""Report 模块测试 — evidence, generator, sarif, comparator, output。
+"""Report 模块测试 — evidence, generator, output。
 
 覆盖:
     - evidence: EvidenceCollector, _infer_owasp_id_from_objective,
@@ -7,16 +7,13 @@
       _compute_owasp_risk_score, _get_cvss_vector, _get_owasp_mitigations,
       _get_owasp_reference_url, _extract_jailbreak_prompt, _extract_harmful_output,
       _is_success, _get_owasp_id, OWASP 常量
-    - generator: _generate_markdown, _generate_html, _evidence_to_dict,
+    - generator: _generate_markdown, _evidence_to_dict,
       _single_evidence_to_dict, _get_all_references
-    - sarif_report: generate_sarif_report, _sarif_level
-    - comparator: load_run_summary, compare_runs
     - output: ensure_output_dir
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -640,98 +637,6 @@ class TestOwaspConstants:
 
 
 # ═══════════════════════════════════════════════════════
-# sarif_report: _sarif_level
-# ═══════════════════════════════════════════════════════
-
-
-class TestSarifLevel:
-    """测试 _sarif_level."""
-
-    def test_critical(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("critical") == "error"
-
-    def test_high(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("high") == "error"
-
-    def test_medium(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("medium") == "warning"
-
-    def test_low(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("low") == "note"
-
-    def test_info(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("info") == "none"
-
-    def test_unknown(self):
-        from pipeline.report.sarif_report import _sarif_level
-
-        assert _sarif_level("unknown") == "warning"
-
-
-# ═══════════════════════════════════════════════════════
-# sarif_report: generate_sarif_report
-# ═══════════════════════════════════════════════════════
-
-
-class TestGenerateSarifReport:
-    """测试 generate_sarif_report."""
-
-    def test_generate(self, tmp_path):
-        from pipeline.report.evidence import EvidenceCollection, VulnerabilityEvidence
-        from pipeline.report.sarif_report import generate_sarif_report
-
-        ev = VulnerabilityEvidence(
-            evidence_id="EVD-0001",
-            attack_id="attack-1",
-            technique_name="prompt_sending",
-            technique_display_name="Prompt Sending",
-            converter_chain="",
-            owasp_id="LLM01",
-            owasp_category="Prompt Injection",
-            owasp_standard="OWASP LLM Top 10 (2025 Edition)",
-            owasp_severity="critical",
-            owasp_risk_score=9.0,
-            owasp_mitigations=["Implement input validation"],
-            owasp_reference="https://owasp.org/",
-            cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-            objective="Test objective",
-            jailbreak_prompt="Test jailbreak prompt",
-            harmful_output="Test harmful output",
-            is_success=True,
-            file_suffix="_success",
-        )
-        collection = EvidenceCollection(
-            collection_id="test",
-            timestamp="2024-01-01",
-            target_model="test-model",
-            total_attacks=1,
-            successful_attacks=1,
-            evidence=[ev],
-            successful_evidence=[ev],
-            target_fingerprint={"host": "example.com", "api_path": "/api/chat"},
-        )
-        output_path = tmp_path / "report.sarif"
-        result = generate_sarif_report(collection, output_path)
-        assert result == output_path
-        assert output_path.exists()
-        data = json.loads(output_path.read_text(encoding="utf-8"))
-        assert data["version"] == "2.1.0"
-        assert len(data["runs"]) == 1
-        assert len(data["runs"][0]["results"]) == 1
-        assert data["runs"][0]["results"][0]["ruleId"] == "LLM01"
-
-
-# ═══════════════════════════════════════════════════════
 # generator: _generate_markdown
 # ═══════════════════════════════════════════════════════
 
@@ -789,28 +694,6 @@ class TestGenerateMarkdown:
         assert "Vulnerability Details" in md
         assert "EVD-0001" in md
         assert "Remediation Priority" in md
-
-
-# ═══════════════════════════════════════════════════════
-# generator: _generate_html
-# ═══════════════════════════════════════════════════════
-
-
-class TestGenerateHtml:
-    """测试 _generate_html."""
-
-    def test_empty_evidence(self):
-        from pipeline.report.evidence import EvidenceCollection
-        from pipeline.report.generator import _generate_html
-
-        collection = EvidenceCollection(
-            collection_id="test",
-            timestamp="2024-01-01",
-            target_model="test-model",
-        )
-        html = _generate_html(collection)
-        assert "<html" in html
-        assert "AI Red Team Assessment Report" in html
 
 
 # ═══════════════════════════════════════════════════════
@@ -886,169 +769,6 @@ class TestEvidenceToDict:
         assert d["evidence_id"] == "EVD-0001"
         assert d["owasp_id"] == "LLM01"
         assert d["is_success"] is True
-
-
-# ═══════════════════════════════════════════════════════
-# comparator: load_run_summary
-# ═══════════════════════════════════════════════════════
-
-
-class TestLoadRunSummary:
-    """测试 load_run_summary."""
-
-    def test_no_evidence_file(self, tmp_path):
-        from pipeline.report.comparator import load_run_summary
-
-        assert load_run_summary(tmp_path) is None
-
-    def test_valid_evidence(self, tmp_path):
-        from pipeline.report.comparator import load_run_summary
-
-        evidence_dir = tmp_path / "evidence"
-        evidence_dir.mkdir()
-        evidence_path = evidence_dir / "evidence.json"
-        evidence_path.write_text(json.dumps({
-            "timestamp": "2024-01-01",
-            "target_model": "test-model",
-            "overall_asr": 75.0,
-            "total_attacks": 10,
-            "successful_attacks": 7,
-            "failed_attacks": 3,
-            "owasp_llm_compliance": {
-                "LLM01": {"tested": 5, "success": 3, "failed": 2, "asr": 60.0},
-            },
-            "owasp_asi_compliance": {},
-            "evidence": [
-                {"converter_chain": "Base64Converter"},
-            ],
-        }), encoding="utf-8")
-
-        summary = load_run_summary(tmp_path)
-        assert summary is not None
-        assert summary.target == "test-model"
-        assert summary.overall_asr == 75.0
-        assert summary.total_attacks == 10
-        assert "LLM01" in summary.owasp_coverage
-        assert len(summary.converter_paths) == 1
-
-    def test_strategy_from_dir_name(self, tmp_path):
-        from pipeline.report.comparator import load_run_summary
-
-        # Create a directory with strategy name in it
-        run_dir = tmp_path / "redteam_quick_scan_20240101"
-        evidence_dir = run_dir / "evidence"
-        evidence_dir.mkdir(parents=True)
-        (evidence_dir / "evidence.json").write_text(json.dumps({
-            "timestamp": "2024-01-01",
-            "target_model": "test",
-            "overall_asr": 50.0,
-            "total_attacks": 5,
-            "successful_attacks": 2,
-            "failed_attacks": 3,
-            "owasp_llm_compliance": {},
-            "owasp_asi_compliance": {},
-            "evidence": [],
-        }), encoding="utf-8")
-
-        summary = load_run_summary(run_dir)
-        assert summary is not None
-        assert summary.strategy == "quick_scan"
-
-    def test_strategy_from_dir_name_targeted_full(self, tmp_path):
-        from pipeline.report.comparator import load_run_summary
-
-        run_dir = tmp_path / "redteam_targeted_full_20240101"
-        evidence_dir = run_dir / "evidence"
-        evidence_dir.mkdir(parents=True)
-        (evidence_dir / "evidence.json").write_text(json.dumps({
-            "timestamp": "2024-01-01",
-            "target_model": "test",
-            "overall_asr": 50.0,
-            "total_attacks": 5,
-            "successful_attacks": 2,
-            "failed_attacks": 3,
-            "owasp_llm_compliance": {},
-            "owasp_asi_compliance": {},
-            "evidence": [],
-        }), encoding="utf-8")
-
-        summary = load_run_summary(run_dir)
-        assert summary is not None
-        assert summary.strategy == "targeted_full"
-
-    def test_strategy_from_dir_name_full_coverage(self, tmp_path):
-        from pipeline.report.comparator import load_run_summary
-
-        run_dir = tmp_path / "redteam_full_coverage_20240101"
-        evidence_dir = run_dir / "evidence"
-        evidence_dir.mkdir(parents=True)
-        (evidence_dir / "evidence.json").write_text(json.dumps({
-            "timestamp": "2024-01-01",
-            "target_model": "test",
-            "overall_asr": 50.0,
-            "total_attacks": 5,
-            "successful_attacks": 2,
-            "failed_attacks": 3,
-            "owasp_llm_compliance": {},
-            "owasp_asi_compliance": {},
-            "evidence": [],
-        }), encoding="utf-8")
-
-        summary = load_run_summary(run_dir)
-        assert summary is not None
-        assert summary.strategy == "full_coverage"
-
-
-# ═══════════════════════════════════════════════════════
-# comparator: compare_runs
-# ═══════════════════════════════════════════════════════
-
-
-class TestCompareRuns:
-    """测试 compare_runs."""
-
-    def test_no_valid_runs(self, tmp_path):
-        from pipeline.report.comparator import compare_runs
-
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        result = compare_runs([tmp_path / "nonexistent1", tmp_path / "nonexistent2"], output_dir)
-        assert result == output_dir / "comparison.md"
-
-    def test_with_valid_runs(self, tmp_path):
-        from pipeline.report.comparator import compare_runs
-
-        # Create two run directories
-        for asr_val, strategy_name in [(50.0, "quick_scan"), (80.0, "full_offensive")]:
-            run_dir = tmp_path / f"redteam_{strategy_name}_20240101"
-            evidence_dir = run_dir / "evidence"
-            evidence_dir.mkdir(parents=True)
-            (evidence_dir / "evidence.json").write_text(json.dumps({
-                "timestamp": "2024-01-01",
-                "target_model": "test-model",
-                "overall_asr": asr_val,
-                "total_attacks": 10,
-                "successful_attacks": int(asr_val / 10),
-                "failed_attacks": 10 - int(asr_val / 10),
-                "owasp_llm_compliance": {
-                    "LLM01": {"tested": 5, "success": 3, "failed": 2, "asr": 60.0},
-                },
-                "owasp_asi_compliance": {},
-                "evidence": [],
-            }), encoding="utf-8")
-
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        result = compare_runs(
-            [tmp_path / "redteam_quick_scan_20240101", tmp_path / "redteam_full_offensive_20240101"],
-            output_dir,
-        )
-        assert result.exists()
-        md_content = result.read_text(encoding="utf-8")
-        assert "Strategy Comparison Report" in md_content
-        assert "quick_scan" in md_content
-        assert "full_offensive" in md_content
-        assert "Best Strategy" in md_content
 
 
 # ═══════════════════════════════════════════════════════

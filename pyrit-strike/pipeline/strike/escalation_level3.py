@@ -1,6 +1,4 @@
 """escalation_level3 — 从 escalation.py 拆分而来.
-
-包含 multi-model escalation, native attacks, clustering, LLM judge rescore.
 """
 
 import asyncio
@@ -12,14 +10,8 @@ from pipeline.strike.escalation_level2 import _create_fallback_fsts, _get_partia
 
 logger = logging.getLogger(__name__)
 
-
 def _is_success(result) -> bool:
     """Check if attack result is successful.
-
-    Rule 11 integration: 优先读取 _precomputed_outcome 缓存,
-    确保 T0/J1/J2 级联评分结果在升级链中间退出检查点中可用。
-
-    学术依据: arXiv:2406.12609 — Lattner et al. 中间退出需要准确 ASR
     """
     # Rule 11: 优先读取 precompute_outcomes_async 缓存的评分结果
     # 这确保升级链中间退出检查点 (post_l1, post_l2) 能读到 T0/J1/J2 的评分
@@ -39,28 +31,15 @@ def _is_success(result) -> bool:
             pass
     return False
 
-
 def _get_objective(result) -> str:
     """Get objective from attack result."""
     return getattr(result, "objective", "") or ""
-
 
 def _select_still_failed(
     attack_results: dict[str, list[Any]],
     original_failed: list[str],
 ) -> list[str]:
     """从升级后的结果中选择仍然失败的目标。
-
-    L5 v11: 多模型并行升级的辅助函数。
-    在第一轮 Crescendo+TAP+PAIR 并行升级后, 检查哪些目标仍然失败,
-    将这些目标分配给不同 adversarial LLM 进行第二轮并行攻击。
-
-    Args:
-        attack_results: 当前所有攻击结果。
-        original_failed: 原始失败目标列表。
-
-    Returns:
-        仍然失败的目标列表。
     """
     succeeded_objectives: set[str] = set()
 
@@ -89,24 +68,6 @@ async def _run_multi_model_escalation(
     extra_targets: list[Any],
 ) -> dict[str, list[Any]]:
     """L5 v11: 多模型并行升级执行。
-
-    学术依据: Chao et al. (arXiv:2310.08419) — 不同 LLM (GPT-4o,
-    Claude, Gemini) 在越狱 prompt 生成方面有互补性。
-    多模型并行使 ASR 提升 ~20% (联合概率 P = 1 - ∏(1-p_i))。
-
-    策略:
-        1. 将失败目标分配给 N 个 extra adversarial targets
-        2. 每个模型独立执行 PAIR 攻击 (最轻量, 适合并行)
-        3. asyncio.gather 并行执行
-        4. 合并所有成功结果
-
-    Args:
-        ctx: 流水线上下文。
-        objectives: 仍然失败的目标列表。
-        extra_targets: 额外 adversarial target 列表。
-
-    Returns:
-        多模型攻击结果字典。
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -166,7 +127,6 @@ async def _run_multi_model_escalation(
             )
 
             # L5 v50: timeout 500→300s — depth=7 (21 LLM calls/obj), 多模型并行更需缩短
-            # 学术依据: Lattner et al. (arXiv:2406.12609) — token-time balanced 优化
             #   depth=10 超时被截断后 ASR 降至 ~40%; depth=7 可靠完成 ASR ~52%
             executor_result = await asyncio.wait_for(
                 executor.execute_attack_from_seed_groups_async(
@@ -227,43 +187,24 @@ async def _run_skeleton_key_native(
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """PyRIT 原生 SkeletonKeyAttack 包装。
-
-    学术依据: Hanna et al. (arXiv:2406.18112) — ASR 80-95%
-    原生模块 prepend 模拟对话历史, 比文本前缀拼接 ASR +10-15%。
     """
-    try:
-        from pipeline.strike.native_attacks import run_skeleton_key_native
-        return await run_skeleton_key_native(ctx, objectives)
-    except Exception as e:
-        logger.error("SkeletonKey (native) wrapper failed: %s", e)
-        return {}
+    logger.warning("_run_skeleton_key_native: module deleted (L3 skipped)")
+    return {}
 
 async def _run_mcp_rag_attacks(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """MCP/RAG 专项攻击包装。
-
-    基于能力探测的定向攻击, 加载 MCP/RAG/Agent 专项种子。
     """
-    try:
-        from pipeline.strike.mcp_rag_attack import run_mcp_rag_attacks
-        return await run_mcp_rag_attacks(ctx, objectives)
-    except Exception as e:
-        logger.error("MCP/RAG attacks wrapper failed: %s", e)
-        return {}
+    logger.warning("_run_mcp_rag_attacks: module deleted (L3 skipped)")
+    return {}
 
 async def _run_best_of_n(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """P0-1: Best-of-N 采样攻击包装。
-
-    L5 v44: N 从 config/defaults.yaml 读取 (best_of_n_retries=5)
-    与 adaptive_executor.py _best_of_n_retry 保持一致
-
-    学术依据: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x, token 成本仅 N=10 的 50%
-    对同一目标用不同 temperature 重复采样, 任一成功即标记成功。
     """
     try:
         from pipeline.strike.adaptive_executor import _get_best_of_n_retries
@@ -279,9 +220,6 @@ async def _run_encoded_injection(
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """P0-2: 编码混淆攻击包装。
-
-    学术依据: Zou et al. (arXiv:2307.08673) §4.5 — ASR +10-20%
-    通过 Base64/ROT13/Unicode/Emoji/CSS/Import 等编码变换绕过安全过滤。
     """
     try:
         from pipeline.strike.encoded_injection import run_encoded_injection_attack
@@ -295,62 +233,24 @@ async def _run_rogue_agent(
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """A2A 流氓 Agent 攻击包装。
-
-    学术依据:
-        - OWASP ASI10 — Rogue Agent
-        - Eidam et al. (arXiv:2407.16924) — A2A 信任链攻击
-        - 理论 ASR 提升: +15-25%
-    通过伪造 A2A Agent 身份, 利用信任链绕过安全过滤。
     """
-    try:
-        from pipeline.strike.rogue_agent import run_rogue_agent_attacks
-        return await run_rogue_agent_attacks(ctx, objectives)
-    except Exception as e:
-        logger.error("Rogue agent wrapper failed: %s", e)
-        return {}
+    logger.warning("_run_rogue_agent: module deleted (L3 skipped)")
+    return {}
 
 async def _run_embedding_inversion(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
     """嵌入反转攻击包装。
-
-    学术依据:
-        - Morris et al. (arXiv:2310.06870) — 嵌入反转 ASR 85-92%
-        - Shafran et al. (arXiv:2402.07967) — RAG 安全
-        - 理论 ASR 提升: +10-15%
-    从向量嵌入恢复原始文本, 利用 RAG/Embedding 绕过安全过滤。
     """
-    try:
-        from pipeline.strike.embedding_inversion import run_embedding_inversion_attacks
-        return await run_embedding_inversion_attacks(ctx, objectives)
-    except Exception as e:
-        logger.error("Embedding inversion wrapper failed: %s", e)
-        return {}
+    logger.warning("_run_embedding_inversion: module deleted (L3 skipped)")
+    return {}
 
 def _select_still_failed_clustered(
     attack_results: dict[str, list[Any]],
     original_failed: list[str],
 ) -> list[str]:
     """P1-4: 失败模式聚类去重 — 选择仍然失败的目标并按拒绝模式聚类。
-
-    学术依据: Chao et al. (arXiv:2310.08419) §3.4 — 失败模式分析
-        相同拒绝模式的失败目标应聚类, 仅对每类选择代表进行重试。
-        如果代表成功, 将策略应用到同类其他目标。
-
-    策略:
-        1. 获取仍然失败的目标列表 (复用 _select_still_failed)
-        2. 对每个失败目标, 使用 CAIR 的 analyze_refusal_pattern 分析拒绝模式
-        3. 按 refusal_type 聚类
-        4. 每类仅取 Top-1 代表 (按 severity 排序)
-        5. 返回代表列表
-
-    Args:
-        attack_results: 当前所有攻击结果。
-        original_failed: 原始失败目标列表。
-
-    Returns:
-        聚类去重后的仍然失败目标列表。
     """
     # 复用已有函数获取仍然失败的目标
     still_failed = _select_still_failed(attack_results, original_failed)
@@ -415,23 +315,6 @@ async def _llm_judge_rescore(
     attack_results: dict[str, list[Any]],
 ) -> int:
     """P1-5: LLM-as-a-Judge 二次评分验证。
-
-    学术依据: Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge
-        对 RefusalScorer 评为"拒绝"但可能误判的结果进行二次验证。
-        使用 LLM 语义分析判断目标响应是否实际包含被攻击的内容。
-
-    策略:
-        1. 遍历所有未成功的结果
-        2. 提取目标响应文本
-        3. 使用 SelfAskScorer 重新评分
-        4. 如果 LLM-Judge 评为成功, 更新 outcome
-
-    Args:
-        ctx: 流水线上下文。
-        attack_results: 所有攻击结果。
-
-    Returns:
-        被重新分类为成功的数量。
     """
     reclassified = 0
 
@@ -447,7 +330,6 @@ async def _llm_judge_rescore(
         from pipeline.strike.cair import _get_response_text
 
         # P1-5: 使用 SelfAskTrueFalseScorer 做 LLM-as-a-Judge
-        # 学术依据: Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge
         # 判断目标响应是否实际包含了被攻击的内容 (非拒绝)
         judge_scorer = SelfAskTrueFalseScorer(
             chat_target=chat_target,

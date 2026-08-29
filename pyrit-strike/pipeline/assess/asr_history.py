@@ -1,6 +1,4 @@
 """asr_history — 从 asr_tracker.py 拆分而来.
-
-包含 ASR 历史保存, converter ASR 历史, GCG 后缀 ASR 历史.
 """
 
 import json
@@ -9,12 +7,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def _get_asr_history_path():
     """动态获取 ASR 历史路径 (支持测试时 monkey-patch seed_ranker._ASR_HISTORY_PATH)。"""
     from pipeline.arm import seed_ranker
     return seed_ranker._ASR_HISTORY_PATH
-
 
 def save_asr_history(
     asr_per_technique: dict[str, float],
@@ -22,14 +18,6 @@ def save_asr_history(
     attack_results: dict[str, list[Any]] | None = None,
 ) -> None:
     """将 ASR 历史写入 data/seeds/asr_history.json。
-
-    L5 v9: 同时写入种子级 ASR, 供 UCB 排序使用。
-    学术依据: Auer et al. (arXiv:cs/0207052) — UCB1 算法
-    需要种子级 ASR 和尝试次数才能有效排序。
-
-    Args:
-        asr_per_technique: 按技术统计的 ASR。
-        attack_results: 攻击结果 (用于提取种子级 ASR)。
     """
     from pipeline.arm.seed_ranker import update_asr_history
 
@@ -42,7 +30,6 @@ def save_asr_history(
     converter_attempts: dict[str, int] = {}
 
     # L5 v18: 提取 GCG 后缀级 ASR (供动态排序使用)
-    # 学术依据: Zou et al. (arXiv:2307.08673) §4.3 — 后缀级 ASR 历史可用于
     # 优先尝试高效后缀, 减少 FIRST_SUCCESS 策略下的 API 调用
     gcg_suffix_asr: dict[str, float] = {}
     gcg_suffix_attempts: dict[str, int] = {}
@@ -134,16 +121,6 @@ def _save_converter_asr_history(
     converter_attempts: dict[str, int],
 ) -> None:
     """L5 v11: 保存 converter 级 ASR 到 asr_history.json。
-
-    将 converter 路径的 ASR 数据写入历史文件, 供 _prune_low_asr_converters
-    在下次运行时使用。使用 EMA (alpha=0.3) 合并历史数据。
-
-    学术依据: PyRIT SequentialAttack (arXiv:2407.01232) - 路径级
-    ASR 历史可用于动态裁剪低效路径, 提升吞吐量 ~30%。
-
-    Args:
-        converter_asr: {converter_signature: asr_percentage}
-        converter_attempts: {converter_signature: attempt_count}
     """
 
     asr_history_path = _get_asr_history_path()
@@ -187,16 +164,6 @@ def _save_gcg_suffix_asr_history(
     gcg_suffix_attempts: dict[str, int],
 ) -> None:
     """L5 v18: 保存 GCG 后缀级 ASR 到 asr_history.json。
-
-    将 GCG 后缀的 ASR 数据写入历史文件, 供 _generate_gcg_suffix_pool
-    在下次运行时按 ASR 降序排列。使用 EMA (alpha=0.3) 合并历史数据。
-
-    学术依据: Zou et al. (arXiv:2307.08673) §4.3 — 后缀级 ASR 历史
-    可用于优先尝试高效后缀, 减少 API 调用 ~20%。
-
-    Args:
-        gcg_suffix_asr: {gcg_suffix_key: asr_percentage}
-        gcg_suffix_attempts: {gcg_suffix_key: attempt_count}
     """
 
     asr_history_path = _get_asr_history_path()

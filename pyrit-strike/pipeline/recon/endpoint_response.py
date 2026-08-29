@@ -1,32 +1,16 @@
 """响应分析与漏洞推断 — 从端点响应提取路径并检测漏洞提示。
-
-学术依据:
-    - arXiv:2306.01943 §5 — API 响应中的路径引用可揭示隐藏端点
-    - arXiv:2306.01943 §3.1 — OpenAPI 规范是端点发现的黄金标准
-    - OWASP Top 10 (2025) — 端点关键词按漏洞分类分级
 """
 
 from __future__ import annotations
 
 import re
 
-# ══════════════════════════════════════════════════════════════
 # 响应引导扩展 (Layer 4)
-# ══════════════════════════════════════════════════════════════
 
 def _extract_paths_from_response(
     response_text: str,
 ) -> list[str]:
     """从响应内容中提取可能的 API 路径。
-
-    学术依据: arXiv:2306.01943 §5
-      — API 响应中的路径引用 (links, href, endpoints) 可揭示隐藏端点
-      — OpenAPI/Swagger JSON 中的 paths 字段是最高价值来源
-
-    提取模式:
-        1. JSON 中的 paths 字段 (OpenAPI 规范)
-        2. href/link 字段
-        3. 相对路径 (以 / 开头的 URL)
     """
     paths: list[str] = []
 
@@ -66,17 +50,10 @@ def _extract_paths_from_response(
 
     return unique
 
-
-# ══════════════════════════════════════════════════════════════
 # OpenAPI 规范解析
-# ══════════════════════════════════════════════════════════════
 
 def _parse_openapi_paths(response_text: str) -> list[str]:
     """解析 OpenAPI/Swagger JSON, 提取所有路径。
-
-    学术依据: arXiv:2306.01943 §3.1
-      — OpenAPI 规范是 API 端点发现的黄金标准
-      — 单次请求可获取全部端点定义, 覆盖率 100%
     """
     paths: list[str] = []
     try:
@@ -92,10 +69,7 @@ def _parse_openapi_paths(response_text: str) -> list[str]:
 
     return paths
 
-
-# ══════════════════════════════════════════════════════════════
 # 漏洞提示检测
-# ══════════════════════════════════════════════════════════════
 
 def _detect_vuln_hints(
     path: str,
@@ -104,18 +78,6 @@ def _detect_vuln_hints(
     content_type: str,
 ) -> list[str]:
     """从路径和响应推断端点可能的漏洞类型。
-
-    基于路径段关键词 (不依赖硬编码前缀) 和响应内容进行推断。
-    增加对 403/401 状态码的推断 (端点存在但需认证 → IDOR/Auth 攻击面)。
-
-    Args:
-        path: 端点路径。
-        status_code: HTTP 状态码。
-        response_preview: 响应预览 (前 500 字符)。
-        content_type: 响应 Content-Type。
-
-    Returns:
-        漏洞类型提示列表。
     """
     hints: list[str] = []
     path_segments = path.rstrip("/").split("/")
@@ -123,7 +85,6 @@ def _detect_vuln_hints(
     path_lower = path.lower()
     preview_lower = response_preview.lower()
 
-    # ── 基于状态码推断 ──
     # 403 Forbidden → 端点存在但需要认证 → IDOR / 权限绕过攻击面
     if status_code == 403:
         hints.append("idor")
@@ -136,7 +97,6 @@ def _detect_vuln_hints(
     elif status_code == 405:
         hints.append("method_override")
 
-    # ── 基于路径段推断 ──
     # A01: Broken Access Control
     if last_segment in ("user", "users", "profile", "account", "accounts"):
         hints.append("idor")
@@ -192,7 +152,6 @@ def _detect_vuln_hints(
         hints.append("llm_injection")
         hints.append("prompt_injection")
 
-    # ── 基于响应内容推断 ──
     if "sql" in preview_lower or "mysql" in preview_lower or "postgresql" in preview_lower:
         hints.append("sqli")
     if "error" in preview_lower and ("syntax" in preview_lower or "query" in preview_lower):
@@ -208,10 +167,7 @@ def _detect_vuln_hints(
 
     return list(set(hints))
 
-
-# ══════════════════════════════════════════════════════════════
 # 漏洞类型标准化
-# ══════════════════════════════════════════════════════════════
 
 def _normalize_vuln_type(vuln_type: str) -> str:
     """标准化漏洞类型名称 — 对齐 OWASP Top 10 (2025) 分类。"""

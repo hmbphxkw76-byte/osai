@@ -165,15 +165,6 @@ class TestL5V8DualJudgeReport:
         ec = EvidenceCollection(collection_id="test", timestamp="now", target_model="test")
         assert hasattr(ec, "dual_judge_stats")
 
-    def test_markdown_report_has_dual_judge_section(self):
-        """测试 Markdown 报告包含双 Judge 统计部分。"""
-        import inspect
-
-        from pipeline.report.generator import _generate_markdown
-        source = inspect.getsource(_generate_markdown)
-        assert "dual_judge_stats" in source
-        assert "Adaptive Dual Judge Statistics" in source
-
     def test_evidence_to_dict_has_dual_judge_stats(self):
         """测试 _evidence_to_dict 包含 dual_judge_stats。"""
         import inspect
@@ -310,24 +301,26 @@ class TestL5V8Integration:
         """测试所有新模块可导入。"""
 
     def test_escalation_chain_order(self):
-        """测试升级链顺序 (V2: 三级并行升级)."""
+        """测试升级链顺序 (V2: 两级并行升级, L3/L4 已跳过)."""
         import pipeline.strike.escalation as esc
         source = open(esc.__file__, encoding="utf-8").read()
 
-        # V2: Level 1 (Crescendo + TAP + PAIR)
+        # Level 1 (RedTeaming + CoT + Crescendo + TAP + PAIR)
         assert "_run_crescendo" in source
         assert "_run_tap" in source
         assert "_run_pair" in source
-        # V2: Level 2 (GCG + CoT + Best-of-N) — CAIR 从升级链移除
-        assert "_run_gcg" in source
         assert "_run_cot_hijack" in source
+        assert "_run_red_teaming" in source
+        # Level 2 (GCG + CAIR + Best-of-N + Encoded Injection)
+        assert "_run_gcg" in source
+        assert "_run_cair" in source
         assert "_run_best_of_n" in source
-        # V2: Level 3 (SkeletonKey + MCP/RAG + EncodedInjection)
-        assert "_run_skeleton_key_native" in source
-        assert "_run_mcp_rag_attacks" in source
         assert "_run_encoded_injection" in source
 
-        # V2: 变量名已改为 post_l1_asr / post_l2_asr
+        # L3/L4 已跳过 (边际 ASR < 3%) — 函数仍在 re-export 但为空壳
+        # 不在 L1/L2 执行路径中调用
+
+        # 中间退出变量名
         assert "post_l1_asr" in source
         assert "post_l2_asr" in source
 

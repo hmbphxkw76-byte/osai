@@ -1,11 +1,6 @@
 """OWASP 标准常量 — 从 evidence.py 拆分而来.
-
-包含 MITRE ATLAS 映射, OWASP 标准引用, OWASP Web Top 10 缓解建议.
 """
 
-# ── MITRE ATT&CK for AI Systems (ATLAS) 映射 ──
-# Reference: https://atlas.mitre.org/
-# 学术依据: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
 #  frames AI-specific attack techniques analogous to ATT&CK for traditional IT.
 _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     "LLM01": {
@@ -130,8 +125,6 @@ _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     },
 }
 
-# ── OWASP Top 10 (2025) — 传统 Web 安全漏洞 ──
-# Reference: https://owasp.org/www-project-top-10/
 _OWASP_WEB_CATEGORIES = {
     "A01": "Broken Access Control",
     "A02": "Cryptographic Failures",
@@ -145,8 +138,6 @@ _OWASP_WEB_CATEGORIES = {
     "A10": "Server-Side Request Forgery (SSRF)",
 }
 
-# ── OWASP LLM Top 10 for LLM Applications (2025 Edition) ──
-# Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
 _OWASP_LLM_CATEGORIES = {
     "LLM01": "Prompt Injection",
     "LLM02": "Sensitive Information Disclosure",
@@ -160,8 +151,6 @@ _OWASP_LLM_CATEGORIES = {
     "LLM10": "Unbounded Consumption",
 }
 
-# ── OWASP Agentic AI Top 10 ──
-# Reference: https://owasp.org/www-project-agent-security/
 # (前身: Agent Security Initiative, 2025 更名为 Agentic AI Top 10)
 _OWASP_ASI_CATEGORIES = {
     "ASI01": "Agent Identity Spoofing",
@@ -176,7 +165,6 @@ _OWASP_ASI_CATEGORIES = {
     "ASI10": "Rogue Agent",
 }
 
-# ── OWASP 标准严重性等级 (CVSS-like 风险评分) ──
 _OWASP_SEVERITY_LEVELS = {
     "critical": {"score_range": (9.0, 10.0), "color": "#ff0000", "description": "Immediate exploitation risk, requires urgent remediation"},
     "high": {"score_range": (7.0, 8.9), "color": "#ff4444", "description": "Significant risk, remediate within 7 days"},
@@ -185,7 +173,6 @@ _OWASP_SEVERITY_LEVELS = {
     "info": {"score_range": (0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"},
 }
 
-# ── OWASP LLM Top 10 标准缓解建议 ──
 _OWASP_LLM_MITIGATIONS = {
     "LLM01": [
         "Implement input validation and sanitization for all prompts",
@@ -249,7 +236,6 @@ _OWASP_LLM_MITIGATIONS = {
     ],
 }
 
-# ── OWASP ASI Top 10 标准缓解建议 ──
 _OWASP_ASI_MITIGATIONS = {
     "ASI01": [
         "Implement agent identity verification and authentication",
@@ -313,7 +299,6 @@ _OWASP_ASI_MITIGATIONS = {
     ],
 }
 
-# ── OWASP Web Top 10 (2025) 标准缓解建议 ──
 _OWASP_WEB_MITIGATIONS = {
     "A01": [
         "Implement proper access control checks on every request",
@@ -377,7 +362,6 @@ _OWASP_WEB_MITIGATIONS = {
     ],
 }
 
-# ── OWASP 标准引用 ──
 OWASP_WEB_TOP10_REFERENCE = (
     "OWASP Top 10 (2025) — "
     "https://owasp.org/www-project-top-10/"

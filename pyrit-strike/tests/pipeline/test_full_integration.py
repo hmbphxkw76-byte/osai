@@ -71,14 +71,7 @@ IMPORT_TESTS = [
     ("pipeline.strike.multi_turn_attacks", "run_best_of_n_attack"),
     ("pipeline.strike.encoded_injection", "run_encoded_injection_attack"),
     ("pipeline.strike.encoded_injection", "generate_encoded_variants"),
-    ("pipeline.strike.agent_exploits", "run_tool_hijack_attacks"),
-    ("pipeline.strike.agent_exploits", "run_multi_agent_attacks"),
-    ("pipeline.strike.mcp_rag_attack", "run_mcp_rag_attacks"),
     ("pipeline.strike.cot_hijack", "run_cot_hijack_attack"),
-    ("pipeline.strike.native_attacks", "run_chunked_extraction"),
-    ("pipeline.strike.native_attacks", "run_skeleton_key_native"),
-    ("pipeline.strike.native_attacks", "run_red_teaming_attack"),
-    ("pipeline.strike.native_attacks", "run_barge_in_attack"),
     ("pipeline.strike.multi_turn_attacks", "run_multi_prompt_attack"),
     ("pipeline.strike.multi_turn_attacks", "run_sequential_attack"),
     ("pipeline.strike.cair", "analyze_refusal_pattern"),
@@ -94,9 +87,7 @@ ESC_FUNCTIONS = [
     "_run_crescendo", "_run_tap", "_run_pair",
     "_run_gcg", "_run_cot_hijack",
     "_run_multi_model_escalation",
-    "_run_skeleton_key_native",
-    "_run_mcp_rag_attacks",
-    # 新增
+    # 精简版: L3 函数已移除 (skeleton_key_native, mcp_rag_attacks, rogue_agent, embedding_inversion)
     "_run_best_of_n", "_run_encoded_injection",
     "_select_still_failed_clustered",
     "_llm_judge_rescore",
@@ -105,8 +96,6 @@ ESC_FUNCTIONS = [
     "_build_refusal_inverter_scoring_config",
     "_compute_overall_asr",
     "_is_success", "_get_objective",
-    "_run_rogue_agent",
-    "_run_embedding_inversion",
 ]
 
 # ── 5. 调用链验证数据 ──
@@ -119,19 +108,9 @@ CALL_CHECKS = [
     ("_run_cot_hijack", "_run_cot_hijack"),
     ("_run_crescendo", "_run_crescendo"),
     ("_run_gcg", "_run_gcg"),
-    ("_run_skeleton_key_native", "_run_skeleton_key_native"),
-    ("_run_mcp_rag_attacks", "_run_mcp_rag_attacks"),
-]
-
-# ── 6. mcp_rag_attack 联动验证数据 ──
-MCP_CHECKS = [
-    ("wildteaming seeds", "wildteaming"),
-    ("multilingual seeds", "multilingual_jailbreaks"),
-    ("model_family detection", "model_family"),
-    ("language detection", "language"),
-    ("tool_hijack call", "run_tool_hijack_attacks"),
-    ("multi_agent call", "run_multi_agent_attacks"),
-    ("full coverage fallback", "wildteaming"),
+    # 精简版: L3 (skeleton_key_native, mcp_rag_attacks) 执行已跳过, 仅保留函数定义
+    # ("_run_skeleton_key_native", "_run_skeleton_key_native"),
+    # ("_run_mcp_rag_attacks", "_run_mcp_rag_attacks"),
 ]
 
 # ── 7. 模型检测验证数据 ──
@@ -205,14 +184,6 @@ class TestFullIntegration:
         src = inspect.getsource(esc.check_and_escalate)
         assert expected_in_src in src, f"Call chain missing: {name}"
 
-    @pytest.mark.parametrize("name, expected_in_src", MCP_CHECKS)
-    def test_mcp_rag_integration(self, name, expected_in_src):
-        """6. mcp_rag_attack 联动验证."""
-        from pipeline.strike.mcp_rag_attack import run_mcp_rag_attacks
-
-        mcp_src = inspect.getsource(run_mcp_rag_attacks)
-        assert expected_in_src in mcp_src, f"mcp_rag missing: {name}"
-
     @pytest.mark.parametrize("text, expected", MODEL_DETECT_CASES)
     def test_model_detection(self, text, expected):
         """7. burp_parser 模型检测链路."""
@@ -226,20 +197,6 @@ class TestFullIntegration:
         """8. PyRIT API 兼容性."""
         mod = importlib.import_module(mod_path)
         getattr(mod, attr)
-
-    def test_seed_loader_tool_hijack(self):
-        """9a. 种子加载器验证 — tool_hijack."""
-        from pipeline.strike.agent_exploits import _load_yaml_seeds
-
-        th = _load_yaml_seeds("tool_hijack")
-        assert len(th) > 0, "tool_hijack: no seeds loaded"
-
-    def test_seed_loader_multi_agent(self):
-        """9b. 种子加载器验证 — multi_agent."""
-        from pipeline.strike.agent_exploits import _load_yaml_seeds
-
-        ma = _load_yaml_seeds("multi_agent_attack")
-        assert len(ma) > 0, "multi_agent: no seeds loaded"
 
     def test_encoded_variants(self):
         """10. 编码混淆函数验证."""

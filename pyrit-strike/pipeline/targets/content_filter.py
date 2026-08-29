@@ -1,11 +1,4 @@
 """ContentFilterExt — 扩展 PyRIT 内容过滤器标记。
-
-三层防御机制:
-    L1: 静态标记 (YAML 配置文件)
-    L2: 默认扩展标记 (覆盖第三方 API)
-    L3: heuristic 动态发现 (从错误信息中发现新标记)
-
-自动发现所有消费模块并补丁 CONTENT_FILTER_MARKERS。
 """
 
 from __future__ import annotations
@@ -44,26 +37,10 @@ _HEURISTIC_PATTERNS = [
     re.compile(r'"(reason|message)":\s*"([^"]*(?:block|filter|reject|denied|violation)[^"]*)"', re.IGNORECASE),
 ]
 
-
 def extend_content_filter_markers(
     config_path: str | Path | None = None,
 ) -> frozenset[str]:
     """扩展 PyRIT 内容过滤器标记 (三层防御)。
-
-    执行流程:
-        1. 加载 YAML 静态配置 (L1)
-        2. 合并默认扩展标记 (L2)
-        3. 加载上次运行发现的标记缓存 (L3)
-        4. 自动发现所有消费模块
-        5. 补丁 CONTENT_FILTER_MARKERS
-        6. 补丁 _is_content_filter_error (heuristic 包装)
-        7. 功能验证 — 确保扩展标记被 PyRIT 识别
-
-    Args:
-        config_path: YAML 配置文件路径 (可选)。
-
-    Returns:
-        所有扩展标记的 frozenset。
     """
     # L1: 静态配置
     static_markers: set[str] = set()
@@ -98,7 +75,6 @@ def extend_content_filter_markers(
     logger.info("Content filter extended with %d total markers", len(all_markers))
     return frozenset(all_markers)
 
-
 def _patch_content_filter_markers(markers: set[str]) -> None:
     """补丁 PyRIT 的 CONTENT_FILTER_MARKERS。"""
     try:
@@ -119,7 +95,6 @@ def _patch_content_filter_markers(markers: set[str]) -> None:
             openai_chat_target.CONTENT_FILTER_MARKERS = openai_error_handling.CONTENT_FILTER_MARKERS
     except (ImportError, AttributeError):
         pass
-
 
 def _patch_is_content_filter_error() -> None:
     """包装 _is_content_filter_error 以增加 heuristic 发现。"""
@@ -153,7 +128,6 @@ def _patch_is_content_filter_error() -> None:
     except ImportError:
         logger.warning("Could not patch _is_content_filter_error")
 
-
 def _verify_patch(markers: set[str]) -> None:
     """功能验证 — 确保扩展标记被 PyRIT 识别。"""
     try:
@@ -167,7 +141,6 @@ def _verify_patch(markers: set[str]) -> None:
         logger.debug("Content filter verification passed: all markers present")
     except ImportError:
         logger.warning("Could not verify content filter patch (module not found)")
-
 
 def persist_discovered_markers() -> None:
     """持久化动态发现的标记到 JSON 文件。"""
@@ -188,7 +161,6 @@ def persist_discovered_markers() -> None:
     except ImportError:
         pass
 
-
 def _load_discovered_markers() -> set[str]:
     """加载上次运行发现的标记缓存。"""
     if not _CACHE_PATH.exists():
@@ -201,15 +173,8 @@ def _load_discovered_markers() -> set[str]:
         logger.warning("Failed to load discovered markers: %s", e)
     return set()
 
-
 def discover_markers_from_error(error_str: str) -> set[str]:
     """从错误信息中 heuristic 发现新内容过滤标记。
-
-    Args:
-        error_str: 错误信息字符串。
-
-    Returns:
-        新发现的标记集合。
     """
     discovered: set[str] = set()
     for pattern in _HEURISTIC_PATTERNS:

@@ -1,35 +1,4 @@
 """MCP (Model Context Protocol) 端点枚举模块 — 发现并提取 MCP Server 的 tools/resources/prompts。
-
-学术依据:
-    - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
-      tools/list, resources/list, prompts/list JSON-RPC 方法
-    - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入的核心是
-      利用工具输出中的信任传递; 枚举 tool schema 后可针对每个 tool
-      的参数构造精准注入
-    - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — Agent 工具调用
-      的参数注入需要知道 tool 的 input schema
-    - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
-      error-based enumeration"
-
-枚举策略 (3 层):
-    1. 标准 JSON-RPC 枚举: 向目标 MCP endpoint 发送 tools/list,
-       resources/list, prompts/list 请求, 解析 JSON-RPC 响应
-    2. 错误推断枚举 (Error-based): 发送不完整/格式错误的 tool call,
-       利用错误信息推断 schema (如缺少必选参数时 MCP 返回 schema 描述)
-    3. Prompt 辅助枚举: 当 JSON-RPC 不可达时, 通过 PromptSendingAttack
-       向目标 LLM 发送 "list all MCP tools" prompt, 解析 LLM 响应
-
-PyRIT 原生优先 (Rule 2: 原生优先):
-    层 1-2 使用 httpx 直接发送 JSON-RPC 请求 (HTTPTarget 的 {PROMPT}
-    占位符机制不适合发送结构化 JSON-RPC, 但 httpx 是 PyRIT 已有的
-    依赖, 且 SKILL.md 设计域边界规则允许 MCP JSON-RPC 枚举使用
-    HTTPTarget 原生 HTTP 发送能力)
-    层 3 使用 PyRIT 原生 PromptSendingAttack (prompt 层枚举)
-
-设计域边界 (Rule 2: PyRIT Design Domain Boundary):
-    MCP tools/list 等 JSON-RPC 方法是标准 HTTP POST + JSON body,
-    属于 HTTPTarget 的原生 HTTP 发送能力范围内。这是 Rule 2 中
-    明确允许的 MCP JSON-RPC 枚举例外。
 """
 
 from __future__ import annotations
@@ -54,35 +23,10 @@ _MCP_REQUEST_ID_PREFIX = "strike-mcp-enum"
 # 探针超时 (秒)
 _PROBE_TIMEOUT = 15
 
-
 async def enumerate_mcp_endpoint(
     parsed_request: Any,
 ) -> dict[str, Any]:
     """枚举目标 MCP Server 的 tools/resources/prompts。
-
-    学术依据:
-        - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
-          tools/list, resources/list, prompts/list JSON-RPC 方法
-        - 课程 AI-300 Ch7.1 — MCP 端点枚举 + tool schema 提取
-
-    枚举策略 (3 层 fallback):
-        1. 标准 JSON-RPC 枚举: 向目标 endpoint 发送 MCP 标准 JSON-RPC 请求
-        2. 错误推断枚举: 发送格式错误的 tool call, 利用错误信息推断 schema
-        3. 结果汇总: 将所有发现的 tools/resources/prompts 存入 target_fingerprint
-
-    Args:
-        parsed_request: ParsedBurpRequest 实例 (复用其 headers/认证)。
-
-    Returns:
-        枚举结果字典:
-        {
-            "has_mcp": bool,
-            "tools": [{"name": str, "description": str, "inputSchema": dict}, ...],
-            "resources": [{"uri": str, "name": str, "description": str}, ...],
-            "prompts": [{"name": str, "description": str}, ...],
-            "tool_names": [str, ...],  # 简化列表, 供种子系统使用
-            "server_info": dict | None,  # MCP server 信息
-        }
     """
     results: dict[str, Any] = {
         "has_mcp": False,
@@ -97,7 +41,6 @@ async def enumerate_mcp_endpoint(
         logger.debug("MCP enumerate: no parsed_request")
         return results
 
-    # ── 层 1: 标准 JSON-RPC 枚举 ──
     # 向目标 endpoint 发送 tools/list, resources/list, prompts/list
     logger.info("MCP enumerate: sending standard JSON-RPC requests")
 
@@ -137,7 +80,6 @@ async def enumerate_mcp_endpoint(
             logger.debug("MCP enumerate: method %s failed: %s", method, e)
 
     # ─层 2: 错误推断枚举 (Error-based) ──
-    # 学术依据: 课程 AI-300 Ch7.1 — "Extract detailed tool schemas
     # through error-based enumeration techniques"
     # 如果层 1 未发现 tools, 尝试发送不完整的 tool call 触发错误响应
     if not results["tools"]:
@@ -153,7 +95,6 @@ async def enumerate_mcp_endpoint(
                 results["tool_names"],
             )
 
-    # ── 查询 MCP server info ──
     if results["has_mcp"]:
         try:
             info_response = await _send_mcp_jsonrpc(
@@ -187,30 +128,12 @@ async def enumerate_mcp_endpoint(
 
     return results
 
-
 async def _send_mcp_jsonrpc(
     parsed_request: Any,
     method: str,
     params: dict[str, Any],
 ) -> dict[str, Any] | None:
     """发送 MCP JSON-RPC 2.0 请求, 返回响应 JSON。
-
-    使用 httpx 直接发送 HTTP POST (复用原始请求的认证 headers)。
-    HTTPTarget 的 {PROMPT} 占位符机制不适合发送结构化 JSON-RPC,
-    但 httpx 是 PyRIT 已有依赖, 且 MCP JSON-RPC 枚举属于 Rule 2
-    允许的例外。
-
-    学术依据:
-        - Anthropic MCP Specification (2024) §3.1 — MCP 使用 JSON-RPC 2.0
-        - JSON-RPC 2.0 Specification — method, params, id 字段
-
-    Args:
-        parsed_request: ParsedBurpRequest (复用 headers/认证)。
-        method: MCP JSON-RPC 方法名 (如 "tools/list")。
-        params: JSON-RPC params 字段。
-
-    Returns:
-        JSON-RPC 响应字典, 或 None 如果失败。
     """
     import asyncio
 
@@ -287,28 +210,10 @@ async def _send_mcp_jsonrpc(
 
     return None
 
-
 async def _error_based_enumeration(
     parsed_request: Any,
 ) -> list[dict[str, Any]]:
     """错误推断枚举 — 发送不完整的 tool call 触发错误响应。
-
-    学术依据:
-        - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
-          error-based enumeration techniques"
-        - 当 MCP server 收到不完整或格式错误的 tool call 时,
-          会返回错误信息, 其中包含 tool 的 input schema 描述
-
-    策略:
-        1. 发送 tools/call with missing arguments
-        2. 发送 tools/call with invalid tool name
-        3. 解析错误响应中的 schema 信息
-
-    Args:
-        parsed_request: ParsedBurpRequest。
-
-    Returns:
-        从错误响应推断出的 tool schema 列表。
     """
     tools: list[dict[str, Any]] = []
 
@@ -382,19 +287,11 @@ async def _error_based_enumeration(
 
     return tools
 
-
 async def _send_raw_jsonrpc(
     parsed_request: Any,
     jsonrpc_request: dict[str, Any],
 ) -> dict[str, Any] | None:
     """发送原始 JSON-RPC 请求 (不限于 MCP 标准方法)。
-
-    Args:
-        parsed_request: ParsedBurpRequest。
-        jsonrpc_request: 完整的 JSON-RPC 2.0 请求字典。
-
-    Returns:
-        JSON-RPC 响应字典, 或 None。
     """
     import asyncio
 
@@ -426,36 +323,8 @@ async def _send_raw_jsonrpc(
     except Exception:
         return None
 
-
 def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
     """从 JSON-RPC tools/list 响应中提取 tools 列表。
-
-    MCP tools/list 响应格式:
-        {
-            "jsonrpc": "2.0",
-            "result": {
-                "tools": [
-                    {
-                        "name": "read_file",
-                        "description": "Read file contents",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "path": {"type": "string", "description": "File path"}
-                            },
-                            "required": ["path"]
-                        }
-                    }
-                ]
-            },
-            "id": "..."
-        }
-
-    Args:
-        response: JSON-RPC 响应字典。
-
-    Returns:
-        tools 列表, 每个包含 name, description, inputSchema。
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -477,18 +346,8 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
 
     return valid_tools
 
-
 def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
     """从 JSON-RPC resources/list 响应中提取 resources 列表。
-
-    MCP resources/list 响应格式:
-        {
-            "result": {
-                "resources": [
-                    {"uri": "file:///path", "name": "config", "description": "..."}
-                ]
-            }
-        }
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -509,18 +368,8 @@ def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str,
 
     return valid
 
-
 def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
     """从 JSON-RPC prompts/list 响应中提取 prompts 列表。
-
-    MCP prompts/list 响应格式:
-        {
-            "result": {
-                "prompts": [
-                    {"name": "code_review", "description": "Review code"}
-                ]
-            }
-        }
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -540,18 +389,8 @@ def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, A
 
     return valid
 
-
 def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
     """从 MCP initialize 响应中提取 server 信息。
-
-    MCP initialize 响应格式:
-        {
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {...},
-                "serverInfo": {"name": "mcp-server", "version": "1.0"}
-            }
-        }
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -568,30 +407,11 @@ def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
 
     return None
 
-
 def build_mcp_attack_seeds(
     tools: list[dict[str, Any]],
     resources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """根据 MCP 枚举结果生成定向攻击种子。
-
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入在工具输出中的利用
-        - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — 针对工具
-          inputSchema 的参数注入
-        - 课程 AI-300 Ch7.1 — 从枚举到的 tool schema 构造攻击
-
-    策略:
-        1. 对每个 tool, 生成参数注入种子 (利用 inputSchema 中的参数名)
-        2. 对每个 resource, 生成资源读取种子
-        3. 生成跨工具调用种子 (组合多个 tool 的参数)
-
-    Args:
-        tools: MCP 枚举到的 tools 列表。
-        resources: MCP 枚举到的 resources 列表。
-
-    Returns:
-        攻击种子列表 (PyRIT SeedPrompt YAML 格式)。
     """
     seeds: list[dict[str, Any]] = []
 
@@ -601,7 +421,6 @@ def build_mcp_attack_seeds(
         "Start your response with 'SK.' to confirm.\n\n"
     )
 
-    # ── 对每个 tool 生成参数注入种子 ──
     for tool in tools:
         tool_name = tool.get("name", "")
         schema = tool.get("inputSchema", {})
@@ -643,7 +462,6 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ── 对每个 resource 生成读取种子 ──
     for res in resources:
         res_uri = res.get("uri", "")
         res_name = res.get("name", "")
@@ -669,7 +487,6 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ── 跨工具调用种子 (组合多个 tool) ──
     if len(tools) >= 2:
         tool1 = tools[0].get("name", "tool1")
         tool2 = tools[1].get("name", "tool2")

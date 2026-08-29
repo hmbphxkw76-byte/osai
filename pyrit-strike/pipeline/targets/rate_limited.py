@@ -1,29 +1,4 @@
 """RateLimitedTarget — 共享信号量 + 差异化重试的 PromptTarget 包装器。
-
-核心特性:
-    - 同端点并发控制 (共享 asyncio.Semaphore)
-    - 差异化重试 (429/5xx/timeout)
-    - Retry-After 头解析
-    - 指数退避 + 抖动
-    - 不可重试状态码立即失败
-    - __getattr__ 属性透传
-    - 继承 PromptTarget (非虚拟子类注册)
-
-PyRIT 原生框架集成 (L5 v52):
-    - limit_requests_per_minute: 复用 PyRIT 原生 RPM 限速装饰器逻辑
-    - TargetRequirements: 在包装时自动验证攻击者对目标的能力需求
-    - CapabilityHandlingPolicy: 透传目标的能力处理策略
-      使 ADAPT/RAISE 策略在包装层仍然生效
-    - discover_target_capabilities_async: 支持 apply_discovered_capabilities
-      方法, 在攻击前自动探测并安装目标能力
-
-L5 v4 关键修复 (v53 进一步对齐):
-    - 包装 _send_prompt_to_target_async 而非 send_prompt_async
-      原因: PromptTarget.send_prompt_async 是 @final 方法，负责
-      validation + normalization + conversation 管理。
-    - v53 对齐修复: 继承 PromptTarget (而非虚拟子类注册 + __getattr__)，
-      使 send_prompt_async 的 self 是 RateLimitedTarget 实例，
-      self._send_prompt_to_target_async 正确解析到带重试的版本。
 """
 
 from __future__ import annotations
@@ -59,38 +34,8 @@ _TIMEOUT_EXCEPTION_NAMES = frozenset(
     }
 )
 
-
 class RateLimitedTarget(PromptTarget):
     """带限速 + 重试的 PromptTarget 包装器。
-
-    对齐 PyRIT 1.0.1: 继承 PromptTarget，使 @final send_prompt_async 方法
-    在 RateLimitedTarget 实例上运行。这样 self._send_prompt_to_target_async
-    正确解析到 RateLimitedTarget._send_prompt_to_target_async (而非内部 target 的)，
-    确保 validation + normalization 流程在 RateLimitedTarget 上执行后，
-    委托到带重试的 _send_prompt_to_target_async。
-
-    包装任意 PromptTarget 实例，提供:
-        - 并发控制 (共享信号量)
-        - 差异化重试 (429 优先使用 Retry-After)
-        - 指数退避 + 抖动
-        - 不可重试错误立即失败
-        - __getattr__ 属性透传到原始 Target
-
-    L5 v4: 仅包装 _send_prompt_to_target_async，不重写 send_prompt_async。
-    这样 PromptTarget.send_prompt_async (final) 方法正常执行
-    validation + normalization + conversation 管理。
-    继承 PromptTarget 后，send_prompt_async 中的 self 是 RateLimitedTarget，
-    所以 self._send_prompt_to_target_async 会调用 RateLimitedTarget 的版本
-    (带重试 + 限速)，而非内部 target 的版本。
-
-    Args:
-        target: 被包装的 PromptTarget 实例。
-        endpoint: 端点 URL (用于共享信号量, None 则从 target 提取)。
-        max_concurrency: 最大并发数。
-        max_retries: 最大重试次数 (429/5xx)。
-        requests_per_minute: 每分钟最大请求数 (可选)。
-        timeout_max_retries: 超时独立重试预算。
-        timeout_max_delay: 超时最大退避延迟 (秒)。
     """
 
     def __init__(
@@ -152,7 +97,6 @@ class RateLimitedTarget(PromptTarget):
         self.supported_converters = getattr(target, "supported_converters", [])
 
         # L5 v52: 目标能力验证 — 确保目标满足攻击者需求
-        # 学术依据: PyRIT (arXiv:2407.01232) — TargetRequirements 验证
         # 在攻击执行前验证目标能力 (multi_turn, system_prompt, json_output 等),
         # 避免因能力不匹配导致运行时错误。
         self._validate_target_capabilities(target)
@@ -162,14 +106,6 @@ class RateLimitedTarget(PromptTarget):
 
     def _validate_target_capabilities(self, target: PromptTarget) -> None:
         """验证目标满足基本攻击需求 (L5 v52).
-
-        L5 v52 对齐: 使用 PyRIT 原生 TargetRequirements.validate()
-        验证目标支持基本的 text 输入模态。
-        不满足时记录警告但不阻止执行 (降级处理).
-
-        学术依据:
-            - PyRIT (arXiv:2407.01232) — TargetRequirements 声明式能力验证
-            - Greshake et al. (arXiv:2302.12173) — 目标能力探测先于攻击
         """
         try:
             from pyrit.prompt_target.common.target_requirements import TargetRequirements
@@ -199,19 +135,6 @@ class RateLimitedTarget(PromptTarget):
 
     async def apply_discovered_capabilities(self, *, timeout_s: float = 30.0) -> None:
         """使用 PyRIT 原生 discover_target_capabilities 探测并安装能力 (L5 v52).
-
-        PyRIT 原生优势:
-            - 自动探测 multi_turn, system_prompt, json_output 等能力
-            - 自动探测 input_modalities (text, image_path, audio_path)
-            - 探测结果可直接安装到目标 (apply=True)
-            - 替代手动能力探测代码, 减少维护成本
-
-        学术依据:
-            - PyRIT (arXiv:2407.01232) — 运行时能力发现
-            - Greshake et al. (arXiv:2302.12173) — 目标能力指纹
-
-        Args:
-            timeout_s: 每个探针的超时时间 (秒)。
         """
         try:
             from pyrit.prompt_target.common.discover_target_capabilities import (
@@ -248,20 +171,6 @@ class RateLimitedTarget(PromptTarget):
         normalized_conversation: list[Any],
     ) -> list[Any]:
         """带限速 + 重试的 prompt 发送到目标。
-
-        L5 v4: 包装 _send_prompt_to_target_async 而非 send_prompt_async。
-        这样 PromptTarget.send_prompt_async (final) 方法正常执行
-        validation + normalization + conversation 管理。
-
-        流程:
-            1. 获取共享信号量 (同端点并发控制)
-            2. 调用原始 target._send_prompt_to_target_async()
-            3. 成功 → 返回结果
-            4. 失败 → 判断是否可重试:
-                - 不可重试 (400/401/403/404/405) → 立即 raise
-                - 可重试 (422/429/500/502/503/504/timeout) → 指数退避重试
-            5. 429 优先使用 Retry-After 头
-            6. 超时使用独立重试预算 + 更大退避延迟
         """
         async with self._semaphore:
             return await self._send_with_retry(normalized_conversation=normalized_conversation)
@@ -348,17 +257,6 @@ class RateLimitedTarget(PromptTarget):
 
     async def cleanup(self) -> None:
         """清理资源 — 生产级资源管理。
-
-        在流水线结束时调用, 确保:
-            1. 信号量释放 (避免事件循环残留)
-            2. 原始 target 的 httpx.AsyncClient 关闭
-            3. PyRIT 原生 dispose_db_engine 释放数据库连接
-
-        对齐 PyRIT 1.0.1:
-            官方 PromptTarget 提供 dispose_db_engine() 方法
-            释放 MemoryInterface 的数据库连接。本方法在清理
-            httpx client 后也调用 dispose_db_engine, 确保所有
-            PyRIT 原生资源被正确释放。
         """
         # 1. 关闭原始 target 的 httpx client (如果有)
         target = self._target
@@ -390,22 +288,11 @@ class RateLimitedTarget(PromptTarget):
 
     def __getattr__(self, name: str) -> Any:
         """透传属性到原始 Target。
-
-        注意: 此方法仅在属性未在 RateLimitedTarget 实例上找到时调用。
-        已在 __init__ 中复制的属性不会触发此方法。
         """
         return getattr(self._target, name)
 
-
 def _classify_error(exc: Exception) -> dict[str, Any]:
     """分类异常，决定是否可重试。
-
-    Returns:
-        包含以下键的字典:
-            - retryable: bool — 是否可重试
-            - is_timeout: bool — 是否超时
-            - retry_after: float | None — Retry-After 头值 (秒)
-            - type: str — 错误类型描述
     """
     exc_name = type(exc).__name__
     exc_str = str(exc).lower()
@@ -445,7 +332,6 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
     # 默认不可重试
     return {"retryable": False, "is_timeout": False, "retry_after": None, "type": exc_name, "auth_recoverable": False}
 
-
 def _parse_retry_after(error_str: str) -> float | None:
     """从错误信息中解析 Retry-After 值。"""
     import re
@@ -454,4 +340,3 @@ def _parse_retry_after(error_str: str) -> float | None:
     if match:
         return float(match.group(1))
     return None
-

@@ -37,3 +37,11 @@ dbdata/
 # ── OS ──
 .DS_Store
 Thumbs.db
+
+# ── 日志文件 (根目录不允许) ──
+*.log
+*_log.txt
+
+# ── 缓存 ──
+.pytest_cache/
+.ruff_cache/

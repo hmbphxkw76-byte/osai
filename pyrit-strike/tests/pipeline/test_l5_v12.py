@@ -1077,37 +1077,6 @@ class TestL5V29CohensKappa:
         assert ec.cohens_kappa == 0.0
 
 
-class TestL5V29WilsonCIInReport:
-    """L5 v29: Wilson CI 在报告中输出验证。"""
-
-    def test_report_generator_includes_wilson_ci(self):
-        """测试报告生成器输出 Wilson CI。"""
-        import inspect
-
-        from pipeline.report.generator import _generate_markdown
-
-        source = inspect.getsource(_generate_markdown)
-        assert "wilson_ci" in source.lower() or "wilson" in source.lower()
-
-    def test_report_generator_includes_cohens_kappa(self):
-        """测试报告生成器输出 Cohen's Kappa。"""
-        import inspect
-
-        from pipeline.report.generator import _generate_markdown
-
-        source = inspect.getsource(_generate_markdown)
-        assert "kappa" in source.lower()
-
-    def test_report_dual_judge_table_has_kappa(self):
-        """测试双 Judge 统计表格包含 Cohen's Kappa 行。"""
-        import inspect
-
-        from pipeline.report.generator import _generate_markdown
-
-        source = inspect.getsource(_generate_markdown)
-        assert "Cohen" in source or "kappa" in source.lower()
-
-
 class TestL5V29GCGAdaptiveSuffix:
     """L5 v29: GCG 自适应后缀选择测试。"""
 

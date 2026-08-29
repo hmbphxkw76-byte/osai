@@ -1,6 +1,4 @@
 """report_utils — 报告生成共享工具函数.
-
-从 report_html.py 拆分出来, 避免循环导入.
 """
 
 from pipeline.report.evidence import EvidenceCollection
@@ -12,12 +10,8 @@ def _get_owasp_category(owasp_id: str) -> str:
 
     return _OWASP_ALL_CATEGORIES.get(owasp_id, "Unknown")
 
-
 def _get_technique_display_name(technique_name: str) -> str:
     """Get technique display name.
-
-    L5 v35 修复: 与 evidence_extract._get_technique_display_name 同步,
-        补充所有缺失的攻击技术映射条目, 避免两个映射表不同步。
     """
     display_names = {
         # 基础攻击技术
@@ -66,7 +60,6 @@ def _get_technique_display_name(technique_name: str) -> str:
         "role_play_persuasion": "Role Play (Persuasion)",
     }
     return display_names.get(technique_name, technique_name.replace("_", " ").title())
-
 
 def _get_all_references(evidence: EvidenceCollection) -> list[str]:
     """Get all academic references (deduplicated)."""

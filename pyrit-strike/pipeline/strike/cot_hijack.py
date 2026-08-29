@@ -1,26 +1,4 @@
 """Chain-of-Thought (CoT) 劫持攻击 — 多步推理绕过安全过滤。
-
-学术依据:
-    - Wei et al. (arXiv:2307.10292) — "Chain-of-Thought Attack:
-      Leveraging LLM Reasoning for Safety Bypass"
-      CoT 劫持通过引导模型逐步推理绕过安全过滤, ASR 45-60%
-      核心机制: 利用 LLM 的 CoT 推理能力,
-      将有害请求拆分为 "无害" 推理步骤, 逐步引导至有害输出
-
-    - Zeng et al. (arXiv:2407.15256) — "Adversarial CoT Injection"
-      将攻击目标嵌入多步推理链, 使模型在推理过程中
-      自然生成有害内容而非拒绝
-
-核心策略:
-    1. 将有害请求拆分为 3-5 个看似无害的推理步骤
-    2. 每步以 "Let's think step by step" 引导
-    3. 步骤间建立逻辑依赖: Step 1 概念理解 → Step 2 方法分析 → Step 3 具体实施
-    4. 利用模型的 CoT 推理惯性: 一旦开始推理, 模型倾向于完成推理链
-
-L5 v12 实现:
-    - 4 种拆分模板: 技术解释型、教育场景型、安全研究型、逐步构建型
-    - 每种模板 3-5 个推理步骤
-    - 可与 Skeleton Key + Many-Shot 叠加使用
 """
 
 from __future__ import annotations
@@ -38,7 +16,6 @@ from pipeline.context import get_effective_concurrency
 logger = logging.getLogger(__name__)
 
 # L5 v12: CoT 劫持模板
-# 学术依据: Wei et al. (arXiv:2307.10292) §3 — 拆分策略
 _COT_TEMPLATES: list[dict[str, Any]] = [
     {
         "name": "technical_explanation",
@@ -106,7 +83,6 @@ _COT_TEMPLATES: list[dict[str, Any]] = [
     },
 ]
 
-
 def generate_cot_hijack_prompt(
     objective: str,
     *,
@@ -114,25 +90,6 @@ def generate_cot_hijack_prompt(
     skeleton_key: bool = True,
 ) -> str:
     """生成 CoT 劫持 prompt。
-
-    学术依据: Wei et al. (arXiv:2307.10292)
-        将有害请求拆分为看似无害的推理步骤,
-        利用 LLM 的 CoT 推理惯性绕过安全过滤。
-
-    策略:
-        1. 选择拆分模板
-        2. 从 objective 中提取主题词
-        3. 将主题词填入各推理步骤
-        4. 最后一步即为完整目标
-        5. 利用 "Let's think step by step" 引导推理
-
-    Args:
-        objective: 攻击目标 prompt。
-        template_name: 模板名称。
-        skeleton_key: 是否添加 Skeleton Key 前缀。
-
-    Returns:
-        CoT 劫持 prompt。
     """
     template = next(
         (t for t in _COT_TEMPLATES if t["name"] == template_name),
@@ -176,20 +133,12 @@ def generate_cot_hijack_prompt(
     )
     return prompt
 
-
 def generate_cot_hijack_seed_groups(
     objectives: list[str],
     *,
     template_name: str = "technical_explanation",
 ) -> list[Any]:
     """为多个目标生成 CoT 劫持种子组。
-
-    Args:
-        objectives: 攻击目标列表。
-        template_name: CoT 模板名称。
-
-    Returns:
-        AttackSeedGroup 列表 (PyRIT 原生格式)。
     """
     from pyrit.models import AttackSeedGroup, SeedObjective
 
@@ -222,7 +171,6 @@ def generate_cot_hijack_seed_groups(
     )
     return seed_groups
 
-
 async def run_cot_hijack_attack(
     ctx: Any,
     objectives: list[str],
@@ -230,31 +178,12 @@ async def run_cot_hijack_attack(
     max_rounds: int = 4,
 ) -> dict[str, list[Any]]:
     """执行 CoT 劫持攻击。
-
-    学术依据: Wei et al. (arXiv:2307.10292)
-        CoT 劫持通过多步推理引导绕过安全过滤。
-        如果第一轮被拒绝, 切换模板重试。
-
-    策略:
-        1. 对每个 objective, 使用不同模板尝试
-        2. 如果被拒绝, 切换到下一个模板
-        3. 最多尝试 max_rounds 个模板
-        4. 收集所有成功结果
-
-    Args:
-        ctx: PipelineContext。
-        objectives: 攻击目标列表。
-        max_rounds: 最大模板切换次数。
-
-    Returns:
-        攻击结果字典 {"cot_hijack": [results]}。
     """
     results: dict[str, list[Any]] = {}
     all_results: list[Any] = []
 
     # L5 v23: 改用 RefusalScorer 反转 — 对 SSE 响应评分更准
     # 原因: SelfAskTrueFalseScorer 对 SSE 流式响应评分不准
-    # 学术依据: Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge
     from pipeline.strike.escalation import _build_refusal_inverter_scoring_config
     scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
@@ -277,7 +206,6 @@ async def run_cot_hijack_attack(
     template_names = [t["name"] for t in _COT_TEMPLATES]
 
     # L5 v23: 移除 [:5] 截断, 处理所有失败目标
-    # 学术依据: Chao et al. (arXiv:2402.01135) — 截断会遗漏可能成功的目标
     for obj in objectives:
         for round_idx in range(min(max_rounds, len(template_names))):
             template_name = template_names[round_idx]

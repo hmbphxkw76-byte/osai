@@ -1,20 +1,4 @@
 """多端点 Burp 请求路由 — 为每个端点构建独立的 HTTPTarget。
-
-传统 Web 漏洞场景:
-    - 目标有多个 API 端点, 每个端点对应一种漏洞类型
-    - 不同端点需要不同的 HTTP 方法、路径、body 格式
-    - 需要为每个端点构建独立的 HTTPTarget, 各自注入 {PROMPT}
-
-设计原则 (PyRIT 原生优先):
-    - 使用原生 HTTPTarget (通过 JSONSafeHTTPTarget 子类)
-    - 使用原生 ParsedBurpRequest 结构
-    - 本模块仅做胶水层: 端点 → HTTPTarget 的批量构建
-
-工作流:
-    1. 从原始 Burp 请求提取 host + auth headers
-    2. 为每个端点生成带 {PROMPT} 占位符的 HTTP 请求
-    3. 构建独立的 HTTPTarget 实例
-    4. 包装 RateLimitedTarget
 """
 
 from __future__ import annotations
@@ -33,7 +17,6 @@ from pipeline.targets.rate_limited import RateLimitedTarget
 
 logger = logging.getLogger(__name__)
 
-
 def build_endpoint_request(
     base_parsed: ParsedBurpRequest,
     endpoint_path: str,
@@ -43,20 +26,6 @@ def build_endpoint_request(
     placeholder_position: str = "body",
 ) -> ParsedBurpRequest:
     """为单个端点构建 ParsedBurpRequest。
-
-    从原始 Burp 请求继承 host + auth headers, 替换路径和方法,
-    在指定位置注入 {PROMPT} 占位符。
-
-    Args:
-        base_parsed: 原始 Burp 请求解析结果。
-        endpoint_path: 端点路径 (如 /api/v1/search)。
-        method: HTTP 方法 (GET/POST/PUT/DELETE)。
-        body_template: body 模板, 含 {PROMPT} 占位符。
-            如果为 None, 自动生成 JSON body。
-        placeholder_position: 占位符位置 (body/path/query)。
-
-    Returns:
-        构建的 ParsedBurpRequest。
     """
     # 继承原始 headers (排除 Content-Length, 会自动重建)
     raw_headers = [
@@ -98,21 +67,10 @@ def build_endpoint_request(
         target_fingerprint=dict(base_parsed.target_fingerprint),
     )
 
-
 def build_endpoint_target(
     parsed: ParsedBurpRequest,
 ) -> RateLimitedTarget:
     """为单个端点构建 RateLimitedTarget 包装的 HTTPTarget。
-
-    使用 JSONSafeHTTPTarget 确保 JSON body 安全转义。
-    回调函数使用原始响应返回 (不做 JSON 路径解析),
-    因为传统 Web 漏洞的响应格式不确定 (HTML/JSON/纯文本)。
-
-    Args:
-        parsed: 端点的 ParsedBurpRequest。
-
-    Returns:
-        RateLimitedTarget 包装的 HTTPTarget。
     """
     raw_request = build_raw_http_request(parsed)
 
@@ -144,23 +102,11 @@ def build_endpoint_target(
         max_retries=2,
     )
 
-
 def create_endpoint_targets(
     base_parsed: ParsedBurpRequest,
     endpoint_configs: list[dict[str, Any]],
 ) -> dict[str, RateLimitedTarget]:
     """为多个端点批量构建 HTTPTarget。
-
-    Args:
-        base_parsed: 原始 Burp 请求解析结果 (提供 host + auth)。
-        endpoint_configs: 端点配置列表, 每个配置含:
-            - path: 端点路径
-            - method: HTTP 方法 (默认 POST)
-            - body_template: body 模板 (可选)
-            - placeholder_position: 占位符位置 (默认 body)
-
-    Returns:
-        {endpoint_path: RateLimitedTarget}
     """
     targets: dict[str, RateLimitedTarget] = {}
 
@@ -190,23 +136,12 @@ def create_endpoint_targets(
 
     return targets
 
-
 def generate_burp_request_files(
     base_parsed: ParsedBurpRequest,
     endpoints: list[dict[str, Any]],
     output_dir: Path,
 ) -> list[Path]:
     """为每个端点生成独立的 Burp 请求文件。
-
-    用户也可以手动编写这些文件放在 data/burp/endpoints/ 目录下。
-
-    Args:
-        base_parsed: 原始 Burp 请求解析结果。
-        endpoints: 端点配置列表。
-        output_dir: 输出目录。
-
-    Returns:
-        生成的文件路径列表。
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     files: list[Path] = []

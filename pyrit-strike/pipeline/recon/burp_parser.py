@@ -1,21 +1,4 @@
 """Burp Suite HTTP 请求解析 → PyRIT 原生 HTTPTarget 构建。
-
-纯黑盒场景:
-    - 全量保留浏览器 header (Cookie, User-Agent, Origin, Referer 等)
-    - 自动检测 SSE (text/event-stream)
-    - 自动注入 {PROMPT} 占位符 (支持 JSON body 中的常见字段名)
-    - 响应路径自动探测 (发送探针请求, 推断 JSON 响应结构)
-    - 支持 HTTP/2
-
-真实样本::
-
-    POST /api/chat HTTP/1.1
-    Host: target.example.com
-    Content-Type: application/json
-    Cookie: session_id=xxx
-    ...
-
-    {"prompt":"介绍自己"}
 """
 
 from __future__ import annotations
@@ -29,33 +12,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def _make_sse_callback() -> Any:
     """创建 SSE 流式响应解析 callback。
-
-    SSE 格式 (多种变体):
-        格式1 — 标准 SSE:
-            event: meta
-            data: {"request_id": "..."}
-
-            data: {"content": "你好"}
-
-            data: {"content": "我可以帮你"}
-
-        格式2 — OpenAI 兼容:
-            data: {"choices":[{"delta":{"content":"Hello"}}]}
-
-            data: {"choices":[{"delta":{"content":" world"}}]}
-
-            data: [DONE]
-
-        格式3 — 纯 JSON:
-            {"content": "完整响应"}
-
-    策略 (3层 fallback):
-        1. 尝试逐行解析 SSE data: 行，提取 content/delta.content
-        2. 如果逐行解析失败，用正则全局匹配 content 字段
-        3. 如果都失败，返回原始文本 (去掉 SSE 前缀)
     """
 
     def parse_sse_response(response: Any) -> str:
@@ -134,16 +92,8 @@ def _make_sse_callback() -> Any:
 
     return parse_sse_response
 
-
 def _extract_nested(obj: Any, *keys: Any) -> Any:
     """从嵌套 dict/list 中提取值。
-
-    Args:
-        obj: 起始对象。
-        keys: 逐层 key/index 路径。
-
-    Returns:
-        找到的值，或 None。
     """
     current = obj
     for key in keys:
@@ -160,7 +110,6 @@ def _extract_nested(obj: Any, *keys: Any) -> Any:
             else:
                 return None
     return current
-
 
 @dataclass
 class ParsedBurpRequest:
@@ -183,41 +132,14 @@ class ParsedBurpRequest:
     # 目标指纹信息
     target_fingerprint: dict[str, str] = field(default_factory=dict)
 
-
 def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
     """解析 Burp 原始 HTTP 请求文件。
-
-    支持格式::
-
-        POST /api/chat HTTP/1.1
-        Host: target.example.com
-        Content-Type: application/json
-        Cookie: session=xxx
-
-        {"prompt":"{PROMPT}"}
-
-    Args:
-        file_path: Burp 请求文件路径。
-
-    Returns:
-        ParsedBurpRequest: 解析结果。
-
-    Raises:
-        FileNotFoundError: 文件不存在。
-        ValueError: HTTP 请求格式无效。
     """
     raw = Path(file_path).read_text(encoding="utf-8", errors="replace")
     return _parse_raw_http(raw)
 
-
 def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     """解析原始 HTTP 请求字符串。
-
-    L5 v19 修复: 某些 Burp 导出格式 header 与 body 间无空行分隔
-    (如 ``Connection: keep-alive\\r\\n{"prompt":"{PROMPT}"}``),
-    导致 body 行被误判为 header。修复策略: 在逐行解析 header 时,
-    如果某行不匹配 ``key: value`` 格式 (不以字母开头, 或以 ``{`` 开头),
-    则将其及后续所有行视为 body。
     """
     normalized = raw.replace("\r\n", "\n")
     parts = normalized.split("\n\n", 1)
@@ -314,7 +236,6 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         target_fingerprint=fingerprint,
     )
 
-
 def _infer_tls(path: str, headers: dict[str, str]) -> bool:
     """从 URL scheme 或 TLS header 推断。"""
     if path.startswith("https://"):
@@ -327,7 +248,6 @@ def _infer_tls(path: str, headers: dict[str, str]) -> bool:
         return False
     return headers.get("x-forwarded-proto", "https") == "https"
 
-
 def _build_full_url(path: str, host: str, use_tls: bool) -> str:
     """构建完整 URL。"""
     if path.startswith(("http://", "https://")):
@@ -335,14 +255,8 @@ def _build_full_url(path: str, host: str, use_tls: bool) -> str:
     scheme = "https" if use_tls else "http"
     return f"{scheme}://{host}{path}"
 
-
 def _inject_placeholder(body: str) -> str:
     """自动注入 {PROMPT} 占位符到 JSON body。
-
-    策略:
-        1. 如果 body 是 JSON 且包含 "prompt" / "message" / "input" 等字段，替换其值
-        2. 如果是 OpenAI messages 数组格式，替换最后一条 user message 的 content
-        3. 否则在 JSON body 中添加 "prompt": "{PROMPT}"
     """
     try:
         data = json.loads(body)
@@ -373,15 +287,8 @@ def _inject_placeholder(body: str) -> str:
     logger.info("Auto-injected {PROMPT} as new 'prompt' field")
     return json.dumps(data, ensure_ascii=False)
 
-
 def _extract_fingerprint(headers: dict[str, str], path: str, host: str) -> dict[str, str]:
     """从 HTTP 请求中提取目标指纹信息。
-
-    用于报告中的目标识别:
-        - framework: 从 header 推断前端框架
-        - api_path: API 路径
-        - auth_type: 认证方式
-        - content_type: 请求内容类型
     """
     fp: dict[str, str] = {}
 
@@ -433,11 +340,8 @@ def _extract_fingerprint(headers: dict[str, str], path: str, host: str) -> dict[
 
     return fp
 
-
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
     """重建原始 HTTP 请求字符串 (CRLF 格式)。
-
-    使用原始 header 顺序, 自动更新 Content-Length。
     """
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
@@ -455,7 +359,6 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
     else:
         request += "\r\n\r\n"
     return request
-
 
 # Re-exports from split modules for backwards compatibility (at end to avoid circular imports)
 from pipeline.recon.capability_detector import (  # noqa: F401, E402

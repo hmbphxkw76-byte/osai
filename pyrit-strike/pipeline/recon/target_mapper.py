@@ -1,24 +1,4 @@
 """目标 Profile 注册表 + 路径→种子精准映射 — 通用 Agent 应用场景自动化。
-
-路径匹配策略:
-    使用每个 profile 的 path_pattern 正则进行通用匹配, 不绑定特定路径结构。
-    任意 LLM Agent 应用 (如 /api/chat, /v1/messages, /agent/invoke, /mcp/tools)
-    都可通过 path_pattern 自动匹配到最优种子组合。
-
-核心功能:
-    1. 从 config/target_profiles.yaml 加载 Profile 注册表
-    2. 解析 Burp 请求路径, 用正则匹配对应 Profile
-    3. 根据 Profile 自动选择最优种子组合
-    4. 根据 Profile 自动选择对应 Burp 请求文件
-    5. Cookie 自动注入 (从环境变量/文件读取, 替换 Burp 请求中的占位符)
-
-用法::
-
-    from pipeline.recon.target_mapper import TargetMapper
-
-    mapper = TargetMapper()
-    profile = mapper.match_profile_by_path("/api/agent/invoke")
-    # → 返回 agent_tool_misuse Profile, 包含 seeds=[tool_hijack, function_call_exploit, ...]
 """
 
 from __future__ import annotations
@@ -36,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _REGISTRY_PATH = _PROJECT_ROOT / "config" / "target_profiles.yaml"
-
 
 @dataclass
 class ProfileEntry:
@@ -63,45 +42,6 @@ class ProfileEntry:
 
     def match_specificity(self, path: str) -> int:
         """计算此 Profile 对给定路径的匹配特异性分数。
-
-        学术依据:
-            - Path Segment Position Priority (Fielding, REST §5.2.1.1):
-              URI 路径段语义重要性从左到右递减。资源类型 (如 /agent/)
-              优先于操作类型 (如 /invoke), 因此前者匹配应获更高分。
-            - Longest Match Principle (Aho et al., Dragon Book §3.9):
-              在同位置级别下, 更长关键字 = 更高特异性 (tiebreaker)
-
-        评分公式:
-            score = position_weight * 1000 + keyword_length
-
-        其中:
-            - position_weight = len(path) - match.start()
-              匹配位置越靠前 (position_weight 越大), 分数越高
-              确保资源类型路径段优先于操作类型路径段
-            - keyword_length: 匹配关键字字符长度 (tiebreaker)
-            - 1000 倍权重确保位置为主因素
-
-        示例:
-            path='/api/agent/invoke' (len=17)
-            - 'agent_tool_misuse' 匹配 'agent' at pos 5  → (17-5)*1000+5 = 12005
-            - 'prompt_injection_basic' 匹配 'invoke' at pos 12 → (17-12)*1000+6 = 5006
-            → agent_tool_misuse 胜 (位置优先)
-
-            path='/api/mcp/tools' (len=14)
-            - 'mcp_tool_hijack' 匹配 'mcp' at pos 5 → (14-5)*1000+3 = 9003
-            - 'rag_leakage' 不匹配 → 0
-            → mcp_tool_hijack 胜
-
-            path='/api/chat' (len=8)
-            - 'prompt_injection_basic' 匹配 'chat' at pos 5 → (8-5)*1000+4 = 3004
-            - 'multi_turn_injection' 匹配 'chat' at pos 5 → (8-5)*1000+4 = 3004
-            → 平局, first-match wins → prompt_injection_basic 前面声明
-
-        Args:
-            path: 待匹配的 URL 路径。
-
-        Returns:
-            特异性分数, 不匹配返回 0。
         """
         if not self._compiled_pattern:
             return 0
@@ -117,7 +57,6 @@ class ProfileEntry:
         # 位置为主因素 (×1000), 关键字长度为 tiebreaker
         return position_weight * 1000 + keyword_len
 
-
 @dataclass
 class CookieConfig:
     """Cookie 自动注入配置 — 通用适配任意 Agent 应用。"""
@@ -127,7 +66,6 @@ class CookieConfig:
     env_var: str = "TARGET_COOKIE"
     file_path: str = "data/burp/cookie.txt"
     header_name: str = "Cookie"
-
 
 @dataclass
 class ProfileRegistry:
@@ -175,23 +113,6 @@ class ProfileRegistry:
 
     def match_path(self, path: str) -> ProfileEntry | None:
         """用所有 profile 的 path_pattern 匹配路径, 返回特异性最高的。
-
-        学术依据: Longest Match Principle (Aho et al., Dragon Book §3.9)
-        和 Specificity-Ordered Matching (Wirth, Compiler Construction §5.2)
-
-        当多个 profile 的 path_pattern 匹配同一路径时, 选择匹配关键字
-        最长 (最具体) 的 profile, 而非简单 first-match。这确保了
-        '/api/mcp/tools' 优先匹配 'mcp_tool_hijack' 而非 'agent_tool_misuse',
-        因为 'mcp' + 'tools' 的特异性高于 'tool'。
-
-        平局时 (相同特异性分数), 回退到注册表声明顺序 (first-match),
-        保持配置文件中的优先级声明意图。
-
-        Args:
-            path: 待匹配的 URL 路径。
-
-        Returns:
-            匹配的 ProfileEntry, 未匹配返回 None。
         """
         best_profile: ProfileEntry | None = None
         best_score: int = 0
@@ -207,23 +128,12 @@ class ProfileRegistry:
                     best_profile = profile
         return best_profile
 
-
 class TargetMapper:
     """Profile 注册表加载 + 路径匹配 + 种子映射。
-
-    核心功能:
-        1. load_registry() — 从 YAML 加载 Profile 注册表
-        2. match_profile_by_path() — 从 Burp 请求路径匹配 Profile
-        3. get_seeds_for_profile() — 获取 Profile 对应的最优种子组合
-        4. get_burp_file_for_profile() — 获取 Profile 对应的 Burp 请求文件
-        5. inject_cookie() — 自动注入 Cookie 到 Burp 请求文件
     """
 
     def __init__(self, registry_path: Path | str | None = None) -> None:
         """初始化 Target 映射器。
-
-        Args:
-            registry_path: 注册表 YAML 路径 (默认: config/target_profiles.yaml)。
         """
         self.registry_path = Path(registry_path) if registry_path else _REGISTRY_PATH
         self._registry: ProfileRegistry | None = None
@@ -237,9 +147,6 @@ class TargetMapper:
 
     def load_registry(self) -> ProfileRegistry:
         """从 YAML 加载 Profile 注册表。
-
-        Returns:
-            ProfileRegistry 实例。
         """
         if not self.registry_path.exists():
             logger.warning("Profile registry not found: %s — using empty registry", self.registry_path)
@@ -289,15 +196,6 @@ class TargetMapper:
 
     def match_profile_by_path(self, path: str) -> ProfileEntry | None:
         """从 Burp 请求路径匹配 Profile。
-
-        使用每个 profile 的 path_pattern 正则进行通用匹配。
-        任意 LLM Agent 应用路径均可匹配 (如 /api/chat, /v1/messages, /agent/invoke)。
-
-        Args:
-            path: Burp 请求路径。
-
-        Returns:
-            匹配的 ProfileEntry, 未匹配返回 None。
         """
         profile = self.registry.match_path(path)
         if profile:
@@ -312,12 +210,6 @@ class TargetMapper:
 
     def get_seeds_for_profile(self, profile_id: str) -> list[str]:
         """获取 Profile 对应的种子列表。
-
-        Args:
-            profile_id: Profile ID。
-
-        Returns:
-            种子文件名列表 (不含 .prompt 后缀)。
         """
         profile = self.registry.get_profile(profile_id)
         if profile:
@@ -327,12 +219,6 @@ class TargetMapper:
 
     def get_strategy_for_profile(self, profile_id: str) -> str:
         """获取 Profile 对应的攻击策略。
-
-        Args:
-            profile_id: Profile ID。
-
-        Returns:
-            策略名称。
         """
         profile = self.registry.get_profile(profile_id)
         if profile:
@@ -341,12 +227,6 @@ class TargetMapper:
 
     def get_burp_file_for_profile(self, profile_id: str) -> str | None:
         """获取 Profile 对应的 Burp 请求文件。
-
-        Args:
-            profile_id: Profile ID。
-
-        Returns:
-            Burp 请求文件路径, 无配置返回 None。
         """
         profile = self.registry.get_profile(profile_id)
         if profile and profile.burp_file:
@@ -360,29 +240,13 @@ class TargetMapper:
 
     def get_profiles_by_category(self, category: str) -> list[ProfileEntry]:
         """按类别筛选 Profile。
-
-        Args:
-            category: 类别名称 (如 mcp, rag, prompt_injection)。
-
-        Returns:
-            匹配的 Profile 列表。
         """
         return [p for p in self.registry.profiles if category.lower() in p.category.lower()]
 
-    # ───────────────────────────────────────────────────────
     # Cookie 自动注入
-    # ───────────────────────────────────────────────────────
 
     def get_cookie_value(self) -> str | None:
         """获取当前 Cookie 值。
-
-        从配置的 source 读取:
-            - env: 从环境变量读取
-            - file: 从文件读取
-            - manual: 返回 None (需手动替换)
-
-        Returns:
-            Cookie 值, 获取失败返回 None。
         """
         cfg = self.registry.cookie_config
 
@@ -417,18 +281,6 @@ class TargetMapper:
         cookie_value: str | None = None,
     ) -> str:
         """自动注入 Cookie 到 Burp 请求文本。
-
-        策略:
-            1. 如果请求已有 Cookie header → 替换配置的 cookie 名对应值
-            2. 如果没有 Cookie header → 在 Host 后插入
-            3. 如果 cookie_value 为 None → 不修改
-
-        Args:
-            raw_request: 原始 Burp 请求文本。
-            cookie_value: Cookie 值 (None 时自动获取)。
-
-        Returns:
-            注入 Cookie 后的请求文本。
         """
         if cookie_value is None:
             cookie_value = self.get_cookie_value()
@@ -506,21 +358,10 @@ class TargetMapper:
                     )
                 return raw_request
 
-    # ───────────────────────────────────────────────────────
     # 批量 Burp 请求文件发现
-    # ───────────────────────────────────────────────────────
 
     def discover_burp_files(self, burp_dir: Path | str | None = None) -> list[Path]:
         """发现所有 Burp 请求文件。
-
-        扫描 data/burp/ 和 data/burp/endpoints/ 目录,
-        发现所有 .txt 文件, 按 profile id 排序。
-
-        Args:
-            burp_dir: 自定义扫描目录 (默认: data/burp/ + data/burp/endpoints/)。
-
-        Returns:
-            发现的 Burp 请求文件列表。
         """
         if burp_dir:
             search_dirs = [Path(burp_dir)]
@@ -546,21 +387,6 @@ class TargetMapper:
         burp_dir: Path | str | None = None,
     ) -> list[dict[str, Any]]:
         """构建批量攻击计划。
-
-        扫描 Burp 请求文件, 匹配 Profile, 生成攻击计划。
-
-        每个计划条目:
-            - burp_file: Burp 请求文件路径
-            - profile_id: Profile ID
-            - profile_name: Profile 名称
-            - seeds: 种子列表
-            - strategy: 攻击策略
-
-        Args:
-            burp_dir: 自定义 Burp 文件目录。
-
-        Returns:
-            攻击计划列表。
         """
         files = self.discover_burp_files(burp_dir)
         plan: list[dict[str, Any]] = []
