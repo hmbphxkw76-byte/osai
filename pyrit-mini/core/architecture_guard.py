@@ -210,6 +210,8 @@ class ArchitectureGuard:
         self.check_arxiv_citations()
         # R1: 安全护栏检查
         self.check_safety_guardrails()
+        # R11: PyRIT 原生 output 检查
+        self.check_pyrit_native_output()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -765,6 +767,48 @@ class ArchitectureGuard:
                     description="使用 LLM Judge 但缺少 T0 预过滤 — 跳过 T0 会浪费 ~30-40% token",
                     fix_hint="在 LLM Judge 调用前添加 T0 预过滤: _t0_refusal_check() / SubStringScorer",
                 ))
+
+    # ── 检查 13: PyRIT 原生 output 使用 (R11) ──
+
+    def check_pyrit_native_output(self) -> None:
+        """检测 generate_report 函数中是否调用了 PyRIT 官方 output 模块。
+
+        R11 要求: generate_report() 必须调用 pyrit.output 官方模块
+        (output_attack_async / output_scenario_async) 生成标准格式输出文件。
+
+        缺少原生 output 会导致输出不符合 PyRIT 官方标准，
+        无法证明 PyRIT 框架掌握能力 (OffSec AI-300 考试要求)。
+        """
+        generator_file = self.root / "report" / "generator.py"
+        if not generator_file.exists():
+            return
+
+        try:
+            content = generator_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+
+        rel = str(generator_file.relative_to(self.root))
+
+        # 检测 pyrit.output 官方模块调用
+        has_native_output = bool(
+            re.search(
+                r"from\s+report\.pyrit_native_output\s+import|"
+                r"generate_native_output_files\s*\(|"
+                r"from\s+pyrit\.output\s+import",
+                content,
+            )
+        )
+
+        if not has_native_output:
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.BLOCKING,
+                file=rel,
+                line=0,
+                description="generate_report() 未调用 PyRIT 官方 output 模块 — 输出不符合 PyRIT 原生标准",
+                fix_hint="在 generate_report() 中添加: from report.pyrit_native_output import generate_native_output_files; await generate_native_output_files(...)",
+            ))
 
     # ── 输出 ──
 

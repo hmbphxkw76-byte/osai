@@ -1,2 +1,0 @@
-class MyCustomConverter:
-    pass
