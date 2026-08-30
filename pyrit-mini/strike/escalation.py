@@ -211,9 +211,10 @@ async def check_and_escalate(
             "overall_asr": overall_asr,
             "threshold": _esc_threshold,
             "failed_objectives": len(failed_objectives),
+            "escalation_levels": _levels_str,
         },
         "output": {},
-        "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through L1-L4 chain",
+        "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through {_levels_str} chain",
     })
 
     # 3. 执行升级策略 — L5 v42 并行升级链
