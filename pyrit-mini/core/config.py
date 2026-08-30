@@ -186,6 +186,14 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
     if config.get("escalation") is not None and args.escalation is None:
         args.escalation = bool(config["escalation"])
 
+    # escalation_levels: config_file 中是字符串 (如 "L2,L4"), CLI 中也是字符串
+    # 如果 CLI 未指定 --escalation-levels (None), 则用 config_file 的
+    # 实际解析在 parse_args 末尾通过 _parse_escalation_levels 完成
+    el_cfg = config.get("escalation_levels")
+    if el_cfg is not None and getattr(args, "escalation_levels", None) is None:
+        if isinstance(el_cfg, (str, list)):
+            args.escalation_levels = ",".join(el_cfg) if isinstance(el_cfg, list) else el_cfg
+
     # memory_labels: config_file 中是 dict, CLI 中是 JSON 字符串
     # 如果 CLI 未指定 --memory-labels (None), 则用 config_file 的
     ml_cfg = config.get("memory_labels")
