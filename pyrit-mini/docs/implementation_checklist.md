@@ -48,12 +48,17 @@
 - [ ] **R2**: 使用 PyRIT 原生组件 (不自研替换) — 或 enhancement wrapper 包装原生
 - [ ] **R2**: 已搜索 PyRIT 源码确认无等价原生组件
 - [ ] **R3**: 所有参数对齐 L5 基线 (`config/defaults.yaml`)
-- [ ] **R7**: 新技术/参数有 arXiv 引用
-- [ ] **R8**: 新文件放置在正确目录; 测试文件在 `tests/`
-- [ ] **R10**: 每个 `ConverterConfiguration` 包含恰好 1 个 converter (禁止串联)
-- [ ] **R10**: 攻击执行路径中使用 0-token 评分器 (SubStringScorer + Inverter)
-- [ ] **R10**: 使用 PyRIT 原生攻击策略 (不自研 Executor)
-- **R10**: 变更后的 `architecture_guard.py` 不会新增 BLOCKING 违规
+- [ ] **R5**: 新技术/参数有 arXiv 引用
+- [ ] **R6 §6.1**: 每个 `ConverterConfiguration` 包含恰好 1 个 converter (禁止串联)
+- [ ] **R6 §6.2**: 攻击执行路径中使用 0-token 评分器 (SubStringScorer + Inverter)
+- [ ] **R6 §6.4**: 使用 PyRIT 原生攻击策略 (不自研 Executor)
+- [ ] **R8 §8.1**: 多 endpoint 模式下 `--stage` 退出点使用 `exclude_shared=True`
+- [ ] **R8 §8.2**: 异常处理有 fallback (partial results 保留, 不中断流水线)
+- [ ] **R8 §8.3**: 全局变量有 `_reset_*()` 函数, 多 endpoint 循环开始时调用
+- [ ] **R8 §8.4**: 空输入边界条件防御 (seeds/attack_results/endpoint 列表)
+- [ ] **R8 §8.5**: 编排日志覆盖所有 6 阶段 (recon+arm+strike+escalate+assess+report)
+- [ ] **R8 §8.6**: 并发数从 `get_effective_concurrency(ctx)` SSOT 读取, 不硬编码
+- **变更后的 `architecture_guard.py` 不会新增 BLOCKING 违规
 
 ### 架构守护脚本预检
 
