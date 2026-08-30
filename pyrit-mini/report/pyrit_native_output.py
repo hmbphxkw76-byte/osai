@@ -130,9 +130,11 @@ async def output_native_attack_results(
             total, native_dir, count, fallback_count,
         )
     elif count == 0 and fallback_count == 0:
-        logger.warning(
-            "PyRIT native output: 0 AttackResult saved — "
-            "attack_results may be empty or CentralMemory unavailable"
+        # L5 v41: In dry-run mode, 0 AttackResult is expected (strike is
+        # skipped). Downgrade to INFO to avoid false-alarm WARNING.
+        logger.info(
+            "PyRIT native output: 0 AttackResult saved "
+            "(dry-run or no attack results — expected if --dry-run)"
         )
     return total
 

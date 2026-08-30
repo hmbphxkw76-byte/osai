@@ -1,6 +1,0 @@
-# 临时测试配置 — 验证 --config-file 中的 escalation_levels 覆盖
-seeds: "elite_jailbreaks"
-max_seeds: 1
-
-escalation:
-  escalation_levels: "L3,L4"
