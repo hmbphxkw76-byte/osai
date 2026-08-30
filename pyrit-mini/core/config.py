@@ -137,6 +137,7 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             tap_success_threshold: int
             pair_tree_width: int
             pair_tree_depth: int
+            escalation_levels: string  # 级别组合 (如 "L2,L4"), 不指定则完整链
         probe:         # 黑盒探测配置
             probe_timeout: int
             probe_retries: int

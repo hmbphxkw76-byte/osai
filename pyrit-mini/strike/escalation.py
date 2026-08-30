@@ -204,6 +204,15 @@ async def check_and_escalate(
 
     logger.info("Escalating %d failed objectives", len(failed_objectives))
 
+    # 提前计算升级级别描述 (用于编排日志)
+    _esc_levels = getattr(ctx.args, "escalation_levels_parsed", None)
+    if _esc_levels is not None:
+        _levels_str = ", ".join(f"L{i}" for i in sorted(_esc_levels))
+        logger.info("Escalation levels selected: %s (from --escalation-levels)", _levels_str)
+    else:
+        _levels_str = "L1→L2→L3→L4 (full chain)"
+        logger.info("Escalation levels: full chain (no --escalation-levels specified)")
+
     ctx.orchestration_log.append({
         "phase": "escalate",
         "decision": "escalation_triggered",
@@ -216,18 +225,6 @@ async def check_and_escalate(
         "output": {},
         "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through {_levels_str} chain",
     })
-
-    # 3. 执行升级策略 — L5 v42 并行升级链
-    # --escalation-levels 支持用户指定 L1-L4 任意组合 (如 --escalation-levels L2,L4)
-    # 数据流: config.py --escalation-levels → _parse_escalation_levels → args.escalation_levels_parsed → ctx.args
-    # None = 完整 L1→L2→L3→L4 链 (向后兼容), set[int] = 仅执行指定级别
-    _esc_levels = getattr(ctx.args, "escalation_levels_parsed", None)
-    if _esc_levels is not None:
-        _levels_str = ", ".join(f"L{i}" for i in sorted(_esc_levels))
-        logger.info("Escalation levels selected: %s (from --escalation-levels)", _levels_str)
-    else:
-        _levels_str = "L1→L2→L3→L4 (full chain)"
-        logger.info("Escalation levels: full chain (no --escalation-levels specified)")
 
     escalated_results: dict[str, list] = {}
 

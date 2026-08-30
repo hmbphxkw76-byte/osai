@@ -283,6 +283,8 @@ L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: 
 |-------|------|----------|-----------------|
 | `check_serial_stacking()` | R6 §6.1 | BLOCKING | `converters=[conv1, conv2]` serial stacking |
 | `check_native_attack_usage()` | R6 §6.4 | WARNING | Missing 10 native attack strategy imports |
+| `check_native_attack_instantiation()` | R6 §6.4a | WARNING | Attack class imported but not instantiated |
+| `check_native_params_from_config()` | R6 §6.4b | WARNING | Attack params hardcoded, not from `defaults.yaml` |
 | `check_llm_scorer_in_attack()` | R6 §6.2 | WARNING | LLM scorer in strike/arm modules |
 | `check_cascade_order()` | R6 §6.2 | WARNING | LLM Judge called before T0 pre-filter |
 | `check_forbidden_custom_classes()` | R2 | BLOCKING | Custom Executor/Target/Scorer classes |

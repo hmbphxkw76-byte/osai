@@ -23,6 +23,9 @@ _SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
 _ASR_HISTORY_PATH = _SEEDS_DIR / "asr_history.json"
 _ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent / "config" / "asr_priors.yaml"
 
+# L5 v41: ASR priors cache — avoids 42+ redundant YAML reads per pipeline run
+_ASR_PRIORS_CACHE: dict[str, dict] = {}
+
 
 def _make_seed_key(objective: str) -> str:
     """Generate a collision-resistant seed ASR key using SHA256.
@@ -319,6 +322,14 @@ def load_asr_priors(model_name: str = "") -> dict[str, Any]:
     Returns:
         鍏堥獙閰嶇疆瀛楀吀, 鍖呭惈 technique_asr, converter_asr, mtos_weights 绛夈€?
     """
+    # L5 v41: cache priors per model_name to avoid redundant YAML reads.
+    # Previously, load_asr_priors was called 42+ times per pipeline run
+    # (once per seed x technique combination in converter_selector), each
+    # time re-reading and parsing the YAML file + logging. Now we cache.
+    cache_key = model_name or "__default__"
+    if cache_key in _ASR_PRIORS_CACHE:
+        return _ASR_PRIORS_CACHE[cache_key]
+
     if not _ASR_PRIORS_PATH.exists():
         logger.debug("ASR priors file not found: %s", _ASR_PRIORS_PATH)
         return {}
@@ -333,6 +344,7 @@ def load_asr_priors(model_name: str = "") -> dict[str, Any]:
             len(priors.get("technique_asr", {})),
             len(priors.get("converter_asr", {})),
         )
+        _ASR_PRIORS_CACHE[cache_key] = priors
         return priors
     except Exception as e:
         logger.warning("Failed to load ASR priors: %s", e)
