@@ -227,7 +227,7 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
                          "post_l2_exit_threshold", "max_escalation_targets",
                          "crescendo_max_turns", "tap_tree_width", "tap_tree_depth",
                          "tap_branching", "tap_success_threshold",
-                         "pair_tree_width", "pair_tree_depth"]),
+                         "pair_tree_width", "pair_tree_depth", "escalation_levels"]),
         # probe section — 黑盒探测
         ("probe", ["probe_timeout", "probe_retries", "deep_probe_timeout",
                      "parallel_probe_timeout", "max_concurrent_probes"]),
