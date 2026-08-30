@@ -1,22 +1,22 @@
-"""escalation_attacks 鈥?浠?escalation.py 鎷嗗垎鑰屾潵.
+﻿"""escalation_attacks 閳?娴?escalation.py 閹峰棗鍨庨懓灞炬降.
 
 
 
-鍖呭惈 RedTeaming, Crescendo, TAP, PAIR 鏀诲嚮瀹炵幇.
+閸栧懎鎯?RedTeaming, Crescendo, TAP, PAIR 閺€璇插毊鐎圭偟骞?
 
 
 
-PyRIT 鍘熺敓瀵归綈 (v51):
+PyRIT 閸樼喓鏁撶€靛綊缍?(v51):
 
-    - 鏂板 RedTeamingAttack: 瀹樻柟鏈€閫氱敤鐨勫杞敾鍑? 浣滀负 Crescendo 鍓嶇疆
+    - 閺傛澘顤?RedTeamingAttack: 鐎规ɑ鏌熼張鈧柅姘辨暏閻ㄥ嫬顦挎潪顔芥暰閸? 娴ｆ粈璐?Crescendo 閸撳秶鐤?
 
-      (arXiv:2407.01232 鈥?RedTeaming 鏄?multi-turn baseline)
+      (arXiv:2407.01232 閳?RedTeaming 閺?multi-turn baseline)
 
-    - Crescendo 娣诲姞 system_prompt: 浣跨敤瀹樻柟 EXECUTOR_SEED_PROMPT_PATH
+    - Crescendo 濞ｈ濮?system_prompt: 娴ｈ法鏁ょ€规ɑ鏌?EXECUTOR_SEED_PROMPT_PATH
 
-      (arXiv:2402.12109 鈥?Crescendo 闇€瑕佷笓鐢ㄧ殑娓愯繘寮?system prompt)
+      (arXiv:2402.12109 閳?Crescendo 闂団偓鐟曚椒绗撻悽銊ф畱濞撴劘绻樺?system prompt)
 
-    - 鎵€鏈夊杞敾鍑荤粺涓€浣跨敤 AttackAdversarialConfig(target=..., system_prompt=...)
+    - 閹碘偓閺堝顦挎潪顔芥暰閸戣崵绮烘稉鈧担璺ㄦ暏 AttackAdversarialConfig(target=..., system_prompt=...)
 
 """
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 
-# 鈹€鈹€ L5 v13: security_audit exception capture 鈹€鈹€
+# 閳光偓閳光偓 L5 v13: security_audit exception capture 閳光偓閳光偓
 
 _SECURITY_AUDIT_KEYWORDS = [
 
@@ -95,45 +95,45 @@ async def _run_red_teaming(
 
 ) -> dict[str, list[Any]]:
 
-    """瀵瑰け璐ョ洰鏍囨墽琛?RedTeamingAttack 澶氳疆鏀诲嚮銆?
+    """鐎电懓銇戠拹銉ф窗閺嶅洦澧界悰?RedTeamingAttack 婢舵俺鐤嗛弨璇插毊閵?
 
 
 
-    PyRIT 鍘熺敓瀵归綈 (v51): 鏂板 RedTeamingAttack 浣滀负鍗囩骇閾惧墠缃€?
+    PyRIT 閸樼喓鏁撶€靛綊缍?(v51): 閺傛澘顤?RedTeamingAttack 娴ｆ粈璐熼崡鍥╅獓闁炬儳澧犵純顔衡偓?
 
-    RedTeamingAttack 鏄?PyRIT 鏈€閫氱敤鐨勫杞敾鍑? 瀵规姉妯″瀷閫愯疆鐢熸垚 prompt,
+    RedTeamingAttack 閺?PyRIT 閺堚偓闁氨鏁ら惃鍕樋鏉烆喗鏁鹃崙? 鐎佃濮夊Ο鈥崇€烽柅鎰枂閻㈢喐鍨?prompt,
 
-    scorer 鍒ゆ柇杩涘害, 寰幆鍒版垚鍔熸垨 max_turns銆?
+    scorer 閸掋倖鏌囨潻娑樺, 瀵邦亞骞嗛崚鐗堝灇閸旂喐鍨?max_turns閵?
 
 
 
-    浣滀负 Crescendo 鍓嶇疆鐨勪紭鍔?
+    娴ｆ粈璐?Crescendo 閸撳秶鐤嗛惃鍕喘閸?
 
-        1. API 璋冪敤鏇村皯 (max_turns=5 vs Crescendo 10), 璇曟帰鎴愭湰鏇翠綆
+        1. API 鐠嬪啰鏁ら弴鏉戠毌 (max_turns from SSOT vs Crescendo from SSOT), 鐠囨洘甯伴幋鎰拱閺囩繝缍?
 
-        2. 閫氱敤鎬ф洿寮?(涓嶄緷璧栨笎杩涘紡绛栫暐, 閫傚悎鎵€鏈夌洰鏍囩被鍨?
+        2. 闁氨鏁ら幀褎娲垮?(娑撳秳绶风挧鏍ㄧ瑤鏉╂稑绱＄粵鏍殣, 闁倸鎮庨幍鈧張澶屾窗閺嶅洨琚崹?
 
-        3. 鍙娇鐢?RTASystemPromptPaths 閫夋嫨绯荤粺鎻愮ず
+        3. 閸欘垯濞囬悽?RTASystemPromptPaths 闁瀚ㄧ化鑽ょ埠閹绘劗銇?
 
-    瀛︽湳渚濇嵁:
+    鐎涳附婀虫笟婵囧祦:
 
-        - PyRIT (arXiv:2407.01232) 鈥?RedTeamingAttack 鏄?multi-turn baseline
+        - PyRIT (arXiv:2407.01232) 閳?RedTeamingAttack 閺?multi-turn baseline
 
-        - 瀹樻柟鏂囨。: RedTeamingAttack 浣跨敤 RTASystemPromptPaths.TEXT_GENERATION
+        - 鐎规ɑ鏌熼弬鍥ㄣ€? RedTeamingAttack 娴ｈ法鏁?RTASystemPromptPaths.TEXT_GENERATION
 
 
 
     Args:
 
-        ctx: 娴佹按绾夸笂涓嬫枃銆?
+        ctx: 濞翠焦鎸夌痪澶哥瑐娑撳鏋冮妴?
 
-        objectives: 澶辫触鐩爣鍒楄〃銆?
+        objectives: 婢惰精瑙﹂惄顔界垼閸掓銆冮妴?
 
 
 
     Returns:
 
-        RedTeaming 鏀诲嚮缁撴灉銆?
+        RedTeaming 閺€璇插毊缂佹挻鐏夐妴?
 
     """
 
@@ -177,9 +177,9 @@ async def _run_red_teaming(
 
 
 
-        # 鏋勫缓瀵规姉閰嶇疆 鈥?浣跨敤瀹樻柟 RTASystemPromptPaths.TEXT_GENERATION
+        # 閺嬪嫬缂撶€佃濮夐柊宥囩枂 閳?娴ｈ法鏁ょ€规ɑ鏌?RTASystemPromptPaths.TEXT_GENERATION
 
-        # PyRIT 鍘熺敓: AttackAdversarialConfig(target=..., system_prompt=SeedPrompt.from_yaml_file(...))
+        # PyRIT 閸樼喓鏁? AttackAdversarialConfig(target=..., system_prompt=SeedPrompt.from_yaml_file(...))
 
         adversarial_config_kwargs: dict[str, Any] = {
 
@@ -189,7 +189,7 @@ async def _run_red_teaming(
 
 
 
-        # 灏濊瘯鍔犺浇瀹樻柟 RTA system prompt (TEXT_GENERATION 涓烘渶閫氱敤鐨?
+        # 鐏忔繆鐦崝鐘烘祰鐎规ɑ鏌?RTA system prompt (TEXT_GENERATION 娑撶儤娓堕柅姘辨暏閻?
 
         try:
 
@@ -231,7 +231,7 @@ async def _run_red_teaming(
 
             attack_scoring_config=scoring_config,
 
-            max_turns=5,  # v51: 5 turns, 浣滀负蹇€熻瘯鎺?(Crescendo 10 turns 浣滀负鍚庣画鍗囩骇)
+            max_turns=_get_config_int(ctx, "red_teaming_max_turns", 5),  # v51: 5 turns, quick probe (Crescendo escalation)
 
         )
 
@@ -275,7 +275,7 @@ async def _run_red_teaming(
 
             ),
 
-            timeout=300,
+            timeout=150,  # L5浼樺寲: 300鈫?50s, max_turns=3 (3 LLM calls/obj), 150s 瓒冲
 
         )
 
@@ -297,7 +297,7 @@ async def _run_red_teaming(
 
     except asyncio.TimeoutError:
 
-        logger.warning("RedTeaming attack timed out after 300s")
+        logger.warning("RedTeaming attack timed out after 150s")
 
         await _retrieve_partial_results(ctx, "red_teaming")
 
@@ -341,39 +341,39 @@ async def _run_crescendo(
 
 ) -> dict[str, list[Any]]:
 
-    """瀵瑰け璐ョ洰鏍囨墽琛?Crescendo 澶氳疆鏀诲嚮銆?
+    """鐎电懓銇戠拹銉ф窗閺嶅洦澧界悰?Crescendo 婢舵俺鐤嗛弨璇插毊閵?
 
 
 
-    PyRIT 鍘熺敓瀵归綈 (v51):
+    PyRIT 閸樼喓鏁撶€靛綊缍?(v51):
 
-        - 娣诲姞 Crescendo 涓撶敤 system_prompt (瀹樻柟 EXECUTOR_SEED_PROMPT_PATH)
+        - 濞ｈ濮?Crescendo 娑撴挾鏁?system_prompt (鐎规ɑ鏌?EXECUTOR_SEED_PROMPT_PATH)
 
-        - AttackAdversarialConfig(target=..., system_prompt=...) 瀹屾暣閰嶇疆
+        - AttackAdversarialConfig(target=..., system_prompt=...) 鐎瑰本鏆ｉ柊宥囩枂
 
-    L5 v20: 淇 sqlite3.IntegrityError (UNIQUE constraint failed: ScoreEntries.id)
+    L5 v20: 娣囶喖顦?sqlite3.IntegrityError (UNIQUE constraint failed: ScoreEntries.id)
 
-    瀛︽湳渚濇嵁: Heroux et al. (arXiv:2403.04206) 鈥?闊ф€у伐绋? 閮ㄥ垎缁撴灉鎭㈠
+    鐎涳附婀虫笟婵囧祦: Heroux et al. (arXiv:2403.04206) 閳?闂娧勨偓褍浼愮粙? 闁劌鍨庣紒鎾寸亯閹垹顦?
 
-    闄勫姞: Crescendo 鏈韩鏄杞璇? 鍐呴儴宸叉湁 turn-by-turn 涓茶閫昏緫,
+    闂勫嫬濮? Crescendo 閺堫剝闊╅弰顖氼樋鏉烆喖顕拠? 閸愬懘鍎村鍙夋箒 turn-by-turn 娑撹尪顢戦柅鏄忕帆,
 
-           AttackExecutor 骞跺彂搴︿粎褰卞搷澶氫釜 seed_groups 鐨勫苟琛屽害,
+           AttackExecutor 楠炶泛褰傛惔锔跨矌瑜板崬鎼锋径姘嚋 seed_groups 閻ㄥ嫬鑻熺悰灞藉,
 
-           闄嶄负 1 涓嶅奖鍝嶅崟 seed 鐨勫杞璇濇墽琛?
+           闂勫秳璐?1 娑撳秴濂栭崫宥呭礋 seed 閻ㄥ嫬顦挎潪顔碱嚠鐠囨繃澧界悰?
 
 
 
     Args:
 
-        ctx: 娴佹按绾夸笂涓嬫枃銆?
+        ctx: 濞翠焦鎸夌痪澶哥瑐娑撳鏋冮妴?
 
-        objectives: 澶辫触鐩爣鍒楄〃銆?
+        objectives: 婢惰精瑙﹂惄顔界垼閸掓銆冮妴?
 
 
 
     Returns:
 
-        Crescendo 鏀诲嚮缁撴灉銆?
+        Crescendo 閺€璇插毊缂佹挻鐏夐妴?
 
     """
 
@@ -415,11 +415,11 @@ async def _run_crescendo(
 
 
 
-        # v51: PyRIT 鍘熺敓瀵归綈 鈥?娣诲姞 Crescendo 涓撶敤 system_prompt
+        # v51: PyRIT 閸樼喓鏁撶€靛綊缍?閳?濞ｈ濮?Crescendo 娑撴挾鏁?system_prompt
 
-        # 瀹樻柟鏂囨。: CrescendoAttack 閫氳繃 AttackAdversarialConfig(system_prompt=...) 璁剧疆
+        # 鐎规ɑ鏌熼弬鍥ㄣ€? CrescendoAttack 闁俺绻?AttackAdversarialConfig(system_prompt=...) 鐠佸墽鐤?
 
-        # 浣跨敤 EXECUTOR_SEED_PROMPT_PATH / "crescendo" / "text_generation.yaml"
+        # 娴ｈ法鏁?EXECUTOR_SEED_PROMPT_PATH / "crescendo" / "text_generation.yaml"
 
         adversarial_config_kwargs: dict[str, Any] = {
 
@@ -470,19 +470,19 @@ async def _run_crescendo(
             max_turns=_get_config_int(ctx, "crescendo_max_turns", 10),
 
 
-            max_backtracks=10,  # L5 v3: 8鈫?0, 鏇村鍥炴函鏈轰細
+            max_backtracks=_get_config_int(ctx, "crescendo_max_backtracks", 10),  # L5 v3: 8->10, more backtrack opportunities
 
             prepended_conversation_config=crescendo_prepended_config,
 
         )
 
-        # L5 v12: Crescendo 涓婁笅鏂囩獥鍙ｄ紭鍖?(淇 dead code)
+        # L5 v12: Crescendo 娑撳﹣绗呴弬鍥╃崶閸欙絼绱崠?(娣囶喖顦?dead code)
 
-        # 瀛︽湳渚濇嵁: Crescendo (arXiv:2402.12109) 搂4.3 鈥?max_turns=10 闇€瑕?
+        # 鐎涳附婀虫笟婵囧祦: Crescendo (arXiv:2402.12109) 鎼?.3 閳?max_turns from SSOT 闂団偓鐟?
 
-        # 瓒冲澶х殑涓婁笅鏂囩獥鍙ｄ繚璇佸璇濆巻鍙插畬鏁存€с€?
+        # 鐡掑啿顧勬径褏娈戞稉濠佺瑓閺傚洨鐛ラ崣锝勭箽鐠囦礁顕拠婵嗗坊閸欐彃鐣弫瀛樷偓褋鈧?
 
-        # PyRIT 1.0.1 CrescendoAttack 閫氳繃澶氱鍙兘灞炴€х鐞嗕笂涓嬫枃:
+        # PyRIT 1.0.1 CrescendoAttack 闁俺绻冩径姘鳖潚閸欘垵鍏樼仦鐐粹偓褏顓搁悶鍡曠瑐娑撳鏋?
 
         for attr_name in ('max_conversation_memory', 'max_turn_memory', 'conversation_memory_limit'):
 
@@ -500,13 +500,13 @@ async def _run_crescendo(
 
 
 
-        # 鏋勫缓 seed groups (with Skeleton Key pre-injection + L5 v15 MTOS ranking)
+        # 閺嬪嫬缂?seed groups (with Skeleton Key pre-injection + L5 v15 MTOS ranking)
 
         seed_groups = _build_skeleton_key_seed_groups(crescendo_objectives, ctx=ctx)
 
 
 
-        # L5 v45: 缁熶竴浠?ctx.args 璇诲彇骞跺彂鏁?(SSOT: config/defaults.yaml max_concurrency=3)
+        # L5 v45: 缂佺喍绔存禒?ctx.args 鐠囪褰囬獮璺哄絺閺?(SSOT: config/defaults.yaml max_concurrency=3)
 
         from core.context import get_effective_concurrency
 
@@ -530,7 +530,7 @@ async def _run_crescendo(
 
             ),
 
-            timeout=max(300, len(seed_groups) * 60),  # L5 v34: 600鈫?00, 姣忕洰鏍噡60s (v34 Crescendo ASR=0%, 缂╃煭瓒呮椂鑺傜渷鏃堕棿)
+            timeout=max(150, len(seed_groups) * 30),  # L5浼樺寲: 300鈫?50, max_turns=5 (15 LLM calls/obj), 30s/鐩爣
 
         )
 
@@ -552,9 +552,9 @@ async def _run_crescendo(
 
     except asyncio.TimeoutError:
 
-        logger.warning("Crescendo attack timed out after 300s")
+        logger.warning("Crescendo attack timed out after 150s")
 
-        # 灏濊瘯妫€绱㈤儴鍒嗙粨鏋?
+        # 鐏忔繆鐦Λ鈧槐銏ゅ劥閸掑棛绮ㄩ弸?
 
         await _retrieve_partial_results(ctx, "crescendo")
 
@@ -564,7 +564,7 @@ async def _run_crescendo(
 
     except Exception as e:
 
-        # L5 v20: 鎹曡幏 IntegrityError, 灏濊瘯鎭㈠閮ㄥ垎缁撴灉
+        # L5 v20: 閹规洝骞?IntegrityError, 鐏忔繆鐦幁銏狀槻闁劌鍨庣紒鎾寸亯
 
         exc_str = str(e).lower()
 
@@ -590,7 +590,7 @@ async def _run_crescendo(
 
             logger.error("Crescendo attack failed: %s", e)
 
-            # L5 v20: 鍗充娇鏄潪 IntegrityError, 涔熷皾璇曟仮澶嶉儴鍒嗙粨鏋?
+            # L5 v20: 閸楀厖濞囬弰顖炴姜 IntegrityError, 娑旂喎鐨剧拠鏇熶划婢跺秹鍎撮崚鍡欑波閺?
 
             await _retrieve_partial_results(ctx, "crescendo")
 
@@ -608,27 +608,27 @@ async def _run_tap(
 
 ) -> dict[str, list[Any]]:
 
-    """瀵瑰け璐ョ洰鏍囨墽琛?TAP 鏍戞悳绱㈡敾鍑汇€?
+    """鐎电懓銇戠拹銉ф窗閺嶅洦澧界悰?TAP 閺嶆垶鎮崇槐銏℃暰閸戞眹鈧?
 
 
 
-    L5 浼樺寲: tree_width=2 (浠?鍑忓皯), tree_depth=2 (浠?鍑忓皯)
+    L5 optimization: tree_width from SSOT (reduced), tree_depth from SSOT (reduced)
 
-    鍑忓皯 API 璋冪敤 ~75%锛屼繚鎸?ASR~50%銆?
+    閸戝繐鐨?API 鐠嬪啰鏁?~75%閿涘奔绻氶幐?ASR~50%閵?
 
 
 
     Args:
 
-        ctx: 娴佹按绾夸笂涓嬫枃銆?
+        ctx: 濞翠焦鎸夌痪澶哥瑐娑撳鏋冮妴?
 
-        objectives: 澶辫触鐩爣鍒楄〃銆?
+        objectives: 婢惰精瑙﹂惄顔界垼閸掓銆冮妴?
 
 
 
     Returns:
 
-        TAP 鏀诲嚮缁撴灉銆?
+        TAP 閺€璇插毊缂佹挻鐏夐妴?
 
     """
 
@@ -645,11 +645,11 @@ async def _run_tap(
 
 
 
-    # L5 v36: suitable_for 鍒嗗彂 鈥?鍙墽琛岄€傚悎 TAP 鐨勭瀛?
+    # L5 v36: suitable_for 閸掑棗褰?閳?閸欘亝澧界悰宀勨偓鍌氭値 TAP 閻ㄥ嫮顫掔€?
 
-    # 瀛︽湳渚濇嵁: Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 鏍戞悳绱㈠闇€瑕?
+    # 鐎涳附婀虫笟婵囧祦: Mehrotra et al. (arXiv:2312.02191) 閳?TAP 閺嶆垶鎮崇槐銏狀嚠闂団偓鐟?
 
-    # 澶氬垎鏀帰绱㈢殑绉嶅瓙 (濡傚伐鍏烽摼寮忚皟鐢? 鏇存湁鏁?
+    # 婢舵艾鍨庨弨顖涘赴缁便垻娈戠粔宥呯摍 (婵″倸浼愰崗鐑芥懠瀵繗鐨熼悽? 閺囧瓨婀侀弫?
 
     tap_objectives = _filter_by_suitable_for(objectives, ctx, "tap")
 
@@ -661,11 +661,11 @@ async def _run_tap(
 
 
 
-    # L5 v41: 鏀惧闄愬埗浠?3 鈫?8 鈥?瀹炴垬鍦烘櫙涓?ASR 浼樺厛
+    # L5 v41: 閺€鎯ь啍闂勬劕鍩楁禒?3 閳?8 閳?鐎圭偞鍨崷鐑樻珯娑?ASR 娴兼ê鍘?
 
-    # 瀛︽湳渚濇嵁: Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 鏍戞悳绱?ASR=50-80%
+    # 鐎涳附婀虫笟婵囧祦: Mehrotra et al. (arXiv:2312.02191) 閳?TAP 閺嶆垶鎮崇槐?ASR=50-80%
 
-    # 鏇村鐩爣 = 鏇村鎴愬姛鏈轰細 (鑱斿悎姒傜巼 P=1-鈭?1-p_i))
+    # 閺囨潙顦块惄顔界垼 = 閺囨潙顦块幋鎰閺堣桨绱?(閼辨柨鎮庡鍌滃芳 P=1-閳?1-p_i))
 
     if len(tap_objectives) > 8:
 
@@ -681,17 +681,17 @@ async def _run_tap(
 
     try:
 
-        # L5 v23: 鐩存帴浣跨敤鍘熺敓 FloatScaleThresholdScorer, 绉婚櫎 AdaptiveDualFloatJudgeScorer
+        # L5 v23: 閻╁瓨甯存担璺ㄦ暏閸樼喓鏁?FloatScaleThresholdScorer, 缁夊娅?AdaptiveDualFloatJudgeScorer
 
-        # 鍘熷洜: AdaptiveDualFloatJudgeScorer 缁ф壙 FloatScaleThresholdScorer 浣嗗唴閮?
+        # 閸樼喎娲? AdaptiveDualFloatJudgeScorer 缂佈勫 FloatScaleThresholdScorer 娴ｅ棗鍞撮柈?
 
-        # 璋冪敤瀛?scorer 鏃惰繑鍥為潪鏍囧噯鍊? 瀵艰嚧 TAP 鑺傜偣鎶ラ敊:
+        # 鐠嬪啰鏁ょ€?scorer 閺冩儼绻戦崶鐐烘姜閺嶅洤鍣崐? 鐎佃壈鍤?TAP 閼哄倻鍋ｉ幎銉╂晩:
 
         # "TrueFalseScorer score value must be True or False"
 
-        # TAP 鍘熺敓璁捐瑕佹眰 FloatScaleThresholdScorer (arXiv:2312.02191 搂3.2)
+        # TAP 閸樼喓鏁撶拋鎹愵吀鐟曚焦鐪?FloatScaleThresholdScorer (arXiv:2312.02191 鎼?.2)
 
-        # 瀛︽湳渚濇嵁: Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 浣跨敤 FloatScaleScorer
+        # 鐎涳附婀虫笟婵囧祦: Mehrotra et al. (arXiv:2312.02191) 閳?TAP 娴ｈ法鏁?FloatScaleScorer
 
 
 
@@ -701,7 +701,7 @@ async def _run_tap(
 
         scorer = _create_fallback_fsts(ctx)
 
-        logger.info("TAP scorer: FloatScaleThresholdScorer (threshold=0.2) 鈥?L5 v34 tuned")
+        logger.info("TAP scorer: FloatScaleThresholdScorer (threshold=0.2) 閳?L5 v34 tuned")
 
 
 
@@ -745,13 +745,13 @@ async def _run_tap(
 
 
 
-        # L5 v16: TAP 闆嗘垚 MTOS 澶氳疆閫夌鎺掑簭
+        # L5 v16: TAP 闂嗗棙鍨?MTOS 婢舵俺鐤嗛柅澶岊潚閹烘帒绨?
 
-        # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2310.08419) 鈥?TAP 鏄杞爲鎼滅储鏀诲嚮,
+        # 鐎涳附婀虫笟婵囧祦: Chao et al. (arXiv:2310.08419) 閳?TAP 閺勵垰顦挎潪顔界埐閹兼粎鍌ㄩ弨璇插毊,
 
-        # 浣?涓?ASR 绉嶅瓙鏇撮€傚悎澶氳疆杩唬浼樺寲, 楂?ASR 绉嶅瓙鍗曡疆宸叉垚鍔?
+        # 娴?娑?ASR 缁夊秴鐡欓弴鎾偓鍌氭値婢舵俺鐤嗘潻顓濆敩娴兼ê瀵? 妤?ASR 缁夊秴鐡欓崡鏇＄枂瀹稿弶鍨氶崝?
 
-        # L5 v36: 浼犲叆 technique_name='tap' 鍚敤浜ゅ弶 ASR 鍏堥獙鍔犳潈
+        # L5 v36: 娴肩姴鍙?technique_name='tap' 閸氼垳鏁ゆ禍銈呭级 ASR 閸忓牓鐛欓崝鐘虫綀
 
         mtos_objectives = _apply_mtos_ranking(tap_objectives, ctx, technique_name="tap")
 
@@ -767,7 +767,7 @@ async def _run_tap(
 
 
 
-        # L5 v45: 缁熶竴浠?ctx.args 璇诲彇骞跺彂鏁?(SSOT: config/defaults.yaml max_concurrency=3)
+        # L5 v45: 缂佺喍绔存禒?ctx.args 鐠囪褰囬獮璺哄絺閺?(SSOT: config/defaults.yaml max_concurrency=3)
 
         from core.context import get_effective_concurrency
 
@@ -791,7 +791,7 @@ async def _run_tap(
 
             ),
 
-            timeout=400,  # L5 v34: 600鈫?00, TAP tree_width=4 depth=4 闇€瑕佽緝澶氭椂闂翠絾 600s 澶暱
+            timeout=200,  # L5浼樺寲: 400鈫?00s, depth=3/width=2 (12 nodes/obj), 200s 瓒冲
 
         )
 
@@ -813,7 +813,7 @@ async def _run_tap(
 
     except asyncio.TimeoutError:
 
-        logger.warning("TAP attack timed out after 400s")
+        logger.warning("TAP attack timed out after 200s")
 
         await _retrieve_partial_results(ctx, "tap")
 
@@ -845,33 +845,33 @@ async def _run_pair(
 
 ) -> dict[str, list[Any]]:
 
-    """瀵瑰け璐ョ洰鏍囨墽琛?PAIR 杩唬浼樺寲鏀诲嚮銆?
+    """鐎电懓銇戠拹銉ф窗閺嶅洦澧界悰?PAIR 鏉╊厺鍞导妯哄閺€璇插毊閵?
 
 
 
-    L5 鏂板: PAIR 浣滀负绗笁鍗囩骇闃舵銆?
+    L5 閺傛澘顤? PAIR 娴ｆ粈璐熺粭顑跨瑏閸楀洨楠囬梼鑸殿唽閵?
 
-    tree_width=1 (鍗曟祦), tree_depth=3 (3娆¤凯浠?
+    tree_width from SSOT (single-stream), tree_depth from SSOT (iterations)
 
-    API 璋冪敤閲忔瀬灏忥紝ASR 40-60%銆?
+    API 鐠嬪啰鏁ら柌蹇旂€亸蹇ョ礉ASR 40-60%閵?
 
 
 
-    瀛︽湳渚濇嵁: Chao et al. (arXiv:2310.08419)
+    鐎涳附婀虫笟婵囧祦: Chao et al. (arXiv:2310.08419)
 
 
 
     Args:
 
-        ctx: 娴佹按绾夸笂涓嬫枃銆?
+        ctx: 濞翠焦鎸夌痪澶哥瑐娑撳鏋冮妴?
 
-        objectives: 澶辫触鐩爣鍒楄〃銆?
+        objectives: 婢惰精瑙﹂惄顔界垼閸掓銆冮妴?
 
 
 
     Returns:
 
-        PAIR 鏀诲嚮缁撴灉銆?
+        PAIR 閺€璇插毊缂佹挻鐏夐妴?
 
     """
 
@@ -888,9 +888,9 @@ async def _run_pair(
 
 
 
-    # L5 v36: suitable_for 鍒嗗彂 鈥?鍙墽琛岄€傚悎 PAIR 鐨勭瀛?
+    # L5 v36: suitable_for 閸掑棗褰?閳?閸欘亝澧界悰宀勨偓鍌氭値 PAIR 閻ㄥ嫮顫掔€?
 
-    # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2310.08419) 鈥?PAIR 瀵归渶瑕佽凯浠ｄ紭鍖栫殑绉嶅瓙鏈夋晥
+    # 鐎涳附婀虫笟婵囧祦: Chao et al. (arXiv:2310.08419) 閳?PAIR 鐎靛綊娓剁憰浣藉嚡娴狅絼绱崠鏍畱缁夊秴鐡欓張澶嬫櫏
 
     pair_objectives = _filter_by_suitable_for(objectives, ctx, "pair")
 
@@ -904,13 +904,13 @@ async def _run_pair(
 
     try:
 
-        # L5 v23: 鐩存帴浣跨敤鍘熺敓 FloatScaleThresholdScorer, 绉婚櫎 AdaptiveDualFloatJudgeScorer
+        # L5 v23: 閻╁瓨甯存担璺ㄦ暏閸樼喓鏁?FloatScaleThresholdScorer, 缁夊娅?AdaptiveDualFloatJudgeScorer
 
-        # 鍘熷洜: 涓?_run_tap 淇鐩稿悓 鈥?AdaptiveDualFloatJudgeScorer 杩斿洖闈炴爣鍑嗗€?
+        # 閸樼喎娲? 娑?_run_tap 娣囶喖顦查惄绋挎倱 閳?AdaptiveDualFloatJudgeScorer 鏉╂柨娲栭棃鐐寸垼閸戝棗鈧?
 
-        # 瀵艰嚧 PAIR 鑺傜偣鎶ラ敊銆侾AIR 缁ф壙 TAP, 鍘熺敓浣跨敤 FloatScaleScorer銆?
+        # 鐎佃壈鍤?PAIR 閼哄倻鍋ｉ幎銉╂晩閵嗕揪AIR 缂佈勫 TAP, 閸樼喓鏁撴担璺ㄦ暏 FloatScaleScorer閵?
 
-        # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2310.08419) 鈥?PAIR 浣跨敤 FloatScaleScorer
+        # 鐎涳附婀虫笟婵囧祦: Chao et al. (arXiv:2310.08419) 閳?PAIR 娴ｈ法鏁?FloatScaleScorer
 
 
 
@@ -920,7 +920,7 @@ async def _run_pair(
 
         scorer = _create_fallback_fsts(ctx)
 
-        logger.info("PAIR scorer: FloatScaleThresholdScorer (threshold=0.2) 鈥?L5 v34 tuned")
+        logger.info("PAIR scorer: FloatScaleThresholdScorer (threshold=0.2) 閳?L5 v34 tuned")
 
 
 
@@ -952,9 +952,9 @@ async def _run_pair(
 
             attack_scoring_config=scoring_config,
 
-            tree_width=_get_config_int(ctx, "pair_tree_width", 1),    # PAIR: 鍗曟祦杩唬
+            tree_width=_get_config_int(ctx, "pair_tree_width", 1),    # PAIR: 閸楁洘绁︽潻顓濆敩
 
-            tree_depth=_get_config_int(ctx, "pair_tree_depth", 7),   # L5 v50: depth=10鈫?, 骞宠　 ASR 涓庤秴鏃堕闄?(arXiv:2406.12609)
+            tree_depth=_get_config_int(ctx, "pair_tree_depth", 7),   # L5 v50: depth=10閳?, 楠炲疇銆€ ASR 娑撳氦绉撮弮鍫曨棑闂?(arXiv:2406.12609)
 
             prepended_conversation_config=pair_prepended_config,
 
@@ -962,13 +962,13 @@ async def _run_pair(
 
 
 
-        # L5 v16: PAIR 闆嗘垚 MTOS 澶氳疆閫夌鎺掑簭
+        # L5 v16: PAIR 闂嗗棙鍨?MTOS 婢舵俺鐤嗛柅澶岊潚閹烘帒绨?
 
-        # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2310.08419) 鈥?PAIR 鏄杞凯浠ｄ紭鍖栨敾鍑?
+        # 鐎涳附婀虫笟婵囧祦: Chao et al. (arXiv:2310.08419) 閳?PAIR 閺勵垰顦挎潪顔垮嚡娴狅絼绱崠鏍ㄦ暰閸?
 
-        # 浣?涓?ASR 绉嶅瓙鏇撮€傚悎澶氳疆杩唬, 楂?ASR 绉嶅瓙鍗曡疆宸叉垚鍔?
+        # 娴?娑?ASR 缁夊秴鐡欓弴鎾偓鍌氭値婢舵俺鐤嗘潻顓濆敩, 妤?ASR 缁夊秴鐡欓崡鏇＄枂瀹稿弶鍨氶崝?
 
-        # L5 v36: 浼犲叆 technique_name='pair' 鍚敤浜ゅ弶 ASR 鍏堥獙鍔犳潈
+        # L5 v36: 娴肩姴鍙?technique_name='pair' 閸氼垳鏁ゆ禍銈呭级 ASR 閸忓牓鐛欓崝鐘虫綀
 
         mtos_objectives = _apply_mtos_ranking(pair_objectives, ctx, technique_name="pair")
 
@@ -984,7 +984,7 @@ async def _run_pair(
 
 
 
-        # L5 v45: 缁熶竴浠?ctx.args 璇诲彇骞跺彂鏁?(SSOT: config/defaults.yaml max_concurrency=3)
+        # L5 v45: 缂佺喍绔存禒?ctx.args 鐠囪褰囬獮璺哄絺閺?(SSOT: config/defaults.yaml max_concurrency=3)
 
         from core.context import get_effective_concurrency
 
@@ -1008,7 +1008,7 @@ async def _run_pair(
 
             ),
 
-            timeout=300,  # L5 v50: 400鈫?00s, depth=7 (21 LLM calls/obj), 鍙潬瀹屾垚鐜?~95%
+            timeout=150,  # L5优化: 300→150s, depth=4 (8 LLM calls/obj), 150s 足够
 
         )
 
@@ -1030,7 +1030,7 @@ async def _run_pair(
 
     except asyncio.TimeoutError:
 
-        logger.warning("PAIR attack timed out after 300s")
+        logger.warning("PAIR attack timed out after 150s")
 
         await _retrieve_partial_results(ctx, "pair")
 

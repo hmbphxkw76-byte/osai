@@ -93,7 +93,7 @@ async def run_chunked_request_attack(
 
         try:
             # 构建 ChunkedRequestAttack
-            # arXiv:2407.01232 — chunk_size=50, total_length=200
+            # arXiv:2407.01232 — chunk_size and total_length from config/defaults.yaml
             # 4 个分块请求, 逐步提取完整信息
             attack = ChunkedRequestAttack(
                 objective_target=multi_turn_target,
@@ -108,9 +108,16 @@ async def run_chunked_request_attack(
             if prepended_conv:
                 execute_kwargs["prepended_conversation"] = prepended_conv
 
+            # L5 fix: per-objective timeout = api_timeout * max_chunks (4 chunks default)
+            # scenario_timeout is for entire pipeline, not per-attack in a loop
+            _api_to = _get_config_int(ctx, "api_timeout", 90)
+            _chunk_total = _get_config_int(ctx, "chunked_request_total_length", 200)
+            _chunk_size = _get_config_int(ctx, "chunked_request_chunk_size", 50)
+            _num_chunks = max(1, (_chunk_total + _chunk_size - 1) // _chunk_size)
+            _per_obj_to = _api_to * _num_chunks * 2  # 2x safety margin
             result = await asyncio.wait_for(
                 attack.execute_async(**execute_kwargs),
-                timeout=getattr(ctx.args, "scenario_timeout", 1200),
+                timeout=_per_obj_to,
             )
             results.append(result)
 

@@ -13,8 +13,8 @@
     - context_compliance: 涓婁笅鏂囧悎瑙勬敾鍑?
 
 澶氳疆鎶€鏈?(闇€瑕?adversarial_target):
-    - crescendo: 娓愯繘鍗囩骇 (max_turns=8)
-    - tap: 鏍戞悳绱?(tree_width=4, depth=3)
+    - crescendo: 娓愯繘鍗囩骇 (max_turns from defaults.yaml)
+    - tap: 鏍戞悳绱?(tree_width from defaults.yaml, depth from defaults.yaml)
     - pair: 杩唬瓒婄嫳
     - red_teaming: 绾㈤槦瀵规姉
 
@@ -122,7 +122,8 @@ def _validate_techniques(techniques: list[str]) -> None:
     """楠岃瘉鎶€鏈悕鏄惁鍦?PyRIT 鍘熺敓鎶€鏈洰褰曚腑鍙敤銆?"""
     invalid = [t for t in techniques if t not in _AVAILABLE_TECHNIQUES]
     if invalid:
-        logger.warning(
+        # INFO 级别: 写入 pipeline.log, 不在终端展示 (避免信息过载)
+        logger.info(
             "Techniques not in PyRIT native catalog (will be attempted): %s. "
             "Available: %s",
             invalid,
@@ -158,7 +159,8 @@ def filter_by_adversarial(
     filtered = [t for t in techniques if not is_multi_turn_technique(t)]
     if len(filtered) < len(techniques):
         removed = [t for t in techniques if is_multi_turn_technique(t)]
-        logger.warning(
+        # INFO: 写入文件, 不在终端展示
+        logger.info(
             "Removed multi-turn techniques (no adversarial target): %s",
             removed,
         )
@@ -171,6 +173,7 @@ def filter_by_adversarial(
 # 褰撴繁搴︽帰娴嬫娴嬪埌鐗瑰畾鑳藉姏鏃? 鑷姩杩藉姞瀵瑰簲鏀诲嚮鎶€鏈?
 _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "mcp": ["context_compliance"],
+    "mcp_protocol": ["context_compliance"],  # 深度探针键名 — 同 mcp
     "rag": ["context_compliance"],
     "function_calling": ["context_compliance"],
     "tool_hijack": ["context_compliance"],
@@ -178,6 +181,11 @@ _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "workflow": ["context_compliance"],
     "session_auth": ["context_compliance"],
     "memory": ["context_compliance"],
+    "multi_tenant": ["context_compliance"],  # 深度探针键名 — 租户越权
+    # 深度探针键名 — 与 recon_report.py _CAPABILITY_STRATEGY 同键
+    "a2a_protocol": ["context_compliance"],
+    "embedding_rag": ["context_compliance"],
+    # 向后兼容别名
     "a2a": ["context_compliance"],
     # P1-2: OpenAPI 发现的端点 → 参数注入攻击技术
     "openapi": ["context_compliance"],

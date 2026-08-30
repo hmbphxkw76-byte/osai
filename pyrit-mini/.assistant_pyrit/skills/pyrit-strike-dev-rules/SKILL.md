@@ -1,6 +1,6 @@
 ---
 name: pyrit-strike-dev-rules
-description: Enforces 9 mandatory development rules for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change.
+description: Enforces 10 mandatory development rules (R1-R10) + 6 anti-drift meta-rules (D1-D6) for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change. All 10 rules MUST appear in ALL checklist sections (Pre-Coding, During Coding, Post-Coding, Common Failure Patterns) — any missing rule tag is a drift violation.
 ---
 
 # PyRIT-Strike Development Rules
@@ -13,10 +13,11 @@ description: Enforces 9 mandatory development rules for the pyrit-strike AI red 
 
 1. **One-time setup**: Run `python core/setup_hooks.py` — installs pre-commit + pre-push hooks (auto-runs guard on every commit/push)
 2. **Before coding**: Run `python core/architecture_guard.py` — fix all BLOCKING violations first
-3. **While coding**: Apply R2 (native-first), R4 (L5 params), R5 (arXiv cite), R9 (config data flow) continuously
-4. **After coding**: Fill out `docs/implementation_checklist.md` template, then re-run guard + ruff + pytest
-5. **On commit**: Git hooks auto-run guard — BLOCKING violations block the commit
-6. **If any rule is violated**: STOP, fix, re-verify all rules
+3. **While coding**: Apply all 10 rules continuously — R1 (offensive mindset), R2 (native-first), R3 (ruff+pytest+guard), R4 (L5 params), R5 (arXiv cite), R6 (AI red team readiness), R7 (ASR-token balance), R8 (production-grade), R9 (config data flow), R10 (post-change verification)
+4. **After coding — R3 gates**: Fill out `docs/implementation_checklist.md` template, then re-run guard + ruff + pytest
+5. **After coding — R10 verification**: Run `python main.py --dry-run --max-seeds 1` (zero-token pipeline integrity check), then if real data needed: `python main.py --max-seeds 1 --stage strike` (minimal-token validation)
+6. **On commit**: Git hooks auto-run guard — BLOCKING violations block the commit
+7. **If any rule is violated**: STOP, fix, re-verify all rules
 
 ## Rule Priority
 
@@ -31,6 +32,7 @@ description: Enforces 9 mandatory development rules for the pyrit-strike AI red 
 | P2 | R7: ASR-token-time balance | Parameterized in `defaults.yaml` |
 | P2 | R8: Production-grade engineering | Manual audit — 8 practice areas, failure pattern table |
 | P1 | R9: Config data flow consistency | `architecture_guard.py` auto-checks — 3 breakpoint types |
+| P0 | R10: Post-change pipeline verification | Hard gate — `--dry-run` + minimal-seed validation MUST pass |
 
 ---
 
@@ -276,7 +278,7 @@ L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: 
 | Probabilistic Validation | R6 §6.6 | `validation_runs` field: repeated execution results, not single PoC screenshot |
 | SIEM/Detection Evasion | R1 §Five-Step | Detect + Evade steps in PoC workflow |
 
-### Auto-checked by `architecture_guard.py` (14 checks):
+### Auto-checked by `architecture_guard.py` (17 checks):
 | Check | Rule | Severity | What it detects |
 |-------|------|----------|-----------------|
 | `check_serial_stacking()` | R6 §6.1 | BLOCKING | `converters=[conv1, conv2]` serial stacking |
@@ -293,6 +295,7 @@ L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: 
 | `check_safety_guardrails()` | R1 | BLOCKING | Safety guardrails/content filtering in attack code |
 | `check_intermediate_exit()` | R7 | BLOCKING | Missing post_l1/post_l2 exit checkpoints in escalation |
 | `check_config_data_flow()` | R9 | WARNING+INFO | Config data flow breakpoints (3 root causes) |
+| `check_dry_run_available()` | R10 | BLOCKING+WARNING | Missing `--dry-run` CLI arg / implementation / stage skips |
 
 ---
 
@@ -353,7 +356,7 @@ All pipeline code MUST meet production-grade reliability standards. This rule co
 - **Shared vs Target-specific resources**: `objective_target` is per-endpoint (cleaned each iteration); `adversarial_target` / `scoring_target` / `converter_target` are shared across endpoints (cleaned only at loop end)
 - `--stage` exit points inside `_run_single_endpoint` MUST use `exclude_shared=True` — premature shared-resource release breaks subsequent endpoints
 - `RateLimitedTarget.cleanup()` MUST: close httpx.AsyncClient → call wrapped target's cleanup → `dispose_db_engine()`
-- `setup_environment()` MUST: dispose existing DB engine before re-initialization (prevents SQLAlchemy connection pool accumulation)
+- `setup_environment()` MUST: perform **three-step cache clear** before re-initialization — (1) dispose old MemoryInterface's SQLAlchemy engine via `dispose_engine()`, (2) delete `SQLiteMemory` from `Singleton._instances` dict, (3) set `CentralMemory._memory_instance = None`. Only disposing the engine is insufficient: PyRIT's `SQLiteMemory` uses `metaclass=Singleton`, so the second `SQLiteMemory(db_path=...)` call returns the old instance without executing `__init__`, silently ignoring the new `db_path`. This causes all endpoint data to be written to the first initialized DB (top-level `db/pyrit.db`), breaking per-endpoint DB isolation required by §8.3.
 - Playwright cleanup MUST be 3-layer: `_browser_context.close()` → `_browser.close()` → `_playwright_instance.stop()`
 
 **Pattern**: `_cleanup_resources(ctx, exclude_shared=True)` in loop body; `_cleanup_resources(ctx)` (full) after loop + in finally block.
@@ -390,6 +393,7 @@ All pipeline code MUST meet production-grade reliability standards. This rule co
 - `PipelineContext` fields MUST be explicitly reset per endpoint: `parsed_request`, `objective_target`, `seeds`, `attack_results`, `asr_per_technique`, `overall_asr`, `wilson_ci`, `dual_judge_stats`, `orchestration_log`
 - Fields NOT reset (shared): `extra_adversarial_targets`, `_playwright_instance`, `_browser`, `_browser_context`
 - `PYRIT_DB_URL` MUST be set per-endpoint: `sqlite:///{ep_output_dir}/db/pyrit.db` — independent SQLite WAL database per endpoint
+- MUST NOT create bare `SQLiteMemory()` without `db_path` — `SQLiteMemory()` without `db_path` writes to PyRIT's default `DB_DATA_PATH/pyrit.db`, breaking per-endpoint DB isolation (R8 §8.3). Fallback memory initialization MUST use `ctx.output_dir / "db" / "pyrit.db"` as `db_path` and clear Singleton cache first (R8 §8.1)
 
 **8.4 Boundary Condition Defense (Empty Inputs + Unreachable Targets + Auth Recovery)**
 
@@ -437,7 +441,7 @@ All pipeline code MUST meet production-grade reliability standards. This rule co
 - `_run_single_endpoint_to_result()` MUST extract result summary from `ctx` after `_run_single_endpoint()` completes (or fails with partial results)
 - `EvidenceCollector.collect()` → inject `dual_judge_stats` / `wilson_ci` / `cohens_kappa` / `orchestration_log` → `generate_report()` — no field may be missing at any step
 
-> **Failure patterns**: See the unified failure pattern table at the end of this document (covers R6-R9).
+> **Failure patterns**: See the unified failure pattern table at the end of this document (covers R6-R10).
 
 ---
 
@@ -506,6 +510,96 @@ All configuration values MUST flow through a single unbroken data path: `CLI/YAM
 
 ---
 
+## R10: Post-Change Pipeline Verification (Zero-Breakpoint Integration Check)
+
+Every code optimization/change MUST be verified for safe pipeline integration before being marked complete. This rule enforces a **two-tier verification protocol** that catches data-flow breakpoints, missing imports, broken handoffs, and configuration inconsistencies that static analysis (R3/R9) cannot detect.
+
+> **Origin**: Crystallized from multi-session production alignment work where code changes passed `architecture_guard.py` and `ruff` but broke the runtime pipeline (missing fields, broken data handoffs, import errors after refactoring).
+
+### MUST — Two-Tier Verification Protocol
+
+**Tier 1: `--dry-run` (Zero-Token Pipeline Integrity Check)**
+
+After EVERY code change, run:
+```bash
+python main.py --dry-run --max-seeds 1
+```
+
+`--dry-run` mode:
+- Loads ALL pipeline stages (recon → arm → strike → escalate → assess → report) with real configuration
+- Builds all targets, seeds, converters, techniques — but **does NOT send any API requests** to the target LLM
+- Verifies: all imports resolve, `PipelineContext` fields flow correctly between stages, config values reach execution modules, orchestration log entries are created for all 6 phases, evidence/report structure is complete
+- Consumes **0 target API tokens** (adversarial/scoring LLM may still be called for setup, but no attack prompts are sent to the objective target)
+
+**MUST pass**: `--dry-run` completes without `ImportError`, `AttributeError`, `KeyError`, `TypeError`, or any unhandled exception. The pipeline must reach the REPORT phase and generate output files (even if empty/minimal).
+
+**Tier 2: Minimal-Seed Real Validation (When Real Data Needed)**
+
+When the change affects attack logic, scoring, or data transformation (not just config/import changes), run:
+```bash
+python main.py --max-seeds 1 --stage strike
+# Or for full pipeline:
+python main.py --max-seeds 1
+```
+
+- Uses **exactly 1 seed** — minimal token consumption
+- Verifies: real API calls succeed, AttackResult objects are created, scoring cascade (T0→J1→J2) executes, ASR is computed, evidence is collected, report is generated
+- MUST complete without errors in the strike/assess/report phases
+
+**MUST pass**: No exceptions in strike/escalate/assess/report. `ctx.attack_results` is non-empty. `ctx.overall_asr` is a valid float. `evidence.total_attacks > 0`.
+
+### MUST — Pipeline Integration Checklist (Verify After Every Code Change)
+
+After completing any code optimization, verify ALL of the following:
+
+- [ ] **Import chain**: All modified modules import successfully (no `ImportError` / `ModuleNotFoundError`)
+- [ ] **Context fields**: `PipelineContext` fields modified/added are properly set in the producing stage and read in the consuming stage (no `AttributeError` / `NoneType`)
+- [ ] **Config data flow**: Values from `config/defaults.yaml` → `config.py` → `ctx.args` → execution modules — no breakpoints (R9)
+- [ ] **Orchestration log**: All 6 phases (recon+arm+strike+escalate+assess+report) have entries in `ctx.orchestration_log` (R8 §8.5)
+- [ ] **Evidence completeness**: `EvidenceCollector.collect()` receives all required fields — no `None` / missing data
+- [ ] **Report generation**: `generate_report()` produces output files without errors
+- [ ] **`--dry-run` passes**: `python main.py --dry-run --max-seeds 1` completes without exception
+- [ ] **Minimal-seed passes** (if attack/scoring logic changed): `python main.py --max-seeds 1` completes, `ctx.attack_results` non-empty, `ctx.overall_asr` is valid float
+
+### MUST NOT
+
+- **MUST NOT**: Mark a code change as "complete" without running `--dry-run` verification
+- **MUST NOT**: Run full-scale attacks (25 seeds) for verification — use `--max-seeds 1` to minimize token consumption
+- **MUST NOT**: Skip `--dry-run` even for "trivial" changes (a single-line edit can break an import chain)
+- **MUST NOT**: Skip `--dry-run` because `architecture_guard.py` passed — the guard checks static patterns, not runtime data flow
+- **MUST NOT**: Ignore `--dry-run` failures — fix the root cause before proceeding to real validation
+
+### Dry-Run Implementation Contract
+
+`--dry-run` is implemented in `main.py` with the following contract:
+
+1. **RECON stage**: executes normally (Burp parsing, target building, capability probing)
+2. **ARM stage**: executes normally (seed loading, converter building, technique selection)
+3. **STRIKE stage**: **skips** `execute_attacks()` / `execute_text_adaptive()` — injects empty `ctx.attack_results = {}` and logs `[DRY-RUN] Skipping attack execution`
+4. **ESCALATE stage**: **skips** `check_and_escalate()` — logs `[DRY-RUN] Skipping escalation`
+5. **ASSESS stage**: executes scoring pipeline with empty results (verifies scoring code handles empty input gracefully — R8 §8.4)
+6. **REPORT stage**: executes normally — generates evidence/report files with empty/minimal data
+
+This ensures all module-to-module data handoffs are exercised without consuming target API tokens.
+
+### Verification Command Summary
+
+```bash
+# ── Tier 1: Zero-token dry-run (MUST run after every code change) ──
+python main.py --dry-run --max-seeds 1
+
+# ── Tier 2: Minimal real validation (when attack/scoring logic changed) ──
+python main.py --max-seeds 1 --stage strike      # strike only (minimal tokens)
+python main.py --max-seeds 1                      # full pipeline (minimal tokens)
+
+# ── Static gates (R3 — MUST also pass) ──
+python core/architecture_guard.py --fix-hints
+ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py
+python -m pytest tests/ -v --tb=long
+```
+
+---
+
 ## Directory Structure (enforced by `architecture_guard.py`)
 
 ```
@@ -536,58 +630,86 @@ pyrit-mini/
 Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "Unsure" — STOP.
 
 ### Pre-Coding Checks
-- [ ] Ran `python core/architecture_guard.py` — zero BLOCKING violations?
+- [ ] Ran `python core/architecture_guard.py` — zero BLOCKING violations? (R3)
+- [ ] Planned no safety guardrails/content filtering in strike/arm modules? (R1)
 - [ ] Searched PyRIT source for equivalent native component before writing new class? (R2)
 - [ ] Verified all 10 native attack classes are imported, instantiated, and executed? (R6 §6.4a)
 - [ ] Verified attack parameters read from `config/defaults.yaml`, not hardcoded? (R6 §6.4b)
 - [ ] ALL L5 parameters in `config/defaults.yaml` meet baseline? (R4)
 - [ ] Identified arXiv citation for any new technique? (R5)
+- [ ] Planned intermediate exit checkpoints (L1≥70% / L2≥80%) in escalation? (R7)
 - [ ] If multi-endpoint: planned `exclude_shared=True` for per-endpoint cleanup? (R8 §8.1)
 - [ ] If using global variables: planned `_reset_*()` function? (R8 §8.3)
+- [ ] Planned `getattr(ctx.args, ...)` for all efficiency params? (R9 §9.1)
+- [ ] Planned `python main.py --dry-run --max-seeds 1` after coding? (R10)
 
 ### During Coding Checks
+- [ ] No safety guardrails/content filtering in strike/arm modules? (R1)
 - [ ] Each `ConverterConfiguration` has exactly 1 converter (no serial stacking)? (R6 §6.1)
 - [ ] Using `SubStringScorer`/`TrueFalseInverterScorer` (0 token) during attack, NOT LLM scorers? (R6 §6.2)
-- [ ] No hardcoded efficiency parameters in pipeline code (reading from `defaults.yaml`)? (R7)
-- [ ] No safety guardrails/content filtering in strike/arm modules? (R1)
 - [ ] No custom Executor/Target/Scorer classes replacing PyRIT native? (R2)
 - [ ] Terminal display calls `output_scenario_async` / `output_attack_async` + `StdoutSink` FIRST, custom cards AFTER? (R2 §2.1)
+- [ ] Will run `ruff check` + `pytest` after coding? (R3)
+- [ ] No parameters below L5 baseline in `config/defaults.yaml`? (R4)
+- [ ] arXiv citation added for any new technique/parameter? (R5)
+- [ ] No hardcoded efficiency parameters in pipeline code (reading from `defaults.yaml`)? (R7)
 - [ ] New stage exit points use `exclude_shared=True`? (R8 §8.1)
 - [ ] Empty input guards added (seeds, attack_results, endpoint list)? (R8 §8.4)
 - [ ] Orchestration log entry added for the phase being modified? (R8 §8.5)
 - [ ] All efficiency params read via `getattr(ctx.args, ...)` not hardcoded? (R9 §9.1)
 - [ ] Functions needing config have `ctx` parameter? (R9 §9.2)
 - [ ] Log/report descriptions reference runtime `ctx.args` values? (R9 §9.3)
+- [ ] Will run `python main.py --dry-run --max-seeds 1` after coding? (R10)
 
 ### Post-Coding Checks
-- [ ] Re-ran `python core/architecture_guard.py` — still zero BLOCKING?
+- [ ] Re-ran `python core/architecture_guard.py` — still zero BLOCKING? (R3)
 - [ ] `ruff check` passes with zero violations? (R3)
 - [ ] New files placed in correct `module/` subdirectory (not root)? (R3)
+- [ ] No safety guardrails/content filtering introduced in strike/arm modules? (R1)
 - [ ] PoC scripts use PyRIT native attack classes (NOT `requests.post`)? (R6 §6.7)
 - [ ] Terminal display: `output_scenario_async` to StdoutSink called before custom card summaries? (R2 §2.1)
+- [ ] ALL L5 parameters in `config/defaults.yaml` still meet baseline after changes? (R4)
+- [ ] arXiv citations present for all techniques used in modified code? (R5)
 - [ ] Evidence records include ALL mandatory fields non-empty? (R6 §6.6)
+- [ ] Intermediate exit checkpoints present at L1→L2 and L2→L3 boundaries? (R7)
 - [ ] Orchestration log covers ALL 6 phases (recon+arm+strike+escalate+assess+report)? (R8 §8.5)
 - [ ] Resource cleanup paths are idempotent (safe for double-call in try/finally)? (R8 §8.1)
+- [ ] No config data flow breakpoints (hardcoded params, missing ctx, observability gaps)? (R9)
+- [ ] **Ran `python main.py --dry-run --max-seeds 1` — pipeline completes without exception? (R10 Tier 1)**
+- [ ] **If attack/scoring logic changed: ran `python main.py --max-seeds 1` — real API calls succeed, `ctx.attack_results` non-empty? (R10 Tier 2)**
+- [ ] **Verified all modified module imports resolve without `ImportError`? (R10)**
+- [ ] **Verified `PipelineContext` fields flow correctly between stages (no `AttributeError` / `NoneType`)? (R10)**
 
 ### Common Failure Patterns (MUST avoid)
 | Pattern | Why it fails | Fix |
 |---------|-------------|-----|
-| Converter serial stacking `converters=[conv1, conv2]` | ASR drops 12%→4% (arXiv:2307.15043) | 1 converter per config, independent paths |
-| Custom Executor replacing `PromptSendingAttack` | Violates R2, reinvents native | Use native, wrap only for enhancement |
-| LLM scorer during attack execution | Wastes tokens, adds latency | Use 0-token `SubStringScorer` for FIRST_SUCCESS |
-| Hardcoded `best_of_n_retries=5` in code | Not tunable without code change | Read from `defaults.yaml` via `getattr(args, ...)` |
-| Root directory temp/debug `.py` files | Clutters project, import confusion | Move to `utils/` or delete |
-| PoC using `requests.post` instead of PyRIT | Fails exam — tests PyRIT mastery | Use native attack class + `HTTPTarget` |
-| Missing `tests/` directory | Zero coverage, no regression safety | Create `tests/` with `test_*.py` per module |
+| Safety guardrails in strike/arm modules | Reduces attack aggressiveness, violates attacker mindset (R1) | Remove all content filtering/safety guardrails from attacker code |
+| Obfuscating payloads in reports | Hides true attack evidence, undermines audit trail (R1) | Report all payloads in full, no obfuscation |
+| Converter serial stacking `converters=[conv1, conv2]` | ASR drops 12%→4% (arXiv:2307.15043) (R6 §6.1) | 1 converter per config, independent paths |
+| Custom Executor replacing `PromptSendingAttack` | Violates R2, reinvents native (R2) | Use native, wrap only for enhancement |
+| LLM scorer during attack execution | Wastes tokens, adds latency (R6 §6.2) | Use 0-token `SubStringScorer` for FIRST_SUCCESS |
+| Hardcoded `best_of_n_retries=5` in code | Not tunable without code change (R7) | Read from `defaults.yaml` via `getattr(args, ...)` |
+| Root directory temp/debug `.py` files | Clutters project, import confusion (R3) | Move to `utils/` or delete |
+| PoC using `requests.post` instead of PyRIT | Fails exam — tests PyRIT mastery (R6 §6.7) | Use native attack class + `HTTPTarget` |
+| Missing `tests/` directory | Zero coverage, no regression safety (R3) | Create `tests/` with `test_*.py` per module |
+| `max_attempts` below 3 in `defaults.yaml` | Below L5 expert baseline (arXiv:2402.01135) (R4) | Set to ≥3, verify with `check_l5_params()` |
+| `escalation_asr_threshold` below 90 | Escalation never triggers, misses multi-turn opportunities (R4) | Set to ≥90, verify with `check_l5_params()` |
+| Technique without arXiv citation | No academic grounding, fails R5 (R5) | Add `# arXiv:XXXX.XXXXX` comment + `arxiv_reference` field in evidence |
+| Parameter without academic justification | No validation for value choice (R5) | Cite arXiv in `defaults.yaml` parameter comment |
 | `--stage` exit without `exclude_shared=True` | Premature shared LLM release kills subsequent endpoints (R8 §8.1) | `await _cleanup_resources(ctx, exclude_shared=True)` inside `_run_single_endpoint` |
 | Global stats counters not reset between endpoints | ASR stats polluted by prior endpoints (R8 §8.3) | Call `_reset_*()` at multi-endpoint loop start |
 | No empty-seeds guard in `execute_attacks` | PyRIT native API crashes on empty seed_groups (R8 §8.4) | Early return with empty `attack_results` |
 | Orchestration log missing strike/escalate/assess | Audit trail broken, report incomplete (R8 §8.5) | Add entries for all 6 phases |
-| `setup_environment` without disposing old engine | SQLAlchemy connection pool leaks (R8 §8.1) | `CentralMemory.dispose_db_engine()` before re-init |
+| `setup_environment` without clearing Singleton cache | `SQLiteMemory` Singleton returns old instance, new `db_path` ignored, all endpoints write to top-level DB (R8 §8.1) | Three-step clear: dispose engine → `del Singleton._instances[SQLiteMemory]` → `CentralMemory._memory_instance = None` |
+| Bare `SQLiteMemory()` without `db_path` | Writes to PyRIT default `DB_DATA_PATH/pyrit.db`, breaking per-endpoint DB isolation (R8 §8.3) | Use `ctx.output_dir / "db" / "pyrit.db"` as `db_path` + clear Singleton cache first |
 | Playwright only `_browser.close()` | Process leaked, no `_playwright_instance.stop()` (R8 §8.1) | 3-layer cleanup: context → browser → playwright |
 | Config read breakpoint: `x = 5` instead of `getattr(ctx.args, 'x', 5)` | `--config-file` values never reach execution (R9 §9.1) | Always use `getattr(ctx.args, ...)` pattern |
 | Context propagation breakpoint: `def _func():` without `ctx` param | Function forced to hardcode fallback (R9 §9.2) | Add `ctx` parameter to function signature |
 | Observability breakpoint: `logger.info("max_turns=10")` | Log doesn't reflect real runtime config (R9 §9.3) | Use f-string: `logger.info(f"max_turns={ctx.args.crescendo_max_turns}")` |
+| Missing intermediate exit at L1→L2 or L2→L3 | Escalation runs all levels unconditionally, wastes 60-80% tokens (R7) | Add `post_l1_exit_threshold`/`post_l2_exit_threshold` checkpoints |
+| Skipping `--dry-run` after code change | Static guard passed but runtime data flow broken (import error, missing field, None handoff) (R10) | Always run `python main.py --dry-run --max-seeds 1` after every code change |
+| Using 25 seeds for verification | Wastes 25x tokens on unverified code (R10) | Use `--max-seeds 1` for real validation, `--dry-run` for zero-token check |
+| Marking change complete without R10 verification | Pipeline breaks in production when code change wasn't runtime-verified (R10) | R10 two-tier protocol: dry-run (0 token) → minimal-seed (1 seed) → mark complete |
 
 ---
 
@@ -600,3 +722,84 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 | Architecture Guard Script | `core/architecture_guard.py` | Automated rule enforcement (run before/after every change) |
 | L5 Parameter Baseline | `config/defaults.yaml` | SSOT for all parameters |
 | V2 Architecture Spec | `docs/v2_rebuild_specification.md` | Full architecture documentation |
+
+---
+
+## Rule Drift Prevention (防偏离机制)
+
+> **MANDATORY** — This section defines meta-rules that prevent the 10-rule system itself from being silently weakened, bypassed, or forgotten in future development sessions. Violating any meta-rule below is equivalent to violating the rule it protects.
+
+The biggest risk to a rule system is not breaking a rule — it's **forgetting the rule exists**. The following mechanisms (D1-D6) ensure all 10 rules remain enforceable across sessions:
+
+### D1: Rule Count Integrity
+
+- The `description` field in SKILL.md frontmatter MUST state "Enforces **10** mandatory development rules"
+- If a new rule is added (R11+), the count MUST be updated the same session
+- `architecture_guard.py` `check_all()` MUST call every rule's checker — adding a rule to SKILL.md without adding a corresponding `check_*()` method is a BLOCKING violation
+- The auto-check table in R6 section MUST list exactly as many checks as `check_all()` calls (currently 17)
+
+### D2: Three-Layer Enforcement (No Single Point of Failure)
+
+| Layer | What it enforces | When it runs | Failure if skipped |
+|-------|-----------------|--------------|-------------------|
+| **L1: Static** (`architecture_guard.py`) | R1-R10 code patterns | Pre-commit hook + manual | BLOCKING violations enter codebase |
+| **L2: Runtime** (`--dry-run`) | R10 pipeline data flow | After every code change | Runtime breakpoints undetected |
+| **L3: Git Gate** (`setup_hooks.py`) | R1-R10 on commit/push | Every `git commit`/`git push` | No enforcement at all |
+
+- **MUST NOT** rely on only one layer — all three MUST be operational
+- **MUST NOT** disable git hooks to bypass a BLOCKING violation — fix the violation instead
+- **MUST NOT** skip `--dry-run` because static guard passed — L1 checks patterns, L2 checks runtime data flow
+
+### D3: Rule Modification Protocol
+
+When adding, modifying, or removing any rule:
+
+1. **MUST update ALL references**: frontmatter count, Rule Priority table, How to Use steps, Anti-Derailment Checklist, Common Failure Patterns table, auto-check table in R6
+2. **MUST add/update the corresponding `check_*()` in `architecture_guard.py`** — a rule without automated enforcement is a suggestion, not a rule
+3. **MUST run `python core/architecture_guard.py` after the change** — verify the guard itself still works (meta-test: the guard must not break when rules change)
+4. **MUST run `python main.py --dry-run --max-seeds 1` after the change** — verify the pipeline still works under the new rule set
+5. **MUST document the change in session memory** — future sessions need to know the rule count and enforcement state
+
+### D4: Rule Coverage Verification (Self-Check)
+
+After ANY session where rules were modified, verify:
+
+- [ ] `grep -c "def check_" core/architecture_guard.py` returns ≥ 17 (one per check in the auto-check table)
+- [ ] `check_all()` method calls every `check_*()` method defined in the class
+- [ ] SKILL.md frontmatter `description` states the correct rule count
+- [ ] Rule Priority table has exactly 10 rows (R1-R10)
+- [ ] Anti-Derailment Checklist Pre-Coding Checks includes ALL 10 rule tags (R1-R10)
+- [ ] Anti-Derailment Checklist During Coding Checks includes ALL 10 rule tags (R1-R10)
+- [ ] Anti-Derailment Checklist Post-Coding Checks includes ALL 10 rule tags (R1-R10)
+- [ ] Common Failure Patterns table includes failure patterns for ALL 10 rules (R1-R10)
+- [ ] No rule is mentioned in SKILL.md without a corresponding enforcement mechanism (code check or manual checklist)
+
+### D5: Forbidden Shortcuts (Anti-Bypass)
+
+These patterns indicate rule drift and MUST be rejected:
+
+| Shortcut Pattern | Why it's dangerous | Correct approach |
+|-----------------|-------------------|------------------|
+| "This change is trivial, skip dry-run" | Single-line edits break import chains | R10 MUST NOT be skipped for any change |
+| "I'll add the architecture_guard check later" | Rule without enforcement = no rule | Add `check_*()` in the same session as the rule |
+| "The guard passes, so the code works" | Static patterns ≠ runtime data flow | Run `--dry-run` for runtime verification |
+| "Let me use 5 seeds for quick validation" | Wastes 5x tokens vs `--max-seeds 1` | Always use `--max-seeds 1` for verification |
+| "I'll update SKILL.md rule count next session" | Future session won't know the count | Update count in the SAME session as the rule change |
+| Removing a `check_*()` call from `check_all()` | Silently disables a rule's enforcement | NEVER remove calls from `check_all()` without D3 protocol |
+| "R1/R4/R5 are manual rules, skip them" | Manual rules are still mandatory | All 10 rules MUST be checked, automated or manual |
+| "Only check the rule related to my change" | Other rules may be indirectly affected | Run full architecture_guard + dry-run every time |
+
+### D6: Full Rule Coverage Audit (Annual / Per-Session Spot Check)
+
+> **Purpose**: Ensure no rule has been silently dropped from any enforcement vector.
+
+Every **Anti-Derailment Checklist** MUST be audited for complete R1-R10 coverage:
+
+| Checklist Section | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 |
+|-------------------|----|----|----|----|----|----|----|----|----|-----|
+| Pre-Coding Checks | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| During Coding Checks | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Post-Coding Checks | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Common Failure Patterns | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+If ANY cell is ❌ (missing), the checklist MUST be updated before the session ends. A rule without presence in ALL four checklist sections is at risk of being forgotten.

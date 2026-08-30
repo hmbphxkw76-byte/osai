@@ -208,23 +208,24 @@ def _extract_jailbreak_prompt(result: Any) -> str:
     """提取越狱 prompt (攻击载荷)。
 
     提取顺序:
-        1. result.objective
-        2. result.last_request.converted_value
-        3. result.last_request.original_value
-        4. 空字符串
+        1. result.objective — 攻击目标/payload (最可靠)
+        2. result.last_response.original_value — 原始请求 (多轮攻击时可能含 user prompt)
+        3. 空字符串
+
+    数据一致性: PyRIT AttackResult 没有 last_request 字段。
+    objective 是最可靠的种子来源, 多轮攻击也会设置 objective。
     """
     # 1. objective
     objective = getattr(result, "objective", None)
     if objective and isinstance(objective, str) and len(objective) > 0:
         return objective
 
-    # 2. last_request
-    last_request = getattr(result, "last_request", None)
-    if last_request:
-        for attr in ("converted_value", "original_value"):
-            val = getattr(last_request, attr, None)
-            if val and isinstance(val, str) and len(val) > 0:
-                return val
+    # 2. last_response.original_value — 可能包含原始 user prompt
+    last_response = getattr(result, "last_response", None)
+    if last_response:
+        val = getattr(last_response, "original_value", None)
+        if val and isinstance(val, str) and len(val) > 0:
+            return val
 
     return ""
 
@@ -235,9 +236,11 @@ def _extract_harmful_output(result: Any) -> str:
     提取顺序:
         1. result.last_response.converted_value
         2. result.last_response.original_value
-        3. result.response / result.response_text / result.output
-        4. conversation_history 中最后一条 assistant 消息
-        5. 空字符串
+        3. conversation_history 中最后一条 assistant 消息
+        4. 空字符串
+
+    数据一致性: PyRIT AttackResult 没有 response / response_text / output 字段。
+    响应文本通过 last_response (MessagePiece) 提取。
     """
     # 1. last_response
     last_response = getattr(result, "last_response", None)
@@ -247,13 +250,7 @@ def _extract_harmful_output(result: Any) -> str:
             if val and isinstance(val, str) and len(val) > 5:
                 return val
 
-    # 2. 直接属性
-    for attr in ("response", "response_text", "output"):
-        val = getattr(result, attr, None)
-        if val and isinstance(val, str) and len(val) > 5:
-            return val
-
-    # 3. conversation_history
+    # 2. conversation_history
     history = getattr(result, "conversation_history", None)
     if history:
         try:
@@ -272,6 +269,8 @@ def _extract_response_text(result: Any) -> str:
     """从 AttackResult 提取响应文本 (内部复用)。
 
     与 _extract_harmful_output 类似但不做 conversation_history fallback。
+
+    数据一致性: PyRIT AttackResult 没有 response / response_text / output 字段。
     """
     # 1. last_response
     last_response = getattr(result, "last_response", None)
@@ -280,12 +279,6 @@ def _extract_response_text(result: Any) -> str:
             val = getattr(last_response, attr, None)
             if val and isinstance(val, str) and len(val) > 0:
                 return val
-
-    # 2. 直接属性
-    for attr in ("response", "response_text", "output"):
-        val = getattr(result, attr, None)
-        if val and isinstance(val, str) and len(val) > 0:
-            return val
 
     return ""
 
@@ -349,12 +342,18 @@ def _extract_conversation(result: Any) -> list[dict[str, str]]:
 def _extract_converter_log(result: Any) -> list[dict[str, str]]:
     """提取 Converter 变换日志。
 
-    提取顺序:
-        1. result.converter_log (如果已附加)
-        2. result.metadata 中的 converter 信息
-        3. 空列表 (调用方兜底)
+    提取顺序 (4层 fallback, 确保数据一致性):
+        1. result.converter_log (如果已附加 — 非标准, 但兼容旧代码)
+        2. result.metadata["converter"] — 由 _backfill_metadata 回填 (STRIKE 阶段)
+        3. result.last_response.converter_identifiers — PyRIT 原生 ComponentIdentifier 列表
+        4. 空列表 (调用方兜底为 "none (baseline)")
+
+    数据一致性: PyRIT AttackResult 没有 converter_log 字段。
+    converter 信息分布在:
+        - metadata["converter"] (STRIKE 阶段回填)
+        - last_response.converter_identifiers (PyRIT 原生, ESCALATE 阶段可用)
     """
-    # 1. result.converter_log
+    # 1. result.converter_log (非标准, 但兼容旧代码)
     converter_log = getattr(result, "converter_log", None)
     if converter_log and isinstance(converter_log, list) and len(converter_log) > 0:
         return converter_log
@@ -370,7 +369,25 @@ def _extract_converter_log(result: Any) -> list[dict[str, str]]:
             "transformed": objective[:200] if objective else "",
         }]
 
-    # 3. 空列表, 调用方会兜底为 "none (baseline)"
+    # 3. last_response.converter_identifiers — PyRIT 原生, 适配 ESCALATE 阶段
+    last_response = getattr(result, "last_response", None)
+    if last_response:
+        conv_ids = getattr(last_response, "converter_identifiers", None)
+        if conv_ids and isinstance(conv_ids, list) and len(conv_ids) > 0:
+            objective = getattr(result, "objective", "") or ""
+            log_entries: list[dict[str, str]] = []
+            for ci in conv_ids:
+                class_name = getattr(ci, "class_name", "") if hasattr(ci, "class_name") else str(ci)
+                if class_name:
+                    log_entries.append({
+                        "converter": class_name,
+                        "original": objective[:200] if objective else "",
+                        "transformed": objective[:200] if objective else "",
+                    })
+            if log_entries:
+                return log_entries
+
+    # 4. 空列表, 调用方会兜底为 "none (baseline)"
     return []
 
 

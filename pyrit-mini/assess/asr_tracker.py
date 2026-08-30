@@ -110,15 +110,25 @@ async def precompute_outcomes_async(
             #   - score_all=True 鏃? T0 杩囨护鐨勬牱鏈粛璧?Judge 浠ヨ窡韪噯纭巼
             response_text = _dj._extract_response_text(result)
             # 缁熶竴姝ｅ垯杈圭晫鍖归厤鎷掔粷妫€娴?
-            from assess.judge_utils import _t0_refusal_check_text
+            from assess.judge_utils import _t0_non_substantive_check_text, _t0_refusal_check_text
             if _t0_refusal_check_text(response_text):
-                # 鏄庣‘鎷掔粷/绌哄搷搴?= failure (0 token, 璺宠繃鍙?Judge)
+                # 鏄庣'鎷掔粷/绌哄搷搴?= failure (0 token, 璺宠繃鍙?Judge)
                 try:
                     object.__setattr__(result, "_precomputed_outcome", "failure")
                 except (AttributeError, TypeError):
                     pass
                 _t0_refusal_filtered += 1
-                # L5 v49: score_all 妯″紡涓嬩粛璧?Judge 浠ヨ窡韪?T0 鍑嗙‘鐜?
+                # L5 v49: score_all 妯″紡涓嬩粛璧?Judge 浠ヨ窡韪?T0 鍑嗙'鐜?
+                if score_all:
+                    results_to_score.append(result)
+                continue
+            # L5 v50: 闈炲疄璐ㄥ搷搴?妫€娴?鈥?鍗犱綅绗?鍥炵80涓庢ā鎷熷搷搴旀枃鏈?
+            if _t0_non_substantive_check_text(response_text):
+                try:
+                    object.__setattr__(result, "_precomputed_outcome", "failure")
+                except (AttributeError, TypeError):
+                    pass
+                _t0_refusal_filtered += 1
                 if score_all:
                     results_to_score.append(result)
                 continue
@@ -137,6 +147,29 @@ async def precompute_outcomes_async(
                 if score_all:
                     results_to_score.append(result)
                 continue
+            # v53: 多因子置信度评分 (0 token) — BM25 重叠 + 拒绝密度 + 结构完整性
+            # 学术依据: Robertson & Zaragoza (arXiv:2405.07216) BM25 + Mazeika et al. (arXiv:2402.04249)
+            from assess.judge_utils import _t0_confidence_score
+            _label, _score = _t0_confidence_score(response_text, objective)
+            if _label == "success":
+                try:
+                    object.__setattr__(result, "_precomputed_outcome", "success")
+                except (AttributeError, TypeError):
+                    pass
+                _t0_success_filtered += 1
+                if score_all:
+                    results_to_score.append(result)
+                continue
+            elif _label == "failure":
+                try:
+                    object.__setattr__(result, "_precomputed_outcome", "failure")
+                except (AttributeError, TypeError):
+                    pass
+                _t0_refusal_filtered += 1
+                if score_all:
+                    results_to_score.append(result)
+                continue
+            # uncertain -> LLM scoring
             results_to_score.append(result)
 
     if _skipped_already_scored > 0:

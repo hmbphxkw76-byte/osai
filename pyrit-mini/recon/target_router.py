@@ -295,6 +295,7 @@ async def create_target(ctx: PipelineContext) -> None:
             for cap_key in [
                 "has_function_calling", "has_memory", "has_workflow",
                 "has_multi_tenant", "has_session_auth", "has_mcp_protocol",
+                "has_a2a_protocol", "has_embedding_rag",
             ]:
                 if deep_caps.get(cap_key):
                     # 转换 has_function_calling → function_calling
@@ -701,10 +702,11 @@ async def create_target(ctx: PipelineContext) -> None:
     if ctx.scoring_target:
         logger.info("Scoring target: %s", type(ctx.scoring_target).__name__)
 
-    # converter target = scoring target (Qwen3-32B, JSON 兼容性好于 DeepSeek-V3)
+    # converter target = scoring target (Qwen2.5-32B, JSON 兼容性好于 DeepSeek-V3)
     # L5 v34: DeepSeek-V3 对 PersuasionConverter 的 JSON schema 返回 500 错误
-    # Qwen3-32B 对 PyRIT converter 的 JSON 格式兼容性更好
+    # Qwen2.5-32B 对 PyRIT converter 的 JSON 格式兼容性更好
     # converter 只做文本改写, 不需要最强攻击能力
+    # 精简架构: converter_target 复用 scoring_target, 不单独配置
     # 多 endpoint 模式: 跳过重新创建 (复用已有的)
     if ctx.converter_target is None:
         ctx.converter_target = ctx.scoring_target or ctx.adversarial_target

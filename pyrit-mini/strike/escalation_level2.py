@@ -463,7 +463,7 @@ async def _run_cair(
     async def _cair_single(obj: str) -> dict[str, list[Any]]:
         """瀵瑰崟涓洰鏍囨墽琛?CAIR 鏀诲嚮銆?"""
         try:
-            return await run_cair_attack(ctx, obj, max_iterations=3)
+            return await run_cair_attack(ctx, [obj])
         except Exception as e:
             logger.warning("CAIR failed for %s...: %s", obj[:60], e)
             return {}

@@ -118,6 +118,12 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
         "seed": "mcp_attack",
         "owasp": "ASI06",
     },
+    "mcp_protocol": {
+        "arxiv": "arXiv:2302.12173",
+        "strategy": "MCP 注入: 劫持 MCP 工具/资源间接注入 (深度探针确认)",
+        "seed": "mcp_attack",
+        "owasp": "ASI06",
+    },
     "rag": {
         "arxiv": "arXiv:2310.06870",
         "strategy": "RAG 投毒: 知识库注入 + 检索篡改",

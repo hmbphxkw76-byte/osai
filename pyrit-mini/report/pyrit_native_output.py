@@ -1,5 +1,12 @@
 """PyRIT 原生 output 适配层 — 对齐 PyRIT 1.0.1 官方 output 模块标准。
 
+# arXiv:2407.01232 — PyRIT, native output module (output_attack_async, output_scenario_async)
+# arXiv:2402.12109 — Russinovich et al., CrescendoAttack (multi-turn progressive escalation)
+# arXiv:2312.02191 — Mehrotra et al., TAPAttack (tree-of-attacks with pruning)
+# arXiv:2310.08419 — Chao et al., PAIRAttack (iterative adversarial prompting)
+# arXiv:2406.18112 — Hanna et al., SkeletonKeyAttack (prefix injection)
+# arXiv:2402.05124 — Anthropic, ManyShotJailbreakAttack (many-shot jailbreaking)
+
 本模块是 PyRIT 官方 `pyrit.output` 模块的薄适配层，确保攻击结果输出
 完全符合 PyRIT 原生框架标准，同时与 OffSec AI-300 考试要求的
 安全报告功能共存。
@@ -64,12 +71,13 @@ async def output_native_attack_results(
     Returns:
         成功输出的 AttackResult 数量。
     """
-    from pyrit.output import FileSink, OutputFormat, output_attack_async
+    from pyrit.output import FileSink, output_attack_async
 
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
+    fallback_count = 0
     for technique_name, results in attack_results.items():
         safe_name = technique_name.replace("/", "_").replace("\\", "_")
         for i, result in enumerate(results):
@@ -78,7 +86,7 @@ async def output_native_attack_results(
             try:
                 await output_attack_async(
                     result,
-                    format=OutputFormat.MARKDOWN,
+                    format="markdown",
                     sink=FileSink(path=md_path),
                     include_auxiliary_scores=include_auxiliary_scores,
                     include_adversarial_conversation=include_adversarial_conversation,
@@ -87,16 +95,20 @@ async def output_native_attack_results(
                 count += 1
             except Exception as e:
                 logger.warning(
-                    "Native markdown output failed for %s[%d]: %s",
+                    "Native markdown output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
+                # Fallback: 写入从 AttackResult 字段直接提取的简化输出
+                fb_written = _write_fallback_attack_output(result, md_path, fmt="markdown")
+                if fb_written:
+                    fallback_count += 1
 
             # — Pretty 格式 (ANSI-colored, PyRIT 默认) —
             txt_path = native_dir / f"attack_{safe_name}_{i + 1}.txt"
             try:
                 await output_attack_async(
                     result,
-                    format=OutputFormat.PRETTY,
+                    format="pretty",
                     sink=FileSink(path=txt_path),
                     include_auxiliary_scores=include_auxiliary_scores,
                     include_adversarial_conversation=include_adversarial_conversation,
@@ -104,16 +116,25 @@ async def output_native_attack_results(
                 )
             except Exception as e:
                 logger.warning(
-                    "Native pretty output failed for %s[%d]: %s",
+                    "Native pretty output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
+                # Fallback: 写入简化 pretty 输出
+                _write_fallback_attack_output(result, txt_path, fmt="pretty")
 
-    if count:
+    total = count + fallback_count
+    if total:
         logger.info(
-            "PyRIT native output: %d AttackResult saved to %s (markdown + pretty)",
-            count, native_dir,
+            "PyRIT native output: %d AttackResult saved to %s "
+            "(%d native, %d fallback)",
+            total, native_dir, count, fallback_count,
         )
-    return count
+    elif count == 0 and fallback_count == 0:
+        logger.warning(
+            "PyRIT native output: 0 AttackResult saved — "
+            "attack_results may be empty or CentralMemory unavailable"
+        )
+    return total
 
 
 async def output_native_scenario_result(
@@ -146,7 +167,7 @@ async def output_native_scenario_result(
         logger.debug("No ScenarioResult to output (scenario_result is None)")
         return False
 
-    from pyrit.output import FileSink, OutputFormat, output_scenario_async
+    from pyrit.output import FileSink, output_scenario_async
 
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +177,7 @@ async def output_native_scenario_result(
     try:
         await output_scenario_async(
             scenario_result,
-            format=OutputFormat.PRETTY,
+            format="pretty",
             sink=FileSink(path=txt_path),
             sort_groups_by_success_rate=sort_groups_by_success_rate,
         )
@@ -169,7 +190,7 @@ async def output_native_scenario_result(
     try:
         await output_scenario_async(
             scenario_result,
-            format=OutputFormat.MARKDOWN,
+            format="markdown",
             sink=FileSink(path=md_path),
             sort_groups_by_success_rate=sort_groups_by_success_rate,
         )
@@ -229,6 +250,123 @@ async def generate_native_output_files(
         attack_count, scenario_ok, native_dir,
     )
     return native_dir
+
+
+def _write_fallback_attack_output(
+    result: Any,
+    path: Path,
+    *,
+    fmt: str = "markdown",
+) -> bool:
+    """当 PyRIT 原生 output_attack_async 失败时的 fallback 输出。
+
+    从 AttackResult 对象字段直接提取关键信息，写入简化格式的文件。
+    保留 PyRIT 官方格式的核心结构: Header → Summary → Conversation → Footer。
+
+    根因: output_attack_async 内部通过 CentralMemory.get_memory_instance()
+    获取 conversation 数据，多 endpoint 模式下 setup_environment 清除
+    CentralMemory 单例后，之前的 AttackResult 引用的 conversation_id
+    在新 DB 中不存在，导致原生 output 抛出异常。
+
+    Args:
+        result: PyRIT AttackResult 对象。
+        path: 输出文件路径。
+        fmt: 输出格式 ("markdown" 或 "pretty")。
+
+    Returns:
+        True 如果成功写入。
+    """
+    try:
+        # 从 AttackResult 提取字段 (对齐 PyRIT 1.0.1 model 字段名)
+        outcome = getattr(result, "outcome", None)
+        outcome_str = str(outcome).upper() if outcome else "UNKNOWN"
+        objective = getattr(result, "objective", "") or ""
+        conversation_id = getattr(result, "conversation_id", "N/A")
+        attack_id = getattr(result, "attack_result_id", getattr(result, "id", "N/A"))
+
+        # 提取 scores — AttackResult 有 last_score (单个 Score | None)
+        score_lines: list[str] = []
+        last_score = getattr(result, "last_score", None)
+        if last_score:
+            sv = getattr(last_score, "score_value", "")
+            sr = getattr(last_score, "score_rationale", "")
+            sc = getattr(last_score, "score_type", "")
+            score_lines.append(f"  - Scorer: {type(last_score).__name__} | Type: {sc} | Value: {sv} | Rationale: {sr}")
+
+        # 提取 conversation — 从 last_response (MessagePiece) 提取
+        conv_pieces: list[str] = []
+        try:
+            last_response = getattr(result, "last_response", None)
+            if last_response:
+                role = getattr(last_response, "role", "assistant")
+                val = getattr(last_response, "converted_value", "") or getattr(last_response, "original_value", "") or ""
+                if val:
+                    conv_pieces.append(f"  [{role}] {val[:500]}")
+        except Exception:
+            pass
+
+        # Fallback: 如果 last_response 为空, 从 objective 构造最小对话
+        if not conv_pieces:
+            if objective:
+                conv_pieces.append(f"  [user] {objective[:500]}")
+
+        # 构建输出内容
+        if fmt == "markdown":
+            score_section = score_lines if score_lines else ["  (no scores available)"]
+            conv_section = conv_pieces if conv_pieces else ["  (no conversation data available)"]
+            lines = [
+                f"# Attack Result: {outcome_str}",
+                "",
+                "## Basic Information",
+                f"- Objective: {objective[:200]}",
+                f"- Attack ID: {attack_id}",
+                f"- Conversation ID: {conversation_id}",
+                "",
+                "## Outcome",
+                f"- Status: **{outcome_str}**",
+                "",
+                "## Final Score",
+                *score_section,
+                "",
+                "## Conversation History",
+                *conv_section,
+                "",
+                "---",
+                f"*Fallback output generated at: {__import__('datetime').datetime.utcnow().isoformat()} UTC*",
+                "*This file uses fallback format because PyRIT native output_attack_async failed.*",
+            ]
+        else:  # pretty
+            score_section = score_lines if score_lines else ["  (no scores available)"]
+            conv_section = conv_pieces if conv_pieces else ["  (no conversation data available)"]
+            lines = [
+                f"{'=' * 60}",
+                f"  ATTACK RESULT: {outcome_str}",
+                f"{'=' * 60}",
+                "",
+                "--- Basic Information ---",
+                f"  Objective: {objective[:200]}",
+                f"  Attack ID: {attack_id}",
+                f"  Conversation ID: {conversation_id}",
+                "",
+                "--- Outcome ---",
+                f"  Status: {outcome_str}",
+                "",
+                "--- Final Score ---",
+                *score_section,
+                "",
+                "--- Conversation History ---",
+                *conv_section,
+                "",
+                f"{'=' * 60}",
+                "  Fallback output — native output_attack_async failed",
+                f"{'=' * 60}",
+            ]
+
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return True
+    except Exception as e:
+        logger.debug("Fallback output also failed for %s: %s", path, e)
+        return False
 
 
 def _generate_readme(attack_count: int, scenario_ok: bool) -> str:

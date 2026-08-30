@@ -551,7 +551,7 @@ class EvidenceCollector:
             testing_conditions = {
                 "timestamp": datetime.now().isoformat(),
                 "outcome": str(getattr(result, "outcome", "unknown")),
-                "attack_id": str(getattr(result, "id", "")),
+                "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
             }
 
         # P0-4b 修复: 确保 score_details 非空 — 2层 fallback 后仍为空时兜底
@@ -587,7 +587,7 @@ class EvidenceCollector:
 
         return VulnerabilityEvidence(
             evidence_id=evidence_id,
-            attack_id=getattr(result, "id", str(uuid.uuid4())),
+            attack_id=getattr(result, "attack_result_id", getattr(result, "id", str(uuid.uuid4()))),
             technique_name=technique_name,
             technique_display_name=technique_display_name,
             converter_chain=converter_chain_str,
@@ -673,7 +673,7 @@ class EvidenceCollector:
         return {
             "timestamp": datetime.now().isoformat(),
             "outcome": outcome_str,
-            "attack_id": str(getattr(result, "id", "")),
+            "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
         }
 
     def _analyze_failures(self, attack_results: dict[str, list[Any]]) -> dict[str, Any]:

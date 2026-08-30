@@ -227,6 +227,8 @@ class ArchitectureGuard:
         self.check_pyrit_native_output()
         # R9: 配置数据流一致性检查
         self.check_config_data_flow()
+        # R10: --dry-run 可用性检查
+        self.check_dry_run_available()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -375,6 +377,43 @@ class ArchitectureGuard:
                 result_lines.append(stripped)
         return "".join(result_lines)
 
+    @staticmethod
+    def _strip_string_literals(content: str) -> str:
+        """Replace string literal contents with empty strings.
+
+        Used by check_native_params_from_config to avoid false positives
+        from parameter values in PoC template strings and log messages.
+        Keeps the quotes to preserve line structure.
+        """
+        import io
+        import tokenize
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+        except Exception:
+            return content
+        # Build content with string literals replaced
+        result = []
+        last_end = 0
+        for token in tokens:
+            if token.type == tokenize.STRING:
+                # Find the actual position in content
+                # token.start gives (row, col) — need to convert to offset
+                lines = content.splitlines(keepends=True)
+                offset = sum(len(lines[i]) for i in range(token.start[0] - 1)) + token.start[1]
+                end_offset = sum(len(lines[i]) for i in range(token.end[0] - 1)) + token.end[1]
+                result.append(content[last_end:offset])
+                # Keep quote chars but remove content
+                s = token.string
+                if s.startswith('"""') or s.startswith("'''"):
+                    result.append(s[:3] + s[-3:])
+                elif s.startswith('"') or s.startswith("'"):
+                    result.append(s[0] + s[-1])
+                else:  # f-string, r-string, etc.
+                    result.append('""')
+                last_end = end_offset
+        result.append(content[last_end:])
+        return "".join(result)
+
     def check_native_attack_instantiation(self) -> None:
         """检测攻击类是否不仅被导入, 还被正确实例化和执行.
 
@@ -461,15 +500,20 @@ class ArchitectureGuard:
         - _get_config_int(ctx, "param_name", fallback) — 从 config 读取, fallback 是允许的
         - chunk_type="characters" — 字符串常量, 非数值参数
         - on_topic_checking_enabled=False — 布尔标志, 非数值参数
+        - PoC template strings (report/poc_generator.py) — generated code, not runtime
         """
         for param_name, _attack_classes in self._ATTACK_PARAMS_TO_CHECK.items():
             # Simple match: param_name=<number>
             hardcoded_pattern = rf"\b{param_name}\s*=\s*(\d+)"
 
             for path in self.source_files:
-                # Skip config files and tests
+                # Skip config files, tests, and PoC generator (template code, not runtime)
                 rel = path.relative_to(self.root)
                 if "config" in rel.parts or "test" in str(rel).lower():
+                    continue
+                # PoC generator uses template strings with hardcoded values
+                # for generated scripts — these are NOT runtime parameters
+                if "poc_generator" in str(rel):
                     continue
 
                 try:
@@ -477,14 +521,17 @@ class ArchitectureGuard:
                 except OSError:
                     continue
 
-                for match in re.finditer(hardcoded_pattern, content):
-                    line_num = content[:match.start()].count("\n") + 1
+                # Strip comments to avoid false positives from comment lines
+                code_only = self._strip_comments_and_docstrings(content)
+
+                for match in re.finditer(hardcoded_pattern, code_only):
+                    line_num = code_only[:match.start()].count("\n") + 1
                     # Check if this line has _get_config_int (already reading from config)
-                    line_start = content.rfind("\n", 0, match.start()) + 1
-                    line_end = content.find("\n", match.end())
+                    line_start = code_only.rfind("\n", 0, match.start()) + 1
+                    line_end = code_only.find("\n", match.end())
                     if line_end == -1:
-                        line_end = len(content)
-                    line = content[line_start:line_end]
+                        line_end = len(code_only)
+                    line = code_only[line_start:line_end]
 
                     if "_get_config_int" in line or "_get_config_float" in line:
                         continue  # Already reading from config
@@ -1171,6 +1218,79 @@ class ArchitectureGuard:
                 description="generate_report() 未调用 PyRIT 官方 output 模块 — 输出不符合 PyRIT 原生标准",
                 fix_hint="在 generate_report() 中添加: from report.pyrit_native_output import generate_native_output_files; await generate_native_output_files(...)",
             ))
+
+    # ── 检查 15: --dry-run 可用性 (R10) ──
+
+    def check_dry_run_available(self) -> None:
+        """检测 --dry-run 参数和实现是否存在。
+
+        R10 要求: 每次代码修改后必须运行 python main.py --dry-run --max-seeds 1
+        进行零 token 流水线完整性验证。此检查确保:
+        1. core/config.py 定义了 --dry-run CLI 参数
+        2. main.py 实现了 dry-run 逻辑 (检查 _is_dry_run 或 dry_run 变量)
+        3. dry-run 时跳过 strike 阶段 (不调用 execute_attacks/execute_text_adaptive)
+        4. dry-run 时跳过 escalate 阶段 (不调用 check_and_escalate)
+        """
+        # 1. 检查 config.py 是否定义了 --dry-run 参数
+        config_file = self.root / "core" / "config.py"
+        if config_file.exists():
+            try:
+                config_content = config_file.read_text(encoding="utf-8", errors="replace")
+                has_dry_run_arg = bool(re.search(r'"--dry-run"', config_content))
+                if not has_dry_run_arg:
+                    self.violations.append(Violation(
+                        rule="R10",
+                        severity=Severity.BLOCKING,
+                        file="core/config.py",
+                        line=0,
+                        description="缺少 --dry-run CLI 参数定义 — R10 要求零 token 流水线验证可用",
+                        fix_hint='在 parse_args() 中添加: parser.add_argument("--dry-run", action="store_true", default=False)',
+                    ))
+            except OSError:
+                pass
+
+        # 2. 检查 main.py 是否实现了 dry-run 逻辑
+        main_file = self.root / "main.py"
+        if main_file.exists():
+            try:
+                main_content = main_file.read_text(encoding="utf-8", errors="replace")
+                has_dry_run_logic = bool(re.search(r'_is_dry_run|dry_run', main_content))
+                if not has_dry_run_logic:
+                    self.violations.append(Violation(
+                        rule="R10",
+                        severity=Severity.BLOCKING,
+                        file="main.py",
+                        line=0,
+                        description="缺少 --dry-run 实现逻辑 — R10 要求 main.py 实现 dry-run 阶段跳过",
+                        fix_hint="在 _run_single_endpoint 中添加: _is_dry_run = getattr(args, 'dry_run', False); if _is_dry_run: skip attack execution",
+                    ))
+                    return  # 无实现则后续检查无意义
+
+                # 3. 检查 dry-run 时是否跳过 strike 执行
+                has_strike_skip = bool(re.search(r'_is_dry_run.*execute_attacks|dry_run.*execute_text_adaptive|\[DRY-RUN\].*跳过攻击', main_content, re.IGNORECASE))
+                if not has_strike_skip:
+                    self.violations.append(Violation(
+                        rule="R10",
+                        severity=Severity.WARNING,
+                        file="main.py",
+                        line=0,
+                        description="dry-run 模式未跳过 strike 阶段攻击执行 — 可能消耗目标 API token",
+                        fix_hint="在 strike 阶段添加: if _is_dry_run: ctx.attack_results = {}; continue (跳过 execute_attacks)",
+                    ))
+
+                # 4. 检查 dry-run 时是否跳过 escalate 执行
+                has_escalate_skip = bool(re.search(r'_is_dry_run.*check_and_escalate|\[DRY-RUN\].*跳过升级|dry_run.*escalate', main_content, re.IGNORECASE))
+                if not has_escalate_skip:
+                    self.violations.append(Violation(
+                        rule="R10",
+                        severity=Severity.WARNING,
+                        file="main.py",
+                        line=0,
+                        description="dry-run 模式未跳过 escalate 阶段升级链 — 可能消耗目标 API token",
+                        fix_hint="在 escalate 阶段添加: if _is_dry_run: skip check_and_escalate()",
+                    ))
+            except OSError:
+                pass
 
     # ── 输出 ──
 

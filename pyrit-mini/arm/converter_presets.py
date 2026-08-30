@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 # File-type converters only effective on targets that accept file uploads
 _FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
 
+# ── L5 v41: l5_optimal build cache ──
+# arXiv:2407.01232 — SequentialAttack FIRST_SUCCESS uses the same converter
+#   candidate list for every technique. Building 17 converters (decomposition,
+#   persuasion, variation, translation, code_chameleon, ...) involves LLM calls
+#   and heavy object instantiation. Without caching, build_converter_map calls
+#   l5_optimal once PER technique, resulting in N×17 redundant builds.
+#   Cache key: (id(converter_target), target_type) — when the same target is
+#   reused across techniques, we return the cached list instead of rebuilding.
+_L5_OPTIMAL_CACHE: dict[tuple[int, str], list[Any]] = {}
+
 # Techniques that are pure baseline (no converter needed — raw payload)
 _BASELINE_TECHNIQUES = frozenset({"prompt_sending"})
 
@@ -71,7 +81,13 @@ def _classify_target_type(
             return "mcp_agent"
         if app_type == "browser" or target_type == "browser":
             return "browser"
-        if "function_calling" in caps or "tool_hijack" in caps:
+        # Agent 级能力 (工具调用/工具劫持/A2A协议/嵌入RAG) → MCP Agent 类型
+        # 这些能力表明目标是 Agent 而非纯聊天端点, 接受 JSON 文本而非文件上传
+        # arXiv:2302.12173 — Agent 能力指纹决定攻击面
+        # arXiv:2307.00929 — InjecAgent 工具劫持
+        # arXiv:2407.16924 — A2A 协议横向移动
+        # arXiv:2310.06870 — 嵌入反演泄露
+        if caps & {"function_calling", "tool_hijack", "a2a_protocol", "embedding_rag"}:
             return "mcp_agent"
         if app_type in ("chat", "responses", "litellm"):
             return "llm_chat"
@@ -80,7 +96,8 @@ def _classify_target_type(
         caps = {c.strip().lower() for c in capabilities.split(",") if c.strip()}
         if "mcp" in caps or "mcp_protocol" in caps:
             return "mcp_agent"
-        if "function_calling" in caps:
+        # Agent 级能力 → MCP Agent 类型 (同 target_fingerprint 分支逻辑)
+        if caps & {"function_calling", "tool_hijack", "a2a_protocol", "embedding_rag"}:
             return "mcp_agent"
 
     return "http_api"
@@ -143,6 +160,20 @@ def l5_optimal(
         target_type: target classification from _classify_target_type.
             "unknown" (default) retains all converters (backward compatible).
     """
+    # L5 v41: build cache — avoid N× redundant rebuild for multi-technique runs.
+    # The converter list only depends on (converter_target, target_type), so
+    # the same parameters always produce the same list. Cache prevents
+    # rebuilding 17 converters × N techniques = 17N redundant builds.
+    cache_key = (id(converter_target), target_type)
+    cached = _L5_OPTIMAL_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info(
+            "L5 v41: Returning cached converter list (%d candidates, "
+            "target_type=%s) — skipped redundant rebuild",
+            len(cached), target_type,
+        )
+        return list(cached)  # shallow copy — caller may filter/sort
+
     converters: list[Any] = []
 
     # 鎯版€у鍏ュ熀纭€ converter 閾惧嚱鏁?(閬垮厤寰幆瀵煎叆)
@@ -274,6 +305,9 @@ def l5_optimal(
         )
         for i, c in enumerate(converters):
             logger.info("  Candidate %d: %s", i + 1, type(c).__name__)
+
+    # L5 v41: cache the built list for reuse across techniques
+    _L5_OPTIMAL_CACHE[cache_key] = list(converters)
 
     return converters
 
@@ -461,6 +495,18 @@ def build_converter_map(
 
     Returns: {technique_name: [converter_instances]}
 
+    L5 v41 build cache lifecycle:
+        The l5_optimal cache (_L5_OPTIMAL_CACHE) stores converter instances
+        that hold references to converter_target. If converter_target is
+        recycled or becomes stale (e.g. expired API key, closed connection),
+        cached converters would use the stale target. To prevent this,
+        build_converter_map clears the cache at the start of each call,
+        ensuring fresh builds for each pipeline run. The cache only helps
+        within a single build_converter_map call (multiple techniques
+        sharing the same base list).
+
+    Returns: {technique_name: [converter_instances]}
+
     L5 v40 seed-aware adaptation:
         - 新增 seeds 参数: 从种子 metadata (category/suitable_for) 感知
           攻击向量类型, 对 context techniques 放宽编码 converter 限制
@@ -501,6 +547,13 @@ def build_converter_map(
     Returns:
         technique_name → converter instance list mapping.
     """
+    # L5 v41: Clear build cache at start of each build_converter_map call.
+    # This ensures stale converter instances (holding references to old
+    # converter_target objects) are never reused across pipeline runs.
+    # The cache only helps WITHIN this call — multiple techniques sharing
+    # the same base converter list built once at line 562 below.
+    _L5_OPTIMAL_CACHE.clear()
+
     # Auto-substitute l5_optimal → l5_optimal_for_model when model_family available
     effective_chain_names = list(chain_names)
     if model_family:
@@ -515,6 +568,123 @@ def build_converter_map(
             target_fingerprint.get("capabilities"),
             target_fingerprint,
         )
+
+    # ── L5 v41: Pre-build base converter list ONCE (not per-technique) ──
+    # arXiv:2407.01232 — SequentialAttack FIRST_SUCCESS: the same converter
+    #   candidate list is used for every technique. Previously, the loop below
+    #   called l5_optimal_for_model() once PER technique, resulting in N×17
+    #   redundant converter builds (decomposition, persuasion, variation, etc.).
+    #   Now we build the base list once and filter per-technique.
+    #
+    # For non-l5_optimal chains (persuasion, decomposition, etc.), we also
+    # build them once here and reuse across techniques.
+    base_converters: list[Any] = []
+    _llm_chain_names = frozenset({
+        "persuasion", "decomposition", "variation",
+        "translation_multilingual",
+        "l5_optimal", "l5_optimal_for_model",
+    })
+    for chain_name in effective_chain_names:
+        builder = _get_chain_builders().get(chain_name)
+        if builder is None:
+            logger.warning("Unknown converter chain: %s, skipping", chain_name)
+            continue
+        if chain_name in _llm_chain_names:
+            if chain_name == "l5_optimal_for_model":
+                chain_converters = builder(
+                    converter_target=converter_target,
+                    model_family=model_family,
+                    target_type=target_type,
+                )
+            else:
+                chain_converters = builder(
+                    converter_target=converter_target,
+                    target_type=target_type,
+                )
+        else:
+            chain_converters = builder()
+        if chain_converters:
+            base_converters.extend(chain_converters)
+
+    # L5 v39: Semantic converter names (preserve payload readability)
+    # arXiv:2402.05124 — Many-shot needs readable Q&A pattern
+    # arXiv:2406.18112 — SkeletonKey needs readable SK prefix
+    _SEMANTIC_CONVERTER_NAMES = {
+        "PersuasionConverter", "DecompositionConverter",
+        "VariationConverter", "RandomTranslationConverter",
+        "TranslationConverter", "ToneConverter",
+    }
+    # L5 v40: Encoding converter set — allowed when seeds have encoding category
+    # arXiv:2302.12173 — category-aware converter selection
+    _ENCODING_CONVERTER_NAMES_CTX = {
+        "ROT13Converter", "AsciiSmugglerConverter",
+        "CodeChameleonConverter", "PolicyPuppetryConverter",
+        "SelectiveTextConverter", "SearchReplaceConverter",
+    }
+    # L5 v40: Encoding categories — seeds designed for encoding bypass
+    _ENCODING_CATEGORIES = {
+        "token_smuggling", "encoded_injection",
+        "token_smuggling_base64", "token_smuggling_cipher",
+        "token_smuggling_hex", "token_smuggling_homoglyph",
+        "token_smuggling_split", "token_smuggling_unicode",
+        "base64_encoding",
+    }
+
+    # L5 v41: Per-technique semantic whitelist for context techniques.
+    # Different context techniques rely on different structural properties:
+    #   - many_shot: Q&A pattern readability → variation + translation safe,
+    #     decomposition may split Q&A pairs (risky but ASR 40-60% justifies)
+    #   - skeleton_key: SK prefix must remain intact → persuasion safe,
+    #     decomposition may fragment SK prefix (risky but high ASR)
+    #   - role_play_*: character consistency → persuasion + variation safe,
+    #     translation may break character (medium risk)
+    #   - context_compliance: compliance framing → persuasion primary,
+    #     variation secondary, decomposition tertiary
+    #   - flip: text inversion → variation safe (inversion is morphological),
+    #     translation may interfere with inversion logic (high risk)
+    # arXiv:2402.05124 — Many-shot Q&A pattern
+    # arXiv:2406.18112 — SkeletonKey SK prefix
+    _CONTEXT_SEMANTIC_WHITELIST: dict[str, set[str]] = {
+        "many_shot": {
+            "DecompositionConverter", "PersuasionConverter",
+            "VariationConverter", "RandomTranslationConverter",
+            "TranslationConverter",
+        },
+        "skeleton_key": {
+            "PersuasionConverter", "VariationConverter",
+            "RandomTranslationConverter", "TranslationConverter",
+            "DecompositionConverter",
+        },
+        "role_play_movie_script": {
+            "PersuasionConverter", "VariationConverter",
+            "DecompositionConverter",
+            "RandomTranslationConverter",
+        },
+        "role_play_persuasion": {
+            "PersuasionConverter", "VariationConverter",
+            "DecompositionConverter",
+        },
+        "context_compliance": {
+            "PersuasionConverter", "VariationConverter",
+            "DecompositionConverter",
+            "RandomTranslationConverter",
+            "TranslationConverter",
+        },
+        "flip": {
+            "VariationConverter", "PersuasionConverter",
+        },
+    }
+
+    # L5 v40: Pre-compute seed categories (shared across all techniques)
+    seed_categories = set()
+    if seeds:
+        for group in seeds:
+            for seed in getattr(group, "seeds", []):
+                meta = getattr(seed, "metadata", {}) or {}
+                cat = str(meta.get("category", "")).strip().lower()
+                if cat:
+                    seed_categories.add(cat)
+    has_encoding_category = bool(seed_categories & _ENCODING_CATEGORIES)
 
     converter_map: dict[str, list[Any]] = {}
 
@@ -532,9 +702,26 @@ def build_converter_map(
             non_l5_chains = [c for c in effective_chain_names if c not in ("l5_optimal", "l5_optimal_for_model")]
             if not non_l5_chains:
                 continue  # No converters for baseline technique
+            # For baseline + non-l5 chains, filter base_converters to those
+            # built from non-l5 chains only (already in base_converters)
             effective_chains_for_tech = non_l5_chains
+            # Rebuild from specific chains (not from base_converters which includes l5)
+            converters: list[Any] = []
+            for chain_name in effective_chains_for_tech:
+                builder = _get_chain_builders().get(chain_name)
+                if builder is None:
+                    continue
+                if chain_name in _llm_chain_names:
+                    chain_converters = builder(
+                        converter_target=converter_target,
+                        target_type=target_type,
+                    )
+                else:
+                    chain_converters = builder()
+                if chain_converters:
+                    converters.extend(chain_converters)
         elif technique_name in _CONTEXT_TECHNIQUES and "l5_optimal" in chain_names:
-            # Context techniques: semantic converters only
+            # Context techniques: semantic converters only (with per-technique whitelist)
             # arXiv:2402.05124 — Many-shot needs readable Q&A pattern
             # arXiv:2406.18112 — SkeletonKey needs readable SK prefix
             # Encoding/obfuscation converters would corrupt the context structure
@@ -544,81 +731,17 @@ def build_converter_map(
                 "arXiv:2402.05124, arXiv:2406.18112)",
                 technique_name,
             )
-            effective_chains_for_tech = effective_chain_names
-            # Will filter to semantic-only below
+            # L5 v41: Use pre-built base_converters (shallow copy for filtering)
+            converters = list(base_converters)
         else:
-            effective_chains_for_tech = effective_chain_names
+            # Escalation/full techniques: use all converters
+            # L5 v41: Use pre-built base_converters (shallow copy)
+            converters = list(base_converters)
 
-        converters: list[Any] = []
-        for chain_name in effective_chains_for_tech:
-            builder = _get_chain_builders().get(chain_name)
-            if builder is None:
-                logger.warning("Unknown converter chain: %s, skipping", chain_name)
-                continue
-
-            # LLM-assisted chains need converter_target param
-            if chain_name in ("persuasion", "decomposition", "variation",
-                              "translation_multilingual",
-                              "l5_optimal", "l5_optimal_for_model"):
-                if chain_name == "l5_optimal_for_model":
-                    chain_converters = builder(
-                        converter_target=converter_target,
-                        model_family=model_family,
-                        target_type=target_type,
-                    )
-                else:
-                    chain_converters = builder(
-                        converter_target=converter_target,
-                        target_type=target_type,
-                    )
-            else:
-                chain_converters = builder()
-
-            if chain_converters:
-                converters.extend(chain_converters)
-
-        # L5 v39: For context techniques, filter to semantic-only converters
-        # Semantic converters: Persuasion, Decomposition, Variation, Translation, Tone
-        # These preserve payload readability while bypassing keyword filters
-        # arXiv:2402.05124 — Many-shot needs readable Q&A pattern
-        # arXiv:2406.18112 — SkeletonKey needs readable SK prefix
-        _SEMANTIC_CONVERTER_NAMES = {
-            "PersuasionConverter", "DecompositionConverter",
-            "VariationConverter", "RandomTranslationConverter",
-            "TranslationConverter", "ToneConverter",
-        }
-        # L5 v40: 编码 converter 集合 — 种子 category 为编码绕过类时允许使用
-        # 学术依据: Greshake et al. (arXiv:2302.12173) — category 感知
-        #   token_smuggling/encoded_injection 等编码类种子本身就需要编码 converter
-        _ENCODING_CONVERTER_NAMES_CTX = {
-            "ROT13Converter", "AsciiSmugglerConverter",
-            "CodeChameleonConverter", "PolicyPuppetryConverter",
-            "SelectiveTextConverter", "SearchReplaceConverter",
-        }
-        # L5 v40: 编码类 category — 这些类别的种子本身设计为编码绕过
-        # 对 context techniques 可以放宽限制, 允许编码 converter
-        _ENCODING_CATEGORIES = {
-            "token_smuggling", "encoded_injection",
-            "token_smuggling_base64", "base64_encoding",
-        }
         if technique_name in _CONTEXT_TECHNIQUES and converters:
-            # L5 v40: 检查种子是否属于编码类 category
-            # 如果是编码类种子, 允许编码 converter (不强制 semantic-only)
-            seed_categories = set()
-            if seeds:
-                for group in seeds:
-                    for seed in getattr(group, "seeds", []):
-                        meta = getattr(seed, "metadata", {}) or {}
-                        cat = str(meta.get("category", "")).strip().lower()
-                        if cat:
-                            seed_categories.add(cat)
-            has_encoding_category = bool(seed_categories & _ENCODING_CATEGORIES)
-
             if has_encoding_category:
                 # L5 v40: 编码类种子 + context technique → 允许编码 converter
-                # 学术依据: Greshake et al. (arXiv:2302.12173) —
-                #   种子 category 为编码绕过, converter 需匹配向量类型
-                #   token_smuggling 本身就是编码 payload, 编码 converter 增强
+                # arXiv:2302.12173 — category-aware
                 logger.info(
                     "L5 v40: Technique '%s' is context-based BUT seeds have "
                     "encoding category (%s) — encoding converters allowed "
@@ -628,24 +751,24 @@ def build_converter_map(
                 )
                 # 不过滤, 保留全部 converter (编码 + 语义)
             else:
-                # 非 encoding category: 强制 semantic-only
+                # L5 v41: Per-technique semantic whitelist
+                # Different context techniques preserve different structural
+                # properties, so each gets a tailored whitelist.
+                whitelist = _CONTEXT_SEMANTIC_WHITELIST.get(
+                    technique_name, _SEMANTIC_CONVERTER_NAMES,
+                )
                 semantic_only = [
                     c for c in converters
-                    if type(c).__name__ in _SEMANTIC_CONVERTER_NAMES
+                    if type(c).__name__ in whitelist
                 ]
                 pruned_count = len(converters) - len(semantic_only)
                 if pruned_count > 0:
                     logger.info(
-                        "L5 v39: Technique '%s' — pruned %d non-semantic converters "
+                        "L5 v41: Technique '%s' — pruned %d non-semantic converters "
                         "(encoding/obfuscation would corrupt context structure, "
-                        "arXiv:2402.05124, arXiv:2406.18112)",
-                        technique_name, pruned_count,
+                        "whitelist=%d, arXiv:2402.05124, arXiv:2406.18112)",
+                        technique_name, pruned_count, len(whitelist),
                     )
-                # L5 v39 fix: when no semantic converters available (e.g. no converter_target),
-                # use empty list instead of falling back to encoding converters —
-                # context techniques with encoding converters is worse than raw payload
-                # (encoding corrupts the Q&A / SK prefix structure).
-                # executor.py handles empty converter_map gracefully (raw PromptSendingAttack).
                 if semantic_only:
                     converters = semantic_only
                 else:

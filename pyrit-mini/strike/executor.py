@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from arm.converter_selector import (  # noqa: F401
@@ -43,8 +44,56 @@ from arm.converter_selector import (  # noqa: F401
     _get_suitable_for_converter_strategy,
     _prune_low_asr_converters,
 )
+from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
+
+
+# 进度展示: 本地 _is_success 判定 (避免延迟导入 display._is_success)
+def _is_success(result: Any) -> bool:
+    """判断攻击结果是否成功 (用于进度统计)."""
+    outcome = getattr(result, "outcome", None)
+    if outcome:
+        outcome_str = str(outcome).lower()
+        if "success" in outcome_str:
+            return True
+        if "failure" in outcome_str or "fail" in outcome_str:
+            return False
+    score_val = getattr(result, "score_value", None)
+    if score_val:
+        if isinstance(score_val, str):
+            return score_val.lower() in ("true", "1", "success")
+        if isinstance(score_val, (int, float)):
+            return score_val > 0
+    scores = getattr(result, "scores", None)
+    if scores:
+        try:
+            for s in scores:
+                sv = getattr(s, "score_value", "")
+                if str(sv).lower() in ("true", "1", "success"):
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+# 进度展示函数 (延迟导入避免循环依赖)
+def _import_progress_funcs():
+    """延迟导入进度展示函数, 避免 display.py → core.context 循环."""
+    from utils.display import (
+        print_converter_path_done,
+        print_converter_path_start,
+        print_seed_batch_progress,
+        print_strike_phase_summary,
+        print_strike_start_banner,
+    )
+    return (
+        print_strike_start_banner,
+        print_converter_path_start,
+        print_converter_path_done,
+        print_seed_batch_progress,
+        print_strike_phase_summary,
+    )
 
 # V2: converter 浼樺厛绾ф槧灏?(鍖呭惈 RandomTranslationConverter, TranslationConverter 绛?
 # 定义在 arm/converter_selector.py 的 _get_candidate_converters 函数内部
@@ -80,6 +129,13 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         logger.warning("No seeds configured, skipping attack execution")
         ctx.attack_results["prompt_sending"] = []
         return ctx.attack_results
+
+    # 进度展示: STRIKE 阶段开始计时 (横幅由 main.py 调用)
+    _strike_start = time.monotonic()
+    try:
+        _banner, _path_start, _path_done, _batch_prog, _phase_summ = _import_progress_funcs()
+    except Exception:
+        _banner = _path_start = _path_done = _batch_prog = _phase_summ = None
 
     # 鏋勫缓 post-hoc 璇勫垎閰嶇疆 (绌? 鍙?Judge 鍚庣画璇勫垎)
     post_hoc_scoring = _build_scoring_config(ctx)
@@ -187,17 +243,34 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         except asyncio.TimeoutError:
             logger.warning("Attack timed out after %ds, retrieving partial results", timeout)
             await _retrieve_partial_results(ctx, "prompt_sending")
+
+            # 进度展示: 超时路径也输出完成摘要
+            if _phase_summ is not None:
+                _elapsed = time.monotonic() - _strike_start
+                try:
+                    _phase_summ(
+                        ctx,
+                        total_results=sum(len(v) for v in ctx.attack_results.values()),
+                        total_success=sum(
+                            1 for results in ctx.attack_results.values()
+                            for r in results if _is_success(r)
+                        ),
+                        elapsed_seconds=_elapsed,
+                    )
+                except Exception:
+                    pass
+
             return ctx.attack_results
 
     # 缁熶竴澶勭悊缁撴灉
     ctx.attack_results["prompt_sending"] = all_results
-    _backfill_metadata(all_results, original_seeds)
+    _backfill_metadata(all_results, original_seeds, converter_names=_get_converter_names(candidate_converters))
 
     # 鍘婚噸 incomplete_objectives (澶氳矾寰勬ā寮忎笅鍚屼竴鐩爣鍙兘澶氭澶辫触)
     seen_objectives: set[str] = set()
     unique_incomplete: list[tuple[str, Any]] = []
     for obj, res in incomplete_objectives:
-        obj_key = obj[:100] if obj else ""
+        obj_key = _make_seed_key(obj) if obj else ""
         if obj_key not in seen_objectives:
             seen_objectives.add(obj_key)
             unique_incomplete.append((obj, res))
@@ -258,6 +331,25 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
                 logger.warning("L5 v48: Port %d attack timed out after %ds", port, timeout)
             except Exception as e:
                 logger.warning("L5 v48: Port %d attack failed: %s", port, e)
+
+    # 进度展示: STRIKE 阶段完成摘要
+    if _phase_summ is not None:
+        _total_results = sum(len(v) for v in ctx.attack_results.values())
+        _total_success = sum(
+            1 for results in ctx.attack_results.values()
+            for r in results
+            if _is_success(r)
+        )
+        _elapsed = time.monotonic() - _strike_start
+        try:
+            _phase_summ(
+                ctx,
+                total_results=_total_results,
+                total_success=_total_success,
+                elapsed_seconds=_elapsed,
+            )
+        except Exception:
+            pass
 
     return ctx.attack_results
 
@@ -325,7 +417,14 @@ async def _try_native_sequential_attack(
 
     # 涓烘瘡涓?seed_group 鐙珛鏋勫缓 SequentialAttack
     # arXiv:2407.01232 鈥?SequentialAttack 涓€娆″鐞嗕竴涓?objective
-    for sg in ctx.seeds:
+    _total_seeds = len(ctx.seeds)
+    try:
+        from utils.display import print_native_sequential_progress
+        _native_seq_fn = print_native_sequential_progress
+    except Exception:
+        _native_seq_fn = None
+
+    for sg_idx, sg in enumerate(ctx.seeds):
         # L5 v40: per-seed-group converter prioritization
         #   检查该 seed_group 的 category, 从 category_converter_map 查询
         #   最佳 converter 顺序并重新排序 candidate_converters
@@ -424,6 +523,20 @@ async def _try_native_sequential_attack(
             # v53: prepended_conversation_config is already set on child PromptSendingAttack
             # instances, so no need to pass prepended_conversation via execute_async
             seq_kwargs: dict[str, Any] = {"objective": objective}
+
+            # 进度展示: SequentialAttack 种子级进度
+            if _native_seq_fn is not None:
+                try:
+                    _native_seq_fn(
+                        ctx,
+                        seed_idx=sg_idx,
+                        total_seeds=_total_seeds,
+                        converter_count=len(child_attacks),
+                        objective_preview=objective,
+                    )
+                except Exception:
+                    pass
+
             result = await asyncio.wait_for(
                 sequential.execute_async(**seq_kwargs),
                 timeout=timeout,
@@ -505,10 +618,20 @@ async def _manual_multi_path_loop(
     prepended_config = _build_prepended_conversation_config(ctx)
 
     remaining_seeds = list(ctx.seeds)
-    for conv in candidate_converters:
+    total_converters = len(candidate_converters)
+
+    # 进度展示函数
+    try:
+        _banner2, _path_start_fn, _path_done_fn, _batch_prog_fn, _phase_summ2 = _import_progress_funcs()
+    except Exception:
+        _path_start_fn = _path_done_fn = _batch_prog_fn = None
+
+    for path_idx, conv in enumerate(candidate_converters):
         if not remaining_seeds:
             break
         conv_name = type(conv).__name__
+        seeds_before = len(remaining_seeds)
+        _path_start_time = time.monotonic()
         conv_config = AttackConverterConfig(
             request_converters=[
                 ConverterConfiguration(converters=[conv])
@@ -520,9 +643,23 @@ async def _manual_multi_path_loop(
             attack_converter_config=conv_config,
             prepended_conversation_config=prepended_config,
         )
+
+        # 进度展示: 路径开始
+        if _path_start_fn is not None:
+            try:
+                _path_start_fn(
+                    ctx,
+                    converter_name=conv_name,
+                    path_idx=path_idx,
+                    total_paths=total_converters,
+                    seeds_remaining=seeds_before,
+                )
+            except Exception:
+                pass
+
         logger.info(
             "L5 v50: Trying converter path: %s (%d seeds remaining)",
-            conv_name, len(remaining_seeds),
+            conv_name, seeds_before,
         )
         try:
             executor_kwargs: dict[str, Any] = {
@@ -546,14 +683,50 @@ async def _manual_multi_path_loop(
                 ]
             else:
                 remaining_seeds = []
+            _path_elapsed = time.monotonic() - _path_start_time
+            _path_success = sum(1 for r in path_results if _is_success(r))
+
+            # 进度展示: 路径完成
+            if _path_done_fn is not None:
+                try:
+                    _path_done_fn(
+                        ctx,
+                        converter_name=conv_name,
+                        path_idx=path_idx,
+                        total_paths=total_converters,
+                        seeds_attempted=seeds_before,
+                        seeds_succeeded=_path_success,
+                        seeds_remaining=len(remaining_seeds),
+                        elapsed_seconds=_path_elapsed,
+                    )
+                except Exception:
+                    pass
+
             logger.info(
-                "L5 v50: Path %s: %d success, %d remaining",
+                "L5 v50: Path %s: %d success, %d remaining (%.1fs)",
                 conv_name,
-                len(path_results),
+                _path_success,
                 len(remaining_seeds),
+                _path_elapsed,
             )
         except asyncio.TimeoutError:
-            logger.warning("L5 v50: Path %s timed out after %ds", conv_name, timeout)
+            _path_elapsed = time.monotonic() - _path_start_time
+            logger.warning("L5 v50: Path %s timed out after %ds (%.1fs elapsed)", conv_name, timeout, _path_elapsed)
+
+            if _path_done_fn is not None:
+                try:
+                    _path_done_fn(
+                        ctx,
+                        converter_name=conv_name,
+                        path_idx=path_idx,
+                        total_paths=total_converters,
+                        seeds_attempted=seeds_before,
+                        seeds_succeeded=0,
+                        seeds_remaining=len(remaining_seeds),
+                        elapsed_seconds=_path_elapsed,
+                    )
+                except Exception:
+                    pass
 
     return all_results, incomplete_objectives
 
@@ -659,7 +832,7 @@ class _MultiKeywordRefusalScorer(SubStringScorer):
             - Wei et al. (arXiv:2307.15043) 鈥?
               鐩爣鏃犳湁鏁堣緭鍑?鈮?鏀诲嚮鎴愬姛
         """
-        from assess.judge_utils import _t0_refusal_check_text
+        from assess.judge_utils import _t0_non_substantive_check_text, _t0_refusal_check_text
 
         # 鎻愬彇鍝嶅簲鏂囨湰 + message_piece_id
         response_text = ""
@@ -674,6 +847,11 @@ class _MultiKeywordRefusalScorer(SubStringScorer):
 
         # 浣跨敤缁熶竴 SSOT 姝ｅ垯杈圭晫鍖归厤
         is_refusal = _t0_refusal_check_text(response_text)
+
+        # v52: Non-substantive response detection (placeholder/echo/MCP stub)
+        # These responses are not refusals, but also not attack success
+        if not is_refusal:
+            is_refusal = _t0_non_substantive_check_text(response_text)
 
         # v51: 鐭搷搴旀娴?鈥?鏈娴嬪埌鎷掔粷鍏抽敭璇嶄絾鍝嶅簲杩囩煭
         # 涔熷垽瀹氫负鎷掔粷 (False 鈫?Inverter 鈫?True 鈫?璇垽鎴愬姛鐨勯棶棰樹慨澶?
@@ -911,9 +1089,36 @@ async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -
         logger.warning("Failed to retrieve partial results: %s", e)
 
 
+
+def _get_converter_names(converters: list[Any]) -> str:
+    """v52: Extract converter class names for metadata backfill.
+
+    Returns comma-separated converter type names (e.g. "PersuasionConverter, ROT13Converter").
+    Returns empty string if no converters or empty list.
+    """
+    if not converters:
+        return ""
+    names = []
+    for c in converters:
+        type_name = type(c).__name__
+        # For PersuasionConverter, include technique
+        if type_name == "PersuasionConverter":
+            technique = getattr(c, "_persuasion_technique", None)
+            if technique is not None:
+                tech_name = getattr(technique, "value", str(technique))
+                names.append(f"{type_name}:{tech_name}")
+            else:
+                names.append(type_name)
+        else:
+            names.append(type_name)
+    return ", ".join(names)
+
+
 def _backfill_metadata(
     results: list[Any],
     seed_groups: list[Any],
+    *,
+    converter_names: str = "",
 ) -> None:
     """浠庣瀛?metadata 鍥炲～ owasp_id 鍒?AttackResult.metadata銆?
 
@@ -933,7 +1138,7 @@ def _backfill_metadata(
             value = getattr(seed, "value", None)
             metadata = getattr(seed, "metadata", {})
             if value and metadata:
-                obj_to_metadata[value[:100]] = metadata
+                obj_to_metadata[_make_seed_key(value)] = metadata
                 metadata_list.append(metadata)
 
     backfilled = 0
@@ -943,27 +1148,33 @@ def _backfill_metadata(
             continue  # 宸叉湁 owasp_id锛岃烦杩?
 
         objective = getattr(result, "objective", "") or ""
-        obj_key = objective[:100]
+        obj_key = _make_seed_key(objective)
 
         # 1. 绮剧‘鍖归厤
         seed_metadata = obj_to_metadata.get(obj_key)
 
-        # 2. 妯＄硦鍖归厤 (鍓?0瀛楃)
-        if not seed_metadata:
-            obj_prefix = obj_key[:30].lower()
-            for k, v in obj_to_metadata.items():
-                if obj_prefix in k.lower() or k[:30].lower() in obj_key.lower():
-                    seed_metadata = v
-                    break
+        # 2. R9: SHA256 hash precise match is sufficient, fuzzy match replaced by index fallback
 
         # 3. 鎸夌储寮曞尮閰?(缁撴灉椤哄簭涓庣瀛愰『搴忎竴鑷?
         if not seed_metadata and idx < len(metadata_list):
             seed_metadata = metadata_list[idx]
 
         if seed_metadata:
-            # 鍚堝苟 metadata (涓嶈鐩栧凡鏈夊€?
             merged = dict(seed_metadata)
             merged.update(existing_metadata)
+            # v52: backfill converter info from SequentialAttack path
+            if converter_names and "converter" not in merged:
+                merged["converter"] = converter_names
+            try:
+                result.metadata = merged
+                backfilled += 1
+            except Exception:
+                pass
+        elif converter_names:
+            # v52: no seed metadata match, but still record converter info
+            merged = dict(existing_metadata)
+            if "converter" not in merged:
+                merged["converter"] = converter_names
             try:
                 result.metadata = merged
                 backfilled += 1

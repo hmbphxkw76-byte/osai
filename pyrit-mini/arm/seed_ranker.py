@@ -22,6 +22,7 @@ from arm.seed_ranking import (  # noqa: F401 鈥?re-exports for main.py
     _ASR_PRIORS_PATH,
     _SEEDS_DIR,
     _apply_category_diversity,
+    _make_seed_key,
     _rank_by_asr,
     get_technique_asr_prior,
     load_asr_priors,
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 # 褰撴繁搴︽帰娴嬫娴嬪埌鐗瑰畾鑳藉姏鏃? 鑷姩杩藉姞瀹氬悜绉嶅瓙鏂囦欢
 CAPABILITY_SEED_MAP: dict[str, list[str]] = {
     "mcp": ["mcp_attack"],
+    "mcp_protocol": ["mcp_attack"],  # 深度探针键名 — 同 mcp
     "rag": ["rag_attack"],
     "function_calling": ["function_call_exploit"],
     "tool_hijack": ["tool_hijack"],
@@ -44,7 +46,14 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
     "workflow": ["workflow_chain_attack"],
     "session_auth": ["session_auth_attack"],
     "memory": ["token_smuggling"],
+    "multi_tenant": ["session_auth_attack"],  # 深度探针键名 — 租户越权
+    # A2A 协议 — 深度探针检测键名为 a2a_protocol (recon_report.py _CAPABILITY_STRATEGY 同键)
+    # 保留 "a2a" 作为向后兼容别名
+    "a2a_protocol": ["multi_agent_attack", "tool_hijack"],
     "a2a": ["multi_agent_attack", "tool_hijack"],
+    # 嵌入/RAG — 深度探针检测键名为 embedding_rag
+    # 与 "rag" 互补: rag 是基础探针检测, embedding_rag 是深度探针确认
+    "embedding_rag": ["rag_attack"],
 }
 
 
@@ -313,7 +322,7 @@ def _prune_zero_asr_seeds(
         if group.seeds:
             obj = next((s for s in group.seeds if hasattr(s, "value")), None)
             if obj:
-                objective_text = obj.value[:100]
+                objective_text = _make_seed_key(obj.value)
 
         asr = seed_asr.get(objective_text, -1.0)  # -1 = 鏃犲巻鍙?(鏂扮瀛?
         attempts = seed_attempts.get(objective_text, 0)
@@ -340,7 +349,7 @@ def _prune_zero_asr_seeds(
             if seed_groups[i].seeds:
                 obj = next((s for s in seed_groups[i].seeds if hasattr(s, "value")), None)
                 if obj:
-                    obj_text = obj.value[:100]
+                    obj_text = _make_seed_key(obj.value)
             att = seed_attempts.get(obj_text, 0)
             prune_candidates.append((i, att))
         prune_candidates.sort(key=lambda x: -x[1])  # attempts 闄嶅簭

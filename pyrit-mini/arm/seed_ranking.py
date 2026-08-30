@@ -6,6 +6,7 @@
 鍖呭惈 ASR 鎺掑簭, 绫诲埆澶氭牱鎬? 鍘嗗彶鏇存柊, 澶氳疆閫夌鎺掑簭.
 """
 
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -21,6 +22,23 @@ logger = logging.getLogger(__name__)
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
 _ASR_HISTORY_PATH = _SEEDS_DIR / "asr_history.json"
 _ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent / "config" / "asr_priors.yaml"
+
+
+def _make_seed_key(objective: str) -> str:
+    """Generate a collision-resistant seed ASR key using SHA256.
+
+    Problem: Using ``objective[:100]`` prefix as key causes collisions when
+    different seeds share the first 100 characters.
+
+    Fix: Use the first 16 hex characters of SHA256(objective) as key,
+    reducing collision probability from ~1/100 (prefix) to ~1/2^128.
+
+    Backward compatibility: Callers that fail to find the new key should
+    fall back to the legacy ``[:100]`` prefix key for historical data migration.
+    """
+    if not objective:
+        return ""
+    return hashlib.sha256(objective.encode("utf-8")).hexdigest()[:16]
 
 def _rank_by_asr(
     seed_groups: list[AttackSeedGroup],
@@ -80,14 +98,14 @@ def _rank_by_asr(
         if group.seeds:
             obj = next((s for s in group.seeds if hasattr(s, "value")), None)
             if obj:
-                objective_text = obj.value[:100]
+                objective_text = _make_seed_key(obj.value)
                 meta = getattr(obj, "metadata", {}) or {}
                 severity = meta.get("severity", "medium")
 
         # 鍏堟煡绉嶅瓙绾?ASR, 鍐嶆煡鎶€鏈骇 ASR
         asr = seed_asr.get(objective_text, 0.0)
         if asr == 0.0:
-            asr = asr_history.get(objective_text[:100], asr_history.get(str(i), 0.0))
+            asr = asr_history.get(objective_text, asr_history.get(str(i), 0.0))
 
         if asr > 0:
             # L5 v8: 浣跨敤 UCB 鎺掑簭
@@ -533,7 +551,7 @@ def rank_seeds_for_multi_turn(
         if group.seeds:
             obj = next((s for s in group.seeds if hasattr(s, "value")), None)
             if obj:
-                objective_text = obj.value[:100]
+                objective_text = _make_seed_key(obj.value)
                 meta = getattr(obj, "metadata", {}) or {}
                 severity = meta.get("severity", "medium")
                 difficulty = meta.get("difficulty", "medium")
@@ -543,7 +561,7 @@ def rank_seeds_for_multi_turn(
         # 鑾峰彇绉嶅瓙 ASR
         asr = seed_asr.get(objective_text, 0.0)
         if asr == 0.0:
-            asr = asr_history.get(objective_text[:100], 0.0)
+            asr = asr_history.get(objective_text, 0.0)
 
         # ASR 閫傚疁鎬? 浣?ASR 鈫?楂橀€傚疁鎬?
         asr_bucket = int(asr // 5) * 5  # 閲忓寲鍒?5 鐨勫€嶆暟

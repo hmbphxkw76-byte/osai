@@ -133,19 +133,35 @@ def _init_judges() -> bool:
         except Exception as e:
             logger.debug("L5 v52: Scoring target validation skipped: %s", e)
 
-        # L5 v30: 纭繚 CentralMemory 宸插垵濮嬪寲
-        # SelfAskTrueFalseScorer.from_question() 鍐呴儴闇€瑕?memory 瀹炰緥
+        # L5 v30: 确保 CentralMemory 实例已初始化
+        # SelfAskTrueFalseScorer.from_question() 内部需要 memory 实例
+        # R8 §8.1: 禁止裸 SQLiteMemory() 创建 — 会写入 PyRIT 默认路径而非 endpoint 独立 DB
         try:
             from pyrit.memory import CentralMemory
 
             CentralMemory.get_memory_instance()
         except Exception:
-            # CentralMemory 鏈垵濮嬪寲, 鎵嬪姩鍒濆鍖?SQLiteMemory
-            logger.info("L5 v30: CentralMemory not set, initializing SQLiteMemory for Judge scorers")
-            from pyrit.memory import SQLiteMemory
+            # CentralMemory 未初始化 — 使用 PYRIT_DB_URL 环境变量获取 DB 路径
+            # R8 §8.1: 不清除 Singleton 缓存直接创建会忽略 db_path (Singleton 返回旧实例)
+            import os
 
-            memory = SQLiteMemory()
-            CentralMemory.set_memory_instance(memory)
+            _db_url = os.environ.get("PYRIT_DB_URL", "")
+            if _db_url.startswith("sqlite:///"):
+                _db_path = Path(_db_url.replace("sqlite:///", ""))
+            else:
+                _db_path = Path(os.environ.get("PYRIT_DB_PATH", "pyrit.db"))
+            logger.warning("CentralMemory not set, initializing with DB: %s", _db_path)
+            from pyrit.common.singleton import Singleton as _Singleton
+            from pyrit.memory.sqlite_memory import SQLiteMemory as _SQLiteMemory
+
+            _db_path.parent.mkdir(parents=True, exist_ok=True)
+            # 清除 Singleton 缓存确保新 db_path 生效 (R8 §8.1)
+            if _SQLiteMemory in _Singleton._instances:
+                del _Singleton._instances[_SQLiteMemory]
+            os.environ["PYRIT_DB_URL"] = f"sqlite:///{_db_path}"
+            _memory = _SQLiteMemory(db_path=str(_db_path), silent=True)
+            CentralMemory.set_memory_instance(_memory)
+            logger.info("CentralMemory initialized with DB: %s", _db_path)
 
         # L5 v32: Judge 1 鈥?鏍″噯 rubric (涓棿涓ユ牸搴? 鏇夸唬鏋佸鏉剧殑 blackbox_task_achieved)
         # 瀛︽湳渚濇嵁: Mazeika et al. (arXiv:2402.04249) HarmBench 鈥?鍗曚竴鏍″噯 rubric
@@ -197,10 +213,17 @@ def _init_judges() -> bool:
         # 浣跨敤 TrueFalseInverterScorer 鍙嶈浆: refusal=True 鈫?璇勫垎 False (澶辫触),
         # non-refusal=False 鈫?璇勫垎 True (鎴愬姛), 涓?OR 鑱氬悎绛栫暐鍏煎.
         try:
+            # L5 fix: RefusalScorerPaths.OBJECTIVE_STRICT.value returns pathlib.Path,
+            # but SelfAskRefusalScorer expects SeedPrompt | str | None.
+            # Load the YAML as a SeedPrompt to get both value and response_json_schema.
+            from pyrit.models import SeedPrompt
             from pyrit.score import RefusalScorerPaths, SelfAskRefusalScorer, TrueFalseInverterScorer
+            refusal_system_prompt = SeedPrompt.from_yaml_file(
+                str(RefusalScorerPaths.OBJECTIVE_STRICT.value)
+            )
             refusal_scorer = SelfAskRefusalScorer(
                 chat_target=scoring_target,
-                system_prompt=RefusalScorerPaths.OBJECTIVE_STRICT.value,
+                system_prompt=refusal_system_prompt,
             )
             _cached_harmbench_judge = TrueFalseInverterScorer(scorer=refusal_scorer)
             _register_judge_to_registry(_cached_harmbench_judge, "dual_judge_harmbench")
@@ -483,11 +506,26 @@ def _heuristic_second_judge_success(result: Any) -> bool:
         return False
 
     # L5 v48: 浣跨敤缁熶竴姝ｅ垯杈圭晫鍖归厤 (鏇夸唬鍐呰仈瀛愪覆鍖归厤)
-    from assess.judge_utils import _t0_refusal_check_text
+    from assess.judge_utils import _t0_non_substantive_check_text, _t0_refusal_check_text
 
     is_refusal = _t0_refusal_check_text(response)
     if is_refusal:
         return False
+
+    # L5 v50: 閫氬疄瀵规銮€楠烇細鍗犱綅绗?鍥炵盛銆佹ā鎷熷搷搴斾篃搴斿垽涓?failure
+    is_non_substantive = _t0_non_substantive_check_text(response)
+    if is_non_substantive:
+        return False
+
+
+    # v53: multi-factor confidence score (0 token)
+    from assess.judge_utils import _t0_confidence_score
+    objective = getattr(result, "objective", "")
+    _label, _score = _t0_confidence_score(response, objective)
+    if _label == "failure":
+        return False
+    if _label == "success":
+        return True
 
     # 闈炵┖涓斾笉鍚嫆缁濆叧閿瘝 鈫?鍙兘鏄垚鍔熷搷搴?
     return True

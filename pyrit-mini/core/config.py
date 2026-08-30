@@ -372,6 +372,66 @@ def _parse_initializer_specs(raw: list[str] | None) -> list[dict[str, Any]]:
     return specs
 
 
+def _parse_escalation_levels(raw: str) -> set[int] | None:
+    """解析 --escalation-levels 参数为级别集合。
+
+    支持:
+        - 逗号分隔: "L1,L2,L4" → {1, 2, 4}
+        - 范围: "L1-L4" → {1, 2, 3, 4}
+        - 混合: "L1,L3-L4" → {1, 3, 4}
+        - 大小写不敏感: "l1,l2" → {1, 2}
+        - "all" → {1, 2, 3, 4}
+        - "none"/"" → None (完整链)
+
+    Args:
+        raw: 原始字符串。
+
+    Returns:
+        级别集合 (如 {1, 2, 4}), None 表示完整链。
+    """
+    if not raw or not raw.strip():
+        return None
+    raw = raw.strip().lower()
+    if raw == "all":
+        return {1, 2, 3, 4}
+    if raw in ("none", "default"):
+        return None
+
+    levels: set[int] = set()
+    parts = raw.split(",")
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        # 范围语法: L1-L4
+        if "-" in part:
+            range_parts = part.split("-")
+            if len(range_parts) == 2:
+                try:
+                    start = int(range_parts[0].strip().lstrip("lL"))
+                    end = int(range_parts[1].strip().lstrip("lL"))
+                    for i in range(start, end + 1):
+                        if 1 <= i <= 4:
+                            levels.add(i)
+                except ValueError:
+                    logger.warning("Invalid escalation level range: %s", part)
+            continue
+        # 单个级别: L1
+        try:
+            num = int(part.lstrip("lL"))
+            if 1 <= num <= 4:
+                levels.add(num)
+            else:
+                logger.warning("Escalation level out of range (1-4): %s", part)
+        except ValueError:
+            logger.warning("Invalid escalation level: %s", part)
+
+    if not levels:
+        logger.warning("No valid escalation levels parsed from '%s', using full chain", raw)
+        return None
+    return levels
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析 CLI 参数 — 攻击链路统一入口.
 
@@ -447,10 +507,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # ── 升级 ──
     parser.add_argument("--escalation", action="store_true", default=None, help="启用多轮升级")
     parser.add_argument("--no-escalation", action="store_false", dest="escalation", help="禁用多轮升级")
+    parser.add_argument(
+        "--escalation-levels",
+        type=str,
+        default=None,
+        metavar="L1,L2,L3,L4",
+        help="指定升级级别组合 (逗号分隔), 如 'L2,L4' 只执行 L2+L4; "
+             "不指定时执行完整 L1→L2→L3→L4 链 (向后兼容); "
+             "可选值: L1 (RedTeaming+CoT+Crescendo+TAP+PAIR), "
+             "L2 (GCG+CAIR+Best-of-N+Encoded), "
+             "L3 (Multi-Model+SkeletonKey+Many-Shot+CoT+Chunked), "
+             "L4 (RogueAgent+EmbeddingInversion+MCP/RAG)",
+    )
 
     # ── 模式标志 ──
     parser.add_argument("--offensive", action="store_true", default=False, help="全火力模式")
     parser.add_argument("--rate-limit", type=int, default=None, help="API 限速 (RPM)")
+
+    # ── R10: --dry-run 零 token 流水线完整性验证 ──
+    # 跳过 strike/escalate 阶段的真实 API 调用, 验证所有阶段的数据流贯通
+    # 用途: 每次代码修改后运行 python main.py --dry-run --max-seeds 1
+    # 确保: 导入链完整, ctx 字段传递无断点, 编排日志覆盖 6 阶段, 报告生成无异常
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="零 token 流水线完整性验证 (R10) — 跳过 strike/escalate 真实 API 调用, "
+             "验证所有阶段数据流贯通; 用法: python main.py --dry-run --max-seeds 1",
+    )
 
     # ── 报告 ──
     parser.add_argument("--html-report", action="store_true", default=False, help="生成 HTML 报告")
@@ -567,6 +651,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, default=None, help="输出目录")
     parser.add_argument("--resume", type=str, default=None, help="从已有场景恢复")
 
+    # ── 日志控制 ──
+    # --verbose: 终端也显示 INFO 级别日志 (默认终端只显示卡片 + WARNING/ERROR)
+    # 过程性日志始终写入 {output_dir}/pipeline.log
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="终端显示 INFO 级别过程日志 (默认只显示卡片+WARNING/ERROR, "
+             "完整日志写入 {output_dir}/pipeline.log)",
+    )
+
     args = parser.parse_args(argv)
 
     explicit_escalation = args.escalation
@@ -666,6 +761,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # 将 ["ClassName,arg1=val1", ...] 解析为 [{"class": "...", "args": {...}}, ...]
     args.initializer_specs = _parse_initializer_specs(getattr(args, "add_initializer", None))
 
+    # ── 解析 --escalation-levels 级别组合 ──
+    # 支持: "L1,L2,L4" / "l1,l3" / "L1-L4" / "all" / None (完整链)
+    # 输出: args.escalation_levels_parsed = set[int] 如 {1, 2, 4}, None=完整链
+    raw_levels = getattr(args, "escalation_levels", None)
+    if raw_levels is not None:
+        args.escalation_levels_parsed = _parse_escalation_levels(raw_levels)
+    else:
+        args.escalation_levels_parsed = None  # None = 完整 L1-L4 链
+
     # ── 硬编码 fallback (CLI + config-file + defaults.yaml 都未指定时) ──
     if args.seeds is None:
         args.seeds = "elite_jailbreaks,asi_top10,owasp_full_coverage"
@@ -697,7 +801,22 @@ def ensure_output_dir(output_dir: Path) -> Path:
 async def setup_environment(output_dir: Path) -> None:
     """初始化 PyRIT 环境 — SQLite WAL 模式 + 内存实例.
 
-    生产级: 多 endpoint 模式下重复调用时, 先释放旧 DB 引擎防止泄漏。
+    生产级: 多 endpoint 模式下重复调用时, 必须清除 Singleton 缓存 +
+    释放旧 DB 引擎, 确保每个 endpoint 拥有独立的 SQLite DB 实例。
+
+    根因 (PyRIT 1.0.1 Singleton 机制):
+        SQLiteMemory 使用 metaclass=Singleton, 第二次调用 SQLiteMemory(db_path=...)
+        时, Singleton.__call__ 直接返回旧实例, __init__ 不执行, db_path 被忽略。
+        CentralMemory._memory_instance 也是类变量单例, 同理。
+
+        仅调用 dispose_engine() 释放 SQLAlchemy 连接池是不够的 —
+        Singleton._instances 字典中的旧实例仍然存在, 新 db_path 不会生效。
+
+    修复: 三步清除
+        1. 释放旧 MemoryInterface 的 SQLAlchemy engine (dispose_engine)
+        2. 从 Singleton._instances 中删除 SQLiteMemory 缓存
+        3. 清除 CentralMemory._memory_instance 引用
+
     学术依据: PyRIT (arXiv:2407.01232) — dispose_db_engine() 资源释放
     """
     try:
@@ -715,17 +834,37 @@ async def setup_environment(output_dir: Path) -> None:
     os.environ.setdefault("PYRIT_SQLITE_JOURNAL_MODE", "WAL")
     os.environ.setdefault("PYRIT_SQLITE_BUSY_TIMEOUT", "5000")
 
-    # 生产级: 重复调用时先释放旧 DB 引擎, 防止连接泄漏
-    # 多 endpoint 模式下每个 endpoint 调用一次 setup_environment,
-    # 如果不释放旧引擎, SQLAlchemy 连接池和 SQLite 文件句柄会累积
+    # ── 三步清除: 确保多 endpoint 模式下 DB 真正隔离 ──
+    # 不清除缓存时, SQLiteMemory Singleton 返回旧实例, 新 db_path 被忽略,
+    # 所有 endpoint 的攻击数据都写入第一次初始化的 DB 路径 (顶层 db/pyrit.db)。
     try:
+        from pyrit.common.singleton import Singleton
         from pyrit.memory import CentralMemory
-        _existing_engine = getattr(CentralMemory, "_db_engine", None)
-        if _existing_engine is not None:
-            await CentralMemory.dispose_db_engine()
-            logger.debug("Disposed previous PyRIT DB engine before re-init")
+        from pyrit.memory.sqlite_memory import SQLiteMemory
+
+        # Step 1: 释放旧 MemoryInterface 的 SQLAlchemy engine
+        _old_memory = CentralMemory._memory_instance
+        if _old_memory is not None:
+            try:
+                _old_memory.dispose_engine()
+                logger.debug("Disposed previous SQLAlchemy engine")
+            except Exception as e:
+                logger.debug("Engine dispose skipped (non-fatal): %s", e)
+
+        # Step 2: 清除 SQLiteMemory Singleton 缓存
+        # 这一步是关键 — 让下次 SQLiteMemory(db_path=...) 真正执行 __init__
+        if SQLiteMemory in Singleton._instances:
+            del Singleton._instances[SQLiteMemory]
+            logger.debug("Cleared SQLiteMemory Singleton cache")
+
+        # Step 3: 清除 CentralMemory 单例引用
+        # 让 initialize_pyrit_async 中的 set_memory_instance 生效
+        CentralMemory._memory_instance = None
+        logger.debug("Cleared CentralMemory singleton reference")
+    except ImportError as e:
+        logger.debug("Singleton cache clear skipped (import): %s", e)
     except Exception as e:
-        logger.debug("DB engine dispose before re-init skipped: %s", e)
+        logger.debug("Singleton cache clear skipped (non-fatal): %s", e)
 
     await initialize_pyrit_async(
         memory_db_type="SQLite",

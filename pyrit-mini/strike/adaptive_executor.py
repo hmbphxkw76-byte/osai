@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,33 @@ logger = logging.getLogger(__name__)
 
 # 椤圭洰鏍圭洰褰?(pipeline/strike/ 鈫?涓婃函涓ょ骇)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _adaptive_outcome_success(result: Any) -> bool:
+    """判断攻击结果是否成功 (进度统计用, 与 executor._is_success 逻辑一致)."""
+    outcome = getattr(result, "outcome", None)
+    if outcome:
+        outcome_str = str(outcome).lower()
+        if "success" in outcome_str:
+            return True
+        if "failure" in outcome_str or "fail" in outcome_str:
+            return False
+    score_val = getattr(result, "score_value", None)
+    if score_val:
+        if isinstance(score_val, str):
+            return score_val.lower() in ("true", "1", "success")
+        if isinstance(score_val, (int, float)):
+            return score_val > 0
+    scores = getattr(result, "scores", None)
+    if scores:
+        try:
+            for s in scores:
+                sv = getattr(s, "score_value", "")
+                if str(sv).lower() in ("true", "1", "success"):
+                    return True
+        except Exception:
+            pass
+    return False
 
 
 def _get_best_of_n_retries(ctx: Any | None = None) -> int:
@@ -48,7 +76,7 @@ def _get_best_of_n_retries(ctx: Any | None = None) -> int:
             if isinstance(n, int) and n >= 5:
                 return n
             if n is not None:
-                logger.warning("best_of_n_retries=%s (< 5), using default 5", n)
+                logger.warning("best_of_n_retries=%s (below minimum), using default", n)
     try:
         import yaml
 
@@ -59,9 +87,9 @@ def _get_best_of_n_retries(ctx: Any | None = None) -> int:
             n = config.get("best_of_n_retries", 5)
             if isinstance(n, int) and n >= 5:
                 return n
-            logger.warning("best_of_n_retries=%s (< 5), using default 5", n)
+            logger.warning("best_of_n_retries=%s (below minimum), using default", n)
     except Exception as e:
-        logger.warning("Failed to read best_of_n_retries from config: %s, using default 5", e)
+        logger.warning("Failed to read best_of_n_retries from config: %s, using default", e)
     return 5
 
 
@@ -206,9 +234,21 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     # L5 v50: 娉ㄥ唽椤圭洰鏀诲嚮鎶€鏈埌 PyRIT 鍘熺敓 AttackTechniqueRegistry
     # 浣?TextAdaptive 鑳借嚜鍔ㄥ彂鐜?Crescendo/TAP/PAIR/BestOfN 绛夋妧鏈?
     # arXiv:2407.01232 鈥?AttackTechniqueRegistry + tag 鏌ヨ鑷姩鍙戠幇
+    # R6 §6.4b: 传入 config_overrides 使 technique_registry 从 SSOT 读取攻击参数
+    _tech_cfg: dict[str, Any] = {}
+    try:
+        import yaml as _yaml
+        _cfg_path = _PROJECT_ROOT / "config" / "defaults.yaml"
+        if _cfg_path.exists():
+            with open(_cfg_path, encoding="utf-8") as _f:
+                _tech_cfg = _yaml.safe_load(_f) or {}
+    except Exception as _e:
+        logger.warning("Failed to load defaults.yaml for technique config: %s", _e)
+
     registered = register_project_techniques(
         adversarial_target=ctx.adversarial_target,
         converter_target=ctx.converter_target,
+        config_overrides=_tech_cfg,
     )
     if registered:
         logger.info(
@@ -324,6 +364,13 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         params.get("max_retries", 1),
     )
 
+    # 进度展示: 计时开始
+    _adaptive_start = time.monotonic()
+    try:
+        from utils.display import print_strike_phase_summary as _adaptive_summ
+    except Exception:
+        _adaptive_summ = None
+
     timeout = getattr(ctx.args, "timeout", 1200) or 1200
     try:
         result = await asyncio.wait_for(
@@ -334,6 +381,24 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         logger.warning("TextAdaptive: timed out after %ds, retrieving partial results", timeout)
         from strike.executor import _retrieve_partial_results
         await _retrieve_partial_results(ctx, "text_adaptive")
+
+        # 进度展示: 超时路径输出摘要
+        if _adaptive_summ is not None:
+            _elapsed = time.monotonic() - _adaptive_start
+            try:
+                _adaptive_summ(
+                    ctx,
+                    total_results=sum(len(v) for v in ctx.attack_results.values()),
+                    total_success=sum(
+                        1 for results in ctx.attack_results.values()
+                        for r in results
+                        if _adaptive_outcome_success(r)
+                    ),
+                    elapsed_seconds=_elapsed,
+                )
+            except Exception:
+                pass
+
         # R8 sec8.5: timeout 路径编排日志 — 记录 partial results 上下文
         # 主编排日志由 main.py 第 871 行统一添加, 此处仅记录 timeout 决策
         ctx.orchestration_log.append({
@@ -358,6 +423,20 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             "output": {},
             "reasoning": "TextAdaptive failed, falling back to multi-path executor.py",
         })
+
+        # 进度展示: fallback 路径输出摘要
+        if _adaptive_summ is not None:
+            _elapsed = time.monotonic() - _adaptive_start
+            try:
+                _adaptive_summ(
+                    ctx,
+                    total_results=sum(len(v) for v in ctx.attack_results.values()),
+                    total_success=0,
+                    elapsed_seconds=_elapsed,
+                )
+            except Exception:
+                pass
+
         from strike.executor import execute_attacks
         return await execute_attacks(ctx)
 
@@ -401,6 +480,24 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             "adaptive technique selection with registered AttackTechniqueFactories"
         ),
     })
+
+    # 进度展示: 成功路径输出摘要
+    if _adaptive_summ is not None:
+        _elapsed = time.monotonic() - _adaptive_start
+        try:
+            _adaptive_summ(
+                ctx,
+                total_results=sum(len(v) for v in ctx.attack_results.values()),
+                total_success=sum(
+                    1 for results in ctx.attack_results.values()
+                    for r in results
+                    if _adaptive_outcome_success(r)
+                ),
+                elapsed_seconds=_elapsed,
+            )
+        except Exception:
+            pass
+
     return ctx.attack_results
 
 
@@ -510,121 +607,132 @@ async def _best_of_n_retry(
     # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2402.01135) 鈥?N=5 ASR 1.8x, token 鎴愭湰浠?N=10 鐨?50%
     # R10 override: N鈮? 鍗虫弧瓒宠€冭瘯瑕佹眰
     N_RETRIES = _get_best_of_n_retries(ctx)
+
+    # L5 v54: n_persuasion 从 config 读取 (bon_persuasion_count), 默认 3
+    n_persuasion = _get_config_int(ctx, "bon_persuasion_count", 3)
+    n_persuasion = max(0, min(n_persuasion, N_RETRIES - 1))  # 确保 n_variation >= 1
+
     from strike.executor import _build_scoring_config
     scoring_config = _build_scoring_config(ctx)
 
+    # L5 v54: 并发信号量控制, 防止 API 限流
+    # R7 SSOT: 与 max_concurrency 保持一致的并发限制
+    _max_parallel = get_effective_concurrency(ctx)
+    _semaphore = asyncio.Semaphore(_max_parallel)
+
     logger.info(
         "L5 v25: Best-of-N parallel retry: %d failed objectives, "
-        "launching in parallel (asyncio.gather)",
-        len(failed_objectives),
+        "launching in parallel (asyncio.gather, semaphore=%d)",
+        len(failed_objectives), _max_parallel,
     )
 
     async def _best_of_n_single(
         objective: str,
     ) -> tuple[str, list[Any]]:
         """瀵瑰崟涓?objective 鎵ц Best-of-N 閲嶈瘯銆?"""
-        logger.info("Best-of-N retry for: %s...", objective[:60])
+        async with _semaphore:
+            logger.info("Best-of-N retry for: %s...", objective[:60])
 
-        try:
-            n_persuasion = 3
-            n_variation = N_RETRIES - n_persuasion
-            converter_configurations: list[Any] = []
+            try:
+                _n_persuasion = n_persuasion
+                _n_variation = N_RETRIES - _n_persuasion
+                converter_configurations: list[Any] = []
 
-            if ctx.converter_target is not None:
-                try:
-                    from arm.converter_chains import _conv
-                    PersuasionConverter = _conv("PersuasionConverter")
-                    for _ in range(n_persuasion):
-                        persuasion_converter = PersuasionConverter(
-                            converter_target=ctx.converter_target,
-                            persuasion_technique="authority_endorsement",
-                        )
-                        converter_configurations.append(
-                            ConverterConfiguration(
-                                converters=[persuasion_converter],
+                if ctx.converter_target is not None:
+                    try:
+                        from arm.converter_chains import _conv
+                        PersuasionConverter = _conv("PersuasionConverter")
+                        for _ in range(_n_persuasion):
+                            persuasion_converter = PersuasionConverter(
+                                converter_target=ctx.converter_target,
+                                persuasion_technique="authority_endorsement",
                             )
+                            converter_configurations.append(
+                                ConverterConfiguration(
+                                    converters=[persuasion_converter],
+                                )
+                            )
+                        logger.info(
+                            "L5 v35: Best-of-N: %d Persuasion(authority) + %d Variation "
+                            "(all single-converter paths, no serial stacking)",
+                            _n_persuasion, _n_variation,
                         )
-                    logger.info(
-                        "L5 v35: Best-of-N: %d Persuasion(authority) + %d Variation "
-                        "(all single-converter paths, no serial stacking)",
-                        n_persuasion, n_variation,
+                    except Exception as e:
+                        logger.warning("L5 v34: Persuasion failed, using all Variation: %s", e)
+                        _n_variation = N_RETRIES
+                else:
+                    _n_variation = N_RETRIES
+
+                for _ in range(_n_variation):
+                    var_conv = VariationConverter(
+                        converter_target=ctx.converter_target,
                     )
-                except Exception as e:
-                    logger.warning("L5 v34: Persuasion failed, using all Variation: %s", e)
-                    n_variation = N_RETRIES
-            else:
-                n_variation = N_RETRIES
+                    converter_configurations.append(
+                        ConverterConfiguration(converters=[var_conv])
+                    )
 
-            for _ in range(n_variation):
-                var_conv = VariationConverter(
-                    converter_target=ctx.converter_target,
-                )
-                converter_configurations.append(
-                    ConverterConfiguration(converters=[var_conv])
+                converter_config = AttackConverterConfig(
+                    request_converters=converter_configurations,
                 )
 
-            converter_config = AttackConverterConfig(
-                request_converters=converter_configurations,
-            )
-
-            # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
-            # R2 (PyRIT Native First): prepended_conversation_config controls converter
-            # role application and non-chat target normalization natively
-            from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
-            bon_prepended_config = _build_prepended_config_safe(ctx)
-            attack = PromptSendingAttack(
-                objective_target=ctx.objective_target,
-                attack_scoring_config=scoring_config,
-                attack_converter_config=converter_config,
-                prepended_conversation_config=bon_prepended_config,
-            )
-
-            executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
-
-            seed_groups = [
-                AttackSeedGroup(seeds=[SeedObjective(value=objective)]),
-            ]
-
-            bon_executor_kwargs: dict[str, Any] = {
-                "attack": attack,
-                "seed_groups": seed_groups,
-                "return_partial_on_failure": True,
-            }
-            # v53: prepended_conversation_config passed natively via PromptSendingAttack constructor
-            retry_result = await asyncio.wait_for(
-                executor.execute_attack_from_seed_groups_async(**bon_executor_kwargs),
-                timeout=300,
-            )
-
-            results = list(retry_result.completed_results)
-            if results:
-                logger.info(
-                    "Best-of-N retry: %d successes for objective: %s...",
-                    len(results),
-                    objective[:60],
+                # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
+                # R2 (PyRIT Native First): prepended_conversation_config controls converter
+                # role application and non-chat target normalization natively
+                from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
+                bon_prepended_config = _build_prepended_config_safe(ctx)
+                attack = PromptSendingAttack(
+                    objective_target=ctx.objective_target,
+                    attack_scoring_config=scoring_config,
+                    attack_converter_config=converter_config,
+                    prepended_conversation_config=bon_prepended_config,
                 )
-            else:
-                logger.info(
-                    "Best-of-N retry: all %d variations failed for: %s...",
-                    N_RETRIES,
-                    objective[:60],
-                )
-            return objective, results
 
-        except asyncio.TimeoutError:
-            logger.warning("Best-of-N retry timed out for: %s...", objective[:60])
-            return objective, []
-        except Exception as e:
-            exc_str = str(e).lower()
-            if "integrityerror" in exc_str or "unique constraint" in exc_str:
-                logger.warning(
-                    "Best-of-N retry: IntegrityError for %s... (parallel write conflict), "
-                    "result lost",
-                    objective[:60],
+                executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+
+                seed_groups = [
+                    AttackSeedGroup(seeds=[SeedObjective(value=objective)]),
+                ]
+
+                bon_executor_kwargs: dict[str, Any] = {
+                    "attack": attack,
+                    "seed_groups": seed_groups,
+                    "return_partial_on_failure": True,
+                }
+                # v53: prepended_conversation_config passed natively via PromptSendingAttack constructor
+                retry_result = await asyncio.wait_for(
+                    executor.execute_attack_from_seed_groups_async(**bon_executor_kwargs),
+                    timeout=300,
                 )
-            else:
-                logger.warning("Best-of-N retry failed for: %s: %s", objective[:60], e)
-            return objective, []
+
+                results = list(retry_result.completed_results)
+                if results:
+                    logger.info(
+                        "Best-of-N retry: %d successes for objective: %s...",
+                        len(results),
+                        objective[:60],
+                    )
+                else:
+                    logger.info(
+                        "Best-of-N retry: all %d variations failed for: %s...",
+                        N_RETRIES,
+                        objective[:60],
+                    )
+                return objective, results
+
+            except asyncio.TimeoutError:
+                logger.warning("Best-of-N retry timed out for: %s...", objective[:60])
+                return objective, []
+            except Exception as e:
+                exc_str = str(e).lower()
+                if "integrityerror" in exc_str or "unique constraint" in exc_str:
+                    logger.warning(
+                        "Best-of-N retry: IntegrityError for %s... (parallel write conflict), "
+                        "result lost",
+                        objective[:60],
+                    )
+                else:
+                    logger.warning("Best-of-N retry failed for: %s: %s", objective[:60], e)
+                return objective, []
 
     parallel_results = await asyncio.gather(
         *[_best_of_n_single(obj) for obj, _ in failed_objectives],
@@ -639,6 +747,16 @@ async def _best_of_n_retry(
         if isinstance(res, tuple):
             objective, results = res
             if results:
+                # v52: Backfill converter info to results
+                _bon_converter_names = "PersuasionConverter:authority_endorsement, VariationConverter"
+                for r in results:
+                    existing_meta = getattr(r, "metadata", {}) or {}
+                    if "converter" not in existing_meta:
+                        existing_meta["converter"] = _bon_converter_names
+                        try:
+                            r.metadata = existing_meta
+                        except Exception:
+                            pass
                 ctx.attack_results.setdefault("best_of_n_retry", []).extend(results)
             else:
                 still_failed.append(objective)

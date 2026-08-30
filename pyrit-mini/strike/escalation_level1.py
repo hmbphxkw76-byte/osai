@@ -31,7 +31,10 @@ async def _run_cot_hijack(
     Returns:
         CoT 鍔寔鏀诲嚮缁撴灉銆?
     """
-    from strike.cot_hijack import run_cot_hijack_attack
+    # L5 fix: strike.cot_hijack module does not exist
+    # Use many_shot_cot_executor which uses PyRIT native ManyShotJailbreakAttack
+    # arXiv:2307.10292 (CoT Hijack) + arXiv:2402.05124 (Many-Shot Jailbreak)
+    from strike.many_shot_cot_executor import run_many_shot_cot_attack
 
     try:
         # L5 v17: CoT Hijack 闆嗘垚 MTOS 澶氳疆閫夌鎺掑簭
@@ -40,9 +43,12 @@ async def _run_cot_hijack(
         # L5 v36: suitable_for 鍒嗗彂 + technique_name='cot_hijack' 浜ゅ弶鍏堥獙
         cot_objectives = _filter_by_suitable_for(objectives, ctx, "cot_hijack")
         mtos_objectives = _apply_mtos_ranking(cot_objectives, ctx, technique_name="cot_hijack")
-        results = await run_cot_hijack_attack(ctx, mtos_objectives, max_rounds=4)
+        results = await run_many_shot_cot_attack(ctx, mtos_objectives)
+        # Normalize key for escalation chain compatibility
+        if 'many_shot_jailbreak' in results and 'cot_hijack' not in results:
+            results['cot_hijack'] = results['many_shot_jailbreak']
         logger.info(
-            "CoT Hijack completed: %d results",
+            "CoT Hijack (via ManyShot+CoT) completed: %d results",
             len(results.get("cot_hijack", [])),
         )
         return results

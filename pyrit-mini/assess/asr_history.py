@@ -57,7 +57,8 @@ def save_asr_history(
                 objective = getattr(result, "objective", "") or ""
                 if not objective:
                     continue
-                prefix = objective[:100]  # 浣跨敤鍓?00瀛楃浣滀负绉嶅瓙鏍囪瘑
+                from arm.seed_ranking import _make_seed_key
+                prefix = _make_seed_key(objective)  # SHA256 hash as seed key (collision-resistant)
                 if prefix not in seed_stats:
                     seed_stats[prefix] = {"success": 0, "total": 0}
                 seed_stats[prefix]["total"] += 1
@@ -87,8 +88,8 @@ def save_asr_history(
                 if isinstance(meta, dict):
                     gcg_suffix = str(meta.get("gcg_suffix", ""))
                 if gcg_suffix:
-                    # 浣跨敤鍓?0瀛楃浣滀负閿?(涓?escalation.py 涓帓搴忛€昏緫涓€鑷?
-                    gcg_key = gcg_suffix[:40]
+                    # R9: SHA256 hash as GCG suffix key (collision-resistant)
+                    gcg_key = _make_seed_key(gcg_suffix)
                     if gcg_key not in gcg_suffix_attempts:
                         gcg_suffix_attempts[gcg_key] = 0
                         gcg_suffix_asr[gcg_key] = 0.0

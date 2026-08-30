@@ -216,10 +216,18 @@ async def check_and_escalate(
         "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through L1-L4 chain",
     })
 
-    # 3. 鎵ц鍗囩骇绛栫暐 鈥?L5 v42 骞惰鍗囩骇閾?
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰鍗囩骇 via asyncio.gather
-    # Rule 3 L5 v10: Crescendo+TAP+PAIR 骞惰, then GCG+CAIR 骞惰
-    # Rule 10: 瀹屾暣鍗囩骇閾?Crescendo 鈫?TAP 鈭?PAIR 鈫?GCG 鈭?CAIR 鈫?native
+    # 3. 执行升级策略 — L5 v42 并行升级链
+    # --escalation-levels 支持用户指定 L1-L4 任意组合 (如 --escalation-levels L2,L4)
+    # 数据流: config.py --escalation-levels → _parse_escalation_levels → args.escalation_levels_parsed → ctx.args
+    # None = 完整 L1→L2→L3→L4 链 (向后兼容), set[int] = 仅执行指定级别
+    _esc_levels = getattr(ctx.args, "escalation_levels_parsed", None)
+    if _esc_levels is not None:
+        _levels_str = ", ".join(f"L{i}" for i in sorted(_esc_levels))
+        logger.info("Escalation levels selected: %s (from --escalation-levels)", _levels_str)
+    else:
+        _levels_str = "L1→L2→L3→L4 (full chain)"
+        logger.info("Escalation levels: full chain (no --escalation-levels specified)")
+
     escalated_results: dict[str, list] = {}
 
     # 鈹€鈹€ Level 1: RedTeaming + CoT + Crescendo + TAP + PAIR (骞惰) 鈹€鈹€
@@ -238,50 +246,61 @@ async def check_and_escalate(
             logger.warning("%s failed: %s", name, e)
             return {}
 
-    l1_results = await asyncio.gather(
-        _safe_call(_run_red_teaming(ctx, failed_objectives), "RedTeaming"),
-        _safe_call(_run_cot_hijack(ctx, failed_objectives), "CoT Hijack"),
-        _safe_call(_run_crescendo(ctx, failed_objectives), "Crescendo"),
-        _safe_call(_run_tap(ctx, failed_objectives), "TAP"),
-        _safe_call(_run_pair(ctx, failed_objectives), "PAIR"),
-        return_exceptions=False,
-    )
-    for r in l1_results:
-        escalated_results.update(r)
-
-    # V2: Level 1 鍚庣殑 ASR 妫€鏌ョ偣 鈥?涓棿閫€鍑洪€昏緫
-    # arXiv:2406.12609 鈥?Lattner et al.: 骞惰鍗囩骇閾句腑闂撮€€鍑?
-    # L1 (Crescendo+TAP+PAIR) 鍚?ASR 鈮?post_l1_exit_threshold 鈫?璺宠繃 L2-L4
-    # 鑺傜渷 60-80% 鍚庣画鍗囩骇 token 鍜屾椂闂? 鍚屾椂淇濇寔鏀诲嚮鏁堟灉
-    #
-    # Rule 11 integration: 瀵?L1 鏂板缁撴灉鍋氬閲忚瘎鍒?(reset_stats=False)
-    # 纭繚涓棿閫€鍑烘鏌ョ偣鑳借鍒?_precomputed_outcome 缂撳瓨
-    try:
-        from assess.asr_tracker import precompute_outcomes_async
-        await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
-        logger.info("Rule 11: L1 incremental precompute completed")
-    except Exception as e:
-        logger.warning("Rule 11: L1 incremental precompute failed: %s 鈥?using cached outcomes", e)
-
-    post_l1_asr = _compute_overall_asr(
-        {**attack_results, **escalated_results}
-    )
-    logger.info("Post-L1 ASR: %.1f%% (exit threshold: %.1f%%)", post_l1_asr, _l1_exit)
-
-    if post_l1_asr >= _l1_exit:
-        logger.info(
-            "Post-L1 ASR %.1f%% >= exit threshold %.1f%% — skipping L2-L4 escalation "
-           "(saves ~60-80%% token/time per arXiv:2406.12609)",
-            post_l1_asr, _l1_exit,
+    _run_l1 = _esc_levels is None or 1 in _esc_levels
+    if _run_l1:
+        logger.info("Executing L1: RedTeaming + CoT + Crescendo + TAP + PAIR")
+        l1_results = await asyncio.gather(
+            _safe_call(_run_red_teaming(ctx, failed_objectives), "RedTeaming"),
+            _safe_call(_run_cot_hijack(ctx, failed_objectives), "CoT Hijack"),
+            _safe_call(_run_crescendo(ctx, failed_objectives), "Crescendo"),
+            _safe_call(_run_tap(ctx, failed_objectives), "TAP"),
+            _safe_call(_run_pair(ctx, failed_objectives), "PAIR"),
+            return_exceptions=False,
         )
-        # 鍚堝苟宸叉湁缁撴灉骞惰繑鍥?
-        for technique, results in escalated_results.items():
-            if technique in attack_results:
-                attack_results[technique].extend(results)
-            else:
-                attack_results[technique] = results
-        _analyze_escalation_results(attack_results, overall_asr)
-        return attack_results
+        for r in l1_results:
+            escalated_results.update(r)
+    else:
+        logger.info("L1 skipped (--escalation-levels excludes L1)")
+
+    # V2: Level 1 post-check — intermediate exit logic
+    # arXiv:2406.12609 — Lattner et al.: parallel escalation chain intermediate exit
+    # L1 (Crescendo+TAP+PAIR) post ASR >= post_l1_exit_threshold -> skip L2-L4
+    # Saves 60-80% subsequent escalation token and time
+    #
+    # --escalation-levels interaction: only check exit if L1 ran AND
+    # at least one subsequent level (L2/L3/L4) is selected.
+    # If L1 was skipped, no L1 exit check.
+    #
+    # Rule 11 integration: incremental precompute for L1 results
+    if _run_l1 and escalated_results:
+        try:
+            from assess.asr_tracker import precompute_outcomes_async
+            await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
+            logger.info("Rule 11: L1 incremental precompute completed")
+        except Exception as e:
+            logger.warning("Rule 11: L1 incremental precompute failed: %s", e)
+
+    _has_post_l1_levels = _esc_levels is None or any(i in _esc_levels for i in (2, 3, 4))
+    if _run_l1 and _has_post_l1_levels:
+        post_l1_asr = _compute_overall_asr(
+            {**attack_results, **escalated_results}
+        )
+        logger.info("Post-L1 ASR: %.1f%% (exit threshold: %.1f%%)", post_l1_asr, _l1_exit)
+
+        if post_l1_asr >= _l1_exit:
+            logger.info(
+                "Post-L1 ASR %.1f%% >= exit threshold %.1f%% -- skipping remaining escalation "
+                "(saves ~60-80%% token/time per arXiv:2406.12609)",
+                post_l1_asr, _l1_exit,
+            )
+            for technique, results in escalated_results.items():
+                if technique in attack_results:
+                    attack_results[technique].extend(results)
+                else:
+                    attack_results[technique] = results
+            _backfill_escalation_converter_metadata(escalated_results)
+            _analyze_escalation_results(attack_results, overall_asr)
+            return attack_results
 
     # 鈹€鈹€ Level 2: GCG + CAIR + Best-of-N + Encoded Injection (骞惰) 鈹€鈹€
     # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰绛栫暐
@@ -290,47 +309,66 @@ async def check_and_escalate(
     #   - Chao et al. (arXiv:2402.01135) Best-of-N ASR 2.5x
     #   - Zou et al. (arXiv:2307.08673) 搂4.5 缂栫爜缁曡繃 ASR +10-20%
     # L5 v52: 鏂板 CAIR 鍒?L2 骞惰 鈥?瀹屾垚 Rule 10 瀹屾暣鍗囩骇閾?
-    #   GCG 鈭?CAIR 骞惰, CAIR 鏍规嵁鐩爣鎷掔粷妯″紡鍔ㄦ€佸垏鎹㈢瓥鐣?
-    l2_results = await asyncio.gather(
-        _safe_call(_run_gcg(ctx, failed_objectives), "GCG"),
-        _safe_call(_run_cair(ctx, failed_objectives), "CAIR"),
-        _safe_call(_run_best_of_n(ctx, failed_objectives), "Best-of-N"),
-        _safe_call(_run_encoded_injection(ctx, failed_objectives), "Encoded Injection"),
-        return_exceptions=False,
-    )
-    for r in l2_results:
-        escalated_results.update(r)
-
-    # V2: Level 2 鍚庣殑 ASR 妫€鏌ョ偣 鈥?涓棿閫€鍑洪€昏緫
-    # L2 (GCG+Best-of-N+Encoded) 鍚?ASR 鈮?post_l2_exit_threshold 鈫?璺宠繃 L3-L4
-    # 鑺傜渷 40-50% 鍚庣画鍗囩骇 token 鍜屾椂闂?
-    #
-    # Rule 11 integration: 瀵?L2 鏂板缁撴灉鍋氬閲忚瘎鍒?(reset_stats=False)
-    try:
-        from assess.asr_tracker import precompute_outcomes_async
-        await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
-        logger.info("Rule 11: L2 incremental precompute completed")
-    except Exception as e:
-        logger.warning("Rule 11: L2 incremental precompute failed: %s 鈥?using cached outcomes", e)
-
-    post_l2_asr = _compute_overall_asr(
-        {**attack_results, **escalated_results}
-    )
-    logger.info("Post-L2 ASR: %.1f%% (exit threshold: %.1f%%)", post_l2_asr, _l2_exit)
-
-    if post_l2_asr >= _l2_exit:
-        logger.info(
-            "Post-L2 ASR %.1f%% >= exit threshold %.1f%% — skipping L3-L4 escalation "
-            "(saves ~40-50%% token/time per arXiv:2406.12609)",
-            post_l2_asr, _l2_exit,
+    # Level 2: GCG + CAIR + Best-of-N + Encoded Injection (parallel)
+    # arXiv:2406.12609 -- Lattner et al.: parallel strategy
+    #   - Zou et al. (arXiv:2307.08673) GCG ASR 60-88%
+    #   - Chao et al. (arXiv:2310.08419) CAIR context-aware iterative optimization
+    #   - Chao et al. (arXiv:2402.01135) Best-of-N ASR 2.5x
+    #   - Zou et al. (arXiv:2307.08673) 4.5 encoded bypass ASR +10-20%
+    # L5 v52: CAIR integrated to L2 parallel -- completes Rule 10 full escalation chain
+    _run_l2 = _esc_levels is None or 2 in _esc_levels
+    if _run_l2:
+        logger.info("Executing L2: GCG + CAIR + Best-of-N + Encoded Injection")
+        l2_results = await asyncio.gather(
+            _safe_call(_run_gcg(ctx, failed_objectives), "GCG"),
+            _safe_call(_run_cair(ctx, failed_objectives), "CAIR"),
+            _safe_call(_run_best_of_n(ctx, failed_objectives), "Best-of-N"),
+            _safe_call(_run_encoded_injection(ctx, failed_objectives), "Encoded Injection"),
+            return_exceptions=False,
         )
-        for technique, results in escalated_results.items():
-            if technique in attack_results:
-                attack_results[technique].extend(results)
-            else:
-                attack_results[technique] = results
-        _analyze_escalation_results(attack_results, overall_asr)
-        return attack_results
+        for r in l2_results:
+            escalated_results.update(r)
+    else:
+        logger.info("L2 skipped (--escalation-levels excludes L2)")
+
+    # V2: Level 2 post-check -- intermediate exit logic
+    # L2 (GCG+Best-of-N+Encoded) post ASR >= post_l2_exit_threshold -> skip L3-L4
+    # Saves 40-50% subsequent escalation token and time
+    #
+    # --escalation-levels interaction: only check exit if L2 ran AND
+    # at least one subsequent level (L3/L4) is selected.
+    # If L2 was skipped, no L2 exit check.
+    #
+    # Rule 11 integration: incremental precompute for L2 results
+    if _run_l2 and escalated_results:
+        try:
+            from assess.asr_tracker import precompute_outcomes_async
+            await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
+            logger.info("Rule 11: L2 incremental precompute completed")
+        except Exception as e:
+            logger.warning("Rule 11: L2 incremental precompute failed: %s", e)
+
+    _has_post_l2_levels = _esc_levels is None or any(i in _esc_levels for i in (3, 4))
+    if _run_l2 and _has_post_l2_levels:
+        post_l2_asr = _compute_overall_asr(
+            {**attack_results, **escalated_results}
+        )
+        logger.info("Post-L2 ASR: %.1f%% (exit threshold: %.1f%%)", post_l2_asr, _l2_exit)
+
+        if post_l2_asr >= _l2_exit:
+            logger.info(
+                "Post-L2 ASR %.1f%% >= exit threshold %.1f%% -- skipping L3-L4 escalation "
+                "(saves ~40-50%% token/time per arXiv:2406.12609)",
+                post_l2_asr, _l2_exit,
+            )
+            for technique, results in escalated_results.items():
+                if technique in attack_results:
+                    attack_results[technique].extend(results)
+                else:
+                    attack_results[technique] = results
+            _backfill_escalation_converter_metadata(escalated_results)
+            _analyze_escalation_results(attack_results, overall_asr)
+            return attack_results
 
     # 鈹€鈹€ Level 3: Multi-Model + SkeletonKey + Many-Shot+CoT (骞惰) 鈹€鈹€
     # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰绛栫暐
@@ -338,51 +376,62 @@ async def check_and_escalate(
     #   - Hanna et al. (arXiv:2406.18112) SkeletonKey ASR 80-95%
     #   - arXiv:2402.05124 + arXiv:2307.10292 Many-Shot+CoT 鍙岄噸鎸熸寔
 
-    # Multi-Model 闇€瑕佹鏌?extra_targets
-    async def _run_multi_model_safe() -> dict[str, list]:
-        try:
-            extra_targets = list(getattr(ctx, "extra_adversarial_targets", []) or [])
-            if extra_targets:
-                return await _run_multi_model_escalation(ctx, failed_objectives, extra_targets)
-            else:
-                logger.info("Multi-model escalation skipped: no extra adversarial targets")
+    _run_l3 = _esc_levels is None or 3 in _esc_levels
+    if _run_l3:
+        logger.info("Executing L3: Multi-Model + SkeletonKey + Many-Shot+CoT + Chunked")
+
+        # Multi-Model needs to check extra_targets
+        async def _run_multi_model_safe() -> dict[str, list]:
+            try:
+                extra_targets = list(getattr(ctx, "extra_adversarial_targets", []) or [])
+                if extra_targets:
+                    return await _run_multi_model_escalation(ctx, failed_objectives, extra_targets)
+                else:
+                    logger.info("Multi-model escalation skipped: no extra adversarial targets")
+                    return {}
+            except Exception as e:
+                logger.warning("Multi-model escalation failed: %s", e)
                 return {}
-        except Exception as e:
-            logger.warning("Multi-model escalation failed: %s", e)
-            return {}
 
-    async def _run_many_shot_cot_safe() -> dict[str, list]:
-        try:
-            from strike.many_shot_cot_executor import run_many_shot_cot_attack
-            return await run_many_shot_cot_attack(ctx, failed_objectives)
-        except Exception as e:
-            logger.warning("Many-Shot+CoT escalation failed: %s", e)
-            return {}
+        async def _run_many_shot_cot_safe() -> dict[str, list]:
+            try:
+                from strike.many_shot_cot_executor import run_many_shot_cot_attack
+                return await run_many_shot_cot_attack(ctx, failed_objectives)
+            except Exception as e:
+                logger.warning("Many-Shot+CoT escalation failed: %s", e)
+                return {}
 
-    l3_results = await asyncio.gather(
-        _run_multi_model_safe(),
-        _safe_call(_run_skeleton_key_native(ctx, failed_objectives), "SkeletonKey"),
-        _run_many_shot_cot_safe(),
-        _safe_call(_run_multi_prompt_sending(ctx, failed_objectives), "MultiPromptSending"),
-        _safe_call(_run_chunked_request(ctx, failed_objectives), "ChunkedRequest"),
-        return_exceptions=False,
-    )
-    for r in l3_results:
-        escalated_results.update(r)
+        l3_results = await asyncio.gather(
+            _run_multi_model_safe(),
+            _safe_call(_run_skeleton_key_native(ctx, failed_objectives), "SkeletonKey"),
+            _run_many_shot_cot_safe(),
+            _safe_call(_run_multi_prompt_sending(ctx, failed_objectives), "MultiPromptSending"),
+            _safe_call(_run_chunked_request(ctx, failed_objectives), "ChunkedRequest"),
+            return_exceptions=False,
+        )
+        for r in l3_results:
+            escalated_results.update(r)
+    else:
+        logger.info("L3 skipped (--escalation-levels excludes L3)")
 
     # 鈹€鈹€ Level 4: Rogue Agent + Embedding Inversion + MCP/RAG (骞惰) 鈹€鈹€
     # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰绛栫暐
     #   - OWASP ASI10, Eidam et al. (arXiv:2407.16924) A2A 淇′换閾?
     #   - Morris et al. (arXiv:2310.06870) 宓屽叆鍙嶈浆 ASR 85-92%
     #   - Greshake et al. (arXiv:2302.12173) 闂存帴娉ㄥ叆
-    l4_results = await asyncio.gather(
-        _safe_call(_run_rogue_agent(ctx, failed_objectives), "Rogue Agent"),
-        _safe_call(_run_embedding_inversion(ctx, failed_objectives), "Embedding Inversion"),
-        _safe_call(_run_mcp_rag_attacks(ctx, failed_objectives), "MCP/RAG"),
-        return_exceptions=False,
-    )
-    for r in l4_results:
-        escalated_results.update(r)
+    _run_l4 = _esc_levels is None or 4 in _esc_levels
+    if _run_l4:
+        logger.info("Executing L4: Rogue Agent + Embedding Inversion + MCP/RAG")
+        l4_results = await asyncio.gather(
+            _safe_call(_run_rogue_agent(ctx, failed_objectives), "Rogue Agent"),
+            _safe_call(_run_embedding_inversion(ctx, failed_objectives), "Embedding Inversion"),
+            _safe_call(_run_mcp_rag_attacks(ctx, failed_objectives), "MCP/RAG"),
+            return_exceptions=False,
+        )
+        for r in l4_results:
+            escalated_results.update(r)
+    else:
+        logger.info("L4 skipped (--escalation-levels excludes L4)")
 
     # 4. 鍚堝苟缁撴灉
     for technique, results in escalated_results.items():
@@ -412,7 +461,10 @@ async def check_and_escalate(
     # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?閬垮厤閲嶅璇勫垎鏄?token 鏁堢巼鐨勬牳蹇?
     pass
 
-    # 6. 鍒嗘瀽鍗囩骇缁撴灉
+    # 6. v52: 统一 converter metadata 回填 — 确保所有 escalation 结果都有 converter 字段
+    _backfill_escalation_converter_metadata(escalated_results)
+
+    # 7. 鍒嗘瀽鍗囩骇缁撴灉
     _analyze_escalation_results(attack_results, overall_asr)
 
     # 记录升级完成到编排日志
@@ -542,3 +594,68 @@ def _get_severity(result) -> str:
     metadata = getattr(result, "metadata", None) or {}
     return metadata.get("severity", "medium")
 
+
+# v52: Technique → converter label 映射
+# L1 多轮原生攻击不使用 converter，但需要标注以保持数据流一致性
+_ESCALATION_CONVERTER_LABELS: dict[str, str] = {
+    "red_teaming": "none (native multi-turn)",
+    "crescendo": "none (native multi-turn)",
+    "tap": "none (native multi-turn)",
+    "pair": "none (native multi-turn)",
+    "gcg": "none (GCG suffix)",
+    "cair": "none (CAIR context-aware)",
+    "best_of_n": "none (Best-of-N sampling)",
+    "encoded_injection": "none (encoded injection stub)",
+    "multi_model_pair": "none (multi-model pair)",
+    "skeleton_key_native": "none (skeleton key native)",
+    "many_shot_cot": "none (many-shot CoT)",
+    "chunked_request": "none (chunked request)",
+    "multi_prompt_sending": "none (multi-prompt sending)",
+    "rogue_agent": "none (rogue agent)",
+    "embedding_inversion": "none (embedding inversion)",
+    "mcp_rag": "none (MCP/RAG)",
+}
+
+
+def _backfill_escalation_converter_metadata(
+    escalated_results: dict[str, list[Any]],
+) -> None:
+    """v52: 为所有 escalation 结果回填 converter metadata。
+
+    确保数据流一致性: AttackResult.metadata["converter"] → evidence_extract → report.converter_chain。
+    如果结果已有 converter 字段则跳过（不覆盖 executor.py 已回填的值）。
+
+    Args:
+        escalated_results: {technique_name: [AttackResult, ...]} 格式的升级结果。
+    """
+    backfilled = 0
+    for technique_name, results in escalated_results.items():
+        if not results:
+            continue
+        converter_label = _ESCALATION_CONVERTER_LABELS.get(
+            technique_name,
+            f"none ({technique_name})",
+        )
+        for result in results:
+            try:
+                metadata = getattr(result, "metadata", None)
+                if metadata is None:
+                    metadata = {}
+                if isinstance(metadata, dict):
+                    if "converter" not in metadata:
+                        metadata["converter"] = converter_label
+                        result.metadata = metadata
+                        backfilled += 1
+                else:
+                    # metadata 不是 dict，尝试 setattr
+                    if not hasattr(metadata, "converter"):
+                        setattr(result, "metadata", {"converter": converter_label})
+                        backfilled += 1
+            except Exception:
+                pass
+
+    if backfilled > 0:
+        logger.info(
+            "v52: Backfilled converter metadata to %d escalation results",
+            backfilled,
+        )

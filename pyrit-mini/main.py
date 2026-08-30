@@ -113,6 +113,81 @@ def _signal_handler(signum: int, frame) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 日志双 Handler 分流 — 终端卡片+WARNING, 文件全量 INFO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_LOG_DATEFMT = "%H:%M:%S"
+
+# 全局引用: 当前 FileHandler (多 endpoint 切换时更新路径)
+_current_file_handler: logging.FileHandler | None = None
+_top_level_file_handler: logging.FileHandler | None = None
+
+
+def _configure_logging(output_dir: Path, verbose: bool = False) -> None:
+    """配置双 Handler 分流: 终端只看卡片+WARNING, 文件记录全量 INFO.
+
+    Args:
+        output_dir: 输出目录, pipeline.log 写入此处。
+        verbose: True 时终端也显示 INFO (调试模式)。
+    """
+    global _current_file_handler
+
+    root = logging.getLogger()
+
+    # ── 终端 Handler: 默认 WARNING+, --verbose 时 INFO ──
+    terminal_level = logging.INFO if verbose else logging.WARNING
+    # basicConfig 已创建一个 StreamHandler, 调整其 level
+    for h in root.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            h.setLevel(terminal_level)
+
+    # ── 文件 Handler: 全量 INFO ──
+    log_path = output_dir / "pipeline.log"
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    root.addHandler(file_handler)
+    _current_file_handler = file_handler
+    _top_level_file_handler = file_handler  # L5 fix: keep top-level handler for dual-write
+
+    if verbose:
+        logger.info("--verbose 模式: 终端显示 INFO 级别日志")
+    logger.info("Pipeline log → %s", log_path)
+
+
+def _switch_log_file(output_dir: Path) -> None:
+    """切换文件日志到新的 output_dir (多 endpoint 场景).
+
+    L5 fix: 保持顶层 pipeline.log 继续接收日志 (dual-write),
+    同时在新目录添加 per-endpoint pipeline.log。
+    终端 Handler 不变。
+    """
+    global _current_file_handler
+
+    root = logging.getLogger()
+
+    # 移除旧 per-endpoint FileHandler (顶层 handler 保留)
+    if _current_file_handler is not None and _current_file_handler is not _top_level_file_handler:
+        try:
+            _current_file_handler.flush()
+        except Exception:
+            pass
+        _current_file_handler.close()
+        root.removeHandler(_current_file_handler)
+
+    # 添加新 per-endpoint FileHandler
+    log_path = output_dir / "pipeline.log"
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    root.addHandler(file_handler)
+    _current_file_handler = file_handler
+
+    logger.info("Pipeline log switched → %s", log_path)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 攻击链路编排器 — 6 阶段完整链路 (recon→arm→strike→escalate→assess→report)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -134,21 +209,19 @@ async def run(argv: list[str] | None = None) -> None:
         → 对每个 endpoint 执行完整 6 阶段深度攻击链路
         → 最终汇总联合 ASR (arXiv:2310.08419 — 1 - ∏(1 - ASRᵢ))
     """
-    # ── 日志配置: 压制第三方噪音, 突出关键信息 ──
-    # 自身模块: INFO 级别, 带时间戳
-    # 第三方库: 压制到 WARNING+ (Alembic/PyRIT 初始化日志噪音极大)
+    # ── 日志配置: basicConfig 初始化 root (终端 WARNING, 文件 FileHandler 后续添加) ──
+    # 终端: 只显示 WARNING/ERROR (卡片走 print(), 不经 logging)
+    # 文件: {output_dir}/pipeline.log 记录全量 INFO (过程性调试日志)
+    # --verbose: 终端也显示 INFO (调试模式)
+    # 注: FileHandler 在 output_dir 确定后由 _configure_logging() 添加
     logging.basicConfig(
         level=logging.WARNING,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+        format=_LOG_FORMAT,
+        datefmt=_LOG_DATEFMT,
     )
-    # 自身包: 提升到 INFO
-    logging.getLogger("core").setLevel(logging.INFO)
-    logging.getLogger("recon").setLevel(logging.INFO)
-    logging.getLogger("arm").setLevel(logging.INFO)
-    logging.getLogger("strike").setLevel(logging.INFO)
-    logging.getLogger("assess").setLevel(logging.INFO)
-    logging.getLogger("report").setLevel(logging.INFO)
+    # 自身包: 提升到 INFO (写入文件)
+    for _pkg in ("core", "recon", "arm", "strike", "assess", "report"):
+        logging.getLogger(_pkg).setLevel(logging.INFO)
     # 压制噪音库
     logging.getLogger("alembic").setLevel(logging.WARNING)
     logging.getLogger("pyrit").setLevel(logging.WARNING)
@@ -180,6 +253,12 @@ async def run(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     output_dir = get_output_dir(args)
     ensure_output_dir(output_dir)
+
+    # ── 配置文件日志 + --verbose 终端控制 ──
+    # 终端: 默认 WARNING+ (卡片走 print, 不经 logging)
+    # 文件: {output_dir}/pipeline.log 记录全量 INFO
+    # --verbose: 终端也显示 INFO
+    _configure_logging(output_dir, getattr(args, "verbose", False))
 
     # rate_limit 环境变量 (供 target_router 中的 _create_adversarial_target 读取)
     rate_limit = getattr(args, "rate_limit", None)
@@ -330,10 +409,29 @@ async def run(argv: list[str] | None = None) -> None:
             ensure_output_dir(ep_output_dir)
             ctx.output_dir = ep_output_dir
 
+            # 切换文件日志到当前 endpoint 的子目录
+            _switch_log_file(ep_output_dir)
+
             # 独立初始化 PyRIT DB (每 endpoint 独立 DB 避免并发冲突)
-            ep_db_path = ep_output_dir / "db" / "pyrit.db"
-            os.environ["PYRIT_DB_URL"] = f"sqlite:///{ep_db_path}"
+            # setup_environment 内部会: 清除 SQLiteMemory Singleton 缓存 +
+            # 清除 CentralMemory 单例 + 设置 PYRIT_DB_URL + 重新初始化
+            # 不清除 Singleton 缓存时, db_path 参数被忽略, 所有数据写入顶层 DB
             await setup_environment(ep_output_dir)
+
+            # R8 §8.3: setup_environment 清除 CentralMemory 单例后,
+            # memory labels 丢失 — 必须为每个 endpoint 重新设置
+            # 数据流: config.py (--memory-labels) → args → ctx.memory_labels
+            #         → CentralMemory (每次 setup_environment 后重设)
+            if ctx.memory_labels:
+                try:
+                    from pyrit.memory import CentralMemory
+
+                    _ep_memory = CentralMemory.get_memory_instance()
+                    if hasattr(_ep_memory, "set_labels"):
+                        _ep_memory.set_labels(ctx.memory_labels)
+                    logger.debug("Memory labels re-set for endpoint %s", burp_name)
+                except Exception as e:
+                    logger.debug("Failed to re-set memory labels for endpoint %s: %s", burp_name, e)
 
             # 设置当前 endpoint 的 burp 路径
             ctx.args.burp = burp_path
@@ -385,7 +483,11 @@ async def run(argv: list[str] | None = None) -> None:
                 multi_endpoint_results.append(ep_result)
             except ConnectionError as e:
                 logger.error("Endpoint %s 不可用: %s", burp_name, e)
-                print_error(f"Endpoint {burp_name} 不可用: {e}")
+                print_error(
+                    f"Endpoint {burp_name} 不可用 (连接失败)\n"
+                    f"  原因: {e}\n"
+                    f"  建议: 检查目标服务是否启动, 端口是否开放, 认证是否有效"
+                )
                 # 清理可能已创建的 objective target (防止 HTTP 连接泄漏)
                 # 不清理 adversarial/scoring target — 跨 endpoint 复用
                 await _cleanup_resources(ctx, exclude_shared=True)
@@ -399,7 +501,12 @@ async def run(argv: list[str] | None = None) -> None:
                 })
             except Exception as e:
                 logger.error("Endpoint %s 攻击失败: %s", burp_name, e, exc_info=True)
-                print_error(f"Endpoint {burp_name} 攻击失败: {e}")
+                print_error(
+                    f"Endpoint {burp_name} 攻击失败\n"
+                    f"  错误类型: {type(e).__name__}\n"
+                    f"  原因: {e}\n"
+                    f"  该 endpoint 将被跳过, 继续处理下一个 endpoint"
+                )
                 # 清理可能已创建的 objective target (防止 HTTP 连接泄漏)
                 # 不清理 adversarial/scoring target — 跨 endpoint 复用
                 await _cleanup_resources(ctx, exclude_shared=True)
@@ -421,6 +528,11 @@ async def run(argv: list[str] | None = None) -> None:
         # 联合 ASR 统计 (arXiv:2310.08419 — Chao et al.)
         # Joint ASR = 1 - ∏(1 - ASRᵢ)
         # ═══════════════════════════════════════════════════════════════════════════
+
+        # 断点修复: 多 endpoint 循环结束后, FileHandler 仍指向最后一个 endpoint 子目录
+        # 联合 ASR 汇总阶段的日志应写入顶层 pipeline.log, 需切换回去
+        _switch_log_file(output_dir)
+
         from assess.joint_asr import build_joint_summary, save_joint_report
 
         joint_summary = build_joint_summary(multi_endpoint_results)
@@ -468,6 +580,28 @@ async def run(argv: list[str] | None = None) -> None:
             )
             if _has_residue:
                 await _cleanup_resources(ctx)
+        except Exception:
+            pass
+        # R-02 修复: 确保所有 FileHandler flush + close, 防止 pipeline.log 丢失
+        # 根因: logging.FileHandler 使用缓冲写入, 程序退出前未 flush/close
+        # 导致文件内容停留在内存缓冲区中, 文件为空或不存在
+        try:
+            global _current_file_handler
+            root_logger = logging.getLogger()
+            for h in root_logger.handlers:
+                if isinstance(h, logging.FileHandler):
+                    try:
+                        h.flush()
+                        h.close()
+                    except Exception:
+                        pass
+            # 从 root logger 移除已关闭的 handlers
+            root_logger.handlers = [
+                h for h in root_logger.handlers
+                if not (isinstance(h, logging.FileHandler) and h.closed)
+            ]
+            _current_file_handler = None
+            _top_level_file_handler = None
         except Exception:
             pass
 
@@ -700,6 +834,15 @@ async def _run_single_endpoint(
         seed_filters=getattr(args, "seed_filters_parsed", None),
     )
 
+    # 种子加载摘要 (终端一行, 详细日志写入 pipeline.log)
+    _seed_files_count = len(args.seeds.split(",")) if args.seeds else 0
+    print_status(
+        "ARM", "SEEDS",
+        f"{len(ctx.seeds)} seeds loaded"
+        f" (files={_seed_files_count}, lang={target_language or 'auto'})",
+        ok=True,
+    )
+
     ctx.orchestration_log.append({
         "phase": "arm",
         "decision": "seed_selection",
@@ -848,7 +991,7 @@ async def _run_single_endpoint(
             "per_technique": {k: len(v) for k, v in ctx.converter_map.items()},
         },
         "reasoning": (
-            f"目标感知+技术感知 converter 分配 "
+            f"目标感知+技术感知+种子感知 converter 分配 "
             f"(target_type={_target_type}, model_family={target_model_family or 'default'})"
         ),
     })
@@ -875,33 +1018,61 @@ async def _run_single_endpoint(
     print_phase("STRIKE", "执行 PyRIT 原生攻击...")
     from strike.escalation import check_and_escalate
 
-    # 选择执行路径 (adaptive 模式 vs 多路径)
-    # arXiv:2407.01232 — PyRIT 原生 PromptSendingAttack + SequentialAttack
-    if args.techniques == "adaptive":
-        print_phase("STRIKE", "TextAdaptive (ε-贪心自适应)...")
-        from strike.adaptive_executor import execute_text_adaptive
-        try:
-            await execute_text_adaptive(ctx)
-        except Exception as e:
-            logger.error("TextAdaptive 执行失败: %s — 回退到多路径执行", e)
+    # 进度展示: STRIKE 横幅 (多 endpoint 上下文)
+    try:
+        from utils.display import print_strike_start_banner
+        _ep_idx = getattr(ctx, "_current_endpoint_idx", None)
+        _total_eps = None
+        _burp_list = getattr(args, "_burp_list", None)
+        if _burp_list and len(_burp_list) > 1:
+            _total_eps = len(_burp_list)
+        print_strike_start_banner(
+            ctx,
+            total_endpoints=_total_eps,
+            current_endpoint_idx=_ep_idx,
+        )
+    except Exception:
+        pass
+
+    # ── R10: --dry-run 零 token 流水线完整性验证 ──
+    # 跳过 strike/escalate 阶段的真实 API 调用, 验证所有阶段的数据流贯通
+    # 用途: 每次代码修改后运行 python main.py --dry-run --max-seeds 1
+    _is_dry_run = getattr(args, "dry_run", False)
+
+    if _is_dry_run:
+        # R10 Tier 1: 零 token dry-run — 跳过攻击执行
+        logger.info("[DRY-RUN] 跳过攻击执行 (strike 阶段) — 零 token 验证模式")
+        print_phase("STRIKE", "[DRY-RUN] 跳过攻击执行 — 验证数据流贯通")
+        ctx.attack_results = {}
+    else:
+        # 选择执行路径 (adaptive 模式 vs 多路径)
+        # arXiv:2407.01232 — PyRIT 原生 PromptSendingAttack + SequentialAttack
+        if args.techniques == "adaptive":
+            print_phase("STRIKE", "TextAdaptive (ε-贪心自适应)...")
+            from strike.adaptive_executor import execute_text_adaptive
+            try:
+                await execute_text_adaptive(ctx)
+            except Exception as e:
+                logger.error("TextAdaptive 执行失败: %s — 回退到多路径执行", e)
+                from strike.executor import execute_attacks
+                try:
+                    await execute_attacks(ctx)
+                except Exception as e2:
+                    logger.error("多路径执行也失败: %s — 继续处理部分结果", e2)
+                    print_phase("STRIKE", f"部分执行失败: {e2}")
+        else:
             from strike.executor import execute_attacks
             try:
                 await execute_attacks(ctx)
-            except Exception as e2:
-                logger.error("多路径执行也失败: %s — 继续处理部分结果", e2)
-                print_phase("STRIKE", f"部分执行失败: {e2}")
-    else:
-        from strike.executor import execute_attacks
-        try:
-            await execute_attacks(ctx)
-        except Exception as e:
-            logger.error("攻击执行失败: %s — 继续处理部分结果", e)
-            print_phase("STRIKE", f"部分执行失败: {e}")
+            except Exception as e:
+                logger.error("攻击执行失败: %s — 继续处理部分结果", e)
+                print_phase("STRIKE", f"部分执行失败: {e}")
 
     # ── STRIKE 阶段过程性输出: PyRIT 原生 output_attack_async 展示攻击结果 ──
     # R2 PyRIT 原生优先: 使用 pyrit.output 官方模块渲染每个 AttackResult
     # 攻击者直接看到完整的对话历史、评分结果、converter 链
-    await print_strike_report_async(ctx)
+    if not _is_dry_run:
+        await print_strike_report_async(ctx)
 
     # 生产级: STRIKE 阶段编排日志 — 记录执行路径和结果
     from core.context import get_effective_concurrency as _get_concurrency
@@ -909,7 +1080,7 @@ async def _run_single_endpoint(
         "phase": "strike",
         "decision": "attack_execution",
         "input": {
-            "mode": "adaptive" if args.techniques == "adaptive" else "multi_path",
+            "mode": "dry_run" if _is_dry_run else ("adaptive" if args.techniques == "adaptive" else "multi_path"),
             "seeds_count": len(ctx.seeds),
             "techniques": list(ctx.techniques) if ctx.techniques else [],
             "converter_count": sum(len(v) for v in ctx.converter_map.values()),
@@ -920,12 +1091,14 @@ async def _run_single_endpoint(
             "techniques_executed": list(ctx.attack_results.keys()),
         },
         "reasoning": (
+            "[DRY-RUN] 零 token 验证 — 跳过真实 API 调用" if _is_dry_run else
             "PyRIT 原生 PromptSendingAttack + SequentialAttack(FIRST_SUCCESS) "
             "多路径独立执行, 轻量 SubStringScorer 做中间判断"
         ),
     })
 
     # ── --stage strike: 单轮攻击完成, 输出结果后退出 ──
+    # R10 注意: --dry-run 不在此退出 — dry-run 需要继续走到 assess+report 验证全链路
     if getattr(args, "stage", None) == "strike":
         print_status("STRIKE", "DONE", "单轮攻击完成", ok=True)
         await _cleanup_resources(ctx, exclude_shared=True)
@@ -935,7 +1108,11 @@ async def _run_single_endpoint(
     # 触发条件: 单轮 ASR < 90% (escalation_asr_threshold)
     # 中间退出: L1>=70% 跳过 L2-L4, L2>=80% 跳过 L3-L4 (节省 60-80% token)
     should_escalate = getattr(ctx.args, "escalation", True)
-    if should_escalate:
+    if _is_dry_run:
+        # R10 Tier 1: 零 token dry-run — 跳过升级
+        logger.info("[DRY-RUN] 跳过升级链 (escalate 阶段) — 零 token 验证模式")
+        print_status("ESCALATE", "DRY-RUN", "跳过升级链 — 零 token 验证")
+    elif should_escalate:
         print_phase("STRIKE", "检查 ASR & 触发多轮升级链 (ASR<90% 触发)...")
         try:
             await check_and_escalate(ctx, ctx.attack_results)
@@ -958,6 +1135,10 @@ async def _run_single_endpoint(
             "escalation_threshold": f"ASR<{_esc_threshold_val}% triggers",
             "post_l1_exit_threshold": _post_l1_val,
             "post_l2_exit_threshold": _post_l2_val,
+            "escalation_levels": (
+                ", ".join(f"L{i}" for i in sorted(getattr(ctx.args, "escalation_levels_parsed", None) or []))
+                if getattr(ctx.args, "escalation_levels_parsed", None) else "L1→L2→L3→L4 (full chain)"
+            ),
         },
         "output": {
             "escalated_techniques": list(ctx.attack_results.keys()),
@@ -971,7 +1152,9 @@ async def _run_single_endpoint(
 
     # ── R2 §2.1: 升级链结果展示 (PyRIT 原生 output 优先 + 卡片增强) ──
     # 完整流水线模式和 --stage escalate 模式都展示升级链结果
-    await print_escalate_report_async(ctx)
+    # R10 dry-run: 跳过 escalate 阶段的 native output 展示 (无攻击结果)
+    if not _is_dry_run:
+        await print_escalate_report_async(ctx)
 
     # ── --stage escalate: 升级链完成, 输出结果卡片后退出 ──
     if getattr(args, "stage", None) == "escalate":
@@ -993,7 +1176,7 @@ async def _run_single_endpoint(
     )
 
     # arXiv:2308.07920 — Zhang et al.: 双 Judge 交叉验证
-    # T0 预过滤 (0 token) → J1 (lenient) → J2 (strict) → J3 (arbiter)
+    # T0 预过滤 (0 token) → J1 (lenient) → J2 (strict) → J1/J2 OR 聚合 (精简架构: 无 J3)
     _assess_reset_stats = not should_escalate
     try:
         await precompute_outcomes_async(ctx.attack_results, score_all=False, reset_stats=_assess_reset_stats)
@@ -1070,7 +1253,7 @@ async def _run_single_endpoint(
         "decision": "scoring_assessment",
         "input": {
             "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
-            "scoring_model": "T0→J1→J2→J3 cascade" if _dual_judge_enabled else "T0→J1 (single judge)",
+            "scoring_model": "T0→J1→J2 OR 聚合 (精简 2-LLM)" if _dual_judge_enabled else "T0→J1 (single judge)",
             "dual_judge_enabled": _dual_judge_enabled,
             "wilson_confidence_level": _wilson_level,
         },

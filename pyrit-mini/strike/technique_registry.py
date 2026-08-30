@@ -21,15 +21,19 @@ PyRIT 鍘熺敓浼樺厛 (Rule 2):
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def register_project_techniques(
     *,
     adversarial_target: Any | None = None,
     converter_target: Any | None = None,
+    config_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """灏嗛」鐩敾鍑绘妧鏈敞鍐屽埌 PyRIT 鍘熺敓 AttackTechniqueRegistry銆?
 
@@ -120,8 +124,8 @@ def register_project_techniques(
                 "description": "Multi-turn progressive escalation with official system_prompt (arXiv:2402.12109)",
                 "technique_tags": ["multi_turn", "escalation", "light"],
                 "attack_kwargs": {
-                    "max_turns": 10,
-                    "max_backtracks": 10,
+                    "max_turns": (config_overrides or {}).get("crescendo_max_turns", 10),
+                    "max_backtracks": (config_overrides or {}).get("crescendo_max_backtracks", 10),
                 },
                 "adversarial_chat": adversarial_target,
             }
@@ -129,7 +133,7 @@ def register_project_techniques(
                 crescendo_kwargs["adversarial_system_prompt"] = crescendo_system_prompt
             crescendo_factory = AttackTechniqueFactory(**crescendo_kwargs)
             factories.append(crescendo_factory)
-            logger.info("Registered AttackTechniqueFactory: Crescendo (multi_turn, max_turns=10)")
+            logger.info("Registered AttackTechniqueFactory: Crescendo (multi_turn, max_turns from config)")
         except Exception as e:
             logger.warning("Failed to create Crescendo factory: %s", e)
 
@@ -137,20 +141,24 @@ def register_project_techniques(
     # arXiv:2312.02191 鈥?Mehrotra et al., tree-of-attacks with pruning
     if adversarial_target is not None:
         try:
+            _cfg = config_overrides or {}
             tap_factory = AttackTechniqueFactory(
                 name="TAP",
                 attack_class=TAPAttack,
                 description="Tree-of-attacks with pruning (arXiv:2312.02191)",
                 technique_tags=["multi_turn", "escalation", "tree_search"],
                 attack_kwargs={
-                    "tree_width": 4,
-                    "tree_depth": 4,
-                    "branching_factor": 2,
+                    "tree_width": _cfg.get("tap_tree_width", 4),
+                    "tree_depth": _cfg.get("tap_tree_depth", 4),
+                    "branching_factor": _cfg.get("tap_branching_factor", 2),
                 },
                 adversarial_chat=adversarial_target,
             )
             factories.append(tap_factory)
-            logger.info("Registered AttackTechniqueFactory: TAP (multi_turn, width=4, depth=4)")
+            logger.info(
+                "Registered AttackTechniqueFactory: TAP (multi_turn, width=%d, depth=%d)",
+                _cfg.get("tap_tree_width", 4), _cfg.get("tap_tree_depth", 4),
+            )
         except Exception as e:
             logger.warning("Failed to create TAP factory: %s", e)
 
@@ -224,7 +232,7 @@ def register_project_techniques(
                 "description": "Multi-turn Red Teaming with RTA system prompt (arXiv:2407.01232)",
                 "technique_tags": ["multi_turn", "baseline", "light"],
                 "attack_kwargs": {
-                    "max_turns": 5,
+                    "max_turns": (config_overrides or {}).get("red_teaming_max_turns", 5),
                 },
                 "adversarial_chat": adversarial_target,
             }
@@ -259,17 +267,22 @@ def register_project_techniques(
     try:
         from pyrit.executor.attack import ManyShotJailbreakAttack
 
+        _cfg = config_overrides or {}
+        _ms_count = _cfg.get("many_shot_example_count", 100)
         ms_factory = AttackTechniqueFactory(
             name="ManyShotJailbreak",
             attack_class=ManyShotJailbreakAttack,
-            description="Many-shot jailbreak with 100 faux Q/A examples (arXiv:2402.05124)",
+            description="Many-shot jailbreak with faux Q/A examples (arXiv:2402.05124)",
             technique_tags=["single_turn", "many_shot"],
             attack_kwargs={
-                "example_count": 100,
+                "example_count": _ms_count,
             },
         )
         factories.append(ms_factory)
-        logger.info("Registered AttackTechniqueFactory: ManyShotJailbreak (single_turn, many_shot)")
+        logger.info(
+            "Registered AttackTechniqueFactory: ManyShotJailbreak (single_turn, many_shot, count=%d)",
+            _ms_count,
+        )
     except Exception as e:
         logger.warning("Failed to create ManyShotJailbreak factory: %s", e)
 
@@ -296,14 +309,15 @@ def register_project_techniques(
     try:
         from pyrit.executor.attack import ChunkedRequestAttack
 
+        _cfg = config_overrides or {}
         cr_factory = AttackTechniqueFactory(
             name="ChunkedRequest",
             attack_class=ChunkedRequestAttack,
             description="Chunked extraction attack, bypass length filters (arXiv:2407.01232)",
             technique_tags=["multi_turn", "chunked_extraction"],
             attack_kwargs={
-                "chunk_size": 50,
-                "total_length": 200,
+                "chunk_size": _cfg.get("chunked_request_chunk_size", 50),
+                "total_length": _cfg.get("chunked_request_total_length", 200),
                 "chunk_type": "characters",
             },
         )
@@ -480,9 +494,21 @@ def get_technique_class_for_adaptive(
     Returns:
         鍔ㄦ€佺敓鎴愮殑 ScenarioTechnique 瀛愮被, 鎴?None (鏋勫缓澶辫触鏃?銆?
     """
+    # R6 §6.4b: 从 defaults.yaml 加载 SSOT 配置传入
+    _tech_cfg: dict[str, Any] = {}
+    try:
+        import yaml as _yaml
+        _cfg_path = _PROJECT_ROOT / "config" / "defaults.yaml"
+        if _cfg_path.exists():
+            with open(_cfg_path, encoding="utf-8") as _f:
+                _tech_cfg = _yaml.safe_load(_f) or {}
+    except Exception:
+        pass
+
     factories_dict = register_project_techniques(
         adversarial_target=adversarial_target,
         converter_target=converter_target,
+        config_overrides=_tech_cfg,
     )
     if not factories_dict:
         return None
