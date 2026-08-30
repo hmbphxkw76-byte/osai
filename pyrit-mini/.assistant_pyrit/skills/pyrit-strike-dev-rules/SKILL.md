@@ -1,6 +1,6 @@
 ---
 name: pyrit-strike-dev-rules
-description: Enforces 7 mandatory development rules for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change.
+description: Enforces 8 mandatory development rules for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change.
 ---
 
 # PyRIT-Strike Development Rules
@@ -29,6 +29,7 @@ description: Enforces 7 mandatory development rules for the pyrit-strike AI red 
 | P1 | R5: arXiv-first grounding | Manual audit — no technique without citation |
 | P2 | R1: Offensive mindset | Design principle |
 | P2 | R7: ASR-token-time balance | Parameterized in `defaults.yaml` |
+| P2 | R8: Production-grade engineering | Manual audit — 8 practice areas, failure pattern table |
 
 ---
 
@@ -303,6 +304,119 @@ Before completing ANY scoring/escalation code change, verify:
 
 ---
 
+## R8: Production-Grade Engineering Standards
+
+All pipeline code MUST meet production-grade reliability standards. This rule covers resource lifecycle, error resilience, data consistency, and audit traceability — non-negotiable for real-world red team operations.
+
+> **Origin**: Crystallized from multi-session production alignment work (multi-endpoint pipeline, resource leak fixes, audit log gaps, boundary condition hardening).
+
+### MUST — 8 Practice Areas
+
+**8.1 Resource Lifecycle Management (LIFO + Idempotent + Shared-vs-Target Separation)**
+
+- Resource cleanup MUST follow LIFO order: extra_objective_targets → multi_turn_target → objective_target → Playwright → adversarial/scoring/converter
+- Every cleanup function MUST be **idempotent** (safe to call multiple times): use `_is_cleaned` flag + `_cleaned: set[int]` double-dedup
+- **Shared vs Target-specific resources**: `objective_target` is per-endpoint (cleaned each iteration); `adversarial_target` / `scoring_target` / `converter_target` are shared across endpoints (cleaned only at loop end)
+- `--stage` exit points inside `_run_single_endpoint` MUST use `exclude_shared=True` — premature shared-resource release breaks subsequent endpoints
+- `RateLimitedTarget.cleanup()` MUST: close httpx.AsyncClient → call wrapped target's cleanup → `dispose_db_engine()`
+- `setup_environment()` MUST: dispose existing DB engine before re-initialization (prevents SQLAlchemy connection pool accumulation)
+- Playwright cleanup MUST be 3-layer: `_browser_context.close()` → `_browser.close()` → `_playwright_instance.stop()`
+
+**Pattern**: `_cleanup_resources(ctx, exclude_shared=True)` in loop body; `_cleanup_resources(ctx)` (full) after loop + in finally block.
+
+**8.2 Error Resilience (3-Level Fallback + Partial Results + Graceful Degradation)**
+
+- STRIKE stage MUST have 3-level fallback: `adaptive → multi_path → partial_results`
+  ```python
+  try:
+      await execute_text_adaptive(ctx)
+  except Exception as e:
+      logger.error("TextAdaptive failed: %s — falling back to multi-path", e)
+      try:
+          await execute_attacks(ctx)
+      except Exception as e2:
+          logger.error("Multi-path also failed: %s — continuing with partial results", e2)
+  ```
+- ESCALATE stage: failure MUST NOT abort pipeline — continue with single-turn results
+- ASSESS stage: scoring failure MUST NOT abort pipeline — continue with un-scored results (cached outcomes)
+- Attack timeout MUST use `asyncio.wait_for()` + retrieve partial results from PyRIT memory
+- `return_partial_on_failure=True` MUST be passed to `executor.execute_attack_from_seed_groups_async()`
+- Multi-endpoint loop: `ConnectionError` → skip endpoint, record error in results, continue to next; generic `Exception` → extract partial results from ctx, record, continue
+
+**8.3 Global State Reset (Cross-Endpoint Isolation)**
+
+- Python module-level global variables (e.g., `assess/asr_stats.py` counters) MUST have explicit `_reset_*()` functions
+- Multi-endpoint loop MUST call reset at loop start, not at loop end:
+  ```python
+  from assess.asr_stats import _reset_dual_judge_stats
+  _reset_dual_judge_stats()
+  from assess.judge_utils import reset_t0_stats
+  reset_t0_stats()
+  ```
+- `PipelineContext` fields MUST be explicitly reset per endpoint: `parsed_request`, `objective_target`, `seeds`, `attack_results`, `asr_per_technique`, `overall_asr`, `wilson_ci`, `dual_judge_stats`, `orchestration_log`
+- Fields NOT reset (shared): `extra_adversarial_targets`, `_playwright_instance`, `_browser`, `_browser_context`
+- `PYRIT_DB_URL` MUST be set per-endpoint: `sqlite:///{ep_output_dir}/db/pyrit.db` — independent SQLite WAL database per endpoint
+
+**8.4 Boundary Condition Defense (Empty Inputs + Unreachable Targets + Auth Recovery)**
+
+- `execute_attacks()` MUST guard against empty seeds:
+  ```python
+  if not ctx.seeds:
+      logger.warning("No seeds configured, skipping attack execution")
+      ctx.attack_results["prompt_sending"] = []
+      return ctx.attack_results
+  ```
+- `precompute_outcomes_async()` MUST handle empty `attack_results` dict gracefully (no-op)
+- `compute_joint_asr()` MUST return `0.0` for empty endpoint list
+- `create_target()` MUST raise `ConnectionError` on unreachable target (not silently fail)
+- `RateLimitedTarget` MUST implement 401/403 auth recovery: detect `AuthenticationError` → `try_recover_auth()` → update headers → retry once → raise on failure
+- Evidence `orchestration_log` MUST default to `[]` (field(default_factory=list)) — never `None`
+
+**8.5 Audit Trail Completeness (Orchestration Log Covers ALL 6 Phases)**
+
+- `ctx.orchestration_log` MUST have entries for ALL 6 phases: recon, arm, strike, escalate, assess, report
+- Each entry MUST include: `phase`, `decision`, `input`, `output`, `reasoning`
+- `evidence.orchestration_log = ctx.orchestration_log` injection MUST happen before report generation
+- Markdown report MUST render "Orchestration Decision Log" section from `evidence.orchestration_log`
+- JSON serialization MUST include `orchestration_log` field (for `regen_report.py` round-trip)
+- Auth recovery history MUST be injected to `evidence.attack_surface["auth_recovery_log"]` for auditability
+
+**8.6 Concurrency Safety (Semaphore + SSOT Concurrency + WAL Mode)**
+
+- `RateLimitedTarget` MUST use `asyncio.Semaphore(max_concurrency)` per-endpoint (PyRIT native doesn't provide concurrency control)
+- `get_effective_concurrency(ctx)` is the SSOT for max_concurrency — clamp to [1, 3] (SQLite WAL safe upper bound)
+- SQLite MUST use WAL journal mode + busy_timeout=5000ms: `os.environ.setdefault("PYRIT_SQLITE_JOURNAL_MODE", "WAL")`
+- Multi-endpoint loop is **serial** (not parallel) — no global variable race condition; per-endpoint asyncio.gather is safe (single-threaded event loop)
+
+**8.7 Signal Handling & Graceful Shutdown**
+
+- `SIGINT`/`SIGTERM` handler: first signal → set `_signal_fired` flag → raise `KeyboardInterrupt` → asyncio.run exits → try/finally cleanup
+- Second signal → `os._exit(130)` (immediate forced exit, no cleanup wait)
+- `try/finally` block in `run()`: finally MUST check for residue targets and call `_cleanup_resources(ctx)` (idempotent — safe even if already cleaned)
+- Global `_global_ctx` reference allows signal handler to access pipeline context for emergency cleanup
+
+**8.8 Data Flow Continuity (0-Breakpoint Pipeline)**
+
+- Recon metadata (MCP tools, OpenAPI endpoints, port endpoints) MUST flow through `target_fingerprint` → `ctx.orchestration_log` → `evidence` → report
+- Per-endpoint independent outputs: `ep_output_dir / "db" / "pyrit.db"` + `ep_output_dir / "evidence/"`
+- Joint ASR report saved to top-level `output_dir / "joint_asr_report.json"` (not per-endpoint)
+- `_run_single_endpoint_to_result()` MUST extract result summary from `ctx` after `_run_single_endpoint()` completes (or fails with partial results)
+- `EvidenceCollector.collect()` → inject `dual_judge_stats` / `wilson_ci` / `cohens_kappa` / `orchestration_log` → `generate_report()` — no field may be missing at any step
+
+### Common Production-Level Failure Patterns
+
+| Pattern | Why it fails | Fix |
+|---------|-------------|-----|
+| `--stage` exit calls `_cleanup_resources(ctx)` without `exclude_shared` | Premature release of shared LLM targets kills subsequent endpoints in multi-endpoint mode | Use `exclude_shared=True` inside `_run_single_endpoint` |
+| Global stats counters not reset between endpoints | Endpoint N's ASR stats are polluted by endpoints 1..N-1 | Call `_reset_dual_judge_stats()` + `reset_t0_stats()` at loop start |
+| No empty-seeds guard in `execute_attacks` | PyRIT native API receives empty `seed_groups`, may crash or produce confusing errors | Early return with empty `attack_results` |
+| Orchestration log only covers recon+arm | Report "Orchestration Decision Log" section is incomplete — audit trail broken | Add entries for all 6 phases (recon×2 + arm×3 + strike×1 + escalate×1 + assess×1 = 8 entries) |
+| `setup_environment` called without disposing old engine | SQLAlchemy connection pool + SQLite file handles accumulate across endpoints | `CentralMemory.dispose_db_engine()` before `initialize_pyrit_async()` |
+| Auth failure (401/403) raises immediately | No recovery attempt — token may just need refresh | `RateLimitedTarget._send_with_auth_recovery()` tries token refresh + tenant switch before raising |
+| Playwright browser process leaked | Only `_browser.close()` called, `_playwright_instance.stop()` missing | 3-layer cleanup: context → browser → playwright instance |
+
+---
+
 ## Directory Structure (enforced by `architecture_guard.py`)
 
 ```
@@ -337,6 +451,8 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 - [ ] Searched PyRIT source for equivalent native component before writing new class? (R2)
 - [ ] ALL L5 parameters in `config/defaults.yaml` meet baseline? (R4)
 - [ ] Identified arXiv citation for any new technique? (R5)
+- [ ] If multi-endpoint: planned `exclude_shared=True` for per-endpoint cleanup? (R8 §8.1)
+- [ ] If using global variables: planned `_reset_*()` function? (R8 §8.3)
 
 ### During Coding Checks
 - [ ] Each `ConverterConfiguration` has exactly 1 converter (no serial stacking)? (R6 §6.1)
@@ -344,6 +460,9 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 - [ ] No hardcoded efficiency parameters in pipeline code (reading from `defaults.yaml`)? (R7)
 - [ ] No safety guardrails/content filtering in strike/arm modules? (R1)
 - [ ] No custom Executor/Target/Scorer classes replacing PyRIT native? (R2)
+- [ ] New stage exit points use `exclude_shared=True`? (R8 §8.1)
+- [ ] Empty input guards added (seeds, attack_results, endpoint list)? (R8 §8.4)
+- [ ] Orchestration log entry added for the phase being modified? (R8 §8.5)
 
 ### Post-Coding Checks
 - [ ] Re-ran `python core/architecture_guard.py` — still zero BLOCKING?
@@ -351,6 +470,8 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 - [ ] New files placed in correct `module/` subdirectory (not root)? (R3)
 - [ ] PoC scripts use PyRIT native attack classes (NOT `requests.post`)? (R6 §6.7)
 - [ ] Evidence records include ALL mandatory fields non-empty? (R6 §6.6)
+- [ ] Orchestration log covers ALL 6 phases (recon+arm+strike+escalate+assess+report)? (R8 §8.5)
+- [ ] Resource cleanup paths are idempotent (safe for double-call in try/finally)? (R8 §8.1)
 
 ### Common Failure Patterns (MUST avoid)
 | Pattern | Why it fails | Fix |
@@ -362,6 +483,12 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 | Root directory temp/debug `.py` files | Clutters project, import confusion | Move to `utils/` or delete |
 | PoC using `requests.post` instead of PyRIT | Fails exam — tests PyRIT mastery | Use native attack class + `HTTPTarget` |
 | Missing `tests/` directory | Zero coverage, no regression safety | Create `tests/` with `test_*.py` per module |
+| `--stage` exit without `exclude_shared=True` | Premature shared LLM release kills subsequent endpoints (R8 §8.1) | `await _cleanup_resources(ctx, exclude_shared=True)` inside `_run_single_endpoint` |
+| Global stats counters not reset between endpoints | ASR stats polluted by prior endpoints (R8 §8.3) | Call `_reset_*()` at multi-endpoint loop start |
+| No empty-seeds guard in `execute_attacks` | PyRIT native API crashes on empty seed_groups (R8 §8.4) | Early return with empty `attack_results` |
+| Orchestration log missing strike/escalate/assess | Audit trail broken, report incomplete (R8 §8.5) | Add entries for all 6 phases |
+| `setup_environment` without disposing old engine | SQLAlchemy connection pool leaks (R8 §8.1) | `CentralMemory.dispose_db_engine()` before re-init |
+| Playwright only `_browser.close()` | Process leaked, no `_playwright_instance.stop()` (R8 §8.1) | 3-layer cleanup: context → browser → playwright |
 
 ---
 

@@ -831,6 +831,7 @@ async def _run_single_endpoint(
     await print_strike_report_async(ctx)
 
     # 生产级: STRIKE 阶段编排日志 — 记录执行路径和结果
+    from core.context import get_effective_concurrency as _get_concurrency
     ctx.orchestration_log.append({
         "phase": "strike",
         "decision": "attack_execution",
@@ -839,7 +840,7 @@ async def _run_single_endpoint(
             "seeds_count": len(ctx.seeds),
             "techniques": list(ctx.techniques) if ctx.techniques else [],
             "converter_count": sum(len(v) for v in ctx.converter_map.values()),
-            "concurrency": get_effective_concurrency(ctx),
+            "concurrency": _get_concurrency(ctx),
         },
         "output": {
             "total_results": sum(len(v) for v in ctx.attack_results.values()),
@@ -877,7 +878,7 @@ async def _run_single_endpoint(
         "decision": "escalation_chain",
         "input": {
             "enabled": should_escalate,
-            "pre_escalation_asr": _compute_overall_asr(ctx.attack_results) if not should_escalate else None,
+            "escalation_threshold": "ASR<90% triggers",
         },
         "output": {
             "escalated_techniques": list(ctx.attack_results.keys()),
@@ -973,6 +974,27 @@ async def _run_single_endpoint(
         print_status("ASSESS", "DONE", "评分完成", ok=True)
         await _cleanup_resources(ctx, exclude_shared=True)
         return
+
+    # 生产级: ASSESS 阶段编排日志 — 记录评分策略和结果
+    ctx.orchestration_log.append({
+        "phase": "assess",
+        "decision": "scoring_assessment",
+        "input": {
+            "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
+            "scoring_model": "T0→J1→J2→J3 cascade",
+        },
+        "output": {
+            "overall_asr": ctx.overall_asr,
+            "wilson_ci": list(ctx.wilson_ci),
+            "asr_per_technique": ctx.asr_per_technique,
+            "dual_judge_invoked": ctx.dual_judge_stats.get("dual_judge_invoked", 0),
+            "cohens_kappa": ctx.dual_judge_stats.get("cohens_kappa", 0.0),
+        },
+        "reasoning": (
+            "arXiv:2308.07920 双 Judge 交叉验证 + T0 预过滤 (0 token) + "
+            "Wilson Score 95% CI + Cohen's Kappa 一致性度量"
+        ),
+    })
 
     # ── 证据收集 + 报告生成 ──
     print_phase("REPORT", "收集证据 & 生成安全报告...")

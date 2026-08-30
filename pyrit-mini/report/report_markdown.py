@@ -334,6 +334,27 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
         lines.append(f"- **Cohen's Kappa**: {kappa:.3f} ({interpretation})")
 
+    # 鈹€鈹€ Orchestration Decision Log 鈹€鈹€
+    _orch_log = getattr(evidence, "orchestration_log", [])
+    if _orch_log:
+        lines.append("")
+        lines.append("## Orchestration Decision Log")
+        lines.append("")
+        for entry in _orch_log:
+            _phase = entry.get("phase", "unknown")
+            _decision = entry.get("decision", "")
+            _reasoning = entry.get("reasoning", "")
+            _input = entry.get("input", {})
+            _output = entry.get("output", {})
+            lines.append(f"### {_phase}: {_decision}")
+            if _reasoning:
+                lines.append(f"**Reasoning:** {_reasoning}")
+            if _input:
+                lines.append(f"**Input:** {_input}")
+            if _output:
+                lines.append(f"**Output:** {_output}")
+            lines.append("")
+
     # 鈹€鈹€ References 鈹€鈹€
     lines.append("## References")
     lines.append("")
