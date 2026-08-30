@@ -36,7 +36,7 @@ async def create_target(ctx: PipelineContext) -> None:
         1. --browser-url → PlaywrightTarget (浏览器渲染 Chat UI, PyRIT 原生)
         2. --target-api-endpoint + --target-api-key → API 直连模式
            (L5 v52: OpenAIChatTarget / OpenAIResponseTarget 原生路由)
-        3. --burp-request → Burp 模式 (HTTPTarget + RateLimitedTarget)
+        3. --burp → Burp 模式 (HTTPTarget + RateLimitedTarget)
         4. --target-url + --api-key → API 直连模式 (HTTPTarget)
         5. 无参数 → .env 默认 (OpenAIChatTarget)
 
@@ -76,6 +76,37 @@ async def create_target(ctx: PipelineContext) -> None:
     target_api_model = getattr(ctx.args, "target_api_model", None)
     target_api_type = getattr(ctx.args, "target_api_type", "chat")  # chat | responses
 
+    # ── LiteLLM 多提供商路由 (对齐 PyRIT 1.0.1 LiteLLMChatTarget) ──
+    # 学术依据: PyRIT (arXiv:2407.01232) — LiteLLMChatTarget 原生 Target
+    # 通过 LiteLLM SDK 访问 100+ LLM 提供商 (Anthropic, Bedrock, Vertex 等)
+    # 适配任意基于 LLM 开发的 Agent 目标, 提升 attack coverage 广度
+    litellm_model = getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL")
+    if litellm_model:
+        logger.info(
+            "LiteLLM mode — creating native LiteLLMChatTarget for %s",
+            litellm_model,
+        )
+        await _create_litellm_target(ctx, model_name=litellm_model)
+        # 仍需创建 adversarial + scoring target
+        # 多 endpoint 模式: 跳过已存在的 target (复用, 避免资源泄漏)
+        if ctx.adversarial_target is None:
+            ctx.adversarial_target = _create_adversarial_target()
+        if ctx.adversarial_target:
+            logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
+        if not ctx.extra_adversarial_targets:
+            ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
+        if ctx.scoring_target is None:
+            ctx.scoring_target = _create_scoring_target(ctx)
+        if ctx.converter_target is None:
+            ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
+        logger.info(
+            "Targets configured: objective=%s, adversarial=%s, scorer=%s",
+            type(ctx.objective_target).__name__,
+            type(ctx.adversarial_target).__name__ if ctx.adversarial_target else "None",
+            type(ctx.scoring_target).__name__ if ctx.scoring_target else "None",
+        )
+        return
+
     if target_api_endpoint and target_api_key:
         logger.info(
             "L5 v52: API direct mode — creating native %s for %s",
@@ -90,12 +121,17 @@ async def create_target(ctx: PipelineContext) -> None:
             api_type=target_api_type,
         )
         # 仍需创建 adversarial + scoring target
-        ctx.adversarial_target = _create_adversarial_target()
+        # 多 endpoint 模式: 跳过已存在的 target (复用, 避免资源泄漏)
+        if ctx.adversarial_target is None:
+            ctx.adversarial_target = _create_adversarial_target()
         if ctx.adversarial_target:
             logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
-        ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
-        ctx.scoring_target = _create_scoring_target(ctx)
-        ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
+        if not ctx.extra_adversarial_targets:
+            ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
+        if ctx.scoring_target is None:
+            ctx.scoring_target = _create_scoring_target(ctx)
+        if ctx.converter_target is None:
+            ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
         logger.info(
             "Targets configured: objective=%s, adversarial=%s, scorer=%s",
             type(ctx.objective_target).__name__,
@@ -111,12 +147,17 @@ async def create_target(ctx: PipelineContext) -> None:
         logger.info("L5 v38: Browser mode — creating PlaywrightTarget for %s", browser_url)
         await _create_playwright_target(ctx, browser_url)
         # 仍需创建 adversarial + scoring target
-        ctx.adversarial_target = _create_adversarial_target()
+        # 多 endpoint 模式: 跳过已存在的 target (复用, 避免资源泄漏)
+        if ctx.adversarial_target is None:
+            ctx.adversarial_target = _create_adversarial_target()
         if ctx.adversarial_target:
             logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
-        ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
-        ctx.scoring_target = _create_scoring_target(ctx)
-        ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
+        if not ctx.extra_adversarial_targets:
+            ctx.extra_adversarial_targets = _create_extra_adversarial_targets()
+        if ctx.scoring_target is None:
+            ctx.scoring_target = _create_scoring_target(ctx)
+        if ctx.converter_target is None:
+            ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
         logger.info(
             "Targets configured: objective=%s, adversarial=%s, scorer=%s",
             type(ctx.objective_target).__name__,
@@ -125,7 +166,7 @@ async def create_target(ctx: PipelineContext) -> None:
         )
         return
     # ── 解析 Burp 请求 ──
-    parsed = parse_burp_request(ctx.args.burp_request)
+    parsed = parse_burp_request(ctx.args.burp)
     ctx.parsed_request = parsed
     ctx.model_name = f"HTTP:{parsed.host}{parsed.path}"
 
@@ -204,6 +245,15 @@ async def create_target(ctx: PipelineContext) -> None:
             parsed.chat_id_field,
         )
 
+    # ── 探针计数 & 耗时追踪 (P2-2 数据源) ──
+    # 学术依据: PTES §2 — 情报收集阶段需记录探测元数据
+    # _probe_count 追踪发送的探针请求总数, _probe_start 记录起始时间
+    # 最终写入 target_fingerprint["probe_count"] 和 ["probe_duration_seconds"]
+    # 数据流: target_router → target_fingerprint → recon_report → evidence
+    import time as _time
+    _probe_start = _time.monotonic()
+    _probe_count = 0
+
     # ── 主动能力探测 (P1-7) ──
     # 学术依据: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
     # 发送专门的探针 prompt 主动检测 Agent/MCP/RAG 能力
@@ -211,10 +261,19 @@ async def create_target(ctx: PipelineContext) -> None:
     logger.info("Probing active capabilities (agent/mcp/rag)...")
     try:
         active_caps = await probe_active_capabilities(parsed)
+        _probe_count += 3  # probe_active_capabilities 发送 3 个探针 (agent_mcp, rag, model_identity)
         if active_caps:
             existing_caps = parsed.target_fingerprint.get("capabilities", "")
             all_caps = set(existing_caps.split(",")) if existing_caps else set()
-            all_caps.update(k for k, v in active_caps.items() if v)
+            # model_family 是字符串, 不是布尔能力, 需单独处理
+            for cap_key, cap_val in active_caps.items():
+                if cap_key == "model_family" and cap_val:
+                    parsed.target_fingerprint["model_family"] = cap_val
+                    logger.info(
+                        "P2-20: model_family from active probe: %s", cap_val,
+                    )
+                elif cap_val:
+                    all_caps.add(cap_key)
             parsed.target_fingerprint["capabilities"] = ",".join(sorted(all_caps))
             logger.info("Active probe detected capabilities: %s", sorted(all_caps))
     except Exception as e:
@@ -226,6 +285,7 @@ async def create_target(ctx: PipelineContext) -> None:
     try:
         from recon.capability_probe import deep_probe_capabilities
         deep_caps = await deep_probe_capabilities(parsed)
+        _probe_count += 8  # deep_probe 发送 8 个并行探针 (含 model_identity)
         if deep_caps:
             # 合并布尔能力到 capabilities 字段
             existing_caps_str = parsed.target_fingerprint.get("capabilities", "")
@@ -251,6 +311,15 @@ async def create_target(ctx: PipelineContext) -> None:
                 parsed.target_fingerprint["capability_confidence"] = deep_caps["capability_confidence"]
             if deep_caps.get("capability_recommendations"):
                 parsed.target_fingerprint["capability_recommendations"] = deep_caps["capability_recommendations"]
+            # P2-20: 写入 model_family 到 target_fingerprint
+            # 学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
+            #   模型族→安全策略→种子定制, 不同模型族安全对齐策略不同
+            if deep_caps.get("model_family"):
+                parsed.target_fingerprint["model_family"] = deep_caps["model_family"]
+                logger.info(
+                    "P2-20: model_family from deep probe: %s",
+                    deep_caps["model_family"],
+                )
             logger.info(
                 "P2-19: Deep capability probe complete. Capabilities: %s, secret_format: %s",
                 sorted(all_caps),
@@ -358,6 +427,67 @@ async def create_target(ctx: PipelineContext) -> None:
         except Exception as e:
             logger.warning("L5 v48: Port discovery failed (non-fatal): %s", e)
 
+    # ── OpenAPI/Swagger 文档发现 (P1-2) ──
+    # 学术依据:
+    #   - OWASP WSTG-INFO-05 — OpenAPI 文档发现
+    #   - Arbis et al. (arXiv:2306.01943) §4.5 — API 端点发现
+    #   - Zhan et al. (arXiv:2307.00929) §3.3 — 工具 schema 提取
+    # 探测 /openapi.json, /swagger.json 等常见路径, 解析端点和参数 schema
+    # 发现结果存入 target_fingerprint, 供 arm 阶段生成定向参数注入种子
+    # 数据流: openapi_discoverer → target_fingerprint["openapi_endpoints"] → arm/seed_ranker
+    openapi_enabled = getattr(ctx.args, "openapi_discovery_enabled", True)
+    if openapi_enabled:
+        try:
+            from recon.openapi_discoverer import discover_openapi_spec
+
+            openapi_result = await discover_openapi_spec(parsed)
+            _probe_count += len(__import__(
+                "recon.openapi_discoverer", fromlist=["_OPENAPI_PATHS"],
+            )._OPENAPI_PATHS)
+            if openapi_result and openapi_result.endpoints:
+                parsed.target_fingerprint["openapi_spec_path"] = openapi_result.spec_path
+                parsed.target_fingerprint["openapi_version"] = openapi_result.spec_version
+                parsed.target_fingerprint["openapi_title"] = openapi_result.title
+                parsed.target_fingerprint["openapi_endpoints"] = [
+                    {
+                        "path": ep.path,
+                        "method": ep.method,
+                        "summary": ep.summary,
+                        "parameters": ep.parameters,
+                        "has_auth": ep.has_auth,
+                    }
+                    for ep in openapi_result.endpoints
+                ]
+                parsed.target_fingerprint["openapi_security_schemes"] = openapi_result.security_schemes
+                # 将 OpenAPI 发现的能力标记到 capabilities 字段
+                existing_caps_str = parsed.target_fingerprint.get("capabilities", "")
+                all_caps = set(existing_caps_str.split(",")) if existing_caps_str else set()
+                all_caps.add("openapi")
+                if openapi_result.security_schemes:
+                    all_caps.add("openapi_auth")
+                parsed.target_fingerprint["capabilities"] = ",".join(sorted(c for c in all_caps if c))
+                logger.info(
+                    "P1-2: OpenAPI spec found at %s (v%s, %d endpoints, %d security schemes)",
+                    openapi_result.spec_path,
+                    openapi_result.spec_version,
+                    len(openapi_result.endpoints),
+                    len(openapi_result.security_schemes),
+                )
+        except Exception as e:
+            logger.warning("P1-2: OpenAPI discovery failed (non-fatal): %s", e)
+
+    # ── 探针计数 & 耗时写入 target_fingerprint (P2-2 数据完整化) ──
+    # 数据流: target_router _probe_count → target_fingerprint → recon_report → evidence
+    # recon_report.py 第 218-219 行读取这两个字段, 之前始终为 N/A
+    _probe_duration = _time.monotonic() - _probe_start
+    parsed.target_fingerprint["probe_count"] = _probe_count
+    parsed.target_fingerprint["probe_duration_seconds"] = round(_probe_duration, 2)
+    logger.info(
+        "Recon probe summary: %d probes sent, %.2fs total duration",
+        _probe_count,
+        _probe_duration,
+    )
+
     # ── 构建 HTTPTarget (单轮) ──
     target = build_http_target(parsed)
 
@@ -365,7 +495,6 @@ async def create_target(ctx: PipelineContext) -> None:
     target = RateLimitedTarget(
         target=target,
         max_concurrency=ctx.args.max_concurrency or 3,
-        max_retries=3,
         auth_state_manager=auth_manager,
         auth_state=auth_state,
     )
@@ -377,7 +506,6 @@ async def create_target(ctx: PipelineContext) -> None:
     multi_turn_target = RateLimitedTarget(
         target=multi_turn_target,
         max_concurrency=ctx.args.max_concurrency or 3,
-        max_retries=3,
     )
     ctx.multi_turn_target = multi_turn_target
 
@@ -421,7 +549,6 @@ async def create_target(ctx: PipelineContext) -> None:
                     port_target = RateLimitedTarget(
                         target=port_target,
                         max_concurrency=ctx.args.max_concurrency or 3,
-                        max_retries=3,
                         auth_state_manager=auth_manager,
                         auth_state=auth_state,
                     )
@@ -439,21 +566,25 @@ async def create_target(ctx: PipelineContext) -> None:
         )
 
     # ── 创建 adversarial target (用户自己的 LLM API) ──
-    # L5 v10: 支持多 adversarial target (多模型并行攻击)
-    ctx.adversarial_target = _create_adversarial_target()
+    # 多 endpoint 模式: 如果 adversarial_target 已存在 (前一个 endpoint 创建),
+    # 跳过重新创建以避免资源泄漏 (arXiv:2403.04206 §3.2)
+    if ctx.adversarial_target is None:
+        ctx.adversarial_target = _create_adversarial_target()
     if ctx.adversarial_target:
         logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
 
     # L5 v10: 加载额外 adversarial targets (多模型互补)
-    extra_targets = _create_extra_adversarial_targets()
-    if extra_targets:
-        ctx.extra_adversarial_targets = extra_targets
-        logger.info("Extra adversarial targets: %d", len(extra_targets))
-    else:
-        ctx.extra_adversarial_targets = []
+    # 多 endpoint 模式: 仅在首次创建时加载
+    if not ctx.extra_adversarial_targets:
+        extra_targets = _create_extra_adversarial_targets()
+        if extra_targets:
+            ctx.extra_adversarial_targets = extra_targets
+            logger.info("Extra adversarial targets: %d", len(extra_targets))
 
     # ── 创建 scoring target (缺失时复用 adversarial) ──
-    ctx.scoring_target = _create_scoring_target(ctx)
+    # 多 endpoint 模式: 跳过重新创建
+    if ctx.scoring_target is None:
+        ctx.scoring_target = _create_scoring_target(ctx)
     if ctx.scoring_target:
         logger.info("Scoring target: %s", type(ctx.scoring_target).__name__)
 
@@ -461,7 +592,9 @@ async def create_target(ctx: PipelineContext) -> None:
     # L5 v34: DeepSeek-V3 对 PersuasionConverter 的 JSON schema 返回 500 错误
     # Qwen3-32B 对 PyRIT converter 的 JSON 格式兼容性更好
     # converter 只做文本改写, 不需要最强攻击能力
-    ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
+    # 多 endpoint 模式: 跳过重新创建 (复用已有的)
+    if ctx.converter_target is None:
+        ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
 
     logger.info(
         "Targets configured: objective=%s, adversarial=%s, scorer=%s",
@@ -842,6 +975,9 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
         ctx.multi_turn_target = target  # PlaywrightTarget 支持多轮
         ctx.model_name = f"Browser:{browser_url}"
 
+        # 断点修复: 为非Burp路径创建 parsed_request, 确保 arm/strike/report 阶段数据流一致
+        _ensure_parsed_request_for_api_path(ctx, mode="browser", model_name=browser_url, endpoint=browser_url)
+
         # 生产级资源管理: 存储引用供流水线结束时清理
         ctx._playwright_instance = _playwright_instance
         ctx._browser = _browser
@@ -933,19 +1069,22 @@ async def _create_native_openai_target(
             endpoint, model_name, rpm or "unlimited",
         )
 
-    # 包装 RateLimitedTarget (并发控制 + 重试)
-    # 保留原生 TargetCapabilities (不传 custom_configuration)
+    # 包装 RateLimitedTarget (并发控制 + 认证恢复)
+    # PyRIT 原生 @limit_requests_per_minute + @pyrit_target_retry 装饰器
+    # 保留在被包装 target 上, RateLimitedTarget 仅增强并发控制
     wrapped_target = RateLimitedTarget(
         target=target,
         max_concurrency=ctx.args.max_concurrency or 3,
-        max_retries=3,
-        requests_per_minute=rpm,
     )
     ctx.objective_target = wrapped_target
     ctx.multi_turn_target = wrapped_target  # 原生支持多轮
 
     # 设置 model_name
     ctx.model_name = f"OpenAI:{model_name}"
+
+    # 断点修复: 为非Burp路径创建 parsed_request, 确保 arm/strike/report 阶段数据流一致
+    # 数据流: target_router → ctx.parsed_request.target_fingerprint → arm (language/capabilities/model_family) → report
+    _ensure_parsed_request_for_api_path(ctx, mode=api_type, model_name=model_name, endpoint=endpoint)
 
     # L5 v52: 可选 — 运行 PyRIT 原生能力探测
     # 原生 OpenAIChatTarget/OpenAIResponseTarget 已有正确的 TargetCapabilities,
@@ -954,3 +1093,223 @@ async def _create_native_openai_target(
     if auto_discover:
         logger.info("L5 v52: Running native capability discovery...")
         await wrapped_target.apply_discovered_capabilities(timeout_s=15.0)
+
+
+async def _create_litellm_target(
+    ctx: PipelineContext,
+    *,
+    model_name: str,
+) -> None:
+    """创建 PyRIT 原生 LiteLLMChatTarget — 适配 100+ LLM 提供商。
+
+    对齐 PyRIT 1.0.1:
+        LiteLLMChatTarget 通过 LiteLLM SDK 访问 100+ LLM 提供商:
+        - Anthropic (Claude 系列): model_name="anthropic/claude-sonnet-4-6"
+        - AWS Bedrock: model_name="bedrock/anthropic.claude-v2"
+        - Google Vertex (Gemini): model_name="vertex_ai/gemini-pro"
+        - Cohere, Mistral, AI21 等
+        - 自托管 LLM: 通过 endpoint 参数指向自定义 API
+
+    原生优势:
+        - 统一 OpenAI Chat Completions 线格式
+        - 自动从环境变量读取提供商 API key
+          (ANTHROPIC_API_KEY, AWS_ACCESS_KEY_ID 等)
+        - 原生 drop_unsupported_params: 跨提供商参数兼容
+        - 原生 LiteLLM 重试: 提供商感知的重试策略
+        - 原生 TargetCapabilities: 从 LiteLLM 元数据自动推导
+
+    适配任意基于 LLM 开发的 Agent:
+        - 国产 LLM (通义千问, 文心一言, 智谱 GLM):
+          通过 OpenAI 兼容接口, model_name="openai/模型名" + LITELLM_ENDPOINT
+        - 自建 Agent API: 通过 LITELLM_ENDPOINT 指向自定义 API 网关
+        - 多云部署: 通过 LiteLLM 路由到不同云提供商
+
+    包装策略:
+        - 使用 RateLimitedTarget 包装, 提供并发控制
+        - 保持原生 TargetCapabilities (不覆盖 custom_configuration)
+        - 复用原生 max_requests_per_minute 限速
+        - 保留原生 @limit_requests_per_minute + LiteLLM 重试
+
+    学术依据:
+        - PyRIT (arXiv:2407.01232) — LiteLLMChatTarget 原生 Target
+
+    Args:
+        ctx: 流水线上下文。
+        model_name: LiteLLM 模型字符串 (如 "anthropic/claude-sonnet-4-6")。
+    """
+    try:
+        from pyrit.prompt_target import LiteLLMChatTarget
+    except ImportError as e:
+        raise ImportError(
+            "LiteLLMChatTarget requires litellm. "
+            "Install with: pip install pyrit[litellm] or pip install litellm"
+        ) from e
+
+    # 从环境变量读取配置
+    api_key = os.environ.get("LITELLM_API_KEY")
+    endpoint = os.environ.get("LITELLM_ENDPOINT")
+    headers_str = os.environ.get("LITELLM_HEADERS", "")
+    # RPM 限速 (与 RateLimitedTarget 一致)
+    rpm_str = os.environ.get("RATE_LIMIT", "")
+    rpm = int(rpm_str) if rpm_str.isdigit() else None
+
+    # 解析额外 headers (JSON 格式)
+    headers: dict[str, str] | None = None
+    if headers_str:
+        import json
+        try:
+            headers = json.loads(headers_str)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("LITELLM_HEADERS not valid JSON, ignoring: %s", headers_str)
+
+    target = LiteLLMChatTarget(
+        model_name=model_name,
+        api_key=api_key,
+        endpoint=endpoint,
+        headers=headers,
+        max_requests_per_minute=rpm,
+    )
+
+    logger.info(
+        "LiteLLMChatTarget created: model=%s, endpoint=%s, RPM=%s",
+        model_name,
+        endpoint or "(provider default)",
+        rpm or "unlimited",
+    )
+
+    # 包装 RateLimitedTarget (并发控制)
+    # PyRIT 原生 @limit_requests_per_minute + LiteLLM 提供商感知重试
+    # RateLimitedTarget 仅增强并发控制
+    wrapped_target = RateLimitedTarget(
+        target=target,
+        max_concurrency=ctx.args.max_concurrency or 3,
+    )
+    ctx.objective_target = wrapped_target
+    ctx.multi_turn_target = wrapped_target  # LiteLLMChatTarget 原生支持多轮
+
+    # 设置 model_name
+    ctx.model_name = f"LiteLLM:{model_name}"
+
+    # 断点修复: 为非Burp路径创建 parsed_request, 确保 arm/strike/report 阶段数据流一致
+    _ensure_parsed_request_for_api_path(ctx, mode="litellm", model_name=model_name, endpoint=endpoint)
+
+    # 可选 — 运行 PyRIT 原生能力探测
+    auto_discover = getattr(ctx.args, "auto_discover_capabilities", False)
+    if auto_discover:
+        logger.info("Running native capability discovery on LiteLLMChatTarget...")
+        await wrapped_target.apply_discovered_capabilities(timeout_s=15.0)
+
+
+def _ensure_parsed_request_for_api_path(
+    ctx: PipelineContext,
+    *,
+    mode: str,
+    model_name: str,
+    endpoint: str | None,
+) -> None:
+    """为非Burp路径创建轻量级 parsed_request, 确保数据流一致性。
+
+    断点修复: 之前 LiteLLM/OpenAI API/Playwright 路径不设置 ctx.parsed_request,
+    导致后续阶段无法提取 target_fingerprint:
+      - arm 阶段: target_language/target_capabilities/target_model_family 全为 None
+      - report 阶段: target_fingerprint 为空 dict, 报告中侦察信息缺失
+      - main.py: orchestration_log 在非Burp路径不记录 recon 决策
+
+    数据流 (修复后):
+      target_router → ctx.parsed_request.target_fingerprint
+      → arm (language/capabilities/model_family 提取)
+      → strike (model_family 用于 ASR 先验)
+      → report (target_fingerprint 展示在报告中)
+
+    Args:
+        ctx: 流水线上下文。
+        mode: 路由模式 (litellm/chat/responses/browser)。
+        model_name: 模型名称或浏览器URL。
+        endpoint: API 端点URL。
+    """
+    from recon.burp_parser import ParsedBurpRequest
+
+    # 根据模式推导能力指纹
+    capabilities = "text"  # 默认能力
+    app_type = mode
+    auth_type = "api_key"
+    language = "en"
+
+    if mode == "litellm":
+        # LiteLLM 模型名通常包含提供商前缀 (anthropic/claude-sonnet-4-6)
+        provider = model_name.split("/")[0].lower() if "/" in model_name else ""
+        if provider in ("anthropic",):
+            language = "en"
+            model_family = "claude"
+        elif provider in ("bedrock",):
+            language = "en"
+            model_family = "bedrock"
+        elif provider in ("vertex_ai", "vertexai"):
+            language = "en"
+            model_family = "gemini"
+        else:
+            model_family = provider or "litellm"
+    elif mode in ("chat", "responses"):
+        model_lower = model_name.lower()
+        if "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower or "o4" in model_lower:
+            model_family = "openai"
+        elif "deepseek" in model_lower:
+            model_family = "deepseek"
+            language = "zh"
+        elif "qwen" in model_lower or "通义" in model_lower:
+            model_family = "qwen"
+            language = "zh"
+        elif "claude" in model_lower:
+            model_family = "claude"
+        elif "llama" in model_lower:
+            model_family = "llama"
+        elif "phi" in model_lower:
+            model_family = "phi"
+        else:
+            model_family = "openai_compatible"
+    elif mode == "browser":
+        model_family = "browser"
+        auth_type = "none"
+        capabilities = "text"
+    else:
+        model_family = mode
+
+    # 解析 endpoint URL 以提取 host/path/use_tls
+    _use_tls = True
+    _host = endpoint or ""
+    _path = ""
+    if endpoint:
+        from urllib.parse import urlparse
+        _parsed_url = urlparse(endpoint)
+        _use_tls = _parsed_url.scheme == "https"
+        _host = _parsed_url.netloc or _parsed_url.path or endpoint
+        _path = _parsed_url.path or ""
+
+    # 非 Burp 路径不存在 {PROMPT} 占位符 — 使用 API 原生参数传递
+    # has_prompt_placeholder=False 是正确的, 因为 OpenAIChatTarget/LiteLLMChatTarget
+    # 通过 API 参数 (不是 HTTP body 占位符) 发送 prompt
+    fingerprint = {
+        "app_type": app_type,
+        "auth_type": auth_type,
+        "capabilities": capabilities,
+        "model_family": model_family,
+        "language": language,
+        "api_category": mode,
+        "target_type": mode,
+        "endpoint": endpoint or "",
+        "model_name": model_name,
+    }
+
+    ctx.parsed_request = ParsedBurpRequest(
+        method="POST",
+        url=endpoint or "",
+        host=_host,
+        path=_path,
+        use_tls=_use_tls,
+        has_prompt_placeholder=False,  # API 模式无 {PROMPT} 占位符
+        target_fingerprint=fingerprint,
+    )
+    logger.debug(
+        "Non-Burp path: created parsed_request for mode=%s, model_family=%s",
+        mode, model_family,
+    )

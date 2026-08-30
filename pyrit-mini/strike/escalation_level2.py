@@ -153,12 +153,12 @@ def _build_refusal_inverter_scoring_config(ctx: PipelineContext) -> Any:
 
     # 浼樺厛浣跨敤 calibrated_task_achieved rubric
     calibrated_rubric_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "data" / "scorers" / "calibrated_task_achieved.yaml"
+Path(__file__).resolve().parent.parent
+/ "data" / "scorers" / "calibrated_task_achieved.yaml"
     )
     blackbox_rubric_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "data" / "scorers" / "blackbox_task_achieved.yaml"
+Path(__file__).resolve().parent.parent
+/ "data" / "scorers" / "blackbox_task_achieved.yaml"
     )
 
     if ctx.scoring_target:

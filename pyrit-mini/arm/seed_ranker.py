@@ -169,6 +169,36 @@ def load_seeds(
 
     # 鎸?ASR 鎺掑簭
     asr_history = _load_asr_history()
+
+    # 断点修复: 使用 model_family 加载 ASR 先验并合并到 asr_history
+    # 学术依据: Chao et al. (arXiv:2402.01135) — 跨模型 ASR 迁移
+    #   不同模型族安全策略不同, 模型特定 ASR 先验可提升种子排序精度
+    # 数据流: recon (model_identity probe) → target_fingerprint["model_family"]
+    #         → load_seeds (model_family) → load_asr_priors → asr_history 合并
+    if model_family:
+        priors = load_asr_priors(model_family)
+        if priors:
+            # 合并 technique_seed_asr 中的模型特定 ASR 到 asr_history
+            # 如果 asr_history 中没有某种子的历史, 用先验 ASR 作为初始值
+            _model_lower = model_family.lower()
+            _tech_seed_asr = priors.get("technique_seed_asr", {})
+            for tech_name, owasp_asr in _tech_seed_asr.items():
+                if isinstance(owasp_asr, dict):
+                    for owasp_id, asr_val in owasp_asr.items():
+                        if owasp_id == "default":
+                            continue
+                        if owasp_id.lower() in _model_lower or _model_lower in owasp_id.lower():
+                            # 找到模型特定的 ASR 先验
+                            _seed_key = f"{tech_name}:{owasp_id}"
+                            if _seed_key not in asr_history:
+                                asr_history[_seed_key] = float(asr_val)
+            logger.info(
+                "Model-specific ASR priors loaded for model_family=%s "
+                "(asr_history entries: %d)",
+                model_family,
+                len(asr_history),
+            )
+
     seed_groups = _rank_by_asr(seed_groups, asr_history)
 
     # 绉嶅瓙鍔ㄦ€佽鍓?鈥?鑷姩鍓旈櫎 0% ASR 绉嶅瓙 (鏁堢巼浼樺寲)

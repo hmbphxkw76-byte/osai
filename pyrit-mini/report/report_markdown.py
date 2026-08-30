@@ -46,6 +46,42 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append(f"**Overall ASR:** {evidence.overall_asr:.1f}%")
     lines.append("")
 
+    # ── Target Fingerprint & Attack Surface (recon → report 数据传递) ──
+    # 数据流: recon (target_router) → target_fingerprint → evidence → report
+    # 确保 recon 阶段发现的完整攻击面信息传递到报告
+    fp = evidence.target_fingerprint or {}
+    attack_surface = evidence.attack_surface or {}
+    if fp or attack_surface:
+        lines.append("## Target Fingerprint & Attack Surface")
+        lines.append("")
+        lines.append("| Attribute | Value |")
+        lines.append("|-----------|-------|")
+        if fp:
+            # 核心指纹字段
+            for key in (
+                "app_type", "auth_type", "framework", "content_type",
+                "capabilities", "model_family", "language",
+                "session_type", "secret_format", "tenant_id",
+                "api_category", "burp_model_name",
+            ):
+                val = fp.get(key, "")
+                if val:
+                    lines.append(f"| {key} | {val} |")
+        if attack_surface:
+            # 扩展攻击面字段
+            lines.append(f"| mcp_tool_count | {attack_surface.get('mcp_tool_count', 0)} |")
+            lines.append(f"| mcp_resource_count | {attack_surface.get('mcp_resource_count', 0)} |")
+            lines.append(f"| openapi_endpoint_count | {attack_surface.get('openapi_endpoint_count', 0)} |")
+            if attack_surface.get("openapi_spec_path"):
+                lines.append(f"| openapi_spec_path | {attack_surface['openapi_spec_path']} |")
+            lines.append(f"| port_endpoint_count | {attack_surface.get('port_endpoint_count', 0)} |")
+            lines.append(f"| probe_count | {attack_surface.get('probe_count', 0)} |")
+            lines.append(f"| probe_duration_seconds | {attack_surface.get('probe_duration_seconds', 0)} |")
+            # 认证恢复历史 (recon → strike → report)
+            if attack_surface.get("auth_recovery_attempts"):
+                lines.append(f"| auth_recovery_attempts | {attack_surface['auth_recovery_attempts']} |")
+        lines.append("")
+
     # 鈹€鈹€ Executive Summary 鈹€鈹€
     lines.append("## Executive Summary")
     lines.append("")

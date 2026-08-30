@@ -302,7 +302,16 @@ async def precompute_outcomes_async(
                 #   - ConversationScorer 浠?memory 妫€绱㈠畬鏁村璇濆巻鍙茶繘琛岃瘎鍒?
                 #   - 鍗曡疆鏀诲嚮鏃堕€€鍖栦负鏅€氳瘎鍒嗗櫒, 鏃犲壇浣滅敤
                 #   - ConversationScorer 涓嶅彲鐢ㄦ椂鍥為€€鍒版櫘閫?Judge
+                # L5 v55: 优先从 ScorerRegistry 获取 J1 (原生复用)
                 j1_scorer = _dj._cached_truefalse_judge_conv or _dj._cached_truefalse_judge
+                # 尝试从 registry 获取 (如果其他模块已注册)
+                try:
+                    from pyrit.registry import ScorerRegistry
+                    _registry_j1 = ScorerRegistry.get_registry_singleton().get("dual_judge_truefalse_conv")
+                    if _registry_j1:
+                        j1_scorer = _registry_j1
+                except Exception:
+                    pass  # fallback to cached
                 try:
                     scores1 = await j1_scorer.score_async(
                         request_response, objective=objective,
@@ -344,7 +353,16 @@ async def precompute_outcomes_async(
 
                 # J1 鍒?failure 鈫?鎵ц J2 楠岃瘉
                 # L5 v51: J2 涔熶紭鍏堜娇鐢?ConversationScorer 鍖呰鐗?
+                # L5 v55: 优先从 ScorerRegistry 获取 J2 (原生复用)
                 j2_scorer = _dj._cached_harmbench_judge_conv or _dj._cached_harmbench_judge
+                # 尝试从 registry 获取
+                try:
+                    from pyrit.registry import ScorerRegistry
+                    _registry_j2 = ScorerRegistry.get_registry_singleton().get("dual_judge_harmbench_conv")
+                    if _registry_j2:
+                        j2_scorer = _registry_j2
+                except Exception:
+                    pass  # fallback to cached
                 try:
                     scores2 = await j2_scorer.score_async(
                         request_response, objective=objective,

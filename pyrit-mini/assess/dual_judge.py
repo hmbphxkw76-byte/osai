@@ -8,11 +8,37 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Global state for dual judge
+# L5 v55: 使用 PyRIT 原生 ScorerRegistry 管理 Judge 实例, 不再自行维护全局缓存
+# 兼容性适配: 保留全局引用变量指向 registry 中的实例, 避免修改下游调用逻辑
 _cached_truefalse_judge = None
 _cached_harmbench_judge = None
 _cached_arbiter_judge = None
 _judge_init_attempted = False
+
+def _register_judge_to_registry(scorer, name):
+    """L5 v55: 将 Judge scorer 注册到 PyRIT 原生 ScorerRegistry."""
+    try:
+        from pyrit.registry import ScorerRegistry
+        registry = ScorerRegistry.get_registry_singleton()
+        registry.instances.register(
+            scorer=scorer,
+            name=name,
+            tags=[{name: {}}],
+        )
+        import logging
+        logging.getLogger(__name__).debug("L5 v55: Judge '%s' registered to ScorerRegistry", name)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("L5 v55: Failed to register judge '%s': %s", name, e)
+
+def _get_judge_from_registry(name):
+    """L5 v55: 从 PyRIT 原生 ScorerRegistry 获取已注册的 Judge scorer."""
+    try:
+        from pyrit.registry import ScorerRegistry
+        registry = ScorerRegistry.get_registry_singleton()
+        return registry.get(name)
+    except Exception:
+        return None
 
 # L5 v51: ConversationScorer 鍖呰鍚庣殑 Judge (澶氳疆鏀诲嚮鐢?
 # ConversationScorer 璇勪及瀹屾暣瀵硅瘽涓婁笅鏂? 鎻愬崌澶氳疆鏀诲嚮璇勫垎鍑嗙‘鐜?
@@ -40,6 +66,18 @@ def _init_judges() -> bool:
 
     if _judge_init_attempted:
         return _cached_truefalse_judge is not None and _cached_harmbench_judge is not None
+
+    # L5 v55: 优先从 ScorerRegistry 获取已注册的 Judge scorer, 避免重复创建
+    _registry_j1 = _get_judge_from_registry("dual_judge_truefalse")
+    _registry_j2 = _get_judge_from_registry("dual_judge_harmbench")
+    if _registry_j1 and _registry_j2:
+        _cached_truefalse_judge = _registry_j1
+        _cached_harmbench_judge = _registry_j2
+        _cached_truefalse_judge_conv = _get_judge_from_registry("dual_judge_truefalse_conv") or _registry_j1
+        _cached_harmbench_judge_conv = _get_judge_from_registry("dual_judge_harmbench_conv") or _registry_j2
+        _cached_arbiter_judge = _get_judge_from_registry("dual_judge_arbiter")
+        logger.info("L5 v55: Judges retrieved from ScorerRegistry (reused)")
+        return True
     # _cached_arbiter_judge 鍙€?鈥?浠呭綋閰嶇疆浜?ARBITER_CHAT_* 鏃舵墠鍒濆鍖?
 
     _judge_init_attempted = True
@@ -130,6 +168,7 @@ def _init_judges() -> bool:
             chat_target=scoring_target,
             question=question1,
         )
+        _register_judge_to_registry(_cached_truefalse_judge, "dual_judge_truefalse")
         logger.info("L5 v32: Judge 1 initialized (calibrated_task_achieved)")
 
         # L5 v51: 浣跨敤 PyRIT 鍘熺敓 ConversationScorer 鍖呰 Judge 1
@@ -142,6 +181,7 @@ def _init_judges() -> bool:
             _cached_truefalse_judge_conv = create_conversation_scorer(
                 scorer=_cached_truefalse_judge,
             )
+            _register_judge_to_registry(_cached_truefalse_judge_conv, "dual_judge_truefalse_conv")
             logger.info("L5 v51: Judge 1 wrapped with ConversationScorer (native)")
         except Exception as e:
             logger.debug("L5 v51: ConversationScorer wrap failed for J1: %s, using plain scorer", e)
@@ -163,6 +203,7 @@ def _init_judges() -> bool:
                 system_prompt=RefusalScorerPaths.OBJECTIVE_STRICT.value,
             )
             _cached_harmbench_judge = TrueFalseInverterScorer(scorer=refusal_scorer)
+            _register_judge_to_registry(_cached_harmbench_judge, "dual_judge_harmbench")
             logger.info("L5 v54: Judge 2 = TrueFalseInverterScorer(SelfAskRefusalScorer, OBJECTIVE_STRICT) 鈥?10 few-shot examples")
         except Exception as e:
             logger.warning("L5 v54: SelfAskRefusalScorer init failed: %s, falling back to TASK_ACHIEVED_REFINED", e)
@@ -187,6 +228,7 @@ def _init_judges() -> bool:
                 chat_target=scoring_target,
                 question=question2,
             )
+            _register_judge_to_registry(_cached_harmbench_judge, "dual_judge_harmbench")
             logger.info("L5 v25: Judge 2 fallback initialized (TASK_ACHIEVED_REFINED)")
 
         # L5 v51: 浣跨敤 PyRIT 鍘熺敓 ConversationScorer 鍖呰 Judge 2
@@ -195,6 +237,7 @@ def _init_judges() -> bool:
             _cached_harmbench_judge_conv = create_conversation_scorer(
                 scorer=_cached_harmbench_judge,
             )
+            _register_judge_to_registry(_cached_harmbench_judge_conv, "dual_judge_harmbench_conv")
             logger.info("L5 v51: Judge 2 wrapped with ConversationScorer (native)")
         except Exception as e:
             logger.debug("L5 v51: ConversationScorer wrap failed for J2: %s, using plain scorer", e)
@@ -222,6 +265,7 @@ def _init_judges() -> bool:
                     chat_target=arbiter_target,
                     question=arbiter_question,
                 )
+                _register_judge_to_registry(_cached_arbiter_judge, "dual_judge_arbiter")
                 logger.info(
                     "L5 v32: Judge 3 (ARBITER) initialized (model=%s, TASK_ACHIEVED)",
                     arbiter_model,

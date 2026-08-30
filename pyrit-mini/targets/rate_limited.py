@@ -1,96 +1,94 @@
-"""RateLimitedTarget — 共享信号量 + 差异化重试的 PromptTarget 包装器。
+"""RateLimitedTarget — PyRIT 原生装饰器的增强包装器。
 
-核心特性:
-    - 同端点并发控制 (共享 asyncio.Semaphore)
-    - 差异化重试 (429/5xx/timeout)
-    - Retry-After 头解析
-    - 指数退避 + 抖动
-    - 不可重试状态码立即失败
-    - __getattr__ 属性透传
-    - 继承 PromptTarget (非虚拟子类注册)
+核心设计理念 (生产级 PyRIT 1.0.1 对齐):
+    PyRIT 1.0.1 的 OpenAIChatTarget / OpenAIResponseTarget / HTTPTarget
+    已通过原生装饰器提供了完整的限速 + 重试机制:
 
-PyRIT 原生框架集成 (L5 v52):
-    - limit_requests_per_minute: 复用 PyRIT 原生 RPM 限速装饰器逻辑
-    - TargetRequirements: 在包装时自动验证攻击者对目标的能力需求
-    - CapabilityHandlingPolicy: 透传目标的能力处理策略
-      使 ADAPT/RAISE 策略在包装层仍然生效
-    - discover_target_capabilities_async: 支持 apply_discovered_capabilities
-      方法, 在攻击前自动探测并安装目标能力
+    1. ``@limit_requests_per_minute`` — PyRIT 原生 RPM 限速
+       在 ``_send_prompt_to_target_async`` 前执行 ``asyncio.sleep(60/rpm)``。
+       来源: ``pyrit.prompt_target.common.utils``
 
-L5 v4 关键修复 (v53 进一步对齐):
-    - 包装 _send_prompt_to_target_async 而非 send_prompt_async
-      原因: PromptTarget.send_prompt_async 是 @final 方法，负责
-      validation + normalization + conversation 管理。
-    - v53 对齐修复: 继承 PromptTarget (而非虚拟子类注册 + __getattr__)，
-      使 send_prompt_async 的 self 是 RateLimitedTarget 实例，
-      self._send_prompt_to_target_async 正确解析到带重试的版本。
+    2. ``@pyrit_target_retry`` — PyRIT 原生重试装饰器 (tenacity 库)
+       自动重试 ``RateLimitError``、``EmptyResponseException``、
+       ``RateLimitException``，指数退避 + 随机抖动。
+       来源: ``pyrit.exceptions.exception_classes``
+       配置: 环境变量 ``RETRY_MAX_NUM_ATTEMPTS`` (默认 10)、
+       ``RETRY_WAIT_MIN_SECONDS`` (默认 5)、``RETRY_WAIT_MAX_SECONDS`` (默认 220)。
+
+    3. ``_handle_openai_request_async`` — OpenAITarget 统一错误处理
+       精确处理 ``BadRequestError``、``RateLimitError``、
+       ``APIStatusError``、``APITimeoutError``、``APIConnectionError``、
+       ``AuthenticationError``，基于异常类型而非字符串匹配。
+       自动提取 ``Retry-After`` 头和 ``x-request-id``。
+
+    RateLimitedTarget 在此基础上增强:
+        - **并发控制** (``asyncio.Semaphore``): 同端点最大并发数，
+          PyRIT 原生不提供此功能 (原生仅限速不限并发)。
+        - **认证恢复** (401/403): 自动 token 刷新 / 租户切换，
+          学术依据: Heroux et al. (arXiv:2403.04206) §3.2。
+        - **能力验证**: 使用 PyRIT 原生 ``TargetRequirements.validate()``
+          在包装时验证目标满足 text 模态需求。
+        - **资源清理**: ``dispose_db_engine()`` + httpx client 关闭。
+
+    关键对齐 (vs 旧版自研重试):
+        - 删除自研 ``_classify_error`` + ``_send_with_retry`` 逻辑
+        - 删除自研 HTTP 状态码字符串匹配
+        - 保留并发控制 (PyRIT 原生不提供)
+        - 保留认证恢复 (PyRIT 原生不提供)
+        - 透传原生 ``@limit_requests_per_minute`` 和 ``@pyrit_target_retry``
+          (不覆盖被包装 target 的 ``_send_prompt_to_target_async``)
+
+学术依据:
+    - PyRIT (arXiv:2407.01232) — TargetRequirements 声明式能力验证
+    - Greshake et al. (arXiv:2302.12173) — 目标能力探测先于攻击
+    - Heroux et al. (arXiv:2403.04206) — 认证失效恢复策略
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from typing import Any
 
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 
-# 不可重试状态码 (立即失败)
-# 注意: 204 (No Content) 不在此列表中 — LongCat API 可能返回 204 空响应，
-# 需要重试以获取实际内容
-# L5 v4: 移除 422 — JSON 控制字符错误可能是偶发的，重试可能成功
-_NON_RETRYABLE_STATUS_CODES = frozenset({400, 404, 405})
+# 认证可恢复状态码 — 触发 token 刷新 / 租户切换
 _AUTH_RECOVERABLE_STATUS_CODES = frozenset({401, 403})
-
-# 可重试状态码
-_RETRYABLE_STATUS_CODES = frozenset({422, 429, 500, 502, 503, 504})
-
-# 超时异常类型名
-_TIMEOUT_EXCEPTION_NAMES = frozenset(
-    {
-        "APITimeoutError",
-        "asyncio.TimeoutError",
-        "TimeoutError",
-        "ReadTimeout",
-        "ConnectTimeout",
-        "PoolTimeout",
-    }
-)
 
 
 class RateLimitedTarget(PromptTarget):
-    """带限速 + 重试的 PromptTarget 包装器。
+    """PyRIT 原生装饰器增强的 PromptTarget 包装器。
 
-    对齐 PyRIT 1.0.1: 继承 PromptTarget，使 @final send_prompt_async 方法
-    在 RateLimitedTarget 实例上运行。这样 self._send_prompt_to_target_async
-    正确解析到 RateLimitedTarget._send_prompt_to_target_async (而非内部 target 的)，
-    确保 validation + normalization 流程在 RateLimitedTarget 上执行后，
-    委托到带重试的 _send_prompt_to_target_async。
+    对齐 PyRIT 1.0.1 架构:
+        继承 ``PromptTarget``，使 ``@final send_prompt_async`` 方法
+        在 ``RateLimitedTarget`` 实例上运行。这样:
+        - ``send_prompt_async`` 的 validation + normalization + conversation
+          管理在 ``RateLimitedTarget`` 上执行。
+        - ``self._send_prompt_to_target_async`` 正确解析到
+          ``RateLimitedTarget._send_prompt_to_target_async`` (带并发控制 +
+          认证恢复)。
 
-    包装任意 PromptTarget 实例，提供:
-        - 并发控制 (共享信号量)
-        - 差异化重试 (429 优先使用 Retry-After)
-        - 指数退避 + 抖动
-        - 不可重试错误立即失败
-        - __getattr__ 属性透传到原始 Target
+    包装策略 (PyRIT 原生优先):
+        - **不覆盖** 被包装 target 的 ``_send_prompt_to_target_async``，
+          而是在其中调用 ``self._target._send_prompt_to_target_async()``。
+          这保留了被包装 target 上的原生装饰器:
+          ``@limit_requests_per_minute`` + ``@pyrit_target_retry``。
+        - 仅在调用前后添加并发控制 (Semaphore) 和认证恢复逻辑。
 
-    L5 v4: 仅包装 _send_prompt_to_target_async，不重写 send_prompt_async。
-    这样 PromptTarget.send_prompt_async (final) 方法正常执行
-    validation + normalization + conversation 管理。
-    继承 PromptTarget 后，send_prompt_async 中的 self 是 RateLimitedTarget，
-    所以 self._send_prompt_to_target_async 会调用 RateLimitedTarget 的版本
-    (带重试 + 限速)，而非内部 target 的版本。
+    增强功能 (PyRIT 原生不提供):
+        - 并发控制: ``asyncio.Semaphore(max_concurrency)`` 同端点最大并发
+        - 认证恢复: 401/403 时自动 token 刷新 / 租户切换
+        - 能力验证: ``TargetRequirements.validate()`` 包装时验证
+        - 资源清理: ``dispose_db_engine()`` + httpx client 关闭
 
     Args:
         target: 被包装的 PromptTarget 实例。
         endpoint: 端点 URL (用于共享信号量, None 则从 target 提取)。
-        max_concurrency: 最大并发数。
-        max_retries: 最大重试次数 (429/5xx)。
-        requests_per_minute: 每分钟最大请求数 (可选)。
-        timeout_max_retries: 超时独立重试预算。
-        timeout_max_delay: 超时最大退避延迟 (秒)。
+        max_concurrency: 最大并发数 (PyRIT 原生不提供)。
+        auth_state_manager: 认证状态管理器 (可选)。
+        auth_state: 认证状态 (可选)。
     """
 
     def __init__(
@@ -99,43 +97,26 @@ class RateLimitedTarget(PromptTarget):
         target: PromptTarget,
         endpoint: str | None = None,
         max_concurrency: int = 3,
-        max_retries: int = 3,
-        requests_per_minute: int | None = None,
-        timeout_max_retries: int = 5,
-        timeout_max_delay: float = 120.0,
         auth_state_manager: Any | None = None,
         auth_state: Any | None = None,
     ) -> None:
         self._target = target
         self._endpoint = endpoint or getattr(target, "_endpoint", str(id(target)))
-        self._max_retries = max_retries
-        self._timeout_max_retries = timeout_max_retries
-        self._timeout_max_delay = timeout_max_delay
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self._rpm = requests_per_minute
-        # L5 v48: 认证状态管理 (可选)
+
+        # 认证状态管理 (可选)
         self._auth_manager = auth_state_manager
         self._auth_state = auth_state
-        # L5 v48: TLS 状态 (供 auth_manager 恢复时构建 URL)
+        # TLS 状态 (供 auth_manager 恢复时构建 URL)
         self._use_tls = getattr(target, "_use_tls", True)
-
-        # RPM 限速
-        self._rpm_semaphore: asyncio.Semaphore | None = None
-        if requests_per_minute:
-            self._rpm_semaphore = asyncio.Semaphore(requests_per_minute)
-
-        # L5 v52: PyRIT 原生 RPM 限速集成
-        # PyRIT 的 limit_requests_per_minute 装饰器通过 self._max_requests_per_minute
-        # 在每次 _send_prompt_to_target_async 前执行 asyncio.sleep(60/rpm)。
-        # 本包装器已有独立的 requests_per_minute + semaphore 控制机制,
-        # 这里仅确保 _max_requests_per_minute 属性与原生装饰器兼容,
-        # 使攻击者在设置 RPM 时能正确触发 PyRIT 原生限速逻辑。
-        effective_rpm = requests_per_minute or getattr(target, "_max_requests_per_minute", None)
 
         # 对齐 PyRIT 1.0.1: 调用 super().__init__ 使 PromptTarget 基类初始化
         # 这样 send_prompt_async (final) 方法在 RateLimitedTarget 实例上运行,
         # self._send_prompt_to_target_async 正确解析到 RateLimitedTarget 的版本。
         # custom_configuration 透传原始 target 的配置, 使 ADAPT/RAISE 策略生效。
+        # max_requests_per_minute 透传原始 target 的 RPM (原生装饰器使用此值)。
+        effective_rpm = getattr(target, "_max_requests_per_minute", None)
+
         super().__init__(
             max_requests_per_minute=effective_rpm,
             endpoint=self._endpoint,
@@ -144,28 +125,22 @@ class RateLimitedTarget(PromptTarget):
             custom_configuration=getattr(target, "_configuration", None),
         )
 
-        # _memory, _verbose, _max_requests_per_minute, _endpoint, _model_name,
-        # _underlying_model, _configuration 由 super().__init__ 设置。
-        # 额外属性:
+        # 额外属性透传
         self._endpoint_attr = getattr(target, "_endpoint", "")
         self._identifier = getattr(target, "_identifier", None)
         self.supported_converters = getattr(target, "supported_converters", [])
 
-        # L5 v52: 目标能力验证 — 确保目标满足攻击者需求
-        # 学术依据: PyRIT (arXiv:2407.01232) — TargetRequirements 验证
-        # 在攻击执行前验证目标能力 (multi_turn, system_prompt, json_output 等),
-        # 避免因能力不匹配导致运行时错误。
+        # 目标能力验证 — 使用 PyRIT 原生 TargetRequirements.validate()
         self._validate_target_capabilities(target)
 
-        # L5 v52: 保存原始 capabilities 引用, 供 discover_target_capabilities 使用
+        # 保存原始 capabilities 引用, 供 discover_target_capabilities 使用
         self._target_capabilities = getattr(target, "capabilities", None)
 
     def _validate_target_capabilities(self, target: PromptTarget) -> None:
-        """验证目标满足基本攻击需求 (L5 v52).
+        """验证目标满足基本攻击需求。
 
-        L5 v52 对齐: 使用 PyRIT 原生 TargetRequirements.validate()
-        验证目标支持基本的 text 输入模态。
-        不满足时记录警告但不阻止执行 (降级处理).
+        使用 PyRIT 原生 ``TargetRequirements.validate()`` 验证目标支持
+        基本的 text 输入模态。不满足时记录警告但不阻止执行 (降级处理)。
 
         学术依据:
             - PyRIT (arXiv:2407.01232) — TargetRequirements 声明式能力验证
@@ -198,7 +173,7 @@ class RateLimitedTarget(PromptTarget):
             )
 
     async def apply_discovered_capabilities(self, *, timeout_s: float = 30.0) -> None:
-        """使用 PyRIT 原生 discover_target_capabilities 探测并安装能力 (L5 v52).
+        """使用 PyRIT 原生 ``discover_target_capabilities`` 探测并安装能力。
 
         PyRIT 原生优势:
             - 自动探测 multi_turn, system_prompt, json_output 等能力
@@ -219,7 +194,7 @@ class RateLimitedTarget(PromptTarget):
             )
 
             logger.info(
-                "L5 v52: Running PyRIT native capability discovery on %s",
+                "Running PyRIT native capability discovery on %s",
                 type(self._target).__name__,
             )
             discovered = await discover_target_capabilities_async(
@@ -229,7 +204,7 @@ class RateLimitedTarget(PromptTarget):
             )
             self._target_capabilities = discovered
             logger.info(
-                "L5 v52: Discovered capabilities: multi_turn=%s, "
+                "Discovered capabilities: multi_turn=%s, "
                 "system_prompt=%s, json_output=%s, "
                 "input_modalities=%s",
                 discovered.supports_multi_turn,
@@ -239,7 +214,7 @@ class RateLimitedTarget(PromptTarget):
             )
         except Exception as e:
             logger.warning(
-                "L5 v52: Native capability discovery failed (non-fatal): %s", e
+                "Native capability discovery failed (non-fatal): %s", e
             )
 
     async def _send_prompt_to_target_async(
@@ -247,122 +222,130 @@ class RateLimitedTarget(PromptTarget):
         *,
         normalized_conversation: list[Any],
     ) -> list[Any]:
-        """带限速 + 重试的 prompt 发送到目标。
+        """带并发控制 + 认证恢复的 prompt 发送到目标。
 
-        L5 v4: 包装 _send_prompt_to_target_async 而非 send_prompt_async。
-        这样 PromptTarget.send_prompt_async (final) 方法正常执行
-        validation + normalization + conversation 管理。
+        PyRIT 原生优先策略:
+            调用 ``self._target._send_prompt_to_target_async()``，而非
+            覆盖其逻辑。这保留了被包装 target 上的原生装饰器:
+            - ``@limit_requests_per_minute`` — PyRIT 原生 RPM 限速
+            - ``@pyrit_target_retry`` — PyRIT 原生重试 (tenacity)
+              自动处理 RateLimitError、EmptyResponseException、
+              RateLimitException 的指数退避重试。
 
-        流程:
+        增强逻辑 (PyRIT 原生不提供):
             1. 获取共享信号量 (同端点并发控制)
             2. 调用原始 target._send_prompt_to_target_async()
-            3. 成功 → 返回结果
-            4. 失败 → 判断是否可重试:
-                - 不可重试 (400/401/403/404/405) → 立即 raise
-                - 可重试 (422/429/500/502/503/504/timeout) → 指数退避重试
-            5. 429 优先使用 Retry-After 头
-            6. 超时使用独立重试预算 + 更大退避延迟
+               (含原生 @limit_requests_per_minute + @pyrit_target_retry)
+            3. 认证错误 (401/403) — 尝试 token 刷新/租户切换
+            4. 认证恢复成功 → 更新 headers 并重试
+            5. 认证恢复失败 → raise
         """
         async with self._semaphore:
-            return await self._send_with_retry(normalized_conversation=normalized_conversation)
+            return await self._send_with_auth_recovery(
+                normalized_conversation=normalized_conversation,
+            )
 
-    async def _send_with_retry(
+    async def _send_with_auth_recovery(
         self,
         *,
         normalized_conversation: list[Any],
     ) -> list[Any]:
-        """执行带重试的发送。"""
-        last_exception: Exception | None = None
-        timeout_retries = 0
+        """执行发送，带认证恢复逻辑。
 
-        for attempt in range(self._max_retries + 1):
-            try:
-                result = await self._target._send_prompt_to_target_async(
-                    normalized_conversation=normalized_conversation,
-                )
-                return result
+        PyRIT 原生 ``@pyrit_target_retry`` 装饰器已处理:
+        - RateLimitError (429) — 指数退避重试
+        - EmptyResponseException (204) — 重试
+        - RateLimitException — 重试
+        - APITimeoutError / APIConnectionError — 重试
 
-            except Exception as e:
-                last_exception = e
-                error_info = _classify_error(e)
+        本方法仅处理 PyRIT 原生不覆盖的认证恢复场景 (401/403)。
+        学术依据: Heroux et al. (arXiv:2403.04206) §3.2 — 认证失效恢复策略
+        """
+        try:
+            # 调用被包装 target 的 _send_prompt_to_target_async
+            # 这保留了原生装饰器: @limit_requests_per_minute + @pyrit_target_retry
+            return await self._target._send_prompt_to_target_async(
+                normalized_conversation=normalized_conversation,
+            )
+        except Exception as e:
+            # 检查是否为认证可恢复错误 (401/403)
+            if not self._is_auth_recoverable(e):
+                raise
 
-                # L5 v48: 认证可恢复错误 (401/403) — 尝试 token 刷新/租户切换
-                if error_info.get("auth_recoverable") and self._auth_manager and self._auth_state:
-                    auth_manager = self._auth_manager
-                    auth_state = self._auth_state
-                    logger.warning("Auth error (401/403), attempting recovery...")
-                    host = getattr(self, "_endpoint_attr", "")
-                    # 从原始 target 提取 host (去除端口)
-                    if ":" in str(host):
-                        host = str(host).split(":")[0]
-                    use_tls = getattr(self, "_use_tls", True)
-                    recovered = await auth_manager.try_recover_auth(
-                        auth_state,
-                        host=host,
-                        use_tls=use_tls,
-                    )
-                    if recovered:
-                        # 重建 headers 并更新到原始 target
-                        new_headers = auth_manager.build_auth_headers(auth_state)
-                        if hasattr(self._target, '_raw_headers'):
-                            self._target._raw_headers = new_headers
-                        if hasattr(self._target, '_headers'):
-                            self._target._headers = dict(new_headers)
-                        logger.info("Auth recovered, retrying with new credentials")
-                        continue
-                    else:
-                        logger.warning("Auth recovery failed, raising error")
-                        raise
+            # 尝试认证恢复
+            if not self._auth_manager or not self._auth_state:
+                raise
 
-                if not error_info["retryable"]:
-                    logger.debug("Non-retryable error, failing immediately: %s", e)
-                    raise
+            logger.warning("Auth error (401/403), attempting recovery...")
+            host = getattr(self, "_endpoint_attr", "")
+            if ":" in str(host):
+                host = str(host).split(":")[0]
+            use_tls = getattr(self, "_use_tls", True)
 
-                if error_info["is_timeout"]:
-                    if timeout_retries >= self._timeout_max_retries:
-                        logger.error("Timeout retry budget exhausted (%d/%d)", timeout_retries, self._timeout_max_retries)
-                        raise
-                    timeout_retries += 1
-                    delay = min(
-                        self._timeout_max_delay,
-                        2.0**timeout_retries + random.uniform(0, 1.0),
-                    )
-                else:
-                    delay = error_info.get("retry_after") or min(
-                        30.0,
-                        2.0**attempt + random.uniform(0, 1.0),
-                    )
+            recovered = await self._auth_manager.try_recover_auth(
+                self._auth_state,
+                host=host,
+                use_tls=use_tls,
+            )
 
-                logger.warning(
-                    "Retryable error (attempt %d/%d): %s. Waiting %.1fs",
-                    attempt + 1,
-                    self._max_retries,
-                    error_info["type"],
-                    delay,
-                )
-                await asyncio.sleep(delay)
+            if not recovered:
+                logger.warning("Auth recovery failed, raising error")
+                raise
 
-        if last_exception:
-            raise last_exception
-        raise RuntimeError("_send_prompt_to_target_async exhausted retries without exception")
+            # 认证恢复成功 — 更新 headers 并重试
+            new_headers = self._auth_manager.build_auth_headers(self._auth_state)
+            if hasattr(self._target, "_raw_headers"):
+                self._target._raw_headers = new_headers
+            if hasattr(self._target, "_headers"):
+                self._target._headers = dict(new_headers)
+            logger.info("Auth recovered, retrying with new credentials")
+
+            # 重试一次 (原生装饰器会处理后续的 RateLimit/Timeout 重试)
+            return await self._target._send_prompt_to_target_async(
+                normalized_conversation=normalized_conversation,
+            )
+
+    @staticmethod
+    def _is_auth_recoverable(exc: Exception) -> bool:
+        """检查异常是否为认证可恢复错误 (401/403)。
+
+        PyRIT 原生 OpenAITarget 使用 ``AuthenticationError`` 异常类型
+        表示 401/403 错误。此外也检查异常消息中的状态码。
+
+        Args:
+            exc: 异常对象。
+
+        Returns:
+            True 如果是认证可恢复错误。
+        """
+        exc_name = type(exc).__name__
+        # OpenAI SDK 的 AuthenticationError
+        if exc_name == "AuthenticationError":
+            return True
+        # 检查异常消息中的状态码
+        exc_str = str(exc).lower()
+        return any(str(code) in exc_str for code in _AUTH_RECOVERABLE_STATUS_CODES)
 
     async def cleanup(self) -> None:
-        """清理资源 — 生产级资源管理。
+        """清理资源 — 生产级资源管理 (幂等, 可安全多次调用)。
 
         在流水线结束时调用, 确保:
-            1. 信号量释放 (避免事件循环残留)
-            2. 原始 target 的 httpx.AsyncClient 关闭
-            3. PyRIT 原生 dispose_db_engine 释放数据库连接
+            1. 原始 target 的 httpx.AsyncClient 关闭
+            2. 原始 target 的 cleanup 方法调用
+            3. PyRIT 原生 ``dispose_db_engine()`` 释放数据库连接
 
-        对齐 PyRIT 1.0.1:
-            官方 PromptTarget 提供 dispose_db_engine() 方法
-            释放 MemoryInterface 的数据库连接。本方法在清理
-            httpx client 后也调用 dispose_db_engine, 确保所有
-            PyRIT 原生资源被正确释放。
+        幂等性: 使用 ``_is_cleaned`` 标志, 第二次调用直接返回。
+        这在 ``main.py._cleanup_resources`` 的 finally 块中很重要 —
+        正常退出路径已调用过 cleanup, finally 块的兜底调用不会重复执行。
         """
+        if getattr(self, "_is_cleaned", False):
+            logger.debug("Cleanup already done for endpoint=%s, skipping", self._endpoint)
+            return
+        self._is_cleaned = True
+
         # 1. 关闭原始 target 的 httpx client (如果有)
         target = self._target
-        if hasattr(target, '_client') and target._client is not None:
+        if hasattr(target, "_client") and target._client is not None:
             try:
                 await target._client.aclose()
                 logger.debug("Closed httpx.AsyncClient for %s", type(target).__name__)
@@ -370,7 +353,7 @@ class RateLimitedTarget(PromptTarget):
                 logger.debug("Error closing httpx client (non-fatal): %s", e)
 
         # 2. 如果原始 target 有 cleanup 方法, 调用它
-        if hasattr(target, 'cleanup') and callable(getattr(target, 'cleanup', None)):
+        if hasattr(target, "cleanup") and callable(getattr(target, "cleanup", None)):
             try:
                 result = target.cleanup()
                 # 如果是协程, await 它
@@ -395,63 +378,3 @@ class RateLimitedTarget(PromptTarget):
         已在 __init__ 中复制的属性不会触发此方法。
         """
         return getattr(self._target, name)
-
-
-def _classify_error(exc: Exception) -> dict[str, Any]:
-    """分类异常，决定是否可重试。
-
-    Returns:
-        包含以下键的字典:
-            - retryable: bool — 是否可重试
-            - is_timeout: bool — 是否超时
-            - retry_after: float | None — Retry-After 头值 (秒)
-            - type: str — 错误类型描述
-    """
-    exc_name = type(exc).__name__
-    exc_str = str(exc).lower()
-
-    # 超时
-    if exc_name in _TIMEOUT_EXCEPTION_NAMES or "timeout" in exc_str or "timed out" in exc_str:
-        return {"retryable": True, "is_timeout": True, "retry_after": None, "type": f"timeout:{exc_name}", "auth_recoverable": False}
-
-    # L5 v48: 认证可恢复错误 (401/403)
-    for code in _AUTH_RECOVERABLE_STATUS_CODES:
-        if str(code) in exc_str:
-            return {"retryable": False, "is_timeout": False, "retry_after": None, "type": f"http:{code}", "auth_recoverable": True}
-
-    # HTTP 状态码
-    for code in _NON_RETRYABLE_STATUS_CODES:
-        if str(code) in exc_str:
-            return {"retryable": False, "is_timeout": False, "retry_after": None, "type": f"http:{code}", "auth_recoverable": False}
-
-    # 204 — 空响应 (LongCat API 可能返回), 需要重试
-    if "204" in exc_str or "no content" in exc_str:
-        return {"retryable": True, "is_timeout": False, "retry_after": None, "type": "http:204_empty", "auth_recoverable": False}
-
-    # 429 — 解析 Retry-After
-    if "429" in exc_str:
-        retry_after = _parse_retry_after(exc_str)
-        return {"retryable": True, "is_timeout": False, "retry_after": retry_after, "type": "http:429", "auth_recoverable": False}
-
-    # 5xx
-    for code in _RETRYABLE_STATUS_CODES:
-        if str(code) in exc_str:
-            return {"retryable": True, "is_timeout": False, "retry_after": None, "type": f"http:{code}", "auth_recoverable": False}
-
-    # 连接错误
-    if "connection" in exc_str or "connect" in exc_str:
-        return {"retryable": True, "is_timeout": False, "retry_after": None, "type": "connection_error", "auth_recoverable": False}
-
-    # 默认不可重试
-    return {"retryable": False, "is_timeout": False, "retry_after": None, "type": exc_name, "auth_recoverable": False}
-
-
-def _parse_retry_after(error_str: str) -> float | None:
-    """从错误信息中解析 Retry-After 值。"""
-    import re
-
-    match = re.search(r"retry[- ]after[:\s]+(\d+)", error_str, re.IGNORECASE)
-    if match:
-        return float(match.group(1))
-    return None
-

@@ -24,7 +24,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_SEEDS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "seeds"
+_SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
 
 
 def build_compound_dataset_config(

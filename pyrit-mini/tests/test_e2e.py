@@ -92,7 +92,9 @@ def test_seeds_directory_exists():
     assert len(seed_files) > 0, "No .prompt seed files found"
 
 
-def test_burp_request_exists():
-    """data/burp/request.txt should exist as default Burp intercept file."""
-    burp_file = _PROJECT_ROOT / "data" / "burp" / "request.txt"
-    assert burp_file.exists()
+def test_burp_directory_exists():
+    """data/burp/ directory should exist (files are optional, user-supplied)."""
+    burp_dir = _PROJECT_ROOT / "data" / "burp"
+    assert burp_dir.exists(), "data/burp/ directory must exist"
+    # request.txt is the default Burp file but NOT required —
+    # users supply their own via --burp <NAME>

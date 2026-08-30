@@ -9,6 +9,7 @@
 """
 
 from recon.burp_parser import ParsedBurpRequest, build_http_target, parse_burp_request
+from recon.endpoint_sorter import sort_burp_list_by_priority, sort_endpoints_by_priority
 from recon.target_router import create_target
 
 __all__ = [
@@ -16,5 +17,7 @@ __all__ = [
     "parse_burp_request",
     "build_http_target",
     "create_target",
+    "sort_burp_list_by_priority",
+    "sort_endpoints_by_priority",
 ]
 

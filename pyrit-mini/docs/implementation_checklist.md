@@ -80,7 +80,7 @@ python core/architecture_guard.py --json > architecture_baseline.json
 python core/architecture_guard.py --fix-hints
 
 # Step 2: ruff 检查
-ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ mini_strike.py
+ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py
 
 # Step 3: pytest 全量测试 (如果 tests/ 存在)
 python -m pytest tests/ -v --tb=long

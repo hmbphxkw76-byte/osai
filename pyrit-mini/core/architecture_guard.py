@@ -31,7 +31,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 允许在项目根目录的文件/目录 (R3)
 _ALLOWED_ROOT_ENTRIES: set[str] = {
-    "mini_strike.py",          # 主入口
+    "main.py",                 # 主入口
     "pyproject.toml",           # 项目配置
     ".env",                     # 环境变量
     ".gitignore",               # Git 忽略

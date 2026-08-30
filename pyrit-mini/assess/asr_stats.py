@@ -278,6 +278,25 @@ def get_dual_judge_stats() -> dict[str, Any]:
     t0_f1 = round(2 * t0_precision * t0_recall / (t0_precision + t0_recall), 3) \
         if (t0_precision + t0_recall) > 0 else 0.0
 
+    # L5 v55: 构建原生 ObjectiveScorerMetrics 格式 (PyRIT arXiv:2407.01232)
+    # 对齐 PyRIT ScorerMetrics 标准, 支持 F1/Precision/Recall 追踪
+    native_scorer_metrics = {
+        "num_responses": t0_total,
+        "num_human_raters": 1,
+        "num_scorer_trials": 1,
+        "accuracy": t0_accuracy,
+        "accuracy_standard_error": 0.0,
+        "f1_score": t0_f1,
+        "precision": t0_precision,
+        "recall": t0_recall,
+        "confusion_matrix": {
+            "tp": t0_tp,
+            "fp": t0_fp,
+            "fn": t0_fn,
+            "tn": t0_tn,
+        },
+    }
+
     return {
         "total_scored": total,
         "dual_judge_invoked": total,
@@ -295,22 +314,7 @@ def get_dual_judge_stats() -> dict[str, Any]:
         "t0_stats": t0_stats,
         # L5 v51: PyRIT 鍘熺敓 ObjectiveScorerMetrics 鏍煎紡 (T0 vs Judge)
         # 瀵归綈 PyRIT ScorerMetrics 鏍囧噯, 鏀寔 F1/Precision/Recall 杩借釜
-        "scorer_metrics": {
-            "num_responses": t0_total,
-            "num_human_raters": 1,  # 鍙?Judge OR 浣滀负鍗曚竴鈥滀汉绫烩€濇爣绛?
-            "num_scorer_trials": 1,
-            "accuracy": t0_accuracy,
-            "accuracy_standard_error": 0.0,  # 灏忔牱鏈笉璁＄畻鏍囧噯璇?
-            "f1_score": t0_f1,
-            "precision": t0_precision,
-            "recall": t0_recall,
-            "confusion_matrix": {
-                "tp": t0_tp,
-                "fp": t0_fp,
-                "fn": t0_fn,
-                "tn": t0_tn,
-            },
-        },
+        "scorer_metrics": native_scorer_metrics,
     }
 
 

@@ -18,9 +18,9 @@ from arm.seed_auto_expander import _compute_adaptive_ucb_c
 
 logger = logging.getLogger(__name__)
 
-_SEEDS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "seeds"
+_SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
 _ASR_HISTORY_PATH = _SEEDS_DIR / "asr_history.json"
-_ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "asr_priors.yaml"
+_ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent / "config" / "asr_priors.yaml"
 
 def _rank_by_asr(
     seed_groups: list[AttackSeedGroup],

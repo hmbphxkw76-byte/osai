@@ -282,7 +282,7 @@ profiles:
     description: "基础提示注入 — 直接越狱"
 
 # ── 默认 Burp 请求文件 ──
-# 如果未指定 --burp-dir 或 --burp-request, 使用此文件
+# 如果未指定 --burp, 使用此文件
 default_burp_file: "data/burp/request.txt"
 
 # ── Cookie 配置 ──

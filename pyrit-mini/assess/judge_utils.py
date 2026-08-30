@@ -414,8 +414,8 @@ def _compute_adaptive_threshold(high_confidence_threshold: float) -> float:
         调整后的阈值。
     """
     asr_history_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "data" / "seeds" / "asr_history.json"
+Path(__file__).resolve().parent.parent
+/ "data" / "seeds" / "asr_history.json"
     )
     if not asr_history_path.exists():
         return high_confidence_threshold
@@ -574,7 +574,7 @@ def create_adaptive_dual_judge_scorer(
     high_confidence_threshold = _compute_adaptive_threshold(high_confidence_threshold)
 
     # 评分器 rubric 路径
-    project_root = Path(__file__).resolve().parent.parent.parent
+    project_root = Path(__file__).resolve().parent.parent
     first_rubric_path = project_root / "data" / "scorers" / "blackbox_task_achieved.yaml"
     second_rubric_path = project_root / "data" / "scorers" / "strict_task_achieved.yaml"
 

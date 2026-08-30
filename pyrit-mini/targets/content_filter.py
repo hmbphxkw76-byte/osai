@@ -1,11 +1,24 @@
-"""ContentFilterExt — 扩展 PyRIT 内容过滤器标记。
+"""ContentFilterExt — 扩展 PyRIT 原生内容过滤器标记。
+
+对齐 PyRIT 1.0.1 架构:
+    PyRIT 1.0.1 中 ``CONTENT_FILTER_MARKERS`` 定义在
+    ``pyrit.exceptions.exception_classes`` 模块中 (frozenset)。
+
+    ``_is_content_filter_error`` 函数 (在 ``openai_error_handling`` 模块中)
+    从 ``exception_classes`` 导入 ``CONTENT_FILTER_MARKERS`` 并执行
+    子串扫描来判断是否为内容过滤错误。
+
+    本模块通过直接扩展 ``exception_classes.CONTENT_FILTER_MARKERS``
+    frozenset 来增强 PyRIT 原生内容过滤检测能力，无需包装函数。
 
 三层防御机制:
     L1: 静态标记 (YAML 配置文件)
-    L2: 默认扩展标记 (覆盖第三方 API)
-    L3: heuristic 动态发现 (从错误信息中发现新标记)
+    L2: 默认扩展标记 (覆盖第三方 API 中文安全标记)
+    L3: heuristic 动态发现 (从错误信息中发现新标记, 持久化缓存)
 
-自动发现所有消费模块并补丁 CONTENT_FILTER_MARKERS。
+学术依据:
+    - PyRIT (arXiv:2407.01232) — 内容过滤检测是 target 交互的核心
+    - Greshake et al. (arXiv:2302.12173) — 目标安全系统探测
 """
 
 from __future__ import annotations
@@ -14,24 +27,33 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 扩展标记 (覆盖第三方 API)
+# L2: 默认扩展标记 (覆盖第三方 API, 特别是中文 LLM 服务)
+# PyRIT 原生 CONTENT_FILTER_MARKERS 已包含:
+#   content_filter, content_safety_violation, policy_violation, moderation_blocked
+# 这里补充第三方 API 常见的内容过滤标记
 _DEFAULT_EXTRA_MARKERS = frozenset(
     {
+        # 英文扩展标记
         "security_audit_fail",
         "security_error",
         "sensitive_content",
         "risk_content_detected",
         "review_blocked",
+        "safety_system",
+        "safety_system_triggered",
+        # 中文内容过滤标记 (国产 LLM 服务常见)
         "违规信息",
         "内容违规",
         "内容包含敏感词",
         "我无法回答",
         "作为AI",
         "我不能提供",
+        "敏感词",
+        "内容审核",
+        "安全拦截",
     }
 )
 
@@ -48,16 +70,21 @@ _HEURISTIC_PATTERNS = [
 def extend_content_filter_markers(
     config_path: str | Path | None = None,
 ) -> frozenset[str]:
-    """扩展 PyRIT 内容过滤器标记 (三层防御)。
+    """扩展 PyRIT 原生 ``CONTENT_FILTER_MARKERS`` (三层防御)。
+
+    对齐 PyRIT 1.0.1:
+        PyRIT 1.0.1 的 ``CONTENT_FILTER_MARKERS`` 定义在
+        ``pyrit.exceptions.exception_classes`` 模块中。
+        ``_is_content_filter_error`` (在 ``openai_error_handling`` 中) 从
+        ``exception_classes`` 导入此 frozenset。
+        直接扩展此 frozenset 即可增强所有使用它的检测逻辑。
 
     执行流程:
         1. 加载 YAML 静态配置 (L1)
         2. 合并默认扩展标记 (L2)
         3. 加载上次运行发现的标记缓存 (L3)
-        4. 自动发现所有消费模块
-        5. 补丁 CONTENT_FILTER_MARKERS
-        6. 补丁 _is_content_filter_error (heuristic 包装)
-        7. 功能验证 — 确保扩展标记被 PyRIT 识别
+        4. 扩展 ``exception_classes.CONTENT_FILTER_MARKERS`` frozenset
+        5. 功能验证 — 确保扩展标记被 PyRIT 识别
 
     Args:
         config_path: YAML 配置文件路径 (可选)。
@@ -86,11 +113,8 @@ def extend_content_filter_markers(
     all_markers |= cached_markers
     logger.info("L3: %d cached discovered markers", len(cached_markers))
 
-    # 补丁 PyRIT 内容过滤器
+    # 扩展 PyRIT 原生 CONTENT_FILTER_MARKERS
     _patch_content_filter_markers(all_markers)
-
-    # 补丁 _is_content_filter_error
-    _patch_is_content_filter_error()
 
     # 功能验证
     _verify_patch(all_markers)
@@ -100,66 +124,43 @@ def extend_content_filter_markers(
 
 
 def _patch_content_filter_markers(markers: set[str]) -> None:
-    """补丁 PyRIT 的 CONTENT_FILTER_MARKERS。"""
-    try:
-        from pyrit.prompt_target.openai import openai_error_handling
+    """扩展 PyRIT 原生 ``CONTENT_FILTER_MARKERS`` frozenset。
 
-        existing = getattr(openai_error_handling, "CONTENT_FILTER_MARKERS", frozenset())
+    对齐 PyRIT 1.0.1:
+        ``CONTENT_FILTER_MARKERS`` 定义在
+        ``pyrit.exceptions.exception_classes`` 模块中。
+        直接替换该模块属性为合并后的 frozenset。
+
+        ``openai_error_handling._is_content_filter_error`` 通过
+        ``from pyrit.exceptions.exception_classes import CONTENT_FILTER_MARKERS``
+        导入此集合，因此直接替换模块属性即可生效。
+    """
+    try:
+        from pyrit.exceptions import exception_classes
+
+        existing = getattr(exception_classes, "CONTENT_FILTER_MARKERS", frozenset())
         combined = frozenset(existing) | frozenset(markers)
-        openai_error_handling.CONTENT_FILTER_MARKERS = combined
+        exception_classes.CONTENT_FILTER_MARKERS = combined
         logger.debug("Patched CONTENT_FILTER_MARKERS: %d total", len(combined))
     except ImportError:
-        logger.warning("Could not import openai_error_handling for patching")
+        logger.warning("Could not import exception_classes for patching")
 
-    # 也补丁 openai_chat_target 中的引用
-    try:
-        from pyrit.prompt_target.openai import openai_chat_target
-
-        if hasattr(openai_chat_target, "CONTENT_FILTER_MARKERS"):
-            openai_chat_target.CONTENT_FILTER_MARKERS = openai_error_handling.CONTENT_FILTER_MARKERS
-    except (ImportError, AttributeError):
-        pass
-
-
-def _patch_is_content_filter_error() -> None:
-    """包装 _is_content_filter_error 以增加 heuristic 发现。"""
-    try:
-        from pyrit.prompt_target.openai import openai_error_handling
-
-        original_fn = getattr(openai_error_handling, "_is_content_filter_error", None)
-        if original_fn is None:
-            return
-
-        # 防止重复包装
-        if getattr(original_fn, "_heuristic_wrapped", False):
-            return
-
-        def _heuristic_wrapper(error: Any) -> bool:
-            # 先调用原始判断
-            if original_fn(error):
-                return True
-            # heuristic: 检查错误信息中是否包含新标记
-            error_str = str(error).lower()
-            markers = getattr(openai_error_handling, "CONTENT_FILTER_MARKERS", frozenset())
-            for marker in markers:
-                if marker.lower() in error_str:
-                    return True
-            return False
-
-        _heuristic_wrapper._heuristic_wrapped = True  # type: ignore[attr-defined]
-        openai_error_handling._is_content_filter_error = _heuristic_wrapper
-        logger.debug("Wrapped _is_content_filter_error with heuristic")
-
-    except ImportError:
-        logger.warning("Could not patch _is_content_filter_error")
+    # 也补丁 handle_bad_request_exception 中的引用 (如果存在)
+    # handle_bad_request_exception 在 exception_classes 模块中,
+    # 它直接引用模块级 CONTENT_FILTER_MARKERS 变量,
+    # 所以上面的替换已经覆盖了它。
 
 
 def _verify_patch(markers: set[str]) -> None:
-    """功能验证 — 确保扩展标记被 PyRIT 识别。"""
-    try:
-        from pyrit.prompt_target.openai import openai_error_handling
+    """功能验证 — 确保扩展标记被 PyRIT 识别。
 
-        current = getattr(openai_error_handling, "CONTENT_FILTER_MARKERS", frozenset())
+    对齐 PyRIT 1.0.1: 验证 ``exception_classes.CONTENT_FILTER_MARKERS``
+    已包含所有扩展标记。
+    """
+    try:
+        from pyrit.exceptions import exception_classes
+
+        current = getattr(exception_classes, "CONTENT_FILTER_MARKERS", frozenset())
         missing = markers - set(current)
         if missing:
             logger.error("Content filter verification FAILED: %d markers missing", len(missing))
@@ -172,10 +173,20 @@ def _verify_patch(markers: set[str]) -> None:
 def persist_discovered_markers() -> None:
     """持久化动态发现的标记到 JSON 文件。"""
     try:
-        from pyrit.prompt_target.openai import openai_error_handling
+        from pyrit.exceptions import exception_classes
 
-        current = getattr(openai_error_handling, "CONTENT_FILTER_MARKERS", frozenset())
+        current = getattr(exception_classes, "CONTENT_FILTER_MARKERS", frozenset())
         discovered = set(current) - _DEFAULT_EXTRA_MARKERS
+        # 也排除 PyRIT 原生标记
+        _native_markers = frozenset(
+            {
+                "content_filter",
+                "content_safety_violation",
+                "policy_violation",
+                "moderation_blocked",
+            }
+        )
+        discovered -= _native_markers
         if not discovered:
             return
 

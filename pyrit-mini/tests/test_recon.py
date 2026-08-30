@@ -72,7 +72,7 @@ class TestTargetRouter:
         from recon.target_router import create_target
 
         args = MagicMock()
-        args.burp_request = "nonexistent.txt"
+        args.burp = "nonexistent.txt"
         args.max_concurrency = 3
         args.target_api_endpoint = None
         args.target_api_key = None

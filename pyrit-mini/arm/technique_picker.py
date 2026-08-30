@@ -179,6 +179,9 @@ _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "session_auth": ["context_compliance"],
     "memory": ["context_compliance"],
     "a2a": ["context_compliance"],
+    # P1-2: OpenAPI 发现的端点 → 参数注入攻击技术
+    "openapi": ["context_compliance"],
+    "openapi_auth": ["context_compliance"],
 }
 
 

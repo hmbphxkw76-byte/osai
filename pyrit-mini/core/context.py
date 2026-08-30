@@ -49,6 +49,12 @@ class PipelineContext:
 
     # Recon phase
     parsed_request: "ParsedBurpRequest | None" = None
+    # 多 endpoint 支持: 每个 endpoint 的独立攻击结果
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击
+    #   Chao et al. (arXiv:2310.08419) — 联合 ASR = 1 - ∏(1 - ASRᵢ)
+    multi_endpoint_results: list[dict[str, Any]] = field(default_factory=list)
+    # 当前正在攻击的 endpoint 索引 (多 endpoint 循环中)
+    _current_endpoint_idx: int = 0
 
     # Targets
     objective_target: Any = None
@@ -212,7 +218,7 @@ def apply_relaxed_adversarial_schema() -> None:
         )
 
         _relaxed_schema_applied = True
-        logger.info(
+        logger.debug(
             "Relaxed adversarial schema applied: "
             "adversarial_chat (required=['next_message']), "
             "true_false_with_rationale (additionalProperties=True), "

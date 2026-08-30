@@ -62,6 +62,12 @@ pair_tree_depth: 7
 # ── 黑盒探测 ──
 probe_timeout: 10
 probe_retries: 2
+# P2-20: 深度能力探针超时 (单个探针)
+# 学术依据: Arbis et al. (arXiv:2306.01943) §4.5 — 探测效率优化
+deep_probe_timeout: 15
+# P2-20: 并行探针总超时 (所有探针并发)
+# 串行 8×15s=120s → 并行后统一 20s
+parallel_probe_timeout: 20
 
 # ── Converter 路径数 ──
 # arXiv:2407.01232 — PyRIT SequentialAttack FIRST_SUCCESS, 最佳 5-7 条独立路径

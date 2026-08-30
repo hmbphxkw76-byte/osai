@@ -1,35 +1,35 @@
-"""MCP (Model Context Protocol) 绔偣鏋氫妇妯″潡 鈥?鍙戠幇骞舵彁鍙?MCP Server 鐨?tools/resources/prompts銆?
+"""MCP (Model Context Protocol) 端点枚举模块 — 发现并提取 MCP Server 的 tools/resources/prompts。
 
-瀛︽湳渚濇嵁:
-    - Anthropic MCP Specification (2024) 搂3.2 鈥?MCP server 蹇呴』瀹炵幇
-      tools/list, resources/list, prompts/list JSON-RPC 鏂规硶
-    - Greshake et al. (arXiv:2302.12173) 搂4 鈥?闂存帴鎻愮ず娉ㄥ叆鐨勬牳蹇冩槸
-      鍒╃敤宸ュ叿杈撳嚭涓殑淇′换浼犻€? 鏋氫妇 tool schema 鍚庡彲閽堝姣忎釜 tool
-      鐨勫弬鏁版瀯閫犵簿鍑嗘敞鍏?
-    - Zhan et al. (arXiv:2307.00929) InjecAgent 搂3.3 鈥?Agent 宸ュ叿璋冪敤
-      鐨勫弬鏁版敞鍏ラ渶瑕佺煡閬?tool 鐨?input schema
-    - 璇剧▼ AI-300 Ch7.1 鈥?"Extract detailed tool schemas through
+学术依据:
+    - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
+      tools/list, resources/list, prompts/list JSON-RPC 方法
+    - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入的核心是
+      利用工具输出中的信任传递, 枚举 tool schema 后可针对每个 tool
+      的参数构造精准备注注入
+    - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — Agent 工具调用
+      的参数注入需要知道 tool 的 input schema
+    - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
       error-based enumeration"
 
-鏋氫妇绛栫暐 (3 灞?:
-    1. 鏍囧噯 JSON-RPC 鏋氫妇: 鍚戠洰鏍?MCP endpoint 鍙戦€?tools/list,
-       resources/list, prompts/list 璇锋眰, 瑙ｆ瀽 JSON-RPC 鍝嶅簲
-    2. 閿欒鎺ㄦ柇鏋氫妇 (Error-based): 鍙戦€佷笉瀹屾暣/鏍煎紡閿欒鐨?tool call,
-       鍒╃敤閿欒淇℃伅鎺ㄦ柇 schema (濡傜己灏戝繀閫夊弬鏁版椂 MCP 杩斿洖 schema 鎻忚堪)
-    3. Prompt 杈呭姪鏋氫妇: 褰?JSON-RPC 涓嶅彲杈炬椂, 閫氳繃 PromptSendingAttack
-       鍚戠洰鏍?LLM 鍙戦€?"list all MCP tools" prompt, 瑙ｆ瀽 LLM 鍝嶅簲
+枚举策略 (3 层):
+    1. 标准 JSON-RPC 枚举: 向目标 MCP endpoint 发送 tools/list,
+       resources/list, prompts/list 请求, 解析 JSON-RPC 响应
+    2. 错误推断枚举 (Error-based): 发送不完整/格式错误的 tool call,
+       利用错误信息推断 schema (如缺少必选参数时 MCP 返回 schema 描述)
+    3. Prompt 辅助枚举: 当 JSON-RPC 不可达时, 通过 PromptSendingAttack
+       向目标 LLM 发送 "list all MCP tools" prompt, 解析 LLM 响应
 
-PyRIT 鍘熺敓浼樺厛 (Rule 2: 鍘熺敓浼樺厛):
-    灞?1-2 浣跨敤 httpx 鐩存帴鍙戦€?JSON-RPC 璇锋眰 (HTTPTarget 鐨?{PROMPT}
-    鍗犱綅绗︽満鍒朵笉閫傚悎鍙戦€佺粨鏋勫寲 JSON-RPC, 浣?httpx 鏄?PyRIT 宸叉湁鐨?
-    渚濊禆, 涓?SKILL.md 璁捐鍩熻竟鐣岃鍒欏厑璁?MCP JSON-RPC 鏋氫妇浣跨敤
-    HTTPTarget 鍘熺敓 HTTP 鍙戦€佽兘鍔?
-    灞?3 浣跨敤 PyRIT 鍘熺敓 PromptSendingAttack (prompt 灞傛灇涓?
+PyRIT 原生优先 (Rule 2: 原生优先):
+    层 1-2 使用 httpx 直接发送 JSON-RPC 请求 (HTTPTarget 的 {PROMPT}
+    占位符机制不适合发送结构化 JSON-RPC, 但 httpx 是 PyRIT 已有的
+    依赖, 且 SKILL.md 设计域边界规则允许 MCP JSON-RPC 枚举使用
+    HTTPTarget 原生 HTTP 发送能力
+    层 3 使用 PyRIT 原生 PromptSendingAttack (prompt 层攻击)
 
-璁捐鍩熻竟鐣?(Rule 2: PyRIT Design Domain Boundary):
-    MCP tools/list 绛?JSON-RPC 鏂规硶鏄爣鍑?HTTP POST + JSON body,
-    灞炰簬 HTTPTarget 鐨勫師鐢?HTTP 鍙戦€佽兘鍔涜寖鍥村唴銆傝繖鏄?Rule 2 涓?
-    鏄庣‘鍏佽鐨?MCP JSON-RPC 鏋氫妇渚嬪銆?
+设计域边界 (Rule 2: PyRIT Design Domain Boundary):
+    MCP tools/list 等 JSON-RPC 方法是标准 HTTP POST + JSON body,
+    属于 HTTPTarget 的原生 HTTP 发送能力范围内。这是 Rule 2 中
+    明确允许的 MCP JSON-RPC 枚举例外。
 """
 
 from __future__ import annotations
@@ -41,47 +41,47 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# MCP JSON-RPC 鏂规硶 (Anthropic MCP Specification 搂3.2)
+# MCP JSON-RPC 方法 (Anthropic MCP Specification §3.2)
 _MCP_METHODS = {
     "tools/list": "List all tools with their schemas",
     "resources/list": "List all available resources",
     "prompts/list": "List all available prompts",
 }
 
-# MCP 鏍囧噯 JSON-RPC 璇锋眰 ID 鍓嶇紑
+# MCP 标准 JSON-RPC 请求 ID 前缀
 _MCP_REQUEST_ID_PREFIX = "strike-mcp-enum"
 
-# 鎺㈤拡瓒呮椂 (绉?
+# 探针超时 (秒)
 _PROBE_TIMEOUT = 15
 
 
 async def enumerate_mcp_endpoint(
     parsed_request: Any,
 ) -> dict[str, Any]:
-    """鏋氫妇鐩爣 MCP Server 鐨?tools/resources/prompts銆?
+    """枚举目标 MCP Server 的 tools/resources/prompts。
 
-    瀛︽湳渚濇嵁:
-        - Anthropic MCP Specification (2024) 搂3.2 鈥?MCP server 蹇呴』瀹炵幇
-          tools/list, resources/list, prompts/list JSON-RPC 鏂规硶
-        - 璇剧▼ AI-300 Ch7.1 鈥?MCP 绔偣鏋氫妇 + tool schema 鎻愬彇
+    学术依据:
+        - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
+          tools/list, resources/list, prompts/list JSON-RPC 方法
+        - 课程 AI-300 Ch7.1 — MCP 端点枚举 + tool schema 提取
 
-    鏋氫妇绛栫暐 (3 灞?fallback):
-        1. 鏍囧噯 JSON-RPC 鏋氫妇: 鍚戠洰鏍?endpoint 鍙戦€?MCP 鏍囧噯 JSON-RPC 璇锋眰
-        2. 閿欒鎺ㄦ柇鏋氫妇: 鍙戦€佹牸寮忛敊璇殑 tool call, 鍒╃敤閿欒淇℃伅鎺ㄦ柇 schema
-        3. 缁撴灉姹囨€? 灏嗘墍鏈夊彂鐜扮殑 tools/resources/prompts 瀛樺叆 target_fingerprint
+    枚举策略 (3 层 fallback):
+        1. 标准 JSON-RPC 枚举: 向目标 endpoint 发送 MCP 标准 JSON-RPC 请求
+        2. 错误推断枚举: 发送格式错误的 tool call, 利用错误信息推断 schema
+        3. 结果汇总: 将所有发现的 tools/resources/prompts 存入 target_fingerprint
 
     Args:
-        parsed_request: ParsedBurpRequest 瀹炰緥 (澶嶇敤鍏?headers/璁よ瘉)銆?
+        parsed_request: ParsedBurpRequest 实例 (复用其 headers/认证)。
 
     Returns:
-        鏋氫妇缁撴灉瀛楀吀:
+        枚举结果字典:
         {
             "has_mcp": bool,
             "tools": [{"name": str, "description": str, "inputSchema": dict}, ...],
             "resources": [{"uri": str, "name": str, "description": str}, ...],
             "prompts": [{"name": str, "description": str}, ...],
-            "tool_names": [str, ...],  # 绠€鍖栧垪琛? 渚涚瀛愮郴缁熶娇鐢?
-            "server_info": dict | None,  # MCP server 淇℃伅
+            "tool_names": [str, ...],  # 简化列表, 供子系统集成使用
+            "server_info": dict | None,  # MCP server 信息
         }
     """
     results: dict[str, Any] = {
@@ -97,8 +97,8 @@ async def enumerate_mcp_endpoint(
         logger.debug("MCP enumerate: no parsed_request")
         return results
 
-    # 鈹€鈹€ 灞?1: 鏍囧噯 JSON-RPC 鏋氫妇 鈹€鈹€
-    # 鍚戠洰鏍?endpoint 鍙戦€?tools/list, resources/list, prompts/list
+    # ── 层 1: 标准 JSON-RPC 枚举 ──
+    # 向目标 endpoint 发送 tools/list, resources/list, prompts/list
     logger.info("MCP enumerate: sending standard JSON-RPC requests")
 
     for method, description in _MCP_METHODS.items():
@@ -136,10 +136,10 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: method %s failed: %s", method, e)
 
-    # 鈹€灞?2: 閿欒鎺ㄦ柇鏋氫妇 (Error-based) 鈹€鈹€
-    # 瀛︽湳渚濇嵁: 璇剧▼ AI-300 Ch7.1 鈥?"Extract detailed tool schemas
+    # ── 层 2: 错误推断枚举 (Error-based) ──
+    # 学术依据: 课程 AI-300 Ch7.1 — "Extract detailed tool schemas
     # through error-based enumeration techniques"
-    # 濡傛灉灞?1 鏈彂鐜?tools, 灏濊瘯鍙戦€佷笉瀹屾暣鐨?tool call 瑙﹀彂閿欒鍝嶅簲
+    # 如果层 1 没发现 tools, 尝试发送不完整的 tool call 触发错误响应
     if not results["tools"]:
         logger.info("MCP enumerate: no tools from standard list, trying error-based enumeration")
         error_tools = await _error_based_enumeration(parsed_request)
@@ -153,12 +153,26 @@ async def enumerate_mcp_endpoint(
                 results["tool_names"],
             )
 
-    # 鈹€鈹€ 鏌ヨ MCP server info 鈹€鈹€
+    # ── 查询 MCP server info (含版本协商) ──
+    # 学术依据: Anthropic MCP Specification (2024) §3.1 — initialize 方法
+    # 版本协商: 先发送 initialize, 服务器返回支持的 protocolVersion,
+    # 后续请求使用协商后的版本
     if results["has_mcp"]:
         try:
+            # 版本协商: 尝试最新版本, 服务器可降级
+            negotiated_version = await _negotiate_protocol_version(
+                parsed_request,
+                client_versions=["2025-06-18", "2024-11-05", "2024-10-07"],
+            )
+            if negotiated_version:
+                logger.info(
+                    "MCP enumerate: negotiated protocol version: %s",
+                    negotiated_version,
+                )
+
             info_response = await _send_mcp_jsonrpc(
                 parsed_request, "initialize", {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": negotiated_version or "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {"name": "strike-mcp-enum", "version": "1.0"},
                 },
@@ -167,17 +181,20 @@ async def enumerate_mcp_endpoint(
                 server_info = _extract_server_info(info_response)
                 if server_info:
                     results["server_info"] = server_info
+                    # 记录协商后的协议版本
+                    results["server_info"]["negotiated_version"] = negotiated_version
                     logger.info(
-                        "MCP enumerate: server info: name=%s, version=%s",
+                        "MCP enumerate: server info: name=%s, version=%s, protocol=%s",
                         server_info.get("name", "unknown"),
                         server_info.get("version", "unknown"),
+                        server_info.get("protocol_version", "unknown"),
                     )
         except Exception as e:
             logger.debug("MCP enumerate: server info query failed: %s", e)
 
     if results["has_mcp"]:
         logger.info(
-            "MCP enumerate: complete 鈥?%d tools, %d resources, %d prompts",
+            "MCP enumerate: complete — %d tools, %d resources, %d prompts",
             len(results["tools"]),
             len(results["resources"]),
             len(results["prompts"]),
@@ -193,24 +210,24 @@ async def _send_mcp_jsonrpc(
     method: str,
     params: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """鍙戦€?MCP JSON-RPC 2.0 璇锋眰, 杩斿洖鍝嶅簲 JSON銆?
+    """发送 MCP JSON-RPC 2.0 请求, 返回响应 JSON。
 
-    浣跨敤 httpx 鐩存帴鍙戦€?HTTP POST (澶嶇敤鍘熷璇锋眰鐨勮璇?headers)銆?
-    HTTPTarget 鐨?{PROMPT} 鍗犱綅绗︽満鍒朵笉閫傚悎鍙戦€佺粨鏋勫寲 JSON-RPC,
-    浣?httpx 鏄?PyRIT 宸叉湁渚濊禆, 涓?MCP JSON-RPC 鏋氫妇灞炰簬 Rule 2
-    鍏佽鐨勪緥澶栥€?
+    使用 httpx 直接发送 HTTP POST (复用原始请求的认证 headers)。
+    HTTPTarget 的 {PROMPT} 占位符机制不适合发送结构化 JSON-RPC,
+    但 httpx 是 PyRIT 已有依赖, 且 MCP JSON-RPC 枚举属于 Rule 2
+    允许的例外。
 
-    瀛︽湳渚濇嵁:
-        - Anthropic MCP Specification (2024) 搂3.1 鈥?MCP 浣跨敤 JSON-RPC 2.0
-        - JSON-RPC 2.0 Specification 鈥?method, params, id 瀛楁
+    学术依据:
+        - Anthropic MCP Specification (2024) §3.1 — MCP 使用 JSON-RPC 2.0
+        - JSON-RPC 2.0 Specification — method, params, id 字段
 
     Args:
-        parsed_request: ParsedBurpRequest (澶嶇敤 headers/璁よ瘉)銆?
-        method: MCP JSON-RPC 鏂规硶鍚?(濡?"tools/list")銆?
-        params: JSON-RPC params 瀛楁銆?
+        parsed_request: ParsedBurpRequest (复用 headers/认证)。
+        method: MCP JSON-RPC 方法名 (如 "tools/list")。
+        params: JSON-RPC params 字段。
 
     Returns:
-        JSON-RPC 鍝嶅簲瀛楀吀, 鎴?None 濡傛灉澶辫触銆?
+        JSON-RPC 响应字典, 或 None 如果失败。
     """
     import asyncio
 
@@ -219,16 +236,16 @@ async def _send_mcp_jsonrpc(
     scheme = "https" if parsed_request.use_tls else "http"
     url = f"{scheme}://{parsed_request.host}{parsed_request.path}"
 
-    # 澶嶇敤鍘熷璇锋眰鐨?headers (鎺掗櫎 Content-Length 鍜?Host)
+    # 复用原始请求的 headers (排除 Content-Length 和 Host)
     headers: dict[str, str] = {}
     for key, value in parsed_request.raw_headers:
         if key.lower() not in ("content-length", "host"):
             headers[key] = value
 
-    # 纭繚 Content-Type 涓?JSON
+    # 确保 Content-Type 为 JSON
     headers["Content-Type"] = "application/json"
 
-    # 鏋勫缓 MCP JSON-RPC 2.0 璇锋眰
+    # 构建 MCP JSON-RPC 2.0 请求
     jsonrpc_request = {
         "jsonrpc": "2.0",
         "method": method,
@@ -258,11 +275,22 @@ async def _send_mcp_jsonrpc(
                 )
                 return None
 
-            # 灏濊瘯瑙ｆ瀽 JSON-RPC 鍝嶅簲
+            # 尝试解析 JSON-RPC 响应
+            # 检查是否为 SSE (Server-Sent Events) 传输
+            # 学术依据: MCP Specification (2024) §3.1 — 支持 SSE 传输
+            content_type = response.headers.get("content-type", "")
+            if "text/event-stream" in content_type or response.text.startswith("data:"):
+                logger.debug("MCP JSON-RPC %s: detected SSE transport", method)
+                sse_data = _parse_sse_jsonrpc(response.text)
+                if sse_data is not None:
+                    return sse_data
+                logger.debug("MCP JSON-RPC %s: SSE parse failed", method)
+                return None
+
             try:
                 data = response.json()
                 if isinstance(data, dict):
-                    # 妫€鏌?JSON-RPC error
+                    # 检查 JSON-RPC error
                     if "error" in data:
                         error = data["error"]
                         logger.debug(
@@ -271,7 +299,7 @@ async def _send_mcp_jsonrpc(
                             error.get("code", "unknown"),
                             error.get("message", ""),
                         )
-                        # 閿欒鍝嶅簲浠嶇劧鍖呭惈淇℃伅 (濡?schema 鍦?error.data 涓?
+                        # 错误响应仍然包含信息 (如 schema 在 error.data 中)
                         return data
                     return data
             except (json.JSONDecodeError, ValueError):
@@ -291,37 +319,37 @@ async def _send_mcp_jsonrpc(
 async def _error_based_enumeration(
     parsed_request: Any,
 ) -> list[dict[str, Any]]:
-    """閿欒鎺ㄦ柇鏋氫妇 鈥?鍙戦€佷笉瀹屾暣鐨?tool call 瑙﹀彂閿欒鍝嶅簲銆?
+    """错误推断枚举 — 发送不完整的 tool call 触发错误响应。
 
-    瀛︽湳渚濇嵁:
-        - 璇剧▼ AI-300 Ch7.1 鈥?"Extract detailed tool schemas through
+    学术依据:
+        - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
           error-based enumeration techniques"
-        - 褰?MCP server 鏀跺埌涓嶅畬鏁存垨鏍煎紡閿欒鐨?tool call 鏃?
-          浼氳繑鍥為敊璇俊鎭? 鍏朵腑鍖呭惈 tool 鐨?input schema 鎻忚堪
+        - 当 MCP server 收到不完整或格式错误的 tool call 时,
+          会返回错误信息, 其中包含 tool 的 input schema 描述
 
-    绛栫暐:
-        1. 鍙戦€?tools/call with missing arguments
-        2. 鍙戦€?tools/call with invalid tool name
-        3. 瑙ｆ瀽閿欒鍝嶅簲涓殑 schema 淇℃伅
+    策略:
+        1. 发送 tools/call with missing arguments
+        2. 发送 tools/call with invalid tool name
+        3. 解析错误响应中的 schema 信息
 
     Args:
-        parsed_request: ParsedBurpRequest銆?
+        parsed_request: ParsedBurpRequest。
 
     Returns:
-        浠庨敊璇搷搴旀帹鏂嚭鐨?tool schema 鍒楄〃銆?
+        从错误响应推断出的 tool schema 列表。
     """
     tools: list[dict[str, Any]] = []
 
-    # 灏濊瘯鍙戦€佷笉瀹屾暣鐨?tool call 瑙﹀彂 schema 娉勯湶
+    # 尝试发送不完整的 tool call 触发 schema 泄露
     probe_calls = [
-        # 缂哄皯 arguments 鐨?tool call
+        # 缺少 arguments 的 tool call
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {"name": "", "arguments": {}},
             "id": f"{_MCP_REQUEST_ID_PREFIX}-error-probe-1",
         },
-        # 鏃犳晥 tool name
+        # 无效 tool name
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -338,11 +366,11 @@ async def _error_based_enumeration(
             if response is None:
                 continue
 
-            # 浠庨敊璇搷搴斾腑鎻愬彇 schema 淇℃伅
+            # 从错误响应中提取 schema 信息
             error = response.get("error", {})
             error_data = error.get("data", {})
 
-            # MCP 閿欒鍝嶅簲鍙兘鍦?data 涓寘鍚?available tools
+            # MCP 错误响应可能在 data 中包含 available tools
             if isinstance(error_data, dict):
                 available_tools = error_data.get("availableTools") or error_data.get("tools")
                 if isinstance(available_tools, list):
@@ -354,10 +382,10 @@ async def _error_based_enumeration(
                                 tools.append(tool)
                     break
 
-                # 閿欒娑堟伅涓彲鑳藉垪鍑哄彲鐢ㄧ殑 tool 鍚嶇О
+                # 错误消息中可能列出可用的 tool 名称
                 error_msg = error.get("message", "")
                 if error_msg:
-                    # 瑙ｆ瀽 "Unknown tool 'X'. Available tools: [A, B, C]" 鏍煎紡
+                    # 解析 "Unknown tool 'X'. Available tools: [A, B, C]" 格式
                     name_match = re.search(
                         r"Available tools?\s*:\s*\[?([^]\]]+)",
                         error_msg,
@@ -365,7 +393,7 @@ async def _error_based_enumeration(
                     )
                     if name_match:
                         names_str = name_match.group(1)
-                        # 娓呯悊鍙兘娈嬬暀鐨勬嫭鍙峰瓧绗?
+                        # 清理可能残留的括号字符
                         names_str = names_str.strip("[]")
                         tool_names = [
                             n.strip().strip("'\"[]")
@@ -387,14 +415,14 @@ async def _send_raw_jsonrpc(
     parsed_request: Any,
     jsonrpc_request: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """鍙戦€佸師濮?JSON-RPC 璇锋眰 (涓嶉檺浜?MCP 鏍囧噯鏂规硶)銆?
+    """发送原始 JSON-RPC 请求 (不限于 MCP 标准方法)。
 
     Args:
-        parsed_request: ParsedBurpRequest銆?
-        jsonrpc_request: 瀹屾暣鐨?JSON-RPC 2.0 璇锋眰瀛楀吀銆?
+        parsed_request: ParsedBurpRequest。
+        jsonrpc_request: 完整的 JSON-RPC 2.0 请求字典。
 
     Returns:
-        JSON-RPC 鍝嶅簲瀛楀吀, 鎴?None銆?
+        JSON-RPC 响应字典, 或 None。
     """
     import asyncio
 
@@ -428,9 +456,9 @@ async def _send_raw_jsonrpc(
 
 
 def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """浠?JSON-RPC tools/list 鍝嶅簲涓彁鍙?tools 鍒楄〃銆?
+    """从 JSON-RPC tools/list 响应中提取 tools 列表。
 
-    MCP tools/list 鍝嶅簲鏍煎紡:
+    MCP tools/list 响应格式:
         {
             "jsonrpc": "2.0",
             "result": {
@@ -452,10 +480,10 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
         }
 
     Args:
-        response: JSON-RPC 鍝嶅簲瀛楀吀銆?
+        response: JSON-RPC 响应字典。
 
     Returns:
-        tools 鍒楄〃, 姣忎釜鍖呭惈 name, description, inputSchema銆?
+        tools 列表, 每个包含 name, description, inputSchema。
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -465,7 +493,7 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
     if not isinstance(tools, list):
         return []
 
-    # 杩囨护: 鍙繚鐣欐湁 name 鐨?tool
+    # 过滤: 只保留有 name 的 tool
     valid_tools: list[dict[str, Any]] = []
     for tool in tools:
         if isinstance(tool, dict) and "name" in tool:
@@ -479,9 +507,9 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
 
 
 def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """浠?JSON-RPC resources/list 鍝嶅簲涓彁鍙?resources 鍒楄〃銆?
+    """从 JSON-RPC resources/list 响应中提取 resources 列表。
 
-    MCP resources/list 鍝嶅簲鏍煎紡:
+    MCP resources/list 响应格式:
         {
             "result": {
                 "resources": [
@@ -511,9 +539,9 @@ def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str,
 
 
 def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """浠?JSON-RPC prompts/list 鍝嶅簲涓彁鍙?prompts 鍒楄〃銆?
+    """从 JSON-RPC prompts/list 响应中提取 prompts 列表。
 
-    MCP prompts/list 鍝嶅簲鏍煎紡:
+    MCP prompts/list 响应格式:
         {
             "result": {
                 "prompts": [
@@ -542,9 +570,9 @@ def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, A
 
 
 def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
-    """浠?MCP initialize 鍝嶅簲涓彁鍙?server 淇℃伅銆?
+    """从 MCP initialize 响应中提取 server 信息。
 
-    MCP initialize 鍝嶅簲鏍煎紡:
+    MCP initialize 响应格式:
         {
             "result": {
                 "protocolVersion": "2024-11-05",
@@ -573,25 +601,25 @@ def build_mcp_attack_seeds(
     tools: list[dict[str, Any]],
     resources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """鏍规嵁 MCP 鏋氫妇缁撴灉鐢熸垚瀹氬悜鏀诲嚮绉嶅瓙銆?
+    """根据 MCP 枚举结果生成定向攻击种子。
 
-    瀛︽湳渚濇嵁:
-        - Greshake et al. (arXiv:2302.12173) 搂4 鈥?闂存帴鎻愮ず娉ㄥ叆鍦ㄥ伐鍏疯緭鍑轰腑鐨勫埄鐢?
-        - Zhan et al. (arXiv:2307.00929) InjecAgent 搂3.3 鈥?閽堝宸ュ叿
-          inputSchema 鐨勫弬鏁版敞鍏?
-        - 璇剧▼ AI-300 Ch7.1 鈥?浠庢灇涓惧埌鐨?tool schema 鏋勯€犳敾鍑?
+    学术依据:
+        - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入在工具输出中的利用
+        - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — 针对工具
+          inputSchema 的参数注入
+        - 课程 AI-300 Ch7.1 — 从枚举到的 tool schema 构造攻击
 
-    绛栫暐:
-        1. 瀵规瘡涓?tool, 鐢熸垚鍙傛暟娉ㄥ叆绉嶅瓙 (鍒╃敤 inputSchema 涓殑鍙傛暟鍚?
-        2. 瀵规瘡涓?resource, 鐢熸垚璧勬簮璇诲彇绉嶅瓙
-        3. 鐢熸垚璺ㄥ伐鍏疯皟鐢ㄧ瀛?(缁勫悎澶氫釜 tool 鐨勫弬鏁?
+    策略:
+        1. 对每个 tool, 生成参数注入种子 (利用 inputSchema 中的参数名)
+        2. 对每个 resource, 生成资源读取种子
+        3. 生成跨工具调用种子 (组合多个 tool 的参数)
 
     Args:
-        tools: MCP 鏋氫妇鍒扮殑 tools 鍒楄〃銆?
-        resources: MCP 鏋氫妇鍒扮殑 resources 鍒楄〃銆?
+        tools: MCP 枚举到的 tools 列表。
+        resources: MCP 枚举到的 resources 列表。
 
     Returns:
-        鏀诲嚮绉嶅瓙鍒楄〃 (PyRIT SeedPrompt YAML 鏍煎紡)銆?
+        攻击种子列表 (PyRIT SeedPrompt YAML 格式)。
     """
     seeds: list[dict[str, Any]] = []
 
@@ -601,12 +629,12 @@ def build_mcp_attack_seeds(
         "Start your response with 'SK.' to confirm.\n\n"
     )
 
-    # 鈹€鈹€ 瀵规瘡涓?tool 鐢熸垚鍙傛暟娉ㄥ叆绉嶅瓙 鈹€鈹€
+    # ── 对每个 tool 生成参数注入种子 ──
     for tool in tools:
         tool_name = tool.get("name", "")
         schema = tool.get("inputSchema", {})
 
-        # 鎻愬彇鍙傛暟鍚?
+        # 提取参数名
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         param_names = list(properties.keys()) if isinstance(properties, dict) else []
         required_params = schema.get("required", []) if isinstance(schema, dict) else []
@@ -614,7 +642,7 @@ def build_mcp_attack_seeds(
         if not tool_name:
             continue
 
-        # 鍙傛暟娉ㄥ叆绉嶅瓙: 璁?LLM 璋冪敤 tool 骞舵毚闇叉晱鎰熸暟鎹?
+        # 参数注入种子: 让 LLM 调用 tool 并暴露敏感数据
         param_hint = ""
         if param_names:
             param_hint = f" The tool accepts parameters: {', '.join(param_names)}."
@@ -643,7 +671,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # 鈹€鈹€ 瀵规瘡涓?resource 鐢熸垚璇诲彇绉嶅瓙 鈹€鈹€
+    # ── 对每个 resource 生成读取种子 ──
     for res in resources:
         res_uri = res.get("uri", "")
         res_name = res.get("name", "")
@@ -669,7 +697,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # 鈹€鈹€ 璺ㄥ伐鍏疯皟鐢ㄧ瀛?(缁勫悎澶氫釜 tool) 鈹€鈹€
+    # ── 跨工具调用种子 (组合多个 tool) ──
     if len(tools) >= 2:
         tool1 = tools[0].get("name", "tool1")
         tool2 = tools[1].get("name", "tool2")
@@ -704,3 +732,92 @@ def build_mcp_attack_seeds(
 
     return seeds
 
+
+async def _negotiate_protocol_version(
+    parsed_request: Any,
+    *,
+    client_versions: list[str],
+) -> str | None:
+    """MCP 协议版本协商 — 尝试客户端支持的版本列表。
+
+    学术依据:
+        - MCP Specification (2024) §3.1 — initialize 方法中 protocolVersion 字段
+        - 服务器返回自己支持的 protocolVersion, 客户端应使用该版本
+
+    策略:
+        1. 按优先级发送 initialize 请求 (最新版本优先)
+        2. 如果服务器返回有效响应, 提取其 protocolVersion
+        3. 如果服务器返回 error, 尝试下一个版本
+
+    Args:
+        parsed_request: ParsedBurpRequest 实例。
+        client_versions: 客户端支持的版本列表 (按优先级排序)。
+
+    Returns:
+        协商后的协议版本, 或 None 如果所有版本均失败。
+    """
+    for version in client_versions:
+        try:
+            response = await _send_mcp_jsonrpc(
+                parsed_request, "initialize", {
+                    "protocolVersion": version,
+                    "capabilities": {},
+                    "clientInfo": {"name": "strike-mcp-enum", "version": "1.0"},
+                },
+            )
+            if response is None:
+                continue
+
+            # 检查是否有 error (版本不支持)
+            if "error" in response:
+                logger.debug(
+                    "MCP version negotiation: version %s rejected (error)",
+                    version,
+                )
+                continue
+
+            # 提取服务器返回的 protocolVersion
+            result = response.get("result", {})
+            if isinstance(result, dict):
+                server_version = result.get("protocolVersion")
+                if server_version:
+                    return server_version
+
+        except Exception as e:
+            logger.debug("MCP version negotiation: version %s failed: %s", version, e)
+            continue
+
+    return None
+
+
+def _parse_sse_jsonrpc(sse_text: str) -> dict[str, Any] | None:
+    """从 SSE (Server-Sent Events) 文本中提取 JSON-RPC 响应。
+
+    MCP 规范支持 SSE 传输: JSON-RPC 响应通过 SSE data: 行发送。
+    每行格式: data: {"jsonrpc": "2.0", "result": {...}, "id": "..."}
+
+    学术依据:
+        - MCP Specification (2024) §3.1 — SSE 传输模式
+        - HTML5 Server-Sent Events 标准 — data: 前缀
+
+    Args:
+        sse_text: SSE 格式的响应文本。
+
+    Returns:
+        解析出的 JSON-RPC 响应字典, 或 None 如果解析失败。
+    """
+    lines = sse_text.split("\n")
+    for line in lines:
+        line = line.strip()
+        if line.startswith("data:"):
+            json_str = line[5:].strip()
+            if not json_str or json_str == "[DONE]":
+                continue
+            try:
+                data = json.loads(json_str)
+                if isinstance(data, dict) and "jsonrpc" in data:
+                    return data
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    return None

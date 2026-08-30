@@ -284,13 +284,37 @@ class EvidenceCollector:
             owasp_standard_references=[OWASP_WEB_TOP10_REFERENCE, OWASP_LLM_TOP10_REFERENCE, OWASP_ASI_TOP10_REFERENCE],
         )
 
-        # 攻击面信息
+        # 攻击面信息 (从 target_fingerprint 完整传递)
+        # 数据流: recon (target_router) → target_fingerprint → evidence.attack_surface → report
+        # 包含: 基础信息 + MCP 工具 + OpenAPI 端点 + 端口发现 + 认证状态 + 探针元数据
+        fp = self._target_fingerprint
         collection.attack_surface = {
-            "api_path": self._target_fingerprint.get("api_path", ""),
-            "auth_type": self._target_fingerprint.get("auth_type", ""),
-            "framework": self._target_fingerprint.get("framework", ""),
-            "app_type": self._target_fingerprint.get("app_type", ""),
-            "content_type": self._target_fingerprint.get("content_type", ""),
+            # 基础信息
+            "api_path": fp.get("api_path", ""),
+            "auth_type": fp.get("auth_type", ""),
+            "framework": fp.get("framework", ""),
+            "app_type": fp.get("app_type", ""),
+            "content_type": fp.get("content_type", ""),
+            # 侦察发现的扩展攻击面
+            "capabilities": fp.get("capabilities", ""),
+            "model_family": fp.get("model_family", ""),
+            "language": fp.get("language", ""),
+            "session_type": fp.get("session_type", ""),
+            "secret_format": fp.get("secret_format", ""),
+            "tenant_id": fp.get("tenant_id", ""),
+            # MCP 枚举结果
+            "mcp_tool_count": len(fp.get("mcp_tools", [])),
+            "mcp_resource_count": len(fp.get("mcp_resources", [])),
+            "mcp_tool_names": fp.get("mcp_tool_names", []),
+            # OpenAPI 发现结果
+            "openapi_spec_path": fp.get("openapi_spec_path", ""),
+            "openapi_endpoint_count": len(fp.get("openapi_endpoints", [])),
+            "openapi_security_schemes": fp.get("openapi_security_schemes", []),
+            # 端口发现结果
+            "port_endpoint_count": len(fp.get("port_endpoints", [])),
+            # 探针元数据
+            "probe_count": fp.get("probe_count", 0),
+            "probe_duration_seconds": fp.get("probe_duration_seconds", 0),
         }
 
         # 初始化 OWASP 合规矩阵

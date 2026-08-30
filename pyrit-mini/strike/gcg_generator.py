@@ -85,7 +85,7 @@ def generate_gcg_suffix_pool(ctx: PipelineContext) -> list[str]:
     # 策略: 读取 asr_history.json 中的 gcg_suffix_asr 字段,
     # 按历史 ASR 降序排列; 无历史的保持原序
     try:
-        project_root = Path(__file__).resolve().parent.parent.parent
+        project_root = Path(__file__).resolve().parent.parent
         asr_history_path = project_root / "data" / "seeds" / "asr_history.json"
         if asr_history_path.exists():
             data = json.loads(asr_history_path.read_text(encoding="utf-8"))

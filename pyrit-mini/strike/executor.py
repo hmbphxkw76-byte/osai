@@ -73,6 +73,12 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
     from pyrit.executor.attack import PromptSendingAttack
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
 
+    # 生产级: 空 seeds 防御 — 避免向 PyRIT 原生 API 传递空 seed_groups
+    if not ctx.seeds:
+        logger.warning("No seeds configured, skipping attack execution")
+        ctx.attack_results["prompt_sending"] = []
+        return ctx.attack_results
+
     # 鏋勫缓 post-hoc 璇勫垎閰嶇疆 (绌? 鍙?Judge 鍚庣画璇勫垎)
     post_hoc_scoring = _build_scoring_config(ctx)
 

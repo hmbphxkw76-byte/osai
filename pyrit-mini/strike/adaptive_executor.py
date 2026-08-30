@@ -25,7 +25,7 @@ from core.context import PipelineContext, get_effective_concurrency
 logger = logging.getLogger(__name__)
 
 # 椤圭洰鏍圭洰褰?(pipeline/strike/ 鈫?涓婃函涓ょ骇)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _get_best_of_n_retries() -> int:

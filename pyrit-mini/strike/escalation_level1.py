@@ -181,7 +181,14 @@ def _apply_mtos_ranking(
                 AttackSeedGroup(seeds=[SeedObjective(value=obj, metadata=meta if meta else None)])
             )
         asr_history: dict[str, float] = {}
-        model_name = getattr(ctx, "model_name", "") or ""
+        # 断点修复: 优先使用 model_family (如 "claude") 查询 ASR 先验
+        # ctx.model_name 在 Burp 路径中是 "HTTP:host/path" 格式, 对 ASR 先验匹配无效
+        # 数据流: recon (model_identity probe) → target_fingerprint["model_family"] → ctx
+        model_name = ""
+        if ctx is not None and ctx.parsed_request:
+            model_name = ctx.parsed_request.target_fingerprint.get("model_family", "")
+        if not model_name:
+            model_name = getattr(ctx, "model_name", "") or ""
         priors = load_asr_priors(model_name)
 
         # L5 v36: 鏌ヨ technique_seed_asr 浜ゅ弶鍏堥獙

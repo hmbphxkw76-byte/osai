@@ -98,7 +98,7 @@ python core/setup_hooks.py
 python core/architecture_guard.py --fix-hints
 
 # Gate 2: Lint check
-ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ mini_strike.py
+ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py
 
 # Gate 3: Full test suite (when tests/ exists)
 python -m pytest tests/ -v --tb=long
@@ -218,7 +218,7 @@ Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native
 `PromptSendingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack`, `SequentialAttack`, `RedTeamingAttack`, `SkeletonKeyAttack`
 
 **6.5 Three-actor separation**:
-- `objective_target` ← `.env OPENAI_CHAT_*` or `--burp-request`
+- `objective_target` ← `.env OPENAI_CHAT_*` or `--burp`
 - `adversarial_chat` ← `.env ADVERSARIAL_CHAT_*`
 - `scoring_target` ← `.env SCORER_CHAT_*` (fallback: adversarial)
 
@@ -234,7 +234,7 @@ Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native
 | Jailbreak Evasion | R1, R6 §6.1 | Multi-path converters, no serial stacking |
 | PyRIT Framework Mastery | R2, R6 §6.4 | 7 native attack strategies imported & used |
 | Converter Chain Design | R6 §6.1 | 1 converter per `ConverterConfiguration`, FIRST_SUCCESS |
-| Scorer Accuracy | R6 §6.2 | Two-tier: 0-token heuristic + dual Judge post-hoc |
+| Scorer Accuracy | R6 §6.2 | Four-tier cascade: T0→J1→J2→J3 (0-token heuristic + dual Judge post-hoc) |
 | Multi-Turn Strategy | R6 §6.3 | Full escalation: Crescendo → TAP ∥ PAIR → GCG |
 | Evidence Collection | R6 §6.6 | ALL fields non-empty, MITRE ATLAS mapping |
 | Target Fingerprinting | (code: `recon/`) | Three-layer probe: passive fingerprint + active capability + deep capability |
@@ -307,17 +307,17 @@ Before completing ANY scoring/escalation code change, verify:
 
 ```
 pyrit-mini/
-├── mini_strike.py        # Main entry point (ONLY allowed root .py)
+├── main.py               # Main entry point (ONLY allowed root .py)
 ├── pyproject.toml
 ├── config/               # defaults.yaml (SSOT), target_profiles.yaml, asr_priors.yaml
 ├── data/                 # burp/, seeds/, scorers/
 ├── docs/                 # All .md docs, RTM matrix, implementation checklist
-├── core/                 # context.py, config.py, architecture_guard.py
-├── recon/                # burp_parser.py, target_router.py, capability_*.py
-├── arm/                  # seed_ranker.py, converter_presets.py, technique_picker.py
-├── strike/               # executor.py, escalation*.py, adaptive_executor.py
-├── assess/               # scorer.py, adaptive_dual_judge.py, asr_tracker.py
-├── report/               # evidence.py, generator.py, poc_generator.py
+├── core/                 # context.py, config.py, architecture_guard.py, setup_hooks.py
+├── recon/                # burp_parser.py, target_router.py, target_builder.py, capability_detector.py, capability_probe.py, recon_report.py, mcp_enumerator.py, port_expander.py, auth_state_manager.py, confidence_scorer.py
+├── arm/                  # seed_ranker.py, seed_ranking.py, seed_auto_expander.py, converter_presets.py, converter_chains.py, converter_selector.py, technique_picker.py, dataset_config.py
+├── strike/               # executor.py, escalation.py, escalation_attacks.py, escalation_level1/2/3.py, adaptive_executor.py, native_attacks.py, multi_turn_attacks.py, technique_registry.py, gcg_generator.py, cair.py, embedding_inversion.py, encoded_injection.py, many_shot_cot_executor.py, mcp_rag_attack.py, rogue_agent.py
+├── assess/               # scorer.py, adaptive_dual_judge.py, asr_tracker.py, asr_stats.py, asr_history.py, dual_judge.py, judge_utils.py, response_parser.py
+├── report/               # evidence.py, evidence_extract.py, generator.py, poc_generator.py, pyrit_native_output.py, report_html.py, report_markdown.py, report_sections.py, report_utils.py, sarif_report.py, owasp_constants.py, owasp_mapping.py, output.py
 ├── targets/              # rate_limited.py, content_filter.py
 ├── utils/                # display.py, cleaner.py
 ├── tests/                # test_*.py (MUST exist — guard blocks if missing)

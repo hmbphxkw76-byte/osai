@@ -573,7 +573,7 @@ def _prune_low_asr_converters(
         return converters
 
     # 读取 converter ASR 历史
-    project_root = Path(__file__).resolve().parent.parent.parent
+    project_root = Path(__file__).resolve().parent.parent
     asr_history_path = project_root / "data" / "seeds" / "asr_history.json"
 
     converter_asr: dict[str, float] = {}

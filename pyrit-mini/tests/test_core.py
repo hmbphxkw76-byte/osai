@@ -27,12 +27,55 @@ class TestConfig:
         args = parse_args([])
         assert args is not None
 
-    def test_parse_args_with_burp_request(self):
-        """parse_args should accept --burp-request."""
+    def test_parse_args_with_burp(self):
+        """parse_args should accept --burp (single file → str)."""
         from core.config import parse_args
 
-        args = parse_args(["--burp-request", "test.burp"])
-        assert hasattr(args, "burp_request")
+        args = parse_args(["--burp", "test"])
+        assert hasattr(args, "burp")
+        # 单个 --burp 时 args.burp 是 str (向后兼容)
+        assert isinstance(args.burp, str)
+        assert args.burp.endswith("test.txt")
+
+    def test_parse_args_burp_default_auto_scan(self):
+        """parse_args without --burp should auto-scan data/burp/*.txt."""
+        from core.config import parse_args
+
+        args = parse_args([])
+        assert hasattr(args, "burp")
+        # 不指定 --burp 时自动扫描 data/burp/*.txt 全部文件
+        # _burp_list 应包含所有 .txt 文件路径
+        burp_list = getattr(args, "_burp_list", None)
+        assert burp_list is not None
+        assert len(burp_list) >= 1
+        # 每个 path 都应以 .txt 结尾
+        for p in burp_list:
+            assert p.endswith(".txt")
+        # data/burp/ 目录下存在 mcp05.txt, mcp09.txt, mm05.txt
+        burp_names = [Path(p).stem for p in burp_list]
+        assert "mcp05" in burp_names or "request" in burp_names
+
+    def test_parse_args_burp_full_path(self):
+        """parse_args --burp with full path should keep as-is."""
+        from core.config import parse_args
+
+        args = parse_args(["--burp", "data/burp/deepseek.txt"])
+        assert "deepseek.txt" in args.burp
+
+    def test_parse_args_burp_multiple(self):
+        """parse_args with multiple --burp should return list[str]."""
+        from core.config import parse_args
+
+        args = parse_args(["--burp", "mcp05", "--burp", "mm05"])
+        assert hasattr(args, "burp")
+        # 多个 --burp 时 args.burp 是 list[str]
+        assert isinstance(args.burp, list)
+        assert len(args.burp) == 2
+        # _burp_list 也应包含两个路径
+        burp_list = getattr(args, "_burp_list", None)
+        assert burp_list is not None
+        assert len(burp_list) == 2
+        assert all(p.endswith(".txt") for p in burp_list)
 
     def test_get_output_dir_default(self):
         """get_output_dir should return a Path."""
