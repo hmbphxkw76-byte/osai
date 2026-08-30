@@ -31,8 +31,7 @@ from utils.display import (
     _C_CYAN,
     _C_DIM,
     _C_GREEN,
-    _C_MAGENTA,
-    _C_RED,
+_C_RED,
     _C_RESET,
     _C_YELLOW,
     _card_line,
@@ -186,6 +185,13 @@ def print_recon_report(
     )
 
     scheme = "https" if parsed.use_tls else "http"
+    # Hand-off 独有字段 (合并到 ① 卡片, 避免单独打印 ③ 卡片)
+    _model_family = fp.get("model_family", "")
+    if not _model_family and fp.get("burp_model_name"):
+        _model_family = fp.get("burp_model_name", "")
+    _probe_count = fp.get("probe_count", "N/A")
+    _probe_dur = fp.get("probe_duration_seconds", "N/A")
+
     l1_rows = [
         ("Endpoint", f"{scheme}://{parsed.host}{parsed.path}"),
         ("Method", parsed.method),
@@ -193,6 +199,12 @@ def print_recon_report(
         ("Content-Type", fp.get("content_type", "unknown")),
         ("SSE", "Yes" if parsed.is_sse else "No"),
         ("{PROMPT}", prompt_str),
+        ("Model", _model_family or "Unknown"),
+        ("Language", fp.get("language", "auto") or "auto"),
+        ("Capabilities", fp.get("capabilities", "") or "none"),
+        ("API Category", fp.get("api_category", "chat")),
+        ("Session Type", fp.get("session_type", fp.get("auth_type", "Unknown"))),
+        ("Probe", f"{_probe_count} probes / {_probe_dur}s"),
     ]
 
     if parsed.original_prompt_value:
@@ -210,7 +222,7 @@ def print_recon_report(
     if user_id:
         l1_rows.append(("User ID", user_id))
 
-    _print_card_block("① Target Entry Point (from Burp, 0 requests)", l1_rows, _C_CYAN)
+    _print_card_block("① Target Entry Point + Hand-off (from Burp, 0 requests)", l1_rows, _C_CYAN)
 
     # ════════════════════════════════════════════════════════════════
     # ② Attack Surface — 能力探测三级推荐
@@ -250,11 +262,13 @@ def print_recon_report(
         cap_items.append(f"  {_C_YELLOW}▸ PROBE (MEDIUM 0.4-0.8) — 需进一步确认:{_C_RESET}")
         for item in probe:
             strategy = _CAPABILITY_STRATEGY.get(item)
-            cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
             if strategy:
                 cap_items.append(
-                    f"      {_C_DIM}If confirmed: {strategy['strategy']}{_C_RESET}"
+                    f"    → {_C_YELLOW}{item}{_C_RESET} "
+                    f"{_C_DIM}→ {strategy['strategy']}{_C_RESET}"
                 )
+            else:
+                cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
 
     if possible:
         cap_items.append(f"  {_C_DIM}▸ POSSIBLE (LOW < 0.4) — 信号弱, 通用种子覆盖:{_C_RESET}")
@@ -275,27 +289,8 @@ def print_recon_report(
                 color=_C_YELLOW,
             )
 
-    # ════════════════════════════════════════════════════════════════
-    # ③ Hand-off to ARM — 传递给下阶段的决策字段
-    # 学术依据: PyRIT (arXiv:2407.01232) §3.3 — 能力指纹驱动攻击路径
-    # ════════════════════════════════════════════════════════════════
-    model_family = fp.get("model_family", "")
-    if not model_family and fp.get("burp_model_name"):
-        model_family = fp.get("burp_model_name", "")
-
-    l3_rows = [
-        ("language", f"{fp.get('language', 'auto') or 'auto'}"),
-        ("capabilities", f"{fp.get('capabilities', '') or 'none'}"),
-        ("model_family", f"{model_family or 'Unknown'}"),
-        ("auth_type", f"{fp.get('auth_type', 'Unknown')}"),
-        ("api_category", f"{fp.get('api_category', 'chat')}"),
-        ("session_type", f"{fp.get('session_type', fp.get('auth_type', 'Unknown'))}"),
-        # P2-2: 实际探针计数 (从 target_fingerprint 读取)
-        ("probe_count", f"{fp.get('probe_count', 'N/A')}"),
-        ("probe_duration", f"{fp.get('probe_duration_seconds', 'N/A')}s"),
-    ]
-
-    _print_card_block("③ Hand-off to ARM", l3_rows, _C_MAGENTA)
+    # ③ Hand-off 独有字段已合并到 ① 卡片 (避免重复打印 model/language/caps)
+    # 保留完整 JSON 输出供下游程序消费
 
     # ════════════════════════════════════════════════════════════════
     # Full Fingerprint JSON — 写入文件, 终端只显示路径

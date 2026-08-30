@@ -374,10 +374,14 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 def print_recon_card(ctx: "PipelineContext") -> None:
     """打印侦察结果摘要卡片 (非 --stage recon 模式, 作为下一阶段输入).
 
-    三张卡片 (对齐 recon_report.py 精简输出):
-        ① Target Entry Point — 入口点 + 认证 + 注入点
-        ② Attack Surface — 能力探测三级推荐
-        ③ Hand-off to ARM — 传递给下阶段的决策字段
+    两张卡片 (精简优化, 合并 ③ Hand-off 到 ①):
+        ① Target Entry Point + Hand-off — 入口点 + 认证 + 注入点 + ARM 决策字段
+        ② Attack Surface — 能力探测三级推荐 (HIGH/MEDIUM/LOW)
+
+    优化 (减少视觉冗余):
+        - ③ Hand-off 独有字段 (api_category, session_type, probe_count,
+          probe_duration) 合并到 ① 卡片, 避免重复打印 model/language/caps
+        - ② PROBE 条目内联 strategy, 每个能力一行而非三行
     """
     if not ctx.parsed_request:
         return
@@ -388,7 +392,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
     model = fp.get("model_family", "") or fp.get("burp_model_name", "") or "Unknown"
     caps = fp.get("capabilities", "") or "none"
 
-    # ① Target Entry Point
+    # ① Target Entry Point + Hand-off (合并)
     # 生产级修复: 对非 Burp 路径 (API 直连/浏览器), {PROMPT} 占位符语义不适用
     # API 模式通过原生参数传递 prompt, 不需要 HTTP body 占位符
     _is_api_mode = fp.get("target_type", "") in ("chat", "responses", "litellm", "browser")
@@ -398,9 +402,12 @@ def print_recon_card(ctx: "PipelineContext") -> None:
         "N/A (API mode)" if _is_api_mode
         else ("Injected" if ctx.parsed_request.has_prompt_placeholder else "Missing")
     )
+    # Hand-off 独有字段 (不与 ① 已有字段重复)
+    _probe_count = fp.get("probe_count", "N/A")
+    _probe_dur = fp.get("probe_duration_seconds", "N/A")
     print()
     print_card(
-        "RECON — Target Entry Point",
+        "RECON — Target Entry Point + Hand-off",
         [
             ("Endpoint", _endpoint_display),
             ("Model", model),
@@ -408,11 +415,15 @@ def print_recon_card(ctx: "PipelineContext") -> None:
             ("Language", fp.get("language", "auto") or "auto"),
             ("Capabilities", caps),
             ("{PROMPT}", _prompt_display),
+            ("API Category", fp.get("api_category", "chat")),
+            ("Session Type", fp.get("session_type", fp.get("auth_type", "Unknown"))),
+            ("Probe", f"{_probe_count} probes / {_probe_dur}s"),
         ],
         color=_C_CYAN,
     )
 
     # ② Attack Surface (能力 → 攻击策略映射)
+    # 优化: PROBE 条目内联 strategy, 每个能力一行
     recommendations = fp.get("capability_recommendations", {})
     if isinstance(recommendations, dict):
         immediate = recommendations.get("immediate", [])
@@ -427,43 +438,30 @@ def print_recon_card(ctx: "PipelineContext") -> None:
             cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) — 立即可利用:{_C_RESET}")
             for item in immediate:
                 strategy = _CAPABILITY_STRATEGY.get(item)
-                cap_items.append(f"    → {_C_GREEN}{item}{_C_RESET}")
                 if strategy:
-                    cap_items.append(f"      {_C_DIM}Strategy: {strategy['strategy']}{_C_RESET}")
-                    cap_items.append(f"      {_C_DIM}Seed: {strategy['seed']} | {strategy['arxiv']} | OWASP {strategy['owasp']}{_C_RESET}")
+                    cap_items.append(
+                        f"    → {_C_GREEN}{item}{_C_RESET} "
+                        f"{_C_DIM}[{strategy['strategy']} | {strategy['arxiv']} | OWASP {strategy['owasp']}]{_C_RESET}"
+                    )
+                else:
+                    cap_items.append(f"    → {_C_GREEN}{item}{_C_RESET}")
         if probe_recs:
             cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) — 需进一步确认:{_C_RESET}")
             for item in probe_recs:
                 strategy = _CAPABILITY_STRATEGY.get(item)
-                cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
                 if strategy:
-                    cap_items.append(f"      {_C_DIM}If confirmed: {strategy['strategy']}{_C_RESET}")
+                    cap_items.append(
+                        f"    → {_C_YELLOW}{item}{_C_RESET} "
+                        f"{_C_DIM}→ {strategy['strategy']}{_C_RESET}"
+                    )
+                else:
+                    cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
         if possible:
             cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) — 信号弱, 通用种子覆盖:{_C_RESET}")
             for item in possible:
                 cap_items.append(f"    → {_C_DIM}{item}{_C_RESET}")
         print()
         print_section("Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
-
-    # ③ Hand-off to ARM
-    model_family = fp.get("model_family", "")
-    if not model_family and fp.get("burp_model_name"):
-        model_family = fp.get("burp_model_name", "")
-    print()
-    print_card(
-        "Hand-off to ARM",
-        [
-            ("language", f"{fp.get('language', 'auto') or 'auto'}"),
-            ("capabilities", caps),
-            ("model_family", model_family or "Unknown"),
-            ("auth_type", fp.get("auth_type", "Unknown")),
-            ("api_category", fp.get("api_category", "chat")),
-            ("session_type", fp.get("session_type", fp.get("auth_type", "Unknown"))),
-            ("probe_count", f"{fp.get('probe_count', 'N/A')}"),
-            ("probe_duration", f"{fp.get('probe_duration_seconds', 'N/A')}s"),
-        ],
-        color=_C_MAGENTA,
-    )
 
 
 # ════════════════════════════════════════════════════════════════════
