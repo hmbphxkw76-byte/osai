@@ -1,15 +1,18 @@
-"""converter_selector — Converter 候选选择 + OWASP 优先级 + ASR 裁剪.
+"""converter_selector — Converter 候选选择 + 种子感知优先级 + ASR 裁剪.
 
 从 executor.py 拆分而来, 职责属于武器化 (arm) 阶段:
     - 从 ctx.converter_map 中选择最优 Converter 路径
     - 按 ASR 历史裁剪低效路径
     - 构建 AttackConverterConfig
+    - L5 v40: 种子 category/suitable_for 感知 converter 优先级
 
 学术依据:
     - Wei et al. (arXiv:2307.15043): 编码串联 >2 层 ASR 从 12% 降至 4%
     - Zeng et al. (arXiv:2402.19181): 不同说服策略对不同攻击类别效果不同
     - DrAttack (arXiv:2402.14266): 分解重组 ASR 40-60% 最高
     - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS 策略
+    - Greshake et al. (arXiv:2302.12173): 攻击策略必须匹配目标攻击面,
+      种子 category 反映攻击向量类型, converter 需匹配向量类型
 """
 
 import logging
@@ -18,6 +21,169 @@ from typing import Any
 from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
+
+# ── L5 v40: 种子 category 感知 converter 优先级 ──
+# 学术依据: Greshake et al. (arXiv:2302.12173) — 攻击策略匹配目标攻击面
+#           Zeng et al. (arXiv:2402.19181) — 不同说服策略对不同类别效果不同
+
+# 语义 converter 集合 (上下文技术安全)
+_SEMANTIC_CONVERTER_NAMES = {
+    "PersuasionConverter", "DecompositionConverter",
+    "VariationConverter", "RandomTranslationConverter",
+    "TranslationConverter", "ToneConverter",
+}
+
+# 编码 converter 集合 (编码绕过场景优先)
+_ENCODING_CONVERTER_NAMES = {
+    "ROT13Converter", "AsciiSmugglerConverter",
+    "CodeChameleonConverter", "PolicyPuppetryConverter",
+    "SelectiveTextConverter", "SearchReplaceConverter",
+}
+
+
+def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
+    """L5 v40: 从种子 category 分布查询最佳 Converter 优先级列表.
+
+    学术依据:
+        - Greshake et al. (arXiv:2302.12173) — 攻击策略匹配攻击面,
+          种子 category 反映攻击向量类型
+        - Zeng et al. (arXiv:2402.19181) — 不同说服策略对不同类别效果不同
+        - DrAttack (arXiv:2402.14266) — 分解对信息提取类最有效
+
+    策略 (per-seed 级别, 优于 OWASP 多数票):
+        1. 从 ctx.seeds 收集所有种子的 category metadata
+        2. 统计每个 category 出现频率, 取最频繁的类别
+        3. 查询 asr_priors.yaml 中的 category_converter_map
+        4. 返回该类别的 Converter 签名优先级列表
+
+    如果 category 不在映射表中, 回退到 OWASP 多数票
+    (_get_owasp_converter_priorities)
+
+    Args:
+        ctx: 流水线上下文.
+
+    Returns:
+        Converter 签名列表 (按优先级排序, 第一个为最佳)。
+        空列表表示无法匹配, 调用方应使用默认全局优先级。
+    """
+    if not ctx.seeds:
+        return []
+
+    # 收集所有种子的 category
+    category_counts: dict[str, int] = {}
+    for group in ctx.seeds:
+        for seed in getattr(group, "seeds", []):
+            meta = getattr(seed, "metadata", {}) or {}
+            category = str(meta.get("category", "")).strip()
+            if category:
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+    if not category_counts:
+        return []
+
+    # 取最频繁的 category (多数票)
+    dominant_category = max(category_counts, key=category_counts.get)
+    logger.info(
+        "L5 v40: Seed category distribution: %s, dominant=%s",
+        ", ".join(f"{k}={v}" for k, v in sorted(category_counts.items())),
+        dominant_category,
+    )
+
+    # 加载 asr_priors.yaml 中的 category_converter_map
+    try:
+        from arm.seed_ranker import load_asr_priors
+        priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
+        category_map = priors.get("category_converter_map", {})
+        if not category_map:
+            return []
+
+        converter_list = category_map.get(dominant_category, [])
+        if converter_list:
+            logger.info(
+                "L5 v40: Seed category '%s' → converter priorities: %s",
+                dominant_category,
+                ", ".join(converter_list),
+            )
+            return converter_list
+    except Exception as e:
+        logger.warning("L5 v40: Failed to load category_converter_map: %s", e)
+
+    return []
+
+
+def _get_suitable_for_converter_strategy(
+    ctx: PipelineContext,
+) -> dict[str, str]:
+    """L5 v40: 从种子 suitable_for 分布查询 converter 选择策略.
+
+    学术依据:
+        - PyRIT (arXiv:2407.01232) — per-seed converter optimization
+        - Greshake et al. (arXiv:2302.12173) — 攻击向量匹配
+
+    策略:
+        1. 收集所有种子的 suitable_for metadata
+        2. 查询 asr_priors.yaml 中的 suitable_for_converter_strategy
+        3. 返回 {strategy: count} 分布
+
+    策略类型:
+        - "encoding": 优先编码绕过 converter
+        - "semantic": 优先语义 converter
+        - "full": 全量 L5 武器库
+        - "none": 无 converter
+
+    Args:
+        ctx: 流水线上下文.
+
+    Returns:
+        {strategy_name: count} 字典, 最频繁的 strategy 用于 converter 过滤。
+    """
+    if not ctx.seeds:
+        return {"full": 1}
+
+    # 收集所有种子的 suitable_for
+    sf_counts: dict[str, int] = {}
+    for group in ctx.seeds:
+        for seed in getattr(group, "seeds", []):
+            meta = getattr(seed, "metadata", {}) or {}
+            suitable_for = str(meta.get("suitable_for", "")).strip().lower()
+            if suitable_for:
+                # suitable_for 可逗号分隔多个值, 取第一个
+                first_sf = suitable_for.split(",")[0].strip()
+                if first_sf:
+                    sf_counts[first_sf] = sf_counts.get(first_sf, 0) + 1
+
+    if not sf_counts:
+        return {"full": 1}
+
+    # 加载 asr_priors.yaml 中的 suitable_for_converter_strategy
+    strategy_counts: dict[str, int] = {}
+    try:
+        from arm.seed_ranker import load_asr_priors
+        priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
+        sf_map = priors.get("suitable_for_converter_strategy", {})
+
+        for sf_name, count in sf_counts.items():
+            entry = sf_map.get(sf_name, {})
+            strategy = entry.get("strategy", "full") if isinstance(entry, dict) else "full"
+            strategy_counts[strategy] = strategy_counts.get(strategy, 0) + count
+
+        # 未知 suitable_for 回退到 default
+        if not strategy_counts:
+            default_entry = sf_map.get("default", {})
+            default_strategy = default_entry.get("strategy", "full") if isinstance(default_entry, dict) else "full"
+            strategy_counts[default_strategy] = 1
+
+        logger.info(
+            "L5 v40: suitable_for distribution: %s → strategies: %s",
+            ", ".join(f"{k}={v}" for k, v in sf_counts.items()),
+            ", ".join(f"{k}={v}" for k, v in strategy_counts.items()),
+        )
+    except Exception as e:
+        logger.warning("L5 v40: Failed to load suitable_for_converter_strategy: %s", e)
+        strategy_counts = {"full": 1}
+
+    return strategy_counts or {"full": 1}
 
 
 def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
@@ -112,6 +278,63 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
             "best=%s, from owasp_converter_map",
             owasp_priorities[0] if owasp_priorities else "N/A",
         )
+
+    # ── L5 v40: 种子 category 感知 converter 优先级 (per-seed 级别) ──
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — 攻击策略匹配攻击面,
+    #   种子 category 反映攻击向量类型, converter 需匹配向量类型
+    #   category 级别优先于 OWASP 级别 (更细粒度: 130+ category vs 20 OWASP)
+    #   如果 category 匹配到 converter 列表, 覆盖 OWASP 和默认优先级
+    category_priorities = _get_category_converter_priorities(ctx)
+    if category_priorities:
+        _cat_priority_map: dict[str, int] = {}
+        for idx, sig in enumerate(category_priorities):
+            _cat_priority_map[sig] = idx
+        # 合并: category 特定优先级覆盖 OWASP 和默认, 未匹配的保持原值 + 偏移
+        _max_cat = len(category_priorities)
+        merged_priority_cat: dict[str, int] = {}
+        for sig in set(list(_PRIORITY_MAP.keys()) + list(_cat_priority_map.keys())):
+            if sig in _cat_priority_map:
+                merged_priority_cat[sig] = _cat_priority_map[sig]
+            else:
+                merged_priority_cat[sig] = _PRIORITY_MAP.get(sig, 99) + _max_cat
+        _PRIORITY_MAP = merged_priority_cat
+        logger.info(
+            "L5 v40: Category-adaptive converter priority: "
+            "best=%s, from category_converter_map (per-seed level)",
+            category_priorities[0] if category_priorities else "N/A",
+        )
+
+    # ── L5 v40: suitable_for 策略过滤 ──
+    # 学术依据: PyRIT (arXiv:2407.01232) — per-seed converter optimization
+    #   根据 suitable_for 分布决定 converter 过滤策略:
+    #   - "encoding": 优先编码 converter (ROT13/AsciiSmuggler/CodeChameleon)
+    #   - "semantic": 优先语义 converter (Persuasion/Decomposition)
+    #   - "full": 全量 (不过滤)
+    sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
+    dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
+    if dominant_sf_strategy == "encoding":
+        # 编码策略: 编码 converter 优先, 但不排除语义 converter
+        # 仅重新排序: 编码 converter 在前
+        for c in unique_converters:
+            name = type(c).__name__
+            if name in _ENCODING_CONVERTER_NAMES:
+                # 给编码 converter 额外优先级加成 (-100 确保在最前)
+                sig = _converter_signature(c)
+                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
+        logger.info("L5 v40: suitable_for strategy='encoding' — encoding converters prioritized")
+    elif dominant_sf_strategy == "semantic":
+        # 语义策略: 语义 converter 优先 (编码可能破坏上下文结构)
+        for c in unique_converters:
+            name = type(c).__name__
+            if name in _SEMANTIC_CONVERTER_NAMES:
+                sig = _converter_signature(c)
+                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
+        logger.info("L5 v40: suitable_for strategy='semantic' — semantic converters prioritized")
+    elif dominant_sf_strategy == "none":
+        # 无 converter: 返回空列表 (raw payload)
+        logger.info("L5 v40: suitable_for strategy='none' — no converters (raw payload)")
+        return []
+    # "full": 无额外过滤
 
     def _priority(c: Any) -> int:
         sig = _converter_signature(c)
@@ -432,6 +655,50 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
             ", ".join(f"{k}={v}" for k, v in sorted(_owasp_priority_map.items(), key=lambda x: x[1])),
             owasp_priorities[0] if owasp_priorities else "N/A",
         )
+
+    # ── L5 v40: 种子 category 感知 converter 优先级 (per-seed 级别) ──
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — category 反映攻击向量类型
+    #   category 级别优先于 OWASP 级别 (更细粒度)
+    category_priorities = _get_category_converter_priorities(ctx)
+    if category_priorities:
+        _cat_priority_map: dict[str, int] = {}
+        for idx, sig in enumerate(category_priorities):
+            _cat_priority_map[sig] = idx + 1
+        _max_cat = len(category_priorities) + 1
+        merged_priority_cat: dict[str, int] = {}
+        for sig in set(list(_PRIORITY_MAP.keys()) + list(_cat_priority_map.keys())):
+            if sig in _cat_priority_map:
+                merged_priority_cat[sig] = _cat_priority_map[sig]
+            else:
+                merged_priority_cat[sig] = _PRIORITY_MAP.get(sig, 99) + _max_cat
+        _PRIORITY_MAP = merged_priority_cat
+        logger.info(
+            "L5 v40: Category-adaptive converter priority: %s "
+            "(best=%s, from category_converter_map, per-seed level)",
+            ", ".join(f"{k}={v}" for k, v in sorted(_cat_priority_map.items(), key=lambda x: x[1])),
+            category_priorities[0] if category_priorities else "N/A",
+        )
+
+    # ── L5 v40: suitable_for 策略过滤 ──
+    sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
+    dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
+    if dominant_sf_strategy == "encoding":
+        for c in unique_converters:
+            name = type(c).__name__
+            if name in _ENCODING_CONVERTER_NAMES:
+                sig = _converter_signature(c)
+                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
+        logger.info("L5 v40: suitable_for strategy='encoding' — encoding converters prioritized")
+    elif dominant_sf_strategy == "semantic":
+        for c in unique_converters:
+            name = type(c).__name__
+            if name in _SEMANTIC_CONVERTER_NAMES:
+                sig = _converter_signature(c)
+                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
+        logger.info("L5 v40: suitable_for strategy='semantic' — semantic converters prioritized")
+    elif dominant_sf_strategy == "none":
+        logger.info("L5 v40: suitable_for strategy='none' — no converters (raw payload)")
+        return None
 
     # 为每个 converter 找优先级
     def _priority(c: Any) -> int:

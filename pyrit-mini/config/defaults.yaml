@@ -68,6 +68,9 @@ deep_probe_timeout: 15
 # P2-20: 并行探针总超时 (所有探针并发)
 # 串行 8×15s=120s → 并行后统一 20s
 parallel_probe_timeout: 20
+# R8-6: 并发探针最大并发数 (模型列表端点/向量数据库探测)
+# 学术依据: R7 SSOT — 并发控制避免对目标服务器造成过大负载
+max_concurrent_probes: 10
 
 # ── Converter 路径数 ──
 # arXiv:2407.01232 — PyRIT SequentialAttack FIRST_SUCCESS, 最佳 5-7 条独立路径
@@ -77,6 +80,32 @@ l5_optimal_paths: 7
 # arXiv:2310.04451 — AutoDAN 3x 扩充 ASR 1.5-2x
 auto_seed_expansion_factor: 3
 
-# ── DoS 攻击控制 ──
-# LLM10 默认禁用 — 消耗大量 token, 用户通过 --enable-dos 显式开启
-dos_attack_enabled: false
+# ── Adaptive Scenario ──
+# PyRIT TextAdaptive 对齐 (arXiv:2407.01232 §4)
+# epsilon-greedy: epsilon=0.2 探索概率, 官方默认值
+# max_attempts_per_objective=3: 每个 objective 最多尝试 3 种技术
+# unseen-first: 未试过的技术优先, 前几个 objective 轮询所有技术
+adaptive_epsilon: 0.2
+adaptive_random_seed: 42
+adaptive_max_attempts: 3
+# scenario_techniques: 限制自适应选择池 (tag-based), null=使用全部已注册技术
+# 示例: ["single_turn"] 只选单轮技术; ["multi_turn"] 只选多轮技术
+adaptive_technique_filter: null
+
+# ── 原生攻击参数 (R6 §6.4b SSOT) ──
+# arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking, 100 shots ASR 显著提升
+many_shot_example_count: 100
+# arXiv:2407.01232 — PyRIT ChunkedRequestAttack, chunk_size=50 字符/块
+chunked_request_chunk_size: 50
+# arXiv:2407.01232 — PyRIT ChunkedRequestAttack, total_length=200 字符总长
+chunked_request_total_length: 200
+# arXiv:2402.12109 — CrescendoAttack max_backtracks=10
+# 10 次回溯机会, 允许 Crescendo 在失败后重试不同策略
+crescendo_max_backtracks: 10
+# arXiv:2407.01232 — RedTeamingAttack max_turns=5 (作为 Crescendo 前置快速试探)
+red_teaming_max_turns: 5
+# arXiv:2312.02191 — TAP tree branching factor=2
+tap_branching_factor: 2
+# arXiv:2310.08419+2406.12609 — PAIR tree_width=1 (single-stream), tree_depth=7
+pair_tree_width: 1
+pair_tree_depth: 7

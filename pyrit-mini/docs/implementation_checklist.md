@@ -47,6 +47,8 @@
 - [ ] **R1**: 此变更提升 ASR 或攻击效率 (攻击者视角)
 - [ ] **R2**: 使用 PyRIT 原生组件 (不自研替换) — 或 enhancement wrapper 包装原生
 - [ ] **R2**: 已搜索 PyRIT 源码确认无等价原生组件
+- [ ] **R2 §2.1**: 终端展示优先调用 `output_scenario_async` / `output_attack_async` + `StdoutSink` (原生优先, 自研卡片为增强)
+- [ ] **R2 §2.1**: 不手动提取 prompt/response 文本替代原生 output 渲染
 - [ ] **R3**: 所有参数对齐 L5 基线 (`config/defaults.yaml`)
 - [ ] **R5**: 新技术/参数有 arXiv 引用
 - [ ] **R6 §6.1**: 每个 `ConverterConfiguration` 包含恰好 1 个 converter (禁止串联)

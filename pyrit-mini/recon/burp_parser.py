@@ -499,7 +499,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         )
 
     # 目标指纹
-    fingerprint = _extract_fingerprint(headers, path, host)
+    fingerprint = _extract_fingerprint(headers, path, host, response_section)
     fingerprint["api_category"] = api_category
 
     # 从 Response 部分提取会话 ID (ChatId / Object / chat_session_id / session_id)
@@ -1539,18 +1539,138 @@ def _score_prompt_fields(data: dict[str, Any]) -> str | None:
     return best_key
 
 
-def _extract_fingerprint(headers: dict[str, str], path: str, host: str) -> dict[str, str]:
-    """从 HTTP 请求中提取目标指纹信息。
+# ════════════════════════════════════════════════════════════════════
+# AI 框架/SDK 指纹识别目录 (从 RedAmon ai_signal_catalog.py 借鉴)
+# 学术依据: PTES §2 — 框架指纹识别后的针对性探测
+#          OWASP WSTG-INFO-03 — 框架指纹识别
+# 三层检测: Header 模式 + Title 模式 + Body 指纹
+# 全部从 Burp Response 静态提取 (0 额外请求)
+# ════════════════════════════════════════════════════════════════════
+
+# AI Header 指纹模式 (响应 header 名匹配, 大小写不敏感)
+# (header_name_pattern, framework_name, technology_category)
+_AI_HEADER_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
+    # ── AI 运行时 ── (最强信号)
+    (re.compile(r"^x-vllm-", re.I), "vllm", "ai-runtime"),
+    (re.compile(r"^x-tgi-", re.I), "tgi", "ai-runtime"),
+    (re.compile(r"^x-tei-", re.I), "text-embeddings-inference", "ai-runtime"),
+    (re.compile(r"^x-bentoml-", re.I), "bentoml", "ai-runtime"),
+    (re.compile(r"^x-baseten-", re.I), "baseten", "ai-runtime"),
+    (re.compile(r"^x-modal-", re.I), "modal", "ai-runtime"),
+    (re.compile(r"^x-replicate-", re.I), "replicate", "ai-runtime"),
+    (re.compile(r"^x-runpod-", re.I), "runpod", "ai-runtime"),
+    # ── AI 框架/编排器 ──
+    (re.compile(r"^x-langchain-", re.I), "langchain", "ai-framework"),
+    (re.compile(r"^x-llamaindex-", re.I), "llamaindex", "ai-framework"),
+    (re.compile(r"^langfuse-", re.I), "langfuse", "ai-framework"),
+    # ── AI 代理/网关 ──
+    (re.compile(r"^x-litellm-", re.I), "litellm", "ai-proxy"),
+    (re.compile(r"^x-helicone-", re.I), "helicone", "ai-proxy"),
+    (re.compile(r"^x-portkey-", re.I), "portkey", "ai-proxy"),
+    (re.compile(r"^x-omniroute-", re.I), "omniroute", "ai-proxy"),
+    (re.compile(r"^cf-aig-", re.I), "cloudflare-ai-gateway", "ai-proxy"),
+    (re.compile(r"^together-", re.I), "together", "ai-proxy"),
+    # ── AI SDK 客户端 (代理的厂商调用) ──
+    (re.compile(r"^openai-(organization|version|processing-ms)", re.I), "openai", "ai-sdk-client"),
+    (re.compile(r"^anthropic-(version|beta|ratelimit-)", re.I), "anthropic", "ai-sdk-client"),
+    (re.compile(r"^x-ms-region$|^azureml-model-session$", re.I), "azure-openai", "ai-sdk-client"),
+    (re.compile(r"^x-ratelimit-limit-tokens-cache-adjusted-prompt$|^x-fireworks-account-id$", re.I), "fireworks", "ai-sdk-client"),
+    # ── MCP ──
+    (re.compile(r"^x-mcp-", re.I), "mcp", "ai-framework"),
+]
+
+# AI Title 指纹模式 (HTML <title> 匹配, 大小写不敏感)
+_AI_TITLE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # ── 聊天/通用 LLM 前端 ──
+    (re.compile(r"\bOpen WebUI\b", re.I), "open-webui"),
+    (re.compile(r"\bLibreChat\b", re.I), "librechat"),
+    (re.compile(r"\bAnythingLLM\b", re.I), "anythingllm"),
+    (re.compile(r"\bFlowise\b", re.I), "flowise"),
+    (re.compile(r"\bLangflow\b", re.I), "langflow"),
+    (re.compile(r"\bDify\b", re.I), "dify"),
+    (re.compile(r"\bComfyUI\b", re.I), "comfyui"),
+    (re.compile(r"\bGradio\b", re.I), "gradio"),
+    (re.compile(r"\bStreamlit\b", re.I), "streamlit"),
+    (re.compile(r"\bBetterChatGPT\b", re.I), "betterchatgpt"),
+    (re.compile(r"\bOnyx\b|\bDanswer\b", re.I), "onyx"),
+    (re.compile(r"\bChatGPT\b", re.I), "chatgpt-clone"),
+    (re.compile(r"\bHuggingFace Chat UI\b", re.I), "hf-chat-ui"),
+    (re.compile(r"\bLobeChat\b|\bLobeHub\b", re.I), "lobechat"),
+    (re.compile(r"\bNextChat\b", re.I), "nextchat"),
+    (re.compile(r"\bSillyTavern\b", re.I), "sillytavern"),
+    (re.compile(r"\bh2oGPT\b", re.I), "h2ogpt"),
+    (re.compile(r"\bPrivateGPT\b", re.I), "privategpt"),
+    (re.compile(r"\bQuivr\b", re.I), "quivr"),
+    # ── 图像生成 UI ──
+    (re.compile(r"\bInvoke\s*-\s*Community Edition\b", re.I), "invokeai"),
+    (re.compile(r"^Stable Diffusion$", re.I), "automatic1111"),
+    # ── MLOps/可观测性前端 ──
+    (re.compile(r"^MLflow$", re.I), "mlflow"),
+    (re.compile(r"^Labelstudio$", re.I), "label-studio"),
+    (re.compile(r"\bRay Dashboard\b", re.I), "ray-dashboard"),
+    (re.compile(r"\bRedisInsight\b", re.I), "redis-insight"),
+    (re.compile(r"\bAutoGen Studio\b", re.I), "autogen-studio"),
+    (re.compile(r"\bLangfuse\b", re.I), "langfuse-ui"),
+    (re.compile(r"\bArize Phoenix\b|^Phoenix$", re.I), "phoenix-arize"),
+    (re.compile(r"\bArgilla\b", re.I), "argilla"),
+    (re.compile(r"\bGPT Researcher\b", re.I), "gpt-researcher"),
+]
+
+# AI Body 指纹 (Wappalyzer 风格, 响应体正则匹配)
+_AI_BODY_FINGERPRINTS: list[tuple[re.Pattern[str], str, str]] = [
+    # ── 运行时 ──
+    (re.compile(r"""(?:action|href|fetch\()\s*=?\s*["']/generate_stream["']""", re.I), "tgi", "ai-runtime"),
+    (re.compile(r"\bvllm_session\b", re.I), "vllm", "ai-runtime"),
+    (re.compile(r"\bOllama is running\b", re.I), "ollama", "ai-runtime"),
+    # ── 框架 ──
+    (re.compile(r"window\.__LANGCHAIN__|window\.__LANGCHAIN_TRACING_V2__", re.I), "langchain", "ai-framework"),
+    (re.compile(r"""@langchain/(core|community|langgraph|openai|anthropic)["']""", re.I), "langchain", "ai-framework"),
+    (re.compile(r"""@llamaindex/(core|flow|langchain)["']""", re.I), "llamaindex", "ai-framework"),
+    # ── 前端产品 ──
+    (re.compile(r"\btxt2img_textarea\b", re.I), "automatic1111", "ai-frontend"),
+    (re.compile(r'"flowise_"', re.I), "flowise", "ai-frontend"),
+    (re.compile(r"\bstreamlit_\b", re.I), "streamlit", "ai-frontend"),
+    (re.compile(r'\bgradio\b', re.I), "gradio", "ai-frontend"),
+    # ── SDK ──
+    (re.compile(r"""from openai import|import openai""", re.I), "openai-sdk", "ai-sdk-client"),
+    (re.compile(r"""from anthropic import|import anthropic""", re.I), "anthropic-sdk", "ai-sdk-client"),
+    (re.compile(r"""from litellm import|import litellm""", re.I), "litellm", "ai-proxy"),
+]
+
+
+def _extract_fingerprint(
+    headers: dict[str, str],
+    path: str,
+    host: str,
+    response_section: str | None = None,
+) -> dict[str, str]:
+    """从 HTTP 请求和响应中提取目标指纹信息。
 
     用于报告中的目标识别:
         - framework: 从 header 推断前端框架
         - api_path: API 路径
         - auth_type: 认证方式
         - content_type: 请求内容类型
+        - ai_framework: AI 框架/SDK 识别 (从 Response headers/title/body)
+        - ai_framework_category: AI 技术类别 (ai-runtime/ai-framework/ai-proxy/ai-frontend/ai-sdk-client)
+
+    学术依据:
+        - PTES §2 — 框架指纹识别后的针对性探测
+        - OWASP WSTG-INFO-03 — 框架指纹识别
+        - RedAmon ai_signal_catalog.py — AI 框架指纹三层检测
+
+    Args:
+        headers: 请求 headers (大小写不敏感)。
+        path: 请求路径。
+        host: 主机名。
+        response_section: Burp Response 原始文本 (可选, 用于 AI 框架指纹识别)。
+
+    Returns:
+        指纹信息字典。
     """
     fp: dict[str, str] = {}
 
-    # 框架推断
+    # 框架推断 (传统 Web 框架)
     server = headers.get("server", "")
     x_powered = headers.get("x-powered-by", "")
     if "next" in (server + x_powered).lower():
@@ -1596,7 +1716,167 @@ def _extract_fingerprint(headers: dict[str, str], path: str, host: str) -> dict[
     else:
         fp["app_type"] = "Web Application"
 
+    # ════════════════════════════════════════════════════════════════
+    # AI 框架/SDK 指纹识别 (从 Burp Response 静态提取, 0 额外请求)
+    # 学术依据: RedAmon ai_signal_catalog.py — 三层检测
+    # ════════════════════════════════════════════════════════════════
+    if response_section:
+        _extract_ai_framework_fingerprint(fp, response_section)
+    # 也从请求 header 中检测 AI SDK 客户端特征
+    _extract_ai_sdk_from_request_headers(fp, headers)
+
     return fp
+
+
+def _extract_ai_framework_fingerprint(
+    fp: dict[str, str],
+    response_section: str,
+) -> None:
+    """从 Burp Response 中提取 AI 框架指纹 (0 额外请求)。
+
+    三层检测:
+        1. Response Header 模式匹配 (x-vllm-*, x-langchain-*, 等)
+        2. HTML <title> 模式匹配 (Open WebUI, LibreChat, Gradio, 等)
+        3. Body Wappalyzer 风格指纹 (LangChain globals, SDK import, 等)
+
+    结果就地写入 fp 字典:
+        - fp["ai_framework"]: 框架名 (如 "vllm", "langchain", "gradio")
+        - fp["ai_framework_category"]: 类别 (ai-runtime/ai-framework/ai-proxy/ai-frontend/ai-sdk-client)
+
+    Args:
+        fp: 指纹字典 (就地修改)。
+        response_section: Burp Response 原始文本。
+    """
+    if not response_section or not response_section.strip():
+        return
+
+    # 分离 Response headers 和 body
+    resp_headers, resp_body = _split_response_headers_body(response_section)
+
+    # ── 层 1: Response Header 模式匹配 ──
+    for header_name, _header_value in resp_headers:
+        for pattern, fw_name, fw_category in _AI_HEADER_PATTERNS:
+            if pattern.search(header_name):
+                fp["ai_framework"] = fw_name
+                fp["ai_framework_category"] = fw_category
+                logger.debug(
+                    "AI framework detected from response header '%s': %s (%s)",
+                    header_name,
+                    fw_name,
+                    fw_category,
+                )
+                return  # 取第一个匹配
+
+    # ── 层 2: HTML <title> 模式匹配 ──
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", resp_body, re.I | re.DOTALL)
+    if title_match:
+        title_text = title_match.group(1).strip()
+        for pattern, fw_name in _AI_TITLE_PATTERNS:
+            if pattern.search(title_text):
+                fp["ai_framework"] = fw_name
+                fp["ai_framework_category"] = "ai-frontend"
+                logger.debug(
+                    "AI framework detected from <title>: %s",
+                    fw_name,
+                )
+                return
+
+    # ── 层 3: Body Wappalyzer 风格指纹 ──
+    for pattern, fw_name, fw_category in _AI_BODY_FINGERPRINTS:
+        if pattern.search(resp_body):
+            fp["ai_framework"] = fw_name
+            fp["ai_framework_category"] = fw_category
+            logger.debug(
+                "AI framework detected from body fingerprint: %s (%s)",
+                fw_name,
+                fw_category,
+            )
+            return
+
+
+def _extract_ai_sdk_from_request_headers(
+    fp: dict[str, str],
+    request_headers: dict[str, str],
+) -> None:
+    """从请求 headers 中检测 AI SDK 客户端特征。
+
+    请求 header 中的认证 header 或自定义 header 可能暴露 SDK 来源:
+        - Authorization: Bearer sk-xxx → OpenAI 风格
+        - x-api-key: xxx → Anthropic 风格
+        - api-key: xxx → Azure OpenAI 风格
+
+    Args:
+        fp: 指纹字典 (就地修改)。
+        request_headers: 请求 headers (小写 key)。
+    """
+    if "ai_framework" in fp:
+        return  # 已从 Response 检测到, 不覆盖
+
+    # 检测 Anthropic SDK 特征
+    for key in request_headers:
+        if key.lower().startswith("anthropic-"):
+            fp["ai_framework"] = "anthropic"
+            fp["ai_framework_category"] = "ai-sdk-client"
+            return
+
+    # 检测 OpenAI SDK 特征
+    for key in request_headers:
+        if key.lower().startswith("openai-"):
+            fp["ai_framework"] = "openai"
+            fp["ai_framework_category"] = "ai-sdk-client"
+            return
+
+    # 检测 Azure OpenAI 特征
+    if "api-key" in request_headers or "x-ms-region" in request_headers:
+        fp["ai_framework"] = "azure-openai"
+        fp["ai_framework_category"] = "ai-sdk-client"
+        return
+
+    # 检测 MCP 特征
+    for key in request_headers:
+        if key.lower().startswith("x-mcp-"):
+            fp["ai_framework"] = "mcp"
+            fp["ai_framework_category"] = "ai-framework"
+            return
+
+
+def _split_response_headers_body(
+    response_section: str,
+) -> tuple[list[tuple[str, str]], str]:
+    """分离 Response 的 headers 和 body。
+
+    Args:
+        response_section: Burp Response 原始文本
+            (格式: "HTTP/1.x status\\r?\\nheaders\\r?\\n\\r?\\nbody")。
+
+    Returns:
+        (headers_list, body_text) 元组:
+        - headers_list: [(header_name, header_value), ...]
+        - body_text: 响应体文本。
+    """
+    normalized = response_section.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 找到 headers 和 body 的分隔点 (第一个空行)
+    split_idx = normalized.find("\n\n")
+    if split_idx == -1:
+        # 无空行分隔, 全部视为 body
+        return [], normalized
+
+    header_section = normalized[:split_idx]
+    body = normalized[split_idx + 2:]
+
+    # R8-4 边界条件: body 可能为空 (如 204 No Content)
+    # 解析 headers (跳过 status line)
+    headers_list: list[tuple[str, str]] = []
+    for line in header_section.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("HTTP/"):
+            continue
+        if ":" in line:
+            name, value = line.split(":", 1)
+            headers_list.append((name.strip(), value.strip()))
+
+    return headers_list, body
 
 
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:

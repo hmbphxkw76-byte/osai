@@ -286,6 +286,8 @@ async def create_target(ctx: PipelineContext) -> None:
         from recon.capability_probe import deep_probe_capabilities
         deep_caps = await deep_probe_capabilities(parsed)
         _probe_count += 8  # deep_probe 发送 8 个并行探针 (含 model_identity)
+        # R8-5 审计日志: deep_probe 内部还调用 probe_model_family_via_api (5 个端点)
+        _probe_count += 5  # 模型列表端点探测
         if deep_caps:
             # 合并布尔能力到 capabilities 字段
             existing_caps_str = parsed.target_fingerprint.get("capabilities", "")
@@ -320,6 +322,13 @@ async def create_target(ctx: PipelineContext) -> None:
                     "P2-20: model_family from deep probe: %s",
                     deep_caps["model_family"],
                 )
+            # P1-4: 写入 model_ids 和 api_behavior (模型族 API 行为指纹)
+            # 学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
+            #   不依赖模型自报, 通过 API 行为特征识别模型族
+            if deep_caps.get("model_ids"):
+                parsed.target_fingerprint["model_ids"] = deep_caps["model_ids"]
+            if deep_caps.get("api_behavior"):
+                parsed.target_fingerprint["api_behavior"] = deep_caps["api_behavior"]
             logger.info(
                 "P2-19: Deep capability probe complete. Capabilities: %s, secret_format: %s",
                 sorted(all_caps),
@@ -349,11 +358,14 @@ async def create_target(ctx: PipelineContext) -> None:
                 parsed.target_fingerprint["mcp_prompts"] = mcp_results.get("prompts", [])
                 parsed.target_fingerprint["mcp_tool_names"] = mcp_results.get("tool_names", [])
                 parsed.target_fingerprint["mcp_server_info"] = mcp_results.get("server_info")
+                # P1-2: MCP 工具静态安全分析结果
+                parsed.target_fingerprint["mcp_tool_safety"] = mcp_results.get("tool_safety", [])
                 logger.info(
-                    "MCP enumeration complete: %d tools, %d resources, %d prompts",
+                    "MCP enumeration complete: %d tools, %d resources, %d prompts, %d safety findings",
                     len(mcp_results.get("tools", [])),
                     len(mcp_results.get("resources", [])),
                     len(mcp_results.get("prompts", [])),
+                    sum(len(t.get("risks", [])) for t in mcp_results.get("tool_safety", [])),
                 )
         except Exception as e:
             logger.warning("MCP endpoint enumeration failed (non-fatal): %s", e)
@@ -475,6 +487,107 @@ async def create_target(ctx: PipelineContext) -> None:
                 )
         except Exception as e:
             logger.warning("P1-2: OpenAPI discovery failed (non-fatal): %s", e)
+
+    # ════════════════════════════════════════════════════════════════════
+    # 深度探测能力补充 (P0-P2 优先级矩阵)
+    # 学术依据:
+    #   - Greshake et al. (arXiv:2302.12173) — system prompt 泄露探测
+    #   - Morris et al. (arXiv:2310.06870) — 向量数据库确认
+    #   - Cisco AI Defense — MCP 工具静态安全分析
+    #   - Mazeika et al. (arXiv:2406.18510) — 模型族 API 行为指纹
+    #   - Arbis et al. (arXiv:2306.01943) — 跨端点攻击面图谱
+    # ════════════════════════════════════════════════════════════════════
+
+    # ── P0-1: System Prompt 提取与泄露探测 ──
+    # 数据流: system_prompt_extractor → target_fingerprint → arm/seed_ranker
+    # 学术依据: Greshake et al. (arXiv:2302.12173) §4
+    try:
+        from recon.system_prompt_extractor import extract_system_prompt
+
+        sp_result = await extract_system_prompt(parsed)
+        _probe_count += 3  # 3 个并行探针
+        if sp_result.get("system_prompt_leaked"):
+            parsed.target_fingerprint["system_prompt_leaked"] = True
+            parsed.target_fingerprint["extracted_system_prompt"] = sp_result.get(
+                "extracted_system_prompt", ""
+            )
+            parsed.target_fingerprint["system_prompt_extraction_method"] = sp_result.get(
+                "extraction_method", ""
+            )
+            parsed.target_fingerprint["system_prompt_length"] = sp_result.get(
+                "system_prompt_length", 0
+            )
+            logger.warning(
+                "P0-1: System prompt LEAKED via %s (length=%d)",
+                sp_result.get("extraction_method"),
+                sp_result.get("system_prompt_length", 0),
+            )
+        else:
+            parsed.target_fingerprint["system_prompt_leaked"] = False
+            logger.debug("P0-1: System prompt extraction: no leak detected")
+    except Exception as e:
+        logger.warning("P0-1: System prompt extraction failed (non-fatal): %s", e)
+        parsed.target_fingerprint["system_prompt_leaked"] = False
+
+    # ── P1-4: 模型族 API 行为指纹 (已在 capability_probe 中集成) ──
+    # capability_probe.py 的 deep_probe_capabilities 已调用 probe_model_family_via_api
+    # 结果已写入 parsed.target_fingerprint 中 (model_ids, api_behavior)
+    # 这里只做日志确认
+    model_ids = parsed.target_fingerprint.get("model_ids", [])
+    if model_ids:
+        logger.info(
+            "P1-4: Model IDs from API behavior: %d models discovered",
+            len(model_ids),
+        )
+
+    # ── P2-5: 向量数据库确认探测 ──
+    # 数据流: port_expander.confirm_vector_dbs → target_fingerprint["vector_dbs"]
+    # 学术依据: Morris et al. (arXiv:2310.06870)
+    try:
+        from recon.port_expander import confirm_vector_dbs
+
+        # 复用之前 port_expander 发现的端点
+        port_endpoints_data = parsed.target_fingerprint.get("port_endpoints", [])
+        from recon.port_expander import DiscoveredPortEndpoint
+
+        port_endpoints_list: list[DiscoveredPortEndpoint] = []
+        for pe_data in port_endpoints_data:
+            try:
+                port_endpoints_list.append(DiscoveredPortEndpoint(
+                    port=pe_data["port"],
+                    path=pe_data.get("path", ""),
+                    status_code=pe_data.get("status_code", 0),
+                    service_type=pe_data.get("service_type", "unknown"),
+                    use_tls=pe_data.get("use_tls", parsed.use_tls),
+                ))
+            except (KeyError, TypeError):
+                continue
+
+        _probe_count += len(port_endpoints_list) if port_endpoints_list else 7
+        vdb_results = await confirm_vector_dbs(
+            parsed,
+            port_endpoints=port_endpoints_list if port_endpoints_list else None,
+        )
+        if vdb_results:
+            parsed.target_fingerprint["vector_dbs"] = [
+                {
+                    "tech": vdb.tech,
+                    "host": vdb.host,
+                    "port": vdb.port,
+                    "confirmed_via": vdb.confirmed_via,
+                    "response_preview": vdb.response_preview,
+                }
+                for vdb in vdb_results
+            ]
+            logger.info(
+                "P2-5: Vector DB confirmed: %d databases",
+                len(vdb_results),
+            )
+        else:
+            parsed.target_fingerprint["vector_dbs"] = []
+    except Exception as e:
+        logger.warning("P2-5: Vector DB confirmation failed (non-fatal): %s", e)
+        parsed.target_fingerprint["vector_dbs"] = []
 
     # ── 探针计数 & 耗时写入 target_fingerprint (P2-2 数据完整化) ──
     # 数据流: target_router _probe_count → target_fingerprint → recon_report → evidence

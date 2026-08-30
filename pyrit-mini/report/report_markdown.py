@@ -1,6 +1,6 @@
-"""report_markdown 鈥?Markdown 鎶ュ憡鐢熸垚.
+"""report_markdown — Markdown 报告生成。
 
-浠?generator.py 鎷嗗垎鍑烘潵, 鍖呭惈 _generate_markdown 鍑芥暟銆?
+从 generator.py 拆分出来, 包含 _generate_markdown 函数。
 """
 
 from __future__ import annotations
@@ -23,19 +23,19 @@ logger = logging.getLogger(__name__)
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """鐢熸垚瀹屾暣鐨?Markdown 瀹夊叏鎶ュ憡銆?
+    """生成完整的 Markdown 安全报告。
 
     Args:
-        evidence: 璇佹嵁闆嗗悎銆?
-        success_only: 浠呭寘鍚垚鍔熸敾鍑荤殑璇佹嵁銆?
+        evidence: 证据集合。
+        success_only: 仅包含成功攻击的证据。
 
     Returns:
-        Markdown 鎶ュ憡瀛楃涓层€?
+        Markdown 报告字符串。
     """
     lines: list[str] = []
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
 
-    # 鈹€鈹€ 鏍囬 鈹€鈹€
+    # ── 标题 ──
     lines.append("# AI Red Team Assessment Report")
     lines.append("")
     lines.append(f"**Target Model:** {evidence.target_model}")
@@ -44,6 +44,11 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append(f"**Successful Attacks:** {evidence.successful_attacks}")
     lines.append(f"**Failed Attacks:** {evidence.failed_attacks}")
     lines.append(f"**Overall ASR:** {evidence.overall_asr:.1f}%")
+    lines.append("")
+    lines.append("> **PyRIT Native Output:** This report is supplemented by official PyRIT `pyrit.output` module files in the `native_output/` directory:")
+    lines.append("> - `attack_*.md` / `attack_*.txt` — Per-AttackResult (Markdown + Pretty ANSI)")
+    lines.append("> - `scenario_result.txt` / `scenario_result.md` — ScenarioResult summary (Pretty + Markdown, if adaptive mode)")
+    lines.append("> - Each file follows the PyRIT 1.0.1 official format: Header → Summary → Conversation → Adversarial → Pruned → Metadata → Footer")
     lines.append("")
 
     # ── Target Fingerprint & Attack Surface (recon → report 数据传递) ──
@@ -59,7 +64,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         if fp:
             # 核心指纹字段
             for key in (
-                "app_type", "auth_type", "framework", "content_type",
+                "app_type", "target_type", "auth_type", "framework", "content_type",
                 "capabilities", "model_family", "language",
                 "session_type", "secret_format", "tenant_id",
                 "api_category", "burp_model_name",
@@ -67,6 +72,13 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
                 val = fp.get(key, "")
                 if val:
                     lines.append(f"| {key} | {val} |")
+            # 深度探测新字段 (P0-P2 优先级矩阵)
+            if fp.get("ai_framework"):
+                lines.append(f"| ai_framework | {fp['ai_framework']} ({fp.get('ai_framework_category', '')}) |")
+            if fp.get("system_prompt_leaked"):
+                lines.append(f"| system_prompt_leaked | **LEAKED** via {fp.get('system_prompt_extraction_method', '')} (len={fp.get('system_prompt_length', 0)}) |")
+            if fp.get("model_ids"):
+                lines.append(f"| model_ids | {len(fp['model_ids'])} models |")
         if attack_surface:
             # 扩展攻击面字段
             lines.append(f"| mcp_tool_count | {attack_surface.get('mcp_tool_count', 0)} |")
@@ -77,12 +89,18 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"| port_endpoint_count | {attack_surface.get('port_endpoint_count', 0)} |")
             lines.append(f"| probe_count | {attack_surface.get('probe_count', 0)} |")
             lines.append(f"| probe_duration_seconds | {attack_surface.get('probe_duration_seconds', 0)} |")
+            # 深度探测攻击面字段
+            if attack_surface.get("vector_dbs"):
+                vdb_names = ", ".join(v.get("tech", "") for v in attack_surface["vector_dbs"] if isinstance(v, dict))
+                lines.append(f"| vector_dbs | {vdb_names} |")
+            if attack_surface.get("mcp_tool_safety_risky_count"):
+                lines.append(f"| mcp_tool_safety_risky | {attack_surface['mcp_tool_safety_risky_count']} risky tools |")
             # 认证恢复历史 (recon → strike → report)
             if attack_surface.get("auth_recovery_attempts"):
                 lines.append(f"| auth_recovery_attempts | {attack_surface['auth_recovery_attempts']} |")
         lines.append("")
 
-    # 鈹€鈹€ Executive Summary 鈹€鈹€
+    # ── Executive Summary ──
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(
@@ -94,7 +112,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     )
     lines.append("")
 
-    # 鈹€鈹€ Findings Summary 鈹€鈹€
+    # ── Findings Summary ──
     lines.append("## Findings Summary")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -110,11 +128,11 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("No findings generated.")
     lines.append("")
 
-    # 鈹€鈹€ Vulnerability Details 鈹€鈹€
+    # ── Vulnerability Details ──
     lines.append("## Vulnerability Details")
     lines.append("")
     for ev in evidence_list:
-        lines.append(f"### {ev.evidence_id} 鈥?{ev.owasp_id}: {ev.owasp_category}")
+        lines.append(f"### {ev.evidence_id} — {ev.owasp_id}: {ev.owasp_category}")
         lines.append("")
         lines.append(f"**Technique:** {ev.technique_display_name}")
         lines.append(f"**Severity:** {ev.owasp_severity}")
@@ -134,10 +152,10 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"  - **{msg.get('role', 'unknown')}:** {msg.get('content', '')}")
         lines.append("")
 
-        # PoC Script 鈥?寮傚父淇濇姢: PoC 鐢熸垚澶辫触涓嶅簲涓柇鏁翠釜鎶ュ憡
-        # 鏂偣淇: report_markdown 涓?generate_poc_script 璋冪敤缂哄皯寮傚父淇濇姢,
-        # 濡傛灉 PoC 鐢熸垚澶辫触 (濡傛ā鏉挎牸寮忛敊璇?, 鏁翠釜 Markdown 鎶ュ憡涔熶細澶辫触銆?
-        # 淇: try/except 鍖呰９, 澶辫触鏃跺湪鎶ュ憡涓褰曢敊璇€岄潪涓柇銆?
+        # PoC Script — 异常保护: PoC 生成失败不应中断整个报告
+        # 断点修复: report_markdown 中 generate_poc_script 调用缺少异常保护,
+        # 如果 PoC 生成失败 (如模板格式错误), 整个 Markdown 报告也会失败。
+        # 修复: try/except 包裹, 失败时在报告中记录错误而非中断。
         lines.append("**PoC Script:**")
         lines.append("```python")
         try:
@@ -172,7 +190,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"  - {mitigation}")
         lines.append("")
 
-    # 鈹€鈹€ OWASP LLM Top 10 鈹€鈹€
+    # ── OWASP LLM Top 10 ──
     lines.append("## OWASP LLM Top 10")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -184,7 +202,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # 鈹€鈹€ OWASP ASI Top 10 鈹€鈹€
+    # ── OWASP ASI Top 10 (Agentic AI) ──
     lines.append("## OWASP ASI Top 10 (Agentic AI)")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -196,7 +214,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # 鈹€鈹€ Technique Performance 鈹€鈹€
+    # ── Technique Performance ──
     lines.append("## Technique Performance")
     lines.append("")
     tech_map: dict[str, list[VulnerabilityEvidence]] = {}
@@ -212,7 +230,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append(f"| {_get_technique_display_name(tech)} | {tested} | {success} | {failed} | {asr:.0f}% |")
     lines.append("")
 
-    # 鈹€鈹€ Failure Analysis 鈹€鈹€
+    # ── Failure Analysis ──
     lines.append("## Failure Analysis")
     lines.append("")
     if evidence.failure_analysis:
@@ -235,11 +253,11 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             )
     lines.append("")
 
-    # 鈹€鈹€ Attack Technique Effectiveness Matrix 鈹€鈹€
+    # ── Attack Technique Effectiveness Matrix ──
     matrix_lines = _build_technique_effectiveness_matrix(evidence, evidence.evidence)
     lines.extend(matrix_lines)
 
-    # 鈹€鈹€ MITRE ATLAS Mapping 鈹€鈹€
+    # ── MITRE ATLAS Mapping ──
     lines.append("## MITRE ATLAS Mapping")
     lines.append("")
     lines.append("| OWASP ID | MITRE Tactic | Technique ID | Technique Name |")
@@ -251,7 +269,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # 鈹€鈹€ MITRE ATLAS Reference 鈹€鈹€
+    # ── MITRE ATLAS Reference ──
     lines.append("## MITRE ATLAS Reference")
     lines.append("")
     for ev in evidence_list:
@@ -259,12 +277,12 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             lines.append(f"- [{ev.mitre_technique_id}]({ev.mitre_url}): {ev.mitre_technique_name}")
     lines.append("")
 
-    # 鈹€鈹€ Score Consistency Analysis 鈹€鈹€
+    # ── Score Consistency Analysis ──
     score_lines = _build_score_consistency_section(evidence)
     lines.extend(score_lines)
 
-    # 鈹€鈹€ Three-Tier Evidence Chain 鈹€鈹€
-    lines.append("## Three-Tier Evidence Chain")
+    # ── Three-Tier Evidence Chain ──
+    lines.append("## Three-Tier Evidence chain")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
         for finding in evidence.findings:
@@ -274,13 +292,13 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
             for result in finding.results:
                 lines.append(
                     f"  - **Result:** {result.get('evidence_id', '')} "
-                    f"({result.get('technique', '')}) 鈥?"
+                    f"({result.get('technique', '')}) — "
                     f"{'Success' if result.get('is_success') else 'Failed'}",
                 )
             lines.append("")
     lines.append("")
 
-    # 鈹€鈹€ Escalation Chain Report 鈹€鈹€
+    # ── Escalation Chain Report ──
     lines.append("## Escalation Chain Report")
     lines.append("")
     dashboard = _build_escalation_dashboard_data(evidence)
@@ -292,7 +310,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
     lines.append("")
 
-    # 鈹€鈹€ Adaptive Dual Judge Statistics 鈹€鈹€
+    # ── Adaptive Dual Judge Statistics ──
     # L5 v8: Dual Judge Statistics
     if hasattr(evidence, 'dual_judge_stats') and evidence.dual_judge_stats:
         stats = evidence.dual_judge_stats
@@ -322,8 +340,12 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("")
 
     # L5 v29: Wilson Score CI
-    if hasattr(evidence, 'wilson_ci') and evidence.wilson_ci != (0.0, 0.0):
-        lines.append(f"- **ASR 95% CI (Wilson)**: [{evidence.wilson_ci[0]}%, {evidence.wilson_ci[1]}%]")
+    # 断点修复: wilson_ci 从 JSON 反序列化后是 list 而非 tuple,
+    # 直接用 != (0.0, 0.0) 比较会导致 list != tuple 恒为 True (即使值相同),
+    # 改用通用比较逻辑兼容 tuple 和 list
+    _wilson_ci = getattr(evidence, 'wilson_ci', None)
+    if _wilson_ci and len(_wilson_ci) == 2 and (_wilson_ci[0] != 0.0 or _wilson_ci[1] != 0.0):
+        lines.append(f"- **ASR 95% CI (Wilson)**: [{_wilson_ci[0]}%, {_wilson_ci[1]}%]")
     if hasattr(evidence, 'cohens_kappa') and evidence.cohens_kappa != 0.0:
         kappa = evidence.cohens_kappa
         interpretation = (
@@ -334,7 +356,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         )
         lines.append(f"- **Cohen's Kappa**: {kappa:.3f} ({interpretation})")
 
-    # 鈹€鈹€ Orchestration Decision Log 鈹€鈹€
+    # ── Orchestration Decision Log ──
     _orch_log = getattr(evidence, "orchestration_log", [])
     if _orch_log:
         lines.append("")
@@ -355,7 +377,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
                 lines.append(f"**Output:** {_output}")
             lines.append("")
 
-    # 鈹€鈹€ References 鈹€鈹€
+    # ── References ──
     lines.append("## References")
     lines.append("")
     refs = _get_all_references(evidence)
@@ -364,4 +386,3 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append("")
 
     return "\n".join(lines)
-

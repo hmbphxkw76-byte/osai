@@ -214,6 +214,11 @@ async def run(argv: list[str] | None = None) -> None:
     ctx = PipelineContext(args=args, output_dir=output_dir)
     ctx.scenario_result_id = getattr(args, "resume", None)
 
+    # ── 增量借鉴: 设置运行标签到 ctx ──
+    # 数据流: config.py (--memory-labels JSON) → args.memory_labels_parsed → ctx.memory_labels
+    # 后续写入 CentralMemory 用于结果过滤, 也传递到 EvidenceCollection 用于报告标记
+    ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
+
     # 生产级: 设置全局 ctx 引用, 供信号处理器在需要时触发资源清理
     global _global_ctx
     _global_ctx = ctx
@@ -229,6 +234,35 @@ async def run(argv: list[str] | None = None) -> None:
         apply_relaxed_adversarial_schema()
         await setup_environment(output_dir)
         print_status("INIT", "DONE", f"Output: {output_dir}", ok=True)
+
+        # ── 增量借鉴: 将运行标签写入 CentralMemory ──
+        # 借鉴 pyrit_scan 的 --memory-labels: 标签写入 CentralMemory,
+        # 后续所有 AttackResult 自动携带这些标签, 可按标签过滤查询
+        if ctx.memory_labels:
+            try:
+                from pyrit.memory import CentralMemory
+                memory = CentralMemory.get_memory_instance()
+                if hasattr(memory, "set_labels"):
+                    memory.set_labels(ctx.memory_labels)
+                else:
+                    # fallback: 设置全局环境变量供后续模块读取
+                    os.environ["PYRIT_MEMORY_LABELS"] = str(ctx.memory_labels)
+                logger.info("Memory labels set: %s", ctx.memory_labels)
+            except Exception as e:
+                logger.debug("Failed to set memory labels in CentralMemory: %s", e)
+                # fallback: 设置全局环境变量
+                os.environ["PYRIT_MEMORY_LABELS"] = str(ctx.memory_labels)
+
+        # ── 增量借鉴: 动态注册 Initializer (--add-initializer) ──
+        # 借鉴 pyrit_scan 的 --add-initializer: 运行时动态注册 PyRIT Initializer
+        # 格式: --add-initializer ClassName,arg1=val1,arg2=val2
+        # 也支持 --config-file 中的 add_initializer: [ClassName, ...]
+        initializer_specs = getattr(args, "initializer_specs", None)
+        if initializer_specs:
+            from core.initializer_registry import register_initializers_async
+
+            await register_initializers_async(initializer_specs, ctx)
+            logger.info("Registered %d dynamic initializer(s)", len(initializer_specs))
 
         # ═══════════════════════════════════════════════════════════════════════════
         # 多 endpoint 外层循环 (arXiv:2302.12173 — 逐个深度攻击)
@@ -513,9 +547,9 @@ async def _run_single_endpoint(
     # 导入 display 函数 (独立函数作用域, 避免依赖 run() 局部导入)
     from utils.display import (
         print_arm_card,
-        print_assess_report,
+        print_assess_card,
         print_error,
-        print_escalate_report,
+        print_escalate_report_async,
         print_phase,
         print_recon_card,
         print_report_card,
@@ -574,10 +608,22 @@ async def _run_single_endpoint(
                 "secret_format": _fp.get("secret_format", ""),
                 "session_type": _fp.get("session_type", ""),
                 "tenant_id": _fp.get("tenant_id", ""),
+                # 深度探测新字段 (P0-P2 优先级矩阵)
+                "ai_framework": _fp.get("ai_framework", ""),
+                "ai_framework_category": _fp.get("ai_framework_category", ""),
+                "system_prompt_leaked": _fp.get("system_prompt_leaked", False),
+                "system_prompt_extraction_method": _fp.get("system_prompt_extraction_method", ""),
+                "model_ids_count": len(_fp.get("model_ids", [])),
+                "vector_db_count": len(_fp.get("vector_dbs", [])),
+                "mcp_tool_safety_risky_count": sum(
+                    1 for t in _fp.get("mcp_tool_safety", []) if t.get("risks")
+                ),
             },
             "reasoning": (
                 "三层探测 (被动指纹 + 主动能力 + 深度能力) + Burp 响应模型信息提取 + "
-                "MCP 枚举 + OpenAPI 发现 + 端口发现 + 认证状态管理 完成"
+                "MCP 枚举 + OpenAPI 发现 + 端口发现 + 认证状态管理 + "
+                "AI 框架指纹识别 + System Prompt 泄露探测 + "
+                "模型族 API 行为指纹 + 向量数据库确认 + MCP 工具安全分析 完成"
             ),
         })
     else:
@@ -651,6 +697,7 @@ async def _run_single_endpoint(
         enable_dos=getattr(args, "enable_dos", False),
         capabilities=target_capabilities,
         model_family=target_model_family,
+        seed_filters=getattr(args, "seed_filters_parsed", None),
     )
 
     ctx.orchestration_log.append({
@@ -753,6 +800,10 @@ async def _run_single_endpoint(
 
     # arXiv:2407.01232 — PyRIT SequentialAttack FIRST_SUCCESS, 7 路径独立执行
     # arXiv:2307.15043 — 串联堆叠 >2 层 ASR 12%→4%, 每个 converter 独立一路
+    # L5 v39: 目标感知 + 技术感知 converter 选择
+    #   arXiv:2302.12173 — 目标类型决定攻击面 (MCP Agent 不支持文件上传)
+    #   arXiv:2307.15043 — 基线技术不需要 converter (ASR 参考基准)
+    #   arXiv:2402.05124 — 上下文技术需要语义 converter (编码会破坏 Q&A 模式)
     if args.converters == "none":
         chain_names = []
     elif args.converters == "auto":
@@ -760,11 +811,28 @@ async def _run_single_endpoint(
     else:
         chain_names = args.converters.split(",")
 
+    # L5 v39: 获取目标类型用于 converter 过滤
+    _target_fingerprint = None
+    if ctx.parsed_request:
+        _target_fingerprint = ctx.parsed_request.target_fingerprint
+    from arm.converter_presets import _classify_target_type
+    _target_type = _classify_target_type(target_capabilities, _target_fingerprint)
+    logger.info("L5 v39: Target type for converter selection: %s", _target_type)
+
+    # L5 v39: 将 target_type 写回 target_fingerprint, 确保 data flow 到 evidence/report
+    # 数据流: _classify_target_type → target_fingerprint["target_type"] → evidence.attack_surface
+    if _target_fingerprint is not None:
+        _target_fingerprint["target_type"] = _target_type
+
     ctx.converter_map = build_converter_map(
         technique_names=ctx.techniques,
         chain_names=chain_names,
         converter_target=ctx.converter_target,
         model_family=target_model_family,
+        target_type=_target_type,
+        target_fingerprint=_target_fingerprint,
+        converter_overrides=getattr(args, "converter_overrides", None),
+        seeds=ctx.seeds,
     )
 
     ctx.orchestration_log.append({
@@ -773,11 +841,16 @@ async def _run_single_endpoint(
         "input": {
             "converters": args.converters,
             "model_family": target_model_family or "",
+            "target_type": _target_type,
         },
         "output": {
             "converter_count": sum(len(v) for v in ctx.converter_map.values()),
+            "per_technique": {k: len(v) for k, v in ctx.converter_map.items()},
         },
-        "reasoning": f"基于模型族先验 ASR 排序 converter (model_family={target_model_family or 'default'})",
+        "reasoning": (
+            f"目标感知+技术感知 converter 分配 "
+            f"(target_type={_target_type}, model_family={target_model_family or 'default'})"
+        ),
     })
 
     # ── ARM 阶段输出: 种子/技术/Converter 链卡片 (阶段间传递: 武器清单→STRIKE) ──
@@ -873,12 +946,18 @@ async def _run_single_endpoint(
         print_status("STRIKE", "SKIP", "升级已禁用")
 
     # 生产级: ESCALATE 阶段编排日志 — 记录升级策略和结果
+    # 增量借鉴: 从 ctx.args 读取实际升级阈值 (支持 --config-file 覆盖)
+    _esc_threshold_val = getattr(ctx.args, "escalation_asr_threshold", 90)
+    _post_l1_val = getattr(ctx.args, "post_l1_exit_threshold", 70)
+    _post_l2_val = getattr(ctx.args, "post_l2_exit_threshold", 80)
     ctx.orchestration_log.append({
         "phase": "escalate",
         "decision": "escalation_chain",
         "input": {
             "enabled": should_escalate,
-            "escalation_threshold": "ASR<90% triggers",
+            "escalation_threshold": f"ASR<{_esc_threshold_val}% triggers",
+            "post_l1_exit_threshold": _post_l1_val,
+            "post_l2_exit_threshold": _post_l2_val,
         },
         "output": {
             "escalated_techniques": list(ctx.attack_results.keys()),
@@ -890,9 +969,12 @@ async def _run_single_endpoint(
         ),
     })
 
+    # ── R2 §2.1: 升级链结果展示 (PyRIT 原生 output 优先 + 卡片增强) ──
+    # 完整流水线模式和 --stage escalate 模式都展示升级链结果
+    await print_escalate_report_async(ctx)
+
     # ── --stage escalate: 升级链完成, 输出结果卡片后退出 ──
     if getattr(args, "stage", None) == "escalate":
-        print_escalate_report(ctx)
         print_status("ESCALATE", "DONE", "升级链完成", ok=True)
         await _cleanup_resources(ctx, exclude_shared=True)
         return
@@ -968,20 +1050,29 @@ async def _run_single_endpoint(
             kappa,
         )
 
+    # ── 终端展示: ASSESS 阶段结果卡片 (完整流水线模式也输出) ──
+    # 断点修复: 原代码仅在 --stage assess 退出时显示 assess 卡片,
+    # 完整流水线模式下 ASSESS 结果直接跳到 REPORT 阶段, 终端无 assess 展示
+    print_assess_card(ctx)
+
     # ── --stage assess: 评分完成, 输出 ASR 卡片后退出 ──
     if getattr(args, "stage", None) == "assess":
-        print_assess_report(ctx)
         print_status("ASSESS", "DONE", "评分完成", ok=True)
         await _cleanup_resources(ctx, exclude_shared=True)
         return
 
     # 生产级: ASSESS 阶段编排日志 — 记录评分策略和结果
+    # 增量借鉴: 从 ctx.args 读取评分配置 (支持 --config-file 覆盖)
+    _dual_judge_enabled = getattr(ctx.args, "dual_judge_enabled", True)
+    _wilson_level = getattr(ctx.args, "wilson_confidence_level", 0.95)
     ctx.orchestration_log.append({
         "phase": "assess",
         "decision": "scoring_assessment",
         "input": {
             "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
-            "scoring_model": "T0→J1→J2→J3 cascade",
+            "scoring_model": "T0→J1→J2→J3 cascade" if _dual_judge_enabled else "T0→J1 (single judge)",
+            "dual_judge_enabled": _dual_judge_enabled,
+            "wilson_confidence_level": _wilson_level,
         },
         "output": {
             "overall_asr": ctx.overall_asr,
@@ -1014,6 +1105,8 @@ async def _run_single_endpoint(
         scenario_result_id=ctx.scenario_result_id,
         asr_per_technique=ctx.asr_per_technique,
         overall_asr=ctx.overall_asr,
+        memory_labels=ctx.memory_labels,
+        orchestration_log=ctx.orchestration_log,
     )
 
     # 注入统计到 evidence
@@ -1051,6 +1144,21 @@ async def _run_single_endpoint(
     # ── 报告卡片 (最终输出, 阶段间传递: 全链路结果→报告) ──
     # R2 PyRIT 原生优先: 展示 native_output 目录路径 (原生 output 优先)
     _native_dir = output_dir / "native_output"
+
+    # R8 §8.5: 审计日志完整性 — report 阶段编排日志
+    ctx.orchestration_log.append({
+        "phase": "report",
+        "decision": "report_generation",
+        "input": {
+            "evidence_count": evidence.total_attacks,
+            "overall_asr": ctx.overall_asr,
+        },
+        "output": {
+            "report_path": str(report_path),
+            "native_output": str(_native_dir) if _native_dir.exists() else "",
+        },
+        "reasoning": f"生成安全报告 (ASR={ctx.overall_asr:.1f}%, {evidence.total_attacks} 条证据)",
+    })
     print_report_card(
         total_attacks=evidence.total_attacks,
         successful_attacks=evidence.successful_attacks,

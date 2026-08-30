@@ -245,6 +245,38 @@ async def _run_skeleton_key_native(
         logger.error("SkeletonKey (native) wrapper failed: %s", e)
         return {}
 
+async def _run_multi_prompt_sending(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """PyRIT 原生 MultiPromptSendingAttack 包装。
+
+    学术依据: PyRIT (arXiv:2407.01232) — 原生 MultiPromptSendingAttack
+    多轮固定序列攻击, 逐步引导目标绕过安全过滤。
+    """
+    try:
+        from strike.multi_prompt_attack import run_multi_prompt_sending_attack
+        return await run_multi_prompt_sending_attack(ctx, objectives)
+    except Exception as e:
+        logger.error("MultiPromptSendingAttack wrapper failed: %s", e)
+        return {}
+
+async def _run_chunked_request(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """PyRIT 原生 ChunkedRequestAttack 包装。
+
+    学术依据: PyRIT (arXiv:2407.01232) — 原生 ChunkedRequestAttack
+    分块提取攻击, 绕过长度过滤或输出截断。
+    """
+    try:
+        from strike.chunked_attack import run_chunked_request_attack
+        return await run_chunked_request_attack(ctx, objectives)
+    except Exception as e:
+        logger.error("ChunkedRequestAttack wrapper failed: %s", e)
+        return {}
+
 async def _run_mcp_rag_attacks(
     ctx: PipelineContext,
     objectives: list[str],
@@ -274,7 +306,7 @@ async def _run_best_of_n(
     """
     try:
         from strike.adaptive_executor import _get_best_of_n_retries
-        n_retries = _get_best_of_n_retries()
+        n_retries = _get_best_of_n_retries(ctx)
         from strike.multi_turn_attacks import run_best_of_n_attack
         return await run_best_of_n_attack(ctx, objectives, n=n_retries)
     except Exception as e:

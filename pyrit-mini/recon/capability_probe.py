@@ -24,6 +24,7 @@ PyRIT 原生优先 (Rule 2):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
@@ -56,6 +57,7 @@ def _load_ssot_int(key: str, default: int) -> int:
 
 _PROBE_TIMEOUT = _load_ssot_int("deep_probe_timeout", 15)
 _PARALLEL_TIMEOUT = _load_ssot_int("parallel_probe_timeout", 20)
+_MAX_CONCURRENT_PROBES = _load_ssot_int("max_concurrent_probes", 10)
 
 # Secret 格式模式
 _SECRET_PATTERNS = {
@@ -295,7 +297,309 @@ async def deep_probe_capabilities(
     except Exception as e:
         logger.debug("L5 v52: PyRIT native capability probe failed: %s", e)
 
+    # ── 模型族 API 行为指纹 (从 RedAmon Julius probe pack 借鉴) ──
+    # 学术依据:
+    #   - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING: 模型族精确识别
+    #     是种子定制的前置条件, 不同模型族安全对齐策略不同
+    #   - RedAmon Julius probe pack — 通过 API 行为特征而非模型自报识别
+    # 不依赖模型自报身份 (模型经常拒绝或给出模糊回答),
+    # 而是检查 API 行为特征: 模型列表端点、错误格式、元数据端点
+    try:
+        model_api_result = await probe_model_family_via_api(parsed_request)
+        # R8-5 审计日志: 探测 5 个模型列表端点
+        if model_api_result:
+            if model_api_result.get("model_ids"):
+                results["model_ids"] = model_api_result["model_ids"]
+            if model_api_result.get("model_family"):
+                # 如果之前的 model_identity 探针未检测到, 用 API 行为指纹补充
+                if not results.get("model_family"):
+                    results["model_family"] = model_api_result["model_family"]
+            if model_api_result.get("api_behavior"):
+                results["api_behavior"] = model_api_result["api_behavior"]
+    except Exception as e:
+        logger.debug("Model family API probe failed: %s", e)
+
     return results
+
+
+# ════════════════════════════════════════════════════════════════════
+# 模型族 API 行为指纹 (从 RedAmon Julius probe pack 借鉴)
+# 学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
+# ════════════════════════════════════════════════════════════════════
+
+# 模型列表端点 (按优先级排序)
+_MODEL_LIST_ENDPOINTS: list[str] = [
+    "/v1/models",
+    "/api/tags",
+    "/model/list",
+    "/models",
+    "/api/v1/models",
+]
+
+# API 行为指纹规则
+# (path, method, body, status_pattern, body_pattern, model_family, specificity)
+_API_BEHAVIOR_RULES: list[dict[str, Any]] = [
+    # Ollama: GET / → body contains "Ollama is running"
+    {
+        "path": "/",
+        "method": "GET",
+        "body": None,
+        "status": 200,
+        "body_pattern": r"Ollama is running",
+        "model_family": "ollama",
+        "specificity": 100,
+    },
+    # Ollama: GET /api/tags → 200 + JSON with "models" array
+    {
+        "path": "/api/tags",
+        "method": "GET",
+        "body": None,
+        "status": 200,
+        "body_pattern": r'"models"',
+        "model_family": "ollama",
+        "specificity": 100,
+    },
+    # OpenAI-compatible: GET /v1/models → 200 + JSON with "object" and "data"
+    {
+        "path": "/v1/models",
+        "method": "GET",
+        "body": None,
+        "status": 200,
+        "body_pattern": r'"object".*"data"',
+        "model_family": "openai-compatible",
+        "specificity": 50,
+    },
+    # OpenAI-compatible: GET /v1/models → 401 + JSON with "error"
+    {
+        "path": "/v1/models",
+        "method": "GET",
+        "body": None,
+        "status": 401,
+        "body_pattern": r'"error"',
+        "model_family": "openai-compatible",
+        "specificity": 10,
+    },
+    # vLLM: response header x-vllm-* or body contains vllm_session
+    {
+        "path": "/v1/models",
+        "method": "GET",
+        "body": None,
+        "status": 200,
+        "body_pattern": r'"data"',
+        "model_family": "vllm",
+        "specificity": 30,
+        "header_pattern": r"^x-vllm-",
+    },
+    # LiteLLM: response header x-litellm-*
+    {
+        "path": "/v1/models",
+        "method": "GET",
+        "body": None,
+        "status": 200,
+        "body_pattern": r'"data"',
+        "model_family": "litellm",
+        "specificity": 30,
+        "header_pattern": r"^x-litellm-",
+    },
+]
+
+
+async def probe_model_family_via_api(
+    parsed_request: Any,
+) -> dict[str, Any]:
+    """通过 API 行为特征探测模型族 (不依赖模型自报)。
+
+    学术依据:
+        - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING: 模型族精确识别
+        - RedAmon Julius probe pack — 通过 API 行为特征识别
+
+    探测策略:
+        1. 探测模型列表端点 (GET /v1/models, /api/tags 等)
+        2. 从响应状态码 + body 模式匹配推断 API 类型
+        3. 从模型列表 JSON 中提取 model IDs
+        4. 从响应 header 模式匹配推断具体框架
+
+    Args:
+        parsed_request: ParsedBurpRequest 实例。
+
+    Returns:
+        探测结果字典:
+        {
+            "model_ids": list[str],  # 从 API 获取的模型 ID 列表
+            "model_family": str | None,  # 基于 API 行为推断的模型族
+            "api_behavior": dict,  # API 行为指纹详情
+        }
+    """
+    import httpx
+
+    results: dict[str, Any] = {
+        "model_ids": [],
+        "model_family": None,
+        "api_behavior": {},
+    }
+
+    if parsed_request is None:
+        return results
+
+    host = getattr(parsed_request, "host", "")
+    use_tls = getattr(parsed_request, "use_tls", False)
+    scheme = "https" if use_tls else "http"
+    base_url = f"{scheme}://{host}"
+
+    # R8-4 边界条件: host 为空时直接返回
+    if not host:
+        return results
+
+    # 复用原始认证 headers
+    probe_headers: dict[str, str] = {}
+    for key, value in getattr(parsed_request, "raw_headers", []):
+        if key.lower() not in ("content-length", "host"):
+            probe_headers[key] = value
+
+    # R8-1 资源生命周期: 共享单个 httpx.AsyncClient (LIFO+共享/目标分离)
+    # R8-6 并发安全: Semaphore 控制并发
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PROBES)
+
+    async def _probe_endpoint(client: httpx.AsyncClient, path: str) -> tuple[str, dict[str, Any] | None]:
+        url = f"{base_url}{path}"
+        async with semaphore:
+            try:
+                response = await client.get(url, headers=probe_headers)
+                return (path, {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text[:2000],  # 限制长度
+                })
+            except Exception:
+                return (path, None)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_PROBE_TIMEOUT,
+            follow_redirects=True,
+            verify=False,
+        ) as shared_client:
+            tasks = [_probe_endpoint(shared_client, path) for path in _MODEL_LIST_ENDPOINTS]
+            probe_results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=_PARALLEL_TIMEOUT,
+            )
+    except asyncio.TimeoutError:
+        logger.warning("Model family API probe: timeout (%ds)", _PARALLEL_TIMEOUT)
+        probe_results = []
+
+    # 分析结果
+    best_match: dict[str, Any] | None = None
+    best_specificity = 0
+
+    for result in probe_results:
+        if not isinstance(result, tuple) or len(result) != 2:
+            continue
+        path, response_data = result
+        if response_data is None:
+            continue
+
+        status_code = response_data["status_code"]
+        body_text = response_data["body"]
+        resp_headers = response_data["headers"]
+
+        # 匹配 API 行为规则
+        for rule in _API_BEHAVIOR_RULES:
+            if rule["path"] != path:
+                continue
+            if rule["status"] != status_code:
+                continue
+
+            # 检查 body 模式
+            body_pattern = rule.get("body_pattern")
+            if body_pattern and not re.search(body_pattern, body_text, re.I):
+                continue
+
+            # 检查 header 模式 (可选)
+            header_pattern = rule.get("header_pattern")
+            if header_pattern:
+                header_matched = False
+                for h_name in resp_headers:
+                    if re.search(header_pattern, h_name, re.I):
+                        header_matched = True
+                        break
+                if not header_matched:
+                    continue
+
+            # 匹配成功
+            specificity = rule["specificity"]
+            if specificity > best_specificity:
+                best_specificity = specificity
+                best_match = {
+                    "model_family": rule["model_family"],
+                    "path": path,
+                    "status": status_code,
+                    "specificity": specificity,
+                }
+
+        # 从模型列表 JSON 中提取 model IDs
+        if status_code == 200 and body_text:
+            model_ids = _extract_model_ids_from_response(body_text)
+            if model_ids:
+                results["model_ids"] = model_ids[:50]  # 限制数量
+                logger.info(
+                    "Model family API probe: extracted %d model IDs from %s",
+                    len(model_ids),
+                    path,
+                )
+
+    if best_match:
+        results["model_family"] = best_match["model_family"]
+        results["api_behavior"] = best_match
+        logger.info(
+            "Model family API probe: family=%s (specificity=%d, path=%s)",
+            best_match["model_family"],
+            best_match["specificity"],
+            best_match["path"],
+        )
+
+    return results
+
+
+def _extract_model_ids_from_response(body_text: str) -> list[str]:
+    """从模型列表 API 响应中提取模型 ID 列表。
+
+    支持 OpenAI 兼容格式和 Ollama 格式:
+        - OpenAI: {"data": [{"id": "gpt-4o"}, ...]}
+        - Ollama: {"models": [{"name": "llama3"}, ...]}
+
+    Args:
+        body_text: API 响应文本。
+
+    Returns:
+        模型 ID 列表。
+    """
+    try:
+        data = json.loads(body_text)
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    ids: list[str] = []
+
+    # OpenAI 兼容: data[].id
+    for item in data.get("data") or []:
+        if isinstance(item, dict) and item.get("id"):
+            ids.append(item["id"])
+
+    # Ollama: models[].name
+    for item in data.get("models") or []:
+        if isinstance(item, dict):
+            if item.get("name"):
+                ids.append(item["name"])
+            # Ollama details.family
+            details = item.get("details") or {}
+            if isinstance(details, dict) and details.get("family"):
+                ids.append(details["family"])
+
+    return [x for x in ids if isinstance(x, str)]
 
 
 async def _run_pyrit_native_capability_probe(parsed_request: Any) -> Any:

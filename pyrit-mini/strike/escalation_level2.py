@@ -285,30 +285,30 @@ async def _run_gcg(
                     AttackSeedGroup(seeds=[SeedObjective(value=gcg_payload)])
                 ]
 
-                # v51: 娉ㄥ叆 prepended_conversation (SkeletonKey 鍓嶇疆娉ㄥ叆)
-                from strike.executor import _build_prepended_conversation
-                gcg_prepended = _build_prepended_conversation(ctx)
-                gcg_attack_kwargs: dict[str, Any] = {
-                    "objective_target": ctx.objective_target,
-                    "attack_scoring_config": scoring_config,
-                }
-                if gcg_prepended:
-                    gcg_attack_kwargs["prepended_conversation"] = gcg_prepended
-                attack = PromptSendingAttack(**gcg_attack_kwargs)
+                # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
+                # R2 (PyRIT Native First): prepended_conversation_config controls converter
+                # role application and non-chat target normalization natively
+                from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
+                gcg_prepended_config = _build_prepended_config_safe(ctx)
+                attack = PromptSendingAttack(
+                    objective_target=ctx.objective_target,
+                    attack_scoring_config=scoring_config,
+                    prepended_conversation_config=gcg_prepended_config,
+                )
 
-                # L5 v26: 鎭㈠骞跺彂搴?2 (SQLite WAL 妯″紡涓嬪畨鍏?
-                # executor 鍐呴儴浠嶄覆琛? 浣嗗涓?objective 涔嬮棿骞惰 (asyncio.gather)
                 executor = AttackExecutor(
                     max_concurrency=get_effective_concurrency(ctx),
                 )
 
                 try:
+                    gcg_executor_kwargs: dict[str, Any] = {
+                        "attack": attack,
+                        "seed_groups": seed_groups,
+                        "return_partial_on_failure": True,
+                    }
+                    # v53: prepended_conversation_config passed natively via PromptSendingAttack constructor
                     executor_result = await asyncio.wait_for(
-                        executor.execute_attack_from_seed_groups_async(
-                            attack=attack,
-                            seed_groups=seed_groups,
-                            return_partial_on_failure=True,
-                        ),
+                        executor.execute_attack_from_seed_groups_async(**gcg_executor_kwargs),
                         timeout=90,
                     )
 

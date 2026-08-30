@@ -1,21 +1,21 @@
-"""generator 鈥?鎶ュ憡鐢熸垚鍗忚皟鍣?
+"""generator — 报告生成协调器。
 
-鑱岃矗:
-    - 瀹氫箟鍏变韩甯搁噺 (_OWASP_ALL_CATEGORIES, _HTML_TEMPLATE)
-    - 鎻愪緵 _classify_score_consistency 璇勫垎涓€鑷存€у垎鏋?
-    - generate_report: 寮傛鐢熸垚鎵€鏈夋姤鍛婃枃浠?(MD + HTML + JSON + PoC + CSV + ZIP)
-    - 閲嶆柊瀵煎嚭 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
-      (瀹為檯瀹炵幇鍦?report_markdown.py / report_html.py 涓?
+职责:
+    - 定义共享常量 (_OWASP_ALL_CATEGORIES, _HTML_TEMPLATE)
+    - 提供 _classify_score_consistency 评分一致性分析
+    - generate_report: 异步生成所有报告文件 (MD + HTML + JSON + PoC + CSV + ZIP)
+    - 重新导出 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
+      (实际实现在 report_markdown.py / report_html.py 中)
 
-鏋舵瀯:
-    generator.py (甯搁噺 + 鍗忚皟) 鈫?report_markdown.py (MD 鐢熸垚)
-                              鈫?report_html.py (HTML 鐢熸垚)
-                              鈫?report_sections.py (绔犺妭鏋勫缓)
-                              鈫?report_utils.py (宸ュ叿鍑芥暟)
+架构:
+    generator.py (常量 + 协调) -> report_markdown.py (MD 生成)
+                              -> report_html.py (HTML 生成)
+                              -> report_sections.py (章节构建)
+                              -> report_utils.py (工具函数)
 
-寰幆渚濊禆瑙ｅ喅:
-    report_html.py 寤惰繜瀵煎叆 generator._HTML_TEMPLATE (鍦ㄥ嚱鏁颁綋鍐?,
-    generator.py 寤惰繜瀵煎叆 report_html/report_markdown 鐨勫嚱鏁?(鍦?generate_report 鍐?.
+循环依赖解决:
+    report_html.py 延迟导入 generator._HTML_TEMPLATE (在函数体内),
+    generator.py 延迟导入 report_html/report_markdown 的函数 (在 generate_report 内).
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ from report.evidence import EvidenceCollection
 logger = logging.getLogger(__name__)
 
 
-# 鈹€鈹€ OWASP 绫诲埆瀛楀吀 (Web + LLM + ASI 鍚堝苟) 鈹€鈹€
-# 琚?report_html.py 鍜?report_utils.py 寮曠敤
+# ── OWASP 类别字典 (Web + LLM + ASI 合并) ──
+# 被 report_html.py 和 report_utils.py 引用
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
     # OWASP Web Top 10 (2025)
     "A01": "Broken Access Control",
@@ -69,8 +69,8 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
 }
 
 
-# 鈹€鈹€ HTML 妯℃澘 (Jinja2) 鈹€鈹€
-# 琚?report_html.py 寮曠敤
+# ── HTML 模板 (Jinja2) ──
+# 被 report_html.py 引用
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -157,7 +157,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   {% endfor %}
 </table>
 
-<h2>ASR Heatmap (Technique 脳 OWASP)</h2>
+<h2>ASR Heatmap (Technique x OWASP)</h2>
 <table>
   <tr>
     <th>Technique</th>
@@ -193,7 +193,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <h2>Vulnerability Details</h2>
 {% for ev in evidence_list %}
 {% if ev.jailbreak_prompt %}
-<h3>{{ ev.evidence_id }}: {{ ev.technique_display_name }} {% if ev.is_success %}鉁厈% else %}鉂寋% endif %}</h3>
+<h3>{{ ev.evidence_id }}: {{ ev.technique_display_name }} {% if ev.is_success %}PASS{% else %}FAIL{% endif %}</h3>
 <table>
   <tr><th>Field</th><th>Value</th></tr>
   <tr><td>OWASP ID</td><td>{{ ev.owasp_id }}</td></tr>
@@ -202,10 +202,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <tr><td>Risk Score</td><td>{{ ev.owasp_risk_score }}/10</td></tr>
   <tr><td>Technique</td><td><code>{{ ev.technique_name }}</code></td></tr>
   <tr><td>ASR</td><td>{{ ev.asr }}%</td></tr>
-  <tr><td>Success</td><td>{% if ev.is_success %}鉁?YES{% else %}鉂?NO{% endif %}</td></tr>
+  <tr><td>Success</td><td>{% if ev.is_success %}YES{% else %}NO{% endif %}</td></tr>
   <tr><td>Converter Chain</td><td><code>{{ ev.converter_chain or 'none (baseline)' }}</code></td></tr>
   {% if ev.mitre_technique_id %}
-  <tr><td>MITRE ATLAS</td><td>{{ ev.mitre_technique_id }} 鈥?{{ ev.mitre_technique_name }}</td></tr>
+  <tr><td>MITRE ATLAS</td><td>{{ ev.mitre_technique_id }} - {{ ev.mitre_technique_name }}</td></tr>
   {% endif %}
 </table>
 
@@ -251,24 +251,24 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
-    """鍒嗙被璇勫垎涓€鑷存€?
+    """分类评分一致性。
 
-    鍒嗘瀽 score_details 涓涓?scorer 鐨勮瘎鍒嗕竴鑷存€?
-        - 绌?鈫?N/A
-        - 鍗?scorer 鈫?Post-hoc Dual Judge
-        - 澶?scorer 鍏ㄤ竴鑷?鈫?Consistent
-        - 澶?scorer 涓嶄竴鑷?鈫?Minor Disagreement
+    分析 score_details 中多个 scorer 的评分一致性:
+        - 空 -> N/A
+        - 单 scorer -> Post-hoc Dual Judge
+        - 多 scorer 全一致 -> Consistent
+        - 多 scorer 不一致 -> Minor Disagreement
 
     Args:
-        score_details: 璇勫垎璇︽儏鍒楄〃, 姣忛」鍚?"scorer" 鍜?"score_value" 閿?
+        score_details: 评分详情列表, 每项含 "scorer" 和 "score_value" 键。
 
     Returns:
-        涓€鑷存€у垎绫诲瓧绗︿覆.
+        一致性分类字符串。
     """
     if not score_details:
         return "N/A"
 
-    # 鎻愬彇鎵€鏈?score_value
+    # 提取所有 score_value
     score_values: list[str] = []
     for sd in score_details:
         val = str(sd.get("score_value", "")).lower().strip()
@@ -277,7 +277,7 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     if len(score_values) <= 1:
         return "Post-hoc Dual Judge"
 
-    # 妫€鏌ユ槸鍚﹀叏閮ㄤ竴鑷?(true/1 鎴栧叏閮?false/0)
+    # 检查是否全部一致 (true/1 或全部 false/0)
     truthy = {"true", "1", "yes"}
     falsy = {"false", "0", "no"}
 
@@ -289,14 +289,14 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     return "Minor Disagreement"
 
 
-# 鈹€鈹€ 閲嶆柊瀵煎嚭 (寤惰繜瀵煎叆, 閬垮厤寰幆渚濊禆) 鈹€鈹€
-# 杩欎簺鍑芥暟瀹為檯瀹炵幇鍦?report_markdown.py 鍜?report_html.py 涓?
-# 浣嗘祴璇曞拰鏃т唬鐮佷粠 generator 瀵煎叆瀹冧滑.
-# 浣跨敤寤惰繜瀵煎叆 (wrapper 鍑芥暟) 閬垮厤寰幆渚濊禆.
+# ── 重新导出 (延迟导入, 避免循环依赖) ──
+# 这些函数实际实现在 report_markdown.py 和 report_html.py 中
+# 但测试和旧代码从 generator 导入它们.
+# 使用延迟导入 (wrapper 函数) 避免循环依赖.
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """鐢熸垚 Markdown 鎶ュ憡 (濮旀墭缁?report_markdown).
+    """生成 Markdown 报告 (委托给 report_markdown).
 
     Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
     """
@@ -306,14 +306,14 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
 
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """鐢熸垚 HTML 鎶ュ憡 (濮旀墭缁?report_html)."""
+    """生成 HTML 报告 (委托给 report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)
 
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """灏嗚瘉鎹泦鍚堣浆鎹负瀛楀吀 (濮旀墭缁?report_html).
+    """将证据集合转换为字典 (委托给 report_html).
 
     Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
     """
@@ -323,7 +323,7 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
 
 
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
-    """灏嗗崟涓瘉鎹浆鎹负瀛楀吀 (濮旀墭缁?report_html)."""
+    """将单个证据转换为字典 (委托给 report_html)."""
     from report.report_html import _single_evidence_to_dict as _impl
 
     return _impl(ev)
@@ -334,25 +334,25 @@ async def generate_report(
     evidence: EvidenceCollection,
     output_dir: Path,
 ) -> Path:
-    """鐢熸垚鎵€鏈夋姤鍛婃枃浠?
+    """生成所有报告文件。
 
-    鐢熸垚:
+    生成:
         - report.md / report_success.md
-        - report.html / report_success.html (濡傛灉 args.html_report)
+        - report.html / report_success.html (如果 args.html_report)
         - evidence/evidence.json / evidence_success.json
-        - evidence/EVD-*.json (姣忎釜璇佹嵁鍗曠嫭)
-        - poc/poc_*.py (鎴愬姛鏀诲嚮鐨?PoC 鑴氭湰)
-        - report.sarif (SARIF 2.1 鏍煎紡, 鐢ㄤ簬 CI/CD 闆嗘垚)
+        - evidence/EVD-*.json (每个证据单独保存)
+        - poc/poc_*.py (成功攻击的 PoC 脚本)
+        - report.sarif (SARIF 2.1 格式, 用于 CI/CD 集成)
         - attack_summary.csv / owasp_coverage_matrix.csv
         - evidence_package.zip
 
     Args:
-        ctx: PipelineContext 瀵硅薄.
-        evidence: 璇佹嵁闆嗗悎.
-        output_dir: 杈撳嚭鐩綍.
+        ctx: PipelineContext 对象.
+        evidence: 证据集合.
+        output_dir: 输出目录.
 
     Returns:
-        鎶ュ憡鏂囦欢璺緞.
+        报告文件路径.
     """
     output_dir = Path(output_dir)
     evidence_dir = output_dir / "evidence"
@@ -379,14 +379,14 @@ async def generate_report(
     md_path.write_text(md_content, encoding="utf-8")
     logger.info("Markdown report saved to %s", md_path)
 
-    # 鈹€鈹€ 浠呮垚鍔熸敾鍑荤殑 Markdown 鈹€鈹€
+    # ── 仅成功攻击的 Markdown ──
     if evidence.successful_evidence:
         success_md = _generate_markdown(evidence, success_only=True)
         success_md_path = output_dir / "report_success.md"
         success_md_path.write_text(success_md, encoding="utf-8")
         logger.info("Success-only Markdown report saved to %s", success_md_path)
 
-    # 鈹€鈹€ HTML 鎶ュ憡 (鍙€? 鈹€鈹€
+    # ── HTML 报告 (可选) ──
     if getattr(ctx.args, "html_report", False):
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
@@ -399,7 +399,7 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
-    # 鈹€鈹€ evidence JSON 鈹€鈹€
+    # ── evidence JSON ──
     json_data = _evidence_to_dict(evidence)
     json_path = evidence_dir / "evidence.json"
     json_path.write_text(
@@ -417,7 +417,7 @@ async def generate_report(
         )
         logger.info("Success-only evidence JSON saved to %s", success_json_path)
 
-    # 鈹€鈹€ 姣忎釜璇佹嵁鍗曠嫭淇濆瓨 鈹€鈹€
+    # ── 每个证据单独保存 ──
     for ev in evidence.evidence:
         ev_filename = f"{ev.evidence_id}.json"
         ev_path = evidence_dir / ev_filename
@@ -426,8 +426,8 @@ async def generate_report(
             encoding="utf-8",
         )
 
-    # 鈹€鈹€ PoC 鑴氭湰 (浠呮垚鍔熸敾鍑? 鈹€鈹€
-    # 鏂偣淇: 澧炲己鏃ュ織璁板綍, 鍖呭惈鎶€鏈悕绉板拰澶辫触鍘熷洜, 渚夸簬璋冭瘯
+    # ── PoC 脚本 (仅成功攻击) ──
+    # 断点修复: 增强日志记录, 包含技术名称和失败原因, 便于调试
     from report.owasp_mapping import generate_poc_script
 
     poc_count = 0
@@ -458,10 +458,10 @@ async def generate_report(
     if poc_failed:
         logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
-    # 鈹€鈹€ SARIF 鎶ュ憡 鈹€鈹€
-    # 鏂偣淇: SARIF 鎶ュ憡 (sarif_report.py) 瀛樺湪浣嗘湭琚富娴佹按绾胯皟鐢?
-    # 瀵艰嚧 CI/CD 闆嗘垚鍦烘櫙缂哄皯 SARIF 杈撳嚭銆?
-    # 淇: 鍦?generator.py 涓泦鎴?SARIF 鎶ュ憡鐢熸垚, 涓?MD/HTML/JSON 骞惰杈撳嚭銆?
+    # ── SARIF 报告 ──
+    # 断点修复: SARIF 报告 (sarif_report.py) 存在但未被主流流水线调用
+    # 导致 CI/CD 集成场景缺少 SARIF 输出。
+    # 修复: 在 generator.py 中集成 SARIF 报告生成, 与 MD/HTML/JSON 并行输出。
     try:
         from report.sarif_report import generate_sarif_report
 
@@ -470,7 +470,7 @@ async def generate_report(
     except Exception as e:
         logger.warning("Failed to generate SARIF report: %s", e)
 
-    # 鈹€鈹€ CSV 瀵煎嚭 鈹€鈹€
+    # ── CSV 导出 ──
     try:
         from report.report_sections import (
             _export_evidence_zip,
@@ -487,11 +487,10 @@ async def generate_report(
         csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
         logger.info("CSV exports saved to %s", output_dir)
 
-        # 鈹€鈹€ ZIP 璇佹嵁鍖?鈹€鈹€
+        # ── ZIP 证据包 ──
         _export_evidence_zip(output_dir, evidence)
         logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
     except Exception as e:
         logger.warning("Failed to export CSV/ZIP: %s", e)
 
     return md_path
-

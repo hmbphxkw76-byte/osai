@@ -192,17 +192,191 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: server info query failed: %s", e)
 
+    # ── MCP 工具静态安全分析 (从 RedAmon YARA 规则借鉴, 轻量级正则实现) ──
+    # 学术依据:
+    #   - Cisco AI Defense MCP Scanner — tool_poisoning / data_exfiltration /
+    #     credential_harvesting / command_injection 静态检测规则
+    #   - OWASP LLM01 (Prompt Injection) / LLM06 (Sensitive Info Disclosure)
+    #   - MITRE ATLAS AML.T0051 (Compromise ML Models)
+    # 对每个枚举到的 tool 的 description + inputSchema 做静态安全分析,
+    # 检测是否存在提示注入风险、数据外传风险、凭证窃取风险等。
+    if results["tools"]:
+        results["tool_safety"] = analyze_mcp_tool_safety(results["tools"])
+        risky = [t for t in results["tool_safety"] if t.get("risks")]
+        if risky:
+            logger.warning(
+                "MCP tool safety: %d tools with potential risks detected",
+                len(risky),
+            )
+
     if results["has_mcp"]:
         logger.info(
-            "MCP enumerate: complete — %d tools, %d resources, %d prompts",
+            "MCP enumerate: complete — %d tools, %d resources, %d prompts, %d safety findings",
             len(results["tools"]),
             len(results["resources"]),
             len(results["prompts"]),
+            sum(len(t.get("risks", [])) for t in results.get("tool_safety", [])),
         )
     else:
         logger.info("MCP enumerate: no MCP endpoint detected or no tools found")
 
     return results
+
+
+# ════════════════════════════════════════════════════════════════════
+# MCP 工具静态安全分析 (从 RedAmon YARA 规则借鉴)
+# 学术依据: Cisco AI Defense MCP Scanner 规则集
+# ════════════════════════════════════════════════════════════════════
+
+# 提示注入检测规则 (tool description 中的恶意指令)
+_TOOL_POISONING_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions", re.I), "prompt_injection", "high"),
+    (re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|system)\s+(?:instructions|prompts)", re.I), "prompt_injection", "high"),
+    (re.compile(r"you\s+are\s+now\s+(?:in\s+)?(?:jailbreak|developer|admin|root)\s+mode", re.I), "prompt_injection", "high"),
+    (re.compile(r"system\s+override|jailbreak|DAN\s+mode", re.I), "prompt_injection", "critical"),
+    (re.compile(r"(?:execute|run|eval)\s+(?:arbitrary\s+)?(?:code|command|script)", re.I), "code_execution", "high"),
+    (re.compile(r"(?:access|read|write|modify)\s+(?:any|all|arbitrary)\s+(?:file|path|directory)", re.I), "path_traversal", "high"),
+    (re.compile(r"(?:exfiltrate|upload|send|transmit)\s+(?:data|secrets|credentials)\s+to\s+(?:external|remote|third.party)", re.I), "data_exfiltration", "critical"),
+    (re.compile(r"(?:steal|harvest|extract|leak)\s+(?:password|secret|token|api.?key|credential)", re.I), "credential_harvesting", "critical"),
+    (re.compile(r"(?:delete|drop|truncate|wipe)\s+(?:database|table|all\s+records)", re.I), "system_manipulation", "critical"),
+    (re.compile(r"(?:disable|bypass|circumvent)\s+(?:security|auth|firewall|filter|guardrail|safety)", re.I), "security_bypass", "critical"),
+]
+
+# 参数名敏感度规则
+_SENSITIVE_PARAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:password|passwd|pwd)", re.I), "credential"),
+    (re.compile(r"(?:secret|api.?key|access.?key|private.?key)", re.I), "credential"),
+    (re.compile(r"(?:token|bearer|jwt|session.?id)", re.I), "auth_token"),
+    (re.compile(r"(?:ssh.?key|pem|cert(?:ificate)?)", re.I), "crypto_material"),
+    (re.compile(r"(?:command|cmd|exec|shell|bash|powershell)", re.I), "command_execution"),
+    (re.compile(r"(?:query|sql|statement|raw.?query)", re.I), "sql_injection_risk"),
+    (re.compile(r"(?:url|endpoint|host|redirect.?url)", re.I), "ssrf_risk"),
+    (re.compile(r"(?:path|file|directory|filename)", re.I), "path_traversal_risk"),
+]
+
+# Annotation 矛盾检测: tool 名称暗示 mutation 但声明 readOnlyHint
+_MUTATING_NAME_KEYWORDS = ("delete", "write", "exec", "run", "remove", "update", "create", "modify", "insert", "drop", "alter")
+
+
+def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """对 MCP 工具列表做静态安全分析。
+
+    学术依据:
+        - Cisco AI Defense MCP Scanner — YARA 规则检测 tool poisoning
+        - OWASP LLM01 / LLM06 — 提示注入和敏感信息泄露
+        - MITRE ATLAS AML.T0051 — 模型妥协
+
+    检测维度:
+        1. 工具描述中的提示注入指令 (tool poisoning)
+        2. 参数名暗示敏感数据 (credential/token/command)
+        3. Annotation 矛盾 (name 含 delete/write 但声明 readOnlyHint)
+        4. 参数 schema 中的高危路径注入 (command/path/exec 参数)
+
+    Args:
+        tools: MCP 枚举到的 tools 列表 (每个包含 name, description, inputSchema)。
+
+    Returns:
+        安全分析结果列表 (与 tools 一一对应):
+        [
+            {
+                "tool_name": str,
+                "risks": [
+                    {"type": str, "severity": str, "detail": str},
+                    ...
+                ],
+                "risk_score": int,  # 0-100, 越高风险越大
+            },
+            ...
+        ]
+    """
+    safety_results: list[dict[str, Any]] = []
+
+    for tool in tools:
+        tool_name = tool.get("name", "")
+        description = tool.get("description", "")
+        input_schema = tool.get("inputSchema", {})
+        annotations = tool.get("annotations", {})
+
+        risks: list[dict[str, str]] = []
+
+        # ── 1. 工具描述中的提示注入检测 ──
+        if description:
+            for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
+                match = pattern.search(description)
+                if match:
+                    risks.append({
+                        "type": risk_type,
+                        "severity": severity,
+                        "detail": f"Description contains '{risk_type}': '{match.group()}'",
+                    })
+
+        # ── 2. 参数名敏感度检测 ──
+        if isinstance(input_schema, dict):
+            properties = input_schema.get("properties", {})
+            if isinstance(properties, dict):
+                for param_name, param_schema in properties.items():
+                    if not isinstance(param_schema, dict):
+                        continue
+                    for pattern, risk_type in _SENSITIVE_PARAM_PATTERNS:
+                        if pattern.search(param_name):
+                            risks.append({
+                                "type": risk_type,
+                                "severity": "medium",
+                                "detail": f"Sensitive parameter name: '{param_name}'",
+                            })
+                            break  # 每个参数只匹配一次
+
+                    # 检查参数 schema 中的高危描述
+                    param_desc = param_schema.get("description", "")
+                    if param_desc:
+                        for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
+                            if pattern.search(param_desc):
+                                risks.append({
+                                    "type": risk_type,
+                                    "severity": severity,
+                                    "detail": f"Parameter '{param_name}' description contains '{risk_type}'",
+                                })
+                                break
+
+        # ── 3. Annotation 矛盾检测 ──
+        # tool 名称暗示 mutation (delete/write/exec) 但 annotation 声称 readOnlyHint
+        name_lower = tool_name.lower()
+        is_mutating_name = any(kw in name_lower for kw in _MUTATING_NAME_KEYWORDS)
+        read_only_hint = False
+        if isinstance(annotations, dict):
+            read_only_hint = annotations.get("readOnlyHint", False)
+        if is_mutating_name and read_only_hint:
+            risks.append({
+                "type": "annotation_mismatch",
+                "severity": "medium",
+                "detail": f"Tool '{tool_name}' name implies mutation but annotation declares readOnlyHint",
+            })
+
+        # ── 4. 风险评分 ──
+        risk_score = 0
+        severity_weights = {"critical": 40, "high": 25, "medium": 10, "low": 5}
+        for risk in risks:
+            risk_score += severity_weights.get(risk.get("severity", "low"), 5)
+        risk_score = min(risk_score, 100)
+
+        safety_results.append({
+            "tool_name": tool_name,
+            "risks": risks,
+            "risk_score": risk_score,
+        })
+
+    # 日志汇总
+    risky_tools = [r for r in safety_results if r["risks"]]
+    if risky_tools:
+        for r in risky_tools:
+            logger.warning(
+                "MCP tool safety: '%s' risk_score=%d, risks=%s",
+                r["tool_name"],
+                r["risk_score"],
+                [(risk["type"], risk["severity"]) for risk in r["risks"]],
+            )
+
+    return safety_results
 
 
 async def _send_mcp_jsonrpc(

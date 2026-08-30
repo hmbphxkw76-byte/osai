@@ -55,6 +55,7 @@ def load_seeds(
     enable_dos: bool = False,
     capabilities: str | None = None,
     model_family: str | None = None,
+    seed_filters: dict[str, str] | None = None,
 ) -> list[AttackSeedGroup]:
     """鍔犺浇绮鹃€夌瀛愭枃浠躲€?
 
@@ -163,6 +164,19 @@ def load_seeds(
     if target_language:
         all_raw_seeds = _filter_by_language(all_raw_seeds, target_language)
         logger.info("Language-adaptive filtering: target=%s, %d seeds after filter", target_language, len(all_raw_seeds))
+
+    # ── 增量借鉴: 种子元数据过滤 (--seed-filters KEY=VALUE) ──
+    # 借鉴 pyrit_scan 的 --seed-filters: 按 metadata KEY=VALUE 精准过滤种子
+    # 示例: {"owasp_id": "LLM01", "difficulty": "high"} → 仅保留匹配的种子
+    # 多 KEY 为 AND 关系 (必须同时匹配所有 key)
+    # 支持 metadata 中值为列表的情况 (如 category: ["attack", "jailbreak"])
+    if seed_filters:
+        all_raw_seeds = _filter_by_metadata(all_raw_seeds, seed_filters)
+        logger.info(
+            "Seed metadata filtering: filters=%s, %d seeds after filter",
+            seed_filters,
+            len(all_raw_seeds),
+        )
 
     # 鏋勫缓 AttackSeedGroup
     seed_groups = _build_seed_groups(all_raw_seeds)
@@ -407,6 +421,73 @@ def _filter_by_language(
 
     result = target_seeds[:target_count] + other_seeds[:other_count]
     return result
+
+
+def _filter_by_metadata(
+    seeds: list[dict[str, Any]],
+    filters: dict[str, str],
+) -> list[dict[str, Any]]:
+    """按 metadata KEY=VALUE 精准过滤种子。
+
+    增量借鉴 pyrit_scan 的 --seed-filters CLI 模式。
+
+    过滤逻辑:
+        - 多 KEY 为 AND 关系 (必须同时匹配所有 key)
+        - 值匹配为大小写不敏感的子串匹配 (如 "LLM01" 匹配 "LLM01: Injection")
+        - 支持 metadata 中值为列表的情况 (如 category: ["attack", "jailbreak"])
+          列表中任一元素匹配即视为匹配
+
+    Args:
+        seeds: 原始种子列表。
+        filters: {KEY: VALUE} 过滤条件。
+
+    Returns:
+        过滤后的种子列表。如果过滤后为空, 返回原始列表 (避免无人攻击)。
+    """
+    if not filters:
+        return seeds
+
+    filtered: list[dict[str, Any]] = []
+    for seed in seeds:
+        metadata = seed.get("metadata", {})
+        if not isinstance(metadata, dict):
+            continue
+
+        match_all = True
+        for filter_key, filter_val in filters.items():
+            seed_val = metadata.get(filter_key)
+            if seed_val is None:
+                match_all = False
+                break
+
+            # 列表值: 任一元素匹配即可
+            if isinstance(seed_val, list):
+                found = any(
+                    filter_val.lower() in str(v).lower()
+                    for v in seed_val
+                )
+                if not found:
+                    match_all = False
+                    break
+            else:
+                # 标量值: 大小写不敏感子串匹配
+                if filter_val.lower() not in str(seed_val).lower():
+                    match_all = False
+                    break
+
+        if match_all:
+            filtered.append(seed)
+
+    # 如果过滤后为空, 返回原始列表 (避免无人攻击)
+    if not filtered:
+        logger.warning(
+            "Seed metadata filter %s matched 0 seeds, returning all %d seeds",
+            filters,
+            len(seeds),
+        )
+        return seeds
+
+    return filtered
 
 
 def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]:

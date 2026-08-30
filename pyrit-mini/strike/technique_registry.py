@@ -90,7 +90,7 @@ def register_project_techniques(
             name="PromptSending",
             attack_class=PromptSendingAttack,
             description="Single-turn baseline attack with SkeletonKey prepended conversation (arXiv:2307.15043, arXiv:2406.18112)",
-            technique_tags=["single_turn", "default", "baseline"],
+            technique_tags=["single_turn", "default", "baseline", "light"],
         )
         factories.append(ps_factory)
         logger.info("Registered AttackTechniqueFactory: PromptSending (single_turn, baseline)")
@@ -118,7 +118,7 @@ def register_project_techniques(
                 "name": "Crescendo",
                 "attack_class": CrescendoAttack,
                 "description": "Multi-turn progressive escalation with official system_prompt (arXiv:2402.12109)",
-                "technique_tags": ["multi_turn", "escalation"],
+                "technique_tags": ["multi_turn", "escalation", "light"],
                 "attack_kwargs": {
                     "max_turns": 10,
                     "max_backtracks": 10,
@@ -222,7 +222,7 @@ def register_project_techniques(
                 "name": "RedTeaming",
                 "attack_class": RedTeamingAttack,
                 "description": "Multi-turn Red Teaming with RTA system prompt (arXiv:2407.01232)",
-                "technique_tags": ["multi_turn", "baseline"],
+                "technique_tags": ["multi_turn", "baseline", "light"],
                 "attack_kwargs": {
                     "max_turns": 5,
                 },
@@ -252,6 +252,66 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create SkeletonKey factory: %s", e)
 
+    # ── 8. ManyShotJailbreak (single-turn, many-shot) ──
+    # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking
+    # PyRIT 原生 ManyShotJailbreakAttack: 100 shots ASR 显著提升
+    # 利用模型的 in-context learning 能力绕过安全过滤
+    try:
+        from pyrit.executor.attack import ManyShotJailbreakAttack
+
+        ms_factory = AttackTechniqueFactory(
+            name="ManyShotJailbreak",
+            attack_class=ManyShotJailbreakAttack,
+            description="Many-shot jailbreak with 100 faux Q/A examples (arXiv:2402.05124)",
+            technique_tags=["single_turn", "many_shot"],
+            attack_kwargs={
+                "example_count": 100,
+            },
+        )
+        factories.append(ms_factory)
+        logger.info("Registered AttackTechniqueFactory: ManyShotJailbreak (single_turn, many_shot)")
+    except Exception as e:
+        logger.warning("Failed to create ManyShotJailbreak factory: %s", e)
+
+    # ── 9. MultiPromptSending (multi-turn, fixed sequence) ──
+    # arXiv:2407.01232 — PyRIT, 原生多轮固定序列攻击
+    # 适合"分步引导"式越狱场景, 3步引导降低目标安全防御
+    try:
+        from pyrit.executor.attack import MultiPromptSendingAttack
+
+        mps_factory = AttackTechniqueFactory(
+            name="MultiPromptSending",
+            attack_class=MultiPromptSendingAttack,
+            description="Multi-turn fixed sequence attack, step-by-step guidance (arXiv:2407.01232)",
+            technique_tags=["multi_turn", "fixed_sequence"],
+        )
+        factories.append(mps_factory)
+        logger.info("Registered AttackTechniqueFactory: MultiPromptSending (multi_turn, fixed_sequence)")
+    except Exception as e:
+        logger.warning("Failed to create MultiPromptSending factory: %s", e)
+
+    # ── 10. ChunkedRequest (multi-turn, chunked extraction) ──
+    # arXiv:2407.01232 — PyRIT, 原生分块提取攻击
+    # 通过请求特定字符范围的信息片段, 绕过长度过滤/输出截断
+    try:
+        from pyrit.executor.attack import ChunkedRequestAttack
+
+        cr_factory = AttackTechniqueFactory(
+            name="ChunkedRequest",
+            attack_class=ChunkedRequestAttack,
+            description="Chunked extraction attack, bypass length filters (arXiv:2407.01232)",
+            technique_tags=["multi_turn", "chunked_extraction"],
+            attack_kwargs={
+                "chunk_size": 50,
+                "total_length": 200,
+                "chunk_type": "characters",
+            },
+        )
+        factories.append(cr_factory)
+        logger.info("Registered AttackTechniqueFactory: ChunkedRequest (multi_turn, chunked_extraction)")
+    except Exception as e:
+        logger.warning("Failed to create ChunkedRequest factory: %s", e)
+
     # 鈹€鈹€ 娉ㄥ唽鍒板叏灞€ AttackTechniqueRegistry 鈹€鈹€
     if not factories:
         logger.warning("No AttackTechniqueFactories created 鈥?technique registration skipped")
@@ -273,6 +333,60 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to register techniques to PyRIT registry: %s", e)
         return {f.name: f for f in factories}
+
+
+def build_scenario_techniques(
+    *,
+    technique_filter: list[str] | None = None,
+    adversarial_target: Any | None = None,
+    converter_target: Any | None = None,
+) -> list[Any] | None:
+    """v53: Build scenario_techniques list for TextAdaptive.
+
+    Aligns with PyRIT official Adaptive Scenarios doc.
+    Builds a list of ScenarioTechnique enum members for TextAdaptive's
+    epsilon-greedy selector to choose from.
+
+    PyRIT official API:
+        technique_class = TextAdaptive.get_technique_class()
+        scenario_techniques = [technique_class("single_turn")]
+    When no filter is configured, returns None (TextAdaptive uses all registered techniques).
+
+    Args:
+        technique_filter: tag filter list (e.g. ["single_turn"]).
+        adversarial_target: adversarial chat target for multi-turn attacks.
+        converter_target: LLM target for converters.
+
+    Returns:
+        ScenarioTechnique enum member list, or None (use default).
+    """
+    if not technique_filter:
+        return None
+
+    technique_cls = get_technique_class_for_adaptive(
+        adversarial_target=adversarial_target,
+        converter_target=converter_target,
+    )
+    if technique_cls is None:
+        logger.warning("v53: technique class build failed, using default techniques")
+        return None
+
+    try:
+        techniques: list[Any] = []
+        for tag_or_name in technique_filter:
+            try:
+                technique = technique_cls(tag_or_name)
+                techniques.append(technique)
+                logger.info("v53: Added scenario technique: %s", tag_or_name)
+            except Exception as e:
+                logger.debug("v53: technique '%s' not found in class: %s", tag_or_name, e)
+        if techniques:
+            return techniques
+        logger.warning("v53: no matching techniques for filter %s", technique_filter)
+        return None
+    except Exception as e:
+        logger.warning("v53: build_scenario_techniques failed: %s", e)
+        return None
 
 
 def build_sequential_child_attacks(

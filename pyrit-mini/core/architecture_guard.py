@@ -70,6 +70,9 @@ _REQUIRED_NATIVE_ATTACKS: dict[str, str] = {
     "SequentialAttack": "pyrit.executor.attack.compound.sequential_attack",
     "RedTeamingAttack": "pyrit.executor.attack",
     "SkeletonKeyAttack": "pyrit.executor.attack",
+    "ManyShotJailbreakAttack": "pyrit.executor.attack",
+    "MultiPromptSendingAttack": "pyrit.executor.attack",
+    "ChunkedRequestAttack": "pyrit.executor.attack",
 }
 
 # 禁止的自定义类名模式 (R2)
@@ -121,6 +124,15 @@ _HARDCODED_PARAM_NAMES: list[str] = [
     "best_of_n_retries",
     "l5_optimal_paths",
     "escalation_asr_threshold",
+    # v53: Adaptive scenario parameters (arXiv:2407.01232)
+    "adaptive_epsilon",
+    "adaptive_random_seed",
+    "adaptive_max_attempts",
+    # v54: 配置数据流断层检测 (R9)
+    "crescendo_max_turns",
+    "tap_tree_width",
+    "tap_tree_depth",
+    "wilson_confidence_level",
 ]
 
 # 安全护栏关键词 (R1) — 在攻击端不应出现
@@ -193,6 +205,8 @@ class ArchitectureGuard:
         # R6: 攻击就绪检查
         self.check_serial_stacking()
         self.check_native_attack_usage()
+        self.check_native_attack_instantiation()
+        self.check_native_params_from_config()
         self.check_llm_scorer_in_attack()
         self.check_cascade_order()
         # R2: 原生优先检查
@@ -211,6 +225,8 @@ class ArchitectureGuard:
         self.check_safety_guardrails()
         # R2: PyRIT 原生 output 检查
         self.check_pyrit_native_output()
+        # R9: 配置数据流一致性检查
+        self.check_config_data_flow()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -318,6 +334,169 @@ class ArchitectureGuard:
                     description=f"未导入/使用 PyRIT 原生攻击策略: {class_name} (来自 {module})",
                     fix_hint=f"在适当的模块中添加: from {module} import {class_name}",
                 ))
+
+    # ── 检查 2a: 原生攻击实例化与执行 (R6 §6.4a) ──
+
+    @staticmethod
+    def _strip_comments_and_docstrings(content: str) -> str:
+        """Remove comments and docstrings from Python source code.
+
+        Used by check_native_attack_instantiation to avoid false positives
+        from class names mentioned in comments/docstrings.
+        """
+        import io
+        import tokenize
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+        except Exception:
+            return content
+        lines = content.splitlines(keepends=True)
+        # Mark ranges to remove (comments and docstrings)
+        remove_ranges: list[tuple[int, int]] = []
+        for token in tokens:
+            if token.type == tokenize.COMMENT:
+                remove_ranges.append((token.start[0], token.end[0]))
+            elif token.type == tokenize.STRING:
+                # Check if it's a docstring (at module level or first statement in function/class)
+                # Simple heuristic: string on its own line or preceded by whitespace only
+                s = token.string
+                if (s.startswith('"""') or s.startswith("'''")) and token.start[1] == 0:
+                    remove_ranges.append((token.start[0], token.end[0]))
+        # Build filtered content
+        result_lines = []
+        skip_lines: set[int] = set()
+        for start, end in remove_ranges:
+            for i in range(start, end + 1):
+                skip_lines.add(i)
+        for i, line in enumerate(lines, 1):
+            if i not in skip_lines:
+                # Also strip inline comments
+                stripped = line.split("#")[0] if "#" in line else line
+                result_lines.append(stripped)
+        return "".join(result_lines)
+
+    def check_native_attack_instantiation(self) -> None:
+        """检测攻击类是否不仅被导入, 还被正确实例化和执行.
+
+        R6 §6.4a: Importing a class is NOT sufficient — each attack MUST be
+        instantiated with constructor and executed via execute_async() or
+        execute_attack_from_seed_groups_async().
+        """
+        for path in self.source_files:
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            rel = str(path.relative_to(self.root))
+
+            # Strip comments and docstrings for import detection
+            # to avoid false positives from class names mentioned in comments
+            code_only = self._strip_comments_and_docstrings(content)
+
+            for class_name in _REQUIRED_NATIVE_ATTACKS:
+                # Skip SequentialAttack/SequentialChildAttack — internal composite
+                if class_name in ("SequentialAttack", "SequentialChildAttack"):
+                    continue
+
+                # Check if class is imported in this file (code lines only)
+                # Use negative lookahead to avoid matching substrings
+                # (e.g. TAPAttackScoringConfig matching TAPAttack)
+                import_patterns = [
+                    rf"\bimport\s+{class_name}\b(?![A-Za-z0-9_])",
+                    rf"\bfrom\s+\S+\s+import\s+\([^)]*\b{class_name}\b(?![A-Za-z0-9_])",
+                    rf"\bfrom\s+\S+\s+import\s+[^,\n]*\b{class_name}\b(?![A-Za-z0-9_])",
+                ]
+                is_imported = any(
+                    re.search(p, code_only, re.DOTALL) for p in import_patterns
+                )
+                if not is_imported:
+                    continue
+
+                # Check if class is instantiated ( ClassName(...) )
+                instantiate_pattern = rf"\b{class_name}\s*\("
+                # Also check factory registration patterns:
+                # 1. attack_class=ClassName (keyword argument)
+                # 2. "attack_class": ClassName (dict key-value)
+                # PyRIT AttackTechniqueFactory(attack_class=ClassName) or
+                # {"attack_class": ClassName} are valid instantiation patterns
+                # — factory.create() calls ClassName() at runtime
+                factory_pattern = rf"""["']?attack_class["']?\s*[:=]\s*\b{class_name}\b"""
+                # Also check class attribute access: ClassName. (e.g. SkeletonKeyAttack.DEFAULT_PATH)
+                attr_access_pattern = rf"\b{class_name}\s*\."
+                is_instantiated = bool(re.search(instantiate_pattern, code_only))
+                is_factory_registered = bool(re.search(factory_pattern, code_only))
+                is_attr_accessed = bool(re.search(attr_access_pattern, code_only))
+
+                if is_imported and not is_instantiated and not is_factory_registered and not is_attr_accessed:
+                    self.violations.append(Violation(
+                        rule="R6",
+                        severity=Severity.WARNING,
+                        file=rel,
+                        line=content.find(class_name) and content[:content.find(class_name)].count("\n") + 1 or 0,
+                        description=f"攻击类 {class_name} 已导入但未实例化 — R6 §6.4a 要求导入后必须实例化并执行",
+                        fix_hint=f"添加: attack = {class_name}(objective_target=..., attack_scoring_config=...)",
+                    ))
+
+    # ── 检查 2b: 原生攻击参数来源 (R6 §6.4b) ──
+
+    # 攻击参数名 → 允许的硬编码默认值 (用于 _get_config_int fallback)
+    _ATTACK_PARAMS_TO_CHECK: dict[str, list[str]] = {
+        "example_count": ["ManyShotJailbreakAttack"],
+        "chunk_size": ["ChunkedRequestAttack"],
+        "total_length": ["ChunkedRequestAttack"],
+        "tree_width": ["TAPAttack", "PAIRAttack"],
+        "tree_depth": ["TAPAttack", "PAIRAttack"],
+        "max_turns": ["CrescendoAttack", "RedTeamingAttack"],
+        "max_backtracks": ["CrescendoAttack"],
+    }
+
+    def check_native_params_from_config(self) -> None:
+        """检测攻击参数是否从 config/defaults.yaml 读取而非硬编码.
+
+        R6 §6.4b: Attack parameters MUST be read from config/defaults.yaml (R7 SSOT),
+        NOT hardcoded in pipeline code.
+
+        允许的例外:
+        - _get_config_int(ctx, "param_name", fallback) — 从 config 读取, fallback 是允许的
+        - chunk_type="characters" — 字符串常量, 非数值参数
+        - on_topic_checking_enabled=False — 布尔标志, 非数值参数
+        """
+        for param_name, _attack_classes in self._ATTACK_PARAMS_TO_CHECK.items():
+            # Simple match: param_name=<number>
+            hardcoded_pattern = rf"\b{param_name}\s*=\s*(\d+)"
+
+            for path in self.source_files:
+                # Skip config files and tests
+                rel = path.relative_to(self.root)
+                if "config" in rel.parts or "test" in str(rel).lower():
+                    continue
+
+                try:
+                    content = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+
+                for match in re.finditer(hardcoded_pattern, content):
+                    line_num = content[:match.start()].count("\n") + 1
+                    # Check if this line has _get_config_int (already reading from config)
+                    line_start = content.rfind("\n", 0, match.start()) + 1
+                    line_end = content.find("\n", match.end())
+                    if line_end == -1:
+                        line_end = len(content)
+                    line = content[line_start:line_end]
+
+                    if "_get_config_int" in line or "_get_config_float" in line:
+                        continue  # Already reading from config
+
+                    self.violations.append(Violation(
+                        rule="R6",
+                        severity=Severity.WARNING,
+                        file=str(rel),
+                        line=line_num,
+                        description=f"攻击参数 {param_name}={match.group(1)} 硬编码 — R6 §6.4b 要求从 config/defaults.yaml 读取",
+                        fix_hint=f'使用: {param_name}=_get_config_int(ctx, "{param_name}", {match.group(1)})',
+                    ))
 
     # ── 检查 3: 禁止的自定义类 (R2) ──
 
@@ -777,7 +956,181 @@ class ArchitectureGuard:
                     fix_hint="在 LLM Judge 调用前添加 T0 预过滤: _t0_refusal_check() / SubStringScorer",
                 ))
 
-    # ── 检查 13: PyRIT 原生 output 使用 (R2) ──
+    # ── 检查 13: 配置数据流一致性 (R9) ──
+
+    def check_config_data_flow(self) -> None:
+        """检测配置数据流中的三类断点 (R9)。
+
+        R9 要求: 从 CLI/YAML → config.py → PipelineContext → 执行模块 → 日志/报告
+        的完整数据流不得出现断点。检测三类系统性根因:
+
+        根因 A — 配置读取断层: 模块用 x=5 而非 getattr(ctx.args, 'x', 5)
+        根因 B — 上下文传递断层: 函数缺少 ctx 参数, 被迫硬编码 fallback
+        根因 C — 可观测性断层: 日志描述硬编码而非反映真实配置
+        """
+        pipeline_dirs = {"strike", "arm", "assess", "recon", "report", "targets", "utils", "core"}
+
+        # R9-A: 检测硬编码赋值 (已在 check_hardcoded_params 中部分覆盖)
+        # 这里补充检测: 函数体内缺少 ctx/args 读取的硬编码赋值
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            if not any(d in parts for d in pipeline_dirs):
+                continue
+            if "architecture_guard" in str(rel):
+                continue
+            # 跳过 config.py 自身 (它是配置加载中心, 允许定义默认值)
+            if rel.name == "config.py" or rel.name == "defaults.yaml":
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            lines = content.split("\n")
+            in_docstring = False
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                triple_count = line.count('"""')
+                if triple_count == 1:
+                    in_docstring = not in_docstring
+                if in_docstring or (triple_count == 1 and stripped.endswith('"""')):
+                    continue
+
+                # R9-A: 检测硬编码赋值模式 (扩展参数集)
+                for param in _HARDCODED_PARAM_NAMES:
+                    pattern = rf"\b{param}\s*[:=]\s*(\d+\.?\d*)"
+                    match = re.search(pattern, line)
+                    if match:
+                        # 排除: 从 args.xxx / config.xxx / getattr 读取
+                        if f"args.{param}" in line or f"config.{param}" in line or "getattr" in line:
+                            continue
+                        # 排除: 注释中提到
+                        if "#" in line and line.index("#") < line.index(param):
+                            continue
+                        # 排除: 在 dict/yaml 字面量中 (如 {"param": value})
+                        if "yaml" in str(rel).lower() or rel.name == "defaults.yaml":
+                            continue
+
+                        self.violations.append(Violation(
+                            rule="R9",
+                            severity=Severity.WARNING,
+                            file=str(rel),
+                            line=i,
+                            description=f"配置数据流断点 A (硬编码): {param}={match.group(1)} — 应从 ctx.args 读取",
+                            fix_hint=f"改为: getattr(ctx.args, '{param}', {match.group(1)}) 或从 ctx.args 读取",
+                        ))
+
+        # R9-B: 检测函数缺少 ctx 参数但硬编码 fallback
+        # 模式: def _xxx(...): ... = 5  (没有 ctx 参数的函数体内硬编码效率参数)
+        ctx_less_functions: list[tuple[str, str, int]] = []  # (file, func_name, line)
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            if not any(d in parts for d in pipeline_dirs):
+                continue
+            if "architecture_guard" in str(rel):
+                continue
+            if rel.name == "config.py":
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            lines = content.split("\n")
+            # 找到所有函数定义, 检查参数中是否有 ctx 或 context
+            func_pattern = re.compile(r"^\s*(?:async\s+)?def\s+(\w+)\s*\((.*?)\)")
+            for i, line in enumerate(lines, 1):
+                match = func_pattern.match(line)
+                if not match:
+                    continue
+                func_name = match.group(1)
+                params = match.group(2)
+                # 检查参数中是否有 ctx/context/pipeline_ctx/args
+                has_ctx = any(kw in params for kw in ["ctx", "context", "pipeline_ctx", "args"])
+                if has_ctx:
+                    continue
+                # 检查函数体内是否有硬编码效率参数 (向后扫描至下一个 def)
+                func_body = []
+                for j in range(i, min(i + 50, len(lines))):
+                    if re.match(r"^\s*(?:async\s+)?def\s+", lines[j]):
+                        break
+                    func_body.append(lines[j])
+                func_body_text = "\n".join(func_body)
+                for param in _HARDCODED_PARAM_NAMES:
+                    if re.search(rf"\b{param}\s*[:=]\s*\d+", func_body_text):
+                        # 排除: 有 getattr 读取
+                        if "getattr" in func_body_text and param in func_body_text:
+                            continue
+                        ctx_less_functions.append((str(rel), func_name, i))
+                        break
+
+        for file, func_name, line in ctx_less_functions:
+            self.violations.append(Violation(
+                rule="R9",
+                severity=Severity.WARNING,
+                file=file,
+                line=line,
+                description=f"配置数据流断点 B (上下文缺失): 函数 '{func_name}' 缺少 ctx 参数, 内部硬编码效率参数",
+                fix_hint=f"为函数 '{func_name}' 添加 ctx 参数, 通过 getattr(ctx.args, ...) 读取配置",
+            ))
+
+        # R9-C: 检测日志/报告描述硬编码而非反映真实配置
+        # 模式: log/debug/info/print 中包含效率参数的固定描述
+        log_hardcode_patterns = [
+            (r'(?:log(?:ger)?\.|debug\(|info\(|warning\(|print\().*?(?:max_turns|best_of_n|asr_threshold|exit_threshold|high_confidence).*?(?:=|:)?\s*\d+(?:\.\d+)?(?!["\'])', "日志硬编码效率参数值"),
+            (r'f".*?(?:max_turns|best_of_n|asr_threshold).*?(?:=|:)?\s*\d+(?:\.\d+)?(?!["\'])', "f-string 中硬编码效率参数值"),
+        ]
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            if not any(d in parts for d in pipeline_dirs):
+                continue
+            if "architecture_guard" in str(rel):
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            lines = content.split("\n")
+            in_docstring = False
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                triple_count = line.count('"""')
+                if triple_count == 1:
+                    in_docstring = not in_docstring
+                if in_docstring or (triple_count == 1 and stripped.endswith('"""')):
+                    continue
+
+                for pattern, message in log_hardcode_patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        # 排除: 有 {param} 引用 (f-string 中引用变量)
+                        if "{" in line and "}" in line:
+                            # 检查是否引用了变量而非硬编码值
+                            # 如果行中有 getattr 或 args.xxx, 则是动态引用
+                            if "getattr" in line or "args." in line or "ctx." in line:
+                                continue
+
+                        self.violations.append(Violation(
+                            rule="R9",
+                            severity=Severity.INFO,
+                            file=str(rel),
+                            line=i,
+                            description=f"配置数据流断点 C (可观测性): {message}",
+                            fix_hint="日志/报告描述应引用运行时配置值, 而非硬编码数字",
+                        ))
+                        break  # 每行只报一次
+
+    # ── 检查 14: PyRIT 原生 output 使用 (R2) ──
 
     def check_pyrit_native_output(self) -> None:
         """检测 generate_report 函数中是否调用了 PyRIT 官方 output 模块。

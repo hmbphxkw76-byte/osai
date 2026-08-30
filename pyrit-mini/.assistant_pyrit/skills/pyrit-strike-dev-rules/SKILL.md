@@ -1,6 +1,6 @@
 ---
 name: pyrit-strike-dev-rules
-description: Enforces 8 mandatory development rules for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change.
+description: Enforces 9 mandatory development rules for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change.
 ---
 
 # PyRIT-Strike Development Rules
@@ -13,7 +13,7 @@ description: Enforces 8 mandatory development rules for the pyrit-strike AI red 
 
 1. **One-time setup**: Run `python core/setup_hooks.py` — installs pre-commit + pre-push hooks (auto-runs guard on every commit/push)
 2. **Before coding**: Run `python core/architecture_guard.py` — fix all BLOCKING violations first
-3. **While coding**: Apply R2 (native-first), R4 (L5 params), R5 (arXiv cite) continuously
+3. **While coding**: Apply R2 (native-first), R4 (L5 params), R5 (arXiv cite), R9 (config data flow) continuously
 4. **After coding**: Fill out `docs/implementation_checklist.md` template, then re-run guard + ruff + pytest
 5. **On commit**: Git hooks auto-run guard — BLOCKING violations block the commit
 6. **If any rule is violated**: STOP, fix, re-verify all rules
@@ -30,6 +30,7 @@ description: Enforces 8 mandatory development rules for the pyrit-strike AI red 
 | P2 | R1: Offensive mindset | Design principle |
 | P2 | R7: ASR-token-time balance | Parameterized in `defaults.yaml` |
 | P2 | R8: Production-grade engineering | Manual audit — 8 practice areas, failure pattern table |
+| P1 | R9: Config data flow consistency | `architecture_guard.py` auto-checks — 3 breakpoint types |
 
 ---
 
@@ -63,16 +64,42 @@ PyRIT 1.0.1 is the foundation. Self-built code is **enhancement, NOT replacement
 | Layer | MUST use (PyRIT native) | MUST NOT build (custom) |
 |-------|-------------------------|--------------------------|
 | Target | `OpenAIChatTarget`, `HTTPTarget`, `PlaywrightTarget` | Custom target classes |
-| Executor | `PromptSendingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack`, `SequentialAttack`, `RedTeamingAttack`, `SkeletonKeyAttack` | Custom executors |
+| Executor | `PromptSendingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack`, `SequentialAttack`, `RedTeamingAttack`, `SkeletonKeyAttack`, `ManyShotJailbreakAttack`, `MultiPromptSendingAttack`, `ChunkedRequestAttack` | Custom executors |
 | Scorer | `SelfAskTrueFalseScorer`, `SubStringScorer`, `TrueFalseInverterScorer`, `TrueFalseCompositeScorer`, `ConversationScorer`, `SelfAskRefusalScorer` | Custom scorer base classes |
 | Memory | `CentralMemory`, `DuckDBMemory` | Custom memory stores |
 | Converter | All `pyrit.converter.*` classes | Custom converters |
+| Output/Display | `output_attack_async`, `output_scenario_async` + `StdoutSink` / `FileSink` | Custom terminal renderers, manual text extraction |
+
+### Terminal Display Priority (§2.1)
+
+All terminal output MUST prioritize PyRIT native `pyrit.output` module. Self-built or mixed display is **enhancement, NOT replacement**.
+
+**MUST**:
+- ScenarioResult summary: call `output_scenario_async(result, format='pretty', sink=StdoutSink())` to render the full `📊 SCENARIO RESULTS` format (Scenario Info → Target Info → Scorer Info → Overall Statistics → Per-Group Breakdown) to terminal.
+- Per-AttackResult detail: call `output_attack_async(result, format='pretty', sink=StdoutSink())` to render full attack conversation history to terminal.
+- Per-AttackResult file output: call `output_attack_async(result, format=OutputFormat.MARKDOWN, sink=FileSink(path=...))` and `OutputFormat.PRETTY` for file-based evidence.
+- ScenarioResult file output: call `output_scenario_async(result, format='pretty', sink=FileSink(path=...))` for `native_output/scenario_result.txt`.
+
+**MUST NOT**:
+- Manually extract prompt/response text from AttackResult fields for terminal display when `output_attack_async` can render it natively.
+- Build custom `📊 SCENARIO RESULTS` formatters when `output_scenario_async` provides the same format.
+- Skip `output_scenario_async` to terminal (StdoutSink) and only write to file (FileSink) — terminal real-time display is required.
+- Implement custom per-objective per-attempt trail renderers that duplicate `ScenarioResult.get_display_groups()` + `AttackResult.get_attack_strategy_identifier()` logic already available in PyRIT.
+
+### Enhancement Layer (allowed, AFTER native output)
+
+Custom display code (e.g., `utils/display.py` card-style summaries, technique wins/picks tables) is permitted as **supplementary enhancement** layered on top of native output:
+1. **Card-style phase summaries** (╔╗╚╝ borders) — visual stage progress, NOT a replacement for native scenario/attack rendering.
+2. **Per-attempt technique trail** — uses `ScenarioResult.get_display_groups()` + `ComponentIdentifier.class_name` to show `ContextComplianceAttack(failure) → RolePlayAttack(success)` chains; this is supplementary analysis, not a re-implementation of native rendering.
+3. **ASR bar charts / Wilson CI cards** — statistics visualization not available in PyRIT native output.
+
+**Rule**: Native output runs FIRST, enhancement output runs AFTER. The user sees PyRIT-native format, then supplementary analysis.
 
 ### Allowed Custom Code (ONLY 3 categories)
 
 1. **Glue**: Connect native components (e.g., `recon/target_router.py` links Burp parsing to `HTTPTarget`).
 2. **Enhancement**: Wrap native components to add missing features (e.g., `targets/rate_limited.py`). Native component MUST remain the primary engine.
-3. **Output**: Read from PyRIT memory/results for evidence and reports (e.g., `report/evidence.py`).
+3. **Output**: Read from PyRIT memory/results for evidence and reports (e.g., `report/evidence.py`). Terminal display MUST call `pyrit.output` native module first; custom card-style summaries are supplementary enhancement.
 
 ### Design Domain Boundary
 
@@ -172,6 +199,7 @@ Every technique and non-obvious parameter MUST have an arXiv citation.
 | Skeleton Key | 2406.18112 | Prefix injection |
 | AutoDAN | 2310.04451 | Seed auto-expansion 3x |
 | GCG | 2307.08673 | Adversarial suffixes |
+| Many-Shot Jailbreak | 2402.05124 | Many-shot Q/A injection via in-context learning |
 
 ---
 
@@ -210,13 +238,17 @@ T0 (0-token heuristic) → J1 (lenient LLM Judge) → J2 (strict LLM Judge) → 
 
 **6.3 Full escalation chain**:
 ```
-Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native attacks
+L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: Crescendo → L3: TAP ∥ PAIR ∥ RedTeaming → L3: ManyShot ∥ MultiPrompt ∥ ChunkedRequest ∥ SkeletonKey ∥ Multi-Model → L4: Rogue Agent ∥ Embedding Inversion ∥ MCP/RAG
 ```
 - Triggers at ASR < 90%; intermediate exit at L1≥70% / L2≥80%
 - TAP/PAIR `FloatScaleThresholdScorer` threshold = 0.2
 
-**6.4 All 7 PyRIT native attack strategies** MUST be imported and used:
-`PromptSendingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack`, `SequentialAttack`, `RedTeamingAttack`, `SkeletonKeyAttack`
+**6.4 All 10 PyRIT native attack strategies** MUST be imported, instantiated, and executed:
+`PromptSendingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack`, `SequentialAttack`, `RedTeamingAttack`, `SkeletonKeyAttack`, `ManyShotJailbreakAttack`, `MultiPromptSendingAttack`, `ChunkedRequestAttack`
+
+**6.4a Native attack instantiation**: Importing a class is NOT sufficient — each attack MUST be instantiated with correct constructor parameters (per PyRIT 1.0.1 API) and executed via `execute_async()` or `execute_attack_from_seed_groups_async()`. Architecture guard `check_native_attack_instantiation()` verifies this.
+
+**6.4b Native parameter sourcing**: Attack parameters (e.g., `example_count`, `chunk_size`, `total_length`, `tree_width`, `tree_depth`, `max_turns`) MUST be read from `config/defaults.yaml` (R7 SSOT), NOT hardcoded in pipeline code. Architecture guard `check_native_params_from_config()` verifies this.
 
 **6.5 Three-actor separation**:
 - `objective_target` ← `.env OPENAI_CHAT_*` or `--burp`
@@ -233,7 +265,7 @@ Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native
 | Exam Skill | Rule | Implementation |
 |-----------|------|----------------|
 | Jailbreak Evasion | R1, R6 §6.1 | Multi-path converters, no serial stacking |
-| PyRIT Framework Mastery | R2, R6 §6.4 | 7 native attack strategies imported & used |
+| PyRIT Framework Mastery | R2, R6 §6.4 | 10 native attack strategies imported, instantiated & executed |
 | Converter Chain Design | R6 §6.1 | 1 converter per `ConverterConfiguration`, FIRST_SUCCESS |
 | Scorer Accuracy | R6 §6.2 | Four-tier cascade: T0→J1→J2→J3 (0-token heuristic + dual Judge post-hoc) |
 | Multi-Turn Strategy | R6 §6.3 | Full escalation: Crescendo → TAP ∥ PAIR → GCG |
@@ -244,13 +276,15 @@ Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native
 | Probabilistic Validation | R6 §6.6 | `validation_runs` field: repeated execution results, not single PoC screenshot |
 | SIEM/Detection Evasion | R1 §Five-Step | Detect + Evade steps in PoC workflow |
 
-### Auto-checked by `architecture_guard.py` (12 checks):
+### Auto-checked by `architecture_guard.py` (14 checks):
 | Check | Rule | Severity | What it detects |
 |-------|------|----------|-----------------|
 | `check_serial_stacking()` | R6 §6.1 | BLOCKING | `converters=[conv1, conv2]` serial stacking |
-| `check_native_attack_usage()` | R6 §6.4 | WARNING | Missing 7 native attack strategy imports |
+| `check_native_attack_usage()` | R6 §6.4 | WARNING | Missing 10 native attack strategy imports |
 | `check_llm_scorer_in_attack()` | R6 §6.2 | WARNING | LLM scorer in strike/arm modules |
+| `check_cascade_order()` | R6 §6.2 | WARNING | LLM Judge called before T0 pre-filter |
 | `check_forbidden_custom_classes()` | R2 | BLOCKING | Custom Executor/Target/Scorer classes |
+| `check_pyrit_native_output()` | R2 §2.1 | BLOCKING | `generate_report()` missing PyRIT native output |
 | `check_root_directory()` | R3 | BLOCKING | Illegal .py files in project root |
 | `check_test_coverage()` | R3 | BLOCKING | Missing tests/ directory |
 | `check_l5_params()` | R4 | BLOCKING | Parameters below L5 baseline in defaults.yaml |
@@ -258,7 +292,7 @@ Single-turn → Best-of-N(N=5) → Crescendo → TAP ∥ PAIR → GCG → native
 | `check_arxiv_citations()` | R5 | WARNING | Attack techniques without arXiv citation |
 | `check_safety_guardrails()` | R1 | BLOCKING | Safety guardrails/content filtering in attack code |
 | `check_intermediate_exit()` | R7 | BLOCKING | Missing post_l1/post_l2 exit checkpoints in escalation |
-| `check_cascade_order()` | R6 §6.2 | WARNING | LLM Judge called before T0 pre-filter |
+| `check_config_data_flow()` | R9 | WARNING+INFO | Config data flow breakpoints (3 root causes) |
 
 ---
 
@@ -403,17 +437,72 @@ All pipeline code MUST meet production-grade reliability standards. This rule co
 - `_run_single_endpoint_to_result()` MUST extract result summary from `ctx` after `_run_single_endpoint()` completes (or fails with partial results)
 - `EvidenceCollector.collect()` → inject `dual_judge_stats` / `wilson_ci` / `cohens_kappa` / `orchestration_log` → `generate_report()` — no field may be missing at any step
 
-### Common Production-Level Failure Patterns
+> **Failure patterns**: See the unified failure pattern table at the end of this document (covers R6-R9).
 
-| Pattern | Why it fails | Fix |
-|---------|-------------|-----|
-| `--stage` exit calls `_cleanup_resources(ctx)` without `exclude_shared` | Premature release of shared LLM targets kills subsequent endpoints in multi-endpoint mode | Use `exclude_shared=True` inside `_run_single_endpoint` |
-| Global stats counters not reset between endpoints | Endpoint N's ASR stats are polluted by endpoints 1..N-1 | Call `_reset_dual_judge_stats()` + `reset_t0_stats()` at loop start |
-| No empty-seeds guard in `execute_attacks` | PyRIT native API receives empty `seed_groups`, may crash or produce confusing errors | Early return with empty `attack_results` |
-| Orchestration log only covers recon+arm | Report "Orchestration Decision Log" section is incomplete — audit trail broken | Add entries for all 6 phases (recon×2 + arm×3 + strike×1 + escalate×1 + assess×1 = 8 entries) |
-| `setup_environment` called without disposing old engine | SQLAlchemy connection pool + SQLite file handles accumulate across endpoints | `CentralMemory.dispose_db_engine()` before `initialize_pyrit_async()` |
-| Auth failure (401/403) raises immediately | No recovery attempt — token may just need refresh | `RateLimitedTarget._send_with_auth_recovery()` tries token refresh + tenant switch before raising |
-| Playwright browser process leaked | Only `_browser.close()` called, `_playwright_instance.stop()` missing | 3-layer cleanup: context → browser → playwright instance |
+---
+
+## R9: Config Data Flow Consistency (Zero-Breakpoint Pipeline)
+
+All configuration values MUST flow through a single unbroken data path: `CLI/YAML → config.py → PipelineContext.args → execution modules → logs/reports`. No module may short-circuit this path by hardcoding values.
+
+**MUST**: Read all efficiency parameters via `getattr(ctx.args, 'param', default)`. Pass `ctx` to all functions that need configuration. Log/report descriptions MUST reference runtime values, not hardcoded numbers.
+**MUST NOT**: Hardcode efficiency parameters (`best_of_n_retries=5`, `max_turns=10`, etc.) in pipeline modules. Define functions without `ctx` parameter if they need to read configuration. Use hardcoded numbers in log messages instead of referencing `ctx.args`.
+
+### Three Systemic Root Causes (MUST avoid)
+
+| Root Cause | Pattern | Why it happens | Fix |
+|------------|---------|---------------|-----|
+| **A: Config Read Breakpoint** | `x = 5` instead of `getattr(ctx.args, 'x', 5)` | Module hardcodes fallback value for convenience, bypassing `--config-file` | Always read from `ctx.args` via `getattr()` with fallback |
+| **B: Context Propagation Breakpoint** | `def _func(): x = 5` (no `ctx` param) | Function signature lacks `ctx`, forced to hardcode fallback | Add `ctx` parameter, pass through call chain |
+| **C: Observability Breakpoint** | `logger.info("max_turns=10")` instead of `logger.info(f"max_turns={ctx.args.crescendo_max_turns}")` | Log description uses hardcoded number instead of referencing runtime value | Use f-string referencing `ctx.args.*` |
+
+> **R7 vs R9 division**: R7 `check_hardcoded_params()` scans for `param = <number>` assignments. R9-A supplements this with extended `_HARDCODED_PARAM_NAMES` coverage (including `crescendo_max_turns`, `tap_tree_width`, `tap_tree_depth`, `wilson_confidence_level`). R9-B/C detect context propagation and observability breakpoints that R7 does not cover.
+
+### §9.1 Config Read Discipline (Root Cause A)
+
+- All `_HARDCODED_PARAM_NAMES` in `architecture_guard.py` MUST be read from `ctx.args` at runtime:
+  ```python
+  # ❌ WRONG — hardcoded, bypasses --config-file
+  _max_retries = 5
+
+  # ✅ CORRECT — reads from ctx.args, falls back to default
+  _max_retries = getattr(ctx.args, 'best_of_n_retries', 5)
+  ```
+- `config.py` is the ONLY module allowed to define default values (as YAML literals in `defaults.yaml`)
+- All other modules MUST use `getattr()` pattern — never direct assignment
+
+### §9.2 Context Propagation Discipline (Root Cause B)
+
+- Any function that reads efficiency parameters MUST accept `ctx` (or `args`) as a parameter:
+  ```python
+  # ❌ WRONG — no ctx, forced to hardcode
+  def _get_best_of_n_retries() -> int:
+      return 5
+
+  # ✅ CORRECT — ctx passed, reads from args
+  def _get_best_of_n_retries(ctx: PipelineContext) -> int:
+      return getattr(ctx.args, 'best_of_n_retries', 5)
+  ```
+- If a function is called from a context where `ctx` is available, `ctx` MUST be passed through
+
+### §9.3 Observability Discipline (Root Cause C)
+
+- Log messages and report descriptions MUST reference runtime configuration values:
+  ```python
+  # ❌ WRONG — hardcoded description
+  logger.info(f"Running Crescendo with max_turns=10")
+
+  # ✅ CORRECT — references runtime value
+  logger.info(f"Running Crescendo with max_turns={ctx.args.crescendo_max_turns}")
+  ```
+- Orchestration log entries MUST reflect actual runtime parameters, not static descriptions
+
+### §9.4 Automated Detection
+
+`architecture_guard.py` `check_config_data_flow()` detects all three root causes:
+- **R9-A**: Scans for `param = <number>` assignments in pipeline modules (WARNING) — supplements R7
+- **R9-B**: Scans for functions lacking `ctx` parameter but containing hardcoded params (WARNING)
+- **R9-C**: Scans for log/print statements with hardcoded param values (INFO)
 
 ---
 
@@ -449,6 +538,8 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 ### Pre-Coding Checks
 - [ ] Ran `python core/architecture_guard.py` — zero BLOCKING violations?
 - [ ] Searched PyRIT source for equivalent native component before writing new class? (R2)
+- [ ] Verified all 10 native attack classes are imported, instantiated, and executed? (R6 §6.4a)
+- [ ] Verified attack parameters read from `config/defaults.yaml`, not hardcoded? (R6 §6.4b)
 - [ ] ALL L5 parameters in `config/defaults.yaml` meet baseline? (R4)
 - [ ] Identified arXiv citation for any new technique? (R5)
 - [ ] If multi-endpoint: planned `exclude_shared=True` for per-endpoint cleanup? (R8 §8.1)
@@ -460,15 +551,20 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 - [ ] No hardcoded efficiency parameters in pipeline code (reading from `defaults.yaml`)? (R7)
 - [ ] No safety guardrails/content filtering in strike/arm modules? (R1)
 - [ ] No custom Executor/Target/Scorer classes replacing PyRIT native? (R2)
+- [ ] Terminal display calls `output_scenario_async` / `output_attack_async` + `StdoutSink` FIRST, custom cards AFTER? (R2 §2.1)
 - [ ] New stage exit points use `exclude_shared=True`? (R8 §8.1)
 - [ ] Empty input guards added (seeds, attack_results, endpoint list)? (R8 §8.4)
 - [ ] Orchestration log entry added for the phase being modified? (R8 §8.5)
+- [ ] All efficiency params read via `getattr(ctx.args, ...)` not hardcoded? (R9 §9.1)
+- [ ] Functions needing config have `ctx` parameter? (R9 §9.2)
+- [ ] Log/report descriptions reference runtime `ctx.args` values? (R9 §9.3)
 
 ### Post-Coding Checks
 - [ ] Re-ran `python core/architecture_guard.py` — still zero BLOCKING?
 - [ ] `ruff check` passes with zero violations? (R3)
 - [ ] New files placed in correct `module/` subdirectory (not root)? (R3)
 - [ ] PoC scripts use PyRIT native attack classes (NOT `requests.post`)? (R6 §6.7)
+- [ ] Terminal display: `output_scenario_async` to StdoutSink called before custom card summaries? (R2 §2.1)
 - [ ] Evidence records include ALL mandatory fields non-empty? (R6 §6.6)
 - [ ] Orchestration log covers ALL 6 phases (recon+arm+strike+escalate+assess+report)? (R8 §8.5)
 - [ ] Resource cleanup paths are idempotent (safe for double-call in try/finally)? (R8 §8.1)
@@ -489,6 +585,9 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 | Orchestration log missing strike/escalate/assess | Audit trail broken, report incomplete (R8 §8.5) | Add entries for all 6 phases |
 | `setup_environment` without disposing old engine | SQLAlchemy connection pool leaks (R8 §8.1) | `CentralMemory.dispose_db_engine()` before re-init |
 | Playwright only `_browser.close()` | Process leaked, no `_playwright_instance.stop()` (R8 §8.1) | 3-layer cleanup: context → browser → playwright |
+| Config read breakpoint: `x = 5` instead of `getattr(ctx.args, 'x', 5)` | `--config-file` values never reach execution (R9 §9.1) | Always use `getattr(ctx.args, ...)` pattern |
+| Context propagation breakpoint: `def _func():` without `ctx` param | Function forced to hardcode fallback (R9 §9.2) | Add `ctx` parameter to function signature |
+| Observability breakpoint: `logger.info("max_turns=10")` | Log doesn't reflect real runtime config (R9 §9.3) | Use f-string: `logger.info(f"max_turns={ctx.args.crescendo_max_turns}")` |
 
 ---
 

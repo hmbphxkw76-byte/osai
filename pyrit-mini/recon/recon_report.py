@@ -207,6 +207,24 @@ def print_recon_report(
         ("Probe", f"{_probe_count} probes / {_probe_dur}s"),
     ]
 
+    # ── 深度探测新字段 (P0-P2 优先级矩阵) ──
+    _ai_fw = fp.get("ai_framework", "")
+    if _ai_fw and _ai_fw != "Unknown":
+        l1_rows.append(("AI Framework", f"{_ai_fw} ({fp.get('ai_framework_category', '')})"))
+    _sp_leaked = fp.get("system_prompt_leaked", False)
+    if _sp_leaked:
+        l1_rows.append(("System Prompt", f"{_C_RED}✗ LEAKED{_C_RESET} ({fp.get('system_prompt_extraction_method', '')})"))
+    _model_ids = fp.get("model_ids", [])
+    if _model_ids:
+        l1_rows.append(("Model IDs", f"{len(_model_ids)} models"))
+    _vector_dbs = fp.get("vector_dbs", [])
+    if _vector_dbs:
+        l1_rows.append(("Vector DBs", ", ".join(v.get("tech", "") for v in _vector_dbs)))
+    _mcp_safety = fp.get("mcp_tool_safety", [])
+    _risky = [t for t in _mcp_safety if t.get("risks")]
+    if _risky:
+        l1_rows.append(("MCP Risk", f"{_C_RED}{len(_risky)} risky tools{_C_RESET}"))
+
     if parsed.original_prompt_value:
         l1_rows.append(("Original Prompt", parsed.original_prompt_value[:80]))
 
@@ -303,6 +321,32 @@ def print_recon_report(
         logger.debug("Full fingerprint JSON: %s", json.dumps(fp, indent=2, ensure_ascii=False))
         print(f"\n{_C_DIM}Full fingerprint saved to debug log.{_C_RESET}")
 
+    # ════════════════════════════════════════════════════════════════
+    # Attack Surface Graph — 跨端点攻击面图谱
+    # 学术依据: Arbis et al. (arXiv:2306.01943) §4.5
+    # ════════════════════════════════════════════════════════════════
+    try:
+        graph = build_attack_surface_graph(fp, parsed)
+        graph_path = save_attack_surface_graph(graph, parsed, output_dir)
+        if graph_path:
+            print(f"{_C_DIM}Attack surface graph: {graph_path}{_C_RESET}")
+
+        # 终端打印攻击向量摘要
+        summary = graph.get("attack_surface_summary", {})
+        attack_vectors = graph.get("attack_vectors", [])
+        if attack_vectors:
+            print(f"\n{_C_YELLOW}Attack Vectors ({len(attack_vectors)}):{_C_RESET}")
+            for av in attack_vectors:
+                severity = av.get("severity", "low")
+                sev_color = _C_RED if severity in ("critical", "high") else _C_YELLOW
+                print(f"  {sev_color}[{severity.upper()}]{_C_RESET} {av['type']}: {av['description']}")
+        elif summary:
+            print(f"\n{_C_DIM}No attack vectors identified. Endpoints: {summary.get('total_endpoints', 0)}, "
+                  f"MCP tools: {summary.get('total_mcp_tools', 0)}, "
+                  f"Vector DBs: {summary.get('total_vector_dbs', 0)}{_C_RESET}")
+    except Exception as e:
+        logger.debug("Attack surface graph generation failed: %s", e)
+
 
 # ════════════════════════════════════════════════════════════════════
 # 辅助函数
@@ -369,4 +413,242 @@ def _save_fingerprint_json(
         return fp_path
     except Exception as e:
         logger.debug("Failed to save fingerprint JSON: %s", e)
+        return None
+
+
+# ════════════════════════════════════════════════════════════════════
+# 跨端点攻击面图谱生成
+# 学术依据: Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
+# ════════════════════════════════════════════════════════════════════
+
+
+def build_attack_surface_graph(
+    fingerprint: dict[str, Any],
+    parsed: Any,
+) -> dict[str, Any]:
+    """构建跨端点攻击面图谱。
+
+    学术依据:
+        - Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
+        - OWASP WSTG-INFO-04 — 攻击面映射
+        - MITRE ATLAS AML.T0043 (Discover ML Model Ontology)
+
+    汇总所有探测到的端点、服务、能力, 生成结构化攻击面图谱:
+        1. 主端点 (从 Burp 请求解析)
+        2. 跨端口发现的端点
+        3. OpenAPI 发现的端点
+        4. MCP 工具
+        5. 向量数据库实例
+        6. 各端点的认证方式、框架、AI 框架
+
+    Args:
+        fingerprint: target_fingerprint 字典。
+        parsed: ParsedBurpRequest 实例。
+
+    Returns:
+        攻击面图谱字典:
+        {
+            "primary_endpoint": {...},
+            "discovered_endpoints": [...],
+            "openapi_endpoints": [...],
+            "mcp_tools": [...],
+            "vector_dbs": [...],
+            "attack_surface_summary": {
+                "total_endpoints": int,
+                "total_attack_vectors": int,
+                "auth_distribution": dict,
+                "framework_distribution": dict,
+            },
+            "attack_vectors": [...],  # 推荐攻击向量列表
+        }
+    """
+    graph: dict[str, Any] = {
+        "primary_endpoint": {},
+        "discovered_endpoints": [],
+        "openapi_endpoints": [],
+        "mcp_tools": [],
+        "vector_dbs": [],
+        "attack_surface_summary": {},
+        "attack_vectors": [],
+    }
+
+    # ── 主端点 ──
+    graph["primary_endpoint"] = {
+        "host": fingerprint.get("host", "unknown"),
+        "path": fingerprint.get("api_path", "unknown"),
+        "framework": fingerprint.get("framework", "Unknown"),
+        "ai_framework": fingerprint.get("ai_framework", "Unknown"),
+        "ai_framework_category": fingerprint.get("ai_framework_category", ""),
+        "app_type": fingerprint.get("app_type", ""),
+        "auth_type": fingerprint.get("auth_type", "None"),
+        "capabilities": fingerprint.get("capabilities", ""),
+        "model_family": fingerprint.get("model_family", "unknown"),
+        "model_language": fingerprint.get("model_language", "unknown"),
+        "model_ids": fingerprint.get("model_ids", []),
+    }
+
+    # ── 跨端口发现的端点 ──
+    port_endpoints = fingerprint.get("port_endpoints", [])
+    for pe in port_endpoints:
+        graph["discovered_endpoints"].append({
+            "host": fingerprint.get("host", "unknown"),
+            "port": pe.get("port"),
+            "path": pe.get("path", ""),
+            "service_type": pe.get("service_type", "unknown"),
+            "status_code": pe.get("status_code"),
+            "use_tls": pe.get("use_tls", False),
+        })
+
+    # ── OpenAPI 发现的端点 ──
+    openapi_endpoints = fingerprint.get("openapi_endpoints", [])
+    for ep in openapi_endpoints:
+        graph["openapi_endpoints"].append({
+            "path": ep.get("path", ""),
+            "method": ep.get("method", ""),
+            "summary": ep.get("summary", ""),
+            "has_auth": ep.get("has_auth", False),
+            "parameters": ep.get("parameters", []),
+        })
+
+    # ── MCP 工具 ──
+    mcp_tools = fingerprint.get("mcp_tools", [])
+    mcp_tool_safety = fingerprint.get("mcp_tool_safety", [])
+    for i, tool in enumerate(mcp_tools):
+        entry: dict[str, Any] = {
+            "name": tool.get("name", ""),
+            "description": (tool.get("description") or "")[:200],
+        }
+        if i < len(mcp_tool_safety):
+            safety = mcp_tool_safety[i]
+            entry["risk_score"] = safety.get("risk_score", 0)
+            entry["risks"] = safety.get("risks", [])
+        graph["mcp_tools"].append(entry)
+
+    # ── 向量数据库实例 ──
+    vector_dbs = fingerprint.get("vector_dbs", [])
+    for vdb in vector_dbs:
+        if isinstance(vdb, dict):
+            graph["vector_dbs"].append({
+                "tech": vdb.get("tech", ""),
+                "host": vdb.get("host", ""),
+                "port": vdb.get("port"),
+                "confirmed_via": vdb.get("confirmed_via", ""),
+            })
+
+    # ── 攻击面摘要 ──
+    total_endpoints = (
+        1  # primary
+        + len(graph["discovered_endpoints"])
+        + len(graph["openapi_endpoints"])
+    )
+
+    # 认证分布
+    auth_dist: dict[str, int] = {}
+    auth = graph["primary_endpoint"]["auth_type"]
+    auth_dist[auth] = auth_dist.get(auth, 0) + 1
+
+    # 框架分布
+    fw_dist: dict[str, int] = {}
+    fw = graph["primary_endpoint"]["ai_framework"]
+    if fw and fw != "Unknown":
+        fw_dist[fw] = fw_dist.get(fw, 0) + 1
+
+    graph["attack_surface_summary"] = {
+        "total_endpoints": total_endpoints,
+        "total_mcp_tools": len(graph["mcp_tools"]),
+        "total_vector_dbs": len(graph["vector_dbs"]),
+        "risky_mcp_tools": sum(1 for t in graph["mcp_tools"] if t.get("risks")),
+        "system_prompt_leaked": fingerprint.get("system_prompt_leaked", False),
+        "auth_distribution": auth_dist,
+        "framework_distribution": fw_dist,
+    }
+
+    # ── 推荐攻击向量 ──
+    attack_vectors: list[dict[str, str]] = []
+
+    # System prompt 泄露 → 定制化种子
+    if fingerprint.get("system_prompt_leaked"):
+        attack_vectors.append({
+            "type": "system_prompt_leak",
+            "severity": "critical",
+            "description": "System prompt leaked — enables targeted jailbreak seeds",
+            "method": fingerprint.get("system_prompt_extraction_method", ""),
+        })
+
+    # MCP 工具风险 → 工具投毒
+    risky_tools = [t for t in graph["mcp_tools"] if t.get("risks")]
+    for rt in risky_tools:
+        attack_vectors.append({
+            "type": "mcp_tool_poisoning",
+            "severity": max((r.get("severity", "low") for r in rt.get("risks", [])), default="low"),
+            "description": f"MCP tool '{rt['name']}' has risk_score={rt.get('risk_score', 0)}",
+        })
+
+    # 向量数据库 → 嵌入反演
+    for vdb in graph["vector_dbs"]:
+        attack_vectors.append({
+            "type": "vector_db_inversion",
+            "severity": "high",
+            "description": f"Vector DB '{vdb['tech']}' confirmed on {vdb['host']}:{vdb.get('port')} — enables embedding inversion",
+        })
+
+    # 无认证端点 → 直接访问
+    if graph["primary_endpoint"]["auth_type"] == "None":
+        attack_vectors.append({
+            "type": "no_auth",
+            "severity": "high",
+            "description": "Primary endpoint has no authentication — direct access",
+        })
+
+    # OpenAPI 端点中有无认证的
+    no_auth_openapi = [ep for ep in graph["openapi_endpoints"] if not ep.get("has_auth")]
+    for ep in no_auth_openapi:
+        attack_vectors.append({
+            "type": "unauthenticated_api",
+            "severity": "medium",
+            "description": f"OpenAPI endpoint without auth: {ep['method']} {ep['path']}",
+        })
+
+    # 多模型端点 → 模型切换攻击
+    model_ids = fingerprint.get("model_ids", [])
+    if len(model_ids) > 1:
+        attack_vectors.append({
+            "type": "model_switching",
+            "severity": "medium",
+            "description": f"Multiple models available ({len(model_ids)}) — model switching attack possible",
+        })
+
+    graph["attack_vectors"] = attack_vectors
+
+    return graph
+
+
+def save_attack_surface_graph(
+    graph: dict[str, Any],
+    parsed: Any,
+    output_dir: Any,
+) -> str | None:
+    """保存攻击面图谱到 JSON 文件。
+
+    Args:
+        graph: 攻击面图谱字典。
+        parsed: ParsedBurpRequest 实例。
+        output_dir: 输出目录。
+
+    Returns:
+        文件路径, 或 None 如果失败。
+    """
+    try:
+        from pathlib import Path
+
+        out_path = Path(output_dir) if not isinstance(output_dir, Path) else output_dir
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        graph_path = out_path / "attack_surface_graph.json"
+        with open(graph_path, "w", encoding="utf-8") as f:
+            json.dump(graph, f, indent=2, ensure_ascii=False, default=str)
+
+        return str(graph_path)
+    except Exception as e:
+        logger.debug("Failed to save attack surface graph: %s", e)
         return None

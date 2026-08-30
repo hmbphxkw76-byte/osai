@@ -32,6 +32,7 @@ class TestStubModules:
         from strike.native_attacks import run_skeleton_key_native
 
         ctx = MagicMock()
+        ctx.objective_target = None  # Will skip due to no target
         result = await run_skeleton_key_native(ctx, ["obj1"])
         assert result == {}
 
@@ -76,12 +77,27 @@ class TestStubModules:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_many_shot_cot_stub(self):
-        from strike.many_shot_cot_executor import run_many_shot_cot_attack
+    async def test_many_shot_cot_wrapper(self):
+        """Test ManyShotJailbreakAttack wrapper with mocked PyRIT."""
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        ctx = MagicMock()
-        result = await run_many_shot_cot_attack(ctx, ["obj1"])
-        assert result == {}
+        with patch("pyrit.executor.attack.ManyShotJailbreakAttack") as mock_attack_cls:
+            mock_result = MagicMock()
+            mock_result.outcome = MagicMock()
+            mock_result.outcome.value = "success"
+            mock_attack = MagicMock()
+            mock_attack.execute_async = AsyncMock(return_value=mock_result)
+            mock_attack_cls.return_value = mock_attack
+
+            ctx = MagicMock()
+            ctx.objective_target = MagicMock()
+            ctx.args = MagicMock()
+            ctx.args.scenario_timeout = 1200
+
+            from strike.many_shot_cot_executor import run_many_shot_cot_attack
+            result = await run_many_shot_cot_attack(ctx, ["test objective"])
+            assert "many_shot_jailbreak" in result
+            assert len(result["many_shot_jailbreak"]) == 1
 
     @pytest.mark.asyncio
     async def test_cair_attack_stub(self):
@@ -160,3 +176,80 @@ class TestCairUtilities:
         from strike.cair import analyze_refusal_pattern
 
         assert analyze_refusal_pattern("The capital of France is Paris.") == "unknown"
+
+
+# ── Native attack wrapper tests ──
+
+
+class TestMultiPromptAttackWrapper:
+    """Test MultiPromptSendingAttack wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_multi_prompt_sending_wrapper(self):
+        """Test MultiPromptSendingAttack wrapper with mocked PyRIT."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with patch("pyrit.executor.attack.MultiPromptSendingAttack") as mock_attack_cls:
+            mock_result = MagicMock()
+            mock_result.outcome = MagicMock()
+            mock_result.outcome.value = "success"
+            mock_attack = MagicMock()
+            mock_attack.execute_async = AsyncMock(return_value=mock_result)
+            mock_attack_cls.return_value = mock_attack
+
+            ctx = MagicMock()
+            ctx.multi_turn_target = MagicMock()
+            ctx.objective_target = MagicMock()
+            ctx.args = MagicMock()
+            ctx.args.scenario_timeout = 1200
+
+            from strike.multi_prompt_attack import run_multi_prompt_sending_attack
+            result = await run_multi_prompt_sending_attack(ctx, ["test objective"])
+            assert "multi_prompt_sending" in result
+            assert len(result["multi_prompt_sending"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_multi_prompt_sending_empty_objectives(self):
+        """Test that empty objectives returns empty dict."""
+        from strike.multi_prompt_attack import run_multi_prompt_sending_attack
+
+        ctx = MagicMock()
+        result = await run_multi_prompt_sending_attack(ctx, [])
+        assert result == {}
+
+
+class TestChunkedAttackWrapper:
+    """Test ChunkedRequestAttack wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_chunked_request_wrapper(self):
+        """Test ChunkedRequestAttack wrapper with mocked PyRIT."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with patch("pyrit.executor.attack.ChunkedRequestAttack") as mock_attack_cls:
+            mock_result = MagicMock()
+            mock_result.outcome = MagicMock()
+            mock_result.outcome.value = "success"
+            mock_attack = MagicMock()
+            mock_attack.execute_async = AsyncMock(return_value=mock_result)
+            mock_attack_cls.return_value = mock_attack
+
+            ctx = MagicMock()
+            ctx.multi_turn_target = MagicMock()
+            ctx.objective_target = MagicMock()
+            ctx.args = MagicMock()
+            ctx.args.scenario_timeout = 1200
+
+            from strike.chunked_attack import run_chunked_request_attack
+            result = await run_chunked_request_attack(ctx, ["test objective"])
+            assert "chunked_request" in result
+            assert len(result["chunked_request"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_chunked_request_empty_objectives(self):
+        """Test that empty objectives returns empty dict."""
+        from strike.chunked_attack import run_chunked_request_attack
+
+        ctx = MagicMock()
+        result = await run_chunked_request_attack(ctx, [])
+        assert result == {}

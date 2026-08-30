@@ -32,9 +32,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import yaml as _yaml
+
 logger = logging.getLogger(__name__)
+
+# R7: 效率参数从 config/defaults.yaml SSOT 读取 (禁止硬编码)
+_SSOT_PATH = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
+
+
+def _load_ssot_int(key: str, default: int) -> int:
+    """从 defaults.yaml 读取整数参数 (R7 SSOT 原则)."""
+    try:
+        if _SSOT_PATH.exists():
+            with open(_SSOT_PATH, encoding="utf-8") as _f:
+                _cfg = _yaml.safe_load(_f) or {}
+            return int(_cfg.get(key, default))
+    except Exception:
+        pass
+    return default
 
 # ──────────────────────────────────────────────────────────────────────
 # 常见 AI 服务端口 (按优先级排序)
@@ -419,3 +437,200 @@ def build_port_parsed_request(
         "headers": port_headers,
         "service_type": port_endpoint.service_type,
     }
+
+
+# ════════════════════════════════════════════════════════════════════
+# 向量数据库确认探测 (从 RedAmon _confirm_vector_dbs 借鉴)
+# 学术依据: Morris et al. (arXiv:2310.06870) — 嵌入反演需要知道向量数据库类型
+# ════════════════════════════════════════════════════════════════════
+
+# 向量数据库确认读取路径 (benign unauthenticated read)
+# (tech_name, [(path, expected_substring), ...])
+_VECTOR_DB_READS: dict[str, list[tuple[str, str]]] = {
+    "qdrant": [
+        ("/collections", "result"),
+        ("/", "qdrant"),
+    ],
+    "milvus": [
+        ("/collections", "collections"),
+        ("/v1/collections", "collections"),
+    ],
+    "weaviate": [
+        ("/v1/schema", "classes"),
+        ("/v1/.well-known/ready", "ready"),
+    ],
+    "chroma": [
+        ("/api/v1/collections", "collections"),
+        ("/api/v2/collections", "collections"),
+    ],
+    "elasticsearch": [
+        ("/_cat/indices", "indices"),
+        ("/", "cluster_name"),
+    ],
+    "redis": [
+        ("/info", "redis_version"),
+    ],
+}
+
+# 向量数据库端口映射 (补充 _AI_SERVICE_PORTS 中的向量 DB 端口)
+_VECTOR_DB_PORTS: dict[int, str] = {
+    6333: "qdrant",
+    6334: "qdrant",
+    19530: "milvus",
+    8080: "weaviate",  # 可能与 web 服务器共享, 需确认
+    8000: "chroma",    # 可能与 web 服务器共享, 需确认
+    9200: "elasticsearch",
+    6379: "redis",
+}
+
+
+@dataclass
+class VectorDBConfirmation:
+    """确认的向量数据库实例。
+
+    属性:
+        tech: 技术名称 (qdrant/milvus/weaviate/chroma/elasticsearch/redis)。
+        host: 主机名。
+        port: 端口号。
+        confirmed_via: 确认路径 (如 "/collections")。
+        response_preview: 响应预览 (前 200 字符)。
+    """
+
+    tech: str
+    host: str
+    port: int
+    confirmed_via: str = ""
+    response_preview: str = ""
+
+
+async def confirm_vector_dbs(
+    parsed: Any,
+    *,
+    timeout: float = 3.0,
+    port_endpoints: list[DiscoveredPortEndpoint] | None = None,
+) -> list[VectorDBConfirmation]:
+    """确认目标主机上的向量数据库服务。
+
+    学术依据:
+        - Morris et al. (arXiv:2310.06870) — 嵌入反演需要知道向量数据库类型
+        - RedAmon _confirm_vector_dbs — benign unauthenticated read 确认
+
+    策略:
+        1. 从 port_endpoints 结果中筛选向量数据库候选端口
+        2. 对每个候选发送 benign read 请求 (GET /collections, /v1/schema 等)
+        3. 确认后返回结构化结果
+
+    Args:
+        parsed: ParsedBurpRequest 实例 (提取 host 和 TLS 信息)。
+        timeout: 每个探测请求的超时秒数。
+        port_endpoints: 已发现的端口端点列表 (可选, 如为 None 则探测已知向量 DB 端口)。
+
+    Returns:
+        确认的向量数据库列表。
+    """
+    import httpx
+
+    host = _extract_host(parsed)
+    use_tls = _extract_tls(parsed)
+
+    if not host:
+        return []
+
+    # R8-1 资源生命周期: 共享单个 httpx.AsyncClient
+    # R8-6 并发安全: Semaphore 控制并发 (R7: 从 SSOT 读取)
+    _vdb_concurrency = _load_ssot_int("max_concurrent_probes", 10)
+    semaphore = asyncio.Semaphore(_vdb_concurrency)
+
+    # 收集候选 (tech, port) 对
+    candidates: list[tuple[str, int]] = []
+
+    if port_endpoints:
+        # 从已发现的端口端点中筛选向量 DB 端口
+        for pe in port_endpoints:
+            tech = _VECTOR_DB_PORTS.get(pe.port)
+            if tech:
+                candidates.append((tech, pe.port))
+
+    # 如果没有从 port_endpoints 获取到候选, 尝试直接探测已知端口
+    if not candidates:
+        for port, tech in _VECTOR_DB_PORTS.items():
+            candidates.append((tech, port))
+
+    if not candidates:
+        return []
+
+    # 去重
+    seen = set()
+    unique_candidates: list[tuple[str, int]] = []
+    for tech, port in candidates:
+        key = (tech, port)
+        if key not in seen:
+            seen.add(key)
+            unique_candidates.append((tech, port))
+
+    logger.info(
+        "Vector DB confirmation: probing %d candidates on %s",
+        len(unique_candidates),
+        host,
+    )
+
+    # 并发确认
+    confirmed: list[VectorDBConfirmation] = []
+    confirmed_lock = asyncio.Lock()
+
+    # R8-1 资源生命周期: 共享单个 httpx.AsyncClient (LIFO+共享/目标分离)
+    scheme = "https" if use_tls else "http"
+    probe_headers: dict[str, str] = {}
+    for key, value in getattr(parsed, "raw_headers", []):
+        if key.lower() not in ("content-length", "host"):
+            probe_headers[key] = value
+
+    async def _confirm_one(client: httpx.AsyncClient, tech: str, port: int) -> None:
+        reads = _VECTOR_DB_READS.get(tech, [])
+        if not reads:
+            return
+
+        async with semaphore:
+            for path, expected in reads:
+                url = f"{scheme}://{host}:{port}{path}"
+                try:
+                    response = await client.get(url, headers=probe_headers)
+                    if response.status_code == 200:
+                        body_text = response.text[:500]
+                        if not expected or expected.lower() in body_text.lower():
+                            async with confirmed_lock:
+                                confirmed.append(VectorDBConfirmation(
+                                    tech=tech,
+                                    host=host,
+                                    port=port,
+                                    confirmed_via=path,
+                                    response_preview=body_text[:200],
+                                ))
+                            logger.info(
+                                "Vector DB confirmed: %s on %s:%d via %s",
+                                tech,
+                                host,
+                                port,
+                                path,
+                            )
+                            return
+                except Exception:
+                    continue
+
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        verify=False,
+    ) as shared_client:
+        tasks = [_confirm_one(shared_client, tech, port) for tech, port in unique_candidates]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    if confirmed:
+        logger.info(
+            "Vector DB confirmation: %d databases confirmed",
+            len(confirmed),
+        )
+    else:
+        logger.debug("Vector DB confirmation: no databases confirmed")
+
+    return confirmed

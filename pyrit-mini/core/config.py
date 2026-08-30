@@ -1,18 +1,27 @@
 """CLI 参数解析 + 环境初始化 + 输出目录管理。
 
 攻击链路配置入口:
-    优先级: CLI --flag > config/defaults.yaml > 硬编码默认值
+    优先级: CLI --flag > --config-file YAML > config/defaults.yaml > 硬编码默认值
 
 职责:
     - parse_args: CLI 参数解析 (argparse)
+    - load_config_file: 加载 --config-file 统一 YAML 配置
     - get_output_dir: 输出目录路径生成 (带时间戳)
     - ensure_output_dir: 创建输出目录及子目录
     - setup_environment: PyRIT 环境初始化 (SQLite WAL 模式)
+
+增量借鉴 (pyrit_scan CLI 模式):
+    - --memory-labels: 运行标签 (JSON), 写入 CentralMemory 用于结果过滤
+    - --seed-filters: 种子元数据过滤 (KEY=VALUE), 精准选取种子
+    - --converters 新增 technique:converter.xxx 语法: per-technique 追加 converter
+    - --add-initializer: 动态 Target 注册 (class_name,arg=value)
+    - --config-file: 统一 YAML 配置, 可声明 seeds/converters/techniques/burp
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from datetime import datetime
@@ -56,6 +65,311 @@ def _apply_defaults(args: argparse.Namespace, defaults: dict[str, Any]) -> None:
         current = getattr(args, arg_key, None)
         if current is None:
             setattr(args, arg_key, default_val)
+
+
+def _load_config_file(path: str) -> dict[str, Any]:
+    """加载 --config-file 指定的 YAML 配置文件。
+
+    支持 YAML 键:
+        seeds: string          # 种子文件名 (逗号分隔)
+        converters: string     # Converter 链 (auto, l5_optimal, none, 或 technique:converter.xxx 语法)
+        techniques: string     # 攻击技术 (auto, single, crescendo, ...)
+        burp: [string]         # Burp 文件名列表
+        max_seeds: int         # 最大种子数
+        max_attempts: int      # 每个种子最大重试
+        max_concurrency: int   # 最大并发数
+        timeout: int           # 场景超时秒数
+        memory_labels: dict    # 运行标签 (写入 CentralMemory)
+        seed_filters: dict     # 种子过滤 (KEY=VALUE)
+        add_initializer: [string]  # 动态 Initializer 注册
+        offensive: bool        # 全火力模式
+        escalation: bool       # 启用/禁用升级
+        html_report: bool      # 生成 HTML 报告
+        rate_limit: int        # API 限速 (RPM)
+        target_api_endpoint: string
+        target_api_key: string
+        target_api_model: string
+        target_api_type: string  # chat | responses
+        litellm_model: string
+        browser_url: string
+    """
+    config_path = Path(path)
+    if not config_path.is_absolute():
+        config_path = _PROJECT_ROOT / config_path
+    if not config_path.exists():
+        logger.warning("Config file not found: %s", config_path)
+        return {}
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            logger.warning("Config file %s is not a dict, ignoring", config_path)
+            return {}
+        logger.info("Loaded config file: %s (%d keys)", config_path, len(data))
+        return data
+    except Exception as e:
+        logger.warning("Failed to load config file %s: %s", config_path, e)
+        return {}
+
+
+def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None:
+    """用 --config-file YAML 填充 args 中仍为 None 的参数。
+
+    优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码
+    因此只填充 args 中仍为 None 或默认值的参数。
+
+    支持 YAML 嵌套 section (所有 section 的 key 平铺到 args 顶层, 与 defaults.yaml key 对齐):
+        scoring:       # 评分配置 — 控制 T0/J1/J2/J3 级联评分策略
+            dual_judge_enabled: bool
+            dual_judge_high_confidence_threshold: float
+            wilson_confidence_level: float
+            scorer_timeout: int
+            best_of_n_retries: int
+        escalation:    # 多轮升级配置 — 控制 Crescendo/TAP/PAIR 参数
+            escalation_asr_threshold: float
+            post_l1_exit_threshold: float
+            post_l2_exit_threshold: float
+            max_escalation_targets: int
+            crescendo_max_turns: int
+            tap_tree_width: int
+            tap_tree_depth: int
+            tap_branching: int
+            tap_success_threshold: int
+            pair_tree_width: int
+            pair_tree_depth: int
+        probe:         # 黑盒探测配置
+            probe_timeout: int
+            probe_retries: int
+            deep_probe_timeout: int
+            parallel_probe_timeout: int
+            max_concurrent_probes: int
+        adaptive:      # PyRIT TextAdaptive 自适应配置
+            adaptive_epsilon: float
+            adaptive_random_seed: int
+            adaptive_max_attempts: int
+            adaptive_technique_filter: list | null
+        execution:     # 执行控制
+            max_concurrency: int
+            max_attempts: int
+            max_seeds: int
+            scenario_timeout: int
+            api_timeout: int
+            rate_limit: int
+            l5_optimal_paths: int
+            auto_seed_expansion_factor: int
+    """
+    # 字符串/数值参数: 仅在 None 时填充
+    _str_keys = [
+        "seeds", "converters", "techniques", "max_seeds", "max_attempts",
+        "max_concurrency", "timeout", "rate_limit",
+        "litellm_model", "target_api_endpoint", "target_api_key",
+        "target_api_model", "target_api_type", "browser_url",
+    ]
+    for key in _str_keys:
+        yaml_val = config.get(key)
+        if yaml_val is not None and getattr(args, key, None) is None:
+            setattr(args, key, yaml_val)
+
+    # burp: 特殊处理 — config_file 中的 burp 是列表, args.burp 可能是 None
+    burp_cfg = config.get("burp")
+    if burp_cfg is not None and args.burp is None:
+        if isinstance(burp_cfg, list):
+            args.burp = burp_cfg[0] if len(burp_cfg) == 1 else burp_cfg
+        else:
+            args.burp = burp_cfg
+
+    # bool 参数: 仅在 None/默认值时填充
+    if config.get("offensive") is not None and not args.offensive:
+        args.offensive = bool(config["offensive"])
+    if config.get("html_report") is not None and not args.html_report:
+        args.html_report = bool(config["html_report"])
+    if config.get("escalation") is not None and args.escalation is None:
+        args.escalation = bool(config["escalation"])
+
+    # memory_labels: config_file 中是 dict, CLI 中是 JSON 字符串
+    # 如果 CLI 未指定 --memory-labels (None), 则用 config_file 的
+    ml_cfg = config.get("memory_labels")
+    if ml_cfg is not None and args.memory_labels is None:
+        if isinstance(ml_cfg, dict):
+            args.memory_labels = ml_cfg  # _parse_memory_labels 会处理 dict
+
+    # seed_filters: config_file 中是 dict, CLI 中是 KEY=VALUE 字符串
+    sf_cfg = config.get("seed_filters")
+    if sf_cfg is not None and args.seed_filters is None:
+        if isinstance(sf_cfg, dict):
+            # 转为逗号分隔的 KEY=VALUE 字符串, _parse_seed_filters 会再解析
+            args.seed_filters = ",".join(f"{k}={v}" for k, v in sf_cfg.items())
+
+    # add_initializer: config_file 中是列表
+    ai_cfg = config.get("add_initializer")
+    if ai_cfg is not None and args.add_initializer is None:
+        if isinstance(ai_cfg, list):
+            args.add_initializer = [str(x) for x in ai_cfg]
+
+    # ── 嵌套 section: scoring / escalation / probe / adaptive / execution ──
+    # 所有 section 的 key 平铺到 args 顶层 (与 defaults.yaml key 对齐)
+    # 由于 _apply_config_file 在 _apply_defaults 之前运行,
+    # 填充后的值不会被 defaults.yaml 覆盖 (因为不再是 None)
+    _section_keys = [
+        # scoring section — 评分策略
+        ("scoring", ["dual_judge_enabled", "dual_judge_high_confidence_threshold",
+                      "wilson_confidence_level", "scorer_timeout", "best_of_n_retries"]),
+        # escalation section — 多轮升级
+        ("escalation", ["escalation_asr_threshold", "post_l1_exit_threshold",
+                         "post_l2_exit_threshold", "max_escalation_targets",
+                         "crescendo_max_turns", "tap_tree_width", "tap_tree_depth",
+                         "tap_branching", "tap_success_threshold",
+                         "pair_tree_width", "pair_tree_depth"]),
+        # probe section — 黑盒探测
+        ("probe", ["probe_timeout", "probe_retries", "deep_probe_timeout",
+                     "parallel_probe_timeout", "max_concurrent_probes"]),
+        # adaptive section — PyRIT TextAdaptive
+        ("adaptive", ["adaptive_epsilon", "adaptive_random_seed",
+                        "adaptive_max_attempts", "adaptive_technique_filter"]),
+        # execution section — 执行控制 (补充 _str_keys 中未覆盖的)
+        ("execution", ["scenario_timeout", "api_timeout", "rate_limit_retries",
+                        "timeout_max_retries", "timeout_max_delay",
+                        "l5_optimal_paths", "auto_seed_expansion_factor",
+                        "rate_limit", "max_concurrency", "max_attempts", "max_seeds"]),
+    ]
+
+    for section_name, keys in _section_keys:
+        section_data = config.get(section_name)
+        if not isinstance(section_data, dict):
+            continue
+        for key in keys:
+            if key not in section_data:
+                continue
+            val = section_data[key]
+            # 仅在 args 中仍为 None 时填充 (CLI 优先)
+            if getattr(args, key, None) is None:
+                setattr(args, key, val)
+                logger.debug("config-file section '%s': %s = %s", section_name, key, val)
+
+
+def _parse_memory_labels(raw: Any) -> dict[str, str]:
+    """解析 --memory-labels 参数为 dict。
+
+    支持:
+        - JSON 字符串: '{"run_id":"r001","target":"deepseek"}'
+        - dict (来自 config_file): 直接返回
+        - None/空: 返回 {}
+    """
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return {str(k): str(v) for k, v in raw.items()}
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items()}
+            logger.warning("--memory-labels JSON is not a dict: %s", type(parsed).__name__)
+        except json.JSONDecodeError as e:
+            logger.warning("--memory-labels is not valid JSON: %s (value=%s)", e, raw[:100])
+    return {}
+
+
+def _parse_seed_filters(raw: Any) -> dict[str, str]:
+    """解析 --seed-filters 参数为 dict。
+
+    支持:
+        - 逗号分隔 KEY=VALUE: "owasp_id=LLM01,difficulty=high"
+        - dict (来自 config_file): 直接返回
+        - None/空: 返回 {}
+    """
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return {str(k): str(v) for k, v in raw.items()}
+    if isinstance(raw, str):
+        result: dict[str, str] = {}
+        for pair in raw.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if "=" not in pair:
+                logger.warning("Invalid seed-filter (expected KEY=VALUE): %s", pair)
+                continue
+            k, v = pair.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if k:
+                result[k] = v
+        return result
+    return {}
+
+
+def _parse_converter_overrides(converters_str: str | None) -> dict[str, list[str]]:
+    """解析 --converters 中的 technique:converter.xxx 追加语法。
+
+    语法: --converters "auto;tap:persuasion;pair:decomposition,base64"
+    - 分号分隔: 前面是全局 converter 链, 后面是 per-technique 追加
+    - 冒号前是 technique 名, 冒号后是逗号分隔的 converter chain 名
+    - 返回 {technique: [chain_name, ...]}
+
+    如果没有分号语法, 返回 {} (向后兼容)。
+    """
+    if not converters_str or ";" not in converters_str:
+        return {}
+
+    overrides: dict[str, list[str]] = {}
+    parts = converters_str.split(";")
+    for part in parts[1:]:  # 跳过第一个 (全局链)
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        tech, chains = part.split(":", 1)
+        tech = tech.strip()
+        chain_list = [c.strip() for c in chains.split(",") if c.strip()]
+        if tech and chain_list:
+            overrides[tech] = chain_list
+    return overrides
+
+
+def _parse_converter_global(converters_str: str | None) -> str:
+    """提取 --converters 中的全局 converter 链 (分号前的部分)。
+
+    "auto;tap:persuasion" → "auto"
+    "l5_optimal" → "l5_optimal"
+    "none;pair:base64" → "none"
+    """
+    if not converters_str:
+        return "auto"
+    if ";" in converters_str:
+        return converters_str.split(";")[0].strip()
+    return converters_str.strip()
+
+
+def _parse_initializer_specs(raw: list[str] | None) -> list[dict[str, Any]]:
+    """解析 --add-initializer 列表为结构化 spec。
+
+    输入: ["ClassName,arg1=val1,arg2=val2", "OtherInit"]
+    输出: [
+        {"class": "ClassName", "args": {"arg1": "val1", "arg2": "val2"}},
+        {"class": "OtherInit", "args": {}},
+    ]
+    """
+    if not raw:
+        return []
+    specs: list[dict[str, Any]] = []
+    for item in raw:
+        parts = item.split(",")
+        class_name = parts[0].strip()
+        if not class_name:
+            continue
+        kwargs: dict[str, str] = {}
+        for part in parts[1:]:
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            k, v = part.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if k:
+                kwargs[k] = v
+        specs.append({"class": class_name, "args": kwargs})
+    return specs
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -110,7 +424,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--seeds",
         type=str,
-        default="elite_jailbreaks,asi_top10,owasp_full_coverage",
+        default=None,  # config-file 或 defaults.yaml 填充, 最终 fallback "elite_jailbreaks,asi_top10,owasp_full_coverage"
         help="种子文件名 (逗号分隔)",
     )
     parser.add_argument("--max-seeds", type=int, default=None, help="最大种子数 (默认 25)")
@@ -119,12 +433,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # ── Converter 转换 ──
     parser.add_argument(
-        "--converters", type=str, default="auto", help="Converter 链 (auto, l5_optimal, none, ...)"
+        "--converters", type=str, default=None, help="Converter 链 (auto, l5_optimal, none, ...)"
     )
 
     # ── 攻击发送 ──
     parser.add_argument(
-        "--techniques", type=str, default="auto", help="攻击技术 (auto, single, crescendo, ...)"
+        "--techniques", type=str, default=None, help="攻击技术 (auto, single, crescendo, ...)"
     )
     parser.add_argument("--max-attempts", type=int, default=None, help="每个种子最大重试次数")
     parser.add_argument("--max-concurrency", type=int, default=None, help="最大并发数 (默认 3)")
@@ -140,6 +454,59 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # ── 报告 ──
     parser.add_argument("--html-report", action="store_true", default=False, help="生成 HTML 报告")
+
+    # ── 增量借鉴: --memory-labels 运行标签 ──
+    # 借鉴 pyrit_scan 的 --memory-labels: 运行时标签写入 CentralMemory,
+    # 用于后续结果查询过滤 (如 label=production,target=deepseek)
+    # 格式: JSON 字符串 {"run_id": "r001", "target": "deepseek"}
+    parser.add_argument(
+        "--memory-labels",
+        type=str,
+        default=None,
+        metavar="JSON",
+        help='运行标签 (JSON 字符串, 如 \'{"run_id":"r001","target":"deepseek"}\'); '
+             '写入 CentralMemory 用于结果过滤和报告标记',
+    )
+
+    # ── 增量借鉴: --seed-filters 种子过滤 ──
+    # 借鉴 pyrit_scan 的 --seed-filters: 按 metadata KEY=VALUE 过滤种子
+    # 格式: owasp_id=LLM01,difficulty=high — 仅保留匹配的种子
+    # 支持多值 (逗号分隔): category=attack,language=en
+    parser.add_argument(
+        "--seed-filters",
+        type=str,
+        default=None,
+        metavar="KEY=VALUE",
+        help='种子元数据过滤 (逗号分隔 KEY=VALUE, 如 owasp_id=LLM01,difficulty=high); '
+             '仅保留 metadata 中匹配的种子',
+    )
+
+    # ── 增量借鉴: --add-initializer 动态 Target 注册 ──
+    # 借鉴 pyrit_scan 的 --add-initializer: 运行时动态注册 PyRIT Initializer
+    # 格式: ClassName,arg1=val1,arg2=val2 — 反射实例化并注册到 PyRIT
+    # 可重复: --add-initializer MyInit,foo=bar --add-initializer OtherInit
+    parser.add_argument(
+        "--add-initializer",
+        type=str,
+        default=None,
+        metavar="CLASS[,args]",
+        action="append",
+        help='动态注册 PyRIT Initializer (可重复); '
+             '格式: ClassName,arg1=val1,arg2=val2 — 反射实例化并注册',
+    )
+
+    # ── 增量借鉴: --config-file 统一 YAML 配置 ──
+    # 借鉴 pyrit_scan 的 --config-file: 一个 YAML 声明所有攻击组件
+    # 支持声明: seeds, converters, techniques, burp, memory_labels, seed_filters
+    # 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码
+    parser.add_argument(
+        "--config-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help='统一 YAML 配置文件路径; 可声明 seeds/converters/techniques/burp 等; '
+             'CLI --flag 优先级高于配置文件',
+    )
 
     # ── 目标路由 (对齐 PyRIT 1.0.1 原生 Target 体系) ──
     # 学术依据: PyRIT (arXiv:2407.01232) — 多原生 Target 路由
@@ -204,7 +571,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     explicit_escalation = args.escalation
 
-    # ── 应用 YAML 默认值 ──
+    # ── 加载 --config-file 统一 YAML 配置 ──
+    # 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码
+    # config_file 只填充 args 中仍为 None 的参数 (不覆盖 CLI 显式指定的值)
+    config_file_data: dict[str, Any] = {}
+    if getattr(args, "config_file", None):
+        config_file_data = _load_config_file(args.config_file)
+        _apply_config_file(args, config_file_data)
+
+    # ── 应用 YAML 默认值 (config/defaults.yaml) ──
     defaults = _load_defaults()
     _apply_defaults(args, defaults)
 
@@ -220,6 +595,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.escalation = explicit_escalation
     elif args.escalation is None:
         args.escalation = True
+
+    # ── 增量借鉴: 解析 --converters technique:converter.xxx 追加语法 ──
+    # 先从原始 converters 字符串解析 per-technique overrides (保留 ; 语法)
+    # 然后再提取全局 converter 链 (去掉 ; 语法)
+    _raw_converters = getattr(args, "converters", None)
+    args.converter_overrides = _parse_converter_overrides(_raw_converters)
+
+    # ── 增量借鉴: 提取全局 converter 链 (去掉 technique:converter.xxx 语法) ──
+    # args.converters 可能包含 "auto;tap:persuasion" 格式
+    # 提取分号前的部分作为全局 converter 链, 确保 main.py 的 split(",") 正常工作
+    if args.converters and ";" in str(args.converters):
+        args.converters = _parse_converter_global(args.converters)
 
     # ── Burp 请求路径解析 ──
     # 不指定 --burp → 自动扫描 data/burp/*.txt 全部文件 (逐个深度攻击)
@@ -265,6 +652,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.burp = resolved_burps
     # 额外保留列表形式供 main.py 判断是否多 endpoint
     args._burp_list = resolved_burps
+
+    # ── 增量借鉴: 解析 --memory-labels JSON ──
+    # 将 JSON 字符串解析为 dict, 存入 args.memory_labels_parsed
+    # main.py 中读取并写入 CentralMemory
+    args.memory_labels_parsed = _parse_memory_labels(getattr(args, "memory_labels", None))
+
+    # ── 增量借鉴: 解析 --seed-filters KEY=VALUE ──
+    # 解析逗号分隔的 KEY=VALUE 为 dict, 存入 args.seed_filters_parsed
+    args.seed_filters_parsed = _parse_seed_filters(getattr(args, "seed_filters", None))
+
+    # ── 增量借鉴: 解析 --add-initializer 列表 ──
+    # 将 ["ClassName,arg1=val1", ...] 解析为 [{"class": "...", "args": {...}}, ...]
+    args.initializer_specs = _parse_initializer_specs(getattr(args, "add_initializer", None))
+
+    # ── 硬编码 fallback (CLI + config-file + defaults.yaml 都未指定时) ──
+    if args.seeds is None:
+        args.seeds = "elite_jailbreaks,asi_top10,owasp_full_coverage"
+    if args.converters is None:
+        args.converters = "auto"
+    if args.techniques is None:
+        args.techniques = "auto"
 
     return args
 

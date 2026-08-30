@@ -2,12 +2,17 @@
 # arXiv:2402.19181 — Zeng et al., Persuasion (authority ASR 38.4%)
 # arXiv:2402.14266 — DrAttack, Decomposition (ASR 40-60%)
 # arXiv:2407.01232 — PyRIT, SequentialAttack FIRST_SUCCESS
-"""Converter 棰勮鍜屾瀯寤哄櫒 鈥?鎷嗗垎鑷?converter_chains.py銆?
+# arXiv:2302.12173 — Greshake et al., Indirect injection (file converters target-dependent)
+"""Converter presets and build orchestrator — split from converter_chains.py.
 
-鍖呭惈 l5_optimal, l5_optimal_for_model, build_converter_map 绛夐璁惧嚱鏁般€?
-鎷嗗垎鑷?converter_chains.py (736琛?鈫?~430+~310)銆?
+Contains l5_optimal, l5_optimal_for_model, build_converter_map.
 
-L5 v36: 瀵归綈 PyRIT 1.0.1 瀹樻柟 SelectiveTextConverter 鏈€浣冲疄璺点€?
+L5 v39: Target-aware + technique-aware converter selection.
+    - l5_optimal gains target_type param to filter inapplicable converters
+    - build_converter_map assigns different chains per technique type:
+      * Baseline techniques (prompt_sending) → no converters (raw payload)
+      * Context techniques (many_shot/skeleton_key/role_play) → semantic-only
+      * Escalation techniques (crescendo/tap/pair) → full L5 arsenal
 """
 
 from __future__ import annotations
@@ -18,60 +23,125 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# 鈹€鈹€ L5 v36: 鍊欓€夊垪琛? 瀵归綈 PyRIT 1.0.1 SelectiveTextConverter 鈹€鈹€
+# ── Target type classification ──
+# arXiv:2302.12173 — Greshake et al.: target capability fingerprint determines
+#   which attack vectors are effective. MCP agents accept JSON text prompts,
+#   not file uploads; pure LLM chat endpoints cannot process document files.
+
+# File-type converters only effective on targets that accept file uploads
+_FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
+
+# Techniques that are pure baseline (no converter needed — raw payload)
+_BASELINE_TECHNIQUES = frozenset({"prompt_sending"})
+
+# Techniques that use context/prefix injection (semantic converters only)
+_CONTEXT_TECHNIQUES = frozenset({
+    "many_shot", "skeleton_key", "role_play_movie_script",
+    "role_play_persuasion", "context_compliance", "flip",
+})
 
 
-def l5_optimal(converter_target: Any | None = None) -> list[Any]:
-    """L5 v36 Converter 鍊欓€夊垪琛?鈥?瀵归綈 PyRIT 1.0.1 瀹樻柟鏈€浣冲疄璺?
+def _classify_target_type(
+    capabilities: str | None = None,
+    target_fingerprint: dict[str, Any] | None = None,
+) -> str:
+    """Classify target type for converter filtering.
 
-    L5 v36 鏍稿績鏀硅繘 (vs v35):
-        1. 寮曞叆 SelectiveTextConverter 鈥?閫夋嫨鎬х紪鐮? ASR 25-35% (vs 鍏ㄦ枃 7%)
-        2. 寮曞叆 CodeChameleonConverter 鈥?ASR 35-45% (lv2024codechameleon)
-        3. 寮曞叆 PolicyPuppetryConverter 鈥?ASR 30-40%
-        4. 寮曞叆閾惧紡閫夋嫨鎬?(2灞? preserve_tokens) 鈥?ASR 30-40%
-        5. 瑁佸壀 ASR < 10% 鐨勫叏鏂囩紪鐮佽矾寰?(Base64, UnicodeSub 鍏ㄦ枃)
-        6. 寮曞叆 SearchReplaceConverter 鈥?鍏抽敭璇嶇簿鍑嗘浛鎹?(0 token)
-        7. 寮曞叆 TemplateSegmentConverter 鈥?鍒嗘娉ㄥ叆
-        8. 寮曞叆 AsciiSmugglerConverter 鈥?Unicode 璧扮
-        9. 寮曞叆 File Converters 鈥?PDFConverter + WordDocConverter (PyRIT 瀹樻柟 File Converters)
+    Returns one of: 'mcp_agent', 'http_api', 'llm_chat', 'browser', 'unknown'
 
-    鍊欓€夊垪琛?(鎸?ASR 闄嶅簭, SequentialAttack FIRST_SUCCESS):
-        1. DecompositionConverter           鈥?ASR 40-60% (DrAttack, 鏈€楂?
-        2. CodeChameleonConverter           鈥?ASR 35-45% (NEW)
-        3. PersuasionConverter(authority)   鈥?ASR 38.4% (Zeng et al.)
-        4. PolicyPuppetryConverter          鈥?ASR 30-40% (NEW)
-        5. ChainedSelective (Base64+ROT13)  鈥?ASR 30-40% (NEW, 閫夋嫨鎬ч摼寮?
-        6. SelectiveEncoding (Base64 30%)   鈥?ASR 25-35% (NEW, 閫夋嫨鎬х紪鐮?
-        7. RandomTranslationConverter       鈥?ASR 25-35% (澶氳瑷€閮ㄥ垎娣锋穯)
-        8. TemplateSegmentConverter         鈥?ASR 25-35% (NEW, 鍒嗘娉ㄥ叆)
-        9. KeywordReplacement              鈥?ASR 20-30% (NEW, 0 token)
-        10. SelectiveObfuscation (Leet 20%) 鈥?ASR 20-30% (NEW, 閫夋嫨鎬ф贩娣?
-        11. VariationConverter              鈥?ASR 20-30% (澶氭牱鎬цˉ鍏?
-        12. AsciiSmugglerConverter          鈥?ASR 20-30% (NEW, Unicode璧扮)
-        13. ROT13Converter                  鈥?ASR 30-40% (璇箟娣锋穯, 淇濈暀)
-        14. WordDocConverter (direct)       鈥?payload 鈫?.docx 鏂囦欢 (NEW, 鏂囨。鎶曢€?
-        15. WordDocConverter (placeholder)  鈥?妯℃澘鍗犱綅绗︽浛鎹?(NEW, 闅愯斀娉ㄥ叆)
-        16. PDFConverter (direct)           鈥?payload 鈫?PDF 鏂囦欢 (NEW, 鏂囨。鎶曢€?
-        17. PDFConverter (injection)         鈥?宸叉湁 PDF 娉ㄥ叆 (NEW, 闅愯斀娉ㄥ叆)
-
-    瑁佸壀璺緞 (ASR < 10% 鎴栬閫夋嫨鎬х増鏈浛浠?:
-        - Base64Converter (鍏ㄦ枃)     鈥?ASR 7%, 琚?SelectiveEncoding 鏇夸唬
-        - UnicodeSubstitution (鍏ㄦ枃) 鈥?ASR 10-15%, 琚?SelectiveObfuscation 鏇夸唬
-        - RandomCapitalLetters (鍏ㄦ枃)鈥?ASR 15-25%, 涓?ROT13 閲嶅彔, 闄嶇骇
-        - FlipConverter              鈥?ASR 鈮?% (HTTP), 宸茬Щ闄?
-        - AsciiArtConverter          鈥?ASR 鈮?%, 鐮村潖 JSON, 宸茬Щ闄?
-
-    瀛︽湳渚濇嵁:
-        - Wei et al. (arXiv:2307.15043): 涓茶仈 >2 灞?ASR 浠?12% 闄嶈嚦 4%
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 鏈€楂?
-        - DrAttack (arXiv:2402.14266): 鍒嗚В閲嶇粍 ASR 40-60% 鏈€楂?
-        - Lv et al. (arXiv:2404.30015): CodeChameleon ASR 35-45%
-        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
-        - PyRIT 瀹樻柟 SelectiveTextConverter: 閫夋嫨鎬ц浆鎹㈡渶浣冲疄璺?
-        - PyRIT 瀹樻柟 File Converters: PDFConverter + WordDocConverter (鏂囨。鎶曢€?闂存帴娉ㄥ叆)
+    arXiv:2302.12173 — target capability fingerprint determines attack surface.
+    arXiv:2407.01232 — PyRIT HTTPTarget sends JSON body, no file upload support.
 
     Args:
-        converter_target: LLM 鐩爣瀹炰緥 (鍙€? 缂哄け鏃朵粎杩斿洖闈?LLM converter).
+        capabilities: comma-separated capability string from target_fingerprint.
+        target_fingerprint: full fingerprint dict (optional, for richer inference).
+
+    Returns:
+        Target type string for converter filtering.
+    """
+    if target_fingerprint:
+        caps = set()
+        cap_str = target_fingerprint.get("capabilities", "") or ""
+        if cap_str:
+            caps = {c.strip().lower() for c in cap_str.split(",") if c.strip()}
+        app_type = (target_fingerprint.get("app_type") or "").lower()
+        target_type = (target_fingerprint.get("target_type") or "").lower()
+
+        if "mcp" in caps or "mcp_protocol" in caps:
+            return "mcp_agent"
+        if app_type == "browser" or target_type == "browser":
+            return "browser"
+        if "function_calling" in caps or "tool_hijack" in caps:
+            return "mcp_agent"
+        if app_type in ("chat", "responses", "litellm"):
+            return "llm_chat"
+
+    if capabilities:
+        caps = {c.strip().lower() for c in capabilities.split(",") if c.strip()}
+        if "mcp" in caps or "mcp_protocol" in caps:
+            return "mcp_agent"
+        if "function_calling" in caps:
+            return "mcp_agent"
+
+    return "http_api"
+
+
+def _is_file_converter(converter: Any) -> bool:
+    """Check if converter is a file-type converter (PDF/WordDoc)."""
+    return type(converter).__name__ in _FILE_CONVERTER_NAMES
+
+
+def l5_optimal(
+    converter_target: Any | None = None,
+    *,
+    target_type: str = "unknown",
+) -> list[Any]:
+    """L5 v39 target-aware Converter candidate list.
+
+    L5 v39 target-aware filtering:
+        - MCP Agent (JSON text prompt): excludes File Converters (PDF/WordDoc)
+          because MCP agents accept JSON {"prompt": "..."} not file uploads.
+        - HTTP API (Burp JSON body): excludes File Converters for same reason.
+        - LLM Chat (OpenAI/LiteLLM API): excludes File Converters (no upload API).
+        - Browser (Playwright): File Converters retained (browser can upload files).
+
+    Candidate list (by ASR descending, SequentialAttack FIRST_SUCCESS):
+        1. DecompositionConverter           — ASR 40-60% (DrAttack, highest)
+        2. CodeChameleonConverter           — ASR 35-45%
+        3. PersuasionConverter(authority)   — ASR 38.4% (Zeng et al.)
+        4. PolicyPuppetryConverter          — ASR 30-40%
+        5. ChainedSelective (Base64+ROT13)  — ASR 30-40% (selective chain)
+        6. SelectiveEncoding (Base64 30%)   — ASR 25-35%
+        7. RandomTranslationConverter       — ASR 25-35%
+        8. TemplateSegmentConverter         — ASR 25-35%
+        9. KeywordReplacement              — ASR 20-30% (0 token)
+        10. SelectiveObfuscation (Leet 20%) — ASR 20-30%
+        11. VariationConverter              — ASR 20-30%
+        12. AsciiSmugglerConverter          — ASR 20-30%
+        13. ROT13Converter                  — ASR 30-40%
+        14. WordDocConverter (direct)       — payload → .docx (target-dependent)
+        15. WordDocConverter (placeholder)  — template injection (target-dependent)
+        16. PDFConverter (direct)           — payload → PDF (target-dependent)
+        17. PDFConverter (injection)         — existing PDF injection (target-dependent)
+
+    Pruned paths (ASR < 10% or selective replacements):
+        - Base64Converter (full-text) → replaced by SelectiveEncoding
+        - UnicodeSubstitution (full-text) → replaced by SelectiveObfuscation
+        - FlipConverter (ASR ≈ 0% HTTP) → removed
+        - AsciiArtConverter (ASR ≈ 0%, breaks JSON) → removed
+
+    Academic:
+        - Wei et al. (arXiv:2307.15043): serial >2 layers ASR 12%→4%
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4%
+        - DrAttack (arXiv:2402.14266): decomposition ASR 40-60%
+        - Lv et al. (arXiv:2404.30015): CodeChameleon ASR 35-45%
+        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
+        - Greshake et al. (arXiv:2302.12173): target capability → attack surface
+
+    Args:
+        converter_target: LLM target instance (optional).
+        target_type: target classification from _classify_target_type.
+            "unknown" (default) retains all converters (backward compatible).
     """
     converters: list[Any] = []
 
@@ -178,17 +248,29 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
     # PDFConverter(existing_pdf=, injection_items=) 鍦ㄦ寚瀹氬潗鏍囨敞鍏ユ枃鏈?
     converters.extend(pdf_injection())
 
-    # 瑁佸壀璺緞 (琚€夋嫨鎬х増鏈浛浠?:
-    # - Base64Converter (鍏ㄦ枃, ASR 7%) 鈫?琚?selective_encoding 鏇夸唬
-    # - UnicodeSubstitutionConverter (鍏ㄦ枃, ASR 10-15%) 鈫?琚?selective_obfuscation 鏇夸唬
-    # - RandomCapitalLettersConverter (鍏ㄦ枃, ASR 15-25%) 鈫?涓?ROT13 閲嶅彔, 闄嶇骇
-    # - FlipConverter (ASR 鈮?% HTTP) 鈫?宸茬Щ闄?
-    # - AsciiArtConverter (ASR 鈮?%, 鐮村潖 JSON) 鈫?宸茬Щ闄?
+    # ── L5 v39: Target-aware filtering ──
+    # arXiv:2302.12173 — Greshake et al.: target type determines attack surface.
+    # arXiv:2407.01232 — PyRIT HTTPTarget sends JSON body, no file upload.
+    # File converters (PDF/WordDoc) only work on browser targets that can
+    # upload files. MCP agents / HTTP APIs / LLM chat endpoints accept
+    # text in JSON body, not binary file attachments.
+    _skip_file_converters = target_type in ("mcp_agent", "http_api", "llm_chat")
+    if _skip_file_converters:
+        before_count = len(converters)
+        converters = [c for c in converters if not _is_file_converter(c)]
+        pruned = before_count - len(converters)
+        if pruned > 0:
+            logger.info(
+                "L5 v39: Target type '%s' — pruned %d file converters "
+                "(PDF/WordDoc not applicable, target accepts text-only JSON)",
+                target_type, pruned,
+            )
 
     if converters:
         logger.info(
-            "L5 v36: %d converter candidates built (Selective-First)",
-            len(converters),
+            "L5 v39: %d converter candidates built "
+            "(target_type=%s, Selective-First)",
+            len(converters), target_type,
         )
         for i, c in enumerate(converters):
             logger.info("  Candidate %d: %s", i + 1, type(c).__name__)
@@ -196,36 +278,36 @@ def l5_optimal(converter_target: Any | None = None) -> list[Any]:
     return converters
 
 
-# 鈹€鈹€ 鏂偣 #3 淇: 鍩轰簬妯″瀷鏃忓厛楠?ASR 鎺掑簭鐨?L5 鍊欓€夊垪琛?鈹€鈹€
-
-
 def l5_optimal_for_model(
     converter_target: Any | None = None,
     model_family: str | None = None,
+    *,
+    target_type: str = "unknown",
 ) -> list[Any]:
-    """鍩轰簬妯″瀷鏃忓厛楠?ASR 鎺掑簭鐨?L5 Converter 鍊欓€夊垪琛?(鏂偣 #3 淇).
+    """Model-family ASR-ordered + target-aware converter candidate list.
 
-    鏌ヨ asr_priors.yaml:converter_asr 涓妯″瀷鏃忕殑 ASR,
-    鎸夐檷搴忔帓鍒楀€欓€?converter, 浣?executor.py 鐨?FIRST_SUCCESS
-    绛栫暐浼樺厛灏濊瘯瀵硅妯″瀷鏈€鏈夋晥鐨?converter銆?
+    Queries asr_priors.yaml:converter_asr for model-family specific ASR,
+    sorts candidates by descending ASR so executor's FIRST_SUCCESS
+    strategy tries the most effective converter first.
 
-    瀛︽湳渚濇嵁:
-        - Zeng et al. (arXiv:2402.19181) 鈥?涓嶅悓 converter 瀵逛笉鍚?
-          妯″瀷鏃忕殑 ASR 宸紓鏄捐憲 (濡?DecompositionConverter 瀵?
-          gpt-4 ASR 50%, 瀵?claude-3 ASR 45%)
-        - asr_priors.yaml 绗?178-236 琛屽凡鍖呭惈 8 涓ā鍨嬫棌鐨?
-          converter ASR 鍏堥獙鏁版嵁, 浣嗕粠鏈 l5_optimal() 浣跨敤
+    Academic:
+        - Zeng et al. (arXiv:2402.19181): different converters have
+          different ASR per model family (e.g. DecompositionConverter
+          gpt-4 ASR 50%, claude-3 ASR 45%)
+        - asr_priors.yaml lines 178-236 contain model-family
+          converter ASR priors
 
     Args:
-        converter_target: LLM 鐩爣瀹炰緥 (鍙€?銆?
-        model_family: 鐩爣妯″瀷鏃?(濡?"gpt-4", "claude-3", "qwen-32b")銆?
-            None 鏃堕€€鍖栦负 l5_optimal() 鐨勯粯璁ら『搴忋€?
+        converter_target: LLM target instance (optional).
+        model_family: target model family (e.g. "gpt-4", "claude-3").
+            None falls back to l5_optimal() default order.
+        target_type: target classification for file converter filtering.
 
     Returns:
-        鎸夋ā鍨嬫棌鍏堥獙 ASR 闄嶅簭鎺掑垪鐨?converter 鍊欓€夊垪琛ㄣ€?
+        Converter candidates sorted by model-family ASR (descending).
     """
-    # 鑾峰彇鍩虹鍊欓€夊垪琛?(l5_optimal 鐨勯粯璁ら『搴?
-    candidates = l5_optimal(converter_target=converter_target)
+    # Get base candidates with target-aware filtering
+    candidates = l5_optimal(converter_target=converter_target, target_type=target_type)
 
     if not model_family or not candidates:
         return candidates
@@ -369,30 +451,57 @@ def build_converter_map(
     chain_names: list[str],
     converter_target: Any | None = None,
     model_family: str | None = None,
+    *,
+    target_type: str = "unknown",
+    target_fingerprint: dict[str, Any] | None = None,
+    converter_overrides: dict[str, list[str]] | None = None,
+    seeds: list[Any] | None = None,
 ) -> dict[str, list[Any]]:
-    """涓烘瘡涓妧鏈瀯寤?Converter 閾惧垪琛ㄣ€?
+    """Build technique-aware + target-aware + seed-aware converter map.
 
-    杩斿洖: {technique_name: [converter_instances]}
+    Returns: {technique_name: [converter_instances]}
 
-    绛栫暐:
-        - 姣忎釜鎶€鏈垎閰嶆墍鏈夋寚瀹氱殑 Converter 閾?
-        - SequentialAttack(FIRST_SUCCESS) 浼氭寜搴忓皾璇?
-        - LLM 杈呭姪閾句粎鍦?converter_target 鍙敤鏃舵瀯寤?
-        - 榛樿閾鹃『搴? persuasion(authority) > persuasion(logical) > tone(academic) > stealth
+    L5 v40 seed-aware adaptation:
+        - 新增 seeds 参数: 从种子 metadata (category/suitable_for) 感知
+          攻击向量类型, 对 context techniques 放宽编码 converter 限制
+        - 学术依据: Greshake et al. (arXiv:2302.12173) —
+          攻击策略必须匹配目标攻击面, 种子 category 反映攻击向量类型
+        - 如果 seeds 为 None, 回退到 L5 v39 行为 (semantic-only for context)
 
-    鏂偣 #3 淇: 褰?model_family 闈炵┖涓?chain_names 鍖呭惈 "auto" 鎴?"l5_optimal" 鏃?
-        鑷姩浣跨敤 l5_optimal_for_model 鏇夸唬 l5_optimal, 鎸夋ā鍨嬫棌鍏堥獙 ASR 鎺掑簭鍊欓€夊垪琛ㄣ€?
+    L5 v39 technique-aware assignment:
+        - Baseline techniques (prompt_sending): no converters — raw payload
+          establishes ASR baseline for comparison.
+          arXiv:2307.15043 — baseline needed to measure converter effectiveness.
+        - Context techniques (many_shot/skeleton_key/role_play/context_compliance):
+          semantic converters only (Persuasion/Decomposition/Translation/Variation).
+          These techniques rely on context/prefix injection, not encoding.
+          Encoding converters would corrupt the prefix structure.
+          arXiv:2402.05124 — Many-shot relies on readable Q&A pattern.
+          arXiv:2406.18112 — SkeletonKey relies on readable SK prefix.
+        - Escalation/multi-turn techniques (crescendo/tap/pair/red_teaming):
+          full L5 arsenal (all converters). Multi-turn generates adversarial
+          prompts that benefit from maximum transformation diversity.
+          arXiv:2402.12109 — Crescendo benefits from encoding bypass.
+          arXiv:2312.02191 — TAP tree search explores diverse paths.
+
+    L5 v39 target-aware filtering:
+        - target_type passed to l5_optimal/l5_optimal_for_model to filter
+          file converters (PDF/WordDoc) for text-only targets.
+        - target_fingerprint used for richer classification if available.
+          arXiv:2302.12173 — target capability → attack surface.
 
     Args:
-        technique_names: 鎶€鏈悕绉板垪琛ㄣ€?
-        chain_names: Converter 閾惧悕绉板垪琛ㄣ€?
-        converter_target: LLM 鐩爣瀹炰緥 (鍙€?銆?
-        model_family: 鐩爣妯″瀷鏃?(濡?"gpt-4", "claude-3"), 鐢ㄤ簬鍏堥獙鎺掑簭 (鍙€?銆?
+        technique_names: technique name list.
+        chain_names: converter chain name list.
+        converter_target: LLM target instance (optional).
+        model_family: target model family (e.g. "gpt-4") for ASR ordering.
+        target_type: target classification string (mcp_agent/http_api/llm_chat/browser).
+        target_fingerprint: full fingerprint dict for richer inference.
 
     Returns:
-        鎶€鏈悕 鈫?Converter 瀹炰緥鍒楄〃鐨勬槧灏勩€?
+        technique_name → converter instance list mapping.
     """
-    # 鏂偣 #3 淇: 鑷姩鏇挎崲 l5_optimal 鈫?l5_optimal_for_model
+    # Auto-substitute l5_optimal → l5_optimal_for_model when model_family available
     effective_chain_names = list(chain_names)
     if model_family:
         effective_chain_names = [
@@ -400,38 +509,213 @@ def build_converter_map(
             for cn in effective_chain_names
         ]
 
+    # L5 v39: classify target type if not provided
+    if target_type == "unknown" and target_fingerprint:
+        target_type = _classify_target_type(
+            target_fingerprint.get("capabilities"),
+            target_fingerprint,
+        )
+
     converter_map: dict[str, list[Any]] = {}
 
     for technique_name in technique_names:
+        # ── L5 v39: Technique-aware converter assignment ──
+        # arXiv:2307.15043 — baseline (prompt_sending) needs no converter
+        # to establish ASR reference for converter effectiveness measurement.
+        if technique_name in _BASELINE_TECHNIQUES and "l5_optimal" in chain_names:
+            logger.info(
+                "L5 v39: Technique '%s' is baseline — no converters "
+                "(raw payload for ASR reference, arXiv:2307.15043)",
+                technique_name,
+            )
+            # Still allow explicit non-l5_optimal chains if user specified
+            non_l5_chains = [c for c in effective_chain_names if c not in ("l5_optimal", "l5_optimal_for_model")]
+            if not non_l5_chains:
+                continue  # No converters for baseline technique
+            effective_chains_for_tech = non_l5_chains
+        elif technique_name in _CONTEXT_TECHNIQUES and "l5_optimal" in chain_names:
+            # Context techniques: semantic converters only
+            # arXiv:2402.05124 — Many-shot needs readable Q&A pattern
+            # arXiv:2406.18112 — SkeletonKey needs readable SK prefix
+            # Encoding/obfuscation converters would corrupt the context structure
+            logger.info(
+                "L5 v39: Technique '%s' is context-based — "
+                "semantic converters only (encoding would corrupt prefix, "
+                "arXiv:2402.05124, arXiv:2406.18112)",
+                technique_name,
+            )
+            effective_chains_for_tech = effective_chain_names
+            # Will filter to semantic-only below
+        else:
+            effective_chains_for_tech = effective_chain_names
+
         converters: list[Any] = []
-        for chain_name in effective_chain_names:
+        for chain_name in effective_chains_for_tech:
             builder = _get_chain_builders().get(chain_name)
             if builder is None:
                 logger.warning("Unknown converter chain: %s, skipping", chain_name)
                 continue
 
-            # LLM 杈呭姪閾鹃渶瑕?converter_target 鍙傛暟
-            # L5 v36: code_chameleon 鍜?policy_puppetry 宸茬Щ鑷抽潪 LLM 閾?(绾枃鏈?0 token)
+            # LLM-assisted chains need converter_target param
             if chain_name in ("persuasion", "decomposition", "variation",
                               "translation_multilingual",
                               "l5_optimal", "l5_optimal_for_model"):
                 if chain_name == "l5_optimal_for_model":
-                    chain_converters = builder(converter_target=converter_target, model_family=model_family)
+                    chain_converters = builder(
+                        converter_target=converter_target,
+                        model_family=model_family,
+                        target_type=target_type,
+                    )
                 else:
-                    chain_converters = builder(converter_target=converter_target)
+                    chain_converters = builder(
+                        converter_target=converter_target,
+                        target_type=target_type,
+                    )
             else:
                 chain_converters = builder()
 
             if chain_converters:
                 converters.extend(chain_converters)
 
+        # L5 v39: For context techniques, filter to semantic-only converters
+        # Semantic converters: Persuasion, Decomposition, Variation, Translation, Tone
+        # These preserve payload readability while bypassing keyword filters
+        # arXiv:2402.05124 — Many-shot needs readable Q&A pattern
+        # arXiv:2406.18112 — SkeletonKey needs readable SK prefix
+        _SEMANTIC_CONVERTER_NAMES = {
+            "PersuasionConverter", "DecompositionConverter",
+            "VariationConverter", "RandomTranslationConverter",
+            "TranslationConverter", "ToneConverter",
+        }
+        # L5 v40: 编码 converter 集合 — 种子 category 为编码绕过类时允许使用
+        # 学术依据: Greshake et al. (arXiv:2302.12173) — category 感知
+        #   token_smuggling/encoded_injection 等编码类种子本身就需要编码 converter
+        _ENCODING_CONVERTER_NAMES_CTX = {
+            "ROT13Converter", "AsciiSmugglerConverter",
+            "CodeChameleonConverter", "PolicyPuppetryConverter",
+            "SelectiveTextConverter", "SearchReplaceConverter",
+        }
+        # L5 v40: 编码类 category — 这些类别的种子本身设计为编码绕过
+        # 对 context techniques 可以放宽限制, 允许编码 converter
+        _ENCODING_CATEGORIES = {
+            "token_smuggling", "encoded_injection",
+            "token_smuggling_base64", "base64_encoding",
+        }
+        if technique_name in _CONTEXT_TECHNIQUES and converters:
+            # L5 v40: 检查种子是否属于编码类 category
+            # 如果是编码类种子, 允许编码 converter (不强制 semantic-only)
+            seed_categories = set()
+            if seeds:
+                for group in seeds:
+                    for seed in getattr(group, "seeds", []):
+                        meta = getattr(seed, "metadata", {}) or {}
+                        cat = str(meta.get("category", "")).strip().lower()
+                        if cat:
+                            seed_categories.add(cat)
+            has_encoding_category = bool(seed_categories & _ENCODING_CATEGORIES)
+
+            if has_encoding_category:
+                # L5 v40: 编码类种子 + context technique → 允许编码 converter
+                # 学术依据: Greshake et al. (arXiv:2302.12173) —
+                #   种子 category 为编码绕过, converter 需匹配向量类型
+                #   token_smuggling 本身就是编码 payload, 编码 converter 增强
+                logger.info(
+                    "L5 v40: Technique '%s' is context-based BUT seeds have "
+                    "encoding category (%s) — encoding converters allowed "
+                    "(category-adaptive, arXiv:2302.12173)",
+                    technique_name,
+                    ", ".join(seed_categories & _ENCODING_CATEGORIES),
+                )
+                # 不过滤, 保留全部 converter (编码 + 语义)
+            else:
+                # 非 encoding category: 强制 semantic-only
+                semantic_only = [
+                    c for c in converters
+                    if type(c).__name__ in _SEMANTIC_CONVERTER_NAMES
+                ]
+                pruned_count = len(converters) - len(semantic_only)
+                if pruned_count > 0:
+                    logger.info(
+                        "L5 v39: Technique '%s' — pruned %d non-semantic converters "
+                        "(encoding/obfuscation would corrupt context structure, "
+                        "arXiv:2402.05124, arXiv:2406.18112)",
+                        technique_name, pruned_count,
+                    )
+                # L5 v39 fix: when no semantic converters available (e.g. no converter_target),
+                # use empty list instead of falling back to encoding converters —
+                # context techniques with encoding converters is worse than raw payload
+                # (encoding corrupts the Q&A / SK prefix structure).
+                # executor.py handles empty converter_map gracefully (raw PromptSendingAttack).
+                if semantic_only:
+                    converters = semantic_only
+                else:
+                    logger.info(
+                        "L5 v39: Technique '%s' — no semantic converters available, "
+                        "using raw payload (encoding converters excluded for context techniques)",
+                        technique_name,
+                    )
+                    converters = []
+
         if converters:
             converter_map[technique_name] = converters
             logger.info(
-                "Converter chain for '%s': %d converters",
+                "Converter chain for '%s': %d converters (target_type=%s)",
                 technique_name,
                 len(converters),
+                target_type,
             )
+
+    # ── 增量借鉴: per-technique converter 追加 (technique:converter.xxx 语法) ──
+    # 借鉴 pyrit_scan 的 per-technique converter 注册模式
+    # converter_overrides: {technique_name: [chain_name, ...]}
+    # 为指定 technique 追加额外的 converter chain (不覆盖全局链)
+    if converter_overrides:
+        builders = _get_chain_builders()
+        for tech_name, extra_chains in converter_overrides.items():
+            extra_converters: list[Any] = []
+            for chain_name in extra_chains:
+                builder = builders.get(chain_name)
+                if builder is None:
+                    logger.warning("Unknown converter chain in override: %s, skipping", chain_name)
+                    continue
+                # LLM-assisted chains need converter_target
+                if chain_name in ("persuasion", "decomposition", "variation",
+                                  "translation_multilingual",
+                                  "l5_optimal", "l5_optimal_for_model"):
+                    if chain_name == "l5_optimal_for_model":
+                        chain_converters = builder(
+                            converter_target=converter_target,
+                            model_family=model_family,
+                            target_type=target_type,
+                        )
+                    else:
+                        chain_converters = builder(
+                            converter_target=converter_target,
+                            target_type=target_type,
+                        )
+                else:
+                    chain_converters = builder()
+                if chain_converters:
+                    extra_converters.extend(chain_converters)
+
+            if extra_converters:
+                if tech_name in converter_map:
+                    converter_map[tech_name].extend(extra_converters)
+                    logger.info(
+                        "Per-technique override: '%s' + %d converters (%s)",
+                        tech_name,
+                        len(extra_converters),
+                        extra_chains,
+                    )
+                else:
+                    # technique 不在全局链中 (如 baseline 无 converter), 追加创建
+                    converter_map[tech_name] = extra_converters
+                    logger.info(
+                        "Per-technique override: '%s' created with %d converters (%s)",
+                        tech_name,
+                        len(extra_converters),
+                        extra_chains,
+                    )
 
     return converter_map
 

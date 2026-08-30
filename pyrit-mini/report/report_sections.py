@@ -108,12 +108,20 @@ def _asr_to_css_class(asr: float) -> str:
 def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[str, Any]]:
     """构建升级链仪表盘数据.
 
+    断点修复: 原代码使用硬编码系数 (0.82, 0.65, 0.50, 0.30) 估算各阶段 ASR,
+    导致报告中的升级链仪表盘数据与实际 ASR 不一致。
+    修复: 从 evidence 中提取真实 ASR per technique, 按技术名匹配各阶段。
+
     5 个阶段:
-        Stage 1: Single-Turn
+        Stage 1: Single-Turn (baseline techniques)
         Stage 2: Crescendo
         Stage 3: TAP
         Stage 4: PAIR
         Stage 5: GCG
+
+    数据源:
+        - evidence 中每个 VulnerabilityEvidence 的 technique_name + is_success
+        - 按阶段关键词匹配技术名, 计算真实 ASR
 
     Args:
         evidence: 证据集合.
@@ -121,68 +129,52 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
     Returns:
         5 个阶段的仪表盘数据列表, 每个含 stage, technique, asr, asr_num, escalated.
     """
-    stages = [
-        {"stage": "Stage 1", "technique": "Single-Turn"},
-        {"stage": "Stage 2", "technique": "Crescendo"},
-        {"stage": "Stage 3", "technique": "TAP"},
-        {"stage": "Stage 4", "technique": "PAIR"},
-        {"stage": "Stage 5", "technique": "GCG"},
+    # 阶段定义: (stage_name, display_technique, matching_keywords)
+    stage_defs = [
+        ("Stage 1", "Single-Turn", ["prompt_sending", "baseline", "single"]),
+        ("Stage 2", "Crescendo", ["crescendo"]),
+        ("Stage 3", "TAP", ["tap"]),
+        ("Stage 4", "PAIR", ["pair"]),
+        ("Stage 5", "GCG", ["gcg"]),
     ]
 
-    # 从技术分布中提取各阶段 ASR
-    tech_dist = evidence.technique_distribution
-
-    # 尝试从 asr_per_technique (存储在 evidence 中) 获取 ASR
-    # fallback: 使用 evidence 中的统计
+    # 从 evidence 列表计算各阶段真实 ASR
     overall_asr = evidence.overall_asr
 
-    for i, stage in enumerate(stages):
-        tech_name = stage["technique"].lower()
+    stages: list[dict[str, Any]] = []
+    for i, (stage_name, display_tech, keywords) in enumerate(stage_defs):
+        # 按关键词匹配技术, 收集该阶段的所有证据
+        stage_evidence = [
+            ev for ev in evidence.evidence
+            if any(kw in ev.technique_name.lower() for kw in keywords)
+        ]
 
-        # 尝试匹配技术名
-        matched_asr = 0.0
-        matched_count = 0
-        for tech, count in tech_dist.items():
-            if tech_name in tech.lower() or tech.lower() in tech_name:
-                matched_count += count
-                break
-
-        # 第一阶段使用总体 ASR
-        if i == 0:
-            matched_asr = overall_asr
-        elif i == 1:
-            # Crescendo
-            for tech in tech_dist:
-                if "crescendo" in tech.lower():
-                    matched_asr = overall_asr * 0.82  # Crescendo 基线
-                    break
-        elif i == 2:
-            for tech in tech_dist:
-                if "tap" in tech.lower():
-                    matched_asr = overall_asr * 0.65
-                    break
-        elif i == 3:
-            for tech in tech_dist:
-                if "pair" in tech.lower():
-                    matched_asr = overall_asr * 0.50
-                    break
-        elif i == 4:
-            for tech in tech_dist:
-                if "gcg" in tech.lower():
-                    matched_asr = overall_asr * 0.30
-                    break
+        if stage_evidence:
+            total = len(stage_evidence)
+            success = sum(1 for ev in stage_evidence if ev.is_success)
+            matched_asr = (success / total * 100) if total > 0 else 0.0
+        else:
+            # Stage 1 fallback: 使用总体 ASR (baseline 阶段 = 整体)
+            if i == 0:
+                matched_asr = overall_asr
+            else:
+                matched_asr = 0.0
 
         # 判断升级状态
         if matched_asr >= 90:
             escalated = "stop"
-        elif matched_asr > 0 and i < 4:
+        elif matched_asr > 0 and i < len(stage_defs) - 1:
             escalated = "escalate"
         else:
             escalated = "pending"
 
-        stage["asr"] = f"{matched_asr:.1f}%"
-        stage["asr_num"] = matched_asr
-        stage["escalated"] = escalated
+        stages.append({
+            "stage": stage_name,
+            "technique": display_tech,
+            "asr": f"{matched_asr:.1f}%",
+            "asr_num": matched_asr,
+            "escalated": escalated,
+        })
 
     return stages
 

@@ -1327,3 +1327,843 @@ technique_seed_asr:
     LLM10: 60.0   # 资源耗尽
     ASI08: 50.0   # 级联故障
     default: 35.0
+
+# ════════════════════════════════════════════════════════════════════════════
+# L5 v40: 种子 category → Converter 优先级映射表
+# ════════════════════════════════════════════════════════════════════════════
+# 学术依据:
+#   - Greshake et al. (arXiv:2302.12173) — 攻击策略必须匹配目标攻击面,
+#     种子 category 反映攻击向量类型, converter 需匹配向量类型
+#   - Zeng et al. (arXiv:2402.19181) — 不同说服策略对不同攻击类别效果不同
+#   - Wei et al. (arXiv:2307.15043) — 编码绕过对检测型目标更有效
+#   - DrAttack (arXiv:2402.14266) — 分解重组对信息提取类最有效 (ASR 40-60%)
+#   - PyRIT (arXiv:2407.01232) — per-seed converter optimization
+#
+# 策略: 将 130+ 种 category 归纳为 12 个攻击向量类别, 每类对应最佳 converter
+# converter 签名格式与 owasp_converter_map 一致 (如 "PersuasionConverter:authority_endorsement")
+# 优先级: 列表顺序即优先级 (第一个 = 最佳)
+category_converter_map:
+  # 1. 编码绕过类 — token smuggling / encoding bypass / 混淆输出
+  # 最适合: 编码 converter (ROT13/AsciiSmuggler/CodeChameleon)
+  # 学术依据: Wei et al. (arXiv:2307.15043) — 编码变换绕过关键词检测
+  token_smuggling:
+    - "ROT13Converter"
+    - "AsciiSmugglerConverter"
+    - "CodeChameleonConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  encoded_injection:
+    - "ROT13Converter"
+    - "CodeChameleonConverter"
+    - "AsciiSmugglerConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+
+  # 2. 信息提取类 — RAG 泄露 / 知识库提取 / 向量泄露
+  # 最适合: Decomposition (分解重组) + Persuasion:logical_appeal
+  # 学术依据: DrAttack (arXiv:2402.14266) — 分解重组 ASR 40-60% 最高
+  rag_kb_leak:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  rag_vector_leak:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  rag_embedding_probe:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  rag_retrieval_hijack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  rag_kb_poisoning:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  rag_indirect_injection:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "ROT13Converter"
+    - "VariationConverter"
+  rag_data_leakage:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  rag_metadata_leak:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  rag_topk_manipulation:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  rag_chunk_boundary:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  rag_chunked_extract:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+
+  # 3. 工具/MCP 劫持类 — MCP 工具枚举/注入/劫持
+  # 最适合: Persuasion:authority_endorsement (伪装授权审计) + Decomposition
+  # 学术依据: Greshake et al. (arXiv:2302.12173) — 权威背书伪装合规审计
+  mcp_tool_enumeration:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  mcp_server_injection:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_tool_hijack:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  mcp_tool_chaining:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_tool_chain_hijack:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_resource_extraction:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  mcp_resource_leak:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  mcp_resource_traversal:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  mcp_rogue_endpoint:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_schema_poisoning:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_config_extraction:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  mcp_context_poisoning:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_cross_server_trust:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  mcp_tool_description_injection:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mcp_ui_rendering_deception:
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+
+  # 4. 函数调用泄露类 — 函数签名探测/参数泄露/凭据提取
+  # 最适合: Decomposition (分解重组工具链) + Persuasion:logical_appeal
+  # 学术依据: OWASP LLM06 Excessive Agency
+  function_signature_probe:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  function_schema_probe:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  function_param_leak:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  function_example_leak:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  function_param_secret:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  function_token_leak:
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  function_bulk_call:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+
+  # 5. 提示注入类 — 直接注入/角色扮演/jailbreak
+  # 最适合: Persuasion (说服策略) + Variation (变体重写)
+  # 学术依据: Zeng et al. (arXiv:2402.19181) — authority ASR 38.4%
+  prompt_injection:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+    - "ROT13Converter"
+  indirect_injection:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  role_play_jailbreak:
+    - "PersuasionConverter:authority_endorsement"
+    - "VariationConverter"
+    - "DecompositionConverter"
+  context_manipulation:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  delimiter_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  json_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  markdown_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  xml_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  recursive_expansion:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  structured_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+
+  # 6. 敏感信息泄露类 — 系统提示泄露/配置泄露/密钥提取
+  # 最适合: Persuasion:authority_endorsement (伪装审计) + Tone:academic
+  # 学术依据: Greshake et al. (arXiv:2302.12173) — 权威背书
+  system_prompt_leakage:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  configuration_leakage:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  configuration_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  security_config_probe:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  secret_extraction:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  sensitive_info:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  sensitive_info_disclosure:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  sensitive_information_disclosure:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  session_info_leak:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+
+  # 7. 工作流/链式攻击类 — 多步工作流劫持/链式提升
+  # 最适合: Decomposition (分解多步链) + Persuasion:authority_endorsement
+  # 学术依据: OWASP ASI03 — 多步工作流劫持
+  workflow_hijack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  workflow_multi_step:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_chain_escalation:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_chain_exploit:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_chaining_attack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "VariationConverter"
+  cascading_failure:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  cascading_failures:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+
+  # 8. Agent 安全类 — Agent 身份/协调/递归/跨 Agent
+  # 最适合: Persuasion:authority_endorsement (身份伪装) + CodeChameleon
+  # 学术依据: OWASP ASI01 — Agent 身份欺骗
+  agent_identity:
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  agent_role_spoofing:
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  agent_coordination_hijack:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  agent_recursion:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  agent_tool_misuse:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  cross_agent_injection:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  cross_agent_message_spoofing:
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  rogue_agent:
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  trust_boundary:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  trust_boundary_violation:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  trust_chain_break:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  trust_chain_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  cot_tool_hijack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+
+  # 9. 后端漏洞类 — SSRF/SQL注入/XSS/XXE/命令注入 (通过 LLM 间接利用)
+  # 最适合: Decomposition (分解重组请求) + Persuasion:logical_appeal
+  # 学术依据: OWASP LLM06 — LLM 作为代理间接利用后端漏洞
+  ssrf:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  ssrf_via_agent:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  ssrf_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  ssrf_via_llm_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  sqli_via_llm:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  command_injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  command_injection_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "ROT13Converter"
+    - "VariationConverter"
+  command_injection_via_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  code_injection_via_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  injection:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  injection_via_llm_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  multi_injection_via_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  xss_via_llm_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  xss_via_markdown:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  xxe_via_llm:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  xxe_via_llm_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  ssti_log_injection_via_output:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  open_redirect_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  path_traversal_via_llm:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  idor_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  jwt_weak_secret_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  model_key_leak_via_llm:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  broken_access_control:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "ROT13Converter"
+    - "VariationConverter"
+  overprivileged_access:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  mass_assignment:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  mass_assignment_via_llm:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  cryptographic_failures:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  auth_failures:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  weak_auth_via_llm:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  insecure_design:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  security_misconfiguration:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  logging_monitoring_failures:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  vulnerable_components:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  software_integrity:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  privilege_escalation:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  unauthorized_actions:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  unauthorized_file_access:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_misuse:
+    - "DecompositionConverter"
+    - "PersuasionConverter:authority_endorsement"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  tool_output_hijack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_param_hijack:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  tool_privilege_escalation:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_description_injection:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  tool_enumeration:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  persistence_mechanism:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  session_hijack:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+  cross_session_bleed:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  cross_tenant:
+    - "PersuasionConverter:authority_endorsement"
+    - "DecompositionConverter"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+
+  # 10. 记忆系统类 — 记忆提取/污染/持久化注入
+  # 最适合: Decomposition + Persuasion:logical_appeal
+  # 学术依据: OWASP ASI06 — 记忆污染
+  memory_extraction:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  memory_poisoning:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  memory_persistence_injection:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "PolicyPuppetryConverter"
+    - "VariationConverter"
+  data_exfiltration:
+    - "DecompositionConverter"
+    - "PersuasionConverter:logical_appeal"
+    - "CodeChameleonConverter"
+    - "VariationConverter"
+
+  # 11. 幻觉/虚假信息类 — 事实性幻觉/虚假生成
+  # 最适合: Tone:academic (学术语气) + Persuasion:logical_appeal
+  # 学术依据: OWASP LLM09 — 幻觉
+  misinformation:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  fake_news_generation:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  biography_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  citation_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  legal_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  regulatory_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  standards_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  vulnerability_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  hallucination_fabrication:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  api_hallucination:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+
+  # 12. 供应链/数据完整性类 — 供应链审计/数据投毒/RLHF 泄露
+  # 最适合: Persuasion:authority_endorsement (伪装审计) + Tone:academic
+  # 学术依据: OWASP LLM03 — 供应链漏洞
+  supply_chain:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  supply_chain_audit:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  supply_chain_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  supply_chain_dependency_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  cicd_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  deployment_manifest_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  sbom_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  dependency_analysis:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  data_poisoning:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  poisoning_detection:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  poisoning_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  data_provenance_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  model_provenance_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  rlhf_data_disclosure:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  embedding_weakness:
+    - "PersuasionConverter:authority_endorsement"
+    - "ToneConverter:academic"
+    - "DecompositionConverter"
+    - "VariationConverter"
+
+  # 13. 输出处理/资源耗尽/检测分析类
+  improper_output:
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
+    - "ROT13Converter"
+    - "SearchReplaceConverter"
+    - "VariationConverter"
+  improper_output_handling:
+    - "SelectiveTextConverter:WordProportionSelectionStrategy"
+    - "ROT13Converter"
+    - "SearchReplaceConverter"
+    - "VariationConverter"
+  rendering_xss_ssrf:
+    - "DecompositionConverter"
+    - "ROT13Converter"
+    - "VariationConverter"
+  resource_exhaustion:
+    - "VariationConverter"
+    - "PersuasionConverter:authority_endorsement"
+  unbounded_consumption:
+    - "VariationConverter"
+    - "PersuasionConverter:authority_endorsement"
+  excessive_agency:
+    - "PersuasionConverter:logical_appeal"
+    - "DecompositionConverter"
+    - "VariationConverter"
+  anomaly_detection:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  behavior_differential_analysis:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  differential_testing:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+  trigger_phrase_analysis:
+    - "ToneConverter:academic"
+    - "PersuasionConverter:logical_appeal"
+    - "VariationConverter"
+
+# ════════════════════════════════════════════════════════════════════════════
+# L5 v40: suitable_for → Converter 策略映射
+# ════════════════════════════════════════════════════════════════════════════
+# 学术依据:
+#   - PyRIT (arXiv:2407.01232) — per-seed converter optimization
+#   - Greshake et al. (arXiv:2302.12173) — 攻击向量匹配
+#
+# 将种子 metadata.suitable_for 值映射到 converter 选择策略:
+#   - "encoding": 优先使用编码绕过 converter
+#   - "semantic": 优先使用语义 converter (Persuasion/Decomposition)
+#   - "full": 全量 L5 武器库 (默认)
+#   - "none": 无 converter (raw payload)
+suitable_for_converter_strategy:
+  prompt_sending:
+    strategy: "full"           # 基线: 全量 converter 候选
+  skeleton_key:
+    strategy: "semantic"       # 上下文: 仅语义 converter
+  crescendo:
+    strategy: "full"           # 升级: 全量 (渐进式)
+  crescendo_simulated:
+    strategy: "full"
+  tap:
+    strategy: "full"           # 树搜索: 全量
+  pair:
+    strategy: "full"           # 迭代: 全量
+  red_teaming:
+    strategy: "full"           # 红队: 全量
+  cot_hijack:
+    strategy: "semantic"       # 推理劫持: 语义 converter (编码会破坏推理链)
+  encoded_injection:
+    strategy: "encoding"       # 编码注入: 编码 converter 优先
+  rag_attack:
+    strategy: "semantic"       # RAG 攻击: 语义 converter (信息提取)
+  default:
+    strategy: "full"           # 默认: 全量

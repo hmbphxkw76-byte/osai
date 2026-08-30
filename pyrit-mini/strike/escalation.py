@@ -63,10 +63,12 @@ from strike.escalation_level3 import (  # noqa: F401 鈥?re-exports
     _is_success,
     _llm_judge_rescore,
     _run_best_of_n,
+    _run_chunked_request,
     _run_embedding_inversion,
     _run_encoded_injection,
     _run_mcp_rag_attacks,
     _run_multi_model_escalation,
+    _run_multi_prompt_sending,
     _run_rogue_agent,
     _run_skeleton_key_native,
     _select_still_failed,
@@ -84,7 +86,7 @@ logger = logging.getLogger(__name__)
 # 鍦?ASR 杈惧埌棰勬湡姘村钩鍚庢彁鍓嶉€€鍑? 鑺傜渷 60-80% token 鍜屾椂闂?
 
 def _load_config_value(key: str, default: float) -> float:
-    """浠?config/defaults.yaml 璇诲彇閰嶇疆鍊? 澶辫触鏃跺洖閫€鍒伴粯璁ゅ€?"""
+    """浠?config/defaults.yaml 璇诲彇閰嶇疆鍵? 澶辫触鏃跺洖閫€鍒伴粯璁ゅ€?"""
     try:
         from pathlib import Path
 
@@ -100,6 +102,28 @@ def _load_config_value(key: str, default: float) -> float:
     except Exception:
         pass
     return default
+
+
+def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
+    """运行时从 ctx.args 读取配置值, fallback 到模块级默认值。
+
+    增量借鉴: 支持 --config-file 覆盖 defaults.yaml 中的升级/评分参数。
+    数据流: config.py (--config-file section) → args (平铺) → ctx.args → 此函数
+
+    Args:
+        ctx: PipelineContext (读取 ctx.args)。
+        key: 配置键名 (如 "escalation_asr_threshold")。
+        module_default: 模块级默认值 (来自 _load_config_value)。
+
+    Returns:
+        配置值 (float), 优先从 ctx.args 读取。
+    """
+    args = getattr(ctx, "args", None)
+    if args is not None:
+        val = getattr(args, key, None)
+        if val is not None and isinstance(val, (int, float, bool)):
+            return float(val)
+    return module_default
 
 # 鍗囩骇闃堝€?(鍗曡疆 ASR < 姝ゅ€兼椂瑙﹀彂) 鈥?L5 v35: 90% (婵€杩涘崌绾х瓥鐣?
 _ESCALATION_ASR_THRESHOLD = _load_config_value("escalation_asr_threshold", 90.0)
@@ -145,17 +169,23 @@ async def check_and_escalate(
         logger.warning("L5 v42: precompute before escalation failed: %s 鈥?using cached outcomes", e)
 
     # 1. 璁＄畻鏁翠綋 ASR
-    overall_asr = _compute_overall_asr(attack_results)
-    logger.info("Overall ASR: %.1f%% (threshold: %.1f%%)", overall_asr, _ESCALATION_ASR_THRESHOLD)
+    # 增量借鉴: 从 ctx.args 读取 --config-file 覆盖的升级阈值
+    _esc_threshold = _get_ctx_config_value(ctx, "escalation_asr_threshold", _ESCALATION_ASR_THRESHOLD)
+    _l1_exit = _get_ctx_config_value(ctx, "post_l1_exit_threshold", _POST_L1_EXIT_THRESHOLD)
+    _l2_exit = _get_ctx_config_value(ctx, "post_l2_exit_threshold", _POST_L2_EXIT_THRESHOLD)
+    _max_esc = int(_get_ctx_config_value(ctx, "max_escalation_targets", float(_MAX_ESCALATION_TARGETS)))
 
-    if overall_asr >= _ESCALATION_ASR_THRESHOLD:
-        logger.info("ASR %.1f%% >= threshold %.1f%%, skipping escalation", overall_asr, _ESCALATION_ASR_THRESHOLD)
+    overall_asr = _compute_overall_asr(attack_results)
+    logger.info("Overall ASR: %.1f%% (threshold: %.1f%%)", overall_asr, _esc_threshold)
+
+    if overall_asr >= _esc_threshold:
+        logger.info("ASR %.1f%% >= threshold %.1f%%, skipping escalation", overall_asr, _esc_threshold)
         ctx.orchestration_log.append({
             "phase": "escalate",
             "decision": "escalation_skipped",
-            "input": {"overall_asr": overall_asr, "threshold": _ESCALATION_ASR_THRESHOLD},
+            "input": {"overall_asr": overall_asr, "threshold": _esc_threshold},
             "output": {},
-            "reasoning": f"ASR {overall_asr:.1f}% >= threshold {_ESCALATION_ASR_THRESHOLD:.1f}%, no escalation needed",
+            "reasoning": f"ASR {overall_asr:.1f}% >= threshold {_esc_threshold:.1f}%, no escalation needed",
         })
         return attack_results
 
@@ -179,11 +209,11 @@ async def check_and_escalate(
         "decision": "escalation_triggered",
         "input": {
             "overall_asr": overall_asr,
-            "threshold": _ESCALATION_ASR_THRESHOLD,
+            "threshold": _esc_threshold,
             "failed_objectives": len(failed_objectives),
         },
         "output": {},
-        "reasoning": f"ASR {overall_asr:.1f}% < {_ESCALATION_ASR_THRESHOLD:.1f}%, escalating {len(failed_objectives)} failed objectives through L1-L4 chain",
+        "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through L1-L4 chain",
     })
 
     # 3. 鎵ц鍗囩骇绛栫暐 鈥?L5 v42 骞惰鍗囩骇閾?
@@ -236,13 +266,13 @@ async def check_and_escalate(
     post_l1_asr = _compute_overall_asr(
         {**attack_results, **escalated_results}
     )
-    logger.info("Post-L1 ASR: %.1f%% (exit threshold: %.1f%%)", post_l1_asr, _POST_L1_EXIT_THRESHOLD)
+    logger.info("Post-L1 ASR: %.1f%% (exit threshold: %.1f%%)", post_l1_asr, _l1_exit)
 
-    if post_l1_asr >= _POST_L1_EXIT_THRESHOLD:
+    if post_l1_asr >= _l1_exit:
         logger.info(
-            "Post-L1 ASR %.1f%% >= exit threshold %.1f%% 鈥?skipping L2-L4 escalation "
+            "Post-L1 ASR %.1f%% >= exit threshold %.1f%% — skipping L2-L4 escalation "
            "(saves ~60-80%% token/time per arXiv:2406.12609)",
-            post_l1_asr, _POST_L1_EXIT_THRESHOLD,
+            post_l1_asr, _l1_exit,
         )
         # 鍚堝苟宸叉湁缁撴灉骞惰繑鍥?
         for technique, results in escalated_results.items():
@@ -286,13 +316,13 @@ async def check_and_escalate(
     post_l2_asr = _compute_overall_asr(
         {**attack_results, **escalated_results}
     )
-    logger.info("Post-L2 ASR: %.1f%% (exit threshold: %.1f%%)", post_l2_asr, _POST_L2_EXIT_THRESHOLD)
+    logger.info("Post-L2 ASR: %.1f%% (exit threshold: %.1f%%)", post_l2_asr, _l2_exit)
 
-    if post_l2_asr >= _POST_L2_EXIT_THRESHOLD:
+    if post_l2_asr >= _l2_exit:
         logger.info(
-            "Post-L2 ASR %.1f%% >= exit threshold %.1f%% 鈥?skipping L3-L4 escalation "
+            "Post-L2 ASR %.1f%% >= exit threshold %.1f%% — skipping L3-L4 escalation "
             "(saves ~40-50%% token/time per arXiv:2406.12609)",
-            post_l2_asr, _POST_L2_EXIT_THRESHOLD,
+            post_l2_asr, _l2_exit,
         )
         for technique, results in escalated_results.items():
             if technique in attack_results:
@@ -333,6 +363,8 @@ async def check_and_escalate(
         _run_multi_model_safe(),
         _safe_call(_run_skeleton_key_native(ctx, failed_objectives), "SkeletonKey"),
         _run_many_shot_cot_safe(),
+        _safe_call(_run_multi_prompt_sending(ctx, failed_objectives), "MultiPromptSending"),
+        _safe_call(_run_chunked_request(ctx, failed_objectives), "ChunkedRequest"),
         return_exceptions=False,
     )
     for r in l3_results:
@@ -494,12 +526,13 @@ def _select_failed_objectives(
     _max_seeds = getattr(getattr(ctx, 'args', None), 'max_seeds', 25) or 25
     if not isinstance(_max_seeds, int):
         _max_seeds = 25
-    _dynamic_cap = max(_MAX_ESCALATION_TARGETS, _max_seeds // 3)
+    _ssot_cap = int(_get_ctx_config_value(ctx, "max_escalation_targets", float(_MAX_ESCALATION_TARGETS)))
+    _dynamic_cap = max(_ssot_cap, _max_seeds // 3)
     failed = failed[:_dynamic_cap]
     logger.info(
         "Selected %d failed objectives for escalation "
         "(cap=%d, ssot=%d, max_seeds=%d)",
-        len(failed), _dynamic_cap, _MAX_ESCALATION_TARGETS, _max_seeds,
+        len(failed), _dynamic_cap, _ssot_cap, _max_seeds,
     )
     return failed
 

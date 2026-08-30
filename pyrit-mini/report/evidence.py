@@ -227,6 +227,10 @@ class EvidenceCollection:
     # 断点 #6 修复: 编排决策日志 — 记录侦察→武器化→执行每个决策的理由
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
+    # ── 增量借鉴: 运行标签 (pyrit_scan --memory-labels) ──
+    # 从 PipelineContext.memory_labels 传递到证据集合, 用于报告标记
+    # 示例: {"run_id": "r001", "target": "deepseek"}
+    memory_labels: dict[str, str] = field(default_factory=dict)
 
 
 class EvidenceCollector:
@@ -257,6 +261,8 @@ class EvidenceCollector:
         scenario_result_id: str | None = None,
         asr_per_technique: dict[str, float] | None = None,
         overall_asr: float = 0.0,
+        memory_labels: dict[str, str] | None = None,
+        orchestration_log: list[dict[str, Any]] | None = None,
     ) -> EvidenceCollection:
         """收集所有攻击结果的证据。
 
@@ -270,6 +276,8 @@ class EvidenceCollector:
             scenario_result_id: 场景结果 ID。
             asr_per_technique: 按技术统计的 ASR。
             overall_asr: 总体 ASR。
+            memory_labels: 运行标签 (来自 --memory-labels), 写入证据集合用于报告标记。
+            orchestration_log: 编排决策日志, 写入证据集合用于报告审计章节。
 
         Returns:
             EvidenceCollection: 证据集合。
@@ -282,6 +290,8 @@ class EvidenceCollector:
             overall_asr=overall_asr,
             target_fingerprint=self._target_fingerprint,
             owasp_standard_references=[OWASP_WEB_TOP10_REFERENCE, OWASP_LLM_TOP10_REFERENCE, OWASP_ASI_TOP10_REFERENCE],
+            memory_labels=memory_labels or {},
+            orchestration_log=orchestration_log or [],
         )
 
         # 攻击面信息 (从 target_fingerprint 完整传递)
@@ -315,6 +325,23 @@ class EvidenceCollector:
             # 探针元数据
             "probe_count": fp.get("probe_count", 0),
             "probe_duration_seconds": fp.get("probe_duration_seconds", 0),
+            # L5 v39: 目标类型分类 (用于 converter 选择审计)
+            # 数据流: recon → target_fingerprint → _classify_target_type → build_converter_map
+            "target_type": fp.get("target_type", ""),
+            # 深度探测新字段 (P0-P2 优先级矩阵)
+            # 数据流: recon (各探测模块) → target_fingerprint → evidence.attack_surface → report
+            "ai_framework": fp.get("ai_framework", ""),
+            "ai_framework_category": fp.get("ai_framework_category", ""),
+            "system_prompt_leaked": fp.get("system_prompt_leaked", False),
+            "system_prompt_extraction_method": fp.get("system_prompt_extraction_method", ""),
+            "system_prompt_length": fp.get("system_prompt_length", 0),
+            "model_ids": fp.get("model_ids", []),
+            "api_behavior": fp.get("api_behavior", {}),
+            "vector_dbs": fp.get("vector_dbs", []),
+            "mcp_tool_safety": fp.get("mcp_tool_safety", []),
+            "mcp_tool_safety_risky_count": sum(
+                1 for t in fp.get("mcp_tool_safety", []) if t.get("risks")
+            ),
         }
 
         # 初始化 OWASP 合规矩阵

@@ -102,6 +102,12 @@ class PipelineContext:
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
+    # ── 增量借鉴: 运行标签 (pyrit_scan --memory-labels) ──
+    # 运行时标签写入 CentralMemory, 用于结果查询过滤和报告标记
+    # 数据流: config.py (parse_args) → ctx.memory_labels → main.py (CentralMemory.set_labels)
+    # 示例: {"run_id": "r001", "target": "deepseek", "environment": "production"}
+    memory_labels: dict[str, str] = field(default_factory=dict)
+
 
 def get_effective_concurrency(
     ctx: PipelineContext,

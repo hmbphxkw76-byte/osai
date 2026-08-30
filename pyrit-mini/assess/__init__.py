@@ -1,13 +1,13 @@
-"""assess 鈥?璇勫垎鍒ゅ畾闃舵銆?
+"""assess — 评分判定阶段。
 
-鏀诲嚮閾捐矾绗?5 姝? 瀵规敾鍑荤粨鏋滆繘琛岃瘎鍒? 璁＄畻 ASR, 鍙?Judge 浜ゅ弶楠岃瘉銆?
+攻击链路第 5 步: 对攻击结果进行评分, 计算 ASR, 双 Judge 交叉验证。
 
-鏍稿績妯″潡:
-    - scorer: 璇勫垎鍣ㄦ敞鍐?(AdaptiveDualJudgeScorer + fallback)
-    - asr_tracker: ASR 缁熻 + 鍙?Judge 棰勮绠?
+核心模块:
+    - scorer: 评分器注册 (AdaptiveDualJudgeScorer + fallback)
+    - asr_tracker: ASR 统计 + 双 Judge 预计算
     - asr_stats: Cohen's Kappa + Wilson Score CI
-    - adaptive_dual_judge: 鑷€傚簲鍙?Judge (楂樼疆淇″害鐩存帴杩斿洖)
-    - dual_judge: LLM 鍙屽垽 + 浠茶鍒?+ 鍚彂寮忓垽
+    - adaptive_dual_judge: 自适应双 Judge (高置信度直接返回)
+    - dual_judge: LLM 双判 + 仲裁 + 并发式判
 """
 
 from assess.asr_tracker import compute_asr, compute_overall_asr, precompute_outcomes_async
@@ -19,4 +19,3 @@ __all__ = [
     "compute_asr",
     "compute_overall_asr",
 ]
-
