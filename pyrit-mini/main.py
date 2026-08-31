@@ -1232,6 +1232,33 @@ async def _run_single_endpoint(
             ctx.dual_judge_stats.get("disagreements", 0),
             kappa,
         )
+        # v56: OR aggregation false-positive tracking log
+        # Academic basis: Zhang et al. (arXiv:2308.07920) - OR strategy ASR inflation
+        or_stats = ctx.dual_judge_stats.get("or_aggregation", {})
+        if or_stats and or_stats.get("total", 0) > 0:
+            logging.info(
+                "OR Aggregation: total=%d, disagreements=%d (%.1f%%), "
+                "j1_only_success=%d, j2_only_success=%d, "
+                "potential_fpr=%.1f%%",
+                or_stats.get("total", 0),
+                or_stats.get("disagreements", 0),
+                or_stats.get("disagreement_rate", 0.0),
+                or_stats.get("j1_only_success", 0),
+                or_stats.get("j2_only_success", 0),
+                or_stats.get("potential_false_positive_rate", 0.0),
+            )
+        # v56: T0 ScorerMetrics log
+        sm = ctx.dual_judge_stats.get("scorer_metrics", {})
+        if sm and sm.get("num_responses", 0) > 0:
+            logging.info(
+                "T0 ScorerMetrics: n=%d, accuracy=%.3f, f1=%.3f, "
+                "precision=%.3f, recall=%.3f",
+                sm.get("num_responses", 0),
+                sm.get("accuracy", 0.0),
+                sm.get("f1_score", 0.0),
+                sm.get("precision", 0.0),
+                sm.get("recall", 0.0),
+            )
 
     # ── 终端展示: ASSESS 阶段结果卡片 (完整流水线模式也输出) ──
     # 断点修复: 原代码仅在 --stage assess 退出时显示 assess 卡片,

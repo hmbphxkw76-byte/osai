@@ -419,6 +419,16 @@ async def precompute_outcomes_async(
                 else:
                     _stats._dual_judge_disagreements += 1
 
+                # v56: OR aggregation false-positive tracking (precompute path)
+                # Academic basis: Zhang et al. (arXiv:2308.07920) - OR strategy ASR inflation
+                _stats._or_aggregation_total += 1
+                if j1 != j2:
+                    _stats._or_aggregation_disagreements += 1
+                    if j1 and not j2:
+                        _stats._or_agreement_j1_only_success += 1
+                    elif not j1 and j2:
+                        _stats._or_agreement_j2_only_success += 1
+
                 # OR 鑱氬悎绛栫暐 鈥?瀵规姉鎬ц瘎浼板亸瀹芥澗
                 # 瀛︽湳渚濇嵁:
                 #   - Chao et al. (arXiv:2402.01135) Best-of-N 鈥?OR 绛栫暐鏇存帴杩戠湡瀹炴敾鍑绘垚鍔熺巼

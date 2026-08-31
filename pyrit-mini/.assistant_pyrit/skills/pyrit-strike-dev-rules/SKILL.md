@@ -278,7 +278,7 @@ L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: 
 | Probabilistic Validation | R6 §6.6 | `validation_runs` field: repeated execution results, not single PoC screenshot |
 | SIEM/Detection Evasion | R1 §Five-Step | Detect + Evade steps in PoC workflow |
 
-### Auto-checked by `architecture_guard.py` (17 checks):
+### Auto-checked by `architecture_guard.py` (18 checks):
 | Check | Rule | Severity | What it detects |
 |-------|------|----------|-----------------|
 | `check_serial_stacking()` | R6 §6.1 | BLOCKING | `converters=[conv1, conv2]` serial stacking |
@@ -298,6 +298,7 @@ L1: Single-turn → L2: Best-of-N(N=5) → L2: GCG ∥ CAIR ∥ Encoded → L3: 
 | `check_intermediate_exit()` | R7 | BLOCKING | Missing post_l1/post_l2 exit checkpoints in escalation |
 | `check_config_data_flow()` | R9 | WARNING+INFO | Config data flow breakpoints (3 root causes) |
 | `check_dry_run_available()` | R10 | BLOCKING+WARNING | Missing `--dry-run` CLI arg / implementation / stage skips |
+| `check_precision_targeting()` | R1/R7 | WARNING | Precision targeting: 3-tier Converter priority (global→OWASP→category), UCB1 ASR seed ranking, 0% ASR seed pruning, model-specific priors — checks implementation existence + pipeline integration (arXiv:cs/0207052, arXiv:2402.01135, arXiv:2302.12173) |
 
 ---
 

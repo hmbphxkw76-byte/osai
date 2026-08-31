@@ -37,10 +37,12 @@ class TestStubModules:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_mcp_rag_attack_stub(self):
+    async def test_mcp_rag_attack_no_target(self):
+        """MCP/RAG attack skips when objective_target is None."""
         from strike.mcp_rag_attack import run_mcp_rag_attacks
 
         ctx = MagicMock()
+        ctx.objective_target = None  # Will skip due to no target
         result = await run_mcp_rag_attacks(ctx, ["obj1"])
         assert result == {}
 
@@ -61,18 +63,22 @@ class TestStubModules:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_rogue_agent_stub(self):
+    async def test_rogue_agent_no_target(self):
+        """Rogue Agent attack skips when objective_target is None."""
         from strike.rogue_agent import run_rogue_agent_attacks
 
         ctx = MagicMock()
+        ctx.objective_target = None  # Will skip due to no target
         result = await run_rogue_agent_attacks(ctx, ["obj1"])
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_embedding_inversion_stub(self):
+    async def test_embedding_inversion_no_target(self):
+        """Embedding Inversion attack skips when objective_target is None."""
         from strike.embedding_inversion import run_embedding_inversion_attacks
 
         ctx = MagicMock()
+        ctx.objective_target = None  # Will skip due to no target
         result = await run_embedding_inversion_attacks(ctx, ["obj1"])
         assert result == {}
 

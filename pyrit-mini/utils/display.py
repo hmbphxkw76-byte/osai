@@ -1047,7 +1047,7 @@ def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
     if not converter:
         if tech_name in ("crescendo", "tap", "pair", "red_teaming"):
             converter = f"{tech_name} (adversarial multi-turn)"
-        elif tech_name in ("best_of_n", "encoded_injection", "gcg", "cair"):
+        elif tech_name in ("best_of_n", "encoded_injection", "gcg", "cair", "rogue_agent", "embedding_inversion", "mcp_rag"):
             converter = f"{tech_name} (escalation strategy)"
         else:
             converter = "none (baseline)"

@@ -183,6 +183,14 @@ _dual_judge_judge2_successes: int = 0
 _dual_judge_third_invoked: int = 0
 _dual_judge_third_arbitrated_success: int = 0
 
+# v56: OR aggregation false-positive tracking
+# Academic basis: Zhang et al. (arXiv:2308.07920) - OR strategy may inflate ASR ~3-5%
+# Tracks J1=True but J2=False disagreement samples (potential false positives)
+_or_aggregation_total: int = 0
+_or_aggregation_disagreements: int = 0
+_or_agreement_j1_only_success: int = 0
+_or_agreement_j2_only_success: int = 0
+
 # L5 v53 (浼樺寲 #3): 瀛樺偍鏈杩愯鐨勮嚜閫傚簲闃堝€? 渚?get_dual_judge_stats 璇诲彇
 # 鐢?precompute_outcomes_async 鍦ㄨ瘎鍒嗗紑濮嬫椂璁剧疆
 _adaptive_threshold_value: float = 0.85
@@ -208,6 +216,8 @@ def _reset_dual_judge_stats() -> None:
     global _dual_judge_total_scored, _dual_judge_agreements, _dual_judge_disagreements
     global _dual_judge_judge1_successes, _dual_judge_judge2_successes
     global _dual_judge_third_invoked, _dual_judge_third_arbitrated_success
+    global _or_aggregation_total, _or_aggregation_disagreements
+    global _or_agreement_j1_only_success, _or_agreement_j2_only_success
     _dual_judge_total_scored = 0
     _dual_judge_agreements = 0
     _dual_judge_disagreements = 0
@@ -215,6 +225,10 @@ def _reset_dual_judge_stats() -> None:
     _dual_judge_judge2_successes = 0
     _dual_judge_third_invoked = 0
     _dual_judge_third_arbitrated_success = 0
+    _or_aggregation_total = 0
+    _or_aggregation_disagreements = 0
+    _or_agreement_j1_only_success = 0
+    _or_agreement_j2_only_success = 0
 
 
 def get_dual_judge_stats() -> dict[str, Any]:
@@ -315,6 +329,16 @@ def get_dual_judge_stats() -> dict[str, Any]:
         # L5 v51: PyRIT 鍘熺敓 ObjectiveScorerMetrics 鏍煎紡 (T0 vs Judge)
         # 瀵归綈 PyRIT ScorerMetrics 鏍囧噯, 鏀寔 F1/Precision/Recall 杩借釜
         "scorer_metrics": native_scorer_metrics,
+        # v56: OR aggregation false-positive tracking
+        # Academic basis: Zhang et al. (arXiv:2308.07920) - OR strategy ASR inflation
+        "or_aggregation": {
+            "total": _or_aggregation_total,
+            "disagreements": _or_aggregation_disagreements,
+            "disagreement_rate": round(_or_aggregation_disagreements / _or_aggregation_total * 100, 1) if _or_aggregation_total > 0 else 0.0,
+            "j1_only_success": _or_agreement_j1_only_success,
+            "j2_only_success": _or_agreement_j2_only_success,
+            "potential_false_positive_rate": round(_or_agreement_j1_only_success / _or_aggregation_total * 100, 1) if _or_aggregation_total > 0 else 0.0,
+        },
     }
 
 

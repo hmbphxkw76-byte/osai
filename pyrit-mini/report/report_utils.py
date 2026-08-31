@@ -65,6 +65,7 @@ def _get_technique_display_name(technique_name: str) -> str:
         "chunked_extraction": "Chunked Extraction",
         "cair": "CAIR (Context-Aware Iterative Refinement)",
         "barge_in": "Barge-In Attack",
+        "mcp_rag": "MCP/RAG Attack",
         # 瑙掕壊鎵紨鏀诲嚮鎶€鏈?
         "role_play_movie_script": "Role Play (Movie Script)",
         "role_play_persuasion": "Role Play (Persuasion)",

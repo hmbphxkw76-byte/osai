@@ -109,6 +109,7 @@ _L5_BASELINE: dict[str, float] = {
     "post_l1_exit_threshold": 70,
     "post_l2_exit_threshold": 80,
     "dual_judge_high_confidence_threshold": 0.85,
+    "dual_judge_disagreement_strategy": "or",  # v56: configurable aggregation
     "wilson_confidence_level": 0.95,
     "auto_seed_expansion_factor": 3,
     "max_escalation_targets": 10,
@@ -121,6 +122,7 @@ _HARDCODED_PARAM_NAMES: list[str] = [
     "max_escalation_targets",
     "auto_seed_expansion_factor",
     "dual_judge_high_confidence_threshold",
+    "dual_judge_disagreement_strategy",  # v56: must be read from config
     "best_of_n_retries",
     "l5_optimal_paths",
     "escalation_asr_threshold",
@@ -229,6 +231,8 @@ class ArchitectureGuard:
         self.check_config_data_flow()
         # R10: --dry-run 可用性检查
         self.check_dry_run_available()
+        # R1/R7: 精准投放四大机制完整性检查
+        self.check_precision_targeting()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -1291,6 +1295,255 @@ class ArchitectureGuard:
                     ))
             except OSError:
                 pass
+
+    # ── 检查 16: 精准投放四大机制完整性 (R1/R7) ──
+
+    def check_precision_targeting(self) -> None:
+        """检测精准投放四大机制是否完整集成到主代码和流水线中.
+
+        R1 (攻击者视角) + R7 (ASR-token-time 平衡) 要求:
+        1. 三级 Converter 排序 (全局→OWASP→category) — converter_selector.py
+        2. ASR 历史排序 (UCB1) — seed_ranking.py + seed_ranker.py
+        3. 0% ASR 种子裁剪 — seed_ranker.py
+        4. 模型特定先验 — seed_ranking.py + seed_ranker.py
+
+        每个机制检查两个维度:
+        - 机制实现存在性: 关键函数是否定义
+        - 流水线集成性: 关键函数是否在 main.py 或 strike/ 中被调用
+        """
+        # ── 机制 1: 三级 Converter 排序 ──
+        converter_selector = self.root / "arm" / "converter_selector.py"
+        if converter_selector.exists():
+            try:
+                content = converter_selector.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                content = ""
+
+            # 检查三级优先级函数是否都存在
+            _required_converter_funcs = [
+                ("_get_owasp_converter_priorities", "OWASP 级别 Converter 优先级"),
+                ("_get_category_converter_priorities", "Category 级别 Converter 优先级"),
+                ("_get_suitable_for_converter_strategy", "suitable_for 策略过滤"),
+            ]
+            for func_name, desc in _required_converter_funcs:
+                if not re.search(rf"def\s+{func_name}\s*\(", content):
+                    self.violations.append(Violation(
+                        rule="R1",
+                        severity=Severity.WARNING,
+                        file="arm/converter_selector.py",
+                        line=0,
+                        description=f"精准投放-机制1 缺失: {desc} 函数 {func_name} 未定义",
+                        fix_hint=f"在 arm/converter_selector.py 中实现 {func_name}()",
+                    ))
+
+            # 检查 OWASP 和 category 优先级是否在 _get_candidate_converters / _build_converter_config 中被调用
+            for caller_func in ["_get_candidate_converters", "_build_converter_config"]:
+                caller_match = re.search(
+                    rf"def\s+{caller_func}\s*\([^)]*\).*?(?=\n    def |\nclass |\Z)",
+                    content,
+                    re.DOTALL,
+                )
+                if not caller_match:
+                    continue
+                caller_body = caller_match.group(0)
+                if "_get_owasp_converter_priorities" not in caller_body:
+                    self.violations.append(Violation(
+                        rule="R1",
+                        severity=Severity.WARNING,
+                        file="arm/converter_selector.py",
+                        line=0,
+                        description=f"精准投放-机制1 集成缺口: {caller_func} 中未调用 _get_owasp_converter_priorities (OWASP 级别覆盖缺失)",
+                        fix_hint=f"在 {caller_func} 中添加: owasp_priorities = _get_owasp_converter_priorities(ctx)",
+                    ))
+                if "_get_category_converter_priorities" not in caller_body:
+                    self.violations.append(Violation(
+                        rule="R1",
+                        severity=Severity.WARNING,
+                        file="arm/converter_selector.py",
+                        line=0,
+                        description=f"精准投放-机制1 集成缺口: {caller_func} 中未调用 _get_category_converter_priorities (Category 级别覆盖缺失)",
+                        fix_hint=f"在 {caller_func} 中添加: category_priorities = _get_category_converter_priorities(ctx)",
+                    ))
+
+        # 检查 owasp_converter_map 和 category_converter_map 是否在 asr_priors.yaml 中定义
+        priors_path = self.root / "config" / "asr_priors.yaml"
+        if priors_path.exists():
+            try:
+                priors_content = priors_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                priors_content = ""
+            if "owasp_converter_map:" not in priors_content:
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="config/asr_priors.yaml",
+                    line=0,
+                    description="精准投放-机制1 配置缺失: owasp_converter_map 未在 asr_priors.yaml 中定义",
+                    fix_hint="在 asr_priors.yaml 中添加 owasp_converter_map 节点",
+                ))
+            if "category_converter_map:" not in priors_content:
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="config/asr_priors.yaml",
+                    line=0,
+                    description="精准投放-机制1 配置缺失: category_converter_map 未在 asr_priors.yaml 中定义",
+                    fix_hint="在 asr_priors.yaml 中添加 category_converter_map 节点",
+                ))
+
+        # ── 机制 2: ASR 历史排序 (UCB1) ──
+        seed_ranking = self.root / "arm" / "seed_ranking.py"
+        if seed_ranking.exists():
+            try:
+                sr_content = seed_ranking.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                sr_content = ""
+
+            if not re.search(r"def\s+_rank_by_asr\s*\(", sr_content):
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="arm/seed_ranking.py",
+                    line=0,
+                    description="精准投放-机制2 缺失: UCB1 排序函数 _rank_by_asr 未定义",
+                    fix_hint="在 arm/seed_ranking.py 中实现 _rank_by_asr() (arXiv:cs/0207052)",
+                ))
+
+            # 检查 UCB 公式是否存在
+            if "ucb" not in sr_content.lower() or "sqrt" not in sr_content.lower():
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="arm/seed_ranking.py",
+                    line=0,
+                    description="精准投放-机制2 实现不完整: UCB1 公式 (avg_asr + C*sqrt(2*ln(N)/n_i)) 缺失",
+                    fix_hint="在 _rank_by_asr 中实现 UCB 公式: ucb_score = asr + C * sqrt(2*ln(N)/n_i)",
+                ))
+
+        # 检查 _rank_by_asr 是否在 seed_ranker.py 中被调用
+        seed_ranker = self.root / "arm" / "seed_ranker.py"
+        if seed_ranker.exists():
+            try:
+                sk_content = seed_ranker.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                sk_content = ""
+            if "_rank_by_asr" not in sk_content:
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="arm/seed_ranker.py",
+                    line=0,
+                    description="精准投放-机制2 集成缺口: load_seeds 中未调用 _rank_by_asr (ASR 排序未集成到种子加载流程)",
+                    fix_hint="在 load_seeds() 中添加: seed_groups = _rank_by_asr(seed_groups, asr_history)",
+                ))
+
+        # ── 机制 3: 0% ASR 种子裁剪 ──
+        if seed_ranker.exists():
+            if not re.search(r"def\s+_prune_zero_asr_seeds\s*\(", sk_content):
+                self.violations.append(Violation(
+                    rule="R7",
+                    severity=Severity.WARNING,
+                    file="arm/seed_ranker.py",
+                    line=0,
+                    description="精准投放-机制3 缺失: 0% ASR 种子裁剪函数 _prune_zero_asr_seeds 未定义",
+                    fix_hint="在 arm/seed_ranker.py 中实现 _prune_zero_asr_seeds() (arXiv:cs/0207052)",
+                ))
+            elif "_prune_zero_asr_seeds" not in sk_content.split("def _prune_zero_asr_seeds")[0]:
+                # 函数定义存在但未在 load_seeds 中调用
+                # 检查 load_seeds 函数体是否调用了 _prune_zero_asr_seeds
+                load_seeds_match = re.search(
+                    r"def\s+load_seeds\s*\([^)]*\).*?(?=\n    def |\nclass |\Z)",
+                    sk_content,
+                    re.DOTALL,
+                )
+                if load_seeds_match and "_prune_zero_asr_seeds" not in load_seeds_match.group(0):
+                    self.violations.append(Violation(
+                        rule="R7",
+                        severity=Severity.WARNING,
+                        file="arm/seed_ranker.py",
+                        line=0,
+                        description="精准投放-机制3 集成缺口: load_seeds 中未调用 _prune_zero_asr_seeds (0% ASR 裁剪未集成到种子加载流程)",
+                        fix_hint="在 load_seeds() 中添加: seed_groups = _prune_zero_asr_seeds(seed_groups, max_seeds)",
+                    ))
+
+        # ── 机制 4: 模型特定先验 ──
+        # 检查 load_asr_priors 函数是否存在
+        if not re.search(r"def\s+load_asr_priors\s*\(", sr_content):
+            self.violations.append(Violation(
+                rule="R1",
+                severity=Severity.WARNING,
+                file="arm/seed_ranking.py",
+                line=0,
+                description="精准投放-机制4 缺失: 模型特定先验加载函数 load_asr_priors 未定义",
+                fix_hint="在 arm/seed_ranking.py 中实现 load_asr_priors() (arXiv:2402.01135)",
+            ))
+
+        # 检查 load_seeds 中是否接收并使用 model_family 参数
+        if seed_ranker.exists():
+            if "model_family" not in sk_content:
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="arm/seed_ranker.py",
+                    line=0,
+                    description="精准投放-机制4 集成缺口: load_seeds 不接收 model_family 参数 (模型特定先验无法传递)",
+                    fix_hint="为 load_seeds() 添加 model_family 参数, 调用 load_asr_priors(model_family)",
+                ))
+            else:
+                # 检查 load_seeds 函数体中是否调用了 load_asr_priors
+                load_seeds_match = re.search(
+                    r"def\s+load_seeds\s*\([^)]*\).*?(?=\n    def |\nclass |\Z)",
+                    sk_content,
+                    re.DOTALL,
+                )
+                if load_seeds_match and "load_asr_priors" not in load_seeds_match.group(0):
+                    self.violations.append(Violation(
+                        rule="R1",
+                        severity=Severity.WARNING,
+                        file="arm/seed_ranker.py",
+                        line=0,
+                        description="精准投放-机制4 集成缺口: load_seeds 中未调用 load_asr_priors (模型特定先验未集成到种子加载流程)",
+                        fix_hint="在 load_seeds() 中添加: priors = load_asr_priors(model_family)",
+                    ))
+
+        # 检查 main.py 中是否传递 model_family 到 load_seeds
+        main_file = self.root / "main.py"
+        if main_file.exists():
+            try:
+                main_content = main_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                main_content = ""
+            if "model_family" not in main_content or "load_seeds" not in main_content:
+                self.violations.append(Violation(
+                    rule="R1",
+                    severity=Severity.WARNING,
+                    file="main.py",
+                    line=0,
+                    description="精准投放-机制4 流水线缺口: main.py 中未传递 model_family 到 load_seeds (模型先验数据流断裂)",
+                    fix_hint="在 main.py load_seeds() 调用中添加: model_family=target_model_family",
+                ))
+
+        # 检查 update_asr_priors 是否在 main.py assess 阶段被调用
+        if main_file.exists() and "update_asr_priors" not in main_content:
+            self.violations.append(Violation(
+                rule="R1",
+                severity=Severity.WARNING,
+                file="main.py",
+                line=0,
+                description="精准投放-机制4 闭环缺口: main.py 中未调用 update_asr_priors (EMA 跨目标知识迁移未集成)",
+                fix_hint="在 assess 阶段添加: update_asr_priors(model_family, ctx.asr_per_technique)",
+            ))
+
+        # 检查 save_asr_history 是否在 main.py 中被调用 (闭环数据流)
+        if main_file.exists() and "save_asr_history" not in main_content:
+            self.violations.append(Violation(
+                rule="R1",
+                severity=Severity.WARNING,
+                file="main.py",
+                line=0,
+                description="精准投放-机制2 闭环缺口: main.py 中未调用 save_asr_history (ASR 历史未写入, UCB 排序无数据)",
+                fix_hint="在 assess 阶段添加: save_asr_history(ctx.asr_per_technique, attack_results=ctx.attack_results)",
+            ))
 
     # ── 输出 ──
 

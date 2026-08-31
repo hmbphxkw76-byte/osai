@@ -339,6 +339,39 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append(f"| High Confidence Threshold | {stats.get('high_confidence_threshold', 0)} |")
         lines.append("")
 
+        # v56: OR Aggregation False-Positive Tracking
+        # Academic basis: Zhang et al. (arXiv:2308.07920) - OR strategy ASR inflation
+        or_stats = stats.get("or_aggregation", {})
+        if or_stats and or_stats.get("total", 0) > 0:
+            lines.append("### OR Aggregation False-Positive Tracking")
+            lines.append("")
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+            lines.append(f"| OR Aggregation Total | {or_stats.get('total', 0)} |")
+            lines.append(f"| Disagreements | {or_stats.get('disagreements', 0)} ({or_stats.get('disagreement_rate', 0)}%) |")
+            lines.append(f"| J1-Only Success (potential FP) | {or_stats.get('j1_only_success', 0)} |")
+            lines.append(f"| J2-Only Success | {or_stats.get('j2_only_success', 0)} |")
+            lines.append(f"| Potential False Positive Rate | {or_stats.get('potential_false_positive_rate', 0)}% |")
+            lines.append("")
+
+        # v56: PyRIT Native ScorerMetrics (F1/Precision/Recall)
+        # Academic basis: PyRIT (arXiv:2407.01232) - ScorerMetrics standardization
+        scorer_metrics = stats.get("scorer_metrics", {})
+        if scorer_metrics and scorer_metrics.get("num_responses", 0) > 0:
+            lines.append("### T0 Scorer Metrics (PyRIT Native)")
+            lines.append("")
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+            lines.append(f"| Num Responses | {scorer_metrics.get('num_responses', 0)} |")
+            lines.append(f"| Accuracy | {scorer_metrics.get('accuracy', 0)} |")
+            lines.append(f"| F1 Score | {scorer_metrics.get('f1_score', 0)} |")
+            lines.append(f"| Precision | {scorer_metrics.get('precision', 0)} |")
+            lines.append(f"| Recall | {scorer_metrics.get('recall', 0)} |")
+            cm = scorer_metrics.get("confusion_matrix", {})
+            if cm:
+                lines.append(f"| Confusion Matrix | TP={cm.get('tp', 0)}, FP={cm.get('fp', 0)}, FN={cm.get('fn', 0)}, TN={cm.get('tn', 0)} |")
+            lines.append("")
+
     # L5 v29: Wilson Score CI
     # 断点修复: wilson_ci 从 JSON 反序列化后是 list 而非 tuple,
     # 直接用 != (0.0, 0.0) 比较会导致 list != tuple 恒为 True (即使值相同),
