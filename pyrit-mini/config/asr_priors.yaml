@@ -1,6 +1,6 @@
 technique_asr:
   prompt_sending:
-    claude-3: 73.6
+    claude-3: 87.0
     claude-3.5: 15.0
     claude-3.5-haiku: 20.0
     claude-3.5-sonnet: 14.0
@@ -51,7 +51,7 @@ technique_asr:
     yi-lightning: 25.0
     default: 20.0
   best_of_n_retry:
-    claude-3: 25.0
+    claude-3: 42.2
     claude-3.5: 28.0
     claude-3.5-haiku: 35.0
     claude-3.5-sonnet: 27.0
@@ -102,7 +102,7 @@ technique_asr:
     yi-lightning: 42.0
     default: 35.0
   crescendo:
-    claude-3: 76.0
+    claude-3: 71.2
     claude-3.5: 78.0
     claude-3.5-haiku: 82.0
     claude-3.5-sonnet: 76.0
@@ -204,7 +204,7 @@ technique_asr:
     yi-lightning: 58.0
     default: 60.0
   pair:
-    claude-3: 70.0
+    claude-3: 67.0
     claude-3.5: 58.0
     claude-3.5-haiku: 62.0
     claude-3.5-sonnet: 56.0

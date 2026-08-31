@@ -344,10 +344,14 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
     lines.append("")
 
     # ── Failure Analysis ──
+    # R-06: 当 failure_analysis 为空或无实际内容时, 显示分类表框架
     lines.append("## Failure Analysis")
     lines.append("")
-    if evidence.failure_analysis:
-        fa = evidence.failure_analysis
+    fa = evidence.failure_analysis or {}
+    _fa_has_data = (
+        fa.get("failure_types") or fa.get("technique_ranking")
+    )
+    if _fa_has_data:
         lines.append("### Failure Types")
         lines.append("")
         for ftype, count in sorted(
@@ -379,7 +383,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 # 基于转换器类型分类失败
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
-                elif ev.seed and "jailbreak" in (ev.seed or "").lower():
+                elif ev.objective and "jailbreak" in (ev.objective or "").lower():
                     cat = "jailbreak_blocked"
                 else:
                     cat = "request_refused"
@@ -414,7 +418,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 # 分类
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
-                elif "jailbreak" in (ev.seed or "").lower():
+                elif "jailbreak" in (ev.objective or "").lower():
                     cat = "jailbreak_blocked"
                 else:
                     cat = "request_refused"
@@ -736,7 +740,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     # 展示攻击路径: Seed → Converter → Technique → Outcome
     lines.append("**Attack Chain:**")
     attack_chain_parts = []
-    attack_chain_parts.append(f"Seed({(ev.seed or 'unknown')[:30]})")
+    attack_chain_parts.append(f"Seed({(ev.objective or 'unknown')[:30]})")
     if ev.converter_chain and ev.converter_chain != "none (baseline)":
         # 简化 converter chain 显示
         conv_short = ev.converter_chain.split(" → ")[0] if " → " in ev.converter_chain else ev.converter_chain
@@ -890,7 +894,9 @@ def _append_pipeline_flowchart(lines: list[str], evidence: EvidenceCollection) -
     strike_results = strike_out.get("total_results", evidence.total_attacks) if isinstance(strike_out, dict) else evidence.total_attacks
     esc_results = escalate_out.get("total_results", evidence.total_attacks) if isinstance(escalate_out, dict) else evidence.total_attacks
     assess_success = assess_out.get("overall_asr", "?") if isinstance(assess_out, dict) else "?"
-    report_files = len(report_out.get("output", {}).get("report_index", "").split(",")) if isinstance(report_out, dict) else 6
+    # R-01: 计算报告文件数 — report_out 已是 output 字典 (非嵌套), 统计非空值数量
+    _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
+    report_files = sum(1 for k in _report_keys if report_out.get(k)) if isinstance(report_out, dict) else 6
 
     # ARM 行: 展示 seeds + techs + converters
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
@@ -939,8 +945,9 @@ def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
     assess_asr = assess_data.get("overall_asr", "?") if isinstance(assess_data, dict) else "?"
 
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
-    _report_output = report_data.get("output", {}) if isinstance(report_data, dict) else {}
-    _report_file_count = len([v for v in _report_output.values() if v]) if isinstance(_report_output, dict) else 6
+    # R-01: report_data 已是 output 字典 (非嵌套), 统计已知报告文件的非空值
+    _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
+    _report_file_count = sum(1 for k in _report_keys if report_data.get(k)) if isinstance(report_data, dict) else 6
 
     lines.append(f"│ {recon_probe} probes │         │ {arm_seeds} seeds │+conv    │ {strike_results} results │   │ {esc_techs} │    │ ASR {assess_asr}%│     │ {_report_file_count} files│")
     lines.append(f"│           │         │ {_arm_tech_str}│+techs   │           │   │           │    │          │     │          │")
@@ -1082,7 +1089,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
         seen_seeds: set[str] = set()
         idx = 0
         for ev in evidence.evidence:
-            _seed = (ev.seed or "")[:60]
+            _seed = (ev.objective or "")[:60]
             _seed_key = _seed[:30]  # 去重键
             if _seed_key in seen_seeds:
                 continue
@@ -1091,7 +1098,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             _tech = ev.technique_name or ""
             _conv = ev.converter_chain or "none (baseline)"
             _success = "✓" if ev.is_success else "✗"
-            _seed_display = _seed + ("..." if len(ev.seed or "") > 60 else "")
+            _seed_display = _seed + ("..." if len(ev.objective or "") > 60 else "")
             lines.append(f"| {idx} | {_seed_display} | {_tech} | {_conv} | {_success} |")
         lines.append("")
 

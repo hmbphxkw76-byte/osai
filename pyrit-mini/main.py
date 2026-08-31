@@ -1398,13 +1398,12 @@ async def _run_single_endpoint(
             evidence.attack_surface["auth_recovery_attempts"] = len(auth_recovery_log)
             evidence.attack_surface["auth_recovery_log"] = auth_recovery_log
 
-    report_path = await generate_report(ctx, evidence, output_dir)
-
-    # ── 报告卡片 (最终输出, 阶段间传递: 全链路结果→报告) ──
-    # R2 PyRIT 原生优先: 展示 native_output 目录路径 (原生 output 优先)
-    _native_dir = output_dir / "native_output"
-
     # R8 §8.5: 审计日志完整性 — report 阶段编排日志
+    # 时序修复: 必须在 generate_report() 之前添加, 否则报告生成时
+    # evidence.orchestration_log 中缺少 report 阶段日志,
+    # 导致 Pipeline Flowchart 中 REPORT 框显示 0 files
+    _native_dir = output_dir / "native_output"
+    _report_index_path = str(output_dir / "report.md")
     ctx.orchestration_log.append({
         "phase": "report",
         "decision": "report_generation",
@@ -1413,7 +1412,7 @@ async def _run_single_endpoint(
             "overall_asr": ctx.overall_asr,
         },
         "output": {
-            "report_index": str(report_path),
+            "report_index": _report_index_path,
             "report_executive": str(output_dir / "report_executive.md"),
             "report_findings": str(output_dir / "report_findings.md"),
             "report_technical": str(output_dir / "report_technical.md"),
@@ -1422,6 +1421,8 @@ async def _run_single_endpoint(
         },
         "reasoning": f"生成分层安全报告 (ASR={ctx.overall_asr:.1f}%, {evidence.total_attacks} 条证据, 4 文件分层架构)",
     })
+
+    report_path = await generate_report(ctx, evidence, output_dir)
     print_report_card(
         total_attacks=evidence.total_attacks,
         successful_attacks=evidence.successful_attacks,
