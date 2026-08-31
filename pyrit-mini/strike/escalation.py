@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from core.context import PipelineContext
@@ -153,6 +154,9 @@ async def check_and_escalate(
     """
     logger.info("check_and_escalate called with %d techniques", len(attack_results))
 
+    # v57: 重置升级技术标记, 确保单轮→升级过渡时显示上下文正确
+    setattr(ctx, "_current_escalation_tech", None)
+
     # L5 v42: 鍗囩骇鍓嶉璇勫垎 鈥?纭繚鍙?Judge 鍦ㄥ紓姝ヤ笂涓嬫枃涓墽琛?
     # 闂璇婃柇: _select_failed_objectives 璋冪敤鍚屾 _get_outcome 鈫?_post_hoc_judge_success
     # 鈫?_run_llm_dual_judge_sync 鈫?asyncio.run() 鍦?event loop 鍐呬笉鍙敤 鈫?fallback 鍒板惎鍙戝紡
@@ -204,6 +208,17 @@ async def check_and_escalate(
 
     logger.info("Escalating %d failed objectives", len(failed_objectives))
 
+    # v58: 输出升级决策卡片 — 攻击者一眼看清"为什么升级"
+    try:
+        from utils.display import print_escalation_decision_card
+        print_escalation_decision_card(
+            ctx,
+            baseline_asr=overall_asr,
+            failed_count=len(failed_objectives),
+        )
+    except Exception:
+        pass
+
     # 提前计算升级级别描述 (用于编排日志)
     _esc_levels = getattr(ctx.args, "escalation_levels_parsed", None)
     if _esc_levels is not None:
@@ -226,37 +241,162 @@ async def check_and_escalate(
         "reasoning": f"ASR {overall_asr:.1f}% < {_esc_threshold:.1f}%, escalating {len(failed_objectives)} failed objectives through {_levels_str} chain",
     })
 
+    # v57: 记录 L1 调度模式 (priority-scheduled vs full-parallel)
+    _ps_enabled_log = _get_ctx_config_value(ctx, "priority_scheduler_enabled", 1.0)
+    ctx.orchestration_log.append({
+        "phase": "escalate",
+        "decision": "l1_scheduler_mode",
+        "input": {
+            "priority_scheduler_enabled": _ps_enabled_log >= 1.0,
+            "techniques": ["red_teaming", "cot_hijack", "crescendo", "tap", "pair"],
+        },
+        "output": {
+            "scheduler_mode": "priority_batch" if _ps_enabled_log >= 1.0 else "full_parallel",
+            "high_threshold": _get_ctx_config_value(ctx, "priority_scheduler_high_threshold", 60.0) if _ps_enabled_log >= 1.0 else None,
+            "low_threshold": _get_ctx_config_value(ctx, "priority_scheduler_low_threshold", 40.0) if _ps_enabled_log >= 1.0 else None,
+            "epsilon": _get_ctx_config_value(ctx, "priority_scheduler_epsilon", 0.1) if _ps_enabled_log >= 1.0 else None,
+            "exit_threshold": _l1_exit,
+        },
+        "reasoning": (
+            "v57: L1 uses priority-scheduled batch execution "
+            "(FIRST_SUCCESS + UCB at technique level) "
+            "per arXiv:2406.12609 + arXiv:cs/0207052"
+            if _ps_enabled_log >= 1.0
+            else "L1 uses full-parallel execution (priority scheduler disabled)"
+        ),
+    })
+
     escalated_results: dict[str, list] = {}
 
-    # 鈹€鈹€ Level 1: RedTeaming + CoT + Crescendo + TAP + PAIR (骞惰) 鈹€鈹€
-    # PyRIT 鍘熺敓瀵归綈 (v51): 鏂板 RedTeamingAttack 浣滀负 L1 鍓嶇疆
-    #   - RedTeamingAttack (arXiv:2407.01232): 瀹樻柟鏈€閫氱敤 multi-turn baseline
-    #   - CoT Hijack (arXiv:2307.10292): ASR 45-60%
-    #   - Crescendo (arXiv:2402.12109): ASR=82% at 10 turns
-    #   - TAP (arXiv:2312.02191): 鏍戞悳绱?ASR=50-80%
-    #   - PAIR (arXiv:2310.08419): 杩唬浼樺寲 ASR 40-60%
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈥?骞惰绛栫暐闄嶄綆鎬绘墽琛屾椂闂?40-60%
-    async def _safe_call(coro, name: str) -> dict[str, list]:
-        """瀹夊叏鎵ц鍗忕▼, 寮傚父杩斿洖绌哄瓧鍏?"""
-        try:
-            return await coro
-        except Exception as e:
-            logger.warning("%s failed: %s", name, e)
-            return {}
-
+    # 鈹€鈹€ Level 1: Priority-scheduled batch execution 鈹€鈹€
+    # v57: FIRST_SUCCESS + UCB 浼樺厛绾ф帓搴忎粠 converter 绾т┍灞曞埌澶氳疆鎶€鏈<strong>
+    #
+    # 鏈ϊ搴т緷鎹?ASR 鍏堥獙鍒嗘壒鎵ц:
+    #   鎵规鈥?楂場rior): Crescendo [65%] + TAP [60%]
+    #   鈫?妫€鏌?ASR 鈮?exit_threshold 鈫?閫€鍑?
+    #   鎵规 2(涓噑rior): PAIR [50%] + CoT [~50%] + RedTeaming [~40%]
+    #   鈫?妫€鏌?ASR 鈮?exit_threshold 鈫?閫€鍑?
+    #
+    # 瀛︽湳渚濇嵁:
+    #   - Lattner et al. (arXiv:2406.12609) 楂蜂环鍊肩暐鐣ュ厛, 涓棿閫€鍑鸿妭鐪?60-80% token
+    #   - Auer et al. (arXiv:cs/0207052) UCB1 鎺掑簭
+    #   - PyRIT SequentialAttack (arXiv:2407.01232) FIRST_SUCCESS 鎵╁睍鍒版妧鏈?
+    #   - Chao et al. (arXiv:2310.08419) 鑱斿悎 ASR, 楂?ASR 鎶€鏈鈥睘鏀剁泭閫掑噺
     _run_l1 = _esc_levels is None or 1 in _esc_levels
     if _run_l1:
-        logger.info("Executing L1: RedTeaming + CoT + Crescendo + TAP + PAIR")
-        l1_results = await asyncio.gather(
-            _safe_call(_run_red_teaming(ctx, failed_objectives), "RedTeaming"),
-            _safe_call(_run_cot_hijack(ctx, failed_objectives), "CoT Hijack"),
-            _safe_call(_run_crescendo(ctx, failed_objectives), "Crescendo"),
-            _safe_call(_run_tap(ctx, failed_objectives), "TAP"),
-            _safe_call(_run_pair(ctx, failed_objectives), "PAIR"),
-            return_exceptions=False,
-        )
-        for r in l1_results:
-            escalated_results.update(r)
+        # v58: L1 Level 横幅
+        try:
+            from utils.display import print_escalation_level_banner
+            _ps_enabled_check = _get_ctx_config_value(ctx, "priority_scheduler_enabled", 1.0)
+            print_escalation_level_banner(
+                ctx,
+                level=1,
+                techniques=["red_teaming", "cot_hijack", "crescendo", "tap", "pair"],
+                failed_count=len(failed_objectives),
+                batch_mode=_ps_enabled_check >= 1.0,
+            )
+        except Exception:
+            pass
+
+        # 读取优先级调度参数
+        _ps_high = _get_ctx_config_value(ctx, "priority_scheduler_high_threshold", 60.0)
+        _ps_low = _get_ctx_config_value(ctx, "priority_scheduler_low_threshold", 40.0)
+        _ps_epsilon = _get_ctx_config_value(ctx, "priority_scheduler_epsilon", 0.1)
+        _ps_enabled = _get_ctx_config_value(ctx, "priority_scheduler_enabled", 1.0)
+
+        _l1_techniques = ["red_teaming", "cot_hijack", "crescendo", "tap", "pair"]
+        _l1_runners = {
+            "red_teaming": _run_red_teaming,
+            "cot_hijack": _run_cot_hijack,
+            "crescendo": _run_crescendo,
+            "tap": _run_tap,
+            "pair": _run_pair,
+        }
+
+        if _ps_enabled >= 1.0:
+            # v57: 浼樺厛绾т笂鎵ц
+            logger.info(
+                "Executing L1 (priority-scheduled): %s "
+                "(high=%.0f%%, low=%.0f%%, epsilon=%.2f, exit=%.0f%%)",
+                ", ".join(_l1_techniques),
+                _ps_high, _ps_low, _ps_epsilon, _l1_exit,
+            )
+            from strike.priority_scheduler import _execute_priority_batches
+
+            l1_results = await _execute_priority_batches(
+                ctx=ctx,
+                techniques=_l1_techniques,
+                attack_runners=_l1_runners,
+                failed_objectives=failed_objectives,
+                exit_threshold=_l1_exit,
+                high_threshold=_ps_high,
+                low_threshold=_ps_low,
+                epsilon=_ps_epsilon,
+                base_attack_results=attack_results,  # 断点 B/C 修复: 传入单轮结果用于合并 ASR 计算
+            )
+            escalated_results.update(l1_results)
+        else:
+            # fallback: full-parallel (transition mode)
+            logger.info("Executing L1 (full parallel): RedTeaming + CoT + Crescendo + TAP + PAIR")
+
+            async def _safe_call(coro, name: str) -> dict[str, list]:
+                """Safe coroutine runner, returns empty dict on exception."""
+                try:
+                    return await coro
+                except Exception as e:
+                    logger.warning("%s failed: %s", name, e)
+                    return {}
+
+            # v57: L1 full-parallel display
+            _l1_fp_runners = [
+                ("red_teaming", _run_red_teaming),
+                ("cot_hijack", _run_cot_hijack),
+                ("crescendo", _run_crescendo),
+                ("tap", _run_tap),
+                ("pair", _run_pair),
+            ]
+            _l1_fp_start = time.monotonic()
+            try:
+                from utils.display import print_escalation_tech_start
+                for _l1_tech, _ in _l1_fp_runners:
+                    print_escalation_tech_start(
+                        ctx, level=1, technique=_l1_tech,
+                        objectives_count=len(failed_objectives),
+                    )
+            except Exception:
+                pass
+
+            l1_results = await asyncio.gather(
+                _safe_call(_run_red_teaming(ctx, failed_objectives), "RedTeaming"),
+                _safe_call(_run_cot_hijack(ctx, failed_objectives), "CoT Hijack"),
+                _safe_call(_run_crescendo(ctx, failed_objectives), "Crescendo"),
+                _safe_call(_run_tap(ctx, failed_objectives), "TAP"),
+                _safe_call(_run_pair(ctx, failed_objectives), "PAIR"),
+                return_exceptions=False,
+            )
+
+            # v57: L1 full-parallel results display
+            _l1_fp_elapsed = time.monotonic() - _l1_fp_start
+            try:
+                from utils.display import print_escalation_tech_done
+                for i, (_l1_tech, _) in enumerate(_l1_fp_runners):
+                    _l1_res = l1_results[i] if i < len(l1_results) else {}
+                    _l1_count = sum(len(v) for v in _l1_res.values()) if _l1_res else 0
+                    _l1_succ = sum(
+                        1 for results in (_l1_res.values() if _l1_res else [])
+                        for r in results if _is_success(r)
+                    )
+                    print_escalation_tech_done(
+                        ctx, level=1, technique=_l1_tech,
+                        results_count=_l1_count, success_count=_l1_succ,
+                        elapsed_seconds=_l1_fp_elapsed,
+                    )
+            except Exception:
+                pass
+
+            for r in l1_results:
+                escalated_results.update(r)
+
     else:
         logger.info("L1 skipped (--escalation-levels excludes L1)")
 
@@ -317,6 +457,35 @@ async def check_and_escalate(
     _run_l2 = _esc_levels is None or 2 in _esc_levels
     if _run_l2:
         logger.info("Executing L2: GCG + CAIR + Best-of-N + Encoded Injection")
+        # v58: L2 Level 横幅
+        try:
+            from utils.display import print_escalation_level_banner
+            print_escalation_level_banner(
+                ctx,
+                level=2,
+                techniques=["gcg", "cair", "best_of_n", "encoded_injection"],
+                failed_count=len(failed_objectives),
+            )
+        except Exception:
+            pass
+        # v57: L2 执行时完整路径展示
+        _l2_runners = [
+            ("gcg", _run_gcg),
+            ("cair", _run_cair),
+            ("best_of_n", _run_best_of_n),
+            ("encoded_injection", _run_encoded_injection),
+        ]
+        _l2_start_time = time.monotonic()
+        try:
+            from utils.display import print_escalation_tech_start
+            for _l2_tech, _ in _l2_runners:
+                print_escalation_tech_start(
+                    ctx, level=2, technique=_l2_tech,
+                    objectives_count=len(failed_objectives),
+                )
+        except Exception:
+            pass
+
         l2_results = await asyncio.gather(
             _safe_call(_run_gcg(ctx, failed_objectives), "GCG"),
             _safe_call(_run_cair(ctx, failed_objectives), "CAIR"),
@@ -324,6 +493,26 @@ async def check_and_escalate(
             _safe_call(_run_encoded_injection(ctx, failed_objectives), "Encoded Injection"),
             return_exceptions=False,
         )
+
+        # v57: L2 执行完成后输出结果
+        _l2_elapsed = time.monotonic() - _l2_start_time
+        try:
+            from utils.display import print_escalation_tech_done
+            for i, (_l2_tech, _) in enumerate(_l2_runners):
+                _l2_res = l2_results[i] if i < len(l2_results) else {}
+                _l2_count = sum(len(v) for v in _l2_res.values()) if _l2_res else 0
+                _l2_succ = sum(
+                    1 for results in (_l2_res.values() if _l2_res else [])
+                    for r in results if _is_success(r)
+                )
+                print_escalation_tech_done(
+                    ctx, level=2, technique=_l2_tech,
+                    results_count=_l2_count, success_count=_l2_succ,
+                    elapsed_seconds=_l2_elapsed,
+                )
+        except Exception:
+            pass
+
         for r in l2_results:
             escalated_results.update(r)
     else:
@@ -378,6 +567,18 @@ async def check_and_escalate(
     if _run_l3:
         logger.info("Executing L3: Multi-Model + SkeletonKey + Many-Shot+CoT + Chunked")
 
+        # v58: L3 Level 横幅
+        try:
+            from utils.display import print_escalation_level_banner
+            print_escalation_level_banner(
+                ctx,
+                level=3,
+                techniques=["multi_model_pair", "skeleton_key_native", "many_shot_cot", "multi_prompt_sending", "chunked_request"],
+                failed_count=len(failed_objectives),
+            )
+        except Exception:
+            pass
+
         # Multi-Model needs to check extra_targets
         async def _run_multi_model_safe() -> dict[str, list]:
             try:
@@ -399,6 +600,25 @@ async def check_and_escalate(
                 logger.warning("Many-Shot+CoT escalation failed: %s", e)
                 return {}
 
+        # v57: L3 执行时完整路径展示
+        _l3_runners = [
+            ("multi_model_pair", None),  # uses _run_multi_model_safe wrapper
+            ("skeleton_key_native", _run_skeleton_key_native),
+            ("many_shot_cot", None),  # uses _run_many_shot_cot_safe wrapper
+            ("multi_prompt_sending", _run_multi_prompt_sending),
+            ("chunked_request", _run_chunked_request),
+        ]
+        _l3_start_time = time.monotonic()
+        try:
+            from utils.display import print_escalation_tech_start
+            for _l3_tech, _ in _l3_runners:
+                print_escalation_tech_start(
+                    ctx, level=3, technique=_l3_tech,
+                    objectives_count=len(failed_objectives),
+                )
+        except Exception:
+            pass
+
         l3_results = await asyncio.gather(
             _run_multi_model_safe(),
             _safe_call(_run_skeleton_key_native(ctx, failed_objectives), "SkeletonKey"),
@@ -407,6 +627,26 @@ async def check_and_escalate(
             _safe_call(_run_chunked_request(ctx, failed_objectives), "ChunkedRequest"),
             return_exceptions=False,
         )
+
+        # v57: L3 执行完成后输出结果
+        _l3_elapsed = time.monotonic() - _l3_start_time
+        try:
+            from utils.display import print_escalation_tech_done
+            for i, (_l3_tech, _) in enumerate(_l3_runners):
+                _l3_res = l3_results[i] if i < len(l3_results) else {}
+                _l3_count = sum(len(v) for v in _l3_res.values()) if _l3_res else 0
+                _l3_succ = sum(
+                    1 for results in (_l3_res.values() if _l3_res else [])
+                    for r in results if _is_success(r)
+                )
+                print_escalation_tech_done(
+                    ctx, level=3, technique=_l3_tech,
+                    results_count=_l3_count, success_count=_l3_succ,
+                    elapsed_seconds=_l3_elapsed,
+                )
+        except Exception:
+            pass
+
         for r in l3_results:
             escalated_results.update(r)
     else:
@@ -420,12 +660,60 @@ async def check_and_escalate(
     _run_l4 = _esc_levels is None or 4 in _esc_levels
     if _run_l4:
         logger.info("Executing L4: Rogue Agent + Embedding Inversion + MCP/RAG")
+        # v58: L4 Level 横幅
+        try:
+            from utils.display import print_escalation_level_banner
+            print_escalation_level_banner(
+                ctx,
+                level=4,
+                techniques=["rogue_agent", "embedding_inversion", "mcp_rag"],
+                failed_count=len(failed_objectives),
+            )
+        except Exception:
+            pass
+        # v57: L4 执行时完整路径展示
+        _l4_runners = [
+            ("rogue_agent", _run_rogue_agent),
+            ("embedding_inversion", _run_embedding_inversion),
+            ("mcp_rag", _run_mcp_rag_attacks),
+        ]
+        _l4_start_time = time.monotonic()
+        try:
+            from utils.display import print_escalation_tech_start
+            for _l4_tech, _ in _l4_runners:
+                print_escalation_tech_start(
+                    ctx, level=4, technique=_l4_tech,
+                    objectives_count=len(failed_objectives),
+                )
+        except Exception:
+            pass
+
         l4_results = await asyncio.gather(
             _safe_call(_run_rogue_agent(ctx, failed_objectives), "Rogue Agent"),
             _safe_call(_run_embedding_inversion(ctx, failed_objectives), "Embedding Inversion"),
             _safe_call(_run_mcp_rag_attacks(ctx, failed_objectives), "MCP/RAG"),
             return_exceptions=False,
         )
+
+        # v57: L4 执行完成后输出结果
+        _l4_elapsed = time.monotonic() - _l4_start_time
+        try:
+            from utils.display import print_escalation_tech_done
+            for i, (_l4_tech, _) in enumerate(_l4_runners):
+                _l4_res = l4_results[i] if i < len(l4_results) else {}
+                _l4_count = sum(len(v) for v in _l4_res.values()) if _l4_res else 0
+                _l4_succ = sum(
+                    1 for results in (_l4_res.values() if _l4_res else [])
+                    for r in results if _is_success(r)
+                )
+                print_escalation_tech_done(
+                    ctx, level=4, technique=_l4_tech,
+                    results_count=_l4_count, success_count=_l4_succ,
+                    elapsed_seconds=_l4_elapsed,
+                )
+        except Exception:
+            pass
+
         for r in l4_results:
             escalated_results.update(r)
     else:

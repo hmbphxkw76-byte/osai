@@ -228,7 +228,9 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
                          "post_l2_exit_threshold", "max_escalation_targets",
                          "crescendo_max_turns", "tap_tree_width", "tap_tree_depth",
                          "tap_branching", "tap_success_threshold",
-                         "pair_tree_width", "pair_tree_depth", "escalation_levels"]),
+                         "pair_tree_width", "pair_tree_depth", "escalation_levels",
+                         "priority_scheduler_enabled", "priority_scheduler_high_threshold",
+                         "priority_scheduler_low_threshold", "priority_scheduler_epsilon"]),
         # probe section — 黑盒探测
         ("probe", ["probe_timeout", "probe_retries", "deep_probe_timeout",
                      "parallel_probe_timeout", "max_concurrent_probes"]),
@@ -671,6 +673,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "完整日志写入 {output_dir}/pipeline.log)",
     )
 
+    # T-06: --verbose-strike: 失败结果也展示完整原生 output (默认精简)
+    parser.add_argument(
+        "--verbose-strike",
+        action="store_true",
+        default=False,
+        help="STRIKE/ESCALATE 阶段失败结果也展示完整 PyRIT 原生 output "
+             "(默认: 失败结果使用 1 行精简摘要, 仅成功结果展开原生 output)",
+    )
+
     args = parser.parse_args(argv)
 
     explicit_escalation = args.escalation
@@ -731,9 +742,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if not raw_burps:
             # 目录不存在或无 .txt 文件 → fallback 到默认 request.txt
             raw_burps = ["request"]
-        logger.info(
-            "No --burp specified: auto-discovered %d .txt file(s) in data/burp/",
+        logger.debug(
+            "No --burp specified: auto-discovered %d .txt file(s) in data/burp/: %s",
             len(raw_burps),
+            ", ".join(Path(f).name for f in raw_burps),
         )
     elif isinstance(raw_burps, str):
         raw_burps = [raw_burps]

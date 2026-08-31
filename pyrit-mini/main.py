@@ -372,15 +372,16 @@ async def run(argv: list[str] | None = None) -> None:
         # 学术依据: Greshake et al. (arXiv:2302.12173) §4 — 能力指纹决定攻击策略
         #   MCP/function_calling > RAG > workflow > memory > a2a > chat
         # 轻量级预侦察 (0 网络请求): 仅解析 Burp 文件, 从响应文本提取能力信号
-        print_phase("RECON", "Endpoint 优先级排序 (能力指纹)...")
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
         sorted_endpoints = sort_endpoints_by_priority(burp_list)
 
-        # 打印排序结果
+        # 精简合并: 一段输出包含 RECON phase + data/burp/ 文件名 + 排序结果
         print()
         print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
-        print(f"{_C_BOLD}  Attack Priority Order (能力指纹排序){_C_RESET}")
+        print(f"{_C_BOLD}  ► [RECON] Endpoint 优先级排序 (能力指纹){_C_RESET}")
+        _files_str = ", ".join(Path(ep['burp_path']).name for ep in sorted_endpoints)
+        print(f"  data/burp/ — {_files_str}")
         print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
         for i, ep in enumerate(sorted_endpoints):
             caps_str = ", ".join(sorted(ep["capabilities"])) if ep["capabilities"] else "chat"
@@ -399,8 +400,7 @@ async def run(argv: list[str] | None = None) -> None:
             print()
             print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
             print(
-                f"{_C_BOLD}  Endpoint {idx + 1}/{len(burp_list)}: {burp_name}"
-                f"{'═' * max(0, 40 - len(burp_name))}{_C_RESET}"
+                f"{_C_BOLD}  Endpoint {idx + 1}/{len(burp_list)}: {burp_name}{_C_RESET}"
             )
             print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
 
@@ -996,18 +996,44 @@ async def _run_single_endpoint(
         ),
     })
 
-    # ── ARM 阶段输出: 种子/技术/Converter 链卡片 (阶段间传递: 武器清单→STRIKE) ──
-    print_arm_card(ctx)
+    # ── ARM 阶段输出: 武器清单 ──
+    # 完整流水线模式: 降级为 1 行状态摘要 (武器详情移至 report_technical.md)
+    # --stage arm 模式: 展示完整 5 张卡片 (武器化验证, 有意预览)
+    _is_arm_only_stage = getattr(args, "stage", None) == "arm"
+    if _is_arm_only_stage:
+        print_arm_card(ctx)
 
+    # 1 行摘要: 攻击者只需确认武器化完成 + 关键数字
+    _arm_target_type = "unknown"
+    if ctx.parsed_request:
+        _fp = ctx.parsed_request.target_fingerprint
+        _caps = _fp.get("capabilities", "") or ""
+        if "mcp" in _caps.lower() or "mcp_protocol" in _caps.lower():
+            _arm_target_type = "mcp_agent"
+        elif _fp.get("app_type") in ("chat", "responses", "litellm"):
+            _arm_target_type = "llm_chat"
+        elif _fp.get("app_type") == "browser":
+            _arm_target_type = "browser"
+        else:
+            _arm_target_type = "http_api"
     print_status(
         "ARM", "READY",
         f"Seeds={len(ctx.seeds)} | Techs={len(ctx.techniques)} | "
-        f"Converters={sum(len(v) for v in ctx.converter_map.values())}",
+        f"Converters={sum(len(v) for v in ctx.converter_map.values())} | "
+        f"Target: {_arm_target_type} | Roles: 3-actor",
         ok=True,
     )
 
+    # T-02: ARM 微卡片 — Top-3 Converter + Top-3 Techniques (完整流水线模式)
+    if not _is_arm_only_stage:
+        try:
+            from utils.display import print_arm_highlights
+            print_arm_highlights(ctx)
+        except Exception:
+            pass
+
     # ── --stage arm: 武器化完成, 输出清单后退出 ──
-    if getattr(args, "stage", None) == "arm":
+    if _is_arm_only_stage:
         print_status("ARM", "DONE", "武器化阶段完成", ok=True)
         await _cleanup_resources(ctx, exclude_shared=True)
         return
@@ -1074,6 +1100,28 @@ async def _run_single_endpoint(
     if not _is_dry_run:
         await print_strike_report_async(ctx)
 
+    # v58: STRIKE DONE 摘要行移到结果展示之后输出,
+    # 确保攻击者先看到成功 payload 展示和统计卡片, 再看到完成摘要.
+    # 时序: 路径进度 → Success cards + Execution Summary → STRIKE DONE
+    if not _is_dry_run:
+        try:
+            from utils.display import _is_success as _strike_is_success
+            from utils.display import print_strike_phase_summary
+            _strike_elapsed = getattr(ctx, "_strike_elapsed", 0.0)
+            _total_results = sum(len(v) for v in ctx.attack_results.values())
+            _total_success = sum(
+                1 for results in ctx.attack_results.values()
+                for r in results if _strike_is_success(r)
+            )
+            print_strike_phase_summary(
+                ctx,
+                total_results=_total_results,
+                total_success=_total_success,
+                elapsed_seconds=_strike_elapsed,
+            )
+        except Exception:
+            pass
+
     # 生产级: STRIKE 阶段编排日志 — 记录执行路径和结果
     from core.context import get_effective_concurrency as _get_concurrency
     ctx.orchestration_log.append({
@@ -1113,14 +1161,15 @@ async def _run_single_endpoint(
         logger.info("[DRY-RUN] 跳过升级链 (escalate 阶段) — 零 token 验证模式")
         print_status("ESCALATE", "DRY-RUN", "跳过升级链 — 零 token 验证")
     elif should_escalate:
-        print_phase("STRIKE", "检查 ASR & 触发多轮升级链 (ASR<90% 触发)...")
+        # v58: ESCALATE 阶段独立标题 (不再嵌在 STRIKE 之下)
+        print_phase("ESCALATE", "检查 ASR & 触发多轮升级链 (ASR<90% 触发)...")
         try:
             await check_and_escalate(ctx, ctx.attack_results)
         except Exception as e:
             logger.error("升级失败: %s — 继续处理单轮结果", e)
-            print_phase("STRIKE", f"升级部分失败: {e}")
+            print_phase("ESCALATE", f"升级部分失败: {e}")
     else:
-        print_status("STRIKE", "SKIP", "升级已禁用")
+        print_status("ESCALATE", "SKIP", "升级已禁用")
 
     # 生产级: ESCALATE 阶段编排日志 — 记录升级策略和结果
     # 增量借鉴: 从 ctx.args 读取实际升级阈值 (支持 --config-file 覆盖)
@@ -1364,10 +1413,14 @@ async def _run_single_endpoint(
             "overall_asr": ctx.overall_asr,
         },
         "output": {
-            "report_path": str(report_path),
+            "report_index": str(report_path),
+            "report_executive": str(output_dir / "report_executive.md"),
+            "report_findings": str(output_dir / "report_findings.md"),
+            "report_technical": str(output_dir / "report_technical.md"),
+            "report_success": str(output_dir / "report_success.md") if evidence.successful_evidence else "",
             "native_output": str(_native_dir) if _native_dir.exists() else "",
         },
-        "reasoning": f"生成安全报告 (ASR={ctx.overall_asr:.1f}%, {evidence.total_attacks} 条证据)",
+        "reasoning": f"生成分层安全报告 (ASR={ctx.overall_asr:.1f}%, {evidence.total_attacks} 条证据, 4 文件分层架构)",
     })
     print_report_card(
         total_attacks=evidence.total_attacks,

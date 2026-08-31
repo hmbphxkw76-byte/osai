@@ -378,15 +378,54 @@ def get_technique_asr_prior(
     if not tech_data:
         return 0.0
 
-    # 妯＄硦鍖归厤妯″瀷鍚?
+    # v58: 精确匹配优先, 再子串匹配 (单向: yaml key 是 model_name 的子串)
     model_lower = model_name.lower()
+
+    # Pass 1: 精确匹配
     for key, val in tech_data.items():
         if key == "default":
             continue
-        if key.lower() in model_lower or model_lower in key.lower():
+        if key.lower() == model_lower:
             return float(val)
 
+    # Pass 2: 子串匹配 (yaml key 是 model_name 的子串, 如 "claude-3" in "claude-3.5-sonnet")
+    # 选择最长匹配的 key (最具体), 避免 "claude-3" 命中 "claude-3.5-sonnet"
+    best_key = ""
+    best_val = None
+    for key, val in tech_data.items():
+        if key == "default":
+            continue
+        kl = key.lower()
+        if kl in model_lower and len(kl) > len(best_key):
+            best_key = kl
+            best_val = val
+    if best_val is not None:
+        return float(best_val)
+
     return float(tech_data.get("default", 0.0))
+
+
+# 运行时技术名 → asr_priors.yaml technique_asr 键的映射 (断点 A 修复)
+# priority_scheduler._TECHNIQUE_PRIOR_KEY 的反向映射, 用于 update_asr_priors
+_RUNTIME_TO_PRIORS_KEY: dict[str, str] = {
+    "red_teaming": "red_teaming",
+    "cot_hijack": "cot_hijack",
+    "crescendo": "crescendo",
+    "tap": "tap",
+    "pair": "pair",
+    "best_of_n": "best_of_n_retry",
+    "gcg": "gcg",
+    "cair": "cair",
+    "encoded_injection": "structured_injection",
+    "skeleton_key_native": "skeleton_key",
+    "many_shot_cot": "many_shot_cot",
+    "multi_model_pair": "multi_model_cot",
+    "multi_prompt_sending": "prompt_sending",
+    "chunked_request": "prompt_sending",
+    "rogue_agent": "role_confusion",
+    "embedding_inversion": "token_smuggling",
+    "mcp_rag": "context_compliance",
+}
 
 
 def update_asr_priors(
@@ -428,13 +467,14 @@ def update_asr_priors(
     model_lower = model_family.lower()
     updated = False
 
-    # 鏇存柊 technique_asr
+    # 断点 A 修复: 使用 _RUNTIME_TO_PRIORS_KEY 将运行时技术名映射到 asr_priors.yaml 键
     tech_priors = priors.get("technique_asr", {})
     for tech, observed_asr in technique_asr.items():
-        if tech in tech_priors:
+        priors_key = _RUNTIME_TO_PRIORS_KEY.get(tech, tech)  # 映射, fallback 用原名
+        if priors_key in tech_priors:
             # 妯＄硦鍖归厤妯″瀷鏃?
             matched_key = None
-            for key in list(tech_priors[tech].keys()):
+            for key in list(tech_priors[priors_key].keys()):
                 if key == "default":
                     continue
                 if key.lower() in model_lower or model_lower in key.lower():
@@ -442,14 +482,14 @@ def update_asr_priors(
                     break
 
             if matched_key:
-                old_val = float(tech_priors[tech][matched_key])
+                old_val = float(tech_priors[priors_key][matched_key])
                 new_val = round(alpha * observed_asr + (1 - alpha) * old_val, 1)
-                if abs(new_val - old_val) > 0.05:  # 浠呭湪鏈夊彉鍖栨椂鏇存柊
-                    tech_priors[tech][matched_key] = new_val
+                if abs(new_val - old_val) > 0.05:
+                    tech_priors[priors_key][matched_key] = new_val
                     updated = True
                     logger.debug(
-                        "ASR prior updated: %s[%s] %.1f 鈫?%.1f (observed=%.1f, 伪=0.3)",
-                        tech, matched_key, old_val, new_val, observed_asr,
+                        "ASR prior updated: %s[%s] %.1f -> %.1f (observed=%.1f, alpha=0.3)",
+                        priors_key, matched_key, old_val, new_val, observed_asr,
                     )
 
     if updated:

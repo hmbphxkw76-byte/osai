@@ -78,6 +78,9 @@ async def output_native_attack_results(
 
     count = 0
     fallback_count = 0
+    # v57: 聚合 native output fallback warnings, 不再逐条输出
+    _fb_markdown_count = 0
+    _fb_pretty_count = 0
     for technique_name, results in attack_results.items():
         safe_name = technique_name.replace("/", "_").replace("\\", "_")
         for i, result in enumerate(results):
@@ -94,7 +97,7 @@ async def output_native_attack_results(
                 )
                 count += 1
             except Exception as e:
-                logger.warning(
+                logger.debug(
                     "Native markdown output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
@@ -102,6 +105,7 @@ async def output_native_attack_results(
                 fb_written = _write_fallback_attack_output(result, md_path, fmt="markdown")
                 if fb_written:
                     fallback_count += 1
+                    _fb_markdown_count += 1
 
             # — Pretty 格式 (ANSI-colored, PyRIT 默认) —
             txt_path = native_dir / f"attack_{safe_name}_{i + 1}.txt"
@@ -115,12 +119,23 @@ async def output_native_attack_results(
                     include_pruned_conversations=include_pruned_conversations,
                 )
             except Exception as e:
-                logger.warning(
+                logger.debug(
                     "Native pretty output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
                 # Fallback: 写入简化 pretty 输出
                 _write_fallback_attack_output(result, txt_path, fmt="pretty")
+                _fb_pretty_count += 1
+
+    # v57: 聚合摘要 — 替代之前的逐条 WARNING
+    total_fb = _fb_markdown_count + _fb_pretty_count
+    if total_fb > 0:
+        logger.info(
+            "Native output fallback: %d/%d results used fallback "
+            "(MARKDOWN=%d, PRETTY=%d) — non-blocking, evidence saved",
+            total_fb, count + fallback_count,
+            _fb_markdown_count, _fb_pretty_count,
+        )
 
     total = count + fallback_count
     if total:

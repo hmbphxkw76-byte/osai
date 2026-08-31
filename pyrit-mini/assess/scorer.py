@@ -80,9 +80,18 @@ def create_objective_scorer(ctx: PipelineContext) -> Any:
             logger.info("Scoring target passed capability validation (L5 v52)")
 
         try:
+            # v56: 从 ctx.args 读取 disagreement_strategy (R7 SSOT)
+            # config flow: defaults.yaml → _apply_defaults → ctx.args → here
+            _disagreement_strategy = getattr(
+                _args, "dual_judge_disagreement_strategy", "or"
+            )
+            if not isinstance(_disagreement_strategy, str) or _disagreement_strategy not in ("or", "majority", "and"):
+                _disagreement_strategy = "or"
+
             scorer = create_adaptive_dual_judge_scorer(
                 scoring_target=ctx.scoring_target,
                 high_confidence_threshold=_high_conf_threshold,
+                disagreement_strategy=_disagreement_strategy,
             )
             if scorer:
                 logger.info("Primary scorer: AdaptiveDualJudgeScorer (L5 v6)")

@@ -244,21 +244,8 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
             logger.warning("Attack timed out after %ds, retrieving partial results", timeout)
             await _retrieve_partial_results(ctx, "prompt_sending")
 
-            # 进度展示: 超时路径也输出完成摘要
-            if _phase_summ is not None:
-                _elapsed = time.monotonic() - _strike_start
-                try:
-                    _phase_summ(
-                        ctx,
-                        total_results=sum(len(v) for v in ctx.attack_results.values()),
-                        total_success=sum(
-                            1 for results in ctx.attack_results.values()
-                            for r in results if _is_success(r)
-                        ),
-                        elapsed_seconds=_elapsed,
-                    )
-                except Exception:
-                    pass
+            # v58: STRIKE DONE 摘要行移到 main.py 的 print_strike_report_async 之后输出.
+            ctx._strike_elapsed = time.monotonic() - _strike_start
 
             return ctx.attack_results
 
@@ -332,24 +319,10 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
             except Exception as e:
                 logger.warning("L5 v48: Port %d attack failed: %s", port, e)
 
-    # 进度展示: STRIKE 阶段完成摘要
-    if _phase_summ is not None:
-        _total_results = sum(len(v) for v in ctx.attack_results.values())
-        _total_success = sum(
-            1 for results in ctx.attack_results.values()
-            for r in results
-            if _is_success(r)
-        )
-        _elapsed = time.monotonic() - _strike_start
-        try:
-            _phase_summ(
-                ctx,
-                total_results=_total_results,
-                total_success=_total_success,
-                elapsed_seconds=_elapsed,
-            )
-        except Exception:
-            pass
+    # v58: STRIKE DONE 摘要行移到 main.py 的 print_strike_report_async 之后输出,
+    # 确保攻击者先看到成功 payload 展示, 再看到完成摘要.
+    # executor 内部仅记录 elapsed time 供后续使用.
+    ctx._strike_elapsed = time.monotonic() - _strike_start
 
     return ctx.attack_results
 

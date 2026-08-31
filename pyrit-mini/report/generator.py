@@ -107,6 +107,19 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <p><strong>Generated:</strong> {{ evidence.timestamp }}</p>
 <p><strong>Target:</strong> <code>{{ evidence.target_model }}</code></p>
 
+<div style="background:#f8f9fa;border:1px solid #ddd;padding:12px;margin:15px 0;border-radius:5px;">
+<h3 style="margin-top:0;">📂 Report Structure (Layered)</h3>
+<table>
+  <tr><th>File</th><th>Description</th><th>Audience</th></tr>
+  <tr><td><code>report_executive.md</code></td><td>Executive summary — key metrics, top risks, remediation priority</td><td>CISO / Security Lead</td></tr>
+  <tr><td><code>report_findings.md</code></td><td>Vulnerability details — per-evidence analysis, PoC links</td><td>Security Engineer</td></tr>
+  <tr><td><code>report_technical.md</code></td><td>Technical appendix — MITRE mapping, scoring, orchestration log</td><td>Technical Reviewer</td></tr>
+  <tr><td><code>native_output/</code></td><td>PyRIT native output (official format)</td><td>OffSec AI-300 Examiner</td></tr>
+  <tr><td><code>evidence/</code></td><td>Per-evidence JSON files</td><td>Automation / CI/CD</td></tr>
+  <tr><td><code>poc/</code></td><td>PoC scripts (Python)</td><td>Red Team Operator</td></tr>
+</table>
+</div>
+
 {% if fingerprint %}
 <h2>Target Fingerprint & Attack Surface</h2>
 <table>
@@ -374,14 +387,44 @@ async def generate_report(
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
     # ── Markdown Report (OffSec AI-300 Security Report) ──
+    # v57: 分层架构 — 生成 索引 + 执行摘要 + 漏洞详情 + 技术附录
+    from report.report_markdown import (
+        _generate_executive_markdown,
+        _generate_findings_markdown,
+        _generate_technical_markdown,
+    )
+
     md_content = _generate_markdown(evidence)
     md_path = output_dir / "report.md"
     md_path.write_text(md_content, encoding="utf-8")
-    logger.info("Markdown report saved to %s", md_path)
+    logger.info("Markdown report (index) saved to %s", md_path)
+
+    # v57: 分层报告文件
+    exec_md = _generate_executive_markdown(evidence)
+    exec_md_path = output_dir / "report_executive.md"
+    exec_md_path.write_text(exec_md, encoding="utf-8")
+    logger.info("Executive summary saved to %s", exec_md_path)
+
+    findings_md = _generate_findings_markdown(evidence)
+    findings_md_path = output_dir / "report_findings.md"
+    findings_md_path.write_text(findings_md, encoding="utf-8")
+    logger.info("Findings report saved to %s", findings_md_path)
+
+    tech_md = _generate_technical_markdown(evidence)
+    tech_md_path = output_dir / "report_technical.md"
+    tech_md_path.write_text(tech_md, encoding="utf-8")
+    logger.info("Technical appendix saved to %s", tech_md_path)
 
     # ── 仅成功攻击的 Markdown ──
+    # v57: success_only 报告 = executive 摘要(仅成功) + findings 详情(仅成功)
     if evidence.successful_evidence:
-        success_md = _generate_markdown(evidence, success_only=True)
+        from report.report_markdown import _generate_executive_markdown as _gen_exec
+
+        # 用 findings 模板 (success_only) 作为主体, 前置 executive 摘要
+        success_findings = _generate_findings_markdown(evidence, success_only=True)
+        # executive 摘要仍用全量数据 (ASR/total 等指标不变, 只是 findings 只列成功)
+        success_exec = _gen_exec(evidence)
+        success_md = success_exec + "\n\n---\n\n" + success_findings
         success_md_path = output_dir / "report_success.md"
         success_md_path.write_text(success_md, encoding="utf-8")
         logger.info("Success-only Markdown report saved to %s", success_md_path)

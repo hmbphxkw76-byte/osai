@@ -41,6 +41,10 @@ _FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
 #   reused across techniques, we return the cached list instead of rebuilding.
 _L5_OPTIMAL_CACHE: dict[tuple[int, str], list[Any]] = {}
 
+# v57: 标记是否已打印完整候选列表 (避免逐技术重复打印)
+_L5_PRINTED_FULL_CANDIDATES: bool = False
+_L5_PRINTED_FULL_REORDER: bool = False
+
 # Techniques that are pure baseline (no converter needed — raw payload)
 _BASELINE_TECHNIQUES = frozenset({"prompt_sending"})
 
@@ -303,8 +307,16 @@ def l5_optimal(
             "(target_type=%s, Selective-First)",
             len(converters), target_type,
         )
-        for i, c in enumerate(converters):
-            logger.info("  Candidate %d: %s", i + 1, type(c).__name__)
+        # v57: 只在首次打印完整候选列表, 后续技术复用缓存时只输出摘要
+        global _L5_PRINTED_FULL_CANDIDATES
+        if not _L5_PRINTED_FULL_CANDIDATES:
+            for i, c in enumerate(converters):
+                logger.info("  Candidate %d: %s", i + 1, type(c).__name__)
+            _L5_PRINTED_FULL_CANDIDATES = True
+        else:
+            logger.info(
+                "  (candidate list same as above, cached — skipped repeat)",
+            )
 
     # L5 v41: cache the built list for reuse across techniques
     _L5_OPTIMAL_CACHE[cache_key] = list(converters)
@@ -370,24 +382,50 @@ def l5_optimal_for_model(
 
         model_lower = model_family.lower()
 
-        # 绮剧‘鍖归厤 "Class:technique"
+        # 精确匹配 "Class:technique"
         if sig_key in converter_asr:
             entry = converter_asr[sig_key]
+            # v58: 精确匹配优先
             for mk, mv in entry.items():
                 if mk == "default":
                     continue
-                if mk.lower() in model_lower or model_lower in mk.lower():
+                if mk.lower() == model_lower:
                     return float(mv)
+            # Pass 2: 最长子串匹配
+            best_key = ""
+            best_val = None
+            for mk, mv in entry.items():
+                if mk == "default":
+                    continue
+                mkl = mk.lower()
+                if mkl in model_lower and len(mkl) > len(best_key):
+                    best_key = mkl
+                    best_val = mv
+            if best_val is not None:
+                return float(best_val)
             return float(entry.get("default", 0.0))
 
         # 妯＄硦鍖归厤 鈥?浠呯被鍚?
         for key, entry in converter_asr.items():
             if conv_class in key:
+                # v58: 精确匹配优先
                 for mk, mv in entry.items():
                     if mk == "default":
                         continue
-                    if mk.lower() in model_lower or model_lower in mk.lower():
+                    if mk.lower() == model_lower:
                         return float(mv)
+                # Pass 2: 最长子串匹配
+                best_key = ""
+                best_val = None
+                for mk, mv in entry.items():
+                    if mk == "default":
+                        continue
+                    mkl = mk.lower()
+                    if mkl in model_lower and len(mkl) > len(best_key):
+                        best_key = mkl
+                        best_val = mv
+                if best_val is not None:
+                    return float(best_val)
                 return float(entry.get("default", 0.0))
 
         return 0.0
@@ -399,8 +437,17 @@ def l5_optimal_for_model(
         "L5 converter candidates re-ordered by model_family=%s ASR priors",
         model_family,
     )
-    for i, c in enumerate(candidates):
-        logger.info("  Reordered %d: %s (prior ASR=%.1f%%)", i + 1, type(c).__name__, _get_converter_asr(c))
+    # v57: 只在首次打印完整 reordered 列表, 后续只输出摘要
+    global _L5_PRINTED_FULL_REORDER
+    if not _L5_PRINTED_FULL_REORDER:
+        for i, c in enumerate(candidates):
+            logger.info("  Reordered %d: %s (prior ASR=%.1f%%)", i + 1, type(c).__name__, _get_converter_asr(c))
+        _L5_PRINTED_FULL_REORDER = True
+    else:
+        # 只输出前 3 个 (最有价值的 converter) + 摘要
+        for i, c in enumerate(candidates[:3]):
+            logger.info("  Top %d: %s (prior ASR=%.1f%%)", i + 1, type(c).__name__, _get_converter_asr(c))
+        logger.info("  ... (%d more, same as previous technique)", max(0, len(candidates) - 3))
 
     return candidates
 
@@ -553,6 +600,13 @@ def build_converter_map(
     # The cache only helps WITHIN this call — multiple techniques sharing
     # the same base converter list built once at line 562 below.
     _L5_OPTIMAL_CACHE.clear()
+    # v57: Reset dedup flags for this pipeline run
+    global _L5_PRINTED_FULL_CANDIDATES, _L5_PRINTED_FULL_REORDER
+    _L5_PRINTED_FULL_CANDIDATES = False
+    _L5_PRINTED_FULL_REORDER = False
+
+    # v57: Per-technique converter assignment summary (aggregated, not per-line)
+    _tech_assignment_summary: list[str] = []
 
     # Auto-substitute l5_optimal → l5_optimal_for_model when model_family available
     effective_chain_names = list(chain_names)
@@ -781,11 +835,8 @@ def build_converter_map(
 
         if converters:
             converter_map[technique_name] = converters
-            logger.info(
-                "Converter chain for '%s': %d converters (target_type=%s)",
-                technique_name,
-                len(converters),
-                target_type,
+            _tech_assignment_summary.append(
+                f"  {technique_name}: {len(converters)} converters"
             )
 
     # ── 增量借鉴: per-technique converter 追加 (technique:converter.xxx 语法) ──
@@ -839,6 +890,15 @@ def build_converter_map(
                         len(extra_converters),
                         extra_chains,
                     )
+
+    # v57: 输出聚合的技术 converter 分配摘要 (替代逐行 INFO)
+    if _tech_assignment_summary:
+        logger.info(
+            "Converter assignment summary (%d techniques, target_type=%s):",
+            len(_tech_assignment_summary), target_type,
+        )
+        for line in _tech_assignment_summary:
+            logger.info(line)
 
     return converter_map
 

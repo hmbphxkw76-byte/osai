@@ -94,7 +94,7 @@ python core/architecture_guard.py --json
 python core/architecture_guard.py --rule R10
 ```
 
-**检查项 (17 个检查器)**:
+**检查项 (18 个检查器)**:
 1. Converter 串联堆叠 (R6 BLOCKING)
 2. PyRIT 原生攻击策略使用 (R6 WARNING)
 3. 原生攻击实例化 (R6 §6.4a WARNING)

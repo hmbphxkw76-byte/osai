@@ -101,6 +101,21 @@ adaptive_max_attempts: 3
 # 示例: ["single_turn"] 只选单轮技术; ["multi_turn"] 只选多轮技术
 adaptive_technique_filter: null
 
+# ── 技术级优先级调度 (v57) ──
+# arXiv:2406.12609 — Lattner et al.: 高价值策略优先, 中间退出
+# arXiv:cs/0207052 — Auer et al.: UCB1 排序, 探索-利用平衡
+# arXiv:2407.01232 — PyRIT FIRST_SUCCESS 从 converter 级扩展到技术级
+# 将 L1 多轮技术从全并行改为分批优先级执行:
+#   批次 1 (高 prior ≥ high_threshold): Crescendo + TAP → 优先执行
+#   批次 2 (中 prior ≥ low_threshold): PAIR + CoT + RedTeaming → 补充执行
+#   批次 3 (低 prior < low_threshold): 探索性尝试
+# 每批结束后检查 ASR ≥ post_l1_exit_threshold → 跳过后续批次
+# 预期节省 ~40-50% token, 代价 ~20-30% 延迟增加
+priority_scheduler_enabled: 1       # 1=启用分批优先级, 0=全并行 (向后兼容)
+priority_scheduler_high_threshold: 60  # 高 prior 阈值 (%), ≥ 此值的技术在批次 1
+priority_scheduler_low_threshold: 40   # 低 prior 阈值 (%), < 此值的技术在批次 3
+priority_scheduler_epsilon: 0.1       # ε-贪心探索概率 (10% 概率提升低 prior 技术到批次 1)
+
 # ── 原生攻击参数 (R6 §6.4b SSOT) ──
 # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking, 100 shots ASR 显著提升
 many_shot_example_count: 100

@@ -487,207 +487,138 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
     return capabilities
 
 
+# v58: 精确模型匹配表 — key 为 yaml 中 asr_priors 的精确模型名,
+# patterns 为响应文本中的匹配模式 (按优先级从高到低排列).
+# 匹配策略: 先精确型号, 后族标签 (最保守的 yaml key).
+# 例如 "I am Claude 3.5 Sonnet" → "claude-3.5-sonnet" (精确)
+#       "I am Claude" → "claude-3" (族标签 fallback, yaml 中最保守的 claude 条目)
+_MODEL_PATTERNS: list[tuple[str, list[str]]] = [
+    # ── OpenAI / GPT ── 精确 → 族标签
+    ("gpt-5", ["gpt-5", "gpt5"]),
+    ("gpt-4o-mini", ["gpt-4o-mini", "gpt4o-mini"]),
+    ("gpt-4o", ["gpt-4o", "gpt4o"]),
+    ("gpt-4.1", ["gpt-4.1", "gpt-4.1"]),
+    ("gpt-4", ["gpt-4", "gpt4"]),
+    ("o4-mini", ["o4-mini"]),
+    ("o3", ["o3"]),
+    ("o1", ["o1"]),
+    ("gpt-4", ["chatgpt", "openai", "i am chatgpt", "i'm chatgpt", "i am an openai"]),
+    # ── Anthropic / Claude ──
+    ("claude-4.5-sonnet", ["claude 4.5 sonnet", "claude-4.5-sonnet", "claude 4.5"]),
+    ("claude-4-sonnet", ["claude 4 sonnet", "claude-4-sonnet", "claude sonnet 4", "claude-sonnet-4"]),
+    ("claude-4-opus", ["claude 4 opus", "claude-4-opus", "claude opus 4", "claude-opus-4"]),
+    ("claude-3.5-haiku", ["claude 3.5 haiku", "claude-3.5-haiku", "claude haiku"]),
+    ("claude-3.5-sonnet", ["claude 3.5 sonnet", "claude-3.5-sonnet"]),
+    ("claude-3.5", ["claude 3.5", "claude-3.5"]),
+    ("claude-3", ["claude 3", "claude-3"]),
+    ("claude-3", ["claude", "anthropic", "i am claude", "i'm claude"]),
+    # ── Google / Gemini ──
+    ("gemini-2.5-pro", ["gemini 2.5 pro", "gemini-2.5-pro"]),
+    ("gemini-2.5-flash", ["gemini 2.5 flash", "gemini-2.5-flash"]),
+    ("gemini-2.0-flash", ["gemini 2.0 flash", "gemini-2.0-flash"]),
+    ("gemini-1.5-pro", ["gemini 1.5 pro", "gemini-1.5-pro", "gemini pro"]),
+    ("gemini-2.0-flash", ["gemini flash"]),
+    ("gemini-1.5-pro", ["gemini", "google ai", "i am gemini", "i'm gemini"]),
+    # ── Meta / Llama ──
+    ("llama-4-maverick", ["llama 4 maverick", "llama maverick", "llama-4-maverick"]),
+    ("llama-4", ["llama 4", "llama-4", "llama scout"]),
+    ("llama-3.1-405b", ["llama 3.1", "llama-3.1"]),
+    ("llama-3-70b", ["llama 3", "llama-3"]),
+    ("llama-2-70b", ["llama 2", "llama-2"]),
+    ("llama-4", ["llama", "meta ai", "i am llama", "i'm llama"]),
+    # ── xAI / Grok ──
+    ("grok-3", ["grok 4", "grok 3", "grok-4", "grok-3"]),
+    ("grok-3", ["grok", "xai", "i am grok", "i'm grok"]),
+    # ── Mistral ──
+    ("mistral-large-2", ["mistral large 2", "mistral-large-2", "magistral"]),
+    ("mistral-large-2", ["mistral", "mistral large", "mistral small", "codestral"]),
+    # ── Cohere / Command ──
+    ("command-r-plus", ["command r+", "command-r-plus"]),
+    ("command-a", ["command a", "command-a"]),
+    ("command-a", ["cohere"]),
+    # ── Amazon / Nova ──
+    ("nova-micro", ["nova micro"]),
+    ("nova-lite", ["nova lite"]),
+    # nova 精确型号不在 yaml 中, 用 bedrock fallback → default
+    ("nova-micro", ["amazon nova", "amazon bedrock", "nova pro"]),
+    # ── Microsoft / Phi ──
+    ("phi-4", ["phi-4"]),
+    ("phi-4", ["phi-3.5", "microsoft phi"]),
+    # ── Qwen / 通义 ──
+    ("qwen3-235b", ["qwen3-235b", "qwen3 235b"]),
+    ("qwen3-72b", ["qwen3-72b", "qwen3 72b"]),
+    ("qwen3-32b", ["qwen3-32b", "qwen3 32b"]),
+    ("qwen3-32b", ["qwen3", "qwen 3"]),
+    ("qwen2-72b", ["qwen2-72b", "qwen2 72b", "qwen2.5"]),
+    ("qwen-max", ["qwen-max", "qwen max"]),
+    ("qwen-32b", ["qwen-32b", "qwen 32b"]),
+    ("qwen3-32b", ["qwen", "通义", "千问", "tongyi"]),
+    # ── DeepSeek / 深度求索 ──
+    ("deepseek-v3.1", ["deepseek-v3.1", "deepseek v3.1"]),
+    ("deepseek-r1", ["deepseek-r1", "deepseek r1"]),
+    ("deepseek-v3", ["deepseek-v3", "deepseek v3"]),
+    ("deepseek-v3", ["deepseek", "深度求索"]),
+    # ── ERNIE / 文心 ──
+    ("ernie-4.5", ["ernie x1", "ernie 4.5", "ernie-4.5"]),
+    ("ernie-4.5", ["文心", "文心一言", "baidu ai", "百度"]),
+    # ── Doubao / 豆包 ──
+    ("doubao-pro", ["doubao-1.5", "doubao 1.5", "doubao", "豆包", "seed-talk", "seed_talk"]),
+    # ── Kimi / 月之暗面 ──
+    ("kimi-k2", ["kimi k2", "kimi-k2"]),
+    ("kimi-k2", ["kimi", "月之暗面", "moonshot"]),
+    # ── GLM / 智谱 ──
+    ("glm-5", ["glm-5.2", "glm-5", "glm 5", "glm-4.6", "glm-z1"]),
+    ("glm-5", ["glm", "智谱", "chatglm", "zhipu"]),
+    # ── Yi / 零一 ──
+    ("yi-lightning", ["yi-lightning", "yi lightning"]),
+    ("yi-large", ["yi-large", "yi large"]),
+    ("yi-large", ["yi-", "零一万物", "01.ai"]),
+    # ── MiniMax ──
+    ("minimax-text-01", ["minimax-01", "minimax 01", "minimax-text-01"]),
+    ("minimax-text-01", ["minimax", "abab"]),
+    # ── InternLM ──
+    ("internlm3", ["internlm3", "internlm 3", "internlm-3"]),
+    ("internlm3", ["internlm"]),
+    # ── Gemma (Google open) ──
+    ("gemma-3", ["gemma 3", "gemma-3"]),
+    ("gemma-2", ["gemma 2", "gemma-2"]),
+    ("gemma-2", ["gemma"]),
+    # ── Baichuan (不在 yaml, fallback to default) ──
+    ("baichuan-4", ["baichuan-4", "baichuan", "百川"]),
+    # ── Step (不在 yaml, fallback to default) ──
+    ("step-3", ["step-3", "step-2", "阶跃", "stepfun"]),
+]
+
+
 def _detect_model_family(text: str) -> str | None:
-    """从响应文本推断目标 LLM 模型族。
+    """从响应文本推断目标 LLM 模型名称 (精确到 yaml key 级别).
+
+    v58 修复: 原实现只返回族标签 (如 "claude"), 双向子串匹配会
+    匹配到 yaml 中第一个含 "claude" 的 key (claude-3, ASR=73.6%),
+    而非实际模型 (如 claude-3.5-sonnet, ASR=14%), 导致 prior 严重偏高.
+
+    新策略: 从具体到一般匹配, 返回与 asr_priors.yaml key 一致的精确模型名.
+    匹配顺序: 精确型号 (如 "claude-3.5-sonnet") → 族标签 fallback (如 "claude-3")
+    族标签选择 yaml 中最保守的 key (通常是该族最早/最低 ASR 的条目).
 
     学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
-        不同模型族 (GPT/Claude/Gemini/Llama) 的安全对齐策略略不同
-        定制种子可提升 ASR
-
-    探测策略 (覆盖国内外近3年最新模型, 22 模型族):
-        国际 (2023-2026):
-        1. OpenAI/GPT: "GPT-5", "GPT-4o", "GPT-4.1", "o1", "o3", "o4-mini", "ChatGPT"
-        2. Anthropic/Claude: "Claude Sonnet 4.5", "Claude Opus 4", "Claude 4.5", "Claude 4", "Claude 3.5", "Haiku"
-        3. Google/Gemini: "Gemini 2.5", "Gemini 2.0", "Gemini Flash", "Gemini Pro"
-        4. Meta/Llama: "Llama 4", "Llama 3.3", "Llama Scout", "Llama Maverick"
-        5. xAI/Grok: "Grok 4", "Grok 3", "Grok 2"
-        6. Mistral: "Magistral", "Mistral Large 2", "Mistral Small", "Codestral"
-        7. Cohere/Command: "Command A", "Command R+"
-        8. Amazon/Nova: "Amazon Nova Pro", "Nova Lite", "Nova Micro"
-        9. Microsoft/Phi: "Phi-4", "Phi-3.5"
-        10. Reka: "Reka Core", "Reka Flash"
-        11. Inflection/Pi: "Inflection-3", "Inflection-2.5"
-        国内 (2023-2026):
-        12. Qwen/通义: "Qwen3", "Qwen2.5", "Qwen-Max", "通义", "千问"
-        13. DeepSeek/深度求索: "DeepSeek-V3", "DeepSeek-R1", "深度求索"
-        14. ERNIE/文心: "ERNIE X1", "ERNIE 4.5", "文心", "文心一言"
-        15. Spark/星火: "Spark 4.0 Ultra", "Spark 4.0", "星火", "讯飞"
-        16. Doubao/豆包: "Doubao-1.5", "豆包", "Seed-Talk"
-        17. Kimi: "Kimi K2", "月之暗面", "Moonshot"
-        18. GLM/智谱: "GLM-5.2", "GLM-5", "GLM-4.6", "GLM-Z1", "智谱", "ChatGLM"
-        19. Yi/零一: "Yi-Lightning", "Yi-Large", "零一万物"
-        20. MiniMax/abab: "MiniMax-01", "abab"
-        21. Baichuan/百川: "Baichuan-4", "百川"
-        22. Step/阶越星辰: "Step-3", "Step-2", "阶跃", "StepFun"
+        不同模型族安全对齐策略不同, 精确型号匹配可提升 ASR 先验准确性
 
     Args:
         text: 探针响应文本。
 
     Returns:
-        模型族标签, 无法判断时返回 None。
+        精确模型名 (如 "claude-3.5-sonnet"), 无法判断时返回 None。
     """
     if not text or len(text) < 3:
         return None
 
     text_lower = text.lower()
 
-    # OpenAI / GPT 模型族 (GPT-4o/4.1/5 + o1/o3/o4 推理模型, 2023-2026)
-    gpt_keywords = [
-        "gpt-5", "gpt-4o", "gpt-4.1", "gpt-4",
-        "chatgpt", "openai", "o1", "o3", "o4-mini", "o3-mini",
-        "i am chatgpt", "i'm chatgpt", "i am an openai",
-    ]
-    for kw in gpt_keywords:
-        if kw in text_lower:
-            return "gpt"
-
-    # Anthropic / Claude 模型族 (Claude 3.5/4/4.5 + Sonnet/Opus/Haiku, 2023-2026)
-    claude_keywords = [
-        "claude", "anthropic",
-        "claude 4.5", "claude 4", "claude 3.5",
-        "claude sonnet 4.5", "claude sonnet 4", "claude opus 4",
-        "claude haiku", "claude sonnet", "claude opus",
-        "i am claude", "i'm claude",
-    ]
-    for kw in claude_keywords:
-        if kw in text_lower:
-            return "claude"
-
-    # Google / Gemini 模型族 (Gemini 2.0/2.5 Flash/Pro, 2023-2026)
-    gemini_keywords = [
-        "gemini", "google ai", "gemini 2.5", "gemini 2.0",
-        "gemini flash", "gemini pro",
-        "i am gemini", "i'm gemini",
-    ]
-    for kw in gemini_keywords:
-        if kw in text_lower:
-            return "gemini"
-
-    # Meta / Llama 模型族 (Llama 3.3/4 Scout/Maverick, 2023-2026)
-    llama_keywords = [
-        "llama", "meta ai", "llama 4", "llama 3.3",
-        "llama scout", "llama maverick",
-        "i am llama", "i'm llama",
-    ]
-    for kw in llama_keywords:
-        if kw in text_lower:
-            return "llama"
-
-    # xAI / Grok 模型族 (Grok 2/3/4, 2023-2026)
-    grok_keywords = ["grok 4", "grok 3", "grok 2", "grok", "xai", "i am grok", "i'm grok"]
-    for kw in grok_keywords:
-        if kw in text_lower:
-            return "grok"
-
-    # Mistral 模型族 (Magistral/Large 2/Small/Codestral, 2023-2026)
-    mistral_keywords = [
-        "magistral", "mistral", "mistral large 2", "mistral small", "codestral",
-    ]
-    for kw in mistral_keywords:
-        if kw in text_lower:
-            return "mistral"
-
-    # Cohere / Command 模型族 (Command A/R+, 2024-2026)
-    cohere_keywords = ["command a", "command r+", "command-a", "command-r+", "cohere"]
-    for kw in cohere_keywords:
-        if kw in text_lower:
-            return "cohere"
-
-    # Amazon / Nova 模型族 (Nova Pro/Lite/Micro, 2024-2026)
-    nova_keywords = ["amazon nova", "nova pro", "nova lite", "nova micro", "amazon bedrock"]
-    for kw in nova_keywords:
-        if kw in text_lower:
-            return "nova"
-
-    # Microsoft / Phi 模型族 (Phi-3.5/4, 2024-2026)
-    phi_keywords = ["phi-4", "phi-3.5", "microsoft phi"]
-    for kw in phi_keywords:
-        if kw in text_lower:
-            return "phi"
-
-    # Reka 模型族 (Reka Core/Flash, 2024-2026)
-    reka_keywords = ["reka core", "reka flash", "reka"]
-    for kw in reka_keywords:
-        if kw in text_lower:
-            return "reka"
-
-    # Inflection / Pi 模型族 (Inflection-2.5/3, 2023-2026)
-    inflection_keywords = ["inflection-3", "inflection-2.5", "inflection", "i am pi", "i'm pi", "pi by inflection"]
-    for kw in inflection_keywords:
-        if kw in text_lower:
-            return "inflection"
-
-    # Qwen / 通义千问 模型族 (Qwen3/2.5/Max, 2023-2026)
-    qwen_keywords = [
-        "qwen3", "qwen2.5", "qwen-max", "qwen", "通义", "千问",
-        "tongyi", "tongyi-qwen",
-    ]
-    for kw in qwen_keywords:
-        if kw in text_lower:
-            return "qwen"
-
-    # DeepSeek / 深度求索 模型族 (V3/R1, 2024-2026)
-    deepseek_keywords = ["deepseek-v3", "deepseek-r1", "deepseek", "深度求索"]
-    for kw in deepseek_keywords:
-        if kw in text_lower:
-            return "deepseek"
-
-    # ERNIE / 文心一言 模型族 (ERNIE X1/4.5, 2023-2026)
-    ernie_keywords = [
-        "ernie x1", "ernie 4.5",
-        "文心", "文心一言", "baidu ai", "百度",
-    ]
-    for kw in ernie_keywords:
-        if kw in text_lower:
-            return "ernie"
-
-    # Spark / 讯飞星火 模型族 (Spark 4.0 Ultra/4.0, 2023-2026)
-    spark_keywords = ["spark 4.0 ultra", "spark 4.0", "spark", "星火", "讯飞", "iflytek"]
-    for kw in spark_keywords:
-        if kw in text_lower:
-            return "spark"
-
-    # Doubao / 豆包 模型族 (Doubao-1.5/Seed-Talk, 2024-2026)
-    doubao_keywords = ["doubao-1.5", "doubao", "豆包", "seed-talk", "seed_talk"]
-    for kw in doubao_keywords:
-        if kw in text_lower:
-            return "doubao"
-
-    # Kimi / 月之暗面 模型族 (Kimi K2, 2023-2026)
-    kimi_keywords = ["kimi k2", "kimi", "月之暗面", "moonshot"]
-    for kw in kimi_keywords:
-        if kw in text_lower:
-            return "kimi"
-
-    # GLM / 智谱 模型族 (GLM-5.2/5/4.6/Z1, 2023-2026)
-    glm_keywords = ["glm-5.2", "glm-5", "glm-4.6", "glm-z1", "glm", "智谱", "chatglm", "zhipu"]
-    for kw in glm_keywords:
-        if kw in text_lower:
-            return "glm"
-
-    # Yi / 零一万物 模型族 (Yi-Lightning/Large, 2023-2026)
-    yi_keywords = ["yi-lightning", "yi-large", "yi-", "零一万物", "01.ai"]
-    for kw in yi_keywords:
-        if kw in text_lower:
-            return "yi"
-
-    # MiniMax / abab 模型族 (MiniMax-01, 2023-2026)
-    minimax_keywords = ["minimax-01", "minimax", "abab"]
-    for kw in minimax_keywords:
-        if kw in text_lower:
-            return "minimax"
-
-    # Baichuan / 百川 模型族 (Baichuan-4, 2023-2026)
-    baichuan_keywords = ["baichuan-4", "baichuan", "百川"]
-    for kw in baichuan_keywords:
-        if kw in text_lower:
-            return "baichuan"
-
-    # Step / 阶跃星辰 模型族 (Step-3/2, 2023-2026)
-    step_keywords = ["step-3", "step-2", "阶跃", "stepfun"]
-    for kw in step_keywords:
-        if kw in text_lower:
-            return "step"
+    for model_key, patterns in _MODEL_PATTERNS:
+        for pat in patterns:
+            if pat in text_lower:
+                return model_key
 
     return None
 

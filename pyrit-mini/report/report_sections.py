@@ -245,7 +245,10 @@ def _build_technique_effectiveness_matrix(
 
 
 def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
-    """构建评分一致性分析章节 (Markdown 行列表).
+    """构建评分一致性分析章节 (去重摘要版).
+
+    v57 优化: 当所有 Evidence 的一致性分类相同时, 合并为单行摘要,
+    避免逐行重复 (如 45 行全部 "Score | Post-hoc Dual Judge")。
 
     Args:
         evidence: 证据集合.
@@ -258,9 +261,9 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
     lines: list[str] = []
     lines.append("## Score Consistency Analysis")
     lines.append("")
-    lines.append("| Evidence ID | Scorer(s) | Consistency |")
-    lines.append("|-------------|-----------|-------------|")
 
+    # 收集所有 Evidence 的一致性分类
+    consistency_map: list[tuple[str, str, str]] = []  # (evidence_id, scorer_names, consistency)
     for ev in evidence.evidence:
         score_details = ev.score_details
         if not score_details:
@@ -272,9 +275,24 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
 
         scorer_names = ", ".join(sd.get("scorer", "") for sd in score_details)
         consistency = _classify_score_consistency(score_details)
-        lines.append(f"| {ev.evidence_id} | {scorer_names} | {consistency} |")
+        consistency_map.append((ev.evidence_id, scorer_names, consistency))
 
-    lines.append("")
+    # 检查是否所有一致性分类相同
+    all_same = len({c for _, _, c in consistency_map}) == 1
+    if all_same and consistency_map:
+        # 摘要模式: 所有 Evidence 的一致性相同
+        unique_consistency = consistency_map[0][2]
+        unique_scorer = consistency_map[0][1]
+        lines.append(f"All {len(consistency_map)} evidence items scored with **{unique_scorer}** — consistency: **{unique_consistency}**.")
+        lines.append("")
+    else:
+        # 详细模式: 存在不一致, 逐行列出
+        lines.append("| Evidence ID | Scorer(s) | Consistency |")
+        lines.append("|-------------|-----------|-------------|")
+        for eid, scorer_names, consistency in consistency_map:
+            lines.append(f"| {eid} | {scorer_names} | {consistency} |")
+        lines.append("")
+
     return lines
 
 

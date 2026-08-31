@@ -972,12 +972,14 @@ def create_adaptive_dual_judge_scorer(
     *,
     scoring_target: PromptTarget,
     high_confidence_threshold: float = _DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+    disagreement_strategy: str = "or",
 ) -> "AdaptiveDualJudgeScorer | None":
     """创建自适应双 Judge 评分器。
 
     工厂函数: 从 PipelineContext 的 scoring_target 创建双 Judge 评分器。
     L5 v7: 根据 asr_history.json 动态调整阈值。
     L5 v52: 使用 PyRIT 原生 TargetRequirements 验证 scoring_target 能力。
+    v56: 增加 disagreement_strategy 参数, 支持配置 OR/MAJORITY/AND 聚合策略。
 
     Args:
         scoring_target: 评分用 LLM 目标 (PyRIT PromptTarget)。
@@ -1064,27 +1066,27 @@ def create_adaptive_dual_judge_scorer(
         # 延迟导入避免循环引用
         from assess.adaptive_dual_judge import AdaptiveDualJudgeScorer
 
-        # v56: 从 defaults.yaml 读取分歧聚合策略 (SSOT)
+        # v56: disagreement_strategy 已通过参数传入
+        # config flow: defaults.yaml → _apply_defaults → ctx.args → scorer.py → here
         # Academic basis: Chao et al. (arXiv:2402.01135) OR vs Cohen (1960) MAJORITY
-        # Default: "or" (ASR maximization), alternatives: "majority" (balanced), "and" (strict)
-        # config flow: defaults.yaml → _apply_defaults → ctx.args.dual_judge_disagreement_strategy
-        #               → create_adaptive_dual_judge_scorer (here)
-        disagreement_strategy = "or"  # default fallback
-        try:
-            # R7 SSOT: read directly from defaults.yaml
-            import yaml as _yaml
-            _defaults_path = (
-                Path(__file__).resolve().parent.parent
-                / "config" / "defaults.yaml"
-            )
-            if _defaults_path.exists():
-                with open(_defaults_path, encoding="utf-8") as _f:
-                    _defaults = _yaml.safe_load(_f) or {}
-                disagreement_strategy = _defaults.get(
-                    "dual_judge_disagreement_strategy", "or"
+        # If not passed, default "or" is used (set in function signature)
+        # Fallback: also read from defaults.yaml if available
+        if disagreement_strategy == "or":
+            # Only override if still default — caller may have explicitly set it
+            try:
+                import yaml as _yaml
+                _defaults_path = (
+                    Path(__file__).resolve().parent.parent
+                    / "config" / "defaults.yaml"
                 )
-        except Exception:
-            pass
+                if _defaults_path.exists():
+                    with open(_defaults_path, encoding="utf-8") as _f:
+                        _defaults = _yaml.safe_load(_f) or {}
+                    disagreement_strategy = _defaults.get(
+                        "dual_judge_disagreement_strategy", "or"
+                    )
+            except Exception:
+                pass
 
         scorer = AdaptiveDualJudgeScorer(
             first_judge=first_judge,

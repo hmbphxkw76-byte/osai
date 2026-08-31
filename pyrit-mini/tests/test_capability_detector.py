@@ -193,60 +193,70 @@ class TestProbeCapabilities:
 
         response = "I am ChatGPT, based on GPT-4o."
         caps = _probe_capabilities(response)
-        assert caps.get("model_family") == "gpt"
+        assert caps.get("model_family") == "gpt-4o"
 
 
 class TestDetectModelFamily:
-    """Test _detect_model_family — model family inference."""
+    """Test _detect_model_family — precise model name inference (v58)."""
 
     def test_gpt_family(self):
-        """GPT model family should be detected."""
+        """GPT model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("I am ChatGPT based on GPT-4o") == "gpt"
-        assert _detect_model_family("powered by OpenAI GPT-5") == "gpt"
+        assert _detect_model_family("I am ChatGPT based on GPT-4o") == "gpt-4o"
+        assert _detect_model_family("powered by OpenAI GPT-5") == "gpt-5"
 
     def test_claude_family(self):
-        """Claude model family should be detected."""
+        """Claude model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("I am Claude, made by Anthropic") == "claude"
+        # Precise model
+        assert _detect_model_family("I am Claude 3.5 Sonnet") == "claude-3.5-sonnet"
+        # Generic fallback (only says "Claude")
+        assert _detect_model_family("I am Claude, made by Anthropic") == "claude-3"
 
     def test_gemini_family(self):
-        """Gemini model family should be detected."""
+        """Gemini model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("I am Gemini 2.5 Pro by Google AI") == "gemini"
+        assert _detect_model_family("I am Gemini 2.5 Pro by Google AI") == "gemini-2.5-pro"
 
     def test_llama_family(self):
-        """Llama model family should be detected."""
+        """Llama model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("I am Llama 4 by Meta AI") == "llama"
+        assert _detect_model_family("I am Llama 4 by Meta AI") == "llama-4"
 
     def test_qwen_family(self):
-        """Qwen model family should be detected."""
+        """Qwen model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是通义千问 Qwen3") == "qwen"
+        assert _detect_model_family("我是通义千问 Qwen3") == "qwen3-32b"
 
     def test_deepseek_family(self):
-        """DeepSeek model family should be detected."""
+        """DeepSeek model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是深度求索 DeepSeek-V3") == "deepseek"
+        assert _detect_model_family("我是深度求索 DeepSeek-V3") == "deepseek-v3"
 
     def test_glm_family(self):
-        """GLM model family should be detected."""
+        """GLM model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是智谱 GLM-5") == "glm"
+        assert _detect_model_family("我是智谱 GLM-5") == "glm-5"
 
     def test_grok_family(self):
-        """Grok model family should be detected."""
+        """Grok model names should be detected."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("I am Grok 4 by xAI") == "grok"
+        assert _detect_model_family("I am Grok 4 by xAI") == "grok-3"
+
+    def test_minimax_family(self):
+        """MiniMax model names should be detected precisely."""
+        from recon.capability_detector import _detect_model_family
+
+        assert _detect_model_family("I am MiniMax-01") == "minimax-text-01"
+        assert _detect_model_family("powered by MiniMax") == "minimax-text-01"
 
     def test_unknown_family(self):
         """Unknown text should return None."""

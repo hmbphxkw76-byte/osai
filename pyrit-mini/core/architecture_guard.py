@@ -988,7 +988,7 @@ class ArchitectureGuard:
                 continue
 
             # 排除: __init__.py (纯 re-export) 和 asr_stats.py (纯统计工具函数)
-            _CASCADE_EXCLUDE_FILES = {"__init__.py", "asr_stats.py", "asr_history.py", "judge_utils.py", "response_parser.py"}
+            _CASCADE_EXCLUDE_FILES = {"__init__.py", "asr_stats.py", "asr_history.py", "asr_compute.py", "asr_tracker.py", "judge_utils.py", "response_parser.py"}
             if rel.name in _CASCADE_EXCLUDE_FILES:
                 continue
 

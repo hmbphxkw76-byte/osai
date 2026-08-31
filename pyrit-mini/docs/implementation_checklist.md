@@ -54,12 +54,21 @@
 - [ ] **R6 §6.1**: 每个 `ConverterConfiguration` 包含恰好 1 个 converter (禁止串联)
 - [ ] **R6 §6.2**: 攻击执行路径中使用 0-token 评分器 (SubStringScorer + Inverter)
 - [ ] **R6 §6.4**: 使用 PyRIT 原生攻击策略 (不自研 Executor)
+- [ ] **R6 §6.4a**: 每个攻击类已实例化 (不只是导入)
+- [ ] **R6 §6.4b**: 攻击参数从 `config/defaults.yaml` 读取 (不硬编码)
+- [ ] **R7**: 效率参数 (中间退出阈值、级联跳过) 在 `defaults.yaml` 中定义, 不硬编码
+- [ ] **R7**: 中间退出检查点存在于 L1→L2 和 L2→L3 边界
 - [ ] **R8 §8.1**: 多 endpoint 模式下 `--stage` 退出点使用 `exclude_shared=True`
 - [ ] **R8 §8.2**: 异常处理有 fallback (partial results 保留, 不中断流水线)
 - [ ] **R8 §8.3**: 全局变量有 `_reset_*()` 函数, 多 endpoint 循环开始时调用
 - [ ] **R8 §8.4**: 空输入边界条件防御 (seeds/attack_results/endpoint 列表)
 - [ ] **R8 §8.5**: 编排日志覆盖所有 6 阶段 (recon+arm+strike+escalate+assess+report)
 - [ ] **R8 §8.6**: 并发数从 `get_effective_concurrency(ctx)` SSOT 读取, 不硬编码
+- [ ] **R9 §9.1**: 所有效率参数通过 `getattr(ctx.args, ...)` 读取 (不直接赋值)
+- [ ] **R9 §9.2**: 需要配置的函数有 `ctx` 参数 (不硬编码 fallback)
+- [ ] **R9 §9.3**: 日志/报告描述引用运行时 `ctx.args` 值 (不硬编码数字)
+- [ ] **R10**: 变更后运行 `python main.py --dry-run --max-seeds 1` 验证流水线完整性
+- [ ] **R10**: 如攻击/评分逻辑变更, 运行 `python main.py --max-seeds 1` 真实验证
 - **变更后的 `architecture_guard.py` 不会新增 BLOCKING 违规
 
 ### 架构守护脚本预检

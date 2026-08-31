@@ -722,6 +722,8 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 |----------|----------|---------|
 | Requirement Traceability Matrix | `docs/requirement_traceability_matrix.md` | 6-step pipeline → PyRIT native component mapping, violation tracking |
 | Implementation Checklist Template | `docs/implementation_checklist.md` | Pre-coding checklist (MUST fill before writing code) |
+| Attack Strategy Architecture | `docs/attack_strategy.md` | Five-layer optimization: UCB → priority batch → intermediate exit → ε-greedy → model-adaptive priors |
+| Terminal + Report Optimization | `docs/terminal_report_optimization.md` | Terminal layer (T-01~T-06) + Report layer (R-01~R-09) optimization plan |
 | Architecture Guard Script | `core/architecture_guard.py` | Automated rule enforcement (run before/after every change) |
 | L5 Parameter Baseline | `config/defaults.yaml` | SSOT for all parameters |
 | V2 Architecture Spec | `docs/v2_rebuild_specification.md` | Full architecture documentation |
