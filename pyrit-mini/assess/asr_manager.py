@@ -272,7 +272,7 @@ def _post_hoc_judge_success(result: Any) -> bool:
         - Mazeika et al. (arXiv:2402.04249) — HarmBench 评分基准
     """
     # 尝试 LLM 双 Judge
-    from assess.judge_manager import _init_judges, _run_llm_dual_judge_sync, _heuristic_second_judge_success
+    from assess.judge_manager import _heuristic_second_judge_success, _init_judges, _run_llm_dual_judge_sync
 
     if _init_judges():
         try:

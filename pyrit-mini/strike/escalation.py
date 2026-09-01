@@ -52,6 +52,7 @@ from strike.escalation_chain import (  # noqa: F401 — re-exports (统一升级
     _get_partial_from_memory,
     _is_success,
     _llm_judge_rescore,
+    _retrieve_partial_results,
     _run_best_of_n,
     _run_cair,
     _run_chunked_request,
@@ -64,15 +65,11 @@ from strike.escalation_chain import (  # noqa: F401 — re-exports (统一升级
     _run_multi_prompt_sending,
     _run_rogue_agent,
     _run_skeleton_key_native,
-    _retrieve_partial_results,
     _select_still_failed,
     _select_still_failed_clustered,
 )
 from strike.gcg_generator import (  # noqa: F401 — re-exports
     generate_gcg_suffix_pool as _generate_gcg_suffix_pool,
-    reorder_gcg_suffixes_for_partial as _reorder_gcg_suffixes_for_partial,
-    reorder_gcg_suffixes_for_refusal as _reorder_gcg_suffixes_for_refusal,
-    llm_mutate_gcg_suffixes as _llm_mutate_gcg_suffixes,
 )
 
 logger = logging.getLogger(__name__)

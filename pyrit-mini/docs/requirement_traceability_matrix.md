@@ -32,6 +32,7 @@
 | R8 | 生产级工程实践 | 手动审计 (8 个实践领域) | 0 | — | — |
 | R9 | 配置数据流一致性 | `architecture_guard.check_config_data_flow()` | 0 | — | — |
 | R10 | 变更后流水线验证 (HARD GATE) | `architecture_guard.check_dry_run_available()` | 0 | — | — |
+| R11 | Scenario 配置合规性 (目标感知攻击链) | `architecture_guard.check_scenario_config()` | 0 | — | PASS |
 
 ---
 
@@ -94,7 +95,7 @@ python core/architecture_guard.py --json
 python core/architecture_guard.py --rule R10
 ```
 
-**检查项 (18 个检查器)**:
+**检查项 (19 个检查器)**:
 1. Converter 串联堆叠 (R6 BLOCKING)
 2. PyRIT 原生攻击策略使用 (R6 WARNING)
 3. 原生攻击实例化 (R6 §6.4a WARNING)
@@ -113,6 +114,7 @@ python core/architecture_guard.py --rule R10
 16. 配置数据流一致性 (R9 WARNING/INFO)
 17. --dry-run 可用性 (R10 BLOCKING/WARNING)
 18. 精准投放四大机制完整性 (R1/R7 WARNING)
+19. Scenario 配置合规性 (R11 BLOCKING/WARNING)
 
 ### 6.2 强制执行流程 (每次代码变更)
 

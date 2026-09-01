@@ -289,7 +289,7 @@ class TestSynergyOrchestrator:
         assert orch._data_root == _DATA_ROOT
 
     def test_build_config_for_mcp(self):
-        """MCP 配置文件应该生成正确的协同配置."""
+        """MCP 配置文件应该生成正确的协同配置 (v60: 仅含 technique_tags)."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
@@ -297,12 +297,12 @@ class TestSynergyOrchestrator:
 
         assert config.burp_profile == "mcp05"
         assert config.attack_surface in ["mcp_server", "mcp_full_surface"]
-        assert len(config.seed_files) > 0
-        assert config.scorer_name == "web_vuln_detected"
+        # v60: 验证 technique_tags 而非 seed_files/scorer_name
+        assert config.technique_tags == ["mcp_targeted"]
         assert config.confidence > 0
 
     def test_build_config_for_standard(self):
-        """标准配置文件应该生成通用协同配置."""
+        """标准配置文件应该生成通用协同配置 (v60: technique_tags=None)."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
@@ -310,8 +310,8 @@ class TestSynergyOrchestrator:
 
         assert config.burp_profile == "mocka"
         assert config.attack_surface == "standard_llm_api"
-        assert len(config.seed_files) > 0
-        assert config.scorer_name == "blackbox_task_achieved"
+        # v60: standard_llm_api 的 technique_tags 为 None (使用全部技术)
+        assert config.technique_tags is None
 
     def test_build_config_with_burp_content(self):
         """提供 Burp 内容时应该使用深度分类."""
@@ -330,7 +330,7 @@ mcp-session-id: test123
         assert config.confidence > 0.5
 
     def test_force_surface_override(self):
-        """强制攻击面类型应该覆盖自动分类."""
+        """强制攻击面类型应该覆盖自动分类 (v60: 验证 technique_tags)."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
@@ -341,7 +341,8 @@ mcp-session-id: test123
 
         assert config.attack_surface == "rag_system"
         assert config.confidence == 1.0
-        assert config.scorer_name == "web_vuln_detected"
+        # v60: 验证 technique_tags 映射 (rag_system → ["rag_targeted"])
+        assert config.technique_tags == ["rag_targeted"]
 
     def test_synergy_config_summary(self):
         """SynergyConfig.summary() 应该生成可读摘要."""
@@ -384,18 +385,20 @@ class TestSynergyIntegration:
         assert config.synergy_enabled
 
     def test_get_cli_overrides(self):
-        """CLI 覆盖应该生成正确的参数格式."""
+        """CLI 覆盖应该生成正确的参数格式 (v60: 仅 technique_filter)."""
         from data.synergy_orchestrator import get_cli_overrides
 
         overrides = get_cli_overrides("mcp05")
 
-        assert "seeds" in overrides
-        assert "scorer" in overrides
+        # v60: 仅返回 attack_surface + technique_filter + synergy_enabled
         assert "attack_surface" in overrides
+        assert "technique_filter" in overrides
         assert isinstance(overrides["synergy_enabled"], bool)
+        assert overrides["attack_surface"] in ["mcp_server", "mcp_full_surface"]
+        assert overrides["technique_filter"] == ["mcp_targeted"]
 
     def test_all_burp_profiles_have_valid_config(self):
-        """所有现有 Burp 配置文件都应该有有效的协同配置."""
+        """所有现有 Burp 配置文件都应该有有效的协同配置 (v60)."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
@@ -406,24 +409,28 @@ class TestSynergyIntegration:
         for profile in test_profiles:
             config = orch.build_synergy_config(profile)
 
-            # 所有配置都应该有种子
-            assert len(config.seed_names) > 0, f"No seeds for {profile}"
+            # v60: 验证 attack_surface 非空
+            assert config.attack_surface, f"No attack_surface for {profile}"
 
-            # 所有配置都应该有评分器
-            assert config.scorer_name, f"No scorer for {profile}"
+            # v60: technique_tags 可以是 list 或 None (None = 使用全部技术)
+            assert config.technique_tags is None or isinstance(config.technique_tags, list), \
+                f"Invalid technique_tags for {profile}"
 
             # synergy 标志应该是布尔值
             assert isinstance(config.synergy_enabled, bool)
 
-    def test_seed_files_exist(self):
-        """推荐种子文件应该实际存在."""
+    def test_technique_tags_validity(self):
+        """v60: technique_tags 应该引用已注册的标签."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
 
-        for seed_file in config.seed_files:
-            assert Path(seed_file).exists(), f"Seed file not found: {seed_file}"
+        # 验证 technique_tags 是已注册的标签
+        valid_tags = {"mcp_targeted", "agent_targeted", "rag_targeted", "general"}
+        if config.technique_tags is not None:
+            for tag in config.technique_tags:
+                assert tag in valid_tags, f"Unknown technique_tag: {tag}"
 
 
 # ──────────────────────────────────────────────
@@ -533,24 +540,24 @@ class TestSynergyPipelineIntegration:
         args_no = parse_args(["--no-synergy"])
         assert args_no.synergy is False, "--no-synergy should set synergy to False"
 
-    def test_synergy_data_flow_to_args_seeds(self):
-        """Synergy 应该能覆盖 args.seeds."""
+    def test_synergy_data_flow_to_args_technique_filter(self):
+        """v60: Synergy 应该能设置 args 的 technique_filter."""
         from data.synergy_orchestrator import SynergyOrchestrator
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
 
-        # Simulate what main.py does
+        # Simulate what main.py does in v60
         class FakeArgs:
-            seeds = "default_seeds"
+            technique_filter = None
 
         fake_args = FakeArgs()
-        if config.synergy_enabled and config.seed_names:
-            setattr(fake_args, "seeds", ",".join(config.seed_files))
+        if config.synergy_enabled and config.technique_tags:
+            fake_args.technique_filter = config.technique_tags
 
-        # Verify seeds were overridden
-        assert fake_args.seeds != "default_seeds"
-        assert len(fake_args.seeds) > 0
+        # Verify technique_filter was set
+        assert fake_args.technique_filter == ["mcp_targeted"]
+        assert len(fake_args.technique_filter) > 0
 
     def test_orchestration_log_includes_synergy(self):
         """编排日志应该包含协同分析信息."""

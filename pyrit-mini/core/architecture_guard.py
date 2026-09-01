@@ -233,6 +233,8 @@ class ArchitectureGuard:
         self.check_dry_run_available()
         # R1/R7: 精准投放四大机制完整性检查
         self.check_precision_targeting()
+        # R11: Scenario 配置合规性检查
+        self.check_scenario_config()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -1543,6 +1545,141 @@ class ArchitectureGuard:
                 line=0,
                 description="精准投放-机制2 闭环缺口: main.py 中未调用 save_asr_history (ASR 历史未写入, UCB 排序无数据)",
                 fix_hint="在 assess 阶段添加: save_asr_history(ctx.asr_per_technique, attack_results=ctx.attack_results)",
+            ))
+
+    # ── 检查 17: Scenario 配置合规性 (R11) ──
+
+    def check_scenario_config(self) -> None:
+        """检测 Scenario 配置合规性 (v60: 使用 defaults.yaml).
+
+        R11 要求 (v60):
+        1. config/defaults.yaml 必须存在且包含 scenario_technique_filters
+        2. scenario_technique_filters 必须包含至少一个攻击面映射
+        3. Scenario 路由器 (core/scenario_router.py) 必须被 main.py 调用
+        """
+        if yaml is None:
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.WARNING,
+                file="(全局)",
+                line=0,
+                description="PyYAML 未安装 — 无法检查 Scenario 配置合规性",
+                fix_hint="pip install pyyaml",
+            ))
+            return
+
+        # v60: 检查 defaults.yaml 中的 scenario_technique_filters
+        defaults_file = self.root / "config" / "defaults.yaml"
+        if not defaults_file.exists():
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.BLOCKING,
+                file="config/defaults.yaml",
+                line=0,
+                description="defaults.yaml 不存在 — Scenario 配置无法加载",
+                fix_hint="创建 config/defaults.yaml 并添加 scenario_technique_filters 节点",
+            ))
+            return
+
+        # 加载并验证 YAML 格式
+        try:
+            with open(defaults_file, encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except Exception as exc:
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.BLOCKING,
+                file="config/defaults.yaml",
+                line=0,
+                description=f"defaults.yaml 解析失败: {exc}",
+                fix_hint="检查 YAML 语法",
+            ))
+            return
+
+        # 验证 scenario_technique_filters 节点存在
+        scenario_filters = config.get("scenario_technique_filters")
+        if not scenario_filters or not isinstance(scenario_filters, dict):
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.BLOCKING,
+                file="config/defaults.yaml",
+                line=0,
+                description="缺少 scenario_technique_filters 节点 — 目标感知攻击链功能不可用",
+                fix_hint="在 defaults.yaml 中添加 scenario_technique_filters 节点，定义攻击面→技术标签映射",
+            ))
+            return
+
+        # 验证至少有一个攻击面映射
+        if len(scenario_filters) == 0:
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.WARNING,
+                file="config/defaults.yaml",
+                line=0,
+                description="scenario_technique_filters 为空 — 无攻击面映射配置",
+                fix_hint="添加至少一个攻击面映射 (如 mcp_server, multi_agent_system, rag_system)",
+            ))
+
+        # 验证每个攻击面映射的必要字段
+        for surface_name, surface_config in scenario_filters.items():
+            if not isinstance(surface_config, dict):
+                self.violations.append(Violation(
+                    rule="R11",
+                    severity=Severity.WARNING,
+                    file="config/defaults.yaml",
+                    line=0,
+                    description=f"攻击面 '{surface_name}' 配置格式错误 — 必须为字典类型",
+                    fix_hint=f"确保 {surface_name}: 下为键值对格式",
+                ))
+                continue
+
+            # 检查 description 字段
+            if "description" not in surface_config:
+                self.violations.append(Violation(
+                    rule="R11",
+                    severity=Severity.INFO,
+                    file="config/defaults.yaml",
+                    line=0,
+                    description=f"攻击面 '{surface_name}' 缺少 description 字段",
+                    fix_hint=f"在 {surface_name} 下添加 description: <描述文本>",
+                ))
+
+        # 验证 Scenario 路由器被 main.py 调用
+        main_file = self.root / "main.py"
+        if main_file.exists():
+            try:
+                main_content = main_file.read_text(encoding="utf-8", errors="replace")
+                if "scenario_router" not in main_content:
+                    self.violations.append(Violation(
+                        rule="R11",
+                        severity=Severity.BLOCKING,
+                        file="main.py",
+                        line=0,
+                        description="main.py 未导入 Scenario 路由器 — 目标感知攻击链未集成到流水线",
+                        fix_hint="在 main.py 中添加: from core.scenario_router import get_router, apply_scenario_overrides",
+                    ))
+                elif "apply_scenario_overrides" not in main_content:
+                    self.violations.append(Violation(
+                        rule="R11",
+                        severity=Severity.WARNING,
+                        file="main.py",
+                        line=0,
+                        description="main.py 未调用 apply_scenario_overrides — Scenario 配置不会生效",
+                        fix_hint="在 SYNERGY 阶段后添加: apply_scenario_overrides(ctx, scenario_config, args)",
+                    ))
+            except OSError:
+                pass
+
+        # 验证 core/scenario_router.py 存在
+        router_file = self.root / "core" / "scenario_router.py"
+        if not router_file.exists():
+            self.violations.append(Violation(
+                rule="R11",
+                severity=Severity.BLOCKING,
+                file="core/scenario_router.py",
+                line=0,
+                description="Scenario 路由器模块不存在 — 目标感知攻击链功能不可用",
+                fix_hint="创建 core/scenario_router.py 并实现 ScenarioRouter 类",
             ))
 
     # ── 输出 ──

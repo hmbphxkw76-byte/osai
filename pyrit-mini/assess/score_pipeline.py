@@ -430,7 +430,7 @@ async def precompute_outcomes_async(
         return
 
     # 初始化 LLM Judge
-    from assess.judge_manager import _init_judges, _extract_response_text
+    from assess.judge_manager import _extract_response_text, _init_judges
 
     if not _init_judges():
         from assess.asr_stats import _get_outcome

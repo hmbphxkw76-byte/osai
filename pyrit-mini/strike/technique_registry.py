@@ -94,10 +94,14 @@ def register_project_techniques(
             name="PromptSending",
             attack_class=PromptSendingAttack,
             description="Single-turn baseline attack with SkeletonKey prepended conversation (arXiv:2307.15043, arXiv:2406.18112)",
-            technique_tags=["single_turn", "default", "baseline", "light"],
+            technique_tags=[
+                "single_turn", "baseline", "default", "light",
+                # v60: 场景 tag — 通用基线技术，所有场景都适用
+                "mcp_targeted", "agent_targeted", "rag_targeted", "general",
+            ],
         )
         factories.append(ps_factory)
-        logger.info("Registered AttackTechniqueFactory: PromptSending (single_turn, baseline)")
+        logger.info("Registered AttackTechniqueFactory: PromptSending (single_turn, baseline, universal)")
     except Exception as e:
         logger.warning("Failed to create PromptSending factory: %s", e)
 
@@ -122,10 +126,13 @@ def register_project_techniques(
                 "name": "Crescendo",
                 "attack_class": CrescendoAttack,
                 "description": "Multi-turn progressive escalation with official system_prompt (arXiv:2402.12109)",
-                "technique_tags": ["multi_turn", "escalation", "light"],
+                "technique_tags": [
+                    "multi_turn", "escalation", "light",
+                    "agent_targeted",  # v60: Agent 场景适用
+                ],
                 "attack_kwargs": {
                     "max_turns": (config_overrides or {}).get("crescendo_max_turns", 10),
-                    "max_backtracks": (config_overrides or {}).get("crescendo_max_backtracks", 10),
+                    "max_backtracks": (config_overrides or {}).get("crescendo_max_backtracks", 5),
                 },
                 "adversarial_chat": adversarial_target,
             }
@@ -146,7 +153,10 @@ def register_project_techniques(
                 name="TAP",
                 attack_class=TAPAttack,
                 description="Tree-of-attacks with pruning (arXiv:2312.02191)",
-                technique_tags=["multi_turn", "escalation", "tree_search"],
+                technique_tags=[
+                    "multi_turn", "escalation", "tree_search",
+                    "agent_targeted",  # v60: Agent 场景适用
+                ],
                 attack_kwargs={
                     "tree_width": _cfg.get("tap_tree_width", 4),
                     "tree_depth": _cfg.get("tap_tree_depth", 4),
@@ -170,11 +180,14 @@ def register_project_techniques(
                 name="PAIR",
                 attack_class=PAIRAttack,
                 description="Iterative adversarial prompting (arXiv:2310.08419)",
-                technique_tags=["multi_turn", "escalation", "iterative"],
+                technique_tags=[
+                    "multi_turn", "escalation", "iterative",
+                    "agent_targeted",  # v60: Agent 场景适用
+                ],
                 adversarial_chat=adversarial_target,
             )
             factories.append(pair_factory)
-            logger.info("Registered AttackTechniqueFactory: PAIR (multi_turn, iterative)")
+            logger.info("Registered AttackTechniqueFactory: PAIR (multi_turn, iterative, agent_targeted)")
         except Exception as e:
             logger.warning("Failed to create PAIR factory: %s", e)
 
@@ -195,7 +208,10 @@ def register_project_techniques(
                 name="BestOfN",
                 attack_class=PromptSendingAttack,
                 description="Best-of-N variation retry, N=5 (arXiv:2402.01135)",
-                technique_tags=["single_turn", "variation", "best_of_n"],
+                technique_tags=[
+                    "single_turn", "variation", "best_of_n",
+                    "mcp_targeted", "rag_targeted", "general",  # v60: MCP/RAG/通用
+                ],
                 attack_kwargs={
                     "attack_converter_config": AttackConverterConfig(
                         request_converters=[
@@ -230,9 +246,12 @@ def register_project_techniques(
                 "name": "RedTeaming",
                 "attack_class": RedTeamingAttack,
                 "description": "Multi-turn Red Teaming with RTA system prompt (arXiv:2407.01232)",
-                "technique_tags": ["multi_turn", "baseline", "light"],
+                "technique_tags": [
+                    "multi_turn", "baseline", "light",
+                    "agent_targeted",  # v60: Agent 场景适用
+                ],
                 "attack_kwargs": {
-                    "max_turns": (config_overrides or {}).get("red_teaming_max_turns", 5),
+                    "max_turns": (config_overrides or {}).get("red_teaming_max_turns", 3),
                 },
                 "adversarial_chat": adversarial_target,
             }
@@ -253,10 +272,13 @@ def register_project_techniques(
             name="SkeletonKey",
             attack_class=SkeletonKeyAttack,
             description="Single-turn SkeletonKey prefix injection (arXiv:2406.18112)",
-            technique_tags=["single_turn", "prefix_injection"],
+            technique_tags=[
+                "single_turn", "prefix_injection",
+                "general",  # v60: 通用场景
+            ],
         )
         factories.append(sk_factory)
-        logger.info("Registered AttackTechniqueFactory: SkeletonKey (single_turn, prefix_injection)")
+        logger.info("Registered AttackTechniqueFactory: SkeletonKey (single_turn, prefix_injection, general)")
     except Exception as e:
         logger.warning("Failed to create SkeletonKey factory: %s", e)
 

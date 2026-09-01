@@ -24,6 +24,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -724,6 +725,42 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="禁用协同分析, 使用默认种子配置",
     )
 
+    # ── Scenario 路由选项 (v60: 场景→技术过滤) ──
+    # 学术依据: NIST SP 800-115 §4, PTES §3, OWASP ASI Top 10
+    # v60 数据流: synergy_orchestrator → technique_tags → adaptive_technique_filter → TextAdaptive
+    # Scenario = 攻击面类型 → technique_tags 映射 (不再管理 seeds/converters/scorer)
+    scenario_group = parser.add_argument_group("Scenario 路由选项 (v60 Tag-Based)")
+    scenario_group.add_argument(
+        "--scenario",
+        type=str,
+        default=None,
+        help="强制指定 Scenario (mcp_scenario/agent_scenario/rag_scenario/model_scenario)",
+    )
+    scenario_group.add_argument(
+        "--technique-filter",
+        type=str,
+        default=None,
+        help="直接指定技术过滤标签 (逗号分隔, 如 'mcp_targeted' 或 'agent_targeted,multi_turn')",
+    )
+    scenario_group.add_argument(
+        "--list-scenarios",
+        action="store_true",
+        default=False,
+        help="列出所有可用 Scenario 并退出",
+    )
+    scenario_group.add_argument(
+        "--scenario-enabled",
+        action="store_true",
+        default=True,
+        help="启用 Scenario 路由 (默认: True)",
+    )
+    scenario_group.add_argument(
+        "--no-scenario",
+        action="store_true",
+        default=False,
+        help="禁用 Scenario 路由，使用默认 model_scenario 行为",
+    )
+
     args = parser.parse_args(argv)
 
     explicit_escalation = args.escalation
@@ -841,6 +878,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.techniques is None:
         args.techniques = "auto"
 
+    # ── Scenario 路由处理 (v60) ──
+    # --no-scenario 禁用 Scenario 路由
+    if getattr(args, "no_scenario", False):
+        args.scenario_enabled = False
+
+    # --list-scenarios: 列出所有 Scenario 并退出
+    if getattr(args, "list_scenarios", False):
+        from core.scenario_router import get_router
+        router = get_router()
+        print(router.format_scenarios_display())
+        sys.exit(0)
+
+    # --technique-filter: 解析逗号分隔的标签列表
+    # v60: 直接指定技术过滤标签, 覆盖 synergy_config.technique_tags
+    technique_filter_str = getattr(args, "technique_filter", None)
+    if technique_filter_str:
+        # 解析逗号分隔的标签
+        args.adaptive_technique_filter = [
+            tag.strip() for tag in technique_filter_str.split(",") if tag.strip()
+        ]
+        logger.info(
+            "v60: CLI --technique-filter parsed: %s",
+            args.adaptive_technique_filter,
+        )
+    else:
+        # 确保 args 有 adaptive_technique_filter 属性 (从 config 加载)
+        if not hasattr(args, "adaptive_technique_filter"):
+            args.adaptive_technique_filter = None
+
     return args
 
 
@@ -931,7 +997,6 @@ async def setup_environment(output_dir: Path) -> None:
 
     await initialize_pyrit_async(
         memory_db_type="SQLite",
-        load_defaults=True,
         silent=True,
         db_path=str(db_path),
     )

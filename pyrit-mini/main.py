@@ -800,17 +800,19 @@ async def _run_single_endpoint(
         return
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ②.5 Burp + Scores + Seeds 协同分析 (RECON → SYNERGY → ARM 数据桥接)
+    # ②.5 攻击面分类 + 技术标签映射 (v60: SYNERGY → technique_tags)
     # ═══════════════════════════════════════════════════════════════════════════
     # 学术依据:
     #   - NIST SP 800-115 §4: 基于发现的攻击面动态调整测试策略
     #   - PTES §3: 威胁建模驱动测试用例选择
     #   - MITRE ATLAS: TTP 与资产能力映射
-    # 数据流: ctx.parsed_request → synergy_orchestrator → ctx.synergy_config → arm phase
-    # 当 Burp 文件存在且启用协同分析时, 自动选取最优种子组合 + 评分器
+    # v60 数据流: burp_profile → synergy_orchestrator → ctx.synergy_config
+    #            (attack_surface + technique_tags + confidence)
+    #            → adaptive_executor (TextAdaptive technique filter)
+    # 当 Burp 文件存在且启用协同分析时, 自动分类攻击面并映射到技术标签
     _synergy_enabled_flag = getattr(args, "synergy", True)  # 默认启用, --no-synergy 禁用
     if _synergy_enabled_flag and ctx.parsed_request:
-        print_phase("SYNERGY", "Burp + Scores + Seeds 协同分析...")
+        print_phase("SYNERGY", "攻击面分类 + 技术标签映射...")
         try:
             from data.synergy_orchestrator import SynergyOrchestrator
 
@@ -833,38 +835,62 @@ async def _run_single_endpoint(
             ctx.synergy_config = _syn_cfg
             logger.info("Synergy config: %s", _syn_cfg.summary())
 
-            # 当协同分析启用且有匹配种子时, 自动覆盖 seed 选取
-            if _syn_cfg.synergy_enabled and _syn_cfg.seed_names:
-                # 数据流: SynergyConfig.seed_files → args.seeds → load_seeds()
-                _synergy_seed_value = ",".join(_syn_cfg.seed_files)
-                logger.info(
-                    "Synergy seed override: %s → load_seeds()",
-                    _synergy_seed_value,
-                )
-                # 覆盖 args.seeds, 使后续 load_seeds 使用协同选取的种子
-                setattr(args, "seeds", _synergy_seed_value)
-                print_status(
-                    "SYNERGY",
-                    "SEEDS",
-                    f"协同选取 {_syn_cfg.seed_files.__len__()} 个种子 "
-                    f"(surface={_syn_cfg.attack_surface}, conf={_syn_cfg.confidence:.2f})",
-                    ok=True,
-                )
-            else:
-                logger.info("Synergy fallback: 使用默认种子配置")
-                print_status(
-                    "SYNERGY",
-                    "FALLBACK",
-                    "无匹配种子, 使用默认配置",
-                )
-
-            # 协同评分器选择 (记录到 ctx, 供后续 scorer 加载使用)
-            if _syn_cfg.scorer_name:
-                logger.info("Synergy scorer selected: %s", _syn_cfg.scorer_name)
-                setattr(args, "synergy_scorer", _syn_cfg.scorer_name)
+            # v60: 输出攻击面分类 + 技术标签信息
+            _tags_str = ", ".join(_syn_cfg.technique_tags) if _syn_cfg.technique_tags else "all (no filter)"
+            print_status(
+                "SYNERGY",
+                "CLASSIFIED",
+                f"攻击面={_syn_cfg.attack_surface}, "
+                f"技术标签=[{_tags_str}], "
+                f"置信度={_syn_cfg.confidence:.2f}",
+                ok=True,
+            )
         except Exception as e:
             logger.warning("Synergy analysis failed (non-fatal, 回退默认): %s", e)
             ctx.synergy_config = None
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ②.7 Scenario 路由决策 (v60: 攻击面→技术标签映射)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 学术依据:
+    #   - NIST SP 800-115 §4: 基于威胁建模选择测试策略
+    #   - PTES §3: 威胁建模驱动测试用例选择
+    # v60 决策逻辑:
+    #   当 synergy_config 识别目标类型后，自动映射到技术过滤标签
+    #   Scenario = 攻击面类型 → technique_tags (不再管理 seeds/converters/scorer)
+    #   优先级: CLI --technique-filter > synergy_config.technique_tags > defaults.yaml
+    _scenario_enabled = getattr(args, "scenario_enabled", True)
+    if _scenario_enabled and ctx.synergy_config:
+        from core.scenario_router import apply_scenario_overrides, get_router
+
+        _router = get_router()
+        _scenario_name, _scenario_config = _router.select_scenario(
+            classification=type('ClassificationResult', (), {
+                'attack_surface': ctx.synergy_config.attack_surface,
+                'confidence': ctx.synergy_config.confidence,
+                'evidence': ctx.synergy_config.evidence,
+            })(),
+            user_override=getattr(args, "scenario", None),
+        )
+        ctx.scenario_config = _scenario_config
+        ctx.scenario_name = _scenario_name
+
+        # v60: 应用 Scenario 覆盖 (仅设置 adaptive_technique_filter)
+        apply_scenario_overrides(ctx, _scenario_config, args)
+
+        # v60: 输出技术过滤信息
+        _filter = getattr(args, "adaptive_technique_filter", None)
+        _filter_str = ", ".join(_filter) if _filter else "all (no filter)"
+        logger.info("Scenario selected: %s, technique_filter=%s", _scenario_name, _filter_str)
+        print_status(
+            "SCENARIO",
+            "SELECTED",
+            f"攻击面={ctx.synergy_config.attack_surface}, "
+            f"Scenario={_scenario_name}, "
+            f"技术过滤=[{_filter_str}], "
+            f"置信度={ctx.synergy_config.confidence:.2f}",
+            ok=True,
+        )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ②.6 目标感知自动 L4 优化 (SYNERGY → 升级路径决策)

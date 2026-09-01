@@ -1,16 +1,21 @@
-"""鑷€傚簲鎵ц鍣ㄦā鍧?鈥?鍚堝苟 2 涓墽琛屽櫒鐩稿叧妯″潡銆?
+"""自适应执行器模块 — 合并 2 个执行器相关模块。
 
-鍚堝苟鏉ユ簮:
-    - text_adaptive_executor.py: PyRIT 鍘熺敓 TextAdaptive Scenario
-    - best_of_n_retry.py: Best-of-N 閲嶈瘯 + Crescendo 鍗囩骇
+合并来源:
+    - text_adaptive_executor.py: PyRIT 原生 TextAdaptive Scenario
+    - best_of_n_retry.py: Best-of-N 重试 + Crescendo 升级
 
-瀛︽湳渚濇嵁:
-    - PyRIT TextAdaptive (arXiv:2407.01232) 鈥?蔚-璐績鑷€傚簲鎶€鏈€夋嫨
-    - Chao et al. (arXiv:2402.01135) 鈥?Best-of-N, N=5 ASR 鎻愬崌 1.8x
-    - Crescendo (arXiv:2402.12109) 鈥?10 turns ASR=82%
+v60 重构: 统一入口逻辑, 支持 synergy_config.technique_tags 直接传入。
 
-PyRIT 鍘熺敓浼樺厛 (Rule 2):
-    浣跨敤 PyRIT 鍘熺敓 TextAdaptive + PromptSendingAttack 浣滀负涓诲紩鎿庛€?
+数据流:
+    synergy_config.technique_tags → adaptive_technique_filter → TextAdaptive
+
+学术依据:
+    - PyRIT TextAdaptive (arXiv:2407.01232) — ε-贪心自适应技术选择
+    - Chao et al. (arXiv:2402.01135) — Best-of-N, N=5 ASR 提升 1.8x
+    - Crescendo (arXiv:2402.12109) — 10 turns ASR=82%
+
+PyRIT 原生优先 (Rule 2):
+    使用 PyRIT 原生 TextAdaptive + PromptSendingAttack 作为主引擎。
 """
 
 from __future__ import annotations
@@ -286,6 +291,25 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     _random_seed = _config["random_seed"]
     _max_attempts = _config["max_attempts"]
     _technique_filter = _config["technique_filter"]
+
+    # v60: 优先使用 synergy_config.technique_tags (来自攻击面分类→技术标签映射)
+    # 数据流: burp_profile → synergy_config → technique_tags → adaptive_technique_filter
+    # 优先级: synergy_config.technique_tags > args.adaptive_technique_filter > config defaults
+    _synergy_config = getattr(ctx, "synergy_config", None)
+    if _synergy_config is not None:
+        _synergy_tags = getattr(_synergy_config, "technique_tags", None)
+        if _synergy_tags is not None:
+            _technique_filter = _synergy_tags
+            logger.info(
+                "v60: Using synergy_config.technique_tags as filter: %s",
+                _technique_filter,
+            )
+        elif _synergy_config.attack_surface == "standard_llm_api":
+            # standard_llm_api → 使用全部技术 (不设 filter)
+            _technique_filter = None
+            logger.info(
+                "v60: standard_llm_api surface — using all techniques (no filter)"
+            )
 
     # v53: build scenario_techniques (tag-based filter)
     # PyRIT official: scenario_techniques=[technique_class("single_turn")]

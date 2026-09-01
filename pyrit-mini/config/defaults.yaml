@@ -97,9 +97,32 @@ auto_seed_expansion_factor: 3
 adaptive_epsilon: 0.2
 adaptive_random_seed: 42
 adaptive_max_attempts: 3
-# scenario_techniques: 限制自适应选择池 (tag-based), null=使用全部已注册技术
-# 示例: ["single_turn"] 只选单轮技术; ["multi_turn"] 只选多轮技术
+# v60: 场景→技术过滤映射 (SSOT)
+# 场景选择转化为技术过滤: 攻击面类型 → technique_tags → TextAdaptive scenario_techniques
+# 配置项 adaptive_technique_filter 接受 tag list, 例如:
+#   ["mcp_targeted"]           → MCP 场景 (仅 mcp_targeted tag 的技术)
+#   ["agent_targeted"]         → Agent 场景 (仅 agent_targeted tag 的技术)
+#   ["rag_targeted"]           → RAG 场景 (仅 rag_targeted tag 的技术)
+#   null 或 []                 → 全部已注册技术 (默认, model_scenario)
+# 技术标签定义见 strike/technique_registry.py
 adaptive_technique_filter: null
+
+# v60: 攻击面→技术标签映射 (SSOT)
+# 当攻击面分类完成后, 自动选择对应的 technique_filter
+# 优先级: CLI --technique-filter > 本映射 > adaptive_technique_filter 默认值
+scenario_technique_filters:
+  mcp_server:
+    technique_tags: ["mcp_targeted"]
+    description: "MCP Server 定向攻击 (单轮 PromptSending + Best-of-N)"
+  multi_agent_system:
+    technique_tags: ["agent_targeted"]
+    description: "多智能体系统定向攻击 (多轮 Crescendo/TAP/PAIR + PromptSending)"
+  rag_system:
+    technique_tags: ["rag_targeted"]
+    description: "RAG 知识库定向攻击 (单轮 PromptSending + Best-of-N)"
+  standard_llm_api:
+    technique_tags: null  # null = 使用全部已注册技术
+    description: "标准 LLM 渐进式攻击链 (全部技术, 优先级调度)"
 
 # ── 技术级优先级调度 (v57) ──
 # arXiv:2406.12609 — Lattner et al.: 高价值策略优先, 中间退出

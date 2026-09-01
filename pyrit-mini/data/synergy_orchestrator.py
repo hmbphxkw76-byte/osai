@@ -1,28 +1,20 @@
-"""synergy_orchestrator.py — Burp + Scores + Seeds 协同编排器.
+"""synergy_orchestrator.py — 攻击面→技术标签适配器 (v60 轻量化)。
 
-统一协调 AssetMapper + AttackSurfaceClassifier + ScorerSelector.
-提供一站式协同入口.
+v60 重构: 从"完整攻击配置生成器"简化为"攻击面→technique_tags适配器"。
 
-理论依据:
-  - NIST SP 800-115 §4: 渗透测试执行流程 (Planning → Discovery → Attack → Reporting)
-  - PTES (Penetration Testing Execution Standard): 预交互 → 情报收集 → 威胁建模 → 漏洞分析 → 利用
+职责:
+  - 输入: Burp Profile Name → 输出: 攻击面类型 + 匹配的技术过滤标签
+  - 种子选择/评分器选择逻辑移除 (已通过 SSOT config/defaults.yaml 管理)
 
-工作流:
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                    Synergy Orchestrator v2                        │
-  ├──────────────────────────────────────────────────────────────────┤
-  │  Input: Burp Profile Name (e.g., "mcp05")                        │
-  │                          ↓                                        │
-  │  ① Classify Attack Surface (文件名 + HTTP 内容)                   │
-  │                          ↓                                        │
-  │  ② Select Seeds (基于攻击面类型匹配种子库)                        │
-  │                          ↓                                        │
-  │  ③ Select Scorer (基于攻击面类型匹配评分器)                       │
-  │                          ↓                                        │
-  │  ④ Build Complete Config (完整攻击配置)                           │
-  │                          ↓                                        │
-  │  Output: 完整配置字典 (可直接传递给 attack executor)              │
-  └──────────────────────────────────────────────────────────────────┘
+数据流:
+  burp_profile → classify_attack_surface → synergy_config
+                                          → attack_surface (攻击面类型)
+                                          → technique_tags (用于 TextAdaptive 过滤)
+                                          → confidence (分类置信度)
+
+学术依据:
+  - NIST SP 800-115 §4: 基于发现的攻击面动态调整测试策略
+  - MITRE ATLAS: TTP 与资产能力映射
 """
 
 from __future__ import annotations
@@ -34,30 +26,26 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 项目根目录 (相对路径计算的基准)
+# 项目根目录
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_ROOT = PROJECT_ROOT / "data"
-SEEDS_ROOT = DATA_ROOT / "seeds"
-SCORERS_ROOT = DATA_ROOT / "scorers"
 BURP_ROOT = DATA_ROOT / "burp"
 
 
 @dataclass
 class SynergyConfig:
-    """协同配置 — 完整的攻击配置."""
+    """协同配置 (v60 精简版)。
+
+    语义: 攻击面分析结果 + 过滤标签。
+    """
 
     # 来源信息
     burp_profile: str
     attack_surface: str
     confidence: float
 
-    # 种子配置
-    seed_names: list[str] = field(default_factory=list)
-    seed_files: list[str] = field(default_factory=list)  # 实际文件路径
-
-    # 评分器配置
-    scorer_name: str = "blackbox_task_achieved"
-    scorer_file: str = ""
+    # v60: 场景技术过滤标签 (由 config/defaults.yaml → scenario_technique_filters 映射)
+    technique_tags: list[str] | None = None  # None = 使用全部技术
 
     # 元数据
     evidence: list[str] = field(default_factory=list)
@@ -69,10 +57,7 @@ class SynergyConfig:
             "burp_profile": self.burp_profile,
             "attack_surface": self.attack_surface,
             "confidence": self.confidence,
-            "seed_names": self.seed_names,
-            "seed_files": self.seed_files,
-            "scorer_name": self.scorer_name,
-            "scorer_file": self.scorer_file,
+            "technique_tags": self.technique_tags,
             "evidence": self.evidence,
             "synergy_enabled": self.synergy_enabled,
         }
@@ -84,38 +69,38 @@ class SynergyConfig:
             f"  burp_profile={self.burp_profile},\n"
             f"  attack_surface={self.attack_surface},\n"
             f"  confidence={self.confidence:.2f},\n"
-            f"  seeds={len(self.seed_names)},\n"
-            f"  scorer={self.scorer_name},\n"
+            f"  technique_tags={self.technique_tags},\n"
             f"  synergy_enabled={self.synergy_enabled}\n"
             f")"
         )
 
 
 class SynergyOrchestrator:
-    """协同编排器 — 协调各组件生成完整攻击配置."""
+    """攻击面→技术标签适配器 (v60 简化)。
+
+    职责:
+      1. 攻击面分类 (文件名 + HTTP 内容)
+      2. 攻击面 → technique_tags 映射 (读取 config/defaults.yaml)
+    """
 
     def __init__(
         self,
         data_root: Path | None = None,
         burp_dir: Path | None = None,
-        allow_fallback: bool = True,
     ):
         """
-        初始化协同编排器.
+        初始化适配器.
 
         Args:
             data_root: 数据根目录 (默认: project/data)
             burp_dir: Burp 文件目录 (默认: data/burp)
-            allow_fallback: 是否允许回退到默认配置
         """
         self._data_root = data_root or DATA_ROOT
         self._burp_dir = burp_dir or BURP_ROOT
-        self._allow_fallback = allow_fallback
 
         # 延迟加载子组件
         self._mapper = None
-        self._classifier = None
-        self._scorer_selector = None
+        self._tag_mapping: dict[str, list[str] | None] | None = None
 
     @property
     def mapper(self):
@@ -125,13 +110,45 @@ class SynergyOrchestrator:
             self._mapper = AssetMapper()
         return self._mapper
 
-    @property
-    def scorer_selector(self):
-        """延迟加载 ScorerSelector."""
-        if self._scorer_selector is None:
-            from data import scorer_selector as ss
-            self._scorer_selector = ss
-        return self._scorer_selector
+    def _load_tag_mapping(self) -> dict[str, list[str] | None]:
+        """从 config/defaults.yaml 加载攻击面→technique_tags 映射.
+
+        v60: 统一配置入口, 消除 scenarios.yaml 重复定义.
+
+        Returns:
+            攻击面类型 → technique_tags 映射字典
+        """
+        if self._tag_mapping is not None:
+            return self._tag_mapping
+
+        default_mapping: dict[str, list[str] | None] = {
+            "mcp_server": ["mcp_targeted"],
+            "multi_agent_system": ["agent_targeted"],
+            "rag_system": ["rag_targeted"],
+            "standard_llm_api": None,  # None = 使用全部技术
+        }
+
+        try:
+            import yaml
+
+            config_path = PROJECT_ROOT / "config" / "defaults.yaml"
+            if config_path.exists():
+                with open(config_path, encoding="utf-8") as f:
+                    config = yaml.safe_load(f)
+                scenario_filters = config.get("scenario_technique_filters", {})
+                if scenario_filters:
+                    for surface, cfg in scenario_filters.items():
+                        if isinstance(cfg, dict) and "technique_tags" in cfg:
+                            default_mapping[surface] = cfg["technique_tags"]
+                    logger.debug(
+                        "Loaded scenario_technique_filters from defaults.yaml: %d surfaces",
+                        len(scenario_filters),
+                    )
+        except Exception as e:
+            logger.warning("Failed to load scenario_technique_filters: %s, using defaults", e)
+
+        self._tag_mapping = default_mapping
+        return default_mapping
 
     def build_synergy_config(
         self,
@@ -139,9 +156,9 @@ class SynergyOrchestrator:
         burp_content: str | None = None,
         force_surface: str | None = None,
     ) -> SynergyConfig:
-        """构建完整协同配置.
+        """构建精简协同配置 (攻击面 + 技术标签).
 
-        主入口: 基于 Burp 配置文件生成完整攻击配置.
+        主入口: 基于 Burp 配置文件生成攻击面分析 + 技术过滤标签.
 
         Args:
             burp_profile_name: Burp 配置文件名 (如 "mcp05")
@@ -149,7 +166,7 @@ class SynergyOrchestrator:
             force_surface: 强制指定攻击面类型 (覆盖自动检测)
 
         Returns:
-            SynergyConfig 完整配置对象
+            SynergyConfig: 包含 attack_surface + technique_tags
         """
         logger.info("Building synergy config for burp profile: %s", burp_profile_name)
 
@@ -161,8 +178,8 @@ class SynergyOrchestrator:
         elif burp_content:
             # 基于内容的深度分类
             from data.attack_surface_classifier import classify_http_content
+
             url = self._extract_url(burp_content)
-            # 分离 HTTP 请求和响应 (Burp 文件包含完整请求+响应)
             http_request, http_response = _split_burp_content(burp_content)
             result = classify_http_content(
                 http_request=http_request,
@@ -178,78 +195,22 @@ class SynergyOrchestrator:
             confidence = 0.6
             evidence = ["File-name based classification"]
 
-        logger.debug("Attack surface: %s (confidence=%.2f)", attack_surface, confidence)
-
-        # ── Step 2: 选择种子 ──
-        seed_names = self.mapper.get_seeds_for_attack_surface(attack_surface)
-
-        # 转换为实际文件路径
-        # 保存 seed_name → relative_path 映射, 用于准确报告缺失种子
-        seed_name_to_path: dict[str, str] = {}
-        for seed_name in seed_names:
-            file_path = self.mapper.get_seed_file_path(seed_name)
-            if file_path:
-                seed_name_to_path[seed_name] = file_path
-
-        seed_files = list(seed_name_to_path.values())
-
-        # 验证种子文件是否存在
-        seed_files_existing = self._filter_existing_files(seed_files)
-
-        # 构建 existing 集合 (用 relative path 做键, 因为 _filter_existing_files 返回绝对路径,
-        # 需反向映射到 relative path 才能与 seed_name_to_path.values() 正确比较)
-        # 注意: rel_path 使用 / (来自 YAML), 而绝对路径使用 \ (Windows), 需统一分隔符
-        existing_rel_paths = set()
-        for existing_abs in seed_files_existing:
-            # 统一使用 / 进行跨平台比较
-            existing_abs_norm = existing_abs.replace("\\", "/")
-            for rel_path in seed_files:
-                rel_path_norm = rel_path.replace("\\", "/")
-                if existing_abs_norm.endswith(rel_path_norm + ".prompt") or existing_abs_norm.endswith(rel_path_norm + ".yaml") or existing_abs_norm.endswith(rel_path_norm):
-                    existing_rel_paths.add(rel_path)
-                    break
-
-        missing_seeds = set(seed_files) - existing_rel_paths
-        if missing_seeds:
-            # 反向查找 missing seed names
-            missing_names = [name for name, path in seed_name_to_path.items() if path in missing_seeds]
-            logger.warning("Missing seed files (skipped): %s", missing_names)
-
-        # ── Step 3: 选择评分器 ──
-        scorer_name = self.scorer_selector.select_scorer_for_surface(attack_surface)
-        scorer_file = self.scorer_selector.get_scorer_path(scorer_name)
-
-        # ── Step 4: 回退检测 ──
-        synergy_enabled = True
-        if not seed_files_existing:
-            logger.warning(
-                "No seed files found for surface '%s', falling back to generic mode",
-                attack_surface,
-            )
-            if self._allow_fallback:
-                seed_names = self.mapper.get_seeds_for_attack_surface("standard_llm_api")
-                seed_files_existing = self._filter_existing_files([
-                    self.mapper.get_seed_file_path(s) for s in seed_names
-                    if self.mapper.get_seed_file_path(s)
-                ])
-                synergy_enabled = False
-                evidence.append("Fallback to generic mode (no matching seeds)")
+        # ── Step 2: 攻击面 → technique_tags 映射 ──
+        tag_mapping = self._load_tag_mapping()
+        technique_tags = tag_mapping.get(attack_surface)
 
         logger.info(
-            "Synergy config ready: surface=%s, seeds=%d, scorer=%s",
-            attack_surface, len(seed_files_existing), scorer_name,
+            "Synergy config ready: surface=%s, technique_tags=%s, confidence=%.2f",
+            attack_surface, technique_tags, confidence,
         )
 
         return SynergyConfig(
             burp_profile=burp_profile_name,
             attack_surface=attack_surface,
             confidence=confidence,
-            seed_names=seed_names,
-            seed_files=seed_files_existing,
-            scorer_name=scorer_name,
-            scorer_file=scorer_file or "",
+            technique_tags=technique_tags,
             evidence=evidence,
-            synergy_enabled=synergy_enabled,
+            synergy_enabled=True,
         )
 
     def build_from_burp_file(self, burp_filename: str) -> SynergyConfig:
@@ -263,10 +224,8 @@ class SynergyOrchestrator:
         Returns:
             SynergyConfig
         """
-        # 去除 .txt 后缀 (如果有)
         profile_name = burp_filename.replace(".txt", "")
 
-        # 尝试读取文件内容
         burp_content = None
         burp_file = self._burp_dir / burp_filename
         if burp_file.exists():
@@ -278,31 +237,6 @@ class SynergyOrchestrator:
             logger.debug("Burp file not found: %s", burp_file)
 
         return self.build_synergy_config(profile_name, burp_content)
-
-    def _filter_existing_files(self, paths: list[str]) -> list[str]:
-        """过滤出存在的文件路径."""
-        if not paths:
-            return []
-
-        existing = []
-        for p in paths:
-            # 路径可能已有扩展名，需要检查
-            full_path = SEEDS_ROOT / p
-            if full_path.exists():
-                existing.append(str(full_path))
-                continue
-            # 尝试添加 .prompt 扩展名
-            if not p.endswith(".prompt") and not p.endswith(".yaml"):
-                prompt_path = SEEDS_ROOT / f"{p}.prompt"
-                if prompt_path.exists():
-                    existing.append(str(prompt_path))
-                    continue
-                # 尝试 yaml
-                yaml_path = SEEDS_ROOT / f"{p}.yaml"
-                if yaml_path.exists():
-                    existing.append(str(yaml_path))
-
-        return existing
 
     @staticmethod
     def _extract_url(http_content: str) -> str | None:
@@ -329,7 +263,6 @@ def _split_burp_content(burp_content: str) -> tuple[str, str]:
     Returns:
         (http_request, http_response) 元组
     """
-    # 查找 HTTP 响应起始行 (HTTP/1.x STATUS)
     lines = burp_content.split("\n")
     response_start = -1
     for i, line in enumerate(lines):
@@ -338,7 +271,6 @@ def _split_burp_content(burp_content: str) -> tuple[str, str]:
             break
 
     if response_start == -1:
-        # 没有响应部分, 全部视为请求
         return burp_content, ""
 
     http_request = "\n".join(lines[:response_start]).strip()
@@ -353,7 +285,7 @@ _default_orchestrator: SynergyOrchestrator | None = None
 
 
 def get_orchestrator() -> SynergyOrchestrator:
-    """获取全局默认编排器."""
+    """获取全局默认适配器."""
     global _default_orchestrator
     if _default_orchestrator is None:
         _default_orchestrator = SynergyOrchestrator()
@@ -390,7 +322,7 @@ def build_from_burp_file(burp_filename: str) -> SynergyConfig:
 def get_cli_overrides(burp_profile_name: str) -> dict[str, Any]:
     """获取 CLI 参数覆盖 (用于 main.py 集成).
 
-    返回可直接覆盖 CLI 参数的配置字典.
+    v60: 仅返回 attack_surface + technique_tags, 不再包含 seeds/scorer.
 
     Args:
         burp_profile_name: Burp 配置文件名
@@ -398,16 +330,14 @@ def get_cli_overrides(burp_profile_name: str) -> dict[str, Any]:
     Returns:
         参数覆盖字典:
         {
-            "seeds": "seed1,seed2,...",
-            "scorer": "scorer_name",
             "attack_surface": "surface_type",
+            "technique_filter": ["tag1", "tag2"],
         }
     """
     config = quick_build(burp_profile_name)
 
     return {
-        "seeds": ",".join(config.seed_names) if config.seed_names else None,
-        "scorer": config.scorer_name,
         "attack_surface": config.attack_surface,
+        "technique_filter": config.technique_tags,
         "synergy_enabled": config.synergy_enabled,
     }

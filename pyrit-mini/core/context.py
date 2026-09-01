@@ -102,10 +102,11 @@ class PipelineContext:
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
-    # P3-Synergy: 协同分析配置 (由 synergy_orchestrator 填充)
-    # 数据流: recon (burp_parser) → synergy_orchestrator → ctx.synergy_config
-    #         → arm (seed_ranker / scorer_selector) → strike
-    # 存储 SynergyConfig 对象, 包含攻击面类型 / 种子列表 / 评分器配置
+    # P3-Synergy: 攻击面→技术标签适配器 (v60 精简版)
+    # v60 数据流: burp_profile → synergy_orchestrator → ctx.synergy_config
+    #            (attack_surface + technique_tags + confidence)
+    #            → adaptive_executor (TextAdaptive technique filter)
+    # 存储 SynergyConfig 对象, 仅含攻击面类型 / 技术标签 / 置信度
     synergy_config: Any = None
 
     # ── 增量借鉴: 运行标签 (pyrit_scan --memory-labels) ──
@@ -113,6 +114,14 @@ class PipelineContext:
     # 数据流: config.py (parse_args) → ctx.memory_labels → main.py (CentralMemory.set_labels)
     # 示例: {"run_id": "r001", "target": "deepseek", "environment": "production"}
     memory_labels: dict[str, str] = field(default_factory=dict)
+
+    # ── Scenario 路由 (v60: 攻击面→技术标签映射) ──
+    # v60 数据流: synergy_orchestrator → scenario_router → ctx.scenario_config
+    #            (仅含 technique_tags, 不再管理 seeds/converters/scorer)
+    #            → adaptive_executor (TextAdaptive technique filter)
+    # Scenario 配置仅含: technique_tags (技术过滤标签)
+    scenario_config: dict[str, Any] = field(default_factory=dict)
+    scenario_name: str = ""
 
 
 def get_effective_concurrency(
