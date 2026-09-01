@@ -1,26 +1,28 @@
 # arXiv:2302.12173 — Greshake et al., Indirect prompt injection
 # arXiv:2307.00929 — Zhan et al., InjecAgent
 # arXiv:2402.07967 — Shafran et al., RAG security
-"""mcp_rag_attack — MCP/RAG 专项攻击模块.
+"""mcp_rag_attack — MCP/RAG specialized attack module.
 
-针对 MCP (Model Context Protocol) 和 RAG (检索增强生成) 系统的定向攻击。
-加载 MCP/RAG 专项种子并执行攻击。
+Targeted attacks against MCP (Model Context Protocol) and RAG (Retrieval-Augmented Generation) systems.
+Loads MCP/RAG specialty seeds and executes attacks.
 
-策略:
-    1. 加载 MCP 专项种子 (mcp_attack.prompt) — MCP 工具枚举/注入/劫持
-    2. 加载 RAG 专项种子 (rag_attack.prompt) — 知识库泄露/检索劫持/投毒
-    3. 加载工具劫持种子 (tool_hijack.prompt) — Agent 工具链利用
-    4. 通过 PromptSendingAttack 并行执行所有种子
-    5. SkeletonKey 前缀注入降低安全过滤
+Strategy:
+    1. Load MCP specialty seeds — MCP tool enumeration/injection/hijack
+    2. Load RAG specialty seeds — knowledge base leakage/retrieval hijack/poisoning
+    3. Load tool hijack seeds — Agent tool chain exploitation
+    4. Execute all seeds in parallel via PromptSendingAttack
+    5. SkeletonKey prefix injection to lower safety filters
 
-R2 (PyRIT Native First): 使用原生 PromptSendingAttack 类
-R6 §6.4: 原生攻击策略
+v2 (2026-09-01): Adapted for new directory structure with subdirectory seed loading.
 
-学术依据:
-    - Greshake et al. (arXiv:2302.12173) — 间接提示注入 ASR 60-90%
-    - Zhan et al. (arXiv:2307.00929) — InjecAgent, Agent 工具注入
-    - Shafran et al. (arXiv:2402.07967) — RAG 安全综述
-    - Kandpal et al. (arXiv:2308.14032) — 训练数据提取
+R2 (PyRIT Native First): Uses native PromptSendingAttack class
+R6 §6.4: Native attack strategy
+
+Academic basis:
+    - Greshake et al. (arXiv:2302.12173) — Indirect injection ASR 60-90%
+    - Zhan et al. (arXiv:2307.00929) — InjecAgent, Agent tool injection
+    - Shafran et al. (arXiv:2402.07967) — RAG security survey
+    - Kandpal et al. (arXiv:2308.14032) — Training data extraction
 """
 
 from __future__ import annotations
@@ -37,34 +39,51 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# MCP/RAG 专项种子文件路径
-_MCP_SEEDS_PATH = Path(__file__).resolve().parent.parent / "data" / "seeds" / "mcp_attack.prompt"
-_RAG_SEEDS_PATH = Path(__file__).resolve().parent.parent / "data" / "seeds" / "rag_attack.prompt"
-_TOOL_HIJACK_SEEDS_PATH = Path(__file__).resolve().parent.parent / "data" / "seeds" / "tool_hijack.prompt"
+# v2: Updated paths to new directory structure
+_SEEDS_ROOT = Path(__file__).resolve().parent.parent / "data" / "seeds"
+
+# MCP attack surface (full coverage in subdirectory)
+_MCP_SEEDS_DIR = _SEEDS_ROOT / "_attack_surface" / "T1_ASI02_mcp_full_surface"
+_MCP_SEED_FILES = [
+    "mcp_tool_enum",
+    "mcp_server_injection",
+    "mcp_tool_hijack",
+    "mcp_context_poisoning",
+    "mcp_resource_leak",
+    "mcp_tool_description_injection",
+    "mcp_resource_traversal",
+    "mcp_cross_server_trust",
+    "mcp_schema_poisoning",
+    "mcp_tool_chaining",
+    "mcp_rogue_endpoint",
+    "mcp_ui_rendering_deception",
+]
+
+# RAG attack surface
+_RAG_SEEDS_PATH = _SEEDS_ROOT / "_attack_surface" / "T1_LLM08_rag_full_surface" / "rag_full_attack_surface"
+
+# Tool hijack seeds
+_TOOL_HIJACK_SEEDS_PATH = _SEEDS_ROOT / "_core" / "T1_ASI02_tool_hijack"
 
 
 def _load_specialty_seeds() -> list[tuple[str, dict[str, Any]]]:
-    """加载 MCP/RAG/Tool 专项种子.
+    """Load MCP/RAG/Tool specialty seeds.
 
-    从 YAML prompt 文件加载种子, 返回 (value, metadata) 列表。
-    优先加载 MCP 种子, 其次 RAG, 最后 Tool Hijack。
+    Load seeds from YAML prompt files, return (value, metadata) list.
+    Prioritize MCP seeds, then RAG, then Tool Hijack.
 
     Returns:
-        [(seed_value, metadata_dict), ...] 格式的种子列表。
+        [(seed_value, metadata_dict), ...] format seed list.
     """
     from pyrit.models import SeedDataset
 
     seeds: list[tuple[str, dict[str, Any]]] = []
 
-    seed_files = [
-        (_MCP_SEEDS_PATH, "mcp"),
-        (_RAG_SEEDS_PATH, "rag"),
-        (_TOOL_HIJACK_SEEDS_PATH, "tool_hijack"),
-    ]
-
-    for seed_path, category in seed_files:
+    # Load MCP seeds from subdirectory (v2: multiple files)
+    for seed_name in _MCP_SEED_FILES:
+        seed_path = _MCP_SEEDS_DIR / f"{seed_name}.prompt"
         if not seed_path.exists():
-            logger.warning("MCP/RAG specialty seed file not found: %s", seed_path)
+            logger.debug("MCP seed file not found: %s", seed_path)
             continue
         try:
             dataset = SeedDataset.from_yaml_file(str(seed_path))
@@ -72,10 +91,41 @@ def _load_specialty_seeds() -> list[tuple[str, dict[str, Any]]]:
                 value = getattr(sp, "value", None) or ""
                 metadata = getattr(sp, "metadata", None) or {}
                 if value:
-                    metadata.setdefault("specialty_category", category)
+                    metadata.setdefault("specialty_category", "mcp")
+                    metadata.setdefault("mcp_attack_vector", seed_name)
                     seeds.append((value, metadata))
         except Exception as e:
-            logger.warning("Failed to load seeds from %s: %s", seed_path, e)
+            logger.warning("Failed to load MCP seeds from %s: %s", seed_path, e)
+
+    # Load RAG seeds
+    if _RAG_SEEDS_PATH.exists():
+        try:
+            dataset = SeedDataset.from_yaml_file(str(_RAG_SEEDS_PATH))
+            for sp in dataset.prompts:
+                value = getattr(sp, "value", None) or ""
+                metadata = getattr(sp, "metadata", None) or {}
+                if value:
+                    metadata.setdefault("specialty_category", "rag")
+                    seeds.append((value, metadata))
+        except Exception as e:
+            logger.warning("Failed to load RAG seeds from %s: %s", _RAG_SEEDS_PATH, e)
+    else:
+        logger.warning("RAG specialty seed file not found: %s", _RAG_SEEDS_PATH)
+
+    # Load Tool Hijack seeds
+    if _TOOL_HIJACK_SEEDS_PATH.exists():
+        try:
+            dataset = SeedDataset.from_yaml_file(str(_TOOL_HIJACK_SEEDS_PATH))
+            for sp in dataset.prompts:
+                value = getattr(sp, "value", None) or ""
+                metadata = getattr(sp, "metadata", None) or {}
+                if value:
+                    metadata.setdefault("specialty_category", "tool_hijack")
+                    seeds.append((value, metadata))
+        except Exception as e:
+            logger.warning("Failed to load tool hijack seeds from %s: %s", _TOOL_HIJACK_SEEDS_PATH, e)
+    else:
+        logger.warning("Tool hijack specialty seed file not found: %s", _TOOL_HIJACK_SEEDS_PATH)
 
     logger.info("Loaded %d MCP/RAG specialty seeds", len(seeds))
     return seeds
@@ -85,27 +135,27 @@ async def run_mcp_rag_attacks(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """MCP/RAG 专项攻击 — 使用 PyRIT 原生 PromptSendingAttack.
+    """MCP/RAG specialized attacks — using PyRIT native PromptSendingAttack.
 
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) — 间接注入 ASR 60-90%
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173) — Indirect injection ASR 60-90%
         - Zhan et al. (arXiv:2307.00929) — InjecAgent
 
-    攻击策略:
-        1. 加载 MCP/RAG/Tool 专项种子库 (mcp_attack.prompt, rag_attack.prompt, tool_hijack.prompt)
-        2. 如果有失败目标, 将其与专项种子组合 (prepend 专项种子作为上下文)
-        3. 通过 PromptSendingAttack 并行执行所有种子
-        4. SkeletonKey 前缀注入降低安全过滤
+    Attack strategy:
+        1. Load MCP/RAG/Tool specialty seed libraries (12 MCP files + RAG + tool hijack)
+        2. If failed objectives exist, combine with specialty seeds (prepend specialty seed as context)
+        3. Execute all seeds in parallel via PromptSendingAttack
+        4. SkeletonKey prefix injection to lower safety filters
 
-    R2 (PyRIT native first): 使用原生 PromptSendingAttack 类
-    R6 §6.4: 原生攻击策略
+    R2 (PyRIT native first): Use native PromptSendingAttack class
+    R6 §6.4: Native attack strategy
 
     Args:
-        ctx: 流水线上下文 (包含 objective_target, scoring_target).
-        objectives: 失败目标列表.
+        ctx: Pipeline context (contains objective_target, scoring_target).
+        objectives: Failed objective list.
 
     Returns:
-        {"mcp_rag": [AttackResult, ...]} 格式的攻击结果。
+        {"mcp_rag": [AttackResult, ...]} format attack results.
     """
     if ctx.objective_target is None:
         logger.warning("MCP/RAG: objective_target not configured, skipping")
@@ -115,7 +165,7 @@ async def run_mcp_rag_attacks(
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
     from pyrit.models import AttackSeedGroup, SeedObjective
 
-    # 构建 0-token FIRST_SUCCESS 评分配置
+    # Build 0-token FIRST_SUCCESS scoring config
     from strike.executor import _build_first_success_scoring_config
     first_success_scoring = _build_first_success_scoring_config(ctx)
 
@@ -123,21 +173,21 @@ async def run_mcp_rag_attacks(
     from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
     prepended_config = _build_prepended_config_safe(ctx)
 
-    # 加载 MCP/RAG 专项种子
+    # Load MCP/RAG specialty seeds
     specialty_seeds = _load_specialty_seeds()
 
-    # 构建攻击 seed groups
-    # 策略: 优先使用专项种子, 如果有失败目标则追加
+    # Build attack seed groups
+    # Strategy: Prioritize specialty seeds, append failed objectives if any
     seed_values: list[tuple[str, dict[str, Any]]] = []
 
-    # 1. 添加专项种子 (MCP/RAG/Tool)
+    # 1. Add specialty seeds (MCP/RAG/Tool)
     seed_values.extend(specialty_seeds)
 
-    # 2. 如果有失败目标, 也加入种子列表
-    # arXiv:2302.12173 — 间接注入: 将失败目标包装为 MCP 文档内容
+    # 2. If failed objectives exist, also add to seed list
+    # arXiv:2302.12173 — Indirect injection: Wrap failed objective as MCP document content
     for obj in objectives[:5]:
         if obj:
-            # 将失败目标包装为 MCP 工具响应/检索文档格式
+            # Wrap failed objective as MCP tool response/retrieval document format
             wrapped = (
                 "---MCP TOOL RESPONSE---\n"
                 "Tool: retrieve_context\n"
@@ -153,18 +203,18 @@ async def run_mcp_rag_attacks(
         logger.info("MCP/RAG: no seeds to execute (no specialty seeds + no objectives)")
         return {}
 
-    # 限制总种子数
+    # Limit total seed count
     max_seeds = getattr(getattr(ctx, "args", None), "max_seeds", 25) or 25
     seed_values = seed_values[:max_seeds]
     logger.info("MCP/RAG: executing %d seeds", len(seed_values))
 
-    # 构建 seed groups
+    # Build seed groups
     seed_groups = [
         AttackSeedGroup(seeds=[SeedObjective(value=val, metadata=meta if meta else None)])
         for val, meta in seed_values
     ]
 
-    # 执行攻击
+    # Execute attack
     attack = PromptSendingAttack(
         objective_target=ctx.objective_target,
         attack_scoring_config=first_success_scoring,

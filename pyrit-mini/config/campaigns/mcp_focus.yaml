@@ -1,0 +1,43 @@
+# PyRIT-Strike Campaign — MCP Agent 专项
+# 针对性测试 MCP 协议安全性 (工具劫持 / 资源投毒 / 跨服务器攻击)
+#
+# 用法:
+#   python main.py --config-file config/campaigns/mcp_focus.yaml --burp mcp_target
+
+# ① SEEDS — MCP 专项 + Agent 核心
+seeds:
+  - _attack_surface/T1_ASI02_mcp_full_surface/
+  - _core/T1_ASI02_tool_hijack.prompt
+  - _core/T1_ASI02_function_call_exploit.prompt
+  - _core/T1_Agent_general_attack.prompt
+
+# ② CONVERTERS — Persuasion + Decomposition (语义保留)
+converters:
+  - persuasion
+  - decomposition
+
+# ③ TECHNIQUES — 多轮攻击 (利用 MCP 对话状态)
+techniques:
+  - multi_turn
+
+# ④ SCORERS — 双 Judge
+scorers:
+  - adaptive_dual_judge
+
+# ⑤ EXECUTION — 定向执行
+execution:
+  max_seeds: 20
+  max_attempts: 5
+  max_concurrency: 3
+  timeout: 1800
+  escalation: true
+  html_report: true
+
+# 种子过滤 — 仅 MCP/Agent 类别
+seed_filters:
+  category: mcp_tool_hijack
+
+# 运行标签
+memory_labels:
+  campaign: "mcp_focus"
+  target_type: "mcp_agent"

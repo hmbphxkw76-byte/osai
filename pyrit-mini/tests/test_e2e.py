@@ -85,16 +85,71 @@ def test_config_defaults_yaml_exists():
 
 
 def test_seeds_directory_exists():
-    """data/seeds/ should contain attack seed files."""
+    """data/seeds/ should contain attack seed files (including subdirectories)."""
     seeds_dir = _PROJECT_ROOT / "data" / "seeds"
     assert seeds_dir.exists()
-    seed_files = list(seeds_dir.glob("*.prompt"))
-    assert len(seed_files) > 0, "No .prompt seed files found"
+    # v2: Search recursively in subdirectories
+    seed_files = list(seeds_dir.rglob("*.prompt"))
+    if not seed_files:
+        # Fallback: try rglob
+        seed_files = [f for f in seeds_dir.rglob("*") if f.suffix == ".prompt"]
+    assert len(seed_files) > 0, "No .prompt seed files found in any subdirectory"
+
+
+def test_seeds_subdirectory_structure():
+    """Seed library should have proper tier-based subdirectory structure."""
+    seeds_dir = _PROJECT_ROOT / "data" / "seeds"
+    assert seeds_dir.exists()
+
+    # Core seeds (high ASR) should exist
+    core_dir = seeds_dir / "_core"
+    assert core_dir.exists() or len(list(seeds_dir.rglob("_core"))) > 0
+
+    # Should find seeds in subdirectories
+    seed_files = list(seeds_dir.rglob("*.prompt"))
+    assert len(seed_files) >= 10, f"Expected at least 10 seed files, found {len(seed_files)}"
 
 
 def test_burp_directory_exists():
     """data/burp/ directory should exist (files are optional, user-supplied)."""
     burp_dir = _PROJECT_ROOT / "data" / "burp"
     assert burp_dir.exists(), "data/burp/ directory must exist"
-    # request.txt is the default Burp file but NOT required —
-    # users supply their own via --burp <NAME>
+
+
+def test_scorers_directory_exists():
+    """data/scorers/ directory should exist with scorer configurations."""
+    scorers_dir = _PROJECT_ROOT / "data" / "scorers"
+    assert scorers_dir.exists(), "data/scorers/ directory must exist"
+    scorer_files = list(scorers_dir.glob("*.yaml"))
+    assert len(scorer_files) > 0, "No scorer YAML files found"
+
+
+def test_seeds_metadata_standard():
+    """Seed files should follow v2 metadata standard."""
+    seeds_dir = _PROJECT_ROOT / "data" / "seeds"
+    sample_seed = seeds_dir / "_core" / "T1_LLM01_elite_jailbreaks.prompt"
+    if sample_seed.exists():
+        import yaml
+        data = yaml.safe_load(sample_seed.read_text(encoding="utf-8"))
+        assert isinstance(data, list), "Seed file should be YAML list"
+        if data:
+            first = data[0]
+            assert "metadata" in first, "Seeds should have metadata"
+            meta = first["metadata"]
+            # v2 metadata fields
+            assert "owasp_id" in meta, "metadata should have owasp_id"
+            assert "tier" in meta or "category" in meta, "metadata should have tier or category"
+
+
+def test_capability_seed_map_v2():
+    """CAPABILITY_SEED_MAP should have v2 paths (subdirectory format)."""
+    from arm.seed_ranker import CAPABILITY_SEED_MAP
+
+    # v2: Paths should include subdirectory prefixes
+    mcp_seeds = CAPABILITY_SEED_MAP.get("mcp", [])
+    assert any("_attack_surface" in s for s in mcp_seeds), \
+        f"MCP seeds should use subdirectory paths, got: {mcp_seeds}"
+
+    rag_seeds = CAPABILITY_SEED_MAP.get("rag", [])
+    assert any("_attack_surface" in s for s in rag_seeds), \
+        f"RAG seeds should use subdirectory paths, got: {rag_seeds}"

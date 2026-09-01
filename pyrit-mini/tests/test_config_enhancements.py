@@ -63,7 +63,7 @@ def test_full_parse_args():
         "--seed-filters", "owasp_id=LLM01",
         "--converters", "l5_optimal;tap:persuasion",
         "--add-initializer", "MyInit,foo=bar",
-        "--config-file", "config/target_deepseek.yaml",
+        "--config-file", "config/campaigns/default.yaml",
     ])
     assert args.memory_labels_parsed == {"run_id": "r001"}, f"Got: {args.memory_labels_parsed}"
     assert args.seed_filters_parsed == {"owasp_id": "LLM01"}, f"Got: {args.seed_filters_parsed}"
@@ -71,8 +71,9 @@ def test_full_parse_args():
     assert args.converters == "l5_optimal", f"Got: {args.converters}"  # global part only
     assert len(args.initializer_specs) == 1, f"Got: {args.initializer_specs}"
     assert args.initializer_specs[0]["class"] == "MyInit"
-    # config-file should have filled these from target_deepseek.yaml
-    assert args.seeds == "elite_jailbreaks,asi_top10,zh_curated", f"Got: {args.seeds}"
+    # config-file should have filled these from campaigns/default.yaml
+    # v2: seeds list auto-normalized to CSV string for downstream .split(",")
+    assert args.seeds == "_core/,_encoding_evasion/,_multilingual/", f"Got: {args.seeds}"
     assert args.techniques == "auto", f"Got: {args.techniques}"
     # ── 嵌套 section: scoring ──
     assert args.dual_judge_enabled is True, f"Got: {args.dual_judge_enabled}"
@@ -82,16 +83,16 @@ def test_full_parse_args():
     assert args.post_l1_exit_threshold == 70, f"Got: {args.post_l1_exit_threshold}"
     assert args.crescendo_max_turns == 10, f"Got: {args.crescendo_max_turns}"
     assert args.tap_tree_width == 4, f"Got: {args.tap_tree_width}"
-    assert args.pair_tree_depth == 7, f"Got: {args.pair_tree_depth}"
+    assert args.pair_tree_depth == 4, f"Got: {args.pair_tree_depth}"
     # ── 嵌套 section: probe ──
-    assert args.probe_timeout == 10, f"Got: {args.probe_timeout}"
+    assert args.probe_timeout == 5, f"Got: {args.probe_timeout}"
     assert args.max_concurrent_probes == 10, f"Got: {args.max_concurrent_probes}"
     # ── 嵌套 section: adaptive ──
     assert args.adaptive_epsilon == 0.2, f"Got: {args.adaptive_epsilon}"
     # ── 嵌套 section: execution ──
     assert args.l5_optimal_paths == 7, f"Got: {args.l5_optimal_paths}"
     assert args.auto_seed_expansion_factor == 3, f"Got: {args.auto_seed_expansion_factor}"
-    print("OK: --config-file integration with nested sections")
+    print("OK: --config-file integration (5-layer structure + list normalization)")
 
 
 def test_backward_compat():

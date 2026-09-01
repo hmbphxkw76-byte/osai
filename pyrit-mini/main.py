@@ -37,9 +37,10 @@
     #   assess    → 评分: T0→J1→J2→J3 级联评分 + ASR 统计 + Wilson CI
     #   report    → 报告: 证据收集 + MD/HTML/JSON/PoC/SARIF 生成
     #
-    # --burp <NAME> 指定单个 Burp 请求文件 (自动查找 data/burp/<NAME>.txt):
+    # --burp <NAME> 指定 Burp 请求文件 (自动查找 data/burp/<NAME>.txt):
     python main.py --burp request --stage recon
-    # 不指定 --burp 时自动扫描 data/burp/*.txt 全部文件, 逐个深度攻击
+    # 不指定 --burp 时自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
+    # 单个 endpoint 也走多端点路径, 确保统一目录结构
     python main.py --burp deepseek --stage arm
     python main.py --burp qwen --stage strike
     python main.py --stage escalate
@@ -203,7 +204,8 @@ async def run(argv: list[str] | None = None) -> None:
         ⑥ report    (report/evidence.py + report/generator.py)
 
     多 endpoint 支持 (arXiv:2302.12173 Greshake — 逐个深度攻击):
-        不指定 --burp → 自动扫描 data/burp/*.txt 全部文件
+        不指定 --burp → 自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
+        --burp MM_05 → 指定单个 endpoint (仍走多端点路径, 确保统一目录结构)
         --burp MM_05 --burp MM_03 --burp MM_08 → 指定多个 endpoint
         → 优先级排序: 按能力指纹排序 (MCP > function_calling > RAG > workflow > chat)
         → 对每个 endpoint 执行完整 6 阶段深度攻击链路
@@ -281,14 +283,14 @@ async def run(argv: list[str] | None = None) -> None:
         else:
             burp_list = [burp_val] if burp_val else ["request"]
 
-    is_multi_endpoint = len(burp_list) > 1
-
-    if is_multi_endpoint:
-        logger.info(
-            "Multi-endpoint mode: %d endpoints — %s",
-            len(burp_list),
-            ", ".join(Path(b).stem for b in burp_list),
-        )
+    # 默认多端点模式: 所有 Burp 路径均走多端点循环
+    # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击
+    # 即使只有 1 个 endpoint 也走多端点路径, 确保统一的目录结构和联合 ASR 报告
+    logger.info(
+        "Multi-endpoint mode: %d endpoint(s) — %s",
+        len(burp_list),
+        ", ".join(Path(b).stem for b in burp_list),
+    )
 
     ctx = PipelineContext(args=args, output_dir=output_dir)
     ctx.scenario_result_id = getattr(args, "resume", None)
@@ -346,6 +348,7 @@ async def run(argv: list[str] | None = None) -> None:
         # ═══════════════════════════════════════════════════════════════════════════
         # 多 endpoint 外层循环 (arXiv:2302.12173 — 逐个深度攻击)
         # 对每个 endpoint 执行完整 6 阶段攻击链路, 最终汇总联合 ASR
+        # 默认多端点模式: 即使只有 1 个 endpoint 也走多端点路径, 确保统一目录结构
         # ═══════════════════════════════════════════════════════════════════════════
 
         # 非 Burp 路径 (LiteLLM/OpenAI API/Browser) 不走多 endpoint 循环
@@ -355,11 +358,10 @@ async def run(argv: list[str] | None = None) -> None:
             or getattr(args, "browser_url", None)
         )
 
-        if _non_burp_mode or not is_multi_endpoint:
-            # 单 endpoint 或非 Burp 路径: 走原有单次执行逻辑
+        if _non_burp_mode:
+            # 非 Burp 路径 (LiteLLM/OpenAI API/Browser): 直接走单次执行逻辑
             ctx.args.burp = burp_list[0] if burp_list else "request"
             await _run_single_endpoint(ctx, args, output_dir, argv)
-            # 单 endpoint 模式: 统一清理所有资源 (objective + adversarial + scoring)
             await _cleanup_resources(ctx)
             return
 
@@ -1050,7 +1052,7 @@ async def _run_single_endpoint(
         _ep_idx = getattr(ctx, "_current_endpoint_idx", None)
         _total_eps = None
         _burp_list = getattr(args, "_burp_list", None)
-        if _burp_list and len(_burp_list) > 1:
+        if _burp_list and len(_burp_list) >= 1:
             _total_eps = len(_burp_list)
         print_strike_start_banner(
             ctx,

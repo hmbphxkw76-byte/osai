@@ -1,0 +1,39 @@
+# PyRIT-Strike Campaign — 全光谱攻击
+# 最全配置, 最大化 ASR, 用于红队深度评估
+#
+# 用法:
+#   python main.py --config-file config/campaigns/full_spectrum.yaml
+
+# ① SEEDS — 全部种子库
+seeds:
+  - _core/
+  - _encoding_evasion/
+  - _multilingual/
+  - _attack_surface/
+  - _experimental/
+
+# ② CONVERTERS — L5 最优 7 路径
+converters:
+  - l5_optimal
+
+# ③ TECHNIQUES — 全部已注册技术 (含多轮升级)
+techniques:
+  - auto
+
+# ④ SCORERS — 双 Judge 级联
+scorers:
+  - adaptive_dual_judge
+
+# ⑤ EXECUTION — 高资源执行
+execution:
+  max_seeds: 100
+  max_attempts: 10
+  max_concurrency: 5
+  timeout: 7200
+  escalation: true
+  html_report: true
+
+# 运行标签
+memory_labels:
+  campaign: "full_spectrum"
+  intensity: "maximum"

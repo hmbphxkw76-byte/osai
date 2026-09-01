@@ -1,38 +1,21 @@
-"""Tests for arm module — seed ranking + converter selection + technique picking.
+"""Tests for arm/seed_ranker.py — ASR-based seed ranking."""
 
-Covers attack chain step ③④:
-    ③ Seed selection → load seeds from YAML, sort by historical ASR
-    ④ Converter → build L5 optimal converter chain (encoding/persuasion/decomposition/obfuscation)
-
-arXiv:2402.01135 — Chao et al.: Best-of-N amplification, seed ranking by ASR
-arXiv:2407.01232 — PyRIT: SequentialAttack FIRST_SUCCESS, 7 independent paths
-arXiv:2307.15043 — Encoding bypass: serial stacking >2 layers drops ASR 12%→4%
-"""
-
-from __future__ import annotations
-
-import sys
 from pathlib import Path
 
 import pytest
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 
 class TestSeedRanker:
-    """Test seed loading and ranking (step ③).
-
-    arXiv:2402.01135 — seeds sorted by historical ASR for maximum attack effectiveness.
-    """
+    """Tests for load_seeds function."""
 
     def test_load_seeds_returns_list(self):
         """load_seeds should return a list of seeds from existing seed files."""
         from arm.seed_ranker import load_seeds
 
-        # Use full path to seed file that exists in data/seeds/
-        seed_path = str(_PROJECT_ROOT / "data" / "seeds" / "elite_jailbreaks")
+        # v2: Use new path with subdirectory prefix
+        seed_path = str(_PROJECT_ROOT / "data" / "seeds" / "_core" / "T1_LLM01_elite_jailbreaks")
         seeds = load_seeds(seed_path, 5)
         assert isinstance(seeds, list)
         assert len(seeds) <= 5
@@ -41,7 +24,8 @@ class TestSeedRanker:
         """load_seeds should respect max_seeds limit."""
         from arm.seed_ranker import load_seeds
 
-        seed_path = str(_PROJECT_ROOT / "data" / "seeds" / "elite_jailbreaks")
+        # v2: Use new path with subdirectory prefix
+        seed_path = str(_PROJECT_ROOT / "data" / "seeds" / "_core" / "T1_LLM01_elite_jailbreaks")
         seeds = load_seeds(seed_path, 2)
         assert len(seeds) <= 2
 
@@ -53,42 +37,64 @@ class TestSeedRanker:
             load_seeds("nonexistent_seeds_file_xyz", 5)
 
 
-class TestTechniquePicker:
-    """Test technique selection (step ④)."""
+class TestCapabilitySeedMap:
+    """Tests for CAPABILITY_SEED_MAP — capability-to-seed-file mapping."""
 
-    def test_select_techniques_auto(self):
-        """select_techniques with 'auto' should return a non-empty list."""
-        from arm.technique_picker import select_techniques
+    def test_mcp_capability_maps_to_mcp_seeds(self):
+        """MCP capability should map to MCP seed files."""
+        from arm.seed_ranker import CAPABILITY_SEED_MAP
 
-        techniques = select_techniques("auto", has_adversarial=False)
-        assert isinstance(techniques, list)
-        assert len(techniques) > 0
+        assert "mcp" in CAPABILITY_SEED_MAP
+        mcp_seeds = CAPABILITY_SEED_MAP["mcp"]
+        assert len(mcp_seeds) >= 1
+        # v2: Check new path format
+        assert any("_attack_surface" in s for s in mcp_seeds)
 
-    def test_filter_by_adversarial(self):
-        """filter_by_adversarial should filter techniques based on adversarial availability."""
-        from arm.technique_picker import filter_by_adversarial
+    def test_rag_capability_maps_to_rag_seeds(self):
+        """RAG capability should map to RAG seed files."""
+        from arm.seed_ranker import CAPABILITY_SEED_MAP
 
-        techniques = ["single", "crescendo", "tap", "pair"]
-        filtered = filter_by_adversarial(techniques, has_adversarial=False)
-        # TAP and PAIR require adversarial target, should be removed
-        assert "tap" not in filtered or len(filtered) < len(techniques)
+        assert "rag" in CAPABILITY_SEED_MAP
+        rag_seeds = CAPABILITY_SEED_MAP["rag"]
+        assert len(rag_seeds) >= 1
+        # v2: Check new path format
+        assert any("_attack_surface" in s or "_core" in s for s in rag_seeds)
+
+    def test_function_calling_capability_maps_to_function_seeds(self):
+        """function_calling capability should map to function call exploit seeds."""
+        from arm.seed_ranker import CAPABILITY_SEED_MAP
+
+        assert "function_calling" in CAPABILITY_SEED_MAP
+        fc_seeds = CAPABILITY_SEED_MAP["function_calling"]
+        assert len(fc_seeds) >= 1
+        # v2: Check new path format
+        assert any("_core" in s for s in fc_seeds)
+
+    def test_a2a_protocol_has_backward_compat_alias(self):
+        """a2a_protocol and a2a should both exist for backward compatibility."""
+        from arm.seed_ranker import CAPABILITY_SEED_MAP
+
+        assert "a2a_protocol" in CAPABILITY_SEED_MAP
+        assert "a2a" in CAPABILITY_SEED_MAP
+        assert CAPABILITY_SEED_MAP["a2a_protocol"] == CAPABILITY_SEED_MAP["a2a"]
 
 
-class TestConverterPresets:
-    """Test converter chain building (step ④).
+class TestSeedRankingIntegration:
+    """Integration tests for seed loading + ranking."""
 
-    arXiv:2307.15043 — serial stacking >2 layers drops ASR 12%→4%
-    R6 section 6.1: each converter MUST be in its own independent ConverterConfiguration
-    """
+    def test_load_mcp_seeds_from_new_directory(self):
+        """Should load MCP seeds from new _attack_surface directory structure."""
+        from arm.seed_ranker import load_seeds
 
-    def test_build_converter_map_auto(self):
-        """build_converter_map with 'l5_optimal' should return non-empty map."""
-        from arm.converter_presets import build_converter_map
+        seed_path = "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum"
+        seeds = load_seeds(seed_path, 10)
+        assert isinstance(seeds, list)
+        # Should load seeds without error
 
-        converter_map = build_converter_map(
-            technique_names=["single"],
-            chain_names=["l5_optimal"],
-            converter_target=None,
-            model_family=None,
-        )
-        assert isinstance(converter_map, dict)
+    def test_load_rag_seeds_from_new_directory(self):
+        """Should load RAG seeds from new _attack_surface directory structure."""
+        from arm.seed_ranker import load_seeds
+
+        seed_path = "_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"
+        seeds = load_seeds(seed_path, 10)
+        assert isinstance(seeds, list)

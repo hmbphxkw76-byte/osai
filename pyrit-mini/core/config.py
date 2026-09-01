@@ -112,6 +112,21 @@ def _load_config_file(path: str) -> dict[str, Any]:
         return {}
 
 
+def _normalize_list_to_csv(value: Any, key: str = "") -> Any:
+    """将 YAML list 归一化为逗号分隔字符串 (用户友好语法)。
+
+    支持写法:
+        seeds: [core/, encoding/]  →  "core/,encoding/"
+        converters: [l5_optimal]    →  "l5_optimal"
+        techniques: [auto]          →  "auto"
+
+    非列表值原样返回 (字符串/数值/None 直接透传)。
+    """
+    if isinstance(value, list):
+        return ",".join(str(v).strip() for v in value if str(v).strip())
+    return value
+
+
 def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None:
     """用 --config-file YAML 填充 args 中仍为 None 的参数。
 
@@ -159,6 +174,13 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             l5_optimal_paths: int
             auto_seed_expansion_factor: int
     """
+    # ── 归一化: 将 seeds/converters/techniques/scorers 从 list 转为 CSV ──
+    # 用户可写 seeds: [core/, encoding/] 等价于 seeds: "core/,encoding/"
+    _list_to_csv_keys = ("seeds", "converters", "techniques", "scorers")
+    for _key in _list_to_csv_keys:
+        if _key in config:
+            config[_key] = _normalize_list_to_csv(config[_key], _key)
+
     # 字符串/数值参数: 仅在 None 时填充
     _str_keys = [
         "seeds", "converters", "techniques", "max_seeds", "max_attempts",
@@ -477,9 +499,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # ── 侦察: Burp 拦截 ──
     # 用法: --burp <name> (单个) 或 --burp MM_05 --burp MM_03 (多个)
     #   自动解析为 data/burp/<name>.txt
-    #   不指定时自动扫描 data/burp/*.txt 全部文件 (逐个深度攻击)
+    #   不指定时自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
     #   也可直接传完整路径: --burp data/burp/deepseek.txt
     #   多个 endpoint: --burp MM_05 --burp MM_03 --burp MM_08
+    #   单个 endpoint 也走多端点路径, 确保统一目录结构
     #   学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 + 联合 ASR
     parser.add_argument(
         "--burp",
@@ -724,8 +747,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.converters = _parse_converter_global(args.converters)
 
     # ── Burp 请求路径解析 ──
-    # 不指定 --burp → 自动扫描 data/burp/*.txt 全部文件 (逐个深度攻击)
-    # --burp <name> → data/burp/<name>.txt (自动补全路径, 单个 endpoint)
+    # 不指定 --burp → 自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
+    # --burp <name> → data/burp/<name>.txt (自动补全路径, 单个 endpoint 也走多端点路径)
     # 支持多值: --burp MM_05 --burp MM_03 → ["data/burp/MM_05.txt", "data/burp/MM_03.txt"]
     # 单值: --burp request → "data/burp/request.txt"
     # 多值时返回 list[str], 单值时返回 str (向后兼容)
@@ -733,7 +756,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     raw_burps = args.burp
     if raw_burps is None:
         # 不指定 --burp → 自动扫描 data/burp/ 目录下所有 .txt 文件
-        # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击
+        # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 (默认多端点模式)
         burp_dir = _PROJECT_ROOT / "data" / "burp"
         if burp_dir.is_dir():
             raw_burps = sorted(

@@ -1,0 +1,30 @@
+# PyRIT-Strike Campaign — 快速探测
+# 最小化配置, 快速验证目标基础安全性
+#
+# 用法:
+#   python main.py --config-file config/campaigns/quick_scan.yaml
+
+# ① SEEDS — 仅核心注入种子
+seeds:
+  - _core/T1_LLM01_advanced_injection.prompt
+
+# ② CONVERTERS — 无转换 (原始 payload)
+converters:
+  - none
+
+# ③ TECHNIQUES — 单轮攻击
+techniques:
+  - single_turn
+
+# ④ SCORERS — 双 Judge
+scorers:
+  - adaptive_dual_judge
+
+# ⑤ EXECUTION — 快速执行
+execution:
+  max_seeds: 5
+  max_attempts: 1
+  max_concurrency: 5
+  timeout: 300
+  escalation: false
+  html_report: false

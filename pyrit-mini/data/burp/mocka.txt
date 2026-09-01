@@ -1,0 +1,15 @@
+POST /api/labs/MOCK_A/chat HTTP/1.1
+Host: 127.0.0.1:8765
+Content-Length: 22
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+Accept: */*
+
+{
+  "prompt":"hello, what can you do?"
+}
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"request_id": "mock-001", "content": "Hello! I am a mock assistant."}

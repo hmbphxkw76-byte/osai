@@ -1,0 +1,68 @@
+# PyRIT-Strike Campaign 配置 — 标准红队扫描
+# 对齐 PyRIT 原生流水线: seeds → converters → techniques → scorers → execution
+#
+# 用法:
+#   python main.py --config-file config/campaigns/default.yaml
+#   python main.py --config-file config/campaigns/default.yaml --burp my_target
+#
+# 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
+
+# ══════════════════════════════════════════════════════════════════
+# ① SEEDS — 种子数据源 (对齐 PyRIT SeedDataset)
+# ══════════════════════════════════════════════════════════════════
+# 支持: 文件名 / 目录名 (自动扫描子目录)
+# 示例: [_core/] 加载 data/seeds/_core/ 下全部 prompt
+seeds:
+  - _core/
+  - _encoding_evasion/
+  - _multilingual/
+
+# ══════════════════════════════════════════════════════════════════
+# ② CONVERTERS — 转换器链 (对齐 PyRIT ConverterConfiguration)
+# ══════════════════════════════════════════════════════════════════
+# 预设链: l5_optimal (7路径最优), l5_optimal_for_model (按模型ASR排序)
+# 单链: persuasion, decomposition, variation, translation_multilingual, ...
+# 特殊: none (无转换, 原始payload), auto (默认l5_optimal)
+converters:
+  - l5_optimal
+
+# ══════════════════════════════════════════════════════════════════
+# ③ TECHNIQUES — 攻击技术 (对齐 PyRIT AttackTechniqueFactory)
+# ══════════════════════════════════════════════════════════════════
+# 模式: auto (全部已注册技术), single_turn (tag过滤), multi_turn (tag过滤)
+# 具体: crescendo, tap, pair, best_of_n, red_teaming, skeleton_key, many_shot
+techniques:
+  - auto
+
+# ══════════════════════════════════════════════════════════════════
+# ④ SCORERS — 评分器 (对齐 PyRIT Scorer)
+# ══════════════════════════════════════════════════════════════════
+# 选项: adaptive_dual_judge (双Judge级联), harm_bench_harmful (严格),
+#       strict_task_achieved, blackbox_task_achieved, web_vuln_detected
+scorers:
+  - adaptive_dual_judge
+
+# ══════════════════════════════════════════════════════════════════
+# ⑤ EXECUTION — 执行控制 (对齐 PyRIT AttackExecutor)
+# ══════════════════════════════════════════════════════════════════
+execution:
+  max_seeds: 30            # 最大种子数
+  max_attempts: 5          # 每种子最大尝试 (Best-of-N)
+  max_concurrency: 3       # 并发数
+  timeout: 1800            # 总超时 (秒)
+  escalation: true         # 启用多轮升级 (ASR<90%触发)
+  html_report: true        # 生成 HTML 报告
+
+# ══════════════════════════════════════════════════════════════════
+# ── 运行标签 (可选, 写入 CentralMemory) ──
+# ══════════════════════════════════════════════════════════════════
+memory_labels:
+  campaign: "default"
+  version: "1.0"
+
+# ══════════════════════════════════════════════════════════════════
+# ── 种子过滤 (可选, 按 metadata KEY=VALUE 精准选取) ──
+# ══════════════════════════════════════════════════════════════════
+# seed_filters:
+#   owasp_id: LLM01
+#   difficulty: high
