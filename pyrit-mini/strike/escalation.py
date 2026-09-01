@@ -42,40 +42,36 @@ from strike.escalation_attacks import (  # noqa: F401 鈥?re-exports
     _run_tap,
     _SecurityAuditError,
 )
-from strike.escalation_level1 import (  # noqa: F401 鈥?re-exports
+from strike.escalation_chain import (  # noqa: F401 — re-exports (统一升级链)
     _apply_mtos_ranking,
-    _build_skeleton_key_seed_groups,
-    _filter_by_suitable_for,
-    _run_cot_hijack,
-)
-from strike.escalation_level2 import (  # noqa: F401 鈥?re-exports
     _build_refusal_inverter_scoring_config,
+    _build_skeleton_key_seed_groups,
     _create_fallback_fsts,
-    _generate_gcg_suffix_pool,
-    _get_partial_from_memory,
-    _reorder_gcg_suffixes_for_partial,
-    _reorder_gcg_suffixes_for_refusal,
-    _retrieve_partial_results,
-    _run_cair,  # L5 v52: CAIR 闆嗘垚鍒?L2 鍗囩骇閾?
-    _run_gcg,
-)
-from strike.escalation_level3 import (  # noqa: F401 鈥?re-exports
+    _filter_by_suitable_for,
     _get_objective,
+    _get_partial_from_memory,
     _is_success,
     _llm_judge_rescore,
     _run_best_of_n,
+    _run_cair,
     _run_chunked_request,
+    _run_cot_hijack,
     _run_embedding_inversion,
     _run_encoded_injection,
+    _run_gcg,
     _run_mcp_rag_attacks,
     _run_multi_model_escalation,
     _run_multi_prompt_sending,
     _run_rogue_agent,
     _run_skeleton_key_native,
+    _retrieve_partial_results,
     _select_still_failed,
     _select_still_failed_clustered,
 )
 from strike.gcg_generator import (  # noqa: F401 — re-exports
+    generate_gcg_suffix_pool as _generate_gcg_suffix_pool,
+    reorder_gcg_suffixes_for_partial as _reorder_gcg_suffixes_for_partial,
+    reorder_gcg_suffixes_for_refusal as _reorder_gcg_suffixes_for_refusal,
     llm_mutate_gcg_suffixes as _llm_mutate_gcg_suffixes,
 )
 

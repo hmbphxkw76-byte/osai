@@ -27,12 +27,13 @@ import logging
 from typing import Any
 
 from core.context import PipelineContext, _get_config_int
-from strike.escalation_level1 import (
+from strike.escalation_chain import (
     _apply_mtos_ranking,
     _build_skeleton_key_seed_groups,
+    _create_fallback_fsts,
     _filter_by_suitable_for,
+    _retrieve_partial_results,
 )
-from strike.escalation_level2 import _create_fallback_fsts, _retrieve_partial_results
 from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
 
 logger = logging.getLogger(__name__)
