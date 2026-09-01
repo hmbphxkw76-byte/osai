@@ -15,7 +15,9 @@
 5. [模块化复用矩阵](#五模块化复用矩阵)
 6. [过度工程化防护](#六过度工程化防护)
 7. [实施路径](#七实施路径)
-8. [总结：最优解特征](#八总结最优解特征)
+8. [失败风险分析](#八失败风险分析)
+9. [扩展性设计](#九扩展性设计)
+10. [总结：最优解特征](#十总结最优解特征)
 
 ---
 
@@ -392,7 +394,71 @@ if _scenario_enabled and ctx.synergy_config:
     )
 ```
 
-### 3.4 Scenario 配置继承机制
+### 3.4 _apply_scenario_overrides 实现
+
+```python
+def _apply_scenario_overrides(ctx, scenario_config: dict, args) -> None:
+    """
+    应用 Scenario 配置覆盖到 ctx.args
+    
+    核心原则:
+    - 仅覆盖用户未在 CLI 显式指定的参数
+    - 遵循优先级: CLI > Scenario > defaults.yaml > 硬编码
+    
+    Args:
+        ctx: 全局上下文对象
+        scenario_config: 选中的 Scenario 配置
+        args: CLI 参数命名空间
+    """
+    # ── Seeds 覆盖 ──
+    if not hasattr(args, "seeds") or not args.seeds:
+        seeds_cfg = scenario_config.get("seeds", {})
+        if "sources" in seeds_cfg:
+            ctx.args.seed_sources = seeds_cfg["sources"]
+        if "auto_expand" in seeds_cfg:
+            ctx.args.auto_expand = seeds_cfg["auto_expand"]
+        if "max_seeds" in seeds_cfg:
+            ctx.args.max_seeds = seeds_cfg["max_seeds"]
+        if "expansion_factor" in seeds_cfg:
+            ctx.args.expansion_factor = seeds_cfg.get("expansion_factor", 3)
+    
+    # ── Techniques 覆盖 ──
+    if not hasattr(args, "techniques") or not args.techniques:
+        tech_cfg = scenario_config.get("techniques", {})
+        if "primary" in tech_cfg:
+            ctx.args.techniques = tech_cfg["primary"]
+        if "escalation_levels" in tech_cfg:
+            ctx.args.escalation_levels = tech_cfg["escalation_levels"]
+        if "priority_scheduler" in tech_cfg:
+            ctx.args.priority_scheduler = tech_cfg["priority_scheduler"]
+    
+    # ── Converters 覆盖 ──
+    conv_cfg = scenario_config.get("converters", {})
+    if conv_cfg.get("enabled") is False:
+        ctx.args.converters_enabled = False
+    elif conv_cfg.get("enabled") is True:
+        ctx.args.converters_enabled = True
+        if "chain_names" in conv_cfg:
+            ctx.args.converter_chains = conv_cfg["chain_names"]
+        if "paths" in conv_cfg:
+            ctx.args.converter_paths = conv_cfg["paths"]
+    
+    # ── Scorer 覆盖 ──
+    if not hasattr(args, "scorer") or not args.scorer:
+        scorer = scenario_config.get("scorer")
+        if scorer:
+            ctx.args.scorer = scorer
+    
+    logger.info(
+        "Applied scenario overrides: seeds=%s, techniques=%s, converters=%s, scorer=%s",
+        getattr(ctx.args, "seed_sources", "default"),
+        getattr(ctx.args, "techniques", "default"),
+        getattr(ctx.args, "converters_enabled", "default"),
+        getattr(ctx.args, "scorer", "default"),
+    )
+```
+
+### 3.5 Scenario 配置继承机制
 
 ```yaml
 # Scenario 配置继承层次 (优先级递减)
@@ -713,7 +779,60 @@ checklist:
 
 ---
 
-## 八、总结：最优解特征
+## 八、失败风险分析
+
+| 风险 | 概率 | 影响 | 缓解措施 |
+|------|------|------|----------|
+| 路由误判 | 中 | 用户期望 Model 链但走了 Agent 链 | `--scenario` 覆盖 + 路由前打印确认 |
+| Scenario 配置膨胀 | 中 | 差异变大，维护成本上升 | 强制 MVD 审查：差异 >20% 需拆分为独立模块 |
+| PyRIT 版本耦合 | 高 | 原生 API 变更导致模块失效 | 保持 targets/ 适配器层，隔离原生依赖 |
+| 过度自动化 | 低 | 用户不理解为何选择某 Scenario | `--verbose` 输出路由决策理由 |
+| 种子缺失 | 低 | 专用种子目录不存在 | Fallback 到 `_core/` 通用种子 |
+
+---
+
+## 九、扩展性设计
+
+### 9.1 未来 Scenario扩展示例
+
+```yaml
+# 未来可扩展更多 Scenario，无需改动核心代码
+scenarios:
+  mcp_scenario: ...
+  agent_scenario: ...
+  rag_scenario: ...
+  model_scenario: ...
+  
+  # 示例: 未来添加 IoT/嵌入式 LLM Scenario
+  embedded_scenario:
+    description: "IoT/嵌入式 LLM 轻量攻击链"
+    triggers:
+      attack_surface: embedded_llm
+      min_confidence: 0.7
+    seeds:
+      sources:
+        - _experimental/embedded_llm/
+      auto_expand: false
+      max_seeds: 5
+    techniques:
+      primary:
+        - prompt_sending
+      escalation_levels: [1, 2]  # 轻量目标无需 L3-L4
+    converters:
+      enabled: false
+```
+
+### 9.2 三层覆盖机制
+
+| 层级 | 方式 | 场景 |
+|------|------|------|
+| L1 自动 | 基于指纹智能路由 | 默认场景，零配置 |
+| L2 半自动 | `--scenario mcp_scenario` | 用户知道目标类型 |
+| L3 全手动 | `--scenario-file ./custom.yaml` | 高级用户完全定制 |
+
+---
+
+## 十、总结：最优解特征
 
 | 特征 | 实现方式 |
 |------|----------|
@@ -852,8 +971,247 @@ python main.py --burp mcp05 --verbose
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## 附录 D：CLI 参数扩展
+
+### D.1 新增 CLI 参数
+
+```python
+# main.py argparse 部分新增
+
+# ── Scenario 路由参数 ──
+scenario_group = parser.add_argument_group("Scenario 路由选项")
+scenario_group.add_argument(
+    "--scenario",
+    type=str,
+    default=None,
+    help="强制指定 Scenario (mcp_scenario/agent_scenario/rag_scenario/model_scenario)",
+)
+scenario_group.add_argument(
+    "--scenario-file",
+    type=str,
+    default=None,
+    help="指定外部 Scenario YAML 配置文件路径",
+)
+scenario_group.add_argument(
+    "--list-scenarios",
+    action="store_true",
+    default=False,
+    help="列出所有可用 Scenario 并退出",
+)
+scenario_group.add_argument(
+    "--scenario-enabled",
+    action="store_true",
+    default=True,
+    help="启用 Scenario 路由 (默认: True)",
+)
+scenario_group.add_argument(
+    "--no-scenario",
+    action="store_true",
+    default=False,
+    help="禁用 Scenario 路由，使用默认 model_scenario 行为",
+)
+```
+
+### D.2 --list-scenarios 输出示例
+
+```
+$ python main.py --list-scenarios
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          Available Scenarios                                 ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  1. mcp_scenario                                                             ║
+║     Description: MCP Server 定向攻击链                                        ║
+║     Triggers: attack_surface=mcp_server, min_confidence=0.8                  ║
+║     Seeds: _attack_surface/T1_ASI02_mcp_full_surface/ (8 max)               ║
+║     Techniques: prompt_sending, mcp_rag_attack, rogue_agent                  ║
+║     Escalation: L4 only                                                      ║
+║     Converters: disabled                                                     ║
+║                                                                              ║
+║  2. agent_scenario                                                           ║
+║     Description: 多智能体系统定向攻击链                                        ║
+║     Triggers: attack_surface=multi_agent_system, min_confidence=0.8          ║
+║     Seeds: _attack_surface/T1_ASI06-09_multi_agent/ (10 max)                ║
+║     Techniques: prompt_sending, rogue_agent, multi_turn_attacks              ║
+║     Escalation: L3, L4                                                       ║
+║     Converters: disabled                                                     ║
+║                                                                              ║
+║  3. rag_scenario                                                             ║
+║     Description: RAG 知识库定向攻击链                                          ║
+║     Triggers: attack_surface=rag_system, min_confidence=0.8                  ║
+║     Seeds: _attack_surface/T1_LLM08_rag_full_surface/ (6 max)               ║
+║     Techniques: prompt_sending, embedding_inversion, mcp_rag_attack          ║
+║     Escalation: L4 only                                                      ║
+║     Converters: disabled                                                     ║
+║                                                                              ║
+║  4. model_scenario (DEFAULT)                                                 ║
+║     Description: 标准 LLM 渐进式攻击链                                         ║
+║     Triggers: attack_surface=standard_llm_api, min_confidence=0.0            ║
+║     Seeds: _core/, _encoding_evasion/, _multilingual/ (40 max)               ║
+║     Techniques: prompt_sending                                               ║
+║     Escalation: L1, L2, L3, L4                                               ║
+║     Converters: l5_optimal (7 paths)                                         ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
 ---
 
-**文档版本**: v1.0
+## 附录 E：开发实施清单
+
+### E.1 Phase 2 开发检查清单
+
+```yaml
+# 开发时需要完成的任务清单
+
+phase_2_scenario_abstraction:
+  config_scenarios_yaml:
+    - task: "创建 config/scenarios.yaml"
+      details: |
+        - 定义 4 个 Scenario (mcp/agent/rag/model)
+        - 每个 Scenario 包含 triggers/seeds/techniques/converters/scorer
+        - 确保总行数 < 300 行
+      acceptance: "yaml.safe_load 成功解析，无语法错误"
+  
+  core_scenario_router_py:
+    - task: "创建 core/scenario_router.py"
+      details: |
+        - 实现 ScenarioRouter 类
+        - 实现 select_scenario() 方法
+        - 实现 _evaluate_trigger() 方法
+        - 实现 list_scenarios() 方法
+        - 实现 get_router() 单例函数
+      acceptance: "所有方法单元测试通过"
+  
+  core_apply_overrides:
+    - task: "实现 _apply_scenario_overrides() 函数"
+      details: |
+        - 放置在 core/scenario_router.py 或 core/pipeline.py
+        - 实现优先级: CLI > Scenario > defaults.yaml
+        - 处理 seeds/techniques/converters/scorer 四类覆盖
+      acceptance: "单元测试验证覆盖逻辑正确"
+  
+  main_py_integration:
+    - task: "修改 main.py 集成 Scenario 路由"
+      details: |
+        - 在 SYNERGY 阶段后添加 Scenario 路由决策
+        - 添加 --scenario/--scenario-file/--list-scenarios 参数
+        - 添加 --verbose 模式下的路由决策输出
+        - 确保不破坏现有流水线
+      acceptance: "dry-run 验证 4 种场景正确路由"
+  
+  validation:
+    - task: "运行架构守卫检查"
+      command: "python -m core.architecture_guard"
+      acceptance: "0 BLOCKING, 0 WARNING"
+    
+    - task: "运行完整测试套件"
+      command: "python -m pytest tests/ -v"
+      acceptance: "全部通过，无新增 failure"
+    
+    - task: "ruff 代码风格检查"
+      command: "python -m ruff check ."
+      acceptance: "0 error"
+```
+
+### E.2 验证测试用例
+
+```python
+# tests/test_scenario_router.py
+
+import pytest
+from pathlib import Path
+from core.scenario_router import ScenarioRouter, get_router
+from data.attack_surface_classifier import ClassificationResult
+
+
+class TestScenarioRouter:
+    """ScenarioRouter 单元测试"""
+    
+    @pytest.fixture
+    def router(self, tmp_path):
+        """创建测试用 ScenarioRouter"""
+        config = {
+            "scenarios": {
+                "mcp_scenario": {
+                    "description": "MCP Server 定向攻击链",
+                    "triggers": {"attack_surface": "mcp_server", "min_confidence": 0.8},
+                    "seeds": {"sources": ["test/"], "max_seeds": 8},
+                },
+                "model_scenario": {
+                    "description": "标准 LLM 渐进式攻击链",
+                    "triggers": {"attack_surface": "standard_llm_api", "min_confidence": 0.0},
+                },
+            },
+            "default_scenario": "model_scenario",
+        }
+        config_path = tmp_path / "scenarios.yaml"
+        import yaml
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return ScenarioRouter(config_path=config_path)
+    
+    def test_select_mcp_scenario(self, router):
+        """测试 MCP 目标自动选择 mcp_scenario"""
+        classification = ClassificationResult(
+            attack_surface="mcp_server",
+            confidence=0.92,
+            evidence=["URL pattern match"],
+        )
+        name, config = router.select_scenario(classification)
+        assert name == "mcp_scenario"
+        assert config["triggers"]["attack_surface"] == "mcp_server"
+    
+    def test_select_model_fallback(self, router):
+        """测试未知类型回退到 model_scenario"""
+        classification = ClassificationResult(
+            attack_surface="unknown_api",
+            confidence=0.5,
+            evidence=[],
+        )
+        name, config = router.select_scenario(classification)
+        assert name == "model_scenario"
+    
+    def test_user_override(self, router):
+        """测试用户强制覆盖"""
+        classification = ClassificationResult(
+            attack_surface="mcp_server",
+            confidence=0.92,
+            evidence=[],
+        )
+        name, config = router.select_scenario(classification, user_override="model_scenario")
+        assert name == "model_scenario"
+    
+    def test_confidence_threshold(self, router):
+        """测试置信度阈值过滤"""
+        classification = ClassificationResult(
+            attack_surface="mcp_server",
+            confidence=0.5,  # 低于 min_confidence=0.8
+            evidence=[],
+        )
+        name, config = router.select_scenario(classification)
+        assert name == "model_scenario"  # fallback
+    
+    def test_list_scenarios(self, router):
+        """测试列出所有 Scenario"""
+        scenarios = router.list_scenarios()
+        assert len(scenarios) == 2
+        assert scenarios[0]["name"] in ["mcp_scenario", "model_scenario"]
+    
+    def test_invalid_override_fallback(self, router):
+        """测试无效覆盖回退到自动选择"""
+        classification = ClassificationResult(
+            attack_surface="mcp_server",
+            confidence=0.92,
+            evidence=[],
+        )
+        name, config = router.select_scenario(classification, user_override="invalid_scenario")
+        assert name == "mcp_scenario"  # fallback to auto
+```
+
+---
+
+**文档版本**: v1.1
 **最后更新**: 2026-09-01
 **作者**: AI Red Team Architecture Analysis
