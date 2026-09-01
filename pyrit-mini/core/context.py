@@ -102,6 +102,12 @@ class PipelineContext:
     # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
+    # P3-Synergy: 协同分析配置 (由 synergy_orchestrator 填充)
+    # 数据流: recon (burp_parser) → synergy_orchestrator → ctx.synergy_config
+    #         → arm (seed_ranker / scorer_selector) → strike
+    # 存储 SynergyConfig 对象, 包含攻击面类型 / 种子列表 / 评分器配置
+    synergy_config: Any = None
+
     # ── 增量借鉴: 运行标签 (pyrit_scan --memory-labels) ──
     # 运行时标签写入 CentralMemory, 用于结果查询过滤和报告标记
     # 数据流: config.py (parse_args) → ctx.memory_labels → main.py (CentralMemory.set_labels)

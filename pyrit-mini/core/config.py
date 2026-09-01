@@ -705,6 +705,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "(默认: 失败结果使用 1 行精简摘要, 仅成功结果展开原生 output)",
     )
 
+    # ── P3-Synergy: Burp + Scores + Seeds 协同分析 ──
+    # 启用时: 基于 Burp 配置文件名 + HTTP 内容自动选取最优种子组合 + 评分器
+    # 学术依据: NIST SP 800-115 §4, PTES §3, MITRE ATLAS v4.2
+    # 数据流: recon (burp_parser) → synergy_orchestrator → ctx.synergy_config → arm phase
+    # 默认启用, --no-synergy 禁用 (回退到默认种子配置)
+    parser.add_argument(
+        "--synergy",
+        action="store_true",
+        default=True,
+        help="启用 Burp + Scores + Seeds 协同分析 (默认启用, "
+             "基于攻击面自动选取最优种子 + 评分器)",
+    )
+    parser.add_argument(
+        "--no-synergy",
+        action="store_false",
+        dest="synergy",
+        help="禁用协同分析, 使用默认种子配置",
+    )
+
     args = parser.parse_args(argv)
 
     explicit_escalation = args.escalation

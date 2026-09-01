@@ -187,7 +187,11 @@ def load_seeds(
             continue
 
         # v2: Support subdirectory paths (e.g., "_core/T1_LLM01_elite_jailbreaks")
-        file_path = _SEEDS_DIR / f"{sf}.prompt"
+        # Check if path already has extension before adding .prompt
+        if sf.endswith(".prompt") or sf.endswith(".yaml"):
+            file_path = _SEEDS_DIR / sf
+        else:
+            file_path = _SEEDS_DIR / f"{sf}.prompt"
         if not file_path.exists():
             file_path = _SEEDS_DIR / f"{sf}.yaml"
             if not file_path.exists():

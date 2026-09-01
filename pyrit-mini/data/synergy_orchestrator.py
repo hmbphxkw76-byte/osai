@@ -162,8 +162,11 @@ class SynergyOrchestrator:
             # 基于内容的深度分类
             from data.attack_surface_classifier import classify_http_content
             url = self._extract_url(burp_content)
+            # 分离 HTTP 请求和响应 (Burp 文件包含完整请求+响应)
+            http_request, http_response = _split_burp_content(burp_content)
             result = classify_http_content(
-                http_request=burp_content,
+                http_request=http_request,
+                http_response=http_response,
                 url=url,
             )
             attack_surface = result.attack_surface
@@ -181,17 +184,36 @@ class SynergyOrchestrator:
         seed_names = self.mapper.get_seeds_for_attack_surface(attack_surface)
 
         # 转换为实际文件路径
-        seed_files = []
+        # 保存 seed_name → relative_path 映射, 用于准确报告缺失种子
+        seed_name_to_path: dict[str, str] = {}
         for seed_name in seed_names:
             file_path = self.mapper.get_seed_file_path(seed_name)
             if file_path:
-                seed_files.append(file_path)
+                seed_name_to_path[seed_name] = file_path
+
+        seed_files = list(seed_name_to_path.values())
 
         # 验证种子文件是否存在
         seed_files_existing = self._filter_existing_files(seed_files)
-        missing_seeds = set(seed_files) - set(seed_files_existing)
+
+        # 构建 existing 集合 (用 relative path 做键, 因为 _filter_existing_files 返回绝对路径,
+        # 需反向映射到 relative path 才能与 seed_name_to_path.values() 正确比较)
+        # 注意: rel_path 使用 / (来自 YAML), 而绝对路径使用 \ (Windows), 需统一分隔符
+        existing_rel_paths = set()
+        for existing_abs in seed_files_existing:
+            # 统一使用 / 进行跨平台比较
+            existing_abs_norm = existing_abs.replace("\\", "/")
+            for rel_path in seed_files:
+                rel_path_norm = rel_path.replace("\\", "/")
+                if existing_abs_norm.endswith(rel_path_norm + ".prompt") or existing_abs_norm.endswith(rel_path_norm + ".yaml") or existing_abs_norm.endswith(rel_path_norm):
+                    existing_rel_paths.add(rel_path)
+                    break
+
+        missing_seeds = set(seed_files) - existing_rel_paths
         if missing_seeds:
-            logger.warning("Missing seed files (skipped): %s", missing_seeds)
+            # 反向查找 missing seed names
+            missing_names = [name for name, path in seed_name_to_path.items() if path in missing_seeds]
+            logger.warning("Missing seed files (skipped): %s", missing_names)
 
         # ── Step 3: 选择评分器 ──
         scorer_name = self.scorer_selector.select_scorer_for_surface(attack_surface)
@@ -290,6 +312,38 @@ class SynergyOrchestrator:
         if len(parts) >= 2:
             return parts[1]
         return None
+
+
+def _split_burp_content(burp_content: str) -> tuple[str, str]:
+    """从 Burp 文件内容分离 HTTP 请求和响应.
+
+    Burp 保存的文件格式:
+        HTTP 请求 (headers + body)
+        (空行)
+        HTTP/1.1 200 OK
+        ... (响应 headers + body)
+
+    Args:
+        burp_content: Burp 文件完整内容
+
+    Returns:
+        (http_request, http_response) 元组
+    """
+    # 查找 HTTP 响应起始行 (HTTP/1.x STATUS)
+    lines = burp_content.split("\n")
+    response_start = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("HTTP/1."):
+            response_start = i
+            break
+
+    if response_start == -1:
+        # 没有响应部分, 全部视为请求
+        return burp_content, ""
+
+    http_request = "\n".join(lines[:response_start]).strip()
+    http_response = "\n".join(lines[response_start:]).strip()
+    return http_request, http_response
 
 
 # ──────────────────────────────────────────────

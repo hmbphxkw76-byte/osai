@@ -116,6 +116,18 @@ priority_scheduler_high_threshold: 60  # 高 prior 阈值 (%), ≥ 此值的技�
 priority_scheduler_low_threshold: 40   # 低 prior 阈值 (%), < 此值的技术在批次 3
 priority_scheduler_epsilon: 0.1       # ε-贪心探索概率 (10% 概率提升低 prior 技术到批次 1)
 
+# ── 自动 L4 优化 (Agent/MCP/RAG 目标感知) ──
+# arXiv:2307.00929 — InjecAgent: Agent 目标需定向攻击，通用 jailbreak 无效
+# arXiv:2407.16924 — Eidam et al.: A2A 信任链攻击 ASR +15-25%
+# 当 synergy_config.attack_surface ∈ {mcp_server, multi_agent_system, rag_system}
+# 且 confidence >= auto_l4_confidence_threshold 时，自动跳过 L1-L3 直接执行 L4
+auto_l4_optimization_enabled: true     # 启用 Agent/MCP/RAG 目标自动 L4 优化
+auto_l4_confidence_threshold: 0.8      # 置信度阈值 (>= 此值触发自动 L4)
+auto_l4_agent_surfaces:                 # 触发自动 L4 的攻击面类型列表
+  - mcp_server
+  - multi_agent_system
+  - rag_system
+
 # ── 原生攻击参数 (R6 §6.4b SSOT) ──
 # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking, 100 shots ASR 显著提升
 many_shot_example_count: 100

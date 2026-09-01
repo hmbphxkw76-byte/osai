@@ -52,6 +52,7 @@ MCP_INDICATORS: dict[str, list[str]] = {
         r"/mcp-api",
         r"/sse",  # Server-Sent Events (MCP streaming)
         r"/api/v1/mcp",
+        r"/mcp",  # 通用 MCP 路径匹配 (如 /api/labs/MCP_05/chat)
     ],
     "header_indicators": [
         "mcp-session-id",
@@ -159,7 +160,7 @@ def classify_http_content(
     Args:
         http_request: HTTP 请求原始内容 (可选)
         http_response: HTTP 响应原始内容 (可选)
-        url: 请求 URL (可选)
+        url: 请求 URL (可选, 若未提供则从 http_request 提取)
 
     Returns:
         ClassificationResult: 攻击面分类结果
@@ -170,6 +171,10 @@ def classify_http_content(
             confidence=0.0,
             evidence=["No HTTP content provided"],
         )
+
+    # Auto-extract URL from http_request first line if not provided
+    if url is None and http_request:
+        url = _extract_url_from_burp(http_request)
 
     scores: dict[str, float] = {
         "mcp_server": 0.0,
@@ -313,6 +318,20 @@ def _score_response(
     if "jsonrpc" in resp_lower and "tools" in resp_lower:
         scores["mcp_server"] += 4.0
         evidence["mcp_server"].append("MCP JSON-RPC response with tools")
+
+    # MCP SSE Response (Server-Sent Events format, common in MCP deployments)
+    # 特征: MCP_CALL + server: + tool: pattern
+    if "mcp_call" in resp_lower:
+        scores["mcp_server"] += 3.0
+        evidence["mcp_server"].append("MCP SSE response with MCP_CALL event")
+    if "server:" in resp_lower and "tool:" in resp_lower:
+        scores["mcp_server"] += 2.0
+        evidence["mcp_server"].append("MCP server/tool pattern in response")
+
+    # event: meta with lab_id indicating MCP lab
+    if "event: meta" in resp_lower and "lab_id" in resp_lower:
+        scores["mcp_server"] += 1.0
+        evidence["mcp_server"].append("SSE event:meta pattern (MCP streaming)")
 
     # RAG Response Structure
     if any(f in resp_lower for f in RAG_INDICATORS["response_fields"]):

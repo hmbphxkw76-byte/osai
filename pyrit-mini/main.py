@@ -800,6 +800,144 @@ async def _run_single_endpoint(
         return
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # ②.5 Burp + Scores + Seeds 协同分析 (RECON → SYNERGY → ARM 数据桥接)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 学术依据:
+    #   - NIST SP 800-115 §4: 基于发现的攻击面动态调整测试策略
+    #   - PTES §3: 威胁建模驱动测试用例选择
+    #   - MITRE ATLAS: TTP 与资产能力映射
+    # 数据流: ctx.parsed_request → synergy_orchestrator → ctx.synergy_config → arm phase
+    # 当 Burp 文件存在且启用协同分析时, 自动选取最优种子组合 + 评分器
+    _synergy_enabled_flag = getattr(args, "synergy", True)  # 默认启用, --no-synergy 禁用
+    if _synergy_enabled_flag and ctx.parsed_request:
+        print_phase("SYNERGY", "Burp + Scores + Seeds 协同分析...")
+        try:
+            from data.synergy_orchestrator import SynergyOrchestrator
+
+            # 读取 Burp 文件原始内容用于深度分类
+            _burp_raw_content = None
+            _burp_file_path = Path(ctx.args.burp)
+            if not _burp_file_path.is_absolute():
+                _burp_file_path = Path("data/burp") / _burp_file_path
+            # 确保 .txt 后缀
+            if not str(_burp_file_path).endswith(".txt"):
+                _burp_file_path = _burp_file_path.with_suffix(".txt")
+            if _burp_file_path.exists():
+                _burp_raw_content = _burp_file_path.read_text(encoding="utf-8", errors="ignore")
+
+            _orchestrator = SynergyOrchestrator()
+            _syn_cfg = _orchestrator.build_synergy_config(
+                burp_profile_name=ctx.args.burp.replace(".txt", ""),
+                burp_content=_burp_raw_content,
+            )
+            ctx.synergy_config = _syn_cfg
+            logger.info("Synergy config: %s", _syn_cfg.summary())
+
+            # 当协同分析启用且有匹配种子时, 自动覆盖 seed 选取
+            if _syn_cfg.synergy_enabled and _syn_cfg.seed_names:
+                # 数据流: SynergyConfig.seed_files → args.seeds → load_seeds()
+                _synergy_seed_value = ",".join(_syn_cfg.seed_files)
+                logger.info(
+                    "Synergy seed override: %s → load_seeds()",
+                    _synergy_seed_value,
+                )
+                # 覆盖 args.seeds, 使后续 load_seeds 使用协同选取的种子
+                setattr(args, "seeds", _synergy_seed_value)
+                print_status(
+                    "SYNERGY",
+                    "SEEDS",
+                    f"协同选取 {_syn_cfg.seed_files.__len__()} 个种子 "
+                    f"(surface={_syn_cfg.attack_surface}, conf={_syn_cfg.confidence:.2f})",
+                    ok=True,
+                )
+            else:
+                logger.info("Synergy fallback: 使用默认种子配置")
+                print_status(
+                    "SYNERGY",
+                    "FALLBACK",
+                    "无匹配种子, 使用默认配置",
+                )
+
+            # 协同评分器选择 (记录到 ctx, 供后续 scorer 加载使用)
+            if _syn_cfg.scorer_name:
+                logger.info("Synergy scorer selected: %s", _syn_cfg.scorer_name)
+                setattr(args, "synergy_scorer", _syn_cfg.scorer_name)
+        except Exception as e:
+            logger.warning("Synergy analysis failed (non-fatal, 回退默认): %s", e)
+            ctx.synergy_config = None
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ②.6 目标感知自动 L4 优化 (SYNERGY → 升级路径决策)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 学术依据:
+    #   - InjecAgent (arXiv:2307.00929): Agent 目标需定向攻击, 通用 jailbreak 无效
+    #   - Eidam et al. (arXiv:2407.16924): A2A 信任链攻击 ASR +15-25%
+    #   - Greshake et al. (arXiv:2302.12173): Agent 异常检测使逐步升级适得其反
+    # 决策逻辑:
+    #   当 synergy_config 识别为 Agent/MCP/RAG 且置信度 >= threshold 时
+    #   自动覆盖 escalation_levels 为 {4}, 跳过 L1-L3 直接执行最高级别攻击
+    _auto_l4_enabled = getattr(args, "auto_l4_optimization_enabled", True)
+    _auto_l4_threshold = getattr(args, "auto_l4_confidence_threshold", 0.8)
+    _auto_l4_surfaces = set(getattr(args, "auto_l4_agent_surfaces", [
+        "mcp_server", "multi_agent_system", "rag_system",
+    ]))
+    if _auto_l4_enabled and ctx.synergy_config:
+        _surface = ctx.synergy_config.attack_surface
+        _confidence = ctx.synergy_config.confidence
+        if (_surface in _auto_l4_surfaces and _confidence >= _auto_l4_threshold):
+            # 自动设置 L4 优化路径 (仅在用户未显式指定 --escalation-levels 时)
+            _user_specified_levels = getattr(args, "escalation_levels_parsed", None)
+            if _user_specified_levels is None:
+                setattr(args, "escalation_levels_parsed", {4})
+                # 自动限制 max_seeds: L4 专用种子已经足够, 避免加载通用种子
+                # 学术依据: L4 种子库 (12 MCP + RAG + Agent) 已经覆盖攻击面
+                # max_seeds=8 确保只使用高价值专用种子, 避免 token 浪费
+                _user_max_seeds = getattr(args, "max_seeds", None)
+                if _user_max_seeds is None or _user_max_seeds > 12:
+                    setattr(args, "max_seeds", 8)
+                    logger.info(
+                        "Auto L4 optimization: max_seeds limited to 8 (specialty seeds only)"
+                    )
+                logger.info(
+                    "Auto L4 optimization activated: surface=%s, confidence=%.2f >= %.2f, "
+                    "escalation_levels set to {4} (skip L1-L3)",
+                    _surface, _confidence, _auto_l4_threshold,
+                )
+                print_status(
+                    "AUTO-L4",
+                    "ESCALATION",
+                    f"高置信度 Agent/MCP 目标 (surface={_surface}, conf={_confidence:.2f}), "
+                    f"自动跳过 L1-L3, 直接执行 L4 专用种子攻击",
+                    ok=True,
+                )
+                ctx.orchestration_log.append({
+                    "phase": "synergy",
+                    "decision": "auto_l4_optimization",
+                    "input": {
+                        "attack_surface": _surface,
+                        "confidence": _confidence,
+                        "threshold": _auto_l4_threshold,
+                        "enabled": _auto_l4_enabled,
+                    },
+                    "output": {
+                        "escalation_levels": [4],
+                        "max_seeds": getattr(args, "max_seeds", 8),
+                        "seed_strategy": "specialty_only",
+                    },
+                    "reasoning": (
+                        f"Target-aware L4 optimization per InjecAgent (arXiv:2307.00929) + "
+                        f"Eidam et al. (arXiv:2407.16924): confidence={_confidence:.2f} >= "
+                        f"{_auto_l4_threshold:.2f}, surface={_surface} in auto_l4_surfaces. "
+                        f"Using specialty seeds only (MCP/RAG/Agent), max_seeds=8"
+                    ),
+                })
+            else:
+                logger.info(
+                    "Auto L4 optimization skipped: user explicitly specified escalation_levels=%s",
+                    _user_specified_levels,
+                )
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # ③ 种子选取: 加载 YAML 种子 → ASR 排序 → 能力自适应
     # ═══════════════════════════════════════════════════════════════════════════
     print_phase("ARM", "种子选取 & ASR 排序...")
@@ -845,6 +983,17 @@ async def _run_single_endpoint(
         ok=True,
     )
 
+    # 协同分析信息 (如果有)
+    _synergy_info = {}
+    if ctx.synergy_config:
+        _synergy_info = {
+            "synergy_enabled": ctx.synergy_config.synergy_enabled,
+            "attack_surface": ctx.synergy_config.attack_surface,
+            "synergy_confidence": ctx.synergy_config.confidence,
+            "synergy_scorer": ctx.synergy_config.scorer_name,
+            "synergy_evidence": ctx.synergy_config.evidence,
+        }
+
     ctx.orchestration_log.append({
         "phase": "arm",
         "decision": "seed_selection",
@@ -853,9 +1002,14 @@ async def _run_single_endpoint(
             "capabilities": target_capabilities or "",
             "model_family": target_model_family or "",
             "language": target_language or "",
+            **_synergy_info,
         },
         "output": {"seed_count": len(ctx.seeds)},
-        "reasoning": f"基于能力指纹自动追加定向种子 (capabilities={target_capabilities or 'none'})",
+        "reasoning": (
+            f"基于能力指纹自动追加定向种子 (capabilities={target_capabilities or 'none'})"
+            + (f", 协同分析: surface={ctx.synergy_config.attack_surface}, conf={ctx.synergy_config.confidence:.2f}"
+               if ctx.synergy_config else "")
+        ),
     })
 
     # ── P1-2: 从 OpenAPI 发现结果生成定向参数注入种子 ──
