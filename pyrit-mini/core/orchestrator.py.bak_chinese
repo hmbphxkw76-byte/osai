@@ -1,0 +1,349 @@
+"""攻击链路编排器 — 多 endpoint 循环 + 6 阶段控制.
+
+P1 优化 (2026-09-06):
+    从 1629 行拆分为 core/phases/ 子目录, 每个阶段一个文件.
+    本模块保留多 endpoint 外层循环 + run_attack_pipeline 入口.
+
+阶段对应模块包 (--stage 控制退出点):
+    ① recon     (recon/burp_parser.py + recon/target_router.py)
+    ② arm       (arm/seed_ranker.py + arm/converter_presets.py + arm/technique_picker.py)
+    ③ strike    (strike/executor.py)
+    ④ escalate  (strike/escalation.py + strike/escalation_level1/2/3.py)
+    ⑤ assess    (assess/scorer.py + assess/asr_tracker.py + assess/asr_stats.py)
+    ⑥ report    (report/evidence.py + report/generator.py)
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from core.context import PipelineContext
+
+logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Re-export: 从 phases 子模块导入所有阶段函数 (向后兼容)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from core.phases import (  # noqa: E402
+    # Helpers
+    _detect_non_burp_mode,
+    _re_set_memory_labels,
+    _register_dynamic_initializers,
+    _reset_endpoint_state,
+    _resolve_burp_list,
+    # ARM
+    _run_arm_phase,
+    # Assess
+    _run_assess_phase,
+    # Recon + Synergy + Scenario + Auto-L4
+    _run_auto_l4_optimization,
+    # Strike + Escalate
+    _run_escalate_phase,
+    _run_recon_phase,
+    # Report
+    _run_report_phase,
+    _run_scenario_routing,
+    _run_strike_phase,
+    _run_synergy_phase,
+    _setup_memory_labels,
+)
+
+__all__ = [
+    "run_attack_pipeline",
+    "run_single_endpoint_to_result",
+    "run_single_endpoint",
+    # Re-export phases
+    "_run_recon_phase",
+    "_run_synergy_phase",
+    "_run_scenario_routing",
+    "_run_auto_l4_optimization",
+    "_run_arm_phase",
+    "_run_strike_phase",
+    "_run_escalate_phase",
+    "_run_assess_phase",
+    "_run_report_phase",
+    # Re-export helpers
+    "_resolve_burp_list",
+    "_detect_non_burp_mode",
+    "_setup_memory_labels",
+    "_re_set_memory_labels",
+    "_register_dynamic_initializers",
+    "_reset_endpoint_state",
+]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 主入口: 多 endpoint 循环 + 联合 ASR
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def run_attack_pipeline(ctx: "PipelineContext", router: Any = None) -> None:
+    """主流程: 多 endpoint 逐个深度攻击 + 联合 ASR.
+
+    多 endpoint 支持 (arXiv:2302.12173 Greshake — 逐个深度攻击):
+        不指定 --burp → 自动扫描 config/burp/*.txt 全部文件
+        --burp MM_05 → 指定单个 endpoint (仍走多端点路径, 确保统一目录结构)
+        --burp MM_05 --burp MM_03 --burp MM_08 → 指定多个 endpoint
+    """
+    from core.cleanup import cleanup_resources
+    from core.config import ensure_output_dir
+    from core.logging_config import switch_log_file
+    from utils.display import print_status
+
+    args = ctx.args
+    output_dir = ctx.output_dir
+
+    # ── 多 endpoint 检测 ──
+    burp_list = _resolve_burp_list(args)
+
+    # ── 非 Burp 路径 (LiteLLM/OpenAI API/Browser) 不走多 endpoint 循环 ──
+    _non_burp_mode = _detect_non_burp_mode(args)
+
+    if _non_burp_mode:
+        ctx.args.burp = burp_list[0] if burp_list else "request"
+        await run_single_endpoint(ctx, output_dir)
+        await cleanup_resources(ctx)
+        return
+
+    # R10: Dry-run 防御性检查
+    _is_dry_run = getattr(ctx.args, "dry_run", False)
+    if _is_dry_run:
+        logger.info("[DRY-RUN] Orchestrator 层面 dry-run 激活 — 跳过所有攻击与升级执行")
+        print_status("ORCHESTRATOR", "DRY-RUN", "跳过全部攻击阶段", ok=True)
+        return
+
+    # ── 增量借鉴 ──
+    await _setup_memory_labels(ctx)
+    await _register_dynamic_initializers(ctx)
+
+    # ── 优先级排序: 按能力指纹排序 endpoint ──
+    from recon.endpoint_sorter import sort_endpoints_by_priority
+    sorted_endpoints = sort_endpoints_by_priority(burp_list)
+
+    from core.phases._helpers import _print_endpoint_sort_results
+    _print_endpoint_sort_results(sorted_endpoints)
+
+    multi_endpoint_results: list[dict[str, Any]] = []
+
+    for idx, ep_info in enumerate(sorted_endpoints):
+        burp_path = ep_info["burp_path"]
+        burp_name = ep_info["burp_name"]
+        ctx._current_endpoint_idx = idx
+
+        from core.phases._helpers import _print_endpoint_header
+        _print_endpoint_header(idx, len(burp_list), burp_name)
+
+        # 为每个 endpoint 创建独立的子输出目录
+        ep_output_dir = output_dir / f"endpoint_{idx + 1}_{burp_name}"
+        ensure_output_dir(ep_output_dir)
+        ctx.output_dir = ep_output_dir
+
+        # 切换文件日志到当前 endpoint 的子目录
+        switch_log_file(ep_output_dir)
+
+        # 独立初始化 PyRIT DB
+        from core.config import setup_environment
+        await setup_environment(ep_output_dir)
+
+        # R8 §8.3: setup_environment 清除 CentralMemory 单例后, memory labels 丢失
+        if ctx.memory_labels:
+            await _re_set_memory_labels(ctx, burp_name)
+
+        # 设置当前 endpoint 的 burp 路径
+        ctx.args.burp = burp_path
+
+        # 重置 ctx 状态 (每个 endpoint 独立攻击)
+        _reset_endpoint_state(ctx)
+
+        try:
+            ep_result = await run_single_endpoint_to_result(
+                ctx, ep_output_dir, burp_name,
+            )
+            multi_endpoint_results.append(ep_result)
+        except ConnectionError as e:
+            logger.error("Endpoint %s 不可用: %s", burp_name, e)
+            from utils.display import print_error
+            print_error(
+                f"Endpoint {burp_name} 不可用 (连接失败)\n"
+                f"  原因: {e}\n"
+                f"  建议: 检查目标服务是否启动, 端口是否开放, 认证是否有效"
+            )
+            await cleanup_resources(ctx, exclude_shared=True)
+            multi_endpoint_results.append({
+                "burp_name": burp_name,
+                "endpoint": "",
+                "overall_asr": 0.0,
+                "total_attacks": 0,
+                "successful_attacks": 0,
+                "error": str(e),
+            })
+        except Exception as e:
+            logger.error("Endpoint %s 攻击失败: %s", burp_name, e, exc_info=True)
+            from utils.display import print_error
+            print_error(
+                f"Endpoint {burp_name} 攻击失败\n"
+                f"  错误类型: {type(e).__name__}\n"
+                f"  原因: {e}\n"
+                f"  该 endpoint 将被跳过, 继续处理下一个 endpoint"
+            )
+            await cleanup_resources(ctx, exclude_shared=True)
+            multi_endpoint_results.append({
+                "burp_name": burp_name,
+                "endpoint": "",
+                "overall_asr": ctx.overall_asr,
+                "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
+                "successful_attacks": sum(
+                    1 for results in ctx.attack_results.values()
+                    for r in results
+                    if _get_result_outcome(r) == "success"
+                ),
+                "error": str(e),
+            })
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 联合 ASR 统计 (arXiv:2310.08419 — Chao et al.)
+    # Joint ASR = 1 - ∏(1 - ASRᵢ)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # FileHandler 仍指向最后一个 endpoint 子目录, 需切回顶层
+    switch_log_file(output_dir)
+
+    from assess.asr_manager import build_joint_summary, save_joint_report
+    joint_summary = build_joint_summary(multi_endpoint_results)
+    joint_report_path = save_joint_report(joint_summary, output_dir)
+
+    from core.phases._helpers import _print_joint_asr_summary
+    _print_joint_asr_summary(joint_summary, joint_report_path)
+
+    print_status("JOINT", "DONE", f"Joint ASR = {joint_summary['joint_asr']:.1f}%", ok=True)
+
+    # 资源清理
+    await cleanup_resources(ctx)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 单 endpoint 执行
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def run_single_endpoint_to_result(
+    ctx: "PipelineContext",
+    ep_output_dir: "Path",
+    burp_name: str,
+) -> dict[str, Any]:
+    """对单个 endpoint 执行完整 6 阶段攻击链路, 返回结果摘要.
+
+    学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击
+    """
+    await run_single_endpoint(ctx, ep_output_dir)
+
+    # 提取结果摘要
+    endpoint_str = ""
+    if ctx.parsed_request:
+        scheme = "https" if ctx.parsed_request.use_tls else "http"
+        endpoint_str = f"{scheme}://{ctx.parsed_request.host}{ctx.parsed_request.path}"
+
+    fp = {}
+    if ctx.parsed_request:
+        fp = ctx.parsed_request.target_fingerprint
+
+    return {
+        "burp_name": burp_name,
+        "endpoint": endpoint_str,
+        "overall_asr": ctx.overall_asr,
+        "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
+        "successful_attacks": sum(
+            1 for results in ctx.attack_results.values()
+            for r in results
+            if _get_result_outcome(r) == "success"
+        ),
+        "asr_per_technique": ctx.asr_per_technique,
+        "wilson_ci": getattr(ctx, "wilson_ci", (0.0, 0.0)),
+        "capabilities": fp.get("capabilities", ""),
+        "model_family": fp.get("model_family", ""),
+    }
+
+
+async def run_single_endpoint(
+    ctx: "PipelineContext",
+    output_dir: "Path",
+    router: Any = None,
+) -> None:
+    """对单个 endpoint 执行完整 6 阶段攻击链路.
+
+    这是原有 run() 函数的核心逻辑, 提取为独立函数以支持多 endpoint 循环.
+    学术依据: PyRIT (arXiv:2407.01232) — SequentialAttack + 完整攻击链路
+    """
+    from core.cleanup import cleanup_resources
+
+    args = ctx.args
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ① Recon: 解析 HTTP 请求 → 探测能力 → 构建 HTTPTarget
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_recon_phase(ctx, output_dir)
+
+    # ── --stage recon: 只执行侦察, 输出报告后退出 ──
+    if getattr(args, "stage", None) == "recon":
+        await cleanup_resources(ctx, exclude_shared=True)
+        return
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ②.5 攻击面分类 + 技术标签映射
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_synergy_phase(ctx)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ②.7 Scenario 路由决策
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_scenario_routing(ctx, router=router)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ②.6 目标感知自动 L4 优化
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_auto_l4_optimization(ctx)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ③ ARM: 种子选取 + 技术选择 + Converter 链构建
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_arm_phase(ctx)
+
+    # ── --stage arm: 武器化完成, 输出清单后退出 ──
+    if getattr(args, "stage", None) == "arm":
+        await cleanup_resources(ctx, exclude_shared=True)
+        return
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ④ STRIKE: 攻击执行 + 升级链
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_strike_phase(ctx)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ⑤ ASSESS: 评分判定
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_assess_phase(ctx)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ⑥ REPORT: 证据收集 + 报告生成
+    # ═══════════════════════════════════════════════════════════════════════════
+    await _run_report_phase(ctx, output_dir)
+
+    # 资源清理: 两阶段分离
+    await cleanup_resources(ctx, exclude_shared=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 内部辅助函数 (仅 orchestrator.py 使用)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _get_result_outcome(result: Any) -> str:
+    """获取攻击结果的 outcome (内联简版, 避免循环导入)."""
+    from assess.asr_stats import _get_outcome
+    return _get_outcome(result)

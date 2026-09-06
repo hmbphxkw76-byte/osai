@@ -1,0 +1,280 @@
+# 目标 Profile 注册表 — 路径模式→种子精准映射
+# 适配任意 LLM Agent 应用场景
+
+profiles:
+  # ── MCP 攻击 (最具体, 优先匹配) ──
+  - id: mcp_tool_hijack
+    name: "MCP Tool Hijacking"
+    category: mcp_tool_hijack
+    owasp_id: ASI03
+    path_pattern: '/(mcp)'
+    seeds: [mcp_attack, tool_hijack]
+    strategy: targeted_full
+    description: "MCP 工具劫持"
+
+  - id: mcp_resource_poison
+    name: "MCP Resource Poisoning"
+    category: mcp_resource_poison
+    owasp_id: ASI03
+    path_pattern: '/(mcp|resource|template)'
+    seeds: [mcp_attack, indirect_injection]
+    strategy: targeted_full
+    description: "MCP 资源投毒"
+
+  - id: mcp_cross_server
+    name: "MCP Cross-Server Attack"
+    category: mcp_cross_server
+    owasp_id: ASI03
+    path_pattern: '/(mcp|server|proxy)'
+    seeds: [mcp_attack, multi_agent_attack]
+    strategy: targeted_full
+    description: "MCP 跨服务器攻击"
+
+  - id: mcp_prompt_injection
+    name: "MCP Prompt Injection via Tool"
+    category: mcp_prompt_injection
+    owasp_id: ASI03
+    path_pattern: '/(mcp)'
+    seeds: [mcp_attack, structured_injection]
+    strategy: targeted_full
+    description: "通过工具调用注入"
+
+  # ── RAG 攻击 ──
+  - id: rag_leakage
+    name: "Knowledge Base Leakage"
+    category: rag_leakage
+    owasp_id: LLM08
+    path_pattern: '/(rag|knowledge|retriev|embed|vector)'
+    seeds: [rag_attack, targeted_v2]
+    strategy: targeted_full
+    description: "知识库泄露"
+
+  - id: rag_poisoning
+    name: "RAG Poisoning"
+    category: rag_poisoning
+    owasp_id: LLM08
+    path_pattern: '/(rag|knowledge|ingest|index)'
+    seeds: [rag_attack, indirect_injection]
+    strategy: targeted_full
+    description: "RAG 数据投毒"
+
+  - id: rag_embedding
+    name: "Embedding Attack"
+    category: rag_embedding
+    owasp_id: LLM08
+    path_pattern: '/(embed|vector|encode)'
+    seeds: [rag_attack, token_smuggling]
+    strategy: targeted_full
+    description: "向量嵌入攻击"
+
+  # ── Agent 攻击 ──
+  - id: agent_tool_misuse
+    name: "Agent Tool Misuse"
+    category: agent_tool_misuse
+    owasp_id: ASI02
+    path_pattern: '/(agent)'
+    seeds: [tool_hijack, function_call_exploit]
+    strategy: targeted_full
+    description: "Agent 工具滥用"
+
+  - id: multi_agent_attack
+    name: "Multi-Agent Attack"
+    category: multi_agent
+    owasp_id: ASI02
+    path_pattern: '/(agent|multi|orchestrat|workflow)'
+    seeds: [multi_agent_attack, agent_attack]
+    strategy: targeted_full
+    description: "多 Agent 协同攻击"
+
+  - id: workflow_chain_attack
+    name: "Workflow Chain Attack"
+    category: workflow_chain
+    owasp_id: ASI02
+    path_pattern: '/(workflow|chain|pipeline|dag)'
+    seeds: [workflow_chain_attack, tool_hijack]
+    strategy: targeted_full
+    description: "工作流链式攻击"
+
+  # ── Secret/Key 提取 ──
+  - id: system_prompt_leakage
+    name: "System Prompt Leakage"
+    category: system_prompt_leakage
+    owasp_id: LLM07
+    path_pattern: '/(system|leak)'
+    seeds: [targeted_v2, llm07_leakage]
+    strategy: targeted_full
+    description: "系统提示泄露"
+
+  - id: secret_key_extraction
+    name: "Secret Key Extraction"
+    category: secret_extraction
+    owasp_id: LLM02
+    path_pattern: '/(secret|key|token|api_key)'
+    seeds: [targeted_v2, llm02_disclosure]
+    strategy: targeted_full
+    description: "密钥/Token 提取"
+
+  - id: function_param_secret
+    name: "Function Parameter Secret"
+    category: function_param_secret
+    owasp_id: LLM06
+    path_pattern: '/(function|param|callback)'
+    seeds: [function_call_exploit, targeted_v2]
+    strategy: targeted_full
+    description: "函数参数中的密钥泄露"
+
+  # ── 传统 Web 漏洞 ──
+  - id: sqli_search
+    name: "SQL Injection via Search"
+    category: sqli
+    owasp_id: WEB03
+    path_pattern: '/(search|query|find)'
+    seeds: [web_vulns]
+    burp_file: sqli_search.txt
+    strategy: web_vuln
+    description: "搜索接口 SQL 注入"
+
+  - id: idor_user
+    name: "IDOR User Access"
+    category: idor
+    owasp_id: WEB01
+    path_pattern: '/(user|profile|account|customer)'
+    seeds: [web_vulns]
+    burp_file: idor_user.txt
+    strategy: web_vuln
+    description: "用户接口越权访问"
+
+  - id: ssrf_fetch
+    name: "SSRF via Fetch"
+    category: ssrf
+    owasp_id: WEB10
+    path_pattern: '/(fetch|proxy|url|webhook)'
+    seeds: [web_vulns]
+    burp_file: ssrf_fetch.txt
+    strategy: web_vuln
+    description: "Fetch 接口 SSRF"
+
+  - id: auth_bypass
+    name: "Auth Bypass via Login"
+    category: auth_bypass
+    owasp_id: WEB07
+    path_pattern: '/(login|auth|signin)'
+    seeds: [web_vulns]
+    burp_file: auth_bypass.txt
+    strategy: web_vuln
+    description: "登录接口认证绕过"
+
+  - id: xss_reflect
+    name: "XSS via Reflect"
+    category: xss
+    owasp_id: WEB03
+    path_pattern: '/(reflect|render|preview|view)'
+    seeds: [web_vulns]
+    burp_file: xss_reflect.txt
+    strategy: web_vuln
+    description: "反射型 XSS"
+
+  - id: xxe_upload
+    name: "XXE via Upload"
+    category: xxe
+    owasp_id: WEB05
+    path_pattern: '/(upload|import|xml|file)'
+    seeds: [web_vulns]
+    burp_file: xxe_upload.txt
+    strategy: web_vuln
+    description: "XML 外部实体注入"
+
+  # ── 会话/认证攻击 ──
+  - id: session_auth_bypass
+    name: "Session Auth Bypass"
+    category: session_auth
+    owasp_id: ASI04
+    path_pattern: '/(auth|session|login|token|oauth)'
+    seeds: [session_auth_attack, token_smuggling]
+    strategy: targeted_full
+    description: "会话认证绕过"
+
+  - id: token_smuggling
+    name: "Token Smuggling"
+    category: token_smuggling
+    owasp_id: ASI04
+    path_pattern: '/(token|auth|session)'
+    seeds: [token_smuggling, structured_injection]
+    strategy: targeted_full
+    description: "Token 走私"
+
+  # ── LLM 专项攻击 ──
+  - id: supply_chain_probe
+    name: "Supply Chain Vulnerability Probe"
+    category: supply_chain
+    owasp_id: LLM03
+    path_pattern: '/(supply|dependency|package|model|registry|hub|repo)'
+    seeds: [supply_chain_attack, targeted_v2]
+    strategy: targeted_full
+    description: "供应链漏洞探测"
+
+  - id: data_poisoning_probe
+    name: "Data Poisoning Detection"
+    category: data_poisoning
+    owasp_id: LLM04
+    path_pattern: '/(train|finetune|dataset|ingest|poison|corrupt)'
+    seeds: [data_poisoning, targeted_v2]
+    strategy: targeted_full
+    description: "数据投毒检测"
+
+  - id: improper_output_probe
+    name: "Improper Output Handling Probe"
+    category: improper_output
+    owasp_id: LLM05
+    path_pattern: '/(output|execute|command|template|generate|sanitize)'
+    seeds: [improper_output, targeted_v2]
+    strategy: targeted_full
+    description: "输出处理不当"
+
+  - id: misinformation_probe
+    name: "Misinformation & Hallucination Probe"
+    category: misinformation
+    owasp_id: LLM09
+    path_pattern: '/(fact|verify|ground|truth|cite|reference|source)'
+    seeds: [misinformation, targeted_v2]
+    strategy: targeted_full
+    description: "错误信息与幻觉"
+
+  # ── Prompt Injection (通用 fallback) ──
+  - id: indirect_prompt_injection
+    name: "Indirect Prompt Injection"
+    category: indirect_injection
+    owasp_id: LLM01
+    path_pattern: '/(indirect|external)'
+    seeds: [indirect_injection, structured_injection]
+    strategy: targeted_full
+    description: "间接提示注入"
+
+  - id: multi_turn_injection
+    name: "Multi-turn Prompt Injection"
+    category: multi_turn
+    owasp_id: LLM01
+    path_pattern: '/(chat|completion|message|conversation)'
+    seeds: [multiturn_targets_v2, elite_jailbreaks]
+    strategy: multi_turn_deep
+    description: "多轮对话渐进式注入"
+
+  - id: prompt_injection_basic
+    name: "Basic Prompt Injection"
+    category: prompt_injection
+    owasp_id: LLM01
+    path_pattern: '/(chat|completion|message|prompt|invoke)'
+    seeds: [elite_jailbreaks, targeted_v2]
+    strategy: targeted_full
+    description: "基础提示注入 — 直接越狱"
+
+# 默认 Burp 请求文件
+default_burp_file: "config/burp/request.txt"
+
+# Cookie 配置
+cookie:
+  name: session
+  source: env              # env | file | manual
+  env_var: TARGET_COOKIE
+  file_path: "data/burp/cookie.txt"
+  header_name: Cookie

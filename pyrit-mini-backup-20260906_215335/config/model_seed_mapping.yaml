@@ -1,0 +1,972 @@
+# Model Seed Mapping — 90+ LLM Fingerprint → Historical Optimal Seeds.
+#
+# 学术依据:
+#     - Greshake et al. (arXiv:2302.12173) — 模型族 → 种子定制
+#     - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING: ASR 提升 40-80%
+#     - Anil et al. (arXiv:2401.05200) — many-shot jailbreaking 模型族适配
+#     - Zou et al. (arXiv:2307.15043) — GCG 后缀敏感度模型族差异
+#     - Perez et al. (arXiv:2202.03286) — InstructGPT 种子库红队
+#     - Chao et al. (arXiv:2310.08419) — 多目标并行 ASR
+#
+# 使用方式:
+#     from recon.model_seed_mapper import ModelSeedMapper
+#     mapper = ModelSeedMapper()
+#     seed_prefs = mapper.get_seeds_for_model("gpt-4o")
+#
+# 版本: 1.0.0 | 覆盖: 90+ 模型族
+
+# ════════════════════════════════════════════════════════════════════
+# 模型家族级映射 (family-level defaults)
+# ════════════════════════════════════════════════════════════════════
+
+model_families:
+  # ─────────────────────────────────────────────────────
+  # GPT Family (OpenAI)
+  # ─────────────────────────────────────────────────────
+  gpt-4o:
+    preferred_templates:
+      - authority_inference_key_given
+      - researcher_scenario_key_given
+      - step_by_step_analysis
+    avoid_templates:  # 避免容易被检测的模板
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - leet_speak
+      - humanizer
+    notes: "GPT-4o 对角色扮演场景极敏感, authority_inference 最优"
+
+  gpt-4o-mini:
+    preferred_templates:
+      - authority_inference_key_given
+      - researcher_scenario_key_given
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - humanizer
+    notes: "Mini 版本类似 4o, 但护栏略弱"
+
+  gpt-4-turbo:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - rot13
+      - leet_speak
+
+  gpt-3.5-turbo:
+    preferred_templates:
+      - step_by_step_analysis
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - rot13
+    notes: "GPT-3.5 turbo 已被大幅强化, 需要更强的劫持"
+
+  # ─────────────────────────────────────────────────────
+  # Claude Family (Anthropic)
+  # ─────────────────────────────────────────────────────
+  claude-3-opus:
+    preferred_templates:
+      - helpfulness_reframe_charitable
+      - creative_writing_scenario
+      - research_scenario
+    avoid_templates:
+      - authority_inference_key_given  # Claude 对 "权威" 敏感度低
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - unicode_smuggling
+      - accent_obfuscation
+    notes: "Claude 3 Opus 对框架重构和角色沉浸最敏感"
+
+  claude-3-sonnet:
+    preferred_templates:
+      - helpfulness_reframe_charitable
+      - creative_writing_scenario
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - accent_obfuscation
+
+  claude-3-haiku:
+    preferred_templates:
+      - helpfulness_reframe_charitable
+    avoid_templates:
+      - system_override_skeleton_key
+      - authority_inference_key_given
+    optimal_converters:
+      - base64
+    notes: "Haiku 护栏较弱, 简单模板即可"
+
+  claude-3.5-sonnet:
+    preferred_templates:
+      - helpfulness_reframe_charitable
+      - research_scenario
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - unicode_smuggling
+    notes: "Claude 3.5 强化了 authority_inference 检测"
+
+  # ─────────────────────────────────────────────────────
+  # Gemini Family (Google)
+  # ─────────────────────────────────────────────────────
+  gemini-1.5-pro:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+      - multi_turn_escalation
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - rot13
+      - leet_speak
+    notes: "Gemini Pro 对多轮渐进攻击最敏感"
+
+  gemini-1.5-flash:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - rot13
+
+  gemini-ultra:
+    preferred_templates:
+      - step_by_step_analysis
+      - multi_turn_escalation
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - unicode_smuggling
+
+  # ─────────────────────────────────────────────────────
+  # Llama Family (Meta)
+  # ─────────────────────────────────────────────────────
+  llama-3-70b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []  # 开源模型护栏较少
+    optimal_converters:
+      - base64
+      - leet_speak
+      - humanizer
+
+  llama-3-8b:
+    preferred_templates:
+      - direct_instruction
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  llama-2-70b:
+    preferred_templates:
+      - direct_instruction
+      - role_play_dan
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - rot13
+    notes: "Llama 2 护栏较弱"
+
+  llama-2-13b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  llama-2-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters: []
+
+  # ─────────────────────────────────────────────────────
+  # Qwen Family (Alibaba)
+  # ─────────────────────────────────────────────────────
+  qwen2.5-72b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+      - researcher_scenario_key_given
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+      - unicode_smuggling
+    notes: "Qwen 对学术场景改写最敏感, 中文种子库优先"
+
+  qwen2.5-32b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  qwen2.5-14b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  qwen2.5-7b:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  qwen2-72b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  qwen-14b:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  qwen-7b:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # DeepSeek Family
+  # ─────────────────────────────────────────────────────
+  deepseek-v2:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  deepseek-v2.5:
+    preferred_templates:
+      - chinese_academic_scenario
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  deepseek-r1:
+    preferred_templates:
+      - step_by_step_analysis
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+    notes: "DeepSeek R1 思维链模型, 需要让它在思考中犯错误"
+
+  deepseek-coder:
+    preferred_templates:
+      - code_execution_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - leet_speak
+
+  deepseek-lite:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # ERNIE Family (Baidu)
+  # ─────────────────────────────────────────────────────
+  ernie-4.0:
+    preferred_templates:
+      - chinese_academic_scenario
+      - researcher_scenario_key_given
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+    notes: "ERNIE 4.0 护栏较强, 对学术改写较有效"
+
+  ernie-3.5:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  ernie-speed:
+    preferred_templates:
+      - direct_instruction
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  ernie-lite:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  ernie-tiny:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters: []
+
+  # ─────────────────────────────────────────────────────
+  # ERNIE Bot (百度智能云)
+  # ─────────────────────────────────────────────────────
+  ernie-bot-4:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  ernie-bot:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # GLM Family (Zhipu)
+  # ─────────────────────────────────────────────────────
+  glm-4:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+      - researcher_scenario_key_given
+    avoid_templates:
+      - system_override_skeleton_key
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  glm-4-flash:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  glm-3-turbo:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  glm-4v:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  glm-3:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Baichuan Family
+  # ─────────────────────────────────────────────────────
+  baichuan2-13b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  baichuan-m1:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  # ─────────────────────────────────────────────────────
+  # Yi Family (01.AI)
+  # ─────────────────────────────────────────────────────
+  yi-large:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  yi-34b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  yi-9b:
+    preferred_templates:
+      - direct_instruction
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  yi-6b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # ChatGLM / ChatLM Family
+  # ─────────────────────────────────────────────────────
+  chatglm-6b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Mistral Family
+  # ─────────────────────────────────────────────────────
+  mistral-large:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - leet_speak
+
+  mistral-medium:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  mistral-small:
+    preferred_templates:
+      - authority_inference_key_given
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  mixtral-8x7b:
+    preferred_templates:
+      - authority_inference_key_given
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - leet_speak
+
+  mixtral-8x22b:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - leet_speak
+
+  mistral-7b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Gemma Family (Google)
+  # ─────────────────────────────────────────────────────
+  gemma-2-27b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  gemma-2-9b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  gemma-2-2b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  gemma-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  gemma-2b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters: []
+
+  # ─────────────────────────────────────────────────────
+  # Vicuna Family (LMSYS)
+  # ─────────────────────────────────────────────────────
+  vicuna-33b:
+    preferred_templates:
+      - direct_instruction
+      - role_play_dan
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  vicuna-13b:
+    preferred_templates:
+      - direct_instruction
+      - role_play_dan
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  vicuna-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # MPT Family (MosaicML)
+  # ─────────────────────────────────────────────────────
+  mpt-30b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  mpt-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Falcon Family (TII)
+  # ─────────────────────────────────────────────────────
+  falcon-180b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  falcon-40b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  falcon-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Command Family (Cohere)
+  # ─────────────────────────────────────────────────────
+  command-r:
+    preferred_templates:
+      - step_by_step_analysis
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  command-r-plus:
+    preferred_templates:
+      - step_by_step_analysis
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  command-light:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Moonshot / Kimi Family
+  # ─────────────────────────────────────────────────────
+  moonshot-v1:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  kimi:
+    preferred_templates:
+      - chinese_academic_scenario
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  kimi-k1.5:
+    preferred_templates:
+      - step_by_step_analysis
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+    notes: "Kimi 长上下文模型, 多轮攻击更有效"
+
+  # ─────────────────────────────────────────────────────
+  # Tongyi / QWen 通义千问 (阿里云对齐)
+  # ─────────────────────────────────────────────────────
+  tongyi-qianwen:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  # ─────────────────────────────────────────────────────
+  # Doubao / Lark (ByteDance)
+  # ─────────────────────────────────────────────────────
+  doubao-pro:
+    preferred_templates:
+      - chinese_academic_scenario
+      - researcher_scenario_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  doubao-lite:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Minimax Family
+  # ─────────────────────────────────────────────────────
+  minimax-abab6:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  minimax-abab5.5:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # InternLM Family (Shanghai AI Lab)
+  # ─────────────────────────────────────────────────────
+  internlm2-20b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  internlm2-7b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # XVERSE Family
+  # ─────────────────────────────────────────────────────
+  xverse-13b:
+    preferred_templates:
+      - chinese_academic_scenario
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # OpenChat / Other Open Models
+  # ─────────────────────────────────────────────────────
+  openchat-3.5:
+    preferred_templates:
+      - direct_instruction
+      - role_play_dan
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  openchat-3.6:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  starling-lm-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  neural-chat-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  zephyr-7b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Grok Family (xAI)
+  # ─────────────────────────────────────────────────────
+  grok-2:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - humanizer
+
+  grok-1.5:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  grok-beta:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Liquid Family (Liquid AI)
+  # ─────────────────────────────────────────────────────
+  liquid-lfm-40b:
+    preferred_templates:
+      - direct_instruction
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  liquid-lfm-2.6b:
+    preferred_templates:
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Other Chinese Models
+  # ─────────────────────────────────────────────────────
+  hunyuan:
+    preferred_templates:
+      - chinese_academic_scenario
+      - authority_inference_key_given
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - homoglyph_chinese
+
+  paddle-paddle:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  spark-desk:
+    preferred_templates:
+      - chinese_academic_scenario
+    avoid_templates: []
+    optimal_converters:
+      - base64
+
+  # ─────────────────────────────────────────────────────
+  # Fallback for unknown models
+  # ─────────────────────────────────────────────────────
+  __default__:
+    preferred_templates:
+      - authority_inference_key_given
+      - step_by_step_analysis
+      - direct_instruction
+    avoid_templates: []
+    optimal_converters:
+      - base64
+      - humanizer
+    notes: "默认兜底映射 — 对未知模型使用最保守策略"
+
+
+# ════════════════════════════════════════════════════════════════════
+# 种子模板偏好权重 (模板级特征)
+# ════════════════════════════════════════════════════════════════════
+
+template_characteristics:
+  authority_inference_key_given:
+    stealth_level: "moderate"
+    guardrail_evasion: 0.7
+    notes: "权威推断 + 提供密钥 — 对高护栏目标有效"
+
+  researcher_scenario_key_given:
+    stealth_level: "high"
+    guardrail_evasion: 0.9
+    notes: "研究场景 + 密钥 — 隐蔽性高"
+
+  chinese_academic_scenario:
+    stealth_level: "high"
+    guardrail_evasion: 0.85
+    notes: "中文学术场景 — 对中文模型隐蔽性极高"
+
+  step_by_step_analysis:
+    stealth_level: "moderate"
+    guardrail_evasion: 0.6
+    notes: "分步分析 — 让模型在推理中犯错"
+
+  direct_instruction:
+    stealth_level: "low"
+    guardrail_evasion: 0.3
+    notes: "直接指令 — 仅对低或无护栏目标有效"
+
+  helpfulness_reframe_charitable:
+    stealth_level: "high"
+    guardrail_evasion: 0.8
+    notes: "角色责任框架重构 — 对 Claude 类高对齐模型有效"
+
+  creative_writing_scenario:
+    stealth_level: "high"
+    guardrail_evasion: 0.95
+    notes: "创意写作场景 — 隐蔽性极高"
+
+  role_play_dan:
+    stealth_level: "paranoid"
+    guardrail_evasion: 0.2
+    notes: "DAN 角色扮演 — 已广泛被检测"
+
+  system_override_skeleton_key:
+    stealth_level: "paranoid"
+    guardrail_evasion: 0.1
+    notes: "系统覆盖 + 万能钥匙 — 极易触发护栏"
+
+  multi_turn_escalation:
+    stealth_level: "high"
+    guardrail_evasion: 0.85
+    notes: "多轮渐进 — 规避单轮监管"
+
+  code_execution_scenario:
+    stealth_level: "moderate"
+    guardrail_evasion: 0.65
+    notes: "代码执行场景 — 用于 code agent 探测"

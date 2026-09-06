@@ -1,0 +1,33 @@
+# Profile: quick_scan — 快速扫描 (CI/CD 友好)
+# 用法: python main.py --config-file config/profiles/quick_scan.yaml
+
+name: "quick_scan"
+description: "快速扫描 — 最小化配置, 快速验证基础安全性, 适合 CI/CD 集成"
+version: "3.0"
+
+targets: [mocka]
+
+strategy:
+  mode: single_turn
+  intensity: minimal
+
+attack_surface: standard_llm_api
+
+orchestration:
+  seeds: [_core/T1_LLM01_advanced_injection.prompt]
+  converters: [none]  # 原始 payload 直投
+  techniques: [single_turn]
+  scorers: [adaptive_dual_judge]
+
+execution:
+  max_seeds: 5
+  max_attempts: 1
+  max_concurrency: 5
+  timeout: 300
+  escalation: false
+  html_report: false
+
+memory_labels:
+  campaign: "quick_scan"
+  version: "3.0"
+  scenario: "ci_cd_quick_check"

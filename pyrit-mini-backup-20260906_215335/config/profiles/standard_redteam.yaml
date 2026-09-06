@@ -1,0 +1,34 @@
+# Profile: standard_redteam — 标准红队扫描
+# 用法: python main.py --config-file config/profiles/standard_redteam.yaml
+
+name: "standard_redteam"
+description: "日常 LLM 安全评估, 平衡覆盖率与效率"
+version: "3.0"
+
+targets:
+  - mocka
+
+strategy:
+  mode: adaptive
+  intensity: standard  # minimal | standard | maximum
+
+attack_surface: standard_llm_api
+
+orchestration:
+  seeds: [_core/, _encoding_evasion/, _multilingual/]
+  converters: [l5_optimal]      # l5_optimal | persuasion | decomposition | none
+  techniques: [auto]             # auto | single_turn | multi_turn | crescendo | tap
+  scorers: [adaptive_dual_judge] # adaptive_dual_judge | harm_bench_harmful | web_vuln_detected
+
+execution:
+  max_seeds: 30
+  max_attempts: 5
+  max_concurrency: 3
+  timeout: 1800
+  escalation: true
+  html_report: true
+
+memory_labels:
+  campaign: "standard_redteam"
+  version: "3.0"
+  scenario: "daily_redteam"

@@ -1,0 +1,357 @@
+version: '2.0'
+last_updated: '2026-09-01'
+description: 统一测试资产索引 — 支持 Burp→Seed→Scorer 协同映射
+assets:
+  seeds:
+    llm01_elite_jailbreaks:
+      path: _core/T1_LLM01_elite_jailbreaks
+      category: prompt_injection
+      owasp_ids:
+      - LLM01
+      tier: 1
+      asr_prior: high
+      language:
+      - en
+    llm01_advanced_injection:
+      path: _core/T1_LLM01_advanced_injection
+      category: prompt_injection
+      owasp_ids:
+      - LLM01
+      tier: 1
+      asr_prior: high
+      language:
+      - en
+    llm01_indirect_injection:
+      path: _core/T1_LLM01_indirect_injection
+      category: indirect_injection
+      owasp_ids:
+      - LLM01
+      tier: 1
+      asr_prior: high
+      language:
+      - en
+    mcp_tool_enum:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum
+      category: mcp_attack
+      owasp_ids:
+      - LLM01
+      - ASI02
+      attack_vectors:
+      - tool_enumeration
+      - reconnaissance
+      tier: 1
+      asr_prior: high
+    mcp_server_injection:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection
+      category: mcp_attack
+      owasp_ids:
+      - LLM01
+      - ASI02
+      attack_vectors:
+      - injection
+      - tool_manipulation
+      tier: 1
+      asr_prior: high
+    mcp_tool_hijack:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack
+      category: mcp_attack
+      owasp_ids:
+      - ASI02
+      attack_vectors:
+      - privilege_escalation
+      - tool_misuse
+      tier: 1
+      asr_prior: high
+    mcp_context_poisoning:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_context_poisoning
+      category: mcp_attack
+      owasp_ids:
+      - LLM04
+      - ASI02
+      attack_vectors:
+      - data_poisoning
+      - context_manipulation
+      tier: 1
+      asr_prior: medium
+    mcp_resource_leak:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_resource_leak
+      category: mcp_attack
+      owasp_ids:
+      - LLM02
+      - ASI02
+      attack_vectors:
+      - information_disclosure
+      - resource_exposure
+      tier: 1
+      asr_prior: medium
+    mcp_tool_description_injection:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_description_injection
+      category: mcp_attack
+      owasp_ids:
+      - LLM01
+      - ASI02
+      attack_vectors:
+      - injection
+      - description_manipulation
+      tier: 1
+      asr_prior: medium
+    mcp_resource_traversal:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_resource_traversal
+      category: mcp_attack
+      owasp_ids:
+      - ASI02
+      attack_vectors:
+      - path_traversal
+      - resource_access
+      tier: 1
+      asr_prior: medium
+    mcp_cross_server_trust:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_cross_server_trust
+      category: mcp_attack
+      owasp_ids:
+      - ASI02
+      - ASI07
+      attack_vectors:
+      - trust_boundary
+      - cross_tenant
+      tier: 1
+      asr_prior: medium
+    mcp_schema_poisoning:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_schema_poisoning
+      category: mcp_attack
+      owasp_ids:
+      - LLM04
+      - ASI02
+      attack_vectors:
+      - supply_chain
+      - schema_manipulation
+      tier: 1
+      asr_prior: low
+    mcp_tool_chaining:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_chaining
+      category: mcp_attack
+      owasp_ids:
+      - ASI02
+      attack_vectors:
+      - tool_chain
+      - multi_step_attack
+      tier: 1
+      asr_prior: medium
+    mcp_rogue_endpoint:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_rogue_endpoint
+      category: mcp_attack
+      owasp_ids:
+      - ASI07
+      attack_vectors:
+      - rogue_server
+      - spoofing
+      tier: 1
+      asr_prior: medium
+    mcp_ui_rendering_deception:
+      path: _attack_surface/T1_ASI02_mcp_full_surface/mcp_ui_rendering_deception
+      category: mcp_attack
+      owasp_ids:
+      - LLM01
+      attack_vectors:
+      - ui_injection
+      - visual_deception
+      tier: 1
+      asr_prior: low
+    rag_full_attack_surface:
+      path: _attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface
+      category: rag_attack
+      owasp_ids:
+      - LLM08
+      - LLM09
+      attack_vectors:
+      - knowledge_leakage
+      - retrieval_hijack
+      - poisoning
+      tier: 1
+      asr_prior: high
+    ma_cross_agent_injection:
+      path: _attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection
+      category: multi_agent_attack
+      owasp_ids:
+      - ASI06
+      - ASI10
+      attack_vectors:
+      - cross_agent_injection
+      - communication_hijack
+      tier: 1
+      asr_prior: medium
+    ma_identity_spoofofing:
+      path: _attack_surface/T1_ASI06-09_multi_agent/ma_identity_spoofing
+      category: multi_agent_attack
+      owasp_ids:
+      - ASI06
+      - ASI07
+      attack_vectors:
+      - identity_forgery
+      - trust_break
+      tier: 1
+      asr_prior: medium
+    asi02_tool_hijack:
+      path: _core/T1_ASI02_tool_hijack
+      category: tool_hijack
+      owasp_ids:
+      - ASI02
+      tier: 1
+      asr_prior: high
+    asi02_function_call_exploit:
+      path: _core/T1_ASI02_function_call_exploit
+      category: function_calling
+      owasp_ids:
+      - ASI02
+      tier: 1
+      asr_prior: high
+    token_smuggling:
+      path: _encoding_evasion/T1_LLM01_token_smuggling_evasion
+      category: token_smuggling
+      owasp_ids:
+      - LLM01
+      tier: 1
+      asr_prior: medium
+    multilingual_injection:
+      path: _multilingual/T1_multilingual_prompt_injection
+      category: prompt_injection
+      owasp_ids:
+      - LLM01
+      tier: 1
+      asr_prior: medium
+      language:
+      - zh
+  scorers:
+    blackbox_task_achieved:
+      path: scorers/blackbox_task_achieved.yaml
+      category: task_completion
+      best_for:
+      - prompt_injection
+      - jailbreak
+      - general
+    calibrated_task_achieved:
+      path: scorers/calibrated_task_achieved.yaml
+      category: task_completion
+      best_for:
+      - jailbreak
+      - multi_turn
+    harm_bench_harmful:
+      path: scorers/harm_bench_harmful.yaml
+      category: harm_detection
+      best_for:
+      - harmful_content
+      - toxicity
+      - discrimination
+    strict_task_achieved:
+      path: scorers/strict_task_achieved.yaml
+      category: task_completion
+      best_for:
+      - strict_evaluation
+      - high_precision
+    web_vuln_detected:
+      path: scorers/web_vuln_detected.yaml
+      category: vulnerability_detection
+      best_for:
+      - mcp_attack
+      - injection
+      - information_disclosure
+attack_surface_seed_mapping:
+  mcp_server:
+    priority: 1
+    seeds:
+    - mcp_tool_enum
+    - mcp_server_injection
+    - mcp_tool_hijack
+    - mcp_context_poisoning
+    - mcp_resource_leak
+    - mcp_tool_description_injection
+    - mcp_resource_traversal
+    scorer: web_vuln_detected
+  mcp_full_surface:
+    priority: 2
+    seeds:
+    - mcp_tool_enum
+    - mcp_server_injection
+    - mcp_tool_hijack
+    - mcp_context_poisoning
+    - mcp_resource_leak
+    - mcp_tool_description_injection
+    - mcp_resource_traversal
+    - mcp_cross_server_trust
+    - mcp_schema_poisoning
+    - mcp_tool_chaining
+    - mcp_rogue_endpoint
+    - mcp_ui_rendering_deception
+    scorer: web_vuln_detected
+  rag_system:
+    priority: 1
+    seeds:
+    - rag_full_attack_surface
+    scorer: web_vuln_detected
+  multi_agent_system:
+    priority: 1
+    seeds:
+    - ma_cross_agent_injection
+    - ma_identity_spoofing
+    - asi02_tool_hijack
+    scorer: blackbox_task_achieved
+  standard_llm_api:
+    priority: 1
+    seeds:
+    - llm01_elite_jailbreaks
+    - llm01_advanced_injection
+    - llm01_indirect_injection
+    - asi02_tool_hijack
+    - asi02_function_call_exploit
+    scorer: blackbox_task_achieved
+  general_llm_application:
+    priority: 1
+    seeds:
+    - llm01_elite_jailbreaks
+    - multilingual_injection
+    scorer: blackbox_task_achieved
+burp_profile_rules:
+  patterns:
+  - name: mcp_server
+    match_type: filename_contains
+    patterns:
+    - mcp
+    attack_surface: mcp_server
+  - name: multi_modal
+    match_type: filename_contains
+    patterns:
+    - mm
+    - vision
+    - multimodal
+    attack_surface: standard_llm_api
+  - name: rag_api
+    match_type: filename_contains
+    patterns:
+    - rag
+    - retrieval
+    - knowledge_base
+    attack_surface: rag_system
+  - name: agent_system
+    match_type: filename_contains
+    patterns:
+    - agent
+    - workflow
+    - multi_agent
+    attack_surface: multi_agent_system
+references:
+- name: OWASP LLM Top 10 (2025)
+  url: https://owasp.org/www-project-top-10-for-large-language-model-applications/
+- name: MITRE ATLAS v4.2.0
+  url: https://atlas.mitre.org/
+- name: NIST SP 800-115
+  url: https://csrc.nist.gov/publications/detail/sp/800-115/final
+- name: Auer et al. - UCB1 (arXiv:cs/0207052)
+  url: https://arxiv.org/abs/cs/0207052
+- name: Chao et al. - JailbreakBench (arXiv:2402.01135)
+  url: https://arxiv.org/abs/2402.01135
+- name: HarmBench (arXiv:2402.04249)
+  url: https://arxiv.org/abs/2402.04249
+- name: InjecAgent (arXiv:2307.00929)
+  url: https://arxiv.org/abs/2307.00929
+- name: RedEye (arXiv:2202.03286)
+  url: https://arxiv.org/abs/2202.03286

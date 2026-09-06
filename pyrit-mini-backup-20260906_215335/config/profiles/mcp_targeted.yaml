@@ -1,0 +1,45 @@
+# Profile: mcp_targeted — MCP 协议定向攻击
+# 用法: python main.py --config-file config/profiles/mcp_targeted.yaml
+
+name: "mcp_targeted"
+description: "MCP 协议定向攻击 — 针对 MCP 协议安全性的专项测试 (工具劫持/资源投毒)"
+version: "3.0"
+
+targets: [mockb]
+
+# 多轮攻击策略 (利用 MCP 对话状态)
+strategy:
+  mode: multi_turn
+  intensity: standard
+
+# MCP 全攻击面 (联动 asset_index.yaml)
+attack_surface: mcp_full_surface
+
+# 攻击编排: MCP 专项
+orchestration:
+  seeds:
+    - _attack_surface/T1_ASI02_mcp_full_surface/
+    - _core/T1_ASI02_tool_hijack.prompt
+    - _core/T1_ASI02_function_call_exploit.prompt
+    - _core/T1_Agent_general_attack.prompt
+  converters: [persuasion, decomposition]  # 语义保留型转换
+  techniques: [multi_turn]
+  scorers: [adaptive_dual_judge]
+
+execution:
+  max_seeds: 20
+  max_attempts: 5
+  max_concurrency: 3
+  timeout: 1800
+  escalation: true
+  html_report: true
+
+# 种子过滤: 仅 MCP 类别
+seed_filters:
+  category: mcp_tool_hijack
+
+memory_labels:
+  campaign: "mcp_targeted"
+  version: "3.0"
+  target_type: "mcp_agent"
+  scenario: "mcp_security_audit"
