@@ -52,7 +52,9 @@ from utils.display_primitives import (
     _print_card_bottom,
     _print_card_sep,
     _print_card_top,
+    print_banner,
     print_card,
+    print_phase,
     print_status,
 )
 from utils.display_stages import (
