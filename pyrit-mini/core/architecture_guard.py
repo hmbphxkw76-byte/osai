@@ -276,6 +276,28 @@ class ArchitectureGuard:
         self.check_dual_track()
         # R-CONV: Converter 链完整性与堆叠检测 (Wei et al. 三层衰减合规)
         self.check_converter_chain_integrity()
+        # ═══════════════════════════════════════════════════════════════════
+        # 扩展规则集: R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / R-REPORT
+        # ═══════════════════════════════════════════════════════════════════
+        try:
+            from core.architecture_guard_extended import register_extended_checks
+            register_extended_checks(type(self))
+            # R-PIPE: 流水线集成完整性与数据流断点
+            self.check_pipeline_integration()
+            self.check_data_flow_consistency()
+            # R-IMPORT: 循环导入与死代码检测
+            self.check_circular_imports()
+            self.check_dead_code()
+            # R-REDTEAM: 红队最佳实践与学术理论遵循
+            self.check_best_practices()
+            self.check_academic_citations()
+            self.check_asr_completeness()
+            # R-EVID: 证据收集完整性
+            self.check_evidence_completeness()
+            # R-REPORT: 报告生成完整性
+            self.check_report_completeness()
+        except ImportError:
+            logger.debug("扩展规则集未加载 (architecture_guard_extended.py 不可用)")
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
