@@ -35,13 +35,30 @@ from recon.burp_parser import (
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 from adapters.rate_limited import RateLimitedTarget
 
+# L5 v54+: Adaptive probe, Guardrail, Behavioral verify, Model seed mapping
+from recon.adaptive_probe_config import (
+    compute_probe_budget,
+    should_run_probe,
+)
+from recon.behavioral_verifier import behavioral_verify
+from recon.capability_monitor import CapabilityDriftMonitor, CapabilitySnapshot
+from recon.guardrail_detector import detect_guardrail
+from recon.model_seed_mapper import get_seeds_for_model, detect_model_family
+from recon.stealth_config import StealthLevelManager, STEALTH_POLICIES
+from recon.confidence_scorer import (
+    merge_verification_into_capabilities,
+    score_capability_with_convergence,
+)
+
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
 # ════════════════════════════════════════════════════════════════════
 # 探测风暴防护 - 硬限制探针宪法上限 ≥ 3. 默认 10 保护交互 (直接为攻击核心服务)
+# L5 v54+: _MAX_PROBE_COUNT is the ABSOLUTE ceiling. Adaptive config lowers it.
 _MAX_PROBE_COUNT = int(os.environ.get("RECON_MAX_PROBES", "10"))
+_COMPLEXITY_BASED_BUDGET: dict[str, Any] = {}  # Populated by _init_adaptive_probe
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -309,16 +326,190 @@ async def _configure_remaining_targets(ctx: PipelineContext) -> None:
 
 
 class _ProbeCounter:
-    """线程安全的探针计数器，用于限制总探测数。"""
+    """线程安全的探针计数器，用于限制总探测数。
+
+    L5 v54+: 支持动态自适应 max_probes (由 _init_adaptive_probe 设置)。
+    """
 
     def __init__(self) -> None:
         self.value: int = 0
+        self._adaptive_max: int | None = None  # Set by _init_adaptive_probe
 
     def add(self, n: int = 1) -> None:
         self.value += n
 
     def can_probe(self, n: int = 1, max_probes: int = _MAX_PROBE_COUNT) -> bool:
-        return self.value + n <= max_probes
+        # 优先使用自适应 max (如果已被设置)
+        effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
+        return self.value + n <= effective_max
+
+    def get_budget_remaining(self, max_probes: int = _MAX_PROBE_COUNT) -> int:
+        """获取剩余探测预算。"""
+        effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
+        return max(0, effective_max - self.value)
+
+
+# ════════════════════════════════════════════════════════════════════
+# L5 v54+: Adaptive Probe Initialization — 6-Strategy Integration Hub
+# ════════════════════════════════════════════════════════════════════
+
+
+async def _init_adaptive_probe(
+    ctx: Any,
+    parsed: Any,
+    counter: _ProbeCounter,
+) -> dict[str, Any]:
+    """初始化自适应探测 — 集成 6 大策略的协调中心。
+
+    执行顺序 (每步都是前一步的输入):
+        1. Guardrail Detection → severity, stealth_level
+        2. Stealth Config → delay_range, max_probes, allowed_converters
+        3. Adaptive Probe Budget → total budget, deep_budget, behavioral_budget
+        4. Model Seed Mapping → preferred_templates, optimal_converters
+        5. Behavioral Verify → adjust confidence for S3 confirmation
+        6. Capability Monitor → baseline snapshot for drift detection
+
+    Args:
+        ctx: PipelineContext 实例.
+        parsed: ParsedBurpRequest 实例.
+        counter: _ProbeCounter 实例.
+
+    Returns:
+        dict: 包含所有探测阶段输出的汇总字典.
+    """
+    probe_ctx: dict[str, Any] = {
+        "guardrail_report": {},
+        "stealth_policy": {},
+        "probe_budget": {},
+        "seed_mapping": {},
+        "behavioral_report": {},
+    }
+
+    model_name = getattr(parsed, "burp_model_name", "") or "unknown"
+
+    # ── Phase 1: Guardrail Detection (策略前置) ──
+    try:
+        logger.info("[Adaptive] Phase 1: Guardrail detection...")
+        guardrail_report = await detect_guardrail(parsed)
+        probe_ctx["guardrail_report"] = guardrail_report.to_dict()
+        logger.info(
+            "[Adaptive] Guardrail: type=%s, severity=%s, stealth=%s",
+            guardrail_report.guardrail_type,
+            guardrail_report.severity,
+            guardrail_report.stealth_level,
+        )
+        counter.add(3)  # 3 grayscale probes
+    except Exception as e:
+        logger.debug("[Adaptive] Guardrail detection failed: %s", e)
+        probe_ctx["guardrail_report"] = {
+            "has_guardrail": False,
+            "severity": "none",
+            "stealth_level": "balanced",
+        }
+
+    # ── Phase 2: Stealth Level → Policy ──
+    try:
+        stealth_mgr = get_stealth_manager()
+        guardrail_severity = probe_ctx["guardrail_report"].get("severity", "none")
+        recommended_stealth = probe_ctx["guardrail_report"].get("stealth_level", "balanced")
+
+        # 优先使用 guardrail 推荐, 否则使用用户指定
+        user_stealth = getattr(ctx.args, "stealth_level", None) or recommended_stealth
+        stealth_policy = stealth_mgr.get_policy(user_stealth)
+        probe_ctx["stealth_policy"] = {
+            "name": stealth_policy.name,
+            "delay_range": list(stealth_policy.delay_range),
+            "allowed_converters": stealth_policy.allowed_converters,
+            "behavioral_verify": stealth_policy.behavioral_verify,
+        }
+        logger.info("[Adaptive] Stealth policy: %s", stealth_policy.name)
+    except Exception as e:
+        logger.debug("[Adaptive] Stealth config failed: %s", e)
+        probe_ctx["stealth_policy"] = {"name": "balanced", "behavioral_verify": True}
+
+    # ── Phase 3: Adaptive Probe Budget ──
+    try:
+        # 已检测到的能力 (从 parsed target_fingerprint 获取)
+        existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
+        existing_caps = {}
+        if existing_caps_str:
+            for cap in existing_caps_str.split(","):
+                if cap.strip():
+                    existing_caps[cap.strip()] = True
+
+        app_type = parsed.target_fingerprint.app_type if hasattr(parsed, "target_fingerprint") else "chat"
+
+        probe_budget = compute_probe_budget(
+            capabilities=existing_caps,
+            guardrail_severity=guardrail_severity,
+            app_type=app_type,
+            stealth_level=probe_ctx["stealth_policy"].get("name", "balanced"),
+        )
+        probe_ctx["probe_budget"] = probe_budget
+        # 更新全局计数器的 max_probes (使用自适应预算而非硬编码)
+        counter._adaptive_max = probe_budget["budget"]
+        logger.info(
+            "[Adaptive] Probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d "
+            "(complexity=%s)",
+            probe_budget["budget"],
+            probe_budget["parallel"],
+            probe_budget["deep_probe_budget"],
+            probe_budget["behavioral_verify_budget"],
+            probe_budget["complexity_level"],
+        )
+    except Exception as e:
+        logger.debug("[Adaptive] Probe budget calc failed: %s", e)
+        probe_ctx["probe_budget"] = {"budget": 5, "parallel": 1, "complexity_level": "moderate"}
+
+    # ── Phase 4: Model Seed Mapping (使用 model_name 推断) ──
+    try:
+        if model_name and model_name != "unknown":
+            seed_mapping = get_seeds_for_model(model_name)
+            probe_ctx["seed_mapping"] = seed_mapping
+            logger.info(
+                "[Adaptive] Seed mapping for '%s': templates=%s, converters=%s (source=%s)",
+                model_name,
+                seed_mapping.get("preferred_templates", []),
+                seed_mapping.get("optimal_converters", []),
+                seed_mapping.get("source", "default"),
+            )
+
+            # 存储到 ctx 供后续 arm 阶段使用
+            ctx.seed_preferences = seed_mapping
+    except Exception as e:
+        logger.debug("[Adaptive] Seed mapping failed: %s", e)
+
+    # ── Phase 5: Behavioral Verification (仅运行 S1 文本声明的能力) ──
+    behavioral_enabled = probe_ctx["stealth_policy"].get("behavioral_verify", True)
+    behavioral_budget = probe_ctx["probe_budget"].get("behavioral_verify_budget", 0)
+
+    if behavioral_enabled and behavioral_budget > 0:
+        try:
+            logger.info("[Adaptive] Phase 5: Behavioral verification...")
+            # 构建简化的 capabilities 输入
+            caps_for_verify = {}
+            for cap, val in existing_caps.items():
+                caps_for_verify[cap] = {
+                    "confidence": 0.5,
+                    "level": "medium",
+                    "detected": True,
+                    "source": "active",
+                }
+
+            behavioral_report = await behavioral_verify(parsed, caps_for_verify)
+            probe_ctx["behavioral_report"] = behavioral_report.to_dict()
+            counter.add(min(behavioral_budget, 2))  # 限制 behavioral probes 数
+            logger.info(
+                "[Adaptive] Behavioral verify: %d/%d verified (ratio=%.0f%%)",
+                behavioral_report.summary.get("total_claimed", 0),
+                behavioral_report.summary.get("behaviorally_verified", 0),
+                behavioral_report.summary.get("verified_ratio", 0) * 100,
+            )
+        except Exception as e:
+            logger.debug("[Adaptive] Behavioral verification failed: %s", e)
+
+    logger.info("[Adaptive] Probe initialization complete: %s", probe_ctx["probe_budget"])
+    return probe_ctx
 
 
 # ════════════════════════════════════════════════════════════════════

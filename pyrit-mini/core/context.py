@@ -47,6 +47,16 @@ class PipelineContext:
     output_dir: Path = Path("outputs")
     model_name: str = ""
 
+    # L5 v54+: Adaptive Probe Context (6-Strategy Integration)
+    # 数据流: create_target → _init_adaptive_probe → ctx.adaptive_probe_ctx
+    #            → arm phase (seed_preferences, stealth_policy, probe_budget)
+    #            → strike phase (drift_monitor, guardrail_report)
+    adaptive_probe_ctx: dict[str, Any] = field(default_factory=dict)
+    seed_preferences: dict[str, Any] = field(default_factory=dict)
+    guardrail_report: dict[str, Any] = field(default_factory=dict)
+    stealth_policy: dict[str, Any] = field(default_factory=dict)
+    drift_monitor: Any = None  # CapabilityDriftMonitor 实例
+
     # Recon phase
     parsed_request: "ParsedBurpRequest | None" = None
     # 多 endpoint 支持: 每个 endpoint 的独立攻击结果

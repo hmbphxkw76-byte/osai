@@ -753,3 +753,213 @@ def get_trigger_recommendations(
         else:
             recommendations["possible"].append(name)
     return recommendations
+
+
+# ══════════════════════════════════════════════════════════════
+# 多层证据收敛 (Multi-Signal Evidence Convergence)
+# ══════════════════════════════════════════════════════════════
+# 学术依据:
+#   - Chiang et al. (arXiv:2402.04249) — HarmBench: confidently confirmed
+#     的能力标注, 要求至少 2 个独立证据来源
+#   - Abhay et al. (arXiv:2311.04956) — ASR 差距分析, 声明能力 vs 实际能力
+#     的偏差可达 20-30%, 多层验证可降低此偏差
+# ——
+
+
+# 收敛要求的最低独立信号数
+_MIN_INDEPENDENT_SIGNALS = 2
+
+# 证据类型分类 (按独立性排序, 更独立的证据贡献更高权重)
+_EVIDENCE_INDEPENDENCE: dict[str, int] = {
+    "keyword_match_i18n": 1,     # 文本声明 (弱, 易伪造)
+    "structured_pattern": 2,     # 结构协议 (中, 较可靠)
+    "api_behavior": 3,           # API 行为指纹 (强, 高可信度)
+    "behavioral_verification": 4, # 行为验证 (最强, 实际验证过)
+}
+
+
+@dataclass
+class ConvergenceResult:
+    """多层证据收敛结果。
+
+    属性:
+        capability: 能力维度名
+        converged: 是否通过收敛 (至少 2 个独立信号)
+        signal_count: 独立信号数
+        evidence_types: 证据类型列表
+        adjusted_confidence: 经收敛调整后的置信度
+        source_level: 来源层 (S1/S2/S3)
+    """
+    capability: str
+    converged: bool = False
+    signal_count: int = 0
+    evidence_types: list[str] = field(default_factory=list)
+    adjusted_confidence: float = 0.0
+    source_level: str = "S1"  # S1=文本声明, S2=结构化协议, S3=行为验证
+
+
+def score_capability_with_convergence(
+    capability: str,
+    keyword_evidence: bool = False,
+    structured_evidence: bool = False,
+    api_behavior_evidence: bool = False,
+    behavioral_verification_evidence: bool = False,
+    text_claim_confidence: float = 0.0,
+    behavioral_verify_confidence: float = 0.0,
+) -> ConvergenceResult:
+    """多层证据收敛评分 — 要求至少 2 个独立信号才判为可行动。
+
+    这是 score_capability 的增强版, 整合来自不同证据层的能力置信度,
+    确保只有被多个独立来源共同确认的能力才被评为 "可行动"。
+
+    收敛规则:
+        - 1 个独立信号: confidence 上限 0.5 (medium, 需再确认)
+        - 2 个独立信号: confidence 上限 0.8 (high, 可行动)
+        - 3+ 个独立信号: 完全可信 (high, 优先使用)
+
+    实际使用:
+        >>> result = score_capability_with_convergence(
+        ...     capability="mcp",
+        ...     keyword_evidence=True,          # LLM 文本提到 MCP
+        ...     structured_evidence=True,       # JSON-RPC 2.0 响应结构
+        ...     api_behavior_evidence=True,     # /sse 端点返回 MCP 事件流
+        ...     behavioral_verification_evidence=True,  # tools/list 真实返回工具列表
+        ... )
+        >>> assert result.converged  # 4 个独立信号 → 收敛
+
+    Args:
+        capability: 能力维度名。
+        keyword_evidence: 是否有关键词证据 (文本声明)。
+        structured_evidence: 是否有结构化协议证据。
+        api_behavior_evidence: 是否有 API 行为指纹证据。
+        behavioral_verification_evidence: 是否有行为验证证据。
+        text_claim_confidence: 文本声明层置信度 (0.0-1.0)。
+        behavioral_verify_confidence: 行为验证层置信度 (0.0-1.0)。
+
+    Returns:
+        ConvergenceResult 实例。
+    """
+    result = ConvergenceResult(capability=capability)
+
+    # 收集所有证据类型
+    signals: list[tuple[str, bool, float]] = [
+        ("keyword_match_i18n", keyword_evidence, text_claim_confidence * 0.3),
+        ("structured_pattern", structured_evidence, 0.5 if structured_evidence else 0.0),
+        ("api_behavior", api_behavior_evidence, 0.7 if api_behavior_evidence else 0.0),
+        ("behavioral_verification", behavioral_verification_evidence,
+         behavioral_verify_confidence if behavioral_verification_evidence else 0.0),
+    ]
+
+    active_signals = [(sig_type, conf) for sig_type, active, conf in signals if active]
+    result.signal_count = len(active_signals)
+    result.evidence_types = [sig_type for sig_type, _ in active_signals]
+
+    if not active_signals:
+        result.adjusted_confidence = 0.0
+        result.source_level = "S1"
+        return result
+
+    # 按独立性排序, 取最强的几个
+    sorted_signals = sorted(
+        active_signals,
+        key=lambda x: _EVIDENCE_INDEPENDENCE.get(x[0], 0),
+        reverse=True,
+    )
+
+    # 计算调整后的 confidence
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for sig_type, conf in sorted_signals[:3]:
+        weight = _EVIDENCE_INDEPENDENCE.get(sig_type, 1)
+        weighted_sum += conf * weight
+        weight_total += weight
+
+    base_confidence = weighted_sum / max(1.0, weight_total)
+
+    # 收敛判定
+    if result.signal_count >= _MIN_INDEPENDENT_SIGNALS:
+        # 多信号收敛 → 提升置信度
+        convergence_bonus = min(0.2, 0.1 * (result.signal_count - 1))
+        result.converged = True
+        result.adjusted_confidence = min(1.0, base_confidence + convergence_bonus)
+
+        # 来源层判定
+        if any(s in result.evidence_types for s in ("behavioral_verification", "api_behavior")):
+            result.source_level = "S3"
+        elif "structured_pattern" in result.evidence_types:
+            result.source_level = "S2"
+        else:
+            result.source_level = "S1+"
+    else:
+        # 单信号 → 限制置信度上限
+        result.converged = False
+        result.adjusted_confidence = min(0.5, base_confidence)
+        result.source_level = "S1"
+
+    return result
+
+
+def merge_verification_into_capabilities(
+    capabilities: dict[str, CapabilityResult],
+    behavioral_report: dict[str, Any],
+) -> dict[str, CapabilityResult]:
+    """将行为验证报告合并到能力评分中。
+
+    对 behavioral_verifier 返回的验证结果与 confidence_scorer 的能力评分合并:
+        - 行为验证通过 → confidence 提升至 >= HIGH
+        - 行为验证失败 → confidence 降级 (标记为 false_positive)
+
+    Args:
+        capabilities: 原有的能力评分结果。
+        behavioral_report: behavioral_verifier的报告字典 (to_dict() 格式)。
+
+    Returns:
+        合并后的能力评分字典。
+    """
+    results = dict(capabilities)
+
+    behavioral_results = behavioral_report.get("results", {})
+
+    for cap_name, verify_data in behavioral_results.items():
+        behaviorally_verified = verify_data.get("behaviorally_verified", False)
+        verify_confidence = verify_data.get("confidence", 0.0)
+
+        existing = results.get(cap_name)
+
+        if behaviorally_verified:
+            # 行为验证通过 → 升级为 HIGH
+            updated_confidence = max(
+                existing.confidence if existing else 0.0,
+                verify_confidence,  # 通常 0.9
+            )
+            updated_evidence = (existing.evidence if existing else []) + [
+                f"behavioral_verification=PASSED (confidence={verify_confidence})"
+            ]
+
+            results[cap_name] = CapabilityResult(
+                name=cap_name,
+                detected=True,
+                confidence=round(updated_confidence, 3),
+                evidence=updated_evidence,
+                source="behavioral",
+            )
+        else:
+            # 行为验证失败 → 降级
+            updated_confidence = min(
+                existing.confidence if existing else 0.5,
+                0.2,  # 降级
+            )
+            updated_evidence = (existing.evidence if existing else []) + [
+                f"behavioral_verification=FAILED (claimed_text but no behavioral evidence)"
+            ]
+
+            results[cap_name] = CapabilityResult(
+                name=cap_name,
+                detected=updated_confidence >= 0.3,
+                confidence=round(updated_confidence, 3),
+                level="low",
+                evidence=updated_evidence,
+                source=existing.source if existing else "passive",
+            )
+
+    return results

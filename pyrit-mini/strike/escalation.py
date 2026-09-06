@@ -78,7 +78,7 @@ import logging
 
 import time
 
-from typing import Any
+from typing import Any, Callable
 
 
 
@@ -299,7 +299,9 @@ async def check_and_escalate(
 
     logger.info("check_and_escalate called with %d techniques", len(attack_results))
 
-
+    # L-02: 重置 circuit breaker 状态 — 每次升级会话开始时清零
+    # 注意: 这是模块级状态, 跨会话需重置防止旧状态影响新会话
+    _reset_circuit_breakers()
 
     # v57: 重置升级技术标讀 确保单轮→升级过渡时显示上下文正础
 
@@ -635,7 +637,7 @@ async def check_and_escalate(
 
             )
 
-                        from strike.priority_scheduler import _execute_priority_batches
+            from strike.priority_scheduler import _execute_priority_batches
 
             # L-02: 传递 circuit breaker 回调, 防止失败技术级联浪费 token
             l1_results = await _execute_priority_batches(
@@ -1228,20 +1230,20 @@ async def check_and_escalate(
 
 
 
+                # L-02: L3 Circuit Breaker — 为 multi_model/many_shot_cot 创建 async runner 包装器
+        async def _cb_multi_model_runner(c, o):
+            return await _run_multi_model_safe()
+
+        async def _cb_many_shot_cot_runner(c, o):
+            return await _run_many_shot_cot_safe()
+
         l3_results = await asyncio.gather(
-
-            _run_multi_model_safe(),
-
-            _safe_call(_run_skeleton_key_native(ctx, failed_objectives), "SkeletonKey"),
-
-            _run_many_shot_cot_safe(),
-
-            _safe_call(_run_multi_prompt_sending(ctx, failed_objectives), "MultiPromptSending"),
-
-            _safe_call(_run_chunked_request(ctx, failed_objectives), "ChunkedRequest"),
-
+            _execute_with_circuit_breaker(ctx, "multi_model_pair", _cb_multi_model_runner, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "skeleton_key_native", _run_skeleton_key_native, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "many_shot_cot", _cb_many_shot_cot_runner, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "multi_prompt_sending", _run_multi_prompt_sending, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "chunked_request", _run_chunked_request, failed_objectives),
             return_exceptions=False,
-
         )
 
 
@@ -1366,16 +1368,12 @@ async def check_and_escalate(
 
 
 
+                # L-02: L4 Circuit Breaker — embedding_inversion 也是白盒技术, 需 circuit breaker 保护
         l4_results = await asyncio.gather(
-
-            _safe_call(_run_rogue_agent(ctx, failed_objectives), "Rogue Agent"),
-
-            _safe_call(_run_embedding_inversion(ctx, failed_objectives), "Embedding Inversion"),
-
-            _safe_call(_run_mcp_rag_attacks(ctx, failed_objectives), "MCP/RAG"),
-
+            _execute_with_circuit_breaker(ctx, "rogue_agent", _run_rogue_agent, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "embedding_inversion", _run_embedding_inversion, failed_objectives),
+            _execute_with_circuit_breaker(ctx, "mcp_rag", _run_mcp_rag_attacks, failed_objectives),
             return_exceptions=False,
-
         )
 
 

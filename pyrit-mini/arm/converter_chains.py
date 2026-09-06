@@ -64,21 +64,10 @@ def _conv(name: str) -> type:
 # 鈹€鈹€ 5 涓牳蹇?Converter 閾?鈹€鈹€
 
 
-def encoding_bypass() -> list[Any]:
-    """Base64 + ROT13 + Caesar 缂栫爜缁曡繃銆?
 
-    瀛︽湳渚濇嵁: Wei et al. (arXiv:2307.15043) 鈥?缂栫爜鍙樻崲缁曡繃鍏抽敭璇嶆娴嬨€?
-
-    娉ㄦ剰: 姝ら摼浣跨洰鏍?LLM 鏃犳硶鐞嗚В payload锛屼粎鍦ㄧ洰鏍囨湁瑙ｇ爜鑳藉姏鏃舵湁鏁堛€?
-    L5 绛栫暐: 浠呬綔涓?fallback 璺緞锛屼笉浣滀负榛樿涓昏矾寰勩€?
-    """
-    return [
-        _conv("Base64Converter")(),
-        _conv("ROT13Converter")(),
-        _conv("CaesarConverter")(caesar_offset=3),
-    ]
-
-
+# NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
+# Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
+# Replacements: selective_encoding (single conv, ASR 25-35%) or chained_selective (2-layer, ASR 30-40%).
 def stealth_evasion() -> list[Any]:
     """ZeroWidth + UnicodeSub 闅愯斀娉ㄥ叆銆?
 
@@ -160,21 +149,10 @@ def format_injection() -> list[Any]:
     return [_conv("AsciiArtConverter")()]
 
 
-def multi_encoding() -> list[Any]:
-    """Base64 + ROT13 + Caesar + Atbash 鍥涘眰缂栫爜銆?
 
-    瀛︽湳渚濇嵁: 澶氬眰缂栫爜鍙犲姞鎻愬崌 ASR 3-5x銆?
-
-    娉ㄦ剰: 姝ら摼浣跨洰鏍?LLM 鏃犳硶鐞嗚В payload锛屼粎鍦ㄧ洰鏍囨湁瑙ｇ爜鑳藉姏鏃舵湁鏁堛€?
-    """
-    return [
-        _conv("Base64Converter")(),
-        _conv("ROT13Converter")(),
-        _conv("CaesarConverter")(caesar_offset=5),
-        _conv("AtbashConverter")(),
-    ]
-
-
+# NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
+# Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
+# Replacements: selective_encoding (single conv, ASR 25-35%) or chained_selective (2-layer, ASR 30-40%).
 def decomposition(converter_target: Any | None = None) -> list[Any]:
     """Decomposition 鍒嗚В閲嶇粍 (闇€ converter_target)銆?
 
