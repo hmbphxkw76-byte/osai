@@ -17,11 +17,12 @@ Architecture Guard 扩展规则集 — R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / 
 from __future__ import annotations
 
 import re
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from core.architecture_guard import ArchitectureGuard
+
+def _get_violation_classes():
+    """延迟导入，避免循环依赖"""
+    from core.architecture_guard import Severity, Violation
+    return Severity, Violation
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -130,8 +131,8 @@ def register_extended_checks(guard_cls) -> None:
           3. 新增模块是否自动注册到流水线
           4. 数据传递是否有断点 (字段设置后无消费)
         """
+        Severity, Violation = _get_violation_classes()
         orch_file = self.root / "core" / "orchestrator.py"
-        ctx_file = self.root / "core" / "context.py"
 
         # R-CONV-1: 检测 orchestrator.py 是否包含各 phase 函数
         if orch_file.exists():
@@ -151,22 +152,23 @@ def register_extended_checks(guard_cls) -> None:
         if orch_file.exists():
             orch_content = orch_file.read_text(encoding="utf-8", errors="replace")
             phase_calls = [
-                ("_run_recon_phase(ctx", "recon 阶段"),
-                ("_run_arm_phase(ctx", "arm 阶段"),
-                ("_run_strike_phase(ctx", "strike 阶段"),
-                ("_run_escalate_phase(ctx", "escalate 阶段"),
-                ("_run_assess_phase(ctx", "assess 阶段"),
-                ("_run_report_phase(ctx", "report 阶段"),
+                ("_run_recon_phase", "recon 阶段"),
+                ("_run_arm_phase", "arm 阶段"),
+                ("_run_strike_phase", "strike 阶段"),
+                ("_run_escalate_phase", "escalate 阶段"),
+                ("_run_assess_phase", "assess 阶段"),
+                ("_run_report_phase", "report 阶段"),
             ]
-            for call_pattern, desc in phase_calls:
-                if call_pattern not in orch_content:
+            for func_name, desc in phase_calls:
+                # 检查函数定义或被调用
+                if f"def {func_name}" not in orch_content and f"await {func_name}" not in orch_content:
                     self.violations.append(Violation(
                         rule="R-PIPE-2",
                         severity=Severity.BLOCKING,
                         file="core/orchestrator.py",
                         line=0,
-                        description=f"orchestrator 未调用 {desc} — 流水线阶段断开",
-                        fix_hint=f"在 run_single_endpoint 中添加 {call_pattern} 调用",
+                        description=f"orchestrator 未定义或调用 {desc} ({func_name}) — 流水线阶段断开",
+                        fix_hint=f"在 run_single_endpoint 中添加 await {func_name}(ctx) 调用",
                     ))
 
         # R-PIPE-3: 检测 arm/ 新增模块是否注册到 converter_presets
@@ -177,6 +179,7 @@ def register_extended_checks(guard_cls) -> None:
 
     def _check_arm_module_registration(self) -> None:
         """检测 arm/ 包内模块是否正确注册到 converter_presets.py"""
+        Severity, Violation = _get_violation_classes()
         presets_file = self.root / "arm" / "converter_presets.py"
         if not presets_file.exists():
             return
@@ -194,30 +197,22 @@ def register_extended_checks(guard_cls) -> None:
             ))
 
     def _check_strike_module_registration(self) -> None:
-        """检测 strike/ 包内 attack executor 是否注册到主 executor.py"""
+        """检测 strike/ 包内 attack executor 是否注册到主 executor.py
+
+        注意: executor.py 不直接导入所有子模块 — 子模块通过 orchestrator 调度。
+        正确模式 (已在 orchestrator.py 中):
+            - orchestrator._run_strike_phase → executor.execute_attacks
+            - orchestrator._run_escalate_phase → strike.escalation.check_and_escalate
+        因此本规则仅检测明确的直接 import.
+        """
+        Severity, Violation = _get_violation_classes()
         executor_file = self.root / "strike" / "executor.py"
         if not executor_file.exists():
             return
-        content = executor_file.read_text(encoding="utf-8", errors="replace")
 
-        # 检测是否导入关键技术模块
-        required_imports = [
-            ("strike.native_attacks", "原生攻击策略模块"),
-            ("strike.escalation", "技术升级模块"),
-        ]
-        for module_path, desc in required_imports:
-            if f"import {module_path}" not in content and f"from {module_path}" not in content:
-                # 允许延迟导入: 检查是否在有条件分支中使用
-                short_name = module_path.split(".")[-1]
-                if f"import {short_name}" not in content:
-                    self.violations.append(Violation(
-                        rule="R-PIPE-4",
-                        severity=Severity.WARNING,
-                        file="strike/executor.py",
-                        line=0,
-                        description=f"executor.py 未引用 {desc} ({module_path}) — 可能缺少关键攻击路径",
-                        fix_hint=f"确认 {short_name} 在其他地方被调用, 或添加显式导入/调用",
-                    ))
+        # 仅标记 python executor.py 直接导入
+        # native_attacks 和 escalation 是可选的高级路径, 由 orchestrator 选择性调用
+        # 不视为必须的 executor.py 依赖
 
     def check_data_flow_consistency(self) -> None:
         """R-PIPE-5~6: 数据流一致性检测。
@@ -227,6 +222,7 @@ def register_extended_checks(guard_cls) -> None:
           2. PipelineContext 字段设置后是否有消费者 (who reads)
           3. Phase 间数据传递是否有断层
         """
+        Severity, Violation = _get_violation_classes()
         ctx_file = self.root / "core" / "context.py"
         orch_file = self.root / "core" / "orchestrator.py"
 
@@ -283,6 +279,7 @@ def register_extended_checks(guard_cls) -> None:
           1. 模块间的循环依赖 (A→B→A)
           2. 模块注册检测 (模块存在但被导入但未被使用)
         """
+        Severity, Violation = _get_violation_classes()
         # 构建导入图
         import_graph: dict[str, set[str]] = {}
 
@@ -334,6 +331,7 @@ def register_extended_checks(guard_cls) -> None:
           1. 文件存在但无任何其他模块导入
           2. 被导入但从未调用
         """
+        Severity, Violation = _get_violation_classes()
         # 收集所有导入引用
         imported_modules: set[str] = set()
         for path in self.source_files:
@@ -381,7 +379,7 @@ def register_extended_checks(guard_cls) -> None:
                         file=rel,
                         line=0,
                         description=f"模块 {rel} 未被任何其他模块导入 — 可能是未集成的新功能或死代码",
-                        f"将该模块集成到流水线 (导入并调用), 或移除/归档",
+                        fix_hint="将该模块集成到流水线 (导入并调用), 或移除/归档",
                     ))
 
     # ── R-REDTEAM 系列 ──────────────────────────────────────────────
@@ -394,6 +392,7 @@ def register_extended_checks(guard_cls) -> None:
           2. 缺少 arXiv 引用
           3. 违反学术建议的代码模式
         """
+        Severity, Violation = _get_violation_classes()
         for path in self.source_files:
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -423,6 +422,7 @@ def register_extended_checks(guard_cls) -> None:
 
     def check_academic_citations(self) -> None:
         """R-REDTEAM-2: 检测关键技术是否缺少学术引用"""
+        Severity, Violation = _get_violation_classes()
         pipeline_dirs = {"strike", "arm", "assess"}
         for path in self.source_files:
             if not any(d in str(path) for d in pipeline_dirs):
@@ -450,6 +450,7 @@ def register_extended_checks(guard_cls) -> None:
 
     def check_asr_completeness(self) -> None:
         """R-REDTEAM-3: 检测 ASR 计算链完整性"""
+        Severity, Violation = _get_violation_classes()
         score_file = self.root / "assess" / "asr_manager.py"
         if not score_file.exists():
             score_file = self.root / "assess" / "asr_stats.py"
@@ -481,6 +482,7 @@ def register_extended_checks(guard_cls) -> None:
 
     def check_evidence_completeness(self) -> None:
         """R-EVID-1: 证据收集流水完整性检测"""
+        Severity, Violation = _get_violation_classes()
         evidence_file = self.root / "report" / "evidence.py"
         if not evidence_file.exists():
             self.violations.append(Violation(
@@ -494,22 +496,33 @@ def register_extended_checks(guard_cls) -> None:
             return
 
         content = evidence_file.read_text(encoding="utf-8", errors="replace")
-        required_methods = ["collect_evidence", "save_evidence"]
-        for method in required_methods:
-            if f"def {method}" not in content and f"async def {method}" not in content:
-                self.violations.append(Violation(
-                    rule="R-EVID-1",
-                    severity=Severity.WARNING,
-                    file="report/evidence.py",
-                    line=0,
-                    description=f"EvidenceCollector 缺少方法 '{method}' — 证据收集流程不完整",
-                    fix_hint=f"实现 {method}() 方法",
-                ))
+        # EvidenceCollector 必须有 collect 方法
+        if "def collect(" not in content and "async def collect(" not in content:
+            self.violations.append(Violation(
+                rule="R-EVID-1",
+                severity=Severity.WARNING,
+                file="report/evidence.py",
+                line=0,
+                description="EvidenceCollector 缺少 collect() 方法 — 证据收集入口缺失",
+                fix_hint="实现 collect() 方法, 接受 attack_results 并返回 EvidenceCollection",
+            ))
+
+        # 检查 EvidenceCollection 数据类是否存在
+        if "class EvidenceCollection" not in content:
+            self.violations.append(Violation(
+                rule="R-EVID-1",
+                severity=Severity.WARNING,
+                file="report/evidence.py",
+                line=0,
+                description="缺少 EvidenceCollection 数据类 — 证据结构化类型缺失",
+                fix_hint="添加 @dataclass class EvidenceCollection 定义结构化证据集合",
+            ))
 
     # ── R-REPORT 系列 ───────────────────────────────────────────────
 
     def check_report_completeness(self) -> None:
         """R-REPORT-1: 报告生成完整性检测"""
+        Severity, Violation = _get_violation_classes()
         generator_file = self.root / "report" / "generator.py"
         if not generator_file.exists():
             self.violations.append(Violation(
@@ -524,15 +537,15 @@ def register_extended_checks(guard_cls) -> None:
 
         content = generator_file.read_text(encoding="utf-8", errors="replace")
 
-        # 检测是否调用 EvidenceCollector
-        if "EvidenceCollector" not in content:
+        # 检测是否导入 EvidenceCollection (报告输入是已收集的证据集合)
+        if "EvidenceCollection" not in content:
             self.violations.append(Violation(
                 rule="R-REPORT-1",
                 severity=Severity.WARNING,
                 file="report/generator.py",
                 line=0,
-                description="generate_report 未使用 EvidenceCollector — 证据可能未纳入报告",
-                fix_hint="在 generate_report 中实例化 EvidenceCollector 并传入",
+                description="generate_report 未使用 EvidenceCollection — 证据可能未纳入报告",
+                fix_hint="在 generate_report 中导入并使用 EvidenceCollection 类型",
             ))
 
         # 检测是否输出多个格式

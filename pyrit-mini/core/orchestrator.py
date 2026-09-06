@@ -752,6 +752,31 @@ async def _run_strike_phase(ctx: "PipelineContext") -> None:
         print_status("STRIKE", "DONE", "单轮攻击完成", ok=True)
         return
 
+    # 升级链 (独立阶段函数 _run_escalate_phase)
+    await _run_escalate_phase(ctx, args)
+
+    # --stage assess 入口 (已在 escalate 阶段内处理退出)
+    if getattr(args, "stage", None) in ("strike", "escalate"):
+        return
+
+async def _run_escalate_phase(ctx: "PipelineContext", args: Any = None) -> None:
+    """④ ESCALATE 阶段: 检查 ASR 并触发多轮升级链。
+
+    升级链逻辑:
+        - ASR < 90% → 触发升级 (L1 Best-of-N → L2 Crescendo → L3 TAP ∥ PAIR → L4 native)
+        - ASR ≥ 70% (L1 后) / ≥ 80% (L2 后) → 中间退出 (节省 token)
+    学术依据:
+        - arXiv:2406.12609 (Hughes et al. 2024) — 渐进式攻击框架
+        - arXiv:2404.01833 (Russinovich et al. 2024) — Crescendo 攻击
+        - arXiv:2405.17350 (Mehrabi et al. 2024) — TAP 攻击
+    """
+    from utils.display import print_phase, print_status
+
+    if args is None:
+        args = ctx.args
+
+    _is_dry_run = getattr(args, "dry_run", False)
+
     # 升级链
     should_escalate = getattr(ctx.args, "escalation", True)
     if _is_dry_run:
@@ -797,6 +822,7 @@ async def _run_strike_phase(ctx: "PipelineContext") -> None:
 
     # 升级链结果展示
     if not _is_dry_run:
+        from utils.display import print_escalate_report_async
         await print_escalate_report_async(ctx)
 
     # --stage escalate 退出
