@@ -27,7 +27,13 @@ from typing import Any
 
 
 
-from assess import dual_judge as _dj  # noqa: E402
+# R-H3 修复: dual_judge.py 已废弃，功能已合并至 judge_manager.py
+from assess.judge_manager import (
+    _extract_response_text,
+    _get_judge_scorer,
+    _heuristic_second_judge_success,
+    _init_judges,
+)
 
 
 
@@ -187,7 +193,7 @@ async def precompute_outcomes_async(
 
             # 无需调用 LLM 评分噀 节省 ~30% 评分 token 成本
 
-            response_text = _dj._extract_response_text(result)
+            response_text = _extract_response_text(result)
 
             # 统一正则边界匹配拒绝检浀
 
@@ -397,7 +403,7 @@ async def precompute_outcomes_async(
 
     # 初始匀LLM Judge
 
-    if not _dj._init_judges():
+    if not _init_judges():
 
         # LLM Judge 不可甀 使用启发式预计算
 
@@ -601,7 +607,7 @@ async def precompute_outcomes_async(
 
             try:
 
-                response = _dj._extract_response_text(result)
+                response = _extract_response_text(result)
 
                 if not response or len(response) < 10:
 
@@ -677,7 +683,7 @@ async def precompute_outcomes_async(
 
                 # L5 v55: 优先什ScorerRegistry 获取 J1 (原生复用)
 
-                j1_scorer = _dj._get_judge_scorer("dual_judge_truefalse_conv", "dual_judge_truefalse")
+                j1_scorer = _get_judge_scorer("dual_judge_truefalse_conv", "dual_judge_truefalse")
 
                 try:
 
@@ -765,7 +771,7 @@ async def precompute_outcomes_async(
 
                 # L5 v55: 优先什ScorerRegistry 获取 J2 (原生复用)
 
-                j2_scorer = _dj._get_judge_scorer("dual_judge_harmbench_conv", "dual_judge_harmbench")
+                j2_scorer = _get_judge_scorer("dual_judge_harmbench_conv", "dual_judge_harmbench")
 
                 try:
 
@@ -887,7 +893,7 @@ async def precompute_outcomes_async(
 
                 logger.debug("L5 v43: precompute single failed: %s, using heuristic", e)
 
-                return "success" if _dj._heuristic_second_judge_success(result) else "failure"
+                return "success" if _heuristic_second_judge_success(result) else "failure"
 
 
 
@@ -909,7 +915,7 @@ async def precompute_outcomes_async(
 
             logger.warning("L5 v30: precompute sub-task failed: %s", outcome)
 
-            outcome = "success" if _dj._heuristic_second_judge_success(result) else "failure"
+            outcome = "success" if _heuristic_second_judge_success(result) else "failure"
 
         try:
 

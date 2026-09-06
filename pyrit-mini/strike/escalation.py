@@ -163,25 +163,19 @@ logger = logging.getLogger(__name__)
 
 
 def _load_config_value(key: str, default: float) -> float:
+    """浀config/defaults.yaml 璇诲彇閰嶇疆鍀 澶辫触鏃跺洖閫€鍒伴粯璁ゅ€?
 
-    """浀config/defaults.yaml 璇诲彇閰嶇疆鍀 澶辫触鏃跺洖閫€鍒伴粯璁ゅ€?"""
-
+    Production-grade: 配置缺失时记录 WARNING 日志, 便于运维快速定位配置问题.
+    """
     try:
-
         from pathlib import Path
 
-
-
         import yaml
-
-
 
         config_path = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
 
         if config_path.exists():
-
             with open(config_path, encoding="utf-8") as f:
-
                 config = yaml.safe_load(f)
 
             val = config.get(key, default)
@@ -189,10 +183,19 @@ def _load_config_value(key: str, default: float) -> float:
             if isinstance(val, (int, float)):
 
                 return float(val)
+        else:
+            # Production-grade: 配置文件不存在时记录警告
+            logger.warning(
+                "Config file not found: %s — using fallback default for '%s' (%.1f)",
+                config_path, key, default,
+            )
 
-    except Exception:
-
-        pass
+    except Exception as e:
+        # Production-grade: 配置读取失败时记录异常详情, 便于调试
+        logger.warning(
+            "Failed to load config key '%s' from defaults.yaml: %s — using fallback default (%.1f)",
+            key, e, default,
+        )
 
     return default
 

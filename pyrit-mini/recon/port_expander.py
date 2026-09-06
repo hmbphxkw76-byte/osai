@@ -25,6 +25,11 @@
     - 超时 3s (端口可能关闭, 快速失败)
     - 并发控制 10
     - 早期终止: 发现 3 个端口端点即停止
+
+⚠️ DEPRECATED (2026-09-06):
+    当前未被任何模块 import 引用 (功能未集成到主流水线)。
+    保留原因: 预留供未来跨端口 AI 服务发现需求。
+    如需恢复: 在 core/orchestrator.py 中添加 `from recon.port_expander import discover_port_endpoints`。
 """
 
 from __future__ import annotations

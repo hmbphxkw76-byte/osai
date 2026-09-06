@@ -7,7 +7,7 @@
     - asr_tracker: ASR 统计 + 双 Judge 预计算
     - asr_stats: Cohen's Kappa + Wilson Score CI
     - adaptive_dual_judge: 自适应双 Judge (高置信度直接返回)
-    - dual_judge: LLM 双判 + 仲裁 + 并发式判
+    - judge_manager: LLM 双判 + 仲裁 + 并发式判 (原 dual_judge.py 已合并至此)
 """
 
 from assess.asr_compute import compute_asr

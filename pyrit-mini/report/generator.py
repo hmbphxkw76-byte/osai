@@ -1,21 +1,23 @@
 """generator — 报告生成协调器。
 
 职责:
-    - 定义共享常量 (_OWASP_ALL_CATEGORIES, _HTML_TEMPLATE)
+    - 定义共享常量 (_OWASP_ALL_CATEGORIES)
     - 提供 _classify_score_consistency 评分一致性分析
     - generate_report: 异步生成所有报告文件 (MD + HTML + JSON + PoC + CSV + ZIP)
     - 重新导出 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
       (实际实现在 report_markdown.py / report_html.py 中)
+    - _load_html_template: 从 report/templates/report.html 加载 HTML 模板
 
 架构:
     generator.py (常量 + 协调) -> report_markdown.py (MD 生成)
                               -> report_html.py (HTML 生成)
                               -> report_sections.py (章节构建)
                               -> report_utils.py (工具函数)
+                              -> templates/report.html (HTML 模板)
 
 循环依赖解决:
-    report_html.py 延迟导入 generator._HTML_TEMPLATE (在函数体内),
     generator.py 延迟导入 report_html/report_markdown 的函数 (在 generate_report 内).
+    HTML 模板已从代码解耦到独立文件, 通过 _load_html_template() 运行时读取.
 """
 
 from __future__ import annotations
@@ -69,198 +71,58 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
 }
 
 
-# ── HTML 模板 (Jinja2) ──
-# 被 report_html.py 引用
-_HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Red Team Assessment Report</title>
-<style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; color: #333; }
-  h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 10px; }
-  h2 { color: #16213e; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
-  h3 { color: #0f3460; }
-  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-  th { background: #f4f4f4; font-weight: 600; }
-  tr:nth-child(even) { background: #fafafa; }
-  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
-  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 5px; overflow-x: auto; }
-  .heatmap-cell { padding: 6px 10px; text-align: center; font-weight: 600; }
-  .heat-critical { background: #ff4444; color: #fff; }
-  .heat-high { background: #ff8844; color: #fff; }
-  .heat-medium { background: #ffcc44; }
-  .heat-low { background: #88dd44; }
-  .heat-none { background: #eee; color: #999; }
-  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
-  .badge-critical { background: #ff0000; color: #fff; }
-  .badge-high { background: #ff4444; color: #fff; }
-  .badge-medium { background: #ffaa00; }
-  .badge-low { background: #00aa00; color: #fff; }
-</style>
-</head>
-<body>
-<h1>AI Red Team Assessment Report</h1>
-<p><strong>Assessment Type:</strong> Black-box (No API Key, No Target Model Info)</p>
-<p><strong>Generated:</strong> {{ evidence.timestamp }}</p>
-<p><strong>Target:</strong> <code>{{ evidence.target_model }}</code></p>
+# ── HTML 模板加载 (从独立文件读取, 解耦代码与模板) ──
+# 模板文件路径: report/templates/report.html
+# 被 report_html.py 和 _generate_html 引用
 
-<div style="background:#f8f9fa;border:1px solid #ddd;padding:12px;margin:15px 0;border-radius:5px;">
-<h3 style="margin-top:0;">📂 Report Structure (Layered)</h3>
-<table>
-  <tr><th>File</th><th>Description</th><th>Audience</th></tr>
-  <tr><td><code>report_executive.md</code></td><td>Executive summary — key metrics, top risks, remediation priority</td><td>CISO / Security Lead</td></tr>
-  <tr><td><code>report_findings.md</code></td><td>Vulnerability details — per-evidence analysis, PoC links</td><td>Security Engineer</td></tr>
-  <tr><td><code>report_technical.md</code></td><td>Technical appendix — MITRE mapping, scoring, orchestration log</td><td>Technical Reviewer</td></tr>
-  <tr><td><code>native_output/</code></td><td>PyRIT native output (official format)</td><td>OffSec AI-300 Examiner</td></tr>
-  <tr><td><code>evidence/</code></td><td>Per-evidence JSON files</td><td>Automation / CI/CD</td></tr>
-  <tr><td><code>poc/</code></td><td>PoC scripts (Python)</td><td>Red Team Operator</td></tr>
-</table>
-</div>
+_html_template_cache: str | None = None
 
-{% if fingerprint %}
-<h2>Target Fingerprint & Attack Surface</h2>
-<table>
-  <tr><th>Attribute</th><th>Value</th></tr>
-  {% for k, v in fingerprint.items() %}
-  <tr><td>{{ k }}</td><td><code>{{ v }}</code></td></tr>
-  {% endfor %}
-</table>
-{% endif %}
 
-<h2>Executive Summary</h2>
-<table>
-  <tr><th>Metric</th><th>Value</th></tr>
-  <tr><td>Overall ASR</td><td><strong>{{ evidence.overall_asr }}%</strong></td></tr>
-  <tr><td>Total Attacks</td><td>{{ evidence.total_attacks }}</td></tr>
-  <tr><td>Successful Attacks</td><td>{{ evidence.successful_attacks }}</td></tr>
-  <tr><td>Failed Attacks</td><td>{{ evidence.failed_attacks }}</td></tr>
-  <tr><td>OWASP Categories Covered</td><td>{{ evidence.owasp_coverage | length }}</td></tr>
-</table>
+def _load_html_template() -> str:
+    """从 report/templates/report.html 加载 HTML 模板。
 
-<h2>OWASP LLM Top 10 Compliance Matrix</h2>
-<table>
-  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>
-  {% for owasp_id, stats in evidence.owasp_llm_compliance.items() | sort %}
-  <tr>
-    <td>{{ owasp_id }}</td>
-    <td>{{ stats.get('category', 'Unknown') }}</td>
-    <td>{{ stats.get('tested', 0) }}</td>
-    <td>{{ stats.get('success', 0) }}</td>
-    <td>{{ stats.get('failed', 0) }}</td>
-    <td>{{ stats.get('asr', 0.0) }}%</td>
-  </tr>
-  {% endfor %}
-</table>
+    使用内存缓存避免重复文件 I/O, 仅在首次调用时读取文件。
+    支持运行时模板热更新 (清除缓存后重新加载)。
 
-<h2>OWASP Agentic AI Top 10 Compliance Matrix</h2>
-<table>
-  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>
-  {% for owasp_id, stats in evidence.owasp_asi_compliance.items() | sort %}
-  <tr>
-    <td>{{ owasp_id }}</td>
-    <td>{{ stats.get('category', 'Unknown') }}</td>
-    <td>{{ stats.get('tested', 0) }}</td>
-    <td>{{ stats.get('success', 0) }}</td>
-    <td>{{ stats.get('failed', 0) }}</td>
-    <td>{{ stats.get('asr', 0.0) }}%</td>
-  </tr>
-  {% endfor %}
-</table>
+    Returns:
+        HTML 模板字符串。
 
-<h2>ASR Heatmap (Technique x OWASP)</h2>
-<table>
-  <tr>
-    <th>Technique</th>
-    {% for owasp_id in heatmap_owasp_ids %}
-    <th>{{ owasp_id }}</th>
-    {% endfor %}
-    <th>Overall</th>
-  </tr>
-  {% for row in heatmap_rows %}
-  <tr>
-    <td>{{ row.technique }}</td>
-    {% for cell in row.cells %}
-    <td class="heatmap-cell {{ cell.css_class }}">{{ cell.display }}</td>
-    {% endfor %}
-    <td class="heatmap-cell {{ row.overall_css }}">{{ row.overall_display }}</td>
-  </tr>
-  {% endfor %}
-</table>
+    Raises:
+        FileNotFoundError: 模板文件不存在时记录错误并返回备用模板。
+    """
+    global _html_template_cache
 
-<h2>Escalation Chain Dashboard</h2>
-<table>
-  <tr><th>Stage</th><th>Technique</th><th>ASR</th><th>Status</th></tr>
-  {% for stage in escalation_dashboard %}
-  <tr>
-    <td>{{ stage.stage }}</td>
-    <td>{{ stage.technique }}</td>
-    <td>{{ stage.asr }}</td>
-    <td>{{ stage.escalated }}</td>
-  </tr>
-  {% endfor %}
-</table>
+    if _html_template_cache is not None:
+        return _html_template_cache
 
-<h2>Vulnerability Details</h2>
-{% for ev in evidence_list %}
-{% if ev.jailbreak_prompt %}
-<h3>{{ ev.evidence_id }}: {{ ev.technique_display_name }} {% if ev.is_success %}PASS{% else %}FAIL{% endif %}</h3>
-<table>
-  <tr><th>Field</th><th>Value</th></tr>
-  <tr><td>OWASP ID</td><td>{{ ev.owasp_id }}</td></tr>
-  <tr><td>OWASP Category</td><td>{{ ev.owasp_category }}</td></tr>
-  <tr><td>Severity</td><td>{{ ev.owasp_severity | upper }}</td></tr>
-  <tr><td>Risk Score</td><td>{{ ev.owasp_risk_score }}/10</td></tr>
-  <tr><td>Technique</td><td><code>{{ ev.technique_name }}</code></td></tr>
-  <tr><td>ASR</td><td>{{ ev.asr }}%</td></tr>
-  <tr><td>Success</td><td>{% if ev.is_success %}YES{% else %}NO{% endif %}</td></tr>
-  <tr><td>Converter Chain</td><td><code>{{ ev.converter_chain or 'none (baseline)' }}</code></td></tr>
-  {% if ev.mitre_technique_id %}
-  <tr><td>MITRE ATLAS</td><td>{{ ev.mitre_technique_id }} - {{ ev.mitre_technique_name }}</td></tr>
-  {% endif %}
-</table>
+    template_path = Path(__file__).parent / "templates" / "report.html"
+    try:
+        _html_template_cache = template_path.read_text(encoding="utf-8")
+        logger.debug("HTML template loaded from %s", template_path)
+    except FileNotFoundError:
+        logger.error(
+            "HTML template file not found at %s — using fallback minimal template",
+            template_path,
+        )
+        # 生产级容错: 返回最小可用模板, 避免报告生成完全失败
+        _html_template_cache = (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            "<title>AI Red Team Assessment Report</title></head>"
+            "<body><h1>AI Red Team Assessment Report</h1>"
+            "<p>Template file not found — using fallback.</p>"
+            "<pre>{{ evidence_json }}</pre></body></html>"
+        )
+    return _html_template_cache
 
-<h4>Attack Payload:</h4>
-<pre>{{ ev.jailbreak_prompt[:2000] }}{% if ev.jailbreak_prompt | length > 2000 %}...{% endif %}</pre>
 
-<h4>Target Response:</h4>
-<pre>{{ ev.harmful_output[:2000] }}{% if ev.harmful_output | length > 2000 %}...{% endif %}</pre>
+def clear_template_cache() -> None:
+    """清除 HTML 模板缓存, 下次加载时重新读取文件。
 
-{% if ev.owasp_mitigations %}
-<h4>Mitigation Recommendations:</h4>
-<ul>
-  {% for m in ev.owasp_mitigations %}
-  <li>{{ m }}</li>
-  {% endfor %}
-</ul>
-{% endif %}
-
-<hr>
-{% endif %}
-{% endfor %}
-
-<h2>Technique Performance</h2>
-<table>
-  <tr><th>Technique</th><th>Total Attacks</th></tr>
-  {% for tech, count in evidence.technique_distribution.items() | sort %}
-  <tr><td>{{ tech }}</td><td>{{ count }}</td></tr>
-  {% endfor %}
-</table>
-
-{% if not success_only and evidence.failure_analysis %}
-<h2>Failure Analysis</h2>
-<table>
-  <tr><th>Failure Type</th><th>Count</th></tr>
-  {% for ftype, count in evidence.failure_analysis.get('failure_types', {}).items() | sort(attribute='1', reverse=true) %}
-  <tr><td>{{ ftype }}</td><td>{{ count }}</td></tr>
-  {% endfor %}
-</table>
-{% endif %}
-
-</body>
-</html>"""
+    用于开发时模板热更新, 或在测试后重置状态。
+    """
+    global _html_template_cache
+    _html_template_cache = None
+    logger.debug("HTML template cache cleared")
 
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:

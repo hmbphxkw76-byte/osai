@@ -5,6 +5,11 @@
     - OpenAI 兼容 (choices[0].delta.content)
     - DeepSeek JSON Patch (RFC 6902 变体)
     - Qwen 纯值片段 ({"v":"..."})
+
+⚠️ DEPRECATED (2026-09-06):
+    当前未被任何模块 import 引用 (SSE 解析功能已内联到 burp_parser.py)。
+    保留原因: 预留供未来可能的独立 SSE 解析需求。
+    如需恢复: 在 burp_parser.py 或其他模块中添加 `from recon.sse_parser import make_sse_callback`。
 """
 
 from __future__ import annotations

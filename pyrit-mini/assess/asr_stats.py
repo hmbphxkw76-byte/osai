@@ -348,7 +348,8 @@ from assess.asr_history import (  # noqa: F401, E402
     _save_gcg_suffix_asr_history,
     save_asr_history,
 )
-from assess.dual_judge import (  # noqa: F401, E402
+# R-H3 修复: 从 judge_manager 导入 (dual_judge.py 已废弃，功能已合并至 judge_manager.py)
+from assess.judge_manager import (  # noqa: F401, E402
     _extract_response_text,
     _heuristic_second_judge_success,
     _init_judges,

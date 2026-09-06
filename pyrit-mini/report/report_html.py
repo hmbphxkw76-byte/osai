@@ -17,10 +17,14 @@ from report.report_utils import (  # noqa: F401 — re-exports for generator.py
 
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """Generate HTML report."""
-    from report.generator import _HTML_TEMPLATE, _OWASP_ALL_CATEGORIES
+    """Generate HTML report.
 
-    template = Template(_HTML_TEMPLATE)
+    从独立模板文件加载 (report/templates/report.html),
+    通过 generator._load_html_template() 读取并缓存。
+    """
+    from report.generator import _load_html_template, _OWASP_ALL_CATEGORIES
+
+    template = Template(_load_html_template())
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
     llm_tested = sum(1 for v in evidence.owasp_llm_compliance.values() if v.get("tested", 0) > 0)
     asi_tested = sum(1 for v in evidence.owasp_asi_compliance.values() if v.get("tested", 0) > 0)
