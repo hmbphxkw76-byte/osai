@@ -461,10 +461,13 @@ def build_http_target(
     shared_client = http_client
     if shared_client is None:
         http2 = "HTTP/2" in (parsed.http_version or "")
+        # P2-06: TLS verify 配置化 (SSOT)
+        from recon.config_loader import get_tls_verify
+        tls_verify = get_tls_verify()
         shared_client = httpx.AsyncClient(
             timeout=120.0,
             follow_redirects=True,
-            verify=False,  # TLS 由 P2-6 配置, 此处默认值
+            verify=tls_verify,
             http2=http2,
         )
 
@@ -730,7 +733,8 @@ def build_httpx_api_target(
         max_requests_per_minute=max_requests_per_minute,
         custom_configuration=custom_config,
         timeout=120.0,
-        verify=False,
+        # P2-06: TLS verify 配置化 (SSOT)
+        verify=get_tls_verify() if 'get_tls_verify' in dir() else True,
     )
 
     logger.info(
