@@ -49,6 +49,13 @@ from utils.display_native import (
     print_technique_trail,
 )
 
+# ── 导入技术参数展示逻辑 (display_params SSOT) ──
+from utils.display_params import (
+    _get_converter_summary,
+    _get_technique_category,
+    _get_technique_params,
+)
+
 if TYPE_CHECKING:
     from core.context import PipelineContext
 
@@ -336,93 +343,8 @@ def _get_endpoint_name(ctx: "PipelineContext") -> str:
     return "unknown"
 
 
-def _get_technique_category(tech: str) -> str:
-    """技术分类标签."""
-    if tech in ("prompt_sending", "multi_prompt_sending", "adaptive_text"):
-        return "baseline"
-    if tech.startswith(("crescendo", "tap", "pair", "red_teaming", "best_of_n", "cot_hijack")):
-        return "multi-turn"
-    if tech in ("many_shot", "skeleton_key", "skeleton_key_native",
-                "many_shot_cot", "role_play_movie_script",
-                "role_play_persuasion", "context_compliance", "flip"):
-        return "context-semantic"
-    if tech in ("gcg", "cair", "encoded_injection", "embedding_inversion"):
-        return "encoding"
-    if tech in ("chunked_request", "mcp_rag", "rogue_agent", "multi_model_pair"):
-        return "infrastructure"
-    return "other"
 
 
-def _get_technique_params(tech: str, ctx: "PipelineContext | None" = None) -> str:
-    """从 ctx.args / defaults.yaml 读取技术特定参数, 显示关键配置.
-
-    优先从 ctx.args 读取 (支持命令行覆盖), 其次从 defaults.yaml 读取,
-    最后使用模块级 fallback 常量。
-
-    C7 合规: 配置数据流不断裂 — 所有参数可从 CLI/YAML 动态覆盖。
-    """
-    try:
-        from pathlib import Path
-        import yaml
-        config_path = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
-        if config_path.exists():
-            with open(config_path, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-        else:
-            cfg = {}
-    except Exception:
-        cfg = {}
-
-    def _resolve(key: str, default: float) -> float:
-        """优先从 ctx.args 读取, 其次 yaml, 最后 fallback."""
-        if ctx is not None:
-            args = getattr(ctx, "args", None)
-            if args is not None:
-                val = getattr(args, key, None)
-                if val is not None and isinstance(val, (int, float)):
-                    return float(val)
-        return float(cfg.get(key, default))
-
-    params: list[str] = []
-    if tech.startswith("crescendo"):
-        params.append(f"turns={_resolve('crescendo_max_turns', 10)}")
-        params.append(f"backtrack={_resolve('crescendo_max_backtracks', 5)}")
-    elif tech == "tap":
-        params.append(f"width={_resolve('tap_tree_width', 4)}")
-        params.append(f"depth={_resolve('tap_tree_depth', 4)}")
-    elif tech == "pair":
-        params.append(f"width={_resolve('pair_tree_width', 1)}")
-        params.append(f"depth={_resolve('pair_tree_depth', 4)}")
-    elif tech.startswith("red_teaming"):
-        params.append(f"turns={_resolve('red_teaming_max_turns', 3)}")
-    elif tech.startswith("best_of_n"):
-        params.append(f"retries={_resolve('best_of_n_retries', 5)}")
-    elif tech in ("many_shot", "many_shot_cot"):
-        params.append(f"shots={_resolve('many_shot_example_count', 100)}")
-    elif tech == "chunked_request":
-        params.append(f"chunk={_resolve('chunked_request_chunk_size', 50)}")
-    elif tech == "gcg":
-        params.append(f"suffix={_resolve('gcg_suffix_len', 20)}")
-        params.append(f"iters={_resolve('gcg_max_iterations', 500)}")
-    elif tech == "cair":
-        params.append(f"iters={_resolve('cair_max_iterations', 10)}")
-    elif tech in ("skeleton_key", "skeleton_key_native"):
-        params.append("prefix=system_prompt")
-    elif tech == "cot_hijack":
-        params.append(f"turns={_resolve('cot_hijack_max_turns', 5)}")
-    elif tech == "encoded_injection":
-        params.append("encoding=base64+unicode")
-    elif tech == "embedding_inversion":
-        params.append("recovery=cosine_sim")
-    elif tech == "mcp_rag":
-        params.append("phase2=active")
-        params.append("vector=indirect_injection")
-    elif tech == "rogue_agent":
-        params.append("protocol=A2A")
-    elif tech == "multi_model_pair":
-        params.append("strategy=cross_model")
-
-    return ", ".join(params) if params else ""
 
 
 def _load_tech_asr_data(
@@ -535,39 +457,6 @@ def _get_seed_summary(ctx: "PipelineContext") -> str:
     return ", ".join(parts)
 
 
-def _get_converter_summary(tech: str, ctx: "PipelineContext") -> str:
-    """获取技术对应的 converter 摘要 (简短格式)."""
-    if ctx.converter_map and tech in ctx.converter_map:
-        converters = ctx.converter_map[tech]
-        if converters:
-            from utils.display_stages import _get_converter_chain_names
-            return _get_converter_chain_names(converters, max_display=5)
-        return "none (raw payload)"
-
-    _native_converter_map = {
-        "crescendo": "native multi-turn (adversarial prompts)",
-        "tap": "native tree-search (adversarial prompts)",
-        "pair": "native iterative (adversarial prompts)",
-        "red_teaming": "native multi-turn (adversarial prompts)",
-        "cot_hijack": "native CoT hijack (adversarial prompts)",
-        "best_of_n": "native variation retry (N samples)",
-        "gcg": "native GCG suffix optimization",
-        "cair": "native CAIR iterative optimization",
-        "encoded_injection": "base64 + unicode bypass",
-        "skeleton_key_native": "native system prompt prefix",
-        "many_shot_cot": "native many-shot + CoT prefix",
-        "multi_prompt_sending": "native multi-prompt batch",
-        "chunked_request": "native request chunking",
-        "rogue_agent": "native A2A protocol abuse",
-        "embedding_inversion": "native embedding recovery",
-        "mcp_rag": "native indirect prompt injection",
-        "multi_model_pair": "native cross-model pairing",
-    }
-    native_desc = _native_converter_map.get(tech)
-    if native_desc:
-        return native_desc
-
-    return "none (raw payload)"
 
 
 # ── 卡片绘制函数 (用于进度展示) ──
