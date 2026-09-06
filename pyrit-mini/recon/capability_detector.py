@@ -18,6 +18,10 @@ from typing import Any
 # SSOT: 能力评分统一调用 confidence_scorer
 from recon.confidence_scorer import get_all_capability_names, score_capability
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,7 +85,7 @@ async def probe_response_path(parsed: Any) -> str | None:
         async with httpx.AsyncClient(
             timeout=10.0,
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as client:
             response = await client.request(
                 method=parsed.method,
@@ -232,7 +236,7 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
     async with httpx.AsyncClient(
         timeout=15.0,
         follow_redirects=True,
-        verify=False,
+        verify=_TLS_VERIFY,
     ) as client:
         for probe_type, probe_prompt in probe_prompts.items():
             # 使用 parsed.body 模板替换 {PROMPT}, 而非硬编码 body 格式

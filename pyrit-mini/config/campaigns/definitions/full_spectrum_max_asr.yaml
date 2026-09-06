@@ -1,0 +1,38 @@
+# Campaign: full_spectrum_max_asr — 全光谱最大 ASR
+# 用途: 红队深度评估, 最大化 ASR, 耗尽型测试
+
+name: "full_spectrum_max_asr"
+description: "全光谱攻击 — 最大化 ASR, 用于红队深度评估与合规验证"
+version: "2.0"
+
+# 攻击目标 (多目标)
+targets: [mocka, mockb]
+
+# 攻击策略: 最大化
+strategy:
+  mode: adaptive
+  intensity: maximum
+
+# 攻击面: 覆盖全场景 (不指定, 在 orchestration 中指定全部种子)
+
+# 攻击编排: 最全配置
+orchestration:
+  seeds: [_core/, _encoding_evasion/, _multilingual/, _attack_surface/, _experimental/]
+  converters: [l5_optimal]
+  techniques: [auto]
+  scorers: [adaptive_dual_judge]
+
+# 执行控制: 高资源
+execution:
+  max_seeds: 100
+  max_attempts: 10
+  max_concurrency: 5
+  timeout: 7200
+  escalation: true
+  html_report: true
+
+memory_labels:
+  campaign: "full_spectrum_max_asr"
+  version: "2.0"
+  intensity: "maximum"
+  scenario: "compliance_deep_test"

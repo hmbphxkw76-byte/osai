@@ -199,8 +199,142 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 ---
 
+## 第八章：考试就绪评分卡与快速交战 Playbook（v1.2 增补）
+
+> **用途**：考试前一周的最终就绪确认 + 考试期间的快速行动指南。结合项目能力与 OffSec AI-300 考纲 11 模块的全面就绪评估。
+
+### 8A. 考试就绪评分卡（Exam Readiness Scorecard）
+
+> **评估时机**：考试前一周完成评估，满分 100 分，≥80 分判定为"可参加考试"。
+
+| # | 维度 | 权重 | 评估标准 | 得分 |
+|---|------|------|---------|------|
+| R1 | **P0 主链路完整性** | 25% | REQ-001~008 全部 implemented 且 Tier 2 验证通过 | /25 |
+| R2 | **Toolchain 健康度** | 15% | ruff 全绿、pytest 全过、guard BLOCKING 零新增、dry-run 无 ImportError | /15 |
+| R3 | **PyRIT 攻击引擎就绪** | 15% | PromptSendingAttack + SkeletonKeyAttack + 三多轮（Crescendo/TAP/PAIR）全部可跑通 | /15 |
+| R4 | **考域覆盖度（11 模块）** | 20% | M1-M11 映射中 ≥9 模块有"已具备"或"可执行"评级 | /20 |
+| R5 | **考试模式 campaign** | 10% | exam_mode.yaml 配置完成且单命令可跑、时间盒降级逻辑生效 | /10 |
+| R6 | **报告生成能力** | 10% | REQ-113 四段结构可即时生成、证据全字段非空验证通过 | /10 |
+| R7 | **模拟考通过** | 5% | T2-3 模拟考完成、报告自评通过 | /5 |
+
+**就绪等级**：
+- **A 级（≥90 分）**：完全就绪，可策略性选目标深度打击
+- **B 级（80-89 分）**：基本就绪，可参加考试，优先高先验目标
+- **C 级（70-79 分）**：部分就绪，需考前补强（聚焦 P0 缺陷修复）
+- **D 级（<70 分）**：不建议参加考试，需完成阶段 0 稳定化
+
+### 8B. 考域覆盖度详细评估（M1-M11）
+
+| 模块 | 权重 | 现状代码证据 | 就绪标志 |
+|------|------|---------|------|
+| M1 Red Teaming 方法论 | — | 六阶段链路 + ASR 度量体系 | ✅ 自动就绪 |
+| M2 Recon for AI Targets | — | recon/ 全量模块（burp_parser/capacity/mcp/system_prompt） | ✅ 自动就绪 |
+| M3 Attacking AI Agents | — | agent 种子 10+ 条 + SkeletonKeyAttack 包装 | 🟡 需 Tier 2 验证 |
+| M4 Multi-Agent & A2A | — | ma_* 种子 5 条（REQ-109 执行层待补） | 🟡 需 REQ-109 |
+| M5 RAG Pipelines | — | rag 种子 + mcp_rag_attack | 🟡 需执行验证 |
+| M6 Embeddings | — | embedding_inversion.py（待锚定） | 🔴 需 REQ-110 |
+| M7 MCP & Tool Surfaces | — | mcp 种子 11 条 + ADR-003 旁路 + mcp_enumerator | ✅ 自动就绪 |
+| M8 Supply Chain | — | T2_LLM03_supply_chain_SBOM 种子 + REQ-111 清单 | 🟡 需 REQ-111 |
+| M9 AI Infra & Deployment | — | port_expander + openapi_discoverer | 🟡 部分就绪 |
+| M10 Threat Modeling | — | ATLAS/OWASP 映射 + attack_surface_graph | 🟡 需 REQ-113 |
+| M11 Capstone 24h | — | 全链路 + exam_mode campaign | 🟧 需 T2-3 模拟考 |
+
+### 8C. 快速交战 Playbook（Rapid Engagement Playbook）
+
+> **用途**：考试期间根据目标类型的预定义攻击剧本。直接使用预配置 campaign，无需现场设计攻击方案。
+
+**Playbook A：通用 LLM Chat 目标（预计 30min）**
+
+```bash
+# Step 1: 快速指纹（5min）
+python main.py --burp target.txt --stage recon
+
+# Step 2: 选择高先验种子 + 默认 Converter
+python main.py --stage arm --seeds T1_LLM01_elite_jailbreaks --converters default
+
+# Step 3: 多路径打击（15min）
+python main.py --stage strike --max-seeds 15
+
+# Step 4: 若 ASR < 90%，触发升级链（10min）
+python main.py --stage escalate --auto
+
+# Step 5: 评分 + 证据（5min）
+python main.py --stage assess --stage report
+```
+
+**Playbook B：AI Agent 目标（预计 45min）**
+
+```bash
+# Step 1: 快速指纹 + tool 探测（5min）
+python main.py --burp target.txt --stage recon --deep-probe tools
+
+# Step 2: Agent 专用种子（tool_hijack + workflow_escalation）
+python main.py --stage arm --seeds T1_ASI02_function_call_exploit,T1_ASI03_workflow_escalation
+
+# Step 3: SkeletonKeyAttack 首发（ASR 80-95%）
+python main.py --stage strike --technique skeleton_key_native
+
+# Step 4: CrescendoAttack 渐进升级
+python main.py --stage escalate --level L1 --technique crescendo
+
+# Step 5: 评分 + 报告
+python main.py --stage assess --stage report
+```
+
+**Playbook C：MCP Server 目标（预计 45min）**
+
+```bash
+# Step 1: MCP 枚举 + 工具分析（10min）
+python main.py --burp target.txt --stage recon --mcp-deep
+
+# Step 2: MCP 专用种子 + 动态种子生成
+python main.py --stage arm --seeds mcp_server_injection,mcp_tool_chaining,mcp_tool_hijack --dynamic
+
+# Step 3: JSON-RPC 旁路直发（ADR-003）
+python main.py --stage strike --protocol jsonrpc
+
+# Step 4: MCP 升级链 + 信任链攻击
+python main.py --stage escalate --level L1-L2
+
+# Step 5: 评分 + 报告
+python main.py --stage assess --stage report
+```
+
+**Playbook D：RAG Pipeline 目标（预计 30min）**
+
+```bash
+# Step 1: RAG 侦察 + 知识库探测（5min）
+python main.py --burp target.txt --stage recon --rag-probe
+
+# Step 2: 间接注入种子 + 检索污染
+python main.py --stage arm --seeds T1_LLM01_indirect_injection,rag_full_attack_surface
+
+# Step 3: 多 Converter 间接注入路径
+python main.py --stage strike --max-seeds 10
+
+# Step 4: 升级链
+python main.py --stage escalate --auto
+
+# Step 5: 评分 + 报告
+python main.py --stage assess --stage report
+```
+
+### 8D. 考试日应急预案（Exam Day Contingencies）
+
+| 情形 | 应急动作 | 预计恢复时间 |
+|------|---------|------------|
+| 目标完全不可达（ConnectionError） | 立即切换下一目标，记录失败原因 | 0min |
+| PyRIT 版本不兼容 | 激活 venv + pyrit==1.0.* 钉住回滚 | 5min |
+| Token 预算耗尽（80%） | 切换高先验种子-only 模式 + 禁用升级链 | 2min |
+| 证据链字段缺失 | 运行 evidence_validator.py 补全 | 10min |
+| 报告生成超时 | 使用 --fast-mode 生成最小可用报告 | 2min |
+| 自定义 LLM 评分器超时 | 降级到 0-token 拒绝检测-only 模式 | 1min |
+
+---
+
 ## 版本记录
 
 | 版本 | 日期 | 变更摘要 | 批准 |
 |------|------|---------|------|
 | v1.0 | 2026-09-05 | REV-02 创建：源码审计基线（@0b8e28c）、双重使命与 AI-300 考纲 11 模块映射、红队最佳实践基线、四阶段任务序列（T0-1~T2-3 + 持续运营）、vibe coding 会话操作模型、考试日 Runbook | 用户会话批准 |
+| v1.1 | 2026-09-06 | REV-03 AI-300 考试路线图优化：① 新增第八章 考试就绪评分卡与快速交战 Playbook（就绪评分卡 8A、考域覆盖度详细评估 8B、快速交战 Playbook A-D 8C、考试日应急预案 8D）；② 阶段规划本体无变更 | 用户会话批准 |

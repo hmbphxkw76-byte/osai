@@ -2075,8 +2075,12 @@ def _get_technique_category(tech: str) -> str:
     return "other"
 
 
-def _get_technique_params(tech: str) -> str:
-    """从 defaults.yaml 读取技术特定参数, 显示关键配置."""
+def _get_technique_params(tech: str, ctx: "PipelineContext | None" = None) -> str:
+    """从 ctx.args / defaults.yaml 读取技术特定参数, 显示关键配置.
+
+    优先从 ctx.args 读取 (支持命令行覆盖), 其次从 defaults.yaml 读取,
+    最后使用模块级 fallback 常量。
+    """
     try:
         from pathlib import Path
 
@@ -2090,38 +2094,49 @@ def _get_technique_params(tech: str) -> str:
     except Exception:
         cfg = {}
 
+    def _resolve(key: str, default: float) -> float:
+        """优先从 ctx.args 读取, 其次 yaml, 最后 fallback."""
+        if ctx is not None:
+            args = getattr(ctx, "args", None)
+            if args is not None:
+                val = getattr(args, key, None)
+                if val is not None and isinstance(val, (int, float)):
+                    return float(val)
+        return float(cfg.get(key, default))
+
     params: list[str] = []
     if tech.startswith("crescendo"):
-        params.append(f"turns={cfg.get('crescendo_max_turns', 10)}")
-        params.append(f"backtrack={cfg.get('crescendo_max_backtracks', 5)}")
+        params.append(f"turns={_resolve('crescendo_max_turns', 10)}")
+        params.append(f"backtrack={_resolve('crescendo_max_backtracks', 5)}")
     elif tech == "tap":
-        params.append(f"width={cfg.get('tap_tree_width', 4)}")
-        params.append(f"depth={cfg.get('tap_tree_depth', 4)}")
+        params.append(f"width={_resolve('tap_tree_width', 4)}")
+        params.append(f"depth={_resolve('tap_tree_depth', 4)}")
     elif tech == "pair":
-        params.append(f"width={cfg.get('pair_tree_width', 1)}")
-        params.append(f"depth={cfg.get('pair_tree_depth', 4)}")
+        params.append(f"width={_resolve('pair_tree_width', 1)}")
+        params.append(f"depth={_resolve('pair_tree_depth', 4)}")
     elif tech.startswith("red_teaming"):
-        params.append(f"turns={cfg.get('red_teaming_max_turns', 3)}")
+        params.append(f"turns={_resolve('red_teaming_max_turns', 3)}")
     elif tech.startswith("best_of_n"):
-        params.append(f"retries={cfg.get('best_of_n_retries', 5)}")
+        params.append(f"retries={_resolve('best_of_n_retries', 5)}")
     elif tech in ("many_shot", "many_shot_cot"):
-        params.append(f"shots={cfg.get('many_shot_example_count', 100)}")
+        params.append(f"shots={_resolve('many_shot_example_count', 100)}")
     elif tech == "chunked_request":
-        params.append(f"chunk={cfg.get('chunked_request_chunk_size', 50)}")
+        params.append(f"chunk={_resolve('chunked_request_chunk_size', 50)}")
     elif tech == "gcg":
-        params.append(f"suffix={cfg.get('gcg_suffix_len', 20)}")
-        params.append(f"iters={cfg.get('gcg_max_iterations', 500)}")
+        params.append(f"suffix={_resolve('gcg_suffix_len', 20)}")
+        params.append(f"iters={_resolve('gcg_max_iterations', 500)}")
     elif tech == "cair":
-        params.append(f"iters={cfg.get('cair_max_iterations', 10)}")
+        params.append(f"iters={_resolve('cair_max_iterations', 10)}")
     elif tech in ("skeleton_key", "skeleton_key_native"):
         params.append("prefix=system_prompt")
     elif tech == "cot_hijack":
-        params.append(f"turns={cfg.get('cot_hijack_max_turns', 5)}")
+        params.append(f"turns={_resolve('cot_hijack_max_turns', 5)}")
     elif tech == "encoded_injection":
         params.append("encoding=base64+unicode")
     elif tech == "embedding_inversion":
         params.append("recovery=cosine_sim")
     elif tech == "mcp_rag":
+        params.append("phase2=active")
         params.append("vector=indirect_injection")
     elif tech == "rogue_agent":
         params.append("protocol=A2A")
@@ -2324,7 +2339,7 @@ def _print_priority_batch_card(
         asr_str = f" [{', '.join(asr_parts)}]" if asr_parts else ""
 
         # 技术参数
-        params_str = _get_technique_params(tech)
+        params_str = _get_technique_params(tech, ctx)
 
         # 种子来源 (批次间传递逻辑)
         if batch_idx == 0:
@@ -2837,7 +2852,7 @@ def print_escalation_tech_start(
 
     ep_name = _get_endpoint_name(ctx)
     cat = _get_technique_category(technique)
-    params_str = _get_technique_params(technique)
+    params_str = _get_technique_params(technique, ctx)
 
     # 批次信息
     batch_str = ""

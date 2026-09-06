@@ -3,8 +3,8 @@
 # 用途: 最小化配置, 快速验证目标基础安全性, CI/CD 集成
 #
 # 用法:
-#   python main.py --config-file config/campaigns/rapid_recon.yaml
-#   python main.py --config-file config/campaigns/rapid_recon.yaml --burp mocka
+#   python main.py --config-file config/campaigns/definitions/rapid_recon.yaml
+#   python main.py --config-file config/campaigns/definitions/rapid_recon.yaml --burp mocka
 #
 # 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
 # ═══════════════════════════════════════════════════════════════════════════════

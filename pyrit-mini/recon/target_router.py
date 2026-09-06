@@ -32,6 +32,10 @@ from recon.burp_parser import (
 )
 from targets.rate_limited import RateLimitedTarget
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # ════════════════════════════════════════════════════════════════════
@@ -461,7 +465,7 @@ async def _check_target_availability(parsed: Any) -> bool:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as client:
             async with client.stream(
                 method=parsed.method,

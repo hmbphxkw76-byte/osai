@@ -31,6 +31,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # 常见 OpenAPI/Swagger 文档路径 (按优先级排序)
@@ -143,7 +147,7 @@ async def discover_openapi_spec(
             async with httpx.AsyncClient(
                 timeout=timeout,
                 follow_redirects=True,
-                verify=False,
+                verify=_TLS_VERIFY,
             ) as client:
                 response = await client.get(url, headers=probe_headers)
                 if response.status_code == 404:

@@ -15,14 +15,14 @@ HTTPTarget 閫傞厤:
 
 鍗囩骇绛栫暐 (鎸変紭鍏堢骇):
     Level 1: CoT Hijack + Crescendo + TAP + PAIR
-    Level 2: GCG + Best-of-N + Encoded Injection
+    Level 2: GCG + Best-of-N
     Level 3: Multi-Model + SkeletonKey + Many-Shot+CoT
     Level 4: Rogue Agent + Embedding Inversion + MCP/RAG
     Final: LLM Judge Rescore
 
 L5 v41: 瀹屾暣鍗囩骇閾?鈥?琛ュ叏鎵€鏈?_run_* wrapper 璋冪敤
     瀛︽湳渚濇嵁: Rule 10 瀹屾暣鍗囩骇閾捐姹?
-    Single-turn 鈫?Best-of-N 鈫?Crescendo 鈫?TAP 鈭?PAIR 鈫?GCG 鈭?CAIR
+    Single-turn 鈫?Best-of-N 鈫?Crescendo 鈫?TAP 鈭?PAIR 鈫?GCG
       鈫?Many-Shot+CoT 鈫?Multi-model CoT 鈫?SkeletonKey 鈫?native attacks
 """
 
@@ -34,14 +34,6 @@ import time
 from typing import Any
 
 from core.context import PipelineContext
-from strike.escalation_attacks import (  # noqa: F401 鈥?re-exports
-    _is_security_audit_error,
-    _run_crescendo,
-    _run_pair,
-    _run_red_teaming,
-    _run_tap,
-    _SecurityAuditError,
-)
 from strike.escalation_chain import (  # noqa: F401 — re-exports (统一升级链)
     _apply_mtos_ranking,
     _build_refusal_inverter_scoring_config,
@@ -54,11 +46,9 @@ from strike.escalation_chain import (  # noqa: F401 — re-exports (统一升级
     _llm_judge_rescore,
     _retrieve_partial_results,
     _run_best_of_n,
-    _run_cair,
     _run_chunked_request,
     _run_cot_hijack,
     _run_embedding_inversion,
-    _run_encoded_injection,
     _run_gcg,
     _run_mcp_rag_attacks,
     _run_multi_model_escalation,
@@ -456,7 +446,7 @@ async def check_and_escalate(
             print_escalation_level_banner(
                 ctx,
                 level=2,
-                techniques=["gcg", "cair", "best_of_n", "encoded_injection"],
+                techniques=["gcg", "best_of_n"],
                 failed_count=len(failed_objectives),
             )
         except Exception:
@@ -464,9 +454,7 @@ async def check_and_escalate(
         # v57: L2 执行时完整路径展示
         _l2_runners = [
             ("gcg", _run_gcg),
-            ("cair", _run_cair),
             ("best_of_n", _run_best_of_n),
-            ("encoded_injection", _run_encoded_injection),
         ]
         _l2_start_time = time.monotonic()
         try:
@@ -481,9 +469,7 @@ async def check_and_escalate(
 
         l2_results = await asyncio.gather(
             _safe_call(_run_gcg(ctx, failed_objectives), "GCG"),
-            _safe_call(_run_cair(ctx, failed_objectives), "CAIR"),
             _safe_call(_run_best_of_n(ctx, failed_objectives), "Best-of-N"),
-            _safe_call(_run_encoded_injection(ctx, failed_objectives), "Encoded Injection"),
             return_exceptions=False,
         )
 

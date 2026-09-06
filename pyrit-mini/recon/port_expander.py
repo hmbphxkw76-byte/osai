@@ -37,6 +37,10 @@ from typing import Any
 
 import yaml as _yaml
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # R7: 效率参数从 config/defaults.yaml SSOT 读取 (禁止硬编码)
@@ -260,7 +264,7 @@ async def _probe_port_paths(
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as client:
             for path in _PORT_PROBE_PATHS:
                 url = f"{base_url}{path}"
@@ -620,7 +624,7 @@ async def confirm_vector_dbs(
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
-        verify=False,
+        verify=_TLS_VERIFY,
     ) as shared_client:
         tasks = [_confirm_one(shared_client, tech, port) for tech, port in unique_candidates]
         await asyncio.gather(*tasks, return_exceptions=True)

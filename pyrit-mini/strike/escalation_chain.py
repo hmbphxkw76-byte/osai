@@ -629,9 +629,9 @@ async def _run_cair(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """L5 v52: 对失败目标执行 CAIR 上下文感知迭代优化攻击。
+    """⚠️ STUB — 已从升级链摘除 (P0-2, REV-06)。
 
-    CAIR (Context-Aware Iterative Refinement) 是 PAIR 的增强版本,
+    CAIR (Context-Aware Iterative Refinement) 原设计为 PAIR 增强版本,
     能根据目标拒绝模式动态调整攻击策略 (safety/ethical/legal/capability/generic),
     并在迭代间累积上下文记忆。
 
@@ -639,12 +639,15 @@ async def _run_cair(
         - Chao et al. (arXiv:2310.08419) — PAIR/CAIR 上下文感知迭代优化
         - Lattner et al. (arXiv:2406.12609) — 并行升级策略降低总执行时间
 
+    状态: stub 实现返回空结果。根据路线图 T0-2 (实现或摘除),
+    已从 escalation.py L2 并行调用中摘除, 消除虚假能力印象。
+
     Args:
         ctx: 流水线上下文。
         objectives: 失败目标列表。
 
     Returns:
-        CAIR 攻击结果字典 {"cair": [results]}。
+        空字典 (未执行)。
     """
     from strike.cair import run_cair_attack
 
@@ -983,13 +986,18 @@ async def _run_encoded_injection(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """P0-2: 编码混淆攻击包装。"""
-    try:
-        from strike.encoded_injection import run_encoded_injection_attack
-        return await run_encoded_injection_attack(ctx, objectives)
-    except Exception as e:
-        logger.error("Encoded injection wrapper failed: %s", e)
-        return {}
+    """⚠️ STUB — 已从升级链摘除 (P0-2, REV-06)。
+
+    Encoded Injection 原设计通过 Base64/ROT13/Unicode 等编码绕过安全过滤。
+    学术依据: Zou et al. (arXiv:2307.08673) §4.5 — ASR +10-20%
+
+    状态: stub 实现返回空结果。根据路线图 T0-2 (实现或摘除),
+    已从 escalation.py L2 并行调用中摘除, 消除虚假能力印象。
+
+    Returns:
+        空字典 (未执行)。
+    """
+    return {}
 
 
 async def _run_rogue_agent(

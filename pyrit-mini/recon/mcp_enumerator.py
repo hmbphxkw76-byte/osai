@@ -39,6 +39,10 @@ import logging
 import re
 from typing import Any
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # MCP JSON-RPC 方法 (Anthropic MCP Specification §3.2)
@@ -433,7 +437,7 @@ async def _send_mcp_jsonrpc(
         async with httpx.AsyncClient(
             timeout=_PROBE_TIMEOUT,
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as client:
             response = await client.post(
                 url=url,
@@ -617,7 +621,7 @@ async def _send_raw_jsonrpc(
         async with httpx.AsyncClient(
             timeout=_PROBE_TIMEOUT,
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as client:
             response = await client.post(url=url, headers=headers, content=body)
             if response.status_code >= 400:

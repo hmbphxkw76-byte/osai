@@ -1,8 +1,15 @@
 # 任务规格：TASK-___（标题：一句话、动词开头，如"为 REQ-002 增加 XX 探针"）
 
+> **类型**：标准任务 / **考试快速任务**（Exam Quick Task — OffSec AI-300 考试变体，使用 30-TASKS 第九章协议）
 > **状态**：draft → spec'd → approved → in-progress → verified → closed / aborted
-> **来源**：REQ-___ / DEBT-___ / bug 现象（描述）/ 其他（须先走 20-REQUIREMENTS 第五章登记，否则 STOP）
+> **来源**：REQ-___ / DEBT-___ / bug 现象（描述）/ **考试模板（TPL-LLM/AGENT/MULTI/RAG/MCP/EMB）** / 其他（须先走 20-REQUIREMENTS 第五章登记，否则 STOP）
 > **规格版本引用**：宪法 v___ 相关条款 / 蓝图 v___ 相关章节 / 需求 v___ 对应条目
+
+**考试快速任务变体说明**（当类型 = 考试快速任务时填写）：
+- **模板 ID**：TPL-___（对应 30-TASKS 9B 模板清单）
+- **目标类型**：___（LLM/Agent/Multi-Agent/RAG/MCP/Embedding）
+- **预计耗时**：___min（按 50-ROADMAP 8C Playbook 时间盒）
+- **简化门禁**：跳过 Step 1（guard 静态检查），保留 Step 4（dry-run）+ Tier 2（真实攻击验证）
 
 ## 1. 背景与目标
 

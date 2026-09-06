@@ -157,6 +157,72 @@ python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记�
 
 ---
 
+## 第七章：OffSec AI-300 考试合规与证据完整性（v1.3 增补）
+
+> **效力**：本章为考试场景的合规红线与证据完整性约束，视同 R-S* 安全合规红线级（宪法 C2 边界条款）。考试期间任何违反本章的行为 = 严重违宪。
+
+### 7A. 考试合规红线（Exam Compliance Red Lines）
+
+| # | 红线 | 违规后果 | 我们的防护 |
+|------|------|---------|------|
+| E-CL1 | **工具使用违规**：使用禁止的交互式 AI 聊天助手 | 考试成绩作废 | 本项目 PyRIT 三角色 LLM 是攻击引擎（执行 prompt），非聊天助手（不对话） |
+| E-CL2 | **目标越界**：攻击考试下发目标之外的任何主机 | 考试成绩作废 + 可能的纪律处分 | R-S1 授权边界 + 目标硬编码白名单 |
+| E-CL3 | **证据造假**：报告未实际执行的攻击 | 考试成绩作废 | 证据全字段非空校验 + PoC 独立可复跑验证 |
+| E-CL4 | **密钥泄露**： PoC/笔记中出现真实 API key | 可能导致成绩作废 | R-S2 密钥纪律 + PoC 端点环境变量化 |
+| E-CL5 | **报告抄袭**：直接复制他人报告 | 考试成绩作废 | 基于实际证据自动生成，无法抄袭 |
+
+### 7B. 证据完整性约束（Evidence Integrity Constraints）
+
+> **目的**：OffSec 考试中成功攻击必须附可复现证据。本章定义证据链的完整字段集与验证标准。
+
+**证据全字段清单**（REQ-007 + REQ-126 综合）：
+
+| 字段 | 必需 | 验证标准 | 对应报告段落 |
+|------|------|---------|------|
+| `jailbreak_prompt` | ✅ | 非空字符串，可独立执行 | findings |
+| `harmful_output` | ✅ | 非空字符串，含攻击成功标识 | findings |
+| `conversation` | ✅ | 完整多轮对话（request/response 对） | evidence/ 附件 |
+| `scorer_results` | ✅ | J1/J2 评分结果 + confidence | findings |
+| `converter_log` | ✅ | 使用的 Converter 链 + 参数 | appendix |
+| `arxiv_reference` | ✅ | 至少一个 arXiv 编号 | findings |
+| `validation_runs` | ✅ | PoC 独立运行 ≥1 次成功 | evidence/ 附件 |
+| `testing_conditions` | ✅ | 测试环境/时间/版本信息 | appendix |
+| `cvss_score` | ✅ | CVSS 类比风险等级 | findings |
+| `owasp_mapping` | ✅ | OWASP LLM Top 10 2025 分类 | findings |
+| `mitre_atlas_mapping` | ✅ | MITRE ATLAS 战术/技术映射 | findings |
+| `remediation` | ✅ | 修复建议（REQ-113 四段结构） | remediation |
+
+### 7C. 证据自动验证检查单
+
+每次攻击成功后，执行以下自动验证（确保 E-CL3 不触发）：
+
+```markdown
+- [ ] jailbreak_prompt 非空且可独立执行
+- [ ] harmful_output 含攻击成功标识（拒绝检测绕过的证据）
+- [ ] conversation 含完整 request/response 对
+- [ ] scorer_results 非空（J1/J2 任意置信度）
+- [ ] converter_log 记录了使用的 Converter 链
+- [ ] arxiv_reference 非空（至少一个 arXiv 编号）
+- [ ] validation_runs 记录了独立复跑结果
+- [ ] testing_conditions 含环境信息
+- [ ] cvss_score 已计算
+- [ ] owasp_mapping + mitre_atlas_mapping 已关联
+```
+
+### 7D. 考试日定期自检规程
+
+> **执行时机**：考试中每 4h 执行一次（建议在每个目标切换时）。
+
+| 检查项 | 方法 | 期望结果 |
+|------|------|---------|
+| 目标白名单 | 确认当前目标在考试下发列表中 | ✅ 在列表内 |
+| 工具使用 | 确认未使用交互式 AI 聊天助手 | ✅ 仅用 PyRIT 攻击引擎 |
+| 证据完整性 | 跑 7C 检查单 | ✅ 全部字段非空 |
+| 密钥泄露扫描 | grep PoC 文件中 `sk-` / `api_key` 模式 | ✅ 零命中 |
+| 时间盒进度 | 检查已用时间 / 剩余目标数 | ✅ 在预算范围内 |
+
+---
+
 ## 版本记录
 
 | 版本 | 日期 | 变更摘要 | 批准 |
@@ -164,3 +230,4 @@ python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记�
 | v1.0 | 2026-09-05 | 初版：R-L/R-H/R-S 红线、四步门禁、三层防线、基线与回滚协议、评审清单 | — |
 | v1.1 | 2026-09-05 | REV-01：① 新增 1D 检查器登记簿（16 项引用汇总，级别标注，缺口登记 BL-003）；② 基线落盘路径改项目内 outputs/（Windows 兼容）；③ 第三章 L1 行交叉引用 1D | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02：① 第二章登记 ruff pipeline/ 盲区缺口（D-16）及临时申报纪律；② R-H1/R-H3 判定特征补充源码实证（stub 注释自认降级、escalation 9 字节孪生）；③ R-S1 补考试场景授权边界说明；④ 第六章登记 50-ROADMAP 的无门禁地位；⑤ guard 实测规模 82KB 入表 | 用户会话批准 |
+| v1.3 | 2026-09-06 | REV-03 AI-300 考试合规优化：① 新增第七章 OffSec AI-300 考试合规与证据完整性（考试合规红线 7A、证据完整性约束 7B、证据自动验证检查单 7C、考试日定期自检规程 7D）；② 红线/门禁/防线本体无变更 | 用户会话批准 |

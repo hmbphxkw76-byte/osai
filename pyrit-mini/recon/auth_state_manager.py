@@ -34,6 +34,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # JWT 解码所需的 base64url padding 补齐
@@ -542,7 +546,7 @@ class AuthStateManager:
 
         try:
             async with httpx.AsyncClient(
-                timeout=10.0, follow_redirects=True, verify=False
+                timeout=10.0, follow_redirects=True, verify=_TLS_VERIFY
             ) as client:
                 response = await client.request(
                     method=auth_state.refresh_method,
@@ -622,7 +626,7 @@ class AuthStateManager:
 
         try:
             async with httpx.AsyncClient(
-                timeout=10.0, follow_redirects=True, verify=False
+                timeout=10.0, follow_redirects=True, verify=_TLS_VERIFY
             ) as client:
                 response = await client.post(
                     url=url,

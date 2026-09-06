@@ -49,6 +49,22 @@ logger = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════
+# P2-06: TLS verify 配置化 (SSOT)
+# 从 config/defaults.yaml 读取 tls_verify 配置, 统一控制 SSL 证书验证
+# ════════════════════════════════════════════════════════════════════
+def _get_tls_verify_default() -> bool | str:
+    """加载 TLS verify 配置 (模块初始化时调用一次)。"""
+    try:
+        from recon.config_loader import get_tls_verify
+        return get_tls_verify()
+    except Exception:
+        return True  # 默认验证证书
+
+
+_TLS_VERIFY: bool | str = _get_tls_verify_default()
+
+
+# ════════════════════════════════════════════════════════════════════
 # Chat ID 状态管理器 — 多轮攻击会话追踪
 # ════════════════════════════════════════════════════════════════════
 
@@ -461,13 +477,11 @@ def build_http_target(
     shared_client = http_client
     if shared_client is None:
         http2 = "HTTP/2" in (parsed.http_version or "")
-        # P2-06: TLS verify 配置化 (SSOT)
-        from recon.config_loader import get_tls_verify
-        tls_verify = get_tls_verify()
+        # P2-06: TLS verify 配置化 (SSOT) — 使用模块级缓存
         shared_client = httpx.AsyncClient(
             timeout=120.0,
             follow_redirects=True,
-            verify=tls_verify,
+            verify=_TLS_VERIFY,
             http2=http2,
         )
 
@@ -734,7 +748,7 @@ def build_httpx_api_target(
         custom_configuration=custom_config,
         timeout=120.0,
         # P2-06: TLS verify 配置化 (SSOT)
-        verify=get_tls_verify() if 'get_tls_verify' in dir() else True,
+        verify=_TLS_VERIFY,
     )
 
     logger.info(

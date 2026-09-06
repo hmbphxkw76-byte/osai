@@ -1,0 +1,40 @@
+# Campaign: standard_redteam — 标准红队扫描
+# 用法: python main.py --config-file config/campaigns/definitions/standard_redteam.yaml
+
+name: "standard_redteam"
+description: "日常 LLM 安全评估, 平衡覆盖率与效率"
+version: "2.0"
+
+# 攻击目标 (config/campaigns/targets/ 目录下 .txt 文件)
+targets:
+  - mocka
+
+# 攻击策略: mode = single_turn | multi_turn | adaptive
+strategy:
+  mode: adaptive
+  intensity: standard  # minimal | standard | maximum
+
+# 攻击面类型 (联动 asset_index.yaml 自动路由)
+attack_surface: standard_llm_api  # standard_llm_api | mcp_server | rag_system | multi_agent_system
+
+# 攻击编排 (对齐 PyRIT 原生流水线)
+orchestration:
+  seeds: [_core/, _encoding_evasion/, _multilingual/]
+  converters: [l5_optimal]      # l5_optimal | persuasion | decomposition | none
+  techniques: [auto]             # auto | single_turn | multi_turn | crescendo | tap
+  scorers: [adaptive_dual_judge] # adaptive_dual_judge | harm_bench_harmful | web_vuln_detected
+
+# 执行控制
+execution:
+  max_seeds: 30
+  max_attempts: 5
+  max_concurrency: 3
+  timeout: 1800
+  escalation: true
+  html_report: true
+
+# 运行标签 (写入 CentralMemory)
+memory_labels:
+  campaign: "standard_redteam"
+  version: "2.0"
+  scenario: "daily_redteam"

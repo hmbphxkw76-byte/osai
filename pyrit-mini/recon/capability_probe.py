@@ -36,6 +36,10 @@ import yaml as _yaml
 # 学术依据: Greshake et al. (arXiv:2302.12173) §4, Zheng et al. (arXiv:2306.05685) §4.3
 from recon.confidence_scorer import _CAPABILITY_KEYWORDS_I18N
 
+# P2-06: TLS verify 配置化 (SSOT)
+from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+_TLS_VERIFY = _get_tls_verify_from_config()
+
 logger = logging.getLogger(__name__)
 
 # 探针超时 (秒) — 从 config/defaults.yaml SSOT 读取 (R7: 禁止硬编码效率参数)
@@ -477,7 +481,7 @@ async def probe_model_family_via_api(
         async with httpx.AsyncClient(
             timeout=_PROBE_TIMEOUT,
             follow_redirects=True,
-            verify=False,
+            verify=_TLS_VERIFY,
         ) as shared_client:
             tasks = [_probe_endpoint(shared_client, path) for path in _MODEL_LIST_ENDPOINTS]
             probe_results = await asyncio.wait_for(

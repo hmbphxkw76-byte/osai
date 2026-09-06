@@ -3,8 +3,8 @@
 # 用途: 针对性测试 MCP 协议安全性 (工具劫持 / 资源投毒 / 跨服务器攻击)
 #
 # 用法:
-#   python main.py --config-file config/campaigns/mcp_agent_targeted.yaml
-#   python main.py --config-file config/campaigns/mcp_agent_targeted.yaml --burp mockb
+#   python main.py --config-file config/campaigns/definitions/mcp_agent_targeted.yaml
+#   python main.py --config-file config/campaigns/definitions/mcp_agent_targeted.yaml --burp mockb
 #
 # 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
 # ═══════════════════════════════════════════════════════════════════════════════

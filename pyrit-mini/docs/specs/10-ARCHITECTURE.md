@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v1.5（2026-09-06 REV-05：asset_index.yaml 迁至 config/；初版 2026-09-05；REV-01/REV-02/REV-03/REV-04 D-13 消除）
+> **版本**：v1.6（2026-09-06 REV-06：Campaign 文件集中至 config/campaigns/；REV-05：asset_index.yaml 迁至 config/；初版 2026-09-05；REV-01/REV-02/REV-03/REV-04 D-13 消除）
 
 ---
 
@@ -19,8 +19,8 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
  config/defaults.yaml      ⑤ ESCALATE L1→L4 升级链                    ├── native_output/
  config/asr_priors.yaml    ⑥ ASSESS   T0→J1→J2 级联评分                └── db/pyrit.db
  data/seeds/*.prompt       (REPORT    证据/多格式报告)
-config/targets/burp/*.txt  ← Burp 目标文件 (v61 从 data/burp/ 迁入)
-config/asset_index.yaml    ← 统一资产索引 (v61 从 data/asset_index.yaml 迁入)
+config/campaigns/targets/*.txt  ← Burp 目标文件 (v62 从 config/targets/burp/ 迁入)
+config/campaigns/asset_index.yaml  ← 统一资产索引 (v62 从 config/asset_index.yaml 迁入)
 ```
 
 **使命映射**（见宪法第 0 条）：蓝图的每个部分都服务于"Burp 黑盒目标 ASR 最大化"。判断一个架构改动是否正当的唯一标准：它是否让 ①-⑥ 链路对 Burp 目标打出更高 ASR、或让证据链更可复现。
