@@ -12,7 +12,7 @@
 
 ### 1.1 总体结论
 
-**架构与蓝图吻合**：六阶段链路（recon→arm→strike→escalate→assess→report）在 pipeline/orchestrator.py 文档串中得到源码级证实；九模块划分、campaign 配置（4 个 yaml）、测试集（18 个 test 文件）、三角色 .env 均在位。**规约文档描述的 9 项债务全部在源码中证实，且新发现 7 项**（已登记蓝图第八章 D-10~D-16）。
+**架构与蓝图吻合**：六阶段链路（recon→arm→strike→escalate→assess→report）在 pipeline/orchestrator.py 文档串中得到源码级证实；九模块划分、campaign 配置（4 个 yaml）、测试集（18 个 test 文件）、三角色 .env 均在位。**规约文档描述的 9 项债务中，D-09 规范文档冗余已于 2026-09-06 消除**（B/C 类旧文档全部删除，specs/ 金字塔确立为项目唯一权威源），其余 8 项（D-01~D-08）+ 新发现 D-10~D-16 共 14 项债务在源码中证实。
 
 ### 1.2 规模热点（Top 文件）
 

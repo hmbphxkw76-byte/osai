@@ -152,7 +152,7 @@ python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记�
 | `core/setup_hooks.py` | L3 Git 门禁安装器 |
 | SKILL.md R1-R11 / D1-D6 | 细则全集，继续有效；本文件是其结构化入口，冲突处以裁决序 |
 | SKILL.md 失败模式表 | 评审培训材料，保留 |
-| `docs/implementation_checklist.md` | 已被 30-TASKS + templates 取代，存档 |
+| `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |
 | `specs/50-ROADMAP.md` | 无门禁效力；其任务序列仅供领任务顺序参考（REV-02） |
 
 ---

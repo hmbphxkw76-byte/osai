@@ -1,6 +1,6 @@
 ---
 name: pyrit-strike-dev-rules
-description: Enforces 10 mandatory development rules (R1-R10) + 6 anti-drift meta-rules (D1-D6) for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change. All 10 rules MUST appear in ALL checklist sections (Pre-Coding, During Coding, Post-Coding, Common Failure Patterns) — any missing rule tag is a drift violation.
+description: Enforces 10 mandatory development rules (R1-R10) + 6 anti-drift meta-rules (D1-D6) for the pyrit-strike AI red team pipeline. Use when writing, editing, reviewing, or running code. These rules are NON-NEGOTIABLE and MUST be followed on every code change. All 10 rules MUST appear in ALL checklist sections (Pre-Coding, During Coding, Post-Coding, Common Failure Patterns) — any missing rule tag is a drift violation. **权威源声明**：本文件为 ⑤ 护栏细则层，与 `specs/` 金字塔冲突处以金字塔为准；唯一权威源见 `specs/00-CONSTITUTION.md` 第二章裁决序。
 ---
 
 # PyRIT-Strike Development Rules
@@ -14,7 +14,7 @@ description: Enforces 10 mandatory development rules (R1-R10) + 6 anti-drift met
 1. **One-time setup**: Run `python core/setup_hooks.py` — installs pre-commit + pre-push hooks (auto-runs guard on every commit/push)
 2. **Before coding**: Run `python core/architecture_guard.py` — fix all BLOCKING violations first
 3. **While coding**: Apply all 10 rules continuously — R1 (offensive mindset), R2 (native-first), R3 (ruff+pytest+guard), R4 (L5 params), R5 (arXiv cite), R6 (AI red team readiness), R7 (ASR-token balance), R8 (production-grade), R9 (config data flow), R10 (post-change verification)
-4. **After coding — R3 gates**: Fill out `docs/implementation_checklist.md` template, then re-run guard + ruff + pytest
+4. **After coding — R3 gates**: Fill out `specs/templates/task-spec.md` template (the pre-coding spec), then re-run guard + ruff + pytest
 5. **After coding — R10 verification**: Run `python main.py --dry-run --max-seeds 1` (zero-token pipeline integrity check), then if real data needed: `python main.py --max-seeds 1 --stage strike` (minimal-token validation)
 6. **On commit**: Git hooks auto-run guard — BLOCKING violations block the commit
 7. **If any rule is violated**: STOP, fix, re-verify all rules
@@ -615,12 +615,14 @@ pyrit-mini/
 ├── core/                 # context.py, config.py, architecture_guard.py, setup_hooks.py
 ├── recon/                # burp_parser.py, target_router.py, target_builder.py, capability_detector.py, capability_probe.py, recon_report.py, mcp_enumerator.py, port_expander.py, auth_state_manager.py, confidence_scorer.py
 ├── arm/                  # seed_ranker.py, seed_ranking.py, seed_auto_expander.py, converter_presets.py, converter_chains.py, converter_selector.py, technique_picker.py, dataset_config.py
-├── strike/               # executor.py, escalation.py, escalation_attacks.py, escalation_level1/2/3.py, adaptive_executor.py, native_attacks.py, multi_turn_attacks.py, technique_registry.py, gcg_generator.py, cair.py, embedding_inversion.py, encoded_injection.py, many_shot_cot_executor.py, mcp_rag_attack.py, rogue_agent.py
+├── strike/               # executor.py, escalation.py, escalation_chain.py, escalation_level1/2/3.py, adaptive_executor.py, native_attacks.py, multi_turn_attacks.py, technique_registry.py, gcg_generator.py, cair.py, embedding_inversion.py, encoded_injection.py, many_shot_cot_executor.py, mcp_rag_attack.py, rogue_agent.py
 ├── assess/               # scorer.py, adaptive_dual_judge.py, asr_tracker.py, asr_stats.py, asr_history.py, dual_judge.py, judge_utils.py, response_parser.py
 ├── report/               # evidence.py, evidence_extract.py, generator.py, poc_generator.py, pyrit_native_output.py, report_html.py, report_markdown.py, report_sections.py, report_utils.py, sarif_report.py, owasp_constants.py, owasp_mapping.py, output.py
 ├── targets/              # rate_limited.py, content_filter.py
 ├── utils/                # display.py, cleaner.py
 ├── tests/                # test_*.py (MUST exist — guard blocks if missing)
+├── specs/                # 规约金字塔（项目唯一权威源）：00-CONSTITUTION / 10-ARCHITECTURE / 20-REQUIREMENTS / 30-TASKS / 40-GUARDRAILS / 50-ROADMAP / templates / backlog
+├── remediation/          # 整改中心：审计问题登记 / 验收标准 / P0-NEW 致命缺陷跟踪
 └── outputs/               # Per-run evidence + reports (gitignored)
 ```
 
@@ -716,17 +718,22 @@ Before starting ANY coding task, answer ALL of these. If ANY answer is "No" or "
 
 ---
 
-## Supporting Documents
+## Supporting Documents (权威源：specs/ 金字塔)
 
-| Document | Location | Purpose |
-|----------|----------|---------|
-| Requirement Traceability Matrix | `docs/requirement_traceability_matrix.md` | 6-step pipeline → PyRIT native component mapping, violation tracking |
-| Implementation Checklist Template | `docs/implementation_checklist.md` | Pre-coding checklist (MUST fill before writing code) |
-| Attack Strategy Architecture | `docs/attack_strategy.md` | Five-layer optimization: UCB → priority batch → intermediate exit → ε-greedy → model-adaptive priors |
-| Terminal + Report Optimization | `docs/terminal_report_optimization.md` | Terminal layer (T-01~T-06) + Report layer (R-01~R-09) optimization plan |
-| Architecture Guard Script | `core/architecture_guard.py` | Automated rule enforcement (run before/after every change) |
-| L5 Parameter Baseline | `config/defaults.yaml` | SSOT for all parameters |
-| V2 Architecture Spec | `docs/v2_rebuild_specification.md` | Full architecture documentation |
+> **2026-09-06 更新**：本表已重写为 specs/ 金字塔索引。所有 B/C 类旧文档（implementation_checklist / RTM / attack_strategy / escalate / scenariod / terminal_report_optimization）已删除，specs/ 为项目唯一权威源。
+
+| 文档 | 位置 | 职责 |
+|------|------|------|
+| 宪法（L0） | `specs/00-CONSTITUTION.md` | AI 行为宪法：使命 / 裁决序 / C1-C12 / 违宪症状速查表 / 制宪配套附则 |
+| 技术蓝图（L1） | `specs/10-ARCHITECTURE.md` | 分层与依赖矩阵 / 阶段词汇映射 / ctx 契约 / 不变量 I1-I10 / ADR / 债务簿 D-01~D-16 |
+| 需求登记（L2） | `specs/20-REQUIREMENTS.md` | REQ-001~008（P0）/ REQ-101~108（P1）/ REQ-109~113（考域）/ REQ-114~119（P0-NEW）/ NFR / NEG / 状态登记表 |
+| 任务协议（L3） | `specs/30-TASKS.md` | 生命周期 / 粒度硬上限 / 八步协议 / STOP-REPORT / 三栏汇报格式 |
+| 红线护栏（L4） | `specs/40-GUARDRAILS.md` | 红线 R-L / R-H / R-S / 四步门禁 / 三层防线 / 检查器登记簿 |
+| 路线图 | `specs/50-ROADMAP.md` | 使命执行路线图：源码审计基线 / AI-300 考纲映射 / 阶段任务序列 / vibe coding 会话模型 / 考试日 Runbook |
+| 任务模板 | `specs/templates/task-spec.md` | 任务规格模板（编码前必填） |
+| 变更提案模板 | `specs/templates/change-proposal.md` | 变更提案模板 |
+| 待办池 | `specs/backlog.md` | 唯一待办池（宪法 C4 豁免通道） |
+| 整改中心 | `remediation/audit-remediation.md` | P0-NEW 致命缺陷跟踪 / 整改验收标准 |
 
 ---
 
@@ -808,3 +815,11 @@ Every **Anti-Derailment Checklist** MUST be audited for complete R1-R10 coverage
 | Common Failure Patterns | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 If ANY cell is ❌ (missing), the checklist MUST be updated before the session ends. A rule without presence in ALL four checklist sections is at risk of being forgotten.
+
+---
+
+## 版本记录
+
+| 日期 | 变更摘要 |
+|------|---------|
+| 2026-09-06 | **D-09 债务消除**：B/C 类旧文档（implementation_checklist / RTM / attack_strategy / escalate / scenariod / terminal_report_optimization）全部删除；frontmatter 权威声明追加；Supporting Documents 表重写为 specs/ 金字塔索引；How to Use + 目录结构移除死引用 |

@@ -134,7 +134,7 @@ Step 8  如实汇报     按第六章格式汇报
 
 ## 第八章：与既有流程资产的衔接
 
-- `docs/implementation_checklist.md`（变更前检查清单）→ 其职能并入 `specs/templates/task-spec.md`；该文件降为存档（D-09）。
+- `implementation_checklist.md` → 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 完全接管（30-TASKS 第一章 draft→spec'd 流程）。
 - SKILL.md 的 Anti-Derailment Checklist → 保留为编码期细则；与本层冲突处以本层为准（裁决序 ②>⑤）。
 - `specs/backlog.md` → 已由制宪会话创建（宪法第六章附则，v1.1），唯一待办池；AI 发现的任何非本任务问题一律进 backlog，一行一条。
 - `specs/50-ROADMAP.md` → REV-02 创建（宪法第六章附则，v1.2），任务顺序与 vibe coding 会话模型的登记处。

@@ -5,8 +5,8 @@
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
 | L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C12 / 违宪症状速查表 / 制宪配套附则 | v1.2 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层与依赖矩阵 / 阶段词汇映射 / ctx 契约 / 不变量 I1-I10 / ADR / 债务簿 D-01~D-16 | v1.2 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：REQ-001~008（P0）/ REQ-101~108（P1）/ REQ-109~113（考域）/ NFR / NEG 负需求 / 状态登记表 | v1.2 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层与依赖矩阵 / 阶段词汇映射 / ctx 契约 / 不变量 I1-I10 / ADR / 债务簿 D-01~D-16 | v1.3 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：REQ-001~008（P0）/ REQ-101~108（P1）/ REQ-109~113（考域）/ REQ-114~119（P0-NEW）/ NFR / NEG 负需求 / 状态登记表 | v1.3 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度硬上限 / 八步协议 / STOP-REPORT / 三栏汇报格式 | v1.2 |
 | L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / 四步门禁 / 三层防线 / 检查器登记簿 | v1.2 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 使命执行路线图：源码审计基线 / AI-300 考纲映射 / 红队最佳实践 / 阶段任务序列 / vibe coding 会话模型 / 考试日 Runbook | v1.0 |
@@ -34,6 +34,18 @@
 对 Burp 拦截的、基于 LLM 开发的 AI 应用（黑盒 HTTP 目标），以攻击成功率（ASR）为首要度量，交付可复现的完整攻击证据链——**这个决定让 ASR 变高还是变低？**（仅限 R-S1~R-S5 授权边界之内，见宪法 C2 边界条款）
 
 第二使命（REV-02 登记）：OffSec AI-300/OSAI 备考武器化——本项目作为考试合法工具链（允许 PyRIT/Burp/自写脚本/个人笔记），映射与规划见 50-ROADMAP。
+
+## 交叉引用：整改中心
+
+代码审计与整改已独立至 [remediation/](../remediation/) 目录：
+
+| 目录 | 职责 | 关联 |
+|------|------|------|
+| [remediation/](../remediation/) | 整改中心：审计问题登记 / 整改验收标准 / P0-NEW 致命缺陷跟踪 | 整改任务必须引用本金字塔的 REQ ID + 宪法条款 + 不变量 |
+
+**双向引用规则**：
+- `remediation/audit-remediation.md` 每条整改项引用本目录的 REQ/C/I 条款
+- 整改完成后必须同步更新 `20-REQUIREMENTS.md` 状态与本目录 `backlog.md`
 
 ## 边界说明
 

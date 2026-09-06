@@ -119,6 +119,19 @@
 | REQ-112 | 考试模式 campaign | `config/campaigns/exam_mode.yaml`：单 endpoint 快速链路（recon→strike→report 精简路径）+ token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；与 REQ-102 战役预设同机制 |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
 
+## 第 3B 章：P0-NEW — 代码审计新发现需求缺口（2026-09-06 登记）
+
+> 以下为 2026-09-06 全面代码审计发现的**未登记致命缺陷**，直接影响 ASR 主链路。优先级高于 50-ROADMAP.md 中已登记任务。
+
+| ID | 陈述 | 关键验收 | 对应审计项 |
+|----|------|---------|-----------|
+| REQ-114 | 升级链默认配置下可达 | L2/L3/L4 在 `priority_scheduler_enabled=1` 默认配置下正常执行，不抛 UnboundLocalError；`_safe_call` 在模块级定义 | P0-NEW-1 |
+| REQ-115 | 多智能体种子完整加载 | `CAPABILITY_SEED_MAP["multi_agent"]` 映射全部 5 个种子文件（ma_cross_agent_injection / ma_identity_spoofing / ma_memory_poisoning / ma_trust_chain_break / ma_cascading_failure） | P0-NEW-2 |
+| REQ-116 | MCP 动态种子链路接通 | recon MCP 枚举完成后调用 `build_mcp_attack_seeds` 填充 `ctx._mcp_dynamic_seeds`，`run_mcp_rag_attacks` 合并消费动态+静态种子 | P0-NEW-3 |
+| REQ-117 | 死代码清理 | `targets/agent_adapter.py` / `data/scorer_selector.py` 确认无调用方后删除；`get_default_classifier()` 修复或删除；陈旧注释清除 | P0-NEW-4 |
+| REQ-118 | 编码损坏清零 | `escalation.py` 编码混写修复；`escalation_attacks.py` 删除（全文损坏）；`technique_registry.py` 编码修复 | D-16 扩展 |
+| REQ-119 | 场景特异性进入执行层 | 多 agent 场景有专用 attack module（非仅 tag 过滤）；MCP 场景有基于 tool schema 的动态攻击执行路径 | 8.1 分析 |
+
 ## 第四章：非功能需求
 
 | ID | 维度 | 标准 |
@@ -170,10 +183,11 @@
 | REQ-001 ~ REQ-008（P0 主链路） | 待核验 | 规约登记时未附代码库；REV-02 已完成文件级审计（@0b8e28c）：六阶段链路吻合、**REQ-004 Best-of-N 现为 stub 缺口**；逐条运行时核验待首个代码会话（BL-001） |
 | REQ-101 ~ REQ-108（P1 支撑） | 待核验 | 同上 |
 | REQ-109 ~ REQ-113（考域覆盖） | 待实现 | REV-02 登记；实现顺序见 50-ROADMAP 第四章 |
+| REQ-114 ~ REQ-119（P0-NEW 审计发现） | **open** | 2026-09-06 代码审计发现，优先级高于路线图已有任务 |
 | NFR-1 ~ NFR-7 | 待核验 | 同上；NFR-7 为 REV-02 新增 |
 
 - 状态取值：`待核验`（初始态）/ `implemented` / `partial` / `planned` / `待实现`（REV-02 新增，指已登记未开工）；
-- 历史追踪文档 `docs/requirement_traceability_matrix.md` 降为存档，不再更新；新追踪以本表为准（D-09 迁移项）。
+- 本表为需求的唯一登记处（SSOT）；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
 
 ---
 
@@ -184,3 +198,4 @@
 | v1.0 | 2026-09-05 | 初版：P0/P1/P2 分级、REQ-001~008、REQ-101~108、NFR-1~6、NEG-1~6、变更流程 | — |
 | v1.1 | 2026-09-05 | REV-01：① P0 总验收改条件式（ASR=0 须交付零成功证据链而非判失败）；② REQ-003 加运营裁剪注 + NEG-2 措辞收窄，消解两者文本冲突；③ REQ-105 明确 EMA 回写目标为 asr_history.json，asr_priors 仅人工修订（消双簿）；④ NFR-6 加 PyRIT 1.0.1 兼容硬边界（BL-002）；⑤ REQ-108 交叉引用 40-G 1D 登记簿；⑥ 第七章状态登记表实例化（初始态：待核验） | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02：① 新增第 3A 章考域覆盖需求 REQ-109~113（A2A 执行、embedding 落地、供应链侦察、exam_mode campaign、OffSec 风格报告，对齐 AI-300 考纲）；② 新增 NFR-7 离线可检与依赖锁定；③ 新增 NEG-7 运行时产物禁入 git；④ REQ-004 标注 Best-of-N stub 为现行 P0 缺口；⑤ NEG-1 范围扩至 D-01~D-16；⑥ 状态登记表更新（新增待实现态与 REV-02 审计备注） | 用户会话批准 |
+| v1.3 | 2026-09-06 | REV-03 代码审计（remediation/audit-remediation.md）：① 新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（升级链可达、多 agent 种子完整、MCP 动态链路、死代码清零、编码损坏、场景特异性）；② 状态登记表补 REQ-114~119 open 态 | — |

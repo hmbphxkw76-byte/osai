@@ -452,16 +452,15 @@ def _extract_url_from_burp(content: str) -> str | None:
 # ──────────────────────────────────────────────
 # 全局实例
 # ──────────────────────────────────────────────
-_default_classifier = None
 
 
 def get_default_classifier():
-    """获取全局默认分类器."""
-    global _default_classifier
-    if _default_classifier is None:
-        def _default_classifier():
-            return None  # placeholder
-    return _default_classifier
+    """获取全局默认分类器 (返回 classify_http_content 函数).
+
+    Returns:
+        分类器函数 (classify_http_content)
+    """
+    return classify_http_content
 
 
 def quick_classify(burp_profile_name: str, burp_dir: str | None = None) -> ClassificationResult:

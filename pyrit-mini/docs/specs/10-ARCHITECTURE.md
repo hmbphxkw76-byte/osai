@@ -167,7 +167,7 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 
 | ID | 债务 | 现状 | 消除方向 |
 |----|------|------|---------|
-| D-01 | assess 双轨并存 | judge_manager（74KB）/judge_utils（55KB）/asr_manager/score_pipeline（合并版）与拆分版功能重复 | 保留一套（以运行时 import 路径为准），删除另一套与 asr_tracker re-export |
+| D-01 | assess 双轨并存 | **合并家族**（judge_manager 1654行 + score_pipeline 654行 + asr_manager 728行 + response_parser 318行）≈ **3354 行整体死代码**，仅死文件互引；**拆分家族**（asr_tracker/asr_compute/asr_stats/asr_history/precompute）为生产活代码 | 保留拆分家族，删除合并家族 ~3354 行 |
 | D-02 | main/pipeline 镜像 | main.py 87KB 巨石（编排层含业务逻辑，违 2.1）；pipeline/orchestrator.py 实为薄转发（v58 重构半途，委托 main.run） | main 调用 pipeline 包，删除本地副本；业务逻辑下沉阶段层 |
 | D-03 | stub 模块 | encoded_injection.py / cair.run_cair_attack / multi_turn_attacks（Best-of-N）返回空 dict，注释自认"调用方 try/except 优雅降级"= R-H1 静默降级 | 要么实现（提 REQ），要么从升级链摘除；禁止维持"编排了但没实现"状态。**注意：Best-of-N 属 REQ-004 P0 验收项，此 stub 是现行 P0 缺口** |
 | D-04 | recon → assess 跨层依赖 | target_router 调 assess.scorer 验证函数 | 验证函数移入 core 或 targets |
@@ -175,10 +175,10 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | D-06 | utils/display → arm 越界 | 展示层延迟导入 arm.seed_ranking 读 ASR | ASR 数据经 ctx 或独立查询模块传递 |
 | D-07 | 硬编码数据快照 | display._CONVERTER_ASR_LABEL 与 asr_priors.yaml 重复 | 展示层读 yaml |
 | D-08 | 无代码加载的配置 | config/target_profiles.yaml 26 profile 零消费 | 要么接 asset_mapper 要么删除 |
-| D-09 | 规范文档多处冗余 | SKILL.md（实测 57KB）/ docs/ 与 specs 职责重叠 | 按 00-CONSTITUTION 第五章迁移计划收敛 |
-| D-10 | escalation 镜像双轨 | strike/escalation.py（41638B）与 escalation_chain.py（41629B）仅差 9 字节，疑似孪生复制；另有 escalation_attacks.py（26.7KB）三轨 | 首个代码会话 diff 确认后保留一套（建议 chain 语义者胜出），孪生删除 |
-| D-11 | arm converter 三轨 | converter_chains.py / converter_presets.py / converter_selector.py 各 ~40KB 同源演化 | 按职责裁决合并（选择器/预设/构建三类职责若共存须显式契约分离，否则合并） |
-| D-12 | arm 种子排序双轨 | seed_ranker.py（23.8KB）与 seed_ranking.py（27KB）职责重叠 | 合并为单一排序模块 |
+| D-09 | 规范文档多处冗余 | SKILL.md（实测 57KB）/ docs/ 与 specs 职责重叠 | **已消除**：B/C 类旧文档（implementation_checklist/RTM/attack_strategy/escalate/scenariod/terminal_report_optimization）已于 2026-09-06 删除，specs/ 金字塔确立为唯一权威源；SKILL.md 降位为⑤细则（frontmatter 指向宪法，Supporting Documents 表已重写为 specs/ 引用）；剩余 BL-011 本体收敛按路线图推进 |
+| D-10 | escalation 三件 | 非 9 字节孪生，实为"门面+拆分"三件（escalation.py 940行门面 / chain 1124 / attacks 1057），函数集互不重叠；实际债务：re-export 债务 + `_llm_judge_rescore` 死 re-export + `_is_success`/_retrieve_partial_results 跨文件复制 + escalation_attacks.py 全文编码损坏 | 删 escalation_attacks.py + 清 re-export + 统一跨文件复制 |
+| D-11 | arm converter 三轨 | 三文件职责互补（链构建/预设分配/候选选择），非纯粹三轨；实际债务：converter_selector.py 含 ~230 行死函数（与 _get_candidate_converters 含逐字相同的 23 项 _PRIORITY_MAP 孪生）+ 循环 re-export 尾巴 | 删死函数 + 消 _PRIORITY_MAP 孪生 + 删 re-export 尾巴 |
+| D-12 | arm 种子排序双轨 | 非孪生，实为拆分+12 符号 re-export 门面；实际债务：双向 import（seed_ranking 反查 seed_ranker）+ 调用方 import 路径分裂（main/strike 走门面、executor/display 直连） | 统一 import 路径 + 消除双向 import |
 | D-13 | data/ 层代码污染 | data/ 下 4 个 .py（asset_mapper / attack_surface_classifier / scorer_selector / synergy_orchestrator），违反 2.1"数据层=声明式资产" | 代码迁至 core/ 或对应阶段层，data/ 只留声明式资产 |
 | D-14 | display.py 巨石 | utils/display.py 119KB 全库最大文件（含 D-06/D-07 关联问题） | 拆分展示/数据查询职责；读 yaml 替代硬编码 |
 | D-15 | judge 文件群 | judge_manager（74KB）+ judge_utils（55KB）+ dual_judge（27KB）+ adaptive_dual_judge（24KB）四文件，D-01 的具体形态 | 并入 D-01 消除方案统一裁决（单文件 ≤500 行目标） |
@@ -195,3 +195,4 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | v1.0 | 2026-09-05 | 初版：系统全景、分层与依赖矩阵、PyRIT 判定树、ctx 契约、Burp 数据流、不变量 I1-I10、ADR-001~006、债务簿 D-01~D-09 | — |
 | v1.1 | 2026-09-05 | REV-01：① §1.1 阶段词汇映射表（统一 recon/arm/strike/report/evidence 口径，防凭空造阶段或模块）；② I7 明确 asr_history（运行时唯一账本）与 asr_priors（人工先验唯一源）的 SSOT 关系；③ 依赖矩阵补 arm 读取 asr_history、"—"图例；④ 版本记录机制 | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02 源码对齐（审计 @0b8e28c）：① 新登记债务 D-10~D-16（escalation 孪生、converter 三轨、seed 排序双轨、data/ 层代码污染、display 巨石、judge 文件群、工具链卫生）；② D-02/D-03 现状更新（main.py 87KB 巨石证实；Best-of-N stub 定性为 P0 缺口）；③ §1.1/§2.1 标注现状违例。架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
+| v1.3 | 2026-09-06 | REV-03 代码审计修正（remediation/audit-remediation.md）：① D-01 量化修正（合并家族实际 ~3354 行死代码）；② D-10 修正（非 9 字节孪生，实为\"门面+拆分\"三件 + 编码损坏）；③ D-11 修正（非纯粹三轨，实为死函数 + _PRIORITY_MAP 孪生）；④ D-12 修正（非孪生，实为拆分+re-export+双向 import） | — |

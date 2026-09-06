@@ -199,8 +199,8 @@ python main.py --max-seeds 1 --stage strike
 ## 第五章：生效与衔接
 
 - 本宪法 v1.0 自合入 `specs/` 起生效。
-- **对存量资产的裁决**：SKILL.md（R1-R11/D1-D6）、docs/implementation_checklist.md、docs/requirement_traceability_matrix.md 降位为 ⑤ 护栏细则与历史存档——继续有效，但与本宪法冲突处以宪法为准。
-- 后续迁移任务（已登记 backlog，见 `specs/backlog.md` BL-004/BL-005/BL-011）：将 SKILL.md frontmatter 指向本宪法；implementation_checklist.md 并入 templates/task-spec.md；SKILL.md 本体收敛。**本文件合入时不做上述迁移**（遵守 C4 最小变更）。
+- **对存量资产的裁决**：SKILL.md（R1-R10/D1-D6）降位为 ⑤ 护栏细则与历史存档——继续有效，但与本宪法冲突处以宪法为准。**2026-09-06 已执行**：docs/implementation_checklist.md、docs/requirement_traceability_matrix.md、docs/attack_strategy.md、docs/escalate.md、docs/scenariod.md、docs/terminal_report_optimization.md 全部删除，specs/ 金字塔确立为项目唯一权威源。
+- **剩余迁移任务**（已登记 backlog，见 `specs/backlog.md` BL-004/BL-011）：将 SKILL.md frontmatter 指向本宪法；SKILL.md 本体收敛（BL-011）；**BL-005 已于 2026-09-06 完成**（implementation_checklist 已删除，其职能由 `specs/templates/task-spec.md` 接管）。
 
 ---
 
