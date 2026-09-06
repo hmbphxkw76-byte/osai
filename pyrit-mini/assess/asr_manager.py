@@ -25,83 +25,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 全局统计计数器 (from asr_stats.py)
+# SSOT imports — 双 Judge 全局计数器仅定义在 asr_stats.py
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# L5 v30: Post-hoc Dual Judge 全局统计计数器
-_dual_judge_total_scored: int = 0
-_dual_judge_agreements: int = 0
-_dual_judge_disagreements: int = 0
-_dual_judge_judge1_successes: int = 0
-_dual_judge_judge2_successes: int = 0
-_dual_judge_third_invoked: int = 0
-_dual_judge_third_arbitrated_success: int = 0
-
-# v56: OR aggregation false-positive tracking
-_or_aggregation_total: int = 0
-_or_aggregation_disagreements: int = 0
-_or_agreement_j1_only_success: int = 0
-_or_agreement_j2_only_success: int = 0
-
-# L5 v53 (优化 #3): 存储本次运行的自适应阈值
-_adaptive_threshold_value: float = 0.85
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Cohen's Kappa 一致性度量
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def compute_cohens_kappa(
-    agreements: int,
-    disagreements: int,
-    judge1_successes: int = 0,
-    judge2_successes: int = 0,
-) -> float:
-    """计算 Cohen's Kappa — 双 Judge 一致性度量。
-
-    学术依据:
-        - Cohen (1960) — Cohen's Kappa coefficient
-        - Zhang et al. (arXiv:2308.07920) — 双 Judge 交叉验证
-        - Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge 鲁棒性
-
-    Cohen's Kappa = (P_o - P_e) / (1 - P_e)
-
-    解读:
-        魏 > 0.80: 几乎完美一致
-        0.60 < 魏 ≤ 0.80: 严重一致
-        0.40 < 魏 ≤ 0.60: 中等一致
-        魏 ≤ 0.40: 一致性较差
-
-    Args:
-        agreements: 双 Judge 一致次数。
-        disagreements: 双 Judge 分歧次数。
-        judge1_successes: J1 判定 success 的次数。
-        judge2_successes: J2 判定 success 的次数。
-
-    Returns:
-        Cohen's Kappa 值 [-1, 1], 0.0 表示无数据。
-    """
-    total = agreements + disagreements
-    if total == 0:
-        return 0.0
-
-    p_o = agreements / total
-
-    if judge1_successes > 0 or judge2_successes > 0:
-        p1_j1 = judge1_successes / total
-        p0_j1 = 1 - p1_j1
-        p1_j2 = judge2_successes / total
-        p0_j2 = 1 - p1_j2
-        p_e = p1_j1 * p1_j2 + p0_j1 * p0_j2
-    else:
-        p_success = 0.5
-        p_e = p_success * p_success + (1 - p_success) * (1 - p_success)
-
-    if p_e == 1.0:
-        return 0.0
-
-    kappa = (p_o - p_e) / (1 - p_e)
-    return round(kappa, 3)
+from assess.asr_stats import (
+    _reset_dual_judge_stats,
+    _set_adaptive_threshold,
+    compute_cohens_kappa,
+    get_dual_judge_stats,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -285,7 +217,7 @@ def _post_hoc_judge_success(result: Any) -> bool:
 
 
 def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
-    """收集双 Judge 评分统计。
+    """收集双 Judge 评分统计 — 委托给 asr_stats.SSOT。
 
     学术依据: Zhang et al. (arXiv:2308.07920) — 双 Judge 统计
     必须反映实际评分过程中的状态, 不能从新实例获取。
@@ -296,10 +228,9 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
     Returns:
         双 Judge 统计字典。
     """
-    global _dual_judge_total_scored
+    stats = get_dual_judge_stats()
 
-    if _dual_judge_total_scored > 0:
-        stats = get_dual_judge_stats()
+    if stats.get("total_scored", 0) > 0:
         logger.info(
             "L5 v30: Dual Judge stats (from post-hoc global counter): "
             "total=%d, agreed=%d, disagreed=%d",
@@ -310,7 +241,6 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
         return stats
 
     # Fallback: 尝试从 ctx.scorer 获取
-    stats: dict[str, Any] = {}
     scorer = getattr(ctx, "scorer", None)
     if scorer and hasattr(scorer, "get_stats"):
         stats = scorer.get_stats()
@@ -318,132 +248,6 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
         return stats
 
     return stats
-
-
-def get_dual_judge_stats() -> dict[str, Any]:
-    """L5 v30: 获取全局双 Judge 统计数据。
-
-    Returns:
-        包含 total_scored, agreements, disagreements, judge1_successes,
-        judge2_successes, agreement_rate, dual_judge_invoked 等字段的字典。
-    """
-    global _dual_judge_total_scored, _dual_judge_agreements, _dual_judge_disagreements
-    global _dual_judge_judge1_successes, _dual_judge_judge2_successes
-    global _dual_judge_third_invoked, _dual_judge_third_arbitrated_success
-    global _or_aggregation_total, _or_aggregation_disagreements
-    global _or_agreement_j1_only_success, _or_agreement_j2_only_success
-
-    total = _dual_judge_total_scored
-    agreed = _dual_judge_agreements
-    disagreed = _dual_judge_disagreements
-    decided = agreed + disagreed
-
-    kappa = compute_cohens_kappa(
-        agreements=agreed,
-        disagreements=disagreed,
-        judge1_successes=_dual_judge_judge1_successes,
-        judge2_successes=_dual_judge_judge2_successes,
-    )
-
-    # 收集 T0 运行时统计
-    try:
-        from assess.judge_manager import get_t0_stats
-        t0_stats = get_t0_stats()
-    except Exception:
-        t0_stats = {}
-
-    # 计算 PyRIT 原生 ObjectiveScorerMetrics 格式指标
-    t0_stats_data = t0_stats if t0_stats else {}
-    t0_refusal = t0_stats_data.get("refusal_filtered", 0)
-    t0_success = t0_stats_data.get("success_filtered", 0)
-    refusal_overturned = t0_stats_data.get("refusal_judge_overturned", 0)
-    success_overturned = t0_stats_data.get("success_judge_overturned", 0)
-
-    t0_tp = max(0, t0_success - success_overturned)
-    t0_fp = success_overturned
-    t0_fn = refusal_overturned
-    t0_tn = max(0, t0_refusal - refusal_overturned)
-    t0_total = t0_tp + t0_fp + t0_fn + t0_tn
-
-    t0_accuracy = round((t0_tp + t0_tn) / t0_total, 3) if t0_total > 0 else 0.0
-    t0_precision = round(t0_tp / (t0_tp + t0_fp), 3) if (t0_tp + t0_fp) > 0 else 0.0
-    t0_recall = round(t0_tp / (t0_tp + t0_fn), 3) if (t0_tp + t0_fn) > 0 else 0.0
-    t0_f1 = round(2 * t0_precision * t0_recall / (t0_precision + t0_recall), 3) \
-        if (t0_precision + t0_recall) > 0 else 0.0
-
-    native_scorer_metrics = {
-        "num_responses": t0_total,
-        "num_human_raters": 1,
-        "num_scorer_trials": 1,
-        "accuracy": t0_accuracy,
-        "accuracy_standard_error": 0.0,
-        "f1_score": t0_f1,
-        "precision": t0_precision,
-        "recall": t0_recall,
-        "confusion_matrix": {
-            "tp": t0_tp,
-            "fp": t0_fp,
-            "fn": t0_fn,
-            "tn": t0_tn,
-        },
-    }
-
-    return {
-        "total_scored": total,
-        "dual_judge_invoked": total,
-        "dual_judge_rate": 100.0 if total > 0 else 0.0,
-        "agreements": agreed,
-        "disagreements": disagreed,
-        "agreement_rate": round(agreed / decided * 100, 1) if decided > 0 else 0.0,
-        "cohens_kappa": kappa,
-        "judge1_successes": _dual_judge_judge1_successes,
-        "judge2_successes": _dual_judge_judge2_successes,
-        "third_judge_invoked": _dual_judge_third_invoked,
-        "third_judge_rate": round(_dual_judge_third_invoked / total * 100, 1) if total > 0 else 0.0,
-        "third_arbitrated_success": _dual_judge_third_arbitrated_success,
-        "high_confidence_threshold": _get_adaptive_threshold_stat(),
-        "t0_stats": t0_stats,
-        "scorer_metrics": native_scorer_metrics,
-        "or_aggregation": {
-            "total": _or_aggregation_total,
-            "disagreements": _or_aggregation_disagreements,
-            "disagreement_rate": round(_or_aggregation_disagreements / _or_aggregation_total * 100, 1) if _or_aggregation_total > 0 else 0.0,
-            "j1_only_success": _or_agreement_j1_only_success,
-            "j2_only_success": _or_agreement_j2_only_success,
-            "potential_false_positive_rate": round(_or_agreement_j1_only_success / _or_aggregation_total * 100, 1) if _or_aggregation_total > 0 else 0.0,
-        },
-    }
-
-
-def _reset_dual_judge_stats() -> None:
-    """L5 v30: 重置全局双 Judge 统计计数器。"""
-    global _dual_judge_total_scored, _dual_judge_agreements, _dual_judge_disagreements
-    global _dual_judge_judge1_successes, _dual_judge_judge2_successes
-    global _dual_judge_third_invoked, _dual_judge_third_arbitrated_success
-    global _or_aggregation_total, _or_aggregation_disagreements
-    global _or_agreement_j1_only_success, _or_agreement_j2_only_success
-    _dual_judge_total_scored = 0
-    _dual_judge_agreements = 0
-    _dual_judge_disagreements = 0
-    _dual_judge_judge1_successes = 0
-    _dual_judge_judge2_successes = 0
-    _dual_judge_third_invoked = 0
-    _dual_judge_third_arbitrated_success = 0
-    _or_aggregation_total = 0
-    _or_aggregation_disagreements = 0
-    _or_agreement_j1_only_success = 0
-    _or_agreement_j2_only_success = 0
-
-
-def _set_adaptive_threshold(value: float) -> None:
-    """L5 v53: 设置本次运行的自适应阈值。"""
-    global _adaptive_threshold_value
-    _adaptive_threshold_value = value
-
-
-def _get_adaptive_threshold_stat() -> float:
-    """L5 v53: 获取本次运行的自适应阈值。"""
-    return _adaptive_threshold_value
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
