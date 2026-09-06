@@ -302,7 +302,7 @@ mcp-session-id: test123
 
 
 # ──────────────────────────────────────────────
-# Phase 5: 集成与 A/B 测试
+# Phase 4: 集成与 A/B 测试
 # ──────────────────────────────────────────────
 class TestSynergyIntegration:
     """集成测试 — 验证协同分析整体效果."""
@@ -413,7 +413,7 @@ def test_asset_index_consistency():
 
 
 # ──────────────────────────────────────────────
-# Phase 6: Pipeline Integration Tests
+# Phase 5: Pipeline Integration Tests
 # ──────────────────────────────────────────────
 class TestSynergyPipelineIntegration:
     """测试协同分析完全集成到 main.py 流水线.
