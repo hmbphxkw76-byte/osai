@@ -71,6 +71,313 @@ async def _run_cot_hijack(
         return {}
 
 
+async def _run_crescendo(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """对失败目标执行 Crescendo 渐进升级攻击 (PyRIT 原生)。
+
+    Crescendo 通过多轮渐进式对话, 从无害话题逐步引导至目标,
+    每轮评分决定是否继续升级或回退(backtrack)。
+
+    学术依据: Russinovich et al. (arXiv:2402.12109) — 10 turns ASR=82%
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        Crescendo 攻击结果 {"crescendo": [results]}。
+    """
+    from pyrit.executor.attack import (
+        AttackAdversarialConfig,
+        CrescendoAttack,
+    )
+    from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.models import AttackSeedGroup, SeedObjective
+
+    results: dict[str, list[Any]] = {}
+    crescendo_objectives = _filter_by_suitable_for(objectives, ctx, "crescendo")
+    if not crescendo_objectives:
+        logger.info("Crescendo: no objectives suitable, skipping")
+        return results
+
+    mtos_objectives = _apply_mtos_ranking(crescendo_objectives, ctx, technique_name="crescendo")
+
+    try:
+        scoring_config = _build_refusal_inverter_scoring_config(ctx)
+        if scoring_config is None:
+            logger.warning("Crescendo: scoring config is None, skipping")
+            return results
+
+        adversarial_config = AttackAdversarialConfig(target=ctx.adversarial_target)
+        attack = CrescendoAttack(
+            objective_target=ctx.multi_turn_target or ctx.objective_target,
+            attack_adversarial_config=adversarial_config,
+            attack_scoring_config=scoring_config,
+            max_turns=_get_config_int(ctx, "crescendo_max_turns", 10),
+            max_backtracks=_get_config_int(ctx, "crescendo_max_backtracks", 10),
+        )
+
+        seed_groups = [
+            AttackSeedGroup(seeds=[SeedObjective(value=obj)])
+            for obj in mtos_objectives
+        ]
+
+        executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+        executor_result = await asyncio.wait_for(
+            executor.execute_attack_from_seed_groups_async(
+                attack=attack,
+                seed_groups=seed_groups,
+                return_partial_on_failure=True,
+            ),
+            timeout=600,
+        )
+
+        if executor_result.completed_results:
+            results["crescendo"] = list(executor_result.completed_results)
+            logger.info("Crescendo: %d successes", len(results["crescendo"]))
+        else:
+            logger.info("Crescendo: all %d objectives failed", len(mtos_objectives))
+
+    except asyncio.TimeoutError:
+        logger.warning("Crescendo: timed out after 600s")
+    except Exception as e:
+        logger.error("Crescendo: failed: %s", e)
+
+    return results
+
+
+async def _run_tap(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """对失败目标执行 TAP 树状剪枝攻击 (PyRIT 原生)。
+
+    TAP (Tree of Attacks with Pruning) 构建攻击 prompt 树,
+    通过分支定界剪枝高效搜索最优攻击路径。
+
+    学术依据: Mehrotra et al. (arXiv:2312.02191) — TAP ASR >80%
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        TAP 攻击结果 {"tap": [results]}。
+    """
+    from pyrit.executor.attack.multi_turn.tree_of_attacks import (
+        TAPAttack,
+        TAPAttackScoringConfig,
+    )
+    from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.models import AttackSeedGroup, SeedObjective
+
+    results: dict[str, list[Any]] = {}
+    tap_objectives = _filter_by_suitable_for(objectives, ctx, "tap")
+    if not tap_objectives:
+        logger.info("TAP: no objectives suitable, skipping")
+        return results
+
+    mtos_objectives = _apply_mtos_ranking(tap_objectives, ctx, technique_name="tap")
+
+    try:
+        scorer = _create_fallback_fsts(ctx)
+        if scorer is None:
+            logger.warning("TAP: scorer is None, skipping")
+            return results
+
+        scoring_config = TAPAttackScoringConfig(objective_scorer=scorer)
+        attack = TAPAttack(
+            objective_target=ctx.multi_turn_target or ctx.objective_target,
+            attack_adversarial_config=AttackAdversarialConfig(target=ctx.adversarial_target),
+            attack_scoring_config=scoring_config,
+            max_turns=_get_config_int(ctx, "tap_max_turns", 10),
+            target_branches=_get_config_int(ctx, "tap_target_branches", 3),
+            prune_threshold=_get_config_int(ctx, "tap_prune_threshold", 3),
+        )
+
+        seed_groups = [
+            AttackSeedGroup(seeds=[SeedObjective(value=obj)])
+            for obj in mtos_objectives
+        ]
+
+        executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+        executor_result = await asyncio.wait_for(
+            executor.execute_attack_from_seed_groups_async(
+                attack=attack,
+                seed_groups=seed_groups,
+                return_partial_on_failure=True,
+            ),
+            timeout=600,
+        )
+
+        if executor_result.completed_results:
+            results["tap"] = list(executor_result.completed_results)
+            logger.info("TAP: %d successes", len(results["tap"]))
+        else:
+            logger.info("TAP: all %d objectives failed", len(mtos_objectives))
+
+    except asyncio.TimeoutError:
+        logger.warning("TAP: timed out after 600s")
+    except Exception as e:
+        logger.error("TAP: failed: %s", e)
+
+    return results
+
+
+async def _run_pair(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """对失败目标执行 PAIR 迭代对抗攻击 (PyRIT 原生)。
+
+    PAIR (Prompt Automatic Iterative Refinement) 使用 attacker LLM
+    迭代生成和优化攻击 prompt, 通过多轮对话尝试破解目标。
+
+    学术依据: Chao et al. (arXiv:2310.08419) — PAIR ASR >60%
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        PAIR 攻击结果 {"pair": [results]}。
+    """
+    from pyrit.executor.attack.multi_turn.tree_of_attacks import (
+        PAIRAttack,
+        TAPAttackScoringConfig,
+    )
+    from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.models import AttackSeedGroup, SeedObjective
+
+    results: dict[str, list[Any]] = {}
+    pair_objectives = _filter_by_suitable_for(objectives, ctx, "pair")
+    if not pair_objectives:
+        logger.info("PAIR: no objectives suitable, skipping")
+        return results
+
+    mtos_objectives = _apply_mtos_ranking(pair_objectives, ctx, technique_name="pair")
+
+    try:
+        scorer = _create_fallback_fsts(ctx)
+        if scorer is None:
+            logger.warning("PAIR: scorer is None, skipping")
+            return results
+
+        scoring_config = TAPAttackScoringConfig(objective_scorer=scorer)
+        attack = PAIRAttack(
+            objective_target=ctx.multi_turn_target or ctx.objective_target,
+            attack_adversarial_config=AttackAdversarialConfig(target=ctx.adversarial_target),
+            attack_scoring_config=scoring_config,
+            max_turns=_get_config_int(ctx, "pair_max_turns", 5),
+            tree_depth=_get_config_int(ctx, "pair_tree_depth", 5),
+        )
+
+        seed_groups = [
+            AttackSeedGroup(seeds=[SeedObjective(value=obj)])
+            for obj in mtos_objectives
+        ]
+
+        executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+        executor_result = await asyncio.wait_for(
+            executor.execute_attack_from_seed_groups_async(
+                attack=attack,
+                seed_groups=seed_groups,
+                return_partial_on_failure=True,
+            ),
+            timeout=600,
+        )
+
+        if executor_result.completed_results:
+            results["pair"] = list(executor_result.completed_results)
+            logger.info("PAIR: %d successes", len(results["pair"]))
+        else:
+            logger.info("PAIR: all %d objectives failed", len(mtos_objectives))
+
+    except asyncio.TimeoutError:
+        logger.warning("PAIR: timed out after 600s")
+    except Exception as e:
+        logger.error("PAIR: failed: %s", e)
+
+    return results
+
+
+async def _run_red_teaming(
+    ctx: PipelineContext,
+    objectives: list[str],
+) -> dict[str, list[Any]]:
+    """对失败目标执行 Red Teaming 攻击 (PyRIT 原生)。
+
+    RedTeamingAttack 使用单轮对抗 prompt 尝试绕过目标安全过滤,
+    是 L1 升级链中最基础的多轮替代方案。
+
+    学术依据: PyRIT 原生 RedTeamingAttack — 单轮对抗基线
+
+    Args:
+        ctx: 流水线上下文。
+        objectives: 失败目标列表。
+
+    Returns:
+        Red Teaming 攻击结果 {"red_teaming": [results]}。
+    """
+    from pyrit.executor.attack import (
+        AttackAdversarialConfig,
+        RedTeamingAttack,
+    )
+    from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.models import AttackSeedGroup, SeedObjective
+
+    results: dict[str, list[Any]] = {}
+    rt_objectives = _filter_by_suitable_for(objectives, ctx, "red_teaming")
+    if not rt_objectives:
+        logger.info("RedTeaming: no objectives suitable, skipping")
+        return results
+
+    mtos_objectives = _apply_mtos_ranking(rt_objectives, ctx, technique_name="red_teaming")
+
+    try:
+        scoring_config = _build_refusal_inverter_scoring_config(ctx)
+        if scoring_config is None:
+            logger.warning("RedTeaming: scoring config is None, skipping")
+            return results
+
+        attack = RedTeamingAttack(
+            objective_target=ctx.objective_target,
+            attack_adversarial_config=AttackAdversarialConfig(target=ctx.adversarial_target),
+            attack_scoring_config=scoring_config,
+            max_iterations=_get_config_int(ctx, "red_teaming_max_iterations", 3),
+        )
+
+        seed_groups = [
+            AttackSeedGroup(seeds=[SeedObjective(value=obj)])
+            for obj in mtos_objectives
+        ]
+
+        executor = AttackExecutor(max_concurrency=get_effective_concurrency(ctx))
+        executor_result = await asyncio.wait_for(
+            executor.execute_attack_from_seed_groups_async(
+                attack=attack,
+                seed_groups=seed_groups,
+                return_partial_on_failure=True,
+            ),
+            timeout=300,
+        )
+
+        if executor_result.completed_results:
+            results["red_teaming"] = list(executor_result.completed_results)
+            logger.info("RedTeaming: %d successes", len(results["red_teaming"]))
+        else:
+            logger.info("RedTeaming: all %d objectives failed", len(mtos_objectives))
+
+    except asyncio.TimeoutError:
+        logger.warning("RedTeaming: timed out after 300s")
+    except Exception as e:
+        logger.error("RedTeaming: failed: %s", e)
+
+    return results
+
+
 def _filter_by_suitable_for(
     objectives: list[str],
     ctx: PipelineContext,

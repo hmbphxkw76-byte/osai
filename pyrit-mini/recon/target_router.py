@@ -43,6 +43,43 @@ logger = logging.getLogger(__name__)
 _MAX_PROBE_COUNT = int(os.environ.get("RECON_MAX_PROBES", "10"))
 
 
+# ════════════════════════════════════════════════════════════════════
+# P2-07: 探测失败静默降级显式化 — 写入 orchestration_log
+# ════════════════════════════════════════════════════════════════════
+def _log_probe_failure(
+    ctx: Any,
+    probe_phase: str,
+    error: Exception,
+    is_fatal: bool = False,
+) -> None:
+    """将探测失败写入 orchestration_log (P2-07: 禁止静默降级)。
+
+    Args:
+        ctx: PipelineContext 实例 (需有 orchestration_log 属性).
+        probe_phase: 探测阶段名称 (如 "response_path", "capability", "mcp_enum").
+        error: 异常实例.
+        is_fatal: 是否为致命错误 (True=阻止继续, False=降级继续).
+    """
+    # 防御性: ctx 可能无 orchestration_log (如单元测试)
+    if ctx is None or not hasattr(ctx, "orchestration_log"):
+        return
+
+    ctx.orchestration_log.append({
+        "phase": "recon",
+        "decision": f"probe_{probe_phase}_failed",
+        "input": {"target": getattr(ctx, "model_name", "unknown")},
+        "output": {
+            "error_type": type(error).__name__,
+            "error_message": str(error)[:500],
+            "is_fatal": is_fatal,
+        },
+        "reasoning": (
+            f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
+            f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
+        ),
+    })
+
+
 async def create_target(ctx: PipelineContext) -> None:
     """创建并注册攻击目标。
 
@@ -159,7 +196,9 @@ async def create_target(ctx: PipelineContext) -> None:
         await probe_response_path(parsed)
         _probe_counter.add(1)
     except Exception as e:
+        # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
         logger.warning("Response path probing failed (non-fatal): %s", e)
+        _log_probe_failure(ctx, "response_path", e, is_fatal=False)
 
     if parsed.response_json_path:
         logger.info("Response path detected: %s", parsed.response_json_path)
@@ -201,7 +240,8 @@ async def create_target(ctx: PipelineContext) -> None:
     if always_capability_probe and _probe_counter.value < _MAX_PROBE_COUNT:
         # 启动后台探测任务 (不阻塞攻击启动)
         bg_task = asyncio.create_task(
-            _run_background_probes(parsed, _probe_counter, deep_probe_enabled),
+            # P2-07: 传入 ctx 以支持探测失败日志记录
+            _run_background_probes(parsed, _probe_counter, ctx, deep_probe_enabled),
             name="recon_background_probes",
         )
         if not hasattr(ctx, "_recon_background_tasks"):
@@ -288,6 +328,7 @@ class _ProbeCounter:
 async def _run_background_probes(
     parsed: Any,
     counter: _ProbeCounter,
+    ctx: Any = None,  # P2-07: 可选的 PipelineContext, 用于写入 orchestration_log
     deep_probe: bool = False,
 ) -> None:
     """后台运行非核心能力探测，不阻塞攻击主流程。
@@ -304,7 +345,7 @@ async def _run_background_probes(
 
     Args:
         parsed: 解析后的 Burp 请求。
-        counter: 全局探针计数器。
+        counter: 全局探针计数器。n        ctx: 可选的 PipelineContext (P2-07: 探测失败时写入 orchestration_log)。
         deep_probe: 是否运行深度探测 (默认 False)。
     """
     logger.info("Background probes started (cap=%d)...", _MAX_PROBE_COUNT)
@@ -325,7 +366,9 @@ async def _run_background_probes(
             parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
             logger.info("Background: active probe detected: %s", sorted(all_caps))
     except Exception as e:
+        # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
         logger.warning("Background: active probe failed: %s", e)
+        _log_probe_failure(ctx, "active_capability", e, is_fatal=False)
 
     # ── P1-2: MCP 枚举 (条件触发 - 仅在检测到 MCP 能力时) ──
     capabilities_str = parsed.target_fingerprint.extra.get("capabilities", "")
@@ -345,7 +388,9 @@ async def _run_background_probes(
                     len(mcp_results.get("resources", [])),
                 )
         except Exception as e:
+            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
             logger.warning("Background: MCP enumeration failed: %s", e)
+            _log_probe_failure(ctx, "mcp_enum", e, is_fatal=False)
 
     # ── P1-3: 系统提示泄露探测 (高价值 - 用于种子定制) ──
     if counter.can_probe(3, _MAX_PROBE_COUNT):
@@ -370,7 +415,9 @@ async def _run_background_probes(
             else:
                 parsed.target_fingerprint.system_prompt_leaked = False
         except Exception as e:
+            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
             logger.warning("Background: system prompt extraction failed: %s", e)
+            _log_probe_failure(ctx, "system_prompt", e, is_fatal=False)
 
     # ── P2 (仅当 deep_probe=True): 深度探测 ──
     if not deep_probe:
@@ -407,7 +454,9 @@ async def _run_background_probes(
                     if deep_caps.get(k):
                         parsed.target_fingerprint.extra[k] = deep_caps[k]
         except Exception as e:
+            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
             logger.warning("Background: deep probe failed: %s", e)
+            _log_probe_failure(ctx, "deep_capability", e, is_fatal=False)
 
     # OpenAPI 发现 (仅 deep_probe)
     if counter.can_probe(5, _MAX_PROBE_COUNT):
@@ -423,7 +472,9 @@ async def _run_background_probes(
                     for ep in openapi_result.endpoints[:20]  # 限制存储数量
                 ]
         except Exception as e:
+            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
             logger.warning("Background: OpenAPI discovery failed: %s", e)
+            _log_probe_failure(ctx, "openapi_discovery", e, is_fatal=False)
 
     logger.info("Background probes complete. Total probes: %d", counter.value)
 
