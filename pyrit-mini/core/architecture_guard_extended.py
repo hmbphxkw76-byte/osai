@@ -216,7 +216,7 @@ def register_extended_checks(guard_cls) -> None:
                         file="strike/executor.py",
                         line=0,
                         description=f"executor.py 未引用 {desc} ({module_path}) — 可能缺少关键攻击路径",
-                        f"确认 {short_name} 在其他地方被调用, 或添加显式导入/调用",
+                        fix_hint=f"确认 {short_name} 在其他地方被调用, 或添加显式导入/调用",
                     ))
 
     def check_data_flow_consistency(self) -> None:
@@ -261,7 +261,7 @@ def register_extended_checks(guard_cls) -> None:
                         file="core/context.py",
                         line=0,
                         description=f"PipelineContext.{field_name} 无消费点 — 数据流断点或死字段",
-                        f"确认 {field_name} 在某个 phase 中被使用, 或移除未使用字段",
+                        fix_hint=f"确认 {field_name} 在某个 phase 中被使用, 或移除未使用字段",
                     ))
 
     def _read_all_source(self) -> list[str]:
@@ -324,7 +324,7 @@ def register_extended_checks(guard_cls) -> None:
                         file=module.replace(".", "/") + ".py",
                         line=0,
                         description=f"循环导入: {module} ↔ {dep} — 启动时崩溃或不可预测行为",
-                        f"将共享逻辑提取到独立 utils/ 模块, 或改用延迟导入 (函数内 import)",
+                        fix_hint="将共享逻辑提取到独立 utils/ 模块, 或改用延迟导入 (函数内 import)",
                     ))
 
     def check_dead_code(self) -> None:
