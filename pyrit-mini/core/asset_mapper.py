@@ -63,10 +63,10 @@ class AssetMapper:
     @staticmethod
     def _load_default_index() -> dict[str, Any]:
         """加载默认 asset_index.yaml."""
-        # v62: asset_index 迁移至 config/campaigns/
+        # v63: asset_index 迁移至 config/profiles/ (固定参数集)
         import yaml
         from pathlib import Path
-        index_path = Path(__file__).resolve().parent.parent / "config" / "campaigns" / "asset_index.yaml"
+        index_path = Path(__file__).resolve().parent.parent / "config" / "profiles" / "asset_index.yaml"
         if not index_path.exists():
             logger.warning("config/asset_index.yaml not found at %s", index_path)
             return {}
@@ -289,8 +289,8 @@ import yaml as _yaml
 
 # 项目根目录
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# v62: asset_index 迁移至 config/campaigns/
-ASSET_INDEX_PATH = _PROJECT_ROOT / "config" / "campaigns" / "asset_index.yaml"
+# v63: asset_index 迁移至 config/profiles/ (固定参数集)
+ASSET_INDEX_PATH = _PROJECT_ROOT / "config" / "profiles" / "asset_index.yaml"
 
 
 def load_asset_index() -> dict[str, Any]:

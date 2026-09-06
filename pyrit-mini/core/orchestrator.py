@@ -34,7 +34,7 @@ async def run_attack_pipeline(ctx: "PipelineContext", router: Any = None) -> Non
         ⑥ report    (report/evidence.py + report/generator.py)
 
     多 endpoint 支持 (arXiv:2302.12173 Greshake — 逐个深度攻击):
-        不指定 --burp → 自动扫描 config/targets/burp/*.txt 全部文件
+        不指定 --burp → 自动扫描 config/burp/*.txt 全部文件
         --burp MM_05 → 指定单个 endpoint (仍走多端点路径, 确保统一目录结构)
         --burp MM_05 --burp MM_03 --burp MM_08 → 指定多个 endpoint
         → 优先级排序: 按能力指纹排序 (MCP > function_calling > RAG > workflow > chat)
@@ -367,7 +367,7 @@ async def _run_synergy_phase(ctx: "PipelineContext") -> None:
         _burp_raw_content = None
         _burp_file_path = Path(ctx.args.burp)
         if not _burp_file_path.is_absolute():
-            _burp_file_path = Path("config/targets/burp") / _burp_file_path
+            _burp_file_path = Path("config/burp") / _burp_file_path
         if not str(_burp_file_path).endswith(".txt"):
             _burp_file_path = _burp_file_path.with_suffix(".txt")
         if _burp_file_path.exists():
@@ -808,7 +808,7 @@ async def _run_assess_phase(ctx: "PipelineContext") -> None:
     args = ctx.args
     print_phase("ASSESS", "双 Judge 交叉验证 & ASR 统计...")
 
-    from assess.asr_tracker import (
+    from assess.asr_compute import (
         collect_dual_judge_stats,
         compute_asr,
         compute_overall_asr,
@@ -1062,7 +1062,7 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
     except Exception:
         pass
     try:
-        from assess.judge_utils import reset_t0_stats
+        from assess.judge_manager import reset_t0_stats
         reset_t0_stats()
     except Exception:
         pass
@@ -1075,7 +1075,7 @@ def _print_endpoint_sort_results(sorted_endpoints: list[dict[str, Any]]) -> None
     print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  ► [RECON] Endpoint 优先级排序 (能力指纹){_C_RESET}")
     _files_str = ", ".join(Path(ep['burp_path']).name for ep in sorted_endpoints)
-    print(f"  config/targets/burp/ — {_files_str}")
+    print(f"  config/burp/ — {_files_str}")
     print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
     for i, ep in enumerate(sorted_endpoints):
         caps_str = ", ".join(sorted(ep["capabilities"])) if ep["capabilities"] else "chat"

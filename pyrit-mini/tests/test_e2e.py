@@ -34,7 +34,7 @@ async def test_pipeline_imports_clean(tmp_path):
     from arm.seed_ranker import load_seeds
 
     # Step ⑥: Assess + Report imports
-    from assess.asr_tracker import compute_asr
+    from assess.asr_compute import compute_asr
     from recon.burp_parser import parse_burp_request
     from recon.target_router import create_target
     from report.evidence import EvidenceCollector
@@ -111,9 +111,9 @@ def test_seeds_subdirectory_structure():
 
 
 def test_burp_directory_exists():
-    """config/targets/burp/ directory should exist (files are optional, user-supplied)."""
-    burp_dir = _PROJECT_ROOT / "config" / "targets" / "burp"
-    assert burp_dir.exists(), "config/targets/burp/ directory must exist"
+    """config/burp/ directory should exist (files are optional, user-supplied)."""
+    burp_dir = _PROJECT_ROOT / "config" / "burp"
+    assert burp_dir.exists(), "config/burp/ directory must exist"
 
 
 def test_scorers_directory_exists():

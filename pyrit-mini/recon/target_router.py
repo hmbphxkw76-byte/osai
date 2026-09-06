@@ -30,10 +30,11 @@ from recon.burp_parser import (
     probe_active_capabilities,
     probe_response_path,
 )
-from targets.rate_limited import RateLimitedTarget
 
 # P2-06: TLS verify 配置化 (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+from adapters.rate_limited import RateLimitedTarget
+
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
@@ -621,16 +622,12 @@ def _create_scoring_target(ctx: PipelineContext) -> Any:
         logger.info("Scorer target not configured, reusing adversarial target")
         target = ctx.adversarial_target
 
-    # PyRIT 原生验证
+    # D-04 修复 (2026-09-06): 删除 recon → assess 越界调用。
+    # 评分目标的能力验证统一在 assess 层 (assess/scorer.py:74,
+    # assess/dual_judge.py:134, assess/judge_utils.py:998) 自行完成,
+    # recon 层不再越权校验, 遵循 "最小知识原则"。
     if target:
-        try:
-            from assess.scorer import validate_scoring_target_capabilities
-            if not validate_scoring_target_capabilities(target):
-                logger.warning("Scoring target failed capability validation")
-            else:
-                logger.info("Scoring target passed capability validation")
-        except Exception as e:
-            logger.debug("Scoring target validation skipped: %s", e)
+        logger.info("Scoring target created (capability validation deferred to assess layer)")
 
     return target
 

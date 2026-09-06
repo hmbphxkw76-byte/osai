@@ -34,11 +34,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-# P2-06: TLS verify 配置化 (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
-_TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
+
+# P2-06: TLS verify 配置化 (SSOT)
+_TLS_VERIFY = _get_tls_verify_from_config()
 
 # JWT 解码所需的 base64url padding 补齐
 _B64_PAD = "="

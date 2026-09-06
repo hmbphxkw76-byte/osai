@@ -58,8 +58,8 @@ from pyrit.score.true_false.true_false_composite_scorer import TrueFalseComposit
 from pyrit.score.true_false.true_false_score_aggregator import TrueFalseAggregatorFunc, TrueFalseScoreAggregator
 from pyrit.score.true_false.true_false_scorer import TrueFalseScorer
 
-# 从 judge_utils re-export 以保持向后兼容
-from assess.judge_utils import (  # noqa: F401
+# 从 judge_manager 导入 (SSOT — Single Source of Truth)
+from assess.judge_manager import (  # noqa: F401
     _BASELINE_CONFIDENCE,
     _DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     _HIGH_CONFIDENCE_PATTERNS,

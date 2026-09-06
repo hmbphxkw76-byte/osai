@@ -48,27 +48,31 @@
 
 规约各处引用的检查器汇总（**权威清单以 `core/architecture_guard.py` 实际实现为准**）：
 
-| 检查器 | 条款/红线 | 级别 |
-|--------|----------|------|
-| check_safety_guardrails | C2 / R-L1 | BLOCKING |
-| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING |
-| check_serial_stacking | C2 / R-L3 | BLOCKING |
-| check_l5_params | C2·C7 / R-L4 | BLOCKING |
-| check_intermediate_exit | I4 / R-L5 | BLOCKING |
-| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING |
-| check_root_directory | R-L7 | BLOCKING |
-| check_test_coverage | R-L7 | BLOCKING |
-| check_dry_run_available | C10 / R-L8 | BLOCKING |
-| check_native_attack_usage | C1 | 待锚定 |
-| check_native_attack_instantiation | C1 | 待锚定 |
-| check_llm_scorer_in_attack | C2·I2 | 待锚定 |
-| check_hardcoded_params | C7 | 待锚定 |
-| check_config_data_flow | C7 | 待锚定 |
-| check_native_params_from_config | C7 | 待锚定 |
-| check_arxiv_citations | C8 | 待锚定 |
+| 检查器 | 条款/红线 | 级别 | 备注 |
+|--------|----------|------|------|
+| check_safety_guardrails | C2 / R-L1 | BLOCKING | — |
+| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | — |
+| check_serial_stacking | C2 / R-L3 | BLOCKING | — |
+| check_l5_params | C2·C7 / R-L4 | BLOCKING | — |
+| check_intermediate_exit | I4 / R-L5 | BLOCKING | — |
+| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | — |
+| check_root_directory | R-L7 | BLOCKING | — |
+| check_test_coverage | R-L7 | BLOCKING | — |
+| check_dry_run_available | C10 / R-L8 | BLOCKING | — |
+| check_native_attack_usage | C1 | WARNING | v1.2 锚定 |
+| check_native_attack_instantiation | C1 | WARNING | v1.2 锚定 |
+| check_llm_scorer_in_attack | C2·I2 | WARNING | v1.2 锚定 |
+| check_hardcoded_params | C7 | WARNING | v1.2 锚定 |
+| check_config_data_flow | C7 | WARNING | v1.2 锚定 |
+| check_native_params_from_config | C7 | WARNING | v1.2 锚定 |
+| check_arxiv_citations | C8 | INFO | v1.2 锚定 |
+| **check_silent_degradation** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-1) |
+| **check_silent_swallowing** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-2) |
+| **check_dual_track** | D-11 / C7 | INFO | v1.2 新增 (T0-3) |
 
-- 本表由规约引用汇编（16 项）；REQ-108 宣称 18 项——**差额 2 项与全部"待锚定"级别须在首个代码会话对照 guard 实现回填**（BL-003）。
-- 级别缺口不影响"0 新增 BLOCKING"门禁的执行（基线为相对比较），只影响审计完整性。
+- 本表对照 `core/architecture_guard.py` 实际实现同步（19 项，补齐全部待锚定项，新增 3 项）。
+- **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
+- **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
 

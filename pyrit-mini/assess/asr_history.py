@@ -62,7 +62,7 @@ def save_asr_history(
                 if prefix not in seed_stats:
                     seed_stats[prefix] = {"success": 0, "total": 0}
                 seed_stats[prefix]["total"] += 1
-                from assess.asr_tracker import _get_outcome
+                from assess.asr_stats import _get_outcome
                 outcome = _get_outcome(result)
                 if outcome == "success":
                     seed_stats[prefix]["success"] += 1

@@ -10,7 +10,9 @@
     - dual_judge: LLM 双判 + 仲裁 + 并发式判
 """
 
-from assess.asr_tracker import compute_asr, compute_overall_asr, precompute_outcomes_async
+from assess.asr_compute import compute_asr
+from assess.asr_stats import compute_overall_asr
+from assess.precompute import precompute_outcomes_async
 from assess.scorer import create_objective_scorer
 
 __all__ = [

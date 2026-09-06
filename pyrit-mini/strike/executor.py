@@ -805,7 +805,7 @@ class _MultiKeywordRefusalScorer(SubStringScorer):
             - Wei et al. (arXiv:2307.15043) 鈥?
               鐩爣鏃犳湁鏁堣緭鍑?鈮?鏀诲嚮鎴愬姛
         """
-        from assess.judge_utils import _t0_non_substantive_check_text, _t0_refusal_check_text
+        from assess.judge_manager import _t0_non_substantive_check_text, _t0_refusal_check_text
 
         # 鎻愬彇鍝嶅簲鏂囨湰 + message_piece_id
         response_text = ""

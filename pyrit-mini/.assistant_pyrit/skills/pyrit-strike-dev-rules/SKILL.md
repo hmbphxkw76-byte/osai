@@ -390,7 +390,7 @@ All pipeline code MUST meet production-grade reliability standards. This rule co
   ```python
   from assess.asr_stats import _reset_dual_judge_stats
   _reset_dual_judge_stats()
-  from assess.judge_utils import reset_t0_stats
+  from assess.judge_manager import reset_t0_stats
   reset_t0_stats()
   ```
 - `PipelineContext` fields MUST be explicitly reset per endpoint: `parsed_request`, `objective_target`, `seeds`, `attack_results`, `asr_per_technique`, `overall_asr`, `wilson_ci`, `dual_judge_stats`, `orchestration_log`

@@ -265,7 +265,6 @@ def _assemble_callback(
     # Step 2: 提取器 (如果有 chat_id 追踪需求)
     chat_id_extractor = None
     if parsed.has_chat_id_placeholder and chat_id_state:
-        from recon.burp_parser import _extract_chat_id_from_response
 
         def chat_id_extractor(response: Any) -> None:
             """从响应中提取 chat_id 并更新状态管理器."""

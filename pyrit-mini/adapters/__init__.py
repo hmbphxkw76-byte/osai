@@ -1,4 +1,4 @@
-"""targets — PyRIT PromptTarget 包装与增强。
+"""adapters — PyRIT 原生组件适配器层（包装与扩展）。
 
 对齐 PyRIT 1.0.1 原生 Target 体系:
     本包不替代 PyRIT 原生 Target, 仅提供增强包装器:
@@ -32,7 +32,7 @@
     | 目标路由 | recon/target_router.py 统一路由 | — |
 """
 
-from targets.rate_limited import RateLimitedTarget
+from adapters.rate_limited import RateLimitedTarget
 
 __all__ = [
     "RateLimitedTarget",
@@ -45,12 +45,12 @@ __all__ = [
 def __getattr__(name: str):
     """惰性导入 content_filter 模块函数。"""
     if name == "extend_content_filter_markers":
-        from targets.content_filter import extend_content_filter_markers
+        from adapters.content_filter import extend_content_filter_markers
         return extend_content_filter_markers
     if name == "persist_discovered_markers":
-        from targets.content_filter import persist_discovered_markers
+        from adapters.content_filter import persist_discovered_markers
         return persist_discovered_markers
     if name == "discover_markers_from_error":
-        from targets.content_filter import discover_markers_from_error
+        from adapters.content_filter import discover_markers_from_error
         return discover_markers_from_error
-    raise AttributeError(f"module 'targets' has no attribute {name!r}")
+    raise AttributeError(f"module 'adapters' has no attribute {name!r}")

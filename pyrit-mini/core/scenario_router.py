@@ -429,11 +429,11 @@ class SynergyOrchestrator:
 
         Args:
             data_root: 数据根目录 (默认: project/data)
-            burp_dir: Burp 文件目录 (默认: config/campaigns/targets)
+            burp_dir: Burp 文件目录 (默认: config/burp)
         """
         self._data_root = data_root or PROJECT_ROOT / "data"
-        # v62: burp 文件迁移到 config/campaigns/targets
-        self._burp_dir = burp_dir or (PROJECT_ROOT / "config" / "campaigns" / "targets")
+        # v63: burp 文件迁移到 config/burp (输入契约, 扁平化管理)
+        self._burp_dir = burp_dir or (PROJECT_ROOT / "config" / "burp")
 
         # 延迟加载子组件
         self._mapper = None

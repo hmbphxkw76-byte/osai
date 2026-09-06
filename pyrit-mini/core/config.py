@@ -75,7 +75,7 @@ def _load_config_file(path: str) -> dict[str, Any]:
         name: string           # Campaign 名称
         description: string    # Campaign 描述
         version: string        # 版本号
-        targets: [string]      # Burp 目标文件名列表 (对齐 config/targets/burp/)
+        targets: [string]      # Burp 目标文件名列表 (对齐 config/burp/burp/)
         strategy:              # 攻击策略
             mode: string       # single_turn | multi_turn | adaptive
             intensity: string  # minimal | standard | maximum
@@ -584,10 +584,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # ── 侦察: Burp 拦截 ──
     # 用法: --burp <name> (单个) 或 --burp MM_05 --burp MM_03 (多个)
-    # v61: 迁移至 config/targets/burp/
-    #   自动解析为 config/targets/burp/<name>.txt
-    #   不指定时自动扫描 config/targets/burp/*.txt 全部文件
-    #   也可直接传完整路径: --burp config/targets/burp/deepseek.txt
+    # v61: 迁移至 config/burp/burp/
+    #   自动解析为 config/burp/burp/<name>.txt
+    #   不指定时自动扫描 config/burp/burp/*.txt 全部文件
+    #   也可直接传完整路径: --burp config/burp/burp/deepseek.txt
     #   多个 endpoint: --burp MM_05 --burp MM_03 --burp MM_08
     #   单个 endpoint 也走多端点路径, 确保统一目录结构
     #   学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 + 联合 ASR
@@ -597,8 +597,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="NAME",
         action="append",
-        help="Burp 拦截的 HTTP 请求文件名 (自动查找 config/targets/burp/<NAME>.txt), "
-             "可重复指定多个 endpoint; 不指定时自动扫描 config/targets/burp/*.txt 全部文件",
+        help="Burp 拦截的 HTTP 请求文件名 (自动查找 config/burp/burp/<NAME>.txt), "
+             "可重复指定多个 endpoint; 不指定时自动扫描 config/burp/burp/*.txt 全部文件",
     )
 
     # ── 种子选取 ──
@@ -889,18 +889,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.converters = _parse_converter_global(args.converters)
 
     # ── Burp 请求路径解析 ──
-    # v62: 迁移至 config/campaigns/targets/ (集中管理 Campaign 相关文件)
-    # 不指定 --burp → 自动扫描 config/campaigns/targets/*.txt 全部文件 (默认多端点模式)
-    # --burp <name> → config/campaigns/targets/<name>.txt (自动补全路径)
-    # 支持多值: --burp MM_05 --burp MM_03 → ["config/campaigns/targets/MM_05.txt", ...]
-    # 单值: --burp request → "config/campaigns/targets/request.txt"
+    # v63: 迁移至 config/burp/ (输入契约, 扁平化管理)
+    # 不指定 --burp → 自动扫描 config/burp/*.txt 全部文件 (默认多端点模式)
+    # --burp <name> → config/burp/<name>.txt (自动补全路径)
+    # 支持多值: --burp MM_05 --burp MM_03 → ["config/burp/MM_05.txt", ...]
+    # 单值: --burp request → "config/burp/request.txt"
     # 多值时返回 list[str], 单值时返回 str (向后兼容)
     # 如果传入的值已包含路径分隔符或 .txt 后缀, 视为完整路径
     raw_burps = args.burp
     if raw_burps is None:
-        # 不指定 --burp → 自动扫描 config/campaigns/targets/ 目录下所有 .txt 文件
+        # 不指定 --burp → 自动扫描 config/burp/ 目录下所有 .txt 文件
         # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 (默认多端点模式)
-        burp_dir = _PROJECT_ROOT / "config" / "campaigns" / "targets"
+        burp_dir = _PROJECT_ROOT / "config" / "burp"
         if burp_dir.is_dir():
             raw_burps = sorted(
                 str(f) for f in burp_dir.glob("*.txt") if f.is_file()
@@ -909,7 +909,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             # 目录不存在或无 .txt 文件 → fallback 到默认 request.txt
             raw_burps = ["request"]
         logger.debug(
-            "No --burp specified: auto-discovered %d .txt file(s) in config/campaigns/targets/: %s",
+            "No --burp specified: auto-discovered %d .txt file(s) in config/burp/: %s",
             len(raw_burps),
             ", ".join(Path(f).name for f in raw_burps),
         )
@@ -919,8 +919,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     resolved_burps: list[str] = []
     for burp_val in raw_burps:
         if "/" not in burp_val and "\\" not in burp_val and not burp_val.endswith(".txt"):
-            # v62: 纯文件名 → 自动补全为 config/campaigns/targets/<name>.txt
-            resolved_burps.append(str(_PROJECT_ROOT / "config" / "campaigns" / "targets" / f"{burp_val}.txt"))
+            # v63: 纯文件名 → 自动补全为 config/burp/<name>.txt
+            resolved_burps.append(str(_PROJECT_ROOT / "config" / "burp" / f"{burp_val}.txt"))
         elif not Path(burp_val).is_absolute() and ("/" in burp_val or "\\" in burp_val):
             # 相对路径 → 相对于项目根目录
             resolved_burps.append(str(_PROJECT_ROOT / burp_val))

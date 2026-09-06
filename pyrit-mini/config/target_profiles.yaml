@@ -269,7 +269,7 @@ profiles:
     description: "基础提示注入 — 直接越狱"
 
 # 默认 Burp 请求文件
-default_burp_file: "config/campaigns/targets/request.txt"
+default_burp_file: "config/burp/request.txt"
 
 # Cookie 配置
 cookie:

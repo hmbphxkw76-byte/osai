@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v1.6（2026-09-06 REV-06：Campaign 文件集中至 config/campaigns/；REV-05：asset_index.yaml 迁至 config/；初版 2026-09-05；REV-01/REV-02/REV-03/REV-04 D-13 消除）
+> **版本**：v1.9（2026-09-06 REV-09：targets/ → adapters/ 适配层精准命名；REV-08：config/burp/ 消除冲突；初版 2026-09-05）
 
 ---
 
@@ -19,8 +19,8 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
  config/defaults.yaml      ⑤ ESCALATE L1→L4 升级链                    ├── native_output/
  config/asr_priors.yaml    ⑥ ASSESS   T0→J1→J2 级联评分                └── db/pyrit.db
  data/seeds/*.prompt       (REPORT    证据/多格式报告)
-config/campaigns/targets/*.txt  ← Burp 目标文件 (v62 从 config/targets/burp/ 迁入)
-config/campaigns/asset_index.yaml  ← 统一资产索引 (v62 从 config/asset_index.yaml 迁入)
+config/burp/*.txt                 ← Burp 目标文件 (v64 消除命名冲突)
+config/profiles/asset_index.yaml  ← 统一资产索引 (v63 固定参数集)
 ```
 
 **使命映射**（见宪法第 0 条）：蓝图的每个部分都服务于"Burp 黑盒目标 ASR 最大化"。判断一个架构改动是否正当的唯一标准：它是否让 ①-⑥ 链路对 Burp 目标打出更高 ASR、或让证据链更可复现。
@@ -51,7 +51,7 @@ config/campaigns/asset_index.yaml  ← 统一资产索引 (v62 从 config/asset_
 | 编排层 | `main.py` | 六阶段顺序编排 + 多 endpoint 循环；**不得包含业务逻辑**（现状违例：87KB 巨石，D-02） |
 | 核心层 | `core/` | 配置解析（唯一默认值定义地）、PipelineContext、架构守卫、场景路由 |
 | 阶段层 | `recon/ arm/ strike/ assess/ report/` | 各攻击阶段的实现；彼此只通过 PipelineContext 交接 |
-| 适配层 | `targets/` | PyRIT Target 的包装（限速/认证恢复/内容过滤标记扩展/路由工厂） |
+| 适配层 | `adapters/` | PyRIT 原生 Target 包装（限速/认证/内容过滤标记扩展） |
 | 支撑层 | `utils/ pipeline/` | 终端展示、缓存清理、日志、资源清理（现状违例：display.py 119KB，D-14） |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**，D-13 已消除：代码迁至 core/ 或 recon/；burp/ → config/targets/burp/；asset_index.yaml → config/） |
 
@@ -250,14 +250,14 @@ recon 完成 → capability 指纹分支:
 
 ### 9.4 考试快速攻击模板速查
 
-> **用途**：考试期间快速选择预配置的攻击 campaign。对应 `config/campaigns/*.yaml` 四预设 + exam_mode。
+> **用途**：考试期间快速选择预配置的攻击 profile。对应 `config/profiles/*.yaml` 四预设 + exam_mode。
 
 | Campaign | 配置 | 适用目标 | 预计 ASR | Token 预算 |
 |------|------|---------|---------|-----------|
 | `exam_mode.yaml` (REQ-112) | 精简链路 + 证据优先 | 考试首选 | 最大化 | 受限（80% cap） |
-| `full_spectrum_max_asr.yaml` | 全量技术 + 最大并行 | 高价值单一目标 | 最高 | 无限制 |
-| `mcp_agent_targeted.yaml` | MCP/Agent 技术优先 | Agent/MCP 目标 | 85-98% | 中等 |
-| `rapid_recon.yaml` | 仅 recon + 基础打击 | 首次侦察 / 时间紧迫 | 中等 | 最低 |
+| `deep_spectrum.yaml` | 全量技术 + 最大并行 | 高价值单一目标 | 最高 | 无限制 |
+| `mcp_targeted.yaml` | MCP/Agent 技术优先 | Agent/MCP 目标 | 85-98% | 中等 |
+| `quick_scan.yaml` | 仅 recon + 基础打击 | 首次侦察 / 时间紧迫 | 中等 | 最低 |
 | `standard_redteam.yaml` | 均衡配置 | 标准红队评估 | 高 | 中等 |
 
 ---
@@ -273,3 +273,6 @@ recon 完成 → capability 指纹分支:
 | v1.4 | 2026-09-06 | REV-04 D-13 消除：① data/asset_mapper.py → core/asset_mapper.py；② data/attack_surface_classifier.py → recon/attack_surface_classifier.py；③ data/scorer_selector.py 已删除；④ data/burp/ → config/targets/burp/；⑤ 全量更新 import 路径与文档引用；⑥ 4 测试文件路径同步更新 | 用户会话批准 |
 | v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |
 | v1.6 | 2026-09-06 | REV-06 AI-300 考试架构优化：① 新增第九章 PyRIT 原生攻击引擎架构（PyRIT→阶段落点映射 9.1、考试攻击路径决策树 9.2、ASR 优化策略 9.3、考试快速攻击模板速查 9.4）；② 架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
+| v1.7 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 从 config/campaigns/ 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化 (rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留) 并迁移至 config/profiles/；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
+| v1.8 | 2026-09-06 | REV-08 消除命名冲突：① config/targets/ 重命名为 config/burp/ (区分代码 targets/ 适配层与 Burp 输入契约)；② 更新 core/config.py、core/scenario_router.py 路径引用 | 用户会话批准 |
+| v1.9 | 2026-09-06 | REV-09 适配层重命名：① targets/ → adapters/ (精准描述 PyRIT 原生组件包装职责)；② 更新 recon/target_router.py import 路径 | 用户会话批准 |

@@ -25,21 +25,21 @@ class TestASRTracker:
 
     def test_compute_asr_empty_results(self):
         """compute_asr with empty results should return empty dict."""
-        from assess.asr_tracker import compute_asr
+        from assess.asr_compute import compute_asr
 
         asr = compute_asr({})
         assert isinstance(asr, dict)
 
     def test_compute_overall_asr_empty(self):
         """compute_overall_asr with empty dict should return 0.0."""
-        from assess.asr_tracker import compute_overall_asr
+        from assess.asr_stats import compute_overall_asr
 
         overall = compute_overall_asr({})
         assert overall == 0.0
 
     def test_compute_wilson_score_interval(self):
         """Wilson Score interval should be valid for known inputs."""
-        from assess.asr_tracker import compute_wilson_score_interval
+        from assess.asr_compute import compute_wilson_score_interval
 
         # Wilson Score returns percentage values (0-100), not 0-1
         lower, upper = compute_wilson_score_interval(5, 10)
@@ -51,7 +51,7 @@ class TestASRTracker:
 
         arXiv:2308.07920 — Cohen's Kappa measures inter-rater agreement.
         """
-        from assess.asr_tracker import compute_cohens_kappa
+        from assess.asr_stats import compute_cohens_kappa
 
         kappa = compute_cohens_kappa(8, 2)
         assert -1.0 <= kappa <= 1.0

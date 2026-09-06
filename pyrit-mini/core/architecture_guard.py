@@ -234,6 +234,12 @@ class ArchitectureGuard:
         self.check_precision_targeting()
         # R11: Scenario 配置合规性检查
         self.check_scenario_config()
+        # T0-1: R-H1 静默降级检测 (stub / 空 return 进编排链)
+        self.check_silent_degradation()
+        # T0-2: R-H2 静默吞错检测 (裸 except pass)
+        self.check_silent_swallowing()
+        # T0-3: R-H3 双轨新增检测 (近似模块名)
+        self.check_dual_track()
         return self.violations
 
     # ── 检查 1: Converter 串联堆叠 (R6/R2) ──
@@ -1057,8 +1063,8 @@ class ArchitectureGuard:
                     pattern = rf"\b{param}\s*[:=]\s*(\d+\.?\d*)"
                     match = re.search(pattern, line)
                     if match:
-                        # 排除: 从 args.xxx / config.xxx / getattr 读取
-                        if f"args.{param}" in line or f"config.{param}" in line or "getattr" in line:
+                        # 排除: 从 args.xxx / config.xxx / getattr / _resolve 读取 (动态配置读取函数)
+                        if f"args.{param}" in line or f"config.{param}" in line or "getattr" in line or "_resolve(" in line:
                             continue
                         # 排除: 注释中提到
                         if "#" in line and line.index("#") < line.index(param):
@@ -1165,12 +1171,32 @@ class ArchitectureGuard:
 
                 for pattern, message in log_hardcode_patterns:
                     if re.search(pattern, line, re.IGNORECASE):
-                        # 排除: 有 {param} 引用 (f-string 中引用变量)
-                        if "{" in line and "}" in line:
-                            # 检查是否引用了变量而非硬编码值
-                            # 如果行中有 getattr 或 args.xxx, 则是动态引用
-                            if "getattr" in line or "args." in line or "ctx." in line:
-                                continue
+                        # 排除 A: 显式动态读取 (getattr / args / ctx / _resolve)
+                        if "getattr" in line or "args." in line or "ctx." in line or "_resolve(" in line:
+                            continue
+
+                        # 排除 B: 关键词仅出现在 f-string 插值 {} 内 — 视为动态引用
+                        # 例: f"{exit_threshold:.0f}%" 虽触发正则 ":0f", 等等
+                        keyword_match = re.search(
+                            r"(?:max_turns|best_of_n|asr_threshold|exit_threshold|high_confidence|wilson_confidence_level|crescendo_max_turns|tap_tree_width|tap_tree_depth)",
+                            line, re.IGNORECASE,
+                        )
+                        if keyword_match:
+                            kw_start = keyword_match.start()
+                            kw_end = keyword_match.end()
+                            # 找出关键词左侧最近的未匹配 { 与右侧最近的 }
+                            before = line[:kw_start]
+                            after = line[kw_end:]
+                            last_open = before.rfind("{")
+                            next_close = after.find("}")
+                            if last_open != -1 and next_close != -1:
+                                # 确认关键词在 {param 插值内: 左有 { 且中间无 } 隔断
+                                segment = line[last_open:kw_end]
+                                opens = segment.count("{")
+                                closes = segment.count("}")
+                                # 若在 {} 内: opens > closes (缺少右侧 } 即未平衡)
+                                if opens > closes:
+                                    continue
 
                         self.violations.append(Violation(
                             rule="R9",
@@ -1681,12 +1707,330 @@ class ArchitectureGuard:
                 fix_hint="创建 core/scenario_router.py 并实现 ScenarioRouter 类",
             ))
 
+    # ── T0-1: R-H1 静默降级检测 (Scaffold / Stub 进入编排链) ──
+
+    # 编排语义前缀 (这些前缀暗示函数进入 run_attack_pipeline)
+    _ORCHESTRATION_PREFIXES = ("run_", "execute_", "process_", "handle_", "evaluate_", "apply_")
+    # 已声明的 stub 函数 (docstring 含 "STUB" / "TODO" 前缀的不报 — 显式宣告符合 C9)
+    _STUB_ACKNOWLEDGED_MARKERS = ("STUB:", "STUB]", "TODO:", "FIXME:", "scaffold", "placeholder")
+
+    def _is_stub_acknowledged(self, content: str, func_line_idx: int) -> bool:
+        """检查函数 docstring 是否显式声明为 stub (符合 C9 显式 gap)。"""
+        # 向后扫描 docstring 起始的三引号
+        for j in range(func_line_idx, min(func_line_idx + 8, len(content.split("\n")))):
+            line = content.split("\n")[j]
+            if "\"\"\"" in line or "'''" in line:
+                snippet = "\n".join(content.split("\n")[func_line_idx:j + 1])
+                return any(m in snippet for m in self._STUB_ACKNOWLEDGED_MARKERS)
+        return False
+
+    def check_silent_degradation(self) -> None:
+        """R-H1: 检测编排链中未被显式声明的静默降级 stub。
+
+        C9 要求承认能力缺口并显式标记。若函数名暗示编排角色
+        (run_/execute_/process_/handle_/evaluate_/apply_)，
+        但函数体仅含 return {} / return None / pass 且未声明 STUB/TODO，
+        则为 静默降级 scaffold — 编排器调用时代码表现与语义不符。
+        """
+        pipeline_dirs = {"strike", "arm", "assess", "recon", "report", "targets", "utils", "core"}
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            if not any(d in parts for d in pipeline_dirs):
+                continue
+            if "architecture_guard" in str(rel):
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            lines = content.split("\n")
+            func_pattern = re.compile(r"^\s*(?:async\s+)?def\s+(\w+)\s*\([^\)]*\)")
+
+            for i, line in enumerate(lines):
+                match = func_pattern.match(line)
+                if not match:
+                    continue
+                func_name = match.group(1)
+                if not any(func_name.startswith(p) for p in self._ORCHESTRATION_PREFIXES):
+                    continue
+                if func_name.startswith("_"):
+                    continue  # 私有 helper 不报
+
+                # 提取函数体 (直到下一个同缩进 def/EOF)
+                body_lines: list[str] = []
+                func_indent = len(line) - len(line.lstrip())
+                for j in range(i + 1, len(lines)):
+                    body_line = lines[j]
+                    if not body_line.strip():
+                        body_lines.append(body_line)
+                        continue
+                    body_indent = len(body_line) - len(body_line.lstrip())
+                    if body_indent <= func_indent and body_line.strip():
+                        break
+                    body_lines.append(body_line)
+
+                # 过滤空行与 docstring 行，保留实际代码
+                code_only = []
+                in_doc = False
+                for bl in body_lines:
+                    stripped = bl.strip()
+                    if not stripped:
+                        continue
+                    if stripped.count('"""') == 1 or stripped.count("'''") == 1:
+                        in_doc = not in_doc
+                        continue
+                    if in_doc:
+                        continue
+                    if stripped.startswith("#"):
+                        continue
+                    code_only.append(stripped)
+
+                # stub 判定: ≤ 2 行实际代码 且 含 return {} / return None / pass + return / raise NotImplementedError
+                if len(code_only) > 2:
+                    continue
+                has_empty_return = any(
+                    rc in code_only
+                    for rc in [
+                        "return {}", "return None", "pass",
+                        "raise NotImplementedError", "return []", "return 0",
+                    ]
+                )
+                if not has_empty_return:
+                    continue
+
+                # 排除 docstring 显式声明的 stub
+                if self._is_stub_acknowledged(content, i):
+                    continue
+
+                self.violations.append(Violation(
+                    rule="R-H1",
+                    severity=Severity.WARNING,
+                    file=str(rel),
+                    line=i + 1,
+                    description=(
+                        f"编排链静默降级 (R-H1): 函数 '{func_name}' 名暗示编排角色 "
+                        f"但函数体仅含空 return / pass — 调用后返回无效结果"
+                    ),
+                    fix_hint=(
+                        f"显式声明 stub: docstring 添加 'STUB: <原因>' "
+                        f"或实现实际逻辑; 若已废弃请移除编排器对该函数的调用"
+                    ),
+                ))
+
+    # ── T0-2: R-H2 静默吞错检测 ──
+
+    def check_silent_swallowing(self) -> None:
+        """R-H2: 检测大 try 块 + 极简 except (静默吞错/体量失衡).
+
+        C9 要求承认能力缺口而不隐藏。若 try 块体量 >> except 块体量
+        且 except 仅含 pass / ellipsis / 单行 logging, 则为例外被吞没 —
+        静默吞错违反完整性。
+        """
+        pipeline_dirs = {"strike", "arm", "assess", "recon", "report", "targets", "utils", "core"}
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            if not any(d in parts for d in pipeline_dirs):
+                continue
+            if "architecture_guard" in str(rel):
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            lines = content.split("\n")
+            in_docstring = False
+
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if stripped.count('"""') == 1 or stripped.count("'''") == 1:
+                    in_docstring = not in_docstring
+                if in_docstring:
+                    continue
+
+                if stripped != "try:":
+                    continue
+
+                try_indent = len(line) - len(line.lstrip())
+                # 收集 try 块 + 匹配的 except 块
+                try_body: list[str] = []
+                except_blocks: list[list[str]] = []
+                current_block: list[str] = []
+                j = i + 1
+                while j < len(lines):
+                    bl = lines[j]
+                    if not bl.strip():
+                        if current_block is not None:
+                            current_block.append(bl)
+                        j += 1
+                        continue
+                    bl_indent = len(bl) - len(bl.lstrip())
+                    if bl_indent <= try_indent and bl.strip():
+                        break
+                    # 新的 except/finally 块
+                    if bl_indent == try_indent + 1 and (bl.strip().startswith("except") or bl.strip() == "finally:"):
+                        if current_block:
+                            if except_blocks or not try_body:
+                                except_blocks.append(current_block)
+                            else:
+                                try_body = current_block
+                        current_block = []
+                        j += 1
+                        continue
+                    if current_block is not None:
+                        current_block.append(bl)
+                    j += 1
+                if current_block and (except_blocks or try_body):
+                    except_blocks.append(current_block)
+                elif current_block and not try_body and not except_blocks:
+                    try_body = current_block
+
+                # 过滤空行统计 try 体量
+                try_code = [l for l in try_body if l.strip() and not l.strip().startswith("#")]
+                if len(try_code) < 3:
+                    continue  # 太小不报
+
+                for eb in except_blocks:
+                    except_code = [
+                        l for l in eb
+                        if l.strip() and not l.strip().startswith("#")
+                        and not l.strip().startswith("except") and l.strip() != "finally:"
+                    ]
+                    # 极简 except 判定: ≤ 1 行有效代码 且 只含 pass / ... / logging / raise 同异常
+                    if len(except_code) > 1:
+                        continue
+                    if not except_code:
+                        continue
+                    ec_line = except_code[0].strip()
+                    if ec_line in ("pass", "...", "continue", "return", "return None", "break"):
+                        continue
+                    # 单行 logging/warn 也报体量失衡
+                    if re.match(r"(?:log(?:ger)?|logger|logging)\.(?:warning|info|debug|error|log)\(", ec_line):
+                        continue
+
+                    self.violations.append(Violation(
+                        rule="R-H2",
+                        severity=Severity.WARNING,
+                        file=str(rel),
+                        line=i + 1,
+                        description=(
+                            f"静默吞错 (R-H2): try 块 {len(try_code)} 行 vs except 块 {len(except_code)} 行 "
+                            f"— 异常 #{i+1} 被静默吞没"
+                        ),
+                        fix_hint=(
+                            "显式声明行为: except 中 log + raise 特定异常, "
+                            "或文档化吞没原因 (C9 显式 gap)"
+                        ),
+                    ))
+
+    # ── T0-3: R-H3 双轨新增检测 ──
+
+    # 语义根 (模块名共享 ≥ 4 字符则触发双轨检测)
+    _DUAL_TRACK_ROOTS = ("asr_manager", "judge", "escalation", "score", "response", "seed", "arm", "target", "search", "converter", "scorer")
+
+    def check_dual_track(self) -> None:
+        """R-H3: 检测新增/改名的近似模块 (双轨治理失效)。
+
+        D-11 报告曾指出双轨新增: 模块版本迭代时保留别名/同名 manager/pipeline/export，
+        导致调用方不确定应导入哪个。
+
+        检测策略: 同包内模块文件的主干名共享语义根且非同一文件的变体（如 _base/_test）。
+        仅标记 INFO — 需人工核查是否应合并/废弃/重命名。
+        """
+        from importlib.machinery import SOURCE_SUFFIXES
+
+        pkg_modules: dict[str, list[tuple[str, str]]] = {}  # pkg -> [(stem, rel_path)]
+
+        for path in self.source_files:
+            rel = path.relative_to(self.root)
+            parts = rel.parts
+            # 只含 .py 源文件
+            if not path.suffix == ".py":
+                continue
+            # __init__.py 忽略
+            if path.name == "__init__.py":
+                continue
+            # core/toplevel 不在同包内不报
+            if len(parts) < 2:
+                continue
+            pkg = parts[0]
+            stem = path.stem  # e.g. "asr_manager"
+
+            pkg_modules.setdefault(pkg, []).append((stem, str(rel)))
+
+        # 按语义根聚类
+        root_to_files: dict[str, list[str]] = {}
+        for pkg, files in pkg_modules.items():
+            for stem, rel_path in files:
+                for root in self._DUAL_TRACK_ROOTS:
+                    if stem.startswith(root) or root in stem:
+                        key = f"{pkg}/{root}"
+                        root_to_files.setdefault(key, []).append(rel_path)
+
+        # 标记同语义根下超过 1 个文件且文件名差异不构成主-从关系
+        for key, file_list in root_to_files.items():
+            if len(file_list) < 2:
+                continue
+            # 排除 _test / _base / _v2 等常规变体
+            main_files = [
+                f for f in file_list
+                if not any(suffix in f for suffix in ("_test.py", "_base.py", "_v2.py"))
+            ]
+            if len(main_files) < 2:
+                continue
+
+            severity = Severity.INFO
+            self.violations.append(Violation(
+                rule="R-H3",
+                severity=severity,
+                file=", ".join(main_files[:4]),
+                line=0,
+                description=(
+                    f"双轨新增征兆 (R-H3): 语义根 '{key}' 下发现 {len(main_files)} 个近似模块 "
+                    f"— {' / '.join(main_files[:4])} — 建议核查是否应合并/废弃"
+                ),
+                fix_hint="确认双轨职责边界; 若废弃保留模块, 请从编排链路和 import 图移除引用",
+            ))
+
+    # ── T1-3: Specs 裁决序联动 (版本读取) ──
+
+    def _read_specs_version(self) -> str | None:
+        """读取 00-CONSTITUTION.md 顶部版本号, 用于 specs-guard 联动校验。"""
+        const_file = self.root / "docs" / "specs" / "00-CONSTITUTION.md"
+        if not const_file.exists():
+            return None
+        try:
+            head = const_file.read_text(encoding="utf-8", errors="replace")[:1024]
+            # 优先匹配中文 "**版本**：v1.2" / "版本：v1.2"
+            m = re.search(r"\*{0,2}[*]*版本[*]*\s*[:：]\s*v?(\d+\.\d+|\d+)", head)
+            if not m:
+                m = re.search(r"\bversion\s*[:：]\s*v?(\d+\.\d+|\d+)", head)
+            return m.group(1) if m else None
+        except OSError:
+            return None
+
+    @property
+    def specs_version(self) -> str:
+        """返回 specs 宪法版本 (懒加载, 读取失败返回 'unknown')。"""
+        if not hasattr(self, "_specs_version_cached"):
+            ver = self._read_specs_version()
+            self._specs_version_cached = ver if ver else "unknown"
+        return self._specs_version_cached
+
     # ── 输出 ──
 
     def report_text(self, show_fix_hints: bool = False) -> str:
         """生成文本报告。"""
         if not self.violations:
-            return "✅ 架构契约检查通过 — 0 违规"
+            return ("✅ 架构契约检查通过 — 0 违规\n"
+                    f"   specs 版本: {self.specs_version}")
 
         blocking = [v for v in self.violations if v.severity == Severity.BLOCKING]
         warnings = [v for v in self.violations if v.severity == Severity.WARNING]
@@ -1705,6 +2049,7 @@ class ArchitectureGuard:
                 lines.append(f"  修复: {v.fix_hint}")
             lines.append("")
 
+        lines.append(f"specs 版本: {self.specs_version}  (裁决序基准: 00-CONSTITUTION.md)")
         return "\n".join(lines)
 
     def report_json(self) -> str:
@@ -1718,6 +2063,7 @@ class ArchitectureGuard:
                 "passed": len(self.violations) == 0 or all(
                     v.severity != Severity.BLOCKING for v in self.violations
                 ),
+                "specs_version": self.specs_version,
             },
             "violations": [
                 {

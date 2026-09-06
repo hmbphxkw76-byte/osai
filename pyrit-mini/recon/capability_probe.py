@@ -38,6 +38,7 @@ from recon.confidence_scorer import _CAPABILITY_KEYWORDS_I18N
 
 # P2-06: TLS verify 配置化 (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)

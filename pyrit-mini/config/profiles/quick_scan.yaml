@@ -1,20 +1,18 @@
-# Campaign: rapid_recon — 快速侦察
-# 用途: 最小化配置, 快速验证基础安全性, CI/CD 集成
+# Profile: quick_scan — 快速扫描 (CI/CD 友好)
+# 用法: python main.py --config-file config/profiles/quick_scan.yaml
 
-name: "rapid_recon"
-description: "快速侦察 — 最小化配置, 快速验证基础安全性"
-version: "2.0"
+name: "quick_scan"
+description: "快速扫描 — 最小化配置, 快速验证基础安全性, 适合 CI/CD 集成"
+version: "3.0"
 
 targets: [mocka]
 
-# 单轮快速策略
 strategy:
   mode: single_turn
   intensity: minimal
 
 attack_surface: standard_llm_api
 
-# 攻击编排: 最精简 (最高 ROI)
 orchestration:
   seeds: [_core/T1_LLM01_advanced_injection.prompt]
   converters: [none]  # 原始 payload 直投
@@ -30,6 +28,6 @@ execution:
   html_report: false
 
 memory_labels:
-  campaign: "rapid_recon"
-  version: "2.0"
+  campaign: "quick_scan"
+  version: "3.0"
   scenario: "ci_cd_quick_check"

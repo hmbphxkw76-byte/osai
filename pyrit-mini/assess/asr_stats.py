@@ -258,7 +258,7 @@ def get_dual_judge_stats() -> dict[str, Any]:
 
     # L5 v48: 鏀堕泦 T0 杩愯鏃剁粺璁?
     try:
-        from assess.judge_utils import get_t0_stats
+        from assess.judge_manager import get_t0_stats
         t0_stats = get_t0_stats()
     except Exception:
         t0_stats = {}

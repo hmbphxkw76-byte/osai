@@ -116,7 +116,7 @@
 | REQ-109 | A2A/多智能体攻击执行 | 现状仅有 ma_* 种子（5 条）；执行层须支持至少 cross-agent injection / agent impersonation / workflow corruption 三类攻击编排进升级链（多轮技术，尊重 adversarial target 有无） | M4 Multi-Agent & A2A |
 | REQ-110 | Embedding 攻击落地 | strike/embedding_inversion.py（8.4KB）实装或按蓝图 Q4 决策树裁决：属 PyRIT 域则实装（信息抽取/倒置两类），域外则以外部工具形态接入并回填数据；**禁止维持 stub 编排状态（R-H1）** | M6 Embeddings |
 | REQ-111 | 供应链侦察 | 仅报告侦察建议（SBOM/依赖/模型权重来源检查项清单，写入 fingerprint → report 渲染）；**不引入新运行时依赖（NEG-4 约束）** | M8 Supply Chain |
-| REQ-112 | 考试模式 campaign | `config/campaigns/exam_mode.yaml`：单 endpoint 快速链路（recon→strike→report 精简路径）+ token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；与 REQ-102 战役预设同机制 |
+| REQ-112 | 考试模式 campaign | `config/profiles/exam_mode.yaml`：单 endpoint 快速链路（recon→strike→report 精简路径）+ token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；与 REQ-102 战役预设同机制 |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
 
 ## 第 3B 章：P0-NEW — 代码审计新发现需求缺口（2026-09-06 登记）
@@ -235,3 +235,4 @@
 | v1.2 | 2026-09-05 | REV-02：① 新增第 3A 章考域覆盖需求 REQ-109~113（A2A 执行、embedding 落地、供应链侦察、exam_mode campaign、OffSec 风格报告，对齐 AI-300 考纲）；② 新增 NFR-7 离线可检与依赖锁定；③ 新增 NEG-7 运行时产物禁入 git；④ REQ-004 标注 Best-of-N stub 为现行 P0 缺口；⑤ NEG-1 范围扩至 D-01~D-16；⑥ 状态登记表更新（新增待实现态与 REV-02 审计备注） | 用户会话批准 |
 | v1.3 | 2026-09-06 | REV-03 代码审计（remediation/audit-remediation.md）：① 新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（升级链可达、多 agent 种子完整、MCP 动态链路、死代码清零、编码损坏、场景特异性）；② 状态登记表补 REQ-114~119 open 态 | — |
 | v1.4 | 2026-09-06 | REV-04 AI-300 考试需求优化：① 新增第 3C 章 P0-EXAM 考试关键需求 REQ-120~126（快速指纹、一键攻击、时间盒降级、证据实时落盘、卡死切换、Token 监控、报告即时生成）+ 考试日时间盒分配标准 + 考试攻击优先级规则；② 新增 NFR-8 考试鲁棒性；③ 更新状态登记表（REQ-120~126 exam 态） | 用户会话批准 |
+| v1.5 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化：rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留；④ 删除 config/campaigns/ 目录 | 用户会话批准 |

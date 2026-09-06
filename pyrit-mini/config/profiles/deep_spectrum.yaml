@@ -1,9 +1,9 @@
-# Campaign: full_spectrum_max_asr — 全光谱最大 ASR
-# 用途: 红队深度评估, 最大化 ASR, 耗尽型测试
+# Profile: deep_spectrum — 深度全谱攻击 (最大化 ASR)
+# 用法: python main.py --config-file config/profiles/deep_spectrum.yaml
 
-name: "full_spectrum_max_asr"
-description: "全光谱攻击 — 最大化 ASR, 用于红队深度评估与合规验证"
-version: "2.0"
+name: "deep_spectrum"
+description: "深度全谱攻击 — 最大化 ASR, 用于红队深度评估与合规验证"
+version: "3.0"
 
 # 攻击目标 (多目标)
 targets: [mocka, mockb]
@@ -12,8 +12,6 @@ targets: [mocka, mockb]
 strategy:
   mode: adaptive
   intensity: maximum
-
-# 攻击面: 覆盖全场景 (不指定, 在 orchestration 中指定全部种子)
 
 # 攻击编排: 最全配置
 orchestration:
@@ -32,7 +30,7 @@ execution:
   html_report: true
 
 memory_labels:
-  campaign: "full_spectrum_max_asr"
-  version: "2.0"
+  campaign: "deep_spectrum"
+  version: "3.0"
   intensity: "maximum"
   scenario: "compliance_deep_test"
