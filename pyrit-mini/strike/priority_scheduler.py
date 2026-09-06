@@ -52,6 +52,115 @@ _TECHNIQUE_PRIOR_KEY: dict[str, str] = {
     "mcp_rag": "context_compliance",
 }
 
+# L-01: UCB1 探索系数默认值
+# UCB1 公式: score = avg_reward + C * sqrt(ln(N) / n_i)
+# C 控制探索程度:
+#   C=0.0: 纯利用 (贪心, 永远选最高先验)
+#   C=0.1: 轻度探索 (默认, 平衡)
+#   C=1.0: 标准 UCB1 (理论最优, Auer et al.)
+#   C>1.0: 高度探索 (适合先验不确定场景)
+#
+# 配置优先级: ctx.args.ucb_exploration_factor > config/defaults.yaml > 默认值 0.1
+_DEFAULT_UCB_EXPLORATION_FACTOR: float = 0.1
+
+# L-01: UCB1 配置键名 (用于从 ctx.args / config/defaults.yaml 读取)
+_UCB_CONFIG_KEY: str = "ucb_exploration_factor"
+
+
+def _get_ucb_exploration_factor(ctx: Any | None = None) -> float:
+    """获取 UCB1 探索系数 C — 支持运行时配置覆盖.
+
+    学术依据: Auer et al. (arXiv:cs/0207052)
+        C = sqrt(2) ≈ 1.414 是理论最优, 但实际红队场景需要更低 C 值
+        因为高 C 值会导致大量 token 浪费在低概率技术上.
+
+    Args:
+        ctx: 流水线上下文 (可选).
+
+    Returns:
+        UCB1 探索系数 C (默认 0.1).
+    """
+    # 优先级 1: ctx.args 命令行覆盖
+    if ctx is not None:
+        _args = getattr(ctx, "args", None)
+        if _args is not None:
+            _c = getattr(_args, _UCB_CONFIG_KEY, None)
+            if isinstance(_c, (int, float)) and 0.0 <= float(_c) <= 2.0:
+                logger.debug("L-01: UCB1 C=%.3f from args", float(_c))
+                return float(_c)
+
+    # 优先级 2: config/defaults.yaml
+    try:
+        import yaml
+        from pathlib import Path
+        config_path = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
+        if config_path.exists():
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _c = config.get(_UCB_CONFIG_KEY, _DEFAULT_UCB_EXPLORATION_FACTOR)
+            if isinstance(_c, (int, float)):
+                _c = float(_c)
+                if 0.0 <= _c <= 2.0:
+                    logger.debug("L-01: UCB1 C=%.3f from defaults.yaml", _c)
+                    return _c
+                logger.warning("L-01: UCB1 C=%.3f out of range [0.0, 2.0], using default", _c)
+    except Exception as e:
+        logger.warning("L-01: Failed to read UCB1 config: %s, using default %.3f", e, _DEFAULT_UCB_EXPLORATION_FACTOR)
+
+    return _DEFAULT_UCB_EXPLORATION_FACTOR
+
+
+def _compute_ucb_score(
+    prior_asr: float,
+    total_experiments: int,
+    tech_experiments: int,
+    *,
+    c: float | None = None,
+) -> float:
+    """计算 UCB1 分数 — 用于排序.
+
+    UCB1 公式:
+        UCB1_score = avg_reward + C * sqrt(ln(N) / n_i)
+
+    其中:
+        - avg_reward = prior_asr (历史平均成功率, 0-100)
+        - N = total_experiments (总实验次数)
+        - n_i = tech_experiments (该技术实验次数)
+        - C = 探索系数
+
+    边界情况:
+        - tech_experiments = 0: 返回 inf (鼓励探索未尝试技术)
+        - C = 0: 返回 prior_asr (纯贪心)
+
+    Args:
+        prior_asr: 该技术历史 ASR 先验 (0-100).
+        total_experiments: 总实验次数.
+        tech_experiments: 该技术的实验次数.
+        c: 探索系数 (默认使用 _get_ucb_exploration_factor()).
+
+    Returns:
+        UCB1 分数 (越高越优先).
+    """
+    import math
+
+    if c is None:
+        c = _DEFAULT_UCB_EXPLORATION_FACTOR
+
+    # 从未实验的技术: 最高优先级 (鼓励探索)
+    if tech_experiments == 0:
+        return float('inf')
+
+    # 纯贪心模式 (C=0): 仅按先验排序
+    if c == 0.0:
+        return prior_asr
+
+    # UCB1 公式
+    avg_reward = prior_asr / 100.0  # 归一化到 [0, 1]
+    exploration_bonus = c * math.sqrt(math.log(total_experiments) / tech_experiments)
+    ucb_score = (avg_reward + exploration_bonus) * 100.0  # 还原到 0-100 范围
+
+    return ucb_score
+
 
 def _get_model_family(ctx: PipelineContext) -> str:
     """从 ctx 中获取目标模型族名称 (用于 ASR 先验查询)."""
@@ -65,8 +174,10 @@ def _get_model_family(ctx: PipelineContext) -> str:
 def _rank_techniques_by_prior(
     techniques: list[str],
     ctx: PipelineContext,
+    *,
+    use_ucb: bool = True,
 ) -> list[tuple[str, float]]:
-    """按 ASR 先验对技术降序排序, 返回 (technique_name, prior_asr) 列表.
+    """按 ASR 先验 (或 UCB1 分数) 对技术降序排序, 返回 (technique_name, prior_asr) 列表.
 
     学术依据:
         - Auer et al. (arXiv:cs/0207052) — UCB1 排序
@@ -77,36 +188,77 @@ def _rank_techniques_by_prior(
         2. technique_asr[prior_key]["default"] (默认值)
         3. 0.0 (无先验数据, 排在最后)
 
+    L-01: 支持 UCB1 排序 (当 use_ucb=True 且配置了实验次数时).
+        UCB1 会给予未充分探索的技术更高优先级, 避免历史先验偏差.
+
     Args:
         techniques: 技术名称列表 (如 ["crescendo", "tap", "pair", ...]).
         ctx: 流水线上下文 (用于获取 model_family).
+        use_ucb: 是否使用 UCB1 排序 (默认 True, 可通过 config 禁用).
 
     Returns:
-        按 prior 降序排列的 (technique_name, prior_asr) 元组列表.
+        按 prior (或 UCB1 分数) 降序排列的 (technique_name, prior_asr) 元组列表.
     """
-    from arm.seed_ranking import get_technique_asr_prior
+    from arm.seed_ranking import get_technique_asr_prior, get_technique_experiment_count
 
     model_name = _get_model_family(ctx)
+    ucb_c = _get_ucb_exploration_factor(ctx) if use_ucb else 0.0
 
-    ranked: list[tuple[str, float]] = []
+    ranked: list[tuple[str, float, float]] = []  # (tech, prior, ucb_score)
     for tech in techniques:
         prior_key = _TECHNIQUE_PRIOR_KEY.get(tech, tech)
         prior = get_technique_asr_prior(prior_key, model_name)
         if prior == 0.0:
             # fallback: 尝试用技术名本身查询
             prior = get_technique_asr_prior(tech, model_name)
-        ranked.append((tech, prior))
 
-    # 按 prior 降序排序
-    ranked.sort(key=lambda x: x[1], reverse=True)
+        # L-01: 计算 UCB1 分数 (如果启用)
+        ucb_score = prior  # 默认: 纯 prior 排序
+        if use_ucb and ucb_c > 0.0:
+            try:
+                tech_exp_count = get_technique_experiment_count(prior_key, model_name)
+                total_exp = max(1, sum(
+                    get_technique_experiment_count(_TECHNIQUE_PRIOR_KEY.get(t, t), model_name)
+                    for t in techniques
+                ))
+                ucb_score = _compute_ucb_score(prior, total_exp, tech_exp_count, c=ucb_c)
+            except Exception:
+                # UCB1 计算失败时回退到 prior 排序
+                pass
+
+        ranked.append((tech, prior, ucb_score))
+
+    # 按 UCB1 分数 (或 prior) 降序排序
+    ranked.sort(key=lambda x: x[2], reverse=True)
 
     logger.info(
-        "Priority scheduler: technique ranking (model=%s): %s",
+        "Priority scheduler: technique ranking (model=%s, UCB C=%.3f): %s",
         model_name or "unknown",
-        ", ".join(f"{t}={p:.0f}%" for t, p in ranked),
+        ucb_c,
+        ", ".join(f"{t}={p:.0f}%(ucb={u:.1f})" for t, p, u in ranked),
     )
 
-    return ranked
+    # 返回 (tech, prior) 格式, 保持向后兼容
+    return [(tech, prior) for tech, prior, _ in ranked]
+
+
+def _get_total_experiment_count(techniques: list[str], model_name: str) -> int:
+    """获取所有技术的总实验次数 (用于 UCB1 计算).
+
+    Args:
+        techniques: 技术名称列表.
+        model_name: 目标模型族名称.
+
+    Returns:
+        总实验次数.
+    """
+    from arm.seed_ranking import get_technique_experiment_count
+
+    total = 0
+    for tech in techniques:
+        prior_key = _TECHNIQUE_PRIOR_KEY.get(tech, tech)
+        total += get_technique_experiment_count(prior_key, model_name)
+    return max(1, total)  # 至少为 1, 避免 log(0)
 
 
 def _partition_into_batches(
@@ -178,6 +330,9 @@ async def _execute_priority_batches(
     low_threshold: float = 40.0,
     epsilon: float = 0.1,
     base_attack_results: dict[str, list[Any]] | None = None,
+    # L-02: Circuit Breaker 集成 — 可选回调
+    circuit_breaker_check: Callable[[str, Any | None], bool] | None = None,
+    circuit_breaker_record: Callable[[str, bool, Any | None], None] | None = None,
 ) -> dict[str, list[Any]]:
     """分批优先级执行多轮攻击技术.
 
@@ -317,9 +472,26 @@ async def _execute_priority_batches(
             tech_name: str,
             runner: Callable[[PipelineContext, list[str]], Coroutine[Any, Any, dict[str, list[Any]]]],
         ) -> dict[str, list[Any]]:
+            """批次内安全执行, 集成 Circuit Breaker (L-02)."""
+            # L-02: Circuit Breaker 前置检查
+            if circuit_breaker_check is not None and circuit_breaker_check(tech_name, ctx):
+                logger.warning(
+                    "L-02: Priority scheduler skipping '%s' — circuit breaker is OPEN",
+                    tech_name,
+                )
+                return {}
+
             try:
-                return await runner(ctx, remaining_objectives)
+                result = await runner(ctx, remaining_objectives)
+                # L-02: 记录成功 (有结果视为成功)
+                if circuit_breaker_record is not None:
+                    success = bool(result and any(result.values()))
+                    circuit_breaker_record(tech_name, success, ctx)
+                return result
             except Exception as e:
+                # L-02: 记录失败
+                if circuit_breaker_record is not None:
+                    circuit_breaker_record(tech_name, False, ctx)
                 logger.warning("Priority scheduler: '%s' failed: %s", tech_name, e)
                 return {}
 

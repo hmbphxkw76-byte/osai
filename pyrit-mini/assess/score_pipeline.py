@@ -448,7 +448,19 @@ async def precompute_outcomes_async(
         score_all,
     )
 
-    _judge_semaphore = asyncio.Semaphore(2)
+    # ═══ 自适应并发度 (基于目标 RPM) ═══
+    # 生产级策略: 根据目标速率限制自动调整并发信号量
+    # - 获取 judge RPM (从 scorer 配置或环境变量)
+    # - 计算公式: concurrency = max(1, min(max_concurrency, rpm // 30))
+    #   (假设每个请求平均处理时间 ~2s, 30 为经验系数)
+    # - 上限保护: 不超过 max_concurrency (默认 10)
+    _judge_semaphore = _compute_adaptive_semaphore(rpm=None, max_concurrency=10)
+    _semaphore_concurrency = _judge_semaphore._value  # type: ignore[attr-defined]
+
+    logger.info(
+        "L5 v54: Adaptive judge concurrency = %d (semaphore-based, RPM-aware)",
+        _semaphore_concurrency,
+    )
 
     # L5 v53: 自适应 Dual Judge 阈值
     try:
@@ -652,3 +664,79 @@ def _extract_response_text_from_result(result: Any) -> str:
             pass
 
     return ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 自适应并发度工具函数 (L5 v54)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_judge_rpm() -> int | None:
+    """获取 Judge 评分器的 RPM 限制。
+
+    优先级:
+        1. 环境变量 JUDGE_RPM
+        2. 全局默认值 (60 RPM, 保守默认)
+
+    Returns:
+        RPM 限制, 如果未配置返回 None。
+    """
+    import os
+    _env_rpm = os.environ.get("JUDGE_RPM")
+    if _env_rpm:
+        try:
+            return int(_env_rpm)
+        except ValueError:
+            logger.warning("Invalid JUDGE_RPM env var: %s, using default", _env_rpm)
+    # 默认 60 RPM (保守策略: 1 req/s, 避免触发 429)
+    return 60
+
+
+def _compute_adaptive_semaphore(
+    rpm: int | None = None,
+    *,
+    max_concurrency: int = 10,
+    min_concurrency: int = 1,
+) -> asyncio.Semaphore:
+    """根据 RPM 限制自适应计算并发度并创建信号量。
+
+    生产级策略:
+        - RPM → 并发度转换: concurrency = clamp(rpm // 30, min, max)
+          (假设每个评分请求平均 ~2s, 30 = 60/2, 即每 30 个 RPM 对应 1 并发)
+        - 上限保护: 不超过 max_concurrency (防止过载)
+        - 下限保护: 不低于 min_concurrency (保证进度)
+
+    学术依据:
+        - Little's Law: L = λ * W
+          (并发度 L = 到达率 λ × 平均处理时间 W)
+        - 假设 λ = RPM/60 req/s, W = 2s → L = RPM/30
+
+    Args:
+        rpm: RPM 限制 (None 时自动从环境变量或默认值获取)。
+        max_concurrency: 最大并发度上限。
+        min_concurrency: 最小并发度下限。
+
+    Returns:
+        配置好的 asyncio.Semaphore 实例。
+    """
+    if rpm is None:
+        rpm = _get_judge_rpm() or 60
+
+    # Little's Law: L = λ * W
+    # λ (req/s) = rpm / 60
+    # W (avg processing time) ≈ 2s (经验值)
+    # L (concurrency) = (rpm / 60) * 2 = rpm / 30
+    _calculated = rpm // 30
+
+    # Clamp to [min_concurrency, max_concurrency]
+    _concurrency = max(min_concurrency, min(max_concurrency, _calculated))
+
+    logger.debug(
+        "Adaptive semaphore: RPM=%d, calculated=%d, clamped=%d (bounds: %d-%d)",
+        rpm,
+        _calculated,
+        _concurrency,
+        min_concurrency,
+        max_concurrency,
+    )
+
+    return asyncio.Semaphore(_concurrency)

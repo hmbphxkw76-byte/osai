@@ -635,30 +635,21 @@ async def check_and_escalate(
 
             )
 
-            from strike.priority_scheduler import _execute_priority_batches
+                        from strike.priority_scheduler import _execute_priority_batches
 
-
-
+            # L-02: 传递 circuit breaker 回调, 防止失败技术级联浪费 token
             l1_results = await _execute_priority_batches(
-
                 ctx=ctx,
-
                 techniques=_l1_techniques,
-
                 attack_runners=_l1_runners,
-
                 failed_objectives=failed_objectives,
-
                 exit_threshold=_l1_exit,
-
                 high_threshold=_ps_high,
-
                 low_threshold=_ps_low,
-
                 epsilon=_ps_epsilon,
-
                 base_attack_results=attack_results,  # 断点 B/C 修复: 传入单轮结果用于合并 ASR 计算
-
+                circuit_breaker_check=_is_circuit_open,
+                circuit_breaker_record=_record_technique_result,
             )
 
             escalated_results.update(l1_results)
@@ -725,20 +716,14 @@ async def check_and_escalate(
 
 
 
+                        # L-02: L1 fallback 使用 Circuit Breaker 保护
             l1_results = await asyncio.gather(
-
-                _safe_call(_run_red_teaming(ctx, failed_objectives), "RedTeaming"),
-
-                _safe_call(_run_cot_hijack(ctx, failed_objectives), "CoT Hijack"),
-
-                _safe_call(_run_crescendo(ctx, failed_objectives), "Crescendo"),
-
-                _safe_call(_run_tap(ctx, failed_objectives), "TAP"),
-
-                _safe_call(_run_pair(ctx, failed_objectives), "PAIR"),
-
+                _execute_with_circuit_breaker(ctx, "red_teaming", _run_red_teaming, failed_objectives),
+                _execute_with_circuit_breaker(ctx, "cot_hijack", _run_cot_hijack, failed_objectives),
+                _execute_with_circuit_breaker(ctx, "crescendo", _run_crescendo, failed_objectives),
+                _execute_with_circuit_breaker(ctx, "tap", _run_tap, failed_objectives),
+                _execute_with_circuit_breaker(ctx, "pair", _run_pair, failed_objectives),
                 return_exceptions=False,
-
             )
 
 
@@ -961,21 +946,30 @@ async def check_and_escalate(
 
 
 
-        # M-02: L2 GCG 白盒攻击前置确认
+        # L-02 + M-02: Circuit Breaker 前置检查 + 白盒攻击确认
         _l2_techs_to_execute = []
         _l2_runners_to_execute = []
         for _l2_tech, _l2_runner in _l2_runners:
+            # L-02: Circuit Breaker 检查 — 跳过已被熔断的技术
+            if _is_circuit_open(_l2_tech, ctx):
+                logger.warning("L-02: L2 technique '%s' skipped (circuit breaker open)", _l2_tech)
+                continue
+
             if _is_whitebox_technique(_l2_tech):
-                # 白盒攻击: 确认通过后才允许执行
+                # M-02: 白盒攻击确认
                 _confirmed = await _confirm_whitebox_attack(ctx, _l2_tech)
                 if _confirmed:
                     _l2_techs_to_execute.append(_l2_tech)
-                    _l2_runners_to_execute.append(_safe_call(_l2_runner(ctx, failed_objectives), _l2_tech))
+                    _l2_runners_to_execute.append(
+                        _execute_with_circuit_breaker(ctx, _l2_tech, _l2_runner, failed_objectives)
+                    )
                 else:
                     logger.warning("M-02: L2 technique '%s' skipped (whitebox confirmation failed)", _l2_tech)
             else:
                 _l2_techs_to_execute.append(_l2_tech)
-                _l2_runners_to_execute.append(_safe_call(_l2_runner(ctx, failed_objectives), _l2_tech))
+                _l2_runners_to_execute.append(
+                    _execute_with_circuit_breaker(ctx, _l2_tech, _l2_runner, failed_objectives)
+                )
 
         l2_results = await asyncio.gather(
             *_l2_runners_to_execute,
@@ -1902,6 +1896,167 @@ _ESCALATION_CONVERTER_LABELS: dict[str, str] = {
     "mcp_rag": "none (MCP/RAG)",
 
 }
+
+
+# L-02: 升级链 Circuit Breaker — 防止级联失败, 提升生产级稳定性
+# 学术依据: Michael Nygard, "Release It!" 2nd Ed. (2018) — Circuit Breaker 模式
+
+# Circuit Breaker 配置
+_CIRCUIT_BREAKER_THRESHOLD: int = 3      # 连续失败次数触发断路器
+_CIRCUIT_BREAKER_TIMEOUT: float = 300.0  # 断路器打开后, 等待多少秒进入半开状态 (5分钟)
+
+# Circuit Breaker 状态追踪 (技术名 -> {failures, state, last_failure_time})
+# 状态: "closed" (正常), "open" (断开, 跳过), "half-open" (试探)
+_circuit_breaker_states: dict[str, dict[str, Any]] = {}
+
+
+def _reset_circuit_breakers() -> None:
+    """重置所有 circuit breaker 状态 (通常在新攻击会话开始时调用)."""
+    global _circuit_breaker_states
+    _circuit_breaker_states.clear()
+    logger.debug("L-02: Circuit breaker states reset")
+
+
+def _get_circuit_breaker_config(ctx: Any | None = None) -> tuple[int, float]:
+    """获取 circuit breaker 配置 — 支持运行时覆盖.
+
+    Returns:
+        (threshold, timeout) 元组.
+    """
+    threshold = _CIRCUIT_BREAKER_THRESHOLD
+    timeout = _CIRCUIT_BREAKER_TIMEOUT
+
+    if ctx is not None:
+        args = getattr(ctx, "args", None)
+        if args is not None:
+            _cb_threshold = getattr(args, "circuit_breaker_threshold", None)
+            if isinstance(_cb_threshold, int) and _cb_threshold >= 1:
+                threshold = _cb_threshold
+            _cb_timeout = getattr(args, "circuit_breaker_timeout", None)
+            if isinstance(_cb_timeout, (int, float)) and _cb_timeout >= 0:
+                timeout = float(_cb_timeout)
+
+    return threshold, timeout
+
+
+def _is_circuit_open(technique_name: str, ctx: Any | None = None) -> bool:
+    """检查指定技术的 circuit breaker 是否打开.
+
+    Args:
+        technique_name: 技术名称.
+        ctx: 流水线上下文 (用于读取配置).
+
+    Returns:
+        True 表示 circuit 打开 (应跳过该技术).
+    """
+    import time
+
+    threshold, timeout = _get_circuit_breaker_config(ctx)
+    state_info = _circuit_breaker_states.get(technique_name)
+
+    if state_info is None:
+        # 未记录状态, 视为 closed
+        return False
+
+    state = state_info.get("state", "closed")
+
+    if state == "open":
+        # 检查是否超时, 超时则转为 half-open (允许试探一次)
+        last_failure = state_info.get("last_failure_time", 0.0)
+        if time.monotonic() - last_failure >= timeout:
+            state_info["state"] = "half-open"
+            logger.info(
+                "L-02: Circuit breaker for '%s' entering half-open state "
+                "(timeout %.0fs elapsed)", technique_name, timeout,
+            )
+            return False  # half-open: 允许试探
+        return True  # open: 仍然跳过
+
+    return False  # closed 或 half-open: 允许执行
+
+
+def _record_technique_result(technique_name: str, success: bool, ctx: Any | None = None) -> None:
+    """记录技术执行结果, 更新 circuit breaker 状态.
+
+    Args:
+        technique_name: 技术名称.
+        success: 是否成功.
+        ctx: 流水线上下文.
+    """
+    import time
+
+    threshold, _ = _get_circuit_breaker_config(ctx)
+    state_info = _circuit_breaker_states.setdefault(
+        technique_name,
+        {"failures": 0, "state": "closed", "last_failure_time": 0.0},
+    )
+
+    if success:
+        # 成功: 重置失败计数并关闭 circuit
+        if state_info["failures"] > 0:
+            logger.info(
+                "L-02: Circuit breaker for '%s' reset (success after %d failures)",
+                technique_name, state_info["failures"],
+            )
+        state_info["failures"] = 0
+        state_info["state"] = "closed"
+    else:
+        # 失败: 增加计数
+        state_info["failures"] += 1
+        state_info["last_failure_time"] = time.monotonic()
+
+        if state_info["failures"] >= threshold:
+            if state_info["state"] != "open":
+                logger.warning(
+                    "L-02: Circuit breaker for '%s' OPENED after %d consecutive failures "
+                    "(threshold=%d) — technique will be skipped until timeout (%.0fs)",
+                    technique_name, state_info["failures"], threshold, _CIRCUIT_BREAKER_TIMEOUT,
+                )
+            state_info["state"] = "open"
+
+
+async def _execute_with_circuit_breaker(
+    ctx: PipelineContext,
+    technique_name: str,
+    runner: Callable,
+    failed_objectives: list[str],
+) -> dict[str, list[Any]]:
+    """带 circuit breaker 保护的技术执行包装器.
+
+    Args:
+        ctx: 流水线上下文.
+        technique_name: 技术名称.
+        runner: 攻击运行函数 (async).
+        failed_objectives: 失败目标列表.
+
+    Returns:
+        执行结果字典 (空字典表示被 circuit breaker 跳过或执行失败).
+    """
+    # 检查 circuit breaker 状态
+    if _is_circuit_open(technique_name, ctx):
+        logger.warning(
+            "L-02: Skipping technique '%s' — circuit breaker is OPEN",
+            technique_name,
+        )
+        ctx.orchestration_log.append({
+            "phase": "escalate",
+            "decision": "circuit_breaker_skip",
+            "input": {"technique": technique_name, "state": "open"},
+            "output": {"skipped": True},
+            "reasoning": f"Circuit breaker open for '{technique_name}' — skipping to prevent cascade failure",
+        })
+        return {}
+
+    try:
+        result = await runner(ctx, failed_objectives)
+        # 判断是否成功 (有结果即视为成功)
+        success = bool(result and any(result.values()))
+        _record_technique_result(technique_name, success, ctx)
+        return result
+    except Exception as e:
+        _record_technique_result(technique_name, False, ctx)
+        logger.warning("L-02: Technique '%s' failed: %s", technique_name, e)
+        return {}
 
 
 
