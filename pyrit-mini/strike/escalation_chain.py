@@ -1417,7 +1417,7 @@ async def _llm_judge_rescore(
         4. 统一评分路径
     """
     try:
-        from assess.precompute import precompute_outcomes_async
+        from assess.score_pipeline import precompute_outcomes_async
         await precompute_outcomes_async(attack_results, score_all=False, reset_stats=False)
         logger.info("L5 v55: _llm_judge_rescore delegated to precompute_outcomes_async (native)")
     except Exception as e:

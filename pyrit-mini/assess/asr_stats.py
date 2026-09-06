@@ -342,8 +342,9 @@ def get_dual_judge_stats() -> dict[str, Any]:
     }
 
 
-# Re-exports from split modules for backwards compatibility (at end to avoid circular imports)
-from assess.asr_history import (  # noqa: F401, E402
+# Re-exports from asr_manager for backwards compatibility (at end to avoid circular imports)
+# P2-2: asr_history.py 已合并至 asr_manager.py, 此处改为从 SSOT 导入
+from assess.asr_manager import (  # noqa: F401, E402
     _save_converter_asr_history,
     _save_gcg_suffix_asr_history,
     save_asr_history,

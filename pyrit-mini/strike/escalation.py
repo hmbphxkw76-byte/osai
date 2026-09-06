@@ -327,7 +327,7 @@ async def check_and_escalate(
 
     try:
 
-        from assess.precompute import precompute_outcomes_async
+        from assess.score_pipeline import precompute_outcomes_async
 
         await precompute_outcomes_async(attack_results, score_all=False, reset_stats=False)
 
@@ -804,7 +804,7 @@ async def check_and_escalate(
 
         try:
 
-            from assess.precompute import precompute_outcomes_async
+            from assess.score_pipeline import precompute_outcomes_async
 
             await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
 
@@ -1050,7 +1050,7 @@ async def check_and_escalate(
 
         try:
 
-            from assess.precompute import precompute_outcomes_async
+            from assess.score_pipeline import precompute_outcomes_async
 
             await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
 
@@ -1446,7 +1446,7 @@ async def check_and_escalate(
 
     try:
 
-        from assess.precompute import precompute_outcomes_async
+        from assess.score_pipeline import precompute_outcomes_async
 
         await precompute_outcomes_async(escalated_results, score_all=False, reset_stats=False)
 

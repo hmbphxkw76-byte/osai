@@ -34,7 +34,7 @@ async def test_pipeline_imports_clean(tmp_path):
     from arm.seed_ranker import load_seeds
 
     # Step ⑥: Assess + Report imports
-    from assess.asr_compute import compute_asr
+    from assess.asr_manager import compute_asr
     from recon.burp_parser import parse_burp_request
     from recon.target_router import create_target
     from report.evidence import EvidenceCollector

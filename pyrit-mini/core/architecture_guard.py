@@ -361,6 +361,8 @@ class ArchitectureGuard:
 
         Wei et al. 衰减定律: 单层 ASR 7%, 双层 12%, 三层 <4% (payload 不可读)。
         pyrit-mini 最佳实践: 单 converter 独立路径 + SequentialAttack FIRST_SUCCESS。
+
+        实现: 使用行级解析器避免正则跨函数边界匹配问题。
         """
         chain_files = [
             p for p in self.source_files
@@ -373,93 +375,155 @@ class ArchitectureGuard:
             except OSError:
                 continue
 
-            # ── R-CONV-1: 检测多 converter 返回列表 ──
-            for match in _MULTI_CONVERTER_RETURN_PATTERN.finditer(content):
-                func_name = match.group(1)
-                list_body = match.group(2)
+            lines = content.split("\n")
 
-                # 统计 converter 实例化数量
-                conv_count = len(_CONVERTER_INSTANTIATION_PATTERN.findall(list_body))
-
-                if conv_count > _WEI_HARD_MAX_STACK:
-                    # 获取行号
-                    start_pos = match.start()
-                    line_num = content[:start_pos].count("\n") + 1
-
-                    self.violations.append(Violation(
-                        rule="R-CONV-1",
-                        severity=Severity.BLOCKING,
-                        file=str(path.relative_to(self.root)),
-                        line=line_num,
-                        description=(
-                            f"函数 '{func_name}' 返回 {conv_count} 个 converter (Wei et al. 硬限制: "
-                            f"<={_WEI_HARD_MAX_STACK}). 多层串联 ASR <4% (payload 不可读)."
-                        ),
-                        fix_hint=(
-                            f"拆分为 {conv_count} 个独立单 converter 函数, 或仅保留 ASR 最高的 1-2 个. "
-                            f"如需链式语义, 单独暴露为 _chained_* 函数但不要进入 l5_optimal 候选列表."
-                        ),
-                    ))
-                elif conv_count > _WEI_MAX_STACK_DEPTH:
-                    # 临界警告
-                    start_pos = match.start()
-                    line_num = content[:start_pos].count("\n") + 1
-
-                    self.violations.append(Violation(
-                        rule="R-CONV-1",
-                        severity=Severity.WARNING,
-                        file=str(path.relative_to(self.root)),
-                        line=line_num,
-                        description=(
-                            f"函数 '{func_name}' 返回 {conv_count} 个 converter (临界 Wei et al. "
-                            f"三层衰减: ASR 12%→4%)."
-                        ),
-                        fix_hint=(
-                            f"验证是否有意串联: 如果是 selective-encoding 链式, 确保出口处有 iron_tag 标记传递."
-                        ),
-                    ))
+            # ── R-CONV-1: 行级解析检测多 converter 返回列表 ──
+            self._detect_multi_converter_returns(path, lines)
 
             # ── R-CONV-2: 检测 TokenSelectionStrategy 独立使用 ──
-            lines = content.split("\n")
-            for i, line in enumerate(lines, 1):
-                stripped = line.strip()
-                if stripped.startswith("#"):
-                    continue
-                if "TokenSelectionStrategy" in line and "import" not in line:
-                    # 检查同一函数或前后文是否有 preserve_tokens=True
-                    context_start = max(0, i - 15)
-                    context_end = min(len(lines), i + 5)
-                    context = "\n".join(lines[context_start:context_end])
-
-                    if "preserve_tokens" not in context:
-                        self.violations.append(Violation(
-                            rule="R-CONV-2",
-                            severity=Severity.BLOCKING,
-                            file=str(path.relative_to(self.root)),
-                            line=i,
-                            description=(
-                                "TokenSelectionStrategy 使用但上下文无 preserve_tokens=True — "
-                                "无法检测 iron_tag 标记, 第二层 ROT13 将无操作."
-                            ),
-                            fix_hint=(
-                                "如果需要链式选择性转换, 在第一层添加 preserve_tokens=True; "
-                                "否则移除 TokenSelectionStrategy 或改为独立选择性 ROT13 路径."
-                            ),
-                        ))
+            self._detect_orphan_token_selection(path, lines)
 
         # ── R-CONV-3 + R-CONV-4: 检测 chain builder 与 l5_optimal 冲突 ──
         self._check_chain_builder_registration_conflicts()
 
+    def _detect_multi_converter_returns(self, path, lines: list[str]) -> None:
+        """行级解析器: 检测函数内的 return [...] 块是否包含多个 _conv 实例化。
+
+        使用函数边界解析避免正则跨函数匹配:
+        1. 识别每个函数的定义行号和缩进级别
+        2. 在每个函数体内查找 return [ 块
+        3. 统计块内 _conv(...) 调用数量
+        """
+        # Step 1: 找到所有函数范围和缩进
+        func_stack = []  # [(name, def_line_num, indent)]
+        func_ranges = []  # [(name, start_line, end_line)]
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("def ") and "(" in stripped:
+                name_match = re.match(r"def\s+(\w+)\s*\(", stripped)
+                if name_match:
+                    indent = len(line) - len(line.lstrip())
+                    func_stack.append((name_match.group(1), i + 1, indent))
+            elif func_stack and stripped and not stripped.startswith("#"):
+                current_indent = len(line) - len(line.lstrip())
+                # 如果当前行的缩进 <= 函数定义的缩进, 且不是 def → 函数结束
+                while func_stack and current_indent <= func_stack[-1][2]:
+                    if not stripped.startswith("def "):
+                        name,start,ind = func_stack.pop()
+                        func_ranges.append((name, start, i))
+                    else:
+                        break
+
+        # 处理未闭合的函数
+        while func_stack:
+            name, start, ind = func_stack.pop()
+            func_ranges.append((name, start, len(lines)))
+
+        # Step 2: 在每个函数范围内检测 return [...]
+        for func_name, start_line, end_line in func_ranges:
+            # 跳过私有/废弃函数 (明确标记为 deprecated 或 chain)
+            if func_name.startswith("_"):
+                continue
+
+            body = lines[start_line - 1 : end_line]
+            self._check_function_return_block(path, func_name, start_line, body)
+
+    def _check_function_return_block(self, path, func_name: str, def_line: int, body: list[str]) -> None:
+        """在单个函数体内检测 return [...] 块的多 converter 堆叠。"""
+        i = 0
+        while i < len(body):
+            stripped = body[i].strip()
+
+            # 检测 return [ 开始 (支持单行和多行)
+            if "return" in stripped and "[" in stripped:
+                if stripped.endswith("[") and "]" not in stripped:
+                    # 多行 return 块
+                    conv_count = 0
+                    j = i + 1
+                    while j < len(body):
+                        inner = body[j].strip()
+                        if inner == "]" or inner.startswith("]"):
+                            break
+                        if "_conv(" in inner and not inner.startswith("#"):
+                            conv_count += 1
+                        j += 1
+
+                    self._emit_stacking_violation(path, func_name, def_line, conv_count)
+                    i = j + 1
+                    continue
+                elif stripped.count("[") > 0 and stripped.count("]") > 0:
+                    # 单行 return [...]
+                    conv_instances = re.findall(r"_conv\([^)]*\)\([^)]*\)", stripped)
+                    self._emit_stacking_violation(path, func_name, def_line, len(conv_instances))
+
+            i += 1
+
+    def _emit_stacking_violation(self, path, func_name: str, line: int, conv_count: int) -> None:
+        """根据 converter 数量发出相应的违规警告。"""
+        if conv_count > _WEI_HARD_MAX_STACK:
+            self.violations.append(Violation(
+                rule="R-CONV-1",
+                severity=Severity.BLOCKING,
+                file=str(path.relative_to(self.root)),
+                line=line,
+                description=(
+                    f"函数 '{func_name}' 返回 {conv_count} 个 converter (Wei et al. 硬限制: "
+                    f"<={_WEI_HARD_MAX_STACK}). 多层串联 ASR <4% (payload 不可读)."
+                ),
+                fix_hint=(
+                    f"拆分为 {conv_count} 个独立单 converter 函数, 或仅保留 ASR 最高的 1-2 个. "
+                    f"如需链式语义, 单独暴露为 _chained_* 函数但不要进入 l5_optimal 候选列表."
+                ),
+            ))
+        elif conv_count > _WEI_MAX_STACK_DEPTH:
+            self.violations.append(Violation(
+                rule="R-CONV-1",
+                severity=Severity.WARNING,
+                file=str(path.relative_to(self.root)),
+                line=line,
+                description=(
+                    f"函数 '{func_name}' 返回 {conv_count} 个 converter (临界 Wei et al. "
+                    f"三层衰减: ASR 12%→4%)."
+                ),
+                fix_hint="验证是否有意串联: 确保出口处有 iron_tag 标记传递.",
+            ))
+
+    def _detect_orphan_token_selection(self, path, lines: list[str]) -> None:
+        """R-CONV-2: 检测 TokenSelectionStrategy 独立使用 (无 preserve_tokens=True)。"""
+        # 找到每个包含 TokenSelectionStrategy 的行
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith("import"):
+                continue
+            if "TokenSelectionStrategy" in line and "import" not in line:
+                # 在上下文窗口 (前后 15 行) 内检查 preserve_tokens
+                context_start = max(0, i - 15)
+                context_end = min(len(lines), i + 5)
+                context = "\n".join(lines[context_start:context_end])
+
+                if "preserve_tokens" not in context:
+                    self.violations.append(Violation(
+                        rule="R-CONV-2",
+                        severity=Severity.BLOCKING,
+                        file=str(path.relative_to(self.root)),
+                        line=i,
+                        description=(
+                            "TokenSelectionStrategy 使用但上下文无 preserve_tokens=True — "
+                            "无法检测 iron_tag 标记, 第二层 ROT13 将无操作."
+                        ),
+                        fix_hint=(
+                            "如果需要链式选择性转换, 在第一层添加 preserve_tokens=True; "
+                            "否则移除 TokenSelectionStrategy 或改为独立选择性 ROT13 路径."
+                        ),
+                    ))
+
     def _check_chain_builder_registration_conflicts(self) -> None:
         """检测 _build_chain_builders 注册了 stacking 语义函数但未在 l5_optimal 排除的逻辑。
 
-        检查逻辑:
-          扫描 converter_presets.py 的 _build_chain_builders 注册字典,
-          如果键名对应的函数在 converter_chains.py 中返回 >1 converter,
-          且该键名不是 l5_optimal() 显式排除的, 则发出 WARNING。
+        使用行级解析获取精确的 stacking 函数集合, 避免正则跨函数边界问题。
         """
-        chains_file = None
-        presets_file = None
+        chains_file = presets_file = None
         for p in self.source_files:
             if p.name == "converter_chains.py":
                 chains_file = p
@@ -470,25 +534,41 @@ class ArchitectureGuard:
             return
 
         try:
-            chains_content = chains_file.read_text(encoding="utf-8", errors="replace")
+            chains_lines = chains_file.read_text(encoding="utf-8", errors="replace").split("\n")
             presets_content = presets_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return
 
-        # 提取所有返回多 converter 的函数名
+        # 使用行级解析获取 stacking 函数名集合
         stacking_funcs: set[str] = set()
-        for match in _MULTI_CONVERTER_RETURN_PATTERN.finditer(chains_content):
-            func_name = match.group(1)
-            list_body = match.group(2)
-            conv_count = len(_CONVERTER_INSTANTIATION_PATTERN.findall(list_body))
-            if conv_count > _WEI_MAX_STACK_DEPTH:
-                stacking_funcs.add(func_name)
+        func_stack: list[tuple[str, int, int]] = []  # (name, line, indent)
+
+        for i, line in enumerate(chains_lines):
+            stripped = line.strip()
+            if stripped.startswith("def ") and "(" in stripped:
+                name_match = re.match(r"def\s+(\w+)\s*\(", stripped)
+                if name_match:
+                    indent = len(line) - len(line.lstrip())
+                    func_stack.append((name_match.group(1), i + 1, indent))
+            elif func_stack and stripped and not stripped.startswith("#"):
+                current_indent = len(line) - len(line.lstrip())
+                while func_stack and current_indent <= func_stack[-1][2]:
+                    if not stripped.startswith("def "):
+                        name,start,ind = func_stack.pop()
+                        body_lines = chains_lines[start - 1:i]
+                        self._count_conv_in_func_body(name, body_lines, stacking_funcs)
+                    else:
+                        break
+
+        while func_stack:
+            name,start,ind = func_stack.pop()
+            body_lines = chains_lines[start - 1:len(chains_lines)]
+            self._count_conv_in_func_body(name, body_lines, stacking_funcs)
 
         if not stacking_funcs:
             return
 
         # 检查 _build_chain_builders 是否注册了这些函数
-        # 模式: "func_name": func_name,\n (在 return { ... } 块内)
         builder_block_match = re.search(
             r"def _build_chain_builders.*?return\s*\{(.*?)\}",
             presets_content,
@@ -499,42 +579,69 @@ class ArchitectureGuard:
 
         builder_block = builder_block_match.group(1)
         for func_name in stacking_funcs:
-            # 检查是否在 builder 中注册
-            if f'"{func_name}"' in builder_block or f"'{func_name}'" in builder_block:
-                # 检查是否在 l5_optimal 导入中排除
-                l5_optimal_block_match = re.search(
-                    r"def l5_optimal.*?from arm\.converter_chains import \((.*?)\)",
-                    presets_content,
-                    re.DOTALL,
-                )
-                if l5_optimal_block_match:
-                    l5_imports = l5_optimal_block_match.group(1)
-                    if func_name not in l5_imports:
-                        # 被 _build_chain_builders 注册但不在 l5_optimal 排除列表 → 可能对用户暴露
-                        # 找到行号
-                        idx = builder_block.find(func_name)
-                        if idx >= 0:
-                            # 计算在文件中的绝对位置
-                            block_start = presets_content.find("return {")
-                            abs_pos = builder_block_match.start(1) + idx
-                            line_num = presets_content[:abs_pos].count("\n") + 1
-                        else:
-                            line_num = 0
+            if f'"{func_name}"' not in builder_block and f"'{func_name}'" not in builder_block:
+                continue
 
-                        self.violations.append(Violation(
-                            rule="R-CONV-3",
-                            severity=Severity.WARNING,
-                            file=str(presets_file.relative_to(self.root)),
-                            line=line_num,
-                            description=(
-                                f"Chain builder 注册 '{func_name}' (返回多个 converter, 隐含堆叠语义) "
-                                f"但未在 l5_optimal 中排除. 用户选择该 chain 时可能意外触发多层串联."
-                            ),
-                            fix_hint=(
-                                f"将该函数从 _build_chain_builders 移除, "
-                                f"或在函数 docstring 显著位置标注 'NOT FOR L5 OPTIMAL - STACKING SEMANTICS'."
-                            ),
-                        ))
+            # 检查是否在 l5_optimal 导入中排除
+            l5_optimal_block_match = re.search(
+                r"def l5_optimal.*?from arm\.converter_chains import \((.*?)\)",
+                presets_content,
+                re.DOTALL,
+            )
+            if l5_optimal_block_match:
+                l5_imports = l5_optimal_block_match.group(1)
+                if func_name not in l5_imports:
+                    # 计算器 builder 中的行号
+                    idx = builder_block.find(func_name)
+                    if idx >= 0:
+                        abs_pos = builder_block_match.start(1) + idx
+                        line_num = presets_content[:abs_pos].count("\n") + 1
+                    else:
+                        line_num = 0
+
+                    self.violations.append(Violation(
+                        rule="R-CONV-3",
+                        severity=Severity.WARNING,
+                        file=str(presets_file.relative_to(self.root)),
+                        line=line_num,
+                        description=(
+                            f"Chain builder 注册 '{func_name}' (返回多个 converter, 隐含堆叠语义) "
+                            f"但未在 l5_optimal 中排除. 用户选择该 chain 时可能意外触发多层串联."
+                        ),
+                        fix_hint=(
+                            f"将该函数从 _build_chain_builders 移除, "
+                            f"或在函数 docstring 显著位置标注 'NOT FOR L5 OPTIMAL - STACKING SEMANTICS'."
+                        ),
+                    ))
+
+    def _count_conv_in_func_body(self, func_name: str, body_lines: list[str], stacking_funcs: set[str]) -> None:
+        """在函数体中统计 return [...] 块内的 _conv 调用数, 超过阈值则加入 stacking_funcs。"""
+        # 跳过私有函数和废弃函数
+        if func_name.startswith("_"):
+            return
+
+        i = 0
+        while i < len(body_lines):
+            line = body_lines[i]
+            stripped = line.strip()
+
+            # 多行 return [ 块
+            if "return" in stripped and "[" in stripped and stripped.endswith("["):
+                conv_count = 0
+                j = i + 1
+                while j < len(body_lines):
+                    inner = body_lines[j].strip()
+                    if inner == "]" or inner.startswith("]"):
+                        break
+                    if "_conv(" in inner and not inner.startswith("#"):
+                        conv_count += 1
+                    j += 1
+
+                if conv_count > _WEI_MAX_STACK_DEPTH:
+                    stacking_funcs.add(func_name)
+                return  # 找到 return 后结束, 每个函数只检一次
+
+            i += 1
 
     # ── 检查 2: PyRIT 原生攻击策略使用 (R6) ──
 

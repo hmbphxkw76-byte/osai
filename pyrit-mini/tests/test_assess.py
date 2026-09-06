@@ -25,7 +25,7 @@ class TestASRTracker:
 
     def test_compute_asr_empty_results(self):
         """compute_asr with empty results should return empty dict."""
-        from assess.asr_compute import compute_asr
+        from assess.asr_manager import compute_asr
 
         asr = compute_asr({})
         assert isinstance(asr, dict)
@@ -39,7 +39,7 @@ class TestASRTracker:
 
     def test_compute_wilson_score_interval(self):
         """Wilson Score interval should be valid for known inputs."""
-        from assess.asr_compute import compute_wilson_score_interval
+        from assess.asr_manager import compute_wilson_score_interval
 
         # Wilson Score returns percentage values (0-100), not 0-1
         lower, upper = compute_wilson_score_interval(5, 10)

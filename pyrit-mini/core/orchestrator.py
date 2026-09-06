@@ -180,7 +180,7 @@ async def run_attack_pipeline(ctx: "PipelineContext", router: Any = None) -> Non
     # FileHandler 仍指向最后一个 endpoint 子目录, 需切回顶层
     switch_log_file(output_dir)
 
-    from assess.joint_asr import build_joint_summary, save_joint_report
+    from assess.asr_manager import build_joint_summary, save_joint_report
     joint_summary = build_joint_summary(multi_endpoint_results)
     joint_report_path = save_joint_report(joint_summary, output_dir)
 
@@ -812,13 +812,15 @@ async def _run_assess_phase(ctx: "PipelineContext") -> None:
     args = ctx.args
     print_phase("ASSESS", "双 Judge 交叉验证 & ASR 统计...")
 
-    from assess.asr_compute import (
+    from assess.score_pipeline import precompute_outcomes_async
+    from assess.asr_manager import (
         collect_dual_judge_stats,
         compute_asr,
         compute_overall_asr,
         compute_wilson_score_interval,
-        precompute_outcomes_async,
         save_asr_history,
+    )
+    from assess.asr_stats import (
         compute_cohens_kappa,
     )
 
