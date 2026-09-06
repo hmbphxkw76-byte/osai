@@ -961,14 +961,25 @@ async def check_and_escalate(
 
 
 
+        # M-02: L2 GCG 白盒攻击前置确认
+        _l2_techs_to_execute = []
+        _l2_runners_to_execute = []
+        for _l2_tech, _l2_runner in _l2_runners:
+            if _is_whitebox_technique(_l2_tech):
+                # 白盒攻击: 确认通过后才允许执行
+                _confirmed = await _confirm_whitebox_attack(ctx, _l2_tech)
+                if _confirmed:
+                    _l2_techs_to_execute.append(_l2_tech)
+                    _l2_runners_to_execute.append(_safe_call(_l2_runner(ctx, failed_objectives), _l2_tech))
+                else:
+                    logger.warning("M-02: L2 technique '%s' skipped (whitebox confirmation failed)", _l2_tech)
+            else:
+                _l2_techs_to_execute.append(_l2_tech)
+                _l2_runners_to_execute.append(_safe_call(_l2_runner(ctx, failed_objectives), _l2_tech))
+
         l2_results = await asyncio.gather(
-
-            _safe_call(_run_gcg(ctx, failed_objectives), "GCG"),
-
-            _safe_call(_run_best_of_n(ctx, failed_objectives), "Best-of-N"),
-
+            *_l2_runners_to_execute,
             return_exceptions=False,
-
         )
 
 
@@ -981,7 +992,7 @@ async def check_and_escalate(
 
             from utils.display import print_escalation_tech_done
 
-            for i, (_l2_tech, _) in enumerate(_l2_runners):
+            for i, _l2_tech in enumerate(_l2_techs_to_execute):
 
                 _l2_res = l2_results[i] if i < len(l2_results) else {}
 
@@ -1742,6 +1753,111 @@ def _get_severity(result) -> str:
     metadata = getattr(result, "metadata", None) or {}
 
     return metadata.get("severity", "medium")
+
+
+# M-02: 白盒攻击前置确认机制 (GCG / 梯度攻击 / 白盒对抗)
+# Production-grade: 白盒攻击涉及梯度访问和参数修改, 需要前置确认避免误操作
+
+# 白盒攻击技术标签 — 这些技术需要目标模型架构/参数访问权限
+_WHITEBOX_TECHNIQUES: frozenset[str] = frozenset({
+    "gcg",                  # Greedy Coordinate Gradient (arXiv:2307.15043)
+    "gcg_suffix_pool",      # GCG 变体: 后缀池攻击
+    "gradient_attack",      # 通用梯度攻击
+    "embedding_inversion",  # 嵌入反演 (arXiv:2310.06870)
+})
+
+# 白盒攻击确认状态 (避免重复确认)
+_whitebox_confirmed: bool = False
+
+
+def _reset_whitebox_confirmation() -> None:
+    """重置白盒攻击确认状态 (通常在新的攻击会话开始时调用)."""
+    global _whitebox_confirmed
+    _whitebox_confirmed = False
+
+
+def _is_whitebox_technique(technique_name: str) -> bool:
+    """判断技术是否为白盒攻击 (需要梯度/参数访问权限).
+
+    Args:
+        technique_name: 技术名称 (如 "gcg", "best_of_n").
+
+    Returns:
+        True 表示该技术要求白盒访问权限.
+    """
+    return technique_name.lower() in _WHITEBOX_TECHNIQUES
+
+
+async def _confirm_whitebox_attack(
+    ctx: PipelineContext,
+    technique_name: str,
+) -> bool:
+    """白盒攻击前置确认 — 生产级安全拦截.
+
+    GCG 等白盒攻击需要目标模型梯度访问权限, 误用可能导致:
+    1. 对黑盒目标无效 (浪费 token)
+    2. 触发目标模型的安全监控 (异常梯度查询)
+    3. 法律合规风险 (未经授权的模型逆向)
+
+    Args:
+        ctx: 流水线上下文.
+        technique_name: 要确认的技术名称.
+
+    Returns:
+        True 表示允许执行, False 表示跳过.
+    """
+    global _whitebox_confirmed
+
+    # 如果用户已在命令行显式启用白盒攻击 (--allow-whitebox), 跳过确认
+    args = getattr(ctx, "args", None)
+    if args is not None:
+        allow_whitebox = getattr(args, "allow_whitebox", False)
+        if allow_whitebox:
+            logger.info(
+                "M-02: Whitebox attack '%s' pre-authorized via --allow-whitebox flag",
+                technique_name,
+            )
+            return True
+
+    # 如果已在此会话中确认过, 避免重复确认
+    if _whitebox_confirmed:
+        return True
+
+    # 检查目标是否配置了白盒访问
+    has_whitebox_access = getattr(ctx, "has_whitebox_access", False)
+    if has_whitebox_access:
+        logger.info(
+            "M-02: Whitebox access confirmed for target — allowing '%s'",
+            technique_name,
+        )
+        _whitebox_confirmed = True
+        return True
+
+    # 生产级: 默认跳过白盒攻击并记录警告
+    # 攻击者必须显式设置 --allow-whitebox 或 ctx.has_whitebox_access=True
+    logger.warning(
+        "M-02: Whitebox attack '%s' blocked — target lacks confirmed whitebox access. "
+        "To enable: set ctx.has_whitebox_access=True or pass --allow-whitebox flag. "
+        "Academic basis: GCG (arXiv:2307.15043) requires gradient access to target model.",
+        technique_name,
+    )
+
+    # 记录编排日志
+    ctx.orchestration_log.append({
+        "phase": "escalate",
+        "decision": "whitebox_attack_blocked",
+        "input": {
+            "technique": technique_name,
+            "target": getattr(getattr(ctx, "parsed_request", None), "target_fingerprint", {}),
+        },
+        "output": {"allowed": False},
+        "reasoning": (
+            f"Whitebox attack '{technique_name}' requires gradient access. "
+            "Use --allow-whitebox or set ctx.has_whitebox_access=True to enable."
+        ),
+    })
+
+    return False
 
 
 

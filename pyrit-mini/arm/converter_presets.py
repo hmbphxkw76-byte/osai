@@ -455,19 +455,22 @@ def l5_optimal_for_model(
 # 鈹€鈹€ 閾惧悕 鈫?鏋勫缓鍑芥暟鏄犲皠 鈹€鈹€
 # 寤惰繜鏋勫缓浠ラ伩鍏嶅惊鐜鍏?(converter_chains 鍦ㄦā鍧楁湯灏?re-export 鏈ā鍧?
 def _build_chain_builders() -> dict[str, Any]:
-    """鏋勫缓閾惧悕 鈫?鏋勫缓鍑芥暟鏄犲皠 (鎯版€? 閬垮厤寰幆瀵煎叆)銆?
+    """构建链名 → 构建函数映射 (延迟加载避免循环导入)。
 
-    L5 v36: 鏂板閫夋嫨鎬?converter 閾俱€?
+    L5 v42: 移除 encoding_bypass 和 multi_encoding。
+        原因: 二者返回 3-4 个 converter, 隐含串联堆叠语义,
+        违反 Wei et al. (arXiv:2307.15043) 三层衰减定律 (ASR <4%)。
+        替换方案: 如需编码绕过, 使用 selective_encoding (ASR 25-35%, 单 converter)。
+
+    L5 v36: 新增 SelectiveTextConverter 链。
     """
     from arm.converter_chains import (
         chained_selective,
         code_chameleon,
         decomposition,
-        encoding_bypass,
         flip,
         format_injection,
         keyword_replacement,
-        multi_encoding,
         pdf_direct_generation,
         pdf_injection,
         persuasion,
@@ -485,11 +488,9 @@ def _build_chain_builders() -> dict[str, Any]:
         word_doc_placeholder_injection,
     )
     return {
-        "encoding": encoding_bypass,
         "stealth": stealth_evasion,
         "persuasion": persuasion,
         "format": format_injection,
-        "multi_encoding": multi_encoding,
         "decomposition": decomposition,
         "variation": variation,
         "flip": flip,
@@ -498,7 +499,7 @@ def _build_chain_builders() -> dict[str, Any]:
         "smoothllm_bypass": smoothllm_bypass,
         "l5_optimal": l5_optimal,
         "l5_optimal_for_model": l5_optimal_for_model,
-        # L5 v36: 鏂板閫夋嫨鎬?converter 閾?
+        # L5 v36: 新 SelectiveTextConverter 链
         "selective_encoding": selective_encoding,
         "selective_obfuscation": selective_obfuscation,
         "chained_selective": chained_selective,
@@ -507,7 +508,7 @@ def _build_chain_builders() -> dict[str, Any]:
         "policy_puppetry": policy_puppetry,
         "token_smuggling": token_smuggling,
         "template_segment": template_segment,
-        # L5 v36: 鏂板 File Converter 閾?
+        # L5 v36: 新 File Converter 链
         "pdf_direct_generation": pdf_direct_generation,
         "pdf_injection": pdf_injection,
         "word_doc_direct_generation": word_doc_direct_generation,

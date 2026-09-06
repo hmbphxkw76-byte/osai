@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Test regex patterns for converter chain detection - with improved preprocessing."""
+import importlib
 import re
 import sys
 from pathlib import Path

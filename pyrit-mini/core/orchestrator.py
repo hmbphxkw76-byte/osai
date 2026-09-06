@@ -1321,7 +1321,15 @@ def _extract_auth_recovery_log(ctx: "PipelineContext") -> list[dict[str, str]]:
 
 
 def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
-    """输出双 Judge 统计日志。"""
+    """输出双 Judge 统计日志 + T0 假阳性率运行时告警。
+
+    生产级监控:
+        - 双 Judge 一致性统计 (Cohen's Kappa)
+        - OR 聚合假阳性追踪
+        - T0 启发式预过滤 ScorerMetrics
+        - **运行时告警**: FPR/FNR 超阈值时记录 WARNING 日志,
+          提示操作员 T0 启发式可能需要校准
+    """
     kappa = dual_judge_stats.get("cohens_kappa", 0)
     logging.info(
         "Dual Judge: total=%d, dual_invoked=%d (%.1f%%), "
@@ -1347,7 +1355,7 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             or_stats.get("j2_only_success", 0),
             or_stats.get("potential_false_positive_rate", 0.0),
         )
-    # T0 ScorerMetrics log
+    # T0 ScorerMetrics log + 运行时告警
     sm = dual_judge_stats.get("scorer_metrics", {})
     if sm and sm.get("num_responses", 0) > 0:
         logging.info(
@@ -1358,4 +1366,66 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             sm.get("f1_score", 0.0),
             sm.get("precision", 0.0),
             sm.get("recall", 0.0),
+        )
+
+    # ═══ T0 假阳性率运行时告警 (生产级监控) ═══
+    # 阈值可在 config/profiles 中调整, 此处为安全默认值
+    # 注意: get_t0_stats() 返回的 FNR/FPR 是百分比形式 (如 10.5 表示 10.5%)
+    _T0_MAX_FPR = 10.0  # 10% 假阳性率上限 (百分比)
+    _T0_MAX_FNR = 10.0  # 10% 假阴性率上限 (百分比)
+    _T0_MIN_SAMPLE_SIZE = 20  # 最小样本量, 低于此值告警可能不准确
+
+    t0_stats = dual_judge_stats.get("t0_stats", {})
+    if not t0_stats:
+        return
+
+    refusal_filtered = t0_stats.get("refusal_filtered", 0)
+    success_filtered = t0_stats.get("success_filtered", 0)
+    fnr = t0_stats.get("false_negative_rate", 0.0)  # 百分比
+    fpr = t0_stats.get("false_positive_rate", 0.0)  # 百分比
+    total_filtered = refusal_filtered + success_filtered
+
+    # 样本量检查 — 避免小样本误报
+    if total_filtered < _T0_MIN_SAMPLE_SIZE:
+        logging.debug(
+            "T0 heuristic alert skipped: sample size %d < %d (FNR=%.1f%%, FPR=%.1f%%)",
+            total_filtered,
+            _T0_MIN_SAMPLE_SIZE,
+            fnr,
+            fpr,
+        )
+        return
+
+    # FNR 告警 — T0 将误判成功为失败 (漏报攻击成功)
+    if fnr > _T0_MAX_FNR:
+        logging.warning(
+            "⚠️ T0 HEURISTIC ALERT: High False Negative Rate (FNR=%.1f%% > %.0f%% threshold). "
+            "T0 refusal filter is overriding %d successful attacks as failures. "
+            "Recommendation: Calibrate T0 keyword thresholds or disable T0 pre-filter for this target.",
+            fnr,
+            _T0_MAX_FNR,
+            t0_stats.get("refusal_judge_overturned", 0),
+        )
+
+    # FPR 告警 — T0 将误判失败为成功 (误报攻击成功)
+    if fpr > _T0_MAX_FPR:
+        logging.warning(
+            "⚠️ T0 HEURISTIC ALERT: High False Positive Rate (FPR=%.1f%% > %.0f%% threshold). "
+            "T0 success filter is overriding %d failed attacks as successes. "
+            "Recommendation: T0 token-saving benefits compromised — verify success keywords or adjust long-response threshold.",
+            fpr,
+            _T0_MAX_FPR,
+            t0_stats.get("success_judge_overturned", 0),
+        )
+
+    # 综合健康度日志 — 便于监控台查看
+    if total_filtered > 0:
+        logging.info(
+            "T0 Heuristic Health: filtered=%d, FNR=%.1f%%, FPR=%.1f%%, "
+            "tokens_saved≈%d — %s",
+            total_filtered,
+            fnr,
+            fpr,
+            total_filtered * 2,
+            "✅ OK" if fnr <= _T0_MAX_FNR and fpr <= _T0_MAX_FPR else "⚠️ ALERT",
         )
