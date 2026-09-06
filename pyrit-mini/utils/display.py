@@ -18,30 +18,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-# ── 导入基础工具 (display_primitives) ──
-from utils.display_primitives import (
-    _C_BOLD, _C_BLUE, _C_CYAN, _C_DIM, _C_GREEN, _C_MAGENTA, _C_RED, _C_RESET, _C_YELLOW,
-    _asr_bar, _asr_color, _card_line, _format_asr,
-    _print_card_bottom, _print_card_sep, _print_card_top,
-    print_banner, print_card, print_error, print_phase, print_section, print_status,
-)
-
-# ── 导入阶段卡片 (display_stages) ──
-from utils.display_stages import (
-    _CAPABILITY_STRATEGY,
-    _extract_success_info,
-    _get_converter_chain_names,
-    _get_outcome_label,
-    _is_success,
-    print_arm_card, print_arm_highlights,
-    print_assess_card,
-    print_escalate_card,
-    print_joint_asr_card,
-    print_recon_card,
-    print_report_card,
-    print_success_breakthrough, print_success_payload_snapshot,
-)
-
 # ── 导入 PyRIT 原生输出适配器 (display_native) ──
 from utils.display_native import (
     print_native_attack_result,
@@ -54,6 +30,40 @@ from utils.display_params import (
     _get_converter_summary,
     _get_technique_category,
     _get_technique_params,
+)
+
+# ── 导入基础工具 (display_primitives) ──
+# ── 导入阶段卡片 (display_stages) ──
+# 注意: _get_converter_chain_names 已提升至 display_primitives (行 289)
+from utils.display_primitives import (
+    _C_BLUE,
+    _C_BOLD,
+    _C_CYAN,
+    _C_DIM,
+    _C_GREEN,
+    _C_MAGENTA,
+    _C_RED,
+    _C_RESET,
+    _C_YELLOW,
+    _asr_bar,
+    _asr_color,
+    _card_line,
+    _format_asr,
+    _print_card_bottom,
+    _print_card_sep,
+    _print_card_top,
+    print_card,
+    print_status,
+)
+from utils.display_stages import (
+    _extract_success_info,
+    _get_outcome_label,
+    _is_success,
+    print_arm_card,
+    print_assess_card,
+    print_escalate_card,
+    print_success_breakthrough,
+    print_success_payload_snapshot,
 )
 
 if TYPE_CHECKING:

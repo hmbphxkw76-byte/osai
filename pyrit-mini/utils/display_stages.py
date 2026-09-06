@@ -20,10 +20,23 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from utils.display_primitives import (
-    _C_BOLD, _C_CYAN, _C_DIM, _C_GREEN, _C_MAGENTA, _C_RED, _C_RESET, _C_YELLOW,
-    _asr_bar, _asr_color, _card_line, _format_asr,
-    _print_card_bottom, _print_card_sep, _print_card_top,
-    print_card, print_section,
+    _C_BOLD,
+    _C_CYAN,
+    _C_DIM,
+    _C_GREEN,
+    _C_MAGENTA,
+    _C_RED,
+    _C_RESET,
+    _C_YELLOW,
+    _asr_bar,
+    _asr_color,
+    _card_line,
+    _format_asr,
+    _print_card_bottom,
+    _print_card_sep,
+    _print_card_top,
+    print_card,
+    print_section,
 )
 
 if TYPE_CHECKING:
@@ -59,34 +72,8 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 # 攻击结果元数据提取 (仅用于卡片摘要, 非完整渲染)
 # ════════════════════════════════════════════════════════════════════
 
-def _is_success(result: Any) -> bool:
-    """判断攻击结果是否成功 (用于卡片摘要统计)."""
-    outcome = getattr(result, "outcome", None)
-    if outcome:
-        outcome_str = str(outcome).lower()
-        if "success" in outcome_str:
-            return True
-        if "failure" in outcome_str or "fail" in outcome_str:
-            return False
-
-    score_val = getattr(result, "score_value", None)
-    if score_val:
-        if isinstance(score_val, str):
-            return score_val.lower() in ("true", "1", "success")
-        if isinstance(score_val, (int, float)):
-            return score_val > 0
-
-    scores = getattr(result, "scores", None)
-    if scores:
-        try:
-            for s in scores:
-                sv = getattr(s, "score_value", "")
-                if str(sv).lower() in ("true", "1", "success"):
-                    return True
-        except Exception:
-            pass
-
-    return False
+# P2 优化: _is_success 统一到 utils.attack_utils.SSOT, 消除重复定义
+from utils.attack_utils import _is_success  # noqa: F401
 
 
 def _get_outcome_label(result: Any) -> str:
@@ -279,23 +266,6 @@ def _get_seed_names(ctx: "PipelineContext") -> list[str]:
     return items
 
 
-def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -> str:
-    """获取 converter 链名称 (L5 v39: 独立路径编号)."""
-    if not converters:
-        return "(raw, no converters)"
-    if len(converters) == 1:
-        c = converters[0]
-        return type(c).__name__ if hasattr(c, "__class__") else str(c)
-    display_count = min(len(converters), max_display)
-    parts = []
-    for i, c in enumerate(converters[:display_count]):
-        name = type(c).__name__ if hasattr(c, "__class__") else str(c)
-        parts.append(f"[{i + 1}] {name}")
-    result = " | ".join(parts)
-    remaining = len(converters) - max_display
-    if remaining > 0:
-        result += f" {_C_DIM}... (+{remaining} more){_C_RESET}"
-    return result
 
 
 def print_arm_card(ctx: "PipelineContext") -> None:
@@ -404,13 +374,13 @@ def print_arm_highlights(ctx: "PipelineContext") -> None:
 
     highlights: list[str] = []
     if "mcp" in caps.lower() or "mcp_protocol" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}MCP Agent 目标{_C_READY} — L4 专用种子 + MCP RAG 投毒技术")
+        highlights.append(f"  {_C_MAGENTA}MCP Agent 目标{_C_RESET} — L4 专用种子 + MCP RAG 投毒技术")
     if "function_calling" in caps.lower() or "tool_use" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_READY} — 工具劫持种子 + 恶意 function schema")
+        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} — 工具劫持种子 + 恶意 function schema")
     if "memory" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Memory{_C_READY} — 记忆投毒种子 + token smuggling")
+        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} — 记忆投毒种子 + token smuggling")
     if "rag" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}RAG{_C_READY} — 间接提示注入种子 + 文档投毒")
+        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} — 间接提示注入种子 + 文档投毒")
 
     if highlights:
         print()
@@ -746,7 +716,7 @@ def print_report_card(
         f"  {_C_MAGENTA}PoC Scripts{_C_RESET} → {report_dir}/poc/",
     ]
     if native_output_dir:
-        layered_items.append(f"  {_C_BLUE if '_C_BLUE' in dir() else _C_CYAN}Native Output{_C_RESET} → {native_output_dir}")
+        layered_items.append(f"  {_C_CYAN}Native Output{_C_RESET} → {native_output_dir}")
     print_section("📂 Layered Report Files", layered_items, color=_C_CYAN)
 
 

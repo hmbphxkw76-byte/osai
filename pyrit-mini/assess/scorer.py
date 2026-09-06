@@ -1,5 +1,6 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
-# arXiv:2307.08673 — Zou et al., GCG
+# arXiv:2307.08673 — Zou et al., GCG (prefix-based attacks)
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
 # arXiv:2407.01232 — PyRIT, SequentialAttack FIRST_SUCCESS
 """评分器注册 — 黑盒场景适配。
 

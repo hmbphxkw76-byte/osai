@@ -1,3 +1,8 @@
+# arXiv:2302.12173 - Greshake et al., PromptSendingAttack
+# arXiv:2404.01833 - Russinovich et al., CrescendoAttack
+# arXiv:2405.17350 - Mehrabi et al., TAPAttack
+# arXiv:2404.02151 - Hughes et al., BestOfN
+# arXiv:2402.14266 - SKELETONKEY, SkeletonKey
 """AttackTechniqueFactory 娉ㄥ唽 鈥?灏嗛」鐩敾鍑绘妧鏈敞鍐屽埌 PyRIT 鍘熺敓 registry銆?
 
 鍒╃敤 PyRIT 1.0.1 鍘熺敓 AttackTechniqueFactory + AttackTechniqueRegistry锛?

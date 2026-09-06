@@ -221,6 +221,8 @@ def register_extended_checks(guard_cls) -> None:
           1. PipelineContext 字段声明后是否有生产者 (who sets)
           2. PipelineContext 字段设置后是否有消费者 (who reads)
           3. Phase 间数据传递是否有断层
+
+        改进 (P3): 区分 dataclass 字段与函数参数, 避免将函数参数误判为死字段
         """
         Severity, Violation = _get_violation_classes()
         ctx_file = self.root / "core" / "context.py"
@@ -232,13 +234,48 @@ def register_extended_checks(guard_cls) -> None:
         ctx_content = ctx_file.read_text(encoding="utf-8", errors="replace")
         orch_content = orch_file.read_text(encoding="utf-8", errors="replace") if orch_file.exists() else ""
 
-        # 提取 PipelineContext 字段
+        # 提取 PipelineContext dataclass 字段 (排除函数参数)
         field_pattern = re.compile(r"^\s+(\w+):\s*[\w\[\]|]+\s*=")
         fields = []
+        in_class = False
+        in_function = False
+        class_indent = 0
+        func_indent = 0
+
         for line in ctx_content.split("\n"):
-            m = field_pattern.match(line)
-            if m and not m.group(1).startswith("_"):
-                fields.append(m.group(1))
+            stripped = line.lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            indent = len(line) - len(stripped)
+
+            # 检测类定义
+            if stripped.startswith("class ") and "PipelineContext" in stripped:
+                in_class = True
+                class_indent = indent
+                in_function = False
+                continue
+
+            # 退出类检测: 遇到同缩进或更低缩进的非空非注释行 (排除类内第一个元素)
+            if in_class and indent <= class_indent and stripped:
+                in_class = False
+                continue
+
+            # 检测函数定义 (在类内)
+            if in_class and stripped.startswith("def ") and indent > class_indent:
+                in_function = True
+                func_indent = indent
+                continue
+
+            # 如果缩进小于等于函数缩进, 退出函数
+            if in_function and indent <= func_indent and stripped:
+                in_function = False
+
+            # 提取 dataclass 字段 (仅在类层级, 非函数内)
+            if in_class and not in_function and indent > class_indent:
+                m = field_pattern.match(line)
+                if m and not m.group(1).startswith("_"):
+                    fields.append(m.group(1))
 
         # 检测每个字段是否有读取
         for field_name in fields:
@@ -468,14 +505,29 @@ def register_extended_checks(guard_cls) -> None:
         content = score_file.read_text(encoding="utf-8", errors="replace")
         required_functions = ["compute_asr", "compute_overall_asr"]
         for func in required_functions:
-            if f"def {func}" not in content and f"async def {func}" not in content:
+            # SSOT 兼容: 接受定义(def)或从其他模块导入(from ... import)
+            has_def = f"def {func}" in content or f"async def {func}" in content
+            # 检测单行导入 (from x import func / import func) 和多行导入块
+            _re = __import__("re")
+            has_single_import = bool(
+                _re.search(rf'^[^#]*\bimport\b[^#]*\b{func}\b', content, _re.MULTILINE)
+            )
+            # 多行导入块检测: from ... import (\n... func\n)
+            has_multi_import = bool(
+                _re.search(
+                    rf'from\s+\S+\s+import\s*\([^)]*\b{func}\b',
+                    content,
+                    _re.DOTALL,
+                )
+            )
+            if not has_def and not has_single_import and not has_multi_import:
                 self.violations.append(Violation(
                     rule="R-REDTEAM-3",
                     severity=Severity.WARNING,
                     file=str(score_file.relative_to(self.root)),
                     line=0,
                     description=f"ASR 模块缺少函数 '{func}' — ASR 统计链不完整",
-                    fix_hint=f"实现 {func}() 函数并集成到 assess 阶段",
+                    fix_hint=f"实现 {func}() 函数或从 SSOT 模块导入",
                 ))
 
     # ── R-EVID 系列 ─────────────────────────────────────────────────

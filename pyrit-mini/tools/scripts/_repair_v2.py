@@ -31,7 +31,7 @@ def analyze_context(raw, pos, window=50):
                     i -= 2
                     count += 1
                     continue
-                except:
+                except Exception:
                     pass
             i -= 1
         elif 0xE0 <= b <= 0xEF:
@@ -42,7 +42,7 @@ def analyze_context(raw, pos, window=50):
                     i -= 3
                     count += 1
                     continue
-                except:
+                except Exception:
                     pass
             i -= 1
         else:
@@ -65,7 +65,7 @@ def analyze_context(raw, pos, window=50):
                     i += 2
                     count += 1
                     continue
-                except:
+                except Exception:
                     pass
             i += 1
         elif 0xE0 <= b <= 0xEF:
@@ -76,7 +76,7 @@ def analyze_context(raw, pos, window=50):
                     i += 3
                     count += 1
                     continue
-                except:
+                except Exception:
                     pass
             i += 1
         else:
@@ -133,7 +133,7 @@ def repair_file(filepath):
                     0xFF00 <= cp <= 0xFFEF):   # Fullwidth Forms
                     best = cand
                     break
-            except:
+            except Exception:
                 continue
         
         fixed[pos+2] = best

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 # ══════════════════════════════════════════════════════════════
 # 双语关键词库 — 按能力维度组织

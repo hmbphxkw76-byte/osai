@@ -10,6 +10,9 @@ v60 重构: 统一入口逻辑, 支持 synergy_config.technique_tags 直接传�
     synergy_config.technique_tags → adaptive_technique_filter → TextAdaptive
 
 学术依据:
+    - Greshake et al. (arXiv:2302.12173) — PromptSendingAttack
+    - Russinovich et al. (arXiv:2404.01833) — CrescendoAttack
+    - Hughes et al. (arXiv:2404.02151) — BestOfN
     - PyRIT TextAdaptive (arXiv:2407.01232) — ε-贪心自适应技术选择
     - Chao et al. (arXiv:2402.01135) — Best-of-N, N=5 ASR 提升 1.8x
     - Crescendo (arXiv:2402.12109) — 10 turns ASR=82%

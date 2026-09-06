@@ -1,6 +1,7 @@
 # arXiv:2402.01135 — Chao et al., Best-of-N (N=5 ASR 1.8x)
 # arXiv:2402.12109 — Russinovich et al., Crescendo
-"""multi_turn_attacks — 多轮攻击策略模块.
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
+"""multi_turn_attacks — 多轮攻击策略模块。
 
 提供 Best-of-N 等多轮攻击的异步包装函数。
 使用 VariationConverter + PersuasionConverter 生成 N 个独立变体,

@@ -1,7 +1,8 @@
 # R5 arXiv Citations:
 #   - Crescendo & RedTeaming: arXiv:2404.01833
 #   - GCG: arXiv:2307.15043
-#   - SkeletonKey: arXiv:2402.12823
+#   - PromptSendingAttack: arXiv:2302.12173
+#   - SkeletonKey: arXiv:2402.14266
 #   - Best-of-N: arXiv:2402.01135
 
 """单轮失败到多轮升级的逻辑.
@@ -1758,8 +1759,7 @@ _WHITEBOX_TECHNIQUES: frozenset[str] = frozenset({
     "embedding_inversion",  # 嵌入反演 (arXiv:2310.06870)
 })
 
-# 白盒攻击确认状态 (避免重复确认)
-_whitebox_confirmed: bool = False
+# P3 优化: _whitebox_confirmed 已迁移至 ctx._whitebox_confirmed (实例属性)
 
 
 def _reset_whitebox_confirmation() -> None:
@@ -1908,11 +1908,13 @@ _CIRCUIT_BREAKER_TIMEOUT: float = 300.0  # 断路器打开后, 等待多少秒�
 _circuit_breaker_states: dict[str, dict[str, Any]] = {}
 
 
-def _reset_circuit_breakers() -> None:
-    """重置所有 circuit breaker 状态 (通常在新攻击会话开始时调用)."""
-    global _circuit_breaker_states
-    _circuit_breaker_states.clear()
-    logger.debug("L-02: Circuit breaker states reset")
+def _reset_circuit_breakers(ctx: Any = None) -> None:
+    """重置指定 ctx 的 circuit breaker 状态."""
+    if ctx is not None:
+        ctx._circuit_breaker_states.clear()
+        logger.debug("L-02: Circuit breaker states reset for ctx")
+    else:
+        logger.debug("L-02: No ctx, circuit breaker reset skipped")
 
 
 def _get_circuit_breaker_config(ctx: Any | None = None) -> tuple[int, float]:
@@ -1950,7 +1952,9 @@ def _is_circuit_open(technique_name: str, ctx: Any | None = None) -> bool:
     import time
 
     threshold, timeout = _get_circuit_breaker_config(ctx)
-    state_info = _circuit_breaker_states.get(technique_name)
+    # P3: 从 ctx 读取状态 (实例化)
+    cb_states = getattr(ctx, '_circuit_breaker_states', None)
+    state_info = cb_states.get(technique_name) if cb_states is not None else None
 
     if state_info is None:
         # 未记录状态, 视为 closed
@@ -1984,10 +1988,11 @@ def _record_technique_result(technique_name: str, success: bool, ctx: Any | None
     import time
 
     threshold, _ = _get_circuit_breaker_config(ctx)
-    state_info = _circuit_breaker_states.setdefault(
-        technique_name,
-        {"failures": 0, "state": "closed", "last_failure_time": 0.0},
-    )
+    # P3: 从 ctx 读取状态 (实例化)
+    cb_states = getattr(ctx, '_circuit_breaker_states', None)
+    state_info = cb_states.setdefault(technique_name, {"failures": 0, "state": "closed", "last_failure_time": 0.0}) if cb_states is not None else None
+    if state_info is None:
+        return
 
     if success:
         # 成功: 重置失败计数并关闭 circuit

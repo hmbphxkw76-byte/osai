@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import sys
@@ -28,6 +29,8 @@ if hasattr(sys.stderr, "reconfigure"):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+logger = logging.getLogger(__name__)
 
 # 允许在项目根目录的文件/目录 (R3)
 _ALLOWED_ROOT_ENTRIES: set[str] = {

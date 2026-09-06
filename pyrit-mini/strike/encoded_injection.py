@@ -1,6 +1,7 @@
 # arXiv:2307.08673 — Zou et al., GCG (encoding bypass ASR +10-20%)
 # arXiv:2307.15043 — Wei et al., Encoding Bypass (serial stacking)
-"""encoded_injection — 编码混淆攻击模块.
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
+"""encoded_injection — 编码混淆攻击模块。
 
 通过 Base64/ROT13/Unicode/Emoji/CSS/Import 等编码变换绕过安全过滤。
 当前为 stub 实现，返回空结果以保持管道兼容性。

@@ -3,6 +3,7 @@
 # arXiv:2402.04249 - Mazeika et al., HarmBench scoring baseline
 # arXiv:2407.01232 - PyRIT, ScorerMetrics standardization
 # arXiv:2307.08673 - Zou et al., GCG
+# arXiv:2302.12173 - Greshake et al., PromptSendingAttack / GCG (Zou 2023)
 """ASR 缁熻鍑芥暟 鈥?鎷嗗垎鑷?asr_tracker.py銆?
 
 鍖呭惈 compute_cohens_kappa, compute_overall_asr, _reset_dual_judge_stats, get_dual_judge_stats銆?

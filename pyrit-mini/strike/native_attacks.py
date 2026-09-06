@@ -1,6 +1,7 @@
-# arXiv:2406.18112 — Hanna et al., SkeletonKey (ASR 80-95%)
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey (ASR 80-95%)
+# arXiv:2406.18112 — Hanna et al., SkeletonKey (prefix injection)
 # arXiv:2407.01232 — PyRIT, native attack patterns
-"""native_attacks — PyRIT 原生攻击策略包装.
+"""native_attacks — PyRIT 原生攻击策略包装。
 
 提供 SkeletonKey 等原生攻击的异步包装函数。
 使用 PyRIT 原生 SkeletonKeyAttack 实现前缀注入攻击。

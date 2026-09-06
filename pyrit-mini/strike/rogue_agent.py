@@ -1,7 +1,8 @@
 # arXiv:2407.16924 — Eidam et al., A2A trust chain attacks
 # arXiv:2302.12173 — Greshake et al., indirect prompt injection
 # OWASP ASI10 — Rogue Agent / Rogue Endpoint
-"""rogue_agent — A2A 流氓 Agent 攻击模块.
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
+"""rogue_agent — A2A 流氓 Agent 攻击模块。
 
 通过伪造 A2A Agent 身份，利用信任链绕过安全过滤。
 使用 PyRIT 原生 PromptSendingAttack 执行注入攻击。

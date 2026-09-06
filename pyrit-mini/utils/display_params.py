@@ -20,6 +20,7 @@ def _load_display_config() -> dict:
     """加载 display 相关配置节 (technique_param_labels, technique_converter_descriptions, technique_categories)."""
     try:
         from pathlib import Path
+
         import yaml
         config_path = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
         if config_path.exists():
@@ -143,7 +144,7 @@ def _get_converter_summary(tech: str, ctx: Any) -> str:
     if ctx.converter_map and tech in ctx.converter_map:
         converters = ctx.converter_map[tech]
         if converters:
-            from utils.display_stages import _get_converter_chain_names
+            from utils.display_primitives import _get_converter_chain_names
             return _get_converter_chain_names(converters, max_display=5)
         return "none (raw payload)"
 

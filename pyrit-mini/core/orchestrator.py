@@ -508,8 +508,73 @@ async def _run_auto_l4_optimization(ctx: "PipelineContext") -> None:
             })
 
 
+def _get_adaptive_max_seeds(ctx: "PipelineContext", default_max: int = 25) -> int:
+    """基于 ctx.adaptive_probe_ctx["probe_budget"] 动态计算 max_seeds。
+
+    P4 优化: 侦察阶段发现高 probe_budget (激进侦察) → 加载更多种子
+             低 probe_budget (保守侦察) → 加载更少种子, 节省 token
+
+    数据流:
+        recon._init_adaptive_probe → ctx.adaptive_probe_ctx["probe_budget"]
+            → arm._get_adaptive_max_seeds → load_seeds(max_seeds)
+
+    Args:
+        ctx: 流水线上下文。
+        default_max: 默认最大种子数 (无 probe_budget 时使用)。
+
+    Returns:
+        计算后的 max_seeds 值 (clamp 到 [5, 50])。
+    """
+    probe_ctx = getattr(ctx, "adaptive_probe_ctx", None) or {}
+    budget_raw = probe_ctx.get("probe_budget")
+
+    # 无 probe_budget 时使用默认值
+    if not isinstance(budget_raw, int) or budget_raw <= 0:
+        return default_max
+
+    # 动态映射: probe_budget → max_seeds
+    # 高 budget (>15): 激进侦察 → 更多种子 (上限 50)
+    # 中 budget (8-15): 标准侦察 → 标准种子数
+    # 低 budget (<8): 保守侦察 → 更少种子 (下限 5)
+    import math
+    calculated = min(50, max(5, int(math.sqrt(budget_raw) * 3.5)))
+
+    logger = logging.getLogger(__name__)
+    logger.debug(
+        "[Adaptive] probe_budget=%d → adaptive max_seeds=%d (default=%d)",
+        budget_raw, calculated, default_max,
+    )
+    return calculated
+
+
+def _is_converter_allowed(converter: Any, allowed_list: list[str]) -> bool:
+    """检查 converter 是否在 stealth policy 允许列表中。
+
+    Args:
+        converter: converter 实例或名称。
+        allowed_list: policy.allowed_converters 列表。
+
+    Returns:
+        True 如果 converter 被允许使用。
+    """
+    # 允许 "all" 表示不限制
+    if "all" in allowed_list:
+        return True
+    # Extract converter name from object or string
+    c_name = converter if isinstance(converter, str) else getattr(converter, "converter_name", None)
+    if c_name is None:
+        # 如果无法提取名称, 默认允许 (避免过度过滤)
+        return True
+    return c_name in allowed_list
+
+
 async def _run_arm_phase(ctx: "PipelineContext") -> None:
-    """③ ARM 阶段: 种子选取 + 技术选择 + Converter 链构建。"""
+    """③ ARM 阶段: 种子选取 + 技术选择 + Converter 链构建。
+
+    P4 改进:
+      - probe_budget 动态调整种子加载数量
+      - guardrail_report/stealth_policy 指导技术选择
+    """
     from utils.display import print_phase, print_arm_card, print_status, print_arm_highlights
 
     args = ctx.args
@@ -525,10 +590,15 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
     # 加载模型特定先验 (R1 精准投放-机制4)
     model_priors = load_asr_priors(target_model_family) if target_model_family else {}
 
+    # ── P4: 动态种子加载数量 ──
+    # 基于 ctx.adaptive_probe_ctx["probe_budget"] 调整 max_seeds
+    # 高 probe_budget (激进侦察) → 更多种子, 低 probe_budget → 更少种子
+    _adaptive_max_seeds = _get_adaptive_max_seeds(ctx, default_max=args.max_seeds or 25)
+
     # 种子加载
     ctx.seeds = load_seeds(
         args.seeds,
-        args.max_seeds or 25,
+        _adaptive_max_seeds,
         target_language=target_language,
         enable_dos=getattr(args, "enable_dos", False),
         capabilities=target_capabilities,
@@ -571,6 +641,47 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
     ctx.techniques = filter_by_adversarial(ctx.techniques, has_adversarial)
     ctx.techniques = augment_techniques_by_capability(ctx.techniques, target_capabilities)
 
+    # ── P4: Guardrail/Stealth Policy 指导技术选择 ──
+    # 基于侦察阶段发现的 guardrail_report 和 stealth_policy, 动态调整技术选择:
+    # - 强 guardrail (high severity) → 禁用易被检测的技术, 启用 stealth 技术
+    # - stealth_policy.recommended_techniques → 追加推荐技术
+    # - stealth_policy.disabled_techniques → 禁用指定技术
+    _guardrail_report = getattr(ctx, "guardrail_report", None) or {}
+    _stealth_policy = getattr(ctx, "stealth_policy", None) or {}
+    _has_guardrail = _guardrail_report.get("has_guardrail", False)
+    _guardrail_severity = _guardrail_report.get("severity", "unknown")
+
+    if _has_guardrail or _stealth_policy:
+        _original_count = len(ctx.techniques)
+
+        # 基于 stealth_policy.disabled_techniques 禁用技术
+        _disabled_techniques = _stealth_policy.get("disabled_techniques", [])
+        if isinstance(_disabled_techniques, list) and _disabled_techniques:
+            ctx.techniques = [t for t in ctx.techniques if t not in _disabled_techniques]
+
+        # 基于 stealth_policy.recommended_techniques 追加推荐技术
+        _recommended_techniques = _stealth_policy.get("recommended_techniques", [])
+        if isinstance(_recommended_techniques, list) and _recommended_techniques:
+            for _rec_tech in _recommended_techniques:
+                if _rec_tech not in ctx.techniques:
+                    ctx.techniques.append(_rec_tech)
+
+        # 强 guardrail 场景: 启用 stealth_first 模式 (排序调整)
+        if _has_guardrail and _guardrail_severity in ("high", "critical"):
+            # 将 stealth 技术排在前面 (skeleton_key, context_compliance)
+            _stealth_priority = {"skeleton_key", "context_compliance", "role_play_persuasion"}
+            ctx.techniques.sort(
+                key=lambda t: (0 if t in _stealth_priority else 1, t)
+            )
+
+        _new_count = len(ctx.techniques)
+        if _original_count != _new_count:
+            logger.info(
+                "[Adaptive] Technique selection adjusted by guardrail/stealth: "
+                "%d → %d (guardrail=%s, severity=%s)",
+                _original_count, _new_count, _has_guardrail, _guardrail_severity,
+            )
+
     ctx.orchestration_log.append({
         "phase": "arm",
         "decision": "technique_selection",
@@ -578,9 +689,13 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
             "mode": args.techniques,
             "has_adversarial": has_adversarial,
             "capabilities": target_capabilities or "",
+            "guardrail_severity": _guardrail_severity if _has_guardrail else "none",
         },
         "output": {"techniques": ctx.techniques},
-        "reasoning": f"基于能力指纹追加定向技术 (capabilities={target_capabilities or 'none'})",
+        "reasoning": (
+            f"基于能力指纹 + guardrail/stealth 调整技术选择 "
+            f"(capabilities={target_capabilities or 'none'}, guardrail={_has_guardrail})"
+        ),
     })
 
     # Converter 链
@@ -611,6 +726,37 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
         converter_overrides=getattr(args, "converter_overrides", None),
         seeds=ctx.seeds,
     )
+
+    # ── P1: Stealth Policy Converter 过滤 ──
+    # L5 v54+: 使用 ctx.stealth_policy.allowed_converters 限制 converter 选择
+    # 高 stealth 模式：禁用显眼攻击 converter，避免触发目标告警
+    _stealth_allowed = ctx.stealth_policy.get("allowed_converters") if ctx.stealth_policy else None
+    if isinstance(_stealth_allowed, list) and len(_stealth_allowed) > 0 and ctx.converter_map:
+        _filtered_map = {}
+        _dropped_count = 0
+        for _tech, _converters in ctx.converter_map.items():
+            _filtered = [
+                _c for _c in _converters
+                if _is_converter_allowed(_c, _stealth_allowed)
+            ]
+            if _filtered:
+                _filtered_map[_tech] = _filtered
+            _dropped_count += len(_converters) - len(_filtered)
+        if _dropped_count > 0:
+            logger.info(
+                "[Stealth] Filtered %d converters (policy=%s, allowed=%s)",
+                _dropped_count,
+                ctx.stealth_policy.get("name", "unknown"),
+                _stealth_allowed,
+            )
+            # 记录 stealth 决策到 orchestration_log
+            ctx.orchestration_log.append({
+                "phase": "arm",
+                "decision": "stealth_converter_filter",
+                "dropped_count": _dropped_count,
+                "policy": ctx.stealth_policy.get("name", "unknown"),
+            })
+        ctx.converter_map = _filtered_map
 
     ctx.orchestration_log.append({
         "phase": "arm",
@@ -661,6 +807,29 @@ async def _run_strike_phase(ctx: "PipelineContext") -> None:
 
     args = ctx.args
     print_phase("STRIKE", "执行 PyRIT 原生攻击...")
+
+    # ── P2: Guardrail/Stealth 策略消费 ──
+    # L5 v54+: 使用 recon 阶段检测到的护栏报告指导攻击执行
+    _has_guardrail = ctx.guardrail_report.get("has_guardrail", False) if ctx.guardrail_report else False
+    _guardrail_severity = ctx.guardrail_report.get("severity", "none") if ctx.guardrail_report else "none"
+    _guardrail_type = ctx.guardrail_report.get("guardrail_type", "unknown") if ctx.guardrail_report else "unknown"
+    _stealth_name = ctx.stealth_policy.get("name", "balanced") if ctx.stealth_policy else "balanced"
+
+    if _has_guardrail:
+        logger.info(
+            "[Strike] Guardrail detected: type=%s, severity=%s — stealth=%s",
+            _guardrail_type,
+            _guardrail_severity,
+            _stealth_name,
+        )
+        # 高严重度护栏 + 低 stealth 模式 → 发出警告
+        if _guardrail_severity in ("high", "critical") and _stealth_name in ("balanced", "aggressive"):
+            logger.warning(
+                "[Strike] ⚠️ High-severity guardrail (%s) with non-stealth mode (%s) — "
+                "consider increasing stealth_level to avoid detection",
+                _guardrail_severity,
+                _stealth_name,
+            )
 
     # 进度展示横幅
     try:

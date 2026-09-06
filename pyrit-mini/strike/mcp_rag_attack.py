@@ -1,6 +1,7 @@
 # arXiv:2302.12173 — Greshake et al., Indirect prompt injection
 # arXiv:2307.00929 — Zhan et al., InjecAgent
 # arXiv:2402.07967 — Shafran et al., RAG security
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
 """mcp_rag_attack — MCP/RAG specialized attack module.
 
 Targeted attacks against MCP (Model Context Protocol) and RAG (Retrieval-Augmented Generation) systems.

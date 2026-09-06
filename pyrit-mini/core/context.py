@@ -133,6 +133,13 @@ class PipelineContext:
     scenario_config: dict[str, Any] = field(default_factory=dict)
     scenario_name: str = ""
 
+    # ── P3 优化: Circuit Breaker 状态 (原 strike/escalation.py 全局变量) ──
+    # 实例化改造 — 支持多 endpoint 并发时独立追踪每个 target 的 circuit breaker 状态
+    # 数据流: escalation → ctx._circuit_breaker_states → circuit breaker 判断
+    # 学术依据: Michael Nygard, "Release It!" 2nd Ed. (2018) — Circuit Breaker 模式
+    _circuit_breaker_states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _whitebox_confirmed: bool = False
+
 
 def get_effective_concurrency(
     ctx: PipelineContext,

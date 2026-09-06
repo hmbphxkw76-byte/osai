@@ -22,7 +22,7 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
     从独立模板文件加载 (report/templates/report.html),
     通过 generator._load_html_template() 读取并缓存。
     """
-    from report.generator import _load_html_template, _OWASP_ALL_CATEGORIES
+    from report.generator import _OWASP_ALL_CATEGORIES, _load_html_template
 
     template = Template(_load_html_template())
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence

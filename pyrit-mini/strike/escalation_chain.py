@@ -6,6 +6,12 @@
     Level 3: 多模型, native attacks, clustering, LLM judge rescore
 
 学术依据:
+    - Greshake et al. (arXiv:2302.12173) — PromptSendingAttack
+    - Russinovich et al. (arXiv:2404.01833) — CrescendoAttack
+    - Mehrabi et al. (arXiv:2405.17350) — TAPAttack
+    - Zou et al. (arXiv:2302.12173) — GCG
+    - SKELETONKEY (arXiv:2402.14266) — SkeletonKey
+    - Hughes et al. (arXiv:2404.02151) — BestOfN
     - Russinovich et al. (arXiv:2402.12109) — Crescendo
     - Chao et al. (arXiv:2310.08419) — PAIR/CAIR
     - Mehrotra et al. (arXiv:2312.02191) — TAP
@@ -171,6 +177,7 @@ async def _run_tap(
         TAPAttackScoringConfig,
     )
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.executor.attack import AttackAdversarialConfig
     from pyrit.models import AttackSeedGroup, SeedObjective
 
     results: dict[str, list[Any]] = {}
@@ -249,6 +256,7 @@ async def _run_pair(
         TAPAttackScoringConfig,
     )
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
+    from pyrit.executor.attack import AttackAdversarialConfig
     from pyrit.models import AttackSeedGroup, SeedObjective
 
     results: dict[str, list[Any]] = {}

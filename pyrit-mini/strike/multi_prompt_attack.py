@@ -1,6 +1,8 @@
 # arXiv:2407.01232 — PyRIT, native multi-turn attack patterns
 # arXiv:2307.15043 — Wei et al., multi-turn prompt sequencing
-"""multi_prompt_attack — MultiPromptSendingAttack 原生攻击模块.
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
+"""multi_prompt_attack — MultiPromptSendingAttack 原生攻击模块。
 
 使用 PyRIT 原生 MultiPromptSendingAttack 执行多轮固定序列攻击。
 该攻击发送预定义的多个 prompt 序列到目标,

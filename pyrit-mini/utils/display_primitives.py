@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from core.context import PipelineContext
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -284,3 +284,33 @@ def _asr_bar(asr: float, width: int = 20) -> str:
     filled = int(asr / 100 * width)
     bar = "█" * filled + "░" * (width - filled)
     return f"{c}{bar} {asr:>5.1f}%{_C_RESET}"
+
+
+def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -> str:
+    """获取 converter 链名称 (独立路径编号).
+
+    L5 v39: 将 converter 列表格式化为可读字符串，带编号路径。
+    提升自 display_stages → primitives，消除 display_params 的跨模块私有导入。
+
+    Args:
+        converters: Converter 实例列表.
+        max_display: 最大显示数量，超出时显示 "+N more".
+
+    Returns:
+        格式化的 converter 链描述字符串.
+    """
+    if not converters:
+        return "(raw, no converters)"
+    if len(converters) == 1:
+        c = converters[0]
+        return type(c).__name__ if hasattr(c, "__class__") else str(c)
+    display_count = min(len(converters), max_display)
+    parts = []
+    for i, c in enumerate(converters[:display_count]):
+        name = type(c).__name__ if hasattr(c, "__class__") else str(c)
+        parts.append(f"[{i + 1}] {name}")
+    result = " | ".join(parts)
+    remaining = len(converters) - max_display
+    if remaining > 0:
+        result += f" {_C_DIM}... (+{remaining} more){_C_RESET}"
+    return result

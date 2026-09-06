@@ -1,6 +1,7 @@
 # arXiv:2407.01232 — PyRIT, native multi-turn attack patterns
 # arXiv:2302.12173 — Greshake et al., indirect prompt injection
-"""chunked_attack — ChunkedRequestAttack 原生攻击模块.
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
+"""chunked_attack — ChunkedRequestAttack 原生攻击模块。
 
 使用 PyRIT 原生 ChunkedRequestAttack 执行分块提取攻击。
 该攻击通过请求特定字符范围的信息片段,

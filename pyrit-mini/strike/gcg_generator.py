@@ -1,3 +1,5 @@
+# arXiv:2307.08673 — Zou et al., GCG suffix attacks
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
 """GCG 后缀生成器 — 静态后缀 + LLM 动态变异 + ASR 历史排序。
 
 从 escalation.py 拆分而来, 包含 GCG 后缀池的生成、变异和重排逻辑。

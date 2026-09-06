@@ -41,10 +41,10 @@ from recon.adaptive_probe_config import (
     should_run_probe,
 )
 from recon.behavioral_verifier import behavioral_verify
-from recon.capability_monitor import CapabilityDriftMonitor, CapabilitySnapshot
+from recon.capability_monitor import CapabilityDriftMonitor, CapabilitySnapshot, get_drift_monitor
 from recon.guardrail_detector import detect_guardrail
 from recon.model_seed_mapper import get_seeds_for_model, detect_model_family
-from recon.stealth_config import StealthLevelManager, STEALTH_POLICIES
+from recon.stealth_config import StealthLevelManager, STEALTH_POLICIES, get_stealth_manager
 from recon.confidence_scorer import (
     merge_verification_into_capabilities,
     score_capability_with_convergence,
@@ -248,6 +248,30 @@ async def create_target(ctx: PipelineContext) -> None:
         max_concurrency=ctx.args.max_concurrency or 3,
     )
     ctx.multi_turn_target = multi_turn_target
+
+    # ── Step 4.5 (P0): 自适应探测初始化 — 6大侦察策略集成 ──
+    # L5 v54+: Guardrail/Stealth/Behavioral/Capability/Seed/Drift
+    # 数据流: create_target → _init_adaptive_probe → ctx.adaptive_probe_ctx
+    #            → arm phase (seed_preferences, stealth_policy, probe_budget)
+    #            → strike phase (drift_monitor, guardrail_report)
+    try:
+        _probe_ctx = await _init_adaptive_probe(ctx, parsed, _probe_counter)
+        ctx.adaptive_probe_ctx = _probe_ctx
+        ctx.guardrail_report = _probe_ctx.get("guardrail_report", {})
+        ctx.stealth_policy = _probe_ctx.get("stealth_policy", {})
+        ctx.drift_monitor = get_drift_monitor()  # 能力漂移单例
+        logger.info(
+            "[Adaptive] Pipeline integration OK: guardrail=%s, stealth=%s, "
+            "adaptive_budget=%s",
+            ctx.guardrail_report.get("severity", "none"),
+            ctx.stealth_policy.get("name", "balanced"),
+            _probe_ctx.get("probe_budget", {}).get("budget", "default"),
+        )
+    except Exception as e:
+        logger.warning("[Adaptive] Adaptive probe init failed (non-fatal): %s", e)
+        ctx.adaptive_probe_ctx = {}
+        ctx.guardrail_report = {"has_guardrail": False, "severity": "none"}
+        ctx.stealth_policy = {"name": "balanced", "behavioral_verify": True}
 
     # ── Step 5 (P1 异步非阻塞): 能力核心探测 ──
     # P0-02: 仅当用户使用 --deep-probe 或探测计数 < 上限时执行

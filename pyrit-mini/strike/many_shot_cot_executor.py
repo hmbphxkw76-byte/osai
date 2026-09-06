@@ -1,7 +1,9 @@
 # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking
 # arXiv:2307.10292 — Wei et al., CoT Hijacking (ASR 45-60%)
 # arXiv:2407.01232 — PyRIT, native attack patterns
-"""many_shot_cot_executor — Many-Shot Jailbreak + CoT 攻击模块.
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
+"""many_shot_cot_executor — Many-Shot Jailbreak + CoT 攻击模块。
 
 使用 PyRIT 原生 ManyShotJailbreakAttack 执行多示例注入攻击。
 Many-Shot Jailbreak 通过在 prompt 前缀注入大量 faux Q/A 对话,

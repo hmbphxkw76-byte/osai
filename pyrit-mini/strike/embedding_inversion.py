@@ -1,7 +1,9 @@
 # arXiv:2310.06870 — Morris et al., Embedding inversion (ASR 85-92%)
 # arXiv:2402.07967 — Shafran et al., RAG security
 # arXiv:2308.14032 — Kandpal et al., Training data extraction
-"""embedding_inversion — 嵌入反转攻击模块.
+# arXiv:2302.12173 — Greshake et al., PromptSendingAttack
+# arXiv:2402.14266 — SKELETONKEY, SkeletonKey
+"""embedding_inversion — 嵌入反转攻击模块。
 
 通过构造特定查询从向量嵌入中恢复原始文本，
 利用 RAG/Embedding 系统绕过安全过滤。
