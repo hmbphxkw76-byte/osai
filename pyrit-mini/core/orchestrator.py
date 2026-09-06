@@ -516,11 +516,14 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
     print_phase("ARM", "种子选取 & ASR 排序...")
 
     from arm.converter_presets import build_converter_map, _classify_target_type
-    from arm.seed_ranker import load_seeds
+    from arm.seed_ranker import load_seeds, load_asr_priors
     from arm.technique_picker import augment_techniques_by_capability, filter_by_adversarial, select_techniques
 
     # 从目标指纹提取语言 + 能力 + 模型族
     target_language, target_capabilities, target_model_family = _extract_target_profile(ctx)
+
+    # 加载模型特定先验 (R1 精准投放-机制4)
+    model_priors = load_asr_priors(target_model_family) if target_model_family else {}
 
     # 种子加载
     ctx.seeds = load_seeds(
@@ -531,6 +534,7 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
         capabilities=target_capabilities,
         model_family=target_model_family,
         seed_filters=getattr(args, "seed_filters_parsed", None),
+        model_priors=model_priors,
     )
 
     _seed_files_count = len(args.seeds.split(",")) if args.seeds else 0

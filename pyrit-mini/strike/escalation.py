@@ -40,6 +40,8 @@ HTTPTarget 閫傞厀
 
     - Chao et al. (arXiv:2310.08419) 鈀Best-of-N 鑱斿悀ASR 鎶€鏈惀鏀?
 
+    - PyRIT SequentialAttack (arXiv:2407.01232) 鈀RedTeaming 鑱斿悀鍛煎皠 ASR 40%
+
 
 
 鍗囩骇绛栫暐 (鎸変紭鍏堢骇):
