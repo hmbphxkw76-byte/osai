@@ -100,3 +100,50 @@ auto_l4_agent_surfaces: [mcp_server, multi_agent_system, rag_system]
 many_shot_example_count: 100          # Many-Shot Jailbreaking
 chunked_request_chunk_size: 50        # 字符/块
 chunked_request_total_length: 200     # 字符总长
+
+# ── 技术展示参数标签 (display.py 消费) ──
+# 将参数键名映射到简短展示标签, 避免硬编码
+technique_param_labels:
+  crescendo_max_turns: "turns"
+  crescendo_max_backtracks: "backtrack"
+  tap_tree_width: "width"
+  tap_tree_depth: "depth"
+  pair_tree_width: "width"
+  pair_tree_depth: "depth"
+  red_teaming_max_turns: "turns"
+  best_of_n_retries: "retries"
+  many_shot_example_count: "shots"
+  chunked_request_chunk_size: "chunk"
+  gcg_suffix_len: "suffix"
+  gcg_max_iterations: "iters"
+  cair_max_iterations: "iters"
+  cot_hijack_max_turns: "turns"
+
+# ── 技术 → Converter 描述映射 (display.py 消费) ──
+# 避免在展示层硬编码 converter 描述
+technique_converter_descriptions:
+  crescendo: "native multi-turn (adversarial prompts)"
+  tap: "native tree-search (adversarial prompts)"
+  pair: "native iterative (adversarial prompts)"
+  red_teaming: "native multi-turn (adversarial prompts)"
+  cot_hijack: "native CoT hijack (adversarial prompts)"
+  best_of_n: "native variation retry (N samples)"
+  gcg: "native GCG suffix optimization"
+  cair: "native CAIR iterative optimization"
+  encoded_injection: "base64 + unicode bypass"
+  skeleton_key_native: "native system prompt prefix"
+  many_shot_cot: "native many-shot + CoT prefix"
+  multi_prompt_sending: "native multi-prompt batch"
+  chunked_request: "native request chunking"
+  rogue_agent: "native A2A protocol abuse"
+  embedding_inversion: "native embedding recovery"
+  mcp_rag: "native indirect prompt injection"
+  multi_model_pair: "native cross-model pairing"
+
+# ── 技术分类标签 ──
+technique_categories:
+  baseline: ["prompt_sending", "multi_prompt_sending", "adaptive_text"]
+  multi_turn: ["crescendo", "tap", "pair", "red_teaming", "best_of_n", "cot_hijack"]
+  context_semantic: ["many_shot", "skeleton_key", "skeleton_key_native", "many_shot_cot", "role_play_movie_script", "role_play_persuasion", "context_compliance", "flip"]
+  encoding: ["gcg", "cair", "encoded_injection", "embedding_inversion"]
+  infrastructure: ["chunked_request", "mcp_rag", "rogue_agent", "multi_model_pair"]

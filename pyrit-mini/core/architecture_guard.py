@@ -32,6 +32,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # 允许在项目根目录的文件/目录 (R3)
 _ALLOWED_ROOT_ENTRIES: set[str] = {
     "main.py",                 # 主入口
+    "guard.py",                 # 宪法守卫入口 (guard.bat 调用)
+    "guard.bat",                # 宪法守卫一键启动器
     "pyproject.toml",           # 项目配置
     ".env",                     # 环境变量
     ".gitignore",               # Git 忽略
