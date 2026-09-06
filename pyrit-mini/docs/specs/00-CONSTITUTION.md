@@ -215,6 +215,76 @@ python main.py --max-seeds 1 --stage strike
 
 ---
 
+## 第七章：OffSec AI-300 / OSAI 考试专项附录（v1.3 增补）
+
+> **效力**：本章为考试场景的操作指引，不改变 C1-C12 条款的裁决优先级。考试期间的特殊时间压力与工具约束（24h 实战、禁止交互式 AI 助手）已通过本章预设的加速通道合规落地。
+
+### 7A. 考试日决策树（Exam-Day Decision Tree）
+
+考试下发目标后的**标准攻击决策序列**（对应蓝图六阶段，压缩为五动作）：
+
+```
+目标获取 → 快速指纹 → 攻击匹配 → 执行打击 → 证据固化
+   │           │          │          │          │
+   ▼           ▼          ▼          ▼          ▼
+data/burp/   recon      arm+strike  executor   report
+  *.txt      --stage     exam_mode   FIRST_     evidence/
+             recon      yaml         SUCCESS    poc/
+```
+
+**决策序列详细步骤**：
+
+| 步骤 | 输入 | 动作 | 产出 | 时间预算 |
+|------|------|------|------|---------|
+| D1   | Burp 原始文件 | `python main.py --burp <file> --stage recon` | target_fingerprint + attack_surface_graph | 15min/目标 |
+| D2   | fingerprint | 查 7B 攻击匹配表选最优技术组合 | technique_tags + 种子列表 | 5min |
+| D3   | 种子 + 转换器 | `python main.py --stage strike --campaign exam_mode` | attack_results + 初步 ASR | 60min |
+| D4   | ASR < 90% | 自动触发 L1→L4 升级链 | escalated_results | 90min |
+| D5   | 全部结果 | `python main.py --stage assess --stage report` | 完整证据链 + 多格式报告 | 30min |
+
+### 7B. 目标类型 → PyRIT 最优攻击映射表
+
+> **用途**：考试期间**禁止交互式 AI 助手**时，此表替代 AI 判断执行攻击匹配。根据 recon 指纹识别结果，直接查表选择最优攻击配置。
+
+| 目标类型（fingerprint 关键词） | 首选 PyRIT 原生攻击 | ASR 先验 | 备选方案 | 关键种子 |
+|------|------|------|------|------|
+| **通用 LLM Chat** (无特殊能力) | PromptSendingAttack + 多 Converter | 85-95% | SkeletonKeyAttack (arXiv:2406.18112) | LLM01_jailbreaks, many_shot_cot |
+| **AI Agent** (function_calling) | SkeletonKeyAttack + tool_hijack 种子 | 75-90% | TAP/PAIR 升级 | ASI02_function_call, ASI03_workflow |
+| **Multi-Agent / A2A** | CrescendoAttack + cross-agent 种子 | 70-85% | PAIR 深度渗透 | ma_cross_agent_injection, ma_identity_spoofing |
+| **RAG Pipeline** | PromptSendingAttack + 间接注入 | 80-95% | 检索污染链 | LLM01_indirect_injection, rag_full_attack_surface |
+| **MCP Server** | 旁路 JSON-RPC 直发（ADR-003） | 85-98% | 工具链利用 | mcp_*, ASI02_mcp_* |
+| **Embedding Model** | 领域外工具接入回填 | 40-60%（考域难度高） | embedding_inversion.py | extraction seeds |
+
+### 7C. PyRIT 原生攻击速查（PyRIT Native Attack Quick-Reference）
+
+> **用途**：考试开卷环境下快速确认 PyRIT 1.0.1 原生类的正确使用方式。引用来源：PyRIT 官方文档 + arXiv:2407.01232。
+
+| 原生类 | 模块路径 | 适用场景 | 关键参数 |
+|------|------|------|------|
+| `PromptSendingAttack` | `pyrit.executor.attack` | 单轮批量发送 | `prompt_target`, `attack_scoring_config` |
+| `SkeletonKeyAttack` | `pyrit.executor.attack` | 前缀注入绕过（ASR 80-95%） | `objective`, `prepended_conversation` |
+| `CrescendoAttack` | `pyrit.executor.attack.multi_turn` | 渐进式多轮升级 | `objective`, `max_backtracks` |
+| `TAPAttack` (Tree of Attack) | `pyrit.executor.attack.multi_turn` | 树状分支渗透 | `objective`, `width`, `depth` |
+| `PAIRAttack` | `pyrit.executor.attack.multi_turn` | 攻击者-judge 配对迭代 | `objective`, `attack_strategy` |
+| `SequentialAttack` | `pyrit.executor.attack` | 多步骤顺序执行（FIRST_SUCCESS） | `attack_props` |
+| `PromptConverter` | `pyrit.converter` | 负载变换（编码/翻译/混淆） | `converter_target`, `prompt` |
+| `Scorer` | `pyrit.scorer` | 结果评估（0-token 拒绝检测 或 LLM Judge） | `objective_target` |
+
+### 7D. 考试合规速查（Exam Compliance Checklist）
+
+> **用途**：考试前最终确认 + 考试中定期自检。OffSec 考试规则（允许 PyRIT/Burp/自写脚本/笔记，禁止交互式 AI 聊天助手）。
+
+| 检查项 | 要求 | 我们的合规措施 |
+|------|------|------|
+| 工具合法性 | 允许 PyRIT、Burp Suite、自写脚本 | ✅ 本项目全部基于 PyRIT 原生 + 自研 Glue |
+| 笔记使用 | 允许个人笔记与既往报告 | ✅ 种子库 + arxiv 注释 = 开卷知识库 |
+| **禁止交互式 AI 助手** | 不得在考试中使用 ChatGPT 等聊天型助手 | ✅ PyRIT 三角色 LLM 是攻击引擎非助手（仅执行 prompt 不对话） |
+| 目标边界 | 仅攻击考试下发目标 | ✅ R-S1 授权边界（宪法 C2 边界条款） |
+| 报告格式 | 技术发现 + 风险等级 + 修复建议 | ✅ REQ-113 四段结构（executive summary/findings/impact/remediation） |
+| 证据可复现 | 成功攻击须附可复现 PoC | ✅ REQ-007 全字段证据 + PoC 独立可执行 |
+
+---
+
 ## 版本记录
 
 | 版本 | 日期 | 变更摘要 | 批准 |
@@ -222,3 +292,4 @@ python main.py --max-seeds 1 --stage strike
 | v1.0 | 2026-09-05 | 制宪：第 0 条使命、五根因诊断、裁决序、C1-C12、违宪症状速查表 | — |
 | v1.1 | 2026-09-05 | REV-01 评审修正：① C2 增补安全边界条款，堵住"宪法压倒 R-S 安全红线"的裁决空洞；② 裁决序补 ⑤ 红线与 ② 蓝图冲突规则；③ 第 0 条方针 2 加边界注；④ 第六章附则，消除制宪配套 bootstrap 死锁。guard 检查器无变更（均为裁决规则澄清，无可机器化新条款） | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02 源码对齐（审计 github.com/hmbphxkw76-byte/osai/pyrit-mini @0b8e28c）：① 第一章根因实证更新（SKILL.md 实测 57KB/1400+ 行；display.py 119KB；escalation 孪生）；② 第六章配套资产清单纳入 50-ROADMAP.md（任务顺序与 vibe coding 会话模型的登记处）；③ 第五章迁移项补 BL-011。条款正文 C1-C12 无变更 | 用户会话批准 |
+| v1.3 | 2026-09-06 | REV-03 AI-300 考试专项优化：① 新增第七章 OffSec AI-300/OSAI 考试专项附录（考试日决策树 7A、目标类型→PyRIT 攻击映射表 7B、PyRIT 原生攻击速查 7C、考试合规速查 7D）；② 条款正文 C1-C12 无变更（均为考试操作指引） | 用户会话批准 |

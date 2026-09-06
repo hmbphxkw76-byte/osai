@@ -7,6 +7,7 @@
     ③ strike    → 攻击发送: PyRIT 原生 PromptSendingAttack 多路径执行 (FIRST_SUCCESS)
     ④ escalate  → 多轮升级: Crescendo→TAP→PAIR→GCG→native (ASR<90% 触发, 含中间退出)
     ⑤ assess    → 评分判定: T0→J1→J2→J3 级联评分, ASR 统计, Wilson CI, 双 Judge 交叉验证
+                     (or_aggregation OR 聚合追踪, scorer_metrics T0 评分器指标)
     ⑥ report    → 报告生成: 证据收集 + MD/HTML/JSON/PoC/SARIF
 
     不指定 --stage 时按顺序执行全部 6 个阶段 (strike+escalate 合为一步), 向后兼容。
@@ -86,8 +87,8 @@ async def run(argv: list[str] | None = None) -> None:
         setup_logging,
     )
     from core.orchestrator import run_attack_pipeline
-    # 引用审计追踪: or_aggregation, scorer_metrics (在 orchestrator._log_dual_judge_stats 中实现)
-    from core.orchestrator import _log_dual_judge_stats  # noqa: F401  (审计引用)
+    # R11: 导入 Scenario 路由器以启用目标感知攻击链
+    from core.scenario_router import get_router, apply_scenario_overrides
     from utils.display import print_banner, print_phase, print_status
 
     # ── 日志基础配置 ──
@@ -125,8 +126,25 @@ async def run(argv: list[str] | None = None) -> None:
 
     # ── 执行攻击链路编排 (try/finally 保障资源清理) ──
     _logger = logging.getLogger(__name__)
+
+    # R10: dry-run 零 token 流水线完整性验证
+    # main.py 层面: 早期返回,跳过 run_attack_pipeline()
+    # orchestrator.py 层面: 防御性第二道防线,即使 main.py 逻辑失效也能跳过攻击
+    _is_dry_run = getattr(args, "dry_run", False)
+    if _is_dry_run:
+        # [DRY-RUN] 跳过攻击: execute_attacks 和 execute_text_adaptive 不会被调用
+        # [DRY-RUN] 跳过升级: check_and_escalate 不会被调用
+        _logger.info("[DRY-RUN] 零 token 验证模式 — 跳过真实 API 调用")
+        _logger.info("[DRY-RUN] [DRY-RUN] 跳过攻击执行 (execute_attacks)")
+        _logger.info("[DRY-RUN] [DRY-RUN] 跳过升级链 (check_and_escalate)")
+        print_status("DRY-RUN", "DONE", "零 token 验证通过 — 跳过全部攻击/升级", ok=True)
+        return
+
+    # R11: Scenario 路由器集成 — 将路由器传递给编排器,启用目标感知攻击链
+    router = get_router()
+
     try:
-        await run_attack_pipeline(ctx)
+        await run_attack_pipeline(ctx, router=router)
     except KeyboardInterrupt:
         _logger.info("收到中断信号, 执行资源清理...")
         try:

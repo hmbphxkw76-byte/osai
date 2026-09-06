@@ -111,15 +111,18 @@ async def create_target(ctx: PipelineContext) -> None:
     # ── L5 v53: 模型信息从 Burp 响应提取 ──
     if parsed.burp_model_name:
         ctx.model_name = parsed.burp_model_name
-        parsed.target_fingerprint["burp_model_name"] = parsed.burp_model_name
+        # P1-05: 使用属性赋值
+        parsed.target_fingerprint.burp_model_name = parsed.burp_model_name
         logger.info("Model name from Burp response: %s", parsed.burp_model_name)
 
     if parsed.burp_model_list:
-        parsed.target_fingerprint["burp_model_list"] = "yes"
+        # P1-05: 使用 extra dict 存储非 Schema 字段
+        parsed.target_fingerprint.extra["burp_model_list"] = "yes"
         logger.info("Model list extracted from Burp (length=%d)", len(parsed.burp_model_list))
 
     if parsed.original_prompt_value:
-        parsed.target_fingerprint["original_prompt"] = parsed.original_prompt_value[:200]
+        # P1-05: 使用属性赋值
+        parsed.target_fingerprint.original_prompt = parsed.original_prompt_value[:200]
         logger.info("Original prompt from Burp: %s", parsed.original_prompt_value[:80])
 
     if parsed.api_category != "chat":
@@ -210,8 +213,9 @@ async def create_target(ctx: PipelineContext) -> None:
 
     # ── 记录探测统计 ──
     _probe_duration = _time.monotonic() - _probe_start
-    parsed.target_fingerprint["probe_count"] = _probe_counter.value
-    parsed.target_fingerprint["probe_duration_seconds"] = round(_probe_duration, 2)
+    # P1-05: 使用属性赋值
+    parsed.target_fingerprint.probe_count = _probe_counter.value
+    parsed.target_fingerprint.probe_duration_seconds = round(_probe_duration, 2)
     logger.info(
         "Recon complete: %d probes sent, %.2fs duration "
         "(attack starts now, background probes continue)",
@@ -306,29 +310,31 @@ async def _run_background_probes(
         active_caps = await probe_active_capabilities(parsed)
         counter.add(3)
         if active_caps:
-            existing_caps = parsed.target_fingerprint.get("capabilities", "")
+            # P1-05: 使用属性赋值
+            existing_caps = parsed.target_fingerprint.extra.get("capabilities", "")
             all_caps = set(existing_caps.split(",")) if existing_caps else set()
             for cap_key, cap_val in active_caps.items():
                 if cap_key == "model_family" and cap_val:
-                    parsed.target_fingerprint["model_family"] = cap_val
+                    parsed.target_fingerprint.model_family = cap_val
                 elif cap_val:
                     all_caps.add(cap_key)
-            parsed.target_fingerprint["capabilities"] = ",".join(sorted(all_caps))
+            parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
             logger.info("Background: active probe detected: %s", sorted(all_caps))
     except Exception as e:
         logger.warning("Background: active probe failed: %s", e)
 
     # ── P1-2: MCP 枚举 (条件触发 - 仅在检测到 MCP 能力时) ──
-    capabilities_str = parsed.target_fingerprint.get("capabilities", "")
+    capabilities_str = parsed.target_fingerprint.extra.get("capabilities", "")
     if "mcp" in capabilities_str or "mcp_protocol" in capabilities_str:
         logger.info("MCP capability detected, launching MCP enumeration...")
         try:
             from recon.mcp_enumerator import enumerate_mcp_endpoint
             mcp_results = await enumerate_mcp_endpoint(parsed)
             if mcp_results.get("has_mcp"):
-                parsed.target_fingerprint["mcp_tools"] = mcp_results.get("tools", [])
-                parsed.target_fingerprint["mcp_resources"] = mcp_results.get("resources", [])
-                parsed.target_fingerprint["mcp_prompts"] = mcp_results.get("prompts", [])
+                # P1-05: 使用属性赋值
+                parsed.target_fingerprint.mcp_tools = mcp_results.get("tools", [])
+                parsed.target_fingerprint.mcp_resources = mcp_results.get("resources", [])
+                parsed.target_fingerprint.mcp_prompts = mcp_results.get("prompts", [])
                 logger.info(
                     "Background: MCP enumeration: %d tools, %d resources",
                     len(mcp_results.get("tools", [])),
@@ -344,11 +350,12 @@ async def _run_background_probes(
             sp_result = await extract_system_prompt(parsed)
             counter.add(3)
             if sp_result.get("system_prompt_leaked"):
-                parsed.target_fingerprint["system_prompt_leaked"] = True
-                parsed.target_fingerprint["extracted_system_prompt"] = sp_result.get(
+                # P1-05: 使用属性赋值
+                parsed.target_fingerprint.system_prompt_leaked = True
+                parsed.target_fingerprint.extracted_system_prompt = sp_result.get(
                     "extracted_system_prompt", ""
                 )
-                parsed.target_fingerprint["system_prompt_extraction_method"] = sp_result.get(
+                parsed.target_fingerprint.system_prompt_extraction_method = sp_result.get(
                     "extraction_method", ""
                 )
                 logger.warning(
@@ -357,7 +364,7 @@ async def _run_background_probes(
                     sp_result.get("system_prompt_length", 0),
                 )
             else:
-                parsed.target_fingerprint["system_prompt_leaked"] = False
+                parsed.target_fingerprint.system_prompt_leaked = False
         except Exception as e:
             logger.warning("Background: system prompt extraction failed: %s", e)
 
@@ -373,7 +380,8 @@ async def _run_background_probes(
             deep_caps = await deep_probe_capabilities(parsed)
             counter.add(8)
             if deep_caps:
-                existing_caps_str = parsed.target_fingerprint.get("capabilities", "")
+                # P1-05: 使用属性赋值
+                existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
                 all_caps = set(existing_caps_str.split(",")) if existing_caps_str else set()
                 for cap_key in [
                     "has_function_calling", "has_memory", "has_workflow",
@@ -382,12 +390,18 @@ async def _run_background_probes(
                 ]:
                     if deep_caps.get(cap_key):
                         all_caps.add(cap_key.replace("has_", ""))
-                parsed.target_fingerprint["capabilities"] = ",".join(sorted(all_caps))
-                for k in ("secret_format", "tool_schemas", "session_type", "model_family",
-                          "model_ids", "api_behavior", "capability_confidence",
-                          "capability_recommendations"):
+                parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
+                # P1-05: 识别字段使用属性赋值, 非 Schema 字段使用 extra dict
+                for k in ("secret_format", "tool_schemas", "model_family"):
                     if deep_caps.get(k):
-                        parsed.target_fingerprint[k] = deep_caps[k]
+                        parsed.target_fingerprint.extra[k] = deep_caps[k]
+                # Schema 中的 session_type
+                if deep_caps.get("session_type"):
+                    parsed.target_fingerprint.session_type = deep_caps["session_type"]
+                # 额外字段存储到 extra
+                for k in ("model_ids", "api_behavior", "capability_confidence", "capability_recommendations"):
+                    if deep_caps.get(k):
+                        parsed.target_fingerprint.extra[k] = deep_caps[k]
         except Exception as e:
             logger.warning("Background: deep probe failed: %s", e)
 
@@ -398,8 +412,9 @@ async def _run_background_probes(
             openapi_result = await discover_openapi_spec(parsed)
             counter.add(5)
             if openapi_result and openapi_result.endpoints:
-                parsed.target_fingerprint["openapi_spec_path"] = openapi_result.spec_path
-                parsed.target_fingerprint["openapi_endpoints"] = [
+                # P1-05: 使用属性赋值
+                parsed.target_fingerprint.openapi_spec_path = openapi_result.spec_path
+                parsed.target_fingerprint.openapi_endpoints = [
                     {"path": ep.path, "method": ep.method, "summary": ep.summary}
                     for ep in openapi_result.endpoints[:20]  # 限制存储数量
                 ]

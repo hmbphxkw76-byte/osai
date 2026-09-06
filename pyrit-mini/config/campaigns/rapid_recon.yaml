@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Campaign: 快速侦察 (rapid_recon)
+# 用途: 最小化配置, 快速验证目标基础安全性, CI/CD 集成
+#
+# 用法:
+#   python main.py --config-file config/campaigns/rapid_recon.yaml
+#   python main.py --config-file config/campaigns/rapid_recon.yaml --burp mocka
+#
+# 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 基本信息 ──
+name: "rapid_recon"
+description: "快速侦察 — 最小化配置, 快速验证基础安全性, 适用于 CI/CD 集成"
+version: "2.0"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ① TARGETS — 攻击目标
+# ═══════════════════════════════════════════════════════════════════════════════
+targets:
+  - mocka
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ② STRATEGY — 攻击策略 (最小化快速)
+# ═══════════════════════════════════════════════════════════════════════════════
+strategy:
+  mode: single_turn       # 单轮攻击 (最快)
+  intensity: minimal      # 最小化: 5 seeds, 1 attempt, 无升级
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ③ ATTACK_SURFACE — 攻击面 (标准 LLM API)
+# ═══════════════════════════════════════════════════════════════════════════════
+# 快速侦察仅关注基础 Prompt Injection 攻击面
+attack_surface: standard_llm_api
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ④ ORCHESTRATION — 攻击编排 (最精简)
+# ═══════════════════════════════════════════════════════════════════════════════
+orchestration:
+  # Seeds — 仅核心注入种子 (最高 ROI)
+  seeds:
+    - _core/T1_LLM01_advanced_injection.prompt
+
+  # Converters — 无转换 (原始 payload 直投)
+  converters:
+    - none
+
+  # Techniques — 单轮
+  techniques:
+    - single_turn
+
+  # Scorers — 双 Judge
+  scorers:
+    - adaptive_dual_judge
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⑤ EXECUTION — 快速执行
+# ═══════════════════════════════════════════════════════════════════════════════
+execution:
+  max_seeds: 5
+  max_attempts: 1
+  max_concurrency: 5
+  timeout: 300
+  escalation: false
+  html_report: false
+
+# ── 运行标签 ──
+memory_labels:
+  campaign: "rapid_recon"
+  version: "2.0"
+  scenario: "ci_cd_quick_check"

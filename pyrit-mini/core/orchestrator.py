@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def run_attack_pipeline(ctx: "PipelineContext") -> None:
+async def run_attack_pipeline(ctx: "PipelineContext", router: Any = None) -> None:
     """主流程: 多 endpoint 逐个深度攻击 + 联合 ASR。
 
     阶段对应模块包 (--stage 控制退出点):
@@ -66,6 +66,15 @@ async def run_attack_pipeline(ctx: "PipelineContext") -> None:
         ctx.args.burp = burp_list[0] if burp_list else "request"
         await run_single_endpoint(ctx, output_dir)
         await cleanup_resources(ctx)
+        return
+
+    # R10: Dry-run 防御性检查 — 在 orchestrator 层面直接返回,不执行任何攻击或升级
+    # 这是第二道防线: 即使 main.py 早期返回逻辑失效,orchestrator 也能保障零 token 消耗
+    _is_dry_run = getattr(ctx.args, "dry_run", False)
+    if _is_dry_run:
+        from utils.display import print_status
+        logger.info("[DRY-RUN] Orchestrator 层面 dry-run 激活 — 跳过所有攻击与升级执行")
+        print_status("ORCHESTRATOR", "DRY-RUN", "跳过全部攻击阶段", ok=True)
         return
 
     # ── 增量借鉴: 将运行标签写入 CentralMemory ──
@@ -265,7 +274,7 @@ async def run_single_endpoint(
     # ═══════════════════════════════════════════════════════════════════════════
     # ②.7 Scenario 路由决策
     # ═══════════════════════════════════════════════════════════════════════════
-    await _run_scenario_routing(ctx)
+    await _run_scenario_routing(ctx, router=router)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ②.6 目标感知自动 L4 优化
@@ -386,17 +395,26 @@ async def _run_synergy_phase(ctx: "PipelineContext") -> None:
         ctx.synergy_config = None
 
 
-async def _run_scenario_routing(ctx: "PipelineContext") -> None:
-    """②.7 Scenario 路由决策 (攻击面→技术标签映射)。"""
+async def _run_scenario_routing(ctx: "PipelineContext", router: Any = None) -> None:
+    """②.7 Scenario 路由决策 (攻击面→技术标签映射)。
+
+    Args:
+        ctx: Pipeline context.
+        router: Optional ScenarioRouter instance (R11: injected from main.py to avoid redundant instantiation).
+    """
     args = ctx.args
     _scenario_enabled = getattr(args, "scenario_enabled", True)
     if not _scenario_enabled or not ctx.synergy_config:
         return
 
     from utils.display import print_status
-    from core.scenario_router import apply_scenario_overrides, get_router
+    from core.scenario_router import apply_scenario_overrides
 
-    _router = get_router()
+    # R11: Use injected router (from main.py) if available, otherwise fall back to global singleton.
+    _router = router if router is not None else None
+    if _router is None:
+        from core.scenario_router import get_router
+        _router = get_router()
     _scenario_name, _scenario_config = _router.select_scenario(
         classification=type('ClassificationResult', (), {
             'attack_surface': ctx.synergy_config.attack_surface,
@@ -576,7 +594,8 @@ async def _run_arm_phase(ctx: "PipelineContext") -> None:
     logger.info("L5 v39: Target type for converter selection: %s", _target_type)
 
     if _target_fingerprint is not None:
-        _target_fingerprint["target_type"] = _target_type
+        # P1-05: 使用 extra dict 存储非 Schema 字段 (target_type 不在 TargetFingerprint Schema 中)
+        _target_fingerprint.extra["target_type"] = _target_type
 
     ctx.converter_map = build_converter_map(
         technique_names=ctx.techniques,

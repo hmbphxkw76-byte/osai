@@ -190,6 +190,78 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 
 ---
 
+## 第九章：PyRIT 原生攻击引擎架构（v1.6 增补，OffSec AI-300 考试优化）
+
+> **目的**：明确 PyRIT 原生攻击组件在本项目六阶段流水线中的落点，以及针对不同目标类型的最优攻击路径编排。考试期间此章作为架构速查。
+
+### 9.1 PyRIT 原生攻击 → 阶段落点映射
+
+| PyRIT 原生类 | 落点阶段 | 调用模式 | 考试优先级 |
+|------|------|------|------|
+| `PromptSendingAttack` | ④ STRIKE (Executor) | 批量多路径 FIRST_SUCCESS | ⭐⭐⭐⭐⭐ 首发必用 |
+| `SkeletonKeyAttack` | ④ STRIKE (Native) | 单目标前缀注入（ASR 80-95%） | ⭐⭐⭐⭐ 通用绕过 |
+| `CrescendoAttack` | ⑤ ESCALATE (L1) | 渐进式多轮（max_backtracks=10） | ⭐⭐⭐⭐ Agent/Multi-Agent |
+| `TAPAttack` | ⑤ ESCALATE (L2) | 树状分支渗透（width=5, depth=3） | ⭐⭐⭐ 复杂边界 |
+| `PAIRAttack` | ⑤ ESCALATE (L3) | 攻击者-Judge 配对迭代 | ⭐⭐⭐ 高价值目标 |
+| `PromptConverter` | ③ ARM (Converter Chain) | 编码/翻译/混淆变换 | ⭐⭐⭐⭐ 绕过防御 |
+| `SelfAskScorer` / `ContentClassifierScorer` | ⑥ ASSESS (T0) | 0-token 拒绝检测 | ⭐⭐⭐⭐⭐ 省 token |
+| `AzureAISc contentScorer` | ⑥ ASSESS (J1/J2) | LLM Judge 深度评估 | ⭐⭐⭐ 最终判定 |
+
+### 9.2 考试攻击路径决策树（按目标能力指纹分支）
+
+```
+recon 完成 → capability 指纹分支:
+    │
+    ├─ 通用 LLM (仅 chat)
+    │   └─ PromptSendingAttack 多 Converter 路径 (FIRST_SUCCESS)
+    │       └─ ASR<90% → SkeletonKeyAttack
+    │
+    ├─ Agent (function_calling / tool_use)
+    │   ├─ SkeletonKeyAttack (工具劫持前缀)
+    │   └─ CrescendoAttack (渐进式工具滥用)
+    │
+    ├─ Multi-Agent / A2A
+    │   ├─ CrescendoAttack (agent 间信任渗透)
+    │   └─ PAIRAttack (agent 身份欺骗)
+    │
+    ├─ RAG (retrieval_augmented)
+    │   ├─ PromptSendingAttack (间接注入 via 知识库)
+    │   └─ 检索污染链 (自定义序列)
+    │
+    ├─ MCP Server (model_context_protocol)
+    │   ├─ 旁路 JSON-RPC 直发 (ADR-003)
+    │   └─ 工具链利用 (mcp_tool_chaining/hijack)
+    │
+    └─ Embedding Model
+        └─ 领域外工具接入回填 (embedding_inversion.py)
+```
+
+### 9.3 攻击路径 ASR 优化策略（PyRIT 攻击优势最大化）
+
+> **原则**：PyRIT 的多路径 + FIRST_SUCCESS + Converter 多样性 = 考试 24h 内最高 ASR 产出
+
+| 策略 | 实现方式 | ASR 提升 | Token 节省 |
+|------|---------|---------|-----------|
+| **多 Converter 并行** | 每种子×每 Converter = 1 条独立路径（不变量 I1） | +15-25% | — |
+| **FIRST_SUCCESS 短路** | 首条成功立即停当前种子其他路径 | — | -40% |
+| **0-token 预过滤** | T0 拒绝检测链先于一切 LLM（不变量 I2/I3） | — | -60% |
+| **ASR 反馈闭环** | asr_history.json EMA α=0.3 种子排序 | +10-15% | -20% |
+| **分层升级** | <90% 触发 L1→L4 按先验分批（ADR-005） | +20-30% | -30% |
+
+### 9.4 考试快速攻击模板速查
+
+> **用途**：考试期间快速选择预配置的攻击 campaign。对应 `config/campaigns/*.yaml` 四预设 + exam_mode。
+
+| Campaign | 配置 | 适用目标 | 预计 ASR | Token 预算 |
+|------|------|---------|---------|-----------|
+| `exam_mode.yaml` (REQ-112) | 精简链路 + 证据优先 | 考试首选 | 最大化 | 受限（80% cap） |
+| `full_spectrum_max_asr.yaml` | 全量技术 + 最大并行 | 高价值单一目标 | 最高 | 无限制 |
+| `mcp_agent_targeted.yaml` | MCP/Agent 技术优先 | Agent/MCP 目标 | 85-98% | 中等 |
+| `rapid_recon.yaml` | 仅 recon + 基础打击 | 首次侦察 / 时间紧迫 | 中等 | 最低 |
+| `standard_redteam.yaml` | 均衡配置 | 标准红队评估 | 高 | 中等 |
+
+---
+
 ## 版本记录
 
 | 版本 | 日期 | 变更摘要 | 批准 |
@@ -200,3 +272,4 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | v1.3 | 2026-09-06 | REV-03 代码审计修正（remediation/audit-remediation.md）：① D-01 量化修正（合并家族实际 ~3354 行死代码）；② D-10 修正（非 9 字节孪生，实为\"门面+拆分\"三件 + 编码损坏）；③ D-11 修正（非纯粹三轨，实为死函数 + _PRIORITY_MAP 孪生）；④ D-12 修正（非孪生，实为拆分+re-export+双向 import） | — |
 | v1.4 | 2026-09-06 | REV-04 D-13 消除：① data/asset_mapper.py → core/asset_mapper.py；② data/attack_surface_classifier.py → recon/attack_surface_classifier.py；③ data/scorer_selector.py 已删除；④ data/burp/ → config/targets/burp/；⑤ 全量更新 import 路径与文档引用；⑥ 4 测试文件路径同步更新 | 用户会话批准 |
 | v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |
+| v1.6 | 2026-09-06 | REV-06 AI-300 考试架构优化：① 新增第九章 PyRIT 原生攻击引擎架构（PyRIT→阶段落点映射 9.1、考试攻击路径决策树 9.2、ASR 优化策略 9.3、考试快速攻击模板速查 9.4）；② 架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |

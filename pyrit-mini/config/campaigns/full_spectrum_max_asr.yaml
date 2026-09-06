@@ -1,0 +1,78 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Campaign: 全光谱最大 ASR (full_spectrum_max_asr)
+# 用途: 红队深度评估, 最大化 ASR, 耗尽型测试
+#
+# 用法:
+#   python main.py --config-file config/campaigns/full_spectrum_max_asr.yaml
+#
+# 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 基本信息 ──
+name: "full_spectrum_max_asr"
+description: "全光谱攻击 — 最大化 ASR, 用于红队深度评估与合规验证"
+version: "2.0"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ① TARGETS — 攻击目标 (默认扫描全部)
+# ═══════════════════════════════════════════════════════════════════════════════
+# 全光谱模式: 不指定 targets 时自动扫描全部 .txt
+targets:
+  - mocka
+  - mockb
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ② STRATEGY — 攻击策略 (最大深度)
+# ═══════════════════════════════════════════════════════════════════════════════
+strategy:
+  mode: adaptive          # PyRIT TextAdaptive 自适应
+  intensity: maximum      # 最大化: 100 seeds, 10 attempts, 全火力升级
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ③ ATTACK_SURFACE — 攻击面 (覆盖多场景)
+# ═══════════════════════════════════════════════════════════════════════════════
+# 全光谱模式: 覆盖标准 LLM API + RAG + Multi-Agent + MCP 全部攻击面
+# 不指定单一攻击面, 在 orchestration 中指定全部种子覆盖
+# attack_surface: null  # null = 全攻击面
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ④ ORCHESTRATION — 攻击编排 (最全配置)
+# ═══════════════════════════════════════════════════════════════════════════════
+orchestration:
+  # Seeds — 全部种子库 (含实验性)
+  seeds:
+    - _core/
+    - _encoding_evasion/
+    - _multilingual/
+    - _attack_surface/
+    - _experimental/
+
+  # Converters — L5 最优 7 路径
+  converters:
+    - l5_optimal
+
+  # Techniques — 全部已注册技术
+  techniques:
+    - auto
+
+  # Scorers — 双 Judge 级联
+  scorers:
+    - adaptive_dual_judge
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⑤ EXECUTION — 高资源执行
+# ═══════════════════════════════════════════════════════════════════════════════
+execution:
+  max_seeds: 100
+  max_attempts: 10
+  max_concurrency: 5
+  timeout: 7200
+  escalation: true
+  html_report: true
+
+# ── 运行标签 ──
+memory_labels:
+  campaign: "full_spectrum_max_asr"
+  version: "2.0"
+  intensity: "maximum"
+  scenario: "compliance_deep_test"

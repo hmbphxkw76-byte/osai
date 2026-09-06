@@ -99,7 +99,8 @@ async def probe_response_path(parsed: Any) -> str | None:
             # 语言检测 (从探针响应推断目标语言)
             detected_lang = _detect_language(content)
             if detected_lang:
-                parsed.target_fingerprint["language"] = detected_lang
+                # P1-05: 使用属性赋值
+                parsed.target_fingerprint.language = detected_lang
                 logger.info("Detected target language: %s", detected_lang)
 
             # 检测 SSE (Server-Sent Events) 格式
@@ -113,17 +114,20 @@ async def probe_response_path(parsed: Any) -> str | None:
                 probe_chat_id = _extract_chat_id_from_response(content)
                 if probe_chat_id:
                     parsed.chat_id = probe_chat_id
-                    parsed.target_fingerprint["chat_id"] = probe_chat_id
+                    # P1-05: 使用属性赋值
+                    parsed.target_fingerprint.chat_id = probe_chat_id
                     logger.info("Probe extracted chat_id from SSE response: %s", probe_chat_id)
                 # L5 v53: 从探针响应中提取模型信息
                 probe_model_name, probe_model_list = _extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
-                    parsed.target_fingerprint["burp_model_name"] = probe_model_name
+                    # P1-05: 使用属性赋值
+                    parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
-                    parsed.target_fingerprint["burp_model_list"] = "yes"
+                    # P1-05: 使用 extra dict 存储非 Schema 字段
+                    parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from response")
                 return None
 
@@ -136,11 +140,13 @@ async def probe_response_path(parsed: Any) -> str | None:
                 probe_model_name, probe_model_list = _extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
-                    parsed.target_fingerprint["burp_model_name"] = probe_model_name
+                    # P1-05: 使用属性赋值
+                    parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from JSON response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
-                    parsed.target_fingerprint["burp_model_list"] = "yes"
+                    # P1-05: 使用 extra dict 存储非 Schema 字段
+                    parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from JSON response")
                 # 能力探测 — 从探针响应推断目标能力
                 # 学术依据: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
@@ -149,10 +155,12 @@ async def probe_response_path(parsed: Any) -> str | None:
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
-                    parsed.target_fingerprint["model_family"] = model_family
+                    # P1-05: 使用属性赋值
+                    parsed.target_fingerprint.model_family = model_family
                     logger.info("Probe detected model family: %s", model_family)
                 if bool_caps:
-                    parsed.target_fingerprint["capabilities"] = ",".join(bool_caps)
+                    # P1-05: 使用 extra dict 存储 (capabilities 是 list, 不是 Schema 中的字段类型)
+                    parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities: %s", bool_caps)
                 return json_path
             else:
@@ -162,9 +170,11 @@ async def probe_response_path(parsed: Any) -> str | None:
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
-                    parsed.target_fingerprint["model_family"] = model_family
+                    # P1-05: 使用属性赋值
+                    parsed.target_fingerprint.model_family = model_family
                 if bool_caps:
-                    parsed.target_fingerprint["capabilities"] = ",".join(bool_caps)
+                    # P1-05: 使用 extra dict 存储
+                    parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities (no JSON path): %s", bool_caps)
                 return None
 

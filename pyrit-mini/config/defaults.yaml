@@ -67,6 +67,15 @@ tap_success_threshold: 8
 pair_tree_width: 1
 pair_tree_depth: 4
 
+# ── TLS/HTTPS ──
+# P2-06: TLS verify 配置化 (SSOT) — 控制 httpx/aiohttp SSL 证书验证行为
+# 学术依据: OWASP WSTG-CRYP-01 — 传输层安全测试
+# 安全配置:
+#   true  — 验证 SSL 证书 (生产环境推荐)
+#   false — 跳过证书验证 (仅用于测试环境/自签名证书)
+#   <path> — CA bundle 路径 (企业内网自签名 CA)
+tls_verify: true
+
 # ── 黑盒探测 ──
 probe_timeout: 5           # L5优化: 10→5, 39探针×10s=390s序列, 5s可减半
 probe_retries: 2

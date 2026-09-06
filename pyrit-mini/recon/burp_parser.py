@@ -590,7 +590,8 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
 
     # 目标指纹
     fingerprint = _extract_fingerprint(headers, path, host, response_section)
-    fingerprint["api_category"] = api_category
+    # P1-05: 使用属性赋值替代字典赋值, 获得编译时类型检查
+    fingerprint.api_category = api_category
 
     # 从 Response 部分提取会话 ID (ChatId / Object / chat_session_id / session_id)
     chat_id: str | None = None
@@ -611,16 +612,19 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             logger.info(
                 "Extracted chat_id from Burp Response: %s", chat_id,
             )
-            fingerprint["chat_id"] = chat_id
+            # P1-05: 使用属性赋值
+            fingerprint.chat_id = chat_id
 
         # 提取模型信息
         burp_model_name, burp_model_list = _extract_model_info_from_response(response_section)
         if burp_model_name:
             logger.info("Extracted model name from Burp Response: %s", burp_model_name)
-            fingerprint["burp_model_name"] = burp_model_name
+            # P1-05: 使用属性赋值
+            fingerprint.burp_model_name = burp_model_name
         if burp_model_list:
             logger.info("Extracted model list from Burp Response (length=%d)", len(burp_model_list))
-            fingerprint["burp_model_list"] = "yes"
+            # P1-05: 使用 extra dict 存储非 Schema 字段
+            fingerprint.extra["burp_model_list"] = "yes"
 
     # 检测 Request body 中的会话 ID 字段名并注入 {CHAT_ID} 占位符
     if body:
@@ -648,7 +652,8 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     # 这样首次请求使用 Burp 文件中的 session ID, 后续从响应中动态提取更新
     if not chat_id and initial_chat_id_from_body:
         chat_id = initial_chat_id_from_body
-        fingerprint["chat_id"] = chat_id
+        # P1-05: 使用属性赋值
+        fingerprint.chat_id = chat_id
         logger.info(
             "Using chat_id from request body as initial value: %s", chat_id,
         )
@@ -1882,9 +1887,8 @@ def _extract_ai_framework_fingerprint(
 
 
 def _extract_ai_sdk_from_request_headers(
-    fp: dict[str, str],
     request_headers: dict[str, str],
-) -> None:
+) -> tuple[str | None, str | None]:
     """从请求 headers 中检测 AI SDK 客户端特征。
 
     请求 header 中的认证 header 或自定义 header 可能暴露 SDK 来源:
@@ -1893,38 +1897,31 @@ def _extract_ai_sdk_from_request_headers(
         - api-key: xxx → Azure OpenAI 风格
 
     Args:
-        fp: 指纹字典 (就地修改)。
-        request_headers: 请求 headers (小写 key)。
-    """
-    if "ai_framework" in fp:
-        return  # 已从 Response 检测到, 不覆盖
+        request_headers: 请求 headers。
 
+    Returns:
+        (framework_name, category) 元组, 未检测到返回 (None, None)。
+    """
     # 检测 Anthropic SDK 特征
     for key in request_headers:
         if key.lower().startswith("anthropic-"):
-            fp["ai_framework"] = "anthropic"
-            fp["ai_framework_category"] = "ai-sdk-client"
-            return
+            return "anthropic", "ai-sdk-client"
 
     # 检测 OpenAI SDK 特征
     for key in request_headers:
         if key.lower().startswith("openai-"):
-            fp["ai_framework"] = "openai"
-            fp["ai_framework_category"] = "ai-sdk-client"
-            return
+            return "openai", "ai-sdk-client"
 
     # 检测 Azure OpenAI 特征
     if "api-key" in request_headers or "x-ms-region" in request_headers:
-        fp["ai_framework"] = "azure-openai"
-        fp["ai_framework_category"] = "ai-sdk-client"
-        return
+        return "azure-openai", "ai-sdk-client"
 
     # 检测 MCP 特征
     for key in request_headers:
         if key.lower().startswith("x-mcp-"):
-            fp["ai_framework"] = "mcp"
-            fp["ai_framework_category"] = "ai-framework"
-            return
+            return "mcp", "ai-framework"
+
+    return None, None
 
 
 def _split_response_headers_body(

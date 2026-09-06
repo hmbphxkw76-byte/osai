@@ -1,0 +1,80 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Campaign: MCP Agent 定向攻击 (mcp_agent_targeted)
+# 用途: 针对性测试 MCP 协议安全性 (工具劫持 / 资源投毒 / 跨服务器攻击)
+#
+# 用法:
+#   python main.py --config-file config/campaigns/mcp_agent_targeted.yaml
+#   python main.py --config-file config/campaigns/mcp_agent_targeted.yaml --burp mockb
+#
+# 优先级: CLI --flag > --config-file > config/defaults.yaml > 硬编码默认值
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 基本信息 ──
+name: "mcp_agent_targeted"
+description: "MCP Agent 定向攻击 — 针对 MCP 协议安全性的专项测试"
+version: "2.0"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ① TARGETS — 攻击目标 (MCP Server / Agent 端点)
+# ═══════════════════════════════════════════════════════════════════════════════
+targets:
+  - mockb
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ② STRATEGY — 攻击策略 (多轮深度)
+# ═══════════════════════════════════════════════════════════════════════════════
+strategy:
+  mode: multi_turn         # 多轮攻击 (利用 MCP 对话状态)
+  intensity: standard      # 标准强度
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ③ ATTACK_SURFACE — 攻击面 (MCP 全攻击面)
+# ═══════════════════════════════════════════════════════════════════════════════
+# 指定后自动关联 asset_index.yaml 中 mcp_full_surface 的 seeds + scorer
+attack_surface: mcp_full_surface
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ④ ORCHESTRATION — 攻击编排 (MCP 专项)
+# ═══════════════════════════════════════════════════════════════════════════════
+orchestration:
+  # Seeds — MCP 专项 + Agent 核心 (显式指定)
+  seeds:
+    - _attack_surface/T1_ASI02_mcp_full_surface/
+    - _core/T1_ASI02_tool_hijack.prompt
+    - _core/T1_ASI02_function_call_exploit.prompt
+    - _core/T1_Agent_general_attack.prompt
+
+  # Converters — Persuasion + Decomposition (语义保留型转换)
+  converters:
+    - persuasion
+    - decomposition
+
+  # Techniques — 多轮攻击为主
+  techniques:
+    - multi_turn
+
+  # Scorers — 双 Judge (web_vuln_detected 对 MCP 漏洞更敏感)
+  scorers:
+    - adaptive_dual_judge
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⑤ EXECUTION — 定向执行
+# ═══════════════════════════════════════════════════════════════════════════════
+execution:
+  max_seeds: 20
+  max_attempts: 5
+  max_concurrency: 3
+  timeout: 1800
+  escalation: true
+  html_report: true
+
+# ── 种子过滤 (可选, 按 metadata KEY=VALUE 精准选取) ──
+seed_filters:
+  category: mcp_tool_hijack
+
+# ── 运行标签 ──
+memory_labels:
+  campaign: "mcp_agent_targeted"
+  version: "2.0"
+  target_type: "mcp_agent"
+  scenario: "mcp_security_audit"

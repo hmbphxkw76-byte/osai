@@ -71,22 +71,44 @@ def _apply_defaults(args: argparse.Namespace, defaults: dict[str, Any]) -> None:
 def _load_config_file(path: str) -> dict[str, Any]:
     """加载 --config-file 指定的 YAML 配置文件。
 
-    支持 YAML 键:
+    支持 YAML 键 (新版 Campaign Schema v2.0):
+        name: string           # Campaign 名称
+        description: string    # Campaign 描述
+        version: string        # 版本号
+        targets: [string]      # Burp 目标文件名列表 (对齐 config/targets/burp/)
+        strategy:              # 攻击策略
+            mode: string       # single_turn | multi_turn | adaptive
+            intensity: string  # minimal | standard | maximum
+        attack_surface: string # 攻击面类型 (联动 asset_index.yaml)
+        orchestration:         # 攻击编排
+            seeds: [string]    # 种子数据源
+            converters: [string] # 转换器链
+            techniques: [string] # 攻击技术
+            scorers: [string]  # 评分器
+        execution:             # 执行控制
+            max_seeds: int
+            max_attempts: int
+            max_concurrency: int
+            timeout: int
+            escalation: bool
+            html_report: bool
+        memory_labels: dict    # 运行标签 (写入 CentralMemory)
+        seed_filters: dict     # 种子过滤 (KEY=VALUE)
+
+    兼容旧版扁平键 (向后兼容):
         seeds: string          # 种子文件名 (逗号分隔)
         converters: string     # Converter 链 (auto, l5_optimal, none, 或 technique:converter.xxx 语法)
         techniques: string     # 攻击技术 (auto, single, crescendo, ...)
         burp: [string]         # Burp 文件名列表
-        max_seeds: int         # 最大种子数
-        max_attempts: int      # 每个种子最大重试
-        max_concurrency: int   # 最大并发数
-        timeout: int           # 场景超时秒数
-        memory_labels: dict    # 运行标签 (写入 CentralMemory)
-        seed_filters: dict     # 种子过滤 (KEY=VALUE)
+        max_seeds: int
+        max_attempts: int
+        max_concurrency: int
+        timeout: int
         add_initializer: [string]  # 动态 Initializer 注册
-        offensive: bool        # 全火力模式
-        escalation: bool       # 启用/禁用升级
-        html_report: bool      # 生成 HTML 报告
-        rate_limit: int        # API 限速 (RPM)
+        offensive: bool
+        escalation: bool
+        html_report: bool
+        rate_limit: int
         target_api_endpoint: string
         target_api_key: string
         target_api_model: string
@@ -174,6 +196,14 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             rate_limit: int
             l5_optimal_paths: int
             auto_seed_expansion_factor: int
+        strategy:      # 攻击策略
+            mode: string
+            intensity: string
+        orchestration: # 攻击编排
+            seeds: list
+            converters: list
+            techniques: list
+            scorers: list
     """
     # ── 归一化: 将 seeds/converters/techniques/scorers 从 list 转为 CSV ──
     # 用户可写 seeds: [core/, encoding/] 等价于 seeds: "core/,encoding/"
@@ -238,6 +268,39 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
         if isinstance(ai_cfg, list):
             args.add_initializer = [str(x) for x in ai_cfg]
 
+    # ── 新版 Campaign Schema v2.0: targets → burp 映射 ──
+    # targets: [mocka, mockb] 自动映射到 args.burp (CLI 优先)
+    targets_cfg = config.get("targets")
+    if targets_cfg is not None and args.burp is None:
+        if isinstance(targets_cfg, list):
+            # 列表形式: 直接传递, parse_args 中的 burp 处理逻辑会解析路径
+            args.burp = [str(t) for t in targets_cfg]
+            logger.info("campaign schema v2.0: targets → burp = %s", args.burp)
+        elif isinstance(targets_cfg, str):
+            args.burp = [targets_cfg]
+
+    # ── 新版 Campaign Schema v2.0: attack_surface 存储到 args ──
+    # 后续由 core/asset_mapper.py 读取并关联 asset_index.yaml
+    attack_surface_cfg = config.get("attack_surface")
+    if attack_surface_cfg is not None:
+        args.attack_surface = str(attack_surface_cfg)
+        logger.info("campaign schema v2.0: attack_surface = %s", args.attack_surface)
+
+    # ── 新版 Campaign Schema v2.0: strategy 影响 adaptive_technique_filter ──
+    strategy_cfg = config.get("strategy")
+    if isinstance(strategy_cfg, dict):
+        # mode: single_turn / multi_turn / adaptive → adaptive_technique_filter 映射
+        strategy_mode = strategy_cfg.get("mode")
+        if strategy_mode and getattr(args, "adaptive_technique_filter", None) is None:
+            if strategy_mode == "single_turn":
+                args.adaptive_technique_filter = ["single_turn"]
+            elif strategy_mode == "multi_turn":
+                args.adaptive_technique_filter = ["multi_turn"]
+            elif strategy_mode == "adaptive":
+                args.adaptive_technique_filter = None  # None = 全部
+            logger.info("campaign schema v2: strategy.mode → adaptive_technique_filter = %s",
+                        args.adaptive_technique_filter)
+
     # ── 嵌套 section: scoring / escalation / probe / adaptive / execution ──
     # 所有 section 的 key 平铺到 args 顶层 (与 defaults.yaml key 对齐)
     # 由于 _apply_config_file 在 _apply_defaults 之前运行,
@@ -279,6 +342,28 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             if getattr(args, key, None) is None:
                 setattr(args, key, val)
                 logger.debug("config-file section '%s': %s = %s", section_name, key, val)
+
+    # ── 新版 Campaign Schema v2.0: orchestration section 处理 ──
+    # orchestration.seeds/converters/techniques/scorers 需要 list → CSV 转换
+    orch_cfg = config.get("orchestration")
+    if isinstance(orch_cfg, dict):
+        _orch_key_map = {
+            "seeds": "seeds",
+            "converters": "converters",
+            "techniques": "techniques",
+            "scorers": "scorers",
+        }
+        for _yaml_key, _arg_key in _orch_key_map.items():
+            if _yaml_key not in orch_cfg:
+                continue
+            _val = orch_cfg[_yaml_key]
+            if _val is not None and getattr(args, _arg_key, None) is None:
+                if isinstance(_val, list):
+                    setattr(args, _arg_key, ",".join(str(v).strip() for v in _val if str(v).strip()))
+                else:
+                    setattr(args, _arg_key, str(_val))
+                logger.info("campaign schema v2: orchestration.%s → args.%s = %s",
+                            _yaml_key, _arg_key, getattr(args, _arg_key))
 
 
 def _parse_memory_labels(raw: Any) -> dict[str, str]:

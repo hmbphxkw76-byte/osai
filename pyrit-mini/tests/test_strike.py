@@ -51,6 +51,7 @@ class TestStubModules:
         from strike.multi_turn_attacks import run_best_of_n_attack
 
         ctx = MagicMock()
+        ctx.objective_target = None  # Will skip due to no target
         result = await run_best_of_n_attack(ctx, ["obj1"], n=3)
         assert result == {}
 
