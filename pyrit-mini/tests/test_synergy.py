@@ -123,7 +123,7 @@ class TestAttackSurfaceClassifier:
 
     def test_classify_mcp_http_content(self):
         """包含 MCP 特征的 HTTP 内容应该被分类为 mcp_server."""
-        from data.attack_surface_classifier import classify_http_content
+        from recon.attack_surface_classifier import classify_http_content
 
         mcp_http = """POST /mcp/v1 HTTP/1.1
 Host: target.example.com
@@ -138,7 +138,7 @@ mcp-session-id: abc123
 
     def test_classify_rag_http_content(self):
         """包含搜索/检索特征的 HTTP 内容应该被分类为 rag_system."""
-        from data.attack_surface_classifier import classify_http_content
+        from recon.attack_surface_classifier import classify_http_content
 
         # Stronger RAG indicators: URL matches + body fields
         rag_http = """POST /api/search HTTP/1.1
@@ -155,7 +155,7 @@ x-document-id: doc_001
 
     def test_classify_agent_http_content(self):
         """包含 Agent 特征的 HTTP 内容应该被分类为 multi_agent_system."""
-        from data.attack_surface_classifier import classify_http_content
+        from recon.attack_surface_classifier import classify_http_content
 
         agent_http = """POST /agent/execute HTTP/1.1
 Host: target.example.com
@@ -170,7 +170,7 @@ x-agent-id: agent_001
 
     def test_classify_standard_http_content(self):
         """标准 LLM API 应该被分类为 standard_llm_api."""
-        from data.attack_surface_classifier import classify_http_content
+        from recon.attack_surface_classifier import classify_http_content
 
         standard_http = """POST /v1/chat/completions HTTP/1.1
 Host: api.example.com
@@ -183,14 +183,14 @@ Content-Type: application/json
 
     def test_empty_content_defaults_to_standard(self):
         """空内容应该默认分类为 standard_llm_api."""
-        from data.attack_surface_classifier import classify_http_content
+        from recon.attack_surface_classifier import classify_http_content
 
         result = classify_http_content()
         assert result.attack_surface == "standard_llm_api"
 
     def test_classify_with_burp_file(self):
         """从 Burp 文件分类应该是确定性的."""
-        from data.attack_surface_classifier import classify_burp_file
+        from recon.attack_surface_classifier import classify_burp_file
 
         # 创建临时测试 Burp 内容
         mcp_content = """POST /mcp/v1 HTTP/1.1
