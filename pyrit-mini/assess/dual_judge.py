@@ -153,26 +153,16 @@ def _get_judge_from_registry(name):
 
 def _init_judges() -> bool:
 
-    """L5 v25: 鎯版€у垵濮嬪寀LLM 鍀Judge 瀹炰緥銆?
+        """L5 v25: 初始化两个独立的LLM Judge 实例.
 
+    从CentralMemory 获取scoring_target, 创建两个独立的
+    SelfAskTrueFalseScorer 实例.
 
-
-    浀CentralMemory 鑾峰彀scoring_target, 鍒涘缓涓や釜鐙珛鐀
-
-    SelfAskTrueFalseScorer 瀹炰緥銆?
-
-
-
-    L5 v52: 浣跨敀PyRIT 鍘熺敀TargetRequirements 楠岃瘀scoring_target 鑳藉姀
-
-    纭繚璇勫垎鍣ㄤ緷璧栫殀JSON 杈撳嚭鍜?text 妯℃€佸彲鐢ㄣ€?
-
-
+    L5 v52: 使用 PyRIT 原生 TargetRequirements 验证 scoring_target 是否能用
+    确保评分器依赖的JSON输出和text模式可用.
 
     Returns:
-
-        True 濡傛灉鍒濆鍖栨垚鍀 False 濡傛灉涓嶅彲鐢ㄣ₀
-
+        True 如果初始化成功, False 如果不可用.
     """
 
     global _judge_init_attempted

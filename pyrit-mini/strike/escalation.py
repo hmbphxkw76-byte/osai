@@ -4,11 +4,9 @@
 #   - SkeletonKey: arXiv:2402.12823
 #   - Best-of-N: arXiv:2402.01135
 
-"""鍗曡疆澶辫触 鈀澶氳疆鍗囩骇閫昏緫銆?
+"""单轮失败到多轮升级的逻辑.
 
-
-
-鏍稿績鍑芥暟: check_and_escalate 鈀鏍规嵁鍗曡疆 ASR 鍐冲畾鏄惁瑙﹀彂澶氳疆鍗囩骇绛栫暐銀
+核心函数: check_and_escalate — 根据单轮 ASR 决定是否触发多轮升级策略
 
 
 

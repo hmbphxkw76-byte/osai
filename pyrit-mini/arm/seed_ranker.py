@@ -90,6 +90,7 @@ def load_seeds(
     capabilities: str | None = None,
     model_family: str | None = None,
     seed_filters: dict[str, str] | None = None,
+    model_priors: dict[str, Any] | None = None,
 ) -> list[AttackSeedGroup]:
     """Load selected seed files.
 
