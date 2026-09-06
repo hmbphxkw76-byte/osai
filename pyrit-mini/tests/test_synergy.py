@@ -32,7 +32,7 @@ class TestAssetMapper:
 
     def test_mapper_loads_index(self):
         """AssetMapper 应该成功加载 asset_index.yaml."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         assert mapper._index != {}
@@ -40,7 +40,7 @@ class TestAssetMapper:
 
     def test_classify_mcp_profile(self):
         """MCP 配置文件应该被正确分类."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
 
@@ -50,7 +50,7 @@ class TestAssetMapper:
 
     def test_classify_standard_profile(self):
         """非 MCP 配置文件应该被分类为 standard_llm_api."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
 
@@ -60,7 +60,7 @@ class TestAssetMapper:
 
     def test_get_seeds_for_mcp_surface(self):
         """MCP 攻击面应该返回 MCP 相关种子."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         seeds = mapper.get_seeds_for_attack_surface("mcp_server")
@@ -71,7 +71,7 @@ class TestAssetMapper:
 
     def test_get_seeds_for_standard_surface(self):
         """标准 LLM API 应该返回通用种子."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         seeds = mapper.get_seeds_for_attack_surface("standard_llm_api")
@@ -81,7 +81,7 @@ class TestAssetMapper:
 
     def test_get_scorer_for_mcp_surface(self):
         """MCP 攻击面应该使用 web_vuln_detected 评分器."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         scorer = mapper.get_scorer_for_attack_surface("mcp_full_surface")
@@ -90,7 +90,7 @@ class TestAssetMapper:
 
     def test_get_scorer_for_standard_surface(self):
         """标准 LLM API 应该使用 blackbox_task_achieved 评分器."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         scorer = mapper.get_scorer_for_attack_surface("standard_llm_api")
@@ -99,7 +99,7 @@ class TestAssetMapper:
 
     def test_get_full_synergy_config(self):
         """完整协同配置应该包含所有必需字段."""
-        from data.asset_mapper import AssetMapper
+        from core.asset_mapper import AssetMapper
 
         mapper = AssetMapper()
         config = mapper.get_full_synergy_config("mcp05")

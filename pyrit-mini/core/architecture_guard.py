@@ -48,7 +48,6 @@ _ALLOWED_ROOT_ENTRIES: set[str] = {
     "report",                   # 报告模块
     "targets",                  # 目标适配层
     "utils",                    # 工具模块
-    "pipeline",                 # 兼容别名 (策略/批量)
     "tests",                    # 测试目录
     "__pycache__",              # 缓存 (会被清理)
     ".pytest_cache",            # pytest 缓存

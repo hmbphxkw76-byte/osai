@@ -1,5 +1,9 @@
 """synergy_orchestrator.py — 攻击面→技术标签适配器 (v60 轻量化)。
 
+迁移说明:
+    v61 计划合并入 core/scenario_router.py, 临时保留此文件以兼容现有 import.
+    新代码请直接使用 core.scenario_router.
+
 v60 重构: 从"完整攻击配置生成器"简化为"攻击面→technique_tags适配器"。
 
 职责:
@@ -106,7 +110,7 @@ class SynergyOrchestrator:
     def mapper(self):
         """延迟加载 AssetMapper."""
         if self._mapper is None:
-            from data.asset_mapper import AssetMapper
+            from core.asset_mapper import AssetMapper
             self._mapper = AssetMapper()
         return self._mapper
 
@@ -177,7 +181,7 @@ class SynergyOrchestrator:
             evidence = [f"Forced surface type: {force_surface}"]
         elif burp_content:
             # 基于内容的深度分类
-            from data.attack_surface_classifier import classify_http_content
+            from recon.attack_surface_classifier import classify_http_content
 
             url = self._extract_url(burp_content)
             http_request, http_response = _split_burp_content(burp_content)
