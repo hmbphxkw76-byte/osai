@@ -1,7 +1,7 @@
 """targets — PyRIT PromptTarget 包装与增强。
 
 对齐 PyRIT 1.0.1 原生 Target 体系:
-    本包不替代 PyRIT 原生 Target, 仅提供增强包装器 + 统一适配器:
+    本包不替代 PyRIT 原生 Target, 仅提供增强包装器:
 
     PyRIT 1.0.1 原生 Target (直接使用):
         - OpenAIChatTarget: Chat Completions API (gpt-4o, DeepSeek 等)
@@ -18,8 +18,6 @@
           装饰器保留在被包装 target 上)
         - ContentFilterExt: 扩展 PyRIT 原生 CONTENT_FILTER_MARKERS
           (直接扩展 exception_classes 模块属性)
-        - AgentTargetAdapter: 通用 LLM Agent 目标适配器
-          (统一路由到 PyRIT 原生 Target, 适配任意 LLM Agent)
 
 原生组件映射 (Rule 2: PyRIT 原生优先):
     | 层 | MUST use (PyRIT native) | Enhancement (本包) |
@@ -31,16 +29,13 @@
     | 内容过滤 | CONTENT_FILTER_MARKERS | ContentFilterExt 扩展 |
     | 能力验证 | TargetRequirements.validate() | RateLimitedTarget 调用 |
     | 能力发现 | discover_target_capabilities_async | RateLimitedTarget.apply_discovered_capabilities |
-    | 目标路由 | (无原生统一入口) | AgentTargetAdapter 统一路由 |
+    | 目标路由 | recon/target_router.py 统一路由 | — |
 """
 
-from targets.agent_adapter import TargetMode, create_agent_target
 from targets.rate_limited import RateLimitedTarget
 
 __all__ = [
     "RateLimitedTarget",
-    "create_agent_target",
-    "TargetMode",
     "extend_content_filter_markers",
     "persist_discovered_markers",
     "discover_markers_from_error",
