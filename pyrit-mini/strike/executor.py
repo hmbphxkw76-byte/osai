@@ -53,11 +53,11 @@ from arm.converter_selector import (  # noqa: F401
 )
 from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
-from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
+from strike._scoring import _build_first_success_scoring_config, _build_scoring_config
 
 # P1 优化: 从子模块导入 SequentialAttack 逻辑
 from strike._sequential import _manual_multi_path_loop, _try_native_sequential_attack
-from strike._scoring import _build_first_success_scoring_config, _build_scoring_config
+from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
 # P2 优化: _is_success 统一到 utils.attack_utils.SSOT
 from utils.attack_utils import _is_success  # noqa: F401

@@ -19,6 +19,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from utils.attack_utils import _is_success  # P2 优化: SSOT
 from utils.display_primitives import (
     _C_BOLD,
     _C_CYAN,
@@ -71,9 +72,6 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 # ════════════════════════════════════════════════════════════════════
 # 攻击结果元数据提取 (仅用于卡片摘要, 非完整渲染)
 # ════════════════════════════════════════════════════════════════════
-
-# P2 优化: _is_success 统一到 utils.attack_utils.SSOT, 消除重复定义
-from utils.attack_utils import _is_success  # noqa: F401
 
 
 def _get_outcome_label(result: Any) -> str:

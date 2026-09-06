@@ -71,83 +71,43 @@ L5 v41: 瀹屾暣鍗囩骇門鈀琛ュ叏鎵€鏈?_run_* wrapper 璋冪敀
 
 from __future__ import annotations
 
-
-
 import asyncio
-
 import logging
-
 import time
-
 from typing import Any, Callable
 
-
-
 from core.context import PipelineContext
-
 from strike.escalation_chain import (  # noqa: F401  re-exports (统一升级铀
-
     _apply_mtos_ranking,
-
     _build_refusal_inverter_scoring_config,
-
     _build_skeleton_key_seed_groups,
-
     _create_fallback_fsts,
-
     _filter_by_suitable_for,
-
     _get_objective,
-
     _get_partial_from_memory,
-
     _is_success,
-
     _llm_judge_rescore,
-
     _retrieve_partial_results,
-
     _run_best_of_n,
-
     _run_chunked_request,
-
     _run_cot_hijack,
-
     _run_crescendo,
-
     _run_embedding_inversion,
-
     _run_gcg,
-
     _run_mcp_rag_attacks,
-
     _run_multi_model_escalation,
-
     _run_multi_prompt_sending,
-
     _run_pair,
-
     _run_red_teaming,
-
     _run_rogue_agent,
-
     _run_skeleton_key_native,
-
     _run_tap,
-
     _select_still_failed,
-
     _select_still_failed_clustered,
-
 )
-
 from strike.gcg_generator import (  # noqa: F401  re-exports
-
     generate_gcg_suffix_pool as _generate_gcg_suffix_pool,
-
 )
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -206,11 +166,11 @@ def _load_config_value(key: str, default: float) -> float:
 
 def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
 
-    """运行时从 ctx.args 读取配置倀 fallback 到模块级默认值　
+    """运行时从 ctx.args 读取配置倀 fallback 到模块级默认值
 
 
 
-    增量借鉴: 支持 --config-file 覆盖 defaults.yaml 中的升级/评分参数　
+    增量借鉴: 支持 --config-file 覆盖 defaults.yaml 中的升级/评分参数
 
     数据浀 config.py (--config-file section) ↀargs (平铺) ↀctx.args ↀ此函敀
 
@@ -218,17 +178,17 @@ def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
 
     Args:
 
-        ctx: PipelineContext (读取 ctx.args)　
+        ctx: PipelineContext (读取 ctx.args)
 
-        key: 配置键名 (妀"escalation_asr_threshold")　
+        key: 配置键名 (妀"escalation_asr_threshold")
 
-        module_default: 模块级默认倀(来自 _load_config_value)　
+        module_default: 模块级默认倀(来自 _load_config_value)
 
 
 
     Returns:
 
-        配置倀(float), 优先什ctx.args 读取　
+        配置倀(float), 优先什ctx.args 读取
 
     """
 
@@ -2071,19 +2031,19 @@ def _backfill_escalation_converter_metadata(
 
 ) -> None:
 
-    """v52: 为所最escalation 结果回填 converter metadata　
+    """v52: 为所最escalation 结果回填 converter metadata
 
 
 
-    确保数据流一致怀 AttackResult.metadata["converter"] ↀevidence_extract ↀreport.converter_chain　
+    确保数据流一致怀 AttackResult.metadata["converter"] ↀevidence_extract ↀreport.converter_chain
 
-    如果结果已有 converter 字段则跳过（不覆盀executor.py 已回填的值）　
+    如果结果已有 converter 字段则跳过（不覆盀executor.py 已回填的值）
 
 
 
     Args:
 
-        escalated_results: {technique_name: [AttackResult, ...]} 格式的升级结果　
+        escalated_results: {technique_name: [AttackResult, ...]} 格式的升级结果
 
     """
 
